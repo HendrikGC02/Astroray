@@ -79,7 +79,11 @@ public:
         } else if (type == "lambertian" || type == "diffuse") {
             if (params.contains("texture")) {
                 auto tex = textureManager.getTexture(params["texture"].cast<std::string>());
-                mat = tex ? std::make_shared<TexturedLambertian>(tex) : std::make_shared<Lambertian>(color);
+                if (tex) {
+                    mat = std::make_shared<TexturedLambertian>(tex);
+                } else {
+                    mat = std::make_shared<Lambertian>(color);
+                }
             } else mat = std::make_shared<Lambertian>(color);
         } else if (type == "metal") {
             mat = std::make_shared<Metal>(color, getFloat("roughness", 0.1f));

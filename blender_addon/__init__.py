@@ -123,7 +123,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         for mat in bpy.data.materials:
             if not mat.use_nodes:
                 mat_id = renderer.create_material('disney', list(mat.diffuse_color[:3]),
-                    {'roughness': mat.roughness, 'metallic': mat.metallic})
+                    {'roughness': float(mat.roughness), 'metallic': float(mat.metallic)})
             else: mat_id = self.convert_node_material(mat, renderer)
             material_map[mat.name] = mat_id
         return material_map
@@ -148,19 +148,29 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def convert_principled_bsdf(self, node, renderer):
         def get_val(name, default=0):
             inp = node.inputs.get(name)
-            return inp.default_value if inp and not inp.is_linked else default
+            if inp and not inp.is_linked:
+                val = inp.default_value
+                # Convert to Python float if it's a scalar
+                if hasattr(val, '__iter__'):
+                    return list(val)  # Convert bpy_prop_array to list
+                return float(val)
+            return default
         
         base_color = list(get_val('Base Color', [0.8, 0.8, 0.8])[:3])
         params = {
-            'metallic': get_val('Metallic', 0), 'roughness': get_val('Roughness', 0.5),
-            'ior': get_val('IOR', 1.45), 'transmission': get_val('Transmission', 0),
-            'clearcoat': get_val('Coat Weight', 0), 'clearcoat_gloss': 1.0 - get_val('Coat Roughness', 0),
-            'anisotropic': get_val('Anisotropic', 0), 'sheen': get_val('Sheen Weight', 0),
-            'subsurface': get_val('Subsurface Weight', 0)
+            'metallic': float(get_val('Metallic', 0)),
+            'roughness': float(get_val('Roughness', 0.5)),
+            'ior': float(get_val('IOR', 1.45)),
+            'transmission': float(get_val('Transmission', 0)),
+            'clearcoat': float(get_val('Coat Weight', 0)),
+            'clearcoat_gloss': float(1.0 - get_val('Coat Roughness', 0)),
+            'anisotropic': float(get_val('Anisotropic', 0)),
+            'sheen': float(get_val('Sheen Weight', 0)),
+            'subsurface': float(get_val('Subsurface Weight', 0))
         }
         
         emission_color = get_val('Emission Color', [0, 0, 0])
-        emission_strength = get_val('Emission Strength', 0)
+        emission_strength = float(get_val('Emission Strength', 0))
         if emission_strength > 0 and any(c > 0 for c in emission_color[:3]):
             return renderer.create_material('light', list(emission_color[:3]), {'intensity': emission_strength})
         return renderer.create_material('disney', base_color, params)
@@ -198,7 +208,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             light = obj.data
             matrix = obj.matrix_world
             position = list(matrix.translation)
-            mat_id = renderer.create_material('light', list(light.color), {'intensity': light.energy})
+            mat_id = renderer.create_material('light', list(light.color), {'intensity': float(light.energy)})
             
             if light.type == 'POINT': renderer.add_sphere(position, 0.1, mat_id)
             elif light.type == 'SUN':
@@ -206,7 +216,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 sun_pos = [position[0] - direction.x * 1000, position[1] - direction.y * 1000, position[2] - direction.z * 1000]
                 renderer.add_sphere(sun_pos, 100.0, mat_id)
             elif light.type == 'AREA':
-                size = max(light.size, getattr(light, 'size_y', light.size))
+                size = float(max(light.size, getattr(light, 'size_y', light.size)))
                 renderer.add_sphere(position, size / 2, mat_id)
     
     def setup_world(self, scene, renderer):
@@ -215,7 +225,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         for node in world.node_tree.nodes:
             if node.type == 'BACKGROUND':
                 color = list(node.inputs['Color'].default_value[:3])
-                strength = node.inputs['Strength'].default_value
+                strength = float(node.inputs['Strength'].default_value)
                 if strength > 0.01:
                     mat_id = renderer.create_material('light', color, {'intensity': strength})
                     renderer.add_sphere([0, 0, 0], 500.0, mat_id)

@@ -228,7 +228,8 @@ public:
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
         if (roughness < 0.01f) {
-            s.wi = wo - rec.normal * (2 * wo.dot(rec.normal));
+            // Correct reflection: wi = 2*(wo·n)*n - wo
+            s.wi = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             s.f = albedo;
             s.pdf = 1;
             s.isDelta = true;
@@ -302,7 +303,8 @@ public:
         float fresnel = fresnelDielectric(cosTheta, etaI, etaT);
         
         if (cannotRefract || dist(gen) < fresnel) {
-            s.wi = wo - n * (2 * wo.dot(n));
+            // Correct reflection: wi = 2*(wo·n)*n - wo
+            s.wi = n * (2 * wo.dot(n)) - wo;
             s.f = Vec3(1);
             s.pdf = fresnel;
         } else {

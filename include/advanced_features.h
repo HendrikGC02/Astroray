@@ -101,7 +101,42 @@ public:
         BSDFSample s;
         std::uniform_real_distribution<float> dist(0, 1);
         
-        // Sample between diffuse and specular
+        // Handle transmission (glass-like behavior)
+        if (transmission > 0 && dist(gen) < transmission) {
+            float etaI = rec.frontFace ? 1.0f : ior;
+            float etaT = rec.frontFace ? ior : 1.0f;
+            float eta = etaI / etaT;
+            Vec3 n = rec.normal;
+            float cosTheta = wo.dot(n);
+            if (cosTheta < 0) { cosTheta = -cosTheta; n = -n; }
+            
+            float sinTheta = std::sqrt(std::max(0.0f, 1 - cosTheta * cosTheta));
+            bool cannotRefract = eta * sinTheta > 1;
+            
+            // Fresnel
+            float f0 = ((etaI - etaT) / (etaI + etaT));
+            f0 = f0 * f0;
+            float fresnel = f0 + (1 - f0) * std::pow(1 - cosTheta, 5);
+            
+            if (cannotRefract || dist(gen) < fresnel) {
+                // Reflect
+                s.wi = n * (2 * wo.dot(n)) - wo;
+                s.f = Vec3(1);
+                s.pdf = fresnel * transmission;
+            } else {
+                // Refract
+                Vec3 perp = (wo - n * cosTheta) * (-eta);
+                Vec3 para = n * (-std::sqrt(std::abs(1 - perp.length2())));
+                s.wi = (perp + para).normalized();
+                s.f = baseColor * (eta * eta);
+                s.pdf = (1 - fresnel) * transmission;
+            }
+            s.isDelta = roughness < 0.1f;
+            if (s.isDelta) const_cast<HitRecord&>(rec).isDelta = true;
+            return s;
+        }
+        
+        // Sample between diffuse and specular for non-transmissive
         float diffWeight = (1 - metallic) * (1 - transmission);
         float specWeight = 1;
         float total = diffWeight + specWeight;
@@ -112,7 +147,7 @@ public:
             s.f = eval(rec, wo, s.wi);
             s.pdf = rec.normal.dot(s.wi) / M_PI * (diffWeight / total);
         } else {
-            float a = roughness * roughness;
+            float a = std::max(roughness * roughness, 0.001f);
             float r1 = dist(gen), r2 = dist(gen);
             float phi = 2 * M_PI * r1;
             float cosTheta = std::sqrt((1 - r2) / (1 + (a * a - 1) * r2));

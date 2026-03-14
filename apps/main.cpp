@@ -1,5 +1,6 @@
 #include "raytracer.h"
 #include "advanced_features.h"
+#include "stb_image_write.h"
 #include <iostream>
 #include <fstream>
 #include <chrono>
@@ -20,6 +21,26 @@ void writePPM(const std::string& filename, const Camera& cam) {
         }
     }
     std::cout << "\nImage saved to " << filename << std::endl;
+}
+
+bool writePNG(const std::string& filename, const Camera& cam) {
+    std::vector<unsigned char> pixels(cam.width * cam.height * 3);
+    int idx = 0;
+    for (int y = cam.height - 1; y >= 0; --y) {
+        for (int x = 0; x < cam.width; ++x) {
+            Vec3 color = cam.pixels[y * cam.width + x];
+            pixels[idx++] = static_cast<unsigned char>(255.99f * color.x);
+            pixels[idx++] = static_cast<unsigned char>(255.99f * color.y);
+            pixels[idx++] = static_cast<unsigned char>(255.99f * color.z);
+        }
+    }
+    int success = stbi_write_png(filename.c_str(), cam.width, cam.height, 3, pixels.data(), cam.width * 3);
+    if (success) {
+        std::cout << "\nImage saved to " << filename << std::endl;
+    } else {
+        std::cerr << "\nFailed to save PNG image\n";
+    }
+    return success != 0;
 }
 
 void buildCornellBox(Renderer& renderer) {
@@ -109,6 +130,15 @@ int main(int argc, char* argv[]) {
     
     auto dur = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start);
     std::cout << "\n\nCompleted in " << dur.count() << "s\n";
-    writePPM(output, camera);
+    
+    // Determine output format from file extension
+    size_t extPos = output.rfind('.');
+    std::string ext = (extPos != std::string::npos) ? output.substr(extPos + 1) : "";
+    
+    if (ext == "png") {
+        writePNG(output, camera);
+    } else {
+        writePPM(output, camera);
+    }
     return 0;
 }

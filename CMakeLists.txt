@@ -59,7 +59,15 @@ target_include_directories(raytracer_core INTERFACE ${INCLUDE_DIR})
 
 # Source files
 set(SOURCES
-    src/main.cpp
+    apps/main.cpp
+)
+
+# Compile stb_image_write_impl.c as C++ to avoid linking issues
+set_source_files_properties(include/stb_image_write_impl.c PROPERTIES LANGUAGE CXX)
+add_library(stb_image_write_lib STATIC include/stb_image_write_impl.c)
+set_target_properties(stb_image_write_lib PROPERTIES 
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
 )
 
 # Standalone executable
@@ -67,6 +75,7 @@ add_executable(raytracer_standalone ${SOURCES} ${HEADERS})
 
 target_link_libraries(raytracer_standalone PRIVATE
     raytracer_core
+    stb_image_write_lib
 )
 
 if(OpenMP_CXX_FOUND)
@@ -99,7 +108,7 @@ if(BUILD_BLENDER_MODULE)
     
     # Python module
     pybind11_add_module(raytracer_blender 
-        src/blender_module.cpp
+        module/blender_module.cpp
         ${HEADERS}
     )
     

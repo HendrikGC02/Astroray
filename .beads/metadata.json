@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "Astroray",
+  "project_id": "d0272d5f-b225-45bc-9954-05a339c772c5"
+}

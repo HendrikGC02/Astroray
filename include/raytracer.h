@@ -204,7 +204,7 @@ public:
     Metal(const Vec3& a, float r = 0) : albedo(a), roughness(std::clamp(r, 0.001f, 1.0f)) {}
     
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (roughness < 0.01f) {
+        if (roughness < 0.08f) {
             Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             float deviation = (wi - perfectRefl).length();
             return (deviation < 0.1f) ? albedo * std::exp(-deviation * 100.0f) : Vec3(0);
@@ -227,7 +227,7 @@ public:
     
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
-        if (roughness < 0.01f) {
+        if (roughness < 0.08f) {
             // Correct reflection: wi = 2*(wo·n)*n - wo
             s.wi = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             s.f = albedo;
@@ -256,7 +256,7 @@ public:
     }
     
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (roughness < 0.01f) return 0;
+        if (roughness < 0.08f) return 0;
         Vec3 h = (wo + wi).normalized();
         float NdotH = std::max(rec.normal.dot(h), 0.001f);
         float HdotV = std::max(h.dot(wo), 0.001f);

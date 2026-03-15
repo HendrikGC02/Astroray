@@ -88,23 +88,24 @@ The Python module `astroray.pyd` will be generated in `build/Release/`.
 ### Standalone Ray Tracer
 
 ```bash
-# Run with default settings (Cornell Box scene)
-./build/bin/raytracer.exe
+# Run with default settings (Cornell Box scene, 800x600, 64spp → output.ppm)
+./build/bin/raytracer
 
-# Custom parameters
-./build/bin/raytracer.exe --scene 2 --width 1920 --height 1080 --samples 256 --output output.png
+# Custom parameters — output format detected from file extension
+./build/bin/raytracer --scene 2 --width 1920 --height 1080 --samples 256 --output output.png
 ```
 
 ### Command-Line Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--scene 1|2` | Scene selection (1=Cornell Box, 2=Sphere) | 1 |
-| `--width N` | Image width in pixels | 640 |
-| `--height N` | Image height in pixels | 480 |
-| `--samples N` | Samples per pixel | 50 |
-| `--depth N` | Maximum ray recursion depth | 10 |
-| `--output FILE` | Output PNG filename | output.png |
+| `--scene 1\|2` | 1 = Cornell Box with glass/Disney/metal spheres, 2 = Material grid | 1 |
+| `--width N` | Image width in pixels | 800 |
+| `--height N` | Image height in pixels | 600 |
+| `--samples N` | Samples per pixel | 64 |
+| `--depth N` | Maximum ray recursion depth | 50 |
+| `--output FILE` | Output path; `.png` or `.ppm` auto-detected from extension | output.ppm |
+| `--help` | Print usage and exit | — |
 
 ### Python API
 
@@ -151,6 +152,35 @@ cmake --build . --config Release
 2. Copy `blender_addon` folder to Blender's scripts/addons directory
 
 3. In Blender: Enable "Custom Raytracer Pro" addon in Preferences > Add-ons
+
+## Testing
+
+```bash
+# Run all tests (requires built module)
+pytest tests/ -v
+
+# Python bindings (21 tests — materials, Cornell box, Disney BRDF, convergence,
+#                  performance benchmark, quality analysis, AOV buffers)
+pytest tests/test_python_bindings.py -v
+
+# Standalone binary (7 tests — help, scene rendering, dimensions, convergence)
+pytest tests/test_standalone_renderer.py -v
+```
+
+Test images and performance charts are saved to `test_results/` (gitignored).
+
+### What the tests verify
+
+| Test | What it catches |
+|------|----------------|
+| `test_background_sky_present` | Background accidentally zeroed |
+| `test_cornell_box` | Red/green wall colour-bleeding, scene brightness |
+| `test_metallic_vs_diffuse_differ` | Disney BRDF metallic parameter broken |
+| `test_aperture_dof` | Depth-of-field has no effect |
+| `test_quality_analysis` | PSNR regression at higher sample counts |
+| `test_disney_brdf_parameter_grid` | Any of the 12 BRDF parameter combos black |
+| `test_width_height_respected` | Standalone binary ignores dimension flags |
+| `test_higher_samples_closer_to_reference` | Standalone convergence regression |
 
 ## Domain Context
 

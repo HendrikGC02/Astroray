@@ -12,7 +12,9 @@ import sys
 # Add build directory and project root to path for cross-platform support
 # This handles both Windows (.pyd) and Linux (.so) module suffixes
 BUILD_DIR = os.path.join(os.path.dirname(__file__), '..', 'build')
+TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BUILD_DIR)
+sys.path.insert(0, TESTS_DIR)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 

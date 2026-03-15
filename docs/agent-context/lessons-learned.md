@@ -61,3 +61,27 @@
   once at final pixel write. Without it, bright areas blow out to white.
 - [rendering] Blocky brightness artifacts usually indicate shared/correlated
   RNG state between image regions — each pixel needs independent seeding.
+
+---
+
+2026-03-15 | tests/base_helpers.py | Wrong create_material call | create_cornell_box() was calling `astroray.create_material()` (module-level) instead of `renderer.create_material()` (instance method). The module has no top-level create_material function. Always call material creation on the renderer instance.
+
+---
+
+2026-03-15 | tests/conftest.py | tests/ directory not in sys.path | base_helpers.py (inside tests/) was not importable from test files because conftest.py only added the build dir and project root to sys.path, not the tests directory itself. Fix: add `TESTS_DIR = os.path.dirname(os.path.abspath(__file__))` and `sys.path.insert(0, TESTS_DIR)` in conftest.py.
+
+---
+
+2026-03-15 | tests/test_standalone_renderer.py | CLI flags not supported | The standalone binary (apps/main.cpp) only supports: --scene 1|2, --width, --height, --samples, --depth, --output, --help. It does NOT have --version, --test, --sphere, --triangle, --material, --look_from, --look_at, --vup, --vfov, --aperture, --focus_dist. Old tests used these unsupported flags and "passed" because the binary ignores unknown flags and exits 0, while producing wrong output.
+
+---
+
+2026-03-15 | tests/test_standalone_renderer.py | Convergence via MSE between two renders | Comparing MSE between two independent renders at the same SPP count is unreliable — a bright Cornell box light can create rare firefly pixels that make 64spp renders differ more than 4spp renders by chance. Use compare-to-reference style: render a high-SPP reference once, then assert that 64spp is closer to reference than 4spp.
+
+---
+
+2026-03-15 | rendering | Background sky is always present | The path tracer has a built-in sky gradient background (line 741 in raytracer.h): `Vec3(1)*(1-t) + Vec3(0.5,0.7,1)*t) * 0.2f`. After gamma correction, a sphere-in-open-sky scene produces mean brightness ~0.4. Do NOT write tests asserting "no light = dark image" — there is always ambient sky light. The Cornell box is *darker* than an open-sky scene because its walls occlude the background.
+
+---
+
+2026-03-15 | matplotlib | Non-interactive backend required in tests | Calling `matplotlib.use('Agg')` must happen before any other matplotlib imports (including pyplot) when running under pytest. Without it, matplotlib tries to connect to a display, which fails in headless environments. Set this at the top of base_helpers.py and any test file that uses matplotlib.

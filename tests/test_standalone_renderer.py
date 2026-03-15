@@ -71,17 +71,17 @@ def run_renderer(args, description):
 
 def test_help():
     """Test help output"""
-    return run_renderer(['--help'], "Help output")
+    assert run_renderer(['--help'], "Help output"), "Help output test failed"
 
 
 def test_version():
     """Test version output"""
-    return run_renderer(['--version'], "Version output")
+    assert run_renderer(['--version'], "Version output"), "Version output test failed"
 
 
 def test_test_mode():
     """Test built-in test mode"""
-    return run_renderer(['--test'], "Built-in test mode")
+    assert run_renderer(['--test'], "Built-in test mode"), "Built-in test mode test failed"
 
 
 def test_simple_scene():
@@ -107,7 +107,7 @@ def test_simple_scene():
         '--material', '0,0,0,0,0.5,0.5,0.5'
     ]
     
-    return run_renderer(args, "Simple scene rendering")
+    assert run_renderer(args, "Simple scene rendering"), "Simple scene rendering test failed"
 
 
 def test_cornell_box():
@@ -149,7 +149,7 @@ def test_cornell_box():
         '--triangle', '-0.5,1.98,-0.5', '0.5,1.98,0.5', '-0.5,1.98,0.5', '3',
     ]
     
-    return run_renderer(args, "Cornell Box rendering")
+    assert run_renderer(args, "Cornell Box rendering"), "Cornell Box rendering test failed"
 
 
 def test_multiple_objects():
@@ -177,7 +177,7 @@ def test_multiple_objects():
         '--sphere', '-2,0,0,1', '2',
     ]
     
-    return run_renderer(args, "Multiple objects rendering")
+    assert run_renderer(args, "Multiple objects rendering"), "Multiple objects rendering test failed"
 
 
 def test_performance():
@@ -204,7 +204,7 @@ def test_performance():
         '--sphere', '-2,0,0,1', '2',
     ]
     
-    return run_renderer(args, "Performance test (100 samples)")
+    assert run_renderer(args, "Performance test (100 samples)"), "Performance test failed"
 
 
 def run_all_tests():

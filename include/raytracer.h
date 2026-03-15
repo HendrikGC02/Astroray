@@ -693,7 +693,12 @@ class Renderer {
     std::shared_ptr<BVHAccel> bvh;
     LightList lights;
     
-    float powerHeuristic(float a, float b) const { float a2 = a*a, b2 = b*b; return a2 / (a2 + b2 + 1e-8f); }
+    float powerHeuristic(float a, float b) const { 
+        float a2 = a*a, b2 = b*b; 
+        float denom = a2 + b2;
+        if (denom < 1e-8f) return 0.5f;
+        return a2 / denom; 
+    }
     
     Vec3 sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
         if (lights.empty() || rec.isDelta) return Vec3(0);
@@ -812,9 +817,9 @@ public:
                         }
                         
                         color = color / float(samples);
-                        color.x = std::sqrt(std::clamp(color.x, 0.0f, 1.0f));
-                        color.y = std::sqrt(std::clamp(color.y, 0.0f, 1.0f));
-                        color.z = std::sqrt(std::clamp(color.z, 0.0f, 1.0f));
+                        color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
+                        color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
+                        color.z = std::pow(std::clamp(color.z, 0.0f, 1.0f), 1.0f / 2.2f);
                         cam.pixels[idx] = color;
                         cam.albedoBuffer[idx] = albedo;
                         cam.normalBuffer[idx] = normal;

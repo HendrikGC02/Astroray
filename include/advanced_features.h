@@ -70,8 +70,9 @@ public:
         float Fd = (1 + (Fd90 - 1) * FL) * (1 + (Fd90 - 1) * FV);
         Vec3 diffuse = (1 / M_PI) * Cdlin * Fd;
         
-        // Specular
-        float a = roughness * roughness;
+        // Specular — clamp alpha to 0.0064 (roughness 0.08) so near-mirror Disney materials
+        // don't collapse to black due to the +0.001 epsilon guard in D_GTR2
+        float a = std::max(roughness * roughness, 0.0064f);
         float Ds = D_GTR2(NdotH, a);
         Vec3 F = fresnelSchlick(LdotH, F0);
         float Gs = smithG_GGX(NdotL, a) * smithG_GGX(NdotV, a);
@@ -147,7 +148,7 @@ public:
             s.f = eval(rec, wo, s.wi);
             s.pdf = rec.normal.dot(s.wi) / M_PI * (diffWeight / total);
         } else {
-            float a = std::max(roughness * roughness, 0.001f);
+            float a = std::max(roughness * roughness, 0.0064f); // min alpha = roughness 0.08, below which GGX collapses numerically
             float r1 = dist(gen), r2 = dist(gen);
             float phi = 2 * M_PI * r1;
             float cosTheta = std::sqrt((1 - r2) / (1 + (a * a - 1) * r2));

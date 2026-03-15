@@ -1,0 +1,13 @@
+build/
+_deps/
+test_results/
+output.ppm
+output.png
+*.ppm
+# Dolt database files
+.dolt/
+*.db
+tests/output/
+**/__pycache__/
+*.pyc
+.aider*

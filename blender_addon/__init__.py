@@ -18,9 +18,9 @@ addon_dir = os.path.dirname(__file__)
 if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
 
 try:
-    import raytracer_blender
+    import astroray
     RAYTRACER_AVAILABLE = True
-    print(f"Custom Raytracer {raytracer_blender.__version__} loaded")
+    print(f"Custom Raytracer {astroray.__version__} loaded")
 except ImportError as e:
     RAYTRACER_AVAILABLE = False
     print(f"Failed to load raytracer module: {e}")
@@ -62,7 +62,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         print(f"Rendering {width}x{height}, {settings.samples} samples")
         renderer = None
         try:
-            renderer = raytracer_blender.Renderer()
+            renderer = astroray.Renderer()
             renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
             self.convert_scene(depsgraph, renderer, width, height)
             
@@ -284,10 +284,10 @@ class CustomRaytracerPreferences(AddonPreferences):
     def draw(self, context):
         layout = self.layout
         if RAYTRACER_AVAILABLE:
-            layout.label(text=f"Raytracer Version: {raytracer_blender.__version__}", icon='INFO')
+            layout.label(text=f"Raytracer Version: {astroray.__version__}", icon='INFO')
             box = layout.box()
             box.label(text="Features:", icon='CHECKBOX_HLT')
-            for feat, enabled in raytracer_blender.__features__.items():
+            for feat, enabled in astroray.__features__.items():
                 box.label(text=f"  {feat.replace('_', ' ').title()}", icon='CHECKBOX_HLT' if enabled else 'CHECKBOX_DEHLT')
         else:
             layout.label(text="Raytracer module not loaded!", icon='ERROR')

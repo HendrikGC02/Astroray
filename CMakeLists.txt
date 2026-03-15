@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Options
+option(BUILD_PYTHON_MODULE "Build Python module for Jupyter notebooks" ON)
 option(BUILD_BLENDER_MODULE "Build as Blender Python module" OFF)
 option(BUILD_TESTS "Build test suite" OFF)
 option(BUILD_DOCS "Build documentation" OFF)
@@ -59,7 +60,15 @@ target_include_directories(raytracer_core INTERFACE ${INCLUDE_DIR})
 
 # Source files
 set(SOURCES
-    src/main.cpp
+    apps/main.cpp
+)
+
+# Compile stb_image_write_impl.c as C++ to avoid linking issues
+set_source_files_properties(include/stb_image_write_impl.c PROPERTIES LANGUAGE CXX)
+add_library(stb_image_write_lib STATIC include/stb_image_write_impl.c)
+set_target_properties(stb_image_write_lib PROPERTIES 
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
 )
 
 # Standalone executable
@@ -67,6 +76,7 @@ add_executable(raytracer_standalone ${SOURCES} ${HEADERS})
 
 target_link_libraries(raytracer_standalone PRIVATE
     raytracer_core
+    stb_image_write_lib
 )
 
 if(OpenMP_CXX_FOUND)
@@ -78,6 +88,53 @@ set_target_properties(raytracer_standalone PROPERTIES
     OUTPUT_NAME raytracer
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
+
+# Build Python module for Jupyter notebooks
+if(BUILD_PYTHON_MODULE)
+    # Find Python and pybind11
+    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+    
+    # Try to find pybind11
+    find_package(pybind11 CONFIG)
+    if(NOT pybind11_FOUND)
+        message(STATUS "pybind11 not found, fetching from GitHub...")
+        include(FetchContent)
+        FetchContent_Declare(
+            pybind11
+            GIT_REPOSITORY https://github.com/pybind/pybind11.git
+            GIT_TAG v2.11.1
+        )
+        FetchContent_MakeAvailable(pybind11)
+    endif()
+    
+    # Python module for Jupyter notebooks
+    pybind11_add_module(astroray 
+        module/blender_module.cpp
+        ${HEADERS}
+    )
+    
+    # Rename module to 'astroray' in Python (so it's importable as 'import astroray')
+    set_target_properties(astroray PROPERTIES
+        OUTPUT_NAME astroray
+    )
+    
+    target_link_libraries(astroray PRIVATE
+        raytracer_core
+        stb_image_write_lib
+    )
+    
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(astroray PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    
+    # Set output directory to CMAKE_BINARY_DIR for both Windows and Linux
+    # pybind11_add_module automatically handles .pyd on Windows and .so on Linux
+    set_target_properties(astroray PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        OUTPUT_NAME astroray
+    )
+endif()
 
 # Build Blender module if requested
 if(BUILD_BLENDER_MODULE)
@@ -99,7 +156,7 @@ if(BUILD_BLENDER_MODULE)
     
     # Python module
     pybind11_add_module(raytracer_blender 
-        src/blender_module.cpp
+        module/blender_module.cpp
         ${HEADERS}
     )
     
@@ -152,11 +209,9 @@ install(DIRECTORY include/
     FILES_MATCHING PATTERN "*.h"
 )
 
-# Testing
-if(BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
-endif()
+# Note: Tests are run via pytest, not CMake.
+# The tests directory contains Python test files (pytest.ini, tests/*.py)
+# that are automatically discovered when running `pytest tests/`.
 
 # Documentation
 if(BUILD_DOCS)
@@ -183,6 +238,11 @@ message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}")
 message(STATUS "OpenMP: ${OpenMP_CXX_FOUND}")
 message(STATUS "Native arch: ${USE_NATIVE_ARCH}")
 message(STATUS "Fast math: ${USE_FAST_MATH}")
+message(STATUS "Python module: ${BUILD_PYTHON_MODULE}")
+if(BUILD_PYTHON_MODULE)
+    message(STATUS "  Python: ${Python3_VERSION}")
+    message(STATUS "  pybind11: ${pybind11_FOUND}")
+endif()
 message(STATUS "Blender module: ${BUILD_BLENDER_MODULE}")
 if(BUILD_BLENDER_MODULE)
     message(STATUS "  Python: ${Python3_VERSION}")

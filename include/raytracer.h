@@ -204,18 +204,21 @@ public:
     Metal(const Vec3& a, float r = 0) : albedo(a), roughness(std::clamp(r, 0.001f, 1.0f)) {}
     
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (roughness < 0.01f) {
-            Vec3 perfectRefl = wo - rec.normal * (2 * wo.dot(rec.normal));
+        if (roughness < 0.08f) {
+            Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             float deviation = (wi - perfectRefl).length();
             return (deviation < 0.1f) ? albedo * std::exp(-deviation * 100.0f) : Vec3(0);
         }
-        
+
+        float rawNdotL = rec.normal.dot(wi);
+        float rawNdotV = rec.normal.dot(wo);
+        if (rawNdotL <= 0 || rawNdotV <= 0) return Vec3(0);
+
         Vec3 h = (wo + wi).normalized();
         float NdotH = std::max(rec.normal.dot(h), 0.001f);
-        float NdotL = std::max(rec.normal.dot(wi), 0.001f);
-        float NdotV = std::max(rec.normal.dot(wo), 0.001f);
-        if (NdotL <= 0 || NdotV <= 0) return Vec3(0);
-        
+        float NdotL = rawNdotL;
+        float NdotV = rawNdotV;
+
         float a = roughness * roughness, a2 = a * a;
         float denom = NdotH * NdotH * (a2 - 1) + 1;
         float D = a2 / (M_PI * denom * denom + 0.001f);
@@ -227,7 +230,7 @@ public:
     
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
-        if (roughness < 0.01f) {
+        if (roughness < 0.08f) {
             // Correct reflection: wi = 2*(wo·n)*n - wo
             s.wi = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             s.f = albedo;
@@ -243,12 +246,16 @@ public:
             Vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
             h = rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z;
             s.wi = (h * (2 * wo.dot(h)) - wo).normalized();
+            s.f = Vec3(0);
+            s.pdf = 0.0f;
             if (s.wi.dot(rec.normal) > 0) {
                 s.f = eval(rec, wo, s.wi);
                 float NdotH = std::max(rec.normal.dot(h), 0.001f);
                 float HdotV = std::max(h.dot(wo), 0.001f);
                 float a2 = a * a, denom = NdotH * NdotH * (a2 - 1) + 1;
-                s.pdf = a2 * NdotH / (M_PI * denom * denom * 4 * HdotV + 0.001f);
+                // Use same D formula as eval() so f/pdf = F*G*HdotV/(NdotV*NdotH)
+                float D = a2 / (M_PI * denom * denom + 0.001f);
+                s.pdf = D * NdotH / (4.0f * HdotV);
             }
             s.isDelta = false;
         }
@@ -256,13 +263,14 @@ public:
     }
     
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (roughness < 0.01f) return 0;
+        if (roughness < 0.08f) return 0;
         Vec3 h = (wo + wi).normalized();
         float NdotH = std::max(rec.normal.dot(h), 0.001f);
         float HdotV = std::max(h.dot(wo), 0.001f);
         float a = roughness * roughness, a2 = a * a;
         float denom = NdotH * NdotH * (a2 - 1) + 1;
-        return a2 * NdotH / (M_PI * denom * denom * 4 * HdotV + 0.001f);
+        float D = a2 / (M_PI * denom * denom + 0.001f);
+        return D * NdotH / (4.0f * HdotV);
     }
 };
 
@@ -306,13 +314,13 @@ public:
             // Correct reflection: wi = 2*(wo·n)*n - wo
             s.wi = n * (2 * wo.dot(n)) - wo;
             s.f = Vec3(1);
-            s.pdf = fresnel;
+            s.pdf = 1.0f;  // stochastic selection already weights by fresnel
         } else {
             Vec3 wt_perp = (wo - n * cosTheta) * (-eta);
             Vec3 wt_parallel = n * (-std::sqrt(std::abs(1 - wt_perp.length2())));
             s.wi = (wt_perp + wt_parallel).normalized();
-            s.f = Vec3(1) * (eta * eta);
-            s.pdf = 1 - fresnel;
+            s.f = Vec3(eta * eta);
+            s.pdf = 1.0f;  // stochastic selection already weights by (1-fresnel)
         }
         return s;
     }
@@ -693,7 +701,12 @@ class Renderer {
     std::shared_ptr<BVHAccel> bvh;
     LightList lights;
     
-    float powerHeuristic(float a, float b) const { float a2 = a*a, b2 = b*b; return a2 / (a2 + b2 + 1e-8f); }
+    float powerHeuristic(float a, float b) const { 
+        float a2 = a*a, b2 = b*b; 
+        float denom = a2 + b2;
+        if (denom < 1e-8f) return 0.5f;
+        return a2 / denom; 
+    }
     
     Vec3 sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
         if (lights.empty() || rec.isDelta) return Vec3(0);
@@ -706,7 +719,7 @@ class Renderer {
                 Vec3 f = rec.material->eval(rec, wo, wi);
                 float bsdfPdf = rec.material->pdf(rec, wo, wi);
                 float wt = powerHeuristic(ls.pdf, bsdfPdf);
-                direct += f * ls.emission * std::abs(wi.dot(rec.normal)) * wt / (ls.pdf + 0.001f);
+                direct += f * ls.emission * wt / (ls.pdf + 0.001f);
             }
         }
         BSDFSample bs = rec.material->sample(rec, wo, gen);
@@ -796,9 +809,13 @@ public:
                         
                         for (int s = 0; s < maxSamples; ++s) {
                             float u = (x + dist(gen)) / (cam.width - 1);
-                            float v = (y + dist(gen)) / (cam.height - 1);
+                            float v = 1.0f - (y + dist(gen)) / (cam.height - 1);
                             Vec3 sAlb, sNorm;
                             Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr);
+                            // Per-sample contribution clamp: prevents a single caustic spike from
+                            // dominating a pixel when sample count is low (firefly suppression)
+                            float sLum = luminance(sCol);
+                            if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
                             color += sCol;
                             samples++;
                             if (s == 0) { albedo = sAlb; normal = sNorm; }
@@ -812,9 +829,9 @@ public:
                         }
                         
                         color = color / float(samples);
-                        color.x = std::sqrt(std::clamp(color.x, 0.0f, 1.0f));
-                        color.y = std::sqrt(std::clamp(color.y, 0.0f, 1.0f));
-                        color.z = std::sqrt(std::clamp(color.z, 0.0f, 1.0f));
+                        color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
+                        color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
+                        color.z = std::pow(std::clamp(color.z, 0.0f, 1.0f), 1.0f / 2.2f);
                         cam.pixels[idx] = color;
                         cam.albedoBuffer[idx] = albedo;
                         cam.normalBuffer[idx] = normal;

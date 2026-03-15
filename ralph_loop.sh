@@ -10,7 +10,7 @@
 #   ./ralph_loop.sh [PRD.md] [max_iterations]
 #
 # Dependencies: aider-local (wrapper created by setup_tools.sh), bd (beads),
-#               git, and a running vLLM server (launch_vllm.sh)
+#               git, and a running llama-swap server (launch_vllm.sh)
 # =============================================================================
 set -euo pipefail
 
@@ -29,8 +29,8 @@ loop_hdr(){ echo -e "${CYAN}${BOLD}═══════════════
 PRD_FILE="${1:-PRD.md}"
 MAX_ITERATIONS="${2:-20}"
 
-VLLM_BASE_URL="http://localhost:8080/v1"
-MODEL_ID="QuantTrio/Qwen3.5-35B-A3B-AWQ"
+BASE_URL="http://localhost:8080/v1"
+MODEL_ID="qwen3.5-35b"
 
 # The test command to run after each code generation attempt.
 # Change this to match your project's test runner (pytest, cargo test, npm test…)
@@ -74,18 +74,18 @@ command -v aider-local &>/dev/null \
 command -v bd &>/dev/null \
     || { echo -e "${RED}[FATAL]${NC} bd (beads) not found. Run setup_tools.sh first."; exit 1; }
 
-# 5. vLLM server is reachable
-info "Checking vLLM server at ${VLLM_BASE_URL}..."
+# 5. llama-swap server is reachable
+info "Checking llama-swap server at ${BASE_URL}..."
 if ! curl -sf --max-time "${VLLM_CHECK_TIMEOUT}" \
-        "${VLLM_BASE_URL}/models" -o /dev/null; then
-    echo -e "${RED}[FATAL]${NC} vLLM server is not reachable at ${VLLM_BASE_URL}."
-    echo "Start it with: ./launch_vllm.sh"
+        "${BASE_URL}/models" -o /dev/null; then
+    echo -e "${RED}[FATAL]${NC} llama-swap server is not reachable at ${BASE_URL}."
+    echo "Start it with: rig-start"
     exit 1
 fi
-info "vLLM server OK."
+info "llama-swap server OK."
 
 # 6. Working tree is clean (no uncommitted changes that could be clobbered)
-if ! git diff --quiet HEAD 2>/dev/null; then
+if git rev-parse --verify HEAD >/dev/null 2>&1 && ! git diff --quiet HEAD 2>/dev/null; then
     warn "You have uncommitted changes. Ralph will not commit partial work,"
     warn "but aider may modify tracked files. Consider committing or stashing."
     sleep 3
@@ -112,7 +112,7 @@ ROOT_EPIC_TITLE="Ralph loop: $(basename "${PRD_FILE}" .md)"
 EXISTING_EPIC=$(bd list --json 2>/dev/null \
     | python3 -c "
 import sys, json
-items = json.load(sys.stdin)
+items = json.loads(sys.stdin.read().strip() or "[]")
 for i in items:
     if '${ROOT_EPIC_TITLE}' in i.get('title',''):
         print(i['id'])
@@ -124,7 +124,7 @@ if [[ -z "${EXISTING_EPIC}" ]]; then
         --description "Autonomous loop driven by ${PRD_FILE}" \
         --priority 0 \
         --type epic \
-        --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+        --json 2>/dev/null | python3 -c "import sys,json; print(json.loads(sys.stdin.read().strip() or "[]")['id'])")
     info "Created root epic: ${ROOT_EPIC_ID}"
 else
     ROOT_EPIC_ID="${EXISTING_EPIC}"
@@ -137,7 +137,7 @@ fi
 decompose_prd_into_tasks() {
     local ready_count
     ready_count=$(bd ready --json 2>/dev/null | python3 -c \
-        "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+        "import sys,json; print(len(json.loads(sys.stdin.read().strip() or "[]")))" 2>/dev/null || echo "0")
 
     if [[ "${ready_count}" -gt 0 ]]; then
         info "Beads already has ${ready_count} ready tasks — skipping decomposition."
@@ -159,6 +159,7 @@ Each task should:
 Do not output anything except the bd commands."
 
     TMPFILE=$(mktemp /tmp/ralph_decompose_XXXXXX.sh)
+    trap "rm -f ${TMPFILE}" EXIT
     aider-local \
         --message "${DECOMPOSE_PROMPT}" \
         --read "${PRD_FILE}" \
@@ -188,7 +189,7 @@ get_next_task_id() {
     bd ready --json 2>/dev/null \
         | python3 -c "
 import sys, json
-tasks = json.load(sys.stdin)
+tasks = json.loads(sys.stdin.read().strip() or "[]")
 # Pick the highest-priority unassigned task
 for t in tasks:
     if t.get('assignee', '') == '':
@@ -200,7 +201,7 @@ for t in tasks:
 get_task_title() {
     local task_id="$1"
     bd show "${task_id}" --json 2>/dev/null \
-        | python3 -c "import sys,json; print(json.load(sys.stdin).get('title',''))" \
+        | python3 -c "import sys,json; print(json.loads(sys.stdin.read().strip() or "[]").get('title',''))" \
         2>/dev/null || echo "unknown task"
 }
 
@@ -265,9 +266,14 @@ while [[ "${ITERATION}" -lt "${MAX_ITERATIONS}" ]]; do
             2>/dev/null || true
         # Create a feature branch for this task
         BRANCH_NAME="${GIT_BRANCH_PREFIX}${CURRENT_TASK_ID}"
-        git checkout -b "${BRANCH_NAME}" 2>/dev/null \
-            || git checkout "${BRANCH_NAME}" 2>/dev/null \
-            || true
+        if git checkout -b "${BRANCH_NAME}" 2>/dev/null; then
+            info "Created new branch: ${BRANCH_NAME}"
+        elif git checkout "${BRANCH_NAME}" 2>/dev/null; then
+            info "Checked out existing branch: ${BRANCH_NAME}"
+        else
+            warn "Failed to checkout/branch ${BRANCH_NAME}. Current branch unchanged."
+            exit 1
+        fi
         FAILURES=0
     fi
 
@@ -306,7 +312,9 @@ If you suspect a test file is wrong, explain why in a comment but do not modify 
         --yes
         --no-auto-commits   # Ralph owns the commit decision
     )
-    [[ -n "${WATCH_FILES}" ]] && AIDER_ARGS+=(${WATCH_FILES})
+    if [[ -n "${WATCH_FILES}" ]]; then
+        AIDER_ARGS+=("--read" ${WATCH_FILES})
+    fi
 
     # Capture aider output for logging; don't fail the loop if aider itself errors
     AIDER_OUTPUT=""
@@ -324,7 +332,7 @@ If you suspect a test file is wrong, explain why in a comment but do not modify 
     TEST_EXIT_CODE=0
 
     # Capture both stdout and stderr; tee so we see it in the terminal too
-    LAST_TEST_OUTPUT=$(eval "${TEST_CMD}" 2>&1 | tee /dev/tty) \
+    LAST_TEST_OUTPUT=$(bash -c "${TEST_CMD}" 2>&1 | tee /dev/tty) \
         || TEST_EXIT_CODE=$?
 
     # ------------------------------------------------------------------
@@ -344,7 +352,7 @@ If you suspect a test file is wrong, explain why in a comment but do not modify 
 
 Autonomous commit — tests passed on iteration ${ITERATION}.
 $(bd show "${CURRENT_TASK_ID}" --json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('description',''))" \
+    | python3 -c "import sys,json; d=json.loads(sys.stdin.read().strip() or "[]"); print(d.get('description',''))" \
     2>/dev/null || true)"
 
             git commit -m "${COMMIT_MSG}"

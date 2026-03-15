@@ -127,11 +127,12 @@ if(BUILD_PYTHON_MODULE)
         target_link_libraries(astroray PRIVATE OpenMP::OpenMP_CXX)
     endif()
     
-    # Set properties for Python module
+    # Set output directory to CMAKE_BINARY_DIR for both Windows and Linux
+    # pybind11_add_module automatically handles .pyd on Windows and .so on Linux
     set_target_properties(astroray PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
         OUTPUT_NAME astroray
-        SUFFIX ".pyd"
     )
 endif()
 
@@ -208,11 +209,9 @@ install(DIRECTORY include/
     FILES_MATCHING PATTERN "*.h"
 )
 
-# Testing
-if(BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
-endif()
+# Note: Tests are run via pytest, not CMake.
+# The tests directory contains Python test files (pytest.ini, tests/*.py)
+# that are automatically discovered when running `pytest tests/`.
 
 # Documentation
 if(BUILD_DOCS)

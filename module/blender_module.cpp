@@ -2,6 +2,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 #include <pybind11/functional.h>
+#include <pybind11/pybind11.h>
 #include "raytracer.h"
 #include "advanced_features.h"
 
@@ -167,44 +168,58 @@ public:
             };
         }
         renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling);
-        size_t size = camera->pixels.size();
-        auto result = py::array_t<float>(size * 3);
-        auto buf = result.request();
-        float* ptr = static_cast<float*>(buf.ptr);
-        for (size_t i = 0; i < size; i++) {
-            ptr[i*3] = camera->pixels[i].x;
-            ptr[i*3+1] = camera->pixels[i].y;
-            ptr[i*3+2] = camera->pixels[i].z;
+        
+        // Create 3D array with shape (height, width, 3)
+        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
+        auto result = py::array_t<float>(shape);
+        {
+            py::buffer_info buf = result.request();
+            float* ptr = static_cast<float*>(buf.ptr);
+            size_t size = camera->pixels.size();
+            for (size_t i = 0; i < size; i++) {
+                ptr[i*3] = camera->pixels[i].x;
+                ptr[i*3+1] = camera->pixels[i].y;
+                ptr[i*3+2] = camera->pixels[i].z;
+            }
         }
-        result.resize({camera->height, camera->width, 3});
         return result;
     }
     
     py::array_t<float> getAlbedoBuffer() {
         if (!camera) throw std::runtime_error("Camera not set up");
-        size_t size = camera->albedoBuffer.size();
-        auto result = py::array_t<float>(size * 3);
-        float* ptr = static_cast<float*>(result.request().ptr);
-        for (size_t i = 0; i < size; i++) {
-            ptr[i*3] = camera->albedoBuffer[i].x;
-            ptr[i*3+1] = camera->albedoBuffer[i].y;
-            ptr[i*3+2] = camera->albedoBuffer[i].z;
+        
+        // Create 3D array with shape (height, width, 3)
+        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
+        auto result = py::array_t<float>(shape);
+        {
+            py::buffer_info buf = result.request();
+            float* ptr = static_cast<float*>(buf.ptr);
+            size_t size = camera->albedoBuffer.size();
+            for (size_t i = 0; i < size; i++) {
+                ptr[i*3] = camera->albedoBuffer[i].x;
+                ptr[i*3+1] = camera->albedoBuffer[i].y;
+                ptr[i*3+2] = camera->albedoBuffer[i].z;
+            }
         }
-        result.resize({camera->height, camera->width, 3});
         return result;
     }
     
     py::array_t<float> getNormalBuffer() {
         if (!camera) throw std::runtime_error("Camera not set up");
-        size_t size = camera->normalBuffer.size();
-        auto result = py::array_t<float>(size * 3);
-        float* ptr = static_cast<float*>(result.request().ptr);
-        for (size_t i = 0; i < size; i++) {
-            ptr[i*3] = camera->normalBuffer[i].x;
-            ptr[i*3+1] = camera->normalBuffer[i].y;
-            ptr[i*3+2] = camera->normalBuffer[i].z;
+        
+        // Create 3D array with shape (height, width, 3)
+        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
+        auto result = py::array_t<float>(shape);
+        {
+            py::buffer_info buf = result.request();
+            float* ptr = static_cast<float*>(buf.ptr);
+            size_t size = camera->normalBuffer.size();
+            for (size_t i = 0; i < size; i++) {
+                ptr[i*3] = camera->normalBuffer[i].x;
+                ptr[i*3+1] = camera->normalBuffer[i].y;
+                ptr[i*3+2] = camera->normalBuffer[i].z;
+            }
         }
-        result.resize({camera->height, camera->width, 3});
         return result;
     }
     

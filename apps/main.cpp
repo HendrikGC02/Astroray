@@ -123,10 +123,7 @@ int main(int argc, char* argv[]) {
     std::cout << "\nRendering...\n";
     auto start = std::chrono::high_resolution_clock::now();
     int lastPct = -1;
-    renderer.render(camera, samples, depth, [&](float p) {
-        int pct = int(p * 100);
-        if (pct != lastPct && pct % 5 == 0) { lastPct = pct; std::cout << "\rProgress: " << pct << "%" << std::flush; }
-    }, true);
+    renderer.render(camera, samples, depth, nullptr, true);
     
     auto dur = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start);
     std::cout << "\n\nCompleted in " << dur.count() << "s\n";

@@ -49,11 +49,6 @@
 2026-03-15 | pybind11 | Array return shape for 3D data | Returning multi-dimensional numpy arrays from C++ requires explicit shape specification using `py::ssize_t shape[3]` for each dimension. Simply returning `py::array_t<float>` with a flat size calculation loses the dimensional structure. The fix is to declare the shape array and pass it to `py::array_t<float>(shape)`, then copy data using index arithmetic (e.g., `ptr[i*3]`, `ptr[i*3+1]`, `ptr[i*3+2]`) for the color channels. This pattern is essential for image buffers where (height, width, 3) layout is expected.
 
 
-
-
-2026-03-15 | pybind11 | Array return shape for 3D data | Returning multi-dimensional numpy arrays from C++ requires explicit shape specification using `py::ssize_t shape[3]` for each dimension. Simply returning `py::array_t<float>` with a flat size calculation loses the dimensional structure. The fix is to declare the shape array and pass it to `py::array_t<float>(shape)`, then copy data using index arithmetic (e.g., `ptr[i*3]`, `ptr[i*3+1]`, `ptr[i*3+2]`) for the color channels. This pattern is essential for image buffers where (height, width, 3) layout is expected.
-
-
 - [testing] Tests that use `return condition` instead of `assert condition`
   always pass silently. Always verify test files use assert statements.
   Run `grep -n "return True\|return False\|return result" tests/` to check.
@@ -105,3 +100,23 @@
 ---
 
 2026-03-15 | rendering | Upside-down images in Python module | The render loop stored row y=0 at the bottom of the scene (v = y/(height-1) = 0 → lowerLeft). The Python module returned pixels in forward order so NumPy/matplotlib displayed the scene flipped. Fix: change the render loop to `v = 1 - y/(height-1)` so row 0 = top of scene. Also update standalone writePPM/writePNG to iterate y forward (0 to height-1) instead of the previous reverse-order compensating flip.
+
+---
+
+2026-03-15 | rendering | Metal::eval() dead backface guard causes overexposure | Metal::eval() clamped NdotL and NdotV to 0.001f BEFORE the `if (NdotL <= 0 || NdotV <= 0) return Vec3(0)` check, making the check permanently dead. Below-surface wi directions returned nonzero BRDF values (e.g. from sampleDirect's light sampling). This caused systematic overexposure with Metal materials, worst in standalone (mean=1.0). Fix: compute raw dot products first, guard against <=0, then use the raw (positive) values in formulas — no clamping needed for NdotL/NdotV since they're guaranteed positive.
+
+---
+
+2026-03-15 | rendering | Metal GGX pdf epsilon inconsistency | Metal::sample() computed pdf as `a2 * NdotH / (π * denom² * 4 * HdotV + 0.001)` while eval() computed D as `a2 / (π * denom² + 0.001)`. The two epsilon placements are inconsistent: the ratio f/pdf does not simplify cleanly to `F*G*HdotV/(NdotV*NdotH)`. Fix: compute D in sample() and pdf() using the same formula as eval(), then derive pdf = D * NdotH / (4 * HdotV). This ensures f/pdf is exactly the canonical GGX weight.
+
+---
+
+2026-03-15 | rendering | Metal::sample() uninitialized s.pdf | When the GGX reflected direction was below the surface, Metal::sample() set s.f=Vec3(0) but left s.pdf uninitialized (garbage float). If garbage > 0, pathTrace continued with 0 throughput (harmless), but relying on UB is dangerous and masked the above bugs. Fix: explicitly initialize s.f=Vec3(0) and s.pdf=0.0f before the direction check so a below-surface sample always returns a valid zero-contribution sample that terminates via the bs.pdf<=0 guard.
+
+---
+
+2026-03-15 | rendering | Progress callback called from inside OpenMP parallel region | renderer.render() calls the progress callback from inside `#pragma omp parallel for`. The original standalone code passed a lambda that called `std::cout << std::flush`, which is not thread-safe and produces garbled output and potential data races. The Python binding defaults to nullptr which avoids the issue entirely. Fix: pass nullptr for the progress callback in apps/main.cpp. Any non-null callback must be thread-safe (e.g. use an atomic counter updated outside the parallel region).
+
+---
+
+2026-03-15 | debugging | Isolate overexposure by rendering each material in isolation | When a fully-assembled scene is overexposed but individual materials work, test scenes with exactly one sphere type added at a time (walls+light only → add glass → add Disney → add Metal). This immediately identifies which material is responsible without source analysis. In this project, "Metal only → mean=1.0" while all others gave ~0.4 pinpointed Metal as the culprit in under one test run.

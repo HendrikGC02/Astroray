@@ -209,13 +209,16 @@ public:
             float deviation = (wi - perfectRefl).length();
             return (deviation < 0.1f) ? albedo * std::exp(-deviation * 100.0f) : Vec3(0);
         }
-        
+
+        float rawNdotL = rec.normal.dot(wi);
+        float rawNdotV = rec.normal.dot(wo);
+        if (rawNdotL <= 0 || rawNdotV <= 0) return Vec3(0);
+
         Vec3 h = (wo + wi).normalized();
         float NdotH = std::max(rec.normal.dot(h), 0.001f);
-        float NdotL = std::max(rec.normal.dot(wi), 0.001f);
-        float NdotV = std::max(rec.normal.dot(wo), 0.001f);
-        if (NdotL <= 0 || NdotV <= 0) return Vec3(0);
-        
+        float NdotL = rawNdotL;
+        float NdotV = rawNdotV;
+
         float a = roughness * roughness, a2 = a * a;
         float denom = NdotH * NdotH * (a2 - 1) + 1;
         float D = a2 / (M_PI * denom * denom + 0.001f);
@@ -243,12 +246,16 @@ public:
             Vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
             h = rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z;
             s.wi = (h * (2 * wo.dot(h)) - wo).normalized();
+            s.f = Vec3(0);
+            s.pdf = 0.0f;
             if (s.wi.dot(rec.normal) > 0) {
                 s.f = eval(rec, wo, s.wi);
                 float NdotH = std::max(rec.normal.dot(h), 0.001f);
                 float HdotV = std::max(h.dot(wo), 0.001f);
                 float a2 = a * a, denom = NdotH * NdotH * (a2 - 1) + 1;
-                s.pdf = a2 * NdotH / (M_PI * denom * denom * 4 * HdotV + 0.001f);
+                // Use same D formula as eval() so f/pdf = F*G*HdotV/(NdotV*NdotH)
+                float D = a2 / (M_PI * denom * denom + 0.001f);
+                s.pdf = D * NdotH / (4.0f * HdotV);
             }
             s.isDelta = false;
         }
@@ -262,7 +269,8 @@ public:
         float HdotV = std::max(h.dot(wo), 0.001f);
         float a = roughness * roughness, a2 = a * a;
         float denom = NdotH * NdotH * (a2 - 1) + 1;
-        return a2 * NdotH / (M_PI * denom * denom * 4 * HdotV + 0.001f);
+        float D = a2 / (M_PI * denom * denom + 0.001f);
+        return D * NdotH / (4.0f * HdotV);
     }
 };
 
@@ -306,13 +314,13 @@ public:
             // Correct reflection: wi = 2*(wo·n)*n - wo
             s.wi = n * (2 * wo.dot(n)) - wo;
             s.f = Vec3(1);
-            s.pdf = fresnel;
+            s.pdf = 1.0f;  // stochastic selection already weights by fresnel
         } else {
             Vec3 wt_perp = (wo - n * cosTheta) * (-eta);
             Vec3 wt_parallel = n * (-std::sqrt(std::abs(1 - wt_perp.length2())));
             s.wi = (wt_perp + wt_parallel).normalized();
-            s.f = Vec3(1) * (eta * eta);
-            s.pdf = 1 - fresnel;
+            s.f = Vec3(eta * eta);
+            s.pdf = 1.0f;  // stochastic selection already weights by (1-fresnel)
         }
         return s;
     }

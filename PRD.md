@@ -1,106 +1,211 @@
-# Astroray — Iterative Test, Validate & Fix Loop
+# Astroray Rendering Bug Fixes — PRD
 
-## Objective
-Iteratively run the test suite, inspect PNG outputs for visual correctness,
-write new tests where coverage is missing, and fix problems in the source code
-until all tests pass and all rendered outputs look correct.
+## Overview
 
-## Test Command
+Three confirmed rendering bugs exist in the Astroray path tracer.
+This PRD specifies the root cause, exact fix, and test verification
+for each. All fixes are surgical single-line or few-line changes.
+
+---
+
+## Bug 1 — Upside-down images (Python module and standalone)
+
+### Symptom
+Images returned by both the Python bindings and the standalone
+renderer are vertically flipped. Spheres that sit on the floor appear
+at the top; the ceiling light appears at the bottom.
+
+### Root cause
+`include/raytracer.h` render loop (around line 804):
+```cpp
+float v = (y + dist(gen)) / (cam.height - 1);
 ```
-python -m pytest tests/ -x -q --tb=short
+`y = 0` maps to `v = 0` which is the `lowerLeft` of the viewport
+(bottom of the scene). The pixel is stored at `cam.pixels[0*width+x]`.
+NumPy and image viewers put row 0 at the *top* of the display, so
+the scene is inverted.
+
+The standalone PNG/PPM writer (`apps/main.cpp`) tries to compensate
+by iterating `y` from `height-1` down to `0`, but this double-flip
+causes a mismatch in orientation. The fix is to correct the root
+cause in the render loop, then remove the compensating flip in the
+writers.
+
+### Fix
+
+**File: `include/raytracer.h`** — inside the per-pixel sampling loop:
+```cpp
+// BEFORE
+float v = (y + dist(gen)) / (cam.height - 1);
+
+// AFTER — flip so row 0 = top of scene
+float v = 1.0f - (y + dist(gen)) / (cam.height - 1);
 ```
 
-## Build Command
-Run this after ANY change to C++ source files or CMakeLists.txt:
+**File: `apps/main.cpp`** — both `writePPM` and `writePNG`, change
+the y-loop to forward order:
+```cpp
+// BEFORE (old compensating flip)
+for (int y = cam.height - 1; y >= 0; --y)
+
+// AFTER (no flip needed — render loop now stores top-to-bottom)
+for (int y = 0; y < cam.height; ++y)
 ```
-cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --config Release -j8
-```
-The built module must be importable before running tests. Verify with:
-```
-python -c "import astroray; print('module OK')"
-```
-If the import fails, the build did not complete correctly — do not proceed to tests.
 
-### Cross-Platform Build Notes
-- **Linux/macOS**: The build outputs to `build/` with `.so` or `.dylib` extension
-- **Windows**: The build outputs to `build/Release/` with `.pyd` extension
-- Use `cmake --build` instead of `make` for cross-platform compatibility
-- On Windows, use `--config Release` flag with CMake generator
-- After building, ensure the build directory is in `sys.path` before importing `astroray`
+The Python module (`module/blender_module.cpp`) already copies pixels
+in forward order and requires **no change**.
 
-## Module Path
-The pybind11 module is built to `build/` and found via `tests/conftest.py`.
-Do NOT hardcode Windows paths. Do NOT hardcode `raytracer_blender` — the module
-is named `astroray`.
-
-## Rules
-
-### On fixing tests
-- NEVER modify existing test assertions to make them pass — fix the source code
-- If a test is genuinely testing wrong behaviour, add `# REVIEW: possibly wrong`
-  and `@pytest.mark.skip(reason="needs human review")` — do not delete it
-- Fix one failing test at a time, run the full suite after each fix
-
-### On writing new tests
-- Write new tests when you find untested behaviour or rendering features
-- New tests go in `tests/` following the naming pattern `test_<feature>.py`
-- Every new test that renders must save output to `tests/output/<test_name>.png`
-- New tests must be self-contained — no hardcoded paths, no Blender required
-
-### On PNG output validation
-- After each render, open the PNG and check it visually makes sense:
-  - Is it non-black? (black image = renderer failed silently)
-  - Does brightness/colour match what the scene should produce?
-  - Are there obvious artefacts (NaN pixels show as white or black speckles)?
-- Use pixel statistics for automated checks:
+### Test verification
+Add to `test_cornell_box` (Python) and `test_cornell_box_scene`
+(standalone):
 ```python
-  from PIL import Image
-  import numpy as np
-  img = np.array(Image.open("tests/output/result.png"))
-  assert img.mean() > 5,    "image is too dark — renderer may have failed"
-  assert img.mean() < 250,  "image is overexposed"
-  assert not np.isnan(img).any(), "NaN pixels detected"
+# Ceiling light is in the top half — top rows must be brighter
+top_mean = np.mean(pixels[:pixels.shape[0]//4, :, :])
+bot_mean = np.mean(pixels[-pixels.shape[0]//4:, :, :])
+assert top_mean > bot_mean, \
+    "Image appears upside-down (light should illuminate the top half)"
 ```
-- Save reference images to `tests/references/` when a render is confirmed correct
-- Do NOT commit `tests/output/` — only `tests/references/`
 
-### On rebuilding
-- Rebuild after any change to `src/`, `include/`, or `CMakeLists.txt`
-- Do NOT rebuild for changes to Python test files or `blender_addon/`
-- After rebuilding, always re-run the full suite to catch regressions
+---
 
-## Project Structure
-- `src/`              C++ renderer source
-- `include/`          Headers — `raytracer.h` (core), `advanced_features.h` (transforms)
-- `blender_addon/`    Python Blender integration (not needed for headless tests)
-- `build/`            CMake build output — module is here
-- `tests/`            Pytest test files
-- `tests/output/`     Rendered PNG outputs (gitignored)
-- `tests/references/` Known-good reference images (committed to git)
-- `docs/agent-context/` Reference docs for the agent
+## Bug 2 — Perfectly smooth metal renders black
 
-## Reference Files
-Read these before making any changes:
-- `docs/agent-context/lessons-learned.md` — prior pitfalls (if it exists)
-- `docs/agent-context/blender-addon-patterns.md` — Blender API notes (if it exists)
-- `include/raytracer.h` — core data structures
-- `include/advanced_features.h` — transform and mesh classes
-- `CMakeLists.txt` — build configuration
-- `tests/conftest.py` — module path setup
+### Symptom
+`Metal` material with `roughness < 0.01` (mirror-like) produces a
+completely black sphere. Visible in `test_material_comparison.png`
+("Metal Smooth" tile) and `test_disney_brdf_grid.png` ("Metal Smooth"
+tile).
 
-## Task Breakdown
-Use Beads to track tasks. Suggested starting workflow:
-1. Build the project and confirm `import astroray` works
-2. Run full test suite — record every failure with `bd create`
-3. Fix failures in order: import errors → build errors → rendering errors → assertions
-4. After each fix: rebuild if needed, run suite, confirm no regressions
-5. For each passing test that renders: inspect the PNG output
-6. Write new tests for any rendering feature not yet covered
-7. Confirm `tests/references/` has a reference image for each visual test
+### Root cause
+`include/raytracer.h`, `Metal::eval()`, around line 208:
+```cpp
+Vec3 perfectRefl = wo - rec.normal * (2 * wo.dot(rec.normal));
+```
+This computes `wo − 2(wo·n)n = −wi`: the **negative** of the correct
+reflection direction. The deviation `(wi − perfectRefl).length()`
+therefore equals `|wi − (−wi)| = 2`, which is far above the 0.1
+threshold, so `eval()` always returns `Vec3(0)`.
 
-## Definition of Done
-- `python -m pytest tests/ -q` exits 0
-- All rendered PNGs in `tests/output/` are visually correct (non-black, no artefacts)
-- `tests/references/` contains at least one reference image per rendering feature
-- No regressions — all previously passing tests still pass
-- All fixes committed with messages referencing the Beads task ID
+The `sample()` function (around line 232) *correctly* computes:
+```cpp
+s.wi = rec.normal * (2 * wo.dot(rec.normal)) - wo;
+```
+but `eval()` has the negated form, causing every evaluation to return
+black.
+
+### Fix
+**File: `include/raytracer.h`**, `Metal::eval()`:
+```cpp
+// BEFORE (wrong sign — computes −wi)
+Vec3 perfectRefl = wo - rec.normal * (2 * wo.dot(rec.normal));
+
+// AFTER (correct reflection: 2(wo·n)n − wo)
+Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
+```
+
+### Test verification
+Add a dedicated test or extend `test_metal_render`:
+```python
+# Metal with roughness=0 (mirror) must NOT be black
+mat = r.create_material('metal', [0.9, 0.9, 0.9], {'roughness': 0.0})
+r.add_sphere([0, -0.5, 0], 1.0, mat)
+# ...render...
+assert np.mean(pixels) > 0.10, \
+    "Smooth metal rendered black — Metal::eval reflection sign bug"
+```
+Also assert in `test_material_comparison_grid` that the "Metal Smooth"
+tile mean brightness exceeds 0.10.
+
+---
+
+## Bug 3 — Middle sphere overexposure / glow (double-cosine in NEE)
+
+### Symptom
+In the Cornell box scene the Disney BRDF sphere (and to a lesser
+extent all diffuse surfaces) appear severely overexposed. Direct
+illumination is systematically too large.
+
+### Root cause
+`include/raytracer.h`, `Renderer::sampleDirect()`, around line 714
+(NEE / light-sampling branch):
+```cpp
+direct += f * ls.emission * std::abs(wi.dot(rec.normal)) * wt / (ls.pdf + 0.001f);
+```
+`f` is the return value of `rec.material->eval(rec, wo, wi)`.
+**Every material's `eval()` already multiplies by `NdotL`** (the
+cosine factor). Multiplying by `std::abs(wi.dot(rec.normal))` a
+second time double-counts the cosine, making the NEE contribution
+scale as `NdotL²` instead of the physically correct `NdotL`.
+
+For the bright Cornell box light (intensity 15) this causes
+systematic ≈2× overexposure at direct angles. The effect is most
+visible on the Disney BRDF sphere because its high-frequency specular
+lobe makes it the brightest surface in the scene.
+
+The BSDF-sampling branch of `sampleDirect` (around line 724)
+correctly omits the extra cosine factor:
+```cpp
+direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
+```
+This confirms the convention: `eval()` returns `brdf × cos(θ)`.
+
+### Fix
+**File: `include/raytracer.h`**, `Renderer::sampleDirect()`:
+```cpp
+// BEFORE (double-cosine — NdotL applied twice)
+direct += f * ls.emission * std::abs(wi.dot(rec.normal)) * wt / (ls.pdf + 0.001f);
+
+// AFTER (eval already contains NdotL — remove the redundant factor)
+direct += f * ls.emission * wt / (ls.pdf + 0.001f);
+```
+
+### Test verification
+Add to `test_cornell_box`:
+```python
+# No region of the Cornell box should be blown out
+overall_mean = float(np.mean(pixels))
+assert overall_mean < 0.75, \
+    f"Cornell box overexposed (mean={overall_mean:.3f}); likely double-cosine in NEE"
+```
+
+---
+
+## Acceptance Criteria (all bugs)
+
+After applying all three fixes and rebuilding:
+
+1. `pytest tests/ -x -q` passes all existing 28 tests.
+2. New orientation assertion passes: top 25 % of Cornell box image
+   is brighter than bottom 25 %.
+3. New metal assertion passes: Metal Smooth mean > 0.10.
+4. New overexposure assertion passes: Cornell box mean < 0.75.
+5. Visual inspection of saved PNGs in `test_results/` confirms:
+   - Spheres sit on the floor, light rectangle visible at top.
+   - "Metal Smooth" tile is silver/mirror-like, not black.
+   - Cornell box has balanced, non-blown-out illumination.
+
+---
+
+## Files to Modify
+
+| File | What changes |
+|------|-------------|
+| `include/raytracer.h` | 3 edits: flip `v` in render loop; fix `Metal::eval` sign; remove extra cosine in `sampleDirect` |
+| `apps/main.cpp` | 2 edits: change y-loop direction in `writePPM` and `writePNG` |
+| `tests/test_python_bindings.py` | Add orientation + overexposure + metal brightness assertions |
+| `tests/test_standalone_renderer.py` | Add orientation assertion to `test_cornell_box_scene` |
+
+No changes required to `module/blender_module.cpp` or
+`include/advanced_features.h`.
+
+---
+
+## Non-goals
+
+- Do not change the Disney BRDF energy-conservation reductions
+  (0.8× Fresnel, 0.5× sheen/clearcoat) — these are intentional.
+- Do not change the throughput firefly clamp (10×).
+- Do not refactor the material interface or rendering pipeline
+  beyond the four targeted file edits listed above.
+- Do not modify test files except to add the new assertions listed
+  in each bug's "Test verification" section.

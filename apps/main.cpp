@@ -9,7 +9,7 @@
 void writePPM(const std::string& filename, const Camera& cam) {
     std::ofstream file(filename, std::ios::binary);
     file << "P6\n" << cam.width << " " << cam.height << "\n255\n";
-    for (int y = cam.height - 1; y >= 0; --y) {
+    for (int y = 0; y < cam.height; ++y) {
         for (int x = 0; x < cam.width; ++x) {
             Vec3 color = cam.pixels[y * cam.width + x];
             unsigned char pixel[3] = {
@@ -26,7 +26,7 @@ void writePPM(const std::string& filename, const Camera& cam) {
 bool writePNG(const std::string& filename, const Camera& cam) {
     std::vector<unsigned char> pixels(cam.width * cam.height * 3);
     int idx = 0;
-    for (int y = cam.height - 1; y >= 0; --y) {
+    for (int y = 0; y < cam.height; ++y) {
         for (int x = 0; x < cam.width; ++x) {
             Vec3 color = cam.pixels[y * cam.width + x];
             pixels[idx++] = static_cast<unsigned char>(255.99f * color.x);

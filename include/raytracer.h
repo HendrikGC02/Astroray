@@ -205,7 +205,7 @@ public:
     
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
         if (roughness < 0.01f) {
-            Vec3 perfectRefl = wo - rec.normal * (2 * wo.dot(rec.normal));
+            Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             float deviation = (wi - perfectRefl).length();
             return (deviation < 0.1f) ? albedo * std::exp(-deviation * 100.0f) : Vec3(0);
         }
@@ -711,7 +711,7 @@ class Renderer {
                 Vec3 f = rec.material->eval(rec, wo, wi);
                 float bsdfPdf = rec.material->pdf(rec, wo, wi);
                 float wt = powerHeuristic(ls.pdf, bsdfPdf);
-                direct += f * ls.emission * std::abs(wi.dot(rec.normal)) * wt / (ls.pdf + 0.001f);
+                direct += f * ls.emission * wt / (ls.pdf + 0.001f);
             }
         }
         BSDFSample bs = rec.material->sample(rec, wo, gen);
@@ -801,7 +801,7 @@ public:
                         
                         for (int s = 0; s < maxSamples; ++s) {
                             float u = (x + dist(gen)) / (cam.width - 1);
-                            float v = (y + dist(gen)) / (cam.height - 1);
+                            float v = 1.0f - (y + dist(gen)) / (cam.height - 1);
                             Vec3 sAlb, sNorm;
                             Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr);
                             color += sCol;

@@ -33,12 +33,11 @@ VLLM_BASE_URL="http://localhost:8080/v1"
 MODEL_ID="QuantTrio/Qwen3.5-35B-A3B-AWQ"
 
 # The test command to run after each code generation attempt.
-# Change this to match your project's test runner (pytest, cargo test, npm test…)
-TEST_CMD="${TEST_CMD:-python -m pytest tests/ -x -q --tb=short}"
+# Build the C++ project first, then run pytest.
+TEST_CMD="${TEST_CMD:-cmake --build build --parallel $(nproc) && python -m pytest tests/ -x -q --tb=short}"
 
 # Aider will be given these files as context in addition to auto-detected ones.
-# Separate multiple files with spaces, e.g. "src/main.py src/utils.py"
-WATCH_FILES="${WATCH_FILES:-}"
+WATCH_FILES="${WATCH_FILES:-include/raytracer.h include/advanced_features.h apps/main.cpp module/blender_module.cpp}"
 
 # Maximum consecutive failures before Ralph gives up on the current task
 MAX_FAILURES=5
@@ -47,7 +46,7 @@ MAX_FAILURES=5
 VLLM_CHECK_TIMEOUT=10
 
 # Beads task prefix for this project (keeps issue IDs short and readable)
-BD_PREFIX="${BD_PREFIX:-rl}"
+BD_PREFIX="${BD_PREFIX:-Astroray}"
 
 # Git branch prefix for task branches
 GIT_BRANCH_PREFIX="ralph/"

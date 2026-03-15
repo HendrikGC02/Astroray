@@ -90,7 +90,7 @@ void buildMaterialTest(Renderer& renderer) {
 }
 
 int main(int argc, char* argv[]) {
-    int scene = 1, width = 800, height = 600, samples = 64, depth = 50;
+    int scene = 1, width = 800, height = 600, samples = 64, depth = 8;
     std::string output = "output.ppm";
     
     for (int i = 1; i < argc; i++) {

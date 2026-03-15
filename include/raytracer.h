@@ -804,6 +804,10 @@ public:
                             float v = 1.0f - (y + dist(gen)) / (cam.height - 1);
                             Vec3 sAlb, sNorm;
                             Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr);
+                            // Per-sample contribution clamp: prevents a single caustic spike from
+                            // dominating a pixel when sample count is low (firefly suppression)
+                            float sLum = luminance(sCol);
+                            if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
                             color += sCol;
                             samples++;
                             if (s == 0) { albedo = sAlb; normal = sNorm; }

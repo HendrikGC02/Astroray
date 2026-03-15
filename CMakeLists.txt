@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Options
+option(BUILD_PYTHON_MODULE "Build Python module for Jupyter notebooks" ON)
 option(BUILD_BLENDER_MODULE "Build as Blender Python module" OFF)
 option(BUILD_TESTS "Build test suite" OFF)
 option(BUILD_DOCS "Build documentation" OFF)
@@ -87,6 +88,52 @@ set_target_properties(raytracer_standalone PROPERTIES
     OUTPUT_NAME raytracer
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
+
+# Build Python module for Jupyter notebooks
+if(BUILD_PYTHON_MODULE)
+    # Find Python and pybind11
+    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+    
+    # Try to find pybind11
+    find_package(pybind11 CONFIG)
+    if(NOT pybind11_FOUND)
+        message(STATUS "pybind11 not found, fetching from GitHub...")
+        include(FetchContent)
+        FetchContent_Declare(
+            pybind11
+            GIT_REPOSITORY https://github.com/pybind/pybind11.git
+            GIT_TAG v2.11.1
+        )
+        FetchContent_MakeAvailable(pybind11)
+    endif()
+    
+    # Python module for Jupyter notebooks
+    pybind11_add_module(astroray 
+        module/blender_module.cpp
+        ${HEADERS}
+    )
+    
+    # Rename module to 'astroray' in Python (so it's importable as 'import astroray')
+    set_target_properties(astroray PROPERTIES
+        OUTPUT_NAME astroray
+    )
+    
+    target_link_libraries(astroray PRIVATE
+        raytracer_core
+        stb_image_write_lib
+    )
+    
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(astroray PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    
+    # Set properties for Python module
+    set_target_properties(astroray PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        OUTPUT_NAME astroray
+        SUFFIX ".pyd"
+    )
+endif()
 
 # Build Blender module if requested
 if(BUILD_BLENDER_MODULE)
@@ -192,6 +239,11 @@ message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}")
 message(STATUS "OpenMP: ${OpenMP_CXX_FOUND}")
 message(STATUS "Native arch: ${USE_NATIVE_ARCH}")
 message(STATUS "Fast math: ${USE_FAST_MATH}")
+message(STATUS "Python module: ${BUILD_PYTHON_MODULE}")
+if(BUILD_PYTHON_MODULE)
+    message(STATUS "  Python: ${Python3_VERSION}")
+    message(STATUS "  pybind11: ${pybind11_FOUND}")
+endif()
 message(STATUS "Blender module: ${BUILD_BLENDER_MODULE}")
 if(BUILD_BLENDER_MODULE)
     message(STATUS "  Python: ${Python3_VERSION}")

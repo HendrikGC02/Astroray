@@ -1,4 +1,0 @@
-C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray/CMakeFiles/raytracer_standalone.dir
-C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray/CMakeFiles/INSTALL.dir
-C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray/CMakeFiles/ALL_BUILD.dir
-C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray/CMakeFiles/ZERO_CHECK.dir

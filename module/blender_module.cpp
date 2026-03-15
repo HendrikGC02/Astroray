@@ -219,8 +219,8 @@ public:
     int getHeight() const { return camera ? camera->height : 0; }
 };
 
-PYBIND11_MODULE(raytracer_blender, m) {
-    m.doc() = "Path Tracer for Blender 5.0 - NEE, MIS, Disney BRDF";
+PYBIND11_MODULE(astroray, m) {
+    m.doc() = "Astroray - Physically Based Path Tracer";
     py::class_<PyRenderer>(m, "Renderer")
         .def(py::init<>())
         .def("load_texture", &PyRenderer::loadTexture, "name"_a, "image_data"_a, "width"_a, "height"_a)

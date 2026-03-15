@@ -46,6 +46,7 @@ Astroray/
 - CMake 3.14+
 - C++17 compatible compiler (GCC 9+, Clang 10+, MSVC 2019+)
 - OpenMP (optional, for parallel rendering)
+- Python 3.7+ (for Blender addon)
 
 ### Build Steps
 
@@ -73,15 +74,14 @@ cmake --build . --config Release
 ### Building Blender Addon
 
 ```bash
-# Find Python installation
-python -c "import sys; print(sys.prefix)"
-
 # Configure with Blender addon enabled
 cmake .. -DCMAKE_BUILD_TYPE=Release -DASTRORAY_BUILD_BLENDER=ON -DPYTHON_EXECUTABLE=python
 
 # Build
 cmake --build . --config Release
 ```
+
+The Python module `astroray.pyd` will be generated in `build/Release/`.
 
 ## Usage
 
@@ -106,6 +106,40 @@ cmake --build . --config Release
 | `--depth N` | Maximum ray recursion depth | 10 |
 | `--output FILE` | Output PNG filename | output.png |
 
+### Python API
+
+The Python module `astroray` can be imported after building:
+
+```python
+import sys
+sys.path.insert(0, 'build/Release')
+import astroray
+
+# Create renderer
+renderer = astroray.Renderer()
+
+# Setup camera
+renderer.setup_camera(
+    look_from=[0, 0, 5],
+    look_at=[0, 0, 0],
+    vup=[0, 1, 0],
+    vfov=60,
+    aspect_ratio=1.0,
+    aperture=0,
+    focus_dist=10
+)
+
+# Add a sphere
+sphere_material = renderer.create_material('disney', [1, 0.2, 0.2], {
+    'roughness': 0.1,
+    'metallic': 0
+})
+renderer.add_sphere([0, 0, -1], 1.0, sphere_material)
+
+# Render
+pixels = renderer.render(samples=100, max_bounces=8)
+```
+
 ### Blender Integration
 
 1. Build the Blender addon:
@@ -116,7 +150,7 @@ cmake --build . --config Release
 
 2. Copy `blender_addon` folder to Blender's scripts/addons directory
 
-3. In Blender: Enable "Astroray" addon in Preferences > Add-ons
+3. In Blender: Enable "Custom Raytracer Pro" addon in Preferences > Add-ons
 
 ## Domain Context
 

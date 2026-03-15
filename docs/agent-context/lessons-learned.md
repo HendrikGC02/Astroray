@@ -54,3 +54,10 @@
 2026-03-15 | pybind11 | Array return shape for 3D data | Returning multi-dimensional numpy arrays from C++ requires explicit shape specification using `py::ssize_t shape[3]` for each dimension. Simply returning `py::array_t<float>` with a flat size calculation loses the dimensional structure. The fix is to declare the shape array and pass it to `py::array_t<float>(shape)`, then copy data using index arithmetic (e.g., `ptr[i*3]`, `ptr[i*3+1]`, `ptr[i*3+2]`) for the color channels. This pattern is essential for image buffers where (height, width, 3) layout is expected.
 
 
+- [testing] Tests that use `return condition` instead of `assert condition`
+  always pass silently. Always verify test files use assert statements.
+  Run `grep -n "return True\|return False\|return result" tests/` to check.
+- [rendering] PNG output requires gamma correction (pow(x, 1/2.2)) applied
+  once at final pixel write. Without it, bright areas blow out to white.
+- [rendering] Blocky brightness artifacts usually indicate shared/correlated
+  RNG state between image regions — each pixel needs independent seeding.

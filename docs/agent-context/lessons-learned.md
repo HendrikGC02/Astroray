@@ -85,3 +85,23 @@
 ---
 
 2026-03-15 | matplotlib | Non-interactive backend required in tests | Calling `matplotlib.use('Agg')` must happen before any other matplotlib imports (including pyplot) when running under pytest. Without it, matplotlib tries to connect to a display, which fails in headless environments. Set this at the top of base_helpers.py and any test file that uses matplotlib.
+
+---
+
+2026-03-15 | rendering | max_depth mismatch causes catastrophic fireflies | The standalone app defaulted to depth=50 while the Python test helper (base_helpers.render_image) uses max_depth=8. With a glass sphere in the scene, depth=50 creates runaway near-TIR refraction paths: throughput gets clamped to 10× per bounce, Russian Roulette survival stays at 95% for bright paths, so 50-bounce caustic paths dominate every pixel at low sample counts. Fix: set standalone default to depth=8 and add a per-sample luminance clamp (e.g. 20.0) in the render loop before accumulation. Always keep max_depth consistent between standalone and Python bindings.
+
+---
+
+2026-03-15 | rendering | Metal::eval() reflection sign bug | Metal::eval() used `wo - 2*(wo·n)*n` which equals `-wi` (negative of correct reflection). Deviation from sampled wi was always ~2, far above 0.1 threshold, so eval() always returned Vec3(0). The correct formula is `2*(wo·n)*n - wo`. sample() was already correct; only eval() was wrong.
+
+---
+
+2026-03-15 | rendering | Near-zero roughness GGX collapses numerically | For roughness < ~0.08, the +0.001f epsilon guard in the GGX D formula completely dominates the alpha term, making D/pdf ≈ 0. This renders near-mirror Metal and Disney BRDF materials completely black even though sample() generates the correct specular direction. Fix for Metal: raise the delta-path threshold from 0.01 to 0.08 so roughness < 0.08 uses the clean perfect-mirror path. Fix for DisneyBRDF: clamp the specular alpha to min 0.0064 (equiv. roughness 0.08) in both eval() and sample() so the GGX lobe remains numerically stable.
+
+---
+
+2026-03-15 | rendering | NEE double-cosine overexposes direct lighting | All material eval() functions return brdf * NdotL (cosine already included). The NEE branch of sampleDirect() was additionally multiplying by abs(wi·normal), causing a double-cosine: contribution scaled as NdotL² instead of NdotL. With a bright light (intensity 15) this caused systematic 2× overexposure, worst on specular surfaces. Fix: remove the redundant `* std::abs(wi.dot(rec.normal))` from the NEE accumulation line. The BSDF-sampling branch correctly omits this factor and serves as a reference for the expected convention.
+
+---
+
+2026-03-15 | rendering | Upside-down images in Python module | The render loop stored row y=0 at the bottom of the scene (v = y/(height-1) = 0 → lowerLeft). The Python module returned pixels in forward order so NumPy/matplotlib displayed the scene flipped. Fix: change the render loop to `v = 1 - y/(height-1)` so row 0 = top of scene. Also update standalone writePPM/writePNG to iterate y forward (0 to height-1) instead of the previous reverse-order compensating flip.

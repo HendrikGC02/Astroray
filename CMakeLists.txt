@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
 project(CustomRaytracer VERSION 3.0 LANGUAGES CXX)
 
+# Windows-specific options
+option(WIN32_STANDALONE "Build standalone executable (Windows console app)" ON)
+
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -72,7 +75,12 @@ set_target_properties(stb_image_write_lib PROPERTIES
 )
 
 # Standalone executable
-add_executable(raytracer_standalone ${SOURCES} ${HEADERS})
+if(WIN32 AND WIN32_STANDALONE)
+    # Windows console application
+    add_executable(raytracer_standalone WIN32 ${SOURCES} ${HEADERS})
+else()
+    add_executable(raytracer_standalone ${SOURCES} ${HEADERS})
+endif()
 
 target_link_libraries(raytracer_standalone PRIVATE
     raytracer_core
@@ -83,11 +91,18 @@ if(OpenMP_CXX_FOUND)
     target_link_libraries(raytracer_standalone PRIVATE OpenMP::OpenMP_CXX)
 endif()
 
-# Set output name
+# Set output name and configuration-specific properties
 set_target_properties(raytracer_standalone PROPERTIES
     OUTPUT_NAME raytracer
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
+
+# Ensure consistent output on Windows
+if(WIN32)
+    set_target_properties(raytracer_standalone PROPERTIES
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+endif()
 
 # Build Python module for Jupyter notebooks
 if(BUILD_PYTHON_MODULE)
@@ -133,6 +148,8 @@ if(BUILD_PYTHON_MODULE)
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
         OUTPUT_NAME astroray
+        # On Windows, ensure the module is built as a shared library
+        POSITION_INDEPENDENT_CODE ON
     )
 endif()
 

@@ -1,13 +1,34 @@
+# Build directories
 build/
+Release/
+Debug/
+x64/
+CMakeFiles/
+ALL_BUILD.dir/
+INSTALL.dir/
+raytracer_standalone.dir/
+astroray.dir/
+stb_image_write_lib.dir/
+ZERO_CHECK.dir/
+CMakeCache.txt
+cmake_install.cmake
+
+# Dependencies
 _deps/
+
+# Test outputs
 test_results/
+tests/output/
+
+# Media outputs
 output.ppm
 output.png
 *.ppm
+
 # Dolt database files
 .dolt/
 *.db
-tests/output/
+
 # Python
 **/__pycache__/
 *.pyc
@@ -16,11 +37,12 @@ tests/output/
 *.pyd
 *.egg-info/
 *.egg/
+build/astroray.*
+
 # C/C++
 *.a
 *.lib
 *.dll
-*.so
 *.dylib
 *.exe
 *.obj
@@ -30,40 +52,30 @@ tests/output/
 *.exp
 *.log
 *.tmp
+
+# Editor/IDE
 *.swp
 *.swo
 *~
-# Visual Studio
-*.sln
-*.vcxproj
-*.vcxproj.filters
-*.vcxproj.user
-*.sln.ide
-*.sln.nuget
-*.sln.startup
-*.sln.local
+
+# Visual Studio generated files (but not project files, which are checked in)
+*.sln.ide/
 *.sln.docstates
-*.vcproj
-*.vcproj.filters
+*.sln.nuget.config
+*.vs/
 *.vssettings
 *.vshost.exe
 *.vshost.exe.config
 *.vshost.exe.manifest
 *.suo
-*.vs/
 *.user
 *.userprefs
-*.unproj
-*.cache
-*.nupkg
-*.snupkg
-*.userosscache
-*.localsettings
-*.local.test
-*.test
-*.testsettings
-*.testrunconfig
-*.testhost
-*.testprofile
-*.xml
-*.config
+*.cache/
+.vs/
+
+# Visual Studio intermediate build files
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.log

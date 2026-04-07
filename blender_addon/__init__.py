@@ -32,6 +32,8 @@ class CustomRaytracerRenderSettings(PropertyGroup):
     use_adaptive_sampling: BoolProperty(name="Adaptive Sampling", default=True)
     adaptive_threshold: FloatProperty(name="Noise Threshold", min=0.001, max=1.0, default=0.01)
     clamp_indirect: FloatProperty(name="Clamp Indirect", min=0.0, max=100.0, default=10.0)
+    use_gpu: BoolProperty(name="Use GPU", default=False,
+        description="Use CUDA GPU for rendering (requires NVIDIA GPU)")
 
 class CustomRaytracerMaterialSettings(PropertyGroup):
     use_disney: BoolProperty(name="Use Disney BRDF", default=True)
@@ -65,12 +67,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer = astroray.Renderer()
             renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
             self.convert_scene(depsgraph, renderer, width, height)
-            
+
+            if settings.use_gpu:
+                try:
+                    renderer.set_use_gpu(True)
+                    print(f"GPU rendering: {renderer.gpu_device_name}")
+                except Exception as e:
+                    print(f"GPU not available, falling back to CPU: {e}")
+
             def progress_callback(value):
                 if self.test_break(): return False
                 self.update_progress(value)
                 return True
-            
+
             start_time = time.time()
             pixels = renderer.render(settings.samples, settings.max_bounces, progress_callback)
             print(f"Render completed in {time.time() - start_time:.2f}s")
@@ -292,6 +301,17 @@ class RENDER_PT_custom_raytracer_sampling(Panel):
         col.separator()
         col.prop(settings, "use_adaptive_sampling")
         if settings.use_adaptive_sampling: col.prop(settings, "adaptive_threshold")
+        col.separator()
+        col.prop(settings, "use_gpu")
+        if RAYTRACER_AVAILABLE and hasattr(astroray.Renderer(), 'gpu_available'):
+            try:
+                r = astroray.Renderer()
+                if r.gpu_available:
+                    col.label(text=f"GPU: {r.gpu_device_name}", icon='CHECKMARK')
+                else:
+                    col.label(text="No CUDA GPU detected", icon='INFO')
+            except Exception:
+                pass
 
 class RENDER_PT_custom_raytracer_light_paths(Panel):
     bl_label = "Light Paths"

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.18)
 project(CustomRaytracer VERSION 3.0 LANGUAGES CXX)
 
 # Windows-specific options
@@ -16,6 +16,29 @@ option(BUILD_TESTS "Build test suite" OFF)
 option(BUILD_DOCS "Build documentation" OFF)
 option(USE_NATIVE_ARCH "Build with -march=native" ON)
 option(USE_FAST_MATH "Enable fast math optimizations" ON)
+option(ASTRORAY_ENABLE_CUDA "Enable CUDA GPU acceleration" ON)
+
+# ---------------------------------------------------------------------------
+# CUDA detection (graceful fallback when toolkit not installed)
+# ---------------------------------------------------------------------------
+if(ASTRORAY_ENABLE_CUDA)
+    include(CheckLanguage)
+    check_language(CUDA)
+    if(CMAKE_CUDA_COMPILER)
+        enable_language(CUDA)
+        find_package(CUDAToolkit REQUIRED)
+        # Turing (75), Ampere (86), Ada Lovelace (89)
+        set(CMAKE_CUDA_ARCHITECTURES "75;86;89")
+        set(ASTRORAY_CUDA_FOUND TRUE)
+        message(STATUS "CUDA found: ${CMAKE_CUDA_COMPILER}")
+    else()
+        set(ASTRORAY_CUDA_FOUND FALSE)
+        message(STATUS "CUDA not found — GPU acceleration disabled")
+    endif()
+else()
+    set(ASTRORAY_CUDA_FOUND FALSE)
+    message(STATUS "CUDA disabled via ASTRORAY_ENABLE_CUDA=OFF")
+endif()
 
 # Compiler flags for optimization
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -82,6 +105,29 @@ set_target_properties(stb_impl PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
+# ---------------------------------------------------------------------------
+# CUDA static library (compiled by nvcc, exposes pure-C++ CUDARenderer)
+# ---------------------------------------------------------------------------
+if(ASTRORAY_CUDA_FOUND)
+    add_library(astroray_cuda STATIC
+        src/gpu/cuda_renderer.cu
+        src/gpu/path_trace_kernel.cu
+        src/gpu/scene_upload.cu
+    )
+    target_include_directories(astroray_cuda PUBLIC ${CMAKE_SOURCE_DIR}/include)
+    target_compile_options(astroray_cuda PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --expt-relaxed-constexpr -O3>
+    )
+    set_target_properties(astroray_cuda PROPERTIES
+        CUDA_SEPARABLE_COMPILATION ON
+        POSITION_INDEPENDENT_CODE ON
+        CUDA_RESOLVE_DEVICE_SYMBOLS ON
+        CXX_STANDARD 17
+        CUDA_STANDARD 17
+    )
+    target_link_libraries(astroray_cuda PRIVATE CUDA::curand)
+endif()
+
 # Standalone executable
 if(WIN32 AND WIN32_STANDALONE)
     # Windows console application
@@ -98,6 +144,11 @@ target_link_libraries(raytracer_standalone PRIVATE
 
 if(OpenMP_CXX_FOUND)
     target_link_libraries(raytracer_standalone PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+if(ASTRORAY_CUDA_FOUND)
+    target_link_libraries(raytracer_standalone PRIVATE astroray_cuda)
+    target_compile_definitions(raytracer_standalone PRIVATE ASTRORAY_CUDA_ENABLED)
 endif()
 
 # Set output name and configuration-specific properties
@@ -147,11 +198,16 @@ if(BUILD_PYTHON_MODULE)
         stb_image_write_lib
         stb_impl
     )
-    
+
     if(OpenMP_CXX_FOUND)
         target_link_libraries(astroray PRIVATE OpenMP::OpenMP_CXX)
     endif()
-    
+
+    if(ASTRORAY_CUDA_FOUND)
+        target_link_libraries(astroray PRIVATE astroray_cuda)
+        target_compile_definitions(astroray PRIVATE ASTRORAY_CUDA_ENABLED)
+    endif()
+
     # Set output directory to CMAKE_BINARY_DIR for both Windows and Linux
     # pybind11_add_module automatically handles .pyd on Windows and .so on Linux
     set_target_properties(astroray PROPERTIES
@@ -266,6 +322,7 @@ message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}")
 message(STATUS "OpenMP: ${OpenMP_CXX_FOUND}")
 message(STATUS "Native arch: ${USE_NATIVE_ARCH}")
 message(STATUS "Fast math: ${USE_FAST_MATH}")
+message(STATUS "CUDA GPU backend: ${ASTRORAY_CUDA_FOUND}")
 message(STATUS "Python module: ${BUILD_PYTHON_MODULE}")
 if(BUILD_PYTHON_MODULE)
     message(STATUS "  Python: ${Python3_VERSION}")

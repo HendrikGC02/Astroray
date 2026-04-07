@@ -169,7 +169,7 @@ class Lambertian : public Material {
     Vec3 albedo;
 public:
     Lambertian(const Vec3& a) : albedo(a) {}
-    Vec3 getAlbedo() const { return albedo; }
+    Vec3  getAlbedo()    const { return albedo; }
     
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
         return (wi.dot(rec.normal) <= 0) ? Vec3(0) : albedo / M_PI * wi.dot(rec.normal);
@@ -203,6 +203,8 @@ class Metal : public Material {
     
 public:
     Metal(const Vec3& a, float r = 0) : albedo(a), roughness(std::clamp(r, 0.001f, 1.0f)) {}
+    Vec3  getAlbedo()    const { return albedo; }
+    float getRoughness() const { return roughness; }
     
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
         if (roughness < 0.08f) {
@@ -293,6 +295,7 @@ class Dielectric : public Material {
     
 public:
     Dielectric(float indexOfRefraction) : ior(indexOfRefraction) {}
+    float getIOR() const { return ior; }
     
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
@@ -333,7 +336,9 @@ class DiffuseLight : public Material {
 public:
     DiffuseLight(const Vec3& c, float i = 1.0f) : color(c), intensity(i) {}
     Vec3 emitted(const HitRecord& rec) const override { return rec.frontFace ? color * intensity : Vec3(0); }
-    Vec3 getEmission() const { return color * intensity; }
+    Vec3  getEmission()  const { return color * intensity; }
+    Vec3  getColor()     const { return color; }
+    float getIntensity() const { return intensity; }
 };
 
 // ============================================================================
@@ -405,6 +410,10 @@ public:
         if (auto l = dynamic_cast<DiffuseLight*>(material.get())) return l->getEmission();
         return Vec3(0);
     }
+    // Accessors for GPU upload
+    Vec3  getCenter()   const { return center; }
+    float getRadius()   const { return radius; }
+    const std::shared_ptr<Material>& getMaterial() const { return material; }
 };
 
 class Triangle : public Hittable {
@@ -475,6 +484,12 @@ public:
         if (auto l = dynamic_cast<DiffuseLight*>(material.get())) return l->getEmission();
         return Vec3(0);
     }
+    // Accessors for GPU upload
+    Vec3 getV0() const { return v0; }
+    Vec3 getV1() const { return v1; }
+    Vec3 getV2() const { return v2; }
+    Vec3 getFaceNormal() const { return normal; }
+    const std::shared_ptr<Material>& getMaterial() const { return material; }
 };
 
 // ============================================================================
@@ -606,6 +621,10 @@ public:
     }
     
     bool boundingBox(AABB& box) const override { if (!nodes.empty()) box = nodes[0].bounds; return !nodes.empty(); }
+
+    // Accessors for scene_upload.cu — read the flat BVH and ordered primitive list
+    const std::vector<LinearBVHNode>& getNodes() const { return nodes; }
+    const std::vector<std::shared_ptr<Hittable>>& getPrimitives() const { return primitives; }
 };
 
 // ============================================================================
@@ -655,6 +674,11 @@ public:
     }
     
     bool empty() const { return lights.empty(); }
+
+    // Accessors for scene_upload.cu
+    const std::vector<std::shared_ptr<Hittable>>& getLights() const { return lights; }
+    const std::vector<float>& getPowerDist() const { return powerDist; }
+    float getTotalPower() const { return totalPower; }
 };
 
 class EnvironmentMap {
@@ -906,9 +930,21 @@ public:
         
         float pdfUV = funcValue * width * height / (totalPower + 1e-10f);
         float solidAnglePdf = pdfUV / (2.0f * M_PI * M_PI * sinTheta);
-        
+
         return solidAnglePdf;
     }
+
+    // Accessors for CUDARenderer / scene_upload.cu
+    const std::vector<float>& getData()            const { return data; }
+    const std::vector<float>& getConditionalCdf()  const { return conditionalCdf; }
+    const std::vector<float>& getConditionalFunc() const { return conditionalFunc; }
+    const std::vector<float>& getMarginalCdf()     const { return marginalCdf; }
+    const std::vector<float>& getMarginalFunc()    const { return marginalFunc; }
+    int   getWidth()      const { return width; }
+    int   getHeight()     const { return height; }
+    float getStrength()   const { return strength; }
+    float getRotation()   const { return rotation; }
+    float getTotalPower() const { return totalPower; }
 };
 
 // ============================================================================
@@ -945,6 +981,15 @@ public:
         Vec3 offset = u * rd.x + v * rd.y;
         return Ray(origin + offset, lowerLeft + horizontal * s + vertical * t - origin - offset);
     }
+
+    // Accessors for CUDARenderer / scene_upload.cu
+    Vec3 getOrigin()     const { return origin; }
+    Vec3 getLowerLeft()  const { return lowerLeft; }
+    Vec3 getHorizontal() const { return horizontal; }
+    Vec3 getVertical()   const { return vertical; }
+    Vec3 getU()          const { return u; }
+    Vec3 getV()          const { return v; }
+    float getLensRadius() const { return lensRadius; }
 };
 
 // ============================================================================
@@ -1105,7 +1150,14 @@ public:
     }
     
     void buildAcceleration() { bvh = std::make_shared<BVHAccel>(scene); }
-    
+
+    // Accessors for CUDARenderer (scene_upload.cu reads these to upload scene to GPU)
+    const std::vector<std::shared_ptr<Hittable>>& getScene() const { return scene; }
+    const std::shared_ptr<BVHAccel>& getBVH() const { return bvh; }
+    const LightList& getLights() const { return lights; }
+    const std::shared_ptr<EnvironmentMap>& getEnvironmentMap() const { return envMap; }
+    const Vec3& getBackgroundColor() const { return backgroundColor; }
+
 void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)> progress = nullptr, bool adaptive = true) {
         buildAcceleration();
         std::atomic<int> tilesCompleted{0};

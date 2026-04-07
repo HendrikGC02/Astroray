@@ -45,6 +45,22 @@ public:
     void setClearcoat(float coat, float gloss) { clearcoat = coat; clearcoatGloss = gloss; }
     void setSheen(float s, float tint) { sheen = s; sheenTint = tint; }
     void setSubsurface(float ss) { subsurface = ss; }
+
+    // Accessors for GPU upload
+    Vec3  getBaseColor()          const { return baseColor; }
+    float getRoughness()          const { return roughness; }
+    float getMetallic()           const { return metallic; }
+    float getIOR()                const { return ior; }
+    float getTransmission()       const { return transmission; }
+    float getClearcoat()          const { return clearcoat; }
+    float getClearcoatGloss()     const { return clearcoatGloss; }
+    float getSpecular()           const { return specular; }
+    float getSpecularTint()       const { return specularTint; }
+    float getSheen()              const { return sheen; }
+    float getSheenTint()          const { return sheenTint; }
+    float getSubsurface()         const { return subsurface; }
+    float getAnisotropic()        const { return anisotropic; }
+    float getAnisotropicRotation() const { return anisotropicRotation; }
     
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
         Vec3 N = rec.normal;

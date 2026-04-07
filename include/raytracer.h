@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
+#include "stb_image.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -656,6 +657,260 @@ public:
     bool empty() const { return lights.empty(); }
 };
 
+class EnvironmentMap {
+    std::vector<float> data;     // RGB interleaved: data[3*(y*width+x) + channel]
+    int width = 0, height = 0;
+    float strength = 1.0f;       // radiance multiplier
+    float rotation = 0.0f;       // horizontal rotation in radians
+    
+    // CDF data for importance sampling
+    std::vector<float> conditionalCdf;  // size: width * height (CDF per row)
+    std::vector<float> conditionalFunc; // size: width * height (un-normalized PDF per row)
+    std::vector<float> marginalCdf;     // size: height
+    std::vector<float> marginalFunc;    // size: height (row totals)
+    float totalPower = 0.0f;
+
+public:
+    bool loaded() const { return !data.empty(); }
+
+    bool load(const std::string& path, float str = 1.0f, float rot = 0.0f) {
+        int channels = 0;
+        float* rawData = (float*)stbi_loadf(path.c_str(), &width, &height, &channels, 3);
+        if (!rawData) {
+            printf("Failed to load environment map: %s\n", path.c_str());
+            return false;
+        }
+        
+        data.resize(static_cast<size_t>(width) * height * 3);
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                int srcIdx = (y * width + x) * 3;
+                int dstIdx = ((height - 1 - y) * width + x) * 3;  // Flip vertically
+                data[dstIdx + 0] = rawData[srcIdx + 0];
+                data[dstIdx + 1] = rawData[srcIdx + 1];
+                data[dstIdx + 2] = rawData[srcIdx + 2];
+            }
+        }
+        
+        stbi_image_free(rawData);
+        strength = str;
+        rotation = rot;
+        printf("Loaded environment map: %s (%dx%d)\n", path.c_str(), width, height);
+        buildCdf();
+        return true;
+    }
+    
+    Vec3 lookup(const Vec3& direction) const {
+        if (width == 0 || height == 0) return Vec3(0);
+        
+        // Convert direction to equirectangular (u, v) coordinates:
+        float theta = std::acos(std::clamp(direction.y, -1.0f, 1.0f)); // polar, 0=up
+        float phi = std::atan2(direction.z, direction.x);                // azimuthal
+        phi += rotation;  // apply horizontal rotation
+        float u = 0.5f + phi / (2.0f * M_PI);  // [0, 1]
+        float v = 1.0f - theta / M_PI;          // [0, 1], flipped: y=+1 (up) → row height-1
+
+        // Wrap u to [0,1] range
+        if (u < 0) u += 1.0f;
+        if (u >= 1.0f) u -= 1.0f;
+        
+        // Convert to pixel coordinates
+        float uPixel = u * width;
+        float vPixel = v * height;
+        
+        // Get integer coordinates
+        int x0 = static_cast<int>(uPixel);
+        int x1 = x0 + 1;
+        int y0 = static_cast<int>(vPixel);
+        int y1 = y0 + 1;
+        
+        // Clamp coordinates
+        x0 = std::max(0, std::min(width - 1, x0));
+        x1 = std::max(0, std::min(width - 1, x1));
+        y0 = std::max(0, std::min(height - 1, y0));
+        y1 = std::max(0, std::min(height - 1, y1));
+        
+        // Calculate fractional parts
+        float uFract = uPixel - x0;
+        float vFract = vPixel - y0;
+        
+        // Get pixel colors
+        auto getPixel = [&](int x, int y) -> Vec3 {
+            return Vec3(data[(y * width + x) * 3 + 0],
+                       data[(y * width + x) * 3 + 1],
+                       data[(y * width + x) * 3 + 2]);
+        };
+        
+        Vec3 c00 = getPixel(x0, y0);
+        Vec3 c10 = getPixel(x1, y0);
+        Vec3 c01 = getPixel(x0, y1);
+        Vec3 c11 = getPixel(x1, y1);
+        
+        // Bilinear interpolation
+        Vec3 c0 = c00 * (1 - uFract) + c10 * uFract;
+        Vec3 c1 = c01 * (1 - uFract) + c11 * uFract;
+        Vec3 color = c0 * (1 - vFract) + c1 * vFract;
+        
+        return color * strength;
+    }
+    
+private:
+    void buildCdf() {
+        if (width == 0 || height == 0) return;
+        
+        // Resize CDF arrays
+        conditionalFunc.resize(width * height);
+        conditionalCdf.resize(width * height);
+        marginalFunc.resize(height);
+        marginalCdf.resize(height);
+        
+        // Step 1: Compute un-normalized PDF for each pixel
+        // and marginal function (row totals)
+        totalPower = 0.0f;
+        for (int v = 0; v < height; ++v) {
+            float sinTheta = std::sin(M_PI * (v + 0.5f) / height);
+            float rowTotal = 0.0f;
+            
+            for (int u = 0; u < width; ++u) {
+                int idx = v * width + u;
+                Vec3 pixel(data[idx * 3 + 0], data[idx * 3 + 1], data[idx * 3 + 2]);
+                float funcValue = luminance(pixel) * sinTheta;
+                conditionalFunc[idx] = funcValue;
+                rowTotal += funcValue;
+            }
+            marginalFunc[v] = rowTotal;
+            totalPower += rowTotal;
+        }
+        
+        // Step 2: Build conditional CDFs for each row
+        for (int v = 0; v < height; ++v) {
+            float rowTotal = marginalFunc[v];
+            if (rowTotal <= 0) continue;
+            
+            float cumulative = 0.0f;
+            for (int u = 0; u < width; ++u) {
+                int idx = v * width + u;
+                cumulative += conditionalFunc[idx];
+                conditionalCdf[idx] = cumulative / rowTotal;  // Normalize
+            }
+        }
+        
+        // Step 3: Build marginal CDF
+        float cumulative = 0.0f;
+        for (int v = 0; v < height; ++v) {
+            cumulative += marginalFunc[v];
+            marginalCdf[v] = cumulative / totalPower;  // Normalize
+        }
+    }
+    
+public:
+    struct EnvSample {
+        Vec3 direction;
+        Vec3 radiance;
+        float pdf;
+    };
+
+    EnvSample sample(std::mt19937& gen) const {
+        if (width == 0 || height == 0 || totalPower <= 0) {
+            return {Vec3(0, 1, 0), Vec3(0), 0.0f};
+        }
+        
+        // Draw uniform random numbers
+        std::uniform_real_distribution<float> dist(0, 1);
+        float xi1 = dist(gen);
+        float xi2 = dist(gen);
+        
+        // Binary search in marginal CDF to find row
+        int v = 0;
+        if (marginalCdf.size() > 0) {
+            auto it = std::lower_bound(marginalCdf.begin(), marginalCdf.end(), xi1);
+            v = std::distance(marginalCdf.begin(), it);
+            if (v >= height) v = height - 1;
+        }
+        
+        // Binary search in conditional CDF to find column
+        int u = 0;
+        if (conditionalCdf.size() > 0) {
+            int start = v * width;
+            int end = start + width;
+            auto it = std::lower_bound(conditionalCdf.begin() + start, conditionalCdf.begin() + end, xi2);
+            u = std::distance(conditionalCdf.begin() + start, it);
+            if (u >= width) u = width - 1;
+        }
+        
+        // Convert u, v to continuous coordinates for interpolation
+        float uCont = u + 0.5f;
+        float vCont = v + 0.5f;
+        
+        // Convert (u_cont, v_cont) to direction (v is flipped: row 0 = nadir)
+        float theta = (1.0f - vCont / height) * M_PI;  // [0, pi]
+        float phi = (uCont - 0.5f) * 2.0f * M_PI - rotation;  // [0, 2pi] offset by rotation
+        
+        Vec3 dir(std::sin(theta) * std::cos(phi), 
+                 std::cos(theta), 
+                 std::sin(theta) * std::sin(phi));
+        
+        // Compute PDF in solid angle measure
+        float sinTheta = std::sin(theta);
+        if (sinTheta < 1e-6f) sinTheta = 1e-6f;
+        
+        // Find the PDF value for the pixel
+        int pixelIdx = v * width + u;
+        float funcValue = conditionalFunc[pixelIdx];
+        float mapPdf = funcValue * width * height / (totalPower + 1e-10f);
+        float solidAnglePdf = mapPdf / (2.0f * M_PI * M_PI * sinTheta);
+        
+        // Look up radiance
+        Vec3 radiance = Vec3(data[pixelIdx * 3 + 0],
+                            data[pixelIdx * 3 + 1],
+                            data[pixelIdx * 3 + 2]);
+        
+        return {dir, radiance * strength, solidAnglePdf};
+    }
+    
+    float pdf(const Vec3& direction) const {
+        if (width == 0 || height == 0 || totalPower <= 0) return 0.0f;
+        
+        // Convert direction to equirectangular coordinates
+        float theta = std::acos(std::clamp(direction.y, -1.0f, 1.0f));
+        float phi = std::atan2(direction.z, direction.x);
+        phi += rotation;  // apply horizontal rotation
+        
+        // Convert to u, v coordinates [0, 1]
+        float u = 0.5f + phi / (2.0f * M_PI);
+        float v = 1.0f - theta / M_PI;  // flipped to match lookup() convention
+        
+        // Wrap u
+        if (u < 0) u += 1.0f;
+        if (u >= 1.0f) u -= 1.0f;
+        
+        // Convert to pixel coordinates
+        float uPixel = u * width;
+        float vPixel = v * height;
+        
+        // Get integer coordinates
+        int x = static_cast<int>(uPixel);
+        int y = static_cast<int>(vPixel);
+        
+        // Clamp coordinates
+        x = std::max(0, std::min(width - 1, x));
+        y = std::max(0, std::min(height - 1, y));
+        
+        // Get PDF value for the pixel
+        int pixelIdx = y * width + x;
+        float funcValue = conditionalFunc[pixelIdx];
+        
+        // Compute PDF in solid angle measure
+        float sinTheta = std::sin(theta);
+        if (sinTheta < 1e-6f) sinTheta = 1e-6f;
+        
+        float pdfUV = funcValue * width * height / (totalPower + 1e-10f);
+        float solidAnglePdf = pdfUV / (2.0f * M_PI * M_PI * sinTheta);
+        
+        return solidAnglePdf;
+    }
+};
+
 // ============================================================================
 // CAMERA
 // ============================================================================
@@ -700,43 +955,98 @@ class Renderer {
     std::vector<std::shared_ptr<Hittable>> scene;
     std::shared_ptr<BVHAccel> bvh;
     LightList lights;
+    std::shared_ptr<EnvironmentMap> envMap;
+    Vec3 backgroundColor = Vec3(-1);  // negative = use default sky gradient
     
-    float powerHeuristic(float a, float b) const { 
-        float a2 = a*a, b2 = b*b; 
-        float denom = a2 + b2;
-        if (denom < 1e-8f) return 0.5f;
-        return a2 / denom; 
+public:
+    void setEnvironmentMap(std::shared_ptr<EnvironmentMap> map) { envMap = map; }
+    void setBackgroundColor(const Vec3& color) { backgroundColor = color; }
+    
+    void clear() {
+        scene.clear(); bvh.reset(); lights = LightList();
+        envMap.reset();
+        backgroundColor = Vec3(-1);
     }
     
+    float powerHeuristic(float a, float b) const {
+        float a2 = a*a, b2 = b*b;
+        float denom = a2 + b2;
+        if (denom < 1e-8f) return 0.5f;
+        return a2 / denom;
+    }
+
+    float envSelectProb() const {
+        if (!envMap || !envMap->loaded()) return 0.0f;
+        if (lights.empty()) return 1.0f;
+        // Heuristic: environment gets 50% selection probability
+        return 0.5f;
+    }
+
     Vec3 sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
-        if (lights.empty() || rec.isDelta) return Vec3(0);
+        if ((lights.empty() && (!envMap || !envMap->loaded())) || rec.isDelta) return Vec3(0);
         Vec3 wo = -ray.direction.normalized(), direct(0);
-        LightSample ls = lights.sample(rec.point, gen);
-        if (ls.pdf > 0) {
-            Vec3 wi = (ls.position - rec.point).normalized();
-            HitRecord shadow;
-            if (!bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow)) {
-                Vec3 f = rec.material->eval(rec, wo, wi);
-                float bsdfPdf = rec.material->pdf(rec, wo, wi);
-                float wt = powerHeuristic(ls.pdf, bsdfPdf);
-                direct += f * ls.emission * wt / (ls.pdf + 0.001f);
+        std::uniform_real_distribution<float> dist01(0, 1);
+
+        float pEnv = envSelectProb();
+        bool sampleEnv = dist01(gen) < pEnv;
+
+        if (sampleEnv && envMap && envMap->loaded()) {
+            // === Environment map light sampling ===
+            auto es = envMap->sample(gen);
+            if (es.pdf > 0) {
+                Vec3 wi = es.direction;
+                HitRecord shadow;
+                // Shadow ray: must NOT hit any geometry (ray escapes to infinity)
+                if (!bvh->hit(Ray(rec.point, wi), 0.001f, 1e30f, shadow)) {
+                    Vec3 f = rec.material->eval(rec, wo, wi);
+                    float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                    float combinedLightPdf = pEnv * es.pdf;
+                    float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
+                    direct += f * es.radiance * wt / (combinedLightPdf + 0.001f);
+                }
+            }
+        } else if (!lights.empty()) {
+            // === Existing area light sampling ===
+            float pArea = 1.0f - pEnv;
+            LightSample ls = lights.sample(rec.point, gen);
+            if (ls.pdf > 0) {
+                Vec3 wi = (ls.position - rec.point).normalized();
+                HitRecord shadow;
+                if (!bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow)) {
+                    Vec3 f = rec.material->eval(rec, wo, wi);
+                    float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                    float combinedLightPdf = pArea * ls.pdf;
+                    float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
+                    direct += f * ls.emission * wt / (combinedLightPdf + 0.001f);
+                }
             }
         }
+
+        // === BSDF sampling (check both area lights AND environment) ===
         BSDFSample bs = rec.material->sample(rec, wo, gen);
         if (bs.pdf > 0 && !bs.isDelta) {
             HitRecord bRec;
-            if (bvh->hit(Ray(rec.point, bs.wi), 0.001f, std::numeric_limits<float>::max(), bRec)) {
+            if (bvh->hit(Ray(rec.point, bs.wi), 0.001f, 1e30f, bRec)) {
+                // Hit geometry — check if it's an emissive light
                 Vec3 Le = bRec.material->emitted(bRec);
                 if (Le != Vec3(0)) {
-                    float lightPdf = lights.pdfValue(rec.point, bs.wi);
+                    float lightPdf = (1.0f - pEnv) * lights.pdfValue(rec.point, bs.wi);
+                    direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
+                }
+            } else {
+                // Miss — hit the environment map
+                if (envMap && envMap->loaded()) {
+                    Vec3 Le = envMap->lookup(bs.wi.normalized());
+                    float lightPdf = pEnv * envMap->pdf(bs.wi.normalized());
                     direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
                 }
             }
         }
+
         return direct;
     }
     
-    Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen, Vec3* albOut = nullptr, Vec3* normOut = nullptr) {
+Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen, Vec3* albOut = nullptr, Vec3* normOut = nullptr) {
         const int rrDepth = 3;
         Vec3 color(0), throughput(1);
         Ray ray = r;
@@ -744,9 +1054,21 @@ class Renderer {
         
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             HitRecord rec;
-            if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
-                float t = 0.5f * (ray.direction.normalized().y + 1.0f);
-                color += throughput * (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
+if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
+                Vec3 envColor;
+                if (envMap && envMap->loaded()) {
+                    envColor = envMap->lookup(ray.direction.normalized());
+                } else if (backgroundColor.x >= 0) {
+                    envColor = backgroundColor;
+                } else {
+                    // Default sky gradient fallback
+                    float t = 0.5f * (ray.direction.normalized().y + 1.0f);
+                    envColor = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
+                }
+                // Only add environment for camera rays or specular bounces (matches NEE convention)
+                if (bounce == 0 || wasSpecular) {
+                    color += throughput * envColor;
+                }
                 break;
             }
             if (bounce == 0) {
@@ -784,7 +1106,7 @@ public:
     
     void buildAcceleration() { bvh = std::make_shared<BVHAccel>(scene); }
     
-    void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)> progress = nullptr, bool adaptive = true) {
+void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)> progress = nullptr, bool adaptive = true) {
         buildAcceleration();
         std::atomic<int> tilesCompleted{0};
         const int tileSize = 16;

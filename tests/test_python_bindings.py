@@ -560,6 +560,72 @@ def test_aov_buffers():
 
 
 # ---------------------------------------------------------------------------
+# Environment map and background color tests
+# ---------------------------------------------------------------------------
+
+def test_environment_map_loading():
+    """Test that environment maps can be loaded."""
+    r = create_renderer()
+    # Should fail gracefully for missing file
+    result = r.load_environment_map("nonexistent.hdr")
+    assert result == False
+
+    # Should succeed for test HDRI (if available)
+    test_hdr = os.path.join(os.path.dirname(__file__), '..', 'samples', 'test_env.hdr')
+    if os.path.exists(test_hdr):
+        result = r.load_environment_map(test_hdr, 1.0, 0.0)
+        assert result == True
+
+
+def test_environment_map_renders_brighter_than_black():
+    """An HDRI-lit scene should be brighter than a black background scene."""
+    import pytest
+    test_hdr = os.path.join(os.path.dirname(__file__), '..', 'samples', 'test_env.hdr')
+    if not os.path.exists(test_hdr):
+        pytest.skip("No test HDRI available")
+
+    # Render with black background
+    r1 = create_renderer()
+    r1.set_background_color([0, 0, 0])
+    mat = r1.create_material('lambertian', [0.8, 0.8, 0.8], {})
+    r1.add_sphere([0, 0, 0], 1.0, mat)
+    setup_camera(r1, width=W, height=H)
+    pixels_dark = render_image(r1, samples=SAMPLES_FAST)
+
+    # Render with HDRI
+    r2 = create_renderer()
+    r2.load_environment_map(test_hdr, 1.0, 0.0)
+    mat2 = r2.create_material('lambertian', [0.8, 0.8, 0.8], {})
+    r2.add_sphere([0, 0, 0], 1.0, mat2)
+    setup_camera(r2, width=W, height=H)
+    pixels_hdri = render_image(r2, samples=SAMPLES_FAST)
+
+    dark_mean = float(np.mean(pixels_dark))
+    hdri_mean = float(np.mean(pixels_hdri))
+    assert hdri_mean > dark_mean + 0.05, \
+        f"HDRI scene ({hdri_mean:.3f}) should be significantly brighter than black bg ({dark_mean:.3f})"
+
+    save_image(pixels_hdri, os.path.join(OUTPUT_DIR, 'test_hdri_lit.png'))
+    save_image(pixels_dark, os.path.join(OUTPUT_DIR, 'test_black_bg.png'))
+
+
+def test_solid_background_color():
+    """Setting a background color should replace the sky gradient."""
+    r = create_renderer()
+    r.set_background_color([1.0, 0.0, 0.0])  # pure red background
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+    # No objects — should see pure background
+    pixels = render_image(r, samples=4)
+    # Red channel should dominate
+    mean_r = float(np.mean(pixels[:, :, 0]))
+    mean_g = float(np.mean(pixels[:, :, 1]))
+    mean_b = float(np.mean(pixels[:, :, 2]))
+    assert mean_r > 0.3, f"Red channel too low: {mean_r:.3f}"
+    assert mean_r > mean_g * 2, f"Red ({mean_r:.3f}) should dominate green ({mean_g:.3f})"
+    assert mean_r > mean_b * 2, f"Red ({mean_r:.3f}) should dominate blue ({mean_b:.3f})"
+
+
+# ---------------------------------------------------------------------------
 # Stand-alone entry-point for direct execution
 # ---------------------------------------------------------------------------
 

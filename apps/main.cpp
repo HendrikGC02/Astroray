@@ -92,7 +92,8 @@ void buildMaterialTest(Renderer& renderer) {
 int main(int argc, char* argv[]) {
     int scene = 1, width = 800, height = 600, samples = 64, depth = 8;
     std::string output = "output.ppm";
-    
+    std::string envmap = "";
+
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--scene" && i+1 < argc) scene = std::atoi(argv[++i]);
@@ -101,18 +102,29 @@ int main(int argc, char* argv[]) {
         else if (arg == "--samples" && i+1 < argc) samples = std::atoi(argv[++i]);
         else if (arg == "--depth" && i+1 < argc) depth = std::atoi(argv[++i]);
         else if (arg == "--output" && i+1 < argc) output = argv[++i];
+        else if (arg == "--envmap" && i+1 < argc) envmap = argv[++i];
         else if (arg == "--help") {
-            std::cout << "Usage: " << argv[0] << " [--scene 1|2] [--width N] [--height N] [--samples N] [--depth N] [--output file]\n";
+            std::cout << "Usage: " << argv[0] << " [--scene 1|2] [--width N] [--height N] [--samples N] [--depth N] [--output file] [--envmap FILE]\n";
             return 0;
         }
     }
-    
+
     std::cout << "Custom Raytracer v3.0\n=====================\n";
     std::cout << "Resolution: " << width << "x" << height << ", Samples: " << samples << "\n";
-    
+
     Renderer renderer;
     if (scene == 1) { std::cout << "Scene: Cornell Box\n"; buildCornellBox(renderer); }
     else { std::cout << "Scene: Material Test\n"; buildMaterialTest(renderer); }
+
+    if (!envmap.empty()) {
+        auto env = std::make_shared<EnvironmentMap>();
+        if (env->load(envmap)) {
+            renderer.setEnvironmentMap(env);
+            printf("Using environment map: %s\n", envmap.c_str());
+        } else {
+            printf("Warning: Failed to load environment map: %s\n", envmap.c_str());
+        }
+    }
     
     Vec3 lookFrom, lookAt; float vfov, focusDist;
     if (scene == 1) { lookFrom = Vec3(0,0,5.5f); lookAt = Vec3(0,0,0); vfov = 38; focusDist = 5.5f; }

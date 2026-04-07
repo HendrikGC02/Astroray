@@ -33,9 +33,12 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_results')
 
 def _get_exe():
     candidates = [
-        os.path.join(BUILD_DIR, 'bin', 'raytracer'),
+        os.path.join(BUILD_DIR, 'bin', 'raytracer'),  # Linux-style path
+        os.path.join(BUILD_DIR, 'bin', 'raytracer.exe'),  # Windows-style path
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                      'bin', 'raytracer'),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     'bin', 'raytracer.exe'),  # Windows Release folder
         'raytracer',
     ]
     for p in candidates:

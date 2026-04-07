@@ -31,6 +31,47 @@ __device__ inline float powerHeuristic(float a, float b) {
 }
 
 // ---------------------------------------------------------------------------
+// gpu_light_pdf — total light PDF for a given wi direction (mirrors LightList::pdfValue)
+// Computes combined solid-angle PDF across all lights, scaled by pArea.
+// ---------------------------------------------------------------------------
+__device__ inline float gpu_light_pdf(
+    const GVec3& origin, const GVec3& wi,
+    const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
+    const GLight* lights, int numLights, float totalLightPower,
+    int hitPrimId,  // primId from the BSDF-ray hit record
+    float hitDist,  // distance to the hit surface
+    float pArea)
+{
+    if (numLights == 0 || totalLightPower <= 0.f) return 0.f;
+    float pdf = 0.f;
+    for (int i = 0; i < numLights; ++i) {
+        const GLight& l = lights[i];
+        float selPdf = l.power / totalLightPower;
+        int primIdx = l.primitiveIndex;
+        if (primIdx < 0) continue;
+        const GPrimitive& lp = prims[primIdx];
+        if (lp.type == GPRIM_SPHERE) {
+            const GSphere& s = spheres[lp.index];
+            float dist2 = (s.center - origin).length2();
+            if (dist2 <= s.radius * s.radius + 1e-8f) continue;
+            float cosTM = sqrtf(fmaxf(0.f, 1.f - s.radius*s.radius / dist2));
+            if (cosTM >= 1.f) continue;
+            pdf += selPdf / (2.f * M_PI_F * (1.f - cosTM));
+        } else {
+            // Triangle: only contributes if this was the hit primitive
+            if (primIdx != hitPrimId) continue;
+            const GTriangle& t = tris[lp.index];
+            GVec3 e1 = t.v1 - t.v0, e2 = t.v2 - t.v0;
+            float area = e1.cross(e2).length() * 0.5f;
+            float NdotWi = fabsf(t.n0.dot(wi));
+            if (NdotWi < 1e-8f || area < 1e-8f) continue;
+            pdf += selPdf * hitDist*hitDist / (NdotWi * area);
+        }
+    }
+    return pdf * pArea;
+}
+
+// ---------------------------------------------------------------------------
 // sampleDirectGPU — port of Renderer::sampleDirect()
 // ---------------------------------------------------------------------------
 __device__ GVec3 sampleDirectGPU(
@@ -70,7 +111,7 @@ __device__ GVec3 sampleDirectGPU(
                                         GRay(rec.point, es.direction),
                                         0.001f, 1e30f, shadow);
             if (!occluded) {
-                GVec3 f       = gpu_material_eval(const_cast<GHitRecord&>(rec), const_cast<GHitRecord&>(rec), wo, es.direction);
+                GVec3 f       = gpu_material_eval(mat, const_cast<GHitRecord&>(rec), wo, es.direction);
                 float bsdfPdf = gpu_material_pdf(mat, rec, wo, es.direction);
                 float combPdf = pEnv * es.pdf;
                 float wt      = powerHeuristic(combPdf, bsdfPdf);
@@ -126,7 +167,7 @@ __device__ GVec3 sampleDirectGPU(
                 if (Le == GVec3(0.f)) goto bsdf_mis;
 
                 float combinedPdf = pArea * lightPdf;
-                GVec3 f = gpu_material_eval(const_cast<GHitRecord&>(rec), const_cast<GHitRecord&>(rec), wo, wi);
+                GVec3 f = gpu_material_eval(mat, const_cast<GHitRecord&>(rec), wo, wi);
                 float bsdfPdf = gpu_material_pdf(mat, rec, wo, wi);
                 float wt = powerHeuristic(combinedPdf, bsdfPdf);
                 direct += f * Le * wt / (combinedPdf + 0.001f);
@@ -157,7 +198,7 @@ __device__ GVec3 sampleDirectGPU(
                 if (Le == GVec3(0.f)) goto bsdf_mis;
 
                 float combinedPdf = pArea * lightPdf;
-                GVec3 f = gpu_material_eval(const_cast<GHitRecord&>(rec), const_cast<GHitRecord&>(rec), wo, wi);
+                GVec3 f = gpu_material_eval(mat, const_cast<GHitRecord&>(rec), wo, wi);
                 float bsdfPdf = gpu_material_pdf(mat, rec, wo, wi);
                 float wt = powerHeuristic(combinedPdf, bsdfPdf);
                 direct += f * Le * wt / (combinedPdf + 0.001f);
@@ -172,13 +213,17 @@ bsdf_mis:
         GBSDFSample bs = gpu_material_sample(mat, tmpRec, wo, rng);
         if (bs.pdf > 1e-8f && !bs.isDelta) {
             GHitRecord bRec;
+            bRec.primId = -1;
             if (gpu_bvh_hit(bvhNodes, prims, tris, spheres,
                             GRay(rec.point, bs.wi), 0.001f, 1e30f, bRec)) {
                 const GMaterial& lm = materials[bRec.materialId];
                 GVec3 Le = gpu_material_emitted(lm, bRec.frontFace);
                 if (Le != GVec3(0.f)) {
-                    float lightPdf = (1.f - pEnv) * 0.f; // placeholder — area light pdf from BSDF direction
-                    // Approximate: use 0 for light pdf (conservative, avoids double-count)
+                    float pArea   = 1.f - pEnv;
+                    float lightPdf = gpu_light_pdf(rec.point, bs.wi,
+                                                   prims, tris, spheres,
+                                                   lights, numLights, totalLightPower,
+                                                   bRec.primId, bRec.t, pArea);
                     direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
                 }
             } else if (hasEnv) {

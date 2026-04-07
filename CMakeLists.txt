@@ -27,7 +27,8 @@ if(ASTRORAY_ENABLE_CUDA)
     if(CMAKE_CUDA_COMPILER)
         enable_language(CUDA)
         find_package(CUDAToolkit REQUIRED)
-        # Turing (75), Ampere (86), Ada Lovelace (89)
+        # Turing (75), Ampere (86), Ada Lovelace (89 — also runs on Blackwell via forward compat)
+        # sm_120 (Blackwell) requires CUDA 12.8+; CUDA 12.6 targets up to sm_89
         set(CMAKE_CUDA_ARCHITECTURES "75;86;89")
         set(ASTRORAY_CUDA_FOUND TRUE)
         message(STATUS "CUDA found: ${CMAKE_CUDA_COMPILER}")
@@ -65,14 +66,18 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     endif()
     
 elseif(MSVC)
-    add_compile_options(/W4)
+    # Only apply MSVC flags to C/CXX — nvcc rejects bare /flag syntax
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/W4>)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:/W4>)
     # Only apply optimizations in Release builds
-    add_compile_options($<$<CONFIG:Release>:/O2>)
-    add_compile_options($<$<CONFIG:Release>:/arch:AVX2>)
-    add_compile_options(/openmp)
-    
+    add_compile_options($<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/O2>)
+    add_compile_options($<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/arch:AVX2>)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/openmp>)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:/openmp>)
+
     if(USE_FAST_MATH)
-        add_compile_options(/fp:fast)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/fp:fast>)
+        add_compile_options($<$<COMPILE_LANGUAGE:C>:/fp:fast>)
     endif()
 endif()
 
@@ -125,6 +130,15 @@ if(ASTRORAY_CUDA_FOUND)
         CXX_STANDARD 17
         CUDA_STANDARD 17
     )
+    # On Windows with MSVC+NMake, nvcc rejects the /Fd PDB flag injected by CMake.
+    # Suppress debug-info generation for CUDA objects to avoid this.
+    if(MSVC)
+        string(REPLACE "/Zi" "" CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG}")
+        string(REPLACE "/ZI" "" CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG}")
+        # Remove /Fd (PDB tracking) from flags passed to nvcc
+        set_property(TARGET astroray_cuda PROPERTY CUDA_FLAGS
+            "--extended-lambda --expt-relaxed-constexpr -O3")
+    endif()
     target_link_libraries(astroray_cuda PRIVATE CUDA::curand)
 endif()
 

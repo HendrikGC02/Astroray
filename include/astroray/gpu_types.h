@@ -189,6 +189,7 @@ struct GHitRecord {
     GVec3 bitangent;
     float t;
     int   materialId;
+    int   primId;     // index into d_prims[] — set by gpu_bvh_hit
     bool  frontFace;
     bool  isDelta;
 };

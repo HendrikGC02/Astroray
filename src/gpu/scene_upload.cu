@@ -2,6 +2,7 @@
 // Converts CPU scene data (BVH nodes, triangles, spheres, materials, lights,
 // env map) into flat GPU arrays via cudaMalloc / cudaMemcpy.
 
+#include "astroray/gpu_scene_upload.h"
 #include "astroray/gpu_types.h"
 #include "raytracer.h"
 #include "advanced_features.h"
@@ -110,30 +111,8 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
 }
 
 // ---------------------------------------------------------------------------
-// Public entry point called from cuda_renderer.cu
+// Public entry point called from cuda_renderer.cu (struct defined in gpu_scene_upload.h)
 // ---------------------------------------------------------------------------
-struct SceneUploadResult {
-    std::vector<GBVHNode>   nodes;
-    std::vector<GPrimitive> prims;
-    std::vector<GTriangle>  triangles;
-    std::vector<GSphere>    spheres;
-    std::vector<GMaterial>  materials;
-    std::vector<GLight>     lights;
-    float totalLightPower;
-
-    // Camera
-    GCameraParams camera;
-
-    // Env map (host arrays — caller uploads with cudaMalloc)
-    std::vector<float> envData;
-    std::vector<float> envCondCdf;
-    std::vector<float> envCondFunc;
-    std::vector<float> envMargCdf;
-    std::vector<float> envMargFunc;
-    int   envWidth = 0, envHeight = 0;
-    float envStrength = 1.f, envRotation = 0.f, envTotalPower = 0.f;
-    bool  envLoaded = false;
-};
 
 // Builds host-side flat arrays from the CPU Renderer + Camera.
 // The caller (cuda_renderer.cu) then cudaMalloc/cudaMemcpy them.

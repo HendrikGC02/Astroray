@@ -3,6 +3,7 @@
 // It exposes the pure-C++ CUDARenderer interface from gpu_renderer.h.
 
 #include "astroray/gpu_renderer.h"
+#include "astroray/gpu_scene_upload.h"
 #include "astroray/gpu_types.h"
 #include "raytracer.h"
 #include "advanced_features.h"
@@ -24,10 +25,7 @@
     }                                                                   \
 } while(0)
 
-// Forward declarations of functions defined in the other .cu files
-struct SceneUploadResult;
-SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera& cam);
-
+// Forward declarations of kernel launcher functions defined in path_trace_kernel.cu
 void launchInitRNG(curandState* d_states, int n, unsigned long long seed);
 void launchPathTraceKernel(
     float* d_framebuffer, int width, int height,

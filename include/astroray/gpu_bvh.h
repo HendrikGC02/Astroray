@@ -125,6 +125,7 @@ __device__ inline bool gpu_bvh_hit(
                         hit  = true;
                         tMax = tmpRec.t;
                         rec  = tmpRec;
+                        rec.primId = n.primitivesOffset + i;
                     }
                 }
                 if (toVisit == 0) break;

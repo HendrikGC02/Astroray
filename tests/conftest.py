@@ -17,6 +17,14 @@ sys.path.insert(0, BUILD_DIR)
 sys.path.insert(0, TESTS_DIR)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# On Windows, add MinGW DLL directory so that MinGW-built .pyd files can
+# find their runtime dependencies (libgcc, libgomp, libstdc++, etc.)
+if sys.platform == 'win32':
+    _mingw_bin = r'C:\Program Files\mingw64\bin'
+    if os.path.isdir(_mingw_bin) and hasattr(os, 'add_dll_directory'):
+        os.add_dll_directory(_mingw_bin)
+    os.add_dll_directory(os.path.abspath(BUILD_DIR))
+
 
 @pytest.fixture(scope="session")
 def test_results_dir():

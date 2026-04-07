@@ -2,6 +2,9 @@
 .clinerules
 .clinerules.md
 
+#Claude
+.claude/
+
 # Build directories
 build/
 Release/

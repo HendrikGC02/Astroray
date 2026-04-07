@@ -69,7 +69,15 @@ set(SOURCES
 # Compile stb_image_write_impl.c as C++ to avoid linking issues
 set_source_files_properties(include/stb_image_write_impl.c PROPERTIES LANGUAGE CXX)
 add_library(stb_image_write_lib STATIC include/stb_image_write_impl.c)
-set_target_properties(stb_image_write_lib PROPERTIES 
+set_target_properties(stb_image_write_lib PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+)
+
+# stb_image implementation (STB_IMAGE_IMPLEMENTATION defined once here)
+add_library(stb_impl STATIC src/stb_impl.cpp)
+target_include_directories(stb_impl PRIVATE ${CMAKE_SOURCE_DIR}/include)
+set_target_properties(stb_impl PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
 )
@@ -85,6 +93,7 @@ endif()
 target_link_libraries(raytracer_standalone PRIVATE
     raytracer_core
     stb_image_write_lib
+    stb_impl
 )
 
 if(OpenMP_CXX_FOUND)
@@ -136,6 +145,7 @@ if(BUILD_PYTHON_MODULE)
     target_link_libraries(astroray PRIVATE
         raytracer_core
         stb_image_write_lib
+        stb_impl
     )
     
     if(OpenMP_CXX_FOUND)
@@ -179,6 +189,7 @@ if(BUILD_BLENDER_MODULE)
     
     target_link_libraries(raytracer_blender PRIVATE
         raytracer_core
+        stb_impl
     )
     
     if(OpenMP_CXX_FOUND)

@@ -221,15 +221,48 @@ class CustomRaytracerRenderEngine(RenderEngine):
     
     def setup_world(self, scene, renderer):
         world = scene.world
-        if not world or not world.use_nodes: return
-        for node in world.node_tree.nodes:
-            if node.type == 'BACKGROUND':
-                color = list(node.inputs['Color'].default_value[:3])
+        if not world:
+            return
+
+        # Check for node tree (use_nodes is deprecated in Blender 5.x, always True)
+        node_tree = getattr(world, 'node_tree', None)
+        if not node_tree:
+            return
+
+        # Look for Environment Texture -> Background -> World Output chain
+        hdri_path = None
+        strength = 1.0
+        rotation = 0.0
+        bg_color = None
+
+        for node in node_tree.nodes:
+            if node.type == 'TEX_ENVIRONMENT' and node.image:
+                hdri_path = bpy.path.abspath(node.image.filepath)
+            elif node.type == 'BACKGROUND':
                 strength = float(node.inputs['Strength'].default_value)
-                if strength > 0.01:
-                    mat_id = renderer.create_material('light', color, {'intensity': strength})
-                    renderer.add_sphere([0, 0, 0], 500.0, mat_id)
-                break
+                # If Color input is not linked, it's a solid background color
+                color_input = node.inputs.get('Color')
+                if color_input and not color_input.is_linked:
+                    bg_color = list(color_input.default_value[:3])
+            elif node.type == 'MAPPING':
+                rot_input = node.inputs.get('Rotation')
+                if rot_input:
+                    rotation = float(rot_input.default_value[2])  # Z rotation
+
+        # Try loading HDRI first
+        if hdri_path and os.path.exists(hdri_path):
+            success = renderer.load_environment_map(hdri_path, strength, rotation)
+            if success:
+                print(f"Loaded HDRI: {hdri_path} (strength={strength}, rotation={rotation:.2f})")
+                return
+            else:
+                print(f"Failed to load HDRI: {hdri_path}")
+
+        # Fallback: solid background color
+        if bg_color and strength > 0.01:
+            scaled_color = [c * strength for c in bg_color]
+            renderer.set_background_color(scaled_color)
+            print(f"Set background color: {scaled_color}")
     
     def write_pixels(self, pixels, width, height):
         rgba = np.ones((height, width, 4), dtype=np.float32)

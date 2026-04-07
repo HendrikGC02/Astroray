@@ -708,8 +708,8 @@ public:
         float phi = std::atan2(direction.z, direction.x);                // azimuthal
         phi += rotation;  // apply horizontal rotation
         float u = 0.5f + phi / (2.0f * M_PI);  // [0, 1]
-        float v = theta / M_PI;                 // [0, 1]
-        
+        float v = 1.0f - theta / M_PI;          // [0, 1], flipped: y=+1 (up) → row height-1
+
         // Wrap u to [0,1] range
         if (u < 0) u += 1.0f;
         if (u >= 1.0f) u -= 1.0f;
@@ -842,8 +842,8 @@ public:
         float uCont = u + 0.5f;
         float vCont = v + 0.5f;
         
-        // Convert (u_cont, v_cont) to direction
-        float theta = vCont * M_PI / height;  // [0, pi]
+        // Convert (u_cont, v_cont) to direction (v is flipped: row 0 = nadir)
+        float theta = (1.0f - vCont / height) * M_PI;  // [0, pi]
         float phi = (uCont - 0.5f) * 2.0f * M_PI - rotation;  // [0, 2pi] offset by rotation
         
         Vec3 dir(std::sin(theta) * std::cos(phi), 
@@ -878,7 +878,7 @@ public:
         
         // Convert to u, v coordinates [0, 1]
         float u = 0.5f + phi / (2.0f * M_PI);
-        float v = theta / M_PI;
+        float v = 1.0f - theta / M_PI;  // flipped to match lookup() convention
         
         // Wrap u
         if (u < 0) u += 1.0f;
@@ -968,38 +968,81 @@ public:
         backgroundColor = Vec3(-1);
     }
     
-    float powerHeuristic(float a, float b) const { 
-        float a2 = a*a, b2 = b*b; 
+    float powerHeuristic(float a, float b) const {
+        float a2 = a*a, b2 = b*b;
         float denom = a2 + b2;
         if (denom < 1e-8f) return 0.5f;
-        return a2 / denom; 
+        return a2 / denom;
     }
-    
+
+    float envSelectProb() const {
+        if (!envMap || !envMap->loaded()) return 0.0f;
+        if (lights.empty()) return 1.0f;
+        // Heuristic: environment gets 50% selection probability
+        return 0.5f;
+    }
+
     Vec3 sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
-        if (lights.empty() || rec.isDelta) return Vec3(0);
+        if ((lights.empty() && (!envMap || !envMap->loaded())) || rec.isDelta) return Vec3(0);
         Vec3 wo = -ray.direction.normalized(), direct(0);
-        LightSample ls = lights.sample(rec.point, gen);
-        if (ls.pdf > 0) {
-            Vec3 wi = (ls.position - rec.point).normalized();
-            HitRecord shadow;
-            if (!bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow)) {
-                Vec3 f = rec.material->eval(rec, wo, wi);
-                float bsdfPdf = rec.material->pdf(rec, wo, wi);
-                float wt = powerHeuristic(ls.pdf, bsdfPdf);
-                direct += f * ls.emission * wt / (ls.pdf + 0.001f);
+        std::uniform_real_distribution<float> dist01(0, 1);
+
+        float pEnv = envSelectProb();
+        bool sampleEnv = dist01(gen) < pEnv;
+
+        if (sampleEnv && envMap && envMap->loaded()) {
+            // === Environment map light sampling ===
+            auto es = envMap->sample(gen);
+            if (es.pdf > 0) {
+                Vec3 wi = es.direction;
+                HitRecord shadow;
+                // Shadow ray: must NOT hit any geometry (ray escapes to infinity)
+                if (!bvh->hit(Ray(rec.point, wi), 0.001f, 1e30f, shadow)) {
+                    Vec3 f = rec.material->eval(rec, wo, wi);
+                    float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                    float combinedLightPdf = pEnv * es.pdf;
+                    float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
+                    direct += f * es.radiance * wt / (combinedLightPdf + 0.001f);
+                }
+            }
+        } else if (!lights.empty()) {
+            // === Existing area light sampling ===
+            float pArea = 1.0f - pEnv;
+            LightSample ls = lights.sample(rec.point, gen);
+            if (ls.pdf > 0) {
+                Vec3 wi = (ls.position - rec.point).normalized();
+                HitRecord shadow;
+                if (!bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow)) {
+                    Vec3 f = rec.material->eval(rec, wo, wi);
+                    float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                    float combinedLightPdf = pArea * ls.pdf;
+                    float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
+                    direct += f * ls.emission * wt / (combinedLightPdf + 0.001f);
+                }
             }
         }
+
+        // === BSDF sampling (check both area lights AND environment) ===
         BSDFSample bs = rec.material->sample(rec, wo, gen);
         if (bs.pdf > 0 && !bs.isDelta) {
             HitRecord bRec;
-            if (bvh->hit(Ray(rec.point, bs.wi), 0.001f, std::numeric_limits<float>::max(), bRec)) {
+            if (bvh->hit(Ray(rec.point, bs.wi), 0.001f, 1e30f, bRec)) {
+                // Hit geometry — check if it's an emissive light
                 Vec3 Le = bRec.material->emitted(bRec);
                 if (Le != Vec3(0)) {
-                    float lightPdf = lights.pdfValue(rec.point, bs.wi);
+                    float lightPdf = (1.0f - pEnv) * lights.pdfValue(rec.point, bs.wi);
+                    direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
+                }
+            } else {
+                // Miss — hit the environment map
+                if (envMap && envMap->loaded()) {
+                    Vec3 Le = envMap->lookup(bs.wi.normalized());
+                    float lightPdf = pEnv * envMap->pdf(bs.wi.normalized());
                     direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
                 }
             }
         }
+
         return direct;
     }
     

@@ -52,6 +52,7 @@ class PyRenderer {
     std::unordered_map<int, std::shared_ptr<Material>> materials;
     int nextMaterialId = 0;
     bool useAdaptiveSampling = true;
+    std::shared_ptr<EnvironmentMap> envMap;
 public:
     void loadTexture(const std::string& name, py::array_t<float> imageData, int width, int height) {
         textureManager.loadImageTexture(name, imageData, width, height);
@@ -157,6 +158,20 @@ public:
     }
     
     void setAdaptiveSampling(bool enable) { useAdaptiveSampling = enable; }
+
+    bool loadEnvironmentMap(const std::string& path, float strength = 1.0f, float rotation = 0.0f) {
+        envMap = std::make_shared<EnvironmentMap>();
+        if (envMap->load(path, strength, rotation)) {
+            renderer.setEnvironmentMap(envMap);
+            return true;
+        }
+        envMap.reset();
+        return false;
+    }
+
+    void setBackgroundColor(const std::vector<float>& color) {
+        renderer.setBackgroundColor(Vec3(color[0], color[1], color[2]));
+    }
     
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none()) {
         if (!camera) throw std::runtime_error("Camera not set up");
@@ -229,6 +244,7 @@ public:
         materials.clear();
         nextMaterialId = 0;
         textureManager = TextureManager();
+        envMap.reset();
     }
     int getWidth() const { return camera ? camera->width : 0; }
     int getHeight() const { return camera ? camera->height : 0; }
@@ -250,6 +266,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,
              "aspect_ratio"_a, "aperture"_a, "focus_dist"_a, "width"_a, "height"_a)
         .def("set_adaptive_sampling", &PyRenderer::setAdaptiveSampling, "enable"_a)
+        .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
+             "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
+        .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
         .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a, "progress_callback"_a = py::none())
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)

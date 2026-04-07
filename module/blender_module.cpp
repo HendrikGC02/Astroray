@@ -2,9 +2,11 @@
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 #include <pybind11/functional.h>
-#include <pybind11/pybind11.h>
 #include "raytracer.h"
 #include "advanced_features.h"
+#ifdef ASTRORAY_CUDA_ENABLED
+#  include "astroray/gpu_renderer.h"
+#endif
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -53,6 +55,10 @@ class PyRenderer {
     int nextMaterialId = 0;
     bool useAdaptiveSampling = true;
     std::shared_ptr<EnvironmentMap> envMap;
+    bool useGPU = false;
+#ifdef ASTRORAY_CUDA_ENABLED
+    std::unique_ptr<CUDARenderer> cudaRenderer;
+#endif
 public:
     void loadTexture(const std::string& name, py::array_t<float> imageData, int width, int height) {
         textureManager.loadImageTexture(name, imageData, width, height);
@@ -159,6 +165,41 @@ public:
     
     void setAdaptiveSampling(bool enable) { useAdaptiveSampling = enable; }
 
+    void setUseGPU(bool enable) {
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (enable) {
+            if (!cudaRenderer) cudaRenderer = std::make_unique<CUDARenderer>();
+            if (!cudaRenderer->isAvailable()) {
+                cudaRenderer.reset();
+                throw std::runtime_error("No CUDA GPU available");
+            }
+            useGPU = true;
+        } else {
+            useGPU = false;
+        }
+#else
+        if (enable) throw std::runtime_error("CUDA support not compiled");
+#endif
+    }
+
+    bool getGPUAvailable() const {
+#ifdef ASTRORAY_CUDA_ENABLED
+        CUDARenderer test;
+        return test.isAvailable();
+#else
+        return false;
+#endif
+    }
+
+    std::string getGPUDeviceName() const {
+#ifdef ASTRORAY_CUDA_ENABLED
+        CUDARenderer test;
+        return test.isAvailable() ? test.deviceName() : "none";
+#else
+        return "CUDA not compiled";
+#endif
+    }
+
     bool loadEnvironmentMap(const std::string& path, float strength = 1.0f, float rotation = 0.0f) {
         envMap = std::make_shared<EnvironmentMap>();
         if (envMap->load(path, strength, rotation)) {
@@ -175,24 +216,41 @@ public:
     
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none()) {
         if (!camera) throw std::runtime_error("Camera not set up");
-        std::function<void(float)> callback = nullptr;
-        if (!progressCallback.is_none()) {
-            callback = [&progressCallback](float progress) {
-                py::gil_scoped_acquire acquire;
-                progressCallback(progress);
-            };
+
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
+            // GPU path: build BVH on CPU (needed for upload), then render on GPU
+            renderer.buildAcceleration();
+            cudaRenderer->uploadScene(renderer, *camera);
+            if (envMap && envMap->loaded())
+                cudaRenderer->uploadEnvironmentMap(*envMap);
+            cudaRenderer->render(camera->pixels,
+                                 camera->width, camera->height,
+                                 samplesPerPixel, maxDepth);
+        } else
+#endif
+        {
+            // CPU path (unchanged)
+            std::function<void(float)> callback = nullptr;
+            if (!progressCallback.is_none()) {
+                callback = [&progressCallback](float progress) {
+                    py::gil_scoped_acquire acquire;
+                    progressCallback(progress);
+                };
+            }
+            renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling);
         }
-        renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling);
-        
-        // Create 3D array with shape (height, width, 3)
-        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
+
+        // Package pixels into numpy array (height, width, 3)
+        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height),
+                                 static_cast<py::ssize_t>(camera->width), 3};
         auto result = py::array_t<float>(shape);
         {
             py::buffer_info buf = result.request();
             float* ptr = static_cast<float*>(buf.ptr);
             size_t size = camera->pixels.size();
             for (size_t i = 0; i < size; i++) {
-                ptr[i*3] = camera->pixels[i].x;
+                ptr[i*3]   = camera->pixels[i].x;
                 ptr[i*3+1] = camera->pixels[i].y;
                 ptr[i*3+2] = camera->pixels[i].z;
             }
@@ -245,6 +303,10 @@ public:
         nextMaterialId = 0;
         textureManager = TextureManager();
         envMap.reset();
+        useGPU = false;
+#ifdef ASTRORAY_CUDA_ENABLED
+        cudaRenderer.reset();
+#endif
     }
     int getWidth() const { return camera ? camera->width : 0; }
     int getHeight() const { return camera ? camera->height : 0; }
@@ -274,8 +336,18 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)
         .def("clear", &PyRenderer::clear)
         .def("get_width", &PyRenderer::getWidth)
-        .def("get_height", &PyRenderer::getHeight);
+        .def("get_height", &PyRenderer::getHeight)
+        .def("set_use_gpu", &PyRenderer::setUseGPU, "enable"_a)
+        .def_property_readonly("gpu_available",   &PyRenderer::getGPUAvailable)
+        .def_property_readonly("gpu_device_name", &PyRenderer::getGPUDeviceName);
     m.attr("__version__") = "3.0.0";
-    m.attr("__features__") = py::dict("nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,
-        "adaptive_sampling"_a=true, "volumes"_a=true, "textures"_a=true, "subsurface"_a=true);
+    m.attr("__features__") = py::dict(
+        "nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,
+        "adaptive_sampling"_a=true, "volumes"_a=true, "textures"_a=true, "subsurface"_a=true,
+#ifdef ASTRORAY_CUDA_ENABLED
+        "cuda"_a=true
+#else
+        "cuda"_a=false
+#endif
+    );
 }

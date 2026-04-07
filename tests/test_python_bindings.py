@@ -626,6 +626,64 @@ def test_solid_background_color():
 
 
 # ---------------------------------------------------------------------------
+# GPU tests (Phase 2B)
+# ---------------------------------------------------------------------------
+
+def test_cuda_availability():
+    """GPU detection should work without crashing regardless of hardware."""
+    r = create_renderer()
+    gpu_avail = r.gpu_available
+    assert isinstance(gpu_avail, bool), "gpu_available should return a bool"
+    # cuda feature key must exist in __features__
+    assert 'cuda' in astroray.__features__, "Missing 'cuda' key in __features__"
+    if gpu_avail:
+        name = r.gpu_device_name
+        assert isinstance(name, str) and len(name) > 0, "gpu_device_name should be a non-empty string"
+        print(f"GPU available: {name}")
+    else:
+        print(f"No GPU: {r.gpu_device_name}")
+
+
+def test_gpu_renders_match_cpu():
+    """GPU and CPU renders should produce similar mean brightness (within 15%)."""
+    import pytest
+
+    # --- CPU render ---
+    r_cpu = create_renderer()
+    create_cornell_box(r_cpu)
+    mat = r_cpu.create_material('disney', [0.8, 0.4, 0.2],
+                                {'roughness': 0.3, 'metallic': 0.5})
+    r_cpu.add_sphere([0, -0.5, 0], 1.0, mat)
+    setup_camera(r_cpu, look_from=[0, 0, 5.5], look_at=[0, 0, 0],
+                 vfov=38, width=200, height=150)
+    pixels_cpu = render_image(r_cpu, samples=64)
+
+    if not r_cpu.gpu_available:
+        pytest.skip("No CUDA GPU available — skipping GPU vs CPU comparison")
+
+    # --- GPU render ---
+    r_gpu = create_renderer()
+    create_cornell_box(r_gpu)
+    mat2 = r_gpu.create_material('disney', [0.8, 0.4, 0.2],
+                                 {'roughness': 0.3, 'metallic': 0.5})
+    r_gpu.add_sphere([0, -0.5, 0], 1.0, mat2)
+    setup_camera(r_gpu, look_from=[0, 0, 5.5], look_at=[0, 0, 0],
+                 vfov=38, width=200, height=150)
+    r_gpu.set_use_gpu(True)
+    pixels_gpu = render_image(r_gpu, samples=64)
+
+    cpu_mean = float(np.mean(pixels_cpu))
+    gpu_mean = float(np.mean(pixels_gpu))
+    print(f"CPU mean brightness: {cpu_mean:.4f}, GPU mean brightness: {gpu_mean:.4f}")
+
+    assert abs(cpu_mean - gpu_mean) < 0.15 * max(cpu_mean, 1e-6), \
+        f"GPU ({gpu_mean:.3f}) and CPU ({cpu_mean:.3f}) differ by more than 15%"
+
+    save_image(pixels_cpu, os.path.join(OUTPUT_DIR, 'test_cpu_render.png'))
+    save_image(pixels_gpu, os.path.join(OUTPUT_DIR, 'test_gpu_render.png'))
+
+
+# ---------------------------------------------------------------------------
 # Stand-alone entry-point for direct execution
 # ---------------------------------------------------------------------------
 

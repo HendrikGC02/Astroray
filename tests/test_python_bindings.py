@@ -684,6 +684,144 @@ def test_gpu_renders_match_cpu():
 
 
 # ---------------------------------------------------------------------------
+# Phase 3: General Relativistic Black Hole tests
+# ---------------------------------------------------------------------------
+
+def test_black_hole_creation():
+    """Black hole can be added to the scene and renders without crashing."""
+    r = create_renderer()
+    r.add_black_hole([0, 0, 0], 10.0, 100.0, {
+        'disk_outer': 30.0,
+        'accretion_rate': 1.0,
+        'inclination': 75.0,
+    })
+    setup_camera(r, look_from=[0, 0, 200], look_at=[0, 0, 0],
+                 vfov=12, width=160, height=120)
+    pixels = render_image(r, samples=4)
+    assert_valid_image(pixels, 120, 160, min_mean=0.0, label='black_hole')
+    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_black_hole.png'))
+
+
+def test_black_hole_shadow_is_dark():
+    """The center of the black hole shadow should be darker than the edges."""
+    r = create_renderer()
+    r.add_black_hole([0, 0, 0], 10.0, 100.0, {
+        'disk_outer': 30.0, 'inclination': 75.0,
+    })
+    # Use a bright background so the shadow stands out
+    test_hdr = os.path.join(os.path.dirname(__file__), '..', 'samples', 'test_env.hdr')
+    if os.path.exists(test_hdr):
+        r.load_environment_map(test_hdr)
+    else:
+        # Bright solid background as fallback
+        r.set_background_color([1.0, 1.0, 1.0])
+
+    setup_camera(r, look_from=[0, 0, 200], look_at=[0, 0, 0],
+                 vfov=6, width=200, height=200)
+    pixels = render_image(r, samples=8)
+
+    center_region = pixels[80:120, 80:120, :]
+    center_mean   = float(np.mean(center_region))
+    edge_mean     = float(np.mean(pixels[:20, :, :]))
+
+    assert center_mean < edge_mean, (
+        f"Shadow center ({center_mean:.3f}) should be darker than edges ({edge_mean:.3f})"
+    )
+    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_shadow.png'))
+
+
+def test_black_hole_with_geometry():
+    """Black hole coexists with normal Cornell box geometry."""
+    r = create_renderer()
+    create_cornell_box(r)
+    r.add_black_hole([0, 0, 0], 1.0, 20.0, {'disk_outer': 15.0, 'inclination': 60.0})
+    setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0],
+                 vfov=38, width=200, height=150)
+    pixels = render_image(r, samples=16)
+    assert_valid_image(pixels, 150, 200, min_mean=0.01, label='bh_with_geometry')
+    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_cornell.png'))
+
+
+def test_black_hole_gr_feature_flag():
+    """gr_black_holes feature flag is set in __features__."""
+    assert 'gr_black_holes' in astroray.__features__, \
+        "gr_black_holes feature flag missing from astroray.__features__"
+    assert astroray.__features__['gr_black_holes'] is True
+
+
+def test_black_hole_showcase_scene():
+    """
+    Cinematic showcase: a Schwarzschild black hole with accretion disk as the
+    centrepiece, surrounded by orbiting bodies that exercise every major
+    material model (lambertian, metal, glass, Disney BRDF) and lit by the
+    HDR environment map. This is the "hero" image for the GR feature.
+    """
+    r = create_renderer()
+
+    # ---- Black hole at origin --------------------------------------------
+    # Influence sphere radius 50 in world units; spheres orbit outside it.
+    r.add_black_hole([0, 0, 0], 10.0, 50.0, {
+        'disk_outer': 30.0,
+        'accretion_rate': 1.2,
+        'inclination': 72.0,
+    })
+
+    # ---- Orbiting bodies (all sit outside the 50-unit influence sphere) --
+    # Polished gold Disney BRDF (warm metallic, slight roughness)
+    gold = r.create_material('disney', [1.0, 0.78, 0.34],
+                             {'metallic': 1.0, 'roughness': 0.18,
+                              'clearcoat': 0.4})
+    r.add_sphere([95, -8, 25], 11.0, gold)
+
+    # Mirror-polished metal
+    chrome = r.create_material('metal', [0.92, 0.92, 0.95],
+                               {'roughness': 0.05})
+    r.add_sphere([-95, 5, -20], 12.0, chrome)
+
+    # Clear glass
+    glass = r.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.5})
+    r.add_sphere([15, 30, 95], 9.0, glass)
+
+    # Diffuse coloured planet
+    planet = r.create_material('lambertian', [0.25, 0.45, 0.75], {})
+    r.add_sphere([-25, -35, 85], 11.0, planet)
+
+    # Subtle frosted dielectric (Disney)
+    frosted = r.create_material('disney', [0.85, 0.85, 0.9],
+                                {'metallic': 0.0, 'roughness': 0.55,
+                                 'clearcoat': 0.2})
+    r.add_sphere([60, 25, -55], 8.0, frosted)
+
+    # ---- HDR environment lighting ---------------------------------------
+    test_hdr = os.path.join(os.path.dirname(__file__), '..', 'samples',
+                            'test_env.hdr')
+    if os.path.exists(test_hdr):
+        r.load_environment_map(test_hdr)
+    else:
+        r.set_background_color([0.02, 0.02, 0.04])
+
+    # ---- Cinematic camera ------------------------------------------------
+    setup_camera(r,
+                 look_from=[40, 35, 220],
+                 look_at=[0, 0, 0],
+                 vup=[0, 1, 0],
+                 vfov=22,
+                 aperture=0.0,
+                 focus_dist=220.0,
+                 width=320, height=240)
+
+    pixels = render_image(r, samples=16)
+    assert_valid_image(pixels, 240, 320, min_mean=0.005,
+                       label='bh_showcase')
+
+    # The disk should produce some visibly bright pixels somewhere in frame
+    assert float(np.max(pixels)) > 0.15, \
+        "Showcase scene appears entirely black — disk emission missing?"
+
+    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_showcase.png'))
+
+
+# ---------------------------------------------------------------------------
 # Stand-alone entry-point for direct execution
 # ---------------------------------------------------------------------------
 

@@ -10,6 +10,9 @@
 #include <functional>
 #include "stb_image.h"
 
+// Forward declaration needed by HitRecord
+class Hittable;
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -105,8 +108,9 @@ struct HitRecord {
     Vec2 uv;
     std::shared_ptr<Material> material;
     bool isDelta;
-    
-    HitRecord() : t(std::numeric_limits<float>::max()), frontFace(true), isDelta(false) {}
+    const Hittable* hitObject = nullptr;  // set by hit() for GR dispatch
+
+    HitRecord() : t(std::numeric_limits<float>::max()), frontFace(true), isDelta(false), hitObject(nullptr) {}
     
     void setFaceNormal(const Ray& r, const Vec3& outwardNormal) {
         frontFace = r.direction.dot(outwardNormal) < 0;
@@ -347,6 +351,15 @@ public:
 
 class Hittable {
 public:
+    // Result type used by GR objects (BlackHole).  Defined here so that
+    // pathTrace() can use it without needing a full BlackHole definition.
+    struct GRResult {
+        Vec3 color;            // accumulated spectral emission (linear RGB)
+        Vec3 exitDirection;    // world-space exit direction
+        bool captured;         // absorbed by horizon
+        bool hasEmission;      // disk was hit
+    };
+
     virtual ~Hittable() = default;
     virtual bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const = 0;
     virtual bool boundingBox(AABB& box) const = 0;
@@ -354,6 +367,11 @@ public:
     virtual Vec3 random(const Vec3& origin, std::mt19937& gen) const { return Vec3(0, 1, 0); }
     virtual bool isLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }
+    // GR dispatch — BlackHole overrides both
+    virtual bool isGRObject() const { return false; }
+    virtual GRResult traceGR(const Ray& /*r*/, std::mt19937& /*gen*/) const {
+        return {Vec3(0), Vec3(0, 0, 1), true, false};
+    }
 };
 
 class Sphere : public Hittable {
@@ -1072,11 +1090,16 @@ public:
         if (bs.pdf > 0 && !bs.isDelta) {
             HitRecord bRec;
             if (bvh->hit(Ray(rec.point, bs.wi), 0.001f, 1e30f, bRec)) {
-                // Hit geometry — check if it's an emissive light
-                Vec3 Le = bRec.material->emitted(bRec);
-                if (Le != Vec3(0)) {
-                    float lightPdf = (1.0f - pEnv) * lights.pdfValue(rec.point, bs.wi);
-                    direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
+                // Hit geometry — check if it's an emissive light.
+                // GR objects (BlackHole) do not set rec.material in hit(); they
+                // are handled by the path-tracer's GR branch, never as NEE
+                // light targets, so skip them safely here to avoid a NULL deref.
+                if (bRec.material) {
+                    Vec3 Le = bRec.material->emitted(bRec);
+                    if (Le != Vec3(0)) {
+                        float lightPdf = (1.0f - pEnv) * lights.pdfValue(rec.point, bs.wi);
+                        direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
+                    }
                 }
             } else {
                 // Miss — hit the environment map
@@ -1091,31 +1114,60 @@ public:
         return direct;
     }
     
-Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen, Vec3* albOut = nullptr, Vec3* normOut = nullptr) {
+Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
+                   Vec3* albOut = nullptr, Vec3* normOut = nullptr) {
         const int rrDepth = 3;
         Vec3 color(0), throughput(1);
         Ray ray = r;
         bool wasSpecular = true;
-        
+
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             HitRecord rec;
-if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
+            if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
                 Vec3 envColor;
                 if (envMap && envMap->loaded()) {
                     envColor = envMap->lookup(ray.direction.normalized());
                 } else if (backgroundColor.x >= 0) {
                     envColor = backgroundColor;
                 } else {
-                    // Default sky gradient fallback
                     float t = 0.5f * (ray.direction.normalized().y + 1.0f);
                     envColor = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
                 }
-                // Only add environment for camera rays or specular bounces (matches NEE convention)
                 if (bounce == 0 || wasSpecular) {
                     color += throughput * envColor;
                 }
                 break;
             }
+
+            // --- GR dispatch via virtual call (no RTTI needed) ---
+            if (rec.hitObject && rec.hitObject->isGRObject()) {
+                auto grResult = rec.hitObject->traceGR(ray, gen);
+
+                if (bounce == 0 && normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
+
+                if (grResult.hasEmission) {
+                    color += throughput * grResult.color;
+                }
+                if (grResult.captured) {
+                    break;
+                }
+                // Sanitize exit direction: any NaN/Inf or zero-length vector
+                // collapses the geodesic into a "captured" outcome rather than
+                // poisoning BVH traversal with a malformed ray.
+                Vec3 exitDir = grResult.exitDirection;
+                float exitLen2 = exitDir.length2();
+                if (!std::isfinite(exitDir.x) || !std::isfinite(exitDir.y) ||
+                    !std::isfinite(exitDir.z) || !std::isfinite(exitLen2) ||
+                    exitLen2 < 1e-10f) {
+                    break;
+                }
+                ray = Ray(rec.point, exitDir, ray.time);
+                wasSpecular = true;
+                continue;
+            }
+
+            // --- Normal path tracing ---
+            if (!rec.material) break;  // safety guard
             if (bounce == 0) {
                 if (albOut) { if (auto l = dynamic_cast<Lambertian*>(rec.material.get())) *albOut = l->getAlbedo(); else *albOut = Vec3(0.5f); }
                 if (normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
@@ -1217,3 +1269,9 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
         }
     }
 };
+
+// ============================================================================
+// BlackHole definition — included after Renderer so Hittable::GRResult is defined.
+// black_hole.h overrides Hittable::traceGR() using virtual dispatch — no cast needed.
+// ============================================================================
+#include "astroray/black_hole.h"

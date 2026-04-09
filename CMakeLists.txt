@@ -45,7 +45,11 @@ endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # Base optimization flags
     add_compile_options(-Wall -Wextra -O3)
-    
+
+    # Force stack realignment at every function entry so SSE/AVX instructions work
+    # correctly in OpenMP worker threads (MinGW does not guarantee 16-byte alignment).
+    add_compile_options(-mstackrealign)
+
     # Architecture-specific optimizations
     if(USE_NATIVE_ARCH)
         add_compile_options(-march=native)
@@ -55,9 +59,15 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     endif()
     
     # Fast math (trades precision for speed)
+    # -fno-finite-math-only is added unconditionally so that std::isfinite / isnan
+    # remain correct even when fast-math is enabled. Without it, -ffinite-math-only
+    # (implied by -ffast-math) causes the compiler to assume all values are finite,
+    # turning isfinite() into a constant true and letting NaN propagate undetected
+    # into BVH traversal (crash). All other fast-math opts are kept for speed.
     if(USE_FAST_MATH)
         add_compile_options(-ffast-math)
     endif()
+    add_compile_options(-fno-finite-math-only)
     
     # OpenMP for parallel rendering
     find_package(OpenMP REQUIRED)

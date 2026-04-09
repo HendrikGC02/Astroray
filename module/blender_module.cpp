@@ -145,6 +145,22 @@ public:
         }
     }
     
+    void addBlackHole(const std::vector<float>& position, float mass_solar,
+                     float influence_radius, py::dict params) {
+        double disk_outer = params.contains("disk_outer")
+            ? params["disk_outer"].cast<double>() : 30.0;
+        double mdot = params.contains("accretion_rate")
+            ? params["accretion_rate"].cast<double>() : 1.0;
+        double incl = params.contains("inclination")
+            ? params["inclination"].cast<double>() : 75.0;
+
+        auto bh = std::make_shared<BlackHole>(
+            Vec3(position[0], position[1], position[2]),
+            double(mass_solar), double(influence_radius),
+            disk_outer, mdot, incl);
+        renderer.addObject(bh);
+    }
+
     void addVolume(const std::vector<float>& center, float radius, float density,
                   const std::vector<float>& color, float anisotropy = 0) {
         auto boundary = std::make_shared<Sphere>(Vec3(center[0], center[1], center[2]), radius,
@@ -325,6 +341,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("add_mesh", &PyRenderer::addMesh, "filename"_a, "material_id"_a,
              "position"_a = std::vector<float>{0,0,0}, "scale"_a = std::vector<float>{1,1,1}, "rotation_y"_a = 0.0f)
         .def("add_volume", &PyRenderer::addVolume, "center"_a, "radius"_a, "density"_a, "color"_a, "anisotropy"_a = 0.0f)
+        .def("add_black_hole", &PyRenderer::addBlackHole,
+             "position"_a, "mass"_a, "influence_radius"_a, "params"_a = py::dict())
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,
              "aspect_ratio"_a, "aperture"_a, "focus_dist"_a, "width"_a, "height"_a)
         .def("set_adaptive_sampling", &PyRenderer::setAdaptiveSampling, "enable"_a)
@@ -344,6 +362,7 @@ PYBIND11_MODULE(astroray, m) {
     m.attr("__features__") = py::dict(
         "nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,
         "adaptive_sampling"_a=true, "volumes"_a=true, "textures"_a=true, "subsurface"_a=true,
+        "gr_black_holes"_a=true,
 #ifdef ASTRORAY_CUDA_ENABLED
         "cuda"_a=true
 #else

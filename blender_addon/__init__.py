@@ -187,6 +187,26 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def convert_objects(self, depsgraph, renderer, material_map):
         for obj_instance in depsgraph.object_instances:
             obj = obj_instance.object
+
+            # Black hole empties
+            if obj.type == 'EMPTY' and hasattr(obj, 'astroray_black_hole'):
+                bh = obj.astroray_black_hole
+                if bh.mass > 0:
+                    try:
+                        renderer.add_black_hole(
+                            list(obj.location),
+                            bh.mass,
+                            bh.influence_radius,
+                            {
+                                'disk_outer':     bh.disk_outer,
+                                'accretion_rate': bh.accretion_rate,
+                                'inclination':    bh.inclination,
+                            }
+                        )
+                    except Exception as e:
+                        print(f"Black hole conversion error: {e}")
+                continue
+
             if obj.type != 'MESH' or not obj.visible_get(): continue
             
             obj_eval = obj.evaluated_get(depsgraph)
@@ -346,21 +366,79 @@ class CustomRaytracerPreferences(AddonPreferences):
             layout.label(text="Raytracer module not loaded!", icon='ERROR')
         layout.prop(self, "debug_mode")
 
+class AstrorayBlackHoleProperties(PropertyGroup):
+    mass: FloatProperty(name="Mass (M\u2609)", min=0.1, max=1e10, default=10.0,
+                        description="Black hole mass in solar masses")
+    influence_radius: FloatProperty(name="Influence Radius", min=1.0, max=10000.0, default=100.0,
+                                    description="World-space radius of the GR influence sphere")
+    disk_outer: FloatProperty(name="Disk Outer Radius (M)", min=6.0, max=1000.0, default=30.0,
+                               description="Accretion disk outer radius in units of M")
+    accretion_rate: FloatProperty(name="Accretion Rate", min=0.01, max=100.0, default=1.0,
+                                   description="Dimensionless accretion rate (sets disk brightness)")
+    inclination: FloatProperty(name="Inclination (\u00b0)", min=0.0, max=90.0, default=75.0,
+                                description="Observer inclination from the spin axis")
+    show_disk: BoolProperty(name="Show Accretion Disk", default=True)
+
+
+class ASTRORAY_OT_add_black_hole(Operator):
+    bl_idname = "astroray.add_black_hole"
+    bl_label = "Add Black Hole"
+    bl_description = "Add a black hole empty to the scene"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        bpy.ops.object.empty_add(type='SPHERE')
+        obj = context.active_object
+        obj.name = "BlackHole"
+        obj.empty_display_size = 5.0
+        return {'FINISHED'}
+
+
+class OBJECT_PT_astroray_black_hole(Panel):
+    bl_label = "Astroray Black Hole"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "object"
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return (obj is not None and obj.type == 'EMPTY'
+                and hasattr(obj, 'astroray_black_hole'))
+
+    def draw(self, context):
+        layout = self.layout
+        bh = context.active_object.astroray_black_hole
+        layout.use_property_split = True
+        col = layout.column(align=True)
+        col.prop(bh, "mass")
+        col.prop(bh, "influence_radius")
+        col.separator()
+        col.prop(bh, "disk_outer")
+        col.prop(bh, "accretion_rate")
+        col.prop(bh, "inclination")
+        col.prop(bh, "show_disk")
+
+
 classes = [
     CustomRaytracerRenderSettings, CustomRaytracerMaterialSettings,
+    AstrorayBlackHoleProperties,
     CustomRaytracerRenderEngine, RENDER_PT_custom_raytracer_sampling,
     RENDER_PT_custom_raytracer_light_paths, CustomRaytracerPreferences,
+    ASTRORAY_OT_add_black_hole, OBJECT_PT_astroray_black_hole,
 ]
 
 def register():
     for cls in classes: bpy.utils.register_class(cls)
     bpy.types.Scene.custom_raytracer = PointerProperty(type=CustomRaytracerRenderSettings)
     bpy.types.Material.custom_raytracer = PointerProperty(type=CustomRaytracerMaterialSettings)
+    bpy.types.Object.astroray_black_hole = PointerProperty(type=AstrorayBlackHoleProperties)
     print("Custom Raytracer addon registered")
 
 def unregister():
     del bpy.types.Scene.custom_raytracer
     del bpy.types.Material.custom_raytracer
+    del bpy.types.Object.astroray_black_hole
     for cls in reversed(classes): bpy.utils.unregister_class(cls)
     print("Custom Raytracer addon unregistered")
 

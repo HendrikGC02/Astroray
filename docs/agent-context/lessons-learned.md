@@ -120,3 +120,27 @@
 ---
 
 2026-03-15 | debugging | Isolate overexposure by rendering each material in isolation | When a fully-assembled scene is overexposed but individual materials work, test scenes with exactly one sphere type added at a time (walls+light only → add glass → add Disney → add Metal). This immediately identifies which material is responsible without source analysis. In this project, "Metal only → mean=1.0" while all others gave ~0.4 pinpointed Metal as the culprit in under one test run.
+
+---
+
+2026-04-09 | include/astroray/gr_integrator.h | MinGW GCC corrupts large structs passed by value | `integrateGeodesic()` originally took its initial state as `GeodesicState s` (64 bytes, 8 doubles). Under MinGW GCC 15.2 on Windows x64 the receiving function saw garbage in several fields — the call would crash before the first line of the function body executed. Standard MSVC works fine; this is a MinGW ABI quirk for structs > ~32 bytes. Fix: take the parameter as `const GeodesicState& s_init` and copy locally (`GeodesicState s = s_init;`). Apply this rule to ANY hot-path function on this toolchain that takes a struct larger than two doubles by value.
+
+---
+
+2026-04-09 | tests/base_helpers.py + build/ | Stale .pyd files shadow fresh build via sys.path order | `tests/base_helpers.py` does `sys.path.insert(0, build_dir)` and then `sys.path.insert(0, project_root)`, so the project root ends up FIRST in `sys.path`. Any `astroray.cp312-win_amd64.pyd` left at the project root (or in `tests/`, `Release/`, etc.) silently masks the freshly built `build/astroray.cp312-win_amd64.pyd`. Symptom: code changes appear to have no effect, bisects mislead because results are frozen in time. Fix: before each debugging session run `find . -name "astroray*.pyd"` and delete every match outside `build/`. Even better, fix `base_helpers.py` to put the build dir LAST so it stays authoritative.
+
+---
+
+2026-04-09 | CMakeLists.txt | -ffast-math defines __FINITE_MATH_ONLY__ which folds std::isfinite to true | With `-ffast-math` enabled, GCC defines `__FINITE_MATH_ONLY__=1`, and the libstdc++ headers replace `std::isfinite(x)` with `true` at preprocessor time. NaN/Inf guards in the GR integrator therefore did NOTHING — the very check meant to catch unrecoverable states was a no-op. Fix: add `-fno-finite-math-only` to compile options to keep `std::isfinite` semantically meaningful. As a belt-and-braces measure also provide a `gr_isfinite(double)` helper that does its own bit-pattern check (`((bits >> 52) & 0x7ff) != 0x7ff`) and use it in critical guards instead of `std::isfinite`.
+
+---
+
+2026-04-09 | debugging | Pytest captures stderr; OneDrive paths can't be opened with fopen | When debugging a multi-threaded crash inside an OpenMP render, `fprintf(stderr, ...)` is invisible because pytest captures stderr per-test and only prints it on failure (often after the process aborts). File logging is the only reliable channel. But: opening a log file under a OneDrive-synced path (e.g. project root) silently fails — `fopen` returns NULL with no useful error. Use `C:\Users\<user>\AppData\Local\Temp\` instead, which is a real local filesystem and is not under sync.
+
+---
+
+2026-04-09 | debugging | Step-count bisection lies when a stale binary is in sys.path | While hunting the GR integrator crash I bisected on `maxSteps` (500/1000/2000/4000/4500/4900) and got a "narrow window" where 4500 passed and 4900 crashed. The result was complete nonsense: every test was actually running against yesterday's stale `.pyd` at the project root, so changing `maxSteps` in source had zero effect on the running code, and the apparent threshold was pure noise from crash-time RNG. Lesson: when bisection results look weirdly narrow or implausibly correlated with an unrelated parameter, the FIRST hypothesis must be "am I running the binary I think I am?" — verify `import astroray; print(astroray.__file__)` before trusting any bisection.
+
+---
+
+2026-04-09 | include/raytracer.h | NEE BSDF-sample emissive check NULL-derefs on GR objects | `BlackHole::hit()` does NOT set `rec.material` (BlackHole has no Material — it's handled by the GR branch via virtual dispatch). When `sampleDirect()`'s BSDF-sample branch hits the BH influence sphere instead of the env map, it called `bRec.material->emitted(bRec)` and crashed with an access violation. Visible only when ALL of: (a) HDR env map loaded, (b) at least one non-GR object in the scene, (c) enough samples that BSDF sampling actually picks a direction toward the BH. Fix: guard the emissive check with `if (bRec.material) { ... }` so NEE just skips GR objects (correct behavior — they are handled by the GR branch in pathTrace, never as light sources). Any new Hittable that doesn't set `rec.material` must also be skipped here, OR the BVH shadow/light walks must filter `isGRObject()` explicitly.

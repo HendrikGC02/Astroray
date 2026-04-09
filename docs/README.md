@@ -8,9 +8,9 @@
 
 ## Architecture and implementation plans
 
-- `CUDA_IMPLEMENTATION_PLAN.md`
-- `GR_INTEGRATION_PLAN.md`
-- `HDRI_IMPLEMENTATION_PLAN.md`
+- `adr/CUDA_IMPLEMENTATION_PLAN.md`
+- `adr/GR_INTEGRATION_PLAN.md`
+- `adr/HDRI_IMPLEMENTATION_PLAN.md`
 
 ## Agent context
 

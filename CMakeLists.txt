@@ -107,6 +107,7 @@ set(SOURCES
 # Compile stb_image_write_impl.c as C++ to avoid linking issues
 set_source_files_properties(src/stb_image_write_impl.c PROPERTIES LANGUAGE CXX)
 add_library(stb_image_write_lib STATIC src/stb_image_write_impl.c)
+target_include_directories(stb_image_write_lib PRIVATE ${CMAKE_SOURCE_DIR}/include)
 set_target_properties(stb_image_write_lib PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON

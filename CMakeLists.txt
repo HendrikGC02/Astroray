@@ -105,11 +105,12 @@ set(SOURCES
 )
 
 # Compile stb_image_write_impl.c as C++ to avoid linking issues
-set_source_files_properties(include/stb_image_write_impl.c PROPERTIES LANGUAGE CXX)
-add_library(stb_image_write_lib STATIC include/stb_image_write_impl.c)
+set_source_files_properties(src/stb_image_write_impl.c PROPERTIES LANGUAGE CXX)
+add_library(stb_image_write_lib STATIC src/stb_image_write_impl.c)
 set_target_properties(stb_image_write_lib PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
 )
 
 # stb_image implementation (STB_IMAGE_IMPLEMENTATION defined once here)
@@ -118,6 +119,7 @@ target_include_directories(stb_impl PRIVATE ${CMAKE_SOURCE_DIR}/include)
 set_target_properties(stb_impl PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
 )
 
 # ---------------------------------------------------------------------------

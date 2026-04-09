@@ -11,10 +11,10 @@ Astroray/
 │   ├── advanced_features.h     # Transform, textured materials, mesh, volumes, black holes
 │   ├── blender_integration.h   # Blender addon integration interface
 │   ├── stb_image.h             # Image read library (header)
-│   ├── stb_image_write.h       # Image write library (header)
-│   └── stb_image_write_impl.c  # Image write library (implementation)
+│   └── stb_image_write.h       # Image write library (header)
 ├── src/                         # C++ source files
 │   ├── stb_impl.cpp            # stb_image implementation unit
+│   ├── stb_image_write_impl.c  # stb_image_write implementation unit
 │   └── gpu/                    # CUDA GPU backend
 │       ├── cuda_renderer.cu
 │       ├── path_trace_kernel.cu
@@ -27,6 +27,8 @@ Astroray/
 │   └── __init__.py             # Addon registration and render engine
 ├── samples/                     # Sample scenes and test assets
 ├── docs/                        # Documentation
+├── notebooks/                   # Exploratory notebooks/examples
+├── scripts/                     # Optional developer utility scripts
 ├── tests/                       # Test suite (pytest)
 ├── CMakeLists.txt              # CMake build configuration
 ├── AGENTS.md                   # Agent configuration
@@ -60,6 +62,7 @@ Astroray/
 - C++17 compatible compiler (GCC 9+, Clang 10+, MSVC 2019+)
 - OpenMP (required for parallel CPU rendering)
 - Python 3.7+ with development headers (for Python module)
+- Python dependencies listed in `requirements.txt`
 - pybind11 (auto-fetched from GitHub if not installed)
 - CUDA Toolkit 12.x (optional, for GPU acceleration)
 
@@ -68,6 +71,9 @@ Astroray/
 ```bash
 # Create build directory
 mkdir build && cd build
+
+# Install Python dependencies
+python3 -m pip install -r ../requirements.txt
 
 # Configure with CMake (Python module built by default)
 cmake .. -DCMAKE_BUILD_TYPE=Release
@@ -241,17 +247,17 @@ The addon exposes samples, max bounces, adaptive sampling, and GPU toggle direct
 
 ```bash
 # Run all tests (requires built module)
-pytest tests/ -v
+python3 -m pytest tests/ -v
 
 # Python bindings (30 tests — materials, Cornell box, Disney BRDF, convergence,
 #                  performance, quality analysis, AOV buffers, HDRI, GPU, black holes)
-pytest tests/test_python_bindings.py -v
+python3 -m pytest tests/test_python_bindings.py -v
 
 # Material property tests (17 tests — per-material quantitative assertions)
-pytest tests/test_material_properties.py -v
+python3 -m pytest tests/test_material_properties.py -v
 
 # Standalone binary (7 tests — help, scene rendering, dimensions, convergence)
-pytest tests/test_standalone_renderer.py -v
+python3 -m pytest tests/test_standalone_renderer.py -v
 ```
 
 Test images and performance charts are saved to `test_results/` (gitignored).
@@ -266,6 +272,7 @@ Test images and performance charts are saved to `test_results/` (gitignored).
 | `test_aperture_dof` | Depth-of-field has no effect |
 | `test_quality_analysis` | PSNR regression at higher sample counts |
 | `test_disney_brdf_parameter_grid` | Any of the 12 BRDF parameter combos black |
+| `test_material_properties` | Quantitative regression checks for material behavior |
 | `test_aov_buffers` | Albedo/normal buffer shape and content |
 | `test_cuda_availability` | GPU detection crashes or missing feature flag |
 | `test_black_hole_creation` | GR black hole rendering crashes |
@@ -294,6 +301,13 @@ Test images and performance charts are saved to `test_results/` (gitignored).
 - `module/blender_module.cpp` — pybind11 Python module (`astroray`)
 - `src/gpu/` — CUDA path-tracing kernel and scene upload
 - `CMakeLists.txt` — Build configuration
+
+## Additional Documentation
+
+- Docs index: `docs/README.md`
+- Renderer internals: `docs/agent-context/renderer-internals.md`
+- Lessons learned: `docs/agent-context/lessons-learned.md`
+- Contributor guide: `CONTRIBUTING.md`
 
 ## License
 

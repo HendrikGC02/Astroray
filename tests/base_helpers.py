@@ -17,7 +17,7 @@ from typing import List, Tuple
 BUILD_DIR = os.path.join(os.path.dirname(__file__), '..', 'build')
 sys.path.insert(0, BUILD_DIR)
 # Also check project root in case module was copied there
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 try:
     import astroray

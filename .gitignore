@@ -13,7 +13,6 @@ Debug/
 x64/
 
 # Blender addon package output
-dist/
 CMakeFiles/
 ALL_BUILD.dir/
 INSTALL.dir/

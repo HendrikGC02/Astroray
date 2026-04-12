@@ -1,10 +1,12 @@
+# NOTE: Blender 5.1+ uses blender_manifest.toml (see sibling file). bl_info is kept
+# as a fallback for Blender 4.x — Blender prefers the manifest when both exist.
 bl_info = {
-    "name": "Custom Raytracer Pro",
-    "author": "Your Name",
-    "version": (3, 0, 0),
+    "name": "Astroray Renderer",
+    "author": "Hendrik Combrinck",
+    "version": (4, 0, 0),
     "blender": (5, 0, 0),
-    "location": "Render Properties > Render Engine > Custom Raytracer",
-    "description": "Path tracer with Disney BRDF, NEE, MIS",
+    "location": "Render Properties > Render Engine > Astroray",
+    "description": "PBR path tracer with Disney BRDF, NEE, MIS, GR black holes",
     "category": "Render",
 }
 
@@ -16,6 +18,16 @@ from pathlib import Path
 
 addon_dir = os.path.dirname(__file__)
 if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
+
+# On Windows the compiled .pyd ships with bundled MinGW runtime DLLs
+# (libgomp-1.dll, etc.). Python 3.8+ no longer searches PATH for module
+# dependencies, so we have to explicitly add the addon directory to the
+# DLL search list before importing.
+if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
+    try:
+        os.add_dll_directory(addon_dir)
+    except (FileNotFoundError, OSError):
+        pass
 
 try:
     import astroray
@@ -128,60 +140,279 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.setup_camera(look_from, look_at, vup, vfov, width/height, aperture, focus_dist, width, height)
     
     def convert_materials(self, depsgraph, renderer):
+        # In Blender 5.0+ every material is node-based (use_nodes is deprecated
+        # and always True), so we always go through the node tree conversion.
         material_map = {}
         for mat in bpy.data.materials:
-            if not mat.use_nodes:
-                mat_id = renderer.create_material('disney', list(mat.diffuse_color[:3]),
-                    {'roughness': float(mat.roughness), 'metallic': float(mat.metallic)})
-            else: mat_id = self.convert_node_material(mat, renderer)
-            material_map[mat.name] = mat_id
+            material_map[mat.name] = self.convert_node_material(mat, renderer)
         return material_map
-    
+
     def convert_node_material(self, mat, renderer):
-        output = next((n for n in mat.node_tree.nodes if n.type == 'OUTPUT_MATERIAL'), None)
-        if not output: return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
-        
+        """Convert a Blender material to Astroray.
+
+        Uses `material.inline_shader_nodes()` (Blender 5.0+) to get a flattened
+        node tree with node groups inlined, reroutes removed, and muted nodes
+        stripped — this is a MUCH more robust starting point than walking the
+        raw user node tree. Falls back to `mat.node_tree` on older Blender.
+        """
+        # CRITICAL: keep `inlined` alive while accessing `node_tree`. When it's
+        # garbage collected the node_tree reference becomes invalid, so we store
+        # it locally and only let it drop after this function returns.
+        inlined = None
+        try:
+            inlined = mat.inline_shader_nodes()
+            node_tree = inlined.node_tree
+        except (AttributeError, RuntimeError):
+            # Pre-5.0 Blender: fall back to direct access
+            node_tree = getattr(mat, 'node_tree', None)
+        if node_tree is None:
+            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+
+        # Find the active output node (preferred), or any OUTPUT_MATERIAL
+        output = None
+        for node in node_tree.nodes:
+            if node.type == 'OUTPUT_MATERIAL' and getattr(node, 'is_active_output', True):
+                output = node
+                break
+        if output is None:
+            output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_MATERIAL'), None)
+        if output is None:
+            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+
         surface_input = output.inputs.get('Surface')
         if not surface_input or not surface_input.is_linked:
             return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
-        
-        node = surface_input.links[0].from_node
-        if node.type == 'BSDF_PRINCIPLED': return self.convert_principled_bsdf(node, renderer)
-        elif node.type == 'EMISSION':
-            return renderer.create_material('light', list(node.inputs['Color'].default_value[:3]),
-                {'intensity': node.inputs['Strength'].default_value})
-        elif node.type == 'BSDF_GLASS':
-            return renderer.create_material('glass', [1, 1, 1], {'ior': node.inputs['IOR'].default_value})
-        return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
-    
-    def convert_principled_bsdf(self, node, renderer):
-        def get_val(name, default=0):
-            inp = node.inputs.get(name)
-            if inp and not inp.is_linked:
-                val = inp.default_value
-                # Convert to Python float if it's a scalar
-                if hasattr(val, '__iter__'):
-                    return list(val)  # Convert bpy_prop_array to list
-                return float(val)
+
+        shader_node = surface_input.links[0].from_node
+        return self.convert_shader_node(shader_node, renderer, node_tree)
+
+    # ------------------------------------------------------------------ #
+    # Node-input helpers (unlinked defaults + linked image texture lookup)
+    # ------------------------------------------------------------------ #
+
+    def get_float_input(self, node, name, default):
+        """Read a scalar input's default_value. Returns `default` if linked or
+        missing. We deliberately do NOT follow math-node chains — too much of a
+        rabbit hole for the first pass."""
+        inp = node.inputs.get(name)
+        if not inp or inp.is_linked:
             return default
-        
-        base_color = list(get_val('Base Color', [0.8, 0.8, 0.8])[:3])
+        val = inp.default_value
+        if hasattr(val, '__iter__'):
+            # bpy_prop_array for a scalar socket shouldn't happen, but be safe
+            try:
+                return float(val[0])
+            except Exception:
+                return default
+        return float(val)
+
+    def get_color_input(self, node, name, default):
+        """Read an unlinked color input as a list of 3 floats."""
+        inp = node.inputs.get(name)
+        if not inp or inp.is_linked:
+            return list(default)
+        val = inp.default_value
+        if hasattr(val, '__iter__'):
+            return list(val[:3])
+        return list(default)
+
+    def get_color_or_texture(self, node, input_name, default_color):
+        """Read a color input; if linked to an Image Texture node, also return
+        the image datablock. Returns (fallback_color, bpy_image_or_None)."""
+        inp = node.inputs.get(input_name)
+        if not inp:
+            return list(default_color), None
+
+        if not inp.is_linked:
+            val = inp.default_value
+            if hasattr(val, '__iter__'):
+                return list(val[:3]), None
+            return list(default_color), None
+
+        try:
+            linked_node = inp.links[0].from_node
+        except (IndexError, AttributeError):
+            return list(default_color), None
+
+        # Follow a single Normal Map / Hue-Saturation / etc. wrapper to its
+        # underlying Image Texture if present. Otherwise only direct TEX_IMAGE.
+        if linked_node.type == 'TEX_IMAGE' and linked_node.image:
+            fallback = list(inp.default_value[:3]) if hasattr(inp.default_value, '__iter__') else list(default_color)
+            return fallback, linked_node.image
+        if linked_node.type in ('NORMAL_MAP', 'HUE_SAT', 'GAMMA', 'BRIGHTCONTRAST'):
+            color_in = linked_node.inputs.get('Color')
+            if color_in and color_in.is_linked:
+                try:
+                    deeper = color_in.links[0].from_node
+                    if deeper.type == 'TEX_IMAGE' and deeper.image:
+                        return list(default_color), deeper.image
+                except (IndexError, AttributeError):
+                    pass
+        return list(default_color), None
+
+    def load_blender_image(self, bpy_image, renderer):
+        """Load a Blender image datablock into the renderer's texture manager.
+        Returns the texture name (string) on success, None on failure.
+
+        Blender stores image pixels bottom-to-top; the C++ ImageTexture expects
+        top-to-bottom, so we flip vertically before uploading.
+        """
+        if bpy_image is None:
+            return None
+        # Deduplicate: a single Blender image is uploaded at most once per
+        # conversion pass.
+        cache = getattr(self, '_texture_cache', None)
+        if cache is None:
+            cache = {}
+            self._texture_cache = cache
+        if bpy_image.name in cache:
+            return cache[bpy_image.name]
+
+        try:
+            width, height = bpy_image.size
+            if width == 0 or height == 0:
+                return None
+            # Force pixel data to be available (packed/generated images may not
+            # have pixels loaded until reload() is called).
+            if not bpy_image.has_data:
+                try:
+                    bpy_image.reload()
+                except Exception:
+                    pass
+            if len(bpy_image.pixels) == 0:
+                return None
+
+            # pixels are a flat RGBA float array, row-major, bottom-to-top
+            pixels = np.asarray(bpy_image.pixels[:], dtype=np.float32)
+            pixels = pixels.reshape(height, width, 4)
+            # Flip vertically (Blender stores row 0 = bottom)
+            pixels = np.ascontiguousarray(pixels[::-1, :, :])
+            # Drop alpha; renderer takes RGB float
+            rgb = pixels[:, :, :3].reshape(-1).tolist()
+
+            tex_name = bpy_image.name
+            renderer.load_texture(tex_name, rgb, width, height)
+            cache[bpy_image.name] = tex_name
+            return tex_name
+        except Exception as e:
+            print(f"Astroray: failed to load texture '{bpy_image.name}': {e}")
+            return None
+
+    # ------------------------------------------------------------------ #
+    # Shader-node dispatch
+    # ------------------------------------------------------------------ #
+
+    def convert_shader_node(self, node, renderer, node_tree):
+        """Route a surface-shader node to the appropriate material builder."""
+        ntype = node.type
+        if ntype == 'BSDF_PRINCIPLED':
+            return self.convert_principled_bsdf_v2(node, renderer)
+        if ntype == 'EMISSION':
+            color = self.get_color_input(node, 'Color', [1, 1, 1])
+            strength = self.get_float_input(node, 'Strength', 1.0)
+            return renderer.create_material('light', color, {'intensity': strength})
+        if ntype == 'BSDF_GLASS':
+            ior = self.get_float_input(node, 'IOR', 1.5)
+            return renderer.create_material('glass', [1, 1, 1], {'ior': ior})
+        if ntype == 'BSDF_DIFFUSE':
+            color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
+            return renderer.create_material('lambertian', color, {})
+        if ntype in ('BSDF_GLOSSY', 'BSDF_ANISOTROPIC'):
+            color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
+            rough = self.get_float_input(node, 'Roughness', 0.5)
+            return renderer.create_material('metal', color, {'roughness': rough})
+        if ntype == 'MIX_SHADER':
+            # Prefer the first linked BSDF-ish input; this is a simplification
+            # that ignores the mix factor but keeps the dominant shader.
+            for inp in node.inputs:
+                if inp.is_linked:
+                    try:
+                        src = inp.links[0].from_node
+                    except (IndexError, AttributeError):
+                        continue
+                    if src.type.startswith('BSDF') or src.type == 'EMISSION':
+                        return self.convert_shader_node(src, renderer, node_tree)
+            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+        if ntype == 'ADD_SHADER':
+            # Just take the first linked shader; the renderer doesn't support
+            # additive shader blending directly.
+            for inp in node.inputs:
+                if inp.is_linked:
+                    try:
+                        src = inp.links[0].from_node
+                    except (IndexError, AttributeError):
+                        continue
+                    return self.convert_shader_node(src, renderer, node_tree)
+        # Unknown — safe default
+        return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+
+    def _float_with_fallback(self, node, new_name, old_name, default):
+        """Principled BSDF renamed several inputs between Blender 3.x and 4.x
+        ('Transmission' → 'Transmission Weight', etc.). Try the new name first,
+        fall back to the old."""
+        if node.inputs.get(new_name) is not None:
+            return self.get_float_input(node, new_name, default)
+        return self.get_float_input(node, old_name, default)
+
+    def convert_principled_bsdf_v2(self, node, renderer):
+        """Full Principled BSDF → Disney BRDF conversion with texture support.
+
+        Reads default values from every socket, follows linked Image Texture
+        nodes on Base Color (other sockets: defaults only for now), and picks
+        up the renamed sockets introduced in Blender 4.0.
+        """
+        # --- Base Color (may be textured) ---
+        base_color, base_color_tex = self.get_color_or_texture(
+            node, 'Base Color', [0.8, 0.8, 0.8])
+
+        # --- Scalar parameters (with renamed-input fallbacks) ---
+        metallic  = self.get_float_input(node, 'Metallic', 0.0)
+        roughness = self.get_float_input(node, 'Roughness', 0.5)
+        ior       = self.get_float_input(node, 'IOR', 1.45)
+
+        transmission   = self._float_with_fallback(node, 'Transmission Weight', 'Transmission',  0.0)
+        coat_weight    = self._float_with_fallback(node, 'Coat Weight',         'Clearcoat',     0.0)
+        coat_roughness = self._float_with_fallback(node, 'Coat Roughness',      'Clearcoat Roughness', 0.0)
+        sheen          = self._float_with_fallback(node, 'Sheen Weight',        'Sheen',         0.0)
+        subsurface     = self._float_with_fallback(node, 'Subsurface Weight',   'Subsurface',    0.0)
+        anisotropic    = self.get_float_input(node, 'Anisotropic', 0.0)
+
+        # --- Emission (combined with surface; we treat strongly-emissive as
+        # a pure light until DisneyBRDF gains an emission term) ---
+        emission_color    = self.get_color_input(node, 'Emission Color', [0, 0, 0])
+        emission_strength = self.get_float_input(node, 'Emission Strength', 0.0)
+        if emission_strength > 0.0 and any(c > 0 for c in emission_color):
+            # Heuristic: treat as a dedicated light material when emission
+            # dominates the surface response.
+            if emission_strength >= 1.0 and metallic == 0.0 and transmission == 0.0:
+                return renderer.create_material(
+                    'light', emission_color, {'intensity': emission_strength})
+
         params = {
-            'metallic': float(get_val('Metallic', 0)),
-            'roughness': float(get_val('Roughness', 0.5)),
-            'ior': float(get_val('IOR', 1.45)),
-            'transmission': float(get_val('Transmission', 0)),
-            'clearcoat': float(get_val('Coat Weight', 0)),
-            'clearcoat_gloss': float(1.0 - get_val('Coat Roughness', 0)),
-            'anisotropic': float(get_val('Anisotropic', 0)),
-            'sheen': float(get_val('Sheen Weight', 0)),
-            'subsurface': float(get_val('Subsurface Weight', 0))
+            'metallic':        metallic,
+            'roughness':       roughness,
+            'ior':             ior,
+            'transmission':    transmission,
+            'clearcoat':       coat_weight,
+            'clearcoat_gloss': 1.0 - coat_roughness,
+            'anisotropic':     anisotropic,
+            'sheen':           sheen,
+            'subsurface':      subsurface,
         }
-        
-        emission_color = get_val('Emission Color', [0, 0, 0])
-        emission_strength = float(get_val('Emission Strength', 0))
-        if emission_strength > 0 and any(c > 0 for c in emission_color[:3]):
-            return renderer.create_material('light', list(emission_color[:3]), {'intensity': emission_strength})
+
+        # If base color is textured, load it and route through the 'lambertian'
+        # textured path (DisneyBRDF doesn't currently accept a texture, and the
+        # TexturedLambertian gives correct base color sampling for most PBR
+        # scenes while preserving roughness/metallic-less appearance).
+        if base_color_tex is not None:
+            tex_name = self.load_blender_image(base_color_tex, renderer)
+            if tex_name:
+                # Use textured lambertian (the only path that currently samples
+                # a texture on hit). TODO: extend DisneyBRDF with a base-color
+                # texture slot so we can keep metallic/roughness too.
+                return renderer.create_material('lambertian', base_color,
+                                                {'texture': tex_name})
+
         return renderer.create_material('disney', base_color, params)
     
     def convert_objects(self, depsgraph, renderer, material_map):
@@ -207,29 +438,73 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         print(f"Black hole conversion error: {e}")
                 continue
 
-            if obj.type != 'MESH' or not obj.visible_get(): continue
-            
+            if obj.type != 'MESH' or not obj.visible_get():
+                continue
+
             obj_eval = obj.evaluated_get(depsgraph)
             mesh = obj_eval.data
             matrix = obj_instance.matrix_world
-            
-            mat_id = 0
-            if obj.material_slots:
-                mat = obj.material_slots[0].material
-                if mat and mat.name in material_map: mat_id = material_map[mat.name]
-            
+
+            # -------- Per-slot material map --------
+            # Blender meshes carry one material_index per face; resolve each
+            # slot once up front, then look up by index inside the hot loop.
+            slot_to_id = {}
+            for slot_idx, slot in enumerate(obj.material_slots):
+                mat = slot.material
+                if mat is not None and mat.name in material_map:
+                    slot_to_id[slot_idx] = material_map[mat.name]
+                else:
+                    slot_to_id[slot_idx] = 0
+            default_mat_id = slot_to_id.get(0, 0)
+
+            # -------- Normal transform --------
+            # Normals transform by the INVERSE TRANSPOSE of the model matrix's
+            # 3x3 rotation/scale block. Using the model matrix directly would
+            # skew normals under non-uniform scaling.
+            try:
+                normal_matrix = matrix.to_3x3().inverted_safe().transposed()
+            except Exception:
+                normal_matrix = matrix.to_3x3()
+
             mesh.calc_loop_triangles()
+            # split_normals carries the correct per-corner normal for
+            # smooth/flat/custom shading. Available since Blender 4.1; on
+            # older versions we silently skip it (fall back to face normals).
+            uv_data = mesh.uv_layers.active.data if mesh.uv_layers.active else None
+
             for tri in mesh.loop_triangles:
                 v0 = matrix @ mesh.vertices[tri.vertices[0]].co
                 v1 = matrix @ mesh.vertices[tri.vertices[1]].co
                 v2 = matrix @ mesh.vertices[tri.vertices[2]].co
+
+                # Per-face material index
+                mat_id = slot_to_id.get(tri.material_index, default_mat_id)
+
+                # UVs
                 uv0 = uv1 = uv2 = []
-                if mesh.uv_layers.active:
-                    uv_layer = mesh.uv_layers.active.data
-                    uv0 = list(uv_layer[tri.loops[0]].uv)
-                    uv1 = list(uv_layer[tri.loops[1]].uv)
-                    uv2 = list(uv_layer[tri.loops[2]].uv)
-                renderer.add_triangle(list(v0), list(v1), list(v2), mat_id, uv0, uv1, uv2)
+                if uv_data is not None:
+                    uv0 = list(uv_data[tri.loops[0]].uv)
+                    uv1 = list(uv_data[tri.loops[1]].uv)
+                    uv2 = list(uv_data[tri.loops[2]].uv)
+
+                # Per-corner normals (Blender 4.1+). Fall back gracefully.
+                n0 = n1 = n2 = []
+                try:
+                    sn = tri.split_normals
+                    raw_n0 = mathutils.Vector(sn[0])
+                    raw_n1 = mathutils.Vector(sn[1])
+                    raw_n2 = mathutils.Vector(sn[2])
+                    n0 = list((normal_matrix @ raw_n0).normalized())
+                    n1 = list((normal_matrix @ raw_n1).normalized())
+                    n2 = list((normal_matrix @ raw_n2).normalized())
+                except (AttributeError, IndexError):
+                    n0 = n1 = n2 = []
+
+                renderer.add_triangle(
+                    list(v0), list(v1), list(v2), mat_id,
+                    uv0, uv1, uv2,
+                    n0, n1, n2,
+                )
     
     def convert_lights(self, depsgraph, renderer):
         for obj in depsgraph.objects:

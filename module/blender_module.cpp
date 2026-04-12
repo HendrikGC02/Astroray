@@ -121,13 +121,27 @@ public:
     
     void addTriangle(const std::vector<float>& v0, const std::vector<float>& v1, const std::vector<float>& v2,
                     int materialId, const std::vector<float>& uv0 = {}, const std::vector<float>& uv1 = {},
-                    const std::vector<float>& uv2 = {}) {
+                    const std::vector<float>& uv2 = {},
+                    const std::vector<float>& n0 = {}, const std::vector<float>& n1 = {},
+                    const std::vector<float>& n2 = {}) {
         Vec3 p0(v0[0], v0[1], v0[2]), p1(v1[0], v1[1], v1[2]), p2(v2[0], v2[1], v2[2]);
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
+        std::shared_ptr<Triangle> tri;
         if (!uv0.empty() && !uv1.empty() && !uv2.empty()) {
-            renderer.addObject(std::make_shared<Triangle>(p0, p1, p2, Vec2(uv0[0], uv0[1]),
-                Vec2(uv1[0], uv1[1]), Vec2(uv2[0], uv2[1]), mat));
-        } else renderer.addObject(std::make_shared<Triangle>(p0, p1, p2, mat));
+            tri = std::make_shared<Triangle>(p0, p1, p2,
+                Vec2(uv0[0], uv0[1]), Vec2(uv1[0], uv1[1]), Vec2(uv2[0], uv2[1]), mat);
+        } else {
+            tri = std::make_shared<Triangle>(p0, p1, p2, mat);
+        }
+        // Optional per-vertex normals for smooth shading. All three must be
+        // provided together; empty vectors trigger the face-normal fallback.
+        if (n0.size() == 3 && n1.size() == 3 && n2.size() == 3) {
+            tri->setVertexNormals(
+                Vec3(n0[0], n0[1], n0[2]),
+                Vec3(n1[0], n1[1], n1[2]),
+                Vec3(n2[0], n2[1], n2[2]));
+        }
+        renderer.addObject(tri);
     }
     
     void addMesh(const std::string& filename, int materialId, const std::vector<float>& position = {0,0,0},
@@ -337,7 +351,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
         .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a)
         .def("add_triangle", &PyRenderer::addTriangle, "v0"_a, "v1"_a, "v2"_a, "material_id"_a,
-             "uv0"_a = std::vector<float>(), "uv1"_a = std::vector<float>(), "uv2"_a = std::vector<float>())
+             "uv0"_a = std::vector<float>(), "uv1"_a = std::vector<float>(), "uv2"_a = std::vector<float>(),
+             "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>())
         .def("add_mesh", &PyRenderer::addMesh, "filename"_a, "material_id"_a,
              "position"_a = std::vector<float>{0,0,0}, "scale"_a = std::vector<float>{1,1,1}, "rotation_y"_a = 0.0f)
         .def("add_volume", &PyRenderer::addVolume, "center"_a, "radius"_a, "density"_a, "color"_a, "anisotropy"_a = 0.0f)

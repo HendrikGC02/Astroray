@@ -17,6 +17,12 @@ option(BUILD_DOCS "Build documentation" OFF)
 option(USE_NATIVE_ARCH "Build with -march=native" ON)
 option(USE_FAST_MATH "Enable fast math optimizations" ON)
 option(ASTRORAY_ENABLE_CUDA "Enable CUDA GPU acceleration" ON)
+# Disable OpenMP entirely. Needed when building the Python module (.pyd) for
+# distribution as a Blender addon: MinGW's libgomp deadlocks during module
+# init when loaded into Blender's MSVC-built Python host. Standalone pytest
+# usage is unaffected because we always build a fresh target; the addon
+# packager sets this to ON.
+option(ASTRORAY_DISABLE_OPENMP "Disable OpenMP (needed for MinGW .pyd in Blender)" OFF)
 
 # ---------------------------------------------------------------------------
 # CUDA detection (graceful fallback when toolkit not installed)
@@ -69,10 +75,16 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     endif()
     add_compile_options(-fno-finite-math-only)
     
-    # OpenMP for parallel rendering
-    find_package(OpenMP REQUIRED)
-    if(OpenMP_CXX_FOUND)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    # OpenMP for parallel rendering (suppressed for the Blender .pyd build —
+    # libgomp deadlocks inside Blender's host Python on Windows/MinGW)
+    if(NOT ASTRORAY_DISABLE_OPENMP)
+        find_package(OpenMP REQUIRED)
+        if(OpenMP_CXX_FOUND)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+        endif()
+    else()
+        message(STATUS "OpenMP disabled via ASTRORAY_DISABLE_OPENMP=ON")
+        set(OpenMP_CXX_FOUND FALSE)
     endif()
     
 elseif(MSVC)
@@ -82,8 +94,10 @@ elseif(MSVC)
     # Only apply optimizations in Release builds
     add_compile_options($<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/O2>)
     add_compile_options($<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/arch:AVX2>)
-    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/openmp>)
-    add_compile_options($<$<COMPILE_LANGUAGE:C>:/openmp>)
+    if(NOT ASTRORAY_DISABLE_OPENMP)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/openmp>)
+        add_compile_options($<$<COMPILE_LANGUAGE:C>:/openmp>)
+    endif()
 
     if(USE_FAST_MATH)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/fp:fast>)
@@ -193,9 +207,16 @@ endif()
 
 # Build Python module for Jupyter notebooks
 if(BUILD_PYTHON_MODULE)
-    # Find Python and pybind11
-    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
-    
+    # Find Python (Development.Module is sufficient for building a module —
+    # we don't need the embed libs).
+    find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+
+    # Force pybind11 to use the Python3 we just found via the new FindPython
+    # module, instead of its default legacy FindPythonInterp/FindPythonLibs
+    # which ignores Python3_EXECUTABLE and walks PATH. Without this, pybind11
+    # will grab whichever python is first on PATH and build for the wrong ABI.
+    set(PYBIND11_FINDPYTHON ON CACHE BOOL "Use new FindPython in pybind11" FORCE)
+
     # Try to find pybind11
     find_package(pybind11 CONFIG)
     if(NOT pybind11_FOUND)
@@ -204,22 +225,23 @@ if(BUILD_PYTHON_MODULE)
         FetchContent_Declare(
             pybind11
             GIT_REPOSITORY https://github.com/pybind/pybind11.git
-            GIT_TAG v2.11.1
+            # v2.12+ is required for Python 3.13 support (Blender 5.1 ships 3.13)
+            GIT_TAG v2.13.6
         )
         FetchContent_MakeAvailable(pybind11)
     endif()
     
     # Python module for Jupyter notebooks
-    pybind11_add_module(astroray 
+    pybind11_add_module(astroray
         module/blender_module.cpp
         ${HEADERS}
     )
-    
+
     # Rename module to 'astroray' in Python (so it's importable as 'import astroray')
     set_target_properties(astroray PROPERTIES
         OUTPUT_NAME astroray
     )
-    
+
     target_link_libraries(astroray PRIVATE
         raytracer_core
         stb_image_write_lib
@@ -228,6 +250,21 @@ if(BUILD_PYTHON_MODULE)
 
     if(OpenMP_CXX_FOUND)
         target_link_libraries(astroray PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+
+    # When building with MinGW for distribution as a Blender addon, statically
+    # link the GCC runtime so the .pyd doesn't depend on libgcc_s_seh-1.dll /
+    # libstdc++-6.dll / libwinpthread-1.dll being on the loader's PATH.
+    # Blender's bundled Python search path doesn't include MinGW's bin/ dir,
+    # so without this the addon fails with "DLL load failed". OpenMP's libgomp
+    # is bundled separately by the build script (it can't be statically linked
+    # cleanly with GCC).
+    if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_link_options(astroray PRIVATE
+            -static-libgcc
+            -static-libstdc++
+            -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive -Wl,-Bdynamic
+        )
     endif()
 
     if(ASTRORAY_CUDA_FOUND)
@@ -248,9 +285,16 @@ endif()
 
 # Build Blender module if requested
 if(BUILD_BLENDER_MODULE)
-    # Find Python and pybind11
-    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
-    
+    # Find Python (Development.Module is sufficient for building a module —
+    # we don't need the embed libs).
+    find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+
+    # Force pybind11 to use the Python3 we just found via the new FindPython
+    # module, instead of its default legacy FindPythonInterp/FindPythonLibs
+    # which ignores Python3_EXECUTABLE and walks PATH. Without this, pybind11
+    # will grab whichever python is first on PATH and build for the wrong ABI.
+    set(PYBIND11_FINDPYTHON ON CACHE BOOL "Use new FindPython in pybind11" FORCE)
+
     # Try to find pybind11
     find_package(pybind11 CONFIG)
     if(NOT pybind11_FOUND)
@@ -259,7 +303,8 @@ if(BUILD_BLENDER_MODULE)
         FetchContent_Declare(
             pybind11
             GIT_REPOSITORY https://github.com/pybind/pybind11.git
-            GIT_TAG v2.11.1
+            # v2.12+ is required for Python 3.13 support (Blender 5.1 ships 3.13)
+            GIT_TAG v2.13.6
         )
         FetchContent_MakeAvailable(pybind11)
     endif()
@@ -291,20 +336,24 @@ if(BUILD_BLENDER_MODULE)
         COPYONLY
     )
     
-    # Installation for Blender addons directory
+    # Installation for Blender 5.1 extensions directory.
+    # Blender 5.x uses `extensions/user_default/` instead of `scripts/addons/`
+    # for manifest-based extensions (blender_manifest.toml).
     if(WIN32)
-        set(BLENDER_ADDON_DIR "$ENV{APPDATA}/Blender Foundation/Blender/4.5/scripts/addons/custom_raytracer")
+        set(BLENDER_ADDON_DIR "$ENV{APPDATA}/Blender Foundation/Blender/5.1/extensions/user_default/astroray")
     elseif(APPLE)
-        set(BLENDER_ADDON_DIR "$ENV{HOME}/Library/Application Support/Blender/4.5/scripts/addons/custom_raytracer")
+        set(BLENDER_ADDON_DIR "$ENV{HOME}/Library/Application Support/Blender/5.1/extensions/user_default/astroray")
     else()
-        set(BLENDER_ADDON_DIR "$ENV{HOME}/.config/blender/4.5/scripts/addons/custom_raytracer")
+        set(BLENDER_ADDON_DIR "$ENV{HOME}/.config/blender/5.1/extensions/user_default/astroray")
     endif()
-    
+
     install(TARGETS raytracer_blender
         LIBRARY DESTINATION ${BLENDER_ADDON_DIR}
     )
-    
-    install(FILES blender_addon/__init__.py
+
+    install(FILES
+        blender_addon/__init__.py
+        blender_addon/blender_manifest.toml
         DESTINATION ${BLENDER_ADDON_DIR}
     )
 endif()

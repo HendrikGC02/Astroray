@@ -439,19 +439,31 @@ class Triangle : public Hittable {
     Vec2 uv0, uv1, uv2;
     std::shared_ptr<Material> material;
     bool emissive;
+    // Per-vertex normals for smooth shading (Blender split_normals / Cycles
+    // smooth shading). When hasVertexNormals is false, hit() falls back to
+    // the face normal computed at construction.
+    Vec3 vn0, vn1, vn2;
+    bool hasVertexNormals = false;
 public:
     Triangle(const Vec3& a, const Vec3& b, const Vec3& c, std::shared_ptr<Material> m)
         : v0(a), v1(b), v2(c), material(m), uv0(0,0), uv1(1,0), uv2(0,1),
           emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {
         normal = (v1 - v0).cross(v2 - v0).normalized();
     }
-    
+
     Triangle(const Vec3& a, const Vec3& b, const Vec3& c, const Vec2& t0, const Vec2& t1, const Vec2& t2, std::shared_ptr<Material> m)
         : v0(a), v1(b), v2(c), uv0(t0), uv1(t1), uv2(t2), material(m),
           emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {
         normal = (v1 - v0).cross(v2 - v0).normalized();
     }
-    
+
+    // Set interpolated per-vertex normals. Normals must already be in world
+    // space (caller applies the inverse-transpose of the model matrix).
+    void setVertexNormals(const Vec3& a, const Vec3& b, const Vec3& c) {
+        vn0 = a; vn1 = b; vn2 = c;
+        hasVertexNormals = true;
+    }
+
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         const float EPS = 1e-6f;
         Vec3 e1 = v1 - v0, e2 = v2 - v0;
@@ -469,9 +481,16 @@ public:
         if (t < tMin || t > tMax) return false;
         rec.t = t;
         rec.point = r.at(t);
-        rec.setFaceNormal(r, normal);
-        rec.material = material;
+        // Barycentric coords. UV layout: w→v0, u→v1, v→v2.
         float w = 1 - u - v;
+        if (hasVertexNormals) {
+            // Interpolate normals with the same barycentric layout.
+            Vec3 nInterp = (vn0 * w + vn1 * u + vn2 * v).normalized();
+            rec.setFaceNormal(r, nInterp);
+        } else {
+            rec.setFaceNormal(r, normal);
+        }
+        rec.material = material;
         rec.uv = uv0 * w + uv1 * u + uv2 * v;
         return true;
     }

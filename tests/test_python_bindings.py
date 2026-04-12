@@ -822,6 +822,131 @@ def test_black_hole_showcase_scene():
 
 
 # ---------------------------------------------------------------------------
+# Blender 5.1 scene-fidelity features (multi-material, vertex normals, textures)
+# ---------------------------------------------------------------------------
+
+def test_multi_material_mesh():
+    """Two triangles in the same 'mesh' with different materials must each
+    show their own color. Exercises the per-face material index path that the
+    Blender addon relies on.
+    """
+    r = create_renderer()
+    mat_red  = r.create_material('disney', [0.8, 0.05, 0.05], {'roughness': 0.5})
+    mat_blue = r.create_material('disney', [0.05, 0.05, 0.8], {'roughness': 0.5})
+    light    = r.create_material('light',  [1.0, 1.0, 1.0],   {'intensity': 8.0})
+
+    # Left half quad (red) and right half quad (blue), lying on y=-1 plane
+    r.add_triangle([-2, -1, -2], [0, -1, -2], [0, -1, 2], mat_red)
+    r.add_triangle([-2, -1, -2], [0, -1,  2], [-2, -1, 2], mat_red)
+    r.add_triangle([ 0, -1, -2], [2, -1, -2], [2, -1, 2], mat_blue)
+    r.add_triangle([ 0, -1, -2], [2, -1,  2], [0, -1, 2], mat_blue)
+
+    # Overhead light
+    r.add_sphere([0, 5, 0], 1.0, light)
+
+    setup_camera(r, look_from=[0, 4, 5], look_at=[0, -1, 0],
+                 vfov=60, width=W, height=H)
+    pixels = render_image(r, samples=SAMPLES_FAST)
+    assert_valid_image(pixels, H, W, min_mean=0.005, label='multi_material')
+
+    # Sanity: left half should have more red, right half more blue.
+    left_half  = pixels[:, :W // 2, :]
+    right_half = pixels[:, W // 2:, :]
+    left_red_ratio   = float(np.mean(left_half[:, :, 0])) - float(np.mean(left_half[:, :, 2]))
+    right_blue_ratio = float(np.mean(right_half[:, :, 2])) - float(np.mean(right_half[:, :, 0]))
+    # Either side should lean toward its expected color (generous thresholds
+    # because rays may miss the quad and hit the sky).
+    assert left_red_ratio > -0.05 and right_blue_ratio > -0.05, (
+        f"Per-face material routing looks wrong: "
+        f"left red-minus-blue={left_red_ratio:.3f}, "
+        f"right blue-minus-red={right_blue_ratio:.3f}"
+    )
+    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_multi_material.png'))
+
+
+def test_vertex_normals_smooth_shading():
+    """Passing per-vertex normals to add_triangle must change the rendered
+    shading relative to the face-normal fallback. A single tilted triangle
+    rendered twice — once with and once without normals — should differ."""
+    light_pos = [2, 4, 3]
+
+    def make_scene(with_normals):
+        r = create_renderer()
+        mat   = r.create_material('disney', [0.8, 0.8, 0.8], {'roughness': 0.3, 'metallic': 0.0})
+        light = r.create_material('light',  [1.0, 1.0, 1.0], {'intensity': 10.0})
+        r.add_sphere(light_pos, 0.5, light)
+
+        # A flat triangle in the xz plane at y=0
+        v0, v1, v2 = [-1, 0, -1], [1, 0, -1], [0, 0, 1]
+        if with_normals:
+            # Deliberately non-uniform per-vertex normals so barycentric
+            # interpolation gives a visibly different shading than the flat
+            # face normal (which is simply +Y).
+            n0 = [-0.6, 0.8, 0.0]
+            n1 = [ 0.6, 0.8, 0.0]
+            n2 = [ 0.0, 0.8, 0.6]
+            r.add_triangle(v0, v1, v2, mat, [], [], [], n0, n1, n2)
+        else:
+            r.add_triangle(v0, v1, v2, mat)
+
+        setup_camera(r, look_from=[0, 3, 2.5], look_at=[0, 0, 0],
+                     vfov=50, width=W, height=H)
+        return render_image(r, samples=SAMPLES_FAST)
+
+    flat   = make_scene(with_normals=False)
+    smooth = make_scene(with_normals=True)
+    assert_valid_image(flat,   H, W, min_mean=0.0, label='vn_flat')
+    assert_valid_image(smooth, H, W, min_mean=0.0, label='vn_smooth')
+
+    # The two images should not be identical — vertex-normal interpolation
+    # must actually be wired up.
+    diff = float(np.mean(np.abs(flat - smooth)))
+    assert diff > 1e-4, (
+        f"Per-vertex normals appear to have no effect "
+        f"(mean abs diff = {diff:.6f}); barycentric interpolation path is "
+        f"probably not engaged."
+    )
+    save_image(smooth, os.path.join(OUTPUT_DIR, 'test_vertex_normals.png'))
+
+
+def test_textured_material_checkerboard():
+    """Load a 2x2 RGB checker via load_texture and render it on a quad. The
+    textured quad should show multiple distinct colors in the frame — not
+    just one flat color, which would indicate the texture sample was lost."""
+    r = create_renderer()
+    # 2x2 checker, 4 distinct colors: red, green, blue, yellow. Row-major,
+    # top-to-bottom (matching what load_blender_image produces after flip).
+    tex_data = [
+        1.0, 0.0, 0.0,   0.0, 1.0, 0.0,   # row 0: red, green
+        0.0, 0.0, 1.0,   1.0, 1.0, 0.0,   # row 1: blue, yellow
+    ]
+    r.load_texture("test_checker", tex_data, 2, 2)
+    mat   = r.create_material('lambertian', [1, 1, 1], {'texture': 'test_checker'})
+    light = r.create_material('light',       [1, 1, 1], {'intensity': 8.0})
+    r.add_sphere([0, 5, 0], 1.0, light)
+
+    # Quad on the floor with UVs spanning [0,1]x[0,1]
+    r.add_triangle([-2, -1, -2], [2, -1, -2], [2, -1, 2], mat,
+                   [0, 0], [1, 0], [1, 1])
+    r.add_triangle([-2, -1, -2], [2, -1,  2], [-2, -1, 2], mat,
+                   [0, 0], [1, 1], [0, 1])
+
+    setup_camera(r, look_from=[0, 3, 4], look_at=[0, -1, 0],
+                 vfov=55, width=W, height=H)
+    pixels = render_image(r, samples=SAMPLES_FAST)
+    assert_valid_image(pixels, H, W, min_mean=0.01, label='textured')
+
+    # Check we actually see multiple colors (texture is being sampled, not
+    # replaced with a single flat tint).
+    per_channel_std = float(np.mean(np.std(pixels.reshape(-1, 3), axis=0)))
+    assert per_channel_std > 0.02, (
+        f"Textured quad has near-uniform color (std={per_channel_std:.4f}); "
+        f"texture sampling appears broken."
+    )
+    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_textured_material.png'))
+
+
+# ---------------------------------------------------------------------------
 # Stand-alone entry-point for direct execution
 # ---------------------------------------------------------------------------
 

@@ -62,6 +62,12 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         description="Clamp direct lighting contribution luminance (0 disables)")
     clamp_indirect: FloatProperty(name="Clamp Indirect", min=0.0, max=100.0, default=0.0,
         description="Clamp indirect lighting contribution luminance (0 disables)")
+    filter_glossy: FloatProperty(name="Filter Glossy", min=0.0, max=10.0, default=0.0,
+        description="Increase glossy roughness on secondary bounces to reduce noise")
+    use_reflective_caustics: BoolProperty(name="Reflective Caustics", default=True,
+        description="Enable reflective caustics from specular reflections after diffuse bounces")
+    use_refractive_caustics: BoolProperty(name="Refractive Caustics", default=True,
+        description="Enable refractive caustics from transmission after diffuse bounces")
     use_gpu: BoolProperty(name="Use GPU", default=False,
         description="Use CUDA GPU for rendering (requires NVIDIA GPU)")
 
@@ -168,6 +174,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.clear()
             renderer.set_clamp_direct(settings.clamp_direct)
             renderer.set_clamp_indirect(settings.clamp_indirect)
+            renderer.set_filter_glossy(settings.filter_glossy)
+            renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
+            renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
             self._setup_viewport_camera(renderer, context, width, height)
             material_map = self.convert_materials(depsgraph, renderer)
             self.convert_objects(depsgraph, renderer, material_map)
@@ -271,6 +280,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         settings = scene.custom_raytracer
         renderer.set_clamp_direct(settings.clamp_direct)
         renderer.set_clamp_indirect(settings.clamp_indirect)
+        renderer.set_filter_glossy(settings.filter_glossy)
+        renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
+        renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
         cycles = getattr(scene, 'cycles', None)
         render_settings = getattr(scene, 'render', None)
         exposure = float(getattr(cycles, 'film_exposure', 1.0)) if cycles else 1.0
@@ -1060,6 +1072,13 @@ class RENDER_PT_custom_raytracer_light_paths(AstrorayPanelBase, Panel):
         col.prop(settings, "transparent_bounces")
         col.prop(settings, "clamp_direct")
         col.prop(settings, "clamp_indirect")
+        layout.separator()
+        caustics = layout.box()
+        caustics.label(text="Caustics")
+        caustics.prop(settings, "filter_glossy")
+        row = caustics.row(align=True)
+        row.prop(settings, "use_reflective_caustics")
+        row.prop(settings, "use_refractive_caustics")
 
 
 class RENDER_PT_custom_raytracer_performance(AstrorayPanelBase, Panel):

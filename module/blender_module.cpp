@@ -270,6 +270,18 @@ public:
         renderer.setClampIndirect(value);
     }
 
+    void setFilterGlossy(float value) {
+        renderer.setFilterGlossy(value);
+    }
+
+    void setUseReflectiveCaustics(bool use) {
+        renderer.setUseReflectiveCaustics(use);
+    }
+
+    void setUseRefractiveCaustics(bool use) {
+        renderer.setUseRefractiveCaustics(use);
+    }
+
     void setUseTransparentFilm(bool use) {
         renderer.setUseTransparentFilm(use);
     }
@@ -423,6 +435,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_adaptive_sampling", &PyRenderer::setAdaptiveSampling, "enable"_a)
         .def("set_clamp_direct", &PyRenderer::setClampDirect, "value"_a)
         .def("set_clamp_indirect", &PyRenderer::setClampIndirect, "value"_a)
+        .def("set_filter_glossy", &PyRenderer::setFilterGlossy, "value"_a)
+        .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
+        .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
               "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)

@@ -1278,6 +1278,7 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         }
                         
                         color = color / float(samples);
+                        color *= filmExposure;
                         if (applyGamma) {
                             color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
                             color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);

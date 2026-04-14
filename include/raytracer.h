@@ -1151,6 +1151,15 @@ class Renderer {
     float filmExposure = 1.0f;
     bool useTransparentFilm = false;
     bool transparentGlass = false;
+    float clampDirect = 0.0f;   // 0 = disabled
+    float clampIndirect = 0.0f; // 0 = disabled
+
+    Vec3 clampLuminance(const Vec3& c, float maxLum) const {
+        if (maxLum <= 0.0f) return c;
+        float lum = luminance(c);
+        if (lum > maxLum && lum > 0.0f) return c * (maxLum / lum);
+        return c;
+    }
     
 public:
     void setEnvironmentMap(std::shared_ptr<EnvironmentMap> map) { envMap = map; }
@@ -1158,6 +1167,8 @@ public:
     void setFilmExposure(float exposure) { filmExposure = exposure; }
     void setUseTransparentFilm(bool use) { useTransparentFilm = use; }
     void setTransparentGlass(bool use) { transparentGlass = use; }
+    void setClampDirect(float value) { clampDirect = std::max(0.0f, value); }
+    void setClampIndirect(float value) { clampIndirect = std::max(0.0f, value); }
     
     void clear() {
         scene.clear(); bvh.reset(); lights = LightList();
@@ -1166,6 +1177,8 @@ public:
         filmExposure = 1.0f;
         useTransparentFilm = false;
         transparentGlass = false;
+        clampDirect = 0.0f;
+        clampIndirect = 0.0f;
     }
     
     float powerHeuristic(float a, float b) const {
@@ -1269,7 +1282,7 @@ public:
             }
         }
 
-        return direct;
+        return clampLuminance(direct, clampDirect);
     }
     
 Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
@@ -1293,7 +1306,9 @@ Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
                     envColor = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
                 }
                 if (bounce == 0 || wasSpecular) {
-                    color += throughput * envColor;
+                    Vec3 contrib = throughput * envColor;
+                    if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
+                    color += contrib;
                 }
                 if (alphaOut) *alphaOut = alphaCovered ? 1.0f : 0.0f;
                 break;
@@ -1307,7 +1322,9 @@ Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
                 if (bounce == 0 && normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
 
                 if (grResult.hasEmission) {
-                    color += throughput * grResult.color;
+                    Vec3 contrib = throughput * grResult.color;
+                    if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
+                    color += contrib;
                 }
                 if (grResult.captured) {
                     break;
@@ -1340,7 +1357,11 @@ Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
             }
             Vec3 emitted = rec.material->emitted(rec);
             if (emitted != Vec3(0)) {
-                if (bounce == 0 || wasSpecular) color += throughput * emitted;
+                if (bounce == 0 || wasSpecular) {
+                    Vec3 contrib = throughput * emitted;
+                    if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
+                    color += contrib;
+                }
                 break;
             }
             if (!rec.isDelta) color += throughput * sampleDirect(rec, ray, gen);

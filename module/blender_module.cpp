@@ -243,6 +243,10 @@ public:
     void setBackgroundColor(const std::vector<float>& color) {
         renderer.setBackgroundColor(Vec3(color[0], color[1], color[2]));
     }
+
+    void setFilmExposure(float exposure) {
+        renderer.setFilmExposure(exposure);
+    }
     
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true) {
         if (!camera) throw std::runtime_error("Camera not set up");

@@ -38,6 +38,7 @@ void launchPathTraceKernel(
     const GLight*     d_lights, int numLights, float totalLightPower,
     GEnvMap envMap,
     GCameraParams cam,
+    float filmExposure,
     GVec3 backgroundColor, bool hasBackgroundColor,
     curandState* d_rngStates);
 
@@ -249,6 +250,7 @@ void CUDARenderer::render(
         impl->d_lights, impl->numLights, impl->totalLightPower,
         impl->envMap,
         impl->camera,
+        cpuRenderer.getFilmExposure(),
         impl->backgroundColor, impl->hasBackgroundColor,
         impl->d_rngStates);
 

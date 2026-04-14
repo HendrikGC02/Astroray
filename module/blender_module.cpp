@@ -248,7 +248,7 @@ public:
         renderer.setFilmExposure(exposure);
     }
     
-    py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none()) {
+    py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true) {
         if (!camera) throw std::runtime_error("Camera not set up");
 
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -272,7 +272,7 @@ public:
                     progressCallback(progress);
                 };
             }
-            renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling);
+            renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false);
         }
 
         // Package pixels into numpy array (height, width, 3)
@@ -284,9 +284,16 @@ public:
             float* ptr = static_cast<float*>(buf.ptr);
             size_t size = camera->pixels.size();
             for (size_t i = 0; i < size; i++) {
-                ptr[i*3]   = camera->pixels[i].x;
-                ptr[i*3+1] = camera->pixels[i].y;
-                ptr[i*3+2] = camera->pixels[i].z;
+                const Vec3& c = camera->pixels[i];
+                if (applyGamma) {
+                    ptr[i*3]   = std::pow(std::clamp(c.x, 0.0f, 1.0f), 1.0f / 2.2f);
+                    ptr[i*3+1] = std::pow(std::clamp(c.y, 0.0f, 1.0f), 1.0f / 2.2f);
+                    ptr[i*3+2] = std::pow(std::clamp(c.z, 0.0f, 1.0f), 1.0f / 2.2f);
+                } else {
+                    ptr[i*3]   = std::max(c.x, 0.0f);
+                    ptr[i*3+1] = std::max(c.y, 0.0f);
+                    ptr[i*3+2] = std::max(c.z, 0.0f);
+                }
             }
         }
         return result;
@@ -368,8 +375,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
              "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
-        .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
-        .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a, "progress_callback"_a = py::none())
+        .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a,
+             "progress_callback"_a = py::none(), "apply_gamma"_a = true)
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)
         .def("clear", &PyRenderer::clear)

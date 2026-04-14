@@ -108,7 +108,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return True
 
             start_time = time.time()
-            pixels = renderer.render(settings.samples, settings.max_bounces, progress_callback)
+            pixels = renderer.render(settings.samples, settings.max_bounces, progress_callback, False)
             print(f"Render completed in {time.time() - start_time:.2f}s")
             
             if pixels is not None: self.write_pixels(pixels, width, height)
@@ -150,7 +150,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
             samples = max(1, settings.preview_samples)
             depth = max(2, settings.max_bounces // 2)
-            pixels = renderer.render(samples, depth)
+            pixels = renderer.render(samples, depth, None, False)
             if pixels is None:
                 return
             self._update_viewport_texture(pixels, width, height)
@@ -175,8 +175,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
             # Cycles/Eevee wrap the draw in bind_display_space_shader so the
             # viewport color management pipeline is applied. We do the same —
-            # the raytracer already outputs sRGB, so this keeps the preview
-            # looking the same as a saved render.
+            # the raytracer outputs linear scene-referred values and Blender
+            # applies the view/display transform here.
             self.bind_display_space_shader(scene)
             draw_texture_2d(self._viewport_texture, (0, 0), region.width, region.height)
             self.unbind_display_space_shader()

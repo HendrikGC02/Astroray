@@ -612,6 +612,75 @@ def test_direct_and_indirect_clamp_controls():
         "clamp_indirect should reduce bright indirect-light outliers"
 
 
+def test_filter_glossy_blurs_secondary_glossy_paths():
+    def luminance_map(pixels: np.ndarray) -> np.ndarray:
+        return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
+
+    def render(filter_glossy: float) -> np.ndarray:
+        r = create_renderer()
+        ground = r.create_material('lambertian', [0.75, 0.75, 0.75], {})
+        light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 12.0})
+        mirror = r.create_material('metal', [0.95, 0.95, 0.95], {'roughness': 0.001})
+        r.add_triangle([-5, -1, -6], [5, -1, -6], [5, -1, 2], ground)
+        r.add_triangle([-5, -1, -6], [5, -1, 2], [-5, -1, 2], ground)
+        r.add_sphere([0.0, 3.5, 1.0], 0.9, light)
+        r.add_sphere([0.0, 0.0, 0.0], 1.0, mirror)
+        r.add_sphere([0.0, 0.0, -2.5], 1.0, mirror)
+        setup_camera(r, look_from=[0, 0.2, 5], look_at=[0, 0, -1], vfov=34, width=120, height=90)
+        r.set_filter_glossy(filter_glossy)
+        return render_image(r, samples=32, max_depth=10, apply_gamma=False)
+
+    base = render(0.0)
+    filtered = render(1.0)
+    assert_valid_image(base, 90, 120, label='filter_glossy_off')
+    assert_valid_image(filtered, 90, 120, label='filter_glossy_on')
+
+    lum_base = luminance_map(base)[20:70, 35:85]
+    lum_filtered = luminance_map(filtered)[20:70, 35:85]
+    assert float(np.percentile(lum_filtered, 95.0)) < float(np.percentile(lum_base, 95.0)) * 0.99, \
+        "filter_glossy=1.0 should slightly blur secondary glossy reflections"
+
+
+def test_disable_reflective_caustics_reduces_mirror_caustic_outliers():
+    def luminance_map(pixels: np.ndarray) -> np.ndarray:
+        return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
+
+    def render(use_reflective_caustics: bool) -> np.ndarray:
+        r = create_renderer()
+        create_cornell_box(r)
+        mirror = r.create_material('metal', [0.95, 0.95, 0.95], {'roughness': 0.001})
+        r.add_sphere([0, -0.6, 0], 1.0, mirror)
+        setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=120, height=90)
+        r.set_use_reflective_caustics(use_reflective_caustics)
+        return render_image(r, samples=24, max_depth=10, apply_gamma=False)
+
+    enabled = luminance_map(render(True))
+    disabled = luminance_map(render(False))
+    floor_roi = np.s_[55:88, 35:85]
+    assert np.percentile(disabled[floor_roi], 99.0) < np.percentile(enabled[floor_roi], 99.0), \
+        "Disabling reflective caustics should reduce bright mirror caustic pixels on diffuse surfaces"
+
+
+def test_disable_refractive_caustics_reduces_glass_caustic_outliers():
+    def luminance_map(pixels: np.ndarray) -> np.ndarray:
+        return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
+
+    def render(use_refractive_caustics: bool) -> np.ndarray:
+        r = create_renderer()
+        create_cornell_box(r)
+        glass = r.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.5})
+        r.add_sphere([0, -0.6, 0], 1.0, glass)
+        setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=120, height=90)
+        r.set_use_refractive_caustics(use_refractive_caustics)
+        return render_image(r, samples=24, max_depth=10, apply_gamma=False)
+
+    enabled = luminance_map(render(True))
+    disabled = luminance_map(render(False))
+    floor_roi = np.s_[55:88, 35:85]
+    assert np.percentile(disabled[floor_roi], 99.0) < np.percentile(enabled[floor_roi], 99.0), \
+        "Disabling refractive caustics should reduce bright glass caustic pixels on diffuse surfaces"
+
+
 # ---------------------------------------------------------------------------
 # Metallic vs diffuse: renders must differ
 # ---------------------------------------------------------------------------

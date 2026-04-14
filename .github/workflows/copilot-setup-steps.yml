@@ -1,0 +1,60 @@
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            build-essential \
+            libomp-dev \
+            python3-dev \
+            python3-pip \
+            python3-numpy
+
+      - name: Install Python test dependencies
+        run: |
+          pip install --break-system-packages \
+            numpy \
+            matplotlib \
+            Pillow \
+            pytest
+
+      - name: Configure and build Astroray
+        run: |
+          mkdir -p build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_PYTHON_MODULE=ON \
+            -DBUILD_BLENDER_MODULE=OFF \
+            -DASTRORAY_ENABLE_CUDA=OFF
+          make -j$(nproc)
+
+      - name: Verify build artifacts
+        run: |
+          echo "=== Build artifacts ==="
+          ls -la build/bin/ 2>/dev/null || echo "No standalone binary"
+          ls -la build/astroray*.so 2>/dev/null || echo "No Python module"
+          echo ""
+          echo "=== Quick module import test ==="
+          cd build && python3 -c "import astroray; print(f'astroray {astroray.__version__} loaded, features: {astroray.__features__}')"
+
+      - name: Run tests to verify baseline
+        run: |
+          cd build && pytest ../tests/test_python_bindings.py -v --tb=short -x 2>&1 | head -100
+          echo "=== Test baseline established ==="

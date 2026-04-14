@@ -38,12 +38,17 @@ except ImportError as e:
     print(f"Failed to load raytracer module: {e}")
 
 class CustomRaytracerRenderSettings(PropertyGroup):
-    samples: IntProperty(name="Samples", min=1, max=65536, default=128)
-    preview_samples: IntProperty(name="Preview Samples", min=1, max=1024, default=32)
-    max_bounces: IntProperty(name="Max Bounces", min=0, max=1024, default=8)
-    use_adaptive_sampling: BoolProperty(name="Adaptive Sampling", default=True)
+    samples: IntProperty(name="Samples", min=1, max=65536, default=2,
+        description="Samples per pixel for final F12 renders")
+    preview_samples: IntProperty(name="Viewport Samples", min=1, max=1024, default=1,
+        description="Samples per pixel for rendered-shading viewport preview")
+    max_bounces: IntProperty(name="Max Bounces", min=0, max=1024, default=10,
+        description="Maximum path-trace depth — caps how many times a ray can scatter")
+    use_adaptive_sampling: BoolProperty(name="Adaptive Sampling", default=True,
+        description="Stop sampling pixels that have already converged")
     adaptive_threshold: FloatProperty(name="Noise Threshold", min=0.001, max=1.0, default=0.01)
-    clamp_indirect: FloatProperty(name="Clamp Indirect", min=0.0, max=100.0, default=10.0)
+    clamp_indirect: FloatProperty(name="Clamp Indirect", min=0.0, max=100.0, default=10.0,
+        description="Firefly suppression: per-sample contribution is clipped above this value")
     use_gpu: BoolProperty(name="Use GPU", default=False,
         description="Use CUDA GPU for rendering (requires NVIDIA GPU)")
 
@@ -58,11 +63,21 @@ class CustomRaytracerMaterialSettings(PropertyGroup):
 
 class CustomRaytracerRenderEngine(RenderEngine):
     bl_idname = "CUSTOM_RAYTRACER"
-    bl_label = "Custom Raytracer"
+    bl_label = "Astroray"
     bl_use_preview = True
     bl_use_postprocess = True
     bl_use_shading_nodes_custom = False
-    
+    bl_use_eevee_viewport = True  # fall back to Eevee for Material/Solid shading
+    bl_use_gpu_context = False
+
+    # RenderEngine is a C-backed class; we deliberately do NOT override
+    # __init__ (Blender has caveats around RenderEngine constructor overrides,
+    # see `bpy.types.RenderEngine` docs). Viewport state is lazily created
+    # inside view_update instead.
+    _viewport_texture = None
+    _viewport_width = 0
+    _viewport_height = 0
+
     def render(self, depsgraph):
         if not RAYTRACER_AVAILABLE:
             self.report({'ERROR'}, "Raytracer module not available")
@@ -105,7 +120,118 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 try: renderer.clear()
                 except: pass
             del renderer
-    
+
+    # ------------------------------------------------------------------ #
+    # Viewport preview (rendered shading mode in 3D View)
+    # ------------------------------------------------------------------ #
+
+    def view_update(self, context, depsgraph):
+        """Called when the scene or viewport changes. We do a fresh low-sample
+        render here and stash the result as a GPUTexture so `view_draw` can
+        just blit it every frame."""
+        if not RAYTRACER_AVAILABLE:
+            return
+        region = context.region
+        width = max(1, region.width)
+        height = max(1, region.height)
+        scene = depsgraph.scene
+        settings = scene.custom_raytracer
+
+        renderer = None
+        try:
+            renderer = astroray.Renderer()
+            renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
+            renderer.clear()
+            self._setup_viewport_camera(renderer, context, width, height)
+            material_map = self.convert_materials(depsgraph, renderer)
+            self.convert_objects(depsgraph, renderer, material_map)
+            self.convert_lights(depsgraph, renderer)
+            self.setup_world(scene, renderer)
+
+            samples = max(1, settings.preview_samples)
+            depth = max(2, settings.max_bounces // 2)
+            pixels = renderer.render(samples, depth)
+            if pixels is None:
+                return
+            self._update_viewport_texture(pixels, width, height)
+        except Exception as e:
+            print(f"Astroray viewport preview error: {e}")
+            traceback.print_exc()
+        finally:
+            if renderer:
+                try: renderer.clear()
+                except Exception: pass
+
+    def view_draw(self, context, depsgraph):
+        """Called every frame inside rendered-shading mode to paint our
+        cached preview texture into the 3D View."""
+        if self._viewport_texture is None:
+            return
+        try:
+            import gpu
+            from gpu_extras.presets import draw_texture_2d
+            region = context.region
+            scene = depsgraph.scene
+
+            # Cycles/Eevee wrap the draw in bind_display_space_shader so the
+            # viewport color management pipeline is applied. We do the same —
+            # the raytracer already outputs sRGB, so this keeps the preview
+            # looking the same as a saved render.
+            self.bind_display_space_shader(scene)
+            draw_texture_2d(self._viewport_texture, (0, 0), region.width, region.height)
+            self.unbind_display_space_shader()
+        except Exception as e:
+            print(f"Astroray view_draw error: {e}")
+
+    def _setup_viewport_camera(self, renderer, context, width, height):
+        """Build a lookFrom/lookAt from the 3D View's RegionView3D state.
+
+        - In CAMERA view (numpad 0): use the scene camera as-is.
+        - In PERSP / ORTHO view: derive position + direction from
+          `rv3d.view_matrix.inverted()` and use `space_data.lens` for vfov.
+        """
+        rv3d = context.region_data
+        space = context.space_data
+
+        if rv3d is not None and rv3d.view_perspective == 'CAMERA' and context.scene.camera:
+            self._apply_camera(renderer, context.scene.camera, width, height)
+            return
+
+        view_inv = rv3d.view_matrix.inverted()
+        loc = view_inv.translation
+        rot = view_inv.to_3x3()
+        forward = rot @ mathutils.Vector((0.0, 0.0, -1.0))
+        up      = rot @ mathutils.Vector((0.0, 1.0,  0.0))
+
+        look_from = [loc.x, loc.y, loc.z]
+        look_at   = [loc.x + forward.x, loc.y + forward.y, loc.z + forward.z]
+        vup       = [up.x, up.y, up.z]
+
+        # Blender's viewport uses a fixed 32mm sensor width and exposes the
+        # effective focal length via space_data.lens (in mm).
+        sensor_width = 32.0
+        lens = getattr(space, 'lens', 50.0)
+        aspect = width / max(1, height)
+        hfov = 2.0 * math.atan(sensor_width / (2.0 * lens))
+        vfov_rad = 2.0 * math.atan(math.tan(hfov / 2.0) / aspect)
+        vfov = math.degrees(vfov_rad)
+
+        renderer.setup_camera(look_from, look_at, vup, vfov, aspect,
+                              0.0, 10.0, width, height)
+
+    def _update_viewport_texture(self, pixels, width, height):
+        import gpu
+        # Flip vertically — Blender's GPU draw expects row 0 = bottom.
+        rgba = np.ones((height, width, 4), dtype=np.float32)
+        rgba[:, :, :3] = pixels
+        rgba = np.ascontiguousarray(rgba[::-1])
+        flat = rgba.reshape(-1)
+        buf = gpu.types.Buffer('FLOAT', flat.shape[0], flat.tolist())
+        self._viewport_texture = gpu.types.GPUTexture(
+            (width, height), format='RGBA16F', data=buf)
+        self._viewport_width = width
+        self._viewport_height = height
+
     def convert_scene(self, depsgraph, renderer, width, height):
         scene = depsgraph.scene
         renderer.clear()
@@ -118,26 +244,67 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def setup_camera(self, scene, renderer, width, height):
         cam_obj = scene.camera
         if not cam_obj: return
+        self._apply_camera(renderer, cam_obj, width, height)
+
+    def _compute_vfov_degrees(self, camera, width, height):
+        """Vertical FOV in degrees for a Blender camera datablock.
+
+        Cycles/Eevee pick the sensor axis from `sensor_fit`, then derive the
+        image FOV from `lens` (focal length). We need VERTICAL FOV specifically
+        because the raytracer's Camera class uses it to compute the view
+        frustum height. So for HORIZONTAL/AUTO-wide fits we convert hfov→vfov
+        using the final image aspect."""
+        if camera.type != 'PERSP':
+            # ORTHO / PANO: fall back to a plausible vfov so at least the
+            # scene is visible. A full ortho-camera implementation would
+            # require plumbing an orthographic flag into the C++ camera.
+            return 40.0
+
+        aspect = width / max(1, height)
+        fit = camera.sensor_fit
+        # AUTO picks the axis with the larger image dimension
+        if fit == 'AUTO':
+            fit = 'HORIZONTAL' if width >= height else 'VERTICAL'
+
+        if fit == 'VERTICAL':
+            sensor = camera.sensor_height
+            vfov_rad = 2.0 * math.atan(sensor / (2.0 * camera.lens))
+        else:  # HORIZONTAL
+            sensor = camera.sensor_width
+            hfov_rad = 2.0 * math.atan(sensor / (2.0 * camera.lens))
+            vfov_rad = 2.0 * math.atan(math.tan(hfov_rad / 2.0) / aspect)
+        return math.degrees(vfov_rad)
+
+    def _apply_camera(self, renderer, cam_obj, width, height):
+        """Extract lookFrom/lookAt/vup from a Blender camera object and push
+        it to the renderer. Blender cameras point along their local -Z and
+        use local +Y as 'up'; we rotate those unit vectors by the camera's
+        world rotation to get world-space directions."""
         matrix = cam_obj.matrix_world
-        look_from = list(matrix.translation)
-        forward = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))
-        look_at = [look_from[0] + forward.x, look_from[1] + forward.y, look_from[2] + forward.z]
-        up = matrix.to_3x3() @ mathutils.Vector((0, 1, 0))
-        vup = [up.x, up.y, up.z]
-        
+        loc, rot_quat, _scale = matrix.decompose()
+
+        forward = rot_quat @ mathutils.Vector((0.0, 0.0, -1.0))
+        up      = rot_quat @ mathutils.Vector((0.0, 1.0,  0.0))
+
+        look_from = [loc.x, loc.y, loc.z]
+        look_at   = [loc.x + forward.x, loc.y + forward.y, loc.z + forward.z]
+        vup       = [up.x, up.y, up.z]
+
         camera = cam_obj.data
-        if camera.type == 'PERSP':
-            vfov = math.degrees(camera.angle) if camera.lens_unit == 'FOV' else 2 * math.degrees(math.atan(camera.sensor_height / (2 * camera.lens)))
-        else: vfov = 40.0
-        
+        vfov = self._compute_vfov_degrees(camera, width, height)
+
         aperture, focus_dist = 0.0, 10.0
         if camera.dof.use_dof:
-            aperture = 1.0 / (2 * camera.dof.aperture_fstop) if camera.dof.aperture_fstop > 0 else 0
+            if camera.dof.aperture_fstop > 0:
+                aperture = 1.0 / (2 * camera.dof.aperture_fstop)
             if camera.dof.focus_object:
-                focus_dist = (mathutils.Vector(look_from) - camera.dof.focus_object.location).length
-            else: focus_dist = camera.dof.focus_distance
-        
-        renderer.setup_camera(look_from, look_at, vup, vfov, width/height, aperture, focus_dist, width, height)
+                focus_dist = (loc - camera.dof.focus_object.matrix_world.translation).length
+            else:
+                focus_dist = camera.dof.focus_distance
+
+        renderer.setup_camera(look_from, look_at, vup, vfov,
+                              width / max(1, height),
+                              aperture, focus_dist, width, height)
     
     def convert_materials(self, depsgraph, renderer):
         # In Blender 5.0+ every material is node-based (use_nodes is deprecated
@@ -416,7 +583,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return renderer.create_material('disney', base_color, params)
     
     def convert_objects(self, depsgraph, renderer, material_map):
+        tri_count = 0
+        obj_count = 0
         for obj_instance in depsgraph.object_instances:
+            # DepsgraphObjectInstance.object is already the evaluated object;
+            # the render-layer depsgraph only yields render-visible items, so
+            # we must NOT filter again with `visible_get()` (which reflects
+            # viewport visibility and can hide render-enabled objects during
+            # an F12 render).
             obj = obj_instance.object
 
             # Black hole empties
@@ -424,8 +598,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 bh = obj.astroray_black_hole
                 if bh.mass > 0:
                     try:
+                        mw = obj_instance.matrix_world
                         renderer.add_black_hole(
-                            list(obj.location),
+                            [mw.translation.x, mw.translation.y, mw.translation.z],
                             bh.mass,
                             bh.influence_radius,
                             {
@@ -438,12 +613,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         print(f"Black hole conversion error: {e}")
                 continue
 
-            if obj.type != 'MESH' or not obj.visible_get():
+            if obj.type != 'MESH':
                 continue
 
-            obj_eval = obj.evaluated_get(depsgraph)
-            mesh = obj_eval.data
+            mesh = obj.data
+            if mesh is None:
+                continue
             matrix = obj_instance.matrix_world
+            obj_count += 1
 
             # -------- Per-slot material map --------
             # Blender meshes carry one material_index per face; resolve each
@@ -505,7 +682,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     uv0, uv1, uv2,
                     n0, n1, n2,
                 )
-    
+                tri_count += 1
+
+        print(f"Astroray: converted {obj_count} meshes, {tri_count} triangles")
+
     def convert_lights(self, depsgraph, renderer):
         for obj in depsgraph.objects:
             if obj.type != 'LIGHT': continue
@@ -569,36 +749,95 @@ class CustomRaytracerRenderEngine(RenderEngine):
             print(f"Set background color: {scaled_color}")
     
     def write_pixels(self, pixels, width, height):
+        # The raytracer returns pixels with y=0 at the TOP of the image (standard
+        # image convention). Blender's render_pass.rect expects y=0 at the BOTTOM,
+        # so we flip vertically before handing it off — otherwise the output ends
+        # up mirrored across the horizontal axis (upside-down).
         rgba = np.ones((height, width, 4), dtype=np.float32)
         rgba[:, :, :3] = pixels
+        rgba = np.ascontiguousarray(rgba[::-1])
+
         result = self.begin_result(0, 0, width, height)
         layer = result.layers[0]
         render_pass = layer.passes.get("Combined") or (layer.passes[0] if layer.passes else None)
-        if render_pass: render_pass.rect = rgba.reshape(-1, 4).tolist()
+        if render_pass:
+            # foreach_set is ~100x faster than assigning a Python list to .rect
+            flat = rgba.reshape(-1)
+            try:
+                render_pass.rect.foreach_set(flat)
+            except AttributeError:
+                render_pass.rect = rgba.reshape(-1, 4).tolist()
         self.end_result(result)
 
-class RENDER_PT_custom_raytracer_sampling(Panel):
+class AstrorayPanelBase:
+    """Mixin for every Astroray panel: restricts visibility to scenes where
+    our engine is active, and keeps COMPAT_ENGINES consistent for Blender's
+    panel-filter machinery."""
+    COMPAT_ENGINES = {'CUSTOM_RAYTRACER'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.render.engine == 'CUSTOM_RAYTRACER'
+
+
+class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):
     bl_label = "Sampling"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "render"
-    
-    @classmethod
-    def poll(cls, context): return context.scene.render.engine == 'CUSTOM_RAYTRACER'
-    
+
     def draw(self, context):
         layout = self.layout
-        settings = context.scene.custom_raytracer
         layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        settings = context.scene.custom_raytracer
+
         col = layout.column(align=True)
         col.prop(settings, "samples", text="Render")
         col.prop(settings, "preview_samples", text="Viewport")
-        col.separator()
-        col.prop(settings, "use_adaptive_sampling")
-        if settings.use_adaptive_sampling: col.prop(settings, "adaptive_threshold")
-        col.separator()
+
+        layout.separator()
+        layout.prop(settings, "use_adaptive_sampling")
+        sub = layout.column()
+        sub.active = settings.use_adaptive_sampling
+        sub.prop(settings, "adaptive_threshold")
+
+
+class RENDER_PT_custom_raytracer_light_paths(AstrorayPanelBase, Panel):
+    bl_label = "Light Paths"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "render"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        settings = context.scene.custom_raytracer
+
+        col = layout.column(align=True)
+        col.prop(settings, "max_bounces", text="Max Bounces")
+        col.prop(settings, "clamp_indirect")
+
+
+class RENDER_PT_custom_raytracer_performance(AstrorayPanelBase, Panel):
+    bl_label = "Performance"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "render"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        settings = context.scene.custom_raytracer
+
+        col = layout.column(align=True)
         col.prop(settings, "use_gpu")
-        if RAYTRACER_AVAILABLE and hasattr(astroray.Renderer(), 'gpu_available'):
+        if RAYTRACER_AVAILABLE:
             try:
                 r = astroray.Renderer()
                 if r.gpu_available:
@@ -608,22 +847,66 @@ class RENDER_PT_custom_raytracer_sampling(Panel):
             except Exception:
                 pass
 
-class RENDER_PT_custom_raytracer_light_paths(Panel):
-    bl_label = "Light Paths"
+
+class AstrorayWorldPanelBase(AstrorayPanelBase):
+    """World panels only poll when there IS a world to edit."""
+    @classmethod
+    def poll(cls, context):
+        return (context.scene.render.engine == 'CUSTOM_RAYTRACER'
+                and context.world is not None)
+
+
+class WORLD_PT_custom_raytracer_surface(AstrorayWorldPanelBase, Panel):
+    bl_label = "Surface"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
-    bl_context = "render"
-    
-    @classmethod
-    def poll(cls, context): return context.scene.render.engine == 'CUSTOM_RAYTRACER'
-    
+    bl_context = "world"
+
     def draw(self, context):
         layout = self.layout
-        settings = context.scene.custom_raytracer
-        layout.use_property_split = True
-        col = layout.column(align=True)
-        col.prop(settings, "max_bounces")
-        col.prop(settings, "clamp_indirect")
+        world = context.world
+        layout.prop(world, "use_nodes", icon='NODETREE')
+        layout.separator()
+        if world.use_nodes and world.node_tree:
+            # Let Cycles' world node drawing handle the detail — we just
+            # expose the output node's Surface socket for quick edits.
+            output = next((n for n in world.node_tree.nodes
+                           if n.type == 'OUTPUT_WORLD'), None)
+            if output is not None:
+                layout.template_node_view(world.node_tree, output,
+                                          output.inputs.get('Surface'))
+        else:
+            layout.prop(world, "color", text="Color")
+
+
+class MATERIAL_PT_custom_raytracer_surface(AstrorayPanelBase, Panel):
+    bl_label = "Surface"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "material"
+
+    @classmethod
+    def poll(cls, context):
+        return (context.scene.render.engine == 'CUSTOM_RAYTRACER'
+                and context.material is not None)
+
+    def draw(self, context):
+        layout = self.layout
+        mat = context.material
+        layout.prop(mat, "use_nodes", icon='NODETREE')
+        layout.separator()
+        if mat.use_nodes and mat.node_tree:
+            output = next((n for n in mat.node_tree.nodes
+                           if n.type == 'OUTPUT_MATERIAL' and getattr(n, 'is_active_output', True)),
+                          None)
+            if output is None:
+                output = next((n for n in mat.node_tree.nodes
+                               if n.type == 'OUTPUT_MATERIAL'), None)
+            if output is not None:
+                layout.template_node_view(mat.node_tree, output,
+                                          output.inputs.get('Surface'))
+        else:
+            layout.prop(mat, "diffuse_color", text="Color")
 
 class CustomRaytracerPreferences(AddonPreferences):
     bl_idname = __name__
@@ -698,23 +981,111 @@ class OBJECT_PT_astroray_black_hole(Panel):
 classes = [
     CustomRaytracerRenderSettings, CustomRaytracerMaterialSettings,
     AstrorayBlackHoleProperties,
-    CustomRaytracerRenderEngine, RENDER_PT_custom_raytracer_sampling,
-    RENDER_PT_custom_raytracer_light_paths, CustomRaytracerPreferences,
+    CustomRaytracerRenderEngine,
+    RENDER_PT_custom_raytracer_sampling,
+    RENDER_PT_custom_raytracer_light_paths,
+    RENDER_PT_custom_raytracer_performance,
+    WORLD_PT_custom_raytracer_surface,
+    MATERIAL_PT_custom_raytracer_surface,
+    CustomRaytracerPreferences,
     ASTRORAY_OT_add_black_hole, OBJECT_PT_astroray_black_hole,
 ]
 
+# ---------------------------------------------------------------------- #
+# Built-in panel compatibility
+# ---------------------------------------------------------------------- #
+#
+# Blender's built-in Properties panels (Output, Dimensions, Color Management,
+# Post Processing, Output, Metadata, World, Object, Mesh, Modifiers, etc.)
+# only show up for a given render engine if that engine is listed in the
+# panel class's COMPAT_ENGINES set. Cycles does this wholesale at add-on
+# register time — every panel that advertises BLENDER_EEVEE / CYCLES compat
+# gets CUSTOM_RAYTRACER appended too. Panels we explicitly DON'T want (engine-
+# specific ones like Eevee Indirect Lighting, Cycles Ray Visibility, etc.)
+# are excluded so they don't pollute our Properties editor.
+
+def _is_compatible_panel(panel):
+    if not hasattr(panel, 'COMPAT_ENGINES'):
+        return False
+    if 'BLENDER_RENDER' not in panel.COMPAT_ENGINES:
+        return False
+    # Skip panels we register ourselves
+    if panel.__name__.startswith('RENDER_PT_custom_raytracer'):
+        return False
+    if panel.__name__.startswith('WORLD_PT_custom_raytracer'):
+        return False
+    if panel.__name__.startswith('MATERIAL_PT_custom_raytracer'):
+        return False
+    return True
+
+
+_EXCLUDE_PANELS = {
+    # Eevee-specific light-path / indirect-lighting panels
+    'RENDER_PT_eevee_ambient_occlusion',
+    'RENDER_PT_eevee_motion_blur',
+    'RENDER_PT_eevee_next_motion_blur',
+    'RENDER_PT_eevee_motion_blur_curve',
+    'RENDER_PT_eevee_depth_of_field',
+    'RENDER_PT_eevee_next_depth_of_field',
+    'RENDER_PT_eevee_subsurface_scattering',
+    'RENDER_PT_eevee_screen_space_reflections',
+    'RENDER_PT_eevee_shadows',
+    'RENDER_PT_eevee_next_shadows',
+    'RENDER_PT_eevee_sampling',
+    'RENDER_PT_eevee_next_sampling',
+    'RENDER_PT_eevee_indirect_lighting',
+    'RENDER_PT_eevee_next_indirect_lighting',
+    'RENDER_PT_eevee_indirect_lighting_display',
+    'RENDER_PT_eevee_film',
+    'RENDER_PT_eevee_next_film',
+    'RENDER_PT_eevee_hair',
+    'RENDER_PT_eevee_performance',
+    'RENDER_PT_eevee_next_performance',
+    'RENDER_PT_eevee_next_volumetric',
+    'RENDER_PT_eevee_next_volumetric_lighting',
+    'RENDER_PT_eevee_next_volumetric_shadows',
+    'RENDER_PT_eevee_next_horizon_scan',
+    'RENDER_PT_eevee_next_raytracing',
+    'RENDER_PT_eevee_next_screen_trace',
+    'RENDER_PT_eevee_next_denoise',
+    # Cycles-specific sampling panels (we have our own)
+    'RENDER_PT_sampling_light_tree',
+}
+
+
+def _iter_compat_panels():
+    for panel in bpy.types.Panel.__subclasses__():
+        if panel.__name__ in _EXCLUDE_PANELS:
+            continue
+        if _is_compatible_panel(panel):
+            yield panel
+
+
 def register():
-    for cls in classes: bpy.utils.register_class(cls)
+    for cls in classes:
+        bpy.utils.register_class(cls)
     bpy.types.Scene.custom_raytracer = PointerProperty(type=CustomRaytracerRenderSettings)
     bpy.types.Material.custom_raytracer = PointerProperty(type=CustomRaytracerMaterialSettings)
     bpy.types.Object.astroray_black_hole = PointerProperty(type=AstrorayBlackHoleProperties)
-    print("Custom Raytracer addon registered")
+
+    # Opt every compatible built-in panel into our engine.
+    for panel in _iter_compat_panels():
+        panel.COMPAT_ENGINES.add('CUSTOM_RAYTRACER')
+
+    print("Astroray renderer addon registered")
+
 
 def unregister():
+    for panel in _iter_compat_panels():
+        panel.COMPAT_ENGINES.discard('CUSTOM_RAYTRACER')
+
     del bpy.types.Scene.custom_raytracer
     del bpy.types.Material.custom_raytracer
     del bpy.types.Object.astroray_black_hole
-    for cls in reversed(classes): bpy.utils.unregister_class(cls)
-    print("Custom Raytracer addon unregistered")
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+    print("Astroray renderer addon unregistered")
 
-if __name__ == "__main__": register()
+
+if __name__ == "__main__":
+    register()

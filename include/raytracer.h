@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
+#include <array>
+#include <cstdint>
 #include "stb_image.h"
 
 // Forward declaration needed by HitRecord
@@ -78,6 +80,106 @@ inline void buildOrthonormalBasis(const Vec3& n, Vec3& u, Vec3& v) {
     u = (std::abs(n.x) > 0.9f) ? Vec3(0, 1, 0) : Vec3(1, 0, 0);
     u = (u - n * n.dot(u)).normalized();
     v = n.cross(u);
+}
+
+struct GGXEnergyCompensationLUT {
+    static constexpr int RES = 32;
+    std::array<float, RES * RES> E{};
+    std::array<float, RES> Eavg{};
+
+    static float radicalInverseVdC(uint32_t bits) {
+        bits = (bits << 16u) | (bits >> 16u);
+        bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+        bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+        bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+        bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+        return float(bits) * 2.3283064365386963e-10f;
+    }
+
+    static float singleScatterEval(float NdotV, float NdotL, float NdotH, float roughness) {
+        if (NdotL <= 0.0f || NdotV <= 0.0f) return 0.0f;
+        const float a = roughness * roughness;
+        const float a2 = a * a;
+        const float denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
+        const float D = a2 / (M_PI * denom * denom + 0.001f);
+        const float k = (roughness + 1.0f) * (roughness + 1.0f) / 8.0f;
+        const float G = (NdotL / (NdotL * (1.0f - k) + k)) * (NdotV / (NdotV * (1.0f - k) + k));
+        return D * G / (4.0f * NdotV + 0.001f);
+    }
+
+    GGXEnergyCompensationLUT() {
+        constexpr int samples = 256;
+        constexpr float invHemispherePdf = 2.0f * M_PI;
+
+        for (int r = 0; r < RES; ++r) {
+            float roughness = std::max(0.001f, (r + 0.5f) / float(RES));
+            for (int m = 0; m < RES; ++m) {
+                float mu = (m + 0.5f) / float(RES);
+                float sinTheta = std::sqrt(std::max(0.0f, 1.0f - mu * mu));
+                Vec3 wo(sinTheta, 0.0f, mu);
+                float sum = 0.0f;
+
+                for (int i = 0; i < samples; ++i) {
+                    float u1 = (i + 0.5f) / float(samples);
+                    float u2 = radicalInverseVdC(uint32_t(i));
+                    float z = u1;
+                    float phi = 2.0f * M_PI * u2;
+                    float xy = std::sqrt(std::max(0.0f, 1.0f - z * z));
+                    Vec3 wi(std::cos(phi) * xy, std::sin(phi) * xy, z);
+                    Vec3 h = (wo + wi).normalized();
+                    float NdotH = std::max(h.z, 0.001f);
+                    float f = singleScatterEval(mu, z, NdotH, roughness);
+                    sum += f * invHemispherePdf;
+                }
+
+                E[r * RES + m] = std::clamp(sum / float(samples), 0.0f, 1.0f);
+            }
+
+            float weightedSum = 0.0f;
+            float weightNorm = 0.0f;
+            for (int m = 0; m < RES; ++m) {
+                float mu = (m + 0.5f) / float(RES);
+                float w = 2.0f * mu;
+                weightedSum += E[r * RES + m] * w;
+                weightNorm += w;
+            }
+            Eavg[r] = std::clamp(weightedSum / std::max(weightNorm, 1e-6f), 0.0f, 1.0f);
+        }
+    }
+
+    float lookupE(float mu, float roughness) const {
+        float x = std::clamp(mu, 0.0f, 1.0f) * (RES - 1);
+        float y = std::clamp(roughness, 0.0f, 1.0f) * (RES - 1);
+        int x0 = int(x), y0 = int(y);
+        int x1 = std::min(x0 + 1, RES - 1), y1 = std::min(y0 + 1, RES - 1);
+        float tx = x - x0, ty = y - y0;
+        float e00 = E[y0 * RES + x0], e10 = E[y0 * RES + x1];
+        float e01 = E[y1 * RES + x0], e11 = E[y1 * RES + x1];
+        float ex0 = e00 * (1 - tx) + e10 * tx;
+        float ex1 = e01 * (1 - tx) + e11 * tx;
+        return ex0 * (1 - ty) + ex1 * ty;
+    }
+
+    float lookupEavg(float roughness) const {
+        float y = std::clamp(roughness, 0.0f, 1.0f) * (RES - 1);
+        int y0 = int(y), y1 = std::min(y0 + 1, RES - 1);
+        float ty = y - y0;
+        return Eavg[y0] * (1 - ty) + Eavg[y1] * ty;
+    }
+};
+
+inline const GGXEnergyCompensationLUT& ggxEnergyCompensationLUT() {
+    static const GGXEnergyCompensationLUT lut;
+    return lut;
+}
+
+inline float ggxMultiScatterCompensation(float NdotV, float NdotL, float roughness) {
+    const auto& lut = ggxEnergyCompensationLUT();
+    float Ewo = lut.lookupE(NdotV, roughness);
+    float Ewi = lut.lookupE(NdotL, roughness);
+    float Eavg = lut.lookupEavg(roughness);
+    float denom = M_PI * std::max(1.0f - Eavg, 1e-4f);
+    return std::max((1.0f - Ewo) * (1.0f - Ewi) / denom, 0.0f);
 }
 
 struct Vec2 {
@@ -199,6 +301,7 @@ public:
 class Metal : public Material {
     Vec3 albedo;
     float roughness;
+    static constexpr float kNearDeltaThreshold = 0.1f;
     
     Vec3 fresnelSchlick(float cosTheta, const Vec3& F0) const {
         float c = std::clamp(cosTheta, 0.0f, 1.0f);
@@ -211,7 +314,7 @@ public:
     float getRoughness() const { return roughness; }
     
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (roughness < 0.08f) {
+        if (roughness <= kNearDeltaThreshold) {
             Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             float deviation = (wi - perfectRefl).length();
             return (deviation < 0.1f) ? albedo * std::exp(-deviation * 100.0f) : Vec3(0);
@@ -232,12 +335,16 @@ public:
         Vec3 F = fresnelSchlick(wo.dot(h), albedo);
         float k = (roughness + 1) * (roughness + 1) / 8;
         float G = (NdotL / (NdotL * (1 - k) + k)) * (NdotV / (NdotV * (1 - k) + k));
-        return F * D * G / (4 * NdotV + 0.001f);
+        Vec3 singleScatter = F * D * G / (4 * NdotV + 0.001f);
+        float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness);
+        float msWeight = roughness * (2.0f - roughness);
+        Vec3 multiScatter = albedo * (Fms * msWeight * 1.3f);
+        return singleScatter + multiScatter;
     }
     
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
-        if (roughness < 0.08f) {
+        if (roughness <= kNearDeltaThreshold) {
             // Correct reflection: wi = 2*(wo·n)*n - wo
             s.wi = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             s.f = albedo;
@@ -270,7 +377,7 @@ public:
     }
     
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (roughness < 0.08f) return 0;
+        if (roughness <= kNearDeltaThreshold) return 0;
         Vec3 h = (wo + wi).normalized();
         float NdotH = std::max(rec.normal.dot(h), 0.001f);
         float HdotV = std::max(h.dot(wo), 0.001f);
@@ -994,6 +1101,7 @@ class Camera {
 public:
     int width, height;
     std::vector<Vec3> pixels, albedoBuffer, normalBuffer;
+    std::vector<float> alphaBuffer;
 
     Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio, float aperture, float focusDist, int w, int h)
         : width(w), height(h) {
@@ -1011,6 +1119,7 @@ public:
         pixels.resize(width * height, Vec3(0));
         albedoBuffer.resize(width * height, Vec3(0));
         normalBuffer.resize(width * height, Vec3(0));
+        alphaBuffer.resize(width * height, 1.0f);
     }
     
     Ray getRay(float s, float t, std::mt19937& gen) const {
@@ -1040,6 +1149,8 @@ class Renderer {
     std::shared_ptr<EnvironmentMap> envMap;
     Vec3 backgroundColor = Vec3(-1);  // negative = use default sky gradient
     float filmExposure = 1.0f;
+    bool useTransparentFilm = false;
+    bool transparentGlass = false;
     float clampDirect = 0.0f;   // 0 = disabled
     float clampIndirect = 0.0f; // 0 = disabled
 
@@ -1054,6 +1165,8 @@ public:
     void setEnvironmentMap(std::shared_ptr<EnvironmentMap> map) { envMap = map; }
     void setBackgroundColor(const Vec3& color) { backgroundColor = color; }
     void setFilmExposure(float exposure) { filmExposure = exposure; }
+    void setUseTransparentFilm(bool use) { useTransparentFilm = use; }
+    void setTransparentGlass(bool use) { transparentGlass = use; }
     void setClampDirect(float value) { clampDirect = std::max(0.0f, value); }
     void setClampIndirect(float value) { clampIndirect = std::max(0.0f, value); }
     
@@ -1062,6 +1175,8 @@ public:
         envMap.reset();
         backgroundColor = Vec3(-1);
         filmExposure = 1.0f;
+        useTransparentFilm = false;
+        transparentGlass = false;
         clampDirect = 0.0f;
         clampIndirect = 0.0f;
     }
@@ -1074,33 +1189,51 @@ public:
     }
 
     float envSelectProb() const {
-        if (!envMap || !envMap->loaded()) return 0.0f;
+        bool hasEnv = (envMap && envMap->loaded()) || (backgroundColor.x >= 0.0f);
+        if (!hasEnv) return 0.0f;
         if (lights.empty()) return 1.0f;
         // Heuristic: environment gets 50% selection probability
         return 0.5f;
     }
 
     Vec3 sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
-        if ((lights.empty() && (!envMap || !envMap->loaded())) || rec.isDelta) return Vec3(0);
+        bool hasEnv = (envMap && envMap->loaded()) || (backgroundColor.x >= 0.0f);
+        if ((lights.empty() && !hasEnv) || rec.isDelta) return Vec3(0);
         Vec3 wo = -ray.direction.normalized(), direct(0);
         std::uniform_real_distribution<float> dist01(0, 1);
 
         float pEnv = envSelectProb();
         bool sampleEnv = dist01(gen) < pEnv;
 
-        if (sampleEnv && envMap && envMap->loaded()) {
-            // === Environment map light sampling ===
-            auto es = envMap->sample(gen);
-            if (es.pdf > 0) {
-                Vec3 wi = es.direction;
+        if (sampleEnv && hasEnv) {
+            Vec3 wi, radiance;
+            float envPdf = 0.0f;
+
+            if (envMap && envMap->loaded()) {
+                auto es = envMap->sample(gen);
+                wi = es.direction;
+                radiance = es.radiance;
+                envPdf = es.pdf;
+            } else {
+                float u1 = dist01(gen), u2 = dist01(gen);
+                float z = u1;
+                float r = std::sqrt(std::max(0.0f, 1.0f - z * z));
+                float phi = 2.0f * M_PI * u2;
+                Vec3 localWi(std::cos(phi) * r, std::sin(phi) * r, z);
+                wi = rec.tangent * localWi.x + rec.bitangent * localWi.y + rec.normal * localWi.z;
+                radiance = backgroundColor;
+                envPdf = 1.0f / (2.0f * M_PI);
+            }
+
+            if (envPdf > 0.0f) {
                 HitRecord shadow;
                 // Shadow ray: must NOT hit any geometry (ray escapes to infinity)
                 if (!bvh->hit(Ray(rec.point, wi), 0.001f, 1e30f, shadow)) {
                     Vec3 f = rec.material->eval(rec, wo, wi);
                     float bsdfPdf = rec.material->pdf(rec, wo, wi);
-                    float combinedLightPdf = pEnv * es.pdf;
+                    float combinedLightPdf = pEnv * envPdf;
                     float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
-                    direct += f * es.radiance * wt / (combinedLightPdf + 0.001f);
+                    direct += f * radiance * wt / (combinedLightPdf + 0.001f);
                 }
             }
         } else if (!lights.empty()) {
@@ -1142,6 +1275,9 @@ public:
                     Vec3 Le = envMap->lookup(bs.wi.normalized());
                     float lightPdf = pEnv * envMap->pdf(bs.wi.normalized());
                     direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
+                } else if (backgroundColor.x >= 0.0f) {
+                    float lightPdf = pEnv * (1.0f / (2.0f * M_PI));
+                    direct += bs.f * backgroundColor * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
                 }
             }
         }
@@ -1150,11 +1286,12 @@ public:
     }
     
 Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
-                   Vec3* albOut = nullptr, Vec3* normOut = nullptr) {
+                   Vec3* albOut = nullptr, Vec3* normOut = nullptr, float* alphaOut = nullptr) {
         const int rrDepth = 3;
         Vec3 color(0), throughput(1);
         Ray ray = r;
         bool wasSpecular = true;
+        bool alphaCovered = !useTransparentFilm;
 
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             HitRecord rec;
@@ -1173,11 +1310,13 @@ Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
                     if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
                     color += contrib;
                 }
+                if (alphaOut) *alphaOut = alphaCovered ? 1.0f : 0.0f;
                 break;
             }
 
             // --- GR dispatch via virtual call (no RTTI needed) ---
             if (rec.hitObject && rec.hitObject->isGRObject()) {
+                alphaCovered = true;
                 auto grResult = rec.hitObject->traceGR(ray, gen);
 
                 if (bounce == 0 && normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
@@ -1207,6 +1346,11 @@ Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
 
             // --- Normal path tracing ---
             if (!rec.material) break;  // safety guard
+            bool countsForAlpha = true;
+            if (transparentGlass && dynamic_cast<const Dielectric*>(rec.material.get()) != nullptr) {
+                countsForAlpha = false;
+            }
+            if (countsForAlpha) alphaCovered = true;
             if (bounce == 0) {
                 if (albOut) { if (auto l = dynamic_cast<Lambertian*>(rec.material.get())) *albOut = l->getAlbedo(); else *albOut = Vec3(0.5f); }
                 if (normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
@@ -1235,6 +1379,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
             float maxC = throughput.maxComponent();
             if (maxC > 10.0f) throughput *= 10.0f / maxC;
         }
+        if (alphaOut) *alphaOut = alphaCovered ? 1.0f : 0.0f;
         return color;
     }
     
@@ -1253,6 +1398,8 @@ public:
     const std::shared_ptr<EnvironmentMap>& getEnvironmentMap() const { return envMap; }
     const Vec3& getBackgroundColor() const { return backgroundColor; }
     float getFilmExposure() const { return filmExposure; }
+    bool getUseTransparentFilm() const { return useTransparentFilm; }
+    bool getTransparentGlass() const { return transparentGlass; }
 
 void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false) {
         buildAcceleration();
@@ -1274,6 +1421,7 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                     for (int x = x0; x < x1; ++x) {
                         int idx = y * cam.width + x;
                         Vec3 color(0), albedo(0), normal(0);
+                        float alpha = 0.0f;
                         float sumL = 0, sumL2 = 0;
                         int samples = 0;
                         
@@ -1281,12 +1429,14 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                             float u = (x + dist(gen)) / (cam.width - 1);
                             float v = 1.0f - (y + dist(gen)) / (cam.height - 1);
                             Vec3 sAlb, sNorm;
-                            Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr);
+                            float sAlpha = 1.0f;
+                            Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha);
                             // Per-sample contribution clamp: prevents a single caustic spike from
                             // dominating a pixel when sample count is low (firefly suppression)
                             float sLum = luminance(sCol);
                             if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
                             color += sCol;
+                            alpha += sAlpha;
                             samples++;
                             if (s == 0) { albedo = sAlb; normal = sNorm; }
                             if (adaptive && s >= 16 && (s + 1) % 8 == 0) {
@@ -1299,6 +1449,8 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         }
                         
                         color = color / float(samples);
+                        color *= filmExposure;
+                        alpha = alpha / float(samples);
                         if (applyGamma) {
                             color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
                             color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
@@ -1311,6 +1463,7 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         cam.pixels[idx] = color;
                         cam.albedoBuffer[idx] = albedo;
                         cam.normalBuffer[idx] = normal;
+                        cam.alphaBuffer[idx] = std::clamp(alpha, 0.0f, 1.0f);
                     }
                 }
                 

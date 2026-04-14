@@ -103,8 +103,8 @@ __device__ inline GVec3 gpu_fresnelSchlick3(float cosTheta, const GVec3& F0) {
 __device__ inline GVec3 gpu_metal_eval(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
-    // roughness < 0.08: near-delta path — eval approximates a narrow lobe
-    if (mat.roughness < 0.08f) {
+    // roughness <= 0.1: near-delta path — eval approximates a narrow lobe
+    if (mat.roughness <= 0.1f) {
         GVec3 perfectRefl = rec.normal * (2.f * wo.dot(rec.normal)) - wo;
         float dev = (wi - perfectRefl).length();
         return (dev < 0.1f) ? mat.baseColor * expf(-dev * 100.f) : GVec3(0.f);
@@ -131,7 +131,7 @@ __device__ inline GBSDFSample gpu_metal_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, curandState* rng)
 {
     GBSDFSample s;
-    if (mat.roughness < 0.08f) {
+    if (mat.roughness <= 0.1f) {
         // Perfect mirror: wi = 2*(wo·n)*n - wo
         s.wi      = rec.normal * (2.f * wo.dot(rec.normal)) - wo;
         s.f       = mat.baseColor;
@@ -168,7 +168,7 @@ __device__ inline GBSDFSample gpu_metal_sample(
 __device__ inline float gpu_metal_pdf(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
-    if (mat.roughness < 0.08f) return 0.f;
+    if (mat.roughness <= 0.1f) return 0.f;
     GVec3 h    = (wo + wi).normalized();
     float NdotH = fmaxf(rec.normal.dot(h), 0.001f);
     float HdotV = fmaxf(h.dot(wo), 0.001f);

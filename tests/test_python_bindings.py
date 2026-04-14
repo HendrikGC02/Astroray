@@ -23,8 +23,10 @@ from PIL import Image
 BUILD_DIR = os.path.join(os.path.dirname(__file__), '..', 'build')
 sys.path.insert(0, BUILD_DIR)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'blender_addon'))
 
 import astroray
+import shader_blending
 from base_helpers import (
     create_renderer, setup_camera, render_image,
     save_image, save_figure, create_cornell_box,
@@ -90,6 +92,32 @@ def test_create_all_material_types():
     r.create_material('subsurface', [0.9, 0.6, 0.5], {'scatter_distance': [1.0, 0.2, 0.1]})
 
 
+def test_mix_shader_blends_principled_red_blue_to_purple():
+    red = {'kind': 'principled', 'base_color': [1.0, 0.0, 0.0], 'params': {'roughness': 0.3}}
+    blue = {'kind': 'principled', 'base_color': [0.0, 0.0, 1.0], 'params': {'roughness': 0.7}}
+    mixed = shader_blending.blend_shader_specs(0.5, red, blue)
+    assert mixed['kind'] == 'principled'
+    assert np.allclose(mixed['base_color'], [0.5, 0.0, 0.5], atol=1e-6)
+    assert abs(mixed['params']['roughness'] - 0.5) < 1e-6
+
+
+def test_mix_shader_glass_principled_maps_to_transmission_weight():
+    principled = {'kind': 'principled', 'base_color': [0.8, 0.8, 0.8], 'params': {'transmission': 0.0, 'ior': 1.45}}
+    glass = {'kind': 'principled', 'base_color': [1.0, 1.0, 1.0], 'params': {'transmission': 1.0, 'ior': 1.5}}
+    mixed = shader_blending.blend_shader_specs(0.3, principled, glass)
+    assert mixed['kind'] == 'principled'
+    assert abs(mixed['params']['transmission'] - 0.3) < 1e-6
+
+
+def test_add_shader_principled_and_emission_keeps_surface_and_emission():
+    surface = {'kind': 'principled', 'base_color': [0.7, 0.5, 0.3], 'params': {'roughness': 0.4}}
+    emission = {'kind': 'emission', 'base_color': [1.0, 0.8, 0.2], 'emission_strength': 2.0}
+    combined = shader_blending.add_shader_specs(surface, emission)
+    assert combined['kind'] == 'principled'
+    assert np.allclose(combined['base_color'], [0.7, 0.5, 0.3], atol=1e-6)
+    assert combined['emission_strength'] >= 2.0
+
+
 # ---------------------------------------------------------------------------
 # Rendering correctness: unlit scene should be dark
 # ---------------------------------------------------------------------------
@@ -107,6 +135,58 @@ def test_background_sky_present():
     pixels = render_image(r, samples=SAMPLES_FAST)
     assert_valid_image(pixels, H, W, min_mean=0.2, max_mean=0.85,
                        label='background_sky')
+
+
+def test_transparent_film_alpha_masks_background():
+    r = create_renderer()
+    r.set_use_transparent_film(True)
+    mat = r.create_material('lambertian', [0.8, 0.8, 0.8], {})
+    r.add_sphere([0, 0, 0], 1.0, mat)
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+    alpha = r.get_alpha_buffer()
+
+    assert alpha.shape == (H, W)
+    assert float(alpha[H // 2, W // 2]) > 0.8
+    assert float(alpha[5, 5]) < 0.1
+    assert float(alpha[5, W - 6]) < 0.1
+    assert float(alpha[H - 6, 5]) < 0.1
+    assert float(alpha[H - 6, W - 6]) < 0.1
+
+
+def test_transparent_film_default_alpha_is_opaque():
+    r = create_renderer()
+    mat = r.create_material('lambertian', [0.8, 0.8, 0.8], {})
+    r.add_sphere([0, 0, 0], 1.0, mat)
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+    alpha = r.get_alpha_buffer()
+
+    assert alpha.shape == (H, W)
+    assert float(np.min(alpha)) > 0.99
+
+
+def test_transparent_glass_keeps_rgb_but_zeroes_alpha():
+    r = create_renderer()
+    r.set_use_transparent_film(True)
+    glass = r.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.5})
+    r.add_sphere([0, 0, 0], 1.0, glass)
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+    alpha_default = r.get_alpha_buffer()
+
+    r = create_renderer()
+    r.set_use_transparent_film(True)
+    r.set_transparent_glass(True)
+    glass = r.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.5})
+    r.add_sphere([0, 0, 0], 1.0, glass)
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+    pixels = render_image(r, samples=SAMPLES_FAST)
+    alpha = r.get_alpha_buffer()
+
+    assert float(alpha_default[H // 2, W // 2]) > 0.8, "Glass should remain visible in alpha by default"
+    assert float(np.mean(pixels)) > 0.05, "RGB should still contain background/environment contribution"
+    assert float(alpha[H // 2, W // 2]) < 0.1, "Glass should be transparent in alpha when transparent_glass is enabled"
 
 
 def test_film_exposure_scales_final_pixels():
@@ -158,6 +238,38 @@ def test_metal_render():
     setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
     pixels = render_image(r, samples=SAMPLES_FAST)
     assert_valid_image(pixels, H, W, min_mean=0.03, label='metal')
+
+
+def test_white_metal_roughness_one_not_dark():
+    """Regression: rough white metal should stay bright under furnace lighting."""
+    r = create_renderer()
+    r.set_background_color([1.0, 1.0, 1.0])  # uniform white emitter
+    mat = r.create_material('metal', [1.0, 1.0, 1.0], {'roughness': 1.0})
+    r.add_sphere([0, 0, 0], 1.0, mat)
+    setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], vfov=35, width=W, height=H)
+    pixels = render_image(r, samples=SAMPLES_MED)
+
+    crop = pixels[H // 2 - 20:H // 2 + 20, W // 2 - 20:W // 2 + 20, :]
+    mean_center = float(np.mean(crop))
+    assert mean_center > 0.85, f"Rough white metal center too dark in furnace test ({mean_center:.3f})"
+
+
+def test_metal_furnace_energy_above_threshold_all_roughness():
+    """Furnace test: white metal should preserve high energy for all roughness values."""
+    roughness_values = [0.1, 0.3, 0.6, 1.0]
+    for roughness in roughness_values:
+        r = create_renderer()
+        r.set_background_color([1.0, 1.0, 1.0])  # uniform white emitter
+        mat = r.create_material('metal', [1.0, 1.0, 1.0], {'roughness': roughness})
+        r.add_sphere([0, 0, 0], 1.0, mat)
+        setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], vfov=35, width=W, height=H)
+        pixels = render_image(r, samples=SAMPLES_MED)
+
+        crop = pixels[H // 2 - 20:H // 2 + 20, W // 2 - 20:W // 2 + 20, :]
+        mean_center = float(np.mean(crop))
+        assert mean_center > 0.85, (
+            f"Furnace energy too low for roughness={roughness:.2f}: center mean={mean_center:.3f}"
+        )
 
 
 def test_glass_render():
@@ -1030,6 +1142,127 @@ def test_textured_material_checkerboard():
         f"texture sampling appears broken."
     )
     save_image(pixels, os.path.join(OUTPUT_DIR, 'test_textured_material.png'))
+
+
+def test_normal_map_adds_visible_surface_detail():
+    """A patterned normal map on a flat quad should increase local shading
+    variation compared to an unperturbed normal."""
+    def render_scene(use_normal_map):
+        r = create_renderer()
+        light = r.create_material('light', [1, 1, 1], {'intensity': 10.0})
+        r.add_sphere([0, 5, 0], 0.8, light)
+
+        params = {'roughness': 0.5, 'metallic': 0.0}
+        if use_normal_map:
+            tex_data = [
+                0.8, 0.2, 1.0,   0.2, 0.8, 1.0,
+                0.2, 0.2, 1.0,   0.8, 0.8, 1.0,
+            ]
+            r.load_texture("nm_detail", tex_data, 2, 2)
+            params['normal_map_texture'] = 'nm_detail'
+            params['normal_strength'] = 1.0
+        mat = r.create_material('disney', [0.7, 0.7, 0.7], params)
+
+        r.add_triangle([-2, -1, -2], [2, -1, -2], [2, -1, 2], mat,
+                       [0, 0], [1, 0], [1, 1])
+        r.add_triangle([-2, -1, -2], [2, -1, 2], [-2, -1, 2], mat,
+                       [0, 0], [1, 1], [0, 1])
+
+        setup_camera(r, look_from=[0, 3, 4], look_at=[0, -1, 0],
+                     vfov=55, width=W, height=H)
+        return render_image(r, samples=SAMPLES_FAST)
+
+    flat = render_scene(use_normal_map=False)
+    mapped = render_scene(use_normal_map=True)
+    assert_valid_image(flat, H, W, min_mean=0.01, label='normal_flat')
+    assert_valid_image(mapped, H, W, min_mean=0.01, label='normal_mapped')
+
+    crop = (slice(H // 4, 3 * H // 4), slice(W // 4, 3 * W // 4))
+    detail_delta = float(np.mean(np.abs(flat[crop] - mapped[crop])))
+    assert detail_delta > 0.002, (
+        f"Normal map produced too little visible change "
+        f"(mean abs delta={detail_delta:.4f})."
+    )
+    save_image(mapped, os.path.join(OUTPUT_DIR, 'test_normal_map_detail.png'))
+
+
+def test_normal_map_shifts_specular_highlights():
+    """A tangent-space normal perturbation should move/specifically reshape
+    specular response on a glossy surface."""
+    def render_scene(use_normal_map):
+        r = create_renderer()
+        light = r.create_material('light', [1, 1, 1], {'intensity': 12.0})
+        r.add_sphere([0.6, 4.0, 1.5], 0.7, light)
+
+        params = {'roughness': 0.06, 'metallic': 0.0}
+        if use_normal_map:
+            # Uniform +U tilt in tangent space.
+            r.load_texture("nm_tilt", [1.0, 0.5, 0.5], 1, 1)
+            params['normal_map_texture'] = 'nm_tilt'
+            params['normal_strength'] = 1.0
+        mat = r.create_material('disney', [0.85, 0.85, 0.85], params)
+
+        r.add_triangle([-2, -1, -2], [2, -1, -2], [2, -1, 2], mat,
+                       [0, 0], [1, 0], [1, 1])
+        r.add_triangle([-2, -1, -2], [2, -1, 2], [-2, -1, 2], mat,
+                       [0, 0], [1, 1], [0, 1])
+
+        setup_camera(r, look_from=[0, 3, 4], look_at=[0, -1, 0],
+                     vfov=55, width=W, height=H)
+        return render_image(r, samples=SAMPLES_MED)
+
+    flat = render_scene(use_normal_map=False)
+    tilted = render_scene(use_normal_map=True)
+    l_flat = np.mean(flat, axis=2)
+    l_tilt = np.mean(tilted, axis=2)
+
+    thresh_flat = np.percentile(l_flat, 99.2)
+    thresh_tilt = np.percentile(l_tilt, 99.2)
+    xf = np.where(l_flat >= thresh_flat)[1]
+    xt = np.where(l_tilt >= thresh_tilt)[1]
+    assert xf.size > 0 and xt.size > 0
+    centroid_shift = abs(float(np.mean(xt)) - float(np.mean(xf)))
+    image_delta = float(np.mean(np.abs(flat - tilted)))
+    assert centroid_shift > 0.1 or image_delta > 0.003, (
+        f"Specular response changed too little with normal map "
+        f"(centroid shift={centroid_shift:.3f}px, mean abs delta={image_delta:.4f})."
+    )
+    save_image(tilted, os.path.join(OUTPUT_DIR, 'test_normal_map_specular_shift.png'))
+
+
+def test_bump_strength_zero_matches_no_bump_output():
+    """Bump map strength=0 should match the no-bump baseline."""
+    def render_scene(with_bump_zero):
+        r = create_renderer()
+        light = r.create_material('light', [1, 1, 1], {'intensity': 10.0})
+        r.add_sphere([0, 5, 0], 0.8, light)
+
+        params = {'roughness': 0.3, 'metallic': 0.0}
+        if with_bump_zero:
+            bump_data = [
+                0.0, 0.0, 0.0,   1.0, 1.0, 1.0,
+                1.0, 1.0, 1.0,   0.0, 0.0, 0.0,
+            ]
+            r.load_texture("bump_checker", bump_data, 2, 2)
+            params['bump_map_texture'] = 'bump_checker'
+            params['bump_strength'] = 0.0
+            params['bump_distance'] = 0.02
+        mat = r.create_material('disney', [0.7, 0.7, 0.7], params)
+
+        r.add_triangle([-2, -1, -2], [2, -1, -2], [2, -1, 2], mat,
+                       [0, 0], [1, 0], [1, 1])
+        r.add_triangle([-2, -1, -2], [2, -1, 2], [-2, -1, 2], mat,
+                       [0, 0], [1, 1], [0, 1])
+
+        setup_camera(r, look_from=[0, 3, 4], look_at=[0, -1, 0],
+                     vfov=55, width=W, height=H)
+        return render_image(r, samples=SAMPLES_MED)
+
+    no_bump = render_scene(with_bump_zero=False)
+    bump_zero = render_scene(with_bump_zero=True)
+    mad = float(np.mean(np.abs(no_bump - bump_zero)))
+    assert mad < 0.04, f"Bump strength=0 diverges from baseline (MAD={mad:.4f})."
+    save_image(bump_zero, os.path.join(OUTPUT_DIR, 'test_bump_strength_zero.png'))
 
 
 # ---------------------------------------------------------------------------

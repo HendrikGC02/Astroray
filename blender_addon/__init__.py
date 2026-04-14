@@ -15,6 +15,7 @@ from bpy.types import Panel, Operator, AddonPreferences, PropertyGroup, RenderEn
 from bpy.props import BoolProperty, IntProperty, FloatProperty, StringProperty, PointerProperty, FloatVectorProperty
 import mathutils, math, numpy as np, traceback, sys, os, time
 from pathlib import Path
+from shader_blending import blend_shader_specs, add_shader_specs
 
 addon_dir = os.path.dirname(__file__)
 if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
@@ -113,7 +114,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
             pixels = renderer.render(settings.samples, settings.max_bounces, progress_callback, False)
             print(f"Render completed in {time.time() - start_time:.2f}s")
             
-            if pixels is not None: self.write_pixels(pixels, width, height)
+            if pixels is not None:
+                alpha = None
+                try:
+                    alpha = renderer.get_alpha_buffer()
+                except Exception:
+                    alpha = None
+                self.write_pixels(pixels, width, height, alpha)
         except Exception as e:
             print(f"RENDER ERROR: {e}")
             traceback.print_exc()
@@ -243,8 +250,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.set_clamp_direct(settings.clamp_direct)
         renderer.set_clamp_indirect(settings.clamp_indirect)
         cycles = getattr(scene, 'cycles', None)
+        render_settings = getattr(scene, 'render', None)
         exposure = float(getattr(cycles, 'film_exposure', 1.0)) if cycles else 1.0
         renderer.set_film_exposure(exposure)
+        use_transparent_film = bool(getattr(render_settings, 'film_transparent', False)) if render_settings else False
+        transparent_glass = bool(getattr(cycles, 'film_transparent_glass', False)) if cycles else False
+        renderer.set_use_transparent_film(use_transparent_film)
+        renderer.set_transparent_glass(transparent_glass)
         self.setup_camera(scene, renderer, width, height)
         material_map = self.convert_materials(depsgraph, renderer)
         self.convert_objects(depsgraph, renderer, material_map)
@@ -427,6 +439,57 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     pass
         return list(default_color), None
 
+    def get_image_from_socket(self, socket):
+        """Resolve a directly linked Image Texture datablock from a socket."""
+        if not socket or not socket.is_linked:
+            return None
+        try:
+            src = socket.links[0].from_node
+        except (IndexError, AttributeError):
+            return None
+        if src.type == 'TEX_IMAGE' and src.image:
+            return src.image
+        return None
+
+    def get_normal_inputs(self, node):
+        """Extract normal-map / bump-map inputs wired into Principled Normal."""
+        result = {
+            'normal_image': None,
+            'normal_strength': 1.0,
+            'bump_image': None,
+            'bump_strength': 1.0,
+            'bump_distance': 0.01,
+        }
+        visited = set()
+
+        def walk_normal_chain(socket):
+            if not socket or not socket.is_linked:
+                return
+            try:
+                src = socket.links[0].from_node
+            except (IndexError, AttributeError):
+                return
+            key = id(src)
+            if key in visited:
+                return
+            visited.add(key)
+
+            if src.type == 'NORMAL_MAP':
+                result['normal_strength'] = self.get_float_input(src, 'Strength', 1.0)
+                result['normal_image'] = self.get_image_from_socket(src.inputs.get('Color'))
+                walk_normal_chain(src.inputs.get('Normal'))
+                return
+
+            if src.type == 'BUMP':
+                result['bump_strength'] = self.get_float_input(src, 'Strength', 1.0)
+                result['bump_distance'] = self.get_float_input(src, 'Distance', 0.01)
+                result['bump_image'] = self.get_image_from_socket(src.inputs.get('Height'))
+                walk_normal_chain(src.inputs.get('Normal'))
+                return
+
+        walk_normal_chain(node.inputs.get('Normal'))
+        return result
+
     def load_blender_image(self, bpy_image, renderer):
         """Load a Blender image datablock into the renderer's texture manager.
         Returns the texture name (string) on success, None on failure.
@@ -479,6 +542,95 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # Shader-node dispatch
     # ------------------------------------------------------------------ #
 
+    def _shader_input_node(self, node, input_name):
+        inp = node.inputs.get(input_name)
+        if not inp or not inp.is_linked:
+            return None
+        try:
+            return inp.links[0].from_node
+        except (IndexError, AttributeError):
+            return None
+
+    def _principled_shader_spec(self, node):
+        base_color = self.get_color_input(node, 'Base Color', [0.8, 0.8, 0.8])
+        return {
+            'kind': 'principled',
+            'base_color': list(base_color),
+            'params': {
+                'metallic':        self.get_float_input(node, 'Metallic', 0.0),
+                'roughness':       self.get_float_input(node, 'Roughness', 0.5),
+                'ior':             self.get_float_input(node, 'IOR', 1.45),
+                'transmission':    self._float_with_fallback(node, 'Transmission Weight', 'Transmission', 0.0),
+                'clearcoat':       self._float_with_fallback(node, 'Coat Weight', 'Clearcoat', 0.0),
+                'clearcoat_gloss': 1.0 - self._float_with_fallback(node, 'Coat Roughness', 'Clearcoat Roughness', 0.0),
+                'anisotropic':     self.get_float_input(node, 'Anisotropic', 0.0),
+                'sheen':           self._float_with_fallback(node, 'Sheen Weight', 'Sheen', 0.0),
+                'subsurface':      self._float_with_fallback(node, 'Subsurface Weight', 'Subsurface', 0.0),
+            },
+            'emission_color': self.get_color_input(node, 'Emission Color', [0.0, 0.0, 0.0]),
+            'emission_strength': self.get_float_input(node, 'Emission Strength', 0.0),
+        }
+
+    def _shader_spec_from_node(self, node, renderer, node_tree, depth=0):
+        if node is None or depth > 32:
+            return None
+        ntype = node.type
+
+        if ntype == 'BSDF_PRINCIPLED':
+            return self._principled_shader_spec(node)
+        if ntype == 'BSDF_DIFFUSE':
+            return {'kind': 'principled', 'base_color': self.get_color_input(node, 'Color', [0.8, 0.8, 0.8]), 'params': {}}
+        if ntype == 'BSDF_GLOSSY' or ntype == 'BSDF_ANISOTROPIC':
+            return {'kind': 'principled', 'base_color': self.get_color_input(node, 'Color', [0.8, 0.8, 0.8]), 'params': {'metallic': 1.0, 'roughness': self.get_float_input(node, 'Roughness', 0.5)}}
+        if ntype == 'BSDF_GLASS':
+            return {'kind': 'principled', 'base_color': [1.0, 1.0, 1.0], 'params': {'transmission': 1.0, 'ior': self.get_float_input(node, 'IOR', 1.5), 'roughness': self.get_float_input(node, 'Roughness', 0.0)}}
+        if ntype == 'BSDF_TRANSPARENT':
+            return {'kind': 'transparent'}
+        if ntype == 'EMISSION':
+            return {'kind': 'emission', 'base_color': self.get_color_input(node, 'Color', [1.0, 1.0, 1.0]), 'emission_strength': self.get_float_input(node, 'Strength', 1.0)}
+        if ntype == 'MIX_SHADER':
+            fac = self.get_float_input(node, 'Fac', 0.5)
+            a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
+            b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
+            return blend_shader_specs(fac, a, b)
+        if ntype == 'ADD_SHADER':
+            a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
+            b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
+            return add_shader_specs(a, b)
+        return None
+
+    def _create_material_from_shader_spec(self, spec, renderer):
+        if spec is None:
+            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+
+        kind = spec.get('kind')
+        if kind == 'emission':
+            return renderer.create_material('light', spec.get('base_color', [1, 1, 1]),
+                                            {'intensity': float(spec.get('emission_strength', 1.0))})
+
+        if kind == 'principled':
+            color = list(spec.get('base_color', [0.8, 0.8, 0.8]))
+            params = dict(spec.get('params', {}))
+            emission_strength = float(spec.get('emission_strength', 0.0))
+            emission_color = list(spec.get('emission_color', [0.0, 0.0, 0.0]))
+
+            # Renderer has no explicit alpha channel; approximate transparency.
+            alpha = params.pop('alpha', None)
+            if alpha is not None:
+                params['transmission'] = max(float(params.get('transmission', 0.0)), 1.0 - float(alpha))
+
+            # Add-Shader / Mix-with-Emission approximation:
+            # preserve surface and bias base color towards emission.
+            if emission_strength > 0.0 and any(c > 0.0 for c in emission_color):
+                if emission_strength >= 1.0 and float(params.get('metallic', 0.0)) == 0.0 and float(params.get('transmission', 0.0)) == 0.0:
+                    return renderer.create_material('light', emission_color, {'intensity': emission_strength})
+                glow = min(1.0, 0.2 * emission_strength)
+                color = [max(0.0, min(1.0, (1.0 - glow) * color[i] + glow * emission_color[i])) for i in range(3)]
+
+            return renderer.create_material('disney', color, params)
+
+        return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+
     def convert_shader_node(self, node, renderer, node_tree):
         """Route a surface-shader node to the appropriate material builder."""
         ntype = node.type
@@ -499,27 +651,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
             rough = self.get_float_input(node, 'Roughness', 0.5)
             return renderer.create_material('metal', color, {'roughness': rough})
         if ntype == 'MIX_SHADER':
-            # Prefer the first linked BSDF-ish input; this is a simplification
-            # that ignores the mix factor but keeps the dominant shader.
-            for inp in node.inputs:
-                if inp.is_linked:
-                    try:
-                        src = inp.links[0].from_node
-                    except (IndexError, AttributeError):
-                        continue
-                    if src.type.startswith('BSDF') or src.type == 'EMISSION':
-                        return self.convert_shader_node(src, renderer, node_tree)
-            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+            spec = self._shader_spec_from_node(node, renderer, node_tree)
+            return self._create_material_from_shader_spec(spec, renderer)
         if ntype == 'ADD_SHADER':
-            # Just take the first linked shader; the renderer doesn't support
-            # additive shader blending directly.
-            for inp in node.inputs:
-                if inp.is_linked:
-                    try:
-                        src = inp.links[0].from_node
-                    except (IndexError, AttributeError):
-                        continue
-                    return self.convert_shader_node(src, renderer, node_tree)
+            spec = self._shader_spec_from_node(node, renderer, node_tree)
+            return self._create_material_from_shader_spec(spec, renderer)
         # Unknown — safe default
         return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
 
@@ -577,6 +713,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
             'subsurface':      subsurface,
         }
 
+        normal_inputs = self.get_normal_inputs(node)
+        if normal_inputs['normal_image'] is not None:
+            tex_name = self.load_blender_image(normal_inputs['normal_image'], renderer)
+            if tex_name:
+                params['normal_map_texture'] = tex_name
+                params['normal_strength'] = normal_inputs['normal_strength']
+        if normal_inputs['bump_image'] is not None:
+            tex_name = self.load_blender_image(normal_inputs['bump_image'], renderer)
+            if tex_name:
+                params['bump_map_texture'] = tex_name
+                params['bump_strength'] = normal_inputs['bump_strength']
+                params['bump_distance'] = normal_inputs['bump_distance']
+
         # If base color is textured, load it and route through the 'lambertian'
         # textured path (DisneyBRDF doesn't currently accept a texture, and the
         # TexturedLambertian gives correct base color sampling for most PBR
@@ -587,8 +736,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # Use textured lambertian (the only path that currently samples
                 # a texture on hit). TODO: extend DisneyBRDF with a base-color
                 # texture slot so we can keep metallic/roughness too.
+                lambert_params = {'texture': tex_name}
+                for key in ('normal_map_texture', 'normal_strength',
+                            'bump_map_texture', 'bump_strength', 'bump_distance'):
+                    if key in params:
+                        lambert_params[key] = params[key]
                 return renderer.create_material('lambertian', base_color,
-                                                {'texture': tex_name})
+                                                lambert_params)
 
         return renderer.create_material('disney', base_color, params)
     
@@ -758,13 +912,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.set_background_color(scaled_color)
             print(f"Set background color: {scaled_color}")
     
-    def write_pixels(self, pixels, width, height):
+    def write_pixels(self, pixels, width, height, alpha=None):
         # The raytracer returns pixels with y=0 at the TOP of the image (standard
         # image convention). Blender's render_pass.rect expects y=0 at the BOTTOM,
         # so we flip vertically before handing it off — otherwise the output ends
         # up mirrored across the horizontal axis (upside-down).
         rgba = np.ones((height, width, 4), dtype=np.float32)
         rgba[:, :, :3] = pixels
+        if alpha is not None:
+            alpha_arr = np.asarray(alpha, dtype=np.float32)
+            if alpha_arr.shape == (height, width):
+                rgba[:, :, 3] = np.clip(alpha_arr, 0.0, 1.0)
         rgba = np.ascontiguousarray(rgba[::-1])
 
         result = self.begin_result(0, 0, width, height)

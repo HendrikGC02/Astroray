@@ -44,6 +44,16 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         description="Samples per pixel for rendered-shading viewport preview")
     max_bounces: IntProperty(name="Max Bounces", min=0, max=1024, default=10,
         description="Maximum path-trace depth — caps how many times a ray can scatter")
+    diffuse_bounces: IntProperty(name="Diffuse", min=0, max=1024, default=4,
+        description="Maximum diffuse bounce depth")
+    glossy_bounces: IntProperty(name="Glossy", min=0, max=1024, default=4,
+        description="Maximum glossy/specular bounce depth")
+    transmission_bounces: IntProperty(name="Transmission", min=0, max=1024, default=12,
+        description="Maximum transmission/refraction bounce depth")
+    volume_bounces: IntProperty(name="Volume", min=0, max=1024, default=0,
+        description="Maximum volume bounce depth")
+    transparent_bounces: IntProperty(name="Transparent", min=0, max=1024, default=8,
+        description="Maximum transparent bounce depth")
     use_adaptive_sampling: BoolProperty(name="Adaptive Sampling", default=True,
         description="Stop sampling pixels that have already converged")
     adaptive_threshold: FloatProperty(name="Noise Threshold", min=0.001, max=1.0, default=0.01)
@@ -108,7 +118,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return True
 
             start_time = time.time()
-            pixels = renderer.render(settings.samples, settings.max_bounces, progress_callback, False)
+            pixels = renderer.render(
+                settings.samples, settings.max_bounces, progress_callback, False,
+                settings.diffuse_bounces, settings.glossy_bounces,
+                settings.transmission_bounces, settings.volume_bounces,
+                settings.transparent_bounces
+            )
             print(f"Render completed in {time.time() - start_time:.2f}s")
             
             if pixels is not None: self.write_pixels(pixels, width, height)
@@ -150,7 +165,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
             samples = max(1, settings.preview_samples)
             depth = max(2, settings.max_bounces // 2)
-            pixels = renderer.render(samples, depth, None, False)
+            pixels = renderer.render(
+                samples, depth, None, False,
+                min(settings.diffuse_bounces, depth),
+                min(settings.glossy_bounces, depth),
+                min(settings.transmission_bounces, depth),
+                min(settings.volume_bounces, depth),
+                min(settings.transparent_bounces, depth)
+            )
             if pixels is None:
                 return
             self._update_viewport_texture(pixels, width, height)
@@ -821,7 +843,12 @@ class RENDER_PT_custom_raytracer_light_paths(AstrorayPanelBase, Panel):
         settings = context.scene.custom_raytracer
 
         col = layout.column(align=True)
-        col.prop(settings, "max_bounces", text="Max Bounces")
+        col.prop(settings, "max_bounces", text="Total")
+        col.prop(settings, "diffuse_bounces")
+        col.prop(settings, "glossy_bounces")
+        col.prop(settings, "transmission_bounces")
+        col.prop(settings, "volume_bounces")
+        col.prop(settings, "transparent_bounces")
         col.prop(settings, "clamp_indirect")
 
 

@@ -18,14 +18,25 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j8
 ```
 
-## Run tests
+## Validation
+
+Run tests before opening a PR:
 
 ```bash
-python3 -m pytest tests/ -v
+python3 -m pytest tests/ -v --tb=short
+```
+
+Useful focused runs:
+
+```bash
+python3 -m pytest tests/test_python_bindings.py -v
+python3 -m pytest tests/test_material_properties.py -v
+python3 -m pytest tests/test_standalone_renderer.py -v
 ```
 
 ## Pull requests
 
 1. Keep changes focused and minimal.
-2. Update docs when behavior/build steps change.
+2. Update docs when behavior/build steps/workflows change.
 3. Ensure build and tests pass locally before opening a PR.
+4. Include rendered evidence for visual rendering changes when practical.

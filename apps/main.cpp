@@ -110,7 +110,8 @@ int main(int argc, char* argv[]) {
         else if (arg == "--output" && i+1 < argc) output = argv[++i];
         else if (arg == "--envmap" && i+1 < argc) envmap = argv[++i];
         else if (arg == "--help") {
-            std::cout << "Usage: " << argv[0] << " [--scene 1|2] [--width N] [--height N] [--samples N] [--depth N] [--output file] [--envmap FILE]\n";
+            std::cout << "Usage: " << argv[0] << " [--scene 1|2] [--width N] [--height N] [--samples N] [--depth N] [--output file] [--envmap FILE]" << std::endl;
+            std::cout.flush();
             return 0;
         }
     }

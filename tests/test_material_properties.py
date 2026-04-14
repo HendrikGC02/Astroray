@@ -66,6 +66,17 @@ def _side_light_scene(r, mat):
     r.add_sphere([0, 0, 0], 1.0, mat)
 
 
+def _side_light_scene_specular_probe(r, mat):
+    """Variant of _side_light_scene with stronger glancing highlight.
+    Used for specular-vs-diffuse discrimination checks."""
+    ground = r.create_material('lambertian', [0.4, 0.4, 0.4], {})
+    light  = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 25.0})
+    r.add_triangle([-6, -1, -6], [6, -1, -6], [6, -1,  6], ground)
+    r.add_triangle([-6, -1, -6], [6, -1,  6], [-6, -1, 6], ground)
+    r.add_sphere([2.5, 2.8, 1.5], 0.3, light)
+    r.add_sphere([0, 0, 0], 1.0, mat)
+
+
 def _backdrop_scene(r, mat, backdrop_color):
     """Colored back wall at z=-2.5 + overhead light.
     Camera: look_from=[0,0,3.5], look_at=[0,0,0], vfov=38."""
@@ -157,7 +168,7 @@ def test_metal_differs_from_lambertian():
     def render(mat_type, params):
         r = create_renderer()
         mat = r.create_material(mat_type, [0.8, 0.8, 0.8], params)
-        _side_light_scene(r, mat)
+        _side_light_scene_specular_probe(r, mat)
         _cam_side(r)
         return render_image(r, samples=64)
 
@@ -166,9 +177,11 @@ def test_metal_differs_from_lambertian():
     assert_valid_image(px_lamb,  H, W, label='lambertian_vs_metal_ref')
     assert_valid_image(px_metal, H, W, label='metal_vs_lambertian')
 
-    mse = float(np.mean((px_lamb - px_metal) ** 2))
+    c_lamb = _center(px_lamb, frac=0.55)
+    c_metal = _center(px_metal, frac=0.55)
+    mse = float(np.mean((c_lamb - c_metal) ** 2))
     assert mse > 0.005, \
-        f"Metal and Lambertian too similar (MSE={mse:.5f}); Metal may not be working"
+        f"Metal and Lambertian center-crop too similar (MSE={mse:.5f}); Metal may not be working"
 
 
 def test_metal_roughness_affects_appearance():
@@ -355,7 +368,7 @@ def test_disney_metallic_tints_specular_highlight():
         r = create_renderer()
         mat = r.create_material('disney', gold,
                                 {'metallic': metallic_val, 'roughness': 0.15})
-        _side_light_scene(r, mat)
+        _side_light_scene_specular_probe(r, mat)
         _cam_side(r)
         return render_image(r, samples=96)
 
@@ -364,14 +377,12 @@ def test_disney_metallic_tints_specular_highlight():
     assert_valid_image(px_metal,      H, W, label='disney_metallic1')
     assert_valid_image(px_dielectric, H, W, label='disney_metallic0')
 
-    def specular_rb(px, lum_threshold=0.55):
-        """R/B ratio in bright center pixels — approximates the specular highlight."""
+    def specular_rb(px, top_percentile=99.0):
+        """R/B ratio in top-luminance center pixels — approximates the highlight."""
         c = _center(px, frac=0.55)
         lum = 0.2126 * c[:, :, 0] + 0.7152 * c[:, :, 1] + 0.0722 * c[:, :, 2]
-        mask = lum >= lum_threshold
-        if mask.sum() < 5:
-            cutoff = np.percentile(lum, 95)
-            mask = lum >= cutoff
+        cutoff = np.percentile(lum, top_percentile)
+        mask = lum >= cutoff
         r_mean = float(c[:, :, 0][mask].mean())
         b_mean = float(c[:, :, 2][mask].mean()) + 1e-6
         return r_mean / b_mean

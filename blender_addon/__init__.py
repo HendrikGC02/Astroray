@@ -886,8 +886,25 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 sun_pos = [position[0] - direction.x * 1000, position[1] - direction.y * 1000, position[2] - direction.z * 1000]
                 renderer.add_sphere(sun_pos, 100.0, mat_id)
             elif light.type == 'AREA':
-                size = float(max(light.size, getattr(light, 'size_y', light.size)))
-                renderer.add_sphere(position, size / 2, mat_id)
+                basis = matrix.to_3x3()
+                axis_u = list((basis @ mathutils.Vector((1, 0, 0))).normalized())
+                axis_v = list((basis @ mathutils.Vector((0, 1, 0))).normalized())
+                shape = getattr(light, 'shape', 'SQUARE')
+                spread = float(getattr(light, 'spread', 1.0))
+                size_x = float(light.size)
+                size_y = float(getattr(light, 'size_y', light.size))
+                if shape in {'SQUARE', 'DISK'}:
+                    size_y = size_x
+                shape_map = {
+                    'SQUARE': 'RECTANGLE',
+                    'RECTANGLE': 'RECTANGLE',
+                    'DISK': 'DISK',
+                    'ELLIPSE': 'ELLIPSE',
+                }
+                renderer.add_area_light(
+                    position, axis_u, axis_v, size_x, size_y,
+                    shape_map.get(shape, 'RECTANGLE'), mat_id, spread
+                )
     
     def setup_world(self, scene, renderer):
         world = scene.world

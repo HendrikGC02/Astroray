@@ -15,7 +15,7 @@ Thanks for contributing.
 python3 -m pip install -r requirements.txt
 mkdir -p build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j8
+make -j$(nproc)
 ```
 
 ## Validation

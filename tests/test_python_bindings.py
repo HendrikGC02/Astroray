@@ -92,6 +92,45 @@ def test_create_all_material_types():
     r.create_material('subsurface', [0.9, 0.6, 0.5], {'scatter_distance': [1.0, 0.2, 0.1]})
 
 
+def _render_spot_on_plane(blend: float) -> np.ndarray:
+    r = create_renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    floor = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
+    light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 90.0})
+    r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, -3.0], [3.0, 0.0, 3.0], floor)
+    r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, 3.0], [-3.0, 0.0, 3.0], floor)
+    r.add_spot_light([0.0, 3.0, 0.0], [0.0, -1.0, 0.0], 0.08, light, 0.7, blend)
+    setup_camera(r, look_from=[0.0, 5.0, 0.0], look_at=[0.0, 0.0, 0.0],
+                 vup=[0.0, 0.0, -1.0], vfov=42, width=W, height=H)
+    return render_image(r, samples=64, max_depth=6)
+
+
+def test_spot_light_sharp_cone_on_floor_plane():
+    img = _render_spot_on_plane(blend=0.0)
+    lum = img.mean(axis=2)
+    cy, cx = H // 2, W // 2
+    center = float(np.mean(lum[cy-12:cy+12, cx-12:cx+12]))
+    corners = float(np.mean(np.concatenate([
+        lum[:20, :20].ravel(),
+        lum[:20, -20:].ravel(),
+        lum[-20:, :20].ravel(),
+        lum[-20:, -20:].ravel(),
+    ])))
+    assert center > 0.1, f"Expected bright spotlight core, got center mean {center:.4f}"
+    assert corners < center * 0.25, f"Expected strong cone cutoff (corners={corners:.4f}, center={center:.4f})"
+
+
+def test_spot_light_blend_softens_cone_edges():
+    sharp = _render_spot_on_plane(blend=0.0)
+    soft = _render_spot_on_plane(blend=0.7)
+    sharp_lum = sharp.mean(axis=2)
+    soft_lum = soft.mean(axis=2)
+    sharp_mid = float(np.mean((sharp_lum >= 0.02) & (sharp_lum < 0.20)))
+    soft_mid = float(np.mean((soft_lum >= 0.02) & (soft_lum < 0.20)))
+    assert soft_mid > sharp_mid + 0.03, \
+        f"Expected blend to create more soft-edge midtones (sharp={sharp_mid:.4f}, soft={soft_mid:.4f})"
+
+
 def test_mix_shader_blends_principled_red_blue_to_purple():
     red = {'kind': 'principled', 'base_color': [1.0, 0.0, 0.0], 'params': {'roughness': 0.3}}
     blue = {'kind': 'principled', 'base_color': [0.0, 0.0, 1.0], 'params': {'roughness': 0.7}}

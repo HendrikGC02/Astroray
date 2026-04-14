@@ -888,6 +888,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
             elif light.type == 'AREA':
                 size = float(max(light.size, getattr(light, 'size_y', light.size)))
                 renderer.add_sphere(position, size / 2, mat_id)
+            elif light.type == 'SPOT':
+                direction = (matrix.to_3x3() @ mathutils.Vector((0, 0, -1))).normalized()
+                radius = float(max(getattr(light, 'shadow_soft_size', 0.0), 0.001))
+                renderer.add_spot_light(
+                    position,
+                    [direction.x, direction.y, direction.z],
+                    radius,
+                    mat_id,
+                    float(light.spot_size),
+                    float(light.spot_blend),
+                )
     
     def setup_world(self, scene, renderer):
         world = scene.world

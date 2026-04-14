@@ -200,6 +200,8 @@ public:
         if (emissionStrength > 0.0f && emissionColor.size() >= 3) {
             auto glow = std::make_shared<DiffuseLight>(
                 Vec3(emissionColor[0], emissionColor[1], emissionColor[2]), emissionStrength);
+            // Keep the emissive proxy slightly inside the volume boundary to avoid
+            // exact overlap with the medium shell intersection points.
             renderer.addObject(std::make_shared<Sphere>(
                 Vec3(center[0], center[1], center[2]), radius * 0.98f, glow));
         }

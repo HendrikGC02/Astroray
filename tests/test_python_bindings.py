@@ -126,7 +126,8 @@ def test_volume_absorption_blue_tint_biases_render_blue():
 
     center_crop = pixels[H // 4:(3 * H) // 4, W // 4:(3 * W) // 4, :]
     means = np.mean(center_crop, axis=(0, 1))
-    assert means[2] > means[0], f"Expected blue channel > red for volume tint, got {means}"
+    assert means[2] > means[0], \
+        f"Expected blue > red for volume tint, got R={means[0]:.3f}, G={means[1]:.3f}, B={means[2]:.3f}"
 
 
 def test_volume_scatter_anisotropy_changes_render():

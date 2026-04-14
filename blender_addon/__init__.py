@@ -665,6 +665,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
     @staticmethod
     def _blackbody_to_rgb(temperature_k):
+        """Approximate blackbody color (1000K..40000K) in linear RGB-like space."""
         t = max(1000.0, min(40000.0, float(temperature_k))) / 100.0
         if t <= 66.0:
             r = 255.0
@@ -708,7 +709,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             temperature = self.get_float_input(node, 'Temperature', 1000.0)
             if blackbody_intensity > 0.0:
                 bb = self._blackbody_to_rgb(temperature)
-                emission_color = [max(emission_color[i], bb[i]) for i in range(3)]
+                emission_color = [emission_color[i] + bb[i] * blackbody_intensity for i in range(3)]
                 emission_strength += blackbody_intensity
             return {
                 'color': self.get_color_input(node, 'Color', [1.0, 1.0, 1.0]),
@@ -739,10 +740,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return b
             if b is None:
                 return a
+            total_density = float(a['density']) + float(b['density'])
+            anisotropy = 0.0
+            if total_density > 0.0:
+                anisotropy = (
+                    float(a['density']) * float(a['anisotropy']) +
+                    float(b['density']) * float(b['anisotropy'])
+                ) / total_density
             return {
                 'color': [max(0.0, min(1.0, a['color'][i] + b['color'][i])) for i in range(3)],
-                'density': float(a['density']) + float(b['density']),
-                'anisotropy': max(-0.99, min(0.99, 0.5 * (float(a['anisotropy']) + float(b['anisotropy'])))),
+                'density': total_density,
+                'anisotropy': max(-0.99, min(0.99, anisotropy)),
                 'emission_strength': float(a['emission_strength']) + float(b['emission_strength']),
                 'emission_color': [max(0.0, min(1.0, a['emission_color'][i] + b['emission_color'][i])) for i in range(3)],
             }
@@ -922,7 +930,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             if volume_spec is not None:
                 try:
                     bbox_points = [matrix @ mathutils.Vector(corner) for corner in obj.bound_box]
-                    center = sum(bbox_points, mathutils.Vector((0.0, 0.0, 0.0))) / max(1, len(bbox_points))
+                    center = sum(bbox_points, mathutils.Vector((0.0, 0.0, 0.0))) / len(bbox_points)
                     radius = max((p - center).length for p in bbox_points)
                     density = max(0.0, float(volume_spec.get('density', 0.0)))
                     if radius > 0.0 and density > 0.0:

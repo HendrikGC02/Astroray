@@ -1229,7 +1229,7 @@ public:
     const std::shared_ptr<EnvironmentMap>& getEnvironmentMap() const { return envMap; }
     const Vec3& getBackgroundColor() const { return backgroundColor; }
 
-void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)> progress = nullptr, bool adaptive = true) {
+void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false) {
         buildAcceleration();
         std::atomic<int> tilesCompleted{0};
         const int tileSize = 16;
@@ -1274,9 +1274,15 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         }
                         
                         color = color / float(samples);
-                        color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
-                        color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
-                        color.z = std::pow(std::clamp(color.z, 0.0f, 1.0f), 1.0f / 2.2f);
+                        if (applyGamma) {
+                            color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
+                            color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
+                            color.z = std::pow(std::clamp(color.z, 0.0f, 1.0f), 1.0f / 2.2f);
+                        } else {
+                            color.x = std::max(color.x, 0.0f);
+                            color.y = std::max(color.y, 0.0f);
+                            color.z = std::max(color.z, 0.0f);
+                        }
                         cam.pixels[idx] = color;
                         cam.albedoBuffer[idx] = albedo;
                         cam.normalBuffer[idx] = normal;

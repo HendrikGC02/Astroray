@@ -35,7 +35,7 @@ public:
     // Upload environment map (optional; call after uploadScene).
     void uploadEnvironmentMap(const EnvironmentMap& envMap);
 
-    // Render into a pre-sized pixel buffer (host memory, HxWx3 float, gamma-corrected).
+    // Render into a pre-sized pixel buffer (host memory, HxWx3 float, linear).
     void render(std::vector<Vec3>& pixels,
                 int width, int height,
                 int samplesPerPixel, int maxDepth);

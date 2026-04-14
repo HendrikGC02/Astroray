@@ -558,8 +558,11 @@ class SpotLightSphere : public Hittable {
     bool emissive;
 public:
     SpotLightSphere(const Vec3& c, float r, std::shared_ptr<Material> m, const Vec3& direction, float spotAngle, float spotSmooth)
-        : center(c), radius(std::max(r, 0.001f)), axis(direction.normalized()),
+        : center(c), radius(std::max(r, 0.001f)),
+          axis(direction.length2() > 1e-12f ? direction.normalized() : Vec3(0, -1, 0)),
           outerAngle(std::max(spotAngle * 0.5f, 1e-4f)),
+          // Blender/Cycles convention: spot_smooth=0 -> hard edge (inner=outer),
+          // spot_smooth=1 -> smooth falloff from axis to outer cone (inner=0).
           innerAngle(std::max((1.0f - std::clamp(spotSmooth, 0.0f, 1.0f)) * spotAngle * 0.5f, 0.0f)),
           material(m), emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {}
 

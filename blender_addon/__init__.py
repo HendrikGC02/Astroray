@@ -890,7 +890,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 renderer.add_sphere(position, size / 2, mat_id)
             elif light.type == 'SPOT':
                 direction = (matrix.to_3x3() @ mathutils.Vector((0, 0, -1))).normalized()
-                radius = float(max(getattr(light, 'shadow_soft_size', 0.0), 0.001))
+                radius = float(max(getattr(light, 'shadow_soft_size', 0.0), 0.0))
                 renderer.add_spot_light(
                     position,
                     [direction.x, direction.y, direction.z],

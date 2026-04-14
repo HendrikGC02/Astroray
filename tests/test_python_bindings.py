@@ -96,6 +96,7 @@ def _render_spot_on_plane(blend: float) -> np.ndarray:
     r = create_renderer()
     r.set_background_color([0.0, 0.0, 0.0])
     floor = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
+    # Visible spotlight setup: cone ~40deg (0.7 rad), small radius for soft shadows.
     light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 90.0})
     r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, -3.0], [3.0, 0.0, 3.0], floor)
     r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, 3.0], [-3.0, 0.0, 3.0], floor)

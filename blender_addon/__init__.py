@@ -235,6 +235,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def convert_scene(self, depsgraph, renderer, width, height):
         scene = depsgraph.scene
         renderer.clear()
+        cycles = getattr(scene, 'cycles', None)
+        exposure = float(getattr(cycles, 'film_exposure', 1.0)) if cycles else 1.0
+        renderer.set_film_exposure(exposure)
         self.setup_camera(scene, renderer, width, height)
         material_map = self.convert_materials(depsgraph, renderer)
         self.convert_objects(depsgraph, renderer, material_map)

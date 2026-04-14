@@ -109,6 +109,31 @@ def test_background_sky_present():
                        label='background_sky')
 
 
+def test_film_exposure_scales_final_pixels():
+    def render_mean(exposure=None):
+        r = create_renderer()
+        create_cornell_box(r)
+        mat = r.create_material('lambertian', [0.8, 0.3, 0.3], {})
+        r.add_sphere([0, -0.5, 0], 1.0, mat)
+        setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
+        if exposure is not None:
+            r.set_film_exposure(exposure)
+        pixels = render_image(r, samples=SAMPLES_FAST)
+        return float(np.mean(pixels))
+
+    mean_default = render_mean()
+    mean_exp_1 = render_mean(1.0)
+    mean_exp_2 = render_mean(2.0)
+    mean_exp_half = render_mean(0.5)
+
+    assert abs(mean_exp_1 - mean_default) < 0.03, \
+        f"Exposure=1.0 should match default output ({mean_exp_1:.3f} vs {mean_default:.3f})"
+    assert mean_exp_2 > mean_exp_1, \
+        f"Exposure=2.0 should be brighter ({mean_exp_2:.3f} <= {mean_exp_1:.3f})"
+    assert mean_exp_half < mean_exp_1, \
+        f"Exposure=0.5 should be darker ({mean_exp_half:.3f} >= {mean_exp_1:.3f})"
+
+
 # ---------------------------------------------------------------------------
 # Basic material renders with Cornell box lighting
 # ---------------------------------------------------------------------------

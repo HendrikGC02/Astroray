@@ -243,6 +243,10 @@ public:
     void setBackgroundColor(const std::vector<float>& color) {
         renderer.setBackgroundColor(Vec3(color[0], color[1], color[2]));
     }
+
+    void setFilmExposure(float exposure) {
+        renderer.setFilmExposure(exposure);
+    }
     
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none()) {
         if (!camera) throw std::runtime_error("Camera not set up");
@@ -364,6 +368,7 @@ PYBIND11_MODULE(astroray, m) {
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
              "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
+        .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
         .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a, "progress_callback"_a = py::none())
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)

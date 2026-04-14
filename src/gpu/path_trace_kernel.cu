@@ -342,6 +342,7 @@ __global__ void pathTraceKernel(
     const GLight*     lights, int numLights, float totalLightPower,
     GEnvMap envMap,
     GCameraParams cam,
+    float filmExposure,
     GVec3 backgroundColor, bool hasBackgroundColor,
     curandState* rngStates)
 {
@@ -379,6 +380,7 @@ __global__ void pathTraceKernel(
     }
 
     color /= (float)samplesPerPixel;
+    color *= filmExposure;
 
     // Gamma correction + clamp
     color.x = powf(fminf(fmaxf(color.x, 0.f), 1.f), 1.f/2.2f);
@@ -406,6 +408,7 @@ void launchPathTraceKernel(
     const GLight*     d_lights, int numLights, float totalLightPower,
     GEnvMap envMap,
     GCameraParams cam,
+    float filmExposure,
     GVec3 backgroundColor, bool hasBackgroundColor,
     curandState* d_rngStates)
 {
@@ -417,7 +420,7 @@ void launchPathTraceKernel(
         d_framebuffer, width, height, samplesPerPixel, maxDepth,
         d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
         d_lights, numLights, totalLightPower,
-        envMap, cam, backgroundColor, hasBackgroundColor,
+        envMap, cam, filmExposure, backgroundColor, hasBackgroundColor,
         d_rngStates);
 
     cudaError_t err = cudaGetLastError();

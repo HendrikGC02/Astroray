@@ -994,6 +994,127 @@ def test_textured_material_checkerboard():
     save_image(pixels, os.path.join(OUTPUT_DIR, 'test_textured_material.png'))
 
 
+def test_normal_map_adds_visible_surface_detail():
+    """A patterned normal map on a flat quad should increase local shading
+    variation compared to an unperturbed normal."""
+    def render_scene(use_normal_map):
+        r = create_renderer()
+        light = r.create_material('light', [1, 1, 1], {'intensity': 10.0})
+        r.add_sphere([0, 5, 0], 0.8, light)
+
+        params = {'roughness': 0.5, 'metallic': 0.0}
+        if use_normal_map:
+            tex_data = [
+                0.8, 0.2, 1.0,   0.2, 0.8, 1.0,
+                0.2, 0.2, 1.0,   0.8, 0.8, 1.0,
+            ]
+            r.load_texture("nm_detail", tex_data, 2, 2)
+            params['normal_map_texture'] = 'nm_detail'
+            params['normal_strength'] = 1.0
+        mat = r.create_material('disney', [0.7, 0.7, 0.7], params)
+
+        r.add_triangle([-2, -1, -2], [2, -1, -2], [2, -1, 2], mat,
+                       [0, 0], [1, 0], [1, 1])
+        r.add_triangle([-2, -1, -2], [2, -1, 2], [-2, -1, 2], mat,
+                       [0, 0], [1, 1], [0, 1])
+
+        setup_camera(r, look_from=[0, 3, 4], look_at=[0, -1, 0],
+                     vfov=55, width=W, height=H)
+        return render_image(r, samples=SAMPLES_FAST)
+
+    flat = render_scene(use_normal_map=False)
+    mapped = render_scene(use_normal_map=True)
+    assert_valid_image(flat, H, W, min_mean=0.01, label='normal_flat')
+    assert_valid_image(mapped, H, W, min_mean=0.01, label='normal_mapped')
+
+    crop = (slice(H // 4, 3 * H // 4), slice(W // 4, 3 * W // 4))
+    detail_delta = float(np.mean(np.abs(flat[crop] - mapped[crop])))
+    assert detail_delta > 0.002, (
+        f"Normal map produced too little visible change "
+        f"(mean abs delta={detail_delta:.4f})."
+    )
+    save_image(mapped, os.path.join(OUTPUT_DIR, 'test_normal_map_detail.png'))
+
+
+def test_normal_map_shifts_specular_highlights():
+    """A tangent-space normal perturbation should move/specifically reshape
+    specular response on a glossy surface."""
+    def render_scene(use_normal_map):
+        r = create_renderer()
+        light = r.create_material('light', [1, 1, 1], {'intensity': 12.0})
+        r.add_sphere([0.6, 4.0, 1.5], 0.7, light)
+
+        params = {'roughness': 0.06, 'metallic': 0.0}
+        if use_normal_map:
+            # Uniform +U tilt in tangent space.
+            r.load_texture("nm_tilt", [1.0, 0.5, 0.5], 1, 1)
+            params['normal_map_texture'] = 'nm_tilt'
+            params['normal_strength'] = 1.0
+        mat = r.create_material('disney', [0.85, 0.85, 0.85], params)
+
+        r.add_triangle([-2, -1, -2], [2, -1, -2], [2, -1, 2], mat,
+                       [0, 0], [1, 0], [1, 1])
+        r.add_triangle([-2, -1, -2], [2, -1, 2], [-2, -1, 2], mat,
+                       [0, 0], [1, 1], [0, 1])
+
+        setup_camera(r, look_from=[0, 3, 4], look_at=[0, -1, 0],
+                     vfov=55, width=W, height=H)
+        return render_image(r, samples=SAMPLES_MED)
+
+    flat = render_scene(use_normal_map=False)
+    tilted = render_scene(use_normal_map=True)
+    l_flat = np.mean(flat, axis=2)
+    l_tilt = np.mean(tilted, axis=2)
+
+    thresh_flat = np.percentile(l_flat, 99.2)
+    thresh_tilt = np.percentile(l_tilt, 99.2)
+    xf = np.where(l_flat >= thresh_flat)[1]
+    xt = np.where(l_tilt >= thresh_tilt)[1]
+    assert xf.size > 0 and xt.size > 0
+    centroid_shift = abs(float(np.mean(xt)) - float(np.mean(xf)))
+    image_delta = float(np.mean(np.abs(flat - tilted)))
+    assert centroid_shift > 0.1 or image_delta > 0.003, (
+        f"Specular response changed too little with normal map "
+        f"(centroid shift={centroid_shift:.3f}px, mean abs delta={image_delta:.4f})."
+    )
+    save_image(tilted, os.path.join(OUTPUT_DIR, 'test_normal_map_specular_shift.png'))
+
+
+def test_bump_strength_zero_matches_no_bump_output():
+    """Bump map strength=0 should match the no-bump baseline."""
+    def render_scene(with_bump_zero):
+        r = create_renderer()
+        light = r.create_material('light', [1, 1, 1], {'intensity': 10.0})
+        r.add_sphere([0, 5, 0], 0.8, light)
+
+        params = {'roughness': 0.3, 'metallic': 0.0}
+        if with_bump_zero:
+            bump_data = [
+                0.0, 0.0, 0.0,   1.0, 1.0, 1.0,
+                1.0, 1.0, 1.0,   0.0, 0.0, 0.0,
+            ]
+            r.load_texture("bump_checker", bump_data, 2, 2)
+            params['bump_map_texture'] = 'bump_checker'
+            params['bump_strength'] = 0.0
+            params['bump_distance'] = 0.02
+        mat = r.create_material('disney', [0.7, 0.7, 0.7], params)
+
+        r.add_triangle([-2, -1, -2], [2, -1, -2], [2, -1, 2], mat,
+                       [0, 0], [1, 0], [1, 1])
+        r.add_triangle([-2, -1, -2], [2, -1, 2], [-2, -1, 2], mat,
+                       [0, 0], [1, 1], [0, 1])
+
+        setup_camera(r, look_from=[0, 3, 4], look_at=[0, -1, 0],
+                     vfov=55, width=W, height=H)
+        return render_image(r, samples=SAMPLES_MED)
+
+    no_bump = render_scene(with_bump_zero=False)
+    bump_zero = render_scene(with_bump_zero=True)
+    mad = float(np.mean(np.abs(no_bump - bump_zero)))
+    assert mad < 0.04, f"Bump strength=0 diverges from baseline (MAD={mad:.4f})."
+    save_image(bump_zero, os.path.join(OUTPUT_DIR, 'test_bump_strength_zero.png'))
+
+
 # ---------------------------------------------------------------------------
 # Stand-alone entry-point for direct execution
 # ---------------------------------------------------------------------------

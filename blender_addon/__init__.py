@@ -420,6 +420,57 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     pass
         return list(default_color), None
 
+    def get_image_from_socket(self, socket):
+        """Resolve a directly linked Image Texture datablock from a socket."""
+        if not socket or not socket.is_linked:
+            return None
+        try:
+            src = socket.links[0].from_node
+        except (IndexError, AttributeError):
+            return None
+        if src.type == 'TEX_IMAGE' and src.image:
+            return src.image
+        return None
+
+    def get_normal_inputs(self, node):
+        """Extract normal-map / bump-map inputs wired into Principled Normal."""
+        result = {
+            'normal_image': None,
+            'normal_strength': 1.0,
+            'bump_image': None,
+            'bump_strength': 1.0,
+            'bump_distance': 0.01,
+        }
+        visited = set()
+
+        def walk_normal_chain(socket):
+            if not socket or not socket.is_linked:
+                return
+            try:
+                src = socket.links[0].from_node
+            except (IndexError, AttributeError):
+                return
+            key = id(src)
+            if key in visited:
+                return
+            visited.add(key)
+
+            if src.type == 'NORMAL_MAP':
+                result['normal_strength'] = self.get_float_input(src, 'Strength', 1.0)
+                result['normal_image'] = self.get_image_from_socket(src.inputs.get('Color'))
+                walk_normal_chain(src.inputs.get('Normal'))
+                return
+
+            if src.type == 'BUMP':
+                result['bump_strength'] = self.get_float_input(src, 'Strength', 1.0)
+                result['bump_distance'] = self.get_float_input(src, 'Distance', 0.01)
+                result['bump_image'] = self.get_image_from_socket(src.inputs.get('Height'))
+                walk_normal_chain(src.inputs.get('Normal'))
+                return
+
+        walk_normal_chain(node.inputs.get('Normal'))
+        return result
+
     def load_blender_image(self, bpy_image, renderer):
         """Load a Blender image datablock into the renderer's texture manager.
         Returns the texture name (string) on success, None on failure.
@@ -570,6 +621,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
             'subsurface':      subsurface,
         }
 
+        normal_inputs = self.get_normal_inputs(node)
+        if normal_inputs['normal_image'] is not None:
+            tex_name = self.load_blender_image(normal_inputs['normal_image'], renderer)
+            if tex_name:
+                params['normal_map_texture'] = tex_name
+                params['normal_strength'] = normal_inputs['normal_strength']
+        if normal_inputs['bump_image'] is not None:
+            tex_name = self.load_blender_image(normal_inputs['bump_image'], renderer)
+            if tex_name:
+                params['bump_map_texture'] = tex_name
+                params['bump_strength'] = normal_inputs['bump_strength']
+                params['bump_distance'] = normal_inputs['bump_distance']
+
         # If base color is textured, load it and route through the 'lambertian'
         # textured path (DisneyBRDF doesn't currently accept a texture, and the
         # TexturedLambertian gives correct base color sampling for most PBR
@@ -580,8 +644,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # Use textured lambertian (the only path that currently samples
                 # a texture on hit). TODO: extend DisneyBRDF with a base-color
                 # texture slot so we can keep metallic/roughness too.
+                lambert_params = {'texture': tex_name}
+                for key in ('normal_map_texture', 'normal_strength',
+                            'bump_map_texture', 'bump_strength', 'bump_distance'):
+                    if key in params:
+                        lambert_params[key] = params[key]
                 return renderer.create_material('lambertian', base_color,
-                                                {'texture': tex_name})
+                                                lambert_params)
 
         return renderer.create_material('disney', base_color, params)
     

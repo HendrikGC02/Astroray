@@ -107,6 +107,20 @@ public:
             }
             mat = std::make_shared<SubsurfaceMaterial>(color, scatter, getFloat("scale", 1));
         } else mat = std::make_shared<Lambertian>(color);
+
+        auto getTextureParam = [&](const char* key) -> std::shared_ptr<Texture> {
+            if (!params.contains(key)) return nullptr;
+            return textureManager.getTexture(params[key].cast<std::string>());
+        };
+        auto normalTex = getTextureParam("normal_map_texture");
+        auto bumpTex = getTextureParam("bump_map_texture");
+        if (normalTex || bumpTex) {
+            float normalStrength = getFloat("normal_strength", 1.0f);
+            float bumpStrength = getFloat("bump_strength", 1.0f);
+            float bumpDistance = getFloat("bump_distance", 0.01f);
+            mat = std::make_shared<NormalMappedMaterial>(mat, normalTex, bumpTex,
+                                                        normalStrength, bumpStrength, bumpDistance);
+        }
         
         int id = nextMaterialId++;
         materials[id] = mat;

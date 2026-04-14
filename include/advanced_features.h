@@ -106,6 +106,9 @@ public:
         
         Vec3 result = ((1 - metallic) * (1 - transmission) * diffuse + spec +
                       (1 - metallic) * Fsheen + clearcoatTerm) * NdotL;
+        float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness);
+        float msWeight = roughness * (2.0f - roughness);
+        result += F0 * (Fms * msWeight * 1.3f);
         
         // Clamp to prevent fireflies
         result.x = std::min(result.x, 10.0f);

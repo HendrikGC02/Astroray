@@ -160,6 +160,38 @@ def test_metal_render():
     assert_valid_image(pixels, H, W, min_mean=0.03, label='metal')
 
 
+def test_white_metal_roughness_one_not_dark():
+    """Regression: rough white metal should stay bright under furnace lighting."""
+    r = create_renderer()
+    r.set_background_color([1.0, 1.0, 1.0])  # uniform white emitter
+    mat = r.create_material('metal', [1.0, 1.0, 1.0], {'roughness': 1.0})
+    r.add_sphere([0, 0, 0], 1.0, mat)
+    setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], vfov=35, width=W, height=H)
+    pixels = render_image(r, samples=SAMPLES_MED)
+
+    crop = pixels[H // 2 - 20:H // 2 + 20, W // 2 - 20:W // 2 + 20, :]
+    mean_center = float(np.mean(crop))
+    assert mean_center > 0.85, f"Rough white metal center too dark in furnace test ({mean_center:.3f})"
+
+
+def test_metal_furnace_energy_above_threshold_all_roughness():
+    """Furnace test: white metal should preserve high energy for all roughness values."""
+    roughness_values = [0.1, 0.3, 0.6, 1.0]
+    for roughness in roughness_values:
+        r = create_renderer()
+        r.set_background_color([1.0, 1.0, 1.0])  # uniform white emitter
+        mat = r.create_material('metal', [1.0, 1.0, 1.0], {'roughness': roughness})
+        r.add_sphere([0, 0, 0], 1.0, mat)
+        setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], vfov=35, width=W, height=H)
+        pixels = render_image(r, samples=SAMPLES_MED)
+
+        crop = pixels[H // 2 - 20:H // 2 + 20, W // 2 - 20:W // 2 + 20, :]
+        mean_center = float(np.mean(crop))
+        assert mean_center > 0.85, (
+            f"Furnace energy too low for roughness={roughness:.2f}: center mean={mean_center:.3f}"
+        )
+
+
 def test_glass_render():
     r = create_renderer()
     create_cornell_box(r)

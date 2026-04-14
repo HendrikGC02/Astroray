@@ -612,10 +612,11 @@ def test_direct_and_indirect_clamp_controls():
         "clamp_indirect should reduce bright indirect-light outliers"
 
 
-def test_filter_glossy_blurs_secondary_glossy_paths():
-    def luminance_map(pixels: np.ndarray) -> np.ndarray:
-        return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
+def _luminance_map(pixels: np.ndarray) -> np.ndarray:
+    return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
 
+
+def test_filter_glossy_blurs_secondary_glossy_paths():
     def render(filter_glossy: float) -> np.ndarray:
         r = create_renderer()
         ground = r.create_material('lambertian', [0.75, 0.75, 0.75], {})
@@ -635,16 +636,13 @@ def test_filter_glossy_blurs_secondary_glossy_paths():
     assert_valid_image(base, 90, 120, label='filter_glossy_off')
     assert_valid_image(filtered, 90, 120, label='filter_glossy_on')
 
-    lum_base = luminance_map(base)[20:70, 35:85]
-    lum_filtered = luminance_map(filtered)[20:70, 35:85]
+    lum_base = _luminance_map(base)[20:70, 35:85]
+    lum_filtered = _luminance_map(filtered)[20:70, 35:85]
     assert float(np.percentile(lum_filtered, 95.0)) < float(np.percentile(lum_base, 95.0)) * 0.99, \
         "filter_glossy=1.0 should slightly blur secondary glossy reflections"
 
 
 def test_disable_reflective_caustics_reduces_mirror_caustic_outliers():
-    def luminance_map(pixels: np.ndarray) -> np.ndarray:
-        return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
-
     def render(use_reflective_caustics: bool) -> np.ndarray:
         r = create_renderer()
         create_cornell_box(r)
@@ -654,17 +652,14 @@ def test_disable_reflective_caustics_reduces_mirror_caustic_outliers():
         r.set_use_reflective_caustics(use_reflective_caustics)
         return render_image(r, samples=24, max_depth=10, apply_gamma=False)
 
-    enabled = luminance_map(render(True))
-    disabled = luminance_map(render(False))
+    enabled = _luminance_map(render(True))
+    disabled = _luminance_map(render(False))
     floor_roi = np.s_[55:88, 35:85]
     assert np.percentile(disabled[floor_roi], 99.0) < np.percentile(enabled[floor_roi], 99.0), \
         "Disabling reflective caustics should reduce bright mirror caustic pixels on diffuse surfaces"
 
 
 def test_disable_refractive_caustics_reduces_glass_caustic_outliers():
-    def luminance_map(pixels: np.ndarray) -> np.ndarray:
-        return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
-
     def render(use_refractive_caustics: bool) -> np.ndarray:
         r = create_renderer()
         create_cornell_box(r)
@@ -674,8 +669,8 @@ def test_disable_refractive_caustics_reduces_glass_caustic_outliers():
         r.set_use_refractive_caustics(use_refractive_caustics)
         return render_image(r, samples=24, max_depth=10, apply_gamma=False)
 
-    enabled = luminance_map(render(True))
-    disabled = luminance_map(render(False))
+    enabled = _luminance_map(render(True))
+    disabled = _luminance_map(render(False))
     floor_roi = np.s_[55:88, 35:85]
     assert np.percentile(disabled[floor_roi], 99.0) < np.percentile(enabled[floor_roi], 99.0), \
         "Disabling refractive caustics should reduce bright glass caustic pixels on diffuse surfaces"

@@ -1436,14 +1436,18 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
                 if (!useRefractiveCaustics && isRefractiveSpecular) break;
             }
 
-            float glossyBlur = std::clamp(filterGlossy * float(bounce), 0.0f, 1.0f);
-            if (glossyBlur > 0.0f && bounce > 0 &&
-                (isTransmission || isGlossyMaterial(rec.material.get()) || bs.isDelta)) {
+            float blurRoughness = std::clamp(filterGlossy * float(bounce), 0.0f, 1.0f);
+            bool shouldApplyGlossyBlur =
+                blurRoughness > 0.0f && bounce > 0 &&
+                (isTransmission || isGlossyMaterial(rec.material.get()) || bs.isDelta);
+            if (shouldApplyGlossyBlur) {
                 Vec3 axis = bs.wi.normalized();
                 if (axis.length2() > 1e-8f) {
                     Vec3 u, v;
                     buildOrthonormalBasis(axis, u, v);
-                    float cosTheta = 1.0f - glossyBlur * dist01(gen);
+                    // Roughness blur approximation: sample a cone around the specular
+                    // direction, widening with filter_glossy and bounce depth.
+                    float cosTheta = 1.0f - blurRoughness * dist01(gen);
                     float sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
                     float phi = 2.0f * M_PI * dist01(gen);
                     Vec3 candidate = (u * (std::cos(phi) * sinTheta) +

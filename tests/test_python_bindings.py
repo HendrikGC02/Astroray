@@ -109,6 +109,58 @@ def test_background_sky_present():
                        label='background_sky')
 
 
+def test_transparent_film_alpha_masks_background():
+    r = create_renderer()
+    r.set_use_transparent_film(True)
+    mat = r.create_material('lambertian', [0.8, 0.8, 0.8], {})
+    r.add_sphere([0, 0, 0], 1.0, mat)
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+    alpha = r.get_alpha_buffer()
+
+    assert alpha.shape == (H, W)
+    assert float(alpha[H // 2, W // 2]) > 0.8
+    assert float(alpha[5, 5]) < 0.1
+    assert float(alpha[5, W - 6]) < 0.1
+    assert float(alpha[H - 6, 5]) < 0.1
+    assert float(alpha[H - 6, W - 6]) < 0.1
+
+
+def test_transparent_film_default_alpha_is_opaque():
+    r = create_renderer()
+    mat = r.create_material('lambertian', [0.8, 0.8, 0.8], {})
+    r.add_sphere([0, 0, 0], 1.0, mat)
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+    alpha = r.get_alpha_buffer()
+
+    assert alpha.shape == (H, W)
+    assert float(np.min(alpha)) > 0.99
+
+
+def test_transparent_glass_keeps_rgb_but_zeroes_alpha():
+    r = create_renderer()
+    r.set_use_transparent_film(True)
+    glass = r.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.5})
+    r.add_sphere([0, 0, 0], 1.0, glass)
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+    alpha_default = r.get_alpha_buffer()
+
+    r = create_renderer()
+    r.set_use_transparent_film(True)
+    r.set_transparent_glass(True)
+    glass = r.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.5})
+    r.add_sphere([0, 0, 0], 1.0, glass)
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+    pixels = render_image(r, samples=SAMPLES_FAST)
+    alpha = r.get_alpha_buffer()
+
+    assert float(alpha_default[H // 2, W // 2]) > 0.8, "Glass should remain visible in alpha by default"
+    assert float(np.mean(pixels)) > 0.05, "RGB should still contain background/environment contribution"
+    assert float(alpha[H // 2, W // 2]) < 0.1, "Glass should be transparent in alpha when transparent_glass is enabled"
+
+
 def test_film_exposure_scales_final_pixels():
     def render_mean(exposure=None):
         r = create_renderer()

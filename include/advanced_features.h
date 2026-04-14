@@ -315,6 +315,77 @@ public:
     }
 };
 
+class NormalMappedMaterial : public Material {
+    std::shared_ptr<Material> baseMaterial;
+    std::shared_ptr<Texture> normalTexture;
+    std::shared_ptr<Texture> bumpTexture;
+    float normalStrength = 1.0f;
+    float bumpStrength = 1.0f;
+    float bumpDistance = 0.01f;
+
+    static float heightValue(const Vec3& c) {
+        return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
+    }
+
+    HitRecord perturbNormal(const HitRecord& rec) const {
+        HitRecord out = rec;
+        Vec3 n = rec.normal;
+
+        if (normalTexture) {
+            Vec3 rgb = normalTexture->value(rec.uv, rec.point);
+            Vec3 nTS = (rgb * 2.0f) - Vec3(1.0f);
+            Vec3 mapped = (rec.tangent * nTS.x + rec.bitangent * nTS.y + rec.normal * nTS.z).normalized();
+            float t = std::clamp(normalStrength, 0.0f, 1.0f);
+            n = (rec.normal * (1.0f - t) + mapped * t).normalized();
+        }
+
+        if (bumpTexture) {
+            float eps = std::max(1e-4f, bumpDistance);
+            float h0 = heightValue(bumpTexture->value(rec.uv, rec.point));
+            float hU = heightValue(bumpTexture->value(Vec2(rec.uv.u + eps, rec.uv.v), rec.point));
+            float hV = heightValue(bumpTexture->value(Vec2(rec.uv.u, rec.uv.v + eps), rec.point));
+            float dU = (hU - h0) / eps;
+            float dV = (hV - h0) / eps;
+            Vec3 dp = rec.tangent * dU + rec.bitangent * dV;
+            n = (n - dp * bumpStrength).normalized();
+        }
+
+        out.normal = n;
+        buildOrthonormalBasis(out.normal, out.tangent, out.bitangent);
+        return out;
+    }
+
+public:
+    NormalMappedMaterial(std::shared_ptr<Material> base,
+                         std::shared_ptr<Texture> normalTex,
+                         std::shared_ptr<Texture> bumpTex,
+                         float normalStr,
+                         float bumpStr,
+                         float bumpDist)
+        : baseMaterial(std::move(base)),
+          normalTexture(std::move(normalTex)),
+          bumpTexture(std::move(bumpTex)),
+          normalStrength(normalStr),
+          bumpStrength(bumpStr),
+          bumpDistance(bumpDist) {}
+
+    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+        HitRecord pr = perturbNormal(rec);
+        return baseMaterial->eval(pr, wo, wi);
+    }
+
+    BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
+        HitRecord pr = perturbNormal(rec);
+        return baseMaterial->sample(pr, wo, gen);
+    }
+
+    float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+        HitRecord pr = perturbNormal(rec);
+        return baseMaterial->pdf(pr, wo, wi);
+    }
+
+};
+
 // ============================================================================
 // SUBSURFACE SCATTERING (Fixed - scattering, not emissive)
 // ============================================================================

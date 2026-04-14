@@ -574,6 +574,44 @@ def test_adaptive_sampling_flag():
     assert_valid_image(px_fixed, H, W, min_mean=0.02, label='fixed')
 
 
+def test_direct_and_indirect_clamp_controls():
+    """Direct/indirect clamp settings should reduce bright outliers when enabled."""
+    def luminance_map(pixels: np.ndarray) -> np.ndarray:
+        return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
+
+    def render_direct(clamp_direct: float) -> np.ndarray:
+        r = create_renderer()
+        diffuse = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
+        light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 400.0})
+        r.add_sphere([0.0, 0.0, 0.0], 1.0, diffuse)
+        r.add_triangle([-0.8, 2.0, -0.8], [0.8, 2.0, -0.8], [0.8, 2.0, 0.8], light)
+        r.add_triangle([-0.8, 2.0, -0.8], [0.8, 2.0, 0.8], [-0.8, 2.0, 0.8], light)
+        setup_camera(r, look_from=[0, 0.2, 4.5], look_at=[0, 0, 0], vfov=38, width=120, height=90)
+        r.set_clamp_direct(clamp_direct)
+        r.set_clamp_indirect(0.0)
+        return render_image(r, samples=24, max_depth=6, apply_gamma=False)
+
+    def render_indirect(clamp_indirect: float) -> np.ndarray:
+        r = create_renderer()
+        create_cornell_box(r)
+        glass = r.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.5})
+        r.add_sphere([0, -0.6, 0], 1.0, glass)
+        setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=120, height=90)
+        r.set_clamp_direct(0.0)
+        r.set_clamp_indirect(clamp_indirect)
+        return render_image(r, samples=24, max_depth=10, apply_gamma=False)
+
+    direct_unclamped = luminance_map(render_direct(0.0))
+    direct_clamped = luminance_map(render_direct(1.0))
+    assert np.percentile(direct_clamped, 99.5) < np.percentile(direct_unclamped, 99.5), \
+        "clamp_direct=1.0 should reduce bright direct-light outliers"
+
+    indirect_unclamped = luminance_map(render_indirect(0.0))
+    indirect_clamped = luminance_map(render_indirect(0.5))
+    assert np.percentile(indirect_clamped, 99.5) < np.percentile(indirect_unclamped, 99.5), \
+        "clamp_indirect should reduce bright indirect-light outliers"
+
+
 # ---------------------------------------------------------------------------
 # Metallic vs diffuse: renders must differ
 # ---------------------------------------------------------------------------

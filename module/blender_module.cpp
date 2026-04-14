@@ -262,6 +262,14 @@ public:
         renderer.setFilmExposure(exposure);
     }
 
+    void setClampDirect(float value) {
+        renderer.setClampDirect(value);
+    }
+
+    void setClampIndirect(float value) {
+        renderer.setClampIndirect(value);
+    }
+
     void setUseTransparentFilm(bool use) {
         renderer.setUseTransparentFilm(use);
     }
@@ -413,8 +421,10 @@ PYBIND11_MODULE(astroray, m) {
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,
              "aspect_ratio"_a, "aperture"_a, "focus_dist"_a, "width"_a, "height"_a)
         .def("set_adaptive_sampling", &PyRenderer::setAdaptiveSampling, "enable"_a)
+        .def("set_clamp_direct", &PyRenderer::setClampDirect, "value"_a)
+        .def("set_clamp_indirect", &PyRenderer::setClampIndirect, "value"_a)
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
-             "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
+              "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
         .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
         .def("set_use_transparent_film", &PyRenderer::setUseTransparentFilm, "use"_a)

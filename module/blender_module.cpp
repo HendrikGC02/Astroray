@@ -247,6 +247,14 @@ public:
     void setFilmExposure(float exposure) {
         renderer.setFilmExposure(exposure);
     }
+
+    void setUseTransparentFilm(bool use) {
+        renderer.setUseTransparentFilm(use);
+    }
+
+    void setTransparentGlass(bool use) {
+        renderer.setTransparentGlass(use);
+    }
     
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true) {
         if (!camera) throw std::runtime_error("Camera not set up");
@@ -336,6 +344,22 @@ public:
         }
         return result;
     }
+
+    py::array_t<float> getAlphaBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        py::ssize_t shape[2] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width)};
+        auto result = py::array_t<float>(shape);
+        {
+            py::buffer_info buf = result.request();
+            float* ptr = static_cast<float*>(buf.ptr);
+            size_t size = camera->alphaBuffer.size();
+            for (size_t i = 0; i < size; i++) {
+                ptr[i] = camera->alphaBuffer[i];
+            }
+        }
+        return result;
+    }
     
     void clear() {
         renderer = Renderer();
@@ -375,10 +399,14 @@ PYBIND11_MODULE(astroray, m) {
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
              "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
+        .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
+        .def("set_use_transparent_film", &PyRenderer::setUseTransparentFilm, "use"_a)
+        .def("set_transparent_glass", &PyRenderer::setTransparentGlass, "use"_a)
         .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a,
              "progress_callback"_a = py::none(), "apply_gamma"_a = true)
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)
+        .def("get_alpha_buffer", &PyRenderer::getAlphaBuffer)
         .def("clear", &PyRenderer::clear)
         .def("get_width", &PyRenderer::getWidth)
         .def("get_height", &PyRenderer::getHeight)

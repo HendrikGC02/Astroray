@@ -994,6 +994,7 @@ class Camera {
 public:
     int width, height;
     std::vector<Vec3> pixels, albedoBuffer, normalBuffer;
+    std::vector<float> alphaBuffer;
 
     Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio, float aperture, float focusDist, int w, int h)
         : width(w), height(h) {
@@ -1011,6 +1012,7 @@ public:
         pixels.resize(width * height, Vec3(0));
         albedoBuffer.resize(width * height, Vec3(0));
         normalBuffer.resize(width * height, Vec3(0));
+        alphaBuffer.resize(width * height, 1.0f);
     }
     
     Ray getRay(float s, float t, std::mt19937& gen) const {
@@ -1040,17 +1042,23 @@ class Renderer {
     std::shared_ptr<EnvironmentMap> envMap;
     Vec3 backgroundColor = Vec3(-1);  // negative = use default sky gradient
     float filmExposure = 1.0f;
+    bool useTransparentFilm = false;
+    bool transparentGlass = false;
     
 public:
     void setEnvironmentMap(std::shared_ptr<EnvironmentMap> map) { envMap = map; }
     void setBackgroundColor(const Vec3& color) { backgroundColor = color; }
     void setFilmExposure(float exposure) { filmExposure = exposure; }
+    void setUseTransparentFilm(bool use) { useTransparentFilm = use; }
+    void setTransparentGlass(bool use) { transparentGlass = use; }
     
     void clear() {
         scene.clear(); bvh.reset(); lights = LightList();
         envMap.reset();
         backgroundColor = Vec3(-1);
         filmExposure = 1.0f;
+        useTransparentFilm = false;
+        transparentGlass = false;
     }
     
     float powerHeuristic(float a, float b) const {
@@ -1137,11 +1145,12 @@ public:
     }
     
 Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
-                   Vec3* albOut = nullptr, Vec3* normOut = nullptr) {
+                   Vec3* albOut = nullptr, Vec3* normOut = nullptr, float* alphaOut = nullptr) {
         const int rrDepth = 3;
         Vec3 color(0), throughput(1);
         Ray ray = r;
         bool wasSpecular = true;
+        bool alphaCovered = !useTransparentFilm;
 
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             HitRecord rec;
@@ -1158,11 +1167,13 @@ Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
                 if (bounce == 0 || wasSpecular) {
                     color += throughput * envColor;
                 }
+                if (alphaOut) *alphaOut = alphaCovered ? 1.0f : 0.0f;
                 break;
             }
 
             // --- GR dispatch via virtual call (no RTTI needed) ---
             if (rec.hitObject && rec.hitObject->isGRObject()) {
+                alphaCovered = true;
                 auto grResult = rec.hitObject->traceGR(ray, gen);
 
                 if (bounce == 0 && normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
@@ -1190,6 +1201,11 @@ Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
 
             // --- Normal path tracing ---
             if (!rec.material) break;  // safety guard
+            bool countsForAlpha = true;
+            if (transparentGlass && dynamic_cast<const Dielectric*>(rec.material.get()) != nullptr) {
+                countsForAlpha = false;
+            }
+            if (countsForAlpha) alphaCovered = true;
             if (bounce == 0) {
                 if (albOut) { if (auto l = dynamic_cast<Lambertian*>(rec.material.get())) *albOut = l->getAlbedo(); else *albOut = Vec3(0.5f); }
                 if (normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
@@ -1214,6 +1230,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
             float maxC = throughput.maxComponent();
             if (maxC > 10.0f) throughput *= 10.0f / maxC;
         }
+        if (alphaOut) *alphaOut = alphaCovered ? 1.0f : 0.0f;
         return color;
     }
     
@@ -1232,6 +1249,8 @@ public:
     const std::shared_ptr<EnvironmentMap>& getEnvironmentMap() const { return envMap; }
     const Vec3& getBackgroundColor() const { return backgroundColor; }
     float getFilmExposure() const { return filmExposure; }
+    bool getUseTransparentFilm() const { return useTransparentFilm; }
+    bool getTransparentGlass() const { return transparentGlass; }
 
 void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false) {
         buildAcceleration();
@@ -1253,6 +1272,7 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                     for (int x = x0; x < x1; ++x) {
                         int idx = y * cam.width + x;
                         Vec3 color(0), albedo(0), normal(0);
+                        float alpha = 0.0f;
                         float sumL = 0, sumL2 = 0;
                         int samples = 0;
                         
@@ -1260,12 +1280,14 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                             float u = (x + dist(gen)) / (cam.width - 1);
                             float v = 1.0f - (y + dist(gen)) / (cam.height - 1);
                             Vec3 sAlb, sNorm;
-                            Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr);
+                            float sAlpha = 1.0f;
+                            Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha);
                             // Per-sample contribution clamp: prevents a single caustic spike from
                             // dominating a pixel when sample count is low (firefly suppression)
                             float sLum = luminance(sCol);
                             if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
                             color += sCol;
+                            alpha += sAlpha;
                             samples++;
                             if (s == 0) { albedo = sAlb; normal = sNorm; }
                             if (adaptive && s >= 16 && (s + 1) % 8 == 0) {
@@ -1278,6 +1300,7 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         }
                         
                         color = color / float(samples);
+                        alpha = alpha / float(samples);
                         if (applyGamma) {
                             color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
                             color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
@@ -1290,6 +1313,7 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         cam.pixels[idx] = color;
                         cam.albedoBuffer[idx] = albedo;
                         cam.normalBuffer[idx] = normal;
+                        cam.alphaBuffer[idx] = std::clamp(alpha, 0.0f, 1.0f);
                     }
                 }
                 

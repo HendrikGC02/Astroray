@@ -111,7 +111,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
             pixels = renderer.render(settings.samples, settings.max_bounces, progress_callback, False)
             print(f"Render completed in {time.time() - start_time:.2f}s")
             
-            if pixels is not None: self.write_pixels(pixels, width, height)
+            if pixels is not None:
+                alpha = None
+                try:
+                    alpha = renderer.get_alpha_buffer()
+                except Exception:
+                    alpha = None
+                self.write_pixels(pixels, width, height, alpha)
         except Exception as e:
             print(f"RENDER ERROR: {e}")
             traceback.print_exc()
@@ -236,8 +242,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         scene = depsgraph.scene
         renderer.clear()
         cycles = getattr(scene, 'cycles', None)
+        render_settings = getattr(scene, 'render', None)
         exposure = float(getattr(cycles, 'film_exposure', 1.0)) if cycles else 1.0
         renderer.set_film_exposure(exposure)
+        use_transparent_film = bool(getattr(render_settings, 'film_transparent', False)) if render_settings else False
+        transparent_glass = bool(getattr(cycles, 'film_transparent_glass', False)) if cycles else False
+        renderer.set_use_transparent_film(use_transparent_film)
+        renderer.set_transparent_glass(transparent_glass)
         self.setup_camera(scene, renderer, width, height)
         material_map = self.convert_materials(depsgraph, renderer)
         self.convert_objects(depsgraph, renderer, material_map)
@@ -751,13 +762,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.set_background_color(scaled_color)
             print(f"Set background color: {scaled_color}")
     
-    def write_pixels(self, pixels, width, height):
+    def write_pixels(self, pixels, width, height, alpha=None):
         # The raytracer returns pixels with y=0 at the TOP of the image (standard
         # image convention). Blender's render_pass.rect expects y=0 at the BOTTOM,
         # so we flip vertically before handing it off — otherwise the output ends
         # up mirrored across the horizontal axis (upside-down).
         rgba = np.ones((height, width, 4), dtype=np.float32)
         rgba[:, :, :3] = pixels
+        if alpha is not None:
+            alpha_arr = np.asarray(alpha, dtype=np.float32)
+            if alpha_arr.shape == (height, width):
+                rgba[:, :, 3] = np.clip(alpha_arr, 0.0, 1.0)
         rgba = np.ascontiguousarray(rgba[::-1])
 
         result = self.begin_result(0, 0, width, height)

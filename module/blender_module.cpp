@@ -107,6 +107,20 @@ public:
             }
             mat = std::make_shared<SubsurfaceMaterial>(color, scatter, getFloat("scale", 1));
         } else mat = std::make_shared<Lambertian>(color);
+
+        auto getTextureParam = [&](const char* key) -> std::shared_ptr<Texture> {
+            if (!params.contains(key)) return nullptr;
+            return textureManager.getTexture(params[key].cast<std::string>());
+        };
+        auto normalTex = getTextureParam("normal_map_texture");
+        auto bumpTex = getTextureParam("bump_map_texture");
+        if (normalTex || bumpTex) {
+            float normalStrength = getFloat("normal_strength", 1.0f);
+            float bumpStrength = getFloat("bump_strength", 1.0f);
+            float bumpDistance = getFloat("bump_distance", 0.01f);
+            mat = std::make_shared<NormalMappedMaterial>(mat, normalTex, bumpTex,
+                                                        normalStrength, bumpStrength, bumpDistance);
+        }
         
         int id = nextMaterialId++;
         materials[id] = mat;
@@ -247,6 +261,14 @@ public:
     void setFilmExposure(float exposure) {
         renderer.setFilmExposure(exposure);
     }
+
+    void setUseTransparentFilm(bool use) {
+        renderer.setUseTransparentFilm(use);
+    }
+
+    void setTransparentGlass(bool use) {
+        renderer.setTransparentGlass(use);
+    }
     
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true,
                               int diffuseBounces = -1, int glossyBounces = -1, int transmissionBounces = -1,
@@ -339,6 +361,22 @@ public:
         }
         return result;
     }
+
+    py::array_t<float> getAlphaBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        py::ssize_t shape[2] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width)};
+        auto result = py::array_t<float>(shape);
+        {
+            py::buffer_info buf = result.request();
+            float* ptr = static_cast<float*>(buf.ptr);
+            size_t size = camera->alphaBuffer.size();
+            for (size_t i = 0; i < size; i++) {
+                ptr[i] = camera->alphaBuffer[i];
+            }
+        }
+        return result;
+    }
     
     void clear() {
         renderer = Renderer();
@@ -379,12 +417,15 @@ PYBIND11_MODULE(astroray, m) {
              "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
         .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
+        .def("set_use_transparent_film", &PyRenderer::setUseTransparentFilm, "use"_a)
+        .def("set_transparent_glass", &PyRenderer::setTransparentGlass, "use"_a)
         .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a,
              "progress_callback"_a = py::none(), "apply_gamma"_a = true,
              "diffuse_bounces"_a = -1, "glossy_bounces"_a = -1, "transmission_bounces"_a = -1,
              "volume_bounces"_a = -1, "transparent_bounces"_a = -1)
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)
+        .def("get_alpha_buffer", &PyRenderer::getAlphaBuffer)
         .def("clear", &PyRenderer::clear)
         .def("get_width", &PyRenderer::getWidth)
         .def("get_height", &PyRenderer::getHeight)

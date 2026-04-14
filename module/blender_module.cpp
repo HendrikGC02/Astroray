@@ -278,7 +278,9 @@ public:
         renderer.setTransparentGlass(use);
     }
     
-    py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true) {
+    py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true,
+                              int diffuseBounces = -1, int glossyBounces = -1, int transmissionBounces = -1,
+                              int volumeBounces = -1, int transparentBounces = -1) {
         if (!camera) throw std::runtime_error("Camera not set up");
 
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -302,7 +304,8 @@ public:
                     progressCallback(progress);
                 };
             }
-            renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false);
+            renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false,
+                            diffuseBounces, glossyBounces, transmissionBounces, volumeBounces, transparentBounces);
         }
 
         // Package pixels into numpy array (height, width, 3)
@@ -427,7 +430,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_use_transparent_film", &PyRenderer::setUseTransparentFilm, "use"_a)
         .def("set_transparent_glass", &PyRenderer::setTransparentGlass, "use"_a)
         .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a,
-              "progress_callback"_a = py::none(), "apply_gamma"_a = true)
+             "progress_callback"_a = py::none(), "apply_gamma"_a = true,
+             "diffuse_bounces"_a = -1, "glossy_bounces"_a = -1, "transmission_bounces"_a = -1,
+             "volume_bounces"_a = -1, "transparent_bounces"_a = -1)
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)
         .def("get_alpha_buffer", &PyRenderer::getAlphaBuffer)

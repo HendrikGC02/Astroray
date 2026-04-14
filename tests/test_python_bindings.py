@@ -270,8 +270,6 @@ def test_metal_furnace_energy_above_threshold_all_roughness():
         assert mean_center > 0.85, (
             f"Furnace energy too low for roughness={roughness:.2f}: center mean={mean_center:.3f}"
         )
-
-
 def test_glass_render():
     r = create_renderer()
     create_cornell_box(r)
@@ -280,6 +278,56 @@ def test_glass_render():
     setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
     pixels = render_image(r, samples=SAMPLES_FAST)
     assert_valid_image(pixels, H, W, min_mean=0.03, label='glass')
+
+
+def test_glossy_bounces_zero_reduces_specular_reflections():
+    def render(glossy_bounces: int) -> np.ndarray:
+        r = create_renderer()
+        create_cornell_box(r)
+        mat = r.create_material('metal', [0.95, 0.95, 0.95], {'roughness': 0.02})
+        r.add_sphere([0, -0.5, 0], 1.0, mat)
+        setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
+        return r.render(SAMPLES_MED, 8, None, True, -1, glossy_bounces, -1, -1, -1)
+
+    glossy = render(8)
+    no_glossy = render(0)
+    assert_valid_image(glossy, H, W, label='glossy_enabled')
+    assert_valid_image(no_glossy, H, W, label='glossy_disabled')
+    ch, cw = H // 2, W // 2
+    center = np.s_[ch - 35:ch + 35, cw - 35:cw + 35, :]
+    assert float(np.mean(no_glossy[center])) < float(np.mean(glossy[center])) * 0.55
+
+
+def test_transmission_bounces_zero_makes_glass_darker():
+    def render(transmission_bounces: int) -> np.ndarray:
+        r = create_renderer()
+        mat = r.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.5})
+        r.add_sphere([0, 0, 0], 1.0, mat)
+        setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+        return r.render(SAMPLES_MED, 8, None, True, -1, -1, transmission_bounces, -1, -1)
+
+    with_transmission = render(8)
+    no_transmission = render(0)
+    assert_valid_image(with_transmission, H, W, label='transmission_enabled')
+    assert_valid_image(no_transmission, H, W, label='transmission_disabled')
+
+    ch, cw = H // 2, W // 2
+    center = np.s_[ch - 20:ch + 20, cw - 20:cw + 20, :]
+    assert float(np.mean(no_transmission[center])) < float(np.mean(with_transmission[center])) * 0.75
+
+
+def test_total_max_depth_still_caps_all_paths():
+    r = create_renderer()
+    create_cornell_box(r)
+    mat = r.create_material('metal', [0.95, 0.95, 0.95], {'roughness': 0.02})
+    r.add_sphere([0, -0.5, 0], 1.0, mat)
+    setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
+
+    depth0 = r.render(SAMPLES_MED, 0, None, True, -1, 8, -1, -1, -1)
+    depth8 = r.render(SAMPLES_MED, 8, None, True, -1, 8, -1, -1, -1)
+    assert_valid_image(depth8, H, W, label='depth8')
+    assert float(np.mean(depth0)) < 0.01
+    assert float(np.mean(depth8)) > float(np.mean(depth0)) + 0.1
 
 
 def test_disney_brdf_render():

@@ -1196,6 +1196,30 @@ public:
         return 0.5f;
     }
 
+    struct PathBounceLimits {
+        int diffuse;
+        int glossy;
+        int transmission;
+        int volume;
+        int transparent;
+    };
+
+    static int resolveBounceLimit(int limit, int maxDepth) {
+        return limit < 0 ? maxDepth : limit;
+    }
+
+    static bool isTransmissionMaterial(const Material* material) {
+        if (!material) return false;
+        if (dynamic_cast<const Dielectric*>(material)) return true;
+        return false;
+    }
+
+    static bool isGlossyMaterial(const Material* material) {
+        if (!material) return false;
+        if (dynamic_cast<const Metal*>(material)) return true;
+        return false;
+    }
+
     Vec3 sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
         bool hasEnv = (envMap && envMap->loaded()) || (backgroundColor.x >= 0.0f);
         if ((lights.empty() && !hasEnv) || rec.isDelta) return Vec3(0);
@@ -1285,12 +1309,17 @@ public:
         return clampLuminance(direct, clampDirect);
     }
     
-Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
+Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits, std::mt19937& gen,
                    Vec3* albOut = nullptr, Vec3* normOut = nullptr, float* alphaOut = nullptr) {
         const int rrDepth = 3;
         Vec3 color(0), throughput(1);
         Ray ray = r;
         bool wasSpecular = true;
+        int diffuseBounces = 0;
+        int glossyBounces = 0;
+        int transmissionBounces = 0;
+        int volumeBounces = 0;
+        int transparentBounces = 0;
         bool alphaCovered = !useTransparentFilm;
 
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
@@ -1355,6 +1384,10 @@ Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
                 if (albOut) { if (auto l = dynamic_cast<Lambertian*>(rec.material.get())) *albOut = l->getAlbedo(); else *albOut = Vec3(0.5f); }
                 if (normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
             }
+            if (isTransmissionMaterial(rec.material.get()) && transmissionBounces >= bounceLimits.transmission) break;
+            if (isGlossyMaterial(rec.material.get()) && glossyBounces >= bounceLimits.glossy) break;
+            if (!isTransmissionMaterial(rec.material.get()) && !isGlossyMaterial(rec.material.get()) &&
+                diffuseBounces >= bounceLimits.diffuse) break;
             Vec3 emitted = rec.material->emitted(rec);
             if (emitted != Vec3(0)) {
                 if (bounce == 0 || wasSpecular) {
@@ -1373,6 +1406,17 @@ Vec3 pathTrace(const Ray& r, int maxDepth, std::mt19937& gen,
             Vec3 wo = -ray.direction.normalized();
             BSDFSample bs = rec.material->sample(rec, wo, gen);
             if (bs.pdf <= 0) break;
+            if (isTransmissionMaterial(rec.material.get())) {
+                transmissionBounces++;
+                if (transmissionBounces > bounceLimits.transmission) break;
+            } else if (bs.isDelta || isGlossyMaterial(rec.material.get())) {
+                glossyBounces++;
+                if (glossyBounces > bounceLimits.glossy) break;
+            } else {
+                diffuseBounces++;
+                if (diffuseBounces > bounceLimits.diffuse) break;
+            }
+            if (volumeBounces > bounceLimits.volume || transparentBounces > bounceLimits.transparent) break;
             wasSpecular = bs.isDelta;
             throughput *= bs.f / (bs.pdf + 0.001f);
             ray = Ray(rec.point, bs.wi, ray.time);
@@ -1401,8 +1445,17 @@ public:
     bool getUseTransparentFilm() const { return useTransparentFilm; }
     bool getTransparentGlass() const { return transparentGlass; }
 
-void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false) {
+void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false,
+            int maxDiffuseBounces = -1, int maxGlossyBounces = -1, int maxTransmissionBounces = -1,
+            int maxVolumeBounces = -1, int maxTransparentBounces = -1) {
         buildAcceleration();
+        PathBounceLimits bounceLimits{
+            resolveBounceLimit(maxDiffuseBounces, maxDepth),
+            resolveBounceLimit(maxGlossyBounces, maxDepth),
+            resolveBounceLimit(maxTransmissionBounces, maxDepth),
+            resolveBounceLimit(maxVolumeBounces, maxDepth),
+            resolveBounceLimit(maxTransparentBounces, maxDepth)
+        };
         std::atomic<int> tilesCompleted{0};
         const int tileSize = 16;
         int tilesX = (cam.width + tileSize - 1) / tileSize;
@@ -1430,7 +1483,7 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                             float v = 1.0f - (y + dist(gen)) / (cam.height - 1);
                             Vec3 sAlb, sNorm;
                             float sAlpha = 1.0f;
-                            Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha);
+                            Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, bounceLimits, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha);
                             // Per-sample contribution clamp: prevents a single caustic spike from
                             // dominating a pixel when sample count is low (firefly suppression)
                             float sLum = luminance(sCol);

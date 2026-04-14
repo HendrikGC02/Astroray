@@ -478,6 +478,7 @@ public:
     virtual float pdfValue(const Vec3& origin, const Vec3& direction) const { return 0; }
     virtual Vec3 random(const Vec3& origin, std::mt19937& gen) const { return Vec3(0, 1, 0); }
     virtual bool isLight() const { return false; }
+    virtual bool isInfiniteLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }
     virtual float directionFalloff(const Vec3& /*directionFromLight*/) const { return 1.0f; }
     virtual Vec3 emittedRadiance(const Vec3& /*lightNormal*/, const Vec3& /*toPointDir*/) const { return emittedRadiance(); }
@@ -547,6 +548,75 @@ public:
     Vec3  getCenter()   const { return center; }
     float getRadius()   const { return radius; }
     const std::shared_ptr<Material>& getMaterial() const { return material; }
+};
+
+class DistantLight : public Hittable {
+    Vec3 direction;
+    Vec3 toLightDir;
+    float angularDiameter;
+    float cosThetaMax;
+    std::shared_ptr<Material> material;
+    static constexpr float kDistantT = 1e8f;
+
+    void updateCone() {
+        float halfAngle = std::max(0.0f, angularDiameter * 0.5f);
+        cosThetaMax = (halfAngle <= 0.0f) ? (1.0f - 1e-3f) : std::cos(halfAngle);
+    }
+
+public:
+    DistantLight(const Vec3& dir, float angle, std::shared_ptr<Material> m)
+        : direction(dir.normalized()),
+          toLightDir((-dir).normalized()),
+          angularDiameter(std::max(0.0f, angle)),
+          cosThetaMax(1.0f),
+          material(m) {
+        updateCone();
+    }
+
+    bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
+        Vec3 rayDir = r.direction.normalized();
+        if (rayDir.dot(toLightDir) < cosThetaMax) return false;
+        const float t = kDistantT;
+        if (t < tMin || t > tMax) return false;
+        rec.t = t;
+        rec.point = r.at(t);
+        rec.setFaceNormal(r, direction);
+        rec.material = material;
+        rec.uv = Vec2(0.0f, 0.0f);
+        return true;
+    }
+
+    bool boundingBox(AABB& box) const override {
+        constexpr float kWorld = 1e6f;
+        box = AABB(Vec3(-kWorld), Vec3(kWorld));
+        return true;
+    }
+
+    float pdfValue(const Vec3& /*origin*/, const Vec3& sampleDir) const override {
+        Vec3 d = sampleDir.normalized();
+        float cosTheta = d.dot(toLightDir);
+        if (angularDiameter <= 0.0f) return cosTheta > (1.0f - 1e-3f) ? 1.0f : 0.0f;
+        return cosTheta >= cosThetaMax ? 1.0f : 0.0f;
+    }
+
+    Vec3 random(const Vec3& /*origin*/, std::mt19937& gen) const override {
+        if (angularDiameter <= 0.0f) return toLightDir;
+        static thread_local std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+        float z = 1.0f + dist(gen) * (cosThetaMax - 1.0f);
+        float phi = 2.0f * M_PI * dist(gen);
+        float sinTheta = std::sqrt(std::max(0.0f, 1.0f - z * z));
+        Vec3 u, v;
+        buildOrthonormalBasis(toLightDir, u, v);
+        return (u * std::cos(phi) * sinTheta + v * std::sin(phi) * sinTheta + toLightDir * z).normalized();
+    }
+
+    bool isLight() const override { return true; }
+    bool isInfiniteLight() const override { return true; }
+    Vec3 emittedRadiance() const override {
+        HitRecord rec;
+        rec.frontFace = true;
+        return material ? material->emitted(rec) : Vec3(0);
+    }
 };
 
 class SpotLightSphere : public Hittable {
@@ -997,8 +1067,10 @@ public:
     void add(std::shared_ptr<Hittable> l) {
         lights.push_back(l);
         float power = luminance(l->emittedRadiance());
-        AABB b; l->boundingBox(b);
-        power *= b.area();
+        if (!l->isInfiniteLight()) {
+            AABB b; l->boundingBox(b);
+            power *= b.area();
+        }
         totalPower += power;
         powerDist.push_back(totalPower);
     }

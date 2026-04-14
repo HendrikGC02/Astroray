@@ -599,18 +599,18 @@ private:
 
 public:
     AreaLightShape(const Vec3& c, const Vec3& u, const Vec3& v,
-                   float sizeU, float sizeV, Shape s, float spreadValue,
+                   float fullSizeU, float fullSizeV, Shape s, float spreadValue,
                    std::shared_ptr<Material> m)
-        : center(c), halfU(std::max(0.001f, sizeU * 0.5f)),
-          halfV(std::max(0.001f, sizeV * 0.5f)), shape(s),
+        : center(c), halfU(std::max(0.001f, fullSizeU * 0.5f)),
+          halfV(std::max(0.001f, fullSizeV * 0.5f)), shape(s),
           spread(std::clamp(spreadValue, 0.0f, 1.0f)), material(std::move(m)),
           emissive(dynamic_cast<DiffuseLight*>(material.get()) != nullptr) {
         axisU = u.normalized();
         Vec3 vProj = v - axisU * axisU.dot(v);
         if (vProj.length2() < 1e-8f) {
-            buildOrthonormalBasis(axisU, axisV, normal);
+            Vec3 temp;
+            buildOrthonormalBasis(axisU, axisV, temp);
             normal = axisU.cross(axisV).normalized();
-            buildOrthonormalBasis(normal, axisU, axisV);
         } else {
             axisV = vProj.normalized();
             normal = axisU.cross(axisV).normalized();
@@ -664,8 +664,8 @@ public:
     Vec3 emittedRadiance(const Vec3& lightNormal, const Vec3& toPointDir) const override {
         Vec3 base = emittedRadiance();
         if (base != Vec3(0)) {
-            const float minConeRadians = 1.0f * M_PI / 180.0f;
-            float coneAngle = std::max(spread * 0.5f * float(M_PI), minConeRadians);
+            static constexpr float MIN_CONE_ANGLE_RADIANS = float(M_PI) / 180.0f;
+            float coneAngle = std::max(spread * 0.5f * float(M_PI), MIN_CONE_ANGLE_RADIANS);
             float cosLimit = std::cos(coneAngle);
             float cosTheta = lightNormal.normalized().dot(toPointDir.normalized());
             return cosTheta >= cosLimit ? base : Vec3(0);

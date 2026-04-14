@@ -38,6 +38,8 @@ W, H = 200, 150   # fast default resolution for most tests
 SAMPLES_FAST = 16
 SAMPLES_MED  = 64
 SAMPLES_HIGH = 256
+MIN_VISIBLE_PIXELS = 20
+CENTER_SLICE_RADIUS = 12
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +107,7 @@ def _bright_mask_fill_ratio(img: np.ndarray) -> float:
     lum = img.mean(axis=2)
     threshold = np.percentile(lum, 99.0)
     ys, xs = np.where(lum >= threshold)
-    assert len(xs) > 20, "Expected visible bright area-light pixels"
+    assert len(xs) > MIN_VISIBLE_PIXELS, "Expected visible bright area-light pixels"
     x0, x1 = int(xs.min()), int(xs.max())
     y0, y1 = int(ys.min()), int(ys.max())
     bbox_area = max(1, (x1 - x0 + 1) * (y1 - y0 + 1))
@@ -149,8 +151,8 @@ def test_area_light_spread_focuses_beam():
     wide_lum = wide.mean(axis=2)
     focused_lum = focused.mean(axis=2)
     cy, cx = np.unravel_index(np.argmax(wide_lum), wide_lum.shape)
-    center_slice = (slice(max(cy - 12, 0), min(cy + 12, H)),
-                    slice(max(cx - 12, 0), min(cx + 12, W)))
+    center_slice = (slice(max(cy - CENTER_SLICE_RADIUS, 0), min(cy + CENTER_SLICE_RADIUS, H)),
+                    slice(max(cx - CENTER_SLICE_RADIUS, 0), min(cx + CENTER_SLICE_RADIUS, W)))
     center_wide = float(np.mean(wide_lum[center_slice]))
     center_focused = float(np.mean(focused_lum[center_slice]))
 

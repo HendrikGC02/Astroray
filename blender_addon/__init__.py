@@ -605,8 +605,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         text = f"Astroray: {node_type} fallback: {message}"
         try:
             self.report({'WARNING'}, text)
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            print(f"Astroray: could not forward warning to Blender UI ({exc})")
         print(text)
 
     def _standalone_bsdf_spec(self, node):
@@ -622,7 +622,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
             rough = self.get_float_input(node, 'Roughness', 0.5)
             params = {'metallic': 1.0, 'roughness': rough}
             if ntype == 'BSDF_ANISOTROPIC':
-                params['anisotropic'] = self.get_float_input(node, 'Anisotropy', self.get_float_input(node, 'Anisotropic', 0.0))
+                if node.inputs.get('Anisotropy') is not None:
+                    params['anisotropic'] = self.get_float_input(node, 'Anisotropy', 0.0)
+                else:
+                    params['anisotropic'] = self.get_float_input(node, 'Anisotropic', 0.0)
             return {'kind': 'principled', 'base_color': color, 'params': params}
         if ntype == 'BSDF_GLASS':
             color = self.get_color_input(node, 'Color', [1.0, 1.0, 1.0])
@@ -649,7 +652,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self._warn_shader_fallback('BSDF_SHEEN', 'Cycles microfiber sheen is approximated with Disney sheen')
             return {'kind': 'principled', 'base_color': color, 'params': {'sheen': weight, 'roughness': rough}}
         if ntype == 'BSDF_METALLIC':
-            color = self.get_color_input(node, 'Base Color', [0.8, 0.8, 0.8])
+            if node.inputs.get('Base Color') is not None:
+                color = self.get_color_input(node, 'Base Color', [0.8, 0.8, 0.8])
+            else:
+                color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
             rough = self.get_float_input(node, 'Roughness', 0.2)
             self._warn_shader_fallback('BSDF_METALLIC', 'F82 edge tint is approximated with Disney metallic base color')
             return {'kind': 'principled', 'base_color': color, 'params': {'metallic': 1.0, 'roughness': rough}}

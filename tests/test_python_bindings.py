@@ -38,6 +38,9 @@ W, H = 200, 150   # fast default resolution for most tests
 SAMPLES_FAST = 16
 SAMPLES_MED  = 64
 SAMPLES_HIGH = 256
+MAX_GLOSSY_PARITY_MSE = 0.015
+MAX_GLASS_PARITY_MEAN_DIFF = 0.25
+MAX_GLASS_PARITY_P95_DIFF = 0.25
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +115,13 @@ def _center_crop(img, frac=0.5):
     return img[y0:y0 + ch, x0:x0 + cw]
 
 
+def test_center_crop_helper_keeps_center_region():
+    img = np.arange(4 * 6 * 3, dtype=np.float32).reshape(4, 6, 3)
+    cropped = _center_crop(img, frac=0.5)
+    assert cropped.shape == (2, 3, 3)
+    assert np.array_equal(cropped, img[1:3, 1:4, :])
+
+
 def test_glossy_matches_principled_metallic_roughness():
     rough = 0.35
     color = [0.9, 0.8, 0.7]
@@ -123,7 +133,7 @@ def test_glossy_matches_principled_metallic_roughness():
     glossy_center = _center_crop(glossy, frac=0.5)
     principled_center = _center_crop(principled_metal, frac=0.5)
     mse, _ = calculate_image_metrics(glossy_center, principled_center)
-    assert mse < 0.015, f"Glossy vs Principled metallic mismatch too large (center-crop MSE={mse:.5f})"
+    assert mse < MAX_GLOSSY_PARITY_MSE, f"Glossy vs Principled metallic mismatch too large (center-crop MSE={mse:.5f})"
 
 
 def test_glass_matches_principled_transmission_ior():
@@ -137,8 +147,8 @@ def test_glass_matches_principled_transmission_ior():
     principled_center = _center_crop(principled_glass, frac=0.5)
     mean_diff = abs(float(np.mean(glass_center)) - float(np.mean(principled_center)))
     p95_diff = abs(float(np.percentile(glass_center, 95)) - float(np.percentile(principled_center, 95)))
-    assert mean_diff < 0.25, f"Glass vs Principled mean mismatch too large (center-crop diff={mean_diff:.5f})"
-    assert p95_diff < 0.25, f"Glass vs Principled highlight mismatch too large (center-crop p95 diff={p95_diff:.5f})"
+    assert mean_diff < MAX_GLASS_PARITY_MEAN_DIFF, f"Glass vs Principled mean mismatch too large (center-crop diff={mean_diff:.5f})"
+    assert p95_diff < MAX_GLASS_PARITY_P95_DIFF, f"Glass vs Principled highlight mismatch too large (center-crop p95 diff={p95_diff:.5f})"
 
 
 def test_mix_shader_blends_principled_red_blue_to_purple():

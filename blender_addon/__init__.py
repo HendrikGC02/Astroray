@@ -15,6 +15,7 @@ from bpy.types import Panel, Operator, AddonPreferences, PropertyGroup, RenderEn
 from bpy.props import BoolProperty, IntProperty, FloatProperty, StringProperty, PointerProperty, FloatVectorProperty
 import mathutils, math, numpy as np, traceback, sys, os, time
 from pathlib import Path
+from shader_blending import blend_shader_specs, add_shader_specs
 
 addon_dir = os.path.dirname(__file__)
 if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
@@ -472,6 +473,95 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # Shader-node dispatch
     # ------------------------------------------------------------------ #
 
+    def _shader_input_node(self, node, input_name):
+        inp = node.inputs.get(input_name)
+        if not inp or not inp.is_linked:
+            return None
+        try:
+            return inp.links[0].from_node
+        except (IndexError, AttributeError):
+            return None
+
+    def _principled_shader_spec(self, node):
+        base_color = self.get_color_input(node, 'Base Color', [0.8, 0.8, 0.8])
+        return {
+            'kind': 'principled',
+            'base_color': list(base_color),
+            'params': {
+                'metallic':        self.get_float_input(node, 'Metallic', 0.0),
+                'roughness':       self.get_float_input(node, 'Roughness', 0.5),
+                'ior':             self.get_float_input(node, 'IOR', 1.45),
+                'transmission':    self._float_with_fallback(node, 'Transmission Weight', 'Transmission', 0.0),
+                'clearcoat':       self._float_with_fallback(node, 'Coat Weight', 'Clearcoat', 0.0),
+                'clearcoat_gloss': 1.0 - self._float_with_fallback(node, 'Coat Roughness', 'Clearcoat Roughness', 0.0),
+                'anisotropic':     self.get_float_input(node, 'Anisotropic', 0.0),
+                'sheen':           self._float_with_fallback(node, 'Sheen Weight', 'Sheen', 0.0),
+                'subsurface':      self._float_with_fallback(node, 'Subsurface Weight', 'Subsurface', 0.0),
+            },
+            'emission_color': self.get_color_input(node, 'Emission Color', [0.0, 0.0, 0.0]),
+            'emission_strength': self.get_float_input(node, 'Emission Strength', 0.0),
+        }
+
+    def _shader_spec_from_node(self, node, renderer, node_tree, depth=0):
+        if node is None or depth > 32:
+            return None
+        ntype = node.type
+
+        if ntype == 'BSDF_PRINCIPLED':
+            return self._principled_shader_spec(node)
+        if ntype == 'BSDF_DIFFUSE':
+            return {'kind': 'principled', 'base_color': self.get_color_input(node, 'Color', [0.8, 0.8, 0.8]), 'params': {}}
+        if ntype == 'BSDF_GLOSSY' or ntype == 'BSDF_ANISOTROPIC':
+            return {'kind': 'principled', 'base_color': self.get_color_input(node, 'Color', [0.8, 0.8, 0.8]), 'params': {'metallic': 1.0, 'roughness': self.get_float_input(node, 'Roughness', 0.5)}}
+        if ntype == 'BSDF_GLASS':
+            return {'kind': 'principled', 'base_color': [1.0, 1.0, 1.0], 'params': {'transmission': 1.0, 'ior': self.get_float_input(node, 'IOR', 1.5), 'roughness': self.get_float_input(node, 'Roughness', 0.0)}}
+        if ntype == 'BSDF_TRANSPARENT':
+            return {'kind': 'transparent'}
+        if ntype == 'EMISSION':
+            return {'kind': 'emission', 'base_color': self.get_color_input(node, 'Color', [1.0, 1.0, 1.0]), 'emission_strength': self.get_float_input(node, 'Strength', 1.0)}
+        if ntype == 'MIX_SHADER':
+            fac = self.get_float_input(node, 'Fac', 0.5)
+            a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
+            b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
+            return blend_shader_specs(fac, a, b)
+        if ntype == 'ADD_SHADER':
+            a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
+            b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
+            return add_shader_specs(a, b)
+        return None
+
+    def _create_material_from_shader_spec(self, spec, renderer):
+        if spec is None:
+            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+
+        kind = spec.get('kind')
+        if kind == 'emission':
+            return renderer.create_material('light', spec.get('base_color', [1, 1, 1]),
+                                            {'intensity': float(spec.get('emission_strength', 1.0))})
+
+        if kind == 'principled':
+            color = list(spec.get('base_color', [0.8, 0.8, 0.8]))
+            params = dict(spec.get('params', {}))
+            emission_strength = float(spec.get('emission_strength', 0.0))
+            emission_color = list(spec.get('emission_color', [0.0, 0.0, 0.0]))
+
+            # Renderer has no explicit alpha channel; approximate transparency.
+            alpha = params.pop('alpha', None)
+            if alpha is not None:
+                params['transmission'] = max(float(params.get('transmission', 0.0)), 1.0 - float(alpha))
+
+            # Add-Shader / Mix-with-Emission approximation:
+            # preserve surface and bias base color towards emission.
+            if emission_strength > 0.0 and any(c > 0.0 for c in emission_color):
+                if emission_strength >= 1.0 and float(params.get('metallic', 0.0)) == 0.0 and float(params.get('transmission', 0.0)) == 0.0:
+                    return renderer.create_material('light', emission_color, {'intensity': emission_strength})
+                glow = min(1.0, 0.2 * emission_strength)
+                color = [max(0.0, min(1.0, (1.0 - glow) * color[i] + glow * emission_color[i])) for i in range(3)]
+
+            return renderer.create_material('disney', color, params)
+
+        return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+
     def convert_shader_node(self, node, renderer, node_tree):
         """Route a surface-shader node to the appropriate material builder."""
         ntype = node.type
@@ -492,27 +582,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
             rough = self.get_float_input(node, 'Roughness', 0.5)
             return renderer.create_material('metal', color, {'roughness': rough})
         if ntype == 'MIX_SHADER':
-            # Prefer the first linked BSDF-ish input; this is a simplification
-            # that ignores the mix factor but keeps the dominant shader.
-            for inp in node.inputs:
-                if inp.is_linked:
-                    try:
-                        src = inp.links[0].from_node
-                    except (IndexError, AttributeError):
-                        continue
-                    if src.type.startswith('BSDF') or src.type == 'EMISSION':
-                        return self.convert_shader_node(src, renderer, node_tree)
-            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+            spec = self._shader_spec_from_node(node, renderer, node_tree)
+            return self._create_material_from_shader_spec(spec, renderer)
         if ntype == 'ADD_SHADER':
-            # Just take the first linked shader; the renderer doesn't support
-            # additive shader blending directly.
-            for inp in node.inputs:
-                if inp.is_linked:
-                    try:
-                        src = inp.links[0].from_node
-                    except (IndexError, AttributeError):
-                        continue
-                    return self.convert_shader_node(src, renderer, node_tree)
+            spec = self._shader_spec_from_node(node, renderer, node_tree)
+            return self._create_material_from_shader_spec(spec, renderer)
         # Unknown — safe default
         return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
 

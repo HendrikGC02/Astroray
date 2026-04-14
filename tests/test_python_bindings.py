@@ -23,8 +23,10 @@ from PIL import Image
 BUILD_DIR = os.path.join(os.path.dirname(__file__), '..', 'build')
 sys.path.insert(0, BUILD_DIR)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'blender_addon'))
 
 import astroray
+import shader_blending
 from base_helpers import (
     create_renderer, setup_camera, render_image,
     save_image, save_figure, create_cornell_box,
@@ -88,6 +90,32 @@ def test_create_all_material_types():
     r.create_material('light',      [1.0, 0.9, 0.8], {'intensity': 10.0})
     r.create_material('disney',     [0.7, 0.5, 0.3], {'metallic': 0.5, 'roughness': 0.3})
     r.create_material('subsurface', [0.9, 0.6, 0.5], {'scatter_distance': [1.0, 0.2, 0.1]})
+
+
+def test_mix_shader_blends_principled_red_blue_to_purple():
+    red = {'kind': 'principled', 'base_color': [1.0, 0.0, 0.0], 'params': {'roughness': 0.3}}
+    blue = {'kind': 'principled', 'base_color': [0.0, 0.0, 1.0], 'params': {'roughness': 0.7}}
+    mixed = shader_blending.blend_shader_specs(0.5, red, blue)
+    assert mixed['kind'] == 'principled'
+    assert np.allclose(mixed['base_color'], [0.5, 0.0, 0.5], atol=1e-6)
+    assert abs(mixed['params']['roughness'] - 0.5) < 1e-6
+
+
+def test_mix_shader_glass_principled_maps_to_transmission_weight():
+    principled = {'kind': 'principled', 'base_color': [0.8, 0.8, 0.8], 'params': {'transmission': 0.0, 'ior': 1.45}}
+    glass = {'kind': 'principled', 'base_color': [1.0, 1.0, 1.0], 'params': {'transmission': 1.0, 'ior': 1.5}}
+    mixed = shader_blending.blend_shader_specs(0.3, principled, glass)
+    assert mixed['kind'] == 'principled'
+    assert abs(mixed['params']['transmission'] - 0.3) < 1e-6
+
+
+def test_add_shader_principled_and_emission_keeps_surface_and_emission():
+    surface = {'kind': 'principled', 'base_color': [0.7, 0.5, 0.3], 'params': {'roughness': 0.4}}
+    emission = {'kind': 'emission', 'base_color': [1.0, 0.8, 0.2], 'emission_strength': 2.0}
+    combined = shader_blending.add_shader_specs(surface, emission)
+    assert combined['kind'] == 'principled'
+    assert np.allclose(combined['base_color'], [0.7, 0.5, 0.3], atol=1e-6)
+    assert combined['emission_strength'] >= 2.0
 
 
 # ---------------------------------------------------------------------------

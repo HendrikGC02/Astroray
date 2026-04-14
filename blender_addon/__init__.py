@@ -47,8 +47,10 @@ class CustomRaytracerRenderSettings(PropertyGroup):
     use_adaptive_sampling: BoolProperty(name="Adaptive Sampling", default=True,
         description="Stop sampling pixels that have already converged")
     adaptive_threshold: FloatProperty(name="Noise Threshold", min=0.001, max=1.0, default=0.01)
-    clamp_indirect: FloatProperty(name="Clamp Indirect", min=0.0, max=100.0, default=10.0,
-        description="Firefly suppression: per-sample contribution is clipped above this value")
+    clamp_direct: FloatProperty(name="Clamp Direct", min=0.0, max=100.0, default=0.0,
+        description="Clamp direct lighting contribution luminance (0 disables)")
+    clamp_indirect: FloatProperty(name="Clamp Indirect", min=0.0, max=100.0, default=0.0,
+        description="Clamp indirect lighting contribution luminance (0 disables)")
     use_gpu: BoolProperty(name="Use GPU", default=False,
         description="Use CUDA GPU for rendering (requires NVIDIA GPU)")
 
@@ -142,6 +144,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer = astroray.Renderer()
             renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
             renderer.clear()
+            renderer.set_clamp_direct(settings.clamp_direct)
+            renderer.set_clamp_indirect(settings.clamp_indirect)
             self._setup_viewport_camera(renderer, context, width, height)
             material_map = self.convert_materials(depsgraph, renderer)
             self.convert_objects(depsgraph, renderer, material_map)
@@ -235,6 +239,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def convert_scene(self, depsgraph, renderer, width, height):
         scene = depsgraph.scene
         renderer.clear()
+        settings = scene.custom_raytracer
+        renderer.set_clamp_direct(settings.clamp_direct)
+        renderer.set_clamp_indirect(settings.clamp_indirect)
         cycles = getattr(scene, 'cycles', None)
         exposure = float(getattr(cycles, 'film_exposure', 1.0)) if cycles else 1.0
         renderer.set_film_exposure(exposure)
@@ -822,6 +829,7 @@ class RENDER_PT_custom_raytracer_light_paths(AstrorayPanelBase, Panel):
 
         col = layout.column(align=True)
         col.prop(settings, "max_bounces", text="Max Bounces")
+        col.prop(settings, "clamp_direct")
         col.prop(settings, "clamp_indirect")
 
 

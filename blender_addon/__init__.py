@@ -366,6 +366,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # In Blender 5.0+ every material is node-based (use_nodes is deprecated
         # and always True), so we always go through the node tree conversion.
         material_map = {}
+        self._volume_material_map = {}
         for mat in bpy.data.materials:
             material_map[mat.name] = self.convert_node_material(mat, renderer)
         return material_map
@@ -402,8 +403,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if output is None:
             return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
 
+        volume_input = output.inputs.get('Volume')
+        volume_spec = None
+        if volume_input and volume_input.is_linked:
+            volume_spec = self.convert_volume_node(volume_input.links[0].from_node, node_tree)
+        self._volume_material_map[mat.name] = volume_spec
+
         surface_input = output.inputs.get('Surface')
         if not surface_input or not surface_input.is_linked:
+            if volume_spec is not None:
+                # Volume-only materials should keep the boundary mostly invisible.
+                return renderer.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.0})
             return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
 
         shader_node = surface_input.links[0].from_node
@@ -732,8 +742,108 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
 
+    @staticmethod
+    def _blackbody_to_rgb(temperature_k):
+        """Approximate blackbody color (1000K..40000K) in linear RGB-like space."""
+        t = max(1000.0, min(40000.0, float(temperature_k))) / 100.0
+        if t <= 66.0:
+            r = 255.0
+            g = 99.4708025861 * math.log(t) - 161.1195681661
+            if t <= 19.0:
+                b = 0.0
+            else:
+                b = 138.5177312231 * math.log(t - 10.0) - 305.0447927307
+        else:
+            r = 329.698727446 * ((t - 60.0) ** -0.1332047592)
+            g = 288.1221695283 * ((t - 60.0) ** -0.0755148492)
+            b = 255.0
+        return [max(0.0, min(1.0, c / 255.0)) for c in (r, g, b)]
+
+    def _volume_spec_from_node(self, node, depth=0):
+        if node is None or depth > 32:
+            return None
+
+        ntype = node.type
+        if ntype == 'VOLUME_ABSORPTION':
+            return {
+                'color': self.get_color_input(node, 'Color', [1.0, 1.0, 1.0]),
+                'density': self.get_float_input(node, 'Density', 1.0),
+                'anisotropy': 0.0,
+                'emission_strength': 0.0,
+                'emission_color': [0.0, 0.0, 0.0],
+            }
+        if ntype == 'VOLUME_SCATTER':
+            return {
+                'color': self.get_color_input(node, 'Color', [1.0, 1.0, 1.0]),
+                'density': self.get_float_input(node, 'Density', 1.0),
+                'anisotropy': self.get_float_input(node, 'Anisotropy', 0.0),
+                'emission_strength': 0.0,
+                'emission_color': [0.0, 0.0, 0.0],
+            }
+        if ntype == 'PRINCIPLED_VOLUME':
+            density = self.get_float_input(node, 'Density', 1.0)
+            emission_strength = self.get_float_input(node, 'Emission Strength', 0.0)
+            emission_color = self.get_color_input(node, 'Emission Color', [0.0, 0.0, 0.0])
+            blackbody_intensity = self.get_float_input(node, 'Blackbody Intensity', 0.0)
+            temperature = self.get_float_input(node, 'Temperature', 1000.0)
+            if blackbody_intensity > 0.0:
+                bb = self._blackbody_to_rgb(temperature)
+                emission_color = [emission_color[i] + bb[i] * blackbody_intensity for i in range(3)]
+                emission_strength += blackbody_intensity
+            return {
+                'color': self.get_color_input(node, 'Color', [1.0, 1.0, 1.0]),
+                'density': density,
+                'anisotropy': self.get_float_input(node, 'Anisotropy', 0.0),
+                'emission_strength': emission_strength,
+                'emission_color': emission_color,
+            }
+        if ntype == 'MIX_SHADER':
+            fac = self.get_float_input(node, 'Fac', 0.5)
+            a = self._volume_spec_from_node(self._shader_input_node(node, 'Shader'), depth + 1)
+            b = self._volume_spec_from_node(self._shader_input_node(node, 'Shader_001'), depth + 1)
+            if a is None:
+                return b
+            if b is None:
+                return a
+            return {
+                'color': [(1.0 - fac) * a['color'][i] + fac * b['color'][i] for i in range(3)],
+                'density': (1.0 - fac) * float(a['density']) + fac * float(b['density']),
+                'anisotropy': (1.0 - fac) * float(a['anisotropy']) + fac * float(b['anisotropy']),
+                'emission_strength': (1.0 - fac) * float(a['emission_strength']) + fac * float(b['emission_strength']),
+                'emission_color': [(1.0 - fac) * a['emission_color'][i] + fac * b['emission_color'][i] for i in range(3)],
+            }
+        if ntype == 'ADD_SHADER':
+            a = self._volume_spec_from_node(self._shader_input_node(node, 'Shader'), depth + 1)
+            b = self._volume_spec_from_node(self._shader_input_node(node, 'Shader_001'), depth + 1)
+            if a is None:
+                return b
+            if b is None:
+                return a
+            total_density = float(a['density']) + float(b['density'])
+            anisotropy = 0.0
+            if total_density > 0.0:
+                anisotropy = (
+                    float(a['density']) * float(a['anisotropy']) +
+                    float(b['density']) * float(b['anisotropy'])
+                ) / total_density
+            return {
+                'color': [max(0.0, min(1.0, a['color'][i] + b['color'][i])) for i in range(3)],
+                'density': total_density,
+                'anisotropy': max(-0.99, min(0.99, anisotropy)),
+                'emission_strength': float(a['emission_strength']) + float(b['emission_strength']),
+                'emission_color': [max(0.0, min(1.0, a['emission_color'][i] + b['emission_color'][i])) for i in range(3)],
+            }
+        return None
+
+    def convert_volume_node(self, node, node_tree):
+        del node_tree  # reserved for future graph-dependent volume conversion.
+        return self._volume_spec_from_node(node)
+
     def convert_shader_node(self, node, renderer, node_tree):
         """Route a surface-shader node to the appropriate material builder."""
+        ntype = node.type
+        if ntype in ('VOLUME_ABSORPTION', 'VOLUME_SCATTER', 'PRINCIPLED_VOLUME'):
+            return renderer.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.0})
         spec = self._shader_spec_from_node(node, renderer, node_tree)
         return self._create_material_from_shader_spec(spec, renderer)
 
@@ -863,6 +973,35 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 continue
             matrix = obj_instance.matrix_world
             obj_count += 1
+
+            volume_spec = None
+            for slot in obj.material_slots:
+                mat = slot.material
+                if mat is None:
+                    continue
+                spec = self._volume_material_map.get(mat.name) if hasattr(self, '_volume_material_map') else None
+                if spec is not None:
+                    volume_spec = spec
+                    break
+
+            if volume_spec is not None:
+                try:
+                    bbox_points = [matrix @ mathutils.Vector(corner) for corner in obj.bound_box]
+                    center = sum(bbox_points, mathutils.Vector((0.0, 0.0, 0.0))) / len(bbox_points)
+                    radius = max((p - center).length for p in bbox_points)
+                    density = max(0.0, float(volume_spec.get('density', 0.0)))
+                    if radius > 0.0 and density > 0.0:
+                        renderer.add_volume(
+                            [center.x, center.y, center.z],
+                            float(radius),
+                            density,
+                            list(volume_spec.get('color', [1.0, 1.0, 1.0])),
+                            float(volume_spec.get('anisotropy', 0.0)),
+                            float(volume_spec.get('emission_strength', 0.0)),
+                            list(volume_spec.get('emission_color', [0.0, 0.0, 0.0])),
+                        )
+                except Exception as e:
+                    print(f"Astroray: volume conversion error on '{obj.name}': {e}")
 
             # -------- Per-slot material map --------
             # Blender meshes carry one material_index per face; resolve each

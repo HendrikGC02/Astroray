@@ -257,6 +257,46 @@ def test_add_shader_principled_and_emission_keeps_surface_and_emission():
     assert combined['emission_strength'] >= 2.0
 
 
+def test_volume_absorption_blue_tint_biases_render_blue():
+    r = create_renderer()
+    setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], width=W, height=H)
+    r.add_volume([0, 0, 0], 1.5, 1.0, [0.2, 0.3, 1.0], 0.0)
+    pixels = render_image(r, samples=SAMPLES_FAST)
+
+    center_crop = pixels[H // 4:(3 * H) // 4, W // 4:(3 * W) // 4, :]
+    means = np.mean(center_crop, axis=(0, 1))
+    assert means[2] > means[0], \
+        f"Expected blue > red for volume tint, got R={means[0]:.3f}, G={means[1]:.3f}, B={means[2]:.3f}"
+
+
+def test_volume_scatter_anisotropy_changes_render():
+    def render_volume(anisotropy):
+        r = create_renderer()
+        setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], width=W, height=H)
+        r.add_volume([0, 0, 0], 1.5, 1.0, [0.8, 0.8, 0.8], anisotropy)
+        return render_image(r, samples=SAMPLES_FAST)
+
+    iso = render_volume(0.0)
+    forward = render_volume(0.8)
+    mse = float(np.mean((iso - forward) ** 2))
+    assert mse > 1e-4, f"Expected anisotropy to change scattering appearance (MSE={mse:.6f})"
+
+
+def test_principled_volume_emission_strength_glows():
+    def render_mean(emission_strength):
+        r = create_renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+        setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], width=W, height=H)
+        r.add_volume([0, 0, 0], 1.0, 1.0, [0.9, 0.6, 0.3], 0.0,
+                     emission_strength, [1.0, 0.8, 0.6])
+        return float(np.mean(render_image(r, samples=SAMPLES_FAST)))
+
+    mean_no_emission = render_mean(0.0)
+    mean_with_emission = render_mean(1.0)
+    assert mean_with_emission > mean_no_emission + 0.01, \
+        f"Expected emissive principled volume to glow ({mean_with_emission:.3f} <= {mean_no_emission:.3f})"
+
+
 # ---------------------------------------------------------------------------
 # Rendering correctness: unlit scene should be dark
 # ---------------------------------------------------------------------------

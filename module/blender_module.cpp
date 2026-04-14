@@ -212,11 +212,21 @@ public:
     }
 
     void addVolume(const std::vector<float>& center, float radius, float density,
-                  const std::vector<float>& color, float anisotropy = 0) {
+                  const std::vector<float>& color, float anisotropy = 0,
+                  float emissionStrength = 0.0f,
+                  const std::vector<float>& emissionColor = {1.0f, 1.0f, 1.0f}) {
         auto boundary = std::make_shared<Sphere>(Vec3(center[0], center[1], center[2]), radius,
             std::make_shared<Lambertian>(Vec3(1)));
         renderer.addObject(std::make_shared<ConstantMedium>(boundary, density,
             Vec3(color[0], color[1], color[2]), anisotropy));
+        if (emissionStrength > 0.0f && emissionColor.size() >= 3) {
+            auto glow = std::make_shared<DiffuseLight>(
+                Vec3(emissionColor[0], emissionColor[1], emissionColor[2]), emissionStrength);
+            // Keep the emissive proxy slightly inside the volume boundary to avoid
+            // exact overlap with the medium shell intersection points.
+            renderer.addObject(std::make_shared<Sphere>(
+                Vec3(center[0], center[1], center[2]), radius * 0.98f, glow));
+        }
     }
     
     void setupCamera(const std::vector<float>& lookFrom, const std::vector<float>& lookAt,
@@ -452,7 +462,10 @@ PYBIND11_MODULE(astroray, m) {
              "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>())
         .def("add_mesh", &PyRenderer::addMesh, "filename"_a, "material_id"_a,
              "position"_a = std::vector<float>{0,0,0}, "scale"_a = std::vector<float>{1,1,1}, "rotation_y"_a = 0.0f)
-        .def("add_volume", &PyRenderer::addVolume, "center"_a, "radius"_a, "density"_a, "color"_a, "anisotropy"_a = 0.0f)
+        .def("add_volume", &PyRenderer::addVolume,
+             "center"_a, "radius"_a, "density"_a, "color"_a,
+             "anisotropy"_a = 0.0f, "emission_strength"_a = 0.0f,
+             "emission_color"_a = std::vector<float>{1.0f, 1.0f, 1.0f})
         .def("add_black_hole", &PyRenderer::addBlackHole,
              "position"_a, "mass"_a, "influence_radius"_a, "params"_a = py::dict())
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,

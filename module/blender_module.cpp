@@ -375,6 +375,7 @@ PYBIND11_MODULE(astroray, m) {
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
              "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
+        .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
         .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a,
              "progress_callback"_a = py::none(), "apply_gamma"_a = true)
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)

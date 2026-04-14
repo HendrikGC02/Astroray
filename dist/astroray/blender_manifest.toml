@@ -1,0 +1,23 @@
+schema_version = "1.0.0"
+
+id = "astroray"
+version = "4.0.0"
+name = "Astroray Renderer"
+tagline = "Physically-based path tracer with GR black hole rendering"
+maintainer = "Hendrik Combrinck"
+type = "add-on"
+
+blender_version_min = "5.1.0"
+
+# Supported host platforms (omit to allow any; listed for clarity)
+platforms = ["windows-x64", "linux-x64", "macos-arm64", "macos-x64"]
+
+# Addon category for the Blender UI
+tags = ["Render"]
+
+license = [
+    "SPDX:MIT",
+]
+
+[permissions]
+files = "Import/export HDRI environment maps and OBJ meshes"

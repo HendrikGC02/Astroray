@@ -2,6 +2,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 #include <pybind11/functional.h>
+#include <cctype>
 #include "raytracer.h"
 #include "advanced_features.h"
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -131,6 +132,27 @@ public:
         Vec3 pos(center[0], center[1], center[2]);
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
         renderer.addObject(std::make_shared<Sphere>(pos, radius, mat));
+    }
+
+    void addAreaLight(const std::vector<float>& center, const std::vector<float>& axisU,
+                      const std::vector<float>& axisV, float sizeX, float sizeY,
+                      const std::string& shape, int materialId, float spread = 1.0f) {
+        auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
+        std::string shapeUpper = shape;
+        for (char& c : shapeUpper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+        AreaLightShape::Shape lightShape = AreaLightShape::Shape::Rectangle;
+        if (shapeUpper == "DISK") {
+            lightShape = AreaLightShape::Shape::Disk;
+        } else if (shapeUpper == "ELLIPSE") {
+            lightShape = AreaLightShape::Shape::Ellipse;
+        }
+
+        renderer.addObject(std::make_shared<AreaLightShape>(
+            Vec3(center[0], center[1], center[2]),
+            Vec3(axisU[0], axisU[1], axisU[2]),
+            Vec3(axisV[0], axisV[1], axisV[2]),
+            sizeX, sizeY, lightShape, spread, mat));
     }
     
     void addTriangle(const std::vector<float>& v0, const std::vector<float>& v1, const std::vector<float>& v2,
@@ -422,6 +444,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("create_procedural_texture", &PyRenderer::createProceduralTexture, "name"_a, "type"_a, "params"_a)
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
         .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a)
+        .def("add_area_light", &PyRenderer::addAreaLight,
+             "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,
+             "shape"_a, "material_id"_a, "spread"_a = 1.0f)
         .def("add_triangle", &PyRenderer::addTriangle, "v0"_a, "v1"_a, "v2"_a, "material_id"_a,
              "uv0"_a = std::vector<float>(), "uv1"_a = std::vector<float>(), "uv2"_a = std::vector<float>(),
              "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>())

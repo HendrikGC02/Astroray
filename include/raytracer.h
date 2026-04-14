@@ -474,6 +474,7 @@ public:
     virtual Vec3 random(const Vec3& origin, std::mt19937& gen) const { return Vec3(0, 1, 0); }
     virtual bool isLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }
+    virtual Vec3 emittedRadiance(const Vec3& /*lightNormal*/, const Vec3& /*toPointDir*/) const { return emittedRadiance(); }
     // GR dispatch — BlackHole overrides both
     virtual bool isGRObject() const { return false; }
     virtual GRResult traceGR(const Ray& /*r*/, std::mt19937& /*gen*/) const {
@@ -539,6 +540,138 @@ public:
     Vec3  getCenter()   const { return center; }
     float getRadius()   const { return radius; }
     const std::shared_ptr<Material>& getMaterial() const { return material; }
+};
+
+class AreaLightShape : public Hittable {
+public:
+    enum class Shape { Rectangle, Disk, Ellipse };
+
+private:
+    Vec3 center;
+    Vec3 axisU;
+    Vec3 axisV;
+    Vec3 normal;
+    float halfU;
+    float halfV;
+    Shape shape;
+    float spread;
+    std::shared_ptr<Material> material;
+    bool emissive;
+
+    float area() const {
+        if (shape == Shape::Rectangle) return 4.0f * halfU * halfV;
+        if (shape == Shape::Disk) return M_PI * halfU * halfU;
+        return M_PI * halfU * halfV;
+    }
+
+    bool pointInside(const Vec3& p) const {
+        Vec3 d = p - center;
+        float u = d.dot(axisU);
+        float v = d.dot(axisV);
+        if (shape == Shape::Rectangle) {
+            return std::abs(u) <= halfU && std::abs(v) <= halfV;
+        }
+        if (shape == Shape::Disk) {
+            float r2 = u * u + v * v;
+            return r2 <= halfU * halfU;
+        }
+        float su = u / std::max(halfU, 1e-6f);
+        float sv = v / std::max(halfV, 1e-6f);
+        return su * su + sv * sv <= 1.0f;
+    }
+
+    Vec3 samplePoint(std::mt19937& gen) const {
+        std::uniform_real_distribution<float> dist(0, 1);
+        if (shape == Shape::Rectangle) {
+            float su = 2.0f * dist(gen) - 1.0f;
+            float sv = 2.0f * dist(gen) - 1.0f;
+            return center + axisU * (halfU * su) + axisV * (halfV * sv);
+        }
+        float r = std::sqrt(dist(gen));
+        float phi = 2.0f * M_PI * dist(gen);
+        float x = r * std::cos(phi);
+        float y = r * std::sin(phi);
+        if (shape == Shape::Disk) {
+            return center + axisU * (halfU * x) + axisV * (halfU * y);
+        }
+        return center + axisU * (halfU * x) + axisV * (halfV * y);
+    }
+
+public:
+    AreaLightShape(const Vec3& c, const Vec3& u, const Vec3& v,
+                   float fullSizeU, float fullSizeV, Shape s, float spreadValue,
+                   std::shared_ptr<Material> m)
+        : center(c), halfU(std::max(0.001f, fullSizeU * 0.5f)),
+          halfV(std::max(0.001f, fullSizeV * 0.5f)), shape(s),
+          spread(std::clamp(spreadValue, 0.0f, 1.0f)), material(std::move(m)),
+          emissive(dynamic_cast<DiffuseLight*>(material.get()) != nullptr) {
+        axisU = u.normalized();
+        Vec3 vProj = v - axisU * axisU.dot(v);
+        if (vProj.length2() < 1e-8f) {
+            Vec3 temp;
+            buildOrthonormalBasis(axisU, axisV, temp);
+            normal = axisU.cross(axisV).normalized();
+        } else {
+            axisV = vProj.normalized();
+            normal = axisU.cross(axisV).normalized();
+        }
+    }
+
+    bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
+        float denom = normal.dot(r.direction);
+        if (std::abs(denom) < 1e-6f) return false;
+        float t = (center - r.origin).dot(normal) / denom;
+        if (t < tMin || t > tMax) return false;
+        Vec3 p = r.at(t);
+        if (!pointInside(p)) return false;
+        rec.t = t;
+        rec.point = p;
+        rec.setFaceNormal(r, normal);
+        rec.material = material;
+        Vec3 d = p - center;
+        float u = d.dot(axisU);
+        float v = d.dot(axisV);
+        rec.uv = Vec2(0.5f + 0.5f * (u / std::max(halfU, 1e-6f)),
+                      0.5f + 0.5f * (v / std::max(halfV, 1e-6f)));
+        return true;
+    }
+
+    bool boundingBox(AABB& box) const override {
+        Vec3 ext = Vec3(std::abs(axisU.x), std::abs(axisU.y), std::abs(axisU.z)) * halfU +
+                   Vec3(std::abs(axisV.x), std::abs(axisV.y), std::abs(axisV.z)) * halfV +
+                   Vec3(std::abs(normal.x), std::abs(normal.y), std::abs(normal.z)) * 0.0001f;
+        box = AABB(center - ext, center + ext);
+        return true;
+    }
+
+    float pdfValue(const Vec3& origin, const Vec3& direction) const override {
+        HitRecord rec;
+        if (!hit(Ray(origin, direction), 0.001f, std::numeric_limits<float>::max(), rec)) return 0;
+        return rec.t * rec.t / (std::abs(direction.dot(rec.normal)) * area() + 0.001f);
+    }
+
+    Vec3 random(const Vec3& origin, std::mt19937& gen) const override {
+        return (samplePoint(gen) - origin).normalized();
+    }
+
+    bool isLight() const override { return emissive; }
+
+    Vec3 emittedRadiance() const override {
+        if (auto l = dynamic_cast<DiffuseLight*>(material.get())) return l->getEmission();
+        return Vec3(0);
+    }
+
+    Vec3 emittedRadiance(const Vec3& lightNormal, const Vec3& toPointDir) const override {
+        Vec3 base = emittedRadiance();
+        if (base != Vec3(0)) {
+            static constexpr float MIN_CONE_ANGLE_RADIANS = float(M_PI) / 180.0f;
+            float coneAngle = std::max(spread * 0.5f * float(M_PI), MIN_CONE_ANGLE_RADIANS);
+            float cosLimit = std::cos(coneAngle);
+            float cosTheta = lightNormal.normalized().dot(toPointDir.normalized());
+            return cosTheta >= cosLimit ? base : Vec3(0);
+        }
+        return base;
+    }
 };
 
 class Triangle : public Hittable {
@@ -799,7 +932,10 @@ public:
         HitRecord rec;
         LightSample s;
         if (lights[idx]->hit(Ray(pt, dir), 0.001f, std::numeric_limits<float>::max(), rec)) {
-            s.position = rec.point; s.normal = rec.normal; s.emission = lights[idx]->emittedRadiance();
+            s.position = rec.point; s.normal = rec.normal;
+            Vec3 toPoint = (pt - rec.point).normalized();
+            Vec3 lightNormal = rec.frontFace ? rec.normal : -rec.normal;
+            s.emission = lights[idx]->emittedRadiance(lightNormal, toPoint);
             s.distance = rec.t; s.pdf = lights[idx]->pdfValue(pt, dir);
             float selPdf = (idx > 0 ? powerDist[idx] - powerDist[idx-1] : powerDist[0]) / totalPower;
             s.pdf *= selPdf;

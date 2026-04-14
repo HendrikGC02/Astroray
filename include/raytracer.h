@@ -1153,6 +1153,9 @@ class Renderer {
     bool transparentGlass = false;
     float clampDirect = 0.0f;   // 0 = disabled
     float clampIndirect = 0.0f; // 0 = disabled
+    float filterGlossy = 0.0f;
+    bool useReflectiveCaustics = true;
+    bool useRefractiveCaustics = true;
 
     Vec3 clampLuminance(const Vec3& c, float maxLum) const {
         if (maxLum <= 0.0f) return c;
@@ -1169,6 +1172,9 @@ public:
     void setTransparentGlass(bool use) { transparentGlass = use; }
     void setClampDirect(float value) { clampDirect = std::max(0.0f, value); }
     void setClampIndirect(float value) { clampIndirect = std::max(0.0f, value); }
+    void setFilterGlossy(float value) { filterGlossy = std::max(0.0f, value); }
+    void setUseReflectiveCaustics(bool use) { useReflectiveCaustics = use; }
+    void setUseRefractiveCaustics(bool use) { useRefractiveCaustics = use; }
     
     void clear() {
         scene.clear(); bvh.reset(); lights = LightList();
@@ -1179,6 +1185,9 @@ public:
         transparentGlass = false;
         clampDirect = 0.0f;
         clampIndirect = 0.0f;
+        filterGlossy = 0.0f;
+        useReflectiveCaustics = true;
+        useRefractiveCaustics = true;
     }
     
     float powerHeuristic(float a, float b) const {
@@ -1321,6 +1330,8 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
         int volumeBounces = 0;
         int transparentBounces = 0;
         bool alphaCovered = !useTransparentFilm;
+        bool hasDiffuseBounce = false;
+        std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
 
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             HitRecord rec;
@@ -1406,7 +1417,59 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             Vec3 wo = -ray.direction.normalized();
             BSDFSample bs = rec.material->sample(rec, wo, gen);
             if (bs.pdf <= 0) break;
-            if (isTransmissionMaterial(rec.material.get())) {
+            bool isTransmission = isTransmissionMaterial(rec.material.get());
+            bool isSpecularBounce = bs.isDelta;
+            bool isRefractiveSpecular = false;
+            bool isReflectiveSpecular = false;
+            if (isSpecularBounce) {
+                if (isTransmission) {
+                    float nWo = wo.dot(rec.normal);
+                    float nWi = bs.wi.dot(rec.normal);
+                    isRefractiveSpecular = (nWo * nWi) < 0.0f;
+                    isReflectiveSpecular = !isRefractiveSpecular;
+                } else {
+                    isReflectiveSpecular = true;
+                }
+            }
+            if (hasDiffuseBounce) {
+                if (!useReflectiveCaustics && isReflectiveSpecular) break;
+                if (!useRefractiveCaustics && isRefractiveSpecular) break;
+            }
+
+            float blurRoughness = std::clamp(filterGlossy * float(bounce), 0.0f, 1.0f);
+            bool shouldApplyGlossyBlur =
+                blurRoughness > 0.0f && bounce > 0 &&
+                (isTransmission || isGlossyMaterial(rec.material.get()) || bs.isDelta);
+            if (shouldApplyGlossyBlur) {
+                Vec3 axis = bs.wi.normalized();
+                if (axis.length2() > 1e-8f) {
+                    Vec3 u, v;
+                    buildOrthonormalBasis(axis, u, v);
+                    // Roughness blur approximation: sample a cone around the specular
+                    // direction, widening with filter_glossy and bounce depth.
+                    float cosTheta = 1.0f - blurRoughness * dist01(gen);
+                    float sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+                    float phi = 2.0f * M_PI * dist01(gen);
+                    Vec3 candidate = (u * (std::cos(phi) * sinTheta) +
+                                      v * (std::sin(phi) * sinTheta) +
+                                      axis * cosTheta).normalized();
+                    if (candidate.dot(rec.normal) > 0.0f) {
+                        bool wasDelta = bs.isDelta;
+                        bs.wi = candidate;
+                        if (wasDelta) {
+                            bs.isDelta = false;
+                            rec.isDelta = false;
+                            bs.pdf = 1.0f;
+                        } else {
+                            float newPdf = rec.material->pdf(rec, wo, bs.wi);
+                            if (newPdf > 0.0f) bs.pdf = newPdf;
+                            Vec3 newF = rec.material->eval(rec, wo, bs.wi);
+                            if (newF != Vec3(0)) bs.f = newF;
+                        }
+                    }
+                }
+            }
+            if (isTransmission) {
                 transmissionBounces++;
                 if (transmissionBounces > bounceLimits.transmission) break;
             } else if (bs.isDelta || isGlossyMaterial(rec.material.get())) {
@@ -1415,6 +1478,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             } else {
                 diffuseBounces++;
                 if (diffuseBounces > bounceLimits.diffuse) break;
+                hasDiffuseBounce = true;
             }
             if (volumeBounces > bounceLimits.volume || transparentBounces > bounceLimits.transparent) break;
             wasSpecular = bs.isDelta;

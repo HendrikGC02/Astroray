@@ -75,6 +75,11 @@ struct Vec3 {
 
 inline Vec3 operator*(float s, const Vec3& v) { return v * s; }
 inline float luminance(const Vec3& c) { return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; }
+inline float smoothstep(float edge0, float edge1, float x) {
+    float t = (x - edge0) / (edge1 - edge0 + 1e-8f);
+    t = std::clamp(t, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
 
 inline void buildOrthonormalBasis(const Vec3& n, Vec3& u, Vec3& v) {
     u = (std::abs(n.x) > 0.9f) ? Vec3(0, 1, 0) : Vec3(1, 0, 0);
@@ -474,6 +479,7 @@ public:
     virtual Vec3 random(const Vec3& origin, std::mt19937& gen) const { return Vec3(0, 1, 0); }
     virtual bool isLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }
+    virtual float directionFalloff(const Vec3& /*directionFromLight*/) const { return 1.0f; }
     virtual Vec3 emittedRadiance(const Vec3& /*lightNormal*/, const Vec3& /*toPointDir*/) const { return emittedRadiance(); }
     // GR dispatch — BlackHole overrides both
     virtual bool isGRObject() const { return false; }
@@ -505,6 +511,7 @@ public:
         Vec3 outwardNormal = (rec.point - center) / radius;
         rec.setFaceNormal(r, outwardNormal);
         rec.material = material;
+        rec.hitObject = this;
         float theta = std::acos(-outwardNormal.y), phi = std::atan2(-outwardNormal.z, outwardNormal.x) + M_PI;
         rec.uv = Vec2(phi / (2 * M_PI), theta / M_PI);
         return true;
@@ -540,6 +547,79 @@ public:
     Vec3  getCenter()   const { return center; }
     float getRadius()   const { return radius; }
     const std::shared_ptr<Material>& getMaterial() const { return material; }
+};
+
+class SpotLightSphere : public Hittable {
+    Vec3 center;
+    float radius;
+    Vec3 axis;
+    float outerAngle;
+    float innerAngle;
+    std::shared_ptr<Material> material;
+    bool emissive;
+public:
+    SpotLightSphere(const Vec3& c, float r, std::shared_ptr<Material> m, const Vec3& direction, float spotAngle, float spotSmooth)
+        : center(c), radius(std::max(r, 0.001f)),
+          axis(direction.length2() > 1e-12f ? direction.normalized() : Vec3(0, -1, 0)),
+          outerAngle(std::max(spotAngle * 0.5f, 1e-4f)),
+          // Blender/Cycles convention: spot_smooth=0 -> hard edge (inner=outer),
+          // spot_smooth=1 -> smooth falloff from axis to outer cone (inner=0).
+          innerAngle(std::max((1.0f - std::clamp(spotSmooth, 0.0f, 1.0f)) * spotAngle * 0.5f, 0.0f)),
+          material(m), emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {}
+
+    bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
+        Vec3 oc = r.origin - center;
+        float a = r.direction.length2(), half_b = oc.dot(r.direction);
+        float c = oc.length2() - radius * radius;
+        float discriminant = half_b * half_b - a * c;
+        if (discriminant < 0) return false;
+        float sqrtd = std::sqrt(discriminant);
+        float root = (-half_b - sqrtd) / a;
+        if (root < tMin || root > tMax) { root = (-half_b + sqrtd) / a; if (root < tMin || root > tMax) return false; }
+        rec.t = root;
+        rec.point = r.at(root);
+        Vec3 outwardNormal = (rec.point - center) / radius;
+        rec.setFaceNormal(r, outwardNormal);
+        rec.material = material;
+        rec.hitObject = this;
+        float theta = std::acos(-outwardNormal.y), phi = std::atan2(-outwardNormal.z, outwardNormal.x) + M_PI;
+        rec.uv = Vec2(phi / (2 * M_PI), theta / M_PI);
+        return true;
+    }
+
+    bool boundingBox(AABB& box) const override { box = AABB(center - Vec3(radius), center + Vec3(radius)); return true; }
+
+    float pdfValue(const Vec3& origin, const Vec3& direction) const override {
+        HitRecord rec;
+        if (!hit(Ray(origin, direction), 0.001f, std::numeric_limits<float>::max(), rec)) return 0;
+        float cosThetaMax = std::sqrt(1 - radius * radius / (center - origin).length2());
+        return 1 / (2 * M_PI * (1 - cosThetaMax));
+    }
+
+    Vec3 random(const Vec3& origin, std::mt19937& gen) const override {
+        Vec3 dir = (center - origin).normalized();
+        float distSq = (center - origin).length2();
+        float cosThetaMax = std::sqrt(1 - radius * radius / distSq);
+        std::uniform_real_distribution<float> dist(0, 1);
+        float z = 1 + dist(gen) * (cosThetaMax - 1);
+        float phi = 2 * M_PI * dist(gen);
+        Vec3 u, v;
+        buildOrthonormalBasis(dir, u, v);
+        return (u * std::cos(phi) * std::sqrt(1 - z*z) + v * std::sin(phi) * std::sqrt(1 - z*z) + dir * z).normalized();
+    }
+
+    bool isLight() const override { return emissive; }
+    Vec3 emittedRadiance() const override {
+        if (auto l = dynamic_cast<DiffuseLight*>(material.get())) return l->getEmission();
+        return Vec3(0);
+    }
+    float directionFalloff(const Vec3& directionFromLight) const override {
+        float cosAng = std::clamp(axis.dot(directionFromLight.normalized()), -1.0f, 1.0f);
+        float angle = std::acos(cosAng);
+        if (angle >= outerAngle) return 0.0f;
+        if (innerAngle >= outerAngle - 1e-6f) return 1.0f;
+        return smoothstep(outerAngle, innerAngle, angle);
+    }
 };
 
 class AreaLightShape : public Hittable {
@@ -728,9 +808,10 @@ public:
             Vec3 nInterp = (vn0 * w + vn1 * u + vn2 * v).normalized();
             rec.setFaceNormal(r, nInterp);
         } else {
-            rec.setFaceNormal(r, normal);
+        rec.setFaceNormal(r, normal);
         }
         rec.material = material;
+        rec.hitObject = this;
         rec.uv = uv0 * w + uv1 * u + uv2 * v;
         return true;
     }
@@ -935,7 +1016,7 @@ public:
             s.position = rec.point; s.normal = rec.normal;
             Vec3 toPoint = (pt - rec.point).normalized();
             Vec3 lightNormal = rec.frontFace ? rec.normal : -rec.normal;
-            s.emission = lights[idx]->emittedRadiance(lightNormal, toPoint);
+            s.emission = lights[idx]->emittedRadiance(lightNormal, toPoint) * lights[idx]->directionFalloff(toPoint);
             s.distance = rec.t; s.pdf = lights[idx]->pdfValue(pt, dir);
             float selPdf = (idx > 0 ? powerDist[idx] - powerDist[idx-1] : powerDist[0]) / totalPower;
             s.pdf *= selPdf;
@@ -1433,6 +1514,7 @@ public:
                 // light targets, so skip them safely here to avoid a NULL deref.
                 if (bRec.material) {
                     Vec3 Le = bRec.material->emitted(bRec);
+                    if (bRec.hitObject) Le *= bRec.hitObject->directionFalloff(-bs.wi);
                     if (Le != Vec3(0)) {
                         float lightPdf = (1.0f - pEnv) * lights.pdfValue(rec.point, bs.wi);
                         direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);

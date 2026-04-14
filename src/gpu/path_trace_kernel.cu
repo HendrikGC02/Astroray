@@ -380,10 +380,10 @@ __global__ void pathTraceKernel(
 
     color /= (float)samplesPerPixel;
 
-    // Gamma correction + clamp
-    color.x = powf(fminf(fmaxf(color.x, 0.f), 1.f), 1.f/2.2f);
-    color.y = powf(fminf(fmaxf(color.y, 0.f), 1.f), 1.f/2.2f);
-    color.z = powf(fminf(fmaxf(color.z, 0.f), 1.f), 1.f/2.2f);
+    // Store linear scene-referred radiance (non-negative, unclamped above 1.0)
+    color.x = fmaxf(color.x, 0.f);
+    color.y = fmaxf(color.y, 0.f);
+    color.z = fmaxf(color.z, 0.f);
 
     framebuffer[pixelIdx*3 + 0] = color.x;
     framebuffer[pixelIdx*3 + 1] = color.y;

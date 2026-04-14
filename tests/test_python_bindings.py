@@ -625,6 +625,26 @@ def test_solid_background_color():
     assert mean_r > mean_b * 2, f"Red ({mean_r:.3f}) should dominate blue ({mean_b:.3f})"
 
 
+def test_render_apply_gamma_toggle():
+    """render(apply_gamma=...) should control whether output is gamma-encoded."""
+    r = create_renderer()
+    r.set_background_color([0.25, 0.25, 0.25])
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+
+    linear = render_image(r, samples=1, apply_gamma=False)
+    gamma = render_image(r, samples=1, apply_gamma=True)
+
+    linear_mean = float(np.mean(linear))
+    gamma_mean = float(np.mean(gamma))
+    expected_gamma = float(np.power(0.25, 1.0 / 2.2))
+
+    assert abs(linear_mean - 0.25) < 0.02, f"Expected linear mean ~0.25, got {linear_mean:.3f}"
+    assert abs(gamma_mean - expected_gamma) < 0.02, \
+        f"Expected gamma mean ~{expected_gamma:.3f}, got {gamma_mean:.3f}"
+    assert gamma_mean > linear_mean + 0.2, \
+        f"Gamma output ({gamma_mean:.3f}) should be brighter than linear ({linear_mean:.3f})"
+
+
 # ---------------------------------------------------------------------------
 # GPU tests (Phase 2B)
 # ---------------------------------------------------------------------------

@@ -5,6 +5,12 @@
 #include <fstream>
 #include <chrono>
 #include <iomanip>
+#include <algorithm>
+#include <cmath>
+
+static inline float toDisplay(float linear) {
+    return std::pow(std::clamp(linear, 0.0f, 1.0f), 1.0f / 2.2f);
+}
 
 void writePPM(const std::string& filename, const Camera& cam) {
     std::ofstream file(filename, std::ios::binary);
@@ -13,9 +19,9 @@ void writePPM(const std::string& filename, const Camera& cam) {
         for (int x = 0; x < cam.width; ++x) {
             Vec3 color = cam.pixels[y * cam.width + x];
             unsigned char pixel[3] = {
-                static_cast<unsigned char>(255.99f * color.x),
-                static_cast<unsigned char>(255.99f * color.y),
-                static_cast<unsigned char>(255.99f * color.z)
+                static_cast<unsigned char>(255.99f * toDisplay(color.x)),
+                static_cast<unsigned char>(255.99f * toDisplay(color.y)),
+                static_cast<unsigned char>(255.99f * toDisplay(color.z))
             };
             file.write(reinterpret_cast<char*>(pixel), 3);
         }
@@ -29,9 +35,9 @@ bool writePNG(const std::string& filename, const Camera& cam) {
     for (int y = 0; y < cam.height; ++y) {
         for (int x = 0; x < cam.width; ++x) {
             Vec3 color = cam.pixels[y * cam.width + x];
-            pixels[idx++] = static_cast<unsigned char>(255.99f * color.x);
-            pixels[idx++] = static_cast<unsigned char>(255.99f * color.y);
-            pixels[idx++] = static_cast<unsigned char>(255.99f * color.z);
+            pixels[idx++] = static_cast<unsigned char>(255.99f * toDisplay(color.x));
+            pixels[idx++] = static_cast<unsigned char>(255.99f * toDisplay(color.y));
+            pixels[idx++] = static_cast<unsigned char>(255.99f * toDisplay(color.z));
         }
     }
     int success = stbi_write_png(filename.c_str(), cam.width, cam.height, 3, pixels.data(), cam.width * 3);

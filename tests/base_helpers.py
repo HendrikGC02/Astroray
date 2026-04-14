@@ -58,15 +58,16 @@ def setup_camera(renderer: 'astroray.Renderer',
 def render_image(renderer: 'astroray.Renderer',
                  samples: int = 32,
                  max_depth: int = 8,
-                 show_progress: bool = False) -> np.ndarray:
-    """Render and return image as numpy array (H x W x 3, float32 in [0,1])"""
+                 show_progress: bool = False,
+                 apply_gamma: bool = True) -> np.ndarray:
+    """Render and return image as numpy array (H x W x 3)."""
     if show_progress:
         def progress_cb(p):
             print(f"\rRendering: {int(p * 100)}%", end="", flush=True)
-        pixels = renderer.render(samples, max_depth, progress_cb)
+        pixels = renderer.render(samples, max_depth, progress_cb, apply_gamma)
         print()
     else:
-        pixels = renderer.render(samples, max_depth)
+        pixels = renderer.render(samples, max_depth, None, apply_gamma)
     return pixels
 
 

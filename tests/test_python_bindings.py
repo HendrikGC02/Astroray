@@ -43,6 +43,7 @@ CENTER_SLICE_RADIUS = 12
 MAX_GLOSSY_PARITY_MSE = 0.015
 MAX_GLASS_PARITY_MEAN_DIFF = 0.25
 MAX_GLASS_PARITY_P95_DIFF = 0.25
+MIN_SUN_SHADOW_MSE = 5e-4
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +270,46 @@ def test_spot_light_blend_softens_cone_edges():
     soft_mid = float(np.mean((soft_lum >= 0.02) & (soft_lum < 0.20)))
     assert soft_mid > sharp_mid + 0.03, \
         f"Expected blend to create more soft-edge midtones (sharp={sharp_mid:.4f}, soft={soft_mid:.4f})"
+
+
+def test_sun_light_angle_controls_shadow_softness():
+    def render_sun_shadow(angle):
+        r = create_renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+
+        floor = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
+        blocker = r.create_material('lambertian', [0.7, 0.2, 0.2], {})
+        sun = r.create_material('light', [1.0, 0.98, 0.9], {'intensity': 4.0})
+
+        r.add_triangle([-2, -1, -2], [2, -1, 2], [2, -1, -2], floor)
+        r.add_triangle([-2, -1, -2], [-2, -1, 2], [2, -1, 2], floor)
+        r.add_sphere([0.0, -0.2, 0.0], 0.8, blocker)
+        r.add_sun_light([0.0, -1.0, -0.4], angle, sun)
+
+        setup_camera(r, look_from=[0, 1.8, 4.5], look_at=[0, -0.7, 0], vfov=35, width=W, height=H)
+        return render_image(r, samples=48, max_depth=6)
+
+    sharp = render_sun_shadow(0.0)
+    soft = render_sun_shadow(0.05)
+    assert_valid_image(sharp, H, W, min_brightness=0.15, label='sun_sharp')
+    assert_valid_image(soft, H, W, min_brightness=0.15, label='sun_soft')
+
+    mse = float(np.mean((sharp - soft) ** 2))
+    assert mse > MIN_SUN_SHADOW_MSE, \
+        f"Sun angle change should visibly alter shadows (MSE={mse:.6f}, min={MIN_SUN_SHADOW_MSE})"
+
+    sharp_luma = np.mean(sharp, axis=2)
+    soft_luma = np.mean(soft, axis=2)
+    roi = (slice(70, 130), slice(40, 160))
+    sharp_grad = np.abs(np.diff(sharp_luma[roi], axis=1))
+    soft_grad = np.abs(np.diff(soft_luma[roi], axis=1))
+    sharp_grad_mean = float(np.mean(sharp_grad))
+    soft_grad_mean = float(np.mean(soft_grad))
+    assert soft_grad_mean < sharp_grad_mean, \
+        f"Expected softer penumbra gradients for angle=0.05 ({soft_grad_mean:.6f} >= {sharp_grad_mean:.6f})"
+
+    save_image(sharp, os.path.join(OUTPUT_DIR, 'test_sun_shadow_sharp.png'))
+    save_image(soft, os.path.join(OUTPUT_DIR, 'test_sun_shadow_soft.png'))
 
 
 def test_mix_shader_blends_principled_red_blue_to_purple():

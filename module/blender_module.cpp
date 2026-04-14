@@ -134,6 +134,12 @@ public:
         renderer.addObject(std::make_shared<Sphere>(pos, radius, mat));
     }
 
+    void addSunLight(const std::vector<float>& direction, float angularDiameter, int materialId) {
+        Vec3 dir(direction[0], direction[1], direction[2]);
+        auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
+        renderer.addObject(std::make_shared<DistantLight>(dir, angularDiameter, mat));
+    }
+
     void addSpotLight(const std::vector<float>& center, const std::vector<float>& direction, float radius,
                      int materialId, float spotAngle, float spotSmooth) {
         Vec3 pos(center[0], center[1], center[2]);
@@ -464,6 +470,7 @@ PYBIND11_MODULE(astroray, m) {
         .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a)
         .def("add_spot_light", &PyRenderer::addSpotLight, "center"_a, "direction"_a, "radius"_a,
              "material_id"_a, "spot_angle"_a, "spot_smooth"_a)
+        .def("add_sun_light", &PyRenderer::addSunLight, "direction"_a, "angular_diameter"_a, "material_id"_a)
         .def("add_area_light", &PyRenderer::addAreaLight,
              "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,
              "shape"_a, "material_id"_a, "spread"_a = 1.0f)

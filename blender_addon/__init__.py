@@ -1078,8 +1078,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             if light.type == 'POINT': renderer.add_sphere(position, 0.1, mat_id)
             elif light.type == 'SUN':
                 direction = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))
-                sun_pos = [position[0] - direction.x * 1000, position[1] - direction.y * 1000, position[2] - direction.z * 1000]
-                renderer.add_sphere(sun_pos, 100.0, mat_id)
+                angle = float(getattr(light, 'angle', 0.0))
+                renderer.add_sun_light([direction.x, direction.y, direction.z], angle, mat_id)
             elif light.type == 'AREA':
                 basis = matrix.to_3x3()
                 axis_u = list((basis @ mathutils.Vector((1, 0, 0))).normalized())

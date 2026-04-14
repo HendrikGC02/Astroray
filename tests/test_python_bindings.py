@@ -38,6 +38,8 @@ W, H = 200, 150   # fast default resolution for most tests
 SAMPLES_FAST = 16
 SAMPLES_MED  = 64
 SAMPLES_HIGH = 256
+MIN_VISIBLE_PIXELS = 20
+CENTER_SLICE_RADIUS = 12
 MAX_GLOSSY_PARITY_MSE = 0.015
 MAX_GLASS_PARITY_MEAN_DIFF = 0.25
 MAX_GLASS_PARITY_P95_DIFF = 0.25
@@ -95,6 +97,84 @@ def test_create_all_material_types():
     r.create_material('subsurface', [0.9, 0.6, 0.5], {'scatter_distance': [1.0, 0.2, 0.1]})
 
 
+def _render_visible_area_light(shape: str, size_x: float, size_y: float, spread: float = 1.0, samples: int = 48):
+    r = create_renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 45.0})
+    r.add_area_light([0, 0, 0], [1, 0, 0], [0, 1, 0], size_x, size_y, shape, light, spread)
+    setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], vfov=24, width=W, height=H)
+    return render_image(r, samples=samples), r
+
+
+def _bright_mask_fill_ratio(img: np.ndarray) -> float:
+    lum = img.mean(axis=2)
+    threshold = np.percentile(lum, 99.0)
+    ys, xs = np.where(lum >= threshold)
+    assert len(xs) > MIN_VISIBLE_PIXELS, "Expected visible bright area-light pixels"
+    x0, x1 = int(xs.min()), int(xs.max())
+    y0, y1 = int(ys.min()), int(ys.max())
+    bbox_area = max(1, (x1 - x0 + 1) * (y1 - y0 + 1))
+    return float(len(xs) / bbox_area)
+
+
+def test_area_light_shapes_affect_specular_reflection_and_support_ellipse():
+    rect, _ = _render_visible_area_light('RECTANGLE', 1.8, 0.55, spread=1.0, samples=SAMPLES_FAST)
+    disk, _ = _render_visible_area_light('DISK', 1.8, 1.8, spread=1.0, samples=SAMPLES_FAST)
+    ellipse, _ = _render_visible_area_light('ELLIPSE', 1.8, 0.55, spread=1.0, samples=SAMPLES_FAST)
+
+    rect_fill = _bright_mask_fill_ratio(rect)
+    disk_fill = _bright_mask_fill_ratio(disk)
+    ellipse_fill = _bright_mask_fill_ratio(ellipse)
+
+    assert rect_fill > disk_fill + 0.10, \
+        f"Rectangle footprint should fill its bbox more than disk ({rect_fill:.3f} vs {disk_fill:.3f})"
+    assert ellipse_fill < rect_fill - 0.05, \
+        f"Ellipse footprint should have rounded corners vs rectangle ({ellipse_fill:.3f} vs {rect_fill:.3f})"
+
+    save_image(rect, os.path.join(OUTPUT_DIR, 'test_area_light_rectangle_specular.png'))
+    save_image(disk, os.path.join(OUTPUT_DIR, 'test_area_light_disk_specular.png'))
+    save_image(ellipse, os.path.join(OUTPUT_DIR, 'test_area_light_ellipse_specular.png'))
+
+
+def test_area_light_spread_focuses_beam():
+    def render_lit_wall(spread: float) -> np.ndarray:
+        r = create_renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+        light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 60.0})
+        wall = r.create_material('lambertian', [0.8, 0.8, 0.8], {})
+        r.add_area_light([0, 0, 2.2], [1, 0, 0], [0, -1, 0], 1.4, 1.4, 'RECTANGLE', light, spread)
+        r.add_triangle([-2.5, -2.5, 0.0], [2.5, -2.5, 0.0], [2.5, 2.5, 0.0], wall)
+        r.add_triangle([-2.5, -2.5, 0.0], [2.5, 2.5, 0.0], [-2.5, 2.5, 0.0], wall)
+        setup_camera(r, look_from=[1.5, 0, 3.8], look_at=[0, 0, 0.0], vfov=30, width=W, height=H)
+        return render_image(r, samples=SAMPLES_MED, apply_gamma=False)
+
+    wide = render_lit_wall(spread=1.0)
+    focused = render_lit_wall(spread=0.1)
+
+    wide_lum = wide.mean(axis=2)
+    focused_lum = focused.mean(axis=2)
+    cy, cx = np.unravel_index(np.argmax(wide_lum), wide_lum.shape)
+    center_slice = (slice(max(cy - CENTER_SLICE_RADIUS, 0), min(cy + CENTER_SLICE_RADIUS, H)),
+                    slice(max(cx - CENTER_SLICE_RADIUS, 0), min(cx + CENTER_SLICE_RADIUS, W)))
+    center_wide = float(np.mean(wide_lum[center_slice]))
+    center_focused = float(np.mean(focused_lum[center_slice]))
+
+    outer_wide = np.copy(wide_lum)
+    outer_focused = np.copy(focused_lum)
+    outer_wide[center_slice] = np.nan
+    outer_focused[center_slice] = np.nan
+    mean_outer_wide = float(np.nanmean(outer_wide))
+    mean_outer_focused = float(np.nanmean(outer_focused))
+
+    ratio_wide = center_wide / (mean_outer_wide + 1e-6)
+    ratio_focused = center_focused / (mean_outer_focused + 1e-6)
+    assert ratio_focused > ratio_wide * 1.10, \
+        f"spread=0.1 should focus energy toward center ({ratio_focused:.3f} vs {ratio_wide:.3f})"
+    assert float(np.mean(focused_lum)) < float(np.mean(wide_lum)) * 0.5, \
+        "Narrow spread should reduce total illuminated area/energy on the wall"
+
+    save_image(wide, os.path.join(OUTPUT_DIR, 'test_area_light_spread_wide.png'))
+    save_image(focused, os.path.join(OUTPUT_DIR, 'test_area_light_spread_focused.png'))
 def _render_material_parity_scene(mat_type, color, params, samples=SAMPLES_MED):
     r = create_renderer()
     create_cornell_box(r)
@@ -215,6 +295,46 @@ def test_add_shader_principled_and_emission_keeps_surface_and_emission():
     assert combined['kind'] == 'principled'
     assert np.allclose(combined['base_color'], [0.7, 0.5, 0.3], atol=1e-6)
     assert combined['emission_strength'] >= 2.0
+
+
+def test_volume_absorption_blue_tint_biases_render_blue():
+    r = create_renderer()
+    setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], width=W, height=H)
+    r.add_volume([0, 0, 0], 1.5, 1.0, [0.2, 0.3, 1.0], 0.0)
+    pixels = render_image(r, samples=SAMPLES_FAST)
+
+    center_crop = pixels[H // 4:(3 * H) // 4, W // 4:(3 * W) // 4, :]
+    means = np.mean(center_crop, axis=(0, 1))
+    assert means[2] > means[0], \
+        f"Expected blue > red for volume tint, got R={means[0]:.3f}, G={means[1]:.3f}, B={means[2]:.3f}"
+
+
+def test_volume_scatter_anisotropy_changes_render():
+    def render_volume(anisotropy):
+        r = create_renderer()
+        setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], width=W, height=H)
+        r.add_volume([0, 0, 0], 1.5, 1.0, [0.8, 0.8, 0.8], anisotropy)
+        return render_image(r, samples=SAMPLES_FAST)
+
+    iso = render_volume(0.0)
+    forward = render_volume(0.8)
+    mse = float(np.mean((iso - forward) ** 2))
+    assert mse > 1e-4, f"Expected anisotropy to change scattering appearance (MSE={mse:.6f})"
+
+
+def test_principled_volume_emission_strength_glows():
+    def render_mean(emission_strength):
+        r = create_renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+        setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], width=W, height=H)
+        r.add_volume([0, 0, 0], 1.0, 1.0, [0.9, 0.6, 0.3], 0.0,
+                     emission_strength, [1.0, 0.8, 0.6])
+        return float(np.mean(render_image(r, samples=SAMPLES_FAST)))
+
+    mean_no_emission = render_mean(0.0)
+    mean_with_emission = render_mean(1.0)
+    assert mean_with_emission > mean_no_emission + 0.01, \
+        f"Expected emissive principled volume to glow ({mean_with_emission:.3f} <= {mean_no_emission:.3f})"
 
 
 # ---------------------------------------------------------------------------

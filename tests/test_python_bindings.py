@@ -38,6 +38,9 @@ W, H = 200, 150   # fast default resolution for most tests
 SAMPLES_FAST = 16
 SAMPLES_MED  = 64
 SAMPLES_HIGH = 256
+MAX_GLOSSY_PARITY_MSE = 0.015
+MAX_GLASS_PARITY_MEAN_DIFF = 0.25
+MAX_GLASS_PARITY_P95_DIFF = 0.25
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +93,62 @@ def test_create_all_material_types():
     r.create_material('light',      [1.0, 0.9, 0.8], {'intensity': 10.0})
     r.create_material('disney',     [0.7, 0.5, 0.3], {'metallic': 0.5, 'roughness': 0.3})
     r.create_material('subsurface', [0.9, 0.6, 0.5], {'scatter_distance': [1.0, 0.2, 0.1]})
+
+
+def _render_material_parity_scene(mat_type, color, params, samples=SAMPLES_MED):
+    r = create_renderer()
+    create_cornell_box(r)
+    mat = r.create_material(mat_type, color, params)
+    r.add_sphere([0, -0.8, 0], 1.2, mat)
+    setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
+    pixels = render_image(r, samples=samples)
+    assert_valid_image(pixels, H, W, min_mean=0.02, label=f"{mat_type}_parity")
+    return pixels
+
+
+def _center_crop(img, frac=0.5):
+    h, w, _ = img.shape
+    ch = max(1, int(h * frac))
+    cw = max(1, int(w * frac))
+    y0 = (h - ch) // 2
+    x0 = (w - cw) // 2
+    return img[y0:y0 + ch, x0:x0 + cw]
+
+
+def test_center_crop_helper_keeps_center_region():
+    img = np.arange(4 * 6 * 3, dtype=np.float32).reshape(4, 6, 3)
+    cropped = _center_crop(img, frac=0.5)
+    assert cropped.shape == (2, 3, 3)
+    assert np.array_equal(cropped, img[1:3, 1:4, :])
+
+
+def test_glossy_matches_principled_metallic_roughness():
+    rough = 0.35
+    color = [0.9, 0.8, 0.7]
+    glossy = _render_material_parity_scene('metal', color, {'roughness': rough}, samples=SAMPLES_MED)
+    principled_metal = _render_material_parity_scene(
+        'disney', color, {'metallic': 1.0, 'roughness': rough}, samples=SAMPLES_MED
+    )
+
+    glossy_center = _center_crop(glossy, frac=0.5)
+    principled_center = _center_crop(principled_metal, frac=0.5)
+    mse, _ = calculate_image_metrics(glossy_center, principled_center)
+    assert mse < MAX_GLOSSY_PARITY_MSE, f"Glossy vs Principled metallic mismatch too large (center-crop MSE={mse:.5f})"
+
+
+def test_glass_matches_principled_transmission_ior():
+    ior = 1.5
+    glass = _render_material_parity_scene('glass', [1.0, 1.0, 1.0], {'ior': ior}, samples=SAMPLES_MED)
+    principled_glass = _render_material_parity_scene(
+        'disney', [1.0, 1.0, 1.0], {'transmission': 1.0, 'ior': ior, 'roughness': 0.0}, samples=SAMPLES_MED
+    )
+
+    glass_center = _center_crop(glass, frac=0.5)
+    principled_center = _center_crop(principled_glass, frac=0.5)
+    mean_diff = abs(float(np.mean(glass_center)) - float(np.mean(principled_center)))
+    p95_diff = abs(float(np.percentile(glass_center, 95)) - float(np.percentile(principled_center, 95)))
+    assert mean_diff < MAX_GLASS_PARITY_MEAN_DIFF, f"Glass vs Principled mean mismatch too large (center-crop diff={mean_diff:.5f})"
+    assert p95_diff < MAX_GLASS_PARITY_P95_DIFF, f"Glass vs Principled highlight mismatch too large (center-crop p95 diff={p95_diff:.5f})"
 
 
 def test_mix_shader_blends_principled_red_blue_to_purple():

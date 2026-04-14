@@ -593,6 +593,74 @@ class CustomRaytracerRenderEngine(RenderEngine):
             'emission_strength': self.get_float_input(node, 'Emission Strength', 0.0),
         }
 
+    def _warn_shader_fallback(self, node_type, message):
+        key = f"{node_type}:{message}"
+        warned = getattr(self, '_shader_fallback_warnings', None)
+        if warned is None:
+            warned = set()
+            self._shader_fallback_warnings = warned
+        if key in warned:
+            return
+        warned.add(key)
+        text = f"Astroray: {node_type} fallback: {message}"
+        try:
+            self.report({'WARNING'}, text)
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            print(f"Astroray: could not forward warning to Blender UI ({exc})")
+        print(text)
+
+    def _standalone_bsdf_spec(self, node):
+        ntype = node.type
+        if ntype == 'BSDF_DIFFUSE':
+            color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
+            rough = self.get_float_input(node, 'Roughness', 0.0)
+            if rough > 1e-4:
+                self._warn_shader_fallback('BSDF_DIFFUSE', 'Oren-Nayar diffuse is approximated with Disney rough diffuse')
+            return {'kind': 'principled', 'base_color': color, 'params': {'metallic': 0.0, 'roughness': rough}}
+        if ntype in ('BSDF_GLOSSY', 'BSDF_ANISOTROPIC'):
+            color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
+            rough = self.get_float_input(node, 'Roughness', 0.5)
+            params = {'metallic': 1.0, 'roughness': rough}
+            if ntype == 'BSDF_ANISOTROPIC':
+                if node.inputs.get('Anisotropy') is not None:
+                    params['anisotropic'] = self.get_float_input(node, 'Anisotropy', 0.0)
+                else:
+                    params['anisotropic'] = self.get_float_input(node, 'Anisotropic', 0.0)
+            return {'kind': 'principled', 'base_color': color, 'params': params}
+        if ntype == 'BSDF_GLASS':
+            color = self.get_color_input(node, 'Color', [1.0, 1.0, 1.0])
+            rough = self.get_float_input(node, 'Roughness', 0.0)
+            ior = self.get_float_input(node, 'IOR', 1.5)
+            return {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'ior': ior, 'roughness': rough}}
+        if ntype == 'BSDF_TRANSLUCENT':
+            color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
+            self._warn_shader_fallback('BSDF_TRANSLUCENT', 'true normal-flipped diffuse transmission is approximated with rough transmission')
+            return {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'roughness': 1.0, 'ior': 1.0}}
+        if ntype == 'BSDF_TRANSPARENT':
+            color = self.get_color_input(node, 'Color', [1.0, 1.0, 1.0])
+            return {'kind': 'transparent', 'base_color': color}
+        if ntype == 'BSDF_REFRACTION':
+            color = self.get_color_input(node, 'Color', [1.0, 1.0, 1.0])
+            rough = self.get_float_input(node, 'Roughness', 0.0)
+            ior = self.get_float_input(node, 'IOR', 1.5)
+            self._warn_shader_fallback('BSDF_REFRACTION', 'pure refraction without Fresnel reflection is approximated with Disney transmission')
+            return {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'roughness': rough, 'ior': ior}}
+        if ntype == 'BSDF_SHEEN':
+            color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
+            rough = self.get_float_input(node, 'Roughness', 0.5)
+            weight = self.get_float_input(node, 'Weight', 1.0)
+            self._warn_shader_fallback('BSDF_SHEEN', 'Cycles microfiber sheen is approximated with Disney sheen')
+            return {'kind': 'principled', 'base_color': color, 'params': {'sheen': weight, 'roughness': rough}}
+        if ntype == 'BSDF_METALLIC':
+            if node.inputs.get('Base Color') is not None:
+                color = self.get_color_input(node, 'Base Color', [0.8, 0.8, 0.8])
+            else:
+                color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
+            rough = self.get_float_input(node, 'Roughness', 0.2)
+            self._warn_shader_fallback('BSDF_METALLIC', 'F82 edge tint is approximated with Disney metallic base color')
+            return {'kind': 'principled', 'base_color': color, 'params': {'metallic': 1.0, 'roughness': rough}}
+        return None
+
     def _shader_spec_from_node(self, node, renderer, node_tree, depth=0):
         if node is None or depth > 32:
             return None
@@ -600,14 +668,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         if ntype == 'BSDF_PRINCIPLED':
             return self._principled_shader_spec(node)
-        if ntype == 'BSDF_DIFFUSE':
-            return {'kind': 'principled', 'base_color': self.get_color_input(node, 'Color', [0.8, 0.8, 0.8]), 'params': {}}
-        if ntype == 'BSDF_GLOSSY' or ntype == 'BSDF_ANISOTROPIC':
-            return {'kind': 'principled', 'base_color': self.get_color_input(node, 'Color', [0.8, 0.8, 0.8]), 'params': {'metallic': 1.0, 'roughness': self.get_float_input(node, 'Roughness', 0.5)}}
-        if ntype == 'BSDF_GLASS':
-            return {'kind': 'principled', 'base_color': [1.0, 1.0, 1.0], 'params': {'transmission': 1.0, 'ior': self.get_float_input(node, 'IOR', 1.5), 'roughness': self.get_float_input(node, 'Roughness', 0.0)}}
-        if ntype == 'BSDF_TRANSPARENT':
-            return {'kind': 'transparent'}
+        standalone = self._standalone_bsdf_spec(node)
+        if standalone is not None:
+            return standalone
         if ntype == 'EMISSION':
             return {'kind': 'emission', 'base_color': self.get_color_input(node, 'Color', [1.0, 1.0, 1.0]), 'emission_strength': self.get_float_input(node, 'Strength', 1.0)}
         if ntype == 'MIX_SHADER':
@@ -651,35 +714,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
             return renderer.create_material('disney', color, params)
 
+        if kind == 'transparent':
+            color = list(spec.get('base_color', [1.0, 1.0, 1.0]))
+            return renderer.create_material('disney', color, {'transmission': 1.0, 'roughness': 0.0, 'ior': 1.0})
+
         return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
 
     def convert_shader_node(self, node, renderer, node_tree):
         """Route a surface-shader node to the appropriate material builder."""
-        ntype = node.type
-        if ntype == 'BSDF_PRINCIPLED':
-            return self.convert_principled_bsdf_v2(node, renderer)
-        if ntype == 'EMISSION':
-            color = self.get_color_input(node, 'Color', [1, 1, 1])
-            strength = self.get_float_input(node, 'Strength', 1.0)
-            return renderer.create_material('light', color, {'intensity': strength})
-        if ntype == 'BSDF_GLASS':
-            ior = self.get_float_input(node, 'IOR', 1.5)
-            return renderer.create_material('glass', [1, 1, 1], {'ior': ior})
-        if ntype == 'BSDF_DIFFUSE':
-            color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
-            return renderer.create_material('lambertian', color, {})
-        if ntype in ('BSDF_GLOSSY', 'BSDF_ANISOTROPIC'):
-            color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
-            rough = self.get_float_input(node, 'Roughness', 0.5)
-            return renderer.create_material('metal', color, {'roughness': rough})
-        if ntype == 'MIX_SHADER':
-            spec = self._shader_spec_from_node(node, renderer, node_tree)
-            return self._create_material_from_shader_spec(spec, renderer)
-        if ntype == 'ADD_SHADER':
-            spec = self._shader_spec_from_node(node, renderer, node_tree)
-            return self._create_material_from_shader_spec(spec, renderer)
-        # Unknown — safe default
-        return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+        spec = self._shader_spec_from_node(node, renderer, node_tree)
+        return self._create_material_from_shader_spec(spec, renderer)
 
     def _float_with_fallback(self, node, new_name, old_name, default):
         """Principled BSDF renamed several inputs between Blender 3.x and 4.x

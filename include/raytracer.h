@@ -2064,7 +2064,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
                     Vec3 aoLocal = Vec3::randomCosineDirection(gen);
                     Vec3 aoDir = (u * aoLocal.x + v * aoLocal.y + rec.normal * aoLocal.z).normalized();
                     HitRecord aoHit;
-                    if (bvh->hit(Ray(rec.point, aoDir), 0.001f, 1.0f, aoHit)) {
+                    if (!bvh->hit(Ray(rec.point, aoDir), 0.001f, 1.0f, aoHit)) {
                         passAccum[PASS_AO] += Vec3(1.0f);
                     }
                 }
@@ -2250,7 +2250,6 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                             float v = 1.0f - (y + filterSample(gen, dist)) / (cam.height - 1);
                             Vec3 sAlb, sNorm;
                             std::array<Vec3, PASS_COUNT> sPass;
-                            sPass.fill(Vec3(0));
                             float sAlpha = 1.0f;
                             Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, bounceLimits, gen,
                                                   s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha, &sPass);

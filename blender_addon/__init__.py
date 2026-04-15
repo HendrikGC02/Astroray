@@ -1507,14 +1507,38 @@ class CustomRaytracerRenderEngine(RenderEngine):
         print(f"Astroray: converted {obj_count} meshes, {tri_count} triangles")
 
     def convert_lights(self, depsgraph, renderer):
+        def _resolve_ies_path(light_data):
+            cycles_settings = getattr(light_data, 'cycles', None)
+            candidates = []
+            for source in (cycles_settings, light_data):
+                if source is None:
+                    continue
+                for name in ('ies', 'ies_file', 'ies_profile'):
+                    value = getattr(source, name, None)
+                    if value:
+                        candidates.append(value)
+            for value in candidates:
+                if hasattr(value, 'filepath') and value.filepath:
+                    return bpy.path.abspath(value.filepath)
+                if isinstance(value, str) and value:
+                    return bpy.path.abspath(value)
+            return ""
+
         for obj in depsgraph.objects:
             if obj.type != 'LIGHT': continue
             light = obj.data
             matrix = obj.matrix_world
             position = list(matrix.translation)
             mat_id = renderer.create_material('light', list(light.color), {'intensity': float(light.energy)})
-            
-            if light.type == 'POINT': renderer.add_sphere(position, 0.1, mat_id)
+            ies_path = _resolve_ies_path(light)
+             
+            if light.type == 'POINT':
+                direction = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))
+                if direction.length_squared > 0.0:
+                    direction.normalize()
+                else:
+                    direction = mathutils.Vector((0.0, -1.0, 0.0))
+                renderer.add_sphere(position, 0.1, mat_id, [direction.x, direction.y, direction.z], ies_path)
             elif light.type == 'SUN':
                 direction = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))
                 angle = float(getattr(light, 'angle', 0.0))
@@ -1549,6 +1573,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     mat_id,
                     float(light.spot_size),
                     float(light.spot_blend),
+                    ies_path,
                 )
     
     def setup_world(self, scene, renderer):

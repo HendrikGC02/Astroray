@@ -215,10 +215,15 @@ public:
         return id;
     }
     
-    void addSphere(const std::vector<float>& center, float radius, int materialId) {
+    void addSphere(const std::vector<float>& center, float radius, int materialId,
+                   const std::vector<float>& iesDirection = std::vector<float>(),
+                   const std::string& iesFile = "") {
         Vec3 pos(center[0], center[1], center[2]);
+        Vec3 dir(0.0f, -1.0f, 0.0f);
+        if (iesDirection.size() == 3) dir = Vec3(iesDirection[0], iesDirection[1], iesDirection[2]);
+        auto iesProfile = IESProfile::loadFromFile(iesFile);
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
-        renderer.addObject(std::make_shared<Sphere>(pos, radius, mat));
+        renderer.addObject(std::make_shared<Sphere>(pos, radius, mat, dir, iesProfile));
     }
 
     void addSunLight(const std::vector<float>& direction, float angularDiameter, int materialId) {
@@ -228,11 +233,12 @@ public:
     }
 
     void addSpotLight(const std::vector<float>& center, const std::vector<float>& direction, float radius,
-                     int materialId, float spotAngle, float spotSmooth) {
+                     int materialId, float spotAngle, float spotSmooth, const std::string& iesFile = "") {
         Vec3 pos(center[0], center[1], center[2]);
         Vec3 dir(direction[0], direction[1], direction[2]);
+        auto iesProfile = IESProfile::loadFromFile(iesFile);
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<DiffuseLight>(Vec3(1.0f), 1.0f);
-        renderer.addObject(std::make_shared<SpotLightSphere>(pos, radius, mat, dir, spotAngle, spotSmooth));
+        renderer.addObject(std::make_shared<SpotLightSphere>(pos, radius, mat, dir, spotAngle, spotSmooth, iesProfile));
     }
 
     void addAreaLight(const std::vector<float>& center, const std::vector<float>& axisU,
@@ -573,9 +579,10 @@ PYBIND11_MODULE(astroray, m) {
              "name"_a, "type"_a, "params"_a, "coord_mode"_a = "UV")
         .def("set_texture_coord_mode", &PyRenderer::setTextureCoordMode, "name"_a, "coord_mode"_a)
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
-        .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a)
+        .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a,
+             "ies_direction"_a = std::vector<float>(), "ies_file"_a = std::string())
         .def("add_spot_light", &PyRenderer::addSpotLight, "center"_a, "direction"_a, "radius"_a,
-             "material_id"_a, "spot_angle"_a, "spot_smooth"_a)
+             "material_id"_a, "spot_angle"_a, "spot_smooth"_a, "ies_file"_a = std::string())
         .def("add_sun_light", &PyRenderer::addSunLight, "direction"_a, "angular_diameter"_a, "material_id"_a)
         .def("add_area_light", &PyRenderer::addAreaLight,
              "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,

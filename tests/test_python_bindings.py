@@ -246,6 +246,81 @@ def _render_spot_on_plane(blend: float) -> np.ndarray:
     return render_image(r, samples=64, max_depth=6)
 
 
+def _write_test_ies(path: str) -> None:
+    # Minimal LM-63 style profile:
+    # - 3 vertical angles (0,45,90)
+    # - 2 horizontal angles (0,180) with strong asymmetry
+    #   so +X receives much more flux than -X for axis=(0,-1,0).
+    content = """IESNA:LM-63-1995
+TILT=NONE
+1 1000 1 3 2 1 1 0.1 0.1 0.1 1 1 10
+0 45 90
+0 180
+1.0 1.0 0.2
+0.1 0.1 0.02
+"""
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+
+def _render_spot_with_optional_ies(ies_file: str = "") -> np.ndarray:
+    r = create_renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    floor = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
+    light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 120.0})
+    r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, -3.0], [3.0, 0.0, 3.0], floor)
+    r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, 3.0], [-3.0, 0.0, 3.0], floor)
+    r.add_spot_light([0.0, 3.0, 0.0], [0.0, -1.0, 0.0], 0.08, light, 1.2, 0.2, ies_file)
+    setup_camera(r, look_from=[0.0, 5.0, 0.0], look_at=[0.0, 0.0, 0.0],
+                 vup=[0.0, 0.0, -1.0], vfov=42, width=W, height=H)
+    return render_image(r, samples=64, max_depth=6)
+
+
+def _render_point_with_optional_ies(ies_file: str = "") -> np.ndarray:
+    r = create_renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    floor = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
+    light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 120.0})
+    r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, -3.0], [3.0, 0.0, 3.0], floor)
+    r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, 3.0], [-3.0, 0.0, 3.0], floor)
+    r.add_sphere([0.0, 3.0, 0.0], 0.08, light, [0.0, -1.0, 0.0], ies_file)
+    setup_camera(r, look_from=[0.0, 5.0, 0.0], look_at=[0.0, 0.0, 0.0],
+                 vup=[0.0, 0.0, -1.0], vfov=42, width=W, height=H)
+    return render_image(r, samples=64, max_depth=6)
+
+
+def test_spot_light_ies_profile_creates_nonuniform_pattern(tmp_path):
+    ies_path = os.path.join(tmp_path, 'asymmetric.ies')
+    _write_test_ies(ies_path)
+    img = _render_spot_with_optional_ies(ies_path)
+    lum = img.mean(axis=2)
+    cy, cx = H // 2, W // 2
+    left = float(np.mean(lum[cy-12:cy+12, cx-45:cx-15]))
+    right = float(np.mean(lum[cy-12:cy+12, cx+15:cx+45]))
+    assert right > left * 1.6, f"Expected IES asymmetry on floor (left={left:.4f}, right={right:.4f})"
+
+
+def test_spot_light_without_ies_remains_near_symmetric():
+    img = _render_spot_with_optional_ies("")
+    lum = img.mean(axis=2)
+    cy, cx = H // 2, W // 2
+    left = float(np.mean(lum[cy-12:cy+12, cx-45:cx-15]))
+    right = float(np.mean(lum[cy-12:cy+12, cx+15:cx+45]))
+    ratio = right / max(left, 1e-6)
+    assert 0.8 <= ratio <= 1.25, f"Expected no-IES spotlight symmetry (left={left:.4f}, right={right:.4f}, ratio={ratio:.3f})"
+
+
+def test_point_light_ies_profile_creates_nonuniform_pattern(tmp_path):
+    ies_path = os.path.join(tmp_path, 'asymmetric_point.ies')
+    _write_test_ies(ies_path)
+    img = _render_point_with_optional_ies(ies_path)
+    lum = img.mean(axis=2)
+    cy, cx = H // 2, W // 2
+    left = float(np.mean(lum[cy-12:cy+12, cx-45:cx-15]))
+    right = float(np.mean(lum[cy-12:cy+12, cx+15:cx+45]))
+    assert right > left * 1.6, f"Expected point-light IES asymmetry (left={left:.4f}, right={right:.4f})"
+
+
 def test_spot_light_sharp_cone_on_floor_plane():
     img = _render_spot_on_plane(blend=0.0)
     lum = img.mean(axis=2)

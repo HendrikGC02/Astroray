@@ -167,6 +167,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self.report({'ERROR'}, "Raytracer module not available")
             return
         scene = depsgraph.scene
+        view_layer = getattr(depsgraph, "view_layer", None)
+        if view_layer is not None and not bool(getattr(view_layer, "use", True)):
+            print(f"Skipping view layer '{view_layer.name}' (Use for Rendering disabled)")
+            return
         scale = scene.render.resolution_percentage / 100.0
         width = int(scene.render.resolution_x * scale)
         height = int(scene.render.resolution_y * scale)
@@ -206,7 +210,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     alpha = renderer.get_alpha_buffer()
                 except Exception:
                     alpha = None
-                self.write_pixels(pixels, width, height, alpha, renderer, depsgraph.view_layer, scene)
+                layer_name = view_layer.name if view_layer is not None else None
+                self.write_pixels(pixels, width, height, alpha, renderer, view_layer, scene, layer_name=layer_name)
         except Exception as e:
             print(f"RENDER ERROR: {e}")
             traceback.print_exc()
@@ -1441,13 +1446,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def convert_objects(self, depsgraph, renderer, material_map):
         tri_count = 0
         obj_count = 0
+        active_view_layer = getattr(depsgraph, "view_layer", None)
         for obj_instance in depsgraph.object_instances:
-            # DepsgraphObjectInstance.object is already the evaluated object;
-            # the render-layer depsgraph only yields render-visible items, so
-            # we must NOT filter again with `visible_get()` (which reflects
-            # viewport visibility and can hide render-enabled objects during
-            # an F12 render).
             obj = obj_instance.object
+            if obj is None:
+                continue
+            try:
+                if active_view_layer is not None:
+                    if not obj.visible_get(view_layer=active_view_layer):
+                        continue
+                elif not obj.visible_get():
+                    continue
+            except TypeError:
+                if not obj.visible_get():
+                    continue
+            except Exception:
+                pass
 
             # Black hole empties
             if obj.type == 'EMPTY' and hasattr(obj, 'astroray_black_hole'):
@@ -1719,7 +1733,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.set_background_color(scaled_color)
             print(f"Set background color: {scaled_color}")
     
-    def write_pixels(self, pixels, width, height, alpha=None, renderer=None, view_layer=None, scene=None):
+    def write_pixels(self, pixels, width, height, alpha=None, renderer=None, view_layer=None, scene=None, layer_name=None):
         # The raytracer returns pixels with y=0 at the TOP of the image (standard
         # image convention). Blender's render_pass.rect expects y=0 at the BOTTOM,
         # so we flip vertically before handing it off — otherwise the output ends
@@ -1732,7 +1746,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 rgba[:, :, 3] = np.clip(alpha_arr, 0.0, 1.0)
         rgba = np.ascontiguousarray(rgba[::-1])
 
-        result = self.begin_result(0, 0, width, height)
+        if layer_name:
+            result = self.begin_result(0, 0, width, height, layer=layer_name)
+        else:
+            result = self.begin_result(0, 0, width, height)
         layer = result.layers[0]
         render_pass = layer.passes.get("Combined")
         if render_pass is None and len(layer.passes) == 1:

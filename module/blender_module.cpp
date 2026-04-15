@@ -17,7 +17,7 @@ class TextureManager {
     std::unordered_map<std::string, std::shared_ptr<Texture>> proceduralTextures;
     static Texture::CoordMode parseCoordMode(const std::string& mode) {
         std::string m = mode;
-        for (char& c : m) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        for (char& c : m) c = static_cast<char>(std::toupper(c));
         if (m == "UV") return Texture::CoordMode::UV;
         if (m == "GENERATED") return Texture::CoordMode::Generated;
         if (m == "OBJECT") return Texture::CoordMode::Object;

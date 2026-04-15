@@ -1522,6 +1522,7 @@ def test_texture_coordinate_generated_creates_bbox_gradient():
     r = create_renderer()
     r.set_seed(123)
     r.set_adaptive_sampling(False)
+    r.set_background_color([0.0, 0.0, 0.0])
     r.create_procedural_texture(
         "gen_grad", "gradient",
         [0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
@@ -1537,7 +1538,7 @@ def test_texture_coordinate_generated_creates_bbox_gradient():
     luma = np.mean(img, axis=2)
     left = float(np.mean(luma[:, :w // 2]))
     right = float(np.mean(luma[:, w // 2:]))
-    assert abs(right - left) > 0.005, (
+    assert (right - left) > 0.008, (
         f"Generated coord gradient too weak (left={left:.4f}, right={right:.4f})."
     )
     save_image(img, os.path.join(OUTPUT_DIR, 'test_texture_coord_generated.png'))
@@ -1551,6 +1552,7 @@ def test_texture_coordinate_object_is_stable_under_translation():
         r = create_renderer()
         r.set_seed(7)
         r.set_adaptive_sampling(False)
+        r.set_background_color([0.0, 0.0, 0.0])
         r.create_procedural_texture(
             "obj_checker", "checker",
             [0.1, 0.1, 0.9, 0.9, 0.9, 0.1, 8.0],
@@ -1566,7 +1568,7 @@ def test_texture_coordinate_object_is_stable_under_translation():
     a = render_at(-1.0)
     b = render_at(1.0)
     mad = float(np.mean(np.abs(a - b)))
-    assert mad < 0.035, f"Object-space texture drifted after translation (MAD={mad:.4f})."
+    assert mad < 0.03, f"Object-space texture drifted after translation (MAD={mad:.4f})."
     save_image(b, os.path.join(OUTPUT_DIR, 'test_texture_coord_object.png'))
 
 

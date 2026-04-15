@@ -290,6 +290,10 @@ public:
         auto [uv, p] = textureCoordinates(rec, wo);
         return value(uv, p);
     }
+    Vec3 valueOffset(const HitRecord& rec, const Vec3& wo, float du, float dv) const {
+        auto [uv, p] = textureCoordinates(rec, wo);
+        return value(Vec2(uv.u + du, uv.v + dv), p);
+    }
     void setCoordMode(CoordMode mode) { coordMode = mode; }
     CoordMode getCoordMode() const { return coordMode; }
 };
@@ -663,11 +667,9 @@ class NormalMappedMaterial : public Material {
 
         if (bumpTexture) {
             float eps = std::max(1e-4f, bumpDistance);
-            Vec2 uv = rec.uv;
-            if (bumpTexture->getCoordMode() == Texture::CoordMode::Window) uv = rec.windowUV;
             float h0 = heightValue(bumpTexture->value(rec, Vec3(0)));
-            float hU = heightValue(bumpTexture->value(Vec2(uv.u + eps, uv.v), rec.point));
-            float hV = heightValue(bumpTexture->value(Vec2(uv.u, uv.v + eps), rec.point));
+            float hU = heightValue(bumpTexture->valueOffset(rec, Vec3(0), eps, 0.0f));
+            float hV = heightValue(bumpTexture->valueOffset(rec, Vec3(0), 0.0f, eps));
             float dU = (hU - h0) / eps;
             float dV = (hV - h0) / eps;
             Vec3 dp = rec.tangent * dU + rec.bitangent * dV;

@@ -443,37 +443,59 @@ def test_disney_roughness_changes_glossiness():
 def test_disney_clearcoat_adds_gloss():
     """Clearcoat=1 must produce a higher specular peak than clearcoat=0 on a
     rough diffuse base (rough base alone has a low peak; clearcoat adds one)."""
+    yy, xx = np.mgrid[0:H, 0:W]
+    cy, cx = H * 0.5, W * 0.5
+    radius = min(H, W) * 0.30
+    sphere_mask = ((xx - cx) ** 2 + (yy - cy) ** 2) <= radius ** 2
+
     def render_clearcoat(coat_val):
         r = create_renderer()
-        mat = r.create_material('disney', [0.4, 0.2, 0.2],
+        mat = r.create_material('disney', [0.1, 0.1, 0.1],
                                 {'metallic': 0.0, 'roughness': 0.85,
                                  'clearcoat': coat_val, 'clearcoat_gloss': 1.0})
-        _side_light_scene(r, mat)
+        _side_light_scene_specular_probe(r, mat)
         _cam_side(r)
-        return render_image(r, samples=96)
+        return render_image(r, samples=128)
 
     px_no_coat = render_clearcoat(0.0)
     px_coat    = render_clearcoat(1.0)
     assert_valid_image(px_no_coat, H, W, label='no_clearcoat')
     assert_valid_image(px_coat,    H, W, label='clearcoat')
 
-    max_no_coat = float(np.max(px_no_coat))
-    max_coat    = float(np.max(px_coat))
+    lum_no_coat = (0.2126 * px_no_coat[:, :, 0] +
+                   0.7152 * px_no_coat[:, :, 1] +
+                   0.0722 * px_no_coat[:, :, 2])
+    lum_coat = (0.2126 * px_coat[:, :, 0] +
+                0.7152 * px_coat[:, :, 1] +
+                0.0722 * px_coat[:, :, 2])
 
-    assert max_coat > max_no_coat, \
-        f"Clearcoat=1 peak ({max_coat:.3f}) should exceed clearcoat=0 peak " \
-        f"({max_no_coat:.3f}) — clearcoat may not be contributing"
+    sph_no_coat = lum_no_coat[sphere_mask]
+    sph_coat = lum_coat[sphere_mask]
 
-    mse = float(np.mean((px_no_coat - px_coat) ** 2))
+    p99_no_coat = float(np.percentile(sph_no_coat, 99.5))
+    p99_coat = float(np.percentile(sph_coat, 99.5))
+    bright_no_coat = sph_no_coat[sph_no_coat >= np.percentile(sph_no_coat, 98.5)]
+    bright_coat = sph_coat[sph_coat >= np.percentile(sph_coat, 98.5)]
+    bright_mean_no_coat = float(np.mean(bright_no_coat))
+    bright_mean_coat = float(np.mean(bright_coat))
+
+    assert p99_coat > p99_no_coat + 0.001, \
+        f"Clearcoat=1 sphere p99.5 luminance ({p99_coat:.3f}) should exceed clearcoat=0 " \
+        f"({p99_no_coat:.3f}) by at least 0.001 — clearcoat may not be contributing"
+    assert bright_mean_coat > bright_mean_no_coat + 0.003, \
+        f"Clearcoat=1 bright-pixel mean ({bright_mean_coat:.3f}) should exceed clearcoat=0 " \
+        f"({bright_mean_no_coat:.3f}) by at least 0.003"
+
+    mse = float(np.mean((px_no_coat[sphere_mask] - px_coat[sphere_mask]) ** 2))
     assert mse > 5e-5, \
-        f"Clearcoat has no visible effect on image (MSE={mse:.6f})"
+        f"Clearcoat has no visible effect on sphere pixels (MSE={mse:.6f})"
 
     fig, axes = plt.subplots(1, 2, figsize=(8, 4))
     axes[0].imshow(np.clip(px_no_coat, 0, 1))
-    axes[0].set_title(f'Clearcoat=0\npeak={max_no_coat:.2f}')
+    axes[0].set_title(f'Clearcoat=0\nsphere p99.5={p99_no_coat:.2f}')
     axes[0].axis('off')
     axes[1].imshow(np.clip(px_coat, 0, 1))
-    axes[1].set_title(f'Clearcoat=1\npeak={max_coat:.2f}')
+    axes[1].set_title(f'Clearcoat=1\nsphere p99.5={p99_coat:.2f}')
     axes[1].axis('off')
     plt.tight_layout()
     save_figure(fig, os.path.join(OUTPUT_DIR, 'mat_disney_clearcoat.png'))

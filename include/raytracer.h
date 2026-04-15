@@ -11,7 +11,6 @@
 #include <array>
 #include <cstdint>
 #include <cstddef>
-#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -19,9 +18,6 @@
 #include <string>
 #include <unordered_map>
 #include "stb_image.h"
-#ifdef ASTRORAY_OIDN_ENABLED
-#include <OpenImageDenoise/oidn.hpp>
-#endif
 
 // Forward declaration needed by HitRecord
 class Hittable;
@@ -1715,8 +1711,6 @@ class Renderer {
     float filterGlossy = 0.0f;
     bool useReflectiveCaustics = true;
     bool useRefractiveCaustics = true;
-    bool useDenoiser = false;
-    std::string denoiserType = "none";
     int renderSeed = 0;  // 0 = random (non-deterministic), non-zero = deterministic seed
     // Pixel reconstruction filter (0=Box, 1=Gaussian, 2=Blackman-Harris)
     int pixelFilterType = 0;
@@ -1746,55 +1740,7 @@ class Renderer {
             std::exp(-std::max(0.0f, sigmaT.z) * d)
         );
     }
-
-    void runDenoiser(Camera& cam) const {
-        if (!useDenoiser) return;
-        if (denoiserType != "oidn") return;
-#ifdef ASTRORAY_OIDN_ENABLED
-        const size_t pixelCount = static_cast<size_t>(cam.width) * static_cast<size_t>(cam.height);
-        if (cam.pixels.size() != pixelCount || cam.albedoBuffer.size() != pixelCount || cam.normalBuffer.size() != pixelCount) {
-            return;
-        }
-
-        std::vector<float> beauty(pixelCount * 3);
-        std::vector<float> albedo(pixelCount * 3);
-        std::vector<float> normal(pixelCount * 3);
-        std::vector<float> denoised(pixelCount * 3, 0.0f);
-        for (size_t i = 0; i < pixelCount; ++i) {
-            beauty[i*3] = cam.pixels[i].x;
-            beauty[i*3 + 1] = cam.pixels[i].y;
-            beauty[i*3 + 2] = cam.pixels[i].z;
-            albedo[i*3] = cam.albedoBuffer[i].x;
-            albedo[i*3 + 1] = cam.albedoBuffer[i].y;
-            albedo[i*3 + 2] = cam.albedoBuffer[i].z;
-            normal[i*3] = cam.normalBuffer[i].x;
-            normal[i*3 + 1] = cam.normalBuffer[i].y;
-            normal[i*3 + 2] = cam.normalBuffer[i].z;
-        }
-
-        oidn::DeviceRef device = oidn::newDevice();
-        device.commit();
-
-        oidn::FilterRef filter = device.newFilter("RT");
-        filter.setImage("color", beauty.data(), oidn::Format::Float3, cam.width, cam.height);
-        filter.setImage("albedo", albedo.data(), oidn::Format::Float3, cam.width, cam.height);
-        filter.setImage("normal", normal.data(), oidn::Format::Float3, cam.width, cam.height);
-        filter.setImage("output", denoised.data(), oidn::Format::Float3, cam.width, cam.height);
-        filter.set("hdr", true);
-        filter.commit();
-        filter.execute();
-
-        const char* errorMessage = nullptr;
-        if (device.getError(errorMessage) != oidn::Error::None) {
-            return;
-        }
-
-        for (size_t i = 0; i < pixelCount; ++i) {
-            cam.pixels[i] = Vec3(denoised[i*3], denoised[i*3 + 1], denoised[i*3 + 2]);
-        }
-#endif
-    }
-     
+    
 public:
     void setEnvironmentMap(std::shared_ptr<EnvironmentMap> map) { envMap = map; }
     void setBackgroundColor(const Vec3& color) { backgroundColor = color; }
@@ -1806,12 +1752,6 @@ public:
     void setFilterGlossy(float value) { filterGlossy = std::max(0.0f, value); }
     void setUseReflectiveCaustics(bool use) { useReflectiveCaustics = use; }
     void setUseRefractiveCaustics(bool use) { useRefractiveCaustics = use; }
-    void setUseDenoiser(bool use) { useDenoiser = use; }
-    void setDenoiserType(const std::string& type) {
-        std::string key = type;
-        for (char& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        denoiserType = (key == "oidn") ? "oidn" : "none";
-    }
     void setSeed(int s) { renderSeed = s; }
     void setPixelFilter(int type, float width) {
         pixelFilterType = std::clamp(type, 0, 2);
@@ -2462,7 +2402,6 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                 if (progress) progress(float(++tilesCompleted) / totalTiles);
             }
         }
-        runDenoiser(cam);
     }
 };
 

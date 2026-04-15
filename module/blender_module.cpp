@@ -456,6 +456,14 @@ public:
         renderer.setUseRefractiveCaustics(use);
     }
 
+    void setUseDenoiser(bool use) {
+        renderer.setUseDenoiser(use);
+    }
+
+    void setDenoiserType(const std::string& type) {
+        renderer.setDenoiserType(type);
+    }
+
     void setUseTransparentFilm(bool use) {
         renderer.setUseTransparentFilm(use);
     }
@@ -831,6 +839,8 @@ PYBIND11_MODULE(astroray, m) {
              "density"_a, "color"_a, "anisotropy"_a = 0.0f)
         .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
+        .def("set_use_denoiser", &PyRenderer::setUseDenoiser, "use"_a)
+        .def("set_denoiser_type", &PyRenderer::setDenoiserType, "type"_a)
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
               "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
@@ -864,9 +874,14 @@ PYBIND11_MODULE(astroray, m) {
         "adaptive_sampling"_a=true, "volumes"_a=true, "textures"_a=true, "subsurface"_a=true,
         "gr_black_holes"_a=true,
 #ifdef ASTRORAY_CUDA_ENABLED
-        "cuda"_a=true
+        "cuda"_a=true,
 #else
-        "cuda"_a=false
+        "cuda"_a=false,
+#endif
+#ifdef ASTRORAY_OIDN_ENABLED
+        "oidn"_a=true
+#else
+        "oidn"_a=false
 #endif
     );
 }

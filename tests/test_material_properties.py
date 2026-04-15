@@ -443,10 +443,13 @@ def test_disney_roughness_changes_glossiness():
 def test_disney_clearcoat_adds_gloss():
     """Clearcoat=1 must produce a higher specular peak than clearcoat=0 on a
     rough diffuse base (rough base alone has a low peak; clearcoat adds one)."""
-    yy, xx = np.mgrid[0:H, 0:W]
+    min_p99p5_delta = 0.001
+    min_bright_mean_delta = 0.003
+
+    y_coords, x_coords = np.mgrid[0:H, 0:W]
     cy, cx = H * 0.5, W * 0.5
     radius = min(H, W) * 0.30
-    sphere_mask = ((xx - cx) ** 2 + (yy - cy) ** 2) <= radius ** 2
+    sphere_mask = ((x_coords - cx) ** 2 + (y_coords - cy) ** 2) <= radius ** 2
 
     def render_clearcoat(coat_val):
         r = create_renderer()
@@ -471,22 +474,26 @@ def test_disney_clearcoat_adds_gloss():
 
     sph_no_coat = lum_no_coat[sphere_mask]
     sph_coat = lum_coat[sphere_mask]
+    rgb_no_coat = px_no_coat[sphere_mask]
+    rgb_coat = px_coat[sphere_mask]
 
     p99_no_coat = float(np.percentile(sph_no_coat, 99.5))
     p99_coat = float(np.percentile(sph_coat, 99.5))
-    bright_no_coat = sph_no_coat[sph_no_coat >= np.percentile(sph_no_coat, 98.5)]
-    bright_coat = sph_coat[sph_coat >= np.percentile(sph_coat, 98.5)]
+    bright_threshold_no_coat = np.percentile(sph_no_coat, 98.5)
+    bright_threshold_coat = np.percentile(sph_coat, 98.5)
+    bright_no_coat = sph_no_coat[sph_no_coat >= bright_threshold_no_coat]
+    bright_coat = sph_coat[sph_coat >= bright_threshold_coat]
     bright_mean_no_coat = float(np.mean(bright_no_coat))
     bright_mean_coat = float(np.mean(bright_coat))
 
-    assert p99_coat > p99_no_coat + 0.001, \
+    assert p99_coat > p99_no_coat + min_p99p5_delta, \
         f"Clearcoat=1 sphere p99.5 luminance ({p99_coat:.3f}) should exceed clearcoat=0 " \
-        f"({p99_no_coat:.3f}) by at least 0.001 — clearcoat may not be contributing"
-    assert bright_mean_coat > bright_mean_no_coat + 0.003, \
+        f"({p99_no_coat:.3f}) by at least {min_p99p5_delta:.3f} — clearcoat may not be contributing"
+    assert bright_mean_coat > bright_mean_no_coat + min_bright_mean_delta, \
         f"Clearcoat=1 bright-pixel mean ({bright_mean_coat:.3f}) should exceed clearcoat=0 " \
-        f"({bright_mean_no_coat:.3f}) by at least 0.003"
+        f"({bright_mean_no_coat:.3f}) by at least {min_bright_mean_delta:.3f}"
 
-    mse = float(np.mean((px_no_coat[sphere_mask] - px_coat[sphere_mask]) ** 2))
+    mse = float(np.mean((rgb_no_coat - rgb_coat) ** 2))
     assert mse > 5e-5, \
         f"Clearcoat has no visible effect on sphere pixels (MSE={mse:.6f})"
 

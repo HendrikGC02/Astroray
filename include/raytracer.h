@@ -1482,12 +1482,27 @@ class Renderer {
     // World/environment max bounces: env contribution is skipped for bounce > worldMaxBounces
     // Default 1024 = effectively unlimited. Set to 0 for camera-only, 1 for one indirect bounce.
     int worldMaxBounces = 1024;
+    bool hasWorldVolume = false;
+    float worldVolumeDensity = 0.0f;
+    Vec3 worldVolumeColor = Vec3(1.0f);
+    float worldVolumeAnisotropy = 0.0f;
 
     Vec3 clampLuminance(const Vec3& c, float maxLum) const {
         if (maxLum <= 0.0f) return c;
         float lum = luminance(c);
         if (lum > maxLum && lum > 0.0f) return c * (maxLum / lum);
         return c;
+    }
+
+    Vec3 worldTransmittance(float distance) const {
+        if (!hasWorldVolume || worldVolumeDensity <= 0.0f || distance <= 0.0f) return Vec3(1.0f);
+        float d = std::max(0.0f, distance);
+        Vec3 sigmaT = worldVolumeColor * worldVolumeDensity;
+        return Vec3(
+            std::exp(-std::max(0.0f, sigmaT.x) * d),
+            std::exp(-std::max(0.0f, sigmaT.y) * d),
+            std::exp(-std::max(0.0f, sigmaT.z) * d)
+        );
     }
     
 public:
@@ -1507,6 +1522,16 @@ public:
         pixelFilterWidth = std::max(0.01f, width);
     }
     void setWorldMaxBounces(int maxB) { worldMaxBounces = std::max(0, maxB); }
+    void setWorldVolume(float density, const Vec3& color, float anisotropy = 0.0f) {
+        worldVolumeDensity = std::max(0.0f, density);
+        worldVolumeColor = Vec3(
+            std::max(0.0f, color.x),
+            std::max(0.0f, color.y),
+            std::max(0.0f, color.z)
+        );
+        worldVolumeAnisotropy = std::clamp(anisotropy, -0.99f, 0.99f);
+        hasWorldVolume = worldVolumeDensity > 0.0f;
+    }
     
     void clear() {
         scene.clear(); bvh.reset(); lights = LightList();
@@ -1524,6 +1549,10 @@ public:
         pixelFilterType = 0;
         pixelFilterWidth = 1.5f;
         worldMaxBounces = 1024;
+        hasWorldVolume = false;
+        worldVolumeDensity = 0.0f;
+        worldVolumeColor = Vec3(1.0f);
+        worldVolumeAnisotropy = 0.0f;
     }
     
     // Returns a sub-pixel jitter offset in [0,1) shaped by the reconstruction filter.
@@ -1642,7 +1671,7 @@ public:
                     float bsdfPdf = rec.material->pdf(rec, wo, wi);
                     float combinedLightPdf = pArea * ls.pdf;
                     float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
-                    direct += f * ls.emission * wt / (combinedLightPdf + 0.001f);
+                    direct += (f * ls.emission * worldTransmittance(ls.distance)) * wt / (combinedLightPdf + 0.001f);
                 }
             }
         }
@@ -1661,7 +1690,7 @@ public:
                     if (bRec.hitObject) Le *= bRec.hitObject->directionFalloff(-bs.wi);
                     if (Le != Vec3(0)) {
                         float lightPdf = (1.0f - pEnv) * lights.pdfValue(rec.point, bs.wi);
-                        direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
+                        direct += (bs.f * Le * worldTransmittance(bRec.t)) * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
                     }
                 }
             } else {
@@ -1756,6 +1785,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
 
             // --- Normal path tracing ---
             if (!rec.material) break;  // safety guard
+            throughput *= worldTransmittance(rec.t);
             bool countsForAlpha = true;
             if (transparentGlass && dynamic_cast<const Dielectric*>(rec.material.get()) != nullptr) {
                 countsForAlpha = false;

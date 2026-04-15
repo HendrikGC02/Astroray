@@ -419,6 +419,10 @@ public:
         renderer.setWorldMaxBounces(maxB);
     }
 
+    void setWorldVolume(float density, const std::vector<float>& color, float anisotropy = 0.0f) {
+        renderer.setWorldVolume(density, Vec3(color[0], color[1], color[2]), anisotropy);
+    }
+
     void setUseReflectiveCaustics(bool use) {
         renderer.setUseReflectiveCaustics(use);
     }
@@ -596,6 +600,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_seed", &PyRenderer::setSeed, "seed"_a)
         .def("set_pixel_filter", &PyRenderer::setPixelFilter, "filter_type"_a, "filter_width"_a)
         .def("set_world_max_bounces", &PyRenderer::setWorldMaxBounces, "max_bounces"_a)
+        .def("set_world_volume", &PyRenderer::setWorldVolume,
+             "density"_a, "color"_a, "anisotropy"_a = 0.0f)
         .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,

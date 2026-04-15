@@ -96,6 +96,36 @@ class CustomRaytracerRenderEngine(RenderEngine):
     _viewport_texture = None
     _viewport_width = 0
     _viewport_height = 0
+    _PASS_SPECS = [
+        ("Diffuse Direct", "diffuse_direct", "use_pass_diffuse_direct"),
+        ("Diffuse Indirect", "diffuse_indirect", "use_pass_diffuse_indirect"),
+        ("Diffuse Color", "diffuse_color", "use_pass_diffuse_color"),
+        ("Glossy Direct", "glossy_direct", "use_pass_glossy_direct"),
+        ("Glossy Indirect", "glossy_indirect", "use_pass_glossy_indirect"),
+        ("Glossy Color", "glossy_color", "use_pass_glossy_color"),
+        ("Transmission Direct", "transmission_direct", "use_pass_transmission_direct"),
+        ("Transmission Indirect", "transmission_indirect", "use_pass_transmission_indirect"),
+        ("Transmission Color", "transmission_color", "use_pass_transmission_color"),
+        ("Volume Direct", "volume_direct", "use_pass_volume_direct"),
+        ("Volume Indirect", "volume_indirect", "use_pass_volume_indirect"),
+        ("Emission", "emission", "use_pass_emit"),
+        ("Environment", "environment", "use_pass_environment"),
+        ("Ambient Occlusion", "ao", "use_pass_ambient_occlusion"),
+        ("Shadow", "shadow", "use_pass_shadow"),
+    ]
+
+    def update_render_passes(self, scene, renderlayer):
+        for display_name, _, toggle_name in self._PASS_SPECS:
+            if getattr(renderlayer, toggle_name, False):
+                self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
+
+    @classmethod
+    def _enabled_pass_specs(cls, view_layer):
+        enabled = []
+        for display_name, key, toggle_name in cls._PASS_SPECS:
+            if getattr(view_layer, toggle_name, False):
+                enabled.append((display_name, key))
+        return enabled
 
     def render(self, depsgraph):
         if not RAYTRACER_AVAILABLE:
@@ -141,7 +171,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     alpha = renderer.get_alpha_buffer()
                 except Exception:
                     alpha = None
-                self.write_pixels(pixels, width, height, alpha)
+                self.write_pixels(pixels, width, height, alpha, renderer, depsgraph.view_layer)
         except Exception as e:
             print(f"RENDER ERROR: {e}")
             traceback.print_exc()
@@ -1643,7 +1673,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.set_background_color(scaled_color)
             print(f"Set background color: {scaled_color}")
     
-    def write_pixels(self, pixels, width, height, alpha=None):
+    def write_pixels(self, pixels, width, height, alpha=None, renderer=None, view_layer=None):
         # The raytracer returns pixels with y=0 at the TOP of the image (standard
         # image convention). Blender's render_pass.rect expects y=0 at the BOTTOM,
         # so we flip vertically before handing it off — otherwise the output ends
@@ -1666,6 +1696,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 render_pass.rect.foreach_set(flat)
             except AttributeError:
                 render_pass.rect = rgba.reshape(-1, 4).tolist()
+
+        if renderer is not None and view_layer is not None:
+            for display_name, key in self._enabled_pass_specs(view_layer):
+                target_pass = layer.passes.get(display_name)
+                if target_pass is None:
+                    continue
+                try:
+                    pass_pixels = renderer.get_render_pass_buffer(key)
+                except Exception:
+                    continue
+                pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                pass_rgba[:, :, :3] = np.asarray(pass_pixels, dtype=np.float32)
+                pass_rgba = np.ascontiguousarray(pass_rgba[::-1])
+                pass_flat = pass_rgba.reshape(-1)
+                try:
+                    target_pass.rect.foreach_set(pass_flat)
+                except AttributeError:
+                    target_pass.rect = pass_rgba.reshape(-1, 4).tolist()
         self.end_result(result)
 
 class AstrorayPanelBase:

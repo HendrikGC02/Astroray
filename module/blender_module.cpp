@@ -552,6 +552,50 @@ public:
         }
         return result;
     }
+
+    py::array_t<float> getRenderPassBuffer(const std::string& passName) {
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        static const std::unordered_map<std::string, int> kPassNameToIndex = {
+            {"diffuse_direct", PASS_DIFFUSE_DIRECT},
+            {"diffuse_indirect", PASS_DIFFUSE_INDIRECT},
+            {"diffuse_color", PASS_DIFFUSE_COLOR},
+            {"glossy_direct", PASS_GLOSSY_DIRECT},
+            {"glossy_indirect", PASS_GLOSSY_INDIRECT},
+            {"glossy_color", PASS_GLOSSY_COLOR},
+            {"transmission_direct", PASS_TRANSMISSION_DIRECT},
+            {"transmission_indirect", PASS_TRANSMISSION_INDIRECT},
+            {"transmission_color", PASS_TRANSMISSION_COLOR},
+            {"volume_direct", PASS_VOLUME_DIRECT},
+            {"volume_indirect", PASS_VOLUME_INDIRECT},
+            {"emission", PASS_EMISSION},
+            {"environment", PASS_ENVIRONMENT},
+            {"ao", PASS_AO},
+            {"shadow", PASS_SHADOW}
+        };
+
+        std::string key = passName;
+        for (char& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        auto it = kPassNameToIndex.find(key);
+        if (it == kPassNameToIndex.end()) {
+            throw std::runtime_error("Unknown render pass: " + passName);
+        }
+
+        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
+        auto result = py::array_t<float>(shape);
+        {
+            py::buffer_info buf = result.request();
+            float* ptr = static_cast<float*>(buf.ptr);
+            const std::vector<Vec3>& passBuffer = camera->renderPassBuffers[it->second];
+            size_t size = passBuffer.size();
+            for (size_t i = 0; i < size; i++) {
+                ptr[i*3] = passBuffer[i].x;
+                ptr[i*3+1] = passBuffer[i].y;
+                ptr[i*3+2] = passBuffer[i].z;
+            }
+        }
+        return result;
+    }
     
     void clear() {
         renderer = Renderer();
@@ -624,6 +668,7 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)
         .def("get_alpha_buffer", &PyRenderer::getAlphaBuffer)
+        .def("get_render_pass_buffer", &PyRenderer::getRenderPassBuffer, "pass_name"_a)
         .def("clear", &PyRenderer::clear)
         .def("get_width", &PyRenderer::getWidth)
         .def("get_height", &PyRenderer::getHeight)

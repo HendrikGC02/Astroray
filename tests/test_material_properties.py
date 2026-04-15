@@ -442,9 +442,11 @@ def test_disney_roughness_changes_glossiness():
 
 def test_disney_clearcoat_adds_gloss():
     """Clearcoat=1 must produce a higher specular peak than clearcoat=0 on a
-    rough diffuse base (rough base alone has a low peak; clearcoat adds one)."""
+    rough diffuse base (rough base alone has a low peak; clearcoat adds one).
+    Uses a darker base color and slightly higher spp to reduce stochastic noise."""
     min_p99p5_delta = 0.001
     min_bright_mean_delta = 0.003
+    bright_pixel_percentile = 98.5
 
     y_coords, x_coords = np.mgrid[0:H, 0:W]
     cy, cx = H * 0.5, W * 0.5
@@ -458,6 +460,7 @@ def test_disney_clearcoat_adds_gloss():
                                  'clearcoat': coat_val, 'clearcoat_gloss': 1.0})
         _side_light_scene_specular_probe(r, mat)
         _cam_side(r)
+        # Slightly higher spp for stable percentile comparisons on highlight pixels.
         return render_image(r, samples=128)
 
     px_no_coat = render_clearcoat(0.0)
@@ -479,8 +482,8 @@ def test_disney_clearcoat_adds_gloss():
 
     p99_no_coat = float(np.percentile(sph_no_coat, 99.5))
     p99_coat = float(np.percentile(sph_coat, 99.5))
-    bright_threshold_no_coat = np.percentile(sph_no_coat, 98.5)
-    bright_threshold_coat = np.percentile(sph_coat, 98.5)
+    bright_threshold_no_coat = np.percentile(sph_no_coat, bright_pixel_percentile)
+    bright_threshold_coat = np.percentile(sph_coat, bright_pixel_percentile)
     bright_no_coat = sph_no_coat[sph_no_coat >= bright_threshold_no_coat]
     bright_coat = sph_coat[sph_coat >= bright_threshold_coat]
     bright_mean_no_coat = float(np.mean(bright_no_coat))

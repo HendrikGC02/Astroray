@@ -1198,6 +1198,56 @@ def test_aov_buffers():
     assert normal.shape == (H, W, 3), f"Normal shape mismatch: {normal.shape}"
 
 
+def test_data_pass_buffers_exist_and_are_finite():
+    r = create_renderer()
+    create_cornell_box(r)
+    red = r.create_material('lambertian', [0.8, 0.2, 0.2], {})
+    r.add_sphere([0, -0.8, 0.2], 1.1, red, [], "", 3, 7)
+    setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+
+    depth = r.get_depth_buffer()
+    position = r.get_position_buffer()
+    uv = r.get_uv_buffer()
+    obj_idx = r.get_object_index_buffer()
+    mat_idx = r.get_material_index_buffer()
+
+    assert depth.shape == (H, W), f"Depth shape mismatch: {depth.shape}"
+    assert position.shape == (H, W, 3), f"Position shape mismatch: {position.shape}"
+    assert uv.shape == (H, W, 3), f"UV shape mismatch: {uv.shape}"
+    assert obj_idx.shape == (H, W), f"Object index shape mismatch: {obj_idx.shape}"
+    assert mat_idx.shape == (H, W), f"Material index shape mismatch: {mat_idx.shape}"
+    assert np.isfinite(depth).all()
+    assert np.isfinite(position).all()
+    assert np.isfinite(uv).all()
+    assert np.isfinite(obj_idx).all()
+    assert np.isfinite(mat_idx).all()
+    assert float(np.max(obj_idx)) >= 0.0
+    assert float(np.max(mat_idx)) >= 0.0
+
+
+def test_cryptomatte_buffers_exist_and_have_coverage():
+    r = create_renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    mat_a = r.create_material('lambertian', [0.9, 0.2, 0.2], {})
+    mat_b = r.create_material('lambertian', [0.2, 0.2, 0.9], {})
+    r.add_sphere([-0.9, 0.0, 0.0], 0.8, mat_a, [], "", 11, 21)
+    r.add_sphere([0.9, 0.0, 0.0], 0.8, mat_b, [], "", 12, 22)
+    setup_camera(r, look_from=[0, 0, 4.0], look_at=[0, 0, 0], vfov=30, width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+
+    crypto_obj = r.get_cryptomatte_object_buffer()
+    crypto_mat = r.get_cryptomatte_material_buffer()
+    assert crypto_obj.shape == (H, W, 4), f"Cryptomatte object shape mismatch: {crypto_obj.shape}"
+    assert crypto_mat.shape == (H, W, 4), f"Cryptomatte material shape mismatch: {crypto_mat.shape}"
+    assert np.isfinite(crypto_obj).all()
+    assert np.isfinite(crypto_mat).all()
+    assert float(np.max(crypto_obj[:, :, 3])) > 0.0, "Object cryptomatte coverage should be non-zero"
+    assert float(np.max(crypto_mat[:, :, 3])) > 0.0, "Material cryptomatte coverage should be non-zero"
+    assert float(np.min(crypto_obj[:, :, 3])) >= 0.0 and float(np.max(crypto_obj[:, :, 3])) <= 1.0
+    assert float(np.min(crypto_mat[:, :, 3])) >= 0.0 and float(np.max(crypto_mat[:, :, 3])) <= 1.0
+
+
 def test_render_pass_buffers_exist_and_are_finite():
     r = create_renderer()
     create_cornell_box(r)

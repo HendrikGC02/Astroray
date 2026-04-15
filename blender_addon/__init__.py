@@ -113,9 +113,28 @@ class CustomRaytracerRenderEngine(RenderEngine):
         ("Ambient Occlusion", "ao", "use_pass_ambient_occlusion"),
         ("Shadow", "shadow", "use_pass_shadow"),
     ]
+    _DATA_PASS_SPECS = [
+        ("Depth", "depth", "use_pass_z"),
+        ("Mist", "mist", "use_pass_mist"),
+        ("Position", "position", "use_pass_position"),
+        ("Normal", "normal", "use_pass_normal"),
+        ("UV", "uv", "use_pass_uv"),
+        ("IndexOB", "object_index", "use_pass_object_index"),
+        ("IndexMA", "material_index", "use_pass_material_index"),
+    ]
+    _CRYPTOMATTE_PASS_SPECS = [
+        ("CryptoObject00", "cryptomatte_object", "use_pass_cryptomatte_object"),
+        ("CryptoMaterial00", "cryptomatte_material", "use_pass_cryptomatte_material"),
+    ]
 
     def update_render_passes(self, scene, renderlayer):
         for display_name, _, toggle_name in self._PASS_SPECS:
+            if getattr(renderlayer, toggle_name, False):
+                self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
+        for display_name, _, toggle_name in self._DATA_PASS_SPECS:
+            if getattr(renderlayer, toggle_name, False):
+                self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
+        for display_name, _, toggle_name in self._CRYPTOMATTE_PASS_SPECS:
             if getattr(renderlayer, toggle_name, False):
                 self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
 
@@ -123,6 +142,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def _enabled_pass_specs(cls, view_layer):
         enabled = []
         for display_name, key, toggle_name in cls._PASS_SPECS:
+            if getattr(view_layer, toggle_name, False):
+                enabled.append((display_name, key))
+        return enabled
+
+    @classmethod
+    def _enabled_data_pass_specs(cls, view_layer):
+        enabled = []
+        for display_name, key, toggle_name in cls._DATA_PASS_SPECS:
+            if getattr(view_layer, toggle_name, False):
+                enabled.append((display_name, key))
+        return enabled
+
+    @classmethod
+    def _enabled_cryptomatte_pass_specs(cls, view_layer):
+        enabled = []
+        for display_name, key, toggle_name in cls._CRYPTOMATTE_PASS_SPECS:
             if getattr(view_layer, toggle_name, False):
                 enabled.append((display_name, key))
         return enabled
@@ -171,7 +206,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     alpha = renderer.get_alpha_buffer()
                 except Exception:
                     alpha = None
-                self.write_pixels(pixels, width, height, alpha, renderer, depsgraph.view_layer)
+                self.write_pixels(pixels, width, height, alpha, renderer, depsgraph.view_layer, scene)
         except Exception as e:
             print(f"RENDER ERROR: {e}")
             traceback.print_exc()
@@ -1531,6 +1566,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     list(v0), list(v1), list(v2), mat_id,
                     uv0, uv1, uv2,
                     n0, n1, n2,
+                    int(getattr(obj, "pass_index", 0)),
+                    int(tri.material_index),
                 )
                 tri_count += 1
 
@@ -1568,11 +1605,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     direction.normalize()
                 else:
                     direction = mathutils.Vector((0.0, -1.0, 0.0))
-                renderer.add_sphere(position, 0.1, mat_id, [direction.x, direction.y, direction.z], ies_path)
+                renderer.add_sphere(
+                    position, 0.1, mat_id, [direction.x, direction.y, direction.z], ies_path,
+                    int(getattr(obj, "pass_index", 0)), 0
+                )
             elif light.type == 'SUN':
                 direction = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))
                 angle = float(getattr(light, 'angle', 0.0))
-                renderer.add_sun_light([direction.x, direction.y, direction.z], angle, mat_id)
+                renderer.add_sun_light(
+                    [direction.x, direction.y, direction.z], angle, mat_id,
+                    int(getattr(obj, "pass_index", 0)), 0
+                )
             elif light.type == 'AREA':
                 basis = matrix.to_3x3()
                 axis_u = list((basis @ mathutils.Vector((1, 0, 0))).normalized())
@@ -1591,7 +1634,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 }
                 renderer.add_area_light(
                     position, axis_u, axis_v, size_x, size_y,
-                    shape_map.get(shape, 'RECTANGLE'), mat_id, spread
+                    shape_map.get(shape, 'RECTANGLE'), mat_id, spread,
+                    int(getattr(obj, "pass_index", 0)), 0
                 )
             elif light.type == 'SPOT':
                 direction = (matrix.to_3x3() @ mathutils.Vector((0, 0, -1))).normalized()
@@ -1604,6 +1648,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     float(light.spot_size),
                     float(light.spot_blend),
                     ies_path,
+                    int(getattr(obj, "pass_index", 0)),
+                    0,
                 )
     
     def setup_world(self, scene, renderer):
@@ -1673,7 +1719,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.set_background_color(scaled_color)
             print(f"Set background color: {scaled_color}")
     
-    def write_pixels(self, pixels, width, height, alpha=None, renderer=None, view_layer=None):
+    def write_pixels(self, pixels, width, height, alpha=None, renderer=None, view_layer=None, scene=None):
         # The raytracer returns pixels with y=0 at the TOP of the image (standard
         # image convention). Blender's render_pass.rect expects y=0 at the BOTTOM,
         # so we flip vertically before handing it off — otherwise the output ends
@@ -1709,6 +1755,73 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 pass_rgba = np.ones((height, width, 4), dtype=np.float32)
                 pass_rgba[:, :, :3] = np.asarray(pass_pixels, dtype=np.float32)
                 pass_rgba = np.ascontiguousarray(pass_rgba[::-1])
+                pass_flat = pass_rgba.reshape(-1)
+                try:
+                    target_pass.rect.foreach_set(pass_flat)
+                except AttributeError:
+                    target_pass.rect = pass_rgba.reshape(-1, 4).tolist()
+
+            for display_name, key in self._enabled_data_pass_specs(view_layer):
+                target_pass = layer.passes.get(display_name)
+                if target_pass is None:
+                    continue
+                try:
+                    if key == "normal":
+                        data_pixels = np.asarray(renderer.get_normal_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = data_pixels
+                    elif key == "position":
+                        data_pixels = np.asarray(renderer.get_position_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = data_pixels
+                    elif key == "uv":
+                        data_pixels = np.asarray(renderer.get_uv_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = data_pixels
+                    elif key == "depth":
+                        depth = np.asarray(renderer.get_depth_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = depth[:, :, None]
+                    elif key == "mist":
+                        depth = np.asarray(renderer.get_depth_buffer(), dtype=np.float32)
+                        mist_settings = getattr(getattr(scene, "world", None), "mist_settings", None)
+                        mist_start = float(getattr(mist_settings, "start", 0.0)) if mist_settings else 0.0
+                        mist_depth = float(getattr(mist_settings, "depth", 25.0)) if mist_settings else 25.0
+                        mist_depth = max(mist_depth, 1e-6)
+                        mist = 1.0 - np.clip((depth - mist_start) / mist_depth, 0.0, 1.0)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = mist[:, :, None]
+                    elif key == "object_index":
+                        idx_data = np.asarray(renderer.get_object_index_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = idx_data[:, :, None]
+                    elif key == "material_index":
+                        idx_data = np.asarray(renderer.get_material_index_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = idx_data[:, :, None]
+                    else:
+                        continue
+                except Exception:
+                    continue
+                pass_rgba = np.ascontiguousarray(pass_rgba[::-1])
+                pass_flat = pass_rgba.reshape(-1)
+                try:
+                    target_pass.rect.foreach_set(pass_flat)
+                except AttributeError:
+                    target_pass.rect = pass_rgba.reshape(-1, 4).tolist()
+
+            for display_name, key in self._enabled_cryptomatte_pass_specs(view_layer):
+                target_pass = layer.passes.get(display_name)
+                if target_pass is None:
+                    continue
+                try:
+                    if key == "cryptomatte_object":
+                        crypto = np.asarray(renderer.get_cryptomatte_object_buffer(), dtype=np.float32)
+                    else:
+                        crypto = np.asarray(renderer.get_cryptomatte_material_buffer(), dtype=np.float32)
+                except Exception:
+                    continue
+                pass_rgba = np.ascontiguousarray(crypto[::-1])
                 pass_flat = pass_rgba.reshape(-1)
                 try:
                     target_pass.rect.foreach_set(pass_flat)

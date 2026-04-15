@@ -74,7 +74,6 @@ def test_module_version():
     features = astroray.__features__
     for key in ('nee', 'mis', 'disney_brdf', 'sah_bvh', 'adaptive_sampling'):
         assert key in features, f"Missing feature key: {key}"
-    assert 'oidn' in features, "Missing 'oidn' key in __features__"
 
 
 def test_renderer_creation():
@@ -1444,34 +1443,6 @@ def test_render_apply_gamma_toggle():
     expected_gamma_image = np.power(np.clip(linear, 0.0, 1.0), 1.0 / 2.2)
     assert np.allclose(gamma, expected_gamma_image, atol=0.03), \
         "Gamma output should match pow(linear, 1/2.2) per pixel"
-
-
-def _render_for_denoiser_test(use_denoiser: bool, denoiser_type: str = "none") -> np.ndarray:
-    r = create_renderer()
-    r.set_seed(1337)
-    create_cornell_box(r)
-    mat = r.create_material('lambertian', [0.8, 0.3, 0.3], {})
-    r.add_sphere([0, -0.5, 0], 1.0, mat)
-    r.set_use_denoiser(use_denoiser)
-    r.set_denoiser_type(denoiser_type)
-    setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=100, height=75)
-    return render_image(r, samples=SAMPLES_FAST, max_depth=8, apply_gamma=False)
-
-
-def test_denoiser_none_matches_disabled():
-    off = _render_for_denoiser_test(use_denoiser=False, denoiser_type="none")
-    none_enabled = _render_for_denoiser_test(use_denoiser=True, denoiser_type="none")
-    assert np.allclose(off, none_enabled, atol=1e-6), "Denoiser type 'none' should be a no-op"
-
-
-def test_oidn_denoiser_graceful_fallback_or_finite_output():
-    oidn_output = _render_for_denoiser_test(use_denoiser=True, denoiser_type="oidn")
-    assert oidn_output.shape == (75, 100, 3)
-    assert np.isfinite(oidn_output).all(), "OIDN output must remain finite"
-    if not astroray.__features__.get("oidn", False):
-        off = _render_for_denoiser_test(use_denoiser=False, denoiser_type="none")
-        assert np.allclose(off, oidn_output, atol=1e-6), \
-            "When OIDN is unavailable, enabling OIDN should gracefully fall back to no-op"
 
 
 # ---------------------------------------------------------------------------

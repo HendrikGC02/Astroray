@@ -188,13 +188,8 @@ if(ASTRORAY_CUDA_FOUND)
     target_link_libraries(astroray_cuda PRIVATE CUDA::curand)
 endif()
 
-# Standalone executable
-if(WIN32 AND WIN32_STANDALONE)
-    # Windows console application
-    add_executable(raytracer_standalone WIN32 ${SOURCES} ${HEADERS})
-else()
-    add_executable(raytracer_standalone ${SOURCES} ${HEADERS})
-endif()
+# Standalone executable (always console subsystem)
+add_executable(raytracer_standalone ${SOURCES} ${HEADERS})
 
 target_link_libraries(raytracer_standalone PRIVATE
     raytracer_core

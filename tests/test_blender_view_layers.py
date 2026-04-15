@@ -61,7 +61,7 @@ def _load_blender_addon(monkeypatch, renderer_cls):
     monkeypatch.setitem(sys.modules, "mathutils", mathutils_module)
     monkeypatch.setitem(sys.modules, "astroray", astroray_module)
 
-    module_path = Path("/home/runner/work/Astroray/Astroray/blender_addon/__init__.py")
+    module_path = Path(__file__).parent.parent / "blender_addon" / "__init__.py"
     spec = importlib.util.spec_from_file_location("astroray_blender_addon_test", module_path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None

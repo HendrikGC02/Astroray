@@ -79,6 +79,7 @@ struct CUDARenderer::Impl {
     GCameraParams camera  = {};
     GVec3 backgroundColor = {};
     bool  hasBackgroundColor = false;
+    float filmExposure    = 1.0f;
 
     // Output / RNG
     float*       d_framebuffer = nullptr;
@@ -162,6 +163,9 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
     impl->numLights       = (int)r.lights.size();
     impl->totalLightPower = r.totalLightPower;
     impl->camera          = r.camera;
+
+    // Film exposure
+    impl->filmExposure = cpuRenderer.getFilmExposure();
 
     // Background color
     Vec3 bg = cpuRenderer.getBackgroundColor();
@@ -250,7 +254,7 @@ void CUDARenderer::render(
         impl->d_lights, impl->numLights, impl->totalLightPower,
         impl->envMap,
         impl->camera,
-        cpuRenderer.getFilmExposure(),
+        impl->filmExposure,
         impl->backgroundColor, impl->hasBackgroundColor,
         impl->d_rngStates);
 

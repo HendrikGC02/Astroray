@@ -1172,6 +1172,56 @@ def test_solid_background_color():
     assert mean_r > mean_b * 2, f"Red ({mean_r:.3f}) should dominate blue ({mean_b:.3f})"
 
 
+def _render_world_fog_sphere(z_pos: float, density: float | None) -> np.ndarray:
+    r = create_renderer()
+    r.set_seed(1337)
+    r.set_background_color([0.02, 0.02, 0.02])
+    if density is not None:
+        r.set_world_volume(density, [1.0, 1.0, 1.0], 0.0)
+
+    light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 40.0})
+    diffuse = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
+    r.add_sphere([0.0, 2.5, 1.5], 0.8, light)
+    r.add_sphere([0.0, -0.2, z_pos], 1.0, diffuse)
+    setup_camera(r, look_from=[0.0, 0.0, 8.0], look_at=[0.0, -0.2, 0.0], vfov=28, width=120, height=90)
+    return render_image(r, samples=32, apply_gamma=False)
+
+
+def _center_luminance(img: np.ndarray) -> float:
+    h, w = img.shape[:2]
+    crop = img[h // 2 - 15:h // 2 + 15, w // 2 - 15:w // 2 + 15, :]
+    return float(np.mean(crop))
+
+
+def test_world_volume_density_adds_visible_haze():
+    clear = _render_world_fog_sphere(z_pos=-2.0, density=None)
+    foggy = _render_world_fog_sphere(z_pos=-2.0, density=0.01)
+
+    clear_l = _center_luminance(clear)
+    foggy_l = _center_luminance(foggy)
+    assert foggy_l < clear_l * 0.95, \
+        f"Expected world fog to attenuate distant object (foggy={foggy_l:.4f}, clear={clear_l:.4f})"
+
+
+def test_world_volume_fogs_farther_objects_more():
+    near_clear = _render_world_fog_sphere(z_pos=1.0, density=None)
+    near_fog = _render_world_fog_sphere(z_pos=1.0, density=0.01)
+    far_clear = _render_world_fog_sphere(z_pos=-3.0, density=None)
+    far_fog = _render_world_fog_sphere(z_pos=-3.0, density=0.01)
+
+    near_atten = _center_luminance(near_fog) / max(_center_luminance(near_clear), 1e-6)
+    far_atten = _center_luminance(far_fog) / max(_center_luminance(far_clear), 1e-6)
+    assert far_atten < near_atten * 0.95, \
+        f"Expected stronger fog attenuation for farther object (near={near_atten:.4f}, far={far_atten:.4f})"
+
+
+def test_world_volume_zero_density_matches_clear_behavior():
+    clear = _render_world_fog_sphere(z_pos=-1.0, density=None)
+    zero_density = _render_world_fog_sphere(z_pos=-1.0, density=0.0)
+    max_diff = float(np.max(np.abs(clear - zero_density)))
+    assert max_diff < 1e-5, f"Zero-density world volume should match clear behavior (max diff={max_diff:.6f})"
+
+
 def test_render_apply_gamma_toggle():
     """render(apply_gamma=...) should control whether output is gamma-encoded."""
     r = create_renderer()

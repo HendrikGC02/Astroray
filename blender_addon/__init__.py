@@ -1554,11 +1554,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def setup_world(self, scene, renderer):
         world = scene.world
         if not world:
+            renderer.set_world_volume(0.0, [1.0, 1.0, 1.0], 0.0)
             return
 
         # Check for node tree (use_nodes is deprecated in Blender 5.x, always True)
         node_tree = getattr(world, 'node_tree', None)
         if not node_tree:
+            renderer.set_world_volume(0.0, [1.0, 1.0, 1.0], 0.0)
             return
 
         # Look for Environment Texture -> Background -> World Output chain
@@ -1580,6 +1582,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 rot_input = node.inputs.get('Rotation')
                 if rot_input:
                     rotation = float(rot_input.default_value[2])  # Z rotation
+
+        output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_WORLD'), None)
+        volume_spec = None
+        if output is not None:
+            volume_node = self._shader_input_node(output, 'Volume')
+            if volume_node is not None and volume_node.type in {'VOLUME_SCATTER', 'PRINCIPLED_VOLUME'}:
+                volume_spec = self.convert_volume_node(volume_node, node_tree)
+        if volume_spec and float(volume_spec.get('density', 0.0)) > 0.0:
+            renderer.set_world_volume(
+                float(volume_spec['density']),
+                list(volume_spec['color']),
+                float(volume_spec.get('anisotropy', 0.0)),
+            )
+        else:
+            renderer.set_world_volume(0.0, [1.0, 1.0, 1.0], 0.0)
 
         # Apply world bounce limit (Cycles: world.light_settings.max_bounces)
         world_settings = getattr(world, 'light_settings', None)

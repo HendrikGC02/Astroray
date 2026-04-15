@@ -59,7 +59,7 @@ STAGE_DIR   = DIST_DIR / "astroray"
 
 # Files that belong in the shipped addon (everything else in blender_addon/ is
 # ignored — test scenes, backups, __pycache__, ...).
-ADDON_FILES = ["__init__.py", "blender_manifest.toml"]
+ADDON_FILES = ["__init__.py", "blender_manifest.toml", "shader_blending.py"]
 
 
 # --------------------------------------------------------------------------- #
@@ -196,21 +196,40 @@ def run(cmd: list[str], cwd: Path | None = None, env: dict | None = None):
                           env=env)
 
 
+def _cmake_generator_args() -> list[str]:
+    """Return the -G <generator> args for cmake configure, or [] for auto-detect.
+
+    On Windows we prefer MinGW Makefiles when MinGW/MSYS gcc is on PATH
+    (legacy setup), but fall back to letting CMake pick its own default —
+    which will be a Visual Studio generator on MSVC machines.  Mixing
+    generators causes configure failures, so we only force MinGW when it is
+    actually available.
+    """
+    if platform.system() != "Windows":
+        return []  # CMake defaults to Unix Makefiles on Linux/macOS
+    if shutil.which("gcc") or shutil.which("x86_64-w64-mingw32-gcc"):
+        return ["-G", "MinGW Makefiles"]
+    # MSVC / Ninja / default — let CMake auto-detect
+    return []
+
+
 def configure_and_build(python_exe: Path, clean: bool, jobs: int):
     if clean and BUILD_DIR.exists():
         print(f"removing {BUILD_DIR}")
         _force_remove(BUILD_DIR)
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
 
-    # On Windows with MinGW we keep the same generator the main build uses.
-    generator = "MinGW Makefiles" if platform.system() == "Windows" else "Unix Makefiles"
     cache_file = BUILD_DIR / "CMakeCache.txt"
     if not cache_file.exists():
+        generator_args = _cmake_generator_args()
         run([
             "cmake", "-S", str(REPO_ROOT), "-B", str(BUILD_DIR),
-            "-G", generator,
+            *generator_args,
             "-DCMAKE_BUILD_TYPE=Release",
             "-DBUILD_PYTHON_MODULE=ON",
+            # Disable CUDA — the GR/spectral headers use GCC-only attributes
+            # that NVCC rejects, and the Blender addon does not use GPU rendering.
+            "-DASTRORAY_ENABLE_CUDA=OFF",
             # libgomp (MinGW OpenMP runtime) deadlocks inside Blender's MSVC
             # host Python during module init, so build the Blender .pyd
             # single-threaded. pybind11 binding entry points don't use OpenMP

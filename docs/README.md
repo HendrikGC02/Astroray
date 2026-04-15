@@ -2,31 +2,21 @@
 
 ## Getting started
 
-- `../README.md` — project overview, quick build/test/usage
-- `QUICKSTART.md` — minimal setup/build/test commands
-- `../CONTRIBUTING.md` — contributor workflow and expectations
+- [`../README.md`](../README.md) — project overview, gallery, quick build/test/usage
+- [`QUICKSTART.md`](QUICKSTART.md) — full build instructions (Linux, Windows MSVC, Windows MinGW, Blender addon)
+- [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — contributor workflow and expectations
 
-## Project workflow
+## Architecture decisions
 
-- `BEADS_WORKFLOW.md` — issue tracking workflow with `bd`
+Completed designs documenting implemented subsystems:
 
-## Product + planning docs
-
-- `PRD.md` — renderer bug-fix product requirements
-- `PRD_render_bugs.md` — historical render bug summary
-- `BLENDER_51_PLAN.md` — Blender 5.1 plan
-
-## Architecture decisions / plans
-
-- `adr/CUDA_IMPLEMENTATION_PLAN.md`
-- `adr/GR_INTEGRATION_PLAN.md`
-- `adr/HDRI_IMPLEMENTATION_PLAN.md`
+- [`adr/CUDA_DESIGN.md`](adr/CUDA_DESIGN.md) — optional CUDA backend
+- [`adr/GR_DESIGN.md`](adr/GR_DESIGN.md) — general-relativistic black hole rendering
+- [`adr/HDRI_DESIGN.md`](adr/HDRI_DESIGN.md) — HDRI environment map with importance sampling
 
 ## Agent context / internals
 
-- `agent-context/renderer-internals.md`
-- `agent-context/lessons-learned.md`
+Reference material for AI agents and new contributors:
 
-## Repository maintenance
-
-- `REPO_CLEANUP.md`
+- [`agent-context/renderer-internals.md`](agent-context/renderer-internals.md) — architecture, rendering pipeline, material conventions, debugging
+- [`agent-context/lessons-learned.md`](agent-context/lessons-learned.md) — bugs encountered and root causes; read before touching rendering code

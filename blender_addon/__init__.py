@@ -1447,22 +1447,29 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def convert_objects(self, depsgraph, renderer, material_map):
         tri_count = 0
         obj_count = 0
+        is_render = getattr(depsgraph, 'mode', 'VIEWPORT') == 'RENDER'
         active_view_layer = getattr(depsgraph, "view_layer", None)
         for obj_instance in depsgraph.object_instances:
             obj = obj_instance.object
             if obj is None:
                 continue
-            try:
-                if active_view_layer is not None:
-                    if not obj.visible_get(view_layer=active_view_layer):
+            # In a render depsgraph use the render-visibility flag; in the
+            # interactive viewport use visible_get() (viewport visibility).
+            if is_render:
+                if getattr(obj, 'hide_render', False):
+                    continue
+            else:
+                try:
+                    if active_view_layer is not None:
+                        if not obj.visible_get(view_layer=active_view_layer):
+                            continue
+                    elif not obj.visible_get():
                         continue
-                elif not obj.visible_get():
-                    continue
-            except TypeError:
-                if not obj.visible_get():
-                    continue
-            except Exception:
-                pass
+                except TypeError:
+                    if not obj.visible_get():
+                        continue
+                except Exception:
+                    pass
 
             # Black hole empties
             if obj.type == 'EMPTY' and hasattr(obj, 'astroray_black_hole'):

@@ -10,6 +10,7 @@
 #include <functional>
 #include <array>
 #include <cstdint>
+#include <cstddef>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -97,6 +98,7 @@ class IESProfile {
     std::vector<float> candelaTable; // [h * verticalCount + v]
     int verticalCount = 0;
     int horizontalCount = 0;
+    static constexpr float kDirectionEpsilon2 = 1e-12f;
 
     static bool parseFloat(const std::string& token, float& out) {
         char* end = nullptr;
@@ -182,6 +184,8 @@ public:
         }
         if (nums.size() < 13) return nullptr;
 
+        // LM-63 numeric header:
+        // [2]=candela multiplier, [3]=vertical angle count, [4]=horizontal angle count
         const float candelaMultiplier = nums[2];
         const int vCount = std::max(0, static_cast<int>(std::lround(nums[3])));
         const int hCount = std::max(0, static_cast<int>(std::lround(nums[4])));
@@ -195,9 +199,11 @@ public:
         auto profile = std::make_shared<IESProfile>();
         profile->verticalCount = vCount;
         profile->horizontalCount = hCount;
-        profile->verticalAngles.assign(nums.begin() + static_cast<long>(offset), nums.begin() + static_cast<long>(offset + vCount));
+        profile->verticalAngles.assign(nums.begin() + static_cast<std::ptrdiff_t>(offset),
+                                       nums.begin() + static_cast<std::ptrdiff_t>(offset + vCount));
         offset += static_cast<size_t>(vCount);
-        profile->horizontalAngles.assign(nums.begin() + static_cast<long>(offset), nums.begin() + static_cast<long>(offset + hCount));
+        profile->horizontalAngles.assign(nums.begin() + static_cast<std::ptrdiff_t>(offset),
+                                         nums.begin() + static_cast<std::ptrdiff_t>(offset + hCount));
         offset += static_cast<size_t>(hCount);
 
         profile->candelaTable.resize(static_cast<size_t>(vCount) * static_cast<size_t>(hCount));
@@ -220,9 +226,9 @@ public:
     float sample(const Vec3& axis, const Vec3& directionFromLight) const {
         if (verticalCount <= 0 || horizontalCount <= 0 || candelaTable.empty()) return 1.0f;
 
-        Vec3 nAxis = axis.length2() > 1e-12f ? axis.normalized() : Vec3(0, -1, 0);
+        Vec3 nAxis = axis.length2() > kDirectionEpsilon2 ? axis.normalized() : Vec3(0, -1, 0);
         Vec3 dir = directionFromLight.normalized();
-        if (dir.length2() <= 1e-12f) return 1.0f;
+        if (dir.length2() <= kDirectionEpsilon2) return 1.0f;
 
         float cosVertical = std::clamp(nAxis.dot(dir), -1.0f, 1.0f);
         float verticalDeg = std::acos(cosVertical) * (180.0f / static_cast<float>(M_PI));
@@ -231,7 +237,7 @@ public:
         Vec3 tangent, bitangent;
         buildOrthonormalBasis(nAxis, tangent, bitangent);
         Vec3 planar = dir - nAxis * cosVertical;
-        if (planar.length2() > 1e-12f) {
+        if (planar.length2() > kDirectionEpsilon2) {
             planar = planar.normalized();
             float x = planar.dot(tangent);
             float y = planar.dot(bitangent);

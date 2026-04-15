@@ -1533,7 +1533,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
             ies_path = _resolve_ies_path(light)
              
             if light.type == 'POINT':
-                direction = (matrix.to_3x3() @ mathutils.Vector((0, 0, -1))).normalized()
+                direction = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))
+                if direction.length_squared > 0.0:
+                    direction.normalize()
+                else:
+                    direction = mathutils.Vector((0.0, -1.0, 0.0))
                 renderer.add_sphere(position, 0.1, mat_id, [direction.x, direction.y, direction.z], ies_path)
             elif light.type == 'SUN':
                 direction = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))

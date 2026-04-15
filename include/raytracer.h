@@ -12,9 +12,11 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include "stb_image.h"
 
 // Forward declaration needed by HitRecord
@@ -662,6 +664,8 @@ public:
 // ============================================================================
 
 class Hittable {
+    int objectPassIndex = 0;
+    int materialPassIndex = 0;
 public:
     // Result type used by GR objects (BlackHole).  Defined here so that
     // pathTrace() can use it without needing a full BlackHole definition.
@@ -687,6 +691,10 @@ public:
     virtual GRResult traceGR(const Ray& /*r*/, std::mt19937& /*gen*/) const {
         return {Vec3(0), Vec3(0, 0, 1), true, false};
     }
+    void setObjectPassIndex(int value) { objectPassIndex = std::max(0, value); }
+    void setMaterialPassIndex(int value) { materialPassIndex = std::max(0, value); }
+    int getObjectPassIndex() const { return objectPassIndex; }
+    int getMaterialPassIndex() const { return materialPassIndex; }
 };
 
 class Sphere : public Hittable {
@@ -1626,8 +1634,10 @@ class Camera {
     float lensRadius;
 public:
     int width, height;
-    std::vector<Vec3> pixels, albedoBuffer, normalBuffer;
-    std::vector<float> alphaBuffer;
+    std::vector<Vec3> pixels, albedoBuffer, normalBuffer, positionBuffer, uvBuffer;
+    std::vector<float> alphaBuffer, depthBuffer, objectIndexBuffer, materialIndexBuffer;
+    std::vector<Vec3> cryptomatteObjectBuffer, cryptomatteMaterialBuffer;
+    std::vector<float> cryptomatteObjectCoverageBuffer, cryptomatteMaterialCoverageBuffer;
     std::array<std::vector<Vec3>, PASS_COUNT> renderPassBuffers;
 
     Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio, float aperture, float focusDist, int w, int h)
@@ -1647,6 +1657,15 @@ public:
         albedoBuffer.resize(width * height, Vec3(0));
         normalBuffer.resize(width * height, Vec3(0));
         alphaBuffer.resize(width * height, 1.0f);
+        depthBuffer.resize(width * height, 0.0f);
+        positionBuffer.resize(width * height, Vec3(0));
+        uvBuffer.resize(width * height, Vec3(0));
+        objectIndexBuffer.resize(width * height, 0.0f);
+        materialIndexBuffer.resize(width * height, 0.0f);
+        cryptomatteObjectBuffer.resize(width * height, Vec3(0));
+        cryptomatteMaterialBuffer.resize(width * height, Vec3(0));
+        cryptomatteObjectCoverageBuffer.resize(width * height, 0.0f);
+        cryptomatteMaterialCoverageBuffer.resize(width * height, 0.0f);
         for (auto& passBuffer : renderPassBuffers) {
             passBuffer.resize(width * height, Vec3(0));
         }
@@ -1857,6 +1876,26 @@ public:
         return ClosureType::Diffuse;
     }
 
+    static uint32_t cryptomatteHash(uint32_t value) {
+        uint32_t x = value + 0x9e3779b9u;
+        x ^= x >> 16;
+        x *= 0x7feb352du;
+        x ^= x >> 15;
+        x *= 0x846ca68bu;
+        x ^= x >> 16;
+        return x;
+    }
+
+    static Vec3 cryptomatteColorFromId(int id) {
+        if (id <= 0) return Vec3(0.0f);
+        uint32_t h = cryptomatteHash(static_cast<uint32_t>(id));
+        return Vec3(
+            float((h >> 16) & 0xFF) / 255.0f,
+            float((h >> 8) & 0xFF) / 255.0f,
+            float(h & 0xFF) / 255.0f
+        );
+    }
+
     struct DirectSampleResult {
         Vec3 radiance;
         float shadow;
@@ -1961,6 +2000,8 @@ public:
     
 Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits, std::mt19937& gen,
                    Vec3* albOut = nullptr, Vec3* normOut = nullptr, float* alphaOut = nullptr,
+                   float* depthOut = nullptr, Vec3* positionOut = nullptr, Vec3* uvOut = nullptr,
+                   int* objectIndexOut = nullptr, int* materialIndexOut = nullptr,
                    std::array<Vec3, PASS_COUNT>* passOut = nullptr) {
         const int rrDepth = 3;
         Vec3 color(0), throughput(1);
@@ -2050,6 +2091,11 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             if (bounce == 0) {
                 if (albOut) { if (auto l = dynamic_cast<Lambertian*>(rec.material.get())) *albOut = l->getAlbedo(); else *albOut = Vec3(0.5f); }
                 if (normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
+                if (depthOut) *depthOut = rec.t;
+                if (positionOut) *positionOut = rec.point;
+                if (uvOut) *uvOut = Vec3(rec.uv.u, rec.uv.v, 0.0f);
+                if (objectIndexOut) *objectIndexOut = rec.hitObject ? rec.hitObject->getObjectPassIndex() : 0;
+                if (materialIndexOut) *materialIndexOut = rec.hitObject ? rec.hitObject->getMaterialPassIndex() : 0;
                 Vec3 baseColor = getMaterialColor(rec.material.get());
                 if (closure == ClosureType::Diffuse) {
                     passAccum[PASS_DIFFUSE_COLOR] += baseColor;
@@ -2238,21 +2284,30 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                 for (int y = y0; y < y1; ++y) {
                     for (int x = x0; x < x1; ++x) {
                         int idx = y * cam.width + x;
-                        Vec3 color(0), albedo(0), normal(0);
+                        Vec3 color(0), albedo(0), normal(0), position(0), uv(0);
                         std::array<Vec3, PASS_COUNT> passColor;
                         passColor.fill(Vec3(0));
                         float alpha = 0.0f;
+                        float depth = 0.0f;
+                        float objectIndex = 0.0f;
+                        float materialIndex = 0.0f;
+                        std::unordered_map<int, int> objectSampleCounts;
+                        std::unordered_map<int, int> materialSampleCounts;
                         float sumL = 0, sumL2 = 0;
                         int samples = 0;
                         
                         for (int s = 0; s < maxSamples; ++s) {
                             float u = (x + filterSample(gen, dist)) / (cam.width - 1);
                             float v = 1.0f - (y + filterSample(gen, dist)) / (cam.height - 1);
-                            Vec3 sAlb, sNorm;
+                            Vec3 sAlb, sNorm, sPosition(0), sUv(0);
                             std::array<Vec3, PASS_COUNT> sPass;
                             float sAlpha = 1.0f;
+                            float sDepth = 0.0f;
+                            int sObjectIndex = 0;
+                            int sMaterialIndex = 0;
                             Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, bounceLimits, gen,
-                                                  s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha, &sPass);
+                                                  s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha,
+                                                  &sDepth, &sPosition, &sUv, &sObjectIndex, &sMaterialIndex, &sPass);
                             // Per-sample contribution clamp: prevents a single caustic spike from
                             // dominating a pixel when sample count is low (firefly suppression)
                             float sLum = luminance(sCol);
@@ -2263,7 +2318,16 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                             }
                             alpha += sAlpha;
                             samples++;
+                            objectSampleCounts[sObjectIndex]++;
+                            materialSampleCounts[sMaterialIndex]++;
                             if (s == 0) { albedo = sAlb; normal = sNorm; }
+                            if (s == 0) {
+                                depth = sDepth;
+                                position = sPosition;
+                                uv = sUv;
+                                objectIndex = static_cast<float>(sObjectIndex);
+                                materialIndex = static_cast<float>(sMaterialIndex);
+                            }
                             if (adaptive && s >= 16 && (s + 1) % 8 == 0) {
                                 float l = luminance(sCol);
                                 sumL += l; sumL2 += l * l;
@@ -2301,7 +2365,30 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         cam.pixels[idx] = color;
                         cam.albedoBuffer[idx] = albedo;
                         cam.normalBuffer[idx] = normal;
+                        cam.depthBuffer[idx] = depth;
+                        cam.positionBuffer[idx] = position;
+                        cam.uvBuffer[idx] = uv;
+                        cam.objectIndexBuffer[idx] = objectIndex;
+                        cam.materialIndexBuffer[idx] = materialIndex;
                         cam.alphaBuffer[idx] = std::clamp(alpha, 0.0f, 1.0f);
+                        auto dominantIdAndCoverage = [samples](const std::unordered_map<int, int>& counts) {
+                            int bestId = 0;
+                            int bestCount = 0;
+                            for (const auto& kv : counts) {
+                                if (kv.second > bestCount) {
+                                    bestId = kv.first;
+                                    bestCount = kv.second;
+                                }
+                            }
+                            float coverage = (samples > 0 && bestId > 0) ? float(bestCount) / float(samples) : 0.0f;
+                            return std::pair<int, float>(bestId, coverage);
+                        };
+                        auto objectCrypto = dominantIdAndCoverage(objectSampleCounts);
+                        auto materialCrypto = dominantIdAndCoverage(materialSampleCounts);
+                        cam.cryptomatteObjectBuffer[idx] = cryptomatteColorFromId(objectCrypto.first);
+                        cam.cryptomatteObjectCoverageBuffer[idx] = objectCrypto.second;
+                        cam.cryptomatteMaterialBuffer[idx] = cryptomatteColorFromId(materialCrypto.first);
+                        cam.cryptomatteMaterialCoverageBuffer[idx] = materialCrypto.second;
                         for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
                             cam.renderPassBuffers[passIndex][idx] = Vec3(
                                 std::max(passColor[passIndex].x, 0.0f),

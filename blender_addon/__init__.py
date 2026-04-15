@@ -15,10 +15,11 @@ from bpy.types import Panel, Operator, AddonPreferences, PropertyGroup, RenderEn
 from bpy.props import BoolProperty, IntProperty, FloatProperty, StringProperty, PointerProperty, FloatVectorProperty
 import mathutils, math, numpy as np, traceback, sys, os, time
 from pathlib import Path
-from shader_blending import blend_shader_specs, add_shader_specs
 
 addon_dir = os.path.dirname(__file__)
 if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
+
+from shader_blending import blend_shader_specs, add_shader_specs
 
 # On Windows the compiled .pyd ships with bundled MinGW runtime DLLs
 # (libgomp-1.dll, etc.). Python 3.8+ no longer searches PATH for module

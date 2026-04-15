@@ -15,8 +15,21 @@ using namespace pybind11::literals;
 class TextureManager {
     std::unordered_map<std::string, std::shared_ptr<ImageTexture>> imageTextures;
     std::unordered_map<std::string, std::shared_ptr<Texture>> proceduralTextures;
+    static Texture::CoordMode parseCoordMode(const std::string& mode) {
+        std::string m = mode;
+        for (char& c : m) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        if (m == "UV") return Texture::CoordMode::UV;
+        if (m == "GENERATED") return Texture::CoordMode::Generated;
+        if (m == "OBJECT") return Texture::CoordMode::Object;
+        if (m == "CAMERA") return Texture::CoordMode::Camera;
+        if (m == "NORMAL") return Texture::CoordMode::Normal;
+        if (m == "REFLECTION") return Texture::CoordMode::Reflection;
+        if (m == "WINDOW") return Texture::CoordMode::Window;
+        throw std::runtime_error("Unknown texture coordinate mode: " + mode);
+    }
 public:
-    void loadImageTexture(const std::string& name, py::array_t<float> imageData, int width, int height) {
+    void loadImageTexture(const std::string& name, py::array_t<float> imageData, int width, int height,
+                          const std::string& coordMode = "UV") {
         auto buf = imageData.request();
         float* ptr = static_cast<float*>(buf.ptr);
         std::vector<Vec3> data(width * height);
@@ -24,9 +37,12 @@ public:
             data[i] = Vec3(ptr[i*3], ptr[i*3+1], ptr[i*3+2]);
         auto tex = std::make_shared<ImageTexture>();
         tex->setData(data, width, height);
+        tex->setCoordMode(parseCoordMode(coordMode));
         imageTextures[name] = tex;
     }
-    void createProceduralTexture(const std::string& name, const std::string& type, const std::vector<float>& params) {
+    void createProceduralTexture(const std::string& name, const std::string& type, const std::vector<float>& params,
+                                 const std::string& coordMode = "UV") {
+        auto mode = parseCoordMode(coordMode);
         if (type == "checker") {
             Vec3 c1(params[0], params[1], params[2]), c2(params[3], params[4], params[5]);
             float scale = params.size() > 6 ? params[6] : 10.0f;
@@ -96,6 +112,14 @@ public:
             Vec3 c2 = params.size() > 11 ? Vec3(params[9], params[10], params[11]) : Vec3(1);
             proceduralTextures[name] = std::make_shared<MusgraveTexture>(mt, sc, det, dim, lac, g, c1, c2);
         }
+        auto it = proceduralTextures.find(name);
+        if (it != proceduralTextures.end() && it->second) {
+            it->second->setCoordMode(mode);
+        }
+    }
+    void setTextureCoordMode(const std::string& name, const std::string& coordMode) {
+        auto mode = parseCoordMode(coordMode);
+        if (auto tex = getTexture(name)) tex->setCoordMode(mode);
     }
     std::shared_ptr<Texture> getTexture(const std::string& name) {
         auto it1 = imageTextures.find(name);
@@ -119,11 +143,16 @@ class PyRenderer {
     std::unique_ptr<CUDARenderer> cudaRenderer;
 #endif
 public:
-    void loadTexture(const std::string& name, py::array_t<float> imageData, int width, int height) {
-        textureManager.loadImageTexture(name, imageData, width, height);
+    void loadTexture(const std::string& name, py::array_t<float> imageData, int width, int height,
+                     const std::string& coordMode = "UV") {
+        textureManager.loadImageTexture(name, imageData, width, height, coordMode);
     }
-    void createProceduralTexture(const std::string& name, const std::string& type, const std::vector<float>& params) {
-        textureManager.createProceduralTexture(name, type, params);
+    void createProceduralTexture(const std::string& name, const std::string& type, const std::vector<float>& params,
+                                 const std::string& coordMode = "UV") {
+        textureManager.createProceduralTexture(name, type, params, coordMode);
+    }
+    void setTextureCoordMode(const std::string& name, const std::string& coordMode) {
+        textureManager.setTextureCoordMode(name, coordMode);
     }
     
     int createMaterial(const std::string& type, const std::vector<float>& baseColor, py::dict params) {
@@ -534,8 +563,11 @@ PYBIND11_MODULE(astroray, m) {
     m.doc() = "Astroray - Physically Based Path Tracer";
     py::class_<PyRenderer>(m, "Renderer")
         .def(py::init<>())
-        .def("load_texture", &PyRenderer::loadTexture, "name"_a, "image_data"_a, "width"_a, "height"_a)
-        .def("create_procedural_texture", &PyRenderer::createProceduralTexture, "name"_a, "type"_a, "params"_a)
+        .def("load_texture", &PyRenderer::loadTexture,
+             "name"_a, "image_data"_a, "width"_a, "height"_a, "coord_mode"_a = "UV")
+        .def("create_procedural_texture", &PyRenderer::createProceduralTexture,
+             "name"_a, "type"_a, "params"_a, "coord_mode"_a = "UV")
+        .def("set_texture_coord_mode", &PyRenderer::setTextureCoordMode, "name"_a, "coord_mode"_a)
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
         .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a)
         .def("add_spot_light", &PyRenderer::addSpotLight, "center"_a, "direction"_a, "radius"_a,

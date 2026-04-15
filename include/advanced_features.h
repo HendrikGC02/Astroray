@@ -2,6 +2,7 @@
 #include "raytracer.h"
 #include <fstream>
 #include <sstream>
+#include <utility>
 
 // ============================================================================
 // DISNEY PRINCIPLED BRDF (Fixed Fresnel)
@@ -211,8 +212,86 @@ public:
 
 class Texture {
 public:
+    enum class CoordMode {
+        UV = 0,
+        Generated,
+        Object,
+        Camera,
+        Normal,
+        Reflection,
+        Window
+    };
+
+private:
+    CoordMode coordMode = CoordMode::UV;
+
+protected:
+    static Vec2 directionToUV(const Vec3& d) {
+        Vec3 n = d.normalized();
+        float theta = std::acos(std::clamp(n.y, -1.0f, 1.0f));
+        float phi = std::atan2(n.z, n.x);
+        float u = 0.5f + phi / (2.0f * float(M_PI));
+        if (u < 0.0f) u += 1.0f;
+        if (u >= 1.0f) u -= 1.0f;
+        float v = 1.0f - theta / float(M_PI);
+        return Vec2(u, v);
+    }
+
+    std::pair<Vec2, Vec3> textureCoordinates(const HitRecord& rec, const Vec3& wo) const {
+        switch (coordMode) {
+            case CoordMode::Generated: {
+                if (rec.hitObject) {
+                    AABB box;
+                    if (rec.hitObject->boundingBox(box)) {
+                        Vec3 size = box.max - box.min;
+                        Vec3 p = rec.objectPoint;
+                        Vec3 g(
+                            size.x > 1e-6f ? (p.x - box.min.x) / size.x : 0.0f,
+                            size.y > 1e-6f ? (p.y - box.min.y) / size.y : 0.0f,
+                            size.z > 1e-6f ? (p.z - box.min.z) / size.z : 0.0f
+                        );
+                        g = Vec3(std::clamp(g.x, 0.0f, 1.0f),
+                                 std::clamp(g.y, 0.0f, 1.0f),
+                                 std::clamp(g.z, 0.0f, 1.0f));
+                        return {Vec2(g.x, g.y), g};
+                    }
+                }
+                return {rec.uv, rec.objectPoint};
+            }
+            case CoordMode::Object:
+                return {Vec2(rec.objectPoint.x, rec.objectPoint.y), rec.objectPoint};
+            case CoordMode::Camera: {
+                if (!rec.hasCameraFrame) return {Vec2(rec.point.x, rec.point.y), rec.point};
+                Vec3 rel = rec.point - rec.cameraOrigin;
+                Vec3 c(rel.dot(rec.cameraU), rel.dot(rec.cameraV), rel.dot(-rec.cameraW));
+                return {Vec2(c.x, c.y), c};
+            }
+            case CoordMode::Normal: {
+                Vec3 n = rec.normal * 0.5f + Vec3(0.5f);
+                return {Vec2(n.x, n.y), n};
+            }
+            case CoordMode::Reflection: {
+                Vec3 inDir = rec.incomingDirection.length2() > 1e-8f ? rec.incomingDirection : -wo;
+                Vec3 r = (inDir - rec.normal * (2.0f * inDir.dot(rec.normal))).normalized();
+                return {directionToUV(r), r};
+            }
+            case CoordMode::Window:
+                return {rec.windowUV, Vec3(rec.windowUV.u, rec.windowUV.v, 0.0f)};
+            case CoordMode::UV:
+            default:
+                return {rec.uv, rec.point};
+        }
+    }
+
+public:
     virtual ~Texture() = default;
     virtual Vec3 value(const Vec2& uv, const Vec3& p) const = 0;
+    Vec3 value(const HitRecord& rec, const Vec3& wo) const {
+        auto [uv, p] = textureCoordinates(rec, wo);
+        return value(uv, p);
+    }
+    void setCoordMode(CoordMode mode) { coordMode = mode; }
+    CoordMode getCoordMode() const { return coordMode; }
 };
 
 class SolidColor : public Texture {
@@ -541,13 +620,13 @@ public:
     TexturedLambertian(std::shared_ptr<Texture> a) : albedo(a) {}
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
         if (wi.dot(rec.normal) <= 0) return Vec3(0);
-        return albedo->value(rec.uv, rec.point) / M_PI * wi.dot(rec.normal);
+        return albedo->value(rec, wo) / M_PI * wi.dot(rec.normal);
     }
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
         Vec3 localWi = Vec3::randomCosineDirection(gen);
         s.wi = rec.tangent * localWi.x + rec.bitangent * localWi.y + rec.normal * localWi.z;
-        s.f = albedo->value(rec.uv, rec.point) / M_PI * s.wi.dot(rec.normal);
+        s.f = albedo->value(rec, wo) / M_PI * s.wi.dot(rec.normal);
         s.pdf = s.wi.dot(rec.normal) / M_PI;
         s.isDelta = false;
         return s;
@@ -575,7 +654,7 @@ class NormalMappedMaterial : public Material {
         Vec3 n = rec.normal;
 
         if (normalTexture) {
-            Vec3 rgb = normalTexture->value(rec.uv, rec.point);
+            Vec3 rgb = normalTexture->value(rec, Vec3(0));
             Vec3 nTS = (rgb * 2.0f) - Vec3(1.0f);
             Vec3 mapped = (rec.tangent * nTS.x + rec.bitangent * nTS.y + rec.normal * nTS.z).normalized();
             float t = std::clamp(normalStrength, 0.0f, 1.0f);
@@ -584,9 +663,11 @@ class NormalMappedMaterial : public Material {
 
         if (bumpTexture) {
             float eps = std::max(1e-4f, bumpDistance);
-            float h0 = heightValue(bumpTexture->value(rec.uv, rec.point));
-            float hU = heightValue(bumpTexture->value(Vec2(rec.uv.u + eps, rec.uv.v), rec.point));
-            float hV = heightValue(bumpTexture->value(Vec2(rec.uv.u, rec.uv.v + eps), rec.point));
+            Vec2 uv = rec.uv;
+            if (bumpTexture->getCoordMode() == Texture::CoordMode::Window) uv = rec.windowUV;
+            float h0 = heightValue(bumpTexture->value(rec, Vec3(0)));
+            float hU = heightValue(bumpTexture->value(Vec2(uv.u + eps, uv.v), rec.point));
+            float hV = heightValue(bumpTexture->value(Vec2(uv.u, uv.v + eps), rec.point));
             float dU = (hU - h0) / eps;
             float dV = (hV - h0) / eps;
             Vec3 dp = rec.tangent * dU + rec.bitangent * dV;
@@ -704,6 +785,8 @@ public:
         
         rec.t = rec1.t + hitDist / rayLen;
         rec.point = r.at(rec.t);
+        rec.objectPoint = rec.point;
+        rec.setRayContext(r);
         rec.normal = Vec3(1, 0, 0);
         rec.frontFace = true;
         rec.material = std::make_shared<Lambertian>(albedo);
@@ -722,7 +805,12 @@ class Translate : public Hittable {
 public:
     Translate(std::shared_ptr<Hittable> obj, const Vec3& d) : object(obj), offset(d) {}
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
-        Ray moved(r.origin - offset, r.direction, r.time);
+        Ray moved(r.origin - offset, r.direction, r.time, r.screenU, r.screenV);
+        moved.hasCameraFrame = r.hasCameraFrame;
+        moved.cameraOrigin = r.cameraOrigin;
+        moved.cameraU = r.cameraU;
+        moved.cameraV = r.cameraV;
+        moved.cameraW = r.cameraW;
         if (!object->hit(moved, tMin, tMax, rec)) return false;
         rec.point += offset;
         rec.setFaceNormal(moved, rec.normal);
@@ -743,7 +831,12 @@ public:
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         Vec3 o(r.origin.x/scale.x, r.origin.y/scale.y, r.origin.z/scale.z);
         Vec3 d(r.direction.x/scale.x, r.direction.y/scale.y, r.direction.z/scale.z);
-        Ray scaled(o, d, r.time);
+        Ray scaled(o, d, r.time, r.screenU, r.screenV);
+        scaled.hasCameraFrame = r.hasCameraFrame;
+        scaled.cameraOrigin = r.cameraOrigin;
+        scaled.cameraU = r.cameraU;
+        scaled.cameraV = r.cameraV;
+        scaled.cameraW = r.cameraW;
         if (!object->hit(scaled, tMin, tMax, rec)) return false;
         rec.point = Vec3(rec.point.x*scale.x, rec.point.y*scale.y, rec.point.z*scale.z);
         Vec3 n(rec.normal.x/scale.x, rec.normal.y/scale.y, rec.normal.z/scale.z);
@@ -769,7 +862,12 @@ public:
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         Vec3 o(cosT*r.origin.x + sinT*r.origin.z, r.origin.y, -sinT*r.origin.x + cosT*r.origin.z);
         Vec3 d(cosT*r.direction.x + sinT*r.direction.z, r.direction.y, -sinT*r.direction.x + cosT*r.direction.z);
-        Ray rot(o, d, r.time);
+        Ray rot(o, d, r.time, r.screenU, r.screenV);
+        rot.hasCameraFrame = r.hasCameraFrame;
+        rot.cameraOrigin = r.cameraOrigin;
+        rot.cameraU = r.cameraU;
+        rot.cameraV = r.cameraV;
+        rot.cameraW = r.cameraW;
         if (!object->hit(rot, tMin, tMax, rec)) return false;
         Vec3 p = rec.point;
         rec.point = Vec3(cosT*p.x - sinT*p.z, p.y, sinT*p.x + cosT*p.z);

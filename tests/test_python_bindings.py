@@ -1516,6 +1516,91 @@ def test_textured_material_checkerboard():
     save_image(pixels, os.path.join(OUTPUT_DIR, 'test_textured_material.png'))
 
 
+def test_texture_coordinate_generated_creates_bbox_gradient():
+    """Generated coordinates should produce a visible gradient across object bounds."""
+    w, h = 120, 90
+    r = create_renderer()
+    r.set_seed(123)
+    r.set_adaptive_sampling(False)
+    r.create_procedural_texture(
+        "gen_grad", "gradient",
+        [0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        "GENERATED"
+    )
+    mat = r.create_material('lambertian', [1, 1, 1], {'texture': 'gen_grad'})
+    light = r.create_material('light', [1, 1, 1], {'intensity': 7.0})
+    r.add_sphere([0, 0, 0], 1.0, mat)
+    r.add_sphere([0, 4, 2], 0.6, light)
+    setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], vfov=40, width=w, height=h)
+    img = render_image(r, samples=12)
+    assert_valid_image(img, h, w, min_mean=0.01, label='generated_coord')
+    luma = np.mean(img, axis=2)
+    left = float(np.mean(luma[:, :w // 2]))
+    right = float(np.mean(luma[:, w // 2:]))
+    assert abs(right - left) > 0.005, (
+        f"Generated coord gradient too weak (left={left:.4f}, right={right:.4f})."
+    )
+    save_image(img, os.path.join(OUTPUT_DIR, 'test_texture_coord_generated.png'))
+
+
+def test_texture_coordinate_object_is_stable_under_translation():
+    """Object coordinates should stay attached to the object when moved."""
+    w, h = 120, 90
+
+    def render_at(xpos):
+        r = create_renderer()
+        r.set_seed(7)
+        r.set_adaptive_sampling(False)
+        r.create_procedural_texture(
+            "obj_checker", "checker",
+            [0.1, 0.1, 0.9, 0.9, 0.9, 0.1, 8.0],
+            "OBJECT"
+        )
+        mat = r.create_material('lambertian', [1, 1, 1], {'texture': 'obj_checker'})
+        light = r.create_material('light', [1, 1, 1], {'intensity': 7.0})
+        r.add_sphere([xpos, 0, 0], 1.0, mat)
+        r.add_sphere([xpos, 4, 2], 0.6, light)
+        setup_camera(r, look_from=[xpos, 0, 4], look_at=[xpos, 0, 0], vfov=40, width=w, height=h)
+        return render_image(r, samples=12)
+
+    a = render_at(-1.0)
+    b = render_at(1.0)
+    mad = float(np.mean(np.abs(a - b)))
+    assert mad < 0.035, f"Object-space texture drifted after translation (MAD={mad:.4f})."
+    save_image(b, os.path.join(OUTPUT_DIR, 'test_texture_coord_object.png'))
+
+
+def test_texture_coordinate_uv_mode_matches_default_behavior():
+    """Explicit UV mode should match existing UV-default texturing."""
+    w, h = 120, 90
+    tex_data = [
+        1.0, 0.0, 0.0,   0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0,   1.0, 1.0, 0.0,
+    ]
+
+    def render_with_mode(explicit_mode):
+        r = create_renderer()
+        r.set_seed(99)
+        r.set_adaptive_sampling(False)
+        if explicit_mode:
+            r.load_texture("uv_checker", tex_data, 2, 2, "UV")
+        else:
+            r.load_texture("uv_checker", tex_data, 2, 2)
+        mat = r.create_material('lambertian', [1, 1, 1], {'texture': 'uv_checker'})
+        light = r.create_material('light', [1, 1, 1], {'intensity': 8.0})
+        r.add_sphere([0, 5, 0], 1.0, light)
+        r.add_triangle([-2, -1, -2], [2, -1, -2], [2, -1, 2], mat, [0, 0], [1, 0], [1, 1])
+        r.add_triangle([-2, -1, -2], [2, -1, 2], [-2, -1, 2], mat, [0, 0], [1, 1], [0, 1])
+        setup_camera(r, look_from=[0, 3, 4], look_at=[0, -1, 0], vfov=55, width=w, height=h)
+        return render_image(r, samples=10)
+
+    default_uv = render_with_mode(False)
+    explicit_uv = render_with_mode(True)
+    mad = float(np.mean(np.abs(default_uv - explicit_uv)))
+    assert mad < 1e-6, f"Explicit UV mode changed legacy behavior (MAD={mad:.8f})."
+    save_image(explicit_uv, os.path.join(OUTPUT_DIR, 'test_texture_coord_uv.png'))
+
+
 def test_normal_map_adds_visible_surface_detail():
     """A patterned normal map on a flat quad should increase local shading
     variation compared to an unperturbed normal."""

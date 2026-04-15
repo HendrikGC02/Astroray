@@ -1453,23 +1453,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
             obj = obj_instance.object
             if obj is None:
                 continue
-            # In a render depsgraph use the render-visibility flag; in the
-            # interactive viewport use visible_get() (viewport visibility).
+            # Use the visibility flag appropriate to the evaluation context.
+            # Passing view_layer= to visible_get() checks against that specific
+            # layer and returns False when depsgraph.view_layer doesn't match
+            # the active viewport layer, hiding all objects. Instead:
+            #   render path  → honour the "hide for render" toggle
+            #   viewport path → honour the "hide in viewport" toggle
             if is_render:
                 if getattr(obj, 'hide_render', False):
                     continue
             else:
-                try:
-                    if active_view_layer is not None:
-                        if not obj.visible_get(view_layer=active_view_layer):
-                            continue
-                    elif not obj.visible_get():
-                        continue
-                except TypeError:
-                    if not obj.visible_get():
-                        continue
-                except Exception:
-                    pass
+                if getattr(obj, 'hide_viewport', False):
+                    continue
 
             # Black hole empties
             if obj.type == 'EMPTY' and hasattr(obj, 'astroray_black_hole'):

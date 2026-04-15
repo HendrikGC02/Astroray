@@ -1484,6 +1484,48 @@ def test_render_apply_gamma_toggle():
         "Gamma output should match pow(linear, 1/2.2) per pixel"
 
 
+def _build_denoiser_test_scene(renderer, width=96, height=72):
+    create_cornell_box(renderer)
+    mat = renderer.create_material('disney', [0.8, 0.6, 0.4],
+                                   {'metallic': 0.2, 'roughness': 0.45, 'clearcoat': 0.3})
+    renderer.add_sphere([0, -0.5, 0], 1.0, mat)
+    setup_camera(renderer, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=width, height=height)
+
+
+def test_denoiser_none_matches_baseline_output():
+    r_base = create_renderer()
+    r_base.set_seed(1337)
+    _build_denoiser_test_scene(r_base)
+    base = render_image(r_base, samples=8, apply_gamma=False)
+
+    r_none = create_renderer()
+    r_none.set_seed(1337)
+    _build_denoiser_test_scene(r_none)
+    r_none.set_use_denoiser(True)
+    r_none.set_denoiser_type("None")
+    denoiser_none = render_image(r_none, samples=8, apply_gamma=False)
+
+    assert np.array_equal(base, denoiser_none), "Denoiser type 'None' should preserve current output exactly"
+
+
+def test_oidn_denoiser_mode_is_finite_or_gracefully_ignored():
+    r_oidn = create_renderer()
+    r_oidn.set_seed(4242)
+    _build_denoiser_test_scene(r_oidn)
+    r_oidn.set_use_denoiser(True)
+    r_oidn.set_denoiser_type("OIDN")
+    denoised = render_image(r_oidn, samples=8, apply_gamma=False)
+    assert_valid_image(denoised, 72, 96, min_mean=0.01, label='oidn_denoised_or_fallback')
+
+    if astroray.__features__.get('oidn_denoiser', False):
+        r_base = create_renderer()
+        r_base.set_seed(4242)
+        _build_denoiser_test_scene(r_base)
+        baseline = render_image(r_base, samples=8, apply_gamma=False)
+        mean_abs_diff = float(np.mean(np.abs(denoised - baseline)))
+        assert mean_abs_diff > 1e-6, "OIDN denoiser should change low-sample output when enabled"
+
+
 # ---------------------------------------------------------------------------
 # GPU tests (Phase 2B)
 # ---------------------------------------------------------------------------

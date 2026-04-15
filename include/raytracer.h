@@ -201,8 +201,12 @@ struct Vec2 {
 struct Ray {
     Vec3 origin, direction;
     float time;
+    float screenU = 0.5f, screenV = 0.5f;  // [0,1] camera-window coordinates
+    bool hasCameraFrame = false;
+    Vec3 cameraOrigin, cameraU, cameraV, cameraW;
     Ray() : time(0) {}
-    Ray(const Vec3& o, const Vec3& d, float t = 0) : origin(o), direction(d.normalized()), time(t) {}
+    Ray(const Vec3& o, const Vec3& d, float t = 0, float su = 0.5f, float sv = 0.5f)
+        : origin(o), direction(d.normalized()), time(t), screenU(su), screenV(sv) {}
     Vec3 at(float t) const { return origin + direction * t; }
 };
 
@@ -210,16 +214,31 @@ class Material;
 
 struct HitRecord {
     Vec3 point, normal, tangent, bitangent;
+    Vec3 objectPoint, incomingDirection;
+    Vec3 cameraOrigin, cameraU, cameraV, cameraW;
     float t;
     bool frontFace;
+    bool hasCameraFrame = false;
     Vec2 uv;
+    Vec2 windowUV;
     std::shared_ptr<Material> material;
     bool isDelta;
     const Hittable* hitObject = nullptr;  // set by hit() for GR dispatch
 
     HitRecord() : t(std::numeric_limits<float>::max()), frontFace(true), isDelta(false), hitObject(nullptr) {}
+
+    void setRayContext(const Ray& r) {
+        incomingDirection = r.direction;
+        windowUV = Vec2(r.screenU, r.screenV);
+        hasCameraFrame = r.hasCameraFrame;
+        cameraOrigin = r.cameraOrigin;
+        cameraU = r.cameraU;
+        cameraV = r.cameraV;
+        cameraW = r.cameraW;
+    }
     
     void setFaceNormal(const Ray& r, const Vec3& outwardNormal) {
+        setRayContext(r);
         frontFace = r.direction.dot(outwardNormal) < 0;
         normal = frontFace ? outwardNormal : -outwardNormal;
         buildOrthonormalBasis(normal, tangent, bitangent);
@@ -509,6 +528,7 @@ public:
         if (root < tMin || root > tMax) { root = (-half_b + sqrtd) / a; if (root < tMin || root > tMax) return false; }
         rec.t = root;
         rec.point = r.at(root);
+        rec.objectPoint = rec.point;
         Vec3 outwardNormal = (rec.point - center) / radius;
         rec.setFaceNormal(r, outwardNormal);
         rec.material = material;
@@ -580,6 +600,7 @@ public:
         if (t < tMin || t > tMax) return false;
         rec.t = t;
         rec.point = r.at(t);
+        rec.objectPoint = rec.point;
         rec.setFaceNormal(r, direction);
         rec.material = material;
         rec.uv = Vec2(0.0f, 0.0f);
@@ -648,6 +669,7 @@ public:
         if (root < tMin || root > tMax) { root = (-half_b + sqrtd) / a; if (root < tMin || root > tMax) return false; }
         rec.t = root;
         rec.point = r.at(root);
+        rec.objectPoint = rec.point;
         Vec3 outwardNormal = (rec.point - center) / radius;
         rec.setFaceNormal(r, outwardNormal);
         rec.material = material;
@@ -776,6 +798,7 @@ public:
         if (!pointInside(p)) return false;
         rec.t = t;
         rec.point = p;
+        rec.objectPoint = rec.point;
         rec.setFaceNormal(r, normal);
         rec.material = material;
         Vec3 d = p - center;
@@ -871,6 +894,7 @@ public:
         if (t < tMin || t > tMax) return false;
         rec.t = t;
         rec.point = r.at(t);
+        rec.objectPoint = rec.point;
         // Barycentric coords. UV layout: w→v0, u→v1, v→v2.
         float w = 1 - u - v;
         if (hasVertexNormals) {
@@ -1414,7 +1438,13 @@ public:
     Ray getRay(float s, float t, std::mt19937& gen) const {
         Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
         Vec3 offset = u * rd.x + v * rd.y;
-        return Ray(origin + offset, lowerLeft + horizontal * s + vertical * t - origin - offset);
+        Ray ray(origin + offset, lowerLeft + horizontal * s + vertical * t - origin - offset, 0.0f, s, t);
+        ray.hasCameraFrame = true;
+        ray.cameraOrigin = origin;
+        ray.cameraU = u;
+        ray.cameraV = v;
+        ray.cameraW = w_axis;
+        return ray;
     }
 
     // Accessors for CUDARenderer / scene_upload.cu
@@ -1713,7 +1743,13 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
                     exitLen2 < 1e-10f) {
                     break;
                 }
-                ray = Ray(rec.point, exitDir, ray.time);
+                Ray next(rec.point, exitDir, ray.time, ray.screenU, ray.screenV);
+                next.hasCameraFrame = ray.hasCameraFrame;
+                next.cameraOrigin = ray.cameraOrigin;
+                next.cameraU = ray.cameraU;
+                next.cameraV = ray.cameraV;
+                next.cameraW = ray.cameraW;
+                ray = next;
                 wasSpecular = true;
                 continue;
             }
@@ -1817,7 +1853,13 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             if (volumeBounces > bounceLimits.volume || transparentBounces > bounceLimits.transparent) break;
             wasSpecular = bs.isDelta;
             throughput *= bs.f / (bs.pdf + 0.001f);
-            ray = Ray(rec.point, bs.wi, ray.time);
+            Ray next(rec.point, bs.wi, ray.time, ray.screenU, ray.screenV);
+            next.hasCameraFrame = ray.hasCameraFrame;
+            next.cameraOrigin = ray.cameraOrigin;
+            next.cameraU = ray.cameraU;
+            next.cameraV = ray.cameraV;
+            next.cameraW = ray.cameraW;
+            ray = next;
             float maxC = throughput.maxComponent();
             if (maxC > 10.0f) throughput *= 10.0f / maxC;
         }

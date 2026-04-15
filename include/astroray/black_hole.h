@@ -132,6 +132,7 @@ public:
 
         rec.t      = root;
         rec.point  = r.at(root);
+        rec.objectPoint = rec.point;
         Vec3 outN  = (rec.point - position) / float(influenceRadius);
         rec.setFaceNormal(r, outN);
         rec.hitObject = this;

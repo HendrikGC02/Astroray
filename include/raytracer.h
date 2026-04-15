@@ -1602,6 +1602,25 @@ public:
 // CAMERA
 // ============================================================================
 
+enum RenderPassIndex {
+    PASS_DIFFUSE_DIRECT = 0,
+    PASS_DIFFUSE_INDIRECT,
+    PASS_DIFFUSE_COLOR,
+    PASS_GLOSSY_DIRECT,
+    PASS_GLOSSY_INDIRECT,
+    PASS_GLOSSY_COLOR,
+    PASS_TRANSMISSION_DIRECT,
+    PASS_TRANSMISSION_INDIRECT,
+    PASS_TRANSMISSION_COLOR,
+    PASS_VOLUME_DIRECT,
+    PASS_VOLUME_INDIRECT,
+    PASS_EMISSION,
+    PASS_ENVIRONMENT,
+    PASS_AO,
+    PASS_SHADOW,
+    PASS_COUNT
+};
+
 class Camera {
     Vec3 origin, lowerLeft, horizontal, vertical, u, v, w_axis;
     float lensRadius;
@@ -1609,6 +1628,7 @@ public:
     int width, height;
     std::vector<Vec3> pixels, albedoBuffer, normalBuffer;
     std::vector<float> alphaBuffer;
+    std::array<std::vector<Vec3>, PASS_COUNT> renderPassBuffers;
 
     Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio, float aperture, float focusDist, int w, int h)
         : width(w), height(h) {
@@ -1627,6 +1647,9 @@ public:
         albedoBuffer.resize(width * height, Vec3(0));
         normalBuffer.resize(width * height, Vec3(0));
         alphaBuffer.resize(width * height, 1.0f);
+        for (auto& passBuffer : renderPassBuffers) {
+            passBuffer.resize(width * height, Vec3(0));
+        }
     }
     
     Ray getRay(float s, float t, std::mt19937& gen) const {
@@ -1813,9 +1836,36 @@ public:
         return false;
     }
 
-    Vec3 sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
+    static Vec3 getMaterialColor(const Material* material) {
+        if (!material) return Vec3(0.5f);
+        if (auto lambert = dynamic_cast<const Lambertian*>(material)) return lambert->getAlbedo();
+        if (auto metal = dynamic_cast<const Metal*>(material)) return metal->getAlbedo();
+        if (dynamic_cast<const Dielectric*>(material)) return Vec3(1.0f);
+        return Vec3(0.5f);
+    }
+
+    enum class ClosureType {
+        Diffuse,
+        Glossy,
+        Transmission,
+        Volume
+    };
+
+    static ClosureType classifyMaterial(const Material* material) {
+        if (isTransmissionMaterial(material)) return ClosureType::Transmission;
+        if (isGlossyMaterial(material)) return ClosureType::Glossy;
+        return ClosureType::Diffuse;
+    }
+
+    struct DirectSampleResult {
+        Vec3 radiance;
+        float shadow;
+    };
+
+    DirectSampleResult sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
+        DirectSampleResult result{Vec3(0), 0.0f};
         bool hasEnv = (envMap && envMap->loaded()) || (backgroundColor.x >= 0.0f);
-        if ((lights.empty() && !hasEnv) || rec.isDelta) return Vec3(0);
+        if ((lights.empty() && !hasEnv) || rec.isDelta) return result;
         Vec3 wo = -ray.direction.normalized(), direct(0);
         std::uniform_real_distribution<float> dist01(0, 1);
 
@@ -1851,6 +1901,8 @@ public:
                     float combinedLightPdf = pEnv * envPdf;
                     float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
                     direct += f * radiance * wt / (combinedLightPdf + 0.001f);
+                } else {
+                    result.shadow += 1.0f;
                 }
             }
         } else if (!lights.empty()) {
@@ -1866,6 +1918,8 @@ public:
                     float combinedLightPdf = pArea * ls.pdf;
                     float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
                     direct += (f * ls.emission * worldTransmittance(ls.distance)) * wt / (combinedLightPdf + 0.001f);
+                } else {
+                    result.shadow += 1.0f;
                 }
             }
         }
@@ -1900,13 +1954,18 @@ public:
             }
         }
 
-        return clampLuminance(direct, clampDirect);
+        result.radiance = clampLuminance(direct, clampDirect);
+        result.shadow = std::clamp(result.shadow, 0.0f, 1.0f);
+        return result;
     }
     
 Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits, std::mt19937& gen,
-                   Vec3* albOut = nullptr, Vec3* normOut = nullptr, float* alphaOut = nullptr) {
+                   Vec3* albOut = nullptr, Vec3* normOut = nullptr, float* alphaOut = nullptr,
+                   std::array<Vec3, PASS_COUNT>* passOut = nullptr) {
         const int rrDepth = 3;
         Vec3 color(0), throughput(1);
+        std::array<Vec3, PASS_COUNT> passAccum;
+        passAccum.fill(Vec3(0));
         Ray ray = r;
         bool wasSpecular = true;
         int diffuseBounces = 0;
@@ -1936,6 +1995,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
                     Vec3 contrib = throughput * envColor;
                     if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
                     color += contrib;
+                    passAccum[PASS_ENVIRONMENT] += contrib;
                 }
                 if (alphaOut) *alphaOut = alphaCovered ? 1.0f : 0.0f;
                 break;
@@ -1952,6 +2012,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
                     Vec3 contrib = throughput * grResult.color;
                     if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
                     color += contrib;
+                    passAccum[PASS_EMISSION] += contrib;
                 }
                 if (grResult.captured) {
                     break;
@@ -1980,6 +2041,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             // --- Normal path tracing ---
             if (!rec.material) break;  // safety guard
             throughput *= worldTransmittance(rec.t);
+            ClosureType closure = classifyMaterial(rec.material.get());
             bool countsForAlpha = true;
             if (transparentGlass && dynamic_cast<const Dielectric*>(rec.material.get()) != nullptr) {
                 countsForAlpha = false;
@@ -1988,6 +2050,24 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             if (bounce == 0) {
                 if (albOut) { if (auto l = dynamic_cast<Lambertian*>(rec.material.get())) *albOut = l->getAlbedo(); else *albOut = Vec3(0.5f); }
                 if (normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
+                Vec3 baseColor = getMaterialColor(rec.material.get());
+                if (closure == ClosureType::Diffuse) {
+                    passAccum[PASS_DIFFUSE_COLOR] += baseColor;
+                } else if (closure == ClosureType::Glossy) {
+                    passAccum[PASS_GLOSSY_COLOR] += baseColor;
+                } else if (closure == ClosureType::Transmission) {
+                    passAccum[PASS_TRANSMISSION_COLOR] += baseColor;
+                }
+                if (closure == ClosureType::Diffuse) {
+                    Vec3 u, v;
+                    buildOrthonormalBasis(rec.normal, u, v);
+                    Vec3 aoLocal = Vec3::randomCosineDirection(gen);
+                    Vec3 aoDir = (u * aoLocal.x + v * aoLocal.y + rec.normal * aoLocal.z).normalized();
+                    HitRecord aoHit;
+                    if (bvh->hit(Ray(rec.point, aoDir), 0.001f, 1.0f, aoHit)) {
+                        passAccum[PASS_AO] += Vec3(1.0f);
+                    }
+                }
             }
             if (isTransmissionMaterial(rec.material.get()) && transmissionBounces >= bounceLimits.transmission) break;
             if (isGlossyMaterial(rec.material.get()) && glossyBounces >= bounceLimits.glossy) break;
@@ -1999,10 +2079,27 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
                     Vec3 contrib = throughput * emitted;
                     if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
                     color += contrib;
+                    passAccum[PASS_EMISSION] += contrib;
                 }
                 break;
             }
-            if (!rec.isDelta) color += throughput * sampleDirect(rec, ray, gen);
+            if (!rec.isDelta) {
+                DirectSampleResult directSample = sampleDirect(rec, ray, gen);
+                Vec3 directContrib = throughput * directSample.radiance;
+                color += directContrib;
+                if (closure == ClosureType::Diffuse) {
+                    passAccum[bounce == 0 ? PASS_DIFFUSE_DIRECT : PASS_DIFFUSE_INDIRECT] += directContrib;
+                } else if (closure == ClosureType::Glossy) {
+                    passAccum[bounce == 0 ? PASS_GLOSSY_DIRECT : PASS_GLOSSY_INDIRECT] += directContrib;
+                } else if (closure == ClosureType::Transmission) {
+                    passAccum[bounce == 0 ? PASS_TRANSMISSION_DIRECT : PASS_TRANSMISSION_INDIRECT] += directContrib;
+                } else if (closure == ClosureType::Volume) {
+                    passAccum[bounce == 0 ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT] += directContrib;
+                }
+                if (directSample.shadow > 0.0f) {
+                    passAccum[PASS_SHADOW] += Vec3(directSample.shadow);
+                }
+            }
             if (bounce > rrDepth) {
                 float p = std::min(0.95f, luminance(throughput));
                 if (std::uniform_real_distribution<float>(0, 1)(gen) > p) break;
@@ -2088,6 +2185,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             if (maxC > 10.0f) throughput *= 10.0f / maxC;
         }
         if (alphaOut) *alphaOut = alphaCovered ? 1.0f : 0.0f;
+        if (passOut) *passOut = passAccum;
         return color;
     }
     
@@ -2141,6 +2239,8 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                     for (int x = x0; x < x1; ++x) {
                         int idx = y * cam.width + x;
                         Vec3 color(0), albedo(0), normal(0);
+                        std::array<Vec3, PASS_COUNT> passColor;
+                        passColor.fill(Vec3(0));
                         float alpha = 0.0f;
                         float sumL = 0, sumL2 = 0;
                         int samples = 0;
@@ -2149,13 +2249,19 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                             float u = (x + filterSample(gen, dist)) / (cam.width - 1);
                             float v = 1.0f - (y + filterSample(gen, dist)) / (cam.height - 1);
                             Vec3 sAlb, sNorm;
+                            std::array<Vec3, PASS_COUNT> sPass;
+                            sPass.fill(Vec3(0));
                             float sAlpha = 1.0f;
-                            Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, bounceLimits, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha);
+                            Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, bounceLimits, gen,
+                                                  s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha, &sPass);
                             // Per-sample contribution clamp: prevents a single caustic spike from
                             // dominating a pixel when sample count is low (firefly suppression)
                             float sLum = luminance(sCol);
                             if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
                             color += sCol;
+                            for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
+                                passColor[passIndex] += sPass[passIndex];
+                            }
                             alpha += sAlpha;
                             samples++;
                             if (s == 0) { albedo = sAlb; normal = sNorm; }
@@ -2171,6 +2277,19 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         color = color / float(samples);
                         color *= filmExposure;
                         alpha = alpha / float(samples);
+                        for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
+                            passColor[passIndex] /= float(samples);
+                        }
+                        passColor[PASS_DIFFUSE_DIRECT] *= filmExposure;
+                        passColor[PASS_DIFFUSE_INDIRECT] *= filmExposure;
+                        passColor[PASS_GLOSSY_DIRECT] *= filmExposure;
+                        passColor[PASS_GLOSSY_INDIRECT] *= filmExposure;
+                        passColor[PASS_TRANSMISSION_DIRECT] *= filmExposure;
+                        passColor[PASS_TRANSMISSION_INDIRECT] *= filmExposure;
+                        passColor[PASS_VOLUME_DIRECT] *= filmExposure;
+                        passColor[PASS_VOLUME_INDIRECT] *= filmExposure;
+                        passColor[PASS_EMISSION] *= filmExposure;
+                        passColor[PASS_ENVIRONMENT] *= filmExposure;
                         if (applyGamma) {
                             color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
                             color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
@@ -2184,6 +2303,13 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         cam.albedoBuffer[idx] = albedo;
                         cam.normalBuffer[idx] = normal;
                         cam.alphaBuffer[idx] = std::clamp(alpha, 0.0f, 1.0f);
+                        for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
+                            cam.renderPassBuffers[passIndex][idx] = Vec3(
+                                std::max(passColor[passIndex].x, 0.0f),
+                                std::max(passColor[passIndex].y, 0.0f),
+                                std::max(passColor[passIndex].z, 0.0f)
+                            );
+                        }
                     }
                 }
                 

@@ -44,6 +44,23 @@ MAX_GLOSSY_PARITY_MSE = 0.015
 MAX_GLASS_PARITY_MEAN_DIFF = 0.25
 MAX_GLASS_PARITY_P95_DIFF = 0.25
 MIN_SUN_SHADOW_MSE = 5e-4
+RENDER_PASS_KEYS = (
+    "diffuse_direct",
+    "diffuse_indirect",
+    "diffuse_color",
+    "glossy_direct",
+    "glossy_indirect",
+    "glossy_color",
+    "transmission_direct",
+    "transmission_indirect",
+    "transmission_color",
+    "volume_direct",
+    "volume_indirect",
+    "emission",
+    "environment",
+    "ao",
+    "shadow",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1179,6 +1196,64 @@ def test_aov_buffers():
     normal = r.get_normal_buffer()
     assert albedo.shape == (H, W, 3), f"Albedo shape mismatch: {albedo.shape}"
     assert normal.shape == (H, W, 3), f"Normal shape mismatch: {normal.shape}"
+
+
+def test_render_pass_buffers_exist_and_are_finite():
+    r = create_renderer()
+    create_cornell_box(r)
+    sphere_mat = r.create_material('lambertian', [0.8, 0.4, 0.2], {})
+    r.add_sphere([0, -0.8, 0.2], 1.2, sphere_mat)
+    setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+
+    for key in RENDER_PASS_KEYS:
+        buf = r.get_render_pass_buffer(key)
+        assert buf.shape == (H, W, 3), f"{key} shape mismatch: {buf.shape}"
+        assert np.isfinite(buf).all(), f"{key} contains non-finite values"
+
+
+def test_emission_pass_isolated_from_diffuse_direct():
+    r = create_renderer()
+    r.set_seed(77)
+    r.set_background_color([0.0, 0.0, 0.0])
+    light_mat = r.create_material('light', [1.0, 0.8, 0.6], {'intensity': 10.0})
+    r.add_sphere([0, 0, 0], 0.8, light_mat)
+    setup_camera(r, look_from=[0, 0, 3.0], look_at=[0, 0, 0], vfov=30, width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+
+    emission = r.get_render_pass_buffer("emission")
+    diffuse_direct = r.get_render_pass_buffer("diffuse_direct")
+    assert float(np.mean(emission)) > 0.01, "Emission pass should contain emissive object energy"
+    assert float(np.mean(diffuse_direct)) < float(np.mean(emission)) * 0.2, \
+        "Diffuse direct should be much darker than emission in emissive-only scene"
+
+
+def test_component_passes_sum_approximately_matches_beauty():
+    r = create_renderer()
+    r.set_seed(123)
+    create_cornell_box(r)
+    glossy = r.create_material('metal', [0.9, 0.9, 0.9], {'roughness': 0.2})
+    glass = r.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.45})
+    r.add_sphere([-0.6, -0.7, 0.0], 0.8, glossy)
+    r.add_sphere([0.8, -0.7, 0.4], 0.8, glass)
+    setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
+
+    beauty = render_image(r, samples=SAMPLES_MED, apply_gamma=False)
+    component_sum = (
+        r.get_render_pass_buffer("diffuse_direct") +
+        r.get_render_pass_buffer("diffuse_indirect") +
+        r.get_render_pass_buffer("glossy_direct") +
+        r.get_render_pass_buffer("glossy_indirect") +
+        r.get_render_pass_buffer("transmission_direct") +
+        r.get_render_pass_buffer("transmission_indirect") +
+        r.get_render_pass_buffer("volume_direct") +
+        r.get_render_pass_buffer("volume_indirect") +
+        r.get_render_pass_buffer("emission") +
+        r.get_render_pass_buffer("environment")
+    )
+    denom = max(float(np.mean(np.abs(beauty))), 1e-4)
+    rel_err = float(np.mean(np.abs(beauty - component_sum))) / denom
+    assert rel_err < 0.3, f"Beauty/components mismatch too high: relative error {rel_err:.3f}"
 
 
 # ---------------------------------------------------------------------------

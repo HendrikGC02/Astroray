@@ -3,6 +3,15 @@
 #include <cstdint>
 #include <cstring>
 
+// MSVC does not support GCC __attribute__ syntax — provide a portable alias.
+#ifndef ASTRORAY_NOINLINE
+#  ifdef _MSC_VER
+#    define ASTRORAY_NOINLINE __declspec(noinline)
+#  else
+#    define ASTRORAY_NOINLINE __attribute__((noinline))
+#  endif
+#endif
+
 // ============================================================================
 // GR-specific data structures (all double precision for integrator stability)
 // ============================================================================

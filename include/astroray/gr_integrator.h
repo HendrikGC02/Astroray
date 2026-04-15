@@ -104,7 +104,7 @@ inline Vec3 blToCartesianDir(const GeodesicState& s, const GeodesicState& ds) {
     return Vec3(float(dx)/len, float(dy)/len, float(dz)/len);
 }
 
-__attribute__((noinline)) IntegrationResult integrateGeodesic(
+ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
     const Metric&            metric,
     const NovikovThorneDisk* disk,       // nullptr if no disk
     const GeodesicState&     s_init,

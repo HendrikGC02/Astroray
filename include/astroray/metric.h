@@ -28,7 +28,7 @@ class SchwarzschildMetric : public Metric {
 public:
     SchwarzschildMetric(double mass = 1.0) { M = mass; }
 
-    __attribute__((noinline)) GeodesicState geodesic_rhs(const GeodesicState& s) const override {
+    ASTRORAY_NOINLINE GeodesicState geodesic_rhs(const GeodesicState& s) const override {
         // Hamiltonian: H = -p_t²/(2f) + f·p_r²/2 + (p_θ² + p_φ²/sin²θ)/(2r²) = 0
         // f = 1 - 2M/r,  f' = 2M/r²
 

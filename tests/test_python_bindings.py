@@ -1372,6 +1372,45 @@ def test_solid_background_color():
     assert mean_r > mean_b * 2, f"Red ({mean_r:.3f}) should dominate blue ({mean_b:.3f})"
 
 
+def test_linear_output_preserves_hdr_values():
+    """Linear render output should preserve HDR values (>1.0) for EXR workflows."""
+    r = create_renderer()
+    hdr_bg = [2.5, 0.5, 0.25]
+    min_expected_hdr_red = 2.0
+    r.set_background_color(hdr_bg)
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+
+    linear = render_image(r, samples=SAMPLES_FAST, apply_gamma=False)
+    gamma = render_image(r, samples=SAMPLES_FAST, apply_gamma=True)
+
+    linear_max = np.max(linear, axis=(0, 1))
+    assert float(linear_max[0]) > min_expected_hdr_red, \
+        "Linear output should preserve red HDR values above 2.0"
+    assert abs(float(linear_max[1]) - hdr_bg[1]) < 0.05, "Linear output should preserve green channel level"
+    assert abs(float(linear_max[2]) - hdr_bg[2]) < 0.05, "Linear output should preserve blue channel level"
+    assert float(np.max(gamma[:, :, 0])) <= 1.0 + 1e-6, "Gamma output should remain display-range encoded"
+
+
+def test_emission_pass_preserves_hdr_values():
+    """Render pass buffers should stay in linear HDR space for multilayer EXR export."""
+    r = create_renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    hdr_light_intensity = 20.0
+    light_mat = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': hdr_light_intensity})
+    r.add_sphere([0, 0, 0], 0.8, light_mat)
+    setup_camera(r, look_from=[0, 0, 3.0], look_at=[0, 0, 0], vfov=30, width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST, apply_gamma=False)
+
+    emission = r.get_render_pass_buffer("emission")
+    assert emission is not None, "Emission pass buffer should be available"
+    min_expected_emission_hdr = 10.0
+    near_raw_emission = hdr_light_intensity * 0.9
+    assert float(np.max(emission)) > min_expected_emission_hdr, \
+        "Emission pass should preserve strong HDR values (not be clamped near display range)"
+    assert float(np.max(emission)) > near_raw_emission, \
+        "Emission pass should remain in linear space and stay near raw light intensity"
+
+
 def _render_world_fog_sphere(z_pos: float, density: float | None) -> np.ndarray:
     r = create_renderer()
     r.set_seed(1337)

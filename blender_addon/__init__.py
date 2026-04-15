@@ -1734,7 +1734,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         result = self.begin_result(0, 0, width, height)
         layer = result.layers[0]
-        render_pass = layer.passes.get("Combined") or (layer.passes[0] if layer.passes else None)
+        render_pass = layer.passes.get("Combined")
+        if render_pass is None and len(layer.passes) == 1:
+            # Legacy compatibility: some Blender builds expose only one pass in
+            # this collection. In multi-pass configurations, never fall back to
+            # the first pass to avoid overwriting a non-Combined layer.
+            render_pass = layer.passes[0]
         if render_pass:
             # foreach_set is ~100x faster than assigning a Python list to .rect
             flat = rgba.reshape(-1)

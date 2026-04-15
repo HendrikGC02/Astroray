@@ -9,8 +9,14 @@ they streamline common workflows.
 
 Builds the pybind11 `astroray` module against a Python whose minor version
 matches the target Blender's bundled Python, then stages the addon files
-(`__init__.py`, `blender_manifest.toml`, compiled `.pyd`/`.so`) into
-`dist/astroray/` and zips them to `dist/astroray-<version>.zip`.
+(`__init__.py`, `shader_blending.py`, `blender_manifest.toml`, compiled
+`.pyd`/`.so`) into `dist/astroray/` and zips them to
+`dist/astroray-<version>.zip`.
+
+The script auto-detects the CMake generator (MinGW on MSYS2/MinGW systems,
+MSVC default on Visual Studio machines) and always passes
+`-DASTRORAY_ENABLE_CUDA=OFF -DASTRORAY_DISABLE_OPENMP=ON` for Blender
+compatibility.
 
 ```bash
 # Fully automatic: picks the newest Blender install and a matching Python

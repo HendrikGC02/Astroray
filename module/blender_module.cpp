@@ -37,6 +37,64 @@ public:
             proceduralTextures[name] = std::make_shared<MarbleTexture>(params.size() > 0 ? params[0] : 1.0f);
         } else if (type == "wood") {
             proceduralTextures[name] = std::make_shared<WoodTexture>(params.size() > 0 ? params[0] : 1.0f);
+        } else if (type == "gradient") {
+            // params: [grad_type, scale, r1,g1,b1, r2,g2,b2]
+            int gt = params.size() > 0 ? (int)params[0] : 0;
+            float sc = params.size() > 1 ? params[1] : 1.0f;
+            Vec3 c1 = params.size() > 4 ? Vec3(params[2], params[3], params[4]) : Vec3(0);
+            Vec3 c2 = params.size() > 7 ? Vec3(params[5], params[6], params[7]) : Vec3(1);
+            proceduralTextures[name] = std::make_shared<GradientTexture>(gt, c1, c2, sc);
+        } else if (type == "wave") {
+            // params: [band_dir, profile, scale, distortion, detail, roughness, lacunarity, r1,g1,b1, r2,g2,b2]
+            int bd = params.size() > 0 ? (int)params[0] : 0;
+            int pf = params.size() > 1 ? (int)params[1] : 0;
+            float sc = params.size() > 2 ? params[2] : 5.0f;
+            float dist = params.size() > 3 ? params[3] : 0.0f;
+            float det = params.size() > 4 ? params[4] : 2.0f;
+            float rough = params.size() > 5 ? params[5] : 0.5f;
+            float lac = params.size() > 6 ? params[6] : 2.0f;
+            Vec3 c1 = params.size() > 9 ? Vec3(params[7], params[8], params[9]) : Vec3(0);
+            Vec3 c2 = params.size() > 12 ? Vec3(params[10], params[11], params[12]) : Vec3(1);
+            proceduralTextures[name] = std::make_shared<WaveTexture>(bd, pf, sc, dist, det, rough, lac, c1, c2);
+        } else if (type == "magic") {
+            // params: [depth, scale, distortion, r1,g1,b1, r2,g2,b2]
+            int depth = params.size() > 0 ? (int)params[0] : 2;
+            float sc = params.size() > 1 ? params[1] : 5.0f;
+            float dist = params.size() > 2 ? params[2] : 1.0f;
+            Vec3 c1 = params.size() > 5 ? Vec3(params[3], params[4], params[5]) : Vec3(0);
+            Vec3 c2 = params.size() > 8 ? Vec3(params[6], params[7], params[8]) : Vec3(1);
+            proceduralTextures[name] = std::make_shared<MagicTexture>(depth, sc, dist, c1, c2);
+        } else if (type == "voronoi") {
+            // params: [scale, randomness, dist_metric, feature, smoothness, r1,g1,b1, r2,g2,b2]
+            float sc = params.size() > 0 ? params[0] : 5.0f;
+            float rand = params.size() > 1 ? params[1] : 1.0f;
+            int dm = params.size() > 2 ? (int)params[2] : 0;
+            int feat = params.size() > 3 ? (int)params[3] : 0;
+            float smooth = params.size() > 4 ? params[4] : 1.0f;
+            Vec3 c1 = params.size() > 7 ? Vec3(params[5], params[6], params[7]) : Vec3(0);
+            Vec3 c2 = params.size() > 10 ? Vec3(params[8], params[9], params[10]) : Vec3(1);
+            proceduralTextures[name] = std::make_shared<VoronoiTexture>(sc, rand, dm, feat, smooth, c1, c2);
+        } else if (type == "brick") {
+            // params: [brick_r,g,b, mortar_r,g,b, brick_w, brick_h, mortar_size, offset, scale]
+            Vec3 brick = params.size() > 2 ? Vec3(params[0], params[1], params[2]) : Vec3(0.7f, 0.35f, 0.2f);
+            Vec3 mortar = params.size() > 5 ? Vec3(params[3], params[4], params[5]) : Vec3(0.9f);
+            float bw = params.size() > 6 ? params[6] : 0.5f;
+            float bh = params.size() > 7 ? params[7] : 0.25f;
+            float ms = params.size() > 8 ? params[8] : 0.02f;
+            float off = params.size() > 9 ? params[9] : 0.5f;
+            float sc = params.size() > 10 ? params[10] : 5.0f;
+            proceduralTextures[name] = std::make_shared<BrickTexture>(brick, mortar, bw, bh, ms, off, sc);
+        } else if (type == "musgrave") {
+            // params: [musgrave_type, scale, detail, dimension, lacunarity, gain, r1,g1,b1, r2,g2,b2]
+            int mt = params.size() > 0 ? (int)params[0] : 0;
+            float sc = params.size() > 1 ? params[1] : 5.0f;
+            float det = params.size() > 2 ? params[2] : 2.0f;
+            float dim = params.size() > 3 ? params[3] : 2.0f;
+            float lac = params.size() > 4 ? params[4] : 2.0f;
+            float g = params.size() > 5 ? params[5] : 1.0f;
+            Vec3 c1 = params.size() > 8 ? Vec3(params[6], params[7], params[8]) : Vec3(0);
+            Vec3 c2 = params.size() > 11 ? Vec3(params[9], params[10], params[11]) : Vec3(1);
+            proceduralTextures[name] = std::make_shared<MusgraveTexture>(mt, sc, det, dim, lac, g, c1, c2);
         }
     }
     std::shared_ptr<Texture> getTexture(const std::string& name) {
@@ -320,6 +378,18 @@ public:
         renderer.setFilterGlossy(value);
     }
 
+    void setSeed(int seed) {
+        renderer.setSeed(seed);
+    }
+
+    void setPixelFilter(int filterType, float filterWidth) {
+        renderer.setPixelFilter(filterType, filterWidth);
+    }
+
+    void setWorldMaxBounces(int maxB) {
+        renderer.setWorldMaxBounces(maxB);
+    }
+
     void setUseReflectiveCaustics(bool use) {
         renderer.setUseReflectiveCaustics(use);
     }
@@ -491,6 +561,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_clamp_direct", &PyRenderer::setClampDirect, "value"_a)
         .def("set_clamp_indirect", &PyRenderer::setClampIndirect, "value"_a)
         .def("set_filter_glossy", &PyRenderer::setFilterGlossy, "value"_a)
+        .def("set_seed", &PyRenderer::setSeed, "seed"_a)
+        .def("set_pixel_filter", &PyRenderer::setPixelFilter, "filter_type"_a, "filter_width"_a)
+        .def("set_world_max_bounces", &PyRenderer::setWorldMaxBounces, "max_bounces"_a)
         .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,

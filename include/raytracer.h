@@ -1445,6 +1445,13 @@ class Renderer {
     float filterGlossy = 0.0f;
     bool useReflectiveCaustics = true;
     bool useRefractiveCaustics = true;
+    int renderSeed = 0;  // 0 = random (non-deterministic), non-zero = deterministic seed
+    // Pixel reconstruction filter (0=Box, 1=Gaussian, 2=Blackman-Harris)
+    int pixelFilterType = 0;
+    float pixelFilterWidth = 1.5f;
+    // World/environment max bounces: env contribution is skipped for bounce > worldMaxBounces
+    // Default 1024 = effectively unlimited. Set to 0 for camera-only, 1 for one indirect bounce.
+    int worldMaxBounces = 1024;
 
     Vec3 clampLuminance(const Vec3& c, float maxLum) const {
         if (maxLum <= 0.0f) return c;
@@ -1464,6 +1471,12 @@ public:
     void setFilterGlossy(float value) { filterGlossy = std::max(0.0f, value); }
     void setUseReflectiveCaustics(bool use) { useReflectiveCaustics = use; }
     void setUseRefractiveCaustics(bool use) { useRefractiveCaustics = use; }
+    void setSeed(int s) { renderSeed = s; }
+    void setPixelFilter(int type, float width) {
+        pixelFilterType = std::clamp(type, 0, 2);
+        pixelFilterWidth = std::max(0.01f, width);
+    }
+    void setWorldMaxBounces(int maxB) { worldMaxBounces = std::max(0, maxB); }
     
     void clear() {
         scene.clear(); bvh.reset(); lights = LightList();
@@ -1477,8 +1490,37 @@ public:
         filterGlossy = 0.0f;
         useReflectiveCaustics = true;
         useRefractiveCaustics = true;
+        renderSeed = 0;
+        pixelFilterType = 0;
+        pixelFilterWidth = 1.5f;
+        worldMaxBounces = 1024;
     }
     
+    // Returns a sub-pixel jitter offset in [0,1) shaped by the reconstruction filter.
+    float filterSample(std::mt19937& gen, std::uniform_real_distribution<float>& dist) const {
+        if (pixelFilterType == 1) {
+            // Gaussian: Box-Muller centered at 0.5, sigma = filterWidth/6
+            float sigma = pixelFilterWidth / 6.0f;
+            float u1 = dist(gen);
+            float u2 = dist(gen);
+            if (u1 < 1e-7f) u1 = 1e-7f;
+            float z = std::sqrt(-2.0f * std::log(u1)) * std::cos(2.0f * float(M_PI) * u2);
+            return std::clamp(0.5f + z * sigma, 0.0f, 1.0f);
+        } else if (pixelFilterType == 2) {
+            // Blackman-Harris: rejection sampling within pixel
+            for (int attempt = 0; attempt < 20; ++attempt) {
+                float x = dist(gen);
+                float w = 0.35875f - 0.48829f * std::cos(2.0f * float(M_PI) * x)
+                                   + 0.14128f * std::cos(4.0f * float(M_PI) * x)
+                                   - 0.01168f * std::cos(6.0f * float(M_PI) * x);
+                if (dist(gen) < w) return x;
+            }
+            return dist(gen);
+        }
+        // Box filter: uniform jitter (default)
+        return dist(gen);
+    }
+
     float powerHeuristic(float a, float b) const {
         float a2 = a*a, b2 = b*b;
         float denom = a2 + b2;
@@ -1627,13 +1669,15 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             HitRecord rec;
             if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
                 Vec3 envColor;
-                if (envMap && envMap->loaded()) {
-                    envColor = envMap->lookup(ray.direction.normalized());
-                } else if (backgroundColor.x >= 0) {
-                    envColor = backgroundColor;
-                } else {
-                    float t = 0.5f * (ray.direction.normalized().y + 1.0f);
-                    envColor = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
+                if (bounce <= worldMaxBounces) {
+                    if (envMap && envMap->loaded()) {
+                        envColor = envMap->lookup(ray.direction.normalized());
+                    } else if (backgroundColor.x >= 0) {
+                        envColor = backgroundColor;
+                    } else {
+                        float t = 0.5f * (ray.direction.normalized().y + 1.0f);
+                        envColor = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
+                    }
                 }
                 if (bounce == 0 || wasSpecular) {
                     Vec3 contrib = throughput * envColor;
@@ -1819,7 +1863,10 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
         #pragma omp parallel for schedule(dynamic) collapse(2)
         for (int tileY = 0; tileY < tilesY; ++tileY) {
             for (int tileX = 0; tileX < tilesX; ++tileX) {
-                std::mt19937 gen(std::random_device{}() + tileY * tilesX + tileX);
+                uint32_t baseSeed = (renderSeed == 0)
+                    ? static_cast<uint32_t>(std::random_device{}())
+                    : static_cast<uint32_t>(renderSeed);
+                std::mt19937 gen(baseSeed + static_cast<uint32_t>(tileY * tilesX + tileX));
                 std::uniform_real_distribution<float> dist(0, 1);
                 int x0 = tileX * tileSize, x1 = std::min(x0 + tileSize, cam.width);
                 int y0 = tileY * tileSize, y1 = std::min(y0 + tileSize, cam.height);
@@ -1833,8 +1880,8 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         int samples = 0;
                         
                         for (int s = 0; s < maxSamples; ++s) {
-                            float u = (x + dist(gen)) / (cam.width - 1);
-                            float v = 1.0f - (y + dist(gen)) / (cam.height - 1);
+                            float u = (x + filterSample(gen, dist)) / (cam.width - 1);
+                            float v = 1.0f - (y + filterSample(gen, dist)) / (cam.height - 1);
                             Vec3 sAlb, sNorm;
                             float sAlpha = 1.0f;
                             Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, bounceLimits, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha);

@@ -291,6 +291,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
         transparent_glass = bool(getattr(cycles, 'film_transparent_glass', False)) if cycles else False
         renderer.set_use_transparent_film(use_transparent_film)
         renderer.set_transparent_glass(transparent_glass)
+        seed = int(getattr(cycles, 'seed', 0)) if cycles else 0
+        use_animated_seed = bool(getattr(cycles, 'use_animated_seed', False)) if cycles else False
+        if use_animated_seed:
+            seed = seed + scene.frame_current
+        renderer.set_seed(seed)
+        filter_type_map = {'BOX': 0, 'GAUSSIAN': 1, 'BLACKMAN_HARRIS': 2}
+        filter_type_str = getattr(cycles, 'pixel_filter_type', 'GAUSSIAN') if cycles else 'GAUSSIAN'
+        filter_type = filter_type_map.get(filter_type_str, 1)
+        filter_width = float(getattr(cycles, 'filter_width', 1.5)) if cycles else 1.5
+        renderer.set_pixel_filter(filter_type, filter_width)
         self.setup_camera(scene, renderer, width, height)
         material_map = self.convert_materials(depsgraph, renderer)
         self.convert_objects(depsgraph, renderer, material_map)
@@ -424,29 +434,48 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # ------------------------------------------------------------------ #
 
     def get_float_input(self, node, name, default):
-        """Read a scalar input's default_value. Returns `default` if linked or
-        missing. We deliberately do NOT follow math-node chains — too much of a
-        rabbit hole for the first pass."""
+        """Read a scalar input. Follows linked Math/Clamp/MapRange node chains."""
         inp = node.inputs.get(name)
-        if not inp or inp.is_linked:
+        if not inp:
             return default
-        val = inp.default_value
-        if hasattr(val, '__iter__'):
-            # bpy_prop_array for a scalar socket shouldn't happen, but be safe
-            try:
-                return float(val[0])
-            except Exception:
-                return default
-        return float(val)
+        if not inp.is_linked:
+            val = inp.default_value
+            if hasattr(val, '__iter__'):
+                try:
+                    return float(val[0])
+                except Exception:
+                    return default
+            return float(val)
+        # Try to evaluate the linked node chain
+        try:
+            src_node = inp.links[0].from_node
+            src_socket = inp.links[0].from_socket.name
+            result = self._eval_float_socket_node(src_node, src_socket)
+            if result is not None:
+                return float(result)
+        except (IndexError, AttributeError):
+            pass
+        return default
 
     def get_color_input(self, node, name, default):
-        """Read an unlinked color input as a list of 3 floats."""
+        """Read a color input. Follows linked color node chains."""
         inp = node.inputs.get(name)
-        if not inp or inp.is_linked:
+        if not inp:
             return list(default)
-        val = inp.default_value
-        if hasattr(val, '__iter__'):
-            return list(val[:3])
+        if not inp.is_linked:
+            val = inp.default_value
+            if hasattr(val, '__iter__'):
+                return list(val[:3])
+            return list(default)
+        # Try to evaluate the linked node chain
+        try:
+            src_node = inp.links[0].from_node
+            src_socket = inp.links[0].from_socket.name
+            result = self._eval_color_socket_node(src_node, src_socket)
+            if result is not None:
+                return result
+        except (IndexError, AttributeError):
+            pass
         return list(default)
 
     def get_color_or_texture(self, node, input_name, default_color):
@@ -482,6 +511,291 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 except (IndexError, AttributeError):
                     pass
         return list(default_color), None
+
+    # ------------------------------------------------------------------ #
+    # Export-time shader node evaluation (#21 color nodes, #22 converter nodes)
+    # ------------------------------------------------------------------ #
+
+    def _get_socket_float(self, socket, depth=0):
+        """Return float from a socket (linked or unlinked), or None."""
+        if socket is None:
+            return None
+        if not socket.is_linked:
+            val = socket.default_value
+            return float(val) if not hasattr(val, '__iter__') else None
+        try:
+            src_node = socket.links[0].from_node
+            src_name = socket.links[0].from_socket.name
+        except (IndexError, AttributeError):
+            return None
+        return self._eval_float_socket_node(src_node, src_name, depth)
+
+    def _get_socket_color(self, socket, depth=0):
+        """Return [r,g,b] from a socket (linked or unlinked), or None."""
+        if socket is None:
+            return None
+        if not socket.is_linked:
+            val = socket.default_value
+            if hasattr(val, '__iter__'):
+                return list(val[:3])
+            f = float(val)
+            return [f, f, f]
+        try:
+            src_node = socket.links[0].from_node
+            src_name = socket.links[0].from_socket.name
+        except (IndexError, AttributeError):
+            return None
+        return self._eval_color_socket_node(src_node, src_name, depth)
+
+    def _eval_float_socket_node(self, node, output_name='Value', depth=0):
+        """Evaluate a node's float output. Returns float or None."""
+        if depth > 8:
+            return None
+        import math
+        ntype = node.type
+        if ntype == 'VALUE':
+            return float(node.outputs[0].default_value)
+        if ntype == 'MATH':
+            op = node.operation
+            a = self._get_socket_float(node.inputs[0] if len(node.inputs) > 0 else None, depth + 1)
+            b = self._get_socket_float(node.inputs[1] if len(node.inputs) > 1 else None, depth + 1)
+            if a is None:
+                return None
+            b = b if b is not None else 0.0
+            ops = {
+                'ADD': a + b, 'SUBTRACT': a - b, 'MULTIPLY': a * b,
+                'DIVIDE': a / b if b != 0 else 0.0,
+                'POWER': a ** b if not (a < 0 and b != int(b)) else 0.0,
+                'SQRT': math.sqrt(max(0.0, a)), 'ABSOLUTE': abs(a),
+                'MINIMUM': min(a, b), 'MAXIMUM': max(a, b),
+                'FLOOR': math.floor(a), 'CEIL': math.ceil(a),
+                'FRACT': a - math.floor(a),
+                'MODULO': math.fmod(a, b) if b != 0 else 0.0,
+                'SINE': math.sin(a), 'COSINE': math.cos(a), 'TANGENT': math.tan(a),
+                'ARCSINE': math.asin(max(-1.0, min(1.0, a))),
+                'ARCCOSINE': math.acos(max(-1.0, min(1.0, a))),
+                'ARCTANGENT': math.atan(a), 'ARCTAN2': math.atan2(a, b),
+                'LOGARITHM': math.log(max(1e-10, a)) / math.log(max(1e-10, b)) if b not in (0, 1) else math.log(max(1e-10, a)),
+                'LESS_THAN': 1.0 if a < b else 0.0,
+                'GREATER_THAN': 1.0 if a > b else 0.0,
+                'SIGN': math.copysign(1.0, a) if a != 0.0 else 0.0,
+                'SNAP': round(a / b) * b if b != 0 else 0.0,
+                'WRAP': a - b * math.floor(a / b) if b != 0 else 0.0,
+                'PINGPONG': abs(a - b * round(a / b)) if b != 0 else 0.0,
+                'MULTIPLY_ADD': a * b + (self._get_socket_float(node.inputs[2], depth + 1) or 0.0),
+                'COMPARE': 1.0 if abs(a - b) <= (self._get_socket_float(node.inputs[2], depth + 1) or 0.0) else 0.0,
+            }
+            result = ops.get(op)
+            if result is None:
+                return None
+            result = float(result)
+            if getattr(node, 'use_clamp', False):
+                result = max(0.0, min(1.0, result))
+            return result
+        if ntype == 'CLAMP':
+            val = self._get_socket_float(node.inputs.get('Value'), depth + 1)
+            mn = self._get_socket_float(node.inputs.get('Min'), depth + 1)
+            mx = self._get_socket_float(node.inputs.get('Max'), depth + 1)
+            if val is None:
+                return None
+            mn = mn if mn is not None else 0.0
+            mx = mx if mx is not None else 1.0
+            return max(mn, min(mx, val))
+        if ntype == 'MAP_RANGE':
+            val = self._get_socket_float(node.inputs.get('Value'), depth + 1)
+            from_min = self._get_socket_float(node.inputs.get('From Min'), depth + 1)
+            from_max = self._get_socket_float(node.inputs.get('From Max'), depth + 1)
+            to_min = self._get_socket_float(node.inputs.get('To Min'), depth + 1)
+            to_max = self._get_socket_float(node.inputs.get('To Max'), depth + 1)
+            if val is None:
+                return None
+            from_min = from_min if from_min is not None else 0.0
+            from_max = from_max if from_max is not None else 1.0
+            to_min = to_min if to_min is not None else 0.0
+            to_max = to_max if to_max is not None else 1.0
+            denom = from_max - from_min
+            if abs(denom) < 1e-10:
+                return to_min
+            t = (val - from_min) / denom
+            interp = getattr(node, 'interpolation_type', 'LINEAR')
+            if interp == 'SMOOTHSTEP':
+                t = t * t * (3.0 - 2.0 * t)
+            elif interp == 'SMOOTHERSTEP':
+                t = t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+            result = to_min + t * (to_max - to_min)
+            if getattr(node, 'clamp', False):
+                lo, hi = min(to_min, to_max), max(to_min, to_max)
+                result = max(lo, min(hi, result))
+            return result
+        if ntype == 'RGBTOBW':
+            col = self._get_socket_color(node.inputs.get('Color'), depth + 1)
+            if col is None:
+                return None
+            return 0.2126 * col[0] + 0.7152 * col[1] + 0.0722 * col[2]
+        return None
+
+    def _eval_color_socket_node(self, node, output_name='Color', depth=0):
+        """Evaluate a node's color output. Returns [r,g,b] or None."""
+        if depth > 8:
+            return None
+        import colorsys, math
+        ntype = node.type
+        if ntype == 'RGB':
+            val = node.outputs[0].default_value
+            return list(val[:3])
+        if ntype == 'TEX_IMAGE':
+            return None  # can't evaluate dynamically; caller handles texture lookup
+        if ntype in ('MIX_RGB', 'MIX'):
+            fac_inp = node.inputs.get('Fac') or node.inputs.get('Factor')
+            col1_inp = node.inputs.get('Color1') or node.inputs.get('A') or (node.inputs[1] if len(node.inputs) > 1 else None)
+            col2_inp = node.inputs.get('Color2') or node.inputs.get('B') or (node.inputs[2] if len(node.inputs) > 2 else None)
+            fac = self._get_socket_float(fac_inp, depth + 1)
+            col1 = self._get_socket_color(col1_inp, depth + 1)
+            col2 = self._get_socket_color(col2_inp, depth + 1)
+            fac = fac if fac is not None else 0.5
+            col1 = col1 if col1 is not None else [0.0, 0.0, 0.0]
+            col2 = col2 if col2 is not None else [1.0, 1.0, 1.0]
+            blend_type = getattr(node, 'blend_type', 'MIX')
+            return self._mix_rgb(blend_type, fac, col1, col2)
+        if ntype == 'INVERT':
+            fac = self._get_socket_float(node.inputs.get('Fac'), depth + 1)
+            col = self._get_socket_color(node.inputs.get('Color'), depth + 1)
+            if col is None:
+                return None
+            fac = fac if fac is not None else 1.0
+            return [col[i] * (1.0 - fac) + (1.0 - col[i]) * fac for i in range(3)]
+        if ntype == 'GAMMA':
+            col = self._get_socket_color(node.inputs.get('Color'), depth + 1)
+            gamma = self._get_socket_float(node.inputs.get('Gamma'), depth + 1)
+            if col is None:
+                return None
+            gamma = gamma if gamma is not None else 1.0
+            return [max(0.0, c) ** gamma for c in col]
+        if ntype == 'HUE_SAT':
+            hue = self._get_socket_float(node.inputs.get('Hue'), depth + 1)
+            sat = self._get_socket_float(node.inputs.get('Saturation'), depth + 1)
+            val_mult = self._get_socket_float(node.inputs.get('Value'), depth + 1)
+            fac = self._get_socket_float(node.inputs.get('Fac'), depth + 1)
+            col = self._get_socket_color(node.inputs.get('Color'), depth + 1)
+            if col is None:
+                return None
+            hue = hue if hue is not None else 0.5
+            sat = sat if sat is not None else 1.0
+            val_mult = val_mult if val_mult is not None else 1.0
+            fac = fac if fac is not None else 1.0
+            h, s, v = colorsys.rgb_to_hsv(col[0], col[1], col[2])
+            h2 = (h + hue - 0.5) % 1.0
+            s2 = max(0.0, s * sat)
+            v2 = v * val_mult
+            result = list(colorsys.hsv_to_rgb(h2, s2, v2))
+            return [col[i] * (1.0 - fac) + result[i] * fac for i in range(3)]
+        if ntype == 'BRIGHTCONTRAST':
+            col = self._get_socket_color(node.inputs.get('Color'), depth + 1)
+            bright = self._get_socket_float(node.inputs.get('Bright'), depth + 1)
+            contrast = self._get_socket_float(node.inputs.get('Contrast'), depth + 1)
+            if col is None:
+                return None
+            bright = bright if bright is not None else 0.0
+            contrast = contrast if contrast is not None else 0.0
+            # Cycles formula: out = (in - 0.5) * (contrast + 1) + 0.5 + bright
+            return [max(0.0, (c - 0.5) * (contrast + 1.0) + 0.5 + bright) for c in col]
+        if ntype == 'VALTORGB':  # Color Ramp
+            fac = self._get_socket_float(node.inputs.get('Fac'), depth + 1)
+            if fac is None:
+                return None
+            try:
+                color = node.color_ramp.evaluate(fac)
+                return list(color[:3])
+            except Exception:
+                return None
+        if ntype == 'WAVELENGTH':
+            wl = self._get_socket_float(node.inputs.get('Wavelength'), depth + 1)
+            if wl is None:
+                return None
+            return self._wavelength_to_rgb(wl)
+        if ntype == 'BLACKBODY':
+            temp = self._get_socket_float(node.inputs.get('Temperature'), depth + 1)
+            if temp is None:
+                return None
+            return self._blackbody_to_rgb(temp)
+        if ntype == 'RGBTOBW':
+            col = self._get_socket_color(node.inputs.get('Color'), depth + 1)
+            if col is None:
+                return None
+            bw = 0.2126 * col[0] + 0.7152 * col[1] + 0.0722 * col[2]
+            return [bw, bw, bw]
+        return None
+
+    def _mix_rgb(self, blend_type, fac, a, b):
+        """Apply a MixRGB blend operation matching Cycles behavior."""
+        if blend_type == 'MIX':
+            return [a[i] * (1.0 - fac) + b[i] * fac for i in range(3)]
+        elif blend_type == 'ADD':
+            return [min(1.0, a[i] + b[i] * fac) for i in range(3)]
+        elif blend_type == 'MULTIPLY':
+            return [a[i] * (1.0 - fac) + a[i] * b[i] * fac for i in range(3)]
+        elif blend_type == 'SUBTRACT':
+            return [max(0.0, a[i] - b[i] * fac) for i in range(3)]
+        elif blend_type == 'SCREEN':
+            return [1.0 - (1.0 - a[i]) * (1.0 - b[i] * fac) for i in range(3)]
+        elif blend_type == 'DIVIDE':
+            return [a[i] * (1.0 - fac) + (a[i] / max(1e-5, b[i])) * fac for i in range(3)]
+        elif blend_type == 'DIFFERENCE':
+            return [a[i] * (1.0 - fac) + abs(a[i] - b[i]) * fac for i in range(3)]
+        elif blend_type == 'DARKEN':
+            return [a[i] * (1.0 - fac) + min(a[i], b[i]) * fac for i in range(3)]
+        elif blend_type == 'LIGHTEN':
+            return [a[i] * (1.0 - fac) + max(a[i], b[i]) * fac for i in range(3)]
+        elif blend_type == 'OVERLAY':
+            def ov(x, y):
+                return 2.0 * x * y if x < 0.5 else 1.0 - 2.0 * (1.0 - x) * (1.0 - y)
+            blended = [ov(a[i], b[i]) for i in range(3)]
+            return [a[i] * (1.0 - fac) + blended[i] * fac for i in range(3)]
+        else:
+            return [a[i] * (1.0 - fac) + b[i] * fac for i in range(3)]
+
+    def _wavelength_to_rgb(self, wavelength_nm):
+        """Approximate CIE spectral locus mapping of wavelength (nm) to RGB."""
+        wl = wavelength_nm
+        if wl < 380.0 or wl > 780.0:
+            return [0.0, 0.0, 0.0]
+        if wl < 440.0:
+            r = -(wl - 440.0) / (440.0 - 380.0); g = 0.0; b = 1.0
+        elif wl < 490.0:
+            r = 0.0; g = (wl - 440.0) / (490.0 - 440.0); b = 1.0
+        elif wl < 510.0:
+            r = 0.0; g = 1.0; b = -(wl - 510.0) / (510.0 - 490.0)
+        elif wl < 580.0:
+            r = (wl - 510.0) / (580.0 - 510.0); g = 1.0; b = 0.0
+        elif wl < 645.0:
+            r = 1.0; g = -(wl - 645.0) / (645.0 - 580.0); b = 0.0
+        else:
+            r = 1.0; g = 0.0; b = 0.0
+        factor = (0.3 + 0.7 * (wl - 380.0) / (420.0 - 380.0) if wl < 420.0
+                  else 0.3 + 0.7 * (780.0 - wl) / (780.0 - 700.0) if wl > 700.0
+                  else 1.0)
+        return [r * factor, g * factor, b * factor]
+
+    def _blackbody_to_rgb(self, temperature_k):
+        """Approximate Planckian locus (Kang et al. polynomial) to linear RGB."""
+        import math
+        t = max(1000.0, min(40000.0, temperature_k))
+        if t <= 6600.0:
+            r = 1.0
+            g_raw = 99.4708025861 * math.log(t / 100.0) - 161.1195681661
+            g = max(0.0, min(1.0, g_raw / 255.0))
+            if t <= 1900.0:
+                b = 0.0
+            else:
+                b_raw = 138.5177312231 * math.log(t / 100.0 - 10.0) - 305.0447927307
+                b = max(0.0, min(1.0, b_raw / 255.0))
+        else:
+            r_raw = 329.698727446 * ((t / 100.0 - 60.0) ** -0.1332047592)
+            r = max(0.0, min(1.0, r_raw / 255.0))
+            g_raw = 288.1221695283 * ((t / 100.0 - 60.0) ** -0.0755148492)
+            g = max(0.0, min(1.0, g_raw / 255.0))
+            b = 1.0
+        return [r, g, b]
 
     def get_image_from_socket(self, socket):
         """Resolve a directly linked Image Texture datablock from a socket."""
@@ -581,6 +895,129 @@ class CustomRaytracerRenderEngine(RenderEngine):
         except Exception as e:
             print(f"Astroray: failed to load texture '{bpy_image.name}': {e}")
             return None
+
+    def load_procedural_texture(self, node, renderer):
+        """Export a Blender procedural texture node to the Astroray texture manager.
+        Returns a texture name string on success, None on failure.
+
+        Supported node types: TEX_NOISE, TEX_VORONOI, TEX_WAVE, TEX_MAGIC,
+        TEX_CHECKER, TEX_BRICK, TEX_GRADIENT, TEX_MUSGRAVE.
+        """
+        cache = getattr(self, '_proc_tex_cache', None)
+        if cache is None:
+            cache = {}
+            self._proc_tex_cache = cache
+        node_id = id(node)
+        if node_id in cache:
+            return cache[node_id]
+
+        ntype = node.type
+        tex_name = None
+        try:
+            if ntype == 'TEX_NOISE':
+                scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
+                tex_name = f"_proc_noise_{node_id}"
+                renderer.create_procedural_texture(tex_name, 'noise', [scale])
+            elif ntype == 'TEX_CHECKER':
+                scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
+                c1 = list(node.inputs['Color1'].default_value[:3]) if node.inputs.get('Color1') else [1,1,1]
+                c2 = list(node.inputs['Color2'].default_value[:3]) if node.inputs.get('Color2') else [0,0,0]
+                tex_name = f"_proc_checker_{node_id}"
+                renderer.create_procedural_texture(tex_name, 'checker',
+                    c1 + c2 + [scale])
+            elif ntype == 'TEX_VORONOI':
+                scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
+                randomness = float(node.inputs['Randomness'].default_value) if node.inputs.get('Randomness') else 1.0
+                smoothness = float(node.inputs.get('Smoothness', type(None) or type(0)).default_value) if node.inputs.get('Smoothness') else 1.0
+                dist_map = {'EUCLIDEAN': 0, 'MANHATTAN': 1, 'CHEBYCHEV': 2, 'MINKOWSKI': 3}
+                feat_map = {'F1': 0, 'F2': 1, 'F1_F2': 2, 'SMOOTH_F1': 4, 'DISTANCE_TO_EDGE': 3}
+                dm = dist_map.get(getattr(node, 'distance', 'EUCLIDEAN'), 0)
+                feat = feat_map.get(getattr(node, 'feature', 'F1'), 0)
+                tex_name = f"_proc_voronoi_{node_id}"
+                renderer.create_procedural_texture(tex_name, 'voronoi',
+                    [scale, randomness, float(dm), float(feat), smoothness, 0,0,0, 1,1,1])
+            elif ntype == 'TEX_WAVE':
+                scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
+                dist = float(node.inputs['Distortion'].default_value) if node.inputs.get('Distortion') else 0.0
+                detail = float(node.inputs['Detail'].default_value) if node.inputs.get('Detail') else 2.0
+                rough = float(node.inputs['Detail Roughness'].default_value or node.inputs.get('Roughness', type(0)).default_value) \
+                    if node.inputs.get('Detail Roughness') else 0.5
+                lac = float(node.inputs['Detail Scale'].default_value) if node.inputs.get('Detail Scale') else 2.0
+                bd = 1 if getattr(node, 'wave_type', 'BANDS') == 'RINGS' else 0
+                profile_map = {'SINE': 0, 'SAW': 1, 'TRIANGLE': 2}
+                prof = profile_map.get(getattr(node, 'bands_direction', 'SINE'), 0)
+                tex_name = f"_proc_wave_{node_id}"
+                renderer.create_procedural_texture(tex_name, 'wave',
+                    [float(bd), float(prof), scale, dist, detail, rough, lac, 0,0,0, 1,1,1])
+            elif ntype == 'TEX_MAGIC':
+                depth = int(node.turbulence_depth) if hasattr(node, 'turbulence_depth') else 2
+                scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
+                dist = float(node.inputs['Distortion'].default_value) if node.inputs.get('Distortion') else 1.0
+                tex_name = f"_proc_magic_{node_id}"
+                renderer.create_procedural_texture(tex_name, 'magic',
+                    [float(depth), scale, dist, 0,0,0, 1,1,1])
+            elif ntype == 'TEX_BRICK':
+                scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
+                mortar = float(node.inputs['Mortar Size'].default_value) if node.inputs.get('Mortar Size') else 0.02
+                offset = float(node.inputs['Offset'].default_value) if node.inputs.get('Offset') else 0.5
+                c_brick = list(node.inputs['Color1'].default_value[:3]) if node.inputs.get('Color1') else [0.7, 0.35, 0.2]
+                c_mortar = list(node.inputs['Color3'].default_value[:3]) if node.inputs.get('Color3') else [0.9, 0.9, 0.9]
+                bw = float(node.inputs['Brick Width'].default_value) if node.inputs.get('Brick Width') else 0.5
+                bh = float(node.inputs['Row Height'].default_value) if node.inputs.get('Row Height') else 0.25
+                tex_name = f"_proc_brick_{node_id}"
+                renderer.create_procedural_texture(tex_name, 'brick',
+                    c_brick + c_mortar + [bw, bh, mortar, offset, scale])
+            elif ntype == 'TEX_GRADIENT':
+                grad_map = {'LINEAR': 0, 'QUADRATIC': 1, 'EASING': 2, 'DIAGONAL': 3,
+                            'SPHERICAL': 4, 'QUADRATIC_SPHERE': 5, 'RADIAL': 6}
+                gt = float(grad_map.get(getattr(node, 'gradient_type', 'LINEAR'), 0))
+                tex_name = f"_proc_gradient_{node_id}"
+                renderer.create_procedural_texture(tex_name, 'gradient',
+                    [gt, 1.0, 0,0,0, 1,1,1])
+            elif ntype == 'TEX_MUSGRAVE':
+                scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
+                detail = float(node.inputs['Detail'].default_value) if node.inputs.get('Detail') else 2.0
+                dim = float(node.inputs['Dimension'].default_value) if node.inputs.get('Dimension') else 2.0
+                lac = float(node.inputs['Lacunarity'].default_value) if node.inputs.get('Lacunarity') else 2.0
+                mus_map = {'FBM': 0, 'MULTIFRACTAL': 1, 'RIDGED_MULTIFRACTAL': 2, 'HYBRID_MULTIFRACTAL': 3, 'HETERO_TERRAIN': 3}
+                mt = float(mus_map.get(getattr(node, 'musgrave_type', 'FBM'), 0))
+                tex_name = f"_proc_musgrave_{node_id}"
+                renderer.create_procedural_texture(tex_name, 'musgrave',
+                    [mt, scale, detail, dim, lac, 1.0, 0,0,0, 1,1,1])
+        except Exception as e:
+            print(f"Astroray: failed to create procedural texture '{ntype}': {e}")
+            return None
+
+        if tex_name:
+            cache[node_id] = tex_name
+        return tex_name
+
+    def get_base_color_texture(self, node, input_name, renderer):
+        """Returns (fallback_color, tex_name_or_None) for a color input,
+        handling both Image Texture and procedural texture nodes."""
+        inp = node.inputs.get(input_name)
+        if not inp or not inp.is_linked:
+            if inp:
+                val = inp.default_value
+                if hasattr(val, '__iter__'):
+                    return list(val[:3]), None
+            return [0.8, 0.8, 0.8], None
+        try:
+            linked_node = inp.links[0].from_node
+        except (IndexError, AttributeError):
+            return [0.8, 0.8, 0.8], None
+        # Image texture
+        if linked_node.type == 'TEX_IMAGE' and linked_node.image:
+            tex_name = self.load_blender_image(linked_node.image, renderer)
+            fallback = list(inp.default_value[:3]) if hasattr(inp.default_value, '__iter__') else [0.8, 0.8, 0.8]
+            return fallback, tex_name
+        # Procedural texture
+        PROC_TYPES = {'TEX_NOISE', 'TEX_CHECKER', 'TEX_VORONOI', 'TEX_WAVE',
+                      'TEX_MAGIC', 'TEX_BRICK', 'TEX_GRADIENT', 'TEX_MUSGRAVE'}
+        if linked_node.type in PROC_TYPES:
+            tex_name = self.load_procedural_texture(linked_node, renderer)
+            return [0.8, 0.8, 0.8], tex_name
+        return [0.8, 0.8, 0.8], None
 
     # ------------------------------------------------------------------ #
     # Shader-node dispatch
@@ -862,9 +1299,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         nodes on Base Color (other sockets: defaults only for now), and picks
         up the renamed sockets introduced in Blender 4.0.
         """
-        # --- Base Color (may be textured) ---
-        base_color, base_color_tex = self.get_color_or_texture(
-            node, 'Base Color', [0.8, 0.8, 0.8])
+        # --- Base Color (may be image-textured or procedural) ---
+        base_color, base_color_tex_name = self.get_base_color_texture(
+            node, 'Base Color', renderer)
+        # Also check legacy path for backward compatibility
+        _, base_color_img = self.get_color_or_texture(node, 'Base Color', [0.8, 0.8, 0.8])
+        if base_color_tex_name is None and base_color_img is not None:
+            base_color_tex_name = self.load_blender_image(base_color_img, renderer)
 
         # --- Scalar parameters (with renamed-input fallbacks) ---
         metallic  = self.get_float_input(node, 'Metallic', 0.0)
@@ -918,19 +1359,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # textured path (DisneyBRDF doesn't currently accept a texture, and the
         # TexturedLambertian gives correct base color sampling for most PBR
         # scenes while preserving roughness/metallic-less appearance).
-        if base_color_tex is not None:
-            tex_name = self.load_blender_image(base_color_tex, renderer)
-            if tex_name:
-                # Use textured lambertian (the only path that currently samples
-                # a texture on hit). TODO: extend DisneyBRDF with a base-color
-                # texture slot so we can keep metallic/roughness too.
-                lambert_params = {'texture': tex_name}
-                for key in ('normal_map_texture', 'normal_strength',
-                            'bump_map_texture', 'bump_strength', 'bump_distance'):
-                    if key in params:
-                        lambert_params[key] = params[key]
-                return renderer.create_material('lambertian', base_color,
-                                                lambert_params)
+        if base_color_tex_name is not None:
+            # Use textured lambertian (the only path that currently samples
+            # a texture on hit). TODO: extend DisneyBRDF with a base-color
+            # texture slot so we can keep metallic/roughness too.
+            lambert_params = {'texture': base_color_tex_name}
+            for key in ('normal_map_texture', 'normal_strength',
+                        'bump_map_texture', 'bump_strength', 'bump_distance'):
+                if key in params:
+                    lambert_params[key] = params[key]
+            return renderer.create_material('lambertian', base_color,
+                                            lambert_params)
 
         return renderer.create_material('disney', base_color, params)
     
@@ -1141,6 +1580,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 rot_input = node.inputs.get('Rotation')
                 if rot_input:
                     rotation = float(rot_input.default_value[2])  # Z rotation
+
+        # Apply world bounce limit (Cycles: world.light_settings.max_bounces)
+        world_settings = getattr(world, 'light_settings', None)
+        world_max_bounces = int(getattr(world_settings, 'max_bounces', 1024)) if world_settings else 1024
+        renderer.set_world_max_bounces(world_max_bounces)
 
         # Try loading HDRI first
         if hdri_path and os.path.exists(hdri_path):

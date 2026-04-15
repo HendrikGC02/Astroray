@@ -146,7 +146,7 @@ public:
 
     // --------------- GR rendering via virtual dispatch ---------------
 
-    __attribute__((noinline))
+    ASTRORAY_NOINLINE
     GRResult traceGR(const Ray& incomingRay, std::mt19937& gen) const override {
         // Minimal result: treat as captured (black hole shadow)
         GRResult result;

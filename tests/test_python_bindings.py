@@ -1638,6 +1638,63 @@ def test_bump_strength_zero_matches_no_bump_output():
 
 
 # ---------------------------------------------------------------------------
+# Seed control — issue #7
+# ---------------------------------------------------------------------------
+
+def test_pixel_filter():
+    """Box, Gaussian, and Blackman-Harris filters all produce valid renders."""
+    W, H = 80, 60
+
+    def do_render(filter_type, filter_width):
+        r = create_renderer()
+        r.set_seed(1)  # deterministic
+        r.set_adaptive_sampling(False)
+        r.set_pixel_filter(filter_type, filter_width)
+        mat = r.create_material('lambertian', [0.5, 0.5, 0.8], {})
+        r.add_sphere([0, 0, -3], 1.0, mat)
+        setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], vfov=40, width=W, height=H)
+        return render_image(r, samples=8, apply_gamma=False)
+
+    box    = do_render(0, 1.0)
+    gauss  = do_render(1, 1.5)
+    bh     = do_render(2, 1.5)
+
+    for name, img in [('box', box), ('gaussian', gauss), ('blackman_harris', bh)]:
+        assert img is not None and img.size > 0, f"{name} filter produced empty render"
+        assert np.all(np.isfinite(img)), f"{name} filter produced NaN/Inf pixels"
+        assert np.any(img > 0), f"{name} filter produced all-black render"
+        save_image(img, os.path.join(OUTPUT_DIR, f'test_pixel_filter_{name}.png'))
+
+
+def test_seed_determinism():
+    """Same seed must produce identical renders; different seeds must differ."""
+    W, H = 80, 60
+
+    def do_render(seed):
+        r = create_renderer()
+        r.set_seed(seed)
+        r.set_adaptive_sampling(False)
+        mat = r.create_material('lambertian', [0.7, 0.2, 0.2], {})
+        r.add_sphere([0, 0, -3], 1.0, mat)
+        setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], vfov=40, width=W, height=H)
+        return render_image(r, samples=8, apply_gamma=False)
+
+    render_a1 = do_render(42)
+    render_a2 = do_render(42)
+    render_b  = do_render(123)
+
+    # Same seed → identical pixels
+    assert np.array_equal(render_a1, render_a2), \
+        "Same seed produced different renders (non-deterministic)."
+
+    # Different seeds → at least one pixel differs
+    assert not np.array_equal(render_a1, render_b), \
+        "Different seeds produced identical renders."
+
+    save_image(render_a1, os.path.join(OUTPUT_DIR, 'test_seed_determinism.png'))
+
+
+# ---------------------------------------------------------------------------
 # Stand-alone entry-point for direct execution
 # ---------------------------------------------------------------------------
 

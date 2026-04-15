@@ -134,7 +134,7 @@ public:
         return interpolate(flux_table, r);
     }
 
-    __attribute__((noinline))
+    ASTRORAY_NOINLINE
     double temperatureAt(double r) const {
         return interpolate(temp_table, r);
     }
@@ -143,7 +143,7 @@ public:
     // g = 1 / [(1 + Ω·r·sinθ·sinφ) / √(1 - 3M/r)]
     // theta here is the observer inclination, phi is the azimuthal position of the
     // disk element at crossing.
-    __attribute__((noinline))
+    ASTRORAY_NOINLINE
     double redshiftFactor(double r, double phi, double inclination) const {
         double M     = M_val;
         if (r <= 0.0) return 0.0;

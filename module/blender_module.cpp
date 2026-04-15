@@ -3,10 +3,18 @@
 #include <pybind11/numpy.h>
 #include <pybind11/functional.h>
 #include <cctype>
+#include <cmath>
 #include "raytracer.h"
 #include "advanced_features.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
+#endif
+#ifdef ASTRORAY_OIDN_ENABLED
+#  if __has_include(<OpenImageDenoise/oidn.hpp>)
+#    include <OpenImageDenoise/oidn.hpp>
+#  elif __has_include(<oidn.hpp>)
+#    include <oidn.hpp>
+#  endif
 #endif
 
 namespace py = pybind11;
@@ -139,9 +147,83 @@ class PyRenderer {
     bool useAdaptiveSampling = true;
     std::shared_ptr<EnvironmentMap> envMap;
     bool useGPU = false;
+    enum class DenoiserType {
+        None,
+        OIDN
+    };
+    bool useDenoiser = false;
+    DenoiserType denoiserType = DenoiserType::None;
 #ifdef ASTRORAY_CUDA_ENABLED
     std::unique_ptr<CUDARenderer> cudaRenderer;
 #endif
+
+    void applyDenoiseIfEnabled() {
+        if (!useDenoiser || denoiserType == DenoiserType::None || !camera) return;
+        if (denoiserType == DenoiserType::OIDN) applyOIDNDenoise();
+    }
+
+    void applyOIDNDenoise() {
+#ifdef ASTRORAY_OIDN_ENABLED
+        const size_t pixelCount = camera->pixels.size();
+        if (pixelCount == 0) return;
+
+        std::vector<float> beauty(pixelCount * 3, 0.0f);
+        std::vector<float> albedo(pixelCount * 3, 0.0f);
+        std::vector<float> normal(pixelCount * 3, 0.0f);
+        std::vector<float> output(pixelCount * 3, 0.0f);
+
+        auto safeFloat = [](float v) { return std::isfinite(v) ? v : 0.0f; };
+        for (size_t i = 0; i < pixelCount; ++i) {
+            beauty[i * 3] = safeFloat(camera->pixels[i].x);
+            beauty[i * 3 + 1] = safeFloat(camera->pixels[i].y);
+            beauty[i * 3 + 2] = safeFloat(camera->pixels[i].z);
+
+            albedo[i * 3] = safeFloat(camera->albedoBuffer[i].x);
+            albedo[i * 3 + 1] = safeFloat(camera->albedoBuffer[i].y);
+            albedo[i * 3 + 2] = safeFloat(camera->albedoBuffer[i].z);
+
+            Vec3 n(
+                safeFloat(camera->normalBuffer[i].x),
+                safeFloat(camera->normalBuffer[i].y),
+                safeFloat(camera->normalBuffer[i].z)
+            );
+            if (n.length() > 0.0f) n = n.normalized();
+            normal[i * 3] = n.x;
+            normal[i * 3 + 1] = n.y;
+            normal[i * 3 + 2] = n.z;
+        }
+
+        oidn::DeviceRef device = oidn::newDevice();
+        device.commit();
+
+        oidn::FilterRef filter = device.newFilter("RT");
+        filter.setImage("color", beauty.data(), oidn::Format::Float3, camera->width, camera->height);
+        filter.setImage("albedo", albedo.data(), oidn::Format::Float3, camera->width, camera->height);
+        filter.setImage("normal", normal.data(), oidn::Format::Float3, camera->width, camera->height);
+        filter.setImage("output", output.data(), oidn::Format::Float3, camera->width, camera->height);
+        filter.set("hdr", true);
+        filter.commit();
+        filter.execute();
+
+        const char* errorMessage = nullptr;
+        if (device.getError(errorMessage) != oidn::Error::None) {
+            throw std::runtime_error(std::string("OIDN denoiser failed: ") + (errorMessage ? errorMessage : "unknown error"));
+        }
+
+        for (size_t i = 0; i < pixelCount; ++i) {
+            const float r = output[i * 3];
+            const float g = output[i * 3 + 1];
+            const float b = output[i * 3 + 2];
+            camera->pixels[i] = Vec3(
+                std::isfinite(r) ? std::max(r, 0.0f) : 0.0f,
+                std::isfinite(g) ? std::max(g, 0.0f) : 0.0f,
+                std::isfinite(b) ? std::max(b, 0.0f) : 0.0f
+            );
+        }
+#else
+        // Graceful fallback: OIDN requested but not available in this build.
+#endif
+    }
 public:
     void loadTexture(const std::string& name, py::array_t<float> imageData, int width, int height,
                      const std::string& coordMode = "UV") {
@@ -463,6 +545,18 @@ public:
     void setTransparentGlass(bool use) {
         renderer.setTransparentGlass(use);
     }
+
+    void setUseDenoiser(bool use) {
+        useDenoiser = use;
+    }
+
+    void setDenoiserType(const std::string& type) {
+        std::string key = type;
+        for (char& c : key) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        if (key == "NONE") denoiserType = DenoiserType::None;
+        else if (key == "OIDN") denoiserType = DenoiserType::OIDN;
+        else throw std::runtime_error("Unknown denoiser type: " + type);
+    }
     
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true,
                               int diffuseBounces = -1, int glossyBounces = -1, int transmissionBounces = -1,
@@ -493,6 +587,8 @@ public:
             renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false,
                             diffuseBounces, glossyBounces, transmissionBounces, volumeBounces, transparentBounces);
         }
+
+        applyDenoiseIfEnabled();
 
         // Package pixels into numpy array (height, width, 3)
         py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height),
@@ -776,6 +872,8 @@ public:
         textureManager = TextureManager();
         envMap.reset();
         useGPU = false;
+        useDenoiser = false;
+        denoiserType = DenoiserType::None;
 #ifdef ASTRORAY_CUDA_ENABLED
         cudaRenderer.reset();
 #endif
@@ -837,6 +935,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
         .def("set_use_transparent_film", &PyRenderer::setUseTransparentFilm, "use"_a)
         .def("set_transparent_glass", &PyRenderer::setTransparentGlass, "use"_a)
+        .def("set_use_denoiser", &PyRenderer::setUseDenoiser, "use"_a)
+        .def("set_denoiser_type", &PyRenderer::setDenoiserType, "type"_a)
         .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a,
              "progress_callback"_a = py::none(), "apply_gamma"_a = true,
              "diffuse_bounces"_a = -1, "glossy_bounces"_a = -1, "transmission_bounces"_a = -1,
@@ -863,6 +963,11 @@ PYBIND11_MODULE(astroray, m) {
         "nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,
         "adaptive_sampling"_a=true, "volumes"_a=true, "textures"_a=true, "subsurface"_a=true,
         "gr_black_holes"_a=true,
+#ifdef ASTRORAY_OIDN_ENABLED
+        "oidn_denoiser"_a=true,
+#else
+        "oidn_denoiser"_a=false,
+#endif
 #ifdef ASTRORAY_CUDA_ENABLED
         "cuda"_a=true
 #else

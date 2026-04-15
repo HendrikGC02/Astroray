@@ -17,6 +17,7 @@ option(BUILD_DOCS "Build documentation" OFF)
 option(USE_NATIVE_ARCH "Build with -march=native" ON)
 option(USE_FAST_MATH "Enable fast math optimizations" ON)
 option(ASTRORAY_ENABLE_CUDA "Enable CUDA GPU acceleration" ON)
+option(ASTRORAY_ENABLE_OIDN "Enable Intel Open Image Denoise integration when available" ON)
 # Disable OpenMP entirely. Needed when building the Python module (.pyd) for
 # distribution as a Blender addon: MinGW's libgomp deadlocks during module
 # init when loaded into Blender's MSVC-built Python host. Standalone pytest
@@ -45,6 +46,24 @@ if(ASTRORAY_ENABLE_CUDA)
 else()
     set(ASTRORAY_CUDA_FOUND FALSE)
     message(STATUS "CUDA disabled via ASTRORAY_ENABLE_CUDA=OFF")
+endif()
+
+# ---------------------------------------------------------------------------
+# Optional Intel Open Image Denoise (OIDN)
+# ---------------------------------------------------------------------------
+set(ASTRORAY_OIDN_FOUND FALSE)
+set(ASTRORAY_OIDN_TARGET "")
+if(ASTRORAY_ENABLE_OIDN)
+    find_package(OpenImageDenoise CONFIG QUIET)
+    if(OpenImageDenoise_FOUND)
+        if(TARGET OpenImageDenoise::OpenImageDenoise)
+            set(ASTRORAY_OIDN_TARGET OpenImageDenoise::OpenImageDenoise)
+            set(ASTRORAY_OIDN_FOUND TRUE)
+        elseif(TARGET OpenImageDenoise)
+            set(ASTRORAY_OIDN_TARGET OpenImageDenoise)
+            set(ASTRORAY_OIDN_FOUND TRUE)
+        endif()
+    endif()
 endif()
 
 # Compiler flags for optimization
@@ -252,6 +271,11 @@ if(BUILD_PYTHON_MODULE)
         target_link_libraries(astroray PRIVATE OpenMP::OpenMP_CXX)
     endif()
 
+    if(ASTRORAY_OIDN_FOUND)
+        target_link_libraries(astroray PRIVATE ${ASTRORAY_OIDN_TARGET})
+        target_compile_definitions(astroray PRIVATE ASTRORAY_OIDN_ENABLED)
+    endif()
+
     # When building with MinGW for distribution as a Blender addon, statically
     # link the GCC runtime so the .pyd doesn't depend on libgcc_s_seh-1.dll /
     # libstdc++-6.dll / libwinpthread-1.dll being on the loader's PATH.
@@ -322,6 +346,11 @@ if(BUILD_BLENDER_MODULE)
     
     if(OpenMP_CXX_FOUND)
         target_link_libraries(raytracer_blender PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+
+    if(ASTRORAY_OIDN_FOUND)
+        target_link_libraries(raytracer_blender PRIVATE ${ASTRORAY_OIDN_TARGET})
+        target_compile_definitions(raytracer_blender PRIVATE ASTRORAY_OIDN_ENABLED)
     endif()
     
     # Set properties for Python module
@@ -399,6 +428,7 @@ message(STATUS "OpenMP: ${OpenMP_CXX_FOUND}")
 message(STATUS "Native arch: ${USE_NATIVE_ARCH}")
 message(STATUS "Fast math: ${USE_FAST_MATH}")
 message(STATUS "CUDA GPU backend: ${ASTRORAY_CUDA_FOUND}")
+message(STATUS "OIDN denoiser: ${ASTRORAY_OIDN_FOUND}")
 message(STATUS "Python module: ${BUILD_PYTHON_MODULE}")
 if(BUILD_PYTHON_MODULE)
     message(STATUS "  Python: ${Python3_VERSION}")

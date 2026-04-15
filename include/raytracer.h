@@ -801,6 +801,7 @@ public:
         rec.objectPoint = rec.point;
         rec.setFaceNormal(r, direction);
         rec.material = material;
+        rec.hitObject = this;
         rec.uv = Vec2(0.0f, 0.0f);
         return true;
     }
@@ -814,8 +815,12 @@ public:
     float pdfValue(const Vec3& /*origin*/, const Vec3& sampleDir) const override {
         Vec3 d = sampleDir.normalized();
         float cosTheta = d.dot(toLightDir);
-        if (angularDiameter <= 0.0f) return cosTheta > (1.0f - 1e-3f) ? 1.0f : 0.0f;
-        return cosTheta >= cosThetaMax ? 1.0f : 0.0f;
+        if (angularDiameter <= 0.0f)
+            return cosTheta > (1.0f - 1e-3f) ? 1.0f : 0.0f;
+        if (cosTheta < cosThetaMax) return 0.0f;
+        // Uniform cone sampling: PDF = 1 / solidAngle = 1 / (2π(1 − cosθ_max))
+        float solidAngle = 2.0f * float(M_PI) * (1.0f - cosThetaMax);
+        return solidAngle > 1e-10f ? 1.0f / solidAngle : 1.0f;
     }
 
     Vec3 random(const Vec3& /*origin*/, std::mt19937& gen) const override {
@@ -835,6 +840,15 @@ public:
         HitRecord rec;
         rec.frontFace = true;
         return material ? material->emitted(rec) : Vec3(0);
+    }
+    // Scale emitted radiance by 1/solidAngle so that contribution = (I/Ω) / (1/Ω) = I
+    // regardless of the cone angular size.  Both the NEE path and the BSDF MIS path
+    // multiply material emission by directionFalloff before dividing by pdf,
+    // so the irradiance seen by the surface stays constant as the sun disk size changes.
+    float directionFalloff(const Vec3& /*dir*/) const override {
+        if (angularDiameter <= 0.0f) return 1.0f;
+        float solidAngle = 2.0f * float(M_PI) * (1.0f - cosThetaMax);
+        return solidAngle > 1e-10f ? 1.0f / solidAngle : 1.0f;
     }
 };
 
@@ -1951,7 +1965,13 @@ public:
             if (ls.pdf > 0) {
                 Vec3 wi = (ls.position - rec.point).normalized();
                 HitRecord shadow;
-                if (!bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow)) {
+                bool hitOccluder = bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow);
+                // Infinite lights (DistantLight) are at t=1e8; float subtraction
+                // ls.distance - 0.001f == ls.distance (ULP≈8 at 1e8), so the shadow
+                // ray hits the light itself.  Skip infinite-light hits — they are the
+                // sampled light, not an occluder.
+                bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
+                if (!occluded) {
                     Vec3 f = rec.material->eval(rec, wo, wi);
                     float bsdfPdf = rec.material->pdf(rec, wo, wi);
                     float combinedLightPdf = pArea * ls.pdf;

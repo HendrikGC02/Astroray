@@ -167,20 +167,32 @@ class PyRenderer {
         const size_t pixelCount = camera->pixels.size();
         if (pixelCount == 0) return;
 
-        std::vector<float> beauty(pixelCount * 3, 0.0f);
-        std::vector<float> albedo(pixelCount * 3, 0.0f);
-        std::vector<float> normal(pixelCount * 3, 0.0f);
-        std::vector<float> output(pixelCount * 3, 0.0f);
+        const size_t byteSize = pixelCount * 3 * sizeof(float);
+
+        oidn::DeviceRef device = oidn::newDevice();
+        device.commit();
+
+        // OIDN 2.x requires device-accessible OIDNBuffer objects; raw CPU pointers
+        // are no longer accepted by setImage().  newBuffer(byteSize) creates a buffer
+        // accessible to both host (via getData()) and device.
+        oidn::BufferRef colorBuf  = device.newBuffer(byteSize);
+        oidn::BufferRef albedoBuf = device.newBuffer(byteSize);
+        oidn::BufferRef normalBuf = device.newBuffer(byteSize);
+        oidn::BufferRef outputBuf = device.newBuffer(byteSize);
+
+        float* colorData  = static_cast<float*>(colorBuf.getData());
+        float* albedoData = static_cast<float*>(albedoBuf.getData());
+        float* normalData = static_cast<float*>(normalBuf.getData());
 
         auto safeFloat = [](float v) { return std::isfinite(v) ? v : 0.0f; };
         for (size_t i = 0; i < pixelCount; ++i) {
-            beauty[i * 3] = safeFloat(camera->pixels[i].x);
-            beauty[i * 3 + 1] = safeFloat(camera->pixels[i].y);
-            beauty[i * 3 + 2] = safeFloat(camera->pixels[i].z);
+            colorData[i * 3]     = safeFloat(camera->pixels[i].x);
+            colorData[i * 3 + 1] = safeFloat(camera->pixels[i].y);
+            colorData[i * 3 + 2] = safeFloat(camera->pixels[i].z);
 
-            albedo[i * 3] = safeFloat(camera->albedoBuffer[i].x);
-            albedo[i * 3 + 1] = safeFloat(camera->albedoBuffer[i].y);
-            albedo[i * 3 + 2] = safeFloat(camera->albedoBuffer[i].z);
+            albedoData[i * 3]     = safeFloat(camera->albedoBuffer[i].x);
+            albedoData[i * 3 + 1] = safeFloat(camera->albedoBuffer[i].y);
+            albedoData[i * 3 + 2] = safeFloat(camera->albedoBuffer[i].z);
 
             Vec3 n(
                 safeFloat(camera->normalBuffer[i].x),
@@ -188,19 +200,16 @@ class PyRenderer {
                 safeFloat(camera->normalBuffer[i].z)
             );
             if (n.length() > 0.0f) n = n.normalized();
-            normal[i * 3] = n.x;
-            normal[i * 3 + 1] = n.y;
-            normal[i * 3 + 2] = n.z;
+            normalData[i * 3]     = n.x;
+            normalData[i * 3 + 1] = n.y;
+            normalData[i * 3 + 2] = n.z;
         }
 
-        oidn::DeviceRef device = oidn::newDevice();
-        device.commit();
-
         oidn::FilterRef filter = device.newFilter("RT");
-        filter.setImage("color", beauty.data(), oidn::Format::Float3, camera->width, camera->height);
-        filter.setImage("albedo", albedo.data(), oidn::Format::Float3, camera->width, camera->height);
-        filter.setImage("normal", normal.data(), oidn::Format::Float3, camera->width, camera->height);
-        filter.setImage("output", output.data(), oidn::Format::Float3, camera->width, camera->height);
+        filter.setImage("color",  colorBuf,  oidn::Format::Float3, camera->width, camera->height);
+        filter.setImage("albedo", albedoBuf, oidn::Format::Float3, camera->width, camera->height);
+        filter.setImage("normal", normalBuf, oidn::Format::Float3, camera->width, camera->height);
+        filter.setImage("output", outputBuf, oidn::Format::Float3, camera->width, camera->height);
         filter.set("hdr", true);
         filter.commit();
         filter.execute();
@@ -210,10 +219,11 @@ class PyRenderer {
             throw std::runtime_error(std::string("OIDN denoiser failed: ") + (errorMessage ? errorMessage : "unknown error"));
         }
 
+        const float* outputData = static_cast<const float*>(outputBuf.getData());
         for (size_t i = 0; i < pixelCount; ++i) {
-            const float r = output[i * 3];
-            const float g = output[i * 3 + 1];
-            const float b = output[i * 3 + 2];
+            const float r = outputData[i * 3];
+            const float g = outputData[i * 3 + 1];
+            const float b = outputData[i * 3 + 2];
             camera->pixels[i] = Vec3(
                 std::isfinite(r) ? std::max(r, 0.0f) : 0.0f,
                 std::isfinite(g) ? std::max(g, 0.0f) : 0.0f,

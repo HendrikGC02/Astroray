@@ -108,7 +108,10 @@ public:
         disk   = std::make_unique<NovikovThorneDisk>(metric.get(), disk_outer_M, mdot);
 
         inclination  = incl_deg * GR_PI / 180.0;
-        exposureScale = 1e-26f;
+        // Matched to NovikovThorneDisk::TARGET_PEAK_TEMP = 20 000 K:
+        // Planck at 500 nm → ~2e14 W/(m²·sr·m); CIE pipeline with 4 stratified
+        // samples → Y ≈ 1.8e13; exposureScale = 1/1.8e13 ≈ 5.5e-14 → Y ≈ 1.
+        exposureScale = 5e-14f;
     }
 
     // --------------- Hittable interface ---------------

@@ -10,6 +10,10 @@
 #include <functional>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include "stb_image.h"
 
 // Forward declaration needed by HitRecord
@@ -86,6 +90,177 @@ inline void buildOrthonormalBasis(const Vec3& n, Vec3& u, Vec3& v) {
     u = (u - n * n.dot(u)).normalized();
     v = n.cross(u);
 }
+
+class IESProfile {
+    std::vector<float> verticalAngles;
+    std::vector<float> horizontalAngles;
+    std::vector<float> candelaTable; // [h * verticalCount + v]
+    int verticalCount = 0;
+    int horizontalCount = 0;
+
+    static bool parseFloat(const std::string& token, float& out) {
+        char* end = nullptr;
+        out = std::strtof(token.c_str(), &end);
+        return end && *end == '\0';
+    }
+
+    static float lerp(float a, float b, float t) {
+        return a + (b - a) * t;
+    }
+
+    static void findBracket(const std::vector<float>& values, float x, int& i0, int& i1, float& t) {
+        if (values.empty()) {
+            i0 = i1 = 0;
+            t = 0.0f;
+            return;
+        }
+        if (values.size() == 1 || x <= values.front()) {
+            i0 = i1 = 0;
+            t = 0.0f;
+            return;
+        }
+        if (x >= values.back()) {
+            i0 = i1 = static_cast<int>(values.size()) - 1;
+            t = 0.0f;
+            return;
+        }
+        auto it = std::upper_bound(values.begin(), values.end(), x);
+        i1 = static_cast<int>(std::distance(values.begin(), it));
+        i0 = std::max(0, i1 - 1);
+        float denom = std::max(values[i1] - values[i0], 1e-6f);
+        t = std::clamp((x - values[i0]) / denom, 0.0f, 1.0f);
+    }
+
+    float sampleVertical(int hIndex, float verticalDeg) const {
+        int v0 = 0, v1 = 0;
+        float vt = 0.0f;
+        findBracket(verticalAngles, verticalDeg, v0, v1, vt);
+        float a = candelaTable[hIndex * verticalCount + v0];
+        float b = candelaTable[hIndex * verticalCount + v1];
+        return lerp(a, b, vt);
+    }
+
+public:
+    static std::shared_ptr<IESProfile> loadFromFile(const std::string& path) {
+        if (path.empty()) return nullptr;
+        std::ifstream file(path);
+        if (!file) return nullptr;
+
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        std::string text = buffer.str();
+        for (char& ch : text) {
+            if (ch == ',' || ch == ';') ch = ' ';
+        }
+
+        std::vector<std::string> tokens;
+        {
+            std::istringstream iss(text);
+            std::string token;
+            while (iss >> token) tokens.push_back(token);
+        }
+        if (tokens.empty()) return nullptr;
+
+        size_t numericStart = 0;
+        bool foundTilt = false;
+        for (size_t i = 0; i < tokens.size(); ++i) {
+            const std::string& tok = tokens[i];
+            if (tok.rfind("TILT=", 0) == 0) {
+                foundTilt = true;
+                if (tok == "TILT=") numericStart = i + 2;
+                else numericStart = i + 1;
+                break;
+            }
+        }
+        if (!foundTilt || numericStart >= tokens.size()) return nullptr;
+
+        std::vector<float> nums;
+        nums.reserve(tokens.size() - numericStart);
+        for (size_t i = numericStart; i < tokens.size(); ++i) {
+            float value = 0.0f;
+            if (parseFloat(tokens[i], value)) nums.push_back(value);
+        }
+        if (nums.size() < 13) return nullptr;
+
+        const float candelaMultiplier = nums[2];
+        const int vCount = std::max(0, static_cast<int>(std::lround(nums[3])));
+        const int hCount = std::max(0, static_cast<int>(std::lround(nums[4])));
+        if (vCount <= 0 || hCount <= 0) return nullptr;
+
+        size_t offset = 13;
+        size_t required = offset + static_cast<size_t>(vCount) + static_cast<size_t>(hCount)
+                        + static_cast<size_t>(vCount) * static_cast<size_t>(hCount);
+        if (nums.size() < required) return nullptr;
+
+        auto profile = std::make_shared<IESProfile>();
+        profile->verticalCount = vCount;
+        profile->horizontalCount = hCount;
+        profile->verticalAngles.assign(nums.begin() + static_cast<long>(offset), nums.begin() + static_cast<long>(offset + vCount));
+        offset += static_cast<size_t>(vCount);
+        profile->horizontalAngles.assign(nums.begin() + static_cast<long>(offset), nums.begin() + static_cast<long>(offset + hCount));
+        offset += static_cast<size_t>(hCount);
+
+        profile->candelaTable.resize(static_cast<size_t>(vCount) * static_cast<size_t>(hCount));
+        float maxCandela = 0.0f;
+        float scale = std::max(candelaMultiplier, 0.0f);
+        for (size_t i = 0; i < profile->candelaTable.size(); ++i) {
+            float c = nums[offset + i] * scale;
+            profile->candelaTable[i] = c;
+            maxCandela = std::max(maxCandela, c);
+        }
+
+        if (maxCandela > 0.0f) {
+            for (float& c : profile->candelaTable) c /= maxCandela;
+        } else {
+            std::fill(profile->candelaTable.begin(), profile->candelaTable.end(), 1.0f);
+        }
+        return profile;
+    }
+
+    float sample(const Vec3& axis, const Vec3& directionFromLight) const {
+        if (verticalCount <= 0 || horizontalCount <= 0 || candelaTable.empty()) return 1.0f;
+
+        Vec3 nAxis = axis.length2() > 1e-12f ? axis.normalized() : Vec3(0, -1, 0);
+        Vec3 dir = directionFromLight.normalized();
+        if (dir.length2() <= 1e-12f) return 1.0f;
+
+        float cosVertical = std::clamp(nAxis.dot(dir), -1.0f, 1.0f);
+        float verticalDeg = std::acos(cosVertical) * (180.0f / static_cast<float>(M_PI));
+
+        float horizontalDeg = 0.0f;
+        Vec3 tangent, bitangent;
+        buildOrthonormalBasis(nAxis, tangent, bitangent);
+        Vec3 planar = dir - nAxis * cosVertical;
+        if (planar.length2() > 1e-12f) {
+            planar = planar.normalized();
+            float x = planar.dot(tangent);
+            float y = planar.dot(bitangent);
+            horizontalDeg = std::atan2(y, x) * (180.0f / static_cast<float>(M_PI));
+            if (horizontalDeg < 0.0f) horizontalDeg += 360.0f;
+        }
+
+        if (horizontalCount == 1) return sampleVertical(0, verticalDeg);
+
+        float h = horizontalDeg;
+        const float hStart = horizontalAngles.front();
+        const float hEnd = horizontalAngles.back();
+        const float hSpan = hEnd - hStart;
+        if (hSpan >= 359.0f) {
+            h = std::fmod(h, 360.0f);
+            if (h < 0.0f) h += 360.0f;
+            if (h < hStart) h += 360.0f;
+        } else {
+            h = std::clamp(h, hStart, hEnd);
+        }
+
+        int h0 = 0, h1 = 0;
+        float ht = 0.0f;
+        findBracket(horizontalAngles, h, h0, h1, ht);
+        float a = sampleVertical(h0, verticalDeg);
+        float b = sampleVertical(h1, verticalDeg);
+        return std::max(0.0f, lerp(a, b, ht));
+    }
+};
 
 struct GGXEnergyCompensationLUT {
     static constexpr int RES = 32;
@@ -511,11 +686,16 @@ public:
 class Sphere : public Hittable {
     Vec3 center;
     float radius;
+    Vec3 iesAxis;
+    std::shared_ptr<IESProfile> iesProfile;
     std::shared_ptr<Material> material;
     bool emissive;
 public:
-    Sphere(const Vec3& c, float r, std::shared_ptr<Material> m) 
-        : center(c), radius(r), material(m), emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {}
+    Sphere(const Vec3& c, float r, std::shared_ptr<Material> m,
+           const Vec3& iesDirection = Vec3(0, -1, 0),
+           std::shared_ptr<IESProfile> ies = nullptr)
+        : center(c), radius(r), iesAxis(iesDirection), iesProfile(std::move(ies)),
+          material(m), emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {}
     
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         Vec3 oc = r.origin - center;
@@ -563,6 +743,10 @@ public:
     Vec3 emittedRadiance() const override {
         if (auto l = dynamic_cast<DiffuseLight*>(material.get())) return l->getEmission();
         return Vec3(0);
+    }
+    float directionFalloff(const Vec3& directionFromLight) const override {
+        if (!emissive || !iesProfile) return 1.0f;
+        return iesProfile->sample(iesAxis, directionFromLight);
     }
     // Accessors for GPU upload
     Vec3  getCenter()   const { return center; }
@@ -646,16 +830,19 @@ class SpotLightSphere : public Hittable {
     Vec3 axis;
     float outerAngle;
     float innerAngle;
+    std::shared_ptr<IESProfile> iesProfile;
     std::shared_ptr<Material> material;
     bool emissive;
 public:
-    SpotLightSphere(const Vec3& c, float r, std::shared_ptr<Material> m, const Vec3& direction, float spotAngle, float spotSmooth)
+    SpotLightSphere(const Vec3& c, float r, std::shared_ptr<Material> m, const Vec3& direction,
+                    float spotAngle, float spotSmooth, std::shared_ptr<IESProfile> ies = nullptr)
         : center(c), radius(std::max(r, 0.001f)),
           axis(direction.length2() > 1e-12f ? direction.normalized() : Vec3(0, -1, 0)),
           outerAngle(std::max(spotAngle * 0.5f, 1e-4f)),
           // Blender/Cycles convention: spot_smooth=0 -> hard edge (inner=outer),
           // spot_smooth=1 -> smooth falloff from axis to outer cone (inner=0).
           innerAngle(std::max((1.0f - std::clamp(spotSmooth, 0.0f, 1.0f)) * spotAngle * 0.5f, 0.0f)),
+          iesProfile(std::move(ies)),
           material(m), emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {}
 
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
@@ -709,8 +896,9 @@ public:
         float cosAng = std::clamp(axis.dot(directionFromLight.normalized()), -1.0f, 1.0f);
         float angle = std::acos(cosAng);
         if (angle >= outerAngle) return 0.0f;
-        if (innerAngle >= outerAngle - 1e-6f) return 1.0f;
-        return smoothstep(outerAngle, innerAngle, angle);
+        float spot = (innerAngle >= outerAngle - 1e-6f) ? 1.0f : smoothstep(outerAngle, innerAngle, angle);
+        if (!iesProfile) return spot;
+        return spot * iesProfile->sample(axis, directionFromLight);
     }
 };
 

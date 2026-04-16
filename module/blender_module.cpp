@@ -494,9 +494,9 @@ public:
 #endif
     }
 
-    bool loadEnvironmentMap(const std::string& path, float strength = 1.0f, float rotation = 0.0f) {
+    bool loadEnvironmentMap(const std::string& path, float strength = 1.0f, float rotation = 0.0f, bool blender_x_rotation = false) {
         envMap = std::make_shared<EnvironmentMap>();
-        if (envMap->load(path, strength, rotation)) {
+        if (envMap->load(path, strength, rotation, blender_x_rotation)) {
             renderer.setEnvironmentMap(envMap);
             return true;
         }
@@ -940,7 +940,7 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
-              "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
+             "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f, "blender_x_rotation"_a = false)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
         .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
         .def("set_use_transparent_film", &PyRenderer::setUseTransparentFilm, "use"_a)

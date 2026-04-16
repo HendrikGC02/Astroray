@@ -1723,7 +1723,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         # Try loading HDRI first
         if hdri_path and os.path.exists(hdri_path):
-            success = renderer.load_environment_map(hdri_path, strength, rotation)
+            success = renderer.load_environment_map(hdri_path, strength, rotation, True)
             if success:
                 print(f"Loaded HDRI: {hdri_path} (strength={strength}, rotation={rotation:.2f})")
                 return

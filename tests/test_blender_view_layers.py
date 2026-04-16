@@ -42,6 +42,7 @@ def _load_blender_addon(monkeypatch, renderer_cls):
         setattr(bpy_props_module, name, lambda **_kwargs: None)
 
     bpy_module.props = bpy_props_module
+    bpy_module.path = types.SimpleNamespace(abspath=lambda p: p)
 
     shader_blending_module = types.ModuleType("shader_blending")
     shader_blending_module.blend_shader_specs = {}
@@ -153,3 +154,52 @@ def test_write_pixels_targets_named_render_layer(monkeypatch):
     engine.write_pixels(pixels, 2, 2, layer_name="Layer A")
 
     assert begin_args["layer"] == "Layer A"
+
+
+def test_setup_world_loads_hdri_with_blender_x_rotation_correction(monkeypatch):
+    class RendererStub:
+        def __init__(self):
+            self.load_args = None
+
+        def set_world_volume(self, *_args, **_kwargs):
+            return None
+
+        def set_world_max_bounces(self, *_args, **_kwargs):
+            return None
+
+        def load_environment_map(self, *args):
+            self.load_args = args
+            return True
+
+    addon = _load_blender_addon(monkeypatch, RendererStub)
+    engine = addon.CustomRaytracerRenderEngine()
+    monkeypatch.setattr(addon.os.path, "exists", lambda _path: True)
+
+    class Node:
+        def __init__(self, node_type, image=None, inputs=None):
+            self.type = node_type
+            self.image = image
+            self.inputs = inputs or {}
+
+    class Socket:
+        def __init__(self, default_value, is_linked=False):
+            self.default_value = default_value
+            self.is_linked = is_linked
+
+    scene = types.SimpleNamespace(
+        world=types.SimpleNamespace(
+            node_tree=types.SimpleNamespace(
+                nodes=[
+                    Node("TEX_ENVIRONMENT", image=types.SimpleNamespace(filepath="//env.hdr")),
+                    Node("BACKGROUND", inputs={"Strength": Socket(1.5), "Color": Socket((1.0, 1.0, 1.0, 1.0), False)}),
+                    Node("MAPPING", inputs={"Rotation": Socket((0.0, 0.0, 0.25))}),
+                ]
+            ),
+            light_settings=types.SimpleNamespace(max_bounces=4),
+        )
+    )
+
+    renderer = RendererStub()
+    engine.setup_world(scene, renderer)
+
+    assert renderer.load_args == ("//env.hdr", 1.5, 0.25, True)

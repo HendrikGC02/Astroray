@@ -1359,6 +1359,7 @@ class EnvironmentMap {
     int width = 0, height = 0;
     float strength = 1.0f;       // radiance multiplier
     float rotation = 0.0f;       // horizontal rotation in radians
+    bool applyBlenderXRotation = false;
     
     // CDF data for importance sampling
     std::vector<float> conditionalCdf;  // size: width * height (CDF per row)
@@ -1370,7 +1371,7 @@ class EnvironmentMap {
 public:
     bool loaded() const { return !data.empty(); }
 
-    bool load(const std::string& path, float str = 1.0f, float rot = 0.0f) {
+    bool load(const std::string& path, float str = 1.0f, float rot = 0.0f, bool blenderXRotation = false) {
         int channels = 0;
         float* rawData = (float*)stbi_loadf(path.c_str(), &width, &height, &channels, 3);
         if (!rawData) {
@@ -1392,6 +1393,7 @@ public:
         stbi_image_free(rawData);
         strength = str;
         rotation = rot;
+        applyBlenderXRotation = blenderXRotation;
         printf("Loaded environment map: %s (%dx%d)\n", path.c_str(), width, height);
         buildCdf();
         return true;
@@ -1399,10 +1401,15 @@ public:
     
     Vec3 lookup(const Vec3& direction) const {
         if (width == 0 || height == 0) return Vec3(0);
+
+        Vec3 mappedDir = direction;
+        if (applyBlenderXRotation) {
+            mappedDir = Vec3(direction.x, direction.z, -direction.y);
+        }
         
         // Convert direction to equirectangular (u, v) coordinates:
-        float theta = std::acos(std::clamp(direction.y, -1.0f, 1.0f)); // polar, 0=up
-        float phi = std::atan2(direction.z, direction.x);                // azimuthal
+        float theta = std::acos(std::clamp(mappedDir.y, -1.0f, 1.0f)); // polar, 0=up
+        float phi = std::atan2(mappedDir.z, mappedDir.x);                // azimuthal
         phi += rotation;  // apply horizontal rotation
         float u = 0.5f + phi / (2.0f * M_PI);  // [0, 1]
         float v = 1.0f - theta / M_PI;          // [0, 1], flipped: y=+1 (up) → row height-1
@@ -1546,6 +1553,9 @@ public:
         Vec3 dir(std::sin(theta) * std::cos(phi), 
                  std::cos(theta), 
                  std::sin(theta) * std::sin(phi));
+        if (applyBlenderXRotation) {
+            dir = Vec3(dir.x, -dir.z, dir.y);
+        }
         
         // Compute PDF in solid angle measure
         float sinTheta = std::sin(theta);
@@ -1567,10 +1577,15 @@ public:
     
     float pdf(const Vec3& direction) const {
         if (width == 0 || height == 0 || totalPower <= 0) return 0.0f;
+
+        Vec3 mappedDir = direction;
+        if (applyBlenderXRotation) {
+            mappedDir = Vec3(direction.x, direction.z, -direction.y);
+        }
         
         // Convert direction to equirectangular coordinates
-        float theta = std::acos(std::clamp(direction.y, -1.0f, 1.0f));
-        float phi = std::atan2(direction.z, direction.x);
+        float theta = std::acos(std::clamp(mappedDir.y, -1.0f, 1.0f));
+        float phi = std::atan2(mappedDir.z, mappedDir.x);
         phi += rotation;  // apply horizontal rotation
         
         // Convert to u, v coordinates [0, 1]

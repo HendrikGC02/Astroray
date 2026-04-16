@@ -120,6 +120,10 @@ public:
     
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
+        s.wi = rec.normal;
+        s.f = Vec3(0);
+        s.pdf = 0.0f;
+        s.isDelta = false;
         std::uniform_real_distribution<float> dist(0, 1);
         
         // Handle transmission (glass-like behavior)
@@ -181,10 +185,11 @@ public:
                 float NdotH = rec.normal.dot(h);
                 float HdotV = h.dot(wo);
                 float D = D_GTR2(NdotH, a);
-                s.pdf = D * NdotH / (4 * HdotV + 0.001f) * (specWeight / total);
+                if (HdotV > 0.0f) {
+                    s.pdf = D * NdotH / (4 * HdotV + 0.001f) * (specWeight / total);
+                }
             }
         }
-        s.isDelta = false;
         return s;
     }
     

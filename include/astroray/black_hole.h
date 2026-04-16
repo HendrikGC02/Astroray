@@ -194,18 +194,23 @@ public:
                 const DiskCrossing& dc = ir.crossings[ci];
                 if (!dc.valid) continue;
                 double T = disk->temperatureAt(dc.r);
-                if (T <= 0.0) continue;
+                if (T <= 0.0 || !std::isfinite(T)) continue;
+                if (!std::isfinite(dc.g) || dc.g <= 0.0) continue;
+                double g = std::min(dc.g, 10.0);
                 for (int wi = 0; wi < 4; ++wi) {
                     double lam_emit = spec.wavelengths[wi];
                     double B  = planck(lam_emit, T);
-                    double g4 = dc.g * dc.g * dc.g * dc.g;
-                    spec.radiance[wi] += g4 * B;
+                    if (!std::isfinite(B) || B <= 0.0) continue;
+                    double g4 = g * g * g * g;
+                    double contrib = g4 * B;
+                    if (!std::isfinite(contrib) || contrib <= 0.0) continue;
+                    spec.radiance[wi] += contrib;
                 }
             }
             Vec3 rgb = spectralToRGB(spec, exposureScale);
-            rgb.x = std::max(0.0f, rgb.x);
-            rgb.y = std::max(0.0f, rgb.y);
-            rgb.z = std::max(0.0f, rgb.z);
+            rgb.x = std::isfinite(rgb.x) ? std::max(0.0f, rgb.x) : 0.0f;
+            rgb.y = std::isfinite(rgb.y) ? std::max(0.0f, rgb.y) : 0.0f;
+            rgb.z = std::isfinite(rgb.z) ? std::max(0.0f, rgb.z) : 0.0f;
             if (rgb.x > 0 || rgb.y > 0 || rgb.z > 0) {
                 result.color       = rgb;
                 result.hasEmission = true;

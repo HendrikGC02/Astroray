@@ -1643,6 +1643,30 @@ def test_black_hole_with_geometry():
     save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_cornell.png'))
 
 
+def test_black_hole_extreme_disk_remains_finite():
+    """Extreme disk params should not produce NaN/Inf and should keep a visible shadow."""
+    r = create_renderer()
+    r.set_seed(7)
+    r.set_adaptive_sampling(False)
+    r.add_black_hole([0, 0, 0], 10.0, 100.0, {
+        'disk_outer': 30.0,
+        'accretion_rate': 5.0,
+        'inclination': 89.0,
+    })
+    r.set_background_color([1.0, 1.0, 1.0])
+    setup_camera(r, look_from=[0, 0, 200], look_at=[0, 0, 0],
+                 vfov=6, width=200, height=200)
+    pixels = render_image(r, samples=8)
+
+    assert np.all(np.isfinite(pixels)), "extreme black hole render contains NaN/Inf"
+    center_mean = float(np.mean(pixels[80:120, 80:120, :]))
+    edge_mean = float(np.mean(pixels[:20, :, :]))
+    assert center_mean < edge_mean, (
+        f"Shadow center ({center_mean:.3f}) should be darker than edges ({edge_mean:.3f})"
+    )
+    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_extreme_finite.png'))
+
+
 def test_black_hole_gr_feature_flag():
     """gr_black_holes feature flag is set in __features__."""
     assert 'gr_black_holes' in astroray.__features__, \

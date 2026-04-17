@@ -1,0 +1,63 @@
+name: copilot-setup-steps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/copilot-setup-steps.yml'
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            cmake \
+            ninja-build \
+            python3.11 \
+            python3.11-dev \
+            python3-pip \
+            pybind11-dev \
+            libopencv-dev \
+            libgomp1
+
+      - name: Install CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: '12.4.0'
+          method: network
+          sub-packages: '["nvcc", "cudart-dev"]'
+
+      - name: Install Python dependencies
+        run: |
+          python3.11 -m pip install --upgrade pip
+          python3.11 -m pip install pytest numpy
+
+      - name: Configure CMake
+        run: |
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPYTHON_EXECUTABLE=$(which python3.11)
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+      - name: List build artifacts
+        run: |
+          echo "=== build/bin ==="
+          ls -lh build/bin/ 2>/dev/null || echo "(no bin dir)"
+          echo "=== build/*.so ==="
+          find build -name "*.so" | head -20

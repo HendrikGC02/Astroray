@@ -41,12 +41,17 @@ if(ASTRORAY_ENABLE_CUDA)
     check_language(CUDA)
     if(CMAKE_CUDA_COMPILER)
         enable_language(CUDA)
-        find_package(CUDAToolkit REQUIRED)
-        # Turing (75), Ampere (86), Ada Lovelace (89 — also runs on Blackwell via forward compat)
-        # sm_120 (Blackwell) requires CUDA 12.8+; CUDA 12.6 targets up to sm_89
-        set(CMAKE_CUDA_ARCHITECTURES "75;86;89")
-        set(ASTRORAY_CUDA_FOUND TRUE)
-        message(STATUS "CUDA found: ${CMAKE_CUDA_COMPILER}")
+        find_package(CUDAToolkit QUIET)
+        if(CUDAToolkit_FOUND)
+            # Turing (75), Ampere (86), Ada Lovelace (89 — also runs on Blackwell via forward compat)
+            # sm_120 (Blackwell) requires CUDA 12.8+; CUDA 12.6 targets up to sm_89
+            set(CMAKE_CUDA_ARCHITECTURES "75;86;89")
+            set(ASTRORAY_CUDA_FOUND TRUE)
+            message(STATUS "CUDA found: ${CMAKE_CUDA_COMPILER}")
+        else()
+            set(ASTRORAY_CUDA_FOUND FALSE)
+            message(STATUS "CUDAToolkit not found — GPU acceleration disabled")
+        endif()
     else()
         set(ASTRORAY_CUDA_FOUND FALSE)
         message(STATUS "CUDA not found — GPU acceleration disabled")
@@ -193,7 +198,22 @@ if(ASTRORAY_CUDA_FOUND)
         set_property(TARGET astroray_cuda PROPERTY CUDA_FLAGS
             "--extended-lambda --expt-relaxed-constexpr -O3")
     endif()
-    target_link_libraries(astroray_cuda PRIVATE CUDA::curand)
+    if(TARGET CUDA::curand)
+        target_link_libraries(astroray_cuda PRIVATE CUDA::curand)
+    elseif(TARGET CUDA::curand_static)
+        target_link_libraries(astroray_cuda PRIVATE CUDA::curand_static)
+    else()
+        find_library(CURAND_LIB curand
+            HINTS
+                "${CUDAToolkit_LIBRARY_DIR}"
+                "${CUDAToolkit_LIBRARY_ROOT}/lib"
+                "${CUDAToolkit_LIBRARY_ROOT}/lib64"
+        )
+        if(NOT CURAND_LIB)
+            message(FATAL_ERROR "CUDA Toolkit found, but cuRAND is missing (no CUDA::curand and curand not found in library path).")
+        endif()
+        target_link_libraries(astroray_cuda PRIVATE "${CURAND_LIB}")
+    endif()
 endif()
 
 # Standalone executable (always console subsystem)

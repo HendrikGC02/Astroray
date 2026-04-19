@@ -35,7 +35,7 @@ jobs:
         with:
           cuda: '12.4.0'
           method: network
-          sub-packages: '["nvcc", "cudart-dev", "curand-dev"]'
+          sub-packages: '["nvcc", "cudart-dev", "cuda-curand-dev-12-4"]'
 
       - name: Install Python dependencies
         run: |

@@ -30,19 +30,20 @@ jobs:
             libopencv-dev \
             libgomp1
 
-      - name: Setup CUDA apt repository (no auto-install)
+      - name: Setup CUDA apt repository
         uses: Jimver/cuda-toolkit@v0.2.19
         with:
           cuda: '12.4.0'
           method: network
+          install_new_cuda: false
 
       - name: Install minimal CUDA packages
         run: |
-          /usr/bin/sudo apt-get update -qq
-          /usr/bin/sudo apt-get -y install \
+          sudo apt-get update -qq
+          sudo apt-get install -y \
             cuda-nvcc-12-4 \
             cuda-cudart-dev-12-4 \
-            libcurand-12-4
+            libcurand-dev-12-4
 
       - name: Install Python dependencies
         run: |

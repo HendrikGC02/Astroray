@@ -1,83 +1,99 @@
-# Astroray — Copilot Instructions
+# Astroray — Copilot Agent Instructions
 
-## Project overview
-Astroray is a C++17 physically-based path tracer with pybind11 Python bindings for Blender integration. The long-term goal is full Cycles feature parity so that any standard Blender scene renders correctly in Astroray.
+You are working on Astroray: a C++/CUDA physically-based path tracer
+with a Blender 5.1 addon. Read this file before doing anything.
 
-## Architecture
-- `include/raytracer.h` — Core renderer: Vec3, Ray, HitRecord, all materials, BVH, Camera, LightList, Renderer. Header-only.
-- `include/advanced_features.h` — DisneyBRDF, textures, transforms, subsurface, volumes. Header-only.
-- `include/astroray/` — GR types, Schwarzschild metric, RK45 geodesic integrator, Novikov-Thorne disk, spectral pipeline.
-- `module/blender_module.cpp` — pybind11 bindings exposing the `astroray` Python module.
-- `blender_addon/__init__.py` — Blender RenderEngine addon, scene/material/light conversion.
-- `blender_addon/shader_blending.py` — shader blending helpers (must ship with the addon).
-- `apps/main.cpp` — Standalone CLI binary.
-- `tests/` — pytest suite (66 tests); `base_helpers.py` has shared renderer setup utilities.
+## Project layout
 
-## Build commands
-
-```bash
-# Linux / macOS
-mkdir -p build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
-
-# Windows (MSVC) — open Developer Command Prompt first
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DASTRORAY_ENABLE_CUDA=OFF
-cmake --build . --config Release -j
-
-# Tests (from repo root)
-pytest tests/ -v --tb=short
+```
+Astroray/
+├── include/
+│   ├── raytracer.h          ← core types and Material base class
+│   └── advanced_features.h  ← GR integrator, spectral, advanced BSDFs
+├── src/
+│   └── renderer.cpp         ← Renderer, PyRenderer, path tracer
+├── plugins/                 ← one file per plugin (see below)
+│   ├── materials/
+│   ├── shapes/
+│   ├── textures/
+│   ├── integrators/
+│   └── passes/
+├── tests/
+│   └── test_*.py            ← pytest test suite
+├── blender_addon/           ← Blender 5.1 Python addon
+├── CMakeLists.txt
+└── .astroray_plan/          ← development plan (read-only for you)
 ```
 
-> **CUDA:** Pass `-DASTRORAY_ENABLE_CUDA=OFF` unless a full CUDA toolkit is configured.
-> The GR/spectral headers use GCC-style attributes that NVCC currently rejects.
+## How to build
 
-> **Windows output path:** Module lands in `build/Release/astroray.cp*-win_amd64.pyd`.
-> Copy to `build/` before running tests.
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
 
-## Cycles reference source code
-The Blender/Cycles source is at https://projects.blender.org/blender/blender. Key paths:
-- `intern/cycles/kernel/closure/` — All BSDF implementations
-- `intern/cycles/kernel/light/` — Light sampling, area lights, environment
-- `intern/cycles/kernel/integrator/` — Path tracing loop, shadow rays, volume integration
-- `intern/cycles/kernel/svm/` — Shader VM nodes (texture, math, color, mapping, normal_map, bump, etc.)
-- `intern/cycles/scene/` — Scene, shader, mesh, object, camera, light, image, background
-- `intern/cycles/blender/` — Blender export: blender_shader.cpp, blender_mesh.cpp, etc.
-- `source/blender/nodes/shader/nodes/` — Individual shader node definitions
+## How to run tests
 
-When implementing a feature, look at the Cycles source for correct formulas and edge case handling. Cite the specific Cycles file and function in your PR description.
+```bash
+pytest tests/ -v
+```
 
-## Rendering conventions (CRITICAL — violating these causes bugs)
-- `Material::eval(rec, wo, wi)` returns **brdf × NdotL** (cosine INCLUDED). Do NOT multiply by NdotL again.
-- `sampleDirect()` returns the combined NEE+MIS estimate. Do NOT multiply by NdotL in the caller.
-- Gamma correction (pow 1/2.2) is applied ONCE inside `Renderer::render()`.
-- The firefly clamp is `luminance > 20.0f` in the per-sample accumulation.
-- Emissive light from direct hits is only added when `wasSpecular=true` or `bounce==0` to avoid double-counting NEE.
-- `BSDFSample` has NO default initialization of `pdf` or `isDelta`. Always set every field.
-- Y is up. GR integrator uses `double`; all other rendering math uses `float`.
+All tests must pass before you open a PR. A PR with failing tests will
+be closed without review.
 
-## Code style
-- C++17, no `using namespace std;` in headers.
-- Use `std::shared_ptr` and `std::make_shared`, no raw `new`/`delete`.
-- Use `float` for rendering math, `double` only for GR geodesic integration.
-- Use `M_PI` for pi, `std::clamp`, `std::max`, `std::min`.
-- Match the existing code patterns: header-only classes, `eval()/sample()/pdf()` material interface.
-- GR/spectral headers use `ASTRORAY_NOINLINE` macro (defined in `include/astroray/gr_types.h`) instead of `__attribute__((noinline))` for MSVC compatibility.
+## The simplicity tax
 
-## Testing
-- Every new feature must include at least one test in `tests/test_python_bindings.py` or an appropriate test file.
-- Tests use `assert` (not `return True/False`).
-- Use helpers from `base_helpers.py`: `create_renderer()`, `setup_camera()`, `render_image()`, `save_image()`, `create_cornell_box()`, `assert_valid_image()`.
-- Test images are saved to `test_results/` (gitignored).
-- Standard test resolution: 200×150, SAMPLES_FAST=16.
+Every abstraction must have a concrete caller today. If you are
+tempted to create a helper, a base class, or a utility function that
+is only called from one place: don't. Inline it. A veteran engineer
+reading your diff should say "yeah, that's how I'd do it" — not
+"clever."
 
-## Issue tracking
-Issues are on GitHub. Use `gh issue list`, `gh issue create`, `gh issue close`.
+## What you are allowed to do
 
-## PR conventions
-- One feature per PR. Keep PRs under 500 lines of diff when possible.
-- Title format: `feat: <description>` or `fix: <description>`.
-- Reference the Cycles source file/function used in the PR description when relevant.
-- Include a rendered test image in the PR description if the change affects visual output.
-- Run `pytest tests/ -v --tb=short` and paste the result summary.
+Your task is described in the GitHub issue that triggered this session.
+You may only:
+
+- Create files under `plugins/` as specified in the issue.
+- Create or extend test files under `tests/`.
+- Modify `CMakeLists.txt` **only** if the issue explicitly says so.
+
+## What you must not touch
+
+- `include/raytracer.h` — unless the issue explicitly says so.
+- `include/advanced_features.h` — unless the issue explicitly says so.
+- `src/renderer.cpp` — unless the issue explicitly says so.
+- `blender_addon/` — not your concern in plugin issues.
+- Any file not mentioned in the issue spec.
+
+If you think a file outside the issue scope needs changing, stop and
+leave a PR comment explaining why. Do not make the change.
+
+## Plugin pattern
+
+Every plugin file ends with exactly one registration macro:
+
+```cpp
+ASTRORAY_REGISTER_MATERIAL("name", ClassName)   // for materials
+ASTRORAY_REGISTER_SHAPE("name", ClassName)      // for shapes
+ASTRORAY_REGISTER_TEXTURE("name", ClassName)    // for textures
+ASTRORAY_REGISTER_INTEGRATOR("name", ClassName) // for integrators
+ASTRORAY_REGISTER_PASS("name", ClassName)       // for passes
+```
+
+The constructor takes `const ParamDict&`. Use `getFloat`, `getVec3`,
+`getInt`, `getBool`, `getString` with sensible defaults.
+
+## Work package spec location
+
+The work package that describes your task is in
+`.astroray_plan/packages/`. The issue will tell you which package.
+Read it, but do not modify it.
+
+## Physics invariants (never alter these)
+
+- GR capture threshold: `r < 2.5M` — validated. Do not change.
+- Dormand-Prince Butcher tableau coefficients are ported exactly from
+  the Python reference. Do not "clean up" the numbers.
+- Double precision in the GR integrator, float everywhere else.
+- Auto-exposure: 99th-percentile luminance scaled to 0.8.

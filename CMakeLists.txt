@@ -26,6 +26,14 @@ option(ASTRORAY_ENABLE_OIDN "Enable Intel Open Image Denoise integration when av
 option(ASTRORAY_DISABLE_OPENMP "Disable OpenMP (needed for MinGW .pyd in Blender)" OFF)
 
 # ---------------------------------------------------------------------------
+# Python hint bridge: -DPYTHON_EXECUTABLE (legacy/CI) → Python3_EXECUTABLE
+# find_package(Python3) reads Python3_EXECUTABLE, not PYTHON_EXECUTABLE.
+# ---------------------------------------------------------------------------
+if(PYTHON_EXECUTABLE AND NOT Python3_EXECUTABLE)
+    set(Python3_EXECUTABLE "${PYTHON_EXECUTABLE}" CACHE FILEPATH "" FORCE)
+endif()
+
+# ---------------------------------------------------------------------------
 # CUDA detection (graceful fallback when toolkit not installed)
 # ---------------------------------------------------------------------------
 if(ASTRORAY_ENABLE_CUDA)

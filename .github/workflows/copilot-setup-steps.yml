@@ -46,12 +46,22 @@ jobs:
           python3 -m pip install pytest numpy
           python3 -m pip install pytest numpy matplotlib pillow
 
+      - name: Configure CUDA env
+        run: |
+          echo "/usr/local/cuda-12.4/bin" >> $GITHUB_PATH
+          echo "CUDA_HOME=/usr/local/cuda-12.4" >> $GITHUB_ENV
+          ls -la /usr/local | grep cuda || true
+          which nvcc || true
+          nvcc --version || true
+
       - name: Configure CMake
         run: |
           cmake -B build \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DPython3_EXECUTABLE=$(which python3)
+            -DPython3_EXECUTABLE=$(which python3) \
+            -DASTRORAY_ENABLE_CUDA=ON \
+            -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.4/bin/nvcc
 
       - name: Build
         run: cmake --build build -j$(nproc)

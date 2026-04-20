@@ -38,6 +38,7 @@ def _load_blender_addon(monkeypatch, renderer_cls):
         "StringProperty",
         "PointerProperty",
         "FloatVectorProperty",
+        "EnumProperty",
     ):
         setattr(bpy_props_module, name, lambda **_kwargs: None)
 

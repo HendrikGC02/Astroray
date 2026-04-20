@@ -6,6 +6,7 @@
 #include <cmath>
 #include "raytracer.h"
 #include "advanced_features.h"
+#include "astroray/register.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
 #endif
@@ -247,61 +248,64 @@ public:
         textureManager.setTextureCoordMode(name, coordMode);
     }
     
-    int createMaterial(const std::string& type, const std::vector<float>& baseColor, py::dict params) {
-        Vec3 color(baseColor[0], baseColor[1], baseColor[2]);
-        std::shared_ptr<Material> mat;
-        
-        auto getFloat = [&](const char* key, float def) { return params.contains(key) ? params[key].cast<float>() : def; };
-        
+    std::shared_ptr<Material> makeLegacyMaterial(
+            const std::string& type, const Vec3& color, const py::dict& params) {
+        auto getFloat = [&](const char* k, float d) { return params.contains(k) ? params[k].cast<float>() : d; };
         if (type == "disney") {
-            float metallic = getFloat("metallic", 0);
-            float roughness = getFloat("roughness", 0.5f);
-            float transmission = getFloat("transmission", 0);
-            float ior = getFloat("ior", 1.5f);
-            auto disney = std::make_shared<DisneyBRDF>(color, metallic, roughness, transmission, ior);
-            if (params.contains("anisotropic")) disney->setAnisotropic(getFloat("anisotropic", 0), getFloat("anisotropic_rotation", 0));
-            if (params.contains("clearcoat")) disney->setClearcoat(getFloat("clearcoat", 0), getFloat("clearcoat_gloss", 1));
-            if (params.contains("sheen")) disney->setSheen(getFloat("sheen", 0), getFloat("sheen_tint", 0.5f));
-            if (params.contains("subsurface")) disney->setSubsurface(getFloat("subsurface", 0));
-            mat = disney;
-        } else if (type == "lambertian" || type == "diffuse") {
+            auto m = std::make_shared<DisneyBRDF>(color, getFloat("metallic", 0), getFloat("roughness", 0.5f),
+                                                   getFloat("transmission", 0), getFloat("ior", 1.5f));
+            if (params.contains("anisotropic")) m->setAnisotropic(getFloat("anisotropic", 0), getFloat("anisotropic_rotation", 0));
+            if (params.contains("clearcoat"))   m->setClearcoat(getFloat("clearcoat", 0), getFloat("clearcoat_gloss", 1));
+            if (params.contains("sheen"))        m->setSheen(getFloat("sheen", 0), getFloat("sheen_tint", 0.5f));
+            if (params.contains("subsurface"))   m->setSubsurface(getFloat("subsurface", 0));
+            return m;
+        }
+        if (type == "lambertian" || type == "diffuse") {
             if (params.contains("texture")) {
                 auto tex = textureManager.getTexture(params["texture"].cast<std::string>());
-                if (tex) {
-                    mat = std::make_shared<TexturedLambertian>(tex);
-                } else {
-                    mat = std::make_shared<Lambertian>(color);
-                }
-            } else mat = std::make_shared<Lambertian>(color);
-        } else if (type == "metal") {
-            mat = std::make_shared<Metal>(color, getFloat("roughness", 0.1f));
-        } else if (type == "glass" || type == "dielectric") {
-            mat = std::make_shared<Dielectric>(getFloat("ior", 1.5f));
-        } else if (type == "light" || type == "emission") {
-            mat = std::make_shared<DiffuseLight>(color, getFloat("intensity", 1.0f));
-        } else if (type == "subsurface") {
+                if (tex) return std::make_shared<TexturedLambertian>(tex);
+            }
+            return std::make_shared<Lambertian>(color);
+        }
+        if (type == "metal")                         return std::make_shared<Metal>(color, getFloat("roughness", 0.1f));
+        if (type == "glass" || type == "dielectric") return std::make_shared<Dielectric>(getFloat("ior", 1.5f));
+        if (type == "light" || type == "emission")   return std::make_shared<DiffuseLight>(color, getFloat("intensity", 1.0f));
+        if (type == "subsurface") {
             Vec3 scatter(1, 0.2f, 0.1f);
             if (params.contains("scatter_distance")) {
                 auto sd = params["scatter_distance"].cast<std::vector<float>>();
                 scatter = Vec3(sd[0], sd[1], sd[2]);
             }
-            mat = std::make_shared<SubsurfaceMaterial>(color, scatter, getFloat("scale", 1));
-        } else mat = std::make_shared<Lambertian>(color);
-
-        auto getTextureParam = [&](const char* key) -> std::shared_ptr<Texture> {
-            if (!params.contains(key)) return nullptr;
-            return textureManager.getTexture(params[key].cast<std::string>());
-        };
-        auto normalTex = getTextureParam("normal_map_texture");
-        auto bumpTex = getTextureParam("bump_map_texture");
-        if (normalTex || bumpTex) {
-            float normalStrength = getFloat("normal_strength", 1.0f);
-            float bumpStrength = getFloat("bump_strength", 1.0f);
-            float bumpDistance = getFloat("bump_distance", 0.01f);
-            mat = std::make_shared<NormalMappedMaterial>(mat, normalTex, bumpTex,
-                                                        normalStrength, bumpStrength, bumpDistance);
+            return std::make_shared<SubsurfaceMaterial>(color, scatter, getFloat("scale", 1));
         }
-        
+        return std::make_shared<Lambertian>(color);
+    }
+
+    int createMaterial(const std::string& type, const std::vector<float>& baseColor, py::dict params) {
+        Vec3 color(baseColor[0], baseColor[1], baseColor[2]);
+        auto getFloat = [&](const char* k, float d) { return params.contains(k) ? params[k].cast<float>() : d; };
+        auto getTexture = [&](const char* k) -> std::shared_ptr<Texture> {
+            return params.contains(k) ? textureManager.getTexture(params[k].cast<std::string>()) : nullptr;
+        };
+        astroray::ParamDict p;
+        p.set("albedo", color);
+        for (auto& item : params) {
+            auto key = item.first.cast<std::string>();
+            if (py::isinstance<py::float_>(item.second) || py::isinstance<py::int_>(item.second))
+                p.set(key, item.second.cast<float>());
+            else if (py::isinstance<py::str>(item.second))
+                p.set(key, item.second.cast<std::string>());
+        }
+        std::shared_ptr<Material> mat;
+        if (!params.contains("texture")) {
+            try { mat = astroray::MaterialRegistry::instance().create(type, p); }
+            catch (const std::runtime_error&) {}
+        }
+        if (!mat) mat = makeLegacyMaterial(type, color, params);
+        auto normalTex = getTexture("normal_map_texture"), bumpTex = getTexture("bump_map_texture");
+        if (normalTex || bumpTex)
+            mat = std::make_shared<NormalMappedMaterial>(mat, normalTex, bumpTex,
+                getFloat("normal_strength", 1.0f), getFloat("bump_strength", 1.0f), getFloat("bump_distance", 0.01f));
         int id = nextMaterialId++;
         materials[id] = mat;
         return id;
@@ -968,6 +972,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_use_gpu", &PyRenderer::setUseGPU, "enable"_a)
         .def_property_readonly("gpu_available",   &PyRenderer::getGPUAvailable)
         .def_property_readonly("gpu_device_name", &PyRenderer::getGPUDeviceName);
+    m.def("material_registry_names", []() {
+        return astroray::MaterialRegistry::instance().names();
+    });
     m.attr("__version__") = "3.0.0";
     m.attr("__features__") = py::dict(
         "nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,

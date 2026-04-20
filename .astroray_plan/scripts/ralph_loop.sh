@@ -5,7 +5,8 @@
 #
 # Usage: bash .astroray_plan/scripts/ralph_loop.sh [--model MODEL]
 #
-# Requires: ollama, git, cmake, pytest all on PATH.
+# Requires: aider, git, cmake, pytest all on PATH.
+# Ollama must be running (Windows host or localhost) at OLLAMA_HOST.
 # Run from the repo root.
 
 set -euo pipefail
@@ -14,13 +15,14 @@ set -euo pipefail
 QUEUE=".astroray_plan/scripts/ralph_queue.txt"
 GRADUATED=".astroray_plan/scripts/ralph_graduated.txt"
 LOGS_DIR="logs"
-MODEL="${RALPH_MODEL:-qwen2.5-coder:32b}"
+MODEL="${RALPH_MODEL:-qwen2.5-coder:7b}"
+OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
 MAX_FAIL=3
 
-# Allow --model override
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --model) MODEL="$2"; shift 2 ;;
+    --ollama-host) OLLAMA_HOST="$2"; shift 2 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -100,7 +102,7 @@ PROMPT
 trap 'echo; echo "Ralph loop interrupted. Queue is intact."; exit 0' INT
 
 # ── Main loop ────────────────────────────────────────────────────────────────
-echo "Ralph loop starting. Model: $MODEL  Queue: $QUEUE"
+echo "Ralph loop starting. Model: $MODEL  Ollama: $OLLAMA_HOST  Queue: $QUEUE"
 echo "Press Ctrl-C to stop cleanly."
 echo
 
@@ -126,9 +128,19 @@ while true; do
   FAIL_N=$(fail_count_for "$TASK")
   PROMPT=$(make_prompt "$CATEGORY" "$DESCRIPTION")
 
-  # Capture model output (ollama run writes to stdout)
+  # Record SHA before aider runs so we can detect if a commit was made.
+  PRE_SHA=$(git log -1 --format="%H" 2>/dev/null || echo "")
+
+  # Run aider in one-shot mode against the local Ollama model.
+  # aider reads the repo, applies edits, and commits automatically.
   set +e
-  MODEL_OUTPUT=$(echo "$PROMPT" | ollama run "$MODEL" 2>&1)
+  MODEL_OUTPUT=$(aider \
+    --model "ollama/${MODEL}" \
+    --openai-api-base "${OLLAMA_HOST}/v1" \
+    --message "$PROMPT" \
+    --yes \
+    --no-stream \
+    2>&1)
   MODEL_EXIT=$?
   set -e
 
@@ -184,10 +196,11 @@ LOG
     fi
 
   else
-    # Success path: verify a commit was made
-    LATEST_SHA=$(git log -1 --format="%H %s" 2>/dev/null || echo "")
-    if echo "$LATEST_SHA" | grep -q "ralph:"; then
-      SHORT_SHA=$(echo "$LATEST_SHA" | cut -d' ' -f1 | cut -c1-7)
+    # Success path: detect whether aider made a new commit.
+    POST_SHA=$(git log -1 --format="%H" 2>/dev/null || echo "")
+    if [[ "$POST_SHA" != "$PRE_SHA" ]]; then
+      SHORT_SHA="${POST_SHA:0:7}"
+      COMMIT_MSG=$(git log -1 --format="%s")
       cat > "$LOGFILE" <<LOG
 # Ralph run $TIMESTAMP
 
@@ -197,14 +210,14 @@ $TASK
 ## Result
 PASS
 
-## Model output (truncated)
-$(echo "$MODEL_OUTPUT" | head -60)
-
 ## Commit
 SHA: $SHORT_SHA
-$(echo "$LATEST_SHA")
+Message: $COMMIT_MSG
+
+## Model output (truncated)
+$(echo "$MODEL_OUTPUT" | head -60)
 LOG
-      echo "  PASS  commit $SHORT_SHA"
+      echo "  PASS  commit $SHORT_SHA  ($COMMIT_MSG)"
     else
       cat > "$LOGFILE" <<LOG
 # Ralph run $TIMESTAMP
@@ -213,12 +226,12 @@ LOG
 $TASK
 
 ## Result
-PASS (no commit detected — model may not have committed)
+PASS (no commit — aider may have decided no changes were needed)
 
 ## Model output (truncated)
 $(echo "$MODEL_OUTPUT" | head -60)
 LOG
-      echo "  PASS (no commit detected)"
+      echo "  PASS (no commit)"
     fi
 
     remove_task "$TASK"

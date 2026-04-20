@@ -554,9 +554,7 @@ def test_light_intensity_scales_scene_brightness():
         r.add_triangle([-2,-2,-2],[2,-2,2], [-2,-2,2], white)
         r.add_triangle([-2,2,-2], [-2,2,2], [2,2,2],   white)   # ceiling
         r.add_triangle([-2,2,-2], [2,2,2],  [2,2,-2],  white)
-        r.add_triangle([-2,-2,-2],[-2,2,-2],[2,2,-2],  white)   # back wall
-        r.add_triangle([-2,-2,-2],[2,2,-2], [2,-2,-2], white)
-        r.add_triangle([-2,-2,-2],[-2,-2,2],[-2,2,2],  red)     # left wall
+        r.add_triangle([-2,-2,-2],[-2,2,-2],[2,2,-2],  red)     # left wall
         r.add_triangle([-2,-2,-2],[-2,2,2], [-2,2,-2], red)
         r.add_triangle([2,-2,-2], [2,2,-2], [2,2,2],   green)   # right wall
         r.add_triangle([2,-2,-2], [2,2,2],  [2,-2,2],  green)
@@ -668,10 +666,25 @@ def test_white_lambertian_is_brightest_diffuse():
             f"— violates energy conservation"
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# GROUP 7 — Energy conservation / no overexposure for Metal
+# ===========================================================================
 
-if __name__ == '__main__':
-    import pytest
-    sys.exit(pytest.main([__file__, '-v']))
+def test_metal_energy_conservation():
+    """Metal material should conserve energy."""
+    def render_mean(metallic: float) -> np.ndarray:
+        r = create_renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+        setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], width=W, height=H)
+        mat = r.create_material('metal', [0.8, 0.3, 0.3], {'metallic': metallic})
+        r.add_sphere([0, -0.5, 0], 1.0, mat)
+        pixels = render_image(r, samples=SAMPLES_FAST)
+        mean = np.mean(pixels, axis=(0, 1))
+        return mean
+
+    # Test with metallic=0 (diffuse) and metallic=1 (metallic)
+    diff_mean = render_mean(0.0)
+    metal_mean = render_mean(1.0)
+
+    # Energy should be conserved, so the means should be close
+    assert np.allclose(diff_mean, metal_mean, atol=1e-2), "Energy conservation failed for Metal material"

@@ -10,6 +10,13 @@
 #include <functional>
 #include <array>
 #include <cstdint>
+#include <cstddef>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <unordered_map>
 #include "stb_image.h"
 
 // Forward declaration needed by HitRecord
@@ -86,6 +93,182 @@ inline void buildOrthonormalBasis(const Vec3& n, Vec3& u, Vec3& v) {
     u = (u - n * n.dot(u)).normalized();
     v = n.cross(u);
 }
+
+class IESProfile {
+    std::vector<float> verticalAngles;
+    std::vector<float> horizontalAngles;
+    std::vector<float> candelaTable; // [h * verticalCount + v]
+    int verticalCount = 0;
+    int horizontalCount = 0;
+    static constexpr float kDirectionEpsilon2 = 1e-12f;
+
+    static bool parseFloat(const std::string& token, float& out) {
+        char* end = nullptr;
+        out = std::strtof(token.c_str(), &end);
+        return end && *end == '\0';
+    }
+
+    static float lerp(float a, float b, float t) {
+        return a + (b - a) * t;
+    }
+
+    static void findBracket(const std::vector<float>& values, float x, int& i0, int& i1, float& t) {
+        if (values.empty()) {
+            i0 = i1 = 0;
+            t = 0.0f;
+            return;
+        }
+        if (values.size() == 1 || x <= values.front()) {
+            i0 = i1 = 0;
+            t = 0.0f;
+            return;
+        }
+        if (x >= values.back()) {
+            i0 = i1 = static_cast<int>(values.size()) - 1;
+            t = 0.0f;
+            return;
+        }
+        auto it = std::upper_bound(values.begin(), values.end(), x);
+        i1 = static_cast<int>(std::distance(values.begin(), it));
+        i0 = std::max(0, i1 - 1);
+        float denom = std::max(values[i1] - values[i0], 1e-6f);
+        t = std::clamp((x - values[i0]) / denom, 0.0f, 1.0f);
+    }
+
+    float sampleVertical(int hIndex, float verticalDeg) const {
+        int v0 = 0, v1 = 0;
+        float vt = 0.0f;
+        findBracket(verticalAngles, verticalDeg, v0, v1, vt);
+        float a = candelaTable[hIndex * verticalCount + v0];
+        float b = candelaTable[hIndex * verticalCount + v1];
+        return lerp(a, b, vt);
+    }
+
+public:
+    static std::shared_ptr<IESProfile> loadFromFile(const std::string& path) {
+        if (path.empty()) return nullptr;
+        std::ifstream file(path);
+        if (!file) return nullptr;
+
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        std::string text = buffer.str();
+        for (char& ch : text) {
+            if (ch == ',' || ch == ';') ch = ' ';
+        }
+
+        std::vector<std::string> tokens;
+        {
+            std::istringstream iss(text);
+            std::string token;
+            while (iss >> token) tokens.push_back(token);
+        }
+        if (tokens.empty()) return nullptr;
+
+        size_t numericStart = 0;
+        bool foundTilt = false;
+        for (size_t i = 0; i < tokens.size(); ++i) {
+            const std::string& tok = tokens[i];
+            if (tok.rfind("TILT=", 0) == 0) {
+                foundTilt = true;
+                if (tok == "TILT=") numericStart = i + 2;
+                else numericStart = i + 1;
+                break;
+            }
+        }
+        if (!foundTilt || numericStart >= tokens.size()) return nullptr;
+
+        std::vector<float> nums;
+        nums.reserve(tokens.size() - numericStart);
+        for (size_t i = numericStart; i < tokens.size(); ++i) {
+            float value = 0.0f;
+            if (parseFloat(tokens[i], value)) nums.push_back(value);
+        }
+        if (nums.size() < 13) return nullptr;
+
+        // LM-63 numeric header:
+        // [2]=candela multiplier, [3]=vertical angle count, [4]=horizontal angle count
+        const float candelaMultiplier = nums[2];
+        const int vCount = std::max(0, static_cast<int>(std::lround(nums[3])));
+        const int hCount = std::max(0, static_cast<int>(std::lround(nums[4])));
+        if (vCount <= 0 || hCount <= 0) return nullptr;
+
+        size_t offset = 13;
+        size_t required = offset + static_cast<size_t>(vCount) + static_cast<size_t>(hCount)
+                        + static_cast<size_t>(vCount) * static_cast<size_t>(hCount);
+        if (nums.size() < required) return nullptr;
+
+        auto profile = std::make_shared<IESProfile>();
+        profile->verticalCount = vCount;
+        profile->horizontalCount = hCount;
+        profile->verticalAngles.assign(nums.begin() + static_cast<std::ptrdiff_t>(offset),
+                                       nums.begin() + static_cast<std::ptrdiff_t>(offset + vCount));
+        offset += static_cast<size_t>(vCount);
+        profile->horizontalAngles.assign(nums.begin() + static_cast<std::ptrdiff_t>(offset),
+                                         nums.begin() + static_cast<std::ptrdiff_t>(offset + hCount));
+        offset += static_cast<size_t>(hCount);
+
+        profile->candelaTable.resize(static_cast<size_t>(vCount) * static_cast<size_t>(hCount));
+        float maxCandela = 0.0f;
+        float scale = std::max(candelaMultiplier, 0.0f);
+        for (size_t i = 0; i < profile->candelaTable.size(); ++i) {
+            float c = nums[offset + i] * scale;
+            profile->candelaTable[i] = c;
+            maxCandela = std::max(maxCandela, c);
+        }
+
+        if (maxCandela > 0.0f) {
+            for (float& c : profile->candelaTable) c /= maxCandela;
+        } else {
+            std::fill(profile->candelaTable.begin(), profile->candelaTable.end(), 1.0f);
+        }
+        return profile;
+    }
+
+    float sample(const Vec3& axis, const Vec3& directionFromLight) const {
+        if (verticalCount <= 0 || horizontalCount <= 0 || candelaTable.empty()) return 1.0f;
+
+        Vec3 nAxis = axis.length2() > kDirectionEpsilon2 ? axis.normalized() : Vec3(0, -1, 0);
+        Vec3 dir = directionFromLight.normalized();
+        if (dir.length2() <= kDirectionEpsilon2) return 1.0f;
+
+        float cosVertical = std::clamp(nAxis.dot(dir), -1.0f, 1.0f);
+        float verticalDeg = std::acos(cosVertical) * (180.0f / static_cast<float>(M_PI));
+
+        float horizontalDeg = 0.0f;
+        Vec3 tangent, bitangent;
+        buildOrthonormalBasis(nAxis, tangent, bitangent);
+        Vec3 planar = dir - nAxis * cosVertical;
+        if (planar.length2() > kDirectionEpsilon2) {
+            planar = planar.normalized();
+            float x = planar.dot(tangent);
+            float y = planar.dot(bitangent);
+            horizontalDeg = std::atan2(y, x) * (180.0f / static_cast<float>(M_PI));
+            if (horizontalDeg < 0.0f) horizontalDeg += 360.0f;
+        }
+
+        if (horizontalCount == 1) return sampleVertical(0, verticalDeg);
+
+        float h = horizontalDeg;
+        const float hStart = horizontalAngles.front();
+        const float hEnd = horizontalAngles.back();
+        const float hSpan = hEnd - hStart;
+        if (hSpan >= 359.0f) {
+            h = std::fmod(h, 360.0f);
+            if (h < 0.0f) h += 360.0f;
+            if (h < hStart) h += 360.0f;
+        } else {
+            h = std::clamp(h, hStart, hEnd);
+        }
+
+        int h0 = 0, h1 = 0;
+        float ht = 0.0f;
+        findBracket(horizontalAngles, h, h0, h1, ht);
+        float a = sampleVertical(h0, verticalDeg);
+        float b = sampleVertical(h1, verticalDeg);
+        return std::max(0.0f, lerp(a, b, ht));
+    }
+};
 
 struct GGXEnergyCompensationLUT {
     static constexpr int RES = 32;
@@ -481,6 +664,8 @@ public:
 // ============================================================================
 
 class Hittable {
+    int objectPassIndex = 0;
+    int materialPassIndex = 0;
 public:
     // Result type used by GR objects (BlackHole).  Defined here so that
     // pathTrace() can use it without needing a full BlackHole definition.
@@ -506,16 +691,25 @@ public:
     virtual GRResult traceGR(const Ray& /*r*/, std::mt19937& /*gen*/) const {
         return {Vec3(0), Vec3(0, 0, 1), true, false};
     }
+    void setObjectPassIndex(int value) { objectPassIndex = std::max(0, value); }
+    void setMaterialPassIndex(int value) { materialPassIndex = std::max(0, value); }
+    int getObjectPassIndex() const { return objectPassIndex; }
+    int getMaterialPassIndex() const { return materialPassIndex; }
 };
 
 class Sphere : public Hittable {
     Vec3 center;
     float radius;
+    Vec3 iesAxis;
+    std::shared_ptr<IESProfile> iesProfile;
     std::shared_ptr<Material> material;
     bool emissive;
 public:
-    Sphere(const Vec3& c, float r, std::shared_ptr<Material> m) 
-        : center(c), radius(r), material(m), emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {}
+    Sphere(const Vec3& c, float r, std::shared_ptr<Material> m,
+           const Vec3& iesDirection = Vec3(0, -1, 0),
+           std::shared_ptr<IESProfile> ies = nullptr)
+        : center(c), radius(r), iesAxis(iesDirection), iesProfile(std::move(ies)),
+          material(m), emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {}
     
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         Vec3 oc = r.origin - center;
@@ -564,6 +758,10 @@ public:
         if (auto l = dynamic_cast<DiffuseLight*>(material.get())) return l->getEmission();
         return Vec3(0);
     }
+    float directionFalloff(const Vec3& directionFromLight) const override {
+        if (!emissive || !iesProfile) return 1.0f;
+        return iesProfile->sample(iesAxis, directionFromLight);
+    }
     // Accessors for GPU upload
     Vec3  getCenter()   const { return center; }
     float getRadius()   const { return radius; }
@@ -603,6 +801,7 @@ public:
         rec.objectPoint = rec.point;
         rec.setFaceNormal(r, direction);
         rec.material = material;
+        rec.hitObject = this;
         rec.uv = Vec2(0.0f, 0.0f);
         return true;
     }
@@ -616,8 +815,12 @@ public:
     float pdfValue(const Vec3& /*origin*/, const Vec3& sampleDir) const override {
         Vec3 d = sampleDir.normalized();
         float cosTheta = d.dot(toLightDir);
-        if (angularDiameter <= 0.0f) return cosTheta > (1.0f - 1e-3f) ? 1.0f : 0.0f;
-        return cosTheta >= cosThetaMax ? 1.0f : 0.0f;
+        if (angularDiameter <= 0.0f)
+            return cosTheta > (1.0f - 1e-3f) ? 1.0f : 0.0f;
+        if (cosTheta < cosThetaMax) return 0.0f;
+        // Uniform cone sampling: PDF = 1 / solidAngle = 1 / (2π(1 − cosθ_max))
+        float solidAngle = 2.0f * float(M_PI) * (1.0f - cosThetaMax);
+        return solidAngle > 1e-10f ? 1.0f / solidAngle : 1.0f;
     }
 
     Vec3 random(const Vec3& /*origin*/, std::mt19937& gen) const override {
@@ -638,6 +841,15 @@ public:
         rec.frontFace = true;
         return material ? material->emitted(rec) : Vec3(0);
     }
+    // Scale emitted radiance by 1/solidAngle so that contribution = (I/Ω) / (1/Ω) = I
+    // regardless of the cone angular size.  Both the NEE path and the BSDF MIS path
+    // multiply material emission by directionFalloff before dividing by pdf,
+    // so the irradiance seen by the surface stays constant as the sun disk size changes.
+    float directionFalloff(const Vec3& /*dir*/) const override {
+        if (angularDiameter <= 0.0f) return 1.0f;
+        float solidAngle = 2.0f * float(M_PI) * (1.0f - cosThetaMax);
+        return solidAngle > 1e-10f ? 1.0f / solidAngle : 1.0f;
+    }
 };
 
 class SpotLightSphere : public Hittable {
@@ -646,16 +858,19 @@ class SpotLightSphere : public Hittable {
     Vec3 axis;
     float outerAngle;
     float innerAngle;
+    std::shared_ptr<IESProfile> iesProfile;
     std::shared_ptr<Material> material;
     bool emissive;
 public:
-    SpotLightSphere(const Vec3& c, float r, std::shared_ptr<Material> m, const Vec3& direction, float spotAngle, float spotSmooth)
+    SpotLightSphere(const Vec3& c, float r, std::shared_ptr<Material> m, const Vec3& direction,
+                    float spotAngle, float spotSmooth, std::shared_ptr<IESProfile> ies = nullptr)
         : center(c), radius(std::max(r, 0.001f)),
           axis(direction.length2() > 1e-12f ? direction.normalized() : Vec3(0, -1, 0)),
           outerAngle(std::max(spotAngle * 0.5f, 1e-4f)),
           // Blender/Cycles convention: spot_smooth=0 -> hard edge (inner=outer),
           // spot_smooth=1 -> smooth falloff from axis to outer cone (inner=0).
           innerAngle(std::max((1.0f - std::clamp(spotSmooth, 0.0f, 1.0f)) * spotAngle * 0.5f, 0.0f)),
+          iesProfile(std::move(ies)),
           material(m), emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {}
 
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
@@ -709,8 +924,9 @@ public:
         float cosAng = std::clamp(axis.dot(directionFromLight.normalized()), -1.0f, 1.0f);
         float angle = std::acos(cosAng);
         if (angle >= outerAngle) return 0.0f;
-        if (innerAngle >= outerAngle - 1e-6f) return 1.0f;
-        return smoothstep(outerAngle, innerAngle, angle);
+        float spot = (innerAngle >= outerAngle - 1e-6f) ? 1.0f : smoothstep(outerAngle, innerAngle, angle);
+        if (!iesProfile) return spot;
+        return spot * iesProfile->sample(axis, directionFromLight);
     }
 };
 
@@ -1143,6 +1359,7 @@ class EnvironmentMap {
     int width = 0, height = 0;
     float strength = 1.0f;       // radiance multiplier
     float rotation = 0.0f;       // horizontal rotation in radians
+    bool applyBlenderXRotation = false;
     
     // CDF data for importance sampling
     std::vector<float> conditionalCdf;  // size: width * height (CDF per row)
@@ -1154,7 +1371,7 @@ class EnvironmentMap {
 public:
     bool loaded() const { return !data.empty(); }
 
-    bool load(const std::string& path, float str = 1.0f, float rot = 0.0f) {
+    bool load(const std::string& path, float str = 1.0f, float rot = 0.0f, bool blenderXRotation = false) {
         int channels = 0;
         float* rawData = (float*)stbi_loadf(path.c_str(), &width, &height, &channels, 3);
         if (!rawData) {
@@ -1176,6 +1393,7 @@ public:
         stbi_image_free(rawData);
         strength = str;
         rotation = rot;
+        applyBlenderXRotation = blenderXRotation;
         printf("Loaded environment map: %s (%dx%d)\n", path.c_str(), width, height);
         buildCdf();
         return true;
@@ -1183,10 +1401,15 @@ public:
     
     Vec3 lookup(const Vec3& direction) const {
         if (width == 0 || height == 0) return Vec3(0);
+
+        Vec3 mappedDir = direction;
+        if (applyBlenderXRotation) {
+            mappedDir = Vec3(direction.x, direction.z, -direction.y);
+        }
         
         // Convert direction to equirectangular (u, v) coordinates:
-        float theta = std::acos(std::clamp(direction.y, -1.0f, 1.0f)); // polar, 0=up
-        float phi = std::atan2(direction.z, direction.x);                // azimuthal
+        float theta = std::acos(std::clamp(mappedDir.y, -1.0f, 1.0f)); // polar, 0=up
+        float phi = std::atan2(mappedDir.z, mappedDir.x);                // azimuthal
         phi += rotation;  // apply horizontal rotation
         float u = 0.5f + phi / (2.0f * M_PI);  // [0, 1]
         float v = 1.0f - theta / M_PI;          // [0, 1], flipped: y=+1 (up) → row height-1
@@ -1330,6 +1553,9 @@ public:
         Vec3 dir(std::sin(theta) * std::cos(phi), 
                  std::cos(theta), 
                  std::sin(theta) * std::sin(phi));
+        if (applyBlenderXRotation) {
+            dir = Vec3(dir.x, -dir.z, dir.y);
+        }
         
         // Compute PDF in solid angle measure
         float sinTheta = std::sin(theta);
@@ -1351,10 +1577,15 @@ public:
     
     float pdf(const Vec3& direction) const {
         if (width == 0 || height == 0 || totalPower <= 0) return 0.0f;
+
+        Vec3 mappedDir = direction;
+        if (applyBlenderXRotation) {
+            mappedDir = Vec3(direction.x, direction.z, -direction.y);
+        }
         
         // Convert direction to equirectangular coordinates
-        float theta = std::acos(std::clamp(direction.y, -1.0f, 1.0f));
-        float phi = std::atan2(direction.z, direction.x);
+        float theta = std::acos(std::clamp(mappedDir.y, -1.0f, 1.0f));
+        float phi = std::atan2(mappedDir.z, mappedDir.x);
         phi += rotation;  // apply horizontal rotation
         
         // Convert to u, v coordinates [0, 1]
@@ -1408,13 +1639,35 @@ public:
 // CAMERA
 // ============================================================================
 
+enum RenderPassIndex {
+    PASS_DIFFUSE_DIRECT = 0,
+    PASS_DIFFUSE_INDIRECT,
+    PASS_DIFFUSE_COLOR,
+    PASS_GLOSSY_DIRECT,
+    PASS_GLOSSY_INDIRECT,
+    PASS_GLOSSY_COLOR,
+    PASS_TRANSMISSION_DIRECT,
+    PASS_TRANSMISSION_INDIRECT,
+    PASS_TRANSMISSION_COLOR,
+    PASS_VOLUME_DIRECT,
+    PASS_VOLUME_INDIRECT,
+    PASS_EMISSION,
+    PASS_ENVIRONMENT,
+    PASS_AO,
+    PASS_SHADOW,
+    PASS_COUNT
+};
+
 class Camera {
     Vec3 origin, lowerLeft, horizontal, vertical, u, v, w_axis;
     float lensRadius;
 public:
     int width, height;
-    std::vector<Vec3> pixels, albedoBuffer, normalBuffer;
-    std::vector<float> alphaBuffer;
+    std::vector<Vec3> pixels, albedoBuffer, normalBuffer, positionBuffer, uvBuffer;
+    std::vector<float> alphaBuffer, depthBuffer, objectIndexBuffer, materialIndexBuffer;
+    std::vector<Vec3> cryptomatteObjectBuffer, cryptomatteMaterialBuffer;
+    std::vector<float> cryptomatteObjectCoverageBuffer, cryptomatteMaterialCoverageBuffer;
+    std::array<std::vector<Vec3>, PASS_COUNT> renderPassBuffers;
 
     Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio, float aperture, float focusDist, int w, int h)
         : width(w), height(h) {
@@ -1433,6 +1686,18 @@ public:
         albedoBuffer.resize(width * height, Vec3(0));
         normalBuffer.resize(width * height, Vec3(0));
         alphaBuffer.resize(width * height, 1.0f);
+        depthBuffer.resize(width * height, 0.0f);
+        positionBuffer.resize(width * height, Vec3(0));
+        uvBuffer.resize(width * height, Vec3(0));
+        objectIndexBuffer.resize(width * height, 0.0f);
+        materialIndexBuffer.resize(width * height, 0.0f);
+        cryptomatteObjectBuffer.resize(width * height, Vec3(0));
+        cryptomatteMaterialBuffer.resize(width * height, Vec3(0));
+        cryptomatteObjectCoverageBuffer.resize(width * height, 0.0f);
+        cryptomatteMaterialCoverageBuffer.resize(width * height, 0.0f);
+        for (auto& passBuffer : renderPassBuffers) {
+            passBuffer.resize(width * height, Vec3(0));
+        }
     }
     
     Ray getRay(float s, float t, std::mt19937& gen) const {
@@ -1482,12 +1747,27 @@ class Renderer {
     // World/environment max bounces: env contribution is skipped for bounce > worldMaxBounces
     // Default 1024 = effectively unlimited. Set to 0 for camera-only, 1 for one indirect bounce.
     int worldMaxBounces = 1024;
+    bool hasWorldVolume = false;
+    float worldVolumeDensity = 0.0f;
+    Vec3 worldVolumeColor = Vec3(1.0f);
+    float worldVolumeAnisotropy = 0.0f;
 
     Vec3 clampLuminance(const Vec3& c, float maxLum) const {
         if (maxLum <= 0.0f) return c;
         float lum = luminance(c);
         if (lum > maxLum && lum > 0.0f) return c * (maxLum / lum);
         return c;
+    }
+
+    Vec3 worldTransmittance(float distance) const {
+        if (!hasWorldVolume || worldVolumeDensity <= 0.0f || distance <= 0.0f) return Vec3(1.0f);
+        float d = std::max(0.0f, distance);
+        Vec3 sigmaT = worldVolumeColor * worldVolumeDensity;
+        return Vec3(
+            std::exp(-std::max(0.0f, sigmaT.x) * d),
+            std::exp(-std::max(0.0f, sigmaT.y) * d),
+            std::exp(-std::max(0.0f, sigmaT.z) * d)
+        );
     }
     
 public:
@@ -1507,6 +1787,16 @@ public:
         pixelFilterWidth = std::max(0.01f, width);
     }
     void setWorldMaxBounces(int maxB) { worldMaxBounces = std::max(0, maxB); }
+    void setWorldVolume(float density, const Vec3& color, float anisotropy = 0.0f) {
+        worldVolumeDensity = std::max(0.0f, density);
+        worldVolumeColor = Vec3(
+            std::max(0.0f, color.x),
+            std::max(0.0f, color.y),
+            std::max(0.0f, color.z)
+        );
+        worldVolumeAnisotropy = std::clamp(anisotropy, -0.99f, 0.99f);
+        hasWorldVolume = worldVolumeDensity > 0.0f;
+    }
     
     void clear() {
         scene.clear(); bvh.reset(); lights = LightList();
@@ -1524,6 +1814,10 @@ public:
         pixelFilterType = 0;
         pixelFilterWidth = 1.5f;
         worldMaxBounces = 1024;
+        hasWorldVolume = false;
+        worldVolumeDensity = 0.0f;
+        worldVolumeColor = Vec3(1.0f);
+        worldVolumeAnisotropy = 0.0f;
     }
     
     // Returns a sub-pixel jitter offset in [0,1) shaped by the reconstruction filter.
@@ -1590,9 +1884,56 @@ public:
         return false;
     }
 
-    Vec3 sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
+    static Vec3 getMaterialColor(const Material* material) {
+        if (!material) return Vec3(0.5f);
+        if (auto lambert = dynamic_cast<const Lambertian*>(material)) return lambert->getAlbedo();
+        if (auto metal = dynamic_cast<const Metal*>(material)) return metal->getAlbedo();
+        if (dynamic_cast<const Dielectric*>(material)) return Vec3(1.0f);
+        return Vec3(0.5f);
+    }
+
+    enum class ClosureType {
+        Diffuse,
+        Glossy,
+        Transmission,
+        Volume
+    };
+
+    static ClosureType classifyMaterial(const Material* material) {
+        if (isTransmissionMaterial(material)) return ClosureType::Transmission;
+        if (isGlossyMaterial(material)) return ClosureType::Glossy;
+        return ClosureType::Diffuse;
+    }
+
+    static uint32_t cryptomatteHash(uint32_t value) {
+        uint32_t x = value + 0x9e3779b9u;
+        x ^= x >> 16;
+        x *= 0x7feb352du;
+        x ^= x >> 15;
+        x *= 0x846ca68bu;
+        x ^= x >> 16;
+        return x;
+    }
+
+    static Vec3 cryptomatteColorFromId(int id) {
+        if (id <= 0) return Vec3(0.0f);
+        uint32_t h = cryptomatteHash(static_cast<uint32_t>(id));
+        return Vec3(
+            float((h >> 16) & 0xFF) / 255.0f,
+            float((h >> 8) & 0xFF) / 255.0f,
+            float(h & 0xFF) / 255.0f
+        );
+    }
+
+    struct DirectSampleResult {
+        Vec3 radiance;
+        float shadow;
+    };
+
+    DirectSampleResult sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
+        DirectSampleResult result{Vec3(0), 0.0f};
         bool hasEnv = (envMap && envMap->loaded()) || (backgroundColor.x >= 0.0f);
-        if ((lights.empty() && !hasEnv) || rec.isDelta) return Vec3(0);
+        if ((lights.empty() && !hasEnv) || rec.isDelta) return result;
         Vec3 wo = -ray.direction.normalized(), direct(0);
         std::uniform_real_distribution<float> dist01(0, 1);
 
@@ -1628,6 +1969,8 @@ public:
                     float combinedLightPdf = pEnv * envPdf;
                     float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
                     direct += f * radiance * wt / (combinedLightPdf + 0.001f);
+                } else {
+                    result.shadow += 1.0f;
                 }
             }
         } else if (!lights.empty()) {
@@ -1637,12 +1980,20 @@ public:
             if (ls.pdf > 0) {
                 Vec3 wi = (ls.position - rec.point).normalized();
                 HitRecord shadow;
-                if (!bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow)) {
+                bool hitOccluder = bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow);
+                // Infinite lights (DistantLight) are at t=1e8; float subtraction
+                // ls.distance - 0.001f == ls.distance (ULP≈8 at 1e8), so the shadow
+                // ray hits the light itself.  Skip infinite-light hits — they are the
+                // sampled light, not an occluder.
+                bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
+                if (!occluded) {
                     Vec3 f = rec.material->eval(rec, wo, wi);
                     float bsdfPdf = rec.material->pdf(rec, wo, wi);
                     float combinedLightPdf = pArea * ls.pdf;
                     float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
-                    direct += f * ls.emission * wt / (combinedLightPdf + 0.001f);
+                    direct += (f * ls.emission * worldTransmittance(ls.distance)) * wt / (combinedLightPdf + 0.001f);
+                } else {
+                    result.shadow += 1.0f;
                 }
             }
         }
@@ -1661,7 +2012,7 @@ public:
                     if (bRec.hitObject) Le *= bRec.hitObject->directionFalloff(-bs.wi);
                     if (Le != Vec3(0)) {
                         float lightPdf = (1.0f - pEnv) * lights.pdfValue(rec.point, bs.wi);
-                        direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
+                        direct += (bs.f * Le * worldTransmittance(bRec.t)) * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
                     }
                 }
             } else {
@@ -1677,13 +2028,20 @@ public:
             }
         }
 
-        return clampLuminance(direct, clampDirect);
+        result.radiance = clampLuminance(direct, clampDirect);
+        result.shadow = std::clamp(result.shadow, 0.0f, 1.0f);
+        return result;
     }
     
 Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits, std::mt19937& gen,
-                   Vec3* albOut = nullptr, Vec3* normOut = nullptr, float* alphaOut = nullptr) {
+                   Vec3* albOut = nullptr, Vec3* normOut = nullptr, float* alphaOut = nullptr,
+                   float* depthOut = nullptr, Vec3* positionOut = nullptr, Vec3* uvOut = nullptr,
+                   int* objectIndexOut = nullptr, int* materialIndexOut = nullptr,
+                   std::array<Vec3, PASS_COUNT>* passOut = nullptr) {
         const int rrDepth = 3;
         Vec3 color(0), throughput(1);
+        std::array<Vec3, PASS_COUNT> passAccum;
+        passAccum.fill(Vec3(0));
         Ray ray = r;
         bool wasSpecular = true;
         int diffuseBounces = 0;
@@ -1713,6 +2071,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
                     Vec3 contrib = throughput * envColor;
                     if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
                     color += contrib;
+                    passAccum[PASS_ENVIRONMENT] += contrib;
                 }
                 if (alphaOut) *alphaOut = alphaCovered ? 1.0f : 0.0f;
                 break;
@@ -1729,6 +2088,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
                     Vec3 contrib = throughput * grResult.color;
                     if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
                     color += contrib;
+                    passAccum[PASS_EMISSION] += contrib;
                 }
                 if (grResult.captured) {
                     break;
@@ -1756,6 +2116,8 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
 
             // --- Normal path tracing ---
             if (!rec.material) break;  // safety guard
+            throughput *= worldTransmittance(rec.t);
+            ClosureType closure = classifyMaterial(rec.material.get());
             bool countsForAlpha = true;
             if (transparentGlass && dynamic_cast<const Dielectric*>(rec.material.get()) != nullptr) {
                 countsForAlpha = false;
@@ -1764,6 +2126,29 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             if (bounce == 0) {
                 if (albOut) { if (auto l = dynamic_cast<Lambertian*>(rec.material.get())) *albOut = l->getAlbedo(); else *albOut = Vec3(0.5f); }
                 if (normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
+                if (depthOut) *depthOut = rec.t;
+                if (positionOut) *positionOut = rec.point;
+                if (uvOut) *uvOut = Vec3(rec.uv.u, rec.uv.v, 0.0f);
+                if (objectIndexOut) *objectIndexOut = rec.hitObject ? rec.hitObject->getObjectPassIndex() : 0;
+                if (materialIndexOut) *materialIndexOut = rec.hitObject ? rec.hitObject->getMaterialPassIndex() : 0;
+                Vec3 baseColor = getMaterialColor(rec.material.get());
+                if (closure == ClosureType::Diffuse) {
+                    passAccum[PASS_DIFFUSE_COLOR] += baseColor;
+                } else if (closure == ClosureType::Glossy) {
+                    passAccum[PASS_GLOSSY_COLOR] += baseColor;
+                } else if (closure == ClosureType::Transmission) {
+                    passAccum[PASS_TRANSMISSION_COLOR] += baseColor;
+                }
+                if (closure == ClosureType::Diffuse) {
+                    Vec3 u, v;
+                    buildOrthonormalBasis(rec.normal, u, v);
+                    Vec3 aoLocal = Vec3::randomCosineDirection(gen);
+                    Vec3 aoDir = (u * aoLocal.x + v * aoLocal.y + rec.normal * aoLocal.z).normalized();
+                    HitRecord aoHit;
+                    if (!bvh->hit(Ray(rec.point, aoDir), 0.001f, 1.0f, aoHit)) {
+                        passAccum[PASS_AO] += Vec3(1.0f);
+                    }
+                }
             }
             if (isTransmissionMaterial(rec.material.get()) && transmissionBounces >= bounceLimits.transmission) break;
             if (isGlossyMaterial(rec.material.get()) && glossyBounces >= bounceLimits.glossy) break;
@@ -1775,10 +2160,27 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
                     Vec3 contrib = throughput * emitted;
                     if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
                     color += contrib;
+                    passAccum[PASS_EMISSION] += contrib;
                 }
                 break;
             }
-            if (!rec.isDelta) color += throughput * sampleDirect(rec, ray, gen);
+            if (!rec.isDelta) {
+                DirectSampleResult directSample = sampleDirect(rec, ray, gen);
+                Vec3 directContrib = throughput * directSample.radiance;
+                color += directContrib;
+                if (closure == ClosureType::Diffuse) {
+                    passAccum[bounce == 0 ? PASS_DIFFUSE_DIRECT : PASS_DIFFUSE_INDIRECT] += directContrib;
+                } else if (closure == ClosureType::Glossy) {
+                    passAccum[bounce == 0 ? PASS_GLOSSY_DIRECT : PASS_GLOSSY_INDIRECT] += directContrib;
+                } else if (closure == ClosureType::Transmission) {
+                    passAccum[bounce == 0 ? PASS_TRANSMISSION_DIRECT : PASS_TRANSMISSION_INDIRECT] += directContrib;
+                } else if (closure == ClosureType::Volume) {
+                    passAccum[bounce == 0 ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT] += directContrib;
+                }
+                if (directSample.shadow > 0.0f) {
+                    passAccum[PASS_SHADOW] += Vec3(directSample.shadow);
+                }
+            }
             if (bounce > rrDepth) {
                 float p = std::min(0.95f, luminance(throughput));
                 if (std::uniform_real_distribution<float>(0, 1)(gen) > p) break;
@@ -1864,6 +2266,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             if (maxC > 10.0f) throughput *= 10.0f / maxC;
         }
         if (alphaOut) *alphaOut = alphaCovered ? 1.0f : 0.0f;
+        if (passOut) *passOut = passAccum;
         return color;
     }
     
@@ -1916,25 +2319,50 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                 for (int y = y0; y < y1; ++y) {
                     for (int x = x0; x < x1; ++x) {
                         int idx = y * cam.width + x;
-                        Vec3 color(0), albedo(0), normal(0);
+                        Vec3 color(0), albedo(0), normal(0), position(0), uv(0);
+                        std::array<Vec3, PASS_COUNT> passColor;
+                        passColor.fill(Vec3(0));
                         float alpha = 0.0f;
+                        float depth = 0.0f;
+                        float objectIndex = 0.0f;
+                        float materialIndex = 0.0f;
+                        std::unordered_map<int, int> objectSampleCounts;
+                        std::unordered_map<int, int> materialSampleCounts;
                         float sumL = 0, sumL2 = 0;
                         int samples = 0;
                         
                         for (int s = 0; s < maxSamples; ++s) {
                             float u = (x + filterSample(gen, dist)) / (cam.width - 1);
                             float v = 1.0f - (y + filterSample(gen, dist)) / (cam.height - 1);
-                            Vec3 sAlb, sNorm;
+                            Vec3 sAlb, sNorm, sPosition(0), sUv(0);
+                            std::array<Vec3, PASS_COUNT> sPass;
                             float sAlpha = 1.0f;
-                            Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, bounceLimits, gen, s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha);
+                            float sDepth = 0.0f;
+                            int sObjectIndex = 0;
+                            int sMaterialIndex = 0;
+                            Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, bounceLimits, gen,
+                                                  s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha,
+                                                  &sDepth, &sPosition, &sUv, &sObjectIndex, &sMaterialIndex, &sPass);
                             // Per-sample contribution clamp: prevents a single caustic spike from
                             // dominating a pixel when sample count is low (firefly suppression)
                             float sLum = luminance(sCol);
                             if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
                             color += sCol;
+                            for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
+                                passColor[passIndex] += sPass[passIndex];
+                            }
                             alpha += sAlpha;
                             samples++;
+                            objectSampleCounts[sObjectIndex]++;
+                            materialSampleCounts[sMaterialIndex]++;
                             if (s == 0) { albedo = sAlb; normal = sNorm; }
+                            if (s == 0) {
+                                depth = sDepth;
+                                position = sPosition;
+                                uv = sUv;
+                                objectIndex = static_cast<float>(sObjectIndex);
+                                materialIndex = static_cast<float>(sMaterialIndex);
+                            }
                             if (adaptive && s >= 16 && (s + 1) % 8 == 0) {
                                 float l = luminance(sCol);
                                 sumL += l; sumL2 += l * l;
@@ -1947,6 +2375,19 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         color = color / float(samples);
                         color *= filmExposure;
                         alpha = alpha / float(samples);
+                        for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
+                            passColor[passIndex] /= float(samples);
+                        }
+                        passColor[PASS_DIFFUSE_DIRECT] *= filmExposure;
+                        passColor[PASS_DIFFUSE_INDIRECT] *= filmExposure;
+                        passColor[PASS_GLOSSY_DIRECT] *= filmExposure;
+                        passColor[PASS_GLOSSY_INDIRECT] *= filmExposure;
+                        passColor[PASS_TRANSMISSION_DIRECT] *= filmExposure;
+                        passColor[PASS_TRANSMISSION_INDIRECT] *= filmExposure;
+                        passColor[PASS_VOLUME_DIRECT] *= filmExposure;
+                        passColor[PASS_VOLUME_INDIRECT] *= filmExposure;
+                        passColor[PASS_EMISSION] *= filmExposure;
+                        passColor[PASS_ENVIRONMENT] *= filmExposure;
                         if (applyGamma) {
                             color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
                             color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
@@ -1959,7 +2400,37 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         cam.pixels[idx] = color;
                         cam.albedoBuffer[idx] = albedo;
                         cam.normalBuffer[idx] = normal;
+                        cam.depthBuffer[idx] = depth;
+                        cam.positionBuffer[idx] = position;
+                        cam.uvBuffer[idx] = uv;
+                        cam.objectIndexBuffer[idx] = objectIndex;
+                        cam.materialIndexBuffer[idx] = materialIndex;
                         cam.alphaBuffer[idx] = std::clamp(alpha, 0.0f, 1.0f);
+                        auto dominantIdAndCoverage = [samples](const std::unordered_map<int, int>& counts) {
+                            int bestId = 0;
+                            int bestCount = 0;
+                            for (const auto& kv : counts) {
+                                if (kv.second > bestCount) {
+                                    bestId = kv.first;
+                                    bestCount = kv.second;
+                                }
+                            }
+                            float coverage = (samples > 0 && bestId > 0) ? float(bestCount) / float(samples) : 0.0f;
+                            return std::pair<int, float>(bestId, coverage);
+                        };
+                        auto objectCrypto = dominantIdAndCoverage(objectSampleCounts);
+                        auto materialCrypto = dominantIdAndCoverage(materialSampleCounts);
+                        cam.cryptomatteObjectBuffer[idx] = cryptomatteColorFromId(objectCrypto.first);
+                        cam.cryptomatteObjectCoverageBuffer[idx] = objectCrypto.second;
+                        cam.cryptomatteMaterialBuffer[idx] = cryptomatteColorFromId(materialCrypto.first);
+                        cam.cryptomatteMaterialCoverageBuffer[idx] = materialCrypto.second;
+                        for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
+                            cam.renderPassBuffers[passIndex][idx] = Vec3(
+                                std::max(passColor[passIndex].x, 0.0f),
+                                std::max(passColor[passIndex].y, 0.0f),
+                                std::max(passColor[passIndex].z, 0.0f)
+                            );
+                        }
                     }
                 }
                 

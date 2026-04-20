@@ -24,6 +24,12 @@ private:
     std::array<double, TABLE_SIZE> r_table;
     std::array<double, TABLE_SIZE> flux_table;
     std::array<double, TABLE_SIZE> temp_table;
+    double tempNorm = 1.0;  // applied in temperatureAt() to reach TARGET_PEAK_TEMP
+
+    // Target peak disk temperature (K).  Raw geometric-unit flux fed through
+    // SI σ_SB gives ~10 K; we renormalize so the inner disk peaks here instead.
+    // 20 000 K produces visible orange-white disk emission through the CIE pipeline.
+    static constexpr double TARGET_PEAK_TEMP = 2.0e4;
 
     // Circular orbit conserved quantities for Schwarzschild
     static double E_circ(double r, double M) {
@@ -97,10 +103,16 @@ private:
             flux_table[i] = (F > 0.0) ? F : 0.0;
 
             // Stefan-Boltzmann: T = (F/sigma)^(1/4)
+            // NOTE: flux is in geometric units, not SI W/m², so raw temperatures
+            // come out ~10 K.  We renormalize via tempNorm (set below).
             temp_table[i] = (flux_table[i] > 0.0)
                 ? std::pow(flux_table[i] / SIGMA_SB, 0.25)
                 : 0.0;
         }
+
+        // Renormalize so the peak disk temperature equals TARGET_PEAK_TEMP.
+        double rawMax = *std::max_element(temp_table.begin(), temp_table.end());
+        tempNorm = (rawMax > 0.0) ? TARGET_PEAK_TEMP / rawMax : 1.0;
     }
 
     double interpolate(const std::array<double, TABLE_SIZE>& table, double r) const {
@@ -136,7 +148,7 @@ public:
 
     ASTRORAY_NOINLINE
     double temperatureAt(double r) const {
-        return interpolate(temp_table, r);
+        return interpolate(temp_table, r) * tempNorm;
     }
 
     // g = ν_obs/ν_emit: combined gravitational + Doppler redshift

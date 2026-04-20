@@ -17,12 +17,21 @@ option(BUILD_DOCS "Build documentation" OFF)
 option(USE_NATIVE_ARCH "Build with -march=native" ON)
 option(USE_FAST_MATH "Enable fast math optimizations" ON)
 option(ASTRORAY_ENABLE_CUDA "Enable CUDA GPU acceleration" ON)
+option(ASTRORAY_ENABLE_OIDN "Enable Intel Open Image Denoise integration when available" ON)
 # Disable OpenMP entirely. Needed when building the Python module (.pyd) for
 # distribution as a Blender addon: MinGW's libgomp deadlocks during module
 # init when loaded into Blender's MSVC-built Python host. Standalone pytest
 # usage is unaffected because we always build a fresh target; the addon
 # packager sets this to ON.
 option(ASTRORAY_DISABLE_OPENMP "Disable OpenMP (needed for MinGW .pyd in Blender)" OFF)
+
+# ---------------------------------------------------------------------------
+# Python hint bridge: -DPYTHON_EXECUTABLE (legacy/CI) → Python3_EXECUTABLE
+# find_package(Python3) reads Python3_EXECUTABLE, not PYTHON_EXECUTABLE.
+# ---------------------------------------------------------------------------
+if(PYTHON_EXECUTABLE AND NOT Python3_EXECUTABLE)
+    set(Python3_EXECUTABLE "${PYTHON_EXECUTABLE}" CACHE FILEPATH "" FORCE)
+endif()
 
 # ---------------------------------------------------------------------------
 # CUDA detection (graceful fallback when toolkit not installed)
@@ -32,12 +41,17 @@ if(ASTRORAY_ENABLE_CUDA)
     check_language(CUDA)
     if(CMAKE_CUDA_COMPILER)
         enable_language(CUDA)
-        find_package(CUDAToolkit REQUIRED)
-        # Turing (75), Ampere (86), Ada Lovelace (89 — also runs on Blackwell via forward compat)
-        # sm_120 (Blackwell) requires CUDA 12.8+; CUDA 12.6 targets up to sm_89
-        set(CMAKE_CUDA_ARCHITECTURES "75;86;89")
-        set(ASTRORAY_CUDA_FOUND TRUE)
-        message(STATUS "CUDA found: ${CMAKE_CUDA_COMPILER}")
+        find_package(CUDAToolkit QUIET)
+        if(CUDAToolkit_FOUND)
+            # Turing (75), Ampere (86), Ada Lovelace (89 — also runs on Blackwell via forward compat)
+            # sm_120 (Blackwell) requires CUDA 12.8+; CUDA 12.6 targets up to sm_89
+            set(CMAKE_CUDA_ARCHITECTURES "75;86;89")
+            set(ASTRORAY_CUDA_FOUND TRUE)
+            message(STATUS "CUDA found: ${CMAKE_CUDA_COMPILER}")
+        else()
+            set(ASTRORAY_CUDA_FOUND FALSE)
+            message(STATUS "CUDAToolkit not found — GPU acceleration disabled")
+        endif()
     else()
         set(ASTRORAY_CUDA_FOUND FALSE)
         message(STATUS "CUDA not found — GPU acceleration disabled")
@@ -45,6 +59,24 @@ if(ASTRORAY_ENABLE_CUDA)
 else()
     set(ASTRORAY_CUDA_FOUND FALSE)
     message(STATUS "CUDA disabled via ASTRORAY_ENABLE_CUDA=OFF")
+endif()
+
+# ---------------------------------------------------------------------------
+# Optional Intel Open Image Denoise (OIDN)
+# ---------------------------------------------------------------------------
+set(ASTRORAY_OIDN_FOUND FALSE)
+set(ASTRORAY_OIDN_TARGET "")
+if(ASTRORAY_ENABLE_OIDN)
+    find_package(OpenImageDenoise CONFIG QUIET)
+    if(OpenImageDenoise_FOUND)
+        if(TARGET OpenImageDenoise::OpenImageDenoise)
+            set(ASTRORAY_OIDN_TARGET OpenImageDenoise::OpenImageDenoise)
+            set(ASTRORAY_OIDN_FOUND TRUE)
+        elseif(TARGET OpenImageDenoise)
+            set(ASTRORAY_OIDN_TARGET OpenImageDenoise)
+            set(ASTRORAY_OIDN_FOUND TRUE)
+        endif()
+    endif()
 endif()
 
 # Compiler flags for optimization
@@ -109,9 +141,16 @@ endif()
 set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 file(GLOB_RECURSE HEADERS ${INCLUDE_DIR}/*.h)
 
+# Plugin sources (empty for now; populated by pkg02+ as .cpp files are added)
+file(GLOB_RECURSE ASTRORAY_PLUGIN_SOURCES CONFIGURE_DEPENDS
+     "${CMAKE_SOURCE_DIR}/plugins/*.cpp")
+
 # Create header-only library for core raytracer
 add_library(raytracer_core INTERFACE)
 target_include_directories(raytracer_core INTERFACE ${INCLUDE_DIR})
+if(ASTRORAY_PLUGIN_SOURCES)
+    target_sources(raytracer_core PRIVATE ${ASTRORAY_PLUGIN_SOURCES})
+endif()
 
 # Source files
 set(SOURCES
@@ -166,16 +205,26 @@ if(ASTRORAY_CUDA_FOUND)
         set_property(TARGET astroray_cuda PROPERTY CUDA_FLAGS
             "--extended-lambda --expt-relaxed-constexpr -O3")
     endif()
-    target_link_libraries(astroray_cuda PRIVATE CUDA::curand)
+    if(TARGET CUDA::curand)
+        target_link_libraries(astroray_cuda PRIVATE CUDA::curand)
+    elseif(TARGET CUDA::curand_static)
+        target_link_libraries(astroray_cuda PRIVATE CUDA::curand_static)
+    else()
+        find_library(CURAND_LIB curand
+            HINTS
+                "${CUDAToolkit_LIBRARY_DIR}"
+                "${CUDAToolkit_LIBRARY_ROOT}/lib"
+                "${CUDAToolkit_LIBRARY_ROOT}/lib64"
+        )
+        if(NOT CURAND_LIB)
+            message(FATAL_ERROR "CUDA Toolkit found, but cuRAND is missing (no CUDA::curand and curand not found in library path).")
+        endif()
+        target_link_libraries(astroray_cuda PRIVATE "${CURAND_LIB}")
+    endif()
 endif()
 
-# Standalone executable
-if(WIN32 AND WIN32_STANDALONE)
-    # Windows console application
-    add_executable(raytracer_standalone WIN32 ${SOURCES} ${HEADERS})
-else()
-    add_executable(raytracer_standalone ${SOURCES} ${HEADERS})
-endif()
+# Standalone executable (always console subsystem)
+add_executable(raytracer_standalone ${SOURCES} ${HEADERS})
 
 target_link_libraries(raytracer_standalone PRIVATE
     raytracer_core
@@ -252,6 +301,11 @@ if(BUILD_PYTHON_MODULE)
         target_link_libraries(astroray PRIVATE OpenMP::OpenMP_CXX)
     endif()
 
+    if(ASTRORAY_OIDN_FOUND)
+        target_link_libraries(astroray PRIVATE ${ASTRORAY_OIDN_TARGET})
+        target_compile_definitions(astroray PRIVATE ASTRORAY_OIDN_ENABLED)
+    endif()
+
     # When building with MinGW for distribution as a Blender addon, statically
     # link the GCC runtime so the .pyd doesn't depend on libgcc_s_seh-1.dll /
     # libstdc++-6.dll / libwinpthread-1.dll being on the loader's PATH.
@@ -322,6 +376,11 @@ if(BUILD_BLENDER_MODULE)
     
     if(OpenMP_CXX_FOUND)
         target_link_libraries(raytracer_blender PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+
+    if(ASTRORAY_OIDN_FOUND)
+        target_link_libraries(raytracer_blender PRIVATE ${ASTRORAY_OIDN_TARGET})
+        target_compile_definitions(raytracer_blender PRIVATE ASTRORAY_OIDN_ENABLED)
     endif()
     
     # Set properties for Python module
@@ -399,6 +458,7 @@ message(STATUS "OpenMP: ${OpenMP_CXX_FOUND}")
 message(STATUS "Native arch: ${USE_NATIVE_ARCH}")
 message(STATUS "Fast math: ${USE_FAST_MATH}")
 message(STATUS "CUDA GPU backend: ${ASTRORAY_CUDA_FOUND}")
+message(STATUS "OIDN denoiser: ${ASTRORAY_OIDN_FOUND}")
 message(STATUS "Python module: ${BUILD_PYTHON_MODULE}")
 if(BUILD_PYTHON_MODULE)
     message(STATUS "  Python: ${Python3_VERSION}")

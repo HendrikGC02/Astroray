@@ -4,13 +4,14 @@
 // This header is included by both .cu files (compiled with nvcc) and
 // pure C++ translation units.  NO std:: headers, NO virtual functions.
 
+#include <cstdint>
+
 #ifdef __CUDACC__
 #  define HD __host__ __device__
 #  include <cuda_runtime.h>   // sqrtf, fmaxf, etc. in device code
 #else
 #  define HD
 #  include <cmath>
-#  include <cstdint>
 #endif
 
 // ---------------------------------------------------------------------------

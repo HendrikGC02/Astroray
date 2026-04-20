@@ -3,10 +3,18 @@
 #include <pybind11/numpy.h>
 #include <pybind11/functional.h>
 #include <cctype>
+#include <cmath>
 #include "raytracer.h"
 #include "advanced_features.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
+#endif
+#ifdef ASTRORAY_OIDN_ENABLED
+#  if __has_include(<OpenImageDenoise/oidn.hpp>)
+#    include <OpenImageDenoise/oidn.hpp>
+#  elif __has_include(<oidn.hpp>)
+#    include <oidn.hpp>
+#  endif
 #endif
 
 namespace py = pybind11;
@@ -139,9 +147,93 @@ class PyRenderer {
     bool useAdaptiveSampling = true;
     std::shared_ptr<EnvironmentMap> envMap;
     bool useGPU = false;
+    enum class DenoiserType {
+        None,
+        OIDN
+    };
+    bool useDenoiser = false;
+    DenoiserType denoiserType = DenoiserType::None;
 #ifdef ASTRORAY_CUDA_ENABLED
     std::unique_ptr<CUDARenderer> cudaRenderer;
 #endif
+
+    void applyDenoiseIfEnabled() {
+        if (!useDenoiser || denoiserType == DenoiserType::None || !camera) return;
+        if (denoiserType == DenoiserType::OIDN) applyOIDNDenoise();
+    }
+
+    void applyOIDNDenoise() {
+#ifdef ASTRORAY_OIDN_ENABLED
+        const size_t pixelCount = camera->pixels.size();
+        if (pixelCount == 0) return;
+
+        const size_t byteSize = pixelCount * 3 * sizeof(float);
+
+        oidn::DeviceRef device = oidn::newDevice();
+        device.commit();
+
+        // OIDN 2.x requires device-accessible OIDNBuffer objects; raw CPU pointers
+        // are no longer accepted by setImage().  newBuffer(byteSize) creates a buffer
+        // accessible to both host (via getData()) and device.
+        oidn::BufferRef colorBuf  = device.newBuffer(byteSize);
+        oidn::BufferRef albedoBuf = device.newBuffer(byteSize);
+        oidn::BufferRef normalBuf = device.newBuffer(byteSize);
+        oidn::BufferRef outputBuf = device.newBuffer(byteSize);
+
+        float* colorData  = static_cast<float*>(colorBuf.getData());
+        float* albedoData = static_cast<float*>(albedoBuf.getData());
+        float* normalData = static_cast<float*>(normalBuf.getData());
+
+        auto safeFloat = [](float v) { return std::isfinite(v) ? v : 0.0f; };
+        for (size_t i = 0; i < pixelCount; ++i) {
+            colorData[i * 3]     = safeFloat(camera->pixels[i].x);
+            colorData[i * 3 + 1] = safeFloat(camera->pixels[i].y);
+            colorData[i * 3 + 2] = safeFloat(camera->pixels[i].z);
+
+            albedoData[i * 3]     = safeFloat(camera->albedoBuffer[i].x);
+            albedoData[i * 3 + 1] = safeFloat(camera->albedoBuffer[i].y);
+            albedoData[i * 3 + 2] = safeFloat(camera->albedoBuffer[i].z);
+
+            Vec3 n(
+                safeFloat(camera->normalBuffer[i].x),
+                safeFloat(camera->normalBuffer[i].y),
+                safeFloat(camera->normalBuffer[i].z)
+            );
+            if (n.length() > 0.0f) n = n.normalized();
+            normalData[i * 3]     = n.x;
+            normalData[i * 3 + 1] = n.y;
+            normalData[i * 3 + 2] = n.z;
+        }
+
+        oidn::FilterRef filter = device.newFilter("RT");
+        filter.setImage("color",  colorBuf,  oidn::Format::Float3, camera->width, camera->height);
+        filter.setImage("albedo", albedoBuf, oidn::Format::Float3, camera->width, camera->height);
+        filter.setImage("normal", normalBuf, oidn::Format::Float3, camera->width, camera->height);
+        filter.setImage("output", outputBuf, oidn::Format::Float3, camera->width, camera->height);
+        filter.set("hdr", true);
+        filter.commit();
+        filter.execute();
+
+        const char* errorMessage = nullptr;
+        if (device.getError(errorMessage) != oidn::Error::None) {
+            throw std::runtime_error(std::string("OIDN denoiser failed: ") + (errorMessage ? errorMessage : "unknown error"));
+        }
+
+        const float* outputData = static_cast<const float*>(outputBuf.getData());
+        for (size_t i = 0; i < pixelCount; ++i) {
+            const float r = outputData[i * 3];
+            const float g = outputData[i * 3 + 1];
+            const float b = outputData[i * 3 + 2];
+            camera->pixels[i] = Vec3(
+                std::isfinite(r) ? std::max(r, 0.0f) : 0.0f,
+                std::isfinite(g) ? std::max(g, 0.0f) : 0.0f,
+                std::isfinite(b) ? std::max(b, 0.0f) : 0.0f
+            );
+        }
+#else
+        // Graceful fallback: OIDN requested but not available in this build.
+#endif
+    }
 public:
     void loadTexture(const std::string& name, py::array_t<float> imageData, int width, int height,
                      const std::string& coordMode = "UV") {
@@ -215,29 +307,48 @@ public:
         return id;
     }
     
-    void addSphere(const std::vector<float>& center, float radius, int materialId) {
+    void addSphere(const std::vector<float>& center, float radius, int materialId,
+                   const std::vector<float>& iesDirection = std::vector<float>(),
+                   const std::string& iesFile = "",
+                   int objectPassIndex = 0, int materialPassIndex = 0) {
         Vec3 pos(center[0], center[1], center[2]);
+        Vec3 dir(0.0f, -1.0f, 0.0f);
+        if (iesDirection.size() == 3) dir = Vec3(iesDirection[0], iesDirection[1], iesDirection[2]);
+        auto iesProfile = IESProfile::loadFromFile(iesFile);
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
-        renderer.addObject(std::make_shared<Sphere>(pos, radius, mat));
+        auto sphere = std::make_shared<Sphere>(pos, radius, mat, dir, iesProfile);
+        sphere->setObjectPassIndex(objectPassIndex);
+        sphere->setMaterialPassIndex(materialPassIndex);
+        renderer.addObject(sphere);
     }
-
-    void addSunLight(const std::vector<float>& direction, float angularDiameter, int materialId) {
+ 
+    void addSunLight(const std::vector<float>& direction, float angularDiameter, int materialId,
+                     int objectPassIndex = 0, int materialPassIndex = 0) {
         Vec3 dir(direction[0], direction[1], direction[2]);
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
-        renderer.addObject(std::make_shared<DistantLight>(dir, angularDiameter, mat));
+        auto sun = std::make_shared<DistantLight>(dir, angularDiameter, mat);
+        sun->setObjectPassIndex(objectPassIndex);
+        sun->setMaterialPassIndex(materialPassIndex);
+        renderer.addObject(sun);
     }
-
+ 
     void addSpotLight(const std::vector<float>& center, const std::vector<float>& direction, float radius,
-                     int materialId, float spotAngle, float spotSmooth) {
+                     int materialId, float spotAngle, float spotSmooth, const std::string& iesFile = "",
+                     int objectPassIndex = 0, int materialPassIndex = 0) {
         Vec3 pos(center[0], center[1], center[2]);
         Vec3 dir(direction[0], direction[1], direction[2]);
+        auto iesProfile = IESProfile::loadFromFile(iesFile);
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<DiffuseLight>(Vec3(1.0f), 1.0f);
-        renderer.addObject(std::make_shared<SpotLightSphere>(pos, radius, mat, dir, spotAngle, spotSmooth));
+        auto spot = std::make_shared<SpotLightSphere>(pos, radius, mat, dir, spotAngle, spotSmooth, iesProfile);
+        spot->setObjectPassIndex(objectPassIndex);
+        spot->setMaterialPassIndex(materialPassIndex);
+        renderer.addObject(spot);
     }
-
+ 
     void addAreaLight(const std::vector<float>& center, const std::vector<float>& axisU,
                       const std::vector<float>& axisV, float sizeX, float sizeY,
-                      const std::string& shape, int materialId, float spread = 1.0f) {
+                      const std::string& shape, int materialId, float spread = 1.0f,
+                      int objectPassIndex = 0, int materialPassIndex = 0) {
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
         std::string shapeUpper = shape;
         for (char& c : shapeUpper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -249,18 +360,22 @@ public:
             lightShape = AreaLightShape::Shape::Ellipse;
         }
 
-        renderer.addObject(std::make_shared<AreaLightShape>(
+        auto area = std::make_shared<AreaLightShape>(
             Vec3(center[0], center[1], center[2]),
             Vec3(axisU[0], axisU[1], axisU[2]),
             Vec3(axisV[0], axisV[1], axisV[2]),
-            sizeX, sizeY, lightShape, spread, mat));
+            sizeX, sizeY, lightShape, spread, mat);
+        area->setObjectPassIndex(objectPassIndex);
+        area->setMaterialPassIndex(materialPassIndex);
+        renderer.addObject(area);
     }
     
     void addTriangle(const std::vector<float>& v0, const std::vector<float>& v1, const std::vector<float>& v2,
-                    int materialId, const std::vector<float>& uv0 = {}, const std::vector<float>& uv1 = {},
-                    const std::vector<float>& uv2 = {},
-                    const std::vector<float>& n0 = {}, const std::vector<float>& n1 = {},
-                    const std::vector<float>& n2 = {}) {
+                     int materialId, const std::vector<float>& uv0 = {}, const std::vector<float>& uv1 = {},
+                     const std::vector<float>& uv2 = {},
+                     const std::vector<float>& n0 = {}, const std::vector<float>& n1 = {},
+                     const std::vector<float>& n2 = {},
+                     int objectPassIndex = 0, int materialPassIndex = 0) {
         Vec3 p0(v0[0], v0[1], v0[2]), p1(v1[0], v1[1], v1[2]), p2(v2[0], v2[1], v2[2]);
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
         std::shared_ptr<Triangle> tri;
@@ -278,6 +393,8 @@ public:
                 Vec3(n1[0], n1[1], n1[2]),
                 Vec3(n2[0], n2[1], n2[2]));
         }
+        tri->setObjectPassIndex(objectPassIndex);
+        tri->setMaterialPassIndex(materialPassIndex);
         renderer.addObject(tri);
     }
     
@@ -377,9 +494,9 @@ public:
 #endif
     }
 
-    bool loadEnvironmentMap(const std::string& path, float strength = 1.0f, float rotation = 0.0f) {
+    bool loadEnvironmentMap(const std::string& path, float strength = 1.0f, float rotation = 0.0f, bool blender_x_rotation = false) {
         envMap = std::make_shared<EnvironmentMap>();
-        if (envMap->load(path, strength, rotation)) {
+        if (envMap->load(path, strength, rotation, blender_x_rotation)) {
             renderer.setEnvironmentMap(envMap);
             return true;
         }
@@ -419,6 +536,10 @@ public:
         renderer.setWorldMaxBounces(maxB);
     }
 
+    void setWorldVolume(float density, const std::vector<float>& color, float anisotropy = 0.0f) {
+        renderer.setWorldVolume(density, Vec3(color[0], color[1], color[2]), anisotropy);
+    }
+
     void setUseReflectiveCaustics(bool use) {
         renderer.setUseReflectiveCaustics(use);
     }
@@ -433,6 +554,18 @@ public:
 
     void setTransparentGlass(bool use) {
         renderer.setTransparentGlass(use);
+    }
+
+    void setUseDenoiser(bool use) {
+        useDenoiser = use;
+    }
+
+    void setDenoiserType(const std::string& type) {
+        std::string key = type;
+        for (char& c : key) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        if (key == "NONE") denoiserType = DenoiserType::None;
+        else if (key == "OIDN") denoiserType = DenoiserType::OIDN;
+        else throw std::runtime_error("Unknown denoiser type: " + type);
     }
     
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true,
@@ -464,6 +597,8 @@ public:
             renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false,
                             diffuseBounces, glossyBounces, transmissionBounces, volumeBounces, transparentBounces);
         }
+
+        applyDenoiseIfEnabled();
 
         // Package pixels into numpy array (height, width, 3)
         py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height),
@@ -542,6 +677,202 @@ public:
         }
         return result;
     }
+
+    py::array_t<float> getDepthBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        py::ssize_t shape[2] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width)};
+        auto result = py::array_t<float>(shape);
+        py::buffer_info buf = result.request();
+        float* ptr = static_cast<float*>(buf.ptr);
+        size_t size = camera->depthBuffer.size();
+        for (size_t i = 0; i < size; ++i) ptr[i] = camera->depthBuffer[i];
+        return result;
+    }
+
+    py::array_t<float> getPositionBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
+        auto result = py::array_t<float>(shape);
+        py::buffer_info buf = result.request();
+        float* ptr = static_cast<float*>(buf.ptr);
+        size_t size = camera->positionBuffer.size();
+        for (size_t i = 0; i < size; ++i) {
+            ptr[i*3] = camera->positionBuffer[i].x;
+            ptr[i*3+1] = camera->positionBuffer[i].y;
+            ptr[i*3+2] = camera->positionBuffer[i].z;
+        }
+        return result;
+    }
+
+    py::array_t<float> getUVBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
+        auto result = py::array_t<float>(shape);
+        py::buffer_info buf = result.request();
+        float* ptr = static_cast<float*>(buf.ptr);
+        size_t size = camera->uvBuffer.size();
+        for (size_t i = 0; i < size; ++i) {
+            ptr[i*3] = camera->uvBuffer[i].x;
+            ptr[i*3+1] = camera->uvBuffer[i].y;
+            ptr[i*3+2] = camera->uvBuffer[i].z;
+        }
+        return result;
+    }
+
+    py::array_t<float> getObjectIndexBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        py::ssize_t shape[2] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width)};
+        auto result = py::array_t<float>(shape);
+        py::buffer_info buf = result.request();
+        float* ptr = static_cast<float*>(buf.ptr);
+        size_t size = camera->objectIndexBuffer.size();
+        for (size_t i = 0; i < size; ++i) ptr[i] = camera->objectIndexBuffer[i];
+        return result;
+    }
+
+    py::array_t<float> getMaterialIndexBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        py::ssize_t shape[2] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width)};
+        auto result = py::array_t<float>(shape);
+        py::buffer_info buf = result.request();
+        float* ptr = static_cast<float*>(buf.ptr);
+        size_t size = camera->materialIndexBuffer.size();
+        for (size_t i = 0; i < size; ++i) ptr[i] = camera->materialIndexBuffer[i];
+        return result;
+    }
+
+    py::array_t<float> getCryptomatteObjectBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 4};
+        auto result = py::array_t<float>(shape);
+        py::buffer_info buf = result.request();
+        float* ptr = static_cast<float*>(buf.ptr);
+        size_t size = camera->cryptomatteObjectBuffer.size();
+        for (size_t i = 0; i < size; ++i) {
+            ptr[i*4] = camera->cryptomatteObjectBuffer[i].x;
+            ptr[i*4+1] = camera->cryptomatteObjectBuffer[i].y;
+            ptr[i*4+2] = camera->cryptomatteObjectBuffer[i].z;
+            ptr[i*4+3] = camera->cryptomatteObjectCoverageBuffer[i];
+        }
+        return result;
+    }
+
+    py::array_t<float> getCryptomatteMaterialBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 4};
+        auto result = py::array_t<float>(shape);
+        py::buffer_info buf = result.request();
+        float* ptr = static_cast<float*>(buf.ptr);
+        size_t size = camera->cryptomatteMaterialBuffer.size();
+        for (size_t i = 0; i < size; ++i) {
+            ptr[i*4] = camera->cryptomatteMaterialBuffer[i].x;
+            ptr[i*4+1] = camera->cryptomatteMaterialBuffer[i].y;
+            ptr[i*4+2] = camera->cryptomatteMaterialBuffer[i].z;
+            ptr[i*4+3] = camera->cryptomatteMaterialCoverageBuffer[i];
+        }
+        return result;
+    }
+
+    py::array_t<float> getRenderPassBuffer(const std::string& passName) {
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        std::string key = passName;
+        for (char& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+        if (key == "depth" || key == "object_index" || key == "material_index") {
+            const std::vector<float>* scalarBuffer = nullptr;
+            if (key == "depth") scalarBuffer = &camera->depthBuffer;
+            else if (key == "object_index") scalarBuffer = &camera->objectIndexBuffer;
+            else if (key == "material_index") scalarBuffer = &camera->materialIndexBuffer;
+            py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
+            auto result = py::array_t<float>(shape);
+            py::buffer_info buf = result.request();
+            float* ptr = static_cast<float*>(buf.ptr);
+            size_t size = scalarBuffer->size();
+            for (size_t i = 0; i < size; ++i) {
+                float value = (*scalarBuffer)[i];
+                ptr[i*3] = value;
+                ptr[i*3+1] = value;
+                ptr[i*3+2] = value;
+            }
+            return result;
+        }
+        if (key == "position" || key == "uv") {
+            const std::vector<Vec3>* vecBuffer = (key == "position") ? &camera->positionBuffer : &camera->uvBuffer;
+            py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
+            auto result = py::array_t<float>(shape);
+            py::buffer_info buf = result.request();
+            float* ptr = static_cast<float*>(buf.ptr);
+            size_t size = vecBuffer->size();
+            for (size_t i = 0; i < size; ++i) {
+                ptr[i*3] = (*vecBuffer)[i].x;
+                ptr[i*3+1] = (*vecBuffer)[i].y;
+                ptr[i*3+2] = (*vecBuffer)[i].z;
+            }
+            return result;
+        }
+        if (key == "cryptomatte_object" || key == "cryptomatte_material") {
+            const std::vector<Vec3>* vecBuffer = (key == "cryptomatte_object")
+                ? &camera->cryptomatteObjectBuffer
+                : &camera->cryptomatteMaterialBuffer;
+            py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
+            auto result = py::array_t<float>(shape);
+            py::buffer_info buf = result.request();
+            float* ptr = static_cast<float*>(buf.ptr);
+            size_t size = vecBuffer->size();
+            for (size_t i = 0; i < size; ++i) {
+                ptr[i*3] = (*vecBuffer)[i].x;
+                ptr[i*3+1] = (*vecBuffer)[i].y;
+                ptr[i*3+2] = (*vecBuffer)[i].z;
+            }
+            return result;
+        }
+
+        static const std::unordered_map<std::string, int> kPassNameToIndex = {
+            {"diffuse_direct", PASS_DIFFUSE_DIRECT},
+            {"diffuse_indirect", PASS_DIFFUSE_INDIRECT},
+            {"diffuse_color", PASS_DIFFUSE_COLOR},
+            {"glossy_direct", PASS_GLOSSY_DIRECT},
+            {"glossy_indirect", PASS_GLOSSY_INDIRECT},
+            {"glossy_color", PASS_GLOSSY_COLOR},
+            {"transmission_direct", PASS_TRANSMISSION_DIRECT},
+            {"transmission_indirect", PASS_TRANSMISSION_INDIRECT},
+            {"transmission_color", PASS_TRANSMISSION_COLOR},
+            {"volume_direct", PASS_VOLUME_DIRECT},
+            {"volume_indirect", PASS_VOLUME_INDIRECT},
+            {"emission", PASS_EMISSION},
+            {"environment", PASS_ENVIRONMENT},
+            {"ao", PASS_AO},
+            {"shadow", PASS_SHADOW}
+        };
+
+        auto it = kPassNameToIndex.find(key);
+        if (it == kPassNameToIndex.end()) {
+            throw std::runtime_error("Unknown render pass: " + passName);
+        }
+
+        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
+        auto result = py::array_t<float>(shape);
+        {
+            py::buffer_info buf = result.request();
+            float* ptr = static_cast<float*>(buf.ptr);
+            const std::vector<Vec3>& passBuffer = camera->renderPassBuffers[it->second];
+            size_t size = passBuffer.size();
+            for (size_t i = 0; i < size; i++) {
+                ptr[i*3] = passBuffer[i].x;
+                ptr[i*3+1] = passBuffer[i].y;
+                ptr[i*3+2] = passBuffer[i].z;
+            }
+        }
+        return result;
+    }
     
     void clear() {
         renderer = Renderer();
@@ -551,6 +882,8 @@ public:
         textureManager = TextureManager();
         envMap.reset();
         useGPU = false;
+        useDenoiser = false;
+        denoiserType = DenoiserType::None;
 #ifdef ASTRORAY_CUDA_ENABLED
         cudaRenderer.reset();
 #endif
@@ -569,16 +902,22 @@ PYBIND11_MODULE(astroray, m) {
              "name"_a, "type"_a, "params"_a, "coord_mode"_a = "UV")
         .def("set_texture_coord_mode", &PyRenderer::setTextureCoordMode, "name"_a, "coord_mode"_a)
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
-        .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a)
+        .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a,
+             "ies_direction"_a = std::vector<float>(), "ies_file"_a = std::string(),
+             "object_pass_index"_a = 0, "material_pass_index"_a = 0)
         .def("add_spot_light", &PyRenderer::addSpotLight, "center"_a, "direction"_a, "radius"_a,
-             "material_id"_a, "spot_angle"_a, "spot_smooth"_a)
-        .def("add_sun_light", &PyRenderer::addSunLight, "direction"_a, "angular_diameter"_a, "material_id"_a)
+             "material_id"_a, "spot_angle"_a, "spot_smooth"_a, "ies_file"_a = std::string(),
+             "object_pass_index"_a = 0, "material_pass_index"_a = 0)
+        .def("add_sun_light", &PyRenderer::addSunLight, "direction"_a, "angular_diameter"_a, "material_id"_a,
+             "object_pass_index"_a = 0, "material_pass_index"_a = 0)
         .def("add_area_light", &PyRenderer::addAreaLight,
              "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,
-             "shape"_a, "material_id"_a, "spread"_a = 1.0f)
+             "shape"_a, "material_id"_a, "spread"_a = 1.0f,
+             "object_pass_index"_a = 0, "material_pass_index"_a = 0)
         .def("add_triangle", &PyRenderer::addTriangle, "v0"_a, "v1"_a, "v2"_a, "material_id"_a,
              "uv0"_a = std::vector<float>(), "uv1"_a = std::vector<float>(), "uv2"_a = std::vector<float>(),
-             "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>())
+             "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>(),
+             "object_pass_index"_a = 0, "material_pass_index"_a = 0)
         .def("add_mesh", &PyRenderer::addMesh, "filename"_a, "material_id"_a,
              "position"_a = std::vector<float>{0,0,0}, "scale"_a = std::vector<float>{1,1,1}, "rotation_y"_a = 0.0f)
         .def("add_volume", &PyRenderer::addVolume,
@@ -596,14 +935,18 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_seed", &PyRenderer::setSeed, "seed"_a)
         .def("set_pixel_filter", &PyRenderer::setPixelFilter, "filter_type"_a, "filter_width"_a)
         .def("set_world_max_bounces", &PyRenderer::setWorldMaxBounces, "max_bounces"_a)
+        .def("set_world_volume", &PyRenderer::setWorldVolume,
+             "density"_a, "color"_a, "anisotropy"_a = 0.0f)
         .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
-              "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f)
+             "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f, "blender_x_rotation"_a = false)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
         .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
         .def("set_use_transparent_film", &PyRenderer::setUseTransparentFilm, "use"_a)
         .def("set_transparent_glass", &PyRenderer::setTransparentGlass, "use"_a)
+        .def("set_use_denoiser", &PyRenderer::setUseDenoiser, "use"_a)
+        .def("set_denoiser_type", &PyRenderer::setDenoiserType, "type"_a)
         .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a,
              "progress_callback"_a = py::none(), "apply_gamma"_a = true,
              "diffuse_bounces"_a = -1, "glossy_bounces"_a = -1, "transmission_bounces"_a = -1,
@@ -611,6 +954,14 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)
         .def("get_alpha_buffer", &PyRenderer::getAlphaBuffer)
+        .def("get_depth_buffer", &PyRenderer::getDepthBuffer)
+        .def("get_position_buffer", &PyRenderer::getPositionBuffer)
+        .def("get_uv_buffer", &PyRenderer::getUVBuffer)
+        .def("get_object_index_buffer", &PyRenderer::getObjectIndexBuffer)
+        .def("get_material_index_buffer", &PyRenderer::getMaterialIndexBuffer)
+        .def("get_cryptomatte_object_buffer", &PyRenderer::getCryptomatteObjectBuffer)
+        .def("get_cryptomatte_material_buffer", &PyRenderer::getCryptomatteMaterialBuffer)
+        .def("get_render_pass_buffer", &PyRenderer::getRenderPassBuffer, "pass_name"_a)
         .def("clear", &PyRenderer::clear)
         .def("get_width", &PyRenderer::getWidth)
         .def("get_height", &PyRenderer::getHeight)
@@ -622,6 +973,11 @@ PYBIND11_MODULE(astroray, m) {
         "nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,
         "adaptive_sampling"_a=true, "volumes"_a=true, "textures"_a=true, "subsurface"_a=true,
         "gr_black_holes"_a=true,
+#ifdef ASTRORAY_OIDN_ENABLED
+        "oidn_denoiser"_a=true,
+#else
+        "oidn_denoiser"_a=false,
+#endif
 #ifdef ASTRORAY_CUDA_ENABLED
         "cuda"_a=true
 #else

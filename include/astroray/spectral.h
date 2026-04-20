@@ -12,7 +12,7 @@
 
 // Planck blackbody spectral radiance B(λ, T) in W/(m²·sr·m)
 // wavelength_nm in nm, temperature_K in Kelvin
-ASTRORAY_NOINLINE double planck(double wavelength_nm, double temperature_K) {
+inline ASTRORAY_NOINLINE double planck(double wavelength_nm, double temperature_K) {
     if (temperature_K <= 0.0) return 0.0;
     double lam = wavelength_nm * 1e-9;  // nm → m
     // B = (2hc²/λ⁵) / (exp(hc/(λkT)) - 1)
@@ -119,7 +119,7 @@ inline double eval(const double* cmf, double lam) {
 } // namespace cie_cmf
 
 // Convert accumulated SpectralSample to CIE XYZ (Vec3, float)
-ASTRORAY_NOINLINE Vec3 spectralToXYZ(const SpectralSample& s) {
+inline ASTRORAY_NOINLINE Vec3 spectralToXYZ(const SpectralSample& s) {
     double X = 0, Y = 0, Z = 0;
     for (int i = 0; i < 4; ++i) {
         double lam = s.wavelengths[i];
@@ -149,7 +149,7 @@ inline Vec3 xyzToLinearSRGB(const Vec3& xyz) {
 
 // Full pipeline: SpectralSample → linear sRGB, with optional exposure scaling
 // exposure == 0 means no scaling (caller handles auto-exposure externally)
-ASTRORAY_NOINLINE Vec3 spectralToRGB(const SpectralSample& s, float exposureScale = 1.0f) {
+inline ASTRORAY_NOINLINE Vec3 spectralToRGB(const SpectralSample& s, float exposureScale = 1.0f) {
     Vec3 xyz = spectralToXYZ(s);
     xyz = xyz * exposureScale;
     return xyzToLinearSRGB(xyz);

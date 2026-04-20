@@ -1,0 +1,17 @@
+# Ralph task queue. One task per line. Blank lines and # lines ignored.
+# Format: <priority> | <category> | <description>
+# Priority: P1 (do next), P2 (do whenever)
+# Category: test | doc | lint | format | misc
+#
+# Run with: bash .astroray_plan/scripts/ralph_loop.sh
+
+P1 | test | Add energy-conservation test for Metal material by copying test_lambertian_energy_conservation in tests/test_materials.py and substituting Metal
+P1 | test | Add energy-conservation test for Dielectric material by copying test_lambertian_energy_conservation in tests/test_materials.py and substituting Dielectric
+P1 | test | Add energy-conservation test for Phong material by copying test_lambertian_energy_conservation in tests/test_materials.py and substituting Phong
+P1 | test | Add energy-conservation test for DiffuseLight material — DiffuseLight emits, so the conservation check should verify emitted + absorbed equals incident within 1%
+P2 | doc  | Add a one-line doc comment above Registry::create in include/raytracer.h explaining what it throws when the name is unknown
+P2 | doc  | Add a one-line doc comment above every public method in the Renderer class in src/renderer.cpp that currently has none
+P2 | doc  | Add a one-line doc comment above ParamDict::getFloat in include/raytracer.h describing the default-value behaviour
+P2 | lint | Fix all clang-tidy modernize-use-nullptr warnings in src/renderer.cpp without changing any logic
+P2 | lint | Fix all clang-tidy readability-braces-around-statements warnings in src/renderer.cpp without changing any logic
+P2 | misc | Verify that every file in plugins/ contains exactly one ASTRORAY_REGISTER_* macro — output a list of any files that have zero or more than one

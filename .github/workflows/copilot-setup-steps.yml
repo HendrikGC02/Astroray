@@ -1,60 +1,77 @@
-name: "Copilot Setup Steps"
+name: copilot-setup-steps
 
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
-      - .github/workflows/copilot-setup-steps.yml
-  pull_request:
-    paths:
-      - .github/workflows/copilot-setup-steps.yml
+      - '.github/workflows/copilot-setup-steps.yml'
 
 jobs:
   copilot-setup-steps:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
+          sudo apt-get update -qq
           sudo apt-get install -y \
             cmake \
-            build-essential \
-            libomp-dev \
+            ninja-build \
+            python3 \
             python3-dev \
             python3-pip \
-            python3-numpy
+            pybind11-dev \
+            libopencv-dev \
+            libgomp1
 
-      - name: Install Python test dependencies
+      - name: Setup CUDA apt repository and install packages
         run: |
-          pip install --break-system-packages \
-            numpy \
-            matplotlib \
-            Pillow \
-            pytest
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            cuda-nvcc-12-4 \
+            cuda-cudart-dev-12-4 \
+            libcurand-dev-12-4
 
-      - name: Configure and build Astroray
+      - name: Install Python dependencies
         run: |
-          mkdir -p build && cd build
-          cmake .. \
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pytest numpy
+          python3 -m pip install pytest numpy matplotlib pillow
+
+      - name: Configure CUDA env
+        run: |
+          echo "/usr/local/cuda-12.4/bin" >> $GITHUB_PATH
+          echo "CUDA_HOME=/usr/local/cuda-12.4" >> $GITHUB_ENV
+          ls -la /usr/local | grep cuda || true
+          which nvcc || true
+          nvcc --version || true
+
+      - name: Configure CMake
+        run: |
+          cmake -B build \
+            -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_PYTHON_MODULE=ON \
-            -DBUILD_BLENDER_MODULE=OFF \
-            -DASTRORAY_ENABLE_CUDA=OFF
-          make -j$(nproc)
+            -DPython3_EXECUTABLE=$(which python3) \
+            -DASTRORAY_ENABLE_CUDA=ON \
+            -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.4/bin/nvcc
 
-      - name: Verify build artifacts
-        run: |
-          echo "=== Build artifacts ==="
-          ls -la build/bin/ 2>/dev/null || echo "No standalone binary"
-          ls -la build/astroray*.so 2>/dev/null || echo "No Python module"
-          echo ""
-          echo "=== Quick module import test ==="
-          cd build && python3 -c "import astroray; print(f'astroray {astroray.__version__} loaded, features: {astroray.__features__}')"
+      - name: Build
+        run: cmake --build build -j$(nproc)
 
-      - name: Run tests to verify baseline
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+      - name: List build artifacts
         run: |
-          cd build && pytest ../tests/test_python_bindings.py -v --tb=short -x 2>&1 | head -100
-          echo "=== Test baseline established ==="
+          echo "=== build/bin ==="
+          ls -lh build/bin/ 2>/dev/null || echo "(no bin dir)"
+          echo "=== build/*.so ==="
+          find build -name "*.so" | head -20

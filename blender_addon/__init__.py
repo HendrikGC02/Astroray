@@ -15,10 +15,11 @@ from bpy.types import Panel, Operator, AddonPreferences, PropertyGroup, RenderEn
 from bpy.props import BoolProperty, IntProperty, FloatProperty, StringProperty, PointerProperty, FloatVectorProperty
 import mathutils, math, numpy as np, traceback, sys, os, time
 from pathlib import Path
-from shader_blending import blend_shader_specs, add_shader_specs
 
 addon_dir = os.path.dirname(__file__)
 if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
+
+from shader_blending import blend_shader_specs, add_shader_specs
 
 # On Windows the compiled .pyd ships with bundled MinGW runtime DLLs
 # (libgomp-1.dll, etc.). Python 3.8+ no longer searches PATH for module
@@ -96,12 +97,81 @@ class CustomRaytracerRenderEngine(RenderEngine):
     _viewport_texture = None
     _viewport_width = 0
     _viewport_height = 0
+    _PASS_SPECS = [
+        ("Diffuse Direct", "diffuse_direct", "use_pass_diffuse_direct"),
+        ("Diffuse Indirect", "diffuse_indirect", "use_pass_diffuse_indirect"),
+        ("Diffuse Color", "diffuse_color", "use_pass_diffuse_color"),
+        ("Glossy Direct", "glossy_direct", "use_pass_glossy_direct"),
+        ("Glossy Indirect", "glossy_indirect", "use_pass_glossy_indirect"),
+        ("Glossy Color", "glossy_color", "use_pass_glossy_color"),
+        ("Transmission Direct", "transmission_direct", "use_pass_transmission_direct"),
+        ("Transmission Indirect", "transmission_indirect", "use_pass_transmission_indirect"),
+        ("Transmission Color", "transmission_color", "use_pass_transmission_color"),
+        ("Volume Direct", "volume_direct", "use_pass_volume_direct"),
+        ("Volume Indirect", "volume_indirect", "use_pass_volume_indirect"),
+        ("Emission", "emission", "use_pass_emit"),
+        ("Environment", "environment", "use_pass_environment"),
+        ("Ambient Occlusion", "ao", "use_pass_ambient_occlusion"),
+        ("Shadow", "shadow", "use_pass_shadow"),
+    ]
+    _DATA_PASS_SPECS = [
+        ("Depth", "depth", "use_pass_z"),
+        ("Mist", "mist", "use_pass_mist"),
+        ("Position", "position", "use_pass_position"),
+        ("Normal", "normal", "use_pass_normal"),
+        ("UV", "uv", "use_pass_uv"),
+        ("IndexOB", "object_index", "use_pass_object_index"),
+        ("IndexMA", "material_index", "use_pass_material_index"),
+    ]
+    _CRYPTOMATTE_PASS_SPECS = [
+        ("CryptoObject00", "cryptomatte_object", "use_pass_cryptomatte_object"),
+        ("CryptoMaterial00", "cryptomatte_material", "use_pass_cryptomatte_material"),
+    ]
+
+    def update_render_passes(self, scene, renderlayer):
+        for display_name, _, toggle_name in self._PASS_SPECS:
+            if getattr(renderlayer, toggle_name, False):
+                self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
+        for display_name, _, toggle_name in self._DATA_PASS_SPECS:
+            if getattr(renderlayer, toggle_name, False):
+                self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
+        for display_name, _, toggle_name in self._CRYPTOMATTE_PASS_SPECS:
+            if getattr(renderlayer, toggle_name, False):
+                self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
+
+    @classmethod
+    def _enabled_pass_specs(cls, view_layer):
+        enabled = []
+        for display_name, key, toggle_name in cls._PASS_SPECS:
+            if getattr(view_layer, toggle_name, False):
+                enabled.append((display_name, key))
+        return enabled
+
+    @classmethod
+    def _enabled_data_pass_specs(cls, view_layer):
+        enabled = []
+        for display_name, key, toggle_name in cls._DATA_PASS_SPECS:
+            if getattr(view_layer, toggle_name, False):
+                enabled.append((display_name, key))
+        return enabled
+
+    @classmethod
+    def _enabled_cryptomatte_pass_specs(cls, view_layer):
+        enabled = []
+        for display_name, key, toggle_name in cls._CRYPTOMATTE_PASS_SPECS:
+            if getattr(view_layer, toggle_name, False):
+                enabled.append((display_name, key))
+        return enabled
 
     def render(self, depsgraph):
         if not RAYTRACER_AVAILABLE:
             self.report({'ERROR'}, "Raytracer module not available")
             return
         scene = depsgraph.scene
+        view_layer = getattr(depsgraph, "view_layer", None)
+        if view_layer is not None and not bool(getattr(view_layer, "use", True)):
+            print(f"Skipping view layer '{view_layer.name}' (Use for Rendering disabled)")
+            return
         scale = scene.render.resolution_percentage / 100.0
         width = int(scene.render.resolution_x * scale)
         height = int(scene.render.resolution_y * scale)
@@ -141,7 +211,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     alpha = renderer.get_alpha_buffer()
                 except Exception:
                     alpha = None
-                self.write_pixels(pixels, width, height, alpha)
+                layer_name = view_layer.name if view_layer is not None else None
+                self.write_pixels(pixels, width, height, alpha, renderer, view_layer, scene, layer_name=layer_name)
         except Exception as e:
             print(f"RENDER ERROR: {e}")
             traceback.print_exc()
@@ -1376,13 +1447,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def convert_objects(self, depsgraph, renderer, material_map):
         tri_count = 0
         obj_count = 0
+        is_render = getattr(depsgraph, 'mode', 'VIEWPORT') == 'RENDER'
+        active_view_layer = getattr(depsgraph, "view_layer", None)
         for obj_instance in depsgraph.object_instances:
-            # DepsgraphObjectInstance.object is already the evaluated object;
-            # the render-layer depsgraph only yields render-visible items, so
-            # we must NOT filter again with `visible_get()` (which reflects
-            # viewport visibility and can hide render-enabled objects during
-            # an F12 render).
             obj = obj_instance.object
+            if obj is None:
+                continue
+            # Use the visibility flag appropriate to the evaluation context.
+            # Passing view_layer= to visible_get() checks against that specific
+            # layer and returns False when depsgraph.view_layer doesn't match
+            # the active viewport layer, hiding all objects. Instead:
+            #   render path  → honour the "hide for render" toggle
+            #   viewport path → honour the "hide in viewport" toggle
+            if is_render:
+                if getattr(obj, 'hide_render', False):
+                    continue
+            else:
+                if getattr(obj, 'hide_viewport', False):
+                    continue
 
             # Black hole empties
             if obj.type == 'EMPTY' and hasattr(obj, 'astroray_black_hole'):
@@ -1501,24 +1583,56 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     list(v0), list(v1), list(v2), mat_id,
                     uv0, uv1, uv2,
                     n0, n1, n2,
+                    int(getattr(obj, "pass_index", 0)),
+                    int(tri.material_index),
                 )
                 tri_count += 1
 
         print(f"Astroray: converted {obj_count} meshes, {tri_count} triangles")
 
     def convert_lights(self, depsgraph, renderer):
+        def _resolve_ies_path(light_data):
+            cycles_settings = getattr(light_data, 'cycles', None)
+            candidates = []
+            for source in (cycles_settings, light_data):
+                if source is None:
+                    continue
+                for name in ('ies', 'ies_file', 'ies_profile'):
+                    value = getattr(source, name, None)
+                    if value:
+                        candidates.append(value)
+            for value in candidates:
+                if hasattr(value, 'filepath') and value.filepath:
+                    return bpy.path.abspath(value.filepath)
+                if isinstance(value, str) and value:
+                    return bpy.path.abspath(value)
+            return ""
+
         for obj in depsgraph.objects:
             if obj.type != 'LIGHT': continue
             light = obj.data
             matrix = obj.matrix_world
             position = list(matrix.translation)
             mat_id = renderer.create_material('light', list(light.color), {'intensity': float(light.energy)})
-            
-            if light.type == 'POINT': renderer.add_sphere(position, 0.1, mat_id)
+            ies_path = _resolve_ies_path(light)
+             
+            if light.type == 'POINT':
+                direction = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))
+                if direction.length_squared > 0.0:
+                    direction.normalize()
+                else:
+                    direction = mathutils.Vector((0.0, -1.0, 0.0))
+                renderer.add_sphere(
+                    position, 0.1, mat_id, [direction.x, direction.y, direction.z], ies_path,
+                    int(getattr(obj, "pass_index", 0)), 0
+                )
             elif light.type == 'SUN':
                 direction = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))
                 angle = float(getattr(light, 'angle', 0.0))
-                renderer.add_sun_light([direction.x, direction.y, direction.z], angle, mat_id)
+                renderer.add_sun_light(
+                    [direction.x, direction.y, direction.z], angle, mat_id,
+                    int(getattr(obj, "pass_index", 0)), 0
+                )
             elif light.type == 'AREA':
                 basis = matrix.to_3x3()
                 axis_u = list((basis @ mathutils.Vector((1, 0, 0))).normalized())
@@ -1537,7 +1651,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 }
                 renderer.add_area_light(
                     position, axis_u, axis_v, size_x, size_y,
-                    shape_map.get(shape, 'RECTANGLE'), mat_id, spread
+                    shape_map.get(shape, 'RECTANGLE'), mat_id, spread,
+                    int(getattr(obj, "pass_index", 0)), 0
                 )
             elif light.type == 'SPOT':
                 direction = (matrix.to_3x3() @ mathutils.Vector((0, 0, -1))).normalized()
@@ -1549,16 +1664,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     mat_id,
                     float(light.spot_size),
                     float(light.spot_blend),
+                    ies_path,
+                    int(getattr(obj, "pass_index", 0)),
+                    0,
                 )
     
     def setup_world(self, scene, renderer):
         world = scene.world
         if not world:
+            renderer.set_world_volume(0.0, [1.0, 1.0, 1.0], 0.0)
             return
 
         # Check for node tree (use_nodes is deprecated in Blender 5.x, always True)
         node_tree = getattr(world, 'node_tree', None)
         if not node_tree:
+            renderer.set_world_volume(0.0, [1.0, 1.0, 1.0], 0.0)
             return
 
         # Look for Environment Texture -> Background -> World Output chain
@@ -1581,6 +1701,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if rot_input:
                     rotation = float(rot_input.default_value[2])  # Z rotation
 
+        output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_WORLD'), None)
+        volume_spec = None
+        if output is not None:
+            volume_node = self._shader_input_node(output, 'Volume')
+            if volume_node is not None and volume_node.type in {'VOLUME_SCATTER', 'PRINCIPLED_VOLUME'}:
+                volume_spec = self.convert_volume_node(volume_node, node_tree)
+        if volume_spec and float(volume_spec.get('density', 0.0)) > 0.0:
+            renderer.set_world_volume(
+                float(volume_spec['density']),
+                list(volume_spec['color']),
+                float(volume_spec.get('anisotropy', 0.0)),
+            )
+        else:
+            renderer.set_world_volume(0.0, [1.0, 1.0, 1.0], 0.0)
+
         # Apply world bounce limit (Cycles: world.light_settings.max_bounces)
         world_settings = getattr(world, 'light_settings', None)
         world_max_bounces = int(getattr(world_settings, 'max_bounces', 1024)) if world_settings else 1024
@@ -1588,7 +1723,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         # Try loading HDRI first
         if hdri_path and os.path.exists(hdri_path):
-            success = renderer.load_environment_map(hdri_path, strength, rotation)
+            success = renderer.load_environment_map(hdri_path, strength, rotation, True)
             if success:
                 print(f"Loaded HDRI: {hdri_path} (strength={strength}, rotation={rotation:.2f})")
                 return
@@ -1601,7 +1736,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.set_background_color(scaled_color)
             print(f"Set background color: {scaled_color}")
     
-    def write_pixels(self, pixels, width, height, alpha=None):
+    def write_pixels(self, pixels, width, height, alpha=None, renderer=None, view_layer=None, scene=None, layer_name=None):
         # The raytracer returns pixels with y=0 at the TOP of the image (standard
         # image convention). Blender's render_pass.rect expects y=0 at the BOTTOM,
         # so we flip vertically before handing it off — otherwise the output ends
@@ -1614,9 +1749,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 rgba[:, :, 3] = np.clip(alpha_arr, 0.0, 1.0)
         rgba = np.ascontiguousarray(rgba[::-1])
 
-        result = self.begin_result(0, 0, width, height)
+        if layer_name:
+            result = self.begin_result(0, 0, width, height, layer=layer_name)
+        else:
+            result = self.begin_result(0, 0, width, height)
         layer = result.layers[0]
-        render_pass = layer.passes.get("Combined") or (layer.passes[0] if layer.passes else None)
+        render_pass = layer.passes.get("Combined")
+        if render_pass is None and len(layer.passes) == 1:
+            # Legacy compatibility: some Blender builds expose only one pass in
+            # this collection. In multi-pass configurations, never fall back to
+            # the first pass to avoid overwriting a non-Combined layer.
+            render_pass = layer.passes[0]
         if render_pass:
             # foreach_set is ~100x faster than assigning a Python list to .rect
             flat = rgba.reshape(-1)
@@ -1624,6 +1767,91 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 render_pass.rect.foreach_set(flat)
             except AttributeError:
                 render_pass.rect = rgba.reshape(-1, 4).tolist()
+
+        if renderer is not None and view_layer is not None:
+            for display_name, key in self._enabled_pass_specs(view_layer):
+                target_pass = layer.passes.get(display_name)
+                if target_pass is None:
+                    continue
+                try:
+                    pass_pixels = renderer.get_render_pass_buffer(key)
+                except Exception:
+                    continue
+                pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                pass_rgba[:, :, :3] = np.asarray(pass_pixels, dtype=np.float32)
+                pass_rgba = np.ascontiguousarray(pass_rgba[::-1])
+                pass_flat = pass_rgba.reshape(-1)
+                try:
+                    target_pass.rect.foreach_set(pass_flat)
+                except AttributeError:
+                    target_pass.rect = pass_rgba.reshape(-1, 4).tolist()
+
+            for display_name, key in self._enabled_data_pass_specs(view_layer):
+                target_pass = layer.passes.get(display_name)
+                if target_pass is None:
+                    continue
+                try:
+                    if key == "normal":
+                        data_pixels = np.asarray(renderer.get_normal_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = data_pixels
+                    elif key == "position":
+                        data_pixels = np.asarray(renderer.get_position_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = data_pixels
+                    elif key == "uv":
+                        data_pixels = np.asarray(renderer.get_uv_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = data_pixels
+                    elif key == "depth":
+                        depth = np.asarray(renderer.get_depth_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = depth[:, :, None]
+                    elif key == "mist":
+                        depth = np.asarray(renderer.get_depth_buffer(), dtype=np.float32)
+                        mist_settings = getattr(getattr(scene, "world", None), "mist_settings", None)
+                        mist_start = float(getattr(mist_settings, "start", 0.0)) if mist_settings else 0.0
+                        mist_depth = float(getattr(mist_settings, "depth", 25.0)) if mist_settings else 25.0
+                        mist_depth = max(mist_depth, 1e-6)
+                        mist = 1.0 - np.clip((depth - mist_start) / mist_depth, 0.0, 1.0)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = mist[:, :, None]
+                    elif key == "object_index":
+                        idx_data = np.asarray(renderer.get_object_index_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = idx_data[:, :, None]
+                    elif key == "material_index":
+                        idx_data = np.asarray(renderer.get_material_index_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = idx_data[:, :, None]
+                    else:
+                        continue
+                except Exception:
+                    continue
+                pass_rgba = np.ascontiguousarray(pass_rgba[::-1])
+                pass_flat = pass_rgba.reshape(-1)
+                try:
+                    target_pass.rect.foreach_set(pass_flat)
+                except AttributeError:
+                    target_pass.rect = pass_rgba.reshape(-1, 4).tolist()
+
+            for display_name, key in self._enabled_cryptomatte_pass_specs(view_layer):
+                target_pass = layer.passes.get(display_name)
+                if target_pass is None:
+                    continue
+                try:
+                    if key == "cryptomatte_object":
+                        crypto = np.asarray(renderer.get_cryptomatte_object_buffer(), dtype=np.float32)
+                    else:
+                        crypto = np.asarray(renderer.get_cryptomatte_material_buffer(), dtype=np.float32)
+                except Exception:
+                    continue
+                pass_rgba = np.ascontiguousarray(crypto[::-1])
+                pass_flat = pass_rgba.reshape(-1)
+                try:
+                    target_pass.rect.foreach_set(pass_flat)
+                except AttributeError:
+                    target_pass.rect = pass_rgba.reshape(-1, 4).tolist()
         self.end_result(result)
 
 class AstrorayPanelBase:

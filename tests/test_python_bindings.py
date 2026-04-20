@@ -44,6 +44,23 @@ MAX_GLOSSY_PARITY_MSE = 0.015
 MAX_GLASS_PARITY_MEAN_DIFF = 0.25
 MAX_GLASS_PARITY_P95_DIFF = 0.25
 MIN_SUN_SHADOW_MSE = 5e-4
+RENDER_PASS_KEYS = (
+    "diffuse_direct",
+    "diffuse_indirect",
+    "diffuse_color",
+    "glossy_direct",
+    "glossy_indirect",
+    "glossy_color",
+    "transmission_direct",
+    "transmission_indirect",
+    "transmission_color",
+    "volume_direct",
+    "volume_indirect",
+    "emission",
+    "environment",
+    "ao",
+    "shadow",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +261,81 @@ def _render_spot_on_plane(blend: float) -> np.ndarray:
     setup_camera(r, look_from=[0.0, 5.0, 0.0], look_at=[0.0, 0.0, 0.0],
                  vup=[0.0, 0.0, -1.0], vfov=42, width=W, height=H)
     return render_image(r, samples=64, max_depth=6)
+
+
+def _write_test_ies(path: str) -> None:
+    # Minimal LM-63 style profile:
+    # - 3 vertical angles (0,45,90)
+    # - 2 horizontal angles (0,180) with strong asymmetry
+    #   so +X receives much more flux than -X for axis=(0,-1,0).
+    content = """IESNA:LM-63-1995
+TILT=NONE
+1 1000 1 3 2 1 1 0.1 0.1 0.1 1 1 10
+0 45 90
+0 180
+1.0 1.0 0.2
+0.1 0.1 0.02
+"""
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+
+def _render_spot_with_optional_ies(ies_file: str = "") -> np.ndarray:
+    r = create_renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    floor = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
+    light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 120.0})
+    r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, -3.0], [3.0, 0.0, 3.0], floor)
+    r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, 3.0], [-3.0, 0.0, 3.0], floor)
+    r.add_spot_light([0.0, 3.0, 0.0], [0.0, -1.0, 0.0], 0.08, light, 1.2, 0.2, ies_file)
+    setup_camera(r, look_from=[0.0, 5.0, 0.0], look_at=[0.0, 0.0, 0.0],
+                 vup=[0.0, 0.0, -1.0], vfov=42, width=W, height=H)
+    return render_image(r, samples=64, max_depth=6)
+
+
+def _render_point_with_optional_ies(ies_file: str = "") -> np.ndarray:
+    r = create_renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    floor = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
+    light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 120.0})
+    r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, -3.0], [3.0, 0.0, 3.0], floor)
+    r.add_triangle([-3.0, 0.0, -3.0], [3.0, 0.0, 3.0], [-3.0, 0.0, 3.0], floor)
+    r.add_sphere([0.0, 3.0, 0.0], 0.08, light, [0.0, -1.0, 0.0], ies_file)
+    setup_camera(r, look_from=[0.0, 5.0, 0.0], look_at=[0.0, 0.0, 0.0],
+                 vup=[0.0, 0.0, -1.0], vfov=42, width=W, height=H)
+    return render_image(r, samples=64, max_depth=6)
+
+
+def test_spot_light_ies_profile_creates_nonuniform_pattern(tmp_path):
+    ies_path = os.path.join(tmp_path, 'asymmetric.ies')
+    _write_test_ies(ies_path)
+    img = _render_spot_with_optional_ies(ies_path)
+    lum = img.mean(axis=2)
+    cy, cx = H // 2, W // 2
+    left = float(np.mean(lum[cy-12:cy+12, cx-45:cx-15]))
+    right = float(np.mean(lum[cy-12:cy+12, cx+15:cx+45]))
+    assert right > left * 1.6, f"Expected IES asymmetry on floor (left={left:.4f}, right={right:.4f})"
+
+
+def test_spot_light_without_ies_remains_near_symmetric():
+    img = _render_spot_with_optional_ies("")
+    lum = img.mean(axis=2)
+    cy, cx = H // 2, W // 2
+    left = float(np.mean(lum[cy-12:cy+12, cx-45:cx-15]))
+    right = float(np.mean(lum[cy-12:cy+12, cx+15:cx+45]))
+    ratio = right / max(left, 1e-6)
+    assert 0.8 <= ratio <= 1.25, f"Expected no-IES spotlight symmetry (left={left:.4f}, right={right:.4f}, ratio={ratio:.3f})"
+
+
+def test_point_light_ies_profile_creates_nonuniform_pattern(tmp_path):
+    ies_path = os.path.join(tmp_path, 'asymmetric_point.ies')
+    _write_test_ies(ies_path)
+    img = _render_point_with_optional_ies(ies_path)
+    lum = img.mean(axis=2)
+    cy, cx = H // 2, W // 2
+    left = float(np.mean(lum[cy-12:cy+12, cx-45:cx-15]))
+    right = float(np.mean(lum[cy-12:cy+12, cx+15:cx+45]))
+    assert right > left * 1.6, f"Expected point-light IES asymmetry (left={left:.4f}, right={right:.4f})"
 
 
 def test_spot_light_sharp_cone_on_floor_plane():
@@ -1106,6 +1198,114 @@ def test_aov_buffers():
     assert normal.shape == (H, W, 3), f"Normal shape mismatch: {normal.shape}"
 
 
+def test_data_pass_buffers_exist_and_are_finite():
+    r = create_renderer()
+    create_cornell_box(r)
+    red = r.create_material('lambertian', [0.8, 0.2, 0.2], {})
+    r.add_sphere([0, -0.8, 0.2], 1.1, red, [], "", 3, 7)
+    setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+
+    depth = r.get_depth_buffer()
+    position = r.get_position_buffer()
+    uv = r.get_uv_buffer()
+    obj_idx = r.get_object_index_buffer()
+    mat_idx = r.get_material_index_buffer()
+
+    assert depth.shape == (H, W), f"Depth shape mismatch: {depth.shape}"
+    assert position.shape == (H, W, 3), f"Position shape mismatch: {position.shape}"
+    assert uv.shape == (H, W, 3), f"UV shape mismatch: {uv.shape}"
+    assert obj_idx.shape == (H, W), f"Object index shape mismatch: {obj_idx.shape}"
+    assert mat_idx.shape == (H, W), f"Material index shape mismatch: {mat_idx.shape}"
+    assert np.isfinite(depth).all()
+    assert np.isfinite(position).all()
+    assert np.isfinite(uv).all()
+    assert np.isfinite(obj_idx).all()
+    assert np.isfinite(mat_idx).all()
+    assert float(np.max(obj_idx)) >= 0.0
+    assert float(np.max(mat_idx)) >= 0.0
+
+
+def test_cryptomatte_buffers_exist_and_have_coverage():
+    r = create_renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    mat_a = r.create_material('lambertian', [0.9, 0.2, 0.2], {})
+    mat_b = r.create_material('lambertian', [0.2, 0.2, 0.9], {})
+    r.add_sphere([-0.9, 0.0, 0.0], 0.8, mat_a, [], "", 11, 21)
+    r.add_sphere([0.9, 0.0, 0.0], 0.8, mat_b, [], "", 12, 22)
+    setup_camera(r, look_from=[0, 0, 4.0], look_at=[0, 0, 0], vfov=30, width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+
+    crypto_obj = r.get_cryptomatte_object_buffer()
+    crypto_mat = r.get_cryptomatte_material_buffer()
+    assert crypto_obj.shape == (H, W, 4), f"Cryptomatte object shape mismatch: {crypto_obj.shape}"
+    assert crypto_mat.shape == (H, W, 4), f"Cryptomatte material shape mismatch: {crypto_mat.shape}"
+    assert np.isfinite(crypto_obj).all()
+    assert np.isfinite(crypto_mat).all()
+    assert float(np.max(crypto_obj[:, :, 3])) > 0.0, "Object cryptomatte coverage should be non-zero"
+    assert float(np.max(crypto_mat[:, :, 3])) > 0.0, "Material cryptomatte coverage should be non-zero"
+    assert float(np.min(crypto_obj[:, :, 3])) >= 0.0 and float(np.max(crypto_obj[:, :, 3])) <= 1.0
+    assert float(np.min(crypto_mat[:, :, 3])) >= 0.0 and float(np.max(crypto_mat[:, :, 3])) <= 1.0
+
+
+def test_render_pass_buffers_exist_and_are_finite():
+    r = create_renderer()
+    create_cornell_box(r)
+    sphere_mat = r.create_material('lambertian', [0.8, 0.4, 0.2], {})
+    r.add_sphere([0, -0.8, 0.2], 1.2, sphere_mat)
+    setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+
+    for key in RENDER_PASS_KEYS:
+        buf = r.get_render_pass_buffer(key)
+        assert buf.shape == (H, W, 3), f"{key} shape mismatch: {buf.shape}"
+        assert np.isfinite(buf).all(), f"{key} contains non-finite values"
+
+
+def test_emission_pass_isolated_from_diffuse_direct():
+    r = create_renderer()
+    r.set_seed(77)
+    r.set_background_color([0.0, 0.0, 0.0])
+    light_mat = r.create_material('light', [1.0, 0.8, 0.6], {'intensity': 10.0})
+    r.add_sphere([0, 0, 0], 0.8, light_mat)
+    setup_camera(r, look_from=[0, 0, 3.0], look_at=[0, 0, 0], vfov=30, width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST)
+
+    emission = r.get_render_pass_buffer("emission")
+    diffuse_direct = r.get_render_pass_buffer("diffuse_direct")
+    assert float(np.mean(emission)) > 0.01, "Emission pass should contain emissive object energy"
+    assert float(np.mean(diffuse_direct)) < float(np.mean(emission)) * 0.2, \
+        "Diffuse direct should be much darker than emission in emissive-only scene"
+
+
+def test_component_passes_sum_approximately_matches_beauty():
+    r = create_renderer()
+    r.set_seed(123)
+    create_cornell_box(r)
+    glossy = r.create_material('metal', [0.9, 0.9, 0.9], {'roughness': 0.2})
+    glass = r.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.45})
+    r.add_sphere([-0.6, -0.7, 0.0], 0.8, glossy)
+    r.add_sphere([0.8, -0.7, 0.4], 0.8, glass)
+    setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
+
+    beauty = render_image(r, samples=SAMPLES_MED, apply_gamma=False)
+    component_sum = (
+        r.get_render_pass_buffer("diffuse_direct") +
+        r.get_render_pass_buffer("diffuse_indirect") +
+        r.get_render_pass_buffer("glossy_direct") +
+        r.get_render_pass_buffer("glossy_indirect") +
+        r.get_render_pass_buffer("transmission_direct") +
+        r.get_render_pass_buffer("transmission_indirect") +
+        r.get_render_pass_buffer("volume_direct") +
+        r.get_render_pass_buffer("volume_indirect") +
+        r.get_render_pass_buffer("emission") +
+        r.get_render_pass_buffer("environment")
+    )
+    denom = max(float(np.mean(np.abs(beauty))), 1e-4)
+    rel_err = float(np.mean(np.abs(beauty - component_sum))) / denom
+    assert rel_err < 0.3, f"Beauty/components mismatch too high: relative error {rel_err:.3f}"
+
+
 # ---------------------------------------------------------------------------
 # Environment map and background color tests
 # ---------------------------------------------------------------------------
@@ -1172,6 +1372,95 @@ def test_solid_background_color():
     assert mean_r > mean_b * 2, f"Red ({mean_r:.3f}) should dominate blue ({mean_b:.3f})"
 
 
+def test_linear_output_preserves_hdr_values():
+    """Linear render output should preserve HDR values (>1.0) for EXR workflows."""
+    r = create_renderer()
+    hdr_bg = [2.5, 0.5, 0.25]
+    min_expected_hdr_red = 2.0
+    r.set_background_color(hdr_bg)
+    setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], width=W, height=H)
+
+    linear = render_image(r, samples=SAMPLES_FAST, apply_gamma=False)
+    gamma = render_image(r, samples=SAMPLES_FAST, apply_gamma=True)
+
+    linear_max = np.max(linear, axis=(0, 1))
+    assert float(linear_max[0]) > min_expected_hdr_red, \
+        "Linear output should preserve red HDR values above 2.0"
+    assert abs(float(linear_max[1]) - hdr_bg[1]) < 0.05, "Linear output should preserve green channel level"
+    assert abs(float(linear_max[2]) - hdr_bg[2]) < 0.05, "Linear output should preserve blue channel level"
+    assert float(np.max(gamma[:, :, 0])) <= 1.0 + 1e-6, "Gamma output should remain display-range encoded"
+
+
+def test_emission_pass_preserves_hdr_values():
+    """Render pass buffers should stay in linear HDR space for multilayer EXR export."""
+    r = create_renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    hdr_light_intensity = 20.0
+    light_mat = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': hdr_light_intensity})
+    r.add_sphere([0, 0, 0], 0.8, light_mat)
+    setup_camera(r, look_from=[0, 0, 3.0], look_at=[0, 0, 0], vfov=30, width=W, height=H)
+    render_image(r, samples=SAMPLES_FAST, apply_gamma=False)
+
+    emission = r.get_render_pass_buffer("emission")
+    assert emission is not None, "Emission pass buffer should be available"
+    min_expected_emission_hdr = 10.0
+    near_raw_emission = hdr_light_intensity * 0.9
+    assert float(np.max(emission)) > min_expected_emission_hdr, \
+        "Emission pass should preserve strong HDR values (not be clamped near display range)"
+    assert float(np.max(emission)) > near_raw_emission, \
+        "Emission pass should remain in linear space and stay near raw light intensity"
+
+
+def _render_world_fog_sphere(z_pos: float, density: float | None) -> np.ndarray:
+    r = create_renderer()
+    r.set_seed(1337)
+    r.set_background_color([0.02, 0.02, 0.02])
+    if density is not None:
+        r.set_world_volume(density, [1.0, 1.0, 1.0], 0.0)
+
+    light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 40.0})
+    diffuse = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
+    r.add_sphere([0.0, 2.5, 1.5], 0.8, light)
+    r.add_sphere([0.0, -0.2, z_pos], 1.0, diffuse)
+    setup_camera(r, look_from=[0.0, 0.0, 8.0], look_at=[0.0, -0.2, 0.0], vfov=28, width=120, height=90)
+    return render_image(r, samples=32, apply_gamma=False)
+
+
+def _center_luminance(img: np.ndarray) -> float:
+    h, w = img.shape[:2]
+    crop = img[h // 2 - 15:h // 2 + 15, w // 2 - 15:w // 2 + 15, :]
+    return float(np.mean(crop))
+
+
+def test_world_volume_density_adds_visible_haze():
+    clear = _render_world_fog_sphere(z_pos=-2.0, density=None)
+    foggy = _render_world_fog_sphere(z_pos=-2.0, density=0.01)
+
+    clear_l = _center_luminance(clear)
+    foggy_l = _center_luminance(foggy)
+    assert foggy_l < clear_l * 0.95, \
+        f"Expected world fog to attenuate distant object (foggy={foggy_l:.4f}, clear={clear_l:.4f})"
+
+
+def test_world_volume_fogs_farther_objects_more():
+    near_clear = _render_world_fog_sphere(z_pos=1.0, density=None)
+    near_fog = _render_world_fog_sphere(z_pos=1.0, density=0.01)
+    far_clear = _render_world_fog_sphere(z_pos=-3.0, density=None)
+    far_fog = _render_world_fog_sphere(z_pos=-3.0, density=0.01)
+
+    near_atten = _center_luminance(near_fog) / max(_center_luminance(near_clear), 1e-6)
+    far_atten = _center_luminance(far_fog) / max(_center_luminance(far_clear), 1e-6)
+    assert far_atten < near_atten * 0.95, \
+        f"Expected stronger fog attenuation for farther object (near={near_atten:.4f}, far={far_atten:.4f})"
+
+
+def test_world_volume_zero_density_matches_clear_behavior():
+    clear = _render_world_fog_sphere(z_pos=-1.0, density=None)
+    zero_density = _render_world_fog_sphere(z_pos=-1.0, density=0.0)
+    max_diff = float(np.max(np.abs(clear - zero_density)))
+    assert max_diff < 1e-5, f"Zero-density world volume should match clear behavior (max diff={max_diff:.6f})"
+
+
 def test_render_apply_gamma_toggle():
     """render(apply_gamma=...) should control whether output is gamma-encoded."""
     r = create_renderer()
@@ -1193,6 +1482,48 @@ def test_render_apply_gamma_toggle():
     expected_gamma_image = np.power(np.clip(linear, 0.0, 1.0), 1.0 / 2.2)
     assert np.allclose(gamma, expected_gamma_image, atol=0.03), \
         "Gamma output should match pow(linear, 1/2.2) per pixel"
+
+
+def _build_denoiser_test_scene(renderer, width=96, height=72):
+    create_cornell_box(renderer)
+    mat = renderer.create_material('disney', [0.8, 0.6, 0.4],
+                                   {'metallic': 0.2, 'roughness': 0.45, 'clearcoat': 0.3})
+    renderer.add_sphere([0, -0.5, 0], 1.0, mat)
+    setup_camera(renderer, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=width, height=height)
+
+
+def test_denoiser_none_matches_baseline_output():
+    r_base = create_renderer()
+    r_base.set_seed(1337)
+    _build_denoiser_test_scene(r_base)
+    base = render_image(r_base, samples=8, apply_gamma=False)
+
+    r_none = create_renderer()
+    r_none.set_seed(1337)
+    _build_denoiser_test_scene(r_none)
+    r_none.set_use_denoiser(True)
+    r_none.set_denoiser_type("None")
+    denoiser_none = render_image(r_none, samples=8, apply_gamma=False)
+
+    assert np.array_equal(base, denoiser_none), "Denoiser type 'None' should preserve current output exactly"
+
+
+def test_oidn_denoiser_mode_is_finite_or_gracefully_ignored():
+    r_oidn = create_renderer()
+    r_oidn.set_seed(4242)
+    _build_denoiser_test_scene(r_oidn)
+    r_oidn.set_use_denoiser(True)
+    r_oidn.set_denoiser_type("OIDN")
+    denoised = render_image(r_oidn, samples=8, apply_gamma=False)
+    assert_valid_image(denoised, 72, 96, min_mean=0.01, label='oidn_denoised_or_fallback')
+
+    if astroray.__features__.get('oidn_denoiser', False):
+        r_base = create_renderer()
+        r_base.set_seed(4242)
+        _build_denoiser_test_scene(r_base)
+        baseline = render_image(r_base, samples=8, apply_gamma=False)
+        mean_abs_diff = float(np.mean(np.abs(denoised - baseline)))
+        assert mean_abs_diff > 1e-6, "OIDN denoiser should change low-sample output when enabled"
 
 
 # ---------------------------------------------------------------------------
@@ -1310,6 +1641,30 @@ def test_black_hole_with_geometry():
     pixels = render_image(r, samples=16)
     assert_valid_image(pixels, 150, 200, min_mean=0.01, label='bh_with_geometry')
     save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_cornell.png'))
+
+
+def test_black_hole_extreme_disk_remains_finite():
+    """Extreme disk params should not produce NaN/Inf and should keep a visible shadow."""
+    r = create_renderer()
+    r.set_seed(7)
+    r.set_adaptive_sampling(False)
+    r.add_black_hole([0, 0, 0], 10.0, 100.0, {
+        'disk_outer': 30.0,
+        'accretion_rate': 5.0,
+        'inclination': 89.0,
+    })
+    r.set_background_color([1.0, 1.0, 1.0])
+    setup_camera(r, look_from=[0, 0, 200], look_at=[0, 0, 0],
+                 vfov=6, width=200, height=200)
+    pixels = render_image(r, samples=8)
+
+    assert np.all(np.isfinite(pixels)), "extreme black hole render contains NaN/Inf"
+    center_mean = float(np.mean(pixels[80:120, 80:120, :]))
+    edge_mean = float(np.mean(pixels[:20, :, :]))
+    assert center_mean < edge_mean, (
+        f"Shadow center ({center_mean:.3f}) should be darker than edges ({edge_mean:.3f})"
+    )
+    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_extreme_finite.png'))
 
 
 def test_black_hole_gr_feature_flag():

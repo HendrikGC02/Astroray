@@ -17,13 +17,17 @@ sys.path.insert(0, BUILD_DIR)
 sys.path.insert(0, TESTS_DIR)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# On Windows, add MinGW DLL directory so that MinGW-built .pyd files can
-# find their runtime dependencies (libgcc, libgomp, libstdc++, etc.)
-if sys.platform == 'win32':
+# On Windows, add runtime DLL directories so the MSVC-built .pyd and its
+# dependencies (OIDN, CUDA, MinGW runtimes) can be found.
+if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
     _mingw_bin = os.environ.get('MINGW_BIN_DIR', r'C:\Program Files\mingw64\bin')
-    if os.path.isdir(_mingw_bin) and hasattr(os, 'add_dll_directory'):
+    if os.path.isdir(_mingw_bin):
         os.add_dll_directory(_mingw_bin)
     os.add_dll_directory(os.path.abspath(BUILD_DIR))
+    # OIDN runtime DLLs (OpenImageDenoise.dll etc.)
+    _oidn_bin = os.environ.get('OIDN_BIN_DIR', r'C:\oidn\bin')
+    if os.path.isdir(_oidn_bin):
+        os.add_dll_directory(_oidn_bin)
 
 
 @pytest.fixture(scope="session")

@@ -141,9 +141,16 @@ endif()
 set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 file(GLOB_RECURSE HEADERS ${INCLUDE_DIR}/*.h)
 
+# Plugin sources (empty for now; populated by pkg02+ as .cpp files are added)
+file(GLOB_RECURSE ASTRORAY_PLUGIN_SOURCES CONFIGURE_DEPENDS
+     "${CMAKE_SOURCE_DIR}/plugins/*.cpp")
+
 # Create header-only library for core raytracer
 add_library(raytracer_core INTERFACE)
 target_include_directories(raytracer_core INTERFACE ${INCLUDE_DIR})
+if(ASTRORAY_PLUGIN_SOURCES)
+    target_sources(raytracer_core PRIVATE ${ASTRORAY_PLUGIN_SOURCES})
+endif()
 
 # Source files
 set(SOURCES

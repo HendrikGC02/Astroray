@@ -2,7 +2,7 @@
 
 **Pillar:** 1  
 **Track:** A  
-**Status:** open  
+**Status:** done  
 **Estimated effort:** 1 session (~3 h)  
 **Depends on:** none
 
@@ -174,16 +174,23 @@ target_sources(raytracer_core PRIVATE ${ASTRORAY_PLUGIN_SOURCES})
 
 ## Progress
 
-- [ ] Write `include/astroray/registry.h`
-- [ ] Write `include/astroray/param_dict.h`
-- [ ] Write `include/astroray/register.h`
-- [ ] Create `plugins/` subdirectories with `.gitkeep`
-- [ ] Update `CMakeLists.txt`
-- [ ] Write `tests/test_registry.py`
-- [ ] Run full test suite, confirm 66+ pass
+- [x] Write `include/astroray/registry.h`
+- [x] Write `include/astroray/param_dict.h`
+- [x] Write `include/astroray/register.h`
+- [x] Create `plugins/` subdirectories with `.gitkeep`
+- [x] Update `CMakeLists.txt`
+- [x] Write `tests/test_registry.py`
+- [x] Run full test suite — 115 passed, 1 skipped (was 113+1 before pkg01)
 
 ---
 
 ## Lessons
 
-*(Fill in after done.)*
+- `raytracer_core` is INTERFACE so `target_sources(... PRIVATE ...)` is guarded by
+  `if(ASTRORAY_PLUGIN_SOURCES)` — will be a no-op until pkg02 adds real `.cpp` files.
+  When that happens, the library type may need revisiting.
+- `Registry<T>` and `ParamDict` live in `namespace astroray`; the macros use fully
+  qualified `astroray::ParamDict` to avoid requiring `using namespace astroray` at
+  macro call sites.
+- Forward-declare `Texture`, `Light`, `Integrator`, `Pass` in global namespace in
+  `register.h` so the typed aliases compile without adding base classes yet.

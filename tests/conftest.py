@@ -23,6 +23,10 @@ if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
     _mingw_bin = os.environ.get('MINGW_BIN_DIR', r'C:\Program Files\mingw64\bin')
     if os.path.isdir(_mingw_bin):
         os.add_dll_directory(_mingw_bin)
+    # msys2 ucrt64 toolchain (libgomp-1.dll etc.)
+    _ucrt64_bin = r'C:\msys64\ucrt64\bin'
+    if os.path.isdir(_ucrt64_bin):
+        os.add_dll_directory(_ucrt64_bin)
     os.add_dll_directory(os.path.abspath(BUILD_DIR))
     # OIDN runtime DLLs (OpenImageDenoise.dll etc.)
     _oidn_bin = os.environ.get('OIDN_BIN_DIR', r'C:\oidn\bin')

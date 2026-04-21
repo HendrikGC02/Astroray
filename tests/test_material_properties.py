@@ -678,7 +678,7 @@ def test_metal_energy_conservation():
         setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], width=W, height=H)
         mat = r.create_material('metal', [0.8, 0.3, 0.3], {'metallic': metallic})
         r.add_sphere([0, -0.5, 0], 1.0, mat)
-        pixels = render_image(r, samples=SAMPLES_FAST)
+        pixels = render_image(r, samples=48)
         mean = np.mean(pixels, axis=(0, 1))
         return mean
 
@@ -688,3 +688,77 @@ def test_metal_energy_conservation():
 
     # Energy should be conserved, so the means should be close
     assert np.allclose(diff_mean, metal_mean, atol=1e-2), "Energy conservation failed for Metal material"
+
+
+# ===========================================================================
+# GROUP 8 — Energy conservation for Dielectric
+# ===========================================================================
+
+def test_dielectric_energy_conservation():
+    """A dielectric sphere (ior=1.5) must not produce more total light than a
+    white Lambertian in the same neutral scene."""
+    def render_mean(mat_type, params):
+        r = create_renderer()
+        if mat_type == 'lambertian':
+            mat = r.create_material('lambertian', [1.0, 1.0, 1.0], {})
+        else:
+            mat = r.create_material('dielectric', [1.0, 1.0, 1.0], params)
+        _neutral_scene(r, mat)
+        _cam_front(r)
+        pixels = render_image(r, samples=48)
+        return float(np.mean(_center(pixels, frac=0.45)))
+
+    lambertian_mean = render_mean('lambertian', {})
+    dielectric_mean = render_mean('dielectric', {'ior': 1.5})
+
+    assert dielectric_mean <= lambertian_mean * 1.05, \
+        f"Dielectric ({dielectric_mean:.3f}) exceeds white Lambertian ({lambertian_mean:.3f}) — energy not conserved"
+
+
+# ===========================================================================
+# GROUP 9 — Energy conservation for Phong
+# ===========================================================================
+
+def test_phong_energy_conservation():
+    """A white Phong sphere (high shininess) must be at least as bright as any
+    colored-Phong variant in the same scene."""
+    scene_means = {}
+    for name, albedo in [('white', [1.0, 1.0, 1.0]),
+                         ('red',   [1.0, 0.0, 0.0]),
+                         ('green', [0.0, 1.0, 0.0]),
+                         ('blue',  [0.0, 0.0, 1.0])]:
+        r = create_renderer()
+        mat = r.create_material('phong', albedo, {'shininess': 100.0})
+        _neutral_scene(r, mat)
+        _cam_front(r)
+        pixels = render_image(r, samples=48)
+        scene_means[name] = float(np.mean(_center(pixels, frac=0.45)))
+
+    white_mean = scene_means['white']
+    for name in ('red', 'green', 'blue'):
+        assert scene_means[name] <= white_mean * 1.05, \
+            f"Phong {name} ({scene_means[name]:.3f}) exceeds white ({white_mean:.3f}) " \
+            f"— violates energy conservation"
+
+
+# ===========================================================================
+# GROUP 10 — Energy conservation for DiffuseLight
+# ===========================================================================
+
+def test_diffuse_light_energy_conservation():
+    """A DiffuseLight (type='light') sphere of intensity=0.5 in a black-background
+    scene must not produce a mean pixel value exceeding the emission intensity.
+    Each visible pixel of the emitting sphere contributes at most intensity=0.5,
+    so mean <= 0.5 is the theoretical ceiling."""
+    r = create_renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    _cam_front(r)
+    mat = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 0.5})
+    r.add_sphere([0, 0, 0], 1.0, mat)
+    pixels = render_image(r, samples=48)
+    mean_val = float(np.mean(pixels))
+
+    assert mean_val <= 0.5 + 0.05, \
+        f"DiffuseLight mean ({mean_val:.3f}) exceeds emission intensity 0.5 — energy not conserved"
+    assert mean_val > 0.0, \
+        f"DiffuseLight mean ({mean_val:.3f}) is zero — material not emitting"

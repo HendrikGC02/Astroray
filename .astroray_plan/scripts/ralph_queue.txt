@@ -5,10 +5,10 @@
 #
 # Run with: bash .astroray_plan/scripts/ralph_loop.sh
 
-P1 | test | Add energy-conservation test for Metal material by copying test_lambertian_energy_conservation in tests/test_materials.py and substituting Metal
-P1 | test | Add energy-conservation test for Dielectric material by copying test_lambertian_energy_conservation in tests/test_materials.py and substituting Dielectric
-P1 | test | Add energy-conservation test for Phong material by copying test_lambertian_energy_conservation in tests/test_materials.py and substituting Phong
-P1 | test | Add energy-conservation test for DiffuseLight material — DiffuseLight emits, so the conservation check should verify emitted + absorbed equals incident within 1%
+P1 | test | Add energy-conservation test for Metal material in tests/test_material_properties.py by following the pattern of test_white_lambertian_is_brightest_diffuse: render a white metal sphere (fuzz=0, albedo=1) and assert no colored-metal variant exceeds it in brightness
+P1 | test | Add energy-conservation test for Dielectric material in tests/test_material_properties.py by following the pattern of test_white_lambertian_is_brightest_diffuse: a dielectric sphere (ior=1.5) in a neutral scene must not produce more total light than a white Lambertian in the same scene
+P1 | test | Add energy-conservation test for Phong material in tests/test_material_properties.py by following the pattern of test_white_lambertian_is_brightest_diffuse: render a white Phong sphere (high shininess) and assert no colored-Phong variant exceeds it in brightness
+P1 | test | Add energy-conservation test for DiffuseLight material in tests/test_material_properties.py: DiffuseLight emits, so render a scene with a DiffuseLight sphere of known brightness and assert the mean pixel value in the scene does not exceed the theoretical maximum for that emission strength
 P2 | doc  | Add a one-line doc comment above Registry::create in include/raytracer.h explaining what it throws when the name is unknown
 P2 | doc  | Add a one-line doc comment above every public method in the Renderer class in src/renderer.cpp that currently has none
 P2 | doc  | Add a one-line doc comment above ParamDict::getFloat in include/raytracer.h describing the default-value behaviour

@@ -2,7 +2,7 @@
 
 **Pillar:** 1  
 **Track:** A  
-**Status:** open  
+**Status:** done  
 **Estimated effort:** 2 sessions (~6 h)  
 **Depends on:** pkg02
 
@@ -143,19 +143,22 @@ This is the only material that calls the registry at construction time.
 
 ## Progress
 
-- [ ] Metal migrated and tested
-- [ ] Dielectric migrated and tested
-- [ ] DiffuseLight migrated and tested
-- [ ] Phong migrated and tested
-- [ ] Subsurface migrated and tested
-- [ ] NormalMapped migrated and tested
-- [ ] Disney migrated and tested
-- [ ] Old class bodies removed from headers
-- [ ] Mirror demo plugin added
-- [ ] Full test suite green
+- [x] Metal migrated and tested
+- [x] Dielectric migrated and tested
+- [x] DiffuseLight migrated and tested
+- [x] Phong migrated and tested
+- [x] Subsurface migrated and tested
+- [x] NormalMapped migrated and tested
+- [x] Disney migrated and tested
+- [x] Old class bodies removed from headers
+- [x] Mirror demo plugin added
+- [x] Full test suite green (142 passed, 1 skipped GPU-only)
 
 ---
 
 ## Lessons
 
-*(Fill in after done.)*
+- Dynamic casts against the removed concrete classes in path tracer helpers (`isTransmissionMaterial`, `isGlossyMaterial`, `getMaterialColor`, `transparentGlass`) needed virtual dispatch on the base class before the concrete classes could be moved out. Add virtuals to Material first, then remove the class bodies.
+- NormalMapped has a dual-use construction path: registry ParamDict construction and a factory function for callers that already have shared_ptr<Texture> objects (blender_module.cpp). Both are needed; the factory `makeNormalMapped` is declared in advanced_features.h and defined in the plugin .cpp.
+- For alias names ("glass"/"dielectric", "light"/"emission"/"diffuse_light"), thin subclasses with `using Base::Base` avoid macro collision without duplicating any code.
+- `python3` is not available on Windows; use `python`.

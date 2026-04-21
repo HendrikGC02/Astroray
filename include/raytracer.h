@@ -476,6 +476,11 @@ public:
     virtual BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const { return BSDFSample{Vec3(0,1,0), Vec3(0), 0, false}; }
     virtual float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const { return 0; }
     virtual Vec3 emitted(const HitRecord& rec) const { return Vec3(0); }
+    virtual Vec3 getEmission() const { return Vec3(0); }
+    virtual bool isEmissive() const { return false; }
+    virtual bool isTransmissive() const { return false; }
+    virtual bool isGlossy() const { return false; }
+    virtual Vec3 getAlbedo() const { return Vec3(0.5f); }
 };
 
 class Lambertian : public Material {
@@ -502,161 +507,6 @@ public:
         float cosTheta = wi.dot(rec.normal);
         return cosTheta > 0 ? cosTheta / M_PI : 0;
     }
-};
-
-// FIX: Metal - minimum roughness 0.001f to prevent black appearance
-class Metal : public Material {
-    Vec3 albedo;
-    float roughness;
-    static constexpr float kNearDeltaThreshold = 0.1f;
-    
-    Vec3 fresnelSchlick(float cosTheta, const Vec3& F0) const {
-        float c = std::clamp(cosTheta, 0.0f, 1.0f);
-        return F0 + (Vec3(1) - F0) * std::pow(1 - c, 5);
-    }
-    
-public:
-    Metal(const Vec3& a, float r = 0) : albedo(a), roughness(std::clamp(r, 0.001f, 1.0f)) {}
-    Vec3  getAlbedo()    const { return albedo; }
-    float getRoughness() const { return roughness; }
-    
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (roughness <= kNearDeltaThreshold) {
-            Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
-            float deviation = (wi - perfectRefl).length();
-            return (deviation < 0.1f) ? albedo * std::exp(-deviation * 100.0f) : Vec3(0);
-        }
-
-        float rawNdotL = rec.normal.dot(wi);
-        float rawNdotV = rec.normal.dot(wo);
-        if (rawNdotL <= 0 || rawNdotV <= 0) return Vec3(0);
-
-        Vec3 h = (wo + wi).normalized();
-        float NdotH = std::max(rec.normal.dot(h), 0.001f);
-        float NdotL = rawNdotL;
-        float NdotV = rawNdotV;
-
-        float a = roughness * roughness, a2 = a * a;
-        float denom = NdotH * NdotH * (a2 - 1) + 1;
-        float D = a2 / (M_PI * denom * denom + 0.001f);
-        Vec3 F = fresnelSchlick(wo.dot(h), albedo);
-        float k = (roughness + 1) * (roughness + 1) / 8;
-        float G = (NdotL / (NdotL * (1 - k) + k)) * (NdotV / (NdotV * (1 - k) + k));
-        Vec3 singleScatter = F * D * G / (4 * NdotV + 0.001f);
-        float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness);
-        float msWeight = roughness * (2.0f - roughness);
-        Vec3 multiScatter = albedo * (Fms * msWeight * 1.3f);
-        return singleScatter + multiScatter;
-    }
-    
-    BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
-        BSDFSample s;
-        if (roughness <= kNearDeltaThreshold) {
-            // Correct reflection: wi = 2*(wo·n)*n - wo
-            s.wi = rec.normal * (2 * wo.dot(rec.normal)) - wo;
-            s.f = albedo;
-            s.pdf = 1;
-            s.isDelta = true;
-            const_cast<HitRecord&>(rec).isDelta = true;
-        } else {
-            std::uniform_real_distribution<float> dist(0, 1);
-            float a = roughness * roughness;
-            float phi = 2 * M_PI * dist(gen);
-            float cosTheta = std::sqrt((1 - dist(gen)) / (1 + (a*a - 1) * dist(gen)));
-            float sinTheta = std::sqrt(1 - cosTheta * cosTheta);
-            Vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
-            h = rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z;
-            s.wi = (h * (2 * wo.dot(h)) - wo).normalized();
-            s.f = Vec3(0);
-            s.pdf = 0.0f;
-            if (s.wi.dot(rec.normal) > 0) {
-                s.f = eval(rec, wo, s.wi);
-                float NdotH = std::max(rec.normal.dot(h), 0.001f);
-                float HdotV = std::max(h.dot(wo), 0.001f);
-                float a2 = a * a, denom = NdotH * NdotH * (a2 - 1) + 1;
-                // Use same D formula as eval() so f/pdf = F*G*HdotV/(NdotV*NdotH)
-                float D = a2 / (M_PI * denom * denom + 0.001f);
-                s.pdf = D * NdotH / (4.0f * HdotV);
-            }
-            s.isDelta = false;
-        }
-        return s;
-    }
-    
-    float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (roughness <= kNearDeltaThreshold) return 0;
-        Vec3 h = (wo + wi).normalized();
-        float NdotH = std::max(rec.normal.dot(h), 0.001f);
-        float HdotV = std::max(h.dot(wo), 0.001f);
-        float a = roughness * roughness, a2 = a * a;
-        float denom = NdotH * NdotH * (a2 - 1) + 1;
-        float D = a2 / (M_PI * denom * denom + 0.001f);
-        return D * NdotH / (4.0f * HdotV);
-    }
-};
-
-class Dielectric : public Material {
-    float ior;
-    
-    float fresnelDielectric(float cosThetaI, float etaI, float etaT) const {
-        cosThetaI = std::clamp(cosThetaI, -1.0f, 1.0f);
-        bool entering = cosThetaI > 0;
-        if (!entering) { std::swap(etaI, etaT); cosThetaI = std::abs(cosThetaI); }
-        float sinThetaI = std::sqrt(std::max(0.0f, 1 - cosThetaI * cosThetaI));
-        float sinThetaT = etaI / etaT * sinThetaI;
-        if (sinThetaT >= 1) return 1;
-        float cosThetaT = std::sqrt(std::max(0.0f, 1 - sinThetaT * sinThetaT));
-        float Rparl = ((etaT * cosThetaI) - (etaI * cosThetaT)) / ((etaT * cosThetaI) + (etaI * cosThetaT));
-        float Rperp = ((etaI * cosThetaI) - (etaT * cosThetaT)) / ((etaI * cosThetaI) + (etaT * cosThetaT));
-        return (Rparl * Rparl + Rperp * Rperp) / 2;
-    }
-    
-public:
-    Dielectric(float indexOfRefraction) : ior(indexOfRefraction) {}
-    float getIOR() const { return ior; }
-    
-    BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
-        BSDFSample s;
-        s.isDelta = true;
-        const_cast<HitRecord&>(rec).isDelta = true;
-        
-        float cosTheta = wo.dot(rec.normal);
-        float etaI = 1, etaT = ior;
-        Vec3 n = rec.normal;
-        if (cosTheta < 0) { cosTheta = -cosTheta; std::swap(etaI, etaT); n = -n; }
-        
-        float eta = etaI / etaT;
-        float sinTheta = std::sqrt(std::max(0.0f, 1 - cosTheta * cosTheta));
-        bool cannotRefract = eta * sinTheta > 1;
-        
-        std::uniform_real_distribution<float> dist(0, 1);
-        float fresnel = fresnelDielectric(cosTheta, etaI, etaT);
-        
-        if (cannotRefract || dist(gen) < fresnel) {
-            // Correct reflection: wi = 2*(wo·n)*n - wo
-            s.wi = n * (2 * wo.dot(n)) - wo;
-            s.f = Vec3(1);
-            s.pdf = 1.0f;  // stochastic selection already weights by fresnel
-        } else {
-            Vec3 wt_perp = (wo - n * cosTheta) * (-eta);
-            Vec3 wt_parallel = n * (-std::sqrt(std::abs(1 - wt_perp.length2())));
-            s.wi = (wt_perp + wt_parallel).normalized();
-            s.f = Vec3(eta * eta);
-            s.pdf = 1.0f;  // stochastic selection already weights by (1-fresnel)
-        }
-        return s;
-    }
-};
-
-class DiffuseLight : public Material {
-    Vec3 color;
-    float intensity;
-public:
-    DiffuseLight(const Vec3& c, float i = 1.0f) : color(c), intensity(i) {}
-    Vec3 emitted(const HitRecord& rec) const override { return rec.frontFace ? color * intensity : Vec3(0); }
-    Vec3  getEmission()  const { return color * intensity; }
-    Vec3  getColor()     const { return color; }
-    float getIntensity() const { return intensity; }
 };
 
 // ============================================================================
@@ -709,7 +559,7 @@ public:
            const Vec3& iesDirection = Vec3(0, -1, 0),
            std::shared_ptr<IESProfile> ies = nullptr)
         : center(c), radius(r), iesAxis(iesDirection), iesProfile(std::move(ies)),
-          material(m), emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {}
+          material(m), emissive(m->isEmissive()) {}
     
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         Vec3 oc = r.origin - center;
@@ -755,8 +605,7 @@ public:
     
     bool isLight() const override { return emissive; }
     Vec3 emittedRadiance() const override {
-        if (auto l = dynamic_cast<DiffuseLight*>(material.get())) return l->getEmission();
-        return Vec3(0);
+        return material->getEmission();
     }
     float directionFalloff(const Vec3& directionFromLight) const override {
         if (!emissive || !iesProfile) return 1.0f;
@@ -871,7 +720,7 @@ public:
           // spot_smooth=1 -> smooth falloff from axis to outer cone (inner=0).
           innerAngle(std::max((1.0f - std::clamp(spotSmooth, 0.0f, 1.0f)) * spotAngle * 0.5f, 0.0f)),
           iesProfile(std::move(ies)),
-          material(m), emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {}
+          material(m), emissive(m->isEmissive()) {}
 
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         Vec3 oc = r.origin - center;
@@ -917,8 +766,7 @@ public:
 
     bool isLight() const override { return emissive; }
     Vec3 emittedRadiance() const override {
-        if (auto l = dynamic_cast<DiffuseLight*>(material.get())) return l->getEmission();
-        return Vec3(0);
+        return material->getEmission();
     }
     float directionFalloff(const Vec3& directionFromLight) const override {
         float cosAng = std::clamp(axis.dot(directionFromLight.normalized()), -1.0f, 1.0f);
@@ -992,7 +840,7 @@ public:
         : center(c), halfU(std::max(0.001f, fullSizeU * 0.5f)),
           halfV(std::max(0.001f, fullSizeV * 0.5f)), shape(s),
           spread(std::clamp(spreadValue, 0.0f, 1.0f)), material(std::move(m)),
-          emissive(dynamic_cast<DiffuseLight*>(material.get()) != nullptr) {
+          emissive(material->isEmissive()) {
         axisU = u.normalized();
         Vec3 vProj = v - axisU * axisU.dot(v);
         if (vProj.length2() < 1e-8f) {
@@ -1046,8 +894,7 @@ public:
     bool isLight() const override { return emissive; }
 
     Vec3 emittedRadiance() const override {
-        if (auto l = dynamic_cast<DiffuseLight*>(material.get())) return l->getEmission();
-        return Vec3(0);
+        return material->getEmission();
     }
 
     Vec3 emittedRadiance(const Vec3& lightNormal, const Vec3& toPointDir) const override {
@@ -1076,13 +923,13 @@ class Triangle : public Hittable {
 public:
     Triangle(const Vec3& a, const Vec3& b, const Vec3& c, std::shared_ptr<Material> m)
         : v0(a), v1(b), v2(c), material(m), uv0(0,0), uv1(1,0), uv2(0,1),
-          emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {
+          emissive(m->isEmissive()) {
         normal = (v1 - v0).cross(v2 - v0).normalized();
     }
 
     Triangle(const Vec3& a, const Vec3& b, const Vec3& c, const Vec2& t0, const Vec2& t1, const Vec2& t2, std::shared_ptr<Material> m)
         : v0(a), v1(b), v2(c), uv0(t0), uv1(t1), uv2(t2), material(m),
-          emissive(dynamic_cast<DiffuseLight*>(m.get()) != nullptr) {
+          emissive(m->isEmissive()) {
         normal = (v1 - v0).cross(v2 - v0).normalized();
     }
 
@@ -1149,8 +996,7 @@ public:
     
     bool isLight() const override { return emissive; }
     Vec3 emittedRadiance() const override {
-        if (auto l = dynamic_cast<DiffuseLight*>(material.get())) return l->getEmission();
-        return Vec3(0);
+        return material->getEmission();
     }
     // Accessors for GPU upload
     Vec3 getV0() const { return v0; }
@@ -1873,23 +1719,17 @@ public:
     }
 
     static bool isTransmissionMaterial(const Material* material) {
-        if (!material) return false;
-        if (dynamic_cast<const Dielectric*>(material)) return true;
-        return false;
+        return material && material->isTransmissive();
     }
 
     static bool isGlossyMaterial(const Material* material) {
-        if (!material) return false;
-        if (dynamic_cast<const Metal*>(material)) return true;
-        return false;
+        return material && material->isGlossy();
     }
 
     static Vec3 getMaterialColor(const Material* material) {
         if (!material) return Vec3(0.5f);
         if (auto lambert = dynamic_cast<const Lambertian*>(material)) return lambert->getAlbedo();
-        if (auto metal = dynamic_cast<const Metal*>(material)) return metal->getAlbedo();
-        if (dynamic_cast<const Dielectric*>(material)) return Vec3(1.0f);
-        return Vec3(0.5f);
+        return material->getAlbedo();
     }
 
     enum class ClosureType {
@@ -2119,7 +1959,7 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             throughput *= worldTransmittance(rec.t);
             ClosureType closure = classifyMaterial(rec.material.get());
             bool countsForAlpha = true;
-            if (transparentGlass && dynamic_cast<const Dielectric*>(rec.material.get()) != nullptr) {
+            if (transparentGlass && rec.material->isTransmissive()) {
                 countsForAlpha = false;
             }
             if (countsForAlpha) alphaCovered = true;

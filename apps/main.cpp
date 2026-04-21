@@ -1,5 +1,6 @@
 #include "raytracer.h"
 #include "advanced_features.h"
+#include "astroray/register.h"
 #include "stb_image_write.h"
 #include <iostream>
 #include <fstream>
@@ -49,12 +50,17 @@ bool writePNG(const std::string& filename, const Camera& cam) {
     return success != 0;
 }
 
+static std::shared_ptr<Material> makeM(const std::string& type, astroray::ParamDict p) {
+    return astroray::MaterialRegistry::instance().create(type, p);
+}
+
 void buildCornellBox(Renderer& renderer) {
-    auto red = std::make_shared<Lambertian>(Vec3(0.65f, 0.05f, 0.05f));
+    auto red   = std::make_shared<Lambertian>(Vec3(0.65f, 0.05f, 0.05f));
     auto green = std::make_shared<Lambertian>(Vec3(0.12f, 0.45f, 0.15f));
     auto white = std::make_shared<Lambertian>(Vec3(0.73f, 0.73f, 0.73f));
-    auto light = std::make_shared<DiffuseLight>(Vec3(1.0f, 0.9f, 0.8f), 15.0f);
-    
+    astroray::ParamDict lp; lp.set("albedo", Vec3(1.0f, 0.9f, 0.8f)); lp.set("intensity", 15.0f);
+    auto light = makeM("light", lp);
+
     // Floor/Ceiling/Walls
     renderer.addObject(std::make_shared<Triangle>(Vec3(-2,-2,-2), Vec3(2,-2,-2), Vec3(2,-2,2), white));
     renderer.addObject(std::make_shared<Triangle>(Vec3(-2,-2,-2), Vec3(2,-2,2), Vec3(-2,-2,2), white));
@@ -66,17 +72,18 @@ void buildCornellBox(Renderer& renderer) {
     renderer.addObject(std::make_shared<Triangle>(Vec3(-2,-2,-2), Vec3(-2,2,2), Vec3(-2,2,-2), red));
     renderer.addObject(std::make_shared<Triangle>(Vec3(2,-2,-2), Vec3(2,2,-2), Vec3(2,2,2), green));
     renderer.addObject(std::make_shared<Triangle>(Vec3(2,-2,-2), Vec3(2,2,2), Vec3(2,-2,2), green));
-    
+
     // Light
     renderer.addObject(std::make_shared<Triangle>(Vec3(-0.5f,1.98f,-0.5f), Vec3(0.5f,1.98f,-0.5f), Vec3(0.5f,1.98f,0.5f), light));
     renderer.addObject(std::make_shared<Triangle>(Vec3(-0.5f,1.98f,-0.5f), Vec3(0.5f,1.98f,0.5f), Vec3(-0.5f,1.98f,0.5f), light));
-    
+
     // Objects
-    renderer.addObject(std::make_shared<Sphere>(Vec3(-0.7f,-1.3f,-0.5f), 0.7f, std::make_shared<Dielectric>(1.5f)));
-    auto disney = std::make_shared<DisneyBRDF>(Vec3(0.9f,0.8f,0.7f), 0.5f, 0.3f);
-    disney->setClearcoat(0.5f, 0.9f);
-    renderer.addObject(std::make_shared<Sphere>(Vec3(0.8f,-1.5f,0.3f), 0.5f, disney));
-    renderer.addObject(std::make_shared<Sphere>(Vec3(0,-1.5f,-1.2f), 0.5f, std::make_shared<Metal>(Vec3(0.9f), 0.1f)));
+    astroray::ParamDict dp; dp.set("ior", 1.5f);
+    renderer.addObject(std::make_shared<Sphere>(Vec3(-0.7f,-1.3f,-0.5f), 0.7f, makeM("dielectric", dp)));
+    astroray::ParamDict disp; disp.set("albedo", Vec3(0.9f,0.8f,0.7f)); disp.set("metallic", 0.5f); disp.set("roughness", 0.3f); disp.set("clearcoat", 0.5f); disp.set("clearcoat_gloss", 0.9f);
+    renderer.addObject(std::make_shared<Sphere>(Vec3(0.8f,-1.5f,0.3f), 0.5f, makeM("disney", disp)));
+    astroray::ParamDict mp; mp.set("albedo", Vec3(0.9f)); mp.set("roughness", 0.1f);
+    renderer.addObject(std::make_shared<Sphere>(Vec3(0,-1.5f,-1.2f), 0.5f, makeM("metal", mp)));
 }
 
 void buildMaterialTest(Renderer& renderer) {
@@ -84,15 +91,17 @@ void buildMaterialTest(Renderer& renderer) {
     auto ground = std::make_shared<TexturedLambertian>(checker);
     renderer.addObject(std::make_shared<Triangle>(Vec3(-10,0,-10), Vec3(10,0,-10), Vec3(10,0,10), ground));
     renderer.addObject(std::make_shared<Triangle>(Vec3(-10,0,-10), Vec3(10,0,10), Vec3(-10,0,10), ground));
-    
+
     for (int i = 0; i < 5; ++i) {
         for (int j = 0; j < 5; ++j) {
-            auto mat = std::make_shared<DisneyBRDF>(Vec3(0.7f,0.5f,0.3f), float(i)/4, float(j)/4);
-            renderer.addObject(std::make_shared<Sphere>(Vec3((i-2)*2.2f, 0.5f, (j-2)*2.2f), 0.5f, mat));
+            astroray::ParamDict p; p.set("albedo", Vec3(0.7f,0.5f,0.3f)); p.set("metallic", float(i)/4); p.set("roughness", float(j)/4);
+            renderer.addObject(std::make_shared<Sphere>(Vec3((i-2)*2.2f, 0.5f, (j-2)*2.2f), 0.5f, makeM("disney", p)));
         }
     }
-    renderer.addObject(std::make_shared<Sphere>(Vec3(-5,8,5), 2.0f, std::make_shared<DiffuseLight>(Vec3(1,0.9f,0.8f), 5)));
-    renderer.addObject(std::make_shared<Sphere>(Vec3(5,6,-5), 1.5f, std::make_shared<DiffuseLight>(Vec3(0.8f,0.9f,1), 3)));
+    astroray::ParamDict l1; l1.set("albedo", Vec3(1,0.9f,0.8f)); l1.set("intensity", 5.0f);
+    renderer.addObject(std::make_shared<Sphere>(Vec3(-5,8,5), 2.0f, makeM("light", l1)));
+    astroray::ParamDict l2; l2.set("albedo", Vec3(0.8f,0.9f,1)); l2.set("intensity", 3.0f);
+    renderer.addObject(std::make_shared<Sphere>(Vec3(5,6,-5), 1.5f, makeM("light", l2)));
 }
 
 int main(int argc, char* argv[]) {

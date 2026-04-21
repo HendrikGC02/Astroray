@@ -12,7 +12,7 @@ bl_info = {
 
 import bpy
 from bpy.types import Panel, Operator, AddonPreferences, PropertyGroup, RenderEngine
-from bpy.props import BoolProperty, IntProperty, FloatProperty, StringProperty, PointerProperty, FloatVectorProperty
+from bpy.props import BoolProperty, IntProperty, FloatProperty, StringProperty, PointerProperty, FloatVectorProperty, EnumProperty
 import mathutils, math, numpy as np, traceback, sys, os, time
 from pathlib import Path
 
@@ -72,7 +72,18 @@ class CustomRaytracerRenderSettings(PropertyGroup):
     use_gpu: BoolProperty(name="Use GPU", default=False,
         description="Use CUDA GPU for rendering (requires NVIDIA GPU)")
 
+def _material_type_items(self, context):
+    if RAYTRACER_AVAILABLE:
+        return [(n, n.replace('_', ' ').title(), '') for n in astroray.material_registry_names()]
+    return [('disney', 'Disney', ''), ('lambertian', 'Lambertian', '')]
+
+
 class CustomRaytracerMaterialSettings(PropertyGroup):
+    material_type: EnumProperty(
+        name="Material Type",
+        description="Material type from the plugin registry",
+        items=_material_type_items,
+    )
     use_disney: BoolProperty(name="Use Disney BRDF", default=True)
     metallic: FloatProperty(name="Metallic", min=0, max=1, default=0)
     roughness: FloatProperty(name="Roughness", min=0, max=1, default=0.5)

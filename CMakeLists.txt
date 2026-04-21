@@ -141,15 +141,24 @@ endif()
 set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 file(GLOB_RECURSE HEADERS ${INCLUDE_DIR}/*.h)
 
-# Plugin sources (empty for now; populated by pkg02+ as .cpp files are added)
+# Plugin sources — collected by glob; pkg02+ populates plugins/*.cpp
 file(GLOB_RECURSE ASTRORAY_PLUGIN_SOURCES CONFIGURE_DEPENDS
      "${CMAKE_SOURCE_DIR}/plugins/*.cpp")
 
 # Create header-only library for core raytracer
 add_library(raytracer_core INTERFACE)
 target_include_directories(raytracer_core INTERFACE ${INCLUDE_DIR})
+
+# Plugin object library — OBJECT (not STATIC) ensures static initializers from
+# ASTRORAY_REGISTER_* macros are not dead-stripped by the linker.
 if(ASTRORAY_PLUGIN_SOURCES)
-    target_sources(raytracer_core PRIVATE ${ASTRORAY_PLUGIN_SOURCES})
+    add_library(astroray_plugins OBJECT ${ASTRORAY_PLUGIN_SOURCES})
+    target_link_libraries(astroray_plugins PUBLIC raytracer_core)
+    set_target_properties(astroray_plugins PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+    )
 endif()
 
 # Source files
@@ -231,6 +240,9 @@ target_link_libraries(raytracer_standalone PRIVATE
     stb_image_write_lib
     stb_impl
 )
+if(TARGET astroray_plugins)
+    target_link_libraries(raytracer_standalone PRIVATE astroray_plugins)
+endif()
 
 if(OpenMP_CXX_FOUND)
     target_link_libraries(raytracer_standalone PRIVATE OpenMP::OpenMP_CXX)
@@ -296,6 +308,9 @@ if(BUILD_PYTHON_MODULE)
         stb_image_write_lib
         stb_impl
     )
+    if(TARGET astroray_plugins)
+        target_link_libraries(astroray PRIVATE astroray_plugins)
+    endif()
 
     if(OpenMP_CXX_FOUND)
         target_link_libraries(astroray PRIVATE OpenMP::OpenMP_CXX)

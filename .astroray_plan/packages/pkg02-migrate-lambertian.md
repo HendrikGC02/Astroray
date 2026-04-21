@@ -2,7 +2,7 @@
 
 **Pillar:** 1  
 **Track:** A  
-**Status:** open  
+**Status:** done  
 **Estimated effort:** 1 session (~3 h)  
 **Depends on:** pkg01
 
@@ -164,17 +164,25 @@ function `astroray.material_registry_names()`. See
 
 ## Progress
 
-- [ ] Read current `Lambertian` in `raytracer.h`, note constructor params
-- [ ] Create `plugins/materials/lambertian.cpp`
-- [ ] Update `PyRenderer::createMaterial` in `src/renderer.cpp`
-- [ ] Add `astroray.material_registry_names()` pybind11 binding
-- [ ] Update `blender_addon/__init__.py`
-- [ ] Write `tests/test_lambertian_plugin.py`
-- [ ] Run full test suite
-- [ ] Cornell box smoke test
+- [x] Read current `Lambertian` in `raytracer.h`, note constructor params
+- [x] Create `plugins/materials/lambertian.cpp`
+- [x] Update `PyRenderer::createMaterial` in `module/blender_module.cpp`
+- [x] Add `astroray.material_registry_names()` pybind11 binding
+- [x] Update `blender_addon/__init__.py`
+- [x] Write `tests/test_lambertian_plugin.py`
+- [x] Run full test suite (120 passed, 1 skipped, 1 pre-existing failure)
+- [x] Cornell box smoke test (renders OK; `tests/reference/` dir does not exist yet)
 
 ---
 
 ## Lessons
 
-*(Fill in after done.)*
+- Plugin sources must use an **OBJECT library** (not STATIC) to prevent the
+  linker from dead-stripping `ASTRORAY_REGISTER_*` static initializers that
+  have no direct symbol references from the main binary.
+- The CMakeLists.txt `target_sources(INTERFACE … PRIVATE …)` pattern was a
+  placeholder that would fail at configure time once sources existed; replaced
+  with `add_library(astroray_plugins OBJECT …)` + explicit
+  `target_link_libraries` on each consumer.
+- The bpy.props mock in `test_blender_view_layers.py` must be updated whenever
+  a new `bpy.props.*Property` is added to `blender_addon/__init__.py`.

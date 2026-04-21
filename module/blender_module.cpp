@@ -251,15 +251,6 @@ public:
     std::shared_ptr<Material> makeLegacyMaterial(
             const std::string& type, const Vec3& color, const py::dict& params) {
         auto getFloat = [&](const char* k, float d) { return params.contains(k) ? params[k].cast<float>() : d; };
-        if (type == "disney") {
-            auto m = std::make_shared<DisneyBRDF>(color, getFloat("metallic", 0), getFloat("roughness", 0.5f),
-                                                   getFloat("transmission", 0), getFloat("ior", 1.5f));
-            if (params.contains("anisotropic")) m->setAnisotropic(getFloat("anisotropic", 0), getFloat("anisotropic_rotation", 0));
-            if (params.contains("clearcoat"))   m->setClearcoat(getFloat("clearcoat", 0), getFloat("clearcoat_gloss", 1));
-            if (params.contains("sheen"))        m->setSheen(getFloat("sheen", 0), getFloat("sheen_tint", 0.5f));
-            if (params.contains("subsurface"))   m->setSubsurface(getFloat("subsurface", 0));
-            return m;
-        }
         if (type == "lambertian" || type == "diffuse") {
             if (params.contains("texture")) {
                 auto tex = textureManager.getTexture(params["texture"].cast<std::string>());
@@ -267,17 +258,8 @@ public:
             }
             return std::make_shared<Lambertian>(color);
         }
-        if (type == "metal")                         return std::make_shared<Metal>(color, getFloat("roughness", 0.1f));
-        if (type == "glass" || type == "dielectric") return std::make_shared<Dielectric>(getFloat("ior", 1.5f));
-        if (type == "light" || type == "emission")   return std::make_shared<DiffuseLight>(color, getFloat("intensity", 1.0f));
-        if (type == "subsurface") {
-            Vec3 scatter(1, 0.2f, 0.1f);
-            if (params.contains("scatter_distance")) {
-                auto sd = params["scatter_distance"].cast<std::vector<float>>();
-                scatter = Vec3(sd[0], sd[1], sd[2]);
-            }
-            return std::make_shared<SubsurfaceMaterial>(color, scatter, getFloat("scale", 1));
-        }
+        // All other types (metal, glass, dielectric, light, emission, disney, subsurface, phong,
+        // normal_mapped, mirror) are handled by the registry in createMaterial before this fallback.
         return std::make_shared<Lambertian>(color);
     }
 
@@ -304,7 +286,7 @@ public:
         if (!mat) mat = makeLegacyMaterial(type, color, params);
         auto normalTex = getTexture("normal_map_texture"), bumpTex = getTexture("bump_map_texture");
         if (normalTex || bumpTex)
-            mat = std::make_shared<NormalMappedMaterial>(mat, normalTex, bumpTex,
+            mat = astroray::makeNormalMapped(mat, normalTex, bumpTex,
                 getFloat("normal_strength", 1.0f), getFloat("bump_strength", 1.0f), getFloat("bump_distance", 0.01f));
         int id = nextMaterialId++;
         materials[id] = mat;
@@ -342,7 +324,11 @@ public:
         Vec3 pos(center[0], center[1], center[2]);
         Vec3 dir(direction[0], direction[1], direction[2]);
         auto iesProfile = IESProfile::loadFromFile(iesFile);
-        auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<DiffuseLight>(Vec3(1.0f), 1.0f);
+        auto mat = [&]() -> std::shared_ptr<Material> {
+            if (materials.count(materialId)) return materials[materialId];
+            astroray::ParamDict dp; dp.set("albedo", Vec3(1.0f)); dp.set("intensity", 1.0f);
+            return astroray::MaterialRegistry::instance().create("light", dp);
+        }();
         auto spot = std::make_shared<SpotLightSphere>(pos, radius, mat, dir, spotAngle, spotSmooth, iesProfile);
         spot->setObjectPassIndex(objectPassIndex);
         spot->setMaterialPassIndex(materialPassIndex);
@@ -442,8 +428,10 @@ public:
         renderer.addObject(std::make_shared<ConstantMedium>(boundary, density,
             Vec3(color[0], color[1], color[2]), anisotropy));
         if (emissionStrength > 0.0f && emissionColor.size() >= 3) {
-            auto glow = std::make_shared<DiffuseLight>(
-                Vec3(emissionColor[0], emissionColor[1], emissionColor[2]), emissionStrength);
+            astroray::ParamDict gp;
+            gp.set("albedo", Vec3(emissionColor[0], emissionColor[1], emissionColor[2]));
+            gp.set("intensity", emissionStrength);
+            auto glow = astroray::MaterialRegistry::instance().create("light", gp);
             // Keep the emissive proxy slightly inside the volume boundary to avoid
             // exact overlap with the medium shell intersection points.
             renderer.addObject(std::make_shared<Sphere>(

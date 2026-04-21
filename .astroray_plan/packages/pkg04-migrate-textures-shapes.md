@@ -2,7 +2,7 @@
 
 **Pillar:** 1  
 **Track:** A  
-**Status:** open  
+**Status:** done  
 **Estimated effort:** 2 sessions (~6 h)  
 **Depends on:** pkg03
 
@@ -149,20 +149,22 @@ name + params:
 
 ## Progress
 
-- [ ] Image texture migrated
-- [ ] Checker, Noise, Gradient migrated
-- [ ] Voronoi, Brick, Musgrave, Magic, Wave migrated
-- [ ] Texture tests green
-- [ ] Sphere, Triangle migrated
-- [ ] Mesh migrated
-- [ ] ConstantMedium migrated
-- [ ] BlackHole migrated
-- [ ] Shape tests green
-- [ ] Headers cleaned
-- [ ] Full test suite green
+- [x] Image texture migrated
+- [x] Checker, Noise, Gradient migrated
+- [x] Voronoi, Brick, Musgrave, Magic, Wave migrated
+- [x] Texture tests green
+- [x] Sphere, Triangle migrated
+- [x] Mesh migrated
+- [x] ConstantMedium migrated
+- [x] BlackHole migrated
+- [x] Shape tests green
+- [x] Headers cleaned
+- [x] Full test suite green
 
 ---
 
 ## Lessons
 
-*(Fill in after done.)*
+- `Sphere` and `Triangle` bodies had to move out of `raytracer.h` into a new `include/astroray/shapes.h` so that files needing direct instantiation (`apps/main.cpp`, `blender_module.cpp`, shape plugin files) could include the full definitions without pulling them into the core header.
+- `Texture::value(Vec2, Vec3)` takes both UV and a 3D world-space point. Most procedural textures use only the 3D point. Passing `Vec3(u, v, u)` (not `Vec3(u, v, 0)`) is essential: a zero z-component collapses the checker's `sin(x)*sin(y)*sin(z)` product to zero for all inputs, making it always return the same colour.
+- Removing `#include "astroray/black_hole.h"` from the bottom of `raytracer.h` required explicitly adding that include to every file that directly used `BlackHole` (`apps/main.cpp`, `blender_module.cpp`).

@@ -1,5 +1,7 @@
 #include "raytracer.h"
 #include "advanced_features.h"
+#include "astroray/shapes.h"
+#include "astroray/black_hole.h"
 #include "astroray/register.h"
 #include "stb_image_write.h"
 #include <iostream>

@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 # Ralph loop (Track D). Reads scripts/ralph_queue.txt, attempts one
-# task per iteration using a local Ollama model, commits on success,
+# task per iteration using a local llama-server model, commits on success,
 # logs everything to logs/ralph-YYYYMMDD-HHMMSS.md.
 #
 # Usage: bash .astroray_plan/scripts/ralph_loop.sh [--model MODEL]
 #
 # Requires: aider, git, cmake, pytest all on PATH.
-# Ollama must be running at OLLAMA_HOST (default: http://localhost:11434).
+# llama-server must be running at OLLAMA_HOST (default: http://localhost:8080/v1).
 # Run from the repo root.
 
 set -euo pipefail
 
-# ── Config ──────────────────────────────────────────────────────────────────
+# Config
 QUEUE=".astroray_plan/scripts/ralph_queue.txt"
 GRADUATED=".astroray_plan/scripts/ralph_graduated.txt"
 LOGS_DIR="logs"
-MODEL="${RALPH_MODEL:-qwen2.5-coder:7b}"
-OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
-MAX_FAIL=3
+MODEL="${RALPH_MODEL:-qwen3-coder}"
+OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:8080/v1}"
+OPENAI_API_KEY="${OPENAI_API_KEY:-dummy}"
+export OPENAI_API_KEY
+MAX_FAIL=8
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,7 +31,8 @@ done
 
 mkdir -p "$LOGS_DIR"
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# Helpers
+
 die() { echo "ERROR: $*" >&2; exit 1; }
 
 # Return the first non-blank, non-comment line from the queue, or empty.
@@ -41,37 +44,20 @@ pick_task() {
 # Format: "# FAIL <n> | <task line>"
 fail_count_for() {
   local task="$1"
-  grep -c "^# FAIL [0-9]* | $(echo "$task" | sed 's/[.[\*^$]/\\&/g')" "$QUEUE" 2>/dev/null || echo 0
+  local count
+  count=$(grep -c "^# FAIL [0-9]* | $(echo "$task" | sed 's/[.[\*^$]/\\&/g')" "$QUEUE" 2>/dev/null) || true
+  echo "${count:-0}"
 }
 
 # Remove the first occurrence of a line from the queue.
 remove_task() {
   local task="$1"
-  # Use temp file to avoid in-place issues on Windows paths
   local tmp; tmp=$(mktemp)
   grep -v -F "$task" "$QUEUE" > "$tmp" || true
   mv "$tmp" "$QUEUE"
 }
 
-# Increment the fail counter for a task: replace the raw line with a
-# "# FAIL n | <task>" comment line above a copy of the raw line.
-increment_fail() {
-  local task="$1"
-  local n="$2"
-  local tmp; tmp=$(mktemp)
-  # Replace the first matching raw line with the annotated version
-  awk -v task="$task" -v n="$n" '
-    !done && $0 == task {
-      print "# FAIL " n " | " task
-      done=1
-      next
-    }
-    { print }
-  ' "$QUEUE" > "$tmp"
-  mv "$tmp" "$QUEUE"
-}
-
-# Build the prompt for Ollama.
+# Build the prompt for the model.
 make_prompt() {
   local category="$1"
   local description="$2"
@@ -98,11 +84,11 @@ Physics invariants (never alter):
 PROMPT
 }
 
-# ── Trap for clean Ctrl-C ────────────────────────────────────────────────────
+# Trap for clean Ctrl-C
 trap 'echo; echo "Ralph loop interrupted. Queue is intact."; exit 0' INT
 
-# ── Main loop ────────────────────────────────────────────────────────────────
-echo "Ralph loop starting. Model: $MODEL  Ollama: $OLLAMA_HOST  Queue: $QUEUE"
+# Main loop
+echo "Ralph loop starting. Model: $MODEL  Host: $OLLAMA_HOST  Queue: $QUEUE"
 echo "Press Ctrl-C to stop cleanly."
 echo
 
@@ -131,13 +117,20 @@ while true; do
   # Record SHA before aider runs so we can detect if a commit was made.
   PRE_SHA=$(git log -1 --format="%H" 2>/dev/null || echo "")
 
-  # Run aider in one-shot mode against the local Ollama model.
-  # --map-tokens 1024 keeps the repo-map prompt size manageable.
+  # Extract any file paths mentioned in the task description so aider
+  # gets explicit context rather than relying solely on the repo-map.
+  FILE_ARGS=()
+  while IFS= read -r fpath; do
+    [[ -f "$fpath" ]] && FILE_ARGS+=("$fpath")
+  done < <(echo "$DESCRIPTION" | grep -oE '[a-zA-Z0-9_./-]+\.[a-zA-Z]+' | sort -u)
+
+  # Run aider in one-shot mode against the local llama-server.
   set +e
   MODEL_OUTPUT=$(aider \
-    --model "ollama/${MODEL}" \
-    --openai-api-base "${OLLAMA_HOST}/v1" \
+    --model "openai/${MODEL}" \
+    --openai-api-base "${OLLAMA_HOST}" \
     --map-tokens 1024 \
+    "${FILE_ARGS[@]}" \
     --message "$PROMPT" \
     --yes \
     --no-stream \
@@ -171,7 +164,6 @@ LOG
     if [[ $FAIL_N -ge $MAX_FAIL ]]; then
       echo "  Graduating task after $MAX_FAIL failures."
       remove_task "$TASK"
-      # Remove any existing FAIL comment lines for this task
       TMPQ=$(mktemp)
       grep -v "^# FAIL .* | $(echo "$TASK" | sed 's/[.[\*^$]/\\&/g')" "$QUEUE" > "$TMPQ" 2>/dev/null || true
       mv "$TMPQ" "$QUEUE"
@@ -182,22 +174,19 @@ LOG
         echo "Logs: $LOGS_DIR/ralph-$TIMESTAMP.md and predecessors"
         echo
       } >> "$GRADUATED"
-      echo "  GRADUATED — check $GRADUATED"
+      echo "  GRADUATED -- check $GRADUATED"
     else
-      # Update fail count in queue
       remove_task "$TASK"
       TMPQ=$(mktemp)
-      # Remove old FAIL comment for this task first
       grep -v "^# FAIL .* | $(echo "$TASK" | sed 's/[.[\*^$]/\\&/g')" "$QUEUE" > "$TMPQ" 2>/dev/null || cp "$QUEUE" "$TMPQ"
       mv "$TMPQ" "$QUEUE"
-      # Prepend updated fail-count comment + task back at top
       TMPQ=$(mktemp)
       { echo "# FAIL $FAIL_N | $TASK"; echo "$TASK"; cat "$QUEUE"; } > "$TMPQ"
       mv "$TMPQ" "$QUEUE"
     fi
 
   else
-    # Success path: detect whether aider made a new commit.
+    # Only count as PASS if aider actually committed something.
     POST_SHA=$(git log -1 --format="%H" 2>/dev/null || echo "")
     if [[ "$POST_SHA" != "$PRE_SHA" ]]; then
       SHORT_SHA="${POST_SHA:0:7}"
@@ -219,7 +208,15 @@ Message: $COMMIT_MSG
 $(echo "$MODEL_OUTPUT" | head -60)
 LOG
       echo "  PASS  commit $SHORT_SHA  ($COMMIT_MSG)"
+
+      remove_task "$TASK"
+      TMPQ=$(mktemp)
+      grep -v "^# FAIL .* | $(echo "$TASK" | sed 's/[.[\*^$]/\\&/g')" "$QUEUE" > "$TMPQ" 2>/dev/null || cp "$QUEUE" "$TMPQ"
+      mv "$TMPQ" "$QUEUE"
     else
+      # No commit = model asked a question or gave up -- treat as FAIL.
+      FAIL_N=$(( FAIL_N + 1 ))
+      REASON="no commit made (model may have asked for clarification)"
       cat > "$LOGFILE" <<LOG
 # Ralph run $TIMESTAMP
 
@@ -227,20 +224,23 @@ LOG
 $TASK
 
 ## Result
-PASS (no commit — aider may have decided no changes were needed)
+FAIL (attempt $FAIL_N/$MAX_FAIL) - no commit
 
 ## Model output (truncated)
 $(echo "$MODEL_OUTPUT" | head -60)
 LOG
-      echo "  PASS (no commit)"
-    fi
+      echo "  FAIL $FAIL_N/$MAX_FAIL: $REASON"
 
-    remove_task "$TASK"
-    # Clean any fail-count comments for this task
-    TMPQ=$(mktemp)
-    grep -v "^# FAIL .* | $(echo "$TASK" | sed 's/[.[\*^$]/\\&/g')" "$QUEUE" > "$TMPQ" 2>/dev/null || cp "$QUEUE" "$TMPQ"
-    mv "$TMPQ" "$QUEUE"
+      remove_task "$TASK"
+      TMPQ=$(mktemp)
+      grep -v "^# FAIL .* | $(echo "$TASK" | sed 's/[.[\*^$]/\\&/g')" "$QUEUE" > "$TMPQ" 2>/dev/null || cp "$QUEUE" "$TMPQ"
+      mv "$TMPQ" "$QUEUE"
+      TMPQ=$(mktemp)
+      { echo "# FAIL $FAIL_N | $TASK"; echo "$TASK"; cat "$QUEUE"; } > "$TMPQ"
+      mv "$TMPQ" "$QUEUE"
+    fi
   fi
 
   echo
+
 done

@@ -1,7 +1,5 @@
 #pragma once
 #include "raytracer.h"
-#include <fstream>
-#include <sstream>
 #include <utility>
 
 // ============================================================================
@@ -448,45 +446,8 @@ std::shared_ptr<Material> makeNormalMapped(
 } // namespace astroray
 
 
-// ============================================================================
-// VOLUME RENDERING
-// ============================================================================
-
-class ConstantMedium : public Hittable {
-    std::shared_ptr<Hittable> boundary;
-    float negInvDensity;
-    Vec3 albedo;
-public:
-    ConstantMedium(std::shared_ptr<Hittable> b, float density, const Vec3& a, float = 0)
-        : boundary(b), negInvDensity(-1 / density), albedo(a) {}
-    
-    bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
-        HitRecord rec1, rec2;
-        if (!boundary->hit(r, -1e10f, 1e10f, rec1)) return false;
-        if (!boundary->hit(r, rec1.t + 0.0001f, 1e10f, rec2)) return false;
-        if (rec1.t < tMin) rec1.t = tMin;
-        if (rec2.t > tMax) rec2.t = tMax;
-        if (rec1.t >= rec2.t) return false;
-        if (rec1.t < 0) rec1.t = 0;
-        
-        float rayLen = r.direction.length();
-        float distInside = (rec2.t - rec1.t) * rayLen;
-        std::mt19937 gen(std::random_device{}());
-        std::uniform_real_distribution<float> dist(0, 1);
-        float hitDist = negInvDensity * std::log(dist(gen) + 0.001f);
-        if (hitDist > distInside) return false;
-        
-        rec.t = rec1.t + hitDist / rayLen;
-        rec.point = r.at(rec.t);
-        rec.objectPoint = rec.point;
-        rec.setRayContext(r);
-        rec.normal = Vec3(1, 0, 0);
-        rec.frontFace = true;
-        rec.material = std::make_shared<Lambertian>(albedo);
-        return true;
-    }
-    bool boundingBox(AABB& box) const override { return boundary->boundingBox(box); }
-};
+// ConstantMedium class body moved to include/astroray/shapes.h (pkg04).
+class ConstantMedium;
 
 // ============================================================================
 // TRANSFORMS
@@ -571,65 +532,5 @@ public:
     bool boundingBox(AABB& box) const override { return object->boundingBox(box); }
 };
 
-// ============================================================================
-// MESH LOADING
-// ============================================================================
-
-class Mesh : public Hittable {
-    std::shared_ptr<Material> material;
-    std::vector<std::shared_ptr<Triangle>> triangles;
-    std::shared_ptr<BVHAccel> bvh;
-    AABB bbox;
-public:
-    Mesh(std::shared_ptr<Material> mat) : material(mat) {}
-    
-    bool loadOBJ(const std::string& filename) {
-        std::ifstream file(filename);
-        if (!file.is_open()) return false;
-        std::vector<Vec3> positions;
-        std::vector<Vec2> uvs;
-        std::string line;
-        while (std::getline(file, line)) {
-            std::istringstream iss(line);
-            std::string prefix;
-            iss >> prefix;
-            if (prefix == "v") {
-                float x, y, z; iss >> x >> y >> z;
-                positions.push_back(Vec3(x, y, z));
-            } else if (prefix == "vt") {
-                float u, v; iss >> u >> v;
-                uvs.push_back(Vec2(u, v));
-            } else if (prefix == "f") {
-                std::vector<int> vi, ti;
-                std::string vert;
-                while (iss >> vert) {
-                    size_t s1 = vert.find('/');
-                    int v = std::stoi(vert.substr(0, s1)) - 1;
-                    vi.push_back(v);
-                    if (s1 != std::string::npos) {
-                        size_t s2 = vert.find('/', s1 + 1);
-                        std::string uvStr = vert.substr(s1 + 1, s2 - s1 - 1);
-                        if (!uvStr.empty()) ti.push_back(std::stoi(uvStr) - 1);
-                    }
-                }
-                for (size_t i = 1; i + 1 < vi.size(); ++i) {
-                    Vec2 t0 = ti.size() > 0 ? uvs[ti[0]] : Vec2(0, 0);
-                    Vec2 t1 = ti.size() > i ? uvs[ti[i]] : Vec2(1, 0);
-                    Vec2 t2 = ti.size() > i + 1 ? uvs[ti[i + 1]] : Vec2(0, 1);
-                    triangles.push_back(std::make_shared<Triangle>(
-                        positions[vi[0]], positions[vi[i]], positions[vi[i + 1]], t0, t1, t2, material));
-                }
-            }
-        }
-        if (triangles.empty()) return false;
-        std::vector<std::shared_ptr<Hittable>> hits;
-        for (auto& t : triangles) hits.push_back(t);
-        bvh = std::make_shared<BVHAccel>(hits);
-        bvh->boundingBox(bbox);
-        return true;
-    }
-    bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
-        return bvh ? bvh->hit(r, tMin, tMax, rec) : false;
-    }
-    bool boundingBox(AABB& box) const override { box = bbox; return true; }
-};
+// Mesh class body moved to include/astroray/shapes.h (pkg04).
+class Mesh;

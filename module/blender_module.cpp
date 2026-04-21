@@ -6,6 +6,8 @@
 #include <cmath>
 #include "raytracer.h"
 #include "advanced_features.h"
+#include "astroray/shapes.h"
+#include "astroray/black_hole.h"
 #include "astroray/register.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
@@ -247,7 +249,25 @@ public:
     void setTextureCoordMode(const std::string& name, const std::string& coordMode) {
         textureManager.setTextureCoordMode(name, coordMode);
     }
-    
+
+    std::vector<float> sampleTexture(const std::string& type, py::dict params, float u, float v) {
+        astroray::ParamDict p;
+        for (auto& item : params) {
+            auto key = item.first.cast<std::string>();
+            if (py::isinstance<py::float_>(item.second) || py::isinstance<py::int_>(item.second))
+                p.set(key, item.second.cast<float>());
+            else if (py::isinstance<py::str>(item.second))
+                p.set(key, item.second.cast<std::string>());
+            else if (py::isinstance<py::list>(item.second) || py::isinstance<py::tuple>(item.second)) {
+                auto seq = item.second.cast<std::vector<float>>();
+                if (seq.size() == 3) p.set(key, Vec3(seq[0], seq[1], seq[2]));
+            }
+        }
+        auto tex = astroray::TextureRegistry::instance().create(type, p);
+        Vec3 result = tex->value(Vec2(u, v), Vec3(u, v, u));
+        return {result.x, result.y, result.z};
+    }
+
     std::shared_ptr<Material> makeLegacyMaterial(
             const std::string& type, const Vec3& color, const py::dict& params) {
         auto getFloat = [&](const char* k, float d) { return params.contains(k) ? params[k].cast<float>() : d; };
@@ -959,9 +979,17 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_height", &PyRenderer::getHeight)
         .def("set_use_gpu", &PyRenderer::setUseGPU, "enable"_a)
         .def_property_readonly("gpu_available",   &PyRenderer::getGPUAvailable)
-        .def_property_readonly("gpu_device_name", &PyRenderer::getGPUDeviceName);
+        .def_property_readonly("gpu_device_name", &PyRenderer::getGPUDeviceName)
+        .def("sample_texture", &PyRenderer::sampleTexture,
+             "type"_a, "params"_a, "u"_a = 0.5f, "v"_a = 0.5f);
     m.def("material_registry_names", []() {
         return astroray::MaterialRegistry::instance().names();
+    });
+    m.def("texture_registry_names", []() {
+        return astroray::TextureRegistry::instance().names();
+    });
+    m.def("shape_registry_names", []() {
+        return astroray::ShapeRegistry::instance().names();
     });
     m.attr("__version__") = "3.0.0";
     m.attr("__features__") = py::dict(

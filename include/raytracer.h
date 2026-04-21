@@ -547,75 +547,8 @@ public:
     int getMaterialPassIndex() const { return materialPassIndex; }
 };
 
-class Sphere : public Hittable {
-    Vec3 center;
-    float radius;
-    Vec3 iesAxis;
-    std::shared_ptr<IESProfile> iesProfile;
-    std::shared_ptr<Material> material;
-    bool emissive;
-public:
-    Sphere(const Vec3& c, float r, std::shared_ptr<Material> m,
-           const Vec3& iesDirection = Vec3(0, -1, 0),
-           std::shared_ptr<IESProfile> ies = nullptr)
-        : center(c), radius(r), iesAxis(iesDirection), iesProfile(std::move(ies)),
-          material(m), emissive(m->isEmissive()) {}
-    
-    bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
-        Vec3 oc = r.origin - center;
-        float a = r.direction.length2(), half_b = oc.dot(r.direction);
-        float c = oc.length2() - radius * radius;
-        float discriminant = half_b * half_b - a * c;
-        if (discriminant < 0) return false;
-        float sqrtd = std::sqrt(discriminant);
-        float root = (-half_b - sqrtd) / a;
-        if (root < tMin || root > tMax) { root = (-half_b + sqrtd) / a; if (root < tMin || root > tMax) return false; }
-        rec.t = root;
-        rec.point = r.at(root);
-        rec.objectPoint = rec.point;
-        Vec3 outwardNormal = (rec.point - center) / radius;
-        rec.setFaceNormal(r, outwardNormal);
-        rec.material = material;
-        rec.hitObject = this;
-        float theta = std::acos(-outwardNormal.y), phi = std::atan2(-outwardNormal.z, outwardNormal.x) + M_PI;
-        rec.uv = Vec2(phi / (2 * M_PI), theta / M_PI);
-        return true;
-    }
-    
-    bool boundingBox(AABB& box) const override { box = AABB(center - Vec3(radius), center + Vec3(radius)); return true; }
-    
-    float pdfValue(const Vec3& origin, const Vec3& direction) const override {
-        HitRecord rec;
-        if (!hit(Ray(origin, direction), 0.001f, std::numeric_limits<float>::max(), rec)) return 0;
-        float cosThetaMax = std::sqrt(1 - radius * radius / (center - origin).length2());
-        return 1 / (2 * M_PI * (1 - cosThetaMax));
-    }
-    
-    Vec3 random(const Vec3& origin, std::mt19937& gen) const override {
-        Vec3 dir = (center - origin).normalized();
-        float distSq = (center - origin).length2();
-        float cosThetaMax = std::sqrt(1 - radius * radius / distSq);
-        std::uniform_real_distribution<float> dist(0, 1);
-        float z = 1 + dist(gen) * (cosThetaMax - 1);
-        float phi = 2 * M_PI * dist(gen);
-        Vec3 u, v;
-        buildOrthonormalBasis(dir, u, v);
-        return (u * std::cos(phi) * std::sqrt(1 - z*z) + v * std::sin(phi) * std::sqrt(1 - z*z) + dir * z).normalized();
-    }
-    
-    bool isLight() const override { return emissive; }
-    Vec3 emittedRadiance() const override {
-        return material->getEmission();
-    }
-    float directionFalloff(const Vec3& directionFromLight) const override {
-        if (!emissive || !iesProfile) return 1.0f;
-        return iesProfile->sample(iesAxis, directionFromLight);
-    }
-    // Accessors for GPU upload
-    Vec3  getCenter()   const { return center; }
-    float getRadius()   const { return radius; }
-    const std::shared_ptr<Material>& getMaterial() const { return material; }
-};
+// Sphere class body moved to include/astroray/shapes.h (pkg04).
+class Sphere;
 
 class DistantLight : public Hittable {
     Vec3 direction;
@@ -910,101 +843,8 @@ public:
     }
 };
 
-class Triangle : public Hittable {
-    Vec3 v0, v1, v2, normal;
-    Vec2 uv0, uv1, uv2;
-    std::shared_ptr<Material> material;
-    bool emissive;
-    // Per-vertex normals for smooth shading (Blender split_normals / Cycles
-    // smooth shading). When hasVertexNormals is false, hit() falls back to
-    // the face normal computed at construction.
-    Vec3 vn0, vn1, vn2;
-    bool hasVertexNormals = false;
-public:
-    Triangle(const Vec3& a, const Vec3& b, const Vec3& c, std::shared_ptr<Material> m)
-        : v0(a), v1(b), v2(c), material(m), uv0(0,0), uv1(1,0), uv2(0,1),
-          emissive(m->isEmissive()) {
-        normal = (v1 - v0).cross(v2 - v0).normalized();
-    }
-
-    Triangle(const Vec3& a, const Vec3& b, const Vec3& c, const Vec2& t0, const Vec2& t1, const Vec2& t2, std::shared_ptr<Material> m)
-        : v0(a), v1(b), v2(c), uv0(t0), uv1(t1), uv2(t2), material(m),
-          emissive(m->isEmissive()) {
-        normal = (v1 - v0).cross(v2 - v0).normalized();
-    }
-
-    // Set interpolated per-vertex normals. Normals must already be in world
-    // space (caller applies the inverse-transpose of the model matrix).
-    void setVertexNormals(const Vec3& a, const Vec3& b, const Vec3& c) {
-        vn0 = a; vn1 = b; vn2 = c;
-        hasVertexNormals = true;
-    }
-
-    bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
-        const float EPS = 1e-6f;
-        Vec3 e1 = v1 - v0, e2 = v2 - v0;
-        Vec3 h = r.direction.cross(e2);
-        float a = e1.dot(h);
-        if (std::fabs(a) < EPS) return false;
-        float f = 1.0f / a;
-        Vec3 s = r.origin - v0;
-        float u = f * s.dot(h);
-        if (u < 0 || u > 1) return false;
-        Vec3 q = s.cross(e1);
-        float v = f * r.direction.dot(q);
-        if (v < 0 || u + v > 1) return false;
-        float t = f * e2.dot(q);
-        if (t < tMin || t > tMax) return false;
-        rec.t = t;
-        rec.point = r.at(t);
-        rec.objectPoint = rec.point;
-        // Barycentric coords. UV layout: w→v0, u→v1, v→v2.
-        float w = 1 - u - v;
-        if (hasVertexNormals) {
-            // Interpolate normals with the same barycentric layout.
-            Vec3 nInterp = (vn0 * w + vn1 * u + vn2 * v).normalized();
-            rec.setFaceNormal(r, nInterp);
-        } else {
-        rec.setFaceNormal(r, normal);
-        }
-        rec.material = material;
-        rec.hitObject = this;
-        rec.uv = uv0 * w + uv1 * u + uv2 * v;
-        return true;
-    }
-    
-    bool boundingBox(AABB& box) const override {
-        Vec3 minP = Vec3::min(Vec3::min(v0, v1), v2);
-        Vec3 maxP = Vec3::max(Vec3::max(v0, v1), v2);
-        box = AABB(minP - Vec3(0.0001f), maxP + Vec3(0.0001f));
-        return true;
-    }
-    
-    float pdfValue(const Vec3& origin, const Vec3& direction) const override {
-        HitRecord rec;
-        if (!hit(Ray(origin, direction), 0.001f, std::numeric_limits<float>::max(), rec)) return 0;
-        float area = (v1 - v0).cross(v2 - v0).length() * 0.5f;
-        return rec.t * rec.t / (std::abs(direction.dot(rec.normal)) * area + 0.001f);
-    }
-    
-    Vec3 random(const Vec3& origin, std::mt19937& gen) const override {
-        std::uniform_real_distribution<float> dist(0, 1);
-        float r1 = dist(gen), r2 = dist(gen);
-        if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
-        return ((v0 + (v1 - v0) * r1 + (v2 - v0) * r2) - origin).normalized();
-    }
-    
-    bool isLight() const override { return emissive; }
-    Vec3 emittedRadiance() const override {
-        return material->getEmission();
-    }
-    // Accessors for GPU upload
-    Vec3 getV0() const { return v0; }
-    Vec3 getV1() const { return v1; }
-    Vec3 getV2() const { return v2; }
-    Vec3 getFaceNormal() const { return normal; }
-    const std::shared_ptr<Material>& getMaterial() const { return material; }
-};
+// Triangle class body moved to include/astroray/shapes.h (pkg04).
+class Triangle;
 
 // ============================================================================
 // BVH WITH SAH
@@ -2280,8 +2120,5 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
     }
 };
 
-// ============================================================================
-// BlackHole definition — included after Renderer so Hittable::GRResult is defined.
-// black_hole.h overrides Hittable::traceGR() using virtual dispatch — no cast needed.
-// ============================================================================
-#include "astroray/black_hole.h"
+// BlackHole class body moved to plugins/shapes/black_hole.cpp (pkg04).
+// Include "astroray/black_hole.h" directly where BlackHole is instantiated.

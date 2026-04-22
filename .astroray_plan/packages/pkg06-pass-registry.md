@@ -2,7 +2,7 @@
 
 **Pillar:** 1  
 **Track:** A  
-**Status:** open  
+**Status:** done  
 **Estimated effort:** 1 session (~3 h)  
 **Depends on:** pkg05
 
@@ -187,19 +187,25 @@ is how Python/Blender enables denoising.
 
 ## Progress
 
-- [ ] Write `include/astroray/pass.h`
-- [ ] Extend/create `Framebuffer` with named buffer API
-- [ ] Create `plugins/passes/oidn_denoiser.cpp`
-- [ ] Create depth, normal, albedo AOV passes
-- [ ] Update `Renderer::render` pass loop
-- [ ] Add `PyRenderer::add_pass` and `clear_passes`
-- [ ] Update Blender addon
-- [ ] Write `tests/test_pass_plugins.py`
-- [ ] OIDN end-to-end test
-- [ ] Full test suite green
+- [x] Write `include/astroray/pass.h`
+- [x] Extend/create `Framebuffer` with named buffer API
+- [x] Create `plugins/passes/oidn_denoiser.cpp`
+- [x] Create depth, normal, albedo AOV passes
+- [x] Update `Renderer::render` pass loop
+- [x] Add `PyRenderer::add_pass` and `clear_passes`
+- [x] Update Blender addon
+- [x] Write `tests/test_pass_plugins.py`
+- [x] OIDN end-to-end test (covered by test_oidn_denoiser_pass_is_finite_or_gracefully_ignored)
+- [x] Full test suite green (169 passed, 1 skipped)
 
 ---
 
 ## Lessons
 
-*(Fill in after done.)*
+- `pass.h` must NOT include `param_dict.h` (or any header that transitively pulls `raytracer.h`).
+  `param_dict.h` includes `raytracer.h`, which at its bottom does `#include "astroray/pass.h"`.
+  If `pass.h` triggers `raytracer.h` first, the late `#include "astroray/pass.h"` in `raytracer.h`
+  is skipped (pragma-once), so `Renderer::render()` sees `Pass` as an incomplete type.
+  Fix: keep `pass.h` minimal — no transitive includes into `raytracer.h`.
+- `Framebuffer` belongs in `raytracer.h` (after `Camera`), not in `pass.h`, so it is available
+  when `Renderer::render()` is compiled regardless of include order.

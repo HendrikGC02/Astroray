@@ -18,5 +18,5 @@ Completed designs documenting implemented subsystems:
 
 Reference material for AI agents and new contributors:
 
-- [`agent-context/renderer-internals.md`](agent-context/renderer-internals.md) — architecture, rendering pipeline, material conventions, debugging
+- [`agent-context/renderer-internals.md`](agent-context/renderer-internals.md) — architecture, plugin system, rendering pipeline, material conventions, pass interface, debugging
 - [`agent-context/lessons-learned.md`](agent-context/lessons-learned.md) — bugs encountered and root causes; read before touching rendering code

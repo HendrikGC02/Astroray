@@ -39,6 +39,12 @@ except ImportError as e:
     RAYTRACER_AVAILABLE = False
     print(f"Failed to load raytracer module: {e}")
 
+def _integrator_type_items(self, context):
+    if RAYTRACER_AVAILABLE:
+        return [(n, n.replace('_', ' ').title(), '') for n in astroray.integrator_registry_names()]
+    return [('path', 'Path', '')]
+
+
 class CustomRaytracerRenderSettings(PropertyGroup):
     samples: IntProperty(name="Samples", min=1, max=65536, default=2,
         description="Samples per pixel for final F12 renders")
@@ -71,6 +77,11 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         description="Enable refractive caustics from transmission after diffuse bounces")
     use_gpu: BoolProperty(name="Use GPU", default=False,
         description="Use CUDA GPU for rendering (requires NVIDIA GPU)")
+    integrator_type: EnumProperty(
+        name="Integrator",
+        description="Light transport integrator (from plugin registry)",
+        items=_integrator_type_items,
+    )
 
 def _material_type_items(self, context):
     if RAYTRACER_AVAILABLE:
@@ -208,6 +219,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return True
 
             start_time = time.time()
+            renderer.set_integrator(settings.integrator_type)
             pixels = renderer.render(
                 settings.samples, settings.max_bounces, progress_callback, False,
                 settings.diffuse_bounces, settings.glossy_bounces,
@@ -267,6 +279,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
             samples = max(1, settings.preview_samples)
             depth = max(2, settings.max_bounces // 2)
+            renderer.set_integrator(settings.integrator_type)
             pixels = renderer.render(
                 samples, depth, None, False,
                 min(settings.diffuse_bounces, depth),

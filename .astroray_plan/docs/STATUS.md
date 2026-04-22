@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-04-21
+**Last updated:** 2026-04-22
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -16,7 +16,7 @@ personally should pick up.
 
 | # | Name | Status | % | Next milestone | Blocked on |
 |---|---|---|---|---|---|
-| 1 | Plugin architecture | In progress | ~65% | Integrator interface (pkg05) | — |
+| 1 | Plugin architecture | In progress | ~80% | Pass registry (pkg06) | — |
 | 2 | Spectral core | Queued | 0% | — | Pillar 1 |
 | 3 | Light transport | Queued | 0% | — | Pillars 1, 2 |
 | 4 | Astrophysics platform | Queued | 0% | Kerr | Pillars 1, 2 |
@@ -30,7 +30,7 @@ personally should pick up.
 | pkg02 | Migrate Lambertian | done |
 | pkg03 | Migrate remaining materials | done |
 | pkg04 | Migrate textures + shapes | done |
-| pkg05 | Integrator interface | open |
+| pkg05 | Integrator interface | done |
 | pkg06 | Pass registry | open |
 
 ---
@@ -41,8 +41,8 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Package in flight: pkg05-integrator-interface
-- Next session goal: Define `Integrator` base class, register path tracer as first plugin, all tests green
+- Package in flight: pkg06-pass-registry
+- Next session goal: Define render-pass registry, wire passes into Blender UI, all tests green
 
 ### Track B (Copilot cloud)
 
@@ -66,6 +66,7 @@ personally should pick up.
 
 | Date | PR | Track | Pillar | Description |
 |---|---|---|---|---|
+| 2026-04-22 | feat/pkg05-integrator-interface | A | 1 | Integrator base class, PathTracer + AO plugins, Blender UI selector; 165 tests passing |
 | 2026-04-21 | feat/pkg04-migrate-textures-shapes | A | 1 | Migrate 9 textures + 5 shapes to plugin files; 161 tests passing |
 | 2026-04-21 | feat/pkg03-migrate-remaining-materials | A | 1 | Migrate remaining materials to plugin files |
 
@@ -75,8 +76,7 @@ personally should pick up.
 
 | Package | Track | Status | Blocker |
 |---|---|---|---|
-| pkg05-integrator-interface | A | open | — |
-| pkg06-pass-registry | A | open | pkg05 |
+| pkg06-pass-registry | A | open | — |
 
 ---
 
@@ -96,6 +96,7 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-04-22** — pkg05 merged: `Integrator` abstract base class in `include/astroray/integrator.h`; PathTracer and AmbientOcclusion plugins in `plugins/integrators/`; `SampleResult` + `Renderer::traceFull()` for AOV preservation; `set_integrator` Python binding + `integrator_registry_names()`; Blender `integrator_type` EnumProperty wired into render. Test suite: 165 passed, 1 skipped.
 - **2026-04-21** — pkg04 merged: 9 texture plugin files + 5 shape plugin files. `Sphere`/`Triangle` bodies moved to `include/astroray/shapes.h`. Python bindings `sample_texture()`, `texture_registry_names()`, `shape_registry_names()` added. Test suite: 161 passed, 1 skipped.
 - **2026-04-21** — pkg03 merged: all remaining material types (Metal, Dielectric, Phong, Disney, DiffuseLight, NormalMapped, Emissive, Isotropic, OrenNayar, TwoSided) migrated to plugin files.
 - **Earlier** — pkg01/02 merged: registry skeleton and Lambertian plugin established the pattern.

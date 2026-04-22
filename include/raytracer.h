@@ -21,6 +21,7 @@
 
 // Forward declaration needed by HitRecord
 class Hittable;
+class Integrator;
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -1344,6 +1345,16 @@ enum RenderPassIndex {
     PASS_COUNT
 };
 
+// Result type for integrator sampleFull(): color + first-hit AOV data + render passes.
+struct SampleResult {
+    Vec3 color{0};
+    Vec3 albedo{0}, normal{0}, position{0}, uv{0};
+    float alpha = 1.0f, depth = 0.0f;
+    int objectIndex = 0, materialIndex = 0;
+    std::array<Vec3, PASS_COUNT> passes;
+    SampleResult() { passes.fill(Vec3(0)); }
+};
+
 class Camera {
     Vec3 origin, lowerLeft, horizontal, vertical, u, v, w_axis;
     float lensRadius;
@@ -1437,6 +1448,7 @@ class Renderer {
     float worldVolumeDensity = 0.0f;
     Vec3 worldVolumeColor = Vec3(1.0f);
     float worldVolumeAnisotropy = 0.0f;
+    std::shared_ptr<Integrator> integrator_;
 
     Vec3 clampLuminance(const Vec3& c, float maxLum) const {
         if (maxLum <= 0.0f) return c;
@@ -1457,6 +1469,20 @@ class Renderer {
     }
     
 public:
+    void setIntegrator(std::shared_ptr<Integrator> i) { integrator_ = std::move(i); }
+
+    // Full-path trace: returns color plus AOVs and render passes in a SampleResult.
+    // Used by PathTracer::sampleFull to route through the existing path-tracing kernel.
+    SampleResult traceFull(const Ray& ray, int maxDepth, std::mt19937& gen) {
+        PathBounceLimits bl{maxDepth, maxDepth, maxDepth, maxDepth, maxDepth};
+        SampleResult r;
+        r.color = pathTrace(ray, maxDepth, bl, gen,
+                            &r.albedo, &r.normal, &r.alpha,
+                            &r.depth, &r.position, &r.uv,
+                            &r.objectIndex, &r.materialIndex, &r.passes);
+        return r;
+    }
+
     void setEnvironmentMap(std::shared_ptr<EnvironmentMap> map) { envMap = map; }
     void setBackgroundColor(const Vec3& color) { backgroundColor = color; }
     void setFilmExposure(float exposure) { filmExposure = exposure; }
@@ -1504,8 +1530,9 @@ public:
         worldVolumeDensity = 0.0f;
         worldVolumeColor = Vec3(1.0f);
         worldVolumeAnisotropy = 0.0f;
+        integrator_.reset();
     }
-    
+
     // Returns a sub-pixel jitter offset in [0,1) shaped by the reconstruction filter.
     float filterSample(std::mt19937& gen, std::uniform_real_distribution<float>& dist) const {
         if (pixelFilterType == 1) {
@@ -1968,9 +1995,24 @@ public:
     bool getUseTransparentFilm() const { return useTransparentFilm; }
     bool getTransparentGlass() const { return transparentGlass; }
 
-void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false,
+void render(Camera& cam, int maxSamples, int maxDepth,
+            std::function<void(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false,
             int maxDiffuseBounces = -1, int maxGlossyBounces = -1, int maxTransmissionBounces = -1,
-            int maxVolumeBounces = -1, int maxTransparentBounces = -1) {
+            int maxVolumeBounces = -1, int maxTransparentBounces = -1);
+};
+
+// BlackHole class body moved to plugins/shapes/black_hole.cpp (pkg04).
+// Include "astroray/black_hole.h" directly where BlackHole is instantiated.
+
+// Include integrator interface AFTER all core types are defined to break the
+// circular dependency: integrator.h includes raytracer.h (no-op here), and
+// Integrator is fully defined before Renderer::render() is compiled below.
+#include "astroray/integrator.h"
+
+inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
+            std::function<void(float)> progress, bool adaptive, bool applyGamma,
+            int maxDiffuseBounces, int maxGlossyBounces, int maxTransmissionBounces,
+            int maxVolumeBounces, int maxTransparentBounces) {
         buildAcceleration();
         PathBounceLimits bounceLimits{
             resolveBounceLimit(maxDiffuseBounces, maxDepth),
@@ -1979,12 +2021,13 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
             resolveBounceLimit(maxVolumeBounces, maxDepth),
             resolveBounceLimit(maxTransparentBounces, maxDepth)
         };
+        if (integrator_) integrator_->beginFrame(*this, cam);
         std::atomic<int> tilesCompleted{0};
         const int tileSize = 16;
         int tilesX = (cam.width + tileSize - 1) / tileSize;
         int tilesY = (cam.height + tileSize - 1) / tileSize;
         int totalTiles = tilesX * tilesY;
-        
+
         #pragma omp parallel for schedule(dynamic) collapse(2)
         for (int tileY = 0; tileY < tilesY; ++tileY) {
             for (int tileX = 0; tileX < tilesX; ++tileX) {
@@ -1995,7 +2038,7 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                 std::uniform_real_distribution<float> dist(0, 1);
                 int x0 = tileX * tileSize, x1 = std::min(x0 + tileSize, cam.width);
                 int y0 = tileY * tileSize, y1 = std::min(y0 + tileSize, cam.height);
-                
+
                 for (int y = y0; y < y1; ++y) {
                     for (int x = x0; x < x1; ++x) {
                         int idx = y * cam.width + x;
@@ -2010,21 +2053,36 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         std::unordered_map<int, int> materialSampleCounts;
                         float sumL = 0, sumL2 = 0;
                         int samples = 0;
-                        
+
                         for (int s = 0; s < maxSamples; ++s) {
                             float u = (x + filterSample(gen, dist)) / (cam.width - 1);
                             float v = 1.0f - (y + filterSample(gen, dist)) / (cam.height - 1);
                             Vec3 sAlb, sNorm, sPosition(0), sUv(0);
                             std::array<Vec3, PASS_COUNT> sPass;
+                            sPass.fill(Vec3(0));
                             float sAlpha = 1.0f;
                             float sDepth = 0.0f;
                             int sObjectIndex = 0;
                             int sMaterialIndex = 0;
-                            Vec3 sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, bounceLimits, gen,
-                                                  s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha,
-                                                  &sDepth, &sPosition, &sUv, &sObjectIndex, &sMaterialIndex, &sPass);
-                            // Per-sample contribution clamp: prevents a single caustic spike from
-                            // dominating a pixel when sample count is low (firefly suppression)
+                            Vec3 sCol;
+                            if (integrator_) {
+                                SampleResult ir = integrator_->sampleFull(cam.getRay(u, v, gen), gen);
+                                sCol = ir.color;
+                                sAlb = ir.albedo;
+                                sNorm = ir.normal;
+                                sAlpha = ir.alpha;
+                                sDepth = ir.depth;
+                                sPosition = ir.position;
+                                sUv = ir.uv;
+                                sObjectIndex = ir.objectIndex;
+                                sMaterialIndex = ir.materialIndex;
+                                sPass = ir.passes;
+                            } else {
+                                sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, bounceLimits, gen,
+                                                 s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha,
+                                                 &sDepth, &sPosition, &sUv, &sObjectIndex, &sMaterialIndex, &sPass);
+                            }
+                            // Per-sample firefly suppression
                             float sLum = luminance(sCol);
                             if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
                             color += sCol;
@@ -2051,7 +2109,7 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                                 if (std::sqrt(std::max(0.0f, var)) / (mean + 0.01f) < 0.01f) break;
                             }
                         }
-                        
+
                         color = color / float(samples);
                         color *= filmExposure;
                         alpha = alpha / float(samples);
@@ -2113,12 +2171,10 @@ void render(Camera& cam, int maxSamples, int maxDepth, std::function<void(float)
                         }
                     }
                 }
-                
+
                 if (progress) progress(float(++tilesCompleted) / totalTiles);
             }
         }
-    }
-};
+        if (integrator_) integrator_->endFrame();
+}
 
-// BlackHole class body moved to plugins/shapes/black_hole.cpp (pkg04).
-// Include "astroray/black_hole.h" directly where BlackHole is instantiated.

@@ -9,6 +9,7 @@
 #include "astroray/shapes.h"
 #include "astroray/black_hole.h"
 #include "astroray/register.h"
+#include "astroray/integrator.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
 #endif
@@ -886,6 +887,12 @@ public:
         return result;
     }
     
+    void setIntegrator(const std::string& name) {
+        astroray::ParamDict p;
+        auto integrator = astroray::IntegratorRegistry::instance().create(name, p);
+        renderer.setIntegrator(integrator);
+    }
+
     void clear() {
         renderer = Renderer();
         camera.reset();
@@ -981,7 +988,8 @@ PYBIND11_MODULE(astroray, m) {
         .def_property_readonly("gpu_available",   &PyRenderer::getGPUAvailable)
         .def_property_readonly("gpu_device_name", &PyRenderer::getGPUDeviceName)
         .def("sample_texture", &PyRenderer::sampleTexture,
-             "type"_a, "params"_a, "u"_a = 0.5f, "v"_a = 0.5f);
+             "type"_a, "params"_a, "u"_a = 0.5f, "v"_a = 0.5f)
+        .def("set_integrator", &PyRenderer::setIntegrator, "name"_a);
     m.def("material_registry_names", []() {
         return astroray::MaterialRegistry::instance().names();
     });
@@ -990,6 +998,9 @@ PYBIND11_MODULE(astroray, m) {
     });
     m.def("shape_registry_names", []() {
         return astroray::ShapeRegistry::instance().names();
+    });
+    m.def("integrator_registry_names", []() {
+        return astroray::IntegratorRegistry::instance().names();
     });
     m.attr("__version__") = "3.0.0";
     m.attr("__features__") = py::dict(

@@ -159,6 +159,10 @@ if(ASTRORAY_PLUGIN_SOURCES)
         CXX_STANDARD_REQUIRED ON
         POSITION_INDEPENDENT_CODE ON
     )
+    if(ASTRORAY_OIDN_FOUND)
+        target_link_libraries(astroray_plugins PUBLIC ${ASTRORAY_OIDN_TARGET})
+        target_compile_definitions(astroray_plugins PUBLIC ASTRORAY_OIDN_ENABLED)
+    endif()
 endif()
 
 # Source files

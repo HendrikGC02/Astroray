@@ -10,15 +10,9 @@
 #include "astroray/black_hole.h"
 #include "astroray/register.h"
 #include "astroray/integrator.h"
+#include "astroray/pass.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
-#endif
-#ifdef ASTRORAY_OIDN_ENABLED
-#  if __has_include(<OpenImageDenoise/oidn.hpp>)
-#    include <OpenImageDenoise/oidn.hpp>
-#  elif __has_include(<oidn.hpp>)
-#    include <oidn.hpp>
-#  endif
 #endif
 
 namespace py = pybind11;
@@ -151,93 +145,9 @@ class PyRenderer {
     bool useAdaptiveSampling = true;
     std::shared_ptr<EnvironmentMap> envMap;
     bool useGPU = false;
-    enum class DenoiserType {
-        None,
-        OIDN
-    };
-    bool useDenoiser = false;
-    DenoiserType denoiserType = DenoiserType::None;
 #ifdef ASTRORAY_CUDA_ENABLED
     std::unique_ptr<CUDARenderer> cudaRenderer;
 #endif
-
-    void applyDenoiseIfEnabled() {
-        if (!useDenoiser || denoiserType == DenoiserType::None || !camera) return;
-        if (denoiserType == DenoiserType::OIDN) applyOIDNDenoise();
-    }
-
-    void applyOIDNDenoise() {
-#ifdef ASTRORAY_OIDN_ENABLED
-        const size_t pixelCount = camera->pixels.size();
-        if (pixelCount == 0) return;
-
-        const size_t byteSize = pixelCount * 3 * sizeof(float);
-
-        oidn::DeviceRef device = oidn::newDevice();
-        device.commit();
-
-        // OIDN 2.x requires device-accessible OIDNBuffer objects; raw CPU pointers
-        // are no longer accepted by setImage().  newBuffer(byteSize) creates a buffer
-        // accessible to both host (via getData()) and device.
-        oidn::BufferRef colorBuf  = device.newBuffer(byteSize);
-        oidn::BufferRef albedoBuf = device.newBuffer(byteSize);
-        oidn::BufferRef normalBuf = device.newBuffer(byteSize);
-        oidn::BufferRef outputBuf = device.newBuffer(byteSize);
-
-        float* colorData  = static_cast<float*>(colorBuf.getData());
-        float* albedoData = static_cast<float*>(albedoBuf.getData());
-        float* normalData = static_cast<float*>(normalBuf.getData());
-
-        auto safeFloat = [](float v) { return std::isfinite(v) ? v : 0.0f; };
-        for (size_t i = 0; i < pixelCount; ++i) {
-            colorData[i * 3]     = safeFloat(camera->pixels[i].x);
-            colorData[i * 3 + 1] = safeFloat(camera->pixels[i].y);
-            colorData[i * 3 + 2] = safeFloat(camera->pixels[i].z);
-
-            albedoData[i * 3]     = safeFloat(camera->albedoBuffer[i].x);
-            albedoData[i * 3 + 1] = safeFloat(camera->albedoBuffer[i].y);
-            albedoData[i * 3 + 2] = safeFloat(camera->albedoBuffer[i].z);
-
-            Vec3 n(
-                safeFloat(camera->normalBuffer[i].x),
-                safeFloat(camera->normalBuffer[i].y),
-                safeFloat(camera->normalBuffer[i].z)
-            );
-            if (n.length() > 0.0f) n = n.normalized();
-            normalData[i * 3]     = n.x;
-            normalData[i * 3 + 1] = n.y;
-            normalData[i * 3 + 2] = n.z;
-        }
-
-        oidn::FilterRef filter = device.newFilter("RT");
-        filter.setImage("color",  colorBuf,  oidn::Format::Float3, camera->width, camera->height);
-        filter.setImage("albedo", albedoBuf, oidn::Format::Float3, camera->width, camera->height);
-        filter.setImage("normal", normalBuf, oidn::Format::Float3, camera->width, camera->height);
-        filter.setImage("output", outputBuf, oidn::Format::Float3, camera->width, camera->height);
-        filter.set("hdr", true);
-        filter.commit();
-        filter.execute();
-
-        const char* errorMessage = nullptr;
-        if (device.getError(errorMessage) != oidn::Error::None) {
-            throw std::runtime_error(std::string("OIDN denoiser failed: ") + (errorMessage ? errorMessage : "unknown error"));
-        }
-
-        const float* outputData = static_cast<const float*>(outputBuf.getData());
-        for (size_t i = 0; i < pixelCount; ++i) {
-            const float r = outputData[i * 3];
-            const float g = outputData[i * 3 + 1];
-            const float b = outputData[i * 3 + 2];
-            camera->pixels[i] = Vec3(
-                std::isfinite(r) ? std::max(r, 0.0f) : 0.0f,
-                std::isfinite(g) ? std::max(g, 0.0f) : 0.0f,
-                std::isfinite(b) ? std::max(b, 0.0f) : 0.0f
-            );
-        }
-#else
-        // Graceful fallback: OIDN requested but not available in this build.
-#endif
-    }
 public:
     void loadTexture(const std::string& name, py::array_t<float> imageData, int width, int height,
                      const std::string& coordMode = "UV") {
@@ -569,16 +479,13 @@ public:
         renderer.setTransparentGlass(use);
     }
 
-    void setUseDenoiser(bool use) {
-        useDenoiser = use;
+    void addPass(const std::string& passName) {
+        astroray::ParamDict p;
+        renderer.addPass(astroray::PassRegistry::instance().create(passName, p));
     }
 
-    void setDenoiserType(const std::string& type) {
-        std::string key = type;
-        for (char& c : key) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        if (key == "NONE") denoiserType = DenoiserType::None;
-        else if (key == "OIDN") denoiserType = DenoiserType::OIDN;
-        else throw std::runtime_error("Unknown denoiser type: " + type);
+    void clearPasses() {
+        renderer.clearPasses();
     }
     
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true,
@@ -610,8 +517,6 @@ public:
             renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false,
                             diffuseBounces, glossyBounces, transmissionBounces, volumeBounces, transparentBounces);
         }
-
-        applyDenoiseIfEnabled();
 
         // Package pixels into numpy array (height, width, 3)
         py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height),
@@ -901,8 +806,6 @@ public:
         textureManager = TextureManager();
         envMap.reset();
         useGPU = false;
-        useDenoiser = false;
-        denoiserType = DenoiserType::None;
 #ifdef ASTRORAY_CUDA_ENABLED
         cudaRenderer.reset();
 #endif
@@ -964,8 +867,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
         .def("set_use_transparent_film", &PyRenderer::setUseTransparentFilm, "use"_a)
         .def("set_transparent_glass", &PyRenderer::setTransparentGlass, "use"_a)
-        .def("set_use_denoiser", &PyRenderer::setUseDenoiser, "use"_a)
-        .def("set_denoiser_type", &PyRenderer::setDenoiserType, "type"_a)
+        .def("add_pass", &PyRenderer::addPass, "name"_a)
+        .def("clear_passes", &PyRenderer::clearPasses)
         .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a,
              "progress_callback"_a = py::none(), "apply_gamma"_a = true,
              "diffuse_bounces"_a = -1, "glossy_bounces"_a = -1, "transmission_bounces"_a = -1,
@@ -1001,6 +904,9 @@ PYBIND11_MODULE(astroray, m) {
     });
     m.def("integrator_registry_names", []() {
         return astroray::IntegratorRegistry::instance().names();
+    });
+    m.def("pass_registry_names", []() {
+        return astroray::PassRegistry::instance().names();
     });
     m.attr("__version__") = "3.0.0";
     m.attr("__features__") = py::dict(

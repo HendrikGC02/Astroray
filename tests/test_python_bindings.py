@@ -1492,7 +1492,7 @@ def _build_denoiser_test_scene(renderer, width=96, height=72):
     setup_camera(renderer, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=width, height=height)
 
 
-def test_denoiser_none_matches_baseline_output():
+def test_no_pass_matches_baseline_output():
     r_base = create_renderer()
     r_base.set_seed(1337)
     _build_denoiser_test_scene(r_base)
@@ -1501,19 +1501,17 @@ def test_denoiser_none_matches_baseline_output():
     r_none = create_renderer()
     r_none.set_seed(1337)
     _build_denoiser_test_scene(r_none)
-    r_none.set_use_denoiser(True)
-    r_none.set_denoiser_type("None")
-    denoiser_none = render_image(r_none, samples=8, apply_gamma=False)
+    # No passes added — output must be identical to baseline
+    no_pass = render_image(r_none, samples=8, apply_gamma=False)
 
-    assert np.array_equal(base, denoiser_none), "Denoiser type 'None' should preserve current output exactly"
+    assert np.array_equal(base, no_pass), "No pass added should preserve output exactly"
 
 
-def test_oidn_denoiser_mode_is_finite_or_gracefully_ignored():
+def test_oidn_denoiser_pass_is_finite_or_gracefully_ignored():
     r_oidn = create_renderer()
     r_oidn.set_seed(4242)
     _build_denoiser_test_scene(r_oidn)
-    r_oidn.set_use_denoiser(True)
-    r_oidn.set_denoiser_type("OIDN")
+    r_oidn.add_pass("oidn_denoiser")
     denoised = render_image(r_oidn, samples=8, apply_gamma=False)
     assert_valid_image(denoised, 72, 96, min_mean=0.01, label='oidn_denoised_or_fallback')
 

@@ -82,6 +82,8 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         description="Light transport integrator (from plugin registry)",
         items=_integrator_type_items,
     )
+    use_denoising: BoolProperty(name="Denoise", default=False,
+        description="Apply OIDN denoiser as a post-process pass after rendering")
 
 def _material_type_items(self, context):
     if RAYTRACER_AVAILABLE:
@@ -220,6 +222,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
             start_time = time.time()
             renderer.set_integrator(settings.integrator_type)
+            if settings.use_denoising:
+                renderer.add_pass("oidn_denoiser")
             pixels = renderer.render(
                 settings.samples, settings.max_bounces, progress_callback, False,
                 settings.diffuse_bounces, settings.glossy_bounces,

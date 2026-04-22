@@ -1419,9 +1419,34 @@ public:
     float getLensRadius() const { return lensRadius; }
 };
 
+// Named-buffer view over Camera's pixel data, passed to Pass::execute().
+class Framebuffer {
+    Camera* cam_;
+public:
+    explicit Framebuffer(Camera& cam) : cam_(&cam) {}
+    int width()  const { return cam_->width; }
+    int height() const { return cam_->height; }
+
+    float* buffer(const std::string& name) {
+        if (name == "color")  return reinterpret_cast<float*>(cam_->pixels.data());
+        if (name == "albedo") return reinterpret_cast<float*>(cam_->albedoBuffer.data());
+        if (name == "normal") return reinterpret_cast<float*>(cam_->normalBuffer.data());
+        if (name == "depth")  return cam_->depthBuffer.data();
+        return nullptr;
+    }
+    const float* buffer(const std::string& name) const {
+        return const_cast<Framebuffer*>(this)->buffer(name);
+    }
+    bool hasBuffer(const std::string& name) const {
+        return buffer(name) != nullptr;
+    }
+};
+
 // ============================================================================
 // RENDERER WITH NEE AND MIS - FIX: Proper emission handling
 // ============================================================================
+
+class Pass; // defined in astroray/pass.h, included below
 
 class Renderer {
     std::vector<std::shared_ptr<Hittable>> scene;
@@ -1449,6 +1474,7 @@ class Renderer {
     Vec3 worldVolumeColor = Vec3(1.0f);
     float worldVolumeAnisotropy = 0.0f;
     std::shared_ptr<Integrator> integrator_;
+    std::vector<std::shared_ptr<Pass>> passes_;
 
     Vec3 clampLuminance(const Vec3& c, float maxLum) const {
         if (maxLum <= 0.0f) return c;
@@ -1470,6 +1496,8 @@ class Renderer {
     
 public:
     void setIntegrator(std::shared_ptr<Integrator> i) { integrator_ = std::move(i); }
+    void addPass(std::shared_ptr<Pass> p)  { passes_.push_back(std::move(p)); }
+    void clearPasses()                      { passes_.clear(); }
 
     // Full-path trace: returns color plus AOVs and render passes in a SampleResult.
     // Used by PathTracer::sampleFull to route through the existing path-tracing kernel.
@@ -1531,6 +1559,7 @@ public:
         worldVolumeColor = Vec3(1.0f);
         worldVolumeAnisotropy = 0.0f;
         integrator_.reset();
+        passes_.clear();
     }
 
     // Returns a sub-pixel jitter offset in [0,1) shaped by the reconstruction filter.
@@ -2008,6 +2037,8 @@ void render(Camera& cam, int maxSamples, int maxDepth,
 // circular dependency: integrator.h includes raytracer.h (no-op here), and
 // Integrator is fully defined before Renderer::render() is compiled below.
 #include "astroray/integrator.h"
+// Same pattern for pass.h: Framebuffer wraps Camera which must be defined first.
+#include "astroray/pass.h"
 
 inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             std::function<void(float)> progress, bool adaptive, bool applyGamma,
@@ -2176,5 +2207,10 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             }
         }
         if (integrator_) integrator_->endFrame();
+        if (!passes_.empty()) {
+            Framebuffer fb(cam);
+            for (auto& pass : passes_)
+                pass->execute(fb);
+        }
 }
 

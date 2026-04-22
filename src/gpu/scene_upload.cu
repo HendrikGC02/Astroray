@@ -4,6 +4,7 @@
 
 #include "astroray/gpu_scene_upload.h"
 #include "astroray/gpu_types.h"
+#include "astroray/shapes.h"
 #include "raytracer.h"
 #include "advanced_features.h"
 
@@ -70,38 +71,19 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         g.type = GMAT_LAMBERTIAN;
         Vec3 a = l->getAlbedo();
         g.baseColor = GVec3(a.x, a.y, a.z);
-    } else if (auto* dl = dynamic_cast<DiffuseLight*>(mat.get())) {
+    } else if (mat->isEmissive()) {
         g.type = GMAT_DIFFUSE_LIGHT;
-        Vec3 em = dl->getEmission();
+        Vec3 em = mat->getEmission();
         // Store color and intensity separately: emissionIntensity=1, baseColor=full emission
         g.baseColor = GVec3(em.x, em.y, em.z);
         g.emissionIntensity = 1.f;
-    } else if (auto* dis = dynamic_cast<DisneyBRDF*>(mat.get())) {
-        g.type          = GMAT_DISNEY;
-        Vec3 bc         = dis->getBaseColor();
-        g.baseColor     = GVec3(bc.x, bc.y, bc.z);
-        g.roughness     = dis->getRoughness();
-        g.metallic      = dis->getMetallic();
-        g.ior           = dis->getIOR();
-        g.transmission  = dis->getTransmission();
-        g.clearcoat     = dis->getClearcoat();
-        g.clearcoatGloss = dis->getClearcoatGloss();
-        g.specular      = dis->getSpecular();
-        g.specularTint  = dis->getSpecularTint();
-        g.sheen         = dis->getSheen();
-        g.sheenTint     = dis->getSheenTint();
-        g.subsurface    = dis->getSubsurface();
-        g.anisotropic   = dis->getAnisotropic();
-        g.anisotropicRotation = dis->getAnisotropicRotation();
-    } else if (auto* m = dynamic_cast<Metal*>(mat.get())) {
-        g.type = GMAT_METAL;
-        Vec3 a = m->getAlbedo();
-        g.baseColor = GVec3(a.x, a.y, a.z);
-        g.roughness = m->getRoughness();
-    } else if (auto* d = dynamic_cast<Dielectric*>(mat.get())) {
+    } else if (mat->isTransmissive()) {
         g.type = GMAT_DIELECTRIC;
         g.baseColor = GVec3(1.f);
-        g.ior = d->getIOR();
+    } else if (mat->isGlossy()) {
+        g.type = GMAT_METAL;
+        Vec3 a = mat->getAlbedo();
+        g.baseColor = GVec3(a.x, a.y, a.z);
     } else {
         // Unknown: treat as grey Lambertian
         g.type = GMAT_LAMBERTIAN;

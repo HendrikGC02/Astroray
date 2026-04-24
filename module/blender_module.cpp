@@ -2,6 +2,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 #include <pybind11/functional.h>
+#include <pybind11/operators.h>
 #include <cctype>
 #include <cmath>
 #include "raytracer.h"
@@ -11,6 +12,7 @@
 #include "astroray/register.h"
 #include "astroray/integrator.h"
 #include "astroray/pass.h"
+#include "astroray/spectrum.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
 #endif
@@ -908,6 +910,131 @@ PYBIND11_MODULE(astroray, m) {
     m.def("pass_registry_names", []() {
         return astroray::PassRegistry::instance().names();
     });
+
+    // -----------------------------------------------------------------
+    // Pillar 2 spectral core (pkg10). Scaffolding types — not consumed
+    // by the render loop yet; exposed so pytest can exercise them.
+    // -----------------------------------------------------------------
+    py::class_<astroray::XYZ>(m, "XYZ")
+        .def(py::init<>())
+        .def_readwrite("X", &astroray::XYZ::X)
+        .def_readwrite("Y", &astroray::XYZ::Y)
+        .def_readwrite("Z", &astroray::XYZ::Z)
+        .def("as_tuple", [](const astroray::XYZ& v) {
+            return py::make_tuple(v.X, v.Y, v.Z);
+        });
+
+    py::class_<astroray::SampledWavelengths>(m, "SampledWavelengths")
+        .def(py::init<>())
+        .def_static("sample_uniform",
+                    &astroray::SampledWavelengths::sampleUniform,
+                    "u"_a,
+                    "lambda_min"_a = astroray::kLambdaMin,
+                    "lambda_max"_a = astroray::kLambdaMax)
+        .def("lambda_", &astroray::SampledWavelengths::lambda, "i"_a)
+        .def("pdf",     &astroray::SampledWavelengths::pdf,    "i"_a)
+        .def("lambdas", [](const astroray::SampledWavelengths& w) {
+            return std::vector<float>(w.lambdas().begin(), w.lambdas().end());
+        })
+        .def("pdfs", [](const astroray::SampledWavelengths& w) {
+            return std::vector<float>(w.pdfs().begin(), w.pdfs().end());
+        })
+        .def("terminate_secondary", &astroray::SampledWavelengths::terminateSecondary)
+        .def("secondary_terminated", &astroray::SampledWavelengths::secondaryTerminated);
+
+    py::class_<astroray::SampledSpectrum>(m, "SampledSpectrum")
+        .def(py::init<>())
+        .def(py::init<float>(), "v"_a)
+        .def(py::init([](const std::vector<float>& v) {
+            if (v.size() != static_cast<std::size_t>(astroray::kSpectrumSamples)) {
+                throw std::runtime_error(
+                    "SampledSpectrum requires exactly "
+                    + std::to_string(astroray::kSpectrumSamples) + " values");
+            }
+            std::array<float, astroray::kSpectrumSamples> a{};
+            for (int i = 0; i < astroray::kSpectrumSamples; ++i) a[i] = v[i];
+            return astroray::SampledSpectrum(a);
+        }), "values"_a)
+        .def("__getitem__", [](const astroray::SampledSpectrum& s, int i) {
+            if (i < 0 || i >= astroray::kSpectrumSamples) throw py::index_error();
+            return s[i];
+        })
+        .def("__setitem__", [](astroray::SampledSpectrum& s, int i, float v) {
+            if (i < 0 || i >= astroray::kSpectrumSamples) throw py::index_error();
+            s[i] = v;
+        })
+        .def("__len__", [](const astroray::SampledSpectrum&) { return astroray::kSpectrumSamples; })
+        .def("values", [](const astroray::SampledSpectrum& s) {
+            return std::vector<float>(s.values().begin(), s.values().end());
+        })
+        .def("sum",       &astroray::SampledSpectrum::sum)
+        .def("average",   &astroray::SampledSpectrum::average)
+        .def("max_value", &astroray::SampledSpectrum::maxValue)
+        .def("min_value", &astroray::SampledSpectrum::minValue)
+        .def("has_nan",   &astroray::SampledSpectrum::hasNaN)
+        .def("is_zero",   &astroray::SampledSpectrum::isZero)
+        .def("to_xyz",    &astroray::SampledSpectrum::toXYZ, "wavelengths"_a)
+        .def(py::self + py::self)
+        .def(py::self - py::self)
+        .def(py::self * py::self)
+        .def(py::self / py::self)
+        .def(py::self * float())
+        .def(py::self / float())
+        .def(float() * py::self)
+        .def(py::self == py::self);
+
+    py::class_<astroray::RGBAlbedoSpectrum>(m, "RGBAlbedoSpectrum")
+        .def(py::init<>())
+        .def(py::init([](const std::array<float, 3>& rgb) {
+            return astroray::RGBAlbedoSpectrum(rgb);
+        }), "rgb"_a)
+        .def("sample", &astroray::RGBAlbedoSpectrum::sample, "wavelengths"_a)
+        .def("eval_at", &astroray::RGBAlbedoSpectrum::evalAt, "lambda"_a)
+        .def("coeffs", [](const astroray::RGBAlbedoSpectrum& s) {
+            auto c = s.coeffs();
+            return std::vector<float>(c.begin(), c.end());
+        });
+
+    py::class_<astroray::RGBUnboundedSpectrum>(m, "RGBUnboundedSpectrum")
+        .def(py::init<>())
+        .def(py::init([](const std::array<float, 3>& rgb) {
+            return astroray::RGBUnboundedSpectrum(rgb);
+        }), "rgb"_a)
+        .def("sample",  &astroray::RGBUnboundedSpectrum::sample,  "wavelengths"_a)
+        .def("eval_at", &astroray::RGBUnboundedSpectrum::evalAt, "lambda"_a)
+        .def_property_readonly("scale", &astroray::RGBUnboundedSpectrum::scale);
+
+    py::class_<astroray::RGBIlluminantSpectrum>(m, "RGBIlluminantSpectrum")
+        .def(py::init<>())
+        .def(py::init([](const std::array<float, 3>& rgb) {
+            return astroray::RGBIlluminantSpectrum(rgb);
+        }), "rgb"_a)
+        .def("sample",  &astroray::RGBIlluminantSpectrum::sample,  "wavelengths"_a)
+        .def("eval_at", &astroray::RGBIlluminantSpectrum::evalAt, "lambda"_a)
+        .def_property_readonly("scale", &astroray::RGBIlluminantSpectrum::scale);
+
+    m.def("rgb_to_spectrum",
+          [](const std::array<float, 3>& rgb,
+             const std::vector<float>& wavelengths) {
+              astroray::RGBAlbedoSpectrum rsp(rgb);
+              std::vector<float> out;
+              out.reserve(wavelengths.size());
+              for (float lam : wavelengths) out.push_back(rsp.evalAt(lam));
+              return out;
+          },
+          "rgb"_a, "wavelengths"_a,
+          "Upsample an sRGB colour to reflectance samples at the given "
+          "wavelengths via the Jakob-Hanika 2019 LUT.");
+
+    m.def("sample_d65", &astroray::sampleD65, "lambda"_a);
+    m.def("cie_cmf_1964_10deg", &astroray::cieCmf1964_10deg, "lambda"_a);
+    m.def("spectrum_lut_path", &astroray::spectrumLutPath,
+          "Absolute path of the Jakob-Hanika sRGB coefficient LUT in use.");
+
+    m.attr("kSpectrumSamples") = astroray::kSpectrumSamples;
+    m.attr("kLambdaMin")       = astroray::kLambdaMin;
+    m.attr("kLambdaMax")       = astroray::kLambdaMax;
+
     m.attr("__version__") = "3.0.0";
     m.attr("__features__") = py::dict(
         "nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,

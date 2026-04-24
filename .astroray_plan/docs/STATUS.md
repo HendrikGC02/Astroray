@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-04-22 (pkg06 complete)
+**Last updated:** 2026-04-24 (pkg10 complete — Pillar 2 scaffolding in place)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -17,7 +17,7 @@ personally should pick up.
 | # | Name | Status | % | Next milestone | Blocked on |
 |---|---|---|---|---|---|
 | 1 | Plugin architecture | **Done** | 100% | — | — |
-| 2 | Spectral core | **Ready to start** | 0% | Spectral types (pkg10) | ~~Pillar 1~~ |
+| 2 | Spectral core | **In progress** | ~20% | Spectral path tracer (pkg11) | ~~Pillar 1~~ |
 | 3 | Light transport | Queued | 0% | — | Pillars 1, 2 |
 | 4 | Astrophysics platform | Queued | 0% | Kerr | Pillars 1, 2 |
 | 5 | Production polish | Ongoing | — | OpenEXR output | — |
@@ -33,6 +33,16 @@ personally should pick up.
 | pkg05 | Integrator interface | done |
 | pkg06 | Pass registry | done |
 
+**Pillar 2 package summary:**
+
+| Package | Description | Status |
+|---|---|---|
+| pkg10 | Spectral types (scaffolding) | done |
+| pkg11 | Spectral path tracer | queued |
+| pkg12 | Migrate materials to spectral | queued |
+| pkg13 | Migrate remaining materials + textures to spectral | queued |
+| pkg14 | Spectral environment map | queued |
+
 ---
 
 ## This week
@@ -41,8 +51,8 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Package in flight: none (pkg06 done — Pillar 1 complete)
-- Next session goal: Begin Pillar 2 — spectral types (pkg10)
+- Package in flight: none (pkg10 done — Pillar 2 scaffolding in place)
+- Next session goal: Spectral path tracer (pkg11) — first consumer of the pkg10 types
 
 ### Track B (Copilot cloud)
 
@@ -66,6 +76,7 @@ personally should pick up.
 
 | Date | PR | Track | Pillar | Description |
 |---|---|---|---|---|
+| 2026-04-24 | pkg10-spectral-types | A | 2 | Spectral scaffolding: `SampledWavelengths`, `SampledSpectrum`, three `RGB*Spectrum` upsamplers over a shipped Jakob-Hanika LUT, CIE 1964 10° CMF + D65 SPD, Python bindings, 189 tests (+20 new). No integration — renderer is untouched. |
 | 2026-04-22 | feat/pkg06-pass-registry | A | 1 | Pass registry; OIDN + 3 AOV plugins; Framebuffer API; add_pass/clear_passes bindings; 169 tests passing. **Pillar 1 complete.** |
 | 2026-04-22 | feat/pkg05-integrator-interface | A | 1 | Integrator base class, PathTracer + AO plugins, Blender UI selector; 165 tests passing |
 | 2026-04-21 | feat/pkg04-migrate-textures-shapes | A | 1 | Migrate 9 textures + 5 shapes to plugin files; 161 tests passing |
@@ -77,7 +88,7 @@ personally should pick up.
 
 | Package | Track | Status | Blocker |
 |---|---|---|---|
-| pkg10-spectral-types | A | queued | — |
+| pkg11-spectral-path-tracer | A | queued | — |
 
 ---
 
@@ -97,6 +108,7 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-04-24** — pkg10 merged: Pillar 2 scaffolding. New `include/astroray/spectrum.h` defines `SampledWavelengths`, `SampledSpectrum`, `RGBAlbedoSpectrum`, `RGBUnboundedSpectrum`, `RGBIlluminantSpectrum` (float, 4 samples, 360-830 nm). `src/spectrum.cpp` loads the shipped Jakob-Hanika sRGB LUT lazily from `data/spectra/rgb_to_spectrum_srgb.coeff` and embeds the CIE 1964 10° CMF and D65 SPD as `constexpr` tables. New `astroray_core_impl` CMake target; `ASTRORAY_DATA_DIR` compile definition + env-var override for runtime data discovery. Python bindings expose every type plus a top-level `rgb_to_spectrum()` helper. No integration into any material, integrator, pass, or env map — that is pkg11+. Test suite: 189 passed, 1 skipped (20 new spectrum tests).
 - **2026-04-22** — pkg06 merged: Pass registry closes Pillar 1. `Pass` abstract base + `Framebuffer` named-buffer API in `include/astroray/pass.h` / `raytracer.h`. Five plugins in `plugins/passes/` (OIDN denoiser, depth/normal/albedo AOV). `add_pass`/`clear_passes` Python bindings. `pass_registry_names()` module function. Blender `use_denoising` property wired to `add_pass("oidn_denoiser")`. Inline OIDN code removed from `blender_module.cpp`. Test suite: 169 passed, 1 skipped.
 - **2026-04-22** — pkg05 merged: `Integrator` abstract base class in `include/astroray/integrator.h`; PathTracer and AmbientOcclusion plugins in `plugins/integrators/`; `SampleResult` + `Renderer::traceFull()` for AOV preservation; `set_integrator` Python binding + `integrator_registry_names()`; Blender `integrator_type` EnumProperty wired into render. Test suite: 165 passed, 1 skipped.
 - **2026-04-21** — pkg04 merged: 9 texture plugin files + 5 shape plugin files. `Sphere`/`Triangle` bodies moved to `include/astroray/shapes.h`. Python bindings `sample_texture()`, `texture_registry_names()`, `shape_registry_names()` added. Test suite: 161 passed, 1 skipped.

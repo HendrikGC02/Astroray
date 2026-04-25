@@ -66,6 +66,12 @@ public:
         return baseMaterial_->eval(perturbNormal(rec), wo, wi);
     }
 
+    astroray::SampledSpectrum evalSpectral(
+            const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+            const astroray::SampledWavelengths& lambdas) const override {
+        return baseMaterial_->evalSpectral(perturbNormal(rec), wo, wi, lambdas);
+    }
+
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         return baseMaterial_->sample(perturbNormal(rec), wo, gen);
     }

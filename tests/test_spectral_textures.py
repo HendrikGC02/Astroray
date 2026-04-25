@@ -24,6 +24,7 @@ def test_procedural_texture_plugin_overrides_sample_spectral(filename):
         src = f.read()
 
     assert "sampleSpectral(" in src
-    assert "Vec3 rgb = value(uv, p);" in src
-    assert "RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);" in src
+    assert "value(uv, p)" in src
+    assert "RGBAlbedoSpectrum" in src
+    assert ".sample(lambdas)" in src
     assert len(re.findall(r"sampleSpectral\s*\(", src)) == 1

@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-04-24 (pkg10 complete — Pillar 2 scaffolding in place)
+**Last updated:** 2026-04-25 (pkg11 complete — first spectral integrator opt-in)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -17,7 +17,7 @@ personally should pick up.
 | # | Name | Status | % | Next milestone | Blocked on |
 |---|---|---|---|---|---|
 | 1 | Plugin architecture | **Done** | 100% | — | — |
-| 2 | Spectral core | **In progress** | ~20% | Spectral path tracer (pkg11) | ~~Pillar 1~~ |
+| 2 | Spectral core | **In progress** | ~40% | Spectral Lambertian (pkg12) | ~~Pillar 1~~ |
 | 3 | Light transport | Queued | 0% | — | Pillars 1, 2 |
 | 4 | Astrophysics platform | Queued | 0% | Kerr | Pillars 1, 2 |
 | 5 | Production polish | Ongoing | — | OpenEXR output | — |
@@ -38,7 +38,7 @@ personally should pick up.
 | Package | Description | Status |
 |---|---|---|
 | pkg10 | Spectral types (scaffolding) | done |
-| pkg11 | Spectral path tracer | queued |
+| pkg11 | Spectral path tracer | done |
 | pkg12 | Migrate materials to spectral | queued |
 | pkg13 | Migrate remaining materials + textures to spectral | queued |
 | pkg14 | Spectral environment map | queued |
@@ -51,8 +51,8 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Package in flight: none (pkg10 done — Pillar 2 scaffolding in place)
-- Next session goal: Spectral path tracer (pkg11) — first consumer of the pkg10 types
+- Package in flight: none (pkg11 done — first spectral integrator opt-in)
+- Next session goal: Spectral Lambertian (pkg12) — first concrete `evalSpectral` override
 
 ### Track B (Copilot cloud)
 
@@ -76,6 +76,7 @@ personally should pick up.
 
 | Date | PR | Track | Pillar | Description |
 |---|---|---|---|---|
+| 2026-04-25 | pkg11-spectral-path-tracer | A | 2 | Spectral path tracer plugin (`set_integrator("spectral_path_tracer")`), `IntegratorKind` enum, `Material::evalSpectral`/`emittedSpectral` defaults via Jakob-Hanika upsample, `Renderer::pathTraceSpectral` helper + XYZ accumulator + single sRGB conversion. Cornell A/B match within ~3% per channel; 1.34× wall-clock vs RGB. Legacy `path` integrator stays the default. 193 tests (+4 new). |
 | 2026-04-24 | pkg10-spectral-types | A | 2 | Spectral scaffolding: `SampledWavelengths`, `SampledSpectrum`, three `RGB*Spectrum` upsamplers over a shipped Jakob-Hanika LUT, CIE 1964 10° CMF + D65 SPD, Python bindings, 189 tests (+20 new). No integration — renderer is untouched. |
 | 2026-04-22 | feat/pkg06-pass-registry | A | 1 | Pass registry; OIDN + 3 AOV plugins; Framebuffer API; add_pass/clear_passes bindings; 169 tests passing. **Pillar 1 complete.** |
 | 2026-04-22 | feat/pkg05-integrator-interface | A | 1 | Integrator base class, PathTracer + AO plugins, Blender UI selector; 165 tests passing |

@@ -89,7 +89,7 @@ to review side by side.
 | `include/astroray/texture.h` *(or wherever `Texture` lives)* | Add `virtual SampledSpectrum sampleSpectral(const Vec2& uv, const SampledWavelengths& lambdas) const` with default fallback (call `sample(uv)`, upsample via `RGBAlbedoSpectrum`). |
 | `data/spectra/iors/dielectrics.inc` | `constexpr` Sellmeier coefficients for shipped glass presets (BK7, fused silica, water). |
 | `data/spectra/iors/metals.inc` | `constexpr` (λ, n, k) tables for gold, silver, copper, aluminium at 1 nm step over 360–830 nm. |
-| `tests/test_spectral_materials.py` | pytest: every material's `evalSpectral` matches the pkg11 default fallback ≤1e-5 for non-physics materials; Dielectric prism produces non-zero R/G/B angular spread; Metal gold reflectance peak in the 550–600 nm band; image-texture spectral cache returns identical results across multiple lookups. |
+| `tests/test_spectral_materials.py` | pytest: every material's `evalSpectral` matches the pkg11 default fallback ≤1e-5 for non-physics materials; Dielectric prism produces non-zero R/G/B angular spread (**this is the prism/dispersion test originally scoped for pkg11 and deferred here, since wavelength-dependent IOR is the only way to get direction-spread dispersion** — also build the prism scene under `tests/scenes/`); Metal gold reflectance peak in the 550–600 nm band; image-texture spectral cache returns identical results across multiple lookups. |
 | `tests/test_spectral_textures.py` | pytest: every texture's `sampleSpectral` matches its `sample` upsampled, except procedurals where it's an exact match by construction. |
 | `scripts/generate_iors.py` | Repeatable script that writes `dielectrics.inc` / `metals.inc` from the upstream sources. Documents the pinned source URLs. |
 

@@ -18,6 +18,7 @@
 #include <string>
 #include <unordered_map>
 #include "stb_image.h"
+#include "astroray/spectrum.h"
 
 // Forward declaration needed by HitRecord
 class Hittable;
@@ -482,6 +483,25 @@ public:
     virtual bool isTransmissive() const { return false; }
     virtual bool isGlossy() const { return false; }
     virtual Vec3 getAlbedo() const { return Vec3(0.5f); }
+
+    // Pillar 2 spectral hooks. Defaults Jakob-Hanika upsample the RGB result
+    // so that pkg11 ships a runnable spectral path before any concrete
+    // material implements a wavelength-dependent BSDF (pkg12 onward).
+    virtual astroray::SampledSpectrum evalSpectral(
+            const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+            const astroray::SampledWavelengths& lambdas) const {
+        Vec3 rgb = eval(rec, wo, wi);
+        return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+    }
+    virtual astroray::SampledSpectrum emittedSpectral(
+            const HitRecord& rec,
+            const astroray::SampledWavelengths& lambdas) const {
+        Vec3 rgb = emitted(rec);
+        if (rgb.x == 0.0f && rgb.y == 0.0f && rgb.z == 0.0f) {
+            return astroray::SampledSpectrum(0.0f);
+        }
+        return astroray::RGBIlluminantSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+    }
 };
 
 class Lambertian : public Material {
@@ -1474,6 +1494,7 @@ class Renderer {
     Vec3 worldVolumeColor = Vec3(1.0f);
     float worldVolumeAnisotropy = 0.0f;
     std::shared_ptr<Integrator> integrator_;
+    bool spectralMode_ = false;  // true when integrator_->kind() == IntegratorKind::Spectral
     std::vector<std::shared_ptr<Pass>> passes_;
 
     Vec3 clampLuminance(const Vec3& c, float maxLum) const {
@@ -1495,8 +1516,11 @@ class Renderer {
     }
     
 public:
-    void setIntegrator(std::shared_ptr<Integrator> i) { integrator_ = std::move(i); }
+    // Definition deferred to below the integrator.h include — it reads
+    // the integrator's kind() virtual and that needs Integrator's full type.
+    void setIntegrator(std::shared_ptr<Integrator> i);
     void addPass(std::shared_ptr<Pass> p)  { passes_.push_back(std::move(p)); }
+    bool spectralMode() const { return spectralMode_; }
     void clearPasses()                      { passes_.clear(); }
 
     // Full-path trace: returns color plus AOVs and render passes in a SampleResult.
@@ -2005,7 +2029,123 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
         if (passOut) *passOut = passAccum;
         return color;
     }
-    
+
+    // Pillar 2 spectral path tracer kernel. Mirrors pathTrace() but uses
+    // SampledSpectrum for radiance and throughput, with material lookups
+    // via evalSpectral / emittedSpectral. Pkg11 ships a focused subset of
+    // the RGB pathTrace's features: BVH traversal, area-light NEE with MIS,
+    // emission gating (wasSpecular || bounce==0), Russian roulette after
+    // depth 3, and BSDF sampling via the wavelength-independent sample()
+    // (dispersive sampling lands in pkg13).
+    //
+    // GR-object dispatch, AOV passes, glossy filter, caustic filtering,
+    // volumes, and per-closure bounce limits are deliberately NOT replicated
+    // here; the spectral integrator is opt-in and only the Cornell-class
+    // A/B match is in scope for pkg11. Future packages can fold those in.
+    astroray::SampledSpectrum pathTraceSpectral(
+            const Ray& r, int maxDepth,
+            const astroray::SampledWavelengths& lambdas,
+            std::mt19937& gen) {
+        const int rrDepth = 3;
+        astroray::SampledSpectrum color(0.0f);
+        astroray::SampledSpectrum throughput(1.0f);
+        Ray ray = r;
+        bool wasSpecular = true;
+        std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
+
+        for (int bounce = 0; bounce < maxDepth; ++bounce) {
+            HitRecord rec;
+            if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
+                if (bounce <= worldMaxBounces && (bounce == 0 || wasSpecular)) {
+                    Vec3 envColor;
+                    if (envMap && envMap->loaded()) {
+                        envColor = envMap->lookup(ray.direction.normalized());
+                    } else if (backgroundColor.x >= 0) {
+                        envColor = backgroundColor;
+                    } else {
+                        float t = 0.5f * (ray.direction.normalized().y + 1.0f);
+                        envColor = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
+                    }
+                    astroray::SampledSpectrum envSpec =
+                        astroray::RGBIlluminantSpectrum({envColor.x, envColor.y, envColor.z}).sample(lambdas);
+                    color += throughput * envSpec;
+                }
+                break;
+            }
+            // Skip GR objects entirely in pkg11 (Cornell scope).
+            if (rec.hitObject && rec.hitObject->isGRObject()) break;
+            if (!rec.material) break;
+
+            // Emission (gated on camera ray or post-specular bounce).
+            astroray::SampledSpectrum Le_spec =
+                rec.material->emittedSpectral(rec, lambdas);
+            if (!Le_spec.isZero()) {
+                if (bounce == 0 || wasSpecular) {
+                    color += throughput * Le_spec;
+                }
+                break;
+            }
+
+            Vec3 wo = -ray.direction.normalized();
+
+            // Area-light NEE (MIS via power heuristic). Skipped on delta lobes.
+            if (!rec.isDelta && !lights.empty()) {
+                LightSample ls = lights.sample(rec.point, gen);
+                if (ls.pdf > 0) {
+                    Vec3 wi = (ls.position - rec.point).normalized();
+                    HitRecord shadow;
+                    bool hitOccluder = bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow);
+                    bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
+                    if (!occluded) {
+                        astroray::SampledSpectrum f_spec =
+                            rec.material->evalSpectral(rec, wo, wi, lambdas);
+                        astroray::SampledSpectrum L_spec =
+                            astroray::RGBIlluminantSpectrum({ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas);
+                        float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                        float a = ls.pdf, b = bsdfPdf;
+                        float wt = (a * a) / (a * a + b * b + 1e-8f);
+                        color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f));
+                    }
+                }
+            }
+
+            // Russian roulette on luminance of throughput's XYZ.
+            if (bounce > rrDepth) {
+                astroray::XYZ thrXYZ = throughput.toXYZ(lambdas);
+                float p = std::min(0.95f, std::max(0.0f, thrXYZ.Y));
+                if (dist01(gen) > p) break;
+                if (p > 0.0f) throughput = throughput * (1.0f / p);
+            }
+
+            // BSDF sample (direction + pdf are wavelength-independent in pkg11;
+            // pkg13 introduces sampleSpectral on dispersive materials).
+            BSDFSample bs = rec.material->sample(rec, wo, gen);
+            if (bs.pdf <= 0.0f) break;
+            astroray::SampledSpectrum f_bs =
+                rec.material->evalSpectral(rec, wo, bs.wi, lambdas);
+            wasSpecular = bs.isDelta;
+            // For delta lobes evalSpectral returns zero (RGB eval is zero on
+            // deltas); fall back to upsampling bs.f so specular materials
+            // still propagate radiance until pkg13 overrides.
+            if (bs.isDelta && f_bs.isZero()) {
+                f_bs = astroray::RGBAlbedoSpectrum({bs.f.x, bs.f.y, bs.f.z}).sample(lambdas);
+            }
+            throughput *= f_bs * (1.0f / (bs.pdf + 0.001f));
+
+            Ray next(rec.point, bs.wi, ray.time, ray.screenU, ray.screenV);
+            next.hasCameraFrame = ray.hasCameraFrame;
+            next.cameraOrigin = ray.cameraOrigin;
+            next.cameraU = ray.cameraU;
+            next.cameraV = ray.cameraV;
+            next.cameraW = ray.cameraW;
+            ray = next;
+
+            float maxC = throughput.maxValue();
+            if (maxC > 10.0f) throughput = throughput * (10.0f / maxC);
+        }
+        return color;
+    }
+
 public:
     void addObject(std::shared_ptr<Hittable> obj) {
         scene.push_back(obj);
@@ -2113,8 +2253,11 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                                  s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha,
                                                  &sDepth, &sPosition, &sUv, &sObjectIndex, &sMaterialIndex, &sPass);
                             }
-                            // Per-sample firefly suppression
-                            float sLum = luminance(sCol);
+                            // Per-sample firefly suppression. In spectral mode
+                            // sCol is XYZ and Y is photometric luminance; in
+                            // RGB mode use the standard sRGB luminance formula.
+                            // Threshold stays at 20.0f (image-character invariant).
+                            float sLum = spectralMode_ ? sCol.y : luminance(sCol);
                             if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
                             color += sCol;
                             for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
@@ -2157,6 +2300,11 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         passColor[PASS_VOLUME_INDIRECT] *= filmExposure;
                         passColor[PASS_EMISSION] *= filmExposure;
                         passColor[PASS_ENVIRONMENT] *= filmExposure;
+                        // Spectral mode: convert accumulated XYZ to linear sRGB
+                        // exactly once before gamma. RGB mode is unchanged.
+                        if (spectralMode_) {
+                            color = xyzToLinearSRGB(color);
+                        }
                         if (applyGamma) {
                             color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
                             color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
@@ -2212,5 +2360,12 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             for (auto& pass : passes_)
                 pass->execute(fb);
         }
+}
+
+// Out-of-line because it reads Integrator::kind(), which requires the full
+// Integrator type pulled in by the integrator.h include above.
+inline void Renderer::setIntegrator(std::shared_ptr<Integrator> i) {
+    spectralMode_ = (i && i->kind() == IntegratorKind::Spectral);
+    integrator_ = std::move(i);
 }
 

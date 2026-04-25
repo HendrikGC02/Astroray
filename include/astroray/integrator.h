@@ -4,12 +4,24 @@
 #include "astroray/param_dict.h"
 #include <random>
 
+// Discriminates RGB- vs spectral-native integrators. The Renderer reads
+// kind() once per setIntegrator() call to switch its per-pixel accumulator
+// between RGB and XYZ. pkg14 deletes this enum when the legacy RGB path
+// is removed.
+enum class IntegratorKind { RGB, Spectral };
+
 class Integrator {
 public:
     virtual ~Integrator() = default;
 
     // Returns RGB radiance. Called once per sample per pixel.
     virtual Vec3 sample(const Ray& cameraRay, std::mt19937& gen) = 0;
+
+    // Capability flag: spectral integrators advertise IntegratorKind::Spectral
+    // and must populate SampleResult::color with the XYZ projection of the
+    // path's spectral radiance. Default RGB keeps every existing plugin
+    // working unchanged.
+    virtual IntegratorKind kind() const { return IntegratorKind::RGB; }
 
     // Optional per-frame setup (reservoirs, cache warmup).
     virtual void beginFrame(Renderer&, const Camera&) {}

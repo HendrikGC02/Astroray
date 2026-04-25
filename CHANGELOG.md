@@ -8,6 +8,35 @@ All notable changes to this project will be documented in this file.
 
 ### Pillar 2 — Spectral core (in progress)
 
+- **pkg11** — Spectral path tracer (opt-in). New `spectral_path_tracer`
+  integrator plugin under `plugins/integrators/`, registered alongside
+  the legacy `path` and `ambient_occlusion`. Activated via
+  `r.set_integrator("spectral_path_tracer")`; the legacy `path` remains
+  the registry default (pkg14 will flip it). Adds `IntegratorKind` enum +
+  `Integrator::kind()` virtual; `Material::evalSpectral` and
+  `Material::emittedSpectral` virtuals with Jakob-Hanika upsampling
+  defaults so every existing material renders correctly under the spectral
+  path without per-material edits (concrete spectral overrides land in
+  pkg12+). New `Renderer::pathTraceSpectral` mirrors the legacy `pathTrace`
+  recursion but carries `SampledSpectrum` throughput, samples one hero
+  wavelength bundle per primary ray via `SampledWavelengths::sampleUniform`,
+  applies the same `wasSpecular || bounce==0` emission gate, MIS power
+  heuristic on area-light NEE, and Russian roulette after depth 3. The
+  `Renderer` now stores a `spectralMode_` flag (set from the integrator's
+  `kind()`); when active, the per-pixel accumulator stores XYZ, the per-
+  sample firefly clamp gates on Y instead of sRGB luminance (threshold
+  unchanged at 20.0), and a single `xyzToLinearSRGB` conversion happens
+  before gamma — preserving the "gamma once" invariant. Existing `Material`
+  signatures untouched; `plugins/materials/*.cpp` and `plugins/passes/*.cpp`
+  unchanged. Cornell box A/B at 32 spp matches RGB within ~3% per channel
+  (rel. delta `[0.012, 0.015, 0.028]`); spectral wall-clock 1.34× of RGB
+  on the same scene (well under the 1.5× pkg11 ceiling). Test suite: 193
+  passed, 1 skipped (4 new tests under `tests/test_spectral_path_tracer.py`,
+  including a Cornell A/B match assertion and PNG outputs in
+  `test_results/pkg11_cornell_*.png`). Conftest fix: prepend
+  `C:\Program Files\mingw64\bin` to PATH so subprocess-launched
+  `raytracer.exe` finds the modern libstdc++ ahead of Git Bash's older
+  copy. Prism / dispersion criterion deferred to pkg13.
 - **pkg10** — Spectral core scaffolding. New `include/astroray/spectrum.h`
   declares `SampledWavelengths`, `SampledSpectrum`, `RGBAlbedoSpectrum`,
   `RGBUnboundedSpectrum`, and `RGBIlluminantSpectrum` (float precision,

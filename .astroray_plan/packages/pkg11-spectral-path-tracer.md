@@ -2,7 +2,7 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 1 week (~3 sessions)
 **Depends on:** pkg10
 
@@ -161,24 +161,50 @@ a time, each step keeping the test suite green.
 
 ## Progress
 
-- [ ] Branch `pkg11-spectral-path-tracer` from `main`.
-- [ ] Add `evalSpectral` (and `emittedSpectral` if applicable) defaults
-      to `Material` interface with Jakob-Hanika upsample.
-- [ ] Wire `IntegratorKind` enum + `Renderer::spectralMode_` switch
+- [x] Branch `pkg11-spectral-path-tracer` from `main`.
+- [x] Add `evalSpectral` and `emittedSpectral` defaults to `Material`
+      with Jakob-Hanika upsample.
+- [x] Wire `IntegratorKind` enum + `Renderer::spectralMode_` switch
       and XYZ accumulator path.
-- [ ] Implement `plugins/integrators/spectral_path_tracer.cpp`.
-- [ ] Add Blender UI option for the spectral integrator.
-- [ ] Build a glass-prism reference scene under `tests/scenes/` (or
-      reuse an existing Cornell box variant) and capture pre-pkg11
-      baseline.
-- [ ] Write `tests/test_spectral_path_tracer.py`.
-- [ ] Run full pytest; render Cornell + prism A/B comparison.
-- [ ] Profile spectral vs RGB on Cornell — confirm ≤1.5× ratio.
-- [ ] Update STATUS.md, CHANGELOG.md.
-- [ ] Commit per granularity plan; push branch; open PR.
+- [x] Implement `plugins/integrators/spectral_path_tracer.cpp`.
+- [ ] ~~Add Blender UI option for the spectral integrator.~~ Auto-exposed
+      via existing `set_integrator(name)` binding from pkg05 — explicit
+      Blender UI dropdown deferred (no changes to `module/blender_module.cpp`).
+- [ ] ~~Build a glass-prism reference scene + capture pre-pkg11 baseline.~~
+      **Deferred to pkg13** (no dispersive material override in pkg11 —
+      direction-spread dispersion is physically impossible until a
+      wavelength-dependent dielectric ships).
+- [x] Write `tests/test_spectral_path_tracer.py` (4 tests).
+- [x] Run full pytest; render Cornell A/B comparison
+      (`test_results/pkg11_cornell_{rgb,spectral,diff_x5}.png`).
+- [x] Profile spectral vs RGB on Cornell — **1.34×** ratio (target 1.5×).
+- [x] Update STATUS.md, CHANGELOG.md.
+- [x] Commit; push branch; open PR.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- **The default `evalSpectral`/`emittedSpectral` fallback was the
+  load-bearing design choice.** It let pkg11 ship without touching a
+  single concrete material file, and the Cornell A/B match fell into
+  place at sub-3% per-channel delta on first run.
+- **Mirroring the bounce loop in `Renderer::pathTraceSpectral` paid off
+  over duplicating it inside the plugin.** Reused BVH access, lights,
+  envMap, worldTransmittance, etc.; the plugin file ended up at ~30
+  lines.
+- **`IntegratorKind` enum was the right call over `bool isSpectral()`
+  even though the latter would be one-line shorter.** Pkg14 still has to
+  remove all the call sites; the enum is no harder to grep for and
+  signals intent better. Cost was minimal.
+- **MinGW PATH order issue (Git Bash's older `mingw64/bin` first) was
+  unmasked by my changes** — new template instantiations in raytracer.h
+  needed libstdc++ symbols Git's older DLL lacks. Fixed in `conftest.py`
+  by promoting `C:\Program Files\mingw64\bin` to the front of PATH.
+  Worth flagging in a project README for new contributors.
+- **The spectral firefly clamp on XYZ Y vs sRGB luminance** was a
+  one-line branch in the per-pixel loop; threshold of 20.0f preserves
+  image character with no visible delta.
+- **Skipping GR-object dispatch + AOV passes + per-closure bounce limits
+  in `pathTraceSpectral` kept pkg11 surgical.** Cornell-class scenes are
+  served; later packages can fold those in if/when actually needed.

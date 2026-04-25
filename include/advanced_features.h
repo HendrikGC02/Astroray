@@ -92,6 +92,20 @@ public:
     }
     void setCoordMode(CoordMode mode) { coordMode = mode; }
     CoordMode getCoordMode() const { return coordMode; }
+
+    // Spectral hook (pkg13). Default upsamples the RGB value per-call.
+    virtual astroray::SampledSpectrum sampleSpectral(
+            const Vec2& uv, const Vec3& p,
+            const astroray::SampledWavelengths& lambdas) const {
+        Vec3 rgb = value(uv, p);
+        return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+    }
+    astroray::SampledSpectrum sampleSpectral(
+            const HitRecord& rec, const Vec3& wo,
+            const astroray::SampledWavelengths& lambdas) const {
+        auto [uv, p] = textureCoordinates(rec, wo);
+        return sampleSpectral(uv, p, lambdas);
+    }
 };
 
 class SolidColor : public Texture {
@@ -127,8 +141,17 @@ public:
 class ImageTexture : public Texture {
     std::vector<Vec3> data;
     int width = 0, height = 0;
+    // Spectral cache: one RGBAlbedoSpectrum per texel, built eagerly in setData().
+    std::vector<astroray::RGBAlbedoSpectrum> spectral_cache_;
 public:
-    void setData(const std::vector<Vec3>& d, int w, int h) { data = d; width = w; height = h; }
+    void setData(const std::vector<Vec3>& d, int w, int h) {
+        data = d; width = w; height = h;
+        spectral_cache_.resize(data.size());
+        for (size_t i = 0; i < data.size(); ++i) {
+            const Vec3& c = data[i];
+            spectral_cache_[i] = astroray::RGBAlbedoSpectrum({c.x, c.y, c.z});
+        }
+    }
     Vec3 value(const Vec2& uv, const Vec3&) const override {
         if (data.empty()) return Vec3(1, 0, 1);
         float u = std::clamp(uv.u, 0.0f, 1.0f);
@@ -136,6 +159,19 @@ public:
         int i = std::min((int)(u * width), width - 1);
         int j = std::min((int)(v * height), height - 1);
         return data[j * width + i];
+    }
+    astroray::SampledSpectrum sampleSpectral(
+            const Vec2& uv, const Vec3&,
+            const astroray::SampledWavelengths& lambdas) const override {
+        if (spectral_cache_.empty()) {
+            Vec3 rgb = value(uv, Vec3(0));
+            return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+        }
+        float u = std::clamp(uv.u, 0.0f, 1.0f);
+        float v = 1 - std::clamp(uv.v, 0.0f, 1.0f);
+        int i = std::min((int)(u * width), width - 1);
+        int j = std::min((int)(v * height), height - 1);
+        return spectral_cache_[j * width + i].sample(lambdas);
     }
 };
 

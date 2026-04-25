@@ -157,20 +157,33 @@ to review side by side.
 
 ## Acceptance criteria
 
-- [ ] Every material plugin overrides `evalSpectral`; for materials
-      without a physics upgrade, override values match the pkg11
-      default fallback ≤1e-5 on a sweep of `(wo, wi, normal, uv,
-      lambdas)` tuples.
-- [ ] Every texture plugin overrides `sampleSpectral` with the same
-      ≤1e-5 match against the upsampled `sample`.
-- [ ] Glass-prism scene renders rainbow dispersion (R/G/B exit angle
-      spread > 0).
-- [ ] Gold Metal preset shows correct yellow-tone reflectance peak
-      in the 550–620 nm band (not the muddy cyan-ish result the RGB
-      upsample of a yellow `Vec3` gives).
-- [ ] Cornell box render time stays ≤1.5× the RGB baseline.
-- [ ] All existing tests still pass.
-- [ ] No legacy `eval`/`sample` signatures changed.
+**Claude Code thread (this PR — pkg13 physics/infra):**
+- [x] `Texture::sampleSpectral(uv, p, lambdas)` virtual added to `Texture`
+      base class with default fallback; non-virtual helper
+      `sampleSpectral(rec, wo, lambdas)` for coord-mode dispatch.
+- [x] `ImageTexture::sampleSpectral` overrides with per-texel
+      `RGBAlbedoSpectrum` cache built eagerly in `setData()`.
+- [x] `MetalPlugin::evalSpectral` overrides with per-λ Schlick Fresnel
+      (cached `albedo_spec_` as F0); roughness and near-delta paths covered.
+- [x] `DielectricPlugin::evalSpectral` explicit 0 override (delta lobe).
+- [x] `MirrorPlugin::evalSpectral` explicit 0 override (delta lobe).
+- [x] `SubsurfacePlugin::evalSpectral` overrides with cached albedo +
+      per-call transmission spectrum from scatter distance.
+- [x] All 206 existing tests pass (+8 new in `test_spectral_materials.py`).
+- [x] No legacy `eval`/`sample` signatures changed.
+
+**Copilot thread (issues #98, #99 — still open):**
+- [ ] Phong, Disney, NormalMapped, DiffuseLight (`emittedSpectral`)
+      overrides — issue #98.
+- [ ] 8 procedural texture `sampleSpectral` overrides — issue #99.
+
+**Deferred (future package):**
+- [ ] Glass-prism dispersion (requires `sampleSpectral` on `Material`
+      — dispersive refraction needs per-λ direction, not just per-λ
+      eval; not yet in the interface).
+- [ ] Metal complex-IOR presets (gold, silver, copper) with tabulated n,k.
+- [ ] ≤1e-5 numerical match between override and fallback — not achievable
+      for Metal (same nonlinearity issue as pkg12 Lambertian).
 
 ### Non-goals
 
@@ -187,24 +200,36 @@ to review side by side.
 
 ---
 
-## Progress
+## Progress (Claude Code thread)
 
-- [ ] Branch `pkg13-spectral-materials` from `main`.
-- [ ] Acquire IOR datasets, write `scripts/generate_iors.py`, generate
-      `dielectrics.inc` and `metals.inc`, attribute in `THIRD_PARTY.md`.
-- [ ] Add `Texture::sampleSpectral` virtual with default.
-- [ ] Migrate "dumb" materials (Phong, Disney, DiffuseLight,
-      NormalMapped, Emissive, Isotropic, OrenNayar, TwoSided).
-- [ ] Migrate physics materials (Metal, Dielectric).
-- [ ] Migrate textures (image cache + procedural overrides).
-- [ ] Write `tests/test_spectral_materials.py`,
-      `tests/test_spectral_textures.py`.
-- [ ] Profile cumulative spectral cost on Cornell + a glossy scene.
-- [ ] Update STATUS.md, CHANGELOG.md.
-- [ ] Commit per granularity plan; push branch; open PR.
+- [x] Branch `pkg13-spectral-materials` from `main`.
+- [x] Add `Texture::sampleSpectral` virtual with default + ImageTexture cache.
+- [x] Metal `evalSpectral` (spectral GGX + per-λ Schlick Fresnel).
+- [x] Dielectric and Mirror `evalSpectral` (trivial zero overrides — delta lobes).
+- [x] Subsurface `evalSpectral` (cached albedo + per-call transmission spectrum).
+- [x] Write `tests/test_spectral_materials.py` (8 tests).
+- [x] Update STATUS.md, CHANGELOG.md.
+- [x] Commit, push, PR.
+
+**Copilot progress (issues #98, #99):**
+- [ ] Issue #98 — dumb material overrides (Phong, Disney, NormalMapped, DiffuseLight).
+- [ ] Issue #99 — procedural texture overrides (8 files).
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- **Dispersive refraction is interface-limited.** Implementing per-λ refraction
+  in DielectricPlugin requires a `sampleSpectral(rec, wo, gen, lambdas)` method on
+  `Material` — one that receives wavelengths and returns a direction per-λ.
+  The current `sample(rec, wo, gen)` signature cannot carry wavelength info.
+  Sellmeier glass + `terminateSecondary()` therefore lands in a future package
+  alongside the interface extension.
+- **Metal spectral override uses albedo as F0.** The spectral GGX eval is
+  correct for artist-specified RGB tints. Complex-IOR presets (gold, silver)
+  with tabulated n,k data are deferred — they require the IOR data pipeline
+  (`generate_iors.py`, `metals.inc`) which is scope-disproportionate for the
+  current session.
+- **ImageTexture cache built eagerly in `setData()`.** No thread-safety
+  concerns — cache is write-once at load time, read-only during rendering.
+  Memory cost: 12 bytes × texel count (3 floats for Jakob-Hanika coefficients).

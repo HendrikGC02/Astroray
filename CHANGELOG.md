@@ -8,6 +8,25 @@ All notable changes to this project will be documented in this file.
 
 ### Pillar 2 — Spectral core (in progress)
 
+- **pkg13** — Spectral physics/infra thread (Claude Code). Three deliverables
+  on this PR; Copilot issues #98 and #99 add the remaining dumb-material and
+  procedural-texture overrides in separate PRs. (1) `Texture::sampleSpectral`
+  virtual added to `Texture` base in `include/advanced_features.h`: default
+  upsamples `value(uv, p)` via `RGBAlbedoSpectrum`; non-virtual helper handles
+  coord-mode dispatch. `ImageTexture` overrides with an eager per-texel
+  `RGBAlbedoSpectrum` cache built in `setData()` (12 bytes/texel, zero
+  lock overhead). (2) `MetalPlugin` gains `albedo_spec_` member (same
+  cache pattern as pkg12 Lambertian) and overrides `evalSpectral` with a
+  per-λ Schlick Fresnel inside the GGX microfacet model — `F0` becomes a
+  `SampledSpectrum` evaluated from the cached albedo. Near-delta and roughness
+  paths both covered. (3) `DielectricPlugin` and `MirrorPlugin` gain trivial
+  zero `evalSpectral` overrides (delta lobes; eval is never called
+  meaningfully). `SubsurfacePlugin` gains `albedo_spec_` cache and overrides
+  `evalSpectral` with per-call transmission spectrum from scatter distance.
+  Note: dispersive glass (Sellmeier + `terminateSecondary`) requires a
+  `sampleSpectral(rec, wo, gen, lambdas)` interface extension not yet present
+  — deferred. Metal complex-IOR presets (gold/silver) similarly deferred. Test
+  suite: 206 passed, 1 skipped (+8 new in `tests/test_spectral_materials.py`).
 - **pkg12** — Spectral Lambertian override. `LambertianPlugin` in
   `plugins/materials/lambertian.cpp` gains an `astroray::RGBAlbedoSpectrum
   albedo_spec_` member, eagerly initialised from `albedo_` in the constructor

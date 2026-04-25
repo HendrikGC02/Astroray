@@ -4,6 +4,7 @@
 class MetalPlugin : public Material {
     Vec3 albedo_;
     float roughness_;
+    astroray::RGBAlbedoSpectrum albedo_spec_;
     static constexpr float kNearDeltaThreshold = 0.1f;
 
     Vec3 fresnelSchlick(float cosTheta, const Vec3& F0) const {
@@ -14,7 +15,8 @@ class MetalPlugin : public Material {
 public:
     explicit MetalPlugin(const astroray::ParamDict& p)
         : albedo_(p.getVec3("albedo", Vec3(0.8f))),
-          roughness_(std::clamp(p.getFloat("roughness", 0.1f), 0.001f, 1.0f)) {}
+          roughness_(std::clamp(p.getFloat("roughness", 0.1f), 0.001f, 1.0f)),
+          albedo_spec_({albedo_.x, albedo_.y, albedo_.z}) {}
 
     bool isGlossy() const override { return true; }
     Vec3 getAlbedo() const override { return albedo_; }
@@ -45,6 +47,37 @@ public:
         float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness_);
         float msWeight = roughness_ * (2.0f - roughness_);
         Vec3 multiScatter = albedo_ * (Fms * msWeight * 1.3f);
+        return singleScatter + multiScatter;
+    }
+
+    astroray::SampledSpectrum evalSpectral(
+            const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+            const astroray::SampledWavelengths& lambdas) const override {
+        if (roughness_ <= kNearDeltaThreshold) {
+            Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
+            float deviation = (wi - perfectRefl).length();
+            float factor = (deviation < 0.1f) ? std::exp(-deviation * 100.0f) : 0.0f;
+            return albedo_spec_.sample(lambdas) * factor;
+        }
+        float rawNdotL = rec.normal.dot(wi);
+        float rawNdotV = rec.normal.dot(wo);
+        if (rawNdotL <= 0 || rawNdotV <= 0) return astroray::SampledSpectrum(0.0f);
+        Vec3 h = (wo + wi).normalized();
+        float NdotH = std::max(rec.normal.dot(h), 0.001f);
+        float NdotL = rawNdotL, NdotV = rawNdotV;
+        float a = roughness_ * roughness_, a2 = a * a;
+        float denom = NdotH * NdotH * (a2 - 1) + 1;
+        float D = a2 / (float(M_PI) * denom * denom + 0.001f);
+        // Per-λ Schlick Fresnel: F0 is the albedo spectrum; scale by (1-cosTheta)^5 term.
+        astroray::SampledSpectrum F0 = albedo_spec_.sample(lambdas);
+        float fresnelPow5 = std::pow(1.0f - std::clamp(h.dot(wo), 0.0f, 1.0f), 5.0f);
+        astroray::SampledSpectrum F = F0 + (astroray::SampledSpectrum(1.0f) - F0) * fresnelPow5;
+        float k = (roughness_ + 1) * (roughness_ + 1) / 8;
+        float G = (NdotL / (NdotL * (1 - k) + k)) * (NdotV / (NdotV * (1 - k) + k));
+        astroray::SampledSpectrum singleScatter = F * (D * G / (4 * NdotV + 0.001f));
+        float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness_);
+        float msWeight = roughness_ * (2.0f - roughness_);
+        astroray::SampledSpectrum multiScatter = albedo_spec_.sample(lambdas) * (Fms * msWeight * 1.3f);
         return singleScatter + multiScatter;
     }
 

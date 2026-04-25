@@ -24,6 +24,13 @@ public:
     bool isTransmissive() const override { return true; }
     Vec3 getAlbedo() const override { return Vec3(1.0f); }
 
+    // Delta lobe: evalSpectral is never called meaningfully by the spectral path.
+    astroray::SampledSpectrum evalSpectral(
+            const HitRecord&, const Vec3&, const Vec3&,
+            const astroray::SampledWavelengths&) const override {
+        return astroray::SampledSpectrum(0.0f);
+    }
+
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
         s.isDelta = true;

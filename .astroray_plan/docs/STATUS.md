@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-04-25 (pkg12 complete — spectral Lambertian override)
+**Last updated:** 2026-04-26 (pkg13 physics/infra thread complete — Metal, Dielectric, Mirror, Subsurface evalSpectral; Texture::sampleSpectral; ImageTexture cache)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -17,7 +17,7 @@ personally should pick up.
 | # | Name | Status | % | Next milestone | Blocked on |
 |---|---|---|---|---|---|
 | 1 | Plugin architecture | **Done** | 100% | — | — |
-| 2 | Spectral core | **In progress** | ~60% | Spectral remaining materials (pkg13) | ~~Pillar 1~~ |
+| 2 | Spectral core | **In progress** | ~75% | Copilot thread (issues #98, #99) + pkg14 env map | ~~Pillar 1~~ |
 | 3 | Light transport | Queued | 0% | — | Pillars 1, 2 |
 | 4 | Astrophysics platform | Queued | 0% | Kerr | Pillars 1, 2 |
 | 5 | Production polish | Ongoing | — | OpenEXR output | — |
@@ -40,7 +40,7 @@ personally should pick up.
 | pkg10 | Spectral types (scaffolding) | done |
 | pkg11 | Spectral path tracer | done |
 | pkg12 | Spectral Lambertian override | done |
-| pkg13 | Migrate remaining materials + textures to spectral | queued |
+| pkg13 | Spectral physics/infra thread (Metal, Dielectric, Mirror, Subsurface, Texture virtual, ImageTexture cache) | in progress — Copilot issues #98/#99 open |
 | pkg14 | Spectral environment map | queued |
 
 ---
@@ -51,8 +51,8 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Package in flight: none (pkg12 done — spectral Lambertian override)
-- Next session goal: Spectral remaining materials (pkg13) — replicate cache pattern across all material plugins
+- Package in flight: pkg13 (physics/infra thread in PR; Copilot threads in issues #98/#99)
+- Next session goal: merge Copilot PRs for #98/#99, then pkg14 spectral env map
 
 ### Track B (Copilot cloud)
 
@@ -90,7 +90,7 @@ personally should pick up.
 
 | Package | Track | Status | Blocker |
 |---|---|---|---|
-| pkg13-spectral-materials | A | queued | — |
+| pkg13-spectral-materials | A | in review (physics/infra PR open) | Copilot issues #98/#99 |
 
 ---
 

@@ -215,6 +215,8 @@ def test_image_texture_spectral_cache_stable():
     ],
 )
 def test_pkg13a_material_spectral_vs_rgb_parity(scene_fn, tag, test_results_dir):
+    # Keep this threshold aligned with existing pkg11/pkg13 Monte Carlo parity tests.
+    parity_threshold = 0.05
     rgb = _render("path", scene_fn, seed=17)
     spec = _render("spectral_path_tracer", scene_fn, seed=17)
     save_image(rgb, os.path.join(test_results_dir, f'pkg13a_{tag}_rgb.png'))
@@ -225,4 +227,4 @@ def test_pkg13a_material_spectral_vs_rgb_parity(scene_fn, tag, test_results_dir)
     rgb_mean = rgb.reshape(-1, 3).mean(axis=0)
     spec_mean = spec.reshape(-1, 3).mean(axis=0)
     rel_delta = np.abs(rgb_mean - spec_mean) / (rgb_mean + 1e-3)
-    assert np.all(rel_delta < 0.05), f"{tag} spectral parity drift too high: {rel_delta}"
+    assert np.all(rel_delta < parity_threshold), f"{tag} spectral parity drift too high: {rel_delta}"

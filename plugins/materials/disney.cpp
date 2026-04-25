@@ -95,7 +95,7 @@ public:
     astroray::SampledSpectrum evalSpectral(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,
             const astroray::SampledWavelengths& lambdas) const override {
-        // Keep Disney on final-RGB spectral upsampling to stay within the perf budget.
+        // pkg13 fallback: upsample final RGB Disney eval to stay within the pkg14 1.5x perf budget.
         Vec3 rgb = eval(rec, wo, wi);
         return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
     }

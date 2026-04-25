@@ -29,20 +29,6 @@ upsampling sRGB values into spectral reflectances.
   build-time toolchain; downloading at build time would introduce a
   network dependency.
 
-### `data/spectra/cie1964_10deg_1nm.csv`
-
-Comma-separated table of the CIE 1964 10° Standard Observer colour
-matching functions at 1 nm resolution over 360–830 nm. Used only by
-`scripts/generate_spectrum_data.py` as an input cross-check — the
-runtime ships the baked `.inc` header, not this CSV.
-
-- **Canonical source:** CIE (Commission Internationale de l'Éclairage),
-  via the Colour & Vision Research Laboratory mirror at
-  http://cvrl.ucl.ac.uk/.
-- **License:** the underlying data is public domain (a CIE technical
-  standard); Astroray ships a verbatim copy of the commonly-distributed
-  1 nm tabulation. No additional license terms attach.
-
 ### `data/spectra/cie_cmf.inc` and `data/spectra/illuminant_d65.inc`
 
 Auto-generated C++ `constexpr` tables containing the CIE 1964 10°

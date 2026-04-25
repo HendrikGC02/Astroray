@@ -12,8 +12,9 @@ Requirements:
 
 Inputs:
     - CIE 1964 10 Degree Standard Observer x-bar, y-bar, z-bar
-      (360-830 nm at 1 nm) from colour-science, cross-referenced to
-      the CSV published by http://cvrl.ucl.ac.uk/.
+      (360-830 nm at 1 nm) from colour-science. The same table is
+      published as a CSV at http://cvrl.ucl.ac.uk/ if a future refresh
+      needs to bypass the Python dependency.
     - CIE Standard Illuminant D65 from colour-science
       (300-780 nm at 5 nm, linearly interpolated to 1 nm 360-830;
       values past 780 nm are extrapolated to 0).

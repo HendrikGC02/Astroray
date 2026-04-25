@@ -14,6 +14,8 @@ Covers:
      to float precision.
   5. Image texture sampleSpectral: consistent across repeated calls (cache
      stability); matches default fallback within 1e-6.
+  6. pkg13a non-physics overrides (Phong, Disney, DiffuseLight, NormalMapped):
+     spectral renders are finite and keep Cornell A/B parity against RGB.
 """
 import math
 import os
@@ -61,6 +63,30 @@ def _dielectric_scene(r):
     create_cornell_box(r)
     mat = r.create_material("dielectric", [1.0, 1.0, 1.0], {"ior": 1.5})
     r.add_sphere([0, -1, 0], 1.0, mat)
+
+
+def _phong_scene(r):
+    create_cornell_box(r)
+    mat = r.create_material("phong", [0.8, 0.5, 0.2], {"specular": 0.4, "shininess": 24.0})
+    r.add_sphere([0, -1, 0], 1.0, mat)
+
+
+def _disney_scene(r):
+    create_cornell_box(r)
+    mat = r.create_material("disney", [0.7, 0.55, 0.25], {"roughness": 0.45, "metallic": 0.2})
+    r.add_sphere([0, -1, 0], 1.0, mat)
+
+
+def _normal_mapped_scene(r):
+    create_cornell_box(r)
+    mat = r.create_material("normal_mapped", [0.75, 0.45, 0.25], {"inner_type": "phong", "specular": 0.35, "shininess": 20.0})
+    r.add_sphere([0, -1, 0], 1.0, mat)
+
+
+def _diffuse_light_scene(r):
+    create_cornell_box(r)
+    mat = r.create_material("diffuse_light", [1.0, 0.9, 0.7], {"intensity": 6.0})
+    r.add_sphere([0, 1.4, 0], 0.45, mat)
 
 
 # ---------------------------------------------------------------------------
@@ -177,3 +203,26 @@ def test_image_texture_spectral_cache_stable():
     s2 = rsp.sample(wl)
     for i in range(4):
         assert s1[i] == s2[i], f"RGBAlbedoSpectrum sample not stable at index {i}"
+
+
+@pytest.mark.parametrize(
+    "scene_fn,tag",
+    [
+        (_phong_scene, "phong"),
+        (_disney_scene, "disney"),
+        (_normal_mapped_scene, "normal_mapped"),
+        (_diffuse_light_scene, "diffuse_light"),
+    ],
+)
+def test_pkg13a_material_spectral_vs_rgb_parity(scene_fn, tag, test_results_dir):
+    rgb = _render("path", scene_fn, seed=17)
+    spec = _render("spectral_path_tracer", scene_fn, seed=17)
+    save_image(rgb, os.path.join(test_results_dir, f'pkg13a_{tag}_rgb.png'))
+    save_image(spec, os.path.join(test_results_dir, f'pkg13a_{tag}_spectral.png'))
+
+    assert not np.any(np.isnan(spec)), f"{tag} spectral render contains NaN"
+    assert not np.any(np.isinf(spec)), f"{tag} spectral render contains Inf"
+    rgb_mean = rgb.reshape(-1, 3).mean(axis=0)
+    spec_mean = spec.reshape(-1, 3).mean(axis=0)
+    rel_delta = np.abs(rgb_mean - spec_mean) / (rgb_mean + 1e-3)
+    assert np.all(rel_delta < 0.05), f"{tag} spectral parity drift too high: {rel_delta}"

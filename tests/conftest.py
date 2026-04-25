@@ -23,6 +23,14 @@ if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
     _mingw_bin = os.environ.get('MINGW_BIN_DIR', r'C:\Program Files\mingw64\bin')
     if os.path.isdir(_mingw_bin):
         os.add_dll_directory(_mingw_bin)
+        # add_dll_directory only affects Python's loader; subprocess-launched
+        # binaries (raytracer.exe in test_standalone_renderer.py) use PATH
+        # for DLL search. Git Bash puts an older mingw64/bin earlier in PATH
+        # which can lack newer libstdc++ symbols, so promote the modern one
+        # to the front whenever it isn't already first.
+        _path_entries = os.environ.get('PATH', '').split(os.pathsep)
+        if not _path_entries or os.path.normcase(_path_entries[0].rstrip(os.sep)) != os.path.normcase(_mingw_bin.rstrip(os.sep)):
+            os.environ['PATH'] = _mingw_bin + os.pathsep + os.environ.get('PATH', '')
     # msys2 ucrt64 toolchain (libgomp-1.dll etc.)
     _ucrt64_bin = r'C:\msys64\ucrt64\bin'
     if os.path.isdir(_ucrt64_bin):

@@ -190,6 +190,28 @@ set_target_properties(stb_impl PROPERTIES
 )
 
 # ---------------------------------------------------------------------------
+# Pillar 2 spectral core (pkg10). STATIC library so it can be linked into
+# raytracer_standalone, the Python module, the Blender module, and
+# astroray_plugins without duplicating translation units. ASTRORAY_DATA_DIR
+# points the Jakob-Hanika LUT loader at data/ in the source tree for
+# in-tree test runs; installed builds override via an env var.
+# ---------------------------------------------------------------------------
+add_library(astroray_core_impl STATIC src/spectrum.cpp)
+target_include_directories(astroray_core_impl
+    PUBLIC  ${INCLUDE_DIR}
+    PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(astroray_core_impl
+    PRIVATE ASTRORAY_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+set_target_properties(astroray_core_impl PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
+)
+if(TARGET astroray_plugins)
+    target_link_libraries(astroray_plugins PUBLIC astroray_core_impl)
+endif()
+
+# ---------------------------------------------------------------------------
 # CUDA static library (compiled by nvcc, exposes pure-C++ CUDARenderer)
 # ---------------------------------------------------------------------------
 if(ASTRORAY_CUDA_FOUND)
@@ -241,6 +263,7 @@ add_executable(raytracer_standalone ${SOURCES} ${HEADERS})
 
 target_link_libraries(raytracer_standalone PRIVATE
     raytracer_core
+    astroray_core_impl
     stb_image_write_lib
     stb_impl
 )
@@ -309,6 +332,7 @@ if(BUILD_PYTHON_MODULE)
 
     target_link_libraries(astroray PRIVATE
         raytracer_core
+        astroray_core_impl
         stb_image_write_lib
         stb_impl
     )
@@ -390,6 +414,7 @@ if(BUILD_BLENDER_MODULE)
     
     target_link_libraries(raytracer_blender PRIVATE
         raytracer_core
+        astroray_core_impl
         stb_impl
     )
     
@@ -445,6 +470,17 @@ install(TARGETS raytracer_standalone
 install(DIRECTORY include/
     DESTINATION include/raytracer
     FILES_MATCHING PATTERN "*.h"
+)
+
+# Install spectral data files (Jakob-Hanika LUT, CIE CMF, D65 SPD).
+# The runtime also searches for these via the ASTRORAY_DATA_DIR env var,
+# which installed deployments should point at share/astroray/.
+install(DIRECTORY data/spectra/
+    DESTINATION share/astroray/spectra
+    FILES_MATCHING
+        PATTERN "*.coeff"
+        PATTERN "*.inc"
+        PATTERN "*.csv"
 )
 
 # Note: Tests are run via pytest, not CMake.

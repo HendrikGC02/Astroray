@@ -6,6 +6,29 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+### Pillar 2 — Spectral core (in progress)
+
+- **pkg10** — Spectral core scaffolding. New `include/astroray/spectrum.h`
+  declares `SampledWavelengths`, `SampledSpectrum`, `RGBAlbedoSpectrum`,
+  `RGBUnboundedSpectrum`, and `RGBIlluminantSpectrum` (float precision,
+  4 hero wavelength samples, 360-830 nm) following the PBRT v4 design.
+  `src/spectrum.cpp` lazily loads the Jakob-Hanika 2019 sRGB coefficient
+  LUT from `data/spectra/rgb_to_spectrum_srgb.coeff`, and embeds the
+  CIE 1964 10° standard observer CMF and D65 illuminant SPD as
+  `constexpr` tables at 1 nm. New `astroray_core_impl` CMake static
+  library; `ASTRORAY_DATA_DIR` compile definition (with env-var
+  override) lets the loader find the LUT both in-tree and post-install.
+  Python bindings expose every new type plus a top-level
+  `rgb_to_spectrum()` helper, `sample_d65()`, `cie_cmf_1964_10deg()`,
+  and `spectrum_lut_path()`. `THIRD_PARTY.md` added with license and
+  provenance for the shipped data files. No integration into any
+  material, integrator, pass, or environment map — the existing
+  `spectral.h` (CIE 1931 2°, GR renderer) is untouched. Test suite:
+  189 passed, 1 skipped (20 new spectrum tests; 1% round-trip against
+  a Colour-Science-generated reference JSON).
+
+---
+
 ### Pillar 1 — Plugin architecture COMPLETE (pkg01–pkg06)
 
 All materials, shapes, textures, integrators, and post-process passes are now

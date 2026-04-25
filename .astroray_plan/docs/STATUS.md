@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-04-25 (pkg11 complete — first spectral integrator opt-in)
+**Last updated:** 2026-04-25 (pkg12 complete — spectral Lambertian override)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -17,7 +17,7 @@ personally should pick up.
 | # | Name | Status | % | Next milestone | Blocked on |
 |---|---|---|---|---|---|
 | 1 | Plugin architecture | **Done** | 100% | — | — |
-| 2 | Spectral core | **In progress** | ~40% | Spectral Lambertian (pkg12) | ~~Pillar 1~~ |
+| 2 | Spectral core | **In progress** | ~60% | Spectral remaining materials (pkg13) | ~~Pillar 1~~ |
 | 3 | Light transport | Queued | 0% | — | Pillars 1, 2 |
 | 4 | Astrophysics platform | Queued | 0% | Kerr | Pillars 1, 2 |
 | 5 | Production polish | Ongoing | — | OpenEXR output | — |
@@ -39,7 +39,7 @@ personally should pick up.
 |---|---|---|
 | pkg10 | Spectral types (scaffolding) | done |
 | pkg11 | Spectral path tracer | done |
-| pkg12 | Migrate materials to spectral | queued |
+| pkg12 | Spectral Lambertian override | done |
 | pkg13 | Migrate remaining materials + textures to spectral | queued |
 | pkg14 | Spectral environment map | queued |
 
@@ -51,8 +51,8 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Package in flight: none (pkg11 done — first spectral integrator opt-in)
-- Next session goal: Spectral Lambertian (pkg12) — first concrete `evalSpectral` override
+- Package in flight: none (pkg12 done — spectral Lambertian override)
+- Next session goal: Spectral remaining materials (pkg13) — replicate cache pattern across all material plugins
 
 ### Track B (Copilot cloud)
 
@@ -76,6 +76,7 @@ personally should pick up.
 
 | Date | PR | Track | Pillar | Description |
 |---|---|---|---|---|
+| 2026-04-25 | pkg12-spectral-lambertian | A | 2 | First concrete `evalSpectral` override: `LambertianPlugin` gains `RGBAlbedoSpectrum albedo_spec_` (eager ctor cache) and `evalSpectral` returning `albedo_spec_.sample(lambdas) * cosTheta / PI`. Cache eliminates per-call Jakob-Hanika LUT lookup. Cornell A/B within 3%. 5 new tests; 198 passed, 1 skipped. |
 | 2026-04-25 | pkg11-spectral-path-tracer | A | 2 | Spectral path tracer plugin (`set_integrator("spectral_path_tracer")`), `IntegratorKind` enum, `Material::evalSpectral`/`emittedSpectral` defaults via Jakob-Hanika upsample, `Renderer::pathTraceSpectral` helper + XYZ accumulator + single sRGB conversion. Cornell A/B match within ~3% per channel; 1.34× wall-clock vs RGB. Legacy `path` integrator stays the default. 193 tests (+4 new). |
 | 2026-04-24 | pkg10-spectral-types | A | 2 | Spectral scaffolding: `SampledWavelengths`, `SampledSpectrum`, three `RGB*Spectrum` upsamplers over a shipped Jakob-Hanika LUT, CIE 1964 10° CMF + D65 SPD, Python bindings, 189 tests (+20 new). No integration — renderer is untouched. |
 | 2026-04-22 | feat/pkg06-pass-registry | A | 1 | Pass registry; OIDN + 3 AOV plugins; Framebuffer API; add_pass/clear_passes bindings; 169 tests passing. **Pillar 1 complete.** |
@@ -89,7 +90,7 @@ personally should pick up.
 
 | Package | Track | Status | Blocker |
 |---|---|---|---|
-| pkg11-spectral-path-tracer | A | queued | — |
+| pkg13-spectral-materials | A | queued | — |
 
 ---
 

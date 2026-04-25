@@ -8,6 +8,20 @@ All notable changes to this project will be documented in this file.
 
 ### Pillar 2 — Spectral core (in progress)
 
+- **pkg12** — Spectral Lambertian override. `LambertianPlugin` in
+  `plugins/materials/lambertian.cpp` gains an `astroray::RGBAlbedoSpectrum
+  albedo_spec_` member, eagerly initialised from `albedo_` in the constructor
+  (12 bytes, zero runtime overhead). Overrides `evalSpectral` to return
+  `albedo_spec_.sample(lambdas) * cosTheta / PI`, bypassing the default
+  per-call Jakob-Hanika LUT lookup. `eval()`, `sample()`, `pdf()` and all
+  other plugin files are untouched. The override is more physically correct
+  than the default fallback (which upsamples the pre-scaled BRDF value rather
+  than the pure albedo reflectance — the two formulas are NOT scale-linear for
+  saturated colours). Cornell A/B at 64 spp: spectral matches RGB within 3%
+  per channel. Establishes the cache pattern that pkg13 will copy verbatim
+  across the remaining 9 material plugins. Test suite: 198 passed, 1 skipped
+  (+5 new tests in `tests/test_spectral_lambertian.py`; Cornell PNGs in
+  `test_results/pkg12_*.png`).
 - **pkg11** — Spectral path tracer (opt-in). New `spectral_path_tracer`
   integrator plugin under `plugins/integrators/`, registered alongside
   the legacy `path` and `ambient_occlusion`. Activated via

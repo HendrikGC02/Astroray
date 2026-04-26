@@ -2100,17 +2100,17 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
             HitRecord rec;
             if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
                 if (bounce <= worldMaxBounces && (bounce == 0 || wasSpecular)) {
-                    Vec3 envColor;
+                    astroray::SampledSpectrum envSpec(0.0f);
                     if (envMap && envMap->loaded()) {
-                        envColor = envMap->lookup(ray.direction.normalized());
+                        envSpec = envMap->evalSpectral(ray.direction.normalized(), lambdas);
                     } else if (backgroundColor.x >= 0) {
-                        envColor = backgroundColor;
+                        envSpec = astroray::RGBIlluminantSpectrum(
+                            {backgroundColor.x, backgroundColor.y, backgroundColor.z}).sample(lambdas);
                     } else {
                         float t = 0.5f * (ray.direction.normalized().y + 1.0f);
-                        envColor = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
+                        Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
+                        envSpec = astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
                     }
-                    astroray::SampledSpectrum envSpec =
-                        astroray::RGBIlluminantSpectrum({envColor.x, envColor.y, envColor.z}).sample(lambdas);
                     color += throughput * envSpec;
                 }
                 break;

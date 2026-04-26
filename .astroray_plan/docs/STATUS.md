@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-04-26 (pkg13 fully complete — all four threads merged: physics/infra #103, pkg13a Copilot #104, pkg13b Copilot #106, pkg13c missing plugins #107)
+**Last updated:** 2026-04-26 (pkg14 complete — Pillar 2 DONE; spectral env map atlas, flip default, legacy RGB path deleted)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -17,8 +17,8 @@ personally should pick up.
 | # | Name | Status | % | Next milestone | Blocked on |
 |---|---|---|---|---|---|
 | 1 | Plugin architecture | **Done** | 100% | — | — |
-| 2 | Spectral core | **In progress** | ~90% | pkg14 spectral env map | ~~Pillar 1~~ |
-| 3 | Light transport | Queued | 0% | — | Pillars 1, 2 |
+| 2 | Spectral core | **Done** | 100% | — | — |
+| 3 | Light transport | **Queued** | 0% | MIS area light sampling | ~~Pillars 1, 2~~ |
 | 4 | Astrophysics platform | Queued | 0% | Kerr | Pillars 1, 2 |
 | 5 | Production polish | Ongoing | — | OpenEXR output | — |
 
@@ -41,7 +41,7 @@ personally should pick up.
 | pkg11 | Spectral path tracer | done |
 | pkg12 | Spectral Lambertian override | done |
 | pkg13 | Spectral remaining materials & textures (all threads: physics/infra, pkg13a, pkg13b, pkg13c) | **done** |
-| pkg14 | Spectral environment map | queued |
+| pkg14 | Spectral environment map + flip default | **done** |
 
 ---
 
@@ -51,8 +51,8 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Package in flight: pkg14 (spectral environment map)
-- Next session goal: implement spectral env map sampling in the spectral path tracer
+- Package in flight: —
+- Pillar 2 complete. Next: scope Pillar 3 (light transport) — first package TBD
 
 ### Track B (Copilot cloud)
 
@@ -76,6 +76,7 @@ personally should pick up.
 
 | Date | PR | Track | Pillar | Description |
 |---|---|---|---|---|
+| 2026-04-26 | pkg14-spectral-env-map | A | 2 | Spectral HDRI atlas (`spectralAtlas_` in `EnvironmentMap`, bilinear spectral-space interpolation); env-miss wired to `evalSpectral`; legacy `PathTracer` plugin + `pathTrace()` deleted; `"spectral_path_tracer"` renamed `"path_tracer"`; `IntegratorKind`/`spectralMode_` removed; `Material::eval` virtual deleted; `Material::evalSpectral` made pure virtual. **Pillar 2 complete.** |
 | 2026-04-26 | pkg13c-missing-material-plugins | A | 2 | Created 4 missing material plugins: `oren_nayar` (OrenNayar diffuse + spectral override), `isotropic` (uniform volumetric phase function + spectral override), `two_sided` (wraps inner material, renders both faces + spectral delegation), `emissive` (two-sided omnidirectional emitter + `emittedSpectral`). Closes issue #105. 5 new tests; 223 passed, 1 skipped. **pkg13 fully complete.** |
 | 2026-04-26 | #106 pkg13b Copilot | B | 2 | 8 procedural texture `sampleSpectral` overrides (checker, noise, gradient, voronoi, brick, musgrave, magic, wave). |
 | 2026-04-26 | #104 pkg13a Copilot | B | 2 | `evalSpectral` overrides for Phong, Disney, NormalMapped, `emittedSpectral` for DiffuseLight. |
@@ -94,7 +95,7 @@ personally should pick up.
 
 | Package | Track | Status | Blocker |
 |---|---|---|---|
-| pkg14-spectral-env-map | A | queued | pkg13 (now complete) |
+| — | — | — | Pillar 3 not yet scoped |
 
 ---
 
@@ -114,6 +115,7 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-04-26** — pkg14 complete. Spectral HDRI atlas built at load time; env-miss path wired to `evalSpectral`; legacy RGB `PathTracer` plugin and `pathTrace()` kernel deleted; registry entry renamed `"path_tracer"`; `Material::evalSpectral` is now pure virtual; `Material::eval` virtual removed. **Pillar 2 is 100% complete (pkg10–pkg14).**
 - **2026-04-26** — pkg13 fully complete. All four threads merged: (1) physics/infra PR #103 — Texture::sampleSpectral, ImageTexture cache, Metal/Dielectric/Mirror/Subsurface evalSpectral; (2) Copilot PR #104 — Phong/Disney/NormalMapped/DiffuseLight evalSpectral/emittedSpectral; (3) Copilot PR #106 — 8 procedural texture sampleSpectral overrides; (4) pkg13c PR — 4 new plugins: oren_nayar, isotropic, two_sided, emissive. Every shading event in the spectral pipeline now has a concrete override. Test suite: 223 passed, 1 skipped. Pillar 2 ~90%.
 - **2026-04-24** — pkg10 merged: Pillar 2 scaffolding. New `include/astroray/spectrum.h` defines `SampledWavelengths`, `SampledSpectrum`, `RGBAlbedoSpectrum`, `RGBUnboundedSpectrum`, `RGBIlluminantSpectrum` (float, 4 samples, 360-830 nm). `src/spectrum.cpp` loads the shipped Jakob-Hanika sRGB LUT lazily from `data/spectra/rgb_to_spectrum_srgb.coeff` and embeds the CIE 1964 10° CMF and D65 SPD as `constexpr` tables. New `astroray_core_impl` CMake target; `ASTRORAY_DATA_DIR` compile definition + env-var override for runtime data discovery. Python bindings expose every type plus a top-level `rgb_to_spectrum()` helper. No integration into any material, integrator, pass, or env map — that is pkg11+. Test suite: 189 passed, 1 skipped (20 new spectrum tests).
 - **2026-04-22** — pkg06 merged: Pass registry closes Pillar 1. `Pass` abstract base + `Framebuffer` named-buffer API in `include/astroray/pass.h` / `raytracer.h`. Five plugins in `plugins/passes/` (OIDN denoiser, depth/normal/albedo AOV). `add_pass`/`clear_passes` Python bindings. `pass_registry_names()` module function. Blender `use_denoising` property wired to `add_pass("oidn_denoiser")`. Inline OIDN code removed from `blender_module.cpp`. Test suite: 169 passed, 1 skipped.

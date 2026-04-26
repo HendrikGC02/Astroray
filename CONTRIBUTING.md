@@ -51,6 +51,35 @@ python3 -m pytest tests/test_material_properties.py -v
 python3 -m pytest tests/test_standalone_renderer.py -v
 ```
 
+## Writing material plugins
+
+### `evalSpectral` is required (pure virtual since pkg14)
+
+`Material::evalSpectral` is pure virtual. Every material plugin **must** override it:
+
+```cpp
+astroray::SampledSpectrum evalSpectral(
+    const HitRecord& rec, const Vec3& wi, const Vec3& wo,
+    const astroray::SampledWavelengths& lambdas) const override {
+    // return your BRDF weighted by cos(theta) / pdf, in spectral units
+}
+```
+
+Light-source materials that scatter nothing should return `astroray::SampledSpectrum(0.0f)`.
+
+### `Material::eval` is gone (removed in pkg14)
+
+The `virtual Vec3 eval(const HitRecord&, const Vec3&, const Vec3&) const` method no
+longer exists on the `Material` base class. Plugins that previously relied on it as an
+internal helper may keep a private non-virtual `eval()` (Disney and Phong do this), but
+the `override` keyword must be removed and the method must not be called polymorphically.
+
+### `BSDFSample::f` (Vec3) for delta-lobe fallback
+
+Plugins' `sample()` methods should still populate `BSDFSample::f` with the Vec3 BRDF
+value. The spectral path tracer uses `bs.f` when `evalSpectral` returns zero for perfect
+delta lobes (mirror/glass) — the Vec3 value is upsampled once per bounce as a fallback.
+
 ## Pull requests
 
 1. Keep changes focused and minimal.

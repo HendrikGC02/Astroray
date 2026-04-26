@@ -6,8 +6,30 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-### Pillar 2 — Spectral core (in progress)
+### Pillar 2 — Spectral core COMPLETE (pkg10–pkg14)
 
+- **pkg14** — Spectral env map + flip default. Closes Pillar 2.
+  (1) `EnvironmentMap` gains a parallel `std::vector<RGBIlluminantSpectrum> spectralAtlas_`
+  built at HDRI load time (one entry per texel, pre-`strength` raw RGB), plus an
+  `evalSpectral(direction, lambdas)` method that bilinearly interpolates in spectral
+  space. `pathTraceSpectral`'s env-miss path now calls `evalSpectral` directly,
+  eliminating the per-ray `RGBIlluminantSpectrum` construction on the hot path.
+  (2) Legacy RGB `PathTracer` plugin (`"path"`) and `Renderer::pathTrace()` kernel
+  deleted (~235 lines). `"spectral_path_tracer"` renamed to `"path_tracer"` in the
+  registry — spectral is now the only path. `IntegratorKind` enum, `spectralMode_`
+  Renderer field, `PathBounceLimits`, and the `traceFull()`/`resolveBounceLimit`
+  helpers all removed. `Integrator` base cleaned: `sample()` pure virtual and
+  `sampleSpectral()` default removed; `sampleFull()` is the sole pure virtual.
+  `AmbientOcclusion` plugin converted from `sample()` to `sampleFull()`.
+  (3) `Material::eval(HitRecord, Vec3, Vec3)` virtual deleted from the base class.
+  `Material::evalSpectral` is now pure virtual — all 13 material plugins provide
+  concrete overrides (diffuse_light and emissive gained trivial zero stubs). Built-in
+  `Lambertian` and `TexturedLambertian` updated in-place. `Texture::sampleSpectral`
+  kept non-pure (11 built-in texture classes are directly instantiated in
+  `blender_module.cpp`; making it pure would require stubs in each).
+  New `tests/test_spectral_envmap.py`: atlas parity test (mean |Δ| < 1e-3 over
+  1000 Fibonacci-lattice directions), registry names test, and env-map render smoke
+  test. `integrator_registry_names()` now returns `["path_tracer", "ambient_occlusion"]`.
 - **pkg13c** — Four new material plugins completing pkg13 (closes issue #105).
   `plugins/materials/oren_nayar.cpp`: OrenNayar diffuse model (A/B coefficients
   precomputed in ctor from roughness; `evalSpectral` uses cached

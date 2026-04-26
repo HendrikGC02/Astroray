@@ -1,4 +1,4 @@
-#include "astroray/register.h"
+﻿#include "astroray/register.h"
 #include "raytracer.h"
 
 class LambertianPlugin : public Material {
@@ -11,7 +11,7 @@ public:
           roughness_(p.getFloat("roughness", 1.0f)),
           albedo_spec_({albedo_.x, albedo_.y, albedo_.z}) {}
 
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         return (wi.dot(rec.normal) <= 0) ? Vec3(0) : albedo_ / M_PI * wi.dot(rec.normal);
     }
 

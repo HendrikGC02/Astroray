@@ -1,4 +1,4 @@
-#include "astroray/register.h"
+﻿#include "astroray/register.h"
 #include "raytracer.h"
 
 // Isotropic phase function for volumetric scattering.
@@ -14,7 +14,7 @@ public:
         : albedo_(p.getVec3("albedo", Vec3(1.0f))),
           albedo_spec_({albedo_.x, albedo_.y, albedo_.z}) {}
 
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         return albedo_ * kInv4Pi;
     }
 

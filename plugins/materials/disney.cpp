@@ -1,4 +1,4 @@
-#include "astroray/register.h"
+﻿#include "astroray/register.h"
 #include "advanced_features.h"
 
 class DisneyPlugin : public Material {
@@ -43,7 +43,7 @@ public:
           transmission_(p.getFloat("transmission", 0.0f)),
           ior_(p.getFloat("ior", 1.5f)) {}
 
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         Vec3 N = rec.normal;
         float NdotL = N.dot(wi);
         float NdotV = N.dot(wo);

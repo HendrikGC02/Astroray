@@ -474,7 +474,6 @@ struct BSDFSample { Vec3 wi, f; float pdf; bool isDelta; };
 class Material {
 public:
     virtual ~Material() = default;
-    virtual Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const { return Vec3(0); }
     virtual BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const { return BSDFSample{Vec3(0,1,0), Vec3(0), 0, false}; }
     virtual float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const { return 0; }
     virtual Vec3 emitted(const HitRecord& rec) const { return Vec3(0); }
@@ -484,36 +483,23 @@ public:
     virtual bool isGlossy() const { return false; }
     virtual Vec3 getAlbedo() const { return Vec3(0.5f); }
 
-    // Pillar 2 spectral hooks. Defaults Jakob-Hanika upsample the RGB result
-    // so that pkg11 ships a runnable spectral path before any concrete
-    // material implements a wavelength-dependent BSDF (pkg12 onward).
     virtual astroray::SampledSpectrum evalSpectral(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,
-            const astroray::SampledWavelengths& lambdas) const {
-        Vec3 rgb = eval(rec, wo, wi);
-        return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
-    }
+            const astroray::SampledWavelengths& lambdas) const = 0;
     virtual astroray::SampledSpectrum emittedSpectral(
             const HitRecord& rec,
             const astroray::SampledWavelengths& lambdas) const {
-        Vec3 rgb = emitted(rec);
-        if (rgb.x == 0.0f && rgb.y == 0.0f && rgb.z == 0.0f) {
-            return astroray::SampledSpectrum(0.0f);
-        }
-        return astroray::RGBIlluminantSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+        return astroray::SampledSpectrum(0.0f);
     }
 };
 
 class Lambertian : public Material {
     Vec3 albedo;
+    astroray::RGBAlbedoSpectrum albedoSpec_;
 public:
-    Lambertian(const Vec3& a) : albedo(a) {}
-    Vec3  getAlbedo()    const { return albedo; }
-    
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        return (wi.dot(rec.normal) <= 0) ? Vec3(0) : albedo / M_PI * wi.dot(rec.normal);
-    }
-    
+    Lambertian(const Vec3& a) : albedo(a), albedoSpec_({a.x, a.y, a.z}) {}
+    Vec3 getAlbedo() const { return albedo; }
+
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
         Vec3 localWi = Vec3::randomCosineDirection(gen);
@@ -523,10 +509,18 @@ public:
         s.isDelta = false;
         return s;
     }
-    
+
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
         float cosTheta = wi.dot(rec.normal);
         return cosTheta > 0 ? cosTheta / M_PI : 0;
+    }
+
+    astroray::SampledSpectrum evalSpectral(
+            const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+            const astroray::SampledWavelengths& lambdas) const override {
+        float cosTheta = wi.dot(rec.normal);
+        if (cosTheta <= 0.0f) return astroray::SampledSpectrum(0.0f);
+        return albedoSpec_.sample(lambdas) * (cosTheta / float(M_PI));
     }
 };
 

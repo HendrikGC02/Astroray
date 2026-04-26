@@ -1,4 +1,4 @@
-#include "astroray/register.h"
+﻿#include "astroray/register.h"
 #include "raytracer.h"
 
 class OrenNayarPlugin : public Material {
@@ -19,7 +19,7 @@ public:
         B_ = 0.45f * s2 / (s2 + 0.09f);
     }
 
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         float NdotL = wi.dot(rec.normal);
         float NdotV = wo.dot(rec.normal);
         if (NdotL <= 0.0f || NdotV <= 0.0f) return Vec3(0.0f);

@@ -23,6 +23,12 @@ public:
         return emission_spec_.sample(lambdas);
     }
 
+    astroray::SampledSpectrum evalSpectral(
+            const HitRecord&, const Vec3&, const Vec3&,
+            const astroray::SampledWavelengths&) const override {
+        return astroray::SampledSpectrum(0.0f);
+    }
+
     Vec3 getEmission() const override { return color_ * intensity_; }
     bool isEmissive() const override { return true; }
 };

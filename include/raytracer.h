@@ -1717,7 +1717,9 @@ public:
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             HitRecord rec;
             if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
-                if (bounce <= worldMaxBounces && (bounce == 0 || wasSpecular)) {
+                // No env NEE in pathTraceSpectral, so env always contributes on miss
+                // (the wasSpecular gate would suppress diffuse-to-background paths).
+                if (bounce <= worldMaxBounces) {
                     astroray::SampledSpectrum envSpec(0.0f);
                     if (envMap && envMap->loaded()) {
                         envSpec = envMap->evalSpectral(ray.direction.normalized(), lambdas);

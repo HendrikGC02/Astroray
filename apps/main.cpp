@@ -150,6 +150,9 @@ int main(int argc, char* argv[]) {
     
     Camera camera(lookFrom, lookAt, Vec3(0,1,0), vfov, float(width)/height, 0.01f, focusDist, width, height);
     
+    renderer.setIntegrator(astroray::IntegratorRegistry::instance().create(
+        "path_tracer", astroray::ParamDict{}));
+
     std::cout << "\nRendering...\n";
     auto start = std::chrono::high_resolution_clock::now();
     int lastPct = -1;

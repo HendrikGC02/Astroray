@@ -8,25 +8,44 @@ All notable changes to this project will be documented in this file.
 
 ### Pillar 2 — Spectral core (in progress)
 
-- **pkg13** — Spectral physics/infra thread (Claude Code). Three deliverables
-  on this PR; Copilot issues #98 and #99 add the remaining dumb-material and
-  procedural-texture overrides in separate PRs. (1) `Texture::sampleSpectral`
-  virtual added to `Texture` base in `include/advanced_features.h`: default
-  upsamples `value(uv, p)` via `RGBAlbedoSpectrum`; non-virtual helper handles
-  coord-mode dispatch. `ImageTexture` overrides with an eager per-texel
-  `RGBAlbedoSpectrum` cache built in `setData()` (12 bytes/texel, zero
-  lock overhead). (2) `MetalPlugin` gains `albedo_spec_` member (same
-  cache pattern as pkg12 Lambertian) and overrides `evalSpectral` with a
-  per-λ Schlick Fresnel inside the GGX microfacet model — `F0` becomes a
-  `SampledSpectrum` evaluated from the cached albedo. Near-delta and roughness
-  paths both covered. (3) `DielectricPlugin` and `MirrorPlugin` gain trivial
-  zero `evalSpectral` overrides (delta lobes; eval is never called
-  meaningfully). `SubsurfacePlugin` gains `albedo_spec_` cache and overrides
-  `evalSpectral` with per-call transmission spectrum from scatter distance.
-  Note: dispersive glass (Sellmeier + `terminateSecondary`) requires a
-  `sampleSpectral(rec, wo, gen, lambdas)` interface extension not yet present
-  — deferred. Metal complex-IOR presets (gold/silver) similarly deferred. Test
-  suite: 206 passed, 1 skipped (+8 new in `tests/test_spectral_materials.py`).
+- **pkg13c** — Four new material plugins completing pkg13 (closes issue #105).
+  `plugins/materials/oren_nayar.cpp`: OrenNayar diffuse model (A/B coefficients
+  precomputed in ctor from roughness; `evalSpectral` uses cached
+  `RGBAlbedoSpectrum albedo_spec_`; cosine hemisphere sampling).
+  `plugins/materials/isotropic.cpp`: uniform volumetric phase function (1/4π);
+  `evalSpectral` returns `albedo_spec_.sample(lambdas) * 1/4π`; `sample` picks
+  a uniformly random direction on the unit sphere. `plugins/materials/two_sided.cpp`:
+  wraps an inner material (registry lookup via `inner_type` param), flips hit
+  record normal on back-face hits, delegates all `eval`/`sample`/`pdf`/
+  `evalSpectral` calls to the inner material. `plugins/materials/emissive.cpp`:
+  omnidirectional emitter — emits from both faces (unlike `DiffuseLight` which
+  gates on `frontFace`); `emittedSpectral` returns cached `RGBIlluminantSpectrum`.
+  5 new tests in `test_spectral_materials.py`; 223 passed, 1 skipped.
+  **pkg13 is now fully complete.** Every plugin in `plugins/materials/` and
+  `plugins/textures/` has a concrete spectral override; the pkg11 Jakob-Hanika
+  fallback remains only as the safety net for future materials.
+- **pkg13 (Copilot — pkg13a #104, pkg13b #106)** — Dumb-material overrides
+  (Phong `evalSpectral` with cached diffuse+specular spectra;
+  Disney `evalSpectral` via final-RGB upsample; NormalMapped `evalSpectral`
+  delegation; DiffuseLight `emittedSpectral` with `RGBIlluminantSpectrum` cache)
+  and 8 procedural texture `sampleSpectral` overrides (checker, noise, gradient,
+  voronoi, brick, musgrave, magic, wave — all call `sample(uv, p)` and upsample
+  per-call, no cache needed for UV-varying procedurals).
+- **pkg13 (physics/infra — Claude Code #103)** — Three deliverables.
+  (1) `Texture::sampleSpectral` virtual added to `Texture` base in
+  `include/advanced_features.h`: default upsamples `value(uv, p)` via
+  `RGBAlbedoSpectrum`; non-virtual helper handles coord-mode dispatch.
+  `ImageTexture` overrides with an eager per-texel `RGBAlbedoSpectrum` cache
+  built in `setData()` (12 bytes/texel, zero lock overhead). (2) `MetalPlugin`
+  gains `albedo_spec_` member and overrides `evalSpectral` with a per-λ Schlick
+  Fresnel inside the GGX microfacet model — `F0` becomes a `SampledSpectrum`
+  evaluated from the cached albedo. Near-delta and roughness paths both covered.
+  (3) `DielectricPlugin` and `MirrorPlugin` gain trivial zero `evalSpectral`
+  overrides (delta lobes). `SubsurfacePlugin` gains `albedo_spec_` cache and
+  overrides `evalSpectral` with per-call transmission spectrum from scatter
+  distance. Dispersive glass (Sellmeier + `terminateSecondary`) and metal
+  complex-IOR presets (gold/silver) remain deferred. 206 passed, 1 skipped
+  (+8 new in `tests/test_spectral_materials.py`).
 - **pkg12** — Spectral Lambertian override. `LambertianPlugin` in
   `plugins/materials/lambertian.cpp` gains an `astroray::RGBAlbedoSpectrum
   albedo_spec_` member, eagerly initialised from `albedo_` in the constructor

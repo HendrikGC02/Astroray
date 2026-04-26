@@ -1074,6 +1074,7 @@ class EnvironmentMap {
     std::vector<float> marginalCdf;     // size: height
     std::vector<float> marginalFunc;    // size: height (row totals)
     float totalPower = 0.0f;
+    std::vector<astroray::RGBIlluminantSpectrum> spectralAtlas_; // width*height, pre-strength
 
 public:
     bool loaded() const { return !data.empty(); }
@@ -1103,6 +1104,10 @@ public:
         applyBlenderXRotation = blenderXRotation;
         printf("Loaded environment map: %s (%dx%d)\n", path.c_str(), width, height);
         buildCdf();
+        spectralAtlas_.clear();
+        spectralAtlas_.reserve(static_cast<size_t>(width) * height);
+        for (int i = 0; i < width * height; ++i)
+            spectralAtlas_.emplace_back(std::array<float,3>{data[3*i], data[3*i+1], data[3*i+2]});
         return true;
     }
     
@@ -1164,7 +1169,45 @@ public:
         
         return color * strength;
     }
-    
+
+    astroray::SampledSpectrum evalSpectral(const Vec3& direction,
+                                            const astroray::SampledWavelengths& lambdas) const {
+        if (width == 0 || height == 0) return astroray::SampledSpectrum(0.0f);
+
+        Vec3 mappedDir = direction;
+        if (applyBlenderXRotation)
+            mappedDir = Vec3(direction.x, direction.z, -direction.y);
+
+        float theta = std::acos(std::clamp(mappedDir.y, -1.0f, 1.0f));
+        float phi = std::atan2(mappedDir.z, mappedDir.x);
+        phi += rotation;
+        float u = 0.5f + phi / (2.0f * M_PI);
+        float v = 1.0f - theta / M_PI;
+
+        if (u < 0) u += 1.0f;
+        if (u >= 1.0f) u -= 1.0f;
+
+        float uPixel = u * width;
+        float vPixel = v * height;
+
+        int x0 = std::max(0, std::min(width  - 1, static_cast<int>(uPixel)));
+        int x1 = std::max(0, std::min(width  - 1, x0 + 1));
+        int y0 = std::max(0, std::min(height - 1, static_cast<int>(vPixel)));
+        int y1 = std::max(0, std::min(height - 1, y0 + 1));
+
+        float uFract = uPixel - x0;
+        float vFract = vPixel - y0;
+
+        astroray::SampledSpectrum s00 = spectralAtlas_[y0 * width + x0].sample(lambdas);
+        astroray::SampledSpectrum s10 = spectralAtlas_[y0 * width + x1].sample(lambdas);
+        astroray::SampledSpectrum s01 = spectralAtlas_[y1 * width + x0].sample(lambdas);
+        astroray::SampledSpectrum s11 = spectralAtlas_[y1 * width + x1].sample(lambdas);
+
+        astroray::SampledSpectrum s0 = s00 * (1.0f - uFract) + s10 * uFract;
+        astroray::SampledSpectrum s1 = s01 * (1.0f - uFract) + s11 * uFract;
+        return (s0 * (1.0f - vFract) + s1 * vFract) * strength;
+    }
+
 private:
     void buildCdf() {
         if (width == 0 || height == 0) return;

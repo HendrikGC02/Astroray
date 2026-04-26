@@ -429,6 +429,28 @@ public:
         return false;
     }
 
+    // Returns [s0,s1,s2,s3] from the spectral atlas for direction dir and wavelength
+    // stratum u in [0,1). Used by tests to validate evalSpectral parity.
+    std::vector<float> evalEnvSpectral(const std::vector<float>& dir, float u) const {
+        if (!envMap || !envMap->loaded()) return {0,0,0,0};
+        Vec3 d(dir[0], dir[1], dir[2]);
+        astroray::SampledWavelengths wls = astroray::SampledWavelengths::sampleUniform(u);
+        astroray::SampledSpectrum s = envMap->evalSpectral(d, wls);
+        return {s[0], s[1], s[2], s[3]};
+    }
+
+    // Reference fallback: RGB lookup then RGBIlluminantSpectrum upsample.
+    // Mirrors the pkg11-style path that evalSpectral replaces.
+    std::vector<float> evalEnvRGBUpsample(const std::vector<float>& dir, float u) const {
+        if (!envMap || !envMap->loaded()) return {0,0,0,0};
+        Vec3 d(dir[0], dir[1], dir[2]);
+        Vec3 c = envMap->lookup(d);
+        astroray::SampledWavelengths wls = astroray::SampledWavelengths::sampleUniform(u);
+        astroray::SampledSpectrum s =
+            astroray::RGBIlluminantSpectrum({c.x, c.y, c.z}).sample(wls);
+        return {s[0], s[1], s[2], s[3]};
+    }
+
     void setBackgroundColor(const std::vector<float>& color) {
         renderer.setBackgroundColor(Vec3(color[0], color[1], color[2]));
     }
@@ -865,6 +887,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
              "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f, "blender_x_rotation"_a = false)
+        .def("eval_env_spectral", &PyRenderer::evalEnvSpectral, "direction"_a, "u"_a)
+        .def("eval_env_rgb_upsample", &PyRenderer::evalEnvRGBUpsample, "direction"_a, "u"_a)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
         .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
         .def("set_use_transparent_film", &PyRenderer::setUseTransparentFilm, "use"_a)

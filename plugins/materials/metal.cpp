@@ -1,4 +1,4 @@
-#include "astroray/register.h"
+﻿#include "astroray/register.h"
 #include "raytracer.h"
 
 class MetalPlugin : public Material {
@@ -21,7 +21,7 @@ public:
     bool isGlossy() const override { return true; }
     Vec3 getAlbedo() const override { return albedo_; }
 
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         if (roughness_ <= kNearDeltaThreshold) {
             Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             float deviation = (wi - perfectRefl).length();
@@ -68,7 +68,7 @@ public:
         float a = roughness_ * roughness_, a2 = a * a;
         float denom = NdotH * NdotH * (a2 - 1) + 1;
         float D = a2 / (float(M_PI) * denom * denom + 0.001f);
-        // Per-λ Schlick Fresnel: F0 is the albedo spectrum; scale by (1-cosTheta)^5 term.
+        // Per-Î» Schlick Fresnel: F0 is the albedo spectrum; scale by (1-cosTheta)^5 term.
         astroray::SampledSpectrum F0 = albedo_spec_.sample(lambdas);
         float fresnelPow5 = std::pow(1.0f - std::clamp(h.dot(wo), 0.0f, 1.0f), 5.0f);
         astroray::SampledSpectrum F = F0 + (astroray::SampledSpectrum(1.0f) - F0) * fresnelPow5;

@@ -1,9 +1,9 @@
-#include "astroray/register.h"
+﻿#include "astroray/register.h"
 #include "raytracer.h"
 
 // Wraps another material and renders both faces.
 // On the back face, flips the hit record normal so the inner material
-// sees a front-face hit — allowing e.g. a Lambertian cloth to be
+// sees a front-face hit â€” allowing e.g. a Lambertian cloth to be
 // shaded correctly from both sides.
 class TwoSidedPlugin : public Material {
     std::shared_ptr<Material> inner_;
@@ -20,11 +20,6 @@ public:
     explicit TwoSidedPlugin(const astroray::ParamDict& p)
         : inner_(astroray::MaterialRegistry::instance().create(
               p.getString("inner_type", "lambertian"), p)) {}
-
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        const HitRecord& r = rec.frontFace ? rec : flipToFront(rec);
-        return inner_->eval(r, wo, wi);
-    }
 
     astroray::SampledSpectrum evalSpectral(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,

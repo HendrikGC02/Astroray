@@ -474,7 +474,6 @@ struct BSDFSample { Vec3 wi, f; float pdf; bool isDelta; };
 class Material {
 public:
     virtual ~Material() = default;
-    virtual Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const { return Vec3(0); }
     virtual BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const { return BSDFSample{Vec3(0,1,0), Vec3(0), 0, false}; }
     virtual float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const { return 0; }
     virtual Vec3 emitted(const HitRecord& rec) const { return Vec3(0); }
@@ -484,36 +483,23 @@ public:
     virtual bool isGlossy() const { return false; }
     virtual Vec3 getAlbedo() const { return Vec3(0.5f); }
 
-    // Pillar 2 spectral hooks. Defaults Jakob-Hanika upsample the RGB result
-    // so that pkg11 ships a runnable spectral path before any concrete
-    // material implements a wavelength-dependent BSDF (pkg12 onward).
     virtual astroray::SampledSpectrum evalSpectral(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,
-            const astroray::SampledWavelengths& lambdas) const {
-        Vec3 rgb = eval(rec, wo, wi);
-        return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
-    }
+            const astroray::SampledWavelengths& lambdas) const = 0;
     virtual astroray::SampledSpectrum emittedSpectral(
             const HitRecord& rec,
             const astroray::SampledWavelengths& lambdas) const {
-        Vec3 rgb = emitted(rec);
-        if (rgb.x == 0.0f && rgb.y == 0.0f && rgb.z == 0.0f) {
-            return astroray::SampledSpectrum(0.0f);
-        }
-        return astroray::RGBIlluminantSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+        return astroray::SampledSpectrum(0.0f);
     }
 };
 
 class Lambertian : public Material {
     Vec3 albedo;
+    astroray::RGBAlbedoSpectrum albedoSpec_;
 public:
-    Lambertian(const Vec3& a) : albedo(a) {}
-    Vec3  getAlbedo()    const { return albedo; }
-    
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        return (wi.dot(rec.normal) <= 0) ? Vec3(0) : albedo / M_PI * wi.dot(rec.normal);
-    }
-    
+    Lambertian(const Vec3& a) : albedo(a), albedoSpec_({a.x, a.y, a.z}) {}
+    Vec3 getAlbedo() const { return albedo; }
+
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
         Vec3 localWi = Vec3::randomCosineDirection(gen);
@@ -523,10 +509,18 @@ public:
         s.isDelta = false;
         return s;
     }
-    
+
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
         float cosTheta = wi.dot(rec.normal);
         return cosTheta > 0 ? cosTheta / M_PI : 0;
+    }
+
+    astroray::SampledSpectrum evalSpectral(
+            const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+            const astroray::SampledWavelengths& lambdas) const override {
+        float cosTheta = wi.dot(rec.normal);
+        if (cosTheta <= 0.0f) return astroray::SampledSpectrum(0.0f);
+        return albedoSpec_.sample(lambdas) * (cosTheta / float(M_PI));
     }
 };
 
@@ -538,8 +532,8 @@ class Hittable {
     int objectPassIndex = 0;
     int materialPassIndex = 0;
 public:
-    // Result type used by GR objects (BlackHole).  Defined here so that
-    // pathTrace() can use it without needing a full BlackHole definition.
+    // Result type used by GR objects (BlackHole). Defined here so that
+    // pathTraceSpectral() can use it without needing a full BlackHole definition.
     struct GRResult {
         Vec3 color;            // accumulated spectral emission (linear RGB)
         Vec3 exitDirection;    // world-space exit direction
@@ -557,7 +551,7 @@ public:
     virtual Vec3 emittedRadiance() const { return Vec3(0); }
     virtual float directionFalloff(const Vec3& /*directionFromLight*/) const { return 1.0f; }
     virtual Vec3 emittedRadiance(const Vec3& /*lightNormal*/, const Vec3& /*toPointDir*/) const { return emittedRadiance(); }
-    // GR dispatch — BlackHole overrides both
+    // GR dispatch â€” BlackHole overrides both
     virtual bool isGRObject() const { return false; }
     virtual GRResult traceGR(const Ray& /*r*/, std::mt19937& /*gen*/) const {
         return {Vec3(0), Vec3(0, 0, 1), true, false};
@@ -621,7 +615,7 @@ public:
         if (angularDiameter <= 0.0f)
             return cosTheta > (1.0f - 1e-3f) ? 1.0f : 0.0f;
         if (cosTheta < cosThetaMax) return 0.0f;
-        // Uniform cone sampling: PDF = 1 / solidAngle = 1 / (2π(1 − cosθ_max))
+        // Uniform cone sampling: PDF = 1 / solidAngle = 1 / (2Ï€(1 âˆ’ cosÎ¸_max))
         float solidAngle = 2.0f * float(M_PI) * (1.0f - cosThetaMax);
         return solidAngle > 1e-10f ? 1.0f / solidAngle : 1.0f;
     }
@@ -644,7 +638,7 @@ public:
         rec.frontFace = true;
         return material ? material->emitted(rec) : Vec3(0);
     }
-    // Scale emitted radiance by 1/solidAngle so that contribution = (I/Ω) / (1/Ω) = I
+    // Scale emitted radiance by 1/solidAngle so that contribution = (I/Î©) / (1/Î©) = I
     // regardless of the cone angular size.  Both the NEE path and the BSDF MIS path
     // multiply material emission by directionFalloff before dividing by pdf,
     // so the irradiance seen by the surface stays constant as the sun disk size changes.
@@ -997,7 +991,7 @@ public:
     
     bool boundingBox(AABB& box) const override { if (!nodes.empty()) box = nodes[0].bounds; return !nodes.empty(); }
 
-    // Accessors for scene_upload.cu — read the flat BVH and ordered primitive list
+    // Accessors for scene_upload.cu â€” read the flat BVH and ordered primitive list
     const std::vector<LinearBVHNode>& getNodes() const { return nodes; }
     const std::vector<std::shared_ptr<Hittable>>& getPrimitives() const { return primitives; }
 };
@@ -1074,6 +1068,7 @@ class EnvironmentMap {
     std::vector<float> marginalCdf;     // size: height
     std::vector<float> marginalFunc;    // size: height (row totals)
     float totalPower = 0.0f;
+    std::vector<astroray::RGBIlluminantSpectrum> spectralAtlas_; // width*height, pre-strength
 
 public:
     bool loaded() const { return !data.empty(); }
@@ -1103,6 +1098,10 @@ public:
         applyBlenderXRotation = blenderXRotation;
         printf("Loaded environment map: %s (%dx%d)\n", path.c_str(), width, height);
         buildCdf();
+        spectralAtlas_.clear();
+        spectralAtlas_.reserve(static_cast<size_t>(width) * height);
+        for (int i = 0; i < width * height; ++i)
+            spectralAtlas_.emplace_back(std::array<float,3>{data[3*i], data[3*i+1], data[3*i+2]});
         return true;
     }
     
@@ -1119,7 +1118,7 @@ public:
         float phi = std::atan2(mappedDir.z, mappedDir.x);                // azimuthal
         phi += rotation;  // apply horizontal rotation
         float u = 0.5f + phi / (2.0f * M_PI);  // [0, 1]
-        float v = 1.0f - theta / M_PI;          // [0, 1], flipped: y=+1 (up) → row height-1
+        float v = 1.0f - theta / M_PI;          // [0, 1], flipped: y=+1 (up) â†’ row height-1
 
         // Wrap u to [0,1] range
         if (u < 0) u += 1.0f;
@@ -1164,7 +1163,45 @@ public:
         
         return color * strength;
     }
-    
+
+    astroray::SampledSpectrum evalSpectral(const Vec3& direction,
+                                            const astroray::SampledWavelengths& lambdas) const {
+        if (width == 0 || height == 0) return astroray::SampledSpectrum(0.0f);
+
+        Vec3 mappedDir = direction;
+        if (applyBlenderXRotation)
+            mappedDir = Vec3(direction.x, direction.z, -direction.y);
+
+        float theta = std::acos(std::clamp(mappedDir.y, -1.0f, 1.0f));
+        float phi = std::atan2(mappedDir.z, mappedDir.x);
+        phi += rotation;
+        float u = 0.5f + phi / (2.0f * M_PI);
+        float v = 1.0f - theta / M_PI;
+
+        if (u < 0) u += 1.0f;
+        if (u >= 1.0f) u -= 1.0f;
+
+        float uPixel = u * width;
+        float vPixel = v * height;
+
+        int x0 = std::max(0, std::min(width  - 1, static_cast<int>(uPixel)));
+        int x1 = std::max(0, std::min(width  - 1, x0 + 1));
+        int y0 = std::max(0, std::min(height - 1, static_cast<int>(vPixel)));
+        int y1 = std::max(0, std::min(height - 1, y0 + 1));
+
+        float uFract = uPixel - x0;
+        float vFract = vPixel - y0;
+
+        astroray::SampledSpectrum s00 = spectralAtlas_[y0 * width + x0].sample(lambdas);
+        astroray::SampledSpectrum s10 = spectralAtlas_[y0 * width + x1].sample(lambdas);
+        astroray::SampledSpectrum s01 = spectralAtlas_[y1 * width + x0].sample(lambdas);
+        astroray::SampledSpectrum s11 = spectralAtlas_[y1 * width + x1].sample(lambdas);
+
+        astroray::SampledSpectrum s0 = s00 * (1.0f - uFract) + s10 * uFract;
+        astroray::SampledSpectrum s1 = s01 * (1.0f - uFract) + s11 * uFract;
+        return (s0 * (1.0f - vFract) + s1 * vFract) * strength;
+    }
+
 private:
     void buildCdf() {
         if (width == 0 || height == 0) return;
@@ -1494,7 +1531,6 @@ class Renderer {
     Vec3 worldVolumeColor = Vec3(1.0f);
     float worldVolumeAnisotropy = 0.0f;
     std::shared_ptr<Integrator> integrator_;
-    bool spectralMode_ = false;  // true when integrator_->kind() == IntegratorKind::Spectral
     std::vector<std::shared_ptr<Pass>> passes_;
 
     Vec3 clampLuminance(const Vec3& c, float maxLum) const {
@@ -1516,24 +1552,11 @@ class Renderer {
     }
     
 public:
-    // Definition deferred to below the integrator.h include — it reads
+    // Definition deferred to below the integrator.h include â€” it reads
     // the integrator's kind() virtual and that needs Integrator's full type.
     void setIntegrator(std::shared_ptr<Integrator> i);
     void addPass(std::shared_ptr<Pass> p)  { passes_.push_back(std::move(p)); }
-    bool spectralMode() const { return spectralMode_; }
     void clearPasses()                      { passes_.clear(); }
-
-    // Full-path trace: returns color plus AOVs and render passes in a SampleResult.
-    // Used by PathTracer::sampleFull to route through the existing path-tracing kernel.
-    SampleResult traceFull(const Ray& ray, int maxDepth, std::mt19937& gen) {
-        PathBounceLimits bl{maxDepth, maxDepth, maxDepth, maxDepth, maxDepth};
-        SampleResult r;
-        r.color = pathTrace(ray, maxDepth, bl, gen,
-                            &r.albedo, &r.normal, &r.alpha,
-                            &r.depth, &r.position, &r.uv,
-                            &r.objectIndex, &r.materialIndex, &r.passes);
-        return r;
-    }
 
     void setEnvironmentMap(std::shared_ptr<EnvironmentMap> map) { envMap = map; }
     void setBackgroundColor(const Vec3& color) { backgroundColor = color; }
@@ -1626,18 +1649,6 @@ public:
         return 0.5f;
     }
 
-    struct PathBounceLimits {
-        int diffuse;
-        int glossy;
-        int transmission;
-        int volume;
-        int transparent;
-    };
-
-    static int resolveBounceLimit(int limit, int maxDepth) {
-        return limit < 0 ? maxDepth : limit;
-    }
-
     static bool isTransmissionMaterial(const Material* material) {
         return material && material->isTransmissive();
     }
@@ -1685,363 +1696,13 @@ public:
         );
     }
 
-    struct DirectSampleResult {
-        Vec3 radiance;
-        float shadow;
-    };
 
-    DirectSampleResult sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
-        DirectSampleResult result{Vec3(0), 0.0f};
-        bool hasEnv = (envMap && envMap->loaded()) || (backgroundColor.x >= 0.0f);
-        if ((lights.empty() && !hasEnv) || rec.isDelta) return result;
-        Vec3 wo = -ray.direction.normalized(), direct(0);
-        std::uniform_real_distribution<float> dist01(0, 1);
-
-        float pEnv = envSelectProb();
-        bool sampleEnv = dist01(gen) < pEnv;
-
-        if (sampleEnv && hasEnv) {
-            Vec3 wi, radiance;
-            float envPdf = 0.0f;
-
-            if (envMap && envMap->loaded()) {
-                auto es = envMap->sample(gen);
-                wi = es.direction;
-                radiance = es.radiance;
-                envPdf = es.pdf;
-            } else {
-                float u1 = dist01(gen), u2 = dist01(gen);
-                float z = u1;
-                float r = std::sqrt(std::max(0.0f, 1.0f - z * z));
-                float phi = 2.0f * M_PI * u2;
-                Vec3 localWi(std::cos(phi) * r, std::sin(phi) * r, z);
-                wi = rec.tangent * localWi.x + rec.bitangent * localWi.y + rec.normal * localWi.z;
-                radiance = backgroundColor;
-                envPdf = 1.0f / (2.0f * M_PI);
-            }
-
-            if (envPdf > 0.0f) {
-                HitRecord shadow;
-                // Shadow ray: must NOT hit any geometry (ray escapes to infinity)
-                if (!bvh->hit(Ray(rec.point, wi), 0.001f, 1e30f, shadow)) {
-                    Vec3 f = rec.material->eval(rec, wo, wi);
-                    float bsdfPdf = rec.material->pdf(rec, wo, wi);
-                    float combinedLightPdf = pEnv * envPdf;
-                    float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
-                    direct += f * radiance * wt / (combinedLightPdf + 0.001f);
-                } else {
-                    result.shadow += 1.0f;
-                }
-            }
-        } else if (!lights.empty()) {
-            // === Existing area light sampling ===
-            float pArea = 1.0f - pEnv;
-            LightSample ls = lights.sample(rec.point, gen);
-            if (ls.pdf > 0) {
-                Vec3 wi = (ls.position - rec.point).normalized();
-                HitRecord shadow;
-                bool hitOccluder = bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow);
-                // Infinite lights (DistantLight) are at t=1e8; float subtraction
-                // ls.distance - 0.001f == ls.distance (ULP≈8 at 1e8), so the shadow
-                // ray hits the light itself.  Skip infinite-light hits — they are the
-                // sampled light, not an occluder.
-                bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
-                if (!occluded) {
-                    Vec3 f = rec.material->eval(rec, wo, wi);
-                    float bsdfPdf = rec.material->pdf(rec, wo, wi);
-                    float combinedLightPdf = pArea * ls.pdf;
-                    float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
-                    direct += (f * ls.emission * worldTransmittance(ls.distance)) * wt / (combinedLightPdf + 0.001f);
-                } else {
-                    result.shadow += 1.0f;
-                }
-            }
-        }
-
-        // === BSDF sampling (check both area lights AND environment) ===
-        BSDFSample bs = rec.material->sample(rec, wo, gen);
-        if (bs.pdf > 0 && !bs.isDelta) {
-            HitRecord bRec;
-            if (bvh->hit(Ray(rec.point, bs.wi), 0.001f, 1e30f, bRec)) {
-                // Hit geometry — check if it's an emissive light.
-                // GR objects (BlackHole) do not set rec.material in hit(); they
-                // are handled by the path-tracer's GR branch, never as NEE
-                // light targets, so skip them safely here to avoid a NULL deref.
-                if (bRec.material) {
-                    Vec3 Le = bRec.material->emitted(bRec);
-                    if (bRec.hitObject) Le *= bRec.hitObject->directionFalloff(-bs.wi);
-                    if (Le != Vec3(0)) {
-                        float lightPdf = (1.0f - pEnv) * lights.pdfValue(rec.point, bs.wi);
-                        direct += (bs.f * Le * worldTransmittance(bRec.t)) * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
-                    }
-                }
-            } else {
-                // Miss — hit the environment map
-                if (envMap && envMap->loaded()) {
-                    Vec3 Le = envMap->lookup(bs.wi.normalized());
-                    float lightPdf = pEnv * envMap->pdf(bs.wi.normalized());
-                    direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
-                } else if (backgroundColor.x >= 0.0f) {
-                    float lightPdf = pEnv * (1.0f / (2.0f * M_PI));
-                    direct += bs.f * backgroundColor * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
-                }
-            }
-        }
-
-        result.radiance = clampLuminance(direct, clampDirect);
-        result.shadow = std::clamp(result.shadow, 0.0f, 1.0f);
-        return result;
-    }
-    
-Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits, std::mt19937& gen,
-                   Vec3* albOut = nullptr, Vec3* normOut = nullptr, float* alphaOut = nullptr,
-                   float* depthOut = nullptr, Vec3* positionOut = nullptr, Vec3* uvOut = nullptr,
-                   int* objectIndexOut = nullptr, int* materialIndexOut = nullptr,
-                   std::array<Vec3, PASS_COUNT>* passOut = nullptr) {
-        const int rrDepth = 3;
-        Vec3 color(0), throughput(1);
-        std::array<Vec3, PASS_COUNT> passAccum;
-        passAccum.fill(Vec3(0));
-        Ray ray = r;
-        bool wasSpecular = true;
-        int diffuseBounces = 0;
-        int glossyBounces = 0;
-        int transmissionBounces = 0;
-        int volumeBounces = 0;
-        int transparentBounces = 0;
-        bool alphaCovered = !useTransparentFilm;
-        bool hasDiffuseBounce = false;
-        std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
-
-        for (int bounce = 0; bounce < maxDepth; ++bounce) {
-            HitRecord rec;
-            if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
-                Vec3 envColor;
-                if (bounce <= worldMaxBounces) {
-                    if (envMap && envMap->loaded()) {
-                        envColor = envMap->lookup(ray.direction.normalized());
-                    } else if (backgroundColor.x >= 0) {
-                        envColor = backgroundColor;
-                    } else {
-                        float t = 0.5f * (ray.direction.normalized().y + 1.0f);
-                        envColor = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
-                    }
-                }
-                if (bounce == 0 || wasSpecular) {
-                    Vec3 contrib = throughput * envColor;
-                    if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
-                    color += contrib;
-                    passAccum[PASS_ENVIRONMENT] += contrib;
-                }
-                if (alphaOut) *alphaOut = alphaCovered ? 1.0f : 0.0f;
-                break;
-            }
-
-            // --- GR dispatch via virtual call (no RTTI needed) ---
-            if (rec.hitObject && rec.hitObject->isGRObject()) {
-                alphaCovered = true;
-                auto grResult = rec.hitObject->traceGR(ray, gen);
-
-                if (bounce == 0 && normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
-
-                if (grResult.hasEmission) {
-                    Vec3 contrib = throughput * grResult.color;
-                    if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
-                    color += contrib;
-                    passAccum[PASS_EMISSION] += contrib;
-                }
-                if (grResult.captured) {
-                    break;
-                }
-                // Sanitize exit direction: any NaN/Inf or zero-length vector
-                // collapses the geodesic into a "captured" outcome rather than
-                // poisoning BVH traversal with a malformed ray.
-                Vec3 exitDir = grResult.exitDirection;
-                float exitLen2 = exitDir.length2();
-                if (!std::isfinite(exitDir.x) || !std::isfinite(exitDir.y) ||
-                    !std::isfinite(exitDir.z) || !std::isfinite(exitLen2) ||
-                    exitLen2 < 1e-10f) {
-                    break;
-                }
-                Ray next(rec.point, exitDir, ray.time, ray.screenU, ray.screenV);
-                next.hasCameraFrame = ray.hasCameraFrame;
-                next.cameraOrigin = ray.cameraOrigin;
-                next.cameraU = ray.cameraU;
-                next.cameraV = ray.cameraV;
-                next.cameraW = ray.cameraW;
-                ray = next;
-                wasSpecular = true;
-                continue;
-            }
-
-            // --- Normal path tracing ---
-            if (!rec.material) break;  // safety guard
-            throughput *= worldTransmittance(rec.t);
-            ClosureType closure = classifyMaterial(rec.material.get());
-            bool countsForAlpha = true;
-            if (transparentGlass && rec.material->isTransmissive()) {
-                countsForAlpha = false;
-            }
-            if (countsForAlpha) alphaCovered = true;
-            if (bounce == 0) {
-                if (albOut) { if (auto l = dynamic_cast<Lambertian*>(rec.material.get())) *albOut = l->getAlbedo(); else *albOut = Vec3(0.5f); }
-                if (normOut) *normOut = rec.normal * 0.5f + Vec3(0.5f);
-                if (depthOut) *depthOut = rec.t;
-                if (positionOut) *positionOut = rec.point;
-                if (uvOut) *uvOut = Vec3(rec.uv.u, rec.uv.v, 0.0f);
-                if (objectIndexOut) *objectIndexOut = rec.hitObject ? rec.hitObject->getObjectPassIndex() : 0;
-                if (materialIndexOut) *materialIndexOut = rec.hitObject ? rec.hitObject->getMaterialPassIndex() : 0;
-                Vec3 baseColor = getMaterialColor(rec.material.get());
-                if (closure == ClosureType::Diffuse) {
-                    passAccum[PASS_DIFFUSE_COLOR] += baseColor;
-                } else if (closure == ClosureType::Glossy) {
-                    passAccum[PASS_GLOSSY_COLOR] += baseColor;
-                } else if (closure == ClosureType::Transmission) {
-                    passAccum[PASS_TRANSMISSION_COLOR] += baseColor;
-                }
-                if (closure == ClosureType::Diffuse) {
-                    Vec3 u, v;
-                    buildOrthonormalBasis(rec.normal, u, v);
-                    Vec3 aoLocal = Vec3::randomCosineDirection(gen);
-                    Vec3 aoDir = (u * aoLocal.x + v * aoLocal.y + rec.normal * aoLocal.z).normalized();
-                    HitRecord aoHit;
-                    if (!bvh->hit(Ray(rec.point, aoDir), 0.001f, 1.0f, aoHit)) {
-                        passAccum[PASS_AO] += Vec3(1.0f);
-                    }
-                }
-            }
-            if (isTransmissionMaterial(rec.material.get()) && transmissionBounces >= bounceLimits.transmission) break;
-            if (isGlossyMaterial(rec.material.get()) && glossyBounces >= bounceLimits.glossy) break;
-            if (!isTransmissionMaterial(rec.material.get()) && !isGlossyMaterial(rec.material.get()) &&
-                diffuseBounces >= bounceLimits.diffuse) break;
-            Vec3 emitted = rec.material->emitted(rec);
-            if (emitted != Vec3(0)) {
-                if (bounce == 0 || wasSpecular) {
-                    Vec3 contrib = throughput * emitted;
-                    if (bounce > 0) contrib = clampLuminance(contrib, clampIndirect);
-                    color += contrib;
-                    passAccum[PASS_EMISSION] += contrib;
-                }
-                break;
-            }
-            if (!rec.isDelta) {
-                DirectSampleResult directSample = sampleDirect(rec, ray, gen);
-                Vec3 directContrib = throughput * directSample.radiance;
-                color += directContrib;
-                if (closure == ClosureType::Diffuse) {
-                    passAccum[bounce == 0 ? PASS_DIFFUSE_DIRECT : PASS_DIFFUSE_INDIRECT] += directContrib;
-                } else if (closure == ClosureType::Glossy) {
-                    passAccum[bounce == 0 ? PASS_GLOSSY_DIRECT : PASS_GLOSSY_INDIRECT] += directContrib;
-                } else if (closure == ClosureType::Transmission) {
-                    passAccum[bounce == 0 ? PASS_TRANSMISSION_DIRECT : PASS_TRANSMISSION_INDIRECT] += directContrib;
-                } else if (closure == ClosureType::Volume) {
-                    passAccum[bounce == 0 ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT] += directContrib;
-                }
-                if (directSample.shadow > 0.0f) {
-                    passAccum[PASS_SHADOW] += Vec3(directSample.shadow);
-                }
-            }
-            if (bounce > rrDepth) {
-                float p = std::min(0.95f, luminance(throughput));
-                if (std::uniform_real_distribution<float>(0, 1)(gen) > p) break;
-                throughput /= p;
-            }
-            Vec3 wo = -ray.direction.normalized();
-            BSDFSample bs = rec.material->sample(rec, wo, gen);
-            if (bs.pdf <= 0) break;
-            bool isTransmission = isTransmissionMaterial(rec.material.get());
-            bool isSpecularBounce = bs.isDelta;
-            bool isRefractiveSpecular = false;
-            bool isReflectiveSpecular = false;
-            if (isSpecularBounce) {
-                if (isTransmission) {
-                    float nWo = wo.dot(rec.normal);
-                    float nWi = bs.wi.dot(rec.normal);
-                    isRefractiveSpecular = (nWo * nWi) < 0.0f;
-                    isReflectiveSpecular = !isRefractiveSpecular;
-                } else {
-                    isReflectiveSpecular = true;
-                }
-            }
-            if (hasDiffuseBounce) {
-                if (!useReflectiveCaustics && isReflectiveSpecular) break;
-                if (!useRefractiveCaustics && isRefractiveSpecular) break;
-            }
-
-            float blurRoughness = std::clamp(filterGlossy * float(bounce), 0.0f, 1.0f);
-            bool shouldApplyGlossyBlur =
-                blurRoughness > 0.0f && bounce > 0 &&
-                (isTransmission || isGlossyMaterial(rec.material.get()) || bs.isDelta);
-            if (shouldApplyGlossyBlur) {
-                Vec3 axis = bs.wi.normalized();
-                if (axis.length2() > 1e-8f) {
-                    Vec3 u, v;
-                    buildOrthonormalBasis(axis, u, v);
-                    // Roughness blur approximation: sample a cone around the specular
-                    // direction, widening with filter_glossy and bounce depth.
-                    float cosTheta = 1.0f - blurRoughness * dist01(gen);
-                    float sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
-                    float phi = 2.0f * M_PI * dist01(gen);
-                    Vec3 candidate = (u * (std::cos(phi) * sinTheta) +
-                                      v * (std::sin(phi) * sinTheta) +
-                                      axis * cosTheta).normalized();
-                    if (candidate.dot(rec.normal) > 0.0f) {
-                        bool wasDelta = bs.isDelta;
-                        bs.wi = candidate;
-                        if (wasDelta) {
-                            bs.isDelta = false;
-                            rec.isDelta = false;
-                            bs.pdf = 1.0f;
-                        } else {
-                            float newPdf = rec.material->pdf(rec, wo, bs.wi);
-                            if (newPdf > 0.0f) bs.pdf = newPdf;
-                            Vec3 newF = rec.material->eval(rec, wo, bs.wi);
-                            if (newF != Vec3(0)) bs.f = newF;
-                        }
-                    }
-                }
-            }
-            if (isTransmission) {
-                transmissionBounces++;
-                if (transmissionBounces > bounceLimits.transmission) break;
-            } else if (bs.isDelta || isGlossyMaterial(rec.material.get())) {
-                glossyBounces++;
-                if (glossyBounces > bounceLimits.glossy) break;
-            } else {
-                diffuseBounces++;
-                if (diffuseBounces > bounceLimits.diffuse) break;
-                hasDiffuseBounce = true;
-            }
-            if (volumeBounces > bounceLimits.volume || transparentBounces > bounceLimits.transparent) break;
-            wasSpecular = bs.isDelta;
-            throughput *= bs.f / (bs.pdf + 0.001f);
-            Ray next(rec.point, bs.wi, ray.time, ray.screenU, ray.screenV);
-            next.hasCameraFrame = ray.hasCameraFrame;
-            next.cameraOrigin = ray.cameraOrigin;
-            next.cameraU = ray.cameraU;
-            next.cameraV = ray.cameraV;
-            next.cameraW = ray.cameraW;
-            ray = next;
-            float maxC = throughput.maxComponent();
-            if (maxC > 10.0f) throughput *= 10.0f / maxC;
-        }
-        if (alphaOut) *alphaOut = alphaCovered ? 1.0f : 0.0f;
-        if (passOut) *passOut = passAccum;
-        return color;
-    }
-
-    // Pillar 2 spectral path tracer kernel. Mirrors pathTrace() but uses
-    // SampledSpectrum for radiance and throughput, with material lookups
-    // via evalSpectral / emittedSpectral. Pkg11 ships a focused subset of
-    // the RGB pathTrace's features: BVH traversal, area-light NEE with MIS,
-    // emission gating (wasSpecular || bounce==0), Russian roulette after
-    // depth 3, and BSDF sampling via the wavelength-independent sample()
-    // (dispersive sampling lands in pkg13).
-    //
-    // GR-object dispatch, AOV passes, glossy filter, caustic filtering,
-    // volumes, and per-closure bounce limits are deliberately NOT replicated
-    // here; the spectral integrator is opt-in and only the Cornell-class
-    // A/B match is in scope for pkg11. Future packages can fold those in.
+    // Spectral path tracer kernel (Pillar 2, sole render path since pkg14).
+    // Uses SampledSpectrum for radiance and throughput; material lookups via
+    // evalSpectral / emittedSpectral. Covers BVH traversal, area-light NEE
+    // with MIS, emission gating, Russian roulette, and BSDF sampling.
+    // GR-object dispatch, AOV passes, and per-closure bounce limits are
+    // not yet replicated; those are future-package scope.
     astroray::SampledSpectrum pathTraceSpectral(
             const Ray& r, int maxDepth,
             const astroray::SampledWavelengths& lambdas,
@@ -2056,18 +1717,20 @@ Vec3 pathTrace(const Ray& r, int maxDepth, const PathBounceLimits& bounceLimits,
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             HitRecord rec;
             if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
-                if (bounce <= worldMaxBounces && (bounce == 0 || wasSpecular)) {
-                    Vec3 envColor;
+                // No env NEE in pathTraceSpectral, so env always contributes on miss
+                // (the wasSpecular gate would suppress diffuse-to-background paths).
+                if (bounce <= worldMaxBounces) {
+                    astroray::SampledSpectrum envSpec(0.0f);
                     if (envMap && envMap->loaded()) {
-                        envColor = envMap->lookup(ray.direction.normalized());
+                        envSpec = envMap->evalSpectral(ray.direction.normalized(), lambdas);
                     } else if (backgroundColor.x >= 0) {
-                        envColor = backgroundColor;
+                        envSpec = astroray::RGBIlluminantSpectrum(
+                            {backgroundColor.x, backgroundColor.y, backgroundColor.z}).sample(lambdas);
                     } else {
                         float t = 0.5f * (ray.direction.normalized().y + 1.0f);
-                        envColor = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
+                        Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
+                        envSpec = astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
                     }
-                    astroray::SampledSpectrum envSpec =
-                        astroray::RGBIlluminantSpectrum({envColor.x, envColor.y, envColor.z}).sample(lambdas);
                     color += throughput * envSpec;
                 }
                 break;
@@ -2184,14 +1847,9 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             std::function<void(float)> progress, bool adaptive, bool applyGamma,
             int maxDiffuseBounces, int maxGlossyBounces, int maxTransmissionBounces,
             int maxVolumeBounces, int maxTransparentBounces) {
+        (void)maxDiffuseBounces; (void)maxGlossyBounces; (void)maxTransmissionBounces;
+        (void)maxVolumeBounces; (void)maxTransparentBounces;
         buildAcceleration();
-        PathBounceLimits bounceLimits{
-            resolveBounceLimit(maxDiffuseBounces, maxDepth),
-            resolveBounceLimit(maxGlossyBounces, maxDepth),
-            resolveBounceLimit(maxTransmissionBounces, maxDepth),
-            resolveBounceLimit(maxVolumeBounces, maxDepth),
-            resolveBounceLimit(maxTransparentBounces, maxDepth)
-        };
         if (integrator_) integrator_->beginFrame(*this, cam);
         std::atomic<int> tilesCompleted{0};
         const int tileSize = 16;
@@ -2248,16 +1906,9 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 sObjectIndex = ir.objectIndex;
                                 sMaterialIndex = ir.materialIndex;
                                 sPass = ir.passes;
-                            } else {
-                                sCol = pathTrace(cam.getRay(u, v, gen), maxDepth, bounceLimits, gen,
-                                                 s == 0 ? &sAlb : nullptr, s == 0 ? &sNorm : nullptr, &sAlpha,
-                                                 &sDepth, &sPosition, &sUv, &sObjectIndex, &sMaterialIndex, &sPass);
                             }
-                            // Per-sample firefly suppression. In spectral mode
-                            // sCol is XYZ and Y is photometric luminance; in
-                            // RGB mode use the standard sRGB luminance formula.
-                            // Threshold stays at 20.0f (image-character invariant).
-                            float sLum = spectralMode_ ? sCol.y : luminance(sCol);
+                            // Per-sample firefly suppression: sCol is XYZ, Y is photometric luminance.
+                            float sLum = sCol.y;
                             if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
                             color += sCol;
                             for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
@@ -2300,11 +1951,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         passColor[PASS_VOLUME_INDIRECT] *= filmExposure;
                         passColor[PASS_EMISSION] *= filmExposure;
                         passColor[PASS_ENVIRONMENT] *= filmExposure;
-                        // Spectral mode: convert accumulated XYZ to linear sRGB
-                        // exactly once before gamma. RGB mode is unchanged.
-                        if (spectralMode_) {
-                            color = xyzToLinearSRGB(color);
-                        }
+                        color = xyzToLinearSRGB(color);
                         if (applyGamma) {
                             color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
                             color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
@@ -2362,10 +2009,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         }
 }
 
-// Out-of-line because it reads Integrator::kind(), which requires the full
-// Integrator type pulled in by the integrator.h include above.
 inline void Renderer::setIntegrator(std::shared_ptr<Integrator> i) {
-    spectralMode_ = (i && i->kind() == IntegratorKind::Spectral);
     integrator_ = std::move(i);
 }
 

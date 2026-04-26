@@ -1,4 +1,4 @@
-#include "astroray/register.h"
+﻿#include "astroray/register.h"
 #include "raytracer.h"
 
 class PhongPlugin : public Material {
@@ -18,7 +18,7 @@ public:
           diffuse_spec_({albedo_.x, albedo_.y, albedo_.z}),
           specular_spec_({1.0f, 1.0f, 1.0f}) {}
 
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         float cosTheta = wi.dot(rec.normal);
         if (cosTheta <= 0) return Vec3(0);
 

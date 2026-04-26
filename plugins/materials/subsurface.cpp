@@ -1,4 +1,4 @@
-#include "astroray/register.h"
+﻿#include "astroray/register.h"
 #include "raytracer.h"
 
 class SubsurfacePlugin : public Material {
@@ -14,7 +14,7 @@ public:
           scale_(p.getFloat("scale", 1.0f)),
           albedo_spec_({albedo_.x, albedo_.y, albedo_.z}) {}
 
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         float cosTheta = std::abs(wi.dot(rec.normal));
         float distance = 1.0f / (cosTheta + 0.1f);
         Vec3 transmission(

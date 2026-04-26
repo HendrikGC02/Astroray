@@ -12,20 +12,24 @@ public:
 
     void beginFrame(Renderer& scene, const Camera&) override { renderer_ = &scene; }
 
-    Vec3 sample(const Ray& ray, std::mt19937& gen) override {
-        if (!renderer_) return Vec3(1.0f);
+    SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {
+        SampleResult r;
+        if (!renderer_) { r.color = Vec3(1.0f); return r; }
         const auto* bvh = renderer_->getBVH().get();
-        if (!bvh) return Vec3(1.0f);
+        if (!bvh) { r.color = Vec3(1.0f); return r; }
         HitRecord rec;
-        if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec))
-            return Vec3(1.0f);
+        if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
+            r.color = Vec3(1.0f);
+            return r;
+        }
         Vec3 u, v;
         buildOrthonormalBasis(rec.normal, u, v);
         Vec3 local = Vec3::randomCosineDirection(gen);
         Vec3 dir = (u * local.x + v * local.y + rec.normal * local.z).normalized();
         HitRecord shadow;
         float vis = bvh->hit(Ray(rec.point, dir), 0.001f, maxDist_, shadow) ? 0.0f : 1.0f;
-        return Vec3(vis);
+        r.color = Vec3(vis);
+        return r;
     }
 };
 

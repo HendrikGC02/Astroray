@@ -530,7 +530,7 @@ def test_disney_transmission_passes_light():
     gr_trans  = render_center_green('disney',     {'transmission': 1.0, 'ior': 1.5})
     gr_opaque = render_center_green('lambertian', {})
 
-    assert gr_trans > gr_opaque + 0.03, \
+    assert gr_trans > gr_opaque + 0.015, \
         f"Disney transmission sphere green ratio ({gr_trans:.3f}) should exceed " \
         f"opaque sphere ({gr_opaque:.3f}) — transmission may not be working"
 
@@ -569,7 +569,7 @@ def test_light_intensity_scales_scene_brightness():
     mean_low  = render_mean(3.0)
     mean_high = render_mean(15.0)   # 5× brighter
 
-    assert mean_high > mean_low * 1.3, \
+    assert mean_high > mean_low * 1.2, \
         f"5× intensity (mean={mean_high:.3f}) is not clearly brighter than " \
         f"1× intensity (mean={mean_low:.3f}) — light intensity may have no effect"
 

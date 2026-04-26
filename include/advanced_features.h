@@ -454,10 +454,6 @@ class TexturedLambertian : public Material {
     std::shared_ptr<Texture> albedo;
 public:
     TexturedLambertian(std::shared_ptr<Texture> a) : albedo(a) {}
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (wi.dot(rec.normal) <= 0) return Vec3(0);
-        return albedo->value(rec, wo) / M_PI * wi.dot(rec.normal);
-    }
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
         Vec3 localWi = Vec3::randomCosineDirection(gen);
@@ -470,6 +466,13 @@ public:
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
         float c = wi.dot(rec.normal);
         return c > 0 ? c / M_PI : 0;
+    }
+    astroray::SampledSpectrum evalSpectral(
+            const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+            const astroray::SampledWavelengths& lambdas) const override {
+        float cosTheta = wi.dot(rec.normal);
+        if (cosTheta <= 0.0f) return astroray::SampledSpectrum(0.0f);
+        return albedo->sampleSpectral(rec, wo, lambdas) * (cosTheta / float(M_PI));
     }
 };
 namespace astroray {

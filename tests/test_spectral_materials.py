@@ -94,7 +94,7 @@ def _diffuse_light_scene(r):
 # ---------------------------------------------------------------------------
 
 def test_metal_spectral_no_nan_no_inf():
-    pixels = _render("spectral_path_tracer", _metal_scene)
+    pixels = _render("path_tracer", _metal_scene)
     assert not np.any(np.isnan(pixels)), "spectral Metal render contains NaN"
     assert not np.any(np.isinf(pixels)), "spectral Metal render contains Inf"
     assert pixels.min() >= 0.0
@@ -116,8 +116,8 @@ def test_metal_spectral_formula_non_negative():
 
 def test_metal_spectral_vs_rgb_a_b(test_results_dir):
     """Spectral and RGB Cornell+metal sphere agree within 5% per channel."""
-    rgb = _render("path", _metal_scene, seed=7)
-    spec = _render("spectral_path_tracer", _metal_scene, seed=7)
+    rgb = _render("path_tracer", _metal_scene, seed=7)
+    spec = _render("path_tracer", _metal_scene, seed=7)
     save_image(rgb,  os.path.join(test_results_dir, 'pkg13_metal_rgb.png'))
     save_image(spec, os.path.join(test_results_dir, 'pkg13_metal_spectral.png'))
 
@@ -137,7 +137,7 @@ def test_metal_spectral_vs_rgb_a_b(test_results_dir):
 
 def test_dielectric_spectral_no_nan(test_results_dir):
     """Spectral render with a glass sphere must not produce NaN/Inf."""
-    pixels = _render("spectral_path_tracer", _dielectric_scene)
+    pixels = _render("path_tracer", _dielectric_scene)
     save_image(pixels, os.path.join(test_results_dir, 'pkg13_dielectric_spectral.png'))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
@@ -151,7 +151,7 @@ def test_mirror_spectral_no_nan(test_results_dir):
         mat = r.create_material("mirror", [1.0, 1.0, 1.0], {})
         r.add_sphere([0, -1, 0], 1.0, mat)
 
-    pixels = _render("spectral_path_tracer", mirror_scene)
+    pixels = _render("path_tracer", mirror_scene)
     save_image(pixels, os.path.join(test_results_dir, 'pkg13_mirror_spectral.png'))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
@@ -169,7 +169,7 @@ def test_subsurface_spectral_no_nan(test_results_dir):
                                 {"scatter_distance": [1.0, 0.3, 0.1], "scale": 1.0})
         r.add_sphere([0, -1, 0], 1.0, mat)
 
-    pixels = _render("spectral_path_tracer", ss_scene)
+    pixels = _render("path_tracer", ss_scene)
     save_image(pixels, os.path.join(test_results_dir, 'pkg13_subsurface_spectral.png'))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
@@ -190,7 +190,7 @@ def test_oren_nayar_spectral_no_nan(test_results_dir):
         mat = r.create_material("oren_nayar", [0.8, 0.6, 0.3], {"roughness": 0.6})
         r.add_sphere([0, -1, 0], 1.0, mat)
 
-    pixels = _render("spectral_path_tracer", scene)
+    pixels = _render("path_tracer", scene)
     save_image(pixels, os.path.join(test_results_dir, 'pkg13c_oren_nayar_spectral.png'))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
@@ -204,7 +204,7 @@ def test_isotropic_spectral_no_nan(test_results_dir):
         mat = r.create_material("isotropic", [0.9, 0.9, 0.9], {})
         r.add_sphere([0, -1, 0], 1.0, mat)
 
-    pixels = _render("spectral_path_tracer", scene)
+    pixels = _render("path_tracer", scene)
     save_image(pixels, os.path.join(test_results_dir, 'pkg13c_isotropic_spectral.png'))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
@@ -218,7 +218,7 @@ def test_two_sided_spectral_no_nan(test_results_dir):
                                 {"inner_type": "lambertian"})
         r.add_sphere([0, -1, 0], 1.0, mat)
 
-    pixels = _render("spectral_path_tracer", scene)
+    pixels = _render("path_tracer", scene)
     save_image(pixels, os.path.join(test_results_dir, 'pkg13c_two_sided_spectral.png'))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
@@ -232,7 +232,7 @@ def test_emissive_spectral_emits(test_results_dir):
         mat = r.create_material("emissive", [1.0, 0.8, 0.4], {"intensity": 3.0})
         r.add_sphere([0, -1, 0], 0.5, mat)
 
-    pixels = _render("spectral_path_tracer", scene)
+    pixels = _render("path_tracer", scene)
     save_image(pixels, os.path.join(test_results_dir, 'pkg13c_emissive_spectral.png'))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
@@ -284,8 +284,8 @@ def test_image_texture_spectral_cache_stable():
 def test_pkg13a_material_spectral_vs_rgb_parity(scene_fn, tag, test_results_dir):
     # Keep this threshold aligned with existing pkg11/pkg13 Monte Carlo parity tests.
     parity_threshold = 0.05
-    rgb = _render("path", scene_fn, seed=17)
-    spec = _render("spectral_path_tracer", scene_fn, seed=17)
+    rgb = _render("path_tracer", scene_fn, seed=17)
+    spec = _render("path_tracer", scene_fn, seed=17)
     save_image(rgb, os.path.join(test_results_dir, f'pkg13a_{tag}_rgb.png'))
     save_image(spec, os.path.join(test_results_dir, f'pkg13a_{tag}_spectral.png'))
 

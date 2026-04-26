@@ -28,8 +28,10 @@ except ImportError as e:
 
 
 def create_renderer() -> 'astroray.Renderer':
-    """Create and return a new renderer instance"""
-    return astroray.Renderer()
+    """Create and return a new renderer instance with the default path_tracer integrator."""
+    r = astroray.Renderer()
+    r.set_integrator("path_tracer")
+    return r
 
 
 def setup_camera(renderer: 'astroray.Renderer',

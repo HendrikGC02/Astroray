@@ -172,10 +172,16 @@ to review side by side.
 - [x] All 206 existing tests pass (+8 new in `test_spectral_materials.py`).
 - [x] No legacy `eval`/`sample` signatures changed.
 
-**Copilot thread (issues #98, #99 — still open):**
-- [ ] Phong, Disney, NormalMapped, DiffuseLight (`emittedSpectral`)
-      overrides — issue #98.
-- [ ] 8 procedural texture `sampleSpectral` overrides — issue #99.
+**Copilot thread (issues #98, #99 — merged):**
+- [x] Phong, Disney, NormalMapped, DiffuseLight (`emittedSpectral`)
+      overrides — PR #104 merged.
+- [x] 8 procedural texture `sampleSpectral` overrides — PR #106 merged.
+
+**pkg13c thread (issue #105 — Claude Code, PR #107):**
+- [x] `oren_nayar.cpp` — OrenNayar diffuse + cached `evalSpectral`.
+- [x] `isotropic.cpp` — uniform phase function (1/4π) + cached `evalSpectral`.
+- [x] `two_sided.cpp` — inner material delegation, both faces + `evalSpectral`.
+- [x] `emissive.cpp` — two-sided emitter + `emittedSpectral`.
 
 **Deferred (future package):**
 - [ ] Glass-prism dispersion (requires `sampleSpectral` on `Material`
@@ -211,9 +217,16 @@ to review side by side.
 - [x] Update STATUS.md, CHANGELOG.md.
 - [x] Commit, push, PR.
 
-**Copilot progress (issues #98, #99):**
-- [ ] Issue #98 — dumb material overrides (Phong, Disney, NormalMapped, DiffuseLight).
-- [ ] Issue #99 — procedural texture overrides (8 files).
+**Copilot progress (issues #98, #99 — DONE):**
+- [x] Issue #98 → PR #104 merged — dumb material overrides (Phong, Disney, NormalMapped, DiffuseLight).
+- [x] Issue #99 → PR #106 merged — procedural texture overrides (8 files).
+
+**pkg13c progress (issue #105 — DONE):**
+- [x] Branch `pkg13c-missing-material-plugins`.
+- [x] Create oren_nayar.cpp, isotropic.cpp, two_sided.cpp, emissive.cpp.
+- [x] 5 new tests in `test_spectral_materials.py`; 223 passed, 1 skipped.
+- [x] Update STATUS.md, CHANGELOG.md, pkg13 plan.
+- [x] Commit, push, PR.
 
 ---
 
@@ -233,3 +246,9 @@ to review side by side.
 - **ImageTexture cache built eagerly in `setData()`.** No thread-safety
   concerns — cache is write-once at load time, read-only during rendering.
   Memory cost: 12 bytes × texel count (3 floats for Jakob-Hanika coefficients).
+- **pkg13 issue plan vs reality mismatch.** The pkg13a issue listed oren_nayar,
+  isotropic, two_sided, emissive as files to modify, but they never existed in
+  the codebase. When assigning issues to Copilot, verify all referenced files
+  exist first; file-not-found silently narrows the PR scope. A follow-up issue
+  (#105) caught the gap and a third Claude Code thread (pkg13c) created the 4
+  plugins from scratch.

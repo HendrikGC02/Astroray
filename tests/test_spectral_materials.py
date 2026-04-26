@@ -180,6 +180,73 @@ def test_subsurface_spectral_no_nan(test_results_dir):
 # Texture::sampleSpectral — default and image cache
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# pkg13c — OrenNayar, Isotropic, TwoSided, Emissive
+# ---------------------------------------------------------------------------
+
+def test_oren_nayar_spectral_no_nan(test_results_dir):
+    def scene(r):
+        create_cornell_box(r)
+        mat = r.create_material("oren_nayar", [0.8, 0.6, 0.3], {"roughness": 0.6})
+        r.add_sphere([0, -1, 0], 1.0, mat)
+
+    pixels = _render("spectral_path_tracer", scene)
+    save_image(pixels, os.path.join(test_results_dir, 'pkg13c_oren_nayar_spectral.png'))
+    assert not np.any(np.isnan(pixels))
+    assert not np.any(np.isinf(pixels))
+    assert pixels.min() >= 0.0
+    assert float(pixels.mean()) > 0.001
+
+
+def test_isotropic_spectral_no_nan(test_results_dir):
+    def scene(r):
+        create_cornell_box(r)
+        mat = r.create_material("isotropic", [0.9, 0.9, 0.9], {})
+        r.add_sphere([0, -1, 0], 1.0, mat)
+
+    pixels = _render("spectral_path_tracer", scene)
+    save_image(pixels, os.path.join(test_results_dir, 'pkg13c_isotropic_spectral.png'))
+    assert not np.any(np.isnan(pixels))
+    assert not np.any(np.isinf(pixels))
+    assert pixels.min() >= 0.0
+
+
+def test_two_sided_spectral_no_nan(test_results_dir):
+    def scene(r):
+        create_cornell_box(r)
+        mat = r.create_material("two_sided", [0.7, 0.4, 0.9],
+                                {"inner_type": "lambertian"})
+        r.add_sphere([0, -1, 0], 1.0, mat)
+
+    pixels = _render("spectral_path_tracer", scene)
+    save_image(pixels, os.path.join(test_results_dir, 'pkg13c_two_sided_spectral.png'))
+    assert not np.any(np.isnan(pixels))
+    assert not np.any(np.isinf(pixels))
+    assert pixels.min() >= 0.0
+
+
+def test_emissive_spectral_emits(test_results_dir):
+    """Emissive plugin (two-sided) should produce nonzero luminance."""
+    def scene(r):
+        create_cornell_box(r)
+        mat = r.create_material("emissive", [1.0, 0.8, 0.4], {"intensity": 3.0})
+        r.add_sphere([0, -1, 0], 0.5, mat)
+
+    pixels = _render("spectral_path_tracer", scene)
+    save_image(pixels, os.path.join(test_results_dir, 'pkg13c_emissive_spectral.png'))
+    assert not np.any(np.isnan(pixels))
+    assert not np.any(np.isinf(pixels))
+    assert float(pixels.mean()) > 0.01, "emissive sphere should illuminate the scene"
+
+
+def test_new_materials_in_registry():
+    """All pkg13c materials appear in the material registry."""
+    names = astroray.material_registry_names()
+    for name in ("oren_nayar", "isotropic", "two_sided", "emissive"):
+        assert name in names, f"{name!r} not in registry; have {names}"
+
+
+# ---------------------------------------------------------------------------
 def test_texture_sample_spectral_default_matches_upsample():
     """Texture.sampleSpectral default matches RGBAlbedoSpectrum(value).sample."""
     for u_val in [0.0, 0.25, 0.5, 0.75]:

@@ -542,6 +542,13 @@ public:
         bool hasEmission;      // disk was hit
     };
 
+    struct GRSpectralResult {
+        astroray::SampledSpectrum emission;  // disk emission at carried wavelengths
+        Vec3 exitDirection;                  // world-space exit direction
+        bool captured;                       // absorbed by horizon
+        bool hasEmission;                    // disk was hit
+    };
+
     virtual ~Hittable() = default;
     virtual bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const = 0;
     virtual bool boundingBox(AABB& box) const = 0;
@@ -556,6 +563,18 @@ public:
     virtual bool isGRObject() const { return false; }
     virtual GRResult traceGR(const Ray& /*r*/, std::mt19937& /*gen*/) const {
         return {Vec3(0), Vec3(0, 0, 1), true, false};
+    }
+    virtual GRSpectralResult traceGRSpectral(
+            const Ray& r,
+            const astroray::SampledWavelengths& lambdas,
+            std::mt19937& gen) const {
+        GRResult rgb = traceGR(r, gen);
+        astroray::SampledSpectrum emission(0.0f);
+        if (rgb.hasEmission) {
+            emission = astroray::RGBIlluminantSpectrum(
+                {rgb.color.x, rgb.color.y, rgb.color.z}).sample(lambdas);
+        }
+        return {emission, rgb.exitDirection, rgb.captured, rgb.hasEmission};
     }
     void setObjectPassIndex(int value) { objectPassIndex = std::max(0, value); }
     void setMaterialPassIndex(int value) { materialPassIndex = std::max(0, value); }
@@ -1753,21 +1772,14 @@ public:
                 break;
             }
             if (rec.hitObject && rec.hitObject->isGRObject()) {
-                auto grResult = rec.hitObject->traceGR(ray, gen);
+                auto grResult = rec.hitObject->traceGRSpectral(ray, lambdas, gen);
 
                 if (grResult.hasEmission) {
-                    Vec3 emissionRgb(
-                        finiteClamped(grResult.color.x, 0.0f, 20.0f),
-                        finiteClamped(grResult.color.y, 0.0f, 20.0f),
-                        finiteClamped(grResult.color.z, 0.0f, 20.0f)
-                    );
-                    astroray::SampledSpectrum grEmission =
-                        astroray::RGBIlluminantSpectrum({
-                            emissionRgb.x,
-                            emissionRgb.y,
-                            emissionRgb.z
-                        }).sample(lambdas);
-                    if (emissionRgb.x > 0.0f || emissionRgb.y > 0.0f || emissionRgb.z > 0.0f) {
+                    astroray::SampledSpectrum grEmission(0.0f);
+                    for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+                        grEmission[i] = finiteClamped(grResult.emission[i], 0.0f, 20.0f);
+                    }
+                    if (!grEmission.isZero()) {
                         color += throughput * grEmission;
                     }
                 }

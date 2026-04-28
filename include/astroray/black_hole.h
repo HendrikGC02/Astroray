@@ -95,6 +95,77 @@ private:
         return s;
     }
 
+    struct TraceState {
+        bool valid = false;
+        IntegrationResult integration{};
+    };
+
+    TraceState integrateIncomingRay(const Ray& incomingRay) const {
+        TraceState state;
+
+        Vec3 oc      = incomingRay.origin - position;
+        float a      = incomingRay.direction.length2();
+        float half_b = oc.dot(incomingRay.direction);
+        float c_     = oc.length2() - float(influenceRadius * influenceRadius);
+        float disc   = half_b * half_b - a * c_;
+        if (disc < 0.0f || a < 1e-15f) return state;
+        float sqrtd   = std::sqrt(disc);
+        float entry_t = (-half_b - sqrtd) / a;
+        if (entry_t < 0.001f) entry_t = (-half_b + sqrtd) / a;
+        if (entry_t < 0.001f) return state;
+
+        Vec3 hitPoint = incomingRay.at(entry_t);
+        GeodesicState s0 = buildInitialState(hitPoint, incomingRay.direction);
+        state.integration = integrateGeodesic(
+            *metric, disk.get(), s0, inclination,
+            /*maxSteps=*/5000, /*h_init=*/0.5,
+            /*atol=*/1e-8, /*rtol=*/1e-6,
+            /*r_max=*/r_obs_M * 1.05
+        );
+        state.valid = true;
+        return state;
+    }
+
+    Vec3 sanitizedExitDirection(const IntegrationResult& ir) const {
+        if (ir.escaped) {
+            Vec3 d = ir.exitDirection;
+            if (gr_isfinite(static_cast<double>(d.x)) &&
+                gr_isfinite(static_cast<double>(d.y)) &&
+                gr_isfinite(static_cast<double>(d.z)) &&
+                d.length2() > 1e-10f) {
+                return d.normalized();
+            }
+        }
+        return Vec3(0, 0, 1);
+    }
+
+    astroray::SampledSpectrum diskEmissionSpectral(
+            const IntegrationResult& ir,
+            const astroray::SampledWavelengths& lambdas) const {
+        astroray::SampledSpectrum emission(0.0f);
+        if (ir.nCrossings <= 0) return emission;
+
+        constexpr double span =
+            double(astroray::kLambdaMax - astroray::kLambdaMin);
+        for (int ci = 0; ci < ir.nCrossings; ++ci) {
+            const DiskCrossing& dc = ir.crossings[ci];
+            if (!dc.valid) continue;
+            double T = disk->temperatureAt(dc.r);
+            if (T <= 0.0 || !gr_isfinite(T)) continue;
+            if (!gr_isfinite(dc.g) || dc.g <= 0.0) continue;
+            double g = std::min(dc.g, 10.0);
+            double g4 = g * g * g * g;
+            for (int wi = 0; wi < astroray::kSpectrumSamples; ++wi) {
+                double B = planck(double(lambdas.lambda(wi)), T);
+                if (!gr_isfinite(B) || B <= 0.0) continue;
+                double scaled = g4 * B * double(exposureScale) / span;
+                if (!gr_isfinite(scaled) || scaled <= 0.0) continue;
+                emission[wi] = std::min(20.0f, emission[wi] + float(scaled));
+            }
+        }
+        return emission;
+    }
+
 public:
     BlackHole(Vec3 pos, double mass_solar, double influence_r,
               double disk_outer_M = 30.0, double mdot = 1.0,
@@ -159,28 +230,9 @@ public:
         result.color        = Vec3(0);
         result.exitDirection = Vec3(0, 0, 1);
 
-        // Find the entry t on the influence sphere
-        Vec3 oc      = incomingRay.origin - position;
-        float a      = incomingRay.direction.length2();
-        float half_b = oc.dot(incomingRay.direction);
-        float c_     = oc.length2() - float(influenceRadius * influenceRadius);
-        float disc   = half_b * half_b - a * c_;
-        if (disc < 0.0f || a < 1e-15f) return result;
-        float sqrtd   = std::sqrt(disc);
-        float entry_t = (-half_b - sqrtd) / a;
-        if (entry_t < 0.001f) entry_t = (-half_b + sqrtd) / a;
-        if (entry_t < 0.001f) return result;
-
-        Vec3 hitPoint = incomingRay.at(entry_t);
-
-        GeodesicState s0 = buildInitialState(hitPoint, incomingRay.direction);
-
-        IntegrationResult ir = integrateGeodesic(
-            *metric, disk.get(), s0, inclination,
-            /*maxSteps=*/5000, /*h_init=*/0.5,
-            /*atol=*/1e-8, /*rtol=*/1e-6,
-            /*r_max=*/r_obs_M * 1.05
-        );
+        TraceState trace = integrateIncomingRay(incomingRay);
+        if (!trace.valid) return result;
+        const IntegrationResult& ir = trace.integration;
 
         if (ir.captured) {
             result.captured = true;
@@ -194,38 +246,57 @@ public:
                 const DiskCrossing& dc = ir.crossings[ci];
                 if (!dc.valid) continue;
                 double T = disk->temperatureAt(dc.r);
-                if (T <= 0.0 || !std::isfinite(T)) continue;
-                if (!std::isfinite(dc.g) || dc.g <= 0.0) continue;
+                if (T <= 0.0 || !gr_isfinite(T)) continue;
+                if (!gr_isfinite(dc.g) || dc.g <= 0.0) continue;
                 double g = std::min(dc.g, 10.0);
                 for (int wi = 0; wi < 4; ++wi) {
                     double lam_emit = spec.wavelengths[wi];
                     double B  = planck(lam_emit, T);
-                    if (!std::isfinite(B) || B <= 0.0) continue;
+                    if (!gr_isfinite(B) || B <= 0.0) continue;
                     double g4 = g * g * g * g;
                     double contrib = g4 * B;
-                    if (!std::isfinite(contrib) || contrib <= 0.0) continue;
+                    if (!gr_isfinite(contrib) || contrib <= 0.0) continue;
                     spec.radiance[wi] += contrib;
                 }
             }
             Vec3 rgb = spectralToRGB(spec, exposureScale);
-            rgb.x = std::isfinite(rgb.x) ? std::max(0.0f, rgb.x) : 0.0f;
-            rgb.y = std::isfinite(rgb.y) ? std::max(0.0f, rgb.y) : 0.0f;
-            rgb.z = std::isfinite(rgb.z) ? std::max(0.0f, rgb.z) : 0.0f;
+            rgb.x = gr_isfinite(static_cast<double>(rgb.x)) ? std::max(0.0f, rgb.x) : 0.0f;
+            rgb.y = gr_isfinite(static_cast<double>(rgb.y)) ? std::max(0.0f, rgb.y) : 0.0f;
+            rgb.z = gr_isfinite(static_cast<double>(rgb.z)) ? std::max(0.0f, rgb.z) : 0.0f;
             if (rgb.x > 0 || rgb.y > 0 || rgb.z > 0) {
                 result.color       = rgb;
                 result.hasEmission = true;
             }
         }
 
-        // Exit direction
-        if (ir.escaped) {
-            Vec3 d = ir.exitDirection;
-            if (std::isfinite(d.x) && std::isfinite(d.y) && std::isfinite(d.z)
-                && d.length2() > 1e-10f) {
-                result.exitDirection = d.normalized();
-            }
+        result.exitDirection = sanitizedExitDirection(ir);
+
+        return result;
+    }
+
+    ASTRORAY_NOINLINE
+    GRSpectralResult traceGRSpectral(
+            const Ray& incomingRay,
+            const astroray::SampledWavelengths& lambdas,
+            std::mt19937& /*gen*/) const override {
+        GRSpectralResult result;
+        result.emission = astroray::SampledSpectrum(0.0f);
+        result.captured = false;
+        result.hasEmission = false;
+        result.exitDirection = Vec3(0, 0, 1);
+
+        TraceState trace = integrateIncomingRay(incomingRay);
+        if (!trace.valid) return result;
+        const IntegrationResult& ir = trace.integration;
+
+        if (ir.captured) {
+            result.captured = true;
+            return result;
         }
 
+        result.emission = diskEmissionSpectral(ir, lambdas);
+        result.hasEmission = !result.emission.isZero();
+        result.exitDirection = sanitizedExitDirection(ir);
         return result;
     }
 };

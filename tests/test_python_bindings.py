@@ -1685,6 +1685,39 @@ def test_black_hole_extreme_disk_remains_finite():
     save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_extreme_finite.png'))
 
 
+def test_black_hole_native_spectral_disk_visible():
+    """Native spectral GR disk emission should be finite and visible."""
+    r = create_renderer()
+    r.set_seed(11)
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.add_black_hole([0, 0, 0], 10.0, 100.0, {
+        'disk_outer': 30.0,
+        'accretion_rate': 1.0,
+        'inclination': 75.0,
+    })
+    setup_camera(r, look_from=[0, 0, 200], look_at=[0, 0, 0],
+                 vfov=12, width=120, height=90)
+    pixels = render_image(r, samples=8)
+
+    assert np.all(np.isfinite(pixels)), "native spectral GR render contains NaN/Inf"
+    assert float(np.mean(pixels)) > 1e-4, "native spectral GR disk emission is black"
+    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_native_spectral_disk.png'))
+
+
+def test_black_hole_renderer_uses_native_spectral_gr_dispatch():
+    """The spectral renderer should not RGB-upsample GR disk emission."""
+    source = open(
+        os.path.join(os.path.dirname(__file__), '..', 'include', 'raytracer.h'),
+        encoding='utf-8',
+    ).read()
+    gr_block = source.split('traceGRSpectral(ray, lambdas, gen)', 1)[1].split(
+        'if (!rec.material) break;', 1
+    )[0]
+
+    assert 'traceGR(ray, gen)' not in gr_block
+    assert 'RGBIlluminantSpectrum' not in gr_block
+
+
 def test_black_hole_gr_feature_flag():
     """gr_black_holes feature flag is set in __features__."""
     assert 'gr_black_holes' in astroray.__features__, \

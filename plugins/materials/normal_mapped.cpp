@@ -62,10 +62,6 @@ public:
           bumpStrength_(p.getFloat("bump_strength", 1.0f)),
           bumpDistance_(p.getFloat("bump_distance", 0.01f)) {}
 
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
-        return baseMaterial_->eval(perturbNormal(rec), wo, wi);
-    }
-
     astroray::SampledSpectrum evalSpectral(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,
             const astroray::SampledWavelengths& lambdas) const override {

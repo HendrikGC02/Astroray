@@ -37,6 +37,7 @@ def _renderer():
         width=32, height=32,
     )
     r.set_background_color([1.0, 1.0, 1.0])
+    r.set_integrator("path_tracer")
     return r
 
 

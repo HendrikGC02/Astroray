@@ -1696,113 +1696,6 @@ public:
         );
     }
 
-    struct DirectSampleResult {
-        Vec3 radiance;
-        float shadow;
-    };
-
-    DirectSampleResult sampleDirect(const HitRecord& rec, const Ray& ray, std::mt19937& gen) {
-        DirectSampleResult result{Vec3(0), 0.0f};
-        bool hasEnv = (envMap && envMap->loaded()) || (backgroundColor.x >= 0.0f);
-        if ((lights.empty() && !hasEnv) || rec.isDelta) return result;
-        Vec3 wo = -ray.direction.normalized(), direct(0);
-        std::uniform_real_distribution<float> dist01(0, 1);
-
-        float pEnv = envSelectProb();
-        bool sampleEnv = dist01(gen) < pEnv;
-
-        if (sampleEnv && hasEnv) {
-            Vec3 wi, radiance;
-            float envPdf = 0.0f;
-
-            if (envMap && envMap->loaded()) {
-                auto es = envMap->sample(gen);
-                wi = es.direction;
-                radiance = es.radiance;
-                envPdf = es.pdf;
-            } else {
-                float u1 = dist01(gen), u2 = dist01(gen);
-                float z = u1;
-                float r = std::sqrt(std::max(0.0f, 1.0f - z * z));
-                float phi = 2.0f * M_PI * u2;
-                Vec3 localWi(std::cos(phi) * r, std::sin(phi) * r, z);
-                wi = rec.tangent * localWi.x + rec.bitangent * localWi.y + rec.normal * localWi.z;
-                radiance = backgroundColor;
-                envPdf = 1.0f / (2.0f * M_PI);
-            }
-
-            if (envPdf > 0.0f) {
-                HitRecord shadow;
-                // Shadow ray: must NOT hit any geometry (ray escapes to infinity)
-                if (!bvh->hit(Ray(rec.point, wi), 0.001f, 1e30f, shadow)) {
-                    Vec3 f = rec.material->eval(rec, wo, wi);
-                    float bsdfPdf = rec.material->pdf(rec, wo, wi);
-                    float combinedLightPdf = pEnv * envPdf;
-                    float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
-                    direct += f * radiance * wt / (combinedLightPdf + 0.001f);
-                } else {
-                    result.shadow += 1.0f;
-                }
-            }
-        } else if (!lights.empty()) {
-            // === Existing area light sampling ===
-            float pArea = 1.0f - pEnv;
-            LightSample ls = lights.sample(rec.point, gen);
-            if (ls.pdf > 0) {
-                Vec3 wi = (ls.position - rec.point).normalized();
-                HitRecord shadow;
-                bool hitOccluder = bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow);
-                // Infinite lights (DistantLight) are at t=1e8; float subtraction
-                // ls.distance - 0.001f == ls.distance (ULPâ‰ˆ8 at 1e8), so the shadow
-                // ray hits the light itself.  Skip infinite-light hits â€” they are the
-                // sampled light, not an occluder.
-                bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
-                if (!occluded) {
-                    Vec3 f = rec.material->eval(rec, wo, wi);
-                    float bsdfPdf = rec.material->pdf(rec, wo, wi);
-                    float combinedLightPdf = pArea * ls.pdf;
-                    float wt = powerHeuristic(combinedLightPdf, bsdfPdf);
-                    direct += (f * ls.emission * worldTransmittance(ls.distance)) * wt / (combinedLightPdf + 0.001f);
-                } else {
-                    result.shadow += 1.0f;
-                }
-            }
-        }
-
-        // === BSDF sampling (check both area lights AND environment) ===
-        BSDFSample bs = rec.material->sample(rec, wo, gen);
-        if (bs.pdf > 0 && !bs.isDelta) {
-            HitRecord bRec;
-            if (bvh->hit(Ray(rec.point, bs.wi), 0.001f, 1e30f, bRec)) {
-                // Hit geometry â€” check if it's an emissive light.
-                // GR objects (BlackHole) do not set rec.material in hit(); they
-                // are handled by the path-tracer's GR branch, never as NEE
-                // light targets, so skip them safely here to avoid a NULL deref.
-                if (bRec.material) {
-                    Vec3 Le = bRec.material->emitted(bRec);
-                    if (bRec.hitObject) Le *= bRec.hitObject->directionFalloff(-bs.wi);
-                    if (Le != Vec3(0)) {
-                        float lightPdf = (1.0f - pEnv) * lights.pdfValue(rec.point, bs.wi);
-                        direct += (bs.f * Le * worldTransmittance(bRec.t)) * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
-                    }
-                }
-            } else {
-                // Miss â€” hit the environment map
-                if (envMap && envMap->loaded()) {
-                    Vec3 Le = envMap->lookup(bs.wi.normalized());
-                    float lightPdf = pEnv * envMap->pdf(bs.wi.normalized());
-                    direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
-                } else if (backgroundColor.x >= 0.0f) {
-                    float lightPdf = pEnv * (1.0f / (2.0f * M_PI));
-                    direct += bs.f * backgroundColor * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
-                }
-            }
-        }
-
-        result.radiance = clampLuminance(direct, clampDirect);
-        result.shadow = std::clamp(result.shadow, 0.0f, 1.0f);
-        return result;
-    }
 
     // Spectral path tracer kernel (Pillar 2, sole render path since pkg14).
     // Uses SampledSpectrum for radiance and throughput; material lookups via
@@ -1824,7 +1717,9 @@ public:
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             HitRecord rec;
             if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
-                if (bounce <= worldMaxBounces && (bounce == 0 || wasSpecular)) {
+                // No env NEE in pathTraceSpectral, so env always contributes on miss
+                // (the wasSpecular gate would suppress diffuse-to-background paths).
+                if (bounce <= worldMaxBounces) {
                     astroray::SampledSpectrum envSpec(0.0f);
                     if (envMap && envMap->loaded()) {
                         envSpec = envMap->evalSpectral(ray.direction.normalized(), lambdas);

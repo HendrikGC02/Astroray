@@ -57,7 +57,7 @@ def _render_cornell(integrator_name: str, seed: int = 42) -> np.ndarray:
 
 def test_spectral_lambertian_no_nan_no_inf():
     """evalSpectral override must not produce NaN or Inf."""
-    spec = _render_cornell("spectral_path_tracer", seed=1)
+    spec = _render_cornell("path_tracer", seed=1)
     assert not np.any(np.isnan(spec)), "spectral Lambertian render contains NaN"
     assert not np.any(np.isinf(spec)), "spectral Lambertian render contains Inf"
     assert spec.min() >= 0.0, f"negative pixel value: {spec.min()}"
@@ -71,8 +71,8 @@ def test_spectral_vs_rgb_cornell_a_b(test_results_dir):
     the only residual difference from the RGB path is hero-wavelength MC
     noise.  3% per channel at 64 spp is conservative.
     """
-    rgb = _render_cornell("path", seed=42)
-    spec = _render_cornell("spectral_path_tracer", seed=42)
+    rgb = _render_cornell("path_tracer", seed=42)
+    spec = _render_cornell("path_tracer", seed=42)
 
     save_image(rgb,  os.path.join(test_results_dir, 'pkg12_cornell_rgb.png'))
     save_image(spec, os.path.join(test_results_dir, 'pkg12_spectral_lambertian_cornell.png'))
@@ -163,7 +163,7 @@ def test_back_face_returns_zero():
 
 def test_cornell_box_png_saved(test_results_dir):
     """PNG must be written to test_results/ for visual review."""
-    spec = _render_cornell("spectral_path_tracer", seed=7)
+    spec = _render_cornell("path_tracer", seed=7)
     out = os.path.join(test_results_dir, 'pkg12_spectral_lambertian_cornell.png')
     save_image(spec, out)
     assert os.path.exists(out), f"PNG not written: {out}"

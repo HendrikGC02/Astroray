@@ -230,7 +230,10 @@ namespace {
 
 inline float sigmoidJH(float x) {
     if (std::isinf(x)) return x > 0.0f ? 1.0f : 0.0f;
-    return 0.5f + x / (2.0f * std::sqrt(1.0f + x * x));
+    float xx = x * x;
+    // x*x can overflow float (e.g. x=-1e20 used as "black" sentinel → xx=+inf → wrong 0.5)
+    if (std::isinf(xx)) return x > 0.0f ? 1.0f : 0.0f;
+    return 0.5f + x / (2.0f * std::sqrt(1.0f + xx));
 }
 
 inline float evalSigmoidCoeffs(const std::array<float, 3>& c, float lambda) {

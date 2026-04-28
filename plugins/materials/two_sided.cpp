@@ -21,11 +21,6 @@ public:
         : inner_(astroray::MaterialRegistry::instance().create(
               p.getString("inner_type", "lambertian"), p)) {}
 
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
-        const HitRecord& r = rec.frontFace ? rec : flipToFront(rec);
-        return inner_->eval(r, wo, wi);
-    }
-
     astroray::SampledSpectrum evalSpectral(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,
             const astroray::SampledWavelengths& lambdas) const override {

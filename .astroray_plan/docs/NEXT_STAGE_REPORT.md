@@ -148,24 +148,24 @@ to Copilot.
 
 ## Suggested Immediate Issues
 
-1. `fix: restore black-hole GR dispatch in spectral path_tracer`
+1. #111 `fix: restore black-hole GR dispatch in spectral path_tracer`
    - Track: A/Codex
    - Blocks: Pillar 4
    - Non-goal: Kerr
 
-2. `test: remove stale RGB-vs-spectral assumptions after pkg14`
+2. #112 `test: remove stale RGB-vs-spectral assumptions after pkg14`
    - Track: Codex/Ralph
    - Scope: tests and comments only unless an assertion is wrong
 
-3. `chore: add render-output triage script for test_results PNGs`
+3. #113 `chore: add render-output triage script for test_results PNGs`
    - Track: Codex/Ralph
    - Output: text report, no CI failure yet
 
-4. `plan: add pkg20-pkg23 Pillar 3 ReSTIR package specs`
+4. #114 `plan: add pkg20-pkg23 Pillar 3 ReSTIR package specs`
    - Track: Codex/Claude Code
    - Output: package markdown files
 
-5. `proto: tiny-cuda-nn dummy inference branch`
+5. #115 `proto: tiny-cuda-nn dummy inference branch`
    - Track: Cline/local model
    - Output: prototype branch notes, not a mergeable PR
 

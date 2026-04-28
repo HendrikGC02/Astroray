@@ -147,14 +147,16 @@ new interface. `pkg05-integrator-interface.md` lands as part of Pillar
 
 ### Phase 3B: ReSTIR DI (2–3 weeks, track A)
 
-- `pkg20-reservoir-datastructure.md` — types, temporal buffers.
-- `pkg21-restir-initial-sampling.md` — kernel 1 (candidate generation
-  and RIS).
-- `pkg22-restir-temporal-reuse.md` — kernel 2 (reproject previous-frame
-  reservoirs).
-- `pkg23-restir-spatial-reuse.md` — kernel 3 (neighborhood reuse).
-- `pkg24-restir-validation.md` — visibility reuse, correctness checks
-  against vanilla path tracer.
+- `pkg20-reservoir-core.md` — reservoir type, invariants, and unit
+  tests.
+- `pkg21-light-sample-abstraction.md` — reusable direct-light candidate
+  payload and spectral target-weight helpers.
+- `pkg22-restir-initial-sampling.md` — opt-in `restir-di` prototype with
+  initial candidate generation only.
+- `pkg23-restir-temporal-spatial-design.md` — temporal/spatial reuse
+  design, history ownership, validation gates, and CPU/GPU boundary.
+- `pkg24-restir-validation.md` — validation scenes and bias/variance
+  checks against vanilla path tracer.
 
 ### Phase 3C: NRC prototype (1–2 weeks, track C)
 

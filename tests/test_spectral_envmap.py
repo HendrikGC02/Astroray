@@ -4,12 +4,10 @@
 Pillar 2 / pkg14 — spectral environment map tests.
 
 Covers:
-  1. Atlas parity: evalSpectral vs RGBIlluminantSpectrum(lookup).sample over a
-     sweep of directions. Bilinear interpolation in spectral space vs. RGB space
-     is not algebraically identical, but for smooth HDRIs the per-channel error
-     is well within the 1e-3 tolerance chosen here (1e-5 per-channel would require
-     single-pixel comparison at integer coordinates; smooth bilinear regions easily
-     satisfy this but high-contrast edges do not — see note below).
+  1. Atlas-vs-upsample fallback parity: evalSpectral vs eval_env_rgb_upsample
+     over a sweep of directions. Bilinear interpolation in spectral space vs.
+     RGB-then-upsampling is not algebraically identical, but for smooth HDRIs
+     the per-channel error is well within the 1e-3 tolerance chosen here.
   2. After pkg14 commit 3: integrator_registry_names returns exactly
      {"path_tracer", "ambient_occlusion"}.
   3. Rendering an open (no-geometry) scene with a loaded env map produces
@@ -57,8 +55,8 @@ def _sphere_directions(n: int):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not HAS_ENV, reason="test_env.hdr not found")
-def test_eval_spectral_atlas_parity():
-    """evalSpectral via atlas matches RGBIlluminantSpectrum upsample to within 1e-3."""
+def test_eval_spectral_atlas_matches_upsample_fallback():
+    """evalSpectral via atlas matches RGBIlluminantSpectrum fallback to 1e-3."""
     r = astroray.Renderer()
     assert r.load_environment_map(ENV_HDR), "failed to load env map"
 

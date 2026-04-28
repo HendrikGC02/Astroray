@@ -5,10 +5,8 @@ Pillar 2 / pkg12 — spectral Lambertian override tests.
 
 Covers:
   1. NaN/Inf guard: spectral render of an all-Lambertian Cornell box is valid.
-  2. A/B match: spectral and RGB renders agree within 3% per channel — tighter
-     than pkg11's 5% tolerance because LambertianPlugin now uses a direct
-     evalSpectral override (cached RGBAlbedoSpectrum) rather than the
-     per-call Jakob-Hanika fallback.
+  2. Deterministic A/B match: two path_tracer renders with the same seed agree
+     exactly after pkg14 deleted the legacy RGB path.
   3. Numerical equivalence: for the same albedo and wavelengths, the override
      formula (RGBAlbedoSpectrum(albedo).sample * cosTheta/PI) matches the
      default fallback (RGBAlbedoSpectrum(albedo * cosTheta/PI).sample) within
@@ -64,32 +62,31 @@ def test_spectral_lambertian_no_nan_no_inf():
     assert 0.001 < float(spec.mean()) < 0.95
 
 
-def test_spectral_vs_rgb_cornell_a_b(test_results_dir):
-    """Spectral Lambertian Cornell must agree with RGB within 3% per channel.
+def test_spectral_lambertian_cornell_deterministic_a_b(test_results_dir):
+    """Spectral Lambertian Cornell is deterministic for a fixed seed.
 
-    With LambertianPlugin overriding evalSpectral (cached RGBAlbedoSpectrum),
-    the only residual difference from the RGB path is hero-wavelength MC
-    noise.  3% per channel at 64 spp is conservative.
+    With pkg14, `path_tracer` is the only full path-tracing integrator. This
+    test verifies same-seed repeatability and guards against accidental
+    nondeterminism in the spectral path.
     """
-    rgb = _render_cornell("path_tracer", seed=42)
-    spec = _render_cornell("path_tracer", seed=42)
+    baseline = _render_cornell("path_tracer", seed=42)
+    repeat = _render_cornell("path_tracer", seed=42)
 
-    save_image(rgb,  os.path.join(test_results_dir, 'pkg12_cornell_rgb.png'))
-    save_image(spec, os.path.join(test_results_dir, 'pkg12_spectral_lambertian_cornell.png'))
-    diff = np.clip(np.abs(rgb - spec) * 5.0, 0.0, 1.0)
+    save_image(baseline, os.path.join(test_results_dir, 'pkg12_cornell_baseline.png'))
+    save_image(repeat, os.path.join(test_results_dir, 'pkg12_cornell_repeat.png'))
+    diff = np.clip(np.abs(baseline - repeat) * 5.0, 0.0, 1.0)
     save_image(diff, os.path.join(test_results_dir, 'pkg12_cornell_diff_x5.png'))
 
-    rgb_mean = rgb.reshape(-1, 3).mean(axis=0)
-    spec_mean = spec.reshape(-1, 3).mean(axis=0)
-    print(f"\n  RGB  mean: {rgb_mean}")
-    print(f"  Spec mean: {spec_mean}")
-    assert np.all(spec_mean > 0.01), f"spectral image too dark, mean={spec_mean}"
+    baseline_mean = baseline.reshape(-1, 3).mean(axis=0)
+    repeat_mean = repeat.reshape(-1, 3).mean(axis=0)
+    print(f"\n  Baseline mean: {baseline_mean}")
+    print(f"  Repeat mean:   {repeat_mean}")
+    assert np.all(repeat_mean > 0.01), f"spectral image too dark, mean={repeat_mean}"
 
-    rel_delta = np.abs(rgb_mean - spec_mean) / (rgb_mean + 1e-3)
+    rel_delta = np.abs(baseline_mean - repeat_mean) / (baseline_mean + 1e-3)
     print(f"  rel delta: {rel_delta}")
-    assert np.all(rel_delta < 0.03), (
-        f"spectral mean diverges from RGB by {rel_delta} (threshold 0.03); "
-        f"rgb={rgb_mean}, spec={spec_mean}")
+    assert np.allclose(baseline, repeat, rtol=0.0, atol=1e-7), \
+        "same seed should produce deterministic spectral Lambertian output"
 
 
 def test_spectral_formula_properties():

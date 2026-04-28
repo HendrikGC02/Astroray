@@ -7,15 +7,14 @@ Subsurface, and the Texture::sampleSpectral infrastructure.
 Covers:
   1. Metal evalSpectral: non-negative, no NaN/Inf; roughness path produces
      per-λ Fresnel variation (warm-tinted albedo peaks differently across
-     wavelengths); Cornell A/B within 5% with a metal sphere.
+     wavelengths); same-seed Cornell A/B is deterministic with a metal sphere.
   2. Dielectric / Mirror evalSpectral: returns 0 (delta lobes).
   3. Subsurface evalSpectral: non-negative, no NaN/Inf.
-  4. Texture.sampleSpectral default: matches RGBAlbedoSpectrum(value).sample
-     to float precision.
-  5. Image texture sampleSpectral: consistent across repeated calls (cache
-     stability); matches default fallback within 1e-6.
+  4. Texture plugin registry still exposes the expected procedural/image
+     plugins used by spectral texture tests.
+  5. RGBAlbedoSpectrum sampling is stable across repeated calls.
   6. pkg13a non-physics overrides (Phong, Disney, DiffuseLight, NormalMapped):
-     spectral renders are finite and keep Cornell A/B parity against RGB.
+     spectral renders are finite and deterministic for a fixed seed.
 """
 import math
 import os
@@ -114,21 +113,21 @@ def test_metal_spectral_formula_non_negative():
             assert F_i <= 1.0 + 1e-6, f"Schlick F > 1 at cosTheta={cosTheta}, sample {i}"
 
 
-def test_metal_spectral_vs_rgb_a_b(test_results_dir):
-    """Spectral and RGB Cornell+metal sphere agree within 5% per channel."""
-    rgb = _render("path_tracer", _metal_scene, seed=7)
-    spec = _render("path_tracer", _metal_scene, seed=7)
-    save_image(rgb,  os.path.join(test_results_dir, 'pkg13_metal_rgb.png'))
-    save_image(spec, os.path.join(test_results_dir, 'pkg13_metal_spectral.png'))
+def test_metal_spectral_deterministic_a_b(test_results_dir):
+    """Cornell+metal spectral render is deterministic for a fixed seed."""
+    baseline = _render("path_tracer", _metal_scene, seed=7)
+    repeat = _render("path_tracer", _metal_scene, seed=7)
+    save_image(baseline, os.path.join(test_results_dir, 'pkg13_metal_baseline.png'))
+    save_image(repeat, os.path.join(test_results_dir, 'pkg13_metal_repeat.png'))
 
-    rgb_mean = rgb.reshape(-1, 3).mean(axis=0)
-    spec_mean = spec.reshape(-1, 3).mean(axis=0)
-    rel_delta = np.abs(rgb_mean - spec_mean) / (rgb_mean + 1e-3)
-    print(f"\n  Metal RGB  mean: {rgb_mean}")
-    print(f"  Metal Spec mean: {spec_mean}")
+    baseline_mean = baseline.reshape(-1, 3).mean(axis=0)
+    repeat_mean = repeat.reshape(-1, 3).mean(axis=0)
+    rel_delta = np.abs(baseline_mean - repeat_mean) / (baseline_mean + 1e-3)
+    print(f"\n  Metal baseline mean: {baseline_mean}")
+    print(f"  Metal repeat mean:   {repeat_mean}")
     print(f"  rel delta:       {rel_delta}")
-    assert np.all(rel_delta < 0.05), (
-        f"metal spectral diverges from RGB by {rel_delta} (threshold 0.05)")
+    assert np.allclose(baseline, repeat, rtol=0.0, atol=1e-7), \
+        "same seed should produce deterministic metal spectral output"
 
 
 # ---------------------------------------------------------------------------
@@ -247,23 +246,16 @@ def test_new_materials_in_registry():
 
 
 # ---------------------------------------------------------------------------
-def test_texture_sample_spectral_default_matches_upsample():
-    """Texture.sampleSpectral default matches RGBAlbedoSpectrum(value).sample."""
-    for u_val in [0.0, 0.25, 0.5, 0.75]:
-        wl = astroray.SampledWavelengths.sample_uniform(u_val)
-        # sample_texture returns the RGB value from a checker texture.
-        # We verify through the registry that procedural textures exist.
-        tex_names = astroray.texture_registry_names()
-        assert "checker" in tex_names, f"checker not registered; have {tex_names}"
-        assert "image" in tex_names
+def test_texture_plugins_needed_for_spectral_tests_registered():
+    """Texture plugins used by spectral texture tests are registered."""
+    tex_names = astroray.texture_registry_names()
+    for name in ("checker", "noise", "gradient", "voronoi", "brick",
+                 "musgrave", "magic", "wave", "image"):
+        assert name in tex_names, f"{name!r} not registered; have {tex_names}"
 
 
-def test_image_texture_spectral_cache_stable():
-    """Image texture sampleSpectral returns identical results on repeated calls.
-
-    Since the spectral cache is built eagerly in setData(), the same texel
-    lookup must be bit-identical across calls.
-    """
+def test_rgb_albedo_spectrum_sample_stable():
+    """RGBAlbedoSpectrum returns identical samples on repeated calls."""
     wl = astroray.SampledWavelengths.sample_uniform(0.5)
     rsp = astroray.RGBAlbedoSpectrum([0.6, 0.3, 0.1])
     s1 = rsp.sample(wl)
@@ -281,17 +273,13 @@ def test_image_texture_spectral_cache_stable():
         (_diffuse_light_scene, "diffuse_light"),
     ],
 )
-def test_pkg13a_material_spectral_vs_rgb_parity(scene_fn, tag, test_results_dir):
-    # Keep this threshold aligned with existing pkg11/pkg13 Monte Carlo parity tests.
-    parity_threshold = 0.05
-    rgb = _render("path_tracer", scene_fn, seed=17)
-    spec = _render("path_tracer", scene_fn, seed=17)
-    save_image(rgb, os.path.join(test_results_dir, f'pkg13a_{tag}_rgb.png'))
-    save_image(spec, os.path.join(test_results_dir, f'pkg13a_{tag}_spectral.png'))
+def test_pkg13a_material_spectral_deterministic_a_b(scene_fn, tag, test_results_dir):
+    baseline = _render("path_tracer", scene_fn, seed=17)
+    repeat = _render("path_tracer", scene_fn, seed=17)
+    save_image(baseline, os.path.join(test_results_dir, f'pkg13a_{tag}_baseline.png'))
+    save_image(repeat, os.path.join(test_results_dir, f'pkg13a_{tag}_repeat.png'))
 
-    assert not np.any(np.isnan(spec)), f"{tag} spectral render contains NaN"
-    assert not np.any(np.isinf(spec)), f"{tag} spectral render contains Inf"
-    rgb_mean = rgb.reshape(-1, 3).mean(axis=0)
-    spec_mean = spec.reshape(-1, 3).mean(axis=0)
-    rel_delta = np.abs(rgb_mean - spec_mean) / (rgb_mean + 1e-3)
-    assert np.all(rel_delta < parity_threshold), f"{tag} spectral parity drift too high: {rel_delta}"
+    assert not np.any(np.isnan(repeat)), f"{tag} spectral render contains NaN"
+    assert not np.any(np.isinf(repeat)), f"{tag} spectral render contains Inf"
+    assert np.allclose(baseline, repeat, rtol=0.0, atol=1e-7), \
+        f"{tag} same-seed spectral render is not deterministic"

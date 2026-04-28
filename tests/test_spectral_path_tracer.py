@@ -4,12 +4,10 @@
 Pillar 2 / pkg11 — spectral path tracer integration tests.
 
 Covers:
-  1. Plugin registration: "spectral_path_tracer" appears in the registry.
-  2. Cornell A/B match: rendering Cornell with the legacy RGB `path` and the
-     new `spectral_path_tracer` produces near-identical mean RGB. The default
-     evalSpectral / emittedSpectral fall back to a Jakob-Hanika upsample of
-     the existing RGB BSDF / emission, so any chromatic delta is the
-     hero-wavelength MC noise floor — it should be small at 32 spp.
+  1. Plugin registration: "path_tracer" is the canonical spectral-first
+     integrator after pkg14.
+  2. Cornell deterministic A/B: rendering the same scene twice with the same
+     seed produces identical output and a non-trivial image.
 
 Both renders are also written to PNG under test_results/ for visual review.
 
@@ -76,8 +74,8 @@ def test_spectral_path_tracer_registered():
 def test_cornell_ab_match(test_results_dir):
     """path_tracer Cornell render is valid and consistent across two identical seeds.
 
-    Since pkg14 deleted the legacy RGB path, this test verifies the spectral
-    integrator produces a non-trivial, non-NaN render of the Cornell box.
+    Since pkg14 deleted the legacy RGB path, this is a deterministic
+    same-integrator A/B check rather than an RGB-vs-spectral parity test.
     """
     render_a = _render_cornell("path_tracer")
     render_b = _render_cornell("path_tracer")
@@ -89,6 +87,8 @@ def test_cornell_ab_match(test_results_dir):
     print(f"\n  Cornell mean: {mean_a}")
     assert np.all(mean_a > 0.01), f"spectral image too dark, mean={mean_a}"
     assert not np.any(np.isnan(render_a)), "render contains NaN"
+    assert np.allclose(render_a, render_b, rtol=0.0, atol=1e-7), \
+        "same seed should produce deterministic path_tracer output"
 
 
 def test_spectral_render_no_nan_no_inf():

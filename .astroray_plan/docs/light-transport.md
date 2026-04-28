@@ -68,22 +68,17 @@ class Integrator {
 public:
     virtual ~Integrator() = default;
 
-    // Called once per sample per pixel. Returns CIE XYZ radiance.
-    virtual Vec3 sample(const Ray& cameraRay, std::mt19937& gen) = 0;
-
     // Chance to build per-frame data structures (ReSTIR reservoirs,
     // neural cache training buffers).
-    virtual void beginFrame(const Scene&, const Camera&) {}
+    virtual void beginFrame(Renderer&, const Camera&) {}
     virtual void endFrame() {}
 
-    // Spectral variant; default implementation calls the RGB path and
-    // upsamples. Spectral-native integrators override.
-    virtual SampledSpectrum sampleSpectral(const Ray&,
-                                           const SampledWavelengths&,
-                                           std::mt19937&);
+    // Full-path sample: returns XYZ color plus first-hit AOV data and render
+    // passes. The current path_tracer implementation is spectral-first.
+    virtual SampleResult sampleFull(const Ray& ray, std::mt19937& gen) = 0;
 };
 
-ASTRORAY_REGISTER_INTEGRATOR("path", PathTracer)
+ASTRORAY_REGISTER_INTEGRATOR("path_tracer", PathTracer)
 ASTRORAY_REGISTER_INTEGRATOR("restir-di", ReSTIRDI)
 ASTRORAY_REGISTER_INTEGRATOR("neural-cache", NeuralCache)
 ```

@@ -112,10 +112,10 @@ integration yet.
 
 ### Phase 2B: Shadow path tracer (1 week)
 
-Package `pkg11-spectral-path-tracer.md` — parallel `pathTraceSpectral`
-using `SampledSpectrum` throughout. Materials get both a `Vec3 eval`
-and a `SampledSpectrum evalSpectral` path. The legacy `pathTrace`
-remains for A/B comparison.
+Package `pkg11-spectral-path-tracer.md` — originally introduced a parallel
+`pathTraceSpectral` using `SampledSpectrum` throughout. This phase is complete;
+pkg14 later deleted the legacy RGB path and renamed the spectral path to the
+canonical `path_tracer`.
 
 ### Phase 2C: Migrate materials (1 week)
 
@@ -137,17 +137,15 @@ they just operate on `SampledSpectrum`. One code path, not two.
 
 ## Acceptance criteria
 
-- [ ] A scene rendered in spectral mode and RGB mode produces mean
-      brightness within 1% (they should be identical to noise, not
-      close — the spectral path handles RGB inputs identically).
-- [ ] A prism scene (single glass wedge under broad-spectrum light)
-      shows visible rainbow dispersion in spectral mode, solid
-      refraction in RGB mode. Irreducible evidence the spectral
-      pipeline works.
-- [ ] Spectral rendering is no more than 1.5× slower than RGB on the
-      Cornell box benchmark (4 wavelengths vs 3 channels + overhead).
-- [ ] All existing tests pass with the internal spectral pipeline
-      enabled.
+- [x] Legacy RGB path deleted; `path_tracer` is the spectral-first default.
+- [x] Spectral materials/textures/env maps have concrete overrides or tested
+      upsample fallbacks.
+- [x] Same-seed spectral renders are deterministic for the current regression
+      scenes.
+- [ ] Dispersion/prism validation remains future work; it requires a
+      wavelength-dependent dielectric transport path rather than an RGB path.
+- [ ] Performance tracking should compare against historical baselines or
+      external renderers, not a deleted in-tree RGB integrator.
 
 ## Non-goals
 

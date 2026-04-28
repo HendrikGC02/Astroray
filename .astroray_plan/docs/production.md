@@ -116,16 +116,18 @@ scratch. Package `pkg63-example-scenes.md`.
 
 ### 5.10 Test coverage
 
-Current: 66 tests. Target: 200+, covering every plugin and every
-integrator. Continuous Ralph-loop work.
+Current: 227 collected tests as of 2026-04-28. Target: keep expanding coverage
+around every plugin and every integrator. Continuous Ralph-loop work.
 
 Specific gaps:
 - GPU vs CPU equivalence for every material and integrator
-- Spectral vs RGB equivalence for every material under a white
-  illuminant
+- Spectral regression/reference checks for every material under a white
+  illuminant; the legacy RGB renderer path was deleted in pkg14
 - Multi-GPU correctness (when we have it)
 - Plugin registration correctness (regex-scan that every `.cpp` under
   `plugins/` has an `ASTRORAY_REGISTER_*` call)
+- Render-output triage for suspicious PNGs before promoting observations
+  into hard assertions
 
 Package `pkg64-test-expansion.md`, continuously updated.
 

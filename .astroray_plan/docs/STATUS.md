@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-04-28 (Codex onboarding in progress; PRs #116/#117 merged, native GR spectral emission in progress)
+**Last updated:** 2026-04-28 (Codex onboarding in progress; ReSTIR package specs in progress)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -73,7 +73,8 @@ personally should pick up.
 ### Track E (Codex)
 
 - Recently merged: PR #116 (`codex/render-test-triage`) and PR #117 (`codex/gr-spectral-dispatch`).
-- Active: issue #118 (`codex/native-gr-spectrum`) — add native sampled-spectrum GR disk emission.
+- In review: PR #119 (`codex/native-gr-spectrum`) — native sampled-spectrum GR disk emission.
+- Active: issue #114 (`codex/restir-package-specs`) — Pillar 3 ReSTIR package specs.
 
 ---
 
@@ -100,15 +101,15 @@ personally should pick up.
 
 | Package | Track | Status | Blocker |
 |---|---|---|---|
-| native-gr-spectrum | E | active | issue #118 |
-| pillar3-restir-specs | E | queued | issue #114 |
+| native-gr-spectrum | E | in review | PR #119 |
+| pillar3-restir-specs | E | active | issue #114 |
 
 ---
 
 ## Known issues
 
 - `include/raytracer.h` and `include/advanced_features.h` still contain texture class bodies (`CheckerTexture`, `NoiseTexture`, etc.). These are used directly by `blender_module.cpp` and will be cleaned up in a future package if the plan calls for it.
-- ReSTIR work is still unscoped at package-file level; issue #114 tracks pkg20+ planning.
+- ReSTIR work is now scoped at package-file level in issue #114; implementation should start at pkg20 after review.
 
 ---
 
@@ -122,7 +123,7 @@ personally should pick up.
 
 Brief notes on notable events.
 
-- **2026-04-28** — PR #116 and PR #117 merged. Codex docs/local-agent scaffolding, render-output triage, refreshed deterministic spectral tests, and restored spectral black-hole GR dispatch are now on `main`. Follow-up issue #118 is active to remove the temporary RGB bridge for GR disk emission.
+- **2026-04-28** — PR #116 and PR #117 merged. Codex docs/local-agent scaffolding, render-output triage, refreshed deterministic spectral tests, and restored spectral black-hole GR dispatch are now on `main`. PR #119 is in review for native spectral GR disk emission; issue #114 is active for Pillar 3 ReSTIR package specs.
 - **2026-04-26** — pkg14 complete. Spectral HDRI atlas built at load time; env-miss path wired to `evalSpectral`; legacy RGB `PathTracer` plugin and `pathTrace()` kernel deleted; registry entry renamed `"path_tracer"`; `Material::evalSpectral` is now pure virtual; `Material::eval` virtual removed. **Pillar 2 is 100% complete (pkg10–pkg14).**
 - **2026-04-26** — pkg13 fully complete. All four threads merged: (1) physics/infra PR #103 — Texture::sampleSpectral, ImageTexture cache, Metal/Dielectric/Mirror/Subsurface evalSpectral; (2) Copilot PR #104 — Phong/Disney/NormalMapped/DiffuseLight evalSpectral/emittedSpectral; (3) Copilot PR #106 — 8 procedural texture sampleSpectral overrides; (4) pkg13c PR — 4 new plugins: oren_nayar, isotropic, two_sided, emissive. Every shading event in the spectral pipeline now has a concrete override. Test suite: 223 passed, 1 skipped. Pillar 2 ~90%.
 - **2026-04-24** — pkg10 merged: Pillar 2 scaffolding. New `include/astroray/spectrum.h` defines `SampledWavelengths`, `SampledSpectrum`, `RGBAlbedoSpectrum`, `RGBUnboundedSpectrum`, `RGBIlluminantSpectrum` (float, 4 samples, 360-830 nm). `src/spectrum.cpp` loads the shipped Jakob-Hanika sRGB LUT lazily from `data/spectra/rgb_to_spectrum_srgb.coeff` and embeds the CIE 1964 10° CMF and D65 SPD as `constexpr` tables. New `astroray_core_impl` CMake target; `ASTRORAY_DATA_DIR` compile definition + env-var override for runtime data discovery. Python bindings expose every type plus a top-level `rgb_to_spectrum()` helper. No integration into any material, integrator, pass, or env map — that is pkg11+. Test suite: 189 passed, 1 skipped (20 new spectrum tests).

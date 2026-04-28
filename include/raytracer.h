@@ -18,6 +18,7 @@
 #include <string>
 #include <unordered_map>
 #include "stb_image.h"
+#include "astroray/gr_types.h"
 #include "astroray/spectrum.h"
 
 // Forward declaration needed by HitRecord
@@ -1696,13 +1697,29 @@ public:
         );
     }
 
+    static bool finiteFloat(float v) {
+        return gr_isfinite(static_cast<double>(v));
+    }
+
+    static float finiteOrZero(float v) {
+        return finiteFloat(v) ? v : 0.0f;
+    }
+
+    static float finiteClamped(float v, float lo, float hi) {
+        return finiteFloat(v) ? std::clamp(v, lo, hi) : 0.0f;
+    }
+
+    static Vec3 finiteVecOrZero(const Vec3& v) {
+        return Vec3(finiteOrZero(v.x), finiteOrZero(v.y), finiteOrZero(v.z));
+    }
+
 
     // Spectral path tracer kernel (Pillar 2, sole render path since pkg14).
     // Uses SampledSpectrum for radiance and throughput; material lookups via
-    // evalSpectral / emittedSpectral. Covers BVH traversal, area-light NEE
-    // with MIS, emission gating, Russian roulette, and BSDF sampling.
-    // GR-object dispatch, AOV passes, and per-closure bounce limits are
-    // not yet replicated; those are future-package scope.
+    // evalSpectral / emittedSpectral. Covers BVH traversal, GR-object dispatch,
+    // area-light NEE with MIS, emission gating, Russian roulette, and BSDF
+    // sampling. AOV passes and per-closure bounce limits are not yet replicated;
+    // those are future-package scope.
     astroray::SampledSpectrum pathTraceSpectral(
             const Ray& r, int maxDepth,
             const astroray::SampledWavelengths& lambdas,
@@ -1735,8 +1752,46 @@ public:
                 }
                 break;
             }
-            // Skip GR objects entirely in pkg11 (Cornell scope).
-            if (rec.hitObject && rec.hitObject->isGRObject()) break;
+            if (rec.hitObject && rec.hitObject->isGRObject()) {
+                auto grResult = rec.hitObject->traceGR(ray, gen);
+
+                if (grResult.hasEmission) {
+                    Vec3 emissionRgb(
+                        finiteClamped(grResult.color.x, 0.0f, 20.0f),
+                        finiteClamped(grResult.color.y, 0.0f, 20.0f),
+                        finiteClamped(grResult.color.z, 0.0f, 20.0f)
+                    );
+                    astroray::SampledSpectrum grEmission =
+                        astroray::RGBIlluminantSpectrum({
+                            emissionRgb.x,
+                            emissionRgb.y,
+                            emissionRgb.z
+                        }).sample(lambdas);
+                    if (emissionRgb.x > 0.0f || emissionRgb.y > 0.0f || emissionRgb.z > 0.0f) {
+                        color += throughput * grEmission;
+                    }
+                }
+                if (grResult.captured) {
+                    break;
+                }
+
+                Vec3 exitDir = grResult.exitDirection;
+                float exitLen2 = exitDir.length2();
+                if (!finiteFloat(exitDir.x) || !finiteFloat(exitDir.y) ||
+                    !finiteFloat(exitDir.z) || !finiteFloat(exitLen2) || exitLen2 < 1e-10f) {
+                    break;
+                }
+
+                Ray next(rec.point, exitDir, ray.time, ray.screenU, ray.screenV);
+                next.hasCameraFrame = ray.hasCameraFrame;
+                next.cameraOrigin = ray.cameraOrigin;
+                next.cameraU = ray.cameraU;
+                next.cameraV = ray.cameraV;
+                next.cameraW = ray.cameraW;
+                ray = next;
+                wasSpecular = true;
+                continue;
+            }
             if (!rec.material) break;
 
             // Emission (gated on camera ray or post-specular bounce).
@@ -1907,6 +1962,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 sMaterialIndex = ir.materialIndex;
                                 sPass = ir.passes;
                             }
+                            sCol = finiteVecOrZero(sCol);
                             // Per-sample firefly suppression: sCol is XYZ, Y is photometric luminance.
                             float sLum = sCol.y;
                             if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
@@ -1953,13 +2009,13 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         passColor[PASS_ENVIRONMENT] *= filmExposure;
                         color = xyzToLinearSRGB(color);
                         if (applyGamma) {
-                            color.x = std::pow(std::clamp(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
-                            color.y = std::pow(std::clamp(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
-                            color.z = std::pow(std::clamp(color.z, 0.0f, 1.0f), 1.0f / 2.2f);
+                            color.x = std::pow(finiteClamped(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
+                            color.y = std::pow(finiteClamped(color.y, 0.0f, 1.0f), 1.0f / 2.2f);
+                            color.z = std::pow(finiteClamped(color.z, 0.0f, 1.0f), 1.0f / 2.2f);
                         } else {
-                            color.x = std::max(color.x, 0.0f);
-                            color.y = std::max(color.y, 0.0f);
-                            color.z = std::max(color.z, 0.0f);
+                            color.x = std::max(finiteOrZero(color.x), 0.0f);
+                            color.y = std::max(finiteOrZero(color.y), 0.0f);
+                            color.z = std::max(finiteOrZero(color.z), 0.0f);
                         }
                         cam.pixels[idx] = color;
                         cam.albedoBuffer[idx] = albedo;

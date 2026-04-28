@@ -1615,11 +1615,11 @@ def test_black_hole_creation():
     setup_camera(r, look_from=[0, 0, 200], look_at=[0, 0, 0],
                  vfov=12, width=160, height=120)
     pixels = render_image(r, samples=4)
-    assert_valid_image(pixels, 120, 160, min_mean=0.0, label='black_hole')
+    assert np.all(np.isfinite(pixels)), "black hole render contains NaN/Inf"
+    assert_valid_image(pixels, 120, 160, min_mean=1e-5, label='black_hole')
     save_image(pixels, os.path.join(OUTPUT_DIR, 'test_black_hole.png'))
 
 
-@pytest.mark.xfail(reason="black hole GR dispatch not ported to pathTraceSpectral — deferred", strict=False)
 def test_black_hole_shadow_is_dark():
     """The center of the black hole shadow should be darker than the edges."""
     r = create_renderer()
@@ -1638,6 +1638,7 @@ def test_black_hole_shadow_is_dark():
                  vfov=6, width=200, height=200)
     pixels = render_image(r, samples=8)
 
+    assert np.all(np.isfinite(pixels)), "black hole shadow render contains NaN/Inf"
     center_region = pixels[80:120, 80:120, :]
     center_mean   = float(np.mean(center_region))
     edge_mean     = float(np.mean(pixels[:20, :, :]))
@@ -1660,7 +1661,6 @@ def test_black_hole_with_geometry():
     save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_cornell.png'))
 
 
-@pytest.mark.xfail(reason="black hole GR dispatch not ported to pathTraceSpectral — deferred", strict=False)
 def test_black_hole_extreme_disk_remains_finite():
     """Extreme disk params should not produce NaN/Inf and should keep a visible shadow."""
     r = create_renderer()

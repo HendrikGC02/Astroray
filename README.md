@@ -151,7 +151,7 @@ Astroray/
 │   ├── shapes/              # sphere, triangle, mesh, black_hole, …
 │   └── textures/            # checker, noise, voronoi, brick, …
 ├── scripts/                 # build_blender_addon.py and other utilities
-├── tests/                   # pytest suite (169 tests)
+├── tests/                   # pytest suite (227 collected tests as of 2026-04-28)
 └── CMakeLists.txt
 ```
 

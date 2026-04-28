@@ -23,12 +23,11 @@ itself with a concrete caller today.
 
 ---
 
-## The four tracks
+## The agent tracks
 
-Work happens on four independent tracks. Each has its own agent and
-acceptance criteria. Progress on one track rarely blocks another — that
-is by design, so your single-developer throughput multiplies without
-coordination overhead.
+Work happens on independent tracks. Each has its own agent and acceptance
+criteria. Progress on one track rarely blocks another — that is by design, so
+your single-developer throughput multiplies without coordination overhead.
 
 | Track | Owner agent | Runs on | Purpose |
 |---|---|---|---|
@@ -36,6 +35,7 @@ coordination overhead.
 | **B. Feature breadth** | GitHub Copilot cloud | GitHub Actions | Self-contained features shipped as plugins |
 | **C. Experiments** | Cline + local model | Your machine, VS Code | Exploratory changes, prototypes |
 | **D. Grind work** | Ralph loop + local model | Background on your machine | Test coverage, docs, lint fixes |
+| **E. Coordination/review** | Codex | Codex app/CLI + GitHub connector | Repo setup, PR/issue triage, CI/debug, targeted fixes, handoff specs |
 
 The overseer (see `agents/overseer.md`) coordinates by deciding what
 goes on which track, not by touching code.
@@ -45,6 +45,8 @@ goes on which track, not by touching code.
 - Track B handles anything that *matches a pattern* that is already right.
 - Track C explores things that *might* be right.
 - Track D mechanically converts known-right work into more of it.
+- Track E keeps the other tracks aligned and turns context into actionable
+  issues, reports, and PRs.
 
 ---
 

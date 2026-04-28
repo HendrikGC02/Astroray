@@ -9,9 +9,8 @@ with a Blender 5.1 addon. Read this file before doing anything.
 Astroray/
 ├── include/
 │   ├── raytracer.h          ← core types and Material base class
-│   └── advanced_features.h  ← GR integrator, spectral, advanced BSDFs
-├── src/
-│   └── renderer.cpp         ← Renderer, PyRenderer, path tracer
+│   ├── advanced_features.h  ← advanced BSDFs and compatibility classes
+│   └── astroray/            ← registries, integrators, passes, GR, spectral
 ├── plugins/                 ← one file per plugin (see below)
 │   ├── materials/
 │   ├── shapes/
@@ -19,7 +18,7 @@ Astroray/
 │   ├── integrators/
 │   └── passes/
 ├── tests/
-│   └── test_*.py            ← pytest test suite
+│   └── test_*.py            ← pytest test suite, 227 collected tests
 ├── blender_addon/           ← Blender 5.1 Python addon
 ├── CMakeLists.txt
 └── .astroray_plan/          ← development plan (read-only for you)
@@ -28,7 +27,7 @@ Astroray/
 ## How to build
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DASTRORAY_ENABLE_CUDA=OFF
 cmake --build build -j
 ```
 
@@ -62,7 +61,6 @@ You may only:
 
 - `include/raytracer.h` — unless the issue explicitly says so.
 - `include/advanced_features.h` — unless the issue explicitly says so.
-- `src/renderer.cpp` — unless the issue explicitly says so.
 - `blender_addon/` — not your concern in plugin issues.
 - Any file not mentioned in the issue spec.
 
@@ -84,6 +82,11 @@ ASTRORAY_REGISTER_PASS("name", ClassName)       // for passes
 The constructor takes `const ParamDict&`. Use `getFloat`, `getVec3`,
 `getInt`, `getBool`, `getString` with sensible defaults.
 
+Use the current base-class signatures in `include/raytracer.h`,
+`include/astroray/integrator.h`, and `include/astroray/pass.h`. Spectral
+materials must implement the current spectral contract; do not resurrect the
+deleted legacy RGB path tracer or `Material::eval` virtual.
+
 ## Work package spec location
 
 The work package that describes your task is in
@@ -96,4 +99,4 @@ Read it, but do not modify it.
 - Dormand-Prince Butcher tableau coefficients are ported exactly from
   the Python reference. Do not "clean up" the numbers.
 - Double precision in the GR integrator, float everywhere else.
-- Auto-exposure: 99th-percentile luminance scaled to 0.8.
+- `path_tracer` is the current spectral-first default integrator name.

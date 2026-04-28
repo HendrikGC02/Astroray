@@ -59,3 +59,11 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+## 5. Astroray Coordination
+
+- Project status lives in `.astroray_plan/docs/STATUS.md`.
+- Work packages live in `.astroray_plan/packages/`.
+- Codex-specific workflow notes live in `.astroray_plan/agents/codex.md`.
+- Shared repo invariants live in `AGENTS.md`; follow them in addition to this file.
+- Keep Claude Code on track-A/core work unless a task is explicitly scoped as a small local fix.

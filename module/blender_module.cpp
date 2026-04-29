@@ -14,6 +14,7 @@
 #include "astroray/pass.h"
 #include "astroray/spectrum.h"
 #include "astroray/restir/reservoir.h"
+#include "astroray/restir/light_sample.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
 #endif
@@ -1090,6 +1091,40 @@ PYBIND11_MODULE(astroray, m) {
         .def_property_readonly("M",     &FloatReservoir::M)
         .def_property_readonly("W",     &FloatReservoir::W)
         .def_property_readonly("y",     &FloatReservoir::y);
+
+    // -----------------------------------------------------------------------
+    // pkg21: ReSTIR light candidate test helper.
+    // Exposed only for unit testing; not part of the production API.
+    // -----------------------------------------------------------------------
+    struct ReSTIRCandidateHelper {
+        astroray::restir::ReSTIRCandidate c;
+
+        ReSTIRCandidateHelper(
+            std::array<float,3> pos, std::array<float,3> nrm,
+            std::array<float,3> em, float pdf, float dist)
+        {
+            c.position  = Vec3(pos[0], pos[1], pos[2]);
+            c.normal    = Vec3(nrm[0], nrm[1], nrm[2]);
+            c.emission  = Vec3(em[0],  em[1],  em[2]);
+            c.pdf       = pdf;
+            c.distance  = dist;
+        }
+
+        bool isValid() const { return c.isValid(); }
+
+        float targetLuminance(const astroray::SampledWavelengths& lambdas) const {
+            return c.targetLuminance(lambdas);
+        }
+    };
+
+    py::class_<ReSTIRCandidateHelper>(m, "ReSTIRCandidateHelper",
+            "Test helper: ReSTIRCandidate constructed from raw values. "
+            "Not for production use.")
+        .def(py::init<std::array<float,3>, std::array<float,3>,
+                      std::array<float,3>, float, float>(),
+             "position"_a, "normal"_a, "emission"_a, "pdf"_a, "distance"_a)
+        .def("is_valid",         &ReSTIRCandidateHelper::isValid)
+        .def("target_luminance", &ReSTIRCandidateHelper::targetLuminance, "lambdas"_a);
 
     m.attr("__version__") = "3.0.0";
     m.attr("__features__") = py::dict(

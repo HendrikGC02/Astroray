@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** spec drafted
+**Status:** implemented
 **Estimated effort:** 1 session (~3 h)
 **Depends on:** pkg20
 
@@ -81,15 +81,15 @@ the path tracer should still render the same images.
 
 ## Acceptance criteria
 
-- [ ] ReSTIR candidate payload has documented fields and validity rules.
-- [ ] Zero/negative/NaN PDFs and non-finite emissions are rejected or
+- [x] ReSTIR candidate payload has documented fields and validity rules.
+- [x] Zero/negative/NaN PDFs and non-finite emissions are rejected or
       sanitized consistently.
-- [ ] Spectral target-weight helper is covered by tests.
-- [ ] Existing path-tracer output remains unchanged within deterministic
+- [x] Spectral target-weight helper is covered by tests.
+- [x] Existing path-tracer output remains unchanged within deterministic
       tolerance if any NEE helper is refactored.
-- [ ] No reservoir use, temporal reuse, spatial reuse, CUDA kernels, or
+- [x] No reservoir use, temporal reuse, spatial reuse, CUDA kernels, or
       new user-facing integrator is added.
-- [ ] Full pytest passes.
+- [x] Full pytest passes.
 
 ---
 
@@ -104,9 +104,9 @@ the path tracer should still render the same images.
 
 ## Progress
 
-- [ ] Define candidate payload.
-- [ ] Add target-weight/validity helpers.
-- [ ] Add focused tests.
+- [x] Define candidate payload. (`include/astroray/restir/light_sample.h`)
+- [x] Add target-weight/validity helpers. (`isValid()`, `targetLuminance()`, `fromLightSample()`)
+- [x] Add focused tests. (`tests/test_restir_light_sample.py` — 22 tests, all pass)
 - [ ] Optionally refactor NEE to use the helper with no visual change.
 
 ---

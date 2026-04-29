@@ -12,7 +12,7 @@ Covers:
      default fallback (RGBAlbedoSpectrum(albedo * cosTheta/PI).sample) within
      1e-5.  The Jakob-Hanika fit is linear in scale when the RGB ratio is
      fixed, so this is expected to be exact up to float precision.
-  4. PNG saved to test_results/ for visual review.
+  4. One representative Cornell PNG saved to test_results/ for visual review.
 """
 import math
 import os
@@ -64,7 +64,7 @@ def test_spectral_lambertian_no_nan_no_inf():
     assert 0.001 < float(spec.mean()) < 0.95
 
 
-def test_spectral_lambertian_cornell_deterministic_a_b(test_results_dir):
+def test_spectral_lambertian_cornell_deterministic_a_b():
     """Spectral Lambertian Cornell is deterministic for a fixed seed.
 
     With pkg14, `path_tracer` is the only full path-tracing integrator. This
@@ -73,11 +73,6 @@ def test_spectral_lambertian_cornell_deterministic_a_b(test_results_dir):
     """
     baseline = _render_cornell("path_tracer", seed=42)
     repeat = _render_cornell("path_tracer", seed=42)
-
-    save_image(baseline, os.path.join(test_results_dir, 'pkg12_cornell_baseline.png'))
-    save_image(repeat, os.path.join(test_results_dir, 'pkg12_cornell_repeat.png'))
-    diff = np.clip(np.abs(baseline - repeat) * 5.0, 0.0, 1.0)
-    save_image(diff, os.path.join(test_results_dir, 'pkg12_cornell_diff_x5.png'))
 
     baseline_mean = baseline.reshape(-1, 3).mean(axis=0)
     repeat_mean = repeat.reshape(-1, 3).mean(axis=0)

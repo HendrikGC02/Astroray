@@ -9,7 +9,8 @@ Covers:
   2. Cornell deterministic A/B: rendering the same scene twice with the same
      seed produces identical output and a non-trivial image.
 
-Both renders are also written to PNG under test_results/ for visual review.
+One representative Cornell render is written to PNG under test_results/ for
+visual review.
 
 The prism / dispersion criterion from the original plan is deferred to
 pkg13 (no dispersive material override exists yet — direction-spread
@@ -83,7 +84,6 @@ def test_cornell_ab_match(test_results_dir):
     render_b = _render_cornell("path_tracer")
 
     save_image(render_a, os.path.join(test_results_dir, 'pkg11_cornell_spectral_a.png'))
-    save_image(render_b, os.path.join(test_results_dir, 'pkg11_cornell_spectral_b.png'))
 
     mean_a = render_a.reshape(-1, 3).mean(axis=0)
     print(f"\n  Cornell mean: {mean_a}")

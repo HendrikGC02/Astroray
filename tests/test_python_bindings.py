@@ -1365,7 +1365,6 @@ def test_environment_map_renders_brighter_than_black():
         f"HDRI scene ({hdri_mean:.3f}) should be significantly brighter than black bg ({dark_mean:.3f})"
 
     save_image(pixels_hdri, os.path.join(OUTPUT_DIR, 'test_hdri_lit.png'))
-    save_image(pixels_dark, os.path.join(OUTPUT_DIR, 'test_black_bg.png'))
 
 
 def test_solid_background_color():
@@ -1595,10 +1594,6 @@ def test_gpu_renders_match_cpu():
     assert abs(cpu_mean - gpu_mean) < 0.15 * max(cpu_mean, 1e-6), \
         f"GPU ({gpu_mean:.3f}) and CPU ({cpu_mean:.3f}) differ by more than 15%"
 
-    save_image(pixels_cpu, os.path.join(OUTPUT_DIR, 'test_cpu_render.png'))
-    save_image(pixels_gpu, os.path.join(OUTPUT_DIR, 'test_gpu_render.png'))
-
-
 # ---------------------------------------------------------------------------
 # Phase 3: General Relativistic Black Hole tests
 # ---------------------------------------------------------------------------
@@ -1616,9 +1611,6 @@ def test_black_hole_creation():
     pixels = render_image(r, samples=4)
     assert np.all(np.isfinite(pixels)), "black hole render contains NaN/Inf"
     assert_valid_image(pixels, 120, 160, min_mean=1e-5, label='black_hole')
-    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_black_hole.png'))
-
-
 def test_black_hole_shadow_is_dark():
     """The center of the black hole shadow should be darker than the edges."""
     r = create_renderer()
@@ -1657,9 +1649,6 @@ def test_black_hole_with_geometry():
                  vfov=38, width=200, height=150)
     pixels = render_image(r, samples=16)
     assert_valid_image(pixels, 150, 200, min_mean=0.01, label='bh_with_geometry')
-    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_cornell.png'))
-
-
 def test_black_hole_extreme_disk_remains_finite():
     """Extreme disk params should not produce NaN/Inf and should keep a visible shadow."""
     r = create_renderer()
@@ -1681,9 +1670,6 @@ def test_black_hole_extreme_disk_remains_finite():
     assert center_mean < edge_mean, (
         f"Shadow center ({center_mean:.3f}) should be darker than edges ({edge_mean:.3f})"
     )
-    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_extreme_finite.png'))
-
-
 def test_black_hole_native_spectral_disk_visible():
     """Native spectral GR disk emission should be finite and visible."""
     r = create_renderer()
@@ -1700,9 +1686,6 @@ def test_black_hole_native_spectral_disk_visible():
 
     assert np.all(np.isfinite(pixels)), "native spectral GR render contains NaN/Inf"
     assert float(np.mean(pixels)) > 1e-4, "native spectral GR disk emission is black"
-    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_native_spectral_disk.png'))
-
-
 def test_black_hole_renderer_uses_native_spectral_gr_dispatch():
     """The spectral renderer should not RGB-upsample GR disk emission."""
     source = open(
@@ -2005,9 +1988,6 @@ def test_texture_coordinate_uv_mode_matches_default_behavior():
     explicit_uv = render_with_mode(True)
     mad = float(np.mean(np.abs(default_uv - explicit_uv)))
     assert mad < 1e-6, f"Explicit UV mode changed legacy behavior (MAD={mad:.8f})."
-    save_image(explicit_uv, os.path.join(OUTPUT_DIR, 'test_texture_coord_uv.png'))
-
-
 def test_normal_map_adds_visible_surface_detail():
     """A patterned normal map on a flat quad should increase local shading
     variation compared to an unperturbed normal."""
@@ -2126,9 +2106,6 @@ def test_bump_strength_zero_matches_no_bump_output():
     bump_zero = render_scene(with_bump_zero=True)
     mad = float(np.mean(np.abs(no_bump - bump_zero)))
     assert mad < 0.04, f"Bump strength=0 diverges from baseline (MAD={mad:.4f})."
-    save_image(bump_zero, os.path.join(OUTPUT_DIR, 'test_bump_strength_zero.png'))
-
-
 # ---------------------------------------------------------------------------
 # Seed control — issue #7
 # ---------------------------------------------------------------------------
@@ -2182,9 +2159,6 @@ def test_seed_determinism():
     # Different seeds → at least one pixel differs
     assert not np.array_equal(render_a1, render_b), \
         "Different seeds produced identical renders."
-
-    save_image(render_a1, os.path.join(OUTPUT_DIR, 'test_seed_determinism.png'))
-
 
 # ---------------------------------------------------------------------------
 # Stand-alone entry-point for direct execution

@@ -105,10 +105,9 @@ def test_cornell_box_scene():
         "Right side should be greener than left in Cornell box"
 
 
-def test_material_test_scene():
+def test_material_test_scene(tmp_path):
     """Scene 2 (Material Test) should render to a valid PNG."""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    out = os.path.join(OUTPUT_DIR, 'standalone_simple.png')
+    out = os.path.join(tmp_path, 'standalone_simple.png')
     r = _run(['--scene', '2',
               '--width', '200', '--height', '150',
               '--samples', '16',
@@ -117,10 +116,9 @@ def test_material_test_scene():
     _assert_png_valid(out, min_mean=0.02)
 
 
-def test_multiple_objects():
+def test_multiple_objects(tmp_path):
     """Material test scene with more samples produces a valid image."""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    out = os.path.join(OUTPUT_DIR, 'standalone_multiple_objects.png')
+    out = os.path.join(tmp_path, 'standalone_multiple_objects.png')
     r = _run(['--scene', '2',
               '--width', '200', '--height', '150',
               '--samples', '32',
@@ -129,10 +127,9 @@ def test_multiple_objects():
     _assert_png_valid(out, min_mean=0.02)
 
 
-def test_performance():
+def test_performance(tmp_path):
     """100-sample Cornell Box render should complete within a reasonable time."""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    out = os.path.join(OUTPUT_DIR, 'standalone_performance.png')
+    out = os.path.join(tmp_path, 'standalone_performance.png')
     t0 = time.time()
     r = _run(['--scene', '1',
               '--width', '200', '--height', '150',
@@ -144,10 +141,9 @@ def test_performance():
     print(f"\n  Render time: {elapsed:.1f}s")
 
 
-def test_width_height_respected():
+def test_width_height_respected(tmp_path):
     """Output image dimensions should match --width / --height."""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    out = os.path.join(OUTPUT_DIR, 'standalone_dimensions.png')
+    out = os.path.join(tmp_path, 'standalone_dimensions.png')
     r = _run(['--scene', '1',
               '--width', '160', '--height', '120',
               '--samples', '8',
@@ -158,15 +154,13 @@ def test_width_height_respected():
     assert img.shape[1] == 160, f"Expected width 160, got {img.shape[1]}"
 
 
-def test_higher_samples_closer_to_reference():
+def test_higher_samples_closer_to_reference(tmp_path):
     """
     A 64spp render should be closer (lower MSE) to a 256spp reference than
     a 4spp render, demonstrating convergence toward the true image.
     """
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
     def render_cornell(spp: int, suffix: str) -> np.ndarray:
-        out = os.path.join(OUTPUT_DIR, f'standalone_conv_{suffix}.png')
+        out = os.path.join(tmp_path, f'standalone_conv_{suffix}.png')
         r = _run(['--scene', '1',
                   '--width', '80', '--height', '60',
                   '--samples', str(spp),
@@ -185,7 +179,7 @@ def test_higher_samples_closer_to_reference():
         f"(mse_64={mse_high:.5f} vs mse_4={mse_low:.5f})"
 
 
-def test_energy_conservation_diffuse_light():
+def test_energy_conservation_diffuse_light(tmp_path):
     """
     Test energy conservation for DiffuseLight material.
     DiffuseLight emits, so the conservation check should verify 
@@ -194,8 +188,7 @@ def test_energy_conservation_diffuse_light():
     # This test would require a scene with a DiffuseLight material
     # For now, we'll just verify that the renderer can handle such a material
     # and doesn't crash when it's present
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    out = os.path.join(OUTPUT_DIR, 'standalone_diffuse_light_test.png')
+    out = os.path.join(tmp_path, 'standalone_diffuse_light_test.png')
     
     # Try to render with a scene that might use DiffuseLight
     # This is a placeholder test - in a real implementation, we'd need

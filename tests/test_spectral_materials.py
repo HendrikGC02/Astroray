@@ -115,13 +115,10 @@ def test_metal_spectral_formula_non_negative():
             assert F_i <= 1.0 + 1e-6, f"Schlick F > 1 at cosTheta={cosTheta}, sample {i}"
 
 
-def test_metal_spectral_deterministic_a_b(test_results_dir):
+def test_metal_spectral_deterministic_a_b():
     """Cornell+metal spectral render is deterministic for a fixed seed."""
     baseline = _render("path_tracer", _metal_scene, seed=7)
     repeat = _render("path_tracer", _metal_scene, seed=7)
-    save_image(baseline, os.path.join(test_results_dir, 'pkg13_metal_baseline.png'))
-    save_image(repeat, os.path.join(test_results_dir, 'pkg13_metal_repeat.png'))
-
     baseline_mean = baseline.reshape(-1, 3).mean(axis=0)
     repeat_mean = repeat.reshape(-1, 3).mean(axis=0)
     rel_delta = np.abs(baseline_mean - repeat_mean) / (baseline_mean + 1e-3)
@@ -153,7 +150,6 @@ def test_mirror_spectral_no_nan(test_results_dir):
         r.add_sphere([0, -1, 0], 1.0, mat)
 
     pixels = _render("path_tracer", mirror_scene)
-    save_image(pixels, os.path.join(test_results_dir, 'pkg13_mirror_spectral.png'))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
     assert pixels.min() >= 0.0
@@ -206,7 +202,6 @@ def test_isotropic_spectral_no_nan(test_results_dir):
         r.add_sphere([0, -1, 0], 1.0, mat)
 
     pixels = _render("path_tracer", scene)
-    save_image(pixels, os.path.join(test_results_dir, 'pkg13c_isotropic_spectral.png'))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
     assert pixels.min() >= 0.0
@@ -220,7 +215,6 @@ def test_two_sided_spectral_no_nan(test_results_dir):
         r.add_sphere([0, -1, 0], 1.0, mat)
 
     pixels = _render("path_tracer", scene)
-    save_image(pixels, os.path.join(test_results_dir, 'pkg13c_two_sided_spectral.png'))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
     assert pixels.min() >= 0.0
@@ -275,11 +269,9 @@ def test_rgb_albedo_spectrum_sample_stable():
         (_diffuse_light_scene, "diffuse_light"),
     ],
 )
-def test_pkg13a_material_spectral_deterministic_a_b(scene_fn, tag, test_results_dir):
+def test_pkg13a_material_spectral_deterministic_a_b(scene_fn, tag):
     baseline = _render("path_tracer", scene_fn, seed=17)
     repeat = _render("path_tracer", scene_fn, seed=17)
-    save_image(baseline, os.path.join(test_results_dir, f'pkg13a_{tag}_baseline.png'))
-    save_image(repeat, os.path.join(test_results_dir, f'pkg13a_{tag}_repeat.png'))
 
     assert not np.any(np.isnan(repeat)), f"{tag} spectral render contains NaN"
     assert not np.any(np.isinf(repeat)), f"{tag} spectral render contains Inf"

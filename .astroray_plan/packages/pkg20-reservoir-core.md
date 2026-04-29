@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** spec drafted
+**Status:** implemented
 **Estimated effort:** 1 session (~3 h)
 **Depends on:** pkg14
 
@@ -82,15 +82,15 @@ probability and aggregate weights.
 
 ## Acceptance criteria
 
-- [ ] Reservoir reset/update/merge invariants are covered by tests.
-- [ ] Zero, negative, NaN, and infinite candidate weights are handled
+- [x] Reservoir reset/update/merge invariants are covered by tests.
+- [x] Zero, negative, NaN, and infinite candidate weights are handled
       deterministically and do not poison stored state.
-- [ ] Seeded update sequences produce stable selected-candidate results.
-- [ ] A simple weighted selection distribution test passes with a loose
+- [x] Seeded update sequences produce stable selected-candidate results.
+- [x] A simple weighted selection distribution test passes with a loose
       tolerance.
-- [ ] No renderer, integrator, scene, CUDA, or Blender UI behavior
+- [x] No renderer, integrator, scene, CUDA, or Blender UI behavior
       changes.
-- [ ] Full pytest passes.
+- [x] Full pytest passes.
 
 ---
 
@@ -106,9 +106,9 @@ probability and aggregate weights.
 
 ## Progress
 
-- [ ] Add reservoir type.
-- [ ] Add deterministic invariant tests.
-- [ ] Add loose statistical selection test.
+- [x] Add reservoir type. (`include/astroray/restir/reservoir.h`)
+- [x] Add deterministic invariant tests. (`tests/test_restir_reservoir.py` — 22 tests, all pass)
+- [x] Add loose statistical selection test. (distribution tests in `TestDistribution`)
 - [ ] Update status/changelog notes when merged.
 
 ---

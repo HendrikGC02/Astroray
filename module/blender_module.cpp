@@ -13,6 +13,7 @@
 #include "astroray/integrator.h"
 #include "astroray/pass.h"
 #include "astroray/spectrum.h"
+#include "astroray/restir/reservoir.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
 #endif
@@ -1058,6 +1059,37 @@ PYBIND11_MODULE(astroray, m) {
     m.attr("kSpectrumSamples") = astroray::kSpectrumSamples;
     m.attr("kLambdaMin")       = astroray::kLambdaMin;
     m.attr("kLambdaMax")       = astroray::kLambdaMax;
+
+    // -----------------------------------------------------------------------
+    // pkg20: ReSTIR reservoir test helper (Reservoir<float>).
+    // Exposed only for unit testing; not part of the production API.
+    // -----------------------------------------------------------------------
+    struct FloatReservoir {
+        astroray::restir::Reservoir<float> res;
+        std::mt19937 rng;
+        explicit FloatReservoir(uint32_t seed = 42) : rng(seed) {}
+        void   update(float x, float w)                           { res.update(x, w, rng); }
+        void   merge(FloatReservoir& other, float target_pdf)     { res.merge(other.res, target_pdf, rng); }
+        void   reset()                                            { res.reset(); }
+        void   finalizeWeight(float p_hat)                        { res.finalizeWeight(p_hat); }
+        float  wSum()   const { return res.w_sum; }
+        int    M()      const { return res.M; }
+        float  W()      const { return res.W; }
+        float  y()      const { return res.y; }
+    };
+
+    py::class_<FloatReservoir>(m, "FloatReservoir",
+            "Test helper: Reservoir<float> with an internal seeded RNG. "
+            "Not for production use.")
+        .def(py::init<uint32_t>(), "seed"_a = 42)
+        .def("update",          &FloatReservoir::update,          "x"_a, "w"_a)
+        .def("merge",           &FloatReservoir::merge,           "other"_a, "target_pdf"_a)
+        .def("reset",           &FloatReservoir::reset)
+        .def("finalize_weight", &FloatReservoir::finalizeWeight,  "p_hat"_a)
+        .def_property_readonly("w_sum", &FloatReservoir::wSum)
+        .def_property_readonly("M",     &FloatReservoir::M)
+        .def_property_readonly("W",     &FloatReservoir::W)
+        .def_property_readonly("y",     &FloatReservoir::y);
 
     m.attr("__version__") = "3.0.0";
     m.attr("__features__") = py::dict(

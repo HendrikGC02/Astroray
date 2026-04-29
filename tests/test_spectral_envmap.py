@@ -91,15 +91,15 @@ def test_eval_spectral_atlas_matches_upsample_fallback():
 # ---------------------------------------------------------------------------
 
 def test_registry_names():
-    """After pkg14, only path_tracer and ambient_occlusion are registered."""
+    """pkg14 core integrators plus pkg22 restir-di must all be present."""
     names = set(astroray.integrator_registry_names())
     assert "path_tracer" in names, f"'path_tracer' missing from registry: {names}"
+    assert "ambient_occlusion" in names, f"'ambient_occlusion' missing from registry: {names}"
+    assert "restir-di" in names, f"'restir-di' missing from registry: {names}"
     assert "spectral_path_tracer" not in names, \
         "'spectral_path_tracer' still in registry after rename"
     assert "path" not in names, \
         "legacy 'path' integrator still in registry after deletion"
-    assert names == {"path_tracer", "ambient_occlusion"}, \
-        f"unexpected integrators in registry: {names}"
 
 
 # ---------------------------------------------------------------------------

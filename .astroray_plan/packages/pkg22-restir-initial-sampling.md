@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** spec drafted
+**Status:** implemented
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg20, pkg21
 
@@ -82,15 +82,15 @@ and finite behavior matter more than speed.
 
 ## Acceptance criteria
 
-- [ ] `"restir-di"` appears in `integrator_registry_names()`.
-- [ ] A simple scene renders finite, non-black pixels through
+- [x] `"restir-di"` appears in `integrator_registry_names()`.
+- [x] A simple scene renders finite, non-black pixels through
       `set_integrator("restir-di")`.
-- [ ] Seeded renders are deterministic.
-- [ ] A scene with multiple small lights is not dramatically darker than
+- [x] Seeded renders are deterministic.
+- [x] A scene with multiple small lights is not dramatically darker than
       vanilla `path_tracer` at the same samples.
-- [ ] No temporal reuse, spatial reuse, frame history, or CUDA kernels
+- [x] No temporal reuse, spatial reuse, frame history, or CUDA kernels
       are added.
-- [ ] Full pytest passes.
+- [x] Full pytest passes.
 
 ---
 
@@ -106,10 +106,10 @@ and finite behavior matter more than speed.
 
 ## Progress
 
-- [ ] Add `restir-di` plugin skeleton.
-- [ ] Implement initial candidate generation.
-- [ ] Add registration/render tests.
-- [ ] Add a small many-light validation scene or helper.
+- [x] Add `restir-di` plugin skeleton. (`plugins/integrators/restir_di.cpp`)
+- [x] Implement initial candidate generation. (RIS with N=4 candidates, `Reservoir<ReSTIRCandidate>`)
+- [x] Add registration/render tests. (`tests/test_restir_initial_sampling.py` — 8 tests, all pass)
+- [x] Add a small many-light validation scene or helper. (3-light floor scene in tests)
 
 ---
 

@@ -1893,6 +1893,7 @@ public:
     float getFilmExposure() const { return filmExposure; }
     bool getUseTransparentFilm() const { return useTransparentFilm; }
     bool getTransparentGlass() const { return transparentGlass; }
+    int getWorldMaxBounces() const { return worldMaxBounces; }
 
 void render(Camera& cam, int maxSamples, int maxDepth,
             std::function<void(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false,

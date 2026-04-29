@@ -6,7 +6,7 @@ Pillar 2 / pkg12 — spectral Lambertian override tests.
 Covers:
   1. NaN/Inf guard: spectral render of an all-Lambertian Cornell box is valid.
   2. Deterministic A/B match: two path_tracer renders with the same seed agree
-     exactly after pkg14 deleted the legacy RGB path.
+     exactly across repeated spectral renders.
   3. Numerical equivalence: for the same albedo and wavelengths, the override
      formula (RGBAlbedoSpectrum(albedo).sample * cosTheta/PI) matches the
      default fallback (RGBAlbedoSpectrum(albedo * cosTheta/PI).sample) within
@@ -21,7 +21,9 @@ import sys
 import numpy as np
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'build'))
+from runtime_setup import configure_test_imports
+
+configure_test_imports()
 sys.path.insert(0, os.path.dirname(__file__))
 
 try:

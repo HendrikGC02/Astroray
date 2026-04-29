@@ -1,6 +1,6 @@
 # Pillar 3: Light Transport Upgrades
 
-**Status:** Not started
+**Status:** Queued (pkg20-pkg25 specs drafted)
 **Depends on:** Pillars 1, 2
 **Track:** A (ReSTIR core), C (neural cache prototype)
 **Duration:** 4–6 weeks
@@ -160,7 +160,7 @@ new interface. `pkg05-integrator-interface.md` lands as part of Pillar
 
 ### Phase 3C: NRC prototype (1–2 weeks, track C)
 
-- `pkg25-tinycudann-integration.md` — build-system and dummy network.
+- `pkg25-tiny-cuda-nn-prototype.md` — build-system and dummy network.
 - `pkg26-nrc-prototype.md` — standalone integrator test, not wired
   into plugin system yet.
 

@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open
+**Status:** spec drafted
 **Estimated effort:** 1 session (~3 h)
 **Depends on:** pkg20
 

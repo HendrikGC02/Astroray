@@ -23,11 +23,13 @@ import time
 from PIL import Image
 import numpy as np
 
+from runtime_setup import configure_test_imports
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-BUILD_DIR = os.path.join(os.path.dirname(__file__), '..', 'build')
+BUILD_DIR = configure_test_imports()
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_results')
 
 
@@ -35,6 +37,8 @@ def _get_exe():
     candidates = [
         os.path.join(BUILD_DIR, 'bin', 'raytracer'),  # Linux-style path
         os.path.join(BUILD_DIR, 'bin', 'raytracer.exe'),  # Windows-style path
+        os.path.join(BUILD_DIR, 'bin', 'Release', 'raytracer.exe'),
+        os.path.join(os.path.dirname(BUILD_DIR), 'bin', 'Release', 'raytracer.exe'),
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                      'bin', 'raytracer'),
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

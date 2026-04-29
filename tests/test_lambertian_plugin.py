@@ -1,7 +1,9 @@
 """Tests for the Lambertian material plugin registered via ASTRORAY_REGISTER_MATERIAL."""
 import math
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'build'))
+from runtime_setup import configure_test_imports
+
+configure_test_imports()
 
 import pytest
 

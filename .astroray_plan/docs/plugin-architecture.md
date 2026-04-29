@@ -1,6 +1,6 @@
 # Pillar 1: Plugin Architecture
 
-**Status:** Not started
+**Status:** Done
 **Blocks:** Pillars 2, 3, 4, 5
 **Track:** A
 **Duration:** 2–3 weeks

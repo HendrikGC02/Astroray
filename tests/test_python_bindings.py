@@ -21,10 +21,9 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from PIL import Image
 
-BUILD_DIR = os.path.join(os.path.dirname(__file__), '..', 'build')
-sys.path.insert(0, BUILD_DIR)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'blender_addon'))
+from runtime_setup import configure_test_imports
+
+BUILD_DIR = configure_test_imports(include_blender_addon=True)
 
 import astroray
 import shader_blending
@@ -490,7 +489,7 @@ def test_background_sky_present():
                        label='background_sky')
 
 
-@pytest.mark.xfail(reason="transparent alpha not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="transparent alpha not ported to the spectral path_tracer — deferred", strict=False)
 def test_transparent_film_alpha_masks_background():
     r = create_renderer()
     r.set_use_transparent_film(True)
@@ -520,7 +519,7 @@ def test_transparent_film_default_alpha_is_opaque():
     assert float(np.min(alpha)) > 0.99
 
 
-@pytest.mark.xfail(reason="transparent alpha not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="transparent alpha not ported to the spectral path_tracer — deferred", strict=False)
 def test_transparent_glass_keeps_rgb_but_zeroes_alpha():
     r = create_renderer()
     r.set_use_transparent_film(True)
@@ -540,7 +539,7 @@ def test_transparent_glass_keeps_rgb_but_zeroes_alpha():
     alpha = r.get_alpha_buffer()
 
     assert float(alpha_default[H // 2, W // 2]) > 0.8, "Glass should remain visible in alpha by default"
-    assert float(np.mean(pixels)) > 0.05, "RGB should still contain background/environment contribution"
+    assert float(np.mean(pixels)) > 0.05, "beauty output should still contain background/environment contribution"
     assert float(alpha[H // 2, W // 2]) < 0.1, "Glass should be transparent in alpha when transparent_glass is enabled"
 
 
@@ -635,7 +634,7 @@ def test_glass_render():
     assert_valid_image(pixels, H, W, min_mean=0.03, label='glass')
 
 
-@pytest.mark.xfail(reason="per-closure bounce limits not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="per-closure bounce limits not ported to the spectral path_tracer — deferred", strict=False)
 def test_glossy_bounces_zero_reduces_specular_reflections():
     def render(glossy_bounces: int) -> np.ndarray:
         r = create_renderer()
@@ -654,7 +653,7 @@ def test_glossy_bounces_zero_reduces_specular_reflections():
     assert float(np.mean(no_glossy[center])) < float(np.mean(glossy[center])) * 0.55
 
 
-@pytest.mark.xfail(reason="per-closure bounce limits not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="per-closure bounce limits not ported to the spectral path_tracer — deferred", strict=False)
 def test_transmission_bounces_zero_makes_glass_darker():
     def render(transmission_bounces: int) -> np.ndarray:
         r = create_renderer()
@@ -673,7 +672,7 @@ def test_transmission_bounces_zero_makes_glass_darker():
     assert float(np.mean(no_transmission[center])) < float(np.mean(with_transmission[center])) * 0.75
 
 
-@pytest.mark.xfail(reason="per-closure bounce limits not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="per-closure bounce limits not ported to the spectral path_tracer — deferred", strict=False)
 def test_total_max_depth_still_caps_all_paths():
     r = create_renderer()
     create_cornell_box(r)
@@ -932,7 +931,7 @@ def test_adaptive_sampling_flag():
     assert_valid_image(px_fixed, H, W, min_mean=0.02, label='fixed')
 
 
-@pytest.mark.xfail(reason="direct/indirect clamp not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="direct/indirect clamp not ported to the spectral path_tracer — deferred", strict=False)
 def test_direct_and_indirect_clamp_controls():
     """Direct/indirect clamp settings should reduce bright outliers when enabled."""
     def luminance_map(pixels: np.ndarray) -> np.ndarray:
@@ -975,7 +974,7 @@ def _luminance_map(pixels: np.ndarray) -> np.ndarray:
     return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
 
 
-@pytest.mark.xfail(reason="filter_glossy not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="filter_glossy not ported to the spectral path_tracer — deferred", strict=False)
 def test_filter_glossy_blurs_secondary_glossy_paths():
     def render(filter_glossy: float) -> np.ndarray:
         r = create_renderer()
@@ -1002,7 +1001,7 @@ def test_filter_glossy_blurs_secondary_glossy_paths():
         "filter_glossy=1.0 should slightly blur secondary glossy reflections"
 
 
-@pytest.mark.xfail(reason="caustics flags not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="caustics flags not ported to the spectral path_tracer — deferred", strict=False)
 def test_disable_reflective_caustics_reduces_mirror_caustic_outliers():
     def render(use_reflective_caustics: bool) -> np.ndarray:
         r = create_renderer()
@@ -1020,7 +1019,7 @@ def test_disable_reflective_caustics_reduces_mirror_caustic_outliers():
         "Disabling reflective caustics should reduce bright mirror caustic pixels on diffuse surfaces"
 
 
-@pytest.mark.xfail(reason="caustics flags not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="caustics flags not ported to the spectral path_tracer — deferred", strict=False)
 def test_disable_refractive_caustics_reduces_glass_caustic_outliers():
     def render(use_refractive_caustics: bool) -> np.ndarray:
         r = create_renderer()
@@ -1236,7 +1235,7 @@ def test_data_pass_buffers_exist_and_are_finite():
     assert float(np.max(mat_idx)) >= 0.0
 
 
-@pytest.mark.xfail(reason="cryptomatte/render passes not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="cryptomatte/render passes not ported to the spectral path_tracer — deferred", strict=False)
 def test_cryptomatte_buffers_exist_and_have_coverage():
     r = create_renderer()
     r.set_background_color([0.0, 0.0, 0.0])
@@ -1273,7 +1272,7 @@ def test_render_pass_buffers_exist_and_are_finite():
         assert np.isfinite(buf).all(), f"{key} contains non-finite values"
 
 
-@pytest.mark.xfail(reason="render passes not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="render passes not ported to the spectral path_tracer — deferred", strict=False)
 def test_emission_pass_isolated_from_diffuse_direct():
     r = create_renderer()
     r.set_seed(77)
@@ -1290,7 +1289,7 @@ def test_emission_pass_isolated_from_diffuse_direct():
         "Diffuse direct should be much darker than emission in emissive-only scene"
 
 
-@pytest.mark.xfail(reason="render passes not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="render passes not ported to the spectral path_tracer — deferred", strict=False)
 def test_component_passes_sum_approximately_matches_beauty():
     r = create_renderer()
     r.set_seed(123)
@@ -1385,7 +1384,7 @@ def test_solid_background_color():
     assert mean_r > mean_b * 2, f"Red ({mean_r:.3f}) should dominate blue ({mean_b:.3f})"
 
 
-@pytest.mark.xfail(reason="HDR/linear output pass not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="HDR/linear output pass not ported to the spectral path_tracer — deferred", strict=False)
 def test_linear_output_preserves_hdr_values():
     """Linear render output should preserve HDR values (>1.0) for EXR workflows."""
     r = create_renderer()
@@ -1405,7 +1404,7 @@ def test_linear_output_preserves_hdr_values():
     assert float(np.max(gamma[:, :, 0])) <= 1.0 + 1e-6, "Gamma output should remain display-range encoded"
 
 
-@pytest.mark.xfail(reason="render passes not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="render passes not ported to the spectral path_tracer — deferred", strict=False)
 def test_emission_pass_preserves_hdr_values():
     """Render pass buffers should stay in linear HDR space for multilayer EXR export."""
     r = create_renderer()
@@ -1447,7 +1446,7 @@ def _center_luminance(img: np.ndarray) -> float:
     return float(np.mean(crop))
 
 
-@pytest.mark.xfail(reason="world volume fog not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="world volume fog not ported to the spectral path_tracer — deferred", strict=False)
 def test_world_volume_density_adds_visible_haze():
     clear = _render_world_fog_sphere(z_pos=-2.0, density=None)
     foggy = _render_world_fog_sphere(z_pos=-2.0, density=0.01)
@@ -1458,7 +1457,7 @@ def test_world_volume_density_adds_visible_haze():
         f"Expected world fog to attenuate distant object (foggy={foggy_l:.4f}, clear={clear_l:.4f})"
 
 
-@pytest.mark.xfail(reason="world volume fog not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="world volume fog not ported to the spectral path_tracer — deferred", strict=False)
 def test_world_volume_fogs_farther_objects_more():
     near_clear = _render_world_fog_sphere(z_pos=1.0, density=None)
     near_fog = _render_world_fog_sphere(z_pos=1.0, density=0.01)
@@ -1478,7 +1477,7 @@ def test_world_volume_zero_density_matches_clear_behavior():
     assert max_diff < 1e-5, f"Zero-density world volume should match clear behavior (max diff={max_diff:.6f})"
 
 
-@pytest.mark.xfail(reason="gamma toggle not ported to pathTraceSpectral — deferred", strict=False)
+@pytest.mark.xfail(reason="gamma toggle not ported to the spectral path_tracer — deferred", strict=False)
 def test_render_apply_gamma_toggle():
     """render(apply_gamma=...) should control whether output is gamma-encoded."""
     r = create_renderer()

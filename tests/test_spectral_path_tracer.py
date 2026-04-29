@@ -22,7 +22,9 @@ import sys
 import numpy as np
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'build'))
+from runtime_setup import configure_test_imports
+
+configure_test_imports()
 sys.path.insert(0, os.path.dirname(__file__))
 
 try:

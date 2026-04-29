@@ -101,7 +101,7 @@ r.setup_camera([0, 0, 5], [0, 0, 0], [0, 1, 0], 60.0, 16/9, 0.0, 5.0, 800, 450)
 # Plugin-registered materials, integrators, passes
 mat = r.create_material("disney", [0.8, 0.4, 0.2], {"metallic": 0.4, "roughness": 0.3})
 r.add_sphere([0, 0, 0], 1.0, mat)
-r.set_integrator("path")          # swap integrators by name
+r.set_integrator("path_tracer")   # swap integrators by name
 r.add_pass("oidn_denoiser")       # add post-process passes by name
 
 img = r.render(samples_per_pixel=64, max_depth=8)
@@ -145,7 +145,7 @@ Astroray/
 │       └── …                # GR metric, accretion disk, spectral types
 ├── module/                  # pybind11 Python bindings
 ├── plugins/                 # Plugin implementations (drop-in files)
-│   ├── integrators/         # path, ambient_occlusion
+│   ├── integrators/         # path_tracer, ambient_occlusion
 │   ├── materials/           # disney, lambertian, metal, dielectric, …
 │   ├── passes/              # oidn_denoiser, depth_aov, normal_aov, albedo_aov
 │   ├── shapes/              # sphere, triangle, mesh, black_hole, …

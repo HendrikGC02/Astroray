@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-04-28 (Codex onboarding in progress; ReSTIR package specs in progress)
+**Last updated:** 2026-04-29 (Pillar 2 verification/docs alignment; ReSTIR package specs drafted through pkg25)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -43,6 +43,17 @@ personally should pick up.
 | pkg13 | Spectral remaining materials & textures (all threads: physics/infra, pkg13a, pkg13b, pkg13c) | **done** |
 | pkg14 | Spectral environment map + flip default | **done** |
 
+**Pillar 3 package summary:**
+
+| Package | Description | Status |
+|---|---|---|
+| pkg20 | ReSTIR reservoir core | spec drafted |
+| pkg21 | ReSTIR light sample abstraction | spec drafted |
+| pkg22 | ReSTIR initial sampling | spec drafted |
+| pkg23 | ReSTIR temporal/spatial reuse design | spec drafted |
+| pkg24 | ReSTIR validation | spec drafted |
+| pkg25 | tiny-cuda-nn prototype | spec drafted |
+
 ---
 
 ## This week
@@ -52,7 +63,7 @@ personally should pick up.
 ### Track A (Claude Code)
 
 - Package in flight: —
-- Pillar 2 complete. Next: scope Pillar 3 (light transport) — first package TBD
+- Pillar 2 complete. Next implementation target: `pkg20-reservoir-core` after package-spec review.
 
 ### Track B (Copilot cloud)
 
@@ -74,7 +85,7 @@ personally should pick up.
 
 - Recently merged: PR #116 (`codex/render-test-triage`) and PR #117 (`codex/gr-spectral-dispatch`).
 - In review: PR #119 (`codex/native-gr-spectrum`) — native sampled-spectrum GR disk emission.
-- Active: issue #114 (`codex/restir-package-specs`) — Pillar 3 ReSTIR package specs.
+- Active: issue #114 (`codex/restir-package-specs`) — Pillar 3 ReSTIR package specs through pkg25, plus Pillar 2 verification/doc alignment.
 
 ---
 
@@ -102,14 +113,15 @@ personally should pick up.
 | Package | Track | Status | Blocker |
 |---|---|---|---|
 | native-gr-spectrum | E | in review | PR #119 |
-| pillar3-restir-specs | E | active | issue #114 |
+| pkg20-pkg25 package specs | E | drafted | implementation review / issue #114 |
 
 ---
 
 ## Known issues
 
 - `include/raytracer.h` and `include/advanced_features.h` still contain texture class bodies (`CheckerTexture`, `NoiseTexture`, etc.). These are used directly by `blender_module.cpp` and will be cleaned up in a future package if the plan calls for it.
-- ReSTIR work is now scoped at package-file level in issue #114; implementation should start at pkg20 after review.
+- ReSTIR work is now scoped at package-file level in issue #114; implementation should start at `pkg20` after review.
+- Windows verification is sensitive to stale build caches; test bootstrap now supports `ASTRORAY_BUILD_DIR` and standard `build/Release` layouts, but the old `build/` cache on this workstation still points at a missing MinGW install.
 
 ---
 
@@ -123,6 +135,7 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-04-29** — Verification/docs pass: pytest collection restored to 229 tests when pointed at a valid Windows build via `ASTRORAY_BUILD_DIR`; full suite baseline on the fresh MSVC build is `211 passed, 1 skipped, 16 xfailed, 1 xpassed`. Test bootstrap now understands standard `build/Release` layouts and custom build dirs. Drafted `pkg25` and aligned status docs with the already-landed Pillar 2 stabilization work and ReSTIR package sequence.
 - **2026-04-28** — PR #116 and PR #117 merged. Codex docs/local-agent scaffolding, render-output triage, refreshed deterministic spectral tests, and restored spectral black-hole GR dispatch are now on `main`. PR #119 is in review for native spectral GR disk emission; issue #114 is active for Pillar 3 ReSTIR package specs.
 - **2026-04-26** — pkg14 complete. Spectral HDRI atlas built at load time; env-miss path wired to `evalSpectral`; legacy RGB `PathTracer` plugin and `pathTrace()` kernel deleted; registry entry renamed `"path_tracer"`; `Material::evalSpectral` is now pure virtual; `Material::eval` virtual removed. **Pillar 2 is 100% complete (pkg10–pkg14).**
 - **2026-04-26** — pkg13 fully complete. All four threads merged: (1) physics/infra PR #103 — Texture::sampleSpectral, ImageTexture cache, Metal/Dielectric/Mirror/Subsurface evalSpectral; (2) Copilot PR #104 — Phong/Disney/NormalMapped/DiffuseLight evalSpectral/emittedSpectral; (3) Copilot PR #106 — 8 procedural texture sampleSpectral overrides; (4) pkg13c PR — 4 new plugins: oren_nayar, isotropic, two_sided, emissive. Every shading event in the spectral pipeline now has a concrete override. Test suite: 223 passed, 1 skipped. Pillar 2 ~90%.

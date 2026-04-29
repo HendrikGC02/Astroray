@@ -1,6 +1,6 @@
 # Pillar 2: Spectral Core
 
-**Status:** Not started
+**Status:** Done
 **Depends on:** Pillar 1
 **Track:** A (core), B (measured BRDF plugins)
 **Duration:** 3–4 weeks

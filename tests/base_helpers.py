@@ -12,12 +12,86 @@ import matplotlib.pyplot as plt
 import sys
 import os
 from typing import List, Tuple
+from pathlib import Path
 
-# Find the built module on either Windows or Linux
-BUILD_DIR = os.path.join(os.path.dirname(__file__), '..', 'build')
-sys.path.insert(0, BUILD_DIR)
+# Find the built module on either Windows or Linux.
+PROJECT_ROOT = os.path.join(os.path.dirname(__file__), '..')
+DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, 'build')
+
+
+def _candidate_build_dirs() -> list[str]:
+    candidates: list[str] = []
+    env_dir = os.environ.get('ASTRORAY_BUILD_DIR')
+    if env_dir:
+        candidates.append(env_dir)
+    candidates.extend([
+        DEFAULT_BUILD_DIR,
+        os.path.join(DEFAULT_BUILD_DIR, 'Release'),
+    ])
+
+    seen: set[str] = set()
+    existing: list[str] = []
+    for candidate in candidates:
+        normalized = os.path.normcase(os.path.abspath(candidate).rstrip(os.sep))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if os.path.isdir(candidate):
+            existing.append(candidate)
+    return existing
+
+
+BUILD_DIR_CANDIDATES = _candidate_build_dirs()
+for _build_dir in reversed(BUILD_DIR_CANDIDATES):
+    sys.path.insert(0, _build_dir)
+BUILD_DIR = BUILD_DIR_CANDIDATES[0] if BUILD_DIR_CANDIDATES else DEFAULT_BUILD_DIR
 # Also check project root in case module was copied there
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(PROJECT_ROOT)
+
+
+def _candidate_mingw_dirs() -> list[str]:
+    candidates: list[str] = []
+    env_dir = os.environ.get('MINGW_BIN_DIR')
+    if env_dir:
+        candidates.append(env_dir)
+
+    for build_dir in BUILD_DIR_CANDIDATES:
+        cache_path = Path(build_dir) / 'CMakeCache.txt'
+        if not cache_path.exists() and Path(build_dir).name.lower() == 'release':
+            cache_path = Path(build_dir).parent / 'CMakeCache.txt'
+        if not cache_path.exists():
+            continue
+        for line in cache_path.read_text(encoding='utf-8', errors='ignore').splitlines():
+            prefix = 'CMAKE_CXX_COMPILER:FILEPATH='
+            if line.startswith(prefix):
+                compiler = Path(line[len(prefix):].strip())
+                if compiler.parent:
+                    candidates.append(str(compiler.parent))
+                break
+
+    candidates.extend([
+        r'C:\Program Files\mingw64\bin',
+        r'C:\msys64\mingw64\bin',
+        r'C:\msys64\ucrt64\bin',
+    ])
+
+    seen: set[str] = set()
+    unique: list[str] = []
+    for candidate in candidates:
+        normalized = os.path.normcase(candidate.rstrip(os.sep))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(candidate)
+    return unique
+
+
+if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
+    for _dll_dir in _candidate_mingw_dirs():
+        if os.path.isdir(_dll_dir):
+            os.add_dll_directory(_dll_dir)
+    for _build_dir in BUILD_DIR_CANDIDATES:
+        os.add_dll_directory(os.path.abspath(_build_dir))
 
 try:
     import astroray

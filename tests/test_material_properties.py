@@ -24,8 +24,9 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'build'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from runtime_setup import configure_test_imports
+
+configure_test_imports()
 
 import astroray
 from base_helpers import (

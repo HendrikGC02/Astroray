@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** spec drafted
+**Status:** implemented
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg22
 
@@ -41,10 +41,10 @@ explicit before performance work begins.
 
 ## Prerequisites
 
-- [ ] pkg22 is merged and `restir-di` initial sampling renders finite
+- [x] pkg22 is merged and `restir-di` initial sampling renders finite
       images.
-- [ ] A target validation scene exists for direct-light reuse.
-- [ ] The project owner or maintainer confirms whether first reuse
+- [x] A target validation scene exists for direct-light reuse.
+- [x] The project owner or maintainer confirms whether first reuse
       implementation should be CPU-only, CUDA-only, or staged.
 
 ---
@@ -82,16 +82,16 @@ explicit before performance work begins.
 
 ## Acceptance criteria
 
-- [ ] Design note documents temporal inputs, invalidation rules,
+- [x] Design note documents temporal inputs, invalidation rules,
       spatial neighborhood policy, target weight re-evaluation, and bias
       risks.
-- [ ] CPU/GPU split is explicit: what ships now, what moves to CUDA
+- [x] CPU/GPU split is explicit: what ships now, what moves to CUDA
       later, and what data layout must remain stable.
-- [ ] pkg24 validation plan is concrete enough for another agent to
+- [x] pkg24 validation plan is concrete enough for another agent to
       implement without redesigning.
-- [ ] If any code skeleton is added, it is covered by tests and does not
+- [x] If any code skeleton is added, it is covered by tests and does not
       alter current render output.
-- [ ] Full pytest passes.
+- [x] Full pytest passes.
 
 ---
 
@@ -106,13 +106,15 @@ explicit before performance work begins.
 
 ## Progress
 
-- [ ] Draft design note.
-- [ ] Review CPU/GPU boundary.
-- [ ] Add optional frame-state skeleton.
-- [ ] Update light-transport docs with accepted package sequence.
+- [x] Draft design note. (`.astroray_plan/docs/restir-temporal-spatial-design.md`)
+- [x] Review CPU/GPU boundary.
+- [x] Add optional frame-state skeleton. (`include/astroray/restir/frame_state.h`, `tests/test_restir_reuse_design.py`)
+- [x] Update light-transport docs with accepted package sequence.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- Staging the frame-state skeleton as a separate header with no active render impact is the right pattern: it makes the design concrete and testable without changing render behavior, and pkg24 can enable the passes incrementally.
+- The `FrameStateHelper` pybind11 binding (with `set_prev_pixel` writing directly to the previous buffer) makes temporal validity tests fast and direct without requiring a full render loop.
+- `selectSpatialNeighbors` uses `std::mt19937` directly; passing a `seed` to the Python binding avoids state-sharing between test cases.

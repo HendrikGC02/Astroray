@@ -155,6 +155,7 @@ new interface. `pkg05-integrator-interface.md` lands as part of Pillar
   initial candidate generation only.
 - `pkg23-restir-temporal-spatial-design.md` — temporal/spatial reuse
   design, history ownership, validation gates, and CPU/GPU boundary.
+  Detailed design note: `.astroray_plan/docs/restir-temporal-spatial-design.md`.
 - `pkg24-restir-validation.md` — validation scenes and bias/variance
   checks against vanilla path tracer.
 

@@ -15,6 +15,7 @@
 #include "astroray/spectrum.h"
 #include "astroray/restir/reservoir.h"
 #include "astroray/restir/light_sample.h"
+#include "astroray/restir/frame_state.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
 #endif
@@ -1125,6 +1126,72 @@ PYBIND11_MODULE(astroray, m) {
              "position"_a, "normal"_a, "emission"_a, "pdf"_a, "distance"_a)
         .def("is_valid",         &ReSTIRCandidateHelper::isValid)
         .def("target_luminance", &ReSTIRCandidateHelper::targetLuminance, "lambdas"_a);
+
+    // -----------------------------------------------------------------------
+    // pkg23: ReSTIR frame-state test helper.
+    // Exposed only for unit testing; not part of the production API.
+    // -----------------------------------------------------------------------
+    struct FrameStateHelper {
+        astroray::restir::FrameState fs;
+
+        void resize(int w, int h)  { fs.resize(w, h); }
+        void advanceFrame()        { fs.advanceFrame(); }
+        int  frameIndex()  const   { return fs.frameIndex; }
+        int  width()       const   { return fs.current.width; }
+        int  height()      const   { return fs.current.height; }
+        bool inBounds(int x, int y) const { return fs.current.inBounds(x, y); }
+
+        // Write test data into the previous buffer.
+        void setPrevPixel(int x, int y,
+                          float nx, float ny, float nz,
+                          float depth, bool valid) {
+            auto& h   = fs.previous.meta(x, y);
+            h.normal  = Vec3(nx, ny, nz);
+            h.depth   = depth;
+            h.valid   = valid;
+        }
+
+        bool isTemporallyValid(int px, int py,
+                               float nx, float ny, float nz, float depth,
+                               float normalThresh = 0.9f,
+                               float depthThresh  = 0.1f) const {
+            return astroray::restir::isTemporallyValid(
+                fs.previous, px, py, Vec3(nx, ny, nz), depth,
+                normalThresh, depthThresh);
+        }
+
+        // Returns list of (x, y, valid) tuples.
+        std::vector<std::tuple<int,int,bool>> selectNeighbors(
+                int cx, int cy, int radius, int maxNeighbors, uint32_t seed) {
+            std::mt19937 gen(seed);
+            std::vector<astroray::restir::SpatialNeighbor> buf(maxNeighbors);
+            int n = astroray::restir::selectSpatialNeighbors(
+                cx, cy, width(), height(), radius, maxNeighbors, gen, buf.data());
+            std::vector<std::tuple<int,int,bool>> out;
+            out.reserve(n);
+            for (int i = 0; i < n; ++i)
+                out.emplace_back(buf[i].x, buf[i].y, buf[i].valid);
+            return out;
+        }
+    };
+
+    py::class_<FrameStateHelper>(m, "FrameStateHelper",
+            "Test helper: ReSTIR FrameState with temporal/spatial utilities. "
+            "Not for production use.")
+        .def(py::init<>())
+        .def("resize",          &FrameStateHelper::resize,          "width"_a, "height"_a)
+        .def("advance_frame",   &FrameStateHelper::advanceFrame)
+        .def("set_prev_pixel",  &FrameStateHelper::setPrevPixel,
+             "x"_a, "y"_a, "nx"_a, "ny"_a, "nz"_a, "depth"_a, "valid"_a)
+        .def("is_temporally_valid", &FrameStateHelper::isTemporallyValid,
+             "px"_a, "py"_a, "nx"_a, "ny"_a, "nz"_a, "depth"_a,
+             "normal_threshold"_a = 0.9f, "depth_threshold"_a = 0.1f)
+        .def("select_neighbors", &FrameStateHelper::selectNeighbors,
+             "cx"_a, "cy"_a, "radius"_a, "max_neighbors"_a, "seed"_a)
+        .def_property_readonly("frame_index", &FrameStateHelper::frameIndex)
+        .def_property_readonly("width",       &FrameStateHelper::width)
+        .def_property_readonly("height",      &FrameStateHelper::height)
+        .def("in_bounds", &FrameStateHelper::inBounds, "x"_a, "y"_a);
 
     m.attr("__version__") = "3.0.0";
     m.attr("__features__") = py::dict(

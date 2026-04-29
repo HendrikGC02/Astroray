@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-04-29 (Pillar 2 verification/docs alignment; ReSTIR package specs drafted through pkg25)
+**Last updated:** 2026-04-29 (pkg20–pkg23 implemented; pkg20 reservoir core, pkg21 light sample abstraction, pkg22 restir-di initial sampling, pkg23 temporal/spatial reuse design scaffolding all on main)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -47,10 +47,10 @@ personally should pick up.
 
 | Package | Description | Status |
 |---|---|---|
-| pkg20 | ReSTIR reservoir core | spec drafted |
-| pkg21 | ReSTIR light sample abstraction | spec drafted |
-| pkg22 | ReSTIR initial sampling | spec drafted |
-| pkg23 | ReSTIR temporal/spatial reuse design | spec drafted |
+| pkg20 | ReSTIR reservoir core | implemented |
+| pkg21 | ReSTIR light sample abstraction | implemented |
+| pkg22 | ReSTIR initial sampling | implemented |
+| pkg23 | ReSTIR temporal/spatial reuse design | implemented |
 | pkg24 | ReSTIR validation | spec drafted |
 | pkg25 | tiny-cuda-nn prototype | spec drafted |
 
@@ -62,8 +62,8 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Package in flight: —
-- Pillar 2 complete. Next implementation target: `pkg20-reservoir-core` after package-spec review.
+- Package in flight: pkg24 (next)
+- pkg20–pkg23 complete. Next implementation target: `pkg24-restir-validation`.
 
 ### Track B (Copilot cloud)
 

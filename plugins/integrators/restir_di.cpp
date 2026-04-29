@@ -3,6 +3,7 @@
 #include "astroray/spectrum.h"
 #include "astroray/restir/reservoir.h"
 #include "astroray/restir/light_sample.h"
+#include "astroray/restir/frame_state.h"
 
 // pkg22 — ReSTIR DI prototype: initial candidate generation only.
 //
@@ -15,20 +16,38 @@
 //   throughput * f_spectral * L_emission * W
 // where W = w_sum / (p_hat(y) * M) is the final RIS weight.
 //
-// No temporal reuse, spatial reuse, or CUDA kernels (those are pkg23+).
+// pkg23: frameState_ is declared here and resized in beginFrame. It is not yet
+// written to or read from during sampleFull; the temporal and spatial passes
+// are added in pkg24 once the validation plan in
+// .astroray_plan/docs/restir-temporal-spatial-design.md is implemented.
+//
+// No temporal reuse, spatial reuse, or CUDA kernels active yet.
 // The classic path_tracer integrator is unchanged.
 
 class ReSTIRDI : public Integrator {
     int   maxDepth_;
     int   numCandidates_;
     Renderer* renderer_ = nullptr;
+    astroray::restir::FrameState frameState_;  // pkg23: history buffers, inactive until pkg24
 
 public:
     explicit ReSTIRDI(const astroray::ParamDict& p)
         : maxDepth_(p.getInt("max_depth", 50))
         , numCandidates_(p.getInt("num_candidates", 4)) {}
 
-    void beginFrame(Renderer& r, const Camera&) override { renderer_ = &r; }
+    void beginFrame(Renderer& r, const Camera& cam) override {
+        renderer_ = &r;
+        // pkg23: resize and advance the frame-state buffers each frame so that
+        // pkg24 temporal/spatial passes can read frameState_.previous without
+        // a resize-on-demand step. Current render output is unchanged because
+        // frameState_ is not read during sampleFull yet.
+        int w = cam.width;
+        int h = cam.height;
+        if (w > 0 && h > 0) {
+            frameState_.resize(w, h);
+            frameState_.advanceFrame();
+        }
+    }
 
     SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {
         SampleResult result;

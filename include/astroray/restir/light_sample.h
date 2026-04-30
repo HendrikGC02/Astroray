@@ -58,6 +58,16 @@ struct ReSTIRCandidate {
         float Y = spec.toXYZ(lambdas).Y;
         return Y > 0.0f ? Y : 0.0f;
     }
+
+    // Wavelength-independent RIS target weight for use in reservoir management.
+    // Uses the standard RGB-to-luminance coefficients (CIE Y approximation).
+    // This must be used consistently in update(), finalizeWeight(), and merge()
+    // whenever reservoirs are reused across frames with different wavelength samples.
+    float targetLuminanceRGB() const {
+        if (!isValid()) return 0.0f;
+        float Y = 0.2126f * emission.x + 0.7152f * emission.y + 0.0722f * emission.z;
+        return Y > 0.0f ? Y : 0.0f;
+    }
 };
 
 } // namespace astroray::restir

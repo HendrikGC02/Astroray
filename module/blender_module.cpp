@@ -150,6 +150,7 @@ class PyRenderer {
     bool useAdaptiveSampling = true;
     std::shared_ptr<EnvironmentMap> envMap;
     bool useGPU = false;
+    astroray::ParamDict integratorParams_;
 #ifdef ASTRORAY_CUDA_ENABLED
     std::unique_ptr<CUDARenderer> cudaRenderer;
 #endif
@@ -819,9 +820,12 @@ public:
         return result;
     }
     
+    void setIntegratorParam(const std::string& key, int value) {
+        integratorParams_.set(key, value);
+    }
+
     void setIntegrator(const std::string& name) {
-        astroray::ParamDict p;
-        auto integrator = astroray::IntegratorRegistry::instance().create(name, p);
+        auto integrator = astroray::IntegratorRegistry::instance().create(name, integratorParams_);
         renderer.setIntegrator(integrator);
     }
 
@@ -921,7 +925,10 @@ PYBIND11_MODULE(astroray, m) {
         .def_property_readonly("gpu_device_name", &PyRenderer::getGPUDeviceName)
         .def("sample_texture", &PyRenderer::sampleTexture,
              "type"_a, "params"_a, "u"_a = 0.5f, "v"_a = 0.5f)
-        .def("set_integrator", &PyRenderer::setIntegrator, "name"_a);
+        .def("set_integrator", &PyRenderer::setIntegrator, "name"_a)
+        .def("set_integrator_param", &PyRenderer::setIntegratorParam,
+             "key"_a, "value"_a,
+             "Set an integer parameter passed to the integrator constructor.");
     m.def("material_registry_names", []() {
         return astroray::MaterialRegistry::instance().names();
     });

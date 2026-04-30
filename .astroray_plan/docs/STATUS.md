@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-04-29 (pkg20–pkg23 implemented; pkg20 reservoir core, pkg21 light sample abstraction, pkg22 restir-di initial sampling, pkg23 temporal/spatial reuse design scaffolding all on main)
+**Last updated:** 2026-04-30 (pkg24 implemented; ReSTIR temporal/spatial reuse live in restir_di.cpp, 13-test validation suite all passing; pkg25 next)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -51,7 +51,7 @@ personally should pick up.
 | pkg21 | ReSTIR light sample abstraction | implemented |
 | pkg22 | ReSTIR initial sampling | implemented |
 | pkg23 | ReSTIR temporal/spatial reuse design | implemented |
-| pkg24 | ReSTIR validation | spec drafted |
+| pkg24 | ReSTIR validation | implemented |
 | pkg25 | tiny-cuda-nn prototype | spec drafted |
 
 ---
@@ -62,8 +62,8 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Package in flight: pkg24 (next)
-- pkg20–pkg23 complete. Next implementation target: `pkg24-restir-validation`.
+- Package in flight: pkg25 (next)
+- pkg20–pkg24 complete. Next implementation target: `pkg25-tiny-cuda-nn-prototype`.
 
 ### Track B (Copilot cloud)
 
@@ -135,6 +135,7 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-04-30** — pkg24 complete. Temporal and spatial reservoir reuse implemented in `restir_di.cpp` (Bitterli et al. 2020, Algorithms 1–3). `targetLuminanceRGB()` added to `ReSTIRCandidate` for wavelength-independent cross-frame W values. `set_integrator_param` Python binding added. 13-test validation suite covers all 6 design-note criteria (finitude, determinism, temporal variance, spatial MSE, bias magnitude for both passes, default-mode regression). 287 passed, 1 skipped, 16 xfailed.
 - **2026-04-29** — Verification/docs pass: pytest collection restored to 229 tests when pointed at a valid Windows build via `ASTRORAY_BUILD_DIR`; full suite baseline on the fresh MSVC build is `211 passed, 1 skipped, 16 xfailed, 1 xpassed`. Test bootstrap now understands standard `build/Release` layouts and custom build dirs. Drafted `pkg25` and aligned status docs with the already-landed Pillar 2 stabilization work and ReSTIR package sequence.
 - **2026-04-28** — PR #116 and PR #117 merged. Codex docs/local-agent scaffolding, render-output triage, refreshed deterministic spectral tests, and restored spectral black-hole GR dispatch are now on `main`. PR #119 is in review for native spectral GR disk emission; issue #114 is active for Pillar 3 ReSTIR package specs.
 - **2026-04-26** — pkg14 complete. Spectral HDRI atlas built at load time; env-miss path wired to `evalSpectral`; legacy RGB `PathTracer` plugin and `pathTrace()` kernel deleted; registry entry renamed `"path_tracer"`; `Material::evalSpectral` is now pure virtual; `Material::eval` virtual removed. **Pillar 2 is 100% complete (pkg10–pkg14).**

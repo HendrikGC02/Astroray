@@ -5,46 +5,76 @@
 #include "astroray/restir/light_sample.h"
 #include "astroray/restir/frame_state.h"
 
-// pkg22 — ReSTIR DI prototype: initial candidate generation only.
+// ReSTIR DI integrator — Bitterli et al. 2020, Algorithms 1–3.
 //
-// Implements Algorithm 1 of Bitterli et al. 2020 (initial sampling) per pixel.
-// For each shading point, numCandidates_ light samples are drawn from the scene
-// light list and fed into a Reservoir<ReSTIRCandidate> with RIS weight
-//   w_i = p_hat(x_i) / q(x_i)
-// where p_hat = spectral luminance (Y channel) and q = the light sampling PDF.
-// The selected candidate is then tested for visibility; its contribution is
-//   throughput * f_spectral * L_emission * W
-// where W = w_sum / (p_hat(y) * M) is the final RIS weight.
+// Initial sampling (pkg22, always active):
+//   Per shading point, M light candidates are drawn and fed into a
+//   Reservoir<ReSTIRCandidate> with RIS weight w_i = p_hat(x_i)/q(x_i).
 //
-// pkg23: frameState_ is declared here and resized in beginFrame. It is not yet
-// written to or read from during sampleFull; the temporal and spatial passes
-// are added in pkg24 once the validation plan in
-// .astroray_plan/docs/restir-temporal-spatial-design.md is implemented.
+// Temporal reuse (pkg24, opt-in via use_temporal=1):
+//   The previous frame's reservoir at the same pixel is merged into the
+//   current reservoir using the target function at the current shading point.
+//   Reads from frameState_.previous (stable, no races). Biased (no shadow-ray
+//   correction yet); bias magnitude is measured by the validation tests.
 //
-// No temporal reuse, spatial reuse, or CUDA kernels active yet.
-// The classic path_tracer integrator is unchanged.
+// Spatial reuse (pkg24, opt-in via use_spatial=1):
+//   N random neighbours from the previous frame's reservoir buffer are merged
+//   into the current reservoir. Reading from the previous buffer avoids races
+//   with the current frame's writes, at the cost of one-frame lag. For static
+//   scenes this is equivalent to same-frame spatial reuse.
+//
+// M-cap (Bitterli §5.2): M is capped at m_cap_ after initial sampling to
+// prevent history build-up from over-weighting past candidates.
+//
+// Thread safety: sampleFull writes to frameState_.current.at(px,py). Each
+// pixel is owned by exactly one OpenMP tile, so writes are serial per pixel.
+// Reads always target frameState_.previous, which is immutable during the frame.
+
+using namespace astroray::restir;
 
 class ReSTIRDI : public Integrator {
     int   maxDepth_;
     int   numCandidates_;
+    bool  useTemporal_;
+    bool  useSpatial_;
+    int   spatialRadius_;
+    int   spatialNeighbors_;
+    int   mCap_;
+    int   frameW_ = 0;
+    int   frameH_ = 0;
     Renderer* renderer_ = nullptr;
-    astroray::restir::FrameState frameState_;  // pkg23: history buffers, inactive until pkg24
+    FrameState frameState_;
+
+    // Recover integer pixel coords from the ray's [0,1] screen coordinates.
+    void pixelCoords(const Ray& ray, int& px, int& py) const {
+        px = std::max(0, std::min(frameW_ - 1,
+                static_cast<int>(std::round(ray.screenU * (frameW_ - 1)))));
+        py = std::max(0, std::min(frameH_ - 1,
+                static_cast<int>(std::round((1.0f - ray.screenV) * (frameH_ - 1)))));
+    }
 
 public:
     explicit ReSTIRDI(const astroray::ParamDict& p)
-        : maxDepth_(p.getInt("max_depth", 50))
-        , numCandidates_(p.getInt("num_candidates", 4)) {}
+        : maxDepth_       (p.getInt ("max_depth",         50))
+        , numCandidates_  (p.getInt ("num_candidates",     4))
+        , useTemporal_    (p.getInt ("use_temporal",       0) != 0)
+        , useSpatial_     (p.getInt ("use_spatial",        0) != 0)
+        , spatialRadius_  (p.getInt ("spatial_radius",     5))
+        , spatialNeighbors_(p.getInt("spatial_neighbors",  5))
+        , mCap_           (p.getInt ("m_cap",              0))   // 0 = auto (20×M)
+    {}
 
     void beginFrame(Renderer& r, const Camera& cam) override {
         renderer_ = &r;
-        // pkg23: resize and advance the frame-state buffers each frame so that
-        // pkg24 temporal/spatial passes can read frameState_.previous without
-        // a resize-on-demand step. Current render output is unchanged because
-        // frameState_ is not read during sampleFull yet.
         int w = cam.width;
         int h = cam.height;
         if (w > 0 && h > 0) {
-            frameState_.resize(w, h);
+            // Only resize when dimensions change; resize() clears all history.
+            if (w != frameW_ || h != frameH_) {
+                frameW_ = w;
+                frameH_ = h;
+                frameState_.resize(w, h);
+            }
             frameState_.advanceFrame();
         }
     }
@@ -56,10 +86,10 @@ public:
         const auto* bvh = renderer_->getBVH().get();
         if (!bvh) return result;
 
-        const LightList&                         lights        = renderer_->getLights();
-        const std::shared_ptr<EnvironmentMap>&   envMap        = renderer_->getEnvironmentMap();
-        const Vec3&                              bgColor       = renderer_->getBackgroundColor();
-        const int                                worldMaxB     = renderer_->getWorldMaxBounces();
+        const LightList&                       lights   = renderer_->getLights();
+        const std::shared_ptr<EnvironmentMap>& envMap   = renderer_->getEnvironmentMap();
+        const Vec3&                            bgColor  = renderer_->getBackgroundColor();
+        const int                              worldMaxB = renderer_->getWorldMaxBounces();
 
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         astroray::SampledWavelengths lambdas =
@@ -133,40 +163,104 @@ public:
 
             Vec3 wo = -pathRay.direction.normalized();
 
-            // RIS direct lighting (initial sampling).
+            // Direct lighting: RIS initial sampling + optional temporal/spatial reuse.
             if (!rec.isDelta && !lights.empty()) {
-                using astroray::restir::Reservoir;
-                using astroray::restir::ReSTIRCandidate;
-
                 Reservoir<ReSTIRCandidate> res;
+
+                // --- Initial sampling (Algorithm 1) ---
+                // Use RGB luminance (wavelength-independent) so W values are
+                // consistent across frames with different wavelength samples.
                 for (int i = 0; i < numCandidates_; ++i) {
                     LightSample ls = lights.sample(rec.point, gen);
                     if (ls.pdf <= 0.0f || !std::isfinite(ls.pdf)) continue;
                     ReSTIRCandidate cand = ReSTIRCandidate::fromLightSample(ls);
-                    float pHat = cand.targetLuminance(lambdas);
+                    float pHat = cand.targetLuminanceRGB();
                     res.update(cand, pHat / ls.pdf, gen);
                 }
 
-                if (res.w_sum > 0.0f) {
-                    float pHatY = res.y.targetLuminance(lambdas);
-                    res.finalizeWeight(pHatY);
+                // M-cap: prevent history build-up (Bitterli §5.2).
+                int effectiveMCap = (mCap_ > 0) ? mCap_ : (20 * numCandidates_);
+                res.M = std::min(res.M, effectiveMCap);
 
-                    if (res.W > 0.0f && res.y.isValid()) {
-                        Vec3 wi = (res.y.position - rec.point).normalized();
-                        HitRecord shadow;
-                        bool hitOcc = bvh->hit(
-                            Ray(rec.point, wi), 0.001f, res.y.distance - 0.001f, shadow);
-                        bool occluded = hitOcc &&
-                            !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
-                        if (!occluded) {
-                            astroray::SampledSpectrum f_spec =
-                                rec.material->evalSpectral(rec, wo, wi, lambdas);
-                            astroray::SampledSpectrum L_spec =
-                                astroray::RGBIlluminantSpectrum(
-                                    {res.y.emission.x, res.y.emission.y, res.y.emission.z}
-                                ).sample(lambdas);
-                            color += throughput * f_spec * L_spec * res.W;
+                // --- Reuse (only at primary shading point) ---
+                // Reuse reads from frameState_.previous (stable, no race conditions).
+                // The history buffer is populated from the second render call onwards.
+                if (bounce == 0 && frameW_ > 0 && frameState_.frameIndex >= 2) {
+                    int px, py;
+                    pixelCoords(ray, px, py);
+
+                    // Finalize initial reservoir so W is valid for use as merge weight.
+                    res.finalizeWeight(res.y.targetLuminanceRGB());
+
+                    // Temporal reuse (Algorithm 2, Bitterli 2020).
+                    if (useTemporal_) {
+                        if (isTemporallyValid(frameState_.previous, px, py,
+                                              rec.normal, rec.t)) {
+                            const Reservoir<ReSTIRCandidate>& prev =
+                                frameState_.previous.at(px, py);
+                            float pHatPrev = prev.y.targetLuminanceRGB();
+                            res.merge(prev, pHatPrev, gen);
+                            res.M = std::min(res.M, effectiveMCap);
                         }
+                    }
+
+                    // Spatial reuse: sample neighbours from previous frame's buffer.
+                    if (useSpatial_ && spatialNeighbors_ > 0) {
+                        SpatialNeighbor nbuf[32];
+                        int nActual = std::min(spatialNeighbors_, 32);
+                        selectSpatialNeighbors(px, py, frameW_, frameH_,
+                                               spatialRadius_, nActual, gen, nbuf);
+                        for (int ni = 0; ni < nActual; ++ni) {
+                            if (!nbuf[ni].valid) continue;
+                            int nx = nbuf[ni].x, ny = nbuf[ni].y;
+                            if (!isTemporallyValid(frameState_.previous, nx, ny,
+                                                   rec.normal, rec.t))
+                                continue;
+                            const Reservoir<ReSTIRCandidate>& nbr =
+                                frameState_.previous.at(nx, ny);
+                            float pHatNbr = nbr.y.targetLuminanceRGB();
+                            res.merge(nbr, pHatNbr, gen);
+                            res.M = std::min(res.M, effectiveMCap);
+                        }
+                    }
+                }
+
+                // Final weight computation and geometry record.
+                // Store AFTER final finalization so next frame's merge uses correct W.
+                float pHatY = res.y.targetLuminanceRGB();
+                res.finalizeWeight(pHatY);
+
+                if (bounce == 0 && frameW_ > 0) {
+                    int px, py;
+                    pixelCoords(ray, px, py);
+                    // Write geometry metadata (for next frame's validity gates).
+                    auto& hist = frameState_.current.meta(px, py);
+                    hist.normal = rec.normal;
+                    hist.depth  = rec.t;
+                    hist.valid  = true;
+                    // Store fully-finalized reservoir for next frame's temporal reuse.
+                    frameState_.current.at(px, py) = res;
+                }
+
+                if (res.W > 0.0f && res.y.isValid()) {
+                    // Recompute direction and distance from THIS shading point, not from
+                    // whichever pixel originally generated the candidate (neighbour/prev-frame).
+                    Vec3 toLight    = res.y.position - rec.point;
+                    float distLocal = toLight.length();
+                    Vec3 wi         = distLocal > 1e-6f ? toLight / distLocal : toLight.normalized();
+                    HitRecord shadow;
+                    bool hitOcc = bvh->hit(
+                        Ray(rec.point, wi), 0.001f, distLocal - 0.001f, shadow);
+                    bool occluded = hitOcc &&
+                        !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
+                    if (!occluded) {
+                        astroray::SampledSpectrum f_spec =
+                            rec.material->evalSpectral(rec, wo, wi, lambdas);
+                        astroray::SampledSpectrum L_spec =
+                            astroray::RGBIlluminantSpectrum(
+                                {res.y.emission.x, res.y.emission.y, res.y.emission.z}
+                            ).sample(lambdas);
+                        color += throughput * f_spec * L_spec * res.W;
                     }
                 }
             }

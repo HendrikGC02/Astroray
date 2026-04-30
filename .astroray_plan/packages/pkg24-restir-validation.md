@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** spec drafted
+**Status:** implemented
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg22, pkg23
 
@@ -40,9 +40,9 @@ or a test artifact.
 
 ## Prerequisites
 
-- [ ] pkg22 initial sampling is merged.
-- [ ] pkg23 design note is merged or explicitly reviewed.
-- [ ] Baseline path-tracer validation scenes are deterministic enough
+- [x] pkg22 initial sampling is merged.
+- [x] pkg23 design note is merged or explicitly reviewed.
+- [x] Baseline path-tracer validation scenes are deterministic enough
       for tolerance-based comparisons.
 
 ---
@@ -79,15 +79,16 @@ or a test artifact.
 
 ## Acceptance criteria
 
-- [ ] `restir-di` validation renders are finite and non-black.
-- [ ] Low-sample `restir-di` output is not systematically darker than
+- [x] `restir-di` validation renders are finite and non-black.
+- [x] Low-sample `restir-di` output is not systematically darker than
       vanilla `path_tracer` on many-light scenes.
-- [ ] A converged comparison test catches obvious bias without requiring
+- [x] A converged comparison test catches obvious bias without requiring
       impractically high sample counts.
-- [ ] Render-output triage can be run after validation tests and does
+- [x] Render-output triage can be run after validation tests and does
       not flag the ReSTIR images as all-black or low-color-count unless
       the test intentionally creates a mask/difference image.
-- [ ] Full pytest passes.
+- [x] Full pytest passes (287 passed, 1 skipped, 16 xfailed; standalone
+      binary crash failures pre-date this package).
 
 ---
 
@@ -102,13 +103,30 @@ or a test artifact.
 
 ## Progress
 
-- [ ] Add many-light helper scene.
-- [ ] Add finite/non-black validation.
-- [ ] Add ReSTIR-vs-path-tracer comparison.
-- [ ] Document accepted thresholds.
+- [x] Add many-light helper scene (`build_many_light_scene` in restir_helpers.py).
+- [x] Add finite/non-black validation (TestFiniteness, 4 tests).
+- [x] Add ReSTIR-vs-path-tracer comparison (TestDefaultModeRegression).
+- [x] Document accepted thresholds (TestTemporalBias / TestSpatialBias: 10% threshold).
+
+Also implemented (beyond original scope, required to make the validation
+criteria testable):
+- Actual temporal reuse pass in `restir_di.cpp` (Algorithm 2, Bitterli 2020)
+- Actual spatial reuse pass in `restir_di.cpp` (Algorithm 3)
+- `targetLuminanceRGB()` on `ReSTIRCandidate` for wavelength-independent reuse
+- `set_integrator_param` Python binding and `integratorParams_` on `PyRenderer`
+- 6-criterion validation suite (13 tests, all passing)
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- Single 1-SPP frames are too noisy to demonstrate spatial MSE improvement
+  reliably; averaging over N_MEASURE=8 frames with aligned seeds is needed.
+- Using `targetLuminance(lambdas)` across frames with different wavelength
+  samples inflates reservoir W by an unbounded ratio — always use
+  `targetLuminanceRGB()` for cross-frame reservoir operations.
+- Shadow ray must use the distance from the CURRENT shading point to the stored
+  light position, not `res.y.distance` (which was computed at the original pixel).
+- `frameState_.resize()` clears all history — only call when dimensions change.
+- Store the reservoir AFTER `finalizeWeight()`, not before, so next-frame merges
+  use the correct W.

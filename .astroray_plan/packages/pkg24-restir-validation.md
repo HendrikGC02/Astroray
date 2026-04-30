@@ -32,6 +32,7 @@ or a test artifact.
 ## Reference
 
 - Design doc: `.astroray_plan/docs/light-transport.md §Acceptance criteria`
+- Additional design doc: `.astroray_plan\docs\restir-temporal-spatial-design.md`
 - Previous packages: pkg22 initial sampling, pkg23 reuse design
 - Existing render-output triage: `scripts/render_output_triage.py`
 

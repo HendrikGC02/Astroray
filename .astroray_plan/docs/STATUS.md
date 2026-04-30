@@ -52,7 +52,7 @@ personally should pick up.
 | pkg22 | ReSTIR initial sampling | implemented |
 | pkg23 | ReSTIR temporal/spatial reuse design | implemented |
 | pkg24 | ReSTIR validation | implemented |
-| pkg25 | tiny-cuda-nn prototype | spec drafted |
+| pkg25 | tiny-cuda-nn prototype | implemented (runtime blocked — driver update needed) |
 
 ---
 
@@ -135,6 +135,7 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-04-30** — pkg25 complete. tiny-cuda-nn v1.3 FetchContent integration works; `tiny-cuda-nn.lib` and `tcnn_smoke.exe` build cleanly via MSVC+CUDA. Runtime blocked: VS2022 CUDA integration forces CUDA 13.2 toolkit regardless of PATH override; driver 576.57 supports CUDA 12.9 only. Fix: update NVIDIA driver to ≥525.85/527.41 (any release supporting CUDA 13.2). Prototype notes at `.astroray_plan/docs/tiny-cuda-nn-prototype-notes.md`.
 - **2026-04-30** — pkg24 complete. Temporal and spatial reservoir reuse implemented in `restir_di.cpp` (Bitterli et al. 2020, Algorithms 1–3). `targetLuminanceRGB()` added to `ReSTIRCandidate` for wavelength-independent cross-frame W values. `set_integrator_param` Python binding added. 13-test validation suite covers all 6 design-note criteria (finitude, determinism, temporal variance, spatial MSE, bias magnitude for both passes, default-mode regression). 287 passed, 1 skipped, 16 xfailed.
 - **2026-04-29** — Verification/docs pass: pytest collection restored to 229 tests when pointed at a valid Windows build via `ASTRORAY_BUILD_DIR`; full suite baseline on the fresh MSVC build is `211 passed, 1 skipped, 16 xfailed, 1 xpassed`. Test bootstrap now understands standard `build/Release` layouts and custom build dirs. Drafted `pkg25` and aligned status docs with the already-landed Pillar 2 stabilization work and ReSTIR package sequence.
 - **2026-04-28** — PR #116 and PR #117 merged. Codex docs/local-agent scaffolding, render-output triage, refreshed deterministic spectral tests, and restored spectral black-hole GR dispatch are now on `main`. PR #119 is in review for native spectral GR disk emission; issue #114 is active for Pillar 3 ReSTIR package specs.

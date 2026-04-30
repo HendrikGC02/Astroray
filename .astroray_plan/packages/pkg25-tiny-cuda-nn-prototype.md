@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** C
-**Status:** spec drafted
+**Status:** implemented (runtime blocked — see prototype notes)
 **Estimated effort:** 1-2 sessions (~6 h)
 **Depends on:** pkg24
 
@@ -43,10 +43,11 @@ answer is "no" or "not on this machine," that is still a useful result.
 
 ## Prerequisites
 
-- [ ] pkg20-pkg24 specs are reviewed so the ReSTIR track is not blocked on this
+- [x] pkg20-pkg24 specs are reviewed so the ReSTIR track is not blocked on this
       experiment.
-- [ ] A CUDA-capable machine is available for the prototype run.
-- [ ] The operator confirms this work should happen on a workstation intended
+- [x] A CUDA-capable machine is available for the prototype run (RTX 3000 Ada,
+      CUDA 12.9 driver, CUDA 12.9 + 13.2 toolkits installed).
+- [x] The operator confirms this work should happen on a workstation intended
       for local experiments, not on a remote or borrowed session.
 
 ---
@@ -82,14 +83,15 @@ answer is "no" or "not on this machine," that is still a useful result.
 
 ## Acceptance criteria
 
-- [ ] A prototype branch or notes document states whether tiny-cuda-nn built
-      successfully.
+- [x] A prototype branch or notes document states whether tiny-cuda-nn built
+      successfully. (Build: YES; Runtime: blocked by driver version — see notes.)
 - [ ] If build succeeds, one dummy inference call runs and returns finite
-      output.
-- [ ] No production integrator, Python binding, or Blender UI depends on the
+      output. (Blocked: NVIDIA driver 576.57 supports CUDA 12.9; binary needs
+      CUDA 13.2 driver. Unblocked once driver is updated.)
+- [x] No production integrator, Python binding, or Blender UI depends on the
       prototype target.
-- [ ] Any added build flag defaults to off.
-- [ ] The outcome is captured in docs even if the experiment is abandoned.
+- [x] Any added build flag defaults to off (`ASTRORAY_TINY_CUDA_NN=OFF`).
+- [x] The outcome is captured in docs even if the experiment is abandoned.
 
 ---
 
@@ -104,13 +106,24 @@ answer is "no" or "not on this machine," that is still a useful result.
 
 ## Progress
 
-- [ ] Decide prototype host machine.
-- [ ] Try minimal build integration.
-- [ ] Run dummy inference or capture failure mode.
-- [ ] Record outcome and next recommendation.
+- [x] Decide prototype host machine (Windows 11 workstation, RTX 3000 Ada).
+- [x] Try minimal build integration (`ASTRORAY_TINY_CUDA_NN` CMake option,
+      FetchContent v1.3, `tcnn_smoke` target).
+- [x] Run dummy inference or capture failure mode. (Build succeeds; runtime
+      blocked by CUDA 13.2 runtime vs CUDA 12.9 driver.)
+- [x] Record outcome and next recommendation (see prototype notes).
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- FetchContent does not propagate `INTERFACE_INCLUDE_DIRECTORIES` from
+  tiny-cuda-nn; consumers must add `${tiny-cuda-nn_SOURCE_DIR}/include` and
+  `${tiny-cuda-nn_SOURCE_DIR}/dependencies` explicitly.
+- The VS2022 CMake generator ignores `-DCMAKE_CUDA_COMPILER` when a CUDA VS
+  integration is installed; it always selects the integrated toolkit version
+  (13.2 on this machine). Use Ninja or NMake generator to honour the override.
+- Auto-deduction of `auto` return types (e.g., `model->forward(...)`) can fail
+  in nvcc; discarding the return value works around the issue.
+- The main blocker is not code but driver version: update NVIDIA driver from
+  576.57 to any release supporting CUDA 13.2+ to unblock runtime.

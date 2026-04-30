@@ -487,6 +487,45 @@ install(DIRECTORY data/spectra/
 # The tests directory contains Python test files (pytest.ini, tests/*.py)
 # that are automatically discovered when running `pytest tests/`.
 
+# ---------------------------------------------------------------------------
+# pkg25 — tiny-cuda-nn smoke harness (opt-in, disposable prototype)
+# Enable with -DASTRORAY_TINY_CUDA_NN=ON. Requires CUDA. No production
+# targets depend on this; it is safe to leave OFF in all other builds.
+# ---------------------------------------------------------------------------
+option(ASTRORAY_TINY_CUDA_NN "Build tiny-cuda-nn smoke harness (pkg25 prototype)" OFF)
+if(ASTRORAY_TINY_CUDA_NN)
+    if(NOT ASTRORAY_CUDA_FOUND)
+        message(WARNING "ASTRORAY_TINY_CUDA_NN=ON but CUDA not found — skipping")
+    else()
+        include(FetchContent)
+        FetchContent_Declare(
+            tiny-cuda-nn
+            GIT_REPOSITORY https://github.com/NVlabs/tiny-cuda-nn.git
+            GIT_TAG        v1.3
+            GIT_SHALLOW    TRUE
+        )
+        # Disable benchmarks and examples so only the core library is compiled.
+        set(TCNN_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+        set(TCNN_BUILD_EXAMPLES  OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(tiny-cuda-nn)
+
+        add_executable(tcnn_smoke scripts/tiny_cuda_nn_smoke.cu)
+        target_link_libraries(tcnn_smoke PRIVATE tiny-cuda-nn)
+        # FetchContent doesn't propagate tcnn's include path via INTERFACE_INCLUDE_DIRECTORIES;
+        # add them explicitly so nvcc can find <tiny-cuda-nn/common.h>.
+        target_include_directories(tcnn_smoke PRIVATE
+            ${tiny-cuda-nn_SOURCE_DIR}/include
+            ${tiny-cuda-nn_SOURCE_DIR}/dependencies
+        )
+        set_target_properties(tcnn_smoke PROPERTIES
+            CUDA_ARCHITECTURES         "89"
+            CUDA_SEPARABLE_COMPILATION ON
+            RUNTIME_OUTPUT_DIRECTORY   ${CMAKE_BINARY_DIR}/bin
+        )
+        message(STATUS "tiny-cuda-nn smoke target: tcnn_smoke")
+    endif()
+endif()
+
 # Documentation
 if(BUILD_DOCS)
     find_package(Doxygen)

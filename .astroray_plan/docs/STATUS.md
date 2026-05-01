@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-01 (pkg26 complete — NRC prototype running on RTX 5070 Ti; luminance +52% over 50 frames, all CUDA:OK)
+**Last updated:** 2026-05-01 (pkg28 complete — NRC training buffered at frame boundary; Pillar 3 package queue implemented)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -18,7 +18,7 @@ personally should pick up.
 |---|---|---|---|---|---|
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
-| 3 | Light transport | **Queued** | 0% | MIS area light sampling | ~~Pillars 1, 2~~ |
+| 3 | Light transport | **Validation** | 85% | Pillar acceptance scenes | ~~Pillars 1, 2~~ |
 | 4 | Astrophysics platform | Queued | 0% | Kerr | Pillars 1, 2 |
 | 5 | Production polish | Ongoing | — | OpenEXR output | — |
 
@@ -54,6 +54,8 @@ personally should pick up.
 | pkg24 | ReSTIR validation | implemented |
 | pkg25 | tiny-cuda-nn prototype | implemented |
 | pkg26 | NRC prototype | implemented |
+| pkg27 | NRC integrator plugin | implemented |
+| pkg28 | NRC training buffer | implemented |
 
 ---
 
@@ -64,7 +66,8 @@ personally should pick up.
 ### Track A (Claude Code)
 
 - Package in flight: —
-- pkg20–pkg25 complete. Next implementation target: `pkg26-nrc-prototype` (Track C).
+- pkg20–pkg28 complete. Next target: Pillar 3 acceptance validation
+  (ReSTIR quality/perf scenes and NRC indirect-quality timing).
 
 ### Track B (Copilot cloud)
 
@@ -114,7 +117,7 @@ personally should pick up.
 | Package | Track | Status | Blocker |
 |---|---|---|---|
 | native-gr-spectrum | E | in review | PR #119 |
-| pkg20-pkg25 package specs | E | drafted | implementation review / issue #114 |
+| pillar-3-acceptance-validation | A | queued | pkg20-pkg28 implemented |
 
 ---
 
@@ -123,6 +126,11 @@ personally should pick up.
 - `include/raytracer.h` and `include/advanced_features.h` still contain texture class bodies (`CheckerTexture`, `NoiseTexture`, etc.). These are used directly by `blender_module.cpp` and will be cleaned up in a future package if the plan calls for it.
 - ReSTIR work is now scoped at package-file level in issue #114; implementation should start at `pkg20` after review.
 - Windows verification is sensitive to stale build caches; test bootstrap now supports `ASTRORAY_BUILD_DIR` and standard `build/Release` layouts, but the old `build/` cache on this workstation still points at a missing MinGW install.
+- Transparent/glass objects still do not produce prism-style spectral
+  dispersion in the current spectral path tracer. The glass-prism rainbow render
+  needs wavelength-dependent dielectric sampling before it can become a
+  non-xfailed image/angle-spread test. Draft follow-up:
+  `pkg29-spectral-dielectric-prism.md`.
 
 ---
 
@@ -136,7 +144,20 @@ personally should pick up.
 
 Brief notes on notable events.
 
-- **2026-05-01** — pkg26 complete. `NeuralCache` (16-in/16-out FullyFusedMLP, Adam, RelativeL2) + `nrc_smoke_render` Cornell box harness both working on RTX 5070 Ti (sm_120). Two tcnn master gotchas resolved: (1) `TCNN_MIN_GPU_ARCH=120` static_assert override for sm_89 build; (2) `BATCH_SIZE_GRANULARITY=256` in master (was 128 in v1.x) — `BATCH_ALIGN` updated to 256. Luminance: 0.2841 (frame 1) → 0.4317 (frame 50), Δ+52%. See `.astroray_plan/docs/nrc-prototype-notes.md`. pkg27 next.
+- **2026-05-01** — pkg28 complete. `neural-cache` now buffers warmup training
+  samples during `sampleFull()` and performs one padded tiny-cuda-nn training
+  step in `Integrator::endFrame()`, so cache queries use the previous frame's
+  parameters while current-frame targets are collected. Added
+  `pkg28-nrc-training-buffer.md`. Default and opt-in focused tests pass; opt-in
+  tiny-cuda-nn builds require a short build path on Windows because CUTLASS docs
+  exceed path-length limits under the OneDrive repo path.
+- **2026-05-01** — pkg27 complete. Added `plugins/integrators/neural_cache.cpp`
+  and registered `neural-cache`. Default builds keep the plugin selectable via
+  a spectral path-tracer fallback; `ASTRORAY_TINY_CUDA_NN=ON` now builds a
+  reusable `astroray_neural_cache` backend from `src/neural_cache.cu` and links
+  it into production targets. Focused tests cover registry exposure and Python
+  selection.
+- **2026-05-01** — pkg26 complete. `NeuralCache` (16-in/16-out FullyFusedMLP, Adam, RelativeL2) + `nrc_smoke_render` Cornell box harness both working on RTX 5070 Ti (sm_120). Two tcnn master gotchas resolved: (1) `TCNN_MIN_GPU_ARCH=120` static_assert override for sm_89 build; (2) `BATCH_SIZE_GRANULARITY=256` in master (was 128 in v1.x) — `BATCH_ALIGN` updated to 256. Luminance: 0.2841 (frame 1) → 0.4317 (frame 50), Δ+52%. See `.astroray_plan/docs/nrc-prototype-notes.md`.
 - **2026-05-01** — pkg25 fully complete. Driver updated from 576.57 to 596.36; CUDA 13.2 runtime now supported. Switched `GIT_TAG` to master (fixes sm_89 FullyFusedMLP crash); added `set_params()` call before `forward()` (required in tcnn master). `tcnn_smoke.exe` reports `OK (non-finite: 0 / 4096 outputs)`. VS Code cmake settings updated to use VS 2022 generator with `BUILD_PYTHON_MODULE=ON`; conftest extended to check `build_tcnn/Release`. pkg26 spec drafted. See `.astroray_plan/docs/tiny-cuda-nn-prototype-notes.md` for full resolution log.
 - **2026-04-30** — pkg25 build complete; runtime initially blocked by driver version. tiny-cuda-nn master FetchContent integration works; `tiny-cuda-nn.lib` and `tcnn_smoke.exe` build cleanly via MSVC+CUDA 13.2.
 - **2026-04-30** — pkg24 complete. Temporal and spatial reservoir reuse implemented in `restir_di.cpp` (Bitterli et al. 2020, Algorithms 1–3). `targetLuminanceRGB()` added to `ReSTIRCandidate` for wavelength-independent cross-frame W values. `set_integrator_param` Python binding added. 13-test validation suite covers all 6 design-note criteria (finitude, determinism, temporal variance, spatial MSE, bias magnitude for both passes, default-mode regression). 287 passed, 1 skipped, 16 xfailed.

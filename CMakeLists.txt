@@ -488,11 +488,11 @@ install(DIRECTORY data/spectra/
 # that are automatically discovered when running `pytest tests/`.
 
 # ---------------------------------------------------------------------------
-# pkg25 — tiny-cuda-nn smoke harness (opt-in, disposable prototype)
+# pkg25-pkg27 — tiny-cuda-nn / NRC targets (opt-in)
 # Enable with -DASTRORAY_TINY_CUDA_NN=ON. Requires CUDA. No production
-# targets depend on this; it is safe to leave OFF in all other builds.
+# targets depend on tiny-cuda-nn unless this flag is explicitly enabled.
 # ---------------------------------------------------------------------------
-option(ASTRORAY_TINY_CUDA_NN "Build tiny-cuda-nn smoke harness (pkg25 prototype)" OFF)
+option(ASTRORAY_TINY_CUDA_NN "Build tiny-cuda-nn smoke harness and NRC neural backend" OFF)
 if(ASTRORAY_TINY_CUDA_NN)
     if(NOT ASTRORAY_CUDA_FOUND)
         message(WARNING "ASTRORAY_TINY_CUDA_NN=ON but CUDA not found — skipping")
@@ -508,6 +508,51 @@ if(ASTRORAY_TINY_CUDA_NN)
         set(TCNN_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
         set(TCNN_BUILD_EXAMPLES  OFF CACHE BOOL "" FORCE)
         FetchContent_MakeAvailable(tiny-cuda-nn)
+
+        # pkg27 — reusable NeuralCache backend. Production targets link this
+        # only when ASTRORAY_TINY_CUDA_NN=ON; default builds keep the
+        # neural-cache integrator registered with its path-tracer fallback.
+        add_library(astroray_neural_cache STATIC src/neural_cache.cu)
+        target_link_libraries(astroray_neural_cache PUBLIC
+            tiny-cuda-nn
+            raytracer_core
+        )
+        target_include_directories(astroray_neural_cache PUBLIC
+            ${CMAKE_SOURCE_DIR}/include
+            ${CMAKE_SOURCE_DIR}/src
+            ${tiny-cuda-nn_SOURCE_DIR}/include
+            ${tiny-cuda-nn_SOURCE_DIR}/dependencies
+        )
+        set_target_properties(astroray_neural_cache PROPERTIES
+            CUDA_ARCHITECTURES         "89"
+            CUDA_SEPARABLE_COMPILATION ON
+            CUDA_RESOLVE_DEVICE_SYMBOLS ON
+            POSITION_INDEPENDENT_CODE  ON
+            CUDA_STANDARD              17
+            CXX_STANDARD               17
+            CXX_STANDARD_REQUIRED      ON
+        )
+
+        if(TARGET astroray_plugins)
+            target_include_directories(astroray_plugins PUBLIC
+                ${CMAKE_SOURCE_DIR}/src
+                ${tiny-cuda-nn_SOURCE_DIR}/include
+                ${tiny-cuda-nn_SOURCE_DIR}/dependencies
+            )
+            target_compile_definitions(astroray_plugins PUBLIC
+                ASTRORAY_NEURAL_CACHE_ENABLED
+            )
+            target_link_libraries(astroray_plugins PUBLIC astroray_neural_cache)
+        endif()
+
+        foreach(_astroray_target IN ITEMS raytracer_standalone astroray raytracer_blender)
+            if(TARGET ${_astroray_target})
+                target_link_libraries(${_astroray_target} PRIVATE astroray_neural_cache)
+                target_compile_definitions(${_astroray_target} PRIVATE
+                    ASTRORAY_NEURAL_CACHE_ENABLED
+                )
+            endif()
+        endforeach()
 
         add_executable(tcnn_smoke scripts/tiny_cuda_nn_smoke.cu)
         target_link_libraries(tcnn_smoke PRIVATE tiny-cuda-nn)
@@ -526,14 +571,13 @@ if(ASTRORAY_TINY_CUDA_NN)
 
         # pkg26 — NRC prototype harness.
         # Renders 50 frames of a Cornell box using NeuralCache for secondary bounces.
-        # Links neural_cache.cu (compiled by nvcc) alongside the harness.
+        # Links the same NeuralCache backend promoted by pkg27.
         # No production targets (raytracer, astroray) depend on this.
         add_executable(nrc_smoke_render
             scripts/nrc_smoke_render.cu
-            src/neural_cache.cu
         )
         target_link_libraries(nrc_smoke_render PRIVATE
-            tiny-cuda-nn
+            astroray_neural_cache
             astroray_core_impl    # SampledSpectrum, Jakob-Hanika LUT (via raytracer.h)
             stb_impl              # stb_image (via raytracer.h includes)
         )

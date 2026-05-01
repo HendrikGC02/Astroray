@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** C
-**Status:** open
+**Status:** implemented
 **Estimated effort:** 2–3 sessions (~9 h)
 **Depends on:** pkg25
 
@@ -58,9 +58,9 @@ intermediate step exists because:
       and the forward pass returns finite outputs.
 - [x] NVIDIA driver ≥ 596.36 (CUDA 13.2 runtime supported) — confirmed
       after the pkg25 driver update.
-- [ ] `test_gpu_renders_match_cpu` passes (GPU render path is confirmed
+- [x] `test_gpu_renders_match_cpu` passes (GPU render path is confirmed
       working in the MSVC build).
-- [ ] Build passes on main with `BUILD_PYTHON_MODULE=ON ASTRORAY_ENABLE_CUDA=ON`.
+- [x] Build passes on main with `BUILD_PYTHON_MODULE=ON ASTRORAY_ENABLE_CUDA=ON`.
 
 ---
 
@@ -135,15 +135,15 @@ integrates with real scene data, not toy geometry.
 
 ## Acceptance criteria
 
-- [ ] `nrc_smoke_render.exe` builds with `ASTRORAY_TINY_CUDA_NN=ON` and no
+- [x] `nrc_smoke_render.exe` builds with `ASTRORAY_TINY_CUDA_NN=ON` and no
       production target (no `BUILD_PYTHON_MODULE` target) depends on it.
-- [ ] Running `nrc_smoke_render.exe` produces a PPM image that is visually
+- [x] Running `nrc_smoke_render.exe` produces a PPM image that is visually
       a recognizable Cornell box scene (no all-black or NaN output).
-- [ ] Mean pixel luminance in the output image increases (or noise
+- [x] Mean pixel luminance in the output image increases (or noise
       decreases) between frame 1 and frame 50, confirming the cache learns.
-- [ ] No CUDA memory errors (`cudaDeviceSynchronize` returns
+- [x] No CUDA memory errors (`cudaDeviceSynchronize` returns
       `cudaSuccess` after each frame).
-- [ ] `.astroray_plan/docs/nrc-prototype-notes.md` records: warmup frames
+- [x] `.astroray_plan/docs/nrc-prototype-notes.md` records: warmup frames
       needed, any NaN/divergence conditions observed, and a recommendation
       for pkg27 (proceed / redesign input features / change network size).
 
@@ -164,19 +164,22 @@ integrates with real scene data, not toy geometry.
 
 ## Progress
 
-- [ ] Write `NeuralCache` class (`src/neural_cache.h` / `.cu`) with
+- [x] Write `NeuralCache` class (`src/neural_cache.h` / `.cu`) with
       construction, `set_params`, `query()`, `train()`, and `step()`.
-- [ ] Add `nrc_smoke_render` target to `CMakeLists.txt` inside the
+- [x] Add `nrc_smoke_render` target to `CMakeLists.txt` inside the
       `ASTRORAY_TINY_CUDA_NN` guard.
-- [ ] Write `scripts/nrc_smoke_render.cu`: Cornell box scene via existing
+- [x] Write `scripts/nrc_smoke_render.cu`: Cornell box scene via existing
       `Renderer`, per-frame train/query loop, PPM write.
-- [ ] Run 50-frame render; verify no CUDA errors and image is non-black.
-- [ ] Observe and record learning curve (frame 1 vs frame 50 luminance).
-- [ ] Write `.astroray_plan/docs/nrc-prototype-notes.md`.
-- [ ] Update `STATUS.md` and pkg25 acceptance criteria.
+- [x] Run 50-frame render; verify no CUDA errors and image is non-black.
+- [x] Observe and record learning curve (frame 1 vs frame 50 luminance).
+- [x] Write `.astroray_plan/docs/nrc-prototype-notes.md`.
+- [x] Update `STATUS.md` and pkg25 acceptance criteria.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- tiny-cuda-nn master now requires 256-sample batch alignment at the public
+  `forward()` boundary; pkg27 must keep `NeuralCache::BATCH_ALIGN = 256`.
+- The 16-frame warmup is enough for a visible Cornell-box learning curve, but
+  production scheduling needs larger frame-level batches and double-buffering.

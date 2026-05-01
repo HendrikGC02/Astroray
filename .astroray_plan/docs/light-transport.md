@@ -1,6 +1,6 @@
 # Pillar 3: Light Transport Upgrades
 
-**Status:** Queued (pkg20-pkg25 specs drafted)
+**Status:** Validation (pkg20-pkg28 implemented; acceptance scenes pending)
 **Depends on:** Pillars 1, 2
 **Track:** A (ReSTIR core), C (neural cache prototype)
 **Duration:** 4–6 weeks
@@ -169,7 +169,9 @@ new interface. `pkg05-integrator-interface.md` lands as part of Pillar
 
 - `pkg27-nrc-plugin.md` — promote prototype, wire as
   `ASTRORAY_REGISTER_INTEGRATOR("neural-cache", NeuralCache)`.
-- `pkg28-nrc-training-buffer.md` — double-buffered training.
+  Implemented with a default-build fallback and an opt-in tiny-cuda-nn backend.
+- `pkg28-nrc-training-buffer.md` — double-buffered training. Implemented with
+  frame-buffered targets and one aligned `endFrame()` training step.
 
 ## Acceptance criteria
 

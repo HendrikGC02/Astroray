@@ -19,6 +19,13 @@ public:
     SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {
         SampleResult r;
         if (!renderer_) return r;
+        // Populate first-hit albedo AOV.
+        const auto* bvh = renderer_->getBVH().get();
+        if (bvh) {
+            HitRecord rec;
+            if (bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec) && rec.material)
+                r.albedo = rec.material->getAlbedo();
+        }
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         astroray::SampledWavelengths lambdas =
             astroray::SampledWavelengths::sampleUniform(dist01(gen));

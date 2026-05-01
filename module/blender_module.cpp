@@ -229,7 +229,7 @@ public:
         materials[id] = mat;
         return id;
     }
-    
+
     void addSphere(const std::vector<float>& center, float radius, int materialId,
                    const std::vector<float>& iesDirection = std::vector<float>(),
                    const std::string& iesFile = "",
@@ -244,7 +244,7 @@ public:
         sphere->setMaterialPassIndex(materialPassIndex);
         renderer.addObject(sphere);
     }
- 
+
     void addSunLight(const std::vector<float>& direction, float angularDiameter, int materialId,
                      int objectPassIndex = 0, int materialPassIndex = 0) {
         Vec3 dir(direction[0], direction[1], direction[2]);
@@ -254,7 +254,7 @@ public:
         sun->setMaterialPassIndex(materialPassIndex);
         renderer.addObject(sun);
     }
- 
+
     void addSpotLight(const std::vector<float>& center, const std::vector<float>& direction, float radius,
                      int materialId, float spotAngle, float spotSmooth, const std::string& iesFile = "",
                      int objectPassIndex = 0, int materialPassIndex = 0) {
@@ -271,7 +271,7 @@ public:
         spot->setMaterialPassIndex(materialPassIndex);
         renderer.addObject(spot);
     }
- 
+
     void addAreaLight(const std::vector<float>& center, const std::vector<float>& axisU,
                       const std::vector<float>& axisV, float sizeX, float sizeY,
                       const std::string& shape, int materialId, float spread = 1.0f,
@@ -296,7 +296,7 @@ public:
         area->setMaterialPassIndex(materialPassIndex);
         renderer.addObject(area);
     }
-    
+
     void addTriangle(const std::vector<float>& v0, const std::vector<float>& v1, const std::vector<float>& v2,
                      int materialId, const std::vector<float>& uv0 = {}, const std::vector<float>& uv1 = {},
                      const std::vector<float>& uv2 = {},
@@ -324,7 +324,7 @@ public:
         tri->setMaterialPassIndex(materialPassIndex);
         renderer.addObject(tri);
     }
-    
+
     void addMesh(const std::string& filename, int materialId, const std::vector<float>& position = {0,0,0},
                 const std::vector<float>& scale = {1,1,1}, float rotationY = 0) {
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
@@ -339,7 +339,7 @@ public:
             renderer.addObject(obj);
         }
     }
-    
+
     void addBlackHole(const std::vector<float>& position, float mass_solar,
                      float influence_radius, py::dict params) {
         double disk_outer = params.contains("disk_outer")
@@ -375,7 +375,7 @@ public:
                 Vec3(center[0], center[1], center[2]), radius * 0.98f, glow));
         }
     }
-    
+
     void setupCamera(const std::vector<float>& lookFrom, const std::vector<float>& lookAt,
                     const std::vector<float>& vup, float vfov, float aspectRatio,
                     float aperture, float focusDist, int width, int height) {
@@ -385,7 +385,7 @@ public:
             Vec3(vup[0], vup[1], vup[2]),
             vfov, aspectRatio, aperture, focusDist, width, height);
     }
-    
+
     void setAdaptiveSampling(bool enable) { useAdaptiveSampling = enable; }
 
     void setUseGPU(bool enable) {
@@ -515,7 +515,7 @@ public:
     void clearPasses() {
         renderer.clearPasses();
     }
-    
+
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true,
                               int diffuseBounces = -1, int glossyBounces = -1, int transmissionBounces = -1,
                               int volumeBounces = -1, int transparentBounces = -1) {
@@ -569,10 +569,10 @@ public:
         }
         return result;
     }
-    
+
     py::array_t<float> getAlbedoBuffer() {
         if (!camera) throw std::runtime_error("Camera not set up");
-        
+
         // Create 3D array with shape (height, width, 3)
         py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
         auto result = py::array_t<float>(shape);
@@ -588,10 +588,10 @@ public:
         }
         return result;
     }
-    
+
     py::array_t<float> getNormalBuffer() {
         if (!camera) throw std::runtime_error("Camera not set up");
-        
+
         // Create 3D array with shape (height, width, 3)
         py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
         auto result = py::array_t<float>(shape);
@@ -819,14 +819,26 @@ public:
         }
         return result;
     }
-    
+
     void setIntegratorParam(const std::string& key, int value) {
         integratorParams_.set(key, value);
     }
 
     void setIntegrator(const std::string& name) {
+        if (name == "auto" || name == "default" || name.empty()) {
+            renderer.setIntegrator(nullptr);
+            return;
+        }
         auto integrator = astroray::IntegratorRegistry::instance().create(name, integratorParams_);
         renderer.setIntegrator(integrator);
+    }
+
+    py::dict getIntegratorStats() const {
+        py::dict out;
+        for (const auto& kv : renderer.integratorDebugStats()) {
+            out[py::str(kv.first)] = kv.second;
+        }
+        return out;
     }
 
     void clear() {
@@ -926,6 +938,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("sample_texture", &PyRenderer::sampleTexture,
              "type"_a, "params"_a, "u"_a = 0.5f, "v"_a = 0.5f)
         .def("set_integrator", &PyRenderer::setIntegrator, "name"_a)
+        .def("get_integrator_stats", &PyRenderer::getIntegratorStats,
+             "Return optional diagnostic counters from the active integrator.")
         .def("set_integrator_param", &PyRenderer::setIntegratorParam,
              "key"_a, "value"_a,
              "Set an integer parameter passed to the integrator constructor.");

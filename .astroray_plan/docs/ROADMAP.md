@@ -77,7 +77,8 @@ upsampling.
 
 ReSTIR DI as drop-in for NEE+MIS direct lighting; Neural Radiance Caching
 via tiny-cuda-nn for indirect. Both as plugin integrators; classic path
-tracer remains the fallback.
+tracer remains the fallback. When accelerated transport is available, renderer
+defaults should pick it automatically and fall back without user intervention.
 
 - Design: [`light-transport.md`](light-transport.md)
 - Duration: 4–6 weeks

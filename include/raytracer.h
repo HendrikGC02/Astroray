@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <cmath>
 #include <vector>
@@ -35,38 +35,38 @@ class Integrator;
 
 struct Vec3 {
     float x, y, z;
-    
+
     Vec3() : x(0), y(0), z(0) {}
     Vec3(float v) : x(v), y(v), z(v) {}
     Vec3(float x, float y, float z) : x(x), y(y), z(z) {}
-    
+
     Vec3 operator+(const Vec3& o) const { return Vec3(x+o.x, y+o.y, z+o.z); }
     Vec3 operator-(const Vec3& o) const { return Vec3(x-o.x, y-o.y, z-o.z); }
     Vec3 operator*(float s) const { return Vec3(x*s, y*s, z*s); }
     Vec3 operator*(const Vec3& o) const { return Vec3(x*o.x, y*o.y, z*o.z); }
     Vec3 operator/(float s) const { return Vec3(x/s, y/s, z/s); }
     Vec3 operator-() const { return Vec3(-x, -y, -z); }
-    
+
     Vec3& operator+=(const Vec3& o) { x+=o.x; y+=o.y; z+=o.z; return *this; }
     Vec3& operator*=(float s) { x*=s; y*=s; z*=s; return *this; }
     Vec3& operator*=(const Vec3& o) { x*=o.x; y*=o.y; z*=o.z; return *this; }
     Vec3& operator/=(float s) { x/=s; y/=s; z/=s; return *this; }
-    
+
     float dot(const Vec3& o) const { return x*o.x + y*o.y + z*o.z; }
     Vec3 cross(const Vec3& o) const { return Vec3(y*o.z - z*o.y, z*o.x - x*o.z, x*o.y - y*o.x); }
-    
+
     float length2() const { return dot(*this); }
     float length() const { return std::sqrt(length2()); }
     Vec3 normalized() const { float len = length(); return len > 0 ? *this / len : Vec3(0); }
-    
+
     float& operator[](int i) { return (&x)[i]; }
     const float& operator[](int i) const { return (&x)[i]; }
     float maxComponent() const { return std::max({x, y, z}); }
     bool operator!=(const Vec3& o) const { return x != o.x || y != o.y || z != o.z; }
-    
+
     static Vec3 min(const Vec3& a, const Vec3& b) { return Vec3(std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)); }
     static Vec3 max(const Vec3& a, const Vec3& b) { return Vec3(std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)); }
-    
+
     static Vec3 randomCosineDirection(std::mt19937& gen) {
         std::uniform_real_distribution<float> dist(0, 1);
         float r1 = dist(gen), r2 = dist(gen);
@@ -74,7 +74,7 @@ struct Vec3 {
         float phi = 2 * M_PI * r1;
         return Vec3(std::cos(phi) * std::sqrt(r2), std::sin(phi) * std::sqrt(r2), z);
     }
-    
+
     static Vec3 randomInUnitDisk(std::mt19937& gen) {
         std::uniform_real_distribution<float> dist(-1, 1);
         Vec3 p;
@@ -422,7 +422,7 @@ struct HitRecord {
         cameraV = r.cameraV;
         cameraW = r.cameraW;
     }
-    
+
     void setFaceNormal(const Ray& r, const Vec3& outwardNormal) {
         setRayContext(r);
         frontFace = r.direction.dot(outwardNormal) < 0;
@@ -438,10 +438,10 @@ struct HitRecord {
 class AABB {
 public:
     Vec3 min, max;
-    
+
     AABB() : min(Vec3(std::numeric_limits<float>::max())), max(Vec3(std::numeric_limits<float>::lowest())) {}
     AABB(const Vec3& a, const Vec3& b) : min(a), max(b) {}
-    
+
     bool hit(const Ray& r, float tMin, float tMax) const {
         for (int a = 0; a < 3; a++) {
             float invD = 1.0f / r.direction[a];
@@ -454,7 +454,7 @@ public:
         }
         return true;
     }
-    
+
     AABB merge(const AABB& box) const { return AABB(Vec3::min(min, box.min), Vec3::max(max, box.max)); }
     float area() const { Vec3 d = max - min; return 2 * (d.x * d.y + d.y * d.z + d.z * d.x); }
     int maxExtent() const { Vec3 d = max - min; return (d.x > d.y && d.x > d.z) ? 0 : (d.y > d.z ? 1 : 2); }
@@ -903,13 +903,13 @@ struct LinearBVHNode {
 class BVHAccel : public Hittable {
     std::vector<std::shared_ptr<Hittable>> primitives;
     std::vector<LinearBVHNode> nodes;
-    
+
     struct BVHBuildNode {
         AABB bounds;
         BVHBuildNode* children[2] = {nullptr, nullptr};
         int splitAxis, firstPrimOffset, nPrimitives;
     };
-    
+
     BVHBuildNode* build(std::vector<BVHPrimitiveInfo>& info, int start, int end, size_t* total, std::vector<std::shared_ptr<Hittable>>& ord) {
         BVHBuildNode* node = new BVHBuildNode;
         (*total)++;
@@ -961,7 +961,7 @@ class BVHAccel : public Hittable {
         node->children[1] = build(info, mid, end, total, ord);
         return node;
     }
-    
+
     int flatten(BVHBuildNode* node, int* off) {
         LinearBVHNode& ln = nodes[*off]; ln.bounds = node->bounds; int my = (*off)++;
         if (node->nPrimitives > 0) { ln.primitivesOffset = node->firstPrimOffset; ln.nPrimitives = node->nPrimitives; }
@@ -969,7 +969,7 @@ class BVHAccel : public Hittable {
         delete node;
         return my;
     }
-    
+
 public:
     BVHAccel(const std::vector<std::shared_ptr<Hittable>>& p) : primitives(p) {
         if (primitives.empty()) return;
@@ -983,7 +983,7 @@ public:
         int off = 0;
         flatten(root, &off);
     }
-    
+
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         if (nodes.empty()) return false;
         bool h = false;
@@ -1008,7 +1008,7 @@ public:
         }
         return h;
     }
-    
+
     bool boundingBox(AABB& box) const override { if (!nodes.empty()) box = nodes[0].bounds; return !nodes.empty(); }
 
     // Accessors for scene_upload.cu â€” read the flat BVH and ordered primitive list
@@ -1035,7 +1035,7 @@ public:
         totalPower += power;
         powerDist.push_back(totalPower);
     }
-    
+
     LightSample sample(const Vec3& pt, std::mt19937& gen) const {
         if (lights.empty()) return LightSample{Vec3(0), Vec3(0), Vec3(0), 0, 0};
         std::uniform_real_distribution<float> dist(0, 1);
@@ -1056,7 +1056,7 @@ public:
         }
         return s;
     }
-    
+
     float pdfValue(const Vec3& pt, const Vec3& dir) const {
         if (lights.empty()) return 0;
         float pdf = 0;
@@ -1066,7 +1066,7 @@ public:
         }
         return pdf;
     }
-    
+
     bool empty() const { return lights.empty(); }
 
     // Accessors for scene_upload.cu
@@ -1081,7 +1081,7 @@ class EnvironmentMap {
     float strength = 1.0f;       // radiance multiplier
     float rotation = 0.0f;       // horizontal rotation in radians
     bool applyBlenderXRotation = false;
-    
+
     // CDF data for importance sampling
     std::vector<float> conditionalCdf;  // size: width * height (CDF per row)
     std::vector<float> conditionalFunc; // size: width * height (un-normalized PDF per row)
@@ -1100,7 +1100,7 @@ public:
             printf("Failed to load environment map: %s\n", path.c_str());
             return false;
         }
-        
+
         data.resize(static_cast<size_t>(width) * height * 3);
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
@@ -1111,7 +1111,7 @@ public:
                 data[dstIdx + 2] = rawData[srcIdx + 2];
             }
         }
-        
+
         stbi_image_free(rawData);
         strength = str;
         rotation = rot;
@@ -1124,7 +1124,7 @@ public:
             spectralAtlas_.emplace_back(std::array<float,3>{data[3*i], data[3*i+1], data[3*i+2]});
         return true;
     }
-    
+
     Vec3 lookup(const Vec3& direction) const {
         if (width == 0 || height == 0) return Vec3(0);
 
@@ -1132,7 +1132,7 @@ public:
         if (applyBlenderXRotation) {
             mappedDir = Vec3(direction.x, direction.z, -direction.y);
         }
-        
+
         // Convert direction to equirectangular (u, v) coordinates:
         float theta = std::acos(std::clamp(mappedDir.y, -1.0f, 1.0f)); // polar, 0=up
         float phi = std::atan2(mappedDir.z, mappedDir.x);                // azimuthal
@@ -1143,44 +1143,44 @@ public:
         // Wrap u to [0,1] range
         if (u < 0) u += 1.0f;
         if (u >= 1.0f) u -= 1.0f;
-        
+
         // Convert to pixel coordinates
         float uPixel = u * width;
         float vPixel = v * height;
-        
+
         // Get integer coordinates
         int x0 = static_cast<int>(uPixel);
         int x1 = x0 + 1;
         int y0 = static_cast<int>(vPixel);
         int y1 = y0 + 1;
-        
+
         // Clamp coordinates
         x0 = std::max(0, std::min(width - 1, x0));
         x1 = std::max(0, std::min(width - 1, x1));
         y0 = std::max(0, std::min(height - 1, y0));
         y1 = std::max(0, std::min(height - 1, y1));
-        
+
         // Calculate fractional parts
         float uFract = uPixel - x0;
         float vFract = vPixel - y0;
-        
+
         // Get pixel colors
         auto getPixel = [&](int x, int y) -> Vec3 {
             return Vec3(data[(y * width + x) * 3 + 0],
                        data[(y * width + x) * 3 + 1],
                        data[(y * width + x) * 3 + 2]);
         };
-        
+
         Vec3 c00 = getPixel(x0, y0);
         Vec3 c10 = getPixel(x1, y0);
         Vec3 c01 = getPixel(x0, y1);
         Vec3 c11 = getPixel(x1, y1);
-        
+
         // Bilinear interpolation
         Vec3 c0 = c00 * (1 - uFract) + c10 * uFract;
         Vec3 c1 = c01 * (1 - uFract) + c11 * uFract;
         Vec3 color = c0 * (1 - vFract) + c1 * vFract;
-        
+
         return color * strength;
     }
 
@@ -1225,20 +1225,20 @@ public:
 private:
     void buildCdf() {
         if (width == 0 || height == 0) return;
-        
+
         // Resize CDF arrays
         conditionalFunc.resize(width * height);
         conditionalCdf.resize(width * height);
         marginalFunc.resize(height);
         marginalCdf.resize(height);
-        
+
         // Step 1: Compute un-normalized PDF for each pixel
         // and marginal function (row totals)
         totalPower = 0.0f;
         for (int v = 0; v < height; ++v) {
             float sinTheta = std::sin(M_PI * (v + 0.5f) / height);
             float rowTotal = 0.0f;
-            
+
             for (int u = 0; u < width; ++u) {
                 int idx = v * width + u;
                 Vec3 pixel(data[idx * 3 + 0], data[idx * 3 + 1], data[idx * 3 + 2]);
@@ -1249,12 +1249,12 @@ private:
             marginalFunc[v] = rowTotal;
             totalPower += rowTotal;
         }
-        
+
         // Step 2: Build conditional CDFs for each row
         for (int v = 0; v < height; ++v) {
             float rowTotal = marginalFunc[v];
             if (rowTotal <= 0) continue;
-            
+
             float cumulative = 0.0f;
             for (int u = 0; u < width; ++u) {
                 int idx = v * width + u;
@@ -1262,7 +1262,7 @@ private:
                 conditionalCdf[idx] = cumulative / rowTotal;  // Normalize
             }
         }
-        
+
         // Step 3: Build marginal CDF
         float cumulative = 0.0f;
         for (int v = 0; v < height; ++v) {
@@ -1270,7 +1270,7 @@ private:
             marginalCdf[v] = cumulative / totalPower;  // Normalize
         }
     }
-    
+
 public:
     struct EnvSample {
         Vec3 direction;
@@ -1282,12 +1282,12 @@ public:
         if (width == 0 || height == 0 || totalPower <= 0) {
             return {Vec3(0, 1, 0), Vec3(0), 0.0f};
         }
-        
+
         // Draw uniform random numbers
         std::uniform_real_distribution<float> dist(0, 1);
         float xi1 = dist(gen);
         float xi2 = dist(gen);
-        
+
         // Binary search in marginal CDF to find row
         int v = 0;
         if (marginalCdf.size() > 0) {
@@ -1295,7 +1295,7 @@ public:
             v = std::distance(marginalCdf.begin(), it);
             if (v >= height) v = height - 1;
         }
-        
+
         // Binary search in conditional CDF to find column
         int u = 0;
         if (conditionalCdf.size() > 0) {
@@ -1305,40 +1305,40 @@ public:
             u = std::distance(conditionalCdf.begin() + start, it);
             if (u >= width) u = width - 1;
         }
-        
+
         // Convert u, v to continuous coordinates for interpolation
         float uCont = u + 0.5f;
         float vCont = v + 0.5f;
-        
+
         // Convert (u_cont, v_cont) to direction (v is flipped: row 0 = nadir)
         float theta = (1.0f - vCont / height) * M_PI;  // [0, pi]
         float phi = (uCont - 0.5f) * 2.0f * M_PI - rotation;  // [0, 2pi] offset by rotation
-        
-        Vec3 dir(std::sin(theta) * std::cos(phi), 
-                 std::cos(theta), 
+
+        Vec3 dir(std::sin(theta) * std::cos(phi),
+                 std::cos(theta),
                  std::sin(theta) * std::sin(phi));
         if (applyBlenderXRotation) {
             dir = Vec3(dir.x, -dir.z, dir.y);
         }
-        
+
         // Compute PDF in solid angle measure
         float sinTheta = std::sin(theta);
         if (sinTheta < 1e-6f) sinTheta = 1e-6f;
-        
+
         // Find the PDF value for the pixel
         int pixelIdx = v * width + u;
         float funcValue = conditionalFunc[pixelIdx];
         float mapPdf = funcValue * width * height / (totalPower + 1e-10f);
         float solidAnglePdf = mapPdf / (2.0f * M_PI * M_PI * sinTheta);
-        
+
         // Look up radiance
         Vec3 radiance = Vec3(data[pixelIdx * 3 + 0],
                             data[pixelIdx * 3 + 1],
                             data[pixelIdx * 3 + 2]);
-        
+
         return {dir, radiance * strength, solidAnglePdf};
     }
-    
+
     float pdf(const Vec3& direction) const {
         if (width == 0 || height == 0 || totalPower <= 0) return 0.0f;
 
@@ -1346,40 +1346,40 @@ public:
         if (applyBlenderXRotation) {
             mappedDir = Vec3(direction.x, direction.z, -direction.y);
         }
-        
+
         // Convert direction to equirectangular coordinates
         float theta = std::acos(std::clamp(mappedDir.y, -1.0f, 1.0f));
         float phi = std::atan2(mappedDir.z, mappedDir.x);
         phi += rotation;  // apply horizontal rotation
-        
+
         // Convert to u, v coordinates [0, 1]
         float u = 0.5f + phi / (2.0f * M_PI);
         float v = 1.0f - theta / M_PI;  // flipped to match lookup() convention
-        
+
         // Wrap u
         if (u < 0) u += 1.0f;
         if (u >= 1.0f) u -= 1.0f;
-        
+
         // Convert to pixel coordinates
         float uPixel = u * width;
         float vPixel = v * height;
-        
+
         // Get integer coordinates
         int x = static_cast<int>(uPixel);
         int y = static_cast<int>(vPixel);
-        
+
         // Clamp coordinates
         x = std::max(0, std::min(width - 1, x));
         y = std::max(0, std::min(height - 1, y));
-        
+
         // Get PDF value for the pixel
         int pixelIdx = y * width + x;
         float funcValue = conditionalFunc[pixelIdx];
-        
+
         // Compute PDF in solid angle measure
         float sinTheta = std::sin(theta);
         if (sinTheta < 1e-6f) sinTheta = 1e-6f;
-        
+
         float pdfUV = funcValue * width * height / (totalPower + 1e-10f);
         float solidAnglePdf = pdfUV / (2.0f * M_PI * M_PI * sinTheta);
 
@@ -1473,7 +1473,7 @@ public:
             passBuffer.resize(width * height, Vec3(0));
         }
     }
-    
+
     Ray getRay(float s, float t, std::mt19937& gen) const {
         Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
         Vec3 offset = u * rd.x + v * rd.y;
@@ -1570,11 +1570,12 @@ class Renderer {
             std::exp(-std::max(0.0f, sigmaT.z) * d)
         );
     }
-    
+
 public:
-    // Definition deferred to below the integrator.h include â€” it reads
-    // the integrator's kind() virtual and that needs Integrator's full type.
+    // Definitions deferred until Integrator is fully defined below.
     void setIntegrator(std::shared_ptr<Integrator> i);
+    void ensureDefaultIntegrator();
+    std::unordered_map<std::string, float> integratorDebugStats() const;
     void addPass(std::shared_ptr<Pass> p)  { passes_.push_back(std::move(p)); }
     void clearPasses()                      { passes_.clear(); }
 
@@ -1604,7 +1605,7 @@ public:
         worldVolumeAnisotropy = std::clamp(anisotropy, -0.99f, 0.99f);
         hasWorldVolume = worldVolumeDensity > 0.0f;
     }
-    
+
     void clear() {
         scene.clear(); bvh.reset(); lights = LightList();
         envMap.reset();
@@ -1881,7 +1882,7 @@ public:
         scene.push_back(obj);
         if (obj->isLight()) lights.add(obj);
     }
-    
+
     void buildAcceleration() { bvh = std::make_shared<BVHAccel>(scene); }
 
     // Accessors for CUDARenderer (scene_upload.cu reads these to upload scene to GPU)
@@ -1917,6 +1918,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             int maxVolumeBounces, int maxTransparentBounces) {
         (void)maxDiffuseBounces; (void)maxGlossyBounces; (void)maxTransmissionBounces;
         (void)maxVolumeBounces; (void)maxTransparentBounces;
+        ensureDefaultIntegrator();
         buildAcceleration();
         if (integrator_) integrator_->beginFrame(*this, cam);
         std::atomic<int> tilesCompleted{0};
@@ -2082,3 +2084,6 @@ inline void Renderer::setIntegrator(std::shared_ptr<Integrator> i) {
     integrator_ = std::move(i);
 }
 
+inline std::unordered_map<std::string, float> Renderer::integratorDebugStats() const {
+    return integrator_ ? integrator_->debugStats() : std::unordered_map<std::string, float>{};
+}

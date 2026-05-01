@@ -1,6 +1,6 @@
 # Pillar 3: Light Transport Upgrades
 
-**Status:** Validation (pkg20-pkg28 implemented; acceptance scenes pending)
+**Status:** Validation (pkg20-pkg27b implemented; pkg28 tuning pending)
 **Depends on:** Pillars 1, 2
 **Track:** A (ReSTIR core), C (neural cache prototype)
 **Duration:** 4–6 weeks
@@ -170,8 +170,15 @@ new interface. `pkg05-integrator-interface.md` lands as part of Pillar
 - `pkg27-nrc-plugin.md` — promote prototype, wire as
   `ASTRORAY_REGISTER_INTEGRATOR("neural-cache", NeuralCache)`.
   Implemented with a default-build fallback and an opt-in tiny-cuda-nn backend.
-- `pkg28-nrc-training-buffer.md` — double-buffered training. Implemented with
-  frame-buffered targets and one aligned `endFrame()` training step.
+- `pkg27a-nrc-training-observability.md` — diagnostic counters and Python
+  coverage for fallback, queued training samples, padded frame-level training,
+  and cache queries.
+- `pkg27b-nrc-indirect-validation.md` — validation gate for NRC indirect-scene
+  quality/timing and benchmark chart generation. Implemented; first data shows
+  training works but the backend is not yet performance-positive.
+- `pkg28-nrc-training-buffer.md` — double-buffered training. Implementation is
+  present with frame-buffered targets and one aligned `endFrame()` training
+  step; package closure is waiting on performance-positive tuning.
 
 ## Acceptance criteria
 

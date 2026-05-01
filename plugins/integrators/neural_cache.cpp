@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -81,6 +82,14 @@ class NeuralCacheIntegrator : public Integrator {
     Renderer* renderer_ = nullptr;
     std::mutex cacheMutex_;
     std::mutex trainingMutex_;
+    std::atomic<int> lastQueuedSamples_{0};
+    std::atomic<int> lastTrainedSamples_{0};
+    std::atomic<int> lastPaddedTrainSamples_{0};
+    std::atomic<int> lastCacheQueries_{0};
+    std::atomic<int> lastFallbackSamples_{0};
+    std::atomic<int> totalQueuedSamples_{0};
+    std::atomic<int> totalTrainedSamples_{0};
+    std::atomic<int> totalTrainSteps_{0};
 
 #if defined(ASTRORAY_NEURAL_CACHE_ENABLED)
     std::unique_ptr<NeuralCache> cache_;
@@ -180,6 +189,7 @@ class NeuralCacheIntegrator : public Integrator {
         }
         std::vector<float> input = paddedFeatureBatch(feat);
         std::vector<Vec3> out = cache_->query(NeuralCache::BATCH_ALIGN, input);
+        lastCacheQueries_.fetch_add(1, std::memory_order_relaxed);
         return out.empty() ? Vec3(0.0f) : clampRadiance(out[0], 5.0f);
 #else
         (void)feat;
@@ -202,6 +212,8 @@ class NeuralCacheIntegrator : public Integrator {
         pendingTrainTargets_.push_back(clamped.x);
         pendingTrainTargets_.push_back(clamped.y);
         pendingTrainTargets_.push_back(clamped.z);
+        lastQueuedSamples_.fetch_add(1, std::memory_order_relaxed);
+        totalQueuedSamples_.fetch_add(1, std::memory_order_relaxed);
 #else
         (void)feat;
         (void)targetRGB;
@@ -230,6 +242,10 @@ class NeuralCacheIntegrator : public Integrator {
         std::lock_guard<std::mutex> lock(cacheMutex_);
         if (backendReady()) {
             cache_->trainStep(nPadded, features, targets);
+            lastTrainedSamples_.store(static_cast<int>(n), std::memory_order_relaxed);
+            lastPaddedTrainSamples_.store(static_cast<int>(nPadded), std::memory_order_relaxed);
+            totalTrainedSamples_.fetch_add(static_cast<int>(n), std::memory_order_relaxed);
+            totalTrainSteps_.fetch_add(1, std::memory_order_relaxed);
         }
 #endif
     }
@@ -253,6 +269,11 @@ public:
     void beginFrame(Renderer& r, const Camera&) override {
         renderer_ = &r;
         ++frameIndex_;
+        lastQueuedSamples_.store(0, std::memory_order_relaxed);
+        lastTrainedSamples_.store(0, std::memory_order_relaxed);
+        lastPaddedTrainSamples_.store(0, std::memory_order_relaxed);
+        lastCacheQueries_.store(0, std::memory_order_relaxed);
+        lastFallbackSamples_.store(0, std::memory_order_relaxed);
 #if defined(ASTRORAY_NEURAL_CACHE_ENABLED)
         std::lock_guard<std::mutex> lock(trainingMutex_);
         pendingTrainFeatures_.clear();
@@ -262,6 +283,31 @@ public:
 
     void endFrame() override {
         trainBufferedFrame();
+    }
+
+    std::unordered_map<std::string, float> debugStats() const override {
+        return {
+            {"buffered_training", 1.0f},
+#if defined(ASTRORAY_NEURAL_CACHE_ENABLED)
+            {"backend_compiled", 1.0f},
+#else
+            {"backend_compiled", 0.0f},
+#endif
+            {"force_fallback", forceFallback_ ? 1.0f : 0.0f},
+            {"frame_index", static_cast<float>(frameIndex_)},
+            {"warmup_frames", static_cast<float>(warmupFrames_)},
+            {"training_pct", static_cast<float>(trainingPct_)},
+            {"min_train_batch", static_cast<float>(minTrainBatch_)},
+            {"max_train_samples", static_cast<float>(maxTrainSamples_)},
+            {"last_queued_samples", static_cast<float>(lastQueuedSamples_.load(std::memory_order_relaxed))},
+            {"last_trained_samples", static_cast<float>(lastTrainedSamples_.load(std::memory_order_relaxed))},
+            {"last_padded_train_samples", static_cast<float>(lastPaddedTrainSamples_.load(std::memory_order_relaxed))},
+            {"last_cache_queries", static_cast<float>(lastCacheQueries_.load(std::memory_order_relaxed))},
+            {"last_fallback_samples", static_cast<float>(lastFallbackSamples_.load(std::memory_order_relaxed))},
+            {"total_queued_samples", static_cast<float>(totalQueuedSamples_.load(std::memory_order_relaxed))},
+            {"total_trained_samples", static_cast<float>(totalTrainedSamples_.load(std::memory_order_relaxed))},
+            {"total_train_steps", static_cast<float>(totalTrainSteps_.load(std::memory_order_relaxed))}
+        };
     }
 
     SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {
@@ -275,6 +321,7 @@ public:
             astroray::SampledWavelengths::sampleUniform(dist01(gen));
 
         if (forceFallback_ || !backendAvailable()) {
+            lastFallbackSamples_.fetch_add(1, std::memory_order_relaxed);
             astroray::XYZ xyz = fullReference(ray, lambdas, gen).toXYZ(lambdas);
             result.color = Vec3(xyz.X, xyz.Y, xyz.Z);
             return result;

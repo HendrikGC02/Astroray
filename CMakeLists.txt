@@ -95,7 +95,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         # Minimum SIMD requirements
         add_compile_options(-msse4.1 -mavx2)
     endif()
-    
+
     # Fast math (trades precision for speed)
     # -fno-finite-math-only is added unconditionally so that std::isfinite / isnan
     # remain correct even when fast-math is enabled. Without it, -ffinite-math-only
@@ -106,7 +106,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(-ffast-math)
     endif()
     add_compile_options(-fno-finite-math-only)
-    
+
     # OpenMP for parallel rendering (suppressed for the Blender .pyd build —
     # libgomp deadlocks inside Blender's host Python on Windows/MinGW)
     if(NOT ASTRORAY_DISABLE_OPENMP)
@@ -118,7 +118,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         message(STATUS "OpenMP disabled via ASTRORAY_DISABLE_OPENMP=ON")
         set(OpenMP_CXX_FOUND FALSE)
     endif()
-    
+
 elseif(MSVC)
     # Only apply MSVC flags to C/CXX — nvcc rejects bare /flag syntax
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/W4>)
@@ -196,7 +196,10 @@ set_target_properties(stb_impl PROPERTIES
 # points the Jakob-Hanika LUT loader at data/ in the source tree for
 # in-tree test runs; installed builds override via an env var.
 # ---------------------------------------------------------------------------
-add_library(astroray_core_impl STATIC src/spectrum.cpp)
+add_library(astroray_core_impl STATIC
+    src/spectrum.cpp
+    src/default_integrator.cpp
+)
 target_include_directories(astroray_core_impl
     PUBLIC  ${INCLUDE_DIR}
     PRIVATE ${CMAKE_SOURCE_DIR})
@@ -318,7 +321,7 @@ if(BUILD_PYTHON_MODULE)
         )
         FetchContent_MakeAvailable(pybind11)
     endif()
-    
+
     # Python module for Jupyter notebooks
     pybind11_add_module(astroray
         module/blender_module.cpp
@@ -405,19 +408,19 @@ if(BUILD_BLENDER_MODULE)
         )
         FetchContent_MakeAvailable(pybind11)
     endif()
-    
+
     # Python module
-    pybind11_add_module(raytracer_blender 
+    pybind11_add_module(raytracer_blender
         module/blender_module.cpp
         ${HEADERS}
     )
-    
+
     target_link_libraries(raytracer_blender PRIVATE
         raytracer_core
         astroray_core_impl
         stb_impl
     )
-    
+
     if(OpenMP_CXX_FOUND)
         target_link_libraries(raytracer_blender PRIVATE OpenMP::OpenMP_CXX)
     endif()
@@ -426,19 +429,19 @@ if(BUILD_BLENDER_MODULE)
         target_link_libraries(raytracer_blender PRIVATE ${ASTRORAY_OIDN_TARGET})
         target_compile_definitions(raytracer_blender PRIVATE ASTRORAY_OIDN_ENABLED)
     endif()
-    
+
     # Set properties for Python module
     set_target_properties(raytracer_blender PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/blender_addon
     )
-    
+
     # Copy Python files to addon directory
     configure_file(
         ${CMAKE_CURRENT_SOURCE_DIR}/blender_addon/__init__.py
         ${CMAKE_BINARY_DIR}/blender_addon/__init__.py
         COPYONLY
     )
-    
+
     # Installation for Blender 5.1 extensions directory.
     # Blender 5.x uses `extensions/user_default/` instead of `scripts/addons/`
     # for manifest-based extensions (blender_manifest.toml).

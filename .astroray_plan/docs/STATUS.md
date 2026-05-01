@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-01 (pkg28 complete — NRC training buffered at frame boundary; Pillar 3 package queue implemented)
+**Last updated:** 2026-05-01 (pkg27b benchmark graphs complete; optimized auto default enabled, pkg28 tuning remains)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -18,7 +18,7 @@ personally should pick up.
 |---|---|---|---|---|---|
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
-| 3 | Light transport | **Validation** | 85% | Pillar acceptance scenes | ~~Pillars 1, 2~~ |
+| 3 | Light transport | **Validation** | 82% | pkg28 NRC performance-positive tuning | ~~Pillars 1, 2~~ |
 | 4 | Astrophysics platform | Queued | 0% | Kerr | Pillars 1, 2 |
 | 5 | Production polish | Ongoing | — | OpenEXR output | — |
 
@@ -55,7 +55,9 @@ personally should pick up.
 | pkg25 | tiny-cuda-nn prototype | implemented |
 | pkg26 | NRC prototype | implemented |
 | pkg27 | NRC integrator plugin | implemented |
-| pkg28 | NRC training buffer | implemented |
+| pkg27a | NRC training observability | implemented |
+| pkg27b | NRC indirect validation + graphs | implemented |
+| pkg28 | NRC training buffer | validation |
 
 ---
 
@@ -65,9 +67,10 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Package in flight: —
-- pkg20–pkg28 complete. Next target: Pillar 3 acceptance validation
-  (ReSTIR quality/perf scenes and NRC indirect-quality timing).
+- Package in flight: pkg28 — NRC training-buffer validation/tuning.
+- `Auto (Best Available)` now selects `neural-cache` by default; default builds
+  and unavailable backends fall back to the spectral path tracer. Benchmark
+  charts live in `test_results/light_transport_benchmark/`.
 
 ### Track B (Copilot cloud)
 
@@ -117,7 +120,7 @@ personally should pick up.
 | Package | Track | Status | Blocker |
 |---|---|---|---|
 | native-gr-spectrum | E | in review | PR #119 |
-| pillar-3-acceptance-validation | A | queued | pkg20-pkg28 implemented |
+| pkg28-nrc-training-buffer | A | validation | performance-positive NRC target not met yet |
 
 ---
 
@@ -144,13 +147,24 @@ personally should pick up.
 
 Brief notes on notable events.
 
-- **2026-05-01** — pkg28 complete. `neural-cache` now buffers warmup training
-  samples during `sampleFull()` and performs one padded tiny-cuda-nn training
-  step in `Integrator::endFrame()`, so cache queries use the previous frame's
-  parameters while current-frame targets are collected. Added
-  `pkg28-nrc-training-buffer.md`. Default and opt-in focused tests pass; opt-in
-  tiny-cuda-nn builds require a short build path on Windows because CUTLASS docs
-  exceed path-length limits under the OneDrive repo path.
+- **2026-05-01** — pkg27b complete. Added
+  `scripts/benchmark_light_transport.py`,
+  `tests/scenes/neural_cache_indirect.py`, and
+  `tests/test_neural_cache_validation.py`. The benchmark writes JSON/CSV stats
+  and PNG charts comparing path tracer, auto default, NRC fallback, and NRC
+  backend. `Renderer::render()` now auto-selects `neural-cache` when no
+  integrator is set; Blender exposes `Auto (Best Available)` first. The first
+  32x32 opt-in benchmark proves training/finiteness but not speedup:
+  `neural_cache_backend` was 0.86x path-tracer speed and `auto_default` was
+  dominated by first-use training/init overhead on the tiny scene, so pkg28
+  remains in validation for performance tuning.
+- **2026-05-01** — pkg28 split into explicit completion gates. Added
+  `pkg27a-nrc-training-observability.md` and
+  `pkg27b-nrc-indirect-validation.md`; pkg27a is complete with
+  `get_integrator_stats()` and NRC queue/train/fallback counters. The existing
+  pkg28 implementation still buffers warmup training samples during
+  `sampleFull()` and performs one padded tiny-cuda-nn training step in
+  `Integrator::endFrame()`; pkg27b now owns the indirect-scene validation data.
 - **2026-05-01** — pkg27 complete. Added `plugins/integrators/neural_cache.cpp`
   and registered `neural-cache`. Default builds keep the plugin selectable via
   a spectral path-tracer fallback; `ASTRORAY_TINY_CUDA_NN=ON` now builds a

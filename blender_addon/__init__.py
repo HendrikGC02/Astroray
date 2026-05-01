@@ -41,8 +41,10 @@ except ImportError as e:
 
 def _integrator_type_items(self, context):
     if RAYTRACER_AVAILABLE:
-        return [(n, n.replace('_', ' ').title(), '') for n in astroray.integrator_registry_names()]
-    return [('path', 'Path', '')]
+        items = [('auto', 'Auto (Best Available)', 'Use accelerated integrators when available, otherwise fall back')]
+        items.extend((n, n.replace('_', ' ').title(), '') for n in astroray.integrator_registry_names())
+        return items
+    return [('auto', 'Auto (Best Available)', '')]
 
 
 class CustomRaytracerRenderSettings(PropertyGroup):
@@ -200,7 +202,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         width = int(scene.render.resolution_x * scale)
         height = int(scene.render.resolution_y * scale)
         settings = scene.custom_raytracer
-        
+
         print(f"Rendering {width}x{height}, {settings.samples} samples")
         renderer = None
         try:
@@ -231,7 +233,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 settings.transparent_bounces
             )
             print(f"Render completed in {time.time() - start_time:.2f}s")
-            
+
             if pixels is not None:
                 alpha = None
                 try:
@@ -405,7 +407,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         self.convert_objects(depsgraph, renderer, material_map)
         self.convert_lights(depsgraph, renderer)
         self.setup_world(scene, renderer)
-    
+
     def setup_camera(self, scene, renderer, width, height):
         cam_obj = scene.camera
         if not cam_obj: return
@@ -470,7 +472,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.setup_camera(look_from, look_at, vup, vfov,
                               width / max(1, height),
                               aperture, focus_dist, width, height)
-    
+
     def convert_materials(self, depsgraph, renderer):
         # In Blender 5.0+ every material is node-based (use_nodes is deprecated
         # and always True), so we always go through the node tree conversion.
@@ -1471,7 +1473,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                             lambert_params)
 
         return renderer.create_material('disney', base_color, params)
-    
+
     def convert_objects(self, depsgraph, renderer, material_map):
         tri_count = 0
         obj_count = 0
@@ -1643,7 +1645,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             position = list(matrix.translation)
             mat_id = renderer.create_material('light', list(light.color), {'intensity': float(light.energy)})
             ies_path = _resolve_ies_path(light)
-             
+
             if light.type == 'POINT':
                 direction = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))
                 if direction.length_squared > 0.0:
@@ -1696,7 +1698,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     int(getattr(obj, "pass_index", 0)),
                     0,
                 )
-    
+
     def setup_world(self, scene, renderer):
         world = scene.world
         if not world:
@@ -1763,7 +1765,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             scaled_color = [c * strength for c in bg_color]
             renderer.set_background_color(scaled_color)
             print(f"Set background color: {scaled_color}")
-    
+
     def write_pixels(self, pixels, width, height, alpha=None, renderer=None, view_layer=None, scene=None, layer_name=None):
         # The raytracer returns pixels with y=0 at the TOP of the image (standard
         # image convention). Blender's render_pass.rect expects y=0 at the BOTTOM,
@@ -2037,7 +2039,7 @@ class MATERIAL_PT_custom_raytracer_surface(AstrorayPanelBase, Panel):
 class CustomRaytracerPreferences(AddonPreferences):
     bl_idname = __name__
     debug_mode: BoolProperty(name="Debug Mode", default=False)
-    
+
     def draw(self, context):
         layout = self.layout
         if RAYTRACER_AVAILABLE:

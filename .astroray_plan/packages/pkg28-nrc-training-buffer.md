@@ -1,10 +1,10 @@
 # pkg28 — NRC Training Buffer
 
-**Pillar:** 3  
-**Track:** A  
-**Status:** implemented  
-**Estimated effort:** 1 session (~3 h)  
-**Depends on:** pkg27
+**Pillar:** 3
+**Track:** A
+**Status:** validation
+**Estimated effort:** 1 session (~3 h)
+**Depends on:** pkg27a, pkg27b
 
 ---
 
@@ -26,9 +26,10 @@ the path-tracer fallback and do not require tiny-cuda-nn.
 pkg28 is the final planned Pillar 3 package. It turns pkg27's safe but
 per-sample training into the frame-delayed update pattern needed for practical
 NRC: render workers only append samples, and the cache trains after all workers
-finish. This is not yet the high-performance viewport implementation, but it
-removes the most obvious scheduling mistake and gives pkg-level acceptance tests
-a stable `neural-cache` plugin surface.
+finish. The implementation exists and the split validation gates now prove
+finiteness, stats, chart generation, and frame-level training. The package
+remains in validation because the first benchmark shows the NRC backend is not
+yet performance-positive on the small indirect scene.
 
 ---
 
@@ -36,6 +37,8 @@ a stable `neural-cache` plugin surface.
 
 - Design doc: `.astroray_plan/docs/light-transport.md §Phase 3D`
 - Prior package: `.astroray_plan/packages/pkg27-nrc-plugin.md`
+- Scheduling prerequisite: `.astroray_plan/packages/pkg27a-nrc-training-observability.md`
+- Validation prerequisite: `.astroray_plan/packages/pkg27b-nrc-indirect-validation.md`
 - Prototype notes: `.astroray_plan/docs/nrc-prototype-notes.md`
 
 ---
@@ -95,7 +98,10 @@ rainbow test requires wavelength-dependent dielectric sampling
 - [x] Default builds still register and select `neural-cache` without
       tiny-cuda-nn.
 - [x] Opt-in CUDA/tiny-cuda-nn builds link the Python module successfully.
-- [x] Focused integrator tests pass in both default and opt-in builds.
+- [x] pkg27a observability verifies fallback stats and frame-level train stats.
+- [x] pkg27b validates indirect-scene quality/timing and produces charts.
+- [ ] Follow-up tuning demonstrates the original NRC speedup target on a
+      viewport-sized indirect scene.
 
 ---
 
@@ -114,8 +120,9 @@ rainbow test requires wavelength-dependent dielectric sampling
 - [x] Replace per-sample `trainCache()` with frame-buffer enqueue.
 - [x] Add `endFrame()` training step with 256-aligned padding.
 - [x] Add training batch controls.
-- [x] Verify default and opt-in builds/tests.
-- [x] Update planning docs.
+- [x] Add pkg27a diagnostic coverage.
+- [x] Complete pkg27b indirect validation.
+- [ ] Tune default/backend policy until charts show a real speedup.
 
 ---
 

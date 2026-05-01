@@ -11,6 +11,7 @@ build_blender_addon/
 Release/
 Debug/
 x64/
+build_*/
 
 # Blender addon package output
 CMakeFiles/

@@ -3,5 +3,12 @@
         "tests"
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+    "cmake.buildDirectory": "${workspaceFolder}/build_tcnn",
+    "cmake.generator": "Visual Studio 17 2022",
+    "cmake.configureSettings": {
+        "BUILD_PYTHON_MODULE": "ON",
+        "ASTRORAY_ENABLE_CUDA": "ON",
+        "ASTRORAY_TINY_CUDA_NN": "OFF"
+    }
 }

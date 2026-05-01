@@ -29,6 +29,8 @@ def _candidate_build_dirs() -> list[str]:
     candidates.extend([
         DEFAULT_BUILD_DIR,
         os.path.join(DEFAULT_BUILD_DIR, 'Release'),
+        os.path.join(PROJECT_ROOT, 'build_tcnn'),
+        os.path.join(PROJECT_ROOT, 'build_tcnn', 'Release'),
     ])
 
     seen: set[str] = set()

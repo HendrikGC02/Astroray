@@ -1,7 +1,7 @@
 # tiny-cuda-nn Prototype Notes (pkg25)
 
-**Date:** 2026-04-30
-**Machine:** Windows 11, NVIDIA RTX 3000 Ada (sm_89), CUDA 12.9 toolkit
+**Date:** 2026-04-30 (updated 2026-05-01 — driver blocker resolved)
+**Machine:** Windows 11, NVIDIA RTX 3000 Ada (sm_89), CUDA 13.2 toolkit
 
 ---
 
@@ -12,10 +12,11 @@
 | OS | Windows 11 Enterprise 10.0.26100 |
 | GPU | NVIDIA RTX 3000 Ada Generation Laptop |
 | GPU compute capability | sm_89 |
-| CUDA toolkit | 12.9 (nvcc) / CMake found 13.2 (separate install) |
+| NVIDIA driver | 596.36 (updated from 576.57 — resolves CUDA 13.2 runtime) |
+| CUDA toolkit | 13.2 (VS CMake integration) |
 | MSVC | 19.44.35215.0 (VS2022 Community) |
 | CMake | 4.1.1 |
-| tiny-cuda-nn | v1.3 (via FetchContent) |
+| tiny-cuda-nn | master (switched from v1.3 — fixes sm_89 FullyFusedMLP crash) |
 
 ---
 
@@ -65,7 +66,7 @@ of PATH or `-DCMAKE_CUDA_COMPILER` override due to VS CUDA 13.2 integration).
 
 ## Run outcome
 
-**Result: RUNTIME FAILURE — blocked by driver version mismatch.**
+**Initial result (driver 576.57): RUNTIME FAILURE — blocked by driver version mismatch.**
 
 ```
 CUDA error scripts/tiny_cuda_nn_smoke.cu:33 — CUDA driver version is
@@ -73,18 +74,23 @@ insufficient for CUDA runtime version
 ```
 
 **Root cause:** VS2022 CUDA integration selects CUDA 13.2 unconditionally.
-The installed NVIDIA driver (576.57) supports CUDA runtime ≤ 12.9. The binary
-built by the VS generator links against CUDA 13.2 static runtime, which requires
-a driver released after the 576.57 package.
+Driver 576.57 only supported CUDA runtime ≤ 12.9.
 
-**Attempted workaround:** `-DCMAKE_CUDA_COMPILER:FILEPATH=.../v12.9/nvcc.exe`
-is silently ignored when using the Visual Studio CMake generator; the VS CUDA
-extension overrides it at build time.
+**Resolution (2026-05-01): Driver updated to 596.36.**
 
-**Standalone CUDA smoke (`simple_cuda_smoke.cu`):** direct `nvcc` invocation
-also requires the full VS + Windows SDK environment (fails with missing
-`crtdefs.h`). Outside of the VS CMake generator, CUDA MSVC compilation cannot
-be done without running inside a VS Developer Command Prompt.
+Additional issues encountered and fixed after the driver update:
+
+1. **tcnn v1.3 FullyFusedMLP illegal memory access on sm_89** — Switched
+   `GIT_TAG` from `v1.3` to `master`. Set `TCNN_CUDA_ARCHITECTURES=89`.
+2. **Output/input width constraint** — `FullyFusedMLP` requires N_IN and N_OUT
+   to be multiples of 16 and batch to be a multiple of 128. Changed from 4→4
+   to 16→16 with BATCH=256.
+3. **`params() != nullptr` assertion in tcnn master** — tcnn master enforces
+   that `set_params()` is called before `forward()`. Fixed by allocating a
+   `tcnn::GPUMemory<T>` of size `model->n_params()`, filling with 0.01f, and
+   calling `model->set_params(data, data, nullptr)` before the forward pass.
+
+**Final result: SUCCESS.**
 
 ---
 
@@ -92,18 +98,17 @@ be done without running inside a VS Developer Command Prompt.
 
 | Question | Result |
 |---|---|
-| FetchContent works? | ✅ Yes — tiny-cuda-nn v1.3 fetches and configures in ~33 s |
-| Library compiles? | ✅ Yes — `tiny-cuda-nn.lib` builds cleanly |
+| FetchContent works? | ✅ Yes — tiny-cuda-nn master fetches and configures |
+| Library compiles? | ✅ Yes — `tiny-cuda-nn.lib` builds cleanly for sm_89 |
 | Smoke binary compiles? | ✅ Yes — `tcnn_smoke.exe` builds cleanly |
-| Runtime works? | ❌ Blocked — CUDA 13.2 binary, driver supports 12.9 only |
+| Runtime works? | ✅ Yes — driver updated to 596.36; forward pass returns OK |
 
-**The code path is complete.** Unblocking requires one of:
-
-1. **Preferred:** Update NVIDIA driver to a release that supports CUDA 13.2
-   (any driver ≥ 525.85 / Windows WHQL ≥ 527.41).
-2. **Alternative:** Remove the CUDA 13.2 Visual Studio integration so the VS
-   generator falls back to CUDA 12.9 (uninstall CUDA 13.2 VS extension in
-   the CUDA Toolkit installer, then re-run `cmake --fresh`).
+**pkg25 is fully complete.** `tcnn_smoke.exe` outputs:
+```
+Device 0: NVIDIA RTX 3000 Ada Generation Laptop GPU (sm_89, 8188 MiB)
+Model params: 2048
+tiny-cuda-nn smoke: OK  (non-finite: 0 / 4096 outputs)
+```
 
 ---
 

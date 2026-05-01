@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** C
-**Status:** implemented (runtime blocked — see prototype notes)
+**Status:** implemented
 **Estimated effort:** 1-2 sessions (~6 h)
 **Depends on:** pkg24
 
@@ -85,9 +85,9 @@ answer is "no" or "not on this machine," that is still a useful result.
 
 - [x] A prototype branch or notes document states whether tiny-cuda-nn built
       successfully. (Build: YES; Runtime: blocked by driver version — see notes.)
-- [ ] If build succeeds, one dummy inference call runs and returns finite
-      output. (Blocked: NVIDIA driver 576.57 supports CUDA 12.9; binary needs
-      CUDA 13.2 driver. Unblocked once driver is updated.)
+- [x] If build succeeds, one dummy inference call runs and returns finite
+      output. (Driver updated to 596.36; CUDA 13.2 now supported; forward
+      pass returns OK with 0 non-finite outputs.)
 - [x] No production integrator, Python binding, or Blender UI depends on the
       prototype target.
 - [x] Any added build flag defaults to off (`ASTRORAY_TINY_CUDA_NN=OFF`).
@@ -110,7 +110,8 @@ answer is "no" or "not on this machine," that is still a useful result.
 - [x] Try minimal build integration (`ASTRORAY_TINY_CUDA_NN` CMake option,
       FetchContent v1.3, `tcnn_smoke` target).
 - [x] Run dummy inference or capture failure mode. (Build succeeds; runtime
-      blocked by CUDA 13.2 runtime vs CUDA 12.9 driver.)
+      initially blocked by CUDA 13.2 runtime vs CUDA 12.9 driver; resolved
+      after driver update to 596.36.)
 - [x] Record outcome and next recommendation (see prototype notes).
 
 ---
@@ -125,5 +126,13 @@ answer is "no" or "not on this machine," that is still a useful result.
   (13.2 on this machine). Use Ninja or NMake generator to honour the override.
 - Auto-deduction of `auto` return types (e.g., `model->forward(...)`) can fail
   in nvcc; discarding the return value works around the issue.
-- The main blocker is not code but driver version: update NVIDIA driver from
-  576.57 to any release supporting CUDA 13.2+ to unblock runtime.
+- The main blocker was not code but driver version: updating NVIDIA driver from
+  576.57 to 596.36 unblocked the CUDA 13.2 runtime immediately.
+- tcnn master requires `model->set_params(data, data, nullptr)` to be called
+  after construction and before `forward()`; v1.3 did not enforce this.
+  Allocate a `tcnn::GPUMemory<T>` of size `model->n_params()`, initialise on
+  the host, copy to device, then call `set_params`.
+- tcnn v1.3 `FullyFusedMLP` produces illegal memory access on sm_89 (Ada
+  Lovelace); `GIT_TAG master` fixes this. Set `TCNN_CUDA_ARCHITECTURES=89`.
+- `FullyFusedMLP` requires N_IN and N_OUT to both be multiples of 16 and
+  batch size to be a multiple of 128.

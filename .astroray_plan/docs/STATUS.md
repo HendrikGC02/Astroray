@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-01 (pkg28 complete; NRC benchmark graphs and safe auto fallback policy in place)
+**Last updated:** 2026-05-01 (pkg30-33 specs created; Copilot issues #121-#127 opened for visual diagnostics)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -59,6 +59,21 @@ personally should pick up.
 | pkg27b | NRC indirect validation + graphs | implemented |
 | pkg28 | NRC training buffer | implemented |
 
+**Spectral dielectric chain (Pillar 2 follow-up):**
+
+| Package | Description | Status |
+|---|---|---|
+| pkg30 | Spectral BSDF sampling interface (`sampleSpectral` on Material) | open |
+| pkg31 | Spectral dielectric with Sellmeier dispersion | open |
+| pkg29 | Spectral dielectric prism validation | open (blocked by pkg31) |
+
+**Visual diagnostics & production polish (Pillar 5):**
+
+| Package | Description | Status |
+|---|---|---|
+| pkg32 | Visual diagnostics & benchmark renders | open |
+| pkg33 | OIDN FetchContent integration | open |
+
 ---
 
 ## This week
@@ -67,19 +82,18 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Package in flight: Pillar 3 final validation — NRC batched inference and
-  speedup proof.
-- `Auto (Best Available)` now resolves to the fastest validated default
-  (`path_tracer` today). `neural-cache` remains selectable with default-build
-  fallback, opt-in tiny-cuda-nn training, and explicit `enable_inference` for
-  experiments until charts show it beats the baseline. Benchmark charts live in
-  `test_results/light_transport_benchmark/`.
+- Next up: pkg30 (sampleSpectral interface) → pkg31 (Sellmeier dielectric)
+  → pkg29 (prism validation). Then pkg33 (OIDN) and pkg32 Track-A parts
+  (integrator per-pixel stats, convergence tracker, showcase script).
 
 ### Track B (Copilot cloud)
 
-- Assigned issues: —
-- In review: —
-- Queue depth: —
+- Assigned issues: #121 (albedo AOV), #122 (normal AOV), #123 (depth AOV),
+  #124 (bounce heatmap pass), #125 (sample heatmap pass), #126 (convergence
+  tracker script), #127 (showcase render script).
+- **Action needed:** Enable Copilot coding agent in repo Settings → Copilot
+  → Policies, then assign `copilot` to issues #121–#127.
+- Queue depth: 7
 
 ### Track C (Cline prototype)
 
@@ -122,8 +136,12 @@ personally should pick up.
 
 | Package | Track | Status | Blocker |
 |---|---|---|---|
+| pkg30 | A | open | — |
+| pkg31 | A | open | pkg30 |
+| pkg29 | A | open | pkg31 |
+| pkg32 | A+B | open | — (B issues: #121–#127) |
+| pkg33 | A | open | — |
 | native-gr-spectrum | E | in review | PR #119 |
-| nrc-batched-inference-validation | A | queued | make NRC performance-positive before default promotion |
 
 ---
 
@@ -150,6 +168,14 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-05-01** — Created pkg30–pkg33 specs. pkg30: `sampleSpectral()` virtual
+  on Material (interface-only, no material changes). pkg31: Sellmeier dispersion
+  in DielectricPlugin with `terminateSecondary()`. pkg32: visual diagnostics
+  suite (AOV passes, convergence tracker, showcase renders). pkg33: OIDN
+  FetchContent fallback so the denoiser actually builds. Opened GitHub issues
+  #121–#127 for Copilot-scoped Track B work (3 AOV stub implementations,
+  2 heatmap passes, convergence tracker, showcase script). pkg29 (prism
+  validation) unblocked once pkg30+pkg31 land.
 - **2026-05-01** — pkg28 complete. `neural-cache` now performs backend
   readiness once per frame, buffers warmup samples, pads and trains from
   `endFrame()`, exposes `backend_ready`/`enable_inference` stats, and keeps

@@ -52,10 +52,13 @@ int main() {
     // -----------------------------------------------------------------------
     // Identity encoding (pass-through) + tiny FullyFusedMLP.
     // n_neurons must be 16, 32, or 64; batch must be a multiple of 16.
+    // FullyFusedMLP uses native tensor-core WMMA instructions — requires sm_70+
+    // and dimensions to be multiples of 16 (input/output) and 128 (batch).
+    // Compiled with TCNN_CUDA_ARCHITECTURES=89 so sm_89 Ada paths are emitted.
     nlohmann::json config = {
         {"encoding", {
             {"otype", "Identity"},
-            {"n_dims_to_encode", 4}
+            {"n_dims_to_encode", 16}
         }},
         {"network", {
             {"otype", "FullyFusedMLP"},
@@ -66,9 +69,9 @@ int main() {
         }}
     };
 
-    const uint32_t N_IN     = 4;
-    const uint32_t N_OUT    = 4;
-    const uint32_t BATCH    = 64;   // multiple of 16
+    const uint32_t N_IN     = 16;
+    const uint32_t N_OUT    = 16;
+    const uint32_t BATCH    = 256;  // power-of-2, multiple of 128
 
     // -----------------------------------------------------------------------
     // 3. Build model
@@ -83,6 +86,18 @@ int main() {
         return 1;
     }
     printf("Model params: %zu\n", model->n_params());
+
+    // -----------------------------------------------------------------------
+    // 3b. Initialize model parameters (required before forward in tcnn master)
+    // -----------------------------------------------------------------------
+    tcnn::GPUMemory<T> params(model->n_params());
+    {
+        std::vector<T> h_params(model->n_params(), (T)0.01f);
+        CUDA_CHECK(cudaMemcpy(params.data(), h_params.data(),
+                              model->n_params() * sizeof(T),
+                              cudaMemcpyHostToDevice));
+    }
+    model->set_params(params.data(), params.data(), nullptr);
 
     // -----------------------------------------------------------------------
     // 4. Allocate inputs (float32) and outputs (T = half)
@@ -110,17 +125,20 @@ int main() {
     // -----------------------------------------------------------------------
     // 6. Verify outputs are finite
     // -----------------------------------------------------------------------
-    std::vector<T> h_out(N_OUT * BATCH);
-    CUDA_CHECK(cudaMemcpy(h_out.data(), outputs.data(),
-                          h_out.size() * sizeof(T), cudaMemcpyDeviceToHost));
+    // Use outputs.n_bytes() to account for any row-stride padding in GPUMatrix.
+    size_t out_bytes = outputs.n_bytes();
+    std::vector<uint8_t> raw(out_bytes);
+    CUDA_CHECK(cudaMemcpy(raw.data(), outputs.data(), out_bytes, cudaMemcpyDeviceToHost));
+    const T* h_out = reinterpret_cast<const T*>(raw.data());
+    size_t   n_out = out_bytes / sizeof(T);
 
     int non_finite = 0;
-    for (auto v : h_out) {
-        if (!std::isfinite(static_cast<float>(v))) ++non_finite;
+    for (size_t i = 0; i < n_out; ++i) {
+        if (!std::isfinite(static_cast<float>(h_out[i]))) ++non_finite;
     }
 
     printf("tiny-cuda-nn smoke: %s  (non-finite: %d / %zu outputs)\n",
            non_finite == 0 ? "OK" : "FAIL",
-           non_finite, h_out.size());
+           non_finite, n_out);
     return non_finite == 0 ? 0 : 1;
 }

@@ -501,7 +501,7 @@ if(ASTRORAY_TINY_CUDA_NN)
         FetchContent_Declare(
             tiny-cuda-nn
             GIT_REPOSITORY https://github.com/NVlabs/tiny-cuda-nn.git
-            GIT_TAG        v1.3
+            GIT_TAG        master
             GIT_SHALLOW    TRUE
         )
         # Disable benchmarks and examples so only the core library is compiled.

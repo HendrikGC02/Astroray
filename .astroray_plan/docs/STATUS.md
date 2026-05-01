@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-01 (pkg25 fully implemented; driver updated to 596.36, tcnn forward pass confirmed OK; pkg26 spec drafted, not started)
+**Last updated:** 2026-05-01 (pkg26 complete — NRC prototype running on RTX 5070 Ti; luminance +52% over 50 frames, all CUDA:OK)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -53,7 +53,7 @@ personally should pick up.
 | pkg23 | ReSTIR temporal/spatial reuse design | implemented |
 | pkg24 | ReSTIR validation | implemented |
 | pkg25 | tiny-cuda-nn prototype | implemented |
-| pkg26 | NRC prototype | open |
+| pkg26 | NRC prototype | implemented |
 
 ---
 
@@ -136,6 +136,7 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-05-01** — pkg26 complete. `NeuralCache` (16-in/16-out FullyFusedMLP, Adam, RelativeL2) + `nrc_smoke_render` Cornell box harness both working on RTX 5070 Ti (sm_120). Two tcnn master gotchas resolved: (1) `TCNN_MIN_GPU_ARCH=120` static_assert override for sm_89 build; (2) `BATCH_SIZE_GRANULARITY=256` in master (was 128 in v1.x) — `BATCH_ALIGN` updated to 256. Luminance: 0.2841 (frame 1) → 0.4317 (frame 50), Δ+52%. See `.astroray_plan/docs/nrc-prototype-notes.md`. pkg27 next.
 - **2026-05-01** — pkg25 fully complete. Driver updated from 576.57 to 596.36; CUDA 13.2 runtime now supported. Switched `GIT_TAG` to master (fixes sm_89 FullyFusedMLP crash); added `set_params()` call before `forward()` (required in tcnn master). `tcnn_smoke.exe` reports `OK (non-finite: 0 / 4096 outputs)`. VS Code cmake settings updated to use VS 2022 generator with `BUILD_PYTHON_MODULE=ON`; conftest extended to check `build_tcnn/Release`. pkg26 spec drafted. See `.astroray_plan/docs/tiny-cuda-nn-prototype-notes.md` for full resolution log.
 - **2026-04-30** — pkg25 build complete; runtime initially blocked by driver version. tiny-cuda-nn master FetchContent integration works; `tiny-cuda-nn.lib` and `tcnn_smoke.exe` build cleanly via MSVC+CUDA 13.2.
 - **2026-04-30** — pkg24 complete. Temporal and spatial reservoir reuse implemented in `restir_di.cpp` (Bitterli et al. 2020, Algorithms 1–3). `targetLuminanceRGB()` added to `ReSTIRCandidate` for wavelength-independent cross-frame W values. `set_integrator_param` Python binding added. 13-test validation suite covers all 6 design-note criteria (finitude, determinism, temporal variance, spatial MSE, bias magnitude for both passes, default-mode regression). 287 passed, 1 skipped, 16 xfailed.

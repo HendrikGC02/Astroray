@@ -523,6 +523,38 @@ if(ASTRORAY_TINY_CUDA_NN)
             RUNTIME_OUTPUT_DIRECTORY   ${CMAKE_BINARY_DIR}/bin
         )
         message(STATUS "tiny-cuda-nn smoke target: tcnn_smoke")
+
+        # pkg26 — NRC prototype harness.
+        # Renders 50 frames of a Cornell box using NeuralCache for secondary bounces.
+        # Links neural_cache.cu (compiled by nvcc) alongside the harness.
+        # No production targets (raytracer, astroray) depend on this.
+        add_executable(nrc_smoke_render
+            scripts/nrc_smoke_render.cu
+            src/neural_cache.cu
+        )
+        target_link_libraries(nrc_smoke_render PRIVATE
+            tiny-cuda-nn
+            astroray_core_impl    # SampledSpectrum, Jakob-Hanika LUT (via raytracer.h)
+            stb_impl              # stb_image (via raytracer.h includes)
+        )
+        if(TARGET astroray_plugins)
+            target_link_libraries(nrc_smoke_render PRIVATE astroray_plugins)
+        endif()
+        target_include_directories(nrc_smoke_render PRIVATE
+            ${CMAKE_SOURCE_DIR}/include
+            ${CMAKE_SOURCE_DIR}/src
+            ${tiny-cuda-nn_SOURCE_DIR}/include
+            ${tiny-cuda-nn_SOURCE_DIR}/dependencies
+        )
+        target_compile_definitions(nrc_smoke_render PRIVATE
+            ASTRORAY_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+        )
+        set_target_properties(nrc_smoke_render PROPERTIES
+            CUDA_ARCHITECTURES         "89"
+            CUDA_SEPARABLE_COMPILATION ON
+            RUNTIME_OUTPUT_DIRECTORY   ${CMAKE_BINARY_DIR}/bin
+        )
+        message(STATUS "NRC prototype target: nrc_smoke_render")
     endif()
 endif()
 

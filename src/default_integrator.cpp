@@ -15,11 +15,11 @@ void Renderer::ensureDefaultIntegrator() {
         return std::find(names.begin(), names.end(), name) != names.end();
     };
 
-    if (hasIntegrator("neural-cache")) {
-        integrator_ = registry.create("neural-cache", params);
-        return;
-    }
     if (hasIntegrator("path_tracer")) {
         integrator_ = registry.create("path_tracer", params);
+        return;
+    }
+    if (hasIntegrator("neural-cache")) {
+        integrator_ = registry.create("neural-cache", params);
     }
 }

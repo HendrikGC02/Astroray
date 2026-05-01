@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-01 (pkg27b benchmark graphs complete; optimized auto default enabled, pkg28 tuning remains)
+**Last updated:** 2026-05-01 (pkg28 complete; NRC benchmark graphs and safe auto fallback policy in place)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -18,7 +18,7 @@ personally should pick up.
 |---|---|---|---|---|---|
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
-| 3 | Light transport | **Validation** | 82% | pkg28 NRC performance-positive tuning | ~~Pillars 1, 2~~ |
+| 3 | Light transport | **Validation** | 88% | NRC batched-inference speedup target | ~~Pillars 1, 2~~ |
 | 4 | Astrophysics platform | Queued | 0% | Kerr | Pillars 1, 2 |
 | 5 | Production polish | Ongoing | — | OpenEXR output | — |
 
@@ -57,7 +57,7 @@ personally should pick up.
 | pkg27 | NRC integrator plugin | implemented |
 | pkg27a | NRC training observability | implemented |
 | pkg27b | NRC indirect validation + graphs | implemented |
-| pkg28 | NRC training buffer | validation |
+| pkg28 | NRC training buffer | implemented |
 
 ---
 
@@ -67,10 +67,13 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Package in flight: pkg28 — NRC training-buffer validation/tuning.
-- `Auto (Best Available)` now selects `neural-cache` by default; default builds
-  and unavailable backends fall back to the spectral path tracer. Benchmark
-  charts live in `test_results/light_transport_benchmark/`.
+- Package in flight: Pillar 3 final validation — NRC batched inference and
+  speedup proof.
+- `Auto (Best Available)` now resolves to the fastest validated default
+  (`path_tracer` today). `neural-cache` remains selectable with default-build
+  fallback, opt-in tiny-cuda-nn training, and explicit `enable_inference` for
+  experiments until charts show it beats the baseline. Benchmark charts live in
+  `test_results/light_transport_benchmark/`.
 
 ### Track B (Copilot cloud)
 
@@ -120,7 +123,7 @@ personally should pick up.
 | Package | Track | Status | Blocker |
 |---|---|---|---|
 | native-gr-spectrum | E | in review | PR #119 |
-| pkg28-nrc-training-buffer | A | validation | performance-positive NRC target not met yet |
+| nrc-batched-inference-validation | A | queued | make NRC performance-positive before default promotion |
 
 ---
 
@@ -147,13 +150,23 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-05-01** — pkg28 complete. `neural-cache` now performs backend
+  readiness once per frame, buffers warmup samples, pads and trains from
+  `endFrame()`, exposes `backend_ready`/`enable_inference` stats, and keeps
+  cache inference behind an explicit parameter because current per-sample
+  inference is slower than the spectral path tracer. Auto/default therefore
+  stays on the fastest validated path-tracer fallback until batched inference
+  is performance-positive. Latest 64x64 opt-in benchmark with one untimed
+  warmup render: path tracer 0.0391s/frame, auto default 0.0499s/frame, NRC
+  fallback 0.0420s/frame, NRC training backend 0.0318s/frame (1.23x, but not
+  yet the original 30% speedup/quality target).
 - **2026-05-01** — pkg27b complete. Added
   `scripts/benchmark_light_transport.py`,
   `tests/scenes/neural_cache_indirect.py`, and
   `tests/test_neural_cache_validation.py`. The benchmark writes JSON/CSV stats
   and PNG charts comparing path tracer, auto default, NRC fallback, and NRC
-  backend. `Renderer::render()` now auto-selects `neural-cache` when no
-  integrator is set; Blender exposes `Auto (Best Available)` first. The first
+  backend. `Renderer::render()` now auto-selects the fastest validated default;
+  Blender exposes `Auto (Best Available)` first. The first
   32x32 opt-in benchmark proves training/finiteness but not speedup:
   `neural_cache_backend` was 0.86x path-tracer speed and `auto_default` was
   dominated by first-use training/init overhead on the tiny scene, so pkg28

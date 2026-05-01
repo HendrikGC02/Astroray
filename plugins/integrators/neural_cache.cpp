@@ -78,7 +78,9 @@ class NeuralCacheIntegrator : public Integrator {
     int minTrainBatch_;
     int maxTrainSamples_;
     bool forceFallback_;
+    bool enableInference_;
     int frameIndex_ = 0;
+    bool backendReadyThisFrame_ = false;
     Renderer* renderer_ = nullptr;
     std::mutex cacheMutex_;
     std::mutex trainingMutex_;
@@ -172,7 +174,7 @@ class NeuralCacheIntegrator : public Integrator {
 #endif
     }
 
-    bool backendAvailable() {
+    bool refreshBackendReady() {
 #if defined(ASTRORAY_NEURAL_CACHE_ENABLED)
         std::lock_guard<std::mutex> lock(cacheMutex_);
         return backendReady();
@@ -183,8 +185,11 @@ class NeuralCacheIntegrator : public Integrator {
 
     Vec3 queryCacheRGB(const std::array<float, 16>& feat) {
 #if defined(ASTRORAY_NEURAL_CACHE_ENABLED)
+        if (!backendReadyThisFrame_) {
+            return Vec3(0.0f);
+        }
         std::lock_guard<std::mutex> lock(cacheMutex_);
-        if (!backendReady()) {
+        if (!cache_) {
             return Vec3(0.0f);
         }
         std::vector<float> input = paddedFeatureBatch(feat);
@@ -222,6 +227,9 @@ class NeuralCacheIntegrator : public Integrator {
 
     void trainBufferedFrame() {
 #if defined(ASTRORAY_NEURAL_CACHE_ENABLED)
+        if (!backendReadyThisFrame_) {
+            return;
+        }
         std::vector<float> features;
         std::vector<float> targets;
         {
@@ -240,7 +248,7 @@ class NeuralCacheIntegrator : public Integrator {
         targets.resize(size_t(nPadded) * 3, 0.0f);
 
         std::lock_guard<std::mutex> lock(cacheMutex_);
-        if (backendReady()) {
+        if (cache_) {
             cache_->trainStep(nPadded, features, targets);
             lastTrainedSamples_.store(static_cast<int>(n), std::memory_order_relaxed);
             lastPaddedTrainSamples_.store(static_cast<int>(nPadded), std::memory_order_relaxed);
@@ -259,16 +267,18 @@ class NeuralCacheIntegrator : public Integrator {
 
 public:
     explicit NeuralCacheIntegrator(const astroray::ParamDict& p)
-        : maxDepth_(p.getInt("max_depth", 50))
+        : maxDepth_(p.getInt("max_depth", 8))
         , warmupFrames_(std::max(0, p.getInt("warmup_frames", 16)))
-        , trainingPct_(std::clamp(p.getInt("training_pct", 50), 0, 100))
+        , trainingPct_(std::clamp(p.getInt("training_pct", 4), 0, 100))
         , minTrainBatch_(std::max(1, p.getInt("min_train_batch", 1)))
-        , maxTrainSamples_(std::max(1, p.getInt("max_train_samples", 4096)))
-        , forceFallback_(p.getInt("force_fallback", 0) != 0) {}
+        , maxTrainSamples_(std::max(1, p.getInt("max_train_samples", 128)))
+        , forceFallback_(p.getInt("force_fallback", 0) != 0)
+        , enableInference_(p.getInt("enable_inference", 0) != 0) {}
 
     void beginFrame(Renderer& r, const Camera&) override {
         renderer_ = &r;
         ++frameIndex_;
+        backendReadyThisFrame_ = refreshBackendReady();
         lastQueuedSamples_.store(0, std::memory_order_relaxed);
         lastTrainedSamples_.store(0, std::memory_order_relaxed);
         lastPaddedTrainSamples_.store(0, std::memory_order_relaxed);
@@ -294,6 +304,8 @@ public:
             {"backend_compiled", 0.0f},
 #endif
             {"force_fallback", forceFallback_ ? 1.0f : 0.0f},
+            {"backend_ready", backendReadyThisFrame_ ? 1.0f : 0.0f},
+            {"enable_inference", enableInference_ ? 1.0f : 0.0f},
             {"frame_index", static_cast<float>(frameIndex_)},
             {"warmup_frames", static_cast<float>(warmupFrames_)},
             {"training_pct", static_cast<float>(trainingPct_)},
@@ -320,7 +332,7 @@ public:
         astroray::SampledWavelengths lambdas =
             astroray::SampledWavelengths::sampleUniform(dist01(gen));
 
-        if (forceFallback_ || !backendAvailable()) {
+        if (!backendReadyThisFrame_) {
             lastFallbackSamples_.fetch_add(1, std::memory_order_relaxed);
             astroray::XYZ xyz = fullReference(ray, lambdas, gen).toXYZ(lambdas);
             result.color = Vec3(xyz.X, xyz.Y, xyz.Z);
@@ -377,13 +389,15 @@ public:
         float roughness = rec.material->isGlossy() ? 0.35f : 1.0f;
         auto feat = buildFeature(rec, wo, roughness, albedo);
 
-        if (trainThisSample) {
+        if (warmup || !enableInference_) {
             astroray::SampledSpectrum tail =
                 renderer_->pathTraceSpectral(next, std::max(1, maxDepth_ - 1), lambdas, gen);
             astroray::SampledSpectrum indirect = f * tail * (1.0f / (bs.pdf + 0.001f));
-            astroray::XYZ xyz = indirect.toXYZ(lambdas);
-            Vec3 rgb = xyzToLinearSRGB(Vec3(xyz.X, xyz.Y, xyz.Z));
-            enqueueTrainingSample(feat, rgb);
+            if (trainThisSample) {
+                astroray::XYZ xyz = indirect.toXYZ(lambdas);
+                Vec3 rgb = xyzToLinearSRGB(Vec3(xyz.X, xyz.Y, xyz.Z));
+                enqueueTrainingSample(feat, rgb);
+            }
             color += indirect;
         } else {
             Vec3 rgb = queryCacheRGB(feat);

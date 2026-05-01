@@ -1,6 +1,6 @@
 # Pillar 3: Light Transport Upgrades
 
-**Status:** Validation (pkg20-pkg27b implemented; pkg28 tuning pending)
+**Status:** Validation (pkg20-pkg28 implemented; NRC speedup proof pending)
 **Depends on:** Pillars 1, 2
 **Track:** A (ReSTIR core), C (neural cache prototype)
 **Duration:** 4–6 weeks
@@ -10,7 +10,8 @@
 Add two state-of-the-art path tracing techniques as plugin integrators:
 **ReSTIR DI** for dramatically better direct lighting and **Neural
 Radiance Caching** for indirect illumination speedup. The classic path
-tracer remains the default; these are opt-in.
+tracer remains the safe fallback; accelerated transport becomes the default
+only after benchmark charts show it is performance-positive.
 
 ## Why these two, not everything
 
@@ -176,9 +177,11 @@ new interface. `pkg05-integrator-interface.md` lands as part of Pillar
 - `pkg27b-nrc-indirect-validation.md` — validation gate for NRC indirect-scene
   quality/timing and benchmark chart generation. Implemented; first data shows
   training works but the backend is not yet performance-positive.
-- `pkg28-nrc-training-buffer.md` — double-buffered training. Implementation is
-  present with frame-buffered targets and one aligned `endFrame()` training
-  step; package closure is waiting on performance-positive tuning.
+- `pkg28-nrc-training-buffer.md` — double-buffered training. Implemented with
+  frame-buffered targets, one aligned `endFrame()` training step, benchmark
+  charts, tuned default training budgets, and an explicit `enable_inference`
+  gate because current per-sample cache queries are not yet faster than the
+  spectral path tracer.
 
 ## Acceptance criteria
 
@@ -186,7 +189,7 @@ new interface. `pkg05-integrator-interface.md` lands as part of Pillar
       than vanilla path tracer at 4× fewer samples per pixel.
 - [ ] ReSTIR DI matches vanilla path tracer converged output within
       noise tolerance (no systematic bias).
-- [ ] NRC reduces indirect-dominated scene render time by ≥30% at equal
+- [ ] NRC batched inference reduces indirect-dominated scene render time by ≥30% at equal
       quality on the Cornell box with sphere light source.
 - [ ] Both integrators are selectable from Blender UI and via the
       Python API without touching core code.

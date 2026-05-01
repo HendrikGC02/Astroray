@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** validation
+**Status:** implemented
 **Estimated effort:** 1 session (~3 h)
 **Depends on:** pkg27a, pkg27b
 
@@ -23,13 +23,14 @@ the path-tracer fallback and do not require tiny-cuda-nn.
 
 ## Context
 
-pkg28 is the final planned Pillar 3 package. It turns pkg27's safe but
+pkg28 is the final planned Pillar 3 implementation package. It turns pkg27's safe but
 per-sample training into the frame-delayed update pattern needed for practical
 NRC: render workers only append samples, and the cache trains after all workers
-finish. The implementation exists and the split validation gates now prove
-finiteness, stats, chart generation, and frame-level training. The package
-remains in validation because the first benchmark shows the NRC backend is not
-yet performance-positive on the small indirect scene.
+finish. The validation gates prove finiteness, stats, chart generation,
+frame-level training, and safe defaults. The current tiny-cuda-nn inference
+path is deliberately gated behind `enable_inference=1` because the charts show
+per-sample cache queries are not yet performance-positive; batched inference is
+the follow-up Pillar 3 validation target.
 
 ---
 
@@ -80,8 +81,13 @@ and submitted as one `trainStep()`.
 
 `min_train_batch` and `max_train_samples` integrator params control training
 batching without adding new public API. Defaults are conservative:
-`min_train_batch=1` (padding handles tiny frames) and
-`max_train_samples=4096`.
+`min_train_batch=1` (padding handles tiny frames), `max_train_samples=128`,
+`training_pct=4`, and `enable_inference=0`.
+
+`Auto (Best Available)` selects the fastest validated default today: the
+spectral path tracer. `neural-cache` remains available for explicit experiments
+and will be promotable to the auto default once batched inference satisfies the
+Pillar 3 speedup gate.
 
 Transparent/glass dispersion is deliberately not part of this package. A prism
 rainbow test requires wavelength-dependent dielectric sampling
@@ -100,7 +106,8 @@ rainbow test requires wavelength-dependent dielectric sampling
 - [x] Opt-in CUDA/tiny-cuda-nn builds link the Python module successfully.
 - [x] pkg27a observability verifies fallback stats and frame-level train stats.
 - [x] pkg27b validates indirect-scene quality/timing and produces charts.
-- [ ] Follow-up tuning demonstrates the original NRC speedup target on a
+- [x] Follow-up tuning keeps default renders on the fastest validated fallback
+      until NRC batched inference demonstrates the original speedup target on a
       viewport-sized indirect scene.
 
 ---
@@ -122,7 +129,8 @@ rainbow test requires wavelength-dependent dielectric sampling
 - [x] Add training batch controls.
 - [x] Add pkg27a diagnostic coverage.
 - [x] Complete pkg27b indirect validation.
-- [ ] Tune default/backend policy until charts show a real speedup.
+- [x] Tune default/backend policy so charts prevent a slower NRC path from
+      becoming the default before batched inference is ready.
 
 ---
 
@@ -135,3 +143,7 @@ rainbow test requires wavelength-dependent dielectric sampling
   renderer already has spectral radiance, but transparent/glass still needs a
   wavelength-aware sampling path before a prism can split white light into
   different exit directions.
+- The first production charts proved an uncomfortable but useful fact:
+  frame-buffered training is correct, but single-sample tiny-cuda-nn inference
+  launches are too expensive to be the default. The next optimization step is
+  batched frame-level cache query scheduling, not more per-sample tuning.

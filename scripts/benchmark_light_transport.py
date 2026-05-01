@@ -36,10 +36,11 @@ from scenes.neural_cache_indirect import (  # noqa: E402
 )
 
 
-def _render_config(config, width, height, samples, max_depth, frames, seed):
+def _render_config(config, width, height, samples, max_depth, frames, seed, warmup_renders=1):
     r = make_renderer(astroray, width, height)
     add_indirect_scene(r)
     r.set_seed(seed)
+    r.set_integrator_param("max_depth", int(max_depth))
     for key, value in config.get("params", {}).items():
         r.set_integrator_param(key, int(value))
     integrator = config.get("integrator")
@@ -47,6 +48,10 @@ def _render_config(config, width, height, samples, max_depth, frames, seed):
         r.set_integrator(integrator)
 
     pixels = None
+    for warmup in range(max(0, warmup_renders)):
+        r.set_seed(seed - 1000 - warmup)
+        pixels = np.asarray(r.render(samples, max_depth, None, False), dtype=np.float32)
+
     start = time.perf_counter()
     for frame in range(frames):
         r.set_seed(seed + frame)
@@ -113,13 +118,14 @@ def run_benchmark(
     reference_samples: int = 32,
     max_depth: int = 6,
     frames: int = 2,
+    warmup_renders: int = 1,
     make_plots: bool = True,
 ) -> list[dict]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     reference_config = {"config": "reference_path_tracer", "integrator": "path_tracer"}
     reference, _, _ = _render_config(
-        reference_config, width, height, reference_samples, max_depth, 1, 1000)
+        reference_config, width, height, reference_samples, max_depth, 1, 1000, 0)
 
     configs = [
         {"config": "path_tracer", "integrator": "path_tracer"},
@@ -144,7 +150,7 @@ def run_benchmark(
     rows: list[dict] = []
     for idx, config in enumerate(configs):
         pixels, elapsed, stats = _render_config(
-            config, width, height, samples, max_depth, frames, 2000 + idx * 100)
+            config, width, height, samples, max_depth, frames, 2000, warmup_renders)
         row = {
             "config": config["config"],
             "requested_integrator": config.get("integrator") or "auto",
@@ -152,6 +158,7 @@ def run_benchmark(
             "height": height,
             "samples": samples,
             "frames": frames,
+            "warmup_renders": warmup_renders,
             "total_seconds": elapsed,
             "seconds_per_frame": elapsed / max(frames, 1),
             "mean_luminance": mean_luminance(pixels),
@@ -188,6 +195,7 @@ def main() -> int:
     parser.add_argument("--reference-samples", type=int, default=32)
     parser.add_argument("--max-depth", type=int, default=6)
     parser.add_argument("--frames", type=int, default=2)
+    parser.add_argument("--warmup-renders", type=int, default=1)
     parser.add_argument("--no-plots", action="store_true")
     args = parser.parse_args()
 
@@ -199,6 +207,7 @@ def main() -> int:
         reference_samples=args.reference_samples,
         max_depth=args.max_depth,
         frames=args.frames,
+        warmup_renders=args.warmup_renders,
         make_plots=not args.no_plots,
     )
     print(f"Wrote {len(rows)} configurations to {args.output_dir}")
@@ -213,4 +222,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

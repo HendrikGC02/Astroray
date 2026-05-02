@@ -467,6 +467,7 @@ public:
 
 struct LightSample { Vec3 position, normal, emission; float pdf, distance; };
 struct BSDFSample { Vec3 wi, f; float pdf; bool isDelta; };
+struct BSDFSampleSpectral { Vec3 wi; astroray::SampledSpectrum f_spectral; float pdf; bool isDelta; };
 
 // ============================================================================
 // MATERIALS - ALL FIXES APPLIED
@@ -491,6 +492,24 @@ public:
             const HitRecord& rec,
             const astroray::SampledWavelengths& lambdas) const {
         return astroray::SampledSpectrum(0.0f);
+    }
+
+    virtual BSDFSampleSpectral sampleSpectral(
+            const HitRecord& rec, const Vec3& wo,
+            std::mt19937& gen,
+            astroray::SampledWavelengths& lambdas) const {
+        BSDFSample bs = sample(rec, wo, gen);
+        BSDFSampleSpectral bss;
+        bss.wi = bs.wi;
+        bss.pdf = bs.pdf;
+        bss.isDelta = bs.isDelta;
+        if (bs.isDelta) {
+            bss.f_spectral = astroray::RGBAlbedoSpectrum(
+                {bs.f.x, bs.f.y, bs.f.z}).sample(lambdas);
+        } else {
+            bss.f_spectral = evalSpectral(rec, wo, bs.wi, lambdas);
+        }
+        return bss;
     }
 };
 
@@ -1742,7 +1761,7 @@ public:
     // those are future-package scope.
     astroray::SampledSpectrum pathTraceSpectral(
             const Ray& r, int maxDepth,
-            const astroray::SampledWavelengths& lambdas,
+            astroray::SampledWavelengths& lambdas,
             std::mt19937& gen) {
         const int rrDepth = 3;
         astroray::SampledSpectrum color(0.0f);
@@ -1848,22 +1867,12 @@ public:
                 if (p > 0.0f) throughput = throughput * (1.0f / p);
             }
 
-            // BSDF sample (direction + pdf are wavelength-independent in pkg11;
-            // pkg13 introduces sampleSpectral on dispersive materials).
-            BSDFSample bs = rec.material->sample(rec, wo, gen);
-            if (bs.pdf <= 0.0f) break;
-            astroray::SampledSpectrum f_bs =
-                rec.material->evalSpectral(rec, wo, bs.wi, lambdas);
-            wasSpecular = bs.isDelta;
-            // For delta lobes evalSpectral returns zero (RGB eval is zero on
-            // deltas); fall back to upsampling bs.f so specular materials
-            // still propagate radiance until pkg13 overrides.
-            if (bs.isDelta && f_bs.isZero()) {
-                f_bs = astroray::RGBAlbedoSpectrum({bs.f.x, bs.f.y, bs.f.z}).sample(lambdas);
-            }
-            throughput *= f_bs * (1.0f / (bs.pdf + 0.001f));
+            BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
+            if (bss.pdf <= 0.0f) break;
+            wasSpecular = bss.isDelta;
+            throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
 
-            Ray next(rec.point, bs.wi, ray.time, ray.screenU, ray.screenV);
+            Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
             next.hasCameraFrame = ray.hasCameraFrame;
             next.cameraOrigin = ray.cameraOrigin;
             next.cameraU = ray.cameraU;

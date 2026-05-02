@@ -274,18 +274,12 @@ public:
             }
 
             // BSDF sample.
-            BSDFSample bs = rec.material->sample(rec, wo, gen);
-            if (bs.pdf <= 0.0f) break;
-            astroray::SampledSpectrum f_bs =
-                rec.material->evalSpectral(rec, wo, bs.wi, lambdas);
-            wasSpecular = bs.isDelta;
-            if (bs.isDelta && f_bs.isZero()) {
-                f_bs = astroray::RGBAlbedoSpectrum(
-                    {bs.f.x, bs.f.y, bs.f.z}).sample(lambdas);
-            }
-            throughput *= f_bs * (1.0f / (bs.pdf + 0.001f));
+            BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
+            if (bss.pdf <= 0.0f) break;
+            wasSpecular = bss.isDelta;
+            throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
 
-            Ray next(rec.point, bs.wi, pathRay.time, pathRay.screenU, pathRay.screenV);
+            Ray next(rec.point, bss.wi, pathRay.time, pathRay.screenU, pathRay.screenV);
             next.hasCameraFrame = pathRay.hasCameraFrame;
             next.cameraOrigin   = pathRay.cameraOrigin;
             next.cameraU        = pathRay.cameraU;

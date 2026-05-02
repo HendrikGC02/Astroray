@@ -260,7 +260,7 @@ class NeuralCacheIntegrator : public Integrator {
 
     astroray::SampledSpectrum fullReference(
             const Ray& ray,
-            const astroray::SampledWavelengths& lambdas,
+            astroray::SampledWavelengths& lambdas,
             std::mt19937& gen) const {
         return renderer_->pathTraceSpectral(ray, maxDepth_, lambdas, gen);
     }
@@ -363,20 +363,16 @@ public:
         Vec3 wo = -ray.direction.normalized();
         astroray::SampledSpectrum color = directLighting(rec, wo, lambdas, gen);
 
-        BSDFSample bs = rec.material->sample(rec, wo, gen);
-        if (bs.pdf <= 0.0f || !std::isfinite(bs.pdf)) {
+        BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
+        if (bss.pdf <= 0.0f || !std::isfinite(bss.pdf)) {
             astroray::XYZ xyz = color.toXYZ(lambdas);
             result.color = Vec3(xyz.X, xyz.Y, xyz.Z);
             return result;
         }
 
-        astroray::SampledSpectrum f =
-            rec.material->evalSpectral(rec, wo, bs.wi, lambdas);
-        if (bs.isDelta && f.isZero()) {
-            f = astroray::RGBAlbedoSpectrum({bs.f.x, bs.f.y, bs.f.z}).sample(lambdas);
-        }
+        astroray::SampledSpectrum f = bss.f_spectral;
 
-        Ray next(rec.point, bs.wi, ray.time, ray.screenU, ray.screenV);
+        Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
         next.hasCameraFrame = ray.hasCameraFrame;
         next.cameraOrigin = ray.cameraOrigin;
         next.cameraU = ray.cameraU;

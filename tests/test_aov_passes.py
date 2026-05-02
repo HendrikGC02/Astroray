@@ -26,6 +26,19 @@ def _renderer():
     return r
 
 
+def test_normal_aov_nonzero():
+    """NormalAOV pass must remap normals to [0,1] and write non-black output."""
+    r = _renderer()
+    mat = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
+    r.add_sphere([0, 0, 0], 1.5, mat)
+    r.add_pass("normal_aov")
+    pixels = np.array(r.render(samples_per_pixel=4, max_depth=2), dtype=np.float32)
+    assert pixels is not None
+    assert pixels.size > 0
+    assert np.any(pixels > 0.0), "NormalAOV output is all black; normal remap failed"
+    assert np.all(pixels >= 0.0) and np.all(pixels <= 1.0), "NormalAOV output has values outside [0,1]"
+
+
 def test_albedo_aov_nonzero():
     """AlbedoAOV pass must copy the albedo buffer (non-black) into the color output."""
     r = _renderer()

@@ -248,11 +248,137 @@ __device__ inline float gpu_smithG_GGX(float NdotV, float alphaG) {
     return 1.f / (NdotV + sqrtf(a + b - a*b) + 0.001f);
 }
 
-__device__ inline GVec3 gpu_disney_fresnelSchlick(float cosTheta, const GVec3& F0) {
+__device__ inline GVec3 gpu_disney_fresnelSchlick(float cosTheta, const GVec3& F0, float scale = 0.8f) {
     float c = fminf(fmaxf(1.f - cosTheta, 0.f), 1.f);
-    // Reduced Fresnel: matches CPU (multiplied by 0.8)
+    // Reduced Fresnel for dielectric Disney lobes; metallic lobes approach full conductor Schlick.
     float t5 = c*c*c*c*c;
-    return F0 + (GVec3(1.f) - F0) * t5 * 0.8f;
+    return F0 + (GVec3(1.f) - F0) * t5 * scale;
+}
+
+__device__ inline float gpu_disney_fresnelDielectric(float cosThetaI, float etaI, float etaT) {
+    cosThetaI = fminf(fmaxf(cosThetaI, -1.f), 1.f);
+    bool entering = cosThetaI > 0.f;
+    if (!entering) {
+        float tmp = etaI; etaI = etaT; etaT = tmp;
+        cosThetaI = fabsf(cosThetaI);
+    }
+    float sinThetaI = sqrtf(fmaxf(0.f, 1.f - cosThetaI*cosThetaI));
+    float sinThetaT = etaI / etaT * sinThetaI;
+    if (sinThetaT >= 1.f) return 1.f;
+    float cosThetaT = sqrtf(fmaxf(0.f, 1.f - sinThetaT*sinThetaT));
+    float rPar = ((etaT*cosThetaI) - (etaI*cosThetaT)) /
+                 ((etaT*cosThetaI) + (etaI*cosThetaT) + 1e-6f);
+    float rPerp = ((etaI*cosThetaI) - (etaT*cosThetaT)) /
+                  ((etaI*cosThetaI) + (etaT*cosThetaT) + 1e-6f);
+    return fminf(fmaxf(0.5f * (rPar*rPar + rPerp*rPerp), 0.f), 1.f);
+}
+
+__device__ inline GVec3 gpu_disney_sampleGgxMicroNormal(
+    const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, curandState* rng)
+{
+    float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
+    float r1 = curand_uniform(rng);
+    float r2 = curand_uniform(rng);
+    float phi = 2.f * M_PI_F * r1;
+    float cosT = sqrtf((1.f - r2) / (1.f + (a*a - 1.f)*r2));
+    float sinT = sqrtf(fmaxf(0.f, 1.f - cosT*cosT));
+    GVec3 h(cosf(phi)*sinT, sinf(phi)*sinT, cosT);
+    h = (rec.tangent*h.x + rec.bitangent*h.y + rec.normal*h.z).normalized();
+    return h.dot(wo) < 0.f ? -h : h;
+}
+
+__device__ inline bool gpu_disney_refractMicro(
+    const GVec3& wo, const GVec3& m, float eta, GVec3& wi)
+{
+    float cosTheta = fminf(fmaxf(wo.dot(m), -1.f), 1.f);
+    if (cosTheta <= 0.f) return false;
+    GVec3 wtPerp = (wo - m*cosTheta) * (-eta);
+    float parallel2 = 1.f - wtPerp.length2();
+    if (parallel2 <= 0.f) return false;
+    GVec3 wtParallel = m * (-sqrtf(parallel2));
+    wi = (wtPerp + wtParallel).normalized();
+    return wi.length2() > 1e-10f;
+}
+
+__device__ inline float gpu_disney_microfacetReflectionPdf(
+    const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
+{
+    if (rec.normal.dot(wo) * rec.normal.dot(wi) <= 0.f) return 0.f;
+    GVec3 h = (wo + wi).normalized();
+    if (h.length2() <= 1e-10f) return 0.f;
+    if (h.dot(rec.normal) < 0.f) h = -h;
+    float NdotH = fabsf(rec.normal.dot(h));
+    float HdotV = fabsf(h.dot(wo));
+    if (NdotH <= 0.f || HdotV <= 0.f) return 0.f;
+    float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
+    float D = gpu_D_GTR2(NdotH, a);
+    return D * NdotH / (4.f * HdotV + 1e-6f);
+}
+
+__device__ inline GVec3 gpu_disney_roughTransmissionEval(
+    const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
+{
+    float cosO = rec.normal.dot(wo);
+    float cosI = rec.normal.dot(wi);
+    if (cosO == 0.f || cosI == 0.f || cosO*cosI >= 0.f) return GVec3(0.f);
+    bool entering = cosO > 0.f;
+    float etaI = entering ? 1.f : mat.ior;
+    float etaT = entering ? mat.ior : 1.f;
+    float eta = etaI / etaT;
+    GVec3 h = (wo + wi*eta).normalized();
+    if (h.length2() <= 1e-10f) return GVec3(0.f);
+    if (h.dot(rec.normal) < 0.f) h = -h;
+
+    float HdotO = wo.dot(h);
+    float HdotI = wi.dot(h);
+    if (HdotO * HdotI >= 0.f) return GVec3(0.f);
+    float NdotH = fabsf(rec.normal.dot(h));
+    float absCosO = fabsf(cosO);
+    float denom = etaI*HdotO + etaT*HdotI;
+    float denom2 = denom*denom;
+    if (NdotH <= 0.f || absCosO <= 0.f || denom2 <= 1e-10f) return GVec3(0.f);
+
+    float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
+    float D = gpu_D_GTR2(NdotH, a);
+    float G = gpu_smithG_GGX(absCosO, a) * gpu_smithG_GGX(fabsf(cosI), a);
+    float F = gpu_disney_fresnelDielectric(HdotO, etaI, etaT);
+    float jacobianAndCos = fabsf(HdotO * HdotI) * (etaT * etaT) /
+                           (absCosO * denom2 + 1e-6f);
+    float scale = (1.f - mat.metallic) * mat.transmission * (1.f - F) * D * G * jacobianAndCos;
+    GVec3 result = mat.baseColor * scale;
+    result.x = fminf(fmaxf(result.x, 0.f), 4.f);
+    result.y = fminf(fmaxf(result.y, 0.f), 4.f);
+    result.z = fminf(fmaxf(result.z, 0.f), 4.f);
+    return result;
+}
+
+__device__ inline float gpu_disney_roughTransmissionPdf(
+    const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
+{
+    float cosO = rec.normal.dot(wo);
+    float cosI = rec.normal.dot(wi);
+    if (cosO == 0.f || cosI == 0.f || cosO*cosI >= 0.f) return 0.f;
+    bool entering = cosO > 0.f;
+    float etaI = entering ? 1.f : mat.ior;
+    float etaT = entering ? mat.ior : 1.f;
+    float eta = etaI / etaT;
+    GVec3 h = (wo + wi*eta).normalized();
+    if (h.length2() <= 1e-10f) return 0.f;
+    if (h.dot(rec.normal) < 0.f) h = -h;
+
+    float HdotO = wo.dot(h);
+    float HdotI = wi.dot(h);
+    if (HdotO * HdotI >= 0.f) return 0.f;
+    float NdotH = fabsf(rec.normal.dot(h));
+    float denom = etaI*HdotO + etaT*HdotI;
+    float denom2 = denom*denom;
+    if (NdotH <= 0.f || denom2 <= 1e-10f) return 0.f;
+
+    float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
+    float D = gpu_D_GTR2(NdotH, a);
+    float dwhDwi = fabsf((etaT * etaT * HdotI) / (denom2 + 1e-6f));
+    float F = gpu_disney_fresnelDielectric(HdotO, etaI, etaT);
+    return mat.transmission * (1.f - F) * D * NdotH * dwhDwi;
 }
 
 __device__ inline GVec3 gpu_disney_eval(
@@ -261,6 +387,8 @@ __device__ inline GVec3 gpu_disney_eval(
     GVec3 N = rec.normal;
     float NdotL = N.dot(wi);
     float NdotV = N.dot(wo);
+    if (mat.transmission > 0.f && mat.roughness > 0.03f && NdotL*NdotV < 0.f)
+        return gpu_disney_roughTransmissionEval(mat, rec, wo, wi);
     if (NdotL <= 0.f || NdotV <= 0.f) return GVec3(0.f);
 
     GVec3 H    = (wi + wo).normalized();
@@ -285,7 +413,8 @@ __device__ inline GVec3 gpu_disney_eval(
     // Specular — min alpha 0.0064 (roughness 0.08) to prevent numerical collapse
     float a  = fmaxf(mat.roughness*mat.roughness, 0.0064f);
     float Ds = gpu_D_GTR2(NdotH, a);
-    GVec3 F  = gpu_disney_fresnelSchlick(LdotH, F0);
+    float schlickScale = 0.8f + 0.2f * mat.metallic;
+    GVec3 F  = gpu_disney_fresnelSchlick(LdotH, F0, schlickScale);
     float Gs = gpu_smithG_GGX(NdotL, a) * gpu_smithG_GGX(NdotV, a);
     GVec3 spec = Ds * F * Gs / (4.f * NdotL * NdotV + 0.001f);
 
@@ -301,9 +430,9 @@ __device__ inline GVec3 gpu_disney_eval(
                          / (4.f*NdotL*NdotV + 0.001f)) * 0.5f;
 
     GVec3 result = ((1.f-mat.metallic)*(1.f-mat.transmission)*diffuse
-                    + spec
-                    + (1.f-mat.metallic)*Fsheen
-                    + ccTerm) * NdotL;
+                   + spec
+                   + (1.f-mat.metallic)*Fsheen
+                   + ccTerm) * NdotL;
 
     // Clamp per-sample firefly guard
     result.x = fminf(result.x, 10.f);
@@ -335,6 +464,28 @@ __device__ inline GBSDFSample gpu_disney_sample(
         float f0 = (etaI - etaT) / (etaI + etaT);
         f0 = f0*f0;
         float fresnel = f0 + (1.f-f0)*powf(1.f-cosTheta, 5.f);
+
+        if (mat.roughness > 0.03f) {
+            GVec3 m = gpu_disney_sampleGgxMicroNormal(mat, rec, wo, rng);
+            float microCos = fabsf(wo.dot(m));
+            float microFresnel = gpu_disney_fresnelDielectric(microCos, etaI, etaT);
+            if (cannotRef || curand_uniform(rng) < microFresnel) {
+                s.wi = (m * (2.f * wo.dot(m)) - wo).normalized();
+                if (s.wi.dot(rec.normal) * wo.dot(rec.normal) > 0.f) {
+                    s.f = gpu_disney_eval(mat, rec, wo, s.wi);
+                    s.pdf = mat.transmission * microFresnel *
+                            gpu_disney_microfacetReflectionPdf(mat, rec, wo, s.wi);
+                }
+            } else if (gpu_disney_refractMicro(wo, m, eta, s.wi)) {
+                s.f = gpu_disney_roughTransmissionEval(mat, rec, wo, s.wi);
+                s.pdf = gpu_disney_roughTransmissionPdf(mat, rec, wo, s.wi);
+            }
+            if (s.pdf > 0.f && s.f.length2() > 0.f) {
+                s.isDelta = false;
+                rec.isDelta = false;
+                return s;
+            }
+        }
 
         if (cannotRef || curand_uniform(rng) < fresnel) {
             s.wi  = n * (2.f * wo.dot(n)) - wo;
@@ -387,6 +538,11 @@ __device__ inline GBSDFSample gpu_disney_sample(
 __device__ inline float gpu_disney_pdf(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
+    if (mat.transmission > 0.f && mat.roughness > 0.03f &&
+        rec.normal.dot(wo) * rec.normal.dot(wi) < 0.f) {
+        return gpu_disney_roughTransmissionPdf(mat, rec, wo, wi);
+    }
+
     GVec3 H = (wo + wi).normalized();
     float diffW = (1.f - mat.metallic) * (1.f - mat.transmission);
     float specW = 1.f;
@@ -400,6 +556,13 @@ __device__ inline float gpu_disney_pdf(
         float HdotV = H.dot(wo);
         float D     = gpu_D_GTR2(NdotH, a);
         p += (D * NdotH / (4.f*HdotV + 0.001f)) * (specW / total);
+    }
+    if (mat.transmission > 0.f && mat.roughness > 0.03f) {
+        bool entering = rec.normal.dot(wo) > 0.f;
+        float etaI = entering ? 1.f : mat.ior;
+        float etaT = entering ? mat.ior : 1.f;
+        float F = gpu_disney_fresnelDielectric(wo.dot(H), etaI, etaT);
+        p += mat.transmission * F * gpu_disney_microfacetReflectionPdf(mat, rec, wo, wi);
     }
     return p;
 }

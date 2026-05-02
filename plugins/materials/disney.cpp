@@ -8,6 +8,7 @@ class DisneyPlugin : public Material {
     float clearcoat_, clearcoatGloss_;
     float sheen_, sheenTint_;
     float transmission_, ior_;
+    static constexpr float kDeltaTransmissionRoughness = 0.03f;
 
     float D_GTR2(float NdotH, float a) const {
         float a2 = a * a;
@@ -21,9 +22,138 @@ class DisneyPlugin : public Material {
         return 1 / (NdotV + std::sqrt(a + b - a * b) + 0.001f);
     }
 
-    Vec3 fresnelSchlick(float cosTheta, const Vec3& F0) const {
+    Vec3 fresnelSchlick(float cosTheta, const Vec3& F0, float scale = 0.8f) const {
         float c = std::clamp(1 - cosTheta, 0.0f, 1.0f);
-        return F0 + (Vec3(1) - F0) * std::pow(c, 5) * 0.8f;
+        return F0 + (Vec3(1) - F0) * std::pow(c, 5) * scale;
+    }
+
+    float fresnelDielectric(float cosThetaI, float etaI, float etaT) const {
+        cosThetaI = std::clamp(cosThetaI, -1.0f, 1.0f);
+        bool entering = cosThetaI > 0.0f;
+        if (!entering) {
+            std::swap(etaI, etaT);
+            cosThetaI = std::abs(cosThetaI);
+        }
+
+        float sinThetaI = std::sqrt(std::max(0.0f, 1.0f - cosThetaI * cosThetaI));
+        float sinThetaT = etaI / etaT * sinThetaI;
+        if (sinThetaT >= 1.0f) return 1.0f;
+
+        float cosThetaT = std::sqrt(std::max(0.0f, 1.0f - sinThetaT * sinThetaT));
+        float rParallel = ((etaT * cosThetaI) - (etaI * cosThetaT)) /
+                          ((etaT * cosThetaI) + (etaI * cosThetaT) + 1e-6f);
+        float rPerp = ((etaI * cosThetaI) - (etaT * cosThetaT)) /
+                      ((etaI * cosThetaI) + (etaT * cosThetaT) + 1e-6f);
+        return std::clamp(0.5f * (rParallel * rParallel + rPerp * rPerp), 0.0f, 1.0f);
+    }
+
+    Vec3 sampleGgxMicroNormal(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const {
+        std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+        float alpha = std::max(roughness_ * roughness_, 0.0064f);
+        float u1 = dist(gen);
+        float u2 = dist(gen);
+        float phi = 2.0f * float(M_PI) * u1;
+        float cosTheta = std::sqrt((1.0f - u2) / (1.0f + (alpha * alpha - 1.0f) * u2));
+        float sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+        Vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
+        h = (rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z).normalized();
+        if (h.dot(wo) < 0.0f) h = -h;
+        return h;
+    }
+
+    bool refractThroughMicroNormal(const Vec3& wo, const Vec3& m, float eta, Vec3& wi) const {
+        float cosTheta = std::clamp(wo.dot(m), -1.0f, 1.0f);
+        if (cosTheta <= 0.0f) return false;
+
+        Vec3 wtPerp = (wo - m * cosTheta) * (-eta);
+        float parallel2 = 1.0f - wtPerp.length2();
+        if (parallel2 <= 0.0f) return false;
+
+        Vec3 wtParallel = m * (-std::sqrt(parallel2));
+        wi = (wtPerp + wtParallel).normalized();
+        return wi.length2() > 1e-10f;
+    }
+
+    float microfacetReflectionPdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        if (rec.normal.dot(wo) * rec.normal.dot(wi) <= 0.0f) return 0.0f;
+        Vec3 h = (wo + wi).normalized();
+        if (h.length2() <= 1e-10f) return 0.0f;
+        if (h.dot(rec.normal) < 0.0f) h = -h;
+
+        float NdotH = std::abs(rec.normal.dot(h));
+        float HdotV = std::abs(h.dot(wo));
+        if (NdotH <= 0.0f || HdotV <= 0.0f) return 0.0f;
+
+        float alpha = std::max(roughness_ * roughness_, 0.0064f);
+        float D = D_GTR2(NdotH, alpha);
+        return D * NdotH / (4.0f * HdotV + 1e-6f);
+    }
+
+    Vec3 roughTransmissionEval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        float cosO = rec.normal.dot(wo);
+        float cosI = rec.normal.dot(wi);
+        if (cosO == 0.0f || cosI == 0.0f || cosO * cosI >= 0.0f) return Vec3(0);
+
+        bool entering = cosO > 0.0f;
+        float etaI = entering ? 1.0f : ior_;
+        float etaT = entering ? ior_ : 1.0f;
+        float eta = etaI / etaT;
+        Vec3 h = (wo + wi * eta).normalized();
+        if (h.length2() <= 1e-10f) return Vec3(0);
+        if (h.dot(rec.normal) < 0.0f) h = -h;
+
+        float HdotO = wo.dot(h);
+        float HdotI = wi.dot(h);
+        if (HdotO * HdotI >= 0.0f) return Vec3(0);
+
+        float NdotH = std::abs(rec.normal.dot(h));
+        float absCosO = std::abs(cosO);
+        float denom = etaI * HdotO + etaT * HdotI;
+        float denom2 = denom * denom;
+        if (NdotH <= 0.0f || absCosO <= 0.0f || denom2 <= 1e-10f) return Vec3(0);
+
+        float alpha = std::max(roughness_ * roughness_, 0.0064f);
+        float D = D_GTR2(NdotH, alpha);
+        float G = smithG_GGX(absCosO, alpha) * smithG_GGX(std::abs(cosI), alpha);
+        float F = fresnelDielectric(HdotO, etaI, etaT);
+
+        float jacobianAndCos = std::abs(HdotO * HdotI) * (etaT * etaT) /
+                               (absCosO * denom2 + 1e-6f);
+        float scale = (1.0f - metallic_) * transmission_ * (1.0f - F) * D * G * jacobianAndCos;
+        Vec3 result = baseColor_ * scale;
+        result.x = std::clamp(result.x, 0.0f, 4.0f);
+        result.y = std::clamp(result.y, 0.0f, 4.0f);
+        result.z = std::clamp(result.z, 0.0f, 4.0f);
+        return result;
+    }
+
+    float roughTransmissionPdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        float cosO = rec.normal.dot(wo);
+        float cosI = rec.normal.dot(wi);
+        if (cosO == 0.0f || cosI == 0.0f || cosO * cosI >= 0.0f) return 0.0f;
+
+        bool entering = cosO > 0.0f;
+        float etaI = entering ? 1.0f : ior_;
+        float etaT = entering ? ior_ : 1.0f;
+        float eta = etaI / etaT;
+        Vec3 h = (wo + wi * eta).normalized();
+        if (h.length2() <= 1e-10f) return 0.0f;
+        if (h.dot(rec.normal) < 0.0f) h = -h;
+
+        float HdotO = wo.dot(h);
+        float HdotI = wi.dot(h);
+        if (HdotO * HdotI >= 0.0f) return 0.0f;
+
+        float NdotH = std::abs(rec.normal.dot(h));
+        float denom = etaI * HdotO + etaT * HdotI;
+        float denom2 = denom * denom;
+        if (NdotH <= 0.0f || denom2 <= 1e-10f) return 0.0f;
+
+        float alpha = std::max(roughness_ * roughness_, 0.0064f);
+        float D = D_GTR2(NdotH, alpha);
+        float dwhDwi = std::abs((etaT * etaT * HdotI) / (denom2 + 1e-6f));
+        float F = fresnelDielectric(HdotO, etaI, etaT);
+        return transmission_ * (1.0f - F) * D * NdotH * dwhDwi;
     }
 
 public:
@@ -63,6 +193,9 @@ public:
         Vec3 N = rec.normal;
         float NdotL = N.dot(wi);
         float NdotV = N.dot(wo);
+        if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness && NdotL * NdotV < 0.0f) {
+            return roughTransmissionEval(rec, wo, wi);
+        }
         if (NdotL <= 0 || NdotV <= 0) return Vec3(0);
 
         Vec3 H = (wi + wo).normalized();
@@ -84,7 +217,8 @@ public:
 
         float a = std::max(roughness_ * roughness_, 0.0064f);
         float Ds = D_GTR2(NdotH, a);
-        Vec3 F = fresnelSchlick(LdotH, F0);
+        float schlickScale = 0.8f + 0.2f * metallic_;
+        Vec3 F = fresnelSchlick(LdotH, F0, schlickScale);
         float Gs = smithG_GGX(NdotL, a) * smithG_GGX(NdotV, a);
         Vec3 spec = Ds * F * Gs / (4 * NdotL * NdotV + 0.001f);
 
@@ -100,7 +234,9 @@ public:
                       (1 - metallic_) * Fsheen + clearcoatTerm) * NdotL;
         float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness_);
         float msWeight = roughness_ * (2.0f - roughness_);
-        result += F0 * (Fms * msWeight * 0.5f) * NdotL;
+        Vec3 dielectricMs = F0 * (Fms * msWeight * 0.5f) * NdotL;
+        Vec3 conductorMs = F0 * (Fms * msWeight * 1.3f);
+        result += dielectricMs * (1.0f - metallic_) + conductorMs * metallic_;
 
         result.x = std::clamp(result.x, 0.0f, 4.0f);
         result.y = std::clamp(result.y, 0.0f, 4.0f);
@@ -139,6 +275,32 @@ public:
             f0 = f0 * f0;
             float fresnel = f0 + (1 - f0) * std::pow(1 - cosTheta, 5);
 
+            if (roughness_ > kDeltaTransmissionRoughness) {
+                Vec3 m = sampleGgxMicroNormal(rec, wo, gen);
+                float microCos = std::abs(wo.dot(m));
+                float microFresnel = fresnelDielectric(microCos, etaI, etaT);
+
+                if (cannotRefract || dist(gen) < microFresnel) {
+                    s.wi = (m * (2.0f * wo.dot(m)) - wo).normalized();
+                    if (s.wi.dot(rec.normal) * wo.dot(rec.normal) > 0.0f) {
+                        s.f = eval(rec, wo, s.wi);
+                        s.pdf = transmission_ * microFresnel * microfacetReflectionPdf(rec, wo, s.wi);
+                    }
+                } else if (refractThroughMicroNormal(wo, m, eta, s.wi)) {
+                    s.f = roughTransmissionEval(rec, wo, s.wi);
+                    s.pdf = roughTransmissionPdf(rec, wo, s.wi);
+                }
+
+                if (s.pdf > 0.0f && s.f.length2() > 0.0f) {
+                    s.isDelta = false;
+                    const_cast<HitRecord&>(rec).isDelta = false;
+                    return s;
+                }
+                // Extremely grazing sampled microfacets can fail both reflection
+                // and refraction. Fall through to the smooth event instead of
+                // treating that as absorption.
+            }
+
             if (cannotRefract || dist(gen) < fresnel) {
                 s.wi = n * (2 * wo.dot(n)) - wo;
                 s.f = Vec3(1);
@@ -150,9 +312,8 @@ public:
                 s.f = baseColor_ * (eta * eta);
                 s.pdf = (1 - fresnel) * transmission_;
             }
-            // Rough transmission is not implemented yet; treat transmission as
-            // a delta glass event so spectral paths do not evaluate the wrong
-            // side of the surface as an opaque black BSDF.
+            // Smooth/failed rough samples use a delta glass event so spectral
+            // paths do not evaluate the wrong side of the surface as opaque.
             s.isDelta = true;
             const_cast<HitRecord&>(rec).isDelta = true;
             return s;
@@ -190,6 +351,11 @@ public:
     }
 
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+        if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness &&
+            rec.normal.dot(wo) * rec.normal.dot(wi) < 0.0f) {
+            return roughTransmissionPdf(rec, wo, wi);
+        }
+
         Vec3 H = (wo + wi).normalized();
         float diffWeight = (1 - metallic_) * (1 - transmission_);
         float specWeight = 1;
@@ -202,6 +368,13 @@ public:
             float HdotV = H.dot(wo);
             float D = D_GTR2(NdotH, a);
             p += (D * NdotH / (4 * HdotV + 0.001f)) * (specWeight / total);
+        }
+        if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
+            bool entering = rec.normal.dot(wo) > 0.0f;
+            float etaI = entering ? 1.0f : ior_;
+            float etaT = entering ? ior_ : 1.0f;
+            float F = fresnelDielectric(wo.dot(H), etaI, etaT);
+            p += transmission_ * F * microfacetReflectionPdf(rec, wo, wi);
         }
         return p;
     }

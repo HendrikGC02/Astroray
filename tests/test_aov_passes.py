@@ -36,7 +36,7 @@ def test_depth_aov_nonzero():
     assert pixels is not None
     assert pixels.size > 0
     assert np.any(pixels > 0.0), "DepthAOV output is all black; depth normalization failed"
-    assert np.max(pixels) - np.min(pixels[pixels > 0.0]) > 0.0 or np.any(pixels > 0.0)
+    assert np.max(pixels) > np.min(pixels[pixels > 0.0]), "DepthAOV values do not vary; normalization may be broken"
 
 
 def test_normal_aov_nonzero():

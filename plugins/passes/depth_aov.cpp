@@ -28,7 +28,7 @@ public:
         float* color = fb.buffer("color");
         for (int i = 0; i < n; ++i) {
             float d = depth[i];
-            float norm = (d > 0.0f && std::isfinite(d) && range > 0.0f)
+            float norm = (d > 0.0f && std::isfinite(d))
                          ? (d - dmin) / range
                          : 0.0f;
             color[i * 3]     = norm;

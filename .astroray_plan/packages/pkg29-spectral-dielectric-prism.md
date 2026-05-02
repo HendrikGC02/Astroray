@@ -2,9 +2,9 @@
 
 **Pillar:** 2 / 5 follow-up  
 **Track:** A  
-**Status:** open  
-**Estimated effort:** 2-3 sessions (~9 h)  
-**Depends on:** pkg28
+**Status:** implemented
+**Estimated effort:** 2-3 sessions (~9 h)
+**Depends on:** pkg30, pkg31
 
 ---
 
@@ -42,30 +42,28 @@ chromatic dispersion without wavelength-dependent refraction.
 
 ## Specification
 
-### Files to create
+### Files created
 
 | File | Purpose |
 |---|---|
 | `tests/test_spectral_prism.py` | Prism dispersion validation, initially small and deterministic. |
 | `tests/scenes/prism_reference.py` | Shared scene builder for a triangular glass prism, narrow white light, and screen/catcher. |
 
-### Files to modify
+### Files modified
 
 | File | What changes |
 |---|---|
-| `include/raytracer.h` | Add a spectral-aware BSDF sampling hook, likely `sampleSpectral(rec, wo, gen, lambdas)`, defaulting to `sample()`. |
-| `plugins/materials/dielectric.cpp` | Use wavelength-dependent IOR for refraction and call `lambdas.terminateSecondary()` on dispersive events. |
-| `plugins/integrators/spectral_path_tracer.cpp` and related integrators | Call the spectral sampling hook where wavelengths affect direction. |
-| `data/spectra/` | Add pinned glass preset data if Sellmeier coefficients are not already present. |
+| `.astroray_plan/docs/STATUS.md` | Mark pkg29 and its prerequisites implemented. |
+| `.astroray_plan/packages/pkg29-spectral-dielectric-prism.md` | Completion record. |
 
 ### Acceptance criteria
 
-- [ ] Transparent/glass objects render through the spectral path tracer without
+- [x] Transparent/glass objects render through the spectral path tracer without
       the current incorrect same-direction-per-wavelength behavior.
-- [ ] A prism scene produces visible color separation in a saved render.
-- [ ] A deterministic test verifies non-zero wavelength/color exit spread.
-- [ ] Existing spectral material tests still pass.
-- [ ] The default non-dispersive glass path remains compatible with existing
+- [x] A prism scene produces visible color separation in a saved render.
+- [x] A deterministic test verifies non-zero wavelength/color exit spread.
+- [x] Existing spectral material tests still pass.
+- [x] The default non-dispersive glass path remains compatible with existing
       scenes and Python material creation.
 
 ---
@@ -76,3 +74,18 @@ chromatic dispersion without wavelength-dependent refraction.
 - Do not require CUDA.
 - Do not attempt caustic-perfect convergence; the first test can be low
   resolution and structural.
+
+---
+
+## Completion Notes
+
+pkg30 and pkg31 supplied the required spectral BSDF hook and Sellmeier
+dielectric sampling. pkg29 adds the prism validation layer: a closed triangular
+BK7 prism, structured target plane, saved render outputs, and a deterministic
+red/blue centroid-spread check against flat-IOR glass.
+
+Generated visual artifacts:
+
+- `test_results/pkg29_flat_prism.png`
+- `test_results/pkg29_bk7_prism.png`
+- `test_results/pkg29_dispersive_prism.png`

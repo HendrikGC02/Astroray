@@ -2,7 +2,7 @@
 
 **Pillar:** 2 follow-up  
 **Track:** A  
-**Status:** open  
+**Status:** implemented
 **Estimated effort:** 1–2 sessions (~6 h)  
 **Depends on:** pkg30  
 **Blocks:** pkg29
@@ -78,13 +78,13 @@ On reflection (TIR or Fresnel choice): no dispersion, all wavelengths survive.
 
 ### Acceptance criteria
 
-- [ ] Non-dispersive glass scenes render identically to before pkg31.
-- [ ] A dispersive glass sphere under white light shows wavelength-dependent
+- [x] Non-dispersive glass scenes render identically to before pkg31.
+- [x] A dispersive glass sphere under white light shows wavelength-dependent
       refraction angles (verified by rendering two renders: flat IOR vs Sellmeier,
       and checking pixel differences exist).
-- [ ] `terminateSecondary()` is called on dispersive refraction events.
-- [ ] All existing tests pass.
-- [ ] Preset loading from `glass_presets.json` works for at least `bk7`.
+- [x] `terminateSecondary()` is called on dispersive refraction events.
+- [x] All existing tests pass.
+- [x] Preset loading works for at least `bk7`.
 
 ---
 

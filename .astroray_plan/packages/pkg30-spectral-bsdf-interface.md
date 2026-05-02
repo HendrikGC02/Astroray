@@ -2,7 +2,7 @@
 
 **Pillar:** 2 follow-up  
 **Track:** A  
-**Status:** open  
+**Status:** implemented
 **Estimated effort:** 1 session (~3 h)  
 **Depends on:** pkg13 (done)  
 **Blocks:** pkg31, pkg29
@@ -69,10 +69,10 @@ virtual BSDFSampleSpectral sampleSpectral(
 
 ### Acceptance criteria
 
-- [ ] All existing tests pass without changes to any material plugin.
-- [ ] The spectral path tracer calls `sampleSpectral()` instead of `sample()`.
-- [ ] Delta-fallback RGB upsample block removed from integrator (handled by default impl).
-- [ ] Non-dispersive dielectric/mirror/metal scenes render identically to before.
+- [x] All existing tests pass without changes to any material plugin.
+- [x] The spectral path tracer calls `sampleSpectral()` instead of `sample()`.
+- [x] Delta-fallback RGB upsample block removed from integrator (handled by default impl).
+- [x] Non-dispersive dielectric/mirror/metal scenes render identically to before.
 
 ---
 

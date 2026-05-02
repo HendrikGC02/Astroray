@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-01 (pkg30-33 specs created; Copilot issues #121-#127 opened for visual diagnostics)
+**Last updated:** 2026-05-02 (pkg29 spectral prism validation implemented)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -63,9 +63,9 @@ personally should pick up.
 
 | Package | Description | Status |
 |---|---|---|
-| pkg30 | Spectral BSDF sampling interface (`sampleSpectral` on Material) | open |
-| pkg31 | Spectral dielectric with Sellmeier dispersion | open |
-| pkg29 | Spectral dielectric prism validation | open (blocked by pkg31) |
+| pkg30 | Spectral BSDF sampling interface (`sampleSpectral` on Material) | implemented |
+| pkg31 | Spectral dielectric with Sellmeier dispersion | implemented |
+| pkg29 | Spectral dielectric prism validation | implemented |
 
 **Visual diagnostics & production polish (Pillar 5):**
 
@@ -82,9 +82,8 @@ personally should pick up.
 
 ### Track A (Claude Code)
 
-- Next up: pkg30 (sampleSpectral interface) → pkg31 (Sellmeier dielectric)
-  → pkg29 (prism validation). Then pkg33 (OIDN) and pkg32 Track-A parts
-  (integrator per-pixel stats, convergence tracker, showcase script).
+- pkg29 prism validation is complete. Next up: pkg33 (OIDN) and pkg32 Track-A
+  parts (integrator per-pixel stats, convergence tracker, showcase script).
 
 ### Track B (Copilot cloud)
 
@@ -136,9 +135,6 @@ personally should pick up.
 
 | Package | Track | Status | Blocker |
 |---|---|---|---|
-| pkg30 | A | open | — |
-| pkg31 | A | open | pkg30 |
-| pkg29 | A | open | pkg31 |
 | pkg32 | A+B | open | — (B issues: #121–#127) |
 | pkg33 | A | open | — |
 | native-gr-spectrum | E | in review | PR #119 |
@@ -150,11 +146,9 @@ personally should pick up.
 - `include/raytracer.h` and `include/advanced_features.h` still contain texture class bodies (`CheckerTexture`, `NoiseTexture`, etc.). These are used directly by `blender_module.cpp` and will be cleaned up in a future package if the plan calls for it.
 - ReSTIR work is now scoped at package-file level in issue #114; implementation should start at `pkg20` after review.
 - Windows verification is sensitive to stale build caches; test bootstrap now supports `ASTRORAY_BUILD_DIR` and standard `build/Release` layouts, but the old `build/` cache on this workstation still points at a missing MinGW install.
-- Transparent/glass objects still do not produce prism-style spectral
-  dispersion in the current spectral path tracer. The glass-prism rainbow render
-  needs wavelength-dependent dielectric sampling before it can become a
-  non-xfailed image/angle-spread test. Draft follow-up:
-  `pkg29-spectral-dielectric-prism.md`.
+- Prism-style spectral dispersion now has a deterministic validation scene and
+  saved render outputs. It is not a caustic-perfect showcase yet; pkg32 should
+  turn the structural prism validation into a polished visual diagnostic.
 
 ---
 
@@ -168,6 +162,11 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-05-02** — pkg29 complete. Added
+  `tests/scenes/prism_reference.py` and `tests/test_spectral_prism.py`.
+  The test renders flat-IOR and BK7 triangular prisms, saves visual artifacts,
+  and verifies measurable red/blue centroid spread in the dispersive render.
+  Focused validation: `tests/test_spectral_prism.py` passed.
 - **2026-05-01** — Created pkg30–pkg33 specs. pkg30: `sampleSpectral()` virtual
   on Material (interface-only, no material changes). pkg31: Sellmeier dispersion
   in DielectricPlugin with `terminateSecondary()`. pkg32: visual diagnostics

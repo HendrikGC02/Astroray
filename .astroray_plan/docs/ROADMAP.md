@@ -95,6 +95,21 @@ plugin. This is Astroray's unique niche.
 - Duration: 6–10 weeks, parallel with other pillars
 - Depends on Pillars 1, 2.
 
+### Backend parity bridge — before Pillar 4 acceleration
+
+The plugin and spectral systems are in place, but the CPU/GPU material
+boundary still needs an explicit contract. Before leaning harder on
+GPU-default rendering and before Pillar 4 adds more spectral phenomena,
+material plugins should declare backend capabilities and either lower
+to a shared CPU/GPU closure representation or clearly fall back to CPU.
+
+- `pkg34-material-backend-capabilities.md` — capability metadata,
+  no silent grey-Lambertian GPU fallback, CPU/GPU contact-sheet diffs.
+- `pkg35-spectral-gpu-materials.md` — make CUDA material sampling
+  spectral for the core material set.
+- `pkg36-material-closure-graph.md` — shared material closure graph so
+  many new plugins work on CPU and GPU without hand-written duplicates.
+
 ### Pillar 5 — Production polish
 
 Multi-GPU scaling, OIDN 2.x→3.0, Blender viewport render, motion blur,

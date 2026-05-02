@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-02 (pkg29 spectral prism validation implemented)
+**Last updated:** 2026-05-03 (Pillar 4 prep + material backend bridge specs)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -19,7 +19,7 @@ personally should pick up.
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 88% | NRC batched-inference speedup target | ~~Pillars 1, 2~~ |
-| 4 | Astrophysics platform | Queued | 0% | Kerr | Pillars 1, 2 |
+| 4 | Astrophysics platform | Preparation | 5% | Kerr metric extraction | Pillars 1, 2 complete; backend parity bridge recommended before GPU parity claims |
 | 5 | Production polish | Ongoing | — | OpenEXR output | — |
 
 **Pillar 1 package summary:**
@@ -67,6 +67,14 @@ personally should pick up.
 | pkg31 | Spectral dielectric with Sellmeier dispersion | implemented |
 | pkg29 | Spectral dielectric prism validation | implemented |
 
+**Material backend parity bridge (Pillar 2/5 follow-up):**
+
+| Package | Description | Status |
+|---|---|---|
+| pkg34 | Material backend capabilities + no silent GPU fallback | open |
+| pkg35 | Spectral GPU material kernels | open |
+| pkg36 | Shared material closure graph | open |
+
 **Visual diagnostics & production polish (Pillar 5):**
 
 | Package | Description | Status |
@@ -74,16 +82,35 @@ personally should pick up.
 | pkg32 | Visual diagnostics & benchmark renders | open |
 | pkg33 | OIDN FetchContent integration | open |
 
+**Astrophysics platform (Pillar 4):**
+
+| Package | Description | Status |
+|---|---|---|
+| pkg40 | Kerr metric plugin and Schwarzschild extraction | open |
+| pkg41 | Kerr geodesic validation | open |
+| pkg42 | Synchrotron emission and relativistic jets | open |
+| pkg43 | Slim disk accretion model | open |
+| pkg44 | ADAF accretion model | open |
+| pkg45 | CLOUDY emissivity table preprocessing | open |
+| pkg46 | HII region emission plugin | open |
+| pkg47 | FITS loader | open |
+| pkg48 | HDF5/NumPy simulation-volume loader | open |
+| pkg49 | SPH-to-volume preprocessing | open |
+| pkg50 | Weak lensing pass | open |
+| pkg51 | Synthetic telescope post-process | open |
+
 ---
 
 ## This week
 
-**Week of:** 2026-04-28
+**Week of:** 2026-05-03
 
 ### Track A (Claude Code)
 
-- pkg29 prism validation is complete. Next up: pkg33 (OIDN) and pkg32 Track-A
+- pkg29 prism validation is complete.
+- Next up: pkg34 backend capability guardrails, pkg33 OIDN, and pkg32 Track-A
   parts (integrator per-pixel stats, convergence tracker, showcase script).
+- Pillar 4 can begin with pkg40 once the current registry/reference cleanup is merged.
 
 ### Track B (Copilot cloud)
 
@@ -106,9 +133,9 @@ personally should pick up.
 
 ### Track E (Codex)
 
-- Recently merged: PR #116 (`codex/render-test-triage`) and PR #117 (`codex/gr-spectral-dispatch`).
-- Complete: PR #119 (`codex/native-gr-spectrum`) — native sampled-spectrum GR disk emission.
-- Active: issue #114 (`codex/restir-package-specs`) — Pillar 3 ReSTIR package specs through pkg25, plus Pillar 2 verification/doc alignment.
+- Recently merged: PR #116 (`codex/render-test-triage`), PR #117 (`codex/gr-spectral-dispatch`), and PR #119 (`codex/native-gr-spectrum`) — native sampled-spectrum GR disk emission.
+- Complete: pkg29 implementation; local triage work recorded convergence tracker repair, GGX/rough-metal sampling cleanup, and Disney rough-glass transmission.
+- Active: Pillar 4 prep cleanup — registry scaffolds, Schwarzschild baseline reference, package-number alignment, and material backend bridge specs.
 
 ---
 
@@ -135,9 +162,10 @@ personally should pick up.
 
 | Package | Track | Status | Blocker |
 |---|---|---|---|
+| pkg34 | A | open | — |
 | pkg32 | A+B | open | — (B issues: #121–#127) |
 | pkg33 | A | open | — |
-| native-gr-spectrum | E | in review | PR #119 |
+| pkg40 | A | open | current registry/reference cleanup |
 
 ---
 
@@ -149,6 +177,9 @@ personally should pick up.
 - Prism-style spectral dispersion now has a deterministic validation scene and
   saved render outputs. It is not a caustic-perfect showcase yet; pkg32 should
   turn the structural prism validation into a polished visual diagnostic.
+- GPU material support is currently explicit only for a small flattened set
+  of material types. pkg34-pkg36 define the bridge from CPU material plugins
+  to truthful GPU/default rendering.
 
 ---
 
@@ -162,6 +193,16 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-05-03** — Pillar 4 prep cleanup. Added `MetricRegistry`,
+  `EmissionRegistry`, `ASTRORAY_REGISTER_METRIC`, and
+  `ASTRORAY_REGISTER_EMISSION` scaffolding to `register.h`; captured the
+  pre-refactor Schwarzschild reference render at
+  `tests/reference/schwarzschild_baseline_256.png`; updated Pillar 4 package
+  numbering to pkg40-pkg51; added pkg34-pkg36 specs for material CPU/GPU
+  backend parity.
+- **2026-05-03** — Codex material triage recorded: convergence tracker repair,
+  GGX/rough-metal sampling cleanup, and Disney rough-glass transmission with
+  CPU/CUDA material support and high-sample GPU contact-sheet diagnostics.
 - **2026-05-02** — pkg29 complete. Added
   `tests/scenes/prism_reference.py` and `tests/test_spectral_prism.py`.
   The test renders flat-IOR and BK7 triangular prisms, saves visual artifacts,

@@ -31,10 +31,14 @@ public:
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         astroray::SampledWavelengths lambdas =
             astroray::SampledWavelengths::sampleUniform(dist01(gen));
+        int bounces = 0;
+        float weight = 0.0f;
         astroray::SampledSpectrum rad =
-            renderer_->pathTraceSpectral(ray, maxDepth_, lambdas, gen);
+            renderer_->pathTraceSpectral(ray, maxDepth_, lambdas, gen, &bounces, &weight);
         astroray::XYZ xyz = rad.toXYZ(lambdas);
         r.color = Vec3(xyz.X, xyz.Y, xyz.Z);
+        r.bounceCount = static_cast<float>(bounces);
+        r.sampleWeight = weight;
         return r;
     }
 };

@@ -1446,6 +1446,7 @@ struct SampleResult {
     Vec3 color{0};
     Vec3 albedo{0}, normal{0}, position{0}, uv{0};
     float alpha = 1.0f, depth = 0.0f;
+    float bounceCount = 0.0f, sampleWeight = 0.0f;
     int objectIndex = 0, materialIndex = 0;
     std::array<Vec3, PASS_COUNT> passes;
     SampleResult() { passes.fill(Vec3(0)); }
@@ -1458,6 +1459,7 @@ public:
     int width, height;
     std::vector<Vec3> pixels, albedoBuffer, normalBuffer, positionBuffer, uvBuffer;
     std::vector<float> alphaBuffer, depthBuffer, objectIndexBuffer, materialIndexBuffer;
+    std::vector<float> bounceCountBuffer, sampleWeightBuffer;
     std::vector<Vec3> cryptomatteObjectBuffer, cryptomatteMaterialBuffer;
     std::vector<float> cryptomatteObjectCoverageBuffer, cryptomatteMaterialCoverageBuffer;
     std::array<std::vector<Vec3>, PASS_COUNT> renderPassBuffers;
@@ -1484,6 +1486,8 @@ public:
         uvBuffer.resize(width * height, Vec3(0));
         objectIndexBuffer.resize(width * height, 0.0f);
         materialIndexBuffer.resize(width * height, 0.0f);
+        bounceCountBuffer.resize(width * height, 0.0f);
+        sampleWeightBuffer.resize(width * height, 0.0f);
         cryptomatteObjectBuffer.resize(width * height, Vec3(0));
         cryptomatteMaterialBuffer.resize(width * height, Vec3(0));
         cryptomatteObjectCoverageBuffer.resize(width * height, 0.0f);
@@ -1528,6 +1532,8 @@ public:
         if (name == "albedo") return reinterpret_cast<float*>(cam_->albedoBuffer.data());
         if (name == "normal") return reinterpret_cast<float*>(cam_->normalBuffer.data());
         if (name == "depth")  return cam_->depthBuffer.data();
+        if (name == "bounce_count")  return cam_->bounceCountBuffer.data();
+        if (name == "sample_weight") return cam_->sampleWeightBuffer.data();
         return nullptr;
     }
     const float* buffer(const std::string& name) const {
@@ -1762,15 +1768,20 @@ public:
     astroray::SampledSpectrum pathTraceSpectral(
             const Ray& r, int maxDepth,
             astroray::SampledWavelengths& lambdas,
-            std::mt19937& gen) {
+            std::mt19937& gen,
+            int* outBounces = nullptr,
+            float* outWeight = nullptr) {
         const int rrDepth = 3;
         astroray::SampledSpectrum color(0.0f);
         astroray::SampledSpectrum throughput(1.0f);
         Ray ray = r;
         bool wasSpecular = true;
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
+        int lastBounce = 0;
+        float weightSum = 0.0f;
 
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
+            lastBounce = bounce;
             HitRecord rec;
             if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
                 // No env NEE in pathTraceSpectral, so env always contributes on miss
@@ -1880,9 +1891,12 @@ public:
             next.cameraW = ray.cameraW;
             ray = next;
 
+            weightSum += throughput.maxValue();
             float maxC = throughput.maxValue();
             if (maxC > 10.0f) throughput = throughput * (10.0f / maxC);
         }
+        if (outBounces) *outBounces = lastBounce;
+        if (outWeight) *outWeight = weightSum;
         return color;
     }
 
@@ -1955,6 +1969,8 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         passColor.fill(Vec3(0));
                         float alpha = 0.0f;
                         float depth = 0.0f;
+                        float bounceCountAccum = 0.0f;
+                        float sampleWeightAccum = 0.0f;
                         float objectIndex = 0.0f;
                         float materialIndex = 0.0f;
                         std::unordered_map<int, int> objectSampleCounts;
@@ -1970,6 +1986,8 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             sPass.fill(Vec3(0));
                             float sAlpha = 1.0f;
                             float sDepth = 0.0f;
+                            float sBounceCount = 0.0f;
+                            float sSampleWeight = 0.0f;
                             int sObjectIndex = 0;
                             int sMaterialIndex = 0;
                             Vec3 sCol;
@@ -1980,6 +1998,8 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 sNorm = ir.normal;
                                 sAlpha = ir.alpha;
                                 sDepth = ir.depth;
+                                sBounceCount = ir.bounceCount;
+                                sSampleWeight = ir.sampleWeight;
                                 sPosition = ir.position;
                                 sUv = ir.uv;
                                 sObjectIndex = ir.objectIndex;
@@ -1995,6 +2015,8 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 passColor[passIndex] += sPass[passIndex];
                             }
                             alpha += sAlpha;
+                            bounceCountAccum += sBounceCount;
+                            sampleWeightAccum += sSampleWeight;
                             samples++;
                             objectSampleCounts[sObjectIndex]++;
                             materialSampleCounts[sMaterialIndex]++;
@@ -2049,6 +2071,8 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         cam.uvBuffer[idx] = uv;
                         cam.objectIndexBuffer[idx] = objectIndex;
                         cam.materialIndexBuffer[idx] = materialIndex;
+                        cam.bounceCountBuffer[idx] = bounceCountAccum / float(samples);
+                        cam.sampleWeightBuffer[idx] = sampleWeightAccum / float(samples);
                         cam.alphaBuffer[idx] = std::clamp(alpha, 0.0f, 1.0f);
                         auto dominantIdAndCoverage = [samples](const std::unordered_map<int, int>& counts) {
                             int bestId = 0;

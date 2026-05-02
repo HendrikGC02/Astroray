@@ -4,7 +4,7 @@
 **Track:** B (plugin, self-contained) with Track A review  
 **Status:** open  
 **Estimated effort:** 2 sessions (~6 h)  
-**Depends on:** pkg40 (Kerr metric), pkg14 (spectral pipeline)
+**Depends on:** pkg40 (Kerr metric), pkg14 (spectral pipeline), EmissionRegistry scaffold
 
 ---
 
@@ -49,12 +49,15 @@ This makes it a clean self-contained plugin.
   density profile)
 - Spectral pipeline: `include/astroray/spectrum.h` (SampledSpectrum)
 - GR integrator: `include/astroray/gr_metric.h` (from pkg40)
+- Emission plugin registry: `include/astroray/register.h`
 
 ---
 
 ## Prerequisites
 
 - [ ] pkg40 is done: Kerr metric renders working.
+- [x] `EmissionRegistry` and `ASTRORAY_REGISTER_EMISSION` exist in
+      `include/astroray/register.h`.
 - [ ] Spectral pipeline (Pillar 2) is complete.
 - [ ] Build passes on main.
 - [ ] All existing tests pass.

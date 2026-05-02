@@ -1,6 +1,6 @@
 # Pillar 4: Astrophysics Platform
 
-**Status:** Not started
+**Status:** Preparation
 **Depends on:** Pillars 1, 2
 **Track:** A (Kerr core), B (phenomena as plugins)
 **Duration:** 6–10 weeks, parallel with other pillars
@@ -62,6 +62,10 @@ ASTRORAY_REGISTER_METRIC("schwarzschild", SchwarzschildMetric)
 ASTRORAY_REGISTER_METRIC("kerr", KerrMetric)
 ```
 
+`MetricRegistry` and `ASTRORAY_REGISTER_METRIC` are now reserved in
+`include/astroray/register.h` so pkg40 can extract Schwarzschild without
+first inventing registration plumbing.
+
 Dormand-Prince RK4/5 + adaptive stepping + conservation monitoring
 (E, L_z, Carter constant Q). Step size ∝ Δ(r) near horizon. Use the
 **r < 2.5M** capture threshold from the validated Python implementation
@@ -72,7 +76,7 @@ research report; GRay and EinsteinPy both document numerical
 difficulties in FP32 near coordinate singularities). BL coords first;
 consider Kerr-Schild if BL isn't fast enough on GPU.
 
-Packages: `pkg30-kerr-metric.md`, `pkg31-kerr-tests.md`.
+Packages: `pkg40-kerr-metric.md`, `pkg41-kerr-validation.md`.
 
 ### 4.2 Accretion models beyond thin disk
 
@@ -83,7 +87,7 @@ Plugins:
   two-temperature (T_ion ~ 10¹² K, T_e ~ 10¹⁰⁻¹¹ K).
 
 Each = volume-density profile + emission model, emits spectral
-radiance. Packages: `pkg32-slim-disk.md`, `pkg33-adaf.md`.
+radiance. Packages: `pkg43-slim-disk.md`, `pkg44-adaf.md`.
 
 ### 4.3 Synchrotron emission and jets
 
@@ -94,7 +98,11 @@ I_ν = D³ I'_ν' where D = 1/(γ(1 − β cos θ)).
 For γ=10 head-on, approaching jet ×10⁵, counter-jet ×10⁻⁸. Most
 visually dramatic effect Astroray will produce.
 
-Package: `pkg34-synchrotron.md`.
+Package: `pkg42-synchrotron-jets.md`.
+
+`EmissionRegistry` and `ASTRORAY_REGISTER_EMISSION` are reserved in
+`include/astroray/register.h`; pkg42 owns the concrete volumetric
+emission base class and first plugin implementation.
 
 ### 4.4 HII regions and emission nebulae
 
@@ -104,8 +112,8 @@ Spectral pipeline's natural fit. Lines: Hα 656.3nm, Hβ 486.1nm,
 Preprocessing: Python `pyCloudy` generates emissivity tables
 j_ν(ρ, T, U, λ) as a 4D lookup. Astroray's plugin samples per-voxel.
 
-Packages: `pkg35-cloudy-tables.md` (Python preprocessing),
-`pkg36-hii-plugin.md`.
+Packages: `pkg45-cloudy-tables.md` (Python preprocessing),
+`pkg46-hii-region.md`.
 
 ### 4.5 Simulation data import
 
@@ -129,8 +137,8 @@ Astroray's `SimulationVolume` plugin loads these `.npy` files directly.
 **SPH data** needs kernel interpolation to a grid. Wendland C4 kernel;
 ~100 lines, no external dep.
 
-Packages: `pkg37-fits-loader.md`, `pkg38-hdf5-loader.md`,
-`pkg39-sph-to-volume.md`.
+Packages: `pkg47-fits-loader.md`, `pkg48-hdf5-numpy-loader.md`,
+`pkg49-sph-to-volume.md`.
 
 ### 4.6 Gravitational lensing
 
@@ -145,7 +153,7 @@ metric (reuses the machinery from Kerr).
 
 Plugin: `plugins/lensing/weak.cpp`, `plugins/lensing/cluster.cpp`.
 
-Package: `pkg40-weak-lensing.md` (strong lensing inherits from Kerr
+Package: `pkg50-weak-lensing.md` (strong lensing inherits from Kerr
 machinery — no extra package).
 
 ### 4.7 Synthetic telescope observations (PSF, noise)
@@ -161,7 +169,7 @@ detector.
 
 Plugin: `plugins/postprocess/telescope.cpp`.
 
-Package: `pkg41-telescope-postprocess.md`.
+Package: `pkg51-telescope-postprocess.md`.
 
 ## Migration strategy
 

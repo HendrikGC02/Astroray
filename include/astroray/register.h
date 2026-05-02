@@ -9,6 +9,8 @@ class Texture;
 class Light;
 class Integrator;
 class Pass;
+class Metric;
+class Emission;
 
 namespace astroray {
     using MaterialRegistry   = Registry<Material>;
@@ -17,6 +19,8 @@ namespace astroray {
     using LightRegistry      = Registry<Light>;
     using IntegratorRegistry = Registry<Integrator>;
     using PassRegistry       = Registry<Pass>;
+    using MetricRegistry     = Registry<Metric>;
+    using EmissionRegistry   = Registry<Emission>;
 } // namespace astroray
 
 #define ASTRORAY_REGISTER_MATERIAL(name, T) \
@@ -52,5 +56,17 @@ namespace astroray {
 #define ASTRORAY_REGISTER_PASS(name, T) \
     namespace { struct R_##T { R_##T() { \
         astroray::PassRegistry::instance().add(name, \
+            [](const astroray::ParamDict& p) { return std::make_shared<T>(p); }); \
+    }}; static R_##T _r_##T; }
+
+#define ASTRORAY_REGISTER_METRIC(name, T) \
+    namespace { struct R_##T { R_##T() { \
+        astroray::MetricRegistry::instance().add(name, \
+            [](const astroray::ParamDict& p) { return std::make_shared<T>(p); }); \
+    }}; static R_##T _r_##T; }
+
+#define ASTRORAY_REGISTER_EMISSION(name, T) \
+    namespace { struct R_##T { R_##T() { \
+        astroray::EmissionRegistry::instance().add(name, \
             [](const astroray::ParamDict& p) { return std::make_shared<T>(p); }); \
     }}; static R_##T _r_##T; }

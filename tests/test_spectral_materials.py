@@ -143,6 +143,34 @@ def test_dielectric_spectral_no_nan(test_results_dir):
     assert float(pixels.mean()) > 0.001
 
 
+def test_dispersive_dielectric_differs_from_flat(test_results_dir):
+    """Sellmeier dispersion must produce different pixels than flat-IOR glass."""
+    def flat_scene(r):
+        create_cornell_box(r)
+        mat = r.create_material("dielectric", [1.0, 1.0, 1.0], {"ior": 1.5})
+        r.add_sphere([0, -1, 0], 1.0, mat)
+
+    def dispersive_scene(r):
+        create_cornell_box(r)
+        mat = r.create_material("dielectric", [1.0, 1.0, 1.0],
+                                {"sellmeier_preset": "bk7"})
+        r.add_sphere([0, -1, 0], 1.0, mat)
+
+    flat_px = _render("path_tracer", flat_scene, seed=123)
+    disp_px = _render("path_tracer", dispersive_scene, seed=123)
+    save_image(flat_px, os.path.join(test_results_dir, 'pkg31_flat_glass.png'))
+    save_image(disp_px, os.path.join(test_results_dir, 'pkg31_dispersive_glass.png'))
+
+    assert not np.any(np.isnan(disp_px))
+    assert not np.any(np.isinf(disp_px))
+    assert float(disp_px.mean()) > 0.001, "Dispersive render is too dark"
+
+    diff = np.abs(flat_px - disp_px)
+    assert float(diff.max()) > 0.01, (
+        "Dispersive and flat glass renders are identical — dispersion not working"
+    )
+
+
 def test_mirror_spectral_no_nan(test_results_dir):
     def mirror_scene(r):
         create_cornell_box(r)

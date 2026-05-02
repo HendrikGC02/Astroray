@@ -388,7 +388,7 @@ public:
         if (warmup || !enableInference_) {
             astroray::SampledSpectrum tail =
                 renderer_->pathTraceSpectral(next, std::max(1, maxDepth_ - 1), lambdas, gen);
-            astroray::SampledSpectrum indirect = f * tail * (1.0f / (bs.pdf + 0.001f));
+            astroray::SampledSpectrum indirect = f * tail * (1.0f / (bss.pdf + 0.001f));
             if (trainThisSample) {
                 astroray::XYZ xyz = indirect.toXYZ(lambdas);
                 Vec3 rgb = xyzToLinearSRGB(Vec3(xyz.X, xyz.Y, xyz.Z));

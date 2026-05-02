@@ -10,6 +10,9 @@
   "cmake.generator": "Visual Studio 17 2022",
   "cmake.configureSettings": {
     "BUILD_PYTHON_MODULE": "ON",
+    "BUILD_BLENDER_MODULE": "ON",
+    "BUILD_TESTS": "OFF",
+    "BUILD_DOCS": "OFF",
     "ASTRORAY_ENABLE_CUDA": "ON",
     "ASTRORAY_TINY_CUDA_NN": "ON"
   }

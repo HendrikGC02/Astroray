@@ -107,7 +107,7 @@ personally should pick up.
 ### Track E (Codex)
 
 - Recently merged: PR #116 (`codex/render-test-triage`) and PR #117 (`codex/gr-spectral-dispatch`).
-- In review: PR #119 (`codex/native-gr-spectrum`) — native sampled-spectrum GR disk emission.
+- Complete: PR #119 (`codex/native-gr-spectrum`) — native sampled-spectrum GR disk emission.
 - Active: issue #114 (`codex/restir-package-specs`) — Pillar 3 ReSTIR package specs through pkg25, plus Pillar 2 verification/doc alignment.
 
 ---

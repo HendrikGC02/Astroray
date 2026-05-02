@@ -69,3 +69,9 @@ def test_albedo_aov_nonzero(test_results_dir):
     assert pixels.size > 0
     # The albedo of the red Lambertian sphere should produce non-black pixels.
     assert np.any(pixels > 0.0), "AlbedoAOV output is all black; albedo copy failed"
+
+
+def test_sample_heatmap_registered():
+    """sample_heatmap must appear in the pass registry."""
+    names = astroray.pass_registry_names()
+    assert "sample_heatmap" in names, f"'sample_heatmap' not in registry: {names}"

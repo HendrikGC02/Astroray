@@ -1,10 +1,13 @@
 """Tests for pkg32: AlbedoAOV pass."""
 import numpy as np
 import pytest
+import os
 
 from runtime_setup import configure_test_imports
 
 configure_test_imports()
+
+from base_helpers import save_image  # noqa: E402
 
 try:
     import astroray
@@ -26,39 +29,42 @@ def _renderer():
     return r
 
 
-def test_depth_aov_nonzero():
+def test_depth_aov_nonzero(test_results_dir):
     """DepthAOV pass must write normalized depth as grayscale (non-black, varying) to color."""
     r = _renderer()
     mat = r.create_material("lambertian", [0.5, 0.5, 0.5], {})
     r.add_sphere([0, 0, 0], 1.5, mat)
     r.add_pass("depth_aov")
     pixels = np.array(r.render(samples_per_pixel=4, max_depth=2), dtype=np.float32)
+    save_image(pixels, os.path.join(test_results_dir, "aov_depth.png"))
     assert pixels is not None
     assert pixels.size > 0
     assert np.any(pixels > 0.0), "DepthAOV output is all black; depth normalization failed"
     assert np.max(pixels) > np.min(pixels[pixels > 0.0]), "DepthAOV values do not vary; normalization may be broken"
 
 
-def test_normal_aov_nonzero():
+def test_normal_aov_nonzero(test_results_dir):
     """NormalAOV pass must remap normals to [0,1] and write non-black output."""
     r = _renderer()
     mat = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
     r.add_sphere([0, 0, 0], 1.5, mat)
     r.add_pass("normal_aov")
     pixels = np.array(r.render(samples_per_pixel=4, max_depth=2), dtype=np.float32)
+    save_image(pixels, os.path.join(test_results_dir, "aov_normal.png"))
     assert pixels is not None
     assert pixels.size > 0
     assert np.any(pixels > 0.0), "NormalAOV output is all black; normal remap failed"
     assert np.all(pixels >= 0.0) and np.all(pixels <= 1.0), "NormalAOV output has values outside [0,1]"
 
 
-def test_albedo_aov_nonzero():
+def test_albedo_aov_nonzero(test_results_dir):
     """AlbedoAOV pass must copy the albedo buffer (non-black) into the color output."""
     r = _renderer()
     mat = r.create_material("lambertian", [0.8, 0.2, 0.2], {})
     r.add_sphere([0, 0, 0], 1.5, mat)
     r.add_pass("albedo_aov")
     pixels = np.array(r.render(samples_per_pixel=4, max_depth=2), dtype=np.float32)
+    save_image(pixels, os.path.join(test_results_dir, "aov_albedo.png"))
     assert pixels is not None
     assert pixels.size > 0
     # The albedo of the red Lambertian sphere should produce non-black pixels.

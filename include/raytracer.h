@@ -484,6 +484,20 @@ public:
     virtual bool isTransmissive() const { return false; }
     virtual bool isGlossy() const { return false; }
     virtual Vec3 getAlbedo() const { return Vec3(0.5f); }
+    virtual std::string getGPUTypeName() const { return ""; }
+    virtual float getRoughness() const { return 0.5f; }
+    virtual float getMetallic() const { return 0.0f; }
+    virtual float getIOR() const { return 1.5f; }
+    virtual float getTransmission() const { return 0.0f; }
+    virtual float getClearcoat() const { return 0.0f; }
+    virtual float getClearcoatGloss() const { return 1.0f; }
+    virtual float getSpecular() const { return 0.5f; }
+    virtual float getSpecularTint() const { return 0.0f; }
+    virtual float getSheen() const { return 0.0f; }
+    virtual float getSheenTint() const { return 0.5f; }
+    virtual float getSubsurface() const { return 0.0f; }
+    virtual float getAnisotropic() const { return 0.0f; }
+    virtual float getAnisotropicRotation() const { return 0.0f; }
 
     virtual astroray::SampledSpectrum evalSpectral(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,

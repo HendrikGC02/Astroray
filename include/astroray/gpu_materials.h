@@ -347,8 +347,8 @@ __device__ inline GBSDFSample gpu_disney_sample(
             s.f   = mat.baseColor * (eta*eta);
             s.pdf = (1.f - fresnel) * mat.transmission;
         }
-        s.isDelta = (mat.roughness < 0.1f);
-        if (s.isDelta) rec.isDelta = true;
+        s.isDelta = true;
+        rec.isDelta = true;
         return s;
     }
 

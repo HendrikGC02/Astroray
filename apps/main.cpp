@@ -3,6 +3,9 @@
 #include "astroray/shapes.h"
 #include "astroray/black_hole.h"
 #include "astroray/register.h"
+#ifdef ASTRORAY_CUDA_ENABLED
+#include "astroray/gpu_renderer.h"
+#endif
 #include "stb_image_write.h"
 #include <iostream>
 #include <fstream>
@@ -10,6 +13,12 @@
 #include <iomanip>
 #include <algorithm>
 #include <cmath>
+#include <cctype>
+#include <cstdlib>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 static inline float toDisplay(float linear) {
     return std::pow(std::clamp(linear, 0.0f, 1.0f), 1.0f / 2.2f);
@@ -54,6 +63,50 @@ bool writePNG(const std::string& filename, const Camera& cam) {
 
 static std::shared_ptr<Material> makeM(const std::string& type, astroray::ParamDict p) {
     return astroray::MaterialRegistry::instance().create(type, p);
+}
+
+static std::string lowerCopy(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+static void setParamFromCli(astroray::ParamDict& params, const std::string& spec) {
+    size_t eq = spec.find('=');
+    if (eq == std::string::npos || eq == 0) {
+        throw std::runtime_error("--integrator-param expects key=value");
+    }
+
+    std::string key = spec.substr(0, eq);
+    std::string value = spec.substr(eq + 1);
+    std::string low = lowerCopy(value);
+    if (low == "true" || low == "on") {
+        params.set(key, true);
+        return;
+    }
+    if (low == "false" || low == "off") {
+        params.set(key, false);
+        return;
+    }
+
+    try {
+        size_t parsed = 0;
+        if (value.find_first_of(".eE") == std::string::npos) {
+            int i = std::stoi(value, &parsed);
+            if (parsed == value.size()) {
+                params.set(key, i);
+                return;
+            }
+        }
+        float f = std::stof(value, &parsed);
+        if (parsed == value.size()) {
+            params.set(key, f);
+            return;
+        }
+    } catch (const std::exception&) {
+    }
+
+    params.set(key, value);
 }
 
 void buildCornellBox(Renderer& renderer) {
@@ -110,6 +163,9 @@ int main(int argc, char* argv[]) {
     int scene = 1, width = 800, height = 600, samples = 64, depth = 8;
     std::string output = "output.ppm";
     std::string envmap = "";
+    std::string device = "auto";
+    std::string integratorName = "path_tracer";
+    astroray::ParamDict integratorParams;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -120,8 +176,25 @@ int main(int argc, char* argv[]) {
         else if (arg == "--depth" && i+1 < argc) depth = std::atoi(argv[++i]);
         else if (arg == "--output" && i+1 < argc) output = argv[++i];
         else if (arg == "--envmap" && i+1 < argc) envmap = argv[++i];
+        else if (arg == "--device" && i+1 < argc) device = lowerCopy(argv[++i]);
+        else if (arg == "--cpu") device = "cpu";
+        else if (arg == "--gpu") device = "gpu";
+        else if (arg == "--integrator" && i+1 < argc) integratorName = argv[++i];
+        else if (arg == "--integrator-param" && i+1 < argc) {
+            try {
+                setParamFromCli(integratorParams, argv[++i]);
+            } catch (const std::exception& e) {
+                std::cerr << "Error: " << e.what() << "\n";
+                return 2;
+            }
+        }
         else if (arg == "--help") {
-            std::cout << "Usage: " << argv[0] << " [--scene 1|2] [--width N] [--height N] [--samples N] [--depth N] [--output file] [--envmap FILE]" << std::endl;
+            std::cout << "Usage: " << argv[0]
+                      << " [--scene 1|2] [--width N] [--height N] [--samples N]"
+                      << " [--depth N] [--output file] [--envmap FILE]"
+                      << " [--device auto|gpu|cpu] [--gpu] [--cpu]"
+                      << " [--integrator NAME] [--integrator-param key=value]" << std::endl;
+            std::cout << "Default device is auto: CUDA is used when compiled, available, and the path_tracer backend is selected; CPU is the fallback.\n";
             std::cout.flush();
             return 0;
         }
@@ -150,13 +223,62 @@ int main(int argc, char* argv[]) {
     
     Camera camera(lookFrom, lookAt, Vec3(0,1,0), vfov, float(width)/height, 0.01f, focusDist, width, height);
     
-    renderer.setIntegrator(astroray::IntegratorRegistry::instance().create(
-        "path_tracer", astroray::ParamDict{}));
+    bool wantsDefaultIntegrator = integratorName == "auto" || integratorName == "default" || integratorName.empty();
+    bool pathTracerSelected = wantsDefaultIntegrator || integratorName == "path_tracer";
+    if (!wantsDefaultIntegrator) {
+        renderer.setIntegrator(astroray::IntegratorRegistry::instance().create(
+            integratorName, integratorParams));
+    } else {
+        renderer.setIntegrator(nullptr);
+    }
+
+#ifdef ASTRORAY_CUDA_ENABLED
+    bool useGpu = false;
+    CUDARenderer cudaRenderer;
+    bool cudaAvailable = cudaRenderer.isAvailable();
+    if ((device == "auto" && cudaAvailable && pathTracerSelected) || device == "gpu") {
+        if (!pathTracerSelected) {
+            std::cerr << "Error: CUDA standalone backend currently supports path_tracer only; requested integrator '"
+                      << integratorName << "'. Use --device cpu for this integrator.\n";
+            return 2;
+        }
+        if (!cudaAvailable) {
+            std::cerr << "Error: --device gpu requested, but no CUDA GPU is available.\n";
+            return 2;
+        }
+        useGpu = true;
+        std::cout << "Device: CUDA GPU (" << cudaRenderer.deviceName() << ")\n";
+    } else {
+        std::cout << "Device: CPU";
+        if (device == "auto" && !cudaAvailable) std::cout << " (CUDA unavailable)";
+        if (device == "auto" && cudaAvailable && !pathTracerSelected) std::cout << " (integrator requires CPU)";
+        std::cout << "\n";
+    }
+#else
+    (void)pathTracerSelected;
+    if (device == "gpu") {
+        std::cerr << "Error: --device gpu requested, but this build was compiled without CUDA.\n";
+        return 2;
+    }
+    std::cout << "Device: CPU (CUDA not compiled)\n";
+#endif
+    std::cout << "Integrator: " << (wantsDefaultIntegrator ? "auto" : integratorName) << "\n";
 
     std::cout << "\nRendering...\n";
     auto start = std::chrono::high_resolution_clock::now();
-    int lastPct = -1;
-    renderer.render(camera, samples, depth, nullptr, true);
+#ifdef ASTRORAY_CUDA_ENABLED
+    if (useGpu) {
+        renderer.buildAcceleration();
+        cudaRenderer.uploadScene(renderer, camera);
+        if (!envmap.empty() && renderer.getEnvironmentMap() && renderer.getEnvironmentMap()->loaded()) {
+            cudaRenderer.uploadEnvironmentMap(*renderer.getEnvironmentMap());
+        }
+        cudaRenderer.render(camera.pixels, camera.width, camera.height, samples, depth);
+    } else
+#endif
+    {
+        renderer.render(camera, samples, depth, nullptr, true);
+    }
     
     auto dur = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start);
     std::cout << "\n\nCompleted in " << dur.count() << "s\n";

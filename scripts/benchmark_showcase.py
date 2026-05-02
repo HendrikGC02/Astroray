@@ -207,12 +207,12 @@ def main() -> int:
 
     renders: list[tuple[str, np.ndarray, float]] = []
     for name, builder in SCENES:
-        print(f"Rendering {name} ({args.resolution}×{args.resolution}, {args.samples} spp) …",
+        print(f"Rendering {name} ({args.resolution}x{args.resolution}, {args.samples} spp) ...",
               flush=True)
         pixels, elapsed = render_scene(name, builder, args.resolution, args.samples,
                                        args.output_dir)
         renders.append((name, pixels, elapsed))
-        print(f"  → {elapsed:.2f}s  ({args.output_dir / (name + '.png')})")
+        print(f"  -> {elapsed:.2f}s  ({args.output_dir / (name + '.png')})")
 
     grid_path = save_grid(renders, args.output_dir)
     print(f"\nGrid saved to {grid_path}")

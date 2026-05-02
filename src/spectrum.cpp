@@ -85,9 +85,11 @@ SampledWavelengths SampledWavelengths::sampleUniform(float u,
     SampledWavelengths swl;
     float span = lambdaMax - lambdaMin;
     float step = span / static_cast<float>(kSpectrumSamples);
-    // Hero sample within the first stratum; remaining samples are
-    // stratified at equal spacing, wrapped into range.
-    float hero = lambdaMin + u * step;
+    // Hero sample over the full wavelength range; remaining samples are
+    // stratified at equal spacing and wrapped into range. This keeps
+    // wavelength-dependent paths such as dispersion unbiased when they
+    // collapse to the hero wavelength.
+    float hero = lambdaMin + u * span;
     for (int i = 0; i < kSpectrumSamples; ++i) {
         float lam = hero + static_cast<float>(i) * step;
         if (lam > lambdaMax) lam -= span;

@@ -8,6 +8,8 @@ from runtime_setup import configure_test_imports
 
 configure_test_imports()
 
+from base_helpers import save_image  # noqa: E402
+
 try:
     import astroray
     AVAILABLE = True
@@ -36,7 +38,7 @@ def test_pass_registry_names_contains_builtins():
     assert "albedo_aov"    in names, f"'albedo_aov' not in registry: {names}"
 
 
-def test_add_pass_aov_no_crash():
+def test_add_pass_aov_no_crash(test_results_dir):
     """AOV passes must execute without crashing on a rendered framebuffer."""
     r = _renderer()
     mat = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
@@ -45,6 +47,7 @@ def test_add_pass_aov_no_crash():
     r.add_pass("normal_aov")
     r.add_pass("albedo_aov")
     pixels = np.array(r.render(samples_per_pixel=1, max_depth=4), dtype=np.float32)
+    save_image(pixels, os.path.join(test_results_dir, "pass_stack_aovs.png"))
     assert pixels is not None
     assert pixels.size > 0
 
@@ -68,13 +71,14 @@ def test_clear_passes_removes_all_passes():
     assert np.array_equal(base, after), "clear_passes() must leave output unchanged"
 
 
-def test_oidn_pass_executes_or_gracefully_skips():
+def test_oidn_pass_executes_or_gracefully_skips(test_results_dir):
     """oidn_denoiser pass must run without throwing even if OIDN is unavailable."""
     r = _renderer()
     mat = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
     r.add_sphere([0, 0, 0], 1.0, mat)
     r.add_pass("oidn_denoiser")
     pixels = np.array(r.render(samples_per_pixel=4, max_depth=4), dtype=np.float32)
+    save_image(pixels, os.path.join(test_results_dir, "pass_oidn_denoiser.png"))
     assert pixels is not None
     assert pixels.size > 0
     assert np.all(np.isfinite(pixels)), "oidn_denoiser output contains non-finite values"

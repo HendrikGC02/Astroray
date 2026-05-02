@@ -20,6 +20,8 @@ public:
 
     bool isGlossy() const override { return true; }
     Vec3 getAlbedo() const override { return albedo_; }
+    std::string getGPUTypeName() const override { return "metal"; }
+    float getRoughness() const override { return roughness_; }
 
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         if (roughness_ <= kNearDeltaThreshold) {
@@ -68,7 +70,7 @@ public:
         float a = roughness_ * roughness_, a2 = a * a;
         float denom = NdotH * NdotH * (a2 - 1) + 1;
         float D = a2 / (float(M_PI) * denom * denom + 0.001f);
-        // Per-Î» Schlick Fresnel: F0 is the albedo spectrum; scale by (1-cosTheta)^5 term.
+        // Per-wavelength Schlick Fresnel: F0 is the albedo spectrum; scale by (1-cosTheta)^5 term.
         astroray::SampledSpectrum F0 = albedo_spec_.sample(lambdas);
         float fresnelPow5 = std::pow(1.0f - std::clamp(h.dot(wo), 0.0f, 1.0f), 5.0f);
         astroray::SampledSpectrum F = F0 + (astroray::SampledSpectrum(1.0f) - F0) * fresnelPow5;
@@ -92,8 +94,10 @@ public:
         } else {
             std::uniform_real_distribution<float> dist(0, 1);
             float a = roughness_ * roughness_;
-            float phi = 2 * M_PI * dist(gen);
-            float cosTheta = std::sqrt((1 - dist(gen)) / (1 + (a*a - 1) * dist(gen)));
+            float r1 = dist(gen);
+            float r2 = dist(gen);
+            float phi = 2 * M_PI * r1;
+            float cosTheta = std::sqrt((1 - r2) / (1 + (a*a - 1) * r2));
             float sinTheta = std::sqrt(1 - cosTheta * cosTheta);
             Vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
             h = rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z;

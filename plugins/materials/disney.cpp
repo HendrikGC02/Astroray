@@ -29,19 +29,35 @@ class DisneyPlugin : public Material {
 public:
     explicit DisneyPlugin(const astroray::ParamDict& p)
         : baseColor_(p.getVec3("albedo", Vec3(0.8f))),
-          metallic_(p.getFloat("metallic", 0.0f)),
-          roughness_(std::max(0.001f, p.getFloat("roughness", 0.5f))),
-          anisotropic_(p.getFloat("anisotropic", 0.0f)),
+          metallic_(std::clamp(p.getFloat("metallic", 0.0f), 0.0f, 1.0f)),
+          roughness_(std::clamp(p.getFloat("roughness", 0.5f), 0.001f, 1.0f)),
+          anisotropic_(std::clamp(p.getFloat("anisotropic", 0.0f), 0.0f, 1.0f)),
           anisotropicRotation_(p.getFloat("anisotropic_rotation", 0.0f)),
-          subsurface_(p.getFloat("subsurface", 0.0f)),
-          specular_(p.getFloat("specular", 0.5f)),
-          specularTint_(p.getFloat("specular_tint", 0.0f)),
-          clearcoat_(p.getFloat("clearcoat", 0.0f)),
-          clearcoatGloss_(p.getFloat("clearcoat_gloss", 1.0f)),
-          sheen_(p.getFloat("sheen", 0.0f)),
-          sheenTint_(p.getFloat("sheen_tint", 0.5f)),
-          transmission_(p.getFloat("transmission", 0.0f)),
-          ior_(p.getFloat("ior", 1.5f)) {}
+          subsurface_(std::clamp(p.getFloat("subsurface", 0.0f), 0.0f, 1.0f)),
+          specular_(std::clamp(p.getFloat("specular", 0.5f), 0.0f, 1.0f)),
+          specularTint_(std::clamp(p.getFloat("specular_tint", 0.0f), 0.0f, 1.0f)),
+          clearcoat_(std::clamp(p.getFloat("clearcoat", 0.0f), 0.0f, 1.0f)),
+          clearcoatGloss_(std::clamp(p.getFloat("clearcoat_gloss", 1.0f), 0.0f, 1.0f)),
+          sheen_(std::clamp(p.getFloat("sheen", 0.0f), 0.0f, 1.0f)),
+          sheenTint_(std::clamp(p.getFloat("sheen_tint", 0.5f), 0.0f, 1.0f)),
+          transmission_(std::clamp(p.getFloat("transmission", 0.0f), 0.0f, 1.0f)),
+          ior_(std::max(1.0f, p.getFloat("ior", 1.5f))) {}
+
+    Vec3 getAlbedo() const override { return baseColor_; }
+    std::string getGPUTypeName() const override { return "disney"; }
+    float getRoughness() const override { return roughness_; }
+    float getMetallic() const override { return metallic_; }
+    float getIOR() const override { return ior_; }
+    float getTransmission() const override { return transmission_; }
+    float getClearcoat() const override { return clearcoat_; }
+    float getClearcoatGloss() const override { return clearcoatGloss_; }
+    float getSpecular() const override { return specular_; }
+    float getSpecularTint() const override { return specularTint_; }
+    float getSheen() const override { return sheen_; }
+    float getSheenTint() const override { return sheenTint_; }
+    float getSubsurface() const override { return subsurface_; }
+    float getAnisotropic() const override { return anisotropic_; }
+    float getAnisotropicRotation() const override { return anisotropicRotation_; }
 
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         Vec3 N = rec.normal;
@@ -84,11 +100,11 @@ public:
                       (1 - metallic_) * Fsheen + clearcoatTerm) * NdotL;
         float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness_);
         float msWeight = roughness_ * (2.0f - roughness_);
-        result += F0 * (Fms * msWeight * 1.3f);
+        result += F0 * (Fms * msWeight * 0.5f) * NdotL;
 
-        result.x = std::min(result.x, 10.0f);
-        result.y = std::min(result.y, 10.0f);
-        result.z = std::min(result.z, 10.0f);
+        result.x = std::clamp(result.x, 0.0f, 4.0f);
+        result.y = std::clamp(result.y, 0.0f, 4.0f);
+        result.z = std::clamp(result.z, 0.0f, 4.0f);
         return result;
     }
 
@@ -134,8 +150,11 @@ public:
                 s.f = baseColor_ * (eta * eta);
                 s.pdf = (1 - fresnel) * transmission_;
             }
-            s.isDelta = roughness_ < 0.1f;
-            if (s.isDelta) const_cast<HitRecord&>(rec).isDelta = true;
+            // Rough transmission is not implemented yet; treat transmission as
+            // a delta glass event so spectral paths do not evaluate the wrong
+            // side of the surface as an opaque black BSDF.
+            s.isDelta = true;
+            const_cast<HitRecord&>(rec).isDelta = true;
             return s;
         }
 

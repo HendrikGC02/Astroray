@@ -95,6 +95,8 @@ public:
 
     bool isTransmissive() const override { return true; }
     Vec3 getAlbedo() const override { return Vec3(1.0f); }
+    std::string getGPUTypeName() const override { return "dielectric"; }
+    float getIOR() const override { return ior_; }
 
     astroray::SampledSpectrum evalSpectral(
             const HitRecord&, const Vec3&, const Vec3&,

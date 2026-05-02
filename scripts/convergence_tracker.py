@@ -161,6 +161,7 @@ _SCENE_BUILDERS = {
 
 def _render(scene: str, spp: int, width: int, height: int, seed: int) -> np.ndarray:
     r = _SCENE_BUILDERS[scene](width, height)
+    r.set_integrator("path_tracer")
     r.set_seed(seed)
     return np.asarray(r.render(spp, 6, None, False), dtype=np.float32)
 

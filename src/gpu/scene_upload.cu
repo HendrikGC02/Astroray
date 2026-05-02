@@ -67,7 +67,34 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
     g.anisotropic      = 0.f;
     g.anisotropicRotation = 0.f;
 
-    if (auto* l = dynamic_cast<Lambertian*>(mat.get())) {
+    std::string gpuType = mat->getGPUTypeName();
+    if (gpuType == "disney") {
+        g.type = GMAT_DISNEY;
+        Vec3 a = mat->getAlbedo();
+        g.baseColor = GVec3(a.x, a.y, a.z);
+        g.roughness = mat->getRoughness();
+        g.metallic = mat->getMetallic();
+        g.ior = mat->getIOR();
+        g.transmission = mat->getTransmission();
+        g.clearcoat = mat->getClearcoat();
+        g.clearcoatGloss = mat->getClearcoatGloss();
+        g.specular = mat->getSpecular();
+        g.specularTint = mat->getSpecularTint();
+        g.sheen = mat->getSheen();
+        g.sheenTint = mat->getSheenTint();
+        g.subsurface = mat->getSubsurface();
+        g.anisotropic = mat->getAnisotropic();
+        g.anisotropicRotation = mat->getAnisotropicRotation();
+    } else if (gpuType == "metal") {
+        g.type = GMAT_METAL;
+        Vec3 a = mat->getAlbedo();
+        g.baseColor = GVec3(a.x, a.y, a.z);
+        g.roughness = mat->getRoughness();
+    } else if (gpuType == "dielectric") {
+        g.type = GMAT_DIELECTRIC;
+        g.baseColor = GVec3(1.f);
+        g.ior = mat->getIOR();
+    } else if (auto* l = dynamic_cast<Lambertian*>(mat.get())) {
         g.type = GMAT_LAMBERTIAN;
         Vec3 a = l->getAlbedo();
         g.baseColor = GVec3(a.x, a.y, a.z);

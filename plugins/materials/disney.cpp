@@ -22,9 +22,9 @@ class DisneyPlugin : public Material {
         return 1 / (NdotV + std::sqrt(a + b - a * b) + 0.001f);
     }
 
-    Vec3 fresnelSchlick(float cosTheta, const Vec3& F0) const {
+    Vec3 fresnelSchlick(float cosTheta, const Vec3& F0, float scale = 0.8f) const {
         float c = std::clamp(1 - cosTheta, 0.0f, 1.0f);
-        return F0 + (Vec3(1) - F0) * std::pow(c, 5) * 0.8f;
+        return F0 + (Vec3(1) - F0) * std::pow(c, 5) * scale;
     }
 
     float fresnelDielectric(float cosThetaI, float etaI, float etaT) const {
@@ -217,7 +217,8 @@ public:
 
         float a = std::max(roughness_ * roughness_, 0.0064f);
         float Ds = D_GTR2(NdotH, a);
-        Vec3 F = fresnelSchlick(LdotH, F0);
+        float schlickScale = 0.8f + 0.2f * metallic_;
+        Vec3 F = fresnelSchlick(LdotH, F0, schlickScale);
         float Gs = smithG_GGX(NdotL, a) * smithG_GGX(NdotV, a);
         Vec3 spec = Ds * F * Gs / (4 * NdotL * NdotV + 0.001f);
 
@@ -233,7 +234,9 @@ public:
                       (1 - metallic_) * Fsheen + clearcoatTerm) * NdotL;
         float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness_);
         float msWeight = roughness_ * (2.0f - roughness_);
-        result += F0 * (Fms * msWeight * 0.5f) * NdotL;
+        Vec3 dielectricMs = F0 * (Fms * msWeight * 0.5f) * NdotL;
+        Vec3 conductorMs = F0 * (Fms * msWeight * 1.3f);
+        result += dielectricMs * (1.0f - metallic_) + conductorMs * metallic_;
 
         result.x = std::clamp(result.x, 0.0f, 4.0f);
         result.y = std::clamp(result.y, 0.0f, 4.0f);

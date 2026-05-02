@@ -248,11 +248,11 @@ __device__ inline float gpu_smithG_GGX(float NdotV, float alphaG) {
     return 1.f / (NdotV + sqrtf(a + b - a*b) + 0.001f);
 }
 
-__device__ inline GVec3 gpu_disney_fresnelSchlick(float cosTheta, const GVec3& F0) {
+__device__ inline GVec3 gpu_disney_fresnelSchlick(float cosTheta, const GVec3& F0, float scale = 0.8f) {
     float c = fminf(fmaxf(1.f - cosTheta, 0.f), 1.f);
-    // Reduced Fresnel: matches CPU (multiplied by 0.8)
+    // Reduced Fresnel for dielectric Disney lobes; metallic lobes approach full conductor Schlick.
     float t5 = c*c*c*c*c;
-    return F0 + (GVec3(1.f) - F0) * t5 * 0.8f;
+    return F0 + (GVec3(1.f) - F0) * t5 * scale;
 }
 
 __device__ inline float gpu_disney_fresnelDielectric(float cosThetaI, float etaI, float etaT) {
@@ -413,7 +413,8 @@ __device__ inline GVec3 gpu_disney_eval(
     // Specular — min alpha 0.0064 (roughness 0.08) to prevent numerical collapse
     float a  = fmaxf(mat.roughness*mat.roughness, 0.0064f);
     float Ds = gpu_D_GTR2(NdotH, a);
-    GVec3 F  = gpu_disney_fresnelSchlick(LdotH, F0);
+    float schlickScale = 0.8f + 0.2f * mat.metallic;
+    GVec3 F  = gpu_disney_fresnelSchlick(LdotH, F0, schlickScale);
     float Gs = gpu_smithG_GGX(NdotL, a) * gpu_smithG_GGX(NdotV, a);
     GVec3 spec = Ds * F * Gs / (4.f * NdotL * NdotV + 0.001f);
 
@@ -429,9 +430,9 @@ __device__ inline GVec3 gpu_disney_eval(
                          / (4.f*NdotL*NdotV + 0.001f)) * 0.5f;
 
     GVec3 result = ((1.f-mat.metallic)*(1.f-mat.transmission)*diffuse
-                    + spec
-                    + (1.f-mat.metallic)*Fsheen
-                    + ccTerm) * NdotL;
+                   + spec
+                   + (1.f-mat.metallic)*Fsheen
+                   + ccTerm) * NdotL;
 
     // Clamp per-sample firefly guard
     result.x = fminf(result.x, 10.f);

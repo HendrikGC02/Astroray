@@ -4,7 +4,7 @@
 **Track:** A  
 **Status:** open  
 **Estimated effort:** 3 sessions (~9 h)  
-**Depends on:** pkg04 (done), PR #119 (merged)
+**Depends on:** pkg04 (done), PR #119 (merged), pkg34 (backend capability guardrails recommended before GPU parity claims)
 
 ---
 
@@ -46,7 +46,8 @@ them.
 - Design doc: `.astroray_plan/docs/astrophysics.md §4.1`
 - External references: `.astroray_plan/docs/external-references.md §4`
 - Existing BlackHole plugin: `plugins/shapes/black_hole.cpp`
-- MetricRegistry hook: added in pkg04 (verify present in `register.h`)
+- MetricRegistry hook: present in `include/astroray/register.h`
+- Schwarzschild regression reference: `tests/reference/schwarzschild_baseline_256.png`
 - Key papers: Dexter & Agol 2009 (geokerr), Chan et al. 2013 (GRay),
   Cárdenas-Avendaño et al. 2022 (photon ring analytic)
 - Cross-check tools (GPL, reference only): GYOTO, GRay2
@@ -55,10 +56,12 @@ them.
 
 ## Prerequisites
 
-- [ ] pkg04 is done and the `MetricRegistry` typedef exists in
-      `register.h` (or equivalent). If not, add it — two lines.
+- [x] pkg04 is done and the `MetricRegistry` typedef exists in
+      `register.h` (or equivalent).
 - [ ] PR #119 (native spectral GR disk emission) is merged and the
       spectral GR dispatch path is stable.
+- [x] Save a pre-refactor Schwarzschild reference render before touching
+      the black-hole/metric implementation.
 - [ ] Build passes on main.
 - [ ] All existing tests pass.
 
@@ -74,6 +77,7 @@ them.
 | `plugins/metrics/schwarzschild.cpp` | `SchwarzschildMetric` — extracted from existing `black_hole.cpp` code. Single-file plugin with `ASTRORAY_REGISTER_METRIC`. |
 | `plugins/metrics/kerr.cpp` | `KerrMetric` — Hamiltonian formulation in Boyer-Lindquist. Double-precision integrator. |
 | `tests/test_gr_metrics.py` | Unit and integration tests for both metrics. |
+| `tests/reference/schwarzschild_baseline_256.png` | Existing Schwarzschild render reference captured before the refactor. |
 
 ### Files to modify
 

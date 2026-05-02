@@ -53,7 +53,7 @@ from pathlib import Path
 
 REPO_ROOT   = Path(__file__).resolve().parent.parent
 ADDON_SRC   = REPO_ROOT / "blender_addon"
-BUILD_DIR   = REPO_ROOT / "build_tncc"
+BUILD_DIR   = REPO_ROOT / "build_blender_addon"
 DIST_DIR    = REPO_ROOT / "dist"
 STAGE_DIR   = DIST_DIR / "astroray"
 

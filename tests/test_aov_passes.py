@@ -57,6 +57,11 @@ def test_normal_aov_nonzero(test_results_dir):
     assert np.all(pixels >= 0.0) and np.all(pixels <= 1.0), "NormalAOV output has values outside [0,1]"
 
 
+def test_bounce_heatmap_registered():
+    """bounce_heatmap must appear in pass_registry_names()."""
+    assert "bounce_heatmap" in astroray.pass_registry_names()
+
+
 def test_albedo_aov_nonzero(test_results_dir):
     """AlbedoAOV pass must copy the albedo buffer (non-black) into the color output."""
     r = _renderer()

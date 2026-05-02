@@ -1,5 +1,9 @@
 #!/usr/bin/env python
-"""Render an evolving material contact sheet for visual inspection."""
+"""Render an evolving material contact sheet for visual inspection.
+
+Line-emitter swatches are diffuse narrowband emitters, not coherent/collimated
+laser transport. That harder optics work is tracked separately.
+"""
 
 from __future__ import annotations
 
@@ -36,7 +40,9 @@ MATERIALS = [
     ("emissive", "emissive", [1.0, 0.7, 0.35], {"intensity": 1.4}),
     ("blackbody_2400k", "blackbody", [1.0, 1.0, 1.0], {"temperature_kelvin": 2400.0, "intensity": 0.9}),
     ("blackbody_10000k", "blackbody", [1.0, 1.0, 1.0], {"temperature_kelvin": 10000.0, "intensity": 0.9}),
-    ("laser_532nm", "line_emitter", [1.0, 1.0, 1.0], {"wavelength_nm": 532.0, "bandwidth_nm": 8.0, "intensity": 1.1}),
+    ("line_635nm", "line_emitter", [1.0, 1.0, 1.0], {"wavelength_nm": 635.0, "bandwidth_nm": 8.0, "intensity": 1.1}),
+    ("line_532nm", "line_emitter", [1.0, 1.0, 1.0], {"wavelength_nm": 532.0, "bandwidth_nm": 8.0, "intensity": 1.1}),
+    ("line_460nm", "line_emitter", [1.0, 1.0, 1.0], {"wavelength_nm": 460.0, "bandwidth_nm": 8.0, "intensity": 1.1}),
 ]
 
 

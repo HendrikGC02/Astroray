@@ -1914,6 +1914,227 @@ public:
         return color;
     }
 
+    // Caustic-aware variant of pathTraceSpectral().
+    //
+    // Adds a narrowly-scoped manifold connection attempt for delta chains:
+    // when the path samples a delta BSDF (specular reflection/refraction), we
+    // try to connect that specular vertex to an emitter via a deterministic
+    // specular walk (MNEE-style) and accumulate the resulting contribution.
+    //
+    // This targets prism/screen and glass-caustic scenes while keeping the
+    // base transport identical for non-specular paths.
+    astroray::SampledSpectrum pathTraceSpectralCaustic(
+            const Ray& r, int maxDepth, int maxManifoldIters,
+            astroray::SampledWavelengths& lambdas,
+            std::mt19937& gen,
+            int* outBounces = nullptr,
+            float* outWeight = nullptr) {
+        // For now, fall back to the baseline kernel when the scene has no
+        // explicit lights; this keeps behavior identical in env-only scenes.
+        if (lights.empty()) {
+            return pathTraceSpectral(r, maxDepth, lambdas, gen, outBounces, outWeight);
+        }
+
+        const int rrDepth = 3;
+        astroray::SampledSpectrum color(0.0f);
+        astroray::SampledSpectrum throughput(1.0f);
+        Ray ray = r;
+        bool wasSpecular = true;
+        std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
+        int lastBounce = 0;
+        float weightSum = 0.0f;
+
+        for (int bounce = 0; bounce < maxDepth; ++bounce) {
+            lastBounce = bounce;
+            HitRecord rec;
+            if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
+                if (bounce <= worldMaxBounces) {
+                    astroray::SampledSpectrum envSpec(0.0f);
+                    if (envMap && envMap->loaded()) {
+                        envSpec = envMap->evalSpectral(ray.direction.normalized(), lambdas);
+                    } else if (backgroundColor.x >= 0) {
+                        envSpec = astroray::RGBIlluminantSpectrum(
+                            {backgroundColor.x, backgroundColor.y, backgroundColor.z}).sample(lambdas);
+                    } else {
+                        float t = 0.5f * (ray.direction.normalized().y + 1.0f);
+                        Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
+                        envSpec = astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
+                    }
+                    color += throughput * envSpec;
+                }
+                break;
+            }
+            if (rec.hitObject && rec.hitObject->isGRObject()) {
+                auto grResult = rec.hitObject->traceGRSpectral(ray, lambdas, gen);
+                if (grResult.hasEmission) {
+                    astroray::SampledSpectrum grEmission(0.0f);
+                    for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+                        grEmission[i] = finiteClamped(grResult.emission[i], 0.0f, 20.0f);
+                    }
+                    if (!grEmission.isZero()) {
+                        color += throughput * grEmission;
+                    }
+                }
+                if (grResult.captured) break;
+
+                Vec3 exitDir = grResult.exitDirection;
+                float exitLen2 = exitDir.length2();
+                if (!finiteFloat(exitDir.x) || !finiteFloat(exitDir.y) ||
+                    !finiteFloat(exitDir.z) || !finiteFloat(exitLen2) || exitLen2 < 1e-10f) {
+                    break;
+                }
+
+                Ray next(rec.point, exitDir, ray.time, ray.screenU, ray.screenV);
+                next.hasCameraFrame = ray.hasCameraFrame;
+                next.cameraOrigin = ray.cameraOrigin;
+                next.cameraU = ray.cameraU;
+                next.cameraV = ray.cameraV;
+                next.cameraW = ray.cameraW;
+                ray = next;
+                wasSpecular = true;
+                continue;
+            }
+            if (!rec.material) break;
+
+            astroray::SampledSpectrum Le_spec = rec.material->emittedSpectral(rec, lambdas);
+            if (!Le_spec.isZero()) {
+                if (bounce == 0 || wasSpecular) {
+                    color += throughput * Le_spec;
+                }
+                break;
+            }
+
+            Vec3 wo = -ray.direction.normalized();
+
+            if (!rec.isDelta && !lights.empty()) {
+                LightSample ls = lights.sample(rec.point, gen);
+                if (ls.pdf > 0) {
+                    Vec3 wi = (ls.position - rec.point).normalized();
+                    HitRecord shadow;
+                    bool hitOccluder = bvh->hit(
+                        Ray(rec.point, wi), 0.001f,
+                        (ls.position - rec.point).length() - 0.01f,
+                        shadow);
+                    if (!hitOccluder) {
+                        astroray::SampledSpectrum f_spec =
+                            rec.material->evalSpectral(rec, wo, wi, lambdas);
+                        if (!f_spec.isZero()) {
+                            astroray::SampledSpectrum L_spec =
+                                astroray::RGBIlluminantSpectrum({ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas);
+                            float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                            float a = ls.pdf, b = bsdfPdf;
+                            float wt = (a * a) / (a * a + b * b + 1e-8f);
+                            color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f));
+                        }
+                    }
+                }
+            }
+
+            if (bounce > rrDepth) {
+                astroray::XYZ thrXYZ = throughput.toXYZ(lambdas);
+                float p = std::min(0.95f, std::max(0.0f, thrXYZ.Y));
+                if (dist01(gen) > p) break;
+                if (p > 0.0f) throughput = throughput * (1.0f / p);
+            }
+
+            BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
+            if (bss.pdf <= 0.0f) break;
+
+            // Caustic connection attempt for delta chains.
+            if (bss.isDelta && maxManifoldIters > 0) {
+                // Choose a light and attempt a deterministic specular walk.
+                LightSample ls = lights.sample(rec.point, gen);
+                if (ls.pdf > 0) {
+                    // Start from current surface point and walk specularly.
+                    Ray walkRay(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
+                    walkRay.hasCameraFrame = ray.hasCameraFrame;
+                    walkRay.cameraOrigin = ray.cameraOrigin;
+                    walkRay.cameraU = ray.cameraU;
+                    walkRay.cameraV = ray.cameraV;
+                    walkRay.cameraW = ray.cameraW;
+
+                    astroray::SampledSpectrum walkThroughput =
+                        throughput * bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
+                    Vec3 targetPos = ls.position;
+
+                    for (int it = 0; it < maxManifoldIters; ++it) {
+                        HitRecord wrec;
+                        if (!bvh->hit(walkRay, 0.001f, std::numeric_limits<float>::max(), wrec)) {
+                            break;
+                        }
+                        if (!wrec.material) break;
+
+                        Vec3 wwo = -walkRay.direction.normalized();
+
+                        // If we hit the sampled light directly, accumulate emission.
+                        if (wrec.material->emittedSpectral(wrec, lambdas).isZero() == false) {
+                            astroray::SampledSpectrum Le = wrec.material->emittedSpectral(wrec, lambdas);
+                            color += walkThroughput * Le;
+                            break;
+                        }
+
+                        // Compute the direction to the chosen light sample point.
+                        Vec3 toTarget = (targetPos - wrec.point);
+                        float dist2 = toTarget.length2();
+                        if (dist2 < 1e-10f) break;
+                        Vec3 desiredWi = (toTarget * (1.0f / std::sqrt(dist2))).normalized();
+
+                        // One specular solve step: for now, only handle perfect
+                        // specular materials by re-sampling once and checking
+                        // if it matches the desired direction.
+                        //
+                        // This acts as a cheap MNEE surrogate for prisms/glas.
+                        BSDFSampleSpectral step = wrec.material->sampleSpectral(wrec, wwo, gen, lambdas);
+                        if (!step.isDelta || step.pdf <= 0.0f) break;
+
+                        float align = step.wi.normalized().dot(desiredWi);
+                        if (align > 0.9995f) {
+                            // Visibility to light point.
+                            HitRecord occ;
+                            bool blocked = bvh->hit(
+                                Ray(wrec.point, desiredWi), 0.001f,
+                                std::sqrt(dist2) - 0.01f, occ);
+                            if (!blocked) {
+                                astroray::SampledSpectrum Li =
+                                    astroray::RGBIlluminantSpectrum({ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas);
+                                color += walkThroughput * step.f_spectral * Li;
+                            }
+                            break;
+                        }
+
+                        walkThroughput *= step.f_spectral * (1.0f / (step.pdf + 0.001f));
+                        Ray next(wrec.point, step.wi, ray.time, ray.screenU, ray.screenV);
+                        next.hasCameraFrame = ray.hasCameraFrame;
+                        next.cameraOrigin = ray.cameraOrigin;
+                        next.cameraU = ray.cameraU;
+                        next.cameraV = ray.cameraV;
+                        next.cameraW = ray.cameraW;
+                        walkRay = next;
+                    }
+                }
+            }
+
+            wasSpecular = bss.isDelta;
+            throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
+
+            Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
+            next.hasCameraFrame = ray.hasCameraFrame;
+            next.cameraOrigin = ray.cameraOrigin;
+            next.cameraU = ray.cameraU;
+            next.cameraV = ray.cameraV;
+            next.cameraW = ray.cameraW;
+            ray = next;
+
+            weightSum += throughput.maxValue();
+            float maxC = throughput.maxValue();
+            if (maxC > 10.0f) throughput = throughput * (10.0f / maxC);
+        }
+
+        if (outBounces) *outBounces = lastBounce;
+        if (outWeight) *outWeight = weightSum;
+        return color;
+    }
+
 public:
     void addObject(std::shared_ptr<Hittable> obj) {
         scene.push_back(obj);

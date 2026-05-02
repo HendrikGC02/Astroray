@@ -74,6 +74,7 @@ personally should pick up.
 | pkg34 | Material backend capabilities + no silent GPU fallback | open |
 | pkg35 | Spectral GPU material kernels | open |
 | pkg36 | Shared material closure graph | open |
+| pkg37 | Blender addon backend refresh + runtime diagnostics | open |
 
 **Visual diagnostics & production polish (Pillar 5):**
 
@@ -163,6 +164,7 @@ personally should pick up.
 | Package | Track | Status | Blocker |
 |---|---|---|---|
 | pkg34 | A | open | — |
+| pkg37 | A/E | open | pkg34 recommended for capability-aware Auto mode |
 | pkg32 | A+B | open | — (B issues: #121–#127) |
 | pkg33 | A | open | — |
 | pkg40 | A | open | current registry/reference cleanup |
@@ -180,6 +182,9 @@ personally should pick up.
 - GPU material support is currently explicit only for a small flattened set
   of material types. pkg34-pkg36 define the bridge from CPU material plugins
   to truthful GPU/default rendering.
+- The Blender addon can import and render through Astroray, but its backend
+  UI and packaging are stale. pkg37 refreshes Auto/GPU/CPU selection,
+  viewport GPU parity, CUDA/tiny-cuda-nn packaging, and runtime diagnostics.
 
 ---
 

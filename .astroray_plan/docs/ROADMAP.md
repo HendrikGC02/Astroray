@@ -109,6 +109,9 @@ to a shared CPU/GPU closure representation or clearly fall back to CPU.
   spectral for the core material set.
 - `pkg36-material-closure-graph.md` — shared material closure graph so
   many new plugins work on CPU and GPU without hand-written duplicates.
+- `pkg37-blender-addon-backend-refresh.md` — bring the Blender addon up
+  to the backend model: Auto/GPU/CPU device selection, viewport GPU parity,
+  CUDA/tiny-cuda-nn-aware packaging, and clear runtime diagnostics.
 
 ### Pillar 5 — Production polish
 

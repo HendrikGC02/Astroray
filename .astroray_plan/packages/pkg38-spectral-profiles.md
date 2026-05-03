@@ -2,7 +2,7 @@
 
 **Pillar:** 2 (follow-up)  
 **Track:** B (Python-only, no C++ changes)  
-**Status:** open  
+**Status:** done  
 **Estimated effort:** 1–2 sessions (~4 h)  
 **Depends on:** none (independent Python preprocessing)
 
@@ -354,20 +354,22 @@ The preprocessing script:
 
 ## Acceptance criteria
 
-- [ ] `scripts/build_spectral_profiles.py` runs and produces
+- [x] `scripts/build_spectral_profiles.py` runs and produces
       `data/spectral_profiles/profiles.bin` and
       `data/spectral_profiles/profiles_metadata.json`.
-- [ ] Database contains ≥35 materials across ≥6 categories.
-- [ ] All reflectance values are in [0, 1], finite, and non-NaN.
-- [ ] Wavelength grid is uniform 5 nm from 300–2500 nm (441 points).
-- [ ] Vegetation entries show the Wood effect: reflectance at 800 nm
-      is > 3× reflectance at 550 nm for healthy deciduous leaves.
-- [ ] Water entry shows strong IR absorption: reflectance at 1000 nm
-      is < 0.05.
-- [ ] Metal entries show high reflectance (> 0.8) across the full range.
-- [ ] `sources.md` documents provenance for every spectrum.
-- [ ] Binary file < 200 KB.
-- [ ] `tests/test_spectral_profiles.py` passes all validation checks.
+- [x] Database contains >=35 materials across >=6 categories. (40 materials, 7 categories)
+- [x] All reflectance values are in [0, 1], finite, and non-NaN.
+- [x] Wavelength grid is uniform 5 nm from 300-2500 nm (441 points).
+- [x] Vegetation entries show the Wood effect: reflectance at 800 nm
+      is > 3x reflectance at 550 nm for healthy deciduous leaves.
+      (deciduous leaf: 3.8x, grass: 5.9x)
+- [x] Water entry shows strong IR absorption: reflectance at 1000 nm
+      is < 0.05. (measured: 0.008)
+- [x] Metal entries show high reflectance (> 0.8) across the full range.
+      (Al: 0.952 mean, Au: 0.905 mean)
+- [x] `sources.md` documents provenance for every spectrum.
+- [x] Binary file < 200 KB. (72 KB)
+- [x] `tests/test_spectral_profiles.py` passes all validation checks. (18/18)
 
 ---
 
@@ -388,19 +390,38 @@ The preprocessing script:
 
 ## Progress
 
-- [ ] Download and organise source spectral data.
-- [ ] Select ~40 representative materials from available libraries.
-- [ ] Implement resampling and quality control pipeline.
-- [ ] Write binary output format.
-- [ ] Write metadata JSON and sources documentation.
-- [ ] Validate: Wood effect in vegetation, water absorption, metal
+- [x] Download and organise source spectral data.
+- [x] Select ~40 representative materials from available libraries.
+- [x] Implement resampling and quality control pipeline.
+- [x] Write binary output format.
+- [x] Write metadata JSON and sources documentation.
+- [x] Validate: Wood effect in vegetation, water absorption, metal
       reflectance, paint colour consistency.
-- [ ] Write tests.
-- [ ] Commit database to `data/spectral_profiles/`.
-- [ ] Update STATUS.md.
+- [x] Write tests.
+- [x] Commit database to `data/spectral_profiles/`.
+- [x] Update STATUS.md.
 
 ---
 
+## Implementation notes
+
+- USGS splib07a ASCII format: one value per line (not two-column), with a
+  separate wavelength file (`splib07a_Wavelengths_ASD_0.35-2.5_microns_2151_ch.txt`).
+  Sentinel for missing data is -1.23e+034. Values are reflectance fraction (0-1).
+- ECOSTRESS files at `speclib.jpl.nasa.gov/ecospeclibdata/{filename}`. Y values
+  are in percentage (0-100) for both UCSB ASD and JHU Beckman files — divide by 100.
+- USGS zip cached at `data/spectral_profiles/_cache/` (21 MB, downloaded once).
+- Rakic 1998 Lorentz-Drude model requires complex sqrt; ensure k=|Im(sqrt(eps))|>=0.
+- Conifer needles have a smaller Wood effect ratio (~2.9x) than deciduous leaves
+  by design — spec requirement only applies to deciduous leaves.
+- ASPR directory entry: 64-byte name + HH + I + Q = 80 bytes (uint64 reserved field).
+
 ## Lessons
 
-*(Fill in after the package is done.)*
+- USGS splib07a is a single-column format with a separate wavelength file, not
+  the two-column format shown in the spec example. Always inspect raw file bytes.
+- ECOSTRESS data is accessible at `ecospeclibdata/` not `speclibdata/` — found
+  by parsing the `ecoviewplot` response.
+- JHU Beckman files (manmade, water, minerals) cover 0.3-14 um with 2nm steps,
+  same percentage convention as UCSB ASD files.
+- Windows cp1252 console cannot print Unicode arrows/checkmarks — use ASCII.

@@ -1,0 +1,301 @@
+{
+  "version": 1,
+  "n_materials": 40,
+  "wavelength_grid": {
+    "lambda_min_nm": 300.0,
+    "lambda_max_nm": 2500.0,
+    "lambda_step_nm": 5.0,
+    "n_points": 441
+  },
+  "categories": {
+    "0": "vegetation",
+    "1": "earth",
+    "2": "building",
+    "3": "metal",
+    "4": "fabric",
+    "5": "paint",
+    "6": "human"
+  },
+  "materials": [
+    {
+      "index": 0,
+      "name": "deciduous_leaf_green",
+      "category": "vegetation",
+      "source": "USGS splib07a: Aspen green-top leaf (ASD 350-2500nm)",
+      "notes": ""
+    },
+    {
+      "index": 1,
+      "name": "deciduous_leaf_autumn",
+      "category": "vegetation",
+      "source": "USGS splib07a: Aspen yellow/autumn top leaf (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 2,
+      "name": "grass_green",
+      "category": "vegetation",
+      "source": "USGS splib07a: Juncus roemerianus green rush (ASD)",
+      "notes": "Green rush/grass measured in Delacroix Marsh, LA"
+    },
+    {
+      "index": 3,
+      "name": "grass_dry",
+      "category": "vegetation",
+      "source": "USGS splib07a: Golden dry grass GDS480 (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 4,
+      "name": "conifer_needle",
+      "category": "vegetation",
+      "source": "USGS splib07a: Lodgepole pine needles (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 5,
+      "name": "tree_bark_dark",
+      "category": "vegetation",
+      "source": "ECOSTRESS: Pinus ponderosa bark VSWIR ASD (UCSB HyspIRI)",
+      "notes": ""
+    },
+    {
+      "index": 6,
+      "name": "tree_bark_light",
+      "category": "vegetation",
+      "source": "ECOSTRESS: Calocedrus decurrens (incense cedar) bark VSWIR ASD (UCSB)",
+      "notes": ""
+    },
+    {
+      "index": 7,
+      "name": "lichen_moss",
+      "category": "vegetation",
+      "source": "ECOSTRESS: Lichen species VSWIR ASD (UCSB HyspIRI)",
+      "notes": ""
+    },
+    {
+      "index": 8,
+      "name": "soil_dark",
+      "category": "earth",
+      "source": "USGS splib07a: Stonewall Playa dry mud (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 9,
+      "name": "soil_sandy",
+      "category": "earth",
+      "source": "USGS splib07a: Illite+Quartz (ASD, bright sandy clay mineral)",
+      "notes": "Proxy for light sandy soil; actual mineral composition typical of sandy soils"
+    },
+    {
+      "index": 10,
+      "name": "sand_beach",
+      "category": "earth",
+      "source": "USGS splib07a: Grand Isle beach sand, no oil (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 11,
+      "name": "gravel_basalt",
+      "category": "earth",
+      "source": "USGS splib07a: Pyroxene basalt CU01-20A (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 12,
+      "name": "snow",
+      "category": "earth",
+      "source": "USGS splib07a: Melting snow mSnw01a (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 13,
+      "name": "water_clear",
+      "category": "earth",
+      "source": "USGS splib07a: Water + 0.5 g/L montmorillonite (ASD; essentially clear water)",
+      "notes": "Very dilute clay suspension; spectrally equivalent to clear water in 300-2500nm range"
+    },
+    {
+      "index": 14,
+      "name": "concrete_grey",
+      "category": "building",
+      "source": "USGS splib07a: Concrete GDS375 light grey road (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 15,
+      "name": "asphalt_dark",
+      "category": "building",
+      "source": "USGS splib07a: Asphalt GDS376 black road (old, ASD)",
+      "notes": ""
+    },
+    {
+      "index": 16,
+      "name": "brick_red",
+      "category": "building",
+      "source": "USGS splib07a: Brick GDS349 paving red (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 17,
+      "name": "ceramic_tile_white",
+      "category": "building",
+      "source": "USGS splib07a: TiO2 pigment GDS798 (ASD) \u2014 white ceramic tile proxy",
+      "notes": "TiO2 is the primary pigment in white ceramic tiles and white paint"
+    },
+    {
+      "index": 18,
+      "name": "clear_glass",
+      "category": "building",
+      "source": "Computed: Fresnel R from soda-lime glass n(\u03bb) dispersion (Rubin 1985)",
+      "notes": "n\u22481.52 from Rubin 1985 Solar Energy Materials 12:275-288; single-surface reflectance"
+    },
+    {
+      "index": 19,
+      "name": "plaster_stucco",
+      "category": "building",
+      "source": "USGS splib07a: WTC01-37A concrete/plaster (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 20,
+      "name": "roof_tile_terracotta",
+      "category": "building",
+      "source": "USGS splib07a: Brick GDS350 dark red building brick (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 21,
+      "name": "limestone_marble",
+      "category": "building",
+      "source": "USGS splib07a: Limestone CU02-11A (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 22,
+      "name": "aluminum_polished",
+      "category": "metal",
+      "source": "Computed: Raki\u0107 et al. 1998 Lorentz-Drude model for Al, Appl. Opt. 37(22):5271",
+      "notes": ""
+    },
+    {
+      "index": 23,
+      "name": "steel_brushed",
+      "category": "metal",
+      "source": "USGS splib07a: Galvanized sheet metal GDS334 (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 24,
+      "name": "copper_oxidized",
+      "category": "metal",
+      "source": "USGS splib07a: Synthetic malachite GDS801 (ASD) \u2014 oxidised copper patina",
+      "notes": "CuCO3\u00b7Cu(OH)2; the green patina on oxidised copper surfaces"
+    },
+    {
+      "index": 25,
+      "name": "gold_polished",
+      "category": "metal",
+      "source": "Computed: Raki\u0107 et al. 1998 Lorentz-Drude model for Au, Appl. Opt. 37(22):5271",
+      "notes": ""
+    },
+    {
+      "index": 26,
+      "name": "rust_iron_oxide",
+      "category": "metal",
+      "source": "USGS splib07a: Rusted tin can GDS378 (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 27,
+      "name": "cotton_white",
+      "category": "fabric",
+      "source": "USGS splib07a: Cotton fabric GDS437 white (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 28,
+      "name": "cotton_dark",
+      "category": "fabric",
+      "source": "USGS splib07a: Nylon fabric GDS436 black coated (ASD)",
+      "notes": "Black synthetic fabric; representative of dark/dyed cotton"
+    },
+    {
+      "index": 29,
+      "name": "wool_burlap",
+      "category": "fabric",
+      "source": "USGS splib07a: Burlap fabric GDS430 brown (ASD)",
+      "notes": "Coarse natural fiber fabric; representative of wool/jute"
+    },
+    {
+      "index": 30,
+      "name": "wood_pine",
+      "category": "fabric",
+      "source": "USGS splib07a: Wood beam GDS363 new pine 2x4 (ASD)",
+      "notes": "Fresh pine; representative of light natural wood"
+    },
+    {
+      "index": 31,
+      "name": "paper_white",
+      "category": "fabric",
+      "source": "USGS splib07a: Paper cotton bond PAPR1 100% (ASD)",
+      "notes": ""
+    },
+    {
+      "index": 32,
+      "name": "rubber_black",
+      "category": "fabric",
+      "source": "ECOSTRESS/JHU: Black rubber roofing material 0833UUURBR (Beckman-Nicolet 0.3-14\u03bcm)",
+      "notes": ""
+    },
+    {
+      "index": 33,
+      "name": "paint_white",
+      "category": "paint",
+      "source": "USGS splib07a: White PVC plastic GDS338 (ASD) \u2014 white paint proxy",
+      "notes": ""
+    },
+    {
+      "index": 34,
+      "name": "paint_red",
+      "category": "paint",
+      "source": "USGS splib07a: Red nylon ripstop fabric GDS431 (ASD) \u2014 red pigment proxy",
+      "notes": ""
+    },
+    {
+      "index": 35,
+      "name": "paint_blue",
+      "category": "paint",
+      "source": "USGS splib07a: Blue nylon ripstop fabric GDS433 (ASD) \u2014 blue pigment proxy",
+      "notes": ""
+    },
+    {
+      "index": 36,
+      "name": "paint_green",
+      "category": "paint",
+      "source": "USGS splib07a: Green fiberglass roofing GDS336 (ASD) \u2014 green paint proxy",
+      "notes": ""
+    },
+    {
+      "index": 37,
+      "name": "skin_light",
+      "category": "human",
+      "source": "Digitised from Bashkatov et al. 2005, J. Phys. D 38:2543, Fig. 3",
+      "notes": "Fair skin in-vivo forearm; 400-2000nm measured, extrapolated outside"
+    },
+    {
+      "index": 38,
+      "name": "skin_dark",
+      "category": "human",
+      "source": "Bashkatov et al. 2005 with increased melanin absorption (visible scaled x0.45)",
+      "notes": "Dark skin approximation: higher melanin reduces visible reflectance by ~55%"
+    },
+    {
+      "index": 39,
+      "name": "hair_dark",
+      "category": "human",
+      "source": "Bashkatov et al. 2002, Proc. SPIE 4623: dark hair diffuse reflectance ~3-8%",
+      "notes": "Dark brown/black hair; melanin gives low, slowly rising spectral reflectance"
+    }
+  ]
+}

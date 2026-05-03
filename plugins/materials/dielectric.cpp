@@ -102,10 +102,12 @@ public:
         caps.gpuType = "dielectric";
         if (dispersive_) {
             caps.gpu = false;
-            caps.notes = "Sellmeier dispersion is spectral CPU-only until pkg35";
+            caps.gpuSpectral = false;
+            caps.notes = "Sellmeier dispersion requires wavelength-dependent GPU refraction and remains CPU-only";
         } else {
             caps.gpu = true;
-            caps.notes = "exact flat-IOR dielectric GPU lowering";
+            caps.gpuSpectral = true;
+            caps.notes = "spectral flat-IOR dielectric GPU lowering";
         }
         return caps;
     }

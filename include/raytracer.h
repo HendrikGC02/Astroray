@@ -473,6 +473,7 @@ struct MaterialBackendCapabilities {
     bool cpu = true;
     bool spectral = true;
     bool gpu = false;
+    bool gpuSpectral = false;
     bool gpuApproximate = false;
     std::string gpuType;
     std::string notes = "no GPU lowering declared";
@@ -499,7 +500,8 @@ public:
         caps.gpuType = getGPUTypeName();
         if (!caps.gpuType.empty()) {
             caps.gpu = true;
-            caps.notes = "exact GPU lowering";
+            caps.gpuSpectral = true;
+            caps.notes = "spectral RGB-derived GPU lowering";
         }
         return caps;
     }

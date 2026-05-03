@@ -40,6 +40,50 @@ __device__ inline GVec3 gpu_randomInUnitDisk(curandState* rng) {
     return p;
 }
 
+__device__ inline GSampledWavelengths gpu_sampleUniformWavelengths(curandState* rng) {
+    GSampledWavelengths wl;
+    float u = curand_uniform(rng);
+    float span = G_LAMBDA_MAX - G_LAMBDA_MIN;
+    float pdf = 1.f / span;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+        float offset = (u + float(i)) / float(G_SPECTRUM_SAMPLES);
+        offset -= floorf(offset);
+        wl.lambda[i] = G_LAMBDA_MIN + offset * span;
+        wl.pdf[i] = pdf;
+    }
+    return wl;
+}
+
+__device__ inline float gpu_spectralChannelWeight(float lambda, int channel) {
+    float center = channel == 0 ? 610.f : (channel == 1 ? 540.f : 460.f);
+    float sigma = channel == 0 ? 52.f : (channel == 1 ? 46.f : 42.f);
+    float x = (lambda - center) / sigma;
+    return expf(-0.5f * x * x);
+}
+
+__device__ inline float gpu_rgbSpectrumAt(const GVec3& rgb, float lambda, GSpectralMode mode) {
+    if (mode == GSPEC_NONE) return luminance(rgb);
+    float r = gpu_spectralChannelWeight(lambda, 0);
+    float g = gpu_spectralChannelWeight(lambda, 1);
+    float b = gpu_spectralChannelWeight(lambda, 2);
+    float denom = fmaxf(r + g + b, 1e-4f);
+    float v = (rgb.x * r + rgb.y * g + rgb.z * b) / denom;
+    if (mode == GSPEC_RGB_ILLUMINANT) {
+        float d65 = 0.85f + 0.15f * gpu_spectralChannelWeight(lambda, 1);
+        v *= d65;
+    }
+    return fmaxf(v, 0.f);
+}
+
+__device__ inline GSampledSpectrum gpu_rgbToSampledSpectrum(
+    const GVec3& rgb, const GSampledWavelengths& wl, GSpectralMode mode)
+{
+    GSampledSpectrum s;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+        s[i] = gpu_rgbSpectrumAt(rgb, wl.lambda[i], mode);
+    return s;
+}
+
 // ---------------------------------------------------------------------------
 // Camera ray generation (with DOF)
 // ---------------------------------------------------------------------------
@@ -639,6 +683,14 @@ __device__ inline GVec3 gpu_material_eval(
     }
 }
 
+__device__ inline GSampledSpectrum gpu_material_eval_spectral(
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
+    const GSampledWavelengths& wl)
+{
+    return gpu_rgbToSampledSpectrum(
+        gpu_material_eval(mat, rec, wo, wi), wl, mat.spectralMode);
+}
+
 __device__ inline GBSDFSample gpu_material_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, curandState* rng)
 {
@@ -648,8 +700,17 @@ __device__ inline GBSDFSample gpu_material_sample(
         case GMAT_DIELECTRIC:    return gpu_dielectric_sample(mat, rec, wo, rng);
         case GMAT_DISNEY:        return gpu_disney_sample(mat, rec, wo, rng);
         case GMAT_THIN_GLASS:    return gpu_thin_glass_sample(mat, rec, wo, rng);
-        default: { GBSDFSample s; s.f=GVec3(0); s.wi=GVec3(0,1,0); s.pdf=0; s.isDelta=false; return s; }
+        default: { GBSDFSample s; s.f=GVec3(0); s.fSpectral=GSampledSpectrum(0.f); s.wi=GVec3(0,1,0); s.pdf=0; s.isDelta=false; return s; }
     }
+}
+
+__device__ inline GBSDFSample gpu_material_sample_spectral(
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
+    const GSampledWavelengths& wl, curandState* rng)
+{
+    GBSDFSample s = gpu_material_sample(mat, rec, wo, rng);
+    s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
+    return s;
 }
 
 __device__ inline float gpu_material_pdf(
@@ -669,4 +730,11 @@ __device__ inline GVec3 gpu_material_emitted(
     if (mat.type == GMAT_DIFFUSE_LIGHT && frontFace)
         return mat.baseColor * mat.emissionIntensity;
     return GVec3(0.f);
+}
+
+__device__ inline GSampledSpectrum gpu_material_emitted_spectral(
+    const GMaterial& mat, bool frontFace, const GSampledWavelengths& wl)
+{
+    return gpu_rgbToSampledSpectrum(
+        gpu_material_emitted(mat, frontFace), wl, mat.spectralMode);
 }

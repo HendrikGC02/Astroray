@@ -255,6 +255,8 @@ __device__ GVec3 tracePathGPU(
 {
     const int rrDepth = 3;
     GVec3 color(0.f), throughput(1.f);
+    GSampledWavelengths lambdas = gpu_sampleUniformWavelengths(rng);
+    GSampledSpectrum colorSpectral(0.f), throughputSpectral(1.f);
     bool  wasSpecular = true;
 
     for (int bounce = 0; bounce < maxDepth; ++bounce) {
@@ -275,15 +277,21 @@ __device__ GVec3 tracePathGPU(
             }
             if (bounce == 0 || wasSpecular)
                 color += throughput * envColor;
+            if (bounce == 0 || wasSpecular)
+                colorSpectral += throughputSpectral *
+                    gpu_rgbToSampledSpectrum(envColor, lambdas, GSPEC_RGB_ILLUMINANT);
             break;
         }
 
         // Emissive surface
         const GMaterial& mat = materials[rec.materialId];
         GVec3 emitted = gpu_material_emitted(mat, rec.frontFace);
+        GSampledSpectrum emittedSpectral = gpu_material_emitted_spectral(mat, rec.frontFace, lambdas);
         if (emitted != GVec3(0.f)) {
-            if (bounce == 0 || wasSpecular)
+            if (bounce == 0 || wasSpecular) {
                 color += throughput * emitted;
+                colorSpectral += throughputSpectral * emittedSpectral;
+            }
             break;
         }
 
@@ -305,15 +313,18 @@ __device__ GVec3 tracePathGPU(
 
         // Sample BSDF for next bounce
         GVec3 wo = -ray.direction.normalized();
-        GBSDFSample bs = gpu_material_sample(mat, rec, wo, rng);
+        GBSDFSample bs = gpu_material_sample_spectral(mat, rec, wo, lambdas, rng);
         if (bs.pdf <= 0.f) break;
 
         wasSpecular = bs.isDelta;
         throughput *= bs.f / (bs.pdf + 0.001f);
+        throughputSpectral *= bs.fSpectral * (1.f / (bs.pdf + 0.001f));
 
         // Throughput clamp (firefly suppression, same as CPU)
         float maxC = throughput.maxComponent();
         if (maxC > 10.f) throughput *= 10.f / maxC;
+        float maxS = throughputSpectral.maxValue();
+        if (maxS > 10.f) throughputSpectral *= 10.f / maxS;
 
         ray = GRay(rec.point, bs.wi);
     }

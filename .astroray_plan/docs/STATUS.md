@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-03 (Pillar 4 prep + material backend bridge specs)
+**Last updated:** 2026-05-03 (pkg35 spectral GPU material bridge)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -73,7 +73,7 @@ personally should pick up.
 | Package | Description | Status |
 |---|---|---|
 | pkg34 | Material backend capabilities + no silent GPU fallback | **done** |
-| pkg35 | Spectral GPU material kernels | open |
+| pkg35 | Spectral GPU material kernels | **done** |
 | pkg36 | Shared material closure graph | open |
 | pkg37 | Blender addon backend refresh + runtime diagnostics | open |
 
@@ -110,9 +110,9 @@ personally should pick up.
 ### Track A (Claude Code)
 
 - pkg29 prism validation is complete.
-- Complete: pkg32 visual diagnostics, pkg33 OIDN, and pkg34 backend
-  capability guardrails.
-- Next up: pkg35 spectral GPU material kernels or pkg37 Blender addon backend
+- Complete: pkg32 visual diagnostics, pkg33 OIDN, pkg34 backend capability
+  guardrails, and pkg35 spectral GPU material payloads.
+- Next up: pkg36 shared material closure graph or pkg37 Blender addon backend
   refresh.
 - Pillar 4 can begin with pkg40 once the current registry/reference cleanup is merged.
 
@@ -187,9 +187,10 @@ personally should pick up.
   opt-in specular-chain connection experiment; it is still not a final
   caustic-perfect showcase.
 - GPU material support is now capability-gated, so unsupported materials no
-  longer silently lower to approximate CUDA records. The supported GPU set is
-  still small and flattened; pkg35-pkg36 expand spectral GPU parity and shared
-  closure lowering.
+  longer silently lower to approximate CUDA records. pkg35 adds sampled
+  wavelength payloads and `gpu_spectral` metadata for the core GPU material
+  set; Sellmeier direction-splitting and true spectral emitter parameter
+  upload remain CPU-only. pkg36 expands shared closure lowering.
 - The Blender addon can import and render through Astroray, but its backend
   UI and packaging are stale. pkg37 refreshes Auto/GPU/CPU selection,
   viewport GPU parity, CUDA/tiny-cuda-nn packaging, and runtime diagnostics.
@@ -206,6 +207,13 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-05-03** — pkg35 complete. Added compact CUDA sampled-wavelength and
+  sampled-spectrum payloads, spectral BSDF/emitter dispatch helpers for core
+  RGB-derived GPU materials, Python `gpu_spectral` capability metadata, and
+  contact-sheet CSV reporting. Flat-IOR dielectric/glass is spectral-GPU
+  capable; Sellmeier dispersion plus line/blackbody emitters remain explicit
+  CPU-only until dedicated GPU parameter lowering exists. Focused validation:
+  CUDA build passed; pkg35/backend/GPU parity tests passed.
 - **2026-05-03** — pkg33 complete. OIDN auto-detection (env var, common Windows paths, FetchContent 2.3.3 fallback) added to CMakeLists.txt. OIDN 2.4.1 found at C:/oidn; `ASTRORAY_OIDN_ENABLED` now active. Duplicate function definitions from the rough-Disney-glass merge fixed in `disney.cpp`. Blender addon `__init__.py` probes `addon_dir/oidn/` and `C:/oidn/bin` for DLLs; `build_blender_addon.py` copies them into the zip. New `tests/test_oidn_denoiser.py` verifies: registry presence, variance reduction (30× at 4 spp), and side-by-side PNG in `test_results/oidn_before_after.png`. 3 new tests; all pass.
 - **2026-05-03** — pkg32 complete. Visual AOVs now have non-trivial output
   coverage, convergence/showcase scripts are verified, and

@@ -12,6 +12,12 @@ public:
         return astroray::SampledSpectrum(0.0f);
     }
 
+    MaterialBackendCapabilities backendCapabilities() const override {
+        MaterialBackendCapabilities caps;
+        caps.notes = "mirror has no dedicated GPU material lowering yet";
+        return caps;
+    }
+
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937&) const override {
         BSDFSample s;
         s.wi = rec.normal * (2 * wo.dot(rec.normal)) - wo;

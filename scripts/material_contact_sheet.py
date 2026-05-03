@@ -55,17 +55,6 @@ MATERIALS = [
     ("line_460nm", "line_emitter", [1.0, 1.0, 1.0], {"wavelength_nm": 460.0, "bandwidth_nm": 8.0, "intensity": 1.1}),
 ]
 
-GPU_RENDERABLE_TYPES = {
-    "lambertian",
-    "metal",
-    "dielectric",
-    "glass",
-    "thin_glass",
-    "disney",
-    "emissive",
-}
-
-
 def _save_png(pixels: np.ndarray, path: Path) -> None:
     from PIL import Image
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,54 +83,44 @@ def _add_room(r, width: int, height: int) -> None:
     )
 
 
-def _cpu_preferred_reason(material_type: str, params: dict) -> str | None:
-    if material_type == "mirror":
-        return "mirror has no dedicated GPU material upload yet"
-    dispersive_presets = {"bk7", "fused_silica", "flint_sf11", "diamond"}
-    preset = params.get("sellmeier_preset") or params.get("glass_preset") or params.get("preset")
-    if material_type == "dielectric" and preset in dispersive_presets:
-        return "Sellmeier dispersion is spectral and CPU-only in this contact sheet"
-    if material_type not in GPU_RENDERABLE_TYPES:
-        return f"material '{material_type}' is CPU-preferred"
-    return None
-
-
-def _select_device(r, requested: str, material_type: str, params: dict) -> str:
+def _select_device(r, requested: str, caps: dict) -> tuple[str, str]:
     if requested == "cpu":
-        return "cpu"
+        return "cpu", "CPU requested"
 
     gpu_available = bool(getattr(r, "gpu_available", False))
     gpu_name = getattr(r, "gpu_device_name", "unknown GPU")
-    cpu_preferred = _cpu_preferred_reason(material_type, params)
     if not gpu_available:
         if requested == "gpu":
             raise RuntimeError("GPU was requested, but astroray reports no available GPU renderer")
-        return "cpu"
-    if cpu_preferred:
+        return "cpu", "GPU unavailable"
+    if not bool(caps.get("gpu", False)):
+        reason = str(caps.get("notes", "material is CPU-only"))
         if requested == "gpu":
-            raise RuntimeError(f"GPU was requested, but {cpu_preferred}")
-        return "cpu"
+            raise RuntimeError(f"GPU was requested, but {reason}")
+        return "cpu", reason
 
     try:
         r.set_use_gpu(True)
     except Exception:
         if requested == "gpu":
             raise
-        return "cpu"
-    return f"gpu:{gpu_name}"
+        return "cpu", "GPU enable failed; using CPU"
+    mode = "approximate preview" if bool(caps.get("gpu_approximate", False)) else "exact"
+    return f"gpu:{gpu_name}", f"{mode} GPU: {caps.get('notes', '')}"
 
 
 def render_tile(name: str, material_type: str, color: list[float], params: dict,
-                resolution: int, samples: int, max_depth: int, device: str) -> tuple[np.ndarray, str]:
+                resolution: int, samples: int, max_depth: int, device: str) -> tuple[np.ndarray, str, str, dict]:
     r = astroray.Renderer()
     r.set_integrator("path_tracer")
     r.set_seed(1000 + sum(ord(c) for c in name))
-    device_label = _select_device(r, device, material_type, params)
     _add_room(r, resolution, resolution)
     mat = r.create_material(material_type, color, params)
+    caps = dict(r.get_material_backend_capabilities(mat))
+    device_label, backend_reason = _select_device(r, device, caps)
     r.add_sphere([0.0, 0.0, 0.0], 0.85, mat)
     pixels = np.asarray(r.render(samples, max_depth, None, True), dtype=np.float32)
-    return pixels, device_label
+    return pixels, device_label, backend_reason, caps
 
 
 def save_stats(stats: list[dict[str, object]], output_dir: Path) -> Path:
@@ -153,6 +132,11 @@ def save_stats(stats: list[dict[str, object]], output_dir: Path) -> Path:
                 "name",
                 "material_type",
                 "device",
+                "backend_reason",
+                "gpu_supported",
+                "gpu_approximate",
+                "gpu_type",
+                "capability_notes",
                 "seconds",
                 "mean_luminance",
                 "p99_luminance",
@@ -206,9 +190,10 @@ def main() -> int:
     for name, mat_type, color, params in MATERIALS:
         print(f"Rendering {name} ...", flush=True)
         start = time.perf_counter()
-        pixels, device_label = render_tile(name, mat_type, color, params,
-                                           args.resolution, args.samples,
-                                           args.max_depth, args.device)
+        pixels, device_label, backend_reason, caps = render_tile(
+            name, mat_type, color, params,
+            args.resolution, args.samples,
+            args.max_depth, args.device)
         seconds = time.perf_counter() - start
         _save_png(pixels, args.output_dir / f"{name}.png")
         renders.append((name, pixels))
@@ -217,6 +202,11 @@ def main() -> int:
             "name": name,
             "material_type": mat_type,
             "device": device_label,
+            "backend_reason": backend_reason,
+            "gpu_supported": bool(caps.get("gpu", False)),
+            "gpu_approximate": bool(caps.get("gpu_approximate", False)),
+            "gpu_type": caps.get("gpu_type", ""),
+            "capability_notes": caps.get("notes", ""),
             "seconds": f"{seconds:.4f}",
             "mean_luminance": f"{float(np.mean(lum)):.6f}",
             "p99_luminance": f"{float(np.percentile(lum, 99.0)):.6f}",

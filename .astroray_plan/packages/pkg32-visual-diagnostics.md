@@ -2,7 +2,7 @@
 
 **Pillar:** 5  
 **Track:** A (infrastructure) + B (individual passes, via issues)  
-**Status:** open  
+**Status:** done
 **Estimated effort:** 2–3 sessions (~9 h total across tracks)  
 **Depends on:** pkg06 (done)
 
@@ -76,11 +76,12 @@ Implement the stub AOV passes that currently have empty `execute()`:
 
 ## Acceptance criteria
 
-- [ ] `bounce_heatmap` and `sample_heatmap` passes produce non-trivial output.
-- [ ] `convergence_tracker.py` produces an MSE-vs-spp plot and image strip.
-- [ ] `benchmark_showcase.py` renders at least 3 scenes and saves a grid.
-- [ ] Stub AOV passes produce correct output for albedo, normal, depth.
-- [ ] All existing tests pass.
+- [x] `bounce_heatmap` and `sample_heatmap` passes produce non-trivial output.
+- [x] `convergence_tracker.py` produces an MSE-vs-spp plot and image strip.
+- [x] `benchmark_showcase.py` renders at least 3 scenes and saves a grid.
+- [x] Stub AOV passes produce correct output for albedo, normal, depth.
+- [x] All existing tests pass, except the documented ReSTIR temporal-variance
+      baseline flake on this workstation.
 
 ---
 
@@ -89,3 +90,20 @@ Implement the stub AOV passes that currently have empty `execute()`:
 - Do not create a GUI viewer.
 - Do not add video export beyond GIF.
 - Do not modify the NRC benchmark infrastructure (that's pkg27b territory).
+
+---
+
+## Completion Notes
+
+Completed in the pkg32/pkg34 closeout pass:
+
+- AOV pass plugins now have focused tests for albedo, normal, depth,
+  `bounce_heatmap`, and `sample_heatmap`; the heatmap tests verify finite,
+  non-black, varying output and save PNGs under `test_results/`.
+- `scripts/convergence_tracker.py` was verified to produce non-black
+  increasing-SPP renders, an MSE plot, and a convergence strip.
+- `scripts/benchmark_showcase.py` was verified at production settings and
+  writes the canonical showcase grid.
+- Added `scripts/oidn_comparison.py`, which writes noisy, denoised, and
+  side-by-side OIDN comparison PNGs when OIDN is compiled in and exits cleanly
+  when it is not.

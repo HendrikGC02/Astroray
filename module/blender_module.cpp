@@ -406,6 +406,22 @@ public:
 #endif
     }
 
+    py::dict getMaterialBackendCapabilities(int materialId) const {
+        auto it = materials.find(materialId);
+        if (it == materials.end() || !it->second) {
+            throw std::runtime_error("Unknown material id");
+        }
+        MaterialBackendCapabilities caps = it->second->backendCapabilities();
+        py::dict out;
+        out["cpu"] = caps.cpu;
+        out["spectral"] = caps.spectral;
+        out["gpu"] = caps.gpu;
+        out["gpu_approximate"] = caps.gpuApproximate;
+        out["gpu_type"] = caps.gpuType;
+        out["notes"] = caps.notes;
+        return out;
+    }
+
     bool getGPUAvailable() const {
 #ifdef ASTRORAY_CUDA_ENABLED
         CUDARenderer test;
@@ -934,6 +950,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_width", &PyRenderer::getWidth)
         .def("get_height", &PyRenderer::getHeight)
         .def("set_use_gpu", &PyRenderer::setUseGPU, "enable"_a)
+        .def("get_material_backend_capabilities",
+             &PyRenderer::getMaterialBackendCapabilities, "material_id"_a)
         .def_property_readonly("gpu_available",   &PyRenderer::getGPUAvailable)
         .def_property_readonly("gpu_device_name", &PyRenderer::getGPUDeviceName)
         .def("sample_texture", &PyRenderer::sampleTexture,

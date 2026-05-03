@@ -73,6 +73,11 @@ public:
 
     Vec3 getEmission() const override { return emissionRgb_; }
     bool isEmissive() const override { return true; }
+    MaterialBackendCapabilities backendCapabilities() const override {
+        MaterialBackendCapabilities caps;
+        caps.notes = "blackbody spectral emission is CPU-only until pkg35";
+        return caps;
+    }
 };
 
 class BlackbodyAliasPlugin : public BlackbodyEmitterPlugin {

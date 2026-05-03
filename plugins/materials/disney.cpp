@@ -175,6 +175,14 @@ public:
 
     Vec3 getAlbedo() const override { return baseColor_; }
     std::string getGPUTypeName() const override { return "disney"; }
+    MaterialBackendCapabilities backendCapabilities() const override {
+        MaterialBackendCapabilities caps;
+        caps.gpu = true;
+        caps.gpuApproximate = true;
+        caps.gpuType = "disney";
+        caps.notes = "GPU Disney is an explicit RGB preview approximation until pkg35/pkg36";
+        return caps;
+    }
     float getRoughness() const override { return roughness_; }
     float getMetallic() const override { return metallic_; }
     float getIOR() const override { return ior_; }

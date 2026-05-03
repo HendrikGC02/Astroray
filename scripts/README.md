@@ -73,6 +73,14 @@ non-empty PNG.
 
 - `autonomous_loop.sh` — local autonomous engineering loop helper.
 - `build_cuda.bat` — Windows helper for CUDA-related builds.
+- `benchmark_showcase.py` — renders canonical showcase scenes and a composite
+  grid under `test_results/showcase/`.
+- `convergence_tracker.py` — renders increasing-SPP sequences and writes an
+  MSE plot plus convergence strip.
+- `material_contact_sheet.py` — renders material swatches and records the
+  selected backend plus capability/fallback reason per tile.
+- `oidn_comparison.py` — renders noisy/denoised Cornell frames and a
+  side-by-side PNG when OIDN is compiled in.
 - `render_output_triage.py` — diagnostic PNG summary for `test_results/`.
   It reports image size, brightness, saturation, low color counts, and likely
   all-black outputs. This is for agent review, not a hard CI gate.

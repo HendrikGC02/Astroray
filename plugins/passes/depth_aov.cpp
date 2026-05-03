@@ -25,6 +25,7 @@ public:
         if (dmax <= 0.0f || dmin == std::numeric_limits<float>::max()) return;
 
         float range = dmax - dmin;
+        if (range <= 1e-6f) range = std::max(dmax, 1.0f);
         float* color = fb.buffer("color");
         for (int i = 0; i < n; ++i) {
             float d = depth[i];

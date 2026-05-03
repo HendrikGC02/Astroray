@@ -37,6 +37,9 @@ public:
         float cosTheta = wi.dot(rec.normal);
         return cosTheta > 0 ? cosTheta / M_PI : 0;
     }
+
+    Vec3 getAlbedo() const override { return albedo_; }
+    std::string getGPUTypeName() const override { return "lambertian"; }
 };
 
 ASTRORAY_REGISTER_MATERIAL("lambertian", LambertianPlugin)

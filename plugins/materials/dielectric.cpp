@@ -97,6 +97,18 @@ public:
     Vec3 getAlbedo() const override { return tint_; }
     std::string getGPUTypeName() const override { return "dielectric"; }
     float getIOR() const override { return ior_; }
+    MaterialBackendCapabilities backendCapabilities() const override {
+        MaterialBackendCapabilities caps;
+        caps.gpuType = "dielectric";
+        if (dispersive_) {
+            caps.gpu = false;
+            caps.notes = "Sellmeier dispersion is spectral CPU-only until pkg35";
+        } else {
+            caps.gpu = true;
+            caps.notes = "exact flat-IOR dielectric GPU lowering";
+        }
+        return caps;
+    }
 
     astroray::SampledSpectrum evalSpectral(
             const HitRecord&, const Vec3&, const Vec3&,

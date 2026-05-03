@@ -87,6 +87,44 @@ def _candidate_mingw_dirs() -> list[str]:
         unique.append(candidate)
     return unique
 
+
+def _candidate_cuda_dirs() -> list[str]:
+    candidates: list[str] = []
+    env_dir = os.environ.get('CUDA_BIN_DIR')
+    if env_dir:
+        candidates.append(env_dir)
+
+    for build_dir in BUILD_DIR_CANDIDATES:
+        cache_path = Path(build_dir) / 'CMakeCache.txt'
+        if not cache_path.exists() and Path(build_dir).name.lower() == 'release':
+            cache_path = Path(build_dir).parent / 'CMakeCache.txt'
+        if not cache_path.exists():
+            continue
+        for line in cache_path.read_text(encoding='utf-8', errors='ignore').splitlines():
+            prefix = 'CMAKE_CUDA_COMPILER:FILEPATH='
+            if line.startswith(prefix):
+                compiler = Path(line[len(prefix):].strip())
+                if compiler.parent:
+                    candidates.append(str(compiler.parent))
+                break
+
+    candidates.extend([
+        r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin',
+        r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin',
+        r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin',
+    ])
+
+    seen: set[str] = set()
+    unique: list[str] = []
+    for candidate in candidates:
+        normalized = os.path.normcase(os.path.abspath(candidate).rstrip(os.sep))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if os.path.isdir(candidate):
+            unique.append(candidate)
+    return unique
+
 # On Windows, add runtime DLL directories so the MSVC-built .pyd and its
 # dependencies (OIDN, CUDA, MinGW runtimes) can be found.
 if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
@@ -106,6 +144,8 @@ if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
     _ucrt64_bin = r'C:\msys64\ucrt64\bin'
     if os.path.isdir(_ucrt64_bin):
         os.add_dll_directory(_ucrt64_bin)
+    for _cuda_bin in _candidate_cuda_dirs():
+        os.add_dll_directory(_cuda_bin)
     for _build_dir in BUILD_DIR_CANDIDATES:
         os.add_dll_directory(os.path.abspath(_build_dir))
     # OIDN runtime DLLs (OpenImageDenoise.dll etc.)

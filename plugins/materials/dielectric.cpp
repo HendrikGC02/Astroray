@@ -97,9 +97,16 @@ public:
     Vec3 getAlbedo() const override { return tint_; }
     std::string getGPUTypeName() const override { return "dielectric"; }
     float getIOR() const override { return ior_; }
+    astroray::MaterialClosureGraph closureGraph() const override {
+        astroray::MaterialClosureGraph graph;
+        if (!dispersive_) {
+            graph.add(astroray::makeDielectricTransmissionClosure(
+                {tint_.x, tint_.y, tint_.z}, ior_));
+        }
+        return graph;
+    }
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps;
-        caps.gpuType = "dielectric";
         if (dispersive_) {
             caps.gpu = false;
             caps.gpuSpectral = false;
@@ -107,7 +114,9 @@ public:
         } else {
             caps.gpu = true;
             caps.gpuSpectral = true;
-            caps.notes = "spectral flat-IOR dielectric GPU lowering";
+            caps.closureGraph = true;
+            caps.gpuType = "closure_graph";
+            caps.notes = "spectral flat-IOR dielectric closure-graph GPU lowering";
         }
         return caps;
     }

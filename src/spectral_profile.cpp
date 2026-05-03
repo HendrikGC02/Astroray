@@ -1,4 +1,5 @@
 #include "astroray/spectral_profile.h"
+#include <cstdint>
 #include <fstream>
 #include <cstring>
 #include <stdexcept>

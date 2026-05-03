@@ -38,7 +38,8 @@ def test_backend_capabilities_report_gpu_supported_material():
     assert caps["gpu"] is True
     assert caps["gpu_spectral"] is True
     assert caps["gpu_approximate"] is False
-    assert caps["gpu_type"] == "lambertian"
+    assert caps["closure_graph"] is True
+    assert caps["gpu_type"] == "closure_graph"
 
 
 def test_backend_capabilities_report_cpu_only_material():
@@ -57,8 +58,9 @@ def test_backend_capabilities_report_explicit_preview_approximation():
     assert caps["gpu"] is True
     assert caps["gpu_spectral"] is True
     assert caps["gpu_approximate"] is True
-    assert caps["gpu_type"] == "disney"
-    assert "preview" in caps["notes"]
+    assert caps["closure_graph"] is True
+    assert caps["gpu_type"] == "closure_graph"
+    assert "closure-graph" in caps["notes"]
 
 
 def test_dispersive_dielectric_is_cpu_only_until_spectral_gpu_support():

@@ -39,6 +39,11 @@ public:
     }
 
     Vec3 getAlbedo() const override { return albedo_; }
+    astroray::MaterialClosureGraph closureGraph() const override {
+        astroray::MaterialClosureGraph graph;
+        graph.add(astroray::makeDiffuseClosure({albedo_.x, albedo_.y, albedo_.z}));
+        return graph;
+    }
     std::string getGPUTypeName() const override { return "lambertian"; }
 };
 

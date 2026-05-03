@@ -419,8 +419,35 @@ public:
         out["gpu"] = caps.gpu;
         out["gpu_spectral"] = caps.gpuSpectral;
         out["gpu_approximate"] = caps.gpuApproximate;
+        out["closure_graph"] = caps.closureGraph;
+        out["closure_count"] = it->second->closureGraph().count();
         out["gpu_type"] = caps.gpuType;
         out["notes"] = caps.notes;
+        return out;
+    }
+
+    py::list getMaterialClosureGraph(int materialId) const {
+        auto it = materials.find(materialId);
+        if (it == materials.end() || !it->second) {
+            throw std::runtime_error("Unknown material id");
+        }
+
+        py::list out;
+        astroray::MaterialClosureGraph graph = it->second->closureGraph();
+        for (int i = 0; i < graph.count(); ++i) {
+            const astroray::MaterialClosure& c = graph.closure(i);
+            py::dict item;
+            item["type"] = astroray::closureTypeName(c.type);
+            item["color"] = py::make_tuple(c.color.x, c.color.y, c.color.z);
+            item["weight"] = c.weight;
+            item["roughness"] = c.roughness;
+            item["metallic"] = c.metallic;
+            item["ior"] = c.ior;
+            item["transmission"] = c.transmission;
+            item["clearcoat_gloss"] = c.clearcoatGloss;
+            item["two_sided_emission"] = c.twoSidedEmission;
+            out.append(item);
+        }
         return out;
     }
 
@@ -977,6 +1004,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_use_gpu", &PyRenderer::setUseGPU, "enable"_a)
         .def("get_material_backend_capabilities",
              &PyRenderer::getMaterialBackendCapabilities, "material_id"_a)
+        .def("get_material_closure_graph",
+             &PyRenderer::getMaterialClosureGraph, "material_id"_a)
         .def_property_readonly("gpu_available",   &PyRenderer::getGPUAvailable)
         .def_property_readonly("gpu_device_name", &PyRenderer::getGPUDeviceName)
         .def("sample_texture", &PyRenderer::sampleTexture,

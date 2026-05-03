@@ -20,6 +20,7 @@
 #include "stb_image.h"
 #include "astroray/gr_types.h"
 #include "astroray/spectrum.h"
+#include "astroray/spectral_profile.h"
 
 // Forward declaration needed by HitRecord
 class Hittable;
@@ -545,6 +546,62 @@ public:
         }
         return bss;
     }
+
+    // pkg39: Spectral profile for outside-visible multi-wavelength rendering.
+    void setSpectralProfile(const astroray::SpectralProfile* p) { spectralProfile_ = p; }
+    const astroray::SpectralProfile* getSpectralProfile() const  { return spectralProfile_; }
+
+    // evalSpectral with profile override for outside-visible wavelengths (pkg39).
+    // Wavelengths in [380, 780]: use the existing Jakob-Hanika sigmoid path (no change).
+    // Wavelengths outside [380, 780] with profile: use profile reflectance x cosTheta/pi.
+    // Wavelengths outside [380, 780] without profile: return 0 (physically honest).
+    astroray::SampledSpectrum evalSpectralExt(
+            const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+            const astroray::SampledWavelengths& lambdas) const {
+        if (!spectralProfile_) {
+            // No profile: return 0 for outside-visible samples, normal eval for visible.
+            float cosTheta = wi.dot(rec.normal);
+            if (cosTheta <= 0.0f) return astroray::SampledSpectrum(0.0f);
+            astroray::SampledSpectrum base = evalSpectral(rec, wo, wi, lambdas);
+            for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+                float lam = lambdas.lambda(i);
+                if (lam < 380.0f || lam > 780.0f) base[i] = 0.0f;
+            }
+            return base;
+        }
+        float cosTheta = wi.dot(rec.normal);
+        if (cosTheta <= 0.0f) return astroray::SampledSpectrum(0.0f);
+        astroray::SampledSpectrum base = evalSpectral(rec, wo, wi, lambdas);
+        astroray::SampledSpectrum result;
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+            float lam = lambdas.lambda(i);
+            result[i] = (lam >= 380.0f && lam <= 780.0f)
+                ? base[i]
+                : spectralProfile_->reflectance(lam) * cosTheta / float(M_PI);
+        }
+        return result;
+    }
+
+    BSDFSampleSpectral sampleSpectralExt(
+            const HitRecord& rec, const Vec3& wo,
+            std::mt19937& gen,
+            astroray::SampledWavelengths& lambdas) const {
+        BSDFSample bs = sample(rec, wo, gen);
+        BSDFSampleSpectral bss;
+        bss.wi = bs.wi;
+        bss.pdf = bs.pdf;
+        bss.isDelta = bs.isDelta;
+        if (bs.isDelta) {
+            bss.f_spectral = astroray::RGBAlbedoSpectrum(
+                {bs.f.x, bs.f.y, bs.f.z}).sample(lambdas);
+        } else {
+            bss.f_spectral = evalSpectralExt(rec, wo, bs.wi, lambdas);
+        }
+        return bss;
+    }
+
+private:
+    const astroray::SpectralProfile* spectralProfile_ = nullptr;
 };
 
 class Lambertian : public Material {

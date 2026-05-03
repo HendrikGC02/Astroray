@@ -2,7 +2,7 @@
 
 **Pillar:** 2 (follow-up) / 5 (production feature)  
 **Track:** A (touches integrator + material dispatch + output)  
-**Status:** open  
+**Status:** done  
 **Estimated effort:** 3 sessions (~9 h)  
 **Depends on:** pkg38 (spectral profile database), pkg14 (spectral pipeline)
 

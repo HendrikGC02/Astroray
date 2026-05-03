@@ -67,7 +67,65 @@ endif()
 set(ASTRORAY_OIDN_FOUND FALSE)
 set(ASTRORAY_OIDN_TARGET "")
 if(ASTRORAY_ENABLE_OIDN)
+    # 1. Honour caller-supplied hints: -DOpenImageDenoise_DIR=... or OIDN_DIR env var.
+    if(NOT OpenImageDenoise_DIR AND DEFINED ENV{OIDN_DIR})
+        file(GLOB _oidn_env_cmake "$ENV{OIDN_DIR}/lib/cmake/OpenImageDenoise*")
+        if(_oidn_env_cmake)
+            list(GET _oidn_env_cmake 0 OpenImageDenoise_DIR)
+        else()
+            set(OpenImageDenoise_DIR "$ENV{OIDN_DIR}")
+        endif()
+    endif()
+
+    # 2. Probe well-known Windows install locations (e.g. C:/oidn from the
+    #    RenderKit prebuilt zip, or Intel oneAPI install paths).
+    if(WIN32 AND NOT OpenImageDenoise_DIR)
+        foreach(_oidn_root
+                "C:/oidn"
+                "C:/Program Files/Intel/OpenImageDenoise"
+                "C:/Program Files/OpenImageDenoise")
+            file(GLOB _oidn_cmake_dirs "${_oidn_root}/lib/cmake/OpenImageDenoise*")
+            if(_oidn_cmake_dirs)
+                list(GET _oidn_cmake_dirs 0 OpenImageDenoise_DIR)
+                break()
+            endif()
+        endforeach()
+    endif()
+
     find_package(OpenImageDenoise CONFIG QUIET)
+
+    # 3. FetchContent fallback — download the OIDN 2.3.3 Windows x64 prebuilt
+    #    zip when the library is not installed locally.  Only attempted on
+    #    Windows because the prebuilt packages are platform-specific.
+    if(NOT OpenImageDenoise_FOUND AND WIN32)
+        message(STATUS "OIDN not found locally — fetching prebuilt binary (v2.3.3)…")
+        include(FetchContent)
+        FetchContent_Declare(oidn_prebuilt
+            URL      "https://github.com/RenderKit/oidn/releases/download/v2.3.3/oidn-2.3.3.x64.windows.zip"
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        )
+        # The prebuilt zip contains no CMakeLists.txt, so FetchContent_MakeAvailable
+        # would fail trying to add_subdirectory it.  Use FetchContent_Populate
+        # (populate-only).  CMP0169 deprecated the bare FetchContent_Populate()
+        # call in CMake 3.30 — silence the policy warning while keeping the old
+        # behaviour so we can point find_package at the extracted tree.
+        cmake_policy(PUSH)
+        if(POLICY CMP0169)
+            cmake_policy(SET CMP0169 OLD)
+        endif()
+        FetchContent_GetProperties(oidn_prebuilt)
+        if(NOT oidn_prebuilt_POPULATED)
+            FetchContent_Populate(oidn_prebuilt)
+        endif()
+        cmake_policy(POP)
+
+        file(GLOB _fetched_cmake_dirs "${oidn_prebuilt_SOURCE_DIR}/lib/cmake/OpenImageDenoise*")
+        if(_fetched_cmake_dirs)
+            list(GET _fetched_cmake_dirs 0 OpenImageDenoise_DIR)
+            find_package(OpenImageDenoise CONFIG QUIET)
+        endif()
+    endif()
+
     if(OpenImageDenoise_FOUND)
         if(TARGET OpenImageDenoise::OpenImageDenoise)
             set(ASTRORAY_OIDN_TARGET OpenImageDenoise::OpenImageDenoise)
@@ -76,6 +134,12 @@ if(ASTRORAY_ENABLE_OIDN)
             set(ASTRORAY_OIDN_TARGET OpenImageDenoise)
             set(ASTRORAY_OIDN_FOUND TRUE)
         endif()
+    endif()
+
+    if(ASTRORAY_OIDN_FOUND)
+        message(STATUS "OIDN found: ${OpenImageDenoise_VERSION}")
+    else()
+        message(STATUS "OIDN not found — denoiser pass will be a no-op")
     endif()
 endif()
 

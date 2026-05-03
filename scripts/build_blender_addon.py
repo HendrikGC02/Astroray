@@ -462,8 +462,36 @@ def _verify_cuda_compiled_in(build_dir: Path, backend: str):
               "check CMake output for CUDA configuration errors")
 
 
+def _ensure_git_longpaths():
+    """Enable git long-path support on Windows.
+
+    tiny-cuda-nn's cutlass submodule contains Doxygen HTML files with names
+    that exceed Windows' default 260-character MAX_PATH limit.  Setting
+    core.longpaths=true globally is sufficient — it requires no admin rights
+    and is idempotent.
+    """
+    if platform.system() != "Windows":
+        return
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "core.longpaths"],
+            capture_output=True, text=True)
+        if result.stdout.strip().lower() == "true":
+            return  # already set
+        subprocess.run(
+            ["git", "config", "--global", "core.longpaths", "true"],
+            check=True, capture_output=True)
+        print("git: enabled core.longpaths=true (needed for cutlass submodule)")
+    except Exception as e:
+        print(f"warning: could not set git core.longpaths=true: {e}")
+        print("  If the build fails with 'Filename too long', run manually:")
+        print("    git config --global core.longpaths true")
+
+
 def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str = "tcnn"):
     global BUILD_DIR
+    if backend in ("cuda", "tcnn"):
+        _ensure_git_longpaths()
     nvcc = _require_nvcc(backend)
     BUILD_DIR, extra_flags = _backend_config(backend)
 

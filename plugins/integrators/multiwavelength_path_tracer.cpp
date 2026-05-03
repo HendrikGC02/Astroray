@@ -77,11 +77,13 @@ public:
 
         if (useLuminanceOutput_) {
             // Band luminance → neutral grey so the colourmap pass can map it.
-            // Mean of 4 spectral samples, averaged over pdf (same as toXYZ but without CMF).
+            // Simple mean of the 4 spectral samples — wavelengths are already drawn
+            // uniformly from [lambdaMin, lambdaMax] so no pdf compensation is needed
+            // (we want average radiance over the band, not the integral).
             float L = 0.0f;
             for (int i = 0; i < astroray::kSpectrumSamples; ++i)
-                L += rad[i] / (lambdas.pdf(i) * astroray::kSpectrumSamples);
-            L = std::max(0.0f, L);
+                L += rad[i];
+            L = std::max(0.0f, L / astroray::kSpectrumSamples);
             // Store as neutral XYZ so xyzToLinearSRGB produces neutral grey.
             // xyzToLinearSRGB(L, L, L) ≈ (1.20L, 0.95L, 0.91L); the colourmap
             // pass corrects this by reading the mean of the three channels.
@@ -125,21 +127,22 @@ private:
             if (!bvh || !bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
                 // Environment contribution
                 astroray::SampledSpectrum envSpec(0.0f);
-                if (useLuminanceOutput_) {
-                    // Rayleigh sky: λ^-4 relative to 550 nm, scaled by a base brightness.
-                    for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
-                        float scale = rayleighScale(lambdas.lambda(i));
-                        // Base sky = 0.1 (dim background); above horizon brightens it.
-                        float horizonFade = 0.5f * (ray.direction.normalized().y + 1.0f);
-                        envSpec[i] = 0.08f * scale * (0.5f + horizonFade);
-                    }
-                } else if (envMap && envMap->loaded()) {
-                    envSpec = envMap->evalSpectral(ray.direction.normalized(), lambdas);
-                } else if (bgColor.x >= 0) {
+                Vec3 dir = ray.direction.normalized();
+                if (bgColor.x >= 0) {
+                    // Explicit background color always takes precedence (including black).
                     envSpec = astroray::RGBIlluminantSpectrum(
                         {bgColor.x, bgColor.y, bgColor.z}).sample(lambdas);
+                } else if (envMap && envMap->loaded()) {
+                    envSpec = envMap->evalSpectral(dir, lambdas);
+                } else if (useLuminanceOutput_) {
+                    // Rayleigh sky fallback for outside-visible when no bg/envmap set.
+                    for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+                        float scale = rayleighScale(lambdas.lambda(i));
+                        float horizonFade = 0.5f * (dir.y + 1.0f);
+                        envSpec[i] = 0.08f * scale * (0.5f + horizonFade);
+                    }
                 } else {
-                    float t = 0.5f * (ray.direction.normalized().y + 1.0f);
+                    float t = 0.5f * (dir.y + 1.0f);
                     Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
                     envSpec = astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
                 }

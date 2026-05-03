@@ -94,6 +94,13 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         g.type = GMAT_DIELECTRIC;
         g.baseColor = GVec3(1.f);
         g.ior = mat->getIOR();
+    } else if (gpuType == "thin_glass") {
+        g.type = GMAT_THIN_GLASS;
+        Vec3 a = mat->getAlbedo();
+        g.baseColor = GVec3(a.x, a.y, a.z);
+        g.ior = mat->getIOR();
+        g.roughness = mat->getRoughness();
+        g.transmission = mat->getTransmission();
     } else if (auto* l = dynamic_cast<Lambertian*>(mat.get())) {
         g.type = GMAT_LAMBERTIAN;
         Vec3 a = l->getAlbedo();

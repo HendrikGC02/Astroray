@@ -208,17 +208,68 @@ def run(cmd: list[str], cwd: Path | None = None, env: dict | None = None):
                           env=env)
 
 
-def _cmake_generator_args() -> list[str]:
+def _find_cl_exe() -> Path | None:
+    """Locate MSVC cl.exe via vswhere, then common install globs."""
+    import glob as _glob
+
+    # Try vswhere (simplest invocation — no -requires filter that might miss installs)
+    for vswhere in [
+        Path("C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"),
+        Path("C:/Program Files/Microsoft Visual Studio/Installer/vswhere.exe"),
+    ]:
+        if not vswhere.exists():
+            continue
+        for extra_args in (
+            ["-latest", "-property", "installationPath"],
+            ["-latest", "-prerelease", "-property", "installationPath"],
+            ["-all", "-property", "installationPath"],
+        ):
+            try:
+                out = subprocess.check_output(
+                    [str(vswhere), *extra_args],
+                    text=True, timeout=10).strip().splitlines()[0]
+                if out:
+                    matches = sorted(
+                        _glob.glob(f"{out}/VC/Tools/MSVC/*/bin/Hostx64/x64/cl.exe"),
+                        reverse=True)
+                    if matches:
+                        return Path(matches[0])
+            except Exception:
+                pass
+
+    # Direct glob of common VS install paths (VS 2019/2022, Build Tools, Community, etc.)
+    patterns = [
+        r"C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe",
+        r"C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe",
+        r"C:\Program Files\Microsoft Visual Studio\*\BuildTools\VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe",
+    ]
+    for pat in patterns:
+        matches = sorted(_glob.glob(pat), reverse=True)
+        if matches:
+            return Path(matches[0])
+
+    return None
+
+
+def _cmake_generator_args(use_cuda: bool = False) -> list[str]:
     """Return the -G <generator> args for cmake configure, or [] for auto-detect.
 
-    On Windows we prefer MinGW Makefiles when MinGW/MSYS gcc is on PATH
-    (legacy setup), but fall back to letting CMake pick its own default —
-    which will be a Visual Studio generator on MSVC machines.  Mixing
-    generators causes configure failures, so we only force MinGW when it is
-    actually available.
+    CUDA builds on Windows use Ninja + MSVC so that FetchContent subbuilds
+    work correctly (the VS/MSBuild generator has an incompatibility with
+    CMake 4.x FetchContent that causes the subbuild to report failure even
+    when all git-population steps succeed).  CPU builds on Windows prefer
+    MinGW Makefiles when gcc is on PATH.
     """
     if platform.system() != "Windows":
         return []  # CMake defaults to Unix Makefiles on Linux/macOS
+
+    if use_cuda:
+        # Prefer Ninja for CUDA builds — same generator VSCode uses.
+        if shutil.which("ninja") or shutil.which("ninja-build"):
+            return ["-G", "Ninja"]
+        # Ninja not on PATH — fall back to VS auto-detect (less reliable with tcnn)
+        return []
+
     if shutil.which("gcc") or shutil.which("x86_64-w64-mingw32-gcc"):
         return ["-G", "MinGW Makefiles"]
     # MSVC / Ninja / default — let CMake auto-detect
@@ -403,6 +454,23 @@ def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str =
     if nvcc is not None:
         extra_flags = [f"-DCMAKE_CUDA_COMPILER={nvcc}", *extra_flags]
 
+    # When building CUDA on Windows: use Ninja + cl.exe (same as VSCode).
+    # NVCC rejects MinGW g++ ("unsupported OS"), and VS/MSBuild generator has a
+    # CMake 4.x FetchContent subbuild bug that reports failure even on success.
+    if nvcc is not None and platform.system() == "Windows":
+        cl_exe = _find_cl_exe()
+        if cl_exe:
+            print(f"cl.exe: {cl_exe}")
+            extra_flags = [
+                f"-DCMAKE_C_COMPILER={cl_exe}",
+                f"-DCMAKE_CXX_COMPILER={cl_exe}",
+                *extra_flags,
+            ]
+            # Also add cl.exe's dir to PATH so nvcc's host-compiler discovery works
+            cl_bin = str(cl_exe.parent)
+            if cl_bin not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = cl_bin + os.pathsep + os.environ.get("PATH", "")
+
     if clean and BUILD_DIR.exists():
         print(f"removing {BUILD_DIR}")
         _force_remove(BUILD_DIR)
@@ -410,14 +478,7 @@ def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str =
 
     cache_file = BUILD_DIR / "CMakeCache.txt"
     if not cache_file.exists():
-        # NVCC on Windows only accepts MSVC (cl.exe) as its host compiler —
-        # it rejects MinGW/GCC with "unsupported OS".  When building a CUDA
-        # backend on Windows, skip the MinGW generator and let CMake auto-select
-        # the Visual Studio generator (which puts cl.exe in scope automatically).
-        if nvcc is not None and platform.system() == "Windows":
-            generator_args = []
-        else:
-            generator_args = _cmake_generator_args()
+        generator_args = _cmake_generator_args(use_cuda=(nvcc is not None))
         run([
             "cmake", "-S", str(REPO_ROOT), "-B", str(BUILD_DIR),
             *generator_args,

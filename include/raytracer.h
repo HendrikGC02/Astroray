@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include "stb_image.h"
 #include "astroray/gr_types.h"
+#include "astroray/material_closure.h"
 #include "astroray/spectrum.h"
 
 // Forward declaration needed by HitRecord
@@ -475,6 +476,7 @@ struct MaterialBackendCapabilities {
     bool gpu = false;
     bool gpuSpectral = false;
     bool gpuApproximate = false;
+    bool closureGraph = false;
     std::string gpuType;
     std::string notes = "no GPU lowering declared";
 };
@@ -495,13 +497,25 @@ public:
     virtual bool isGlossy() const { return false; }
     virtual Vec3 getAlbedo() const { return Vec3(0.5f); }
     virtual std::string getGPUTypeName() const { return ""; }
+    virtual astroray::MaterialClosureGraph closureGraph() const { return {}; }
     virtual MaterialBackendCapabilities backendCapabilities() const {
         MaterialBackendCapabilities caps;
-        caps.gpuType = getGPUTypeName();
-        if (!caps.gpuType.empty()) {
+        auto graph = closureGraph();
+        std::string validationReason;
+        caps.closureGraph = !graph.empty() &&
+            astroray::validateClosureGraph(graph, &validationReason);
+        if (caps.closureGraph) {
             caps.gpu = true;
             caps.gpuSpectral = true;
-            caps.notes = "spectral RGB-derived GPU lowering";
+            caps.gpuType = "closure_graph";
+            caps.notes = "spectral closure-graph GPU lowering";
+        } else {
+            caps.gpuType = getGPUTypeName();
+            if (!caps.gpuType.empty()) {
+                caps.gpu = true;
+                caps.gpuSpectral = true;
+                caps.notes = "spectral RGB-derived GPU lowering";
+            }
         }
         return caps;
     }
@@ -553,6 +567,11 @@ class Lambertian : public Material {
 public:
     Lambertian(const Vec3& a) : albedo(a), albedoSpec_({a.x, a.y, a.z}) {}
     Vec3 getAlbedo() const { return albedo; }
+    astroray::MaterialClosureGraph closureGraph() const override {
+        astroray::MaterialClosureGraph graph;
+        graph.add(astroray::makeDiffuseClosure({albedo.x, albedo.y, albedo.z}));
+        return graph;
+    }
     std::string getGPUTypeName() const override { return "lambertian"; }
 
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {

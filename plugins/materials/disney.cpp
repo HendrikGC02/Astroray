@@ -175,13 +175,34 @@ public:
 
     Vec3 getAlbedo() const override { return baseColor_; }
     std::string getGPUTypeName() const override { return "disney"; }
+    astroray::MaterialClosureGraph closureGraph() const override {
+        astroray::MaterialClosureGraph graph;
+        const astroray::ClosureColor base{baseColor_.x, baseColor_.y, baseColor_.z};
+        const float diffuseWeight = (1.0f - metallic_) * (1.0f - transmission_);
+        if (diffuseWeight > 1e-4f) {
+            graph.add(astroray::makeDiffuseClosure(base, diffuseWeight));
+        }
+        const float conductorWeight = transmission_ < 0.999f ? 1.0f : 0.0f;
+        if (conductorWeight > 1e-4f) {
+            graph.add(astroray::makeGGXConductorClosure(base, roughness_, conductorWeight));
+        }
+        if (transmission_ > 1e-4f) {
+            graph.add(astroray::makeDielectricTransmissionClosure(
+                base, ior_, roughness_, transmission_, transmission_));
+        }
+        if (graph.empty()) {
+            graph.add(astroray::makeDiffuseClosure(base, 1.0f));
+        }
+        return graph;
+    }
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps;
         caps.gpu = true;
         caps.gpuSpectral = true;
         caps.gpuApproximate = true;
-        caps.gpuType = "disney";
-        caps.notes = "spectral RGB-derived Disney GPU preview; closure composition remains approximate until pkg36";
+        caps.closureGraph = true;
+        caps.gpuType = "closure_graph";
+        caps.notes = "spectral Disney closure-graph GPU lowering; advanced Disney lobes remain approximated";
         return caps;
     }
     float getRoughness() const override { return roughness_; }

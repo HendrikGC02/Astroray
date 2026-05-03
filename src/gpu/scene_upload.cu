@@ -50,6 +50,21 @@ static GBVHNode convertNode(const LinearBVHNode& n) {
 // ---------------------------------------------------------------------------
 // Convert a CPU Material shared_ptr → GMaterial flat struct
 // ---------------------------------------------------------------------------
+static GClosureType convertClosureType(astroray::MaterialClosureType type) {
+    switch (type) {
+        case astroray::MaterialClosureType::Diffuse: return GCLOSURE_DIFFUSE;
+        case astroray::MaterialClosureType::GGXConductor: return GCLOSURE_GGX_CONDUCTOR;
+        case astroray::MaterialClosureType::DielectricTransmission: return GCLOSURE_DIELECTRIC_TRANSMISSION;
+        case astroray::MaterialClosureType::Clearcoat: return GCLOSURE_CLEARCOAT;
+        case astroray::MaterialClosureType::Sheen: return GCLOSURE_SHEEN;
+        case astroray::MaterialClosureType::Emission: return GCLOSURE_EMISSION;
+        case astroray::MaterialClosureType::ThinGlass: return GCLOSURE_THIN_GLASS;
+        case astroray::MaterialClosureType::None:
+        default:
+            return GCLOSURE_NONE;
+    }
+}
+
 static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
     MaterialBackendCapabilities caps = mat->backendCapabilities();
     if (!caps.gpu) {
@@ -73,6 +88,36 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
     g.subsurface       = 0.f;
     g.anisotropic      = 0.f;
     g.anisotropicRotation = 0.f;
+
+    astroray::MaterialClosureGraph graph = mat->closureGraph();
+    std::string graphReason;
+    if (!graph.empty() && astroray::validateClosureGraph(graph, &graphReason)) {
+        g.type = GMAT_CLOSURE_GRAPH;
+        g.spectralMode = GSPEC_RGB_ALBEDO;
+        Vec3 a = mat->getAlbedo();
+        g.baseColor = GVec3(a.x, a.y, a.z);
+        g.roughness = mat->getRoughness();
+        g.ior = mat->getIOR();
+        g.transmission = mat->getTransmission();
+        g.closureCount = static_cast<uint8_t>(
+            std::min(graph.count(), G_MAX_MATERIAL_CLOSURES));
+
+        for (int i = 0; i < g.closureCount; ++i) {
+            const astroray::MaterialClosure& c = graph.closure(i);
+            GMaterialClosure gc{};
+            gc.type = convertClosureType(c.type);
+            gc.twoSidedEmission = c.twoSidedEmission ? 1 : 0;
+            gc.color = GVec3(c.color.x, c.color.y, c.color.z);
+            gc.weight = c.weight;
+            gc.roughness = c.roughness;
+            gc.metallic = c.metallic;
+            gc.ior = c.ior;
+            gc.transmission = c.transmission;
+            gc.clearcoatGloss = c.clearcoatGloss;
+            g.closures[i] = gc;
+        }
+        return g;
+    }
 
     std::string gpuType = caps.gpuType.empty() ? mat->getGPUTypeName() : caps.gpuType;
     if (gpuType == "disney") {

@@ -669,6 +669,185 @@ __device__ inline float gpu_disney_pdf(
 // ===  Dispatch: switch on GMaterialType  ====================================
 // ===========================================================================
 
+__device__ inline bool gpu_closure_is_sampleable(GClosureType type) {
+    return type == GCLOSURE_DIFFUSE ||
+           type == GCLOSURE_GGX_CONDUCTOR ||
+           type == GCLOSURE_DIELECTRIC_TRANSMISSION ||
+           type == GCLOSURE_THIN_GLASS;
+}
+
+__device__ inline GMaterial gpu_closure_as_material(const GMaterial& parent, const GMaterialClosure& closure) {
+    GMaterial tmp = parent;
+    tmp.type = GMAT_LAMBERTIAN;
+    tmp.baseColor = closure.color;
+    tmp.roughness = closure.roughness;
+    tmp.metallic = closure.metallic;
+    tmp.ior = closure.ior;
+    tmp.transmission = fminf(fmaxf(closure.transmission, 0.0f), 1.0f);
+    tmp.clearcoat = 0.0f;
+    tmp.clearcoatGloss = closure.clearcoatGloss;
+    tmp.emissionIntensity = 0.0f;
+    tmp.specular = 0.5f;
+    tmp.specularTint = 0.0f;
+    tmp.sheen = 0.0f;
+    tmp.sheenTint = 0.5f;
+    tmp.subsurface = 0.0f;
+    tmp.anisotropic = 0.0f;
+    tmp.anisotropicRotation = 0.0f;
+
+    switch (closure.type) {
+        case GCLOSURE_DIFFUSE:
+            tmp.type = GMAT_LAMBERTIAN;
+            break;
+        case GCLOSURE_GGX_CONDUCTOR:
+            tmp.type = GMAT_METAL;
+            tmp.metallic = 1.0f;
+            break;
+        case GCLOSURE_DIELECTRIC_TRANSMISSION:
+            tmp.type = closure.roughness > 0.03f ? GMAT_DISNEY : GMAT_DIELECTRIC;
+            tmp.metallic = 0.0f;
+            break;
+        case GCLOSURE_THIN_GLASS:
+            tmp.type = GMAT_THIN_GLASS;
+            break;
+        default:
+            tmp.type = GMAT_LAMBERTIAN;
+            break;
+    }
+    return tmp;
+}
+
+__device__ inline GVec3 gpu_closure_eval(
+    const GMaterial& parent, const GMaterialClosure& closure,
+    GHitRecord& rec, const GVec3& wo, const GVec3& wi)
+{
+    if (closure.weight <= 0.0f) return GVec3(0.0f);
+    GMaterial tmp = gpu_closure_as_material(parent, closure);
+    GVec3 result(0.0f);
+    switch (tmp.type) {
+        case GMAT_LAMBERTIAN: result = gpu_lambertian_eval(tmp, rec, wo, wi); break;
+        case GMAT_METAL: result = gpu_metal_eval(tmp, rec, wo, wi); break;
+        case GMAT_DISNEY: result = gpu_disney_eval(tmp, rec, wo, wi); break;
+        default: result = GVec3(0.0f); break;
+    }
+    return result * closure.weight;
+}
+
+__device__ inline float gpu_closure_pdf(
+    const GMaterial& parent, const GMaterialClosure& closure,
+    const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
+{
+    if (!gpu_closure_is_sampleable(closure.type) || closure.weight <= 0.0f)
+        return 0.0f;
+    GMaterial tmp = gpu_closure_as_material(parent, closure);
+    switch (tmp.type) {
+        case GMAT_LAMBERTIAN: return gpu_lambertian_pdf(tmp, rec, wo, wi);
+        case GMAT_METAL: return gpu_metal_pdf(tmp, rec, wo, wi);
+        case GMAT_DISNEY: return gpu_disney_pdf(tmp, rec, wo, wi);
+        default: return 0.0f;
+    }
+}
+
+__device__ inline GVec3 gpu_closure_graph_eval(
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi)
+{
+    GVec3 sum(0.0f);
+    int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
+    for (int i = 0; i < count; ++i) {
+        const GMaterialClosure& closure = mat.closures[i];
+        if (closure.type != GCLOSURE_EMISSION)
+            sum += gpu_closure_eval(mat, closure, rec, wo, wi);
+    }
+    return sum;
+}
+
+__device__ inline float gpu_closure_graph_pdf(
+    const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
+{
+    float totalWeight = 0.0f;
+    int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
+    for (int i = 0; i < count; ++i) {
+        const GMaterialClosure& closure = mat.closures[i];
+        if (gpu_closure_is_sampleable(closure.type))
+            totalWeight += fmaxf(closure.weight, 0.0f);
+    }
+    if (totalWeight <= 0.0f) return 0.0f;
+
+    float sum = 0.0f;
+    for (int i = 0; i < count; ++i) {
+        const GMaterialClosure& closure = mat.closures[i];
+        if (!gpu_closure_is_sampleable(closure.type)) continue;
+        float selectionPdf = fmaxf(closure.weight, 0.0f) / totalWeight;
+        sum += selectionPdf * gpu_closure_pdf(mat, closure, rec, wo, wi);
+    }
+    return sum;
+}
+
+__device__ inline GBSDFSample gpu_closure_graph_sample(
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, curandState* rng)
+{
+    GBSDFSample s;
+    s.wi = GVec3(0, 1, 0);
+    s.f = GVec3(0.0f);
+    s.fSpectral = GSampledSpectrum(0.0f);
+    s.pdf = 0.0f;
+    s.isDelta = false;
+
+    float totalWeight = 0.0f;
+    int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
+    for (int i = 0; i < count; ++i) {
+        const GMaterialClosure& closure = mat.closures[i];
+        if (gpu_closure_is_sampleable(closure.type))
+            totalWeight += fmaxf(closure.weight, 0.0f);
+    }
+    if (totalWeight <= 0.0f) return s;
+
+    float xi = curand_uniform(rng) * totalWeight;
+    int chosen = -1;
+    float accum = 0.0f;
+    for (int i = 0; i < count; ++i) {
+        const GMaterialClosure& closure = mat.closures[i];
+        if (!gpu_closure_is_sampleable(closure.type)) continue;
+        accum += fmaxf(closure.weight, 0.0f);
+        if (xi <= accum) {
+            chosen = i;
+            break;
+        }
+    }
+    if (chosen < 0) return s;
+
+    const GMaterialClosure& closure = mat.closures[chosen];
+    GMaterial tmp = gpu_closure_as_material(mat, closure);
+    switch (tmp.type) {
+        case GMAT_LAMBERTIAN: s = gpu_lambertian_sample(tmp, rec, wo, rng); break;
+        case GMAT_METAL: s = gpu_metal_sample(tmp, rec, wo, rng); break;
+        case GMAT_DIELECTRIC: s = gpu_dielectric_sample(tmp, rec, wo, rng); break;
+        case GMAT_DISNEY: s = gpu_disney_sample(tmp, rec, wo, rng); break;
+        case GMAT_THIN_GLASS: s = gpu_thin_glass_sample(tmp, rec, wo, rng); break;
+        default: return s;
+    }
+
+    if (s.pdf <= 0.0f || s.f.length2() <= 0.0f) return s;
+    if (s.isDelta) {
+        s.f *= closure.weight;
+    } else {
+        s.f = gpu_closure_graph_eval(mat, rec, wo, s.wi);
+        s.pdf = gpu_closure_graph_pdf(mat, rec, wo, s.wi);
+    }
+    return s;
+}
+
+__device__ inline GVec3 gpu_closure_graph_emitted(const GMaterial& mat, bool frontFace) {
+    GVec3 sum(0.0f);
+    int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
+    for (int i = 0; i < count; ++i) {
+        const GMaterialClosure& closure = mat.closures[i];
+        if (closure.type == GCLOSURE_EMISSION && (frontFace || closure.twoSidedEmission))
+            sum += closure.color * closure.transmission * closure.weight;
+    }
+    return sum;
+}
+
 __device__ inline GVec3 gpu_material_eval(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
@@ -679,6 +858,7 @@ __device__ inline GVec3 gpu_material_eval(
         case GMAT_DIFFUSE_LIGHT: return GVec3(0.f); // emissive only
         case GMAT_DISNEY:        return gpu_disney_eval(mat, rec, wo, wi);
         case GMAT_THIN_GLASS:    return GVec3(0.f); // mostly-delta pane
+        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_eval(mat, rec, wo, wi);
         default:                 return GVec3(0.f);
     }
 }
@@ -700,6 +880,7 @@ __device__ inline GBSDFSample gpu_material_sample(
         case GMAT_DIELECTRIC:    return gpu_dielectric_sample(mat, rec, wo, rng);
         case GMAT_DISNEY:        return gpu_disney_sample(mat, rec, wo, rng);
         case GMAT_THIN_GLASS:    return gpu_thin_glass_sample(mat, rec, wo, rng);
+        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_sample(mat, rec, wo, rng);
         default: { GBSDFSample s; s.f=GVec3(0); s.fSpectral=GSampledSpectrum(0.f); s.wi=GVec3(0,1,0); s.pdf=0; s.isDelta=false; return s; }
     }
 }
@@ -720,6 +901,7 @@ __device__ inline float gpu_material_pdf(
         case GMAT_LAMBERTIAN: return gpu_lambertian_pdf(mat, rec, wo, wi);
         case GMAT_METAL:      return gpu_metal_pdf(mat, rec, wo, wi);
         case GMAT_DISNEY:     return gpu_disney_pdf(mat, rec, wo, wi);
+        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_pdf(mat, rec, wo, wi);
         default:              return 0.f;
     }
 }
@@ -729,6 +911,8 @@ __device__ inline GVec3 gpu_material_emitted(
 {
     if (mat.type == GMAT_DIFFUSE_LIGHT && frontFace)
         return mat.baseColor * mat.emissionIntensity;
+    if (mat.type == GMAT_CLOSURE_GRAPH)
+        return gpu_closure_graph_emitted(mat, frontFace);
     return GVec3(0.f);
 }
 

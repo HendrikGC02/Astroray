@@ -17,6 +17,7 @@ def candidate_build_dirs() -> list[str]:
     env_dir = os.environ.get("ASTRORAY_BUILD_DIR")
     if env_dir:
         candidates.append(Path(env_dir))
+        candidates.append(Path(env_dir) / "Release")
     candidates.extend([DEFAULT_BUILD_DIR, DEFAULT_BUILD_DIR / "Release"])
 
     seen: set[str] = set()

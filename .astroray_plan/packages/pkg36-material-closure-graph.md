@@ -2,7 +2,7 @@
 
 **Pillar:** 2/5 bridge
 **Track:** A
-**Status:** open
+**Status:** implemented
 **Estimated effort:** 2-3 sessions (~9 h)
 **Depends on:** pkg34, pkg35
 
@@ -63,11 +63,11 @@ arbitrary plugin C++ into CUDA.
 
 ## Acceptance criteria
 
-- [ ] Lambertian, metal, flat dielectric, Disney plastic, and Disney glass
+- [x] Lambertian, metal, flat dielectric, Disney plastic, and Disney glass
       can be represented by closure graphs.
-- [ ] A new simple material plugin can be added by returning a closure
+- [x] A new simple material plugin can be added by returning a closure
       graph without editing CUDA kernels.
-- [ ] Existing hand-written material plugins still work as CPU-only escape
+- [x] Existing hand-written material plugins still work as CPU-only escape
       hatches when no graph is provided.
 
 ---

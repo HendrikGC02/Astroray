@@ -72,6 +72,7 @@ def test_pkg35_capabilities_mark_spectral_gpu_and_cpu_only_emitters():
     flat_caps = renderer.get_material_backend_capabilities(flat)
     assert flat_caps["gpu"] is True
     assert flat_caps["gpu_spectral"] is True
+    assert flat_caps["closure_graph"] is True
     assert "flat-IOR" in flat_caps["notes"]
 
     dispersive = renderer.create_material("dielectric", [1.0, 1.0, 1.0], {"sellmeier_preset": "bk7"})

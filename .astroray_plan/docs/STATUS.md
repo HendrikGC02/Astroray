@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-03 (pkg35 spectral GPU material bridge)
+**Last updated:** 2026-05-03 (pkg38 spectral material database complete)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -83,6 +83,8 @@ personally should pick up.
 |---|---|---|
 | pkg32 | Visual diagnostics & benchmark renders | **done** |
 | pkg33 | OIDN FetchContent integration | **done** |
+| pkg38 | Spectral material profile database | **done** |
+| pkg39 | Spectral profile C++ loader | open |
 
 **Astrophysics platform (Pillar 4):**
 
@@ -170,6 +172,7 @@ personally should pick up.
 | pkg37 | A/E | open | pkg34 recommended for capability-aware Auto mode |
 | pkg32 | A+B | **done** | — |
 | pkg33 | A | **done** | — |
+| pkg38 | B | **done** | — |
 | pkg40 | A | open | current registry/reference cleanup |
 
 ---
@@ -207,6 +210,7 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-05-03** — pkg38 complete. Spectral material profile database built from USGS Spectral Library v7, ECOSTRESS/JHU spectra, Rakic 1998 Lorentz-Drude model for polished metals (Al, Au), and Bashkatov 2005 digitised skin measurements. 40 materials across 7 categories (vegetation, earth, building, metal, fabric, paint, human), 441 wavelengths at 5nm from 300-2500nm. ASPR binary format (72 KB), profiles_metadata.json, sources.md provenance. 18 tests all pass; Wood effect 3.8x/5.9x, water R(1000nm)=0.008, Al/Au mean R>0.90.
 - **2026-05-03** — pkg35 complete. Added compact CUDA sampled-wavelength and
   sampled-spectrum payloads, spectral BSDF/emitter dispatch helpers for core
   RGB-derived GPU materials, Python `gpu_spectral` capability metadata, and

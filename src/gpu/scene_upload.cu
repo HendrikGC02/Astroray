@@ -51,6 +51,11 @@ static GBVHNode convertNode(const LinearBVHNode& n) {
 // Convert a CPU Material shared_ptr → GMaterial flat struct
 // ---------------------------------------------------------------------------
 static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
+    MaterialBackendCapabilities caps = mat->backendCapabilities();
+    if (!caps.gpu) {
+        throw std::runtime_error("Material cannot be uploaded to GPU: " + caps.notes);
+    }
+
     GMaterial g{};
     g.roughness        = 0.5f;
     g.metallic         = 0.f;
@@ -67,7 +72,7 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
     g.anisotropic      = 0.f;
     g.anisotropicRotation = 0.f;
 
-    std::string gpuType = mat->getGPUTypeName();
+    std::string gpuType = caps.gpuType.empty() ? mat->getGPUTypeName() : caps.gpuType;
     if (gpuType == "disney") {
         g.type = GMAT_DISNEY;
         Vec3 a = mat->getAlbedo();
@@ -101,27 +106,18 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         g.ior = mat->getIOR();
         g.roughness = mat->getRoughness();
         g.transmission = mat->getTransmission();
-    } else if (auto* l = dynamic_cast<Lambertian*>(mat.get())) {
+    } else if (gpuType == "lambertian") {
         g.type = GMAT_LAMBERTIAN;
-        Vec3 a = l->getAlbedo();
+        Vec3 a = mat->getAlbedo();
         g.baseColor = GVec3(a.x, a.y, a.z);
-    } else if (mat->isEmissive()) {
+    } else if (gpuType == "diffuse_light") {
         g.type = GMAT_DIFFUSE_LIGHT;
         Vec3 em = mat->getEmission();
         // Store color and intensity separately: emissionIntensity=1, baseColor=full emission
         g.baseColor = GVec3(em.x, em.y, em.z);
         g.emissionIntensity = 1.f;
-    } else if (mat->isTransmissive()) {
-        g.type = GMAT_DIELECTRIC;
-        g.baseColor = GVec3(1.f);
-    } else if (mat->isGlossy()) {
-        g.type = GMAT_METAL;
-        Vec3 a = mat->getAlbedo();
-        g.baseColor = GVec3(a.x, a.y, a.z);
     } else {
-        // Unknown: treat as grey Lambertian
-        g.type = GMAT_LAMBERTIAN;
-        g.baseColor = GVec3(0.5f);
+        throw std::runtime_error("Material declares unsupported GPU type: " + gpuType);
     }
     return g;
 }

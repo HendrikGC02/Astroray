@@ -469,6 +469,15 @@ struct LightSample { Vec3 position, normal, emission; float pdf, distance; };
 struct BSDFSample { Vec3 wi, f; float pdf; bool isDelta; };
 struct BSDFSampleSpectral { Vec3 wi; astroray::SampledSpectrum f_spectral; float pdf; bool isDelta; };
 
+struct MaterialBackendCapabilities {
+    bool cpu = true;
+    bool spectral = true;
+    bool gpu = false;
+    bool gpuApproximate = false;
+    std::string gpuType;
+    std::string notes = "no GPU lowering declared";
+};
+
 // ============================================================================
 // MATERIALS - ALL FIXES APPLIED
 // ============================================================================
@@ -485,6 +494,15 @@ public:
     virtual bool isGlossy() const { return false; }
     virtual Vec3 getAlbedo() const { return Vec3(0.5f); }
     virtual std::string getGPUTypeName() const { return ""; }
+    virtual MaterialBackendCapabilities backendCapabilities() const {
+        MaterialBackendCapabilities caps;
+        caps.gpuType = getGPUTypeName();
+        if (!caps.gpuType.empty()) {
+            caps.gpu = true;
+            caps.notes = "exact GPU lowering";
+        }
+        return caps;
+    }
     virtual float getRoughness() const { return 0.5f; }
     virtual float getMetallic() const { return 0.0f; }
     virtual float getIOR() const { return 1.5f; }
@@ -533,6 +551,7 @@ class Lambertian : public Material {
 public:
     Lambertian(const Vec3& a) : albedo(a), albedoSpec_({a.x, a.y, a.z}) {}
     Vec3 getAlbedo() const { return albedo; }
+    std::string getGPUTypeName() const override { return "lambertian"; }
 
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;

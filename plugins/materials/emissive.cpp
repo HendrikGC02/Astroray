@@ -34,6 +34,7 @@ public:
 
     Vec3 getEmission() const override { return color_ * intensity_; }
     bool isEmissive() const override { return true; }
+    std::string getGPUTypeName() const override { return "diffuse_light"; }
 };
 
 ASTRORAY_REGISTER_MATERIAL("emissive", EmissivePlugin)

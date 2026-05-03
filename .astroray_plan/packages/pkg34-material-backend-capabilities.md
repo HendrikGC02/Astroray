@@ -2,7 +2,7 @@
 
 **Pillar:** 2/5 bridge
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 1 session (~3 h)
 **Depends on:** pkg14, pkg32
 
@@ -65,11 +65,11 @@ between CPU, CUDA, and future neural/optimized paths will be confusing.
 
 ## Acceptance criteria
 
-- [ ] Unknown material plugins do not silently render as grey Lambertian
+- [x] Unknown material plugins do not silently render as grey Lambertian
       on GPU.
-- [ ] The material contact sheet records which backend was used per tile
+- [x] The material contact sheet records which backend was used per tile
       and why.
-- [ ] Tests cover at least one GPU-supported material, one CPU-only
+- [x] Tests cover at least one GPU-supported material, one CPU-only
       material, and one explicitly approximate preview fallback.
 
 ---
@@ -79,3 +79,26 @@ between CPU, CUDA, and future neural/optimized paths will be confusing.
 - Do not implement new material physics.
 - Do not make all materials GPU-native yet; pkg35 owns the spectral CUDA
   material work.
+
+---
+
+## Completion Notes
+
+Implemented:
+
+- Added `MaterialBackendCapabilities` to the material base interface with
+  CPU, spectral, GPU, GPU-approximation, GPU type, and explanatory notes.
+- Added capability declarations for the core GPU-backed materials and explicit
+  CPU-only notes for spectral-only/unsupported materials such as Sellmeier
+  dielectric presets, mirror, blackbody, and line emitters.
+- Replaced the CUDA upload path's silent fallback guesses with capability-aware
+  rejection. Unsupported materials now raise a clear runtime error instead of
+  becoming grey Lambertian, generic dielectric, or generic metal.
+- Exposed `Renderer.get_material_backend_capabilities(material_id)` to Python.
+- Updated `scripts/material_contact_sheet.py` to use material capability
+  metadata instead of a hard-coded allowlist, and to record backend reason,
+  GPU support, approximation status, GPU type, and notes in its CSV.
+- Added `tests/test_material_backend_capabilities.py` covering a GPU-supported
+  material, a CPU-only material, an explicit preview approximation, a
+  CPU-only dispersive glass preset, and GPU rejection of unsupported materials
+  when CUDA is available.

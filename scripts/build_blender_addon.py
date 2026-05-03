@@ -402,12 +402,6 @@ def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str =
     # on the shell PATH (e.g. CUDA installed via VS integration or registry only).
     if nvcc is not None:
         extra_flags = [f"-DCMAKE_CUDA_COMPILER={nvcc}", *extra_flags]
-        # When the MinGW Makefiles generator is active (gcc on PATH), nvcc defaults
-        # to looking for cl.exe (MSVC) as the host compiler, which doesn't exist in
-        # a MinGW environment.  Tell it to use g++ explicitly.
-        if platform.system() == "Windows" and (shutil.which("gcc") or shutil.which("g++")):
-            gxx = shutil.which("g++") or shutil.which("gcc")
-            extra_flags = [f"-DCMAKE_CUDA_HOST_COMPILER={gxx}", *extra_flags]
 
     if clean and BUILD_DIR.exists():
         print(f"removing {BUILD_DIR}")
@@ -416,7 +410,14 @@ def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str =
 
     cache_file = BUILD_DIR / "CMakeCache.txt"
     if not cache_file.exists():
-        generator_args = _cmake_generator_args()
+        # NVCC on Windows only accepts MSVC (cl.exe) as its host compiler —
+        # it rejects MinGW/GCC with "unsupported OS".  When building a CUDA
+        # backend on Windows, skip the MinGW generator and let CMake auto-select
+        # the Visual Studio generator (which puts cl.exe in scope automatically).
+        if nvcc is not None and platform.system() == "Windows":
+            generator_args = []
+        else:
+            generator_args = _cmake_generator_args()
         run([
             "cmake", "-S", str(REPO_ROOT), "-B", str(BUILD_DIR),
             *generator_args,

@@ -6,6 +6,32 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+### pkg37 — Blender Addon Backend Refresh
+
+- **Device mode** — `device_mode` EnumProperty (`Auto` / `GPU` / `CPU`) replaces the old
+  `use_gpu` BoolProperty. Auto selects GPU when available, silently falls back to CPU.
+  GPU mode warns (Blender header bar) when no CUDA device is detected.
+- **`configure_backend()` helper** — shared module-level function called from both the
+  final `render()` path and `view_update()` (viewport), ensuring both paths use the same
+  device selection logic.
+- **Viewport wavelength parity** — `view_update()` now applies the same wavelength range,
+  output mode (`luminance`), and integrator (`multiwavelength_path_tracer`) as final render
+  when a non-visible preset (Near IR / UV / Custom) is active.
+- **Diagnostics panel** — new "Diagnostics" section (collapsed by default) in Render
+  Properties showing: `astroray` module path, version, `__features__` dict, GPU availability
+  and device name, registered integrators, selected integrator, and post-render integrator
+  stats (from `get_integrator_stats()` after each render).
+- **Build script `--backend` flag** — `scripts/build_blender_addon.py` now accepts
+  `--backend cpu` (default), `--backend cuda`, `--backend tcnn`, `--backend auto`.
+  Each backend uses a distinct build directory (`build_blender_addon`,
+  `build_blender_addon_cuda`, `build_blender_addon_tcnn`) and passes the appropriate
+  CMake flags. The stale hardcoded `ASTRORAY_ENABLE_CUDA=OFF` comment is removed.
+- **Build report** — a `build_report.json` is written into the packaged `.zip` identifying
+  the backend, build directory, CMake flags, platform, and Python version.
+- **Tests** — 11 new tests in `tests/test_blender_backend_policy.py` covering Auto/GPU/CPU
+  policy, GPU exception handling, viewport wavelength dispatch, and build script backend
+  config.
+
 ### pkg39 — Multi-Wavelength Rendering
 
 - **SpectralProfile / SpectralProfileDatabase** — new `include/astroray/spectral_profile.h`

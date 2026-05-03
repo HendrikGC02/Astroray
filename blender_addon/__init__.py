@@ -86,8 +86,16 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         description="Enable reflective caustics from specular reflections after diffuse bounces")
     use_refractive_caustics: BoolProperty(name="Refractive Caustics", default=True,
         description="Enable refractive caustics from transmission after diffuse bounces")
-    use_gpu: BoolProperty(name="Use GPU", default=False,
-        description="Use CUDA GPU for rendering (requires NVIDIA GPU)")
+    device_mode: EnumProperty(
+        name="Device",
+        description="Rendering device — Auto picks GPU when available and safe",
+        items=[
+            ('auto', 'Auto',  'Use GPU when available, fall back to CPU silently'),
+            ('gpu',  'GPU',   'Force GPU (warns if CUDA unavailable)'),
+            ('cpu',  'CPU',   'Always use CPU'),
+        ],
+        default='auto',
+    )
     integrator_type: EnumProperty(
         name="Integrator",
         description="Light transport integrator (from plugin registry)",
@@ -123,6 +131,35 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         ],
         default='grayscale',
     )
+
+    last_render_stats: StringProperty(
+        name="Last Render Stats",
+        default="",
+        options={'HIDDEN'},
+        description="Integrator stats from the most recent render (auto-populated)",
+    )
+
+
+def configure_backend(renderer, settings) -> str:
+    """Apply device_mode to renderer. Returns 'gpu' or 'cpu'.
+
+    Shared by final render and viewport render so both paths behave identically.
+    """
+    mode = getattr(settings, "device_mode", "auto")
+    if mode == "cpu":
+        return "cpu"
+    try:
+        gpu_ok = renderer.gpu_available
+    except Exception:
+        gpu_ok = False
+    if (mode == "auto" and gpu_ok) or mode == "gpu":
+        try:
+            renderer.set_use_gpu(True)
+            return "gpu"
+        except Exception:
+            pass
+    return "cpu"
+
 
 def _material_type_items(self, context):
     if RAYTRACER_AVAILABLE:
@@ -254,12 +291,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
             self.convert_scene(depsgraph, renderer, width, height)
 
-            if settings.use_gpu:
+            active_device = configure_backend(renderer, settings)
+            if active_device == "gpu":
                 try:
-                    renderer.set_use_gpu(True)
                     print(f"GPU rendering: {renderer.gpu_device_name}")
-                except Exception as e:
-                    print(f"GPU not available, falling back to CPU: {e}")
+                except Exception:
+                    pass
+            elif getattr(settings, "device_mode", "auto") == "gpu":
+                self.report({'WARNING'}, "Astroray: GPU requested but not available, using CPU")
 
             def progress_callback(value):
                 if self.test_break(): return False
@@ -294,7 +333,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 settings.transmission_bounces, settings.volume_bounces,
                 settings.transparent_bounces
             )
-            print(f"Render completed in {time.time() - start_time:.2f}s")
+            elapsed = time.time() - start_time
+            print(f"Render completed in {elapsed:.2f}s")
+            try:
+                stats = renderer.get_integrator_stats()
+                settings.last_render_stats = str(stats) if stats else ""
+            except Exception:
+                settings.last_render_stats = ""
 
             if pixels is not None:
                 alpha = None
@@ -345,9 +390,27 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self.convert_lights(depsgraph, renderer)
             self.setup_world(scene, renderer)
 
+            configure_backend(renderer, settings)
+
             samples = max(1, settings.preview_samples)
             depth = max(2, settings.max_bounces // 2)
-            renderer.set_integrator(settings.integrator_type)
+            # Apply the same wavelength policy as final render
+            preset = settings.wavelength_preset
+            if preset == 'near_ir':
+                lmin, lmax = 700.0, 1000.0
+            elif preset == 'uv':
+                lmin, lmax = 300.0, 400.0
+            elif preset == 'custom':
+                lmin, lmax = settings.wavelength_min, settings.wavelength_max
+            else:
+                lmin, lmax = 380.0, 780.0
+            renderer.set_wavelength_range(lmin, lmax)
+            is_outside_visible = (lmax > 780.0 or lmin < 380.0)
+            if is_outside_visible:
+                renderer.set_output_mode("luminance")
+                renderer.set_integrator("multiwavelength_path_tracer")
+            else:
+                renderer.set_integrator(settings.integrator_type)
             pixels = renderer.render(
                 samples, depth, None, False,
                 min(settings.diffuse_bounces, depth),
@@ -2026,14 +2089,17 @@ class RENDER_PT_custom_raytracer_performance(AstrorayPanelBase, Panel):
         settings = context.scene.custom_raytracer
 
         col = layout.column(align=True)
-        col.prop(settings, "use_gpu")
+        col.prop(settings, "device_mode", expand=True)
+
         if RAYTRACER_AVAILABLE:
             try:
                 r = astroray.Renderer()
                 if r.gpu_available:
-                    col.label(text=f"GPU: {r.gpu_device_name}", icon='CHECKMARK')
+                    layout.label(text=f"GPU: {r.gpu_device_name}", icon='CHECKMARK')
                 else:
-                    col.label(text="No CUDA GPU detected", icon='INFO')
+                    layout.label(text="No CUDA GPU detected", icon='INFO')
+                    if settings.device_mode == 'gpu':
+                        layout.label(text="GPU requested but unavailable — will use CPU", icon='ERROR')
             except Exception:
                 pass
 
@@ -2072,6 +2138,79 @@ class RENDER_PT_custom_raytracer_wavelength(AstrorayPanelBase, Panel):
                 text="Using multiwavelength_path_tracer integrator",
                 icon='INFO',
             )
+
+
+class RENDER_PT_custom_raytracer_diagnostics(AstrorayPanelBase, Panel):
+    """Module, GPU, feature, and integrator diagnostics."""
+    bl_label = "Diagnostics"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "render"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = False
+
+        settings = context.scene.custom_raytracer
+
+        if not RAYTRACER_AVAILABLE:
+            layout.label(text="astroray module not loaded", icon='ERROR')
+            return
+
+        col = layout.column(align=False)
+
+        # Module identity
+        try:
+            mod_path = getattr(astroray, "__file__", "unknown")
+            col.label(text=f"Module: {mod_path}", icon='FILE_SCRIPT')
+            col.label(text=f"Version: {astroray.__version__}")
+        except Exception:
+            col.label(text="Module info unavailable", icon='ERROR')
+
+        col.separator()
+
+        # GPU state
+        try:
+            r = astroray.Renderer()
+            if r.gpu_available:
+                col.label(text=f"GPU: {r.gpu_device_name}", icon='CHECKMARK')
+            else:
+                col.label(text="GPU: not available (CPU build or no CUDA device)", icon='INFO')
+        except Exception:
+            col.label(text="GPU: query failed", icon='ERROR')
+
+        col.separator()
+
+        # Feature flags
+        try:
+            feats = astroray.__features__
+            active = [k for k, v in feats.items() if v]
+            inactive = [k for k, v in feats.items() if not v]
+            col.label(text="Features:")
+            col.label(text="  On:  " + (", ".join(active) if active else "none"))
+            if inactive:
+                col.label(text="  Off: " + ", ".join(inactive))
+        except Exception:
+            col.label(text="Features: unavailable")
+
+        col.separator()
+
+        # Active integrator
+        try:
+            integrators = astroray.integrator_registry_names()
+            col.label(text="Integrators: " + ", ".join(integrators))
+            col.label(text=f"Selected: {settings.integrator_type}")
+        except Exception:
+            pass
+
+        # Post-render integrator stats
+        stats_str = getattr(settings, "last_render_stats", "")
+        if stats_str:
+            col.separator()
+            col.label(text="Last render stats:")
+            for line in stats_str.splitlines()[:6]:
+                col.label(text=f"  {line}")
 
 
 class AstrorayWorldPanelBase(AstrorayPanelBase):
@@ -2212,6 +2351,7 @@ classes = [
     RENDER_PT_custom_raytracer_light_paths,
     RENDER_PT_custom_raytracer_performance,
     RENDER_PT_custom_raytracer_wavelength,
+    RENDER_PT_custom_raytracer_diagnostics,
     WORLD_PT_custom_raytracer_surface,
     MATERIAL_PT_custom_raytracer_surface,
     CustomRaytracerPreferences,

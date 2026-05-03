@@ -18,12 +18,22 @@ What it does
 
 Usage
 -----
-    python scripts/build_blender_addon.py                      # auto-detect
-    python scripts/build_blender_addon.py --blender "<path>"   # target a specific Blender
+    python scripts/build_blender_addon.py                          # CPU build (default)
+    python scripts/build_blender_addon.py --backend cuda           # CUDA GPU build
+    python scripts/build_blender_addon.py --backend tcnn           # CUDA + TinyNN build
+    python scripts/build_blender_addon.py --backend auto           # probe nvcc, choose best
+    python scripts/build_blender_addon.py --blender "<path>"       # target a specific Blender
     python scripts/build_blender_addon.py --python-exe C:/Python313/python.exe
-    python scripts/build_blender_addon.py --install            # also copy into
-                                                               # Blender's extensions dir
-    python scripts/build_blender_addon.py --clean              # wipe build dir first
+    python scripts/build_blender_addon.py --install                # also copy into
+                                                                   # Blender's extensions dir
+    python scripts/build_blender_addon.py --clean                  # wipe build dir first
+
+Backends
+--------
+    cpu   — CPU-only (CUDA off). Safe for all machines. Default.
+    cuda  — CUDA GPU rendering enabled. Requires NVCC + CUDA toolkit.
+    tcnn  — CUDA + tiny-cuda-nn for neural-cache experiments.
+    auto  — probe for nvcc; use cuda if found, otherwise cpu.
 
 Notes
 -----
@@ -53,9 +63,11 @@ from pathlib import Path
 
 REPO_ROOT   = Path(__file__).resolve().parent.parent
 ADDON_SRC   = REPO_ROOT / "blender_addon"
-BUILD_DIR   = REPO_ROOT / "build_blender_addon"
 DIST_DIR    = REPO_ROOT / "dist"
 STAGE_DIR   = DIST_DIR / "astroray"
+
+# BUILD_DIR and cmake flags are set at runtime by _backend_config().
+BUILD_DIR: Path = REPO_ROOT / "build_blender_addon"  # overwritten in main()
 
 # Files that belong in the shipped addon (everything else in blender_addon/ is
 # ignored — test scenes, backups, __pycache__, ...).
@@ -213,7 +225,38 @@ def _cmake_generator_args() -> list[str]:
     return []
 
 
-def configure_and_build(python_exe: Path, clean: bool, jobs: int):
+def _backend_config(backend: str) -> tuple[Path, list[str]]:
+    """Return (build_dir, extra_cmake_flags) for the requested backend.
+
+    backend — one of: auto, cpu, cuda, tcnn
+    """
+    # libgomp (MinGW OpenMP) deadlocks inside Blender's MSVC host Python —
+    # always keep OpenMP off for Blender builds regardless of backend.
+    openmp_off = "-DASTRORAY_DISABLE_OPENMP=ON"
+
+    if backend == "cpu":
+        return (REPO_ROOT / "build_blender_addon",
+                ["-DASTRORAY_ENABLE_CUDA=OFF", openmp_off])
+    if backend == "cuda":
+        return (REPO_ROOT / "build_blender_addon_cuda",
+                ["-DASTRORAY_ENABLE_CUDA=ON", openmp_off])
+    if backend == "tcnn":
+        return (REPO_ROOT / "build_blender_addon_tcnn",
+                ["-DASTRORAY_ENABLE_CUDA=ON", "-DASTRORAY_ENABLE_TCNN=ON", openmp_off])
+    # auto: probe for nvcc; use cuda build dir if found, otherwise cpu
+    if shutil.which("nvcc"):
+        print("auto: nvcc found — building with CUDA backend")
+        return (REPO_ROOT / "build_blender_addon_cuda",
+                ["-DASTRORAY_ENABLE_CUDA=ON", openmp_off])
+    print("auto: nvcc not found — building CPU-only backend")
+    return (REPO_ROOT / "build_blender_addon",
+            ["-DASTRORAY_ENABLE_CUDA=OFF", openmp_off])
+
+
+def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str = "cpu"):
+    global BUILD_DIR
+    BUILD_DIR, extra_flags = _backend_config(backend)
+
     if clean and BUILD_DIR.exists():
         print(f"removing {BUILD_DIR}")
         _force_remove(BUILD_DIR)
@@ -227,18 +270,9 @@ def configure_and_build(python_exe: Path, clean: bool, jobs: int):
             *generator_args,
             "-DCMAKE_BUILD_TYPE=Release",
             "-DBUILD_PYTHON_MODULE=ON",
-            # Disable CUDA — the GR/spectral headers use GCC-only attributes
-            # that NVCC rejects, and the Blender addon does not use GPU rendering.
-            "-DASTRORAY_ENABLE_CUDA=OFF",
-            # libgomp (MinGW OpenMP runtime) deadlocks inside Blender's MSVC
-            # host Python during module init, so build the Blender .pyd
-            # single-threaded. pybind11 binding entry points don't use OpenMP
-            # anyway — the speedup comes from within-C++ path tracer loops,
-            # which Blender invokes one render at a time.
-            "-DASTRORAY_DISABLE_OPENMP=ON",
+            *extra_flags,
             f"-DPython3_EXECUTABLE={python_exe}",
             f"-DPython3_ROOT_DIR={python_exe.parent}",
-            # Tell CMake's FindPython to prefer the exact interpreter we picked
             "-DPython3_FIND_STRATEGY=LOCATION",
         ])
 
@@ -387,7 +421,8 @@ def _bundle_oidn_dlls(module_path: Path) -> None:
     print("warning: OIDN DLLs not found — addon will rely on system PATH for OpenImageDenoise.dll")
 
 
-def stage_and_zip(module_path: Path) -> Path:
+def stage_and_zip(module_path: Path, backend: str = "cpu") -> Path:
+    import json, datetime
     _force_remove(STAGE_DIR)
     STAGE_DIR.mkdir(parents=True)
 
@@ -417,6 +452,21 @@ def stage_and_zip(module_path: Path) -> Path:
     license_src = REPO_ROOT / "LICENSE"
     if license_src.exists():
         shutil.copy2(license_src, STAGE_DIR / "LICENSE")
+
+    # Write a build report so the packaged addon is self-describing
+    _, extra_flags = _backend_config(backend)
+    build_report = {
+        "built_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "backend": backend,
+        "build_dir": str(BUILD_DIR),
+        "module": module_path.name,
+        "cmake_flags": extra_flags,
+        "platform": platform.platform(),
+        "python": sys.version,
+    }
+    report_path = STAGE_DIR / "build_report.json"
+    report_path.write_text(json.dumps(build_report, indent=2))
+    print(f"build report: {report_path}")
 
     version = read_manifest_version()
     zip_path = DIST_DIR / f"astroray-{version}.zip"
@@ -479,6 +529,9 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--blender", help="Path to a specific blender executable")
     ap.add_argument("--python-exe", help="Path to python matching Blender's bundled Python minor version")
+    ap.add_argument("--backend", choices=["auto", "cpu", "cuda", "tcnn"], default="cpu",
+                    help="Build backend: cpu (default), cuda (CUDA GPU), tcnn (CUDA+TinyNN), "
+                         "auto (probe nvcc, use cuda if found)")
     ap.add_argument("--clean", action="store_true", help="Wipe the build dir before configuring")
     ap.add_argument("--configure-only", action="store_true",
                     help="Run cmake configure but skip the build")
@@ -506,7 +559,7 @@ def main():
     print(f"Building against Python: {python_exe}")
 
     # 3. Configure + build (unless configure-only)
-    configure_and_build(python_exe, clean=args.clean, jobs=args.jobs)
+    configure_and_build(python_exe, clean=args.clean, jobs=args.jobs, backend=args.backend)
     if args.configure_only:
         print("configure-only: skipping stage/zip")
         return
@@ -514,7 +567,7 @@ def main():
     # 4. Stage + zip
     module_path = find_built_module()
     print(f"Built module: {module_path.name}")
-    zip_path = stage_and_zip(module_path)
+    zip_path = stage_and_zip(module_path, backend=args.backend)
     print(f"\nAddon package: {zip_path}")
     print(f"Staged dir:    {STAGE_DIR}")
 

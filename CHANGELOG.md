@@ -6,6 +6,30 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+### pkg39 — Multi-Wavelength Rendering
+
+- **SpectralProfile / SpectralProfileDatabase** — new `include/astroray/spectral_profile.h`
+  + `src/spectral_profile.cpp`. Loads `data/spectral_profiles/profiles.bin` (ASPR format),
+  provides linear-interpolated reflectance lookup by material name. Singleton; idempotent load.
+- **Material base class** — added `setSpectralProfile()`, `evalSpectralExt()`,
+  `sampleSpectralExt()` (non-virtual; profile-aware dispatch). Visible-range paths (380-780 nm)
+  are completely unchanged. Outside visible with profile: uses `profile.reflectance(λ) × cosθ/π`.
+  Without profile: returns 0 (physically honest — no data).
+- **`multiwavelength_path_tracer` integrator** — new plugin. Configurable `lambda_min` /
+  `lambda_max` (defaults to visible, pixel-identical to `path_tracer`). Rayleigh analytic sky
+  (λ⁻⁴) for outside-visible env. Output mode `luminance` stores band-integrated intensity as
+  neutral grey for the colourmap pass.
+- **`colourmap_output` pass** — new plugin. Reads luminance from colour buffer; applies
+  Reinhard tone-map then maps to: grayscale, hot, inferno, viridis, or ir_false_colour.
+- **Python API** — `load_spectral_profiles(path)`, `spectral_profile_names()`,
+  `spectral_profile_reflectance(name, lambda)`, `set_wavelength_range(min, max)`,
+  `set_output_mode(mode)`, `set_material_spectral_profile(mat_id, name)`,
+  `clear_material_spectral_profile(mat_id)`.
+- **Blender addon** — new Wavelength render panel with presets (Visible / Near IR / UV /
+  Custom), colourmap selector. Per-material `spectral_profile` string property. Render pipeline
+  auto-switches to `multiwavelength_path_tracer` when a non-visible preset is active.
+- **Tests** — 15 new tests in `tests/test_multiwavelength.py`. All pass.
+
 ### Pillar 2 — Spectral core COMPLETE (pkg10–pkg14)
 
 - **pkg14** — Spectral env map + flip default. Closes Pillar 2.

@@ -95,6 +95,34 @@ class CustomRaytracerRenderSettings(PropertyGroup):
     )
     use_denoising: BoolProperty(name="Denoise", default=False,
         description="Apply OIDN denoiser as a post-process pass after rendering")
+    # pkg39: wavelength / multi-spectral settings
+    wavelength_preset: EnumProperty(
+        name="Preset",
+        description="Wavelength rendering preset",
+        items=[
+            ('visible',  'Visible',  'Standard 380-780 nm sRGB rendering'),
+            ('near_ir',  'Near IR',  '700-1000 nm near-infrared rendering'),
+            ('uv',       'UV',       '300-400 nm ultraviolet rendering'),
+            ('custom',   'Custom',   'User-defined wavelength range'),
+        ],
+        default='visible',
+    )
+    wavelength_min: FloatProperty(name="Min (nm)", min=100.0, max=2500.0, default=380.0,
+        description="Minimum wavelength for custom band")
+    wavelength_max: FloatProperty(name="Max (nm)", min=100.0, max=2500.0, default=780.0,
+        description="Maximum wavelength for custom band")
+    colourmap: EnumProperty(
+        name="Colourmap",
+        description="Output colourmap for non-visible renders",
+        items=[
+            ('grayscale',       'Grayscale',       'Linear grey'),
+            ('hot',             'Hot',             'Black-red-yellow-white (thermal)'),
+            ('inferno',         'Inferno',         'Perceptually uniform dark-to-bright'),
+            ('viridis',         'Viridis',         'Perceptually uniform blue-to-yellow'),
+            ('ir_false_colour', 'IR False Colour', 'Kodak Aerochrome-style IR palette'),
+        ],
+        default='grayscale',
+    )
 
 def _material_type_items(self, context):
     if RAYTRACER_AVAILABLE:
@@ -115,6 +143,13 @@ class CustomRaytracerMaterialSettings(PropertyGroup):
     ior: FloatProperty(name="IOR", min=1, max=3, default=1.45)
     clearcoat: FloatProperty(name="Clearcoat", min=0, max=1, default=0)
     clearcoat_gloss: FloatProperty(name="Clearcoat Gloss", min=0, max=1, default=1)
+    # pkg39: spectral profile for outside-visible rendering
+    spectral_profile: StringProperty(
+        name="Spectral Profile",
+        description="Profile name for outside-visible (IR/UV) rendering. "
+                    "Leave empty to render black outside visible.",
+        default="",
+    )
 
 class CustomRaytracerRenderEngine(RenderEngine):
     bl_idname = "CUSTOM_RAYTRACER"
@@ -232,9 +267,27 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return True
 
             start_time = time.time()
-            renderer.set_integrator(settings.integrator_type)
-            if settings.use_denoising:
+            # pkg39: wavelength range
+            preset = settings.wavelength_preset
+            if preset == 'near_ir':
+                lmin, lmax = 700.0, 1000.0
+            elif preset == 'uv':
+                lmin, lmax = 300.0, 400.0
+            elif preset == 'custom':
+                lmin, lmax = settings.wavelength_min, settings.wavelength_max
+            else:  # visible
+                lmin, lmax = 380.0, 780.0
+            renderer.set_wavelength_range(lmin, lmax)
+            is_outside_visible = (lmax > 780.0 or lmin < 380.0)
+            if is_outside_visible:
+                renderer.set_output_mode("luminance")
+                renderer.set_integrator("multiwavelength_path_tracer")
+            else:
+                renderer.set_integrator(settings.integrator_type)
+            if settings.use_denoising and not is_outside_visible:
                 renderer.add_pass("oidn_denoiser")
+            if is_outside_visible and settings.colourmap != 'grayscale':
+                renderer.add_pass("colourmap_output")
             pixels = renderer.render(
                 settings.samples, settings.max_bounces, progress_callback, False,
                 settings.diffuse_bounces, settings.glossy_bounces,
@@ -1985,6 +2038,42 @@ class RENDER_PT_custom_raytracer_performance(AstrorayPanelBase, Panel):
                 pass
 
 
+class RENDER_PT_custom_raytracer_wavelength(AstrorayPanelBase, Panel):
+    """pkg39: Wavelength / multi-spectral rendering settings."""
+    bl_label = "Wavelength"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "render"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        settings = context.scene.custom_raytracer
+
+        layout.prop(settings, "wavelength_preset", text="Preset")
+
+        preset = settings.wavelength_preset
+        if preset == 'custom':
+            col = layout.column(align=True)
+            col.prop(settings, "wavelength_min", text="Min (nm)")
+            col.prop(settings, "wavelength_max", text="Max (nm)")
+
+        is_outside_visible = preset in ('near_ir', 'uv') or (
+            preset == 'custom' and
+            (settings.wavelength_max > 780.0 or settings.wavelength_min < 380.0)
+        )
+        if is_outside_visible:
+            layout.separator()
+            layout.prop(settings, "colourmap", text="Colourmap")
+            layout.label(
+                text="Using multiwavelength_path_tracer integrator",
+                icon='INFO',
+            )
+
+
 class AstrorayWorldPanelBase(AstrorayPanelBase):
     """World panels only poll when there IS a world to edit."""
     @classmethod
@@ -2122,6 +2211,7 @@ classes = [
     RENDER_PT_custom_raytracer_sampling,
     RENDER_PT_custom_raytracer_light_paths,
     RENDER_PT_custom_raytracer_performance,
+    RENDER_PT_custom_raytracer_wavelength,
     WORLD_PT_custom_raytracer_surface,
     MATERIAL_PT_custom_raytracer_surface,
     CustomRaytracerPreferences,

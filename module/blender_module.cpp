@@ -14,6 +14,7 @@
 #include "astroray/integrator.h"
 #include "astroray/pass.h"
 #include "astroray/spectrum.h"
+#include "astroray/spectral_profile.h"
 #include "astroray/restir/reservoir.h"
 #include "astroray/restir/light_sample.h"
 #include "astroray/restir/frame_state.h"
@@ -869,6 +870,29 @@ public:
         integratorParams_.set(key, value);
     }
 
+    // pkg39: multi-wavelength rendering helpers
+    void setWavelengthRange(float lambdaMin, float lambdaMax) {
+        integratorParams_.set("lambda_min", lambdaMin);
+        integratorParams_.set("lambda_max", lambdaMax);
+    }
+
+    void setOutputMode(const std::string& mode) {
+        integratorParams_.set("output_mode", mode);
+    }
+
+    void setMaterialSpectralProfile(int materialId, const std::string& profileName) {
+        auto it = materials.find(materialId);
+        if (it == materials.end()) return;
+        auto& db = astroray::SpectralProfileDatabase::instance();
+        const auto* profile = db.get(profileName);
+        if (profile) it->second->setSpectralProfile(profile);
+    }
+
+    void clearMaterialSpectralProfile(int materialId) {
+        auto it = materials.find(materialId);
+        if (it != materials.end()) it->second->setSpectralProfile(nullptr);
+    }
+
     void setIntegrator(const std::string& name) {
         if (name == "auto" || name == "default" || name.empty()) {
             renderer.setIntegrator(nullptr);
@@ -991,7 +1015,19 @@ PYBIND11_MODULE(astroray, m) {
              "Return optional diagnostic counters from the active integrator.")
         .def("set_integrator_param", &PyRenderer::setIntegratorParam,
              "key"_a, "value"_a,
-             "Set an integer parameter passed to the integrator constructor.");
+             "Set an integer parameter passed to the integrator constructor.")
+        // pkg39: multi-wavelength rendering
+        .def("set_wavelength_range", &PyRenderer::setWavelengthRange,
+             "lambda_min"_a, "lambda_max"_a,
+             "Set wavelength band (nm) for the next set_integrator() call.")
+        .def("set_output_mode", &PyRenderer::setOutputMode, "mode"_a,
+             "Output mode: 'xyz' (visible) or 'luminance' (IR/UV).")
+        .def("set_material_spectral_profile", &PyRenderer::setMaterialSpectralProfile,
+             "material_id"_a, "profile_name"_a,
+             "Attach a spectral profile to a material for outside-visible rendering.")
+        .def("clear_material_spectral_profile", &PyRenderer::clearMaterialSpectralProfile,
+             "material_id"_a,
+             "Remove the spectral profile from a material.");
     m.def("material_registry_names", []() {
         return astroray::MaterialRegistry::instance().names();
     });
@@ -1010,6 +1046,19 @@ PYBIND11_MODULE(astroray, m) {
     m.def("pass_registry_names", []() {
         return astroray::PassRegistry::instance().names();
     });
+
+    // pkg39: spectral profile database
+    m.def("load_spectral_profiles", [](const std::string& path) {
+        astroray::SpectralProfileDatabase::instance().load(path);
+    }, "path"_a, "Load the ASPR profiles.bin database.");
+    m.def("spectral_profile_names", []() {
+        return astroray::SpectralProfileDatabase::instance().names();
+    }, "Return names of all loaded spectral profiles.");
+    m.def("spectral_profile_reflectance", [](const std::string& name, float lambda_nm) -> float {
+        const auto* p = astroray::SpectralProfileDatabase::instance().get(name);
+        if (!p) return 0.0f;
+        return p->reflectance(lambda_nm);
+    }, "name"_a, "lambda_nm"_a, "Sample reflectance of a named profile at lambda_nm.");
 
     // -----------------------------------------------------------------
     // Pillar 2 spectral core (pkg10). Scaffolding types — not consumed

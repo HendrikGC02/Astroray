@@ -233,6 +233,60 @@ __device__ inline GBSDFSample gpu_dielectric_sample(
 }
 
 // ===========================================================================
+// ===  Thin glass / architectural glazing  ===================================
+// ===========================================================================
+
+__device__ inline GVec3 gpu_sampleCone(const GVec3& dir, float roughness, curandState* rng) {
+    GVec3 w = dir.normalized();
+    if (roughness <= 0.001f) return w;
+
+    GVec3 a = fabsf(w.x) > 0.9f ? GVec3(0.f, 1.f, 0.f) : GVec3(1.f, 0.f, 0.f);
+    GVec3 u = (a - w * a.dot(w)).normalized();
+    GVec3 v = w.cross(u);
+    float maxAngle = fminf(fmaxf(roughness, 0.f), 1.f) * 0.35f;
+    float cosMax = cosf(maxAngle);
+    float cosTheta = 1.f - curand_uniform(rng) * (1.f - cosMax);
+    float sinTheta = sqrtf(fmaxf(0.f, 1.f - cosTheta * cosTheta));
+    float phi = 2.f * M_PI_F * curand_uniform(rng);
+    return (u * (cosf(phi) * sinTheta) +
+            v * (sinf(phi) * sinTheta) +
+            w * cosTheta).normalized();
+}
+
+__device__ inline GBSDFSample gpu_thin_glass_sample(
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, curandState* rng)
+{
+    GBSDFSample s;
+    s.isDelta = mat.roughness < 0.02f;
+    rec.isDelta = s.isDelta;
+
+    float cosTheta = fabsf(wo.normalized().dot(rec.normal));
+    float F = gpu_fresnelDielectric(cosTheta, 1.f, mat.ior);
+    float reflectProb = fminf(fmaxf(F, 0.f), 1.f);
+    float transmitProb = fmaxf(0.f, (1.f - reflectProb) * fminf(fmaxf(mat.transmission, 0.f), 1.f));
+    float totalProb = reflectProb + transmitProb;
+    if (totalProb <= 1e-5f) {
+        s.wi = gpu_sampleCone(rec.normal * (2.f * wo.dot(rec.normal)) - wo, mat.roughness, rng);
+        s.f = GVec3(0.f);
+        s.pdf = 1.f;
+        return s;
+    }
+
+    reflectProb /= totalProb;
+    transmitProb /= totalProb;
+    if (curand_uniform(rng) < reflectProb) {
+        s.wi = gpu_sampleCone(rec.normal * (2.f * wo.dot(rec.normal)) - wo, mat.roughness, rng);
+        s.f = GVec3(reflectProb);
+        s.pdf = fmaxf(reflectProb, 1e-4f);
+    } else {
+        s.wi = gpu_sampleCone(-wo, mat.roughness, rng);
+        s.f = mat.baseColor * transmitProb;
+        s.pdf = fmaxf(transmitProb, 1e-4f);
+    }
+    return s;
+}
+
+// ===========================================================================
 // ===  Disney BRDF  ==========================================================
 // ===========================================================================
 
@@ -580,6 +634,7 @@ __device__ inline GVec3 gpu_material_eval(
         case GMAT_DIELECTRIC:    return GVec3(0.f); // delta — no direct eval
         case GMAT_DIFFUSE_LIGHT: return GVec3(0.f); // emissive only
         case GMAT_DISNEY:        return gpu_disney_eval(mat, rec, wo, wi);
+        case GMAT_THIN_GLASS:    return GVec3(0.f); // mostly-delta pane
         default:                 return GVec3(0.f);
     }
 }
@@ -592,6 +647,7 @@ __device__ inline GBSDFSample gpu_material_sample(
         case GMAT_METAL:         return gpu_metal_sample(mat, rec, wo, rng);
         case GMAT_DIELECTRIC:    return gpu_dielectric_sample(mat, rec, wo, rng);
         case GMAT_DISNEY:        return gpu_disney_sample(mat, rec, wo, rng);
+        case GMAT_THIN_GLASS:    return gpu_thin_glass_sample(mat, rec, wo, rng);
         default: { GBSDFSample s; s.f=GVec3(0); s.wi=GVec3(0,1,0); s.pdf=0; s.isDelta=false; return s; }
     }
 }

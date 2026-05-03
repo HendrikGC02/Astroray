@@ -35,6 +35,12 @@ MATERIALS = [
     ("mirror", "mirror", [1.0, 1.0, 1.0], {}),
     ("glass_flat", "dielectric", [1.0, 1.0, 1.0], {"ior": 1.5}),
     ("glass_bk7", "dielectric", [1.0, 1.0, 1.0], {"sellmeier_preset": "bk7"}),
+    ("glass_flint_sf11", "dielectric", [1.0, 1.0, 1.0], {"glass_preset": "flint_sf11"}),
+    ("diamond", "dielectric", [1.0, 1.0, 1.0], {"glass_preset": "diamond"}),
+    ("ruby", "dielectric", [1.0, 1.0, 1.0], {"glass_preset": "ruby"}),
+    ("emerald", "dielectric", [1.0, 1.0, 1.0], {"glass_preset": "emerald"}),
+    ("thin_glass_clear", "thin_glass", [1.0, 1.0, 1.0], {"ior": 1.5, "transmission": 1.0}),
+    ("thin_glass_blue", "thin_glass", [0.82, 0.93, 1.0], {"ior": 1.52, "transmission": 0.85, "roughness": 0.03}),
     ("disney_glass_r0", "disney", [1.0, 1.0, 1.0], {"transmission": 1.0, "ior": 1.5, "roughness": 0.0}),
     ("disney_glass_r35", "disney", [1.0, 1.0, 1.0], {"transmission": 1.0, "ior": 1.5, "roughness": 0.35}),
     ("disney_glass_r70", "disney", [1.0, 1.0, 1.0], {"transmission": 1.0, "ior": 1.5, "roughness": 0.70}),
@@ -54,6 +60,7 @@ GPU_RENDERABLE_TYPES = {
     "metal",
     "dielectric",
     "glass",
+    "thin_glass",
     "disney",
     "emissive",
 }
@@ -90,7 +97,9 @@ def _add_room(r, width: int, height: int) -> None:
 def _cpu_preferred_reason(material_type: str, params: dict) -> str | None:
     if material_type == "mirror":
         return "mirror has no dedicated GPU material upload yet"
-    if material_type == "dielectric" and params.get("sellmeier_preset"):
+    dispersive_presets = {"bk7", "fused_silica", "flint_sf11", "diamond"}
+    preset = params.get("sellmeier_preset") or params.get("glass_preset") or params.get("preset")
+    if material_type == "dielectric" and preset in dispersive_presets:
         return "Sellmeier dispersion is spectral and CPU-only in this contact sheet"
     if material_type not in GPU_RENDERABLE_TYPES:
         return f"material '{material_type}' is CPU-preferred"

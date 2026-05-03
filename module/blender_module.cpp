@@ -10,6 +10,7 @@
 #include "astroray/shapes.h"
 #include "astroray/black_hole.h"
 #include "astroray/register.h"
+#include "astroray/optical_presets.h"
 #include "astroray/integrator.h"
 #include "astroray/pass.h"
 #include "astroray/spectrum.h"
@@ -945,6 +946,9 @@ PYBIND11_MODULE(astroray, m) {
              "Set an integer parameter passed to the integrator constructor.");
     m.def("material_registry_names", []() {
         return astroray::MaterialRegistry::instance().names();
+    });
+    m.def("optical_glass_preset_names", []() {
+        return astroray::opticalGlassPresetNames();
     });
     m.def("texture_registry_names", []() {
         return astroray::TextureRegistry::instance().names();

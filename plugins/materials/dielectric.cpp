@@ -1,27 +1,10 @@
 #include "astroray/register.h"
+#include "astroray/optical_presets.h"
 #include "astroray/spectrum.h"
 #include "raytracer.h"
 
 #include <cmath>
 #include <string>
-
-struct SellmeierCoeffs { Vec3 B; Vec3 C; };
-
-static SellmeierCoeffs lookupPreset(const std::string& name) {
-    if (name == "bk7")
-        return {{1.03961212f, 0.231792344f, 1.01046945f},
-                {0.00600069867f, 0.0200179144f, 103.560653f}};
-    if (name == "fused_silica")
-        return {{0.6961663f, 0.4079426f, 0.8974794f},
-                {0.0046791f, 0.0135121f, 97.9340f}};
-    if (name == "flint_sf11")
-        return {{1.73759695f, 0.313747346f, 1.89878101f},
-                {0.013188707f, 0.0623068142f, 155.23629f}};
-    if (name == "diamond")
-        return {{0.3306f, 4.3356f, 0.0f},
-                {0.0175f, 0.1060f, 0.0f}};
-    return {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}};
-}
 
 static float sellmeierIOR(float lambda_nm, Vec3 B, Vec3 C) {
     float l = lambda_nm * 1e-3f; // nm → μm
@@ -33,7 +16,10 @@ static float sellmeierIOR(float lambda_nm, Vec3 B, Vec3 C) {
 class DielectricPlugin : public Material {
     float ior_;
     bool dispersive_;
-    SellmeierCoeffs sellmeier_;
+    Vec3 sellmeierB_;
+    Vec3 sellmeierC_;
+    Vec3 tint_;
+    astroray::RGBAlbedoSpectrum tintSpec_;
 
     float fresnelDielectric(float cosThetaI, float etaI, float etaT) const {
         cosThetaI = std::clamp(cosThetaI, -1.0f, 1.0f);
@@ -50,7 +36,8 @@ class DielectricPlugin : public Material {
 
     BSDFSampleSpectral refractSpectral(
             const HitRecord& rec, const Vec3& wo,
-            std::mt19937& gen, float ior) const {
+            std::mt19937& gen, float ior,
+            const astroray::SampledWavelengths& lambdas) const {
         BSDFSampleSpectral bss;
         bss.isDelta = true;
         const_cast<HitRecord&>(rec).isDelta = true;
@@ -75,7 +62,7 @@ class DielectricPlugin : public Material {
             Vec3 wt_perp = (wo - n * cosTheta) * (-eta);
             Vec3 wt_parallel = n * (-std::sqrt(std::abs(1.0f - wt_perp.length2())));
             bss.wi = (wt_perp + wt_parallel).normalized();
-            bss.f_spectral = astroray::SampledSpectrum(eta * eta);
+            bss.f_spectral = tintSpec_.sample(lambdas) * (eta * eta);
         }
         bss.pdf = 1.0f;
         return bss;
@@ -85,16 +72,29 @@ public:
     explicit DielectricPlugin(const astroray::ParamDict& p)
         : ior_(p.getFloat("ior", 1.5f)),
           dispersive_(false),
-          sellmeier_{{0,0,0},{0,0,0}} {
+          sellmeierB_(0.0f),
+          sellmeierC_(0.0f),
+          tint_(p.getVec3("albedo", Vec3(1.0f))),
+          tintSpec_({tint_.x, tint_.y, tint_.z}) {
         std::string preset = p.getString("sellmeier_preset", "");
+        if (preset.empty()) preset = p.getString("glass_preset", "");
+        if (preset.empty()) preset = p.getString("preset", "");
         if (!preset.empty()) {
-            sellmeier_ = lookupPreset(preset);
-            dispersive_ = (sellmeier_.B.x != 0.0f || sellmeier_.B.y != 0.0f);
+            if (const auto* data = astroray::findOpticalGlassPreset(preset)) {
+                ior_ = p.getFloat("ior", data->ior);
+                sellmeierB_ = data->sellmeierB;
+                sellmeierC_ = data->sellmeierC;
+                dispersive_ = data->hasSellmeier;
+                if ((tint_ - Vec3(1.0f)).length2() < 1e-6f) {
+                    tint_ = data->transmissionTint;
+                    tintSpec_ = astroray::RGBAlbedoSpectrum({tint_.x, tint_.y, tint_.z});
+                }
+            }
         }
     }
 
     bool isTransmissive() const override { return true; }
-    Vec3 getAlbedo() const override { return Vec3(1.0f); }
+    Vec3 getAlbedo() const override { return tint_; }
     std::string getGPUTypeName() const override { return "dielectric"; }
     float getIOR() const override { return ior_; }
 
@@ -129,7 +129,7 @@ public:
             Vec3 wt_perp = (wo - n * cosTheta) * (-eta);
             Vec3 wt_parallel = n * (-std::sqrt(std::abs(1 - wt_perp.length2())));
             s.wi = (wt_perp + wt_parallel).normalized();
-            s.f = Vec3(eta * eta);
+            s.f = tint_ * (eta * eta);
             s.pdf = 1.0f;
         }
         return s;
@@ -140,10 +140,10 @@ public:
             std::mt19937& gen,
             astroray::SampledWavelengths& lambdas) const override {
         if (!dispersive_)
-            return refractSpectral(rec, wo, gen, ior_);
+            return refractSpectral(rec, wo, gen, ior_, lambdas);
 
-        float heroIOR = sellmeierIOR(lambdas.lambda(0), sellmeier_.B, sellmeier_.C);
-        BSDFSampleSpectral bss = refractSpectral(rec, wo, gen, heroIOR);
+        float heroIOR = sellmeierIOR(lambdas.lambda(0), sellmeierB_, sellmeierC_);
+        BSDFSampleSpectral bss = refractSpectral(rec, wo, gen, heroIOR, lambdas);
 
         // On refraction (not reflection), each wavelength refracts differently.
         // We can only trace one direction — terminate secondaries.

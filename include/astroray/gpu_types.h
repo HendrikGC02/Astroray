@@ -152,7 +152,8 @@ enum GMaterialType : uint8_t {
     GMAT_METAL        = 1,
     GMAT_DIELECTRIC   = 2,
     GMAT_DIFFUSE_LIGHT = 3,
-    GMAT_DISNEY       = 4
+    GMAT_DISNEY       = 4,
+    GMAT_THIN_GLASS   = 5
 };
 
 struct alignas(64) GMaterial {

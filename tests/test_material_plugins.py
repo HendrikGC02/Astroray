@@ -18,6 +18,7 @@ pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not avail
 PLUGINS = [
     "metal", "dielectric", "glass", "light", "emission", "diffuse_light",
     "phong", "subsurface", "normal_mapped", "disney", "mirror",
+    "thin_glass", "architectural_glass",
 ]
 
 

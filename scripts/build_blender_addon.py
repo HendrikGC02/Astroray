@@ -208,46 +208,64 @@ def run(cmd: list[str], cwd: Path | None = None, env: dict | None = None):
                           env=env)
 
 
-def _find_cl_exe() -> Path | None:
-    """Locate MSVC cl.exe via vswhere, then common install globs."""
+def _find_vs_install() -> Path | None:
+    """Return the VS / Build Tools installation root (the dir that contains VC/)."""
     import glob as _glob
 
-    # Try vswhere (simplest invocation — no -requires filter that might miss installs)
     for vswhere in [
         Path("C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"),
         Path("C:/Program Files/Microsoft Visual Studio/Installer/vswhere.exe"),
     ]:
         if not vswhere.exists():
             continue
-        for extra_args in (
-            ["-latest", "-property", "installationPath"],
-            ["-latest", "-prerelease", "-property", "installationPath"],
-            ["-all", "-property", "installationPath"],
-        ):
+        for extra in ([], ["-prerelease"], ["-all"]):
             try:
-                out = subprocess.check_output(
-                    [str(vswhere), *extra_args],
-                    text=True, timeout=10).strip().splitlines()[0]
-                if out:
-                    matches = sorted(
-                        _glob.glob(f"{out}/VC/Tools/MSVC/*/bin/Hostx64/x64/cl.exe"),
-                        reverse=True)
-                    if matches:
-                        return Path(matches[0])
+                lines = subprocess.check_output(
+                    [str(vswhere), "-latest", *extra, "-property", "installationPath"],
+                    text=True, timeout=10).strip().splitlines()
+                for line in lines:
+                    p = Path(line.strip())
+                    if (p / "VC" / "Auxiliary" / "Build" / "vcvarsall.bat").exists():
+                        return p
             except Exception:
                 pass
 
-    # Direct glob of common VS install paths (VS 2019/2022, Build Tools, Community, etc.)
-    patterns = [
-        r"C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe",
-        r"C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe",
-        r"C:\Program Files\Microsoft Visual Studio\*\BuildTools\VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe",
-    ]
-    for pat in patterns:
-        matches = sorted(_glob.glob(pat), reverse=True)
-        if matches:
-            return Path(matches[0])
+    # Direct glob fallback (VS 2019/2022, Community / Professional / BuildTools)
+    for pat in [
+        r"C:\Program Files\Microsoft Visual Studio\*\*",
+        r"C:\Program Files (x86)\Microsoft Visual Studio\*\*",
+    ]:
+        for m in sorted(_glob.glob(pat), reverse=True):
+            if (Path(m) / "VC" / "Auxiliary" / "Build" / "vcvarsall.bat").exists():
+                return Path(m)
 
+    return None
+
+
+def _msvc_env(vs_install: Path) -> dict | None:
+    """Run vcvarsall.bat amd64 and return the resulting environment as a dict.
+
+    This sets up cl.exe, link.exe, rc.exe, mt.exe (Windows SDK), include/lib
+    paths — everything MSVC + Ninja need.  It is equivalent to opening a
+    'x64 Native Tools Command Prompt for VS'.
+    """
+    vcvarsall = vs_install / "VC" / "Auxiliary" / "Build" / "vcvarsall.bat"
+    if not vcvarsall.exists():
+        return None
+    try:
+        # Run vcvarsall then dump the complete resulting environment
+        out = subprocess.check_output(
+            f'"{vcvarsall}" amd64 >nul 2>&1 && set',
+            shell=True, text=True, timeout=60)
+        env: dict[str, str] = {}
+        for line in out.splitlines():
+            if "=" in line:
+                k, _, v = line.partition("=")
+                env[k] = v
+        if env.get("PATH") or env.get("Path"):
+            return env
+    except Exception as e:
+        print(f"warning: vcvarsall.bat failed: {e}")
     return None
 
 
@@ -454,22 +472,28 @@ def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str =
     if nvcc is not None:
         extra_flags = [f"-DCMAKE_CUDA_COMPILER={nvcc}", *extra_flags]
 
-    # When building CUDA on Windows: use Ninja + cl.exe (same as VSCode).
-    # NVCC rejects MinGW g++ ("unsupported OS"), and VS/MSBuild generator has a
-    # CMake 4.x FetchContent subbuild bug that reports failure even on success.
+    # For CUDA builds on Windows, set up the full MSVC developer environment via
+    # vcvarsall.bat amd64.  This puts cl.exe, link.exe, rc.exe, mt.exe, and the
+    # Windows SDK include/lib paths into the subprocess environment — exactly what
+    # VSCode does via its kit selection.  Without it, Ninja+MSVC fails because the
+    # Windows SDK tools (rc, mt) are not on PATH.
+    cmake_env: dict | None = None
     if nvcc is not None and platform.system() == "Windows":
-        cl_exe = _find_cl_exe()
-        if cl_exe:
-            print(f"cl.exe: {cl_exe}")
-            extra_flags = [
-                f"-DCMAKE_C_COMPILER={cl_exe}",
-                f"-DCMAKE_CXX_COMPILER={cl_exe}",
-                *extra_flags,
-            ]
-            # Also add cl.exe's dir to PATH so nvcc's host-compiler discovery works
-            cl_bin = str(cl_exe.parent)
-            if cl_bin not in os.environ.get("PATH", ""):
-                os.environ["PATH"] = cl_bin + os.pathsep + os.environ.get("PATH", "")
+        vs = _find_vs_install()
+        if vs:
+            print(f"VS install: {vs}")
+            cmake_env = _msvc_env(vs)
+            if cmake_env:
+                print("MSVC environment configured (vcvarsall.bat amd64)")
+                # Also ensure nvcc is reachable from within the MSVC environment
+                nvcc_bin = str(nvcc.parent)
+                path_key = "PATH" if "PATH" in cmake_env else "Path"
+                if nvcc_bin.lower() not in cmake_env.get(path_key, "").lower():
+                    cmake_env[path_key] = nvcc_bin + os.pathsep + cmake_env.get(path_key, "")
+            else:
+                print("warning: vcvarsall.bat failed — CUDA build will likely fail")
+        else:
+            print("warning: Visual Studio not found — install VS 2019/2022 Build Tools")
 
     if clean and BUILD_DIR.exists():
         print(f"removing {BUILD_DIR}")
@@ -488,13 +512,13 @@ def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str =
             f"-DPython3_EXECUTABLE={python_exe}",
             f"-DPython3_ROOT_DIR={python_exe.parent}",
             "-DPython3_FIND_STRATEGY=LOCATION",
-        ])
+        ], env=cmake_env)
 
     _verify_cuda_compiled_in(BUILD_DIR, backend)
 
     run(["cmake", "--build", str(BUILD_DIR),
          "--config", "Release", "--target", "astroray",
-         "-j", str(jobs)])
+         "-j", str(jobs)], env=cmake_env)
 
 
 def find_built_module() -> Path:

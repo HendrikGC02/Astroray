@@ -1,8 +1,9 @@
 """Tests for pkg33: OIDN FetchContent integration.
 
-Verifies that the oidn_denoiser pass is present in the registry (meaning the
-build found/fetched OIDN), that it actually reduces noise, and produces a
-side-by-side comparison image in test_results/.
+Verifies that an OIDN-enabled build registers and runs the oidn_denoiser pass,
+that it actually reduces noise, and produces a side-by-side comparison image
+in test_results/. Builds without OIDN keep a graceful no-op pass for API
+compatibility, so functional denoising checks are gated by the feature flag.
 """
 import os
 import sys
@@ -22,7 +23,9 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not available")
 
-OIDN_ENABLED = AVAILABLE and "oidn_denoiser" in (astroray.pass_registry_names() if AVAILABLE else [])
+OIDN_ENABLED = AVAILABLE and bool(
+    astroray.__features__.get("oidn_denoiser", False) if AVAILABLE else False
+)
 
 
 def _cornell_renderer(width: int = 256, height: int = 256) -> "astroray.Renderer":
@@ -67,6 +70,8 @@ def _to_uint8(img_float: np.ndarray) -> np.ndarray:
 
 def test_oidn_in_pass_registry():
     """oidn_denoiser must appear in the pass registry when built with OIDN."""
+    if not OIDN_ENABLED:
+        pytest.skip("OIDN not compiled in")
     names = astroray.pass_registry_names()
     assert "oidn_denoiser" in names, (
         f"'oidn_denoiser' missing from registry {names}; "

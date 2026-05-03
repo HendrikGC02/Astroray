@@ -320,7 +320,8 @@ def test_build_script_backend_config_tcnn():
     spec.loader.exec_module(mod)
     build_dir, flags = mod._backend_config("tcnn")
     assert any("CUDA=ON" in f for f in flags)
-    assert any("TCNN=ON" in f for f in flags)
+    assert any("TINY_CUDA_NN=ON" in f for f in flags), \
+        "tcnn backend must pass -DASTRORAY_TINY_CUDA_NN=ON (correct CMake option name)"
     assert "tcnn" in str(build_dir).lower()
 
 

@@ -30,10 +30,10 @@ Usage
 
 Backends
 --------
-    cpu   — CPU-only (CUDA off). Safe for all machines. Default.
-    cuda  — CUDA GPU rendering enabled. Requires NVCC + CUDA toolkit.
-    tcnn  — CUDA + tiny-cuda-nn for neural-cache experiments.
-    auto  — probe for nvcc; use cuda if found, otherwise cpu.
+    tcnn  — CUDA + tiny-cuda-nn neural cache. Requires NVCC + CUDA toolkit. DEFAULT.
+    cuda  — CUDA GPU rendering, no neural cache. Requires NVCC + CUDA toolkit.
+    cpu   — CPU-only (CUDA off). Safe on machines without NVIDIA GPU.
+    auto  — probe for nvcc; use tcnn if found, otherwise cpu.
 
 Notes
 -----
@@ -228,29 +228,45 @@ def _cmake_generator_args() -> list[str]:
 def _backend_config(backend: str) -> tuple[Path, list[str]]:
     """Return (build_dir, extra_cmake_flags) for the requested backend.
 
-    backend — one of: auto, cpu, cuda, tcnn
+    backend — one of: tcnn (default), cuda, cpu, auto
     """
     # libgomp (MinGW OpenMP) deadlocks inside Blender's MSVC host Python —
     # always keep OpenMP off for Blender builds regardless of backend.
-    openmp_off = "-DASTRORAY_DISABLE_OPENMP=ON"
+    # All other optimizations (native arch, fast math, OIDN) are explicit ON.
+    common_opts = [
+        "-DASTRORAY_DISABLE_OPENMP=ON",
+        "-DUSE_NATIVE_ARCH=ON",
+        "-DUSE_FAST_MATH=ON",
+        "-DASTRORAY_ENABLE_OIDN=ON",
+    ]
 
     if backend == "cpu":
         return (REPO_ROOT / "build_blender_addon",
-                ["-DASTRORAY_ENABLE_CUDA=OFF", openmp_off])
+                ["-DASTRORAY_ENABLE_CUDA=OFF",
+                 "-DASTRORAY_TINY_CUDA_NN=OFF",
+                 *common_opts])
     if backend == "cuda":
         return (REPO_ROOT / "build_blender_addon_cuda",
-                ["-DASTRORAY_ENABLE_CUDA=ON", openmp_off])
+                ["-DASTRORAY_ENABLE_CUDA=ON",
+                 "-DASTRORAY_TINY_CUDA_NN=OFF",
+                 *common_opts])
     if backend == "tcnn":
         return (REPO_ROOT / "build_blender_addon_tcnn",
-                ["-DASTRORAY_ENABLE_CUDA=ON", "-DASTRORAY_ENABLE_TCNN=ON", openmp_off])
-    # auto: probe for nvcc; use cuda build dir if found, otherwise cpu
+                ["-DASTRORAY_ENABLE_CUDA=ON",
+                 "-DASTRORAY_TINY_CUDA_NN=ON",
+                 *common_opts])
+    # auto: probe for nvcc; use tcnn build if found, otherwise cpu
     if shutil.which("nvcc"):
-        print("auto: nvcc found — building with CUDA backend")
-        return (REPO_ROOT / "build_blender_addon_cuda",
-                ["-DASTRORAY_ENABLE_CUDA=ON", openmp_off])
+        print("auto: nvcc found — building with tcnn (CUDA + neural cache) backend")
+        return (REPO_ROOT / "build_blender_addon_tcnn",
+                ["-DASTRORAY_ENABLE_CUDA=ON",
+                 "-DASTRORAY_TINY_CUDA_NN=ON",
+                 *common_opts])
     print("auto: nvcc not found — building CPU-only backend")
     return (REPO_ROOT / "build_blender_addon",
-            ["-DASTRORAY_ENABLE_CUDA=OFF", openmp_off])
+            ["-DASTRORAY_ENABLE_CUDA=OFF",
+             "-DASTRORAY_TINY_CUDA_NN=OFF",
+             *common_opts])
 
 
 def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str = "cpu"):
@@ -391,6 +407,41 @@ def _bundle_mingw_runtime_dlls(module_path: Path) -> list[str]:
     return bundled
 
 
+def _bundle_cuda_runtime_dlls(module_path: Path) -> None:
+    """Copy CUDA runtime DLLs (cudart, etc.) into STAGE_DIR for Windows cuda/tcnn builds."""
+    if platform.system() != "Windows":
+        return
+    # Look for CUDA bin dir via CUDA_PATH env var (set by CUDA toolkit installer)
+    cuda_bin_candidates = []
+    cuda_path = os.environ.get("CUDA_PATH")
+    if cuda_path:
+        cuda_bin_candidates.append(Path(cuda_path) / "bin")
+    # Also check common install paths
+    for pattern in [r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v*\bin"]:
+        import glob as _glob
+        cuda_bin_candidates += [Path(p) for p in _glob.glob(pattern)]
+    cuda_bin_candidates += [Path(r"C:\Windows\System32")]  # runtime may be here too
+
+    # DLLs required by the CUDA runtime (cudart) and potentially CUBLAS/CUFFT
+    wanted_patterns = ["cudart64_*.dll", "cublas64_*.dll", "cublasLt64_*.dll",
+                       "cufft64_*.dll", "nvrtc64_*.dll"]
+    bundled: list[str] = []
+    for cand_dir in cuda_bin_candidates:
+        if not cand_dir.exists():
+            continue
+        for pat in wanted_patterns:
+            for dll in cand_dir.glob(pat):
+                dst = STAGE_DIR / dll.name
+                if not dst.exists():
+                    shutil.copy2(dll, dst)
+                    bundled.append(dll.name)
+        if bundled:
+            print(f"bundled {len(bundled)} CUDA runtime DLLs from {cand_dir}")
+            return
+    if not bundled:
+        print("note: CUDA runtime DLLs not found locally — they must be on system PATH at runtime")
+
+
 def _bundle_oidn_dlls(module_path: Path) -> None:
     """Copy OIDN runtime DLLs into STAGE_DIR/oidn/ so the addon can load them."""
     import glob as _glob
@@ -447,6 +498,8 @@ def stage_and_zip(module_path: Path, backend: str = "cpu") -> Path:
     # __init__.py can add them to the DLL search path at load time.
     if platform.system() == "Windows":
         _bundle_oidn_dlls(module_path)
+        if backend in ("cuda", "tcnn"):
+            _bundle_cuda_runtime_dlls(module_path)
 
     # Optional: include the LICENSE so the extension carries it
     license_src = REPO_ROOT / "LICENSE"
@@ -469,7 +522,8 @@ def stage_and_zip(module_path: Path, backend: str = "cpu") -> Path:
     print(f"build report: {report_path}")
 
     version = read_manifest_version()
-    zip_path = DIST_DIR / f"astroray-{version}.zip"
+    backend_suffix = f"-{backend}" if backend != "cpu" else ""
+    zip_path = DIST_DIR / f"astroray-{version}{backend_suffix}.zip"
     if zip_path.exists():
         zip_path.unlink()
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -529,9 +583,9 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--blender", help="Path to a specific blender executable")
     ap.add_argument("--python-exe", help="Path to python matching Blender's bundled Python minor version")
-    ap.add_argument("--backend", choices=["auto", "cpu", "cuda", "tcnn"], default="cpu",
-                    help="Build backend: cpu (default), cuda (CUDA GPU), tcnn (CUDA+TinyNN), "
-                         "auto (probe nvcc, use cuda if found)")
+    ap.add_argument("--backend", choices=["auto", "cpu", "cuda", "tcnn"], default="tcnn",
+                    help="Build backend: tcnn (default, CUDA+NRC), cuda (CUDA GPU), "
+                         "cpu (CPU-only), auto (probe nvcc, use tcnn if found)")
     ap.add_argument("--clean", action="store_true", help="Wipe the build dir before configuring")
     ap.add_argument("--configure-only", action="store_true",
                     help="Run cmake configure but skip the build")

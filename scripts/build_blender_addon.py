@@ -269,8 +269,64 @@ def _backend_config(backend: str) -> tuple[Path, list[str]]:
              *common_opts])
 
 
-def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str = "cpu"):
+def _require_nvcc(backend: str):
+    """For cuda/tcnn backends, verify nvcc is on PATH before spending time on configure."""
+    if backend not in ("cuda", "tcnn"):
+        return
+    nvcc = shutil.which("nvcc")
+    if nvcc:
+        print(f"nvcc: {nvcc}")
+        return
+    # Not on PATH — check common CUDA toolkit install locations
+    cuda_path = os.environ.get("CUDA_PATH")
+    if cuda_path:
+        candidate = Path(cuda_path) / "bin" / ("nvcc.exe" if platform.system() == "Windows" else "nvcc")
+        if candidate.exists():
+            # Add to PATH for this process so CMake can find it
+            os.environ["PATH"] = str(candidate.parent) + os.pathsep + os.environ.get("PATH", "")
+            print(f"nvcc: {candidate} (via CUDA_PATH)")
+            return
+    sys.exit(
+        f"\nerror: --backend {backend} requires the CUDA toolkit but nvcc was not found.\n\n"
+        f"  Install CUDA Toolkit (12.x recommended):\n"
+        f"    Windows: https://developer.nvidia.com/cuda-downloads\n"
+        f"    Linux:   sudo apt install cuda-toolkit-12-x\n\n"
+        f"  After installing, either:\n"
+        f"    • Open a new shell (nvcc should be on PATH), or\n"
+        f"    • Set CUDA_PATH to your CUDA install root (e.g. C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.x)\n\n"
+        f"  To build without GPU acceleration use --backend cpu\n"
+    )
+
+
+def _verify_cuda_compiled_in(build_dir: Path, backend: str):
+    """After a cuda/tcnn build, confirm CMake actually found nvcc.
+    If it silently fell back to CPU-only, fail loudly so the user isn't misled."""
+    if backend not in ("cuda", "tcnn"):
+        return
+    cache = build_dir / "CMakeCache.txt"
+    if not cache.exists():
+        return
+    text = cache.read_text(errors="replace")
+    if "CMAKE_CUDA_COMPILER:FILEPATH=NOTFOUND" in text or "CMAKE_CUDA_COMPILER:FILEPATH=" not in text:
+        sys.exit(
+            f"\nerror: CUDA was requested (--backend {backend}) but CMake could not find nvcc.\n"
+            f"  The built module will NOT have GPU support.\n\n"
+            f"  Diagnose:\n"
+            f"    • Run: nvcc --version   (should print CUDA release x.y)\n"
+            f"    • Check CUDA_PATH env var points to your CUDA toolkit root\n"
+            f"    • Re-run with --clean to force CMake reconfiguration after fixing nvcc\n\n"
+            f"  Or use --backend cpu to build a CPU-only addon.\n"
+        )
+    # Also verify ASTRORAY_CUDA_FOUND was set true in the generated config
+    if "ASTRORAY_CUDA_FOUND:INTERNAL=TRUE" not in text and "ASTRORAY_CUDA_FOUND:BOOL=TRUE" not in text:
+        # CMake found nvcc but ASTRORAY logic may have still disabled it — warn
+        print("warning: nvcc was found but ASTRORAY_CUDA_FOUND may not be set — "
+              "check CMake output for CUDA configuration errors")
+
+
+def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str = "tcnn"):
     global BUILD_DIR
+    _require_nvcc(backend)
     BUILD_DIR, extra_flags = _backend_config(backend)
 
     if clean and BUILD_DIR.exists():
@@ -292,6 +348,8 @@ def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str =
             "-DPython3_FIND_STRATEGY=LOCATION",
         ])
 
+    _verify_cuda_compiled_in(BUILD_DIR, backend)
+
     run(["cmake", "--build", str(BUILD_DIR),
          "--config", "Release", "--target", "astroray",
          "-j", str(jobs)])
@@ -307,6 +365,41 @@ def find_built_module() -> Path:
             matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
             return matches[0]
     sys.exit(f"error: no astroray module found in {BUILD_DIR}")
+
+
+def probe_built_module(module_path: Path, backend: str):
+    """Import the freshly built module in a subprocess and verify __features__."""
+    probe = (
+        "import sys, os\n"
+        f"sys.path.insert(0, {str(module_path.parent)!r})\n"
+        "if sys.platform=='win32' and hasattr(os,'add_dll_directory'):\n"
+        f"    os.add_dll_directory({str(module_path.parent)!r})\n"
+        "import astroray\n"
+        "f = astroray.__features__\n"
+        "print('cuda:', f.get('cuda', False))\n"
+        "print('oidn:', f.get('oidn_denoiser', False))\n"
+        "r = astroray.Renderer()\n"
+        "print('gpu_available:', r.gpu_available)\n"
+        "if r.gpu_available: print('gpu_device:', r.gpu_device_name)\n"
+    )
+    try:
+        out = subprocess.check_output(
+            [sys.executable, "-c", probe],
+            text=True, timeout=30,
+            stderr=subprocess.STDOUT,
+        )
+        print("\n--- module probe ---")
+        print(out.strip())
+        print("---\n")
+        if backend in ("cuda", "tcnn") and "cuda: False" in out:
+            sys.exit(
+                "error: the built module reports cuda=False even though --backend "
+                f"{backend} was requested.\n"
+                "  The CUDA toolkit was likely not found by CMake.\n"
+                "  Run with --clean --backend cuda and check CMake output for CUDA errors.\n"
+            )
+    except subprocess.CalledProcessError as e:
+        print(f"warning: module probe failed ({e}); proceeding anyway\n{e.output}")
 
 
 # --------------------------------------------------------------------------- #
@@ -618,9 +711,10 @@ def main():
         print("configure-only: skipping stage/zip")
         return
 
-    # 4. Stage + zip
+    # 4. Probe + stage + zip
     module_path = find_built_module()
     print(f"Built module: {module_path.name}")
+    probe_built_module(module_path, args.backend)
     zip_path = stage_and_zip(module_path, backend=args.backend)
     print(f"\nAddon package: {zip_path}")
     print(f"Staged dir:    {STAGE_DIR}")

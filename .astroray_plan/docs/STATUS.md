@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-03 (pkg39 multi-wavelength rendering complete)
+**Last updated:** 2026-05-03 (pkg37 Blender addon backend refresh complete)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -75,7 +75,7 @@ personally should pick up.
 | pkg34 | Material backend capabilities + no silent GPU fallback | **done** |
 | pkg35 | Spectral GPU material kernels | **done** |
 | pkg36 | Shared material closure graph | **done** |
-| pkg37 | Blender addon backend refresh + runtime diagnostics | open |
+| pkg37 | Blender addon backend refresh + runtime diagnostics | **done** |
 
 **Visual diagnostics & production polish (Pillar 5):**
 
@@ -169,7 +169,7 @@ personally should pick up.
 | Package | Track | Status | Blocker |
 |---|---|---|---|
 | pkg34 | A | **done** | — |
-| pkg37 | A/E | open | pkg34 recommended for capability-aware Auto mode |
+| pkg37 | A/E | **done** | — |
 | pkg32 | A+B | **done** | — |
 | pkg33 | A | **done** | — |
 | pkg38 | B | **done** | — |
@@ -211,6 +211,7 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-05-03** — pkg37 complete. Blender addon backend refresh: `device_mode` EnumProperty (Auto/GPU/CPU) replaces old `use_gpu` BoolProperty; shared `configure_backend()` helper called from both final render and viewport; viewport now applies wavelength range/output mode (Near IR/UV/Custom) matching final render; Diagnostics panel shows module path, version, `__features__`, GPU availability, integrator list, and post-render stats; `build_blender_addon.py` gains `--backend cpu/cuda/tcnn/auto` flag, per-backend build dirs (`build_blender_addon`, `build_blender_addon_cuda`, `build_blender_addon_tcnn`), and a `build_report.json` in the packaged zip. 11 new tests in `test_blender_backend_policy.py`.
 - **2026-05-03** — pkg39 complete. Multi-wavelength rendering: configurable wavelength band (380-780 nm visible unchanged; IR/UV via `multiwavelength_path_tracer`), `SpectralProfile`/`SpectralProfileDatabase` C++ API loading profiles.bin, `evalSpectralExt`/`sampleSpectralExt` profile dispatch on Material base class, `ColourmapOutput` post-process pass (grayscale/hot/inferno/viridis/ir_false_colour), Python API (`set_wavelength_range`, `set_material_spectral_profile`, `spectral_profile_names`), Blender UI (Wavelength panel with presets, colourmap selector). 15 tests; all pass.
 - **2026-05-03** — pkg38 complete. Spectral material profile database built from USGS Spectral Library v7, ECOSTRESS/JHU spectra, Rakic 1998 Lorentz-Drude model for polished metals (Al, Au), and Bashkatov 2005 digitised skin measurements. 40 materials across 7 categories (vegetation, earth, building, metal, fabric, paint, human), 441 wavelengths at 5nm from 300-2500nm. ASPR binary format (72 KB), profiles_metadata.json, sources.md provenance. 18 tests all pass; Wood effect 3.8x/5.9x, water R(1000nm)=0.008, Al/Au mean R>0.90.
 - **2026-05-03** — pkg36 complete. Added shared material closure graphs,

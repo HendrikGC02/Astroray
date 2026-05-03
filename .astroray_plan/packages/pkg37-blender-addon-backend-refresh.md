@@ -2,7 +2,7 @@
 
 **Pillar:** 5  
 **Track:** A / E  
-**Status:** open  
+**Status:** done  
 **Estimated effort:** 1-2 sessions (~6 h)  
 **Depends on:** pkg34 recommended; pkg35/pkg36 improve coverage but are not hard blockers
 

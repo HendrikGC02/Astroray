@@ -445,7 +445,12 @@ def _verify_cuda_compiled_in(build_dir: Path, backend: str):
     if not cache.exists():
         return
     text = cache.read_text(errors="replace")
-    if "CMAKE_CUDA_COMPILER:FILEPATH=NOTFOUND" in text or "CMAKE_CUDA_COMPILER:FILEPATH=" not in text:
+    # CMake may store the compiler as :FILEPATH= or :STRING= depending on version/platform.
+    # Check both; treat absent or =NOTFOUND as failure.
+    import re as _re
+    m = _re.search(r"CMAKE_CUDA_COMPILER:(?:FILEPATH|STRING)=(.+)", text)
+    cuda_compiler_val = m.group(1).strip() if m else ""
+    if not cuda_compiler_val or "NOTFOUND" in cuda_compiler_val.upper():
         sys.exit(
             f"\nerror: CUDA was requested (--backend {backend}) but CMake could not find nvcc.\n"
             f"  The built module will NOT have GPU support.\n\n"
@@ -456,8 +461,9 @@ def _verify_cuda_compiled_in(build_dir: Path, backend: str):
             f"  Or use --backend cpu to build a CPU-only addon.\n"
         )
     # Also verify ASTRORAY_CUDA_FOUND was set true in the generated config
-    if "ASTRORAY_CUDA_FOUND:INTERNAL=TRUE" not in text and "ASTRORAY_CUDA_FOUND:BOOL=TRUE" not in text:
-        # CMake found nvcc but ASTRORAY logic may have still disabled it — warn
+    # (stored as INTERNAL, BOOL, or STRING depending on CMake version)
+    found_match = _re.search(r"ASTRORAY_CUDA_FOUND:[^=]+=(.+)", text)
+    if not found_match or found_match.group(1).strip().upper() not in ("TRUE", "1", "YES"):
         print("warning: nvcc was found but ASTRORAY_CUDA_FOUND may not be set — "
               "check CMake output for CUDA configuration errors")
 

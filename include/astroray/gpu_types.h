@@ -240,7 +240,8 @@ enum GMaterialType : uint8_t {
     GMAT_DIELECTRIC   = 2,
     GMAT_DIFFUSE_LIGHT = 3,
     GMAT_DISNEY       = 4,
-    GMAT_THIN_GLASS   = 5
+    GMAT_THIN_GLASS   = 5,
+    GMAT_CLOSURE_GRAPH = 6
 };
 
 enum GSpectralMode : uint8_t {
@@ -249,11 +250,38 @@ enum GSpectralMode : uint8_t {
     GSPEC_RGB_ILLUMINANT = 2
 };
 
+enum GClosureType : uint8_t {
+    GCLOSURE_NONE = 0,
+    GCLOSURE_DIFFUSE = 1,
+    GCLOSURE_GGX_CONDUCTOR = 2,
+    GCLOSURE_DIELECTRIC_TRANSMISSION = 3,
+    GCLOSURE_CLEARCOAT = 4,
+    GCLOSURE_SHEEN = 5,
+    GCLOSURE_EMISSION = 6,
+    GCLOSURE_THIN_GLASS = 7
+};
+
+static constexpr int G_MAX_MATERIAL_CLOSURES = 8;
+
+struct GMaterialClosure {
+    GClosureType type;
+    uint8_t twoSidedEmission;
+    uint8_t _pad0[2];
+    GVec3 color;
+    float weight;
+    float roughness;
+    float metallic;
+    float ior;
+    float transmission;
+    float clearcoatGloss;
+    float _pad1[2];
+};
+
 struct alignas(64) GMaterial {
     GMaterialType type;
     GSpectralMode spectralMode;
     bool spectralGpu;
-    uint8_t _pad[1];
+    uint8_t closureCount;
 
     GVec3  baseColor;
     float  roughness;
@@ -273,7 +301,7 @@ struct alignas(64) GMaterial {
     float  anisotropic;
     float  anisotropicRotation;
 
-    float  _padding[1]; // fill to 64 bytes
+    GMaterialClosure closures[G_MAX_MATERIAL_CLOSURES];
 };
 
 // ---------------------------------------------------------------------------

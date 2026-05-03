@@ -24,6 +24,7 @@ def _candidate_build_dirs() -> list[str]:
     env_dir = os.environ.get('ASTRORAY_BUILD_DIR')
     if env_dir:
         candidates.append(env_dir)
+        candidates.append(os.path.join(env_dir, 'Release'))
     candidates.extend([
         DEFAULT_BUILD_DIR,
         os.path.join(DEFAULT_BUILD_DIR, 'Release'),

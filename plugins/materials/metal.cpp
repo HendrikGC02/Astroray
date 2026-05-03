@@ -20,6 +20,12 @@ public:
 
     bool isGlossy() const override { return true; }
     Vec3 getAlbedo() const override { return albedo_; }
+    astroray::MaterialClosureGraph closureGraph() const override {
+        astroray::MaterialClosureGraph graph;
+        graph.add(astroray::makeGGXConductorClosure(
+            {albedo_.x, albedo_.y, albedo_.z}, roughness_));
+        return graph;
+    }
     std::string getGPUTypeName() const override { return "metal"; }
     float getRoughness() const override { return roughness_; }
 

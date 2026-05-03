@@ -74,7 +74,7 @@ personally should pick up.
 |---|---|---|
 | pkg34 | Material backend capabilities + no silent GPU fallback | **done** |
 | pkg35 | Spectral GPU material kernels | **done** |
-| pkg36 | Shared material closure graph | open |
+| pkg36 | Shared material closure graph | **done** |
 | pkg37 | Blender addon backend refresh + runtime diagnostics | open |
 
 **Visual diagnostics & production polish (Pillar 5):**
@@ -113,9 +113,9 @@ personally should pick up.
 
 - pkg29 prism validation is complete.
 - Complete: pkg32 visual diagnostics, pkg33 OIDN, pkg34 backend capability
-  guardrails, and pkg35 spectral GPU material payloads.
-- Next up: pkg36 shared material closure graph or pkg37 Blender addon backend
-  refresh.
+  guardrails, pkg35 spectral GPU material payloads, and pkg36 shared closure
+  graphs.
+- Next up: pkg37 Blender addon backend refresh.
 - Pillar 4 can begin with pkg40 once the current registry/reference cleanup is merged.
 
 ### Track B (Copilot cloud)
@@ -211,6 +211,12 @@ personally should pick up.
 Brief notes on notable events.
 
 - **2026-05-03** — pkg38 complete. Spectral material profile database built from USGS Spectral Library v7, ECOSTRESS/JHU spectra, Rakic 1998 Lorentz-Drude model for polished metals (Al, Au), and Bashkatov 2005 digitised skin measurements. 40 materials across 7 categories (vegetation, earth, building, metal, fabric, paint, human), 441 wavelengths at 5nm from 300-2500nm. ASPR binary format (72 KB), profiles_metadata.json, sources.md provenance. 18 tests all pass; Wood effect 3.8x/5.9x, water R(1000nm)=0.008, Al/Au mean R>0.90.
+- **2026-05-03** — pkg36 complete. Added shared material closure graphs,
+  Python graph inspection, and CUDA closure-graph lowering. Lambertian,
+  metal, flat dielectric, Disney plastic/glass, and a new `closure_matte`
+  plugin now exercise the same graph path for backend metadata and GPU upload;
+  graphless materials remain explicit CPU-only escape hatches. Focused
+  validation: CUDA build passed; closure/backend/GPU material tests passed.
 - **2026-05-03** — pkg35 complete. Added compact CUDA sampled-wavelength and
   sampled-spectrum payloads, spectral BSDF/emitter dispatch helpers for core
   RGB-derived GPU materials, Python `gpu_spectral` capability metadata, and

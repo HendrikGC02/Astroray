@@ -66,7 +66,7 @@ personally should pick up.
 | pkg30 | Spectral BSDF sampling interface (`sampleSpectral` on Material) | implemented |
 | pkg31 | Spectral dielectric with Sellmeier dispersion | implemented |
 | pkg29 | Spectral dielectric prism validation | implemented |
-| pkg29a | Scoped caustic validation for spectral optics | design |
+| pkg29a | Scoped caustic validation for spectral optics | implemented |
 
 **Material backend parity bridge (Pillar 2/5 follow-up):**
 
@@ -178,9 +178,9 @@ personally should pick up.
 - ReSTIR work is now scoped at package-file level in issue #114; implementation should start at `pkg20` after review.
 - Windows verification is sensitive to stale build caches; test bootstrap now supports `ASTRORAY_BUILD_DIR` and standard `build/Release` layouts, but the old `build/` cache on this workstation still points at a missing MinGW install.
 - Prism-style spectral dispersion now has a deterministic validation scene and
-  saved render outputs. It is not a caustic-perfect showcase yet; pkg29a scopes
-  the caustic validation scenes and first transport experiment, while pkg32
-  turns mature diagnostics into polished visual outputs.
+  saved render outputs. pkg29a adds caustic validation scenes, metrics, and an
+  opt-in specular-chain connection experiment; it is still not a final
+  caustic-perfect showcase.
 - GPU material support is currently explicit only for a small flattened set
   of material types. pkg34-pkg36 define the bridge from CPU material plugins
   to truthful GPU/default rendering.
@@ -211,6 +211,11 @@ Brief notes on notable events.
 - **2026-05-03** — Optical material cleanup started for pkg29 follow-up. Added
   a scoped pkg29a caustic-validation design for issue #145, plus issue #142/#146
   work on optical-glass presets and thin architectural glass.
+- **2026-05-03** — pkg29a complete. Added `caustic_path_tracer`, three caustic
+  validation scenes, saved PNG diagnostics, JSON/CSV stats, and
+  `scripts/benchmark_caustic_transport.py`. The opt-in integrator records
+  `caustic_connections` and `caustic_energy` while leaving `path_tracer` as
+  the default/reference.
 - **2026-05-03** — Codex material triage recorded: convergence tracker repair,
   GGX/rough-metal sampling cleanup, and Disney rough-glass transmission with
   CPU/CUDA material support and high-sample GPU contact-sheet diagnostics.

@@ -255,8 +255,8 @@ def _backend_config(backend: str) -> tuple[Path, list[str]]:
                 ["-DASTRORAY_ENABLE_CUDA=ON",
                  "-DASTRORAY_TINY_CUDA_NN=ON",
                  *common_opts])
-    # auto: probe for nvcc; use tcnn build if found, otherwise cpu
-    if shutil.which("nvcc"):
+    # auto: probe for nvcc (full search); use tcnn build if found, otherwise cpu
+    if _find_nvcc():
         print("auto: nvcc found — building with tcnn (CUDA + neural cache) backend")
         return (REPO_ROOT / "build_blender_addon_tcnn",
                 ["-DASTRORAY_ENABLE_CUDA=ON",
@@ -269,33 +269,102 @@ def _backend_config(backend: str) -> tuple[Path, list[str]]:
              *common_opts])
 
 
-def _require_nvcc(backend: str):
-    """For cuda/tcnn backends, verify nvcc is on PATH before spending time on configure."""
+def _find_nvcc() -> Path | None:
+    """Locate nvcc using the same search order as CMake / VS CUDA integration.
+
+    Search order (first match wins):
+      1. PATH  (shutil.which)
+      2. CUDA_PATH / CUDA_HOME env vars  (set by CUDA toolkit installer)
+      3. Windows registry  (HKLM\\SOFTWARE\\NVIDIA Corporation\\GPU Computing Toolkit\\CUDA)
+      4. Common install path glob  (C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v*\\bin)
+      5. Linux common paths  (/usr/local/cuda*/bin)
+    """
+    nvcc_name = "nvcc.exe" if platform.system() == "Windows" else "nvcc"
+
+    # 1. PATH
+    found = shutil.which("nvcc")
+    if found:
+        return Path(found)
+
+    # 2. Environment variables
+    for var in ("CUDA_PATH", "CUDA_HOME", "CUDA_ROOT"):
+        val = os.environ.get(var)
+        if val:
+            candidate = Path(val) / "bin" / nvcc_name
+            if candidate.exists():
+                return candidate
+
+    if platform.system() == "Windows":
+        # 3. Windows registry (same key CMake checks via FindCUDAToolkit)
+        try:
+            import winreg
+            key_path = r"SOFTWARE\NVIDIA Corporation\GPU Computing Toolkit\CUDA"
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+                i = 0
+                best: Path | None = None
+                while True:
+                    try:
+                        ver_name = winreg.EnumKey(key, i)
+                        with winreg.OpenKey(key, ver_name) as ver_key:
+                            try:
+                                install_dir, _ = winreg.QueryValueEx(ver_key, "InstallDir")
+                                candidate = Path(install_dir) / "bin" / nvcc_name
+                                if candidate.exists():
+                                    best = candidate  # take last (highest version)
+                            except FileNotFoundError:
+                                pass
+                        i += 1
+                    except OSError:
+                        break
+                if best:
+                    return best
+        except (ImportError, OSError):
+            pass
+
+        # 4. Common install path glob
+        import glob as _glob
+        pattern = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v*\bin"
+        dirs = sorted(_glob.glob(pattern), reverse=True)  # highest version first
+        for d in dirs:
+            candidate = Path(d) / nvcc_name
+            if candidate.exists():
+                return candidate
+    else:
+        # 5. Linux/macOS common paths
+        import glob as _glob
+        for pattern in ["/usr/local/cuda*/bin/nvcc", "/usr/cuda*/bin/nvcc"]:
+            matches = sorted(_glob.glob(pattern), reverse=True)
+            if matches:
+                return Path(matches[0])
+
+    return None
+
+
+def _require_nvcc(backend: str) -> Path | None:
+    """For cuda/tcnn backends, find nvcc and ensure PATH is set.
+
+    Returns the nvcc Path (so callers can pass -DCMAKE_CUDA_COMPILER=<path>
+    explicitly, which works even when nvcc is not on the shell PATH).
+    """
     if backend not in ("cuda", "tcnn"):
-        return
-    nvcc = shutil.which("nvcc")
-    if nvcc:
-        print(f"nvcc: {nvcc}")
-        return
-    # Not on PATH — check common CUDA toolkit install locations
-    cuda_path = os.environ.get("CUDA_PATH")
-    if cuda_path:
-        candidate = Path(cuda_path) / "bin" / ("nvcc.exe" if platform.system() == "Windows" else "nvcc")
-        if candidate.exists():
-            # Add to PATH for this process so CMake can find it
-            os.environ["PATH"] = str(candidate.parent) + os.pathsep + os.environ.get("PATH", "")
-            print(f"nvcc: {candidate} (via CUDA_PATH)")
-            return
-    sys.exit(
-        f"\nerror: --backend {backend} requires the CUDA toolkit but nvcc was not found.\n\n"
-        f"  Install CUDA Toolkit (12.x recommended):\n"
-        f"    Windows: https://developer.nvidia.com/cuda-downloads\n"
-        f"    Linux:   sudo apt install cuda-toolkit-12-x\n\n"
-        f"  After installing, either:\n"
-        f"    • Open a new shell (nvcc should be on PATH), or\n"
-        f"    • Set CUDA_PATH to your CUDA install root (e.g. C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.x)\n\n"
-        f"  To build without GPU acceleration use --backend cpu\n"
-    )
+        return None
+    nvcc = _find_nvcc()
+    if nvcc is None:
+        sys.exit(
+            f"\nerror: --backend {backend} requires the CUDA toolkit but nvcc was not found.\n\n"
+            f"  Searched: PATH, CUDA_PATH/CUDA_HOME env vars, Windows registry, common install paths.\n\n"
+            f"  Install CUDA Toolkit (12.x recommended):\n"
+            f"    Windows: https://developer.nvidia.com/cuda-downloads\n"
+            f"    Linux:   sudo apt install cuda-toolkit-12-x\n\n"
+            f"  After installing, re-run this script (or set CUDA_PATH to your CUDA root).\n\n"
+            f"  To build without GPU acceleration use --backend cpu\n"
+        )
+    print(f"nvcc: {nvcc}")
+    # Ensure nvcc's directory is on PATH so CMake's language-enable step finds it
+    nvcc_bin = str(nvcc.parent)
+    if nvcc_bin not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = nvcc_bin + os.pathsep + os.environ.get("PATH", "")
+    return nvcc
 
 
 def _verify_cuda_compiled_in(build_dir: Path, backend: str):
@@ -326,8 +395,13 @@ def _verify_cuda_compiled_in(build_dir: Path, backend: str):
 
 def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str = "tcnn"):
     global BUILD_DIR
-    _require_nvcc(backend)
+    nvcc = _require_nvcc(backend)
     BUILD_DIR, extra_flags = _backend_config(backend)
+
+    # Pass the compiler path explicitly so CMake finds it even when nvcc is not
+    # on the shell PATH (e.g. CUDA installed via VS integration or registry only).
+    if nvcc is not None:
+        extra_flags = [f"-DCMAKE_CUDA_COMPILER={nvcc}", *extra_flags]
 
     if clean and BUILD_DIR.exists():
         print(f"removing {BUILD_DIR}")
@@ -504,15 +578,18 @@ def _bundle_cuda_runtime_dlls(module_path: Path) -> None:
     """Copy CUDA runtime DLLs (cudart, etc.) into STAGE_DIR for Windows cuda/tcnn builds."""
     if platform.system() != "Windows":
         return
-    # Look for CUDA bin dir via CUDA_PATH env var (set by CUDA toolkit installer)
+    # Locate CUDA bin dir using the same comprehensive search as _find_nvcc()
     cuda_bin_candidates = []
+    nvcc = _find_nvcc()
+    if nvcc:
+        cuda_bin_candidates.append(nvcc.parent)  # nvcc's own bin dir
+    # Also check CUDA_PATH and common install paths as fallback
     cuda_path = os.environ.get("CUDA_PATH")
     if cuda_path:
         cuda_bin_candidates.append(Path(cuda_path) / "bin")
-    # Also check common install paths
-    for pattern in [r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v*\bin"]:
-        import glob as _glob
-        cuda_bin_candidates += [Path(p) for p in _glob.glob(pattern)]
+    import glob as _glob
+    cuda_bin_candidates += [Path(p) for p in _glob.glob(
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v*\bin")]
     cuda_bin_candidates += [Path(r"C:\Windows\System32")]  # runtime may be here too
 
     # DLLs required by the CUDA runtime (cudart) and potentially CUBLAS/CUFFT

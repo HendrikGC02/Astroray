@@ -82,7 +82,7 @@ personally should pick up.
 | Package | Description | Status |
 |---|---|---|
 | pkg32 | Visual diagnostics & benchmark renders | open |
-| pkg33 | OIDN FetchContent integration | open |
+| pkg33 | OIDN FetchContent integration | **done** |
 
 **Astrophysics platform (Pillar 4):**
 
@@ -167,7 +167,7 @@ personally should pick up.
 | pkg34 | A | open | — |
 | pkg37 | A/E | open | pkg34 recommended for capability-aware Auto mode |
 | pkg32 | A+B | open | — (B issues: #121–#127) |
-| pkg33 | A | open | — |
+| pkg33 | A | **done** | — |
 | pkg40 | A | open | current registry/reference cleanup |
 
 ---
@@ -200,6 +200,7 @@ personally should pick up.
 
 Brief notes on notable events.
 
+- **2026-05-03** — pkg33 complete. OIDN auto-detection (env var, common Windows paths, FetchContent 2.3.3 fallback) added to CMakeLists.txt. OIDN 2.4.1 found at C:/oidn; `ASTRORAY_OIDN_ENABLED` now active. Duplicate function definitions from the rough-Disney-glass merge fixed in `disney.cpp`. Blender addon `__init__.py` probes `addon_dir/oidn/` and `C:/oidn/bin` for DLLs; `build_blender_addon.py` copies them into the zip. New `tests/test_oidn_denoiser.py` verifies: registry presence, variance reduction (30× at 4 spp), and side-by-side PNG in `test_results/oidn_before_after.png`. 3 new tests; all pass.
 - **2026-05-03** — Pillar 4 prep cleanup. Added `MetricRegistry`,
   `EmissionRegistry`, `ASTRORAY_REGISTER_METRIC`, and
   `ASTRORAY_REGISTER_EMISSION` scaffolding to `register.h`; captured the

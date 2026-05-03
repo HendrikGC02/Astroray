@@ -357,6 +357,36 @@ def _bundle_mingw_runtime_dlls(module_path: Path) -> list[str]:
     return bundled
 
 
+def _bundle_oidn_dlls(module_path: Path) -> None:
+    """Copy OIDN runtime DLLs into STAGE_DIR/oidn/ so the addon can load them."""
+    import glob as _glob
+
+    # Candidate OIDN bin directories: build tree _deps first, then system install.
+    build_dir = module_path.parent
+    while build_dir != build_dir.parent:
+        oidn_fetched = list(build_dir.glob("_deps/oidn_prebuilt-src/bin"))
+        if oidn_fetched:
+            break
+        build_dir = build_dir.parent
+
+    candidates = []
+    if oidn_fetched:
+        candidates.append(oidn_fetched[0])
+    candidates.append(Path(r"C:\oidn\bin"))
+
+    for oidn_bin in candidates:
+        dlls = list(oidn_bin.glob("OpenImageDenoise*.dll")) + \
+               list(oidn_bin.glob("tbb*.dll"))
+        if dlls:
+            dest = STAGE_DIR / "oidn"
+            dest.mkdir(exist_ok=True)
+            for dll in dlls:
+                shutil.copy2(dll, dest / dll.name)
+            print(f"bundled {len(dlls)} OIDN DLLs from {oidn_bin}")
+            return
+    print("warning: OIDN DLLs not found — addon will rely on system PATH for OpenImageDenoise.dll")
+
+
 def stage_and_zip(module_path: Path) -> Path:
     _force_remove(STAGE_DIR)
     STAGE_DIR.mkdir(parents=True)
@@ -375,6 +405,13 @@ def stage_and_zip(module_path: Path) -> Path:
     bundled = _bundle_mingw_runtime_dlls(module_path)
     if bundled:
         print(f"bundled runtime DLLs: {', '.join(bundled)}")
+
+    # Bundle OIDN runtime DLLs (Windows only).
+    # Look for them next to the .pyd's cmake build tree, then fall back to
+    # the system-wide C:/oidn install.  Placed in oidn/ inside the addon so
+    # __init__.py can add them to the DLL search path at load time.
+    if platform.system() == "Windows":
+        _bundle_oidn_dlls(module_path)
 
     # Optional: include the LICENSE so the extension carries it
     license_src = REPO_ROOT / "LICENSE"

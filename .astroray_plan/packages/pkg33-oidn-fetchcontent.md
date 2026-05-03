@@ -2,7 +2,7 @@
 
 **Pillar:** 5  
 **Track:** A  
-**Status:** open  
+**Status:** done  
 **Estimated effort:** 1 session (~3 h)  
 **Depends on:** pkg06 (done)
 
@@ -46,12 +46,23 @@ config.
 
 ### Acceptance criteria
 
-- [ ] `cmake --build . --config Release` succeeds with OIDN found.
-- [ ] `oidn_denoiser` appears in `pass_registry_names()` at runtime.
-- [ ] A test renders a noisy image, applies the OIDN pass, and verifies
-      the output has lower variance than the input.
-- [ ] `ASTRORAY_ENABLE_OIDN=OFF` still works and skips OIDN entirely.
-- [ ] All existing tests pass.
+- [x] `cmake --build . --config Release` succeeds with OIDN found.
+- [x] `oidn_denoiser` appears in `pass_registry_names()` at runtime.
+- [x] A test renders a noisy image, applies the OIDN pass, and verifies
+      the output has lower variance than the input (30× at 4 spp).
+- [x] Side-by-side PNG saved to `test_results/oidn_before_after.png`.
+- [x] `ASTRORAY_ENABLE_OIDN=OFF` still works and skips OIDN entirely.
+- [x] All existing tests pass.
+
+### Implementation notes
+
+- OIDN 2.4.1 was already installed at `C:/oidn`; added auto-detection for
+  common Windows locations so `find_package` succeeds without any user flags.
+- FetchContent fallback downloads OIDN 2.3.3 prebuilt zip on clean machines.
+- `plugins/materials/disney.cpp` had duplicate function definitions from the
+  rough-glass merge; fixed by removing the second copy.
+- Blender addon `__init__.py` probes `addon_dir/oidn/` and `C:/oidn/bin`.
+- `scripts/build_blender_addon.py` bundles OIDN DLLs into `dist/astroray/oidn/`.
 
 ---
 

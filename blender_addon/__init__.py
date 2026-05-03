@@ -26,10 +26,19 @@ from shader_blending import blend_shader_specs, add_shader_specs
 # dependencies, so we have to explicitly add the addon directory to the
 # DLL search list before importing.
 if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
-    try:
-        os.add_dll_directory(addon_dir)
-    except (FileNotFoundError, OSError):
-        pass
+    _dll_dirs = [
+        addon_dir,
+        # OIDN DLLs bundled alongside the addon (placed here by build_blender_addon.py)
+        os.path.join(addon_dir, "oidn"),
+        # OIDN installed system-wide at the RenderKit default location
+        r"C:\oidn\bin",
+    ]
+    for _d in _dll_dirs:
+        if os.path.isdir(_d):
+            try:
+                os.add_dll_directory(_d)
+            except (FileNotFoundError, OSError):
+                pass
 
 try:
     import astroray

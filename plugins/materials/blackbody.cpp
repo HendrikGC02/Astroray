@@ -75,7 +75,7 @@ public:
     bool isEmissive() const override { return true; }
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps;
-        caps.notes = "blackbody spectral emission is CPU-only until pkg35";
+        caps.notes = "blackbody spectral emission needs dedicated GPU emitter parameter upload and remains CPU-only";
         return caps;
     }
 };

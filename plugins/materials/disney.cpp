@@ -178,9 +178,10 @@ public:
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps;
         caps.gpu = true;
+        caps.gpuSpectral = true;
         caps.gpuApproximate = true;
         caps.gpuType = "disney";
-        caps.notes = "GPU Disney is an explicit RGB preview approximation until pkg35/pkg36";
+        caps.notes = "spectral RGB-derived Disney GPU preview; closure composition remains approximate until pkg36";
         return caps;
     }
     float getRoughness() const override { return roughness_; }

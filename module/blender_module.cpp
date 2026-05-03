@@ -416,6 +416,7 @@ public:
         out["cpu"] = caps.cpu;
         out["spectral"] = caps.spectral;
         out["gpu"] = caps.gpu;
+        out["gpu_spectral"] = caps.gpuSpectral;
         out["gpu_approximate"] = caps.gpuApproximate;
         out["gpu_type"] = caps.gpuType;
         out["notes"] = caps.notes;
@@ -1241,6 +1242,7 @@ PYBIND11_MODULE(astroray, m) {
         "nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,
         "adaptive_sampling"_a=true, "volumes"_a=true, "textures"_a=true, "subsurface"_a=true,
         "gr_black_holes"_a=true,
+        "spectral_gpu_materials"_a=true,
 #ifdef ASTRORAY_OIDN_ENABLED
         "oidn_denoiser"_a=true,
 #else

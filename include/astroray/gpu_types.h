@@ -79,6 +79,93 @@ HD inline GVec3 gvec3_max(const GVec3& a, const GVec3& b) {
 }
 
 // ---------------------------------------------------------------------------
+// Compact sampled-spectrum payload for the CUDA material path.
+// RGB remains the framebuffer representation, but materials now carry the same
+// four sampled wavelengths through GPU BSDF/emitter dispatch that the CPU
+// spectral path uses.
+// ---------------------------------------------------------------------------
+static constexpr int G_SPECTRUM_SAMPLES = 4;
+static constexpr float G_LAMBDA_MIN = 360.f;
+static constexpr float G_LAMBDA_MAX = 830.f;
+
+struct GSampledWavelengths {
+    float lambda[G_SPECTRUM_SAMPLES];
+    float pdf[G_SPECTRUM_SAMPLES];
+
+    HD GSampledWavelengths() {
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+            lambda[i] = G_LAMBDA_MIN;
+            pdf[i] = 1.f / (G_LAMBDA_MAX - G_LAMBDA_MIN);
+        }
+    }
+
+    HD void terminateSecondary() {
+        for (int i = 1; i < G_SPECTRUM_SAMPLES; ++i) {
+            lambda[i] = lambda[0];
+            pdf[i] = 0.f;
+        }
+    }
+};
+
+struct GSampledSpectrum {
+    float v[G_SPECTRUM_SAMPLES];
+
+    HD GSampledSpectrum() {
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) v[i] = 0.f;
+    }
+    HD explicit GSampledSpectrum(float s) {
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) v[i] = s;
+    }
+
+    HD float& operator[](int i) { return v[i]; }
+    HD float operator[](int i) const { return v[i]; }
+
+    HD GSampledSpectrum operator+(const GSampledSpectrum& o) const {
+        GSampledSpectrum r;
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) r.v[i] = v[i] + o.v[i];
+        return r;
+    }
+    HD GSampledSpectrum operator*(const GSampledSpectrum& o) const {
+        GSampledSpectrum r;
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) r.v[i] = v[i] * o.v[i];
+        return r;
+    }
+    HD GSampledSpectrum operator*(float s) const {
+        GSampledSpectrum r;
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) r.v[i] = v[i] * s;
+        return r;
+    }
+    HD GSampledSpectrum operator/(float s) const {
+        float inv = 1.f / s;
+        return (*this) * inv;
+    }
+    HD GSampledSpectrum& operator+=(const GSampledSpectrum& o) {
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) v[i] += o.v[i];
+        return *this;
+    }
+    HD GSampledSpectrum& operator*=(const GSampledSpectrum& o) {
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) v[i] *= o.v[i];
+        return *this;
+    }
+    HD GSampledSpectrum& operator*=(float s) {
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) v[i] *= s;
+        return *this;
+    }
+    HD GSampledSpectrum& operator/=(float s) {
+        float inv = 1.f / s;
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) v[i] *= inv;
+        return *this;
+    }
+    HD float maxValue() const {
+        float m = v[0];
+        for (int i = 1; i < G_SPECTRUM_SAMPLES; ++i) if (v[i] > m) m = v[i];
+        return m;
+    }
+};
+
+HD inline GSampledSpectrum operator*(float s, const GSampledSpectrum& x) { return x * s; }
+
+// ---------------------------------------------------------------------------
 // GRay
 // ---------------------------------------------------------------------------
 struct GRay {
@@ -156,9 +243,17 @@ enum GMaterialType : uint8_t {
     GMAT_THIN_GLASS   = 5
 };
 
+enum GSpectralMode : uint8_t {
+    GSPEC_NONE = 0,
+    GSPEC_RGB_ALBEDO = 1,
+    GSPEC_RGB_ILLUMINANT = 2
+};
+
 struct alignas(64) GMaterial {
     GMaterialType type;
-    uint8_t _pad[3];
+    GSpectralMode spectralMode;
+    bool spectralGpu;
+    uint8_t _pad[1];
 
     GVec3  baseColor;
     float  roughness;
@@ -202,6 +297,7 @@ struct GHitRecord {
 struct GBSDFSample {
     GVec3 wi;
     GVec3 f;
+    GSampledSpectrum fSpectral;
     float pdf;
     bool  isDelta;
 };

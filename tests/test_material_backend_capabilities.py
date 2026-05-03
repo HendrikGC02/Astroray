@@ -36,6 +36,7 @@ def test_backend_capabilities_report_gpu_supported_material():
     assert caps["cpu"] is True
     assert caps["spectral"] is True
     assert caps["gpu"] is True
+    assert caps["gpu_spectral"] is True
     assert caps["gpu_approximate"] is False
     assert caps["gpu_type"] == "lambertian"
 
@@ -45,6 +46,7 @@ def test_backend_capabilities_report_cpu_only_material():
     mat = r.create_material("mirror", [1.0, 1.0, 1.0], {})
     caps = r.get_material_backend_capabilities(mat)
     assert caps["gpu"] is False
+    assert caps["gpu_spectral"] is False
     assert "mirror" in caps["notes"]
 
 
@@ -53,6 +55,7 @@ def test_backend_capabilities_report_explicit_preview_approximation():
     mat = r.create_material("disney", [1.0, 1.0, 1.0], {"transmission": 1.0, "roughness": 0.35})
     caps = r.get_material_backend_capabilities(mat)
     assert caps["gpu"] is True
+    assert caps["gpu_spectral"] is True
     assert caps["gpu_approximate"] is True
     assert caps["gpu_type"] == "disney"
     assert "preview" in caps["notes"]
@@ -63,6 +66,7 @@ def test_dispersive_dielectric_is_cpu_only_until_spectral_gpu_support():
     mat = r.create_material("dielectric", [1.0, 1.0, 1.0], {"glass_preset": "bk7"})
     caps = r.get_material_backend_capabilities(mat)
     assert caps["gpu"] is False
+    assert caps["gpu_spectral"] is False
     assert "Sellmeier" in caps["notes"]
 
 

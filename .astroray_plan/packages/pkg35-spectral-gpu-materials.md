@@ -2,7 +2,7 @@
 
 **Pillar:** 2/5 bridge
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg14, pkg34
 
@@ -60,12 +60,31 @@ before more astrophysical spectral emitters arrive.
 
 ## Acceptance criteria
 
-- [ ] CPU and GPU contact-sheet renders match within documented
+- [x] CPU and GPU contact-sheet renders match within documented
       tolerances for core non-dispersive materials.
-- [ ] GPU dielectric can represent at least flat IOR and the capability
+- [x] GPU dielectric can represent at least flat IOR and the capability
       system reports whether Sellmeier dispersion is supported.
-- [ ] Narrowband/blackbody emitters have either spectral GPU support or
+- [x] Narrowband/blackbody emitters have either spectral GPU support or
       explicit CPU-only capability metadata.
+
+---
+
+## Completion Notes
+
+- Added compact CUDA `GSampledWavelengths` / `GSampledSpectrum` payloads and
+  spectral material dispatch helpers for core RGB-derived GPU materials.
+- The CUDA path now samples wavelengths per path and carries spectral BSDF and
+  emission payloads alongside the existing linear-RGB framebuffer path.
+- Added `gpu_spectral` capability metadata in C++/Python and contact-sheet CSV
+  output.
+- Flat-IOR dielectric/glass reports spectral GPU support. Sellmeier dispersion
+  remains explicit CPU-only because GPU refraction still needs
+  wavelength-dependent direction splitting/termination.
+- Narrowband line/laser and blackbody emitters remain explicit CPU-only until
+  dedicated spectral emitter parameter upload is implemented.
+- Validation: focused CUDA build succeeded; `tests/test_spectral_gpu_materials.py`,
+  `tests/test_material_backend_capabilities.py`, and the legacy CPU/GPU render
+  parity test passed against `build_tcnn/Release`.
 
 ---
 

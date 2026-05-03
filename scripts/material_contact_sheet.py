@@ -105,7 +105,8 @@ def _select_device(r, requested: str, caps: dict) -> tuple[str, str]:
         if requested == "gpu":
             raise
         return "cpu", "GPU enable failed; using CPU"
-    mode = "approximate preview" if bool(caps.get("gpu_approximate", False)) else "exact"
+    spectral = "spectral " if bool(caps.get("gpu_spectral", False)) else ""
+    mode = f"{spectral}approximate preview" if bool(caps.get("gpu_approximate", False)) else f"{spectral}exact"
     return f"gpu:{gpu_name}", f"{mode} GPU: {caps.get('notes', '')}"
 
 
@@ -134,6 +135,7 @@ def save_stats(stats: list[dict[str, object]], output_dir: Path) -> Path:
                 "device",
                 "backend_reason",
                 "gpu_supported",
+                "gpu_spectral",
                 "gpu_approximate",
                 "gpu_type",
                 "capability_notes",
@@ -204,6 +206,7 @@ def main() -> int:
             "device": device_label,
             "backend_reason": backend_reason,
             "gpu_supported": bool(caps.get("gpu", False)),
+            "gpu_spectral": bool(caps.get("gpu_spectral", False)),
             "gpu_approximate": bool(caps.get("gpu_approximate", False)),
             "gpu_type": caps.get("gpu_type", ""),
             "capability_notes": caps.get("notes", ""),

@@ -57,6 +57,8 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
     }
 
     GMaterial g{};
+    g.spectralMode     = GSPEC_RGB_ALBEDO;
+    g.spectralGpu      = caps.gpuSpectral;
     g.roughness        = 0.5f;
     g.metallic         = 0.f;
     g.ior              = 1.5f;
@@ -75,6 +77,7 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
     std::string gpuType = caps.gpuType.empty() ? mat->getGPUTypeName() : caps.gpuType;
     if (gpuType == "disney") {
         g.type = GMAT_DISNEY;
+        g.spectralMode = GSPEC_RGB_ALBEDO;
         Vec3 a = mat->getAlbedo();
         g.baseColor = GVec3(a.x, a.y, a.z);
         g.roughness = mat->getRoughness();
@@ -92,15 +95,18 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         g.anisotropicRotation = mat->getAnisotropicRotation();
     } else if (gpuType == "metal") {
         g.type = GMAT_METAL;
+        g.spectralMode = GSPEC_RGB_ALBEDO;
         Vec3 a = mat->getAlbedo();
         g.baseColor = GVec3(a.x, a.y, a.z);
         g.roughness = mat->getRoughness();
     } else if (gpuType == "dielectric") {
         g.type = GMAT_DIELECTRIC;
+        g.spectralMode = GSPEC_RGB_ALBEDO;
         g.baseColor = GVec3(1.f);
         g.ior = mat->getIOR();
     } else if (gpuType == "thin_glass") {
         g.type = GMAT_THIN_GLASS;
+        g.spectralMode = GSPEC_RGB_ALBEDO;
         Vec3 a = mat->getAlbedo();
         g.baseColor = GVec3(a.x, a.y, a.z);
         g.ior = mat->getIOR();
@@ -108,10 +114,12 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         g.transmission = mat->getTransmission();
     } else if (gpuType == "lambertian") {
         g.type = GMAT_LAMBERTIAN;
+        g.spectralMode = GSPEC_RGB_ALBEDO;
         Vec3 a = mat->getAlbedo();
         g.baseColor = GVec3(a.x, a.y, a.z);
     } else if (gpuType == "diffuse_light") {
         g.type = GMAT_DIFFUSE_LIGHT;
+        g.spectralMode = GSPEC_RGB_ILLUMINANT;
         Vec3 em = mat->getEmission();
         // Store color and intensity separately: emissionIntensity=1, baseColor=full emission
         g.baseColor = GVec3(em.x, em.y, em.z);

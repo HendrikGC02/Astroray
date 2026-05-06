@@ -75,12 +75,33 @@ cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DASTRORAY_ENABLE_CUDA=
 cmake --build . -j
 ```
 
+### Build (Windows — CUDA/tiny-cuda-nn)
+
+The repo ships CMake presets for the CUDA + tiny-cuda-nn developer build. In
+VS Code with the CMake Tools extension, select the `Windows TCNN (VS 2022)`
+configure preset and build the `Build Windows TCNN Release` preset.
+
+```powershell
+cmake --preset windows-tcnn-vs
+cmake --build --preset windows-tcnn-vs-release
+
+# Optional: build the artifacts and run pytest through the repo bootstrap.
+cmake --build --preset windows-tcnn-vs-pytest
+```
+
+Artifacts land in `build_tcnn/`: the Python module is in `build_tcnn/Release/`
+for Visual Studio builds, and the standalone binaries are in
+`build_tcnn/bin/Release/`.
+
 See [docs/QUICKSTART.md](docs/QUICKSTART.md) for full platform-specific instructions, including the Blender addon build.
 
 ### Run tests
 
 ```bash
 python3 -m pytest tests/ -v --tb=short
+
+# Recommended for local Windows TCNN runs:
+python scripts/run_tests.py --build-dir build_tcnn -- tests -v --tb=short
 ```
 
 ### Standalone render

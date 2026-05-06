@@ -6,14 +6,9 @@
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
 
-  "cmake.buildDirectory": "${workspaceFolder}/build_tcnn",
-  "cmake.generator": "Visual Studio 17 2022",
-  "cmake.configureSettings": {
-    "BUILD_PYTHON_MODULE": "ON",
-    "BUILD_BLENDER_MODULE": "ON",
-    "BUILD_TESTS": "OFF",
-    "BUILD_DOCS": "OFF",
-    "ASTRORAY_ENABLE_CUDA": "ON",
-    "ASTRORAY_TINY_CUDA_NN": "ON"
-  }
+  "cmake.useCMakePresets": "always",
+  "cmake.configurePreset": "windows-tcnn-vs",
+  "cmake.buildPreset": "windows-tcnn-vs-release",
+  "cmake.buildBeforeRun": true,
+  "cmake.buildTask": true
 }

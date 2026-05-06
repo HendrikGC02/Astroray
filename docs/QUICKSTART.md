@@ -33,17 +33,29 @@ cmake .. -DCMAKE_BUILD_TYPE=Release -DASTRORAY_ENABLE_CUDA=OFF
 cmake --build . --config Release -j
 ```
 
-> **Note on CUDA:** Pass `-DASTRORAY_ENABLE_CUDA=OFF` unless you have a fully
-> configured CUDA toolkit. The GR/spectral headers currently use GCC-style
-> attributes that NVCC rejects.
-
 > **Note on the output path:** On Windows with a multi-config generator (Visual
 > Studio), the module lands in `build/Release/astroray.cp*-win_amd64.pyd`.
-> The test suite's `conftest.py` looks in both `build/` and `build/Release/`, so
-> copy it up if needed:
-> ```cmd
-> copy build\Release\astroray.cp313-win_amd64.pyd build\
-> ```
+> The test suite looks in both `build/` and `build/Release/`.
+
+### Windows (CUDA + tiny-cuda-nn)
+
+Use the checked-in presets for the opt-in neural cache build:
+
+```cmd
+cmake --preset windows-tcnn-vs
+cmake --build --preset windows-tcnn-vs-release
+```
+
+In VS Code with CMake Tools, choose `Windows TCNN (VS 2022)` as the configure
+preset and `Build Windows TCNN Release` as the build preset. This creates
+`build_tcnn/`, with the module under `build_tcnn/Release/` and executables
+under `build_tcnn/bin/Release/`.
+
+To build and run pytest through the repo bootstrap:
+
+```cmd
+cmake --build --preset windows-tcnn-vs-pytest
+```
 
 ### Windows (MinGW / MSYS2)
 
@@ -58,7 +70,7 @@ cmake --build . -j$(nproc)
 | Artifact | Linux/macOS | Windows (MSVC) |
 |---|---|---|
 | Python module | `build/astroray.cpython-*.so` | `build/Release/astroray.cp*-win_amd64.pyd` |
-| Standalone binary | `build/bin/raytracer` | `build/Release/raytracer.exe` |
+| Standalone binary | `build/bin/raytracer` | `build/bin/Release/raytracer.exe` |
 
 ---
 
@@ -67,6 +79,9 @@ cmake --build . -j$(nproc)
 ```bash
 # Full suite
 python3 -m pytest tests/ -v --tb=short
+
+# Recommended on Windows, especially for CUDA/tiny-cuda-nn builds
+python scripts/run_tests.py --build-dir build_tcnn -- tests -v --tb=short
 
 # Focused suites
 python3 -m pytest tests/test_python_bindings.py -v
@@ -85,7 +100,7 @@ Test artifacts (rendered PNGs) are written to `test_results/` (gitignored).
 ./build/bin/raytracer --scene 1 --width 800 --height 600 --samples 64 --depth 50 --output output.png
 
 # Windows
-build\Release\raytracer.exe --scene 1 --width 800 --height 600 --samples 64 --depth 50 --output output.png
+build\bin\Release\raytracer.exe --scene 1 --width 800 --height 600 --samples 64 --depth 50 --output output.png
 ```
 
 CLI flags: `--scene`, `--width`, `--height`, `--samples`, `--depth`, `--output`, `--help`

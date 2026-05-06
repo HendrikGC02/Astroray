@@ -1,0 +1,96 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_PYTHON_MODULE": "ON",
+        "BUILD_BLENDER_MODULE": "OFF",
+        "BUILD_TESTS": "OFF",
+        "BUILD_DOCS": "OFF",
+        "ASTRORAY_ENABLE_OIDN": "OFF",
+        "ASTRORAY_ENABLE_PYTEST_TARGET": "ON"
+      }
+    },
+    {
+      "name": "windows-tcnn-vs",
+      "displayName": "Windows TCNN (VS 2022)",
+      "description": "CUDA + tiny-cuda-nn developer build in ./build_tcnn.",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/build_tcnn",
+      "cacheVariables": {
+        "ASTRORAY_ENABLE_CUDA": "ON",
+        "ASTRORAY_TINY_CUDA_NN": "ON"
+      }
+    },
+    {
+      "name": "windows-cuda-vs",
+      "displayName": "Windows CUDA (VS 2022)",
+      "description": "CUDA build without tiny-cuda-nn in ./build_cuda.",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/build_cuda",
+      "cacheVariables": {
+        "ASTRORAY_ENABLE_CUDA": "ON",
+        "ASTRORAY_TINY_CUDA_NN": "OFF"
+      }
+    },
+    {
+      "name": "windows-cpu-vs",
+      "displayName": "Windows CPU (VS 2022)",
+      "description": "CPU-only developer build in ./build.",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "ASTRORAY_ENABLE_CUDA": "OFF",
+        "ASTRORAY_TINY_CUDA_NN": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-tcnn-vs-release",
+      "displayName": "Build Windows TCNN Release",
+      "configurePreset": "windows-tcnn-vs",
+      "configuration": "Release",
+      "targets": [
+        "ALL_BUILD"
+      ]
+    },
+    {
+      "name": "windows-tcnn-vs-pytest",
+      "displayName": "Run Windows TCNN Pytest",
+      "configurePreset": "windows-tcnn-vs",
+      "configuration": "Release",
+      "targets": [
+        "astroray_pytest"
+      ]
+    },
+    {
+      "name": "windows-cuda-vs-release",
+      "displayName": "Build Windows CUDA Release",
+      "configurePreset": "windows-cuda-vs",
+      "configuration": "Release",
+      "targets": [
+        "ALL_BUILD"
+      ]
+    },
+    {
+      "name": "windows-cpu-vs-release",
+      "displayName": "Build Windows CPU Release",
+      "configurePreset": "windows-cpu-vs",
+      "configuration": "Release",
+      "targets": [
+        "ALL_BUILD"
+      ]
+    }
+  ]
+}

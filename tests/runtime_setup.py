@@ -5,11 +5,44 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BUILD_DIR = PROJECT_ROOT / "build"
+DEFAULT_TCNN_BUILD_DIR = PROJECT_ROOT / "build_tcnn"
+TEST_RESULTS_DIR = PROJECT_ROOT / "test_results"
+DEFAULT_TEMP_DIR = TEST_RESULTS_DIR / "tmp"
+
+
+def _unique_existing(paths: list[Path]) -> list[str]:
+    seen: set[str] = set()
+    existing: list[str] = []
+    for path in paths:
+        normalized = os.path.normcase(str(path.resolve()).rstrip(os.sep))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if path.is_dir():
+            existing.append(str(path))
+    return existing
+
+
+def configure_test_temp_dir() -> str:
+    """Keep pytest/tempfile scratch data inside the repo by default.
+
+    Windows + OneDrive + pytest's default AppData temp roots can create
+    frustrating permission/cleanup failures. Tests may still override this with
+    ASTRORAY_TEST_TEMP_DIR, TMP, or TEMP when needed.
+    """
+    preferred = os.environ.get("ASTRORAY_TEST_TEMP_DIR")
+    temp_dir = Path(preferred) if preferred else DEFAULT_TEMP_DIR
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("TMP", str(temp_dir))
+    os.environ.setdefault("TEMP", str(temp_dir))
+    tempfile.tempdir = os.environ.get("TMP", str(temp_dir))
+    return tempfile.tempdir or str(temp_dir)
 
 
 def candidate_build_dirs() -> list[str]:
@@ -18,18 +51,21 @@ def candidate_build_dirs() -> list[str]:
     if env_dir:
         candidates.append(Path(env_dir))
         candidates.append(Path(env_dir) / "Release")
-    candidates.extend([DEFAULT_BUILD_DIR, DEFAULT_BUILD_DIR / "Release"])
+        candidates.append(Path(env_dir) / "Debug")
+        candidates.append(Path(env_dir) / "RelWithDebInfo")
 
-    seen: set[str] = set()
-    existing: list[str] = []
-    for candidate in candidates:
-        normalized = os.path.normcase(str(candidate.resolve()).rstrip(os.sep))
-        if normalized in seen:
-            continue
-        seen.add(normalized)
-        if candidate.is_dir():
-            existing.append(str(candidate))
-    return existing
+    candidates.extend([
+        DEFAULT_TCNN_BUILD_DIR,
+        DEFAULT_TCNN_BUILD_DIR / "Release",
+        DEFAULT_TCNN_BUILD_DIR / "Debug",
+        DEFAULT_TCNN_BUILD_DIR / "RelWithDebInfo",
+        DEFAULT_BUILD_DIR,
+        DEFAULT_BUILD_DIR / "Release",
+        DEFAULT_BUILD_DIR / "Debug",
+        DEFAULT_BUILD_DIR / "RelWithDebInfo",
+    ])
+
+    return _unique_existing(candidates)
 
 
 def candidate_mingw_dirs(build_dirs: list[str]) -> list[str]:
@@ -94,6 +130,7 @@ def candidate_cuda_dirs(build_dirs: list[str]) -> list[str]:
 
     candidates.extend([
         r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\bin",
         r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin",
         r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin",
     ])
@@ -110,7 +147,43 @@ def candidate_cuda_dirs(build_dirs: list[str]) -> list[str]:
     return existing
 
 
+def build_runtime_dirs(build_dirs: list[str]) -> list[str]:
+    candidates: list[Path] = []
+    for build_dir in build_dirs:
+        root = Path(build_dir)
+        candidates.extend([
+            root,
+            root / "bin",
+            root / "bin" / "Release",
+            root / "bin" / "Debug",
+            root / "bin" / "RelWithDebInfo",
+        ])
+        if root.name.lower() in {"release", "debug", "relwithdebinfo"}:
+            candidates.extend([
+                root.parent / "bin" / root.name,
+                root.parent / "bin",
+            ])
+    return _unique_existing(candidates)
+
+
+def _prepend_path(dirs: list[str]) -> None:
+    current = os.environ.get("PATH", "")
+    entries = current.split(os.pathsep) if current else []
+    normalized_entries = {
+        os.path.normcase(os.path.abspath(entry).rstrip(os.sep))
+        for entry in entries
+        if entry
+    }
+    additions = [
+        path for path in dirs
+        if os.path.normcase(os.path.abspath(path).rstrip(os.sep)) not in normalized_entries
+    ]
+    if additions:
+        os.environ["PATH"] = os.pathsep.join(additions + entries)
+
+
 def configure_test_imports(include_blender_addon: bool = False) -> str:
+    configure_test_temp_dir()
     build_dirs = candidate_build_dirs()
 
     for build_dir in reversed(build_dirs):
@@ -127,14 +200,43 @@ def configure_test_imports(include_blender_addon: bool = False) -> str:
             sys.path.insert(0, addon_dir)
 
     if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
-        for dll_dir in candidate_mingw_dirs(build_dirs):
+        runtime_dirs = (
+            build_runtime_dirs(build_dirs)
+            + candidate_mingw_dirs(build_dirs)
+            + candidate_cuda_dirs(build_dirs)
+        )
+        for dll_dir in runtime_dirs:
             os.add_dll_directory(dll_dir)
-        for dll_dir in candidate_cuda_dirs(build_dirs):
-            os.add_dll_directory(dll_dir)
-        for build_dir in build_dirs:
-            os.add_dll_directory(os.path.abspath(build_dir))
+        _prepend_path(runtime_dirs)
         oidn_dir = os.environ.get("OIDN_BIN_DIR", r"C:\oidn\bin")
         if os.path.isdir(oidn_dir):
             os.add_dll_directory(oidn_dir)
+            _prepend_path([oidn_dir])
 
     return build_dirs[0] if build_dirs else str(DEFAULT_BUILD_DIR)
+
+
+def find_standalone_executable(build_dir: str | None = None) -> str | None:
+    build_dirs = [build_dir] if build_dir else candidate_build_dirs()
+    candidates: list[Path] = []
+    for candidate in build_dirs:
+        root = Path(candidate)
+        candidates.extend([
+            root / "bin" / "raytracer",
+            root / "bin" / "raytracer.exe",
+            root / "bin" / "Release" / "raytracer.exe",
+            root / "bin" / "Debug" / "raytracer.exe",
+            root / "bin" / "RelWithDebInfo" / "raytracer.exe",
+        ])
+        if root.name.lower() in {"release", "debug", "relwithdebinfo"}:
+            candidates.append(root.parent / "bin" / root.name / "raytracer.exe")
+
+    candidates.extend([
+        PROJECT_ROOT / "bin" / "raytracer",
+        PROJECT_ROOT / "bin" / "raytracer.exe",
+    ])
+
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None

@@ -18,6 +18,7 @@ option(USE_NATIVE_ARCH "Build with -march=native" ON)
 option(USE_FAST_MATH "Enable fast math optimizations" ON)
 option(ASTRORAY_ENABLE_CUDA "Enable CUDA GPU acceleration" ON)
 option(ASTRORAY_ENABLE_OIDN "Enable Intel Open Image Denoise integration when available" ON)
+option(ASTRORAY_ENABLE_PYTEST_TARGET "Add an astroray_pytest convenience target" ON)
 # Disable OpenMP entirely. Needed when building the Python module (.pyd) for
 # distribution as a Blender addon: MinGW's libgomp deadlocks during module
 # init when loaded into Blender's MSVC-built Python host. Standalone pytest
@@ -684,6 +685,32 @@ if(BUILD_DOCS)
             COMMENT "Generating API documentation with Doxygen"
             VERBATIM
         )
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# Developer test convenience target
+# ---------------------------------------------------------------------------
+if(ASTRORAY_ENABLE_PYTEST_TARGET)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_custom_target(astroray_pytest
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/scripts/run_tests.py
+                    --build-dir ${CMAKE_BINARY_DIR}
+                    --temp-dir ${CMAKE_BINARY_DIR}/pytest_tmp
+                    -- tests -v --tb=short
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            USES_TERMINAL
+            COMMENT "Running Astroray pytest suite against ${CMAKE_BINARY_DIR}"
+        )
+        foreach(_pytest_dep IN ITEMS raytracer_standalone astroray tcnn_smoke nrc_smoke_render)
+            if(TARGET ${_pytest_dep})
+                add_dependencies(astroray_pytest ${_pytest_dep})
+            endif()
+        endforeach()
+    else()
+        message(STATUS "Python3 interpreter not found - astroray_pytest target disabled")
     endif()
 endif()
 

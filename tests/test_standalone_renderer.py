@@ -23,7 +23,7 @@ import time
 from PIL import Image
 import numpy as np
 
-from runtime_setup import configure_test_imports
+from runtime_setup import configure_test_imports, find_standalone_executable
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -34,21 +34,10 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_results')
 
 
 def _get_exe():
-    candidates = [
-        os.path.join(BUILD_DIR, 'bin', 'raytracer'),  # Linux-style path
-        os.path.join(BUILD_DIR, 'bin', 'raytracer.exe'),  # Windows-style path
-        os.path.join(BUILD_DIR, 'bin', 'Release', 'raytracer.exe'),
-        os.path.join(os.path.dirname(BUILD_DIR), 'bin', 'Release', 'raytracer.exe'),
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                     'bin', 'raytracer'),
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                     'bin', 'raytracer.exe'),  # Windows Release folder
-        'raytracer',
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
     import pytest
+    path = find_standalone_executable(BUILD_DIR)
+    if path:
+        return path
     pytest.skip("raytracer executable not found — build the project first")
 
 

@@ -147,6 +147,41 @@ def candidate_cuda_dirs(build_dirs: list[str]) -> list[str]:
     return existing
 
 
+def candidate_oidn_dirs(build_dirs: list[str]) -> list[str]:
+    candidates: list[Path] = []
+    env_dir = os.environ.get("OIDN_BIN_DIR")
+    if env_dir:
+        candidates.append(Path(env_dir))
+    oidn_root = os.environ.get("OIDN_DIR")
+    if oidn_root:
+        candidates.append(Path(oidn_root) / "bin")
+
+    for build_dir in build_dirs:
+        root = Path(build_dir)
+        cache_path = root / "CMakeCache.txt"
+        if not cache_path.exists() and root.name.lower() in {"release", "debug", "relwithdebinfo"}:
+            cache_path = root.parent / "CMakeCache.txt"
+        if cache_path.exists():
+            for line in cache_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith("oidn_prebuilt_SOURCE_DIR:"):
+                    source_dir = Path(line.split("=", 1)[1].strip())
+                    candidates.append(source_dir / "bin")
+                    break
+
+        candidates.extend([
+            root / "_deps" / "oidn_prebuilt-src" / "bin",
+            root.parent / "_deps" / "oidn_prebuilt-src" / "bin",
+        ])
+
+    candidates.extend([
+        Path(r"C:\oidn\bin"),
+        Path(r"C:\Program Files\Intel\OpenImageDenoise\bin"),
+        Path(r"C:\Program Files\OpenImageDenoise\bin"),
+    ])
+
+    return _unique_existing(candidates)
+
+
 def build_runtime_dirs(build_dirs: list[str]) -> list[str]:
     candidates: list[Path] = []
     for build_dir in build_dirs:
@@ -204,14 +239,11 @@ def configure_test_imports(include_blender_addon: bool = False) -> str:
             build_runtime_dirs(build_dirs)
             + candidate_mingw_dirs(build_dirs)
             + candidate_cuda_dirs(build_dirs)
+            + candidate_oidn_dirs(build_dirs)
         )
         for dll_dir in runtime_dirs:
             os.add_dll_directory(dll_dir)
         _prepend_path(runtime_dirs)
-        oidn_dir = os.environ.get("OIDN_BIN_DIR", r"C:\oidn\bin")
-        if os.path.isdir(oidn_dir):
-            os.add_dll_directory(oidn_dir)
-            _prepend_path([oidn_dir])
 
     return build_dirs[0] if build_dirs else str(DEFAULT_BUILD_DIR)
 

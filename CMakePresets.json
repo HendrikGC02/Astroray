@@ -17,7 +17,7 @@
         "BUILD_BLENDER_MODULE": "OFF",
         "BUILD_TESTS": "OFF",
         "BUILD_DOCS": "OFF",
-        "ASTRORAY_ENABLE_OIDN": "OFF",
+        "ASTRORAY_ENABLE_OIDN": "ON",
         "ASTRORAY_ENABLE_PYTEST_TARGET": "ON"
       }
     },

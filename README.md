@@ -80,6 +80,8 @@ cmake --build . -j
 The repo ships CMake presets for the CUDA + tiny-cuda-nn developer build. In
 VS Code with the CMake Tools extension, select the `Windows TCNN (VS 2022)`
 configure preset and build the `Build Windows TCNN Release` preset.
+OIDN is enabled in these presets; CMake uses a local OIDN install when present
+or fetches the Windows prebuilt package during configure.
 
 ```powershell
 cmake --preset windows-tcnn-vs

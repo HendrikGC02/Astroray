@@ -51,6 +51,10 @@ preset and `Build Windows TCNN Release` as the build preset. This creates
 `build_tcnn/`, with the module under `build_tcnn/Release/` and executables
 under `build_tcnn/bin/Release/`.
 
+OIDN is enabled for these presets. If CMake cannot find a local OIDN install,
+it fetches the Windows prebuilt package into the build tree and the test
+bootstrap adds that DLL directory automatically.
+
 To build and run pytest through the repo bootstrap:
 
 ```cmd

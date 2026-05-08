@@ -1043,6 +1043,14 @@ PYBIND11_MODULE(astroray, m) {
     m.def("integrator_registry_names", []() {
         return astroray::IntegratorRegistry::instance().names();
     });
+    m.def("integrator_capabilities", [](const std::string& name) {
+        auto integrator = astroray::IntegratorRegistry::instance().create(name, astroray::ParamDict{});
+        IntegratorCapabilities caps = integrator->capabilities();
+        py::dict out;
+        out["gpuSupported"] = caps.gpuSupported;
+        out["gpuFallbackReason"] = caps.gpuFallbackReason;
+        return out;
+    }, "name"_a, "Return backend capability metadata for an integrator.");
     m.def("pass_registry_names", []() {
         return astroray::PassRegistry::instance().names();
     });

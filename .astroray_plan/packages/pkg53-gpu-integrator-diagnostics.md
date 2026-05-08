@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B / E
-**Status:** open
+**Status:** done
 **Estimated effort:** 1 session (~3 h)
 **Depends on:** pkg34 (material capabilities, done)
 
@@ -31,8 +31,8 @@ This is the smallest version of the GPU-parity work that gives users honest feed
 
 ## Prerequisites
 
-- [ ] pkg34 done.
-- [ ] Integrator base class accessible at the registry level.
+- [x] pkg34 done.
+- [x] Integrator base class accessible at the registry level.
 
 ---
 
@@ -80,15 +80,22 @@ This is the smallest version of the GPU-parity work that gives users honest feed
 
 ## Progress
 
-- [ ] Add `IntegratorCapabilities` struct and virtual method.
-- [ ] Override in each integrator plugin.
-- [ ] Python binding.
-- [ ] Addon wiring (refuse / fallback / report).
-- [ ] Diagnostics panel rows.
-- [ ] Tests.
+- [x] Add `IntegratorCapabilities` struct and virtual method.
+- [x] Override in each integrator plugin.
+- [x] Python binding.
+- [x] Addon wiring (refuse / fallback / report).
+- [x] Diagnostics panel rows.
+- [x] Tests.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- `path_tracer` and `ambient_occlusion` are the only integrators currently
+  marked GPU-supported by the capability matrix. `multiwavelength_path_tracer`,
+  `caustic_path_tracer`, `neural-cache`, and `restir-di` report CPU-only
+  fallback reasons.
+- `device_mode='gpu'` now errors instead of silently falling back when the
+  selected integrator has no GPU kernel or CUDA initialization fails.
+- `device_mode='auto'` still falls back to CPU, but reports a one-line INFO
+  reason when the fallback is due to integrator capabilities.

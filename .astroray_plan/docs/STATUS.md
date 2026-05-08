@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-03 (pkg37 Blender addon backend refresh complete)
+**Last updated:** 2026-05-09 (pkg53 GPU integrator diagnostics complete)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -95,12 +95,12 @@ is currently the weakest link.
 | Package | Description | Status | Track |
 |---|---|---|---|
 | pkg52 | Persistent viewport session (zoom/pan re-renders) | open | A |
-| pkg53 | GPU integrator capability diagnostics | open | B/E |
+| pkg53 | GPU integrator capability diagnostics | **done** | B/E |
 | pkg54 | GPU multi-wavelength path tracer (CPU/GPU parity) | open | A |
 | pkg57 | Native Astroray shader nodes (with Cycles compat) | open | A |
 | pkg58 | Spectral profile dropdown + IR/UV reference scenes | open | B |
 | pkg59 | Shader-graph vector / UV plumbing | open | A |
-| pkg61 | GPU per-vertex normals (shade-smooth parity) | open | A/E |
+| pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | open | B |
 | pkg64 | Spectral caustics (prism-accurate) — research-grade | open (research blocked) | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
@@ -131,11 +131,17 @@ is currently the weakest link.
 ### Track A (Claude Code)
 
 - pkg37 Blender addon backend refresh is complete.
+- pkg53 GPU integrator capability diagnostics and pkg61 GPU per-vertex normals
+  are complete. pkg53 adds C++ integrator capability metadata, Python
+  `integrator_capabilities()`, Blender forced-GPU refusal for unsupported
+  integrators, Auto CPU fallback INFO reports, and Diagnostics panel support
+  rows. pkg61 fixed CUDA per-vertex normal upload; broader CPU/GPU spectral
+  parity remains tracked separately.
 - New roadmap added: pkg52, pkg53, pkg54, pkg57, pkg58, pkg59, pkg61,
   pkg62, pkg64 (research-blocked), pkg67 (research-blocked). See the
   "Cycles parity & Blender integration" table above.
-- Recommended next-up order: **pkg62 → pkg61 → pkg59 → pkg52 → pkg53 →
-  pkg54 → pkg57**. pkg64 and pkg67 require a research note signed off by
+- Recommended next-up order: **pkg62 → pkg59 → pkg52 → pkg54 → pkg57**.
+  pkg64 and pkg67 require a research note signed off by
   the project owner before code starts; CLAUDE.md §6 covers the policy.
 
 ### Track A (Claude Code) — previous
@@ -203,6 +209,8 @@ is currently the weakest link.
 | pkg38 | B | **done** | — |
 | pkg39 | A | **done** | — |
 | pkg40 | A | open | current registry/reference cleanup |
+| pkg53 | B/E | **done** | — |
+| pkg61 | A/E | **done** | broader CPU/GPU spectral parity tracked separately |
 
 ---
 
@@ -238,6 +246,20 @@ is currently the weakest link.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-09** — pkg53 complete. Integrators now expose
+  `IntegratorCapabilities` with GPU support metadata; Python binding
+  `astroray.integrator_capabilities(name)` returns the same source-of-truth
+  data; Blender `device_mode='gpu'` now errors instead of silently falling
+  back for unsupported integrators or CUDA init failures; Auto falls back to
+  CPU with an INFO report; Diagnostics panel lists per-integrator GPU/CPU
+  support. New `tests/test_integrator_capabilities.py` plus backend-policy
+  coverage.
+- **2026-05-09** — pkg61 complete. CUDA scene upload now preserves per-vertex
+  triangle normals (`n0/n1/n2`) and falls back to face normals when absent.
+  The GPU hit path already interpolated those fields. Added deterministic GPU
+  seed plumbing and `tests/test_gpu_shade_smooth.py`; full-image SSIM remains
+  a strict xfail diagnostic due to broader CPU/GPU spectral parity divergence.
 
 - **2026-05-08** — Cycles parity / Blender integration roadmap added in
   response to project-owner triage. 9 new packages drafted: pkg52

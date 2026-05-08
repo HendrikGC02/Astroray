@@ -12,6 +12,10 @@ public:
 
     void beginFrame(Renderer& scene, const Camera&) override { renderer_ = &scene; }
 
+    IntegratorCapabilities capabilities() const override {
+        return {true, ""};
+    }
+
     SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {
         SampleResult r;
         if (!renderer_) { r.color = Vec3(1.0f); return r; }

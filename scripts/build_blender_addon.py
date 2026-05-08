@@ -780,6 +780,18 @@ def stage_and_zip(module_path: Path, backend: str = "cpu") -> Path:
             sys.exit(f"error: missing addon file {src}")
         shutil.copy2(src, STAGE_DIR / name)
 
+    # pkg58: ship reference IR/UV scenes (optional in source tree).
+    scenes_src = ADDON_SRC / "scenes"
+    if scenes_src.is_dir():
+        shutil.copytree(scenes_src, STAGE_DIR / "scenes", dirs_exist_ok=True)
+
+    # pkg58: ship the spectral profile DB so the dropdown populates out of the box.
+    profiles_src = REPO_ROOT / "data" / "spectral_profiles" / "profiles.bin"
+    if profiles_src.exists():
+        profiles_dst = STAGE_DIR / "data" / "spectral_profiles" / "profiles.bin"
+        profiles_dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(profiles_src, profiles_dst)
+
     # Copy the built native module
     shutil.copy2(module_path, STAGE_DIR / module_path.name)
 

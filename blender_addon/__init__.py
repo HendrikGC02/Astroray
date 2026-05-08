@@ -55,12 +55,37 @@ def _integrator_type_items(self, context):
         return items
     return [('auto', 'Auto (Best Available)', '')]
 
+_VIEWPORT_DISPLAY_PASS_ITEMS = [
+    ("combined", "Combined", "Full shaded result"),
+    ("albedo", "Albedo", "First-hit albedo"),
+    ("normal", "Normal", "First-hit normal (mapped to 0-1)"),
+    ("depth", "Depth", "Depth (normalized)"),
+    ("diffuse_direct", "Diffuse Direct", "Diffuse direct lighting"),
+    ("glossy_direct", "Glossy Direct", "Glossy direct lighting"),
+    ("diffuse_indirect", "Diffuse Indirect", "Diffuse indirect lighting"),
+    ("glossy_indirect", "Glossy Indirect", "Glossy indirect lighting"),
+    ("emission", "Emission", "Emissive contribution"),
+    ("environment", "Environment", "Environment contribution"),
+    ("ao", "Ambient Occlusion", "Ambient occlusion"),
+    ("shadow", "Shadow", "Shadow contribution"),
+]
 
 class CustomRaytracerRenderSettings(PropertyGroup):
     samples: IntProperty(name="Samples", min=1, max=65536, default=2,
         description="Samples per pixel for final F12 renders")
     preview_samples: IntProperty(name="Viewport Samples", min=1, max=1024, default=1,
         description="Samples per pixel for rendered-shading viewport preview")
+    viewport_display_pass: EnumProperty(
+        name="Viewport Pass",
+        description="Render pass shown in the rendered-shading viewport",
+        items=_VIEWPORT_DISPLAY_PASS_ITEMS,
+        default="combined",
+    )
+    viewport_oidn: BoolProperty(
+        name="Viewport OIDN",
+        default=False,
+        description="Apply OIDN denoiser to the viewport buffer (visible wavelengths only)",
+    )
     max_bounces: IntProperty(name="Max Bounces", min=0, max=1024, default=10,
         description="Maximum path-trace depth — caps how many times a ray can scatter")
     diffuse_bounces: IntProperty(name="Diffuse", min=0, max=1024, default=4,
@@ -411,6 +436,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 renderer.set_integrator("multiwavelength_path_tracer")
             else:
                 renderer.set_integrator(settings.integrator_type)
+
+            viewport_display_pass = getattr(settings, "viewport_display_pass", "combined")
+            if viewport_display_pass == "albedo":
+                renderer.add_pass("albedo_aov")
+            elif viewport_display_pass == "normal":
+                renderer.add_pass("normal_aov")
+            elif viewport_display_pass == "depth":
+                renderer.add_pass("depth_aov")
+            if getattr(settings, "viewport_oidn", False) and not is_outside_visible:
+                renderer.add_pass("oidn_denoiser")
+
             pixels = renderer.render(
                 samples, depth, None, False,
                 min(settings.diffuse_bounces, depth),
@@ -421,7 +457,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
             )
             if pixels is None:
                 return
-            self._update_viewport_texture(pixels, width, height)
+            pixels_to_display = pixels
+            if viewport_display_pass not in {"combined", "albedo", "normal", "depth"}:
+                try:
+                    pixels_to_display = renderer.get_render_pass_buffer(viewport_display_pass)
+                except Exception:
+                    pixels_to_display = pixels
+            self._update_viewport_texture(pixels_to_display, width, height)
         except Exception as e:
             print(f"Astroray viewport preview error: {e}")
             traceback.print_exc()
@@ -2036,6 +2078,11 @@ class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):
         col = layout.column(align=True)
         col.prop(settings, "samples", text="Render")
         col.prop(settings, "preview_samples", text="Viewport")
+
+        layout.separator()
+        col = layout.column(align=True)
+        col.prop(settings, "viewport_display_pass", text="Render Pass")
+        col.prop(settings, "viewport_oidn", text="Viewport OIDN")
 
         layout.separator()
         layout.prop(settings, "use_adaptive_sampling")

@@ -1726,6 +1726,7 @@ public:
     void setUseReflectiveCaustics(bool use) { useReflectiveCaustics = use; }
     void setUseRefractiveCaustics(bool use) { useRefractiveCaustics = use; }
     void setSeed(int s) { renderSeed = s; }
+    int getSeed() const { return renderSeed; }
     void setPixelFilter(int type, float width) {
         pixelFilterType = std::clamp(type, 0, 2);
         pixelFilterWidth = std::max(0.01f, width);

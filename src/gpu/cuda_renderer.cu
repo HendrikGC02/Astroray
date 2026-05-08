@@ -234,7 +234,7 @@ void CUDARenderer::uploadEnvironmentMap(const EnvironmentMap& envMap) {
 
 void CUDARenderer::render(
     std::vector<Vec3>& pixels, int width, int height,
-    int samplesPerPixel, int maxDepth)
+    int seed, int samplesPerPixel, int maxDepth)
 {
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
     if (!impl->d_bvhNodes) throw std::runtime_error("Scene not uploaded — call uploadScene() first");
@@ -242,9 +242,10 @@ void CUDARenderer::render(
     impl->ensureFramebuffer(width, height);
     int totalPixels = width * height;
 
-    // Re-seed RNG every render (use time + address for unique seed)
-    unsigned long long seed = (unsigned long long)time(nullptr);
-    launchInitRNG(impl->d_rngStates, totalPixels, seed);
+    unsigned long long rngSeed = (seed == 0)
+        ? (unsigned long long)time(nullptr)
+        : (unsigned long long)seed;
+    launchInitRNG(impl->d_rngStates, totalPixels, rngSeed);
 
     // Launch megakernel
     launchPathTraceKernel(

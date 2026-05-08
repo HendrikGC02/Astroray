@@ -166,6 +166,11 @@ public:
     Vec3 getV1() const { return v1; }
     Vec3 getV2() const { return v2; }
     Vec3 getFaceNormal() const { return normal; }
+    bool getVertexNormals(Vec3& out0, Vec3& out1, Vec3& out2) const {
+        if (!hasVertexNormals) return false;
+        out0 = vn0; out1 = vn1; out2 = vn2;
+        return true;
+    }
     const std::shared_ptr<Material>& getMaterial() const { return material; }
 };
 

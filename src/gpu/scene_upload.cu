@@ -232,7 +232,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera& cam) {
             gt.v0 = GVec3(v0.x, v0.y, v0.z);
             gt.v1 = GVec3(v1.x, v1.y, v1.z);
             gt.v2 = GVec3(v2.x, v2.y, v2.z);
-            gt.n0 = gt.n1 = gt.n2 = GVec3(n.x, n.y, n.z);
+            Vec3 n0, n1, n2;
+            if (tri->getVertexNormals(n0, n1, n2)) {
+                gt.n0 = GVec3(n0.x, n0.y, n0.z);
+                gt.n1 = GVec3(n1.x, n1.y, n1.z);
+                gt.n2 = GVec3(n2.x, n2.y, n2.z);
+            } else {
+                gt.n0 = gt.n1 = gt.n2 = GVec3(n.x, n.y, n.z);
+            }
             gt.materialId = getOrAddMat(tri->getMaterial());
             r.triangles.push_back(gt);
         } else if (auto* sph = dynamic_cast<Sphere*>(hittable.get())) {

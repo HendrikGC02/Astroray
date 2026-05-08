@@ -273,7 +273,7 @@ int main(int argc, char* argv[]) {
         if (!envmap.empty() && renderer.getEnvironmentMap() && renderer.getEnvironmentMap()->loaded()) {
             cudaRenderer.uploadEnvironmentMap(*renderer.getEnvironmentMap());
         }
-        cudaRenderer.render(camera.pixels, camera.width, camera.height, samples, depth);
+        cudaRenderer.render(camera.pixels, camera.width, camera.height, renderer.getSeed(), samples, depth);
     } else
 #endif
     {

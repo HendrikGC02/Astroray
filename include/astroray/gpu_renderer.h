@@ -37,7 +37,7 @@ public:
 
     // Render into a pre-sized pixel buffer (host memory, HxWx3 float, linear).
     void render(std::vector<Vec3>& pixels,
-                int width, int height,
+                int width, int height, int seed,
                 int samplesPerPixel, int maxDepth);
 
     // [0, 1] progress estimate (reserved for async use in Phase 3).

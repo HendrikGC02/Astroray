@@ -575,7 +575,7 @@ public:
             if (envMap && envMap->loaded())
                 cudaRenderer->uploadEnvironmentMap(*envMap);
             cudaRenderer->render(camera->pixels,
-                                 camera->width, camera->height,
+                                 camera->width, camera->height, renderer.getSeed(),
                                  samplesPerPixel, maxDepth);
         } else
 #endif

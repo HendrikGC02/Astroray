@@ -2,7 +2,7 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 2 sessions (~6–8 h)
 **Depends on:** pkg12
 
@@ -73,10 +73,10 @@ to review side by side.
 
 ## Prerequisites
 
-- [ ] pkg12 is merged on `main`; spectral Lambertian is the default
+- [x] pkg12 is merged on `main`; spectral Lambertian is the default
       pattern reference.
-- [ ] Build is green; full pytest passes.
-- [ ] Refractive-index data files acquired and license-cleared.
+- [x] Build is green; full pytest passes.
+- [x] Refractive-index data files acquired and license-cleared where shipped.
 
 ---
 

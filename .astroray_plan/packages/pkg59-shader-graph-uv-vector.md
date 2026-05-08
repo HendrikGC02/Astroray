@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** partial
 **Estimated effort:** 1-2 sessions (~6 h)
 **Depends on:** none
 
@@ -68,6 +68,7 @@ This is the texture / PBR bug from your screenshot. The black face is a separate
 
 ## Acceptance criteria
 
+- [x] Principled BSDF with Image Texture wired to Base Color routes to a textured material instead of a grey Disney fallback.
 - [ ] Default cube + default unwrap + Image Texture (Vector ← Texture Coordinate.UV) renders with the texture visible on every face.
 - [ ] A Mapping node with scale=2 between Texture Coordinate.UV and Image Texture doubles the texture frequency.
 - [ ] A material that references a non-active UV layer by name renders correctly.
@@ -86,7 +87,7 @@ This is the texture / PBR bug from your screenshot. The black face is a separate
 
 ## Progress
 
-- [ ] Trace the screenshot's failure: confirm that the UV plumbing is the bug (run a UV debug AOV in a stub).
+- [x] Trace the screenshot's first failure: Image Texture → Principled Base Color was not reaching a textured material.
 - [ ] Add `_resolve_vector_input` and the named-UV upload path.
 - [ ] Add `TextureTransform` to the sampler call site.
 - [ ] Implement Generated and Object coord spaces.
@@ -97,4 +98,8 @@ This is the texture / PBR bug from your screenshot. The black face is a separate
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- PR #164 fixed the first production blocker by routing Image Texture →
+  Principled Base Color into a textured Lambertian material and adding
+  `tests/test_blender_principled_texture.py`.
+- The package is still partial: named UV layers, Mapping transforms,
+  Generated/Object coordinates, and the UV debug AOV remain open.

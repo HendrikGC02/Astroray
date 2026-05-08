@@ -142,8 +142,8 @@ they just operate on `SampledSpectrum`. One code path, not two.
       upsample fallbacks.
 - [x] Same-seed spectral renders are deterministic for the current regression
       scenes.
-- [ ] Dispersion/prism validation remains future work; it requires a
-      wavelength-dependent dielectric transport path rather than an RGB path.
+- [x] Dispersion/prism validation exists via pkg29 and pkg29a; caustic-perfect
+      prism transport remains a separate research-grade pkg64 topic.
 - [ ] Performance tracking should compare against historical baselines or
       external renderers, not a deleted in-tree RGB integrator.
 

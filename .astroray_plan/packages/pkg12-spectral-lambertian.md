@@ -2,7 +2,7 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 1 session (~2–3 h)
 **Depends on:** pkg11
 
@@ -50,9 +50,9 @@ keep it ugly-direct, keep it copy-pastable.
 
 ## Prerequisites
 
-- [ ] pkg11 is merged on `main`; `spectral_path_tracer` integrator is
+- [x] pkg11 is merged on `main`; `spectral_path_tracer` integrator is
       present in the registry; A/B Cornell parity is established.
-- [ ] Build is green; full pytest passes.
+- [x] Build is green; full pytest passes.
 
 ---
 

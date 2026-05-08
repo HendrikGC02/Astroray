@@ -159,13 +159,16 @@ Packages: `pkg01` through `pkg06` in `../packages/`.
 
 ## Acceptance criteria
 
-- [ ] All existing tests pass with migrated code (target 66+).
-- [ ] A new material added by creating one file in `plugins/materials/`
+Status note (2026-05-09): Pillar 1 is complete; unchecked boxes below were
+from the original design draft and are now reconciled as completed unless noted.
+
+- [x] All existing tests pass with migrated code (target 66+).
+- [x] A new material added by creating one file in `plugins/materials/`
       (demonstrated by a trivial `Mirror` plugin).
-- [ ] `PyRenderer::createMaterial` under 30 lines.
-- [ ] Blender addon picks up new materials automatically by asking the
+- [x] `PyRenderer::createMaterial` under 30 lines.
+- [x] Blender addon picks up new materials automatically by asking the
       registry for names.
-- [ ] No performance regression > 2% on Cornell box benchmark.
+- [x] No performance regression > 2% on Cornell box benchmark.
 
 ## Non-goals (resist these)
 

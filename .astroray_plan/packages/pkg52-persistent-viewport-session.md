@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** partial
 **Estimated effort:** 2 sessions (~8 h)
 **Depends on:** none (pkg37 already in)
 
@@ -67,11 +67,12 @@ Without it, pkg56 (incremental scene sync) cannot be built — incremental sync 
 
 ## Acceptance criteria
 
-- [ ] Zooming or panning the 3D View causes the image to re-render and converge over a few frames.
-- [ ] CAMERA-view zoom (`view_camera_zoom`) and pan (`view_camera_offset`) change the rendered framing.
-- [ ] The same renderer instance is reused across `view_draw` calls (assert via a counter binding or a `print` in C++).
-- [ ] If accumulation is implemented, sample count visibly grows in the viewport status until `preview_samples` is hit.
-- [ ] No regressions in `tests/test_blender_*` tests.
+- [x] Zooming/orbiting the 3D View causes the image to re-render.
+- [x] CAMERA-view zoom (`view_camera_zoom`) changes the rendered framing.
+- [ ] CAMERA-view pan (`view_camera_offset`) is hashed, but the camera setup still carries a TODO for applying the offset to projection.
+- [x] The same renderer instance is reused across viewport updates/draws (covered by `tests/test_blender_viewport_session.py`).
+- [ ] Progressive accumulation/sample status is not implemented; viewport renders one `preview_samples` frame per invalidation.
+- [x] No regressions in focused `tests/test_blender_*` coverage as of the pkg53 reconciliation pass.
 
 ---
 
@@ -86,13 +87,18 @@ Without it, pkg56 (incremental scene sync) cannot be built — incremental sync 
 ## Progress
 
 - [ ] Confirm/extend `Renderer::render` accumulation API.
-- [ ] Refactor `view_update` to scene-sync only.
-- [ ] Implement camera hash + progressive accumulate in `view_draw`.
-- [ ] Honor CAMERA-view zoom/offset.
-- [ ] Tests with Blender API stubs.
+- [x] Refactor viewport to reuse a persistent renderer across `view_update` / `view_draw`.
+- [x] Implement camera hash + re-render in `view_draw`.
+- [ ] Progressive accumulation in `view_draw`.
+- [x] Honor CAMERA-view zoom.
+- [ ] Honor CAMERA-view offset/pan in projection math.
+- [x] Tests with Blender API stubs.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- Persistent renderer and camera-change invalidation landed, with tests for
+  construction reuse, view-matrix changes, and `view_camera_zoom`.
+- The package is intentionally marked partial, not done: progressive
+  accumulation and CAMERA-view offset application remain open.

@@ -2,7 +2,7 @@
 
 **Pillar:** 2/5 bridge
 **Track:** A
-**Status:** implemented
+**Status:** done
 **Estimated effort:** 2-3 sessions (~9 h)
 **Depends on:** pkg34, pkg35
 

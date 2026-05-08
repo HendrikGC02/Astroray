@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-09 (pkg53 GPU integrator diagnostics complete)
+**Last updated:** 2026-05-09 (docs/package reconciliation after pkg52/pkg53/pkg61)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -12,15 +12,35 @@ personally should pick up.
 
 ---
 
+## Current snapshot
+
+- Pillars 1 and 2 are complete. Package headers for pkg12-pkg14 were reconciled
+  on 2026-05-09 after lagging behind the changelog.
+- Pillar 3 has its ReSTIR/NRC package sequence implemented through pkg28, but
+  it remains in validation because NRC has not yet proven the 30% batched
+  inference speedup/quality target and ReSTIR/NRC are CPU-integrator plugins,
+  not CUDA kernels.
+- Pillar 5 is the active practical queue. The Cycles-parity/Blender package
+  series is now the live near-term roadmap: pkg52 and pkg59 are partial,
+  pkg53/pkg61/pkg62 are done, and pkg54/pkg57/pkg58 remain open.
+- Fresh local collection on this branch: `pytest --collect-only -q` reports
+  **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
+- Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
+  is a 2026-04-29 snapshot, and `production.md` had old pkg50+ placeholder
+  names that have now been marked obsolete where they conflict with live
+  package numbers.
+
+---
+
 ## Pillar status
 
 | # | Name | Status | % | Next milestone | Blocked on |
 |---|---|---|---|---|---|
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
-| 3 | Light transport | **Validation** | 88% | NRC batched-inference speedup target | ~~Pillars 1, 2~~ |
+| 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
 | 4 | Astrophysics platform | Preparation | 5% | Kerr metric extraction | Pillars 1, 2 complete; backend parity bridge recommended before GPU parity claims |
-| 5 | Production polish | Ongoing | — | OpenEXR output | — |
+| 5 | Production polish / Blender parity | Ongoing | — | finish pkg59/pkg52 leftovers or start pkg54 | — |
 
 **Pillar 1 package summary:**
 
@@ -94,14 +114,14 @@ is currently the weakest link.
 
 | Package | Description | Status | Track |
 |---|---|---|---|
-| pkg52 | Persistent viewport session (zoom/pan re-renders) | open | A |
+| pkg52 | Persistent viewport session (persistent renderer + zoom/orbit re-renders done; progressive accumulation and CAMERA pan offset remain) | partial | A |
 | pkg53 | GPU integrator capability diagnostics | **done** | B/E |
 | pkg54 | GPU multi-wavelength path tracer (CPU/GPU parity) | open | A |
 | pkg57 | Native Astroray shader nodes (with Cycles compat) | open | A |
 | pkg58 | Spectral profile dropdown + IR/UV reference scenes | open | B |
-| pkg59 | Shader-graph vector / UV plumbing | open | A |
+| pkg59 | Shader-graph vector / UV plumbing (Principled image-texture routing fixed; broader vector/UV/Mapping spec remains) | partial | A |
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
-| pkg62 | Viewport pass selector + live OIDN preview | open | B |
+| pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
 | pkg64 | Spectral caustics (prism-accurate) — research-grade | open (research blocked) | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
 
@@ -131,6 +151,9 @@ is currently the weakest link.
 ### Track A (Claude Code)
 
 - pkg37 Blender addon backend refresh is complete.
+- pkg52 is partial: the addon now keeps a persistent viewport renderer and
+  `view_draw` re-renders on camera/region/zoom changes. Progressive viewport
+  accumulation and CAMERA-view pan offset are still open.
 - pkg53 GPU integrator capability diagnostics and pkg61 GPU per-vertex normals
   are complete. pkg53 adds C++ integrator capability metadata, Python
   `integrator_capabilities()`, Blender forced-GPU refusal for unsupported
@@ -140,7 +163,7 @@ is currently the weakest link.
 - New roadmap added: pkg52, pkg53, pkg54, pkg57, pkg58, pkg59, pkg61,
   pkg62, pkg64 (research-blocked), pkg67 (research-blocked). See the
   "Cycles parity & Blender integration" table above.
-- Recommended next-up order: **pkg62 → pkg59 → pkg52 → pkg54 → pkg57**.
+- Recommended next-up order: **finish pkg59 → finish pkg52 leftovers → pkg54 → pkg57 → pkg58**.
   pkg64 and pkg67 require a research note signed off by
   the project owner before code starts; CLAUDE.md §6 covers the policy.
 
@@ -154,12 +177,12 @@ is currently the weakest link.
 
 ### Track B (Copilot cloud)
 
-- Assigned issues: #121 (albedo AOV), #122 (normal AOV), #123 (depth AOV),
-  #124 (bounce heatmap pass), #125 (sample heatmap pass), #126 (convergence
-  tracker script), #127 (showcase render script).
-- **Action needed:** Enable Copilot coding agent in repo Settings → Copilot
-  → Policies, then assign `copilot` to issues #121–#127.
-- Queue depth: 7
+- Complete since the old queue note: albedo/normal/depth AOVs, bounce/sample
+  heatmap passes, `scripts/convergence_tracker.py`, and
+  `scripts/benchmark_showcase.py` are present in-tree.
+- Current good fits: pkg58 (spectral profile UX/reference scenes) and pkg62
+  (viewport pass selector + live OIDN preview), after owner prioritization.
+- Queue depth: refresh needed
 
 ### Track C (Cline prototype)
 
@@ -175,11 +198,18 @@ is currently the weakest link.
 
 - Recently merged: PR #116 (`codex/render-test-triage`), PR #117 (`codex/gr-spectral-dispatch`), and PR #119 (`codex/native-gr-spectrum`) — native sampled-spectrum GR disk emission.
 - Complete: pkg29 implementation; local triage work recorded convergence tracker repair, GGX/rough-metal sampling cleanup, and Disney rough-glass transmission.
-- Active: Pillar 4 prep cleanup — registry scaffolds, Schwarzschild baseline reference, package-number alignment, and material backend bridge specs.
+- Recent: pkg53 GPU integrator diagnostics and pkg61 shade-smooth GPU parity
+  diagnostics/fix work; this docs reconciliation pass corrected stale package
+  headers and package-number collisions in planning docs.
+- Active: coordination, CI/debug, and documentation reconciliation for the
+  Cycles-parity / Blender integration queue.
 
 ---
 
-## Recently merged (this week)
+## Historical merge log
+
+This section is a chronological log, not a live "this week" queue. Newer
+events are summarized in the changelog below.
 
 | Date | PR | Track | Pillar | Description |
 |---|---|---|---|---|
@@ -198,7 +228,7 @@ is currently the weakest link.
 
 ---
 
-## Active packages
+## Package board
 
 | Package | Track | Status | Blocker |
 |---|---|---|---|
@@ -209,15 +239,25 @@ is currently the weakest link.
 | pkg38 | B | **done** | — |
 | pkg39 | A | **done** | — |
 | pkg40 | A | open | current registry/reference cleanup |
+| pkg52 | A | partial | progressive viewport accumulation; CAMERA-view offset/pan projection |
 | pkg53 | B/E | **done** | — |
+| pkg54 | A | open | GPU multi-wavelength CUDA kernel work |
+| pkg57 | A | open | native shader nodes / Cycles compatibility design |
+| pkg58 | B | open | spectral profile UX and IR/UV reference scenes |
+| pkg59 | A | partial | broader vector/UV/Mapping plumbing and UV debug AOV |
 | pkg61 | A/E | **done** | broader CPU/GPU spectral parity tracked separately |
+| pkg62 | B | **done** | — |
+| pkg64 | A | research blocked | caustics research note |
+| pkg67 | A | research blocked | metric-aware tracer research note |
 
 ---
 
 ## Known issues
 
 - `include/raytracer.h` and `include/advanced_features.h` still contain texture class bodies (`CheckerTexture`, `NoiseTexture`, etc.). These are used directly by `blender_module.cpp` and will be cleaned up in a future package if the plan calls for it.
-- ReSTIR work is now scoped at package-file level in issue #114; implementation should start at `pkg20` after review.
+- ReSTIR/NRC work is implemented through pkg28 but remains in validation:
+  the target NRC batched-inference speedup is not proven, and `restir-di` /
+  `neural-cache` currently report CPU-only GPU capability reasons.
 - Windows verification is sensitive to stale build caches; test bootstrap now supports `ASTRORAY_BUILD_DIR` and standard `build/Release` layouts, but the old `build/` cache on this workstation still points at a missing MinGW install.
 - ReSTIR temporal variance has a known tiny deterministic inversion on this
   workstation (`0.0723` temporal vs `0.0719` no-reuse). The test now xfails
@@ -231,9 +271,15 @@ is currently the weakest link.
   wavelength payloads and `gpu_spectral` metadata for the core GPU material
   set; Sellmeier direction-splitting and true spectral emitter parameter
   upload remain CPU-only. pkg36 expands shared closure lowering.
-- The Blender addon can import and render through Astroray, but its backend
-  UI and packaging are stale. pkg37 refreshes Auto/GPU/CPU selection,
-  viewport GPU parity, CUDA/tiny-cuda-nn packaging, and runtime diagnostics.
+- The Blender addon backend UI/packaging refresh from pkg37 is complete.
+  Remaining Blender parity work is narrower: pkg52 viewport accumulation/pan
+  leftovers, pkg57/pkg59 shader graph fidelity, and pkg54 multi-wavelength
+  GPU parity. pkg62 viewport pass/OIDN UX is complete on `origin/main`.
+- Documentation drift found on 2026-05-09: `NEXT_STAGE_REPORT.md` is a
+  historical 2026-04-29 snapshot; `production.md` had old pkg50+ placeholders
+  that conflicted with live package numbers; package headers for pkg12-pkg14
+  still said open despite Pillar 2 being complete. These were reconciled in
+  this docs pass.
 
 ---
 
@@ -247,6 +293,19 @@ is currently the weakest link.
 
 Brief notes on notable events.
 
+- **2026-05-09** — Documentation reconciliation. `STATUS.md` now reflects
+  pkg52/pkg59 as partial, pkg53/pkg61/pkg62 as done, the live Cycles-parity
+  queue as the active Pillar 5 focus, and the current 435-test collection count. Package
+  headers for pkg12-pkg14 and pkg36 were aligned with their completed state.
+  `production.md` now flags obsolete pkg50+ placeholder names that collided
+  with the live package sequence, and `NEXT_STAGE_REPORT.md` is explicitly
+  marked historical.
+- **2026-05-09** — pkg62 complete on `origin/main` via PR #165. Viewport
+  preview now has a pass selector and optional viewport OIDN toggle. Package
+  docs were still open in the merged branch and were reconciled here.
+- **2026-05-09** — pkg59 partial via PR #164. Principled BSDF image-texture
+  routing is fixed, but the broader vector input / named UV / Mapping node /
+  UV debug AOV package remains open.
 - **2026-05-09** — pkg53 complete. Integrators now expose
   `IntegratorCapabilities` with GPU support metadata; Python binding
   `astroray.integrator_capabilities(name)` returns the same source-of-truth

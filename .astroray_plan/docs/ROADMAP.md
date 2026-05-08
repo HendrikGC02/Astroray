@@ -103,6 +103,11 @@ GPU-default rendering and before Pillar 4 adds more spectral phenomena,
 material plugins should declare backend capabilities and either lower
 to a shared CPU/GPU closure representation or clearly fall back to CPU.
 
+**Status as of 2026-05-09:** the pkg34-pkg37 bridge is complete. The newer
+Cycles-parity queue extends the same honesty principle to integrators and
+Blender UX: pkg53/pkg61/pkg62 are done, pkg52/pkg59 are partial, and
+pkg54/pkg57/pkg58 remain open.
+
 - `pkg34-material-backend-capabilities.md` — capability metadata,
   no silent grey-Lambertian GPU fallback, CPU/GPU contact-sheet diffs.
 - `pkg35-spectral-gpu-materials.md` — make CUDA material sampling
@@ -125,6 +130,9 @@ output formats, documentation. Ongoing, opportunistic.
 ---
 
 ## The 12-week view
+
+This is the original planning horizon, not a live schedule. For current package
+state and next-up order, use `STATUS.md`.
 
 ```
 Wk 1-2   [A] Plugin registries + migrate one material end-to-end (pkg01, pkg02)

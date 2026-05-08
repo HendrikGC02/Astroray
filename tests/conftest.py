@@ -9,19 +9,20 @@ import pytest
 import os
 import sys
 
+# Add tests/ to sys.path BEFORE importing runtime_setup — when pytest is
+# invoked as `python -m pytest tests/` from the repo root (CI), tests/ is
+# not automatically on sys.path. Importing runtime_setup before this would
+# fail with ModuleNotFoundError.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, TESTS_DIR)
+sys.path.append(PROJECT_ROOT)
+
 from runtime_setup import (
     configure_test_imports,
     configure_test_temp_dir,
     find_standalone_executable,
 )
-
-# Add build directory and project root to path for cross-platform support.
-# Windows builds often place the module in build/Release, while local debug
-# sessions may use an override build directory.
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, TESTS_DIR)
-sys.path.append(PROJECT_ROOT)
 
 configure_test_temp_dir()
 BUILD_DIR = configure_test_imports()

@@ -140,7 +140,44 @@ class CustomRaytracerRenderSettings(PropertyGroup):
     )
 
 
-def configure_backend(renderer, settings) -> str:
+def _report_backend(reporter, level, message):
+    if reporter is None:
+        return
+    try:
+        reporter({level}, message)
+    except Exception:
+        pass
+
+
+def _wavelength_range_from_settings(settings):
+    preset = getattr(settings, "wavelength_preset", "visible")
+    if preset == 'near_ir':
+        return 700.0, 1000.0
+    if preset == 'uv':
+        return 300.0, 400.0
+    if preset == 'custom':
+        return settings.wavelength_min, settings.wavelength_max
+    return 380.0, 780.0
+
+
+def _effective_integrator_name(settings):
+    lmin, lmax = _wavelength_range_from_settings(settings)
+    if lmax > 780.0 or lmin < 380.0:
+        return "multiwavelength_path_tracer"
+    return getattr(settings, "integrator_type", "path_tracer")
+
+
+def _integrator_capabilities(name):
+    try:
+        return astroray.integrator_capabilities(name)
+    except Exception as exc:
+        return {
+            "gpuSupported": False,
+            "gpuFallbackReason": f"capability query failed: {exc}",
+        }
+
+
+def configure_backend(renderer, settings, reporter=None, integrator_name=None) -> str:
     """Apply device_mode to renderer. Returns 'gpu' or 'cpu'.
 
     Shared by final render and viewport render so both paths behave identically.
@@ -148,16 +185,41 @@ def configure_backend(renderer, settings) -> str:
     mode = getattr(settings, "device_mode", "auto")
     if mode == "cpu":
         return "cpu"
+
+    selected_integrator = integrator_name or _effective_integrator_name(settings)
+    caps = _integrator_capabilities(selected_integrator)
+    if not bool(caps.get("gpuSupported", False)):
+        reason = caps.get("gpuFallbackReason", "no GPU kernel implemented")
+        message = (
+            f"Astroray: integrator '{selected_integrator}' does not support GPU"
+            f" ({reason})"
+        )
+        if mode == "gpu":
+            _report_backend(reporter, 'ERROR', message)
+            raise RuntimeError(message)
+        _report_backend(reporter, 'INFO', message + "; using CPU")
+        return "cpu"
+
     try:
         gpu_ok = renderer.gpu_available
     except Exception:
         gpu_ok = False
+
+    if mode == "gpu" and not gpu_ok:
+        message = "Astroray: GPU requested but no CUDA GPU is available"
+        _report_backend(reporter, 'ERROR', message)
+        raise RuntimeError(message)
+
     if (mode == "auto" and gpu_ok) or mode == "gpu":
         try:
             renderer.set_use_gpu(True)
             return "gpu"
-        except Exception:
-            pass
+        except Exception as exc:
+            if mode == "gpu":
+                message = f"Astroray: GPU requested but CUDA initialization failed ({exc})"
+                _report_backend(reporter, 'ERROR', message)
+                raise RuntimeError(message) from exc
+            _report_backend(reporter, 'INFO', f"Astroray: GPU initialization failed ({exc}); using CPU")
     return "cpu"
 
 
@@ -297,14 +359,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
             self.convert_scene(depsgraph, renderer, width, height)
 
-            active_device = configure_backend(renderer, settings)
+            integrator_name = _effective_integrator_name(settings)
+            try:
+                active_device = configure_backend(renderer, settings, self.report, integrator_name)
+            except RuntimeError:
+                return
             if active_device == "gpu":
                 try:
                     print(f"GPU rendering: {renderer.gpu_device_name}")
                 except Exception:
                     pass
-            elif getattr(settings, "device_mode", "auto") == "gpu":
-                self.report({'WARNING'}, "Astroray: GPU requested but not available, using CPU")
 
             def progress_callback(value):
                 if self.test_break(): return False
@@ -313,22 +377,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
             start_time = time.time()
             # pkg39: wavelength range
-            preset = settings.wavelength_preset
-            if preset == 'near_ir':
-                lmin, lmax = 700.0, 1000.0
-            elif preset == 'uv':
-                lmin, lmax = 300.0, 400.0
-            elif preset == 'custom':
-                lmin, lmax = settings.wavelength_min, settings.wavelength_max
-            else:  # visible
-                lmin, lmax = 380.0, 780.0
+            lmin, lmax = _wavelength_range_from_settings(settings)
             renderer.set_wavelength_range(lmin, lmax)
             is_outside_visible = (lmax > 780.0 or lmin < 380.0)
             if is_outside_visible:
                 renderer.set_output_mode("luminance")
-                renderer.set_integrator("multiwavelength_path_tracer")
-            else:
-                renderer.set_integrator(settings.integrator_type)
+            renderer.set_integrator(integrator_name)
             if settings.use_denoising and not is_outside_visible:
                 renderer.add_pass("oidn_denoiser")
             if is_outside_visible and settings.colourmap != 'grayscale':
@@ -429,7 +483,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         self.convert_objects(depsgraph, renderer, material_map)
         self.convert_lights(depsgraph, renderer)
         self.setup_world(depsgraph.scene, renderer)
-        configure_backend(renderer, settings)
+        configure_backend(renderer, settings, self.report, _effective_integrator_name(settings))
 
     def _render_viewport_frame(self, renderer, context, settings, region):
         """Set up the camera, run a render, update the cached GPU texture."""
@@ -438,22 +492,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
         self._setup_viewport_camera(renderer, context, width, height)
 
         # Wavelength + integrator policy must match the final-render path.
-        preset = settings.wavelength_preset
-        if preset == 'near_ir':
-            lmin, lmax = 700.0, 1000.0
-        elif preset == 'uv':
-            lmin, lmax = 300.0, 400.0
-        elif preset == 'custom':
-            lmin, lmax = settings.wavelength_min, settings.wavelength_max
-        else:
-            lmin, lmax = 380.0, 780.0
+        lmin, lmax = _wavelength_range_from_settings(settings)
         renderer.set_wavelength_range(lmin, lmax)
         is_outside_visible = (lmax > 780.0 or lmin < 380.0)
         if is_outside_visible:
             renderer.set_output_mode("luminance")
-            renderer.set_integrator("multiwavelength_path_tracer")
-        else:
-            renderer.set_integrator(settings.integrator_type)
+        renderer.set_integrator(_effective_integrator_name(settings))
 
         samples = max(1, settings.preview_samples)
         depth = max(2, settings.max_bounces // 2)
@@ -2356,8 +2400,15 @@ class RENDER_PT_custom_raytracer_diagnostics(AstrorayPanelBase, Panel):
         # Active integrator
         try:
             integrators = astroray.integrator_registry_names()
-            col.label(text="Integrators: " + ", ".join(integrators))
-            col.label(text=f"Selected: {settings.integrator_type}")
+            col.label(text="Integrators:")
+            for name in integrators:
+                caps = _integrator_capabilities(name)
+                if caps.get("gpuSupported", False):
+                    col.label(text=f"  {name}: GPU", icon='CHECKMARK')
+                else:
+                    reason = caps.get("gpuFallbackReason", "CPU only")
+                    col.label(text=f"  {name}: CPU ({reason})", icon='INFO')
+            col.label(text=f"Selected: {_effective_integrator_name(settings)}")
         except Exception:
             pass
 

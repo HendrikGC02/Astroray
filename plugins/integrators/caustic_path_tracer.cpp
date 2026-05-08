@@ -28,6 +28,10 @@ public:
         };
     }
 
+    IntegratorCapabilities capabilities() const override {
+        return {false, "caustic chain connection integrator has no CUDA kernel"};
+    }
+
     SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {
         SampleResult r;
         if (!renderer_) return r;

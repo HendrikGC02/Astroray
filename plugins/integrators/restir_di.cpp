@@ -79,6 +79,10 @@ public:
         }
     }
 
+    IntegratorCapabilities capabilities() const override {
+        return {false, "ReSTIR DI integrator stores CPU frame history and has no CUDA kernel"};
+    }
+
     SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {
         SampleResult result;
         if (!renderer_) return result;

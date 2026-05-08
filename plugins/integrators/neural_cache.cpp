@@ -275,6 +275,13 @@ public:
         , forceFallback_(p.getInt("force_fallback", 0) != 0)
         , enableInference_(p.getInt("enable_inference", 0) != 0) {}
 
+    IntegratorCapabilities capabilities() const override {
+        return {
+            false,
+            "neural cache uses the CPU integrator interface and optional tcnn backend, not the CUDA path-trace kernel"
+        };
+    }
+
     void beginFrame(Renderer& r, const Camera&) override {
         renderer_ = &r;
         ++frameIndex_;

@@ -57,6 +57,10 @@ def _load_blender_addon(monkeypatch, renderer_cls, extra_astroray_attrs=None):
     astroray_module.__file__ = "/fake/astroray.pyd"
     astroray_module.Renderer = renderer_cls
     astroray_module.integrator_registry_names = lambda: ["path_tracer", "ambient_occlusion"]
+    astroray_module.integrator_capabilities = lambda name: {
+        "gpuSupported": name in {"path_tracer", "ambient_occlusion"},
+        "gpuFallbackReason": "" if name in {"path_tracer", "ambient_occlusion"} else "no GPU kernel implemented",
+    }
     astroray_module.material_registry_names = lambda: ["lambertian"]
     astroray_module.pass_registry_names = lambda: []
     if extra_astroray_attrs:
@@ -141,7 +145,7 @@ def test_configure_backend_auto_uses_gpu_when_available(monkeypatch):
 
 
 def test_configure_backend_auto_falls_back_to_cpu_when_no_gpu(monkeypatch):
-    """device_mode='auto' returns 'cpu' silently when gpu_available is False."""
+    """device_mode='auto' returns 'cpu' when gpu_available is False."""
     calls = []
 
     class R:
@@ -155,16 +159,23 @@ def test_configure_backend_auto_falls_back_to_cpu_when_no_gpu(monkeypatch):
     assert calls == []
 
 
-def test_configure_backend_gpu_mode_falls_back_on_exception(monkeypatch):
-    """device_mode='gpu' returns 'cpu' if set_use_gpu raises (e.g. no CUDA)."""
+def test_configure_backend_gpu_mode_errors_on_exception(monkeypatch):
+    """device_mode='gpu' must not silently fall back if CUDA init fails."""
+    reports = []
+
     class R:
         gpu_available = True
         def set_use_gpu(self, v):
             raise RuntimeError("CUDA init failed")
 
     addon = _load_blender_addon(monkeypatch, R)
-    result = addon.configure_backend(R(), _make_settings(device_mode="gpu"))
-    assert result == "cpu"
+    try:
+        addon.configure_backend(R(), _make_settings(device_mode="gpu"), lambda *args: reports.append(args))
+    except RuntimeError as exc:
+        assert "CUDA initialization failed" in str(exc)
+    else:
+        raise AssertionError("forced GPU mode must raise when CUDA init fails")
+    assert reports and reports[0][0] == {'ERROR'}
 
 
 def test_configure_backend_gpu_available_exception_is_handled(monkeypatch):
@@ -177,6 +188,44 @@ def test_configure_backend_gpu_available_exception_is_handled(monkeypatch):
     addon = _load_blender_addon(monkeypatch, R)
     result = addon.configure_backend(R(), _make_settings(device_mode="auto"))
     assert result == "cpu"
+
+
+def test_configure_backend_gpu_rejects_unsupported_integrator(monkeypatch):
+    """device_mode='gpu' aborts when the selected integrator has no GPU kernel."""
+    reports = []
+
+    class R:
+        gpu_available = True
+        def set_use_gpu(self, v):
+            raise AssertionError("set_use_gpu must not run for unsupported integrators")
+
+    addon = _load_blender_addon(monkeypatch, R)
+    settings = _make_settings(device_mode="gpu", integrator_type="multiwavelength_path_tracer")
+    try:
+        addon.configure_backend(R(), settings, lambda *args: reports.append(args))
+    except RuntimeError as exc:
+        assert "multiwavelength_path_tracer" in str(exc)
+        assert "does not support GPU" in str(exc)
+    else:
+        raise AssertionError("forced GPU mode must raise for unsupported integrators")
+    assert reports and reports[0][0] == {'ERROR'}
+
+
+def test_configure_backend_auto_logs_and_falls_back_for_unsupported_integrator(monkeypatch):
+    """device_mode='auto' may fall back to CPU, but must log unsupported integrators."""
+    reports = []
+
+    class R:
+        gpu_available = True
+        def set_use_gpu(self, v):
+            raise AssertionError("set_use_gpu must not run for unsupported integrators")
+
+    addon = _load_blender_addon(monkeypatch, R)
+    settings = _make_settings(device_mode="auto", integrator_type="multiwavelength_path_tracer")
+    result = addon.configure_backend(R(), settings, lambda *args: reports.append(args))
+    assert result == "cpu"
+    assert reports and reports[0][0] == {'INFO'}
+    assert "multiwavelength_path_tracer" in reports[0][1]
 
 
 # ---------------------------------------------------------------------------

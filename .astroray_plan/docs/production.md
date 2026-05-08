@@ -62,9 +62,10 @@ TBD; the old `pkg52-openexr-output.md` placeholder is obsolete because
 ### 5.5 Blender viewport rendering
 
 Astroray now has a viewport preview foundation. `pkg52` added a persistent
-viewport renderer plus camera-state hashing so zoom/orbit changes re-render;
-progressive accumulation and CAMERA-view offset/pan projection remain open.
-`pkg62` added a viewport pass selector and optional viewport OIDN toggle.
+viewport renderer, camera-state hashing, progressive preview accumulation, and
+CAMERA-view zoom/pan projection so viewport navigation changes re-render and
+converge toward the preview sample target. `pkg62` added a viewport pass
+selector and optional viewport OIDN toggle.
 
 - Triggered by Blender's `view_draw()` callback.
 - Progressive rendering: start with 1 spp, accumulate as user stops

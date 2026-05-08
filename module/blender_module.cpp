@@ -380,12 +380,13 @@ public:
 
     void setupCamera(const std::vector<float>& lookFrom, const std::vector<float>& lookAt,
                     const std::vector<float>& vup, float vfov, float aspectRatio,
-                    float aperture, float focusDist, int width, int height) {
+                    float aperture, float focusDist, int width, int height,
+                    float shiftX = 0.0f, float shiftY = 0.0f) {
         camera = std::make_shared<Camera>(
             Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
             Vec3(lookAt[0], lookAt[1], lookAt[2]),
             Vec3(vup[0], vup[1], vup[2]),
-            vfov, aspectRatio, aperture, focusDist, width, height);
+            vfov, aspectRatio, aperture, focusDist, width, height, shiftX, shiftY);
     }
 
     void setAdaptiveSampling(bool enable) { useAdaptiveSampling = enable; }
@@ -961,7 +962,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("add_black_hole", &PyRenderer::addBlackHole,
              "position"_a, "mass"_a, "influence_radius"_a, "params"_a = py::dict())
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,
-             "aspect_ratio"_a, "aperture"_a, "focus_dist"_a, "width"_a, "height"_a)
+             "aspect_ratio"_a, "aperture"_a, "focus_dist"_a, "width"_a, "height"_a,
+             "shift_x"_a = 0.0f, "shift_y"_a = 0.0f)
         .def("set_adaptive_sampling", &PyRenderer::setAdaptiveSampling, "enable"_a)
         .def("set_clamp_direct", &PyRenderer::setClampDirect, "value"_a)
         .def("set_clamp_indirect", &PyRenderer::setClampIndirect, "value"_a)

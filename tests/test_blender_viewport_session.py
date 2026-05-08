@@ -19,6 +19,8 @@ import sys
 import types
 from pathlib import Path
 
+import numpy as np
+
 
 # ---------------------------------------------------------------------------
 # Shared loader helper
@@ -33,11 +35,14 @@ def _load_blender_addon(monkeypatch, renderer_cls=None):
         pass
 
     class _RenderEngineBase:
+        tag_redraw_calls = 0
         def report(self, *_a, **_k): return None
         def update_progress(self, *_a, **_k): return None
+        def update_stats(self, *_a, **_k): return None
         def test_break(self): return False
         def bind_display_space_shader(self, *_a, **_k): return None
         def unbind_display_space_shader(self, *_a, **_k): return None
+        def tag_redraw(self): self.tag_redraw_calls += 1
 
     bpy_types_module.Panel = _Base
     bpy_types_module.Operator = _Base
@@ -136,6 +141,8 @@ def _make_settings():
         wavelength_min=380.0, wavelength_max=780.0,
         colourmap='grayscale',
         integrator_type='path_tracer',
+        viewport_display_pass='combined',
+        viewport_oidn=False,
     )
 
 
@@ -258,10 +265,7 @@ class _RecordingRenderer:
 
     def render(self, *_a, **_k):
         self.render_calls += 1
-        # Returning a tiny non-None object satisfies the truthiness check
-        # in _render_viewport_frame; _update_viewport_texture is patched
-        # out by the test fixture so we don't need real pixels.
-        return object()
+        return np.full((2, 2, 3), float(self.render_calls), dtype=np.float32)
 
 
 def _patch_out_gpu_calls(addon, monkeypatch, engine):
@@ -389,3 +393,111 @@ def test_view_draw_re_renders_on_camera_view_zoom_change(monkeypatch):
     assert engine._viewport_renderer.render_calls == baseline + 1, (
         "view_draw must re-render when view_camera_zoom changes"
     )
+
+
+def test_view_draw_progresses_until_preview_sample_target(monkeypatch):
+    """pkg52 progressive preview: same camera, no scene sync, keep rendering
+    one-sample chunks until preview_samples is reached."""
+    _RecordingRenderer.construction_count = 0
+    addon = _load_blender_addon(monkeypatch, renderer_cls=_RecordingRenderer)
+    engine = addon.CustomRaytracerRenderEngine()
+    _patch_out_gpu_calls(addon, monkeypatch, engine)
+
+    monkeypatch.setattr(engine, 'convert_materials', lambda dg, r: {})
+    monkeypatch.setattr(engine, 'convert_objects', lambda dg, r, mm: None)
+    monkeypatch.setattr(engine, 'convert_lights', lambda dg, r: None)
+    monkeypatch.setattr(engine, 'setup_world', lambda scene, r: None)
+    monkeypatch.setattr(engine, '_setup_viewport_camera',
+                        lambda r, ctx, w, h: r.setup_camera())
+    monkeypatch.setattr(engine, 'bind_display_space_shader', lambda s: None)
+    monkeypatch.setattr(engine, 'unbind_display_space_shader', lambda: None)
+
+    ctx = _make_context(IDENTITY)
+    ctx.scene.custom_raytracer.preview_samples = 3
+    depsgraph = types.SimpleNamespace(scene=ctx.scene)
+
+    engine.view_update(ctx, depsgraph)
+    assert engine._viewport_renderer.render_calls == 1
+    assert engine._viewport_current_spp == 1
+
+    engine.view_draw(ctx, depsgraph)
+    assert engine._viewport_renderer.render_calls == 2
+    assert engine._viewport_current_spp == 2
+
+    engine.view_draw(ctx, depsgraph)
+    assert engine._viewport_renderer.render_calls == 3
+    assert engine._viewport_current_spp == 3
+
+    engine.view_draw(ctx, depsgraph)
+    assert engine._viewport_renderer.render_calls == 3
+    assert engine._viewport_current_spp == 3
+    assert engine.tag_redraw_calls >= 2
+
+
+class _Vec3:
+    def __init__(self, x, y, z):
+        self.x, self.y, self.z = x, y, z
+
+    def __iter__(self):
+        yield self.x
+        yield self.y
+        yield self.z
+
+    def __sub__(self, other):
+        return _Vec3(self.x - other.x, self.y - other.y, self.z - other.z)
+
+    @property
+    def length(self):
+        return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
+
+
+class _Quat:
+    def __matmul__(self, vec):
+        return _Vec3(float(vec[0]), float(vec[1]), float(vec[2]))
+
+
+class _CameraMatrix:
+    def decompose(self):
+        return _Vec3(1.0, 2.0, 3.0), _Quat(), None
+
+
+def test_camera_view_offset_is_passed_as_camera_shift(monkeypatch):
+    """CAMERA-view panning must affect projection, not only invalidate the
+    hash. The addon sends view_camera_offset as image-plane shift."""
+    addon = _load_blender_addon(monkeypatch, renderer_cls=_RecordingRenderer)
+    engine = addon.CustomRaytracerRenderEngine()
+    renderer = _RecordingRenderer()
+
+    dof = types.SimpleNamespace(
+        use_dof=False,
+        aperture_fstop=0.0,
+        focus_object=None,
+        focus_distance=10.0,
+    )
+    camera_data = types.SimpleNamespace(
+        type='PERSP',
+        sensor_fit='HORIZONTAL',
+        sensor_width=36.0,
+        sensor_height=24.0,
+        lens=50.0,
+        shift_x=0.1,
+        shift_y=-0.2,
+        dof=dof,
+    )
+    camera_obj = types.SimpleNamespace(
+        matrix_world=_CameraMatrix(),
+        data=camera_data,
+    )
+    ctx = _make_context(
+        IDENTITY,
+        view_perspective='CAMERA',
+        view_camera_offset=(0.25, -0.5),
+    )
+    ctx.scene.camera = camera_obj
+
+    engine._setup_viewport_camera(renderer, ctx, 320, 240)
+
+    args = renderer.setup_camera_calls[-1]
+    assert len(args) == 11
+    assert abs(args[9] - 0.35) < 1e-6
+    assert abs(args[10] - (-0.7)) < 1e-6

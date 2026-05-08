@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-09 (docs/package reconciliation after pkg52/pkg53/pkg61)
+**Last updated:** 2026-05-09 (pkg52 completion + docs/package reconciliation)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -21,8 +21,8 @@ personally should pick up.
   inference speedup/quality target and ReSTIR/NRC are CPU-integrator plugins,
   not CUDA kernels.
 - Pillar 5 is the active practical queue. The Cycles-parity/Blender package
-  series is now the live near-term roadmap: pkg52 and pkg59 are partial,
-  pkg53/pkg61/pkg62 are done, and pkg54/pkg57/pkg58 remain open.
+  series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg61/pkg62 are
+  done, pkg59 is partial, and pkg54/pkg57 remain open.
 - Fresh local collection on this branch: `pytest --collect-only -q` reports
   **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
 - Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
@@ -40,7 +40,7 @@ personally should pick up.
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
 | 4 | Astrophysics platform | Preparation | 5% | Kerr metric extraction | Pillars 1, 2 complete; backend parity bridge recommended before GPU parity claims |
-| 5 | Production polish / Blender parity | Ongoing | — | finish pkg59/pkg52 leftovers or start pkg54 | — |
+| 5 | Production polish / Blender parity | Ongoing | — | finish pkg59 or start pkg54/pkg57 | — |
 
 **Pillar 1 package summary:**
 
@@ -114,11 +114,11 @@ is currently the weakest link.
 
 | Package | Description | Status | Track |
 |---|---|---|---|
-| pkg52 | Persistent viewport session (persistent renderer + zoom/orbit re-renders done; progressive accumulation and CAMERA pan offset remain) | partial | A |
+| pkg52 | Persistent viewport session (persistent renderer, viewport camera invalidation, progressive accumulation, CAMERA zoom/pan) | **done** | A |
 | pkg53 | GPU integrator capability diagnostics | **done** | B/E |
 | pkg54 | GPU multi-wavelength path tracer (CPU/GPU parity) | open | A |
 | pkg57 | Native Astroray shader nodes (with Cycles compat) | open | A |
-| pkg58 | Spectral profile dropdown + IR/UV reference scenes | open | B |
+| pkg58 | Spectral profile dropdown + IR/UV reference scenes | **done** | B |
 | pkg59 | Shader-graph vector / UV plumbing (Principled image-texture routing fixed; broader vector/UV/Mapping spec remains) | partial | A |
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
@@ -151,9 +151,10 @@ is currently the weakest link.
 ### Track A (Claude Code)
 
 - pkg37 Blender addon backend refresh is complete.
-- pkg52 is partial: the addon now keeps a persistent viewport renderer and
-  `view_draw` re-renders on camera/region/zoom changes. Progressive viewport
-  accumulation and CAMERA-view pan offset are still open.
+- pkg52 is complete: the addon keeps a persistent viewport renderer,
+  `view_draw` re-renders on camera/region/zoom/pan changes, CAMERA-view
+  offset is applied to projection, and the preview progressively accumulates
+  chunked samples until `preview_samples` is reached.
 - pkg53 GPU integrator capability diagnostics and pkg61 GPU per-vertex normals
   are complete. pkg53 adds C++ integrator capability metadata, Python
   `integrator_capabilities()`, Blender forced-GPU refusal for unsupported
@@ -163,7 +164,7 @@ is currently the weakest link.
 - New roadmap added: pkg52, pkg53, pkg54, pkg57, pkg58, pkg59, pkg61,
   pkg62, pkg64 (research-blocked), pkg67 (research-blocked). See the
   "Cycles parity & Blender integration" table above.
-- Recommended next-up order: **finish pkg59 → finish pkg52 leftovers → pkg54 → pkg57 → pkg58**.
+- Recommended next-up order: **finish pkg59 → pkg54 → pkg57**.
   pkg64 and pkg67 require a research note signed off by
   the project owner before code starts; CLAUDE.md §6 covers the policy.
 
@@ -180,8 +181,9 @@ is currently the weakest link.
 - Complete since the old queue note: albedo/normal/depth AOVs, bounce/sample
   heatmap passes, `scripts/convergence_tracker.py`, and
   `scripts/benchmark_showcase.py` are present in-tree.
-- Current good fits: pkg58 (spectral profile UX/reference scenes) and pkg62
-  (viewport pass selector + live OIDN preview), after owner prioritization.
+- Recent Track B fits pkg58 (spectral profile UX/reference scenes) and pkg62
+  (viewport pass selector + live OIDN preview) are complete; refresh the Track
+  B queue before launching more cloud work.
 - Queue depth: refresh needed
 
 ### Track C (Cline prototype)
@@ -239,11 +241,11 @@ events are summarized in the changelog below.
 | pkg38 | B | **done** | — |
 | pkg39 | A | **done** | — |
 | pkg40 | A | open | current registry/reference cleanup |
-| pkg52 | A | partial | progressive viewport accumulation; CAMERA-view offset/pan projection |
+| pkg52 | A | **done** | — |
 | pkg53 | B/E | **done** | — |
 | pkg54 | A | open | GPU multi-wavelength CUDA kernel work |
 | pkg57 | A | open | native shader nodes / Cycles compatibility design |
-| pkg58 | B | open | spectral profile UX and IR/UV reference scenes |
+| pkg58 | B | **done** | — |
 | pkg59 | A | partial | broader vector/UV/Mapping plumbing and UV debug AOV |
 | pkg61 | A/E | **done** | broader CPU/GPU spectral parity tracked separately |
 | pkg62 | B | **done** | — |
@@ -272,9 +274,10 @@ events are summarized in the changelog below.
   set; Sellmeier direction-splitting and true spectral emitter parameter
   upload remain CPU-only. pkg36 expands shared closure lowering.
 - The Blender addon backend UI/packaging refresh from pkg37 is complete.
-  Remaining Blender parity work is narrower: pkg52 viewport accumulation/pan
-  leftovers, pkg57/pkg59 shader graph fidelity, and pkg54 multi-wavelength
-  GPU parity. pkg62 viewport pass/OIDN UX is complete on `origin/main`.
+  Remaining Blender parity work is narrower: pkg57/pkg59 shader graph
+  fidelity and pkg54 multi-wavelength GPU parity. pkg52 persistent viewport
+  sessions and pkg62 viewport pass/OIDN UX are complete on `origin/main` plus
+  the current pkg52 branch.
 - Documentation drift found on 2026-05-09: `NEXT_STAGE_REPORT.md` is a
   historical 2026-04-29 snapshot; `production.md` had old pkg50+ placeholders
   that conflicted with live package numbers; package headers for pkg12-pkg14
@@ -293,13 +296,18 @@ events are summarized in the changelog below.
 
 Brief notes on notable events.
 
+- **2026-05-09** — pkg52 complete. The Blender viewport session now keeps a
+  persistent renderer, re-renders on view/camera/region/zoom/pan changes,
+  progressively accumulates chunked preview samples to `preview_samples`, and
+  applies CAMERA-view pan through image-plane camera shift. Focused Blender
+  viewport tests and `test_camera_setup` pass on the local MSVC build.
 - **2026-05-09** — Documentation reconciliation. `STATUS.md` now reflects
-  pkg52/pkg59 as partial, pkg53/pkg61/pkg62 as done, the live Cycles-parity
-  queue as the active Pillar 5 focus, and the current 435-test collection count. Package
-  headers for pkg12-pkg14 and pkg36 were aligned with their completed state.
-  `production.md` now flags obsolete pkg50+ placeholder names that collided
-  with the live package sequence, and `NEXT_STAGE_REPORT.md` is explicitly
-  marked historical.
+  pkg59 as partial, pkg52/pkg53/pkg58/pkg61/pkg62 as done, the live
+  Cycles-parity queue as the active Pillar 5 focus, and the current 435-test
+  collection count. Package headers for pkg12-pkg14 and pkg36 were aligned
+  with their completed state. `production.md` now flags obsolete pkg50+
+  placeholder names that collided with the live package sequence, and
+  `NEXT_STAGE_REPORT.md` is explicitly marked historical.
 - **2026-05-09** — pkg62 complete on `origin/main` via PR #165. Viewport
   preview now has a pass selector and optional viewport OIDN toggle. Package
   docs were still open in the merged branch and were reconciled here.

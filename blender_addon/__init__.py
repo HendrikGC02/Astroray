@@ -13,7 +13,7 @@ bl_info = {
 import bpy
 from bpy.types import Panel, Operator, AddonPreferences, PropertyGroup, RenderEngine
 from bpy.props import BoolProperty, IntProperty, FloatProperty, StringProperty, PointerProperty, FloatVectorProperty, EnumProperty
-import mathutils, math, numpy as np, traceback, sys, os, time
+import mathutils, math, numpy as np, traceback, sys, os, time, inspect
 from pathlib import Path
 
 addon_dir = os.path.dirname(__file__)
@@ -223,6 +223,26 @@ def configure_backend(renderer, settings, reporter=None, integrator_name=None) -
     return "cpu"
 
 
+def _configure_backend_for_context(renderer, settings, reporter=None, integrator_name=None) -> str:
+    """Call configure_backend with diagnostics context when the hook supports it."""
+    try:
+        signature = inspect.signature(configure_backend)
+    except (TypeError, ValueError):
+        return configure_backend(renderer, settings, reporter, integrator_name)
+
+    positional_count = sum(
+        1 for param in signature.parameters.values()
+        if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD)
+    )
+    has_varargs = any(
+        param.kind == param.VAR_POSITIONAL
+        for param in signature.parameters.values()
+    )
+    if has_varargs or positional_count >= 4:
+        return configure_backend(renderer, settings, reporter, integrator_name)
+    return configure_backend(renderer, settings)
+
+
 def _material_type_items(self, context):
     if RAYTRACER_AVAILABLE:
         return [(n, n.replace('_', ' ').title(), '') for n in astroray.material_registry_names()]
@@ -361,7 +381,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
             integrator_name = _effective_integrator_name(settings)
             try:
-                active_device = configure_backend(renderer, settings, self.report, integrator_name)
+                active_device = _configure_backend_for_context(renderer, settings, self.report, integrator_name)
             except RuntimeError:
                 return
             if active_device == "gpu":
@@ -483,7 +503,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         self.convert_objects(depsgraph, renderer, material_map)
         self.convert_lights(depsgraph, renderer)
         self.setup_world(depsgraph.scene, renderer)
-        configure_backend(renderer, settings, self.report, _effective_integrator_name(settings))
+        _configure_backend_for_context(renderer, settings, self.report, _effective_integrator_name(settings))
 
     def _render_viewport_frame(self, renderer, context, settings, region):
         """Set up the camera, run a render, update the cached GPU texture."""

@@ -200,10 +200,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # RenderEngine is a C-backed class; we deliberately do NOT override
     # __init__ (Blender has caveats around RenderEngine constructor overrides,
     # see `bpy.types.RenderEngine` docs). Viewport state is lazily created
-    # inside view_update instead.
+    # inside view_update / view_draw instead.
     _viewport_texture = None
     _viewport_width = 0
     _viewport_height = 0
+    # pkg52: persistent viewport state. The renderer is reused across draws
+    # so we don't pay scene-rebuild cost on every camera nudge. The hash
+    # detects camera/region changes from view_draw (Blender does not emit
+    # a "camera changed" event in the viewport).
+    _viewport_renderer = None
+    _viewport_camera_hash = None
     _PASS_SPECS = [
         ("Diffuse Direct", "diffuse_direct", "use_pass_diffuse_direct"),
         ("Diffuse Indirect", "diffuse_indirect", "use_pass_diffuse_indirect"),
@@ -362,85 +368,163 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # Viewport preview (rendered shading mode in 3D View)
     # ------------------------------------------------------------------ #
 
-    def view_update(self, context, depsgraph):
-        """Called when the scene or viewport changes. We do a fresh low-sample
-        render here and stash the result as a GPUTexture so `view_draw` can
-        just blit it every frame."""
-        if not RAYTRACER_AVAILABLE:
-            return
-        region = context.region
+    # ------------------------------------------------------------------ #
+    # pkg52: persistent viewport session
+    # ------------------------------------------------------------------ #
+
+    def _get_viewport_renderer(self):
+        """Lazy-init the persistent viewport Renderer. Reused across
+        view_update and view_draw so we don't reconstruct on every nudge."""
+        if getattr(self, '_viewport_renderer', None) is None:
+            self._viewport_renderer = astroray.Renderer()
+        return self._viewport_renderer
+
+    @staticmethod
+    def _camera_state_hash(context, region):
+        """Hash the camera state that would change the rendered image.
+        Blender does not emit a "camera moved" event in the viewport, so we
+        detect changes by comparing this hash across view_draw calls.
+
+        Includes:
+        - 4x4 view matrix (catches orbit/pan/zoom in PERSP/ORTHO views)
+        - region width/height
+        - space_data.lens (focal length in free perspective)
+        - view_camera_zoom and view_camera_offset (CAMERA view zoom/pan)
+        - view_perspective ('CAMERA' / 'PERSP' / 'ORTHO')
+        """
+        rv3d = context.region_data
+        space = context.space_data
+        if rv3d is None:
+            return None
+        try:
+            mat = rv3d.view_matrix
+            # mat[i][j] indexing works for both mathutils.Matrix and our
+            # test stubs that wrap a list-of-lists.
+            mat_tuple = tuple(round(float(mat[i][j]), 5)
+                              for i in range(4) for j in range(4))
+        except (AttributeError, IndexError, TypeError):
+            return None
+        return (
+            mat_tuple,
+            int(region.width),
+            int(region.height),
+            round(float(getattr(space, 'lens', 50.0)), 4),
+            round(float(getattr(rv3d, 'view_camera_zoom', 0.0)), 4),
+            tuple(round(float(o), 5)
+                  for o in getattr(rv3d, 'view_camera_offset', (0.0, 0.0))),
+            getattr(rv3d, 'view_perspective', 'PERSP'),
+        )
+
+    def _sync_viewport_scene(self, renderer, depsgraph, settings):
+        """Push the depsgraph state into the renderer. Called from view_update
+        only — view_draw skips this and just re-renders with a new camera."""
+        renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
+        renderer.clear()
+        renderer.set_clamp_direct(settings.clamp_direct)
+        renderer.set_clamp_indirect(settings.clamp_indirect)
+        renderer.set_filter_glossy(settings.filter_glossy)
+        renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
+        renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
+        material_map = self.convert_materials(depsgraph, renderer)
+        self.convert_objects(depsgraph, renderer, material_map)
+        self.convert_lights(depsgraph, renderer)
+        self.setup_world(depsgraph.scene, renderer)
+        configure_backend(renderer, settings)
+
+    def _render_viewport_frame(self, renderer, context, settings, region):
+        """Set up the camera, run a render, update the cached GPU texture."""
         width = max(1, region.width)
         height = max(1, region.height)
+        self._setup_viewport_camera(renderer, context, width, height)
+
+        # Wavelength + integrator policy must match the final-render path.
+        preset = settings.wavelength_preset
+        if preset == 'near_ir':
+            lmin, lmax = 700.0, 1000.0
+        elif preset == 'uv':
+            lmin, lmax = 300.0, 400.0
+        elif preset == 'custom':
+            lmin, lmax = settings.wavelength_min, settings.wavelength_max
+        else:
+            lmin, lmax = 380.0, 780.0
+        renderer.set_wavelength_range(lmin, lmax)
+        is_outside_visible = (lmax > 780.0 or lmin < 380.0)
+        if is_outside_visible:
+            renderer.set_output_mode("luminance")
+            renderer.set_integrator("multiwavelength_path_tracer")
+        else:
+            renderer.set_integrator(settings.integrator_type)
+
+        samples = max(1, settings.preview_samples)
+        depth = max(2, settings.max_bounces // 2)
+        pixels = renderer.render(
+            samples, depth, None, False,
+            min(settings.diffuse_bounces, depth),
+            min(settings.glossy_bounces, depth),
+            min(settings.transmission_bounces, depth),
+            min(settings.volume_bounces, depth),
+            min(settings.transparent_bounces, depth)
+        )
+        if pixels is None:
+            return
+        self._update_viewport_texture(pixels, width, height)
+
+    def view_update(self, context, depsgraph):
+        """Called when the scene or viewport changes. Re-syncs the scene into
+        the persistent viewport renderer and renders one frame.
+
+        Camera-only changes (pan/zoom/orbit) are NOT routed through here by
+        Blender — they don't fire a depsgraph update. view_draw owns those.
+        """
+        if not RAYTRACER_AVAILABLE:
+            return
         scene = depsgraph.scene
         settings = scene.custom_raytracer
+        region = context.region
 
-        renderer = None
         try:
-            renderer = astroray.Renderer()
-            renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
-            renderer.clear()
-            renderer.set_clamp_direct(settings.clamp_direct)
-            renderer.set_clamp_indirect(settings.clamp_indirect)
-            renderer.set_filter_glossy(settings.filter_glossy)
-            renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
-            renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
-            self._setup_viewport_camera(renderer, context, width, height)
-            material_map = self.convert_materials(depsgraph, renderer)
-            self.convert_objects(depsgraph, renderer, material_map)
-            self.convert_lights(depsgraph, renderer)
-            self.setup_world(scene, renderer)
-
-            configure_backend(renderer, settings)
-
-            samples = max(1, settings.preview_samples)
-            depth = max(2, settings.max_bounces // 2)
-            # Apply the same wavelength policy as final render
-            preset = settings.wavelength_preset
-            if preset == 'near_ir':
-                lmin, lmax = 700.0, 1000.0
-            elif preset == 'uv':
-                lmin, lmax = 300.0, 400.0
-            elif preset == 'custom':
-                lmin, lmax = settings.wavelength_min, settings.wavelength_max
-            else:
-                lmin, lmax = 380.0, 780.0
-            renderer.set_wavelength_range(lmin, lmax)
-            is_outside_visible = (lmax > 780.0 or lmin < 380.0)
-            if is_outside_visible:
-                renderer.set_output_mode("luminance")
-                renderer.set_integrator("multiwavelength_path_tracer")
-            else:
-                renderer.set_integrator(settings.integrator_type)
-            pixels = renderer.render(
-                samples, depth, None, False,
-                min(settings.diffuse_bounces, depth),
-                min(settings.glossy_bounces, depth),
-                min(settings.transmission_bounces, depth),
-                min(settings.volume_bounces, depth),
-                min(settings.transparent_bounces, depth)
-            )
-            if pixels is None:
-                return
-            self._update_viewport_texture(pixels, width, height)
+            renderer = self._get_viewport_renderer()
+            self._sync_viewport_scene(renderer, depsgraph, settings)
+            self._render_viewport_frame(renderer, context, settings, region)
+            # Stamp the camera hash so view_draw doesn't re-render until the
+            # camera actually changes.
+            self._viewport_camera_hash = self._camera_state_hash(context, region)
         except Exception as e:
             print(f"Astroray viewport preview error: {e}")
             traceback.print_exc()
-        finally:
-            if renderer:
-                try: renderer.clear()
-                except Exception: pass
 
     def view_draw(self, context, depsgraph):
-        """Called every frame inside rendered-shading mode to paint our
-        cached preview texture into the 3D View."""
-        if self._viewport_texture is None:
+        """Called every frame inside rendered-shading mode. Detects camera
+        changes (pan/zoom/orbit, including CAMERA-view zoom and offset) and
+        re-renders without touching scene state. Otherwise just blits the
+        cached texture.
+        """
+        if not RAYTRACER_AVAILABLE:
             return
         try:
-            import gpu
-            from gpu_extras.presets import draw_texture_2d
             region = context.region
             scene = depsgraph.scene
+            settings = scene.custom_raytracer
 
+            # Camera-change detection — fixes the project-owner-reported
+            # "panning/zooming the viewport doesn't update the render" bug.
+            new_hash = self._camera_state_hash(context, region)
+            if (new_hash is not None
+                    and new_hash != getattr(self, '_viewport_camera_hash', None)):
+                renderer = self._get_viewport_renderer()
+                # If the user opened rendered-shading mode without ever
+                # firing view_update (rare), the renderer has no scene yet.
+                # Fall back to a full sync.
+                if not getattr(self, '_viewport_texture', None):
+                    self._sync_viewport_scene(renderer, depsgraph, settings)
+                self._render_viewport_frame(renderer, context, settings, region)
+                self._viewport_camera_hash = new_hash
+
+            if self._viewport_texture is None:
+                return
+
+            import gpu
+            from gpu_extras.presets import draw_texture_2d
             # Cycles/Eevee wrap the draw in bind_display_space_shader so the
             # viewport color management pipeline is applied. We do the same —
             # the raytracer outputs linear scene-referred values and Blender
@@ -450,11 +534,29 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self.unbind_display_space_shader()
         except Exception as e:
             print(f"Astroray view_draw error: {e}")
+            traceback.print_exc()
+
+    @staticmethod
+    def _camera_view_zoom_scale(view_camera_zoom):
+        """Cycles formula (intern/cycles/blender/blender_camera.cpp):
+        `scale = 2.0 / (1.41421 + zoom/50)^2`. At zoom=0 → 1.0 (no change).
+        Smaller scale → narrower FOV (zoom in). Used to make CAMERA-view
+        wheel-zoom actually change the rendered image, instead of staying
+        locked at the camera's natural framing."""
+        denom = 1.41421 + float(view_camera_zoom) / 50.0
+        if abs(denom) < 1e-6:
+            return 1.0
+        return 2.0 / (denom * denom)
 
     def _setup_viewport_camera(self, renderer, context, width, height):
         """Build a lookFrom/lookAt from the 3D View's RegionView3D state.
 
-        - In CAMERA view (numpad 0): use the scene camera as-is.
+        - In CAMERA view (numpad 0): use the scene camera, then apply the
+          viewport-only `view_camera_zoom` so wheel-zoom-in actually narrows
+          the rendered FOV (pkg52 fix).
+          TODO(pkg52): also apply `view_camera_offset` for CAMERA-view pan.
+          The math interacts with zoom and the camera projection; deferring
+          until we have a test that pins the expected behavior.
         - In PERSP / ORTHO view: derive position + direction from
           `rv3d.view_matrix.inverted()` and use `space_data.lens` for vfov.
         """
@@ -462,7 +564,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         space = context.space_data
 
         if rv3d is not None and rv3d.view_perspective == 'CAMERA' and context.scene.camera:
-            self._apply_camera(renderer, context.scene.camera, width, height)
+            zoom_scale = self._camera_view_zoom_scale(getattr(rv3d, 'view_camera_zoom', 0.0))
+            self._apply_camera(renderer, context.scene.camera, width, height,
+                               vfov_scale=zoom_scale)
             return
 
         view_inv = rv3d.view_matrix.inverted()
@@ -567,11 +671,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
             vfov_rad = 2.0 * math.atan(math.tan(hfov_rad / 2.0) / aspect)
         return math.degrees(vfov_rad)
 
-    def _apply_camera(self, renderer, cam_obj, width, height):
+    def _apply_camera(self, renderer, cam_obj, width, height, vfov_scale=1.0):
         """Extract lookFrom/lookAt/vup from a Blender camera object and push
         it to the renderer. Blender cameras point along their local -Z and
         use local +Y as 'up'; we rotate those unit vectors by the camera's
-        world rotation to get world-space directions."""
+        world rotation to get world-space directions.
+
+        `vfov_scale` (default 1.0) shrinks the effective image plane. Used by
+        viewport CAMERA-view wheel-zoom to narrow the FOV without changing
+        the scene camera (pkg52). 1.0 = no change; <1.0 = zoom in.
+        """
         matrix = cam_obj.matrix_world
         loc, rot_quat, _scale = matrix.decompose()
 
@@ -584,6 +693,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         camera = cam_obj.data
         vfov = self._compute_vfov_degrees(camera, width, height)
+
+        # Apply viewport zoom by scaling the image plane → tighter FOV.
+        if vfov_scale != 1.0 and vfov_scale > 0.0:
+            half = math.radians(vfov) / 2.0
+            vfov = math.degrees(2.0 * math.atan(math.tan(half) * vfov_scale))
 
         aperture, focus_dist = 0.0, 10.0
         if camera.dof.use_dof:

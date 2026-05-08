@@ -86,6 +86,25 @@ personally should pick up.
 | pkg38 | Spectral material profile database | **done** |
 | pkg39 | Multi-wavelength rendering (IR/UV) | **done** |
 
+**Cycles parity & Blender integration (added 2026-05-08, Pillar 5):**
+
+These packages close the gap between the engine and the addon — the
+engine is mostly Cycles-equivalent, but the Blender integration layer
+is currently the weakest link.
+
+| Package | Description | Status | Track |
+|---|---|---|---|
+| pkg52 | Persistent viewport session (zoom/pan re-renders) | open | A |
+| pkg53 | GPU integrator capability diagnostics | open | B/E |
+| pkg54 | GPU multi-wavelength path tracer (CPU/GPU parity) | open | A |
+| pkg57 | Native Astroray shader nodes (with Cycles compat) | open | A |
+| pkg58 | Spectral profile dropdown + IR/UV reference scenes | open | B |
+| pkg59 | Shader-graph vector / UV plumbing | open | A |
+| pkg61 | GPU per-vertex normals (shade-smooth parity) | open | A/E |
+| pkg62 | Viewport pass selector + live OIDN preview | open | B |
+| pkg64 | Spectral caustics (prism-accurate) — research-grade | open (research blocked) | A |
+| pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
+
 **Astrophysics platform (Pillar 4):**
 
 | Package | Description | Status |
@@ -107,15 +126,24 @@ personally should pick up.
 
 ## This week
 
-**Week of:** 2026-05-03
+**Week of:** 2026-05-08 (Cycles parity / Blender integration push)
 
 ### Track A (Claude Code)
+
+- pkg37 Blender addon backend refresh is complete.
+- New roadmap added: pkg52, pkg53, pkg54, pkg57, pkg58, pkg59, pkg61,
+  pkg62, pkg64 (research-blocked), pkg67 (research-blocked). See the
+  "Cycles parity & Blender integration" table above.
+- Recommended next-up order: **pkg62 → pkg61 → pkg59 → pkg52 → pkg53 →
+  pkg54 → pkg57**. pkg64 and pkg67 require a research note signed off by
+  the project owner before code starts; CLAUDE.md §6 covers the policy.
+
+### Track A (Claude Code) — previous
 
 - pkg29 prism validation is complete.
 - Complete: pkg32 visual diagnostics, pkg33 OIDN, pkg34 backend capability
   guardrails, pkg35 spectral GPU material payloads, and pkg36 shared closure
   graphs.
-- Next up: pkg37 Blender addon backend refresh.
 - Pillar 4 can begin with pkg40 once the current registry/reference cleanup is merged.
 
 ### Track B (Copilot cloud)
@@ -210,6 +238,19 @@ personally should pick up.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-08** — Cycles parity / Blender integration roadmap added in
+  response to project-owner triage. 9 new packages drafted: pkg52
+  (persistent viewport session), pkg53 (GPU integrator capability
+  diagnostics), pkg54 (GPU multi-wavelength path tracer), pkg57 (native
+  Astroray shader nodes with Cycles compat), pkg58 (spectral profile
+  dropdown + IR/UV reference scenes), pkg59 (shader-graph vector / UV
+  plumbing), pkg61 (GPU per-vertex normals), pkg62 (viewport pass
+  selector), pkg64 (spectral caustics, research-blocked), pkg67
+  (metric-aware path tracer, research-blocked). CLAUDE.md §6 added: no
+  invented algorithms, cite-and-borrow policy. Main repo git cleanup:
+  aborted-rebase markers cleared, `dist/` gitignored and untracked
+  (914 MB tcnn build was about to land in git).
 
 - **2026-05-03** — pkg37 complete. Blender addon backend refresh: `device_mode` EnumProperty (Auto/GPU/CPU) replaces old `use_gpu` BoolProperty; shared `configure_backend()` helper called from both final render and viewport; viewport now applies wavelength range/output mode (Near IR/UV/Custom) matching final render; Diagnostics panel shows module path, version, `__features__`, GPU availability, integrator list, and post-render stats; `build_blender_addon.py` gains `--backend cpu/cuda/tcnn/auto` flag, per-backend build dirs (`build_blender_addon`, `build_blender_addon_cuda`, `build_blender_addon_tcnn`), and a `build_report.json` in the packaged zip. 11 new tests in `test_blender_backend_policy.py`.
 - **2026-05-03** — pkg39 complete. Multi-wavelength rendering: configurable wavelength band (380-780 nm visible unchanged; IR/UV via `multiwavelength_path_tracer`), `SpectralProfile`/`SpectralProfileDatabase` C++ API loading profiles.bin, `evalSpectralExt`/`sampleSpectralExt` profile dispatch on Material base class, `ColourmapOutput` post-process pass (grayscale/hot/inferno/viridis/ir_false_colour), Python API (`set_wavelength_range`, `set_material_spectral_profile`, `spectral_profile_names`), Blender UI (Wavelength panel with presets, colourmap selector). 15 tests; all pass.

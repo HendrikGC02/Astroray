@@ -1258,9 +1258,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         except (IndexError, AttributeError):
             return None
 
-    def _principled_shader_spec(self, node):
+    def _principled_shader_spec(self, node, renderer=None):
         base_color = self.get_color_input(node, 'Base Color', [0.8, 0.8, 0.8])
-        return {
+        spec = {
             'kind': 'principled',
             'base_color': list(base_color),
             'params': {
@@ -1277,6 +1277,29 @@ class CustomRaytracerRenderEngine(RenderEngine):
             'emission_color': self.get_color_input(node, 'Emission Color', [0.0, 0.0, 0.0]),
             'emission_strength': self.get_float_input(node, 'Emission Strength', 0.0),
         }
+        # Carry texture-name references through the spec when a renderer is
+        # available (i.e. during real conversion, not unit-tests of the spec
+        # shape). Without this, an Image Texture connected to Base Color was
+        # silently dropped and the material rendered as grey Disney —
+        # the bug behind the project-owner-reported "default cube + default
+        # Image Texture shows no pattern" screenshot.
+        if renderer is not None:
+            _, base_color_tex = self.get_base_color_texture(node, 'Base Color', renderer)
+            if base_color_tex is not None:
+                spec['base_color_texture'] = base_color_tex
+            normal_inputs = self.get_normal_inputs(node)
+            if normal_inputs.get('normal_image') is not None:
+                tex = self.load_blender_image(normal_inputs['normal_image'], renderer)
+                if tex:
+                    spec['normal_map_texture'] = tex
+                    spec['normal_strength'] = normal_inputs['normal_strength']
+            if normal_inputs.get('bump_image') is not None:
+                tex = self.load_blender_image(normal_inputs['bump_image'], renderer)
+                if tex:
+                    spec['bump_map_texture'] = tex
+                    spec['bump_strength'] = normal_inputs['bump_strength']
+                    spec['bump_distance'] = normal_inputs['bump_distance']
+        return spec
 
     def _warn_shader_fallback(self, node_type, message):
         key = f"{node_type}:{message}"
@@ -1352,7 +1375,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         ntype = node.type
 
         if ntype == 'BSDF_PRINCIPLED':
-            return self._principled_shader_spec(node)
+            return self._principled_shader_spec(node, renderer)
         standalone = self._standalone_bsdf_spec(node)
         if standalone is not None:
             return standalone
@@ -1396,6 +1419,26 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     return renderer.create_material('light', emission_color, {'intensity': emission_strength})
                 glow = min(1.0, 0.2 * emission_strength)
                 color = [max(0.0, min(1.0, (1.0 - glow) * color[i] + glow * emission_color[i])) for i in range(3)]
+
+            # Plumb normal/bump textures through to whichever material we pick.
+            for key in ('normal_map_texture', 'normal_strength',
+                        'bump_map_texture', 'bump_strength', 'bump_distance'):
+                if key in spec:
+                    params[key] = spec[key]
+
+            # Textured base color: route through the textured-Lambertian path
+            # because the registry's Disney plugin does not currently accept a
+            # base-color texture slot. Same compromise as the orphaned
+            # convert_principled_bsdf_v2 helper just below — once Disney gains
+            # a texture slot, both paths can target Disney directly.
+            base_tex = spec.get('base_color_texture')
+            if base_tex is not None:
+                lambert_params = {'texture': base_tex}
+                for key in ('normal_map_texture', 'normal_strength',
+                            'bump_map_texture', 'bump_strength', 'bump_distance'):
+                    if key in params:
+                        lambert_params[key] = params[key]
+                return renderer.create_material('lambertian', color, lambert_params)
 
             return renderer.create_material('disney', color, params)
 

@@ -2,7 +2,7 @@
 
 **Status:** Ongoing
 **Depends on:** Pillars 1, 3
-**Tracks:** B (self-contained), D (docs/tests)
+**Tracks:** A (core UX), B (self-contained), D (docs/tests), E (coordination)
 **Duration:** ongoing, opportunistic
 
 ## Scope
@@ -34,7 +34,8 @@ OIDN 2.x is already integrated. When OIDN 3.0 lands:
 - AOV denoising (separate passes each get denoised with guidance)
 - Optional per-wavelength spectral denoising if OIDN exposes it
 
-Package `pkg50-oidn3-upgrade.md` (created when OIDN 3 is released).
+Future package name TBD (the old placeholder `pkg50-oidn3-upgrade.md`
+collided with the Pillar 4 package sequence and should not be reused).
 
 ### 5.3 OptiX denoiser option
 
@@ -44,7 +45,8 @@ supports temporal denoising. Plugin-worthy because:
 - Does not replace OIDN (cross-platform)
 
 Plugin: `plugins/passes/optix_denoiser.cpp`. Cloud-agent feasible.
-Package `pkg51-optix-denoiser.md`.
+Future package name TBD (do not reuse the old `pkg51-*` placeholder;
+`pkg51` now belongs to synthetic telescope observations).
 
 ### 5.4 Output formats
 
@@ -53,22 +55,23 @@ Current output: PNG, PPM. Add:
 - JPEG XL (nice-to-have, future)
 - Multi-pass EXR matching Cycles output layout
 
-OpenEXR is non-negotiable; the rest are nice-to-have. Package
-`pkg52-openexr-output.md`.
+OpenEXR is non-negotiable; the rest are nice-to-have. Future package name
+TBD; the old `pkg52-openexr-output.md` placeholder is obsolete because
+`pkg52` now tracks the persistent viewport session.
 
 ### 5.5 Blender viewport rendering
 
-Currently Astroray is F12-render only. Viewport rendering (Rendered
-shading mode) shows the path-traced result in realtime as the user
-edits.
+Astroray now has a viewport preview foundation. `pkg52` added a persistent
+viewport renderer plus camera-state hashing so zoom/orbit changes re-render;
+progressive accumulation and CAMERA-view offset/pan projection remain open.
+`pkg62` added a viewport pass selector and optional viewport OIDN toggle.
 
 - Triggered by Blender's `view_draw()` callback.
 - Progressive rendering: start with 1 spp, accumulate as user stops
   moving.
 - Integrates naturally with ReSTIR DI (low-spp, low-noise).
 
-Big UX win, substantial engineering project. Package
-`pkg53-viewport-render.md` — multi-session Claude Code effort.
+Current package: `pkg52-persistent-viewport-session.md`.
 
 ### 5.6 Motion blur (camera + object)
 
@@ -79,7 +82,7 @@ Standard stochastic temporal sampling: each ray samples a time in
 - Object motion: store two transforms, interpolate per ray.
 - Shutter curve: box, triangle, user-defined.
 
-Package `pkg54-motion-blur.md`. Cloud-agent sized.
+Future package name TBD; `pkg54` now tracks GPU multi-wavelength rendering.
 
 ### 5.7 Hair/curves rendering
 
@@ -98,8 +101,8 @@ Existing `docs/` is mostly agent-context. Users need:
 - Rendered gallery with scene files
 - Scientific accuracy notes (what's physically correct vs approximated)
 
-Packages `pkg60-user-guide.md`, `pkg61-plugin-guide.md`,
-`pkg62-gallery.md`. Ralph-loop / Copilot-agent targets.
+Future package names TBD. The old `pkg61-plugin-guide.md` and
+`pkg62-gallery.md` placeholders collided with the Cycles-parity series.
 
 ### 5.9 Example scenes
 
@@ -116,7 +119,8 @@ scratch. Package `pkg63-example-scenes.md`.
 
 ### 5.10 Test coverage
 
-Current: 227 collected tests as of 2026-04-28. Target: keep expanding coverage
+Current: 435 collected tests as of 2026-05-09 on the Codex workstation
+(`pytest --collect-only -q`). Target: keep expanding coverage
 around every plugin and every integrator. Continuous Ralph-loop work.
 
 Specific gaps:
@@ -129,7 +133,7 @@ Specific gaps:
 - Render-output triage for suspicious PNGs before promoting observations
   into hard assertions
 
-Package `pkg64-test-expansion.md`, continuously updated.
+Future package name TBD; `pkg64` now tracks spectral caustics research.
 
 ## Tracks
 

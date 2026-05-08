@@ -45,7 +45,8 @@ engine is in this folder. Drop it into the repo root as `.astroray_plan/`.
 │   ├── pkg03-migrate-remaining-materials.md
 │   ├── pkg04-migrate-textures-shapes.md
 │   ├── pkg05-integrator-interface.md
-│   └── pkg06-pass-registry.md
+│   ├── pkg06-pass-registry.md
+│   └── ... pkg10–pkg67 live here now; see docs/STATUS.md for current state
 ├── scripts/
 │   ├── ralph_loop.sh             ← background grind worker
 │   ├── ralph_queue.txt           ← Ralph's task queue

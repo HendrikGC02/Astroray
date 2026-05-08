@@ -2,7 +2,7 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 1 week (~3 sessions)
 **Depends on:** pkg13
 
@@ -64,10 +64,10 @@ parity check from pkg11–13 is what makes this safe.
 
 ## Prerequisites
 
-- [ ] pkg13 is merged on `main`; every material/texture has a spectral
+- [x] pkg13 is merged on `main`; every material/texture has a spectral
       override.
-- [ ] Build is green; full pytest passes; Cornell A/B parity ≤1% holds.
-- [ ] A pre-pkg14 baseline render of every showcase scene is captured
+- [x] Build is green; full pytest passes; deterministic spectral checks hold.
+- [x] A pre-pkg14 baseline render of every showcase scene is captured
       so the "flip default" step can be A/B-verified without ambiguity.
 
 ---

@@ -6,6 +6,11 @@
 verify Pillar 2 stability expectations, and line up the first Pillar 3 package
 specs.
 
+> **Archive note (2026-05-09):** this report is now historical. Its immediate
+> next steps (`pkg20` first, `pkg25` as a future prototype lane) were completed
+> by the later pkg20-pkg28 ReSTIR/NRC work. Use `STATUS.md` for current work and
+> keep this file as the dated context snapshot it was.
+
 ## Current State
 
 Astroray is no longer at the "figure out what Phase 0 is" point.

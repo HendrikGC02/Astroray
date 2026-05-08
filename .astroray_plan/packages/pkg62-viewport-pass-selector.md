@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** open
+**Status:** done
 **Estimated effort:** 1 session (~4 h)
 **Depends on:** pkg06 (pass registry, done), pkg33 (OIDN, done)
 
@@ -33,8 +33,8 @@ This addresses your "debugging is slow" complaint directly. Visual inspection of
 
 ## Prerequisites
 
-- [ ] pkg52 (persistent viewport session) recommended but not required — works without it, just at "one-shot" frequency.
-- [ ] `Renderer::get_render_pass_buffer(name)` already returns the per-pass buffer (verified in `module/blender_module.cpp`).
+- [x] pkg52 (persistent viewport session) recommended but not required — works without it, just at "one-shot" frequency.
+- [x] `Renderer::get_render_pass_buffer(name)` already returns the per-pass buffer (verified in `module/blender_module.cpp`).
 
 ---
 
@@ -59,10 +59,10 @@ This addresses your "debugging is slow" complaint directly. Visual inspection of
 
 ## Acceptance criteria
 
-- [ ] A user can switch the viewport from Combined → Albedo → Normal → Depth and see each pass live, without leaving rendered shading mode.
-- [ ] Toggling Viewport OIDN denoises the current pass on the fly.
-- [ ] Final-render pass export is unchanged.
-- [ ] Test passes.
+- [x] A user can switch the viewport from Combined → Albedo → Normal → Depth and see each pass live, without leaving rendered shading mode.
+- [x] Toggling Viewport OIDN denoises the current pass on the fly.
+- [x] Final-render pass export is unchanged.
+- [x] Test passes.
 
 ---
 
@@ -76,13 +76,15 @@ This addresses your "debugging is slow" complaint directly. Visual inspection of
 
 ## Progress
 
-- [ ] Add `viewport_display_pass` and `viewport_oidn` properties + UI row.
-- [ ] Wire `view_update` to register the chosen pass.
-- [ ] Wire `view_draw` to fetch and display the chosen pass.
-- [ ] Test.
+- [x] Add `viewport_display_pass` and `viewport_oidn` properties + UI row.
+- [x] Wire viewport render path to register the chosen pass.
+- [x] Wire viewport render path to fetch and display the chosen pass.
+- [x] Test.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- Completed on `origin/main` in PR #165 (`codex/pkg62-viewport-pass-selector`).
+- Tests live in `tests/test_blender_viewport_passes.py`.
+- Package docs lagged behind the merge and were reconciled on 2026-05-09.

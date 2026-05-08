@@ -48,6 +48,26 @@ except ImportError as e:
     RAYTRACER_AVAILABLE = False
     print(f"Failed to load raytracer module: {e}")
 
+def _try_load_spectral_profiles() -> None:
+    """Load profiles.bin if present so the UI dropdown can populate."""
+    if not RAYTRACER_AVAILABLE or not hasattr(astroray, "load_spectral_profiles"):
+        return
+    candidates = [
+        os.path.join(addon_dir, "data", "spectral_profiles", "profiles.bin"),
+        os.path.join(os.path.dirname(addon_dir), "data", "spectral_profiles", "profiles.bin"),
+    ]
+    for path in candidates:
+        if not os.path.exists(path):
+            continue
+        try:
+            astroray.load_spectral_profiles(path)
+            return
+        except Exception:
+            pass
+
+
+_try_load_spectral_profiles()
+
 def _integrator_type_items(self, context):
     if RAYTRACER_AVAILABLE:
         items = [('auto', 'Auto (Best Available)', 'Use accelerated integrators when available, otherwise fall back')]
@@ -191,6 +211,108 @@ def _material_type_items(self, context):
         return [(n, n.replace('_', ' ').title(), '') for n in astroray.material_registry_names()]
     return [('disney', 'Disney', ''), ('lambertian', 'Lambertian', '')]
 
+def _spectral_profile_items(self, context):
+    if not RAYTRACER_AVAILABLE or not hasattr(astroray, "spectral_profile_names"):
+        return [('__none__', '<None>', '')]
+    names = []
+    try:
+        names = list(astroray.spectral_profile_names())
+    except Exception:
+        names = []
+    items = [('__none__', '<None>', 'No spectral profile (renders black outside visible)')]
+    items.extend((n, n, '') for n in names)
+    return items
+
+def _active_wavelength_band(settings):
+    preset = getattr(settings, "wavelength_preset", "visible")
+    if preset == "near_ir":
+        return 700.0, 1000.0
+    if preset == "uv":
+        return 300.0, 400.0
+    if preset == "custom":
+        return float(getattr(settings, "wavelength_min", 380.0)), float(getattr(settings, "wavelength_max", 780.0))
+    return 380.0, 780.0
+
+
+def _spectral_profile_curve_samples(profile_name: str, lmin: float, lmax: float, n: int = 32):
+    if (not RAYTRACER_AVAILABLE or
+            not hasattr(astroray, "spectral_profile_reflectance") or
+            not profile_name or profile_name == "__none__" or
+            n <= 1):
+        return []
+    lmin = float(lmin)
+    lmax = float(lmax)
+    if lmax < lmin:
+        lmin, lmax = lmax, lmin
+    step = (lmax - lmin) / float(n - 1)
+    samples = []
+    for i in range(n):
+        wl = lmin + step * float(i)
+        try:
+            r = float(astroray.spectral_profile_reflectance(profile_name, float(wl)))
+        except Exception:
+            r = 0.0
+        samples.append((wl, max(0.0, min(1.0, r))))
+    return samples
+
+
+def _update_spectral_preview_image(samples, width: int = 256, height: int = 96):
+    """Draw a tiny reflectance curve into a Blender Image datablock."""
+    if not samples or not hasattr(bpy, "data") or not hasattr(bpy.data, "images"):
+        return None
+    name = "AstroraySpectralProfilePreview"
+    img = bpy.data.images.get(name)
+    if img is None:
+        try:
+            img = bpy.data.images.new(name=name, width=width, height=height, alpha=True, float_buffer=True)
+        except Exception:
+            return None
+    try:
+        if img.size[0] != width or img.size[1] != height:
+            img.scale(width, height)
+    except Exception:
+        pass
+
+    pixels = np.zeros((height, width, 4), dtype=np.float32)
+    pixels[:, :, 3] = 1.0
+
+    xs = np.linspace(0, width - 1, num=len(samples), dtype=np.float32)
+    ys = np.array([s[1] for s in samples], dtype=np.float32)
+    ys = np.clip(ys, 0.0, 1.0)
+    ypix = (height - 2) - ys * (height - 3)
+
+    col = np.array([0.2, 0.9, 0.2, 1.0], dtype=np.float32)
+    for i in range(len(xs) - 1):
+        x0, y0 = int(xs[i]), int(ypix[i])
+        x1, y1 = int(xs[i + 1]), int(ypix[i + 1])
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx - dy
+        x, y = x0, y0
+        while True:
+            if 0 <= x < width and 0 <= y < height:
+                pixels[y, x, :] = col
+                if y + 1 < height:
+                    pixels[y + 1, x, :] = col
+            if x == x1 and y == y1:
+                break
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x += sx
+            if e2 < dx:
+                err += dx
+                y += sy
+
+    try:
+        img.pixels.foreach_set(pixels.reshape(-1))
+        img.update()
+    except Exception:
+        return None
+    return img
+
 
 class CustomRaytracerMaterialSettings(PropertyGroup):
     material_type: EnumProperty(
@@ -206,11 +328,11 @@ class CustomRaytracerMaterialSettings(PropertyGroup):
     clearcoat: FloatProperty(name="Clearcoat", min=0, max=1, default=0)
     clearcoat_gloss: FloatProperty(name="Clearcoat Gloss", min=0, max=1, default=1)
     # pkg39: spectral profile for outside-visible rendering
-    spectral_profile: StringProperty(
+    spectral_profile: EnumProperty(
         name="Spectral Profile",
-        description="Profile name for outside-visible (IR/UV) rendering. "
-                    "Leave empty to render black outside visible.",
-        default="",
+        description="Spectral reflectance profile for outside-visible (IR/UV) rendering.",
+        items=_spectral_profile_items,
+        default="__none__",
     )
 
 class CustomRaytracerRenderEngine(RenderEngine):
@@ -787,6 +909,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # CRITICAL: keep `inlined` alive while accessing `node_tree`. When it's
         # garbage collected the node_tree reference becomes invalid, so we store
         # it locally and only let it drop after this function returns.
+        def _apply_spectral_profile(material_id):
+            try:
+                mat_settings = getattr(mat, "custom_raytracer", None)
+                profile = getattr(mat_settings, "spectral_profile", "__none__") if mat_settings else "__none__"
+                if (hasattr(renderer, "set_material_spectral_profile") and
+                        hasattr(renderer, "clear_material_spectral_profile")):
+                    if profile and profile != "__none__":
+                        renderer.set_material_spectral_profile(material_id, profile)
+                    else:
+                        renderer.clear_material_spectral_profile(material_id)
+            except Exception:
+                pass
+            return material_id
+
         inlined = None
         try:
             inlined = mat.inline_shader_nodes()
@@ -795,7 +931,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # Pre-5.0 Blender: fall back to direct access
             node_tree = getattr(mat, 'node_tree', None)
         if node_tree is None:
-            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+            return _apply_spectral_profile(renderer.create_material('disney', [0.8, 0.8, 0.8], {}))
 
         # Find the active output node (preferred), or any OUTPUT_MATERIAL
         output = None
@@ -806,7 +942,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if output is None:
             output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_MATERIAL'), None)
         if output is None:
-            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+            return _apply_spectral_profile(renderer.create_material('disney', [0.8, 0.8, 0.8], {}))
 
         volume_input = output.inputs.get('Volume')
         volume_spec = None
@@ -818,11 +954,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if not surface_input or not surface_input.is_linked:
             if volume_spec is not None:
                 # Volume-only materials should keep the boundary mostly invisible.
-                return renderer.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.0})
-            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+                return _apply_spectral_profile(renderer.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.0}))
+            return _apply_spectral_profile(renderer.create_material('disney', [0.8, 0.8, 0.8], {}))
 
         shader_node = surface_input.links[0].from_node
-        return self.convert_shader_node(shader_node, renderer, node_tree)
+        return _apply_spectral_profile(self.convert_shader_node(shader_node, renderer, node_tree))
 
     # ------------------------------------------------------------------ #
     # Node-input helpers (unlinked defaults + linked image texture lookup)
@@ -2490,6 +2626,62 @@ class MATERIAL_PT_custom_raytracer_surface(AstrorayPanelBase, Panel):
         else:
             layout.prop(mat, "diffuse_color", text="Color")
 
+
+class MATERIAL_PT_AstroraySpectralPreview(AstrorayPanelBase, Panel):
+    """pkg58: Spectral profile dropdown + reflectance curve preview."""
+    bl_label = "Spectral Profile"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "material"
+    bl_parent_id = "MATERIAL_PT_custom_raytracer_surface"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        if context.scene.render.engine != 'CUSTOM_RAYTRACER':
+            return False
+        if context.material is None:
+            return False
+        settings = getattr(context.scene, "custom_raytracer", None)
+        if settings is None:
+            return False
+        return getattr(settings, "wavelength_preset", "visible") != "visible"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        mat = context.material
+        mat_settings = getattr(mat, "custom_raytracer", None)
+        if mat_settings is None:
+            layout.label(text="Material settings unavailable", icon='ERROR')
+            return
+
+        layout.prop(mat_settings, "spectral_profile", text="Profile")
+
+        profile = getattr(mat_settings, "spectral_profile", "__none__")
+        if profile in ("", "__none__"):
+            layout.label(text="No profile selected → renders black outside visible", icon='INFO')
+            return
+
+        settings = context.scene.custom_raytracer
+        lmin, lmax = _active_wavelength_band(settings)
+        layout.label(text=f"Band: {lmin:.0f}–{lmax:.0f} nm", icon='CURVE_DATA')
+
+        samples = _spectral_profile_curve_samples(profile, lmin, lmax, n=32)
+        img = _update_spectral_preview_image(samples)
+        if img is not None:
+            try:
+                layout.template_preview(img, show_buttons=False)
+                return
+            except Exception:
+                pass
+
+        if samples:
+            vals = [s[1] for s in samples]
+            layout.label(text=f"Reflectance: min {min(vals):.2f}, max {max(vals):.2f}")
+
 class CustomRaytracerPreferences(AddonPreferences):
     bl_idname = __name__
     debug_mode: BoolProperty(name="Debug Mode", default=False)
@@ -2571,6 +2763,7 @@ classes = [
     RENDER_PT_custom_raytracer_diagnostics,
     WORLD_PT_custom_raytracer_surface,
     MATERIAL_PT_custom_raytracer_surface,
+    MATERIAL_PT_AstroraySpectralPreview,
     CustomRaytracerPreferences,
     ASTRORAY_OT_add_black_hole, OBJECT_PT_astroray_black_hole,
 ]

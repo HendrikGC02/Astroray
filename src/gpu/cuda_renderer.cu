@@ -267,6 +267,12 @@ void CUDARenderer::render(
     impl->ensureFramebuffer(width, height);
     int totalPixels = width * height;
 
+    // path_trace_kernel.cu uses gpu_rgbToSampledSpectrum(...) with
+    // GSPEC_RGB_ILLUMINANT for environment colour, which now reads the
+    // D65 SPD baked into MW kernel constant memory — make sure it's
+    // uploaded before the kernel runs.
+    uploadCmfTables();
+
     unsigned long long rngSeed = (seed == 0)
         ? (unsigned long long)time(nullptr)
         : (unsigned long long)seed;

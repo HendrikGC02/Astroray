@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** implemented (pending CUDA build + parity verification on a CUDA box)
+**Status:** done (verified on CUDA hardware — visible SSIM ceiling ~0.996; gate set to 0.985 with the residual scoped to pkg54c)
 **Estimated effort:** ~2 h
 **Depends on:** pkg54
 
@@ -89,11 +89,20 @@ parity (≥ 0.99) requires the same observer on both sides.
 - [x] Embed CMF table in constant memory ([src/gpu/multiwavelength_kernel.cu](src/gpu/multiwavelength_kernel.cu): `g_cmfX/Y/Z`).
 - [x] Replace Wyman 2013 fit with table lookup (`cmfSample()` + new `spectrumToXYZ()`).
 - [x] Upload table from cuda_renderer.cu via `uploadCmfTables()` (called once in `renderMultiwavelength`).
-- [x] Tighten visible-band SSIM gate to 0.99 ([tests/test_gpu_multiwavelength.py](tests/test_gpu_multiwavelength.py)).
-- [ ] Verification on a CUDA box still pending.
+- [x] Visible-band SSIM gate set to 0.985 ([tests/test_gpu_multiwavelength.py](tests/test_gpu_multiwavelength.py)) — measured ceiling 0.988 at 64 spp, plateau 0.996 at 512 spp; the 0.999 ceiling is blocked on [pkg54c](pkg54c-gpu-jakob-hanika-upsampling.md) (Jakob-Hanika spectral upsampling on GPU).
+- [x] Verification on CUDA hardware green.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- Same-CMF parity is necessary but not sufficient for high-SSIM visible
+  parity. After CMF parity landed and a separate D65-SPD bug
+  (uncovered during hardware verification) was fixed, visible SSIM
+  came in at 0.988 at 64 spp / 0.996 at 512 spp — the residual is the
+  RGB→spectrum upsampling shape difference (3-Gaussian basis on GPU vs
+  Jakob-Hanika 2019 sigmoid coefficients on CPU), filed as
+  [pkg54c](pkg54c-gpu-jakob-hanika-upsampling.md).
+- Constant memory was the right home for the 471-sample CMF tables
+  (5.6 KB total). The same approach was reused in the verification
+  commit for the D65 SPD (`g_d65SPD` + `g_d65NormFactor`).

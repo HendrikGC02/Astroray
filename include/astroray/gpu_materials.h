@@ -61,6 +61,11 @@ __device__ inline float gpu_spectralChannelWeight(float lambda, int channel) {
     return expf(-0.5f * x * x);
 }
 
+// Forward declaration — defined in src/gpu/multiwavelength_kernel.cu.
+// Mirrors astroray::sampleD65 (src/spectrum.cpp) via the same baked SPD
+// table, normalized so unit white emission integrates to Y = 1.
+__device__ float gpu_sampleD65(float lambda);
+
 __device__ inline float gpu_rgbSpectrumAt(const GVec3& rgb, float lambda, GSpectralMode mode) {
     if (mode == GSPEC_NONE) return luminance(rgb);
     float r = gpu_spectralChannelWeight(lambda, 0);
@@ -69,8 +74,13 @@ __device__ inline float gpu_rgbSpectrumAt(const GVec3& rgb, float lambda, GSpect
     float denom = fmaxf(r + g + b, 1e-4f);
     float v = (rgb.x * r + rgb.y * g + rgb.z * b) / denom;
     if (mode == GSPEC_RGB_ILLUMINANT) {
-        float d65 = 0.85f + 0.15f * gpu_spectralChannelWeight(lambda, 1);
-        v *= d65;
+        // Mirror CPU RGBIlluminantSpectrum::sample(): multiply the
+        // RGB-derived spectrum by the true D65 SPD normalised by
+        // ∫D65·cmfY dλ. Earlier the GPU used a 0.85+0.15·gauss(λ,540)
+        // analytic stand-in for D65, which produced ~5× brighter
+        // values per wavelength than the CPU and broke visible-band
+        // SSIM parity (~0.21 instead of ≥0.99).
+        v *= gpu_sampleD65(lambda);
     }
     return fmaxf(v, 0.f);
 }

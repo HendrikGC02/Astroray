@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** implemented (pending CUDA build + parity verification on a CUDA box)
+**Status:** done (verified on CUDA hardware — see Lessons for measured ratios)
 **Estimated effort:** ~1 week (~20 h)
 **Depends on:** pkg54 (GPU MW kernel landed), pkg38/pkg39 (CPU spectral profiles)
 
@@ -124,11 +124,29 @@ the MW kernel.
 - [x] Add `gpu_profile_reflectance()` device fn.
 - [x] Profile-aware spectral eval in MW kernel (mirrors `evalSpectralExt`).
 - [x] Extend parity scene with profiles ([tests/scenes/multiwavelength_parity.py](tests/scenes/multiwavelength_parity.py)).
-- [x] Tighten test gates ([tests/test_gpu_multiwavelength.py](tests/test_gpu_multiwavelength.py) — profiled NIR + UV gates, plus a non-profiled fallback gate). **Pending verification on a CUDA box** — could not run nvcc in the implementation environment.
-- [ ] Promote pkg54 to "done" once parity gates are green on hardware.
+- [x] Tighten test gates ([tests/test_gpu_multiwavelength.py](tests/test_gpu_multiwavelength.py) — profiled NIR + UV gates, plus a non-profiled fallback gate, plus UV cross-backend ratio asymmetry gate).
+- [x] Verification on CUDA hardware green: NIR (with profiles) SSIM ≥ 0.97, UV (with profiles) SSIM ≥ 0.97, UV CPU/GPU ratio asymmetry 5% (CPU 1.73 vs GPU 1.64; gate <25%), NIR-fallback SSIM ≥ 0.97. Bug fixed during verification: `GSPEC_RGB_ILLUMINANT` mode now uses the baked D65 SPD via `gpu_sampleD65()` instead of a Gaussian stand-in (was ~5× over-bright per λ).
+- [x] Promote pkg54 to "done" — done in this verification commit.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- Liveness verification of profile dispatch needs a band where (i) the
+  light source has spectral content and (ii) the profile differs from
+  zero. D65 zeroes past 780 nm so the NIR test only gates parity, not
+  liveness; the UV-band aluminium ratio test carries the liveness
+  assertion.
+- Profile-dispatch *liveness* cannot be cleanly probed via render-level
+  SSIM or absolute brightness because (i) the baked D65 SPD zeroes
+  past 780 nm, killing NIR signal regardless of dispatch, and (ii) in
+  UV the 380-400 nm visible-band overlap already gives JH-upsampled
+  ~0.85 reflectance from the RGB albedo, so the no-profile baseline
+  is not near-zero. Math: for aluminium back wall, no-profile
+  contribution ≈ 20 nm × 0.85 ≈ 17; with-profile ≈ 100 nm × 0.93
+  ≈ 93; ceiling ratio ≈ 5.5 back-wall-only, ~1.7 image-wide after
+  dilution by low-UV-reflectance floor (vegetation/water).
+  Cross-backend ratio agreement within 25% (measured: CPU 1.73 vs
+  GPU 1.64, 5% divergence) is the meaningful parity signal here.
+  True dispatch liveness — independent of scene physics — is filed
+  as pkg54d (direct gpu_profile_reflectance lookup binding).

@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (with eyes on Pillar 4)
 **Track:** A
-**Status:** partial — kernel + dispatch wiring landed; spectral-profile dispatch on the GPU split out as pkg54a, visible-band CMF table parity split out as pkg54b.
+**Status:** done — kernel + dispatch wiring landed; pkg54a (spectral-profile dispatch) and pkg54b (CIE 1964 10° CMF table parity) both done and verified on hardware. pkg54c (Jakob-Hanika spectral upsampling on GPU) and pkg54d (direct gpu_profile_reflectance binding) remain as scoped follow-ups for tighter parity / unconfounded liveness gating.
 **Estimated effort:** 1 week (~25 h, several sessions)
 **Depends on:** pkg53 (capability metadata), pkg35 (spectral GPU material payloads, done)
 
@@ -100,10 +100,16 @@ This is the smallest version of GPU spectral parity that gets IR/UV rendering of
   so the pkg54 SSIM ≥ 0.97 NIR/UV gates pass for the wrong reason
   (near-black ≈ near-black). pkg54a is required to honour
   `setSpectralProfile()` semantics on-device.
-- [ ] CIE-CMF table parity — **split out as
-  [pkg54b](pkg54b-gpu-cmf-table-parity.md)**. GPU currently uses
-  Wyman/Sloan/Shirley 2013 1931 2° fits; CPU uses 1964 10° from a baked
-  table. Visible-band parity is loose (≥ 0.97) but not exact.
+- [x] CIE-CMF table parity landed in [pkg54b](pkg54b-gpu-cmf-table-parity.md)
+  ([src/gpu/multiwavelength_kernel.cu](src/gpu/multiwavelength_kernel.cu):
+  `g_cmfX/Y/Z` constant memory + `cmfSample()`). Verified on hardware:
+  visible-band SSIM ≈ 0.988 at 64 spp, plateau ≈ 0.996 at 512 spp.
+- [ ] Exact visible-band parity (SSIM ≥ 0.999) — **blocked on
+  [pkg54c](pkg54c-gpu-jakob-hanika-upsampling.md)** (Jakob-Hanika 2019
+  spectral upsampling on GPU). The current 3-Gaussian RGB→spectrum mix
+  in `gpu_rgbSpectrumAt` is a cheap stand-in for the CPU's
+  `RGBAlbedoSpectrum`/`RGBIlluminantSpectrum` sigmoid coefficients, and
+  is the only remaining contributor to the CPU/GPU residual.
 - [x] Flip `gpuSupported = true` in [plugins/integrators/multiwavelength_path_tracer.cpp](plugins/integrators/multiwavelength_path_tracer.cpp).
 - [x] Update [.astroray_plan/docs/STATUS.md](.astroray_plan/docs/STATUS.md).
 
@@ -116,10 +122,27 @@ This is the smallest version of GPU spectral parity that gets IR/UV rendering of
   than `path_trace_kernel.cu`.
 - Wyman/Sloan/Shirley 2013 multi-Gaussian CIE-XYZ fits make a CPU-side LUT
   unnecessary for visible-band sRGB output, keeping the kernel
-  table-free and fully on-device.
+  table-free and fully on-device. (Superseded by pkg54b — exact CMF
+  parity needs the 1964 10° table on both sides.)
 - The integrator–GPU bridge lives in `module/blender_module.cpp`, not in the
   `Integrator` base class; that kept the GPU-aware dispatch off the public
   integrator interface (no header dependency on `gpu_renderer.h`).
 - Profile-aware spectral evaluation on the GPU is the next obvious gap — it
   needs a small constant-memory profile table plus a `profileIndex` field on
-  `GMaterial`. Tracked as a follow-up (pkg54a).
+  `GMaterial`. Tracked as a follow-up (pkg54a — done).
+- Hardware verification on a CUDA box exposed two GPU-side parity bugs
+  invisible from CPU-only review: (1) the `GSPEC_RGB_ILLUMINANT` path
+  used a `0.85+0.15·gauss(λ,540)` analytic stand-in for D65 instead of
+  the baked SPD, producing ~5× over-bright emission per wavelength;
+  (2) the parity scene's no-profile NIR fallback was unreachable as a
+  liveness gate because the baked D65 SPD is zero past 780 nm. Fix
+  for (1) was a `gpu_sampleD65()` device function backed by
+  `data/spectra/illuminant_d65.inc` in constant memory plus the
+  CPU's exact `1/∫D65·cmfY dλ` normalization; fix for (2) moved
+  liveness verification to the UV band's aluminium-vs-vegetation ratio
+  test, with pkg54d filed for a scene-independent unit gate.
+- Verification on hardware: visible-band CPU/GPU mean ratio 0.982,
+  SSIM 0.988 at 64 spp, plateau ~0.996 at 512 spp (gate ≥0.985 with
+  pkg54c noted as the path to ≥0.999); UV profile-dispatch
+  cross-backend ratio agreement 5% (CPU 1.73 vs GPU 1.64; gate
+  asymmetry <25%); NIR/UV SSIM ≥0.97; NIR fallback SSIM ≥0.97.

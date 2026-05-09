@@ -115,6 +115,18 @@ namespace cmf_baked {
 #include "data/spectra/cie_cmf.inc"
 }  // namespace cmf_baked
 
+// Pull in the same D65 SPD the CPU uses (data/spectra/illuminant_d65.inc),
+// so RGBIlluminantSpectrum-mode emission can mirror src/spectrum.cpp::sampleD65.
+namespace d65_baked {
+#include "data/spectra/illuminant_d65.inc"
+}  // namespace d65_baked
+
+// D65 SPD samples (raw CIE units) and the inverse normalization constant
+// k = 1 / ∫D65·cmfY dλ over [360,830]. Together these give
+// sampleD65(λ) = kD65Spd(λ) * k, mirroring src/spectrum.cpp::sampleD65.
+__constant__ float g_d65SPD[G_CMF_COUNT];
+__constant__ float g_d65NormFactor;
+
 void uploadCmfTables() {
     static bool uploaded = false;
     if (uploaded) return;
@@ -130,7 +142,42 @@ void uploadCmfTables() {
                 cudaGetErrorString(e3));
         throw std::runtime_error("CMF table upload failed");
     }
+
+    // Upload D65 SPD and compute the matching norm factor (mirrors
+    // computeD65Normalization() / d65NormFactor() in src/spectrum.cpp).
+    cudaError_t eD = cudaMemcpyToSymbol(g_d65SPD, d65_baked::kD65Spd,
+                                        sizeof(d65_baked::kD65Spd));
+    if (eD != cudaSuccess) {
+        fprintf(stderr, "D65 SPD upload failed: %s\n", cudaGetErrorString(eD));
+        throw std::runtime_error("D65 SPD upload failed");
+    }
+    double yInt = 0.0;
+    for (int i = 0; i + 1 < d65_baked::kD65Count; ++i) {
+        double dLam = static_cast<double>(cmf_baked::kCieCmfLambdaStep);
+        double a = d65_baked::kD65Spd[i]     * cmf_baked::kCieCmfY[i];
+        double b = d65_baked::kD65Spd[i + 1] * cmf_baked::kCieCmfY[i + 1];
+        yInt += 0.5 * dLam * (a + b);
+    }
+    float d65NormF = 1.0f / static_cast<float>(yInt);
+    cudaError_t eN = cudaMemcpyToSymbol(g_d65NormFactor, &d65NormF, sizeof(float));
+    if (eN != cudaSuccess) {
+        fprintf(stderr, "D65 norm upload failed: %s\n", cudaGetErrorString(eN));
+        throw std::runtime_error("D65 norm upload failed");
+    }
     uploaded = true;
+}
+
+// Mirror of astroray::sampleD65 in src/spectrum.cpp — linear lookup into
+// the D65 SPD scaled by the normalization factor so unit white emission
+// integrates to Y = 1 against the CIE 1964 10° observer.
+__device__ float gpu_sampleD65(float lambda) {
+    if (lambda < G_CMF_LAMBDA_MIN || lambda > G_CMF_LAMBDA_MAX) return 0.f;
+    float idx = (lambda - G_CMF_LAMBDA_MIN) / G_CMF_LAMBDA_STEP;
+    int   i   = (int)idx;
+    if (i >= G_CMF_COUNT - 1) return g_d65SPD[G_CMF_COUNT - 1] * g_d65NormFactor;
+    float t = idx - (float)i;
+    float v = g_d65SPD[i] * (1.f - t) + g_d65SPD[i + 1] * t;
+    return v * g_d65NormFactor;
 }
 
 // Linearly-interpolated table lookup; mirrors astroray::sampleTable() in

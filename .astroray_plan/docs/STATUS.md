@@ -22,7 +22,8 @@ personally should pick up.
   not CUDA kernels.
 - Pillar 5 is the active practical queue. The Cycles-parity/Blender package
   series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg60/pkg61/pkg62
-  are done, pkg59 is done, and pkg54/pkg57 remain open.
+  are done, pkg59 is done, pkg54/54a/54b are done (with pkg54c/54d as
+  scoped follow-ups), and pkg57 remains open.
 - Fresh local collection on this branch: `pytest --collect-only -q` reports
   **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
 - Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
@@ -116,7 +117,7 @@ is currently the weakest link.
 |---|---|---|---|
 | pkg52 | Persistent viewport session (persistent renderer, viewport camera invalidation, progressive accumulation, CAMERA zoom/pan) | **done** | A |
 | pkg53 | GPU integrator capability diagnostics | **done** | B/E |
-| pkg54 | GPU multi-wavelength path tracer (CPU/GPU parity) | open | A |
+| pkg54 | GPU multi-wavelength path tracer (CPU/GPU parity) | **done** | A |
 | pkg57 | Native Astroray shader nodes (with Cycles compat) | open | A |
 | pkg58 | Spectral profile dropdown + IR/UV reference scenes | **done** | B |
 | pkg59 | Shader-graph vector / UV plumbing (texture routing, Mapping scale/offset/rotation, coord_mode, uv_debug_aov, named UV layers) | **done** | A |
@@ -275,7 +276,7 @@ events are summarized in the changelog below.
 | pkg40 | A | open | current registry/reference cleanup |
 | pkg52 | A | **done** | — |
 | pkg53 | B/E | **done** | — |
-| pkg54 | A | open | GPU multi-wavelength CUDA kernel work |
+| pkg54 | A | **done** | pkg54/54a/54b verified on hardware; pkg54c (Jakob-Hanika upsampling) and pkg54d (profile lookup binding) filed as follow-ups |
 | pkg57 | A | open | native shader nodes / Cycles compatibility design |
 | pkg58 | B | **done** | — |
 | pkg59 | A | done | broader vector/UV/Mapping plumbing, named UV layers, and UV debug AOV |
@@ -303,15 +304,18 @@ events are summarized in the changelog below.
 - GPU material support is now capability-gated, so unsupported materials no
   longer silently lower to approximate CUDA records. pkg35 adds sampled
   wavelength payloads and `gpu_spectral` metadata for the core GPU material
-  set. pkg54 lands a CUDA megakernel mirror of `multiwavelength_path_tracer`
-  (visible/NIR/UV bands, luminance + sRGB output); the integrator now
-  reports `gpuSupported = true`, but two follow-ups are split out and still
-  open: pkg54a (per-material spectral-profile dispatch on the GPU — without
-  it, outside-visible bands degenerate to RGB-to-spectrum on both backends)
-  and pkg54b (CIE 1964 10° CMF table on GPU instead of the current Wyman
-  2013 1931 2° fits). Sellmeier direction-splitting and true spectral
-  emitter parameter upload also remain CPU-only follow-ups. pkg36 expands
-  shared closure lowering.
+  set. pkg54/54a/54b are done: pkg54 landed a CUDA megakernel mirror of
+  `multiwavelength_path_tracer` (visible/NIR/UV bands, luminance + sRGB
+  output, `gpuSupported = true`); pkg54a added per-material spectral-profile
+  dispatch on the GPU; pkg54b replaced the Wyman 2013 1931 2° CMF fit with
+  the same baked CIE 1964 10° table the CPU uses, and a D65-SPD parity bug
+  (Gaussian stand-in for the true SPD) was fixed during hardware
+  verification. pkg54c (Jakob-Hanika spectral upsampling on GPU, SSIM
+  ceiling 0.985→0.999) and pkg54d (direct gpu_profile_reflectance binding
+  for unconfounded liveness gating) remain as scoped follow-ups.
+  Sellmeier direction-splitting and true spectral emitter parameter
+  upload also remain CPU-only follow-ups. pkg36 expands shared closure
+  lowering.
 - The Blender addon backend UI/packaging refresh from pkg37 is complete.
   Remaining Blender parity work is narrower: pkg57 shader graph
   fidelity and pkg54 multi-wavelength GPU parity. pkg52 persistent viewport

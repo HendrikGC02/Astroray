@@ -134,11 +134,12 @@ public:
         auto mode = parseCoordMode(coordMode);
         if (auto tex = getTexture(name)) tex->setCoordMode(mode);
     }
-    // pkg59 follow-up: bake a Blender Mapping node's Location + Scale into
-    // a per-texture UV transform applied at sample time.
+    // pkg59 follow-up: bake a Blender Mapping node's Location + Rotation.z +
+    // Scale into a per-texture UV transform applied at sample time.
     void setTextureUVTransform(const std::string& name,
-                               float sx, float sy, float ox, float oy) {
-        if (auto tex = getTexture(name)) tex->setUVTransform(sx, sy, ox, oy);
+                               float sx, float sy, float ox, float oy,
+                               float rotZRad = 0.0f) {
+        if (auto tex = getTexture(name)) tex->setUVTransform(sx, sy, ox, oy, rotZRad);
     }
     std::shared_ptr<Texture> getTexture(const std::string& name) {
         auto it1 = imageTextures.find(name);
@@ -175,8 +176,9 @@ public:
         textureManager.setTextureCoordMode(name, coordMode);
     }
     void setTextureUVTransform(const std::string& name,
-                               float sx, float sy, float ox, float oy) {
-        textureManager.setTextureUVTransform(name, sx, sy, ox, oy);
+                               float sx, float sy, float ox, float oy,
+                               float rotZRad = 0.0f) {
+        textureManager.setTextureUVTransform(name, sx, sy, ox, oy, rotZRad);
     }
 
     std::vector<float> sampleTexture(const std::string& type, py::dict params, float u, float v) {
@@ -948,7 +950,10 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_texture_coord_mode", &PyRenderer::setTextureCoordMode, "name"_a, "coord_mode"_a)
         .def("set_texture_uv_transform", &PyRenderer::setTextureUVTransform,
              "name"_a, "scale_x"_a, "scale_y"_a, "offset_x"_a, "offset_y"_a,
-             "Apply scale + offset (UV-space) to a texture; baked from a Blender Mapping node.")
+             "rotation"_a = 0.0f,
+             "Apply scale + Z-rotation + offset (UV-space) to a texture; "
+             "baked from a Blender Mapping node. Order matches Blender Point "
+             "mapping: scale → rotate → translate. Rotation is in radians.")
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
         .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a,
              "ies_direction"_a = std::vector<float>(), "ies_file"_a = std::string(),

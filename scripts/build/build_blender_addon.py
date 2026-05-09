@@ -780,6 +780,10 @@ def stage_and_zip(module_path: Path, backend: str = "cpu") -> Path:
             sys.exit(f"error: missing addon file {src}")
         shutil.copy2(src, STAGE_DIR / name)
 
+    preview_helpers = REPO_ROOT / "scripts" / "diagnostics" / "_preview_helpers.py"
+    if preview_helpers.exists():
+        shutil.copy2(preview_helpers, STAGE_DIR / "_preview_helpers.py")
+
     # pkg58: ship reference IR/UV scenes (optional in source tree).
     scenes_src = ADDON_SRC / "scenes"
     if scenes_src.is_dir():

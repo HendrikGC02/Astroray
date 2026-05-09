@@ -130,8 +130,8 @@ class _RecordingRenderer:
     def set_texture_coord_mode(self, name, mode):
         self.coord_mode_calls.append((name, mode))
 
-    def set_texture_uv_transform(self, name, sx, sy, ox, oy):
-        self.uv_transform_calls.append((name, sx, sy, ox, oy))
+    def set_texture_uv_transform(self, name, sx, sy, ox, oy, rotation=0.0):
+        self.uv_transform_calls.append((name, sx, sy, ox, oy, rotation))
 
     def create_procedural_texture(self, name, ttype, params):
         self.proc_texture_calls.append((name, ttype, list(params)))
@@ -152,7 +152,7 @@ def test_resolve_vector_input_unlinked_returns_default(monkeypatch):
     addon = _load_blender_addon(monkeypatch)
     cls = addon.CustomRaytracerRenderEngine
     socket = _Socket()  # not linked
-    coord, scale, offset = cls._resolve_vector_input(socket)
+    coord, scale, offset, rotation = cls._resolve_vector_input(socket)
     assert coord == "UV"
     assert scale == (1.0, 1.0)
     assert offset == (0.0, 0.0)
@@ -164,7 +164,7 @@ def test_resolve_vector_input_uv_default(monkeypatch):
     cls = addon.CustomRaytracerRenderEngine
     tc = _Node('TEX_COORD')
     socket = _Socket(linked_to=tc, output_name='UV')
-    coord, _scale, _offset = cls._resolve_vector_input(socket)
+    coord, _scale, _offset, _rotation = cls._resolve_vector_input(socket)
     assert coord == "UV"
 
 
@@ -174,7 +174,7 @@ def test_resolve_vector_input_generated(monkeypatch):
     cls = addon.CustomRaytracerRenderEngine
     tc = _Node('TEX_COORD')
     socket = _Socket(linked_to=tc, output_name='Generated')
-    coord, _scale, _offset = cls._resolve_vector_input(socket)
+    coord, _scale, _offset, _rotation = cls._resolve_vector_input(socket)
     assert coord == "GENERATED"
 
 
@@ -183,7 +183,7 @@ def test_resolve_vector_input_object(monkeypatch):
     cls = addon.CustomRaytracerRenderEngine
     tc = _Node('TEX_COORD')
     socket = _Socket(linked_to=tc, output_name='Object')
-    coord, _scale, _offset = cls._resolve_vector_input(socket)
+    coord, _scale, _offset, _rotation = cls._resolve_vector_input(socket)
     assert coord == "OBJECT"
 
 
@@ -198,7 +198,7 @@ def test_resolve_vector_input_mapping_scale_only(monkeypatch):
         'Scale': _Socket(default=(2.0, 3.0, 1.0)),
     })
     socket = _Socket(linked_to=mapping, output_name='Vector')
-    coord, scale, offset = cls._resolve_vector_input(socket)
+    coord, scale, offset, rotation = cls._resolve_vector_input(socket)
     assert coord == "UV"
     assert scale == (2.0, 3.0)
     assert offset == (0.0, 0.0)
@@ -213,7 +213,7 @@ def test_resolve_vector_input_mapping_offset(monkeypatch):
         'Scale': _Socket(default=(1.0, 1.0, 1.0)),
     })
     socket = _Socket(linked_to=mapping, output_name='Vector')
-    _coord, scale, offset = cls._resolve_vector_input(socket)
+    _coord, scale, offset, _rotation = cls._resolve_vector_input(socket)
     assert scale == (1.0, 1.0)
     assert offset == (0.5, -0.25)
 
@@ -230,7 +230,7 @@ def test_resolve_vector_input_mapping_chained_with_generated(monkeypatch):
         'Scale':    _Socket(default=(2.0, 2.0, 1.0)),
     })
     socket = _Socket(linked_to=mapping, output_name='Vector')
-    coord, scale, _offset = cls._resolve_vector_input(socket)
+    coord, scale, _offset, _rotation = cls._resolve_vector_input(socket)
     assert coord == "GENERATED"
     assert scale == (2.0, 2.0)
 
@@ -250,7 +250,7 @@ def test_resolve_vector_input_depth_limit(monkeypatch):
             'Scale': _Socket(default=(1.0, 1.0, 1.0)),
         })
     socket = _Socket(linked_to=inner, output_name='Vector')
-    coord, scale, offset = cls._resolve_vector_input(socket)
+    coord, scale, offset, rotation = cls._resolve_vector_input(socket)
     # The outer-most Mapping still applies its own Scale; deeper ones get
     # cut off, but the outer (depth=0) Scale should still be honored.
     assert coord == "UV"
@@ -295,7 +295,7 @@ def test_load_blender_image_with_mapping_applies_transform(monkeypatch):
     assert "brick.png" in name
     # set_texture_uv_transform was called with (sx=2, sy=2, ox=0, oy=0).
     assert len(renderer.uv_transform_calls) == 1
-    n, sx, sy, ox, oy = renderer.uv_transform_calls[0]
+    n, sx, sy, ox, oy, _rot = renderer.uv_transform_calls[0]
     assert n == name
     assert (sx, sy) == (2.0, 2.0)
     assert (ox, oy) == (0.0, 0.0)
@@ -345,3 +345,89 @@ def test_load_blender_image_caches_per_transform(monkeypatch):
     # Two distinct uploads (the third was a cache hit).
     upload_names = [t[0] for t in renderer.loaded_textures]
     assert upload_names == [n1, n2]
+
+
+# ---------------------------------------------------------------------------
+# 3. Mapping rotation (pkg59 finishing-touch)
+# ---------------------------------------------------------------------------
+
+def test_resolve_vector_input_mapping_rotation_z(monkeypatch):
+    """Mapping(Rotation=(0, 0, pi/4)) must produce rotation=pi/4 radians.
+    X and Y components are intentionally ignored — they have no 2D-effective
+    meaning on UV coordinates."""
+    import math
+    addon = _load_blender_addon(monkeypatch)
+    cls = addon.CustomRaytracerRenderEngine
+    mapping = _Node('MAPPING', inputs={
+        'Vector':   _Socket(),
+        'Location': _Socket(default=(0.0, 0.0, 0.0)),
+        'Rotation': _Socket(default=(0.0, 0.0, math.pi / 4)),
+        'Scale':    _Socket(default=(1.0, 1.0, 1.0)),
+    })
+    socket = _Socket(linked_to=mapping, output_name='Vector')
+    coord, scale, offset, rotation = cls._resolve_vector_input(socket)
+    assert coord == "UV"
+    assert scale == (1.0, 1.0)
+    assert offset == (0.0, 0.0)
+    assert abs(rotation - math.pi / 4) < 1e-6
+
+
+def test_load_blender_image_with_mapping_rotation_passes_through(monkeypatch):
+    """A Mapping with rotation must result in a set_texture_uv_transform call
+    whose 6th argument carries the rotation in radians."""
+    import math
+    addon = _load_blender_addon(monkeypatch)
+    engine = addon.CustomRaytracerRenderEngine()
+    renderer = _RecordingRenderer()
+    image = _FakeImage(name="rotated.png")
+    mapping = _Node('MAPPING', inputs={
+        'Vector':   _Socket(),
+        'Location': _Socket(default=(0.0, 0.0, 0.0)),
+        'Rotation': _Socket(default=(0.0, 0.0, math.pi / 6)),
+        'Scale':    _Socket(default=(1.0, 1.0, 1.0)),
+    })
+    name = engine.load_blender_image(
+        image, renderer,
+        vector_input=_Socket(linked_to=mapping, output_name='Vector')
+    )
+    assert name != "rotated.png"  # rotation is non-default → distinct cache key
+    assert len(renderer.uv_transform_calls) == 1
+    n, sx, sy, ox, oy, rot = renderer.uv_transform_calls[0]
+    assert n == name
+    assert (sx, sy) == (1.0, 1.0)
+    assert (ox, oy) == (0.0, 0.0)
+    assert abs(rot - math.pi / 6) < 1e-6
+
+
+def test_resolve_vector_input_mapping_full_combo(monkeypatch):
+    """Scale + offset + rotation in a single Mapping node must all flow
+    through together."""
+    import math
+    addon = _load_blender_addon(monkeypatch)
+    cls = addon.CustomRaytracerRenderEngine
+    mapping = _Node('MAPPING', inputs={
+        'Vector':   _Socket(),
+        'Location': _Socket(default=(0.5, -0.25, 0.0)),
+        'Rotation': _Socket(default=(0.0, 0.0, math.pi / 2)),
+        'Scale':    _Socket(default=(2.0, 3.0, 1.0)),
+    })
+    socket = _Socket(linked_to=mapping, output_name='Vector')
+    coord, scale, offset, rotation = cls._resolve_vector_input(socket)
+    assert coord == "UV"
+    assert scale == (2.0, 3.0)
+    assert offset == (0.5, -0.25)
+    assert abs(rotation - math.pi / 2) < 1e-6
+
+
+def test_apply_texture_transform_skips_identity_with_zero_rotation(monkeypatch):
+    """rotation=0 + scale=(1,1) + offset=(0,0) must NOT call
+    set_texture_uv_transform. Otherwise we'd pay the call (and a cache-key
+    diversion) for every default-mapping texture."""
+    addon = _load_blender_addon(monkeypatch)
+    engine = addon.CustomRaytracerRenderEngine()
+    renderer = _RecordingRenderer()
+    engine._apply_texture_transform(
+        renderer, "tex", "UV", (1.0, 1.0), (0.0, 0.0), 0.0
+    )
+    assert renderer.uv_transform_calls == []
+    assert renderer.coord_mode_calls == []

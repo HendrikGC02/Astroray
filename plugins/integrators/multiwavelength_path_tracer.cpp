@@ -53,7 +53,12 @@ public:
     void beginFrame(Renderer& scene, const Camera&) override { renderer_ = &scene; }
 
     IntegratorCapabilities capabilities() const override {
-        return {false, "multi-wavelength wavelength bands and spectral profiles are CPU-only"};
+        // pkg54: CUDA megakernel in src/gpu/multiwavelength_kernel.cu mirrors
+        // this integrator. Spectral profile dispatch is not yet on the GPU
+        // (materials without profiles fall through to RGB-to-spectrum, same
+        // as the CPU path), so visible-band parity is exact while
+        // outside-visible bands rely on the analytic Rayleigh sky fallback.
+        return {true, ""};
     }
 
     SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {

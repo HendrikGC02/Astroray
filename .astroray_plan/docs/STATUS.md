@@ -136,7 +136,7 @@ forgotten):
 | pkg55 | Wavefront SoA GPU refactor | Very large; defer until pkg54 megakernel lands and we have measured GPU spectral parity numbers. |
 | pkg56 | Incremental scene sync (depsgraph diff, BVH refit-only) | Large; would unlock pkg52's persistence value on big scenes but is its own architecture pass. |
 | pkg65 | scripts/ directory cleanup (`build/`, `diagnostics/`, `benchmarks/`, `data/`, `dev/` subfolders) | Trivial — can be done from a one-line description; no spec needed. |
-| pkg66 | Material iteration UX (one-sphere-per-material live preview operator) | Small; partly covered by `scripts/material_contact_sheet.py`. |
+| pkg66 | Material iteration UX (one-sphere-per-material live preview operator) | Small; partly covered by `scripts/diagnostics/material_contact_sheet.py`. |
 
 **Astrophysics platform (Pillar 4):**
 
@@ -196,8 +196,8 @@ forgotten):
 ### Track B (Copilot cloud)
 
 - Complete since the old queue note: albedo/normal/depth AOVs, bounce/sample
-  heatmap passes, `scripts/convergence_tracker.py`, and
-  `scripts/benchmark_showcase.py` are present in-tree.
+  heatmap passes, `scripts/diagnostics/convergence_tracker.py`, and
+  `scripts/benchmarks/benchmark_showcase.py` are present in-tree.
 - Recent Track B fits pkg58 (spectral profile UX/reference scenes) and pkg62
   (viewport pass selector + live OIDN preview) are complete; refresh the Track
   B queue before launching more cloud work.
@@ -303,8 +303,12 @@ events are summarized in the changelog below.
 - GPU material support is now capability-gated, so unsupported materials no
   longer silently lower to approximate CUDA records. pkg35 adds sampled
   wavelength payloads and `gpu_spectral` metadata for the core GPU material
-  set; Sellmeier direction-splitting and true spectral emitter parameter
-  upload remain CPU-only. pkg36 expands shared closure lowering.
+  set. pkg54 lands a CUDA megakernel mirror of `multiwavelength_path_tracer`
+  (visible/NIR/UV bands, luminance + sRGB output via Wyman 2013 CMFs); the
+  integrator now reports `gpuSupported = true`. Sellmeier direction-splitting,
+  true spectral emitter parameter upload, and per-material spectral-profile
+  dispatch on the GPU all remain CPU-only follow-ups. pkg36 expands shared
+  closure lowering.
 - The Blender addon backend UI/packaging refresh from pkg37 is complete.
   Remaining Blender parity work is narrower: pkg57/pkg59 shader graph
   fidelity and pkg54 multi-wavelength GPU parity. pkg52 persistent viewport
@@ -416,7 +420,7 @@ Brief notes on notable events.
 - **2026-05-03** — pkg33 complete. OIDN auto-detection (env var, common Windows paths, FetchContent 2.3.3 fallback) added to CMakeLists.txt. OIDN 2.4.1 found at C:/oidn; `ASTRORAY_OIDN_ENABLED` now active. Duplicate function definitions from the rough-Disney-glass merge fixed in `disney.cpp`. Blender addon `__init__.py` probes `addon_dir/oidn/` and `C:/oidn/bin` for DLLs; `build_blender_addon.py` copies them into the zip. New `tests/test_oidn_denoiser.py` verifies: registry presence, variance reduction (30× at 4 spp), and side-by-side PNG in `test_results/oidn_before_after.png`. 3 new tests; all pass.
 - **2026-05-03** — pkg32 complete. Visual AOVs now have non-trivial output
   coverage, convergence/showcase scripts are verified, and
-  `scripts/oidn_comparison.py` writes noisy/denoised/side-by-side OIDN PNGs
+  `scripts/diagnostics/oidn_comparison.py` writes noisy/denoised/side-by-side OIDN PNGs
   when OIDN is compiled in.
 - **2026-05-03** — pkg34 complete. Materials now expose backend capability
   metadata, CUDA upload rejects unsupported materials instead of silently
@@ -435,7 +439,7 @@ Brief notes on notable events.
   work on optical-glass presets and thin architectural glass.
 - **2026-05-03** — pkg29a complete. Added `caustic_path_tracer`, three caustic
   validation scenes, saved PNG diagnostics, JSON/CSV stats, and
-  `scripts/benchmark_caustic_transport.py`. The opt-in integrator records
+  `scripts/benchmarks/benchmark_caustic_transport.py`. The opt-in integrator records
   `caustic_connections` and `caustic_energy` while leaving `path_tracer` as
   the default/reference.
 - **2026-05-03** — Codex material triage recorded: convergence tracker repair,
@@ -465,7 +469,7 @@ Brief notes on notable events.
   fallback 0.0420s/frame, NRC training backend 0.0318s/frame (1.23x, but not
   yet the original 30% speedup/quality target).
 - **2026-05-01** — pkg27b complete. Added
-  `scripts/benchmark_light_transport.py`,
+  `scripts/benchmarks/benchmark_light_transport.py`,
   `tests/scenes/neural_cache_indirect.py`, and
   `tests/test_neural_cache_validation.py`. The benchmark writes JSON/CSV stats
   and PNG charts comparing path tracer, auto default, NRC fallback, and NRC

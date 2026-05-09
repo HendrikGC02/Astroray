@@ -42,6 +42,20 @@ void launchPathTraceKernel(
     GVec3 backgroundColor, bool hasBackgroundColor,
     curandState* d_rngStates);
 
+void launchMultiwavelengthKernel(
+    float* d_framebuffer, int width, int height,
+    int samplesPerPixel, int maxDepth,
+    float lambdaMin, float lambdaMax, bool useLuminanceOutput,
+    const GBVHNode*  d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const GMaterial*  d_materials,
+    GEnvMap envMap,
+    GCameraParams cam,
+    GVec3 backgroundColor, bool hasBackgroundColor,
+    curandState* d_rngStates);
+
 // ---------------------------------------------------------------------------
 // Helper: upload host vector → device array
 // ---------------------------------------------------------------------------
@@ -270,4 +284,44 @@ void CUDARenderer::render(
         pixels[i] = Vec3(hostFb[i*3], hostFb[i*3+1], hostFb[i*3+2]);
 
     printf("[CUDA] Render complete: %dx%d, %d spp\n", width, height, samplesPerPixel);
+}
+
+void CUDARenderer::renderMultiwavelength(
+    std::vector<Vec3>& pixels, int width, int height,
+    int seed, int samplesPerPixel, int maxDepth,
+    float lambdaMin, float lambdaMax, bool useLuminanceOutput)
+{
+    if (!impl->available) throw std::runtime_error("No CUDA GPU available");
+    if (!impl->d_bvhNodes) throw std::runtime_error("Scene not uploaded — call uploadScene() first");
+
+    impl->ensureFramebuffer(width, height);
+    int totalPixels = width * height;
+
+    unsigned long long rngSeed = (seed == 0)
+        ? (unsigned long long)time(nullptr)
+        : (unsigned long long)seed;
+    launchInitRNG(impl->d_rngStates, totalPixels, rngSeed);
+
+    launchMultiwavelengthKernel(
+        impl->d_framebuffer, width, height, samplesPerPixel, maxDepth,
+        lambdaMin, lambdaMax, useLuminanceOutput,
+        impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
+        impl->d_materials,
+        impl->envMap,
+        impl->camera,
+        impl->backgroundColor, impl->hasBackgroundColor,
+        impl->d_rngStates);
+
+    std::vector<float> hostFb(totalPixels * 3);
+    CUDA_CHECK(cudaMemcpy(hostFb.data(), impl->d_framebuffer,
+                          totalPixels * 3 * sizeof(float),
+                          cudaMemcpyDeviceToHost));
+
+    pixels.resize(totalPixels);
+    for (int i = 0; i < totalPixels; ++i)
+        pixels[i] = Vec3(hostFb[i*3], hostFb[i*3+1], hostFb[i*3+2]);
+
+    printf("[CUDA] MW render complete: %dx%d, %d spp, [%.0f, %.0f] nm, %s\n",
+           width, height, samplesPerPixel, lambdaMin, lambdaMax,
+           useLuminanceOutput ? "luminance" : "visible");
 }

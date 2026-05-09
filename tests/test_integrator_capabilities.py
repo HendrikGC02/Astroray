@@ -30,10 +30,10 @@ def test_every_registered_integrator_reports_gpu_capabilities():
 
 def test_integrator_gpu_support_matrix_matches_current_cuda_kernels():
     names = set(astroray.integrator_registry_names())
-    expected_supported = {"path_tracer", "ambient_occlusion"}
+    # pkg54: multiwavelength_path_tracer flipped to gpuSupported=True.
+    expected_supported = {"path_tracer", "ambient_occlusion", "multiwavelength_path_tracer"}
     expected_unsupported = {
         "caustic_path_tracer",
-        "multiwavelength_path_tracer",
         "neural-cache",
         "restir-di",
     }
@@ -49,7 +49,7 @@ def test_integrator_gpu_support_matrix_matches_current_cuda_kernels():
     assert not (expected_unsupported & supported)
 
 
-def test_multiwavelength_integrator_reports_cpu_only_reason():
+def test_multiwavelength_integrator_reports_gpu_supported():
+    """pkg54: multiwavelength_path_tracer now has a CUDA megakernel."""
     caps = astroray.integrator_capabilities("multiwavelength_path_tracer")
-    assert caps["gpuSupported"] is False
-    assert "multi-wavelength" in caps["gpuFallbackReason"]
+    assert caps["gpuSupported"] is True

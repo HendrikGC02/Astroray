@@ -40,6 +40,17 @@ public:
                 int width, int height, int seed,
                 int samplesPerPixel, int maxDepth);
 
+    // pkg54: GPU port of the multi-wavelength path tracer. Same scene state as
+    // render(); accepts a configurable wavelength band and luminance/visible
+    // output mode. lambdaMin/lambdaMax are nm; when useLuminanceOutput is true
+    // the kernel stores the per-band mean radiance as neutral grey RGB,
+    // otherwise it projects the spectrum to linear sRGB via Wyman 2013 CMFs.
+    void renderMultiwavelength(std::vector<Vec3>& pixels,
+                               int width, int height, int seed,
+                               int samplesPerPixel, int maxDepth,
+                               float lambdaMin, float lambdaMax,
+                               bool useLuminanceOutput);
+
     // [0, 1] progress estimate (reserved for async use in Phase 3).
     float getProgress() const;
 

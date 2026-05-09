@@ -119,7 +119,7 @@ is currently the weakest link.
 | pkg54 | GPU multi-wavelength path tracer (CPU/GPU parity) | open | A |
 | pkg57 | Native Astroray shader nodes (with Cycles compat) | open | A |
 | pkg58 | Spectral profile dropdown + IR/UV reference scenes | **done** | B |
-| pkg59 | Shader-graph vector / UV plumbing (Principled image-texture routing fixed; broader vector/UV/Mapping spec remains) | partial | A |
+| pkg59 | Shader-graph vector / UV plumbing (texture routing, Mapping scale/offset/rotation, coord_mode, uv_debug_aov; named UV layers remain — separate package) | mostly done | A |
 | pkg60 | Disney v2 energy compensation (no-glow materials) | **done** | A/E |
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
@@ -327,6 +327,30 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-09** — pkg60 complete (PR #178, Codex). Disney v2 energy
+  compensation: ported Cycles-derived GGX + sheen LUTs, replaced Disney's
+  additive roughness boost with Kulla-Conty/Cycles compensation, top-layer
+  attenuation, and a local diffuse furnace normalization. Worst-case
+  directional-hemispherical reflectance 1.0159 across the 90-point
+  parameter grid × 3 outgoing cosines × 4096 Halton samples — under the
+  1.02 acceptance gate. Bonus: Codex caught and fixed a pre-existing
+  Disney specular/clearcoat Smith-G denominator bug while doing the
+  furnace test, plus a combined-sampler PDF regression during owner
+  review. Closes the project-owner-reported "materials seem to glow" bug.
+
+- **2026-05-09** — pkg59 mostly done (PR #173 + PR #176). Vector input
+  walking honors Mapping(Location, Rotation.z, Scale) and Texture
+  Coordinate.UV/Generated/Object. New `uv_debug_aov` pass plugin renders
+  first-hit UVs as RG colors. Named UV layers (multiple per-mesh UV sets)
+  remain a separate package — needs structural per-triangle upload change.
+
+- **2026-05-09** — pkg64 caustics research signed off (PR #177 + PR #179).
+  Recommendation: vendor SMS reference code (BSD-3, MIT-compatible) +
+  per-wavelength Newton residual derived from Hanika et al. 2015. Cycles
+  MNEE source NOT used — GPL-2.0+ incompatible with Astroray's MIT.
+  Reflective caustics in scope; opt-in caster UX; both numerical + visual
+  acceptance gates.
 
 - **2026-05-09** — pkg52 complete. The Blender viewport session now keeps a
   persistent renderer, re-renders on view/camera/region/zoom/pan changes,

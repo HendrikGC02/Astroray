@@ -21,16 +21,28 @@ public:
 private:
     CoordMode coordMode = CoordMode::UV;
     // pkg59 follow-up: per-texture UV transform baked in from a Blender
-    // Mapping node (Location + Scale). Applied AFTER coord-mode resolution
-    // so it composes with Generated/Object/UV. Rotation is not yet wired —
-    // most production PBR materials only need scale + offset.
+    // Mapping node (Location + Rotation.z + Scale). Applied AFTER coord-mode
+    // resolution so it composes with Generated/Object/UV. Order matches
+    // Blender's "Point" Mapping node: scale → rotate → translate.
     Vec2 uvScale_{1.0f, 1.0f};
     Vec2 uvOffset_{0.0f, 0.0f};
+    float uvRotation_ = 0.0f;  // radians, Z-axis only (2D)
 
 protected:
     Vec2 applyUVTransform(const Vec2& uv) const {
-        return Vec2(uv.u * uvScale_.u + uvOffset_.u,
-                    uv.v * uvScale_.v + uvOffset_.v);
+        // Blender "Point" Mapping: out = location + rotation @ (scale * in).
+        // 2D simplification: only Z rotation has effect on UV.
+        float s = uv.u * uvScale_.u;
+        float t = uv.v * uvScale_.v;
+        if (uvRotation_ != 0.0f) {
+            float c = std::cos(uvRotation_);
+            float si = std::sin(uvRotation_);
+            float u2 = c * s - si * t;
+            float v2 = si * s + c * t;
+            s = u2;
+            t = v2;
+        }
+        return Vec2(s + uvOffset_.u, t + uvOffset_.v);
     }
 
     static Vec2 directionToUV(const Vec3& d) {
@@ -104,13 +116,21 @@ public:
     }
     void setCoordMode(CoordMode mode) { coordMode = mode; }
     CoordMode getCoordMode() const { return coordMode; }
-    // pkg59 follow-up: apply Mapping(Location, Scale) at sample time.
+    // pkg59 follow-up: apply Mapping(Location, Rotation.z, Scale) at sample
+    // time. 4-arg overload kept for backward compat (rotation defaults to 0).
     void setUVTransform(float sx, float sy, float ox, float oy) {
         uvScale_ = Vec2(sx, sy);
         uvOffset_ = Vec2(ox, oy);
+        uvRotation_ = 0.0f;
+    }
+    void setUVTransform(float sx, float sy, float ox, float oy, float rotZRad) {
+        uvScale_ = Vec2(sx, sy);
+        uvOffset_ = Vec2(ox, oy);
+        uvRotation_ = rotZRad;
     }
     Vec2 getUVScale()  const { return uvScale_;  }
     Vec2 getUVOffset() const { return uvOffset_; }
+    float getUVRotation() const { return uvRotation_; }
 
     // Spectral hook (pkg13). Default upsamples the RGB value per-call.
     virtual astroray::SampledSpectrum sampleSpectral(

@@ -1648,6 +1648,10 @@ public:
         if (name == "depth")  return cam_->depthBuffer.data();
         if (name == "bounce_count")  return cam_->bounceCountBuffer.data();
         if (name == "sample_weight") return cam_->sampleWeightBuffer.data();
+        // pkg59: UV debug AOV reads first-hit UVs (already populated by the
+        // renderer at line ~2392). Stored Vec3-per-pixel; first two channels
+        // are the (u,v) sampled by the shader after coord-mode + transform.
+        if (name == "uv") return reinterpret_cast<float*>(cam_->uvBuffer.data());
         return nullptr;
     }
     const float* buffer(const std::string& name) const {

@@ -1561,7 +1561,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
     @staticmethod
     def _resolve_vector_input(vector_socket, depth=0):
         """Walk the Vector input on a TEX_IMAGE / procedural texture node and
-        return ``(coord_mode, scale_xy, offset_xy)``:
+        return ``(coord_mode, scale_xy, offset_xy, rotation_z)``:
 
         - ``coord_mode``: one of "UV", "GENERATED", "OBJECT" — passed straight
           to ``renderer.set_texture_coord_mode``. Other Texture Coordinate
@@ -1569,35 +1569,44 @@ class CustomRaytracerRenderEngine(RenderEngine):
           "UV"; the C++ side supports them but the Blender semantics need a
           real test scene to pin down.
         - ``scale_xy`` / ``offset_xy``: (sx, sy) and (ox, oy) baked from a
-          ``Mapping`` node on the chain. Unused inputs default to identity.
+          ``Mapping`` node on the chain.
+        - ``rotation_z``: float in radians, baked from a ``Mapping`` node's
+          Rotation.z (Blender 2D-effective Z component). Default 0.
 
         Limit chain depth to avoid pathological node graphs (Mapping → Mapping
-        → Mapping…). Mapping rotation is intentionally not handled yet — most
-        production PBR materials only use scale + offset, and the C++ side
-        does not yet have a UV-rotation slot.
+        → Mapping…).
         """
         coord_mode = "UV"
         scale = (1.0, 1.0)
         offset = (0.0, 0.0)
+        rotation = 0.0
         if depth > 4 or vector_socket is None or not getattr(vector_socket, 'is_linked', False):
-            return coord_mode, scale, offset
+            return coord_mode, scale, offset, rotation
         try:
             link = vector_socket.links[0]
             src = link.from_node
             src_socket_name = link.from_socket.name
         except (IndexError, AttributeError):
-            return coord_mode, scale, offset
+            return coord_mode, scale, offset, rotation
 
         ntype = getattr(src, 'type', None)
         if ntype == 'MAPPING':
-            # Read Location and Scale defaults. Linked inputs aren't followed —
-            # would require a real expression evaluator. Most user-facing
-            # mappings have constant defaults.
+            # Read Location, Rotation, and Scale defaults. Linked inputs
+            # aren't followed — would require a real expression evaluator.
+            # Most user-facing mappings have constant defaults.
             loc_inp = src.inputs.get('Location') if hasattr(src, 'inputs') else None
             if loc_inp is not None and not getattr(loc_inp, 'is_linked', False):
                 v = loc_inp.default_value
                 try:
                     offset = (float(v[0]), float(v[1]))
+                except (TypeError, IndexError):
+                    pass
+            rot_inp = src.inputs.get('Rotation') if hasattr(src, 'inputs') else None
+            if rot_inp is not None and not getattr(rot_inp, 'is_linked', False):
+                v = rot_inp.default_value
+                try:
+                    # 2D-effective: only the Z component rotates UVs.
+                    rotation = float(v[2])
                 except (TypeError, IndexError):
                     pass
             scl_inp = src.inputs.get('Scale') if hasattr(src, 'inputs') else None
@@ -1609,55 +1618,64 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     pass
             # Recurse to find the upstream coord source.
             inner_socket = src.inputs.get('Vector') if hasattr(src, 'inputs') else None
-            inner_coord, _inner_scale, _inner_offset = \
+            inner_coord, _inner_scale, _inner_offset, _inner_rot = \
                 CustomRaytracerRenderEngine._resolve_vector_input(inner_socket, depth + 1)
-            return inner_coord, scale, offset
+            return inner_coord, scale, offset, rotation
 
         if ntype == 'TEX_COORD':
             if src_socket_name == 'Generated':
-                return "GENERATED", scale, offset
+                return "GENERATED", scale, offset, rotation
             if src_socket_name == 'Object':
-                return "OBJECT", scale, offset
+                return "OBJECT", scale, offset, rotation
             # 'UV' (default), 'Camera', 'Window', 'Reflection', 'Normal' →
             # fall through to "UV". A future package can extend this.
-            return "UV", scale, offset
+            return "UV", scale, offset, rotation
 
         # UV Map node (Blender's named-UV-layer source). The active UV layer
         # is what we ship today; the layer name is recorded on the node but
         # named UV layer routing is a separate package (structural change to
         # the per-triangle UV upload).
         if ntype == 'UVMAP':
-            return "UV", scale, offset
+            return "UV", scale, offset, rotation
 
-        return coord_mode, scale, offset
+        return coord_mode, scale, offset, rotation
 
     @staticmethod
-    def _is_default_uv_transform(coord_mode, scale, offset):
+    def _is_default_uv_transform(coord_mode, scale, offset, rotation):
         return (coord_mode == "UV"
                 and abs(scale[0] - 1.0) < 1e-6 and abs(scale[1] - 1.0) < 1e-6
-                and abs(offset[0]) < 1e-6 and abs(offset[1]) < 1e-6)
+                and abs(offset[0]) < 1e-6 and abs(offset[1]) < 1e-6
+                and abs(rotation) < 1e-6)
 
     @staticmethod
-    def _texture_variant_key(base_name, coord_mode, scale, offset):
+    def _texture_variant_key(base_name, coord_mode, scale, offset, rotation):
         """Cache key that distinguishes the same image used with different
         Mapping or coord-mode wiring across materials."""
-        if CustomRaytracerRenderEngine._is_default_uv_transform(coord_mode, scale, offset):
+        if CustomRaytracerRenderEngine._is_default_uv_transform(
+                coord_mode, scale, offset, rotation):
             return base_name
         return (f"{base_name}::{coord_mode}::"
                 f"{scale[0]:.4f},{scale[1]:.4f},"
-                f"{offset[0]:.4f},{offset[1]:.4f}")
+                f"{offset[0]:.4f},{offset[1]:.4f},"
+                f"{rotation:.4f}")
 
-    def _apply_texture_transform(self, renderer, tex_name, coord_mode, scale, offset):
+    def _apply_texture_transform(self, renderer, tex_name, coord_mode,
+                                 scale, offset, rotation):
         """Push coord_mode + UV transform to the C++ side (no-ops if default)."""
         try:
             if coord_mode != "UV":
                 renderer.set_texture_coord_mode(tex_name, coord_mode)
-            if not (abs(scale[0] - 1.0) < 1e-6 and abs(scale[1] - 1.0) < 1e-6
-                    and abs(offset[0]) < 1e-6 and abs(offset[1]) < 1e-6):
+            non_identity = (
+                abs(scale[0] - 1.0) >= 1e-6 or abs(scale[1] - 1.0) >= 1e-6
+                or abs(offset[0]) >= 1e-6 or abs(offset[1]) >= 1e-6
+                or abs(rotation) >= 1e-6
+            )
+            if non_identity:
                 renderer.set_texture_uv_transform(
                     tex_name,
                     float(scale[0]), float(scale[1]),
                     float(offset[0]), float(offset[1]),
+                    float(rotation),
                 )
         except AttributeError:
             # Older C++ module without these bindings — silently skip.
@@ -1679,8 +1697,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         """
         if bpy_image is None:
             return None
-        coord_mode, scale, offset = self._resolve_vector_input(vector_input)
-        cache_key = self._texture_variant_key(bpy_image.name, coord_mode, scale, offset)
+        coord_mode, scale, offset, rotation = self._resolve_vector_input(vector_input)
+        cache_key = self._texture_variant_key(bpy_image.name, coord_mode, scale, offset, rotation)
 
         # Deduplicate: a single (image, transform) pair is uploaded at most
         # once per conversion pass.
@@ -1714,7 +1732,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             rgb = pixels[:, :, :3].reshape(-1).tolist()
 
             renderer.load_texture(cache_key, rgb, width, height)
-            self._apply_texture_transform(renderer, cache_key, coord_mode, scale, offset)
+            self._apply_texture_transform(renderer, cache_key, coord_mode, scale, offset, rotation)
             cache[cache_key] = cache_key
             return cache_key
         except Exception as e:
@@ -1740,8 +1758,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # with different Mapping wiring gets distinct entries. A procedural
         # node only has one Vector input in practice, so the same id+vector
         # combination is always identical — the variant key is defensive.
-        coord_mode, scale, offset = self._resolve_vector_input(vector_input)
-        cache_key = self._texture_variant_key(f"_proc_{id(node)}", coord_mode, scale, offset)
+        coord_mode, scale, offset, rotation = self._resolve_vector_input(vector_input)
+        cache_key = self._texture_variant_key(f"_proc_{id(node)}", coord_mode, scale, offset, rotation)
         if cache_key in cache:
             return cache[cache_key]
         node_id = id(node)
@@ -1824,7 +1842,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
 
         if tex_name:
-            self._apply_texture_transform(renderer, tex_name, coord_mode, scale, offset)
+            self._apply_texture_transform(renderer, tex_name, coord_mode, scale, offset, rotation)
             cache[cache_key] = tex_name
         return tex_name
 

@@ -144,7 +144,7 @@ def test_reference_scene_files_are_shipped_and_small():
 
 
 def test_build_script_packages_reference_scenes_and_profiles():
-    script = (Path(__file__).parent.parent / "scripts" / "build_blender_addon.py").read_text()
+    script = (Path(__file__).parent.parent / "scripts" / "build" / "build_blender_addon.py").read_text()
 
     assert 'ADDON_SRC / "scenes"' in script
     assert "shutil.copytree(scenes_src" in script

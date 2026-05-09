@@ -2,8 +2,8 @@
 # Start a local OpenAI-compatible llama.cpp server for Astroray agent work.
 #
 # Run from WSL:
-#   bash scripts/start_local_agent_server.sh
-#   bash scripts/start_local_agent_server.sh --model qwen35-35b-q3
+#   bash scripts/dev/start_local_agent_server.sh
+#   bash scripts/dev/start_local_agent_server.sh --model qwen35-35b-q3
 #
 # The defaults are conservative for a 16GB RTX 5070 Ti. Use larger models for
 # planning/prototyping, and keep frontier Codex/Claude in the review loop for
@@ -23,7 +23,7 @@ DRY_RUN=0
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/start_local_agent_server.sh [options]
+Usage: bash scripts/dev/start_local_agent_server.sh [options]
 
 Options:
   --model NAME       Model profile or path. Profiles:

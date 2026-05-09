@@ -632,7 +632,7 @@ if(ASTRORAY_TINY_CUDA_NN)
             endif()
         endforeach()
 
-        add_executable(tcnn_smoke scripts/tiny_cuda_nn_smoke.cu)
+        add_executable(tcnn_smoke scripts/cuda/tiny_cuda_nn_smoke.cu)
         target_link_libraries(tcnn_smoke PRIVATE tiny-cuda-nn)
         # FetchContent doesn't propagate tcnn's include path via INTERFACE_INCLUDE_DIRECTORIES;
         # add them explicitly so nvcc can find <tiny-cuda-nn/common.h>.
@@ -652,7 +652,7 @@ if(ASTRORAY_TINY_CUDA_NN)
         # Links the same NeuralCache backend promoted by pkg27.
         # No production targets (raytracer, astroray) depend on this.
         add_executable(nrc_smoke_render
-            scripts/nrc_smoke_render.cu
+            scripts/cuda/nrc_smoke_render.cu
         )
         target_link_libraries(nrc_smoke_render PRIVATE
             astroray_neural_cache
@@ -704,7 +704,7 @@ if(ASTRORAY_ENABLE_PYTEST_TARGET)
     if(Python3_Interpreter_FOUND)
         add_custom_target(astroray_pytest
             COMMAND ${Python3_EXECUTABLE}
-                    ${CMAKE_SOURCE_DIR}/scripts/run_tests.py
+                    ${CMAKE_SOURCE_DIR}/scripts/dev/run_tests.py
                     --build-dir ${CMAKE_BINARY_DIR}
                     --temp-dir ${CMAKE_BINARY_DIR}/pytest_tmp
                     -- tests -v --tb=short

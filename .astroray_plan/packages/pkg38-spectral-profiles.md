@@ -191,8 +191,8 @@ sample measurements.
 
 | File | Purpose |
 |---|---|
-| `scripts/build_spectral_profiles.py` | Main preprocessing script. Parses USGS/ECOSTRESS ASCII spectra, curates the default material set, resamples, and outputs the binary database. |
-| `scripts/spectral_profile_format.md` | Documentation of the binary format for the C++ loader (pkg39). |
+| `scripts/data/build_spectral_profiles.py` | Main preprocessing script. Parses USGS/ECOSTRESS ASCII spectra, curates the default material set, resamples, and outputs the binary database. |
+| `scripts/data/spectral_profile_format.md` | Documentation of the binary format for the C++ loader (pkg39). |
 | `data/spectral_profiles/profiles.bin` | Output binary database (~200 KB). Committed to repo. |
 | `data/spectral_profiles/profiles_metadata.json` | Material names, categories, wavelength grid, source attribution, version. |
 | `data/spectral_profiles/sources.md` | Attribution and provenance for each spectrum (which library, which sample ID, any processing notes). |
@@ -354,7 +354,7 @@ The preprocessing script:
 
 ## Acceptance criteria
 
-- [x] `scripts/build_spectral_profiles.py` runs and produces
+- [x] `scripts/data/build_spectral_profiles.py` runs and produces
       `data/spectral_profiles/profiles.bin` and
       `data/spectral_profiles/profiles_metadata.json`.
 - [x] Database contains >=35 materials across >=6 categories. (40 materials, 7 categories)

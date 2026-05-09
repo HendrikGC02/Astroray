@@ -10,8 +10,8 @@
 # dependency graph.
 #
 # Usage:
-#   chmod +x scripts/prioritize_issues.sh
-#   ./scripts/prioritize_issues.sh
+#   chmod +x scripts/dev/prioritize_issues.sh
+#   ./scripts/dev/prioritize_issues.sh
 # =============================================================================
 set -euo pipefail
 

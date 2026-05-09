@@ -18,7 +18,7 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not available")
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "benchmarks"))
 from benchmark_light_transport import run_benchmark  # noqa: E402
 from scenes.neural_cache_indirect import add_indirect_scene, make_renderer  # noqa: E402
 

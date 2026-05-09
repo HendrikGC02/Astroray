@@ -59,7 +59,7 @@ Bonus: the reference scenes give pkg54 (GPU multiwavelength) ready-made parity t
 | File | What changes |
 |---|---|
 | [blender_addon/__init__.py](blender_addon/__init__.py) | Replace `spectral_profile: StringProperty` with `spectral_profile: EnumProperty` whose items callback is `_spectral_profile_items(self, context)` (returns `[(name, name, '')]` from `astroray.spectral_profile_names()`). Add a `MATERIAL_PT_AstroraySpectralPreview` panel with a curve drawn via `gpu.types.batch.draw` calling `astroray.spectral_profile_reflectance(name, λ)` at 32 evenly-spaced λ in the active band. Show the panel only when `wavelength_preset != 'visible'`. |
-| `scripts/build_blender_addon.py` | Package `blender_addon/scenes/` into the addon zip. |
+| `scripts/build/build_blender_addon.py` | Package `blender_addon/scenes/` into the addon zip. |
 
 ### Key design decisions
 

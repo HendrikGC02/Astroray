@@ -62,7 +62,7 @@ config.
 - `plugins/materials/disney.cpp` had duplicate function definitions from the
   rough-glass merge; fixed by removing the second copy.
 - Blender addon `__init__.py` probes `addon_dir/oidn/` and `C:/oidn/bin`.
-- `scripts/build_blender_addon.py` bundles OIDN DLLs into `dist/astroray/oidn/`.
+- `scripts/build/build_blender_addon.py` bundles OIDN DLLs into `dist/astroray/oidn/`.
 
 ---
 

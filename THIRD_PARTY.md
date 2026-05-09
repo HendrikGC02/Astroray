@@ -35,7 +35,7 @@ Auto-generated C++ `constexpr` tables containing the CIE 1964 10°
 Standard Observer and the CIE Standard Illuminant D65 SPD,
 respectively, at 1 nm resolution over 360–830 nm.
 
-- **Generator:** `scripts/generate_spectrum_data.py` (Astroray).
+- **Generator:** `scripts/data/generate_spectrum_data.py` (Astroray).
 - **Input sources:** the `MSDS_CMFS` and `SDS_ILLUMINANTS` tables
   shipped with [Colour-Science](https://www.colour-science.org/)
   version 0.4.7 (BSD 3-Clause). Colour-Science itself is *not* vendored
@@ -62,7 +62,7 @@ Single-file image IO libraries by Sean Barrett and contributors.
 
 ## Test-time dependencies (not redistributed)
 
-The offline data generator `scripts/generate_spectrum_data.py` uses
+The offline data generator `scripts/data/generate_spectrum_data.py` uses
 [Colour-Science](https://github.com/colour-science/colour) (BSD
 3-Clause) to read the authoritative CIE tables. The library is used at
 generation time only; the generated artefacts (`cie_cmf.inc`,

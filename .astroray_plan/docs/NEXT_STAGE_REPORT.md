@@ -34,7 +34,7 @@ but several of its "next work" bullets are now historical:
    - Black-hole tests now include native spectral dispatch checks.
 
 2. Render-output triage is no longer pending.
-   - `scripts/render_output_triage.py` exists and is already tracked in
+   - `scripts/diagnostics/render_output_triage.py` exists and is already tracked in
      `STATUS.md`.
 
 3. ReSTIR package creation is no longer pending.

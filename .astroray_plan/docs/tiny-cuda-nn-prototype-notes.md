@@ -30,7 +30,7 @@ cmake -S . -B build_tcnn \
 ```
 
 The `ASTRORAY_TINY_CUDA_NN` option defaults to `OFF`. No production target
-depends on it. The smoke harness is `scripts/tiny_cuda_nn_smoke.cu`; its
+depends on it. The smoke harness is `scripts/cuda/tiny_cuda_nn_smoke.cu`; its
 CMake target is `tcnn_smoke`.
 
 ---
@@ -69,7 +69,7 @@ of PATH or `-DCMAKE_CUDA_COMPILER` override due to VS CUDA 13.2 integration).
 **Initial result (driver 576.57): RUNTIME FAILURE — blocked by driver version mismatch.**
 
 ```
-CUDA error scripts/tiny_cuda_nn_smoke.cu:33 — CUDA driver version is
+CUDA error scripts/cuda/tiny_cuda_nn_smoke.cu:33 — CUDA driver version is
 insufficient for CUDA runtime version
 ```
 

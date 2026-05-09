@@ -91,7 +91,7 @@ Implemented in issue #145 / pkg29a:
   `prism_to_screen`, `glass_caustic`, and `line_emitter`.
 - Added `tests/test_caustic_validation.py`, which saves diagnostic PNGs and
   per-scene JSON/CSV stats under `test_results/`.
-- Added `scripts/benchmark_caustic_transport.py` for repeatable local visual
+- Added `scripts/benchmarks/benchmark_caustic_transport.py` for repeatable local visual
   diagnostics and metric collection outside pytest.
 
 Smoke benchmark with `--samples 8 --max-depth 10` wrote:

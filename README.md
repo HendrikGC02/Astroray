@@ -103,7 +103,7 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for full platform-specific instruct
 python3 -m pytest tests/ -v --tb=short
 
 # Recommended for local Windows TCNN runs:
-python scripts/run_tests.py --build-dir build_tcnn -- tests -v --tb=short
+python scripts/dev/run_tests.py --build-dir build_tcnn -- tests -v --tb=short
 ```
 
 ### Standalone render
@@ -139,10 +139,10 @@ print(astroray.pass_registry_names())
 
 ```bash
 # Build the installable .zip (auto-detects Blender + matching Python)
-python scripts/build_blender_addon.py
+python scripts/build/build_blender_addon.py
 
 # Build and install directly into Blender's extensions dir
-python scripts/build_blender_addon.py --install
+python scripts/build/build_blender_addon.py --install
 ```
 
 Then in Blender: `Edit > Preferences > Get Extensions > Install from Disk...`

@@ -1,4 +1,4 @@
-// scripts/nrc_smoke_render.cu — pkg26 NRC prototype harness.
+// scripts/cuda/nrc_smoke_render.cu — pkg26 NRC prototype harness.
 //
 // Renders N_FRAMES frames of a Cornell box where secondary bounces beyond
 // the primary hit are handled by NeuralCache.  During the warmup period a

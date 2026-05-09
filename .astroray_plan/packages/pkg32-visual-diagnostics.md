@@ -48,13 +48,13 @@ are Track A; the pass visualization is Track B.
 
 | File | Purpose |
 |---|---|
-| `scripts/convergence_tracker.py` | Renders a scene at increasing sample counts (1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024 spp). Saves each intermediate image. Computes per-frame MSE against the highest-spp reference. Outputs: (1) PNG strip showing visual convergence, (2) matplotlib log-log MSE vs spp plot, (3) optional animated GIF of the convergence sequence. |
+| `scripts/diagnostics/convergence_tracker.py` | Renders a scene at increasing sample counts (1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024 spp). Saves each intermediate image. Computes per-frame MSE against the highest-spp reference. Outputs: (1) PNG strip showing visual convergence, (2) matplotlib log-log MSE vs spp plot, (3) optional animated GIF of the convergence sequence. |
 
 ### D. Benchmark showcase script (Track A)
 
 | File | Purpose |
 |---|---|
-| `scripts/benchmark_showcase.py` | Renders a set of canonical test scenes (Cornell box, glass sphere, metal spheres, environment-lit exterior) at production resolution with the best available integrator. Saves PNG renders + a composite comparison grid. Meant for README/portfolio use. |
+| `scripts/benchmarks/benchmark_showcase.py` | Renders a set of canonical test scenes (Cornell box, glass sphere, metal spheres, environment-lit exterior) at production resolution with the best available integrator. Saves PNG renders + a composite comparison grid. Meant for README/portfolio use. |
 
 ### E. AOV pass implementations (Track B — Copilot issues)
 
@@ -70,7 +70,7 @@ Implement the stub AOV passes that currently have empty `execute()`:
 
 | File | Purpose |
 |---|---|
-| `scripts/oidn_comparison.py` | Renders a noisy image (low spp), runs OIDN pass, saves side-by-side before/after PNG. |
+| `scripts/diagnostics/oidn_comparison.py` | Renders a noisy image (low spp), runs OIDN pass, saves side-by-side before/after PNG. |
 
 ---
 
@@ -100,10 +100,10 @@ Completed in the pkg32/pkg34 closeout pass:
 - AOV pass plugins now have focused tests for albedo, normal, depth,
   `bounce_heatmap`, and `sample_heatmap`; the heatmap tests verify finite,
   non-black, varying output and save PNGs under `test_results/`.
-- `scripts/convergence_tracker.py` was verified to produce non-black
+- `scripts/diagnostics/convergence_tracker.py` was verified to produce non-black
   increasing-SPP renders, an MSE plot, and a convergence strip.
-- `scripts/benchmark_showcase.py` was verified at production settings and
+- `scripts/benchmarks/benchmark_showcase.py` was verified at production settings and
   writes the canonical showcase grid.
-- Added `scripts/oidn_comparison.py`, which writes noisy, denoised, and
+- Added `scripts/diagnostics/oidn_comparison.py`, which writes noisy, denoised, and
   side-by-side OIDN comparison PNGs when OIDN is compiled in and exits cleanly
   when it is not.

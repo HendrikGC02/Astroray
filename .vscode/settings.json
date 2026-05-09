@@ -7,8 +7,8 @@
   "python.testing.pytestEnabled": true,
 
   "cmake.useCMakePresets": "always",
-  "cmake.configurePreset": "windows-tcnn-vs",
-  "cmake.buildPreset": "windows-tcnn-vs-release",
+  "cmake.configurePreset": "windows-cuda-vs",
+  "cmake.buildPreset": "windows-cuda-vs-release",
   "cmake.buildBeforeRun": true,
   "cmake.buildTask": true
 }

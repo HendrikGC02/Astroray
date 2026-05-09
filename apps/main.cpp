@@ -268,12 +268,17 @@ int main(int argc, char* argv[]) {
     auto start = std::chrono::high_resolution_clock::now();
 #ifdef ASTRORAY_CUDA_ENABLED
     if (useGpu) {
-        renderer.buildAcceleration();
-        cudaRenderer.uploadScene(renderer, camera);
-        if (!envmap.empty() && renderer.getEnvironmentMap() && renderer.getEnvironmentMap()->loaded()) {
-            cudaRenderer.uploadEnvironmentMap(*renderer.getEnvironmentMap());
+        try {
+            renderer.buildAcceleration();
+            cudaRenderer.uploadScene(renderer, camera);
+            if (!envmap.empty() && renderer.getEnvironmentMap() && renderer.getEnvironmentMap()->loaded()) {
+                cudaRenderer.uploadEnvironmentMap(*renderer.getEnvironmentMap());
+            }
+            cudaRenderer.render(camera.pixels, camera.width, camera.height, renderer.getSeed(), samples, depth);
+        } catch (const std::exception& e) {
+            std::cerr << "Error: CUDA standalone render failed: " << e.what() << "\n";
+            return 2;
         }
-        cudaRenderer.render(camera.pixels, camera.width, camera.height, renderer.getSeed(), samples, depth);
     } else
 #endif
     {

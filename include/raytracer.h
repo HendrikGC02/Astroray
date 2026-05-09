@@ -490,6 +490,7 @@ class Material {
 public:
     virtual ~Material() = default;
     virtual BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const { return BSDFSample{Vec3(0,1,0), Vec3(0), 0, false}; }
+    virtual Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const { return Vec3(0); }
     virtual float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const { return 0; }
     virtual Vec3 emitted(const HitRecord& rec) const { return Vec3(0); }
     virtual Vec3 getEmission() const { return Vec3(0); }

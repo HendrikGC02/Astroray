@@ -40,10 +40,10 @@ The implementer must do a fresh WebSearch + WebFetch pass (per CLAUDE.md §6) to
 
 ## Prerequisites
 
-- [ ] Existing Disney BSDF tests pass (`tests/test_disney*.py`) — establishes the no-regression baseline.
-- [ ] Confirm Cycles table license is compatible (Apache-2.0 / CC0). Save findings to `.astroray_plan/docs/disney-energy-compensation-research.md`.
-- [ ] Identify which Astroray Disney lobes need compensation: GGX rough metal (definitely), GGX rough dielectric (definitely), sheen (definitely), clearcoat (definitely).
-- [ ] Decide table format: Cycles uses a binary blob in `data/`. We can either embed as `constexpr` arrays or ship a `.bin` next to `data/spectra/rgb_to_spectrum_srgb.coeff`.
+- [x] Existing Disney BSDF tests pass (`tests/test_disney*.py`) — establishes the no-regression baseline.
+- [x] Confirm Cycles table license is compatible (Apache-2.0 / BSD-3-Clause, not CC0). Save findings to `.astroray_plan/docs/disney-energy-compensation-research.md`.
+- [x] Identify which Astroray Disney lobes need compensation: GGX rough metal/dielectric, sheen attenuation, clearcoat, plus a local diffuse furnace normalization found during the pkg60 numerical gate.
+- [x] Decide table format: Cycles static arrays were converted to `.bin` files under `data/disney_compensation/`.
 
 ---
 
@@ -82,12 +82,12 @@ The implementer must do a fresh WebSearch + WebFetch pass (per CLAUDE.md §6) to
 
 ## Acceptance criteria
 
-- [ ] `.astroray_plan/docs/disney-energy-compensation-research.md` exists with paper citations + Cycles file paths + license confirmation.
-- [ ] Per-lobe directional-hemispherical reflectance ≤ 1.0 + ε (ε = 0.02) at every grid point.
-- [ ] No grid point has reflectance > 1.05 (loose upper bound — anything greater is a real bug).
-- [ ] Cornell-box reference render at 256 spp shows no visible glow on any object's high-roughness configuration.
-- [ ] Existing `tests/test_disney*.py` pass with within-noise differences (SSIM ≥ 0.95) at low roughness.
-- [ ] Material contact sheet (`scripts/material_contact_sheet.py`) regenerated and saved to `tests/reference/disney_contact_sheet_post_compensation.png`.
+- [x] `.astroray_plan/docs/disney-energy-compensation-research.md` exists with paper citations + Cycles file paths + license confirmation.
+- [x] Per-lobe directional-hemispherical reflectance ≤ 1.0 + ε (ε = 0.02) at every grid point.
+- [x] No grid point has reflectance > 1.05 (loose upper bound — anything greater is a real bug).
+- [x] Cornell-box reference render at 256 spp shows no visible glow on any object's high-roughness configuration.
+- [x] Existing `tests/test_disney*.py` pass with within-noise differences (SSIM ≥ 0.95) at low roughness.
+- [x] Material contact sheet (`scripts/material_contact_sheet.py`) regenerated and saved to `tests/reference/disney_contact_sheet_post_compensation.png`.
 
 ---
 
@@ -141,3 +141,27 @@ The implementer must do a fresh WebSearch + WebFetch pass (per CLAUDE.md §6) to
 - **GPU compensation is the obvious follow-up.** This package is CPU-only
   by design. When pkg54 megakernel lands, port the same LUTs to a
   device-side texture lookup. ~1 session of additional work.
+- Current Cycles did not match the package's quoted filenames/functions:
+  the GGX entry point is `microfacet_ggx_preserve_energy`, GGX data lives in
+  `src/scene/shader.tables`, and the current sheen path is the 2022 LTC sheen,
+  not a Conty/Kulla 2017 Charlie table.
+- The package spec says "60-point parameter grid" but lists 90 parameter
+  combinations. The implemented test covers all listed values: 90 combinations
+  × 3 outgoing cosines = 270 integrations.
+- The first hard-gate run exposed an existing Astroray Disney bug: the Disney
+  Smith-G helper already contains the denominator used by the Burley Disney
+  formula, but the specular and clearcoat lobes divided by `4*NdotL*NdotV`
+  again. Fixing that removed the grazing-angle glow before LUT compensation
+  was judged.
+- Final measured worst-case directional-hemispherical reflectance:
+  **1.015891** at roughness=0.9, metallic=0, sheen=0, clearcoat=0,
+  cosThetaO=0.1, using 4096 Halton samples.
+- Project-owner visual review exposed a second no-glow bug outside the eval-only
+  furnace grid: mixed Disney lobes returned the selected branch PDF from
+  `sample()` even though `f` contained the full Disney eval. A glossy
+  metallic=0.7, roughness=0.05 sphere therefore over-brightened a gray furnace.
+  The sampler now returns the combined `pdf()` for diffuse/specular mixtures,
+  and `tests/test_disney_energy_conservation.py` includes a gray-furnace render
+  regression for that exact case.
+- Visual smoke: `test_results/pkg60_disney_cornell_256spp.png` rendered at
+  128x128, 256 spp, max pixel 0.928315, no visible high-roughness glow.

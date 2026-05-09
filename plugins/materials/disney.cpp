@@ -1,4 +1,5 @@
 ﻿#include "astroray/register.h"
+#include "astroray/energy_compensation.h"
 #include "advanced_features.h"
 
 class DisneyPlugin : public Material {
@@ -25,6 +26,38 @@ class DisneyPlugin : public Material {
     Vec3 fresnelSchlick(float cosTheta, const Vec3& F0, float scale = 0.8f) const {
         float c = std::clamp(1 - cosTheta, 0.0f, 1.0f);
         return F0 + (Vec3(1) - F0) * std::pow(c, 5) * scale;
+    }
+
+    Vec3 ggxCompensationFactor(const Vec3& Fss, float roughness, float mu) const {
+        const auto& tables = astroray::DisneyEnergyCompensationTables::instance();
+        if (!tables.loaded()) return Vec3(1.0f);
+
+        const float E = std::max(tables.ggxE(roughness, mu), 1e-4f);
+        const float Eavg = std::clamp(tables.ggxEavg(roughness), 0.0f, 0.999f);
+        const float missingFactor = (1.0f - E) / E;
+        auto channel = [&](float f) {
+            f = std::clamp(f, 0.0f, 0.999f);
+            const float denom = std::max(1.0f - f * (1.0f - Eavg), 1e-4f);
+            const float Fms = f * Eavg / denom;
+            return 1.0f + Fms * missingFactor;
+        };
+        return Vec3(channel(Fss.x), channel(Fss.y), channel(Fss.z));
+    }
+
+    Vec3 layeringWeightAfter(const Vec3& weight, const Vec3& albedo) const {
+        return weight * (Vec3(1.0f) - Vec3::min(albedo, Vec3(0.999f)));
+    }
+
+    Vec3 clampColor(const Vec3& c, float hi = 4.0f) const {
+        return Vec3(std::clamp(c.x, 0.0f, hi),
+                    std::clamp(c.y, 0.0f, hi),
+                    std::clamp(c.z, 0.0f, hi));
+    }
+
+    float diffuseFurnaceScale(float roughness, float mu) const {
+        const float grazing = 1.0f - std::clamp(mu, 0.0f, 1.0f);
+        const float excess = roughness * (0.055f + 0.40f * grazing * grazing);
+        return 1.0f / (1.0f + excess);
     }
 
     float fresnelDielectric(float cosThetaI, float etaI, float etaT) const {
@@ -243,35 +276,57 @@ public:
         float FV = std::pow(1 - NdotV, 5);
         float Fd90 = 0.5f + 2 * LdotH * LdotH * roughness_;
         float Fd = (1 + (Fd90 - 1) * FL) * (1 + (Fd90 - 1) * FV);
-        Vec3 diffuse = (1 / float(M_PI)) * Cdlin * Fd;
+        // Burley 2015 diffuse retro-reflection is not energy-normalized at
+        // white albedo in Astroray's implementation. Apply the pkg60 furnace
+        // normalization before Cycles-style top-layer attenuation.
+        Vec3 diffuse = (1 / float(M_PI)) * Cdlin * Fd *
+                       diffuseFurnaceScale(roughness_, NdotV);
 
         float a = std::max(roughness_ * roughness_, 0.0064f);
         float Ds = D_GTR2(NdotH, a);
         float schlickScale = 0.8f + 0.2f * metallic_;
         Vec3 F = fresnelSchlick(LdotH, F0, schlickScale);
         float Gs = smithG_GGX(NdotL, a) * smithG_GGX(NdotV, a);
-        Vec3 spec = Ds * F * Gs / (4 * NdotL * NdotV + 0.001f);
+        Vec3 spec = Ds * F * Gs;
 
         Vec3 Csheen = Vec3(1) * (1 - sheenTint_) + Ctint * sheenTint_;
         Vec3 Fsheen = sheen_ * Csheen * std::pow(1 - LdotH, 5) * 0.5f;
+        Vec3 lowerLayerWeight(1.0f);
+        const auto& compensationTables = astroray::DisneyEnergyCompensationTables::instance();
+        if (compensationTables.loaded() && sheen_ > 0.0f) {
+            const float sheenAlbedo =
+                compensationTables.sheenAlbedo(roughness_, NdotV) * sheen_;
+            Fsheen *= sheenAlbedo;
+            // Kulla & Conty 2017 Eq. 6-9 layering, using Cycles
+            // src/kernel/svm/closure.h:208-211 and bsdf_sheen.h:40-51.
+            lowerLayerWeight = layeringWeightAfter(lowerLayerWeight, Csheen * sheenAlbedo);
+        }
 
         float Dr = D_GTR2(NdotH, clearcoatGloss_ * clearcoatGloss_);
         float Fr = 0.04f + (1 - 0.04f) * std::pow(1 - LdotH, 5);
         float Gr = smithG_GGX(NdotL, 0.25f) * smithG_GGX(NdotV, 0.25f);
-        Vec3 clearcoatTerm = Vec3(clearcoat_ * Dr * Fr * Gr / (4 * NdotL * NdotV + 0.001f)) * 0.5f;
+        Vec3 clearcoatTerm = Vec3(clearcoat_ * Dr * Fr * Gr) * 0.25f;
+        if (compensationTables.loaded() && clearcoat_ > 0.0f) {
+            // Kulla & Conty 2017 Eq. 6-9 and Cycles
+            // src/kernel/closure/bsdf_microfacet.h:389-436:
+            // use the researched fixed-alpha clearcoat_E slice as the
+            // directional albedo for Astroray's scalar clearcoat lobe.
+            const float clearE = std::max(compensationTables.clearcoatE(NdotV), 1e-4f);
+            clearcoatTerm *= std::min(1.0f / clearE, 1.25f);
+            lowerLayerWeight = layeringWeightAfter(
+                lowerLayerWeight, Vec3(clearcoat_ * (1.0f - clearE)));
+        }
 
-        Vec3 result = ((1 - metallic_) * (1 - transmission_) * diffuse + spec +
-                      (1 - metallic_) * Fsheen + clearcoatTerm) * NdotL;
-        float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness_);
-        float msWeight = roughness_ * (2.0f - roughness_);
-        Vec3 dielectricMs = F0 * (Fms * msWeight * 0.5f) * NdotL;
-        Vec3 conductorMs = F0 * (Fms * msWeight * 1.3f);
-        result += dielectricMs * (1.0f - metallic_) + conductorMs * metallic_;
+        // Kulla & Conty 2017 Eq. 6-9 and Cycles
+        // src/kernel/closure/bsdf_microfacet.h:389-436
+        // (microfacet_ggx_preserve_energy): use the net
+        // 1 + Fms * ((1 - E) / E) factor on the GGX lobe.
+        spec *= ggxCompensationFactor(F0, roughness_, NdotV);
 
-        result.x = std::clamp(result.x, 0.0f, 4.0f);
-        result.y = std::clamp(result.y, 0.0f, 4.0f);
-        result.z = std::clamp(result.z, 0.0f, 4.0f);
-        return result;
+        Vec3 baseLayer = ((1 - metallic_) * (1 - transmission_) * diffuse + spec) * lowerLayerWeight;
+        Vec3 result = (baseLayer + (1 - metallic_) * Fsheen + clearcoatTerm) * NdotL;
+
+        return clampColor(result);
     }
 
     astroray::SampledSpectrum evalSpectral(
@@ -357,7 +412,7 @@ public:
             Vec3 localWi = Vec3::randomCosineDirection(gen);
             s.wi = rec.tangent * localWi.x + rec.bitangent * localWi.y + rec.normal * localWi.z;
             s.f = eval(rec, wo, s.wi);
-            s.pdf = rec.normal.dot(s.wi) / float(M_PI) * (diffWeight / total);
+            s.pdf = pdf(rec, wo, s.wi);
         } else {
             float a = std::max(roughness_ * roughness_, 0.0064f);
             float r1 = dist(gen), r2 = dist(gen);
@@ -369,12 +424,7 @@ public:
             s.wi = (h * (2 * wo.dot(h)) - wo).normalized();
             if (rec.normal.dot(s.wi) > 0) {
                 s.f = eval(rec, wo, s.wi);
-                float NdotH = rec.normal.dot(h);
-                float HdotV = h.dot(wo);
-                float D = D_GTR2(NdotH, a);
-                if (HdotV > 0.0f) {
-                    s.pdf = D * NdotH / (4 * HdotV + 0.001f) * (specWeight / total);
-                }
+                s.pdf = pdf(rec, wo, s.wi);
             }
         }
         return s;
@@ -393,11 +443,13 @@ public:
         float p = 0;
         if (diffWeight > 0) p += (rec.normal.dot(wi) / float(M_PI)) * (diffWeight / total);
         if (specWeight > 0) {
-            float a = roughness_ * roughness_;
+            float a = std::max(roughness_ * roughness_, 0.0064f);
             float NdotH = rec.normal.dot(H);
             float HdotV = H.dot(wo);
-            float D = D_GTR2(NdotH, a);
-            p += (D * NdotH / (4 * HdotV + 0.001f)) * (specWeight / total);
+            if (NdotH > 0.0f && HdotV > 0.0f) {
+                float D = D_GTR2(NdotH, a);
+                p += (D * NdotH / (4 * HdotV + 0.001f)) * (specWeight / total);
+            }
         }
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
             bool entering = rec.normal.dot(wo) > 0.0f;

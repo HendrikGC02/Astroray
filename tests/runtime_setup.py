@@ -11,6 +11,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BUILD_DIR = PROJECT_ROOT / "build"
+DEFAULT_CUDA_BUILD_DIR = PROJECT_ROOT / "build_cuda"
 DEFAULT_TCNN_BUILD_DIR = PROJECT_ROOT / "build_tcnn"
 TEST_RESULTS_DIR = PROJECT_ROOT / "test_results"
 DEFAULT_TEMP_DIR = TEST_RESULTS_DIR / "tmp"
@@ -55,6 +56,10 @@ def candidate_build_dirs() -> list[str]:
         candidates.append(Path(env_dir) / "RelWithDebInfo")
 
     candidates.extend([
+        DEFAULT_CUDA_BUILD_DIR,
+        DEFAULT_CUDA_BUILD_DIR / "Release",
+        DEFAULT_CUDA_BUILD_DIR / "Debug",
+        DEFAULT_CUDA_BUILD_DIR / "RelWithDebInfo",
         DEFAULT_TCNN_BUILD_DIR,
         DEFAULT_TCNN_BUILD_DIR / "Release",
         DEFAULT_TCNN_BUILD_DIR / "Debug",

@@ -1,0 +1,89 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Astroray: Configure CUDA",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--preset",
+        "windows-cuda-vs"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Astroray: Build CUDA Release",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "--preset",
+        "windows-cuda-vs-release"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Astroray: Contact Sheet (auto GPU)",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "scripts/material_contact_sheet.py",
+        "--device",
+        "auto",
+        "--output-dir",
+        "test_results/material_contact_sheet"
+      ],
+      "dependsOn": [
+        "Astroray: Build CUDA Release"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Astroray: Contact Sheet (CPU)",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "scripts/material_contact_sheet.py",
+        "--device",
+        "cpu",
+        "--output-dir",
+        "test_results/material_contact_sheet_cpu"
+      ],
+      "dependsOn": [
+        "Astroray: Build CUDA Release"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Astroray: Standalone Smoke (GPU)",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "scripts/run_standalone.py",
+        "--scene",
+        "1",
+        "--width",
+        "128",
+        "--height",
+        "128",
+        "--samples",
+        "16",
+        "--depth",
+        "8",
+        "--device",
+        "gpu",
+        "--output",
+        "test_results/standalone_gpu_smoke.png"
+      ],
+      "dependsOn": [
+        "Astroray: Build CUDA Release"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

@@ -493,6 +493,14 @@ class TexturedLambertian : public Material {
     std::shared_ptr<Texture> albedo;
 public:
     TexturedLambertian(std::shared_ptr<Texture> a) : albedo(a) {}
+    Vec3 getAlbedo() const override { return Vec3(0.5f); }
+    std::string getGPUTypeName() const override { return "lambertian"; }
+    MaterialBackendCapabilities backendCapabilities() const override {
+        MaterialBackendCapabilities caps = Material::backendCapabilities();
+        caps.gpuApproximate = true;
+        caps.notes = "texture flattened to neutral lambertian for GPU preview";
+        return caps;
+    }
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
         Vec3 localWi = Vec3::randomCosineDirection(gen);

@@ -3,8 +3,36 @@
 **Pillar:** 4  
 **Track:** B (plugin, self-contained) with Track A review  
 **Status:** open  
-**Estimated effort:** 2 sessions (~6 h)  
+**Estimated effort:** 2 sessions (~6 h) — unchanged after research; the
+fitting formulae are short and Codex-paste-ready.
 **Depends on:** pkg40 (Kerr metric), pkg14 (spectral pipeline), EmissionRegistry scaffold
+
+**Reference research:** `.astroray_plan/docs/accretion-emission-research.md`
+(pipeline overview §1, j_nu fits §2, alpha_nu §3, license matrix §7 — read
+this before writing any emission code).
+
+---
+
+## Reference Implementations
+
+All synchrotron formulae are from Pandya, Zhang, Chandra & Gammie 2016,
+ApJ 822, 34 (DOI 10.3847/0004-637X/822/1/34; arXiv:1602.08749), Appendix A,
+eqs. 29-34. The repos below are code-shape references; the math itself is
+the paper.
+
+| Repo | Commit | License | Mirror permitted | Files to study |
+|------|--------|---------|-----------------|----------------|
+| [ipole](https://github.com/AFD-Illinois/ipole) (Mościbrodzka & Gammie 2018, MNRAS 475 43) | `master` 2024-Q4 (pin SHA at first use) | BSD-3-Clause | Yes — cite file + commit in code | `src/symphony/maxwell_juettner_fits.c` (Pandya eqs. 29, 31), `src/symphony/power_law_fits.c` (eqs. 29, 33), `src/radiation.c` (invariant transfer plumbing) |
+| [RAPTOR](https://github.com/tbronzwaer/raptor) (Bronzwaer et al. 2018, A&A 613 A2) | `08cb9a2` | **GPLv3** | **No** — cross-validation only | `model.c` / `radiative_transfer.c` (do **not** read for code shape) |
+| [symphony standalone](https://github.com/AFD-Illinois/symphony) | — | **GPLv3** | **No** — use the ipole-vendored BSD-3 copy instead | — |
+| [GYOTO](https://github.com/gyoto/Gyoto) | — | CeCILL (GPL-incompat) | **No** — numerical cross-check only | — |
+
+**Do not mirror RAPTOR or standalone-symphony code** even though their
+implementations of the Pandya 2016 fits would be convenient. GPLv3 is
+incompatible with Astroray's license. The math is in the public domain;
+RAPTOR's C representation of it is not what we borrow. (Same fence as
+pkg40 / pkg67.) The ipole-vendored copy of symphony is BSD-3 and is the
+correct source.
 
 ---
 
@@ -41,15 +69,22 @@ This makes it a clean self-contained plugin.
 
 ## Reference
 
+- **Research notes (read first):** `.astroray_plan/docs/accretion-emission-research.md`
+  (pipeline §1, j_nu §2, alpha_nu §3, license matrix §7)
 - Design doc: `.astroray_plan/docs/astrophysics.md §4.3`
-- Rybicki & Lightman 1979 — "Radiative Processes in Astrophysics"
-  ch. 6 (synchrotron theory)
-- Pacholczyk 1970 — synchrotron spectral functions F(x), tabulated
-- Blandford & Königl 1979 — jet model (conical geometry + power-law
-  density profile)
+- Pandya, Zhang, Chandra & Gammie 2016, ApJ 822, 34 — synchrotron
+  fitting formulae, eqs. 29-34 (the math we implement)
+- Pandya et al. 2018, ApJ 868, 13 — polarised extension (deferred,
+  see Non-goals)
+- Rybicki & Lightman 1979 ch. 6 — synchrotron theory background
+  (cite-only, do not copy text)
+- Blandford & Königl 1979 — conical jet geometry rationale
 - Spectral pipeline: `include/astroray/spectrum.h` (SampledSpectrum)
 - GR integrator: `include/astroray/gr_metric.h` (from pkg40)
 - Emission plugin registry: `include/astroray/register.h`
+- Cross-check tools: ipole (BSD-3 — selective mirror permitted),
+  RAPTOR (GPLv3 — cross-validation only), GYOTO (CeCILL — reference
+  only)
 
 ---
 
@@ -106,55 +141,54 @@ conserves particle flux).
 Magnetic field profile: B(r) = B₀ (r/r_base)^(-1) (toroidal field
 decays as 1/r in a conical jet).
 
-#### Synchrotron emissivity
+#### Synchrotron emissivity (Pandya 2016, eqs. 29 & 33)
 
-Power-law electron energy distribution: N(E) ∝ E^(-p), p = 2.5
-(default; user-configurable).
+Power-law electron energy distribution: dN/dγ ∝ γ^(-p) for
+γ ∈ [γ_min, γ_max], p = 2.5 (default; user-configurable). Use the
+Pandya 2016 power-law Stokes-I fit verbatim — see
+`accretion-emission-research.md §2.3` for the copy-paste C++ form.
+The spectral slope is -(p-1)/2 = -0.75 for p = 2.5 (canonical AGN
+jet slope).
 
-Spectral emissivity per unit volume:
+Validity envelope (Pandya 2016 §3.2): γ_min² < ν / ν_c < γ_max²,
+p ∈ [1.5, 6.5]. Outside that band the fit is no longer the physical
+emissivity; this is a fundamental limit, not a code bug.
 
-    j_ν = C(p) · n₀ · B^((p+1)/2) · ν^(-(p-1)/2)
+#### Synchrotron absorptivity (Pandya 2016, eq. 33)
 
-where C(p) is the standard synchrotron constant from Rybicki &
-Lightman eq. 6.36. This gives a power-law spectrum j_ν ∝ ν^(-0.75)
-for p=2.5.
+α_ν^I formula in `accretion-emission-research.md §3.2`. Defaults to
+`include_self_absorption = false` because for p = 2.5 the absorption
+slope is ν^(-2.25); above ~GHz the medium is optically thin. The
+toggle exists for completeness.
 
-For the spectral pipeline: evaluate j_ν at the hero wavelength
-λ = c/ν and return a `SampledSpectrum`. The power-law form means no
-tabulated data is needed.
+#### Bulk relativistic motion → invariant radiative transfer
 
-#### Relativistic Doppler boosting
+The bulk Lorentz factor γ_jet enters the transfer through the *fluid
+rest-frame frequency* ν_fluid, not through a separate D³ multiplier.
+The geodesic integrator already supplies the photon 4-momentum k^μ
+at every step; the jet plasma 4-velocity u^μ is analytic (radial
+outflow at γ_jet along the cone). Then:
 
-The observed specific intensity transforms as:
+    ν_fluid = -k_μ u^μ / h
+    j_inv   = j_ν(ν_fluid, ...) / ν_fluid^2
+    α_inv   = α_ν(ν_fluid, ...) * ν_fluid
 
-    I_ν(obs) = D³ · I'_ν'(comoving)
+and the integrator advances I_inv = I_ν / ν^3 along the affine
+parameter:
 
-where D = 1 / (γ(1 − β cos θ_obs)) is the Doppler factor and
-θ_obs is the angle between the jet velocity and the photon direction
-in the observer frame.
+    dI_inv / dλ = j_inv − α_inv · I_inv
 
-For γ = 10 and θ_obs ≈ 0 (approaching): D ≈ 20, boost ≈ 8000.  
-For θ_obs ≈ π (receding): D ≈ 1/20, suppression ≈ 1/8000.
+At the camera, recover I_observed = I_inv · ν_obs^3. The factor of
+ν^3 redshift handles bulk Doppler boosting *and* gravitational
+redshift in one place. **Do not also multiply by D³** — that
+double-counts the redshift. (See `accretion-emission-research.md §1`
+for the derivation; same pattern as ipole, Mościbrodzka & Gammie
+2018 §2.4, BSD-3.)
 
-The D³ factor applies because synchrotron emission is optically thin
-and we are boosting specific intensity (not flux). This is the
-standard result for a moving optically-thin emitter.
-
-#### Radiative transfer along ray
-
-For each ray segment through the jet volume:
-
-    dI_ν/ds = j_ν(s) − α_ν(s) · I_ν(s)
-
-where α_ν is the synchrotron self-absorption coefficient. For the
-jets in most AGN/XRB scenarios, self-absorption is negligible above
-~GHz frequencies. The plugin computes it but defaults to optically
-thin (α_ν ≈ 0) for the initial implementation. A user parameter
-`include_self_absorption` (default false) enables the full transfer.
-
-Accumulation: step along the ray in the GR integrator, evaluate j_ν
-at each step, multiply by D³, and add to the running spectral
-radiance.
+For γ_jet = 10 and head-on viewing the invariant formulation
+recovers the colloquial D³ ≈ 8000 brightness boost on the
+approaching jet automatically; the regression test in the
+Acceptance section verifies this.
 
 ### Key design decisions
 
@@ -174,18 +208,18 @@ radiance.
    coordinates directly — no coordinate transform needed since the
    GR integrator already works in BL.
 
-3. **Doppler factor computed from the geodesic.** The photon 4-momentum
-   is available at each integration step (it is the `GeodesicState`
-   momenta). The jet plasma 4-velocity is known analytically (radial
-   outflow at γ along the cone). The Doppler factor is the ratio of
-   photon energies in the two frames:
-   D = −(p_μ u^μ_obs) / (p_μ u^μ_jet).
+3. **Invariant transfer, not explicit D³.** The fluid-frame frequency
+   ν_fluid = −k_μ u^μ_jet / h is computed from the geodesic state at
+   each step. j_ν and α_ν are evaluated at ν_fluid, converted to
+   invariant form (j/ν², α·ν), and integrated as I_inv = I/ν³ along
+   the affine parameter. At the camera I_obs = I_inv · ν_obs³. This
+   is what ipole and RAPTOR both do. The colloquial D³ boost emerges
+   automatically from the ν³ factor. See research note §1.
 
-4. **No GR corrections to the emissivity itself.** The emissivity is
-   computed in the comoving frame; the D³ factor handles the frame
-   transformation. Gravitational redshift is already handled by the
-   geodesic integrator (the photon frequency at the observer is the
-   correct one). Do not apply redshift twice.
+4. **No GR corrections to the emissivity itself.** Emissivity is
+   computed in the fluid rest frame; the invariant transfer handles
+   *both* bulk Doppler and gravitational redshift in one ν³ factor.
+   Do not apply any extra Doppler or redshift multipliers.
 
 5. **Spectral pipeline integration.** The synchrotron spectrum is a
    power law: j_ν ∝ ν^α where α = -(p-1)/2. Evaluating at the hero
@@ -214,8 +248,38 @@ radiance.
 - [ ] Blender addon exposes jet parameters (Lorentz factor, half-angle,
       power-law index, density, magnetic field).
 - [ ] All existing tests pass.
-- [ ] ≥8 new tests covering: emissivity calculation, Doppler factor,
-      jet geometry (inside/outside cone), spectral slope, visual render.
+- [ ] ≥8 new tests covering: emissivity calculation, fluid-frame
+      frequency / invariant transfer, jet geometry (inside/outside
+      cone), spectral slope, visual render.
+
+### Analytic test values (must reproduce to <1e-6 relative error)
+
+Source: Pandya 2016 §A1 + research note §2. Full derivation in
+`accretion-emission-research.md §2-§3`.
+
+**Thermal Stokes-I at X = 1, θ_B = π/2:**
+
+```
+J_S(X=1, θ_B=π/2)
+  = (sqrt(2)·π/27) · 1 · (1 + 2^(11/12))² · exp(-1)
+  ≈ 0.5023
+j_ν^I(X=1) = 0.5023 · n_e · e² · ν_c / c
+```
+
+For B = 1 G, n_e = 1 cm⁻³ → j_ν^I ≈ 1.083e-23 erg/(s·cm³·Hz·sr).
+
+**Power-law spectral slope:** for p = 2.5, log(j_ν1/j_ν2)/log(ν1/ν2)
+must equal −0.75 to within 1e-3 over ν ∈ [10 ν_c, 100 ν_c].
+
+**Optically-thin sphere check (Scene A in research note §6.1):**
+flat space, sphere radius 100 cm, n_e = 1 cm⁻³, T_e = 1e10 K, B = 1 G.
+Through-center pixel intensity at 1 GHz must equal
+j_ν^I(thermal) · 200 cm to within 1e-3 (no GR, no self-absorption,
+analytic upper bound).
+
+**Bulk-boost check:** for γ_jet = 10, head-on viewing (θ_obs ≈ 0),
+peak intensity ratio I_approach / I_recede must equal D³ ≈ 8000 to
+within 20 %. (This is the invariant ν³ working out in practice.)
 
 ---
 

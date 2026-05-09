@@ -3,8 +3,37 @@
 **Pillar:** 4
 **Track:** B (plugin, self-contained)
 **Status:** open
-**Estimated effort:** 1–2 sessions (~4 h)
-**Depends on:** pkg40 (Kerr metric), pkg42 (VolumetricEmission interface)
+**Estimated effort:** 2 sessions (~5 h) — bumped from "1-2 sessions
+(~4 h)" after research; the bremsstrahlung Gaunt factor and the
+beta-convention mapping (research note §5.3) each warrant a unit test.
+**Depends on:** pkg40 (Kerr metric), pkg42 (VolumetricEmission interface,
+Pandya 2016 thermal j_nu/alpha_nu — pkg44 reuses pkg42's emissivity for
+the synchrotron half)
+
+**Reference research:** `.astroray_plan/docs/accretion-emission-research.md`
+(ADAF profile §5, thermal synchrotron §2.2, transfer pipeline §1,
+license matrix §7).
+
+---
+
+## Reference Implementations
+
+The Narayan & Yi 1995 self-similar ADAF solution is a closed-form
+power-law in r — no tabulated data needed. Numerical prefactors come
+from Yuan & Narayan 2014 ARA&A §2.1 eqs. 8-16. Synchrotron emissivity
+reuses the Pandya 2016 thermal Stokes-I fit from pkg42.
+
+| Repo | Commit | License | Mirror permitted | Files to study |
+|------|--------|---------|-----------------|----------------|
+| (paper) Narayan & Yi 1995 ApJ 452, 710 | — | journal | math is public-domain; cite in code | original analytic solution |
+| (paper) Yuan & Narayan 2014 ARA&A 52, 529 | — | journal | math is public-domain; cite eqs. 8-16 in code | numerical prefactors, wind exponent s |
+| [ipole](https://github.com/AFD-Illinois/ipole) | `master` 2024-Q4 | BSD-3-Clause | Yes — radiation/transfer plumbing only | `src/radiation.c` (invariant transfer), `src/symphony/maxwell_juettner_fits.c` (pkg42 already mirrors this) |
+| [RAPTOR](https://github.com/tbronzwaer/raptor) | `08cb9a2` | **GPLv3** | **No** — cross-validation only | Sgr A* / M87 ADAF cross-validation runs |
+| [GYOTO](https://github.com/gyoto/Gyoto) | — | CeCILL | **No** — numerical cross-check only | `Astrobj/ThinDisk.C` with custom emissivity is the closest analogue |
+
+Same fence as pkg40/pkg42: do **not** mirror RAPTOR even though it
+implements both the Narayan-Yi profile and the Pandya 2016 fits. The
+formulae are public domain; RAPTOR's C representation is GPLv3.
 
 ---
 
@@ -43,10 +72,18 @@ visible, since the optically thin flow does not obscure the silhouette.
 
 ## Reference
 
+- **Research notes (read first):** `.astroray_plan/docs/accretion-emission-research.md`
+  (ADAF profile §5 — copy-paste prefactors and Sgr A* test values;
+  pipeline §1; license matrix §7)
 - Design doc: `.astroray_plan/docs/astrophysics.md §4.2`
-- Narayan & Yi 1994 — self-similar ADAF solution
-- Yuan & Narayan 2014 — review of hot accretion flows
-- Broderick & Loeb 2006 — ADAF models for Sgr A* imaging
+- Narayan, R. & Yi, I. 1995, ApJ 452, 710 — self-similar ADAF solution
+  (the original).
+- Yuan, F. & Narayan, R. 2014, ARA&A 52, 529 — modern review with the
+  outflow exponent s and numerical prefactors (eqs. 8-16; the formulae
+  pkg44 implements verbatim).
+- Broderick & Loeb 2006 — ADAF models applied to Sgr A* imaging.
+- Karzas & Latter 1961 — Gaunt factor fitting formula for the
+  bremsstrahlung emissivity.
 - VolumetricEmission interface: `include/astroray/emission.h` (from pkg42)
 
 ---
@@ -81,45 +118,67 @@ visible, since the optically thin flow does not obscure the silhouette.
 
 ### Physics model
 
-#### Flow geometry
+#### Flow geometry (Yuan & Narayan 2014 eqs. 8-13)
 
-Self-similar quasi-spherical flow. Density profile:
+Self-similar quasi-spherical flow. Use the Yuan & Narayan 2014 numerical
+prefactors verbatim (research note §5.1, copy-paste form). With
+m = M/M_sun, r in Schwarzschild radii R_S, ṁ_BH = inflow rate at the
+hole in Eddington units, alpha = viscosity, s = outflow exponent:
 
-    ρ(r) = ρ₀ · (r / r_out)^(-3/2 + s)
+    v_r(r)  = -1.1e10 · alpha · r^(-1/2)                              cm/s   (Y14 eq. 8)
+    Omega(r)= 2.9e4   · m^(-1) · r^(-3/2)                              s^-1   (Y14 eq. 9)
+    c_s²(r) = 1.4e20  · r^(-1)                                         cm²/s² (Y14 eq.10)
+    n_e(r)  = 6.3e19  · alpha^(-1) · m^(-1) · ṁ_BH · r^(-3/2 + s)     cm^-3  (Y14 eq.11)
+    B(r)    = 6.5e8   · (1+β_Y14)^(-1/2) · alpha^(-1/2)
+                      · m^(-1/2) · ṁ_BH^(1/2) · r^(-5/4 + s/2)        G      (Y14 eq.12)
 
-where s ≈ 0.3 is the self-similar index from Narayan & Yi (1994).
-The flow is geometrically thick: H/r ~ 1, modelled as a sphere with
+The wind/outflow generalization Mdot(r) = Mdot_BH (r/R_S)^s
+(Y14 eq. 6) carries through the +s and +s/2 exponent corrections.
+Numerical MHD simulations find s ≈ 0.3-0.5 (Y14 §3.2); pkg44 default
+is s = 0.3.
+
+The flow is geometrically thick (H/r ~ 1), modelled as a sphere with
 no equatorial concentration (unlike the slim disk). Angular
 distribution is uniform or weakly concentrated to the equatorial
 plane depending on the `flattening` parameter (0 = spherical, 1 =
 disk-like).
 
-#### Two-temperature plasma
+#### Two-temperature plasma (Yuan & Narayan 2014 eq. 16)
 
-Ions and electrons are not in thermal equilibrium:
+Ions follow virial (Y14 eq. 16):
 
-    T_ion(r) = T_vir(r) = (G M m_p) / (3 k_B r) ≈ 10¹² K · (M/r)
-    T_e(r) = T_e0 · (r / r_out)^(-1)
+    T_ion(r) ≈ G M m_p / (6 k_B R) ≈ (1.2e12 / r) K   // r in R_S
 
-with T_e0 ~ 10⁹–10¹¹ K as a user parameter. The ion temperature
-follows the virial temperature; the electron temperature is lower
-because Coulomb coupling is inefficient at low densities.
+Electrons are cooler because Coulomb coupling from ions is inefficient
+at low densities (Y14 §3.3):
+
+    T_e(r) = T_e0 · (R_S / r)^q,    q = 1 (pkg44 fixed)
+
+T_e0 ∈ [1e9, 1e11] K as the user parameter `electron_temp`; default
+1e10 K for Sgr A*-like flows.
 
 Only the electron temperature matters for emission — ions are too
 heavy to radiate significantly.
+
+**β-convention warning** (research note §5.3): the Y14 paper uses
+β = p_gas / p_mag. The pkg44 user parameter `beta_mag` is the
+inverse (p_mag / p_gas, the magnetisation). Map carefully in code:
+`beta_Y14 = 1.0 / beta_mag`. A unit test must catch this inversion.
 
 #### Emission mechanisms
 
 Two contributions, both evaluated in the comoving frame:
 
-1. **Thermal synchrotron** from hot electrons in the magnetised
-   accretion flow:
-
-       j_ν^sync ∝ n_e · ν · exp(−ν / ν_c)
-
-   where ν_c ∝ T_e² B is the critical frequency. The magnetic field
-   is parameterised as a fraction β_mag of the gas pressure:
-   B² / 8π = β_mag · ρ k_B T_ion / m_p.
+1. **Thermal synchrotron** — use the Pandya 2016 Maxwell-Jüttner
+   Stokes-I fit (eqs. 29, 31) with the local n_e, T_e, B, θ_B from
+   §Flow geometry above. The exact copy-paste C++ form lives in
+   research note §2.2 and is already implemented by pkg42's
+   synchrotron module — pkg44 calls it directly, so the actual line
+   count for synchrotron in pkg44 is one function call, not a
+   re-implementation. (The qualitative form
+   j_ν ∝ n_e · ν · exp(−ν/ν_c) is recovered in the high-X limit.)
+   Magnetic field B is from Y14 eq. 12 above, not from a separate
+   pressure-balance assumption.
 
 2. **Thermal bremsstrahlung** (free-free):
 
@@ -196,6 +255,48 @@ machinery as the synchrotron jet (pkg42).
 - [ ] ≥6 new tests covering: density profile, temperature profile,
       synchrotron emissivity, bremsstrahlung emissivity, shadow
       visibility, spectral shape.
+
+### Analytic test values (must reproduce within stated tolerance)
+
+Source: research note §5.4, derived from Yuan & Narayan 2014
+eqs. 8-16. Sgr A*-like fiducial: M = 4.0e6 M_sun (m = 4e6),
+ṁ_BH = 1e-8, alpha = 0.1, beta_mag = 0.1 (so β_Y14 = 10),
+s = 0.3, T_e0 = 1e10 K, q = 1.
+
+**Profiles at r = 10 R_S** (50 % tolerance — Y14 prefactors are
+themselves order-unity uncertain):
+
+| Quantity | Expected | Tolerance |
+|----------|----------|-----------|
+| n_e      | ~10 cm⁻³ | ±50 %     |
+| B        | ~2.5e-5 G | ±50 %    |
+| T_ion    | 1.2e11 K  | ±5 %     |
+| T_e      | 1e9 K     | ±5 %     |
+
+**Profiles at r = 2 R_S:**
+
+| Quantity | Expected | Tolerance |
+|----------|----------|-----------|
+| n_e      | ~6.9e4 cm⁻³ | ±50 %  |
+| B        | ~1.45e-4 G  | ±50 %  |
+| T_ion    | 6e11 K      | ±5 %   |
+| T_e      | 5e9 K       | ±5 %   |
+
+**Density power-law exponent:** log(n_e(r1)/n_e(r2)) / log(r1/r2)
+must equal -(3/2 - s) = -1.2 (for s = 0.3) to within 1e-3.
+
+**Temperature power-law exponent:** log(T_ion(r1)/T_ion(r2)) /
+log(r1/r2) must equal -1.0 to within 1e-3.
+
+**β-convention regression:** at beta_mag = 0.1, the computed B must
+match the Y14 eq. 12 numerical prefactor with (1 + 10)^(-1/2)
+= 0.302, NOT (1 + 0.1)^(-1/2) = 0.953. (Catches the inversion bug
+the research note §5.3 warns about.)
+
+**Sgr A* image-plane sanity (Scene C in research note §6.3):**
+total flux at 230 GHz must be order ~3 Jy (Sgr A* observed) to
+within a factor of 3. Coarser tolerance because the result depends
+on the integration volume cutoff and inclination.
 
 ---
 

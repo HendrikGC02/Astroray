@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (with eyes on Pillar 4)
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 1 week (~25 h, several sessions)
 **Depends on:** pkg53 (capability metadata), pkg35 (spectral GPU material payloads, done)
 
@@ -91,15 +91,28 @@ This is the smallest version of GPU spectral parity that gets IR/UV rendering of
 
 ## Progress
 
-- [ ] Confirm pkg35 GPU spectral material payloads cover the materials in the test scene.
-- [ ] Write the test scene + parity test (failing first).
-- [ ] Port the megakernel.
-- [ ] Wire device-side profile dispatch.
-- [ ] Flip `gpuSupported = true` in the integrator's capabilities.
-- [ ] Update STATUS.md.
+- [x] Confirm pkg35 GPU spectral material payloads cover the materials in the test scene.
+- [x] Write the test scene + parity test ([tests/scenes/multiwavelength_parity.py](tests/scenes/multiwavelength_parity.py), [tests/test_gpu_multiwavelength.py](tests/test_gpu_multiwavelength.py)).
+- [x] Port the megakernel ([src/gpu/multiwavelength_kernel.cu](src/gpu/multiwavelength_kernel.cu)).
+- [ ] Wire device-side profile dispatch — *deferred to follow-up; without it
+  outside-visible bands fall back to RGB-to-spectrum on both backends, which
+  still satisfies CPU/GPU parity at SSIM ≥ 0.97 on the test scene.*
+- [x] Flip `gpuSupported = true` in [plugins/integrators/multiwavelength_path_tracer.cpp](plugins/integrators/multiwavelength_path_tracer.cpp).
+- [x] Update [.astroray_plan/docs/STATUS.md](.astroray_plan/docs/STATUS.md).
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The CPU integrator is naive (no NEE), so the GPU port did not need to
+  duplicate `sampleDirectGPU`/MIS plumbing — the megakernel is much smaller
+  than `path_trace_kernel.cu`.
+- Wyman/Sloan/Shirley 2013 multi-Gaussian CIE-XYZ fits make a CPU-side LUT
+  unnecessary for visible-band sRGB output, keeping the kernel
+  table-free and fully on-device.
+- The integrator–GPU bridge lives in `module/blender_module.cpp`, not in the
+  `Integrator` base class; that kept the GPU-aware dispatch off the public
+  integrator interface (no header dependency on `gpu_renderer.h`).
+- Profile-aware spectral evaluation on the GPU is the next obvious gap — it
+  needs a small constant-memory profile table plus a `profileIndex` field on
+  `GMaterial`. Tracked as a follow-up (pkg54a).

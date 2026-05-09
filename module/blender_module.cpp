@@ -160,6 +160,7 @@ class PyRenderer {
     std::shared_ptr<EnvironmentMap> envMap;
     bool useGPU = false;
     astroray::ParamDict integratorParams_;
+    std::string integratorName_;
 #ifdef ASTRORAY_CUDA_ENABLED
     std::unique_ptr<CUDARenderer> cudaRenderer;
 #endif
@@ -658,9 +659,27 @@ public:
             cudaRenderer->uploadScene(renderer, *camera);
             if (envMap && envMap->loaded())
                 cudaRenderer->uploadEnvironmentMap(*envMap);
-            cudaRenderer->render(camera->pixels,
-                                 camera->width, camera->height, renderer.getSeed(),
-                                 samplesPerPixel, maxDepth);
+            if (integratorName_ == "multiwavelength_path_tracer") {
+                // pkg54: spectral-band megakernel. Resolve params from the
+                // same ParamDict used to construct the CPU integrator.
+                float lmin = integratorParams_.getFloat("lambda_min", 380.0f);
+                float lmax = integratorParams_.getFloat("lambda_max", 780.0f);
+                std::string mode = integratorParams_.getString("output_mode", "");
+                bool useLum;
+                if (mode.empty())
+                    useLum = !(lmin >= 379.5f && lmax <= 780.5f);
+                else
+                    useLum = (mode == "luminance");
+                cudaRenderer->renderMultiwavelength(
+                    camera->pixels,
+                    camera->width, camera->height, renderer.getSeed(),
+                    samplesPerPixel, maxDepth,
+                    lmin, lmax, useLum);
+            } else {
+                cudaRenderer->render(camera->pixels,
+                                     camera->width, camera->height, renderer.getSeed(),
+                                     samplesPerPixel, maxDepth);
+            }
         } else
 #endif
         {
@@ -980,10 +999,12 @@ public:
     void setIntegrator(const std::string& name) {
         if (name == "auto" || name == "default" || name.empty()) {
             renderer.setIntegrator(nullptr);
+            integratorName_.clear();
             return;
         }
         auto integrator = astroray::IntegratorRegistry::instance().create(name, integratorParams_);
         renderer.setIntegrator(integrator);
+        integratorName_ = name;
     }
 
     py::dict getIntegratorStats() const {
@@ -1002,6 +1023,8 @@ public:
         textureManager = TextureManager();
         envMap.reset();
         useGPU = false;
+        integratorName_.clear();
+        integratorParams_ = astroray::ParamDict();
 #ifdef ASTRORAY_CUDA_ENABLED
         cudaRenderer.reset();
 #endif

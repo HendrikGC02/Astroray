@@ -289,6 +289,7 @@ if(ASTRORAY_CUDA_FOUND)
     add_library(astroray_cuda STATIC
         src/gpu/cuda_renderer.cu
         src/gpu/path_trace_kernel.cu
+        src/gpu/multiwavelength_kernel.cu
         src/gpu/scene_upload.cu
     )
     target_include_directories(astroray_cuda PUBLIC ${CMAKE_SOURCE_DIR}/include)

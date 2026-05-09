@@ -303,8 +303,12 @@ events are summarized in the changelog below.
 - GPU material support is now capability-gated, so unsupported materials no
   longer silently lower to approximate CUDA records. pkg35 adds sampled
   wavelength payloads and `gpu_spectral` metadata for the core GPU material
-  set; Sellmeier direction-splitting and true spectral emitter parameter
-  upload remain CPU-only. pkg36 expands shared closure lowering.
+  set. pkg54 lands a CUDA megakernel mirror of `multiwavelength_path_tracer`
+  (visible/NIR/UV bands, luminance + sRGB output via Wyman 2013 CMFs); the
+  integrator now reports `gpuSupported = true`. Sellmeier direction-splitting,
+  true spectral emitter parameter upload, and per-material spectral-profile
+  dispatch on the GPU all remain CPU-only follow-ups. pkg36 expands shared
+  closure lowering.
 - The Blender addon backend UI/packaging refresh from pkg37 is complete.
   Remaining Blender parity work is narrower: pkg57/pkg59 shader graph
   fidelity and pkg54 multi-wavelength GPU parity. pkg52 persistent viewport

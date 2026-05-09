@@ -22,7 +22,7 @@ personally should pick up.
   not CUDA kernels.
 - Pillar 5 is the active practical queue. The Cycles-parity/Blender package
   series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg60/pkg61/pkg62
-  are done, pkg59 is partial, and pkg54/pkg57 remain open.
+  are done, pkg59 is done, and pkg54/pkg57 remain open.
 - Fresh local collection on this branch: `pytest --collect-only -q` reports
   **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
 - Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
@@ -40,7 +40,7 @@ personally should pick up.
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
 | 4 | Astrophysics platform | Preparation | 5% | Kerr metric extraction | Pillars 1, 2 complete; backend parity bridge recommended before GPU parity claims |
-| 5 | Production polish / Blender parity | Ongoing | — | finish pkg59 or start pkg54/pkg57 | — |
+| 5 | Production polish / Blender parity | Ongoing | — | start pkg54/pkg57 | — |
 
 **Pillar 1 package summary:**
 
@@ -119,7 +119,7 @@ is currently the weakest link.
 | pkg54 | GPU multi-wavelength path tracer (CPU/GPU parity) | open | A |
 | pkg57 | Native Astroray shader nodes (with Cycles compat) | open | A |
 | pkg58 | Spectral profile dropdown + IR/UV reference scenes | **done** | B |
-| pkg59 | Shader-graph vector / UV plumbing (texture routing, Mapping scale/offset/rotation, coord_mode, uv_debug_aov; named UV layers remain — separate package) | mostly done | A |
+| pkg59 | Shader-graph vector / UV plumbing (texture routing, Mapping scale/offset/rotation, coord_mode, uv_debug_aov, named UV layers) | **done** | A |
 | pkg60 | Disney v2 energy compensation (no-glow materials) | **done** | A/E |
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
@@ -181,7 +181,7 @@ forgotten):
   compensation tables are loaded from data files, the old additive roughness
   boost was removed, Disney spec/clearcoat eval was corrected, and the
   270-case Halton furnace grid measured worst-case reflectance **1.015891**.
-- Recommended next-up order: **finish pkg59 → pkg54 → pkg57**.
+- Recommended next-up order: **pkg54 → pkg57**.
   pkg64 and pkg67 require a research note signed off by
   the project owner before code starts; CLAUDE.md §6 covers the policy.
 
@@ -278,7 +278,7 @@ events are summarized in the changelog below.
 | pkg54 | A | open | GPU multi-wavelength CUDA kernel work |
 | pkg57 | A | open | native shader nodes / Cycles compatibility design |
 | pkg58 | B | **done** | — |
-| pkg59 | A | partial | broader vector/UV/Mapping plumbing and UV debug AOV |
+| pkg59 | A | done | broader vector/UV/Mapping plumbing, named UV layers, and UV debug AOV |
 | pkg61 | A/E | **done** | broader CPU/GPU spectral parity tracked separately |
 | pkg62 | B | **done** | — |
 | pkg64 | A | research blocked | caustics research note |
@@ -310,7 +310,7 @@ events are summarized in the changelog below.
   dispatch on the GPU all remain CPU-only follow-ups. pkg36 expands shared
   closure lowering.
 - The Blender addon backend UI/packaging refresh from pkg37 is complete.
-  Remaining Blender parity work is narrower: pkg57/pkg59 shader graph
+  Remaining Blender parity work is narrower: pkg57 shader graph
   fidelity and pkg54 multi-wavelength GPU parity. pkg52 persistent viewport
   sessions and pkg62 viewport pass/OIDN UX are complete on `origin/main` plus
   the current pkg52 branch.
@@ -331,6 +331,11 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-09** — pkg59 done. Named UV layers now upload through
+  `add_triangle_layers`, textures can select a layer via Texture
+  Coordinate/UV Map node names, and the same image used with different UV
+  layers gets distinct texture cache entries.
 
 - **2026-05-09** — pkg60 complete (PR #178, Codex). Disney v2 energy
   compensation: ported Cycles-derived GGX + sheen LUTs, replaced Disney's

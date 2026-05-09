@@ -27,6 +27,7 @@ private:
     Vec2 uvScale_{1.0f, 1.0f};
     Vec2 uvOffset_{0.0f, 0.0f};
     float uvRotation_ = 0.0f;  // radians, Z-axis only (2D)
+    std::string uvLayerName_;
 
 protected:
     Vec2 applyUVTransform(const Vec2& uv) const {
@@ -56,7 +57,19 @@ protected:
         return Vec2(u, v);
     }
 
+    Vec2 selectedUV(const HitRecord& rec) const {
+        if (!uvLayerName_.empty()) {
+            for (size_t i = 0; i < rec.uvLayerNames.size() && i < rec.uvLayers.size(); ++i) {
+                if (rec.uvLayerNames[i] == uvLayerName_) {
+                    return rec.uvLayers[i];
+                }
+            }
+        }
+        return rec.uv;
+    }
+
     std::pair<Vec2, Vec3> textureCoordinates(const HitRecord& rec, const Vec3& wo) const {
+        Vec2 uv = selectedUV(rec);
         switch (coordMode) {
             case CoordMode::Generated: {
                 if (rec.hitObject) {
@@ -75,7 +88,7 @@ protected:
                         return {Vec2(g.x, g.y), g};
                     }
                 }
-                return {rec.uv, rec.objectPoint};
+                return {uv, rec.objectPoint};
             }
             case CoordMode::Object:
                 return {Vec2(rec.objectPoint.x, rec.objectPoint.y), rec.objectPoint};
@@ -98,7 +111,7 @@ protected:
                 return {rec.windowUV, Vec3(rec.windowUV.u, rec.windowUV.v, 0.0f)};
             case CoordMode::UV:
             default:
-                return {rec.uv, rec.point};
+                return {uv, rec.point};
         }
     }
 
@@ -131,6 +144,8 @@ public:
     Vec2 getUVScale()  const { return uvScale_;  }
     Vec2 getUVOffset() const { return uvOffset_; }
     float getUVRotation() const { return uvRotation_; }
+    void setUVLayerName(const std::string& name) { uvLayerName_ = name; }
+    const std::string& getUVLayerName() const { return uvLayerName_; }
 
     // Spectral hook (pkg13). Default upsamples the RGB value per-call.
     virtual astroray::SampledSpectrum sampleSpectral(

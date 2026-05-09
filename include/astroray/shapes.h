@@ -84,6 +84,8 @@ public:
 class Triangle : public Hittable {
     Vec3 v0, v1, v2, normal;
     Vec2 uv0, uv1, uv2;
+    std::vector<std::array<Vec2, 3>> uvLayers;
+    std::vector<std::string> uvLayerNames;
     std::shared_ptr<Material> material;
     bool emissive;
     Vec3 vn0, vn1, vn2;
@@ -100,6 +102,32 @@ public:
              std::shared_ptr<Material> m)
         : v0(a), v1(b), v2(c), uv0(t0), uv1(t1), uv2(t2), material(m),
           emissive(m->isEmissive()) {
+        uvLayerNames = {"UVMap"};
+        uvLayers = {{{uv0, uv1, uv2}}};
+        normal = (v1 - v0).cross(v2 - v0).normalized();
+    }
+
+    Triangle(const Vec3& a, const Vec3& b, const Vec3& c,
+             const std::vector<std::array<Vec2, 3>>& layers,
+             const std::vector<std::string>& layerNames,
+             std::shared_ptr<Material> m)
+        : v0(a), v1(b), v2(c), material(m), uvLayers(layers), uvLayerNames(layerNames),
+          emissive(m->isEmissive()) {
+        if (!uvLayers.empty()) {
+            uv0 = uvLayers[0][0];
+            uv1 = uvLayers[0][1];
+            uv2 = uvLayers[0][2];
+        } else {
+            uv0 = Vec2(0,0); uv1 = Vec2(1,0); uv2 = Vec2(0,1);
+        }
+        if (uvLayerNames.size() < uvLayers.size()) {
+            uvLayerNames.resize(uvLayers.size());
+        }
+        for (size_t i = 0; i < uvLayerNames.size(); ++i) {
+            if (uvLayerNames[i].empty()) {
+                uvLayerNames[i] = (i == 0) ? "UVMap" : ("UVMap" + std::to_string(i + 1));
+            }
+        }
         normal = (v1 - v0).cross(v2 - v0).normalized();
     }
 
@@ -136,6 +164,11 @@ public:
         rec.material = material;
         rec.hitObject = this;
         rec.uv = uv0 * w + uv1 * u + uv2 * v;
+        rec.uvLayers.clear();
+        rec.uvLayerNames = uvLayerNames;
+        for (const auto& layer : uvLayers) {
+            rec.uvLayers.push_back(layer[0] * w + layer[1] * u + layer[2] * v);
+        }
         return true;
     }
 

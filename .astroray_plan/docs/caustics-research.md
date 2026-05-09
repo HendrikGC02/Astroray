@@ -1,7 +1,7 @@
 # pkg64 — Caustics research note (literature pass for prism-accurate rendering)
 
-**Status:** awaiting project-owner sign-off before pkg64 implementation begins.
-**Author:** Claude Code, 2026-05-09 literature pass.
+**Status:** project-owner answers received 2026-05-09. Recommendation revised: **SMS code skeleton (BSD-3) + per-wavelength Newton extension from the MNEE paper.** Implementation pending capacity.
+**Author:** Claude Code, 2026-05-09.
 **Policy:** [CLAUDE.md §6](../../CLAUDE.md) — no invented algorithms.
 
 ---
@@ -18,9 +18,16 @@ which converges so slowly that the rainbow only appears after tens of
 thousands of samples per pixel.
 
 This note evaluates four published techniques for accelerating caustic
-convergence, recommends one (**Manifold Next Event Estimation,
-modeled after Cycles' implementation**), and flags open questions for
-project-owner sign-off before any code is written.
+convergence and (after the project owner's 2026-05-09 sign-off) recommends:
+
+> **Use the BSD-3-Clause SMS reference code as the implementation
+> skeleton, extended with the per-wavelength Newton-iteration math
+> from the MNEE paper.** This satisfies all four owner answers
+> (reflective caustics in scope, opt-in caster UX, both numerical and
+> visual gates, MIT-compatible licensing).
+
+The license analysis below explains why the original "port from
+Cycles' MNEE" recommendation is no longer viable.
 
 ---
 
@@ -146,92 +153,132 @@ Worth flagging for the implementation phase even though it's not new:
 
 ---
 
-## License question — **needs project-owner answer before code**
+## License analysis — resolved 2026-05-09
 
-Cycles' MNEE implementation is **GPL-2.0-or-later**. Astroray's
-license is not declared in any file I've checked in the repo
-(`grep -i "license\|copyright" CMakeLists.txt include/raytracer.h`
-turns up no obvious LICENSE.txt). Two paths:
+Astroray's [`LICENSE`](../../LICENSE) declares the project as
+**MIT License (Copyright © 2026 HendrikGC02)**.
 
-- **(A) If Astroray is GPL-compatible** (or the project owner is
-  willing to make it so): port the Cycles MNEE algorithm directly,
-  citing the Cycles file paths. Minimal risk, fastest implementation,
-  most production-validated.
-- **(B) If Astroray must stay permissive** (Apache-2.0 / BSD / MIT):
-  re-derive the Hanika et al. 2015 algorithm from the paper itself,
-  cite the paper but not Cycles code. Slower to implement, same
-  algorithmic result. SMS (BSD) is also viable for a re-spec at this
-  point.
+**MIT cannot consume GPL-2.0+ code.** GPL is "viral": derivative works
+must be re-licensed GPL. Direct ports of Cycles' MNEE
+(`intern/cycles/kernel/integrator/mnee.h` and friends) into the MIT
+Astroray codebase would either re-license Astroray as GPL (a breaking
+change for any current/future consumer) or constitute a license
+violation. Neither is acceptable.
 
-**This is the single decision that gates the implementation.** I will
-not write code until the project owner confirms which path.
+Project-owner clarification 2026-05-09: *"Use your own discretion on
+how to handle the Cycles MNEE implementation, ideally it would be
+best to use as much as is rather than rederiving."*
 
----
+**Resolution: use SMS code (BSD-3-Clause), not Cycles MNEE.**
 
-## Recommended scope for pkg64 (subject to sign-off)
+- **SMS** is BSD-3-Clause (verified by fetching
+  `github.com/tizian/specular-manifold-sampling/blob/master/LICENSE` —
+  *Copyright © 2017 Wenzel Jakob*). BSD-3 is **MIT-compatible**: we
+  can include the SMS source files directly under their original
+  BSD-3 header, preserve the copyright notice, and link the result
+  into our MIT codebase without any re-licensing.
+- **MNEE paper math is free to read and re-derive.** The Hanika et al.
+  2015 paper itself is academic publication, not GPL — re-deriving
+  the per-wavelength Newton solver from the paper is fine. Reading
+  Cycles' MNEE source for "what does it do at runtime" behavior
+  inspection (e.g. the `caustic_caster` flag) is also fine, as long
+  as we do not copy code patterns directly.
 
-Given the user's stated goal (prism rainbow), the existing Astroray
-machinery (spectral, Sellmeier), and the MNEE-via-Cycles availability,
-the recommended scope is:
+**Practical division of sources:**
 
-1. **Phase 1: MNEE for refractive shadow caustics.** Wrap the existing
-   `path_tracer` integrator with an MNEE NEE strategy when the user
-   sets `use_refractive_caustics = True` and a refractive object marks
-   itself as a "caustic caster" (Cycles' UI pattern). Per-wavelength
-   Newton iteration uses the sampled hero wavelength's IOR. Validation
-   scene: pkg29's prism, but at moderate spp (target: visible rainbow
-   at 256 spp). Hard gate: per-channel centroid spread ≥ 1.5× the
-   no-caustic baseline.
-2. **Phase 2: fold into the default path tracer.** Drop
-   `caustic_path_tracer` as a user-facing integrator (keep as a
-   regression baseline). MNEE composes with ReSTIR/NEE because it's a
-   light-sampling strategy, not a separate integrator.
-3. **Out of scope for pkg64:** reflective caustics (need SMS or a
-   reflective MNEE extension; Cycles' MNEE explicitly excludes them),
-   GPU MNEE port (after pkg54), >4 refractive bounces (matches Cycles
-   limitation; revisit if user has a scene that needs more).
+| What | Source | License at point of use |
+|---|---|---|
+| Newton-iteration scaffolding | SMS reference code (Mitsuba 2) | BSD-3 (kept verbatim header) |
+| Reflective + refractive + glint manifold logic | SMS | BSD-3 |
+| Per-wavelength solve (use sampled λ's IOR in the half-vector residual) | Hanika 2015 paper §3-5 | Re-derived from paper |
+| Caustic-caster opt-in UX pattern | Cycles behavior, no code copy | None — we only copy the *idea* |
+| Spectral integration + Sellmeier dispersion | Astroray pkg10/pkg11/pkg31 | Existing MIT |
 
 ---
 
-## Open questions for the project owner
+## Recommended scope for pkg64 (post-sign-off)
 
-1. **License — A or B above?** Determines whether we port from
-   Cycles directly or re-derive from the paper.
-2. **"Caustic caster" UX.** Cycles uses an opt-in per-object
-   property — only objects flagged as casters trigger MNEE
-   sampling. Should we mirror that, or always-on?
-3. **Acceptance gate.** "Visible rainbow at 256 spp" is an
-   approximate gate. Do you want a numerical gate (centroid spread,
-   per-wavelength SNR) or a visual gate (saved reference render) as
-   the hard PR-merge condition?
-4. **Future scope.** Reflective caustics (mirror pool, polished metal
-   floor) are out of pkg64. Confirmed acceptable, or do you want them
-   in scope (would push toward SMS as primary instead of MNEE)?
+The four 2026-05-09 owner answers are folded in here. Scope grew vs
+the pre-sign-off draft because reflective caustics moved in — which
+is exactly what made SMS the right code source, since SMS handles
+both refractive and reflective uniformly.
+
+1. **Vendor SMS reference code.** Drop the relevant SMS
+   single-scattering and multi-scattering manifold files into
+   `external/sms/` (or equivalent), preserving the BSD-3 header.
+   Add a third-party-licenses note. SMS handles refractive,
+   reflective, and (later) glint paths uniformly — the user's
+   confirmed in-scope set.
+2. **Astroray adapter layer.** Map SMS's `Mitsuba 2`-shaped types to
+   Astroray's `HitRecord`, `Vec3`, `Material::sample`, etc. Thin
+   wrapper, no re-implementation.
+3. **Per-wavelength Newton iteration.** Replace SMS's RGB residual
+   with a wavelength-aware residual: at each Newton step, query the
+   IOR using the *sampled hero wavelength* (Astroray
+   `SampledWavelengths` from pkg10) instead of a fixed RGB IOR.
+   Re-derived from Hanika et al. 2015, §3-5 — paper math, no Cycles
+   code. This is what produces the prism rainbow.
+4. **Caustic-caster opt-in UX.** Mirror Cycles: per-object boolean
+   property (`object.astroray.is_caustic_caster`). Only objects
+   flagged as casters trigger SMS sampling. Saves perf when caustics
+   aren't relevant; matches Cycles workflow so a Cycles user
+   transitions naturally.
+5. **Default-path-tracer integration.** Wire SMS as an MIS strategy
+   inside `path_tracer` when `use_refractive_caustics` or
+   `use_reflective_caustics` is True. Keep `caustic_path_tracer` as a
+   registered regression baseline.
+6. **Acceptance gates — both numerical AND visual.** Owner confirmed
+   *both* are wanted unless one is too expensive:
+   - **Numerical (cheap):** per-channel centroid spread ≥ 1.5× the
+     no-caustic baseline on the prism scene; PSNR ≥ 28 dB vs the
+     reference render at the matched spp.
+   - **Visual (cheap because we already render reference PNGs):**
+     pixel-diff or SSIM ≥ 0.95 vs `tests/reference/prism_rainbow_*.png`.
+   Both fit in the existing test infrastructure. Including both.
+
+**Out of scope** for pkg64 (each is its own follow-up):
+
+- GPU port — sits behind pkg54 wavefront (or a megakernel SMS port);
+  CPU first.
+- Glint rendering on rough microfacet normal-mapped surfaces —
+  SMS supports it but the use case is different from prism caustics.
+- SMBS / Batch SMS speedups — phase 2 if convergence is unsatisfactory.
 
 ---
 
-## Implementation pointers (for the post-sign-off phase)
+## Implementation pointers
 
-If license path A (GPL-OK):
-- Cycles MNEE entry points: `intern/cycles/kernel/integrator/mnee.h`,
-  called from `intern/cycles/kernel/integrator/shade_surface.h`.
-- The patch: Blender developer site `D13533` (Olivier Maury). Search
-  the linked diff for `MNEE_SOLVER_MAX_ITERATIONS` and `mnee_sample`
-  to find the Newton solver and connection logic.
-- License/source attribution must be added to every ported file per
-  CLAUDE.md §6.
+The path is now **single-rooted** (SMS code + spectral extension):
 
-If license path B (paper port):
-- Hanika et al. 2015, §3-5 (algorithm) and §6 (results). Newton solver
-  is ~30 lines, the half-vector residual is the standard one. SMS code
-  on GitHub (BSD) is a useful cross-reference for the Newton inner
-  loop even though the outer algorithm differs.
-
-In both cases:
-- Wavelength = sampled hero wavelength from `SampledWavelengths` (pkg10).
-- IOR query = `Sellmeier(λ_hero)` from pkg31's `SellmeierDielectric`.
-- Validation = `tests/scenes/prism_reference.py` (pkg29) at 256 spp,
-  with the new `use_refractive_caustics=True` flag.
+- **SMS reference layout** (relevant files in
+  [`tizian/specular-manifold-sampling`](https://github.com/tizian/specular-manifold-sampling)):
+  - `src/integrators/sms_*.cpp` — caustic SMS integrators (single,
+    multi, combined). These are the algorithmic skeleton.
+  - `src/libcore/manifold.cpp` (or equivalent) — Newton-iteration core.
+  - `src/libcore/glints.cpp` — glint variant (out of scope for
+    initial pkg64 but worth keeping intact for the future).
+- **Mitsuba 2 → Astroray type mapping**: SMS uses Mitsuba's
+  `SurfaceInteraction3f`, `Vector3f`, `BSDF::sample` etc. The adapter
+  layer converts these to `HitRecord`, `Vec3`, `Material::sample`.
+  Thin shim, no algorithmic changes.
+- **Per-wavelength residual** (the only real new code): replace any
+  RGB IOR / refraction in the SMS Newton inner loop with a
+  wavelength-aware version using:
+  - Wavelength = the hero wavelength of the current
+    `SampledWavelengths` (pkg10).
+  - IOR = `Sellmeier(λ_hero)` from pkg31's `SellmeierDielectric`.
+  - Reference: Hanika et al. 2015 §4 (the half-vector residual is
+    `h(λ) = 0` where `h` depends on the wavelength-specific IOR).
+- **Caustic-caster property**: add `is_caustic_caster: BoolProperty`
+  to the addon's per-object Astroray panel. Convert it to a flag on
+  `Hittable` (or the material) in C++.
+- **Validation** = `tests/scenes/prism_reference.py` (pkg29) at 256
+  spp, `use_refractive_caustics=True`. Plus a new mirror-pool scene
+  for the reflective-caustic acceptance gate.
+- **Attribution requirements** per CLAUDE.md §6 + the SMS BSD-3
+  notice: every vendored SMS file keeps its original copyright
+  header; a top-level `external/sms/README.md` summarizes attribution
+  and points at the upstream repo + paper DOI.
 
 ---
 
@@ -249,3 +296,5 @@ In both cases:
 - [Jensen 1996 photon mapping — author page](http://graphics.ucsd.edu/~henrik/papers/photon_map/)
 - [Jensen 1996 photon mapping — original PDF](https://graphics.stanford.edu/~henrik/papers/ewr7/egwr96.pdf)
 - [Batch SMS (2025 follow-up)](https://link.springer.com/article/10.1007/s00371-025-03955-0)
+- [Specular Manifold Bisection Sampling (Jhang 2022)](https://onlinelibrary.wiley.com/doi/abs/10.1111/cgf.14673) — phase-2 alternative if SMS convergence is unsatisfactory
+- [SMS supports refractive + reflective + glint paths](https://tizianzeltner.com/projects/Zeltner2020Specular/) — confirmed via README fetch 2026-05-09

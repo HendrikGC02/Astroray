@@ -1,9 +1,9 @@
 # pkg64 — Spectral Caustics (Prism-Accurate)
 
 **Pillar:** 3 (light transport) and 5
-**Track:** A (research-grade — must do WebSearch + WebFetch literature pass first)
-**Status:** research note drafted (2026-05-09) — **awaiting project-owner sign-off on the four open questions in [`caustics-research.md`](../docs/caustics-research.md) before implementation begins**
-**Estimated effort:** 3-4 weeks (~80 h, multiple sessions). Includes literature pass.
+**Track:** A (research-grade — research note signed off 2026-05-09)
+**Status:** research signed off — **ready to implement when capacity allows**. See [`caustics-research.md`](../docs/caustics-research.md) for the licensing analysis and the four owner answers.
+**Estimated effort:** 3-4 weeks (~80 h, multiple sessions).
 **Depends on:** pkg29 (prism validation, done), pkg29a (caustic test scenes, done)
 
 ---
@@ -18,16 +18,19 @@
 
 ## Context
 
-This is the highest-effort package on the roadmap and the only one explicitly research-grade. The user's instruction is firm: **do not invent an algorithm**. The candidate set is:
+This is the highest-effort package on the roadmap and the only one explicitly research-grade. The 2026-05-09 literature pass and project-owner sign-off resolved the algorithm + licensing choice:
 
-- **Specular Manifold Sampling (SMS)** — Zeltner et al., SIGGRAPH 2020. Reference implementation: Mitsuba 3, BSD-3-Clause. Handles dispersive specular paths via Newton iteration on the manifold of valid specular bounces. Wavelength-stratified extension is documented in the same paper. *Strong candidate.*
-- **Manifold Next Event Estimation (MNEE)** — Hanika et al., 2015. Older. Cycles has an experimental branch. *Backup candidate.*
-- **Photon mapping with caustic photons** — Jensen 1996. Adds a separate photon pass. *Strong fallback if SMS proves too complex; well-understood.*
-- **Path-space MLT with manifold mutations (MMLT)** — Jakob & Marschner 2012. *Probably overkill for prism caustics specifically.*
+- **Code skeleton: Specular Manifold Sampling (SMS)** — Zeltner et al., SIGGRAPH 2020 — taken from the BSD-3-Clause [Mitsuba 2 reference implementation](https://github.com/tizian/specular-manifold-sampling). MIT-compatible, handles refractive + reflective + glint paths uniformly.
+- **Spectral extension on top: per-wavelength Newton iteration** — math from the Hanika et al. 2015 MNEE paper (DOI 10.1111/cgf.12681), re-derived from the paper itself.
+- **NOT used: Cycles' MNEE source** — Cycles is GPL-2.0+, incompatible with Astroray's MIT license. Cycles is consulted for runtime-behavior patterns (the "caustic caster" opt-in property) only; no Cycles source code is copied.
+- **NOT used as primary: photon mapping** — older, no canonical permissive reference. Kept as a phase-2 fallback if SMS+spectral underperforms.
 
-**Working hypothesis (subject to research):** SMS + spectral wavelength stratification. Mitsuba 3 already renders dispersive prism caustics with this combination, and its license allows porting.
+The four open questions from the original draft are answered:
 
-The research phase must verify the working hypothesis and produce a citation-grade research note before any code is written. See **Prerequisites**.
+1. **License path:** SMS skeleton (BSD-3, MIT-compat) + paper-derived spectral extension. *Not* Cycles.
+2. **Caustic-caster UX:** opt-in per-object property, mirroring Cycles.
+3. **Acceptance gate:** both numerical (centroid spread, PSNR) and visual (SSIM ≥ 0.95 against saved reference renders).
+4. **Reflective caustics:** in scope. SMS handles them natively, which is what made SMS the right code skeleton.
 
 ---
 
@@ -43,77 +46,89 @@ The research phase must verify the working hypothesis and produce a citation-gra
 
 ## Prerequisites
 
-- [ ] **Research phase (mandatory).** Use WebSearch + WebFetch to:
-  1. Confirm the SMS paper exists at the cited venue and read the abstract.
-  2. Locate the Mitsuba 3 SMS implementation; record the file path inside Mitsuba and the license header.
-  3. Confirm the dispersive-prism rendering claim from the SMS paper (Figure or supplemental).
-  4. Identify the licensing constraints of porting Mitsuba 3 code into Astroray.
-  5. Cross-reference with how Cycles handles dispersive caustics (or fails to).
-  6. Save findings to `.astroray_plan/docs/caustics-research.md` with: paper titles + DOIs/arXiv IDs, license of every reference repo, the specific files we will mirror, the math we will reproduce, and any open questions for the project owner.
-- [ ] Project owner sign-off on the research note before implementation begins.
+- [x] Research phase complete. See [`caustics-research.md`](../docs/caustics-research.md). Recommended approach: SMS code (BSD-3, from Mitsuba 2 reference) + per-wavelength Newton extension from Hanika 2015.
+- [x] Project-owner sign-off received 2026-05-09.
 - [ ] Confirm the existing prism test scene (`tests/test_spectral_prism.py`) reproduces a measurable but not yet visually-correct caustic baseline — needed for regression tests.
 
 ---
 
 ## Specification
 
-### Files to create (after research lands)
-
-*Exact list will be finalized in the research note. Probable shape:*
+### Files to create
 
 | File | Purpose |
 |---|---|
-| `plugins/integrators/sms_path_tracer.cpp` (or extension to `path_tracer.cpp`) | Implementation of the chosen caustic algorithm. |
-| `tests/test_spectral_caustic_prism.py` | Visual regression vs reference image (rainbow cascade) and statistical test on per-channel centroid spread. |
-| `tests/scenes/prism_rainbow.py` | Production-quality prism scene. |
-| `.astroray_plan/docs/caustics-research.md` | Research note (created in the research phase). |
+| `external/sms/` | Vendored SMS reference code (BSD-3, originally from `tizian/specular-manifold-sampling`). Files preserve their original copyright headers; a top-level `external/sms/README.md` records the upstream commit hash and license attribution. |
+| `external/sms/THIRD_PARTY_LICENSES.md` | License attribution for the BSD-3 code we vendor. |
+| `include/astroray/sms_adapter.h` | Thin Astroray-side adapter mapping `HitRecord`/`Vec3`/`Material` to the SMS code's expected Mitsuba 2 types. No algorithm in here. |
+| `src/sms_adapter.cpp` | Adapter implementation. |
+| `plugins/integrators/sms_caustics.cpp` | Astroray plugin that wires SMS sampling into the existing `path_tracer` as an MIS strategy. Gated by `use_refractive_caustics` / `use_reflective_caustics` *and* per-object `is_caustic_caster`. |
+| `tests/test_spectral_caustic_prism.py` | Visual + numerical regression on the prism scene. |
+| `tests/test_reflective_caustic_pool.py` | Reflective caustic acceptance test (mirror-pool / polished metal). |
+| `tests/scenes/prism_rainbow.py`, `tests/scenes/mirror_pool.py` | Reference scenes. |
+| `tests/reference/prism_rainbow_256spp.png`, `tests/reference/mirror_pool_256spp.png` | Saved reference renders for the visual gate. |
 
 ### Files to modify
 
 | File | What changes |
 |---|---|
-| `plugins/integrators/path_tracer.cpp` (or its spectral variant) | Add SMS / MNEE / photon-map dispatch gated by `use_reflective_caustics` / `use_refractive_caustics`. |
-| [blender_addon/__init__.py](blender_addon/__init__.py) | Wire `use_reflective_caustics` / `use_refractive_caustics` to the new dispatch, not just to a flag the integrator ignores. |
+| `plugins/integrators/path_tracer.cpp` (or its spectral variant) | Add SMS dispatch as an MIS strategy gated by `use_refractive_caustics` / `use_reflective_caustics` and per-caster opt-in. |
+| `include/raytracer.h` (Hittable) | Add `bool isCausticCaster_` flag with `setCausticCaster(bool)` / `isCausticCaster() const` accessors. |
+| `module/blender_module.cpp` | Bind `set_caustic_caster(material_id_or_object_id, enabled)`. |
+| [blender_addon/__init__.py](blender_addon/__init__.py) | Add `is_caustic_caster: BoolProperty` to the Astroray per-object panel; pass it to the renderer in `convert_objects`. |
+| `CMakeLists.txt` | Build rule for `external/sms/` and the adapter; link into `astroray_plugins`. |
 
 ### Key design decisions
 
-*Locked in only after the research note.*
-
-Tentative:
-1. **One unified integrator path.** Caustic sampling is an MIS strategy inside `path_tracer`, not a parallel integrator. This is the user's explicit request.
-2. **Wavelength-stratified.** A single SMS sample carries one wavelength; multi-λ rays sample SMS independently per λ. This is what produces the prism rainbow. (Only valid with SMS; revisit for other candidates.)
-3. **Performance gate.** Caustic sampling can be slow; default `caustic_density` parameter must give noticeable rainbow at production sample counts (~256 spp) without a 5× slowdown over the no-caustic case on a non-prism scene.
-4. **Regression baseline retained.** `caustic_path_tracer` stays in the registry for regression tests.
+1. **One unified integrator path.** SMS sampling is an MIS strategy *inside* `path_tracer`, not a parallel integrator. ReSTIR + NEE compose. Matches the user's "compose, don't replace" requirement from the original triage.
+2. **Per-wavelength Newton solve.** Each spectral sample's Newton iteration uses `Sellmeier(λ_hero)` — re-derived from Hanika 2015 §3-5. This is the math change vs vanilla SMS that gives us the prism rainbow.
+3. **Opt-in caster property.** Mirrors Cycles' UX. Per-object boolean. Saves perf when caustics aren't needed and matches what a Cycles-trained user expects.
+4. **Performance budget.** No-caustic scenes (no caster flagged): < 1.2× slowdown vs current `path_tracer` with caustics flag off. Rainbow scene at 256 spp: visible rainbow (centroid spread ≥ 1.5×, SSIM ≥ 0.95 vs reference).
+5. **Both numerical and visual gates.** Owner's explicit request. Centroid spread + PSNR + SSIM all checked. Visual reference PNGs live in `tests/reference/`.
+6. **Regression baseline retained.** `caustic_path_tracer` stays in the registry as a tested baseline.
+7. **Vendored SMS, not git-submodule.** SMS is small enough to vendor; no git submodule overhead. Upstream commit hash recorded in `external/sms/README.md` for traceability.
 
 ---
 
 ## Acceptance criteria
 
-- [ ] Research note `.astroray_plan/docs/caustics-research.md` exists and is signed off by the project owner.
-- [ ] Prism scene with a Sellmeier-glass prism + small light renders a visibly-correct rainbow cascade with chromatic separation.
-- [ ] Centroid-spread metric (per-channel x-position) ≥ 1.5× the no-caustic baseline.
-- [ ] No-caustic scenes show < 1.2× slowdown vs path_tracer with caustics flag off.
-- [ ] ReSTIR DI tests still pass when caustics flag is on (compose-don't-replace).
-- [ ] Visual regression test against a saved reference image (pixel-diff or SSIM ≥ 0.95).
+- [x] Research note `.astroray_plan/docs/caustics-research.md` exists and is signed off by the project owner.
+- [ ] **Refractive prism rainbow:** prism scene at 256 spp shows a visible rainbow cascade with chromatic separation.
+  - Numerical: per-channel centroid spread ≥ 1.5× the no-caustic baseline.
+  - Numerical: PSNR ≥ 28 dB vs the reference render at the matched spp.
+  - Visual: SSIM ≥ 0.95 vs `tests/reference/prism_rainbow_256spp.png`.
+- [ ] **Reflective caustic:** mirror-pool / polished-metal scene renders a coherent caustic pattern.
+  - Visual: SSIM ≥ 0.95 vs `tests/reference/mirror_pool_256spp.png`.
+- [ ] **Performance:** no-caustic scenes (no caster flagged) show < 1.2× slowdown vs `path_tracer` with caustics off.
+- [ ] **Composability:** ReSTIR DI tests still pass when caustics flag is on (compose-don't-replace).
+- [ ] **License hygiene:** vendored SMS code keeps its BSD-3-Clause headers; `external/sms/THIRD_PARTY_LICENSES.md` lists attribution; CLAUDE.md §6 citations on every wavelength-extension call site.
 
 ---
 
 ## Non-goals
 
-- Do not invent a new caustic algorithm.
-- Do not promise reflective-caustic perfection (mirror-pool caustics) — this package targets prism-style refractive dispersive caustics first. Reflective caustic quality is acceptable as long as it does not regress.
-- Do not delete `caustic_path_tracer`. It stays as a registered baseline.
+- Do not invent a new caustic algorithm. Use the SMS code skeleton + paper-derived spectral extension. CLAUDE.md §6 applies.
+- Do not consume Cycles' MNEE source code. GPL-2.0+ is incompatible with Astroray's MIT license. Cycles is a runtime-behavior reference (the caster opt-in pattern) only.
+- Do not delete `caustic_path_tracer`. It stays as a registered regression baseline.
+- Do not port to GPU in this package. SMS GPU port is a follow-up after pkg54.
+- Do not implement glint rendering on rough microfacet normal-mapped surfaces. SMS supports it but the use case is outside the prism/mirror-pool target. Phase-2.
+- Do not implement SMBS / Batch SMS speedups. Phase-2 if convergence is unsatisfactory.
 - Do not couple this to Pillar 4 / GR rendering. Curved-spacetime caustics are out of scope.
 
 ---
 
 ## Progress
 
-- [x] **Research phase**: WebSearch + WebFetch literature pass; `caustics-research.md` drafted 2026-05-09. Recommended primary: MNEE (Hanika et al. 2015) modeled after Cycles' implementation. Awaits project-owner sign-off on license + scope.
-- [ ] Project owner reviews and signs off on research note.
+- [x] **Research phase**: WebSearch + WebFetch literature pass; `caustics-research.md` drafted 2026-05-09.
+- [x] **Project-owner sign-off** (2026-05-09): SMS code (BSD-3) + spectral extension; opt-in caster UX; both numerical + visual gates; reflective caustics in scope.
 - [ ] Implementation phase begins.
-- [ ] Reference-image regression test on the prism scene.
-- [ ] Performance gate verification.
+- [ ] Vendor `external/sms/` from upstream commit hash (recorded in `external/sms/README.md`).
+- [ ] Astroray adapter layer (`include/astroray/sms_adapter.h`).
+- [ ] Per-wavelength Newton residual (Hanika 2015 §3-5 derivation).
+- [ ] `is_caustic_caster` per-object property + Blender UI.
+- [ ] Reference renders saved to `tests/reference/`.
+- [ ] Numerical + visual regression tests.
+- [ ] Performance gate verification (< 1.2× slowdown when no caster flagged).
 - [ ] STATUS.md updated.
 
 ---

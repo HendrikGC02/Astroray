@@ -40,7 +40,10 @@ SAMPLES_MED  = 64
 SAMPLES_HIGH = 256
 MIN_VISIBLE_PIXELS = 20
 CENTER_SLICE_RADIUS = 12
-MAX_GLOSSY_PARITY_MSE = 0.015
+# pkg60 makes Principled metallic energy-conserving while the legacy metal
+# plugin still carries the older additive multi-scatter boost. Keep this as a
+# broad same-family regression check rather than exact BRDF parity.
+MAX_GLOSSY_PARITY_MSE = 0.04
 MAX_GLASS_PARITY_MEAN_DIFF = 0.25
 MAX_GLASS_PARITY_P95_DIFF = 0.25
 MIN_SUN_SHADOW_MSE = 5e-4

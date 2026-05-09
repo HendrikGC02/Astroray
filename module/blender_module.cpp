@@ -244,6 +244,77 @@ public:
         return id;
     }
 
+    static float halton(int index, int base) {
+        float f = 1.0f;
+        float r = 0.0f;
+        while (index > 0) {
+            f /= float(base);
+            r += f * float(index % base);
+            index /= base;
+        }
+        return r;
+    }
+
+    HitRecord makeMaterialTestRecord(const std::vector<float>& normalInput) const {
+        Vec3 n(0.0f, 1.0f, 0.0f);
+        if (normalInput.size() == 3) {
+            n = Vec3(normalInput[0], normalInput[1], normalInput[2]).normalized();
+        }
+        HitRecord rec;
+        rec.normal = n;
+        rec.frontFace = true;
+        buildOrthonormalBasis(rec.normal, rec.tangent, rec.bitangent);
+        return rec;
+    }
+
+    std::vector<float> evalMaterial(int materialId,
+                                    const std::vector<float>& woInput,
+                                    const std::vector<float>& wiInput,
+                                    const std::vector<float>& normalInput = {0.0f, 1.0f, 0.0f}) const {
+        auto it = materials.find(materialId);
+        if (it == materials.end() || !it->second) {
+            throw std::runtime_error("Unknown material id");
+        }
+        if (woInput.size() != 3 || wiInput.size() != 3) {
+            throw std::runtime_error("wo and wi must be 3-element vectors");
+        }
+        HitRecord rec = makeMaterialTestRecord(normalInput);
+        Vec3 wo(woInput[0], woInput[1], woInput[2]);
+        Vec3 wi(wiInput[0], wiInput[1], wiInput[2]);
+        Vec3 v = it->second->eval(rec, wo.normalized(), wi.normalized());
+        return {v.x, v.y, v.z};
+    }
+
+    std::vector<float> integrateMaterialReflectance(int materialId,
+                                                    float cosThetaO,
+                                                    int samples = 4096) const {
+        auto it = materials.find(materialId);
+        if (it == materials.end() || !it->second) {
+            throw std::runtime_error("Unknown material id");
+        }
+        if (samples <= 0) throw std::runtime_error("samples must be positive");
+
+        HitRecord rec = makeMaterialTestRecord({0.0f, 1.0f, 0.0f});
+        cosThetaO = std::clamp(cosThetaO, 0.0f, 1.0f);
+        const float sinThetaO = std::sqrt(std::max(0.0f, 1.0f - cosThetaO * cosThetaO));
+        const Vec3 wo = (rec.tangent * sinThetaO + rec.normal * cosThetaO).normalized();
+
+        Vec3 sum(0.0f);
+        for (int i = 0; i < samples; ++i) {
+            const float u1 = halton(i + 1, 2);
+            const float u2 = halton(i + 1, 3);
+            const float cosThetaI = u1;
+            const float sinThetaI = std::sqrt(std::max(0.0f, 1.0f - cosThetaI * cosThetaI));
+            const float phi = 2.0f * float(M_PI) * u2;
+            const Vec3 wi = (rec.tangent * (std::cos(phi) * sinThetaI) +
+                             rec.bitangent * (std::sin(phi) * sinThetaI) +
+                             rec.normal * cosThetaI).normalized();
+            sum += it->second->eval(rec, wo, wi);
+        }
+        const Vec3 reflected = sum * (2.0f * float(M_PI) / float(samples));
+        return {reflected.x, reflected.y, reflected.z};
+    }
+
     void addSphere(const std::vector<float>& center, float radius, int materialId,
                    const std::vector<float>& iesDirection = std::vector<float>(),
                    const std::string& iesFile = "",
@@ -955,9 +1026,15 @@ PYBIND11_MODULE(astroray, m) {
              "baked from a Blender Mapping node. Order matches Blender Point "
              "mapping: scale → rotate → translate. Rotation is in radians.")
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
+        .def("eval_material", &PyRenderer::evalMaterial,
+             "material_id"_a, "wo"_a, "wi"_a,
+             "normal"_a = std::vector<float>{0.0f, 1.0f, 0.0f})
+        .def("integrate_material_reflectance", &PyRenderer::integrateMaterialReflectance,
+             "material_id"_a, "cos_theta_o"_a, "samples"_a = 4096,
+             "Halton hemisphere integration of material eval(), used for BRDF conservation tests.")
         .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a,
-             "ies_direction"_a = std::vector<float>(), "ies_file"_a = std::string(),
-             "object_pass_index"_a = 0, "material_pass_index"_a = 0)
+            "ies_direction"_a = std::vector<float>(), "ies_file"_a = std::string(),
+            "object_pass_index"_a = 0, "material_pass_index"_a = 0)
         .def("add_spot_light", &PyRenderer::addSpotLight, "center"_a, "direction"_a, "radius"_a,
              "material_id"_a, "spot_angle"_a, "spot_smooth"_a, "ies_file"_a = std::string(),
              "object_pass_index"_a = 0, "material_pass_index"_a = 0)

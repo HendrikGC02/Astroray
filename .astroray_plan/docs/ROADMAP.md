@@ -103,10 +103,18 @@ GPU-default rendering and before Pillar 4 adds more spectral phenomena,
 material plugins should declare backend capabilities and either lower
 to a shared CPU/GPU closure representation or clearly fall back to CPU.
 
-**Status as of 2026-05-09:** the pkg34-pkg37 bridge is complete. The newer
+**Status as of 2026-05-10:** the pkg34-pkg37 bridge is complete. The newer
 Cycles-parity queue extends the same honesty principle to integrators and
-Blender UX: pkg52/pkg53/pkg58/pkg61/pkg62 are done, pkg59 is partial, and
-pkg54/pkg57 remain open.
+Blender UX: pkg52/pkg53/pkg58/pkg59/pkg60/pkg61/pkg62/pkg65/pkg66 are
+done, and pkg54 (CPU/GPU multi-wavelength parity) landed in three
+verified pieces — pkg54 (megakernel + dispatch wiring), pkg54a (GPU
+spectral profile dispatch), pkg54b (CIE 1964 10° CMF table parity).
+Two scoped follow-ups carry the residual: pkg54c (Jakob-Hanika spectral
+upsampling on GPU, lifting visible SSIM 0.985 → 0.999) and pkg54d
+(direct `gpu_profile_reflectance` Python binding for unconfounded
+dispatch-liveness gating). pkg57 (native Astroray shader nodes), pkg63
+(world/HDRI parity), pkg64 (spectral caustics — research signed off),
+and pkg67 (metric-aware path tracer — research blocked) remain open.
 
 - `pkg34-material-backend-capabilities.md` — capability metadata,
   no silent grey-Lambertian GPU fallback, CPU/GPU contact-sheet diffs.

@@ -6,6 +6,28 @@
 **Estimated effort:** 3 sessions (~9 h)  
 **Depends on:** pkg04 (done), PR #119 (merged), pkg34 (backend capability guardrails recommended before GPU parity claims)
 
+**Reference research:** `.astroray_plan/docs/kerr-metric-research.md`
+(metric components, Christoffel symbols, analytic test values, and license notes
+— read this before writing any metric code)
+
+---
+
+## Reference Implementations
+
+All metric math comes from Bardeen, Press & Teukolsky 1972 (ApJ 178, 347;
+DOI 10.1086/151796). The repos below are cross-validation references.
+
+| Repo | Commit | License | Mirror permitted | Files to study |
+|------|--------|---------|-----------------|----------------|
+| [RAPTOR](https://github.com/tbronzwaer/raptor) (Bronzwaer et al. 2018, A&A 613 A2) | `08cb9a2` | **GPLv3** | **No** — cross-validation only | `metric.c` (BL metric + Christoffel), `integrator.c` (RK4 geodesic driver) |
+| [ipole](https://github.com/AFD-Illinois/ipole) (Mościbrodzka & Gammie 2018, MNRAS 475 43) | `7f7a482` | BSD-3-Clause | Yes — cite file + commit in code | `src/geodesics.c` (2nd-order symplectic), `src/geometry.c` (BL metric) |
+| [GYOTO](https://github.com/gyoto/Gyoto) (Vincent et al. 2011, CQG 28 225011) | — | CeCILL (GPL-incompat) | **No** — numerical cross-check only | — |
+
+**Do not mirror any RAPTOR code.** Its GPLv3 license is incompatible with
+Astroray's license regardless of how selectively the code is adapted.
+The metric formulae are mathematical results in the public domain (BPT 1972);
+RAPTOR's code representation of them is not what we borrow.
+
 ---
 
 ## Goal
@@ -43,14 +65,18 @@ them.
 
 ## Reference
 
+- **Research notes (read first):** `.astroray_plan/docs/kerr-metric-research.md`
+  (metric formulae, Christoffel symbols, analytic test values, license status)
 - Design doc: `.astroray_plan/docs/astrophysics.md §4.1`
 - External references: `.astroray_plan/docs/external-references.md §4`
 - Existing BlackHole plugin: `plugins/shapes/black_hole.cpp`
 - MetricRegistry hook: present in `include/astroray/register.h`
 - Schwarzschild regression reference: `tests/reference/schwarzschild_baseline_256.png`
-- Key papers: Dexter & Agol 2009 (geokerr), Chan et al. 2013 (GRay),
+- Key papers: Bardeen, Press & Teukolsky 1972 (BPT; ISCO + photon sphere),
+  Dexter & Agol 2009 (geokerr), Chan et al. 2013 (GRay),
   Cárdenas-Avendaño et al. 2022 (photon ring analytic)
-- Cross-check tools (GPL, reference only): GYOTO, GRay2
+- Cross-check tools: RAPTOR (GPLv3 — reference only), GYOTO (CeCILL — reference only),
+  ipole (BSD-3 — selective mirror permitted; commit 7f7a482)
 
 ---
 
@@ -164,6 +190,37 @@ them.
       circular orbit periods, horizon detection, capture threshold,
       conservation drift, a=0 equivalence, and a visual frame-dragging
       check.
+
+### Analytic test values (must reproduce to < 1e-6 relative error)
+
+Source: Bardeen, Press & Teukolsky 1972 (ApJ 178, 347). Full derivation
+in `.astroray_plan/docs/kerr-metric-research.md §4`.
+
+**ISCO radius** (innermost stable circular orbit):
+
+| Spin a | r_ISCO prograde | r_ISCO retrograde |
+|--------|-----------------|-------------------|
+| 0      | 6.000000 M      | 6.000000 M        |
+| 0.998 M | 1.237 M        | 8.995 M           |
+
+**Photon sphere radius** (unstable circular photon orbit):
+
+| Spin a | r_ph prograde | r_ph retrograde |
+|--------|---------------|-----------------|
+| 0      | 3.000000 M    | 3.000000 M      |
+| 0.998 M | 1.073 M      | 3.998 M         |
+
+**Frame-dragging angular velocity at the outer horizon:**
+
+```
+r_+ = M + sqrt(M² - a²)
+Ω_H = a / (r_+² + a²) = a / (2 M r_+)
+```
+
+For a = 0.998M:  r_+ = 1.0632 M,  Ω_H ≈ 0.4694 c/M (geometric units G=c=1)
+
+This value sets the scale of the photon-ring asymmetry in frame-dragging tests:
+the angular velocity of infalling/co-rotating photons near the horizon is Ω_H.
 
 ---
 

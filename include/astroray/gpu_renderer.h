@@ -51,6 +51,10 @@ public:
                                float lambdaMin, float lambdaMax,
                                bool useLuminanceOutput);
 
+    // pkg54d: test hook for the profile table uploaded by the latest
+    // uploadScene() call.
+    float lookupProfileReflectance(int profileIndex, float lambda) const;
+
     // [0, 1] progress estimate (reserved for async use in Phase 3).
     float getProgress() const;
 

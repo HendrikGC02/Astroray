@@ -596,6 +596,20 @@ public:
 #endif
     }
 
+    float gpuProfileLookup(int profileIndex, float lambda) {
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (!cudaRenderer) cudaRenderer = std::make_unique<CUDARenderer>();
+        if (!cudaRenderer->isAvailable()) {
+            throw std::runtime_error("No CUDA GPU available");
+        }
+        return cudaRenderer->lookupProfileReflectance(profileIndex, lambda);
+#else
+        (void)profileIndex;
+        (void)lambda;
+        throw std::runtime_error("CUDA support not compiled");
+#endif
+    }
+
     // pkg63: extended for full Blender Mapping node parity (XYZ Euler rotation,
     // multiplicative Background Color tint). Backward-compatible — direct callers
     // that pass (path, strength, 0.0) just get rx=0 (identity matrix).
@@ -1182,6 +1196,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_width", &PyRenderer::getWidth)
         .def("get_height", &PyRenderer::getHeight)
         .def("set_use_gpu", &PyRenderer::setUseGPU, "enable"_a)
+        .def("_gpu_profile_lookup", &PyRenderer::gpuProfileLookup,
+             "profile_index"_a, "lambda_nm"_a,
+             "Return device-side reflectance for an uploaded spectral profile slot.")
         .def("get_material_backend_capabilities",
              &PyRenderer::getMaterialBackendCapabilities, "material_id"_a)
         .def("get_material_closure_graph",

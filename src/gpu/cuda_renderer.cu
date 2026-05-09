@@ -47,6 +47,7 @@ void launchPathTraceKernel(
 void uploadProfileTable(const float* host, int count);
 // pkg54b — one-time copy of CIE 1964 10° CMF tables into MW kernel constant memory.
 void uploadCmfTables();
+float launchProfileLookup(int profileIndex, float lambda);
 
 void launchMultiwavelengthKernel(
     float* d_framebuffer, int width, int height,
@@ -105,6 +106,7 @@ struct CUDARenderer::Impl {
     float*       d_framebuffer = nullptr;
     curandState* d_rngStates   = nullptr;
     int          fbWidth = 0, fbHeight = 0;
+    int          profileCount = 0;
 
     // Device info
     bool        available = false;
@@ -183,6 +185,7 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
     impl->numLights       = (int)r.lights.size();
     impl->totalLightPower = r.totalLightPower;
     impl->camera          = r.camera;
+    impl->profileCount    = r.profileCount;
 
     // Film exposure
     impl->filmExposure = cpuRenderer.getFilmExposure();
@@ -228,6 +231,14 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
     printf("[CUDA] Scene uploaded: %zu nodes, %zu prims, %zu mats, %d lights, %d profiles\n",
            r.nodes.size(), r.prims.size(), r.materials.size(), impl->numLights,
            r.profileCount);
+}
+
+float CUDARenderer::lookupProfileReflectance(int profileIndex, float lambda) const {
+    if (!impl->available) throw std::runtime_error("No CUDA GPU available");
+    if (profileIndex < 0 || profileIndex >= impl->profileCount) {
+        throw std::runtime_error("Profile index was not uploaded in the current CUDA scene");
+    }
+    return launchProfileLookup(profileIndex, lambda);
 }
 
 void CUDARenderer::uploadEnvironmentMap(const EnvironmentMap& envMap) {

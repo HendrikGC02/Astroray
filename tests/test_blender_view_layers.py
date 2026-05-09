@@ -157,7 +157,7 @@ def test_write_pixels_targets_named_render_layer(monkeypatch):
     assert begin_args["layer"] == "Layer A"
 
 
-def test_setup_world_loads_hdri_with_blender_x_rotation_correction(monkeypatch):
+def test_setup_world_loads_hdri_with_blender_convention(monkeypatch):
     class RendererStub:
         def __init__(self):
             self.load_args = None
@@ -203,4 +203,9 @@ def test_setup_world_loads_hdri_with_blender_x_rotation_correction(monkeypatch):
     renderer = RendererStub()
     engine.setup_world(scene, renderer)
 
-    assert renderer.load_args == ("//env.hdr", 1.5, 0.25, True)
+    # pkg63: load_environment_map signature is now
+    # (path, strength, rx, ry, rz, tr, tg, tb, blender_convention).
+    # The Mapping node's Rotation Z = 0.25 rad is now the 5th positional
+    # (rz); Background.Color (1,1,1) is the tint; blender_convention=True
+    # bakes the Astroray->Blender coord-swap into the rotation matrix.
+    assert renderer.load_args == ("//env.hdr", 1.5, 0.0, 0.0, 0.25, 1.0, 1.0, 1.0, True)

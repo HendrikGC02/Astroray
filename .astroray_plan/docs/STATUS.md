@@ -276,7 +276,7 @@ events are summarized in the changelog below.
 | pkg40 | A | open | current registry/reference cleanup |
 | pkg52 | A | **done** | — |
 | pkg53 | B/E | **done** | — |
-| pkg54 | A | **done** | pkg54/54a/54b verified on hardware; pkg54d direct profile lookup binding is done; pkg54c (Jakob-Hanika upsampling) remains filed as a follow-up |
+| pkg54 | A | **done** | pkg54/54a/54b verified on hardware; pkg54d direct profile lookup binding is done; pkg54c (Jakob-Hanika upsampling) is **implemented, pending CUDA verification** — promote-to-done held until the visible-band SSIM 0.999 gate runs on hardware |
 | pkg57 | A | open | native shader nodes / Cycles compatibility design |
 | pkg58 | B | **done** | — |
 | pkg59 | A | done | broader vector/UV/Mapping plumbing, named UV layers, and UV debug AOV |
@@ -313,7 +313,15 @@ events are summarized in the changelog below.
   verification. pkg54d added a direct `gpu_profile_reflectance` binding for
   unconfounded liveness gating, with CPU/GPU lookup max delta `0` across all
   loaded profiles on the 300-1000 nm grid. pkg54c (Jakob-Hanika spectral
-  upsampling on GPU, SSIM ceiling 0.985→0.999) remains as a scoped follow-up.
+  upsampling on GPU, SSIM ceiling 0.985→0.999) is now implemented:
+  `gpu_jhEvalSpectrum` mirrors `RGBAlbedoSpectrum::sample` via the same
+  shared `jhEvalSpectrumF` evaluator, the sRGB sigmoid LUT is uploaded to
+  device global memory once per process via `uploadJakobHanikaLut`
+  (cudaMalloc + cudaMemcpyToSymbol of pointers, 9 MB — overflows the
+  64 KB constant cap), and `gpu_rgbSpectrumAt` upsamples through it for
+  both `GSPEC_RGB_ALBEDO` and `GSPEC_RGB_ILLUMINANT`. Promote-to-done
+  is held until the verifier session runs `scripts/build/build_cuda.bat`
+  and confirms the visible-band SSIM 0.999 gate on CUDA hardware.
   Sellmeier direction-splitting and true spectral emitter parameter
   upload also remain CPU-only follow-ups. pkg36 expands shared closure
   lowering.

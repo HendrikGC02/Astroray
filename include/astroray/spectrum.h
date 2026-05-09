@@ -16,6 +16,7 @@
 //     data/spectra/rgb_to_spectrum_srgb.coeff.
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <string>
 
@@ -39,6 +40,56 @@ float sampleD65(float lambda);
 // Filesystem path of the shipped Jakob-Hanika sRGB LUT. Resolved lazily on
 // first call; see src/spectrum.cpp for the search order.
 std::string spectrumLutPath();
+
+// --------------------------------------------------------------------------
+// Jakob-Hanika 2019 sigmoid evaluator — shared between CPU and CUDA paths.
+//
+// Reference: Jakob & Hanika, "A Low-Dimensional Function Space for Efficient
+// Spectral Upsampling", Eurographics 2019 (DOI: 10.1111/cgf.13626).
+//
+// This is the single source of truth for the per-wavelength sigmoid. The CPU
+// integrator (RGBAlbedoSpectrum::sample) and the GPU multiwavelength kernel
+// (gpu_jhEvalSpectrum) both call jhEvalSpectrumF; bit-exact parity matters
+// for visible-band SSIM ≥ 0.999 (pkg54c).
+// --------------------------------------------------------------------------
+#if defined(__CUDACC__)
+#  define ASTRORAY_HD __host__ __device__
+#else
+#  define ASTRORAY_HD
+#endif
+
+ASTRORAY_HD inline float jhEvalSpectrumF(float c0, float c1, float c2, float lambda) {
+    // Mirrors src/spectrum.cpp::sigmoidJH + evalSigmoidCoeffs; the c2 = -1e20
+    // sentinel for "effectively black" relies on the inf-handling branches.
+    float x;
+#if defined(__CUDACC__) && defined(__CUDA_ARCH__)
+    x = fmaf(fmaf(c0, lambda, c1), lambda, c2);
+#else
+    x = std::fma(std::fma(c0, lambda, c1), lambda, c2);
+#endif
+#if defined(__CUDACC__) && defined(__CUDA_ARCH__)
+    if (isinf(x)) return x > 0.0f ? 1.0f : 0.0f;
+    float xx = x * x;
+    if (isinf(xx)) return x > 0.0f ? 1.0f : 0.0f;
+    return 0.5f + x / (2.0f * sqrtf(1.0f + xx));
+#else
+    if (std::isinf(x)) return x > 0.0f ? 1.0f : 0.0f;
+    float xx = x * x;
+    if (std::isinf(xx)) return x > 0.0f ? 1.0f : 0.0f;
+    return 0.5f + x / (2.0f * std::sqrt(1.0f + xx));
+#endif
+}
+
+// Read-only accessors for the lazily-loaded sRGB LUT. Used by the CUDA
+// uploader (src/gpu/multiwavelength_kernel.cu::uploadJakobHanikaLut) to
+// cudaMemcpy the table into device global memory exactly once. Loading is
+// triggered on first call; throws on file errors.
+//
+// Coefficient grid layout (flat float buffer):
+//     coeffs[channel][z][y][x][coeff]   — 3 * res^3 * 3 floats total.
+int          jakobHanikaLutRes();
+const float* jakobHanikaLutScale();
+const float* jakobHanikaLutCoeffs();
 
 // --------------------------------------------------------------------------
 // SampledWavelengths — a bundle of `kSpectrumSamples` wavelengths with

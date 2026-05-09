@@ -54,34 +54,24 @@ __device__ inline GSampledWavelengths gpu_sampleUniformWavelengths(curandState* 
     return wl;
 }
 
-__device__ inline float gpu_spectralChannelWeight(float lambda, int channel) {
-    float center = channel == 0 ? 610.f : (channel == 1 ? 540.f : 460.f);
-    float sigma = channel == 0 ? 52.f : (channel == 1 ? 46.f : 42.f);
-    float x = (lambda - center) / sigma;
-    return expf(-0.5f * x * x);
-}
-
 // Forward declaration — defined in src/gpu/multiwavelength_kernel.cu.
 // Mirrors astroray::sampleD65 (src/spectrum.cpp) via the same baked SPD
 // table, normalized so unit white emission integrates to Y = 1.
 __device__ float gpu_sampleD65(float lambda);
 
+// Forward declaration — defined in src/gpu/multiwavelength_kernel.cu (pkg54c).
+// Jakob & Hanika 2019 sigmoid-coefficient lookup; mirrors CPU
+// RGBAlbedoSpectrum::sample() at single wavelength so visible-band SSIM
+// reaches parity with the CPU integrator. Requires uploadJakobHanikaLut().
+__device__ float gpu_jhEvalSpectrum(const GVec3& rgb, float lambda);
+
 __device__ inline float gpu_rgbSpectrumAt(const GVec3& rgb, float lambda, GSpectralMode mode) {
     if (mode == GSPEC_NONE) return luminance(rgb);
-    float r = gpu_spectralChannelWeight(lambda, 0);
-    float g = gpu_spectralChannelWeight(lambda, 1);
-    float b = gpu_spectralChannelWeight(lambda, 2);
-    float denom = fmaxf(r + g + b, 1e-4f);
-    float v = (rgb.x * r + rgb.y * g + rgb.z * b) / denom;
-    if (mode == GSPEC_RGB_ILLUMINANT) {
-        // Mirror CPU RGBIlluminantSpectrum::sample(): multiply the
-        // RGB-derived spectrum by the true D65 SPD normalised by
-        // ∫D65·cmfY dλ. Earlier the GPU used a 0.85+0.15·gauss(λ,540)
-        // analytic stand-in for D65, which produced ~5× brighter
-        // values per wavelength than the CPU and broke visible-band
-        // SSIM parity (~0.21 instead of ≥0.99).
-        v *= gpu_sampleD65(lambda);
-    }
+    // pkg54c: JH 2019 sigmoid upsampling replaces the earlier 3-Gaussian
+    // RGB-basis stand-in. ILLUMINANT mode continues to multiply by the
+    // normalized D65 SPD (pkg54a/b fix preserved).
+    float v = gpu_jhEvalSpectrum(rgb, lambda);
+    if (mode == GSPEC_RGB_ILLUMINANT) v *= gpu_sampleD65(lambda);
     return fmaxf(v, 0.f);
 }
 

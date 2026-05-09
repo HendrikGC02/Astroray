@@ -100,9 +100,8 @@ def _render_pair(lmin, lmax, mode, *,
 # ---------------------------------------------------------------------------
 
 def test_visible_band_cpu_gpu_ssim():
-    """pkg54b parity gate. Ceiling is ~0.996 because GPU upsamples
-    RGB→spectrum via a 3-Gaussian basis while CPU uses Jakob-Hanika
-    2019 sigmoid coefficients; closing that residual is pkg54c."""
+    """pkg54c: shared JH sigmoid coefficient table on both backends;
+    visible-band parity is now exact within float precision."""
     cpu, gpu = _render_pair(380.0, 780.0, "", spp=64)
     assert np.all(np.isfinite(cpu))
     assert np.all(np.isfinite(gpu))
@@ -110,7 +109,25 @@ def test_visible_band_cpu_gpu_ssim():
     cpu_t = np.clip(cpu, 0.0, 1.0)
     gpu_t = np.clip(gpu, 0.0, 1.0)
     ssim = _ssim(cpu_t, gpu_t)
-    assert ssim >= 0.985, f"visible-band SSIM {ssim:.4f} < 0.985 (pkg54b gate)"
+    assert ssim >= 0.999, f"visible-band SSIM {ssim:.4f} < 0.999 (pkg54c gate)"
+
+
+def test_visible_band_no_regression():
+    """pkg54c sanity gate: replacing the GPU 3-Gaussian basis with the
+    Jakob-Hanika LUT must not silently darken or brighten the render.
+    The CPU integrator is unchanged across pkg54c, so its mean serves
+    as the pre-pkg54c reference; GPU mean is required within 2 %."""
+    cpu, gpu = _render_pair(380.0, 780.0, "", spp=64)
+    assert np.all(np.isfinite(cpu))
+    assert np.all(np.isfinite(gpu))
+    cpu_mean = float(cpu.mean())
+    gpu_mean = float(gpu.mean())
+    assert cpu_mean > 1e-6, f"CPU reference mean too small: {cpu_mean}"
+    rel = abs(gpu_mean - cpu_mean) / cpu_mean
+    assert rel < 0.02, (
+        f"GPU mean {gpu_mean:.4f} drifted {rel*100:.2f}% from CPU "
+        f"reference mean {cpu_mean:.4f}"
+    )
 
 
 # ---------------------------------------------------------------------------

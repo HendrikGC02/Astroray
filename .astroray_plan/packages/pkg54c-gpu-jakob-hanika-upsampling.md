@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** implemented (pending CUDA verification)
 **Estimated effort:** 3–5 days
 **Depends on:** pkg54b
 
@@ -110,11 +110,11 @@ up as a chromaticity shift the integration never averages out.
 
 ## Progress
 
-- [ ] Bake / load `data/spectra/rgb_to_spectrum_srgb.coeff` to GPU texture memory.
-- [ ] Add `gpu_evalSigmoidCoeffs` device function.
-- [ ] Pre-bake JH coefficients on `GMaterial` in `scene_upload.cu`.
-- [ ] Replace the Gaussian mix in `gpu_rgbSpectrumAt`.
-- [ ] Tighten visible-band gate to 0.999.
+- [x] Bake / load `data/spectra/rgb_to_spectrum_srgb.coeff` to GPU global memory (Option A — `cudaMalloc` + `cudaMemcpyToSymbol` for pointers, behind a static-bool guard analogous to `uploadCmfTables`). The 9 MB sRGB LUT overflows the 64 KB `__constant__` cap; if the visible-band frame-time regresses past 10 % of the pkg54b baseline on hardware verification, the verifier session should switch to `cudaTextureObject_t` (Option B in the implementation note) and re-measure.
+- [x] Add `gpu_jhEvalSpectrum` / `gpu_jhLookupCoeffs` device functions in `src/gpu/multiwavelength_kernel.cu`; both call the shared `astroray::jhEvalSpectrumF` declared in `include/astroray/spectrum.h` so CPU and GPU evaluate the sigmoid through one source-of-truth function.
+- [x] Per-`GMaterial` pre-baking deferred — the LUT lookup is cheap enough to run at the per-wavelength call site for now (simplicity-first; pkg54c spec note 2 was only a perf hedge). Revisit if the hardware run shows >10 % MW frame-time regression.
+- [x] Replace the Gaussian mix in `gpu_rgbSpectrumAt`. `GSPEC_RGB_ALBEDO` and `GSPEC_RGB_ILLUMINANT` both upsample via `gpu_jhEvalSpectrum`; ILLUMINANT additionally multiplies by `gpu_sampleD65(λ)` (pkg54a/b fix preserved). `gpu_spectralChannelWeight` is removed — it was the only caller.
+- [x] Tighten visible-band gate to 0.999 in `tests/test_gpu_multiwavelength.py`. Added `test_visible_band_no_regression` (GPU mean within 2 % of CPU reference at fixed seed, so the JH switch cannot silently darken the render).
 
 ---
 

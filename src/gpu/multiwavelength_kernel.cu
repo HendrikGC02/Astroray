@@ -21,6 +21,7 @@
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
+#include "astroray/spectrum.h"  // jhEvalSpectrumF + JH LUT accessors (pkg54c)
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -200,6 +201,154 @@ void uploadCmfTables() {
         throw std::runtime_error("D65 norm upload failed");
     }
     uploaded = true;
+}
+
+// ---------------------------------------------------------------------------
+// pkg54c: Jakob-Hanika 2019 RGB→spectrum sigmoid coefficient LUT on the GPU.
+//
+// Reference: Jakob & Hanika, "A Low-Dimensional Function Space for Efficient
+// Spectral Upsampling", Eurographics 2019 (DOI: 10.1111/cgf.13626);
+// reference implementation https://github.com/mitsuba-renderer/rgb2spec
+// (BSD-3-Clause). The sRGB LUT shipped at data/spectra/rgb_to_spectrum_srgb
+// .coeff is 64³ × 3 channels × 3 coefficients ≈ 9 MB — too large for the
+// 64 KB __constant__ cap, so we keep it in device global memory and read
+// via __device__ pointers populated once at first render.
+//
+// gpu_jhLookupCoeffs / gpu_jhEvalSpectrum mirror JakobHanikaLut::lookup +
+// evalSigmoidCoeffs in src/spectrum.cpp; bit-exact parity is the pkg54c
+// SSIM ≥ 0.999 visible-band gate.
+// ---------------------------------------------------------------------------
+__device__ const float* g_jhLutScale  = nullptr;  // [res]
+__device__ const float* g_jhLutCoeffs = nullptr;  // flat [3][res][res][res][3]
+__device__ int          g_jhLutRes    = 0;
+
+// Host-side ownership of the device allocation; freed only on process exit
+// because the LUT is read-only and re-uploads would be wasteful.
+static float* s_jhLutScaleDev  = nullptr;
+static float* s_jhLutCoeffsDev = nullptr;
+
+void uploadJakobHanikaLut() {
+    static bool uploaded = false;
+    if (uploaded) return;
+
+    int          res    = astroray::jakobHanikaLutRes();
+    const float* hScale = astroray::jakobHanikaLutScale();
+    const float* hCoeff = astroray::jakobHanikaLutCoeffs();
+    if (res <= 0 || !hScale || !hCoeff) {
+        throw std::runtime_error("Jakob-Hanika LUT host data unavailable");
+    }
+
+    size_t scaleBytes  = size_t(res) * sizeof(float);
+    size_t coeffsBytes = size_t(3) * size_t(res) * res * res * 3 * sizeof(float);
+
+    cudaError_t e = cudaMalloc(reinterpret_cast<void**>(&s_jhLutScaleDev),
+                               scaleBytes);
+    if (e == cudaSuccess) {
+        e = cudaMalloc(reinterpret_cast<void**>(&s_jhLutCoeffsDev), coeffsBytes);
+    }
+    if (e == cudaSuccess) {
+        e = cudaMemcpy(s_jhLutScaleDev, hScale, scaleBytes,
+                       cudaMemcpyHostToDevice);
+    }
+    if (e == cudaSuccess) {
+        e = cudaMemcpy(s_jhLutCoeffsDev, hCoeff, coeffsBytes,
+                       cudaMemcpyHostToDevice);
+    }
+    if (e == cudaSuccess) {
+        e = cudaMemcpyToSymbol(g_jhLutScale,  &s_jhLutScaleDev,
+                               sizeof(float*));
+    }
+    if (e == cudaSuccess) {
+        e = cudaMemcpyToSymbol(g_jhLutCoeffs, &s_jhLutCoeffsDev,
+                               sizeof(float*));
+    }
+    if (e == cudaSuccess) {
+        e = cudaMemcpyToSymbol(g_jhLutRes, &res, sizeof(int));
+    }
+    if (e != cudaSuccess) {
+        fprintf(stderr, "uploadJakobHanikaLut failed: %s\n",
+                cudaGetErrorString(e));
+        throw std::runtime_error(cudaGetErrorString(e));
+    }
+    uploaded = true;
+}
+
+// Trilinear interpolation in the JH coefficient cube. Mirrors
+// JakobHanikaLut::lookup() in src/spectrum.cpp exactly.
+__device__ inline void gpu_jhLookupCoeffs(
+    float r, float g, float b, float& c0, float& c1, float& c2)
+{
+    int res = g_jhLutRes;
+    if (res <= 0) { c0 = 0.f; c1 = 0.f; c2 = -1e20f; return; }
+
+    // Clamp to [0, 1] (CPU RGBAlbedoSpectrum constructor does the same).
+    r = fminf(fmaxf(r, 0.f), 1.f);
+    g = fminf(fmaxf(g, 0.f), 1.f);
+    b = fminf(fmaxf(b, 0.f), 1.f);
+
+    int   i    = 0;
+    float vMax = r;
+    if (g > vMax) { i = 1; vMax = g; }
+    if (b > vMax) { i = 2; vMax = b; }
+    if (vMax <= 1e-8f) { c0 = 0.f; c1 = 0.f; c2 = -1e20f; return; }
+
+    float comp[3] = { r, g, b };
+    int   o0 = (i + 1) % 3;
+    int   o1 = (i + 2) % 3;
+    float x  = comp[o0] / vMax;
+    float y  = comp[o1] / vMax;
+    float z  = vMax;
+
+    int   resM1 = res - 1;
+    const float* scale = g_jhLutScale;
+
+    // Locate k such that scale[k] <= z <= scale[k+1].
+    int k = 0;
+    while (k + 1 < resM1 && scale[k + 1] < z) ++k;
+    float denomZ = scale[k + 1] - scale[k];
+    float tz = (denomZ > 0.f) ? (z - scale[k]) / denomZ : 0.f;
+    tz = fminf(fmaxf(tz, 0.f), 1.f);
+
+    float fx = x * float(resM1);
+    float fy = y * float(resM1);
+    int   x0 = (int)fx;  if (x0 < 0) x0 = 0;  if (x0 > resM1 - 1) x0 = resM1 - 1;
+    int   y0 = (int)fy;  if (y0 < 0) y0 = 0;  if (y0 > resM1 - 1) y0 = resM1 - 1;
+    float tx = fminf(fmaxf(fx - float(x0), 0.f), 1.f);
+    float ty = fminf(fmaxf(fy - float(y0), 0.f), 1.f);
+
+    // Flat layout: coeffs[i][z][y][x][comp]
+    const float* coeffs = g_jhLutCoeffs;
+    auto entry = [&] __device__ (int zi, int yi, int xi) -> const float* {
+        size_t idx = (((size_t(i) * res + zi) * res + yi) * res + xi) * 3;
+        return coeffs + idx;
+    };
+    const float* p000 = entry(k,     y0,     x0    );
+    const float* p100 = entry(k,     y0,     x0 + 1);
+    const float* p010 = entry(k,     y0 + 1, x0    );
+    const float* p110 = entry(k,     y0 + 1, x0 + 1);
+    const float* p001 = entry(k + 1, y0,     x0    );
+    const float* p101 = entry(k + 1, y0,     x0 + 1);
+    const float* p011 = entry(k + 1, y0 + 1, x0    );
+    const float* p111 = entry(k + 1, y0 + 1, x0 + 1);
+
+    float out[3];
+    #pragma unroll
+    for (int comp_i = 0; comp_i < 3; ++comp_i) {
+        float cLow  = (p000[comp_i] * (1.f - tx) + p100[comp_i] * tx) * (1.f - ty)
+                    + (p010[comp_i] * (1.f - tx) + p110[comp_i] * tx) * ty;
+        float cHigh = (p001[comp_i] * (1.f - tx) + p101[comp_i] * tx) * (1.f - ty)
+                    + (p011[comp_i] * (1.f - tx) + p111[comp_i] * tx) * ty;
+        out[comp_i] = cLow * (1.f - tz) + cHigh * tz;
+    }
+    c0 = out[0];  c1 = out[1];  c2 = out[2];
+}
+
+// Per-wavelength upsampled reflectance, mirroring CPU
+// RGBAlbedoSpectrum::sample → evalSigmoidCoeffs.
+__device__ float gpu_jhEvalSpectrum(const GVec3& rgb, float lambda) {
+    float c0, c1, c2;
+    gpu_jhLookupCoeffs(rgb.x, rgb.y, rgb.z, c0, c1, c2);
+    return astroray::jhEvalSpectrumF(c0, c1, c2, lambda);
 }
 
 // Mirror of astroray::sampleD65 in src/spectrum.cpp — linear lookup into

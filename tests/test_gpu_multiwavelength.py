@@ -101,8 +101,24 @@ def _render_pair(lmin, lmax, mode, *,
 
 def test_visible_band_cpu_gpu_ssim():
     """pkg54c: shared JH sigmoid coefficient table on both backends;
-    visible-band parity is now exact within float precision."""
-    cpu, gpu = _render_pair(380.0, 780.0, "", spp=64)
+    visible-band parity is now exact within float precision per evaluator
+    (jhEvalSpectrumF + JH LUT lookup are bit-identical between CPU and GPU,
+    confirmed by diag_pkg54c.py — albedo/illuminant means agree to ~0.04%).
+
+    Integrator-level CPU<->GPU MC sample-stream divergence (OpenMP vs warp
+    parallel) leaves a per-pixel noise floor that scales as 1/sqrt(spp);
+    on this scene it tops out at SSIM ~0.99 at 64 spp, ~0.998 at 1024 spp.
+    Measured SSIM convergence on RTX-class hardware (48x48, this scene):
+        spp=64    -> 0.9902 (gate fails)
+        spp=256   -> 0.9970 (gate fails)
+        spp=1024  -> 0.9988 (gate fails)
+        spp=2048  -> 0.9990 (gate fails by ~3e-6)
+        spp=8192  -> ~0.9994 (clears with ~40 % margin)
+    Convergence slows below the ideal 1/sqrt(n) past ~1024 spp because the
+    SSIM formula approaches saturation. spp=8192 is the smallest
+    power-of-two that comfortably clears 0.999. Do NOT lower this spp
+    without re-running the convergence sweep — see pkg54c Lessons."""
+    cpu, gpu = _render_pair(380.0, 780.0, "", spp=8192)
     assert np.all(np.isfinite(cpu))
     assert np.all(np.isfinite(gpu))
     # Tone-map to [0, 1] so SSIM is well-behaved.

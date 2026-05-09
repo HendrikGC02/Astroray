@@ -13,6 +13,7 @@
 #include <vector>
 #include <memory>
 #include <cstdio>
+#include <cstring>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -333,7 +334,9 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera& cam) {
         r.envWidth      = em->getWidth();
         r.envHeight     = em->getHeight();
         r.envStrength   = em->getStrength();
-        r.envRotation   = em->getRotation();
+        // pkg63: copy baked rotation matrix + color tint instead of single rotation float.
+        std::memcpy(r.envRotMat, em->getRotationMatrix(), 9 * sizeof(float));
+        std::memcpy(r.envColorTint, em->getColorTint(), 3 * sizeof(float));
         r.envTotalPower = em->getTotalPower();
         r.envData       = em->getData();
         r.envCondCdf    = em->getConditionalCdf();

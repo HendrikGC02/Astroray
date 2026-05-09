@@ -626,9 +626,15 @@ public:
 #endif
     }
 
-    bool loadEnvironmentMap(const std::string& path, float strength = 1.0f, float rotation = 0.0f, bool blender_x_rotation = false) {
+    // pkg63: extended for full Blender Mapping node parity (XYZ Euler rotation,
+    // multiplicative Background Color tint). Backward-compatible — direct callers
+    // that pass (path, strength, 0.0) just get rx=0 (identity matrix).
+    bool loadEnvironmentMap(const std::string& path, float strength = 1.0f,
+                            float rx = 0.0f, float ry = 0.0f, float rz = 0.0f,
+                            float tr = 1.0f, float tg = 1.0f, float tb = 1.0f,
+                            bool blender_convention = false) {
         envMap = std::make_shared<EnvironmentMap>();
-        if (envMap->load(path, strength, rotation, blender_x_rotation)) {
+        if (envMap->load(path, strength, rx, ry, rz, tr, tg, tb, blender_convention)) {
             renderer.setEnvironmentMap(envMap);
             return true;
         }
@@ -1172,7 +1178,13 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
-             "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f, "blender_x_rotation"_a = false)
+             "path"_a, "strength"_a = 1.0f,
+             "rx"_a = 0.0f, "ry"_a = 0.0f, "rz"_a = 0.0f,
+             "tr"_a = 1.0f, "tg"_a = 1.0f, "tb"_a = 1.0f,
+             "blender_convention"_a = false,
+             "Load env map. (rx,ry,rz) is the Blender Mapping XYZ Euler rotation; "
+             "(tr,tg,tb) is the Background Color tint; blender_convention=True bakes "
+             "the Astroray->Blender coord-swap into the rotation matrix. pkg63.")
         .def("eval_env_spectral", &PyRenderer::evalEnvSpectral, "direction"_a, "u"_a)
         .def("eval_env_rgb_upsample", &PyRenderer::evalEnvRGBUpsample, "direction"_a, "u"_a)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)

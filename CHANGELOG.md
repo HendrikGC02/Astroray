@@ -6,6 +6,30 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+### pkg63 — World / HDRI Parity (Mapping rotation, color tint, MIS env-map)
+
+- **`load_environment_map` signature change** — extended for full Cycles
+  parity: `load_environment_map(path, strength=1.0, rx=0.0, ry=0.0, rz=0.0,
+  tr=1.0, tg=1.0, tb=1.0, blender_convention=False)`. The 3rd positional
+  was previously `rotation` (Z radians); it is now `rx` (X radians).
+  Callers passing `0.0` are unaffected. Callers passing a non-zero
+  Z-only rotation must move it to the 5th positional (`rz=…`).
+- **EnvironmentMap rotation** — single `float rotation` + `bool applyBlenderXRotation`
+  replaced by a baked `float rotMat[9]` (3×3 row-major). Mirrors Cycles'
+  XYZ extrinsic Euler order. Blender coord-swap is now baked into the
+  matrix when `blender_convention=True`.
+- **Background.Color tint** — multiplicative tint plumbed end-to-end
+  (CPU `lookup`/`sample`/`evalSpectral`, GPU `gpu_envmap_lookup`/`sample`).
+  Spectral path uses `RGBUnboundedSpectrum`; chromatic-tint cross-path
+  parity vs RGB is a known limitation (see `include/raytracer.h`
+  `evalSpectral` comment).
+- **Addon `setup_world`** — extracts XYZ rotation from Mapping node and
+  Background.Color from linked or unlinked socket via `_get_socket_color`
+  (Mix/RGB/Gamma chains, depth 8).
+- **Tests** — `tests/test_world_hdri_parity.py`: rotation chromaticity
+  gate, grayscale-tint half-radiance gate, GPU/CPU SSIM gate (skipped
+  on hosts without CUDA).
+
 ### pkg37 — Blender Addon Backend Refresh
 
 - **Device mode** — `device_mode` EnumProperty (`Auto` / `GPU` / `CPU`) replaces the old

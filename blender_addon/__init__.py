@@ -2630,25 +2630,46 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.set_world_volume(0.0, [1.0, 1.0, 1.0], 0.0)
             return
 
-        # Look for Environment Texture -> Background -> World Output chain
+        # pkg63: Walk the world node tree for full Blender Mapping parity.
+        # Cycles equivalent: intern/cycles/blender/shader.cpp add_nodes() converts
+        # the entire tree (Apache-2.0). We extract the subset we render against:
+        #   - TEX_ENVIRONMENT.image.filepath  → HDRI
+        #   - BACKGROUND.Strength             → strength
+        #   - BACKGROUND.Color (linked or not) → color tint, follows Mix/RGB nodes
+        #   - MAPPING.Rotation (X, Y, Z)      → baked XYZ Euler rotation matrix
         hdri_path = None
         strength = 1.0
-        rotation = 0.0
-        bg_color = None
+        rx = 0.0
+        ry = 0.0
+        rz = 0.0
+        tint = [1.0, 1.0, 1.0]    # multiplicative Background.Color tint (default white)
+        bg_color = None           # solid background fallback when no HDRI
 
         for node in node_tree.nodes:
             if node.type == 'TEX_ENVIRONMENT' and node.image:
                 hdri_path = bpy.path.abspath(node.image.filepath)
             elif node.type == 'BACKGROUND':
                 strength = float(node.inputs['Strength'].default_value)
-                # If Color input is not linked, it's a solid background color
                 color_input = node.inputs.get('Color')
-                if color_input and not color_input.is_linked:
-                    bg_color = list(color_input.default_value[:3])
+                if color_input is not None:
+                    if not color_input.is_linked:
+                        bg_color = list(color_input.default_value[:3])
+                        # When no HDRI is loaded, this becomes the solid background;
+                        # when an HDRI is loaded, this acts as a tint multiplier.
+                        tint = list(bg_color)
+                    else:
+                        # pkg63: follow the linked node chain (Mix/RGB/Gamma/etc.)
+                        # via _get_socket_color, falling back to [1,1,1] on failure.
+                        evaluated = self._get_socket_color(color_input)
+                        if evaluated is not None:
+                            tint = list(evaluated)
             elif node.type == 'MAPPING':
                 rot_input = node.inputs.get('Rotation')
                 if rot_input:
-                    rotation = float(rot_input.default_value[2])  # Z rotation
+                    # Blender Mapping uses XYZ Euler order (matches Cycles MappingNode).
+                    rx = float(rot_input.default_value[0])
+                    ry = float(rot_input.default_value[1])
+                    rz = float(rot_input.default_value[2])
 
         output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_WORLD'), None)
         volume_spec = None
@@ -2670,11 +2691,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
         world_max_bounces = int(getattr(world_settings, 'max_bounces', 1024)) if world_settings else 1024
         renderer.set_world_max_bounces(world_max_bounces)
 
-        # Try loading HDRI first
+        # Try loading HDRI first.
+        # pkg63: pass full XYZ rotation + RGB color tint; blender_convention=True
+        # bakes the Astroray->Blender coord-swap into the rotation matrix.
         if hdri_path and os.path.exists(hdri_path):
-            success = renderer.load_environment_map(hdri_path, strength, rotation, True)
+            success = renderer.load_environment_map(
+                hdri_path, strength,
+                rx, ry, rz,
+                tint[0], tint[1], tint[2],
+                True,  # blender_convention
+            )
             if success:
-                print(f"Loaded HDRI: {hdri_path} (strength={strength}, rotation={rotation:.2f})")
+                print(f"Loaded HDRI: {hdri_path} "
+                      f"(strength={strength}, rot=({rx:.2f},{ry:.2f},{rz:.2f}), "
+                      f"tint=({tint[0]:.2f},{tint[1]:.2f},{tint[2]:.2f}))")
                 return
             else:
                 print(f"Failed to load HDRI: {hdri_path}")

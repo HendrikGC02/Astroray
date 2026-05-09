@@ -23,7 +23,8 @@ personally should pick up.
 - Pillar 5 is the active practical queue. The Cycles-parity/Blender package
   series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg60/pkg61/pkg62
   are done, pkg59 is done, pkg54/54a/54b/54d are done (with pkg54c as a
-  scoped follow-up), and pkg57 remains open.
+  scoped follow-up), pkg63 (World/HDRI parity) is done pending
+  CUDA-host SSIM verification, and pkg57 remains open.
 - Fresh local collection on this branch: `pytest --collect-only -q` reports
   **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
 - Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
@@ -124,7 +125,7 @@ is currently the weakest link.
 | pkg60 | Disney v2 energy compensation (no-glow materials) | **done** | A/E |
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
-| pkg63 | World / HDRI parity (Mapping XYZ rotation, color tint, MIS env-map) | open | A |
+| pkg63 | World / HDRI parity (Mapping XYZ rotation, color tint, MIS env-map) | **done** | A |
 | pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | research signed off; ready to implement | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
 

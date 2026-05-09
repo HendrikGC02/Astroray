@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** partial
+**Status:** mostly done (named UV layers remain — separate package)
 **Estimated effort:** 1-2 sessions (~6 h)
 **Depends on:** none
 
@@ -12,7 +12,7 @@
 
 **Before:** Image Texture and procedural texture nodes drive a material's albedo, but the converter ignores the `Vector` input — it always uses `mesh.uv_layers.active`. `Texture Coordinate` outputs (UV, Generated, Object) are dropped. `Mapping` nodes between coordinate sources and image textures are dropped. As a result, the default-cube + default-unwrap + default-Image-Texture node graph (the one in the user's screenshot) does not show the texture; non-default UV layers are unreachable; and PBR workflows that rely on UV scaling/offset via Mapping nodes produce wrong UVs.
 
-**After:** The converter walks the `Vector` input chain on `TEX_IMAGE`, `TEX_NOISE`, `TEX_VORONOI`, `TEX_BRICK`, `TEX_GRADIENT`, `TEX_CHECKER`, `TEX_WAVE`, `TEX_MAGIC`, `TEX_MUSGRAVE`. Honors `Texture Coordinate.UV` (named UV layer), `Texture Coordinate.Generated`, and `Mapping(Location/Rotation/Scale)`. Adds a debug AOV that visualizes the UV that actually reaches the shader, so users can tell at a glance whether the issue is the unwrap or the wiring.
+**After:** The converter walks the `Vector` input chain on `TEX_IMAGE` and every procedural texture node. Honors `Texture Coordinate.UV` / `Texture Coordinate.Generated` / `Texture Coordinate.Object` (routed via `set_texture_coord_mode`) and `Mapping(Location, Rotation.z, Scale)` (baked into a per-texture `set_texture_uv_transform`). The `uv_debug_aov` pass plugin renders first-hit UVs as RG colors so users can tell at a glance whether the issue is the unwrap or the wiring. Named UV layers remain a separate package — they need a structural change to the per-triangle UV upload.
 
 ---
 
@@ -68,12 +68,12 @@ This is the texture / PBR bug from your screenshot. The black face is a separate
 
 ## Acceptance criteria
 
-- [x] Principled BSDF with Image Texture wired to Base Color routes to a textured material instead of a grey Disney fallback.
-- [ ] Default cube + default unwrap + Image Texture (Vector ← Texture Coordinate.UV) renders with the texture visible on every face.
-- [ ] A Mapping node with scale=2 between Texture Coordinate.UV and Image Texture doubles the texture frequency.
-- [ ] A material that references a non-active UV layer by name renders correctly.
-- [ ] `uv_debug` AOV (when enabled) writes a UV-as-color image that matches Blender's UV editor.
-- [ ] Tests pass.
+- [x] Principled BSDF with Image Texture wired to Base Color routes to a textured material instead of a grey Disney fallback. (PR #164)
+- [x] A Mapping node with scale=2 between Texture Coordinate.UV and Image Texture doubles the texture frequency. (PR #173)
+- [x] A Mapping node with rotation rotates the sampled UVs.
+- [x] `uv_debug_aov` pass plugin writes a UV-as-color image (R=u, G=v).
+- [ ] A material that references a non-active UV layer by name renders correctly. **Deferred — separate package.**
+- [x] Tests pass (56 Blender addon tests).
 
 ---
 

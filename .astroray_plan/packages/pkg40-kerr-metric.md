@@ -2,7 +2,7 @@
 
 **Pillar:** 4  
 **Track:** A  
-**Status:** open  
+**Status:** done
 **Estimated effort:** 3 sessions (~9 h)  
 **Depends on:** pkg04 (done), PR #119 (merged), pkg34 (backend capability guardrails recommended before GPU parity claims)
 
@@ -243,24 +243,34 @@ the angular velocity of infalling/co-rotating photons near the horizon is Ω_H.
 
 ## Progress
 
-- [ ] Verify MetricRegistry exists in register.h; add if missing.
-- [ ] Define `GeodesicState` and `GRMetric` interface in
-      `include/astroray/gr_metric.h`.
-- [ ] Extract `SchwarzschildMetric` from `black_hole.cpp` into
-      `plugins/metrics/schwarzschild.cpp`.
-- [ ] Refactor `BlackHole` to delegate to metric via registry lookup.
-- [ ] Confirm Schwarzschild pixel-identity regression test passes.
-- [ ] Implement `KerrMetric` in `plugins/metrics/kerr.cpp`:
-      Hamiltonian derivatives, adaptive RK45, conservation monitoring.
-- [ ] Confirm Kerr a=0 matches Schwarzschild.
-- [ ] Render Kerr a=0.9 test scene; verify frame-dragging asymmetry.
-- [ ] Add Blender UI for metric/spin.
-- [ ] Write test suite (≥10 tests).
-- [ ] Full test suite green.
-- [ ] Update STATUS.md, CHANGELOG.md.
+- [x] Verify MetricRegistry exists in register.h; it already had the typedef
+      and `ASTRORAY_REGISTER_METRIC` macro.
+- [x] Extend `include/astroray/metric.h` with the pkg40 `christoffel`,
+      `inner_product`, and `isFlat()` hooks while preserving the existing
+      GR integrator interface.
+- [x] Implement `plugins/metrics/kerr.cpp` with Boyer-Lindquist metric
+      components, Christoffel symbols, and BPT 1972 analytic quantities.
+- [x] Implement `plugins/metrics/schwarzschild.cpp` as a registry wrapper
+      that constructs the registered Kerr metric with `a=0`.
+- [x] Add `tests/test_kerr_metric.py` analytic gates from BPT 1972.
+- [x] Update STATUS.md.
+
+Note: PR #190 tightened pkg40 scope to metric plugins plus analytic gates.
+BlackHole delegation, Blender UI, full geodesic validation, and render-level
+Kerr asymmetry remain downstream work for pkg41/pkg67.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The live repo already had `Metric`, `GeodesicState`, `MetricRegistry`, and
+  the Schwarzschild GR render path. pkg40 therefore kept the old interface
+  intact and added the new metric-evaluation hooks as a superset.
+- RAPTOR stayed outside the implementation fence: formulas came from the
+  BPT 1972 research note, with ipole/RAPTOR used only as documented
+  cross-validation references.
+- Verification values on 2026-05-10:
+  Schwarzschild ISCO `6.000000000000`, Kerr a=0.998 ISCO
+  `1.236970655175`, Schwarzschild photon sphere `3.000000000000`,
+  Kerr a=0.998 photon sphere `1.073909257680`, horizon angular velocity
+  `0.469331702146`.

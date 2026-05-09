@@ -1554,23 +1554,142 @@ class CustomRaytracerRenderEngine(RenderEngine):
         walk_normal_chain(node.inputs.get('Normal'))
         return result
 
-    def load_blender_image(self, bpy_image, renderer):
+    # ------------------------------------------------------------------ #
+    # pkg59 follow-up: Vector input → coord_mode + UV transform
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _resolve_vector_input(vector_socket, depth=0):
+        """Walk the Vector input on a TEX_IMAGE / procedural texture node and
+        return ``(coord_mode, scale_xy, offset_xy)``:
+
+        - ``coord_mode``: one of "UV", "GENERATED", "OBJECT" — passed straight
+          to ``renderer.set_texture_coord_mode``. Other Texture Coordinate
+          outputs (Camera, Window, Reflection, Normal) currently fall back to
+          "UV"; the C++ side supports them but the Blender semantics need a
+          real test scene to pin down.
+        - ``scale_xy`` / ``offset_xy``: (sx, sy) and (ox, oy) baked from a
+          ``Mapping`` node on the chain. Unused inputs default to identity.
+
+        Limit chain depth to avoid pathological node graphs (Mapping → Mapping
+        → Mapping…). Mapping rotation is intentionally not handled yet — most
+        production PBR materials only use scale + offset, and the C++ side
+        does not yet have a UV-rotation slot.
+        """
+        coord_mode = "UV"
+        scale = (1.0, 1.0)
+        offset = (0.0, 0.0)
+        if depth > 4 or vector_socket is None or not getattr(vector_socket, 'is_linked', False):
+            return coord_mode, scale, offset
+        try:
+            link = vector_socket.links[0]
+            src = link.from_node
+            src_socket_name = link.from_socket.name
+        except (IndexError, AttributeError):
+            return coord_mode, scale, offset
+
+        ntype = getattr(src, 'type', None)
+        if ntype == 'MAPPING':
+            # Read Location and Scale defaults. Linked inputs aren't followed —
+            # would require a real expression evaluator. Most user-facing
+            # mappings have constant defaults.
+            loc_inp = src.inputs.get('Location') if hasattr(src, 'inputs') else None
+            if loc_inp is not None and not getattr(loc_inp, 'is_linked', False):
+                v = loc_inp.default_value
+                try:
+                    offset = (float(v[0]), float(v[1]))
+                except (TypeError, IndexError):
+                    pass
+            scl_inp = src.inputs.get('Scale') if hasattr(src, 'inputs') else None
+            if scl_inp is not None and not getattr(scl_inp, 'is_linked', False):
+                v = scl_inp.default_value
+                try:
+                    scale = (float(v[0]), float(v[1]))
+                except (TypeError, IndexError):
+                    pass
+            # Recurse to find the upstream coord source.
+            inner_socket = src.inputs.get('Vector') if hasattr(src, 'inputs') else None
+            inner_coord, _inner_scale, _inner_offset = \
+                CustomRaytracerRenderEngine._resolve_vector_input(inner_socket, depth + 1)
+            return inner_coord, scale, offset
+
+        if ntype == 'TEX_COORD':
+            if src_socket_name == 'Generated':
+                return "GENERATED", scale, offset
+            if src_socket_name == 'Object':
+                return "OBJECT", scale, offset
+            # 'UV' (default), 'Camera', 'Window', 'Reflection', 'Normal' →
+            # fall through to "UV". A future package can extend this.
+            return "UV", scale, offset
+
+        # UV Map node (Blender's named-UV-layer source). The active UV layer
+        # is what we ship today; the layer name is recorded on the node but
+        # named UV layer routing is a separate package (structural change to
+        # the per-triangle UV upload).
+        if ntype == 'UVMAP':
+            return "UV", scale, offset
+
+        return coord_mode, scale, offset
+
+    @staticmethod
+    def _is_default_uv_transform(coord_mode, scale, offset):
+        return (coord_mode == "UV"
+                and abs(scale[0] - 1.0) < 1e-6 and abs(scale[1] - 1.0) < 1e-6
+                and abs(offset[0]) < 1e-6 and abs(offset[1]) < 1e-6)
+
+    @staticmethod
+    def _texture_variant_key(base_name, coord_mode, scale, offset):
+        """Cache key that distinguishes the same image used with different
+        Mapping or coord-mode wiring across materials."""
+        if CustomRaytracerRenderEngine._is_default_uv_transform(coord_mode, scale, offset):
+            return base_name
+        return (f"{base_name}::{coord_mode}::"
+                f"{scale[0]:.4f},{scale[1]:.4f},"
+                f"{offset[0]:.4f},{offset[1]:.4f}")
+
+    def _apply_texture_transform(self, renderer, tex_name, coord_mode, scale, offset):
+        """Push coord_mode + UV transform to the C++ side (no-ops if default)."""
+        try:
+            if coord_mode != "UV":
+                renderer.set_texture_coord_mode(tex_name, coord_mode)
+            if not (abs(scale[0] - 1.0) < 1e-6 and abs(scale[1] - 1.0) < 1e-6
+                    and abs(offset[0]) < 1e-6 and abs(offset[1]) < 1e-6):
+                renderer.set_texture_uv_transform(
+                    tex_name,
+                    float(scale[0]), float(scale[1]),
+                    float(offset[0]), float(offset[1]),
+                )
+        except AttributeError:
+            # Older C++ module without these bindings — silently skip.
+            pass
+
+    def load_blender_image(self, bpy_image, renderer, vector_input=None):
         """Load a Blender image datablock into the renderer's texture manager.
         Returns the texture name (string) on success, None on failure.
+
+        ``vector_input`` is the Image Texture node's Vector socket. If linked
+        through a ``Mapping`` node or a non-default ``Texture Coordinate``
+        output, the resulting coord_mode + UV transform is baked into the
+        uploaded texture. The cache key includes the transform so the same
+        image used with different Mapping nodes across materials gets
+        independent texture entries.
 
         Blender stores image pixels bottom-to-top; the C++ ImageTexture expects
         top-to-bottom, so we flip vertically before uploading.
         """
         if bpy_image is None:
             return None
-        # Deduplicate: a single Blender image is uploaded at most once per
-        # conversion pass.
+        coord_mode, scale, offset = self._resolve_vector_input(vector_input)
+        cache_key = self._texture_variant_key(bpy_image.name, coord_mode, scale, offset)
+
+        # Deduplicate: a single (image, transform) pair is uploaded at most
+        # once per conversion pass.
         cache = getattr(self, '_texture_cache', None)
         if cache is None:
             cache = {}
             self._texture_cache = cache
-        if bpy_image.name in cache:
-            return cache[bpy_image.name]
+        if cache_key in cache:
+            return cache[cache_key]
 
         try:
             width, height = bpy_image.size
@@ -1594,28 +1713,38 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # Drop alpha; renderer takes RGB float
             rgb = pixels[:, :, :3].reshape(-1).tolist()
 
-            tex_name = bpy_image.name
-            renderer.load_texture(tex_name, rgb, width, height)
-            cache[bpy_image.name] = tex_name
-            return tex_name
+            renderer.load_texture(cache_key, rgb, width, height)
+            self._apply_texture_transform(renderer, cache_key, coord_mode, scale, offset)
+            cache[cache_key] = cache_key
+            return cache_key
         except Exception as e:
             print(f"Astroray: failed to load texture '{bpy_image.name}': {e}")
             return None
 
-    def load_procedural_texture(self, node, renderer):
+    def load_procedural_texture(self, node, renderer, vector_input=None):
         """Export a Blender procedural texture node to the Astroray texture manager.
         Returns a texture name string on success, None on failure.
 
         Supported node types: TEX_NOISE, TEX_VORONOI, TEX_WAVE, TEX_MAGIC,
         TEX_CHECKER, TEX_BRICK, TEX_GRADIENT, TEX_MUSGRAVE.
+
+        ``vector_input`` is the procedural node's Vector socket. If it's
+        linked through a Mapping / Texture Coordinate chain, we bake the
+        coord_mode + UV transform onto the created texture.
         """
         cache = getattr(self, '_proc_tex_cache', None)
         if cache is None:
             cache = {}
             self._proc_tex_cache = cache
+        # Cache key includes the transform so the same procedural node used
+        # with different Mapping wiring gets distinct entries. A procedural
+        # node only has one Vector input in practice, so the same id+vector
+        # combination is always identical — the variant key is defensive.
+        coord_mode, scale, offset = self._resolve_vector_input(vector_input)
+        cache_key = self._texture_variant_key(f"_proc_{id(node)}", coord_mode, scale, offset)
+        if cache_key in cache:
+            return cache[cache_key]
         node_id = id(node)
-        if node_id in cache:
-            return cache[node_id]
 
         ntype = node.type
         tex_name = None
@@ -1695,7 +1824,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
 
         if tex_name:
-            cache[node_id] = tex_name
+            self._apply_texture_transform(renderer, tex_name, coord_mode, scale, offset)
+            cache[cache_key] = tex_name
         return tex_name
 
     def get_base_color_texture(self, node, input_name, renderer):
@@ -1712,16 +1842,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
             linked_node = inp.links[0].from_node
         except (IndexError, AttributeError):
             return [0.8, 0.8, 0.8], None
-        # Image texture
+        # Image texture — pkg59: also pass the texture node's Vector input
+        # so Mapping/Texture-Coordinate wiring is honored by the upload path.
         if linked_node.type == 'TEX_IMAGE' and linked_node.image:
-            tex_name = self.load_blender_image(linked_node.image, renderer)
+            vector_inp = linked_node.inputs.get('Vector') if hasattr(linked_node, 'inputs') else None
+            tex_name = self.load_blender_image(linked_node.image, renderer, vector_input=vector_inp)
             fallback = list(inp.default_value[:3]) if hasattr(inp.default_value, '__iter__') else [0.8, 0.8, 0.8]
             return fallback, tex_name
         # Procedural texture
         PROC_TYPES = {'TEX_NOISE', 'TEX_CHECKER', 'TEX_VORONOI', 'TEX_WAVE',
                       'TEX_MAGIC', 'TEX_BRICK', 'TEX_GRADIENT', 'TEX_MUSGRAVE'}
         if linked_node.type in PROC_TYPES:
-            tex_name = self.load_procedural_texture(linked_node, renderer)
+            vector_inp = linked_node.inputs.get('Vector') if hasattr(linked_node, 'inputs') else None
+            tex_name = self.load_procedural_texture(linked_node, renderer, vector_input=vector_inp)
             return [0.8, 0.8, 0.8], tex_name
         return [0.8, 0.8, 0.8], None
 

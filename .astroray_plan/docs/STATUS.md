@@ -124,7 +124,7 @@ is currently the weakest link.
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
 | pkg63 | World / HDRI parity (Mapping XYZ rotation, color tint, MIS env-map) | open | A |
-| pkg64 | Spectral caustics (prism-accurate) — research-grade | open (research blocked) | A |
+| pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | research signed off; ready to implement | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the

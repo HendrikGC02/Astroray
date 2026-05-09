@@ -42,6 +42,11 @@ void launchPathTraceKernel(
     GVec3 backgroundColor, bool hasBackgroundColor,
     curandState* d_rngStates);
 
+// pkg54a — copies per-material spectral profiles into MW kernel constant memory.
+void uploadProfileTable(const float* host, int count);
+// pkg54b — one-time copy of CIE 1964 10° CMF tables into MW kernel constant memory.
+void uploadCmfTables();
+
 void launchMultiwavelengthKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
@@ -212,8 +217,14 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
         impl->envMap.loaded          = true;
     }
 
-    printf("[CUDA] Scene uploaded: %zu nodes, %zu prims, %zu mats, %d lights\n",
-           r.nodes.size(), r.prims.size(), r.materials.size(), impl->numLights);
+    // pkg54a: upload spectral profile table (no-op when no profiles attached).
+    if (r.profileCount > 0 && !r.profileTable.empty()) {
+        uploadProfileTable(r.profileTable.data(), r.profileCount);
+    }
+
+    printf("[CUDA] Scene uploaded: %zu nodes, %zu prims, %zu mats, %d lights, %d profiles\n",
+           r.nodes.size(), r.prims.size(), r.materials.size(), impl->numLights,
+           r.profileCount);
 }
 
 void CUDARenderer::uploadEnvironmentMap(const EnvironmentMap& envMap) {
@@ -296,6 +307,9 @@ void CUDARenderer::renderMultiwavelength(
 
     impl->ensureFramebuffer(width, height);
     int totalPixels = width * height;
+
+    // pkg54b: ensure CMF tables are present in MW kernel constant memory.
+    uploadCmfTables();
 
     unsigned long long rngSeed = (seed == 0)
         ? (unsigned long long)time(nullptr)

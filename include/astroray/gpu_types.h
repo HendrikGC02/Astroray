@@ -277,11 +277,23 @@ struct GMaterialClosure {
     float _pad1[2];
 };
 
+// pkg54a: layout for the device-side spectral profile table. Profiles are
+// resampled onto a fixed 5 nm grid spanning 300-1000 nm (141 samples) before
+// upload; each material can carry a profileIndex into a flat
+// [numProfiles * G_PROFILE_SAMPLES] constant-memory table. -1 means no
+// profile (CPU `Material::evalSpectralExt` no-profile fallback semantics).
+static constexpr int   G_MAX_PROFILES        = 32;
+static constexpr int   G_PROFILE_SAMPLES     = 141;
+static constexpr float G_PROFILE_LAMBDA_MIN  = 300.0f;
+static constexpr float G_PROFILE_LAMBDA_MAX  = 1000.0f;
+static constexpr float G_PROFILE_LAMBDA_STEP = 5.0f;
+
 struct alignas(64) GMaterial {
     GMaterialType type;
     GSpectralMode spectralMode;
     bool spectralGpu;
     uint8_t closureCount;
+    int     profileIndex;   // pkg54a: index into device profile table; -1 = none
 
     GVec3  baseColor;
     float  roughness;

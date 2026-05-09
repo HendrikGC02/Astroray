@@ -1,21 +1,22 @@
-// multiwavelength_kernel.cu — pkg54 GPU port of multiwavelength_path_tracer.
+// multiwavelength_kernel.cu — pkg54 / pkg54a / pkg54b
+// GPU port of multiwavelength_path_tracer.
 //
 // Megakernel that mirrors the CPU integrator
 // (plugins/integrators/multiwavelength_path_tracer.cpp): naive spectral path
 // tracing with sampled wavelengths in a configurable [lambdaMin, lambdaMax]
 // band, no NEE, emissive-on-hit termination. Output is either:
 //   * luminance-grey (mean of the 4 sampled radiances) for non-visible bands,
-//   * linear sRGB derived from a Wyman/Sloan/Shirley 2013 CIE-XYZ fit, for
-//     bands inside the visible range.
+//   * linear sRGB derived from CIE 1964 10° XYZ for bands inside the visible
+//     range. The CMF tables are the same baked data the CPU integrator uses
+//     (data/spectra/cie_cmf.inc), uploaded once to constant memory — this is
+//     the pkg54b parity fix that replaced an earlier Wyman/Sloan/Shirley 2013
+//     1931 2° analytic fit.
 //
-// Reference: Wyman, Sloan, Shirley, "Simple Analytic Approximations to the
-// CIE XYZ Color Matching Functions", JCGT vol. 2 no. 2, 2013. Public-domain
-// formulae; we use the multi-lobe Gaussian fit (Eq. 1-3, Table 1).
-//
-// Spectral profile dispatch is *not* mirrored on the GPU yet — materials
-// without a profile fall back to the same gpu_rgbToSampledSpectrum() path
-// already used by path_trace_kernel.cu. That is sufficient for visible-band
-// parity; full profile support is tracked as a follow-up (see pkg54 doc).
+// Spectral profile dispatch (pkg54a) honours `Material::setSpectralProfile`
+// on-device: per-material profileIndex into a constant-memory reflectance
+// table populated by scene_upload.cu; the spectral evaluation step mirrors
+// `Material::evalSpectralExt` (visible λ → RGB-to-spectrum; non-visible λ →
+// profile.reflectance(λ)·cosθ/π, or 0 when no profile is attached).
 
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_materials.h"
@@ -29,6 +30,44 @@
 #ifndef M_PI_F
 #  define M_PI_F 3.14159265358979323846f
 #endif
+
+// ---------------------------------------------------------------------------
+// pkg54a: Device-side spectral profile table (constant memory).
+//
+// One flat buffer of G_MAX_PROFILES * G_PROFILE_SAMPLES floats. Slot i covers
+// reflectance of profile i at lambda = G_PROFILE_LAMBDA_MIN +
+// s * G_PROFILE_LAMBDA_STEP. -1 in GMaterial.profileIndex means "no profile";
+// the kernel then mirrors the CPU `Material::evalSpectralExt` no-profile
+// fallback (zero outside [380, 780]).
+// ---------------------------------------------------------------------------
+__constant__ float g_profileTable[G_MAX_PROFILES * G_PROFILE_SAMPLES];
+
+// Linear-interpolated profile reflectance lookup. Mirrors
+// astroray::SpectralProfile::reflectance() exactly, just on the device grid.
+__device__ inline float gpu_profile_reflectance(int profileIndex, float lambda_nm) {
+    if (profileIndex < 0 || profileIndex >= G_MAX_PROFILES) return 0.f;
+    float t = (lambda_nm - G_PROFILE_LAMBDA_MIN) / G_PROFILE_LAMBDA_STEP;
+    int   i = (int)t;
+    float f = t - (float)i;
+    const float* row = &g_profileTable[profileIndex * G_PROFILE_SAMPLES];
+    if (i < 0)                       return row[0];
+    if (i >= G_PROFILE_SAMPLES - 1)  return row[G_PROFILE_SAMPLES - 1];
+    return row[i] * (1.f - f) + row[i + 1] * f;
+}
+
+// Host-callable upload entry; copies up to G_MAX_PROFILES profiles into
+// constant memory. Called from cuda_renderer.cu after buildSceneArrays().
+void uploadProfileTable(const float* host, int count) {
+    if (!host || count <= 0) return;
+    int n = count > G_MAX_PROFILES ? G_MAX_PROFILES : count;
+    size_t bytes = size_t(n) * G_PROFILE_SAMPLES * sizeof(float);
+    cudaError_t err = cudaMemcpyToSymbol(
+        g_profileTable, host, bytes, 0, cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "uploadProfileTable failed: %s\n", cudaGetErrorString(err));
+        throw std::runtime_error(cudaGetErrorString(err));
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Sampled wavelengths in [lmin, lmax] — stratified hero-wavelength sampler,
@@ -51,26 +90,62 @@ __device__ inline GSampledWavelengths gpu_sampleBandWavelengths(
 }
 
 // ---------------------------------------------------------------------------
-// Wyman/Sloan/Shirley 2013 piecewise-Gaussian fit to CIE 1931 2° CMFs.
-// Accurate to ~0.01 RMSE over 360-830 nm; cheap, no table required.
+// pkg54b: CIE 1964 10° CMF tables in constant memory — same data as the CPU
+// `cieCmf1964_10deg` lookup in src/spectrum.cpp, so visible-band CPU vs GPU
+// XYZ values match within float-precision instead of the ~5 % observer bias
+// the previous Wyman/Sloan/Shirley 2013 1931 2° fits introduced.
+//
+// Tables are 471 samples × 3 channels × 4 bytes = 5.6 KB (well under the
+// 64 KB constant-memory budget). Layout matches data/spectra/cie_cmf.inc:
+// 1 nm step over [360, 830] nm.
 // ---------------------------------------------------------------------------
-__device__ inline float wymanGauss(float x, float mu, float s1, float s2) {
-    float s = (x < mu) ? s1 : s2;
-    float t = (x - mu) / s;
-    return expf(-0.5f * t * t);
+static constexpr int   G_CMF_COUNT      = 471;
+static constexpr float G_CMF_LAMBDA_MIN = 360.0f;
+static constexpr float G_CMF_LAMBDA_MAX = 830.0f;
+static constexpr float G_CMF_LAMBDA_STEP = 1.0f;
+
+__constant__ float g_cmfX[G_CMF_COUNT];
+__constant__ float g_cmfY[G_CMF_COUNT];
+__constant__ float g_cmfZ[G_CMF_COUNT];
+
+// Pull in the same baked tables the CPU uses. The .inc declares
+// `static constexpr float kCieCmfX[471] = {...}` etc.; we host-side-copy
+// them to the constant-memory mirrors above via uploadCmfTables().
+namespace cmf_baked {
+#include "data/spectra/cie_cmf.inc"
+}  // namespace cmf_baked
+
+void uploadCmfTables() {
+    static bool uploaded = false;
+    if (uploaded) return;
+    cudaError_t e1 = cudaMemcpyToSymbol(g_cmfX, cmf_baked::kCieCmfX,
+                                        sizeof(cmf_baked::kCieCmfX));
+    cudaError_t e2 = cudaMemcpyToSymbol(g_cmfY, cmf_baked::kCieCmfY,
+                                        sizeof(cmf_baked::kCieCmfY));
+    cudaError_t e3 = cudaMemcpyToSymbol(g_cmfZ, cmf_baked::kCieCmfZ,
+                                        sizeof(cmf_baked::kCieCmfZ));
+    if (e1 != cudaSuccess || e2 != cudaSuccess || e3 != cudaSuccess) {
+        fprintf(stderr, "uploadCmfTables failed: %s / %s / %s\n",
+                cudaGetErrorString(e1), cudaGetErrorString(e2),
+                cudaGetErrorString(e3));
+        throw std::runtime_error("CMF table upload failed");
+    }
+    uploaded = true;
 }
 
-__device__ inline void wymanCmf(float lambda, float& X, float& Y, float& Z) {
-    X =  1.056f * wymanGauss(lambda, 599.8f, 37.9f, 31.0f)
-       + 0.362f * wymanGauss(lambda, 442.0f, 16.0f, 26.7f)
-       - 0.065f * wymanGauss(lambda, 501.1f, 20.4f, 26.2f);
-    Y =  0.821f * wymanGauss(lambda, 568.8f, 46.9f, 40.5f)
-       + 0.286f * wymanGauss(lambda, 530.9f, 16.3f, 31.1f);
-    Z =  1.217f * wymanGauss(lambda, 437.0f, 11.8f, 36.0f)
-       + 0.681f * wymanGauss(lambda, 459.0f, 26.0f, 13.8f);
+// Linearly-interpolated table lookup; mirrors astroray::sampleTable() in
+// src/spectrum.cpp (returns 0 outside the grid).
+__device__ inline float cmfSample(const float* table, float lambda) {
+    if (lambda < G_CMF_LAMBDA_MIN || lambda > G_CMF_LAMBDA_MAX) return 0.f;
+    float idx = (lambda - G_CMF_LAMBDA_MIN) / G_CMF_LAMBDA_STEP;
+    int   i   = (int)idx;
+    if (i >= G_CMF_COUNT - 1) return table[G_CMF_COUNT - 1];
+    float t = idx - (float)i;
+    return table[i] * (1.f - t) + table[i + 1] * t;
 }
 
 // Project a sampled spectrum to CIE XYZ via Monte Carlo CMF integration.
+// Mirrors astroray::SampledSpectrum::toXYZ exactly.
 __device__ inline GVec3 spectrumToXYZ(
     const GSampledSpectrum& s, const GSampledWavelengths& wl)
 {
@@ -78,8 +153,10 @@ __device__ inline GVec3 spectrumToXYZ(
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
         float p = wl.pdf[i];
         if (p == 0.f) continue;
-        float cx, cy, cz;
-        wymanCmf(wl.lambda[i], cx, cy, cz);
+        float lam = wl.lambda[i];
+        float cx = cmfSample(g_cmfX, lam);
+        float cy = cmfSample(g_cmfY, lam);
+        float cz = cmfSample(g_cmfZ, lam);
         float w = s.v[i] / p;
         X += w * cx;  Y += w * cy;  Z += w * cz;
     }
@@ -193,6 +270,29 @@ __device__ GSampledSpectrum tracePathMW(
         GBSDFSample bs = gpu_material_sample_spectral(mat, rec, wo, lambdas, rng);
         if (bs.pdf <= 0.f) break;
         wasSpecular = bs.isDelta;
+
+        // pkg54a: profile-aware spectral override for non-delta paths.
+        // Mirrors CPU `Material::evalSpectralExt`:
+        //   * visible λ → keep gpu_rgbToSampledSpectrum result (bs.fSpectral),
+        //   * non-visible λ + profile → reflectance(λ) * cosθ / π,
+        //   * non-visible λ + no profile → 0.
+        // Delta materials (specular) keep the RGB-derived spectrum unchanged.
+        if (!bs.isDelta) {
+            float cosTheta = fmaxf(0.f, rec.normal.dot(bs.wi));
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+                float lam = lambdas.lambda[i];
+                if (lam < 380.f || lam > 780.f) {
+                    if (mat.profileIndex >= 0) {
+                        bs.fSpectral.v[i] =
+                            gpu_profile_reflectance(mat.profileIndex, lam)
+                            * cosTheta / M_PI_F;
+                    } else {
+                        bs.fSpectral.v[i] = 0.f;
+                    }
+                }
+            }
+        }
+
         throughput *= bs.fSpectral * (1.f / (bs.pdf + 0.001f));
 
         // Throughput clamp (firefly guard, matches CPU).

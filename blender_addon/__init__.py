@@ -414,7 +414,7 @@ class CustomRaytracerMaterialSettings(PropertyGroup):
         name="Spectral Profile",
         description="Spectral reflectance profile for outside-visible (IR/UV) rendering.",
         items=_spectral_profile_items,
-        default="__none__",
+        default=0,
     )
     live_preview_resolution: EnumProperty(
         name="Resolution",

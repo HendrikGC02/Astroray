@@ -42,9 +42,15 @@ def _load_blender_addon(monkeypatch):
         "StringProperty",
         "PointerProperty",
         "FloatVectorProperty",
-        "EnumProperty",
     ):
         setattr(bpy_props_module, name, lambda **_kwargs: None)
+
+    def _enum_property(**kwargs):
+        if callable(kwargs.get("items")) and isinstance(kwargs.get("default"), str):
+            raise TypeError("EnumProperty(...): 'default' can only be an integer when 'items' is a function")
+        return None
+
+    bpy_props_module.EnumProperty = _enum_property
 
     bpy_module.props = bpy_props_module
     bpy_module.path = types.SimpleNamespace(abspath=lambda p: p)

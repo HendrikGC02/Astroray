@@ -335,7 +335,7 @@ def test_build_script_backend_config_cpu():
     import importlib.util as ilu
     spec = ilu.spec_from_file_location(
         "build_blender_addon",
-        Path(__file__).parent.parent / "scripts" / "build_blender_addon.py",
+        Path(__file__).parent.parent / "scripts" / "build" / "build_blender_addon.py",
     )
     mod = ilu.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -350,7 +350,7 @@ def test_build_script_backend_config_cuda():
     import importlib.util as ilu
     spec = ilu.spec_from_file_location(
         "build_blender_addon",
-        Path(__file__).parent.parent / "scripts" / "build_blender_addon.py",
+        Path(__file__).parent.parent / "scripts" / "build" / "build_blender_addon.py",
     )
     mod = ilu.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -363,7 +363,7 @@ def test_build_script_backend_config_tcnn():
     import importlib.util as ilu
     spec = ilu.spec_from_file_location(
         "build_blender_addon",
-        Path(__file__).parent.parent / "scripts" / "build_blender_addon.py",
+        Path(__file__).parent.parent / "scripts" / "build" / "build_blender_addon.py",
     )
     mod = ilu.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -376,6 +376,6 @@ def test_build_script_backend_config_tcnn():
 
 def test_build_script_no_build_tncc_reference():
     """The old build_tncc directory name must not appear in the build script."""
-    src = (Path(__file__).parent.parent / "scripts" / "build_blender_addon.py").read_text()
+    src = (Path(__file__).parent.parent / "scripts" / "build" / "build_blender_addon.py").read_text()
     assert "build_tncc" not in src, \
         "build_tncc (old stale directory name) must not appear in build script"

@@ -24,7 +24,7 @@ import numpy as np
 # ──────────────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT   = os.path.dirname(SCRIPT_DIR)
+REPO_ROOT   = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 OUT_DIR     = os.path.join(REPO_ROOT, "data", "spectral_profiles")
 CACHE_DIR   = os.path.join(OUT_DIR, "_cache")
 

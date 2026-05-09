@@ -76,7 +76,7 @@ The implementer must do a fresh WebSearch + WebFetch pass (per CLAUDE.md §6) to
 3. **LUTs are 32×32 (or whatever Cycles ships).** Bilinear interpolation. ~12 KB per LUT total. Embed as binary, not constexpr — easier to swap.
 4. **Cite in code.** Each multiplication site must cite "Kulla & Conty 2017 §X" and "Cycles `bsdf_microfacet.h:microfacet_ggx_E`". Per CLAUDE.md §6.
 5. **Energy-conservation test is the hard gate.** Render is not enough; we need a numerical proof that the BRDF integrates to ≤ 1.0 over the upper hemisphere across at least the parameter grid `(roughness ∈ {0.1, 0.3, 0.5, 0.7, 0.9}, metallic ∈ {0, 1}, sheen ∈ {0, 0.5, 1}, clearcoat ∈ {0, 0.5, 1})` at incident angles `cosTheta ∈ {0.1, 0.5, 0.9}`. 60 parameter combos × 3 angles = 180 integrations. 4096-sample Halton hemisphere integration each.
-6. **Visual regression on the contact sheet.** `scripts/material_contact_sheet.py` should still produce visually-similar images at low roughness (where compensation is small); high-roughness rows should look slightly brighter (recovered multi-scatter energy) but never blown out.
+6. **Visual regression on the contact sheet.** `scripts/diagnostics/material_contact_sheet.py` should still produce visually-similar images at low roughness (where compensation is small); high-roughness rows should look slightly brighter (recovered multi-scatter energy) but never blown out.
 
 ---
 
@@ -87,7 +87,7 @@ The implementer must do a fresh WebSearch + WebFetch pass (per CLAUDE.md §6) to
 - [x] No grid point has reflectance > 1.05 (loose upper bound — anything greater is a real bug).
 - [x] Cornell-box reference render at 256 spp shows no visible glow on any object's high-roughness configuration.
 - [x] Existing `tests/test_disney*.py` pass with within-noise differences (SSIM ≥ 0.95) at low roughness.
-- [x] Material contact sheet (`scripts/material_contact_sheet.py`) regenerated and saved to `tests/reference/disney_contact_sheet_post_compensation.png`.
+- [x] Material contact sheet (`scripts/diagnostics/material_contact_sheet.py`) regenerated and saved to `tests/reference/disney_contact_sheet_post_compensation.png`.
 
 ---
 

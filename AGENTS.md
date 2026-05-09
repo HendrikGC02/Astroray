@@ -96,7 +96,7 @@ All tests write images/charts to `test_results/` (gitignored).
 - `include/advanced_features.h` — textures, transforms, Disney BRDF, mesh support
 - `include/astroray/` — GR subsystem (metric, integrator, accretion disk, spectral)
 - `plugins/` — material, texture, shape, integrator, and pass plugins
-- `blender_addon/shader_blending.py` — must be packaged with the addon (see `scripts/build_blender_addon.py`)
+- `blender_addon/shader_blending.py` — must be packaged with the addon (see `scripts/build/build_blender_addon.py`)
 
 ## Current Known Rendering/Test Gaps
 

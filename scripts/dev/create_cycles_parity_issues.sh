@@ -12,8 +12,8 @@
 #
 # Usage:
 #   gh auth login
-#   chmod +x scripts/create_cycles_parity_issues.sh
-#   ./scripts/create_cycles_parity_issues.sh
+#   chmod +x scripts/dev/create_cycles_parity_issues.sh
+#   ./scripts/dev/create_cycles_parity_issues.sh
 #
 # Then assign issues to Copilot:
 #   gh issue edit <NUMBER> --add-assignee @copilot

@@ -40,7 +40,7 @@ NRC correctness condition.
 |---|---|
 | `tests/test_neural_cache_validation.py` | Opt-in NRC indirect validation and default fallback smoke. |
 | `tests/scenes/neural_cache_indirect.py` | Small Cornell-style indirect scene shared by tests. |
-| `scripts/benchmark_light_transport.py` | Emits JSON/CSV stats and PNG charts comparing path tracer, auto default, NRC fallback, and NRC backend. |
+| `scripts/benchmarks/benchmark_light_transport.py` | Emits JSON/CSV stats and PNG charts comparing path tracer, auto default, NRC fallback, and NRC backend. |
 
 ### Files to modify
 
@@ -75,7 +75,7 @@ Generated with:
 
 ```powershell
 $env:ASTRORAY_BUILD_DIR='C:\tmp\astroray_pkg27_tcnn\Release'
-python scripts/benchmark_light_transport.py --output-dir test_results/light_transport_benchmark --width 32 --height 32 --samples 4 --reference-samples 16 --max-depth 5 --frames 2
+python scripts/benchmarks/benchmark_light_transport.py --output-dir test_results/light_transport_benchmark --width 32 --height 32 --samples 4 --reference-samples 16 --max-depth 5 --frames 2
 ```
 
 Files:

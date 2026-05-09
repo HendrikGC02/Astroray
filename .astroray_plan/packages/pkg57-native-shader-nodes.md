@@ -67,7 +67,7 @@ The non-destructive design point (custom properties on `bpy.types.Material`, not
 | File | What changes |
 |---|---|
 | [blender_addon/__init__.py](blender_addon/__init__.py) | Import and register the new node modules. Keep `bl_use_shading_nodes_custom = False` so Cycles nodes still render. Extend `convert_node_material` to recognize `AstrorayOutputNode` and the Astroray-specific BSDF nodes; when present, they take precedence over the Cycles output for Astroray's material spec. |
-| `scripts/build_blender_addon.py` | Package the `nodes/` directory into the addon zip. |
+| `scripts/build/build_blender_addon.py` | Package the `nodes/` directory into the addon zip. |
 
 ### Key design decisions
 

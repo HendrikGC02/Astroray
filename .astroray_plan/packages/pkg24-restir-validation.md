@@ -34,7 +34,7 @@ or a test artifact.
 - Design doc: `.astroray_plan/docs/light-transport.md §Acceptance criteria`
 - Additional design doc: `.astroray_plan\docs\restir-temporal-spatial-design.md`
 - Previous packages: pkg22 initial sampling, pkg23 reuse design
-- Existing render-output triage: `scripts/render_output_triage.py`
+- Existing render-output triage: `scripts/diagnostics/render_output_triage.py`
 
 ---
 
@@ -61,7 +61,7 @@ or a test artifact.
 
 | File | What changes |
 |---|---|
-| `scripts/render_output_triage.py` | Optional: add ReSTIR-specific labels or contact-sheet support if needed for review. |
+| `scripts/diagnostics/render_output_triage.py` | Optional: add ReSTIR-specific labels or contact-sheet support if needed for review. |
 | `.astroray_plan/docs/light-transport.md` | Record accepted validation scenes and metrics. |
 | `.astroray_plan/docs/STATUS.md` | Mark pkg24 active/done and surface the next Pillar 3 package. |
 

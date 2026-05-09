@@ -40,7 +40,7 @@ entrypoint again before more Pillar 4 and material work lands.
 ## Reference
 
 - Addon entrypoint: `blender_addon/__init__.py`
-- Addon packaging: `scripts/build_blender_addon.py`
+- Addon packaging: `scripts/build/build_blender_addon.py`
 - Addon manifest: `blender_addon/blender_manifest.toml`
 - Python bindings: `module/blender_module.cpp`
 - Backend capability bridge: `pkg34-material-backend-capabilities.md`
@@ -78,7 +78,7 @@ entrypoint again before more Pillar 4 and material work lands.
 | File | What changes |
 |---|---|
 | `blender_addon/__init__.py` | Replace `use_gpu` boolean UI with `device_mode = auto/gpu/cpu`; apply the same backend policy in final render and viewport render; add diagnostics panel; expose neural-cache/integrator params where supported; show module path/features/fallback reason. |
-| `scripts/build_blender_addon.py` | Replace stale hard-coded CPU build with `--backend auto/cpu/cuda/tcnn`; use a clear build dir (`build_blender`, `build_blender_cuda`, or `build_tcnn`); stop using `build_tncc`; package/report the selected module and required runtime DLLs. |
+| `scripts/build/build_blender_addon.py` | Replace stale hard-coded CPU build with `--backend auto/cpu/cuda/tcnn`; use a clear build dir (`build_blender`, `build_blender_cuda`, or `build_tcnn`); stop using `build_tncc`; package/report the selected module and required runtime DLLs. |
 | `scripts/README.md` | Update Blender addon build instructions to explain backend modes and how to verify the packaged module. |
 | `module/blender_module.cpp` | Add missing feature/status bindings only if needed by the addon diagnostics. Prefer existing `__features__`, GPU properties, registry names, and integrator stats when enough. |
 | `tests/test_blender_view_layers.py` | Extend existing addon stubs or keep as-is if new backend tests cover the device path. |
@@ -129,7 +129,7 @@ entrypoint again before more Pillar 4 and material work lands.
       and both use GPU when Auto/GPU selects it.
 - [ ] CPU-only modules, missing CUDA devices, and unsupported scene
       features produce visible diagnostics instead of silent fallback.
-- [ ] `scripts/build_blender_addon.py --backend cpu` produces a CPU addon
+- [ ] `scripts/build/build_blender_addon.py --backend cpu` produces a CPU addon
       zip, and `--backend cuda` or `--backend tcnn` either produces the
       requested addon zip or fails with an actionable message.
 - [ ] The build script no longer uses `build_tncc` and no longer forces

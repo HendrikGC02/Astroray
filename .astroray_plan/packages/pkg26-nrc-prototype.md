@@ -72,7 +72,7 @@ intermediate step exists because:
 |---|---|
 | `src/neural_cache.h` | `NeuralCache` class declaration — network lifecycle, `query()`, `train()` |
 | `src/neural_cache.cu` | Implementation: tcnn model construction, optimizer, per-frame batch I/O |
-| `scripts/nrc_smoke_render.cu` | Standalone harness: render N frames of a Cornell box using NRC for secondary bounces; write PPM output |
+| `scripts/cuda/nrc_smoke_render.cu` | Standalone harness: render N frames of a Cornell box using NRC for secondary bounces; write PPM output |
 | `.astroray_plan/docs/nrc-prototype-notes.md` | Experiment log: input feature choices, warmup frames needed, quality observations |
 
 ### Files to modify
@@ -168,7 +168,7 @@ integrates with real scene data, not toy geometry.
       construction, `set_params`, `query()`, `train()`, and `step()`.
 - [x] Add `nrc_smoke_render` target to `CMakeLists.txt` inside the
       `ASTRORAY_TINY_CUDA_NN` guard.
-- [x] Write `scripts/nrc_smoke_render.cu`: Cornell box scene via existing
+- [x] Write `scripts/cuda/nrc_smoke_render.cu`: Cornell box scene via existing
       `Renderer`, per-frame train/query loop, PPM write.
 - [x] Run 50-frame render; verify no CUDA errors and image is non-black.
 - [x] Observe and record learning curve (frame 1 vs frame 50 luminance).

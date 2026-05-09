@@ -21,7 +21,7 @@ All notable changes to this project will be documented in this file.
   Properties showing: `astroray` module path, version, `__features__` dict, GPU availability
   and device name, registered integrators, selected integrator, and post-render integrator
   stats (from `get_integrator_stats()` after each render).
-- **Build script `--backend` flag** — `scripts/build_blender_addon.py` now accepts
+- **Build script `--backend` flag** — `scripts/build/build_blender_addon.py` now accepts
   `--backend cpu` (default), `--backend cuda`, `--backend tcnn`, `--backend auto`.
   Each backend uses a distinct build directory (`build_blender_addon`,
   `build_blender_addon_cuda`, `build_blender_addon_tcnn`) and passes the appropriate

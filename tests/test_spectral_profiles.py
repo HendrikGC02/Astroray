@@ -19,7 +19,7 @@ N_LAMBDA    = 441
 
 pytestmark = pytest.mark.skipif(
     not os.path.exists(PROFILES_BIN),
-    reason="profiles.bin not found; run scripts/build_spectral_profiles.py first",
+    reason="profiles.bin not found; run scripts/data/build_spectral_profiles.py first",
 )
 
 

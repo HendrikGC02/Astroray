@@ -53,7 +53,7 @@ built here makes future extension straightforward.
 
 - Spectral profile database: `data/spectral_profiles/profiles.bin`
   (from pkg38)
-- Binary format: `scripts/spectral_profile_format.md` (from pkg38)
+- Binary format: `scripts/data/spectral_profile_format.md` (from pkg38)
 - Spectral pipeline: `include/astroray/spectrum.h`,
   `plugins/integrators/path_tracer.cpp`
 - Jakob-Hanika upsampling: existing sigmoid functions in the spectral

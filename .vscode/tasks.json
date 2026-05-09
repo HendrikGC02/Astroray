@@ -32,7 +32,7 @@
       "type": "shell",
       "command": "python",
       "args": [
-        "scripts/material_contact_sheet.py",
+        "scripts/diagnostics/material_contact_sheet.py",
         "--device",
         "auto",
         "--output-dir",
@@ -48,7 +48,7 @@
       "type": "shell",
       "command": "python",
       "args": [
-        "scripts/material_contact_sheet.py",
+        "scripts/diagnostics/material_contact_sheet.py",
         "--device",
         "cpu",
         "--output-dir",
@@ -64,7 +64,7 @@
       "type": "shell",
       "command": "python",
       "args": [
-        "scripts/run_standalone.py",
+        "scripts/dev/run_standalone.py",
         "--scene",
         "1",
         "--width",

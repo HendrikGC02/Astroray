@@ -51,7 +51,7 @@ between CPU, CUDA, and future neural/optimized paths will be confusing.
 |---|---|
 | `include/raytracer.h` | Add material capability queries, e.g. `supportsGPU()`, `gpuSupportNotes()`, or a compact capability struct. |
 | `src/gpu/scene_upload.cu` | Replace silent unknown-material fallback with capability-aware lowering. |
-| `scripts/material_contact_sheet.py` | Use capabilities instead of a hard-coded Python allowlist. |
+| `scripts/diagnostics/material_contact_sheet.py` | Use capabilities instead of a hard-coded Python allowlist. |
 | `tests/` | Add backend capability and no-silent-fallback coverage. |
 
 ### Key design decisions
@@ -95,7 +95,7 @@ Implemented:
   rejection. Unsupported materials now raise a clear runtime error instead of
   becoming grey Lambertian, generic dielectric, or generic metal.
 - Exposed `Renderer.get_material_backend_capabilities(material_id)` to Python.
-- Updated `scripts/material_contact_sheet.py` to use material capability
+- Updated `scripts/diagnostics/material_contact_sheet.py` to use material capability
   metadata instead of a hard-coded allowlist, and to record backend reason,
   GPU support, approximation status, GPU type, and notes in its CSV.
 - Added `tests/test_material_backend_capabilities.py` covering a GPU-supported

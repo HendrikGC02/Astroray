@@ -3,7 +3,7 @@
 comparison grid for portfolio/README use.
 
 Usage:
-    python scripts/benchmark_showcase.py [--resolution 512] [--samples 256] \
+    python scripts/benchmarks/benchmark_showcase.py [--resolution 512] [--samples 256] \
         [--output-dir test_results/showcase/]
 """
 
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 TESTS_DIR = ROOT / "tests"
 if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))

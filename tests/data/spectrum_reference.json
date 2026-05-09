@@ -1,5 +1,5 @@
 {
-  "generator": "scripts/generate_spectrum_data.py",
+  "generator": "scripts/data/generate_spectrum_data.py",
   "source": "colour-science 0.4.7 + Jakob-Hanika 2019 LUT (simple-spectral)",
   "wavelength_range_nm": [
     360,

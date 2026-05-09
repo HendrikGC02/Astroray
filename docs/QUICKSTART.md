@@ -85,7 +85,7 @@ cmake --build . -j$(nproc)
 python3 -m pytest tests/ -v --tb=short
 
 # Recommended on Windows, especially for CUDA/tiny-cuda-nn builds
-python scripts/run_tests.py --build-dir build_tcnn -- tests -v --tb=short
+python scripts/dev/run_tests.py --build-dir build_tcnn -- tests -v --tb=short
 
 # Focused suites
 python3 -m pytest tests/test_python_bindings.py -v
@@ -140,19 +140,19 @@ sudo apt install python3.13-dev
 
 ```bash
 # Auto-detect Blender + matching Python
-python scripts/build_blender_addon.py
+python scripts/build/build_blender_addon.py
 
 # Target a specific Blender install
-python scripts/build_blender_addon.py --blender "C:/Program Files/Blender Foundation/Blender 5.1/blender.exe"
+python scripts/build/build_blender_addon.py --blender "C:/Program Files/Blender Foundation/Blender 5.1/blender.exe"
 
 # Specify Python explicitly (if auto-detection fails)
-python scripts/build_blender_addon.py --python-exe C:/Python313/python.exe
+python scripts/build/build_blender_addon.py --python-exe C:/Python313/python.exe
 
 # Build AND install directly into Blender's extensions directory
-python scripts/build_blender_addon.py --install
+python scripts/build/build_blender_addon.py --install
 
 # Clean rebuild
-python scripts/build_blender_addon.py --clean
+python scripts/build/build_blender_addon.py --clean
 ```
 
 The script auto-detects whether to use MinGW or MSVC based on what's available in `PATH`. It always passes `-DASTRORAY_ENABLE_CUDA=OFF` and `-DASTRORAY_DISABLE_OPENMP=ON` for Blender compatibility.

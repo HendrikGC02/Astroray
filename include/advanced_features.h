@@ -20,8 +20,19 @@ public:
 
 private:
     CoordMode coordMode = CoordMode::UV;
+    // pkg59 follow-up: per-texture UV transform baked in from a Blender
+    // Mapping node (Location + Scale). Applied AFTER coord-mode resolution
+    // so it composes with Generated/Object/UV. Rotation is not yet wired —
+    // most production PBR materials only need scale + offset.
+    Vec2 uvScale_{1.0f, 1.0f};
+    Vec2 uvOffset_{0.0f, 0.0f};
 
 protected:
+    Vec2 applyUVTransform(const Vec2& uv) const {
+        return Vec2(uv.u * uvScale_.u + uvOffset_.u,
+                    uv.v * uvScale_.v + uvOffset_.v);
+    }
+
     static Vec2 directionToUV(const Vec3& d) {
         Vec3 n = d.normalized();
         float theta = std::acos(std::clamp(n.y, -1.0f, 1.0f));
@@ -84,14 +95,22 @@ public:
     virtual Vec3 value(const Vec2& uv, const Vec3& p) const = 0;
     Vec3 value(const HitRecord& rec, const Vec3& wo) const {
         auto [uv, p] = textureCoordinates(rec, wo);
-        return value(uv, p);
+        return value(applyUVTransform(uv), p);
     }
     Vec3 valueOffset(const HitRecord& rec, const Vec3& wo, float du, float dv) const {
         auto [uv, p] = textureCoordinates(rec, wo);
-        return value(Vec2(uv.u + du, uv.v + dv), p);
+        Vec2 t = applyUVTransform(uv);
+        return value(Vec2(t.u + du, t.v + dv), p);
     }
     void setCoordMode(CoordMode mode) { coordMode = mode; }
     CoordMode getCoordMode() const { return coordMode; }
+    // pkg59 follow-up: apply Mapping(Location, Scale) at sample time.
+    void setUVTransform(float sx, float sy, float ox, float oy) {
+        uvScale_ = Vec2(sx, sy);
+        uvOffset_ = Vec2(ox, oy);
+    }
+    Vec2 getUVScale()  const { return uvScale_;  }
+    Vec2 getUVOffset() const { return uvOffset_; }
 
     // Spectral hook (pkg13). Default upsamples the RGB value per-call.
     virtual astroray::SampledSpectrum sampleSpectral(
@@ -104,7 +123,7 @@ public:
             const HitRecord& rec, const Vec3& wo,
             const astroray::SampledWavelengths& lambdas) const {
         auto [uv, p] = textureCoordinates(rec, wo);
-        return sampleSpectral(uv, p, lambdas);
+        return sampleSpectral(applyUVTransform(uv), p, lambdas);
     }
 };
 

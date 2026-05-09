@@ -134,6 +134,12 @@ public:
         auto mode = parseCoordMode(coordMode);
         if (auto tex = getTexture(name)) tex->setCoordMode(mode);
     }
+    // pkg59 follow-up: bake a Blender Mapping node's Location + Scale into
+    // a per-texture UV transform applied at sample time.
+    void setTextureUVTransform(const std::string& name,
+                               float sx, float sy, float ox, float oy) {
+        if (auto tex = getTexture(name)) tex->setUVTransform(sx, sy, ox, oy);
+    }
     std::shared_ptr<Texture> getTexture(const std::string& name) {
         auto it1 = imageTextures.find(name);
         if (it1 != imageTextures.end()) return it1->second;
@@ -167,6 +173,10 @@ public:
     }
     void setTextureCoordMode(const std::string& name, const std::string& coordMode) {
         textureManager.setTextureCoordMode(name, coordMode);
+    }
+    void setTextureUVTransform(const std::string& name,
+                               float sx, float sy, float ox, float oy) {
+        textureManager.setTextureUVTransform(name, sx, sy, ox, oy);
     }
 
     std::vector<float> sampleTexture(const std::string& type, py::dict params, float u, float v) {
@@ -936,6 +946,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("create_procedural_texture", &PyRenderer::createProceduralTexture,
              "name"_a, "type"_a, "params"_a, "coord_mode"_a = "UV")
         .def("set_texture_coord_mode", &PyRenderer::setTextureCoordMode, "name"_a, "coord_mode"_a)
+        .def("set_texture_uv_transform", &PyRenderer::setTextureUVTransform,
+             "name"_a, "scale_x"_a, "scale_y"_a, "offset_x"_a, "offset_y"_a,
+             "Apply scale + offset (UV-space) to a texture; baked from a Blender Mapping node.")
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
         .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a,
              "ies_direction"_a = std::vector<float>(), "ies_file"_a = std::string(),

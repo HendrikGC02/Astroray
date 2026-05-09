@@ -1,52 +1,61 @@
 # pkg48 — HDF5 & NumPy Simulation Data Loader
 
-**Pillar:** 4
-**Track:** B (self-contained I/O plugin)
-**Status:** open
-**Estimated effort:** 1–2 sessions (~4 h)
+**Pillar:** 4  
+**Track:** B (self-contained I/O plugin)  
+**Status:** open  
+**Estimated effort:** 1–2 sessions (~4 h)  
 **Depends on:** pkg04 (plugin system), pkg47 (establishes data loader pattern)
+
+**Reference research:** `.astroray_plan/docs/pillar4-data-io-research.md §§1, 3, 4`  
+(DensityGrid type, HDF5/HighFive CMake recipe, in-house npy parser spec,
+chunked-read pattern, vcpkg setup, license notes — read before writing any
+simulation volume code)
+
+---
+
+## Reference Implementations
+
+| Source | License | What we use | What we do NOT mirror |
+|---|---|---|---|
+| [HDF5 C library](https://www.hdfgroup.org/solutions/hdf5/) (HDF Group) | BSD-style (HDF5 Software License 1.0) | System dep; accessed via HighFive wrapper | Not mirrored |
+| [HighFive](https://github.com/highfive-devs/highfive) (highfive-devs) | **MIT** | Header-only C++ wrapper; vcpkg or submodule | Headers may be bundled with copyright notice |
+| [yt](https://yt-project.org/) | BSD-3-Clause | Chunked-read pattern cited in code comment; Python preprocessing example | No C++ code from yt |
+| [h5py](https://docs.h5py.org/) | BSD-3-Clause | Python test data generation only | None |
+| NumPy .npy format spec | BSD-3-Clause | In-house C++ parser (~80 lines) derived from spec | Parser written from spec, not from NumPy source |
+
+**Do not vendor HDF5.** Use as system dependency (vcpkg on Windows).
+**HighFive** may be referenced via vcpkg or bundled as a git submodule (MIT, no
+copyleft). The npy parser is written from scratch against the published spec.
 
 ---
 
 ## Goal
 
-**Before:** Astroray cannot load simulation data from hydrodynamic or
-MHD codes (AREPO, FLASH, Enzo, Athena++, PLUTO). Users who have run
-simulations cannot visualise them in the renderer.
+**Before:** Astroray cannot load simulation data from hydrodynamic or MHD codes
+(AREPO, FLASH, Enzo, Athena++, PLUTO). Users who have run simulations cannot
+visualise them.
 
-**After:** A `SimulationVolume` plugin loads 3D grid data from NumPy
-`.npy` files (the recommended yt preprocessing output) and optionally
-from HDF5 files directly via HighFive. Multiple fields (density,
-temperature, velocity, magnetic field) can be loaded simultaneously
-and mapped to volume density, emission, and colour.
+**After:** A `SimulationVolume` plugin loads 3D grid data from NumPy `.npy` files
+(the recommended yt preprocessing output) and optionally from HDF5 files directly
+via HighFive. Multiple fields (density, temperature, velocity) can be loaded
+simultaneously and mapped to volume density, emission, and colour.
 
 ---
 
 ## Context
 
-The standard astrophysical simulation data pipeline is:
+Standard astrophysical simulation data pipeline:
 
-1. User runs a simulation (AREPO, FLASH, etc.) → HDF5/custom output.
+1. User runs simulation → HDF5/custom output.
 2. User preprocesses with yt in Python → uniform 3D grid → `.npy`.
-3. Astroray loads the `.npy` grid and renders it as a volume.
+3. Astroray loads `.npy` and renders as volume.
 
-This two-step approach avoids Astroray needing to understand every
-simulation code's bespoke HDF5 schema. yt handles the regridding and
-format normalisation; Astroray just reads uniform grids.
+This two-step approach avoids Astroray needing to understand every simulation
+code's bespoke HDF5 schema. yt handles regridding and format normalisation;
+Astroray reads uniform grids.
 
-For users who prefer to skip yt, direct HDF5 loading via HighFive
-(header-only, BSD-3) is also supported for simple uniform-grid
-datasets.
-
----
-
-## Reference
-
-- Design doc: `.astroray_plan/docs/astrophysics.md §4.5`
-- yt: https://yt-project.org/ (BSD-3; Python preprocessing only)
-- HighFive: https://github.com/BlueBrain/HighFive (BSD-3, header-only)
-- NumPy .npy format: https://numpy.org/devdocs/reference/generated/numpy.lib.format.html
-- External references: `.astroray_plan/docs/external-references.md §4`
+For users who skip yt, direct HDF5 loading via HighFive is supported for
+simple uniform-grid datasets.
 
 ---
 
@@ -64,52 +73,129 @@ datasets.
 
 | File | Purpose |
 |---|---|
-| `plugins/data/simulation_volume.cpp` | `SimulationVolume` plugin. Reads `.npy` and HDF5 grids. |
-| `include/astroray/npy_reader.h` | Minimal `.npy` file parser (header + raw float data). ~80 lines. |
-| `tests/test_simulation_volume.py` | Unit and integration tests. |
-| `tests/data/test_density.npy` | Small (16×16×16) synthetic density grid for testing. |
-| `tests/data/test_temperature.npy` | Small (16×16×16) synthetic temperature grid. |
-| `scripts/preprocess_simulation.py` | Example yt preprocessing script (documentation/reference, not a dependency). |
+| `plugins/data/simulation_volume.cpp` | `SimulationVolume` plugin. Reads `.npy` via `npy_reader.h` and HDF5 via HighFive. |
+| `include/astroray/npy_reader.h` | In-house `.npy` parser (~80 lines). Validates header, reads float32/float64 3D arrays. |
+| `include/astroray/density_grid.h` | `DensityGrid` struct (shared by pkg47, pkg48, pkg49). See §1 of research note. |
+| `tests/test_simulation_volume.py` | Unit and integration tests. Synthetic data generated at test time. |
+| `scripts/preprocess_simulation.py` | Example yt preprocessing script (documentation/reference, not a C++ dependency). |
 
 ### Files to modify
 
 | File | What changes |
 |---|---|
-| `CMakeLists.txt` | Add HighFive as optional header-only dependency. HDF5 C library as optional `find_package`. |
+| `CMakeLists.txt` | Add HDF5/HighFive as optional dependency via `ASTRORAY_ENABLE_HDF5` flag (see CMake recipe below). |
 | `module/blender_module.cpp` | Expose `load_simulation_volume(density_path, temperature_path=None, ...)`. |
 | `blender_addon/__init__.py` | Add simulation data import panel with file browsers for each field. |
 | `.astroray_plan/docs/STATUS.md` | Mark pkg48 done. |
 | `CHANGELOG.md` | Add pkg48 entry. |
 
+### CMake recipe
+
+```cmake
+option(ASTRORAY_ENABLE_HDF5 "Enable HDF5 I/O (requires HDF5 + HighFive)" OFF)
+
+if(ASTRORAY_ENABLE_HDF5)
+  find_package(HighFive CONFIG QUIET)   # automatically discovers HDF5 C library
+  if(NOT HighFive_FOUND)
+    find_package(HDF5 QUIET COMPONENTS C)
+  endif()
+
+  if(HighFive_FOUND OR HDF5_FOUND)
+    target_sources(astroray PRIVATE plugins/data/simulation_volume.cpp)
+    if(HighFive_FOUND)
+      target_link_libraries(astroray PRIVATE HighFive::HighFive)
+      target_compile_definitions(astroray PRIVATE ASTRORAY_HIGHFIVE_ENABLED)
+    else()
+      target_include_directories(astroray PRIVATE ${HDF5_INCLUDE_DIRS})
+      target_link_libraries(astroray PRIVATE ${HDF5_C_LIBRARIES})
+      target_compile_definitions(astroray PRIVATE ASTRORAY_HDF5_RAW_ENABLED)
+    endif()
+    message(STATUS "HDF5 I/O enabled")
+  else()
+    message(WARNING
+      "ASTRORAY_ENABLE_HDF5=ON but HDF5/HighFive not found. "
+      "Install via: vcpkg install hdf5 highfive  (Windows) or  apt install libhdf5-dev  (Linux). "
+      ".npy loading still works without HDF5.")
+  endif()
+endif()
+
+# .npy loading is always compiled (no external dependency)
+target_sources(astroray PRIVATE plugins/data/simulation_volume.cpp)
+target_compile_definitions(astroray PRIVATE ASTRORAY_NPY_ENABLED)
+```
+
+**Codex-ready when:** `find_package(HighFive CONFIG QUIET)` resolves on the
+Windows MinGW toolchain. Verify with:
+`cmake -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake
+-DASTRORAY_ENABLE_HDF5=ON .`
+
+### Windows / vcpkg setup
+
+```
+vcpkg install hdf5 highfive
+```
+
+On Windows with static builds, add to CMake invocation:
+```
+-DHDF5_USE_STATIC_LIBRARIES=ON
+```
+
+### `npy_reader.h` parser spec
+
+Derived from the official .npy format spec:
+https://numpy.org/doc/stable/reference/generated/numpy.lib.format.html
+
+```
+Byte layout:
+  [0:6]    magic: \x93NUMPY
+  [6]      major version (uint8): 1 or 2
+  [7]      minor version (uint8): 0
+  [8:10]   header length (uint16, little-endian)  -- if major == 1
+  [8:12]   header length (uint32, little-endian)  -- if major == 2
+  [10/12 : 10/12+N]  header dict (ASCII/UTF-8), padded with spaces to
+                     align total bytes to 64-byte boundary, terminated \n
+  [after header]     raw float data, C-order
+```
+
+Parser requirements:
+- Accept `'<f4'` (float32) and `'<f8'` (float64); reject others.
+- Accept `fortran_order: False` only; reject Fortran-order.
+- Accept 3D shape only (rank-3 array); reject other ranks.
+- Extract shape by scanning for `'shape': (` and reading three integers.
+- Return `DensityGrid` with `data` vector (always float32 after conversion).
+
 ### Data formats
 
-#### NumPy .npy (primary)
+#### NumPy .npy (primary, no external dependency)
 
-The `.npy` format stores a single N-dimensional array with a short
-header (magic, shape, dtype, fortran-order flag) followed by raw data.
-Parsing it requires ~80 lines of C++ — no external dependency.
+Expected input: 3D float32 or float64 array, shape `(nx, ny, nz)`, C-order.
+The reader validates the header and rejects non-float or non-3D files.
 
-Expected input: 3D float32 or float64 array, shape (nx, ny, nz),
-C-order. The reader validates the header and rejects non-float or
-non-3D files with a clear error message.
+#### HDF5 via HighFive (optional)
 
-#### HDF5 (optional, via HighFive)
+```cpp
+// Reads dataset "density" from an HDF5 file into DensityGrid
+HighFive::File file(path, HighFive::File::ReadOnly);
+auto ds = file.getDataSet("density");
+auto dims = ds.getDimensions();  // {nx, ny, nz}
+std::vector<float> buf(dims[0] * dims[1] * dims[2]);
+ds.read(buf);
+```
 
-For users who have uniform-grid HDF5 files and don't want to
-preprocess with yt. The plugin reads a named dataset from a specified
-group:
+User specifies the dataset path:
+```python
+load_simulation_volume(path="snapshot.hdf5",
+                       dataset="/PartType0/Density",
+                       shape=[256, 256, 256])
+```
 
-    load_simulation_volume(path="snapshot.hdf5",
-                           dataset="/PartType0/Density",
-                           shape=[256, 256, 256])
-
-HighFive is header-only and BSD-3; it wraps the HDF5 C library. Like
-CFITSIO for FITS, HDF5 is an optional dependency: if not found, the
-HDF5 path is disabled but `.npy` loading still works.
+For large datasets: read in z-slabs of 64 layers (see research note §3 for
+chunked-read pseudocode). Cite: yt chunked-read pattern,
+`yt/frontends/enzo/data_structures.py` (BSD-3).
 
 ### Volume representation
 
-The `SimulationVolume` is a box-shaped volume in world space. User sets:
+`SimulationVolume` is a box-shaped volume in world space. Parameters:
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -119,98 +205,61 @@ The `SimulationVolume` is a box-shaped volume in world space. User sets:
 | `bbox_min` | (-1,-1,-1) | World-space bounding box minimum. |
 | `bbox_max` | (1,1,1) | World-space bounding box maximum. |
 | `density_scale` | 1.0 | Multiplier on density values. |
-| `emission_mode` | "absorption" | "absorption" (density → extinction), "emission" (density → luminosity), or "both". |
-| `transfer_function` | "linear" | "linear", "log", or "sqrt" — maps raw values to visual density. |
+| `emission_mode` | "absorption" | "absorption", "emission", or "both". |
+| `transfer_function` | "linear" | "linear", "log", or "sqrt". |
 
-The plugin implements trilinear interpolation on the grid for smooth
-sampling between voxels.
-
-### Integration with renderer
-
-In **absorption mode**, the simulation volume acts like a
-`ConstantMedium` with spatially-varying density. Rays are attenuated
-according to the local extinction coefficient derived from the density
-field.
-
-In **emission mode**, the volume emits spectral radiance proportional
-to the density (and optionally temperature-dependent via a blackbody
-or user-specified colour map). This uses the `VolumetricEmission`
-interface from pkg42.
-
-In **both mode**, both absorption and emission are applied (standard
-emission-absorption radiative transfer).
-
-### Key design decisions
-
-1. **NumPy .npy as primary format.** Zero external dependencies,
-   trivial to generate from Python, and the yt preprocessing path
-   naturally outputs `.npy`. This makes the most common workflow
-   dependency-free on the C++ side.
-
-2. **HighFive, not raw HDF5 C API.** HighFive is header-only and
-   provides a type-safe C++ interface. No library to link against
-   beyond the HDF5 C library itself. Keeps plugin code clean.
-
-3. **User-specified bounding box, not physical units.** Simulation
-   data comes in arbitrary code units. Rather than trying to parse
-   unit metadata (which varies by simulation code), the user sets the
-   world-space extent in Blender. The example yt script shows how to
-   extract physical dimensions for reference.
-
-4. **Transfer function is visual, not physical.** The log/sqrt options
-   are for visual clarity (compressing dynamic range in density fields
-   that span many orders of magnitude). They do not change the physics
-   of radiative transfer — they map raw values to the visual density
-   parameter that drives extinction/emission.
+The plugin implements trilinear interpolation on the grid for smooth sampling.
 
 ---
 
 ## Acceptance criteria
 
-- [ ] `SimulationVolume` registered as both a shape plugin and an
-      emission plugin.
-- [ ] `.npy` loader reads float32 and float64 3D arrays correctly.
-- [ ] A synthetic density grid renders as a volume with visible density
-      variation (not uniform or black).
-- [ ] Trilinear interpolation: sampling at grid centre matches the
-      stored value exactly; sampling between grid points produces a
-      smooth intermediate value.
-- [ ] Optional HDF5: if HighFive + HDF5 are available, loads a dataset
-      from an HDF5 file and produces identical results to the `.npy`
-      equivalent.
-- [ ] Missing HDF5: build completes; `.npy` loading still works.
-- [ ] Transfer functions: log and sqrt modes compress dynamic range
-      visually compared to linear.
-- [ ] Blender addon has simulation data import UI with file browsers.
+- [ ] `.npy` loader compiled unconditionally (no feature flag).
+- [ ] `SimulationVolume` registered as both shape plugin and emission plugin.
+- [ ] `.npy` float32 load: 16×16×16 synthetic grid read back with shape `(16,16,16)` and values matching within 1e-6.
+- [ ] `.npy` float64 load: same grid as float64, values converted to float32, same tolerance.
+- [ ] `.npy` rejection: non-3D array → `std::runtime_error` with message containing "expected 3D".
+- [ ] `.npy` rejection: wrong dtype (e.g. int32) → `std::runtime_error` with message containing dtype name.
+- [ ] Trilinear interpolation: sampling at grid centre matches stored value exactly; sampling at a midpoint between two adjacent cells with values 0 and 1 returns 0.5 ± 1e-5.
+- [ ] `transfer_function="log"`: log-scale output compresses dynamic range (max/min ratio in log space < max/min ratio in linear space for a grid spanning [0.01, 100]).
+- [ ] HDF5 (if enabled): a 16×16×16 synthetic HDF5 dataset produces identical `DensityGrid` to the equivalent `.npy` file (element-wise comparison, max absolute diff < 1e-6).
+- [ ] HDF5 absent: `ASTRORAY_ENABLE_HDF5=OFF` build compiles; `.npy` path still works.
 - [ ] All existing tests pass.
-- [ ] ≥6 new tests covering: `.npy` load, shape validation, trilinear
-      interpolation, absorption render, emission render, bad-file error.
+- [ ] ≥ 6 new tests: `.npy` float32 load, `.npy` float64 load, rank validation, dtype validation, trilinear interpolation, log transfer function.
+
+### Concrete test data shapes
+
+| Test | Shape | dtype | Created by |
+|---|---|---|---|
+| density grid | (16, 16, 16) | float32 | `np.random.rand(16,16,16).astype(np.float32); np.save(tmp, data)` |
+| temperature grid | (16, 16, 16) | float32 | same pattern |
+| HDF5 density | (16, 16, 16) | float32 | `h5py.File(tmp)["density"] = data` |
+| uniform grid (interp test) | (4, 4, 4) | float32 | `np.arange(64).reshape(4,4,4).astype(np.float32)` |
+
+All written to `tmp_path` (pytest); no binaries committed.
 
 ---
 
 ## Non-goals
 
-- Do not implement AMR (adaptive mesh refinement) grid reading. Only
-  uniform grids. AMR data should be regridded to uniform via yt.
-- Do not implement particle data (SPH) loading. That is pkg49.
-- Do not implement yt as a C++ dependency. yt runs in Python as a
-  preprocessing step only.
-- Do not implement time-series animation (loading multiple snapshots).
-  Single snapshot per render.
-- Do not implement isosurface extraction. Volume rendering only.
+- No AMR (adaptive mesh refinement) reading. Only uniform grids. AMR data should be regridded via yt.
+- No particle data (SPH). That is pkg49.
+- No yt as a C++ dependency. yt runs in Python only.
+- No time-series animation (multiple snapshots). Single snapshot per render.
+- No isosurface extraction. Volume rendering only.
 
 ---
 
 ## Progress
 
-- [ ] Implement `.npy` reader in `npy_reader.h`.
-- [ ] Implement `SimulationVolume` plugin: grid storage, trilinear
-      interpolation, absorption/emission modes.
-- [ ] Add optional HighFive/HDF5 path.
-- [ ] Generate synthetic test grids.
+- [ ] Define `DensityGrid` struct in `include/astroray/density_grid.h`.
+- [ ] Implement `npy_reader.h` (parse header, validate dtype and rank, return `DensityGrid`).
+- [ ] Implement `SimulationVolume`: grid storage, trilinear interpolation, absorption/emission modes.
+- [ ] Add optional HighFive/HDF5 path (behind `#ifdef ASTRORAY_HIGHFIVE_ENABLED`).
 - [ ] Write example yt preprocessing script.
 - [ ] Add Blender UI.
-- [ ] Write tests.
+- [ ] Write tests (synthetic data via numpy/h5py at test time).
+- [ ] Verify `ASTRORAY_ENABLE_HDF5=ON` on Windows toolchain.
 - [ ] Full test suite green.
 - [ ] Update STATUS.md, CHANGELOG.md.
 

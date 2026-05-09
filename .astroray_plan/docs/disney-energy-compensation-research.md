@@ -291,6 +291,11 @@ research note:
   white-furnace bound at roughness=0.9, grazing view. A small directional
   furnace normalization was added to keep the existing diffuse lobe within the
   package's 1.02 hard gate.
+- Follow-up visual review found that eval-only integration was not enough to
+  catch renderer bias: mixed diffuse/specular Disney samples returned only the
+  selected lobe PDF while carrying the full Disney eval in `f`. The code phase
+  now uses the combined material PDF for non-transmission Disney mixtures and
+  adds a gray-furnace render regression for metallic=0.7, roughness=0.05.
 
 Measured final gate: 90 listed roughness/metallic/sheen/clearcoat combinations
 × 3 outgoing cosines × 4096 Halton samples, worst-case reflectance **1.015891**

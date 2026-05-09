@@ -412,7 +412,7 @@ public:
             Vec3 localWi = Vec3::randomCosineDirection(gen);
             s.wi = rec.tangent * localWi.x + rec.bitangent * localWi.y + rec.normal * localWi.z;
             s.f = eval(rec, wo, s.wi);
-            s.pdf = rec.normal.dot(s.wi) / float(M_PI) * (diffWeight / total);
+            s.pdf = pdf(rec, wo, s.wi);
         } else {
             float a = std::max(roughness_ * roughness_, 0.0064f);
             float r1 = dist(gen), r2 = dist(gen);
@@ -424,12 +424,7 @@ public:
             s.wi = (h * (2 * wo.dot(h)) - wo).normalized();
             if (rec.normal.dot(s.wi) > 0) {
                 s.f = eval(rec, wo, s.wi);
-                float NdotH = rec.normal.dot(h);
-                float HdotV = h.dot(wo);
-                float D = D_GTR2(NdotH, a);
-                if (HdotV > 0.0f) {
-                    s.pdf = D * NdotH / (4 * HdotV + 0.001f) * (specWeight / total);
-                }
+                s.pdf = pdf(rec, wo, s.wi);
             }
         }
         return s;
@@ -448,11 +443,13 @@ public:
         float p = 0;
         if (diffWeight > 0) p += (rec.normal.dot(wi) / float(M_PI)) * (diffWeight / total);
         if (specWeight > 0) {
-            float a = roughness_ * roughness_;
+            float a = std::max(roughness_ * roughness_, 0.0064f);
             float NdotH = rec.normal.dot(H);
             float HdotV = H.dot(wo);
-            float D = D_GTR2(NdotH, a);
-            p += (D * NdotH / (4 * HdotV + 0.001f)) * (specWeight / total);
+            if (NdotH > 0.0f && HdotV > 0.0f) {
+                float D = D_GTR2(NdotH, a);
+                p += (D * NdotH / (4 * HdotV + 0.001f)) * (specWeight / total);
+            }
         }
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
             bool entering = rec.normal.dot(wo) > 0.0f;

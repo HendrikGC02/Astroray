@@ -131,5 +131,12 @@ The implementer must do a fresh WebSearch + WebFetch pass (per CLAUDE.md §6) to
 - Final measured worst-case directional-hemispherical reflectance:
   **1.015891** at roughness=0.9, metallic=0, sheen=0, clearcoat=0,
   cosThetaO=0.1, using 4096 Halton samples.
+- Project-owner visual review exposed a second no-glow bug outside the eval-only
+  furnace grid: mixed Disney lobes returned the selected branch PDF from
+  `sample()` even though `f` contained the full Disney eval. A glossy
+  metallic=0.7, roughness=0.05 sphere therefore over-brightened a gray furnace.
+  The sampler now returns the combined `pdf()` for diffuse/specular mixtures,
+  and `tests/test_disney_energy_conservation.py` includes a gray-furnace render
+  regression for that exact case.
 - Visual smoke: `test_results/pkg60_disney_cornell_256spp.png` rendered at
   128x128, 256 spp, max pixel 0.928315, no visible high-roughness glow.

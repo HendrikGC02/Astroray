@@ -230,7 +230,8 @@ forgotten):
   and sheen compensation tables into `data/disney_compensation/`, replaced the
   Disney plugin's old additive multi-scatter boost with LUT-driven
   compensation, corrected Disney specular/clearcoat eval's grazing denominator,
-  and added a C++ Halton furnace integration helper plus
+  fixed the mixed-lobe Disney sampler to return the combined PDF instead of the
+  selected branch PDF, and added a C++ Halton furnace integration helper plus
   `tests/test_disney_energy_conservation.py`. Measured worst-case directional
   hemispherical reflectance is **1.015891** over the 90 listed
   roughness/metallic/sheen/clearcoat combinations × 3 outgoing cosines at 4096

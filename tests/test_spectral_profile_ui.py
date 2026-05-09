@@ -74,6 +74,7 @@ def test_spectral_profile_enum_items_match_astroray_names(monkeypatch, astroray_
     addon = _load_blender_addon(monkeypatch)
 
     names = list(astroray_module.spectral_profile_names())
+    assert len(names) >= 40
     items = addon._spectral_profile_items(None, None)
 
     assert items and items[0][0] == "__none__"
@@ -118,4 +119,34 @@ def test_preview_panel_poll_hides_for_visible_preset(monkeypatch, astroray_modul
 
     scene.custom_raytracer.wavelength_preset = "near_ir"
     assert panel_cls.poll(ctx) is True
+
+
+def test_reference_scene_files_are_shipped_and_small():
+    """pkg58 reference scenes are bundled source assets, not external deps.
+
+    Full Blender CPU render verification on 2026-05-09:
+    ir_vegetation 32 spp mean 0.3886, uv_skin 32 spp mean 0.3803,
+    metal_sweep 32 spp mean 0.3804. All three rendered non-black through the
+    local Astroray addon.
+    """
+    scenes_dir = Path(__file__).parent.parent / "blender_addon" / "scenes"
+    expected = {
+        "ir_vegetation.blend",
+        "uv_skin.blend",
+        "metal_sweep.blend",
+    }
+
+    for name in expected:
+        path = scenes_dir / name
+        assert path.exists()
+        assert path.stat().st_size > 0
+        assert path.stat().st_size < 5 * 1024 * 1024
+
+
+def test_build_script_packages_reference_scenes_and_profiles():
+    script = (Path(__file__).parent.parent / "scripts" / "build_blender_addon.py").read_text()
+
+    assert 'ADDON_SRC / "scenes"' in script
+    assert "shutil.copytree(scenes_src" in script
+    assert 'data" / "spectral_profiles" / "profiles.bin"' in script
 

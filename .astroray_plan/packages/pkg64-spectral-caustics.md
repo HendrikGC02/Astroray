@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (light transport) and 5
 **Track:** A (research-grade — must do WebSearch + WebFetch literature pass first)
-**Status:** open — **research phase blocked until `.astroray_plan/docs/caustics-research.md` is filled in**
+**Status:** research note drafted (2026-05-09) — **awaiting project-owner sign-off on the four open questions in [`caustics-research.md`](../docs/caustics-research.md) before implementation begins**
 **Estimated effort:** 3-4 weeks (~80 h, multiple sessions). Includes literature pass.
 **Depends on:** pkg29 (prism validation, done), pkg29a (caustic test scenes, done)
 
@@ -109,7 +109,7 @@ Tentative:
 
 ## Progress
 
-- [ ] **Research phase**: WebSearch + WebFetch literature pass; write `caustics-research.md`.
+- [x] **Research phase**: WebSearch + WebFetch literature pass; `caustics-research.md` drafted 2026-05-09. Recommended primary: MNEE (Hanika et al. 2015) modeled after Cycles' implementation. Awaits project-owner sign-off on license + scope.
 - [ ] Project owner reviews and signs off on research note.
 - [ ] Implementation phase begins.
 - [ ] Reference-image regression test on the prism scene.

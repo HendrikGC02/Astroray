@@ -22,8 +22,8 @@ personally should pick up.
   not CUDA kernels.
 - Pillar 5 is the active practical queue. The Cycles-parity/Blender package
   series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg60/pkg61/pkg62
-  are done, pkg59 is done, pkg54/54a/54b are done (with pkg54c/54d as
-  scoped follow-ups), and pkg57 remains open.
+  are done, pkg59 is done, pkg54/54a/54b/54d are done (with pkg54c as a
+  scoped follow-up), and pkg57 remains open.
 - Fresh local collection on this branch: `pytest --collect-only -q` reports
   **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
 - Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
@@ -276,7 +276,7 @@ events are summarized in the changelog below.
 | pkg40 | A | open | current registry/reference cleanup |
 | pkg52 | A | **done** | — |
 | pkg53 | B/E | **done** | — |
-| pkg54 | A | **done** | pkg54/54a/54b verified on hardware; pkg54c (Jakob-Hanika upsampling) and pkg54d (profile lookup binding) filed as follow-ups |
+| pkg54 | A | **done** | pkg54/54a/54b verified on hardware; pkg54d direct profile lookup binding is done; pkg54c (Jakob-Hanika upsampling) remains filed as a follow-up |
 | pkg57 | A | open | native shader nodes / Cycles compatibility design |
 | pkg58 | B | **done** | — |
 | pkg59 | A | done | broader vector/UV/Mapping plumbing, named UV layers, and UV debug AOV |
@@ -310,9 +310,10 @@ events are summarized in the changelog below.
   dispatch on the GPU; pkg54b replaced the Wyman 2013 1931 2° CMF fit with
   the same baked CIE 1964 10° table the CPU uses, and a D65-SPD parity bug
   (Gaussian stand-in for the true SPD) was fixed during hardware
-  verification. pkg54c (Jakob-Hanika spectral upsampling on GPU, SSIM
-  ceiling 0.985→0.999) and pkg54d (direct gpu_profile_reflectance binding
-  for unconfounded liveness gating) remain as scoped follow-ups.
+  verification. pkg54d added a direct `gpu_profile_reflectance` binding for
+  unconfounded liveness gating, with CPU/GPU lookup max delta `0` across all
+  loaded profiles on the 300-1000 nm grid. pkg54c (Jakob-Hanika spectral
+  upsampling on GPU, SSIM ceiling 0.985→0.999) remains as a scoped follow-up.
   Sellmeier direction-splitting and true spectral emitter parameter
   upload also remain CPU-only follow-ups. pkg36 expands shared closure
   lowering.

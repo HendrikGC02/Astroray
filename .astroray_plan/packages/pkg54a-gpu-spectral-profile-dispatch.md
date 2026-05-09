@@ -148,5 +148,7 @@ the MW kernel.
   dilution by low-UV-reflectance floor (vegetation/water).
   Cross-backend ratio agreement within 25% (measured: CPU 1.73 vs
   GPU 1.64, 5% divergence) is the meaningful parity signal here.
-  True dispatch liveness — independent of scene physics — is filed
-  as pkg54d (direct gpu_profile_reflectance lookup binding).
+  True dispatch liveness — independent of scene physics — is now gated
+  by pkg54d's direct `gpu_profile_reflectance` lookup binding. Hardware
+  verification on 2026-05-10 measured CPU/GPU max delta `0` across all
+  loaded profiles and all 141 grid points.

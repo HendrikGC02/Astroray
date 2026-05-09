@@ -55,6 +55,41 @@ __device__ inline float gpu_profile_reflectance(int profileIndex, float lambda_n
     return row[i] * (1.f - f) + row[i + 1] * f;
 }
 
+__global__ void gpu_profile_lookup_kernel(int profileIndex, float lambda, float* out) {
+    if (blockIdx.x == 0 && threadIdx.x == 0 && out) {
+        *out = gpu_profile_reflectance(profileIndex, lambda);
+    }
+}
+
+float launchProfileLookup(int profileIndex, float lambda) {
+    float* d_out = nullptr;
+    float out = 0.0f;
+
+    cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&d_out), sizeof(float));
+    if (err != cudaSuccess) {
+        fprintf(stderr, "profile lookup allocation failed: %s\n", cudaGetErrorString(err));
+        throw std::runtime_error(cudaGetErrorString(err));
+    }
+
+    gpu_profile_lookup_kernel<<<1, 1>>>(profileIndex, lambda, d_out);
+    err = cudaGetLastError();
+    if (err == cudaSuccess) err = cudaDeviceSynchronize();
+    if (err == cudaSuccess) {
+        err = cudaMemcpy(&out, d_out, sizeof(float), cudaMemcpyDeviceToHost);
+    }
+
+    cudaError_t freeErr = cudaFree(d_out);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "profile lookup failed: %s\n", cudaGetErrorString(err));
+        throw std::runtime_error(cudaGetErrorString(err));
+    }
+    if (freeErr != cudaSuccess) {
+        fprintf(stderr, "profile lookup free failed: %s\n", cudaGetErrorString(freeErr));
+        throw std::runtime_error(cudaGetErrorString(freeErr));
+    }
+    return out;
+}
+
 // Host-callable upload entry; copies up to G_MAX_PROFILES profiles into
 // constant memory. Called from cuda_renderer.cu after buildSceneArrays().
 void uploadProfileTable(const float* host, int count) {

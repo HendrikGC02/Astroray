@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** partial
+**Status:** done
 **Estimated effort:** 2 sessions (~8 h)
 **Depends on:** none (pkg37 already in)
 
@@ -34,9 +34,11 @@ Without it, pkg56 (incremental scene sync) cannot be built — incremental sync 
 
 ## Prerequisites
 
-- [ ] pkg37 backend policy in (done).
-- [ ] `astroray.Renderer` can be `clear()`'d and reused without leaks.
-- [ ] Verify that calling `astroray.Renderer.render(samples=...)` accumulates samples on top of the previous buffer rather than starting from zero — if it does not, add an `accumulate=True` parameter or a `start_render(samples=N, reset=False)` API.
+- [x] pkg37 backend policy in (done).
+- [x] `astroray.Renderer` can be `clear()`'d and reused without leaks.
+- [x] Viewport accumulation is handled by the addon session over chunked
+      `Renderer.render(samples=...)` calls, so no C++ accumulation API change
+      was required.
 
 ---
 
@@ -69,9 +71,11 @@ Without it, pkg56 (incremental scene sync) cannot be built — incremental sync 
 
 - [x] Zooming/orbiting the 3D View causes the image to re-render.
 - [x] CAMERA-view zoom (`view_camera_zoom`) changes the rendered framing.
-- [ ] CAMERA-view pan (`view_camera_offset`) is hashed, but the camera setup still carries a TODO for applying the offset to projection.
+- [x] CAMERA-view pan (`view_camera_offset`) is hashed and applied to the
+      image-plane camera shift.
 - [x] The same renderer instance is reused across viewport updates/draws (covered by `tests/test_blender_viewport_session.py`).
-- [ ] Progressive accumulation/sample status is not implemented; viewport renders one `preview_samples` frame per invalidation.
+- [x] Progressive accumulation/sample status is implemented; viewport renders
+      in one-sample chunks by default until `preview_samples` is reached.
 - [x] No regressions in focused `tests/test_blender_*` coverage as of the pkg53 reconciliation pass.
 
 ---
@@ -86,12 +90,12 @@ Without it, pkg56 (incremental scene sync) cannot be built — incremental sync 
 
 ## Progress
 
-- [ ] Confirm/extend `Renderer::render` accumulation API.
+- [x] Confirm/extend viewport accumulation path.
 - [x] Refactor viewport to reuse a persistent renderer across `view_update` / `view_draw`.
 - [x] Implement camera hash + re-render in `view_draw`.
-- [ ] Progressive accumulation in `view_draw`.
+- [x] Progressive accumulation in `view_draw`.
 - [x] Honor CAMERA-view zoom.
-- [ ] Honor CAMERA-view offset/pan in projection math.
+- [x] Honor CAMERA-view offset/pan in projection math.
 - [x] Tests with Blender API stubs.
 
 ---
@@ -99,6 +103,12 @@ Without it, pkg56 (incremental scene sync) cannot be built — incremental sync 
 ## Lessons
 
 - Persistent renderer and camera-change invalidation landed, with tests for
-  construction reuse, view-matrix changes, and `view_camera_zoom`.
-- The package is intentionally marked partial, not done: progressive
-  accumulation and CAMERA-view offset application remain open.
+  construction reuse, view-matrix changes, `view_camera_zoom`, progressive
+  sample advancement, and `view_camera_offset` projection.
+- The addon accumulates chunk outputs in the viewport session and calls
+  `tag_redraw()` until the preview sample target is reached. `clear_passes()`
+  is called before selecting viewport passes so pkg62 pass buffers do not stack
+  across accumulation chunks.
+- C++ `Camera` and Python `setup_camera()` now accept optional image-plane
+  `shift_x` / `shift_y` parameters; existing callers keep the default centered
+  projection.

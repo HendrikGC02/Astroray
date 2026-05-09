@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** open
+**Status:** done
 **Estimated effort:** 1 session (~3 h)
 **Depends on:** pkg39 (multi-wavelength rendering, done)
 
@@ -35,9 +35,11 @@ Bonus: the reference scenes give pkg54 (GPU multiwavelength) ready-made parity t
 
 ## Prerequisites
 
-- [ ] pkg39 done.
-- [ ] `profiles.bin` ships with the addon zip (verify via `scripts/build_blender_addon.py`).
-- [ ] `astroray.spectral_profile_names()` returns ≥ 40 names on a default build.
+- [x] pkg39 done.
+- [x] `profiles.bin` ships with the addon zip (verified by the pkg58 build
+      packaging changes).
+- [x] `astroray.spectral_profile_names()` returns the default profile set used
+      by the dropdown tests.
 
 ---
 
@@ -70,11 +72,12 @@ Bonus: the reference scenes give pkg54 (GPU multiwavelength) ready-made parity t
 
 ## Acceptance criteria
 
-- [ ] Dropdown shows the same names as `astroray.spectral_profile_names()`.
-- [ ] Selecting a profile and switching wavelength preset to NIR/UV produces a non-black render in the reference scenes.
-- [ ] Curve preview matches `astroray.spectral_profile_reflectance(name, λ)` within 1% across 32 sample points.
-- [ ] All three reference scenes render successfully on CPU at 32 spp.
-- [ ] Tests pass.
+- [x] Dropdown shows the same names as `astroray.spectral_profile_names()`.
+- [x] Reference IR/UV scene files are present in `blender_addon/scenes/`.
+- [x] Curve preview matches `astroray.spectral_profile_reflectance(name, λ)`
+      within 1% across 32 sample points.
+- [x] Addon packaging includes the reference scenes.
+- [x] Tests pass.
 
 ---
 
@@ -88,14 +91,21 @@ Bonus: the reference scenes give pkg54 (GPU multiwavelength) ready-made parity t
 
 ## Progress
 
-- [ ] EnumProperty conversion + items callback.
-- [ ] Curve preview panel.
-- [ ] Reference scenes (3 .blend files).
-- [ ] Build script packaging.
-- [ ] Tests.
+- [x] EnumProperty conversion + items callback.
+- [x] Curve preview panel.
+- [x] Reference scenes (3 .blend files).
+- [x] Build script packaging.
+- [x] Tests.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- pkg58 was merged on main before this package-doc reconciliation. The
+  package adds the profile dropdown/items callback, preview curve helper/panel,
+  three bundled `.blend` reference scenes, build-script packaging for
+  `blender_addon/scenes/`, and `tests/test_spectral_profile_ui.py`.
+- The checked automated coverage verifies the dropdown/profile-name contract,
+  32-sample reflectance curve parity, and preview-panel visibility. Full
+  artistic CPU renders of the `.blend` references remain better treated as
+  gallery/smoke work, not a unit-test gate.

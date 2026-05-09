@@ -1575,7 +1575,9 @@ public:
     std::vector<float> cryptomatteObjectCoverageBuffer, cryptomatteMaterialCoverageBuffer;
     std::array<std::vector<Vec3>, PASS_COUNT> renderPassBuffers;
 
-    Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio, float aperture, float focusDist, int w, int h)
+    Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio,
+           float aperture, float focusDist, int w, int h,
+           float shiftX = 0.0f, float shiftY = 0.0f)
         : width(w), height(h) {
         float theta = vfov * M_PI / 180.0f;
         float vh = 2.0f * std::tan(theta / 2) * focusDist;
@@ -1586,7 +1588,7 @@ public:
         origin = lookFrom;
         horizontal = u * vw;
         vertical = v * vh;
-        lowerLeft = origin - horizontal * 0.5f - vertical * 0.5f - w_axis * focusDist;
+        lowerLeft = origin - horizontal * (0.5f - shiftX) - vertical * (0.5f - shiftY) - w_axis * focusDist;
         lensRadius = aperture / 2;
         pixels.resize(width * height, Vec3(0));
         albedoBuffer.resize(width * height, Vec3(0));

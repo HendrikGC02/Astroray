@@ -105,8 +105,8 @@ to a shared CPU/GPU closure representation or clearly fall back to CPU.
 
 **Status as of 2026-05-09:** the pkg34-pkg37 bridge is complete. The newer
 Cycles-parity queue extends the same honesty principle to integrators and
-Blender UX: pkg53/pkg61/pkg62 are done, pkg52/pkg59 are partial, and
-pkg54/pkg57/pkg58 remain open.
+Blender UX: pkg52/pkg53/pkg58/pkg61/pkg62 are done, pkg59 is partial, and
+pkg54/pkg57 remain open.
 
 - `pkg34-material-backend-capabilities.md` — capability metadata,
   no silent grey-Lambertian GPU fallback, CPU/GPU contact-sheet diffs.

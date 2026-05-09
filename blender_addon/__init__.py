@@ -439,6 +439,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # a "camera changed" event in the viewport).
     _viewport_renderer = None
     _viewport_camera_hash = None
+    _viewport_accum_pixels = None
+    _viewport_current_spp = 0
+    _viewport_target_spp = 0
+    _viewport_accum_key = None
     _PASS_SPECS = [
         ("Diffuse Direct", "diffuse_direct", "use_pass_diffuse_direct"),
         ("Diffuse Indirect", "diffuse_indirect", "use_pass_diffuse_indirect"),
@@ -600,6 +604,72 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self._viewport_renderer = astroray.Renderer()
         return self._viewport_renderer
 
+    def _reset_viewport_accumulation(self):
+        self._viewport_accum_pixels = None
+        self._viewport_current_spp = 0
+        self._viewport_target_spp = 0
+        self._viewport_accum_key = None
+
+    @staticmethod
+    def _viewport_target_samples(settings):
+        return max(1, int(getattr(settings, "preview_samples", 1)))
+
+    @staticmethod
+    def _viewport_chunk_samples(settings, current_spp):
+        target = CustomRaytracerRenderEngine._viewport_target_samples(settings)
+        remaining = max(0, target - int(current_spp))
+        chunk = max(1, int(getattr(settings, "viewport_chunk_spp", 1)))
+        return min(chunk, remaining)
+
+    def _viewport_render_key(self, context, settings, region):
+        lmin, lmax = _wavelength_range_from_settings(settings)
+        depth = max(2, settings.max_bounces // 2)
+        return (
+            self._camera_state_hash(context, region),
+            getattr(settings, "viewport_display_pass", "combined"),
+            bool(getattr(settings, "viewport_oidn", False)),
+            round(float(lmin), 3), round(float(lmax), 3),
+            getattr(settings, "colourmap", "grayscale"),
+            _effective_integrator_name(settings),
+            depth,
+            min(settings.diffuse_bounces, depth),
+            min(settings.glossy_bounces, depth),
+            min(settings.transmission_bounces, depth),
+            min(settings.volume_bounces, depth),
+            min(settings.transparent_bounces, depth),
+        )
+
+    def _request_viewport_redraw(self):
+        try:
+            self.tag_redraw()
+        except AttributeError:
+            pass
+
+    def _update_viewport_status(self):
+        try:
+            self.update_stats(
+                "Astroray",
+                f"Viewport {self._viewport_current_spp}/{self._viewport_target_spp} spp"
+            )
+        except AttributeError:
+            pass
+
+    def _accumulate_viewport_pixels(self, pixels, chunk_spp):
+        chunk = np.asarray(pixels, dtype=np.float32)
+        if self._viewport_accum_pixels is None or self._viewport_current_spp <= 0:
+            self._viewport_accum_pixels = chunk.copy()
+            self._viewport_current_spp = int(chunk_spp)
+        else:
+            old_spp = int(self._viewport_current_spp)
+            new_spp = old_spp + int(chunk_spp)
+            self._viewport_accum_pixels = (
+                (self._viewport_accum_pixels * old_spp + chunk * int(chunk_spp))
+                / float(new_spp)
+            )
+            self._viewport_current_spp = new_spp
+        self._update_viewport_status()
+        return self._viewport_accum_pixels
+
     @staticmethod
     def _camera_state_hash(context, region):
         """Hash the camera state that would change the rendered image.
@@ -613,8 +683,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         - view_camera_zoom and view_camera_offset (CAMERA view zoom/pan)
         - view_perspective ('CAMERA' / 'PERSP' / 'ORTHO')
         """
-        rv3d = context.region_data
-        space = context.space_data
+        rv3d = getattr(context, 'region_data', None)
+        space = getattr(context, 'space_data', None)
         if rv3d is None:
             return None
         try:
@@ -652,7 +722,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         self.setup_world(depsgraph.scene, renderer)
         _configure_backend_for_context(renderer, settings, self.report, _effective_integrator_name(settings))
 
-    def _render_viewport_frame(self, renderer, context, settings, region):
+    def _render_viewport_frame(self, renderer, context, settings, region,
+                               reset_accumulation=False):
         """Set up the camera, run a render, update the cached GPU texture.
 
         Honors pkg62's `viewport_display_pass` selector and `viewport_oidn`
@@ -663,6 +734,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
         """
         width = max(1, region.width)
         height = max(1, region.height)
+        render_key = self._viewport_render_key(context, settings, region)
+        if reset_accumulation or render_key != getattr(self, '_viewport_accum_key', None):
+            self._reset_viewport_accumulation()
+            self._viewport_accum_key = render_key
+
+        self._viewport_target_spp = self._viewport_target_samples(settings)
+        if self._viewport_current_spp >= self._viewport_target_spp:
+            return False
+
         self._setup_viewport_camera(renderer, context, width, height)
 
         # Wavelength + integrator policy must match the final-render path.
@@ -674,6 +754,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.set_integrator(_effective_integrator_name(settings))
 
         # pkg62: viewport pass selector + viewport OIDN toggle.
+        try:
+            renderer.clear_passes()
+        except AttributeError:
+            pass
         viewport_display_pass = getattr(settings, "viewport_display_pass", "combined")
         if viewport_display_pass == "albedo":
             renderer.add_pass("albedo_aov")
@@ -684,7 +768,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if getattr(settings, "viewport_oidn", False) and not is_outside_visible:
             renderer.add_pass("oidn_denoiser")
 
-        samples = max(1, settings.preview_samples)
+        samples = self._viewport_chunk_samples(settings, self._viewport_current_spp)
+        if samples <= 0:
+            return False
         depth = max(2, settings.max_bounces // 2)
         pixels = renderer.render(
             samples, depth, None, False,
@@ -708,7 +794,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 pixels_to_display = renderer.get_render_pass_buffer(viewport_display_pass)
             except Exception:
                 pixels_to_display = pixels
+        pixels_to_display = self._accumulate_viewport_pixels(pixels_to_display, samples)
         self._update_viewport_texture(pixels_to_display, width, height)
+        return True
 
     def view_update(self, context, depsgraph):
         """Called when the scene or viewport changes. Re-syncs the scene into
@@ -726,10 +814,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         try:
             renderer = self._get_viewport_renderer()
             self._sync_viewport_scene(renderer, depsgraph, settings)
-            self._render_viewport_frame(renderer, context, settings, region)
+            self._render_viewport_frame(renderer, context, settings, region,
+                                        reset_accumulation=True)
             # Stamp the camera hash so view_draw doesn't re-render until the
             # camera actually changes.
             self._viewport_camera_hash = self._camera_state_hash(context, region)
+            if self._viewport_current_spp < self._viewport_target_spp:
+                self._request_viewport_redraw()
         except Exception as e:
             print(f"Astroray viewport preview error: {e}")
             traceback.print_exc()
@@ -750,16 +841,28 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # Camera-change detection — fixes the project-owner-reported
             # "panning/zooming the viewport doesn't update the render" bug.
             new_hash = self._camera_state_hash(context, region)
-            if (new_hash is not None
-                    and new_hash != getattr(self, '_viewport_camera_hash', None)):
+            target_spp = self._viewport_target_samples(settings)
+            render_key = self._viewport_render_key(context, settings, region)
+            camera_changed = (
+                new_hash is not None
+                and new_hash != getattr(self, '_viewport_camera_hash', None)
+            )
+            needs_progress = int(getattr(self, '_viewport_current_spp', 0)) < target_spp
+            settings_changed = render_key != getattr(self, '_viewport_accum_key', None)
+            if camera_changed or needs_progress or settings_changed or not getattr(self, '_viewport_texture', None):
                 renderer = self._get_viewport_renderer()
                 # If the user opened rendered-shading mode without ever
                 # firing view_update (rare), the renderer has no scene yet.
                 # Fall back to a full sync.
                 if not getattr(self, '_viewport_texture', None):
                     self._sync_viewport_scene(renderer, depsgraph, settings)
-                self._render_viewport_frame(renderer, context, settings, region)
+                self._render_viewport_frame(
+                    renderer, context, settings, region,
+                    reset_accumulation=(camera_changed or settings_changed)
+                )
                 self._viewport_camera_hash = new_hash
+                if self._viewport_current_spp < self._viewport_target_spp:
+                    self._request_viewport_redraw()
 
             if self._viewport_texture is None:
                 return
@@ -793,11 +896,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         """Build a lookFrom/lookAt from the 3D View's RegionView3D state.
 
         - In CAMERA view (numpad 0): use the scene camera, then apply the
-          viewport-only `view_camera_zoom` so wheel-zoom-in actually narrows
-          the rendered FOV (pkg52 fix).
-          TODO(pkg52): also apply `view_camera_offset` for CAMERA-view pan.
-          The math interacts with zoom and the camera projection; deferring
-          until we have a test that pins the expected behavior.
+          viewport-only `view_camera_zoom` and `view_camera_offset` so
+          wheel-zoom and pan actually change the rendered framing.
         - In PERSP / ORTHO view: derive position + direction from
           `rv3d.view_matrix.inverted()` and use `space_data.lens` for vfov.
         """
@@ -806,8 +906,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         if rv3d is not None and rv3d.view_perspective == 'CAMERA' and context.scene.camera:
             zoom_scale = self._camera_view_zoom_scale(getattr(rv3d, 'view_camera_zoom', 0.0))
+            offset = getattr(rv3d, 'view_camera_offset', (0.0, 0.0))
             self._apply_camera(renderer, context.scene.camera, width, height,
-                               vfov_scale=zoom_scale)
+                               vfov_scale=zoom_scale,
+                               viewport_shift=(float(offset[0]), float(offset[1])))
             return
 
         view_inv = rv3d.view_matrix.inverted()
@@ -912,7 +1014,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             vfov_rad = 2.0 * math.atan(math.tan(hfov_rad / 2.0) / aspect)
         return math.degrees(vfov_rad)
 
-    def _apply_camera(self, renderer, cam_obj, width, height, vfov_scale=1.0):
+    def _apply_camera(self, renderer, cam_obj, width, height, vfov_scale=1.0,
+                      viewport_shift=(0.0, 0.0)):
         """Extract lookFrom/lookAt/vup from a Blender camera object and push
         it to the renderer. Blender cameras point along their local -Z and
         use local +Y as 'up'; we rotate those unit vectors by the camera's
@@ -921,6 +1024,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
         `vfov_scale` (default 1.0) shrinks the effective image plane. Used by
         viewport CAMERA-view wheel-zoom to narrow the FOV without changing
         the scene camera (pkg52). 1.0 = no change; <1.0 = zoom in.
+
+        `viewport_shift` is the CAMERA-view pan offset from RegionView3D. It
+        is added to the camera datablock's own shift and passed as an
+        image-plane shift to the C++ camera.
         """
         matrix = cam_obj.matrix_world
         loc, rot_quat, _scale = matrix.decompose()
@@ -949,9 +1056,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
             else:
                 focus_dist = camera.dof.focus_distance
 
+        shift_x = float(getattr(camera, "shift_x", 0.0)) + float(viewport_shift[0])
+        shift_y = float(getattr(camera, "shift_y", 0.0)) + float(viewport_shift[1])
+
         renderer.setup_camera(look_from, look_at, vup, vfov,
                               width / max(1, height),
-                              aperture, focus_dist, width, height)
+                              aperture, focus_dist, width, height,
+                              shift_x, shift_y)
 
     def convert_materials(self, depsgraph, renderer):
         # In Blender 5.0+ every material is node-based (use_nodes is deprecated

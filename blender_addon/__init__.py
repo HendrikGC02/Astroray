@@ -416,6 +416,99 @@ class CustomRaytracerMaterialSettings(PropertyGroup):
         items=_spectral_profile_items,
         default="__none__",
     )
+    live_preview_resolution: EnumProperty(
+        name="Resolution",
+        description="Resolution for the one-sphere material preview",
+        items=[
+            ("64", "64 x 64", ""),
+            ("128", "128 x 128", ""),
+            ("256", "256 x 256", ""),
+        ],
+        default="64",
+    )
+    live_preview_samples: IntProperty(
+        name="Samples",
+        description="Samples per pixel for the one-sphere material preview",
+        min=1,
+        max=64,
+        default=8,
+    )
+
+
+def _preview_helpers():
+    try:
+        from _preview_helpers import render_material_preview, save_preview_png
+        return render_material_preview, save_preview_png
+    except ImportError:
+        helper_dir = Path(addon_dir).parent / "scripts" / "diagnostics"
+        if helper_dir.is_dir() and str(helper_dir) not in sys.path:
+            sys.path.insert(0, str(helper_dir))
+        from _preview_helpers import render_material_preview, save_preview_png
+        return render_material_preview, save_preview_png
+
+
+def _safe_preview_name(name: str) -> str:
+    safe = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in str(name))
+    return safe.strip("_") or "material"
+
+
+def _find_preview_hdri() -> str | None:
+    scenes_dir = Path(addon_dir) / "scenes"
+    if not scenes_dir.is_dir():
+        return None
+    for suffix in ("*.hdr", "*.exr", "*.hdri"):
+        match = next(scenes_dir.glob(suffix), None)
+        if match is not None:
+            return str(match)
+    return None
+
+
+def _save_preview_image(pixels, path: Path, resolution: int):
+    _, save_preview_png = _preview_helpers()
+    try:
+        return save_preview_png(pixels, path)
+    except Exception:
+        img = bpy.data.images.new("Astroray Material Preview", resolution, resolution, alpha=True, float_buffer=False)
+        rgba = np.ones((resolution, resolution, 4), dtype=np.float32)
+        rgba[..., :3] = np.clip(np.asarray(pixels, dtype=np.float32)[..., :3], 0.0, 1.0)
+        img.pixels.foreach_set(rgba.reshape(-1))
+        img.filepath_raw = str(path)
+        img.file_format = 'PNG'
+        img.save()
+        return path
+
+
+def _load_preview_image(path: str):
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        return bpy.data.images.load(path, check_existing=True)
+    except Exception:
+        return None
+
+
+def _create_live_preview_material(renderer, mat):
+    if getattr(mat, "use_nodes", False) and getattr(mat, "node_tree", None):
+        engine = CustomRaytracerRenderEngine()
+        engine._volume_material_map = {}
+        return engine.convert_node_material(mat, renderer)
+
+    color = list(getattr(mat, "diffuse_color", [0.8, 0.8, 0.8])[:3])
+    mat_settings = getattr(mat, "custom_raytracer", None)
+    if mat_settings is None:
+        return renderer.create_material("disney", color, {})
+    if not getattr(mat_settings, "use_disney", True):
+        mat_type = getattr(mat_settings, "material_type", "lambertian") or "lambertian"
+        return renderer.create_material(mat_type, color, {})
+    params = {
+        "metallic": float(getattr(mat_settings, "metallic", 0.0)),
+        "roughness": float(getattr(mat_settings, "roughness", 0.5)),
+        "transmission": float(getattr(mat_settings, "transmission", 0.0)),
+        "ior": float(getattr(mat_settings, "ior", 1.45)),
+        "clearcoat": float(getattr(mat_settings, "clearcoat", 0.0)),
+        "clearcoat_gloss": float(getattr(mat_settings, "clearcoat_gloss", 1.0)),
+    }
+    return renderer.create_material("disney", color, params)
 
 class CustomRaytracerRenderEngine(RenderEngine):
     bl_idname = "CUSTOM_RAYTRACER"
@@ -3015,6 +3108,86 @@ class MATERIAL_PT_AstroraySpectralPreview(AstrorayPanelBase, Panel):
             vals = [s[1] for s in samples]
             layout.label(text=f"Reflectance: min {min(vals):.2f}, max {max(vals):.2f}")
 
+
+class MATERIAL_OT_astroray_live_preview(Operator):
+    bl_idname = "material.astroray_live_preview"
+    bl_label = "Render Preview"
+    bl_description = "Render the active material on an isolated Astroray preview sphere"
+
+    def execute(self, context):
+        if not RAYTRACER_AVAILABLE:
+            self.report({'ERROR'}, "astroray module not loaded")
+            return {'CANCELLED'}
+
+        obj = getattr(context, "active_object", None)
+        mat = getattr(obj, "active_material", None) if obj is not None else None
+        mat = mat or getattr(context, "material", None)
+        if mat is None:
+            self.report({'ERROR'}, "No active material")
+            return {'CANCELLED'}
+
+        mat_settings = getattr(mat, "custom_raytracer", None)
+        resolution = int(getattr(mat_settings, "live_preview_resolution", "64") or "64")
+        samples = int(getattr(mat_settings, "live_preview_samples", 8) or 8)
+
+        start = time.perf_counter()
+        renderer = astroray.Renderer()
+        mat_id = _create_live_preview_material(renderer, mat)
+        render_material_preview, _ = _preview_helpers()
+        pixels = render_material_preview(
+            renderer,
+            mat_id,
+            resolution,
+            samples,
+            max_depth=4,
+            hdri_path=_find_preview_hdri(),
+        )
+
+        out = Path("test_results") / f"material_preview_{_safe_preview_name(mat.name)}.png"
+        _save_preview_image(pixels, out, resolution)
+        mat["astroray_preview_path"] = str(out)
+        _load_preview_image(str(out))
+
+        elapsed = time.perf_counter() - start
+        self.report({'INFO'}, f"Rendered Astroray preview in {elapsed:.2f}s")
+        return {'FINISHED'}
+
+
+class MATERIAL_PT_AstrorayLivePreview(AstrorayPanelBase, Panel):
+    bl_label = "Live Material Preview"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "material"
+    bl_parent_id = "MATERIAL_PT_custom_raytracer_surface"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return (context.scene.render.engine == 'CUSTOM_RAYTRACER'
+                and context.material is not None)
+
+    def draw(self, context):
+        layout = self.layout
+        mat = context.material
+        mat_settings = getattr(mat, "custom_raytracer", None)
+        if mat_settings is None:
+            layout.label(text="Material settings unavailable", icon='ERROR')
+            return
+
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        layout.prop(mat_settings, "live_preview_resolution")
+        layout.prop(mat_settings, "live_preview_samples")
+        layout.operator("material.astroray_live_preview", icon='RENDER_STILL')
+
+        img = _load_preview_image(mat.get("astroray_preview_path", ""))
+        if img is not None:
+            try:
+                layout.template_preview(img, show_buttons=False)
+            except Exception:
+                pass
+
+
 class CustomRaytracerPreferences(AddonPreferences):
     bl_idname = __name__
     debug_mode: BoolProperty(name="Debug Mode", default=False)
@@ -3097,6 +3270,8 @@ classes = [
     WORLD_PT_custom_raytracer_surface,
     MATERIAL_PT_custom_raytracer_surface,
     MATERIAL_PT_AstroraySpectralPreview,
+    MATERIAL_OT_astroray_live_preview,
+    MATERIAL_PT_AstrorayLivePreview,
     CustomRaytracerPreferences,
     ASTRORAY_OT_add_black_hole, OBJECT_PT_astroray_black_hole,
 ]

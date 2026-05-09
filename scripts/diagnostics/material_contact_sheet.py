@@ -26,6 +26,7 @@ from runtime_setup import configure_test_imports  # noqa: E402
 configure_test_imports()
 
 import astroray  # noqa: E402
+from _preview_helpers import render_material_preview, save_preview_png  # noqa: E402
 
 
 MATERIALS = [
@@ -54,34 +55,6 @@ MATERIALS = [
     ("line_532nm", "line_emitter", [1.0, 1.0, 1.0], {"wavelength_nm": 532.0, "bandwidth_nm": 8.0, "intensity": 1.1}),
     ("line_460nm", "line_emitter", [1.0, 1.0, 1.0], {"wavelength_nm": 460.0, "bandwidth_nm": 8.0, "intensity": 1.1}),
 ]
-
-def _save_png(pixels: np.ndarray, path: Path) -> None:
-    from PIL import Image
-    path.parent.mkdir(parents=True, exist_ok=True)
-    img_uint8 = (np.clip(pixels, 0, 1) * 255).astype(np.uint8)
-    Image.fromarray(img_uint8).save(path)
-
-
-def _add_room(r, width: int, height: int) -> None:
-    floor = r.create_material("lambertian", [0.58, 0.58, 0.56], {})
-    light = r.create_material("light", [1.0, 0.96, 0.88], {"intensity": 7.0})
-    r.add_triangle([-4, -1, -4], [4, -1, -4], [4, -1, 4], floor)
-    r.add_triangle([-4, -1, -4], [4, -1, 4], [-4, -1, 4], floor)
-    r.add_triangle([-1.3, 3.2, -1.2], [1.3, 3.2, -1.2], [1.3, 3.2, 1.2], light)
-    r.add_triangle([-1.3, 3.2, -1.2], [1.3, 3.2, 1.2], [-1.3, 3.2, 1.2], light)
-    r.set_background_color([0.06, 0.07, 0.08])
-    r.setup_camera(
-        look_from=[0.0, 0.55, 4.0],
-        look_at=[0.0, -0.05, 0.0],
-        vup=[0.0, 1.0, 0.0],
-        vfov=34.0,
-        aspect_ratio=width / height,
-        aperture=0.0,
-        focus_dist=4.0,
-        width=width,
-        height=height,
-    )
-
 
 def _select_device(r, requested: str, caps: dict) -> tuple[str, str]:
     if requested == "cpu":
@@ -113,14 +86,10 @@ def _select_device(r, requested: str, caps: dict) -> tuple[str, str]:
 def render_tile(name: str, material_type: str, color: list[float], params: dict,
                 resolution: int, samples: int, max_depth: int, device: str) -> tuple[np.ndarray, str, str, dict]:
     r = astroray.Renderer()
-    r.set_integrator("path_tracer")
-    r.set_seed(1000 + sum(ord(c) for c in name))
-    _add_room(r, resolution, resolution)
     mat = r.create_material(material_type, color, params)
     caps = dict(r.get_material_backend_capabilities(mat))
     device_label, backend_reason = _select_device(r, device, caps)
-    r.add_sphere([0.0, 0.0, 0.0], 0.85, mat)
-    pixels = np.asarray(r.render(samples, max_depth, None, True), dtype=np.float32)
+    pixels = render_material_preview(r, mat, resolution, samples, max_depth)
     return pixels, device_label, backend_reason, caps
 
 
@@ -197,7 +166,7 @@ def main() -> int:
             args.resolution, args.samples,
             args.max_depth, args.device)
         seconds = time.perf_counter() - start
-        _save_png(pixels, args.output_dir / f"{name}.png")
+        save_preview_png(pixels, args.output_dir / f"{name}.png")
         renders.append((name, pixels))
         lum = 0.2126 * pixels[..., 0] + 0.7152 * pixels[..., 1] + 0.0722 * pixels[..., 2]
         stats.append({

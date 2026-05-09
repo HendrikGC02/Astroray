@@ -264,6 +264,7 @@ set_target_properties(stb_impl PROPERTIES
 add_library(astroray_core_impl STATIC
     src/spectrum.cpp
     src/default_integrator.cpp
+    src/energy_compensation.cpp
     src/material_closure.cpp
     src/spectral_profile.cpp
 )
@@ -551,6 +552,13 @@ install(DIRECTORY data/spectra/
         PATTERN "*.coeff"
         PATTERN "*.inc"
         PATTERN "*.csv"
+)
+
+install(DIRECTORY data/disney_compensation/
+    DESTINATION share/astroray/disney_compensation
+    FILES_MATCHING
+        PATTERN "*.bin"
+        PATTERN "README.md"
 )
 
 # Note: Tests are run via pytest, not CMake.

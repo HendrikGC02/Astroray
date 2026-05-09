@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-09 (pkg52 completion + docs/package reconciliation)
+**Last updated:** 2026-05-09 (pkg60 Disney energy compensation)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -21,8 +21,8 @@ personally should pick up.
   inference speedup/quality target and ReSTIR/NRC are CPU-integrator plugins,
   not CUDA kernels.
 - Pillar 5 is the active practical queue. The Cycles-parity/Blender package
-  series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg61/pkg62 are
-  done, pkg59 is partial, and pkg54/pkg57 remain open.
+  series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg60/pkg61/pkg62
+  are done, pkg59 is partial, and pkg54/pkg57 remain open.
 - Fresh local collection on this branch: `pytest --collect-only -q` reports
   **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
 - Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
@@ -120,7 +120,7 @@ is currently the weakest link.
 | pkg57 | Native Astroray shader nodes (with Cycles compat) | open | A |
 | pkg58 | Spectral profile dropdown + IR/UV reference scenes | **done** | B |
 | pkg59 | Shader-graph vector / UV plumbing (Principled image-texture routing fixed; broader vector/UV/Mapping spec remains) | partial | A |
-| pkg60 | Disney v2 energy compensation (no-glow materials) | open | A/E |
+| pkg60 | Disney v2 energy compensation (no-glow materials) | **done** | A/E |
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
 | pkg63 | World / HDRI parity (Mapping XYZ rotation, color tint, MIS env-map) | open | A |
@@ -177,6 +177,10 @@ forgotten):
 - New roadmap added: pkg52, pkg53, pkg54, pkg57, pkg58, pkg59, pkg61,
   pkg62, pkg64 (research-blocked), pkg67 (research-blocked). See the
   "Cycles parity & Blender integration" table above.
+- pkg60 is complete on `codex/pkg60-disney-energy-compensation`: Disney GGX
+  compensation tables are loaded from data files, the old additive roughness
+  boost was removed, Disney spec/clearcoat eval was corrected, and the
+  270-case Halton furnace grid measured worst-case reflectance **1.015891**.
 - Recommended next-up order: **finish pkg59 → pkg54 → pkg57**.
   pkg64 and pkg67 require a research note signed off by
   the project owner before code starts; CLAUDE.md §6 covers the policy.
@@ -218,6 +222,20 @@ forgotten):
   headers and package-number collisions in planning docs.
 - Active: coordination, CI/debug, and documentation reconciliation for the
   Cycles-parity / Blender integration queue.
+
+---
+
+- **2026-05-09** — pkg60 complete on `codex/pkg60-disney-energy-compensation`.
+  Added a research note for Kulla & Conty / Burley / Cycles, ported Cycles GGX
+  and sheen compensation tables into `data/disney_compensation/`, replaced the
+  Disney plugin's old additive multi-scatter boost with LUT-driven
+  compensation, corrected Disney specular/clearcoat eval's grazing denominator,
+  and added a C++ Halton furnace integration helper plus
+  `tests/test_disney_energy_conservation.py`. Measured worst-case directional
+  hemispherical reflectance is **1.015891** over the 90 listed
+  roughness/metallic/sheen/clearcoat combinations × 3 outgoing cosines at 4096
+  samples; regenerated contact sheet reference at
+  `tests/reference/disney_contact_sheet_post_compensation.png`.
 
 ---
 

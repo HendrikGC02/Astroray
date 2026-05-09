@@ -271,3 +271,27 @@ metal/Disney lobes.
    `shader.tables`, not `.bin` files. Should the implementation phase convert
    those arrays into Astroray `.bin` files as planned, or keep generated C++
    arrays with license headers?
+
+---
+
+## Implementation Follow-Up (2026-05-09)
+
+Owner sign-off allowed the code phase to proceed. The implementation converted
+Cycles `shader.tables` into Astroray `.bin` assets, preserved Cycles attribution
+in `data/disney_compensation/README.md`, and used the Cycles/Kulla-Conty net
+GGX factor `1 + Fms * ((1 - E) / E)` at the Disney GGX call site.
+
+The numerical gate also exposed two Astroray-local issues outside the original
+research note:
+
+- Disney specular/clearcoat eval was using the Disney Smith-G helper and then
+  dividing by `4*NdotL*NdotV` again, causing grazing-angle glow. The code phase
+  corrected those lobe formulas before applying LUT compensation.
+- Burley diffuse retro-reflection in the existing Disney plugin exceeded the
+  white-furnace bound at roughness=0.9, grazing view. A small directional
+  furnace normalization was added to keep the existing diffuse lobe within the
+  package's 1.02 hard gate.
+
+Measured final gate: 90 listed roughness/metallic/sheen/clearcoat combinations
+× 3 outgoing cosines × 4096 Halton samples, worst-case reflectance **1.015891**
+at roughness=0.9, metallic=0, sheen=0, clearcoat=0, cosThetaO=0.1.

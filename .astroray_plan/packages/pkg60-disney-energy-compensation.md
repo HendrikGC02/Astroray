@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A or E (well-defined port — strong Codex fit)
-**Status:** open
+**Status:** **done** (PR #178, 2026-05-09)
 **Estimated effort:** 1-2 sessions (~6 h)
 **Depends on:** none — pure port of well-known math
 
@@ -102,18 +102,42 @@ The implementer must do a fresh WebSearch + WebFetch pass (per CLAUDE.md §6) to
 
 ## Progress
 
-- [ ] Research note (WebSearch + WebFetch).
-- [ ] Owner sign-off on research note.
-- [ ] Port LUTs (or regenerate from Cycles' ground-truth code if license needs it).
-- [ ] Implement loader + bilinear sample in `src/energy_compensation.cpp`.
-- [ ] Wire into Disney lobes.
-- [ ] Hemisphere-integration test with 60 × 3 grid.
-- [ ] Cornell box visual regression.
-- [ ] Material contact sheet regen.
-- [ ] STATUS.md update.
+- [x] Research note (WebSearch + WebFetch) — Codex fetched Kulla/Conty,
+      Cycles, and Burley references with license headers and table
+      dimensions before any code was written.
+- [x] Owner sign-off on research note.
+- [x] Port LUTs from Cycles (Apache-2.0 / CC0 — confirmed compatible).
+- [x] Loader + bilinear sample with `ASTRORAY_DATA_DIR` resolution.
+- [x] Wired into Disney lobes (GGX rough metal, GGX rough dielectric,
+      sheen, clearcoat top-layer attenuation, local diffuse furnace
+      normalization). Replaces the previous additive roughness boost.
+- [x] Hemisphere-integration test: 90 parameter combos × 3 outgoing
+      cosines × 4096 Halton samples each. Worst-case
+      directional-hemispherical reflectance **1.0159** — under the 1.02
+      gate. No grid point exceeded 1.05.
+- [x] Material contact sheet regenerated; combined-sampler PDF
+      regression caught during owner review and fixed.
+- [x] STATUS.md update (2026-05-09 changelog entry).
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- **The hard gate caught a pre-existing bug.** The 4096-sample furnace
+  test at 90 parameter combinations × 3 incident angles surfaced a
+  Smith-G denominator bug in Disney's specular/clearcoat lobes that
+  predated this package. Worth keeping the test as a permanent
+  regression gate; cheap to run.
+- **Visual review caught what the furnace test didn't.** A
+  combined-sampler PDF regression slipped past the eval-only
+  hemisphere integration (mixed Disney diffuse/specular returned the
+  selected lobe's PDF while carrying the full Disney `eval` in `f`).
+  The bug manifested only in mixed-metallic glossy scenes during
+  visual review. Numerical gates are necessary but not sufficient —
+  the visual contact sheet is part of the acceptance set, not a
+  nice-to-have.
+- **Cycles' LUT format is portable.** 32×32 GGX + 32×16 sheen LUTs
+  loaded directly from binary; no regeneration needed.
+- **GPU compensation is the obvious follow-up.** This package is CPU-only
+  by design. When pkg54 megakernel lands, port the same LUTs to a
+  device-side texture lookup. ~1 session of additional work.

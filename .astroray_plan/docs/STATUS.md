@@ -120,10 +120,23 @@ is currently the weakest link.
 | pkg57 | Native Astroray shader nodes (with Cycles compat) | open | A |
 | pkg58 | Spectral profile dropdown + IR/UV reference scenes | **done** | B |
 | pkg59 | Shader-graph vector / UV plumbing (Principled image-texture routing fixed; broader vector/UV/Mapping spec remains) | partial | A |
+| pkg60 | Disney v2 energy compensation (no-glow materials) | open | A/E |
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
+| pkg63 | World / HDRI parity (Mapping XYZ rotation, color tint, MIS env-map) | open | A |
 | pkg64 | Spectral caustics (prism-accurate) — research-grade | open (research blocked) | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
+
+**Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
+original roadmap but no full spec written; capture intent before they're
+forgotten):
+
+| Pkg | Title | Why no spec yet |
+|---|---|---|
+| pkg55 | Wavefront SoA GPU refactor | Very large; defer until pkg54 megakernel lands and we have measured GPU spectral parity numbers. |
+| pkg56 | Incremental scene sync (depsgraph diff, BVH refit-only) | Large; would unlock pkg52's persistence value on big scenes but is its own architecture pass. |
+| pkg65 | scripts/ directory cleanup (`build/`, `diagnostics/`, `benchmarks/`, `data/`, `dev/` subfolders) | Trivial — can be done from a one-line description; no spec needed. |
+| pkg66 | Material iteration UX (one-sphere-per-material live preview operator) | Small; partly covered by `scripts/material_contact_sheet.py`. |
 
 **Astrophysics platform (Pillar 4):**
 

@@ -10,8 +10,8 @@ TEX_IMAGE / procedural texture nodes so that:
 - ``Mapping(Location, Scale)`` is baked into a per-texture UV transform
   via ``renderer.set_texture_uv_transform``.
 
-Mapping rotation, named UV layers, and the UV-debug AOV are deferred —
-each is its own follow-up.
+Mapping rotation and the UV-debug AOV are covered by earlier follow-ups; named
+UV layer routing is tested separately.
 
 Tests use the same Blender API stub pattern as the other addon tests.
 """
@@ -120,6 +120,7 @@ class _RecordingRenderer:
         self.loaded_textures = []
         self.coord_mode_calls = []     # (name, mode)
         self.uv_transform_calls = []   # (name, sx, sy, ox, oy)
+        self.uv_layer_calls = []       # (name, layer)
         self.proc_texture_calls = []   # (name, type, params)
         self.created_materials = []
         self._next_id = 1
@@ -132,6 +133,9 @@ class _RecordingRenderer:
 
     def set_texture_uv_transform(self, name, sx, sy, ox, oy, rotation=0.0):
         self.uv_transform_calls.append((name, sx, sy, ox, oy, rotation))
+
+    def set_texture_uv_layer(self, name, layer):
+        self.uv_layer_calls.append((name, layer))
 
     def create_procedural_texture(self, name, ttype, params):
         self.proc_texture_calls.append((name, ttype, list(params)))
@@ -152,7 +156,7 @@ def test_resolve_vector_input_unlinked_returns_default(monkeypatch):
     addon = _load_blender_addon(monkeypatch)
     cls = addon.CustomRaytracerRenderEngine
     socket = _Socket()  # not linked
-    coord, scale, offset, rotation = cls._resolve_vector_input(socket)
+    coord, scale, offset, rotation, layer = cls._resolve_vector_input(socket)
     assert coord == "UV"
     assert scale == (1.0, 1.0)
     assert offset == (0.0, 0.0)
@@ -164,7 +168,7 @@ def test_resolve_vector_input_uv_default(monkeypatch):
     cls = addon.CustomRaytracerRenderEngine
     tc = _Node('TEX_COORD')
     socket = _Socket(linked_to=tc, output_name='UV')
-    coord, _scale, _offset, _rotation = cls._resolve_vector_input(socket)
+    coord, _scale, _offset, _rotation, layer = cls._resolve_vector_input(socket)
     assert coord == "UV"
 
 
@@ -174,7 +178,7 @@ def test_resolve_vector_input_generated(monkeypatch):
     cls = addon.CustomRaytracerRenderEngine
     tc = _Node('TEX_COORD')
     socket = _Socket(linked_to=tc, output_name='Generated')
-    coord, _scale, _offset, _rotation = cls._resolve_vector_input(socket)
+    coord, _scale, _offset, _rotation, layer = cls._resolve_vector_input(socket)
     assert coord == "GENERATED"
 
 
@@ -183,7 +187,7 @@ def test_resolve_vector_input_object(monkeypatch):
     cls = addon.CustomRaytracerRenderEngine
     tc = _Node('TEX_COORD')
     socket = _Socket(linked_to=tc, output_name='Object')
-    coord, _scale, _offset, _rotation = cls._resolve_vector_input(socket)
+    coord, _scale, _offset, _rotation, layer = cls._resolve_vector_input(socket)
     assert coord == "OBJECT"
 
 
@@ -198,7 +202,7 @@ def test_resolve_vector_input_mapping_scale_only(monkeypatch):
         'Scale': _Socket(default=(2.0, 3.0, 1.0)),
     })
     socket = _Socket(linked_to=mapping, output_name='Vector')
-    coord, scale, offset, rotation = cls._resolve_vector_input(socket)
+    coord, scale, offset, rotation, layer = cls._resolve_vector_input(socket)
     assert coord == "UV"
     assert scale == (2.0, 3.0)
     assert offset == (0.0, 0.0)
@@ -213,7 +217,7 @@ def test_resolve_vector_input_mapping_offset(monkeypatch):
         'Scale': _Socket(default=(1.0, 1.0, 1.0)),
     })
     socket = _Socket(linked_to=mapping, output_name='Vector')
-    _coord, scale, offset, _rotation = cls._resolve_vector_input(socket)
+    _coord, scale, offset, _rotation, layer = cls._resolve_vector_input(socket)
     assert scale == (1.0, 1.0)
     assert offset == (0.5, -0.25)
 
@@ -230,7 +234,7 @@ def test_resolve_vector_input_mapping_chained_with_generated(monkeypatch):
         'Scale':    _Socket(default=(2.0, 2.0, 1.0)),
     })
     socket = _Socket(linked_to=mapping, output_name='Vector')
-    coord, scale, _offset, _rotation = cls._resolve_vector_input(socket)
+    coord, scale, _offset, _rotation, layer = cls._resolve_vector_input(socket)
     assert coord == "GENERATED"
     assert scale == (2.0, 2.0)
 
@@ -250,7 +254,7 @@ def test_resolve_vector_input_depth_limit(monkeypatch):
             'Scale': _Socket(default=(1.0, 1.0, 1.0)),
         })
     socket = _Socket(linked_to=inner, output_name='Vector')
-    coord, scale, offset, rotation = cls._resolve_vector_input(socket)
+    coord, scale, offset, rotation, layer = cls._resolve_vector_input(socket)
     # The outer-most Mapping still applies its own Scale; deeper ones get
     # cut off, but the outer (depth=0) Scale should still be honored.
     assert coord == "UV"
@@ -365,7 +369,7 @@ def test_resolve_vector_input_mapping_rotation_z(monkeypatch):
         'Scale':    _Socket(default=(1.0, 1.0, 1.0)),
     })
     socket = _Socket(linked_to=mapping, output_name='Vector')
-    coord, scale, offset, rotation = cls._resolve_vector_input(socket)
+    coord, scale, offset, rotation, layer = cls._resolve_vector_input(socket)
     assert coord == "UV"
     assert scale == (1.0, 1.0)
     assert offset == (0.0, 0.0)
@@ -412,7 +416,7 @@ def test_resolve_vector_input_mapping_full_combo(monkeypatch):
         'Scale':    _Socket(default=(2.0, 3.0, 1.0)),
     })
     socket = _Socket(linked_to=mapping, output_name='Vector')
-    coord, scale, offset, rotation = cls._resolve_vector_input(socket)
+    coord, scale, offset, rotation, layer = cls._resolve_vector_input(socket)
     assert coord == "UV"
     assert scale == (2.0, 3.0)
     assert offset == (0.5, -0.25)

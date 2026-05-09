@@ -408,6 +408,8 @@ struct HitRecord {
     bool frontFace;
     bool hasCameraFrame = false;
     Vec2 uv;
+    std::vector<Vec2> uvLayers;
+    std::vector<std::string> uvLayerNames;
     Vec2 windowUV;
     std::shared_ptr<Material> material;
     bool isDelta;

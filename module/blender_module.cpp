@@ -141,6 +141,9 @@ public:
                                float rotZRad = 0.0f) {
         if (auto tex = getTexture(name)) tex->setUVTransform(sx, sy, ox, oy, rotZRad);
     }
+    void setTextureUVLayerName(const std::string& name, const std::string& layerName) {
+        if (auto tex = getTexture(name)) tex->setUVLayerName(layerName);
+    }
     std::shared_ptr<Texture> getTexture(const std::string& name) {
         auto it1 = imageTextures.find(name);
         if (it1 != imageTextures.end()) return it1->second;
@@ -180,6 +183,9 @@ public:
                                float sx, float sy, float ox, float oy,
                                float rotZRad = 0.0f) {
         textureManager.setTextureUVTransform(name, sx, sy, ox, oy, rotZRad);
+    }
+    void setTextureUVLayerName(const std::string& name, const std::string& layerName) {
+        textureManager.setTextureUVLayerName(name, layerName);
     }
 
     std::vector<float> sampleTexture(const std::string& type, py::dict params, float u, float v) {
@@ -400,6 +406,42 @@ public:
         }
         // Optional per-vertex normals for smooth shading. All three must be
         // provided together; empty vectors trigger the face-normal fallback.
+        if (n0.size() == 3 && n1.size() == 3 && n2.size() == 3) {
+            tri->setVertexNormals(
+                Vec3(n0[0], n0[1], n0[2]),
+                Vec3(n1[0], n1[1], n1[2]),
+                Vec3(n2[0], n2[1], n2[2]));
+        }
+        tri->setObjectPassIndex(objectPassIndex);
+        tri->setMaterialPassIndex(materialPassIndex);
+        renderer.addObject(tri);
+    }
+
+    void addTriangleLayers(const std::vector<float>& v0, const std::vector<float>& v1, const std::vector<float>& v2,
+                           int materialId, py::dict uvLayers,
+                           const std::vector<float>& n0 = {}, const std::vector<float>& n1 = {},
+                           const std::vector<float>& n2 = {},
+                           int objectPassIndex = 0, int materialPassIndex = 0) {
+        Vec3 p0(v0[0], v0[1], v0[2]), p1(v1[0], v1[1], v1[2]), p2(v2[0], v2[1], v2[2]);
+        auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
+
+        std::vector<std::array<Vec2, 3>> layers;
+        std::vector<std::string> names;
+        for (auto item : uvLayers) {
+            std::string name = py::cast<std::string>(item.first);
+            std::vector<std::vector<float>> coords = py::cast<std::vector<std::vector<float>>>(item.second);
+            if (coords.size() != 3 || coords[0].size() < 2 || coords[1].size() < 2 || coords[2].size() < 2) {
+                throw std::runtime_error("uv_layers entries must contain three [u, v] pairs");
+            }
+            names.push_back(name.empty() ? (names.empty() ? "UVMap" : ("UVMap" + std::to_string(names.size() + 1))) : name);
+            layers.push_back({
+                Vec2(coords[0][0], coords[0][1]),
+                Vec2(coords[1][0], coords[1][1]),
+                Vec2(coords[2][0], coords[2][1]),
+            });
+        }
+
+        auto tri = std::make_shared<Triangle>(p0, p1, p2, layers, names, mat);
         if (n0.size() == 3 && n1.size() == 3 && n2.size() == 3) {
             tri->setVertexNormals(
                 Vec3(n0[0], n0[1], n0[2]),
@@ -1048,6 +1090,8 @@ PYBIND11_MODULE(astroray, m) {
              "Apply scale + Z-rotation + offset (UV-space) to a texture; "
              "baked from a Blender Mapping node. Order matches Blender Point "
              "mapping: scale → rotate → translate. Rotation is in radians.")
+        .def("set_texture_uv_layer", &PyRenderer::setTextureUVLayerName,
+             "name"_a, "layer_name"_a)
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
         .def("eval_material", &PyRenderer::evalMaterial,
              "material_id"_a, "wo"_a, "wi"_a,
@@ -1069,6 +1113,10 @@ PYBIND11_MODULE(astroray, m) {
              "object_pass_index"_a = 0, "material_pass_index"_a = 0)
         .def("add_triangle", &PyRenderer::addTriangle, "v0"_a, "v1"_a, "v2"_a, "material_id"_a,
              "uv0"_a = std::vector<float>(), "uv1"_a = std::vector<float>(), "uv2"_a = std::vector<float>(),
+             "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>(),
+             "object_pass_index"_a = 0, "material_pass_index"_a = 0)
+        .def("add_triangle_layers", &PyRenderer::addTriangleLayers,
+             "v0"_a, "v1"_a, "v2"_a, "material_id"_a, "uv_layers"_a,
              "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>(),
              "object_pass_index"_a = 0, "material_pass_index"_a = 0)
         .def("add_mesh", &PyRenderer::addMesh, "filename"_a, "material_id"_a,

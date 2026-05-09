@@ -1654,7 +1654,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
     @staticmethod
     def _resolve_vector_input(vector_socket, depth=0):
         """Walk the Vector input on a TEX_IMAGE / procedural texture node and
-        return ``(coord_mode, scale_xy, offset_xy, rotation_z)``:
+        return ``(coord_mode, scale_xy, offset_xy, rotation_z, uv_layer_name)``:
 
         - ``coord_mode``: one of "UV", "GENERATED", "OBJECT" — passed straight
           to ``renderer.set_texture_coord_mode``. Other Texture Coordinate
@@ -1673,14 +1673,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
         scale = (1.0, 1.0)
         offset = (0.0, 0.0)
         rotation = 0.0
+        uv_layer_name = ""
         if depth > 4 or vector_socket is None or not getattr(vector_socket, 'is_linked', False):
-            return coord_mode, scale, offset, rotation
+            return coord_mode, scale, offset, rotation, uv_layer_name
         try:
             link = vector_socket.links[0]
             src = link.from_node
             src_socket_name = link.from_socket.name
         except (IndexError, AttributeError):
-            return coord_mode, scale, offset, rotation
+            return coord_mode, scale, offset, rotation, uv_layer_name
 
         ntype = getattr(src, 'type', None)
         if ntype == 'MAPPING':
@@ -1711,53 +1712,54 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     pass
             # Recurse to find the upstream coord source.
             inner_socket = src.inputs.get('Vector') if hasattr(src, 'inputs') else None
-            inner_coord, _inner_scale, _inner_offset, _inner_rot = \
+            inner_coord, _inner_scale, _inner_offset, _inner_rot, inner_layer = \
                 CustomRaytracerRenderEngine._resolve_vector_input(inner_socket, depth + 1)
-            return inner_coord, scale, offset, rotation
+            return inner_coord, scale, offset, rotation, inner_layer
 
         if ntype == 'TEX_COORD':
             if src_socket_name == 'Generated':
-                return "GENERATED", scale, offset, rotation
+                return "GENERATED", scale, offset, rotation, uv_layer_name
             if src_socket_name == 'Object':
-                return "OBJECT", scale, offset, rotation
+                return "OBJECT", scale, offset, rotation, uv_layer_name
+            if src_socket_name == 'UV':
+                return "UV", scale, offset, rotation, getattr(src, 'uv_map', '') or ""
             # 'UV' (default), 'Camera', 'Window', 'Reflection', 'Normal' →
             # fall through to "UV". A future package can extend this.
-            return "UV", scale, offset, rotation
+            return "UV", scale, offset, rotation, uv_layer_name
 
-        # UV Map node (Blender's named-UV-layer source). The active UV layer
-        # is what we ship today; the layer name is recorded on the node but
-        # named UV layer routing is a separate package (structural change to
-        # the per-triangle UV upload).
         if ntype == 'UVMAP':
-            return "UV", scale, offset, rotation
+            return "UV", scale, offset, rotation, getattr(src, 'uv_map', '') or ""
 
-        return coord_mode, scale, offset, rotation
+        return coord_mode, scale, offset, rotation, uv_layer_name
 
     @staticmethod
-    def _is_default_uv_transform(coord_mode, scale, offset, rotation):
+    def _is_default_uv_transform(coord_mode, scale, offset, rotation, uv_layer_name=""):
         return (coord_mode == "UV"
                 and abs(scale[0] - 1.0) < 1e-6 and abs(scale[1] - 1.0) < 1e-6
                 and abs(offset[0]) < 1e-6 and abs(offset[1]) < 1e-6
-                and abs(rotation) < 1e-6)
+                and abs(rotation) < 1e-6
+                and not uv_layer_name)
 
     @staticmethod
-    def _texture_variant_key(base_name, coord_mode, scale, offset, rotation):
+    def _texture_variant_key(base_name, coord_mode, scale, offset, rotation, uv_layer_name=""):
         """Cache key that distinguishes the same image used with different
         Mapping or coord-mode wiring across materials."""
         if CustomRaytracerRenderEngine._is_default_uv_transform(
-                coord_mode, scale, offset, rotation):
+                coord_mode, scale, offset, rotation, uv_layer_name):
             return base_name
         return (f"{base_name}::{coord_mode}::"
                 f"{scale[0]:.4f},{scale[1]:.4f},"
                 f"{offset[0]:.4f},{offset[1]:.4f},"
-                f"{rotation:.4f}")
+                f"{rotation:.4f}::{uv_layer_name}")
 
     def _apply_texture_transform(self, renderer, tex_name, coord_mode,
-                                 scale, offset, rotation):
+                                 scale, offset, rotation, uv_layer_name=""):
         """Push coord_mode + UV transform to the C++ side (no-ops if default)."""
         try:
             if coord_mode != "UV":
                 renderer.set_texture_coord_mode(tex_name, coord_mode)
+            if uv_layer_name and hasattr(renderer, "set_texture_uv_layer"):
+                renderer.set_texture_uv_layer(tex_name, uv_layer_name)
             non_identity = (
                 abs(scale[0] - 1.0) >= 1e-6 or abs(scale[1] - 1.0) >= 1e-6
                 or abs(offset[0]) >= 1e-6 or abs(offset[1]) >= 1e-6
@@ -1790,8 +1792,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         """
         if bpy_image is None:
             return None
-        coord_mode, scale, offset, rotation = self._resolve_vector_input(vector_input)
-        cache_key = self._texture_variant_key(bpy_image.name, coord_mode, scale, offset, rotation)
+        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input)
+        cache_key = self._texture_variant_key(bpy_image.name, coord_mode, uv_scale, offset, rotation, uv_layer_name)
 
         # Deduplicate: a single (image, transform) pair is uploaded at most
         # once per conversion pass.
@@ -1825,7 +1827,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             rgb = pixels[:, :, :3].reshape(-1).tolist()
 
             renderer.load_texture(cache_key, rgb, width, height)
-            self._apply_texture_transform(renderer, cache_key, coord_mode, scale, offset, rotation)
+            self._apply_texture_transform(renderer, cache_key, coord_mode, uv_scale, offset, rotation, uv_layer_name)
             cache[cache_key] = cache_key
             return cache_key
         except Exception as e:
@@ -1851,8 +1853,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # with different Mapping wiring gets distinct entries. A procedural
         # node only has one Vector input in practice, so the same id+vector
         # combination is always identical — the variant key is defensive.
-        coord_mode, scale, offset, rotation = self._resolve_vector_input(vector_input)
-        cache_key = self._texture_variant_key(f"_proc_{id(node)}", coord_mode, scale, offset, rotation)
+        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input)
+        cache_key = self._texture_variant_key(f"_proc_{id(node)}", coord_mode, uv_scale, offset, rotation, uv_layer_name)
         if cache_key in cache:
             return cache[cache_key]
         node_id = id(node)
@@ -1935,7 +1937,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
 
         if tex_name:
-            self._apply_texture_transform(renderer, tex_name, coord_mode, scale, offset, rotation)
+            self._apply_texture_transform(renderer, tex_name, coord_mode, uv_scale, offset, rotation, uv_layer_name)
             cache[cache_key] = tex_name
         return tex_name
 
@@ -2471,7 +2473,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # split_normals carries the correct per-corner normal for
             # smooth/flat/custom shading. Available since Blender 4.1; on
             # older versions we silently skip it (fall back to face normals).
-            uv_data = mesh.uv_layers.active.data if mesh.uv_layers.active else None
+            uv_layer_items = []
+            active_uv = mesh.uv_layers.active if mesh.uv_layers.active else None
+            if active_uv is not None:
+                uv_layer_items.append((getattr(active_uv, "name", "") or "UVMap", active_uv.data))
+            for layer in mesh.uv_layers:
+                if layer is active_uv:
+                    continue
+                uv_layer_items.append((getattr(layer, "name", "") or "UVMap", layer.data))
+            uv_data = uv_layer_items[0][1] if uv_layer_items else None
 
             for tri in mesh.loop_triangles:
                 v0 = matrix @ mesh.vertices[tri.vertices[0]].co
@@ -2487,6 +2497,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     uv0 = list(uv_data[tri.loops[0]].uv)
                     uv1 = list(uv_data[tri.loops[1]].uv)
                     uv2 = list(uv_data[tri.loops[2]].uv)
+                uv_layers = {}
+                if len(uv_layer_items) > 1:
+                    for layer_name, layer_data in uv_layer_items:
+                        uv_layers[layer_name] = [
+                            list(layer_data[tri.loops[0]].uv),
+                            list(layer_data[tri.loops[1]].uv),
+                            list(layer_data[tri.loops[2]].uv),
+                        ]
 
                 # Per-corner normals (Blender 4.1+). Fall back gracefully.
                 n0 = n1 = n2 = []
@@ -2501,13 +2519,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 except (AttributeError, IndexError):
                     n0 = n1 = n2 = []
 
-                renderer.add_triangle(
-                    list(v0), list(v1), list(v2), mat_id,
-                    uv0, uv1, uv2,
-                    n0, n1, n2,
-                    int(getattr(obj, "pass_index", 0)),
-                    int(tri.material_index),
-                )
+                if uv_layers and hasattr(renderer, "add_triangle_layers"):
+                    renderer.add_triangle_layers(
+                        list(v0), list(v1), list(v2), mat_id,
+                        uv_layers,
+                        n0, n1, n2,
+                        int(getattr(obj, "pass_index", 0)),
+                        int(tri.material_index),
+                    )
+                else:
+                    renderer.add_triangle(
+                        list(v0), list(v1), list(v2), mat_id,
+                        uv0, uv1, uv2,
+                        n0, n1, n2,
+                        int(getattr(obj, "pass_index", 0)),
+                        int(tri.material_index),
+                    )
                 tri_count += 1
 
         print(f"Astroray: converted {obj_count} meshes, {tri_count} triangles")

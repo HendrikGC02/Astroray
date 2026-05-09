@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** mostly done (named UV layers remain — separate package)
+**Status:** **done**
 **Estimated effort:** 1-2 sessions (~6 h)
 **Depends on:** none
 
@@ -32,7 +32,7 @@ This is the texture / PBR bug from your screenshot. The black face is a separate
 
 ## Prerequisites
 
-- [ ] Confirm what coordinate spaces the Astroray sampler supports today. Likely only "UV from active layer". This package adds: named UV layers, Generated, Object, plus Mapping transforms.
+- [x] Confirm what coordinate spaces the Astroray sampler supports today. The sampler now supports UV, Generated, Object, Mapping transforms, and named UV-layer selection.
 - [ ] Confirm whether the C++ side already supports per-texture UV transform (scale/offset/rotation). If not, add a `TextureTransform` struct or fold the transform into the sampler call site.
 
 ---
@@ -72,7 +72,7 @@ This is the texture / PBR bug from your screenshot. The black face is a separate
 - [x] A Mapping node with scale=2 between Texture Coordinate.UV and Image Texture doubles the texture frequency. (PR #173)
 - [x] A Mapping node with rotation rotates the sampled UVs.
 - [x] `uv_debug_aov` pass plugin writes a UV-as-color image (R=u, G=v).
-- [ ] A material that references a non-active UV layer by name renders correctly. **Deferred — separate package.**
+- [x] A material that references a non-active UV layer by name renders correctly.
 - [x] Tests pass (56 Blender addon tests).
 
 ---
@@ -88,11 +88,11 @@ This is the texture / PBR bug from your screenshot. The black face is a separate
 ## Progress
 
 - [x] Trace the screenshot's first failure: Image Texture → Principled Base Color was not reaching a textured material.
-- [ ] Add `_resolve_vector_input` and the named-UV upload path.
-- [ ] Add `TextureTransform` to the sampler call site.
-- [ ] Implement Generated and Object coord spaces.
-- [ ] Add the `uv_debug` AOV.
-- [ ] Tests.
+- [x] Add `_resolve_vector_input` and the named-UV upload path.
+- [x] Add `TextureTransform` to the sampler call site.
+- [x] Implement Generated and Object coord spaces.
+- [x] Add the `uv_debug` AOV.
+- [x] Tests.
 
 ---
 
@@ -101,5 +101,6 @@ This is the texture / PBR bug from your screenshot. The black face is a separate
 - PR #164 fixed the first production blocker by routing Image Texture →
   Principled Base Color into a textured Lambertian material and adding
   `tests/test_blender_principled_texture.py`.
-- The package is still partial: named UV layers, Mapping transforms,
-  Generated/Object coordinates, and the UV debug AOV remain open.
+- PRs #164, #173, #176, and the named-UV follow-up completed the original
+  texture routing, Mapping transform, Generated/Object coordinate, UV debug
+  AOV, and named UV-layer scope.

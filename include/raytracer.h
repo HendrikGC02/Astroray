@@ -1398,6 +1398,14 @@ public:
         // collapses to a flat scalar for grayscale tints (e.g. (0.5,0.5,0.5)
         // halves the radiance per wavelength), matching Cycles parity:
         //   L = env_sample * background_color * strength.
+        //
+        // Note (chromatic tints): for non-grayscale tints this differs from
+        // the RGB path (lookup() / sample()), which does a direct per-channel
+        // multiply on RGB. The two are physically inequivalent: spectral
+        // multiplies upsampled spectra, RGB multiplies tristimulus values.
+        // For grayscale tints the test gate in tests/test_world_hdri_parity.py
+        // confirms agreement to 1% rtol; chromatic-tint cross-path parity is
+        // out of scope for pkg63.
         if (colorTint[0] != 1.f || colorTint[1] != 1.f || colorTint[2] != 1.f) {
             astroray::RGBUnboundedSpectrum tintSpec(
                 std::array<float,3>{colorTint[0], colorTint[1], colorTint[2]});

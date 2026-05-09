@@ -4,9 +4,13 @@
 pkg63 — World / HDRI parity tests.
 
 Covers:
-  (a) HDRI rotation: env at 0° vs 90° about Z gives a different reflection
-      colour at fixed pixels (chromaticity diff > 5%).
-  (b) Color tint: tint=(0.5, 0.5, 0.5) halves the env-driven indirect radiance.
+  (a) HDRI rotation: env rotated 90° about Y produces a different chromaticity
+      at a fixed lookup direction (Y-axis chosen because it cleanly shifts
+      azimuth on the equator without crossing a pole).
+  (b) Grayscale color tint: tint=(0.5, 0.5, 0.5) halves the spectral env
+      radiance per stratum (RGBUnboundedSpectrum collapses to a flat scalar
+      for grayscale; chromatic-tint parity vs the RGB path is left to a
+      follow-up — see review notes).
   (c) GPU vs CPU SSIM ≥ 0.97 on an HDRI scene at 64 spp (skipped without CUDA).
 
 Reference: Cycles `intern/cycles/blender/shader.cpp` (Apache-2.0) for Mapping
@@ -19,7 +23,6 @@ spot) so the test stays self-contained and does not depend on samples/.
 import math
 import os
 import sys
-import tempfile
 
 import numpy as np
 import pytest
@@ -170,30 +173,25 @@ def test_color_tint_halves_env_radiance(hdri_path):
 # Test (c): GPU vs CPU SSIM on an HDRI scene
 # ---------------------------------------------------------------------------
 
-def _has_cuda():
-    backends = getattr(astroray, "available_backends", None)
-    if callable(backends):
-        try:
-            return "cuda" in {b.lower() for b in backends()}
-        except Exception:
-            return False
-    return False
-
-
-@pytest.mark.skipif(not _has_cuda(), reason="CUDA backend not available")
 def test_gpu_cpu_ssim_hdri(hdri_path):
-    """Render a tiny HDRI scene on CPU and CUDA backends; SSIM ≥ 0.97."""
+    """Render a tiny HDRI scene on CPU and CUDA backends; SSIM ≥ 0.97.
+
+    Uses the canonical `gpu_available` / `set_use_gpu(True)` pair seen in
+    test_python_bindings.py::test_gpu_renders_match_cpu — skips at runtime
+    rather than collection time so a CUDA-equipped verifier host actually
+    runs the gate.
+    """
     try:
         from skimage.metrics import structural_similarity as ssim_fn
     except ImportError:
         pytest.skip("scikit-image not available for SSIM")
 
-    def render(backend):
+    def build(use_gpu):
         r = astroray.Renderer()
-        try:
-            r.set_backend(backend)
-        except Exception:
-            pytest.skip(f"backend {backend!r} could not be selected")
+        if use_gpu:
+            if not r.gpu_available:
+                pytest.skip("No CUDA GPU available")
+            r.set_use_gpu(True)
         r.set_integrator("path_tracer")
         r.load_environment_map(hdri_path, 1.0,
                                0.0, 0.0, math.pi / 4.0,
@@ -203,8 +201,8 @@ def test_gpu_cpu_ssim_hdri(hdri_path):
                      vfov=40, width=64, height=64)
         return np.asarray(r.render(64, 4, None, False))
 
-    cpu = render("cpu")
-    gpu = render("cuda")
+    cpu = build(False)
+    gpu = build(True)
     assert cpu.shape == gpu.shape == (64, 64, 3)
 
     # Tonemap-ish before SSIM so HDR fireflies don't dominate.

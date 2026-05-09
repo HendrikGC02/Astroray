@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (with eyes on Pillar 4)
 **Track:** A
-**Status:** done
+**Status:** partial — kernel + dispatch wiring landed; spectral-profile dispatch on the GPU split out as pkg54a, visible-band CMF table parity split out as pkg54b.
 **Estimated effort:** 1 week (~25 h, several sessions)
 **Depends on:** pkg53 (capability metadata), pkg35 (spectral GPU material payloads, done)
 
@@ -94,9 +94,16 @@ This is the smallest version of GPU spectral parity that gets IR/UV rendering of
 - [x] Confirm pkg35 GPU spectral material payloads cover the materials in the test scene.
 - [x] Write the test scene + parity test ([tests/scenes/multiwavelength_parity.py](tests/scenes/multiwavelength_parity.py), [tests/test_gpu_multiwavelength.py](tests/test_gpu_multiwavelength.py)).
 - [x] Port the megakernel ([src/gpu/multiwavelength_kernel.cu](src/gpu/multiwavelength_kernel.cu)).
-- [ ] Wire device-side profile dispatch — *deferred to follow-up; without it
-  outside-visible bands fall back to RGB-to-spectrum on both backends, which
-  still satisfies CPU/GPU parity at SSIM ≥ 0.97 on the test scene.*
+- [ ] Wire device-side profile dispatch — **split out as
+  [pkg54a](pkg54a-gpu-spectral-profile-dispatch.md)**. Without it,
+  outside-visible bands degenerate to RGB-to-spectrum on both backends,
+  so the pkg54 SSIM ≥ 0.97 NIR/UV gates pass for the wrong reason
+  (near-black ≈ near-black). pkg54a is required to honour
+  `setSpectralProfile()` semantics on-device.
+- [ ] CIE-CMF table parity — **split out as
+  [pkg54b](pkg54b-gpu-cmf-table-parity.md)**. GPU currently uses
+  Wyman/Sloan/Shirley 2013 1931 2° fits; CPU uses 1964 10° from a baked
+  table. Visible-band parity is loose (≥ 0.97) but not exact.
 - [x] Flip `gpuSupported = true` in [plugins/integrators/multiwavelength_path_tracer.cpp](plugins/integrators/multiwavelength_path_tracer.cpp).
 - [x] Update [.astroray_plan/docs/STATUS.md](.astroray_plan/docs/STATUS.md).
 

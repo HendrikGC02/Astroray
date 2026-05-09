@@ -5,6 +5,7 @@
 #include "astroray/gpu_scene_upload.h"
 #include "astroray/gpu_types.h"
 #include "astroray/shapes.h"
+#include "astroray/spectral_profile.h"
 #include "raytracer.h"
 #include "advanced_features.h"
 
@@ -13,6 +14,7 @@
 #include <memory>
 #include <cstdio>
 #include <stdexcept>
+#include <unordered_map>
 
 #define CUDA_CHECK(call) do {                                               \
     cudaError_t _e = (call);                                                \
@@ -74,6 +76,7 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
     GMaterial g{};
     g.spectralMode     = GSPEC_RGB_ALBEDO;
     g.spectralGpu      = caps.gpuSpectral;
+    g.profileIndex     = -1;   // populated by buildSceneArrays after conversion
     g.roughness        = 0.5f;
     g.metallic         = 0.f;
     g.ior              = 1.5f;
@@ -279,6 +282,48 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera& cam) {
         gl.power          = powerDist[i] - prev;
         gl.cumulativePower = powerDist[i];
         r.lights.push_back(gl);
+    }
+
+    // --- pkg54a: Spectral profile table for the multi-wavelength kernel ---
+    // Walk uploaded materials in order; assign each a profileIndex if its CPU
+    // counterpart carries a non-null SpectralProfile. Profiles are deduplicated
+    // by pointer (the CPU SpectralProfileDatabase is the single owner) and
+    // resampled onto the fixed [G_PROFILE_LAMBDA_MIN, _MAX] @ _STEP grid.
+    {
+        std::unordered_map<const astroray::SpectralProfile*, int> profIdx;
+        // matIdx maps Material* → uploaded GMaterial index. Walk it to attach
+        // profile indices in the correct slot.
+        for (auto& kv : matIdx) {
+            const Material* cpuMat = kv.first;
+            int gMatId             = kv.second;
+            const astroray::SpectralProfile* prof = cpuMat->getSpectralProfile();
+            if (!prof || !prof->valid()) continue;
+
+            auto it = profIdx.find(prof);
+            int idx;
+            if (it == profIdx.end()) {
+                if ((int)profIdx.size() >= G_MAX_PROFILES) {
+                    fprintf(stderr,
+                            "[CUDA] WARNING: more than %d unique spectral profiles; "
+                            "extra profiles will not dispatch on GPU\n",
+                            G_MAX_PROFILES);
+                    continue;
+                }
+                idx = (int)profIdx.size();
+                profIdx[prof] = idx;
+                // Resample onto the GPU grid.
+                size_t baseOffset = r.profileTable.size();
+                r.profileTable.resize(baseOffset + G_PROFILE_SAMPLES);
+                for (int s = 0; s < G_PROFILE_SAMPLES; ++s) {
+                    float lam = G_PROFILE_LAMBDA_MIN + s * G_PROFILE_LAMBDA_STEP;
+                    r.profileTable[baseOffset + s] = prof->reflectance(lam);
+                }
+            } else {
+                idx = it->second;
+            }
+            r.materials[gMatId].profileIndex = idx;
+        }
+        r.profileCount = (int)profIdx.size();
     }
 
     // --- Environment map ---

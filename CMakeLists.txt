@@ -292,7 +292,9 @@ if(ASTRORAY_CUDA_FOUND)
         src/gpu/multiwavelength_kernel.cu
         src/gpu/scene_upload.cu
     )
-    target_include_directories(astroray_cuda PUBLIC ${CMAKE_SOURCE_DIR}/include)
+    target_include_directories(astroray_cuda
+        PUBLIC  ${CMAKE_SOURCE_DIR}/include
+        PRIVATE ${CMAKE_SOURCE_DIR})  # for data/spectra/cie_cmf.inc (pkg54b)
     target_compile_options(astroray_cuda PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --expt-relaxed-constexpr -O3>
     )

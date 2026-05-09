@@ -304,11 +304,14 @@ events are summarized in the changelog below.
   longer silently lower to approximate CUDA records. pkg35 adds sampled
   wavelength payloads and `gpu_spectral` metadata for the core GPU material
   set. pkg54 lands a CUDA megakernel mirror of `multiwavelength_path_tracer`
-  (visible/NIR/UV bands, luminance + sRGB output via Wyman 2013 CMFs); the
-  integrator now reports `gpuSupported = true`. Sellmeier direction-splitting,
-  true spectral emitter parameter upload, and per-material spectral-profile
-  dispatch on the GPU all remain CPU-only follow-ups. pkg36 expands shared
-  closure lowering.
+  (visible/NIR/UV bands, luminance + sRGB output); the integrator now
+  reports `gpuSupported = true`, but two follow-ups are split out and still
+  open: pkg54a (per-material spectral-profile dispatch on the GPU — without
+  it, outside-visible bands degenerate to RGB-to-spectrum on both backends)
+  and pkg54b (CIE 1964 10° CMF table on GPU instead of the current Wyman
+  2013 1931 2° fits). Sellmeier direction-splitting and true spectral
+  emitter parameter upload also remain CPU-only follow-ups. pkg36 expands
+  shared closure lowering.
 - The Blender addon backend UI/packaging refresh from pkg37 is complete.
   Remaining Blender parity work is narrower: pkg57 shader graph
   fidelity and pkg54 multi-wavelength GPU parity. pkg52 persistent viewport

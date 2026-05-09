@@ -26,6 +26,12 @@ struct SceneUploadResult {
     int   envWidth = 0, envHeight = 0;
     float envStrength = 1.f, envRotation = 0.f, envTotalPower = 0.f;
     bool  envLoaded = false;
+
+    // pkg54a: spectral profile table (resampled onto the GPU's fixed grid).
+    // Layout: profileTable[i * G_PROFILE_SAMPLES + s] is reflectance of
+    // profile i at lambda = G_PROFILE_LAMBDA_MIN + s * G_PROFILE_LAMBDA_STEP.
+    std::vector<float> profileTable;
+    int                profileCount = 0;
 };
 
 // Declared here; defined in scene_upload.cu

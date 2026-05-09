@@ -77,6 +77,8 @@ Bonus: the reference scenes give pkg54 (GPU multiwavelength) ready-made parity t
 - [x] Curve preview matches `astroray.spectral_profile_reflectance(name, λ)`
       within 1% across 32 sample points.
 - [x] Addon packaging includes the reference scenes.
+- [x] All three reference scenes rendered successfully through Blender/Astroray
+      on CPU at 32 spp during the 2026-05-09 completion pass.
 - [x] Tests pass.
 
 ---
@@ -106,6 +108,11 @@ Bonus: the reference scenes give pkg54 (GPU multiwavelength) ready-made parity t
   three bundled `.blend` reference scenes, build-script packaging for
   `blender_addon/scenes/`, and `tests/test_spectral_profile_ui.py`.
 - The checked automated coverage verifies the dropdown/profile-name contract,
-  32-sample reflectance curve parity, and preview-panel visibility. Full
-  artistic CPU renders of the `.blend` references remain better treated as
-  gallery/smoke work, not a unit-test gate.
+  the `>=40` profile-count prerequisite, 32-sample reflectance curve parity,
+  preview-panel visibility, packaged reference scene presence/size, and build
+  script staging hooks.
+- Blender 5.1 background render verification on 2026-05-09: `ir_vegetation`
+  at 32 spp wrote a non-black PNG with mean luminance proxy `0.3886`;
+  `uv_skin` at 32 spp wrote `0.3803`; `metal_sweep` at 32 spp wrote `0.3804`.
+  The render outputs were saved under `test_results/` and are intentionally
+  gitignored.

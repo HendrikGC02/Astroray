@@ -166,6 +166,19 @@ __device__ inline int gpu_lower_bound(const float* arr, int n, float target) {
 
 struct GEnvSample { GVec3 direction; GVec3 radiance; float pdf; };
 
+// pkg63: forward transform — apply baked rotation matrix M (world dir → env-map dir).
+__device__ inline GVec3 gpu_envmap_apply_rot(const GEnvMap& em, const GVec3& d) {
+    return GVec3(em.rotMat[0]*d.x + em.rotMat[1]*d.y + em.rotMat[2]*d.z,
+                 em.rotMat[3]*d.x + em.rotMat[4]*d.y + em.rotMat[5]*d.z,
+                 em.rotMat[6]*d.x + em.rotMat[7]*d.y + em.rotMat[8]*d.z);
+}
+// pkg63: inverse transform — apply M^T (env-map dir → world dir).
+__device__ inline GVec3 gpu_envmap_apply_rot_T(const GEnvMap& em, const GVec3& d) {
+    return GVec3(em.rotMat[0]*d.x + em.rotMat[3]*d.y + em.rotMat[6]*d.z,
+                 em.rotMat[1]*d.x + em.rotMat[4]*d.y + em.rotMat[7]*d.z,
+                 em.rotMat[2]*d.x + em.rotMat[5]*d.y + em.rotMat[8]*d.z);
+}
+
 __device__ inline GEnvSample gpu_envmap_sample(const GEnvMap& em, curandState* rng) {
     GEnvSample es;
     es.pdf = 0.f;
@@ -185,9 +198,10 @@ __device__ inline GEnvSample gpu_envmap_sample(const GEnvMap& em, curandState* r
     float uCont = u + 0.5f;
     float vCont = v + 0.5f;
     float theta = (1.f - vCont / em.height) * M_PI_F;
-    float phi   = (uCont - 0.5f) * 2.f * M_PI_F - em.rotation;
+    float phi   = (uCont - 0.5f) * 2.f * M_PI_F;
 
-    es.direction = GVec3(sinf(theta)*cosf(phi), cosf(theta), sinf(theta)*sinf(phi));
+    GVec3 dir_env = GVec3(sinf(theta)*cosf(phi), cosf(theta), sinf(theta)*sinf(phi));
+    es.direction = gpu_envmap_apply_rot_T(em, dir_env);
 
     float sinTheta = fmaxf(sinf(theta), 1e-6f);
     int   pixIdx   = v * em.width + u;
@@ -195,16 +209,18 @@ __device__ inline GEnvSample gpu_envmap_sample(const GEnvMap& em, curandState* r
     float mapPdf   = funcVal * em.width * em.height / (em.totalPower + 1e-10f);
     es.pdf         = mapPdf / (2.f * M_PI_F * M_PI_F * sinTheta);
 
-    es.radiance = GVec3(em.data[pixIdx*3+0],
-                        em.data[pixIdx*3+1],
-                        em.data[pixIdx*3+2]) * em.strength;
+    // pkg63: apply color tint to radiance (Cycles parity).
+    es.radiance = GVec3(em.data[pixIdx*3+0] * em.colorTint[0],
+                        em.data[pixIdx*3+1] * em.colorTint[1],
+                        em.data[pixIdx*3+2] * em.colorTint[2]) * em.strength;
     return es;
 }
 
 __device__ inline float gpu_envmap_pdf(const GEnvMap& em, const GVec3& dir) {
     if (!em.loaded || em.totalPower <= 0.f) return 0.f;
-    float theta = acosf(fminf(fmaxf(dir.y, -1.f), 1.f));
-    float phi   = atan2f(dir.z, dir.x) + em.rotation;
+    GVec3 d = gpu_envmap_apply_rot(em, dir);
+    float theta = acosf(fminf(fmaxf(d.y, -1.f), 1.f));
+    float phi   = atan2f(d.z, d.x);
     float u     = 0.5f + phi / (2.f * M_PI_F);
     float v     = 1.f - theta / M_PI_F;
     if (u < 0.f) u += 1.f; if (u >= 1.f) u -= 1.f;
@@ -219,8 +235,9 @@ __device__ inline float gpu_envmap_pdf(const GEnvMap& em, const GVec3& dir) {
 
 __device__ inline GVec3 gpu_envmap_lookup(const GEnvMap& em, const GVec3& dir) {
     if (!em.loaded || em.width == 0) return GVec3(0.f);
-    float theta = acosf(fminf(fmaxf(dir.y, -1.f), 1.f));
-    float phi   = atan2f(dir.z, dir.x) + em.rotation;
+    GVec3 d = gpu_envmap_apply_rot(em, dir);
+    float theta = acosf(fminf(fmaxf(d.y, -1.f), 1.f));
+    float phi   = atan2f(d.z, d.x);
     float u     = 0.5f + phi / (2.f * M_PI_F);
     float v     = 1.f - theta / M_PI_F;
     if (u < 0.f) u += 1.f; if (u >= 1.f) u -= 1.f;
@@ -242,5 +259,7 @@ __device__ inline GVec3 gpu_envmap_lookup(const GEnvMap& em, const GVec3& dir) {
     };
     GVec3 c = (px(x0,y0)*(1-uf) + px(x1,y0)*uf) * (1-vf)
             + (px(x0,y1)*(1-uf) + px(x1,y1)*uf) * vf;
+    // pkg63: apply color tint (Cycles: env_sample * background_color * strength).
+    c = GVec3(c.x * em.colorTint[0], c.y * em.colorTint[1], c.z * em.colorTint[2]);
     return c * em.strength;
 }

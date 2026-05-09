@@ -24,7 +24,10 @@ struct SceneUploadResult {
     std::vector<float> envMargCdf;
     std::vector<float> envMargFunc;
     int   envWidth = 0, envHeight = 0;
-    float envStrength = 1.f, envRotation = 0.f, envTotalPower = 0.f;
+    float envStrength = 1.f, envTotalPower = 0.f;
+    // pkg63: baked rotation matrix (3x3 row-major) + color tint to upload to GEnvMap.
+    float envRotMat[9] = {1,0,0, 0,1,0, 0,0,1};
+    float envColorTint[3] = {1.f, 1.f, 1.f};
     bool  envLoaded = false;
 
     // pkg54a: spectral profile table (resampled onto the GPU's fixed grid).

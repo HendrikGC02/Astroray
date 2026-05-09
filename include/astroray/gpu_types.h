@@ -361,7 +361,10 @@ struct GEnvMap {
     const float* marginalCdf;     // height floats, device ptr
     const float* marginalFunc;    // height floats, device ptr
     int   width, height;
-    float strength, rotation, totalPower;
+    float strength, totalPower;
+    // pkg63: baked 3x3 rotation matrix (row-major, world->envmap) and color tint.
+    float rotMat[9];
+    float colorTint[3];
     bool  loaded;
 };
 

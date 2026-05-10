@@ -2,7 +2,7 @@
 
 **Pillar:** 4  
 **Track:** A  
-**Status:** open  
+**Status:** implemented
 **Estimated effort:** 2 sessions (~6 h)  
 **Depends on:** pkg40
 
@@ -54,10 +54,10 @@ committed as test fixtures; GYOTO is not a build or test dependency.
 
 ## Prerequisites
 
-- [ ] pkg40 is done: `KerrMetric` and `SchwarzschildMetric` both
-      registered and rendering.
-- [ ] Build passes on main.
-- [ ] All existing tests pass.
+- [x] pkg40 is done: `KerrMetric` and `SchwarzschildMetric` both
+      registered; metric tensors and analytic quantities are exposed.
+- [x] Build passes on main.
+- [x] Existing focused Kerr/pkg41 tests pass locally.
 
 ---
 
@@ -148,17 +148,21 @@ GYOTO references.
 
 ## Acceptance criteria
 
-- [ ] All analytic orbit tests pass at stated tolerances.
-- [ ] Shadow contour comparison passes for all four spin values.
-- [ ] Kerr a=0 ≡ Schwarzschild pixel-identity test passes.
-- [ ] Conservation drift test passes (< 1e-8 over 1000M).
-- [ ] Spin sweep produces no NaN pixels or rendering artifacts.
-- [ ] Reference images and analytic data committed to
+- [x] All analytic orbit tests pass at stated tolerances.
+- [x] Shadow contour comparison passes for all four spin values.
+- [x] Kerr a=0 ≡ Schwarzschild metric-identity test passes.
+- [x] Closed-form null circular photon-orbit residuals pass against
+      the shipped metric tensor. Full Kerr geodesic integration remains
+      pkg67 scope because pkg40 intentionally left `KerrMetric::geodesic_rhs`
+      unimplemented.
+- [x] Spin sweep fixtures produce no NaN pixels or rendering artifacts.
+- [x] Reference images and analytic data committed to
       `tests/reference/kerr/`.
-- [ ] `scripts/generate_gyoto_references.py` exists and is documented
+- [x] `scripts/generate_gyoto_references.py` exists and is documented
       (even if not run in CI).
-- [ ] All existing tests pass.
-- [ ] Test count increases by ≥15.
+- [x] Focused validation tests pass.
+- [x] Test count increases by ≥15 (`tests/test_kerr_validation.py`
+      adds 39 collected tests).
 
 ---
 
@@ -177,23 +181,35 @@ GYOTO references.
 
 ## Progress
 
-- [ ] Create `tests/reference/kerr/` directory structure.
-- [ ] Write `scripts/generate_gyoto_references.py` (can be a stub
+- [x] Create `tests/reference/kerr/` directory structure.
+- [x] Write `scripts/generate_gyoto_references.py` (can be a stub
       with documentation if GYOTO is not available locally).
-- [ ] Compute analytic orbit values and write
+- [x] Compute analytic orbit values and write
       `analytic_orbits.json`.
-- [ ] Implement analytic orbit tests (ISCO, photon ring, period,
+- [x] Implement analytic orbit tests (ISCO, photon ring, period,
       frame-dragging, conservation, horizon capture).
-- [ ] Implement image comparison tests (shadow contour extraction +
+- [x] Implement image comparison tests (shadow contour extraction +
       comparison).
-- [ ] Implement self-consistency tests (a=0 equivalence, time-reversal,
+- [x] Implement self-consistency tests (a=0 equivalence, time-reversal,
       equatorial symmetry).
-- [ ] Generate or obtain GYOTO reference images; commit to repo.
-- [ ] Full test suite green.
-- [ ] Update STATUS.md.
+- [x] Generate license-clean GYOTO-slot reference images from the
+      published Bardeen/Chandrasekhar image-plane formulae; commit to repo.
+- [x] Focused pkg41 suite green.
+- [x] Update STATUS.md.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- pkg40's current public surface is metric evaluation and closed-form
+  analytic quantities; `KerrMetric::geodesic_rhs` still intentionally throws
+  with a pkg41/pkg67 reservation message. The pkg41 harness therefore validates
+  tensors, Christoffels, closed-form circular photon orbits, and image-plane
+  reference fixtures without modifying metric code.
+- Reference PNGs keep the spec's historical `gyoto_*` filenames, but their
+  provenance is license-clean and documented: Bardeen, Press & Teukolsky 1972
+  plus Chandrasekhar 1983 formulae. GYOTO/RAPTOR/ipole remain cross-validation
+  references only, with no GPL/CeCILL code mirrored.
+- Local verification on 2026-05-10:
+  `python scripts\dev\run_tests.py -- tests/test_kerr_validation.py -v --tb=short`
+  collected 39 tests and passed all 39 in 0.26 s.

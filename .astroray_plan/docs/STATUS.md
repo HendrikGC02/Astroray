@@ -24,8 +24,13 @@ personally should pick up.
   series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg60/pkg61/pkg62
   are done, pkg59 is done, pkg54/54a/54b/54c/54d are all done (CUDA
   hardware verified 2026-05-10), pkg63 (World/HDRI parity) is done
-  pending CUDA-host SSIM verification, and pkg57 (native Astroray shader
-  nodes with Cycles fallback) is now done (2026-05-10).
+  pending CUDA-host SSIM verification, pkg57 native shader nodes is done,
+  pkg68 OIDN architectural fix is done with measured 2.57× speedup,
+  pkg69 Blender compositor Albedo pass is done, pkg70 OptiX denoiser is
+  implemented pending hardware verification, and pkg71 Cycles parity
+  benchmark framework is implemented with first baseline pending the
+  self-hosted CUDA + Cycles 4.x runner. Open Pillar 5: pkg56 incremental
+  scene sync (3 phases), pkg64 spectral caustics flagship.
 - Fresh local collection on this branch: `pytest --collect-only -q` reports
   **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
 - Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
@@ -131,8 +136,8 @@ is currently the weakest link.
 | pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | research signed off; ready to implement | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
 | pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
-| pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) | **implemented (pending verification)** | A |
-| pkg71 | Cycles parity benchmark framework | **implemented** | A |
+| pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) | **implemented (pending CUDA + OptiX SDK verification)** | A |
+| pkg71 | Cycles parity benchmark framework | **implemented** (first full baseline CSV pending CUDA + Cycles 4.x runner) | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
 original roadmap but no full spec written; capture intent before they're

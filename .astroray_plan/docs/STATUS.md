@@ -71,8 +71,13 @@ personally should pick up.
 - Tracking issue [#237](https://github.com/HendrikGC02/Astroray/issues/237):
   pkg54c visible-band SSIM gate currently fails at 0.998629 (floor
   0.999). pkg78 verifier proved bit-identical CPU+GPU output pre/post
-  pkg75, so the drift PRE-DATES pkg75; bisect for the actual breaking
-  commit is queued as a Round 6 Codex pickup.
+  pkg75; the bisect session then refused the 20-commit hardware
+  bisect on §1 grounds (static enumeration showed zero commits in
+  range touching the multiwavelength integrator path) and posted a
+  diagnosis on the issue: most plausible cause is NVCC build-time
+  non-determinism in the SSIM saturation regime. **pkg82** picks up
+  the variance characterisation that turns the diagnosis into a
+  data-driven gate decision. Round 6 Codex pickup on RTX.
 - `NEXT_STAGE_REPORT.md` is the live action queue (Round 6 prompts);
   this file is the source of truth for completion state. `production.md`
   remains historical (pkg50+ placeholder names that conflict with live

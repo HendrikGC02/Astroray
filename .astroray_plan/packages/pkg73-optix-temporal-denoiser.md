@@ -210,3 +210,76 @@ mode on a static-camera frame; observed disocclusion / trail-smear
 artefacts if any; whether the HtoD motion-buffer copy showed up in
 the per-frame profile, and whether moving motion to a device-resident
 buffer is worth a follow-up.)*
+
+### Hardware verification 2026-05-10 — RTX 5070 Ti, Windows MSVC `build_cuda`
+
+Run: `pytest tests/test_optix_denoiser_temporal.py -v -s` against
+`build_cuda/astroray.cp313-win_amd64.pyd` (CUDA 12.6 toolkit, OptiX SDK
+9.1.0 headers, OIDN runtime on `PATH` for the .pyd's transitive deps).
+`astroray.__features__["optix_denoiser"]` is `True`,
+`astroray.gpu_optix_available()` is `True`, `[OptiX] Using CUDA device 0
+(NVIDIA GeForce RTX 5070 Ti)` confirmed in stdout on every render that
+takes the OptiX path. Total wall time 0.93 s for the 5-test file.
+
+Result: **3 / 5 passed, 2 failed.** Honest table:
+
+| Test | Result | Notes |
+|---|---|---|
+| `test_optix_pass_registered_when_compiled_in` | ✅ | `optix_denoiser` is in `pass_registry_names()`. |
+| `test_temporal_mode_entered_when_motion_present` | ❌ | Captured stdout is exactly `[OptiX] Using CUDA device 0 (NVIDIA GeForce RTX 5070 Ti)\n`. The plugin's mode-transition log line does not contain the literal token `TEMPORAL_AOV` on this build, so the test's substring assertion fails even though OptiX initialised on the right device. |
+| `test_first_frame_finite_output` | ✅ | First-frame fallback (no `prev_valid_`) produces a finite, non-negative image — pkg73 acceptance "first-frame correctness" lower bound holds. |
+| `test_resize_does_not_crash` | ✅ | Mid-stream HDR-equivalent → AOV → resize cycle: handle and prev-output buffers are reallocated, next frame is finite. Covers the resize-invalidates-state acceptance bullet and is the closest in-suite proxy for the HDR → AOV → TEMPORAL_AOV kind-transition reset the verifier brief asks about (the plugin's `currentKind_` change path is the same in both directions). |
+| `test_inter_frame_variance_reduction` | ❌ | **`[pkg73] inter-frame RMS: temporal=0.011740 aov=0.011740 reduction=0.0%`** — the two sequences are bit-for-bit identical. **The acceptance gate (≥30 % reduction) is not met on this build.** |
+
+Inter-frame variance reduction pkg73 (TEMPORAL_AOV) vs pkg70 (AOV) on
+the 10-frame pan: **0.0 %** (target ≥ 30 %). RMS of frame-to-frame
+first differences over the kept central frames is `0.011740` for both
+the temporal and AOV-reference legs of the test, to all decimal places
+the test prints. Both legs use the same seed (42), the same scene, the
+same per-frame `samples_per_pixel=2` / `max_depth=3`, and the same
+camera poses; the AOV leg only differs in that each kept render is
+preceded by a discarded "snapshot" render that pins prev-pose to
+curr-pose, so the plugin's motion buffer is all-zero and the plugin
+should select AOV instead of TEMPORAL_AOV. Identical RMS to that
+precision is consistent with one of three hypotheses, in order of
+likelihood:
+
+1. The plugin is selecting the same kind (most likely AOV) on both
+   legs because the camera-pan motion produced by `_pan_camera` /
+   `setup_camera` is not surviving as non-zero entries in the motion
+   buffer the plugin reads, on this `build_cuda` revision.
+2. The plugin is selecting TEMPORAL_AOV on both legs (the reset-by-
+   discard trick from the test docstring is not actually pinning
+   `currentKind_` to AOV on this build).
+3. TEMPORAL_AOV is selected on the temporal leg but the previous-
+   output buffer is being re-seeded with the noisy beauty every frame
+   (`prev_valid_` not latching), so the inter-frame correlation
+   collapses to the AOV baseline.
+
+The test does not capture per-frame stdout from `_pan_sequence`, so
+which of (1)/(2)/(3) is the cause cannot be decided from the artefacts
+of this run alone. Recommended follow-up before the gate is reasserted:
+extend the test to capture stdout per frame and assert the kind line
+explicitly on each leg (matches the pattern `test_temporal_mode_*`
+already uses), so a future re-baseline can attribute the result to a
+pipeline issue rather than a metric one. **Do not silently relax the
+30 % gate — the spec is explicit about that.**
+
+First-frame fallback (no prev-output buffer): **passes.** Output is
+finite and non-negative.
+
+Kind-transition reset (HDR → AOV → TEMPORAL_AOV cycle): the explicit
+HDR-leg toggle is not exercised by the in-suite tests on this branch;
+the closest signal is `test_resize_does_not_crash`, which forces a
+`currentKind_` change between renders and a destroy-and-recreate of the
+denoiser handle. That passes — the destroy/recreate path is robust on
+hardware. A dedicated HDR ↔ AOV ↔ TEMPORAL_AOV cycle test is a
+worthwhile follow-up for a future package; out of scope for this
+doc-only re-baseline.
+
+Build-environment note. The .pyd's transitive `OpenImageDenoise.dll`
+dependency was not on the default `PATH`; the run only succeeded after
+prepending `C:\oidn\bin`. `tests/runtime_setup.py` already
+`os.add_dll_directory()`s the CUDA toolkit but not OIDN — fine while
+OIDN is on user PATH on the build machine, but worth noting when
+another verifier reproduces this run.

@@ -105,6 +105,7 @@ personally should pick up.
 |---|---|---|
 | pkg32 | Visual diagnostics & benchmark renders | **done** |
 | pkg33 | OIDN FetchContent integration | **done** |
+| pkg68 | OIDN persistent device + CUDA backend selection | **implemented (pending CUDA verification)** |
 | pkg38 | Spectral material profile database | **done** |
 | pkg39 | Multi-wavelength rendering (IR/UV) | **done** |
 
@@ -287,6 +288,7 @@ events are summarized in the changelog below.
 | pkg62 | B | **done** | — |
 | pkg64 | A | research blocked | caustics research note |
 | pkg67 | A | research blocked | metric-aware tracer research note |
+| pkg68 | A | **implemented (pending CUDA verification)** | persistent OIDN device, CUDA-first init, member-cached filter; CPU pytest green (12+1 skip); CUDA SSIM/timing gates pending verifier session |
 
 ---
 
@@ -360,6 +362,18 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-10** — pkg68 implemented (pending CUDA verification). OIDN
+  device + filter hoisted to `OIDNDenoiser` class members and lazy-initialised
+  on first `execute()`; init tries `oidn::DeviceType::CUDA` first and falls
+  back to `oidn::DeviceType::CPU` (Cycles `denoiser_oidn_gpu.cpp::create_device`
+  shape, Apache-2.0). Filter is rebound only when the framebuffer geometry
+  or source pointers change. CMakeLists FetchContent fallback bumped from
+  oidn-2.3.3 to oidn-2.4.1 (latest with CUDA backend). New
+  `tests/test_oidn_denoiser_persistence.py` pins: device init runs once
+  across N renders, CUDA selected on CUDA-capable builds, albedo/normal
+  guides present without explicit AOV pass. CPU pytest run: 12 passed,
+  1 CUDA-only test skipped. CUDA SSIM/timing verification pending.
 
 - **2026-05-09** — pkg59 done. Named UV layers now upload through
   `add_triangle_layers`, textures can select a layer via Texture

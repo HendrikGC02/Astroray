@@ -95,14 +95,15 @@ if(ASTRORAY_ENABLE_OIDN)
 
     find_package(OpenImageDenoise CONFIG QUIET)
 
-    # 3. FetchContent fallback — download the OIDN 2.3.3 Windows x64 prebuilt
+    # 3. FetchContent fallback — download the OIDN 2.4.1 Windows x64 prebuilt
     #    zip when the library is not installed locally.  Only attempted on
     #    Windows because the prebuilt packages are platform-specific.
+    #    pkg68: bumped 2.3.3 → 2.4.1 (latest release with CUDA backend support).
     if(NOT OpenImageDenoise_FOUND AND WIN32)
-        message(STATUS "OIDN not found locally — fetching prebuilt binary (v2.3.3)…")
+        message(STATUS "OIDN not found locally — fetching prebuilt binary (v2.4.1)…")
         include(FetchContent)
         FetchContent_Declare(oidn_prebuilt
-            URL      "https://github.com/RenderKit/oidn/releases/download/v2.3.3/oidn-2.3.3.x64.windows.zip"
+            URL      "https://github.com/RenderKit/oidn/releases/download/v2.4.1/oidn-2.4.1.x64.windows.zip"
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         )
         # The prebuilt zip contains no CMakeLists.txt, so FetchContent_MakeAvailable

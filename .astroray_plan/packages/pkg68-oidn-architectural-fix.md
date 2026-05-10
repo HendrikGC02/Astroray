@@ -1,0 +1,133 @@
+# pkg68 — OIDN persistent device + CUDA backend selection
+
+**Pillar:** 5
+**Track:** A
+**Status:** implemented (pending CUDA verification)
+**Estimated effort:** 1 session (~3 h)
+**Depends on:** pkg33 (OIDN FetchContent integration)
+
+---
+
+## Goal
+
+Before: every viewport frame the OIDN pass tore down and rebuilt the
+`oidn::DeviceRef`, four `oidn::BufferRef`s, and the `RT` filter. Device
+creation alone is the dominant per-frame cost at viewport SPP, and the
+device was always CPU because we never asked OIDN for the CUDA backend.
+
+After: device + filter live as `OIDNDenoiser` members, are lazy-initialised
+on first `execute()`, prefer `oidn::DeviceType::CUDA` and fall back to
+`oidn::DeviceType::CPU`, and the `setImage` + `commit()` filter rebind only
+fires when the framebuffer geometry or source pointers change. The
+prebuilt OIDN fallback bumps to v2.4.1 (latest with CUDA backend).
+
+---
+
+## Context
+
+pkg33 wired OIDN in with the simplest possible path: build everything
+locally inside `execute()`. That works for one-shot renders but is the
+wrong shape for the persistent viewport session (pkg52). The fact-finding
+pass also showed that the `fb.hasBuffer("albedo")` guard is a soft trap:
+albedo/normal are written unconditionally by the integrator, so the guard
+is harmless today, but if anyone ever made the buffers conditional we'd
+silently degrade to color-only denoising. This package locks the contract
+in tests.
+
+---
+
+## Reference
+
+- Cycles denoiser (Apache-2.0): `intern/cycles/integrator/denoiser_oidn.cpp`,
+  `intern/cycles/integrator/denoiser_oidn_gpu.cpp` — the `create_device()`
+  helper and member-cached device + filter shape we mirror.
+- OIDN C++ API: <https://www.openimagedenoise.org/documentation.html>,
+  `include/OpenImageDenoise/oidn.hpp` (RenderKit/oidn).
+- Astroray pkg33: `.astroray_plan/packages/pkg33-oidn-fetchcontent.md`.
+
+---
+
+## Prerequisites
+
+- [x] pkg33 is done and `tests/test_oidn_denoiser.py` is green.
+- [x] Integrator audit: `Camera::albedoBuffer` / `normalBuffer` are sized
+      unconditionally (raytracer.h:1653-1654) and written every pixel by
+      the render loop (raytracer.h:2451-2452). No fix needed in step 4.
+
+---
+
+## Specification
+
+### Files to create
+
+| File | Purpose |
+|---|---|
+| `tests/test_oidn_denoiser_persistence.py` | Pin one-time device init, CUDA selection on capable builds, and unconditional albedo/normal guides. |
+
+### Files to modify
+
+| File | What changes |
+|---|---|
+| `plugins/passes/oidn_denoiser.cpp` | Hoist `oidn::DeviceRef` + `oidn::FilterRef` + 4 buffers to class members; lazy-init device with CUDA→CPU fallback; cache last-bound source pointers + dims. |
+| `CMakeLists.txt` | Bump FetchContent fallback URL from `oidn-2.3.3.x64.windows.zip` to `oidn-2.4.1.x64.windows.zip`. |
+
+### Key design decisions
+
+1. **Member-cached device, lazy-init** — mirrors Cycles
+   `denoiser_oidn_gpu.cpp::create_device()`. Constructor does no work, so a
+   no-op build (OIDN disabled) costs nothing.
+2. **CUDA-first, CPU fallback** — `oidn::newDevice(DeviceType::CUDA)`
+   followed by `getError()`. The C wrapper returns a NULL handle when the
+   backend is unsupported; the C++ wrapper exposes that as a non-`None`
+   error before commit.
+3. **No temporal mode** — out of scope. OIDN does not have a `color1`
+   previous-frame input; temporal denoising is a separate filter family
+   (e.g. OptiX `Temporal_AOV`), tracked under pkg70.
+4. **Filter rebind on pointer change** — Camera buffers are reallocated
+   on resolution change, so a pointer-equality check on `fb.buffer("color"
+   /"albedo"/"normal")` is sufficient to detect resize without storing a
+   resolution flag separately.
+
+---
+
+## Acceptance criteria
+
+- [x] `pytest tests/test_oidn_denoiser_persistence.py
+      tests/test_oidn_denoiser.py tests/test_aov_passes.py` is all green
+      (12 passed + 1 CUDA-only test skipped on a CPU-only build).
+- [x] `[OIDN] Using <type> device` prints exactly once across N≥4
+      consecutive renders on the same `Renderer`.
+- [ ] On a CUDA-capable build the printed type is "CUDA". *(verifier
+      session, hardware-gated.)*
+- [x] Albedo / normal AOV passes return non-zero output without
+      pre-registration.
+
+---
+
+## Non-goals
+
+- Do not add OptiX (pkg70).
+- Do not add temporal mode.
+- Do not change OIDN behaviour for the standalone CLI build path beyond
+  the persistence refactor.
+
+---
+
+## Progress
+
+- [x] Audit integrator: albedo / normal are populated unconditionally.
+- [x] Refactor `OIDNDenoiser` to member-cached device + filter.
+- [x] CMakeLists FetchContent URL bumped to 2.4.1.
+- [x] Persistence tests added; full pytest run green on CPU build.
+- [ ] CUDA verifier session: confirm `[OIDN] Using CUDA device` and
+      that the CUDA path produces SSIM-equivalent output to CPU.
+
+---
+
+## Lessons
+
+The ostensibly-conditional `fb.hasBuffer("albedo")` guard turned out to
+be a no-op in practice — `Framebuffer::buffer()` returns a pointer into
+`Camera::albedoBuffer`, which is always allocated. Worth keeping the
+guard for forward-compat, but the test suite should pin the contract so
+nobody flips it accidentally.

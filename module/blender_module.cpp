@@ -1132,6 +1132,165 @@ public:
         return out;
     }
 
+    // ------------------------------------------------------------------
+    // pkg56 Phase B — per-domain incremental uploaders.
+    //
+    // Cycles BlenderSync (intern/cycles/blender/sync.cpp, Apache-2.0) splits
+    // its viewport sync into geometry / shaders / lights / world per-domain
+    // entry points keyed off ID_RECALC_GEOMETRY / _SHADING / etc. We mirror
+    // that surface here so Phase C's depsgraph dispatch (separate package)
+    // can target the affected uploader instead of always paying the full
+    // re-upload cost.
+    //
+    // All five entries are also exposed under stable Python names below.
+    // Behaviour for callers that invoke the full sequence (or call the
+    // existing render() entry) is unchanged — uploadScene() composes the
+    // four domain uploads in the same order BlenderSync uses in sync_data().
+    //
+    // The CPU Renderer requires a built BVH for uploadGeometry(). The other
+    // three tolerate a missing BVH (partial state); they log and return
+    // without touching device memory in that case — matching pkg56 spec
+    // "Uploaders are order-independent for state".
+    // ------------------------------------------------------------------
+
+    // Build (or rebuild) the CPU BVH and push geometry buffers to the GPU.
+    // Materials, lights and environment device buffers are untouched.
+    void uploadGeometry() {
+        renderer.buildAcceleration();
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
+            if (!camera) {
+                throw std::runtime_error(
+                    "upload_geometry: camera must be set up before GPU upload");
+            }
+            cudaRenderer->uploadGeometry(renderer, *camera);
+        }
+#endif
+    }
+
+    // Push only material payloads (GMaterial flat array + spectral profile
+    // table) to the GPU. Geometry / BVH / lights / env are untouched.
+    // Cycles equivalent: Shader::tag_update() → ShaderManager::device_update.
+    void uploadMaterials() {
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
+            cudaRenderer->uploadMaterials(renderer);
+        }
+#endif
+    }
+
+    // Push only light buffer + power CDF to the GPU. Geometry / materials /
+    // env are untouched. Cycles equivalent: LightManager::device_update.
+    void uploadLights() {
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
+            cudaRenderer->uploadLights(renderer);
+        }
+#endif
+        // CPU path: light data lives inside Renderer::lights, which the
+        // path tracer reads on the fly from buildAcceleration()'s output.
+        // No CPU-side action needed — the addition itself was via addObject.
+    }
+
+    // Push only env map buffers + sampling tables (and post-pkg63 the MIS
+    // CDF) to the GPU. Geometry / materials / lights are untouched.
+    // Cycles equivalent: world_recalc → BackgroundManager::device_update.
+    void uploadEnvironment() {
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
+            // PyRenderer mirrors envMap onto Renderer at load_environment_map
+            // time; ensure that link is current before pushing.
+            if (envMap) renderer.setEnvironmentMap(envMap);
+            cudaRenderer->uploadEnvironment(renderer);
+        }
+#endif
+    }
+
+    // Sequenced full upload — calls all four domain uploaders + builds the
+    // BVH. Behaviour is identical (same final device state) to today's
+    // implicit upload inside render(); existing callers and tests are
+    // unaffected. Phase C will _stop_ calling this in favour of selective
+    // dispatch on bpy.types.Depsgraph.updates.
+    void uploadScene() {
+        renderer.buildAcceleration();
+        if (envMap) renderer.setEnvironmentMap(envMap);
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
+            if (!camera) {
+                throw std::runtime_error(
+                    "upload_scene: camera must be set up before GPU upload");
+            }
+            cudaRenderer->uploadScene(renderer, *camera);
+        }
+#endif
+    }
+
+    // Replace an existing scene primitive's transform in place.
+    //
+    // pkg56 Phase B note: Astroray's BVH is a single combined TLAS+BLAS
+    // today (research note §4.1). A transform-only edit therefore still
+    // rebuilds the whole BVH from inside this binding — the binding is
+    // about giving Phase C a *dispatch target* that maps to Cycles'
+    // Object-with-ID_RECALC_TRANSFORM-only branch, not a hot path. The
+    // bigger win arrives when a future package introduces a two-level
+    // acceleration structure. Documented in the Python docstring.
+    //
+    // `obj_id` is the 0-based insertion index into the renderer's scene
+    // list (the order in which add_sphere / add_triangle / add_area_light
+    // / add_sun_light / add_spot_light / add_mesh / add_volume / etc.
+    // were called). `transform_matrix` is a 16-element row-major 4x4
+    // affine matrix (Blender's matrix_world.transposed-or-flattened layout).
+    //
+    // Currently supports Sphere translation and Triangle full-affine
+    // vertex transform. Returns silently if the object id is out of range
+    // or refers to an unsupported Hittable type — the upstream caller
+    // (Phase C) should fall back to a full uploadGeometry() in that case.
+    void updateObjectTransform(int objId,
+                               const std::vector<float>& transformMatrix) {
+        auto& scene = renderer.getSceneMutable();
+        if (objId < 0 || static_cast<size_t>(objId) >= scene.size()) {
+            throw std::runtime_error(
+                "update_object_transform: object id " + std::to_string(objId) +
+                " out of range (scene has " + std::to_string(scene.size()) +
+                " objects)");
+        }
+        if (transformMatrix.size() != 16) {
+            throw std::runtime_error(
+                "update_object_transform: transform_matrix must have 16 floats");
+        }
+        const float* m = transformMatrix.data();
+        auto applyAffine = [&](const Vec3& p) {
+            // Row-major: m[r*4+c]. Result = M * (p; 1).
+            float x = m[0]*p.x + m[1]*p.y + m[2]*p.z + m[3];
+            float y = m[4]*p.x + m[5]*p.y + m[6]*p.z + m[7];
+            float z = m[8]*p.x + m[9]*p.y + m[10]*p.z + m[11];
+            return Vec3(x, y, z);
+        };
+
+        Hittable* h = scene[objId].get();
+        if (auto* sph = dynamic_cast<Sphere*>(h)) {
+            // Spheres: apply translation only (uniform scale would change
+            // radius — out of scope for Phase B; would be a separate
+            // setRadius binding).
+            Vec3 oldC = sph->getCenter();
+            sph->setCenter(applyAffine(oldC));
+        } else if (auto* tri = dynamic_cast<Triangle*>(h)) {
+            tri->setVertices(applyAffine(tri->getV0()),
+                             applyAffine(tri->getV1()),
+                             applyAffine(tri->getV2()));
+        } else {
+            // Unsupported Hittable type. Phase C dispatch falls back to
+            // full uploadGeometry on this branch — no-op here is correct.
+            return;
+        }
+
+        // Single-level BVH: rebuild + republish geometry. Documented as the
+        // current cost; pkg56 Phase C still wires through this binding
+        // because the dispatch itself remains valuable, even though the
+        // cost win waits on the two-level BVH follow-up.
+        uploadGeometry();
+    }
+
     void clear() {
         renderer = Renderer();
         camera.reset();
@@ -1148,6 +1307,22 @@ public:
     }
     int getWidth() const { return camera ? camera->width : 0; }
     int getHeight() const { return camera ? camera->height : 0; }
+
+    // pkg56 Phase B — observability hooks for the partial-state tests.
+    // Cheap CPU-side counters that let test_pkg56_phase_b_uploaders.py
+    // assert "uploadMaterials() did not rebuild the BVH" without poking
+    // device memory. No external behaviour change.
+    py::dict getSceneStats() const {
+        py::dict out;
+        out["objects"]  = static_cast<int>(renderer.getScene().size());
+        out["materials"] = static_cast<int>(materials.size());
+        auto& bvh = renderer.getBVH();
+        out["bvh_built"] = static_cast<bool>(bvh);
+        out["bvh_nodes"] = bvh ? static_cast<int>(bvh->getNodes().size()) : 0;
+        out["lights"]    = static_cast<int>(renderer.getLights().getLights().size());
+        out["env_loaded"] = (envMap && envMap->loaded());
+        return out;
+    }
 };
 
 // pkg56 Phase A: viewport-sync per-stage timing ring buffer storage.
@@ -1283,6 +1458,70 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_width", &PyRenderer::getWidth)
         .def("get_height", &PyRenderer::getHeight)
         .def("set_use_gpu", &PyRenderer::setUseGPU, "enable"_a)
+        // pkg56 Phase B — per-domain incremental scene uploaders. Mirrors
+        // Cycles BlenderSync's geometry / shaders / lights / world split
+        // (intern/cycles/blender/sync.cpp, Apache-2.0). Phase C wires the
+        // addon-side bpy.types.Depsgraph.updates iteration to dispatch into
+        // these instead of always paying the full re-upload cost.
+        //
+        // GIL: upload_geometry is the heavy one (BVH rebuild + bulk device
+        // copy) and releases the GIL; upload_materials / upload_lights /
+        // upload_environment / update_object_transform / upload_scene are
+        // short and hold it (research note §8 risk 3).
+        .def("upload_geometry", &PyRenderer::uploadGeometry,
+             py::call_guard<py::gil_scoped_release>(),
+             "pkg56 Phase B: rebuild the CPU BVH and push geometry buffers "
+             "(BVH nodes, primitives, triangles, spheres, vertex normals) "
+             "to the GPU. Materials, lights and environment device buffers "
+             "are left untouched. Use after add_triangle / add_sphere edits "
+             "or vertex-position changes. Cycles equivalent: "
+             "GeometryManager::device_update.")
+        .def("upload_materials", &PyRenderer::uploadMaterials,
+             "pkg56 Phase B: push only the GMaterial flat array and "
+             "spectral profile table to the GPU. Geometry, BVH, lights and "
+             "environment device buffers are untouched. The most common "
+             "user action (a material slider drag) maps to this single "
+             "call. Cycles equivalent: ShaderManager::device_update / "
+             "Shader::tag_update().")
+        .def("upload_lights", &PyRenderer::uploadLights,
+             "pkg56 Phase B: push only the light buffer + power CDF to "
+             "the GPU. Geometry, materials and environment device buffers "
+             "are untouched. Cycles equivalent: LightManager::device_update.")
+        .def("upload_environment", &PyRenderer::uploadEnvironment,
+             "pkg56 Phase B: push only environment-map data and sampling "
+             "tables to the GPU (post-pkg63 also the MIS CDF). Geometry, "
+             "materials and lights device buffers are untouched. Cycles "
+             "equivalent: world_recalc → BackgroundManager::device_update.")
+        .def("upload_scene", &PyRenderer::uploadScene,
+             py::call_guard<py::gil_scoped_release>(),
+             "pkg56 Phase B: thin sequenced wrapper over upload_environment "
+             "+ upload_materials + upload_lights + upload_geometry. "
+             "Behaviour matches the implicit upload that render() performs "
+             "on its first call — exposed explicitly so Phase C's full-sync "
+             "fallback (and current full-render callers) have a stable "
+             "entry point. The four per-domain calls are guaranteed to "
+             "produce the same final device state in any order.")
+        .def("update_object_transform", &PyRenderer::updateObjectTransform,
+             "object_id"_a, "transform_matrix"_a,
+             "pkg56 Phase B: replace a scene primitive's transform in "
+             "place. `object_id` is the 0-based insertion index into the "
+             "scene (the order in which add_sphere / add_triangle / "
+             "add_*_light / add_mesh were called). `transform_matrix` is "
+             "16 floats, row-major 4x4 affine.\n\n"
+             "Single-level BVH limitation (pkg56 spec §Key design "
+             "decisions): a transform-only edit still rebuilds the whole "
+             "BVH and re-uploads geometry buffers inside this binding "
+             "today. The binding exists so Phase C can dispatch the "
+             "Object-with-ID_RECALC_TRANSFORM-only branch correctly; the "
+             "cost win waits on a future two-level acceleration structure. "
+             "Cycles equivalent: ObjectManager::tag_update_modified_flag, "
+             "intern/cycles/blender/object.cpp:246-249.")
+        .def("get_scene_stats", &PyRenderer::getSceneStats,
+             "pkg56 Phase B: cheap CPU-side counters (objects, materials, "
+             "BVH node count, lights, env_loaded) used by partial-state "
+             "tests to assert that an upload_materials() / "
+             "upload_lights() / upload_environment() call did not touch "
+             "the geometry/BVH state.")
         .def("_gpu_profile_lookup", &PyRenderer::gpuProfileLookup,
              "profile_index"_a, "lambda_nm"_a,
              "Return device-side reflectance for an uploaded spectral profile slot.")

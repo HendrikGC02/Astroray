@@ -171,13 +171,141 @@ bool CUDARenderer::isAvailable() const { return impl->available; }
 std::string CUDARenderer::deviceName() const { return impl->devName; }
 float CUDARenderer::getProgress() const { return 0.f; }
 
-void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
+// pkg56 Phase B — per-domain incremental uploaders.
+//
+// The CUDA scene state is partitioned into four independent slices
+// (geometry, materials, lights, environment) plus camera + film state.
+// Each slice has its own uploader that re-pushes only its device buffers.
+// uploadScene() composes them into the full sequenced upload that today's
+// callers (PyRenderer::render() on the GPU path) still rely on.
+//
+// Reference: Cycles BlenderSync per-domain upload pattern in
+// intern/cycles/blender/sync.cpp (Apache-2.0). The per-domain split there
+// is the BlenderSync class's geometry / shader / light / world members,
+// each with their own dirty flag and update() entry; we mirror it at the
+// CUDA layer so Phase C's depsgraph dispatch can target them individually.
+
+void CUDARenderer::uploadGeometry(const Renderer& cpuRenderer, const Camera& cam) {
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
 
-    // Build flat arrays on the host
-    SceneUploadResult r = buildSceneArrays(cpuRenderer, cam);
+    // Mirrors BlenderSync::sync_geometry: rebuild the geometry-only slice and
+    // push it. Materials/lights/env device buffers are intentionally untouched.
+    SceneUploadResult r = buildSceneArrays(cpuRenderer, &cam);
 
-    // Upload to device
+    devUpload(r.nodes,     &impl->d_bvhNodes);
+    devUpload(r.prims,     &impl->d_prims);
+    devUpload(r.triangles, &impl->d_triangles);
+    devUpload(r.spheres,   &impl->d_spheres);
+
+    // Camera + film + background piggyback on geometry uploads — they're
+    // tiny scalars and any caller that just changed geometry almost always
+    // wants the projection fresh too.
+    impl->camera       = r.camera;
+    impl->filmExposure = cpuRenderer.getFilmExposure();
+    Vec3 bg = cpuRenderer.getBackgroundColor();
+    if (bg.x >= 0.f) {
+        impl->backgroundColor    = GVec3(bg.x, bg.y, bg.z);
+        impl->hasBackgroundColor = true;
+    } else {
+        impl->hasBackgroundColor = false;
+    }
+
+    printf("[CUDA] Geometry uploaded: %zu nodes, %zu prims, %zu tris, %zu spheres\n",
+           r.nodes.size(), r.prims.size(), r.triangles.size(), r.spheres.size());
+}
+
+void CUDARenderer::uploadMaterials(const Renderer& cpuRenderer) {
+    if (!impl->available) throw std::runtime_error("No CUDA GPU available");
+
+    // Mirrors BlenderSync::sync_shaders / Shader::tag_update: refresh the
+    // GMaterial flat array and the spectral-profile table only. Geometry,
+    // lights, env device buffers are untouched. We pass nullptr for camera
+    // because a material-only edit must not republish camera state.
+    if (!cpuRenderer.getBVH()) {
+        // No geometry to attach materials to yet. Caller is in the
+        // "materials defined, no triangles" partial-state corner case
+        // (research note §7 Phase B acceptance). Emit a clear log; render
+        // will just produce a black image.
+        printf("[CUDA] Materials upload: BVH not built; skipping (no primitives)\n");
+        return;
+    }
+    SceneUploadResult r = buildSceneArrays(cpuRenderer, nullptr);
+
+    devUpload(r.materials, &impl->d_materials);
+    impl->profileCount = r.profileCount;
+
+    // pkg54a: re-upload spectral profile table; it's keyed by material slot.
+    if (r.profileCount > 0 && !r.profileTable.empty()) {
+        uploadProfileTable(r.profileTable.data(), r.profileCount);
+    }
+
+    printf("[CUDA] Materials uploaded: %zu mats, %d profiles\n",
+           r.materials.size(), r.profileCount);
+}
+
+void CUDARenderer::uploadLights(const Renderer& cpuRenderer) {
+    if (!impl->available) throw std::runtime_error("No CUDA GPU available");
+
+    // Mirrors BlenderSync::sync_lights: refresh the light buffer + power CDF.
+    // Geometry/materials/env device buffers are untouched.
+    if (!cpuRenderer.getBVH()) {
+        printf("[CUDA] Lights upload: BVH not built; skipping\n");
+        return;
+    }
+    SceneUploadResult r = buildSceneArrays(cpuRenderer, nullptr);
+
+    devUpload(r.lights, &impl->d_lights);
+    impl->numLights       = (int)r.lights.size();
+    impl->totalLightPower = r.totalLightPower;
+
+    printf("[CUDA] Lights uploaded: %d lights, total power %g\n",
+           impl->numLights, impl->totalLightPower);
+}
+
+void CUDARenderer::uploadEnvironment(const Renderer& cpuRenderer) {
+    if (!impl->available) throw std::runtime_error("No CUDA GPU available");
+
+    // Mirrors BlenderSync world_recalc + Background::tag_update: refresh the
+    // env atlas, sampling tables, rotation/tint, and (post-pkg63) the MIS CDF.
+    // Geometry/materials/lights device buffers are untouched.
+    auto& em = cpuRenderer.getEnvironmentMap();
+    if (!em || !em->loaded()) {
+        // World cleared — drop the device-side env state.
+        impl->freeEnv();
+        printf("[CUDA] Environment uploaded: cleared\n");
+        return;
+    }
+
+    // The EnvironmentMap path is identical to uploadEnvironmentMap() — keep
+    // the two entry points in sync. We delegate to it for the actual copy
+    // so there's a single place where env device buffers are managed.
+    uploadEnvironmentMap(*em);
+
+    printf("[CUDA] Environment uploaded: %dx%d, strength %g\n",
+           impl->envMap.width, impl->envMap.height, impl->envMap.strength);
+}
+
+void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
+    // pkg56 Phase B: the monolithic upload now coexists with the four
+    // per-domain entry points (uploadGeometry / uploadMaterials /
+    // uploadLights / uploadEnvironment). When the caller wants the *full*
+    // upload (final render path, viewport first frame, fallback for
+    // unrecognised depsgraph updates) we do a single buildSceneArrays and
+    // push every slice — the per-domain methods exist as Phase C dispatch
+    // targets, NOT as the fast path for full sync. Calling them four
+    // times here would re-run buildSceneArrays four times and regress the
+    // Phase A baseline (~80 ms geometry build on a 100k-tri scene).
+    //
+    // Reference: Cycles BlenderSync per-domain upload pattern in
+    // intern/cycles/blender/sync.cpp (Apache-2.0). The BlenderSync class
+    // also has a single sync_data() that builds the host scene once, then
+    // calls per-domain device_update() entry points — same factoring.
+    if (!impl->available) throw std::runtime_error("No CUDA GPU available");
+
+    // Build flat arrays on the host (single pass).
+    SceneUploadResult r = buildSceneArrays(cpuRenderer, &cam);
+
+    // Upload to device — every slice.
     devUpload(r.nodes,     &impl->d_bvhNodes);
     devUpload(r.prims,     &impl->d_prims);
     devUpload(r.triangles, &impl->d_triangles);
@@ -202,7 +330,7 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
         impl->hasBackgroundColor = false;
     }
 
-    // Upload env map if present
+    // Upload env map if present.
     if (r.envLoaded) {
         impl->freeEnv();
         devUpload(r.envData,     &impl->d_envData);

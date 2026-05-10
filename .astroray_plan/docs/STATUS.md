@@ -158,7 +158,7 @@ is currently the weakest link.
 | pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
 | pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) — verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0; see pkg70 Lessons + pkg75 spec for upstream AOV-degradation defect found during verification | **done** | A |
 | pkg71 | Cycles parity benchmark framework | **implemented** (first full baseline CSV pending CUDA + Cycles 4.x runner) | A |
-| pkg56 | Incremental scene sync (depsgraph diff) — Phase A: instrument viewport sync path with per-stage timers + ring buffer | **Phase A done, B + C open** | A |
+| pkg56 | Incremental scene sync (depsgraph diff) — Phase A (instrument) + Phase B (split uploadScene into per-domain uploaders + transform-update binding) | **Phases A + B done; Phase C (depsgraph dispatch) open** | A |
 | pkg74 | Engine benchmark + visual showcase framework (material zoo, convergence grid, stats CSV, HTML index) | **Phase 1 implemented**; Phase 2/3 open | A |
 | pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **done** (CPU integrator fix landed; OIDN-CUDA / OptiX re-baseline pending verifier session) | A |
 | pkg72 | Per-pixel motion vector AOV (camera-only screen-space flow; OptiX prev→curr convention; `Renderer.get_motion_buffer()` zero-copy NumPy view; `motion_vector_aov` visualisation pass) — unblocks pkg73 OptiX temporal denoiser | **done** | A |

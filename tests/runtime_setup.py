@@ -16,6 +16,10 @@ DEFAULT_TCNN_BUILD_DIR = PROJECT_ROOT / "build_tcnn"
 TEST_RESULTS_DIR = PROJECT_ROOT / "test_results"
 DEFAULT_TEMP_DIR = TEST_RESULTS_DIR / "tmp"
 _DLL_DIRECTORY_HANDLES = []
+# Tracks which dll directories have been added in this process so that
+# repeated configure_test_imports() calls (one per test file) don't
+# accumulate duplicate handles past the Windows per-process limit.
+_ADDED_DLL_DIRS: set[str] = set()
 
 
 def _unique_existing(paths: list[Path]) -> list[str]:
@@ -250,7 +254,16 @@ def configure_test_imports(include_blender_addon: bool = False) -> str:
             + candidate_oidn_dirs(build_dirs)
         )
         for dll_dir in runtime_dirs:
-            _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(dll_dir))
+            key = os.path.normcase(os.path.abspath(dll_dir))
+            if key in _ADDED_DLL_DIRS:
+                continue
+            try:
+                _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(dll_dir))
+                _ADDED_DLL_DIRS.add(key)
+            except (FileNotFoundError, OSError):
+                # Path may have become invalid since the existence check;
+                # skip silently rather than fail the whole test session.
+                pass
         _prepend_path(runtime_dirs)
 
     return build_dirs[0] if build_dirs else str(DEFAULT_BUILD_DIR)

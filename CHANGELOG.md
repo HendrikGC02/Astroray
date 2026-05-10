@@ -6,6 +6,26 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+### pkg42 — Synchrotron Emission & Relativistic Jets
+
+- Added `include/astroray/emission.h` with the shared `Emission`
+  interface for Pillar-4 volumetric emitters.
+- Added `synchrotron_jet`, implementing Pandya, Zhang, Chandra & Gammie
+  2016 Stokes-I thermal and power-law synchrotron emissivity plus
+  power-law absorptivity. The source comments document the license fence:
+  ipole's vendored symphony files are BSD-3 reference shape, while RAPTOR
+  and standalone symphony remain GPLv3 cross-validation only.
+- Wired optional synchrotron jets into `BlackHole` rendering through an
+  optically-thin segment accumulator. Full Kerr invariant transfer remains
+  pkg67 scope because `KerrMetric::geodesic_rhs` is still intentionally
+  reserved.
+- Exposed Python helpers for emission registry names, synchrotron formulae,
+  jet geometry, Doppler factor, and visible-band sampling; Blender black-hole
+  empties now expose jet Lorentz factor, half-angle, electron index, density,
+  and magnetic field controls.
+- Added `tests/test_synchrotron.py` and `tests/scenes/synchrotron_jet.py`.
+  Focused verification: 9 passed.
+
 ### pkg63 — World / HDRI Parity (Mapping rotation, color tint, MIS env-map)
 
 - **`load_environment_map` signature change** — extended for full Cycles

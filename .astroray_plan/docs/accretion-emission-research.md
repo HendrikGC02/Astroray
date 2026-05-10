@@ -232,9 +232,10 @@ double alpha_nu_powerlaw_I(double nu, double n_e, double B, double theta_B,
 }
 ```
 
-For pkg42's default p = 2.5 the absorption slope is nu^(-2.25), so
-self-absorption only matters at nu < few * GHz — the spec is right to default
-`include_self_absorption = false`.
+For pkg42's default p = 2.5 the full alpha_nu slope is nu^(-3.25): term4
+contributes nu^(-(p+2)/2), and the prefactor contributes another nu^-1.
+Self-absorption therefore only matters at nu < few * GHz — the spec is right
+to default `include_self_absorption = false`.
 
 ### 3.3 Analytic check value (Stokes-I thermal, X = 1)
 

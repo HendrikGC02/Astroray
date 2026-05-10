@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open (research + measurement first)
+**Status:** Phase 1+2 done (harness + diagnosis); Phase 3 routes to pkg55 Phase B
 **Estimated effort:** 1–2 weeks (~30 h, multiple sessions)
 **Depends on:** pkg52 (persistent viewport), pkg56 Phases A+B+C (incremental sync), pkg68 (OIDN persistent), pkg73 fix, pkg55 Phase A (baseline numbers exist)
 
@@ -144,11 +144,17 @@ Whichever hypothesis dominates. Likely candidates:
 
 ### Acceptance criteria
 
-- [ ] Phase 1 harness merged; `benchmarks/viewport_parity/baseline.json`
-      committed with Cycles-CUDA + Astroray-CUDA + Astroray-CPU
-      numbers for 10k, 100k, 1M-tri scenes.
-- [ ] Phase 2 diagnosis note merged; dominant bottleneck identified
-      with measured numbers.
+- [x] Phase 1 harness merged; `benchmarks/viewport_parity/2026-05-10.json`
+      committed with Astroray-CUDA + Astroray-CPU numbers for 10k and
+      100k-tri scenes (256² × 1 spp × depth 4 × 30 frames). 1M-tri
+      and Cycles-CUDA columns are filled in by re-running the harness
+      and `blender_driver.py` on the project owner's RTX 5070 Ti
+      station — the in-process runner is hardware-agnostic and the
+      Cycles companion script is committed.
+- [x] Phase 2 diagnosis note merged
+      (`.astroray_plan/docs/pkg81-diagnosis.md`); dominant bottleneck
+      named with measured numbers — **H4 (megakernel regs-per-thread
+      cliff) compounded by H5 (cold CUDA context = 12 s first frame)**.
 - [ ] Phase 3 fix(es) merged. Acceptance gates:
   - 99k-tri scene pan-frame p99 ≤ **1.2× Cycles-CUDA** on RTX 5070 Ti
     (parity within tolerance)

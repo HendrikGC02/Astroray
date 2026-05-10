@@ -33,15 +33,15 @@ personally should pick up.
   Phase 3 folds SMS into the default `path_tracer` via per-bounce hook
   gated by `use_refractive_caustics` AND per-object opt-in flag);
   pkg56 Phase A (viewport sync instrumentation, baseline 129.92 ms
-  on a 100k-tri scene); pkg74 Phases 1+2 (showcase framework + full
-  stat coverage, convergence rate slope −0.453); pkg71 framework + first
+  on a 100k-tri scene); pkg74 all phases (showcase framework + full
+  stat coverage, interactive self-contained HTML, weekly CI);
+  pkg71 framework + first
   canonical Cornell baseline (**Astroray-CPU SSIM 0.9536, Astroray-GPU
   SSIM 0.9548 vs Cycles-CPU EXR; Astroray-GPU 5.2× faster than
   Cycles-CUDA at the same Cornell sample budget**). Open Pillar 5
   for Round 4: pkg73 OptiX temporal denoiser (unblocked by pkg72),
   pkg56 Phase B/C (uploadScene split + depsgraph dispatch), pkg64
-  Phase 3 (default-integrator MIS fold), pkg74 Phase 3 (interactive
-  HTML + weekly CI), pkg76 (Astroray .blend importer for non-Cornell
+  Phase 3 (default-integrator MIS fold), pkg76 (Astroray .blend importer for non-Cornell
   parity rows).
 - **Pillar 4 strategic gate RELEASED (2026-05-10).** pkg56 Phases B+C
   and pkg64 Phase 3 have all landed; the gate's three preconditions are
@@ -52,7 +52,7 @@ personally should pick up.
   tests added by Rounds 2+3: pkg54c JH GPU, pkg54d profile lookup,
   pkg57 native nodes, pkg63 world parity, pkg64-1 SMS validation,
   pkg64-2 spectral SMS, pkg68 persistence, pkg69 compositor passes,
-  pkg70 OptiX, pkg72 motion vectors, pkg74-1 + pkg74-2 showcase,
+  pkg70 OptiX, pkg72 motion vectors, pkg74-1 + pkg74-2 + pkg74-3 showcase,
   pkg75 normal buffer.
 - `NEXT_STAGE_REPORT.md` is the live action queue (Round 4 prompts);
   this file is the source of truth for completion state. `production.md`
@@ -68,8 +68,8 @@ personally should pick up.
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
-| 4 | Astrophysics platform | **Thawed** | 15% | pkg41 Kerr validation | **strategic gate released 2026-05-10** — pkg56 B+C + pkg64-3 all landed |
-| 5 | Production polish / Blender parity | **Approaching feature-complete** | ~85% | Round 4: pkg73 + pkg56-B + pkg64-3 + pkg74-3 + pkg76 spec | — |
+| 4 | Astrophysics platform | Preparation | 10% | pkg41 Kerr validation | parked per 2026-05-10 strategic gate; releases when pkg56 B+C land (pkg64-3 done) |
+| 5 | Production polish / Blender parity | **Approaching feature-complete** | ~85% | Round 4: pkg73 + pkg56-B + pkg64-3 + pkg76 spec | — |
 
 **Pillar 1 package summary:**
 
@@ -159,8 +159,8 @@ is currently the weakest link.
 | pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
 | pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) — verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0; see pkg70 Lessons + pkg75 spec for upstream AOV-degradation defect found during verification | **done** | A |
 | pkg71 | Cycles parity benchmark framework | **implemented** (first full baseline CSV pending CUDA + Cycles 4.x runner) | A |
-| pkg56 | Incremental scene sync (depsgraph diff) — Phase A (instrument) + Phase B (split uploadScene) + Phase C (depsgraph-driven dispatch in `view_update`) | **Phases A + B + C done** — idle frame ≤ 5 ms gate met (dispatcher classification + early return; 0.001 ms p99 overhead, 16/16 spy regression tests green); transform-only ≤ 50% gate deferred to two-level BVH follow-up (dispatch hook in place) | A |
-| pkg74 | Engine benchmark + visual showcase framework (material zoo, convergence grid, stats CSV, HTML index) | **Phase 1 implemented**; Phase 2/3 open | A |
+| pkg56 | Incremental scene sync (depsgraph diff) — Phase A (instrument) + Phase B (split uploadScene into per-domain uploaders + transform-update binding) | **Phases A + B done; Phase C (depsgraph dispatch) open** | A |
+| pkg74 | Engine benchmark + visual showcase framework (material zoo, convergence grid, stats CSV, HTML index) | **done (all phases)** | A |
 | pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **done** (CPU integrator fix landed; OIDN-CUDA / OptiX re-baseline pending verifier session) | A |
 | pkg72 | Per-pixel motion vector AOV (camera-only screen-space flow; OptiX prev→curr convention; `Renderer.get_motion_buffer()` zero-copy NumPy view; `motion_vector_aov` visualisation pass) — unblocks pkg73 OptiX temporal denoiser | **done** | A |
 | pkg73 | OptiX TEMPORAL_AOV denoiser mode (auto-upgrade from pkg70 AOV when pkg72 motion buffer is non-zero; destroy + recreate on model-kind transition; ping-pong internal-guide-layer pair; previous-output cache + first-frame fallback; clean fallback to AOV on static cameras and on resolution change). Mirrors Cycles `intern/cycles/device/optix/device_impl.cpp` (Apache-2.0). | **implemented** (CUDA + OptiX SDK verification + ≥30% inter-frame variance gate pending verifier session) | A |
@@ -215,7 +215,6 @@ pkg64 final fold, pkg74 CI)
     instrumentation as before/after baseline
   - **pkg64 Phase 3** fold SMS into default `path_tracer` via MIS
     (~½ week) — completes the caustics flagship
-  - **pkg74 Phase 3** interactive HTML + weekly CI (~3 days)
   - **pkg76 spec** Astroray .blend importer (parity scope) — unblocks
     Classroom/Junkshop/BMW27/Monster pkg71 rows
 - After Round 4: pkg56 Phase C, pkg76 implementation, pkg55 Phase A
@@ -260,8 +259,8 @@ pkg64 final fold, pkg74 CI)
   pkg65 scripts cleanup, pkg66 material iteration UX. **The Pillar 4 specs
   (pkg41-pkg49) are Codex-paste-ready and waiting** for the strategic
   gate to release.
-- Round 4 Codex queue: pkg64 Phase 3 (default-integrator MIS fold, ~½ week),
-  then pkg74 Phase 3 (interactive HTML + weekly CI, ~3 days).
+- Round 4 Codex queue: pkg64 Phase 3 (default-integrator MIS fold, ~½ week)
+  completed; pkg74 Phase 3 (interactive HTML + weekly CI) completed.
 - Recent: pkg53 GPU integrator diagnostics and pkg61 shade-smooth GPU parity
   diagnostics/fix work; this docs reconciliation pass corrected stale package
   headers and package-number collisions in planning docs.
@@ -332,7 +331,7 @@ events are summarized in the changelog below.
 | pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
 | pkg70 | A | **done** | OptiX denoiser plugin co-equal with OIDN; persistent OptixDeviceContext + OptixDenoiser handle, lazy init, HDR vs AOV model selection by guide presence; `gpu_optix_available()` Python probe; addon `denoiser_backend` Auto/OptiX/OIDN with OptiX preferred when both present. **Verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0**: 17/17 pytest green; 5.31× synthetic-noise reduction at 256×256; 1.86× faster than OIDN-CUDA at 1080p (728.94 ms vs 1356.09 ms); SSIM(OptiX, OIDN) = 0.9987. Empty-normal-buffer defect surfaced upstream during verification → tracked as pkg75 |
 | pkg71 | A | **implemented** | benchmark framework done; first full baseline CSV pending CUDA/Cycles hardware |
-| pkg74 | A | **Phases 1 + 2 done** | Phase 1: framework + material zoo + Cornell convergence grid + log-log RMSE curve + stats CSV + HTML index. Phase 2 (this round): full stat catalog from research note §2 (geometry / memory / timing / sampling / quality / spectral / GPU / integrator-specific) per-row, paired-seed variance render, log-log convergence-rate slope on the curve (measured −0.453 vs MC target −0.5 on the implementer machine), new `integrator_compare` scene + bar-chart timing artefact, `--gpu` flag with clean fallback when CUDA absent, HTML category sections via `<details>`. Pure Python — no engine bindings added (per spec design decision #7); forward-compat probes populate BVH/GPU-mem/per-ray-type columns the moment those bindings land. Pytest gates: `test_benchmark_showcase_runs.py` (Phase 1) + `test_benchmark_showcase_phase2.py` (Phase 2) both green in <5 s. Phase 3 (interactive HTML dashboard + weekly CI workflow) open |
+| pkg74 | A | **done (all phases)** | Phase 1: framework + material zoo + Cornell convergence grid + log-log RMSE curve + stats CSV + HTML index. Phase 2: full stat catalog from research note §2 (geometry / memory / timing / sampling / quality / spectral / GPU / integrator-specific) per-row, paired-seed variance render, log-log convergence-rate slope on the curve (measured −0.453 vs MC target −0.5 on the implementer machine), new `integrator_compare` scene + bar-chart timing artefact, `--gpu` flag with clean fallback when CUDA absent. Phase 3: self-contained PBRT-style HTML dashboard with inlined artefacts/RMSE plots, sortable stats tables, scene filter, run-history navigation, and weekly self-hosted CI guarded by `ASTRORAY_RUN_SHOWCASE_WEEKLY`. Pure Python — no engine bindings added (per spec design decision #7); forward-compat probes populate BVH/GPU-mem/per-ray-type columns the moment those bindings land. Pytest gates: `test_benchmark_showcase_runs.py`, `test_benchmark_showcase_phase2.py`, and `test_pkg74_phase3_html.py`. |
 | pkg75 | A | **done** | first-hit normal buffer population for denoiser AOV guides; root cause was a missing `r.normal = rec.normal` in `plugins/integrators/spectral_path_tracer.cpp::sampleFull` (the integrator registered as `path_tracer`, the actual default per `src/default_integrator.cpp`). Canonical render loop at `include/raytracer.h:2452` was already copying `ir.normal` faithfully — the upstream value was just `Vec3(0)`. Fix is one line, cites Cycles `intern/cycles/integrator/pass.cpp` PASS_NORMAL semantics. New `tests/test_normal_buffer_populated.py` asserts unit-length world-space normals at every hit pixel and `Vec3(0)` at misses. Re-baseline (PR #223) confirms post-pkg75 OIDN-on −7.3% (50.67→46.98 ms), pkg68 headline win up 2.57×→2.77× |
 | pkg72 | A | **done** | per-pixel motion vector AOV (camera-only screen-space flow); `Camera::motionBuffer` (float2/pixel, OptiX prev→curr convention) populated by primary-ray write site in `Renderer::render`; `Camera::snapshotForMotion()` runs at end of every frame; `setup_camera` carries the prev-projection snapshot across re-uploads so Blender viewport pans produce non-zero flow on frame 2+; `Renderer.get_motion_buffer()` returns a zero-copy NumPy view shaped `(H, W, 2)`; `motion_vector_aov` plugin visualises the buffer; mirrors Cycles `intern/cycles/integrator/pass.cpp` PASS_MOTION (Apache-2.0). Unblocks pkg73 OptiX temporal denoiser |
 

@@ -139,6 +139,7 @@ is currently the weakest link.
 | pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
 | pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) — verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0; see pkg70 Lessons + pkg75 spec for upstream AOV-degradation defect found during verification | **done** | A |
 | pkg71 | Cycles parity benchmark framework | **implemented** (first full baseline CSV pending CUDA + Cycles 4.x runner) | A |
+| pkg74 | Engine benchmark + visual showcase framework (material zoo, convergence grid, stats CSV, HTML index) | **Phase 1 implemented**; Phase 2/3 open | A |
 | pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **open** | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
@@ -303,6 +304,7 @@ events are summarized in the changelog below.
 | pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
 | pkg70 | A | **done** | OptiX denoiser plugin co-equal with OIDN; persistent OptixDeviceContext + OptixDenoiser handle, lazy init, HDR vs AOV model selection by guide presence; `gpu_optix_available()` Python probe; addon `denoiser_backend` Auto/OptiX/OIDN with OptiX preferred when both present. **Verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0**: 17/17 pytest green; 5.31× synthetic-noise reduction at 256×256; 1.86× faster than OIDN-CUDA at 1080p (728.94 ms vs 1356.09 ms); SSIM(OptiX, OIDN) = 0.9987. Empty-normal-buffer defect surfaced upstream during verification → tracked as pkg75 |
 | pkg71 | A | **implemented** | benchmark framework done; first full baseline CSV pending CUDA/Cycles hardware |
+| pkg74 | A | **Phase 1 implemented** | engine showcase framework: material zoo (registry-driven), Cornell convergence grid + log-log RMSE curve, stats CSV (untyped integrator-stats round-trip), static HTML index; outputs gitignored under `benchmarks/showcase/output/`; pytest gate verifies five artefacts in <30s; Phase 2 (integrator compare, GPU rows, BVH stats) and Phase 3 (interactive HTML, weekly CI) open |
 | pkg75 | A | **open** | first-hit normal buffer population for denoiser AOV guides; `Camera::normalBuffer` is allocated but never written by the default `Renderer` integrator path — both OIDN AOV mode and OptiX AOV mode silently degrade to HDR + albedo only; surfaced during pkg70 verification 2026-05-10 |
 
 ---

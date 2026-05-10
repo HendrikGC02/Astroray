@@ -128,10 +128,17 @@ The four open questions from the original draft are answered:
   `include/astroray/manifold/`; integrator is sphere-caster only for
   Phase 1. Phase 1 acceptance test:
   `tests/test_sms_caustic_validation.py`.
-- [ ] **Phase 2 (spectral)**: per-wavelength Newton residual using
-  `Sellmeier(λ_hero)` from pkg31 — math from Hanika 2015 §4. Extend
-  reprojection to triangle meshes via BVH ray cast. Replace numerical
-  Jacobian with the analytic form from Zeltner 2020 §4.3.
+- [x] **Phase 2 (spectral)**: per-wavelength Newton residual using
+  `Sellmeier(λ_hero)` from pkg31 — math from Hanika 2015 §4. Sphere-only
+  caster scope retained from Phase 1; the Newton solve, refraction
+  direction and Schlick Fresnel are evaluated at the hero wavelength of
+  the current `SampledWavelengths` bundle and the contribution is
+  written to the hero spectral channel only. Gated behind a new
+  `spectral_newton` integrator param (default off, so the Phase 1
+  regression in `tests/test_sms_caustic_validation.py` is unchanged).
+  Acceptance test: `tests/test_sms_caustic_spectral.py`.
+  Triangle-mesh reprojection and the analytic Jacobian replacement
+  (Zeltner 2020 §4.3) remain follow-ups, scoped out of Phase 2.
 - [ ] **Phase 3 (default-integrator integration)**: fold SMS into
   `path_tracer` as an MIS strategy under `use_refractive_caustics` /
   `use_reflective_caustics`. Add `is_caustic_caster` per-object
@@ -150,4 +157,39 @@ The four open questions from the original draft are answered:
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+### Phase 2 — spectral wavelength-Newton (2026-05-10)
+
+- **Hero-wavelength residual is the right level of decoupling.**
+  Hanika 2015 §4's observation that `h(λ) = ω_i + η(λ)·ω_o` is linear in
+  the wavelength-dependent η means each ray only needs one Newton solve
+  at λ_hero, not one per channel. Different rays sample different
+  λ_hero, so per-pixel accumulation across rays is what produces the
+  prism rainbow — no per-RGB-channel iteration required.
+- **Reuse the dispersive-dielectric convention for hero-only output.**
+  After running the Newton solve and refraction with η(λ_hero), the
+  refracted direction is wavelength-specific, so the secondary
+  wavelengths of the bundle are not valid for that path. The integrator
+  writes the contribution into channel 0 of a `SampledSpectrum` and
+  leaves the rest at zero — exactly the same convention that
+  `plugins/materials/dielectric.cpp` already uses on dispersive
+  refraction events (`SampledWavelengths::terminateSecondary`-equivalent
+  semantics).
+- **`set_integrator_param` only routes ints.** The Python binding for
+  `setIntegratorParam` (module/blender_module.cpp:1052) takes `int`,
+  and `ParamDict::getBool` only matches `bool`-typed entries, so a
+  `getBool("spectral_newton")` reads as the default. Toggle is now
+  read via `getInt("spectral_newton", 0) != 0`.
+- **Performance ratio measured.** On the 64×64 BK7-sphere acceptance
+  scene, spectral mode runtime ≈ 0.98× of RGB mode — the work per ray
+  is identical (one Newton solve in both cases); the spectral path
+  only adds a Sellmeier evaluation and a hero-only spectrum write.
+  Well inside the ≤ 2× budget.
+- **Visual chromatic-spread metric was noise-dominated at the test's
+  spp budget.** The PSNR-vs-spectral-reference delta (≥ 8 dB on the
+  acceptance scene, target ≥ 3 dB) is the strict gate; the spread
+  metric is logged for diagnostics but not asserted. If a stricter
+  visual gate is wanted later, the right move is to compute spread on
+  `(sms_spectral − sms_rgb)` so the path-tracer baseline noise cancels
+  out, rather than on the raw image.
+
+*(Phase 3 lessons to follow.)*

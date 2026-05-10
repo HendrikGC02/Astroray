@@ -97,6 +97,13 @@ public:
     Vec3 getAlbedo() const override { return tint_; }
     std::string getGPUTypeName() const override { return "dielectric"; }
     float getIOR() const override { return ior_; }
+    // Wavelength-dependent IOR. With a Sellmeier preset loaded this evaluates
+    // the dispersion equation at λ; otherwise it falls back to the flat IOR.
+    // Consumed by pkg64 Phase 2 SMS wavelength-Newton (Hanika 2015 §4).
+    float iorAt(float lambda_nm) const override {
+        if (!dispersive_) return ior_;
+        return sellmeierIOR(lambda_nm, sellmeierB_, sellmeierC_);
+    }
     astroray::MaterialClosureGraph closureGraph() const override {
         astroray::MaterialClosureGraph graph;
         if (!dispersive_) {

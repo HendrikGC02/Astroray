@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** Phases 1 + 2 implemented; Phase 3 open
+**Status:** done (all phases)
 **Estimated effort:** 1.5 weeks initial; recurring use thereafter
 **Depends on:** none hard.
 - pkg71 (Cycles parity benchmark) is a soft dep — once it lands a
@@ -155,10 +155,11 @@ exactly as in Phase 1; new artefacts surface under new flags
 
 - Sortable tables in `index.html`, scene-vs-scene side-by-side
   toggle, run-history index across `output/` dated subdirectories.
-- `.github/workflows/showcase-weekly.yml` — runs `runner.py --quick`
-  on a non-CUDA self-hosted runner, uploads the resulting directory
-  as a workflow artefact. Different runner from pkg71's because
-  pkg74 Phase 1 does not need CUDA.
+- `.github/workflows/showcase.yml` — runs `runner.py --quick`
+  on a non-CUDA self-hosted runner, regenerates the self-contained
+  HTML index, and uploads the resulting directory as a workflow
+  artefact. Different runner from pkg71's because pkg74 does not need
+  CUDA.
 
 ### Files to modify (Phase 1)
 
@@ -294,15 +295,16 @@ spec design decision #7, those become their own packages)
 - [ ] NRC training loss curve (same — round-trips through
       `get_integrator_stats()` if a future PR adds the key).
 
-### Phase 3 (separate PR)
+### Phase 3
 
-### Phase 3 (separate PR)
-
-- [ ] `index.html` is interactive (sortable tables, run-history
-      navigation, scene toggle).
-- [ ] `.github/workflows/showcase-weekly.yml` runs once on the
-      self-hosted runner, uploads the dated output directory as a
-      workflow artefact.
+- [x] `index.html` is interactive (sortable tables, run-history
+      navigation, scene toggle) and self-contained with inline PNG
+      artefacts plus per-scene RMSE plots.
+- [x] `.github/workflows/showcase.yml` runs weekly at Sunday 03:00
+      UTC on a self-hosted runner when
+      `ASTRORAY_RUN_SHOWCASE_WEEKLY=true`, regenerates the showcase
+      index, and uploads the dated output directory as a workflow
+      artefact.
 
 ---
 
@@ -363,3 +365,16 @@ spec design decision #7, those become their own packages)
   continues to pass alongside the new Phase 2 gate; column
   back-compat held by leaving `mean_luminance`, `p99_luminance`,
   `render_seconds`, etc. unprefixed and additive only.
+
+### Phase 3
+
+- `benchmarks/showcase/html_index.py` now writes a single
+  self-contained HTML artefact: contact sheets and RMSE plots are
+  base64-inlined, the stats CSV is split into collapsible category
+  tables, and the tables sort with small vanilla JavaScript.
+- The generated page preserves source PNG filenames in metadata so
+  Phase 1/2 back-compat tests and human artifact audits still see
+  exactly which files were produced.
+- Weekly showcase CI is guarded by the repository variable
+  `ASTRORAY_RUN_SHOWCASE_WEEKLY`; scheduled runs no-op on forks or
+  repos without an explicitly configured self-hosted runner.

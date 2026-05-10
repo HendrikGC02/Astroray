@@ -34,6 +34,8 @@ tests/output/
 benchmarks/cycles-parity/results/
 benchmarks/cycles-parity/scenes/cache/
 benchmarks/cycles-parity/refs/*.exr
+benchmarks/showcase/output/*
+!benchmarks/showcase/output/.gitkeep
 
 # Media outputs
 output.ppm

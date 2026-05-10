@@ -68,11 +68,22 @@ __device__ float gpu_jhEvalSpectrum(const GVec3& rgb, float lambda);
 __device__ inline float gpu_rgbSpectrumAt(const GVec3& rgb, float lambda, GSpectralMode mode) {
     if (mode == GSPEC_NONE) return luminance(rgb);
     // pkg54c: JH 2019 sigmoid upsampling replaces the earlier 3-Gaussian
-    // RGB-basis stand-in. ILLUMINANT mode continues to multiply by the
-    // normalized D65 SPD (pkg54a/b fix preserved).
-    float v = gpu_jhEvalSpectrum(rgb, lambda);
-    if (mode == GSPEC_RGB_ILLUMINANT) v *= gpu_sampleD65(lambda);
-    return fmaxf(v, 0.f);
+    // RGB-basis stand-in. ILLUMINANT mode mirrors CPU
+    // RGBIlluminantSpectrum (src/spectrum.cpp:464-491): renormalize by
+    // 2*max(rgb) before the JH lookup, then scale-back and multiply by
+    // the normalized D65 SPD (pkg54a/b fix preserved). Without the
+    // renormalization the LUT is queried at the wrong location and the
+    // visible-band CPU<->GPU SSIM gate (>=0.999) cannot be hit.
+    if (mode == GSPEC_RGB_ILLUMINANT) {
+        float m = fmaxf(fmaxf(rgb.x, rgb.y), rgb.z);
+        if (m <= 0.f) return 0.f;
+        float scale = 2.f * m;
+        GVec3 normalized{ rgb.x / scale, rgb.y / scale, rgb.z / scale };
+        return fmaxf(scale * gpu_jhEvalSpectrum(normalized, lambda)
+                           * gpu_sampleD65(lambda), 0.f);
+    }
+    // ALBEDO: gpu_jhLookupCoeffs already clamps rgb to [0,1].
+    return fmaxf(gpu_jhEvalSpectrum(rgb, lambda), 0.f);
 }
 
 __device__ inline GSampledSpectrum gpu_rgbToSampledSpectrum(

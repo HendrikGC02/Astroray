@@ -206,58 +206,122 @@ Constraints:
 
 ```
 You are Claude Code in worktree .claude/worktrees/pkg73-fix,
-branched from current main. The CUDA verifier just posted the
-[pkg73-diag] hardware capture as a comment on PR #241. Read
-it, identify the failing branch (a/b/c per the diag prompt),
-fix the root cause, re-verify on RTX.
+branched from current main. The CUDA verifier posted the
+[pkg73-diag] hardware capture as PR #241 issuecomment-4415448408
+on 2026-05-11. Findings (READ THE COMMENT FIRST):
+
+  - Test result: 4 passed, 1 failed. Only
+    test_inter_frame_variance_reduction stays red (0.4 %
+    reduction vs ≥30 % gate).
+  - The previously-failing TEMPORAL_AOV-substring test now
+    passes — the kind transition is firing (8996 → 8998 once
+    after the first motion-bearing frame, honored thereafter).
+  - Discriminators (a) and (b) RULED OUT by the trace:
+    * (a) pointer mismatch — cam= matches between renderFrame
+      entry and the following snapshot for every frame; motion
+      buffer pointers in execute reuse a stable ring.
+    * (b) zero-buffer — every hasMotion=1 execute reports
+      motion_nonzero_count 4142–7842 and motion_abs_max ≈ 0.32
+      on stepped frames (~1e-5 on duplicate-camera frames, as
+      expected).
+  - Discriminator (c) is most consistent. Failure must be
+    DOWNSTREAM of the kind-transition. Two candidates remain:
+       (c1) prev-output guide-layer wiring bug (code)
+       (c2) test methodology — RMS metric at noise floor at
+            96×96 / 1 spp, dominated by content change rather
+            than denoiser noise (gate vs scene).
 
 Read first:
-  - The verifier's [pkg73-diag] comment on PR #241
-  - plugins/passes/optix_denoiser.cpp (the execute() short-
-    circuit; the printf landed there is your starting point)
-  - include/raytracer.h::Camera::snapshotForMotion() and
-    Renderer::renderFrame() entry (the other two diag sites)
+  - PR #241 issuecomment-4415448408 (the verifier's full trace
+    + per-frame numbers)
+  - plugins/passes/optix_denoiser.cpp (the TEMPORAL_AOV setup
+    block — focus on OptixDenoiserGuideLayer fields: `flow`,
+    `previousOutputInternalGuideLayer`,
+    `outputInternalGuideLayer`. These have to ping-pong; if
+    they point at the same buffer or the same internal guide
+    layer object, OptiX runs TEMPORAL_AOV but loses temporal
+    info)
   - tests/test_optix_denoiser_temporal.py
-  - PR #241's body (the static-analysis trail that ruled out
-    obvious logic bugs)
+    ::test_inter_frame_variance_reduction (the failing gate;
+    note the 96×96 / 1 spp choice)
+  - intern/cycles/device/optix/device_impl.cpp the
+    `prev_output` cache + ping-pong pattern. Apache-2.0.
+    Reference for what correct wiring looks like.
 
-Decision tree from diag output:
-  - hasPrevCamera=0 on frame 2  → snapshot lifecycle bug
-    (probably setup_camera bridge); fix in module/blender_module.cpp
-  - hasPrevCamera=1, motion_nonzero_count=0 → motion-write site
-    never fires; fix in include/raytracer.h render loop
-  - hasPrevCamera=1, motion_nonzero_count>0, motion_buf=NULL in
-    execute() → Framebuffer::buffer("motion") not registered at
-    pass time; fix in include/raytracer.h Framebuffer
-  - All non-zero but desiredKind never TEMPORAL_AOV → kind-
-    selection logic in execute(); fix locally
-  - All non-zero AND desiredKind=TEMPORAL_AOV but rms_t==rms_a →
-    test methodology issue (denoiser ran but pkg70 also got the
-    benefit somehow); fix in tests/test_optix_denoiser_temporal.py
+Decision procedure — bisect (c1) vs (c2):
 
-Step 1 — diagnose (write down which branch fired in PR body).
-Step 2 — fix the root cause. ONE fix. Surgical.
-Step 3 — REMOVE the [pkg73-diag] prints (they were marked
-"remove after fix" with date; do it now).
-Step 4 — request a re-run from the verifier or run the gate
-test yourself if a CUDA build is available.
+  Step A. Read the OptiX TEMPORAL_AOV docs §AI Denoiser flow
+  contract. Trace through the implementation against:
+    * Two internal guide layers exist (current + previous)
+    * The pair is swapped after each execute (current becomes
+      previous for the next frame)
+    * First frame has previousOutputInternalGuideLayer = a
+      zero-initialised buffer (or Cycles' "no-prev-frame"
+      sentinel — see device_impl.cpp)
+    * Layout (pixelStrideInBytes, format, rowStrideInBytes)
+      is consistent
+
+  If you find a wiring bug — fix it. That's (c1).
+
+  If the wiring is correct, prove it. Add a temporary
+  diagnostic print of the prev_output_buf address at execute
+  entry and exit, and log the swap. Re-run the test on RTX.
+  If both buffers are populated and swap correctly across
+  frames but variance reduction stays at ~0 %, the wiring is
+  good and (c2) is the answer.
+
+  If (c2): the gate is the wrong shape for the test scene.
+  TWO acceptable resolutions, choose with measurement:
+    Option 1: bump test resolution + spp so MC noise is the
+    dominant variance source (e.g. 256×256 / 16 spp). At that
+    point, TEMPORAL_AOV vs AOV should show a real (>30 %)
+    delta because temporal coherence between frames at moderate
+    spp IS what TEMPORAL_AOV is designed to exploit.
+    Option 2: change the gate metric. Instead of RMS of
+    inter-frame difference (which is dominated by pan-induced
+    content change), compare per-pixel variance of N
+    re-renders of the SAME frame with different RNG seeds
+    against the prev-frame guide. Cycles' temporal denoising
+    benchmarks measure this way.
+
+  Choose by measurement: if Option 1 (higher spp) hits ≥30 %,
+  ship it — it's the simpler fix. If it doesn't, the metric
+  itself is wrong and Option 2 is required. Show numbers in
+  the PR body either way.
+
+Step 1 — diagnose. Write up which branch (c1 or c2) and why
+in the PR body, with the measurements that justified the call.
+Step 2 — fix the root cause. ONE surgical fix.
+Step 3 — REMOVE the [pkg73-diag] prints (the previous diag PR
+explicitly marked them "remove after fix" with date — do it
+now).
+Step 4 — re-run the gate on RTX. Must clear ≥30 %.
+
+Build provenance note: build_cuda is NMake-generated. The
+verifier flagged that nmake/cl aren't on MSYS-bash PATH. Run
+the rebuild from a VS Developer Command Prompt (vcvars64
+shell), or use the windows-tcnn-vs-release preset which uses
+MSBuild via cmake --build. Either path works; do not bash-
+escape your way around it.
 
 Constraints:
   - CLAUDE.md sections 1, 2, 3, 6.
-  - Do NOT relax the ≥30 % gate.
-  - Do NOT add a "force temporal mode" flag — the gate that only
-    upgrades on real motion is correct design.
+  - Do NOT relax the ≥30 % gate by lowering the floor. If you
+    change the test (Option 1 or 2), the new gate must show a
+    ≥30 % delta on a real measurement; the gate STAYS at 30 %.
+  - Do NOT add a "force temporal mode" flag — the auto-upgrade
+    on real motion is correct design.
   - DO NOT consult Cycles MNEE source (wrong concern); pkg73
     reference is intern/cycles/device/optix/device_impl.cpp
     (Apache-2.0).
-  - If diagnosis points at the test methodology rather than the
-    pass, fix the test — call it out clearly in the PR body.
 
 When done:
   - Append "Defect fix 2026-05-XX" section to pkg73 spec with
-    measured numbers (must clear ≥30 %).
-  - PR titled "fix(pkg73): TEMPORAL_AOV upgrade branch never
-    fired on hardware (root cause: <one-line>)".
+    the (c1 vs c2) call + measured numbers.
+  - PR titled either:
+    * "fix(pkg73): prev-output guide-layer ping-pong (c1)"
+    * "fix(pkg73): variance gate moved to spp=16 / 256x256 (c2)"
+    Whichever applies, with the one-line root cause in the title.
 ```
 
 ### 3.3 Claude tech (worktree `pkg55-phase-a1`) — SoA infra + intersect queue

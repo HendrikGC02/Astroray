@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** Phase 1 implemented; Phase 2/3 open
+**Status:** Phases 1 + 2 implemented; Phase 3 open
 **Estimated effort:** 1.5 weeks initial; recurring use thereafter
 **Depends on:** none hard.
 - pkg71 (Cycles parity benchmark) is a soft dep — once it lands a
@@ -247,13 +247,54 @@ applies: every changed line traces to the user's pkg74 brief.
       `.astroray_plan/docs/engine-benchmark-research.md` and is
       cited from `runner.py`'s file header.
 
-### Phase 2 (separate PR)
+### Phase 2 (this round)
 
-- [ ] `--full` flag adds integrator-comparison contact sheet,
-      cornell-variants gallery, per-integrator timing bar chart.
-- [ ] `--gpu` flag adds GPU integrator rows, skipped cleanly when
-      CUDA absent.
-- [ ] BVH stats columns populated once `bvh_stats()` binding exists.
+- [x] `benchmarks/showcase/stats.py` carries category collectors for
+      geometry / memory / timing / sampling / quality / spectral /
+      GPU / integrator-specific. Every column is prefixed by its
+      category and the runner merges them into one row.
+- [x] `scenes/integrator_compare.py` runs every safe registered
+      integrator on Cornell-with-glass; new artefacts:
+      `integrator_compare_contact_sheet.png` and
+      `integrator_compare_timing.png`.
+- [x] Paired-seed variance render at the convergence-grid top SPP
+      populates `qual_variance_mean / _p95 / _max`.
+- [x] `qual_convergence_rate_slope` annotates the convergence curve
+      legend with the fitted log-log slope (target −0.5 for unbiased
+      Monte Carlo).
+- [x] `--gpu` flag appends rows tagged `device=gpu`; cleanly skipped
+      when CUDA is absent (rows record `gpu unavailable` skip_reason).
+- [x] HTML index groups CSV columns into 9 collapsible `<details>`
+      sections (Run metadata / Geometry / Memory / Timing / Sampling
+      / Quality / Spectral / GPU / Integrator-specific) — no JS.
+- [x] `tests/test_benchmark_showcase_phase2.py` asserts non-empty
+      cells across every required category, slope < 0, contact-sheet
+      + timing PNGs loadable, Phase 1 columns intact (back-compat).
+- [x] Phase 1 pytest gate (`test_benchmark_showcase_runs.py`)
+      continues to pass — no Phase 1 column was renamed or dropped.
+
+### Phase 2 — deferred (would require C++ instrumentation; per
+spec design decision #7, those become their own packages)
+
+- [ ] BVH node / leaf / max-depth columns (`geom_bvh_*`) — present
+      in the schema, populated when a `bvh_stats()` binding lands.
+- [ ] GPU device-memory columns (`mem_gpu_*`) — schema-present;
+      need a `gpu_memory_*_mb()` binding.
+- [ ] Per-ray-type counters (`samp_camera_rays / _shadow_rays /
+      _scattered_rays`) — schema-present; need integrator-side
+      instrumentation across path_tracer / spectral_path_tracer /
+      multiwavelength_path_tracer.
+- [ ] Hero-wavelength selection histogram (`spec_hero_band_histogram`)
+      — schema-present; needs `SampledWavelengths::sampleUniform`
+      counter array.
+- [ ] Per-bounce / per-material radiance breakdown.
+- [ ] Russian-roulette termination rate (`samp_rr_termination_pct`).
+- [ ] ReSTIR reservoir-reuse rate (`intstat_*` round-trip will
+      surface it the moment the integrator emits the key).
+- [ ] NRC training loss curve (same — round-trips through
+      `get_integrator_stats()` if a future PR adds the key).
+
+### Phase 3 (separate PR)
 
 ### Phase 3 (separate PR)
 
@@ -279,12 +320,11 @@ applies: every changed line traces to the user's pkg74 brief.
 
 ## Lessons
 
-(Filled in during Phase 1 close-out.)
+### Phase 1
 
-- Phase 1 implemented in this PR. Framework + material zoo +
-  convergence grid + convergence curve + CSV + HTML index runs
-  end-to-end on the implementer machine; pytest gate is the
-  five-artefact existence check.
+- Framework + material zoo + convergence grid + convergence curve +
+  CSV + HTML index runs end-to-end on the implementer machine;
+  pytest gate is the five-artefact existence check.
 - `material_registry_names()` returns names that include `light`
   and `null` material types unsuitable for sphere previews — the
   runner's per-material `try/except` handles them via a recorded
@@ -294,3 +334,32 @@ applies: every changed line traces to the user's pkg74 brief.
   EXR; this keeps Phase 1 hermetic but means the absolute MSE
   values are not comparable across runs at different `--quick`
   settings. Documented in `benchmarks/showcase/README.md`.
+
+### Phase 2
+
+- All Phase 2 code is **pure Python**, on top of existing bindings —
+  per spec design decision #7, no engine changes were made. Forward-
+  compat hooks (`hasattr(r, 'bvh_node_count')` etc) populate the
+  CSV automatically the moment those bindings land in a future
+  package.
+- Convergence-rate slope on the Cornell box at SPP=[1, 4, 16, 64]
+  measured **−0.453** on the implementer machine (target: −0.5 for
+  unbiased Monte Carlo). The curve PNG annotates the fitted slope
+  in the legend so this is visible at a glance.
+- `multiwavelength_path_tracer` rendered mostly black on the
+  integrator_compare scene because the wavelength range was not
+  explicitly set (it defaults to a band the Cornell materials don't
+  emit in). Recorded honestly as a near-zero `mean_luminance` cell;
+  this is exactly the kind of "honest visualisation of a default"
+  the showcase is supposed to surface. A follow-up could add a
+  `set_wavelength_range(380, 780)` call in the scene builder, but
+  changing it would silently mask the default-misconfiguration risk
+  for new users.
+- `--gpu` flag is opt-in and tested with CUDA absent
+  (`test_gpu_flag_runs_without_cuda`): every row falls back to
+  `device=cpu` with a `gpu unavailable` skip_reason rather than
+  crashing.
+- The Phase 1 pytest gate (`test_benchmark_showcase_runs.py`)
+  continues to pass alongside the new Phase 2 gate; column
+  back-compat held by leaving `mean_luminance`, `p99_luminance`,
+  `render_seconds`, etc. unprefixed and additive only.

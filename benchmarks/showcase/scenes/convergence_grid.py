@@ -15,9 +15,14 @@ from __future__ import annotations
 from .. import config
 
 
-def build_cornell(renderer, width: int, height: int) -> None:
-    """Cornell box: diffuse coloured walls, white sphere, ceiling area light."""
-    renderer.set_integrator("path_tracer")
+def build_cornell(renderer, width: int, height: int,
+                  *, integrator: str = "path_tracer") -> dict:
+    """Cornell box: diffuse coloured walls, white sphere, ceiling area light.
+
+    Returns a `scene_meta` dict counting what was added — Phase 2 stat
+    collectors record these as `geom_*` columns.
+    """
+    renderer.set_integrator(integrator)
     if hasattr(renderer, "set_seed"):
         renderer.set_seed(config.QUICK_SEED)
 
@@ -56,3 +61,13 @@ def build_cornell(renderer, width: int, height: int) -> None:
     # Ceiling light.
     renderer.add_triangle([-0.42, 1.96, -0.35], [0.42, 1.96, -0.35], [0.42, 1.96, 0.35], light)
     renderer.add_triangle([-0.42, 1.96, -0.35], [0.42, 1.96, 0.35], [-0.42, 1.96, 0.35], light)
+
+    triangles = 14   # 6 walls × 2 + 2 light face = 14 triangles
+    spheres = 1
+    return {
+        "triangles":  triangles,
+        "spheres":    spheres,
+        "primitives": triangles + spheres,
+        "materials":  4,         # white, red, green, light
+        "lights":     1,         # one ceiling area-light face
+    }

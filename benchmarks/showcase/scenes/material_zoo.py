@@ -33,11 +33,14 @@ def material_entries(astroray_module) -> Iterator[tuple[str, str, list[float], d
         yield name, name, list(color), dict(params)
 
 
-def build_material_preview_scene(renderer, material_id: int, resolution: int) -> None:
+def build_material_preview_scene(renderer, material_id: int, resolution: int) -> dict:
     """Single-sphere preview scene under uniform sun + grey background.
 
     Mirrors `scripts/diagnostics/_preview_helpers.add_preview_scene` so
     the zoo and the existing per-material diagnostic compose visually.
+
+    Returns a `scene_meta` dict counting what was added — Phase 2 stat
+    collectors record these as `geom_*` columns.
     """
     renderer.set_integrator("path_tracer")
     if hasattr(renderer, "set_seed"):
@@ -46,10 +49,12 @@ def build_material_preview_scene(renderer, material_id: int, resolution: int) ->
     renderer.set_background_color([0.18, 0.19, 0.21])
 
     sun_mat = renderer.create_material("light", [1.0, 0.96, 0.88], {"intensity": 2.8})
+    sun_used_geom = False  # whether the sun was added as a sphere fallback
     if hasattr(renderer, "add_sun_light"):
         renderer.add_sun_light([-0.45, -0.75, -0.48], 0.53, sun_mat)
     else:
         renderer.add_sphere([-1.8, 2.4, 2.1], 0.25, sun_mat)
+        sun_used_geom = True
 
     renderer.add_sphere([0.0, 0.0, 0.0], 0.9, material_id)
     renderer.setup_camera(
@@ -63,3 +68,12 @@ def build_material_preview_scene(renderer, material_id: int, resolution: int) ->
         width=resolution,
         height=resolution,
     )
+
+    spheres = 2 if sun_used_geom else 1
+    return {
+        "triangles":  0,
+        "spheres":    spheres,
+        "primitives": spheres,
+        "materials":  2,    # subject + sun
+        "lights":     1,    # the sun
+    }

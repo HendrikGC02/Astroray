@@ -2,11 +2,13 @@
 #include "../raytracer.h"
 #include "metric.h"
 #include "accretion_disk.h"
+#include "emission.h"
 #include "gr_integrator.h"
 #include "spectral.h"
 #include <memory>
 #include <random>
 #include <cmath>
+#include <vector>
 
 // ============================================================================
 // BlackHole — a Hittable that represents a GR influence sphere.
@@ -26,6 +28,7 @@ private:
 
     std::unique_ptr<SchwarzschildMetric> metric;
     std::unique_ptr<NovikovThorneDisk>   disk;
+    std::vector<std::shared_ptr<Emission>> emissions;
 
     // Exposure scale for disk emission (tuned so disk is visible but not overexposed)
     float exposureScale = 1e-26f;  // raw Planck values are huge; scale to [0,1]
@@ -166,6 +169,45 @@ private:
         return emission;
     }
 
+    astroray::SampledSpectrum volumetricEmissionSpectral(
+            const Ray& incomingRay,
+            const astroray::SampledWavelengths& lambdas) const {
+        astroray::SampledSpectrum emission(0.0f);
+        if (emissions.empty()) return emission;
+
+        Vec3 oc = incomingRay.origin - position;
+        float a = incomingRay.direction.length2();
+        float half_b = oc.dot(incomingRay.direction);
+        float c = oc.length2() - float(influenceRadius * influenceRadius);
+        float disc = half_b * half_b - a * c;
+        if (disc < 0.0f || a < 1e-15f) return emission;
+        float sqrtd = std::sqrt(disc);
+        float t0 = (-half_b - sqrtd) / a;
+        float t1 = (-half_b + sqrtd) / a;
+        if (t1 < 0.001f) return emission;
+        t0 = std::max(t0, 0.001f);
+        if (t1 <= t0) return emission;
+
+        constexpr int kSteps = 96;
+        const double dt = double(t1 - t0) / double(kSteps);
+        const double ds_cm = dt * worldToGR;
+        Vec3 photonDir = (-incomingRay.direction).normalized();
+
+        for (int i = 0; i < kSteps; ++i) {
+            const float t = float(double(t0) + (double(i) + 0.5) * dt);
+            Vec3 p = incomingRay.at(t);
+            Vec3 rel = p - position;
+            Vec3 pos_M(float(double(rel.x) * worldToGR),
+                       float(double(rel.y) * worldToGR),
+                       float(double(rel.z) * worldToGR));
+            for (const auto& e : emissions) {
+                if (!e) continue;
+                emission += e->integrateSegment(pos_M, photonDir, lambdas, ds_cm);
+            }
+        }
+        return emission;
+    }
+
 public:
     BlackHole(Vec3 pos, double mass_solar, double influence_r,
               double disk_outer_M = 30.0, double mdot = 1.0,
@@ -183,6 +225,10 @@ public:
         // Planck at 500 nm → ~2e14 W/(m²·sr·m); CIE pipeline with 4 stratified
         // samples → Y ≈ 1.8e13; exposureScale = 1/1.8e13 ≈ 5.5e-14 → Y ≈ 1.
         exposureScale = 5e-14f;
+    }
+
+    void addVolumetricEmission(std::shared_ptr<Emission> emission) {
+        if (emission) emissions.push_back(std::move(emission));
     }
 
     // --------------- Hittable interface ---------------
@@ -269,6 +315,25 @@ public:
             }
         }
 
+        if (!emissions.empty()) {
+            SpectralSample spec = sampleHeroWavelengths(gen);
+            astroray::SampledWavelengths lambdas =
+                astroray::SampledWavelengths::sampleUniform(0.5f);
+            astroray::SampledSpectrum vol =
+                volumetricEmissionSpectral(incomingRay, lambdas);
+            for (int wi = 0; wi < astroray::kSpectrumSamples; ++wi) {
+                spec.radiance[wi] += double(vol[wi]);
+            }
+            Vec3 rgb = spectralToRGB(spec, exposureScale);
+            rgb.x = gr_isfinite(static_cast<double>(rgb.x)) ? std::max(0.0f, rgb.x) : 0.0f;
+            rgb.y = gr_isfinite(static_cast<double>(rgb.y)) ? std::max(0.0f, rgb.y) : 0.0f;
+            rgb.z = gr_isfinite(static_cast<double>(rgb.z)) ? std::max(0.0f, rgb.z) : 0.0f;
+            if (rgb.x > 0 || rgb.y > 0 || rgb.z > 0) {
+                result.color += rgb;
+                result.hasEmission = true;
+            }
+        }
+
         result.exitDirection = sanitizedExitDirection(ir);
 
         return result;
@@ -294,7 +359,9 @@ public:
             return result;
         }
 
-        result.emission = diskEmissionSpectral(ir, lambdas);
+        result.emission = diskEmissionSpectral(ir, lambdas)
+                        + volumetricEmissionSpectral(incomingRay, lambdas)
+                            * exposureScale;
         result.hasEmission = !result.emission.isZero();
         result.exitDirection = sanitizedExitDirection(ir);
         return result;

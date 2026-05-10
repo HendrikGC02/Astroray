@@ -13,6 +13,8 @@
 #include "astroray/black_hole.h"
 #include "astroray/register.h"
 #include "astroray/metric.h"
+#include "astroray/emission.h"
+#include "astroray/synchrotron.h"
 #include "astroray/optical_presets.h"
 #include "astroray/integrator.h"
 #include "astroray/pass.h"
@@ -38,6 +40,25 @@ static astroray::ParamDict metricParamsFromDict(py::dict params) {
             p.set(key, item.second.cast<bool>());
         } else if (py::isinstance<py::str>(item.second)) {
             p.set(key, item.second.cast<std::string>());
+        }
+    }
+    return p;
+}
+
+static astroray::ParamDict paramDictFromPyDict(py::dict params) {
+    astroray::ParamDict p;
+    for (auto& item : params) {
+        auto key = item.first.cast<std::string>();
+        if (py::isinstance<py::bool_>(item.second)) {
+            p.set(key, item.second.cast<bool>());
+        } else if (py::isinstance<py::float_>(item.second) || py::isinstance<py::int_>(item.second)) {
+            p.set(key, item.second.cast<float>());
+        } else if (py::isinstance<py::str>(item.second)) {
+            p.set(key, item.second.cast<std::string>());
+        } else if (py::isinstance<py::list>(item.second) || py::isinstance<py::tuple>(item.second)) {
+            auto values = item.second.cast<std::vector<float>>();
+            if (values.size() == 3) p.set(key, Vec3(values[0], values[1], values[2]));
+            else p.set(key, values);
         }
     }
     return p;
@@ -499,6 +520,16 @@ public:
             Vec3(position[0], position[1], position[2]),
             double(mass_solar), double(influence_radius),
             disk_outer, mdot, incl);
+        bool enableJet = params.contains("enable_jet")
+            ? params["enable_jet"].cast<bool>() : false;
+        if (enableJet) {
+            astroray::ParamDict jp = paramDictFromPyDict(params);
+            if (!params.contains("r_base")) {
+                jp.set("r_base", static_cast<float>(6.0));
+            }
+            auto jet = astroray::EmissionRegistry::instance().create("synchrotron_jet", jp);
+            bh->addVolumetricEmission(jet);
+        }
         renderer.addObject(bh);
     }
 
@@ -1591,6 +1622,67 @@ PYBIND11_MODULE(astroray, m) {
     m.def("metric_registry_names", []() {
         return astroray::MetricRegistry::instance().names();
     });
+    m.def("emission_registry_names", []() {
+        return astroray::EmissionRegistry::instance().names();
+    });
+    m.def("synchrotron_thermal_emissivity",
+          &astroray::synchrotron::jnuThermalI,
+          "nu_hz"_a, "n_e_cm3"_a, "T_e_K"_a, "B_gauss"_a, "theta_B"_a,
+          "Pandya 2016 thermal Stokes-I synchrotron emissivity.");
+    m.def("synchrotron_powerlaw_emissivity",
+          &astroray::synchrotron::jnuPowerLawI,
+          "nu_hz"_a, "n_e_cm3"_a, "B_gauss"_a, "theta_B"_a,
+          "p"_a, "gamma_min"_a, "gamma_max"_a,
+          "Pandya 2016 power-law Stokes-I synchrotron emissivity.");
+    m.def("synchrotron_powerlaw_absorptivity",
+          &astroray::synchrotron::alphaPowerLawI,
+          "nu_hz"_a, "n_e_cm3"_a, "B_gauss"_a, "theta_B"_a,
+          "p"_a, "gamma_min"_a, "gamma_max"_a,
+          "Pandya 2016 power-law Stokes-I synchrotron absorptivity.");
+    m.def("synchrotron_cyclotron_frequency",
+          &astroray::synchrotron::cyclotronFrequencyHz,
+          "B_gauss"_a);
+    m.def("synchrotron_jet_contains",
+          [](py::dict params, const std::vector<float>& position) {
+              if (position.size() != 3) throw std::runtime_error("position must have 3 values");
+              auto jet = astroray::EmissionRegistry::instance().create(
+                  "synchrotron_jet", paramDictFromPyDict(params));
+              return jet->contains(Vec3(position[0], position[1], position[2]));
+          },
+          "params"_a, "position"_a);
+    m.def("synchrotron_jet_doppler_factor",
+          [](py::dict params, const std::vector<float>& position,
+             const std::vector<float>& photon_direction) {
+              if (position.size() != 3 || photon_direction.size() != 3) {
+                  throw std::runtime_error("position and photon_direction must have 3 values");
+              }
+              auto jet = astroray::EmissionRegistry::instance().create(
+                  "synchrotron_jet", paramDictFromPyDict(params));
+              return jet->dopplerFactor(Vec3(position[0], position[1], position[2]),
+                                        Vec3(photon_direction[0], photon_direction[1], photon_direction[2]));
+          },
+          "params"_a, "position"_a, "photon_direction"_a);
+    m.def("synchrotron_jet_sample_visible",
+          [](py::dict params, const std::vector<float>& position,
+             const std::vector<float>& photon_direction,
+             float u, float path_length_cm) {
+              if (position.size() != 3 || photon_direction.size() != 3) {
+                  throw std::runtime_error("position and photon_direction must have 3 values");
+              }
+              auto jet = astroray::EmissionRegistry::instance().create(
+                  "synchrotron_jet", paramDictFromPyDict(params));
+              auto lambdas = astroray::SampledWavelengths::sampleUniform(u);
+              auto values = jet->integrateSegment(
+                  Vec3(position[0], position[1], position[2]),
+                  Vec3(photon_direction[0], photon_direction[1], photon_direction[2]),
+                  lambdas, path_length_cm);
+              py::dict out;
+              out["lambdas"] = std::vector<float>(lambdas.lambdas().begin(), lambdas.lambdas().end());
+              out["values"] = std::vector<float>(values.values().begin(), values.values().end());
+              return out;
+          },
+          "params"_a, "position"_a, "photon_direction"_a,
+          "u"_a = 0.5f, "path_length_cm"_a = 1.0f);
     m.def("metric_isco_radius", [](const std::string& name, py::dict params) {
         auto metric = astroray::MetricRegistry::instance().create(name, metricParamsFromDict(params));
         return metric->isco_radius();

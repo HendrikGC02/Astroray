@@ -2942,6 +2942,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                 'disk_outer':     bh.disk_outer,
                                 'accretion_rate': bh.accretion_rate,
                                 'inclination':    bh.inclination,
+                                'enable_jet':     bh.enable_jet,
+                                'lorentz_factor': bh.jet_lorentz_factor,
+                                'half_angle_degrees': bh.jet_half_angle,
+                                'power_law_index': bh.jet_power_law_index,
+                                'base_density': bh.jet_base_density,
+                                'magnetic_field': bh.jet_magnetic_field,
                             }
                         )
                     except Exception as e:
@@ -3871,6 +3877,18 @@ class AstrorayBlackHoleProperties(PropertyGroup):
     inclination: FloatProperty(name="Inclination (\u00b0)", min=0.0, max=90.0, default=75.0,
                                 description="Observer inclination from the spin axis")
     show_disk: BoolProperty(name="Show Accretion Disk", default=True)
+    enable_jet: BoolProperty(name="Synchrotron Jets", default=False,
+                             description="Enable pkg42 bipolar synchrotron jet emission")
+    jet_lorentz_factor: FloatProperty(name="Jet Lorentz Factor", min=1.0, max=50.0, default=5.0,
+                                      description="Bulk Lorentz factor of the jet plasma")
+    jet_half_angle: FloatProperty(name="Jet Half Angle (\u00b0)", min=0.1, max=60.0, default=5.0,
+                                  description="Opening half-angle of each conical jet")
+    jet_power_law_index: FloatProperty(name="Jet Electron Index", min=1.5, max=6.5, default=2.5,
+                                       description="Power-law electron index p")
+    jet_base_density: FloatProperty(name="Jet Base Density", min=0.0, max=1.0e12, default=1.0,
+                                    description="Electron density at the jet base in cm^-3")
+    jet_magnetic_field: FloatProperty(name="Jet Magnetic Field", min=0.0, max=1.0e8, default=30.0,
+                                      description="Magnetic field at the jet base in Gauss")
 
 
 class ASTRORAY_OT_add_black_hole(Operator):
@@ -3911,6 +3929,15 @@ class OBJECT_PT_astroray_black_hole(Panel):
         col.prop(bh, "accretion_rate")
         col.prop(bh, "inclination")
         col.prop(bh, "show_disk")
+        col.separator()
+        col.prop(bh, "enable_jet")
+        jet_col = col.column(align=True)
+        jet_col.enabled = bh.enable_jet
+        jet_col.prop(bh, "jet_lorentz_factor")
+        jet_col.prop(bh, "jet_half_angle")
+        jet_col.prop(bh, "jet_power_law_index")
+        jet_col.prop(bh, "jet_base_density")
+        jet_col.prop(bh, "jet_magnetic_field")
 
 
 class OBJECT_PT_astroray_object(Panel):

@@ -51,8 +51,11 @@ personally should pick up.
   and pkg64 Phase 3 all landed; **pkg41 Kerr validation shipped**
   (BPT 1972 + Chandrasekhar analytic + 39 tests including null circular
   photon residuals + Kerr a=0 vs Schwarzschild identity + shadow-
-  contour image-plane regression). pkg42–51 specs unfrozen and
-  Codex-paste-ready. pkg40 Kerr metric was already done pre-gate.
+  contour image-plane regression). **pkg42 synchrotron emission shipped**
+  (VolumetricEmission interface, Pandya 2016 power-law/thermal fits,
+  bipolar jet plugin, Blender jet controls, 9 focused tests). pkg43–51
+  specs remain unfrozen and Codex-paste-ready. pkg40 Kerr metric was already
+  done pre-gate.
 - Pytest collection (`runtime_setup.py` `os.add_dll_directory` dedupe
   in PR #225): **801 tests collected** on the Windows MSVC `build_cuda`
   configuration. New since Round 3: pkg64-3 default-integrator + no-
@@ -84,7 +87,7 @@ personally should pick up.
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
-| 4 | Astrophysics platform | **Active** | 25% | pkg42 synchrotron emission | gate released; pkg40 metric + pkg41 validation done |
+| 4 | Astrophysics platform | **Active** | 35% | pkg43 slim disk accretion model | gate released; pkg40 metric + pkg41 validation + pkg42 synchrotron done |
 | 5 | Production polish / Blender parity | **Feature-complete on package count, NOT on user-facing parity** | ~95% (counter) | pkg80 (auto-integrator GPU crash) + pkg81 (viewport-vs-Cycles measurement) + pkg73 fix | pkg80/pkg81 surfaced 2026-05-10 by owner; pkg73 hardware defect (diag in #241) |
 
 **Pillar 1 package summary:**
@@ -202,7 +205,7 @@ forgotten):
 |---|---|---|
 | pkg40 | Kerr metric plugin and Schwarzschild extraction | **done** |
 | pkg41 | Kerr geodesic validation | **done** (PR #236 — 39 tests; BPT 1972 + Chandrasekhar analytic + null circular photon residuals + Kerr a=0 vs Schwarzschild identity + shadow-contour image-plane regression) |
-| pkg42 | Synchrotron emission and relativistic jets | open (Round 6 Codex pickup) |
+| pkg42 | Synchrotron emission and relativistic jets | **implemented** (PR pending — VolumetricEmission interface, `synchrotron_jet`, Pandya 2016 fits, Blender controls, 9 tests) |
 | pkg43 | Slim disk accretion model | open |
 | pkg44 | ADAF accretion model | open |
 | pkg45 | CLOUDY emissivity table preprocessing | open |
@@ -275,7 +278,8 @@ post-gate Pillar 4, wavefront SoA scaffold)
   pkg74 Phase 3 (#232), **pkg41 Kerr validation (#236, first post-gate
   Pillar-4 deliverable)**.
 - Round 6 Codex queue (per `NEXT_STAGE_REPORT.md`):
-  - **pkg42 synchrotron emission** (Pillar 4, ~2 weeks)
+  - **pkg43 slim disk accretion model** (Pillar 4; pkg42 VolumetricEmission
+    interface is now available)
   - **pkg78 bisect** for issue [#237](https://github.com/HendrikGC02/Astroray/issues/237)
     (find the actual commit that drifted the visible-band SSIM)
   - **pkg76 CSV** rows for Classroom / Junkshop / BMW27 on RTX

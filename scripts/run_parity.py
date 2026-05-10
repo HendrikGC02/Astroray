@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import platform
 import shutil
 import statistics
@@ -41,6 +42,42 @@ CSV_COLUMNS = [
     "skip_reason",
 ]
 ENGINES = ("cycles-cpu", "cycles-cuda", "astroray-cpu", "astroray-gpu")
+
+
+def _oidn_bin_dirs() -> list[Path]:
+    candidates: list[Path] = []
+    for env_var in ("OIDN_ROOT", "ASTRORAY_OIDN_DIR"):
+        root = os.environ.get(env_var)
+        if root:
+            candidates.append(Path(root) / "bin")
+    candidates.extend([
+        Path(r"C:\oidn\bin"),
+        Path(r"C:\Program Files\Intel\oidn\bin"),
+        Path(r"C:\Program Files\Intel\OpenImageDenoise\bin"),
+        Path(r"C:\Program Files\OpenImageDenoise\bin"),
+    ])
+    return [path for path in candidates if path.is_dir()]
+
+
+def _subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    python_paths = [
+        str(ROOT),
+        str(ROOT / "build_cuda"),
+        str(ROOT / "build_cuda" / "Release"),
+        str(ROOT / "build"),
+        str(ROOT / "build" / "Release"),
+    ]
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    if existing_pythonpath:
+        python_paths.append(existing_pythonpath)
+    env["PYTHONPATH"] = os.pathsep.join(python_paths)
+    if platform.system() == "Windows":
+        oidn_bins = [str(path) for path in _oidn_bin_dirs()]
+        if oidn_bins:
+            env["PATH"] = os.pathsep.join(oidn_bins + [env.get("PATH", "")])
+        env.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
+    return env
 
 
 @dataclass(frozen=True)
@@ -154,6 +191,7 @@ def _run_command(command: list[str], cwd: Path, timeout: int) -> tuple[float, fl
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        env=_subprocess_env(),
     )
     done, mem_samples = _monitor_process(proc)
     try:
@@ -176,39 +214,49 @@ def _cycles_script(scene: Scene, output: Path, device: str) -> str:
 import bpy
 bpy.ops.object.delete()
 scene = bpy.context.scene
+scene.world.color = (0.0, 0.0, 0.0)
 def mat(name, color, emit=0.0):
     m = bpy.data.materials.new(name)
     m.use_nodes = True
-    bsdf = m.node_tree.nodes.get('Principled BSDF')
-    bsdf.inputs['Base Color'].default_value = color
-    bsdf.inputs['Emission Strength'].default_value = emit
+    nodes = m.node_tree.nodes
+    nodes.clear()
+    out = nodes.new(type='ShaderNodeOutputMaterial')
     if emit:
-        bsdf.inputs['Emission Color'].default_value = color
+        shader = nodes.new(type='ShaderNodeEmission')
+        shader.inputs['Color'].default_value = color
+        shader.inputs['Strength'].default_value = emit
+        m.node_tree.links.new(shader.outputs['Emission'], out.inputs['Surface'])
+    else:
+        shader = nodes.new(type='ShaderNodeBsdfDiffuse')
+        shader.inputs['Color'].default_value = color
+        shader.inputs['Roughness'].default_value = 1.0
+        m.node_tree.links.new(shader.outputs['BSDF'], out.inputs['Surface'])
     return m
 white = mat('white', (0.73, 0.73, 0.73, 1))
 red = mat('red', (0.65, 0.05, 0.05, 1))
 green = mat('green', (0.12, 0.45, 0.15, 1))
 light_mat = mat('light', (1.0, 0.9, 0.8, 1), 15.0)
-def plane(name, loc, scale, rot, material):
-    bpy.ops.mesh.primitive_cube_add(size=1, location=loc, rotation=rot)
-    obj = bpy.context.object
+def tri(name, vertices, material):
+    mesh = bpy.data.meshes.new(name + 'Mesh')
+    mesh.from_pydata(vertices, [], [(0, 1, 2)])
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
     obj.name = name
-    obj.dimensions = scale
     obj.data.materials.append(material)
     return obj
-plane('floor', (0, -2, 0), (4, 0.02, 4), (0, 0, 0), white)
-plane('ceiling', (0, 2, 0), (4, 0.02, 4), (0, 0, 0), white)
-plane('back', (0, 0, -2), (4, 4, 0.02), (0, 0, 0), white)
-plane('left', (-2, 0, 0), (0.02, 4, 4), (0, 0, 0), red)
-plane('right', (2, 0, 0), (0.02, 4, 4), (0, 0, 0), green)
-plane('light', (0, 1.98, 0), (1, 0.02, 1), (0, 0, 0), light_mat)
-bpy.ops.mesh.primitive_uv_sphere_add(segments=48, ring_count=24, radius=0.7, location=(-0.7, -1.3, -0.5))
-bpy.context.object.data.materials.append(white)
-bpy.ops.mesh.primitive_uv_sphere_add(segments=48, ring_count=24, radius=0.5, location=(0.8, -1.5, 0.3))
-bpy.context.object.data.materials.append(white)
-bpy.ops.object.light_add(type='AREA', location=(0, 1.8, 0))
-bpy.context.object.data.energy = 350
-bpy.context.object.data.size = 1
+tri('floor_0', [(-2, -2, -2), (2, -2, -2), (2, -2, 2)], white)
+tri('floor_1', [(-2, -2, -2), (2, -2, 2), (-2, -2, 2)], white)
+tri('ceiling_0', [(-2, 2, -2), (-2, 2, 2), (2, 2, 2)], white)
+tri('ceiling_1', [(-2, 2, -2), (2, 2, 2), (2, 2, -2)], white)
+tri('back_0', [(-2, -2, -2), (-2, 2, -2), (2, 2, -2)], white)
+tri('back_1', [(-2, -2, -2), (2, 2, -2), (2, -2, -2)], white)
+tri('left_0', [(-2, -2, -2), (-2, -2, 2), (-2, 2, 2)], red)
+tri('left_1', [(-2, -2, -2), (-2, 2, 2), (-2, 2, -2)], red)
+tri('right_0', [(2, -2, -2), (2, 2, -2), (2, 2, 2)], green)
+tri('right_1', [(2, -2, -2), (2, 2, 2), (2, -2, 2)], green)
+tri('light_0', [(-0.5, 1.98, -0.5), (0.5, 1.98, -0.5), (0.5, 1.98, 0.5)], light_mat)
+tri('light_1', [(-0.5, 1.98, -0.5), (0.5, 1.98, 0.5), (-0.5, 1.98, 0.5)], light_mat)
 bpy.ops.object.camera_add(location=(0, 0, 5.5), rotation=(0, 0, 0))
 scene.camera = bpy.context.object
 """
@@ -236,6 +284,45 @@ bpy.ops.render.render(write_still=True)
 """
 
 
+def _astroray_script(scene: Scene, output: Path, device: str) -> str:
+    if scene.scene_id != "cornell":
+        raise ValueError("Astroray scene import is only implemented for cornell")
+    return f"""
+import os
+os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
+import imageio.v3 as iio
+import numpy as np
+import astroray
+
+r = astroray.Renderer()
+if {device == 'gpu'!r}:
+    r.set_use_gpu(True)
+r.set_seed(1)
+red = r.create_material('lambertian', [0.65, 0.05, 0.05], {{}})
+green = r.create_material('lambertian', [0.12, 0.45, 0.15], {{}})
+white = r.create_material('lambertian', [0.73, 0.73, 0.73], {{}})
+light = r.create_material('light', [1.0, 0.9, 0.8], {{'intensity': 15.0}})
+for v0, v1, v2, mat in [
+    ([-2, -2, -2], [2, -2, -2], [2, -2, 2], white),
+    ([-2, -2, -2], [2, -2, 2], [-2, -2, 2], white),
+    ([-2, 2, -2], [-2, 2, 2], [2, 2, 2], white),
+    ([-2, 2, -2], [2, 2, 2], [2, 2, -2], white),
+    ([-2, -2, -2], [-2, 2, -2], [2, 2, -2], white),
+    ([-2, -2, -2], [2, 2, -2], [2, -2, -2], white),
+    ([-2, -2, -2], [-2, -2, 2], [-2, 2, 2], red),
+    ([-2, -2, -2], [-2, 2, 2], [-2, 2, -2], red),
+    ([2, -2, -2], [2, 2, -2], [2, 2, 2], green),
+    ([2, -2, -2], [2, 2, 2], [2, -2, 2], green),
+    ([-0.5, 1.98, -0.5], [0.5, 1.98, -0.5], [0.5, 1.98, 0.5], light),
+    ([-0.5, 1.98, -0.5], [0.5, 1.98, 0.5], [-0.5, 1.98, 0.5], light),
+]:
+    r.add_triangle(v0, v1, v2, mat)
+r.setup_camera([0, 0, 5.5], [0, 0, 0], [0, 1, 0], 38.0, {scene.width / scene.height!r}, 0.01, 5.5, {scene.width}, {scene.height})
+pixels = np.asarray(r.render({scene.samples}, 8, None, False), dtype=np.float32)
+iio.imwrite({str(output)!r}, pixels)
+"""
+
+
 def _render_once(
     scene: Scene,
     engine: str,
@@ -253,6 +340,12 @@ def _render_once(
         script = output.with_suffix(".py")
         script.write_text(_cycles_script(scene, output, device), encoding="utf-8")
         return _run_command([blender, "--background", "--python", str(script)], ROOT, timeout)
+
+    if scene.scene_id == "cornell":
+        device = "gpu" if engine == "astroray-gpu" else "cpu"
+        script = output.with_suffix(".py")
+        script.write_text(_astroray_script(scene, output, device), encoding="utf-8")
+        return _run_command([sys.executable, str(script)], ROOT, timeout)
 
     if astroray is None or not astroray.exists():
         return 0.0, 0.0, "astroray_binary_not_found"
@@ -286,15 +379,22 @@ def _ssim(output: Path, reference: Path) -> str:
         import imageio.v3 as iio  # type: ignore
         from skimage.metrics import structural_similarity  # type: ignore
 
-        a = iio.imread(output).astype("float32")
-        b = iio.imread(reference).astype("float32")
+        import numpy as np  # type: ignore
+
+        a = iio.imread(output).astype("float32")[..., :3]
+        b = iio.imread(reference).astype("float32")[..., :3]
         if a.shape != b.shape:
             return ""
-        if a.max() > 2.0:
-            a /= 255.0
-        if b.max() > 2.0:
-            b /= 255.0
-        value = structural_similarity(a[..., :3], b[..., :3], channel_axis=-1, data_range=1.0)
+        finite = np.concatenate([a[np.isfinite(a)], b[np.isfinite(b)]])
+        if finite.size == 0:
+            return ""
+        lo = 0.0
+        hi = float(np.percentile(finite, 99.9))
+        if hi <= lo:
+            return ""
+        a = np.clip(np.nan_to_num(a, nan=0.0, posinf=hi, neginf=lo), lo, hi)
+        b = np.clip(np.nan_to_num(b, nan=0.0, posinf=hi, neginf=lo), lo, hi)
+        value = structural_similarity(a, b, channel_axis=-1, data_range=hi - lo)
         return f"{value:.6f}"
     except Exception:
         return ""
@@ -309,7 +409,7 @@ def _run_tuple(
     timeout: int,
 ) -> dict[str, str]:
     RESULTS.mkdir(parents=True, exist_ok=True)
-    suffix = ".exr" if engine.startswith("cycles") else ".png"
+    suffix = ".exr"
     with tempfile.TemporaryDirectory(prefix=f"{scene.scene_id}-{engine}-", dir=RESULTS) as tmp:
         tmpdir = Path(tmp)
         warm_output = tmpdir / f"warmup{suffix}"
@@ -334,7 +434,9 @@ def _run_tuple(
             return _row(scene, engine, skip_reason=final_skip)
 
         ref = REFS / f"{scene.scene_id}-{scene.samples}.exr"
-        if engine == "cycles-cpu" and not ref.exists():
+        if engine == "cycles-cpu":
+            ref.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(final_output, ref)
             ssim = "1.000000"
         else:
             ssim = _ssim(final_output, ref)

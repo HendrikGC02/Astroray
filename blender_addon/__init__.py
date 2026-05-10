@@ -61,17 +61,23 @@ _ASTRORAY_NODES_AVAILABLE = astroray_nodes is not None
 # dependencies, so we have to explicitly add the addon directory to the
 # DLL search list before importing.
 if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
+    _ASTRORAY_DLL_DIRECTORY_HANDLES = []
     _dll_dirs = [
         addon_dir,
         # OIDN DLLs bundled alongside the addon (placed here by build_blender_addon.py)
         os.path.join(addon_dir, "oidn"),
-        # OIDN installed system-wide at the RenderKit default location
+        # OIDN installed system-wide at common locations.
         r"C:\oidn\bin",
+        r"C:\Program Files\Intel\oidn\bin",
+        r"C:\Program Files\Intel\OpenImageDenoise\bin",
     ]
+    for _env_var in ("OIDN_ROOT", "ASTRORAY_OIDN_DIR"):
+        if _env_var in os.environ:
+            _dll_dirs.append(os.path.join(os.environ[_env_var], "bin"))
     for _d in _dll_dirs:
         if os.path.isdir(_d):
             try:
-                os.add_dll_directory(_d)
+                _ASTRORAY_DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(_d))
             except (FileNotFoundError, OSError):
                 pass
 

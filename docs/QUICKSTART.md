@@ -22,19 +22,21 @@ found.
 
 - **CUDA Toolkit 12.x** — GPU path tracer + OIDN-CUDA denoiser backend.
   Standard NVIDIA installer.
-- **NVIDIA OptiX 8.x SDK** — OptiX AI denoiser backend, ~2× faster than
+- **NVIDIA OptiX SDK 8.x+** — OptiX AI denoiser backend, ~2× faster than
   OIDN-CUDA on Tensor Core GPUs (Turing+) and a prerequisite for the
   upcoming temporal denoiser. Manual download from
   <https://developer.nvidia.com/designworks/optix/download> (free
   NVIDIA developer account required; the OptiX SDK License forbids
   redistribution, so we cannot bundle it). The default install path
   on Windows
-  (`C:\ProgramData\NVIDIA Corporation\OptiX SDK 8.x.x\`) is
+  (`C:\ProgramData\NVIDIA Corporation\OptiX SDK x.y.z\`) is
   auto-detected; for a custom path, set `OPTIX_INSTALL_DIR` env var
   or pass `-DOPTIX_INSTALL_DIR=<path>` to CMake. Without OptiX,
   the denoiser falls back to OIDN.
 - **Intel OIDN 2.4+** — usually fetched automatically by
-  CMake when not installed locally. No manual step required.
+  CMake when not installed locally. OIDN install paths are auto-detected at
+  standard locations; for non-standard installs, set `OIDN_ROOT` or
+  `ASTRORAY_OIDN_DIR`.
 
 ---
 

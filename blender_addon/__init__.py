@@ -554,13 +554,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
         ("Shadow", "shadow", "use_pass_shadow"),
     ]
     _DATA_PASS_SPECS = [
-        ("Depth", "depth", "use_pass_z"),
-        ("Mist", "mist", "use_pass_mist"),
-        ("Position", "position", "use_pass_position"),
-        ("Normal", "normal", "use_pass_normal"),
-        ("UV", "uv", "use_pass_uv"),
-        ("IndexOB", "object_index", "use_pass_object_index"),
-        ("IndexMA", "material_index", "use_pass_material_index"),
+        # Cycles registers its DENOISING_PASS_* / PASS_DENOISING_* guide
+        # passes together in intern/cycles/blender/sync.cpp lines 740-745
+        # (Apache-2.0): Albedo and Normal are the compositor Denoise node's
+        # RGB guide inputs when Denoising Data is enabled.
+        ("Albedo", "albedo", 3, "RGB", "use_pass_denoising_data"),
+        ("Normal", "normal", 3, "RGB", "use_pass_denoising_data"),
+        ("Depth", "depth", 4, "RGBA", "use_pass_z"),
+        ("Mist", "mist", 4, "RGBA", "use_pass_mist"),
+        ("Position", "position", 4, "RGBA", "use_pass_position"),
+        ("Normal", "normal", 4, "RGBA", "use_pass_normal"),
+        ("UV", "uv", 4, "RGBA", "use_pass_uv"),
+        ("IndexOB", "object_index", 4, "RGBA", "use_pass_object_index"),
+        ("IndexMA", "material_index", 4, "RGBA", "use_pass_material_index"),
     ]
     _CRYPTOMATTE_PASS_SPECS = [
         ("CryptoObject00", "cryptomatte_object", "use_pass_cryptomatte_object"),
@@ -571,9 +577,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         for display_name, _, toggle_name in self._PASS_SPECS:
             if getattr(renderlayer, toggle_name, False):
                 self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
-        for display_name, _, toggle_name in self._DATA_PASS_SPECS:
+        registered_data_passes = set()
+        for display_name, _, channels, channel_id, toggle_name in self._DATA_PASS_SPECS:
             if getattr(renderlayer, toggle_name, False):
-                self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
+                if display_name in registered_data_passes:
+                    continue
+                registered_data_passes.add(display_name)
+                self.register_pass(scene, renderlayer, display_name, channels, channel_id, "COLOR")
         for display_name, _, toggle_name in self._CRYPTOMATTE_PASS_SPECS:
             if getattr(renderlayer, toggle_name, False):
                 self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
@@ -589,8 +599,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
     @classmethod
     def _enabled_data_pass_specs(cls, view_layer):
         enabled = []
-        for display_name, key, toggle_name in cls._DATA_PASS_SPECS:
+        seen = set()
+        for display_name, key, _, _, toggle_name in cls._DATA_PASS_SPECS:
             if getattr(view_layer, toggle_name, False):
+                if display_name in seen:
+                    continue
+                seen.add(display_name)
                 enabled.append((display_name, key))
         return enabled
 
@@ -2770,7 +2784,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if target_pass is None:
                     continue
                 try:
-                    if key == "normal":
+                    if key == "albedo":
+                        data_pixels = np.asarray(renderer.get_albedo_buffer(), dtype=np.float32)
+                        pass_rgba = np.ones((height, width, 4), dtype=np.float32)
+                        pass_rgba[:, :, :3] = data_pixels
+                    elif key == "normal":
                         data_pixels = np.asarray(renderer.get_normal_buffer(), dtype=np.float32)
                         pass_rgba = np.ones((height, width, 4), dtype=np.float32)
                         pass_rgba[:, :, :3] = data_pixels

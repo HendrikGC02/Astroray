@@ -129,6 +129,7 @@ is currently the weakest link.
 | pkg63 | World / HDRI parity (Mapping XYZ rotation, color tint, MIS env-map) | **done** | A |
 | pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | research signed off; ready to implement | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
+| pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
 original roadmap but no full spec written; capture intent before they're
@@ -289,6 +290,7 @@ events are summarized in the changelog below.
 | pkg64 | A | research blocked | caustics research note |
 | pkg67 | A | research blocked | metric-aware tracer research note |
 | pkg68 | A | **implemented (pending CUDA verification)** | persistent OIDN device, CUDA-first init, member-cached filter; CPU pytest green (12+1 skip); CUDA SSIM/timing gates pending verifier session |
+| pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
 
 ---
 

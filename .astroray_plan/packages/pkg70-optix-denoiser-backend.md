@@ -300,4 +300,37 @@ against an all-zero normal guide — OptiX AOV mode was effectively
 running HDR+albedo only. With real unit-length world-space normals
 now feeding both `OptixDenoiserGuideLayer::normal` and OIDN's normal
 input, the 5.31× / 5.58× ratios are a conservative floor.
-Re-baseline pending verifier session 3.5 (CUDA + OptiX online).
+
+### Post-pkg75 re-baseline (2026-05-10, RTX 5070 Ti, OptiX 9.1.0)
+
+Clean rebuild at `c96dad8`; same fixtures, same harness:
+
+| Measurement | pre-pkg75 | post-pkg75 | Δ |
+|---|---|---|---|
+| **Synthetic noise reduction @ 256×256, spp=2** | | | |
+| OptiX ratio | 5.31× | **5.55×** | **+4.5 %** ✅ |
+| OIDN ratio | 5.58× | **5.45×** | −2.3 % (metric artifact, see below) |
+| **1080p parity-scene timing (spp=2, max_depth=3, N=10, warmup=2)** | | | |
+| OptiX | 728.94 ms/frame | **792.18 ms/frame** | +8.6 % slower |
+| OIDN-CUDA | 1356.09 ms/frame | **1403.74 ms/frame** | +3.5 % slower |
+| OIDN/OptiX speedup | 1.86× | **1.77×** | still well above ≥1.5× gate |
+| **SSIM(OptiX, OIDN) @ 1080p spp=16** | 0.9987 | **0.9987** | unchanged ✅ |
+
+Visual diff confirms detail preservation: an amplified-4× absolute
+difference between the pre-pkg75 and post-pkg75 OIDN-denoised
+outputs of `tests/test_oidn_denoiser.py::test_oidn_reduces_variance`
+(saved to `test_results/oidn_before_after.png` on each run) is
+**black everywhere except along geometry edges** — sphere silhouette,
+wall corners, ceiling-light boundary, floor/wall meet line. Mean
+abs-diff in the denoised half = 0.39/255; max = 15/255 (~6 %). The
+noise-ratio metric drops because the 3×3 sliding-window local-variance
+estimator reads preserved edge detail as "unreduced noise"; SSIM
+unchanged supports the detail-preservation reading.
+
+The 1080p timing regressions (and the OIDN-off Cornell baseline going
+23.81 → 26.21 ms, +10 %) are the inner-loop cost of pkg75's per-primary-hit
+shading-normal write. The OIDN-on path still nets a win
+(see pkg68 Lessons: 50.67 → 46.98 ms, −7.3 %) because the denoiser
+saves more than the integrator spends. OptiX gate margins are now
+1.77× (target 1.5×), 5.55× (target 5×), 0.9987 (target 0.95) —
+all comfortably green.

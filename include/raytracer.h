@@ -1625,14 +1625,30 @@ struct SampleResult {
 class Camera {
     Vec3 origin, lowerLeft, horizontal, vertical, u, v, w_axis;
     float lensRadius;
+    // pkg72: projection scalars retained so snapshotForMotion() can replay the
+    // previous frame's pixel mapping without re-deriving from lowerLeft.
+    float vw_ = 0, vh_ = 0, focusDist_ = 0, shiftX_ = 0, shiftY_ = 0;
 public:
     int width, height;
     std::vector<Vec3> pixels, albedoBuffer, normalBuffer, positionBuffer, uvBuffer;
+    // pkg72: per-pixel previous->current screen-space flow (float2/pixel,
+    // OptiX convention). Sized unconditionally to match albedoBuffer/normalBuffer.
+    // Mirrors Cycles intern/cycles/integrator/pass.cpp PASS_MOTION (Apache-2.0)
+    // but stores only the previous->current half (OptiX consumes this only).
+    std::vector<float> motionBuffer;
     std::vector<float> alphaBuffer, depthBuffer, objectIndexBuffer, materialIndexBuffer;
     std::vector<float> bounceCountBuffer, sampleWeightBuffer;
     std::vector<Vec3> cryptomatteObjectBuffer, cryptomatteMaterialBuffer;
     std::vector<float> cryptomatteObjectCoverageBuffer, cryptomatteMaterialCoverageBuffer;
     std::array<std::vector<Vec3>, PASS_COUNT> renderPassBuffers;
+
+    // pkg72: snapshot of previous-frame projection state. Populated by
+    // snapshotForMotion() at the end of each renderFrame(); read by the
+    // render loop to compute motion vectors. Camera-only motion (animated
+    // geometry is out of scope per pkg72 spec).
+    Vec3 prevOrigin{0}, prevU{0}, prevV{0}, prevW{0};
+    float prevVw = 0, prevVh = 0, prevFocusDist = 0, prevShiftX = 0, prevShiftY = 0;
+    bool hasPrevCamera = false;
 
     Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio,
            float aperture, float focusDist, int w, int h,
@@ -1649,9 +1665,12 @@ public:
         vertical = v * vh;
         lowerLeft = origin - horizontal * (0.5f - shiftX) - vertical * (0.5f - shiftY) - w_axis * focusDist;
         lensRadius = aperture / 2;
+        vw_ = vw; vh_ = vh; focusDist_ = focusDist;
+        shiftX_ = shiftX; shiftY_ = shiftY;
         pixels.resize(width * height, Vec3(0));
         albedoBuffer.resize(width * height, Vec3(0));
         normalBuffer.resize(width * height, Vec3(0));
+        motionBuffer.resize(static_cast<size_t>(width) * height * 2, 0.0f);
         alphaBuffer.resize(width * height, 1.0f);
         depthBuffer.resize(width * height, 0.0f);
         positionBuffer.resize(width * height, Vec3(0));
@@ -1679,6 +1698,38 @@ public:
         ray.cameraV = v;
         ray.cameraW = w_axis;
         return ray;
+    }
+
+    // pkg72: capture the current frame's projection state as the "previous"
+    // camera for the next render call. Mirrors Cycles' approach in
+    // intern/cycles/integrator/pass.cpp where motion-pass writes consume the
+    // previous-frame camera transform. Called once per frame by the renderer
+    // at the end of renderFrame().
+    void snapshotForMotion() {
+        prevOrigin = origin;
+        prevU = u; prevV = v; prevW = w_axis;
+        prevVw = vw_; prevVh = vh_; prevFocusDist = focusDist_;
+        prevShiftX = shiftX_; prevShiftY = shiftY_;
+        hasPrevCamera = true;
+    }
+
+    // pkg72: project a world-space point P through the *previous* frame's
+    // camera and return its (sub-pixel) screen coordinates. Returns false if
+    // P is behind the previous camera (caller stores motion=(0,0) in that
+    // case, per the OptiX flow contract documented in
+    // .astroray_plan/docs/motion-vectors-research.md).
+    bool projectToPrevPixel(const Vec3& P, float& px, float& py) const {
+        if (!hasPrevCamera) return false;
+        const Vec3 d = P - prevOrigin;
+        const float depth = -d.dot(prevW);    // +ve when in front of prev cam
+        if (depth <= 1e-6f) return false;
+        const float alpha = prevFocusDist / depth;
+        const float s = alpha * d.dot(prevU) / prevVw + (0.5f - prevShiftX);
+        const float t = alpha * d.dot(prevV) / prevVh + (0.5f - prevShiftY);
+        // Render loop maps pixel(x,y) -> u=x/(W-1), v=1-y/(H-1); invert that.
+        px = s * float(width - 1);
+        py = (1.0f - t) * float(height - 1);
+        return true;
     }
 
     // Accessors for CUDARenderer / scene_upload.cu
@@ -1710,6 +1761,9 @@ public:
         // renderer at line ~2392). Stored Vec3-per-pixel; first two channels
         // are the (u,v) sampled by the shader after coord-mode + transform.
         if (name == "uv") return reinterpret_cast<float*>(cam_->uvBuffer.data());
+        // pkg72: per-pixel previous->current screen-space motion (float2/pixel,
+        // OptiX flow convention). See Camera::motionBuffer.
+        if (name == "motion") return cam_->motionBuffer.data();
         return nullptr;
     }
     const float* buffer(const std::string& name) const {
@@ -2361,6 +2415,13 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         std::unordered_map<int, int> materialSampleCounts;
                         float sumL = 0, sumL2 = 0;
                         int samples = 0;
+                        // pkg72: remember the s==0 primary ray so we can recover
+                        // the world-space hit point for the motion-vector write
+                        // below. Mirrors Cycles intern/cycles/integrator/pass.cpp
+                        // PASS_MOTION (Apache-2.0) which uses the first-sample
+                        // primary ray's hit position.
+                        Ray firstPrimaryRay;
+                        bool firstRayCaptured = false;
 
                         for (int s = 0; s < maxSamples; ++s) {
                             float u = (x + filterSample(gen, dist)) / (cam.width - 1);
@@ -2375,8 +2436,13 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             int sObjectIndex = 0;
                             int sMaterialIndex = 0;
                             Vec3 sCol;
+                            // pkg72: materialise the primary ray so the motion-vector write
+                            // below can recover the world-space hit point (origin + dir*depth)
+                            // even for integrators that don't populate SampleResult.position.
+                            Ray primaryRay = cam.getRay(u, v, gen);
+                            if (s == 0) { firstPrimaryRay = primaryRay; firstRayCaptured = true; }
                             if (integrator_) {
-                                SampleResult ir = integrator_->sampleFull(cam.getRay(u, v, gen), gen);
+                                SampleResult ir = integrator_->sampleFull(primaryRay, gen);
                                 sCol = ir.color;
                                 sAlb = ir.albedo;
                                 sNorm = ir.normal;
@@ -2458,6 +2524,29 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         cam.bounceCountBuffer[idx] = bounceCountAccum / float(samples);
                         cam.sampleWeightBuffer[idx] = sampleWeightAccum / float(samples);
                         cam.alphaBuffer[idx] = std::clamp(alpha, 0.0f, 1.0f);
+                        // pkg72: motion vector (previous->current screen-space pixel
+                        // offset, OptiX flow convention: motion = prev - curr).
+                        // Camera-only motion: animated geometry is out of scope per
+                        // the pkg72 spec. See Cycles intern/cycles/integrator/pass.cpp
+                        // PASS_MOTION (Apache-2.0) for the buffer-shape we mirror.
+                        // Sky pixels (depth==0), behind-prev-camera, and the first
+                        // frame (no previous camera) all store (0, 0).
+                        float motionX = 0.0f, motionY = 0.0f;
+                        if (cam.hasPrevCamera && firstRayCaptured && depth > 0.0f) {
+                            const Vec3 P = firstPrimaryRay.origin + firstPrimaryRay.direction * depth;
+                            float pxPrev = 0.0f, pyPrev = 0.0f;
+                            if (cam.projectToPrevPixel(P, pxPrev, pyPrev)) {
+                                const float pxCurr = static_cast<float>(x) + 0.5f;
+                                const float pyCurr = static_cast<float>(y) + 0.5f;
+                                motionX = pxPrev - pxCurr;
+                                motionY = pyPrev - pyCurr;
+                                if (!std::isfinite(motionX) || !std::isfinite(motionY)) {
+                                    motionX = 0.0f; motionY = 0.0f;
+                                }
+                            }
+                        }
+                        cam.motionBuffer[2 * idx + 0] = motionX;
+                        cam.motionBuffer[2 * idx + 1] = motionY;
                         auto dominantIdAndCoverage = [samples](const std::unordered_map<int, int>& counts) {
                             int bestId = 0;
                             int bestCount = 0;
@@ -2495,6 +2584,9 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             for (auto& pass : passes_)
                 pass->execute(fb);
         }
+        // pkg72: capture this frame's projection state for the next render
+        // call's motion-vector computation. See Camera::snapshotForMotion().
+        cam.snapshotForMotion();
 }
 
 inline void Renderer::setIntegrator(std::shared_ptr<Integrator> i) {

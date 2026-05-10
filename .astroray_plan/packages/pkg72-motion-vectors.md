@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** ~3 days (~12 h)
 **Depends on:** pkg06 (pass registry — done), pkg70 (OptiX denoiser — done; this package unblocks pkg70's deferred temporal mode)
 
@@ -173,24 +173,58 @@ External URLs:
 
 ## Progress
 
-- [ ] Add `motionBuffer`, `prevViewProj`, `hasPrevCamera`, and
-      `snapshotForMotion()` to `Camera`.
-- [ ] Register `"motion"` in `Framebuffer::buffer`.
-- [ ] Compute and write motion in the integrator's primary-ray loop.
-      Cite Cycles `pass.cpp:PASS_MOTION` in the code comment.
-- [ ] Call `snapshotForMotion()` at end of `renderFrame`.
-- [ ] Add `Renderer.get_motion_buffer()` Python binding.
-- [ ] Implement `MotionVectorAOV` pass plugin.
-- [ ] Add `tests/test_motion_vector_aov.py` covering the four
-      acceptance scenarios.
-- [ ] Update `STATUS.md`.
+- [x] Add `motionBuffer`, snapshotted projection scalars
+      (`prevOrigin/prevU/prevV/prevW/prevVw/prevVh/prevFocusDist/prevShiftX/prevShiftY`),
+      `hasPrevCamera`, and `snapshotForMotion()` to `Camera`.
+- [x] Register `"motion"` in `Framebuffer::buffer`.
+- [x] Compute and write motion in the renderer's primary-ray loop;
+      Cycles `intern/cycles/integrator/pass.cpp` PASS_MOTION cited
+      in the code comment.
+- [x] Call `snapshotForMotion()` at end of `Renderer::render`.
+- [x] Add `Renderer.get_motion_buffer()` Python binding (zero-copy
+      NumPy view, capsule keep-alive).
+- [x] Implement `MotionVectorAOV` pass plugin.
+- [x] Add `tests/test_motion_vector_aov.py` covering shape/dtype,
+      first-frame-zero, static-camera-zero, sky-pixel-zero, camera-pan
+      mean-flow, and pass-renders-finite.
+- [x] Update `STATUS.md`.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done. Required: actual peak `|motion|`
-on the static-camera test; per-pixel error distribution on the
-camera-pan test; any subtleties in the `Mat4 * Vec3` projection path
-on Windows/MinGW; whether the buffer needs to be cleared each frame
-or fully overwritten by the integrator.)*
+- **No `Mat4` was needed.** Astroray's `Camera` is already an
+  orthonormal-basis projector (`origin, u, v, w_axis, vw, vh,
+  focusDist, shiftX, shiftY`). Snapshotting these nine scalars
+  reproduces the exact pixel mapping the render loop uses, so the
+  motion math is just a basis projection (no homogeneous divide
+  pipeline, no transpose-vs-not bugs). The spec's `Mat4 prevViewProj`
+  was unnecessary; the snapshot fields ended up directly on `Camera`.
+- **Default integrator does not populate `SampleResult.position`.**
+  `plugins/integrators/spectral_path_tracer.cpp` (the default since
+  pkg14) only fills `albedo`/`depth` from the first-hit BVH query.
+  We therefore recover the world-space hit point from
+  `primaryRay.origin + primaryRay.direction * depth` rather than
+  trusting `ir.position`. This is robust across all integrators.
+- **`setup_camera` had to preserve the previous-frame snapshot**
+  across re-uploads. Blender re-creates the camera every viewport
+  frame; without copying the prev fields from the old shared_ptr
+  into the new one, every frame would look like "first frame" and
+  motion would be permanently zero.
+- **Pixel reference convention.** We use `pixel_curr = (x + 0.5, y + 0.5)`
+  (pixel centre) and project the world-space hit through the prev
+  camera with the inverse of the render loop's `(x,y) -> (u,v)` map
+  (`u = x/(W-1)`, `v = 1 - y/(H-1)`). Sub-pixel jitter from
+  `filterSample()` is intentionally ignored — using the pixel centre
+  for both prev and curr keeps the flow value stable across samples.
+- **Sign convention.** OptiX wants `motion = prev_pixel - curr_pixel`.
+  When the camera pans in `+x` (right), a static surface point's
+  current pixel shifts left, so its previous pixel is to the right of
+  its current pixel and `motion.x` is **positive**. The pkg72 spec
+  draft said `motion.x ≈ -dx`; that was wrong about the sign — `+dx`
+  matches the OptiX contract, and pkg73 (the consumer) takes the
+  buffer verbatim with no remapping.
+- **Buffer is fully overwritten per frame.** The render loop writes
+  every pixel (motion or zero) on every render call, so no
+  `std::fill` clear is needed. The buffer is sized once in the
+  Camera constructor and lives for the camera's lifetime.

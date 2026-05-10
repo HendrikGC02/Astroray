@@ -526,11 +526,28 @@ public:
                     const std::vector<float>& vup, float vfov, float aspectRatio,
                     float aperture, float focusDist, int width, int height,
                     float shiftX = 0.0f, float shiftY = 0.0f) {
+        auto oldCamera = camera;
         camera = std::make_shared<Camera>(
             Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
             Vec3(lookAt[0], lookAt[1], lookAt[2]),
             Vec3(vup[0], vup[1], vup[2]),
             vfov, aspectRatio, aperture, focusDist, width, height, shiftX, shiftY);
+        // pkg72: Blender re-uploads the camera every viewport frame via
+        // setup_camera; carry the previous-frame projection snapshot across
+        // so motion vectors are non-zero on the second and later frames.
+        if (oldCamera && oldCamera->hasPrevCamera &&
+            oldCamera->width == camera->width && oldCamera->height == camera->height) {
+            camera->prevOrigin    = oldCamera->prevOrigin;
+            camera->prevU         = oldCamera->prevU;
+            camera->prevV         = oldCamera->prevV;
+            camera->prevW         = oldCamera->prevW;
+            camera->prevVw        = oldCamera->prevVw;
+            camera->prevVh        = oldCamera->prevVh;
+            camera->prevFocusDist = oldCamera->prevFocusDist;
+            camera->prevShiftX    = oldCamera->prevShiftX;
+            camera->prevShiftY    = oldCamera->prevShiftY;
+            camera->hasPrevCamera = true;
+        }
     }
 
     void setAdaptiveSampling(bool enable) { useAdaptiveSampling = enable; }
@@ -835,6 +852,26 @@ public:
             }
         }
         return result;
+    }
+
+    // pkg72: per-pixel previous->current screen-space motion vector
+    // (float2/pixel, OptiX flow convention). Returns a NumPy view that
+    // shares memory with Camera::motionBuffer (no copy); base is a capsule
+    // holding a shared_ptr<Camera> ref so the data outlives the array.
+    py::array_t<float> getMotionBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+        auto ref = new std::shared_ptr<Camera>(camera);
+        py::capsule keepalive(ref, [](void* p) {
+            delete static_cast<std::shared_ptr<Camera>*>(p);
+        });
+        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height),
+                                 static_cast<py::ssize_t>(camera->width), 2};
+        py::ssize_t strides[3] = {
+            static_cast<py::ssize_t>(camera->width) * 2 * sizeof(float),
+            2 * sizeof(float),
+            sizeof(float),
+        };
+        return py::array_t<float>(shape, strides, camera->motionBuffer.data(), keepalive);
     }
 
     py::array_t<float> getAlphaBuffer() {
@@ -1232,6 +1269,7 @@ PYBIND11_MODULE(astroray, m) {
              "volume_bounces"_a = -1, "transparent_bounces"_a = -1)
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)
+        .def("get_motion_buffer", &PyRenderer::getMotionBuffer)
         .def("get_alpha_buffer", &PyRenderer::getAlphaBuffer)
         .def("get_depth_buffer", &PyRenderer::getDepthBuffer)
         .def("get_position_buffer", &PyRenderer::getPositionBuffer)

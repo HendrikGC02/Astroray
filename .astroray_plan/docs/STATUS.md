@@ -142,6 +142,7 @@ is currently the weakest link.
 | pkg56 | Incremental scene sync (depsgraph diff) — Phase A: instrument viewport sync path with per-stage timers + ring buffer | **Phase A done, B + C open** | A |
 | pkg74 | Engine benchmark + visual showcase framework (material zoo, convergence grid, stats CSV, HTML index) | **Phase 1 implemented**; Phase 2/3 open | A |
 | pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **open** | A |
+| pkg72 | Per-pixel motion vector AOV (camera-only screen-space flow; OptiX prev→curr convention; `Renderer.get_motion_buffer()` zero-copy NumPy view; `motion_vector_aov` visualisation pass) — unblocks pkg73 OptiX temporal denoiser | **done** | A |
 >>>>>>> 473d408 (feat(pkg56-A): instrument viewport sync path with per-stage timers + ring buffer)
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
@@ -308,6 +309,7 @@ events are summarized in the changelog below.
 | pkg71 | A | **implemented** | benchmark framework done; first full baseline CSV pending CUDA/Cycles hardware |
 | pkg74 | A | **Phase 1 implemented** | engine showcase framework: material zoo (registry-driven), Cornell convergence grid + log-log RMSE curve, stats CSV (untyped integrator-stats round-trip), static HTML index; outputs gitignored under `benchmarks/showcase/output/`; pytest gate verifies five artefacts in <30s; Phase 2 (integrator compare, GPU rows, BVH stats) and Phase 3 (interactive HTML, weekly CI) open |
 | pkg75 | A | **open** | first-hit normal buffer population for denoiser AOV guides; `Camera::normalBuffer` is allocated but never written by the default `Renderer` integrator path — both OIDN AOV mode and OptiX AOV mode silently degrade to HDR + albedo only; surfaced during pkg70 verification 2026-05-10 |
+| pkg72 | A | **done** | per-pixel motion vector AOV (camera-only screen-space flow); `Camera::motionBuffer` (float2/pixel, OptiX prev→curr convention) populated by primary-ray write site in `Renderer::render`; `Camera::snapshotForMotion()` runs at end of every frame; `setup_camera` carries the prev-projection snapshot across re-uploads so Blender viewport pans produce non-zero flow on frame 2+; `Renderer.get_motion_buffer()` returns a zero-copy NumPy view shaped `(H, W, 2)`; `motion_vector_aov` plugin visualises the buffer; mirrors Cycles `intern/cycles/integrator/pass.cpp` PASS_MOTION (Apache-2.0). Unblocks pkg73 OptiX temporal denoiser |
 
 ---
 

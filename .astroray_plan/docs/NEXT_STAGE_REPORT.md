@@ -1,371 +1,484 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-10 (mid-Round-5 — pkg56-C and pkg74-3 landed; **strategic gate released; Pillar 4 thawed**)
+**Date:** 2026-05-10 (post-Round-5 — pkg76 + pkg55-A + pkg41 + pkg73-diag + verifier set all landed; Pillar 4 actively shipping)
 **Prepared by:** Claude (Anthropic Code, Sonnet 4.5 in Max 5x)
-**Scope:** Remainder of Round 5 + first Pillar-4 thaw work. The
-gate-releasing package (pkg56 Phase C) and the Round 4 carryover
-(pkg74 Phase 3) have already landed since the Round 5 report opened.
-Four Round-5 sessions remain (pkg76, pkg55-A, pkg78, verifier), and
-the post-gate Pillar-4 queue is now spawnable.
+**Scope:** Round 6. Round 5 closed cleanly: the strategic gate
+released mid-round (pkg56 Phase C), the .blend importer landed
+(pkg76), wavefront baselines exist (pkg55 Phase A), the first
+Pillar-4 deliverable shipped (pkg41 Kerr validation), and the pkg73
+defect was localised (instrumentation in #241; awaiting RTX capture).
+Round 6 prioritises (a) closing the pkg73 defect, (b) extending
+Pillar 4 with pkg42–44, (c) starting the wavefront SoA migration
+proper (pkg55 Phase A.1 → B).
 
-> Strategic gate: **RELEASED 2026-05-10** by PR #233 (pkg56 Phase C).
-> Pillar 4 sessions are now spawnable. Strategy in
-> [`ROADMAP.md`](ROADMAP.md), status in [`STATUS.md`](STATUS.md).
+> Strategic gate released **2026-05-10** (PR #233). Pillar 4
+> active. Strategy in [`ROADMAP.md`](ROADMAP.md), status in
+> [`STATUS.md`](STATUS.md).
 
 ---
 
 ## 1. Current state (one screen)
 
-**Done since this report opened (mid-Round-5):**
+**Done since the previous report (Round 5 closure):**
 
-- **pkg56 Phase C** depsgraph-driven dispatch shipped — per-domain
-  uploaders dispatched from `depsgraph_update_post`, idle frames at
-  ≤5 ms p99 on the 99k-tri Phase A scene. **Strategic gate released.**
-  PR #233.
-- **pkg74 Phase 3** interactive HTML showcase + weekly self-hosted CI
-  workflow shipped (Round 4 carryover cleared). PR #232.
+- **pkg76** Astroray `.blend` importer shipped — offline SDNA-walking
+  Python reader (no `bpy` runtime), `tools/blend_import/{sdna,
+  reader, scene_builder, blend_to_astroray}.py`, returns
+  `astroray.Scene`. Roundtrip passes on `synthetic_min.blend`
+  (1 cube + 1 sun + 1 camera + Principled BSDF). PR #240. The
+  three deferred CSV rows (Classroom / Junkshop / BMW27) need a
+  reference run on the RTX box and are queued as a Round 6
+  follow-up.
+- **pkg55 Phase A** wavefront baseline instrumentation shipped —
+  `ASTRORAY_PROFILE=1`-gated CUDA events + NVTX, baseline.json
+  populated for `cornell_diffuse` + `cornell_glass`. Headline
+  measurement: **158 regs/thread, 1 active block/SM** at the 256-
+  thread launch — exactly the Laine 2013 occupancy cliff the SoA
+  refactor is meant to relieve. PR #238.
+- **pkg41** Kerr metric validation harness shipped — first Pillar-4
+  deliverable post-gate. 39 tests for BPT 1972 / Chandrasekhar
+  analytic quantities + null circular photon residuals + Kerr a=0
+  vs Schwarzschild identity + shadow-contour image-plane regression.
+  Bardeen/Chandrasekhar references, no GPL/CeCILL code mirrored.
+  PR #236.
+- **pkg73 diag** instrumentation shipped — `[pkg73-diag]` stderr
+  prints in `Camera::snapshotForMotion`, `renderFrame` entry, and
+  `OptiXDenoiser::execute` so the next RTX run produces a decision-
+  tree-resolvable signal for the 0% inter-frame variance reduction
+  defect. Static analysis in PR #241 ruled out logic bugs in the
+  chain — root cause needs hardware evidence. PR #241.
+- **pkg64-3 hardware verifier (rebuild)** — the previous verifier
+  pass (PR #235) hit a stale `.pyd` predating PR #230's
+  `scene_object_count` binding; the rebuild pass (#239) captured
+  the actual numbers: **SMS receiver-energy ratio 1.18× ✅**, **PSNR
+  floor +0.26 dB ✅**, **per-bounce overhead 2.0 % ✅**. All three
+  Phase 3 gates met on RTX 5070 Ti.
+- **pkg73 + pkg64-3 verifier (initial pass)** — honest doc-only
+  record of the 0% pkg73 result and pkg64-3 stale-build block. The
+  audit trail is preserved (PR #235 + #239 stack), not overwritten.
+- **pkg78** verifier ran the spec's branch logic correctly — the
+  re-baseline precondition did **not** hold (CPU/GPU output bit-
+  identical pre/post pkg75), so the gate floor was **not** lowered
+  and the drift was filed as defect [#237](https://github.com/HendrikGC02/Astroray/issues/237).
+  Investigation now needs a bisect to find the actual breaking
+  commit (pkg54c gate currently fails at SSIM 0.998629 vs floor
+  0.999).
 
-**Done in Round 4 (the round before this report):**
-
-- **pkg73** OptiX TEMPORAL_AOV denoiser shipped — `OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV`
-  upgrade path with motion + albedo + normal guides, prev-output ping-
-  pong, destroy-and-recreate handle on kind transition. Static cameras
-  fall back to AOV cleanly (no prev-output memory cost). PR #228.
-  Cycles `intern/cycles/device/optix/device_impl.cpp` Apache-2.0
-  consulted as design reference. Hardware verifier still pending.
-- **pkg56 Phase B** uploadScene split — `uploadGeometry`,
-  `uploadMaterials`, `uploadLights`, `uploadEnvironment` per-domain
-  bindings + `update_object_transform` BVH-refit fast path. Cycles
-  `intern/cycles/blender/sync.cpp` Apache-2.0 cited for the per-domain
-  pattern. PR #229. **Phase A baseline 129.92 → 183.30 ms** as the
-  measurement target for Phase C.
-- **pkg64 Phase 3** SMS folded into default `path_tracer` — shared
-  `astroray::manifold::runSMSAttempt` helper at
-  `include/astroray/manifold/sms_attempt.h`, per-bounce hook through
-  `Renderer::pathTraceSpectral` as a `std::function<...>`, per-object
-  `is_caustic_caster` opt-in (Cycles UX mirror), Blender addon
-  checkbox, MIS-disjoint additive combination with NEE. PR #230.
-  Phase 1 + 2 acceptance tests still pass — refactor is provably
-  behaviour-preserving.
-- **pkg76 spec** filed — Astroray `.blend` importer (parity scope only),
-  unblocks 3 of the 5 pkg71 baseline scenes. Drops the UDIM monster
-  from the manifest (Cycles itself errors "no camera" on
-  `udim-monster.blend`). PR #227.
-- **pkg72 + pkg64-2 hardware verifier** re-baselined on RTX 5070 Ti /
-  Windows MSVC `build_cuda`: **6/6 motion-vector tests pass in 0.19 s**;
-  pure-translation pan shows **100 % of hit pixels with `motion.x > 0`**
-  and exact-zero motion on sky pixels (OptiX flow contract confirmed
-  end-to-end). pkg64-2 spectral SMS PSNR delta **+8.83 dB matches
-  implementer baseline to 0.00 dB**. PR #226.
-- Test bootstrap: `tests/runtime_setup.py` deduped
-  `os.add_dll_directory` calls — pytest collection went from
-  "0 collected, 11 errors" → **801 collected**. PR #225.
-
-**Open pickup pool (remainder of Round 5 + post-gate Pillar 4):**
+**Open pickup pool (Round 6 + Round 7):**
 
 | Pkg | Title | Effort | Status |
 |---|---|---|---|
-| **pkg76** impl | Astroray .blend importer | ~1–2 weeks | Spec landed (PR #227); ready to implement |
-| **pkg55** Phase A | Wavefront SoA instrumentation | ~1 week | Unblocked (pkg56 + pkg64 baselines exist) |
-| pkg73 verifier | OptiX TEMPORAL_AOV CUDA hardware re-baseline | ~1 hour | Post-pkg73 follow-up |
-| pkg64-3 verifier | Default-integrator SMS PSNR + walltime on RTX | ~1 hour | Post-pkg64-3 follow-up |
-| pkg78 (new) | pkg54c SSIM gate re-baseline (post-pkg75 detail-preservation drift, 0.999263 → 0.9986 at spp=8192) | ~½ day | Surfaced post-pkg75 verifier; visual diff confirmation gate |
-| **pkg41** | Kerr metric validation | ~1 week | **Newly unblocked by gate release**; Codex-paste-ready |
-| pkg42 / 43 / 44 | Synchrotron / slim disk / ADAF (Pillar 4) | weeks each | Newly unblocked; Codex-paste-ready specs queued |
-| pkg55 Phases B + C | Wavefront SoA migration proper | 8–12 weeks | After Phase A measured baselines |
-| pkg67 | Metric-aware path tracer | ~1 month | Now unblocked alongside Pillar 4 (revisit when pkg40 + pkg55 maturity is in place) |
-
-**Pillar 4 (THAWED 2026-05-10):** pkg40 Kerr metric done; pkg41 Kerr
-validation paste-ready; pkg42–51 specs queued. Codex may pick up
-pkg41 first; pkg42 / 43 / 44 in parallel as bandwidth allows.
+| **pkg73 fix** | TEMPORAL_AOV upgrade branch never fires on RTX | ~½ day after diag | Diag instrumentation on `main` (PR #241); needs hardware capture + 1 fix iteration |
+| **pkg42** | Synchrotron emission (Pillar 4) | ~2 weeks | Codex-paste-ready spec |
+| **pkg43** | Slim disk model (Pillar 4) | ~2 weeks | Codex-paste-ready spec |
+| **pkg44** | ADAF model (Pillar 4) | ~2 weeks | Codex-paste-ready spec |
+| **pkg55** Phase A.1 | SoA infra + intersect queue | ~1–2 weeks | Renamed in spec by PR #238; first real refactor before Phase B |
+| pkg55 Phase B | Per-material shade kernels | 4–6 weeks | After A.1 |
+| pkg55 Phase C | Megakernel removal | 2–4 weeks | After B |
+| pkg76 CSV | Classroom / Junkshop / BMW27 baseline rows | ~½ day on RTX | After pkg73 fix (so denoiser path is healthy for parity numbers) |
+| pkg78 bisect | Find the commit that drifted SSIM 0.999263 → 0.998629 | ~½ day on RTX | Tracking issue [#237](https://github.com/HendrikGC02/Astroray/issues/237) |
+| pkg79 (new, tiny) | ReSTIR `test_spatial_reduces_mse` flake (margin 0.000004; widen seed averaging or assertion) | ~½ day | Surfaced by PR #236 CI; recurring noise-floor failure |
+| pkg47 / 48 / 49 | FITS / HDF5 / SPH loaders (Pillar 4 data import) | weeks each | Codex-paste-ready specs queued; deferred behind pkg42–44 |
+| pkg67 | Metric-aware path tracer | ~1 month | Unblocks once pkg40 + pkg55 maturity in place |
 
 ---
 
-## 2. Recommended next deployable set (Round 5 remainder + Pillar 4 thaw)
+## 2. Recommended next deployable set (Round 6)
 
-Five sessions, all parallel-safe:
+Six sessions, parallel-safe:
 
 | # | Agent | Worktree / location | Package | Effort |
 |---|---|---|---|---|
-| 1 | Claude tech | `pkg76-impl` (new) | pkg76 — Astroray .blend importer (parity scope) | ~1–2 weeks |
-| 2 | Claude tech | `pkg55-phase-a` (new) | pkg55 Phase A — wavefront SoA instrumentation pass (no behaviour change) | ~1 week |
-| 3 | Codex | main directory | **pkg41 Kerr metric validation** (Pillar 4, newly unblocked) | ~1 week |
-| 4 | Codex (after #3 lands) | main directory | pkg78 — pkg54c SSIM gate re-baseline + visual diff vs pkg75 reference | ~½ day |
-| 5 | CUDA verifier | hardware | re-baseline pkg73 OptiX TEMPORAL_AOV inter-frame variance + pkg64-3 default-integrator SMS PSNR + walltime on RTX 5070 Ti | ~1 hour |
+| 1 | CUDA verifier | hardware | **pkg73 diag capture** — run #241's instrumented build on RTX 5070 Ti, post `[pkg73-diag]` stderr to PR #241 | ~15 min |
+| 2 | Claude tech (after #1) | `pkg73-fix` (new) | **pkg73 fix** — apply the obvious fix the diag points to; re-run; clear ≥30% gate | ~½ day |
+| 3 | Claude tech | `pkg55-phase-a1` (new) | pkg55 Phase A.1 — SoA infra + intersect queue | ~1–2 weeks |
+| 4 | Codex | main directory | **pkg42 synchrotron emission** (Pillar 4) | ~2 weeks |
+| 5 | Codex (after #4) | main directory | pkg78 bisect (#237) — find the SSIM-drift commit + report | ~½ day |
+| 6 | Codex (after #5) | main directory | pkg76 CSV — populate Classroom / Junkshop / BMW27 rows on RTX | ~½ day |
 
-Sessions 1, 2, 5 spawn at once. Session 3 starts immediately;
-session 4 follows 3 (Codex serializes in the main directory).
+Sessions 1, 3, 4 spawn at once. Session 2 starts the moment #1
+posts. Sessions 5 and 6 chain after #4 because Codex serializes in
+the main directory; both are short follow-ups that fit in one
+Codex sitting after pkg42 lands.
 
-Round 5 closes when:
-- pkg76 implementation merged (Classroom / Junkshop / BMW27 pkg71 rows possible)
-- pkg55 Phase A merged (wavefront baselines measured; Phases B + C unblocked)
-- pkg41 Kerr validation merged (first post-gate Pillar-4 deliverable)
-- pkg78 verified or closed (pkg54c gate re-set against post-pkg75 reality)
-- pkg73 + pkg64-3 hardware-verified
+The ReSTIR flake (pkg79) is small enough to fold into whichever
+session is least busy; if it keeps biting CI, file as a tiny
+standalone Codex pickup.
 
-Then **Round 6** continues Pillar 4 (pkg42 / 43 / 44 in parallel as
-Codex bandwidth allows) and starts **pkg55 Phase B** — the wavefront
-SoA migration proper.
+Round 6 closes when:
+- pkg73 fix merged + gate clears on RTX (the denoiser story is
+  finally fully closed)
+- pkg42 merged (second Pillar-4 deliverable)
+- pkg55 Phase A.1 merged (SoA scaffolding in tree; Phase B
+  unblocked)
+- pkg78 bisect comment posted on #237 with first-bad commit
+- pkg76 CSV rows populated (real Classroom / Junkshop / BMW27
+  parity numbers)
+
+Then **Round 7** runs pkg43 + pkg44 in series (Codex), pkg55
+Phase B (Claude tech, the migration proper), and the next two
+Pillar-4 follow-ups (likely pkg47 FITS loader if any astrophysics
+data import is wanted, otherwise more synchrotron / disk geometry).
 
 ---
 
 ## 3. Drop-in prompts per agent
 
-### 3.1 Claude tech (worktree `pkg76-impl`) — Astroray .blend importer
+### 3.1 CUDA verifier (hardware) — pkg73 diag capture
 
 ```
-You are Claude Code in worktree .claude/worktrees/pkg76-impl,
-branched from current main. Implement pkg76 end to end. The spec
-landed in PR #227.
+You are the CUDA verifier on the RTX 5070 Ti / Windows MSVC box.
+PR #241 landed `[pkg73-diag]` stderr instrumentation in
+`Camera::snapshotForMotion`, `Renderer::renderFrame` entry, and
+`OptiXDenoiser::execute` to localise the 0 % inter-frame variance
+reduction defect. The fix session (3.2) is blocked on this signal.
 
-Read first:
-  - .astroray_plan/packages/pkg76-blend-importer-parity-scope.md
-    (the full spec, including the parity-scope cap and the explicit
-    Cycles features we DO NOT implement)
-  - .astroray_plan/docs/blend-importer-research.md (license analysis,
-    parser pick: blender_python_io / bpy in --background)
-  - blender_addon/__init__.py (the existing convert_objects path —
-    same Astroray-side data model the importer must produce)
-  - benchmarks/cycles_parity/run.py (the pkg71 driver; the importer
-    feeds it)
+Step 1 — sync main + clean rebuild:
+  git checkout main && git pull --ff-only
+  cmake --build --preset windows-tcnn-vs-release
+  (or build_cuda equivalent)
 
-Goal: produce `scripts/parity/import_blend.py` that takes a
-`.blend` path + a parity-scope manifest entry, runs `blender
---background --python` to extract scene data, and writes a JSON
-scene description that the existing pkg71 harness consumes to
-produce a comparable Astroray render. Acceptance: Classroom,
-Junkshop, BMW27 pkg71 rows produce SSIM numbers vs Cycles-CPU EXR.
+Step 2 — run the failing tests with -s (so stderr is captured):
+  python scripts/dev/run_tests.py --build-dir build_cuda --
+    tests/test_optix_denoiser_temporal.py
+  -v -s --tb=short 2>&1 | tee test_results/pkg73-diag/run.log
 
-Constraints (from spec):
-  - Parity-scope only: Principled BSDF (subset), point/area/sun
-    lights, world env, camera. No volumes, no hair, no SSS, no
-    UDIMs (the dropped monster scene's blocker).
-  - DO NOT depend on bpy at runtime in the addon path — bpy is only
-    invoked from the import script as a subprocess.
-  - Cite all Cycles parity-mapping decisions in code comments
-    ("matches intern/cycles/blender/shader.cpp:set_principled_*").
-  - CLAUDE.md sections 2, 3, 6.
+Step 3 — post the captured `[pkg73-diag]` lines as a comment on
+PR #241 (the now-merged diag PR). Per-frame, in render order, raw.
+Do NOT trim; the fix session needs the full signal — motion buf
+pointer, non-zero count, abs-max, hasPrevCamera, prevOrigin — for
+each frame to discriminate among:
 
-When done:
-  - pkg76 spec status -> "implemented".
-  - benchmarks/cycles_parity/results.csv extended with at least 3
-    new rows.
-  - PR titled "feat(pkg76): Astroray .blend importer (parity scope)".
-```
+  (a) motion buffer pointer mismatch (snapshot/execute see different
+      ptr)
+  (b) buffer populated with zeros (snapshot ran, but motion-write
+      site never fired)
+  (c) buffer populated, non-zero, but `desiredKind` selection
+      branch never taken (test methodology issue)
 
-### 3.2 Claude tech (worktree `pkg55-phase-a`) — wavefront SoA instrumentation
-
-```
-You are Claude Code in worktree .claude/worktrees/pkg55-phase-a,
-branched from current main. Implement pkg55 Phase A.
-
-Read first:
-  - .astroray_plan/packages/pkg55-wavefront-soa.md (full spec)
-  - src/gpu/cuda_renderer.cu (current AoS path — the measurement
-    target)
-  - benchmarks/showcase/* (existing perf-stats infrastructure
-    pkg74 ships — re-use it)
-
-Phase A is INSTRUMENTATION ONLY. No SoA conversion, no kernel
-splits, no behaviour change. Goal: produce a per-bounce, per-
-warp, per-kernel timing + occupancy + register-pressure dump for
-the current AoS megakernel that Phases B + C will compare against.
-
-Implementation outline:
-  1. CUDA events around each major kernel section in cuda_renderer.cu
-     (intersection, shading, NEE, accumulation). Conditional on
-     ASTRORAY_PROFILE=1 env var so production renders pay nothing.
-  2. NVTX ranges for nsight-compute consumption.
-  3. Python harness benchmarks/wavefront_baseline.py that runs the
-     Cornell + Classroom (post-pkg76) scenes at fixed spp and
-     records results in benchmarks/wavefront/baseline.json.
-  4. Acceptance: baseline.json populated with measured numbers for
-     at least 2 scenes; the data is what Phases B + C must beat.
-
-Reference (Apache-2.0):
-  - intern/cycles/device/cuda/queue.cpp — Cycles' wavefront queue
-    instrumentation pattern. Cite, do not copy code yet.
-  - PBRT v4 wavefront integrator profiler hooks.
+Step 4 — also re-record the test pass/fail summary (5 tests, prior
+result was 3 pass / 2 fail). Append to the same comment.
 
 Constraints:
-  - Zero behaviour change. CI must show bit-identical outputs for
-    the ASTRORAY_PROFILE=0 default path.
-  - CLAUDE.md sections 2, 3, 6.
-
-When done:
-  - pkg55 Phase A subsection in the spec filled with measured numbers.
-  - PR titled "feat(pkg55-A): wavefront SoA baseline instrumentation".
+  - Doc + comment only. No source touched.
+  - Do NOT relax the ≥30 % gate.
+  - If rebuild errors before producing any [pkg73-diag] lines,
+    post the build/run failure verbatim and STOP.
 ```
 
-### 3.3 Codex (main directory) — pkg41 Kerr metric validation (first Pillar-4 thaw deliverable)
+### 3.2 Claude tech (worktree `pkg73-fix`, after 3.1) — pkg73 fix
 
 ```
-You are Codex working in the main Astroray directory. The
-strategic gate released on 2026-05-10 with PR #233 (pkg56 Phase C);
-Pillar 4 is now thawed. pkg41 is the first paste-ready Pillar-4
-deliverable.
+You are Claude Code in worktree .claude/worktrees/pkg73-fix,
+branched from current main. The CUDA verifier just posted the
+[pkg73-diag] hardware capture as a comment on PR #241. Read
+it, identify the failing branch (a/b/c per the diag prompt),
+fix the root cause, re-verify on RTX.
 
 Read first:
-  - .astroray_plan/packages/pkg41-kerr-validation.md (the spec —
-    paste-ready, has been queued since pre-gate)
-  - .astroray_plan/packages/pkg40-kerr-metric.md (pkg40 landed
-    earlier; pkg41 is its validation harness)
-  - the relevant Kerr code paths in src/ that pkg40 introduced
+  - The verifier's [pkg73-diag] comment on PR #241
+  - plugins/passes/optix_denoiser.cpp (the execute() short-
+    circuit; the printf landed there is your starting point)
+  - include/raytracer.h::Camera::snapshotForMotion() and
+    Renderer::renderFrame() entry (the other two diag sites)
+  - tests/test_optix_denoiser_temporal.py
+  - PR #241's body (the static-analysis trail that ruled out
+    obvious logic bugs)
 
-Goal: implement the validation harness specified in pkg41 — closed-
-form geodesic comparisons, image-plane regression vs published
-GR ray-tracer reference (GYOTO / RAPTOR / ipole as cited in the
-spec), and the acceptance gates defined in the spec.
+Decision tree from diag output:
+  - hasPrevCamera=0 on frame 2  → snapshot lifecycle bug
+    (probably setup_camera bridge); fix in module/blender_module.cpp
+  - hasPrevCamera=1, motion_nonzero_count=0 → motion-write site
+    never fires; fix in include/raytracer.h render loop
+  - hasPrevCamera=1, motion_nonzero_count>0, motion_buf=NULL in
+    execute() → Framebuffer::buffer("motion") not registered at
+    pass time; fix in include/raytracer.h Framebuffer
+  - All non-zero but desiredKind never TEMPORAL_AOV → kind-
+    selection logic in execute(); fix locally
+  - All non-zero AND desiredKind=TEMPORAL_AOV but rms_t==rms_a →
+    test methodology issue (denoiser ran but pkg70 also got the
+    benefit somehow); fix in tests/test_optix_denoiser_temporal.py
+
+Step 1 — diagnose (write down which branch fired in PR body).
+Step 2 — fix the root cause. ONE fix. Surgical.
+Step 3 — REMOVE the [pkg73-diag] prints (they were marked
+"remove after fix" with date; do it now).
+Step 4 — request a re-run from the verifier or run the gate
+test yourself if a CUDA build is available.
 
 Constraints:
   - CLAUDE.md sections 1, 2, 3, 6.
-  - This is Pillar 4. Cite the GR papers + reference renderers per
-    the existing Kerr research notes in .astroray_plan/docs/.
-  - DO NOT change the pkg40 metric code itself — pkg41 is validation
-    only. If the harness surfaces a real defect, file it as a follow-
-    up package and STOP.
+  - Do NOT relax the ≥30 % gate.
+  - Do NOT add a "force temporal mode" flag — the gate that only
+    upgrades on real motion is correct design.
+  - DO NOT consult Cycles MNEE source (wrong concern); pkg73
+    reference is intern/cycles/device/optix/device_impl.cpp
+    (Apache-2.0).
+  - If diagnosis points at the test methodology rather than the
+    pass, fix the test — call it out clearly in the PR body.
 
 When done:
-  - pkg41 spec status -> "implemented".
-  - PR titled "feat(pkg41): Kerr metric validation harness".
+  - Append "Defect fix 2026-05-XX" section to pkg73 spec with
+    measured numbers (must clear ≥30 %).
+  - PR titled "fix(pkg73): TEMPORAL_AOV upgrade branch never
+    fired on hardware (root cause: <one-line>)".
 ```
 
-### 3.4 Codex (main directory, after #3) — pkg78 SSIM gate re-baseline
+### 3.3 Claude tech (worktree `pkg55-phase-a1`) — SoA infra + intersect queue
 
 ```
-You are Codex in the main Astroray directory. pkg78 is a small
-follow-up surfaced by the post-pkg75 verifier run.
-
-Symptom: pkg54c gate drifted from SSIM 0.999263 to 0.9986 at
-spp=8192 against the visible-band reference. The drift coincides
-with pkg75 (one-line `r.normal = rec.normal` fix in
-plugins/integrators/spectral_path_tracer.cpp::sampleFull) — the
-same detail-preservation mechanism documented in PR #223 for the
-OIDN noise-ratio metric.
+You are Claude Code in worktree .claude/worktrees/pkg55-phase-a1,
+branched from current main. Phase A landed in PR #238 (gated
+profiling, baseline.json populated, 158 regs/thread + 1 block/SM
+documented as the cliff). Phase A.1 is the first real refactor
+toward wavefront — drop in the SoA path-state buffer + an
+intersect queue, BEHIND a build-time flag so the AoS megakernel
+remains the default and bit-identical.
 
 Read first:
-  - .astroray_plan/packages/pkg54c-spectral-rgb-jakob-hanika.md
-    (the gate definition)
-  - PR #219 + #223 (the pkg75 fix and noise-ratio re-baseline)
-  - tests/test_spectral_visible_band.py (the gate test)
+  - .astroray_plan/packages/pkg55-wavefront-soa-refactor.md
+    (the full spec; Phase A.1 was carved out of the original
+    Phase A in PR #238)
+  - src/gpu/profile.h + the ScopedTimer/NvtxRange + Aggregator
+    machinery from PR #238 (re-use it)
+  - src/gpu/path_trace_kernel.cu (the AoS megakernel's launchers
+    are now wrapped in ScopedTimer; Phase A.1 adds parallel SoA
+    launchers)
+  - benchmarks/wavefront/baseline.json (the numbers Phase A.1
+    must not regress)
 
-Goal:
-  1. Render the current spp=8192 visible-band reference with HEAD
-     and visually compare against the saved reference. Confirm the
-     drop is detail preservation (sharper, not noisier).
-  2. If confirmed: re-save the reference + drop the gate floor to
-     0.998. Document in the spec that the previous reference was
-     pre-pkg75.
-  3. If NOT confirmed: file pkg78 as a real defect and STOP — do
-     not change the gate.
+Phase A.1 goal:
+  1. SoA path-state struct(s) for primary + secondary ray state
+     (origin, direction, throughput, pdf, depth, RNG state).
+     One CUDA-friendly layout per Laine 2013 §4 + PBRT v4
+     wavefront integrator.
+  2. An intersect queue: enqueue rays from launch, dequeue in
+     a separate kernel that does only intersection. Behind
+     `-DASTRORAY_WAVEFRONT_INTERSECT=ON` (default OFF).
+  3. Smoke test that the SoA intersect path produces bit-
+     identical first-hit positions to the AoS megakernel on
+     the Cornell baseline. Behaviour parity is the gate; perf
+     numbers come in Phase B.
+  4. Re-run benchmarks/wavefront_baseline.py with the flag both
+     ways; record both columns in baseline.json.
+
+References (Apache-2.0, mirrorable with citation):
+  - mmp/pbrt-v4 src/pbrt/wavefront/* — the canonical wavefront
+    integrator architecture in C++/CUDA. Cite per-kernel.
+  - intern/cycles/kernel/integrator/state.h — Cycles' SoA
+    IntegratorState; cite for the field layout.
+  - Laine, Karras, Aila — "Megakernels Considered Harmful:
+    Wavefront Path Tracing on GPUs" (HPG 2013) §4. Already
+    cited in pkg55 spec.
 
 Constraints:
-  - CLAUDE.md sections 1, 3, 4. This is a gate-tightening decision,
-     so verification before the gate change is mandatory.
+  - CLAUDE.md sections 2, 3, 6.
+  - Default build path UNCHANGED — production renders see no
+    SoA code unless the flag is on.
+  - Do NOT touch the integrator interface or any plugin.
+  - Bit-identical AoS output gated by CI.
 
 When done:
-  - PR titled either "verify(pkg78): pkg54c SSIM re-baseline post-pkg75"
-    (re-save case) or "fix(pkg78): pkg54c regression investigation"
-    (real defect case).
+  - pkg55 Phase A.1 subsection in the spec filled with measured
+    numbers + bit-identity proof.
+  - PR titled "feat(pkg55-A.1): SoA path state + intersect queue
+    (gated)".
 ```
 
-### 3.5 CUDA verifier (hardware session) — pkg73 + pkg64-3 RTX re-baseline
+### 3.4 Codex (main directory) — pkg42 synchrotron emission
 
 ```
-You are the CUDA verifier on the RTX 5070 Ti / Windows MSVC
-build_cuda branch. Run the following on real hardware and append
-Lessons-style sections to the relevant package specs.
+You are Codex working in the main Astroray directory. The
+strategic gate released; pkg41 (Kerr validation) shipped first
+out of the Pillar-4 queue. pkg42 is next: synchrotron emission
+on top of the Kerr metric.
 
-  1. tests/test_optix_denoiser_temporal.py — full run against the
-     OptiX 9.1.0 + CUDA 12.8 build. Record:
-       - inter-frame variance reduction pkg73 (TEMPORAL_AOV) vs
-         pkg70 (AOV) on the 10-frame camera-pan sequence.
-       - first-frame fallback behaviour (no prev-output buffer).
-       - kind-transition reset (HDR -> AOV -> TEMPORAL_AOV cycle).
-     Acceptance: ≥30% inter-frame variance reduction per pkg73 spec.
-     Append section "Hardware verification 2026-05-10" to
-     .astroray_plan/packages/pkg73-optix-temporal-denoiser.md.
+Read first:
+  - .astroray_plan/packages/pkg42-synchrotron-emission.md (paste-
+    ready spec)
+  - .astroray_plan/packages/pkg40-kerr-metric.md + pkg41 spec for
+    the metric-tensor + analytic-quantity surface pkg42 calls
+    into.
+  - The relevant src/ Kerr code paths.
 
-  2. tests/test_pkg64_phase3_default_integrator.py +
-     tests/test_pkg64_phase3_no_regression.py — full run.
-     Record:
-       - SMS receiver-energy ratio (≥1.10× the no-caustics baseline).
-       - per-bounce walltime overhead with empty hook (≤5%).
-       - PSNR floor non-regression (≥-0.5 dB).
-     Append section "Phase 3 hardware verification 2026-05-10" to
-     .astroray_plan/packages/pkg64-spectral-caustics.md.
+Goal: implement synchrotron emission as a plugin emitter (or
+volume contribution per the spec) that consumes the Kerr metric
+quantities. Validate against the spec's reference (likely
+Pandya 2016 fitting formulae or the GR-MHD synchrotron papers
+the spec cites).
 
 Constraints:
-  - Doc-only PR. No source touched.
-  - PR titled "verify(pkg73, pkg64-3): hardware re-baseline".
+  - CLAUDE.md sections 1, 2, 3, 6.
+  - This is Pillar 4 — cite the synchrotron / GRMHD papers per
+    the spec; check license fence on any reference renderer
+    consulted (RAPTOR/ipole/GYOTO are reference only, not
+    mirrored).
+  - DO NOT change pkg40/pkg41 code.
+
+When done:
+  - pkg42 spec status -> "implemented".
+  - PR titled "feat(pkg42): synchrotron emission".
+```
+
+### 3.5 Codex (main directory, after #4) — pkg78 bisect for #237
+
+```
+You are Codex investigating issue #237: the pkg54c visible-band
+SSIM drifted from 0.999263 (originally measured in pkg54c) to
+0.998629 (current HEAD). The pkg78 verifier (pre-Round-6) proved
+bit-identical CPU+GPU output between pre-pkg75 (fcbbbf2) and
+HEAD, so the drift PRE-DATES pkg75.
+
+Read first:
+  - https://github.com/HendrikGC02/Astroray/issues/237 (the
+    defect filing)
+  - .astroray_plan/packages/pkg54c-spectral-rgb-jakob-hanika.md
+    — find the commit hash that originally reported 0.999263
+    (this is the GOOD anchor)
+  - tests/test_gpu_multiwavelength.py::test_visible_band_cpu_gpu_ssim
+
+Procedure:
+  1. From the pkg54c spec, find the GOOD commit (where
+     0.999263 was first measured).
+  2. Use `fcbbbf2` (pre-pkg75) as the BAD end — already
+     proven to drift below 0.999.
+  3. git bisect start fcbbbf2 <good>
+  4. At each probe: rebuild CUDA module, run the visible-band
+     test in isolation, mark good (≥0.999) or bad (<0.999).
+  5. Report the first-bad commit + its diff.
+
+  If the first-bad commit is a deliberate integrator change with
+  a justified reason: comment on #237 with the diagnosis +
+  open a follow-up issue to discuss whether to re-baseline the
+  gate or revert. Do NOT touch the gate in this PR.
+
+  If unintended regression: comment on #237 with the finding
+  and STOP — fix is a separate PR.
+
+Constraints:
+  - CLAUDE.md sections 1, 4.
+  - Do NOT change the gate value.
+  - If the bisect range is large (>30 commits), narrow with a
+    midpoint probe at a pkg54-related commit first.
+
+When done:
+  - Comment on #237 with first-bad commit hash + one-line
+    diagnosis.
+  - No PR (or doc-only PR if the bisect log is long enough to
+    warrant a Lessons append).
+```
+
+### 3.6 Codex (main directory, after #5) — pkg76 CSV row population
+
+```
+You are Codex on the RTX 5070 Ti box. pkg76 (PR #240) shipped
+the .blend importer code path but explicitly deferred the three
+new parity-baseline CSV rows because they need a reference run
+on real hardware. With pkg73 fixed and the denoiser path healthy
+again, run them now.
+
+Read first:
+  - benchmarks/cycles-parity/README.md
+  - benchmarks/cycles-parity/scenes/manifest.toml (Monster is
+    correctly dropped; Classroom / Junkshop / BMW27 are the
+    targets)
+  - scripts/run_parity.py (the harness; pkg76 wired the
+    importer in)
+  - .astroray_plan/packages/pkg76-blend-importer-parity-scope.md
+    "Lessons" section
+
+Step 1 — populate the .blend cache if not already there
+(`benchmarks/cycles-parity/scenes/cache/`).
+
+Step 2 — run scripts/run_parity.py for each of Classroom,
+Junkshop, BMW27 against Cycles-CPU EXR reference at the
+manifest's reference SPP. Acceptance per spec: SSIM ≥ 0.85
+(parity-scope, not Cornell's 0.95).
+
+Step 3 — append rows to benchmarks/cycles-parity/results.csv
+(or whichever dated CSV the harness writes). Commit them.
+
+Step 4 — if any of the three scenes fails the 0.85 gate,
+report which channel(s) (geometry / material / light /
+camera) drove the miss. Do NOT re-baseline the gate.
+
+Constraints:
+  - CLAUDE.md sections 1, 4.
+  - Doc + CSV + no source touched.
+  - PR titled "verify(pkg76): Classroom/Junkshop/BMW27 parity
+    rows on RTX".
 ```
 
 ---
 
 ## 4. Coordination
 
-**File-touching map** (zero hard collisions across sessions):
+**File-touching map** (zero hard collisions):
 
 | Session | Files |
 |---|---|
-| pkg76 impl | new `scripts/parity/import_blend.py`, `benchmarks/cycles_parity/run.py` (importer hookup), `benchmarks/cycles_parity/results.csv`, pkg76 spec, STATUS.md |
-| pkg55 Phase A | `src/gpu/cuda_renderer.cu` (instrumentation only, gated), new `benchmarks/wavefront_baseline.py`, pkg55 spec, STATUS.md |
-| pkg41 (Pillar 4) | `src/` Kerr-validation harness as specified, new tests, pkg41 spec, STATUS.md |
-| pkg78 verifier | reference PNG re-save in `tests/reference/` + pkg54c spec note (or no change if defect path) |
-| pkg73 + pkg64-3 verifier | doc-only Lessons appends to pkg73 + pkg64 specs |
+| pkg73 diag capture | comment on PR #241; doc-only Lessons append to pkg73 spec |
+| pkg73 fix | `plugins/passes/optix_denoiser.cpp` (+ remove diag prints), `include/raytracer.h` (remove diag prints), maybe `module/blender_module.cpp`, pkg73 spec, STATUS.md |
+| pkg55 Phase A.1 | new `src/gpu/wavefront/*.cu` + headers, `src/gpu/path_trace_kernel.cu` (alt launcher behind flag), CMake guard, new test, `benchmarks/wavefront/baseline.json` (extra column), pkg55 spec, STATUS.md |
+| pkg42 synchrotron | new `plugins/emitters/synchrotron.cpp` (or volumes), maybe Kerr-side accessors, new tests, pkg42 spec, STATUS.md |
+| pkg78 bisect | comment on #237; possibly doc-only PR with bisect log |
+| pkg76 CSV | `benchmarks/cycles-parity/results.csv` only |
 
-**Conflict points to watch:**
+**Conflict points:**
 
-1. **`STATUS.md`** — five sessions all touch it. Same three-way merge
-   race we keep hitting. Mitigation: rebase + manual STATUS.md
+1. **`STATUS.md`** — three sessions touch it (pkg73 fix, pkg55-A.1,
+   pkg42). Same merge race as before; rebase + manual STATUS.md
    resolution preserving all rows.
+2. **`include/raytracer.h`** — pkg73 fix removes the diag prints;
+   pkg55 Phase A.1 may add SoA-side hooks. Different sections, but
+   worth a sanity diff at merge.
+3. **`plugins/passes/optix_denoiser.cpp`** — only pkg73 fix touches
+   it. Conflict-free.
 
-2. **`src/gpu/cuda_renderer.cu`** — only pkg55 Phase A touches it
-   this round (gated CUDA events / NVTX ranges). pkg41 is CPU-side
-   GR validation; should be conflict-free.
-
-**Recommended merge order:** verifier (doc-only) → pkg78 (small) →
-pkg41 Kerr validation (Codex, focused) → pkg55 Phase A (no behaviour
-change, low risk) → pkg76 impl (largest, last).
+**Recommended merge order:** pkg73 diag capture (comment, no PR) →
+pkg73 fix (small, gate-closing) → pkg78 bisect (small) → pkg76 CSV
+(doc/data only) → pkg55 Phase A.1 (medium, CI must show bit-
+identical AoS path) → **pkg42 last** (largest, Pillar 4).
 
 ---
 
-## 5. After Round 5 lands
+## 5. After Round 6 lands
 
-Already in the bag (mid-Round-5):
+When Round 6 closes:
 
-- **pkg56** done end-to-end (Phases A + B + C). Viewport idle ≤ 5 ms.
-- **pkg74** done end-to-end (Phases 1 + 2 + 3). Showcase self-
-  publishes weekly; HTML dashboard ships.
-- **Strategic gate released. Pillar 4 thawed.**
+- **pkg73** fully done; the entire denoiser story (pkg33 → pkg68 →
+  pkg69 → pkg70 → pkg72 → pkg73) is closed.
+- **pkg55 Phase A.1** done; SoA path-state + intersect queue in
+  tree behind a flag. Phase B's per-material shade-kernel work has
+  a real scaffolding to build on.
+- **pkg42** done; second Pillar-4 deliverable shipped. Synchrotron
+  emission available on Kerr backgrounds.
+- **pkg76 CSV** populated; the 5-scene parity baseline is finally
+  4 rows wide (Cornell + Classroom + Junkshop + BMW27; Monster
+  correctly dropped).
+- **#237** diagnosed; either a re-baseline conversation opens with
+  hard data, or a real regression has a fix path.
 
-When the remainder of this round lands:
+Then **Round 7**:
 
-- **pkg76** implementation done. Classroom / Junkshop / BMW27 pkg71
-  rows have measured Astroray-vs-Cycles SSIM numbers.
-- **pkg55 Phase A** done. Wavefront baselines measured; Phases B + C
-  unblocked with concrete numbers to beat.
-- **pkg41** done. First Pillar-4 deliverable post-gate; Kerr metric
-  has its validation harness.
-- **pkg73 + pkg64-3** hardware-verified.
-- **pkg78** resolved (gate re-baselined or real defect filed).
+- **Codex** continues Pillar 4 — pkg43 (slim disk) + pkg44 (ADAF)
+  in series.
+- **Claude tech** picks up **pkg55 Phase B** — the per-material
+  shade kernel split (the place the 158 regs/thread cliff
+  actually breaks).
+- Optional Codex side track: pkg47/48/49 (FITS / HDF5 / SPH
+  loaders) once the dust settles on the emission-model trio.
 
-Then **Round 6**:
+After Round 7:
 
-- **Codex** continues Pillar 4 — pkg42 / 43 / 44 paste-ready specs
-  (synchrotron / slim disk / ADAF) in parallel as bandwidth allows.
-- **Claude tech** starts **pkg55 Phase B** (the wavefront SoA
-  migration proper begins — multi-month, but unlocks measurable GPU
-  parity claims with Cycles X for the eventual paper).
-- **pkg67 metric-aware path tracer** unblocks once pkg40 + pkg55
-  maturity is in place.
-
-After Round 6:
-
-- Pillar 4 actively shipping (pkg41 + early pkg42–44).
-- pkg55 Phase B in progress (wavefront SoA refactor).
+- Pillar 4 has three emission models (synchrotron, slim disk,
+  ADAF) + Kerr metric + validation. Real astrophysical scenes
+  become renderable end-to-end.
+- pkg55 Phase B reduces register pressure measurably; baseline.json
+  shows two columns (AoS megakernel vs SoA per-material), and the
+  cliff documented in PR #238 is the comparison anchor.
 - Pillar 5 essentially feature-complete; remaining work is the
   ongoing-opportunistic polish bullets in `production.md`.
 
-Bump this report when pkg76 or pkg41 lands — those are the next major
-queue movements.
+Bump this report when pkg73 fix lands or when pkg42 lands —
+those are the next major queue movements.

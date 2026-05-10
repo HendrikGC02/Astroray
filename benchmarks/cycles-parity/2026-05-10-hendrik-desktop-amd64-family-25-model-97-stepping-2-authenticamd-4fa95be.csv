@@ -1,0 +1,21 @@
+scene,engine,samples,time_ms,peak_mem_mb,ssim_to_cycles,skip_reason
+cornell,cycles-cpu,64,10648.201,595.3,1.000000,
+cornell,cycles-cuda,64,4182.948,673.8,0.999963,
+cornell,astroray-cpu,64,15389.610,134.9,0.953596,
+cornell,astroray-gpu,64,800.741,244.5,0.954770,
+classroom,cycles-cpu,300,486451.691,1506.2,1.000000,
+classroom,cycles-cuda,300,31167.653,1587.0,0.998390,
+classroom,astroray-cpu,300,,,,astroray_blend_import_not_implemented
+classroom,astroray-gpu,300,,,,astroray_blend_import_not_implemented
+monster,cycles-cpu,256,,,,"exit:1 00:01.594  blend            | Read blend: ""C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray\benchmarks\cycles-parity\scenes\cache\monster\UDIM_monster\udim-monster.blend"" Traceback (most recent call last):   File ""C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray\benchmarks\cycles-parity\results\monster-cycles-cpu-tryop9cg\warmup.py"", line 19, in <module>     bpy.ops.render.render(write_still=True)     ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^ RuntimeError: Error: Cannot render, no camera  Custom Raytracer 3.0.0 loaded Astroray renderer addon registered Error: Cannot render, no camera Astroray renderer addon unregistered Blender 5.1.0 (hash adfe2921d5f3 built 2026-03-17 01:37:32)  Blender quit"
+monster,cycles-cuda,256,,,,"exit:1 00:01.625  blend            | Read blend: ""C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray\benchmarks\cycles-parity\scenes\cache\monster\UDIM_monster\udim-monster.blend"" Traceback (most recent call last):   File ""C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray\benchmarks\cycles-parity\results\monster-cycles-cuda-gdcuxj3n\warmup.py"", line 19, in <module>     bpy.ops.render.render(write_still=True)     ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^ RuntimeError: Error: Cannot render, no camera  Custom Raytracer 3.0.0 loaded Astroray renderer addon registered Error: Cannot render, no camera Astroray renderer addon unregistered Blender 5.1.0 (hash adfe2921d5f3 built 2026-03-17 01:37:32)  Blender quit"
+monster,astroray-cpu,256,,,,astroray_blend_import_not_implemented
+monster,astroray-gpu,256,,,,astroray_blend_import_not_implemented
+junkshop,cycles-cpu,240,225573.385,7096.2,1.000000,
+junkshop,cycles-cuda,240,30576.592,8514.3,0.999686,
+junkshop,astroray-cpu,240,,,,astroray_blend_import_not_implemented
+junkshop,astroray-gpu,240,,,,astroray_blend_import_not_implemented
+bmw27,cycles-cpu,1024,138051.651,582.5,1.000000,
+bmw27,cycles-cuda,1024,13444.425,704.9,0.999570,
+bmw27,astroray-cpu,1024,,,,astroray_blend_import_not_implemented
+bmw27,astroray-gpu,1024,,,,astroray_blend_import_not_implemented

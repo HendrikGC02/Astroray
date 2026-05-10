@@ -15,6 +15,7 @@ DEFAULT_CUDA_BUILD_DIR = PROJECT_ROOT / "build_cuda"
 DEFAULT_TCNN_BUILD_DIR = PROJECT_ROOT / "build_tcnn"
 TEST_RESULTS_DIR = PROJECT_ROOT / "test_results"
 DEFAULT_TEMP_DIR = TEST_RESULTS_DIR / "tmp"
+_DLL_DIRECTORY_HANDLES = []
 
 
 def _unique_existing(paths: list[Path]) -> list[str]:
@@ -157,9 +158,10 @@ def candidate_oidn_dirs(build_dirs: list[str]) -> list[str]:
     env_dir = os.environ.get("OIDN_BIN_DIR")
     if env_dir:
         candidates.append(Path(env_dir))
-    oidn_root = os.environ.get("OIDN_DIR")
-    if oidn_root:
-        candidates.append(Path(oidn_root) / "bin")
+    for env_var in ("OIDN_DIR", "OIDN_ROOT", "ASTRORAY_OIDN_DIR"):
+        oidn_root = os.environ.get(env_var)
+        if oidn_root:
+            candidates.append(Path(oidn_root) / "bin")
 
     for build_dir in build_dirs:
         root = Path(build_dir)
@@ -180,6 +182,7 @@ def candidate_oidn_dirs(build_dirs: list[str]) -> list[str]:
 
     candidates.extend([
         Path(r"C:\oidn\bin"),
+        Path(r"C:\Program Files\Intel\oidn\bin"),
         Path(r"C:\Program Files\Intel\OpenImageDenoise\bin"),
         Path(r"C:\Program Files\OpenImageDenoise\bin"),
     ])
@@ -247,7 +250,7 @@ def configure_test_imports(include_blender_addon: bool = False) -> str:
             + candidate_oidn_dirs(build_dirs)
         )
         for dll_dir in runtime_dirs:
-            os.add_dll_directory(dll_dir)
+            _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(dll_dir))
         _prepend_path(runtime_dirs)
 
     return build_dirs[0] if build_dirs else str(DEFAULT_BUILD_DIR)

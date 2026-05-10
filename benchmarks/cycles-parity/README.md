@@ -5,11 +5,15 @@ against Cycles CPU/CUDA on a small Blender demo scene matrix. It records
 quality as SSIM against a Cycles-CPU EXR reference and records timing/memory
 for trend tracking. SSIM is the only correctness gate in this package;
 performance is recorded but not gated until the later wavefront/sync work.
+SSIM is computed on linear EXR values with both images clipped to their shared
+99.9th percentile, which keeps isolated firefly outliers from dominating the
+structural comparison.
 
 ## Layout
 
 - `scenes/cornell/` contains the repo-shipped MIT Cornell control scene
-  descriptor. Astroray renders this through the standalone built-in scene 1.
+  descriptor. The harness builds the same triangle scene for Cycles and
+  Astroray so Cornell compares matching camera, geometry, materials, and light.
 - `scenes/cache/` is gitignored and holds downloaded Blender Foundation scene
   archives.
 - `scenes/scripts/fetch_scenes.py` downloads Classroom, Monster, Junkshop, and

@@ -95,12 +95,14 @@ viewport "is a slog vs Cycles". Two new packages capture the gap:
 |---|---|---|---|
 | **pkg80** *(new)* | Blender addon `'auto'` integrator resolution | ~½ day | Daily-workflow blocker; small Codex pickup |
 | ~~pkg73 fix~~ | ~~TEMPORAL_AOV upgrade branch never fires on RTX~~ | — | **DONE 2026-05-11** (PR #249): two compounding bugs fixed (plugin: `temporalModeUsePreviousLayers` was 0; test: AOV ref silently upgraded). Hardware: 53.1 % reduction vs ≥30 % gate. Denoiser story closes end-to-end. |
-| **pkg81** *(new)* | Viewport interactivity parity with Cycles (Phase 1 harness + Phase 2 diagnosis + Phase 3 fix) | ~1–2 weeks | The real Pillar-5 closing work; partially overlaps pkg55 if H4 register-pressure dominates |
+| ~~pkg81~~ | ~~Viewport interactivity parity with Cycles (Phase 1 + 2 + 3)~~ | — | **Phase 1+2 DONE 2026-05-11** (PR #248). H4 megakernel-register-pressure dominates: **CUDA 104 ms vs CPU 58 ms on 100k tris** — the pkg55-A 158 regs/thread cliff measured at viewport scale. **Phase 3 routes to pkg55 Phase B** per the spec's escape clause; Phase B's acceptance now includes the viewport-parity gate. Smaller H2/H5 follow-ups split out as **pkg83** + **pkg84**. |
+| **pkg83** *(new)* | Progressive accumulation continuation across camera changes (H2 from pkg81) | ~½ day | Addon-only; user-facing UX win independent of pkg55 Phase B |
+| **pkg84** *(new)* | CUDA kernel pre-warm at viewport start (H5 from pkg81) | ~½ day | Addon-only; moves the 12 s first-frame freeze to a moment the user expects |
 | **pkg42** | Synchrotron emission (Pillar 4) | ~2 weeks | Codex-paste-ready spec |
 | **pkg43** | Slim disk model (Pillar 4) | ~2 weeks | Codex-paste-ready spec |
 | **pkg44** | ADAF model (Pillar 4) | ~2 weeks | Codex-paste-ready spec |
 | **pkg55** Phase A.1 | SoA infra + intersect queue | ~1–2 weeks | Renamed in spec by PR #238; first real refactor before Phase B; pkg81 may surface this as a viewport bottleneck too |
-| pkg55 Phase B | Per-material shade kernels | 4–6 weeks | After A.1; possible pkg81 dependency |
+| pkg55 Phase B | Per-material shade kernels | 4–6 weeks | After A.1; **now owns the viewport-parity gate** (pkg81 Phase 3) — Phase B isn't done until the wavefront `path_tracer` clears CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene |
 | pkg55 Phase C | Megakernel removal | 2–4 weeks | After B |
 | pkg76 CSV | Classroom / Junkshop / BMW27 baseline rows | ~½ day on RTX | After pkg73 fix (so denoiser path is healthy for parity numbers) |
 | **pkg82** *(new)* | pkg54c gate variance characterisation (intra-binary + cross-build SSIM distribution; data-driven gate decision) | ~1 day on RTX | Replaces pkg78 bisect after the diagnosis ruled out a code regression; [#237](https://github.com/HendrikGC02/Astroray/issues/237) closes when this lands |

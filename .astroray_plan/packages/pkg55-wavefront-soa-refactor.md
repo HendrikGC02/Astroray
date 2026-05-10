@@ -180,6 +180,7 @@ queue) is renamed to **Phase A.1** below and remains open.
 - [ ] Wavefront vs CPU `path_tracer` SSIM ≥ 0.97 at 64 spp on the NIR band parity scene.
 - [ ] Megakernel render output unchanged (all pkg54b SSIM gates still pass).
 - [ ] **Performance gate:** Wavefront `path_tracer` is ≥ 1.5× faster than the megakernel `path_tracer` on a mixed-material scene (Disney contact sheet: 7 material types, 512 SPP, measured as end-to-end frame time on RTX 5070 Ti).
+- [ ] **Viewport-parity gate (absorbed from pkg81 Phase 3 — H4 dominant per [`pkg81-diagnosis.md`](../docs/pkg81-diagnosis.md), 2026-05-11):** the wavefront `path_tracer`, run through the persistent viewport on the pkg81 harness's 99k-tri reference scene, achieves CUDA pan-frame p99 **≤ 1.2× Cycles-CUDA** on RTX 5070 Ti at the same denoiser + spp settings. Re-run `benchmarks/viewport_parity/run.py` post-Phase-B; the existing megakernel column (104 ms @ 100k) stays for reference; the new wavefront column must close the gap to Cycles. **This is the goal that the user-facing "viewport feels like a slog" complaint resolves into; pkg55 Phase B now owns it.**
 - [ ] `restir_di` and `neural-cache` integrators produce visually correct output via wavefront (no numerical acceptance gate for ReSTIR in Phase B — visual inspection only; full gate in Phase C).
 
 ---

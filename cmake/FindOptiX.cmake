@@ -30,8 +30,7 @@ endif()
 
 if(WIN32)
     file(GLOB _optix_default_windows
-        "C:/ProgramData/NVIDIA Corporation/OptiX SDK 8.*"
-        "C:/ProgramData/NVIDIA Corporation/OptiX SDK 7.*"
+        "C:/ProgramData/NVIDIA Corporation/OptiX SDK *"
     )
     list(APPEND _optix_search_paths ${_optix_default_windows})
 elseif(UNIX)

@@ -27,7 +27,8 @@ personally should pick up.
   pending CUDA-host SSIM verification, pkg57 native shader nodes is done,
   pkg68 OIDN architectural fix is done with measured 2.57× speedup,
   pkg69 Blender compositor Albedo pass is done, pkg70 OptiX denoiser is
-  implemented pending hardware verification, and pkg71 Cycles parity
+  done (verified on RTX 5070 Ti + OptiX 9.1.0; surfaced pkg75
+  empty-normal-buffer defect during verification), and pkg71 Cycles parity
   benchmark framework is implemented with first baseline pending the
   self-hosted CUDA + Cycles 4.x runner. Open Pillar 5: pkg56 incremental
   scene sync (3 phases), pkg64 spectral caustics flagship.
@@ -136,8 +137,9 @@ is currently the weakest link.
 | pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | research signed off; ready to implement | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
 | pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
-| pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) | **implemented (pending CUDA + OptiX SDK verification)** | A |
+| pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) — verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0; see pkg70 Lessons + pkg75 spec for upstream AOV-degradation defect found during verification | **done** | A |
 | pkg71 | Cycles parity benchmark framework | **implemented** (first full baseline CSV pending CUDA + Cycles 4.x runner) | A |
+| pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **open** | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
 original roadmap but no full spec written; capture intent before they're
@@ -299,8 +301,9 @@ events are summarized in the changelog below.
 | pkg67 | A | research blocked | metric-aware tracer research note |
 | pkg68 | A | **done** | persistent OIDN device, CUDA-first init, member-cached filter; CUDA verifier session 2026-05-10 on RTX 5070 Ti: 13/13 pytest green (incl. `test_cuda_capable_build_reports_cuda_device`), `[OIDN] Using CUDA device` confirmed, single device init across N=4 renders verified; viewport timing 256×256 spp=2: OIDN-on 50.67 ms/frame vs OIDN-off baseline 23.81 ms/frame (Δ=26.86 ms persistent-device overhead) |
 | pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
-| pkg70 | A | **implemented (pending verification)** | OptiX denoiser plugin co-equal with OIDN; persistent OptixDeviceContext + OptixDenoiser handle, lazy init, HDR vs AOV model selection by guide presence; `gpu_optix_available()` Python probe; addon `denoiser_backend` Auto/OptiX/OIDN with OptiX preferred when both present; OptiX SDK + CUDA hardware verification pending |
+| pkg70 | A | **done** | OptiX denoiser plugin co-equal with OIDN; persistent OptixDeviceContext + OptixDenoiser handle, lazy init, HDR vs AOV model selection by guide presence; `gpu_optix_available()` Python probe; addon `denoiser_backend` Auto/OptiX/OIDN with OptiX preferred when both present. **Verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0**: 17/17 pytest green; 5.31× synthetic-noise reduction at 256×256; 1.86× faster than OIDN-CUDA at 1080p (728.94 ms vs 1356.09 ms); SSIM(OptiX, OIDN) = 0.9987. Empty-normal-buffer defect surfaced upstream during verification → tracked as pkg75 |
 | pkg71 | A | **implemented** | benchmark framework done; first full baseline CSV pending CUDA/Cycles hardware |
+| pkg75 | A | **open** | first-hit normal buffer population for denoiser AOV guides; `Camera::normalBuffer` is allocated but never written by the default `Renderer` integrator path — both OIDN AOV mode and OptiX AOV mode silently degrade to HDR + albedo only; surfaced during pkg70 verification 2026-05-10 |
 
 ---
 
@@ -375,6 +378,33 @@ events are summarized in the changelog below.
 
 Brief notes on notable events.
 
+- **2026-05-10** — pkg70 **verified and promoted to done** on RTX 5070 Ti +
+  OptiX 9.1.0 (Windows MSVC `build_cuda`). 17/17 pytest green
+  (4 OptiX + 3 OIDN-pass + 3 OIDN-persistence + 7 AOV); first
+  `[OptiX] Using CUDA device 0 (NVIDIA GeForce RTX 5070 Ti)` printed
+  exactly once across N=4 renders; synthetic-noise reduction at 256×256
+  Cornell scene = **5.31× OptiX, 5.58× OIDN** (both ≥5× gate);
+  1080p timing on pkg54a/b parity scene = **728.94 ms/frame OptiX vs
+  1356.09 ms/frame OIDN-CUDA = 1.86× speedup** (≥1.5× gate);
+  **SSIM(OptiX, OIDN) = 0.9987** at spp=16 Reinhard-tone-mapped
+  (≥0.95 gate). The synthetic-noise test fixture in
+  `tests/test_optix_denoise_reduces_noise_on_synthetic_input` was
+  bumped 64×64 → 256×256 to separate the gate from sliding-window
+  variance-estimator boundary artifacts and from the empty-normal-buffer
+  defect (next bullet). Two unrelated build-hygiene issues caught
+  during the round and fixed by Codex pkg71-baseline session PR #215
+  (NOMINMAX guard for Windows max macro + FindOptiX glob for OptiX 9.x;
+  already merged to main).
+- **2026-05-10** — pkg75 **opened** (Track A, status open). First-hit
+  normal buffer population for denoiser AOV guides. `Camera::normalBuffer`
+  is sized unconditionally but the integrator path the default `Renderer`
+  walks leaves it filled with `Vec3(0)`; `fb.hasBuffer("normal")` returns
+  true so OIDN's AOV mode and OptiX's AOV mode both bind a degenerate
+  guide image and silently behave as HDR + albedo only. Surfaced during
+  pkg70 verification 2026-05-10. Acceptance criteria include re-running
+  the pkg70 5.31× / pkg68 2.57× baselines after the fix to capture the
+  full denoiser win once normals are populated. Spec at
+  `.astroray_plan/packages/pkg75-integrator-normal-guide-aov.md`.
 - **2026-05-10** — pkg70 implemented (pending OptiX SDK + CUDA hardware
   verification). New `optix_denoiser` pass plugin co-equal with
   `oidn_denoiser`: persistent `OptixDeviceContext` + `OptixDenoiser`

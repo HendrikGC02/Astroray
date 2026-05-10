@@ -1,3 +1,7 @@
+#ifdef _WIN32
+#  define NOMINMAX
+#endif
+
 // pkg70 — NVIDIA OptiX AI denoiser as a co-equal alternative to OIDN.
 //
 // Mirrors the pkg68 OIDN class shape (member-cached state, lazy init,

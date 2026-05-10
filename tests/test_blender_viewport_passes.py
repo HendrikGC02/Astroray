@@ -60,7 +60,13 @@ def _load_blender_addon(monkeypatch, renderer_cls):
 
     astroray_module = types.ModuleType("astroray")
     astroray_module.__version__ = "test"
-    astroray_module.__features__ = {"cuda": False, "spectral": True}
+    astroray_module.__features__ = {
+        "cuda": False, "spectral": True,
+        "oidn_denoiser": True, "optix_denoiser": False,
+    }
+    # pkg70: addon probes astroray.gpu_optix_available() to decide whether
+    # to default to OptiX. The CPU mock has no NVIDIA GPU, so always False.
+    astroray_module.gpu_optix_available = lambda: False
     astroray_module.__file__ = "/fake/astroray.pyd"
     astroray_module.Renderer = renderer_cls
     astroray_module.integrator_registry_names = lambda: ["path_tracer"]

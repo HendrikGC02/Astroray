@@ -141,7 +141,7 @@ is currently the weakest link.
 | pkg71 | Cycles parity benchmark framework | **implemented** (first full baseline CSV pending CUDA + Cycles 4.x runner) | A |
 | pkg56 | Incremental scene sync (depsgraph diff) — Phase A: instrument viewport sync path with per-stage timers + ring buffer | **Phase A done, B + C open** | A |
 | pkg74 | Engine benchmark + visual showcase framework (material zoo, convergence grid, stats CSV, HTML index) | **Phase 1 implemented**; Phase 2/3 open | A |
-| pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **open** | A |
+| pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **done** (CPU integrator fix landed; OIDN-CUDA / OptiX re-baseline pending verifier session) | A |
 >>>>>>> 473d408 (feat(pkg56-A): instrument viewport sync path with per-stage timers + ring buffer)
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
@@ -307,7 +307,7 @@ events are summarized in the changelog below.
 | pkg70 | A | **done** | OptiX denoiser plugin co-equal with OIDN; persistent OptixDeviceContext + OptixDenoiser handle, lazy init, HDR vs AOV model selection by guide presence; `gpu_optix_available()` Python probe; addon `denoiser_backend` Auto/OptiX/OIDN with OptiX preferred when both present. **Verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0**: 17/17 pytest green; 5.31× synthetic-noise reduction at 256×256; 1.86× faster than OIDN-CUDA at 1080p (728.94 ms vs 1356.09 ms); SSIM(OptiX, OIDN) = 0.9987. Empty-normal-buffer defect surfaced upstream during verification → tracked as pkg75 |
 | pkg71 | A | **implemented** | benchmark framework done; first full baseline CSV pending CUDA/Cycles hardware |
 | pkg74 | A | **Phase 1 implemented** | engine showcase framework: material zoo (registry-driven), Cornell convergence grid + log-log RMSE curve, stats CSV (untyped integrator-stats round-trip), static HTML index; outputs gitignored under `benchmarks/showcase/output/`; pytest gate verifies five artefacts in <30s; Phase 2 (integrator compare, GPU rows, BVH stats) and Phase 3 (interactive HTML, weekly CI) open |
-| pkg75 | A | **open** | first-hit normal buffer population for denoiser AOV guides; `Camera::normalBuffer` is allocated but never written by the default `Renderer` integrator path — both OIDN AOV mode and OptiX AOV mode silently degrade to HDR + albedo only; surfaced during pkg70 verification 2026-05-10 |
+| pkg75 | A | **done** | first-hit normal buffer population for denoiser AOV guides; root cause was a missing `r.normal = rec.normal` in `plugins/integrators/spectral_path_tracer.cpp::sampleFull` (the integrator registered as `path_tracer`, the actual default per `src/default_integrator.cpp`). Canonical render loop at `include/raytracer.h:2452` was already copying `ir.normal` faithfully — the upstream value was just `Vec3(0)`. Fix is one line, cites Cycles `intern/cycles/integrator/pass.cpp` PASS_NORMAL semantics. New `tests/test_normal_buffer_populated.py` asserts unit-length world-space normals at every hit pixel and `Vec3(0)` at misses. CUDA + OptiX synthetic-noise / OIDN A/B re-baseline pending next verifier session with those backends online |
 
 ---
 

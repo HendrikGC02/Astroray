@@ -23,13 +23,19 @@ public:
     SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {
         SampleResult r;
         if (!renderer_) return r;
-        // Populate first-hit albedo AOV.
+        // Populate first-hit albedo + normal AOVs (pkg75).
+        // Normal is the world-space, front-facing shading normal at the
+        // first non-transparent hit, matching Cycles' PASS_NORMAL semantics
+        // (intern/cycles/integrator/pass.cpp; Apache-2.0). OIDN and OptiX
+        // denoiser AOV mode both expect unit-length world-space normals as
+        // guide images; misses keep Vec3(0) per OIDN's documented default.
         const auto* bvh = renderer_->getBVH().get();
         if (bvh) {
             HitRecord rec;
             if (bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec) && rec.material) {
                 r.albedo = rec.material->getAlbedo();
                 r.depth = rec.t;
+                r.normal = rec.normal;
             }
         }
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);

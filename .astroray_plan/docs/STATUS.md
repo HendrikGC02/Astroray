@@ -131,6 +131,7 @@ is currently the weakest link.
 | pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | research signed off; ready to implement | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
 | pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
+| pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) | **implemented (pending verification)** | A |
 | pkg71 | Cycles parity benchmark framework | **implemented** | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
@@ -293,6 +294,7 @@ events are summarized in the changelog below.
 | pkg67 | A | research blocked | metric-aware tracer research note |
 | pkg68 | A | **done** | persistent OIDN device, CUDA-first init, member-cached filter; CUDA verifier session 2026-05-10 on RTX 5070 Ti: 13/13 pytest green (incl. `test_cuda_capable_build_reports_cuda_device`), `[OIDN] Using CUDA device` confirmed, single device init across N=4 renders verified; viewport timing 256×256 spp=2: OIDN-on 50.67 ms/frame vs OIDN-off baseline 23.81 ms/frame (Δ=26.86 ms persistent-device overhead) |
 | pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
+| pkg70 | A | **implemented (pending verification)** | OptiX denoiser plugin co-equal with OIDN; persistent OptixDeviceContext + OptixDenoiser handle, lazy init, HDR vs AOV model selection by guide presence; `gpu_optix_available()` Python probe; addon `denoiser_backend` Auto/OptiX/OIDN with OptiX preferred when both present; OptiX SDK + CUDA hardware verification pending |
 | pkg71 | A | **implemented** | benchmark framework done; first full baseline CSV pending CUDA/Cycles hardware |
 
 ---
@@ -368,6 +370,22 @@ events are summarized in the changelog below.
 
 Brief notes on notable events.
 
+- **2026-05-10** — pkg70 implemented (pending OptiX SDK + CUDA hardware
+  verification). New `optix_denoiser` pass plugin co-equal with
+  `oidn_denoiser`: persistent `OptixDeviceContext` + `OptixDenoiser`
+  handle as class members, lazy init on first `execute()`, HDR model
+  when no guides / AOV model when albedo+normal present (Cycles
+  `OptiXDevice::denoise_buffer` shape, Apache-2.0). State + scratch
+  device buffers cached per-dimension. `cmake/FindOptiX.cmake` locates
+  the SDK via `OPTIX_INSTALL_DIR` or default Windows path; SDK headers
+  are NOT bundled (NVIDIA license forbids redistribution). New
+  `astroray.gpu_optix_available()` Python probe. Blender addon gains
+  `denoiser_backend` Auto/OptiX/OIDN dropdown — Auto prefers OptiX when
+  both backends are compiled in and a CUDA device is visible at
+  runtime. New `tests/test_optix_denoiser.py` mirrors
+  `test_oidn_denoiser_persistence.py` shape; skips cleanly when SDK or
+  CUDA absent. CPU pytest unaffected; OptiX timing vs OIDN-CUDA gate
+  pending verifier session with the SDK installed.
 - **2026-05-10** — pkg68 implemented (pending CUDA verification). OIDN
   device + filter hoisted to `OIDNDenoiser` class members and lazy-initialised
   on first `execute()`; init tries `oidn::DeviceType::CUDA` first and falls

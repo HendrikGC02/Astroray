@@ -179,3 +179,27 @@ write). The 2.57× speedup baseline can be re-measured against the
 true HDR+albedo+normal AOV path; the previous number was bound to
 HDR+albedo only because the normal guide was a zero buffer.
 Re-baseline pending the next verifier session with CUDA online.
+
+### Post-pkg75 OIDN A/B baseline (2026-05-10, RTX 5070 Ti, same harness)
+
+Cornell-style 256×256, spp=2, max_depth=3, N=100, warmup=3, persistent
+`Renderer`, on a clean rebuild at `c96dad8` (pkg75 landed) with
+OptiX 9.1.0 + OIDN 2.4.1:
+
+| Build | OIDN-on | OIDN-off | OIDN delta | vs pre-pkg68 |
+|---|---|---|---|---|
+| pre-pkg68 (`c934bdf`) | 130.01 ms/frame | 23.52 ms/frame | 106.49 ms | 1.00× |
+| post-pkg68 (`1253894`) | 50.67 ms/frame | 23.81 ms/frame | 26.86 ms | **2.57×** |
+| post-pkg68 + pkg75 (`c96dad8`) | **46.98 ms/frame** | 26.21 ms/frame | **20.77 ms** | **2.77×** |
+
+Comparison vs the 2026-05-10 baseline shows **lower per-frame OIDN
+cost** (50.67 → 46.98 ms, **−7.3 %**) AND a smaller OIDN-pass-only
+delta (26.86 → 20.77 ms, **−23 %**). The pkg68 win-vs-pre-pkg68
+strengthens from 2.57× to **2.77×**.
+
+The OIDN-off baseline grew from 23.81 → 26.21 ms (+10 %) — that is
+the inner-loop cost of pkg75's first-hit shading-normal write per
+primary ray hit. Net effect on the user-facing OIDN-on path is
+favorable (the denoiser saves more than the integrator spends);
+on the no-denoiser path, pkg75 adds a small fixed cost in exchange
+for correct AOV semantics everywhere.

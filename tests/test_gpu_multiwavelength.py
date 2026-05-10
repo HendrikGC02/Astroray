@@ -113,7 +113,7 @@ def test_visible_band_cpu_gpu_ssim():
         spp=256   -> 0.9970 (gate fails)
         spp=1024  -> 0.9988 (gate fails)
         spp=2048  -> 0.9990 (gate fails by ~3e-6)
-        spp=8192  -> ~0.9994 (clears with ~40 % margin)
+        spp=8192  -> 0.99926 (clears with ~26 % margin)
     Convergence slows below the ideal 1/sqrt(n) past ~1024 spp because the
     SSIM formula approaches saturation. spp=8192 is the smallest
     power-of-two that comfortably clears 0.999. Do NOT lower this spp

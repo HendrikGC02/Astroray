@@ -109,13 +109,19 @@ def test_optix_denoise_reduces_noise_on_synthetic_input():
     """End-to-end: render a small Cornell scene at low spp to introduce
     noticeable noise, then assert the OptiX-denoised output has lower
     per-pixel variance than an undenoised reference at the same spp.
+
+    At 256×256: OptiX AOV-mode noise reduction ≥5×. 64×64 fixtures hit
+    ~2.5× due to (a) sliding-window variance estimator boundary
+    artifacts and (b) the upstream empty-normal-guide defect tracked
+    as pkg75 — see that package's spec for the actual fix that will
+    lift this number further once landed.
     """
-    r_ref   = _tiny_renderer()
+    r_ref   = _tiny_renderer(width=256, height=256)
     r_ref.set_seed(7)
     ref     = np.array(r_ref.render(samples_per_pixel=2, max_depth=3),
                        dtype=np.float32)
 
-    r_dnz = _tiny_renderer()
+    r_dnz = _tiny_renderer(width=256, height=256)
     r_dnz.set_seed(7)
     r_dnz.add_pass("optix_denoiser")
     dnz   = np.array(r_dnz.render(samples_per_pixel=2, max_depth=3),

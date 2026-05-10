@@ -154,3 +154,21 @@ oidn-2.3.3 → 2.4.1 bump, which pkg68 also landed). Pre-pkg68 did not
 print `[OIDN] Using ...` at all (that diagnostic was added in pkg68);
 its `oidn::newDevice()` call without an explicit type relied on OIDN
 default-device selection.
+
+### 2026-05-10 update via pkg70 verification
+
+The measured 2.57× speedup above was on a scenario where AOV mode was
+silently degraded by the upstream **empty-normal-buffer defect**
+(tracked as **pkg75**). `Camera::normalBuffer` is allocated and
+`fb.hasBuffer("normal")` returns `true`, so OIDN's AOV path binds the
+buffer as a guide — but the integrator path the default `Renderer`
+walks leaves it filled with `Vec3(0)`. AOV mode therefore behaved
+during the verification as HDR + albedo-only, not full HDR + albedo
++ normal.
+
+The 2.57× number is therefore a **conservative floor**. Once pkg75
+lands and OIDN-AOV mode receives proper unit-length world-space
+normal guides, OIDN will either denoise faster, denoise cleaner at
+the same speed, or both. **Re-measure after pkg75 to capture the
+full pkg68 win** — see pkg75 Acceptance Criteria for the harness
+to use (identical to the table above).

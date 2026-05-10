@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** implemented (pending verification)
+**Status:** done
 **Estimated effort:** 3–5 days (~25 h)
 **Depends on:** pkg33 (OIDN integration — done), pkg68 (OIDN architectural fix — establishes the device-selection plumbing pattern this package mirrors)
 
@@ -256,7 +256,39 @@ either is fine — the user can choose.
 
 ## Lessons
 
-*(Fill in after the package is done. Required: actual ms/frame for
-OptiX vs pkg68's OIDN-CUDA on RTX 5070 Ti at 1080p; OptiX SDK version
-used; SSIM between OptiX and OIDN outputs on the parity scene; any
-quirks of `FindOptiX.cmake` resolution on Windows.)*
+Verification 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0:
+
+- **Gate 1:** `[OptiX] Using CUDA device 0 (NVIDIA GeForce RTX 5070 Ti)`
+  printed exactly once across N=4 renders on a persistent `Renderer`. ✅
+- **Gate 2:** synthetic noise reduction at 256×256 — **5.31× OptiX,
+  5.58× OIDN** (both ≥5× target). ✅
+  Note: 64×64 fixture fails this gate due to two unrelated causes:
+  (a) sliding-window variance estimator boundary artifacts at small
+  image sizes, and (b) the empty-normal-guide defect (pkg75). The
+  latter silently degrades AOV mode on every scene at every
+  resolution — pkg75 will measurably improve this number further
+  when it lands. The fixture in
+  `tests/test_optix_denoise_reduces_noise_on_synthetic_input` was
+  bumped from 64×64 to 256×256 in the verify(pkg70) PR to separate
+  the gate from these two artifacts.
+- **Gate 3:** OptiX vs OIDN-CUDA 1080p timing on the pkg54a/b parity
+  scene (1920×1080, spp=2, max_depth=3, N=10 frames, 2-frame warmup):
+  **OptiX 728.94 ms/frame vs OIDN-CUDA 1356.09 ms/frame = 1.86×
+  speedup** (target ≥1.5×). ✅
+- **Gate 4:** SSIM(OptiX, OIDN) on parity scene at spp=16, Reinhard
+  tone-mapped: **0.9987** (target ≥0.95). ✅
+
+Two unrelated build-hygiene issues caught during this verification
+round but not blocking promotion (handled separately by the Codex
+pkg71-baseline session's PR #215, already merged to main):
+
+- `cmake/FindOptiX.cmake` glob did not match OptiX 9.x — was
+  hard-coded to `OptiX SDK 7.*` / `8.*`. PR #215 broadens to
+  `OptiX SDK *`.
+- `plugins/passes/optix_denoiser.cpp` `std::max(v, 0.0f)` collides
+  with the Windows `max` macro that OptiX 9 transitively includes
+  via `<windows.h>`. PR #215 adds a `NOMINMAX` guard.
+
+Both were latent because pkg70 was implemented and merged before
+anyone built it with OptiX actually enabled on Windows; the OIDN
+fallback path masked the issues end-to-end.

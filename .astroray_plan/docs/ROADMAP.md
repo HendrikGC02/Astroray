@@ -87,6 +87,11 @@ back without user intervention.
 
 ### Pillar 4 — Astrophysics platform
 
+> **Thaw notice (2026-05-10):** the strategic gate has released. pkg56
+> Phases B+C and pkg64 Phase 3 have all landed; pkg41 Kerr validation
+> and the queued pkg42–pkg49 specs are unfrozen. pkg40 (Kerr metric)
+> already shipped pre-gate.
+
 Kerr metric, synchrotron emission, HII recombination lines, simulation
 data import (FITS, HDF5, yt), telescope PSF. Each phenomenon is a
 plugin. This is Astroray's unique niche.
@@ -131,9 +136,9 @@ push is **approaching feature-complete** for Pillar 5:
   convergence grid, RMSE plot, full stat coverage); Phase 3
   (interactive HTML + weekly CI) is a Round 4 Codex pickup.
 - **Viewport sync:** pkg52 (persistent viewport) + pkg56 Phase A
-  (instrumentation, baseline 129.92 ms) done. Phase B (uploadScene
-  split) is a Round 4 Claude tech pickup; Phase C (depsgraph dispatch)
-  follows in Round 5.
+  (instrumentation, baseline 129.92 ms) + pkg56 Phase B (uploadScene
+  split into per-domain uploaders) + pkg56 Phase C (depsgraph-driven
+  dispatch in `view_update`, idle frame ≤ 5 ms gate met) all **done**.
 
 Open Pillar 5: **pkg73 + pkg56-B + pkg64-3 + pkg74-3 + pkg76 spec**
 (Round 4); **pkg56 Phase C + pkg76 implementation + pkg55 Phase A**
@@ -141,11 +146,11 @@ Open Pillar 5: **pkg73 + pkg56-B + pkg64-3 + pkg74-3 + pkg76 spec**
 until Pillar 4 thaws. pkg55 (wavefront SoA refactor) starts after
 pkg56+pkg64 land for measured baselines to compare against.
 
-**When pkg56 Phases B+C and pkg64 Phase 3 all land, Pillar 4 thaws.**
-The Codex-paste-ready specs for pkg41 (Kerr validation), pkg42-49
-(synchrotron, slim disk, ADAF, FITS, HDF5, SPH, etc.) are queued and
-waiting; pkg40 (Kerr metric) already landed during the pre-strategic-
-shift round.
+**Pillar 4 has thawed (2026-05-10).** pkg56 Phases B+C and pkg64
+Phase 3 have all landed. The Codex-paste-ready specs for pkg41 (Kerr
+validation) and pkg42–pkg49 (synchrotron, slim disk, ADAF, FITS, HDF5,
+SPH, etc.) are unblocked; pkg40 (Kerr metric) already landed during
+the pre-strategic-shift round.
 
 - `pkg34-material-backend-capabilities.md` — capability metadata,
   no silent grey-Lambertian GPU fallback, CPU/GPU contact-sheet diffs.

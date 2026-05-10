@@ -6,6 +6,7 @@
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
+#include "profile.h"  // pkg55-A: env-gated CUDA-event + NVTX instrumentation
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -426,23 +427,32 @@ void launchPathTraceKernel(
     int threadsPerBlock = 256;
     int blocks         = (totalPixels + threadsPerBlock - 1) / threadsPerBlock;
 
-    pathTraceKernel<<<blocks, threadsPerBlock>>>(
-        d_framebuffer, width, height, samplesPerPixel, maxDepth,
-        d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
-        d_lights, numLights, totalLightPower,
-        envMap, cam, filmExposure, backgroundColor, hasBackgroundColor,
-        d_rngStates);
+    {
+        astroray::gpu_profile::ScopedTimer _t(
+            "path_trace_megakernel",
+            (const void*)pathTraceKernel, blocks, threadsPerBlock);
+        pathTraceKernel<<<blocks, threadsPerBlock>>>(
+            d_framebuffer, width, height, samplesPerPixel, maxDepth,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            d_lights, numLights, totalLightPower,
+            envMap, cam, filmExposure, backgroundColor, hasBackgroundColor,
+            d_rngStates);
 
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        fprintf(stderr, "Kernel launch error: %s\n", cudaGetErrorString(err));
-        throw std::runtime_error(cudaGetErrorString(err));
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "Kernel launch error: %s\n", cudaGetErrorString(err));
+            throw std::runtime_error(cudaGetErrorString(err));
+        }
+        cudaDeviceSynchronize();
     }
-    cudaDeviceSynchronize();
 }
 
 void launchInitRNG(curandState* d_states, int n, unsigned long long seed) {
     int blocks = (n + 255) / 256;
-    initRNGKernel<<<blocks, 256>>>(d_states, n, seed);
-    cudaDeviceSynchronize();
+    {
+        astroray::gpu_profile::ScopedTimer _t(
+            "init_rng", (const void*)initRNGKernel, blocks, 256);
+        initRNGKernel<<<blocks, 256>>>(d_states, n, seed);
+        cudaDeviceSynchronize();
+    }
 }

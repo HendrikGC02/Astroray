@@ -7,6 +7,7 @@
 #include "astroray/gpu_types.h"
 #include "raytracer.h"
 #include "advanced_features.h"
+#include "profile.h"  // pkg55-A: env-gated NVTX ranges around upload + render
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -300,6 +301,7 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
     // intern/cycles/blender/sync.cpp (Apache-2.0). The BlenderSync class
     // also has a single sync_data() that builds the host scene once, then
     // calls per-domain device_update() entry points — same factoring.
+    astroray::gpu_profile::NvtxRange _nvtx_upload("CUDARenderer::uploadScene");
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
 
     // Build flat arrays on the host (single pass).
@@ -411,6 +413,7 @@ void CUDARenderer::render(
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
     if (!impl->d_bvhNodes) throw std::runtime_error("Scene not uploaded — call uploadScene() first");
 
+    astroray::gpu_profile::NvtxRange _nvtx_render("CUDARenderer::render");
     impl->ensureFramebuffer(width, height);
     int totalPixels = width * height;
 
@@ -461,6 +464,7 @@ void CUDARenderer::renderMultiwavelength(
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
     if (!impl->d_bvhNodes) throw std::runtime_error("Scene not uploaded — call uploadScene() first");
 
+    astroray::gpu_profile::NvtxRange _nvtx_mw("CUDARenderer::renderMultiwavelength");
     impl->ensureFramebuffer(width, height);
     int totalPixels = width * height;
 

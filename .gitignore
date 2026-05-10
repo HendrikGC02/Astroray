@@ -112,3 +112,6 @@ Thumbs.db
 !docs/showcase/*.png
 *.deb
 .aider*
+
+# pkg55-A: per-scene profile JSONs (transient; baseline.json is canonical)
+benchmarks/wavefront/_per_scene/

@@ -45,7 +45,55 @@ The research note ([wavefront-gpu-research.md](../docs/wavefront-gpu-research.md
 
 ## Specification
 
-### Phase A — SoA state infrastructure + intersect queue
+### Phase A.0 — Megakernel baseline instrumentation (DONE 2026-05-10)
+
+**Estimated effort:** 0.5 weeks (landed)
+
+**Goal:** before swapping the megakernel out, capture a published, repeatable
+baseline of its per-launch cost, register pressure, and theoretical occupancy
+on the production GPU. Phases B + C must beat these numbers; without them
+the "≥ 2× speedup" gate has nothing to compare to.
+
+This phase was carved out of the originally-scoped Phase A on instruction
+from the Round 5 dispatch (NEXT_STAGE_REPORT.md §3 pkg55-A). Phase A as
+originally written in this spec (SoA state infrastructure + intersect
+queue) is renamed to **Phase A.1** below and remains open.
+
+#### Files added
+| File | Purpose |
+|---|---|
+| `src/gpu/profile.h` | `astroray::gpu_profile::ScopedTimer` + `NvtxRange`. Env-gated (`ASTRORAY_PROFILE`); on destruction the global `Aggregator` writes JSON to `$ASTRORAY_PROFILE_OUT`. |
+| `benchmarks/wavefront_baseline.py` | Subprocess-per-scene harness; merges per-scene JSON into `benchmarks/wavefront/baseline.json`. |
+| `benchmarks/wavefront/baseline.json` | The published baseline. |
+
+#### Files modified
+| File | What changed |
+|---|---|
+| `src/gpu/path_trace_kernel.cu` | `launchPathTraceKernel` and `launchInitRNG` wrap their kernel launches in `ScopedTimer`. Same launch behavior; off-path is a single boolean check. |
+| `src/gpu/multiwavelength_kernel.cu` | `launchMultiwavelengthKernel` likewise. |
+| `src/gpu/cuda_renderer.cu` | NVTX ranges around `render`, `renderMultiwavelength`, `uploadScene` for nsight-compute consumption. |
+
+#### Reference patterns (cite, do not mirror — both Apache-2.0)
+- `intern/cycles/device/cuda/queue.cpp` — `CUDADeviceQueue` per-launch event timing dumped via `print_render_kernels()`.
+- `mmp/pbrt-v4 src/pbrt/wavefront/integrator.cpp` — `--profile` JSON dump pattern.
+
+#### Measured baseline (RTX 5070 Ti, driver 595.97, CUDA 12.8, 64 spp, 256×256, max_depth=8, mean of 5 runs after 1 warmup)
+
+| Scene | Materials | `path_trace_megakernel` mean (ms) | `init_rng` mean (ms) | regs/thread | max threads/block | active blocks/SM |
+|---|---|---|---|---|---|---|
+| `cornell_diffuse` | 3 lambertian + 1 area light | **89.37** (range 86.32 – 94.15) | 0.50 | **158** | 384 | **1** |
+| `cornell_glass` | + 1 dielectric (4 types) | **90.86** (range 88.23 – 93.93) | 0.48 | 158 | 384 | 1 |
+
+**Headline finding:** the megakernel hits **158 registers/thread**, capping it at **1 active block per SM** at the production 256-thread launch (and at most 384 threads/block before spilling). This is the warp-occupancy cliff Laine 2013 §3 calls out and is exactly what Phase B's per-material shade kernels are supposed to relieve. Adding a single dielectric (cornell_glass) costs ~1.7% mean wall time at this scene size; on the planned 7-material Disney contact-sheet scene the divergence tax should be substantially larger and is what the sort-by-material dispatch in Phase B must eliminate.
+
+#### Phase A.0 acceptance criteria
+- [x] `benchmarks/wavefront/baseline.json` populated with ≥ 2 scenes, each carrying mean/min/max/regs/occupancy data.
+- [x] Production default (`ASTRORAY_PROFILE` unset) writes no JSON, takes no extra cudaEvent allocations, runs no extra NVTX calls. Verified by an off-path render: no file at `$ASTRORAY_PROFILE_OUT` after completion.
+- [x] CUDA target builds clean (no new warnings).
+
+---
+
+### Phase A.1 — SoA state infrastructure + intersect queue
 
 **Estimated effort:** 3–4 weeks
 
@@ -199,7 +247,14 @@ The research note ([wavefront-gpu-research.md](../docs/wavefront-gpu-research.md
 
 ## Progress
 
-Phase A:
+Phase A.0 (megakernel baseline instrumentation):
+- [x] `src/gpu/profile.h` env-gated CUDA event + NVTX helpers
+- [x] Launcher wrapping in `path_trace_kernel.cu`, `multiwavelength_kernel.cu`
+- [x] NVTX ranges in `cuda_renderer.cu`
+- [x] `benchmarks/wavefront_baseline.py` harness
+- [x] `benchmarks/wavefront/baseline.json` published (cornell_diffuse, cornell_glass)
+
+Phase A.1 (SoA infra + intersect queue, original Phase A scope):
 - [ ] `IntegratorStateSoA` header + allocation helpers
 - [ ] `stage_init.cu`
 - [ ] `stage_intersect.cu`

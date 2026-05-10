@@ -22,6 +22,7 @@
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
 #include "astroray/spectrum.h"  // jhEvalSpectrumF + JH LUT accessors (pkg54c)
+#include "profile.h"  // pkg55-A: env-gated CUDA-event + NVTX instrumentation
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -633,17 +634,22 @@ void launchMultiwavelengthKernel(
     int threadsPerBlock = 256;
     int blocks         = (totalPixels + threadsPerBlock - 1) / threadsPerBlock;
 
-    multiwavelengthKernel<<<blocks, threadsPerBlock>>>(
-        d_framebuffer, width, height, samplesPerPixel, maxDepth,
-        lambdaMin, lambdaMax, useLuminanceOutput,
-        d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
-        envMap, cam, backgroundColor, hasBackgroundColor,
-        d_rngStates);
+    {
+        astroray::gpu_profile::ScopedTimer _t(
+            "multiwavelength_megakernel",
+            (const void*)multiwavelengthKernel, blocks, threadsPerBlock);
+        multiwavelengthKernel<<<blocks, threadsPerBlock>>>(
+            d_framebuffer, width, height, samplesPerPixel, maxDepth,
+            lambdaMin, lambdaMax, useLuminanceOutput,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            envMap, cam, backgroundColor, hasBackgroundColor,
+            d_rngStates);
 
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        fprintf(stderr, "MW kernel launch error: %s\n", cudaGetErrorString(err));
-        throw std::runtime_error(cudaGetErrorString(err));
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "MW kernel launch error: %s\n", cudaGetErrorString(err));
+            throw std::runtime_error(cudaGetErrorString(err));
+        }
+        cudaDeviceSynchronize();
     }
-    cudaDeviceSynchronize();
 }

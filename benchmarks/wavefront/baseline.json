@@ -1,0 +1,94 @@
+{
+  "schema": "astroray.wavefront.baseline.v1",
+  "package": "pkg55",
+  "phase": "A.0 (megakernel baseline instrumentation)",
+  "generated_utc": "2026-05-10T10:45:32Z",
+  "git_branch": "claude/sleepy-khorana-455ac7",
+  "git_sha": "9834e58",
+  "gpu": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "nvidia_smi": [
+      "NVIDIA GeForce RTX 5070 Ti, 595.97, 16303 MiB"
+    ]
+  },
+  "scenes": [
+    {
+      "scene": "cornell_diffuse",
+      "resolution": [
+        256,
+        256
+      ],
+      "spp": 64,
+      "max_depth": 8,
+      "warmup_runs": 1,
+      "measure_runs": 5,
+      "kernels": {
+        "init_rng": {
+          "count": 6,
+          "mean_ms": 0.496987,
+          "min_ms": 0.37472,
+          "max_ms": 0.693792,
+          "sum_ms": 2.98192,
+          "regs_per_thread": 40,
+          "shared_mem_bytes": 0,
+          "max_threads_per_block": 1024,
+          "active_blocks_per_sm": 6,
+          "launch_threads": 256,
+          "launch_blocks": 256
+        },
+        "path_trace_megakernel": {
+          "count": 6,
+          "mean_ms": 89.368965,
+          "min_ms": 86.315681,
+          "max_ms": 94.148895,
+          "sum_ms": 536.213791,
+          "regs_per_thread": 158,
+          "shared_mem_bytes": 0,
+          "max_threads_per_block": 384,
+          "active_blocks_per_sm": 1,
+          "launch_threads": 256,
+          "launch_blocks": 256
+        }
+      }
+    },
+    {
+      "scene": "cornell_glass",
+      "resolution": [
+        256,
+        256
+      ],
+      "spp": 64,
+      "max_depth": 8,
+      "warmup_runs": 1,
+      "measure_runs": 5,
+      "kernels": {
+        "init_rng": {
+          "count": 6,
+          "mean_ms": 0.481349,
+          "min_ms": 0.367456,
+          "max_ms": 0.705248,
+          "sum_ms": 2.888096,
+          "regs_per_thread": 40,
+          "shared_mem_bytes": 0,
+          "max_threads_per_block": 1024,
+          "active_blocks_per_sm": 6,
+          "launch_threads": 256,
+          "launch_blocks": 256
+        },
+        "path_trace_megakernel": {
+          "count": 6,
+          "mean_ms": 90.864638,
+          "min_ms": 88.232834,
+          "max_ms": 93.92646,
+          "sum_ms": 545.187828,
+          "regs_per_thread": 158,
+          "shared_mem_bytes": 0,
+          "max_threads_per_block": 384,
+          "active_blocks_per_sm": 1,
+          "launch_threads": 256,
+          "launch_blocks": 256
+        }
+      }
+    }
+  ]
+}

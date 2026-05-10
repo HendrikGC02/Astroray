@@ -228,3 +228,23 @@ External URLs:
   every pixel (motion or zero) on every render call, so no
   `std::fill` clear is needed. The buffer is sized once in the
   Camera constructor and lives for the camera's lifetime.
+
+### Hardware verification 2026-05-10 — RTX 5070 Ti, Windows MSVC `build_cuda`
+
+`tests/test_motion_vector_aov.py`: **6/6 passed in 0.19s** (the test
+sweep the implementer's note flagged as needing a real Windows /
+.pyd rebuild before it could run).
+
+Smoke render — Cornell-style 256×256 scene, spp=2, max_depth=3,
+two consecutive renders on the same `Renderer`:
+
+| Frame | Camera change | Motion-buffer summary |
+|---|---|---|
+| 1 | none | `\|motion\|` max = 0.0, mean = 0.0 — first-frame convention ✅ |
+| 2a | `look_from` `[0,0,5.5]` → `[0.1,0,5.5]`, `look_at` unchanged | hit-pixel mean motion.x = +0.4185, mean(`\|motion\|`) = 0.9769; **only 71.7 %** of hit pixels have motion.x > 0 because keeping `look_at` fixed yaws the camera and parallax flips sign on near-vs-far pixels. Not a defect — a poorly-defined "pan". |
+| 2b | pure horizontal translation: both `look_from` and `look_at` `+0.1 x` | hit-pixel mean motion.x = **+6.913 px**, motion.y exactly 0 across the buffer, `\|motion\|` exactly 0 on miss/sky pixels, **100 %** of hit pixels have motion.x > 0 ✅ |
+
+The 2b numbers confirm the OptiX flow convention end-to-end on
+hardware: positive motion.x for a +x camera translation, zero
+motion on sky pixels, zero motion on the very first frame. pkg73
+(OptiX temporal denoiser) can take the buffer verbatim.

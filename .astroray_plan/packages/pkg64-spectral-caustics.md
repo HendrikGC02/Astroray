@@ -192,4 +192,27 @@ The four open questions from the original draft are answered:
   `(sms_spectral − sms_rgb)` so the path-tracer baseline noise cancels
   out, rather than on the raw image.
 
+#### Hardware re-baseline 2026-05-10 — RTX 5070 Ti, Windows MSVC `build_cuda`
+
+`tests/test_sms_caustic_validation.py + tests/test_sms_caustic_spectral.py`:
+**4/4 passed in 0.90s.**
+
+Measured numbers from `test_sms_spectral_chromatic_caustic` (spp / scene /
+seed identical to the implementer-machine baseline):
+
+| Metric | Implementer machine | RTX 5070 Ti / Windows | Δ |
+|---|---|---|---|
+| PSNR(spec, ref) | (not recorded) | **25.54 dB** | — |
+| PSNR(rgb, ref) | (not recorded) | **16.71 dB** | — |
+| **PSNR delta** | **8.83 dB** | **8.83 dB** | **0.00 dB** ✅ identical |
+| Runtime ratio (spec / rgb) | 0.98× | **1.01×** | +3 % |
+| Chromatic spread (spec) | (not recorded) | 2.595 | — |
+| Chromatic spread (rgb) | (not recorded) | 2.595 | — |
+
+PSNR delta matches the implementer baseline to within 0.00 dB —
+no CPU/GPU code-path divergence between Linux and Windows builds at
+this acceptance-scene spp. Runtime ratio drift of +3 % is well
+inside the 25 % cross-machine tolerance. Both gates (`PSNR delta ≥
+3 dB`, `runtime ratio ≤ 2×`) clear comfortably on hardware.
+
 *(Phase 3 lessons to follow.)*

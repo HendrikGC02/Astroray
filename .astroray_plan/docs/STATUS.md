@@ -139,8 +139,10 @@ is currently the weakest link.
 | pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
 | pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) — verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0; see pkg70 Lessons + pkg75 spec for upstream AOV-degradation defect found during verification | **done** | A |
 | pkg71 | Cycles parity benchmark framework | **implemented** (first full baseline CSV pending CUDA + Cycles 4.x runner) | A |
+| pkg56 | Incremental scene sync (depsgraph diff) — Phase A: instrument viewport sync path with per-stage timers + ring buffer | **Phase A done, B + C open** | A |
 | pkg74 | Engine benchmark + visual showcase framework (material zoo, convergence grid, stats CSV, HTML index) | **Phase 1 implemented**; Phase 2/3 open | A |
 | pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **open** | A |
+>>>>>>> 473d408 (feat(pkg56-A): instrument viewport sync path with per-stage timers + ring buffer)
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
 original roadmap but no full spec written; capture intent before they're
@@ -149,7 +151,7 @@ forgotten):
 | Pkg | Title | Why no spec yet |
 |---|---|---|
 | pkg55 | Wavefront SoA GPU refactor | Very large; defer until pkg54 megakernel lands and we have measured GPU spectral parity numbers. |
-| pkg56 | Incremental scene sync (depsgraph diff, BVH refit-only) | Large; would unlock pkg52's persistence value on big scenes but is its own architecture pass. |
+| ~~pkg56~~ | ~~Incremental scene sync (depsgraph diff, BVH refit-only)~~ | Spec'd as a 3-phase package; Phase A (instrumentation) is done — see Pillar 5 Cycles-parity table above. Phase B + C still open. |
 | pkg65 | scripts/ directory cleanup (`build/`, `diagnostics/`, `benchmarks/`, `data/`, `dev/` subfolders) | Trivial — can be done from a one-line description; no spec needed. |
 | pkg66 | Material iteration UX (one-sphere-per-material live preview operator) | Small; partly covered by `scripts/diagnostics/material_contact_sheet.py`. |
 

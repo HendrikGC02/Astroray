@@ -40,4 +40,16 @@ struct SceneUploadResult {
 // Declared here; defined in scene_upload.cu
 class Renderer;
 class Camera;
-SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera& cam);
+
+// pkg56 Phase B: camera became optional so the per-domain CUDA uploaders
+// (uploadMaterials / uploadLights / uploadEnvironment) can rebuild the host
+// SceneUploadResult slice without holding a Camera. When `cam` is nullptr,
+// r.camera is left default-initialised; the caller is expected not to
+// publish it onto the device.
+SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam);
+
+// Backwards-compatible reference overload used by the existing full-scene
+// upload path.
+inline SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera& cam) {
+    return buildSceneArrays(cpu, &cam);
+}

@@ -185,25 +185,29 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
 
 // Builds host-side flat arrays from the CPU Renderer + Camera.
 // The caller (cuda_renderer.cu) then cudaMalloc/cudaMemcpy them.
-SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera& cam) {
+SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     SceneUploadResult r;
 
-    // --- Camera ---
-    Vec3 o   = cam.getOrigin();
-    Vec3 ll  = cam.getLowerLeft();
-    Vec3 h   = cam.getHorizontal();
-    Vec3 v   = cam.getVertical();
-    Vec3 cu  = cam.getU();
-    Vec3 cv  = cam.getV();
-    r.camera.origin     = GVec3(o.x,  o.y,  o.z);
-    r.camera.lowerLeft  = GVec3(ll.x, ll.y, ll.z);
-    r.camera.horizontal = GVec3(h.x,  h.y,  h.z);
-    r.camera.vertical   = GVec3(v.x,  v.y,  v.z);
-    r.camera.u          = GVec3(cu.x, cu.y, cu.z);
-    r.camera.v          = GVec3(cv.x, cv.y, cv.z);
-    r.camera.lensRadius = cam.getLensRadius();
-    r.camera.width      = cam.width;
-    r.camera.height     = cam.height;
+    // --- Camera (optional in pkg56 Phase B; the per-domain materials /
+    // lights / environment uploaders pass nullptr because they don't need
+    // to republish the camera state to the device on a non-geometry edit).
+    if (cam) {
+        Vec3 o   = cam->getOrigin();
+        Vec3 ll  = cam->getLowerLeft();
+        Vec3 h   = cam->getHorizontal();
+        Vec3 v   = cam->getVertical();
+        Vec3 cu  = cam->getU();
+        Vec3 cv  = cam->getV();
+        r.camera.origin     = GVec3(o.x,  o.y,  o.z);
+        r.camera.lowerLeft  = GVec3(ll.x, ll.y, ll.z);
+        r.camera.horizontal = GVec3(h.x,  h.y,  h.z);
+        r.camera.vertical   = GVec3(v.x,  v.y,  v.z);
+        r.camera.u          = GVec3(cu.x, cu.y, cu.z);
+        r.camera.v          = GVec3(cv.x, cv.y, cv.z);
+        r.camera.lensRadius = cam->getLensRadius();
+        r.camera.width      = cam->width;
+        r.camera.height     = cam->height;
+    }
 
     // --- BVH nodes ---
     auto& cpuBvh = cpu.getBVH();

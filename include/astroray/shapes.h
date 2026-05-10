@@ -75,6 +75,10 @@ public:
     Vec3  getCenter()   const { return center; }
     float getRadius()   const { return radius; }
     const std::shared_ptr<Material>& getMaterial() const { return material; }
+    // pkg56 Phase B: in-place mutators used by Renderer::update_object_transform.
+    // Single-level BVH limitation per pkg56 spec §"Key design decisions" — the
+    // caller must rebuild the BVH (Renderer::buildAcceleration) after mutating.
+    void  setCenter(const Vec3& c) { center = c; }
 };
 
 // ============================================================================
@@ -205,6 +209,13 @@ public:
         return true;
     }
     const std::shared_ptr<Material>& getMaterial() const { return material; }
+    // pkg56 Phase B: in-place mutator used by Renderer::update_object_transform.
+    // Recomputes the face normal; vertex normals (if present) must be
+    // re-supplied separately when the transform isn't a rigid motion.
+    void setVertices(const Vec3& a, const Vec3& b, const Vec3& c) {
+        v0 = a; v1 = b; v2 = c;
+        normal = (v1 - v0).cross(v2 - v0).normalized();
+    }
 };
 
 // ============================================================================

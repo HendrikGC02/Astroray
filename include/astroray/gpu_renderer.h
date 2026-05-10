@@ -30,7 +30,29 @@ public:
 
     // Upload the scene from a CPU renderer and camera.
     // Must be called before render().
+    //
+    // pkg56 Phase B: this is a thin sequenced wrapper over the four per-domain
+    // uploaders below. The CPU Renderer must have a built BVH (call
+    // Renderer::buildAcceleration() first). Mirrors Cycles BlenderSync's
+    // per-domain upload pattern (intern/cycles/blender/sync.cpp, Apache-2.0).
     void uploadScene(const Renderer& cpuRenderer, const Camera& camera);
+
+    // pkg56 Phase B — per-domain incremental uploaders.
+    //
+    // Each uploader pushes only its slice of the scene to device memory,
+    // leaving the other slices' device buffers untouched. They share the
+    // same SceneUploadResult host build (buildSceneArrays); Phase C will
+    // dispatch them based on bpy.types.Depsgraph.updates. See research note
+    // .astroray_plan/docs/blender-depsgraph-sync-research.md §3, §5, §6.
+    //
+    // All four are order-independent for state — partial uploads are safe
+    // (e.g. materials before geometry yields a black image, not a crash).
+    // The CPU Renderer must have a built BVH before uploadGeometry() is
+    // called; the others do not require a BVH.
+    void uploadGeometry(const Renderer& cpuRenderer, const Camera& camera);
+    void uploadMaterials(const Renderer& cpuRenderer);
+    void uploadLights(const Renderer& cpuRenderer);
+    void uploadEnvironment(const Renderer& cpuRenderer);
 
     // Upload environment map (optional; call after uploadScene).
     void uploadEnvironmentMap(const EnvironmentMap& envMap);

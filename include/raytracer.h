@@ -2354,6 +2354,11 @@ public:
 
     // Accessors for CUDARenderer (scene_upload.cu reads these to upload scene to GPU)
     const std::vector<std::shared_ptr<Hittable>>& getScene() const { return scene; }
+    // pkg56 Phase B: mutable variant used by update_object_transform to mutate
+    // an existing primitive in place. Single-level BVH limitation applies —
+    // see pkg56 spec "Key design decisions". Direct external mutation requires
+    // the caller to rebuild the BVH afterwards (buildAcceleration()).
+    std::vector<std::shared_ptr<Hittable>>& getSceneMutable() { return scene; }
     const std::shared_ptr<BVHAccel>& getBVH() const { return bvh; }
     const LightList& getLights() const { return lights; }
     const std::shared_ptr<EnvironmentMap>& getEnvironmentMap() const { return envMap; }

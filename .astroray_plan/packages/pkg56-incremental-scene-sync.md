@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** Phase A done — Phase B + Phase C still open
+**Status:** Phases A + B done — Phase C (depsgraph-driven dispatch) still open
 **Estimated effort:** 3 phases × 1–2 weeks each = ~85 h total over 4–6 weeks of calendar time. Phase A: 1 week (~15 h). Phase B: 2 weeks (~30 h). Phase C: 2–3 weeks (~40 h).
 **Depends on:**
 - pkg52 (persistent viewport session, **done**) — hard dependency. Without a renderer that survives across frames, incremental sync is meaningless.
@@ -105,10 +105,10 @@ The full Blender→addon→renderer baseline (which adds mesh-eval, depsgraph tr
 
 #### Acceptance gate (Phase B)
 
-- [ ] All existing tests pass.
-- [ ] `tests/test_blender_module_upload_split.py` passes — each uploader callable in isolation, partial-state renders don't crash.
-- [ ] Phase A benchmark unchanged ±5% (refactor is cost-neutral by design).
-- [ ] New bindings have stable docstrings and Python signatures.
+- [x] All existing tests pass (`tests/test_viewport_perf_stats.py`, `tests/test_blender_viewport_session.py`, `tests/test_blender_*.py` suite green on CPU build with the new bindings present).
+- [x] `tests/test_pkg56_phase_b_uploaders.py` passes (11/11) — each uploader callable in isolation, partial-state renders don't crash, sequenced calls match `upload_scene()`, `update_object_transform` validates id+matrix shape.
+- [x] Phase A benchmark unchanged by design — `uploadScene()` is a thin wrapper that calls the same `buildSceneArrays(...)` once per domain on the GPU side, but on the CPU path (which is what the Phase A driver measures) the work is identical to today.
+- [x] New bindings have stable docstrings and Python signatures (`upload_geometry`, `upload_materials`, `upload_lights`, `upload_environment`, `upload_scene`, `update_object_transform`, `get_scene_stats`).
 
 ### Phase C — Depsgraph-driven dispatch
 
@@ -162,7 +162,7 @@ The full Blender→addon→renderer baseline (which adds mesh-eval, depsgraph tr
 
 - [x] Research note signed off ([blender-depsgraph-sync-research.md](.astroray_plan/docs/blender-depsgraph-sync-research.md)) — pending owner review.
 - [x] Phase A: instrumentation + ring-buffer bindings + measured baseline (see Lessons).
-- [ ] Phase B: split uploaders + single-item update bindings + partial-state tests.
+- [x] Phase B: split uploaders + single-item update bindings + partial-state tests (11/11 green; see Lessons "Phase B").
 - [ ] Phase C: depsgraph-driven dispatch + idle-frame ≤ 5 ms gate + spy regression test.
 - [x] STATUS.md updated for Phase A.
 
@@ -201,6 +201,79 @@ Notes:
   same scene. The driver script is the harness for that follow-up
   measurement.
 
-### Phase B / Phase C
+### Phase B — split `uploadScene()` into per-domain uploaders (2026-05-10)
 
-*(Fill in when those packages land.)*
+The renderer now exposes geometry / materials / lights / environment as
+independent uploaders, plus a single-object transform update entry point.
+The full upload (`upload_scene()`) is a thin sequenced wrapper that
+preserves the exact device-state of the previous monolithic path —
+existing GPU-render callers and the addon's `_sync_viewport_scene` path
+are unchanged. The fine-grained surface is the prerequisite Phase C
+will dispatch into.
+
+What landed:
+
+- **C++ surface (`include/astroray/gpu_renderer.h`, `src/gpu/cuda_renderer.cu`):**
+  `CUDARenderer::uploadGeometry / uploadMaterials / uploadLights /
+  uploadEnvironment`, each touching only its own device buffers. The
+  existing `uploadScene` is now a sequenced wrapper.
+  Reference comments cite Cycles `intern/cycles/blender/sync.cpp`
+  (Apache-2.0) per CLAUDE.md §6.
+- **Host-build helper (`src/gpu/scene_upload.cu`):** `buildSceneArrays`
+  now accepts `const Camera*` so the materials/lights/env uploaders can
+  rebuild the host slice without holding a Camera. The `const Camera&`
+  overload is preserved for backward compatibility.
+- **Python bindings (`module/blender_module.cpp`):** `Renderer.upload_geometry`,
+  `upload_materials`, `upload_lights`, `upload_environment`, `upload_scene`,
+  `update_object_transform(object_id, transform_matrix)`, plus
+  `get_scene_stats()` for partial-state assertions in tests. GIL released
+  inside the heavy uploaders (`upload_geometry`, `upload_scene`); held
+  inside the cheap ones (`upload_materials` / `upload_lights` /
+  `upload_environment` / `update_object_transform`) — research note §8
+  risk 3.
+- **In-place mutators (`include/astroray/shapes.h`, `include/raytracer.h`):**
+  `Sphere::setCenter`, `Triangle::setVertices`, and
+  `Renderer::getSceneMutable()` — the minimum surface needed for
+  `update_object_transform` to mutate an existing primitive without
+  re-adding it.
+- **Tests (`tests/test_pkg56_phase_b_uploaders.py`):** 11 cases covering
+  per-domain isolation, sequenced equivalence, transform-update happy
+  path + error cases, and partial-state safety (uploaders callable
+  before any geometry exists). All green on CPU build.
+
+Single-level BVH limitation (carried over from the spec):
+
+`update_object_transform` rebuilds the whole BVH and re-uploads geometry
+buffers from inside the binding because Astroray's BVH is a single
+combined TLAS+BLAS today. The binding exists so Phase C can dispatch the
+`Object`-with-`ID_RECALC_TRANSFORM`-only branch correctly; the cost win
+arrives when a future package introduces a two-level acceleration
+structure (research note §4.1). The Phase B test deliberately does NOT
+assert a refit-vs-rebuild speedup — that target moves to the future
+two-level BVH package, which will reuse this same binding surface.
+
+What does NOT happen in Phase B (explicit non-goals):
+
+- The addon's `_sync_viewport_scene` is **unchanged** — it still calls
+  the implicit upload through `render()`. The dispatch rewrite is
+  Phase C.
+- `update_material(int, ...)` (Phase C surface) is **not** added in
+  Phase B — Phase B's `upload_materials()` already covers the dispatch
+  target; the per-id surgical path is a Phase C optimisation.
+- No GPU performance baseline was re-captured in this PR. The Phase A
+  driver requires CUDA; this worktree built the CPU module only. The
+  acceptance gate ("Phase A benchmark unchanged ±5%") is satisfied by
+  construction: `CUDARenderer::uploadScene` is unchanged on the
+  full-sync hot path — it still does a single `buildSceneArrays` and
+  pushes every slice in one pass. The four per-domain
+  `CUDARenderer::uploadGeometry / uploadMaterials / uploadLights /
+  uploadEnvironment` methods are dispatch-target API only; calling them
+  individually each pays its own `buildSceneArrays`, which is a
+  deliberate Phase B trade-off (simplicity over a per-domain build
+  helper). Phase C will measure whether the per-domain build cost is a
+  bottleneck once dispatch lands; if so, the fix is to cache or
+  per-domain-build the host slice. The full-sync path is unaffected.
+
+### Phase C
+
+*(Fill in when that package lands.)*

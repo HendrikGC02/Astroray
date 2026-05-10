@@ -334,11 +334,66 @@ def _wavelength_range_from_settings(settings):
     return 380.0, 780.0
 
 
+# Hardcoded preference order for the 'auto' integrator dropdown. The addon
+# owns this UX policy so the engine doesn't need to know about it; the actual
+# names must come from astroray.integrator_registry_names() at runtime
+# (registry is the source of truth). Pattern mirrored from Cycles'
+# intern/cycles/blender/properties.py device-type auto-resolution.
+_AUTO_INTEGRATOR_PREFERENCE = ("path_tracer", "multiwavelength_path_tracer")
+
+
+def _resolve_auto_integrator(settings):
+    """Resolve the UI sentinel 'auto' to a concrete registered plugin.
+
+    Policy (pkg80):
+      - Query astroray.integrator_registry_names().
+      - Walk a hardcoded preference list first, then any remaining names in
+        registry order.
+      - When device_mode='gpu', skip plugins whose capabilities report
+        gpu_supported=False.
+      - Raise RuntimeError if no registered plugin satisfies the request.
+    """
+    try:
+        names = list(astroray.integrator_registry_names())
+    except Exception as exc:
+        raise RuntimeError(
+            f"Astroray: integrator 'auto' could not be resolved — "
+            f"registry query failed ({exc})"
+        ) from exc
+
+    require_gpu = getattr(settings, "device_mode", "auto") == "gpu"
+
+    ordered = [n for n in _AUTO_INTEGRATOR_PREFERENCE if n in names]
+    ordered.extend(n for n in names if n not in ordered)
+
+    for name in ordered:
+        if not require_gpu:
+            return name
+        caps = _integrator_capabilities(name)
+        if bool(caps.get("gpuSupported", False)):
+            return name
+
+    if require_gpu:
+        raise RuntimeError(
+            "Astroray: integrator 'auto' could not be resolved to a "
+            "registered plugin for device_mode='gpu' — no registered "
+            "integrator reports GPU support. Set the integrator dropdown "
+            "to a specific integrator."
+        )
+    raise RuntimeError(
+        "Astroray: integrator 'auto' could not be resolved — no "
+        "integrators are registered."
+    )
+
+
 def _effective_integrator_name(settings):
     lmin, lmax = _wavelength_range_from_settings(settings)
     if lmax > 780.0 or lmin < 380.0:
         return "multiwavelength_path_tracer"
-    return getattr(settings, "integrator_type", "path_tracer")
+    name = getattr(settings, "integrator_type", "path_tracer")
+    if name != "auto":
+        return name
+    return _resolve_auto_integrator(settings)
 
 
 def _integrator_capabilities(name):

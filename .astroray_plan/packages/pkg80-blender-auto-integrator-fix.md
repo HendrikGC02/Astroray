@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** ~½ day (~3 h)
 **Depends on:** pkg37 (Blender addon backend refresh), pkg53 (integrator capability diagnostics)
 
@@ -129,4 +129,20 @@ No code is copied; the file is read for pattern only.
 
 ## Lessons (filled in on completion)
 
-*(empty until done)*
+- Resolved 2026-05-10. `blender_addon/__init__.py` now defines
+  `_resolve_auto_integrator(settings)` which queries
+  `astroray.integrator_registry_names()` and walks a hardcoded preference
+  list (`path_tracer` → `multiwavelength_path_tracer` → registry order),
+  filtering by `integrator_capabilities(name)["gpuSupported"]` when
+  `device_mode='gpu'`. `_effective_integrator_name(settings)` calls it
+  only when `settings.integrator_type == 'auto'`; the existing wavelength
+  override (`multiwavelength_path_tracer` for non-visible ranges) is
+  preserved untouched.
+- `RuntimeError` raised with a clear "set the dropdown to a specific
+  integrator" hint when no registered plugin reports GPU support and
+  `device_mode='gpu'`.
+- Tests: `tests/test_blender_auto_integrator.py` covers the four
+  acceptance cases (cpu/auto resolves, gpu CUDA-build resolves,
+  gpu CPU-only-build raises, non-auto returns unchanged without touching
+  the registry). 19/19 pass alongside `test_blender_backend_policy.py`.
+- C++ side untouched per spec non-goal: `'auto'` stays a UI-only sentinel.

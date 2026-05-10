@@ -361,3 +361,61 @@ delta into a fresh "Phase 3 hardware verification YYYY-MM-DD" section
 appended below this one. Do not overwrite this entry — keeping the
 sequence of verifier observations is how Round 5's mid-refresh tracks
 build-currency drift on the CUDA branch.
+
+### Phase 3 hardware verification 2026-05-10 (rebuild) — RTX 5070 Ti, Windows MSVC `build_cuda`
+
+Follows the "could not measure" entry directly above. After
+`cmake --build build_cuda --target astroray` from a `vcvars64`
+environment (BuildTools 2022, MSVC 14.44.35207), the freshly-built
+.pyd exposes the pkg64-3 bindings:
+`hasattr(astroray.Renderer(), 'scene_object_count')` → **True**;
+`set_object_caustic_caster` likewise present. The smoke check the
+previous section requested before a re-run is now satisfied.
+
+**CUDA toolkit actually used: 12.6** (`build_cuda/CMakeCache.txt`
+pins `CUDA_CUDART = …/CUDA/v12.6/lib/x64/cudart.lib`). The
+verifier-brief mention of "CUDA 12.8" did not match the cache on this
+box; both 12.6 and 12.8 are installed in `C:\Program Files\NVIDIA GPU
+Computing Toolkit\` but only 12.6 is wired into this build_cuda
+configure. OptiX SDK 9.1.0 headers as before.
+
+Run: `python -m pytest tests/test_pkg64_phase3_default_integrator.py
+tests/test_pkg64_phase3_no_regression.py -v -s --tb=short`. Total
+wall time **2.21 s. 5 / 5 passed.**
+
+| Test | Result | Number on the wire |
+|---|---|---|
+| `test_path_tracer_caustic_caster_toggle` | ✅ | (binary toggle test, no metric printed) |
+| `test_pkg64_phase3_default_integrator_sms_fires` | ✅ | SMS hook fires through the BK7 caster end-to-end inside the default `path_tracer` |
+| `test_pkg64_phase3_default_integrator_psnr_gain` | ✅ | `PSNR(sms, ref)=32.76 dB, PSNR(base, ref)=32.50 dB, delta=0.26 dB; recv energy base=2.3111 sms=2.7312 ratio=1.18x` |
+| `test_no_caster_no_regression` | ✅ | bit-equal to pre-pkg64-3 path tracer (re-confirms previous session) |
+| `test_no_caster_cost_gate` | ✅ | `pkg64-3 no-caster cost ratio (toggle on / off) = 1.020x` |
+
+**Gate results (against the verifier brief):**
+
+- **SMS receiver-energy ratio (gate ≥ 1.10× the no-caustics
+  baseline at equal spp):** **1.18× (2.7312 / 2.3111). MET.** 8 pp
+  margin above the gate.
+- **PSNR floor non-regression (gate ≥ −0.5 dB):** **+0.26 dB. MET.**
+  The SMS run scores *better* PSNR-vs-reference than the baseline at
+  this spp (consistent with the Phase 3 implementer Lessons note that
+  PSNR is asserted only as a non-regression floor at this test
+  budget — the receiver-energy ratio is the strict gate).
+- **Per-bounce walltime overhead with empty hook (gate ≤ 5 %):**
+  **2.0 % (cost ratio 1.020×). MET.** Re-cited rather than
+  re-asserted; the previous session's `test_no_caster_cost_gate`
+  PASS already established this number, the rebuild reproduces it.
+
+All three Phase 3 acceptance gates now have a real-hardware number on
+the same RTX 5070 Ti / Windows MSVC `build_cuda` configuration. No
+gate was relaxed; every margin is comfortable.
+
+Build-environment notes for future verifiers:
+
+- `cmake --build` must be invoked from a `vcvars64` environment so
+  `cl.exe` / `link.exe` are on `PATH`; the `windows-cuda-vs` preset
+  uses the NMake Makefiles generator on this box.
+- `OpenImageDenoise.dll` is a transitive runtime dep of the .pyd (via
+  pkg70 OIDN integration); prepending `C:\oidn\bin` to `PATH` is
+  required for `import astroray` to succeed. `tests/runtime_setup.py`
+  does not currently `os.add_dll_directory()` an OIDN install dir.

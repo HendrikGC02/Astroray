@@ -124,12 +124,31 @@ public:
         // and the first frame after setup_camera; in those cases the prev-
         // output buffer + ping-pong internal-guide pair is wasted memory.
         bool hasNonzeroMotion = false;
+        size_t motionNonzeroCount = 0;
+        float motionAbsMax = 0.0f;
         if (srcMotion) {
             const size_t n2 = pixels * 2;
             for (size_t i = 0; i < n2; ++i) {
-                if (srcMotion[i] != 0.0f) { hasNonzeroMotion = true; break; }
+                if (srcMotion[i] != 0.0f) {
+                    hasNonzeroMotion = true;
+                    ++motionNonzeroCount;
+                    const float a = std::fabs(srcMotion[i]);
+                    if (a > motionAbsMax) motionAbsMax = a;
+                }
             }
         }
+        // pkg73 defect-2026-05-10 — temporary diagnostic. The hardware
+        // verifier saw rms_t == rms_a == 0.011740 on seq_t and the
+        // TEMPORAL_AOV substring missing from stdout, indicating
+        // desiredKind never became TEMPORAL_AOV. Print enough state to
+        // distinguish (a) motion buffer pointer mismatch, (b) buffer
+        // populated with zeros, (c) buffer populated but check skipped.
+        std::fprintf(stderr,
+            "[pkg73-diag] execute w=%d h=%d hasGuides=%d hasMotion=%d "
+            "motion_buf=%p motion_nonzero_count=%zu motion_abs_max=%.6g\n",
+            w, h, (int)hasGuides, (int)hasNonzeroMotion,
+            (const void*)srcMotion, motionNonzeroCount, motionAbsMax);
+        std::fflush(stderr);
 
         OptixDenoiserModelKind desiredKind;
         if (hasGuides && hasNonzeroMotion) {

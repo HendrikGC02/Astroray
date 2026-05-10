@@ -190,7 +190,9 @@ is currently the weakest link.
 | pkg73 | OptiX TEMPORAL_AOV denoiser mode (auto-upgrade from pkg70 AOV when pkg72 motion buffer is non-zero; destroy + recreate on model-kind transition; ping-pong internal-guide-layer pair; previous-output cache + first-frame fallback; clean fallback to AOV on static cameras). Mirrors Cycles `intern/cycles/integrator/path_trace_work_gpu.cpp` (Apache-2.0). | **done** — defect fixed in PR #249 (2026-05-11). Two compounding root causes: (1) plugin: `OptixDenoiserParams::temporalModeUsePreviousLayers` was zero-init and never set → OptiX silently treated every frame as a new sequence start and dropped temporal accumulation, (2) test: AOV reference was silently upgraded to TEMPORAL_AOV by sub-pixel float dust (~2e-5) in `projectToPrevPixel` even when prev-pose == curr-pose → `rms_t == rms_a` by construction, masking root cause 1. Hardware-verified on RTX 5070 Ti / OptiX 9.1 / CUDA 12.8: **53.1% inter-frame variance reduction (gate ≥30%), 5/5 tests pass**. Diagnostic prints from PR #241 removed. **Denoiser story closes here** (pkg33 → pkg68 → pkg69 → pkg70 → pkg72 → pkg73). | A |
 | pkg76 | Astroray `.blend` importer (parity scope) — offline SDNA-walking Python reader, no `bpy` runtime dependency; supports Blender 5.1's 17-byte file header + 32-byte block header + new `attribute_storage`; returns `astroray.Scene`. `tools/blend_import/{sdna,reader,scene_builder,blend_to_astroray}.py`. | **done** (PR #240; CSV row population on Classroom/Junkshop/BMW27 deferred to a Round 6 RTX session — needs healthy denoiser path post-pkg73 fix) | A |
 | pkg80 | Blender addon: resolve `'auto'` integrator dropdown to a registered plugin before C++ calls — daily-workflow blocker surfaced 2026-05-10 by owner (`RuntimeError: Astroray: integrator 'auto' does not support GPU` on viewport rendered-view + GPU device mode). | **open** (Round 6 Codex pickup) | A |
-| pkg81 | Viewport interactivity parity with Cycles — Phase 1 harness + Phase 2 diagnosis + Phase 3 fix. The actual Pillar-5-closing package per ROADMAP.md's "rival Cycles" promise. Surfaced 2026-05-10 by owner ("rendered view is a slog vs Cycles"). pkg52/56/68/73/74 all closed against internal gates but never against Cycles-CUDA on the same scene during pan/zoom. | **open** (Round 6 Phase 1+2 Claude tech pickup; Phase 3 → Round 7 or routes through pkg55 Phase B) | A |
+| pkg81 | Viewport interactivity parity with Cycles — Phase 1 harness + Phase 2 diagnosis + Phase 3 fix. | **Phase 1+2 done 2026-05-11** (PR #248); harness + 16-config sweep + pkg81-diagnosis.md committed. Headline: **CUDA 104 ms vs CPU 58 ms on 100k tris** — H4 (megakernel register pressure, the pkg55-A 158 regs/thread cliff) dominates. **Phase 3 routes to pkg55 Phase B** per spec escape clause; Phase B now owns the viewport-parity acceptance gate. H2 + H5 follow-ups split out as pkg83 + pkg84. | A |
+| pkg83 | Progressive accumulation continuation — addon-only fix for H2 from pkg81. Today: addon resets accumulator on every `camera_changed` notification; pkg81 confirmed `spp_trace=[1]` per pan-frame. Cycles' `BlenderSession::reset` only invalidates on substantive scene-graph mutations. | **open** (Round 6 Codex pickup; ~½ day) | A |
+| pkg84 | CUDA kernel pre-warm at viewport start — addon-only fix for H5 from pkg81. Today: first CUDA frame in a session = 12,079 ms (kernel JIT + context init); subsequent ~14 ms. Pre-warm a 1-pixel render of a trivial scene during viewport-start to move the spinner to a moment the user expects. | **open** (Round 6 Codex pickup; ~½ day) | A |
 | pkg55 | Wavefront SoA GPU refactor — Phase A (`ASTRORAY_PROFILE=1`-gated CUDA events + NVTX + baseline.json; **measured 158 regs/thread + 1 active block/SM** at the 256-thread launch — Laine 2013 occupancy cliff documented for Phase B to attack) | **Phase A done; Phase A.1 (SoA infra + intersect queue) + Phase B (per-material shade kernels) + Phase C (megakernel removal) open** | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
@@ -433,6 +435,20 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-11 (pkg81 measurement-complete)** — first honest
+  Astroray-vs-Cycles viewport numbers exist. Harness + 16-config
+  sweep + diagnosis note shipped (PR #248). Headline: **CUDA 104 ms
+  vs CPU 58 ms on identical 100k-tri load** — pkg55 Phase A's
+  158 regs/thread + 1 active block/SM cliff is now measurably
+  costing the user, not just a documented number. **H4 (megakernel
+  register pressure) dominates;** H5 (12 s cold-start), H2
+  (accumulator-reset-per-pan), H3 (OIDN blocking on CPU) all
+  confirmed at smaller magnitudes. H1 ruled out. **Phase 3 routes
+  to pkg55 Phase B** per spec escape; Phase B now owns the
+  viewport-parity acceptance gate (CUDA pan-frame p99 ≤ 1.2×
+  Cycles-CUDA). H2 + H5 split out as **pkg83** + **pkg84** for
+  immediate addon-side wins.
 
 - **2026-05-11 (pkg73 closeout)** — pkg73 OptiX TEMPORAL_AOV defect
   fixed in PR #249. Hardware-verified on RTX 5070 Ti / OptiX 9.1 /

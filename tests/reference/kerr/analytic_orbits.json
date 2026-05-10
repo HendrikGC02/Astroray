@@ -1,0 +1,122 @@
+{
+  "meta": {
+    "image_size": 256,
+    "inclination_deg": 80.0,
+    "pixels_per_M": 18.0,
+    "source": "Bardeen, Press, Teukolsky 1972 ApJ 178, 347; Chandrasekhar 1983 ch. 7; GYOTO/RAPTOR/ipole cited for independent cross-validation only"
+  },
+  "spins": {
+    "0": {
+      "a": 0.0,
+      "horizon_angular_velocity": 0.0,
+      "horizon_radius": 2.0,
+      "isco_prograde": 6.0,
+      "isco_retrograde": 6.0,
+      "orbital_frequency_isco_prograde": 0.06804138174397717,
+      "orbital_frequency_isco_retrograde": -0.06804138174397717,
+      "orbital_period_isco_prograde": 92.34358777165421,
+      "orbital_period_isco_retrograde": 92.34358777165421,
+      "photon_ring_prograde": 3.0,
+      "photon_ring_retrograde": 3.0,
+      "reference_image": "gyoto_a0_256.png",
+      "shadow_metrics": {
+        "area_px": 26747.0,
+        "bbox_px": [
+          35,
+          34,
+          219,
+          220
+        ],
+        "centroid_x_px": 127.0,
+        "centroid_y_px": 127.0,
+        "circularity_width_height_ratio": 0.9893048128342246,
+        "height_px": 187,
+        "width_px": 185
+      }
+    },
+    "0.5": {
+      "a": 0.5,
+      "horizon_angular_velocity": 0.13397459621556135,
+      "horizon_radius": 1.8660254037844386,
+      "isco_prograde": 4.233002529530826,
+      "isco_retrograde": 7.554584714512358,
+      "orbital_frequency_isco_prograde": 0.10858835898027674,
+      "orbital_frequency_isco_retrograde": -0.04934803110392874,
+      "orbital_period_isco_prograde": 57.86242066998012,
+      "orbital_period_isco_retrograde": 127.32393099832028,
+      "photon_ring_prograde": 2.3472963553338606,
+      "photon_ring_retrograde": 3.532088886237956,
+      "reference_image": "gyoto_a05_256.png",
+      "shadow_metrics": {
+        "area_px": 26361.0,
+        "bbox_px": [
+          54,
+          36,
+          236,
+          218
+        ],
+        "centroid_x_px": 145.03452069344866,
+        "centroid_y_px": 127.0,
+        "circularity_width_height_ratio": 1.0,
+        "height_px": 183,
+        "width_px": 183
+      }
+    },
+    "0.9": {
+      "a": 0.9,
+      "horizon_angular_velocity": 0.3133945031366293,
+      "horizon_radius": 1.4358898943540672,
+      "isco_prograde": 2.320883041761887,
+      "isco_retrograde": 8.717352279606489,
+      "orbital_frequency_isco_prograde": 0.22544170883530795,
+      "orbital_frequency_isco_retrograde": -0.04026068897501264,
+      "orbital_period_isco_prograde": 27.87055394336833,
+      "orbital_period_isco_retrograde": 156.06253810209697,
+      "photon_ring_prograde": 1.5578546274233829,
+      "photon_ring_retrograde": 3.910267939103037,
+      "reference_image": "gyoto_a09_256.png",
+      "shadow_metrics": {
+        "area_px": 25059.0,
+        "bbox_px": [
+          76,
+          36,
+          248,
+          218
+        ],
+        "centroid_x_px": 161.30931002833313,
+        "centroid_y_px": 127.0,
+        "circularity_width_height_ratio": 0.9453551912568307,
+        "height_px": 183,
+        "width_px": 173
+      }
+    },
+    "0.998": {
+      "a": 0.998,
+      "horizon_angular_velocity": 0.4693317021457332,
+      "horizon_radius": 1.0632139225171164,
+      "isco_prograde": 1.2369706551751847,
+      "isco_retrograde": 8.99437445480357,
+      "orbital_frequency_isco_prograde": 0.42127459447271126,
+      "orbital_frequency_isco_retrograde": -0.03849605313015052,
+      "orbital_period_isco_prograde": 14.91470264197617,
+      "orbital_period_isco_retrograde": 163.21635067202587,
+      "photon_ring_prograde": 1.0739092576799516,
+      "photon_ring_retrograde": 3.998221892847946,
+      "reference_image": "gyoto_a0998_256.png",
+      "shadow_metrics": {
+        "area_px": 24117.0,
+        "bbox_px": [
+          89,
+          36,
+          251,
+          218
+        ],
+        "centroid_x_px": 167.22834515072356,
+        "centroid_y_px": 127.0,
+        "circularity_width_height_ratio": 0.8907103825136612,
+        "height_px": 183,
+        "width_px": 163
+      }
+    }
+  }
+}

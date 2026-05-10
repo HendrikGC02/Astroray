@@ -45,7 +45,7 @@ personally should pick up.
   parity rows).
 - **Pillar 4 strategic gate RELEASED (2026-05-10).** pkg56 Phases B+C
   and pkg64 Phase 3 have all landed; the gate's three preconditions are
-  green. pkg41 Kerr validation may now begin; pkg42–51 specs unfreeze.
+  green. pkg41 Kerr validation is implemented; pkg42–51 specs are unfrozen.
   pkg40 Kerr metric is already done.
 - Fresh local collection: `pytest --collect-only -q` reports **460+
   tests collected** as of Round 3 close (was 435 at 2026-05-09). New
@@ -68,7 +68,7 @@ personally should pick up.
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
-| 4 | Astrophysics platform | Preparation | 10% | pkg41 Kerr validation | parked per 2026-05-10 strategic gate; releases when pkg56 B+C land (pkg64-3 done) |
+| 4 | Astrophysics platform | Preparation | 15% | pkg42 synchrotron emission | gate released; pkg40 metric + pkg41 validation implemented |
 | 5 | Production polish / Blender parity | **Approaching feature-complete** | ~85% | Round 4: pkg73 + pkg56-B + pkg64-3 + pkg76 spec | — |
 
 **Pillar 1 package summary:**
@@ -181,7 +181,7 @@ forgotten):
 | Package | Description | Status |
 |---|---|---|
 | pkg40 | Kerr metric plugin and Schwarzschild extraction | **done** |
-| pkg41 | Kerr geodesic validation | ready |
+| pkg41 | Kerr geodesic validation | implemented |
 | pkg42 | Synchrotron emission and relativistic jets | open |
 | pkg43 | Slim disk accretion model | open |
 | pkg44 | ADAF accretion model | open |
@@ -217,9 +217,9 @@ pkg64 final fold, pkg74 CI)
     (~½ week) — completes the caustics flagship
   - **pkg76 spec** Astroray .blend importer (parity scope) — unblocks
     Classroom/Junkshop/BMW27/Monster pkg71 rows
-- After Round 4: pkg56 Phase C, pkg76 implementation, pkg55 Phase A
-  (wavefront refactor instrumentation begins). When pkg56 + pkg64 +
-  pkg76 all done, **Pillar 4 thaws**.
+- After Round 4: pkg76 implementation, pkg55 Phase A
+  (wavefront refactor instrumentation begins). Pillar 4 is thawed;
+  pkg41 validation is the first post-gate deliverable.
 
 ### Track A (Claude Code) — previous
 
@@ -228,8 +228,8 @@ pkg64 final fold, pkg74 CI)
   guardrails, pkg35 spectral GPU material payloads, and pkg36 shared closure
   graphs.
 - Pillar 4 has begun: pkg40 landed Kerr/Schwarzschild metric plugins with
-  BPT 1972 analytic gates green. pkg41 is ready; its "depends on pkg40" gate
-  is satisfied.
+  BPT 1972 analytic gates green. pkg41 adds 39 closed-form metric and
+  image-plane validation tests plus static Kerr reference fixtures.
 
 ### Track B (Copilot cloud)
 
@@ -256,9 +256,9 @@ pkg64 final fold, pkg74 CI)
   binding (#187), pkg69 Albedo pass for compositor (#201), pkg71 framework
   + first canonical Cornell baseline (#205 + #218), pkg70 build hygiene
   (#215), pkg59 named UV (#184), pkg60 Disney v2 energy compensation (#178),
-  pkg65 scripts cleanup, pkg66 material iteration UX. **The Pillar 4 specs
-  (pkg41-pkg49) are Codex-paste-ready and waiting** for the strategic
-  gate to release.
+  pkg65 scripts cleanup, pkg66 material iteration UX, pkg41 Kerr validation.
+  **The Pillar 4 specs (pkg42-pkg49) are Codex-paste-ready and waiting**
+  after the strategic gate release.
 - Round 4 Codex queue: pkg64 Phase 3 (default-integrator MIS fold, ~½ week)
   completed; pkg74 Phase 3 (interactive HTML + weekly CI) completed.
 - Recent: pkg53 GPU integrator diagnostics and pkg61 shade-smooth GPU parity
@@ -316,7 +316,8 @@ events are summarized in the changelog below.
 | pkg33 | A | **done** | — |
 | pkg38 | B | **done** | — |
 | pkg39 | A | **done** | — |
-| pkg40 | A | **done** | Kerr/Schwarzschild metric plugins; BPT 1972 analytic gates green; pkg41 ready |
+| pkg40 | A | **done** | Kerr/Schwarzschild metric plugins; BPT 1972 analytic gates green |
+| pkg41 | A | **implemented** | Kerr validation harness: BPT/Chandrasekhar analytic orbit fixtures, closed-form null photon checks against the shipped metric tensor, static image-plane shadow references in `tests/reference/kerr/`, and 39-test `tests/test_kerr_validation.py` suite green locally |
 | pkg52 | A | **done** | — |
 | pkg53 | B/E | **done** | — |
 | pkg54 | A | **done** | pkg54/54a/54b/54c/54d all verified on hardware; pkg54c visible-band SSIM 0.999 gate clears at 0.999263 (spp=8192); GPU `gpu_rgbSpectrumAt` ILLUMINANT renormalization bug found and fixed during verification; frame-time regression +0.45 % (pkg54e not needed) |

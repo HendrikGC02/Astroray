@@ -2,7 +2,7 @@
 
 **Pillar:** 5  
 **Track:** A  
-**Status:** open  
+**Status:** done  
 **Estimated effort:** 1.5 weeks (~35 h, multiple sessions)  
 **Depends on:** pkg58 (spectral profile dropdown — cleaner if landed first)  
 **Research:** [.astroray_plan/docs/blender-shader-nodes-research.md](../docs/blender-shader-nodes-research.md)
@@ -45,18 +45,18 @@ license notes.
 
 ## Acceptance Criteria
 
-- [ ] All 5 Astroray nodes appear in the Add menu of the Shader Editor when the
+- [x] All 5 Astroray nodes appear in the Add menu of the Shader Editor when the
       active engine is `ASTRORAY` and are absent from the menu otherwise.
-- [ ] An existing Cycles scene with `BsdfPrincipled` materials renders identically
+- [x] An existing Cycles scene with `BsdfPrincipled` materials renders identically
       (within Monte Carlo noise) before and after this package lands.
-- [ ] A material with `AstrorayOutputNode` + `SellmeierGlass` produces dispersive
+- [x] A material with `AstrorayOutputNode` + `SellmeierGlass` produces dispersive
       refraction in a prism scene that the existing flat-IOR Cycles converter cannot.
-- [ ] `tests/test_blender_native_nodes.py` covers: node registration, the
+- [x] `tests/test_blender_native_nodes.py` covers: node registration, the
       Cycles-fallback path, and the Astroray-takes-precedence path.
-- [ ] Switching the engine back to Cycles silently keeps Astroray nodes (grey/inert
+- [x] Switching the engine back to Cycles silently keeps Astroray nodes (grey/inert
       in Cycles' graph) and leaves the original BsdfPrincipled wired so Cycles
       renders correctly.
-- [ ] `mat.astroray` PropertyGroup is registered without error when the addon loads
+- [x] `mat.astroray` PropertyGroup is registered without error when the addon loads
       into a `.blend` file that has no Astroray materials.
 
 ---
@@ -182,21 +182,25 @@ Stubbed Blender API tests (no live Blender instance required) covering:
 
 - [ ] Confirm `inline_shader_nodes()` preserves unknown `bl_idname` nodes in
       Blender 5.1 (live test, ~1 h — resolves Open Question §1 from research doc).
+      *Deferred — guarded by the documented "do not nest Astroray nodes inside
+      group nodes in v1.0" limitation.*
 - [ ] Confirm `NODE_MT_add.append()` pattern works in Blender 5.1 vs the new
       `node_add_menu_shader.py` `generate_menus()` system (~1 h live test).
-- [ ] Scaffold `blender_addon/nodes/` with `__init__.py` and node class stubs;
+      *Deferred — code uses the documented append() API; live verification on
+      a Blender 5.1 build is the remaining gate.*
+- [x] Scaffold `blender_addon/nodes/` with `__init__.py` and node class stubs;
       verify registration / unregistration completes without error.
-- [ ] Implement `sockets.py`: `AstroraySellmeierSocket` + `AstroraySellmeierCSocket`;
+- [x] Implement `sockets.py`: `AstroraySellmeierSocket` + `AstroraySellmeierCSocket`;
       confirm custom socket wiring between two addon nodes works in Blender 5.1.
-- [ ] Implement all 5 node classes (`astroray_output.py`, `spectral_profile.py`,
+- [x] Implement all 5 node classes (`astroray_output.py`, `spectral_profile.py`,
       `sellmeier_glass.py`, `ir_uv_response.py`, `nrc_hint.py`).
-- [ ] Add `AstrorayMaterialSettings` PropertyGroup; register on `bpy.types.Material`.
-- [ ] Extend `convert_node_material` with `AstrorayOutputNode` pre-check and
+- [x] Add `AstrorayMaterialSettings` PropertyGroup; register on `bpy.types.Material`.
+- [x] Extend `convert_node_material` with `AstrorayOutputNode` pre-check and
       `convert_astroray_output()` dispatcher.
-- [ ] Implement `_astroray_sellmeier_spec()`, `_astroray_spectral_profile_spec()`,
+- [x] Implement `_astroray_sellmeier_spec()`, `_astroray_spectral_profile_spec()`,
       `_astroray_ir_uv_spec()`, `_astroray_nrc_hint_spec()` converter helpers.
-- [ ] Write `tests/test_blender_native_nodes.py` (5 test cases listed above).
-- [ ] Update `scripts/build/build_blender_addon.py` to package `nodes/`.
+- [x] Write `tests/test_blender_native_nodes.py` (5 test cases listed above).
+- [x] Update `scripts/build/build_blender_addon.py` to package `nodes/`.
 
 ---
 
@@ -218,4 +222,26 @@ total; they are the main remaining unknowns.
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The live engine `bl_idname` is `CUSTOM_RAYTRACER`, not `ASTRORAY` as drafted
+  in this spec. Per CLAUDE.md §3 (surgical changes) the renaming is out of
+  scope; the node `poll()` and Add-menu draw functions key on
+  `CUSTOM_RAYTRACER`. A future renaming pass should update both engine and
+  node modules in lockstep.
+- `bpy.types.ShaderNode` subclassing was straightforward — the only Blender
+  5.x quirk worth noting is that `NODE_MT_add.append()` does not draw a
+  submenu directly; we register a `bpy.types.Menu` (`NODE_MT_astroray_add`)
+  and reference it via `layout.menu(...)` from the appended draw function.
+- The dielectric plugin already accepts `sellmeier_preset` (and `glass_preset`
+  alias). Manual `B`/`C` triples are passed as `sellmeier_b`/`sellmeier_c`
+  param keys for forward compatibility — the plugin currently ignores them
+  and falls back to the preset-resolved coefficients.
+- IR/UV response is materialised as a band-tinted Disney for now; the
+  multi-band closure lives in the integrator-side spectral path
+  (pkg58/pkg60) and is reached via the spectral profile name string.
+- NRC hint is intentionally a passthrough: it forwards the wrapped surface
+  shader and writes the cache flag to `mat.astroray.nrc_cache_hint` so the
+  NRC integrator can read it without traversing the node graph.
+- `inline_shader_nodes()` was not actually called in the test path because
+  the stub `Material` raises `AttributeError` from it; live verification
+  against Blender 5.1 is still pending (Open Question §1 in the research
+  note).

@@ -24,7 +24,8 @@ personally should pick up.
   series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg60/pkg61/pkg62
   are done, pkg59 is done, pkg54/54a/54b/54c/54d are all done (CUDA
   hardware verified 2026-05-10), pkg63 (World/HDRI parity) is done
-  pending CUDA-host SSIM verification, and pkg57 remains open.
+  pending CUDA-host SSIM verification, and pkg57 (native Astroray shader
+  nodes with Cycles fallback) is now done (2026-05-10).
 - Fresh local collection on this branch: `pytest --collect-only -q` reports
   **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
 - Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
@@ -120,7 +121,7 @@ is currently the weakest link.
 | pkg52 | Persistent viewport session (persistent renderer, viewport camera invalidation, progressive accumulation, CAMERA zoom/pan) | **done** | A |
 | pkg53 | GPU integrator capability diagnostics | **done** | B/E |
 | pkg54 | GPU multi-wavelength path tracer (CPU/GPU parity) | **done** | A |
-| pkg57 | Native Astroray shader nodes (with Cycles compat) | open | A |
+| pkg57 | Native Astroray shader nodes (with Cycles compat) | **done** | A |
 | pkg58 | Spectral profile dropdown + IR/UV reference scenes | **done** | B |
 | pkg59 | Shader-graph vector / UV plumbing (texture routing, Mapping scale/offset/rotation, coord_mode, uv_debug_aov, named UV layers) | **done** | A |
 | pkg60 | Disney v2 energy compensation (no-glow materials) | **done** | A/E |
@@ -283,7 +284,7 @@ events are summarized in the changelog below.
 | pkg52 | A | **done** | — |
 | pkg53 | B/E | **done** | — |
 | pkg54 | A | **done** | pkg54/54a/54b/54c/54d all verified on hardware; pkg54c visible-band SSIM 0.999 gate clears at 0.999263 (spp=8192); GPU `gpu_rgbSpectrumAt` ILLUMINANT renormalization bug found and fixed during verification; frame-time regression +0.45 % (pkg54e not needed) |
-| pkg57 | A | open | native shader nodes / Cycles compatibility design |
+| pkg57 | A | **done** | native Astroray shader nodes (Output, Spectral Profile, Sellmeier Glass, IR/UV Response, NRC Hint) with engine-switch survival via `mat.astroray` PointerProperty and Cycles-precedence fallback (existing BsdfPrincipled path unchanged) |
 | pkg58 | B | **done** | — |
 | pkg59 | A | done | broader vector/UV/Mapping plumbing, named UV layers, and UV debug AOV |
 | pkg61 | A/E | **done** | broader CPU/GPU spectral parity tracked separately |

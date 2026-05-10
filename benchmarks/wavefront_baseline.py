@@ -67,7 +67,7 @@ SCENES: list[tuple[str, str, str, int]] = [
 
 def render_one(scene_id: str, scene_module: str, builder_name: str,
                resolution: int, spp: int, max_depth: int,
-               out_json: Path) -> dict:
+               out_json: Path, soa_mode: str = "off") -> dict:
     """Spawn a subprocess that renders the scene with profiling on.
 
     Subprocess isolation matters: the C++ Aggregator dumps its JSON
@@ -118,9 +118,14 @@ except RuntimeError as exc:
     env = os.environ.copy()
     env["ASTRORAY_PROFILE"] = "1"
     env["ASTRORAY_PROFILE_OUT"] = str(out_json)
+    if soa_mode == "on":
+        # pkg55-A.1: dual-trace the wavefront SoA intersect alongside the
+        # AoS megakernel. The build must be configured with
+        # -DASTRORAY_WAVEFRONT_INTERSECT=ON for this to do anything.
+        env["ASTRORAY_WAVEFRONT_INTERSECT_PARITY"] = "1"
 
     print(f"[wavefront-baseline] rendering {scene_id} "
-          f"({resolution}x{resolution}, {spp} spp)...")
+          f"({resolution}x{resolution}, {spp} spp, soa={soa_mode})...")
     proc = subprocess.run(
         [sys.executable, "-c", code],
         env=env, capture_output=True, text=True,
@@ -140,12 +145,14 @@ except RuntimeError as exc:
     data = json.loads(out_json.read_text())
     return {
         "scene": scene_id,
+        "soa_mode": soa_mode,
         "resolution": [resolution, resolution],
         "spp": spp,
         "max_depth": max_depth,
         "warmup_runs": 1,
         "measure_runs": 5,
         "kernels": data.get("kernels", {}),
+        "stderr_tail": proc.stderr[-2000:],
     }
 
 
@@ -168,6 +175,12 @@ def main() -> int:
                     help="Samples per pixel (default: 64)")
     ap.add_argument("--max-depth", type=int, default=8)
     ap.add_argument("--out", type=Path, default=OUT_FILE)
+    ap.add_argument(
+        "--soa", choices=("off", "on", "both"), default="off",
+        help=("pkg55-A.1: 'off' = AoS-only baseline (Phase A.0 default); "
+              "'on' = dual-trace SoA intersect (requires "
+              "-DASTRORAY_WAVEFRONT_INTERSECT=ON build); "
+              "'both' = run each scene twice and emit two records."))
     args = ap.parse_args()
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -175,7 +188,9 @@ def main() -> int:
     record = {
         "schema": "astroray.wavefront.baseline.v1",
         "package": "pkg55",
-        "phase": "A.0 (megakernel baseline instrumentation)",
+        "phase": ("A.1 (SoA intersect dual-trace)" if args.soa != "off"
+                  else "A.0 (megakernel baseline instrumentation)"),
+        "soa_mode_arg": args.soa,
         "generated_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "git_branch": _git_branch(),
         "git_sha": _git_sha(),
@@ -186,10 +201,18 @@ def main() -> int:
     tmp_dir = OUT_DIR / "_per_scene"
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
+    modes: list[str]
+    if args.soa == "both":
+        modes = ["off", "on"]
+    else:
+        modes = [args.soa]
+
     for scene_id, mod, builder, res in SCENES:
-        per = tmp_dir / f"{scene_id}.json"
-        record["scenes"].append(
-            render_one(scene_id, mod, builder, res, args.spp, args.max_depth, per))
+        for soa_mode in modes:
+            per = tmp_dir / f"{scene_id}.soa-{soa_mode}.json"
+            record["scenes"].append(
+                render_one(scene_id, mod, builder, res, args.spp, args.max_depth,
+                           per, soa_mode=soa_mode))
 
     args.out.write_text(json.dumps(record, indent=2))
     print(f"[wavefront-baseline] wrote {args.out}")

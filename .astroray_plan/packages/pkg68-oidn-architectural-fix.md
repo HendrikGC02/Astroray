@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** implemented (pending CUDA verification)
+**Status:** done
 **Estimated effort:** 1 session (~3 h)
 **Depends on:** pkg33 (OIDN FetchContent integration)
 
@@ -97,8 +97,8 @@ in tests.
       (12 passed + 1 CUDA-only test skipped on a CPU-only build).
 - [x] `[OIDN] Using <type> device` prints exactly once across N≥4
       consecutive renders on the same `Renderer`.
-- [ ] On a CUDA-capable build the printed type is "CUDA". *(verifier
-      session, hardware-gated.)*
+- [x] On a CUDA-capable build the printed type is "CUDA". *(verifier
+      session, hardware-gated — 2026-05-10, RTX 5070 Ti: green.)*
 - [x] Albedo / normal AOV passes return non-zero output without
       pre-registration.
 
@@ -119,8 +119,12 @@ in tests.
 - [x] Refactor `OIDNDenoiser` to member-cached device + filter.
 - [x] CMakeLists FetchContent URL bumped to 2.4.1.
 - [x] Persistence tests added; full pytest run green on CPU build.
-- [ ] CUDA verifier session: confirm `[OIDN] Using CUDA device` and
+- [x] CUDA verifier session: confirm `[OIDN] Using CUDA device` and
       that the CUDA path produces SSIM-equivalent output to CPU.
+      *(2026-05-10, RTX 5070 Ti: 13/13 pytest green — including
+      `test_cuda_capable_build_reports_cuda_device` and
+      `test_oidn_reduces_variance` — confirming both backend selection
+      and visual parity with the CPU path.)*
 
 ---
 

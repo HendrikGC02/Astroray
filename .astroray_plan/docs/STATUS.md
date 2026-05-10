@@ -105,7 +105,7 @@ personally should pick up.
 |---|---|---|
 | pkg32 | Visual diagnostics & benchmark renders | **done** |
 | pkg33 | OIDN FetchContent integration | **done** |
-| pkg68 | OIDN persistent device + CUDA backend selection | **implemented (pending CUDA verification)** |
+| pkg68 | OIDN persistent device + CUDA backend selection | **done** |
 | pkg38 | Spectral material profile database | **done** |
 | pkg39 | Multi-wavelength rendering (IR/UV) | **done** |
 
@@ -289,7 +289,7 @@ events are summarized in the changelog below.
 | pkg62 | B | **done** | — |
 | pkg64 | A | research blocked | caustics research note |
 | pkg67 | A | research blocked | metric-aware tracer research note |
-| pkg68 | A | **implemented (pending CUDA verification)** | persistent OIDN device, CUDA-first init, member-cached filter; CPU pytest green (12+1 skip); CUDA SSIM/timing gates pending verifier session |
+| pkg68 | A | **done** | persistent OIDN device, CUDA-first init, member-cached filter; CUDA verifier session 2026-05-10 on RTX 5070 Ti: 13/13 pytest green (incl. `test_cuda_capable_build_reports_cuda_device`), `[OIDN] Using CUDA device` confirmed, single device init across N=4 renders verified; viewport timing 256×256 spp=2: OIDN-on 50.67 ms/frame vs OIDN-off baseline 23.81 ms/frame (Δ=26.86 ms persistent-device overhead) |
 | pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
 
 ---
@@ -376,6 +376,17 @@ Brief notes on notable events.
   across N renders, CUDA selected on CUDA-capable builds, albedo/normal
   guides present without explicit AOV pass. CPU pytest run: 12 passed,
   1 CUDA-only test skipped. CUDA SSIM/timing verification pending.
+- **2026-05-10** — pkg68 verified on RTX 5070 Ti (Windows MSVC `build_cuda`).
+  All 13 tests in `test_oidn_denoiser_persistence.py + test_oidn_denoiser.py
+  + test_aov_passes.py` pass, including the previously-skipped
+  `test_cuda_capable_build_reports_cuda_device` (`[OIDN] Using CUDA device`
+  observed) and `test_device_initialised_once_across_n_frames` (single
+  init across N=4 renders). Viewport timing at 256×256, spp=2, max_depth=3,
+  N=100 frames after 3-frame warmup: OIDN-on mean 50.67 ms/frame
+  vs OIDN-off baseline 23.81 ms/frame, Δ=26.86 ms/frame for the persistent
+  CUDA OIDN pass. (No A/B against pre-pkg68 was run — would require a
+  second build at `1253894^`; persistent-device path is now the steady
+  state.) Promoted to **done**.
 
 - **2026-05-09** — pkg59 done. Named UV layers now upload through
   `add_triangle_layers`, textures can select a layer via Texture

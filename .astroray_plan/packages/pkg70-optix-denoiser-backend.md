@@ -292,3 +292,12 @@ pkg71-baseline session's PR #215, already merged to main):
 Both were latent because pkg70 was implemented and merged before
 anyone built it with OptiX actually enabled on Windows; the OIDN
 fallback path masked the issues end-to-end.
+
+**Update (pkg75 landed):** AOV normals now live courtesy of pkg75
+(`plugins/integrators/spectral_path_tracer.cpp` first-hit normal
+write). The 5.31× synthetic-noise reduction at 256×256 was measured
+against an all-zero normal guide — OptiX AOV mode was effectively
+running HDR+albedo only. With real unit-length world-space normals
+now feeding both `OptixDenoiserGuideLayer::normal` and OIDN's normal
+input, the 5.31× / 5.58× ratios are a conservative floor.
+Re-baseline pending verifier session 3.5 (CUDA + OptiX online).

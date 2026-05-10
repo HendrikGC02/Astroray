@@ -172,3 +172,10 @@ normal guides, OIDN will either denoise faster, denoise cleaner at
 the same speed, or both. **Re-measure after pkg75 to capture the
 full pkg68 win** — see pkg75 Acceptance Criteria for the harness
 to use (identical to the table above).
+
+**Update (pkg75 landed):** AOV normals now live courtesy of pkg75
+(`plugins/integrators/spectral_path_tracer.cpp` first-hit normal
+write). The 2.57× speedup baseline can be re-measured against the
+true HDR+albedo+normal AOV path; the previous number was bound to
+HDR+albedo only because the normal guide was a zero buffer.
+Re-baseline pending the next verifier session with CUDA online.

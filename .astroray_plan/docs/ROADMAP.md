@@ -87,10 +87,10 @@ back without user intervention.
 
 ### Pillar 4 — Astrophysics platform
 
-> **Thaw notice (2026-05-10):** the strategic gate has released. pkg56
-> Phases B+C and pkg64 Phase 3 have all landed; pkg41 Kerr validation
-> and the queued pkg42–pkg49 specs are unfrozen. pkg40 (Kerr metric)
-> already shipped pre-gate.
+> **Thaw notice (2026-05-10):** the strategic gate released; Pillar 4
+> is actively shipping. pkg40 (Kerr metric) + **pkg41 (Kerr
+> validation, PR #236)** done. pkg42 (synchrotron) is the next Codex
+> pickup; pkg43–pkg49 specs unfrozen and queued.
 
 Kerr metric, synchrotron emission, HII recombination lines, simulation
 data import (FITS, HDF5, yt), telescope PSF. Each phenomenon is a
@@ -108,49 +108,57 @@ GPU-default rendering and before Pillar 4 adds more spectral phenomena,
 material plugins should declare backend capabilities and either lower
 to a shared CPU/GPU closure representation or clearly fall back to CPU.
 
-**Status as of 2026-05-10 (Round 3 close):** the pkg34-pkg37 backend
+**Status as of 2026-05-10 (Round 5 close):** the pkg34-pkg37 backend
 bridge is complete. The Cycles-parity / Blender integration / denoiser
-push is **approaching feature-complete** for Pillar 5:
+push is **feature-complete on planned scope** for Pillar 5:
 
 - **Cycles parity wave done:** pkg52/53/57/58/59/60/61/62/63/65/66.
 - **GPU multi-wavelength parity done end-to-end:** pkg54/54a/54b/54c/54d
   (all hardware-verified on RTX 5070 Ti; visible-band SSIM 0.999263 at
   spp=8192).
-- **Denoiser story (mostly) closed:** pkg33 (OIDN integration, done),
-  pkg68 (OIDN persistent device + CUDA backend, **measured 2.77×
-  viewport speedup** post-pkg75), pkg69 (compositor Albedo pass, done),
-  pkg70 (OptiX denoiser, **1.86× faster than OIDN-CUDA, SSIM 0.9987 vs
-  OIDN**), pkg72 (motion vector AOV, done), pkg75 (AOV normal-guide
-  defect fixed and verified). pkg73 OptiX temporal denoiser is
-  unblocked and queued for Round 4.
-- **Caustics flagship:** pkg64 Phases 1+2 done (RGB SMS skeleton +
-  spectral wavelength-Newton, **+8.83 dB PSNR delta**); Phase 3
-  (default-integrator MIS fold) is a Round 4 Codex pickup.
+- **Denoiser story (mostly) closed:** pkg33 (OIDN integration), pkg68
+  (OIDN persistent device + CUDA backend, **2.77× viewport speedup**
+  post-pkg75), pkg69 (compositor Albedo pass), pkg70 (OptiX,
+  **1.86× faster than OIDN-CUDA, SSIM 0.9987 vs OIDN**), pkg72
+  (motion vector AOV), pkg75 (AOV normal-guide defect fixed). **pkg73
+  OptiX TEMPORAL_AOV implemented but defect-blocked** — RTX hardware
+  measured 0% inter-frame variance reduction (gate ≥30%); diag
+  instrumentation in PR #241 captured the chain end-to-end for the
+  Round 6 fix session. Once that lands, the denoiser story is closed
+  end-to-end.
+- **Caustics flagship done:** pkg64 Phases 1+2+3 — SMS now folded
+  into the default `path_tracer` via per-bounce hook gated by
+  `use_refractive_caustics` AND per-object `is_caustic_caster`.
+  RTX-verified: **+8.83 dB PSNR delta, 1.18× receiver-energy ratio,
+  +0.26 dB PSNR floor, 2.0% empty-hook overhead** — all gates met.
 - **Cycles parity benchmark:** pkg71 framework + first canonical
   Cornell baseline shipped — **Astroray-CPU SSIM 0.9536 vs
   Cycles-CPU EXR; Astroray-GPU SSIM 0.9548 and 5.2× faster than
-  Cycles-CUDA on Cornell**. pkg76 (Astroray .blend importer for
-  parity scope) is the next pickup so non-Cornell scenes can produce
-  rows.
-- **Showcase framework:** pkg74 Phases 1+2 done (material zoo,
-  convergence grid, RMSE plot, full stat coverage); Phase 3
-  (interactive HTML + weekly CI) is a Round 4 Codex pickup.
-- **Viewport sync:** pkg52 (persistent viewport) + pkg56 Phase A
-  (instrumentation, baseline 129.92 ms) + pkg56 Phase B (uploadScene
-  split into per-domain uploaders) + pkg56 Phase C (depsgraph-driven
-  dispatch in `view_update`, idle frame ≤ 5 ms gate met) all **done**.
+  Cycles-CUDA on Cornell**. **pkg76 .blend importer done** (PR #240,
+  SDNA-walking Python reader, no `bpy` runtime); CSV row population
+  on Classroom/Junkshop/BMW27 is a Round 6 RTX session.
+- **Showcase framework done:** pkg74 Phases 1+2+3 (material zoo +
+  full stat coverage + interactive PBRT-style HTML + weekly self-
+  hosted CI).
+- **Viewport sync done:** pkg52 + pkg56 Phases A+B+C — depsgraph-
+  driven dispatch with idle frame ≤5 ms p99 on a 99k-tri scene.
+  This was the **gate-releasing package**.
+- **Wavefront SoA scaffold:** pkg55 Phase A landed (PR #238) —
+  `ASTRORAY_PROFILE=1`-gated CUDA events + NVTX, baseline.json with
+  **158 regs/thread + 1 active block/SM** documented as the Laine
+  2013 occupancy cliff for Phase B to attack.
 
-Open Pillar 5: **pkg73 + pkg56-B + pkg64-3 + pkg74-3 + pkg76 spec**
-(Round 4); **pkg56 Phase C + pkg76 implementation + pkg55 Phase A**
-(Round 5). pkg67 (metric-aware path tracer) stays research-blocked
-until Pillar 4 thaws. pkg55 (wavefront SoA refactor) starts after
-pkg56+pkg64 land for measured baselines to compare against.
+Open Pillar 5 long-tail: **pkg73 fix** (Round 6 — diag instrumentation
+already on `main`), **pkg55 Phase A.1 + Phase B + Phase C** (the
+wavefront SoA migration proper, Round 6+). pkg67 (metric-aware path
+tracer) is now unblocked alongside Pillar 4 — revisit once pkg40 +
+pkg55 maturity is in place.
 
-**Pillar 4 has thawed (2026-05-10).** pkg56 Phases B+C and pkg64
-Phase 3 have all landed. The Codex-paste-ready specs for pkg41 (Kerr
-validation) and pkg42–pkg49 (synchrotron, slim disk, ADAF, FITS, HDF5,
-SPH, etc.) are unblocked; pkg40 (Kerr metric) already landed during
-the pre-strategic-shift round.
+**Pillar 4 has thawed (2026-05-10) and is shipping.** pkg40 (Kerr
+metric) and **pkg41 Kerr validation** (PR #236, BPT 1972 +
+Chandrasekhar + 39 tests) are both done. The Codex-paste-ready specs
+for pkg42–pkg49 (synchrotron, slim disk, ADAF, FITS, HDF5, SPH, etc.)
+are unblocked; pkg42 is the next Codex pickup.
 
 - `pkg34-material-backend-capabilities.md` — capability metadata,
   no silent grey-Lambertian GPU fallback, CPU/GPU contact-sheet diffs.

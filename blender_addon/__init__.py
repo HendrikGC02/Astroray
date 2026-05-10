@@ -32,7 +32,10 @@ def _import_astroray_nodes():
     try:
         from . import nodes as _nodes  # type: ignore
         return _nodes
-    except (ImportError, ValueError):
+    except Exception:
+        # Includes AttributeError when loaded under a stub `bpy` (test
+        # harnesses) that doesn't define ShaderNode / NodeSocket / Menu —
+        # unit tests never need the node classes; we fall through silently.
         pass
     try:
         import importlib.util as _u

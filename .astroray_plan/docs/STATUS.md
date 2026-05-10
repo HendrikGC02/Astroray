@@ -391,6 +391,29 @@ Brief notes on notable events.
   `test_oidn_denoiser_persistence.py` shape; skips cleanly when SDK or
   CUDA absent. CPU pytest unaffected; OptiX timing vs OIDN-CUDA gate
   pending verifier session with the SDK installed.
+- **2026-05-10** — pkg70 verifier session **blocked**: OptiX SDK is not
+  installed on the RTX 5070 Ti workstation. `scripts\build\build_cuda.bat`
+  configure log: `OptiX SDK not found — OptiX denoiser disabled`; runtime
+  feature flags: `optix_denoiser=False, oidn_denoiser=True, cuda=True`.
+  All 4 tests in `tests/test_optix_denoiser.py` skip cleanly with reason
+  "OptiX denoiser not compiled in" — exactly as the spec intends. No
+  regression: `test_oidn_denoiser.py + test_oidn_denoiser_persistence.py
+  + test_aov_passes.py` still 13/13 green (incl.
+  `test_cuda_capable_build_reports_cuda_device`). pkg70 stays
+  **implemented (pending verification)**. To clear: install OptiX 8.x
+  SDK (manual, NVIDIA-account download from
+  https://developer.nvidia.com/designworks/optix/download), default path
+  `C:\ProgramData\NVIDIA Corporation\OptiX SDK 8.x.x\` is auto-detected,
+  or set `OPTIX_INSTALL_DIR` / pass `-DOPTIX_INSTALL_DIR=<path>`; clean
+  rebuild and re-run the §3.1 verifier prompt from `NEXT_STAGE_REPORT`.
+- **2026-05-10** — pkg57 verifier session: pytest portion green
+  (`tests/test_blender_native_nodes.py`, 7/7 passed) — covers all 5
+  manual GUI behaviors mechanically (engine-gated Add menu, engine
+  switch survival, AstrorayOutput precedence over BsdfPrincipled,
+  Cycles fallback when AstrorayOutput absent, register/unregister
+  cleanliness). Live Blender 5.1 GUI walkthrough (Add menu visual
+  inspection + prism dispersion render) deferred to user QA. Status
+  unchanged at **done** (already promoted in PR #204).
 - **2026-05-10** — pkg68 implemented (pending CUDA verification). OIDN
   device + filter hoisted to `OIDNDenoiser` class members and lazy-initialised
   on first `execute()`; init tries `oidn::DeviceType::CUDA` first and falls

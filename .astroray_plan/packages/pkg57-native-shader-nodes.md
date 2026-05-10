@@ -245,3 +245,13 @@ total; they are the main remaining unknowns.
   the stub `Material` raises `AttributeError` from it; live verification
   against Blender 5.1 is still pending (Open Question §1 in the research
   note).
+- **Live Blender 5.1 GUI verification deferred to user QA** (2026-05-10
+  verifier session). The 7-test pytest suite in
+  `tests/test_blender_native_nodes.py` mechanically covers every behavior
+  in the spec's manual GUI checklist (engine-gated Add-menu visibility,
+  engine-switch survival of `mat.astroray` PointerProperty,
+  AstrorayOutput-takes-precedence over BsdfPrincipled, Cycles fallback
+  when AstrorayOutput absent, register/unregister cleanliness), but a
+  visual walkthrough in a real Blender 5.1 instance — Add menu inspection
+  and a prism dispersion render against `tests/scenes/prism_reference.py`
+  — was not performed in the headless verifier environment.

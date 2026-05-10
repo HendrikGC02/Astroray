@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** implemented (pending CUDA + OptiX verification)
 **Estimated effort:** ~3–4 days (~14 h)
 **Depends on:** pkg70 (OptiX denoiser backend — done), pkg72 (motion-vector AOV — open)
 

@@ -660,6 +660,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # detects camera/region changes from view_draw (Blender does not emit
     # a "camera changed" event in the viewport).
     _viewport_renderer = None
+    _viewport_full_synced = False  # pkg56-C: True after first full sync
     _viewport_camera_hash = None
     _viewport_accum_pixels = None
     _viewport_current_spp = 0
@@ -945,6 +946,180 @@ class CustomRaytracerRenderEngine(RenderEngine):
             getattr(rv3d, 'view_perspective', 'PERSP'),
         )
 
+    # ------------------------------------------------------------------ #
+    # pkg56 Phase C — depsgraph-driven dispatch
+    # ------------------------------------------------------------------ #
+    # `_apply_depsgraph_updates` reads `bpy.types.Depsgraph.updates` and
+    # routes only the matching Phase B uploaders. Mirrors Cycles
+    # `BlenderSync::sync_recalc` (intern/cycles/blender/sync.cpp,
+    # Apache-2.0): collect into typed buckets, dispatch in fixed order.
+    # The first frame, an unrecognised update id, or an absent .updates
+    # iterator all fall back to `_sync_viewport_scene` — the same
+    # has_updates_=true safety net Cycles uses for its first call.
+
+    # Domain → matching bpy.types.ID subclass name. We match by class
+    # __name__ (after walking the mro) so the dispatcher works under the
+    # stub bpy used in tests as well as real Blender.
+    _DEPSGRAPH_ID_TYPE_NAMES = (
+        'World', 'Light', 'Material', 'NodeTree', 'ShaderNodeTree',
+        'Image', 'Object', 'Scene',
+    )
+
+    @classmethod
+    def _depsgraph_id_type_name(cls, upd_id):
+        """Return the bpy.types.ID subclass name for `upd_id`, or None
+        if we can't classify it. Walks the mro so our stub-bpy tests
+        (where Object/Light/etc. are plain Python classes) work the
+        same way Blender's C-defined types do."""
+        if upd_id is None:
+            return None
+        types_mod = getattr(bpy, 'types', None)
+        if types_mod is not None:
+            for name in cls._DEPSGRAPH_ID_TYPE_NAMES:
+                t = getattr(types_mod, name, None)
+                if isinstance(t, type) and isinstance(upd_id, t):
+                    return name
+        for klass in type(upd_id).__mro__:
+            if klass.__name__ in cls._DEPSGRAPH_ID_TYPE_NAMES:
+                return klass.__name__
+        return None
+
+    @classmethod
+    def _classify_depsgraph_update(cls, upd):
+        """Map one DepsgraphUpdate into a {domain: True, ...} dict.
+        Returns None for an unrecognised id type — caller uses that as
+        the signal to fall back to `_sync_viewport_scene` (Cycles' same
+        defensive default; sync.cpp's `has_updates_` flag).
+
+        Note: `is_updated_geometry` subsumes `is_updated_transform` —
+        rebuilding geometry already covers a moved object. Only
+        transform-only edits route to the transform path.
+        """
+        upd_id = getattr(upd, 'id', None)
+        type_name = cls._depsgraph_id_type_name(upd_id)
+        if type_name is None:
+            return None
+        if type_name == 'World':
+            return {'environment': True}
+        if type_name == 'Light':
+            return {'lights': True}
+        if type_name in ('Material', 'NodeTree', 'ShaderNodeTree'):
+            return {'materials': True}
+        if type_name == 'Image':
+            return {'materials': True}
+        if type_name == 'Scene':
+            return {'accumulation_only': True}
+        if type_name == 'Object':
+            out = {}
+            is_geom = bool(getattr(upd, 'is_updated_geometry', False))
+            is_xform = bool(getattr(upd, 'is_updated_transform', False))
+            is_shading = bool(getattr(upd, 'is_updated_shading', False))
+            if is_geom:
+                out['geometry'] = True
+            if is_shading:
+                out['materials'] = True
+            if is_xform and not is_geom:
+                out['transform_only'] = True
+            return out  # may be empty (selection-only Object update — ignore)
+        return None
+
+    def _apply_depsgraph_updates(self, renderer, depsgraph, settings):
+        """Bucket `depsgraph.updates` into domains, dispatch only the
+        matching Phase B uploader(s). Returns one of:
+
+          - 'fallback'   : caller must run `_sync_viewport_scene`
+                           (unrecognised update id or .updates absent).
+          - 'idle'       : zero domain edits — caller skips upload AND
+                           render. This is the ≤5 ms idle-frame path.
+          - 'dispatched' : one or more uploaders ran — caller renders.
+
+        Dispatch order (env → materials → lights → geometry → transforms)
+        matches Cycles `BlenderSync::sync_data()` so the device-state
+        result is order-independent of Blender's iteration order over
+        depsgraph.updates (research note §3.2, §8 risk 5).
+        """
+        updates = getattr(depsgraph, 'updates', None)
+        if updates is None:
+            return 'fallback'
+
+        env = materials = lights = geometry = False
+        transforms = []  # list of (obj_id, mat16) for transform-only edits
+        accumulation_only = False
+
+        for upd in updates:
+            kind = self._classify_depsgraph_update(upd)
+            if kind is None:
+                # Unrecognised id type (skin modifier, particle system,
+                # grease pencil, …). Spec §C non-goals: fall back to
+                # full sync rather than guess. Mirrors Cycles'
+                # has_updates_=true default.
+                return 'fallback'
+            if kind.get('environment'): env = True
+            if kind.get('lights'):      lights = True
+            if kind.get('materials'):   materials = True
+            if kind.get('geometry'):    geometry = True
+            if kind.get('accumulation_only'):
+                accumulation_only = True
+            if kind.get('transform_only') and not kind.get('geometry'):
+                obj_id = self._renderer_object_id_for(upd.id)
+                if obj_id is None:
+                    # No Blender-Object → renderer-primitive-id mapping
+                    # cached. Promote to a geometry rebuild so the BVH
+                    # picks up the new transform — same cost as
+                    # update_object_transform on the single-level BVH
+                    # we ship today (research note §4.1; the two-level
+                    # BVH refit win lands in a follow-up package).
+                    geometry = True
+                else:
+                    try:
+                        m = list(upd.id.matrix_world)
+                        if m and hasattr(m[0], '__iter__'):
+                            m = [float(x) for row in m for x in row]
+                        transforms.append((obj_id, m))
+                    except Exception:
+                        geometry = True
+
+        any_domain = env or materials or lights or geometry or bool(transforms)
+        if not any_domain:
+            if accumulation_only:
+                # Frame/Scene tick — image is unchanged but the user
+                # may want a fresh accumulation. Reset and skip render.
+                self._reset_viewport_accumulation()
+            return 'idle'
+
+        if env:       renderer.upload_environment()
+        if materials: renderer.upload_materials()
+        if lights:    renderer.upload_lights()
+        if geometry:  renderer.upload_geometry()
+        elif transforms:
+            for obj_id, mat16 in transforms:
+                try:
+                    renderer.update_object_transform(obj_id, mat16)
+                except (RuntimeError, AttributeError, TypeError):
+                    # Stale id (object removed) — skip; the next full
+                    # sync will pick the new state up.
+                    pass
+        # Any image-changing dispatch resets accumulation (Phase C key
+        # design 4: a single reset per frame, not per update).
+        self._reset_viewport_accumulation()
+        return 'dispatched'
+
+    def _renderer_object_id_for(self, blender_id):
+        """Resolve a Blender Object → renderer primitive insertion id.
+        Returns None if we have no mapping cached. Phase C ships without
+        a per-object id tracker (would require touching `convert_objects`
+        which is Phase B's surface, out of scope per CLAUDE.md §3); the
+        dispatcher promotes to a geometry rebuild in that case. The hook
+        is here so a follow-up package can populate `_renderer_object_id_map`
+        in `convert_objects` without re-touching dispatch."""
+        m = getattr(self, '_renderer_object_id_map', None)
+        if not m:
+            return None
+        try:
+            return m.get(blender_id.name)
+        except AttributeError:
+            return None
+
     def _sync_viewport_scene(self, renderer, depsgraph, settings):
         """Push the depsgraph state into the renderer. Called from view_update
         only — view_draw skips this and just re-renders with a new camera.
@@ -978,6 +1153,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         _viewport_perf_record("environment", t0)
 
         _configure_backend_for_context(renderer, settings, self.report, _effective_integrator_name(settings))
+        # pkg56-C: mark that the renderer holds a coherent full snapshot of
+        # the scene. Subsequent view_update ticks may dispatch incrementally.
+        self._viewport_full_synced = True
 
     def _render_viewport_frame(self, renderer, context, settings, region,
                                reset_accumulation=False):
@@ -1072,7 +1250,26 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         try:
             renderer = self._get_viewport_renderer()
-            self._sync_viewport_scene(renderer, depsgraph, settings)
+
+            # pkg56-C: depsgraph-driven dispatch. The first view_update
+            # (no full snapshot yet) and any unrecognised update fall
+            # back to the full sync path — same has_updates_=true safety
+            # net Cycles uses (sync.cpp). Subsequent ticks route only
+            # the matching Phase B uploaders.
+            if not getattr(self, '_viewport_full_synced', False):
+                dispatch = 'fallback'
+            else:
+                dispatch = self._apply_depsgraph_updates(
+                    renderer, depsgraph, settings)
+            if dispatch == 'fallback':
+                self._sync_viewport_scene(renderer, depsgraph, settings)
+                dispatch = 'dispatched'
+            if dispatch == 'idle':
+                # No domain edits this tick — skip both upload and
+                # render. This is the ≤5 ms idle-frame gate.
+                _viewport_perf_frame_complete()
+                self._viewport_camera_hash = self._camera_state_hash(context, region)
+                return
             t0 = time.perf_counter()
             self._render_viewport_frame(renderer, context, settings, region,
                                         reset_accumulation=True)

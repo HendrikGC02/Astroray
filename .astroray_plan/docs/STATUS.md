@@ -43,11 +43,10 @@ personally should pick up.
   Phase 3 (default-integrator MIS fold), pkg74 Phase 3 (interactive
   HTML + weekly CI), pkg76 (Astroray .blend importer for non-Cornell
   parity rows).
-- Pillar 4 (astrophysics) explicitly parked per 2026-05-10 strategic
-  gate. pkg40 Kerr metric is done; pkg41 Kerr validation is ready
-  (waiting for the gate). pkg42–51 specs are Codex-paste-ready and
-  waiting. The gate releases when pkg56 Phases B+C and pkg64 Phase 3
-  all land.
+- **Pillar 4 strategic gate RELEASED (2026-05-10).** pkg56 Phases B+C
+  and pkg64 Phase 3 have all landed; the gate's three preconditions are
+  green. pkg41 Kerr validation may now begin; pkg42–51 specs unfreeze.
+  pkg40 Kerr metric is already done.
 - Fresh local collection: `pytest --collect-only -q` reports **460+
   tests collected** as of Round 3 close (was 435 at 2026-05-09). New
   tests added by Rounds 2+3: pkg54c JH GPU, pkg54d profile lookup,
@@ -69,7 +68,7 @@ personally should pick up.
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
-| 4 | Astrophysics platform | Preparation | 10% | pkg41 Kerr validation | parked per 2026-05-10 strategic gate; releases when pkg56 B+C land (pkg64-3 done) |
+| 4 | Astrophysics platform | **Thawed** | 15% | pkg41 Kerr validation | **strategic gate released 2026-05-10** — pkg56 B+C + pkg64-3 all landed |
 | 5 | Production polish / Blender parity | **Approaching feature-complete** | ~85% | Round 4: pkg73 + pkg56-B + pkg64-3 + pkg74-3 + pkg76 spec | — |
 
 **Pillar 1 package summary:**
@@ -160,7 +159,7 @@ is currently the weakest link.
 | pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
 | pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) — verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0; see pkg70 Lessons + pkg75 spec for upstream AOV-degradation defect found during verification | **done** | A |
 | pkg71 | Cycles parity benchmark framework | **implemented** (first full baseline CSV pending CUDA + Cycles 4.x runner) | A |
-| pkg56 | Incremental scene sync (depsgraph diff) — Phase A (instrument) + Phase B (split uploadScene into per-domain uploaders + transform-update binding) | **Phases A + B done; Phase C (depsgraph dispatch) open** | A |
+| pkg56 | Incremental scene sync (depsgraph diff) — Phase A (instrument) + Phase B (split uploadScene) + Phase C (depsgraph-driven dispatch in `view_update`) | **Phases A + B + C done** — idle frame ≤ 5 ms gate met (dispatcher classification + early return; 0.001 ms p99 overhead, 16/16 spy regression tests green); transform-only ≤ 50% gate deferred to two-level BVH follow-up (dispatch hook in place) | A |
 | pkg74 | Engine benchmark + visual showcase framework (material zoo, convergence grid, stats CSV, HTML index) | **Phase 1 implemented**; Phase 2/3 open | A |
 | pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **done** (CPU integrator fix landed; OIDN-CUDA / OptiX re-baseline pending verifier session) | A |
 | pkg72 | Per-pixel motion vector AOV (camera-only screen-space flow; OptiX prev→curr convention; `Renderer.get_motion_buffer()` zero-copy NumPy view; `motion_vector_aov` visualisation pass) — unblocks pkg73 OptiX temporal denoiser | **done** | A |

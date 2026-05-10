@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-09 (pkg60 Disney energy compensation)
+**Last updated:** 2026-05-10 (Round 3 closed — pkg72/73/74-2/75/64-2 + pkg71 first canonical Cornell baseline)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -20,24 +20,43 @@ personally should pick up.
   it remains in validation because NRC has not yet proven the 30% batched
   inference speedup/quality target and ReSTIR/NRC are CPU-integrator plugins,
   not CUDA kernels.
-- Pillar 5 is the active practical queue. The Cycles-parity/Blender package
-  series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg60/pkg61/pkg62
-  are done, pkg59 is done, pkg54/54a/54b/54c/54d are all done (CUDA
-  hardware verified 2026-05-10), pkg63 (World/HDRI parity) is done
-  pending CUDA-host SSIM verification, pkg57 native shader nodes is done,
-  pkg68 OIDN architectural fix is done with measured 2.57× speedup,
-  pkg69 Blender compositor Albedo pass is done, pkg70 OptiX denoiser is
-  done (verified on RTX 5070 Ti + OptiX 9.1.0; surfaced pkg75
-  empty-normal-buffer defect during verification), and pkg71 Cycles parity
-  benchmark framework is implemented with first baseline pending the
-  self-hosted CUDA + Cycles 4.x runner. Open Pillar 5: pkg56 incremental
-  scene sync (3 phases), pkg64 spectral caustics flagship.
-- Fresh local collection on this branch: `pytest --collect-only -q` reports
-  **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
-- Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
-  is a 2026-04-29 snapshot, and `production.md` had old pkg50+ placeholder
-  names that have now been marked obsolete where they conflict with live
-  package numbers.
+- Pillar 5 (Cycles parity / Blender integration / denoiser story) is
+  approaching feature-complete. Done as of 2026-05-10:
+  pkg52/53/57/58/59/60/61/62/63/65/66 (the original Cycles-parity wave);
+  pkg54/54a/54b/54c/54d (full GPU multi-wavelength parity, hardware
+  verified); pkg68 (OIDN persistent device, **measured 2.77× speedup**
+  post-pkg75); pkg69 (compositor Albedo pass); pkg70 (OptiX denoiser,
+  **1.86× faster than OIDN-CUDA, SSIM 0.9987 vs OIDN**); pkg72 (motion
+  vector AOV); pkg75 (first-hit normal buffer for AOV guides — fixed
+  silent AOV-mode degradation); pkg64 Phases 1+2 (RGB SMS skeleton +
+  spectral wavelength-Newton, **+8.83 dB PSNR delta** at 0.98× runtime);
+  pkg56 Phase A (viewport sync instrumentation, baseline 129.92 ms
+  on a 100k-tri scene); pkg74 Phases 1+2 (showcase framework + full
+  stat coverage, convergence rate slope −0.453); pkg71 framework + first
+  canonical Cornell baseline (**Astroray-CPU SSIM 0.9536, Astroray-GPU
+  SSIM 0.9548 vs Cycles-CPU EXR; Astroray-GPU 5.2× faster than
+  Cycles-CUDA at the same Cornell sample budget**). Open Pillar 5
+  for Round 4: pkg73 OptiX temporal denoiser (unblocked by pkg72),
+  pkg56 Phase B/C (uploadScene split + depsgraph dispatch), pkg64
+  Phase 3 (default-integrator MIS fold), pkg74 Phase 3 (interactive
+  HTML + weekly CI), pkg76 (Astroray .blend importer for non-Cornell
+  parity rows).
+- Pillar 4 (astrophysics) explicitly parked per 2026-05-10 strategic
+  gate. pkg40 Kerr metric is done; pkg41 Kerr validation is ready
+  (waiting for the gate). pkg42–51 specs are Codex-paste-ready and
+  waiting. The gate releases when pkg56 Phases B+C and pkg64 Phase 3
+  all land.
+- Fresh local collection: `pytest --collect-only -q` reports **460+
+  tests collected** as of Round 3 close (was 435 at 2026-05-09). New
+  tests added by Rounds 2+3: pkg54c JH GPU, pkg54d profile lookup,
+  pkg57 native nodes, pkg63 world parity, pkg64-1 SMS validation,
+  pkg64-2 spectral SMS, pkg68 persistence, pkg69 compositor passes,
+  pkg70 OptiX, pkg72 motion vectors, pkg74-1 + pkg74-2 showcase,
+  pkg75 normal buffer.
+- `NEXT_STAGE_REPORT.md` is the live action queue (Round 4 prompts);
+  this file is the source of truth for completion state. `production.md`
+  remains historical (pkg50+ placeholder names that conflict with live
+  package numbers are marked obsolete in-place).
 
 ---
 
@@ -48,8 +67,8 @@ personally should pick up.
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
-| 4 | Astrophysics platform | Preparation | 10% | pkg41 Kerr validation | pkg40 metric plugins are done; pkg41 is ready |
-| 5 | Production polish / Blender parity | Ongoing | — | start pkg54/pkg57 | — |
+| 4 | Astrophysics platform | Preparation | 10% | pkg41 Kerr validation | parked per 2026-05-10 strategic gate; releases when pkg56 B+C and pkg64-3 land |
+| 5 | Production polish / Blender parity | **Approaching feature-complete** | ~85% | Round 4: pkg73 + pkg56-B + pkg64-3 + pkg74-3 + pkg76 spec | — |
 
 **Pillar 1 package summary:**
 
@@ -176,31 +195,30 @@ forgotten):
 
 ## This week
 
-**Week of:** 2026-05-08 (Cycles parity / Blender integration push)
+**Week of:** 2026-05-10 (Round 4 — denoiser story closeout, pkg56 Phase B,
+pkg64 final fold, pkg74 CI)
 
 ### Track A (Claude Code)
 
-- pkg37 Blender addon backend refresh is complete.
-- pkg52 is complete: the addon keeps a persistent viewport renderer,
-  `view_draw` re-renders on camera/region/zoom/pan changes, CAMERA-view
-  offset is applied to projection, and the preview progressively accumulates
-  chunked samples until `preview_samples` is reached.
-- pkg53 GPU integrator capability diagnostics and pkg61 GPU per-vertex normals
-  are complete. pkg53 adds C++ integrator capability metadata, Python
-  `integrator_capabilities()`, Blender forced-GPU refusal for unsupported
-  integrators, Auto CPU fallback INFO reports, and Diagnostics panel support
-  rows. pkg61 fixed CUDA per-vertex normal upload; broader CPU/GPU spectral
-  parity remains tracked separately.
-- New roadmap added: pkg52, pkg53, pkg54, pkg57, pkg58, pkg59, pkg61,
-  pkg62, pkg64 (research-blocked), pkg67 (research-blocked). See the
-  "Cycles parity & Blender integration" table above.
-- pkg60 is complete on `codex/pkg60-disney-energy-compensation`: Disney GGX
-  compensation tables are loaded from data files, the old additive roughness
-  boost was removed, Disney spec/clearcoat eval was corrected, and the
-  270-case Halton furnace grid measured worst-case reflectance **1.015891**.
-- Recommended next-up order: **pkg54 → pkg57**.
-  pkg64 and pkg67 require a research note signed off by
-  the project owner before code starts; CLAUDE.md §6 covers the policy.
+- Round 3 closed cleanly. pkg64 Phase 2 spectral SMS landed (+8.83 dB
+  PSNR delta, 0.98× runtime — faster, not slower). pkg72 motion vectors
+  landed (camera-only screen-space flow, OptiX prev→curr convention).
+  pkg74 Phase 2 full stat coverage landed (8 categories, convergence
+  rate slope −0.453). pkg75 normal-buffer fix landed and verified;
+  visual diff confirmed detail preservation; pkg68 headline win up to
+  **2.77×**.
+- Round 4 deployable set per [`NEXT_STAGE_REPORT.md`](NEXT_STAGE_REPORT.md):
+  - **pkg73** OptiX temporal denoiser (3-4 days) — unblocked by pkg72
+  - **pkg56 Phase B** uploadScene split (~2 weeks) — uses pkg56-A
+    instrumentation as before/after baseline
+  - **pkg64 Phase 3** fold SMS into default `path_tracer` via MIS
+    (~½ week) — completes the caustics flagship
+  - **pkg74 Phase 3** interactive HTML + weekly CI (~3 days)
+  - **pkg76 spec** Astroray .blend importer (parity scope) — unblocks
+    Classroom/Junkshop/BMW27/Monster pkg71 rows
+- After Round 4: pkg56 Phase C, pkg76 implementation, pkg55 Phase A
+  (wavefront refactor instrumentation begins). When pkg56 + pkg64 +
+  pkg76 all done, **Pillar 4 thaws**.
 
 ### Track A (Claude Code) — previous
 
@@ -214,13 +232,12 @@ forgotten):
 
 ### Track B (Copilot cloud)
 
-- Complete since the old queue note: albedo/normal/depth AOVs, bounce/sample
-  heatmap passes, `scripts/diagnostics/convergence_tracker.py`, and
-  `scripts/benchmarks/benchmark_showcase.py` are present in-tree.
-- Recent Track B fits pkg58 (spectral profile UX/reference scenes) and pkg62
-  (viewport pass selector + live OIDN preview) are complete; refresh the Track
-  B queue before launching more cloud work.
-- Queue depth: refresh needed
+- Currently inactive. Most Track B-friendly work has been folded into
+  Codex sessions (Track E) since they now have the comprehensive
+  package specs and license-fence research notes that Copilot couldn't
+  produce reliably from cold context. Track B can resume on pattern-
+  matching follow-ups (e.g., Pillar 4 plugins after the strategic gate
+  releases) once pkg42-49 specs prove themselves Codex-paste-ready.
 
 ### Track C (Cline prototype)
 
@@ -234,8 +251,15 @@ forgotten):
 
 ### Track E (Codex)
 
-- Recently merged: PR #116 (`codex/render-test-triage`), PR #117 (`codex/gr-spectral-dispatch`), and PR #119 (`codex/native-gr-spectrum`) — native sampled-spectrum GR disk emission.
-- Complete: pkg29 implementation; local triage work recorded convergence tracker repair, GGX/rough-metal sampling cleanup, and Disney rough-glass transmission.
+- 2026-05-10 round haul: pkg40 Kerr metric (#195), pkg54d profile lookup
+  binding (#187), pkg69 Albedo pass for compositor (#201), pkg71 framework
+  + first canonical Cornell baseline (#205 + #218), pkg70 build hygiene
+  (#215), pkg59 named UV (#184), pkg60 Disney v2 energy compensation (#178),
+  pkg65 scripts cleanup, pkg66 material iteration UX. **The Pillar 4 specs
+  (pkg41-pkg49) are Codex-paste-ready and waiting** for the strategic
+  gate to release.
+- Round 4 Codex queue: pkg64 Phase 3 (default-integrator MIS fold, ~½ week),
+  then pkg74 Phase 3 (interactive HTML + weekly CI, ~3 days).
 - Recent: pkg53 GPU integrator diagnostics and pkg61 shade-smooth GPU parity
   diagnostics/fix work; this docs reconciliation pass corrected stale package
   headers and package-number collisions in planning docs.
@@ -382,6 +406,22 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-10 (Round 3 close)** — Five packages landed in one round:
+  pkg72 motion vectors, pkg64 Phase 2 spectral SMS (+8.83 dB PSNR delta,
+  0.98× runtime), pkg74 Phase 2 full stat coverage (8 categories,
+  convergence rate slope −0.453), pkg75 normal-buffer fix (verified
+  via visual diff: detail preservation, not regression), and pkg71
+  first canonical Cornell baseline (**Astroray-CPU SSIM 0.9536,
+  Astroray-GPU SSIM 0.9548 vs Cycles-CPU EXR; Astroray-GPU 5.2× faster
+  than Cycles-CUDA at the same Cornell sample budget; Astroray uses
+  3-4× less memory than Cycles**). pkg68 headline OIDN-on speedup vs
+  pre-pkg68 strengthened from 2.57× to **2.77×** post-pkg75. Build
+  hygiene fixed (Windows OptiX, OIDN DLL bootstrap, harness EXR-vs-EXR
+  parity). Round 4 (pkg73 OptiX temporal denoiser, pkg56 Phase B
+  uploadScene split, pkg64 Phase 3 default-integrator fold, pkg74
+  Phase 3 interactive HTML+CI, pkg76 .blend importer spec) queued in
+  NEXT_STAGE_REPORT.md.
 
 - **2026-05-10** — pkg70 **verified and promoted to done** on RTX 5070 Ti +
   OptiX 9.1.0 (Windows MSVC `build_cuda`). 17/17 pytest green

@@ -61,6 +61,16 @@ fixes a daily-workflow blocker. Round 6 priorities:
   re-baseline precondition did **not** hold (CPU/GPU output bit-
   identical pre/post pkg75), so the gate floor was **not** lowered
   and the drift was filed as defect [#237](https://github.com/HendrikGC02/Astroray/issues/237).
+- **pkg78 bisect** session refused the 20-commit hardware bisect
+  on §1 grounds (static enumeration of `5aba401..fcbbbf2` showed
+  zero commits touching the multiwavelength integrator path —
+  bisect would have been theatre). Diagnosis posted on issue #237:
+  the gate is too tight relative to NVCC build-time non-
+  determinism in the SSIM saturation regime (0.999263 sat 6.3e-4
+  above a 0.999 floor; cross-build FMA reordering moves it by
+  O(1e-4)). **pkg78 closes as diagnosed**; the variance
+  characterisation that justifies the actual gate decision is
+  filed as **pkg82** *(new)*.
 
 **Pillar-5 reality check (filed 2026-05-10):**
 
@@ -93,7 +103,7 @@ viewport "is a slog vs Cycles". Two new packages capture the gap:
 | pkg55 Phase B | Per-material shade kernels | 4–6 weeks | After A.1; possible pkg81 dependency |
 | pkg55 Phase C | Megakernel removal | 2–4 weeks | After B |
 | pkg76 CSV | Classroom / Junkshop / BMW27 baseline rows | ~½ day on RTX | After pkg73 fix (so denoiser path is healthy for parity numbers) |
-| pkg78 bisect | Find the commit that drifted SSIM 0.999263 → 0.998629 | ~½ day on RTX | Tracking issue [#237](https://github.com/HendrikGC02/Astroray/issues/237) |
+| **pkg82** *(new)* | pkg54c gate variance characterisation (intra-binary + cross-build SSIM distribution; data-driven gate decision) | ~1 day on RTX | Replaces pkg78 bisect after the diagnosis ruled out a code regression; [#237](https://github.com/HendrikGC02/Astroray/issues/237) closes when this lands |
 | pkg79 (tiny) | ReSTIR `test_spatial_reduces_mse` flake (margin 0.000004) | ~½ day | Surfaced by PR #236 CI |
 | pkg47 / 48 / 49 | FITS / HDF5 / SPH loaders (Pillar 4 data import) | weeks each | Codex-paste-ready specs queued; deferred behind pkg42–44 |
 | pkg67 | Metric-aware path tracer | ~1 month | Unblocks once pkg40 + pkg55 maturity in place |
@@ -112,7 +122,7 @@ Eight sessions, parallel-safe (pkg80 + pkg81 added this round):
 | 4 | Claude tech | `pkg81-viewport-parity` (new) | **pkg81 Phase 1 + Phase 2** — viewport-interactivity benchmark harness + Cycles A/B + diagnosis note | ~1 week |
 | 5 | Claude tech | `pkg55-phase-a1` (new) | pkg55 Phase A.1 — SoA infra + intersect queue | ~1–2 weeks |
 | 6 | Codex (after #1) | main directory | **pkg42 synchrotron emission** (Pillar 4) | ~2 weeks |
-| 7 | Codex (after #6) | main directory | pkg78 bisect (#237) — find the SSIM-drift commit + report | ~½ day |
+| 7 | Codex (after #6) | main directory + RTX | **pkg82** — pkg54c gate variance characterisation (replaces the pkg78 bisect, which closed as "diagnosed: not a code regression") | ~1 day on RTX |
 | 8 | Codex (after #7) | main directory | pkg76 CSV — populate Classroom / Junkshop / BMW27 rows on RTX | ~½ day |
 
 Sessions 1, 2, 4, 5 spawn at once. Session 3 starts the moment #2
@@ -346,52 +356,69 @@ When done:
   - PR titled "feat(pkg42): synchrotron emission".
 ```
 
-### 3.5 Codex (main directory, after #4) — pkg78 bisect for #237
+### 3.5 Codex (main directory + RTX, after #4) — pkg82 pkg54c gate variance characterisation
 
 ```
-You are Codex investigating issue #237: the pkg54c visible-band
-SSIM drifted from 0.999263 (originally measured in pkg54c) to
-0.998629 (current HEAD). The pkg78 verifier (pre-Round-6) proved
-bit-identical CPU+GPU output between pre-pkg75 (fcbbbf2) and
-HEAD, so the drift PRE-DATES pkg75.
+You are Codex on the RTX 5070 Ti box. The pkg78 bisect session
+correctly refused the hardware bisect on §1 grounds — static
+enumeration of 5aba401..fcbbbf2 (the 20-commit range) showed zero
+commits touching the multiwavelength integrator path, so the
+bisect would have been theatre. The diagnosis (posted on #237)
+points at NVCC build-time non-determinism: the original 0.999263
+sat 6.3e-4 above the 0.999 floor in the SSIM saturation regime,
+and FMA reordering across rebuilds (pkg68/pkg70 added OptiX
+detection in CMakeLists, which can flip the CUDA build context)
+moves saturated SSIM by O(1e-4) without touching kernel logic.
+
+pkg82 measures the variance and re-sets the gate (or bumps spp)
+based on data. NO opinion-based gate changes.
 
 Read first:
+  - .astroray_plan/packages/pkg82-pkg54c-gate-variance.md (the
+    full spec; Phase 1 + Phase 2 + Phase 3 procedures)
   - https://github.com/HendrikGC02/Astroray/issues/237 (the
-    defect filing)
-  - .astroray_plan/packages/pkg54c-spectral-rgb-jakob-hanika.md
-    — find the commit hash that originally reported 0.999263
-    (this is the GOOD anchor)
+    defect filing + pkg78 diagnosis comment)
   - tests/test_gpu_multiwavelength.py::test_visible_band_cpu_gpu_ssim
+  - .astroray_plan/packages/pkg54c-gpu-jakob-hanika-upsampling.md
+    (gate definition; will append Lessons section here)
 
-Procedure:
-  1. From the pkg54c spec, find the GOOD commit (where
-     0.999263 was first measured).
-  2. Use `fcbbbf2` (pre-pkg75) as the BAD end — already
-     proven to drift below 0.999.
-  3. git bisect start fcbbbf2 <good>
-  4. At each probe: rebuild CUDA module, run the visible-band
-     test in isolation, mark good (≥0.999) or bad (<0.999).
-  5. Report the first-bad commit + its diff.
+Procedure (per spec):
+  Phase 1 — intra-binary repeatability:
+    Run the test 20× against the SAME .pyd. Record SSIM each
+    run. Compute mean / stddev / min / max / unique-values.
+    If stddev > 1e-6, you can stop early — gate floor decision
+    falls out of Phase 1 alone (see spec).
 
-  If the first-bad commit is a deliberate integrator change with
-  a justified reason: comment on #237 with the diagnosis +
-  open a follow-up issue to discuss whether to re-baseline the
-  gate or revert. Do NOT touch the gate in this PR.
+  Phase 2 — cross-build variance (only if Phase 1 stddev ≈ 0):
+    Five clean rebuilds with the variations specified in
+    pkg82 spec §"Phase 2" (control × 2, OptiX-disabled,
+    --fmad=false, RelWithDebInfo). One run each, record SSIM.
 
-  If unintended regression: comment on #237 with the finding
-  and STOP — fix is a separate PR.
+  Phase 3 — gate decision (Option A re-baseline OR Option B
+  spp bump). Choose based on data, NOT preference.
+
+Output:
+  1. Phase 1 + Phase 2 measured tables in
+     pkg54c-gpu-jakob-hanika-upsampling.md "Cross-build variance
+     characterisation 2026-05-XX" Lessons section.
+  2. ONE-LINE change in tests/test_gpu_multiwavelength.py —
+     EITHER the gate floor OR the spp constant, never both.
+  3. Closing comment on issue #237 with the table and the
+     chosen resolution.
+  4. PR titled "verify(pkg82): pkg54c gate variance + data-driven
+     {gate floor | spp bump}".
 
 Constraints:
-  - CLAUDE.md sections 1, 4.
-  - Do NOT change the gate value.
-  - If the bisect range is large (>30 commits), narrow with a
-    midpoint probe at a pkg54-related commit first.
-
-When done:
-  - Comment on #237 with first-bad commit hash + one-line
-    diagnosis.
-  - No PR (or doc-only PR if the bisect log is long enough to
-    warrant a Lessons append).
+  - CLAUDE.md sections 1, 4. This is THE template for every
+    future numerical-gate decision in the project — get the
+    methodology right.
+  - NO kernel changes. Measurement only.
+  - NO pytest.approx fudging. The gate is a number; we change
+    the number based on data.
+  - If Phase 2 shows variance > 1e-3 (large enough to hide a
+    real regression), STOP and file a follow-up package on
+    reducing CUDA build non-determinism — don't try to fix it
+    here.
 ```
 
 ### 3.6 Codex (main directory) — pkg80 Blender `'auto'` integrator resolution (ship FIRST)
@@ -595,7 +622,7 @@ Constraints:
 | pkg81 Phase 1+2 | new `benchmarks/viewport_parity/*`, new fixture `.blend`s, new test, new `.astroray_plan/docs/pkg81-diagnosis.md`, pkg81 spec, STATUS.md |
 | pkg55 Phase A.1 | new `src/gpu/wavefront/*.cu` + headers, `src/gpu/path_trace_kernel.cu` (alt launcher behind flag), CMake guard, new test, `benchmarks/wavefront/baseline.json` (extra column), pkg55 spec, STATUS.md |
 | pkg42 synchrotron | new `plugins/emitters/synchrotron.cpp` (or volumes), maybe Kerr-side accessors, new tests, pkg42 spec, STATUS.md |
-| pkg78 bisect | comment on #237; possibly doc-only PR with bisect log |
+| pkg82 (variance) | `tests/test_gpu_multiwavelength.py` (one-line gate or spp change), pkg54c spec Lessons append, issue #237 close comment |
 | pkg76 CSV | `benchmarks/cycles-parity/results.csv` only |
 
 **Conflict points:**
@@ -637,7 +664,7 @@ When Round 6 closes:
 - **pkg76 CSV** populated; the 5-scene parity baseline is finally
   4 rows wide (Cornell + Classroom + Junkshop + BMW27; Monster
   correctly dropped).
-- **#237** diagnosed.
+- **#237** diagnosed (pkg78) and resolved (pkg82) — gate either re-set with measured headroom or spp bumped, both options data-driven.
 
 Then **Round 7**:
 

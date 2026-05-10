@@ -3,7 +3,7 @@
 **Pillar:** 5
 **Track:** A (move to Codex once §6 acceptance, §7 metrics, and the
 scene-fetch script are concrete enough to scope as a port).
-**Status:** open
+**Status:** implemented
 **Estimated effort:** 1 week (~25 h, multi-session)
 **Depends on:** nothing hard — could run today against current `main`.
 - pkg63 (HDRI/world parity) landing first makes the BMW and Pabellon
@@ -375,6 +375,17 @@ old CSVs; trend plots are generated on demand from the directory.
 
 ---
 
-## Lessons (to be filled after first run)
+## Lessons
 
-- *(empty until the first baseline run lands)*
+- Framework landed with the requested `benchmarks/cycles-parity/` scene
+  metadata/cache layout, root `scripts/run_parity.py` and
+  `scripts/summarize_parity.py`, and the self-hosted CUDA/Cycles workflow.
+- First implementer-machine CSV:
+  `benchmarks/cycles-parity/2026-05-10-local-smoke-d614e03.csv`. It is a local
+  smoke baseline, not the canonical self-hosted Cycles 4.x/CUDA baseline:
+  Cornell Cycles CPU `10843.458 ms`, Cycles CUDA `3634.148 ms`,
+  Cycles CPU SSIM `1.000000`; local Astroray standalone rows skipped with
+  process exit `3221225781`. The canonical full baseline remains pending CUDA
+  hardware/runner setup.
+- Victor remains excluded with defense in depth in `fetch_scenes.py`: the
+  disallowed URL list is asserted non-empty and includes a sentinel entry.

@@ -51,6 +51,9 @@ pytest tests/test_material_properties.py -v  # material parameter tests
 pytest tests/test_standalone_renderer.py -v  # standalone binary tests
 pytest tests/test_spectral_*.py -v           # spectral pipeline tests
 
+# Cycles parity benchmark framework
+python scripts/run_parity.py --scene cornell --engine astroray-cpu
+
 # Standalone binary CLI (supported flags only)
 ./build/bin/raytracer --scene 1|2 --width N --height N --samples N --depth N --output file.png --help
 ```

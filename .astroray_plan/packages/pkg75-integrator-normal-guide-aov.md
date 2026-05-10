@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 2–3 days
 **Depends on:** nothing — small, focused integrator fix
 
@@ -172,4 +172,48 @@ type level but violated at the data level.
 
 ## Lessons
 
-(to be filled after implementation)
+The defect was a one-liner in `plugins/integrators/spectral_path_tracer.cpp`
+(the integrator registered as `"path_tracer"`, the actual default per
+`src/default_integrator.cpp`): `sampleFull()` populated `r.albedo` and
+`r.depth` from the first hit but never assigned `r.normal`, so the
+canonical render loop in `include/raytracer.h:2452` was faithfully
+copying `Vec3(0)` into `cam.normalBuffer` for every pixel.
+
+The pre-existing write site at `include/raytracer.h:2451-2452` was a
+red herring — it always ran; the value it copied was just zero because
+the upstream integrator never set it.
+
+Fix: one new line, `r.normal = rec.normal;`, with a Cycles citation.
+`HitRecord::normal` is already the world-space front-facing shading
+normal (set via `setFaceNormal` in primitives), which matches OIDN /
+OptiX guide-image expectations exactly — no transform needed.
+
+### Verification
+
+- `tests/test_normal_buffer_populated.py` passes: every primary-ray hit
+  carries a unit-length normal (mean ‖n‖ = 1.0 ± 0.01); env/miss
+  pixels remain `Vec3(0)` per OIDN's documented default.
+- `tests/test_aov_passes.py::test_normal_aov_nonzero` continues to
+  pass — `normal_aov` now shows real shaded normals where it used to
+  show flat 0.5 grey.
+- `tests/test_oidn_denoiser*.py` and `tests/test_optix_denoiser.py`
+  pass / skip-cleanly on the CPU-only build.
+
+### Re-baseline numbers
+
+CUDA + OptiX is not available at this implementation site, so the
+quantitative pkg68 OIDN-A/B and pkg70 OptiX/OIDN synthetic-noise
+re-measurements are pending the next verifier session that has those
+backends online. Expected direction: both should improve, since AOV
+mode now binds a real normal guide instead of a zero buffer.
+
+```
+pkg70 only (verification 2026-05-10):
+  OptiX 5.31×, OIDN 5.58×
+pkg70 + pkg75 (this pkg):
+  OptiX <pending verifier>×, OIDN <pending verifier>×
+
+pre-pkg68 (c934bdf):           OIDN-on 130.01 ms / OIDN-off 23.52 ms
+post-pkg68 (1253894):          OIDN-on  50.67 ms / OIDN-off 23.81 ms  → 2.57×
+post-pkg68 + pkg75 (this pkg): OIDN-on  <pending>  / OIDN-off <pending>  → <pending>×
+```

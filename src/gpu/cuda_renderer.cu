@@ -47,6 +47,9 @@ void launchPathTraceKernel(
 void uploadProfileTable(const float* host, int count);
 // pkg54b — one-time copy of CIE 1964 10° CMF tables into MW kernel constant memory.
 void uploadCmfTables();
+// pkg54c — one-time copy of the Jakob-Hanika sRGB sigmoid LUT into MW kernel
+// global memory; required by gpu_jhEvalSpectrum (the new upsampling path).
+void uploadJakobHanikaLut();
 float launchProfileLookup(int profileIndex, float lambda);
 
 void launchMultiwavelengthKernel(
@@ -286,8 +289,11 @@ void CUDARenderer::render(
     // path_trace_kernel.cu uses gpu_rgbToSampledSpectrum(...) with
     // GSPEC_RGB_ILLUMINANT for environment colour, which now reads the
     // D65 SPD baked into MW kernel constant memory — make sure it's
-    // uploaded before the kernel runs.
+    // uploaded before the kernel runs. pkg54c additionally requires the
+    // Jakob-Hanika sigmoid LUT in device global memory because
+    // gpu_rgbSpectrumAt now upsamples via gpu_jhEvalSpectrum.
     uploadCmfTables();
+    uploadJakobHanikaLut();
 
     unsigned long long rngSeed = (seed == 0)
         ? (unsigned long long)time(nullptr)
@@ -332,6 +338,9 @@ void CUDARenderer::renderMultiwavelength(
 
     // pkg54b: ensure CMF tables are present in MW kernel constant memory.
     uploadCmfTables();
+    // pkg54c: ensure the Jakob-Hanika sRGB sigmoid LUT is in device global
+    // memory before any gpu_jhEvalSpectrum call.
+    uploadJakobHanikaLut();
 
     unsigned long long rngSeed = (seed == 0)
         ? (unsigned long long)time(nullptr)

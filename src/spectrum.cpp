@@ -226,21 +226,15 @@ XYZ SampledSpectrum::toXYZ(const SampledWavelengths& wl) const {
 }
 
 // ---------------------------------------------------------------------------
-// Jakob-Hanika sigmoid evaluator.
+// Jakob-Hanika sigmoid evaluator. The math now lives in include/astroray/
+// spectrum.h::jhEvalSpectrumF as a single source of truth shared with the
+// CUDA path (gpu_jhEvalSpectrum); this thin wrapper preserves the existing
+// std::array call sites unchanged.
 // ---------------------------------------------------------------------------
 namespace {
 
-inline float sigmoidJH(float x) {
-    if (std::isinf(x)) return x > 0.0f ? 1.0f : 0.0f;
-    float xx = x * x;
-    // x*x can overflow float (e.g. x=-1e20 used as "black" sentinel → xx=+inf → wrong 0.5)
-    if (std::isinf(xx)) return x > 0.0f ? 1.0f : 0.0f;
-    return 0.5f + x / (2.0f * std::sqrt(1.0f + xx));
-}
-
 inline float evalSigmoidCoeffs(const std::array<float, 3>& c, float lambda) {
-    float x = std::fma(std::fma(c[0], lambda, c[1]), lambda, c[2]);
-    return sigmoidJH(x);
+    return jhEvalSpectrumF(c[0], c[1], c[2], lambda);
 }
 
 }  // namespace
@@ -258,6 +252,11 @@ public:
 
     // res_ is the edge length of each 3D table (typically 64 for sRGB).
     int res() const { return res_; }
+
+    // Raw table pointers — used by the GPU uploader to cudaMemcpy the
+    // tables verbatim into device global memory.
+    const float* scaleData()  const { return scale_.data(); }
+    const float* coeffsData() const { return coeffs_.data(); }
 
     std::array<float, 3> lookup(const std::array<float, 3>& rgb) const;
 
@@ -341,6 +340,17 @@ const JakobHanikaLut& JakobHanikaLut::get() {
         instance.load(resolveLutPath());
     });
     return instance;
+}
+
+// Read-only accessors for the GPU uploader; trigger lazy load on first use.
+int jakobHanikaLutRes() {
+    return JakobHanikaLut::get().res();
+}
+const float* jakobHanikaLutScale() {
+    return JakobHanikaLut::get().scaleData();
+}
+const float* jakobHanikaLutCoeffs() {
+    return JakobHanikaLut::get().coeffsData();
 }
 
 std::array<float, 3> JakobHanikaLut::lookup(const std::array<float, 3>& rgb) const {

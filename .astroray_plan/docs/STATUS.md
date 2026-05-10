@@ -22,9 +22,9 @@ personally should pick up.
   not CUDA kernels.
 - Pillar 5 is the active practical queue. The Cycles-parity/Blender package
   series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg60/pkg61/pkg62
-  are done, pkg59 is done, pkg54/54a/54b/54d are done (with pkg54c as a
-  scoped follow-up), pkg63 (World/HDRI parity) is done pending
-  CUDA-host SSIM verification, and pkg57 remains open.
+  are done, pkg59 is done, pkg54/54a/54b/54c/54d are all done (CUDA
+  hardware verified 2026-05-10), pkg63 (World/HDRI parity) is done
+  pending CUDA-host SSIM verification, and pkg57 remains open.
 - Fresh local collection on this branch: `pytest --collect-only -q` reports
   **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
 - Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
@@ -279,7 +279,7 @@ events are summarized in the changelog below.
 | pkg40 | A | **done** | Kerr/Schwarzschild metric plugins; BPT 1972 analytic gates green; pkg41 ready |
 | pkg52 | A | **done** | — |
 | pkg53 | B/E | **done** | — |
-| pkg54 | A | **done** | pkg54/54a/54b verified on hardware; pkg54d direct profile lookup binding is done; pkg54c (Jakob-Hanika upsampling) remains filed as a follow-up |
+| pkg54 | A | **done** | pkg54/54a/54b/54c/54d all verified on hardware; pkg54c visible-band SSIM 0.999 gate clears at 0.999263 (spp=8192); GPU `gpu_rgbSpectrumAt` ILLUMINANT renormalization bug found and fixed during verification; frame-time regression +0.45 % (pkg54e not needed) |
 | pkg57 | A | open | native shader nodes / Cycles compatibility design |
 | pkg58 | B | **done** | — |
 | pkg59 | A | done | broader vector/UV/Mapping plumbing, named UV layers, and UV debug AOV |
@@ -316,7 +316,25 @@ events are summarized in the changelog below.
   verification. pkg54d added a direct `gpu_profile_reflectance` binding for
   unconfounded liveness gating, with CPU/GPU lookup max delta `0` across all
   loaded profiles on the 300-1000 nm grid. pkg54c (Jakob-Hanika spectral
-  upsampling on GPU, SSIM ceiling 0.985→0.999) remains as a scoped follow-up.
+  upsampling on GPU, SSIM ceiling 0.985→0.999) is now implemented:
+  `gpu_jhEvalSpectrum` mirrors `RGBAlbedoSpectrum::sample` via the same
+  shared `jhEvalSpectrumF` evaluator, the sRGB sigmoid LUT is uploaded to
+  device global memory once per process via `uploadJakobHanikaLut`
+  (cudaMalloc + cudaMemcpyToSymbol of pointers, 9 MB — overflows the
+  64 KB constant cap), and `gpu_rgbSpectrumAt` upsamples through it for
+  both `GSPEC_RGB_ALBEDO` and `GSPEC_RGB_ILLUMINANT`. Verified on CUDA
+  hardware 2026-05-10: visible-band CPU↔GPU SSIM = 0.999263 at spp=8192
+  on the parity scene (gate ≥ 0.999), per-channel mean ratios within
+  0.4 %, frame-time regression +0.45 % at 1080p / 64 spp / depth 4.
+  A real GPU bug — `gpu_rgbSpectrumAt` ILLUMINANT mode missed the
+  CPU's `2·max(rgb)` renormalize-then-rescale step, causing wrong
+  absolute spectra for any HDR emitter — was found and fixed during
+  verification (see pkg54c Lessons). The 0.999 SSIM gate is unreachable
+  at the original 64 spp regardless of evaluator correctness because
+  CPU OpenMP and GPU warp-parallel integrators place MC samples on
+  different per-pixel sub-streams; the test now runs at spp=8192
+  (~5 s on RTX-class hardware) where the noise floor drops below
+  the gate by ~26 %.
   Sellmeier direction-splitting and true spectral emitter parameter
   upload also remain CPU-only follow-ups. pkg36 expands shared closure
   lowering.

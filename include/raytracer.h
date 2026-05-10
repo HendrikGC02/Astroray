@@ -526,6 +526,12 @@ public:
     virtual float getRoughness() const { return 0.5f; }
     virtual float getMetallic() const { return 0.0f; }
     virtual float getIOR() const { return 1.5f; }
+    // Wavelength-dependent IOR. Default returns the scalar IOR; dispersive
+    // materials (Sellmeier dielectric) override this. Used by the SMS
+    // wavelength-Newton path (pkg64 Phase 2, Hanika 2015 §4) to evaluate
+    // the half-vector residual at the hero wavelength of the current
+    // SampledWavelengths bundle.
+    virtual float iorAt(float /*lambda_nm*/) const { return getIOR(); }
     virtual float getTransmission() const { return 0.0f; }
     virtual float getClearcoat() const { return 0.0f; }
     virtual float getClearcoatGloss() const { return 1.0f; }

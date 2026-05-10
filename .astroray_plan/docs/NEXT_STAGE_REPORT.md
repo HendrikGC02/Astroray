@@ -1,531 +1,365 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-10 (revised)
+**Date:** 2026-05-10 (post-pkg68/69/71 round)
 **Prepared by:** Claude (Anthropic Code, Sonnet 4.5 in Max 5x)
-**Scope:** post pkg54c verification — handoff playbook of which agent gets
-which package next, with the exact prompt to drop into each.
+**Scope:** post-pkg68 + pkg69 + pkg71-spec round; next deployable
+parallel set focused on Pillar-5 stability.
 
-> Strategic gate: Pillar 4 (astrophysics) packages are explicitly **on
-> hold**. The current focus is locking in Blender-integration stability,
-> measured CPU/GPU parity, and parity with how other production engines
-> (Cycles, Octane, V-Ray, LuxCore) integrate into Blender. pkg40 (Kerr
-> metric) landed as a one-off because the spec was already Codex-paste-
-> ready; pkg41 and the rest of pkg42-51 wait until the Pillar 5 queue
-> below clears.
->
-> This file is the **action queue**, not the strategy doc. Strategy in
-> [`ROADMAP.md`](ROADMAP.md); status in [`STATUS.md`](STATUS.md).
+> Strategic gate (unchanged): Pillar 4 (astrophysics) packages on
+> hold. Focus is locking in Blender integration + measured CPU/GPU
+> parity + parity with how other production engines integrate into
+> Blender. Strategy in [`ROADMAP.md`](ROADMAP.md), status in
+> [`STATUS.md`](STATUS.md).
 
 ---
 
 ## 1. Current state (one screen)
 
-- **Pillars 1, 2, 3** complete and validated.
-- **Pillar 4** parked. Only pkg40 (Kerr + Schwarzschild metric plugins)
-  landed (PR #195, BPT 1972 analytic gates green). pkg41-51 wait.
-- **Pillar 5 (Blender / parity / perf)** is the active queue.
-  - Done: pkg52, pkg53, pkg54, pkg54a, pkg54b, pkg54d, pkg58, pkg59,
-    pkg60, pkg61, pkg62, pkg65, pkg66.
-  - Pending verification: pkg54c (PR #194; CUDA hardware verification
-    in progress — the visible-band SSIM gate at 0.999 is real-fixing,
-    not yet green).
-  - In flight, blocked by CI: pkg63 (PR #191; the new 9-arg
-    `load_environment_map` signature breaks an old mock-asserting test).
-  - Open and prioritised below: pkg57, pkg63 fix, pkg64, pkg68, pkg69,
-    pkg70, pkg56, plus a new pkg71 (Cycles parity benchmark framework).
+**Done since the previous report (2026-05-10 morning):**
+
+- pkg68 OIDN architectural fix landed (PR #200) — member-cached
+  device, lazy-init, CUDA-first with CPU fallback, FetchContent
+  bumped to OIDN 2.4.1. CUDA hardware verification still pending.
+- pkg69 Albedo pass for compositor (PR #201) — Codex. RGB Albedo +
+  Normal guide passes registered behind `use_pass_denoising_data`,
+  Cycles-compatible.
+- pkg71 spec landed (PR #199) — Cycles parity benchmark framework
+  fully spec'd. Cornell + Classroom + Monster (CC-0 / ships) and
+  Junkshop + BMW27 (CC-BY, user-downloaded with auto-attribution),
+  Victor (CC-BY-NC) excluded with defence-in-depth. Implementation
+  is the next Codex-friendly pickup.
+
+**In flight / blocked:**
+
+- pkg54c CUDA verification — last status: visible-band SSIM 0.9902
+  (gate 0.999). FMA experiment + diagnostic-binding plan was given
+  to the verifier session; outcome unknown to this report. If the
+  diagnostic landed bad, the package may need a small follow-up
+  (FMA-strict mode or texture-object port).
+- pkg68 CUDA verification — pending. Same shape as pkg54a/b
+  verification: build on the RTX, run the new persistence tests,
+  record `[OIDN] Using CUDA device` first-line + 100-frame timing
+  against pre-pkg68 baseline.
+
+**Open Pillar 5 (this is the queue):**
+
+| Pkg | Title | Effort | Status |
+|---|---|---|---|
+| **pkg70** | OptiX denoiser backend | 3–5 days | Spec landing this PR |
+| **pkg57** | Native Astroray shader nodes | 1.5 weeks | Research signed off (#188), spec concrete, ready to implement |
+| **pkg71** impl | Cycles parity benchmark framework | 1 week | Spec landed (#199), ready to implement |
+| **pkg56** | Incremental scene sync (depsgraph diff) | 5–7 weeks | Spec + research signed off (#192), staged in 3 phases |
+| **pkg64** | Spectral caustics (SMS + spectral MNEE) | 3–4 weeks | Research signed off, deferred behind integration work |
 
 ---
 
-## 2. Priority lens (this is the strategic shift)
+## 2. Recommended next deployable set
 
-The user direction: **lock in Blender integration + performance +
-GPU/CPU parity + parity with how other Blender engines work, BEFORE
-returning to astrophysics**. That ranks the open queue as follows.
+Three Claude tech sessions + one Codex session, all parallel-safe:
 
-### Tier 1 — Blender integration parity (top priority)
+| # | Agent | Worktree / location | Package | Effort |
+|---|---|---|---|---|
+| 1 | Claude tech | `pkg70-optix` (new) | pkg70 OptiX denoiser | 3–5 days |
+| 2 | Claude tech | `pkg57-shader-nodes` (new) | pkg57 native shader nodes | 1.5 weeks |
+| 3 | Codex | main directory | pkg71 implementation | 1 week |
+| 4 | Codex or Claude | (CUDA hardware) | pkg68 verification + pkg54c verification follow-through | ½ day |
 
-| Pkg | Title | Effort | Owner |
-|---|---|---|---|
-| **pkg63 fix** | Update test for new `load_environment_map` signature | ~1 h | Claude (in existing `pkg63-hdri` worktree) |
-| **pkg69** | Albedo pass for Blender compositor denoise node | ~½ day | Codex |
-| **pkg57** | Native Astroray shader nodes (post-research-note implementation) | 1.5 weeks | Claude |
-
-These three close the visible "feels like a Cycles workflow" gap.
-
-### Tier 2 — Performance + correctness
-
-| Pkg | Title | Effort | Owner |
-|---|---|---|---|
-| **pkg68** | OIDN architectural fix (lazy persistent device, CUDA backend) | 1–2 days | Claude |
-| **pkg70** | OptiX denoiser backend | 3–5 days | Claude (after pkg68 establishes the pattern) |
-| **pkg56** | Incremental scene sync (depsgraph diff, BVH refit) | 5–7 weeks (3 phases) | Claude |
-
-### Tier 3 — Measured parity (new)
-
-| Pkg | Title | Effort | Owner |
-|---|---|---|---|
-| **pkg71** | Cycles parity benchmark framework | 1 week | Claude (spec writing now, implementation when prioritised) |
-
-Without pkg71, every "performance is fine" or "we match Cycles" claim
-is hand-wavy. This package codifies a deterministic CPU/GPU vs Cycles
-benchmark suite using Blender Foundation demo scenes (Cycles
-opendata.blender.org reference scenes), tracks frame-time + SSIM
-deltas in CI, and produces the actual numbers a journal-paper or
-release-blog claim can cite.
-
-### Tier 4 — Visual fidelity flagship (deferred until the above settles)
-
-| Pkg | Title | Effort | Owner |
-|---|---|---|---|
-| **pkg64** | Spectral caustics (SMS + spectral MNEE) | 3–4 weeks | Claude |
-
-Marquee deliverable for the eventual paper, but explicitly deferred
-behind the integration/perf/parity work above per the strategic gate.
+Two more sessions could run in parallel as research/spec polish if
+the user wants more breadth, but with the previous research rounds,
+the Pillar 5 spec backlog is essentially clear. The active work is
+implementation.
 
 ---
 
-## 3. Recommended order this week + next
+## 3. Drop-in prompts per agent
 
-Assuming pkg54c verification closes (gate green or scoped follow-up
-filed):
-
-**This week, in parallel:**
-
-1. **pkg63 fix** (~1 h) — unblocks PR #191. Existing `pkg63-hdri`
-   worktree.
-2. **pkg69 Albedo pass** (~½ day) — Codex. Closes Blender compositor
-   parity.
-3. **pkg68 OIDN fix** (1–2 days) — Claude. Real defect, closes a
-   per-frame perf hole.
-4. **pkg71 spec writing** (~½ day) — Claude. Codifies what we mean
-   by "Cycles parity" so the next round of work has a measurement
-   gate.
-
-**Next week:**
-
-5. **pkg70 OptiX denoiser** (3–5 days) — Claude. Layer the perf-win
-   backend on top of pkg68's fixed OIDN plumbing.
-6. **pkg57 Native shader nodes** (1.5 weeks) — Claude. Biggest
-   single-package Blender-integration delivery. Spec is already
-   concrete from PR #188 research.
-
-**The week after:**
-
-7. **pkg71 implementation** — once it's spec'd and we can run the
-   first benchmark run for pre-pkg56/pkg70 numbers.
-8. **pkg56 incremental scene sync** — multi-week, Phase A first.
-9. **pkg64 caustics** — flagship visual fidelity, only after the
-   above stabilises.
-
----
-
-## 4. Drop-in prompts per agent
-
-### 4.1 Codex — pkg69 Albedo pass for Blender compositor
+### 3.1 Claude tech (worktree `pkg70-optix`) — pkg70 OptiX denoiser
 
 ```
-You are Codex working in the main Astroray directory on commit
-9c53b62 or later (post-pkg54c-verification main). Implement pkg69
-end to end.
+You are Claude Code in worktree .claude/worktrees/pkg70-optix,
+branched from current main. Implement pkg70 end to end.
 
 Read first:
-  - .astroray_plan/packages/pkg69-albedo-pass-blender-compositor.md
-    (the spec — fully concrete)
-  - blender_addon/__init__.py (search for _DATA_PASS_SPECS,
-    _PASS_SPECS, write_pixels — these are the touch points)
-  - module/blender_module.cpp (search for getColorBuffer /
-    getNormalBuffer for the binding pattern to mirror)
+  - .astroray_plan/packages/pkg70-optix-denoiser-backend.md (the spec)
+  - plugins/passes/oidn_denoiser.cpp (the post-pkg68 implementation
+    you mirror — same shape: member-cached state, lazy init, CUDA
+    detection, buffer caching)
+  - src/gpu/cuda_renderer.cu (where the CUDA context lives — your
+    OptiX denoiser shares it, no separate context needed)
+  - tests/test_oidn_denoiser_persistence.py (mirror its test pattern)
 
-Implementation:
-  1. Add ("Albedo", 3, "RGB", "use_pass_denoising_data") to
-     _DATA_PASS_SPECS in blender_addon/__init__.py at line ~556.
-  2. If no Python accessor for the albedo Framebuffer buffer
-     exists in module/blender_module.cpp, add getAlbedoBuffer()
-     mirroring the existing getColorBuffer/getNormalBuffer pattern.
-     Bind as Renderer.get_albedo_buffer().
-  3. In write_pixels (blender_addon/__init__.py:2706), emit the
-     albedo buffer to the new Albedo pass when the user has
-     enabled use_pass_denoising_data on the view layer.
-  4. Add tests/test_blender_compositor_denoise_passes.py — pure
-     Python, mirrors the existing test_blender_view_layers.py
-     pattern, asserts that with use_pass_denoising_data=True
-     the registered passes include "Albedo" and "Normal" with
-     channel counts (3, 3).
+Implementation outline (subject to the spec):
+  1. cmake/FindOptiX.cmake — adapt from NVIDIA OptiX SDK's
+     SDK/CMake/FindOptiX.cmake or use OPTIX_INSTALL_DIR env var.
+     Default install path on Windows:
+     C:\ProgramData\NVIDIA Corporation\OptiX SDK 8.1.0\
+  2. CMakeLists.txt — add ASTRORAY_ENABLE_OPTIX flag (default AUTO,
+     enabled when SDK found). Define ASTRORAY_OPTIX_ENABLED for
+     conditional compilation.
+  3. plugins/passes/optix_denoiser.cpp — OptiXDenoiser class with:
+     - Persistent OptixDeviceContext + OptixDenoiser handle as members
+     - Lazy init on first execute()
+     - Model selection: HDR if no guides, AOV if albedo+normal present
+     - State + scratch device buffers cached, reallocated only on
+       dimension change
+     - "[OptiX] Using <device>" log line at first invocation
+  4. module/blender_module.cpp — add gpu_optix_available() Python
+     query so the addon can detect runtime support.
+  5. blender_addon/__init__.py — backend-selection logic: when both
+     OIDN and OptiX are available, default to OptiX in viewport
+     mode. UI dropdown for user override.
+  6. tests/test_optix_denoiser.py — skip-if-OptiX-unavailable test
+     mirroring tests/test_oidn_denoiser_persistence.py shape.
 
-Verify:
-  - python scripts\dev\run_tests.py --
-      tests/test_blender_compositor_denoise_passes.py
-      tests/test_blender_view_layers.py
-    -v --tb=short
-  - Both green.
+OptiX API references (open these, do not guess):
+  - https://raytracing-docs.nvidia.com/optix8/guide/index.html#ai_denoiser
+  - https://raytracing-docs.nvidia.com/optix8/api/optix__host_8h.html
 
-When done:
-  - pkg69 spec status -> done.
-  - STATUS.md: pkg69 entry done in the Cycles-parity table.
-  - Commit on a fresh branch:
-      feat(pkg69): Albedo pass for Blender compositor denoise node
-  - PR against main with the test results in the body. DO NOT merge.
-
-Constraints (CLAUDE.md sections 2, 3, 6):
-  - Stay narrow: only blender_addon/__init__.py, possibly
-    module/blender_module.cpp + the new test.
-  - Cite Cycles' sync.cpp + line range for the
-    `DENOISING_PASS_*` pattern in a code comment per CLAUDE.md §6
-    (Apache-2.0, mirroring permitted).
-  - No OIDN or OptiX changes (those are pkg68/70).
-```
-
-### 4.2 Claude Code (worktree `pkg68-oidn`) — OIDN architectural fix
-
-```
-You are Claude Code in the worktree .claude/worktrees/pkg68-oidn,
-branched from current main (commit 9c53b62 or later, post-pkg54c
-verification). Implement pkg68 end to end.
-
-Read first:
-  - .astroray_plan/packages/pkg68-oidn-architectural-fix.md (the spec)
-  - plugins/passes/oidn_denoiser.cpp (the file to surgically refactor)
-  - .astroray_plan/docs/oidn-fact-finding-report-2026-05-10.md if
-    present (the report that surfaced the issues)
-  - include/raytracer.h — search for "albedo" and "normal" buffer
-    population inside the Renderer's render loop. Confirm the
-    Framebuffer's "albedo" and "normal" buffers are populated
-    UNCONDITIONALLY by the integrator, not only when the user
-    explicitly registers an albedo_aov / normal_aov pass. If they
-    are conditional, that is the silent-bug path you fix as part
-    of this package (the existing OIDN guard `fb.hasBuffer(...)`
-    silently degrades to color-only denoising in that case).
-
-Implementation outline (read the spec for full detail):
-  1. Move oidn::DeviceRef and oidn::FilterRef from local variables
-     in execute() to class members in OIDNDenoiser.
-  2. Lazy-init the device on first execute() call. Try
-     oidn::DeviceType::CUDA first; if device.getError() is
-     non-None after commit(), fall back to oidn::DeviceType::CPU.
-     Log which was selected (printf "[OIDN] Using %s device\n").
-  3. Cache buffer-binding state (last bound pointers + dimensions);
-     re-bind via setImage() + commit() only when those change.
-  4. If the integrator audit in step 1 found conditional
-     population of "albedo"/"normal", fix it to be unconditional.
-  5. Bump CMakeLists.txt FetchContent fallback URL from
-     oidn-2.3.3.x64.windows.zip to oidn-2.4.1.x64.windows.zip.
-  6. Add tests/test_oidn_denoiser_persistence.py with three
-     tests per the spec (device-init runs once across N frames;
-     CUDA-capable build reports CUDA device; albedo guides are
-     fed even without explicit AOV pass).
-
-Reference (Apache-2.0, mirrorable patterns):
-  - Cycles intern/cycles/integrator/denoiser_oidn_*.cpp — caches
-    device + filter as members of the denoiser class. Mirror the
-    create_device() helper for the CUDA-then-CPU fallback shape.
-
-OIDN API references (open these, do not guess):
-  - https://www.openimagedenoise.org/documentation.html
-  - https://github.com/RenderKit/oidn/blob/master/include/OpenImageDenoise/oidn.hpp
+Cycles reference (Apache-2.0, mirrorable): intern/cycles/device/optix/
+  in the Blender mono-repo. OptiXDevice::denoise() and denoise_buffer()
+  for the per-frame invocation shape.
 
 Constraints:
-  - Do NOT add OptiX (pkg70). Do NOT add temporal mode (out of
-    scope per spec design decision #4 — OIDN does not have a
-    color1 previous-frame input).
-  - You will likely not have CUDA at this implementation site;
-    that is OK. The CUDA-path SSIM/timing gates skip cleanly,
-    and the verifier session runs them on hardware. Mark in the
-    PR body: "CUDA verification pending."
-
-Verify:
-  - cmake build standard (no CUDA needed).
-  - python -m pytest tests/test_oidn_denoiser_persistence.py
-      tests/test_oidn_denoiser.py tests/test_aov_passes.py
-    -v --tb=short
-  - All green.
+  - CLAUDE.md sections 2, 3, 6.
+  - DO NOT bundle OptiX SDK headers (NVIDIA license forbids
+    redistribution) — find_package only.
+  - DO NOT enable temporal mode (requires motion vectors —
+    out of scope per pkg70 design decision #4).
+  - DO NOT touch path_trace_kernel.cu or multiwavelength_kernel.cu.
+  - You will likely not have OptiX SDK locally; the test will skip
+    cleanly. Mark in PR body: "OptiX SDK + CUDA hardware
+    verification pending."
 
 When done:
-  - pkg68 spec status -> "implemented (pending CUDA verification)".
-  - STATUS.md updated.
+  - pkg70 spec status -> "implemented (pending verification)".
+  - STATUS.md entry for pkg70.
   - Commit on this branch:
-      feat(pkg68): OIDN persistent device + CUDA backend selection
+      feat(pkg70): OptiX AI denoiser backend (HDR/AOV, persistent
+      state, fallback to OIDN)
   - PR. DO NOT merge.
 ```
 
-### 4.3 Claude Code (existing `pkg63-hdri` worktree) — fix PR #191
+### 3.2 Claude tech (worktree `pkg57-shader-nodes`) — pkg57 native shader nodes
 
 ```
-You are Claude Code returning to the existing worktree
-.claude/worktrees/pkg63-hdri (branch claude/amazing-ride-2f0790).
-PR #191 is open but red — CI fails on
-tests/test_blender_view_layers.py::
-  test_setup_world_loads_hdri_with_blender_x_rotation_correction
-  AssertionError: assert ('//env.hdr', 0.25, 1.0, ...)
-                  == ('//env.hdr', 1.5, 0.25, True)
+You are Claude Code in worktree .claude/worktrees/pkg57-shader-nodes,
+branched from current main. This is the biggest single Blender-
+integration delivery in the queue. Implement pkg57 end to end.
 
-The test asserts the OLD 4-arg load_environment_map signature
-(path, strength, rotation, blender_x_rotation_bool). pkg63
-changed the signature to 9 args (path, strength, rx, ry, rz,
-tr, tg, tb, blender_convention).
+Read first (in order):
+  - .astroray_plan/packages/pkg57-native-shader-nodes.md (the spec —
+    rewritten in PR #188 to be implementation-concrete, with file-
+    by-file plan)
+  - .astroray_plan/docs/blender-shader-nodes-research.md (the
+    research note that backs the spec — has the BlendLuxCore /
+    Cycles / Octane / PBRT-v4 reference reading already done)
+  - blender_addon/__init__.py — search for convert_node_material
+    and _principled_shader_spec to understand the existing
+    Cycles auto-conversion path you must preserve
 
-Decide which of the following is the correct fix and apply
-exactly that fix:
+Per the research recommendation (PR #188), use:
+  - bpy.types.ShaderNode subclasses for all 5 Astroray nodes
+    (NOT ShaderNodeCustomGroup — orphan-data-block risk)
+  - PointerProperty on bpy.types.Material for engine-switch survival
+    (mirrors Cycles' properties.py Apache-2.0 pattern)
+  - AstroraySellmeierSocket(bpy.types.NodeSocket) custom socket
+    for Sellmeier-coefficient typed inputs
+  - Conversion path: extend existing convert_node_material with a
+    one-line AstrorayOutputNode pre-check; dispatch to new
+    _astroray_*_spec() helpers, same pattern as
+    _principled_shader_spec()
 
-  (a) The addon-side setup_world should still call
-      load_environment_map with the legacy 4-arg shape when
-      no XYZ rotation and no color tint are configured (i.e.,
-      the user's Blender world is just a plain HDRI with no
-      Mapping rotation). In that case the failing test is
-      asserting correct backward-compat behaviour and the
-      bug is in the addon: it always emits the 9-arg form
-      now. Fix the addon to detect the no-mapping-no-tint
-      case and use the 4-arg path.
+Five nodes per pkg57 spec:
+  1. AstrorayOutputNode (companion to OUTPUT_MATERIAL)
+  2. AstroraySpectralProfile (picks from
+     astroray.spectral_profile_names())
+  3. AstroraySellmeierGlass (B/C coeff triples, dispersive IOR)
+  4. AstrorayIRUVResponse (extends base BSDF with IR/UV reflectance band)
+  5. AstrorayNRCCacheHint (per-material flag for the neural cache
+     integrator)
 
-  (b) The legacy 4-arg call shape is intentionally retired
-      and the addon always emits the 9-arg form. In that
-      case the failing test is testing for old behaviour
-      and needs updating to assert the new 9-arg tuple.
-
-Read these to decide:
-  - tests/test_blender_view_layers.py around the failing test
-    (line ~206) — what is it really verifying?
-  - blender_addon/__init__.py setup_world — what does the
-    new code path emit?
-  - module/blender_module.cpp load_environment_map signature —
-    are both shapes accepted, or only the 9-arg form?
-
-Recommendation: option (b) is almost certainly correct. The
-test exists to verify the addon correctly forwards Blender's
-"X-axis rotation correction" toggle. Under pkg63, that toggle
-is now baked into the 3x3 rotation matrix on the C++ side, so
-the test's assertion shape needs to update to match the new
-signature, not the old one. Verify by reading the test's
-intent comment if present.
-
-If (b): update the test's expected tuple to match the new
-9-arg form. The test still fundamentally verifies that the
-blender_x_convention input is correctly routed; just to the
-new signature.
-
-If (a): fix the addon. Smaller diff but more test coverage
-needed to confirm the legacy path still works.
-
-Verify:
-  - python -m pytest tests/test_blender_view_layers.py -v
-  - python -m pytest tests/test_world_hdri_parity.py -v
-  - Existing GPU-skip behaviour still in place.
-
-When green:
-  - Commit to the same branch claude/amazing-ride-2f0790:
-      fix(pkg63): update test_setup_world_loads_hdri to
-      match new 9-arg load_environment_map signature
-  - Push. PR #191 CI re-runs automatically.
-  - DO NOT merge — owner does that once green.
-```
-
-### 4.4 Claude Code (worktree `research-pkg71`) — write pkg71 Cycles parity benchmark spec
-
-```
-You are Claude Code in the worktree
-.claude/worktrees/research-pkg71, branched from current main.
-RESEARCH + SPEC session — no implementation code. One deliverable.
-
-Deliverable: create
-.astroray_plan/packages/pkg71-cycles-parity-benchmark.md
-following the format of pkg54-gpu-multiwavelength-integrator.md.
-
-Why this matters: every claim we make about "Astroray matches
-Cycles" or "Astroray is competitive on a single RTX 5070 Ti"
-is currently anecdotal. Without a reproducible benchmark we
-cannot publish parity numbers, cannot regression-test perf
-in CI, and cannot honestly tune the wavefront refactor (pkg55)
-when it lands. pkg71 fixes that.
-
-Required reading (use WebFetch — do NOT clone):
-
-Blender Foundation reference scenes:
-  - https://www.blender.org/download/demo-files/ — confirm which
-    demo files are CC0 (free to redistribute) vs CC-BY-NC
-    (cannot ship in our repo, can be downloaded by user).
-  - https://opendata.blender.org/ — Cycles' canonical perf
-    benchmark. Their scene set: BMW (Mike Pan, CC-BY), Classroom
-    (Christophe Seux, CC-0), Junkshop (Alex Treviño, CC-BY),
-    Pabellon Barcelona (Claudio Andres, CC-BY), Victor (Juan
-    Pablo Bouza, CC-BY-NC).
-  - Blender benchmark code: https://projects.blender.org/blender/blender-benchmark
-    License: Apache-2.0. Read for the harness pattern.
-
-Cycles' performance test infrastructure:
-  - intern/cycles/test/integration/ in the Blender mono-repo.
-    https://projects.blender.org/blender/blender/src/branch/main/intern/cycles/test/integration
-    License: Apache-2.0, mirrorable.
-
-LuxCoreRender's benchmark suite (open-source third-party
-engine — closest precedent):
-  - https://github.com/LuxCoreRender/LuxCore-Benchmark
-    Read for the third-party-engine-benchmark pattern.
-    License: Apache-2.0.
-
-The pkg71 spec should answer:
-
-  1. Scene set — recommend 3-5 Blender Foundation demo scenes
-     based on license compatibility. Cornell box (we already
-     have one), BMW (CC-BY, attribution OK), Classroom (CC-0).
-     Each scene tests a different stress: Cornell = simple
-     light transport; BMW = many materials + glossy paint;
-     Classroom = large geometry + complex lighting.
-  2. Engine matrix — Cycles CPU, Cycles CUDA, Astroray CPU,
-     Astroray GPU. Skip Cycles OptiX for now (different
-     denoiser path muddles the comparison).
-  3. Metrics per scene per engine:
-       - Time to first sample (warm-up cost)
-       - Time to N samples (where N matches Cycles benchmark
-         reference, e.g., 1024 spp for BMW)
-       - Peak memory (resident set)
-       - Output SSIM vs Cycles' published reference image
-         from opendata.blender.org
-       - For viewport: time per progressive accumulation step
-  4. Output format — a CSV
-     `benchmarks/cycles-parity/<date>-<machine>.csv`:
-       scene,engine,samples,time_ms,peak_mem_mb,ssim_to_cycles
-     Plus a Markdown summary auto-generated from the CSV.
-  5. CI integration — does this run in CI or only on demand?
-     Recommend: weekly on a self-hosted runner + on-demand
-     via PR comment trigger. Numbers stored in
-     `benchmarks/cycles-parity/` with date + git-SHA tags.
-  6. Acceptance — first run of the framework produces a
-     baseline CSV; SSIM gates of >= 0.95 between Astroray
-     and Cycles output on each scene; frame-time results
-     simply recorded (no perf-regression gates this round —
-     that comes after pkg55/pkg56 land).
-  7. Non-goals — no benchmark of Cycles features Astroray
-     does not support (volumetrics, hair, etc.); no
-     animation/motion-blur benchmarking; no GPU-vendor
-     comparison (NVIDIA only this round).
-  8. Reference Implementations table per the pkg40 / pkg54
-     pattern: licenses, commit SHAs, what we mirror, what
-     we do not.
-
-Front-matter:
-  - Pillar: 5
-  - Track: A (or Codex once spec is concrete enough)
-  - Status: open
-  - Estimated effort: 1 week (~25 h, multi-session)
-  - Depends on: nothing hard (could run today); pkg63
-    landing makes the HDRI-using scenes more meaningful;
-    pkg54c landing makes the GPU spectral output stable
-    enough to compare.
-
-Length: spec should be 6-8 pages. Include the scene-license
-audit explicitly.
-
-When done:
-  - Commit on this branch:
-      docs(pkg71): Cycles parity benchmark framework spec
-  - PR against main. Body summarises the recommendation in
-    5 lines and lists the recommended scene set.
-    DO NOT merge.
+Acceptance gates (per spec):
+  - All 5 nodes appear in Add menu when engine == ASTRORAY,
+    absent otherwise.
+  - Existing Cycles BsdfPrincipled scenes render identically
+    (within Monte Carlo noise) before and after this package.
+  - AstrorayOutputNode + SellmeierGlass produces dispersive
+    refraction in a prism scene that the existing flat-IOR
+    Cycles converter cannot.
+  - tests/test_blender_native_nodes.py covers node registration,
+    Cycles-fallback path, Astroray-takes-precedence path.
+  - mat.astroray PropertyGroup registers without error in a
+    blend file with no Astroray materials.
 
 Constraints:
-  - CLAUDE.md sections 2, 3, 6 apply.
-  - No source code changes (this is spec-writing).
-  - Cite Cycles + LuxCore + Blender benchmark commit SHAs.
-  - Be explicit about which demo scenes can be checked into
-    our repo (CC-0 only) vs which the user must download
-    separately (CC-BY can be redistributed with attribution
-    but our repo would balloon; CC-BY-NC cannot be shipped
-    at all).
+  - CLAUDE.md sections 2, 3, 6.
+  - License hygiene per the research note: BlendLuxCore is GPL-3.0,
+    NO code mirroring — patterns referenced architecturally only.
+    Cycles is Apache-2.0, mirroring permitted with citation.
+  - Cite Cycles file:line for any pattern mirrored in code comments.
+  - Multi-session work — Max 5x makes this feasible in one focused
+    push. Estimated 1.5 weeks of focused effort.
+
+When done:
+  - pkg57 spec status -> done.
+  - STATUS.md entry: pkg57 done.
+  - Commit on this branch (squash later as needed):
+      feat(pkg57): native Astroray shader nodes (Spectral Profile,
+      Sellmeier Glass, IR/UV Response, NRC Hint, Output) with
+      engine-switch survival and Cycles-precedence fallback
+  - PR. DO NOT merge.
+```
+
+### 3.3 Codex — pkg71 Cycles parity benchmark framework
+
+```
+Implement pkg71 end to end against current main.
+
+Read first:
+  - .astroray_plan/packages/pkg71-cycles-parity-benchmark.md (the
+    spec — fully concrete, recommends the scene set, license policy,
+    and CSV layout)
+
+Required to implement (per the spec):
+  1. benchmarks/cycles-parity/ directory structure:
+     - scenes/ — Cornell box (ships in repo, MIT)
+     - scripts/fetch_scenes.py — downloads CC-0 (Classroom,
+       Monster) into a gitignored cache dir; for CC-BY (Junkshop,
+       BMW27) downloads with auto-generated attribution file.
+       VICTOR IS EXPLICITLY EXCLUDED — defence in depth: assert
+       on URL match in the fetch script.
+  2. scripts/run_parity.py — runs each (scene, engine) tuple
+     three times via subprocess isolation, takes the median time,
+     measures peak memory (psutil resident set), computes SSIM
+     vs Cycles-CPU EXR reference at canonical sample count.
+     Output: benchmarks/cycles-parity/<date>-<machine>.csv
+     with columns: scene,engine,samples,time_ms,peak_mem_mb,
+     ssim_to_cycles
+  3. scripts/summarize_parity.py — reads the CSV, produces a
+     Markdown table for inclusion in PR comments / CHANGELOG.
+  4. .github/workflows/cycles-parity.yml — weekly cron + on-demand
+     trigger via PR comment; runs on a self-hosted runner with
+     CUDA + Cycles 4.x installed.
+  5. Reference rendering: Cycles-CPU EXR at canonical sample count
+     (NOT opendata.blender.org PNGs — quantisation eats the gate).
+  6. SSIM gate: ≥ 0.95 between Astroray and Cycles outputs per
+     scene. Perf is recorded but not gated yet (perf gates wait
+     for pkg55/pkg56).
+
+Reference (Apache-2.0, mirrorable):
+  - Cycles intern/cycles/test/integration/ — the harness pattern.
+  - Blender benchmark code:
+    https://projects.blender.org/blender/blender-benchmark
+  - LuxCoreRender benchmark suite (Apache-2.0):
+    https://github.com/LuxCoreRender/LuxCore-Benchmark
+
+Constraints:
+  - CLAUDE.md sections 2, 3, 6.
+  - VICTOR (CC-BY-NC) is excluded with defence in depth — assert in
+    fetch_scenes.py that the URL is not in the disallowed list, and
+    that the disallowed list cannot be empty (a sentinel test value
+    must always be in it).
+  - Do not commit any non-MIT scene data to the repo.
+  - Codex-paste-ready: spec is concrete enough that no more research
+    is needed.
+
+When done:
+  - First baseline run: produce one CSV from this implementer's
+    machine (or skip with "pending hardware" if Cycles unavailable).
+  - pkg71 spec status -> implemented.
+  - STATUS.md entry: pkg71 implementation done; first baseline CSV
+    pending CUDA hardware.
+  - Commit on a fresh branch:
+      feat(pkg71): Cycles parity benchmark framework
+      (Cornell+Classroom+Monster+Junkshop+BMW27, 4-engine matrix)
+  - PR. DO NOT merge.
+```
+
+### 3.4 Verification session — pkg68 + pkg54c CUDA gates
+
+```
+You are a CUDA verification session on the user's RTX 5070 Ti
+Windows workstation. Two packages need verification.
+
+Step 1: pull latest main.
+  git fetch origin && git checkout main && git pull --ff-only
+
+Step 2: pkg68 verification.
+  scripts\build\build_cuda.bat
+  python scripts\dev\run_tests.py --build-dir build_cuda --
+    tests/test_oidn_denoiser_persistence.py
+    tests/test_oidn_denoiser.py
+    tests/test_aov_passes.py
+  -v --tb=short
+
+  Report:
+  - First "[OIDN] Using <device>" line in the test output. Should
+    be "Using CUDA device" on this machine.
+  - All 12+1 tests green.
+  - If you have time: time 100 viewport frames at 256x256 with
+    OIDN enabled vs the same on origin/main^ (pre-pkg68). Compute
+    per-frame mean. Acceptance was "≥2× faster"; record actual
+    numbers.
+
+Step 3: pkg54c verification follow-through (if not already done).
+  Check the prior FMA experiment results. If pkg54c is still red
+  per the diagnostic plan from the previous round, follow steps
+  1-3 of that plan (FMA experiment, then diagnostic-binding eval
+  if FMA wasn't the cause).
+
+Step 4: report verbatim. Do NOT promote any package status without
+  green gates. If pkg68 is green, promote it to "done" in the spec
+  + STATUS.md and commit on a verify branch:
+    verify(pkg68): CUDA gates green; OIDN-CUDA timing measured
+
+Constraints:
+  - Do NOT modify implementation code.
+  - Do NOT relax any gate.
+  - If close-but-not-quite, report and ask.
 ```
 
 ---
 
-## 5. Coordination
+## 4. Coordination
 
 **File-touching map** (zero hard collisions):
 
 | Session | Files |
 |---|---|
-| Codex pkg69 | `blender_addon/__init__.py`, `module/blender_module.cpp` (small binding), `tests/test_blender_compositor_denoise_passes.py` (new), pkg69 spec, STATUS.md |
-| Claude pkg68 | `plugins/passes/oidn_denoiser.cpp`, possibly `include/raytracer.h` (Framebuffer-population audit), `CMakeLists.txt` (FetchContent URL bump), `tests/test_oidn_denoiser_persistence.py` (new), pkg68 spec, STATUS.md |
-| Claude pkg63-fix | `tests/test_blender_view_layers.py` (test update only), possibly `blender_addon/__init__.py` (option (a) only) |
-| Claude pkg71 spec | `.astroray_plan/packages/pkg71-cycles-parity-benchmark.md` (new) |
+| pkg70 OptiX | new `cmake/FindOptiX.cmake`, new `plugins/passes/optix_denoiser.cpp`, `CMakeLists.txt` (build flag), `module/blender_module.cpp` (gpu_optix_available binding), `blender_addon/__init__.py` (backend selection), new test, pkg70 spec, STATUS.md |
+| pkg57 shader nodes | `blender_addon/` heavily, `module/blender_module.cpp` (new bindings), Astroray-side material conversion, pkg57 spec, STATUS.md |
+| pkg71 implementation | new `benchmarks/cycles-parity/`, new `scripts/run_parity.py` + `summarize_parity.py` + `fetch_scenes.py`, new `.github/workflows/cycles-parity.yml`, pkg71 spec, STATUS.md |
+| Verification | only diagnostic + verify-branch commits |
 
-Three sessions touch STATUS.md (pkg68, pkg69, pkg63-fix). Trivial
-three-way merge — separate paragraphs.
+Three sessions touch `module/blender_module.cpp` (pkg70 + pkg57) and
+`blender_addon/__init__.py` (pkg70 + pkg57). pkg70's additions are
+small (one binding + a backend-selection block); pkg57's are
+extensive. Recommend pkg70 lands first to clear the blender_module
+binding additions, then pkg57 rebases — that's a smaller delta than
+the reverse.
 
-Two sessions may both touch `blender_addon/__init__.py` (pkg69 +
-pkg63-fix option (a)). pkg69 modifies the `_DATA_PASS_SPECS` table
-and `write_pixels`; pkg63-fix would only modify `setup_world` if
-option (a) is taken (option (b) is more likely and would not
-touch the addon). Trivial merge if both happen.
-
-Recommended merge order: pkg63-fix first (smallest), then pkg71
-spec (docs only), then Codex pkg69, then Claude pkg68.
+Recommended merge order: pkg71 (benchmark framework, mostly new
+files, lowest collision risk) → pkg70 OptiX → pkg57 shader nodes.
 
 ---
 
-## 6. Research notes the project still needs (Pillar-5-only)
+## 5. Practical conclusion
 
-Most Pillar 5 research is now done. Remaining unblockers:
+After this round lands:
 
-| File | Unblocks | Status |
-|---|---|---|
-| `blender-shader-nodes-research.md` | pkg57 | **Done** (PR #188) |
-| `blender-depsgraph-sync-research.md` | pkg56 | **Done** (PR #192) |
-| `wavefront-gpu-research.md` | pkg55 | **Done** (PR #189) |
-| `cycles-world-parity-research.md` | pkg63 | **Done** (PR #191) |
-| (pkg71 spec doubles as its own research note) | pkg71 | Will land with prompt 4.4 above |
+- pkg70 → both denoiser backends shipped; user picks OIDN or OptiX.
+- pkg57 → biggest Blender-integration package done; Astroray nodes
+  in the shader editor; engine-switch survival.
+- pkg71 → measured Cycles parity numbers in CI; the "matches Cycles"
+  claim has data behind it.
+- pkg68 verification → CUDA-OIDN performance numbers recorded.
 
-Pillar 4 research (Kerr / metric-aware / accretion-emission /
-Pillar 4 I/O) all landed during the pre-strategic-shift rounds;
-they sit waiting for when astrophysics resumes. **Do not start
-new astrophysics research sessions in this round.**
+Then the open Pillar 5 set is just pkg56 (incremental scene sync,
+multi-week) and pkg64 (spectral caustics flagship). Both are
+multi-week; do them sequentially or in parallel based on capacity.
 
----
+Only after pkg56 + pkg64 land do we revisit Pillar 4 — at which
+point pkg41 (Kerr validation, follows pkg40) and the Codex-paste-
+ready specs for pkg42-49 are waiting.
 
-## 7. Track assignments going forward
-
-| Track | Agent | Now owns |
-|---|---|---|
-| A. Core quality | Claude Code | pkg54c verification, pkg68, pkg57, pkg56, pkg64, pkg70, pkg71 implementation. Per-package research noted in §6. |
-| B. Feature breadth | (currently inactive) | — |
-| C. Experiments | (currently inactive) | — |
-| D. Grind work | (currently inactive) | — |
-| E. Coordination/review | Codex | pkg69 (and pkg47/pkg40-pattern Pillar 4 packages when astrophysics resumes). PR review. |
-
----
-
-## 8. Verification posture (carry-forward)
-
-Same lessons from the pkg54a/b/c verification cycles:
-
-1. Implementation session writes code + parity test gate.
-2. Verification session on CUDA hardware builds, runs, reports
-   numbers verbatim.
-3. Close-but-not-quite gates → report and ask, never silently
-   relax. (Caught the D65 over-bright stand-in this way; will
-   probably catch more such bugs going forward.)
-4. Confounded "is dispatch alive?" gates → file a follow-up
-   package for an unconfounded test (pkg54d pattern), don't
-   loosen the gate.
-5. New: any package that claims "matches Cycles" or "competitive
-   with Cycles" must produce numbers from the pkg71 framework
-   when it lands. Anecdotal claims do not satisfy acceptance.
-
----
-
-## 9. Practical conclusion
-
-Tier 1+2 cleared (pkg63 fix, pkg69, pkg68, pkg57, pkg70) plus
-the pkg71 spec gives us:
-
-- Blender shader-node integration delivered (pkg57).
-- OIDN at full speed on the user's RTX (pkg68 + pkg70 give
-  CUDA-OIDN and OptiX as backend choices).
-- Compositor denoise workflow drop-in (pkg69).
-- Measured parity numbers (pkg71).
-- Clean HDRI parity (pkg63 once fixed).
-
-Then pkg56 (incremental scene sync) is the last big Blender-
-integration package; pkg64 (caustics) is the visual flagship.
-Only after both of those will we revisit Pillar 4 — at which
-point the pkg41/pkg42/pkg43/pkg44/pkg47/pkg48/pkg49 specs are
-already Codex-paste-ready.
-
-Bump this report's date and rewrite when the queue moves
-substantially (likely after pkg57 lands, or when pkg56 starts).
+Bump this report when pkg57 lands or when pkg56 starts.

@@ -784,6 +784,13 @@ def stage_and_zip(module_path: Path, backend: str = "cpu") -> Path:
     if preview_helpers.exists():
         shutil.copy2(preview_helpers, STAGE_DIR / "_preview_helpers.py")
 
+    # pkg57: ship the native shader-nodes subpackage.
+    nodes_src = ADDON_SRC / "nodes"
+    if nodes_src.is_dir():
+        shutil.copytree(nodes_src, STAGE_DIR / "nodes",
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                        dirs_exist_ok=True)
+
     # pkg58: ship reference IR/UV scenes (optional in source tree).
     scenes_src = ADDON_SRC / "scenes"
     if scenes_src.is_dir():

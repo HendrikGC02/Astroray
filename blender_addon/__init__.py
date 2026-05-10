@@ -21,6 +21,38 @@ if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
 
 from shader_blending import blend_shader_specs, add_shader_specs
 
+# pkg57: native Astroray shader nodes (Spectral Profile, Sellmeier Glass,
+# IR/UV Response, NRC Hint, Output). Imported defensively so a partial install
+# (missing nodes/ directory) does not break the rest of the addon.
+def _import_astroray_nodes():
+    """Load the `nodes/` subpackage. Tries package-relative import first
+    (the normal case when Blender loads us as `bl_ext.user_default.astroray`),
+    then falls back to a direct file load (test harnesses load this file
+    standalone without the package wrapper)."""
+    try:
+        from . import nodes as _nodes  # type: ignore
+        return _nodes
+    except (ImportError, ValueError):
+        pass
+    try:
+        import importlib.util as _u
+        nodes_init = os.path.join(addon_dir, "nodes", "__init__.py")
+        if not os.path.isfile(nodes_init):
+            return None
+        spec = _u.spec_from_file_location("astroray_blender_nodes", nodes_init)
+        if spec is None or spec.loader is None:
+            return None
+        mod = _u.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"Astroray native shader nodes unavailable: {exc}")
+        return None
+
+
+astroray_nodes = _import_astroray_nodes()
+_ASTRORAY_NODES_AVAILABLE = astroray_nodes is not None
+
 # On Windows the compiled .pyd ships with bundled MinGW runtime DLLs
 # (libgomp-1.dll, etc.). Python 3.8+ no longer searches PATH for module
 # dependencies, so we have to explicitly add the addon directory to the
@@ -1215,6 +1247,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if node_tree is None:
             return _apply_spectral_profile(renderer.create_material('disney', [0.8, 0.8, 0.8], {}))
 
+        # pkg57 pre-check: if an AstrorayOutputNode is present anywhere in the
+        # flattened tree, take the Astroray-native path. The original
+        # OUTPUT_MATERIAL (if any) is left wired so Cycles continues to render
+        # the same material correctly. See blender-shader-nodes-research.md §2.
+        astroray_out = next(
+            (n for n in node_tree.nodes if getattr(n, 'bl_idname', None) == 'AstrorayOutputNode'),
+            None,
+        )
+        if astroray_out is not None:
+            return _apply_spectral_profile(
+                self.convert_astroray_output(astroray_out, renderer, node_tree, mat))
+
         # Find the active output node (preferred), or any OUTPUT_MATERIAL
         output = None
         for node in node_tree.nodes:
@@ -1241,6 +1285,164 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         shader_node = surface_input.links[0].from_node
         return _apply_spectral_profile(self.convert_shader_node(shader_node, renderer, node_tree))
+
+    # ------------------------------------------------------------------ #
+    # pkg57: Astroray-native node tree conversion.
+    # Mirrors the dispatch shape of convert_shader_node + _principled_shader_spec
+    # so the new path reads like the existing one.
+    # ------------------------------------------------------------------ #
+
+    def convert_astroray_output(self, output_node, renderer, node_tree, mat):
+        """Resolve the BSDF wired into an AstrorayOutputNode → material id."""
+        surface_input = output_node.inputs.get('Surface')
+        if not surface_input or not surface_input.is_linked:
+            # No surface wired — fall back to a neutral disney to keep the
+            # frame renderable (mirrors the OUTPUT_MATERIAL no-surface branch).
+            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+
+        wired = surface_input.links[0].from_node
+        bl_idname = getattr(wired, 'bl_idname', '')
+
+        if bl_idname == 'AstrorayShaderNodeSellmeierGlass':
+            return self._create_astroray_material(
+                self._astroray_sellmeier_spec(wired, mat), renderer, node_tree)
+        if bl_idname == 'AstrorayShaderNodeIrUvResponse':
+            return self._create_astroray_material(
+                self._astroray_ir_uv_spec(wired, mat), renderer, node_tree)
+        if bl_idname == 'AstrorayShaderNodeNrcHint':
+            return self._create_astroray_material(
+                self._astroray_nrc_hint_spec(wired, mat, renderer), renderer, node_tree)
+        if bl_idname == 'AstrorayShaderNodeSpectralProfile':
+            # A bare spectral-profile node wired to Surface produces a neutral
+            # diffuse that the spectral profile multiplies — matches pkg58.
+            return self._create_astroray_material(
+                {'kind': 'astroray_spectral_only',
+                 'profile': self._astroray_read_profile(wired, mat)},
+                renderer, node_tree)
+        # Cycles / standalone fallback: dispatch through the existing path.
+        return self.convert_shader_node(wired, renderer, node_tree)
+
+    def _astroray_read_profile(self, node, mat):
+        """Read the spectral profile name from an AstroraySpectralProfile node,
+        falling back to mat.custom_raytracer.spectral_profile when empty."""
+        prof = getattr(node, 'profile', '') or ''
+        if not prof or prof == '__none__':
+            crt = getattr(mat, 'custom_raytracer', None)
+            prof = getattr(crt, 'spectral_profile', '') if crt else ''
+        return prof if prof and prof != '__none__' else ''
+
+    def _astroray_sellmeier_spec(self, node, mat):
+        """Build a spec dict for the dielectric (Sellmeier) plugin."""
+        tint_socket = node.inputs.get('Tint')
+        tint = [1.0, 1.0, 1.0]
+        if tint_socket is not None and not tint_socket.is_linked:
+            try:
+                tint = list(tint_socket.default_value)[:3]
+            except (TypeError, IndexError):
+                pass
+        spec = {
+            'kind': 'astroray_sellmeier',
+            'tint': tint,
+            'use_preset': bool(getattr(node, 'use_preset', True)),
+            'preset': getattr(node, 'preset', '') or '',
+            'ior': float(getattr(node, 'ior_design', 1.5168)),
+        }
+        # Carry the manual B/C overrides from socket defaults (the dielectric
+        # plugin currently consumes the preset; B/C plumbing remains a
+        # forward-compatibility carry until the plugin grows raw-coefficient
+        # parameters — flagged in the package note).
+        b_socket = node.inputs.get('Sellmeier B')
+        c_socket = node.inputs.get('Sellmeier C')
+        try:
+            if b_socket is not None and not b_socket.is_linked:
+                spec['sellmeier_b'] = list(b_socket.default_value)[:3]
+            if c_socket is not None and not c_socket.is_linked:
+                spec['sellmeier_c'] = list(c_socket.default_value)[:3]
+        except (TypeError, IndexError):
+            pass
+        # Material-level fallback preset (pkg37-era materials).
+        if not spec['preset']:
+            astro = getattr(mat, 'astroray', None)
+            spec['preset'] = getattr(astro, 'sellmeier_preset', '') if astro else ''
+        return spec
+
+    def _astroray_ir_uv_spec(self, node, mat):
+        """IR/UV response wraps a base BSDF (its Surface input). For now we
+        promote the wrapper itself to a Disney with the band reflectance
+        applied as a tint — a full multi-band response material is pkg-future
+        work; this keeps the node functional without inventing a closure."""
+        base_node = None
+        surface_in = node.inputs.get('Surface')
+        if surface_in is not None and surface_in.is_linked:
+            base_node = surface_in.links[0].from_node
+        return {
+            'kind': 'astroray_ir_uv',
+            'band': getattr(node, 'band', 'ir'),
+            'reflectance': float(getattr(node, 'reflectance', 0.5)),
+            'profile': self._astroray_read_profile(node, mat) if False else '',
+            'base_bl_idname': getattr(base_node, 'bl_idname', '') if base_node else '',
+        }
+
+    def _astroray_nrc_hint_spec(self, node, mat, renderer):
+        """NRC hint is a passthrough — it annotates the underlying BSDF and
+        does not change the material kind. Resolve the inner shader and
+        forward it; record the cache flag on mat.astroray for the integrator
+        to query."""
+        astro = getattr(mat, 'astroray', None)
+        if astro is not None:
+            try:
+                astro.nrc_cache_hint = bool(getattr(node, 'cache_this', True))
+            except (AttributeError, TypeError):
+                pass
+        inner = node.inputs.get('Surface')
+        if inner is None or not inner.is_linked:
+            return {'kind': 'principled', 'base_color': [0.8, 0.8, 0.8], 'params': {}}
+        wired = inner.links[0].from_node
+        # Recurse via convert_shader_node by emitting an opaque pass-through
+        # spec the material creator forwards via the existing path.
+        return {'kind': 'astroray_passthrough', 'inner': wired,
+                'cache_this': bool(getattr(node, 'cache_this', True))}
+
+    def _create_astroray_material(self, spec, renderer, node_tree):
+        """Materialise an Astroray-native spec dict into a renderer material."""
+        if spec is None:
+            return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+        kind = spec.get('kind')
+
+        if kind == 'astroray_sellmeier':
+            params = {}
+            if spec.get('use_preset') and spec.get('preset'):
+                params['sellmeier_preset'] = spec['preset']
+            else:
+                params['ior'] = spec.get('ior', 1.5168)
+            # Carry manual B/C as forward-compat keys; dielectric.cpp ignores
+            # them today but a future patch can read them directly.
+            if 'sellmeier_b' in spec:
+                params['sellmeier_b'] = spec['sellmeier_b']
+            if 'sellmeier_c' in spec:
+                params['sellmeier_c'] = spec['sellmeier_c']
+            return renderer.create_material('dielectric', list(spec.get('tint', [1, 1, 1])), params)
+
+        if kind == 'astroray_ir_uv':
+            # Promote to a neutral Disney; the IR/UV reflectance is exposed as
+            # the base color for the chosen band. Spectral-aware multi-band
+            # closures live in the integrator layer (pkg58/60) and are picked
+            # up automatically via the spectral_profile path when set.
+            r = float(spec.get('reflectance', 0.5))
+            return renderer.create_material('disney', [r, r, r], {'roughness': 0.5})
+
+        if kind == 'astroray_passthrough':
+            inner = spec.get('inner')
+            if inner is None:
+                return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+            return self.convert_shader_node(inner, renderer, node_tree)
+
+        if kind == 'astroray_spectral_only':
+            # Profile is applied via _apply_spectral_profile in the caller.
+            return renderer.create_material('disney', [1.0, 1.0, 1.0], {})
+
+        # Unknown kind — neutral fallback.
+        return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
 
     # ------------------------------------------------------------------ #
     # Node-input helpers (unlinked defaults + linked image texture lookup)
@@ -3428,6 +3630,13 @@ def register():
     bpy.types.Material.custom_raytracer = PointerProperty(type=CustomRaytracerMaterialSettings)
     bpy.types.Object.astroray_black_hole = PointerProperty(type=AstrorayBlackHoleProperties)
 
+    # pkg57: native shader nodes + per-material settings.
+    if _ASTRORAY_NODES_AVAILABLE:
+        try:
+            astroray_nodes.register()
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"Astroray native shader nodes register() failed: {exc}")
+
     # Opt every compatible built-in panel into our engine.
     for panel in _iter_compat_panels():
         panel.COMPAT_ENGINES.add('CUSTOM_RAYTRACER')
@@ -3438,6 +3647,12 @@ def register():
 def unregister():
     for panel in _iter_compat_panels():
         panel.COMPAT_ENGINES.discard('CUSTOM_RAYTRACER')
+
+    if _ASTRORAY_NODES_AVAILABLE:
+        try:
+            astroray_nodes.unregister()
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"Astroray native shader nodes unregister() failed: {exc}")
 
     del bpy.types.Scene.custom_raytracer
     del bpy.types.Material.custom_raytracer

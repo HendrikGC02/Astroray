@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-10 (Round 5 closed — strategic gate **RELEASED**; pkg56-C/pkg74-3/pkg76/pkg55-A/pkg41 + pkg73 diag instrumentation all landed; Pillar 4 thawed and shipping)
+**Last updated:** 2026-05-11 (Round 6 closed on the planned scope — pkg42/pkg73-fix/pkg80/pkg81-P1+P2/pkg55-A.1 all landed; small Round-6 leftovers carried to Round 7. Pillar 4 actively shipping; viewport-parity gate now formally owned by pkg55 Phase B)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -21,41 +21,67 @@ personally should pick up.
   inference speedup/quality target and ReSTIR/NRC are CPU-integrator plugins,
   not CUDA kernels.
 - Pillar 5 (Cycles parity / Blender integration / denoiser story) is
-  feature-complete on the planned scope. Done as of 2026-05-10:
-  pkg52/53/57/58/59/60/61/62/63/65/66 (the original Cycles-parity wave);
-  pkg54/54a/54b/54c/54d (full GPU multi-wavelength parity, hardware
-  verified); pkg68 (OIDN persistent device, **measured 2.77× speedup**
-  post-pkg75); pkg69 (compositor Albedo pass); pkg70 (OptiX denoiser,
-  **1.86× faster than OIDN-CUDA, SSIM 0.9987 vs OIDN**); pkg72 (motion
-  vector AOV); pkg75 (first-hit normal buffer for AOV guides); pkg64
-  Phases 1+2+3 (RGB SMS + spectral wavelength-Newton, **+8.83 dB PSNR
-  delta**, Phase 3 folds SMS into the default `path_tracer` via
-  per-bounce hook); **pkg56 Phases A+B+C** (viewport sync
-  instrumentation → uploadScene split → depsgraph-driven dispatch
-  with idle frame ≤5 ms p99 on a 99k-tri scene; gate-releasing
-  package); pkg74 all phases (showcase framework + full stat
-  coverage + interactive HTML + weekly CI); pkg71 framework + first
-  canonical Cornell baseline (**Astroray-CPU SSIM 0.9536, GPU SSIM
-  0.9548 vs Cycles-CPU EXR; Astroray-GPU 5.2× faster than
-  Cycles-CUDA**); **pkg76** (Astroray `.blend` importer, parity
-  scope, SDNA-walking offline reader with no `bpy` runtime
-  dependency); **pkg55 Phase A** (wavefront SoA baseline
-  instrumentation: `ASTRORAY_PROFILE=1`-gated CUDA events + NVTX,
-  baseline.json shows **158 regs/thread + 1 active block/SM** — the
-  Laine 2013 occupancy cliff Phase B will attack). **pkg73 OptiX
-  TEMPORAL_AOV** is implemented but the upgrade branch never fired
-  on RTX hardware (0% inter-frame variance reduction vs ≥30% gate);
-  diag instrumentation in PR #241 captured the call chain end-to-end
-  for a follow-up Round 6 fix session.
-- **Pillar 4 strategic gate RELEASED (2026-05-10).** pkg56 Phases B+C
-  and pkg64 Phase 3 all landed; **pkg41 Kerr validation shipped**
-  (BPT 1972 + Chandrasekhar analytic + 39 tests including null circular
-  photon residuals + Kerr a=0 vs Schwarzschild identity + shadow-
-  contour image-plane regression). **pkg42 synchrotron emission shipped**
-  (VolumetricEmission interface, Pandya 2016 power-law/thermal fits,
-  bipolar jet plugin, Blender jet controls, 9 focused tests). pkg43–51
-  specs remain unfrozen and Codex-paste-ready. pkg40 Kerr metric was already
-  done pre-gate.
+  **feature-complete on planned scope**, but the user-facing
+  competitive-parity claim (viewport pan/zoom feeling like Cycles) is
+  **not** met yet — pkg81 Phase 1+2 measured **CUDA 104 ms vs CPU
+  58 ms on identical 100k-tri load** on the user's RTX 5070 Ti, which
+  makes pkg55 Phase A's 158 regs/thread cliff measurably user-facing.
+  pkg55 Phase B (wavefront per-material shade kernels) now formally
+  owns the viewport-parity acceptance gate ("CUDA pan-frame p99 ≤
+  1.2× Cycles-CUDA on the pkg81 harness scene"). Done as of
+  **2026-05-11**:
+  - **Cycles parity wave**: pkg52/53/57/58/59/60/61/62/63/65/66.
+  - **GPU multi-wavelength parity**: pkg54/54a/54b/54c/54d.
+  - **Denoiser story closed end-to-end**: pkg33 → pkg68 (**2.77×
+    viewport speedup**) → pkg69 (compositor Albedo) → pkg70 (OptiX,
+    **1.86× faster than OIDN-CUDA**) → pkg72 (motion vector AOV) →
+    pkg75 (first-hit normal buffer fix) → **pkg73 OptiX TEMPORAL_AOV
+    fixed and verified** (PR #249, 2026-05-11; **53.1% inter-frame
+    variance reduction vs ≥30% gate** on RTX 5070 Ti / OptiX 9.1 /
+    CUDA 12.8). Two compounding root causes: plugin's
+    `OptixDenoiserParams::temporalModeUsePreviousLayers` was never
+    set, AND the AOV-reference test was silently upgraded to
+    TEMPORAL_AOV by sub-pixel float dust in `projectToPrevPixel`.
+  - **Caustics flagship done**: pkg64 Phases 1+2+3 (**+8.83 dB PSNR
+    delta**, 1.18× receiver-energy ratio, +0.26 dB PSNR floor, 2.0%
+    empty-hook overhead).
+  - **Cycles parity benchmark**: pkg71 framework + first Cornell
+    baseline (**Astroray-CPU SSIM 0.9536, GPU SSIM 0.9548 vs
+    Cycles-CPU EXR; Astroray-GPU 5.2× faster than Cycles-CUDA**);
+    **pkg76 .blend importer done** (PR #240, SDNA-walking Python
+    reader, no `bpy` runtime); CSV row population on Classroom /
+    Junkshop / BMW27 carried to Round 7 as a ½-day RTX session.
+  - **Showcase framework**: pkg74 all phases (interactive PBRT-style
+    HTML + weekly self-hosted CI).
+  - **Viewport sync done**: pkg52 + pkg56 Phases A+B+C — depsgraph-
+    driven dispatch, idle frame ≤5 ms p99 on a 99k-tri scene
+    (gate-releasing package).
+  - **Wavefront SoA scaffold landed**: **pkg55 Phase A** (gated CUDA
+    events + NVTX, baseline.json with 158 regs/thread + 1 active
+    block/SM measured) AND **pkg55 Phase A.1** (PR #250, 2026-05-11
+    — SoA path state + intersect queue, gated behind
+    `-DASTRORAY_WAVEFRONT_INTERSECT=ON`, bit-identical AoS megakernel
+    output verified). Phase B (per-material shade kernels) is the
+    next big Round-7 deliverable and now owns the viewport-parity
+    acceptance gate.
+  - **Blender daily workflow unblocked**: **pkg80** (PR #246, 2026-
+    05-11) resolves `'auto'` integrator dropdown to a registered
+    plugin before C++ calls; the GPU-mode crash on viewport
+    rendered-view is gone.
+  - **Viewport-parity measurement complete**: **pkg81 Phase 1+2** (PR
+    #248, 2026-05-11) — harness + 16-config Cycles A/B sweep +
+    diagnosis note. H4 (megakernel register pressure) dominates;
+    Phase 3 routes to pkg55 Phase B per spec escape. Smaller H2
+    (accumulator-reset-per-pan) and H5 (12 s cold-start) findings
+    split out as **pkg83** + **pkg84** for immediate addon-side
+    Round-7 wins.
+- **Pillar 4 strategic gate RELEASED (2026-05-10) and shipping.**
+  pkg40 Kerr metric (pre-gate), **pkg41 Kerr validation** (PR #236, BPT
+  1972 + Chandrasekhar + 39 tests), **pkg42 synchrotron emission** (PR
+  #245, VolumetricEmission interface + Pandya 2016 power-law/thermal
+  fits + bipolar jet plugin + Blender jet controls + 9 focused tests).
+  **pkg43 (slim disk)** + **pkg44 (ADAF)** are next in series for
+  Round 7 Codex; pkg45–51 paste-ready specs queued.
 - Pytest collection (`runtime_setup.py` `os.add_dll_directory` dedupe
   in PR #225): **801 tests collected** on the Windows MSVC `build_cuda`
   configuration. New since Round 3: pkg64-3 default-integrator + no-
@@ -78,7 +104,7 @@ personally should pick up.
   non-determinism in the SSIM saturation regime. **pkg82** picks up
   the variance characterisation that turns the diagnosis into a
   data-driven gate decision. Round 6 Codex pickup on RTX.
-- `NEXT_STAGE_REPORT.md` is the live action queue (Round 6 prompts);
+- `NEXT_STAGE_REPORT.md` is the live action queue (Round 7 prompts);
   this file is the source of truth for completion state. `production.md`
   remains historical (pkg50+ placeholder names that conflict with live
   package numbers are marked obsolete in-place).
@@ -92,8 +118,8 @@ personally should pick up.
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
-| 4 | Astrophysics platform | **Active** | 35% | pkg43 slim disk accretion model | gate released; pkg40 metric + pkg41 validation + pkg42 synchrotron done |
-| 5 | Production polish / Blender parity | **Feature-complete on package count, NOT on user-facing parity** | ~96% (counter) | pkg80 (auto-integrator GPU crash) + pkg81 (viewport-vs-Cycles measurement) | pkg80/pkg81 surfaced 2026-05-10; pkg73 fixed 2026-05-11 (PR #249) — denoiser story closed |
+| 4 | Astrophysics platform | **Active, shipping** | 35% | pkg43 slim disk accretion model | gate released; pkg40 + pkg41 + pkg42 done; pkg43–51 queued |
+| 5 | Production polish / Blender parity | **Feature-complete on planned scope; viewport-parity gate now owned by pkg55 Phase B** | ~98% (counter) | pkg55 Phase B (per-material shade kernels — owns the viewport-parity claim) | pkg73 ✓ + pkg80 ✓ + pkg81 P1+P2 ✓ + pkg55-A.1 ✓ all done 2026-05-11; pkg55-B is the long-tail |
 
 **Pillar 1 package summary:**
 
@@ -188,12 +214,13 @@ is currently the weakest link.
 | pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **done** | A |
 | pkg72 | Per-pixel motion vector AOV (camera-only screen-space flow; OptiX prev→curr convention; `Renderer.get_motion_buffer()` zero-copy NumPy view; `motion_vector_aov` visualisation pass) — unblocks pkg73 OptiX temporal denoiser | **done** | A |
 | pkg73 | OptiX TEMPORAL_AOV denoiser mode (auto-upgrade from pkg70 AOV when pkg72 motion buffer is non-zero; destroy + recreate on model-kind transition; ping-pong internal-guide-layer pair; previous-output cache + first-frame fallback; clean fallback to AOV on static cameras). Mirrors Cycles `intern/cycles/integrator/path_trace_work_gpu.cpp` (Apache-2.0). | **done** — defect fixed in PR #249 (2026-05-11). Two compounding root causes: (1) plugin: `OptixDenoiserParams::temporalModeUsePreviousLayers` was zero-init and never set → OptiX silently treated every frame as a new sequence start and dropped temporal accumulation, (2) test: AOV reference was silently upgraded to TEMPORAL_AOV by sub-pixel float dust (~2e-5) in `projectToPrevPixel` even when prev-pose == curr-pose → `rms_t == rms_a` by construction, masking root cause 1. Hardware-verified on RTX 5070 Ti / OptiX 9.1 / CUDA 12.8: **53.1% inter-frame variance reduction (gate ≥30%), 5/5 tests pass**. Diagnostic prints from PR #241 removed. **Denoiser story closes here** (pkg33 → pkg68 → pkg69 → pkg70 → pkg72 → pkg73). | A |
-| pkg76 | Astroray `.blend` importer (parity scope) — offline SDNA-walking Python reader, no `bpy` runtime dependency; supports Blender 5.1's 17-byte file header + 32-byte block header + new `attribute_storage`; returns `astroray.Scene`. `tools/blend_import/{sdna,reader,scene_builder,blend_to_astroray}.py`. | **done** (PR #240; CSV row population on Classroom/Junkshop/BMW27 deferred to a Round 6 RTX session — needs healthy denoiser path post-pkg73 fix) | A |
-| pkg80 | Blender addon: resolve `'auto'` integrator dropdown to a registered plugin before C++ calls — daily-workflow blocker surfaced 2026-05-10 by owner (`RuntimeError: Astroray: integrator 'auto' does not support GPU` on viewport rendered-view + GPU device mode). | **open** (Round 6 Codex pickup) | A |
+| pkg76 | Astroray `.blend` importer (parity scope) — offline SDNA-walking Python reader, no `bpy` runtime dependency; supports Blender 5.1's 17-byte file header + 32-byte block header + new `attribute_storage`; returns `astroray.Scene`. `tools/blend_import/{sdna,reader,scene_builder,blend_to_astroray}.py`. | **done** (PR #240; CSV row population on Classroom/Junkshop/BMW27 carried to Round 7 as a ½-day RTX follow-up) | A |
+| pkg80 | Blender addon: resolve `'auto'` integrator dropdown to a registered plugin before C++ calls — daily-workflow blocker surfaced 2026-05-10 by owner. | **done** (PR #246, 2026-05-11 — `_effective_integrator_name` now resolves `'auto'` against `astroray.integrator_registry_names()` filtered by device-mode capability; new `tests/test_blender_auto_integrator.py` covers the four resolution cases) | A |
 | pkg81 | Viewport interactivity parity with Cycles — Phase 1 harness + Phase 2 diagnosis + Phase 3 fix. | **Phase 1+2 done 2026-05-11** (PR #248); harness + 16-config sweep + pkg81-diagnosis.md committed. Headline: **CUDA 104 ms vs CPU 58 ms on 100k tris** — H4 (megakernel register pressure, the pkg55-A 158 regs/thread cliff) dominates. **Phase 3 routes to pkg55 Phase B** per spec escape clause; Phase B now owns the viewport-parity acceptance gate. H2 + H5 follow-ups split out as pkg83 + pkg84. | A |
-| pkg83 | Progressive accumulation continuation — addon-only fix for H2 from pkg81. Today: addon resets accumulator on every `camera_changed` notification; pkg81 confirmed `spp_trace=[1]` per pan-frame. Cycles' `BlenderSession::reset` only invalidates on substantive scene-graph mutations. | **open** (Round 6 Codex pickup; ~½ day) | A |
-| pkg84 | CUDA kernel pre-warm at viewport start — addon-only fix for H5 from pkg81. Today: first CUDA frame in a session = 12,079 ms (kernel JIT + context init); subsequent ~14 ms. Pre-warm a 1-pixel render of a trivial scene during viewport-start to move the spinner to a moment the user expects. | **open** (Round 6 Codex pickup; ~½ day) | A |
-| pkg55 | Wavefront SoA GPU refactor — Phase A (`ASTRORAY_PROFILE=1`-gated CUDA events + NVTX + baseline.json; **measured 158 regs/thread + 1 active block/SM** at the 256-thread launch — Laine 2013 occupancy cliff documented for Phase B to attack) | **Phase A done; Phase A.1 (SoA infra + intersect queue) + Phase B (per-material shade kernels) + Phase C (megakernel removal) open** | A |
+| pkg82 | pkg54c visible-band SSIM gate variance characterisation (Phase 1 intra-binary + Phase 2 cross-build + Phase 3 data-driven gate decision). | **open** — Round 7 hardware pickup (~1 day on RTX). pkg78 bisect refused on §1 grounds; pkg82 turns the diagnosis into measured numbers. | A |
+| pkg83 | Progressive accumulation continuation — addon-only fix for H2 from pkg81. Reset only on substantive scene-graph mutations, not every `camera_changed`. | **open** — Round 7 Codex pickup (~½ day) | A |
+| pkg84 | CUDA kernel pre-warm at viewport start — addon-only fix for H5 from pkg81. Pre-warm a 1-pixel render of a trivial scene during viewport-start to move the 12 s spinner to a moment the user expects. | **open** — Round 7 Codex pickup (~½ day) | A |
+| pkg55 | Wavefront SoA GPU refactor — Phase A.0 (`ASTRORAY_PROFILE=1`-gated CUDA events + NVTX + baseline.json; **158 regs/thread + 1 active block/SM** documented as the occupancy cliff) **+ Phase A.1** (SoA path-state struct + intersect queue gated behind `-DASTRORAY_WAVEFRONT_INTERSECT=ON`, default OFF, bit-identical AoS megakernel output verified, PR #250 2026-05-11). | **Phases A.0 + A.1 done; Phase B (per-material shade kernels — now owns the viewport-parity acceptance gate from pkg81) + Phase C (megakernel removal) open** | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
 original roadmap but no full spec written; capture intent before they're
@@ -212,7 +239,7 @@ forgotten):
 |---|---|---|
 | pkg40 | Kerr metric plugin and Schwarzschild extraction | **done** |
 | pkg41 | Kerr geodesic validation | **done** (PR #236 — 39 tests; BPT 1972 + Chandrasekhar analytic + null circular photon residuals + Kerr a=0 vs Schwarzschild identity + shadow-contour image-plane regression) |
-| pkg42 | Synchrotron emission and relativistic jets | **implemented** (PR pending — VolumetricEmission interface, `synchrotron_jet`, Pandya 2016 fits, Blender controls, 9 tests) |
+| pkg42 | Synchrotron emission and relativistic jets | **done** (PR #245, 2026-05-11 — VolumetricEmission interface, `synchrotron_jet` plugin, Pandya 2016 power-law/thermal fits, bipolar jet plugin, Blender jet controls, 9 focused tests) |
 | pkg43 | Slim disk accretion model | open |
 | pkg44 | ADAF accretion model | open |
 | pkg45 | CLOUDY emissivity table preprocessing | open |
@@ -227,25 +254,29 @@ forgotten):
 
 ## This week
 
-**Week of:** 2026-05-10 (Round 6 — pkg73 hardware fix, first wave of
-post-gate Pillar 4, wavefront SoA scaffold)
+**Week of:** 2026-05-11 (Round 7 — pkg55 Phase B as the long-tail,
+Pillar 4 continuation pkg43+pkg44, four small Round-6 leftovers)
 
 ### Track A (Claude Code)
 
-- Round 5 closed cleanly. pkg56 Phase C landed (PR #233 — depsgraph
-  dispatch, idle ≤5 ms p99): **strategic gate released; Pillar 4
-  thawed**. pkg74 Phase 3 (interactive HTML + weekly CI), pkg76
-  (.blend importer), pkg55 Phase A (wavefront baseline), pkg73 diag
-  instrumentation all on `main`.
-- Round 6 deployable set per [`NEXT_STAGE_REPORT.md`](NEXT_STAGE_REPORT.md):
-  - **pkg73 fix** (~½ day after diag capture) — close the temporal
-    denoiser story; gate ≥30% inter-frame variance reduction
-  - **pkg55 Phase A.1** SoA infra + intersect queue (~1–2 weeks) —
-    behind `-DASTRORAY_WAVEFRONT_INTERSECT=ON`, default OFF, bit-
-    identical AoS path stays default
-- After Round 6: pkg55 Phase B (per-material shade kernels — the
-  refactor that breaks the 158 regs/thread cliff), pkg67
-  metric-aware path tracer (now unblocked alongside Pillar 4).
+- Round 6 closed on planned scope. pkg73 fix (PR #249 — denoiser
+  story closes end-to-end at 53.1% inter-frame variance reduction),
+  pkg80 (PR #246 — `'auto'` integrator resolved), pkg81 P1+P2 (PR
+  #248 — viewport-parity harness + diagnosis: H4 dominant), and
+  pkg55 Phase A.1 (PR #250 — SoA path state + intersect queue gated)
+  all on `main`.
+- Round 7 deployable set per [`NEXT_STAGE_REPORT.md`](NEXT_STAGE_REPORT.md):
+  - **pkg55 Phase B** per-material shade kernels (~4–6 weeks). Now
+    formally owns the viewport-parity acceptance gate (CUDA pan-
+    frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene).
+    The largest active package; the user-facing competitive parity
+    claim resolves into Phase B's gate.
+- Round-6 leftovers carried forward: pkg82 (variance, ~1 day RTX),
+  pkg76 CSV (~½ day RTX), pkg83 (H2 fix, ~½ day Codex), pkg84 (H5
+  fix, ~½ day Codex).
+- After Round 7: pkg55 Phase C (megakernel removal, ~3 weeks); pkg67
+  metric-aware path tracer becomes plausible once pkg40 + pkg55
+  maturity is in place.
 
 ### Track A (Claude Code) — previous
 
@@ -278,20 +309,22 @@ post-gate Pillar 4, wavefront SoA scaffold)
 
 ### Track E (Codex)
 
-- 2026-05-10 cumulative haul: pkg40 Kerr metric (#195), pkg54d profile
-  lookup binding (#187), pkg69 Albedo pass (#201), pkg71 framework + first
-  Cornell baseline (#205 + #218), pkg70 build hygiene (#215), pkg59 named
-  UV (#184), pkg60 Disney v2 (#178), pkg65, pkg66, pkg64 Phase 3 (#230),
-  pkg74 Phase 3 (#232), **pkg41 Kerr validation (#236, first post-gate
-  Pillar-4 deliverable)**.
-- Round 6 Codex queue (per `NEXT_STAGE_REPORT.md`):
-  - **pkg43 slim disk accretion model** (Pillar 4; pkg42 VolumetricEmission
-    interface is now available)
-  - **pkg78 bisect** for issue [#237](https://github.com/HendrikGC02/Astroray/issues/237)
-    (find the actual commit that drifted the visible-band SSIM)
+- Round 6 Codex haul (2026-05-11): **pkg42 synchrotron emission**
+  (#245, first second-wave Pillar-4 deliverable — VolumetricEmission
+  interface now available for pkg43+pkg44 to build on), **pkg80**
+  (#246), pkg82 spec filed, pkg78 bisect § 1 refusal documented.
+- Round 7 Codex queue (per `NEXT_STAGE_REPORT.md`):
+  - **pkg43 slim disk accretion model** (Pillar 4; pkg42 interface
+    now available)
+  - **pkg44 ADAF accretion model** (Pillar 4; after pkg43)
+  - **pkg82 variance characterisation** for issue [#237](https://github.com/HendrikGC02/Astroray/issues/237)
+    (~1 day on RTX)
+  - **pkg83** addon-only H2 fix (~½ day)
+  - **pkg84** addon-only H5 fix (~½ day)
   - **pkg76 CSV** rows for Classroom / Junkshop / BMW27 on RTX
-  - **pkg79** ReSTIR `test_spatial_reduces_mse` flake fix (margin
-    0.000004 — bumped seed averaging or assertion margin)
+    (~½ day; carries from Round 6 — needed pkg73 fixed first, now
+    is)
+  - **pkg79** ReSTIR `test_spatial_reduces_mse` flake fix
 - Active: coordination, Pillar 4 throughput, CI hygiene.
 
 ---
@@ -435,6 +468,20 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-11 (Round 6 close)** — six of eight Round-6 sessions
+  shipped on planned scope: **pkg42 synchrotron emission** (#245,
+  Pillar 4), **pkg80 Blender `'auto'` integrator fix** (#246,
+  daily-blocker), **pkg73 fix** (#249, denoiser story closes end-
+  to-end at **53.1% variance reduction**), **pkg81 Phase 1+2** (#248,
+  viewport-parity harness + diagnosis: **CUDA 104 ms vs CPU 58 ms**
+  on 100k-tri load), **pkg55 Phase A.1** (#250, SoA path state +
+  intersect queue gated). pkg82 spec filed (#247) after pkg78 bisect
+  refused on §1 grounds; pkg83+pkg84 specs filed (#253) for the
+  small H2/H5 follow-ups from pkg81. **Pillar 5 viewport-parity
+  acceptance gate is now formally owned by pkg55 Phase B**, the
+  long-tail Round-7 deliverable. Four small Round-6 leftovers
+  (pkg82 variance, pkg76 CSV, pkg83, pkg84) carried into Round 7.
 
 - **2026-05-11 (pkg81 measurement-complete)** — first honest
   Astroray-vs-Cycles viewport numbers exist. Harness + 16-config

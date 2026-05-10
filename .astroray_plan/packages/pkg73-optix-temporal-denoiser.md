@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** implemented (pending CUDA + OptiX verification)
+**Status:** done (PR #249, 2026-05-11 — RTX 5070 Ti hardware-verified at 53.1% inter-frame variance reduction; gate ≥30%; 5/5 tests pass)
 **Estimated effort:** ~3–4 days (~14 h)
 **Depends on:** pkg70 (OptiX denoiser backend — done), pkg72 (motion-vector AOV — open)
 

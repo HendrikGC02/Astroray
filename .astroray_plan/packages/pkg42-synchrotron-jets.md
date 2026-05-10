@@ -2,7 +2,7 @@
 
 **Pillar:** 4  
 **Track:** B (plugin, self-contained) with Track A review  
-**Status:** implemented
+**Status:** done (PR #245, 2026-05-11 — second post-gate Pillar-4 deliverable)
 **Estimated effort:** 2 sessions (~6 h) — unchanged after research; the
 fitting formulae are short and Codex-paste-ready.
 **Depends on:** pkg40 (Kerr metric), pkg14 (spectral pipeline), EmissionRegistry scaffold

@@ -2810,6 +2810,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
             except Exception:
                 normal_matrix = matrix.to_3x3()
 
+            # pkg64 Phase 3 — record the renderer scene size before this
+            # object's triangles are pushed; after the loop we flip the
+            # caustic-caster flag on the [pre, post) range.
+            ao = getattr(obj, "astroray_object", None)
+            is_caustic_caster = bool(getattr(ao, "is_caustic_caster", False))
+            scene_count_before = (renderer.scene_object_count()
+                                  if hasattr(renderer, "scene_object_count") else 0)
+
             mesh.calc_loop_triangles()
             # split_normals carries the correct per-corner normal for
             # smooth/flat/custom shading. Available since Blender 4.1; on
@@ -2877,6 +2885,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         int(tri.material_index),
                     )
                 tri_count += 1
+
+            # Flip the caustic-caster flag on every renderer object the
+            # current Blender object contributed (one Blender mesh →
+            # many add_triangle calls).
+            if is_caustic_caster and hasattr(renderer, "set_object_caustic_caster"):
+                scene_count_after = renderer.scene_object_count()
+                for oid in range(scene_count_before, scene_count_after):
+                    renderer.set_object_caustic_caster(oid, True)
 
         print(f"Astroray: converted {obj_count} meshes, {tri_count} triangles")
 
@@ -3630,6 +3646,22 @@ class CustomRaytracerPreferences(AddonPreferences):
             layout.label(text="Raytracer module not loaded!", icon='ERROR')
         layout.prop(self, "debug_mode")
 
+class AstrorayObjectProperties(PropertyGroup):
+    # pkg64 Phase 3 — Cycles-style "Shadow Caustics" caster opt-in
+    # (intern/cycles/scene/object.h::is_caustics_caster pattern; behaviour
+    # only, no GPL source consulted). When True and the renderer's
+    # Refractive Caustics toggle is on, the default `path_tracer`
+    # attempts an SMS connection through this object at every non-delta
+    # vertex, producing prism-accurate caustics. No effect if the object
+    # is not a refractive sphere caster (Phase 3 scope).
+    is_caustic_caster: BoolProperty(
+        name="Caustic Caster",
+        default=False,
+        description=("Let Astroray's path tracer find caustic paths through "
+                     "this object via Specular Manifold Sampling. Only "
+                     "refractive sphere casters are sampled in Phase 3."))
+
+
 class AstrorayBlackHoleProperties(PropertyGroup):
     mass: FloatProperty(name="Mass (M\u2609)", min=0.1, max=1e10, default=10.0,
                         description="Black hole mass in solar masses")
@@ -3684,8 +3716,30 @@ class OBJECT_PT_astroray_black_hole(Panel):
         col.prop(bh, "show_disk")
 
 
+class OBJECT_PT_astroray_object(Panel):
+    bl_label = "Astroray"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "object"
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return (context.scene.render.engine == 'CUSTOM_RAYTRACER'
+                and obj is not None
+                and obj.type in {'MESH', 'EMPTY'}
+                and hasattr(obj, 'astroray_object'))
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        ao = context.active_object.astroray_object
+        layout.prop(ao, "is_caustic_caster")
+
+
 classes = [
     CustomRaytracerRenderSettings, CustomRaytracerMaterialSettings,
+    AstrorayObjectProperties,
     AstrorayBlackHoleProperties,
     CustomRaytracerRenderEngine,
     RENDER_PT_custom_raytracer_sampling,
@@ -3700,6 +3754,7 @@ classes = [
     MATERIAL_PT_AstrorayLivePreview,
     CustomRaytracerPreferences,
     ASTRORAY_OT_add_black_hole, OBJECT_PT_astroray_black_hole,
+    OBJECT_PT_astroray_object,
 ]
 
 # ---------------------------------------------------------------------- #
@@ -3778,6 +3833,7 @@ def register():
     bpy.types.Scene.custom_raytracer = PointerProperty(type=CustomRaytracerRenderSettings)
     bpy.types.Material.custom_raytracer = PointerProperty(type=CustomRaytracerMaterialSettings)
     bpy.types.Object.astroray_black_hole = PointerProperty(type=AstrorayBlackHoleProperties)
+    bpy.types.Object.astroray_object = PointerProperty(type=AstrorayObjectProperties)
 
     # pkg57: native shader nodes + per-material settings.
     if _ASTRORAY_NODES_AVAILABLE:
@@ -3806,6 +3862,7 @@ def unregister():
     del bpy.types.Scene.custom_raytracer
     del bpy.types.Material.custom_raytracer
     del bpy.types.Object.astroray_black_hole
+    del bpy.types.Object.astroray_object
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     print("Astroray renderer addon unregistered")

@@ -671,6 +671,14 @@ public:
 class Hittable {
     int objectPassIndex = 0;
     int materialPassIndex = 0;
+    // pkg64 Phase 3 — Cycles-style "caustic caster" opt-in. Default false.
+    // When true (and Renderer::useRefractiveCaustics is on), the default
+    // path_tracer attempts an SMS connection through this object.
+    // Behavior pattern (not source code) inspired by Cycles' shadow-caustics
+    // caster flag (intern/cycles/scene/object.h `is_caustics_caster`); the
+    // actual SMS sampling is the BSD-3 Mitsuba-2 / Hanika 2015 chain in
+    // include/astroray/manifold/. CLAUDE.md §6.
+    bool isCausticCaster_ = false;
 public:
     // Result type used by GR objects (BlackHole). Defined here so that
     // pathTraceSpectral() can use it without needing a full BlackHole definition.
@@ -719,6 +727,8 @@ public:
     void setMaterialPassIndex(int value) { materialPassIndex = std::max(0, value); }
     int getObjectPassIndex() const { return objectPassIndex; }
     int getMaterialPassIndex() const { return materialPassIndex; }
+    void setCausticCaster(bool v) { isCausticCaster_ = v; }
+    bool isCausticCaster() const { return isCausticCaster_; }
 };
 
 // Sphere class body moved to include/astroray/shapes.h (pkg04).
@@ -1850,6 +1860,23 @@ public:
     void setFilterGlossy(float value) { filterGlossy = std::max(0.0f, value); }
     void setUseReflectiveCaustics(bool use) { useReflectiveCaustics = use; }
     void setUseRefractiveCaustics(bool use) { useRefractiveCaustics = use; }
+    bool getUseReflectiveCaustics() const { return useReflectiveCaustics; }
+    bool getUseRefractiveCaustics() const { return useRefractiveCaustics; }
+    // pkg64 Phase 3 — per-object opt-in for SMS connection attempts. The
+    // index is the order in which `addObject` was called (same order as
+    // `getScene()`). Returns true on success.
+    bool setObjectCausticCaster(int objectIndex, bool enabled) {
+        if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
+            return false;
+        scene[objectIndex]->setCausticCaster(enabled);
+        return true;
+    }
+    int getCausticCasterCount() const {
+        int n = 0;
+        for (const auto& o : scene) if (o && o->isCausticCaster()) ++n;
+        return n;
+    }
+    int getSceneObjectCount() const { return static_cast<int>(scene.size()); }
     void setSeed(int s) { renderSeed = s; }
     int getSeed() const { return renderSeed; }
     void setPixelFilter(int type, float width) {
@@ -2002,12 +2029,28 @@ public:
     // area-light NEE with MIS, emission gating, Russian roulette, and BSDF
     // sampling. AOV passes and per-closure bounce limits are not yet replicated;
     // those are future-package scope.
+    // pkg64 Phase 3 — optional SMS connection hook called at each
+    // non-delta vertex. Receives the vertex hit, the outgoing direction
+    // wo (pointing back toward the camera-side), the wavelength bundle,
+    // and the rng; returns a spectral contribution to add into `color`
+    // already weighted by the integrator's MIS combine. The hook is
+    // null by default; the default `path_tracer` integrator passes a
+    // lambda only when use_refractive_caustics is on AND at least one
+    // object is flagged is_caustic_caster. Keeping the hook empty by
+    // default means no behaviour change for caustic-free scenes (the
+    // sole added cost is one std::function null-check per vertex).
+    using SMSHook = std::function<astroray::SampledSpectrum(
+        const HitRecord&, const Vec3& /*wo*/,
+        const astroray::SampledSpectrum& /*throughput*/,
+        const astroray::SampledWavelengths&, std::mt19937&)>;
+
     astroray::SampledSpectrum pathTraceSpectral(
             const Ray& r, int maxDepth,
             astroray::SampledWavelengths& lambdas,
             std::mt19937& gen,
             int* outBounces = nullptr,
-            float* outWeight = nullptr) {
+            float* outWeight = nullptr,
+            const SMSHook& smsHook = SMSHook()) {
         const int rrDepth = 3;
         astroray::SampledSpectrum color(0.0f);
         astroray::SampledSpectrum throughput(1.0f);
@@ -2104,6 +2147,22 @@ public:
                         float wt = (a * a) / (a * a + b * b + 1e-8f);
                         color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f));
                     }
+                }
+            }
+
+            // pkg64 Phase 3 — optional SMS strategy. Disjoint from NEE in
+            // direction space (NEE samples a straight shadow ray, SMS
+            // samples a direction that refracts through a caster and
+            // *then* reaches the light), so a balance heuristic with the
+            // disjoint-strategy assumption gives w_sms ≈ 1 / w_nee ≈ 1
+            // for their respective sample sets — additive combination is
+            // the balance heuristic's reduction in this regime. The hook
+            // is responsible for any internal MIS weighting.
+            if (smsHook && !rec.isDelta) {
+                astroray::SampledSpectrum smsContribution =
+                    smsHook(rec, wo, throughput, lambdas, gen);
+                if (!smsContribution.isZero()) {
+                    color += throughput * smsContribution;
                 }
             }
 

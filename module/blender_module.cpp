@@ -727,6 +727,21 @@ public:
         renderer.setUseRefractiveCaustics(use);
     }
 
+    // pkg64 Phase 3 — per-object opt-in for SMS connection attempts in
+    // the default path_tracer. `objectId` is the addObject call order
+    // (same as Renderer::getScene() index).
+    bool setObjectCausticCaster(int objectId, bool enabled) {
+        return renderer.setObjectCausticCaster(objectId, enabled);
+    }
+
+    int getCausticCasterCount() const {
+        return renderer.getCausticCasterCount();
+    }
+
+    int getSceneObjectCount() const {
+        return renderer.getSceneObjectCount();
+    }
+
     void setUseTransparentFilm(bool use) {
         renderer.setUseTransparentFilm(use);
     }
@@ -1422,6 +1437,13 @@ PYBIND11_MODULE(astroray, m) {
              "density"_a, "color"_a, "anisotropy"_a = 0.0f)
         .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
+        .def("set_object_caustic_caster", &PyRenderer::setObjectCausticCaster,
+             "object_id"_a, "enabled"_a,
+             "pkg64 Phase 3 — flag an object (by addObject order) as a "
+             "caustic caster. Default path_tracer attempts SMS connections "
+             "through flagged objects when use_refractive_caustics=True.")
+        .def("caustic_caster_count", &PyRenderer::getCausticCasterCount)
+        .def("scene_object_count", &PyRenderer::getSceneObjectCount)
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
              "path"_a, "strength"_a = 1.0f,
              "rx"_a = 0.0f, "ry"_a = 0.0f, "rz"_a = 0.0f,

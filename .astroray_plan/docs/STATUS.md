@@ -28,8 +28,10 @@ personally should pick up.
   post-pkg75); pkg69 (compositor Albedo pass); pkg70 (OptiX denoiser,
   **1.86× faster than OIDN-CUDA, SSIM 0.9987 vs OIDN**); pkg72 (motion
   vector AOV); pkg75 (first-hit normal buffer for AOV guides — fixed
-  silent AOV-mode degradation); pkg64 Phases 1+2 (RGB SMS skeleton +
-  spectral wavelength-Newton, **+8.83 dB PSNR delta** at 0.98× runtime);
+  silent AOV-mode degradation); pkg64 Phases 1+2+3 (RGB SMS skeleton +
+  spectral wavelength-Newton, **+8.83 dB PSNR delta** at 0.98× runtime,
+  Phase 3 folds SMS into the default `path_tracer` via per-bounce hook
+  gated by `use_refractive_caustics` AND per-object opt-in flag);
   pkg56 Phase A (viewport sync instrumentation, baseline 129.92 ms
   on a 100k-tri scene); pkg74 Phases 1+2 (showcase framework + full
   stat coverage, convergence rate slope −0.453); pkg71 framework + first
@@ -67,7 +69,7 @@ personally should pick up.
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
-| 4 | Astrophysics platform | Preparation | 10% | pkg41 Kerr validation | parked per 2026-05-10 strategic gate; releases when pkg56 B+C and pkg64-3 land |
+| 4 | Astrophysics platform | Preparation | 10% | pkg41 Kerr validation | parked per 2026-05-10 strategic gate; releases when pkg56 B+C land (pkg64-3 done) |
 | 5 | Production polish / Blender parity | **Approaching feature-complete** | ~85% | Round 4: pkg73 + pkg56-B + pkg64-3 + pkg74-3 + pkg76 spec | — |
 
 **Pillar 1 package summary:**
@@ -153,7 +155,7 @@ is currently the weakest link.
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
 | pkg63 | World / HDRI parity (Mapping XYZ rotation, color tint, MIS env-map) | **done** | A |
-| pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | **Phases 1+2 done (RGB + spectral SMS via `spectral_newton` opt-in on `sms_caustic_path_tracer`)**; Phase 3 (default-integrator fold) open | A |
+| pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | **Phases 1 + 2 + 3 done** — RGB + spectral SMS folded into the default `path_tracer` via per-bounce SMS hook gated by `use_refractive_caustics` AND per-object `is_caustic_caster` (Cycles-style opt-in); GPU port is a separate future package | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
 | pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
 | pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) — verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0; see pkg70 Lessons + pkg75 spec for upstream AOV-degradation defect found during verification | **done** | A |

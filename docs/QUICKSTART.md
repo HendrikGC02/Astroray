@@ -2,6 +2,8 @@
 
 ## Prerequisites
 
+### Required
+
 - **C++17 compiler**: MSVC 2019+ (Windows), GCC 10+, or Clang 12+
 - **CMake** 3.18+
 - **Python** 3.11+ (3.13 recommended — matches Blender 5.x)
@@ -10,6 +12,29 @@
 ```bash
 python3 -m pip install -r requirements.txt
 ```
+
+### Optional (NVIDIA GPU users)
+
+These unlock GPU rendering and hardware-accelerated denoising. Astroray
+builds and runs CPU-only without them; CMake auto-detects what's
+installed and silently disables the corresponding code paths if not
+found.
+
+- **CUDA Toolkit 12.x** — GPU path tracer + OIDN-CUDA denoiser backend.
+  Standard NVIDIA installer.
+- **NVIDIA OptiX 8.x SDK** — OptiX AI denoiser backend, ~2× faster than
+  OIDN-CUDA on Tensor Core GPUs (Turing+) and a prerequisite for the
+  upcoming temporal denoiser. Manual download from
+  <https://developer.nvidia.com/designworks/optix/download> (free
+  NVIDIA developer account required; the OptiX SDK License forbids
+  redistribution, so we cannot bundle it). The default install path
+  on Windows
+  (`C:\ProgramData\NVIDIA Corporation\OptiX SDK 8.x.x\`) is
+  auto-detected; for a custom path, set `OPTIX_INSTALL_DIR` env var
+  or pass `-DOPTIX_INSTALL_DIR=<path>` to CMake. Without OptiX,
+  the denoiser falls back to OIDN.
+- **Intel OIDN 2.4+** — usually fetched automatically by
+  CMake when not installed locally. No manual step required.
 
 ---
 

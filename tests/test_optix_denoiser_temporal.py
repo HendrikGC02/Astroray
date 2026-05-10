@@ -198,27 +198,26 @@ def test_inter_frame_variance_reduction():
     seq_t = _pan_sequence(r_t, n_frames=n_frames, dx_per_frame=dx)
 
     # AOV reference: same camera positions, but force the plugin to stay
-    # in AOV mode by ensuring motion is zero on every render we keep.
-    # Trick: at each pose, render twice and discard the first. After the
-    # discarded render, `snapshotForMotion()` records the current pose, so
-    # the next render at the same pose has prev == curr -> motion is
-    # all-zero -> the plugin picks AOV (not TEMPORAL_AOV). Same camera
-    # poses + same scene as the temporal run; only the denoiser mode
-    # differs.
-    r_a = _scene()
-    r_a.set_seed(42)
-    r_a.add_pass("optix_denoiser")
+    # in AOV mode by rendering each frame on a fresh Renderer. With no
+    # prior render on the renderer, hasPrevCamera is false, the motion
+    # buffer stays exactly zero-filled, and the plugin selects AOV (not
+    # TEMPORAL_AOV). The earlier "render twice and discard the first"
+    # trick was unsound: even with prev == curr camera, projectToPrevPixel
+    # produces sub-pixel floating-point dust (~1e-5) which trips the
+    # plugin's `srcMotion[i] != 0.0f` gate and silently upgrades the
+    # reference run to TEMPORAL_AOV — leaving rms_t == rms_a regardless
+    # of how well temporal mode is working. (pkg73 defect-2026-05-10.)
+    # Per-frame seed advances independent noise, mirroring the natural RNG
+    # advancement of the temporal leg (one renderer + 10 sequential renders
+    # = 10 distinct noise realisations). A constant seed across fresh
+    # renderers would correlate the noise pattern frame-to-frame, which
+    # would cancel in the diff and artificially deflate rms_a.
     seq_a = []
     for i in range(n_frames):
         pose_x = dx * i
-        r_a.setup_camera(
-            look_from=[pose_x, 0.0, 5.5], look_at=[0.0, 0.0, 0.0],
-            vup=[0.0, 1.0, 0.0], vfov=40.0, aspect_ratio=1.0, aperture=0.0,
-            focus_dist=5.5, width=W, height=H,
-        )
-        # Discarded render: advances the prev-pose snapshot to pose_x.
-        r_a.render(samples_per_pixel=SAMPLES, max_depth=DEPTH)
-        # Kept render: motion buffer is now all zero -> AOV mode.
+        r_a = _scene(look_from=(pose_x, 0.0, 5.5))
+        r_a.set_seed(42 + i * 9973)
+        r_a.add_pass("optix_denoiser")
         seq_a.append(np.array(r_a.render(samples_per_pixel=SAMPLES, max_depth=DEPTH),
                               dtype=np.float32))
     seq_a = np.stack(seq_a, axis=0)

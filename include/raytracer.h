@@ -1727,13 +1727,6 @@ public:
         prevVw = vw_; prevVh = vh_; prevFocusDist = focusDist_;
         prevShiftX = shiftX_; prevShiftY = shiftY_;
         hasPrevCamera = true;
-        // pkg73 defect-2026-05-10 — temporary diagnostic; remove after fix.
-        std::fprintf(stderr,
-            "[pkg73-diag] snapshot cam=%p origin=(%.4f,%.4f,%.4f) "
-            "hasPrevCamera->true\n",
-            (const void*)this,
-            (double)origin.x, (double)origin.y, (double)origin.z);
-        std::fflush(stderr);
     }
 
     // pkg72: project a world-space point P through the *previous* frame's
@@ -2459,17 +2452,6 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         ensureDefaultIntegrator();
         buildAcceleration();
         if (integrator_) integrator_->beginFrame(*this, cam);
-        // pkg73 defect-2026-05-10 — temporary diagnostic; remove after fix.
-        std::fprintf(stderr,
-            "[pkg73-diag] renderFrame entry cam=%p origin=(%.4f,%.4f,%.4f) "
-            "hasPrevCamera=%d prevOrigin=(%.4f,%.4f,%.4f)\n",
-            (const void*)&cam,
-            (double)cam.getOrigin().x, (double)cam.getOrigin().y,
-            (double)cam.getOrigin().z,
-            (int)cam.hasPrevCamera,
-            (double)cam.prevOrigin.x, (double)cam.prevOrigin.y,
-            (double)cam.prevOrigin.z);
-        std::fflush(stderr);
         std::atomic<int> tilesCompleted{0};
         const int tileSize = 16;
         int tilesX = (cam.width + tileSize - 1) / tileSize;

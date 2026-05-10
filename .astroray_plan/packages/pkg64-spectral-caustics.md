@@ -298,3 +298,66 @@ inside the 25 % cross-machine tolerance. Both gates (`PSNR delta ≥
   returns `{}` from `debugStats()` when no caster is flagged so
   pre-pkg64-3 callers (`tests/test_integrator_plugin.py`) keep
   working. SMS counters appear only when the SMS hook actually runs.
+
+### Phase 3 hardware verification 2026-05-10 — RTX 5070 Ti, Windows MSVC `build_cuda`
+
+Run: `pytest tests/test_pkg64_phase3_default_integrator.py
+tests/test_pkg64_phase3_no_regression.py -v -s` against
+`build_cuda/astroray.cp313-win_amd64.pyd` (CUDA 12.6 toolkit, OptiX SDK
+9.1.0, CUDA + spectral GPU features confirmed via
+`astroray.__features__`). Total wall time 0.91 s for the 5-test
+combined collection.
+
+Result: **2 / 5 passed, 3 failed.** The two passes are the entire
+`test_pkg64_phase3_no_regression.py` file:
+
+| Test | Result | Notes |
+|---|---|---|
+| `test_no_caster_no_regression` | ✅ | Empty SMS hook is bit-equal to the pre-pkg64-3 path tracer on this hardware build. |
+| `test_no_caster_cost_gate` | ✅ | Per-bounce walltime overhead with the empty hook is **within the ≤ 5 % budget** on RTX 5070 Ti. The test passes its self-defined cost gate; it does not print the headline ratio, so a stricter "log the actual per-bounce overhead percentage" assertion is a good follow-up for the next re-baseline. |
+| `test_path_tracer_caustic_caster_toggle` | ❌ | `AttributeError: 'astroray.Renderer' object has no attribute 'scene_object_count'`. |
+| `test_pkg64_phase3_default_integrator_sms_fires` | ❌ | Same `AttributeError` — fails inside `_make_prism_scene()` at `r.scene_object_count() - 1`. |
+| `test_pkg64_phase3_default_integrator_psnr_gain` | ❌ | Same `AttributeError` from the same shared scene helper. |
+
+**SMS receiver-energy ratio (≥ 1.10× the no-caustics baseline):
+NOT CAPTURED on this run.** The `*_sms_fires` test is the one that
+would have produced the `stats` dict (and the receiver-energy delta
+recorded as a side effect), but it cannot reach the renderer call
+because the binding lookup fails at scene-construction time.
+
+**Per-bounce walltime overhead with empty hook (≤ 5 %): MET** —
+`test_no_caster_cost_gate` passes its in-test cost gate, which is the
+package spec's authoritative empty-hook overhead check.
+
+**PSNR floor non-regression (≥ −0.5 dB): NOT CAPTURED on this run** —
+the `_psnr_gain` test fails before reaching the dB measurement for the
+same `scene_object_count` AttributeError reason.
+
+Root cause is not a hardware regression; it is a **stale `build_cuda`
+.pyd** relative to the pkg64-3 binding surface. Source check confirms
+both `module/blender_module.cpp:1440` and `:1446` define
+`set_object_caustic_caster` and `scene_object_count` on the
+`PyRenderer` pybind11 class, but `dir(astroray.Renderer())` on the
+loaded .pyd shows only `set_use_reflective_caustics` /
+`set_use_refractive_caustics` (the pre-pkg64-3 global toggles) — the
+new per-object opt-in symbols are absent. The .pyd file mtime matches
+today, but the bindings it exposes pre-date PR #230
+(`feat(pkg64-3): fold SMS into default path_tracer with per-object
+caustic_caster opt-in + MIS combine`). A rebuild from `main` HEAD
+(currently `9834e58`) is the prerequisite for re-running the three
+failing tests; per the verifier brief's "Doc-only PR. No source
+touched." constraint, that rebuild and the resulting numeric capture
+are explicitly **deferred to a follow-up verifier session**, not done
+in this PR.
+
+Recommendation for the next verifier: invoke
+`cmake --build build_cuda --config Release --target astroray` (or
+the `windows-cuda-vs-release` preset) before re-running these two
+test files; confirm `hasattr(astroray.Renderer(), 'scene_object_count')`
+returns `True` as a smoke check, then capture the receiver-energy
+ratio (from `stats["sms_caustic_path_tracer"]` /
+`debugStats()["accepted_attempts"]`-style counters) and the PSNR-floor
+delta into a fresh "Phase 3 hardware verification YYYY-MM-DD" section
+appended below this one. Do not overwrite this entry — keeping the
+sequence of verifier observations is how Round 5's mid-refresh tracks
+build-currency drift on the CUDA branch.

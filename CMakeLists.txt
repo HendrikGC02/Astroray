@@ -339,13 +339,33 @@ endif()
 # ---------------------------------------------------------------------------
 # CUDA static library (compiled by nvcc, exposes pure-C++ CUDARenderer)
 # ---------------------------------------------------------------------------
+# pkg55 Phase A.1 — wavefront SoA path is opt-in. Default OFF so the AoS
+# megakernel remains the production path and compiles bit-identically to
+# pre-pkg55-A.1 builds.
+option(ASTRORAY_WAVEFRONT_INTERSECT
+    "Build the wavefront SoA primary-ray + intersect kernels alongside the AoS megakernel (pkg55 Phase A.1)."
+    OFF)
+
 if(ASTRORAY_CUDA_FOUND)
-    add_library(astroray_cuda STATIC
+    set(ASTRORAY_CUDA_SOURCES
         src/gpu/cuda_renderer.cu
         src/gpu/path_trace_kernel.cu
         src/gpu/multiwavelength_kernel.cu
         src/gpu/scene_upload.cu
     )
+    if(ASTRORAY_WAVEFRONT_INTERSECT)
+        list(APPEND ASTRORAY_CUDA_SOURCES
+            src/gpu/wavefront/stage_init.cu
+            src/gpu/wavefront/stage_intersect.cu
+            src/gpu/wavefront/intersect_parity.cu
+            src/gpu/wavefront/queue_dispatch.cu
+        )
+        message(STATUS "pkg55-A.1: wavefront SoA intersect path enabled")
+    endif()
+    add_library(astroray_cuda STATIC ${ASTRORAY_CUDA_SOURCES})
+    if(ASTRORAY_WAVEFRONT_INTERSECT)
+        target_compile_definitions(astroray_cuda PUBLIC ASTRORAY_WAVEFRONT_INTERSECT)
+    endif()
     target_include_directories(astroray_cuda
         PUBLIC  ${CMAKE_SOURCE_DIR}/include
         PRIVATE ${CMAKE_SOURCE_DIR})  # for data/spectra/cie_cmf.inc (pkg54b)

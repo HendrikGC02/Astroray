@@ -8,6 +8,10 @@
 #include "raytracer.h"
 #include "advanced_features.h"
 #include "profile.h"  // pkg55-A: env-gated NVTX ranges around upload + render
+#ifdef ASTRORAY_WAVEFRONT_INTERSECT
+// pkg55-A.1: wavefront SoA primary-ray + intersect kernels (opt-in).
+#include "astroray/integrator_state_soa.h"
+#endif
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -430,6 +434,74 @@ void CUDARenderer::render(
         ? (unsigned long long)time(nullptr)
         : (unsigned long long)seed;
     launchInitRNG(impl->d_rngStates, totalPixels, rngSeed);
+
+#ifdef ASTRORAY_WAVEFRONT_INTERSECT
+    // pkg55-A.1 dual-trace parity hook. Only fires when the env var is
+    // set; even then, the AoS megakernel runs unchanged because we
+    // restore d_rngStates from a snapshot before launchPathTraceKernel().
+    //
+    // Reference pattern: Cycles' debug-cuda-kernel-paranoia mode
+    // (intern/cycles/device/cuda/queue.cpp) — runs a reference trace
+    // alongside the production launch and traps on mismatch.
+    {
+        const char* parity_env = std::getenv("ASTRORAY_WAVEFRONT_INTERSECT_PARITY");
+        bool parity_on = parity_env && parity_env[0] && std::strcmp(parity_env, "0") != 0;
+        if (parity_on) {
+            astroray::gpu_profile::NvtxRange _nvtx_w("wavefront_intersect_parity_dual_trace");
+            using astroray::wavefront::IntegratorStateSoA;
+            using astroray::wavefront::allocateSoAState;
+            using astroray::wavefront::freeSoAState;
+            using astroray::wavefront::launchStageInit;
+            using astroray::wavefront::launchStageIntersect;
+            using astroray::wavefront::launchIntersectParity;
+
+            IntegratorStateSoA soa;
+            if (!allocateSoAState(soa, totalPixels)) {
+                throw std::runtime_error(
+                    "[pkg55-A.1] allocateSoAState failed (totalPixels=" +
+                    std::to_string(totalPixels) + ")");
+            }
+
+            // Snapshot freshly-init RNG so parity verifier can re-run the
+            // same primary-ray sequence, and so we can restore d_rngStates
+            // before the megakernel launches (preserving AoS parity).
+            curandState* rng_snapshot = nullptr;
+            CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&rng_snapshot),
+                                  totalPixels * sizeof(curandState)));
+            CUDA_CHECK(cudaMemcpy(rng_snapshot, impl->d_rngStates,
+                                  totalPixels * sizeof(curandState),
+                                  cudaMemcpyDeviceToDevice));
+            // SoA path uses a private rng buffer (not d_rngStates) so the
+            // megakernel's RNG state is unaffected by the dual-trace.
+            CUDA_CHECK(cudaMemcpy(soa.rng_state, rng_snapshot,
+                                  totalPixels * sizeof(curandState),
+                                  cudaMemcpyDeviceToDevice));
+
+            launchStageInit(soa, impl->camera, width, height);
+            launchStageIntersect(soa,
+                impl->d_bvhNodes, impl->d_prims,
+                impl->d_triangles, impl->d_spheres);
+            int mismatches = launchIntersectParity(
+                soa, rng_snapshot, impl->camera, width, height,
+                impl->d_bvhNodes, impl->d_prims,
+                impl->d_triangles, impl->d_spheres);
+            std::fprintf(stderr,
+                "[pkg55-A.1] wavefront intersect parity: %d / %d rays mismatched\n",
+                mismatches, totalPixels);
+            if (mismatches != 0) {
+                cudaFree(rng_snapshot);
+                freeSoAState(soa);
+                throw std::runtime_error(
+                    "[pkg55-A.1] wavefront intersect parity check found mismatches");
+            }
+            cudaFree(rng_snapshot);
+            freeSoAState(soa);
+            // d_rngStates was never advanced (SoA path used its own buffer);
+            // megakernel below sees exactly the post-launchInitRNG state,
+            // i.e. bit-identical to the no-parity build.
+        }
+    }
+#endif  // ASTRORAY_WAVEFRONT_INTERSECT
 
     // Launch megakernel
     launchPathTraceKernel(

@@ -10,6 +10,7 @@
 #include "astroray/shapes.h"
 #include "astroray/black_hole.h"
 #include "astroray/register.h"
+#include "astroray/metric.h"
 #include "astroray/optical_presets.h"
 #include "astroray/integrator.h"
 #include "astroray/pass.h"
@@ -24,6 +25,21 @@
 
 namespace py = pybind11;
 using namespace pybind11::literals;
+
+static astroray::ParamDict metricParamsFromDict(py::dict params) {
+    astroray::ParamDict p;
+    for (auto& item : params) {
+        auto key = item.first.cast<std::string>();
+        if (py::isinstance<py::float_>(item.second) || py::isinstance<py::int_>(item.second)) {
+            p.set(key, item.second.cast<float>());
+        } else if (py::isinstance<py::bool_>(item.second)) {
+            p.set(key, item.second.cast<bool>());
+        } else if (py::isinstance<py::str>(item.second)) {
+            p.set(key, item.second.cast<std::string>());
+        }
+    }
+    return p;
+}
 
 class TextureManager {
     std::unordered_map<std::string, std::shared_ptr<ImageTexture>> imageTextures;
@@ -610,9 +626,15 @@ public:
 #endif
     }
 
-    bool loadEnvironmentMap(const std::string& path, float strength = 1.0f, float rotation = 0.0f, bool blender_x_rotation = false) {
+    // pkg63: extended for full Blender Mapping node parity (XYZ Euler rotation,
+    // multiplicative Background Color tint). Backward-compatible — direct callers
+    // that pass (path, strength, 0.0) just get rx=0 (identity matrix).
+    bool loadEnvironmentMap(const std::string& path, float strength = 1.0f,
+                            float rx = 0.0f, float ry = 0.0f, float rz = 0.0f,
+                            float tr = 1.0f, float tg = 1.0f, float tb = 1.0f,
+                            bool blender_convention = false) {
         envMap = std::make_shared<EnvironmentMap>();
-        if (envMap->load(path, strength, rotation, blender_x_rotation)) {
+        if (envMap->load(path, strength, rx, ry, rz, tr, tg, tb, blender_convention)) {
             renderer.setEnvironmentMap(envMap);
             return true;
         }
@@ -1156,7 +1178,13 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
-             "path"_a, "strength"_a = 1.0f, "rotation"_a = 0.0f, "blender_x_rotation"_a = false)
+             "path"_a, "strength"_a = 1.0f,
+             "rx"_a = 0.0f, "ry"_a = 0.0f, "rz"_a = 0.0f,
+             "tr"_a = 1.0f, "tg"_a = 1.0f, "tb"_a = 1.0f,
+             "blender_convention"_a = false,
+             "Load env map. (rx,ry,rz) is the Blender Mapping XYZ Euler rotation; "
+             "(tr,tg,tb) is the Background Color tint; blender_convention=True bakes "
+             "the Astroray->Blender coord-swap into the rotation matrix. pkg63.")
         .def("eval_env_spectral", &PyRenderer::evalEnvSpectral, "direction"_a, "u"_a)
         .def("eval_env_rgb_upsample", &PyRenderer::evalEnvRGBUpsample, "direction"_a, "u"_a)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
@@ -1228,6 +1256,54 @@ PYBIND11_MODULE(astroray, m) {
     m.def("integrator_registry_names", []() {
         return astroray::IntegratorRegistry::instance().names();
     });
+    m.def("metric_registry_names", []() {
+        return astroray::MetricRegistry::instance().names();
+    });
+    m.def("metric_isco_radius", [](const std::string& name, py::dict params) {
+        auto metric = astroray::MetricRegistry::instance().create(name, metricParamsFromDict(params));
+        return metric->isco_radius();
+    }, "name"_a, "params"_a = py::dict(), "Return metric ISCO radius in units of M.");
+    m.def("metric_photon_sphere_radius", [](const std::string& name, py::dict params, bool prograde) {
+        auto metric = astroray::MetricRegistry::instance().create(name, metricParamsFromDict(params));
+        return metric->photon_sphere_radius(prograde);
+    }, "name"_a, "params"_a = py::dict(), "prograde"_a = true,
+       "Return equatorial circular photon orbit radius in units of M.");
+    m.def("metric_horizon_angular_velocity", [](const std::string& name, py::dict params) {
+        auto metric = astroray::MetricRegistry::instance().create(name, metricParamsFromDict(params));
+        return metric->horizon_angular_velocity();
+    }, "name"_a, "params"_a = py::dict(),
+       "Return frame-dragging angular velocity at the outer horizon.");
+    m.def("metric_christoffel", [](const std::string& name, py::dict params,
+                                   double t, double r, double theta, double phi) {
+        auto metric = astroray::MetricRegistry::instance().create(name, metricParamsFromDict(params));
+        float gamma[4][4][4];
+        metric->christoffel(t, r, theta, phi, gamma);
+        py::list out;
+        for (int a = 0; a < 4; ++a) {
+            py::list alpha;
+            for (int b = 0; b < 4; ++b) {
+                py::list beta;
+                for (int c = 0; c < 4; ++c) beta.append(gamma[a][b][c]);
+                alpha.append(beta);
+            }
+            out.append(alpha);
+        }
+        return out;
+    }, "name"_a, "params"_a, "t"_a, "r"_a, "theta"_a, "phi"_a,
+       "Return Christoffel symbols Gamma^alpha_mu_nu.");
+    m.def("metric_inner_product", [](const std::string& name, py::dict params,
+                                     double t, double r, double theta, double phi,
+                                     const std::vector<float>& a,
+                                     const std::vector<float>& b) {
+        if (a.size() != 4 || b.size() != 4) {
+            throw std::runtime_error("metric_inner_product expects two 4-vectors");
+        }
+        auto metric = astroray::MetricRegistry::instance().create(name, metricParamsFromDict(params));
+        float va[4] = {a[0], a[1], a[2], a[3]};
+        float vb[4] = {b[0], b[1], b[2], b[3]};
+        return metric->inner_product(t, r, theta, phi, va, vb);
+    }, "name"_a, "params"_a, "t"_a, "r"_a, "theta"_a, "phi"_a, "a"_a, "b"_a,
+       "Return g_mu_nu a^mu b^nu.");
     m.def("integrator_capabilities", [](const std::string& name) {
         auto integrator = astroray::IntegratorRegistry::instance().create(name, astroray::ParamDict{});
         IntegratorCapabilities caps = integrator->capabilities();

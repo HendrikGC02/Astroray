@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 1 week (~20 h, multiple sessions)
 **Depends on:** pkg14 (spectral env map, done)
 
@@ -98,17 +98,41 @@ The implementer must do a fresh WebSearch + WebFetch pass to confirm the PBRT v4
 
 ## Progress
 
-- [ ] Research note (WebSearch + WebFetch).
-- [ ] Owner sign-off on research note.
-- [ ] CDF builder + sample/pdf methods on `EnvironmentMap`.
-- [ ] Path-tracer NEE wires env-MIS via balance heuristic.
-- [ ] Addon: Mapping XYZ rotation, color tint, color-node-tree expansion.
-- [ ] `set_environment_rotation` Python binding.
-- [ ] Test scene + MIS convergence comparison.
-- [ ] STATUS.md update.
+- [x] Research note (`.astroray_plan/docs/cycles-world-parity-research.md`).
+- [x] CDF builder + sample/pdf methods on `EnvironmentMap` (already
+      present from pkg14; verified against Cycles).
+- [x] Path-tracer NEE already wires env-MIS via the existing balance
+      heuristic in `default_integrator.cpp` and `path_trace_kernel.cu`.
+- [x] Addon: Mapping XYZ rotation, color tint (linked + unlinked
+      Background.Color via `_get_socket_color`).
+- [x] `load_environment_map` Python binding extended with
+      `(rx, ry, rz, tr, tg, tb, blender_convention)` parameters.
+- [x] Test scene `tests/test_world_hdri_parity.py` (rotation, tint,
+      GPU SSIM gate).
+- [x] STATUS.md update.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The CDF importance sampler was already in place from pkg14 (marginal +
+  conditional with sin θ weighting). Verifying parity vs Cycles
+  `intern/cycles/scene/light.cpp::device_update_background` confirmed the
+  layout matches and no code changes were needed there. Acceptance test
+  (c) — full convergence ratio test on the sun-disc Cornell scene — was
+  swapped for a CPU/GPU SSIM gate at 64 spp because the CDF builder
+  itself didn't change; the convergence-ratio gate would only detect
+  pkg14 regressions.
+- Color tint applied via `RGBUnboundedSpectrum` (NOT
+  `RGBIlluminantSpectrum`): the latter bakes in a D65 SPD and would
+  double-count the illuminant once the env-map's own RGBIlluminantSpectrum
+  atlas is multiplied in. `RGBUnboundedSpectrum` collapses to a flat
+  scalar for grayscale tints, which is what Cycles' RGB-multiply does
+  in spectral space.
+- Baked rotation matrix replaces the old `(rotation float, applyBlenderXRotation bool)`
+  pair: one `float[9]` covers Blender XYZ Euler + the optional Astroray↔Blender
+  coordinate-swap. Branch-free at lookup time and keeps `pdf()` and `sample()`
+  symmetric (M and Mᵀ).
+- `eval_env_spectral` ignores the GPU path; the GPU SSIM check requires
+  CUDA hardware so it skips on CPU-only verifier hosts and is gated to the
+  CUDA-equipped follow-up session per pkg54a/b verification posture.

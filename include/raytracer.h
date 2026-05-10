@@ -1212,8 +1212,11 @@ class EnvironmentMap {
     std::vector<float> data;     // RGB interleaved: data[3*(y*width+x) + channel]
     int width = 0, height = 0;
     float strength = 1.0f;       // radiance multiplier
-    float rotation = 0.0f;       // horizontal rotation in radians
-    bool applyBlenderXRotation = false;
+    // Baked 3x3 rotation matrix (row-major). Forward: world dir → env-map lookup dir.
+    // Encodes optional Blender coord-swap + XYZ Euler from Mapping node.
+    // Cycles blender/shader.cpp: XYZ extrinsic Euler = Rz*Ry*Rx (Apache-2.0 ref).
+    float rotMat[9] = {1,0,0, 0,1,0, 0,0,1};
+    float colorTint[3] = {1.0f, 1.0f, 1.0f};  // multiplicative tint pre-MIS
 
     // CDF data for importance sampling
     std::vector<float> conditionalCdf;  // size: width * height (CDF per row)
@@ -1223,10 +1226,53 @@ class EnvironmentMap {
     float totalPower = 0.0f;
     std::vector<astroray::RGBIlluminantSpectrum> spectralAtlas_; // width*height, pre-strength
 
+    // Compute and store the baked rotation matrix.
+    // Cycles cycles/blender/shader.cpp: XYZ extrinsic Euler order (Apache-2.0).
+    // When blender_conv=true, right-multiplies by R_cswap that maps Astroray
+    // world dir to the equirectangular env-map's Y-polar-axis space.
+    static void buildRotMat(float* M, float rx, float ry, float rz, bool blender_conv) {
+        float cx = std::cos(rx), sx = std::sin(rx);
+        float cy = std::cos(ry), sy = std::sin(ry);
+        float cz = std::cos(rz), sz = std::sin(rz);
+        // R = Rz(rz) * Ry(ry) * Rx(rx), row-major
+        M[0] = cz*cy;               M[1] = cz*sy*sx - sz*cx;  M[2] = cz*sy*cx + sz*sx;
+        M[3] = sz*cy;               M[4] = sz*sy*sx + cz*cx;  M[5] = sz*sy*cx - cz*sx;
+        M[6] = -sy;                 M[7] = cy*sx;              M[8] = cy*cx;
+        if (blender_conv) {
+            // Right-multiply by R_cswap [[1,0,0],[0,0,1],[0,-1,0]].
+            // New col1 = -old col2, new col2 = old col1.
+            for (int row = 0; row < 3; ++row) {
+                float c1 = M[row*3 + 1];
+                float c2 = M[row*3 + 2];
+                M[row*3 + 1] = -c2;
+                M[row*3 + 2] =  c1;
+            }
+        }
+    }
+
+    Vec3 applyRotMat(const Vec3& d) const {
+        return Vec3(rotMat[0]*d.x + rotMat[1]*d.y + rotMat[2]*d.z,
+                    rotMat[3]*d.x + rotMat[4]*d.y + rotMat[5]*d.z,
+                    rotMat[6]*d.x + rotMat[7]*d.y + rotMat[8]*d.z);
+    }
+
+    // Inverse transform (M^T, since M is orthogonal)
+    Vec3 applyRotMatT(const Vec3& d) const {
+        return Vec3(rotMat[0]*d.x + rotMat[3]*d.y + rotMat[6]*d.z,
+                    rotMat[1]*d.x + rotMat[4]*d.y + rotMat[7]*d.z,
+                    rotMat[2]*d.x + rotMat[5]*d.y + rotMat[8]*d.z);
+    }
+
 public:
     bool loaded() const { return !data.empty(); }
 
-    bool load(const std::string& path, float str = 1.0f, float rot = 0.0f, bool blenderXRotation = false) {
+    // rx/ry/rz: Blender Mapping node XYZ Euler rotation in radians.
+    // tr/tg/tb: multiplicative color tint from Background node Color input.
+    // blender_convention: when true, bakes the Astroray→Blender coord-swap into rotMat.
+    bool load(const std::string& path, float str = 1.0f,
+              float rx = 0.f, float ry = 0.f, float rz = 0.f,
+              float tr = 1.f, float tg = 1.f, float tb = 1.f,
+              bool blender_convention = false) {
         int channels = 0;
         float* rawData = (float*)stbi_loadf(path.c_str(), &width, &height, &channels, 3);
         if (!rawData) {
@@ -1247,8 +1293,8 @@ public:
 
         stbi_image_free(rawData);
         strength = str;
-        rotation = rot;
-        applyBlenderXRotation = blenderXRotation;
+        colorTint[0] = tr; colorTint[1] = tg; colorTint[2] = tb;
+        buildRotMat(rotMat, rx, ry, rz, blender_convention);
         printf("Loaded environment map: %s (%dx%d)\n", path.c_str(), width, height);
         buildCdf();
         spectralAtlas_.clear();
@@ -1261,15 +1307,11 @@ public:
     Vec3 lookup(const Vec3& direction) const {
         if (width == 0 || height == 0) return Vec3(0);
 
-        Vec3 mappedDir = direction;
-        if (applyBlenderXRotation) {
-            mappedDir = Vec3(direction.x, direction.z, -direction.y);
-        }
+        Vec3 mappedDir = applyRotMat(direction);
 
         // Convert direction to equirectangular (u, v) coordinates:
         float theta = std::acos(std::clamp(mappedDir.y, -1.0f, 1.0f)); // polar, 0=up
-        float phi = std::atan2(mappedDir.z, mappedDir.x);                // azimuthal
-        phi += rotation;  // apply horizontal rotation
+        float phi = std::atan2(mappedDir.z, mappedDir.x);
         float u = 0.5f + phi / (2.0f * M_PI);  // [0, 1]
         float v = 1.0f - theta / M_PI;          // [0, 1], flipped: y=+1 (up) â†’ row height-1
 
@@ -1314,20 +1356,18 @@ public:
         Vec3 c1 = c01 * (1 - uFract) + c11 * uFract;
         Vec3 color = c0 * (1 - vFract) + c1 * vFract;
 
-        return color * strength;
+        // pkg63: apply color tint multiplicatively (Cycles parity).
+        return Vec3(color.x * colorTint[0], color.y * colorTint[1], color.z * colorTint[2]) * strength;
     }
 
     astroray::SampledSpectrum evalSpectral(const Vec3& direction,
                                             const astroray::SampledWavelengths& lambdas) const {
         if (width == 0 || height == 0) return astroray::SampledSpectrum(0.0f);
 
-        Vec3 mappedDir = direction;
-        if (applyBlenderXRotation)
-            mappedDir = Vec3(direction.x, direction.z, -direction.y);
+        Vec3 mappedDir = applyRotMat(direction);
 
         float theta = std::acos(std::clamp(mappedDir.y, -1.0f, 1.0f));
         float phi = std::atan2(mappedDir.z, mappedDir.x);
-        phi += rotation;
         float u = 0.5f + phi / (2.0f * M_PI);
         float v = 1.0f - theta / M_PI;
 
@@ -1352,7 +1392,26 @@ public:
 
         astroray::SampledSpectrum s0 = s00 * (1.0f - uFract) + s10 * uFract;
         astroray::SampledSpectrum s1 = s01 * (1.0f - uFract) + s11 * uFract;
-        return (s0 * (1.0f - vFract) + s1 * vFract) * strength;
+        astroray::SampledSpectrum out = (s0 * (1.0f - vFract) + s1 * vFract) * strength;
+        // pkg63: apply RGB color tint as a reflectance-style (no D65 weighting)
+        // multiplicative filter on the env-map spectrum. RGBUnboundedSpectrum
+        // collapses to a flat scalar for grayscale tints (e.g. (0.5,0.5,0.5)
+        // halves the radiance per wavelength), matching Cycles parity:
+        //   L = env_sample * background_color * strength.
+        //
+        // Note (chromatic tints): for non-grayscale tints this differs from
+        // the RGB path (lookup() / sample()), which does a direct per-channel
+        // multiply on RGB. The two are physically inequivalent: spectral
+        // multiplies upsampled spectra, RGB multiplies tristimulus values.
+        // For grayscale tints the test gate in tests/test_world_hdri_parity.py
+        // confirms agreement to 1% rtol; chromatic-tint cross-path parity is
+        // out of scope for pkg63.
+        if (colorTint[0] != 1.f || colorTint[1] != 1.f || colorTint[2] != 1.f) {
+            astroray::RGBUnboundedSpectrum tintSpec(
+                std::array<float,3>{colorTint[0], colorTint[1], colorTint[2]});
+            out = out * tintSpec.sample(lambdas);
+        }
+        return out;
     }
 
 private:
@@ -1443,16 +1502,15 @@ public:
         float uCont = u + 0.5f;
         float vCont = v + 0.5f;
 
-        // Convert (u_cont, v_cont) to direction (v is flipped: row 0 = nadir)
+        // Convert (u_cont, v_cont) to direction in env-map space (Y is the polar axis).
         float theta = (1.0f - vCont / height) * M_PI;  // [0, pi]
-        float phi = (uCont - 0.5f) * 2.0f * M_PI - rotation;  // [0, 2pi] offset by rotation
+        float phi = (uCont - 0.5f) * 2.0f * M_PI;      // [-pi, pi]
 
-        Vec3 dir(std::sin(theta) * std::cos(phi),
-                 std::cos(theta),
-                 std::sin(theta) * std::sin(phi));
-        if (applyBlenderXRotation) {
-            dir = Vec3(dir.x, -dir.z, dir.y);
-        }
+        Vec3 dir_env(std::sin(theta) * std::cos(phi),
+                     std::cos(theta),
+                     std::sin(theta) * std::sin(phi));
+        // Inverse-transform back to world space (M^T applied to env-space direction).
+        Vec3 dir = applyRotMatT(dir_env);
 
         // Compute PDF in solid angle measure
         float sinTheta = std::sin(theta);
@@ -1464,10 +1522,10 @@ public:
         float mapPdf = funcValue * width * height / (totalPower + 1e-10f);
         float solidAnglePdf = mapPdf / (2.0f * M_PI * M_PI * sinTheta);
 
-        // Look up radiance
-        Vec3 radiance = Vec3(data[pixelIdx * 3 + 0],
-                            data[pixelIdx * 3 + 1],
-                            data[pixelIdx * 3 + 2]);
+        // Look up radiance with color tint applied (pkg63 Cycles parity).
+        Vec3 radiance(data[pixelIdx * 3 + 0] * colorTint[0],
+                      data[pixelIdx * 3 + 1] * colorTint[1],
+                      data[pixelIdx * 3 + 2] * colorTint[2]);
 
         return {dir, radiance * strength, solidAnglePdf};
     }
@@ -1475,15 +1533,11 @@ public:
     float pdf(const Vec3& direction) const {
         if (width == 0 || height == 0 || totalPower <= 0) return 0.0f;
 
-        Vec3 mappedDir = direction;
-        if (applyBlenderXRotation) {
-            mappedDir = Vec3(direction.x, direction.z, -direction.y);
-        }
+        Vec3 mappedDir = applyRotMat(direction);
 
         // Convert direction to equirectangular coordinates
         float theta = std::acos(std::clamp(mappedDir.y, -1.0f, 1.0f));
         float phi = std::atan2(mappedDir.z, mappedDir.x);
-        phi += rotation;  // apply horizontal rotation
 
         // Convert to u, v coordinates [0, 1]
         float u = 0.5f + phi / (2.0f * M_PI);
@@ -1528,8 +1582,10 @@ public:
     int   getWidth()      const { return width; }
     int   getHeight()     const { return height; }
     float getStrength()   const { return strength; }
-    float getRotation()   const { return rotation; }
     float getTotalPower() const { return totalPower; }
+    // pkg63: baked rotation matrix (3x3 row-major) and color tint accessors
+    const float* getRotationMatrix() const { return rotMat; }
+    const float* getColorTint()      const { return colorTint; }
 };
 
 // ============================================================================

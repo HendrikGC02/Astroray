@@ -3,8 +3,35 @@
 **Pillar:** 4
 **Track:** B (plugin, self-contained)
 **Status:** open
-**Estimated effort:** 1–2 sessions (~4 h)
+**Estimated effort:** 2 sessions (~5 h) — bumped from "1-2 sessions
+(~4 h)" after research; the advective-fraction fit and the
+exponential-clamp logic for super-Eddington need their own unit tests.
 **Depends on:** pkg40 (Kerr metric), pkg42 (VolumetricEmission interface)
+
+**Reference research:** `.astroray_plan/docs/accretion-emission-research.md`
+(slim-disk profile §4, transfer pipeline §1, license matrix §7).
+
+---
+
+## Reference Implementations
+
+The Sądowski 2009 slim-disk solution has **no closed-form analytic
+expression** — the paper solves six coupled ODEs by relaxation. For
+visualization, pkg43 implements the analytic fitting-function
+skeleton from research-note §4 (Page-Thorne T_NT plus an exponential
+advective attenuation). Tabulated solutions are a Non-goal.
+
+| Repo | Commit | License | Mirror permitted | Notes |
+|------|--------|---------|-----------------|-------|
+| (paper only) Sądowski 2009 ApJS 183, 171 | — | journal article | math is public-domain; cite eqs. 1-9 in code | This is the primary source; no code to mirror |
+| [ipole](https://github.com/AFD-Illinois/ipole) | `master` 2024-Q4 | BSD-3-Clause | radiation/transfer plumbing only — **no slim-disk file exists** | Use `src/radiation.c` (`Bnu_inv`, `get_fluid_nu`, `get_bk_angle`) for the §1 invariant transfer scaffold |
+| [GYOTO](https://github.com/gyoto/Gyoto) | — | CeCILL (GPL-incompat) | **No** — numerical cross-check only | `Astrobj/PolishDoughnut.C` is the closest analogue; reference only |
+| [RAPTOR](https://github.com/tbronzwaer/raptor) | `08cb9a2` | **GPLv3** | **No** — cross-validation only | Same fence as pkg40 / pkg42 |
+
+The brief originally suggested mirroring an ipole slim-disk file. As of
+the master commit there is no such file in the ipole tree (verified
+2024-Q4); the closest is the BHAC/HARM GRMHD-snapshot model loader,
+which is out of scope. Implement Sądowski 2009 directly.
 
 ---
 
@@ -41,11 +68,19 @@ natural fit for the `SampledSpectrum` framework.
 
 ## Reference
 
+- **Research notes (read first):** `.astroray_plan/docs/accretion-emission-research.md`
+  (slim-disk profile §4 — H/r, Sigma, T(r) with advective fit;
+  pipeline §1; license matrix §7)
 - Design doc: `.astroray_plan/docs/astrophysics.md §4.2`
-- Abramowicz et al. 1988 — slim disk formulation
-- Sądowski 2009 — numerical slim disk solutions, tables
+- Sądowski, A. 2009, ApJS 183, 171 — six governing ODEs (eqs. 1-9);
+  the primary source.
+- Abramowicz et al. 1988, ApJ 332, 646 — original slim-disk formulation.
+- Abramowicz & Fragile 2013, Living Rev. Relativity 16, 1 — review
+  (Polish doughnut / thin / slim / ADAF in one place).
+- Page & Thorne 1974, ApJ 191, 499 — Novikov-Thorne T_NT(r) used as
+  the slim-disk baseline.
 - Existing Novikov-Thorne: current accretion disk code in
-  `black_hole.cpp` or GR renderer
+  `black_hole.cpp` or GR renderer.
 - VolumetricEmission interface: `include/astroray/emission.h` (from pkg42)
 
 ---
@@ -80,37 +115,47 @@ natural fit for the `SampledSpectrum` framework.
 
 ### Physics model
 
-#### Vertical structure
+#### Vertical structure (Sądowski 2009 eq. 5; research note §4.1)
 
-Unlike the razor-thin Novikov-Thorne disk, the slim disk has a
-half-thickness H(r) that depends on accretion rate:
+Sądowski 2009 eq. 5 (vertical hydrostatic equilibrium, H = c_s/Ω_K)
+gives, in the slim regime, a half-thickness that scales with
+accretion rate:
 
-    H/r ≈ (3/2) · (ṁ / ṁ_Edd) · f(r)
+    H/r ≈ (3/2) · (ṁ / ṁ_Edd) · f_geom(r, a)
 
-where f(r) encodes the radial dependence from Sądowski (2009). At
-sub-Eddington rates H/r << 1 and the model reduces to Novikov-Thorne.
-At super-Eddington rates (ṁ/ṁ_Edd > 1) the inner disk can reach
-H/r ~ 0.5, making it a genuine volume emitter.
+with f_geom(r, a) ≈ 1 / (1 + (r/r_ISCO)²) — order-unity at ISCO,
+falling as 1/r² outside. Copy-paste C++ form in research note §4.1.
+At sub-Eddington (ṁ < 0.3 ṁ_Edd) H/r << 1 and the disk recovers
+Novikov-Thorne. At super-Eddington (ṁ > 1) H/r → 0.5-0.75 at ISCO
+and the disk is a genuine volume emitter.
 
 The plugin implements the disk as a volume with density concentrated
 in the equatorial region: ρ(r,θ) ∝ exp(−z²/2H²) where z = r cos θ.
+Number density is n_e = Σ / (2 H m_p), with Σ from the alpha-viscosity
+closure (research note §4.2).
 
-#### Temperature profile
+#### Temperature profile (Sądowski 2009 §3 + Page & Thorne 1974 eq. 11n)
 
-The Novikov-Thorne temperature profile diverges at the ISCO. The slim
-disk profile flattens because advection carries entropy across the
-ISCO:
+The Novikov-Thorne temperature profile (Page & Thorne 1974 eq. 11n)
+diverges at ISCO:
 
-    T(r) = T_NT(r) · [1 − f_adv(r, ṁ)]^(1/4)
+    σ_SB · T_NT(r)^4 = (3 G M Ṁ) / (8 π r³) · R_R(r),
+    R_R(r) = 1 − sqrt(r_ISCO / r)
 
-where f_adv is the advective fraction from Sądowski (2009) Table 2
-(tabulated for a grid of spin and ṁ values). For the initial
-implementation, use a fitting function rather than a full table:
+The slim-disk profile flattens because advection carries entropy
+across the ISCO (Sądowski 2009 §3):
 
-    f_adv(r) ≈ (ṁ/ṁ_Edd) · (r_ISCO/r)^2 · [1 + (r/r_ISCO)^2]^(-1)
+    T(r) = T_NT(r) · (1 − f_adv(r, ṁ))^(1/4)
 
-This captures the essential physics: advection dominates near and
-inside the ISCO, and is negligible at large radii.
+For the initial implementation, use the **exponential fit** (research
+note §4.3 — the linear form clamps incorrectly at super-Eddington):
+
+    f_adv(r, ṁ) = 1 − exp(− (ṁ/ṁ_Edd) · (r_ISCO/r)²)
+
+This produces the correct sub-Eddington convergence (T_slim/T_NT > 0.95
+for ṁ < 0.3) and the correct super-Eddington flattening (T_slim/T_NT
+≈ 0.33 at r = 1.5 r_ISCO for ṁ = 10) — matching Sądowski 2009 fig. 7
+to within a factor of 2.
 
 #### Spectral emission
 
@@ -169,6 +214,39 @@ at the hero wavelength — exact, no interpolation.
 - [ ] All existing tests pass.
 - [ ] ≥6 new tests covering: temperature profile, vertical structure,
       sub-Eddington convergence to NT, spectral shape, visual render.
+
+### Analytic test values (must reproduce to <5% relative error)
+
+Source: research note §4.3, derived from Sądowski 2009 eqs. 1-9 and
+Page & Thorne 1974 eq. 11n. Fiducial M = 10 M_sun BH, a = 0
+(r_ISCO = 6 M = 8.86e6 cm), ṁ_Edd ≈ 1.4e18 g/s.
+
+**Vertical structure H/r:**
+
+| ṁ/ṁ_Edd | r        | H/r expected |
+|---------|----------|--------------|
+| 0.1     | r_ISCO   | 0.075        |
+| 1.0     | r_ISCO   | 0.75         |
+| 10.0    | r_ISCO   | 7.5 → clamp at 1.0 (research note §4.1) |
+| 1.0     | 10·r_ISCO| 0.0149       |
+
+**Temperature at r = 1.5 r_ISCO (= 9 M, M = 10 M_sun):**
+
+| ṁ/ṁ_Edd | T_NT (K) | T_slim/T_NT expected |
+|---------|----------|---------------------|
+| 0.1     | 9.1e7    | ≥ 0.95 (sub-Eddington convergence) |
+| 1.0     | 9.1e7 · 10^0.25 ≈ 1.62e8 | 0.7-0.85 |
+| 10.0    | 9.1e7 · 100^0.25 ≈ 2.88e8 | 0.30-0.40 (advective flattening) |
+
+**Sub-Eddington spectral check:** at ṁ/ṁ_Edd = 0.1, integrated disk
+spectrum vs. Novikov-Thorne baseline must agree to within 5 % at
+all wavelengths (Scene B in research note §6.2).
+
+**Super-Eddington vertical extent:** at ṁ/ṁ_Edd = 10 the edge-on
+(89 deg inclination) render must show visible vertical thickness —
+the silhouette is no longer a thin line. This is a visual check;
+quantitative criterion is "FWHM of the disk in the image plane
+> 0.1 × disk diameter."
 
 ---
 

@@ -13,6 +13,7 @@
 #include <vector>
 #include <string>
 #include <stdexcept>
+#include <cstring>
 #include <cstdio>
 #include <ctime>
 
@@ -218,7 +219,9 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
         impl->envMap.width           = r.envWidth;
         impl->envMap.height          = r.envHeight;
         impl->envMap.strength        = r.envStrength;
-        impl->envMap.rotation        = r.envRotation;
+        // pkg63: rotation matrix + color tint replace single rotation float.
+        std::memcpy(impl->envMap.rotMat, r.envRotMat, 9 * sizeof(float));
+        std::memcpy(impl->envMap.colorTint, r.envColorTint, 3 * sizeof(float));
         impl->envMap.totalPower      = r.envTotalPower;
         impl->envMap.loaded          = true;
     }
@@ -266,7 +269,9 @@ void CUDARenderer::uploadEnvironmentMap(const EnvironmentMap& envMap) {
     impl->envMap.width           = envMap.getWidth();
     impl->envMap.height          = envMap.getHeight();
     impl->envMap.strength        = envMap.getStrength();
-    impl->envMap.rotation        = envMap.getRotation();
+    // pkg63: rotation matrix + color tint replace single rotation float.
+    std::memcpy(impl->envMap.rotMat, envMap.getRotationMatrix(), 9 * sizeof(float));
+    std::memcpy(impl->envMap.colorTint, envMap.getColorTint(), 3 * sizeof(float));
     impl->envMap.totalPower      = envMap.getTotalPower();
     impl->envMap.loaded          = true;
 }

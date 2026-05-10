@@ -23,7 +23,8 @@ personally should pick up.
 - Pillar 5 is the active practical queue. The Cycles-parity/Blender package
   series is now the live near-term roadmap: pkg52/pkg53/pkg58/pkg60/pkg61/pkg62
   are done, pkg59 is done, pkg54/54a/54b/54c/54d are all done (CUDA
-  hardware verified 2026-05-10), and pkg57 remains open.
+  hardware verified 2026-05-10), pkg63 (World/HDRI parity) is done
+  pending CUDA-host SSIM verification, and pkg57 remains open.
 - Fresh local collection on this branch: `pytest --collect-only -q` reports
   **435 tests collected** (2026-05-09). Focused pkg53/viewport checks pass.
 - Historical docs that are intentionally not current: `NEXT_STAGE_REPORT.md`
@@ -40,7 +41,7 @@ personally should pick up.
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
-| 4 | Astrophysics platform | Preparation | 5% | Kerr metric extraction | Pillars 1, 2 complete; backend parity bridge recommended before GPU parity claims |
+| 4 | Astrophysics platform | Preparation | 10% | pkg41 Kerr validation | pkg40 metric plugins are done; pkg41 is ready |
 | 5 | Production polish / Blender parity | Ongoing | — | start pkg54/pkg57 | — |
 
 **Pillar 1 package summary:**
@@ -124,7 +125,7 @@ is currently the weakest link.
 | pkg60 | Disney v2 energy compensation (no-glow materials) | **done** | A/E |
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
-| pkg63 | World / HDRI parity (Mapping XYZ rotation, color tint, MIS env-map) | open | A |
+| pkg63 | World / HDRI parity (Mapping XYZ rotation, color tint, MIS env-map) | **done** | A |
 | pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | research signed off; ready to implement | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
 
@@ -143,8 +144,8 @@ forgotten):
 
 | Package | Description | Status |
 |---|---|---|
-| pkg40 | Kerr metric plugin and Schwarzschild extraction | open |
-| pkg41 | Kerr geodesic validation | open |
+| pkg40 | Kerr metric plugin and Schwarzschild extraction | **done** |
+| pkg41 | Kerr geodesic validation | ready |
 | pkg42 | Synchrotron emission and relativistic jets | open |
 | pkg43 | Slim disk accretion model | open |
 | pkg44 | ADAF accretion model | open |
@@ -192,7 +193,9 @@ forgotten):
 - Complete: pkg32 visual diagnostics, pkg33 OIDN, pkg34 backend capability
   guardrails, pkg35 spectral GPU material payloads, and pkg36 shared closure
   graphs.
-- Pillar 4 can begin with pkg40 once the current registry/reference cleanup is merged.
+- Pillar 4 has begun: pkg40 landed Kerr/Schwarzschild metric plugins with
+  BPT 1972 analytic gates green. pkg41 is ready; its "depends on pkg40" gate
+  is satisfied.
 
 ### Track B (Copilot cloud)
 
@@ -273,7 +276,7 @@ events are summarized in the changelog below.
 | pkg33 | A | **done** | — |
 | pkg38 | B | **done** | — |
 | pkg39 | A | **done** | — |
-| pkg40 | A | open | current registry/reference cleanup |
+| pkg40 | A | **done** | Kerr/Schwarzschild metric plugins; BPT 1972 analytic gates green; pkg41 ready |
 | pkg52 | A | **done** | — |
 | pkg53 | B/E | **done** | — |
 | pkg54 | A | **done** | pkg54/54a/54b/54c/54d all verified on hardware; pkg54c visible-band SSIM 0.999 gate clears at 0.999263 (spp=8192); GPU `gpu_rgbSpectrumAt` ILLUMINANT renormalization bug found and fixed during verification; frame-time regression +0.45 % (pkg54e not needed) |

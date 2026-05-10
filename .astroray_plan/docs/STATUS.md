@@ -43,11 +43,10 @@ personally should pick up.
   pkg56 Phase B/C (uploadScene split + depsgraph dispatch), pkg64
   Phase 3 (default-integrator MIS fold), pkg76 (Astroray .blend importer for non-Cornell
   parity rows).
-- Pillar 4 (astrophysics) explicitly parked per 2026-05-10 strategic
-  gate. pkg40 Kerr metric is done; pkg41 Kerr validation is ready
-  (waiting for the gate). pkg42–51 specs are Codex-paste-ready and
-  waiting. The gate releases when pkg56 Phases B+C and pkg64 Phase 3
-  all land.
+- **Pillar 4 strategic gate RELEASED (2026-05-10).** pkg56 Phases B+C
+  and pkg64 Phase 3 have all landed; the gate's three preconditions are
+  green. pkg41 Kerr validation may now begin; pkg42–51 specs unfreeze.
+  pkg40 Kerr metric is already done.
 - Fresh local collection: `pytest --collect-only -q` reports **460+
   tests collected** as of Round 3 close (was 435 at 2026-05-09). New
   tests added by Rounds 2+3: pkg54c JH GPU, pkg54d profile lookup,

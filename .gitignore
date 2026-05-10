@@ -108,5 +108,7 @@ Thumbs.db
 *.ilk
 *.log
 *.png
+# pkg74 docs example artefacts are static documentation, not generated.
+!docs/showcase/*.png
 *.deb
 .aider*

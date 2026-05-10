@@ -83,6 +83,21 @@ configure preset and build the `Build Windows TCNN Release` preset.
 OIDN is enabled in these presets; CMake uses a local OIDN install when present
 or fetches the Windows prebuilt package during configure.
 
+**Optional GPU dependencies** — auto-detected by CMake; quietly disabled
+if absent:
+
+- **CUDA Toolkit 12.x** — GPU path tracer + OIDN-CUDA denoiser backend.
+- **NVIDIA OptiX 8.x SDK** — OptiX AI denoiser backend (~2× faster than
+  OIDN-CUDA on Tensor Core GPUs). Manual download from
+  <https://developer.nvidia.com/designworks/optix/download> (NVIDIA
+  developer account required; OptiX SDK License forbids redistribution
+  so we cannot bundle it). The default install path
+  `C:\ProgramData\NVIDIA Corporation\OptiX SDK 8.x.x\` is auto-detected.
+  Without OptiX, the denoiser silently falls back to OIDN.
+
+See [docs/QUICKSTART.md](docs/QUICKSTART.md#optional-nvidia-gpu-users) for
+the full prerequisite list.
+
 ```powershell
 cmake --preset windows-tcnn-vs
 cmake --build --preset windows-tcnn-vs-release

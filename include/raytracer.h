@@ -2421,6 +2421,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         // PASS_MOTION (Apache-2.0) which uses the first-sample
                         // primary ray's hit position.
                         Ray firstPrimaryRay;
+                        float firstPixelCurrX = 0.0f, firstPixelCurrY = 0.0f;
                         bool firstRayCaptured = false;
 
                         for (int s = 0; s < maxSamples; ++s) {
@@ -2440,7 +2441,17 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             // below can recover the world-space hit point (origin + dir*depth)
                             // even for integrators that don't populate SampleResult.position.
                             Ray primaryRay = cam.getRay(u, v, gen);
-                            if (s == 0) { firstPrimaryRay = primaryRay; firstRayCaptured = true; }
+                            if (s == 0) {
+                                firstPrimaryRay = primaryRay;
+                                // pkg72: use the jittered pixel coordinate as
+                                // pixel_curr so static-camera motion is exactly
+                                // zero (the projected hit point lands back on
+                                // the same sub-pixel). The render loop maps
+                                // pixel(x,y) -> u=x/(W-1), v=1-y/(H-1).
+                                firstPixelCurrX = u * float(cam.width - 1);
+                                firstPixelCurrY = (1.0f - v) * float(cam.height - 1);
+                                firstRayCaptured = true;
+                            }
                             if (integrator_) {
                                 SampleResult ir = integrator_->sampleFull(primaryRay, gen);
                                 sCol = ir.color;
@@ -2536,10 +2547,8 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             const Vec3 P = firstPrimaryRay.origin + firstPrimaryRay.direction * depth;
                             float pxPrev = 0.0f, pyPrev = 0.0f;
                             if (cam.projectToPrevPixel(P, pxPrev, pyPrev)) {
-                                const float pxCurr = static_cast<float>(x) + 0.5f;
-                                const float pyCurr = static_cast<float>(y) + 0.5f;
-                                motionX = pxPrev - pxCurr;
-                                motionY = pyPrev - pyCurr;
+                                motionX = pxPrev - firstPixelCurrX;
+                                motionY = pyPrev - firstPixelCurrY;
                                 if (!std::isfinite(motionX) || !std::isfinite(motionY)) {
                                     motionX = 0.0f; motionY = 0.0f;
                                 }

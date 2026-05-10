@@ -284,9 +284,51 @@ bpy.ops.render.render(write_still=True)
 """
 
 
+def _astroray_blend_script(scene: Scene, output: Path, device: str) -> str:
+    """Render template for `.blend` scenes via pkg76's importer.
+
+    The script lives entirely inside the subprocess: it imports astroray, runs
+    `tools.blend_import.import_blend` to populate the renderer from the
+    `.blend` file (parity-scope only — see pkg76 spec), and writes an EXR
+    matching the manifest's resolution + reference_spp.
+    """
+    return f"""
+import os, sys
+os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
+sys.path.insert(0, {str(ROOT)!r})
+import imageio.v3 as iio
+import numpy as np
+import astroray
+from tools.blend_import import import_blend
+
+r = astroray.Renderer()
+if {device == 'gpu'!r}:
+    r.set_use_gpu(True)
+r.set_seed(1)
+
+import_blend({str(scene.blend_path)!r}, renderer=r,
+             width={scene.width}, height={scene.height})
+
+pixels = np.asarray(r.render({scene.samples}, 8, None, False), dtype=np.float32)
+iio.imwrite({str(output)!r}, pixels)
+"""
+
+
 def _astroray_script(scene: Scene, output: Path, device: str) -> str:
+    """Render template for the in-process astroray runs.
+
+    Two paths:
+      * ``scene_id == "cornell"`` builds the scene from the Python scene-spec
+        baked into the harness (unchanged from the pkg71 baseline).
+      * Any other scene with a ``.blend`` source funnels through pkg76's
+        ``tools.blend_import.import_blend`` to populate a fresh Renderer
+        from the .blend file. The pkg71 manifest's ``reference_spp`` /
+        resolution drive the render call.
+    """
     if scene.scene_id != "cornell":
-        raise ValueError("Astroray scene import is only implemented for cornell")
+        if scene.blend_path is None:
+            raise ValueError(f"scene {scene.scene_id!r} has no .blend path")
+        return _astroray_blend_script(scene, output, device)
     return f"""
 import os
 os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
@@ -341,7 +383,12 @@ def _render_once(
         script.write_text(_cycles_script(scene, output, device), encoding="utf-8")
         return _run_command([blender, "--background", "--python", str(script)], ROOT, timeout)
 
-    if scene.scene_id == "cornell":
+    # Astroray engines.
+    if scene.scene_id == "cornell" or scene.blend_path is not None:
+        # Cornell uses the in-script Python scene; .blend scenes go through
+        # pkg76's importer (`tools.blend_import.import_blend`).
+        if scene.blend_path is not None and not scene.blend_path.exists():
+            return 0.0, 0.0, "scene_blend_not_found"
         device = "gpu" if engine == "astroray-gpu" else "cpu"
         script = output.with_suffix(".py")
         script.write_text(_astroray_script(scene, output, device), encoding="utf-8")
@@ -513,14 +560,20 @@ def main(argv: list[str] | None = None) -> int:
         writer.writeheader()
         writer.writerows(rows)
     print(output)
+    # SSIM gate: Cornell stays at 0.95 (both engines build it natively from a
+    # Python scene-spec, so deviation must be tiny). pkg76 .blend imports use
+    # a parity-scope subset of the shader graph; the spec relaxes the gate to
+    # 0.85 for those scenes to allow the procedural-texture / shader-graph
+    # fidelity loss that the parity-scope reader explicitly does not import.
     failed = []
     for row in rows:
         if not row["engine"].startswith("astroray") or row["skip_reason"] or not row["ssim_to_cycles"]:
             continue
-        if float(row["ssim_to_cycles"]) < 0.95:
-            failed.append(f"{row['scene']}/{row['engine']}={row['ssim_to_cycles']}")
+        gate = 0.95 if row["scene"] == "cornell" else 0.85
+        if float(row["ssim_to_cycles"]) < gate:
+            failed.append(f"{row['scene']}/{row['engine']}={row['ssim_to_cycles']} (<{gate})")
     if failed:
-        print("SSIM gate failed (<0.95): " + ", ".join(failed), file=sys.stderr)
+        print("SSIM gate failed: " + ", ".join(failed), file=sys.stderr)
         return 1
     return 0
 

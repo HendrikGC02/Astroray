@@ -1,0 +1,52 @@
+# Scene metadata for pkg71. Downloaded archives live in scenes/cache/ and are
+# intentionally not committed. SHA-256 values set to "pending" are refused by
+# the fetcher unless --allow-unpinned is passed; pin them after the first
+# audited download from the canonical source.
+
+[[scene]]
+id = "classroom"
+name = "Classroom"
+author = "Christophe Seux"
+license = "CC0-1.0"
+url = "https://download.blender.org/demo/test/classroom.zip"
+sha256 = "pending"
+archive = "classroom.zip"
+reference_spp = 300
+resolution = [1920, 1080]
+attribution = "Classroom by Christophe Seux, CC0-1.0, https://download.blender.org/demo/test/classroom.zip"
+
+[[scene]]
+id = "monster"
+name = "Monster"
+author = "Blender Studio"
+license = "CC0-1.0"
+url = "https://download.blender.org/demo/UDIM_monster.zip"
+sha256 = "pending"
+archive = "UDIM_monster.zip"
+reference_spp = 256
+resolution = [1024, 1024]
+attribution = "Monster / UDIM Monster by Blender Studio, CC0-1.0, https://download.blender.org/demo/UDIM_monster.zip"
+
+[[scene]]
+id = "junkshop"
+name = "Junkshop"
+author = "Alex Trevino"
+license = "CC-BY-4.0"
+url = "https://download.blender.org/demo/test/junkshop.zip"
+sha256 = "pending"
+archive = "junkshop.zip"
+reference_spp = 240
+resolution = [2000, 1000]
+attribution = "Junkshop by Alex Trevino, CC-BY-4.0, Blender Foundation demo files"
+
+[[scene]]
+id = "bmw27"
+name = "BMW27"
+author = "Mike Pan"
+license = "CC-BY-3.0"
+url = "https://download.blender.org/demo/test/BMW27.blend.zip"
+sha256 = "pending"
+archive = "BMW27.blend.zip"
+reference_spp = 1024
+resolution = [1920, 1080]
+attribution = "BMW27 by Mike Pan, CC-BY-3.0, https://download.blender.org/demo/test/BMW27.blend.zip"

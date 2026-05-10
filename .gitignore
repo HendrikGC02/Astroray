@@ -31,6 +31,9 @@ _deps/
 # Test outputs
 test_results/
 tests/output/
+benchmarks/cycles-parity/results/
+benchmarks/cycles-parity/scenes/cache/
+benchmarks/cycles-parity/refs/*.exr
 
 # Media outputs
 output.ppm

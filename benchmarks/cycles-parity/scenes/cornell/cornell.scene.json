@@ -1,0 +1,8 @@
+{
+  "id": "cornell",
+  "name": "Astroray Cornell Box",
+  "license": "MIT",
+  "reference_spp": 64,
+  "resolution": [512, 512],
+  "astroray_scene_id": 1
+}

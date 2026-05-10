@@ -1,0 +1,5 @@
+scene,engine,samples,time_ms,peak_mem_mb,ssim_to_cycles,skip_reason
+cornell,cycles-cpu,64,10843.458,,1.000000,
+cornell,cycles-cuda,64,3634.148,,,
+cornell,astroray-cpu,64,,,,exit:3221225781
+cornell,astroray-gpu,64,,,,exit:3221225781

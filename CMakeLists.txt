@@ -18,6 +18,12 @@ option(USE_NATIVE_ARCH "Build with -march=native" ON)
 option(USE_FAST_MATH "Enable fast math optimizations" ON)
 option(ASTRORAY_ENABLE_CUDA "Enable CUDA GPU acceleration" ON)
 option(ASTRORAY_ENABLE_OIDN "Enable Intel Open Image Denoise integration when available" ON)
+# pkg70 — NVIDIA OptiX AI denoiser. AUTO = enable when SDK headers are
+# located by cmake/FindOptiX.cmake; ON = error when not found; OFF = skip.
+set(ASTRORAY_ENABLE_OPTIX "AUTO" CACHE STRING
+    "Enable NVIDIA OptiX AI denoiser pass (ON/OFF/AUTO). AUTO requires CUDA + the OptiX SDK headers")
+set_property(CACHE ASTRORAY_ENABLE_OPTIX PROPERTY STRINGS "AUTO" "ON" "OFF")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 option(ASTRORAY_ENABLE_PYTEST_TARGET "Add an astroray_pytest convenience target" ON)
 # Disable OpenMP entirely. Needed when building the Python module (.pyd) for
 # distribution as a Blender addon: MinGW's libgomp deadlocks during module
@@ -145,6 +151,36 @@ if(ASTRORAY_ENABLE_OIDN)
     endif()
 endif()
 
+# ---------------------------------------------------------------------------
+# pkg70 — Optional NVIDIA OptiX AI denoiser
+# Headers are NOT bundled (NVIDIA SDK license forbids redistribution).
+# We locate optix.h via cmake/FindOptiX.cmake (OPTIX_INSTALL_DIR env or
+# default Windows path C:\ProgramData\NVIDIA Corporation\OptiX SDK 8.x).
+# OptiX needs CUDA: with no CUDA toolkit the option is silently disabled.
+# ---------------------------------------------------------------------------
+set(ASTRORAY_OPTIX_FOUND FALSE)
+if(NOT ASTRORAY_ENABLE_OPTIX STREQUAL "OFF")
+    if(ASTRORAY_CUDA_FOUND)
+        find_package(OptiX QUIET)
+        if(OptiX_FOUND)
+            set(ASTRORAY_OPTIX_FOUND TRUE)
+            message(STATUS "OptiX found: ${OptiX_VERSION} (${OptiX_INCLUDE_DIR})")
+        elseif(ASTRORAY_ENABLE_OPTIX STREQUAL "ON")
+            message(FATAL_ERROR
+                "ASTRORAY_ENABLE_OPTIX=ON but OptiX SDK was not found. "
+                "Install the OptiX 8.x SDK and set OPTIX_INSTALL_DIR.")
+        else()
+            message(STATUS "OptiX SDK not found — OptiX denoiser disabled")
+        endif()
+    elseif(ASTRORAY_ENABLE_OPTIX STREQUAL "ON")
+        message(FATAL_ERROR
+            "ASTRORAY_ENABLE_OPTIX=ON but CUDA was not found. "
+            "OptiX requires CUDA.")
+    else()
+        message(STATUS "CUDA disabled/missing — OptiX denoiser disabled")
+    endif()
+endif()
+
 # Compiler flags for optimization
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # Base optimization flags
@@ -228,6 +264,20 @@ if(ASTRORAY_PLUGIN_SOURCES)
     if(ASTRORAY_OIDN_FOUND)
         target_link_libraries(astroray_plugins PUBLIC ${ASTRORAY_OIDN_TARGET})
         target_compile_definitions(astroray_plugins PUBLIC ASTRORAY_OIDN_ENABLED)
+    endif()
+    if(ASTRORAY_OPTIX_FOUND)
+        # OptiX is a header-only host API at compile time; the function
+        # table is loaded at runtime via optixInit() from optix_stubs.h.
+        # We do still need the CUDA runtime headers + CUDA::cudart to call
+        # cudaMalloc/cudaMemcpy from the plugin.
+        target_include_directories(astroray_plugins PUBLIC
+            ${OptiX_INCLUDE_DIRS}
+            ${CUDAToolkit_INCLUDE_DIRS}
+        )
+        target_compile_definitions(astroray_plugins PUBLIC ASTRORAY_OPTIX_ENABLED)
+        if(TARGET CUDA::cudart)
+            target_link_libraries(astroray_plugins PUBLIC CUDA::cudart)
+        endif()
     endif()
 endif()
 
@@ -354,6 +404,9 @@ if(ASTRORAY_CUDA_FOUND)
     target_link_libraries(raytracer_standalone PRIVATE astroray_cuda)
     target_compile_definitions(raytracer_standalone PRIVATE ASTRORAY_CUDA_ENABLED)
 endif()
+if(ASTRORAY_OPTIX_FOUND)
+    target_compile_definitions(raytracer_standalone PRIVATE ASTRORAY_OPTIX_ENABLED)
+endif()
 
 # Set output name and configuration-specific properties
 set_target_properties(raytracer_standalone PROPERTIES
@@ -444,6 +497,10 @@ if(BUILD_PYTHON_MODULE)
         target_compile_definitions(astroray PRIVATE ASTRORAY_CUDA_ENABLED)
     endif()
 
+    if(ASTRORAY_OPTIX_FOUND)
+        target_compile_definitions(astroray PRIVATE ASTRORAY_OPTIX_ENABLED)
+    endif()
+
     # Set output directory to CMAKE_BINARY_DIR for both Windows and Linux
     # pybind11_add_module automatically handles .pyd on Windows and .so on Linux
     set_target_properties(astroray PROPERTIES
@@ -500,6 +557,10 @@ if(BUILD_BLENDER_MODULE)
     if(ASTRORAY_OIDN_FOUND)
         target_link_libraries(raytracer_blender PRIVATE ${ASTRORAY_OIDN_TARGET})
         target_compile_definitions(raytracer_blender PRIVATE ASTRORAY_OIDN_ENABLED)
+    endif()
+
+    if(ASTRORAY_OPTIX_FOUND)
+        target_compile_definitions(raytracer_blender PRIVATE ASTRORAY_OPTIX_ENABLED)
     endif()
 
     # Set properties for Python module
@@ -737,6 +798,7 @@ message(STATUS "Native arch: ${USE_NATIVE_ARCH}")
 message(STATUS "Fast math: ${USE_FAST_MATH}")
 message(STATUS "CUDA GPU backend: ${ASTRORAY_CUDA_FOUND}")
 message(STATUS "OIDN denoiser: ${ASTRORAY_OIDN_FOUND}")
+message(STATUS "OptiX denoiser: ${ASTRORAY_OPTIX_FOUND}")
 message(STATUS "Python module: ${BUILD_PYTHON_MODULE}")
 if(BUILD_PYTHON_MODULE)
     message(STATUS "  Python: ${Python3_VERSION}")

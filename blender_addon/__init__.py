@@ -137,9 +137,24 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         default="combined",
     )
     viewport_oidn: BoolProperty(
-        name="Viewport OIDN",
+        name="Viewport Denoise",
         default=False,
-        description="Apply OIDN denoiser to the viewport buffer (visible wavelengths only)",
+        description="Apply AI denoiser to the viewport buffer (visible wavelengths only). "
+                    "Backend selected by 'Denoiser' setting below.",
+    )
+    # pkg70 — denoiser backend chooser. AUTO prefers OptiX when both OptiX
+    # and OIDN are compiled in AND a CUDA device is visible at runtime;
+    # falls back to OIDN otherwise. Used for both viewport_oidn and
+    # use_denoising final-render denoise.
+    denoiser_backend: EnumProperty(
+        name="Denoiser",
+        description="Which AI denoiser to use when denoising is enabled",
+        items=[
+            ('auto',  'Auto',  'OptiX when available on NVIDIA GPUs, OIDN otherwise'),
+            ('optix', 'OptiX', 'NVIDIA OptiX (NVIDIA GPU + OptiX SDK build only)'),
+            ('oidn',  'OIDN',  'Intel Open Image Denoise (CPU and CUDA)'),
+        ],
+        default='auto',
     )
     max_bounces: IntProperty(name="Max Bounces", min=0, max=1024, default=10,
         description="Maximum path-trace depth — caps how many times a ray can scatter")
@@ -218,6 +233,48 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         options={'HIDDEN'},
         description="Integrator stats from the most recent render (auto-populated)",
     )
+
+
+# pkg70 — backend availability cache. Probing OptiX init constructs a
+# CUDARenderer to check device visibility, which we don't want to do per
+# frame. Cache first answer.
+_DENOISER_BACKEND_CACHE = {}
+
+
+def _optix_runtime_available() -> bool:
+    if "optix" in _DENOISER_BACKEND_CACHE:
+        return _DENOISER_BACKEND_CACHE["optix"]
+    available = False
+    if RAYTRACER_AVAILABLE and astroray.__features__.get("optix_denoiser", False):
+        try:
+            available = bool(astroray.gpu_optix_available())
+        except Exception:
+            available = False
+    _DENOISER_BACKEND_CACHE["optix"] = available
+    return available
+
+
+def _oidn_compiled_in() -> bool:
+    return RAYTRACER_AVAILABLE and bool(astroray.__features__.get("oidn_denoiser", False))
+
+
+def _resolve_denoiser_pass(settings) -> str | None:
+    """Pick the denoiser pass name to register, or None if neither backend
+    is available. Mirrors Cycles' "OptiX preferred when both present" choice.
+    """
+    choice = getattr(settings, "denoiser_backend", "auto")
+    optix_ok = _optix_runtime_available()
+    oidn_ok  = _oidn_compiled_in()
+    if choice == "optix":
+        return "optix_denoiser" if optix_ok else None
+    if choice == "oidn":
+        return "oidn_denoiser" if oidn_ok else None
+    # auto — OptiX preferred on NVIDIA, OIDN fallback.
+    if optix_ok:
+        return "optix_denoiser"
+    if oidn_ok:
+        return "oidn_denoiser"
+    return None
 
 
 def _report_backend(reporter, level, message):
@@ -697,7 +754,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 renderer.set_output_mode("luminance")
             renderer.set_integrator(integrator_name)
             if settings.use_denoising and not is_outside_visible:
-                renderer.add_pass("oidn_denoiser")
+                denoise_pass = _resolve_denoiser_pass(settings)
+                if denoise_pass is not None:
+                    renderer.add_pass(denoise_pass)
             if is_outside_visible and settings.colourmap != 'grayscale':
                 renderer.add_pass("colourmap_output")
             pixels = renderer.render(
@@ -770,6 +829,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self._camera_state_hash(context, region),
             getattr(settings, "viewport_display_pass", "combined"),
             bool(getattr(settings, "viewport_oidn", False)),
+            getattr(settings, "denoiser_backend", "auto"),
             round(float(lmin), 3), round(float(lmax), 3),
             getattr(settings, "colourmap", "grayscale"),
             _effective_integrator_name(settings),
@@ -908,7 +968,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         elif viewport_display_pass == "depth":
             renderer.add_pass("depth_aov")
         if getattr(settings, "viewport_oidn", False) and not is_outside_visible:
-            renderer.add_pass("oidn_denoiser")
+            denoise_pass = _resolve_denoiser_pass(settings)
+            if denoise_pass is not None:
+                renderer.add_pass(denoise_pass)
 
         samples = self._viewport_chunk_samples(settings, self._viewport_current_spp)
         if samples <= 0:
@@ -3087,7 +3149,10 @@ class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):
         layout.separator()
         col = layout.column(align=True)
         col.prop(settings, "viewport_display_pass", text="Render Pass")
-        col.prop(settings, "viewport_oidn", text="Viewport OIDN")
+        col.prop(settings, "viewport_oidn", text="Viewport Denoise")
+        sub = col.column()
+        sub.active = bool(getattr(settings, "viewport_oidn", False))
+        sub.prop(settings, "denoiser_backend", text="Denoiser")
 
         layout.separator()
         layout.prop(settings, "use_adaptive_sampling")

@@ -1316,6 +1316,33 @@ PYBIND11_MODULE(astroray, m) {
         return astroray::PassRegistry::instance().names();
     });
 
+    // pkg70 — runtime probe for the OptiX denoiser. The Blender addon uses
+    // this to decide whether to default to OptiX or OIDN on viewport.
+    // Returns true only when (a) the build was compiled with OptiX support,
+    // (b) the optix_denoiser pass is registered, and (c) a CUDA device is
+    // visible at runtime. We don't actually create a denoiser here — that
+    // would force a CUDA context init just to answer a Python query.
+    m.def("gpu_optix_available", []() {
+#if defined(ASTRORAY_OPTIX_ENABLED) && defined(ASTRORAY_CUDA_ENABLED)
+        const auto names = astroray::PassRegistry::instance().names();
+        bool registered = false;
+        for (const auto& n : names) {
+            if (n == "optix_denoiser") { registered = true; break; }
+        }
+        if (!registered) return false;
+        // Cheap CUDA-visibility check — same probe getGPUAvailable() uses.
+        try {
+            CUDARenderer test;
+            return test.isAvailable();
+        } catch (...) {
+            return false;
+        }
+#else
+        return false;
+#endif
+    }, "Return True when the OptiX denoiser plugin is built in and a CUDA "
+       "device is visible at runtime.");
+
     // pkg39: spectral profile database
     m.def("load_spectral_profiles", [](const std::string& path) {
         astroray::SpectralProfileDatabase::instance().load(path);
@@ -1594,6 +1621,11 @@ PYBIND11_MODULE(astroray, m) {
         "oidn_denoiser"_a=true,
 #else
         "oidn_denoiser"_a=false,
+#endif
+#ifdef ASTRORAY_OPTIX_ENABLED
+        "optix_denoiser"_a=true,
+#else
+        "optix_denoiser"_a=false,
 #endif
 #ifdef ASTRORAY_CUDA_ENABLED
         "cuda"_a=true

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** implemented (pending verification)
 **Estimated effort:** 3–5 days (~25 h)
 **Depends on:** pkg33 (OIDN integration — done), pkg68 (OIDN architectural fix — establishes the device-selection plumbing pattern this package mirrors)
 
@@ -241,16 +241,16 @@ either is fine — the user can choose.
 
 ## Progress
 
-- [ ] Write `cmake/FindOptiX.cmake` (or adapt NVIDIA SDK's).
-- [ ] Add `ASTRORAY_ENABLE_OPTIX` build flag with auto-detect default.
-- [ ] Implement `OptiXDenoiser` plugin with persistent state.
-- [ ] Implement model-kind selection (HDR vs AOV based on available
+- [x] Write `cmake/FindOptiX.cmake` (or adapt NVIDIA SDK's).
+- [x] Add `ASTRORAY_ENABLE_OPTIX` build flag with auto-detect default.
+- [x] Implement `OptiXDenoiser` plugin with persistent state.
+- [x] Implement model-kind selection (HDR vs AOV based on available
   guide buffers).
-- [ ] Add `gpu_optix_available()` Python binding.
-- [ ] Wire addon backend-selection logic with user override.
-- [ ] Add `tests/test_optix_denoiser.py`.
+- [x] Add `gpu_optix_available()` Python binding.
+- [x] Wire addon backend-selection logic with user override.
+- [x] Add `tests/test_optix_denoiser.py`.
 - [ ] Verify on RTX 5070 Ti: record OptiX vs OIDN-CUDA timing + SSIM
-  in Lessons.
+  in Lessons. *(pending — OptiX SDK + CUDA hardware verifier session)*
 
 ---
 

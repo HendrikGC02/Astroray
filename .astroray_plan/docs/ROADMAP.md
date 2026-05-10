@@ -103,18 +103,49 @@ GPU-default rendering and before Pillar 4 adds more spectral phenomena,
 material plugins should declare backend capabilities and either lower
 to a shared CPU/GPU closure representation or clearly fall back to CPU.
 
-**Status as of 2026-05-10:** the pkg34-pkg37 bridge is complete. The newer
-Cycles-parity queue extends the same honesty principle to integrators and
-Blender UX: pkg52/pkg53/pkg58/pkg59/pkg60/pkg61/pkg62/pkg65/pkg66 are
-done, and pkg54 (CPU/GPU multi-wavelength parity) landed in three
-verified pieces — pkg54 (megakernel + dispatch wiring), pkg54a (GPU
-spectral profile dispatch), pkg54b (CIE 1964 10° CMF table parity).
-Two scoped follow-ups carry the residual: pkg54c (Jakob-Hanika spectral
-upsampling on GPU, lifting visible SSIM 0.985 → 0.999) and pkg54d
-(direct `gpu_profile_reflectance` Python binding for unconfounded
-dispatch-liveness gating). pkg57 (native Astroray shader nodes), pkg63
-(world/HDRI parity), pkg64 (spectral caustics — research signed off),
-and pkg67 (metric-aware path tracer — research blocked) remain open.
+**Status as of 2026-05-10 (Round 3 close):** the pkg34-pkg37 backend
+bridge is complete. The Cycles-parity / Blender integration / denoiser
+push is **approaching feature-complete** for Pillar 5:
+
+- **Cycles parity wave done:** pkg52/53/57/58/59/60/61/62/63/65/66.
+- **GPU multi-wavelength parity done end-to-end:** pkg54/54a/54b/54c/54d
+  (all hardware-verified on RTX 5070 Ti; visible-band SSIM 0.999263 at
+  spp=8192).
+- **Denoiser story (mostly) closed:** pkg33 (OIDN integration, done),
+  pkg68 (OIDN persistent device + CUDA backend, **measured 2.77×
+  viewport speedup** post-pkg75), pkg69 (compositor Albedo pass, done),
+  pkg70 (OptiX denoiser, **1.86× faster than OIDN-CUDA, SSIM 0.9987 vs
+  OIDN**), pkg72 (motion vector AOV, done), pkg75 (AOV normal-guide
+  defect fixed and verified). pkg73 OptiX temporal denoiser is
+  unblocked and queued for Round 4.
+- **Caustics flagship:** pkg64 Phases 1+2 done (RGB SMS skeleton +
+  spectral wavelength-Newton, **+8.83 dB PSNR delta**); Phase 3
+  (default-integrator MIS fold) is a Round 4 Codex pickup.
+- **Cycles parity benchmark:** pkg71 framework + first canonical
+  Cornell baseline shipped — **Astroray-CPU SSIM 0.9536 vs
+  Cycles-CPU EXR; Astroray-GPU SSIM 0.9548 and 5.2× faster than
+  Cycles-CUDA on Cornell**. pkg76 (Astroray .blend importer for
+  parity scope) is the next pickup so non-Cornell scenes can produce
+  rows.
+- **Showcase framework:** pkg74 Phases 1+2 done (material zoo,
+  convergence grid, RMSE plot, full stat coverage); Phase 3
+  (interactive HTML + weekly CI) is a Round 4 Codex pickup.
+- **Viewport sync:** pkg52 (persistent viewport) + pkg56 Phase A
+  (instrumentation, baseline 129.92 ms) done. Phase B (uploadScene
+  split) is a Round 4 Claude tech pickup; Phase C (depsgraph dispatch)
+  follows in Round 5.
+
+Open Pillar 5: **pkg73 + pkg56-B + pkg64-3 + pkg74-3 + pkg76 spec**
+(Round 4); **pkg56 Phase C + pkg76 implementation + pkg55 Phase A**
+(Round 5). pkg67 (metric-aware path tracer) stays research-blocked
+until Pillar 4 thaws. pkg55 (wavefront SoA refactor) starts after
+pkg56+pkg64 land for measured baselines to compare against.
+
+**When pkg56 Phases B+C and pkg64 Phase 3 all land, Pillar 4 thaws.**
+The Codex-paste-ready specs for pkg41 (Kerr validation), pkg42-49
+(synchrotron, slim disk, ADAF, FITS, HDF5, SPH, etc.) are queued and
+waiting; pkg40 (Kerr metric) already landed during the pre-strategic-
+shift round.
 
 - `pkg34-material-backend-capabilities.md` — capability metadata,
   no silent grey-Lambertian GPU fallback, CPU/GPU contact-sheet diffs.

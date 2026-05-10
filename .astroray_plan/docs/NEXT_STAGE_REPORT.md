@@ -94,7 +94,7 @@ viewport "is a slog vs Cycles". Two new packages capture the gap:
 | Pkg | Title | Effort | Status |
 |---|---|---|---|
 | **pkg80** *(new)* | Blender addon `'auto'` integrator resolution | ~½ day | Daily-workflow blocker; small Codex pickup |
-| **pkg73 fix** | TEMPORAL_AOV upgrade branch never fires on RTX | ~½ day after diag | Diag instrumentation on `main` (PR #241); needs hardware capture + 1 fix iteration |
+| ~~pkg73 fix~~ | ~~TEMPORAL_AOV upgrade branch never fires on RTX~~ | — | **DONE 2026-05-11** (PR #249): two compounding bugs fixed (plugin: `temporalModeUsePreviousLayers` was 0; test: AOV ref silently upgraded). Hardware: 53.1 % reduction vs ≥30 % gate. Denoiser story closes end-to-end. |
 | **pkg81** *(new)* | Viewport interactivity parity with Cycles (Phase 1 harness + Phase 2 diagnosis + Phase 3 fix) | ~1–2 weeks | The real Pillar-5 closing work; partially overlaps pkg55 if H4 register-pressure dominates |
 | **pkg42** | Synchrotron emission (Pillar 4) | ~2 weeks | Codex-paste-ready spec |
 | **pkg43** | Slim disk model (Pillar 4) | ~2 weeks | Codex-paste-ready spec |

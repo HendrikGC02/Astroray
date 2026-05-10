@@ -93,7 +93,7 @@ personally should pick up.
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
 | 4 | Astrophysics platform | **Active** | 35% | pkg43 slim disk accretion model | gate released; pkg40 metric + pkg41 validation + pkg42 synchrotron done |
-| 5 | Production polish / Blender parity | **Feature-complete on package count, NOT on user-facing parity** | ~95% (counter) | pkg80 (auto-integrator GPU crash) + pkg81 (viewport-vs-Cycles measurement) + pkg73 fix | pkg80/pkg81 surfaced 2026-05-10 by owner; pkg73 hardware defect (diag in #241) |
+| 5 | Production polish / Blender parity | **Feature-complete on package count, NOT on user-facing parity** | ~96% (counter) | pkg80 (auto-integrator GPU crash) + pkg81 (viewport-vs-Cycles measurement) | pkg80/pkg81 surfaced 2026-05-10; pkg73 fixed 2026-05-11 (PR #249) — denoiser story closed |
 
 **Pillar 1 package summary:**
 
@@ -187,7 +187,7 @@ is currently the weakest link.
 | pkg74 | Engine benchmark + visual showcase framework (material zoo, convergence grid, stats CSV, HTML index) | **done (all phases)** | A |
 | pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **done** | A |
 | pkg72 | Per-pixel motion vector AOV (camera-only screen-space flow; OptiX prev→curr convention; `Renderer.get_motion_buffer()` zero-copy NumPy view; `motion_vector_aov` visualisation pass) — unblocks pkg73 OptiX temporal denoiser | **done** | A |
-| pkg73 | OptiX TEMPORAL_AOV denoiser mode (auto-upgrade from pkg70 AOV when pkg72 motion buffer is non-zero; destroy + recreate on model-kind transition; ping-pong internal-guide-layer pair; previous-output cache + first-frame fallback; clean fallback to AOV on static cameras). Mirrors Cycles `intern/cycles/device/optix/device_impl.cpp` (Apache-2.0). | **implemented; hardware defect open** — RTX 5070 Ti verifier (PR #235) measured 0% inter-frame variance reduction (gate ≥30%) and TEMPORAL_AOV log substring missing; static analysis ruled out the obvious chain bugs; `[pkg73-diag]` instrumentation in PR #241 (now on `main`) captures motion-buffer pointer + non-zero count + `hasPrevCamera` + `prevOrigin` end-to-end for the Round 6 fix session. | A |
+| pkg73 | OptiX TEMPORAL_AOV denoiser mode (auto-upgrade from pkg70 AOV when pkg72 motion buffer is non-zero; destroy + recreate on model-kind transition; ping-pong internal-guide-layer pair; previous-output cache + first-frame fallback; clean fallback to AOV on static cameras). Mirrors Cycles `intern/cycles/integrator/path_trace_work_gpu.cpp` (Apache-2.0). | **done** — defect fixed in PR #249 (2026-05-11). Two compounding root causes: (1) plugin: `OptixDenoiserParams::temporalModeUsePreviousLayers` was zero-init and never set → OptiX silently treated every frame as a new sequence start and dropped temporal accumulation, (2) test: AOV reference was silently upgraded to TEMPORAL_AOV by sub-pixel float dust (~2e-5) in `projectToPrevPixel` even when prev-pose == curr-pose → `rms_t == rms_a` by construction, masking root cause 1. Hardware-verified on RTX 5070 Ti / OptiX 9.1 / CUDA 12.8: **53.1% inter-frame variance reduction (gate ≥30%), 5/5 tests pass**. Diagnostic prints from PR #241 removed. **Denoiser story closes here** (pkg33 → pkg68 → pkg69 → pkg70 → pkg72 → pkg73). | A |
 | pkg76 | Astroray `.blend` importer (parity scope) — offline SDNA-walking Python reader, no `bpy` runtime dependency; supports Blender 5.1's 17-byte file header + 32-byte block header + new `attribute_storage`; returns `astroray.Scene`. `tools/blend_import/{sdna,reader,scene_builder,blend_to_astroray}.py`. | **done** (PR #240; CSV row population on Classroom/Junkshop/BMW27 deferred to a Round 6 RTX session — needs healthy denoiser path post-pkg73 fix) | A |
 | pkg80 | Blender addon: resolve `'auto'` integrator dropdown to a registered plugin before C++ calls — daily-workflow blocker surfaced 2026-05-10 by owner (`RuntimeError: Astroray: integrator 'auto' does not support GPU` on viewport rendered-view + GPU device mode). | **open** (Round 6 Codex pickup) | A |
 | pkg81 | Viewport interactivity parity with Cycles — Phase 1 harness + Phase 2 diagnosis + Phase 3 fix. The actual Pillar-5-closing package per ROADMAP.md's "rival Cycles" promise. Surfaced 2026-05-10 by owner ("rendered view is a slog vs Cycles"). pkg52/56/68/73/74 all closed against internal gates but never against Cycles-CUDA on the same scene during pan/zoom. | **open** (Round 6 Phase 1+2 Claude tech pickup; Phase 3 → Round 7 or routes through pkg55 Phase B) | A |
@@ -433,6 +433,18 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-11 (pkg73 closeout)** — pkg73 OptiX TEMPORAL_AOV defect
+  fixed in PR #249. Hardware-verified on RTX 5070 Ti / OptiX 9.1 /
+  CUDA 12.8: **53.1% inter-frame variance reduction (gate ≥30%),
+  5/5 tests pass**. Two compounding root causes both fixed: plugin's
+  `OptixDenoiserParams::temporalModeUsePreviousLayers` was never set
+  (OptiX silently treated every frame as a new sequence start), and
+  the test's AOV reference was silently upgraded to TEMPORAL_AOV by
+  sub-pixel float dust in `projectToPrevPixel`. Diagnostic prints
+  from PR #241 removed. **Denoiser story closes end-to-end** (pkg33
+  → pkg68 → pkg69 → pkg70 → pkg72 → pkg73). Cited Cycles
+  `intern/cycles/integrator/path_trace_work_gpu.cpp` (Apache-2.0).
 
 - **2026-05-10 (Round 5 close)** — Strategic gate **released**.
   Seven PRs landed: pkg56 Phase C depsgraph dispatch (#233 — the

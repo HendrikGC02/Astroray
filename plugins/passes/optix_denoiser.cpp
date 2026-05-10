@@ -3,6 +3,10 @@
 #endif
 
 // pkg70 — NVIDIA OptiX AI denoiser as a co-equal alternative to OIDN.
+// pkg73 — Extended with TEMPORAL_AOV mode when pkg72's motion buffer is
+//         present and non-zero. Mode is selected per execute(); model-kind
+//         transitions destroy + recreate the OptiX denoiser handle (the
+//         model kind is locked at optixDenoiserCreate time).
 //
 // Mirrors the pkg68 OIDN class shape (member-cached state, lazy init,
 // dimension-cached buffers). Where OIDN owns its own device, here we
@@ -17,11 +21,16 @@
 //     https://raytracing-docs.nvidia.com/optix8/api/optix__host_8h.html
 //   - Cycles `intern/cycles/device/optix/device_impl.cpp`
 //     (Apache-2.0) — `OptiXDevice::denoise_buffer()` for the
-//     setup/invoke shape, model-kind selection.
+//     setup/invoke shape, model-kind selection, and the
+//     destroy-and-recreate transition pattern used in pkg73.
+//   - Cycles `intern/cycles/integrator/denoiser_gpu.cpp` (Apache-2.0)
+//     — temporal previous-output lifecycle + resize invalidation.
 //
-// Constraints (per pkg70 spec):
-//   - HDR model when no guides; AOV model when albedo+normal both present.
-//   - No temporal mode (motion vectors not yet emitted by integrator).
+// Constraints (per pkg70/pkg73 spec):
+//   - HDR model when no guides; AOV model when albedo+normal both present;
+//     TEMPORAL_AOV when motion+albedo+normal are all present and motion
+//     is non-zero (static cameras stay on AOV — no point paying the
+//     prev-output buffer cost).
 //   - No SDK headers redistributed: build only when find_package(OptiX)
 //     succeeds and ASTRORAY_OPTIX_ENABLED is defined.
 
@@ -107,24 +116,66 @@ public:
         const float* srcColor  = fb.buffer("color");
         const float* srcAlbedo = fb.hasBuffer("albedo") ? fb.buffer("albedo") : nullptr;
         const float* srcNormal = fb.hasBuffer("normal") ? fb.buffer("normal") : nullptr;
+        const float* srcMotion = fb.hasBuffer("motion") ? fb.buffer("motion") : nullptr;
         const bool   hasGuides = (srcAlbedo != nullptr) && (srcNormal != nullptr);
+
+        // pkg73: only upgrade to TEMPORAL_AOV when motion is actually moving.
+        // pkg72 zero-fills the motion buffer for static cameras, sky pixels,
+        // and the first frame after setup_camera; in those cases the prev-
+        // output buffer + ping-pong internal-guide pair is wasted memory.
+        bool hasNonzeroMotion = false;
+        if (srcMotion) {
+            const size_t n2 = pixels * 2;
+            for (size_t i = 0; i < n2; ++i) {
+                if (srcMotion[i] != 0.0f) { hasNonzeroMotion = true; break; }
+            }
+        }
+
+        OptixDenoiserModelKind desiredKind;
+        if (hasGuides && hasNonzeroMotion) {
+            desiredKind = OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV;
+        } else if (hasGuides) {
+            desiredKind = OPTIX_DENOISER_MODEL_KIND_AOV;
+        } else {
+            desiredKind = OPTIX_DENOISER_MODEL_KIND_HDR;
+        }
 
         if (!initialised_) {
             initContext_();
-            // Cycles selects HDR vs AOV per-invocation based on guide
-            // availability and locks it for the denoiser's lifetime —
-            // mirror that. Switching modes requires recreating the handle.
-            modelKind_ = hasGuides ? OPTIX_DENOISER_MODEL_KIND_AOV
-                                   : OPTIX_DENOISER_MODEL_KIND_HDR;
+            modelKind_ = desiredKind;
             createDenoiser_();
             initialised_ = true;
+        } else if (desiredKind != modelKind_) {
+            // Mirror Cycles `device_impl.cpp`: model kind is locked at
+            // optixDenoiserCreate time, so transitioning means destroy +
+            // recreate. Buffers tied to the handle (state + scratch +
+            // internal-guide pair + prev-output) are also freed and will
+            // be reallocated below.
+            std::printf("[OptiX] denoiser model kind transition %d -> %d\n",
+                        static_cast<int>(modelKind_), static_cast<int>(desiredKind));
+            std::fflush(stdout);
+            freeDeviceBuffers_();
+            if (denoiser_) { optixDenoiserDestroy(denoiser_); denoiser_ = nullptr; }
+            modelKind_    = desiredKind;
+            cachedWidth_  = 0;  // force allocateBuffers_ on next branch
+            cachedHeight_ = 0;
+            prev_valid_   = false;
+            frame_index_  = 0;
+            createDenoiser_();
         }
 
         if (w != cachedWidth_ || h != cachedHeight_) {
+            // pkg73: prev-output is sized for the old resolution; drop it
+            // (allocateBuffers_ recreates) and treat next frame as first.
             allocateBuffers_(w, h);
             cachedWidth_  = w;
             cachedHeight_ = h;
+            prev_valid_   = false;
+            frame_index_  = 0;
         }
+
+        const bool isTemporal = (modelKind_ == OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV);
+        const bool isAOV      = (modelKind_ == OPTIX_DENOISER_MODEL_KIND_AOV) || isTemporal;
 
         // Sanitize NaNs/Infs in the host buffers (path tracer can produce
         // them from very-rare divide edge cases) before HtoD copy. Mirrors
@@ -142,13 +193,15 @@ public:
         ASTRORAY_CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(colorDev_),
                                        sanitised_.data(), rgbBytes,
                                        cudaMemcpyHostToDevice));
-        if (modelKind_ == OPTIX_DENOISER_MODEL_KIND_AOV) {
+        if (isAOV) {
             sanitiseInto(srcAlbedo);
             ASTRORAY_CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(albedoDev_),
                                            sanitised_.data(), rgbBytes,
                                            cudaMemcpyHostToDevice));
             // Normalise normals before upload (OIDN plugin does the same;
-            // OptiX expects unit-length world-space normals).
+            // OptiX expects unit-length normals). pkg70 §6 confirms our
+            // normal buffer is camera-space-3-channel, which is what
+            // TEMPORAL_AOV's normal-guide rule also requires.
             for (size_t i = 0; i < pixels; ++i) {
                 float nx = std::isfinite(srcNormal[i*3+0]) ? srcNormal[i*3+0] : 0.0f;
                 float ny = std::isfinite(srcNormal[i*3+1]) ? srcNormal[i*3+1] : 0.0f;
@@ -163,25 +216,55 @@ public:
                                            sanitised_.data(), rgbBytes,
                                            cudaMemcpyHostToDevice));
         }
+        if (isTemporal) {
+            // pkg72 writes motion as `prev_pixel - curr_pixel` in pixel units
+            // (see pkg72 Lessons "Sign convention"), which is exactly the
+            // OptixDenoiserGuideLayer::flow contract — no remap here.
+            const size_t flowBytes = pixels * 2 * sizeof(float);
+            sanitisedFlow_.resize(pixels * 2);
+            for (size_t i = 0; i < pixels * 2; ++i) {
+                const float v = srcMotion[i];
+                sanitisedFlow_[i] = std::isfinite(v) ? v : 0.0f;
+            }
+            ASTRORAY_CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(motionDev_),
+                                           sanitisedFlow_.data(), flowBytes,
+                                           cudaMemcpyHostToDevice));
+        }
 
         // Build per-frame layer/guide descriptors.
-        OptixImage2D colorImg = makeImage_(colorDev_, w, h);
+        OptixImage2D colorImg  = makeImage_(colorDev_,  w, h);
         OptixImage2D outputImg = makeImage_(outputDev_, w, h);
 
         OptixDenoiserLayer layer = {};
-        layer.input         = colorImg;
-        layer.output        = outputImg;
-        // previousOutput left null — temporal mode is out of scope (#4).
+        layer.input  = colorImg;
+        layer.output = outputImg;
+        if (isTemporal) {
+            // First-frame fallback per the OptiX programming guide: when no
+            // valid prev-output exists yet, feed the noisy current beauty as
+            // previousOutput and rely on pkg72's zero-fill flow.
+            CUdeviceptr prev = prev_valid_ ? prevOutputDev_ : colorDev_;
+            layer.previousOutput = makeImage_(prev, w, h);
+        }
 
         OptixDenoiserGuideLayer guide = {};
-        if (modelKind_ == OPTIX_DENOISER_MODEL_KIND_AOV) {
+        if (isAOV) {
             guide.albedo = makeImage_(albedoDev_, w, h);
             guide.normal = makeImage_(normalDev_, w, h);
         }
+        if (isTemporal) {
+            guide.flow = makeFlowImage_(motionDev_, w, h);
+            // Internal-guide-layer ping-pong: this frame's `output` becomes
+            // next frame's `previous`. Mirror Cycles `device_impl.cpp`.
+            const int prevSlot = (frame_index_ & 1);
+            const int currSlot = 1 - prevSlot;
+            guide.previousOutputInternalGuideLayer =
+                makeInternalGuideImage_(internalGuideDev_[prevSlot], w, h);
+            guide.outputInternalGuideLayer =
+                makeInternalGuideImage_(internalGuideDev_[currSlot], w, h);
+        }
 
-        // Compute intensity (HDR exposure normalisation). OptiX provides a
-        // helper kernel for this; passing a non-zero intensity yields better
-        // results on HDR inputs than the default 1.0.
+        // Compute intensity (HDR exposure normalisation). Documented to
+        // work for HDR, AOV and TEMPORAL_AOV models.
         ASTRORAY_OPTIX_CHECK(optixDenoiserComputeIntensity(
             denoiser_, /*stream*/ 0,
             &colorImg, intensityDev_,
@@ -190,11 +273,13 @@ public:
         OptixDenoiserParams params = {};
         params.hdrIntensity      = intensityDev_;
         params.blendFactor       = 0.0f;
-        params.hdrAverageColor   = 0; // not used in HDR/AOV models
+        params.hdrAverageColor   = 0;
         // Older OptiX 7.x SDKs had `denoiseAlpha` as a bool field; OptiX 8
-        // moved it to an enum (OPTIX_DENOISER_ALPHA_MODE_*). We render
-        // 3-channel float (no alpha), so the default zero-init is correct
-        // for both ABIs.
+        // moved it to an enum (OPTIX_DENOISER_ALPHA_MODE_*). 3-channel
+        // float means the default zero-init is correct for both ABIs.
+        // pkg73: `temporalModeUsePreviousLayers` defaults to 0 — we use
+        // the noisy-input fallback on the very first frame (prev_valid_
+        // == false), which matches the OptiX guide's recommendation.
 
         ASTRORAY_OPTIX_CHECK(optixDenoiserInvoke(
             denoiser_, /*stream*/ 0, &params,
@@ -204,6 +289,15 @@ public:
             scratchDev_, scratchSize_));
 
         ASTRORAY_CUDA_CHECK(cudaDeviceSynchronize());
+
+        if (isTemporal) {
+            // Cache denoised output for next frame's previousOutput binding.
+            ASTRORAY_CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(prevOutputDev_),
+                                           reinterpret_cast<void*>(outputDev_),
+                                           rgbBytes, cudaMemcpyDeviceToDevice));
+            prev_valid_ = true;
+            ++frame_index_;
+        }
 
         // DtoH copy back into the framebuffer's color buffer, clamping
         // any residual non-finite or negative values.
@@ -252,11 +346,17 @@ private:
 
     void createDenoiser_() {
         OptixDenoiserOptions opts = {};
-        if (modelKind_ == OPTIX_DENOISER_MODEL_KIND_AOV) {
+        if (modelKind_ == OPTIX_DENOISER_MODEL_KIND_AOV ||
+            modelKind_ == OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV) {
             opts.guideAlbedo = 1;
             opts.guideNormal = 1;
         }
         ASTRORAY_OPTIX_CHECK(optixDenoiserCreate(context_, modelKind_, &opts, &denoiser_));
+        std::printf("[OptiX] denoiser created (kind=%d%s)\n",
+                    static_cast<int>(modelKind_),
+                    modelKind_ == OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV
+                        ? " TEMPORAL_AOV" : "");
+        std::fflush(stdout);
     }
 
     void allocateBuffers_(int w, int h) {
@@ -277,11 +377,29 @@ private:
         const size_t rgbBytes = static_cast<size_t>(w) * h * 3 * sizeof(float);
         ASTRORAY_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&colorDev_),  rgbBytes));
         ASTRORAY_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&outputDev_), rgbBytes));
-        if (modelKind_ == OPTIX_DENOISER_MODEL_KIND_AOV) {
+        if (modelKind_ == OPTIX_DENOISER_MODEL_KIND_AOV ||
+            modelKind_ == OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV) {
             ASTRORAY_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&albedoDev_), rgbBytes));
             ASTRORAY_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&normalDev_), rgbBytes));
         }
         ASTRORAY_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&intensityDev_), sizeof(float)));
+
+        if (modelKind_ == OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV) {
+            const size_t flowBytes = static_cast<size_t>(w) * h * 2 * sizeof(float);
+            ASTRORAY_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&motionDev_),     flowBytes));
+            ASTRORAY_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&prevOutputDev_), rgbBytes));
+
+            // Internal-guide-layer pair (ping-pong). Size in bytes per pixel
+            // is reported by optixDenoiserComputeMemoryResources (OptiX 7.5+
+            // OptixDenoiserSizes::internalGuideLayerPixelSizeInBytes).
+            const size_t igBytes = static_cast<size_t>(w) * h *
+                sizes.internalGuideLayerPixelSizeInBytes;
+            ASTRORAY_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&internalGuideDev_[0]), igBytes));
+            ASTRORAY_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&internalGuideDev_[1]), igBytes));
+            ASTRORAY_CUDA_CHECK(cudaMemset(reinterpret_cast<void*>(internalGuideDev_[0]), 0, igBytes));
+            ASTRORAY_CUDA_CHECK(cudaMemset(reinterpret_cast<void*>(internalGuideDev_[1]), 0, igBytes));
+            internalGuidePixelSize_ = sizes.internalGuideLayerPixelSizeInBytes;
+        }
 
         ASTRORAY_OPTIX_CHECK(optixDenoiserSetup(
             denoiser_, /*stream*/ 0,
@@ -301,6 +419,29 @@ private:
         return img;
     }
 
+    OptixImage2D makeFlowImage_(CUdeviceptr ptr, int w, int h) const {
+        OptixImage2D img = {};
+        img.data               = ptr;
+        img.width              = static_cast<unsigned int>(w);
+        img.height             = static_cast<unsigned int>(h);
+        img.rowStrideInBytes   = static_cast<unsigned int>(w) * 2 * sizeof(float);
+        img.pixelStrideInBytes = 2 * sizeof(float);
+        img.format             = OPTIX_PIXEL_FORMAT_FLOAT2;
+        return img;
+    }
+
+    OptixImage2D makeInternalGuideImage_(CUdeviceptr ptr, int w, int h) const {
+        OptixImage2D img = {};
+        img.data               = ptr;
+        img.width              = static_cast<unsigned int>(w);
+        img.height             = static_cast<unsigned int>(h);
+        img.rowStrideInBytes   = static_cast<unsigned int>(w) *
+            static_cast<unsigned int>(internalGuidePixelSize_);
+        img.pixelStrideInBytes = static_cast<unsigned int>(internalGuidePixelSize_);
+        img.format             = OPTIX_PIXEL_FORMAT_INTERNAL_GUIDE_LAYER;
+        return img;
+    }
+
     void freeDeviceBuffers_() {
         auto freeIf = [](CUdeviceptr& p) {
             if (p) { cudaFree(reinterpret_cast<void*>(p)); p = 0; }
@@ -312,8 +453,13 @@ private:
         freeIf(normalDev_);
         freeIf(outputDev_);
         freeIf(intensityDev_);
-        stateSize_   = 0;
-        scratchSize_ = 0;
+        freeIf(motionDev_);
+        freeIf(prevOutputDev_);
+        freeIf(internalGuideDev_[0]);
+        freeIf(internalGuideDev_[1]);
+        stateSize_              = 0;
+        scratchSize_            = 0;
+        internalGuidePixelSize_ = 0;
     }
 
     void destroy_() {
@@ -332,12 +478,20 @@ private:
     CUdeviceptr             normalDev_    = 0;
     CUdeviceptr             outputDev_    = 0;
     CUdeviceptr             intensityDev_ = 0;
+    // pkg73 TEMPORAL_AOV state.
+    CUdeviceptr             motionDev_           = 0;
+    CUdeviceptr             prevOutputDev_       = 0;
+    CUdeviceptr             internalGuideDev_[2] = {0, 0};
+    size_t                  internalGuidePixelSize_ = 0;
+    int                     frame_index_  = 0;
+    bool                    prev_valid_   = false;
     size_t                  stateSize_    = 0;
     size_t                  scratchSize_  = 0;
     int                     cachedWidth_  = 0;
     int                     cachedHeight_ = 0;
     bool                    initialised_  = false;
     std::vector<float>      sanitised_;
+    std::vector<float>      sanitisedFlow_;
 #endif
 };
 

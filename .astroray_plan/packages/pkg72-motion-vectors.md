@@ -228,7 +228,6 @@ External URLs:
   every pixel (motion or zero) on every render call, so no
   `std::fill` clear is needed. The buffer is sized once in the
   Camera constructor and lives for the camera's lifetime.
-
 ### Hardware verification 2026-05-10 — RTX 5070 Ti, Windows MSVC `build_cuda`
 
 `tests/test_motion_vector_aov.py`: **6/6 passed in 0.19s** (the test
@@ -248,3 +247,10 @@ The 2b numbers confirm the OptiX flow convention end-to-end on
 hardware: positive motion.x for a +x camera translation, zero
 motion on sky pixels, zero motion on the very first frame. pkg73
 (OptiX temporal denoiser) can take the buffer verbatim.
+
+- **Consumed by pkg73 OptiX temporal denoiser as designed.** The
+  pixel-unit `prev - curr` flow + zero-fill on static / first-frame /
+  sky pixels were taken verbatim by pkg73's
+  `OptixDenoiserGuideLayer::flow` binding with no remap; the pkg73
+  plugin uses the all-zero state as its "stay in AOV mode" signal,
+  which is precisely the contract pkg72 advertised.

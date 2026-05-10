@@ -164,6 +164,7 @@ is currently the weakest link.
 | pkg74 | Engine benchmark + visual showcase framework (material zoo, convergence grid, stats CSV, HTML index) | **Phase 1 implemented**; Phase 2/3 open | A |
 | pkg75 | First-hit normal buffer population for denoiser AOV guides — surfaced during pkg70 verification | **done** (CPU integrator fix landed; OIDN-CUDA / OptiX re-baseline pending verifier session) | A |
 | pkg72 | Per-pixel motion vector AOV (camera-only screen-space flow; OptiX prev→curr convention; `Renderer.get_motion_buffer()` zero-copy NumPy view; `motion_vector_aov` visualisation pass) — unblocks pkg73 OptiX temporal denoiser | **done** | A |
+| pkg73 | OptiX TEMPORAL_AOV denoiser mode (auto-upgrade from pkg70 AOV when pkg72 motion buffer is non-zero; destroy + recreate on model-kind transition; ping-pong internal-guide-layer pair; previous-output cache + first-frame fallback; clean fallback to AOV on static cameras and on resolution change). Mirrors Cycles `intern/cycles/device/optix/device_impl.cpp` (Apache-2.0). | **implemented** (CUDA + OptiX SDK verification + ≥30% inter-frame variance gate pending verifier session) | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
 original roadmap but no full spec written; capture intent before they're

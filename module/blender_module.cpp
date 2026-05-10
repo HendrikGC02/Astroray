@@ -3,8 +3,10 @@
 #include <pybind11/numpy.h>
 #include <pybind11/functional.h>
 #include <pybind11/operators.h>
+#include <array>
 #include <cctype>
 #include <cmath>
+#include <mutex>
 #include "raytracer.h"
 #include "advanced_features.h"
 #include "astroray/shapes.h"
@@ -1111,6 +1113,37 @@ public:
     int getHeight() const { return camera ? camera->height : 0; }
 };
 
+// pkg56 Phase A: viewport-sync per-stage timing ring buffer storage.
+// Lifted to namespace scope because GCC rejects static-constexpr members
+// inside a local class declared in a function body.
+namespace {
+
+struct ViewportPerfRing {
+    static constexpr size_t kCapacity = 100;
+    static constexpr size_t kStages = 5;
+    std::array<std::array<double, kStages>, kCapacity> frames{};
+    std::array<double, kStages> current{};  // accumulator for in-flight frame
+    size_t head = 0;                        // next slot to write
+    size_t size = 0;                        // filled slots (≤ kCapacity)
+    std::mutex mtx;
+};
+
+ViewportPerfRing g_viewport_perf_ring;
+
+constexpr std::array<const char*, ViewportPerfRing::kStages>
+kViewportPerfStageNames = {
+    "geometry", "materials", "lights", "environment", "render"
+};
+
+int viewport_perf_stage_index(const std::string& name) {
+    for (size_t i = 0; i < kViewportPerfStageNames.size(); ++i) {
+        if (name == kViewportPerfStageNames[i]) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+}  // namespace
+
 PYBIND11_MODULE(astroray, m) {
     m.doc() = "Astroray - Physically Based Path Tracer";
     py::class_<PyRenderer>(m, "Renderer")
@@ -1610,6 +1643,89 @@ PYBIND11_MODULE(astroray, m) {
         .def_property_readonly("width",       &FrameStateHelper::width)
         .def_property_readonly("height",      &FrameStateHelper::height)
         .def("in_bounds", &FrameStateHelper::inBounds, "x"_a, "y"_a);
+
+    // -----------------------------------------------------------------------
+    // pkg56 Phase A: viewport-sync per-stage timing ring buffer.
+    //
+    // Pure measurement, no behaviour change. Python timers in
+    // blender_addon/__init__.py wrap each stage of `_sync_viewport_scene`
+    // and the render dispatch, push the elapsed ms via
+    // `astroray.record_viewport_stage(stage, ms)`, and call
+    // `astroray.viewport_perf_frame_complete()` once the frame finishes.
+    // `astroray.viewport_perf_stats()` returns the rolling per-stage means
+    // over the last N completed frames (default N=100). The render-stats
+    // overlay reads it for live display.
+    //
+    // This is the "before" baseline number Phase C drives below 5 ms.
+    // -----------------------------------------------------------------------
+    m.def("record_viewport_stage",
+          [](const std::string& stage, double ms) {
+              int i = viewport_perf_stage_index(stage);
+              if (i < 0) {
+                  throw std::invalid_argument(
+                      "record_viewport_stage: unknown stage '" + stage +
+                      "'. Expected one of: geometry, materials, lights, "
+                      "environment, render.");
+              }
+              auto& ring = g_viewport_perf_ring;
+              std::lock_guard<std::mutex> g(ring.mtx);
+              ring.current[static_cast<size_t>(i)] += ms;
+          },
+          "stage"_a, "ms"_a,
+          "pkg56-A: accumulate elapsed ms into the in-flight frame's "
+          "stage bucket. Stage must be one of: geometry, materials, "
+          "lights, environment, render.");
+
+    m.def("viewport_perf_frame_complete",
+          []() {
+              auto& ring = g_viewport_perf_ring;
+              std::lock_guard<std::mutex> g(ring.mtx);
+              ring.frames[ring.head] = ring.current;
+              ring.current = {};
+              ring.head = (ring.head + 1) % ViewportPerfRing::kCapacity;
+              if (ring.size < ViewportPerfRing::kCapacity) ring.size++;
+          },
+          "pkg56-A: close the in-flight frame and push its per-stage "
+          "totals into the ring buffer (capacity 100 frames).");
+
+    m.def("viewport_perf_stats",
+          []() {
+              auto& ring = g_viewport_perf_ring;
+              std::lock_guard<std::mutex> g(ring.mtx);
+              py::dict out;
+              std::array<double, ViewportPerfRing::kStages> sums{};
+              for (size_t f = 0; f < ring.size; ++f) {
+                  for (size_t s = 0; s < ViewportPerfRing::kStages; ++s) {
+                      sums[s] += ring.frames[f][s];
+                  }
+              }
+              double total = 0.0;
+              for (size_t s = 0; s < ViewportPerfRing::kStages; ++s) {
+                  double mean = (ring.size > 0)
+                      ? sums[s] / static_cast<double>(ring.size)
+                      : 0.0;
+                  out[kViewportPerfStageNames[s]] = mean;
+                  total += mean;
+              }
+              out["total"] = total;
+              out["frames"] = static_cast<int>(ring.size);
+              return out;
+          },
+          "pkg56-A: per-stage mean ms over the last N completed frames "
+          "(N≤100). Returns dict with keys 'geometry', 'materials', "
+          "'lights', 'environment', 'render', 'total', 'frames'.");
+
+    m.def("viewport_perf_reset",
+          []() {
+              auto& ring = g_viewport_perf_ring;
+              std::lock_guard<std::mutex> g(ring.mtx);
+              ring.frames = {};
+              ring.current = {};
+              ring.head = 0;
+              ring.size = 0;
+          },
+          "pkg56-A: clear the viewport perf ring buffer and "
+          "in-flight accumulator.");
 
     m.attr("__version__") = "3.0.0";
     m.attr("__features__") = py::dict(

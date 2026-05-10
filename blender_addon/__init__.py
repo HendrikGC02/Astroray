@@ -103,6 +103,37 @@ def _try_load_spectral_profiles() -> None:
 
 _try_load_spectral_profiles()
 
+
+# pkg56 Phase A: viewport-sync per-stage timing helpers. These call into
+# the C++ ring buffer (astroray.record_viewport_stage /
+# viewport_perf_frame_complete). Both helpers are no-ops if the binding
+# isn't present — keeps older astroray.pyd builds working with this addon.
+def _viewport_perf_record(stage, t0):
+    """Push (now - t0) milliseconds into the in-flight frame's stage bucket."""
+    if not RAYTRACER_AVAILABLE:
+        return
+    rec = getattr(astroray, "record_viewport_stage", None)
+    if rec is None:
+        return
+    try:
+        rec(stage, (time.perf_counter() - t0) * 1000.0)
+    except Exception:
+        pass
+
+
+def _viewport_perf_frame_complete():
+    """Close the current frame and roll the ring buffer."""
+    if not RAYTRACER_AVAILABLE:
+        return
+    fn = getattr(astroray, "viewport_perf_frame_complete", None)
+    if fn is None:
+        return
+    try:
+        fn()
+    except Exception:
+        pass
+
+
 def _integrator_type_items(self, context):
     if RAYTRACER_AVAILABLE:
         items = [('auto', 'Auto (Best Available)', 'Use accelerated integrators when available, otherwise fall back')]
@@ -910,7 +941,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
     def _sync_viewport_scene(self, renderer, depsgraph, settings):
         """Push the depsgraph state into the renderer. Called from view_update
-        only — view_draw skips this and just re-renders with a new camera."""
+        only — view_draw skips this and just re-renders with a new camera.
+
+        pkg56-A: per-stage timers feed `astroray.record_viewport_stage`
+        for the no-change-frame baseline. Pure measurement, zero behaviour
+        change — the helper is a no-op when the binding isn't present.
+        """
         renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
         renderer.clear()
         renderer.set_clamp_direct(settings.clamp_direct)
@@ -918,10 +954,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.set_filter_glossy(settings.filter_glossy)
         renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
         renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
+
+        t0 = time.perf_counter()
         material_map = self.convert_materials(depsgraph, renderer)
+        _viewport_perf_record("materials", t0)
+
+        t0 = time.perf_counter()
         self.convert_objects(depsgraph, renderer, material_map)
+        _viewport_perf_record("geometry", t0)
+
+        t0 = time.perf_counter()
         self.convert_lights(depsgraph, renderer)
+        _viewport_perf_record("lights", t0)
+
+        t0 = time.perf_counter()
         self.setup_world(depsgraph.scene, renderer)
+        _viewport_perf_record("environment", t0)
+
         _configure_backend_for_context(renderer, settings, self.report, _effective_integrator_name(settings))
 
     def _render_viewport_frame(self, renderer, context, settings, region,
@@ -1018,8 +1067,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         try:
             renderer = self._get_viewport_renderer()
             self._sync_viewport_scene(renderer, depsgraph, settings)
+            t0 = time.perf_counter()
             self._render_viewport_frame(renderer, context, settings, region,
                                         reset_accumulation=True)
+            _viewport_perf_record("render", t0)
+            # pkg56-A: close the frame so its stage totals enter the ring
+            # buffer that astroray.viewport_perf_stats() reads.
+            _viewport_perf_frame_complete()
             # Stamp the camera hash so view_draw doesn't re-render until the
             # camera actually changes.
             self._viewport_camera_hash = self._camera_state_hash(context, region)
@@ -3335,6 +3389,27 @@ class RENDER_PT_custom_raytracer_diagnostics(AstrorayPanelBase, Panel):
             col.label(text="Last render stats:")
             for line in stats_str.splitlines()[:6]:
                 col.label(text=f"  {line}")
+
+        # pkg56-A: viewport sync per-stage timings (rolling mean over the
+        # last ≤100 frames). Hidden until at least one frame has been
+        # recorded; pure measurement, no behaviour change.
+        try:
+            perf_fn = getattr(astroray, "viewport_perf_stats", None)
+            if perf_fn is not None:
+                stats = perf_fn()
+                if stats and int(stats.get("frames", 0)) > 0:
+                    col.separator()
+                    col.label(
+                        text=f"Viewport sync (mean over {stats['frames']} frames):"
+                    )
+                    for stage in ("geometry", "materials", "lights",
+                                  "environment", "render"):
+                        col.label(
+                            text=f"  {stage}: {float(stats.get(stage, 0.0)):.2f} ms"
+                        )
+                    col.label(text=f"  total: {float(stats.get('total', 0.0)):.2f} ms")
+        except Exception:
+            pass
 
 
 class AstrorayWorldPanelBase(AstrorayPanelBase):

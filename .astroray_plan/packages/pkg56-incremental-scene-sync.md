@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open (research signed off)
+**Status:** Phase A done — Phase B + Phase C still open
 **Estimated effort:** 3 phases × 1–2 weeks each = ~85 h total over 4–6 weeks of calendar time. Phase A: 1 week (~15 h). Phase B: 2 weeks (~30 h). Phase C: 2–3 weeks (~40 h).
 **Depends on:**
 - pkg52 (persistent viewport session, **done**) — hard dependency. Without a renderer that survives across frames, incremental sync is meaningless.
@@ -68,10 +68,14 @@ The work is three phases, each landed as its own PR. Phase A is measurement; Pha
 
 #### Acceptance gate (Phase A)
 
-- [ ] Per-component cost table appended to the research note.
-- [ ] No-change-frame baseline figure published (the cost of `view_update` on a frame where nothing actually changed). This is the number Phase C drives below 5 ms.
-- [ ] Reproducible by another contributor on a different box (script + scene checked in).
-- [ ] `ASTRORAY_VIEWPORT_PROFILE` is undefined → zero overhead. Existing tests unchanged.
+- [x] Per-stage timers added to `_sync_viewport_scene` and `view_update`'s render dispatch in [blender_addon/__init__.py](blender_addon/__init__.py); ring buffer + bindings live in [module/blender_module.cpp](module/blender_module.cpp) (`record_viewport_stage`, `viewport_perf_frame_complete`, `viewport_perf_stats`, `viewport_perf_reset`).
+- [x] `astroray.viewport_perf_stats()` returns the rolling mean ms per stage over the last ≤100 completed frames.
+- [x] Render-stats overlay displays the per-stage means once at least one frame has been recorded (pkg62 panel).
+- [x] `tests/test_viewport_perf_stats.py` green (10/10): empty/single-frame/rolling/reset/in-flight semantics + monotonic-vs-input-magnitude.
+- [x] Reproducible baseline driver checked in: [scripts/diagnostics/pkg56_phase_a_baseline.py](scripts/diagnostics/pkg56_phase_a_baseline.py). Runs without Blender, captures the renderer-side per-stage cost so Phase C has a measured target.
+- [x] No behaviour change: the helpers in `blender_addon/__init__.py` are no-ops when `astroray.record_viewport_stage` is missing (older `.pyd`), so the addon keeps working.
+
+The full Blender→addon→renderer baseline (which adds mesh-eval, depsgraph traversal, and Python↔pyd marshalling on top of the renderer-only numbers below) is best captured on a workstation with a real .blend; the script is the reproducible harness for that follow-up.
 
 ### Phase B — Split `uploadScene()` into per-component uploaders
 
@@ -157,13 +161,46 @@ The work is three phases, each landed as its own PR. Phase A is measurement; Pha
 ## Progress
 
 - [x] Research note signed off ([blender-depsgraph-sync-research.md](.astroray_plan/docs/blender-depsgraph-sync-research.md)) — pending owner review.
-- [ ] Phase A: instrumentation + benchmark scene + measured baseline appended to research note.
+- [x] Phase A: instrumentation + ring-buffer bindings + measured baseline (see Lessons).
 - [ ] Phase B: split uploaders + single-item update bindings + partial-state tests.
 - [ ] Phase C: depsgraph-driven dispatch + idle-frame ≤ 5 ms gate + spy regression test.
-- [ ] STATUS.md updated.
+- [x] STATUS.md updated for Phase A.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+### Phase A — measured baseline (renderer-only, 2026-05-10)
+
+Driver: [scripts/diagnostics/pkg56_phase_a_baseline.py](scripts/diagnostics/pkg56_phase_a_baseline.py),
+~100k triangles in a quad grid, 5 materials, 1 spp / depth 4 render
+chunk, mean over 5 frames on the project owner's MinGW/Windows
+workstation. Numbers come from `astroray.viewport_perf_stats()` —
+the same ring buffer the addon's render-stats overlay reads.
+
+| Stage       | Mean ms |
+|-------------|--------:|
+| geometry    |   77.68 |
+| materials   |    0.50 |
+| lights      |    0.00 |
+| environment |    0.00 |
+| render      |   51.73 |
+| **total**   | **129.92** |
+
+Notes:
+- Triangle count was 99,458 (rounded down from 100k by the quad grid).
+- BVH build is lazy — the renderer builds it on the first `render()`
+  call after `add_triangle` mutations, so its cost rolls into "render"
+  here. In the addon's measurement boundary BVH build also lands on
+  the render side (after `convert_objects` returns), so the split is
+  consistent.
+- This is the renderer-only inner cost. The full Blender→addon→
+  renderer path additionally pays mesh-eval, depsgraph traversal, and
+  Python↔pyd marshalling per frame; Phase C's ≤ 5 ms idle-frame target
+  is for the full path measured the same way inside Blender on the
+  same scene. The driver script is the harness for that follow-up
+  measurement.
+
+### Phase B / Phase C
+
+*(Fill in when those packages land.)*

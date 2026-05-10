@@ -135,3 +135,22 @@ be a no-op in practice — `Framebuffer::buffer()` returns a pointer into
 `Camera::albedoBuffer`, which is always allocated. Worth keeping the
 guard for forward-compat, but the test suite should pin the contract so
 nobody flips it accidentally.
+
+### A/B baseline (2026-05-10, RTX 5070 Ti, Windows MSVC `build_cuda`)
+
+Same harness on both builds — Cornell-style scene, 256×256, spp=2,
+max_depth=3, N=100 frames, 3-frame warmup, persistent `Renderer`:
+
+| Build | OIDN-on mean | OIDN-off mean | OIDN delta |
+|---|---|---|---|
+| pre-pkg68 (`c934bdf`, oidn-2.3.3, per-frame device init) | **130.01 ms/frame** | 23.52 ms/frame | 106.49 ms |
+| post-pkg68 (`1253894`, oidn-2.4.1, persistent CUDA device) | **50.67 ms/frame** | 23.81 ms/frame | 26.86 ms |
+| **speedup (OIDN-on)** | **2.57×** | — | 4.0× lower per-frame OIDN cost |
+
+Gate "≥2× faster" met (2.57×). The OIDN-off baselines match (23.52 vs
+23.81 ms, ~1 % noise) — the integrator is unchanged, so the speedup is
+attributable to pkg68's persistent device + CUDA-first init (and the
+oidn-2.3.3 → 2.4.1 bump, which pkg68 also landed). Pre-pkg68 did not
+print `[OIDN] Using ...` at all (that diagnostic was added in pkg68);
+its `oidn::newDevice()` call without an explicit type relied on OIDN
+default-device selection.

@@ -1,24 +1,31 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-10 (post-Round-4 — pkg73 + pkg56-B + pkg64-3 + pkg76-spec + pkg72/pkg64-2 verifier all landed)
+**Date:** 2026-05-10 (mid-Round-5 — pkg56-C and pkg74-3 landed; **strategic gate released; Pillar 4 thawed**)
 **Prepared by:** Claude (Anthropic Code, Sonnet 4.5 in Max 5x)
-**Scope:** Round 5 prompts. Round 4 closed the OptiX temporal denoiser
-(pkg73), the Blender uploadScene split (pkg56 Phase B), folded SMS into
-the default integrator (pkg64 Phase 3), filed the Astroray .blend
-importer spec (pkg76), and re-baselined pkg72 + pkg64-2 on hardware.
-Round 5 is **the gate-release round**: when pkg56 Phase C lands,
-**Pillar 4 thaws**.
+**Scope:** Remainder of Round 5 + first Pillar-4 thaw work. The
+gate-releasing package (pkg56 Phase C) and the Round 4 carryover
+(pkg74 Phase 3) have already landed since the Round 5 report opened.
+Four Round-5 sessions remain (pkg76, pkg55-A, pkg78, verifier), and
+the post-gate Pillar-4 queue is now spawnable.
 
-> Strategic gate (one item left): Pillar 4 (astrophysics) remains
-> parked. pkg64 Phase 3 ✅ done, pkg56 Phase B ✅ done. **pkg56
-> Phase C is the only remaining gate.** Strategy in
+> Strategic gate: **RELEASED 2026-05-10** by PR #233 (pkg56 Phase C).
+> Pillar 4 sessions are now spawnable. Strategy in
 > [`ROADMAP.md`](ROADMAP.md), status in [`STATUS.md`](STATUS.md).
 
 ---
 
 ## 1. Current state (one screen)
 
-**Done since the previous report (Round 4):**
+**Done since this report opened (mid-Round-5):**
+
+- **pkg56 Phase C** depsgraph-driven dispatch shipped — per-domain
+  uploaders dispatched from `depsgraph_update_post`, idle frames at
+  ≤5 ms p99 on the 99k-tri Phase A scene. **Strategic gate released.**
+  PR #233.
+- **pkg74 Phase 3** interactive HTML showcase + weekly self-hosted CI
+  workflow shipped (Round 4 carryover cleared). PR #232.
+
+**Done in Round 4 (the round before this report):**
 
 - **pkg73** OptiX TEMPORAL_AOV denoiser shipped — `OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV`
   upgrade path with motion + albedo + normal guides, prev-output ping-
@@ -54,159 +61,57 @@ Round 5 is **the gate-release round**: when pkg56 Phase C lands,
   `os.add_dll_directory` calls — pytest collection went from
   "0 collected, 11 errors" → **801 collected**. PR #225.
 
-**Open Pillar 5 (the Round 5 + Round 6 pickup pool):**
+**Open pickup pool (remainder of Round 5 + post-gate Pillar 4):**
 
 | Pkg | Title | Effort | Status |
 |---|---|---|---|
-| **pkg56** Phase C | depsgraph-driven dispatch | ~2–3 weeks | After Phase B (now landed) — **the gate** |
 | **pkg76** impl | Astroray .blend importer | ~1–2 weeks | Spec landed (PR #227); ready to implement |
-| **pkg74** Phase 3 | Interactive HTML dashboard + weekly CI | ~3 days | Phases 1 + 2 done; **carryover from Round 4** (Codex did not get to it) |
-| **pkg55** Phase A | Wavefront SoA instrumentation | ~1 week | Deferred until pkg56 + pkg64 measurable baselines exist — both now exist |
+| **pkg55** Phase A | Wavefront SoA instrumentation | ~1 week | Unblocked (pkg56 + pkg64 baselines exist) |
 | pkg73 verifier | OptiX TEMPORAL_AOV CUDA hardware re-baseline | ~1 hour | Post-pkg73 follow-up |
 | pkg64-3 verifier | Default-integrator SMS PSNR + walltime on RTX | ~1 hour | Post-pkg64-3 follow-up |
 | pkg78 (new) | pkg54c SSIM gate re-baseline (post-pkg75 detail-preservation drift, 0.999263 → 0.9986 at spp=8192) | ~½ day | Surfaced post-pkg75 verifier; visual diff confirmation gate |
+| **pkg41** | Kerr metric validation | ~1 week | **Newly unblocked by gate release**; Codex-paste-ready |
+| pkg42 / 43 / 44 | Synchrotron / slim disk / ADAF (Pillar 4) | weeks each | Newly unblocked; Codex-paste-ready specs queued |
 | pkg55 Phases B + C | Wavefront SoA migration proper | 8–12 weeks | After Phase A measured baselines |
-| pkg67 | Metric-aware path tracer | ~1 month | Research-blocked (Pillar-4-coupled; revisit when astrophysics thaws) |
+| pkg67 | Metric-aware path tracer | ~1 month | Now unblocked alongside Pillar 4 (revisit when pkg40 + pkg55 maturity is in place) |
 
-**Pillar 4 (about to thaw):** pkg40 Kerr metric done; pkg41 Kerr
-validation Codex-paste-ready; pkg42–51 specs queued. **Do NOT spawn
-Pillar 4 sessions in Round 5.** The gate releases mid-Round-5 the
-moment **pkg56 Phase C** lands.
+**Pillar 4 (THAWED 2026-05-10):** pkg40 Kerr metric done; pkg41 Kerr
+validation paste-ready; pkg42–51 specs queued. Codex may pick up
+pkg41 first; pkg42 / 43 / 44 in parallel as bandwidth allows.
 
 ---
 
-## 2. Recommended next deployable set (Round 5)
+## 2. Recommended next deployable set (Round 5 remainder + Pillar 4 thaw)
 
-Six sessions, all parallel-safe:
+Five sessions, all parallel-safe:
 
 | # | Agent | Worktree / location | Package | Effort |
 |---|---|---|---|---|
-| 1 | Claude tech | `pkg56-phase-c` (new) | pkg56 Phase C — depsgraph-driven dispatch on top of Phase B uploaders | ~2–3 weeks |
-| 2 | Claude tech | `pkg76-impl` (new) | pkg76 — Astroray .blend importer (parity scope) | ~1–2 weeks |
-| 3 | Claude tech | `pkg55-phase-a` (new) | pkg55 Phase A — wavefront SoA instrumentation pass (no behaviour change, only measurement plumbing) | ~1 week |
-| 4 | Codex | main directory | pkg74 Phase 3 — interactive HTML dashboard + weekly self-hosted CI workflow (Round 4 carryover) | ~3 days |
-| 5 | Codex (after #4 lands) | main directory | pkg78 — pkg54c SSIM gate re-baseline + visual diff gate vs pkg75 reference | ~½ day |
-| 6 | CUDA verifier | hardware | re-baseline pkg73 OptiX TEMPORAL_AOV inter-frame variance + pkg64-3 default-integrator SMS PSNR + walltime on RTX 5070 Ti | ~1 hour |
+| 1 | Claude tech | `pkg76-impl` (new) | pkg76 — Astroray .blend importer (parity scope) | ~1–2 weeks |
+| 2 | Claude tech | `pkg55-phase-a` (new) | pkg55 Phase A — wavefront SoA instrumentation pass (no behaviour change) | ~1 week |
+| 3 | Codex | main directory | **pkg41 Kerr metric validation** (Pillar 4, newly unblocked) | ~1 week |
+| 4 | Codex (after #3 lands) | main directory | pkg78 — pkg54c SSIM gate re-baseline + visual diff vs pkg75 reference | ~½ day |
+| 5 | CUDA verifier | hardware | re-baseline pkg73 OptiX TEMPORAL_AOV inter-frame variance + pkg64-3 default-integrator SMS PSNR + walltime on RTX 5070 Ti | ~1 hour |
 
-Sessions 1, 2, 3, 6 spawn at once. Session 4 starts immediately;
-session 5 follows 4 (Codex serializes in the main directory).
-
-**Mid-round milestone:** when session 1 (pkg56 Phase C) lands, the
-strategic gate releases. From that point forward, Pillar 4 sessions
-are spawnable. Codex can pick up pkg41 (Kerr validation) the moment
-pkg56-C is on `main`.
+Sessions 1, 2, 5 spawn at once. Session 3 starts immediately;
+session 4 follows 3 (Codex serializes in the main directory).
 
 Round 5 closes when:
-- pkg56 Phase C merged (depsgraph dispatch + ≤5 ms idle frame gate hit) **— gate releases here**
 - pkg76 implementation merged (Classroom / Junkshop / BMW27 pkg71 rows possible)
 - pkg55 Phase A merged (wavefront baselines measured; Phases B + C unblocked)
-- pkg74 Phase 3 merged (showcase has interactive HTML + weekly CI run)
+- pkg41 Kerr validation merged (first post-gate Pillar-4 deliverable)
 - pkg78 verified or closed (pkg54c gate re-set against post-pkg75 reality)
 - pkg73 + pkg64-3 hardware-verified
 
-Then **Round 6** is the first post-gate round: Codex picks up Pillar 4
-(pkg41 Kerr validation, then pkg42 / 43 / 44 specs). Claude tech picks
-up pkg55 Phase B (the wavefront SoA migration proper begins).
+Then **Round 6** continues Pillar 4 (pkg42 / 43 / 44 in parallel as
+Codex bandwidth allows) and starts **pkg55 Phase B** — the wavefront
+SoA migration proper.
 
 ---
 
 ## 3. Drop-in prompts per agent
 
-### 3.1 Claude tech (worktree `pkg56-phase-c`) — depsgraph-driven dispatch
-
-```
-You are Claude Code in worktree .claude/worktrees/pkg56-phase-c,
-branched from current main. Implement pkg56 Phase C end to end.
-Phase B landed in PR #229 — uploadScene is now split into
-uploadGeometry / uploadMaterials / uploadLights / uploadEnvironment
-+ update_object_transform (BVH refit fast path). Phase A baseline:
-183.30 ms / frame on a 99k-tri scene; idle frame target ≤ 5 ms.
-
-Read first:
-  - .astroray_plan/packages/pkg56-blender-incremental-sync.md
-    (full spec, all three phases)
-  - module/blender_module.cpp — Phase B per-domain uploaders +
-    transform-refit fast path (the dispatch targets)
-  - blender_addon/__init__.py — Phase A instrumentation hooks +
-    persistent viewport renderer (pkg52)
-  - tests/test_pkg56_phase_b_uploaders.py — the contract Phase B
-    established
-  - tests/test_pkg52_persistent_viewport.py — viewport lifecycle
-
-Phase C goal: drive the per-domain uploaders from Blender's depsgraph
-update events (depsgraph_update_post + view_update + view_draw) so
-that idle frames perform zero work and per-domain edits perform only
-the matching uploader. Acceptance: idle frame ≤ 5 ms wall on the
-99k-tri Phase A scene.
-
-Reference (Apache-2.0, mirrorable with citation):
-  - intern/cycles/blender/sync.cpp — BlenderSync::sync_recalc loop
-    (the canonical depsgraph-bit→domain dispatch).
-  - intern/cycles/blender/session.cpp — BlenderSession::view_update /
-    view_draw integration with the persistent session.
-  - https://docs.blender.org/api/current/bpy.types.Depsgraph.html
-    (read fully — DepsgraphUpdate.id, .is_updated_geometry,
-    .is_updated_transform, .is_updated_shading flags are the dispatch
-    keys we need).
-
-Implementation outline:
-
-  1. blender_addon/__init__.py — PersistentViewport:
-     - Subscribe depsgraph_update_post on viewport start, unsubscribe
-       on stop.
-     - Per DepsgraphUpdate, dispatch:
-         is_updated_transform only      -> update_object_transform()
-         is_updated_geometry            -> uploadGeometry(obj)
-         is_updated_shading             -> uploadMaterials(obj)
-         id is bpy.types.Light          -> uploadLights()
-         id is bpy.types.World          -> uploadEnvironment()
-       (multiple bits set => union of dispatches, deduped).
-     - Coalesce within a single view_update tick (don't double-upload
-       a mesh if both geometry + shading bits fire on it).
-  2. module/blender_module.cpp — expose any small additional
-     bindings the dispatcher needs (e.g. an `apply_pending_uploads()`
-     finaliser if we batch). DO NOT add new uploader entry points
-     beyond Phase B's set unless the depsgraph flags genuinely
-     require one.
-  3. tests/test_pkg56_phase_c_dispatch.py — new:
-     - Construct a synthetic Blender scene; trigger each kind of
-       update; assert the matching binding was called and others
-       were not. Use a mock binding wrapper rather than running real
-       CUDA.
-     - Idle test: subscribe + tick view_update with no scene change;
-       assert zero uploader calls.
-     - Coalescing test: emit geometry + shading bits in the same
-       depsgraph cycle on one mesh; assert geometry uploader runs
-       once + materials uploader runs once.
-  4. benchmarks/viewport/pkg56_phase_c.py — new bench:
-     - Run the Phase A 99k-tri scene through the persistent
-       viewport; emit idle ticks; record wall time per frame.
-     - Acceptance gate: idle frame ≤ 5 ms p99, transform-only edit
-       ≤ 20 ms p99.
-
-Constraints:
-  - CLAUDE.md sections 2, 3, 6.
-  - Re-use Phase B uploaders verbatim — do not refactor them.
-  - DO NOT touch the GPU side (cuda_renderer.cu uploader bodies);
-    Phase C is dispatch only.
-  - The Blender addon must remain importable without bpy
-    (ASTRORAY_IMPORT_NO_BLENDER=1 path); guard depsgraph
-    subscriptions accordingly.
-  - Keep the viewport addon backward-compatible with users on
-    Blender 4.x (not just 5.1) — depsgraph_update_post API has been
-    stable since 2.80.
-
-When done:
-  - pkg56 spec Phase C subsection updated with measured numbers +
-    Lessons.
-  - STATUS.md: pkg56 Phase C row updated. Strategic-gate banner
-    updated to note the gate has released.
-  - ROADMAP.md: pillar-4 thaw notice added.
-  - Open PR titled "feat(pkg56-C): depsgraph-driven dispatch + ≤5ms
-    idle frame gate met".
-```
-
-### 3.2 Claude tech (worktree `pkg76-impl`) — Astroray .blend importer
+### 3.1 Claude tech (worktree `pkg76-impl`) — Astroray .blend importer
 
 ```
 You are Claude Code in worktree .claude/worktrees/pkg76-impl,
@@ -248,7 +153,7 @@ When done:
   - PR titled "feat(pkg76): Astroray .blend importer (parity scope)".
 ```
 
-### 3.3 Claude tech (worktree `pkg55-phase-a`) — wavefront SoA instrumentation
+### 3.2 Claude tech (worktree `pkg55-phase-a`) — wavefront SoA instrumentation
 
 ```
 You are Claude Code in worktree .claude/worktrees/pkg55-phase-a,
@@ -292,43 +197,40 @@ When done:
   - PR titled "feat(pkg55-A): wavefront SoA baseline instrumentation".
 ```
 
-### 3.4 Codex (main directory) — pkg74 Phase 3 (Round 4 carryover)
+### 3.3 Codex (main directory) — pkg41 Kerr metric validation (first Pillar-4 thaw deliverable)
 
 ```
-You are Codex working in the main Astroray directory. pkg74
-Phase 3 is the carryover from Round 4 (Codex did not reach it).
+You are Codex working in the main Astroray directory. The
+strategic gate released on 2026-05-10 with PR #233 (pkg56 Phase C);
+Pillar 4 is now thawed. pkg41 is the first paste-ready Pillar-4
+deliverable.
 
 Read first:
-  - .astroray_plan/packages/pkg74-showcase-framework.md (Phase 3
-    section — interactive HTML + weekly CI)
-  - benchmarks/showcase/render_showcase.py (the Phase 1+2 driver)
-  - benchmarks/showcase/results/*.json (the stat coverage Phase 2
-    produces)
+  - .astroray_plan/packages/pkg41-kerr-validation.md (the spec —
+    paste-ready, has been queued since pre-gate)
+  - .astroray_plan/packages/pkg40-kerr-metric.md (pkg40 landed
+    earlier; pkg41 is its validation harness)
+  - the relevant Kerr code paths in src/ that pkg40 introduced
 
-Goal:
-  1. benchmarks/showcase/html_index.py — rewrite the static index
-     into a single self-contained HTML file with collapsible
-     sections, per-scene RMSE plots inlined as base64 PNGs, sortable
-     stat tables. No JS framework dependency — vanilla HTML +
-     <details> + minimal CSS. PBRT-style.
-  2. .github/workflows/showcase.yml — weekly self-hosted runner
-     workflow that runs render_showcase.py + html_index.py and
-     publishes the artefact zip. Schedule: Sundays 03:00 UTC.
-  3. tests/test_pkg74_phase3_html.py — render to a tmpdir, assert
-     the HTML file exists, parses as HTML, contains all expected
-     scene names.
+Goal: implement the validation harness specified in pkg41 — closed-
+form geodesic comparisons, image-plane regression vs published
+GR ray-tracer reference (GYOTO / RAPTOR / ipole as cited in the
+spec), and the acceptance gates defined in the spec.
 
 Constraints:
-  - CLAUDE.md sections 2, 3.
-  - The workflow must NOT block on missing self-hosted runner — gate
-    the schedule on a repo variable so it noops on forks.
+  - CLAUDE.md sections 1, 2, 3, 6.
+  - This is Pillar 4. Cite the GR papers + reference renderers per
+    the existing Kerr research notes in .astroray_plan/docs/.
+  - DO NOT change the pkg40 metric code itself — pkg41 is validation
+    only. If the harness surfaces a real defect, file it as a follow-
+    up package and STOP.
 
 When done:
-  - pkg74 status -> "done (all phases)".
-  - PR titled "feat(pkg74-3): interactive HTML showcase + weekly CI".
+  - pkg41 spec status -> "implemented".
+  - PR titled "feat(pkg41): Kerr metric validation harness".
 ```
 
-### 3.5 Codex (main directory, after #4) — pkg78 SSIM gate re-baseline
+### 3.4 Codex (main directory, after #3) — pkg78 SSIM gate re-baseline
 
 ```
 You are Codex in the main Astroray directory. pkg78 is a small
@@ -367,7 +269,7 @@ When done:
     (real defect case).
 ```
 
-### 3.6 CUDA verifier (hardware session) — pkg73 + pkg64-3 RTX re-baseline
+### 3.5 CUDA verifier (hardware session) — pkg73 + pkg64-3 RTX re-baseline
 
 ```
 You are the CUDA verifier on the RTX 5070 Ti / Windows MSVC
@@ -406,60 +308,53 @@ Constraints:
 
 | Session | Files |
 |---|---|
-| pkg56 Phase C | `blender_addon/__init__.py` (depsgraph subscribers), `module/blender_module.cpp` (small finaliser only), new tests, new bench, pkg56 spec, STATUS.md, ROADMAP.md (pillar-4 thaw notice) |
 | pkg76 impl | new `scripts/parity/import_blend.py`, `benchmarks/cycles_parity/run.py` (importer hookup), `benchmarks/cycles_parity/results.csv`, pkg76 spec, STATUS.md |
 | pkg55 Phase A | `src/gpu/cuda_renderer.cu` (instrumentation only, gated), new `benchmarks/wavefront_baseline.py`, pkg55 spec, STATUS.md |
-| pkg74 Phase 3 | `benchmarks/showcase/html_index.py` (rewrite), new `.github/workflows/showcase.yml`, new test, pkg74 spec, STATUS.md |
+| pkg41 (Pillar 4) | `src/` Kerr-validation harness as specified, new tests, pkg41 spec, STATUS.md |
 | pkg78 verifier | reference PNG re-save in `tests/reference/` + pkg54c spec note (or no change if defect path) |
 | pkg73 + pkg64-3 verifier | doc-only Lessons appends to pkg73 + pkg64 specs |
 
-**Three real conflict points to watch:**
+**Conflict points to watch:**
 
-1. **`STATUS.md`** — six sessions all touch it. Same three-way merge
+1. **`STATUS.md`** — five sessions all touch it. Same three-way merge
    race we keep hitting. Mitigation: rebase + manual STATUS.md
-   resolution preserving all rows; verifier sweep PR if rows drop.
+   resolution preserving all rows.
 
-2. **`blender_addon/__init__.py`** — pkg56 Phase C is the only Round 5
-   session that touches the addon (depsgraph subscribers). pkg64-3's
-   addon checkbox already landed in PR #230 on a different code path
-   (per-object panel). Should be conflict-free, but worth a sanity
-   diff at merge time.
+2. **`src/gpu/cuda_renderer.cu`** — only pkg55 Phase A touches it
+   this round (gated CUDA events / NVTX ranges). pkg41 is CPU-side
+   GR validation; should be conflict-free.
 
-3. **`src/gpu/cuda_renderer.cu`** — pkg55 Phase A adds gated CUDA
-   events / NVTX ranges. pkg56 Phase C explicitly does NOT touch the
-   GPU side. Conflict-free.
-
-**Recommended merge order:** pkg78 (smallest, doc-only or tiny ref
-re-save) → pkg73+pkg64-3 verifier (doc-only) → pkg74 Phase 3 (Codex,
-3 days) → pkg55 Phase A (no behaviour change, low risk) → pkg76 impl
-(medium) → **pkg56 Phase C last** (largest delta, gate-releasing —
-the round closes when this lands).
+**Recommended merge order:** verifier (doc-only) → pkg78 (small) →
+pkg41 Kerr validation (Codex, focused) → pkg55 Phase A (no behaviour
+change, low risk) → pkg76 impl (largest, last).
 
 ---
 
 ## 5. After Round 5 lands
 
-When this round lands:
+Already in the bag (mid-Round-5):
 
 - **pkg56** done end-to-end (Phases A + B + C). Viewport idle ≤ 5 ms.
-- **pkg64** done end-to-end (Phases 1 + 2 + 3). Caustics on by
-  default through MIS, opt-in per-object UX matches Cycles.
 - **pkg74** done end-to-end (Phases 1 + 2 + 3). Showcase self-
   publishes weekly; HTML dashboard ships.
+- **Strategic gate released. Pillar 4 thawed.**
+
+When the remainder of this round lands:
+
 - **pkg76** implementation done. Classroom / Junkshop / BMW27 pkg71
   rows have measured Astroray-vs-Cycles SSIM numbers.
 - **pkg55 Phase A** done. Wavefront baselines measured; Phases B + C
   unblocked with concrete numbers to beat.
+- **pkg41** done. First Pillar-4 deliverable post-gate; Kerr metric
+  has its validation harness.
 - **pkg73 + pkg64-3** hardware-verified.
 - **pkg78** resolved (gate re-baselined or real defect filed).
-- **Strategic gate released. Pillar 4 thaws.**
 
-Then **Round 6** is the first post-gate round:
+Then **Round 6**:
 
-- **Codex** picks up **pkg41 Kerr validation** (already paste-ready,
-  gated only by the freeze) and starts the pkg42 / 43 / 44
-  paste-ready specs in parallel.
-- **Claude tech** picks up **pkg55 Phase B** (the wavefront SoA
+- **Codex** continues Pillar 4 — pkg42 / 43 / 44 paste-ready specs
+  (synchrotron / slim disk / ADAF) in parallel as bandwidth allows.
+- **Claude tech** starts **pkg55 Phase B** (the wavefront SoA
   migration proper begins — multi-month, but unlocks measurable GPU
   parity claims with Cycles X for the eventual paper).
 - **pkg67 metric-aware path tracer** unblocks once pkg40 + pkg55
@@ -472,5 +367,5 @@ After Round 6:
 - Pillar 5 essentially feature-complete; remaining work is the
   ongoing-opportunistic polish bullets in `production.md`.
 
-Bump this report when pkg56 Phase C lands — that is the gate-release
-event and the next major queue movement.
+Bump this report when pkg76 or pkg41 lands — those are the next major
+queue movements.

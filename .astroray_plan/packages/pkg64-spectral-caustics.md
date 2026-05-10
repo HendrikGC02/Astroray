@@ -121,7 +121,22 @@ The four open questions from the original draft are answered:
 
 - [x] **Research phase**: WebSearch + WebFetch literature pass; `caustics-research.md` drafted 2026-05-09.
 - [x] **Project-owner sign-off** (2026-05-09): SMS code (BSD-3) + spectral extension; opt-in caster UX; both numerical + visual gates; reflective caustics in scope.
-- [ ] Implementation phase begins.
+- [x] **Phase 1 (RGB SMS skeleton)**: opt-in `sms_caustic_path_tracer`
+  integrator built on top of `caustic_path_tracer`. Geometric Newton
+  iteration on the half-vector constraint (Zeltner 2020 §4.2,
+  Mitsuba 2 reference commit `1f0e4034`) lives in
+  `include/astroray/manifold/`; integrator is sphere-caster only for
+  Phase 1. Phase 1 acceptance test:
+  `tests/test_sms_caustic_validation.py`.
+- [ ] **Phase 2 (spectral)**: per-wavelength Newton residual using
+  `Sellmeier(λ_hero)` from pkg31 — math from Hanika 2015 §4. Extend
+  reprojection to triangle meshes via BVH ray cast. Replace numerical
+  Jacobian with the analytic form from Zeltner 2020 §4.3.
+- [ ] **Phase 3 (default-integrator integration)**: fold SMS into
+  `path_tracer` as an MIS strategy under `use_refractive_caustics` /
+  `use_reflective_caustics`. Add `is_caustic_caster` per-object
+  property + Blender UI. Reference renders + visual SSIM gate.
+- [ ] Implementation phase continues.
 - [ ] Vendor `external/sms/` from upstream commit hash (recorded in `external/sms/README.md`).
 - [ ] Astroray adapter layer (`include/astroray/sms_adapter.h`).
 - [ ] Per-wavelength Newton residual (Hanika 2015 §3-5 derivation).

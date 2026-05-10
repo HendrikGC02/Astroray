@@ -87,10 +87,12 @@ back without user intervention.
 
 ### Pillar 4 — Astrophysics platform
 
-> **Thaw notice (2026-05-10):** the strategic gate released; Pillar 4
-> is actively shipping. pkg40 (Kerr metric) + **pkg41 (Kerr
-> validation, PR #236)** done. pkg42 (synchrotron) is the next Codex
-> pickup; pkg43–pkg49 specs unfrozen and queued.
+> **Thaw notice (2026-05-10) + shipping (2026-05-11):** the strategic
+> gate released, and Pillar 4 is actively shipping. pkg40 (Kerr
+> metric) + **pkg41 (Kerr validation, PR #236)** + **pkg42 (synchrotron
+> emission, PR #245 — VolumetricEmission interface, Pandya 2016 fits,
+> bipolar jet plugin, 9 tests)** all done. **pkg43 (slim disk)** is
+> the next Codex pickup; pkg44–pkg49 specs unfrozen and queued.
 
 Kerr metric, synchrotron emission, HII recombination lines, simulation
 data import (FITS, HDF5, yt), telescope PSF. Each phenomenon is a
@@ -108,24 +110,31 @@ GPU-default rendering and before Pillar 4 adds more spectral phenomena,
 material plugins should declare backend capabilities and either lower
 to a shared CPU/GPU closure representation or clearly fall back to CPU.
 
-**Status as of 2026-05-10 (Round 5 close):** the pkg34-pkg37 backend
-bridge is complete. The Cycles-parity / Blender integration / denoiser
-push is **feature-complete on planned scope** for Pillar 5:
+**Status as of 2026-05-11 (Round 6 close, planned scope):** the
+pkg34–pkg37 backend bridge is complete. The Cycles-parity / Blender
+integration / denoiser push is **feature-complete on planned scope**
+for Pillar 5; the user-facing competitive-parity claim (viewport
+pan/zoom rivalling Cycles) is **not yet met** — pkg81's measurement
+showed CUDA running *slower* than CPU on a 100k-tri viewport scene
+(104 ms vs 58 ms), routed to **pkg55 Phase B** as the long-tail
+fix:
 
 - **Cycles parity wave done:** pkg52/53/57/58/59/60/61/62/63/65/66.
 - **GPU multi-wavelength parity done end-to-end:** pkg54/54a/54b/54c/54d
   (all hardware-verified on RTX 5070 Ti; visible-band SSIM 0.999263 at
   spp=8192).
-- **Denoiser story (mostly) closed:** pkg33 (OIDN integration), pkg68
+- **Denoiser story closed end-to-end:** pkg33 (OIDN integration), pkg68
   (OIDN persistent device + CUDA backend, **2.77× viewport speedup**
   post-pkg75), pkg69 (compositor Albedo pass), pkg70 (OptiX,
   **1.86× faster than OIDN-CUDA, SSIM 0.9987 vs OIDN**), pkg72
-  (motion vector AOV), pkg75 (AOV normal-guide defect fixed). **pkg73
-  OptiX TEMPORAL_AOV implemented but defect-blocked** — RTX hardware
-  measured 0% inter-frame variance reduction (gate ≥30%); diag
-  instrumentation in PR #241 captured the chain end-to-end for the
-  Round 6 fix session. Once that lands, the denoiser story is closed
-  end-to-end.
+  (motion vector AOV), pkg75 (AOV normal-guide defect fixed), and
+  **pkg73 OptiX TEMPORAL_AOV** (PR #249, 2026-05-11 — **53.1%
+  inter-frame variance reduction vs ≥30% gate** on RTX 5070 Ti / OptiX
+  9.1 / CUDA 12.8). Two compounding root causes for pkg73:
+  `OptixDenoiserParams::temporalModeUsePreviousLayers` was zero-init
+  in the plugin, AND the test's AOV reference was silently upgraded
+  to TEMPORAL_AOV by sub-pixel float dust in `projectToPrevPixel`.
+  Both fixed.
 - **Caustics flagship done:** pkg64 Phases 1+2+3 — SMS now folded
   into the default `path_tracer` via per-bounce hook gated by
   `use_refractive_caustics` AND per-object `is_caustic_caster`.
@@ -143,22 +152,39 @@ push is **feature-complete on planned scope** for Pillar 5:
 - **Viewport sync done:** pkg52 + pkg56 Phases A+B+C — depsgraph-
   driven dispatch with idle frame ≤5 ms p99 on a 99k-tri scene.
   This was the **gate-releasing package**.
-- **Wavefront SoA scaffold:** pkg55 Phase A landed (PR #238) —
+- **Wavefront SoA scaffold:** **pkg55 Phase A.0** (PR #238) —
   `ASTRORAY_PROFILE=1`-gated CUDA events + NVTX, baseline.json with
-  **158 regs/thread + 1 active block/SM** documented as the Laine
-  2013 occupancy cliff for Phase B to attack.
+  **158 regs/thread + 1 active block/SM** measured as the Laine 2013
+  occupancy cliff. **pkg55 Phase A.1** (PR #250, 2026-05-11) — SoA
+  path-state struct + intersect queue gated behind
+  `-DASTRORAY_WAVEFRONT_INTERSECT=ON` (default OFF), bit-identical
+  AoS megakernel output verified. **pkg55 Phase B** (per-material
+  shade kernels, ~4–6 weeks) is the next major delivery; it formally
+  owns the viewport-parity acceptance gate documented by pkg81.
+- **Blender daily workflow unblocked:** **pkg80** (PR #246) resolves
+  `'auto'` integrator dropdown to a registered plugin before C++
+  calls; the GPU-mode crash is gone.
+- **Viewport-parity measurement complete:** **pkg81 Phase 1+2** (PR
+  #248, 2026-05-11) — harness + 16-config Cycles A/B sweep + pkg81-
+  diagnosis.md committed. Headline: **CUDA 104 ms vs CPU 58 ms** on
+  identical 100k-tri load on RTX 5070 Ti. H4 (megakernel register
+  pressure — pkg55-A.0's documented cliff) dominates. Phase 3 routes
+  to pkg55 Phase B per the spec's escape clause; smaller H2/H5
+  follow-ups split out as **pkg83** + **pkg84**.
 
-Open Pillar 5 long-tail: **pkg73 fix** (Round 6 — diag instrumentation
-already on `main`), **pkg55 Phase A.1 + Phase B + Phase C** (the
-wavefront SoA migration proper, Round 6+). pkg67 (metric-aware path
-tracer) is now unblocked alongside Pillar 4 — revisit once pkg40 +
-pkg55 maturity is in place.
+Open Pillar 5 long-tail (Round 7+): **pkg55 Phase B + Phase C**
+(wavefront migration proper — Phase B is the user-facing parity
+unlock), **pkg82** variance characterisation, **pkg76 CSV** rows on
+RTX, **pkg83**/**pkg84** addon-only viewport polish. pkg67 (metric-
+aware path tracer) is now unblocked alongside Pillar 4; revisit once
+pkg40 + pkg55 maturity is in place.
 
-**Pillar 4 has thawed (2026-05-10) and is shipping.** pkg40 (Kerr
-metric) and **pkg41 Kerr validation** (PR #236, BPT 1972 +
-Chandrasekhar + 39 tests) are both done. The Codex-paste-ready specs
-for pkg42–pkg49 (synchrotron, slim disk, ADAF, FITS, HDF5, SPH, etc.)
-are unblocked; pkg42 is the next Codex pickup.
+**Pillar 4 thawed and shipping (2026-05-11).** pkg40 (Kerr metric),
+**pkg41 Kerr validation** (PR #236), and **pkg42 synchrotron
+emission** (PR #245 — VolumetricEmission interface, Pandya 2016 fits,
+bipolar jet plugin) all done. **pkg43 (slim disk)** + **pkg44 (ADAF)**
+are next in series for Round 7 Codex; pkg45–pkg49 paste-ready specs
+queued.
 
 - `pkg34-material-backend-capabilities.md` — capability metadata,
   no silent grey-Lambertian GPU fallback, CPU/GPU contact-sheet diffs.

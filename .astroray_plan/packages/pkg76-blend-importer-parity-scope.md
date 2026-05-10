@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** implemented
+**Status:** done (PR #240, 2026-05-10 — SDNA-walking offline reader, no `bpy` runtime; CSV row population on Classroom/Junkshop/BMW27 deferred as a separate ½-day RTX session under §3 of NEXT_STAGE_REPORT.md)
 **Estimated effort:** 1–2 weeks (~30–45 h, multi-session)
 **Depends on:** pkg71 (the harness consumer; landed in PR #218)
 

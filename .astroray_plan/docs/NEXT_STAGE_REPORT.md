@@ -1,15 +1,16 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-10 (post-Round-5 — pkg76 + pkg55-A + pkg41 + pkg73-diag + verifier set all landed; Pillar 4 actively shipping)
+**Date:** 2026-05-10 (post-Round-5 + viewport-parity reality check — pkg76 + pkg55-A + pkg41 + pkg73-diag + verifier set all landed; Pillar 4 actively shipping; **two new Pillar-5 packages filed (pkg80, pkg81) after the project owner surfaced an `'auto'` integrator GPU crash and that viewport pan/zoom is "a slog vs Cycles"**)
 **Prepared by:** Claude (Anthropic Code, Sonnet 4.5 in Max 5x)
-**Scope:** Round 6. Round 5 closed cleanly: the strategic gate
-released mid-round (pkg56 Phase C), the .blend importer landed
-(pkg76), wavefront baselines exist (pkg55 Phase A), the first
-Pillar-4 deliverable shipped (pkg41 Kerr validation), and the pkg73
-defect was localised (instrumentation in #241; awaiting RTX capture).
-Round 6 prioritises (a) closing the pkg73 defect, (b) extending
-Pillar 4 with pkg42–44, (c) starting the wavefront SoA migration
-proper (pkg55 Phase A.1 → B).
+**Scope:** Round 6. Round 5 closed cleanly on package count, but the
+user-facing competitive-parity goal in ROADMAP.md is *not* satisfied
+in viewport rendered-view yet — pkg81 quantifies the gap and pkg80
+fixes a daily-workflow blocker. Round 6 priorities:
+(a) **pkg80** Blender `'auto'` integrator resolution (unblocks owner's daily workflow — small),
+(b) closing the pkg73 defect,
+(c) starting **pkg81** viewport-interactivity measurement (the *real* Pillar-5-closing work),
+(d) extending Pillar 4 with pkg42,
+(e) wavefront SoA scaffold (pkg55 Phase A.1).
 
 > Strategic gate released **2026-05-10** (PR #233). Pillar 4
 > active. Strategy in [`ROADMAP.md`](ROADMAP.md), status in
@@ -60,24 +61,40 @@ proper (pkg55 Phase A.1 → B).
   re-baseline precondition did **not** hold (CPU/GPU output bit-
   identical pre/post pkg75), so the gate floor was **not** lowered
   and the drift was filed as defect [#237](https://github.com/HendrikGC02/Astroray/issues/237).
-  Investigation now needs a bisect to find the actual breaking
-  commit (pkg54c gate currently fails at SSIM 0.998629 vs floor
-  0.999).
+
+**Pillar-5 reality check (filed 2026-05-10):**
+
+The package counter says Pillar 5 is **27/28 done, 96%**. The lived
+experience is that the `'auto'` integrator crashes on GPU and the
+viewport "is a slog vs Cycles". Two new packages capture the gap:
+
+- **pkg80** *(new, small)* — Blender addon resolves `'auto'`
+  integrator dropdown to a registered plugin before C++ calls.
+  Daily-workflow blocker; ~½ day. Surfaced by the project owner.
+- **pkg81** *(new, big)* — Viewport interactivity parity with
+  Cycles. pkg52 + pkg56 + pkg68 + pkg73 + pkg74 all closed against
+  internal gates, but **none against Cycles-CUDA on the same scene
+  during pan/zoom**. pkg81 builds the harness, diagnoses the gap,
+  fixes it. ROADMAP.md's "rival Cycles" promise isn't satisfied
+  until this lands. ~1–2 weeks. **The actual Pillar-5-closing
+  package.**
 
 **Open pickup pool (Round 6 + Round 7):**
 
 | Pkg | Title | Effort | Status |
 |---|---|---|---|
+| **pkg80** *(new)* | Blender addon `'auto'` integrator resolution | ~½ day | Daily-workflow blocker; small Codex pickup |
 | **pkg73 fix** | TEMPORAL_AOV upgrade branch never fires on RTX | ~½ day after diag | Diag instrumentation on `main` (PR #241); needs hardware capture + 1 fix iteration |
+| **pkg81** *(new)* | Viewport interactivity parity with Cycles (Phase 1 harness + Phase 2 diagnosis + Phase 3 fix) | ~1–2 weeks | The real Pillar-5 closing work; partially overlaps pkg55 if H4 register-pressure dominates |
 | **pkg42** | Synchrotron emission (Pillar 4) | ~2 weeks | Codex-paste-ready spec |
 | **pkg43** | Slim disk model (Pillar 4) | ~2 weeks | Codex-paste-ready spec |
 | **pkg44** | ADAF model (Pillar 4) | ~2 weeks | Codex-paste-ready spec |
-| **pkg55** Phase A.1 | SoA infra + intersect queue | ~1–2 weeks | Renamed in spec by PR #238; first real refactor before Phase B |
-| pkg55 Phase B | Per-material shade kernels | 4–6 weeks | After A.1 |
+| **pkg55** Phase A.1 | SoA infra + intersect queue | ~1–2 weeks | Renamed in spec by PR #238; first real refactor before Phase B; pkg81 may surface this as a viewport bottleneck too |
+| pkg55 Phase B | Per-material shade kernels | 4–6 weeks | After A.1; possible pkg81 dependency |
 | pkg55 Phase C | Megakernel removal | 2–4 weeks | After B |
 | pkg76 CSV | Classroom / Junkshop / BMW27 baseline rows | ~½ day on RTX | After pkg73 fix (so denoiser path is healthy for parity numbers) |
 | pkg78 bisect | Find the commit that drifted SSIM 0.999263 → 0.998629 | ~½ day on RTX | Tracking issue [#237](https://github.com/HendrikGC02/Astroray/issues/237) |
-| pkg79 (new, tiny) | ReSTIR `test_spatial_reduces_mse` flake (margin 0.000004; widen seed averaging or assertion) | ~½ day | Surfaced by PR #236 CI; recurring noise-floor failure |
+| pkg79 (tiny) | ReSTIR `test_spatial_reduces_mse` flake (margin 0.000004) | ~½ day | Surfaced by PR #236 CI |
 | pkg47 / 48 / 49 | FITS / HDF5 / SPH loaders (Pillar 4 data import) | weeks each | Codex-paste-ready specs queued; deferred behind pkg42–44 |
 | pkg67 | Metric-aware path tracer | ~1 month | Unblocks once pkg40 + pkg55 maturity in place |
 
@@ -85,40 +102,49 @@ proper (pkg55 Phase A.1 → B).
 
 ## 2. Recommended next deployable set (Round 6)
 
-Six sessions, parallel-safe:
+Eight sessions, parallel-safe (pkg80 + pkg81 added this round):
 
 | # | Agent | Worktree / location | Package | Effort |
 |---|---|---|---|---|
-| 1 | CUDA verifier | hardware | **pkg73 diag capture** — run #241's instrumented build on RTX 5070 Ti, post `[pkg73-diag]` stderr to PR #241 | ~15 min |
-| 2 | Claude tech (after #1) | `pkg73-fix` (new) | **pkg73 fix** — apply the obvious fix the diag points to; re-run; clear ≥30% gate | ~½ day |
-| 3 | Claude tech | `pkg55-phase-a1` (new) | pkg55 Phase A.1 — SoA infra + intersect queue | ~1–2 weeks |
-| 4 | Codex | main directory | **pkg42 synchrotron emission** (Pillar 4) | ~2 weeks |
-| 5 | Codex (after #4) | main directory | pkg78 bisect (#237) — find the SSIM-drift commit + report | ~½ day |
-| 6 | Codex (after #5) | main directory | pkg76 CSV — populate Classroom / Junkshop / BMW27 rows on RTX | ~½ day |
+| 1 | Codex | main directory | **pkg80** Blender `'auto'` integrator resolution — daily-workflow blocker; ship first | ~½ day |
+| 2 | CUDA verifier | hardware | **pkg73 diag capture** — run #241's instrumented build on RTX 5070 Ti, post `[pkg73-diag]` stderr to PR #241 | ~15 min |
+| 3 | Claude tech (after #2) | `pkg73-fix` (new) | **pkg73 fix** — apply the diag-pointed fix; re-run; clear ≥30% gate | ~½ day |
+| 4 | Claude tech | `pkg81-viewport-parity` (new) | **pkg81 Phase 1 + Phase 2** — viewport-interactivity benchmark harness + Cycles A/B + diagnosis note | ~1 week |
+| 5 | Claude tech | `pkg55-phase-a1` (new) | pkg55 Phase A.1 — SoA infra + intersect queue | ~1–2 weeks |
+| 6 | Codex (after #1) | main directory | **pkg42 synchrotron emission** (Pillar 4) | ~2 weeks |
+| 7 | Codex (after #6) | main directory | pkg78 bisect (#237) — find the SSIM-drift commit + report | ~½ day |
+| 8 | Codex (after #7) | main directory | pkg76 CSV — populate Classroom / Junkshop / BMW27 rows on RTX | ~½ day |
 
-Sessions 1, 3, 4 spawn at once. Session 2 starts the moment #1
-posts. Sessions 5 and 6 chain after #4 because Codex serializes in
-the main directory; both are short follow-ups that fit in one
-Codex sitting after pkg42 lands.
+Sessions 1, 2, 4, 5 spawn at once. Session 3 starts the moment #2
+posts. Sessions 6→7→8 chain in the main directory.
 
 The ReSTIR flake (pkg79) is small enough to fold into whichever
-session is least busy; if it keeps biting CI, file as a tiny
-standalone Codex pickup.
+session is least busy.
+
+**Why pkg80 is #1:** the project owner's daily Blender workflow
+currently crashes on GPU + `Auto (Best Available)`. Until that's
+fixed, the rest of the round's value is harder to evaluate.
+
+**Why pkg81 is in this round even though it's big:** Phase 1
+(harness) and Phase 2 (diagnosis) together produce the first
+honest Astroray-vs-Cycles viewport number. That alone is worth
+shipping; Phase 3 (the fix) may then route through pkg55 Phase B
+if H4 (register pressure) dominates — in which case pkg81 partially
+closes as "measured, remediation tracked under pkg55".
 
 Round 6 closes when:
-- pkg73 fix merged + gate clears on RTX (the denoiser story is
-  finally fully closed)
+- pkg80 merged (daily workflow unblocked)
+- pkg73 fix merged + gate clears on RTX (denoiser story closed)
+- pkg81 Phase 1 + Phase 2 merged (viewport gap quantified)
 - pkg42 merged (second Pillar-4 deliverable)
-- pkg55 Phase A.1 merged (SoA scaffolding in tree; Phase B
-  unblocked)
-- pkg78 bisect comment posted on #237 with first-bad commit
-- pkg76 CSV rows populated (real Classroom / Junkshop / BMW27
-  parity numbers)
+- pkg55 Phase A.1 merged (SoA scaffolding in tree)
+- pkg78 bisect comment posted on #237
+- pkg76 CSV rows populated
 
-Then **Round 7** runs pkg43 + pkg44 in series (Codex), pkg55
-Phase B (Claude tech, the migration proper), and the next two
-Pillar-4 follow-ups (likely pkg47 FITS loader if any astrophysics
-data import is wanted, otherwise more synchrotron / disk geometry).
+Then **Round 7** runs pkg81 Phase 3 (whichever fix the diagnosis
+points at), pkg43 + pkg44 (Codex Pillar 4), and pkg55 Phase B
+(per-material shade kernel split — possibly the pkg81 Phase 3 fix
+itself if H4 wins).
 
 ---
 
@@ -368,7 +394,153 @@ When done:
     warrant a Lessons append).
 ```
 
-### 3.6 Codex (main directory, after #5) — pkg76 CSV row population
+### 3.6 Codex (main directory) — pkg80 Blender `'auto'` integrator resolution (ship FIRST)
+
+```
+You are Codex working in the main Astroray directory. The project
+owner hit a daily-workflow blocker 2026-05-10:
+
+  RuntimeError: Astroray: integrator 'auto' does not support GPU
+  (capability query failed: astroray: unknown plugin 'auto')
+
+The Blender addon's integrator dropdown "Auto (Best Available)"
+passes the literal string 'auto' to
+astroray.integrator_capabilities() and set_integrator(), but
+'auto' is not a registered plugin name.
+
+Read first:
+  - .astroray_plan/packages/pkg80-blender-auto-integrator-fix.md
+    (the spec; resolution policy is defined there)
+  - blender_addon/__init__.py — find _effective_integrator_name(),
+    _configure_backend_for_context(), configure_backend() (the
+    error path is in the user's traceback at lines 373/416/980/
+    1075/1122)
+  - tests/test_blender_backend_policy.py — existing addon-policy
+    test pattern; mirror it
+
+Fix:
+  1. _effective_integrator_name(settings) must resolve 'auto' to a
+     registered plugin per the spec policy:
+       - If settings.integrator != 'auto', return it unchanged.
+       - Else query astroray.integrator_registry_names().
+       - Hardcoded preference: path_tracer →
+         multiwavelength_path_tracer → other registered names.
+       - Filter by device_mode capability via
+         astroray.integrator_capabilities(name).gpu_supported when
+         device_mode='gpu'.
+       - Raise a clear RuntimeError if no plugin satisfies the
+         requested device_mode.
+  2. New test
+     tests/test_blender_auto_integrator.py
+     (or extend tests/test_blender_backend_policy.py) covering:
+       - integrator='auto' + device_mode='cpu' → returns a registered name
+       - integrator='auto' + device_mode='gpu' (CUDA build) →
+         returns a GPU-capable registered name
+       - integrator='auto' + device_mode='gpu' (CPU-only build) →
+         raises a clear RuntimeError
+       - integrator='path_tracer' (any non-auto) → returns it
+         unchanged
+
+Constraints:
+  - CLAUDE.md sections 1, 2, 3.
+  - DO NOT touch the C++ side. There is no 'auto' plugin and there
+    shouldn't be one — the addon owns this UX choice.
+  - DO NOT broaden scope to "best plugin per scene content" — out
+    of scope (future polish).
+  - The resolved name must come from astroray.integrator_registry_
+    names() at runtime, not a hardcoded constant — the registry is
+    the source of truth.
+
+When done:
+  - pkg80 spec status -> "done" with measured fix.
+  - PR titled "fix(pkg80): resolve 'auto' integrator in addon
+    before C++ calls".
+```
+
+### 3.7 Claude tech (worktree `pkg81-viewport-parity`) — Phase 1 + Phase 2
+
+```
+You are Claude Code in worktree .claude/worktrees/pkg81-viewport-parity,
+branched from current main. The project owner reported 2026-05-10
+that "moving the camera in rendered view is a bit of a slog vs
+Cycles". The package counter says Pillar 5 is 27/28 done — but no
+package has ever measured Astroray-vs-Cycles in the viewport
+during pan/zoom. pkg81 fills that gap.
+
+This session lands Phase 1 (harness) + Phase 2 (diagnosis). Phase 3
+(fix) is a separate session, possibly routed through pkg55 Phase B
+if H4 dominates.
+
+Read first:
+  - .astroray_plan/packages/pkg81-viewport-interactivity-parity.md
+    (full spec; the five hypotheses you'll test)
+  - .astroray_plan/packages/pkg52-persistent-viewport-session.md +
+    pkg56-incremental-scene-sync.md (the existing viewport
+    machinery you'll measure)
+  - blender_addon/__init__.py — _sync_viewport_scene, view_update,
+    view_draw (the entry points the harness drives)
+  - benchmarks/wavefront/baseline.json (pkg55-A numbers — the
+    starting point for H4)
+  - intern/cycles/blender/session.cpp — BlenderSession::view_update
+    / view_draw / sample loop (Apache-2.0; reference for
+    progressive-continuation policy)
+
+Phase 1 — harness (~3 days):
+  1. New benchmarks/viewport_parity/run.py: scripted Blender
+     session that loads a parameterised scene (10k / 100k / 1M
+     tris), drives a deterministic camera pan/zoom/orbit
+     sequence, records per-frame wall time at view_draw level
+     PLUS a finer breakdown using the pkg56-A ring buffer +
+     pkg55-A profile.h instrumentation.
+  2. Same harness for Cycles by switching render_engine —
+     measure on the same hardware, same scene, same camera path,
+     matched spp + denoiser settings.
+  3. Outputs benchmarks/viewport_parity/{date}.json + summary.html.
+  4. Commit fixture .blends under
+     benchmarks/viewport_parity/scenes/ (small enough to commit;
+     synthetic_min-style or imported via pkg76).
+  5. tests/test_viewport_parity_harness.py — smoke test that the
+     harness runs against a tiny scene without launching Blender
+     (uses the persistent viewport in-process).
+
+Phase 2 — diagnosis (~3 days):
+  Run the harness. Test each hypothesis IN ORDER and record:
+
+  H1: pkg56-C dispatches more uploaders than necessary during pan
+       — count uploader calls per frame from the ring buffer
+  H2: progressive accumulation resets every pan tick instead of
+       continuing — sample-counter trace + visual at 1/2/4 spp
+  H3: OIDN denoising blocks the frame loop — A/B with the pass on
+       vs off
+  H4: megakernel register pressure (158 regs/thread) caps first-
+       pixel latency — A/B Astroray-CPU vs Astroray-CUDA on the
+       same scene
+  H5: view_draw setup overhead is large — first-vs-Nth-draw delta
+
+  Output: .astroray_plan/docs/pkg81-diagnosis.md identifying the
+  dominant gap with measured numbers, ranked by how much frame
+  time each hypothesis owns.
+
+Constraints:
+  - CLAUDE.md sections 1, 2, 3, 6.
+  - NO source fixes in this session — Phase 1 + 2 only. Phase 3
+    is a separate package or routes through pkg55 Phase B.
+  - Honest numbers — if Astroray is 10× slower than Cycles, the
+    diagnosis says 10×, not "comparable".
+  - Cycles reference reads only, no code copied. Cite per
+    intern/cycles/* path in code comments.
+  - The harness must run repeatably on the project owner's RTX
+    5070 Ti / Windows MSVC build_cuda. Document any hardware
+    assumptions in the run.py docstring.
+
+When done:
+  - pkg81 spec Phases 1 + 2 checkboxes ticked; Phase 3 stays
+    open with the dominant-bottleneck hypothesis named.
+  - PR titled "feat(pkg81): viewport-parity harness + Cycles A/B
+    diagnosis (Phase 3 fix open)".
+```
+
+### 3.8 Codex (main directory, after #7) — pkg76 CSV row population
 
 ```
 You are Codex on the RTX 5070 Ti box. pkg76 (PR #240) shipped
@@ -417,8 +589,10 @@ Constraints:
 
 | Session | Files |
 |---|---|
+| pkg80 (auto integrator) | `blender_addon/__init__.py` (small), new test, pkg80 spec, STATUS.md |
 | pkg73 diag capture | comment on PR #241; doc-only Lessons append to pkg73 spec |
 | pkg73 fix | `plugins/passes/optix_denoiser.cpp` (+ remove diag prints), `include/raytracer.h` (remove diag prints), maybe `module/blender_module.cpp`, pkg73 spec, STATUS.md |
+| pkg81 Phase 1+2 | new `benchmarks/viewport_parity/*`, new fixture `.blend`s, new test, new `.astroray_plan/docs/pkg81-diagnosis.md`, pkg81 spec, STATUS.md |
 | pkg55 Phase A.1 | new `src/gpu/wavefront/*.cu` + headers, `src/gpu/path_trace_kernel.cu` (alt launcher behind flag), CMake guard, new test, `benchmarks/wavefront/baseline.json` (extra column), pkg55 spec, STATUS.md |
 | pkg42 synchrotron | new `plugins/emitters/synchrotron.cpp` (or volumes), maybe Kerr-side accessors, new tests, pkg42 spec, STATUS.md |
 | pkg78 bisect | comment on #237; possibly doc-only PR with bisect log |
@@ -426,19 +600,20 @@ Constraints:
 
 **Conflict points:**
 
-1. **`STATUS.md`** — three sessions touch it (pkg73 fix, pkg55-A.1,
-   pkg42). Same merge race as before; rebase + manual STATUS.md
-   resolution preserving all rows.
+1. **`STATUS.md`** — five sessions touch it (pkg80, pkg73 fix,
+   pkg81, pkg55-A.1, pkg42). Same merge race as before; rebase +
+   manual STATUS.md resolution preserving all rows.
 2. **`include/raytracer.h`** — pkg73 fix removes the diag prints;
-   pkg55 Phase A.1 may add SoA-side hooks. Different sections, but
-   worth a sanity diff at merge.
-3. **`plugins/passes/optix_denoiser.cpp`** — only pkg73 fix touches
-   it. Conflict-free.
+   pkg55 Phase A.1 may add SoA-side hooks. Different sections.
+3. **`blender_addon/__init__.py`** — only pkg80 touches it.
+   Conflict-free.
 
-**Recommended merge order:** pkg73 diag capture (comment, no PR) →
-pkg73 fix (small, gate-closing) → pkg78 bisect (small) → pkg76 CSV
-(doc/data only) → pkg55 Phase A.1 (medium, CI must show bit-
-identical AoS path) → **pkg42 last** (largest, Pillar 4).
+**Recommended merge order:** pkg80 (small, daily-blocker) → pkg73
+diag capture (comment, no PR) → pkg73 fix (small, gate-closing) →
+pkg78 bisect (small) → pkg76 CSV (doc/data only) → pkg81 Phase 1+2
+(medium, harness + diagnosis only — no behaviour change) → pkg55
+Phase A.1 (medium, CI must show bit-identical AoS path) → **pkg42
+last** (largest, Pillar 4).
 
 ---
 
@@ -446,8 +621,14 @@ identical AoS path) → **pkg42 last** (largest, Pillar 4).
 
 When Round 6 closes:
 
+- **pkg80** done; daily Blender workflow no longer crashes on
+  GPU + Auto integrator.
 - **pkg73** fully done; the entire denoiser story (pkg33 → pkg68 →
   pkg69 → pkg70 → pkg72 → pkg73) is closed.
+- **pkg81 Phase 1 + 2** done; first honest Astroray-vs-Cycles
+  viewport numbers exist. The Pillar-5 fitness-for-use claim is
+  finally measurable. Phase 3 routing decided (own fix vs. pkg55
+  Phase B).
 - **pkg55 Phase A.1** done; SoA path-state + intersect queue in
   tree behind a flag. Phase B's per-material shade-kernel work has
   a real scaffolding to build on.
@@ -456,16 +637,18 @@ When Round 6 closes:
 - **pkg76 CSV** populated; the 5-scene parity baseline is finally
   4 rows wide (Cornell + Classroom + Junkshop + BMW27; Monster
   correctly dropped).
-- **#237** diagnosed; either a re-baseline conversation opens with
-  hard data, or a real regression has a fix path.
+- **#237** diagnosed.
 
 Then **Round 7**:
 
+- **pkg81 Phase 3** — the targeted fix(es) the diagnosis pointed
+  at. May be a small standalone Claude-tech session OR may route
+  entirely through pkg55 Phase B if H4 (register pressure) won.
 - **Codex** continues Pillar 4 — pkg43 (slim disk) + pkg44 (ADAF)
   in series.
 - **Claude tech** picks up **pkg55 Phase B** — the per-material
   shade kernel split (the place the 158 regs/thread cliff
-  actually breaks).
+  actually breaks; possibly the pkg81 Phase 3 fix).
 - Optional Codex side track: pkg47/48/49 (FITS / HDF5 / SPH
   loaders) once the dust settles on the emission-model trio.
 

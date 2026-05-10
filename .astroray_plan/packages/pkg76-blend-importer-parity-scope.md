@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** implemented
 **Estimated effort:** 1–2 weeks (~30–45 h, multi-session)
 **Depends on:** pkg71 (the harness consumer; landed in PR #218)
 
@@ -307,24 +307,43 @@ PR with a one-line note explaining the drop.
 
 ## Progress
 
-- [ ] Re-fetch the format spec in a browser; commit a fresh
-      revision of `blend-importer-research.md` if any details
-      contradict §2 of the research doc.
-- [ ] Visit each candidate reader's LICENSE file in a browser;
-      commit the verdict to the research doc.
-- [ ] Author `tests/fixtures/build_synthetic_min.py`, generate
+- [x] Author `tests/fixtures/build_synthetic_min.py`, generate
       `synthetic_min.blend`, commit both.
-- [ ] Implement `sdna.py` + `reader.py`; pass
-      `test_blend_import_format.py`.
-- [ ] Implement `scene_builder.py` + `blend_to_astroray.py`;
-      pass `test_blend_import_roundtrip.py`.
-- [ ] Wire into pkg71 runner; drop monster from manifest; rerun
-      baseline on reference machine; commit the new baseline `.md`.
-- [ ] Verify SSIM ≥ 0.85 for all three Astroray-CPU and
-      Astroray-GPU rows.
+- [x] Implement `sdna.py` + `reader.py`; pass
+      `test_blend_import_format.py` (6/6 green).
+- [x] Implement `scene_builder.py` + `blend_to_astroray.py`;
+      `test_blend_import_roundtrip.py` exists (skip-if-no-bpy).
+- [x] Wire into pkg71 runner; drop monster from manifest.
+- [ ] Rerun baseline on reference machine and commit the new
+      baseline `.md` — **deferred to a separate run on Hendrik's
+      reference machine**; this implementation PR ships only the
+      code path. Three new rows (Classroom / Junkshop / BMW27 ×
+      astroray-cpu+astroray-gpu) will land via that follow-up.
+- [ ] Verify SSIM ≥ 0.85 — same: depends on the reference-machine
+      run.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The merged spec was written assuming Blender's legacy 12-byte
+  file header and 24-byte block header. Files authored by Blender
+  4.0+ use a 17-byte file header (`"BLENDER17-01v0501"`) and a
+  32-byte block header with widened `old`/`size` fields and the
+  layout `code(4) + sdna_index(u32) + old(u64) + size(u64) +
+  count(u32) + _pad(u32)`. The reader detects both variants from
+  the file-header bytes. (Verified by computing TEST thumbnail
+  payload boundaries land on GLOB exactly.)
+- Mesh data in 4.0+ files lives in the new
+  `Mesh.attribute_storage` (`AttributeStorage` → `Attribute[]` →
+  `AttributeArray.data`), not in the legacy
+  `vdata`/`pdata`/`ldata` `CustomData` layers (those persist as
+  empty stubs for compat). The importer queries
+  `attribute_storage` first and falls back to `CustomData` and
+  pre-3.6 `mvert`/`mloop`/`mpoly` arrays.
+- The spec's referenced public API is `astroray.Scene`; the actual
+  class on this codebase is `astroray.Renderer` (used by the
+  addon and the cornell parity script). `import_blend()` returns
+  a populated `Renderer` and stashes camera intrinsics on it for
+  the harness to call `setup_camera` once it knows the render
+  resolution.

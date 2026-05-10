@@ -16,9 +16,16 @@ structural comparison.
   Astroray so Cornell compares matching camera, geometry, materials, and light.
 - `scenes/cache/` is gitignored and holds downloaded Blender Foundation scene
   archives.
-- `scenes/scripts/fetch_scenes.py` downloads Classroom, Monster, Junkshop, and
-  BMW27 into the cache, verifies SHA-256 when pinned, and writes attribution
-  for CC-BY assets.
+- `scenes/scripts/fetch_scenes.py` downloads Classroom, Junkshop, and BMW27
+  into the cache, verifies SHA-256 when pinned, and writes attribution for
+  CC-BY assets. Monster was dropped in pkg76 (the file ships without a render
+  camera and Cycles itself errors on it; see `manifest.toml` header).
+- Astroray-side `.blend` ingestion is handled by `tools/blend_import` (pkg76)
+  in parity scope: Principled BSDF base colour, point/sun/spot/area lights,
+  background colour, perspective camera. Anything else is logged and skipped.
+  The harness gates Cornell rows at SSIM ≥ 0.95 and `.blend`-imported rows at
+  SSIM ≥ 0.85, the relaxed threshold reflecting parity-scope shader-graph
+  fidelity loss.
 - `refs/` stores `MANIFEST.sha256`; large `*.exr` references are gitignored.
 - `scripts/run_parity.py` runs the matrix and writes a CSV.
 - `scripts/summarize_parity.py` converts a CSV into a Markdown summary.

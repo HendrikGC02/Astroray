@@ -133,7 +133,7 @@ is currently the weakest link.
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
 | pkg63 | World / HDRI parity (Mapping XYZ rotation, color tint, MIS env-map) | **done** | A |
-| pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | research signed off; ready to implement | A |
+| pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | **Phase 1 done (RGB SMS skeleton, opt-in `sms_caustic_path_tracer`)**; Phases 2 (per-wavelength Newton) + 3 (default-integrator integration) open | A |
 | pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
 | pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
 | pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) | **implemented (pending CUDA + OptiX SDK verification)** | A |

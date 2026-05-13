@@ -12,6 +12,11 @@
 // pkg55-A.1: wavefront SoA primary-ray + intersect kernels (opt-in).
 #include "astroray/integrator_state_soa.h"
 #endif
+#ifdef ASTRORAY_WAVEFRONT_SHADE
+// pkg55-B: wavefront full shade path (implies INTERSECT).
+#include "astroray/integrator_state_soa.h"
+#include <cub/cub.cuh>
+#endif
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -502,6 +507,60 @@ void CUDARenderer::render(
         }
     }
 #endif  // ASTRORAY_WAVEFRONT_INTERSECT
+
+#ifdef ASTRORAY_WAVEFRONT_SHADE
+    // pkg55-B: wavefront full shade path — activated via env var.
+    // Env var: ASTRORAY_USE_WAVEFRONT_SHADE=1.  Megakernel remains the
+    // default so F12 renders are unchanged unless the user opts in.
+    {
+        const char* wf_env = std::getenv("ASTRORAY_USE_WAVEFRONT_SHADE");
+        bool use_wf = wf_env && wf_env[0] && std::strcmp(wf_env, "0") != 0;
+        if (use_wf) {
+            using namespace astroray::wavefront;
+            IntegratorStateSoA wfState;
+            if (!allocateSoAState(wfState, totalPixels)) {
+                throw std::runtime_error("[pkg55-B] allocateSoAState failed");
+            }
+
+            // Allocate CUB sort scratch
+            size_t scratchBytes = sortScratchBytes(wfState.capacity);
+            void* d_sortScratch = nullptr;
+            if (scratchBytes > 0) {
+                CUDA_CHECK(cudaMalloc(&d_sortScratch, scratchBytes));
+            }
+
+            // Clear framebuffer for wavefront accumulation
+            CUDA_CHECK(cudaMemset(impl->d_framebuffer, 0, totalPixels * 3 * sizeof(float)));
+
+            wavefrontRenderSample(
+                wfState,
+                impl->d_framebuffer,
+                width, height,
+                samplesPerPixel, maxDepth,
+                impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
+                impl->d_materials,
+                impl->d_lights, impl->numLights, impl->totalLightPower,
+                impl->envMap,
+                impl->camera,
+                impl->backgroundColor, impl->hasBackgroundColor,
+                d_sortScratch, scratchBytes);
+
+            if (d_sortScratch) cudaFree(d_sortScratch);
+            freeSoAState(wfState);
+
+            // Copy result back to host
+            std::vector<float> hostFb(totalPixels * 3);
+            CUDA_CHECK(cudaMemcpy(hostFb.data(), impl->d_framebuffer,
+                                  totalPixels * 3 * sizeof(float),
+                                  cudaMemcpyDeviceToHost));
+            pixels.resize(totalPixels);
+            for (int i = 0; i < totalPixels; ++i)
+                pixels[i] = Vec3(hostFb[i*3], hostFb[i*3+1], hostFb[i*3+2]);
+            printf("[CUDA-WF] Wavefront render complete: %dx%d, %d spp\n", width, height, samplesPerPixel);
+            return;
+        }
+    }
+#endif  // ASTRORAY_WAVEFRONT_SHADE
 
     // Launch megakernel
     launchPathTraceKernel(

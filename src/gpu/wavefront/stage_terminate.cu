@@ -95,4 +95,45 @@ void launchStageTerminate(IntegratorStateSoA& state, int maxDepth)
     }
 }
 
+// ---------------------------------------------------------------------------
+// launchWriteAccumulated — write accum_rgb per path slot to framebuffer
+// using pixel_index mapping. Atomic adds handle multiple paths per pixel.
+// ---------------------------------------------------------------------------
+namespace {
+
+__global__ void writeAccumulatedKernel(
+    const float4* accum_rgb,
+    const int*    pixel_index,
+    float*        framebuffer,
+    int num_active, float sppInv, int totalPixels)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= num_active) return;
+    int px = pixel_index[idx];
+    if (px < 0 || px >= totalPixels) return;
+    float4 acc = accum_rgb[idx];
+    atomicAdd(&framebuffer[px*3 + 0], fmaxf(acc.x, 0.f) * sppInv);
+    atomicAdd(&framebuffer[px*3 + 1], fmaxf(acc.y, 0.f) * sppInv);
+    atomicAdd(&framebuffer[px*3 + 2], fmaxf(acc.z, 0.f) * sppInv);
+}
+
+}  // namespace
+
+void launchWriteAccumulated(
+    const IntegratorStateSoA& state,
+    float* d_framebuffer,
+    int samplesPerPixel, int totalPixels)
+{
+    int n = state.num_active;
+    if (n <= 0) return;
+    float sppInv = (samplesPerPixel > 0) ? 1.f / (float)samplesPerPixel : 1.f;
+    int threads = 256, blocks = (n + threads - 1) / threads;
+    writeAccumulatedKernel<<<blocks, threads>>>(
+        reinterpret_cast<const float4*>(state.accum_rgb),
+        state.pixel_index,
+        d_framebuffer,
+        n, sppInv, totalPixels);
+    cudaDeviceSynchronize();
+}
+
 }  // namespace astroray::wavefront

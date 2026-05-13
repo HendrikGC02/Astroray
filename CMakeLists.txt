@@ -346,6 +346,16 @@ option(ASTRORAY_WAVEFRONT_INTERSECT
     "Build the wavefront SoA primary-ray + intersect kernels alongside the AoS megakernel (pkg55 Phase A.1)."
     OFF)
 
+# pkg55 Phase B — full shade queue + per-material dispatch + accumulation.
+# Implies ASTRORAY_WAVEFRONT_INTERSECT.  Default OFF; set ON to opt in.
+option(ASTRORAY_WAVEFRONT_SHADE
+    "Build the wavefront SoA full path-tracer (shade + shadow + miss + terminate) alongside the AoS megakernel (pkg55 Phase B)."
+    OFF)
+
+if(ASTRORAY_WAVEFRONT_SHADE)
+    set(ASTRORAY_WAVEFRONT_INTERSECT ON CACHE BOOL "" FORCE)
+endif()
+
 if(ASTRORAY_CUDA_FOUND)
     set(ASTRORAY_CUDA_SOURCES
         src/gpu/cuda_renderer.cu
@@ -362,9 +372,30 @@ if(ASTRORAY_CUDA_FOUND)
         )
         message(STATUS "pkg55-A.1: wavefront SoA intersect path enabled")
     endif()
+    if(ASTRORAY_WAVEFRONT_SHADE)
+        list(APPEND ASTRORAY_CUDA_SOURCES
+            src/gpu/wavefront/stage_intersect_full.cu
+            src/gpu/wavefront/material_sort.cu
+            src/gpu/wavefront/stage_shade_lambertian.cu
+            src/gpu/wavefront/stage_shade_metal.cu
+            src/gpu/wavefront/stage_shade_dielectric.cu
+            src/gpu/wavefront/stage_shade_diffuse_light.cu
+            src/gpu/wavefront/stage_shade_disney.cu
+            src/gpu/wavefront/stage_shade_thin_glass.cu
+            src/gpu/wavefront/stage_shade_closure_graph.cu
+            src/gpu/wavefront/stage_shadow.cu
+            src/gpu/wavefront/stage_miss.cu
+            src/gpu/wavefront/stage_terminate.cu
+            src/gpu/wavefront/wavefront_render_loop.cu
+        )
+        message(STATUS "pkg55-B: wavefront SoA full shade path enabled")
+    endif()
     add_library(astroray_cuda STATIC ${ASTRORAY_CUDA_SOURCES})
     if(ASTRORAY_WAVEFRONT_INTERSECT)
         target_compile_definitions(astroray_cuda PUBLIC ASTRORAY_WAVEFRONT_INTERSECT)
+    endif()
+    if(ASTRORAY_WAVEFRONT_SHADE)
+        target_compile_definitions(astroray_cuda PUBLIC ASTRORAY_WAVEFRONT_SHADE)
     endif()
     target_include_directories(astroray_cuda
         PUBLIC  ${CMAKE_SOURCE_DIR}/include

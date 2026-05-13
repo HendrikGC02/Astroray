@@ -3,7 +3,7 @@
 **Pillar:** 5
 **Track:** A
 **Codex-paste-ready:** yes
-**Status:** done (PR #TBD, 2026-05-14 — cold 191ms → warm 83ms first frame, 2.3× improvement)
+**Status:** done (PR #260, 2026-05-14 — cold 191ms → warm 83ms first frame, 2.3× improvement)
 **Estimated effort:** ~½ day (~3 h)
 **Depends on:** pkg52 (persistent viewport), pkg81 diagnosis
 

@@ -85,8 +85,10 @@ bool allocateSoAState(IntegratorStateSoA& s, int capacity) {
     ok &= devAlloc(reinterpret_cast<float4**>(&s.lambda_pdf),    (size_t)cap);
     ok &= devAlloc(reinterpret_cast<float4**>(&s.throughput_sp), (size_t)cap);
 
-    // Accumulation buffer: one slot per pixel (not per path).
-    ok &= devAlloc(reinterpret_cast<float4**>(&s.accum_rgb),     (size_t)capacity);
+    // Accumulation buffer: one slot per path (indexed by slot, not pixel),
+    // matching the shade kernels which write accum_rgb[idx] directly.
+    // writeAccumulated maps slot→pixel via pixel_index[].
+    ok &= devAlloc(reinterpret_cast<float4**>(&s.accum_rgb),     (size_t)cap);
 
     // --- Phase B: NEE shadow queue ---
     ok &= devAlloc(reinterpret_cast<float4**>(&s.nee_contrib),   (size_t)cap);

@@ -155,6 +155,14 @@ void launchStageIntersectFull(
     const GTriangle*  d_tris,
     const GSphere*    d_spheres);
 
+// Same as launchStageIntersectFull but skips spectral init (bounce > 0).
+void launchStageIntersectFullBounce(
+    IntegratorStateSoA& state,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres);
+
 // CUB DeviceRadixSort on sort_key: dead paths (key=0) sort first, then
 // material buckets in material_type order. Call sortScratchBytes first
 // with d_temp=nullptr to size the scratch buffer.

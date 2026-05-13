@@ -2,6 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
+**Codex-paste-ready:** yes
 **Status:** open
 **Estimated effort:** ~½ day (~3 h)
 **Depends on:** pkg52 (persistent viewport), pkg81 diagnosis

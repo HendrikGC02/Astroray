@@ -86,6 +86,10 @@ __global__ void shadeLambertianKernel(
     if (idx >= num_active) return;
     if (path_alive[idx] == 0) return;  // skip dead paths
 
+    // Material-type guard: only process GMAT_LAMBERTIAN
+    const GMaterial& mat = materials[hit_mat[idx]];
+    if (mat.type != GMAT_LAMBERTIAN) return;
+
     // Reconstruct hit record from SoA
     GHitRecord rec;
     rec.point.x = hit_point[idx].x;
@@ -123,8 +127,6 @@ __global__ void shadeLambertianKernel(
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
         throughputSpectral[i] = reinterpret_cast<const float*>(&throughput_sp_in[idx])[i];
     }
-
-    const GMaterial& mat = materials[rec.materialId];
 
     // Sample BSDF for next bounce (exact math from path_trace_kernel.cu:317)
     curandState localRng = rng_state[idx];
@@ -174,11 +176,15 @@ __global__ void shadeLambertianKernel(
             if (u <= lights[i].cumulativePower) { li = i; break; }
             li = i;
         }
+        float selPdf = lights[li].power / totalLightPower;
         int primIdx = lights[li].primitiveIndex;
         if (primIdx >= 0) {
             const GPrimitive& lp = prims[primIdx];
-            GVec3 lightPos;
+            GVec3 wi_light;
             float dist = 0.f;
+            float lightPdf = 0.f;
+            int lightMatId = -1;
+
             if (lp.type == GPRIM_SPHERE) {
                 const GSphere& s = spheres[lp.index];
                 GVec3 dir = (s.center - rec.point).normalized();
@@ -189,22 +195,41 @@ __global__ void shadeLambertianKernel(
                 GVec3 tu, tv;
                 gpu_buildONB(dir, tu, tv);
                 float sinTh = sqrtf(fmaxf(0.f, 1.f - z*z));
-                GVec3 wi_light = (tu*cosf(phi)*sinTh + tv*sinf(phi)*sinTh + dir*z).normalized();
-                shadow_dir[idx] = make_float4(wi_light.x, wi_light.y, wi_light.z, 0.f);
+                wi_light = (tu*cosf(phi)*sinTh + tv*sinf(phi)*sinTh + dir*z).normalized();
+                lightPdf = (cosTM < 1.f) ? 1.f / (2.f*M_PI_F*(1.f - cosTM)) : 0.f;
+                lightPdf *= selPdf;
                 dist = 1e30f;
+                lightMatId = s.materialId;
             } else {
                 const GTriangle& t = tris[lp.index];
                 float r1 = curand_uniform(&localRng), r2 = curand_uniform(&localRng);
                 if (r1 + r2 > 1.f) { r1 = 1.f-r1; r2 = 1.f-r2; }
-                lightPos = t.v0 + (t.v1 - t.v0)*r1 + (t.v2 - t.v0)*r2;
-                GVec3 wi_light = (lightPos - rec.point).normalized();
-                shadow_dir[idx] = make_float4(wi_light.x, wi_light.y, wi_light.z, 0.f);
+                GVec3 lightPos = t.v0 + (t.v1 - t.v0)*r1 + (t.v2 - t.v0)*r2;
+                wi_light = (lightPos - rec.point).normalized();
                 dist = (lightPos - rec.point).length();
+
+                // Area PDF to solid angle PDF
+                GVec3 e1 = t.v1 - t.v0, e2 = t.v2 - t.v0;
+                float area = e1.cross(e2).length() * 0.5f;
+                float NdotWi = fabsf(t.n0.dot(wi_light));
+                lightPdf = (dist*dist) / (NdotWi * area + 0.001f);
+                lightPdf *= selPdf;
+                lightMatId = t.materialId;
             }
+
             shadow_origin[idx] = make_float4(rec.point.x, rec.point.y, rec.point.z, 0.f);
+            shadow_dir[idx] = make_float4(wi_light.x, wi_light.y, wi_light.z, 0.f);
             shadow_tmax[idx] = dist;
-            // Store placeholder contribution (shadow stage will test occlusion)
-            nee_contrib[idx] = make_float4(1.f, 1.f, 1.f, 0.f);  // simplified
+
+            // Compute NEE contribution: f * Le / pdf (shadow stage multiplies by visibility)
+            GVec3 wo_out(-ray_direction_in[idx].x, -ray_direction_in[idx].y, -ray_direction_in[idx].z);
+            wo_out = wo_out.normalized();
+            GVec3 f = gpu_material_eval(mat, rec, wo_out, wi_light);
+            const GMaterial& lightMat = materials[lightMatId];
+            GVec3 Le = gpu_material_emitted(lightMat, true);
+            GVec3 contrib = f * Le / (lightPdf + 0.001f);
+
+            nee_contrib[idx] = make_float4(contrib.x, contrib.y, contrib.z, 0.f);
             nee_active[idx] = 1;
         }
     }

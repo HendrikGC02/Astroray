@@ -75,6 +75,10 @@ __global__ void shadeMetalKernel(
     if (idx >= num_active) return;
     if (path_alive[idx] == 0) return;
 
+    // Material-type guard: only process GMAT_METAL
+    const GMaterial& mat = materials[hit_mat[idx]];
+    if (mat.type != GMAT_METAL) return;
+
     GHitRecord rec;
     rec.point = GVec3(hit_point[idx].x, hit_point[idx].y, hit_point[idx].z);
     rec.normal = GVec3(hit_normal[idx].x, hit_normal[idx].y, hit_normal[idx].z);
@@ -97,8 +101,6 @@ __global__ void shadeMetalKernel(
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
         throughputSpectral[i] = reinterpret_cast<const float*>(&throughput_sp_in[idx])[i];
     }
-
-    const GMaterial& mat = materials[rec.materialId];
 
     curandState localRng = rng_state[idx];
     GBSDFSample bs = gpu_material_sample_spectral(mat, rec, wo, lambdas, &localRng);

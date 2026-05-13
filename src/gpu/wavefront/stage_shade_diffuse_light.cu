@@ -26,6 +26,7 @@ __global__ void shadeDiffuseLightKernel(
     const float4*  hit_normal,
     const int*     hit_mat,
     const uint8_t* hit_flags,
+    const int*     depth,
     const float4*  lambda_in,
     const float4*  throughput_in,
     const float4*  throughput_sp_in,
@@ -42,7 +43,9 @@ __global__ void shadeDiffuseLightKernel(
     if (idx >= num_active) return;
     if (path_alive[idx] == 0) return;
 
+    // Material-type guard: only process GMAT_DIFFUSE_LIGHT
     const GMaterial& mat = materials[hit_mat[idx]];
+    if (mat.type != GMAT_DIFFUSE_LIGHT) return;
     bool frontFace = (hit_flags[idx] & 0x1) != 0;
 
     GVec3 emitted = gpu_material_emitted(mat, frontFace);
@@ -54,7 +57,7 @@ __global__ void shadeDiffuseLightKernel(
 
     // Only accumulate emission on first bounce or after specular bounce
     // (matches megakernel line 292: "if (bounce == 0 || wasSpecular)")
-    if (was_specular[idx] != 0) {
+    if (depth[idx] == 0 || was_specular[idx] != 0) {
         GVec3 throughput(throughput_in[idx].x, throughput_in[idx].y, throughput_in[idx].z);
         GSampledSpectrum throughputSpectral;
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
@@ -93,6 +96,7 @@ void launchShadeDiffuseLight(
         reinterpret_cast<const float4*>(state.hit_normal),
         state.hit_mat,
         state.hit_flags,
+        state.depth,
         reinterpret_cast<const float4*>(state.lambda),
         reinterpret_cast<const float4*>(state.throughput),
         reinterpret_cast<const float4*>(state.throughput_sp),

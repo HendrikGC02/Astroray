@@ -37,17 +37,23 @@ SEED = 17
 
 
 def _make_scene(astroray):
-    """Construct a small flat-space scene. Uses the prism-reference
-    helper layout (Cornell-ish three-wall box + a sphere) since it's
-    already in the suite and known to render."""
+    """Construct a small flat-space scene."""
     r = astroray.Renderer()
-    r.set_resolution(WIDTH, HEIGHT)
-    r.set_camera_position(0.0, 0.5, 3.0)
-    r.set_camera_target(0.0, 0.0, 0.0)
-    # The exact material composition is not load-bearing — the perf gate
-    # only cares about timing the integrator on a flat scene.
-    diffuse = r.add_lambertian_material(0.8, 0.8, 0.8)
-    r.add_sphere(0.0, 0.0, 0.0, 0.5, diffuse)
+    r.set_integrator("path_tracer")
+    r.setup_camera(
+        look_from=[0.0, 0.5, 3.0],
+        look_at=[0.0, 0.0, 0.0],
+        vup=[0.0, 1.0, 0.0],
+        vfov=40.0,
+        aspect_ratio=float(WIDTH) / HEIGHT,
+        aperture=0.0,
+        focus_dist=3.0,
+        width=WIDTH,
+        height=HEIGHT,
+    )
+    diffuse = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
+    r.add_sphere([0.0, 0.0, 0.0], 0.5, diffuse)
+    r.set_background_color([0.5, 0.7, 1.0])
     return r
 
 
@@ -58,7 +64,6 @@ def render_baseline(astroray):
     r = _make_scene(astroray)
     r.set_seed(SEED)
     img = np.asarray(r.render(SAMPLES, MAX_DEPTH, None, True), dtype=np.float32)
-    # Renderer returns linear RGB in [0, 1] already
     return img
 
 

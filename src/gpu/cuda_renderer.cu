@@ -121,6 +121,12 @@ struct CUDARenderer::Impl {
     int          fbWidth = 0, fbHeight = 0;
     int          profileCount = 0;
 
+#ifdef ASTRORAY_WAVEFRONT_SHADE
+    // pkg55-B: wavefront SoA state and sort scratch buffer
+    astroray::wavefront::IntegratorStateSoA wavefrontState = {};
+    void* d_sortScratch = nullptr;
+#endif
+
     // Device info
     bool        available = false;
     std::string devName   = "none";
@@ -521,23 +527,21 @@ void CUDARenderer::render(
         bool use_wf = wf_env && wf_env[0] && std::strcmp(wf_env, "0") != 0;
         if (use_wf) {
             using namespace astroray::wavefront;
-            IntegratorStateSoA wfState;
-            if (!allocateSoAState(wfState, totalPixels)) {
+            if (!allocateSoAState(impl->wavefrontState, totalPixels)) {
                 throw std::runtime_error("[pkg55-B] allocateSoAState failed");
             }
 
             // Allocate CUB sort scratch
-            size_t scratchBytes = sortScratchBytes(wfState.capacity);
-            void* d_sortScratch = nullptr;
+            size_t scratchBytes = sortScratchBytes(impl->wavefrontState.capacity);
             if (scratchBytes > 0) {
-                CUDA_CHECK(cudaMalloc(&d_sortScratch, scratchBytes));
+                CUDA_CHECK(cudaMalloc(&impl->d_sortScratch, scratchBytes));
             }
 
             // Clear framebuffer for wavefront accumulation
             CUDA_CHECK(cudaMemset(impl->d_framebuffer, 0, totalPixels * 3 * sizeof(float)));
 
             wavefrontRenderSample(
-                wfState,
+                impl->wavefrontState,
                 impl->d_framebuffer,
                 width, height,
                 samplesPerPixel, maxDepth,
@@ -547,10 +551,10 @@ void CUDARenderer::render(
                 impl->envMap,
                 impl->camera,
                 impl->backgroundColor, impl->hasBackgroundColor,
-                d_sortScratch, scratchBytes);
+                impl->d_sortScratch, scratchBytes);
 
-            if (d_sortScratch) cudaFree(d_sortScratch);
-            freeSoAState(wfState);
+            if (impl->d_sortScratch) { cudaFree(impl->d_sortScratch); impl->d_sortScratch = nullptr; }
+            freeSoAState(impl->wavefrontState);
 
             // Copy result back to host
             std::vector<float> hostFb(totalPixels * 3);

@@ -15,6 +15,7 @@
 #include "astroray/integrator_state_soa.h"
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_materials.h"
+#include "astroray/gpu_bvh.h"
 #include "../profile.h"
 
 #include <cuda_runtime.h>

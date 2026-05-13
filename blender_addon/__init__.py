@@ -1001,6 +1001,79 @@ class CustomRaytracerRenderEngine(RenderEngine):
             getattr(rv3d, 'view_perspective', 'PERSP'),
         )
 
+    @staticmethod
+    def _camera_substantive_state_hash(context, region):
+        """Hash the "substantive" camera properties that invalidate prior
+        samples and require a full accumulator reset.
+
+        Mirrors Cycles' `BlenderSession::reset` policy
+        (intern/cycles/blender/session.cpp, Apache-2.0): progressive samples
+        continue across pure camera-transform changes (pan/orbit/dolly), but
+        reset when the camera's optical properties change in a way that makes
+        prior samples no longer representative.
+
+        Substantive properties (must reset accumulator):
+        - focal length / sensor dimensions (changes FOV)
+        - lens shift (changes image-plane offset)
+        - DoF toggle / aperture fstop (changes bokeh)
+        - viewport zoom/offset in CAMERA view (changes effective FOV)
+        - region width/height (changes aspect + pixel count)
+        - free-view focal length (space_data.lens)
+
+        Not substantive (pure transform, keep accumulating):
+        - view_matrix (pan / orbit / dolly in PERSP/ORTHO)
+        - camera object world matrix (camera moved but optical unchanged)
+        """
+        rv3d = getattr(context, 'region_data', None)
+        space = getattr(context, 'space_data', None)
+        scene = getattr(context, 'scene', None)
+        if rv3d is None:
+            return None
+
+        # Region dimensions — aspect or pixel count change invalidates samples.
+        w = int(region.width)
+        h = int(region.height)
+
+        # Free-view (PERSP/ORTHO) uses space_data.lens as the effective focal
+        # length. CAMERA view uses the scene camera's lens.
+        view_perspective = getattr(rv3d, 'view_perspective', 'PERSP')
+        if view_perspective == 'CAMERA' and scene and scene.camera:
+            cam_data = scene.camera.data
+            focal_length = round(float(getattr(cam_data, 'lens', 50.0)), 4)
+            sensor_width = round(float(getattr(cam_data, 'sensor_width', 36.0)), 4)
+            sensor_height = round(float(getattr(cam_data, 'sensor_height', 24.0)), 4)
+            sensor_fit = str(getattr(cam_data, 'sensor_fit', 'AUTO'))
+            shift_x = round(float(getattr(cam_data, 'shift_x', 0.0)), 5)
+            shift_y = round(float(getattr(cam_data, 'shift_y', 0.0)), 5)
+            dof_enabled = bool(getattr(cam_data.dof, 'use_dof', False))
+            aperture_fstop = round(float(getattr(cam_data.dof, 'aperture_fstop', 5.6)), 4) if dof_enabled else 0.0
+            # Viewport zoom/offset in CAMERA view changes the effective FOV.
+            camera_zoom = round(float(getattr(rv3d, 'view_camera_zoom', 0.0)), 4)
+            camera_offset = tuple(round(float(o), 5)
+                                  for o in getattr(rv3d, 'view_camera_offset', (0.0, 0.0)))
+        else:
+            # Free-view: space_data.lens is the focal length; no camera object.
+            focal_length = round(float(getattr(space, 'lens', 50.0)), 4)
+            sensor_width = 36.0
+            sensor_height = 24.0
+            sensor_fit = 'AUTO'
+            shift_x = 0.0
+            shift_y = 0.0
+            dof_enabled = False
+            aperture_fstop = 0.0
+            camera_zoom = 0.0
+            camera_offset = (0.0, 0.0)
+
+        return (
+            w, h,
+            focal_length,
+            sensor_width, sensor_height, sensor_fit,
+            shift_x, shift_y,
+            dof_enabled, aperture_fstop,
+            camera_zoom, camera_offset,
+            view_perspective,
+        )
+
     # ------------------------------------------------------------------ #
     # pkg56 Phase C — depsgraph-driven dispatch
     # ------------------------------------------------------------------ #
@@ -1324,6 +1397,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # render. This is the ≤5 ms idle-frame gate.
                 _viewport_perf_frame_complete()
                 self._viewport_camera_hash = self._camera_state_hash(context, region)
+                self._viewport_camera_substantive_hash = self._camera_substantive_state_hash(context, region)
                 return
             t0 = time.perf_counter()
             self._render_viewport_frame(renderer, context, settings, region,
@@ -1335,6 +1409,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # Stamp the camera hash so view_draw doesn't re-render until the
             # camera actually changes.
             self._viewport_camera_hash = self._camera_state_hash(context, region)
+            self._viewport_camera_substantive_hash = self._camera_substantive_state_hash(context, region)
             if self._viewport_current_spp < self._viewport_target_spp:
                 self._request_viewport_redraw()
         except Exception as e:
@@ -1365,6 +1440,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
             )
             needs_progress = int(getattr(self, '_viewport_current_spp', 0)) < target_spp
             settings_changed = render_key != getattr(self, '_viewport_accum_key', None)
+
+            # pkg83: distinguish substantive camera changes (focal length, DoF,
+            # lens shift) from pure transforms (pan/orbit/dolly). Only the former
+            # invalidates progressive samples. Mirrors Cycles BlenderSession::reset
+            # (intern/cycles/blender/session.cpp, Apache-2.0).
+            new_substantive_hash = self._camera_substantive_state_hash(context, region)
+            camera_substantive_changed = (
+                new_substantive_hash is not None
+                and new_substantive_hash != getattr(self, '_viewport_camera_substantive_hash', None)
+            )
+
             if camera_changed or needs_progress or settings_changed or not getattr(self, '_viewport_texture', None):
                 renderer = self._get_viewport_renderer()
                 # If the user opened rendered-shading mode without ever
@@ -1374,9 +1460,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     self._sync_viewport_scene(renderer, depsgraph, settings)
                 self._render_viewport_frame(
                     renderer, context, settings, region,
-                    reset_accumulation=(camera_changed or settings_changed)
+                    reset_accumulation=(camera_substantive_changed or settings_changed)
                 )
                 self._viewport_camera_hash = new_hash
+                self._viewport_camera_substantive_hash = new_substantive_hash
                 if self._viewport_current_spp < self._viewport_target_spp:
                     self._request_viewport_redraw()
 

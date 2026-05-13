@@ -173,24 +173,6 @@ struct CUDARenderer::Impl {
         CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_rngStates),   n * sizeof(curandState)));
         // Seed RNG once; re-seed will be called from render()
     }
-
-#ifdef ASTRORAY_WAVEFRONT_SHADE
-    void ensureWavefrontState(int totalPixels) {
-        using astroray::wavefront::allocateSoAState;
-        using astroray::wavefront::sortScratchBytes;
-        if (wavefrontState.capacity > 0) return;  // already allocated
-        if (!allocateSoAState(wavefrontState, totalPixels)) {
-            throw std::runtime_error("Failed to allocate wavefront SoA state");
-        }
-        // Allocate CUB sort scratch
-        sortScratchBytes = sortScratchBytes(wavefrontState.capacity);
-        if (sortScratchBytes > 0) {
-            CUDA_CHECK(cudaMalloc(&d_sortScratch, sortScratchBytes));
-        }
-        std::fprintf(stderr, "[CUDA-WF] Wavefront SoA allocated: capacity=%d\n",
-                     wavefrontState.capacity);
-    }
-#endif
 };
 
 // ---------------------------------------------------------------------------

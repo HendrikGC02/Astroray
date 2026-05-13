@@ -114,6 +114,18 @@ public:
     void terminateSecondary();
     bool secondaryTerminated() const;
 
+    // pkg67: apply a frequency-shift factor g = ν_obs / ν_emit, which by
+    // λ ν = c maps to λ_obs = λ_emit / g. The PDF stretches inversely
+    // (a single sample is now drawn from a shifted band of width old/g).
+    //
+    // Sign convention (matches BlackHole::diskEmissionSpectral and
+    // NovikovThorneDisk::redshiftFactor): g > 1 means blueshift
+    // (observer sees higher frequency / shorter wavelength than emitter);
+    // g < 1 means gravitational/Doppler redshift. g must be > 0.
+    //
+    // Reference: .astroray_plan/docs/metric-aware-tracer-research.md §3.
+    void redshift(float g);
+
     bool operator==(const SampledWavelengths& o) const {
         return lambdas_ == o.lambdas_ && pdfs_ == o.pdfs_;
     }

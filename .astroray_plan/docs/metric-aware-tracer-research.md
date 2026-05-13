@@ -305,3 +305,61 @@ render) before touching any code. Gate the PR on that test passing.
 | Pandya et al. 2016. ApJ 822, 34. DOI 10.3847/0004-637X/822/1/34 | Paper | — | Transfer coefficients in tetrad frame; math reference for redshift coupling |
 | Bardeen, Press & Teukolsky 1972. ApJ 178, 347. DOI 10.1086/151796 | Paper | — | BL metric, ISCO, photon sphere; cite for test values |
 | PBRT v4 spectral path tracer | Code | Apache-2.0 | Flat-space spectral hero-wavelength architecture; architectural model for fast path |
+
+---
+
+## Implementation-time addendum (pkg67, Option α)
+
+Once implementation started it became clear that the unification the spec
+describes — "`path_tracer` calls a `Metric` virtual to advance rays" — is
+already realised in this codebase via a different (better-for-the-current-
+architecture) dispatch:
+
+- `Hittable::isGRObject()` returns true for `BlackHole` and false for
+  every flat-space primitive. `path_tracer`'s BVH traversal calls
+  `hit.hitObject->traceGR*` for GR objects and the normal BSDF path for
+  everything else.
+- `BlackHole` owns its own `SchwarzschildMetric` and runs the DP45
+  geodesic integrator (`integrateGeodesic` in `gr_integrator.h`) inside
+  `traceGR*`. The integrator is per-segment (one geodesic run per BH hit),
+  not per-step at the ray-advance call site.
+- `IntegrationResult::frequencyShift` is already computed (Schwarzschild
+  → 1.0 because p_t is conserved; pkg40 Kerr will populate it).
+
+What pkg67 (Option α) actually delivers, given that architecture:
+
+1. **`MinkowskiMetric`** — a flat-space metric class added so the
+   `Metric` hierarchy can name the flat case explicitly and so a
+   `"minkowski"` entry exists in `MetricRegistry` alongside
+   `"schwarzschild"` / `"kerr"`. `isFlat()` returns `true`; the
+   `geodesic_rhs`/`christoffel` overrides exist only to satisfy the
+   abstract base and are never invoked along the production render path
+   (`isGRObject()` is the actual short-circuit).
+
+2. **`SampledWavelengths::redshift(float g)`** — the per-ray wavelength
+   shift method called out in research-note §3 ("per-step wavelength
+   update"). Sign convention: `g = ν_obs / ν_emit`, so
+   `λ_obs = λ_emit / g`. PDFs scale by `g` to conserve probability mass.
+   Matches the convention used by `NovikovThorneDisk::redshiftFactor`
+   and `BlackHole::diskEmissionSpectral`.
+
+3. **`GRSpectralResult::frequencyShift`** — exposes the integrator's
+   accumulated `g` so a caller of `Hittable::traceGRSpectral` can call
+   `lambdas.redshift(g)` on the continuation ray. For Schwarzschild this
+   is 1.0 (no behavioural change); for pkg40 Kerr it will carry the real
+   shift.
+
+What the spec language asks for that we deliberately did *not* do, per
+Option α (owner-approved):
+
+- No `Metric::traceSegment` virtual.
+- No metric branch in `pathTraceSpectral`'s `bvh->hit` call — the existing
+  `isGRObject()` dispatch already routes GR hits to the per-BH integrator.
+- No `Renderer::metric_` scene-level member — the per-`BlackHole` metric
+  is the right granularity here. Mixed-spacetime rendering remains out of
+  scope (spec §"Non-goals").
+
+This addendum stays in the research note so future readers understand
+the gap between the spec's literal wording (per-step `Metric::step` at
+the ray-advance call site) and the realised architecture (per-segment
+geodesic integration inside `BlackHole`).

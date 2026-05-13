@@ -1809,7 +1809,9 @@ PYBIND11_MODULE(astroray, m) {
             return std::vector<float>(w.pdfs().begin(), w.pdfs().end());
         })
         .def("terminate_secondary", &astroray::SampledWavelengths::terminateSecondary)
-        .def("secondary_terminated", &astroray::SampledWavelengths::secondaryTerminated);
+        .def("secondary_terminated", &astroray::SampledWavelengths::secondaryTerminated)
+        // pkg67: redshift the carried wavelengths by g = ν_obs / ν_emit.
+        .def("redshift", &astroray::SampledWavelengths::redshift, "g"_a);
 
     py::class_<astroray::SampledSpectrum>(m, "SampledSpectrum")
         .def(py::init<>())

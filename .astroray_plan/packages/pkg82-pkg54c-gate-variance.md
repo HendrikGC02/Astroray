@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A (CUDA verifier on RTX 5070 Ti)
-**Status:** done (PR #TBD, 2026-05-14 — gate re-baselined 0.999→0.998, cross-build Δ 0.0006)
+**Status:** done (PR #261, 2026-05-14 — gate re-baselined 0.999→0.998, cross-build Δ 0.0006)
 **Estimated effort:** ~1 day on hardware (~6 h)
 **Depends on:** pkg54c (the gate definition); pkg78 (the bisect that ruled out a code regression)
 

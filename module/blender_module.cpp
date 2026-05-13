@@ -1198,13 +1198,20 @@ public:
             return;
         }
 
+        // Use a fully isolated temporary renderer and CUDA context to avoid
+        // leaving dangling GPU pointers. This ensures the main renderer's state
+        // (this->renderer, this->cudaRenderer) is never polluted with throwaway
+        // geometry that gets cleared before the GPU pointers are freed.
+        Renderer tempRenderer;
+        auto tempCudaRenderer = std::make_unique<CUDARenderer>();
+
         // Trivial scene: single grey triangle at origin + camera looking at it.
         // Minimal cost to build but still enough to force full kernel JIT.
         auto grey = std::make_shared<Lambertian>(Vec3(0.5f));
         auto tri = std::make_shared<Triangle>(
             Vec3(-1, 0, 5), Vec3(1, 0, 5), Vec3(0, 1, 5), grey
         );
-        renderer.addObject(tri);
+        tempRenderer.addObject(tri);
 
         // 1-pixel camera, 1 spp, 1 bounce — just enough to hit the kernel.
         // We discard the result; the goal is to populate the JIT cache.
@@ -1213,16 +1220,16 @@ public:
             60.0f, 1.0f, 0.0f, 1.0f, 1, 1
         );
 
-        renderer.buildAcceleration();
-        cudaRenderer->uploadScene(renderer, *cam);
+        tempRenderer.buildAcceleration();
+        tempCudaRenderer->uploadScene(tempRenderer, *cam);
 
         // Launch the kernel. This is where the 12s JIT + context init happens.
-        cudaRenderer->render(cam->pixels, 1, 1, renderer.getSeed(), 1, 1);
+        // The JIT cache is process-wide, so triggering it here warms the cache
+        // for this->cudaRenderer as well.
+        tempCudaRenderer->render(cam->pixels, 1, 1, tempRenderer.getSeed(), 1, 1);
 
-        // Clear the trivial scene. The GPU kernel cache is warm; that's all
-        // that matters. The addon uses a temporary Renderer instance for
-        // pre-warm so this clear() doesn't affect the real scene.
-        renderer.clear();
+        // tempRenderer and tempCudaRenderer are automatically destroyed at scope
+        // exit via RAII, freeing all GPU resources cleanly. No dangling pointers.
 #endif
         // CPU path: no pre-warm needed.
     }

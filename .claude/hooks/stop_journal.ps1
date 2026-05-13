@@ -11,5 +11,5 @@ if (-not (Test-Path $journalPath)) {
 
 # Append a timestamped entry. The agent fills in the summary during the session;
 # this hook records the session boundary so nothing is silently lost.
-$entry = "$timestamp | claude | (session end — update this line with the main decision/output)"
+$entry = "$timestamp | claude | (session end - update this line with the main decision/output)"
 Add-Content -Path $journalPath -Value $entry -Encoding UTF8

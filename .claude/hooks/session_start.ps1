@@ -40,9 +40,9 @@ foreach ($pattern in $pydCandidates) {
 if ($latestSrc) {
     $age = (Get-Date) - $latestSrc.LastWriteTime
     if ($age.TotalHours -gt 24) {
-        Write-Host "`n⚠  STALE .pyd DETECTED: $($latestSrc.Name) is $([int]$age.TotalHours)h old." -ForegroundColor Red
+        Write-Host "`nWARN: STALE .pyd DETECTED: $($latestSrc.Name) is $([int]$age.TotalHours)h old." -ForegroundColor Red
         Write-Host "   Suggest rebuild before running tests." -ForegroundColor Red
     }
 } else {
-    Write-Host "`nNo .pyd found — CUDA build not present or not built yet." -ForegroundColor DarkYellow
+    Write-Host "`nNo .pyd found - CUDA build not present or not built yet." -ForegroundColor DarkYellow
 }

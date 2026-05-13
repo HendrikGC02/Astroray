@@ -2,8 +2,12 @@
 .clinerules
 .clinerules.md
 
-#Claude
-.claude/
+#Claude — track agents/skills/settings/hooks; ignore ephemeral state
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+.astroray_plan/tracker/local.toml
+.astroray_plan/session-journal.md
 
 # Build directories
 build/

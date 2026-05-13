@@ -200,6 +200,11 @@ Lessons section, same format as pkg64-3 Phase 3 hardware verification.
 - [ ] **Empty-hook walltime overhead (gate ≤ 5%):** cornell parity scene, same as Phase 2.
 - [ ] **GPU/CPU SSIM parity (gate ≥ 0.97):** prism scene at 256 spp. Threshold rationale: matches pkg54b NIR-band tolerance, accounts for the FP-noise envelope characterized in pkg82. A tighter gate is not justified until pkg82 measures cross-build variance specifically for the SMS code path.
 - [ ] **Speedup floor (gate ≥ 5× vs CPU SMS):** prism scene at 256 spp on RTX 5070 Ti, end-to-end render walltime. If < 3× measured, STOP and file a follow-up on warp-divergence cost (Laine 2013 framework).
+- [ ] **Register pressure (non-regression vs pkg55-A.0 baseline):** measured via `--ptxas-options=-v` on the production CUDA build, the megakernel with SMS enabled must report:
+  - `regs/thread ≤ 180` (pkg55-A.0 baseline: 158 regs/thread; allows for SMS Newton + 2 BVH visibility traces without breaking occupancy)
+  - `active blocks/SM ≥ 1` (matches pkg55-A.0 baseline — no further occupancy regression)
+
+  Rationale: pkg55-A.0 documented the megakernel at the 1-block/SM warp-occupancy cliff. SMS Newton inline could spike registers further. The empty-hook 5% perf gate does not catch a regs spike because empty-hook short-circuits before Newton runs. Compare against `benchmarks/wavefront/baseline.json` numbers. Source: `.astroray_plan/packages/pkg55-wavefront-soa-refactor.md` §Phase A.0 (158 regs/thread, 1 active block/SM baseline).
 - [ ] STATUS.md updated.
 
 ---

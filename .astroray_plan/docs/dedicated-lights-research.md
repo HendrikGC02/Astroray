@@ -762,3 +762,54 @@ single-implementer session rather than fan-out.
    out of scope.
 
 End of research note.
+
+---
+
+## §13 — Architect spec-promotion addendum (2026-05-14)
+
+This addendum is appended during the spec-promotion pass that
+promoted `pkg89-dedicated-lights-DRAFT.md` →
+`pkg89-dedicated-lights.md`.
+
+### 13.1 Fork resolutions
+
+Of the 12 forks in §10:
+
+- **4 already owner-confirmed** (per round8-dispatch-queue): Q1
+  (variant vs unique_ptr → unique_ptr CPU + variant GPU follow-up),
+  Q6 (extend `LightSample` with `emission_spec`, don't replace
+  RGB), Q7 (one-PR signature break across 5 integrators), Q11
+  (`normalize` flag implemented, default true).
+- **8 resolved by architect:** Q2, Q3, Q4, Q5, Q8, Q9, Q10, Q12.
+  All resolutions match the research-note recommendations, with
+  one exception:
+  - **Q9 (motion-blur coupling) refined:** The note recommended
+    "punt to whichever package lands second". The architect-pass
+    adds the explicit coordination rule: pkg89 ships time-agnostic
+    `Light::sampleLi(shadingPoint, normal, lambdas, gen)`; pkg88's
+    PR (whenever it lands) widens it to add `float time`. Recorded
+    in pkg88's "Cross-package notes" too.
+- **1 new owner-preference fork surfaced:** Q-Owner-1 (default
+  spectral-emission model for Blender lights — blackbody-when-set
+  vs RGB-always).
+
+### 13.2 No 13th fork
+
+The research note covers the design surface completely. Implementer
+can dispatch immediately once Q-Owner-1 is answered.
+
+### 13.3 Mitsuba 3 cross-reference
+
+Mitsuba 3's light infrastructure was also dropped in the 0.6 → 3.0
+transition for many production lights. The active references stay
+Cycles (primary mirror) + PBRT-v4 (design citation). Confirmed via
+architect-pass WebSearch 2026-05-14.
+
+### 13.4 RGB-collapse-bug fix is end-to-end
+
+The §2.2 audit finding (`LightList::sample` collapses to RGB before
+downstream re-upsamples) is closed by Q6's extension. The promoted
+spec adds G8 as a regression gate — `targetLuminance(lambdas)`
+computed from `emission_spec` must match round-tripped
+`targetLuminanceRGB()` to within 1 % at 1000 samples. This is the
+single most important non-API behavior change in pkg89.

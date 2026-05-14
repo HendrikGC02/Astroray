@@ -72,37 +72,48 @@ def cuda_cleanup_and_error_check():
     yield  # Let the test run
 
     import gc
-    gc.collect()  # pkg85: Force cleanup of any Renderer objects left by the test
+    import warnings
 
+    # Wrap entire cleanup to prevent non-test-failure exceptions from
+    # surfacing as teardown ERROR. Intentional pytest.fail() is NOT caught
+    # (it raises BaseException), so legitimate CUDA regression guards still
+    # fail the test properly.
     try:
-        import astroray
-        # Only check if astroray module loaded successfully
+        gc.collect()  # pkg85: Force cleanup of any Renderer objects left by the test
+
         try:
-            renderer = astroray.Renderer()
-            if renderer.gpu_available:
-                # Import ctypes to call CUDA runtime directly
-                import ctypes
-                try:
-                    # Try to load CUDA runtime DLL
-                    cuda = ctypes.CDLL("cudart64_12.dll") if sys.platform == "win32" else ctypes.CDLL("libcudart.so")
-                    # cudaDeviceSynchronize() and cudaGetLastError()
-                    sync_err = cuda.cudaDeviceSynchronize()
-                    last_err = cuda.cudaGetLastError()
-                    if sync_err != 0 or last_err != 0:
-                        # Get error string
-                        cuda.cudaGetErrorString.restype = ctypes.c_char_p
-                        sync_msg = cuda.cudaGetErrorString(sync_err).decode() if sync_err != 0 else ""
-                        last_msg = cuda.cudaGetErrorString(last_err).decode() if last_err != 0 else ""
-                        # pkg85-B: this is now a permanent regression guard,
-                        # not a diagnostic. Any latent CUDA error after a
-                        # test indicates a missing CUDA_CHECK or a real
-                        # GPU-side bug; fail loudly at the boundary so the
-                        # culprit test is the one blamed, not whichever
-                        # test happens to make the next CUDA call.
-                        pytest.fail(f"Latent CUDA error after test: sync={sync_err} ({sync_msg}), last={last_err} ({last_msg})")
-                except (OSError, AttributeError):
-                    pass  # CUDA runtime not available, skip check
-        except Exception:
-            pass  # Renderer construction failed, skip check
-    except ImportError:
-        pass  # astroray not available, skip check
+            import astroray
+            # Only check if astroray module loaded successfully
+            try:
+                renderer = astroray.Renderer()
+                if renderer.gpu_available:
+                    # Import ctypes to call CUDA runtime directly
+                    import ctypes
+                    try:
+                        # Try to load CUDA runtime DLL
+                        cuda = ctypes.CDLL("cudart64_12.dll") if sys.platform == "win32" else ctypes.CDLL("libcudart.so")
+                        # cudaDeviceSynchronize() and cudaGetLastError()
+                        sync_err = cuda.cudaDeviceSynchronize()
+                        last_err = cuda.cudaGetLastError()
+                        if sync_err != 0 or last_err != 0:
+                            # Get error string
+                            cuda.cudaGetErrorString.restype = ctypes.c_char_p
+                            sync_msg = cuda.cudaGetErrorString(sync_err).decode() if sync_err != 0 else ""
+                            last_msg = cuda.cudaGetErrorString(last_err).decode() if last_err != 0 else ""
+                            # pkg85-B: this is now a permanent regression guard,
+                            # not a diagnostic. Any latent CUDA error after a
+                            # test indicates a missing CUDA_CHECK or a real
+                            # GPU-side bug; fail loudly at the boundary so the
+                            # culprit test is the one blamed, not whichever
+                            # test happens to make the next CUDA call.
+                            pytest.fail(f"Latent CUDA error after test: sync={sync_err} ({sync_msg}), last={last_err} ({last_msg})")
+                    except (OSError, AttributeError):
+                        pass  # CUDA runtime not available, skip check
+            except Exception as e:
+                # Renderer construction failed; log for diagnostic but don't fail
+                warnings.warn(f"cuda_cleanup_and_error_check: Renderer construction failed: {type(e).__name__}: {e}", stacklevel=2)
+        except ImportError:
+            pass  # astroray not available, skip check
+    except Exception as e:
+        # Catch any other unexpected cleanup exception and warn instead of ERROR
+        warnings.warn(f"cuda_cleanup_and_error_check: cleanup exception: {type(e).__name__}: {e}", stacklevel=2)

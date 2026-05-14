@@ -87,12 +87,14 @@ back without user intervention.
 
 ### Pillar 4 — Astrophysics platform
 
-> **Thaw notice (2026-05-10) + shipping (2026-05-11):** the strategic
+> **Thaw notice (2026-05-10) + shipping (2026-05-11+):** the strategic
 > gate released, and Pillar 4 is actively shipping. pkg40 (Kerr
 > metric) + **pkg41 (Kerr validation, PR #236)** + **pkg42 (synchrotron
 > emission, PR #245 — VolumetricEmission interface, Pandya 2016 fits,
-> bipolar jet plugin, 9 tests)** all done. **pkg43 (slim disk)** is
-> the next Codex pickup; pkg44–pkg49 specs unfrozen and queued.
+> bipolar jet plugin, 9 tests)** + **pkg43 (slim disk accretion model,
+> PR #271 — Abramowicz 1988 / Sadowski 2009, 14/14 tests, T(9M,mdot=1) =
+> 7.45e6 K)** all done. **Pillar 4 now 40% complete.** **pkg44 (ADAF)**
+> is the next Codex pickup; pkg45–pkg51 specs queued.
 
 Kerr metric, synchrotron emission, HII recombination lines, simulation
 data import (FITS, HDF5, yt), telescope PSF. Each phenomenon is a
@@ -179,12 +181,13 @@ RTX, **pkg83**/**pkg84** addon-only viewport polish. pkg67 (metric-
 aware path tracer) is now unblocked alongside Pillar 4; revisit once
 pkg40 + pkg55 maturity is in place.
 
-**Pillar 4 thawed and shipping (2026-05-11).** pkg40 (Kerr metric),
-**pkg41 Kerr validation** (PR #236), and **pkg42 synchrotron
-emission** (PR #245 — VolumetricEmission interface, Pandya 2016 fits,
-bipolar jet plugin) all done. **pkg43 (slim disk)** + **pkg44 (ADAF)**
-are next in series for Round 7 Codex; pkg45–pkg49 paste-ready specs
-queued.
+**Pillar 4 thawed and shipping (2026-05-11+).** pkg40 (Kerr metric),
+**pkg41 Kerr validation** (PR #236), **pkg42 synchrotron emission**
+(PR #245 — VolumetricEmission interface, Pandya 2016 fits, bipolar jet
+plugin), and **pkg43 slim disk accretion model** (PR #271 — Abramowicz
+1988 / Sadowski 2009, 14/14 tests) all done. **Pillar 4 now 40%
+complete.** **pkg44 (ADAF)** is next in series for Round 8 Codex;
+pkg45–pkg51 paste-ready specs queued.
 
 - `pkg34-material-backend-capabilities.md` — capability metadata,
   no silent grey-Lambertian GPU fallback, CPU/GPU contact-sheet diffs.

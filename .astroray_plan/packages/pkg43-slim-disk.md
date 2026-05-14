@@ -2,7 +2,7 @@
 
 **Pillar:** 4
 **Track:** B (plugin, self-contained)
-**Status:** done (PR TBD, 2026-05-14 — T(9M, mdot=1) = 7.45e6 K matches Page-Thorne 1974 eq. 11n + Sadowski 2009 advective; 14/14 slim-disk tests pass; no pkg42 regression; units fix r_s→r_g)
+**Status:** done (PR #271, 2026-05-14 — T(9M, mdot=1) = 7.45e6 K matches Page-Thorne 1974 eq. 11n + Sadowski 2009 advective; 14/14 slim-disk tests pass; no pkg42 regression; units fix r_s→r_g)
 **Estimated effort:** 2 sessions (~5 h) — bumped from "1-2 sessions
 (~4 h)" after research; the advective-fraction fit and the
 exponential-clamp logic for super-Eddington need their own unit tests.

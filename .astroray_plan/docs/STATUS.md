@@ -114,7 +114,7 @@ personally should pick up.
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
-| 4 | Astrophysics platform | **Active, shipping** | 35% | pkg43 slim disk accretion model | gate released; pkg40 + pkg41 + pkg42 done; pkg43–51 queued |
+| 4 | Astrophysics platform | **Active, shipping** | 40% | pkg44 ADAF accretion model | gate released; pkg40 + pkg41 + pkg42 + pkg43 done; pkg44–51 queued |
 | 5 | Production polish / Blender parity | **Feature-complete on planned scope; viewport-parity gate now owned by pkg55 Phase B** | ~98% (counter) | pkg55 Phase B (per-material shade kernels — owns the viewport-parity claim) | pkg73 ✓ + pkg80 ✓ + pkg81 P1+P2 ✓ + pkg55-A.1 ✓ all done 2026-05-11; pkg55-B is the long-tail |
 
 **Pillar 1 package summary:**
@@ -242,7 +242,7 @@ forgotten):
 | pkg40 | Kerr metric plugin and Schwarzschild extraction | **done** |
 | pkg41 | Kerr geodesic validation | **done** (PR #236 — 39 tests; BPT 1972 + Chandrasekhar analytic + null circular photon residuals + Kerr a=0 vs Schwarzschild identity + shadow-contour image-plane regression) |
 | pkg42 | Synchrotron emission and relativistic jets | **done** (PR #245, 2026-05-11 — VolumetricEmission interface, `synchrotron_jet` plugin, Pandya 2016 power-law/thermal fits, bipolar jet plugin, Blender jet controls, 9 focused tests) |
-| pkg43 | Slim disk accretion model | open |
+| pkg43 | Slim disk accretion model | **done** (PR #271, 2026-05-14 — Abramowicz 1988 / Sadowski 2009, 14/14 tests, T(9M,mdot=1) = 7.45e6 K) |
 | pkg44 | ADAF accretion model | open |
 | pkg45 | CLOUDY emissivity table preprocessing | open |
 | pkg46 | HII region emission plugin | open |
@@ -402,11 +402,13 @@ events are summarized in the changelog below.
 | pkg82 | A | **done** | PR #261; gate 0.999→0.998; closes issue #237 |
 | pkg83 | A | **done** | PR #259; spp_trace accumulates across camera pans |
 | pkg84 | A | **done** | PR #260; first frame 83.3 ms (was 12,079 ms) |
-| pkg85 | A | partial | PR #268 conftest+cuda_renderer robustness; spec gate NOT met; full audit queued as pkg85-B |
+| pkg85 | A | **done** | PR #278 (pkg85-C) — 901 passed, 0 CUDA illegal-access crashes; GPU/CPU BVH primitive-array index misalignment fixed; material-lowering bugs fixed; world-only GPU render trigger fixed; pkg85-D filed for HDRI world-only SSIM parity |
 | pkg86 | A | open — ready to implement | Light Tree after pkg89 Phase A ships Light::orientationCone() + power() |
 | pkg87 | A | open — ready to implement | Cryptomatte passes; independent |
-| pkg88 | A | open — research signed off, DRAFT spec | Motion blur; design Qs deferred; see round8-dispatch-queue.md |
-| pkg89 | A | open — research signed off, DRAFT spec | Dedicated Light objects; Q1/Q6/Q7/Q11 answered in dispatch queue |
+| pkg38-light-source-spectra | A | open — ready to implement | Amendment to pkg38: 7 emission SPDs (CIE F2/F3 fluorescent, LED 3000/5000/6500K, sodium vapor, mercury vapor); unblocks pkg89 Phase A MeasuredSPD presets |
+| pkg85-D | A | open | HDRI world-only GPU/CPU SSIM parity (≈0.35 vs 0.97 gate); surfaced after pkg85-C cleared "Scene not uploaded" early-exit |
+| pkg88 | A | open — spec promoted | Motion blur (PR #273 spec promotion); Phase A camera blur ready; Phase D blocked by pkg55-B/C |
+| pkg89 | A | open — spec promoted | Dedicated Light objects (PR #273 spec promotion); Phase A blocked by pkg38-light-source-spectra implementation |
 | pkg68 | A | **done** | persistent OIDN device, CUDA-first init, member-cached filter; CUDA verifier session 2026-05-10 on RTX 5070 Ti: 13/13 pytest green (incl. `test_cuda_capable_build_reports_cuda_device`), `[OIDN] Using CUDA device` confirmed, single device init across N=4 renders verified; viewport timing 256×256 spp=2: OIDN-on 50.67 ms/frame vs OIDN-off baseline 23.81 ms/frame (Δ=26.86 ms persistent-device overhead) |
 | pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
 | pkg70 | A | **done** | OptiX denoiser plugin co-equal with OIDN; persistent OptixDeviceContext + OptixDenoiser handle, lazy init, HDR vs AOV model selection by guide presence; `gpu_optix_available()` Python probe; addon `denoiser_backend` Auto/OptiX/OIDN with OptiX preferred when both present. **Verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0**: 17/17 pytest green; 5.31× synthetic-noise reduction at 256×256; 1.86× faster than OIDN-CUDA at 1080p (728.94 ms vs 1356.09 ms); SSIM(OptiX, OIDN) = 0.9987. Empty-normal-buffer defect surfaced upstream during verification → tracked as pkg75 |
@@ -428,11 +430,9 @@ events are summarized in the changelog below.
   landed (15d98f0); do not merge until architect decides whether to debug-spiral-
   more, restart from a clean baseline, or wait for pkg55-C wavefront/megakernel
   decision.
-- **Test-harness CUDA state leak (pkg85)** — `pytest tests/ --ignore=tests/test_wavefront_parity.py`
-  crashes at test #370 (`test_visible_band_cpu_gpu_ssim`) with illegal memory
-  access at `cuda_renderer.cu:81`; same test in isolation passes cleanly. Bisect
-  candidate range: tests 360–369. Discovered during pkg67 verification. Spec filed
-  at `.astroray_plan/packages/pkg85-test-harness-cuda-state-leak.md`.
+- **Disney clearcoat flake + suspected correctness defect** — [Issue #276](https://github.com/HendrikGC02/Astroray/issues/276): `test_disney_clearcoat_adds_gloss` chronic variance flake (PASSED/FAILED on identical scenes), owner notes clearcoat "may not be working well." Suggested package number `pkg90` in the issue body. Labels: bug, material.
+- **Pyd-shadow-guard hook upgrade** — `.claude/hooks/pre-pytest` warns on shadow pyds but doesn't auto-delete. Stale `astroray.pyd` (pkg84-era legacy name) at repo root shadowed fresh `astroray.cp313-win_amd64.pyd` from `build_cuda/Release/` twice in 2026-05-14 sessions. Potential follow-up package to upgrade hook to auto-delete before pytest.
+- **Stale orphan worktree directories** — 18 in `.claude/worktrees/*` from 2026-05-14 sessions: git registry removed them but OneDrive perm-denied the directory unlink. Cosmetic; clean later with non-sandboxed shell.
 - `include/raytracer.h` and `include/advanced_features.h` still contain texture class bodies (`CheckerTexture`, `NoiseTexture`, etc.). These are used directly by `blender_module.cpp` and will be cleaned up in a future package if the plan calls for it.
 - ReSTIR/NRC work is implemented through pkg28 but remains in validation:
   the target NRC batched-inference speedup is not proven, and `restir-di` /
@@ -501,6 +501,16 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-14 (Round 8 mid-cycle sync #2)** — implementation wave in progress. **7 PRs merged since previous sync:**
+  - **PR #271** (5e081ee) — **pkg43 slim disk accretion model** (Abramowicz 1988 / Sadowski 2009). Includes `SampledWavelengths::fromLambdas` factory addition to `spectrum.h`. Units fix: r_s → r_g convention. Spec measurement-corrected: 1.62e8 K → 7.45e6 K at canonical point. 14/14 tests pass + pkg42 no regression.
+  - **PR #273** (e093a70) — **pkg88 + pkg89 DRAFT specs promoted to real specs** (architect spec-promotion pass + owner answers locked in). pkg88: box-shutter only, scene-wide steps, Cycles default 0.5 frame center, single consistent stratification policy. pkg89: extended 4-mode emission UX with blackbody+color-as-filter, RGB upsample, MeasuredSPD presets, Composite. DRAFT files deleted.
+  - **PR #274** (81a1b18) — **pkg38-light-source-spectra amendment spec filed** (7 SPDs: CIE F2/F3 fluorescent, LED 3000/5000/6500K, sodium vapor, mercury vapor; all public-domain / CC; unblocks pkg89 Phase A).
+  - **PR #275** (2f03ee6) — repo cleanup (moved 3 dev measurement scripts to `dev/measurement-scripts/`; `sitecustomize.py` correctly kept at root for Windows DLL discovery bootstrap).
+  - **PR #277** (59fb543) — **pkg85 partial follow-up** (wrap autouse GC fixture cleanup in try/except so cleanup exceptions don't surface as test teardown ERROR).
+  - **PR #278** (063bd42) — **pkg85-C closes pkg85 spec gate**. Two root causes: (1) GPU/CPU BVH primitive-array index misalignment (`scene_upload.cu` silently dropped non-{Triangle,Sphere} primitives but CPU BVH was built from full scene; localized via compute-sanitizer as 1-byte OOB read at +8 past 8-byte allocation; fixed by introducing `GPRIM_SKIP` placeholder). (2) World-only GPU render rejected with "Scene not uploaded" (gate fixed to `(!d_bvhNodes && !envMap.loaded)`). Result: **901 passed, 0 CUDA illegal-access crashes**. Material contact sheet now renders cleanly at 480×480 / 1024 spp. pkg85-D filed as new follow-up (HDRI world-only SSIM parity bug surfaced once the original blockers cleared).
+  - **Direct pushes** (ec28667, 4ae14d7, eff21fd, 28ea478) — pkg43 handoff notes restoration, round8 dispatch queue + owner answers, CLAUDE.md workflow sections, `/pkg-ship` skill + design notes codification.
+  **Status changes:** pkg85 → done (pkg85-C gate cleared); pkg43 → done (PR #271); pkg88 + pkg89 → open with promoted specs; pkg38-light-source-spectra → open (new amendment spec). **New issues/follow-ups:** pkg85-D (HDRI world-only SSIM parity, SSIM ≈0.35 vs 0.97 gate), [Issue #276](https://github.com/HendrikGC02/Astroray/issues/276) (`test_disney_clearcoat_adds_gloss` chronic flake + suspected clearcoat correctness defect, suggested pkg90). **Hardware verification headline (RTX 5070 Ti, commit 063bd42):** 910/911 pytest passed (1 known ReSTIR spatial MSE flake), build 4m20s / 52 MB, caustics + material contact sheet rendered cleanly at 8192 spp + 1024 spp respectively.
 
 - **2026-05-14 (Round 8 mid-cycle docs sync)** — doc/spec/research wave landed; implementation wave starts next session. **8 PRs merged:**
   - **PR #263** (c476308) — Round 8 strategy pass (architect assessment of pkg55-B fork decision, Cycles-parity gap decomposition, top 3 non-pkg55 follow-ups ranked: Light Tree + Cryptomatte highest leverage).

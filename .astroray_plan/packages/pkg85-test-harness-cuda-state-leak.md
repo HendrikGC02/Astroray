@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A (RTX verifier)
-**Status:** done (pkg85-C PR pending, 2026-05-14 — 901 passed, 0 CUDA illegal-access crashes on the full sweep; remaining HDRI world-only SSIM parity defect filed as pkg85-D)
+**Status:** done (PR #278, 2026-05-14 — 901 passed, 0 CUDA illegal-access crashes on the full sweep; remaining HDRI world-only SSIM parity defect filed as pkg85-D)
 **Estimated effort:** ½ day (~4 h on RTX)
 **Depends on:** pkg67 (the verifier that surfaced this defect)
 

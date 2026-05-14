@@ -1,20 +1,18 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-14 (Round 8 mid-cycle — doc/spec/research wave landed; implementation wave starts next session)
+**Date:** 2026-05-14 (Round 8 mid-cycle sync #2 — implementation wave in progress)
 **Prepared by:** Claude (Anthropic Code, Sonnet 4.5 in Max 5x)
-**Scope:** Round 8 implementation wave. The **Round 8 doc/spec/research wave** has **landed on main** (8 PRs merged 2026-05-14):
-- Round 8 strategy pass (architect assessment; pkg55-B fork decision → CPU-first restart)
-- pkg55 Phase B' amendment (CPU-first restart spec now authoritative; 8 design decisions)
-- pkg86 Light Tree spec (open, ready after pkg89 Phase A)
-- pkg87 Cryptomatte spec (open, independent)
-- pkg88 motion blur research + DRAFT spec
-- pkg89 dedicated lights research + DRAFT spec (Q1/Q6/Q7/Q11 answered)
-- pkg85 partial fix (PR #268 — conftest + cuda_renderer robustness; spec gate NOT met)
-- round8-dispatch-queue.md (owner's session-close answers)
+**Scope:** Round 8 implementation wave. The **Round 8 doc/spec/research wave** landed on main (8 PRs, 2026-05-14 sync #1); the **implementation wave has started** (7 PRs merged since sync #1, 2026-05-14 sync #2):
+- **pkg43 slim disk** (PR #271) — Abramowicz 1988 / Sadowski 2009, 14/14 tests pass
+- **pkg88 + pkg89 spec promotion** (PR #273) — DRAFT specs promoted to real specs with owner answers
+- **pkg38-light-source-spectra** (PR #274) — 7 SPDs filed, unblocks pkg89 Phase A
+- **pkg85-C gate cleared** (PR #278) — 901 passed, 0 CUDA crashes; GPU/CPU BVH misalignment + material-lowering bugs fixed
+- **Repo cleanup** (PR #275, #277) — moved measurement scripts, autouse GC fixture wrapped
+- **Direct pushes** (ec28667, 4ae14d7, eff21fd, 28ea478) — handoff notes, dispatch queue, CLAUDE.md sections, `/pkg-ship` skill
 
-**Implementation wave starts next session.** The dispatch queue
+**Round 8 continues.** The dispatch queue
 (`.astroray_plan/docs/round8-dispatch-queue.md`) is the authoritative
-pickup order; this report summarizes the state that queue assumes.
+pickup order; this report summarizes the updated state.
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C; Pillar 4
 > has been actively shipping since. Strategy in
@@ -24,55 +22,31 @@ pickup order; this report summarizes the state that queue assumes.
 
 ## 1. Current state (one screen)
 
-**Done since the previous report (Round 8 doc/spec wave — 8 PRs merged 2026-05-14):**
+**Done since the previous report (Round 8 implementation wave — 7 PRs merged 2026-05-14 sync #2):**
 
-- **Round 8 strategy pass** (PR #263, 2026-05-14) — architect assessment
-  of pkg55-B fork decision; Cycles-parity gap decomposed into performance
-  (pkg55-B only gap remaining after pkg82/83/84), UI (Cryptomatte +
-  light-group AOVs highest compositor-side gap), and features (Light Tree
-  highest engine-side performance lever). Recommendation: **restart pkg55-B
-  from pkg55-A.1 baseline with CPU reference implementation first** (not
-  continue debugging, not wait for non-existent Phase C, not abandon
-  viewport-parity gate). Filed at
-  `.astroray_plan/docs/round8-strategy-pass.md`.
-- **pkg55 Phase B' amendment** (PR #266, 2026-05-14) — **CPU-first
-  restart spec now authoritative on main**. 8 design decisions: (1) CPU
-  wavefront first, (2) per-stage diff harness, (3) bit-identical gate vs
-  path_tracer, (4) staged CUDA port one kernel at a time, (5) no
-  premature optimization, (6) Phase B.1 acceptance is CUDA parity not
-  speedup, (7) spectral state first-class, (8) clean plugin
-  registrations. Session 1 summary at
-  `.astroray_plan/docs/pkg55-B-restart-session1-summary.md`.
-  **origin/pkg55-phase-b HELD as reference; do not merge.**
-- **pkg86 Light Tree spec filed** (PR #265, 2026-05-14) — Conty 2018
-  many-lights importance sampling + Cycles Apache-2.0 reference. Status
-  open, ready to implement **after pkg89 Phase A** ships
-  `Light::orientationCone()` + `Light::power()` accessors per pkg89
-  research note.
-- **pkg87 Cryptomatte spec filed** (PR #264, 2026-05-14) — Psyop BSD-3 +
-  Cycles Apache-2.0. Status open, ready to implement; independent.
-  Highest compositor-side Cycles-parity gap per strategy pass.
-- **pkg88 motion blur research + DRAFT spec** (PR #267, 2026-05-14) —
-  research signed off; DRAFT spec; design questions deferred per owner
-  ("get to that later"). 4 phases: A camera, B object, C deformation, D
-  wavefront hook.
-- **pkg89 dedicated lights research + DRAFT spec** (PR #269, 2026-05-14)
-  — research signed off; DRAFT spec; Q1/Q6/Q7/Q11 answered in
-  round8-dispatch-queue.md (Q1 `std::variant` tagged union, Q6 extend
-  `LightSample.emission_spec`, Q7 staged signature break, Q11
-  implementer's judgment on normalize flag). Ready to promote to real
-  spec + start Phase A.
-- **pkg85 partial fix** (PR #268, 2026-05-14) — conftest autouse fixture
-  + cuda_renderer error clearing. **Spec gate NOT met** (full pytest
-  sweep crash still reproduces). Robustness improvement only. Full
-  CUDA-call audit queued as pkg85-B follow-up per
-  round8-dispatch-queue.md.
-- **round8-dispatch-queue.md** (direct push 4ae14d7, 2026-05-14) —
-  captures owner's session-close answers: pkg43 worktree version
-  canonical, pkg55-B restart next session, pkg64-gpu owner's call on
-  timing, pkg86 after pkg89 Phase A, pkg87 independent, pkg88 design Qs
-  deferred, pkg89 Q answers, pkg85-B filing + clearcoat investigation
-  follow-ups.
+- **pkg43 slim disk accretion model** (PR #271, 2026-05-14) — Abramowicz 1988 / Sadowski 2009 advective slim-disk model implemented. Includes `SampledWavelengths::fromLambdas` factory addition to `spectrum.h`. Units fix: r_s → r_g convention. Spec measurement-corrected: 1.62e8 K → 7.45e6 K at canonical point (9M, mdot=1). 14/14 slim-disk tests pass, no pkg42 regression. **Pillar 4 now 40% complete** (pkg40 + pkg41 + pkg42 + pkg43 done).
+- **pkg88 + pkg89 spec promotion** (PR #273, 2026-05-14) — DRAFT specs promoted to real specs after architect spec-promotion pass + owner answers locked in. **pkg88**: box-shutter only, scene-wide steps, Cycles default 0.5 frame center, single consistent stratification policy. **pkg89**: extended 4-mode emission UX with blackbody+color-as-filter, RGB upsample, MeasuredSPD presets, Composite. DRAFT files deleted. Both specs now **open** and ready to dispatch.
+- **pkg38-light-source-spectra amendment spec** (PR #274, 2026-05-14) — 7 SPDs: CIE F2/F3 fluorescent (CIE 15:2018), LED 3000/5000/6500K (CIE 224:2017 LED-B3/B4/B5 + LSPDD fallback), sodium vapor + mercury vapor (NIST ASD). All public-domain / CC. Unblocks pkg89 Phase A `EmissionSpectrum::MeasuredSPD` preset buttons. Status **open**, ready to implement, ~½ day.
+- **pkg85-C closes pkg85 spec gate** (PR #278, 2026-05-14) — **901 passed, 0 CUDA illegal-access crashes** on the full sweep. Two root causes fixed: (1) GPU/CPU BVH primitive-array index misalignment — `scene_upload.cu` silently dropped non-{Triangle,Sphere} primitives but CPU BVH was built from full scene; localized via compute-sanitizer as 1-byte OOB read at +8 past 8-byte allocation; fixed by introducing `GPRIM_SKIP` placeholder. (2) World-only GPU render rejected with "Scene not uploaded" — gate fixed to `(!d_bvhNodes && !envMap.loaded)`. Material contact sheet now renders cleanly at 480×480 / 1024 spp. **pkg85-D filed** as new follow-up (HDRI world-only SSIM parity bug surfaced once the original blockers cleared).
+- **Repo cleanup + robustness** (PR #275 + #277, 2026-05-14) — moved 3 dev measurement scripts to `dev/measurement-scripts/` (`sitecustomize.py` correctly kept at root for Windows DLL discovery bootstrap); wrapped autouse GC fixture cleanup in try/except so cleanup exceptions don't surface as test teardown ERROR.
+- **Direct pushes** (ec28667, 4ae14d7, eff21fd, 28ea478, 2026-05-14) — pkg43 handoff notes restoration after stash drop, round8 dispatch queue + owner answers, CLAUDE.md Shell Conventions + Build & Verification + PR & Git Workflow sections, `/pkg-ship` skill + design notes codification.
+
+**Hardware verification headline (RTX 5070 Ti, commit 063bd42 + later):**
+- 910/911 pytest passed (1 known ReSTIR spatial MSE flake; pkg85 gate cleared)
+- Build 4m20s, 52 MB, all features enabled (CUDA + OptiX + OIDN + tcnn + WAVEFRONT_INTERSECT)
+- Caustics rendered at 8192 spp (prism + glass + line emitter, clean — note pkg64 is CPU-only currently)
+- Material contact sheet rendered at 854×480 / 1024 spp with --gpu (24 materials distinct, clean)
+- AOV passes + convergence grid produced cleanly
+
+**Previous report (Round 8 doc/spec wave — 8 PRs merged 2026-05-14 sync #1):**
+- Round 8 strategy pass (PR #263) — architect assessment; pkg55-B fork decision → CPU-first restart
+- pkg55 Phase B' amendment (PR #266) — CPU-first restart spec now authoritative; 8 design decisions
+- pkg86 Light Tree spec (PR #265) — open, ready after pkg89 Phase A
+- pkg87 Cryptomatte spec (PR #264) — open, independent
+- pkg88 motion blur research + DRAFT spec (PR #267) — now promoted to real spec (see above)
+- pkg89 dedicated lights research + DRAFT spec (PR #269) — now promoted to real spec (see above)
+- pkg85 partial fix (PR #268) — conftest + cuda_renderer robustness; spec gate NOT met; full audit landed as pkg85-B (see pkg85-C above for gate closure)
+- round8-dispatch-queue.md (direct push 4ae14d7) — owner's session-close answers
 
 **HELD on branch (do not merge):**
 
@@ -89,18 +63,19 @@ pickup order; this report summarizes the state that queue assumes.
 
 | Track | Type | Effort | Notes |
 |---|---|---|---|
-| **pkg43 finish** | implementer (CUDA) | ~1 session | Worktree exists; handoff doc lists exact next steps; static-init registration debug is blocker |
-| **pkg55-B Phase B' Session 2** | implementer (CPU-only) | ~1-2 weeks | Spec now authoritative on main; brief should quote 8 design decisions verbatim; worktree `pkg55-restart` exists |
-| **pkg89 spec promotion → Phase A** | doc + implementer | ~2-3 weeks Phase A | Promote DRAFT to real spec with 4 Q answers; then Light interface + 5 type stubs, no rewiring yet |
-| **pkg85-B spec filing** | doc-only | ~1 h | File follow-up spec for full CUDA-call audit; multi-day implementation later |
+| **pkg38-light-source-spectra** | implementer | ~½ day | Spec on main (PR #274); 7 SPDs; unblocks pkg89 Phase A |
+| **pkg55-B Phase B' Session 2+** | implementer (CPU-only) | ~1-2 weeks | Spec now authoritative on main; brief should quote 8 design decisions verbatim; worktree `pkg55-restart` exists |
+| **pkg89 Phase A** | implementer | ~2-3 weeks Phase A | Spec promoted (PR #273); Light interface + 5 type stubs + emission UX; blocked on pkg38-light-source-spectra implementation |
+| **pkg85-D** | implementer (RTX) | ~½ day | HDRI world-only GPU/CPU SSIM parity (≈0.35 vs 0.97 gate); spec on main |
 
 **Session 2 (assumes Session 1 lands):**
 
 | Track | Type | Effort | Notes |
 |---|---|---|---|
-| **pkg44 ADAF** | implementer | ~2 weeks | After pkg43; same VolumetricEmission interface, handle-based API |
-| **pkg89 Phase A continued** | implementer | — | Light types + emission interface + addon wiring |
-| **pkg87 Cryptomatte** | implementer | ~2-3 weeks | Spec on main; independent; highest compositor-side Cycles-parity gap |
+| **pkg44 ADAF** | implementer | ~2 weeks | After pkg43 ✓; same VolumetricEmission interface, handle-based API |
+| **pkg89 Phase A continued** | implementer | — | After pkg38-light-source-spectra lands; Light types + emission interface + addon wiring |
+| **pkg87 Cryptomatte** | implementer | ~2-3 weeks | Spec on main (PR #264); independent; highest compositor-side Cycles-parity gap |
+| **pkg88 Phase A** | implementer | ~1-2 weeks | Camera motion blur; spec promoted (PR #273); ready to implement |
 | **pkg64-gpu Phase 1** | implementer (CUDA) | ~2-3 weeks | Megakernel target; acknowledged pkg55-C will re-port; owner's call on timing |
 
 **Session 3+ (depends on earlier):**
@@ -109,7 +84,7 @@ pickup order; this report summarizes the state that queue assumes.
 |---|---|---|
 | **pkg86 Light Tree** | ~3 weeks | After pkg89 Phase A ships `Light::orientationCone()` + `Light::power()` |
 | **pkg55-B Phase B' Session 3+** | ~weeks | Continued CPU wavefront + diff harness expansion |
-| **pkg85-B full audit** | multi-day | When prioritized |
+| **Issue #276 / pkg90** | TBD | `test_disney_clearcoat_adds_gloss` chronic flake + suspected clearcoat correctness defect; when prioritized |
 
 **Carried / deferred:**
 
@@ -130,15 +105,16 @@ pickup order; this report summarizes the state that queue assumes.
 This report summarizes; the dispatch queue is the pickup order.
 
 **Session 1 (next session):**
-- pkg43 finish (worktree exists; static-init debug)
-- pkg55-B Phase B' Session 2 (CPU wavefront; 8 design decisions)
-- pkg89 spec promotion → Phase A (Light interface + 5 type stubs)
-- pkg85-B spec filing (doc-only; full CUDA-call audit follow-up)
+- pkg38-light-source-spectra (7 SPDs; unblocks pkg89 Phase A)
+- pkg55-B Phase B' Session 2+ (CPU wavefront; 8 design decisions)
+- pkg89 Phase A (Light interface + 5 type stubs; after pkg38-light-source-spectra)
+- pkg85-D (HDRI world-only SSIM parity; RTX verifier)
 
 **Session 2 (assumes Session 1 lands):**
-- pkg44 ADAF (after pkg43)
-- pkg89 Phase A continued
-- pkg87 Cryptomatte
+- pkg44 ADAF (after pkg43 ✓)
+- pkg89 Phase A continued (after pkg38-light-source-spectra lands)
+- pkg87 Cryptomatte (independent)
+- pkg88 Phase A (camera motion blur)
 - pkg64-gpu Phase 1 (megakernel target; owner's call on timing)
 
 **Session 3+ (depends on earlier):**

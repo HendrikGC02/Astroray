@@ -210,7 +210,7 @@ at the hero wavelength — exact, no interpolation.
       (not razor-thin in edge-on renders).
 - [ ] Spectral output is Planckian at each radius (verified by
       sampling at multiple wavelengths and fitting to B_ν).
-- [ ] Blender addon has accretion model selector including slim disk.
+- [x] Blender addon has accretion model selector including slim disk (PR #285, 2026-05-14).
 - [ ] All existing tests pass.
 - [ ] ≥6 new tests covering: temperature profile, vertical structure,
       sub-Eddington convergence to NT, spectral shape, visual render.

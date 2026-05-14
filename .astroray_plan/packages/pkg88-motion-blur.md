@@ -281,7 +281,7 @@ camera response. **Architect recommendation:** defer to Phase A.2
 defer non-box curves to a follow-up `pkg88-shutter-curve`, or include
 a box+cubic+Gaussian preset list in Phase A?
 
-**Owner answer:** _________________
+**Owner answer:** **Box only in v1** (architect rec accepted, 2026-05-14). Non-box curves → `pkg88-shutter-curve` follow-up.
 
 ### Q-Owner-2 (was research §6.Q9): Per-object motion-step count
 
@@ -294,7 +294,7 @@ recommendation:** scene-wide only in v1; per-object as
 **Question for owner:** scene-wide `motion_blur_steps` only in v1,
 or per-object override exposed in Phase B from day one?
 
-**Owner answer:** _________________
+**Owner answer:** **Scene-wide only in v1** (architect rec accepted, 2026-05-14). Per-object override → `pkg88-per-object-steps` follow-up if needed.
 
 ### Q-Owner-3 (new, not in original research): Shutter time default
 
@@ -309,7 +309,7 @@ frames, expose `shutter` and `shutterPosition` (`START` / `CENTER` /
 **Question for owner:** confirm the Cycles-default (0.5 frame, center
 on frame), or pick a different default?
 
-**Owner answer:** _________________
+**Owner answer:** **Cycles-default (0.5 frame, centered)** (2026-05-14).
 
 ### Q-Owner-4 (new, surfaced during architect pass): Stratification policy
 
@@ -333,7 +333,7 @@ stratification policies (megakernel: joint; wavefront: independent)
 as long as both pass the SSIM gate, or insist on one consistent
 policy across both code paths?
 
-**Owner answer:** _________________
+**Owner answer:** **One consistent policy across both code paths** (2026-05-14). Owner reasoning: consistency saves maintenance headaches when wavefront eventually subsumes megakernel via pkg55-C. Implementer should pick the policy that's tractable for both contexts (likely independent Halton at the cost of slightly higher variance at low spp; document the trade in pkg88 Lessons). Architect rec of "joint for megakernel, independent for wavefront" is OVERRIDDEN per owner direction.
 
 ---
 

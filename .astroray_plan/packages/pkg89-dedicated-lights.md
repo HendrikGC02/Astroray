@@ -306,7 +306,72 @@ behavior when the user toggles "Blackbody" in the shader graph.
 **Question for owner:** option 1 (blackbody-when-temperature-set), or
 option 2 (RGB-always)?
 
-**Owner answer:** _________________
+**Owner answer:** **Option 1 + extended UX model** (2026-05-14). Owner direction:
+
+> By default when a light is added to the scene it should be a blackbody
+> spectral emitter. Changing the color introduces "color filters" that
+> modify the blackbody SED, and there is a box to change the color
+> temperature too, with a button available to switch to RGB upsampling.
+> Preset buttons for fluorescent lamp lights and LED SEDs would also be
+> good.
+
+Spec resolution — **`EmissionSpectrum` becomes a tagged union with 4 modes,
+selectable from the addon Light panel:**
+
+1. **`Blackbody { temperature_K: float, tint_rgb: Vec3 }`** — DEFAULT for newly-added
+   Blender lights. `temperature_K` defaults to 6500 K (D65). The `tint_rgb` is the
+   "color filter" applied on top: at evaluation time, `spectrum(λ) = blackbody(λ, T) ·
+   rgb_to_spectrum(tint_rgb, λ)`. When `tint_rgb == (1, 1, 1)` (default), the filter
+   is a no-op and the user sees pure blackbody emission. Setting `tint_rgb` via the
+   Blender `light.color` picker physically corresponds to applying a colored gel to
+   a thermal source. Implementer note: precompute and cache the multiplied SED at
+   property-change time so the per-ray eval is a single LUT lookup.
+
+2. **`RGB { color: Vec3 }`** — pure Jakob–Hanika upsample of an RGB color, no
+   blackbody base. Selected by a "RGB upsample mode" button in the Light panel
+   (toggles off the temperature input and tint-as-filter semantics).
+
+3. **`MeasuredSPD { profile_name: string }`** — loads from pkg38 spectral profile
+   database. Preset buttons in the Light panel:
+   - **Fluorescent (cool white)** — CIE F2 spectrum, present in pkg38 already or
+     add via pkg38 follow-up if missing
+   - **Fluorescent (warm white)** — CIE F3 / TL84 spectrum
+   - **LED 3000K** — typical warm white LED phosphor SPD
+   - **LED 5000K** — typical neutral white LED phosphor SPD
+   - **LED 6500K** — typical cool daylight LED SPD
+   - **Sodium vapor** — narrow-line emission (gas lamp; useful for street-lamp scenes)
+   - **Mercury vapor** — multi-line emission
+   - **(Custom — load .spd file)** — file picker
+
+4. **`Composite { base: EmissionSpectrum, filter_rgb: Vec3 }`** — explicit composite
+   for advanced users who want e.g. a measured fluorescent SPD with a colored gel.
+   Not exposed in the basic UI; available via Python API + the existing shader-graph
+   node system if pkg57 (custom shader nodes) is wired up. Q-Owner-1 default is
+   Blackbody, which IS a special case of Composite (Blackbody base + tint filter); the
+   Blackbody mode is just the convenient one-button UI for the most common case.
+
+Implementer responsibilities:
+- The Light panel UI: temperature input (numeric, with "K" suffix), tint color picker
+  (RGB), the "RGB upsample mode" toggle button, and the preset buttons listed above.
+  When the user toggles "RGB upsample mode," the temperature + tint controls grey
+  out; when they pick a preset, the spectrum-source switches to MeasuredSPD and the
+  temperature/tint also grey out (with a "Back to Blackbody" button to restore).
+- `EmissionSpectrum::evalSpectral(lambdas)` dispatches on the tag.
+- The "filter" semantic is multiplicative on the BLACKBODY: `spectrum_emit(λ) =
+  blackbody(λ, T_K) · filter_at(λ)`. The `filter_at(λ)` term is the Jakob-Hanika
+  upsample of `tint_rgb`. Normalization: the filter should integrate to 1 across the
+  visible band when `tint_rgb == (1,1,1)` (i.e., the (1,1,1) filter is perfectly
+  white, no energy gained/lost) — pre-normalize the JH upsample at property-set time.
+- The pkg38 spectral profile database must gain (if missing) entries for: F2, F3,
+  LED-3000K, LED-5000K, LED-6500K, sodium vapor, mercury vapor. File a small pkg38
+  amendment if any are missing; don't block pkg89 on it if pkg38 already has them.
+
+This is a Cycles+ design: Cycles has only `Blackbody` and RGB color, no concept of
+"color as filter on the blackbody" and no spectral preset library. The composite
+model is also more physically grounded (gels filter sources; they don't replace
+them).
+
+**Closes Q-Owner-1.** Implementer can proceed.
 
 (Other potential owner-preference forks — units exposed to Blender
 users for `light.energy`, exact normalize formula sign convention —

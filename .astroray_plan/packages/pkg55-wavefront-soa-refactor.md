@@ -258,19 +258,22 @@ Notes: (a) the off↔on delta is within run-to-run noise; the small gap on `corn
 
 #### Phase B' staged plan
 
-1. **Session 1 — scope amendment (this session).** Capture 8 resolved design decisions into the spec. No code. Deliverable: this subsection + `.astroray_plan/docs/pkg55-B-restart-session1-summary.md`.
-2. **Session 2 — Lambertian-Cornell foundation.**
-   - Design doc at `.astroray_plan/docs/pkg55-B-cpu-reference-design.md` recording all 8 design decisions in code-level detail.
-   - Two reference path tracers:
-     - `src/cpu/wavefront/reference_pt_production.cpp` — tile-shared RNG; mirrors production CPU `Renderer::pathTraceSpectral` bit-for-bit.
-     - `src/cpu/wavefront/reference_pt_wavefront.cpp` — per-path RNG keyed `hash(pixel_index, sample_index, 0)`, matching the Phase A.1 GPU convention.
-     - Both scoped to lambertian-Cornell only.
-   - Trip-wire test `tests/test_pkg55_reference_pt_production_parity.py` — bit-exact equality of `reference_pt_production` vs production `pathTraceSpectral` at fixed seed, 1 spp.
-   - Equivalence test `tests/test_pkg55_reference_pt_oracles_equivalent.py` — SSIM ≥ 0.99 at 64 spp between the two oracles (validates RNG-scheme interchangeability).
-   - Test scene `tests/scenes/lambertian_cornell.py` if it doesn't exist.
-   - CPU wavefront skeleton at `src/cpu/wavefront/`: state header, `stage_init`, `stage_intersect`, `stage_shade_lambertian`, callable driver (not yet a registered plugin).
-   - Per-stage diff harness at `tests/wavefront_diff/` — runs `reference_pt_wavefront` and the CPU wavefront in lockstep, reports the first per-stage mismatch by slot and field.
-   - **Close gate:** bit-identity of CPU wavefront vs `reference_pt_wavefront` on Lambertian-only Cornell at 1 spp.
+1. **Session 1 — scope amendment.** Capture 8 resolved design decisions into the spec. No code. Deliverable: this subsection + `.astroray_plan/docs/pkg55-B-restart-session1-summary.md`. **Done.**
+2. **Session 2 — Lambertian-Cornell foundation.** Split into 2a / 2b / 2c per the implementer's "before I sink hours" framing (Session 2a, 2026-05-14). The Session-2 close gate (bit-identity of CPU wavefront vs `reference_pt_wavefront` on Lambertian-only Cornell at 1 spp) is reframed as the **Session 2c close gate**.
+   - **Session 2a (this session, complete pending PR merge):** Design doc + Lambertian Cornell scene + WavefrontSnapshot header + CMake scaffolding.
+     - Design doc at `.astroray_plan/docs/pkg55-B-cpu-reference-design.md` recording all 8 design decisions in code-level detail (landed commit `4e2e223`).
+     - Test scene `tests/scenes/lambertian_cornell.py` — Lambertian-only Cornell (6 walls + 1 sphere + 1 area light); verified to render via `Renderer.set_integrator("path_tracer")`.
+     - `src/cpu/wavefront/wavefront_snapshot.h` — the shared snapshot schema (5 stages, append-only fields) per design doc §7. Sessions 2b/2c fill the emit calls.
+     - CMake glob registered for `src/cpu/wavefront/*.cpp` against `astroray_core_impl` so 2b's new sources are auto-picked-up.
+     - Handoff doc: `.astroray_plan/docs/pkg55-B-session2a-handoff.md`.
+     - **No close gate** beyond "builds + scene renders." Bit-identity is 2c's gate.
+   - **Session 2b — Two reference PTs (open).** `src/cpu/wavefront/reference_pt_production.{h,cpp}` (tile-shared RNG; mirrors production CPU `Renderer::pathTraceSpectral` bit-for-bit) + `src/cpu/wavefront/reference_pt_wavefront.{h,cpp}` (per-path RNG keyed `hash(pixel_index, sample_index, 0)`, matching the Phase A.1 GPU convention). Both scoped to Lambertian-Cornell only. Both emit `WavefrontSnapshot` to an attached sink. Plus:
+     - Trip-wire test `tests/test_pkg55_reference_pt_production_parity.py` — bit-exact equality of `reference_pt_production` vs production `pathTraceSpectral` at fixed seed, 1 spp.
+     - Equivalence test `tests/test_pkg55_reference_pt_oracles_equivalent.py` — SSIM ≥ 0.99 at 64 spp between the two oracles (validates RNG-scheme interchangeability).
+     - pybind11 entry points `reference_pt_production_render`, `reference_pt_wavefront_render`.
+     - **Close gate:** trip-wire + equivalence tests pass.
+   - **Session 2c — CPU wavefront skeleton (open).** State header + `stage_init` + `stage_intersect` + `stage_shade_lambertian` + callable driver (not a registered plugin) + per-stage diff harness at `tests/wavefront_diff/`. Lambertian-Cornell scope only.
+     - **Close gate:** bit-identity of CPU wavefront vs `reference_pt_wavefront` on Lambertian-only Cornell at 1 spp (snapshot-stream equality, slot-by-slot, field-by-field).
 3. **Sessions 3..N — Growing-oracle expansion.** As each new shade kernel (metal, dielectric, disney, thin_glass, diffuse_light, closure_graph) is added to the CPU wavefront, both reference PTs grow alongside to cover the same feature surface. Trip-wire test scene grows; equivalence test scene grows. The reference PTs are "growing oracles" — they always match the current CPU wavefront feature surface; never lead, never lag.
 4. **Session N+1 — Shadow/miss/terminate stages on CPU.** Once all seven material types pass per-stage diff, add the remaining stages.
 5. **Sessions N+2..M — CUDA port stage-by-stage.** For each CPU stage, write the CUDA mirror; run a CPU↔GPU per-stage diff harness (mirrors the CPU↔CPU one). Bit-identity gates each port.
@@ -351,7 +354,7 @@ Notes: (a) the off↔on delta is within run-to-run noise; the small gap on `corn
 | A.0 | Megakernel baseline JSON + occupancy cliff documented | done (PR #238) |
 | A.1 | Intersect parity test bit-exact; megakernel output unchanged; SoA reg pressure < 158 cliff | **done — 0/576 mismatches; 40–56 regs/thread vs 158** |
 | B | Wavefront SSIM ≥ 0.985 (visible) / ≥ 0.97 (NIR); ≥ 1.5× speedup on 7-material scene | held — superseded by B' execution plan (2026-05-14) |
-| B' | CPU reference-oracle bit-identity, per-stage diff harness, CPU-first then CUDA port; closes B's gates | open (Session 1 — spec amendment — done; Session 2 next) |
+| B' | CPU reference-oracle bit-identity, per-stage diff harness, CPU-first then CUDA port; closes B's gates | open (Session 1 done; Session 2a foundation in-progress pending PR; 2b/2c open) |
 | C | All pkg54 SSIM gates pass with megakernel deleted; ≥ 2× speedup on 7-material scene | open |
 
 ---

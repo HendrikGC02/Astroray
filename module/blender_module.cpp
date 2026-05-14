@@ -582,6 +582,30 @@ public:
         }
     }
 
+    // pkg88-A: programmatically set camera motion blur keyframes (T/R/S decomposed).
+    // Called by test scenes or the Blender addon after decomposing camera matrices.
+    void setCameraMotionBlur(const std::vector<float>& startT, const std::vector<float>& startR,
+                             const std::vector<float>& startS, const std::vector<float>& endT,
+                             const std::vector<float>& endR, const std::vector<float>& endS,
+                             float shutter, int shutterPosition) {
+        if (!camera) throw std::runtime_error("Camera not set up");
+        if (startT.size() != 3 || endT.size() != 3)
+            throw std::runtime_error("Translation vectors must be length 3");
+        if (startR.size() != 4 || endR.size() != 4)
+            throw std::runtime_error("Rotation quaternions must be length 4 (w,x,y,z)");
+        if (startS.size() != 3 || endS.size() != 3)
+            throw std::runtime_error("Scale vectors must be length 3");
+
+        camera->shutterStartT = Vec3(startT[0], startT[1], startT[2]);
+        camera->shutterEndT   = Vec3(endT[0], endT[1], endT[2]);
+        camera->shutterStartR = Quaternion(startR[0], startR[1], startR[2], startR[3]);
+        camera->shutterEndR   = Quaternion(endR[0], endR[1], endR[2], endR[3]);
+        camera->shutterStartS = Vec3(startS[0], startS[1], startS[2]);
+        camera->shutterEndS   = Vec3(endS[0], endS[1], endS[2]);
+        camera->shutter = shutter;
+        camera->shutterPosition = static_cast<Camera::ShutterPosition>(shutterPosition);
+    }
+
     void setAdaptiveSampling(bool enable) { useAdaptiveSampling = enable; }
 
     void setUseGPU(bool enable) {
@@ -1514,6 +1538,13 @@ PYBIND11_MODULE(astroray, m) {
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,
              "aspect_ratio"_a, "aperture"_a, "focus_dist"_a, "width"_a, "height"_a,
              "shift_x"_a = 0.0f, "shift_y"_a = 0.0f)
+        .def("set_camera_motion_blur", &PyRenderer::setCameraMotionBlur,
+             "start_t"_a, "start_r"_a, "start_s"_a, "end_t"_a, "end_r"_a, "end_s"_a,
+             "shutter"_a, "shutter_position"_a,
+             "pkg88-A: set camera motion blur keyframes (T/R/S decomposed). "
+             "start_t/end_t: translation [x,y,z]. start_r/end_r: rotation quaternion [w,x,y,z]. "
+             "start_s/end_s: scale [x,y,z]. shutter: duration in frames. "
+             "shutter_position: 0=Start, 1=Center, 2=End.")
         .def("set_adaptive_sampling", &PyRenderer::setAdaptiveSampling, "enable"_a)
         .def("set_clamp_direct", &PyRenderer::setClampDirect, "value"_a)
         .def("set_clamp_indirect", &PyRenderer::setClampIndirect, "value"_a)

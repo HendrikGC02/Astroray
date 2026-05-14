@@ -395,4 +395,13 @@ struct GCameraParams {
     GVec3 u, v;       // camera basis for DOF disk sampling
     float lensRadius;
     int   width, height;
+
+    // pkg88-A: motion blur shutter keyframes (T/R/S decomposed)
+    GVec3 shutterStartT, shutterEndT;   // Translation
+    float shutterStartR[4], shutterEndR[4];  // Rotation (quaternion w,x,y,z)
+    GVec3 shutterStartS, shutterEndS;   // Scale
+    float shutter;                       // Shutter duration in frames
+    int   shutterPosition;               // 0=Start, 1=Center, 2=End
+    float vw, vh, focusDist;             // Projection scalars for interpolated camera
+    float shiftX, shiftY;                // Camera shift for interpolated camera
 };

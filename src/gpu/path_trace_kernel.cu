@@ -23,6 +23,61 @@
 } while(0)
 
 // ---------------------------------------------------------------------------
+// pkg88-A: device-side quaternion slerp and camera interpolation
+// Mirrored from PBRT-v4 Quaternion::Slerp and AnimatedTransform::Interpolate (Apache-2.0).
+// ---------------------------------------------------------------------------
+struct GQuaternion {
+    float w, x, y, z;
+    __device__ GQuaternion(float w, float x, float y, float z) : w(w), x(x), y(y), z(z) {}
+    __device__ float dot(const GQuaternion& q) const { return w*q.w + x*q.x + y*q.y + z*q.z; }
+    __device__ float length() const { return sqrtf(w*w + x*x + y*y + z*z); }
+    __device__ GQuaternion normalized() const {
+        float len = length();
+        return (len > 0) ? GQuaternion(w/len, x/len, y/len, z/len) : GQuaternion(1,0,0,0);
+    }
+    __device__ GQuaternion operator+(const GQuaternion& q) const {
+        return GQuaternion(w+q.w, x+q.x, y+q.y, z+q.z);
+    }
+    __device__ GQuaternion operator-(const GQuaternion& q) const {
+        return GQuaternion(w-q.w, x-q.x, y-q.y, z-q.z);
+    }
+    __device__ GQuaternion operator*(float s) const {
+        return GQuaternion(w*s, x*s, y*s, z*s);
+    }
+    __device__ void toMatrix(GVec3& outU, GVec3& outV, GVec3& outW) const {
+        float xx = x*x, yy = y*y, zz = z*z;
+        float xy = x*y, xz = x*z, yz = y*z;
+        float wx = w*x, wy = w*y, wz = w*z;
+        outU = GVec3(1 - 2*(yy + zz), 2*(xy + wz), 2*(xz - wy));
+        outV = GVec3(2*(xy - wz), 1 - 2*(xx + zz), 2*(yz + wx));
+        outW = GVec3(2*(xz + wy), 2*(yz - wx), 1 - 2*(xx + yy));
+    }
+};
+
+__device__ inline GQuaternion slerp(float t, const GQuaternion& q1, const GQuaternion& q2) {
+    float cosTheta = q1.dot(q2);
+    if (cosTheta > 0.9995f) {
+        return ((q1 * (1 - t)) + (q2 * t)).normalized();
+    }
+    float theta = acosf(fminf(fmaxf(cosTheta, -1.0f), 1.0f));
+    float thetap = theta * t;
+    GQuaternion qperp = (q2 - (q1 * cosTheta)).normalized();
+    return (q1 * cosf(thetap)) + (qperp * sinf(thetap));
+}
+
+__device__ inline float haltonBase2(int index) {
+    float result = 0.0f;
+    float f = 1.0f;
+    int i = index;
+    while (i > 0) {
+        f = f / 2.0f;
+        result += f * (i % 2);
+        i = i / 2;
+    }
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // MIS power heuristic (balance: a²/(a²+b²))
 // ---------------------------------------------------------------------------
 __device__ inline float powerHeuristic(float a, float b) {
@@ -379,11 +434,50 @@ __global__ void pathTraceKernel(
         float u = (px + curand_uniform(&localRng)) / (width  - 1);
         float v = 1.f - (py + curand_uniform(&localRng)) / (height - 1);
 
+        // pkg88-A: sample time from Halton base-2 (independent per spp)
+        float time = haltonBase2(s + 1);
+
+        GVec3 origin_cam, lowerLeft_cam, horizontal_cam, vertical_cam, u_cam, v_cam;
+
+        // pkg88-A: if shutter is off, use current camera basis (pre-pkg88 path)
+        if (cam.shutter <= 0.0f) {
+            origin_cam = cam.origin;
+            lowerLeft_cam = cam.lowerLeft;
+            horizontal_cam = cam.horizontal;
+            vertical_cam = cam.vertical;
+            u_cam = cam.u;
+            v_cam = cam.v;
+        } else {
+            // pkg88-A: interpolate camera transform at sampled time (T/R/S decomp + slerp)
+            GVec3 T_interp = cam.shutterStartT * (1 - time) + cam.shutterEndT * time;
+            GQuaternion startR(cam.shutterStartR[0], cam.shutterStartR[1],
+                               cam.shutterStartR[2], cam.shutterStartR[3]);
+            GQuaternion endR(cam.shutterEndR[0], cam.shutterEndR[1],
+                             cam.shutterEndR[2], cam.shutterEndR[3]);
+            GQuaternion R_interp = slerp(time, startR, endR);
+            GVec3 S_interp = cam.shutterStartS * (1 - time) + cam.shutterEndS * time;
+
+            GVec3 u_interp, v_interp, w_interp;
+            R_interp.toMatrix(u_interp, v_interp, w_interp);
+            u_interp = u_interp * S_interp.x;
+            v_interp = v_interp * S_interp.y;
+            w_interp = w_interp * S_interp.z;
+
+            origin_cam = T_interp;
+            horizontal_cam = u_interp * cam.vw;
+            vertical_cam = v_interp * cam.vh;
+            lowerLeft_cam = origin_cam - horizontal_cam * (0.5f - cam.shiftX)
+                                        - vertical_cam * (0.5f - cam.shiftY)
+                                        - w_interp * cam.focusDist;
+            u_cam = u_interp;
+            v_cam = v_interp;
+        }
+
         GVec3 rd     = gpu_randomInUnitDisk(&localRng) * cam.lensRadius;
-        GVec3 offset = cam.u * rd.x + cam.v * rd.y;
-        GVec3 dir    = cam.lowerLeft + cam.horizontal*u + cam.vertical*v
-                       - cam.origin - offset;
-        GRay ray(cam.origin + offset, dir);
+        GVec3 offset = u_cam * rd.x + v_cam * rd.y;
+        GVec3 dir    = lowerLeft_cam + horizontal_cam*u + vertical_cam*v
+                       - origin_cam - offset;
+        GRay ray(origin_cam + offset, dir);
 
         GVec3 sample = tracePathGPU(
             ray, maxDepth, bvhNodes, prims, tris, spheres,

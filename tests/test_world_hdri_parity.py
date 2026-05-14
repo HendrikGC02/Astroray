@@ -180,6 +180,13 @@ def test_gpu_cpu_ssim_hdri(hdri_path):
     test_python_bindings.py::test_gpu_renders_match_cpu — skips at runtime
     rather than collection time so a CUDA-equipped verifier host actually
     runs the gate.
+
+    Runs at 4096 spp. The test HDRI contains a single bright green firefly
+    pixel at value (0, 50, 0); CPU uses std::mt19937 and GPU uses curand, so
+    the firefly is sampled at different output pixels per backend. At 64 spp
+    the resulting spatial noise dominates SSIM regardless of parity (see
+    pkg85-D PR #283 trajectory: 64 spp → 0.45, 256 → 0.68, 1024 → 0.87, 4096
+    → ≥ 0.97). 4096 spp is the noise-margin floor for this gate.
     """
     try:
         from skimage.metrics import structural_similarity as ssim_fn
@@ -199,7 +206,7 @@ def test_gpu_cpu_ssim_hdri(hdri_path):
                                True)
         setup_camera(r, look_from=[0, 1, 5], look_at=[0, 0, 0],
                      vfov=40, width=64, height=64)
-        return np.asarray(r.render(64, 4, None, False))
+        return np.asarray(r.render(8192, 4, None, False))
 
     cpu = build(False)
     gpu = build(True)

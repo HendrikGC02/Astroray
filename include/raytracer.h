@@ -694,6 +694,14 @@ public:
         Vec3 exitDirection;                  // world-space exit direction
         bool captured;                       // absorbed by horizon
         bool hasEmission;                    // disk was hit
+        // pkg67: net frequency shift g = ν_obs / ν_emit accumulated along the
+        // null geodesic from observer to escape. The caller is expected to
+        // apply this to the exiting ray's carried wavelengths via
+        // SampledWavelengths::redshift(g). For Schwarzschild p_t is conserved
+        // and the escape g is 1.0; pkg40 Kerr will produce non-trivial values.
+        // Defaults to 1.0 (no shift) so the field is safe to read on the
+        // captured/non-emitting paths.
+        double frequencyShift = 1.0;
     };
 
     virtual ~Hittable() = default;

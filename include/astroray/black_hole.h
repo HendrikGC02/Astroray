@@ -364,6 +364,12 @@ public:
                             * exposureScale;
         result.hasEmission = !result.emission.isZero();
         result.exitDirection = sanitizedExitDirection(ir);
+        // pkg67: expose the integrator's frequency-shift factor so the caller
+        // can redshift the exiting ray's carried wavelengths. For
+        // Schwarzschild p_t is conserved → 1.0; pkg40 Kerr will compute a
+        // non-trivial value.
+        result.frequencyShift = gr_isfinite(ir.frequencyShift) && ir.frequencyShift > 0.0
+                              ? ir.frequencyShift : 1.0;
         return result;
     }
 };

@@ -145,3 +145,66 @@ public:
         return std::sqrt(M / (r * r * r));
     }
 };
+
+// ============================================================================
+// MinkowskiMetric — flat spacetime, g_{μν} = diag(-1, 1, 1, 1).
+//
+// pkg67 (Option α): added so the Metric hierarchy can represent the flat-space
+// case explicitly. The production rendering hot path does NOT call this — flat
+// scenes never go through `BlackHole::isGRObject()` dispatch, so the geodesic
+// machinery is bypassed entirely. `isFlat() == true` is the marker callers use
+// to short-circuit any GR-aware code path; the virtual overrides below exist
+// only to satisfy the abstract base.
+//
+// References (see .astroray_plan/docs/metric-aware-tracer-research.md §2):
+//   - Christoffel symbols of Minkowski in Cartesian coords vanish identically.
+//   - Null geodesics are straight lines: X^μ(λ) = X^μ_0 + λ k^μ, k^μ constant.
+// ============================================================================
+class MinkowskiMetric : public Metric {
+public:
+    MinkowskiMetric() { M = 0.0; }
+
+    bool isFlat() const override { return true; }
+
+    void christoffel(double, double, double, double,
+                     float gamma[4][4][4]) const override {
+        for (int a = 0; a < 4; ++a)
+            for (int b = 0; b < 4; ++b)
+                for (int c = 0; c < 4; ++c)
+                    gamma[a][b][c] = 0.0f;
+    }
+
+    float inner_product(double, double, double, double,
+                        const float vec_a[4],
+                        const float vec_b[4]) const override {
+        double result =
+            -double(vec_a[0]) * double(vec_b[0]) +
+             double(vec_a[1]) * double(vec_b[1]) +
+             double(vec_a[2]) * double(vec_b[2]) +
+             double(vec_a[3]) * double(vec_b[3]);
+        return static_cast<float>(result);
+    }
+
+    // Trivial geodesic RHS — Minkowski has zero Christoffel symbols, so the
+    // momenta are conserved and dx^μ/dλ = p^μ. Never invoked along the
+    // production render path (isFlat() short-circuits the dispatch).
+    GeodesicState geodesic_rhs(const GeodesicState& s) const override {
+        GeodesicState ds{};
+        ds.t     = -s.p_t;   // raise time index with η^{tt} = -1
+        ds.r     =  s.p_r;
+        ds.theta =  s.p_theta;
+        ds.phi   =  s.p_phi;
+        ds.p_t     = 0.0;
+        ds.p_r     = 0.0;
+        ds.p_theta = 0.0;
+        ds.p_phi   = 0.0;
+        return ds;
+    }
+
+    double event_horizon_radius()        const override { return 0.0; }
+    double isco_radius()                 const override { return 0.0; }
+    double photon_sphere_radius(bool = true) const override { return 0.0; }
+    double horizon_angular_velocity()    const override { return 0.0; }
+    bool   is_captured(const GeodesicState&) const override { return false; }
+    double disk_omega(double)            const override { return 0.0; }
+};

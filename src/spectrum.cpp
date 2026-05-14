@@ -112,6 +112,17 @@ bool SampledWavelengths::secondaryTerminated() const {
     return true;
 }
 
+// pkg67: apply g = ν_obs / ν_emit to the carried wavelengths.
+// λ_obs = λ_emit / g; the PDF, which has units of 1/wavelength, scales by g
+// (probability mass is conserved over the shifted band).
+void SampledWavelengths::redshift(float g) {
+    if (!(g > 0.0f)) return;  // guards NaN and non-positive g (degenerate)
+    for (int i = 0; i < kSpectrumSamples; ++i) {
+        lambdas_[i] /= g;
+        pdfs_[i]    *= g;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SampledSpectrum arithmetic
 // ---------------------------------------------------------------------------

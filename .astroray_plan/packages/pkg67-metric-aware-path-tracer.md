@@ -2,7 +2,7 @@
 
 **Pillar:** 4
 **Track:** A (research-grade — must do WebSearch + WebFetch literature pass first)
-**Status:** open — **research phase blocked until `.astroray_plan/docs/metric-aware-tracer-research.md` is filled in**
+**Status:** done (Option α — pending PR; 2026-05-14) — MinkowskiMetric + `SampledWavelengths::redshift` + `GRSpectralResult::frequencyShift` exposure. See "Realized architecture" below for why the spec's literal wording was not implemented verbatim.
 **Estimated effort:** 1 month (~120 h, multiple sessions)
 **Depends on:** pkg40 (Kerr metric, open — can run in parallel after Kerr's interface lands)
 
@@ -119,6 +119,79 @@ This is the unification work. After it, GR + spectral + GPU + materials all comp
 
 ---
 
+## Realized architecture (pkg67 Option α)
+
+The spec's literal wording — "`path_tracer` calls a `Metric` virtual to advance
+rays" with a flat-Minkowski fast-path branch at the ray-advance call site —
+describes an integrator design that this codebase does not use. By the time
+pkg67 came up, `BlackHole` was already a `Hittable` whose `isGRObject()`
+returns true; `pathTraceSpectral`'s BVH traversal dispatches into
+`BlackHole::traceGRSpectral`, which runs the DP45 geodesic integrator
+(`integrateGeodesic`) on a per-BH-hit basis. Flat-space objects never enter
+the GR path at all; the "fast path" is the existence of `isGRObject()`
+returning false, not a metric branch inside the integrator.
+
+The owner approved **Option α**: ratify the existing dispatch and fill in the
+small missing pieces, rather than refactor `pathTraceSpectral` to put the
+metric branch at the ray-advance site (which would duplicate work the
+dispatch already does and risk regressing the flat-space hot path the spec
+explicitly protects).
+
+What Option α delivers:
+
+| Piece | Where | What it does |
+|---|---|---|
+| `MinkowskiMetric` | `include/astroray/metric.h` | Concrete flat-space `Metric` with `isFlat() == true`. Never invoked on the render path; exists to give the hierarchy a flat-space representative and to back the `"minkowski"` registry entry. |
+| `"minkowski"` registry entry | `plugins/metrics/minkowski.cpp` | Symmetrises `MetricRegistry` with `"schwarzschild"` / `"kerr"`. |
+| `SampledWavelengths::redshift(g)` | `include/astroray/spectrum.h`, `src/spectrum.cpp` | Applies `λ_obs = λ_emit / g` (and `pdf *= g`). Sign convention matches `NovikovThorneDisk::redshiftFactor` and the existing `dc.g` usage. |
+| `GRSpectralResult::frequencyShift` | `include/raytracer.h`, `include/astroray/black_hole.h` | Exposes the per-segment accumulated `g` so the caller can redshift the continuation ray's wavelengths. Schwarzschild → 1.0 (p_t conserved); pkg40 Kerr will populate. |
+
+What Option α does **not** do (owner decision):
+
+- No `Metric::traceSegment` virtual.
+- No metric branch in `pathTraceSpectral`'s `bvh->hit` call — the
+  `isGRObject()` dispatch already routes GR hits to the per-BH integrator.
+- No scene-level `Renderer::metric_` member — the per-`BlackHole` metric is
+  the right granularity in this architecture.
+- No removal/refactor of `BlackHole::traceGR*` or `isGRObject`.
+
+The spec's acceptance criteria, re-stated against Option α:
+
+- **Flat-Minkowski regression (SSIM ≥ 0.999):** holds by construction —
+  Option α makes no changes to the flat-space code path.
+  `tests/test_pkg67_flat_regression.py` exercises the `"minkowski"`
+  registration smoke check, and runs the SSIM gate when a baseline PNG is
+  present.
+- **5% perf budget:** holds by construction — same reason.
+  `benchmarks/pkg67_flat_perf.py` is the harness if a future measurement
+  is needed.
+- **Schwarzschild deflection regression:**
+  `tests/test_pkg67_schwarzschild_regression.py` re-asserts SSIM ≥ 0.985
+  against the committed baseline. Schwarzschild's `frequencyShift` is 1.0,
+  so the render is unchanged.
+- **Spectral redshift produces a measurable shift:** unit-tested in
+  `tests/test_pkg67_redshift_api.py` against the documented sign
+  convention. End-to-end (BH → caller → redshift continuation ray) is
+  unlocked by this PR; the visible-light validation render is pkg40 Kerr
+  follow-up work since Schwarzschild gives `g = 1` by symmetry.
+- **Shared metric-stepping code between `gr_integrator` and `path_tracer`:**
+  not applicable under Option α — `path_tracer` does not step a metric;
+  it dispatches to `BlackHole`, which runs the single canonical DP45 driver.
+
+The architect can amend the spec language later to match the realised
+architecture if desired; this section is the authoritative record of what
+landed.
+
+---
+
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The spec was written before `BlackHole`-as-`Hittable` + `isGRObject()`
+  dispatch landed. By implementation time, the literal Metric-step-in-hot-
+  loop design was already obsolete. The Option α reroute is what made the
+  package land in a session rather than a month.
+- `dc.g = ν_obs / ν_emit` is the convention used by both
+  `NovikovThorneDisk::redshiftFactor` and the disk-emission Planck
+  evaluation. Document the sign convention on `SampledWavelengths::redshift`
+  so future callers don't invert it.
+

@@ -879,4 +879,75 @@ edge cases on Blender 5.x.
 - `.astroray_plan/docs/motion-vectors-research.md` — pkg72/pkg73; motion-blur vs temporal-denoise exclusivity constraint.
 - `.astroray_plan/packages/pkg55-wavefront-soa-refactor.md` — wavefront phasing.
 - `.astroray_plan/packages/pkg72-motion-vectors.md` — already-landed prev-camera snapshot we can reuse for Phase A's "pre" shutter pose.
-- `.astroray_plan/packages/pkg88-motion-blur-DRAFT.md` — the thin draft spec that points back here.
+- `.astroray_plan/packages/pkg88-motion-blur.md` — the promoted spec that points back here.
+
+---
+
+## §10 — Architect spec-promotion addendum (2026-05-14)
+
+This addendum is appended during the spec-promotion pass that
+promoted `pkg88-motion-blur-DRAFT.md` → `pkg88-motion-blur.md`. It
+records the deltas between this research note and the promoted spec,
+plus one external-research finding the original note missed.
+
+### 10.1 STBVH was not considered as a third BVH motion strategy
+
+The note (§2.3 / §2.4) framed BVH motion as a binary choice between
+Cycles' per-primitive split (with `prim_time` leaf early-out) and
+PBRT-v4's `AnimatedTransform` (with per-instance `MotionBounds`).
+The architect pass discovered a third option that has become
+production-grade since the original note:
+
+- **STBVH — Spatial-Temporal BVH** (Woop, Benthin, Wald, HPG 2017,
+  [paper](https://www.embree.org/papers/2017-HPG-msmblur.pdf))
+  ships in Embree as `AABBNodeMB4D`. Per-node bounds carry both an
+  AABB and a `float2` time interval; the SAH builder is replaced by
+  an MBSAH (Motion-Blur SAH) that accounts for per-node temporal
+  occupancy. At ≥ 4 motion steps it's measurably faster than
+  Cycles' approach; at ≤ 3 steps the perf delta is small.
+
+The note dismissed "per-node bounds-over-time" in §2.3 with the
+reasoning "would balloon `LinearBVHNode` or require a parallel
+motion-bounds array". That's *correct for our current 32 B node*,
+but STBVH's actual gain at high motion-step counts would justify
+the node growth. The promoted spec resolves Q3 by adopting Cycles'
+approach for v1 (lower risk, matches existing node layout) and
+filing `pkg88-stbvh` as a follow-up if measurement shows Cycles'
+approach is the bottleneck.
+
+### 10.2 Mitsuba 3 has no motion blur
+
+The note assumed (correctly) that Mitsuba 3 was a viable third
+reference. Architect-pass WebSearch confirmed (2026-05-14) that
+Mitsuba 3 dropped motion blur from 0.6 → 3.0 and has not restored
+it. The active production-grade references are therefore Cycles
+(primary mirror) + PBRT-v4 (design citation) + Embree (STBVH
+follow-up reference only). RenderMan / Arnold are commercial.
+
+### 10.3 Fork resolutions
+
+Of the 10 forks in §6:
+
+- **8 resolved by architect:** Q1, Q2, Q3, Q4, Q5, Q7, Q8, Q10.
+- **2 deferred to owner-preference:** Q6 (shutter curve), Q9
+  (per-object motion-step count).
+- **2 new owner-preference forks surfaced:** Q-Owner-3 (default
+  shutter time), Q-Owner-4 (stratification policy across megakernel
+  vs wavefront).
+
+Two architect refinements beyond the note's recommendations:
+
+- **Q1 (camera basis interpolation).** Note recommended "lerp first,
+  slerp later". Spec mandates slerp from day one — the upgrade is
+  small, the lerp variant is silently wrong, and shipping silently-
+  wrong-math even temporarily creates downstream debugging cost.
+- **Q10 (`Camera::getRay` signature break).** Note recommended a
+  `time = 0.0f` default arg. Spec mandates no default; every caller
+  passes time explicitly. Makes the contract visible in code review.
+
+### 10.4 Cross-spec coordination
+
+pkg89 (Dedicated Lights) was promoted in the same pass. The Q9
+coupling ("light gets a `time` parameter") is resolved as: whichever
+of pkg88 / pkg89 lands second absorbs the signature widening. Both
+packages can dispatch independently of each other.

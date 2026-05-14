@@ -197,6 +197,8 @@ Notes: (a) the off↔on delta is within run-to-run noise; the small gap on `corn
 
 ### Phase B — Shade queue + material dispatch + wavefront pixel output
 
+> **Status note (2026-05-14):** Phase B attempted on `origin/pkg55-phase-b` 2026-05-13 → 2026-05-14; reached PR #257 with cascading radiance bugs (`path_alive` ✓, material guards ✓, sample accumulation REGRESSED 2.5× → 21× brightness vs megakernel). Held pending **Phase B' (below)** per architect Round 8 strategy (PR #263). The Phase B section below is retained as historical record of the attempted approach + lessons; the authoritative execution plan for the wavefront rebuild lives in Phase B'.
+
 **Estimated effort:** 4 weeks
 
 **Goal:** Wire all six stages. The wavefront integrator produces its own framebuffer output and is exposed as `wavefront_path_tracer`. Compare SSIM against the megakernel and against the CPU `path_tracer`.
@@ -247,6 +249,60 @@ Notes: (a) the off↔on delta is within run-to-run noise; the small gap on `corn
 
 ---
 
+### Phase B' — Restart (CPU-first methodical rebuild)
+
+**Status:** open (authoritative; supersedes the Phase B execution plan above as of 2026-05-14).
+**Estimated effort:** rolling, scoped per session.
+
+**Goal:** Restart Phase B methodically using a **CPU wavefront reference oracle**, building the per-stage diff harness that the original Phase B lacked. Mirror Cycles' kernel order, do bit-exact stage-by-stage parity on CPU first, then port to CUDA. The architecture goal is unchanged from Phase B; the **execution methodology** is the change. Phase B's deliverables (7 shade kernels, shadow/miss/terminate, sort-by-material, `wavefront_path_tracer` plugin, SSIM gates, 1.5× perf gate, viewport-parity gate) all close out under Phase B'.
+
+#### Phase B' staged plan
+
+1. **Session 1 — scope amendment (this session).** Capture 8 resolved design decisions into the spec. No code. Deliverable: this subsection + `.astroray_plan/docs/pkg55-B-restart-session1-summary.md`.
+2. **Session 2 — Lambertian-Cornell foundation.**
+   - Design doc at `.astroray_plan/docs/pkg55-B-cpu-reference-design.md` recording all 8 design decisions in code-level detail.
+   - Two reference path tracers:
+     - `src/cpu/wavefront/reference_pt_production.cpp` — tile-shared RNG; mirrors production CPU `Renderer::pathTraceSpectral` bit-for-bit.
+     - `src/cpu/wavefront/reference_pt_wavefront.cpp` — per-path RNG keyed `hash(pixel_index, sample_index, 0)`, matching the Phase A.1 GPU convention.
+     - Both scoped to lambertian-Cornell only.
+   - Trip-wire test `tests/test_pkg55_reference_pt_production_parity.py` — bit-exact equality of `reference_pt_production` vs production `pathTraceSpectral` at fixed seed, 1 spp.
+   - Equivalence test `tests/test_pkg55_reference_pt_oracles_equivalent.py` — SSIM ≥ 0.99 at 64 spp between the two oracles (validates RNG-scheme interchangeability).
+   - Test scene `tests/scenes/lambertian_cornell.py` if it doesn't exist.
+   - CPU wavefront skeleton at `src/cpu/wavefront/`: state header, `stage_init`, `stage_intersect`, `stage_shade_lambertian`, callable driver (not yet a registered plugin).
+   - Per-stage diff harness at `tests/wavefront_diff/` — runs `reference_pt_wavefront` and the CPU wavefront in lockstep, reports the first per-stage mismatch by slot and field.
+   - **Close gate:** bit-identity of CPU wavefront vs `reference_pt_wavefront` on Lambertian-only Cornell at 1 spp.
+3. **Sessions 3..N — Growing-oracle expansion.** As each new shade kernel (metal, dielectric, disney, thin_glass, diffuse_light, closure_graph) is added to the CPU wavefront, both reference PTs grow alongside to cover the same feature surface. Trip-wire test scene grows; equivalence test scene grows. The reference PTs are "growing oracles" — they always match the current CPU wavefront feature surface; never lead, never lag.
+4. **Session N+1 — Shadow/miss/terminate stages on CPU.** Once all seven material types pass per-stage diff, add the remaining stages.
+5. **Sessions N+2..M — CUDA port stage-by-stage.** For each CPU stage, write the CUDA mirror; run a CPU↔GPU per-stage diff harness (mirrors the CPU↔CPU one). Bit-identity gates each port.
+6. **Plugin registration (final phase of B').** After the full CUDA wavefront passes all gates, register `wavefront_path_tracer` plugin and wire `multiwavelength_path_tracer::renderGPU()` to it behind `use_wavefront` (matches the original Phase B deliverable in §"Files to modify" above).
+
+#### Phase B' design decisions (authoritative — 8 resolved forks)
+
+1. **Spectral oracle, not RGB.** Both reference PTs and the CPU wavefront carry `SampledWavelengths` and `SampledSpectrum` end-to-end, matching production `SpectralPathTracer`. RGB only at final XYZ→sRGB conversion. *Rationale:* the eventual GPU wavefront is spectral; building an RGB-only oracle wastes a transcription pass later.
+2. **Per-path RNG keying for the wavefront side; tile-shared for the production side.** CPU wavefront and `reference_pt_wavefront` use `mt19937(hash(pixel_index, sample_index, 0))` per slot — same scheme Phase A.1 used on GPU. Production CPU `pathTraceSpectral` uses tile-shared `mt19937(baseSeed + tileIdx)`. The two are byte-incompatible but statistically equivalent.
+3. **Two reference PTs (Option Z), not one.** `reference_pt_production` mirrors production tile-RNG and is a trip-wire for production drift (bit-exact gate). `reference_pt_wavefront` mirrors the GPU-shaped per-path RNG and is the wavefront's diff oracle. An equivalence test asserts the two RNG schemes produce statistically equivalent renders (SSIM ≥ 0.99 at 64 spp).
+4. **Scoped oracles (Option C), not full-surface transcription.** Both reference PTs cover ONLY what the current CPU wavefront supports. Session 2 = lambertian + area lights + Cornell-only. Reference PTs grow alongside the wavefront, session by session. Avoids the trip-wire firing on noise (unrelated material/light changes) and avoids over-scoped transcription of pkg64 SMS / pkg67 GR / pkg54c spectral / Disney / dielectric code paths.
+5. **Callable driver, not a registered plugin (yet).** CPU wavefront exposed via a pybind11 entry point and a direct C++ test executable. Plugin registration happens in the final phase of B' once everything works. Avoids premature Blender-dropdown wiring.
+6. **Reference PT is a separate file (Option C2), not instrumentation hooks on production.** Production `Renderer::pathTraceSpectral` is not touched. The reference PTs are independent transcriptions. The trip-wire test detects drift via bit-comparison.
+7. **Snapshot data structures.** Both reference PTs emit `WavefrontSnapshot` records at each stage boundary (post-init, post-intersect, post-shade, post-light-sample, post-RR). The diff harness compares snapshots element-by-element to localize divergence.
+8. **Growing-oracle lifecycle.** The two reference PTs grow incrementally as the CPU wavefront adds support for more materials/features. They are "specifications by code" of the current wavefront feature surface — they never lead and never lag. When the wavefront adds metal, the reference PTs add metal in the same PR.
+
+#### Phase B' acceptance gates (per session)
+
+- **Session 2:** trip-wire test passes (max abs diff = 0); equivalence test passes (SSIM ≥ 0.99); CPU wavefront bit-identical to `reference_pt_wavefront` on Lambertian-Cornell at 1 spp.
+- **Sessions 3..N:** trip-wire + equivalence + bit-identity gates pass for each new material/feature.
+- **Session N+1:** stages all wired end-to-end; CPU wavefront SSIM ≥ 0.985 vs CPU `path_tracer` on the full pkg54 visible-band scene at 64 spp.
+- **Sessions N+2..M (CUDA port):** CPU↔GPU per-stage diff gates pass; final perf gate from the original Phase B (≥ 1.5× megakernel on the 7-material scene) closes the package.
+
+#### Phase B' non-goals
+
+- Don't touch the AoS megakernel or `origin/pkg55-phase-b`.
+- Don't widen scope beyond the staged plan in any single session.
+- Don't re-implement pkg64 SMS, pkg67 redshift, or pkg82 thresholds — those are at integrator surface.
+- No CUDA in Session 2 (CPU foundation only).
+
+---
+
 ### Phase C — MIS/NEE parity + megakernel removal
 
 **Estimated effort:** 3 weeks
@@ -294,7 +350,8 @@ Notes: (a) the off↔on delta is within run-to-run noise; the small gap on `corn
 |---|---|---|
 | A.0 | Megakernel baseline JSON + occupancy cliff documented | done (PR #238) |
 | A.1 | Intersect parity test bit-exact; megakernel output unchanged; SoA reg pressure < 158 cliff | **done — 0/576 mismatches; 40–56 regs/thread vs 158** |
-| B | Wavefront SSIM ≥ 0.985 (visible) / ≥ 0.97 (NIR); ≥ 1.5× speedup on 7-material scene | open |
+| B | Wavefront SSIM ≥ 0.985 (visible) / ≥ 0.97 (NIR); ≥ 1.5× speedup on 7-material scene | held — superseded by B' execution plan (2026-05-14) |
+| B' | CPU reference-oracle bit-identity, per-stage diff harness, CPU-first then CUDA port; closes B's gates | open (Session 1 — spec amendment — done; Session 2 next) |
 | C | All pkg54 SSIM gates pass with megakernel deleted; ≥ 2× speedup on 7-material scene | open |
 
 ---

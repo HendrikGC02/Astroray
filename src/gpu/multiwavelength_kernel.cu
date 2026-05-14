@@ -452,9 +452,50 @@ __device__ GSampledSpectrum tracePathMW(
                 envSpec = gpu_rgbToSampledSpectrum(backgroundColor, lambdas,
                                                    GSPEC_RGB_ILLUMINANT);
             } else if (envMap.loaded) {
-                GVec3 rgb = gpu_envmap_lookup(envMap, dir);
-                envSpec = gpu_rgbToSampledSpectrum(rgb, lambdas,
-                                                   GSPEC_RGB_ILLUMINANT);
+                // pkg85-D: mirror CPU EnvironmentMap::evalSpectral spectral tint path.
+                // gpu_envmap_lookup applies colorTint as RGB multiply, but the CPU
+                // applies it as a spectral multiply (RGBUnboundedSpectrum). For non-
+                // grayscale tints these are inequivalent. Fetch raw RGB, convert to
+                // spectral, then apply tint + strength spectrally.
+                GVec3 d = gpu_envmap_apply_rot(envMap, dir);
+                float theta = acosf(fminf(fmaxf(d.y, -1.f), 1.f));
+                float phi   = atan2f(d.z, d.x);
+                float u     = 0.5f + phi / (2.f * M_PI_F);
+                float v     = 1.f - theta / M_PI_F;
+                if (u < 0.f) u += 1.f; if (u >= 1.f) u -= 1.f;
+
+                // Bilinear interpolation (same as gpu_envmap_lookup but without tint).
+                float uP = u * envMap.width;
+                float vP = v * envMap.height;
+                int x0 = (int)uP; int x1 = x0 + 1;
+                int y0 = (int)vP; int y1 = y0 + 1;
+                x0 = x0 < 0 ? 0 : (x0 >= envMap.width  ? envMap.width-1  : x0);
+                x1 = x1 < 0 ? 0 : (x1 >= envMap.width  ? envMap.width-1  : x1);
+                y0 = y0 < 0 ? 0 : (y0 >= envMap.height ? envMap.height-1 : y0);
+                y1 = y1 < 0 ? 0 : (y1 >= envMap.height ? envMap.height-1 : y1);
+                float uf = uP - (int)uP, vf = vP - (int)vP;
+
+                auto fetchSpec = [&](int x, int y) {
+                    int i = (y*envMap.width + x) * 3;
+                    GVec3 rgb(envMap.data[i], envMap.data[i+1], envMap.data[i+2]);
+                    return gpu_rgbToSampledSpectrum(rgb, lambdas, GSPEC_RGB_ILLUMINANT);
+                };
+                GSampledSpectrum s00 = fetchSpec(x0, y0);
+                GSampledSpectrum s10 = fetchSpec(x1, y0);
+                GSampledSpectrum s01 = fetchSpec(x0, y1);
+                GSampledSpectrum s11 = fetchSpec(x1, y1);
+
+                GSampledSpectrum s0 = s00 * (1.f - uf) + s10 * uf;
+                GSampledSpectrum s1 = s01 * (1.f - uf) + s11 * uf;
+                envSpec = (s0 * (1.f - vf) + s1 * vf) * envMap.strength;
+
+                // Apply color tint as spectral multiply (RGBUnboundedSpectrum).
+                // CPU: RGBUnboundedSpectrum uses RGBAlbedoSpectrum (JH sigmoid, no D65).
+                if (envMap.colorTint[0] != 1.f || envMap.colorTint[1] != 1.f || envMap.colorTint[2] != 1.f) {
+                    GVec3 tint(envMap.colorTint[0], envMap.colorTint[1], envMap.colorTint[2]);
+                    GSampledSpectrum tintSpec = gpu_rgbToSampledSpectrum(tint, lambdas, GSPEC_RGB_ALBEDO);
+                    envSpec = envSpec * tintSpec;
+                }
             } else if (useLuminanceOutput) {
                 // Rayleigh sky fallback for outside-visible bands.
                 for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
@@ -564,7 +605,18 @@ __global__ void multiwavelengthKernel(
 
     curandState localRng = rngStates[pixelIdx];
 
-    GVec3 colorRGB(0.f);
+    // pkg85-D: accumulate in XYZ (or luminance-triplet) across SPP, then convert
+    // to linear sRGB ONCE at the end. The CPU integrator does the same:
+    //   raytracer.h:2548  sCol = finiteVecOrZero(XYZ)
+    //   raytracer.h:2550  firefly clamp on XYZ.Y > 20
+    //   raytracer.h:2552  color += sCol     (XYZ accumulation)
+    //   raytracer.h:2579  color /= samples
+    //   raytracer.h:2595  color = xyzToLinearSRGB(color)   (single conversion)
+    // The prior order (per-sample xyzToLinearSRGB → average) does not commute
+    // with averaging because xyzToLinearSRGB's negative-channel lift is
+    // non-linear; bluish HDRI samples produce negative R that the lift adds
+    // to G/B every sample, biasing green/blue upward. SSIM-killer.
+    GVec3 colorAccum(0.f);
     for (int s = 0; s < samplesPerPixel; ++s) {
         float u = (px + curand_uniform(&localRng)) / (width  - 1);
         float v = 1.f - (py + curand_uniform(&localRng)) / (height - 1);
@@ -590,18 +642,30 @@ __global__ void multiwavelengthKernel(
             L = fmaxf(0.f, L / float(G_SPECTRUM_SAMPLES));
             sample = GVec3(L, L, L);
         } else {
-            GVec3 xyz = spectrumToXYZ(rad, lambdas);
-            sample = xyzToLinearSRGB_dev(xyz);
+            // XYZ tristimulus (linear, additive, matches CPU sCol).
+            sample = spectrumToXYZ(rad, lambdas);
         }
 
-        // Per-sample firefly clamp (matches CPU path tracer).
-        float lum = luminance(sample);
-        if (lum > 20.f) sample *= (20.f / lum);
+        // finiteVecOrZero — replace NaN/Inf with zero (matches CPU).
+        sample.x = isfinite(sample.x) ? sample.x : 0.f;
+        sample.y = isfinite(sample.y) ? sample.y : 0.f;
+        sample.z = isfinite(sample.z) ? sample.z : 0.f;
 
-        colorRGB += sample;
+        // Per-sample firefly clamp on XYZ.Y (photometric luminance, matches CPU
+        // raytracer.h:2550). For useLuminanceOutput the triplet is (L,L,L) so
+        // .y == L; same clamp applies.
+        float sLum = sample.y;
+        if (sLum > 20.f) sample *= (20.f / sLum);
+
+        colorAccum += sample;
     }
 
-    colorRGB /= float(samplesPerPixel);
+    colorAccum /= float(samplesPerPixel);
+
+    // Single XYZ→sRGB conversion (skipped for useLuminanceOutput — already
+    // luminance triplet). Mirrors CPU raytracer.h:2595.
+    GVec3 colorRGB = useLuminanceOutput ? colorAccum
+                                        : xyzToLinearSRGB_dev(colorAccum);
     colorRGB.x = fmaxf(colorRGB.x, 0.f);
     colorRGB.y = fmaxf(colorRGB.y, 0.f);
     colorRGB.z = fmaxf(colorRGB.z, 0.f);

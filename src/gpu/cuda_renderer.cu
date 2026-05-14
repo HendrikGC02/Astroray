@@ -124,14 +124,28 @@ struct CUDARenderer::Impl {
         int count = 0;
         cudaError_t err = cudaGetDeviceCount(&count);
         if (err == cudaSuccess && count > 0) {
-            available = true;
             cudaDeviceProp prop;
-            cudaGetDeviceProperties(&prop, 0);
-            devName = prop.name;
+            err = cudaGetDeviceProperties(&prop, 0);
+            if (err == cudaSuccess) {
+                available = true;
+                devName = prop.name;
+            }
         }
+        // pkg85: Clear any latent error from cudaGetDeviceCount or
+        // cudaGetDeviceProperties so it doesn't contaminate future CUDA
+        // calls in other tests/renderers. Must be called unconditionally
+        // because even if we return early, a prior CUDA call may have left
+        // an error.
+        cudaGetLastError();
     }
 
-    ~Impl() { freeAll(); }
+    ~Impl() {
+        freeAll();
+        // pkg85: Clear any latent error from cleanup so it doesn't contaminate
+        // future CUDA calls. The destructor is noexcept so we can't throw; we
+        // must clear the error to prevent it from propagating.
+        cudaGetLastError();
+    }
 
     void freeAll() {
         if (d_bvhNodes)   { cudaFree(d_bvhNodes);   d_bvhNodes   = nullptr; }

@@ -1,29 +1,20 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-14 (post-Round-7 — pkg82/pkg83/pkg84/pkg67 landed; pkg55-B held on branch for architectural review; pkg85 follow-up filed)
+**Date:** 2026-05-14 (Round 8 mid-cycle — doc/spec/research wave landed; implementation wave starts next session)
 **Prepared by:** Claude (Anthropic Code, Sonnet 4.5 in Max 5x)
-**Scope:** Round 8. Round 7 closed on a smaller deployable set than
-originally planned: four small packages shipped (pkg82 variance, pkg83
-accumulation, pkg84 pre-warm, pkg67 GR spectral unification Option α),
-plus pkg64-gpu spec filed. **pkg55 Phase B is HELD on origin/pkg55-phase-b**
-with cascading radiance accounting bugs (Bug 1 fixed, Bugs 2+3 regressed
-21× brightness post-attempted-fix). Round 8 is shaped by:
+**Scope:** Round 8 implementation wave. The **Round 8 doc/spec/research wave** has **landed on main** (8 PRs merged 2026-05-14):
+- Round 8 strategy pass (architect assessment; pkg55-B fork decision → CPU-first restart)
+- pkg55 Phase B' amendment (CPU-first restart spec now authoritative; 8 design decisions)
+- pkg86 Light Tree spec (open, ready after pkg89 Phase A)
+- pkg87 Cryptomatte spec (open, independent)
+- pkg88 motion blur research + DRAFT spec
+- pkg89 dedicated lights research + DRAFT spec (Q1/Q6/Q7/Q11 answered)
+- pkg85 partial fix (PR #268 — conftest + cuda_renderer robustness; spec gate NOT met)
+- round8-dispatch-queue.md (owner's session-close answers)
 
-(a) **pkg55-B architectural review** — unblocking decision: debug-spiral-
-    more, restart from clean baseline, or wait for pkg55-C wavefront/
-    megakernel decision. This is the critical path blocker.
-
-(b) **pkg85 test-harness CUDA state leak** — bisect tests 360–369 to find
-    the leaking test; fix teardown. ~½ day RTX.
-
-(c) **pkg64-gpu implementation** — GPU SMS caustics port (~2-3 weeks, AoS
-    megakernel target). Blocked behind pkg55-B architectural review (if
-    the review decides to abandon the wavefront path near-term, pkg64-gpu's
-    megakernel target is validated; if the review decides to continue
-    debugging pkg55-B, pkg64-gpu waits).
-
-(d) **Pillar 4 continuation** — pkg43 (slim disk) + pkg44 (ADAF), in
-    series, on the VolumetricEmission interface pkg42 established.
+**Implementation wave starts next session.** The dispatch queue
+(`.astroray_plan/docs/round8-dispatch-queue.md`) is the authoritative
+pickup order; this report summarizes the state that queue assumes.
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C; Pillar 4
 > has been actively shipping since. Strategy in
@@ -33,102 +24,141 @@ with cascading radiance accounting bugs (Bug 1 fixed, Bugs 2+3 regressed
 
 ## 1. Current state (one screen)
 
-**Done since the previous report (Round 7 closure):**
+**Done since the previous report (Round 8 doc/spec wave — 8 PRs merged 2026-05-14):**
 
-- **pkg82 variance characterisation** (PR #261, 2026-05-13) — gate
-  re-baselined 0.999→0.998 based on measured cross-build delta 0.0006.
-  Intra-binary perfect determinism (20 runs, stddev=0). Closes issue
-  #237. Establishes project-wide methodology for numerical gate
-  tightening.
-- **pkg83 progressive accumulation** (PR #259, 2026-05-13) — viewport
-  accumulator continues across pure camera transforms (pan/orbit/dolly).
-  `spp_trace = [1,2,3,4,5,6,7,8]` measured on CPU + CUDA. Substantive
-  changes (focal length, DoF, lens shift, aperture) still reset
-  correctly. Cites Cycles `BlenderSession::reset` (Apache-2.0).
-- **pkg84 CUDA kernel pre-warm** (PR #260, 2026-05-13) — first CUDA
-  frame 83.3 ms (was 12,079 ms cold). **145× improvement** vs pkg81
-  baseline. Cites Cycles `reserve_local_memory` pattern (Apache-2.0).
-- **pkg67 GR spectral unification** (PR #262, 2026-05-13, Option α) —
-  `MinkowskiMetric` + `SampledWavelengths::redshift(g)` +
-  `GRSpectralResult::frequencyShift`. All 9 unit tests + flat
-  regression + Schwarzschild deflection passing. Ratifies existing
-  `BlackHole`-as-`Hittable` + `isGRObject()` dispatch architecture
-  (not the literal Metric-step-in-hot-loop design the spec described).
-- **pkg64-gpu spec filed** (PR #258, docs-only) — GPU SMS port spec;
-  targets AoS megakernel (not wavefront); 4 fork-point decisions baked
-  in via architect review; register-pressure baseline from pkg82
-  referenced.
+- **Round 8 strategy pass** (PR #263, 2026-05-14) — architect assessment
+  of pkg55-B fork decision; Cycles-parity gap decomposed into performance
+  (pkg55-B only gap remaining after pkg82/83/84), UI (Cryptomatte +
+  light-group AOVs highest compositor-side gap), and features (Light Tree
+  highest engine-side performance lever). Recommendation: **restart pkg55-B
+  from pkg55-A.1 baseline with CPU reference implementation first** (not
+  continue debugging, not wait for non-existent Phase C, not abandon
+  viewport-parity gate). Filed at
+  `.astroray_plan/docs/round8-strategy-pass.md`.
+- **pkg55 Phase B' amendment** (PR #266, 2026-05-14) — **CPU-first
+  restart spec now authoritative on main**. 8 design decisions: (1) CPU
+  wavefront first, (2) per-stage diff harness, (3) bit-identical gate vs
+  path_tracer, (4) staged CUDA port one kernel at a time, (5) no
+  premature optimization, (6) Phase B.1 acceptance is CUDA parity not
+  speedup, (7) spectral state first-class, (8) clean plugin
+  registrations. Session 1 summary at
+  `.astroray_plan/docs/pkg55-B-restart-session1-summary.md`.
+  **origin/pkg55-phase-b HELD as reference; do not merge.**
+- **pkg86 Light Tree spec filed** (PR #265, 2026-05-14) — Conty 2018
+  many-lights importance sampling + Cycles Apache-2.0 reference. Status
+  open, ready to implement **after pkg89 Phase A** ships
+  `Light::orientationCone()` + `Light::power()` accessors per pkg89
+  research note.
+- **pkg87 Cryptomatte spec filed** (PR #264, 2026-05-14) — Psyop BSD-3 +
+  Cycles Apache-2.0. Status open, ready to implement; independent.
+  Highest compositor-side Cycles-parity gap per strategy pass.
+- **pkg88 motion blur research + DRAFT spec** (PR #267, 2026-05-14) —
+  research signed off; DRAFT spec; design questions deferred per owner
+  ("get to that later"). 4 phases: A camera, B object, C deformation, D
+  wavefront hook.
+- **pkg89 dedicated lights research + DRAFT spec** (PR #269, 2026-05-14)
+  — research signed off; DRAFT spec; Q1/Q6/Q7/Q11 answered in
+  round8-dispatch-queue.md (Q1 `std::variant` tagged union, Q6 extend
+  `LightSample.emission_spec`, Q7 staged signature break, Q11
+  implementer's judgment on normalize flag). Ready to promote to real
+  spec + start Phase A.
+- **pkg85 partial fix** (PR #268, 2026-05-14) — conftest autouse fixture
+  + cuda_renderer error clearing. **Spec gate NOT met** (full pytest
+  sweep crash still reproduces). Robustness improvement only. Full
+  CUDA-call audit queued as pkg85-B follow-up per
+  round8-dispatch-queue.md.
+- **round8-dispatch-queue.md** (direct push 4ae14d7, 2026-05-14) —
+  captures owner's session-close answers: pkg43 worktree version
+  canonical, pkg55-B restart next session, pkg64-gpu owner's call on
+  timing, pkg86 after pkg89 Phase A, pkg87 independent, pkg88 design Qs
+  deferred, pkg89 Q answers, pkg85-B filing + clearcoat investigation
+  follow-ups.
 
-**HELD on branch:**
+**HELD on branch (do not merge):**
 
 - **pkg55 Phase B** (origin/pkg55-phase-b, NOT merged) — cascading
-  wavefront radiance accounting bugs. Bug 1 (`path_alive` initialization)
-  fixed in commit 15d98f0. Material-type guards on all 7 shade kernels
-  landed in 15d98f0. Bugs 2+3 (sample accumulation order + NEE×throughput)
-  attempted fix REGRESSED from 2.5× brightness vs megakernel pre-fix to
-  21× brightness post-fix. Needs deeper architectural review, not another
-  piecemeal fix. Flagged for architect.
+  wavefront radiance bugs (2.5× → 21× brightness regression). **Phase B'
+  restart** (CPU-first methodical rebuild) is now the authoritative path
+  forward on main per PR #266.
 
-**New follow-up filed:**
+**Open pickup pool (from dispatch queue):**
 
-- **pkg85 test-harness CUDA state leak** — `pytest tests/ --ignore=tests/test_wavefront_parity.py`
-  crashes at test #370 with illegal memory access at `cuda_renderer.cu:81`;
-  same test in isolation passes cleanly. Bisect candidate range: tests
-  360–369. Spec filed at `.astroray_plan/packages/pkg85-test-harness-cuda-state-leak.md`.
+**Open pickup pool (from dispatch queue — see `.astroray_plan/docs/round8-dispatch-queue.md` for authoritative ordering):**
 
-**Open pickup pool (Round 8 + Round 9):**
+**Session 1 (next) — parallel-safe, max 3 implementers + N doc agents:**
 
-| Pkg | Title | Effort | Status |
+| Track | Type | Effort | Notes |
 |---|---|---|---|
-| **pkg55-B architectural review** | Unblocking decision for wavefront radiance bugs — debug-spiral, clean restart, or wait for pkg55-C? | ~1 session (architect) | **Critical path blocker for pkg64-gpu and any wavefront work.** |
-| **pkg85** | Test-harness CUDA state leak bisect + fix | ~½ day on RTX | Ready to implement; bisect tests 360–369, fix teardown |
-| **pkg64-gpu** | GPU SMS caustics port (megakernel target) | ~2-3 weeks | Spec ready (PR #258); blocked on pkg55-B architectural review outcome |
-| **pkg43** | Slim disk accretion model (Pillar 4) | ~2 weeks | Codex-paste-ready spec; pkg42 VolumetricEmission interface available |
-| **pkg44** | ADAF accretion model (Pillar 4) | ~2 weeks | After pkg43 (same Codex serialisation as Round 6's pkg42→pkg43→pkg44 plan) |
-| pkg76 CSV | Classroom / Junkshop / BMW27 baseline rows on RTX | ~½ day on RTX | Carried from Round 6/7; pkg73 fixed → denoiser path is healthy → numbers are now meaningful |
-| pkg55 Phase C | Megakernel removal | ~3 weeks | After Phase B (if Phase B ships); or independent track if architectural review decides to abandon wavefront near-term |
-| pkg45 / pkg46 | CLOUDY emissivity tables / HII region emission (Pillar 4) | weeks each | After pkg43+pkg44; specs already paste-ready |
-| pkg47 / 48 / 49 | FITS / HDF5 / SPH loaders (Pillar 4 data import) | weeks each | Optional Round 8+ side track; specs queued |
-| pkg79 (tiny) | ReSTIR `test_spatial_reduces_mse` flake (margin 0.000004) | ~½ day | Surfaced by PR #236 CI; recurring noise-floor failure |
-| pkg50 / 51 | Weak lensing / synthetic telescope post-process (Pillar 4) | weeks each | Late-Pillar-4; deferred behind pkg43–48 |
+| **pkg43 finish** | implementer (CUDA) | ~1 session | Worktree exists; handoff doc lists exact next steps; static-init registration debug is blocker |
+| **pkg55-B Phase B' Session 2** | implementer (CPU-only) | ~1-2 weeks | Spec now authoritative on main; brief should quote 8 design decisions verbatim; worktree `pkg55-restart` exists |
+| **pkg89 spec promotion → Phase A** | doc + implementer | ~2-3 weeks Phase A | Promote DRAFT to real spec with 4 Q answers; then Light interface + 5 type stubs, no rewiring yet |
+| **pkg85-B spec filing** | doc-only | ~1 h | File follow-up spec for full CUDA-call audit; multi-day implementation later |
+
+**Session 2 (assumes Session 1 lands):**
+
+| Track | Type | Effort | Notes |
+|---|---|---|---|
+| **pkg44 ADAF** | implementer | ~2 weeks | After pkg43; same VolumetricEmission interface, handle-based API |
+| **pkg89 Phase A continued** | implementer | — | Light types + emission interface + addon wiring |
+| **pkg87 Cryptomatte** | implementer | ~2-3 weeks | Spec on main; independent; highest compositor-side Cycles-parity gap |
+| **pkg64-gpu Phase 1** | implementer (CUDA) | ~2-3 weeks | Megakernel target; acknowledged pkg55-C will re-port; owner's call on timing |
+
+**Session 3+ (depends on earlier):**
+
+| Track | Effort | Notes |
+|---|---|---|
+| **pkg86 Light Tree** | ~3 weeks | After pkg89 Phase A ships `Light::orientationCone()` + `Light::power()` |
+| **pkg55-B Phase B' Session 3+** | ~weeks | Continued CPU wavefront + diff harness expansion |
+| **pkg85-B full audit** | multi-day | When prioritized |
+
+**Carried / deferred:**
+
+| Pkg | Effort | Notes |
+|---|---|---|
+| pkg76 CSV | ~½ day RTX | Classroom / Junkshop / BMW27 baseline rows |
+| pkg79 | ~½ day | ReSTIR `test_spatial_reduces_mse` flake |
+| pkg45 / pkg46 | weeks each | CLOUDY / HII region (Pillar 4) — after pkg43+pkg44 |
+| pkg47 / 48 / 49 | weeks each | FITS / HDF5 / SPH loaders (optional) |
+| pkg50 / 51 | weeks each | Weak lensing / telescope post-process (late Pillar 4) |
 
 ---
 
-## 2. Recommended next deployable set (Round 8)
+## 2. Recommended next deployable set (Round 8 implementation wave)
 
-Three sessions, with a critical unblocking decision up front:
+**Authoritative source:** `.astroray_plan/docs/round8-dispatch-queue.md`
 
-| # | Agent | Worktree / location | Package | Effort |
-|---|---|---|---|---|
-| **0** | **Architect (project owner)** | origin/pkg55-phase-b | **pkg55-B architectural review** — diagnose cascading radiance bugs; decide: (a) continue debugging bugs 2+3, (b) restart Phase B from clean baseline, (c) abandon wavefront near-term and lean on megakernel + pkg64-gpu. | ~1 session |
-| 1 | Codex (RTX) | main directory | **pkg85** test-harness CUDA state leak bisect + fix | ~½ day |
-| 2 | Codex (conditional on #0 outcome) | main directory | **pkg64-gpu** implementation (if #0 = (c) or early (b) restart validates megakernel target; otherwise wait) | ~2-3 weeks |
-| 3 | Codex | main directory | **pkg43 slim disk accretion model** (Pillar 4) | ~2 weeks |
-| 4 | Codex (after #3) | main directory | **pkg44 ADAF accretion model** (Pillar 4) | ~2 weeks |
-| 5 | Codex (RTX, small) | hardware | **pkg76 CSV** Classroom/Junkshop/BMW27 rows | ~½ day |
+This report summarizes; the dispatch queue is the pickup order.
 
-Session 0 is the critical path. Its outcome determines whether pkg64-gpu
-proceeds now (if megakernel target is validated) or waits (if wavefront
-work continues).
+**Session 1 (next session):**
+- pkg43 finish (worktree exists; static-init debug)
+- pkg55-B Phase B' Session 2 (CPU wavefront; 8 design decisions)
+- pkg89 spec promotion → Phase A (Light interface + 5 type stubs)
+- pkg85-B spec filing (doc-only; full CUDA-call audit follow-up)
 
-Sessions 1, 3, 5 are independent and can run in parallel. Session 4 chains
-after 3. Session 2 is conditional on session 0's outcome.
+**Session 2 (assumes Session 1 lands):**
+- pkg44 ADAF (after pkg43)
+- pkg89 Phase A continued
+- pkg87 Cryptomatte
+- pkg64-gpu Phase 1 (megakernel target; owner's call on timing)
+
+**Session 3+ (depends on earlier):**
+- pkg86 Light Tree (after pkg89 Phase A)
+- pkg55-B Phase B' Session 3+
+- pkg85-B full audit (when prioritized)
 
 Round 8 closes when:
-- pkg55-B architectural review complete (decision documented, next steps
-  clear)
-- pkg85 merged (full pytest sweep completes without CUDA crashes)
-- pkg43 + pkg44 merged (Pillar 4 has 4 emission models: synchrotron +
-  slim disk + ADAF + thermal/blackbody)
-- pkg76 CSV done (pkg71 baseline 4 rows wide)
-- pkg64-gpu: either merged (if unblocked by review) or re-scoped/deferred
-  based on review outcome
+- **pkg55-B Phase B' CPU reference** landed (bit-identical to CPU
+  path_tracer) + Session 1 of CUDA port started or complete
+- **pkg43 + pkg44** merged (Pillar 4 has 4 emission models)
+- **pkg89 Phase A** merged (Light interface + 5 types; pkg86 unblocked)
+- **pkg87 Cryptomatte** merged (highest compositor-side gap closed)
+- pkg64-gpu: either merged (megakernel target) or staged for next round
+- pkg85-B: spec filed; full audit may carry to Round 9
 
 Then **Round 9** picks up:
-- If pkg55-B continues: Phase B completion (per review decision) followed
-  by Phase C megakernel removal
-- If pkg55-B is abandoned/restarted: pkg64-gpu as the GPU SMS win, plus
-  Pillar 4 continuation (pkg45 CLOUDY, pkg46 HII region)
+- pkg55-B Phase B' Session 2+ (staged CUDA port one kernel at a time)
+- pkg86 Light Tree (unblocked by pkg89)
+- Pillar 4 continuation (pkg45 CLOUDY, pkg46 HII region)
 - Optional data loaders (pkg47/48/49) if astrophysical scene scope is the
   next constraint
 
@@ -136,7 +166,14 @@ Then **Round 9** picks up:
 
 ## 3. Drop-in prompts per agent
 
-### 3.0 Architect (project owner) — pkg55-B architectural review
+**Note:** The prompts below are **outdated** as of 2026-05-14. The
+Round 8 doc/spec wave has landed; authoritative pickup order and briefs
+are in `.astroray_plan/docs/round8-dispatch-queue.md`. The dispatch
+queue references updated specs (pkg55-B Phase B' amendment, pkg86/87
+filed, pkg88/89 DRAFT) and owner-answered design questions. **Use the
+dispatch queue, not these prompts, for next-session pickup.**
+
+### 3.0 Architect (project owner) — pkg55-B architectural review [SUPERSEDED BY DISPATCH QUEUE]
 
 ```
 You are the project architect. pkg55 Phase B (wavefront per-material

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A (RTX verifier)
-**Status:** open — ready to implement
+**Status:** partial — PR #268 landed robustness improvements; full CUDA-call audit queued as pkg85-B follow-up
 **Estimated effort:** ½ day (~4 h on RTX)
 **Depends on:** pkg67 (the verifier that surfaced this defect)
 
@@ -83,4 +83,12 @@ CI doesn't catch this because CI runs a subset of tests in parallel, not the seq
 
 ## Lessons
 
-(To be filled on completion)
+**Partial fix merged 2026-05-14 (PR #268)** — two robustness improvements that reduce but do NOT eliminate the full pytest sweep crash:
+
+1. **`src/gpu/cuda_renderer.cu` (CUDARenderer::Impl ctor):** Call `cudaGetLastError()` unconditionally after probing `cudaGetDeviceCount()` / `cudaGetDeviceProperties()` so any latent error from those probes does not contaminate subsequent CUDA calls in other tests / renderer instances. Also tightened the available-flag logic so device is marked available only if BOTH the count query and property query succeed.
+
+2. **`tests/conftest.py`:** New autouse fixture `cuda_cleanup_and_error_check` runs after every test. Forces `gc.collect()` to release any Renderer objects still holding GPU state, then calls `cudaDeviceSynchronize()` + `cudaGetLastError()` via ctypes to surface latent errors at test boundary (fails the next test loudly instead of corrupting it).
+
+**Spec gate NOT met:** the full pytest sweep crash still reproduces. These changes are robustness improvements (better early-error detection, guaranteed cleanup order) but do not catch all leaked CUDA state.
+
+**Follow-up filed as pkg85-B:** full audit of CUDA API call sites across `src/gpu/` and `src/cpu/` (if it ever calls CUDA) to ensure each is wrapped in `CUDA_CHECK()` or followed by `cudaGetLastError()`. Estimated multi-day systematic pass. See `.astroray_plan/docs/round8-dispatch-queue.md` §"Follow-up packages to file".

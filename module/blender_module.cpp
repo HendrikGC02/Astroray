@@ -1179,6 +1179,62 @@ public:
     }
 
     // ------------------------------------------------------------------
+    // pkg84 — CUDA kernel pre-warm at viewport start
+    //
+    // Cycles pattern (intern/cycles/device/cuda/device.cpp reserve_local_memory,
+    // Apache-2.0): launch a minimal kernel to JIT-compile and pre-allocate
+    // resources before the user's first "real" render. This moves the ~12s
+    // CUDA context init + kernel JIT cost to a moment the user expects to wait
+    // (addon load, viewport "Rendered" button click) instead of mid-navigation.
+    //
+    // Called by the Blender addon when the persistent viewport renderer is
+    // instantiated with device_mode='cuda'. Renders 1 pixel of a trivial scene
+    // (single triangle), swallowing the result. Idempotent (guarded by the
+    // addon, not here).
+    // ------------------------------------------------------------------
+    void prewarmCUDA() {
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (!useGPU || !cudaRenderer || !cudaRenderer->isAvailable()) {
+            return;
+        }
+
+        // Use a fully isolated temporary renderer and CUDA context to avoid
+        // leaving dangling GPU pointers. This ensures the main renderer's state
+        // (this->renderer, this->cudaRenderer) is never polluted with throwaway
+        // geometry that gets cleared before the GPU pointers are freed.
+        Renderer tempRenderer;
+        auto tempCudaRenderer = std::make_unique<CUDARenderer>();
+
+        // Trivial scene: single grey triangle at origin + camera looking at it.
+        // Minimal cost to build but still enough to force full kernel JIT.
+        auto grey = std::make_shared<Lambertian>(Vec3(0.5f));
+        auto tri = std::make_shared<Triangle>(
+            Vec3(-1, 0, 5), Vec3(1, 0, 5), Vec3(0, 1, 5), grey
+        );
+        tempRenderer.addObject(tri);
+
+        // 1-pixel camera, 1 spp, 1 bounce — just enough to hit the kernel.
+        // We discard the result; the goal is to populate the JIT cache.
+        auto cam = std::make_shared<Camera>(
+            Vec3(0, 0, 0), Vec3(0, 0, 1), Vec3(0, 1, 0),
+            60.0f, 1.0f, 0.0f, 1.0f, 1, 1
+        );
+
+        tempRenderer.buildAcceleration();
+        tempCudaRenderer->uploadScene(tempRenderer, *cam);
+
+        // Launch the kernel. This is where the 12s JIT + context init happens.
+        // The JIT cache is process-wide, so triggering it here warms the cache
+        // for this->cudaRenderer as well.
+        tempCudaRenderer->render(cam->pixels, 1, 1, tempRenderer.getSeed(), 1, 1);
+
+        // tempRenderer and tempCudaRenderer are automatically destroyed at scope
+        // exit via RAII, freeing all GPU resources cleanly. No dangling pointers.
+#endif
+        // CPU path: no pre-warm needed.
+    }
+
+    // ------------------------------------------------------------------
     // pkg56 Phase B — per-domain incremental uploaders.
     //
     // Cycles BlenderSync (intern/cycles/blender/sync.cpp, Apache-2.0) splits
@@ -1511,6 +1567,10 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_width", &PyRenderer::getWidth)
         .def("get_height", &PyRenderer::getHeight)
         .def("set_use_gpu", &PyRenderer::setUseGPU, "enable"_a)
+        .def("prewarm_cuda", &PyRenderer::prewarmCUDA,
+             "pkg84: Pre-warm CUDA kernel JIT by rendering 1 pixel of a trivial "
+             "scene. Moves ~12s cold-start cost to addon load / viewport Rendered "
+             "button click. No-op on CPU. Idempotent (guarded by addon).")
         // pkg56 Phase B — per-domain incremental scene uploaders. Mirrors
         // Cycles BlenderSync's geometry / shaders / lights / world split
         // (intern/cycles/blender/sync.cpp, Apache-2.0). Phase C wires the

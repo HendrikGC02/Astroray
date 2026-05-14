@@ -721,6 +721,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
     _viewport_current_spp = 0
     _viewport_target_spp = 0
     _viewport_accum_key = None
+    # pkg84: CUDA kernel pre-warm state. Tracks the last device_mode we
+    # pre-warmed for. If the user changes device_mode mid-session (CPU → CUDA
+    # via the Astroray panel), we re-fire the pre-warm for the new mode.
+    _viewport_prewarmed_for_mode = None
     _PASS_SPECS = [
         ("Diffuse Direct", "diffuse_direct", "use_pass_diffuse_direct"),
         ("Diffuse Indirect", "diffuse_indirect", "use_pass_diffuse_indirect"),
@@ -1280,7 +1284,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
         self.setup_world(depsgraph.scene, renderer)
         _viewport_perf_record("environment", t0)
 
-        _configure_backend_for_context(renderer, settings, self.report, _effective_integrator_name(settings))
+        active_mode = _configure_backend_for_context(renderer, settings, self.report, _effective_integrator_name(settings))
+
+        # pkg84: CUDA kernel pre-warm. If this is the first time CUDA is
+        # enabled (or the user changed device_mode mid-session), fire the
+        # pre-warm on a temporary Renderer instance so it doesn't pollute the
+        # real scene. Mirrors Cycles' reserve_local_memory pattern
+        # (intern/cycles/device/cuda/device.cpp, Apache-2.0).
+        if active_mode == 'gpu' and self._viewport_prewarmed_for_mode != 'gpu':
+            try:
+                temp = astroray.Renderer()
+                temp.set_use_gpu(True)
+                temp.prewarm_cuda()
+                self._viewport_prewarmed_for_mode = 'gpu'
+            except Exception:
+                pass  # Pre-warm failure is non-fatal; first render will JIT.
+
         # pkg56-C: mark that the renderer holds a coherent full snapshot of
         # the scene. Subsequent view_update ticks may dispatch incrementally.
         self._viewport_full_synced = True

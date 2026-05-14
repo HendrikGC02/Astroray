@@ -283,7 +283,9 @@ int main() {
                 // Stratified sub-pixel jitter.
                 float u = (px + u01(rng)) / (float)WIDTH;
                 float v = (py + u01(rng)) / (float)HEIGHT;
-                Ray ray = cam.getRay(u, v, rng);
+                // pkg88-A: getRay now requires explicit time parameter (no default).
+                // This smoke test doesn't use motion blur, so pass time=0.
+                Ray ray = cam.getRay(u, v, 0.0f, rng);
 
                 // Primary intersection.
                 HitRecord rec;

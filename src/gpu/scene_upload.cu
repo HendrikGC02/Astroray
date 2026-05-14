@@ -207,6 +207,29 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         r.camera.lensRadius = cam->getLensRadius();
         r.camera.width      = cam->width;
         r.camera.height     = cam->height;
+
+        // pkg88-A: upload motion blur shutter keyframes (T/R/S decomposed)
+        Vec3 startT = cam->getShutterStartT();
+        Vec3 endT   = cam->getShutterEndT();
+        Quaternion startR = cam->getShutterStartR();
+        Quaternion endR   = cam->getShutterEndR();
+        Vec3 startS = cam->getShutterStartS();
+        Vec3 endS   = cam->getShutterEndS();
+        r.camera.shutterStartT = GVec3(startT.x, startT.y, startT.z);
+        r.camera.shutterEndT   = GVec3(endT.x, endT.y, endT.z);
+        r.camera.shutterStartR[0] = startR.w; r.camera.shutterStartR[1] = startR.x;
+        r.camera.shutterStartR[2] = startR.y; r.camera.shutterStartR[3] = startR.z;
+        r.camera.shutterEndR[0] = endR.w; r.camera.shutterEndR[1] = endR.x;
+        r.camera.shutterEndR[2] = endR.y; r.camera.shutterEndR[3] = endR.z;
+        r.camera.shutterStartS = GVec3(startS.x, startS.y, startS.z);
+        r.camera.shutterEndS   = GVec3(endS.x, endS.y, endS.z);
+        r.camera.shutter = cam->getShutter();
+        r.camera.shutterPosition = static_cast<int>(cam->getShutterPosition());
+        r.camera.vw = cam->getVw();
+        r.camera.vh = cam->getVh();
+        r.camera.focusDist = cam->getFocusDist();
+        r.camera.shiftX = cam->getShiftX();
+        r.camera.shiftY = cam->getShiftY();
     }
 
     // --- BVH nodes ---

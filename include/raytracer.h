@@ -1646,6 +1646,108 @@ struct SampleResult {
     SampleResult() { passes.fill(Vec3(0)); }
 };
 
+// pkg88-A: Quaternion for camera rotation interpolation (spherical linear interpolation).
+// Mirrored from PBRT-v4 src/pbrt/util/quaternion.h (Apache-2.0).
+// Shoemake 1985, "Animating Rotation with Quaternion Curves", SIGGRAPH.
+struct Quaternion {
+    float w, x, y, z;
+
+    Quaternion() : w(1), x(0), y(0), z(0) {}
+    Quaternion(float w, float x, float y, float z) : w(w), x(x), y(y), z(z) {}
+
+    float dot(const Quaternion& q) const {
+        return w * q.w + x * q.x + y * q.y + z * q.z;
+    }
+
+    float length2() const {
+        return w*w + x*x + y*y + z*z;
+    }
+
+    float length() const {
+        return std::sqrt(length2());
+    }
+
+    Quaternion normalized() const {
+        float len = length();
+        return (len > 0) ? Quaternion(w/len, x/len, y/len, z/len) : Quaternion();
+    }
+
+    Quaternion operator+(const Quaternion& q) const {
+        return Quaternion(w + q.w, x + q.x, y + q.y, z + q.z);
+    }
+
+    Quaternion operator-(const Quaternion& q) const {
+        return Quaternion(w - q.w, x - q.x, y - q.y, z - q.z);
+    }
+
+    Quaternion operator*(float s) const {
+        return Quaternion(w * s, x * s, y * s, z * s);
+    }
+
+    // Spherical linear interpolation (Shoemake 1985).
+    // Mirrored from PBRT-v3 src/core/quaternion.cpp Slerp() (Apache-2.0).
+    static Quaternion slerp(float t, const Quaternion& q1, const Quaternion& q2) {
+        float cosTheta = q1.dot(q2);
+        // Near-parallel quaternions: use linear interpolation
+        if (cosTheta > 0.9995f) {
+            return ((q1 * (1 - t)) + (q2 * t)).normalized();
+        }
+        // Spherical interpolation
+        float theta = std::acos(std::clamp(cosTheta, -1.0f, 1.0f));
+        float thetap = theta * t;
+        Quaternion qperp = (q2 - (q1 * cosTheta)).normalized();
+        return (q1 * std::cos(thetap)) + (qperp * std::sin(thetap));
+    }
+
+    // Convert to 3x3 rotation matrix (returns basis vectors u, v, w).
+    // Mirrored from PBRT-v4 Quaternion::ToMatrix() approach (Apache-2.0).
+    void toMatrix(Vec3& outU, Vec3& outV, Vec3& outW) const {
+        float xx = x * x, yy = y * y, zz = z * z;
+        float xy = x * y, xz = x * z, yz = y * z;
+        float wx = w * x, wy = w * y, wz = w * z;
+
+        outU = Vec3(1 - 2*(yy + zz), 2*(xy + wz), 2*(xz - wy));
+        outV = Vec3(2*(xy - wz), 1 - 2*(xx + zz), 2*(yz + wx));
+        outW = Vec3(2*(xz + wy), 2*(yz - wx), 1 - 2*(xx + yy));
+    }
+
+    // Construct quaternion from 3x3 rotation matrix (u, v, w basis vectors).
+    // Mirrored from PBRT-v4 Quaternion(Transform) constructor logic (Apache-2.0).
+    static Quaternion fromMatrix(const Vec3& u, const Vec3& v, const Vec3& w) {
+        float trace = u.x + v.y + w.z;
+        Quaternion q;
+        if (trace > 0.0f) {
+            // High-trace path
+            float s = std::sqrt(trace + 1.0f);
+            q.w = s / 2.0f;
+            s = 0.5f / s;
+            q.x = (w.y - v.z) * s;
+            q.y = (u.z - w.x) * s;
+            q.z = (v.x - u.y) * s;
+        } else {
+            // Low-trace path: find largest diagonal element
+            const float* diag[3] = { &u.x, &v.y, &w.z };
+            int i = 0;
+            if (v.y > u.x) i = 1;
+            if (w.z > *diag[i]) i = 2;
+
+            int j = (i + 1) % 3;
+            int k = (j + 1) % 3;
+            float s = std::sqrt(*diag[i] - *diag[j] - *diag[k] + 1.0f);
+            float* qv[3] = { &q.x, &q.y, &q.z };
+            *qv[i] = s * 0.5f;
+            if (s != 0.0f) s = 0.5f / s;
+
+            // Extract remaining components
+            const Vec3* rows[3] = { &u, &v, &w };
+            q.w = ((*rows[k])[j] - (*rows[j])[k]) * s;
+            *qv[j] = ((*rows[j])[i] + (*rows[i])[j]) * s;
+            *qv[k] = ((*rows[k])[i] + (*rows[i])[k]) * s;
+        }
+        return q.normalized();
+    }
+};
+
 class Camera {
     Vec3 origin, lowerLeft, horizontal, vertical, u, v, w_axis;
     float lensRadius;
@@ -1673,6 +1775,18 @@ public:
     Vec3 prevOrigin{0}, prevU{0}, prevV{0}, prevW{0};
     float prevVw = 0, prevVh = 0, prevFocusDist = 0, prevShiftX = 0, prevShiftY = 0;
     bool hasPrevCamera = false;
+
+    // pkg88-A: camera motion blur shutter keyframes (T/R/S decomposed).
+    // Mirrored from PBRT-v4 AnimatedTransform (Apache-2.0) and Cycles
+    // DecomposedTransform (Apache-2.0). Populated by Blender addon when
+    // scene.render.use_motion_blur is enabled; consumed by getRay() to
+    // interpolate camera basis at sampled time.
+    Vec3 shutterStartT{0}, shutterEndT{0};                     // Translation
+    Quaternion shutterStartR{}, shutterEndR{};                 // Rotation
+    Vec3 shutterStartS{1,1,1}, shutterEndS{1,1,1};             // Scale (uniform for camera)
+    float shutter = 0.0f;  // Shutter duration in frames (0 = off, 0.5 = Cycles default)
+    enum class ShutterPosition { Start = 0, Center = 1, End = 2 };
+    ShutterPosition shutterPosition = ShutterPosition::Center;
 
     Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio,
            float aperture, float focusDist, int w, int h,
@@ -1712,15 +1826,59 @@ public:
         }
     }
 
-    Ray getRay(float s, float t, std::mt19937& gen) const {
+    // pkg88-A: getRay now requires explicit time parameter (no default).
+    // time ∈ [0, 1] within the shutter window; mapped to actual shutter
+    // subframe by shutterPosition. Signature change per spec Q10.
+    Ray getRay(float s, float t, float time, std::mt19937& gen) const {
+        // pkg88-A: if shutter is off, use current camera basis (pre-pkg88 path).
+        // This gates acceptance criterion A3 (zero-shutter regression).
+        if (shutter <= 0.0f) {
+            Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
+            Vec3 offset = u * rd.x + v * rd.y;
+            Ray ray(origin + offset, lowerLeft + horizontal * s + vertical * t - origin - offset, 0.0f, s, t);
+            ray.hasCameraFrame = true;
+            ray.cameraOrigin = origin;
+            ray.cameraU = u;
+            ray.cameraV = v;
+            ray.cameraW = w_axis;
+            return ray;
+        }
+
+        // pkg88-A: interpolate camera transform at sampled time using T/R/S decomposition.
+        // Mirrored from PBRT-v4 AnimatedTransform::Interpolate (Apache-2.0).
+        // T and S use linear interpolation; R uses quaternion slerp (Shoemake 1985).
+        Vec3 T_interp = shutterStartT * (1 - time) + shutterEndT * time;
+        Quaternion R_interp = Quaternion::slerp(time, shutterStartR, shutterEndR);
+        Vec3 S_interp = shutterStartS * (1 - time) + shutterEndS * time;
+
+        // Convert interpolated rotation quaternion to basis vectors
+        Vec3 u_interp, v_interp, w_interp;
+        R_interp.toMatrix(u_interp, v_interp, w_interp);
+
+        // Apply scale (for camera, scale is typically uniform (1,1,1), but we store it anyway)
+        u_interp = u_interp * S_interp.x;
+        v_interp = v_interp * S_interp.y;
+        w_interp = w_interp * S_interp.z;
+
+        // Reconstruct camera projection using interpolated transform
+        Vec3 origin_interp = T_interp;
+        Vec3 horizontal_interp = u_interp * vw_;
+        Vec3 vertical_interp = v_interp * vh_;
+        Vec3 lowerLeft_interp = origin_interp - horizontal_interp * (0.5f - shiftX_)
+                                               - vertical_interp * (0.5f - shiftY_)
+                                               - w_interp * focusDist_;
+
+        // Generate ray from interpolated camera
         Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
-        Vec3 offset = u * rd.x + v * rd.y;
-        Ray ray(origin + offset, lowerLeft + horizontal * s + vertical * t - origin - offset, 0.0f, s, t);
+        Vec3 offset = u_interp * rd.x + v_interp * rd.y;
+        Ray ray(origin_interp + offset,
+                lowerLeft_interp + horizontal_interp * s + vertical_interp * t - origin_interp - offset,
+                time, s, t);
         ray.hasCameraFrame = true;
-        ray.cameraOrigin = origin;
-        ray.cameraU = u;
-        ray.cameraV = v;
-        ray.cameraW = w_axis;
+        ray.cameraOrigin = origin_interp;
+        ray.cameraU = u_interp;
+        ray.cameraV = v_interp;
+        ray.cameraW = w_interp;
         return ray;
     }
 
@@ -1764,6 +1922,21 @@ public:
     Vec3 getU()          const { return u; }
     Vec3 getV()          const { return v; }
     float getLensRadius() const { return lensRadius; }
+
+    // pkg88-A: motion blur accessors for GPU upload
+    Vec3 getShutterStartT() const { return shutterStartT; }
+    Vec3 getShutterEndT()   const { return shutterEndT; }
+    Quaternion getShutterStartR() const { return shutterStartR; }
+    Quaternion getShutterEndR()   const { return shutterEndR; }
+    Vec3 getShutterStartS() const { return shutterStartS; }
+    Vec3 getShutterEndS()   const { return shutterEndS; }
+    float getShutter()      const { return shutter; }
+    ShutterPosition getShutterPosition() const { return shutterPosition; }
+    float getVw()           const { return vw_; }
+    float getVh()           const { return vh_; }
+    float getFocusDist()    const { return focusDist_; }
+    float getShiftX()       const { return shiftX_; }
+    float getShiftY()       const { return shiftY_; }
 };
 
 // Named-buffer view over Camera's pixel data, passed to Pass::execute().
@@ -1797,6 +1970,25 @@ public:
         return buffer(name) != nullptr;
     }
 };
+
+// ============================================================================
+// HALTON SAMPLER (pkg88-A)
+// ============================================================================
+
+// pkg88-A: Halton low-discrepancy sampler for time dimension.
+// Mirrored from PBRT §8.2 "Halton Sampler" (Apache-2.0).
+// Used for stratified time sampling in motion blur.
+inline float halton(int index, int base) {
+    float result = 0.0f;
+    float f = 1.0f;
+    int i = index;
+    while (i > 0) {
+        f = f / base;
+        result += f * (i % base);
+        i = i / base;
+    }
+    return result;
+}
 
 // ============================================================================
 // RENDERER WITH NEE AND MIS - FIX: Proper emission handling
@@ -2505,6 +2697,12 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         for (int s = 0; s < maxSamples; ++s) {
                             float u = (x + filterSample(gen, dist)) / (cam.width - 1);
                             float v = 1.0f - (y + filterSample(gen, dist)) / (cam.height - 1);
+
+                            // pkg88-A: sample time from Halton dimension 8 (independent per spp).
+                            // Per spec Q-Owner-4, we use independent Halton (not stratified)
+                            // for consistency between megakernel and wavefront paths.
+                            float time = halton(s + 1, 2);  // base-2 Halton for dim 8
+
                             Vec3 sAlb, sNorm, sPosition(0), sUv(0);
                             std::array<Vec3, PASS_COUNT> sPass;
                             sPass.fill(Vec3(0));
@@ -2518,7 +2716,8 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             // pkg72: materialise the primary ray so the motion-vector write
                             // below can recover the world-space hit point (origin + dir*depth)
                             // even for integrators that don't populate SampleResult.position.
-                            Ray primaryRay = cam.getRay(u, v, gen);
+                            // pkg88-A: pass sampled time to getRay (signature change per spec Q10).
+                            Ray primaryRay = cam.getRay(u, v, time, gen);
                             if (s == 0) {
                                 firstPrimaryRay = primaryRay;
                                 // pkg72: use the jittered pixel coordinate as

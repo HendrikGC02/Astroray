@@ -28,6 +28,28 @@ All sources are public-domain or published open-access measurements.
   for windows", Solar Energy Materials 12 (1985) 275-288.
   Used to compute window glass Fresnel reflectance.
 
+## Light sources (pkg38 amendment)
+
+- **colour-science library** — BSD-3-Clause licensed Python library
+  (https://github.com/colour-science/colour, v0.4.7).
+  Provides CIE 15:2018 standard illuminant data (F-series fluorescent,
+  LED-B series phosphor LEDs) in a permissively-licensed format.
+
+- **CIE 15:2018** — *Colorimetry, 4th edition*.
+  Tables 10 (F-series fluorescent) and 12.1/12.2 (LED-B series).
+  Public domain scientific standard data, routinely reproduced in open-source
+  rendering codebases (Mitsuba, PBRT-v4, Cycles, colour-science).
+
+- **NIST Atomic Spectra Database** — Standard Reference Database #78.
+  https://www.nist.gov/pml/atomic-spectra-database
+  Public domain (US Government work). Provides authoritative wavelength and
+  intensity data for atomic emission lines (Na I, Hg I).
+
+All light-source SPDs are normalised to peak = 1.0 (relative emission),
+resampled to 5 nm resolution, and zero-padded outside the measured range
+(300-2500 nm). Consumers (e.g., pkg89 `EmissionSpectrum::MeasuredSPD`) multiply
+by a user-supplied radiometric scale (W/m²/sr or lumens).
+
 ## Per-material attribution
 
 ### 00. `deciduous_leaf_green`  (vegetation)
@@ -161,3 +183,31 @@ All sources are public-domain or published open-access measurements.
 ### 39. `hair_dark`  (human)
 **Source:** Bashkatov et al. 2002, Proc. SPIE 4623: dark hair diffuse reflectance ~3-8%
 **Notes:** Dark brown/black hair; melanin gives low, slowly rising spectral reflectance
+
+### 40. `cie_f2`  (light_source)
+**Source:** CIE 15:2018 F2 fluorescent illuminant (via colour-science v0.4.7, BSD-3-Clause)
+**Notes:** Cool white fluorescent, CCT ~4230 K, halophosphate phosphor, 380-780nm
+
+### 41. `cie_f3`  (light_source)
+**Source:** CIE 15:2018 F3 fluorescent illuminant (via colour-science v0.4.7, BSD-3-Clause)
+**Notes:** White fluorescent, CCT ~3450 K, halophosphate phosphor, 380-780nm
+
+### 42. `led_3000k`  (light_source)
+**Source:** CIE 15:2018 LED-B3 (via colour-science v0.4.7, BSD-3-Clause)
+**Notes:** Warm white LED ~3000K, blue pump + YAG:Ce phosphor, 380-780nm
+
+### 43. `led_5000k`  (light_source)
+**Source:** CIE 15:2018 LED-B4 (via colour-science v0.4.7, BSD-3-Clause)
+**Notes:** Neutral white LED ~5000K, blue pump + YAG:Ce phosphor, 380-780nm
+
+### 44. `led_6500k`  (light_source)
+**Source:** CIE 15:2018 LED-B5 (via colour-science v0.4.7, BSD-3-Clause)
+**Notes:** Cool daylight LED ~6598K, blue pump + YAG:Ce phosphor, 380-780nm
+
+### 45. `sodium_vapor`  (light_source)
+**Source:** NIST Atomic Spectra Database: Na I D-lines (public domain, US Gov)
+**Notes:** Low-pressure sodium: D2 (588.995 nm, intensity 2), D1 (589.592 nm, intensity 1)
+
+### 46. `mercury_vapor`  (light_source)
+**Source:** NIST Atomic Spectra Database: Hg I persistent lines (public domain, US Gov)
+**Notes:** High-pressure mercury: 404.66nm (400), 435.83nm (1000), 546.07nm (500) + 5% phosphor continuum 400-700nm

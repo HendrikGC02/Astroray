@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "n_materials": 40,
+  "n_materials": 47,
   "wavelength_grid": {
     "lambda_min_nm": 300.0,
     "lambda_max_nm": 2500.0,
@@ -14,7 +14,8 @@
     "3": "metal",
     "4": "fabric",
     "5": "paint",
-    "6": "human"
+    "6": "human",
+    "7": "light_source"
   },
   "materials": [
     {
@@ -296,6 +297,55 @@
       "category": "human",
       "source": "Bashkatov et al. 2002, Proc. SPIE 4623: dark hair diffuse reflectance ~3-8%",
       "notes": "Dark brown/black hair; melanin gives low, slowly rising spectral reflectance"
+    },
+    {
+      "index": 40,
+      "name": "cie_f2",
+      "category": "light_source",
+      "source": "CIE 15:2018 F2 fluorescent illuminant (via colour-science v0.4.7, BSD-3-Clause)",
+      "notes": "Cool white fluorescent, CCT ~4230 K, halophosphate phosphor, 380-780nm"
+    },
+    {
+      "index": 41,
+      "name": "cie_f3",
+      "category": "light_source",
+      "source": "CIE 15:2018 F3 fluorescent illuminant (via colour-science v0.4.7, BSD-3-Clause)",
+      "notes": "White fluorescent, CCT ~3450 K, halophosphate phosphor, 380-780nm"
+    },
+    {
+      "index": 42,
+      "name": "led_3000k",
+      "category": "light_source",
+      "source": "CIE 15:2018 LED-B3 (via colour-science v0.4.7, BSD-3-Clause)",
+      "notes": "Warm white LED ~3000K, blue pump + YAG:Ce phosphor, 380-780nm"
+    },
+    {
+      "index": 43,
+      "name": "led_5000k",
+      "category": "light_source",
+      "source": "CIE 15:2018 LED-B4 (via colour-science v0.4.7, BSD-3-Clause)",
+      "notes": "Neutral white LED ~5000K, blue pump + YAG:Ce phosphor, 380-780nm"
+    },
+    {
+      "index": 44,
+      "name": "led_6500k",
+      "category": "light_source",
+      "source": "CIE 15:2018 LED-B5 (via colour-science v0.4.7, BSD-3-Clause)",
+      "notes": "Cool daylight LED ~6598K, blue pump + YAG:Ce phosphor, 380-780nm"
+    },
+    {
+      "index": 45,
+      "name": "sodium_vapor",
+      "category": "light_source",
+      "source": "NIST Atomic Spectra Database: Na I D-lines (public domain, US Gov)",
+      "notes": "Low-pressure sodium: D2 (588.995 nm, intensity 2), D1 (589.592 nm, intensity 1)"
+    },
+    {
+      "index": 46,
+      "name": "mercury_vapor",
+      "category": "light_source",
+      "source": "NIST Atomic Spectra Database: Hg I persistent lines (public domain, US Gov)",
+      "notes": "High-pressure mercury: 404.66nm (400), 435.83nm (1000), 546.07nm (500) + 5% phosphor continuum 400-700nm"
     }
   ]
 }

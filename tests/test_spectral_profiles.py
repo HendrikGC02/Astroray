@@ -16,6 +16,7 @@ LAMBDA_MIN  = 300.0
 LAMBDA_MAX  = 2500.0
 LAMBDA_STEP = 5.0
 N_LAMBDA    = 441
+WL_GRID     = np.linspace(LAMBDA_MIN, LAMBDA_MAX, N_LAMBDA)
 
 pytestmark = pytest.mark.skipif(
     not os.path.exists(PROFILES_BIN),
@@ -227,3 +228,170 @@ def test_sources_documents_all_materials():
         content = f.read()
     for name in mats:
         assert name in content, f"sources.md does not mention '{name}'"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Light-source SPD tests (pkg38 amendment)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_light_source_category_exists(db):
+    """Category 7 (light_source) must be present."""
+    _, mats, _ = db
+    cats = {m["cat"] for m in mats.values()}
+    assert 7 in cats, "Category 7 (light_source) not found"
+
+
+def test_light_source_count(db):
+    """Must have exactly 7 light-source SPDs."""
+    _, mats, _ = db
+    ls_mats = [name for name, m in mats.items() if m["cat"] == 7]
+    assert len(ls_mats) == 7, f"Expected 7 light sources, got {len(ls_mats)}: {ls_mats}"
+
+
+def test_light_source_normalisation(db):
+    """All light sources must be normalised to peak = 1.0 ± 0.001."""
+    _, mats, _ = db
+    for name, m in mats.items():
+        if m["cat"] == 7:  # light_source
+            peak = float(m["r"].max())
+            assert abs(peak - 1.0) < 0.001, (
+                f"{name}: peak = {peak:.6f}, expected 1.0 ± 0.001"
+            )
+
+
+def test_cie_f2_peak_wavelength(db):
+    """CIE F2: dominant peak at 435 nm (blue mercury line), characteristic of fluorescent lamps."""
+    _, mats, _ = db
+    m = mats["cie_f2"]
+    # Find peak wavelength
+    idx_peak = int(m["r"].argmax())
+    wl_peak = LAMBDA_MIN + idx_peak * LAMBDA_STEP
+    assert 430 <= wl_peak <= 440, (
+        f"CIE F2 peak at {wl_peak:.0f} nm, expected 435 nm (blue Hg line)"
+    )
+
+
+def test_cie_f3_peak_wavelength(db):
+    """CIE F3: peak at 435 nm (blue mercury line), with strong yellow/green phosphor bands."""
+    _, mats, _ = db
+    m = mats["cie_f3"]
+    idx_peak = int(m["r"].argmax())
+    wl_peak = LAMBDA_MIN + idx_peak * LAMBDA_STEP
+    assert 430 <= wl_peak <= 440, (
+        f"CIE F3 peak at {wl_peak:.0f} nm, expected 435 nm (blue Hg line)"
+    )
+
+
+def test_led_3000k_dual_peak(db):
+    """LED 3000K: blue pump peak (445-460 nm) + yellow phosphor peak (580-620 nm).
+    Blue:yellow ratio ~1.0-1.3 for warm white (per CIE LED-B3 data).
+    """
+    _, mats, _ = db
+    m = mats["led_3000k"]
+    r = m["r"]
+
+    # Find blue peak in 440-465 nm
+    blue_region = [(i, r[i]) for i, wl in enumerate(WL_GRID) if 440 <= wl <= 465]
+    blue_peak = max(blue_region, key=lambda x: x[1])[1]
+
+    # Find yellow/red peak in 575-625 nm
+    yellow_region = [(i, r[i]) for i, wl in enumerate(WL_GRID) if 575 <= wl <= 625]
+    yellow_peak = max(yellow_region, key=lambda x: x[1])[1]
+
+    ratio = float(blue_peak / (yellow_peak + 1e-9))
+    assert 0.9 < ratio < 1.4, (
+        f"LED 3000K blue:yellow ratio {ratio:.2f} outside 1.0-1.3 range "
+        f"(blue={blue_peak:.3f}, yellow={yellow_peak:.3f})"
+    )
+
+
+def test_led_5000k_balanced_peaks(db):
+    """LED 5000K: blue:yellow peak ratio ~1.4-1.8 (per CIE LED-B4 data)."""
+    _, mats, _ = db
+    m = mats["led_5000k"]
+    r = m["r"]
+
+    blue_region = [(i, r[i]) for i, wl in enumerate(WL_GRID) if 440 <= wl <= 465]
+    blue_peak = max(blue_region, key=lambda x: x[1])[1]
+
+    yellow_region = [(i, r[i]) for i, wl in enumerate(WL_GRID) if 575 <= wl <= 625]
+    yellow_peak = max(yellow_region, key=lambda x: x[1])[1]
+
+    ratio = float(blue_peak / (yellow_peak + 1e-9))
+    assert 1.3 < ratio < 1.9, (
+        f"LED 5000K blue:yellow ratio {ratio:.2f} outside 1.4-1.8 range"
+    )
+
+
+def test_led_6500k_blue_dominant(db):
+    """LED 6500K: blue peak dominates with ratio > 1.8 (per CIE LED-B5 data)."""
+    _, mats, _ = db
+    m = mats["led_6500k"]
+    r = m["r"]
+
+    blue_region = [(i, r[i]) for i, wl in enumerate(WL_GRID) if 440 <= wl <= 465]
+    blue_peak = max(blue_region, key=lambda x: x[1])[1]
+
+    yellow_region = [(i, r[i]) for i, wl in enumerate(WL_GRID) if 575 <= wl <= 625]
+    yellow_peak = max(yellow_region, key=lambda x: x[1])[1]
+
+    ratio = float(blue_peak / (yellow_peak + 1e-9))
+    assert ratio > 1.8, (
+        f"LED 6500K blue:yellow ratio {ratio:.2f} <= 1.8 (blue should dominate)"
+    )
+
+
+def test_sodium_vapor_d_line_concentration(db):
+    """Sodium vapor: > 95% of total energy in 585-595 nm bins."""
+    _, mats, _ = db
+    m = mats["sodium_vapor"]
+    r = m["r"]
+
+    # Energy in D-line region (585-595 nm)
+    d_line_energy = sum(r[i] for i, wl in enumerate(WL_GRID) if 585 <= wl <= 595)
+
+    # Total energy
+    total_energy = r.sum()
+
+    fraction = float(d_line_energy / (total_energy + 1e-9))
+    assert fraction > 0.95, (
+        f"Sodium D-line energy fraction {fraction:.3f} <= 0.95 "
+        f"(D-line={d_line_energy:.3f}, total={total_energy:.3f})"
+    )
+
+
+def test_mercury_vapor_line_peaks(db):
+    """Mercury vapor: peaks present (within one bin) at 405, 435, 545 nm.
+    Dominant line (435 nm) is normalized to 1.0, continuum << line peaks.
+    """
+    _, mats, _ = db
+    m = mats["mercury_vapor"]
+    r = m["r"]
+
+    # Expected line positions (±5 nm tolerance for 5 nm grid)
+    expected_lines = [405, 435, 545]  # 580 nm line not in NIST persistent set
+
+    # Find peaks within ±5 nm of expected positions
+    line_peaks = {}
+    for wl_expected in expected_lines:
+        peak_in_region = max(
+            r[i] for i, wl in enumerate(WL_GRID)
+            if abs(wl - wl_expected) <= 5
+        )
+        line_peaks[wl_expected] = peak_in_region
+        assert peak_in_region > 0.1, (
+            f"Mercury line at ~{wl_expected} nm has peak {peak_in_region:.3f} < 0.1"
+        )
+
+    # Dominant line (435 nm) should be normalized to 1.0
+    assert abs(line_peaks[435] - 1.0) < 0.01, (
+        f"Mercury 435 nm line peak {line_peaks[435]:.3f} != 1.0"
+    )
+
+    # Check continuum level: should be << line peaks (5% of dominant line)
+    # Sample continuum in a region far from lines (e.g., 480-520 nm)
+    continuum_region = [r[i] for i, wl in enumerate(WL_GRID) if 480 <= wl <= 520]
+    avg_continuum = float(np.mean(continuum_region))
+    assert avg_continuum < 0.10, (
+        f"Mercury continuum level {avg_continuum:.3f} >= 0.10 (should be ~0.05)"
+    )

@@ -42,7 +42,7 @@ USGS_ZIP_NAME = "ASCIIdata_splib07a.zip"
 ECOSTRESS_BASE = "https://speclib.jpl.nasa.gov/ecospeclibdata/"
 
 # Category IDs
-CAT = dict(vegetation=0, earth=1, building=2, metal=3, fabric=4, paint=5, human=6)
+CAT = dict(vegetation=0, earth=1, building=2, metal=3, fabric=4, paint=5, human=6, light_source=7)
 
 # Wavelength grid
 WL_GRID = np.linspace(LAMBDA_MIN, LAMBDA_MAX, N_LAMBDA)  # nm
@@ -564,6 +564,149 @@ def build_all_materials() -> list[dict]:
     return mats
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Light-source SPDs (pkg38 amendment)
+# ──────────────────────────────────────────────────────────────────────────────
+# References:
+#   CIE 15:2018 F-series fluorescent illuminants (via colour-science BSD-3-Clause)
+#   CIE 15:2018 LED-B series phosphor LEDs (via colour-science BSD-3-Clause)
+#   NIST Atomic Spectra Database (public domain, US Gov)
+
+def _build_light_sources() -> list[dict]:
+    """Build the seven light-source SPD profiles (pkg38 amendment).
+
+    Returns list of material dicts with keys: name, category, flags, data, source, notes.
+    All SPDs normalised to peak = 1.0 (relative emission), 5 nm grid, 300-2500 nm.
+    """
+    import colour  # BSD-3-Clause licensed
+
+    def mat_ls(name: str, data: np.ndarray, source: str, notes: str = "") -> dict:
+        """Helper to create a light_source category material."""
+        # Quality control: handle NaN/Inf, ensure non-negative
+        data_qc = np.array(data, dtype=np.float32)
+        data_qc = np.where(np.isfinite(data_qc), data_qc, 0.0)
+        data_qc = np.maximum(data_qc, 0.0)  # Ensure non-negative
+
+        # Normalise to peak = 1.0 BEFORE clipping (preserve relative intensities)
+        peak = data_qc.max()
+        if peak > 0:
+            data_qc = data_qc / peak
+
+        # Final safety: clip to [0,1] (should be no-op after normalization)
+        data_qc = np.clip(data_qc, 0.0, 1.0)
+
+        return dict(
+            name=name, category="light_source", flags=0,
+            data=data_qc,
+            source=source, notes=notes,
+        )
+
+    def _resample_cie(illuminant_key: str) -> np.ndarray:
+        """Extract CIE illuminant from colour-science, resample to pkg38 grid."""
+        spd = colour.SDS_ILLUMINANTS[illuminant_key]
+        wl_src = np.array(spd.wavelengths, dtype=np.float64)
+        val_src = np.array(spd.values, dtype=np.float64)
+
+        # Sort by wavelength
+        order = np.argsort(wl_src)
+        wl_src = wl_src[order]
+        val_src = val_src[order]
+
+        # Resample: linear interpolation within range, zero outside
+        r_grid = np.interp(WL_GRID, wl_src, val_src, left=0.0, right=0.0)
+
+        return r_grid.astype(np.float32)
+
+    def _atomic_lines(lines: list[tuple[float, float]]) -> np.ndarray:
+        """Build SPD from discrete atomic lines (wavelength_nm, relative_intensity).
+
+        Each line is placed in the nearest 5 nm grid bin.
+        Normalisation done in mat_ls.
+        """
+        r = np.zeros(N_LAMBDA, dtype=np.float32)
+        for wl_nm, intensity in lines:
+            # Find nearest grid point
+            idx = int(round((wl_nm - LAMBDA_MIN) / LAMBDA_STEP))
+            if 0 <= idx < N_LAMBDA:
+                r[idx] += intensity
+
+        return r
+
+    lamps = []
+    print("Building light-source SPDs...")
+
+    # ── CIE F2 (cool white fluorescent) ──────────────────────────────────────
+    lamps.append(mat_ls(
+        "cie_f2",
+        _resample_cie("FL2"),
+        "CIE 15:2018 F2 fluorescent illuminant (via colour-science v0.4.7, BSD-3-Clause)",
+        notes="Cool white fluorescent, CCT ~4230 K, halophosphate phosphor, 380-780nm"
+    ))
+
+    # ── CIE F3 (white fluorescent) ───────────────────────────────────────────
+    lamps.append(mat_ls(
+        "cie_f3",
+        _resample_cie("FL3"),
+        "CIE 15:2018 F3 fluorescent illuminant (via colour-science v0.4.7, BSD-3-Clause)",
+        notes="White fluorescent, CCT ~3450 K, halophosphate phosphor, 380-780nm"
+    ))
+
+    # ── LED 3000K (warm white) ───────────────────────────────────────────────
+    lamps.append(mat_ls(
+        "led_3000k",
+        _resample_cie("LED-B3"),
+        "CIE 15:2018 LED-B3 (via colour-science v0.4.7, BSD-3-Clause)",
+        notes="Warm white LED ~3000K, blue pump + YAG:Ce phosphor, 380-780nm"
+    ))
+
+    # ── LED 5000K (neutral white) ────────────────────────────────────────────
+    lamps.append(mat_ls(
+        "led_5000k",
+        _resample_cie("LED-B4"),
+        "CIE 15:2018 LED-B4 (via colour-science v0.4.7, BSD-3-Clause)",
+        notes="Neutral white LED ~5000K, blue pump + YAG:Ce phosphor, 380-780nm"
+    ))
+
+    # ── LED 6500K (cool daylight) ────────────────────────────────────────────
+    lamps.append(mat_ls(
+        "led_6500k",
+        _resample_cie("LED-B5"),
+        "CIE 15:2018 LED-B5 (via colour-science v0.4.7, BSD-3-Clause)",
+        notes="Cool daylight LED ~6598K, blue pump + YAG:Ce phosphor, 380-780nm"
+    ))
+
+    # ── Sodium vapor (D-line doublet) ────────────────────────────────────────
+    # NIST ASD Na I D-lines: D2 at 588.995 nm (intensity 2), D1 at 589.592 nm (intensity 1)
+    # Ratio D2:D1 ≈ 2:1 from statistical weights
+    lamps.append(mat_ls(
+        "sodium_vapor",
+        _atomic_lines([(588.995, 2.0), (589.592, 1.0)]),
+        "NIST Atomic Spectra Database: Na I D-lines (public domain, US Gov)",
+        notes="Low-pressure sodium: D2 (588.995 nm, intensity 2), D1 (589.592 nm, intensity 1)"
+    ))
+
+    # ── Mercury vapor (multi-line + continuum) ───────────────────────────────
+    # NIST ASD Hg I persistent lines: 404.66 nm (400), 435.83 nm (1000), 546.07 nm (500)
+    # High-pressure mercury includes phosphor continuum: add flat 5% baseline in 400-700nm
+    hg_lines = _atomic_lines([(404.66, 400.0), (435.83, 1000.0), (546.07, 500.0)])
+
+    # Add phosphor continuum: flat 5% of the 435.83 nm line peak (~50 units) in 400-700 nm
+    # This is 5% of the dominant line's intensity before normalization
+    for i, wl in enumerate(WL_GRID):
+        if 400 <= wl <= 700:
+            hg_lines[i] += 50.0  # 5% of 1000 (the 435.83 nm line intensity)
+
+    # Normalization done in mat_ls
+    lamps.append(mat_ls(
+        "mercury_vapor",
+        hg_lines,
+        "NIST Atomic Spectra Database: Hg I persistent lines (public domain, US Gov)",
+        notes="High-pressure mercury: 404.66nm (400), 435.83nm (1000), 546.07nm (500) + 5% phosphor continuum 400-700nm"
+    ))
+
+    return lamps
+
+
 # ──────────────────────────────────────────────────────────────────────���───────
 # ASPR binary format writer
 # ──────────────────────────────────────────────────────────────────────────────
@@ -669,6 +812,28 @@ def write_sources(materials: list[dict], path: str) -> None:
         '  "Optical constants and bulk optical properties of soda lime silica glasses',
         '  for windows", Solar Energy Materials 12 (1985) 275-288.',
         "  Used to compute window glass Fresnel reflectance.",
+        "",
+        "## Light sources (pkg38 amendment)",
+        "",
+        "- **colour-science library** — BSD-3-Clause licensed Python library",
+        "  (https://github.com/colour-science/colour, v0.4.7).",
+        "  Provides CIE 15:2018 standard illuminant data (F-series fluorescent,",
+        "  LED-B series phosphor LEDs) in a permissively-licensed format.",
+        "",
+        "- **CIE 15:2018** — *Colorimetry, 4th edition*.",
+        "  Tables 10 (F-series fluorescent) and 12.1/12.2 (LED-B series).",
+        "  Public domain scientific standard data, routinely reproduced in open-source",
+        "  rendering codebases (Mitsuba, PBRT-v4, Cycles, colour-science).",
+        "",
+        "- **NIST Atomic Spectra Database** — Standard Reference Database #78.",
+        "  https://www.nist.gov/pml/atomic-spectra-database",
+        "  Public domain (US Government work). Provides authoritative wavelength and",
+        "  intensity data for atomic emission lines (Na I, Hg I).",
+        "",
+        "All light-source SPDs are normalised to peak = 1.0 (relative emission),",
+        "resampled to 5 nm resolution, and zero-padded outside the measured range",
+        "(300-2500 nm). Consumers (e.g., pkg89 `EmissionSpectrum::MeasuredSPD`) multiply",
+        "by a user-supplied radiometric scale (W/m²/sr or lumens).",
         "",
         "## Per-material attribution",
         "",
@@ -783,6 +948,8 @@ def main() -> None:
     print(f"  Grid: {LAMBDA_MIN}-{LAMBDA_MAX} nm, step {LAMBDA_STEP} nm, {N_LAMBDA} points")
 
     materials = build_all_materials()
+    light_sources = _build_light_sources()
+    materials.extend(light_sources)
 
     validate(materials)
 

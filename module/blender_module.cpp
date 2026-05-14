@@ -517,10 +517,50 @@ public:
         double incl = params.contains("inclination")
             ? params["inclination"].cast<double>() : 75.0;
 
+        // pkg43: accretion model selector. Default to NOVIKOV_THORNE for backward compatibility.
+        std::string accretion_model = params.contains("accretion_model")
+            ? params["accretion_model"].cast<std::string>() : "NOVIKOV_THORNE";
+
         auto bh = std::make_shared<BlackHole>(
             Vec3(position[0], position[1], position[2]),
             double(mass_solar), double(influence_radius),
             disk_outer, mdot, incl);
+
+        // pkg43: Add slim disk emission if selected
+        if (accretion_model == "SLIM_DISK") {
+            astroray::ParamDict slim_params;
+            slim_params.set("mass", static_cast<float>(mass_solar));
+            slim_params.set("mdot", static_cast<float>(mdot));
+            slim_params.set("r_outer", static_cast<float>(disk_outer));
+
+            // Slim disk specific parameters with defaults
+            if (params.contains("slim_disk_spin")) {
+                slim_params.set("spin", params["slim_disk_spin"].cast<float>());
+            } else {
+                slim_params.set("spin", 0.0f);
+            }
+            if (params.contains("slim_disk_r_inner")) {
+                slim_params.set("r_inner", params["slim_disk_r_inner"].cast<float>());
+            } else {
+                slim_params.set("r_inner", 0.0f); // 0 = use ISCO
+            }
+            if (params.contains("slim_disk_intensity_scale")) {
+                slim_params.set("intensity_scale", params["slim_disk_intensity_scale"].cast<float>());
+            } else {
+                slim_params.set("intensity_scale", 1.0f);
+            }
+            if (params.contains("slim_disk_base_density")) {
+                slim_params.set("base_density", params["slim_disk_base_density"].cast<float>());
+            } else {
+                slim_params.set("base_density", 1.0e3f);
+            }
+
+            auto slim_disk = astroray::EmissionRegistry::instance().create("slim_disk", slim_params);
+            bh->addVolumetricEmission(slim_disk);
+        }
+        // For NOVIKOV_THORNE, the BlackHole constructor already creates the disk
+        // For ADAF (pkg44), will be handled when implemented
+
         bool enableJet = params.contains("enable_jet")
             ? params["enable_jet"].cast<bool>() : false;
         if (enableJet) {

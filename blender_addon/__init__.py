@@ -3095,21 +3095,31 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if bh.mass > 0:
                     try:
                         mw = obj_instance.matrix_world
+                        params = {
+                            'disk_outer':     bh.disk_outer,
+                            'accretion_rate': bh.accretion_rate,
+                            'inclination':    bh.inclination,
+                            'enable_jet':     bh.enable_jet,
+                            'lorentz_factor': bh.jet_lorentz_factor,
+                            'half_angle_degrees': bh.jet_half_angle,
+                            'power_law_index': bh.jet_power_law_index,
+                            'base_density': bh.jet_base_density,
+                            'magnetic_field': bh.jet_magnetic_field,
+                        }
+                        # pkg43: accretion model selector
+                        if hasattr(bh, 'accretion_model'):
+                            params['accretion_model'] = bh.accretion_model
+                            # Slim disk specific parameters
+                            if bh.accretion_model == 'SLIM_DISK':
+                                params['slim_disk_spin'] = bh.slim_disk_spin
+                                params['slim_disk_r_inner'] = bh.slim_disk_r_inner
+                                params['slim_disk_intensity_scale'] = bh.slim_disk_intensity_scale
+                                params['slim_disk_base_density'] = bh.slim_disk_base_density
                         renderer.add_black_hole(
                             [mw.translation.x, mw.translation.y, mw.translation.z],
                             bh.mass,
                             bh.influence_radius,
-                            {
-                                'disk_outer':     bh.disk_outer,
-                                'accretion_rate': bh.accretion_rate,
-                                'inclination':    bh.inclination,
-                                'enable_jet':     bh.enable_jet,
-                                'lorentz_factor': bh.jet_lorentz_factor,
-                                'half_angle_degrees': bh.jet_half_angle,
-                                'power_law_index': bh.jet_power_law_index,
-                                'base_density': bh.jet_base_density,
-                                'magnetic_field': bh.jet_magnetic_field,
-                            }
+                            params
                         )
                     except Exception as e:
                         print(f"Black hole conversion error: {e}")
@@ -4031,6 +4041,19 @@ class AstrorayBlackHoleProperties(PropertyGroup):
                         description="Black hole mass in solar masses")
     influence_radius: FloatProperty(name="Influence Radius", min=1.0, max=10000.0, default=100.0,
                                     description="World-space radius of the GR influence sphere")
+
+    # pkg43/pkg44: accretion model selector
+    accretion_model: EnumProperty(
+        name="Accretion Model",
+        description="Choose the accretion disk model",
+        items=[
+            ('NOVIKOV_THORNE', "Novikov-Thorne", "Standard thin disk (Page & Thorne 1974)"),
+            ('SLIM_DISK', "Slim Disk", "Super-Eddington disk with advection (Abramowicz 1988 / Sadowski 2009)"),
+            ('ADAF', "ADAF", "Advection-dominated accretion flow (pkg44, not yet implemented)"),
+        ],
+        default='NOVIKOV_THORNE'
+    )
+
     disk_outer: FloatProperty(name="Disk Outer Radius (M)", min=6.0, max=1000.0, default=30.0,
                                description="Accretion disk outer radius in units of M")
     accretion_rate: FloatProperty(name="Accretion Rate", min=0.01, max=100.0, default=1.0,
@@ -4038,6 +4061,16 @@ class AstrorayBlackHoleProperties(PropertyGroup):
     inclination: FloatProperty(name="Inclination (\u00b0)", min=0.0, max=90.0, default=75.0,
                                 description="Observer inclination from the spin axis")
     show_disk: BoolProperty(name="Show Accretion Disk", default=True)
+
+    # Slim disk specific parameters (pkg43)
+    slim_disk_spin: FloatProperty(name="Spin (a)", min=-0.998, max=0.998, default=0.0,
+                                   description="Dimensionless black hole spin parameter")
+    slim_disk_r_inner: FloatProperty(name="Inner Radius (M)", min=0.0, max=100.0, default=0.0,
+                                      description="Inner disk edge in M (0 = ISCO)")
+    slim_disk_intensity_scale: FloatProperty(name="Intensity Scale", min=0.0, max=1000.0, default=1.0,
+                                              description="Emission intensity multiplier")
+    slim_disk_base_density: FloatProperty(name="Base Density", min=0.0, max=1.0e12, default=1.0e3,
+                                          description="Electron density at midplane in cm^-3")
     enable_jet: BoolProperty(name="Synchrotron Jets", default=False,
                              description="Enable pkg42 bipolar synchrotron jet emission")
     jet_lorentz_factor: FloatProperty(name="Jet Lorentz Factor", min=1.0, max=50.0, default=5.0,
@@ -4086,10 +4119,31 @@ class OBJECT_PT_astroray_black_hole(Panel):
         col.prop(bh, "mass")
         col.prop(bh, "influence_radius")
         col.separator()
+
+        # Accretion model selector (pkg43/pkg44)
+        col.prop(bh, "accretion_model")
+
+        # ADAF is not yet implemented (pkg44), so disable that option
+        if bh.accretion_model == 'ADAF':
+            box = col.box()
+            box.label(text="ADAF not yet implemented (pkg44)", icon='ERROR')
+
+        col.separator()
         col.prop(bh, "disk_outer")
         col.prop(bh, "accretion_rate")
         col.prop(bh, "inclination")
         col.prop(bh, "show_disk")
+
+        # Show slim disk parameters only when SLIM_DISK is selected
+        if bh.accretion_model == 'SLIM_DISK':
+            col.separator()
+            slim_col = col.column(align=True)
+            slim_col.label(text="Slim Disk Parameters:")
+            slim_col.prop(bh, "slim_disk_spin")
+            slim_col.prop(bh, "slim_disk_r_inner")
+            slim_col.prop(bh, "slim_disk_intensity_scale")
+            slim_col.prop(bh, "slim_disk_base_density")
+
         col.separator()
         col.prop(bh, "enable_jet")
         jet_col = col.column(align=True)

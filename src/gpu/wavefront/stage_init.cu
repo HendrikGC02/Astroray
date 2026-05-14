@@ -42,6 +42,7 @@ __global__ void stageInitKernel(
     int*         depth,
     float*       pdf,
     float4*      throughput,
+    uint8_t*     path_alive,
     curandState* rng_state,
     GCameraParams cam,
     int width, int height)
@@ -79,6 +80,7 @@ __global__ void stageInitKernel(
     sample_index[idx] = 0;
     depth[idx]        = 0;
     pdf[idx]          = 1.f;
+    path_alive[idx]   = 1;  // Initialize path as alive
 }
 
 }  // namespace
@@ -107,6 +109,7 @@ void launchStageInit(
             state.depth,
             state.pdf,
             reinterpret_cast<float4*>(state.throughput),
+            state.path_alive,
             reinterpret_cast<curandState*>(state.rng_state),
             cam, width, height);
         cudaError_t err = cudaGetLastError();

@@ -27,6 +27,7 @@ namespace {
 
 __global__ void missKernel(
     const float*   hit_t,
+    const int*     depth,
     const float4*  ray_direction,
     const float4*  lambda,
     const float4*  throughput,
@@ -65,7 +66,7 @@ __global__ void missKernel(
     }
 
     // Accumulate only if first bounce or after specular (megakernel line 279-280)
-    if (was_specular[idx] != 0) {
+    if (depth[idx] == 0 || was_specular[idx] != 0) {
         GVec3 tp(throughput[idx].x, throughput[idx].y, throughput[idx].z);
         GVec3 radiance = tp * envColor;
 
@@ -99,6 +100,7 @@ void launchStageMiss(
             (const void*)missKernel, blocks, threads);
         missKernel<<<blocks, threads>>>(
             state.hit_t,
+            state.depth,
             reinterpret_cast<const float4*>(state.ray_direction),
             reinterpret_cast<const float4*>(state.lambda),
             reinterpret_cast<const float4*>(state.throughput),

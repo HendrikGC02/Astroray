@@ -40,8 +40,9 @@ void wavefrontRenderSample(
     int totalPixels = width * height;
     if (totalPixels <= 0) return;
 
-    // Zero the accumulation buffer before the first sample batch.
-    // Phase B: accum_rgb is per-path-slot (allocated at capacity size).
+    // Zero the accumulation buffer before the spp loop.
+    // Bug fix (pkg55-B): accum_rgb must accumulate across all samples,
+    // so zero it ONCE before the loop, not inside (which was overwriting).
     if (state.accum_rgb) {
         cudaMemset(state.accum_rgb, 0,
                    (size_t)state.capacity * sizeof(float) * 4);
@@ -54,12 +55,6 @@ void wavefrontRenderSample(
         // Generates camera rays for all pixels; writes ray SoA + rng state.
         // num_active = totalPixels after init.
         launchStageInit(state, cam, width, height);
-
-        // Zero per-path accum_rgb for this sample's paths
-        if (state.accum_rgb && state.num_active > 0) {
-            cudaMemset(state.accum_rgb, 0,
-                       (size_t)state.num_active * sizeof(float) * 4);
-        }
 
         // --- Bounce loop ---
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
@@ -79,6 +74,12 @@ void wavefrontRenderSample(
             if (d_sortScratch && sortScratchBytes_ > 0) {
                 sortByMaterial(state, d_sortScratch, sortScratchBytes_);
             }
+
+            // Zero NEE queue before shade kernels write to it
+            if (state.nee_active && state.num_active > 0) {
+                cudaMemset(state.nee_active, 0, (size_t)state.num_active);
+            }
+
 
             // Stage: shade — one kernel per material type.
             // Each kernel filters its own material type via hit_mat check.
@@ -123,11 +124,12 @@ void wavefrontRenderSample(
 
         }  // bounce loop
 
-        // After all bounces: write accum_rgb slots to framebuffer pixels.
-        // Frame buffer is zeroed by CUDARenderer between samples; we add.
-        launchWriteAccumulated(state, d_framebuffer, 1, totalPixels);
-
     }  // spp loop
+
+    // After all samples: write accum_rgb slots to framebuffer pixels.
+    // Bug fix (pkg55-B): write ONCE after all samples with samplesPerPixel=N,
+    // not inside the loop with =1 (which was writing every sample separately).
+    launchWriteAccumulated(state, d_framebuffer, samplesPerPixel, totalPixels);
 }
 
 }  // namespace astroray::wavefront

@@ -29,13 +29,6 @@ namespace astroray::wavefront {
 
 namespace {
 
-// Forward declare NEE helper from the megakernel
-__device__ inline float powerHeuristic(float a, float b) {
-    float a2 = a*a, b2 = b*b;
-    float d = a2 + b2;
-    return (d < 1e-8f) ? 0.5f : a2 / d;
-}
-
 __global__ void shadeLambertianKernel(
     // SoA input: all arrays sized by num_active
     const float4*  hit_point,
@@ -139,34 +132,10 @@ __global__ void shadeLambertianKernel(
         return;
     }
 
-    // Update throughput (megakernel line 321-322)
-    throughput *= bs.f / (bs.pdf + 0.001f);
-    throughputSpectral *= bs.fSpectral * (1.f / (bs.pdf + 0.001f));
-
-    // Firefly suppression (megakernel line 325-328)
-    float maxC = throughput.maxComponent();
-    if (maxC > 10.f) throughput *= 10.f / maxC;
-    float maxS = throughputSpectral.maxValue();
-    if (maxS > 10.f) throughputSpectral *= 10.f / maxS;
-
-    // Write next bounce ray
-    ray_origin_out[idx] = make_float4(rec.point.x, rec.point.y, rec.point.z, 0.f);
-    ray_direction_out[idx] = make_float4(bs.wi.x, bs.wi.y, bs.wi.z, 0.f);
-    throughput_out[idx] = make_float4(throughput.x, throughput.y, throughput.z, 0.f);
-
-    float4 tspec;
-    reinterpret_cast<float*>(&tspec)[0] = throughputSpectral[0];
-    reinterpret_cast<float*>(&tspec)[1] = throughputSpectral[1];
-    reinterpret_cast<float*>(&tspec)[2] = throughputSpectral[2];
-    reinterpret_cast<float*>(&tspec)[3] = throughputSpectral[3];
-    throughput_sp_out[idx] = tspec;
-
-    pdf_out[idx] = bs.pdf;
-    was_specular_out[idx] = bs.isDelta ? 1 : 0;
-    depth_out[idx] = depth[idx] + 1;
-
     // NEE: Lambertian is non-delta, so emit shadow ray
-    // Simplified NEE (full MIS in Phase C): sample one light source
+    // CRITICAL: NEE contribution must use the CURRENT throughput (before BSDF update).
+    // Megakernel pattern (path_trace_kernel.cu:302): color += throughput * sampleDirect(...)
+    // Bug fix (pkg55-B): compute NEE with current throughput, before updating it below.
     bool hasLights = (numLights > 0 && totalLightPower > 0.f);
     if (hasLights && !rec.isDelta) {
         // Power-weighted light selection
@@ -221,18 +190,46 @@ __global__ void shadeLambertianKernel(
             shadow_dir[idx] = make_float4(wi_light.x, wi_light.y, wi_light.z, 0.f);
             shadow_tmax[idx] = dist;
 
-            // Compute NEE contribution: f * Le / pdf (shadow stage multiplies by visibility)
+            // Compute NEE contribution: throughput * f * Le / pdf
+            // (mirrors megakernel path_trace_kernel.cu:302 — multiply by throughput here,
+            //  shadow stage adds directly without re-multiplying)
             GVec3 wo_out(-ray_direction_in[idx].x, -ray_direction_in[idx].y, -ray_direction_in[idx].z);
             wo_out = wo_out.normalized();
             GVec3 f = gpu_material_eval(mat, rec, wo_out, wi_light);
             const GMaterial& lightMat = materials[lightMatId];
             GVec3 Le = gpu_material_emitted(lightMat, true);
-            GVec3 contrib = f * Le / (lightPdf + 0.001f);
+            GVec3 contrib = throughput * f * Le / (lightPdf + 0.001f);
 
             nee_contrib[idx] = make_float4(contrib.x, contrib.y, contrib.z, 0.f);
             nee_active[idx] = 1;
         }
     }
+
+    // Update throughput AFTER computing NEE (megakernel line 321-322)
+    throughput *= bs.f / (bs.pdf + 0.001f);
+    throughputSpectral *= bs.fSpectral * (1.f / (bs.pdf + 0.001f));
+
+    // Firefly suppression (megakernel line 325-328)
+    float maxC = throughput.maxComponent();
+    if (maxC > 10.f) throughput *= 10.f / maxC;
+    float maxS = throughputSpectral.maxValue();
+    if (maxS > 10.f) throughputSpectral *= 10.f / maxS;
+
+    // Write next bounce ray
+    ray_origin_out[idx] = make_float4(rec.point.x, rec.point.y, rec.point.z, 0.f);
+    ray_direction_out[idx] = make_float4(bs.wi.x, bs.wi.y, bs.wi.z, 0.f);
+    throughput_out[idx] = make_float4(throughput.x, throughput.y, throughput.z, 0.f);
+
+    float4 tspec;
+    reinterpret_cast<float*>(&tspec)[0] = throughputSpectral[0];
+    reinterpret_cast<float*>(&tspec)[1] = throughputSpectral[1];
+    reinterpret_cast<float*>(&tspec)[2] = throughputSpectral[2];
+    reinterpret_cast<float*>(&tspec)[3] = throughputSpectral[3];
+    throughput_sp_out[idx] = tspec;
+
+    pdf_out[idx] = bs.pdf;
+    was_specular_out[idx] = bs.isDelta ? 1 : 0;
+    depth_out[idx] = depth[idx] + 1;
 }
 
 }  // namespace

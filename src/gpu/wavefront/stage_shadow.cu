@@ -29,7 +29,6 @@ __global__ void shadowKernel(
     const float*   shadow_tmax,
     const uint8_t* nee_active,
     const float4*  nee_contrib,
-    const float4*  throughput,
     float4*  accum_rgb,
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
@@ -53,17 +52,16 @@ __global__ void shadowKernel(
                                 shadowRay, 0.001f, tmax - 0.001f, shadowHit);
 
     if (!occluded) {
-        // Add NEE contribution to accumulated radiance
-        // nee_contrib already carries the combined BSDF * Le * MIS weight
-        // (simplified in Phase B; full MIS in Phase C)
+        // Add NEE contribution to accumulated radiance.
+        // Bug fix (pkg55-B): nee_contrib already includes throughput (computed in shade kernel
+        // before BSDF update, mirroring megakernel path_trace_kernel.cu:302).
+        // Add directly without re-multiplying.
         GVec3 contrib(nee_contrib[idx].x, nee_contrib[idx].y, nee_contrib[idx].z);
-        GVec3 tp(throughput[idx].x, throughput[idx].y, throughput[idx].z);
-        GVec3 radiance = tp * contrib;
 
         float4 current_accum = accum_rgb[idx];
-        current_accum.x += radiance.x;
-        current_accum.y += radiance.y;
-        current_accum.z += radiance.z;
+        current_accum.x += contrib.x;
+        current_accum.y += contrib.y;
+        current_accum.z += contrib.z;
         accum_rgb[idx] = current_accum;
     }
     // If occluded, NEE contribution is discarded (no light reaches the surface)
@@ -84,28 +82,25 @@ void launchStageShadow(
     int threads = 256;
     int blocks = (n + threads - 1) / threads;
 
-    {
-        astroray::gpu_profile::ScopedTimer _t(
-            "wavefront_stage_shadow",
-            (const void*)shadowKernel, blocks, threads);
-        shadowKernel<<<blocks, threads>>>(
-            reinterpret_cast<const float4*>(state.shadow_origin),
-            reinterpret_cast<const float4*>(state.shadow_dir),
-            state.shadow_tmax,
-            state.nee_active,
-            reinterpret_cast<const float4*>(state.nee_contrib),
-            reinterpret_cast<const float4*>(state.throughput),
-            reinterpret_cast<float4*>(state.accum_rgb),
-            d_bvhNodes, d_prims, d_tris, d_spheres,
-            n);
-        cudaError_t err = cudaGetLastError();
-        if (err != cudaSuccess) {
-            std::fprintf(stderr, "stage_shadow launch error: %s\n",
-                         cudaGetErrorString(err));
-            throw std::runtime_error(cudaGetErrorString(err));
-        }
-        cudaDeviceSynchronize();
+    astroray::gpu_profile::ScopedTimer _t(
+        "wavefront_stage_shadow",
+        (const void*)shadowKernel, blocks, threads);
+    shadowKernel<<<blocks, threads>>>(
+        reinterpret_cast<const float4*>(state.shadow_origin),
+        reinterpret_cast<const float4*>(state.shadow_dir),
+        state.shadow_tmax,
+        state.nee_active,
+        reinterpret_cast<const float4*>(state.nee_contrib),
+        reinterpret_cast<float4*>(state.accum_rgb),
+        d_bvhNodes, d_prims, d_tris, d_spheres,
+        n);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::fprintf(stderr, "stage_shadow launch error: %s\n",
+                     cudaGetErrorString(err));
+        throw std::runtime_error(cudaGetErrorString(err));
     }
+    cudaDeviceSynchronize();
 }
 
 }  // namespace astroray::wavefront

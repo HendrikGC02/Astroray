@@ -867,7 +867,15 @@ public:
             cudaRenderer->uploadScene(renderer, *camera);
             if (envMap && envMap->loaded())
                 cudaRenderer->uploadEnvironmentMap(*envMap);
-            if (integratorName_ == "multiwavelength_path_tracer") {
+            // pkg85-D: route spectral integrators to the multiwavelength kernel.
+            // CPU path_tracer uses SpectralPathTracer (spectral path → XYZ → sRGB),
+            // so GPU must do the same via multiwavelength_kernel.cu. The legacy RGB
+            // path_trace_kernel.cu (used pre-pkg14) is no longer accurate for HDRI
+            // env-map rendering because it converts env RGB → spectral → RGB via
+            // RGBIlluminantSpectrum, which is lossy compared to the CPU's direct
+            // RGBIlluminantSpectrum spectral atlas sampling.
+            if (integratorName_ == "path_tracer" ||
+                integratorName_ == "multiwavelength_path_tracer") {
                 // pkg54: spectral-band megakernel. Resolve params from the
                 // same ParamDict used to construct the CPU integrator.
                 float lmin = integratorParams_.getFloat("lambda_min", 380.0f);

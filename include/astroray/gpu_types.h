@@ -223,7 +223,13 @@ struct GBVHNode {
 // ---------------------------------------------------------------------------
 // Primitive descriptors
 // ---------------------------------------------------------------------------
-enum GPrimType : uint8_t { GPRIM_TRIANGLE = 0, GPRIM_SPHERE = 1 };
+// pkg85-C: GPRIM_SKIP is a placeholder used for CPU-only primitives
+// (e.g., DistantLight) that share the BVH with GPU-renderable prims.
+// scene_upload.cu pushes one of these for every orderedPrims entry that
+// isn't a Sphere or Triangle, so r.prims stays index-aligned with the
+// BVH's primitivesOffset and with GLight.primitiveIndex. gpu_bvh_hit
+// and the area-light sampler treat GPRIM_SKIP as a no-op.
+enum GPrimType : uint8_t { GPRIM_TRIANGLE = 0, GPRIM_SPHERE = 1, GPRIM_SKIP = 2 };
 struct GPrimitive {
     GPrimType type;
     int       index;   // index into d_triangles or d_spheres

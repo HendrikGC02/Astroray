@@ -51,6 +51,9 @@ __device__ inline float gpu_light_pdf(
         int primIdx = l.primitiveIndex;
         if (primIdx < 0) continue;
         const GPrimitive& lp = prims[primIdx];
+        // pkg85-C: CPU-only light primitives (DistantLight, etc.) are
+        // GPRIM_SKIP on the GPU; they contribute no area-light PDF here.
+        if (lp.type == GPRIM_SKIP) continue;
         if (lp.type == GPRIM_SPHERE) {
             const GSphere& s = spheres[lp.index];
             float dist2 = (s.center - origin).length2();
@@ -139,6 +142,9 @@ __device__ GVec3 sampleDirectGPU(
 
         {
             const GPrimitive& lp = prims[primIdx];
+            // pkg85-C: CPU-only light primitives are GPRIM_SKIP on the GPU.
+            // No GPU area-light sample is possible — fall through to BSDF MIS.
+            if (lp.type == GPRIM_SKIP) goto bsdf_mis;
             GVec3 lightPoint, lightNormal;
             if (lp.type == GPRIM_SPHERE) {
                 const GSphere& s = spheres[lp.index];

@@ -107,6 +107,13 @@ struct GSampledWavelengths {
     }
 };
 
+// Compile-time size check: GSampledWavelengths must match the host-side
+// astroray::SampledWavelengths layout (2 × std::array<float, 4> = 32 bytes).
+// This guard catches accidental additions to either struct that would break
+// the semantic correspondence between CPU and GPU spectral paths.
+static_assert(sizeof(GSampledWavelengths) == 32,
+              "GSampledWavelengths size mismatch — must be 32 bytes (8 floats)");
+
 struct GSampledSpectrum {
     float v[G_SPECTRUM_SAMPLES];
 
@@ -162,6 +169,9 @@ struct GSampledSpectrum {
         return m;
     }
 };
+
+static_assert(sizeof(GSampledSpectrum) == 16,
+              "GSampledSpectrum size mismatch — must be 16 bytes (4 floats)");
 
 HD inline GSampledSpectrum operator*(float s, const GSampledSpectrum& x) { return x * s; }
 

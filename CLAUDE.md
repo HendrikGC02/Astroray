@@ -1,5 +1,10 @@
 # CLAUDE.md
 
+## Shell Conventions
+
+- This project runs on Windows; default to PowerShell, not bash. Avoid bash/cmd.exe escaping by invoking build scripts directly.
+- When writing PowerShell, avoid reserved automatic variables (`$input`, `$error`, `$host`, `$args`) and ensure UTF-8 for any unicode output.
+
 ## 1. Think Before Coding
 
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
@@ -102,3 +107,15 @@ How this rule operates in practice:
 - "Trivial" means: math from undergraduate textbooks, well-known formulas
   (Lambertian cosine, Schlick Fresnel approx, Halton sequences),
   language-level utilities. When in doubt, treat as non-trivial.
+
+## Build & Verification
+
+- Always work in the main checkout/worktree the user references; never silently switch to another worktree.
+- Before claiming a feature is verified on GPU, confirm the loaded `.pyd`/binary was rebuilt after the relevant PR. Use `astroray.__file__` to verify the canonical `build_cuda/Release/` path is loaded, not a shadow at the repo root. See [[stale_pyd_locations]] in memory for the failure mode this catches.
+- When CI fails, search for ALL existing call sites of changed signatures (use Grep) before pushing a fix commit.
+
+## PR & Git Workflow
+
+- For infrastructure/hook/skill changes that affect the main branch toolchain, commit directly to main (or ask first) — do NOT open a PR that leaves main broken until merge.
+- After implementation, always run the full local test suite AND check for stale call sites before pushing.
+- When resolving merge conflicts, explicitly state the conflict resolution before committing.

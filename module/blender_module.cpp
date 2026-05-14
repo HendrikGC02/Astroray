@@ -15,6 +15,7 @@
 #include "astroray/metric.h"
 #include "astroray/emission.h"
 #include "astroray/synchrotron.h"
+#include "astroray/slim_disk.h"
 #include "astroray/optical_presets.h"
 #include "astroray/integrator.h"
 #include "astroray/pass.h"
@@ -1743,6 +1744,64 @@ PYBIND11_MODULE(astroray, m) {
           },
           "params"_a, "position"_a, "photon_direction"_a,
           "u"_a = 0.5f, "path_length_cm"_a = 1.0f);
+
+    // pkg43 slim disk bindings (handle-based + caller-supplied lambdas API
+    // per .astroray_plan/docs/pkg43-handoff-notes.md).
+    py::class_<Emission, std::shared_ptr<Emission>>(m, "Emission");
+    m.def("slim_disk_create",
+          [](py::dict params) -> std::shared_ptr<Emission> {
+              return astroray::EmissionRegistry::instance().create(
+                  "slim_disk", paramDictFromPyDict(params));
+          },
+          "params"_a,
+          "Create a slim disk emission object from parameters.");
+    m.def("slim_disk_contains",
+          [](std::shared_ptr<Emission> disk, const std::vector<float>& position) {
+              if (!disk) throw std::runtime_error("slim_disk_contains requires a disk handle");
+              if (position.size() != 3) throw std::runtime_error("position must have 3 values");
+              return disk->contains(Vec3(position[0], position[1], position[2]));
+          },
+          "disk"_a, "position"_a);
+    m.def("slim_disk_temperature_at",
+          [](std::shared_ptr<Emission> disk_ptr, double r_M) {
+              auto disk = std::dynamic_pointer_cast<astroray::slimdisk::SlimDisk>(disk_ptr);
+              if (!disk) throw std::runtime_error("slim_disk_temperature_at requires a SlimDisk");
+              return disk->temperatureAt(r_M);
+          },
+          "disk"_a, "r_M"_a,
+          "Return midplane temperature at radius r (in units of M).");
+    m.def("slim_disk_emissivity",
+          [](std::shared_ptr<Emission> disk, const std::vector<float>& position,
+             const std::vector<float>& photon_direction,
+             const std::vector<float>& lambdas_nm) {
+              if (!disk) throw std::runtime_error("slim_disk_emissivity requires a disk handle");
+              if (position.size() != 3 || photon_direction.size() != 3) {
+                  throw std::runtime_error("position and photon_direction must have 3 values");
+              }
+              if (lambdas_nm.empty()) {
+                  throw std::runtime_error("lambdas_nm must not be empty");
+              }
+
+              // Build SampledWavelengths from the provided wavelengths.
+              std::array<float, astroray::kSpectrumSamples> lambda_arr;
+              for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+                  lambda_arr[i] = lambdas_nm[std::min<size_t>(i, lambdas_nm.size() - 1)];
+              }
+              auto lambdas = astroray::SampledWavelengths::fromLambdas(lambda_arr);
+
+              auto values = disk->emissivity(
+                  Vec3(position[0], position[1], position[2]),
+                  Vec3(photon_direction[0], photon_direction[1], photon_direction[2]),
+                  lambdas);
+
+              py::dict out;
+              out["lambdas"] = std::vector<float>(lambdas.lambdas().begin(), lambdas.lambdas().end());
+              out["values"] = std::vector<float>(values.values().begin(), values.values().end());
+              return out;
+          },
+          "disk"_a, "position"_a, "photon_direction"_a, "lambdas"_a,
+          "Evaluate slim disk emissivity at given wavelengths.");
+
     m.def("metric_isco_radius", [](const std::string& name, py::dict params) {
         auto metric = astroray::MetricRegistry::instance().create(name, metricParamsFromDict(params));
         return metric->isco_radius();

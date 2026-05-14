@@ -322,6 +322,19 @@ add_library(astroray_core_impl STATIC
     src/material_closure.cpp
     src/spectral_profile.cpp
 )
+
+# pkg55 Phase B' — CPU wavefront reference oracle + driver (Session 2b/2c).
+# Glob auto-picks up files as 2b/2c lands them. Session 2a only ships the
+# wavefront_snapshot.h header (no .cpp yet); the if-guard avoids adding an
+# empty source list to the target. See:
+#   - .astroray_plan/packages/pkg55-wavefront-soa-refactor.md §"Phase B'"
+#   - .astroray_plan/docs/pkg55-B-cpu-reference-design.md §10
+file(GLOB ASTRORAY_CPU_WAVEFRONT_SOURCES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/wavefront/*.cpp")
+if(ASTRORAY_CPU_WAVEFRONT_SOURCES)
+    target_sources(astroray_core_impl PRIVATE ${ASTRORAY_CPU_WAVEFRONT_SOURCES})
+    message(STATUS "pkg55-B': CPU wavefront sources: ${ASTRORAY_CPU_WAVEFRONT_SOURCES}")
+endif()
 target_include_directories(astroray_core_impl
     PUBLIC  ${INCLUDE_DIR}
     PRIVATE ${CMAKE_SOURCE_DIR})

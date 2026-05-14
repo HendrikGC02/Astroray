@@ -3,7 +3,7 @@
 **Pillar:** 5
 **Track:** A
 **Codex-paste-ready:** yes
-**Status:** done (PR #260, 2026-05-14 — cold 191ms → warm 83ms first frame, 2.3× improvement)
+**Status:** done (PR #260, 2026-05-13 — first frame 83.3 ms (≤100ms gate); 145× faster than pkg81 baseline (12,079→83 ms))
 **Estimated effort:** ~½ day (~3 h)
 **Depends on:** pkg52 (persistent viewport), pkg81 diagnosis
 

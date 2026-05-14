@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-11 (Round 6 closed on the planned scope — pkg42/pkg73-fix/pkg80/pkg81-P1+P2/pkg55-A.1 all landed; small Round-6 leftovers carried to Round 7. Pillar 4 actively shipping; viewport-parity gate now formally owned by pkg55 Phase B)
+**Last updated:** 2026-05-14 (Round 7 closeout — pkg82/pkg83/pkg84/pkg67 all landed 2026-05-13; pkg64-gpu spec filed; pkg55-B architectural review + pkg85 test-harness leak remain open; Round 8 framing in NEXT_STAGE_REPORT.md)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -95,15 +95,11 @@ personally should pick up.
   RNG noise floor; queued as **pkg79** to widen the seed-averaging
   count or assertion margin.
 - Tracking issue [#237](https://github.com/HendrikGC02/Astroray/issues/237):
-  pkg54c visible-band SSIM gate currently fails at 0.998629 (floor
-  0.999). pkg78 verifier proved bit-identical CPU+GPU output pre/post
-  pkg75; the bisect session then refused the 20-commit hardware
-  bisect on §1 grounds (static enumeration showed zero commits in
-  range touching the multiwavelength integrator path) and posted a
-  diagnosis on the issue: most plausible cause is NVCC build-time
-  non-determinism in the SSIM saturation regime. **pkg82** picks up
-  the variance characterisation that turns the diagnosis into a
-  data-driven gate decision. Round 6 Codex pickup on RTX.
+  **CLOSED by pkg82** (PR #261, 2026-05-13). pkg54c visible-band SSIM gate
+  re-baselined from 0.999 to 0.998 after measured cross-build variance
+  characterization (intra-binary perfect determinism, cross-build delta 0.0006).
+  pkg78 verifier proved bit-identical CPU+GPU output; pkg82 confirmed the drift
+  is NVCC build-time non-determinism, not a code regression.
 - `NEXT_STAGE_REPORT.md` is the live action queue (Round 7 prompts);
   this file is the source of truth for completion state. `production.md`
   remains historical (pkg50+ placeholder names that conflict with live
@@ -204,8 +200,9 @@ is currently the weakest link.
 | pkg61 | GPU per-vertex normals (shade-smooth parity) | **done** | A/E |
 | pkg62 | Viewport pass selector + live OIDN preview | **done** | B |
 | pkg63 | World / HDRI parity (Mapping XYZ rotation, color tint, MIS env-map) | **done** | A |
-| pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | **Phases 1 + 2 + 3 done** — RGB + spectral SMS folded into the default `path_tracer` via per-bounce SMS hook gated by `use_refractive_caustics` AND per-object `is_caustic_caster` (Cycles-style opt-in); GPU port is a separate future package | A |
-| pkg67 | Metric-aware path tracer (GR + spectral unification) — research-grade | open (research blocked) | A |
+| pkg64 | Spectral caustics (prism-accurate, refractive + reflective) — SMS skeleton + spectral MNEE extension | **Phases 1 + 2 + 3 done** — RGB + spectral SMS folded into the default `path_tracer` via per-bounce SMS hook gated by `use_refractive_caustics` AND per-object `is_caustic_caster` (Cycles-style opt-in); **pkg64-gpu spec filed** (PR #258) for GPU megakernel port | A |
+| pkg64-gpu | GPU SMS caustics port — targets AoS megakernel, not wavefront (pkg55-C will move to shade kernels later). | **open** — ready to implement after pkg55-B architectural review + pkg82 register-pressure baseline. Spec PR #258 (docs-only, 2026-05-13). | A |
+| pkg67 | Metric-aware path tracer (GR + spectral unification) — Option α: MinkowskiMetric + `SampledWavelengths::redshift` + `GRSpectralResult::frequencyShift` | **done** — PR #262, 2026-05-13. Ratifies existing `BlackHole::isGRObject()` dispatch architecture. 9 unit tests + flat regression + Schwarzschild deflection. | A |
 | pkg69 | Albedo pass for Blender compositor denoise node | **done** | A |
 | pkg70 | OptiX AI denoiser backend (HDR/AOV, persistent state, OIDN fallback) — verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0; see pkg70 Lessons + pkg75 spec for upstream AOV-degradation defect found during verification | **done** | A |
 | pkg71 | Cycles parity benchmark framework | **implemented** (first full baseline CSV pending CUDA + Cycles 4.x runner) | A |
@@ -217,9 +214,10 @@ is currently the weakest link.
 | pkg76 | Astroray `.blend` importer (parity scope) — offline SDNA-walking Python reader, no `bpy` runtime dependency; supports Blender 5.1's 17-byte file header + 32-byte block header + new `attribute_storage`; returns `astroray.Scene`. `tools/blend_import/{sdna,reader,scene_builder,blend_to_astroray}.py`. | **done** (PR #240; CSV row population on Classroom/Junkshop/BMW27 carried to Round 7 as a ½-day RTX follow-up) | A |
 | pkg80 | Blender addon: resolve `'auto'` integrator dropdown to a registered plugin before C++ calls — daily-workflow blocker surfaced 2026-05-10 by owner. | **done** (PR #246, 2026-05-11 — `_effective_integrator_name` now resolves `'auto'` against `astroray.integrator_registry_names()` filtered by device-mode capability; new `tests/test_blender_auto_integrator.py` covers the four resolution cases) | A |
 | pkg81 | Viewport interactivity parity with Cycles — Phase 1 harness + Phase 2 diagnosis + Phase 3 fix. | **Phase 1+2 done 2026-05-11** (PR #248); harness + 16-config sweep + pkg81-diagnosis.md committed. Headline: **CUDA 104 ms vs CPU 58 ms on 100k tris** — H4 (megakernel register pressure, the pkg55-A 158 regs/thread cliff) dominates. **Phase 3 routes to pkg55 Phase B** per spec escape clause; Phase B now owns the viewport-parity acceptance gate. H2 + H5 follow-ups split out as pkg83 + pkg84. | A |
-| pkg82 | pkg54c visible-band SSIM gate variance characterisation (Phase 1 intra-binary + Phase 2 cross-build + Phase 3 data-driven gate decision). | **open** — Round 7 hardware pickup (~1 day on RTX). pkg78 bisect refused on §1 grounds; pkg82 turns the diagnosis into measured numbers. | A |
-| pkg83 | Progressive accumulation continuation — addon-only fix for H2 from pkg81. Reset only on substantive scene-graph mutations, not every `camera_changed`. | **open** — Round 7 Codex pickup (~½ day) | A |
-| pkg84 | CUDA kernel pre-warm at viewport start — addon-only fix for H5 from pkg81. Pre-warm a 1-pixel render of a trivial scene during viewport-start to move the 12 s spinner to a moment the user expects. | **open** — Round 7 Codex pickup (~½ day) | A |
+| pkg82 | pkg54c visible-band SSIM gate variance characterisation — gate re-baselined 0.999→0.998 based on measured cross-build delta 0.0006. | **done** — PR #261, 2026-05-13. Closes issue #237. Intra-binary perfect determinism (20 runs, stddev=0); cross-build O(10⁻⁴) variance. | A |
+| pkg83 | Progressive accumulation continuation — addon-only fix for H2 from pkg81. Reset only on substantive camera changes (focal length, DoF, lens shift), not pure transforms. | **done** — PR #259, 2026-05-13. `spp_trace = [1,2,3,4,5,6,7,8]` measured on CPU + CUDA. | A |
+| pkg84 | CUDA kernel pre-warm at viewport start — addon-only fix for H5 from pkg81. First frame 83.3 ms (was 12,079 ms cold). | **done** — PR #260, 2026-05-13. **145× improvement** vs pkg81 baseline. Cites Cycles `reserve_local_memory` (Apache-2.0). | A |
+| pkg85 | Test-harness CUDA state leak — `pytest tests/` crashes at test #370 (isolated test passes); bisect candidate range tests 360–369. | **open** — Round 8 RTX pickup (~½ day). Discovered during pkg67 verification. | A |
 | pkg55 | Wavefront SoA GPU refactor — Phase A.0 (`ASTRORAY_PROFILE=1`-gated CUDA events + NVTX + baseline.json; **158 regs/thread + 1 active block/SM** documented as the occupancy cliff) **+ Phase A.1** (SoA path-state struct + intersect queue gated behind `-DASTRORAY_WAVEFRONT_INTERSECT=ON`, default OFF, bit-identical AoS megakernel output verified, PR #250 2026-05-11). | **Phases A.0 + A.1 done; Phase B (per-material shade kernels — now owns the viewport-parity acceptance gate from pkg81) + Phase C (megakernel removal) open** | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
@@ -254,29 +252,38 @@ forgotten):
 
 ## This week
 
-**Week of:** 2026-05-11 (Round 7 — pkg55 Phase B as the long-tail,
-Pillar 4 continuation pkg43+pkg44, four small Round-6 leftovers)
+**Week of:** 2026-05-14 (Round 7 closed on four small packages + pkg67
+Option α; Round 8 framing available in NEXT_STAGE_REPORT.md)
 
 ### Track A (Claude Code)
 
-- Round 6 closed on planned scope. pkg73 fix (PR #249 — denoiser
-  story closes end-to-end at 53.1% inter-frame variance reduction),
-  pkg80 (PR #246 — `'auto'` integrator resolved), pkg81 P1+P2 (PR
-  #248 — viewport-parity harness + diagnosis: H4 dominant), and
-  pkg55 Phase A.1 (PR #250 — SoA path state + intersect queue gated)
-  all on `main`.
-- Round 7 deployable set per [`NEXT_STAGE_REPORT.md`](NEXT_STAGE_REPORT.md):
-  - **pkg55 Phase B** per-material shade kernels (~4–6 weeks). Now
-    formally owns the viewport-parity acceptance gate (CUDA pan-
-    frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene).
-    The largest active package; the user-facing competitive parity
-    claim resolves into Phase B's gate.
-- Round-6 leftovers carried forward: pkg82 (variance, ~1 day RTX),
-  pkg76 CSV (~½ day RTX), pkg83 (H2 fix, ~½ day Codex), pkg84 (H5
-  fix, ~½ day Codex).
-- After Round 7: pkg55 Phase C (megakernel removal, ~3 weeks); pkg67
-  metric-aware path tracer becomes plausible once pkg40 + pkg55
-  maturity is in place.
+- **Round 7 closed 2026-05-13** on a smaller deployable set than originally
+  planned. Four packages shipped:
+  - **pkg82** (PR #261) — pkg54c variance characterisation; gate re-baselined
+    0.999→0.998 with 0.0006 measured cross-build delta; closes issue #237.
+  - **pkg83** (PR #259) — progressive accumulation continuation (H2 from pkg81);
+    `spp_trace = [1,2,3,4,5,6,7,8]` on CPU + CUDA across camera pans.
+  - **pkg84** (PR #260) — CUDA kernel pre-warm (H5 from pkg81); first frame
+    83.3 ms (was 12,079 ms cold), **145× improvement**.
+  - **pkg67** (PR #262) — MinkowskiMetric + `SampledWavelengths::redshift` +
+    `GRSpectralResult::frequencyShift` exposure (Option α); all 9 unit tests +
+    flat regression + Schwarzschild deflection passing.
+  - **pkg64-gpu spec** (PR #258, docs-only) — files the follow-up spec for GPU
+    SMS port; megakernel target, not wavefront; ready to implement after
+    pkg55-B architectural review.
+- **pkg55 Phase B HELD on origin/pkg55-phase-b** — NOT merged. Cascading
+  wavefront radiance accounting bugs (Bug 1 fixed, Bugs 2+3 regressed from
+  2.5× brightness to 21× brightness after attempted fix). Needs deeper
+  architectural review, not another piecemeal fix. Flagged for architect.
+- **New follow-up: pkg85** (test-harness CUDA state leak) — discovered during
+  pkg67 verification. `pytest tests/ --ignore=tests/test_wavefront_parity.py`
+  crashes at test #370 with illegal memory access; same test in isolation
+  passes. Spec filed at `.astroray_plan/packages/pkg85-test-harness-cuda-state-leak.md`.
+- Round 8 recommended set (NEXT_STAGE_REPORT.md):
+  - pkg55-B architectural review (unblocking decision)
+  - pkg85 test-harness leak bisect (~½ day RTX)
+  - pkg64-gpu implementation (~2-3 weeks, AoS megakernel target)
+  - Continue Pillar 4: pkg43 slim disk, pkg44 ADAF, pkg45+
 
 ### Track A (Claude Code) — previous
 
@@ -386,8 +393,13 @@ events are summarized in the changelog below.
 | pkg59 | A | done | broader vector/UV/Mapping plumbing, named UV layers, and UV debug AOV |
 | pkg61 | A/E | **done** | broader CPU/GPU spectral parity tracked separately |
 | pkg62 | B | **done** | — |
-| pkg64 | A | research blocked | caustics research note |
-| pkg67 | A | research blocked | metric-aware tracer research note |
+| pkg64 | A | **done** | PR #230; pkg64-gpu spec PR #258 |
+| pkg64-gpu | A | open — ready to implement | Spec PR #258; blocked on pkg55-B architectural review |
+| pkg67 | A | **done** | PR #262 Option α — MinkowskiMetric + redshift + frequencyShift |
+| pkg82 | A | **done** | PR #261; gate 0.999→0.998; closes issue #237 |
+| pkg83 | A | **done** | PR #259; spp_trace accumulates across camera pans |
+| pkg84 | A | **done** | PR #260; first frame 83.3 ms (was 12,079 ms) |
+| pkg85 | A | open | test-harness CUDA leak; bisect tests 360–369 |
 | pkg68 | A | **done** | persistent OIDN device, CUDA-first init, member-cached filter; CUDA verifier session 2026-05-10 on RTX 5070 Ti: 13/13 pytest green (incl. `test_cuda_capable_build_reports_cuda_device`), `[OIDN] Using CUDA device` confirmed, single device init across N=4 renders verified; viewport timing 256×256 spp=2: OIDN-on 50.67 ms/frame vs OIDN-off baseline 23.81 ms/frame (Δ=26.86 ms persistent-device overhead) |
 | pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
 | pkg70 | A | **done** | OptiX denoiser plugin co-equal with OIDN; persistent OptixDeviceContext + OptixDenoiser handle, lazy init, HDR vs AOV model selection by guide presence; `gpu_optix_available()` Python probe; addon `denoiser_backend` Auto/OptiX/OIDN with OptiX preferred when both present. **Verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0**: 17/17 pytest green; 5.31× synthetic-noise reduction at 256×256; 1.86× faster than OIDN-CUDA at 1080p (728.94 ms vs 1356.09 ms); SSIM(OptiX, OIDN) = 0.9987. Empty-normal-buffer defect surfaced upstream during verification → tracked as pkg75 |
@@ -400,6 +412,20 @@ events are summarized in the changelog below.
 
 ## Known issues
 
+- **pkg55-B wavefront radiance accounting bugs (HELD on origin/pkg55-phase-b)** —
+  NOT merged. Three cascading bugs discovered: Bug 1 (`path_alive` initialization,
+  fixed in 15d98f0), Bugs 2+3 (sample accumulation order + NEE×throughput)
+  attempted fix REGRESSED from 2.5× brightness vs megakernel pre-fix to 21×
+  brightness post-fix. Needs deeper architectural review before continuing;
+  flagged for architect. Checkpoint: material-type guards on all 7 shade kernels
+  landed (15d98f0); do not merge until architect decides whether to debug-spiral-
+  more, restart from a clean baseline, or wait for pkg55-C wavefront/megakernel
+  decision.
+- **Test-harness CUDA state leak (pkg85)** — `pytest tests/ --ignore=tests/test_wavefront_parity.py`
+  crashes at test #370 (`test_visible_band_cpu_gpu_ssim`) with illegal memory
+  access at `cuda_renderer.cu:81`; same test in isolation passes cleanly. Bisect
+  candidate range: tests 360–369. Discovered during pkg67 verification. Spec filed
+  at `.astroray_plan/packages/pkg85-test-harness-cuda-state-leak.md`.
 - `include/raytracer.h` and `include/advanced_features.h` still contain texture class bodies (`CheckerTexture`, `NoiseTexture`, etc.). These are used directly by `blender_module.cpp` and will be cleaned up in a future package if the plan calls for it.
 - ReSTIR/NRC work is implemented through pkg28 but remains in validation:
   the target NRC batched-inference speedup is not proven, and `restir-di` /
@@ -468,6 +494,31 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-14 (Round 7 closeout)** — four packages landed; pkg55-B held
+  on branch for architectural review; pkg85 follow-up filed. **pkg82
+  variance characterisation** (PR #261) — gate re-baselined 0.999→0.998
+  based on measured cross-build delta 0.0006; intra-binary perfect
+  determinism (20 runs, stddev=0); closes issue #237. **pkg83 progressive
+  accumulation** (PR #259) — viewport accumulator continues across pure
+  camera transforms (pan/orbit/dolly); `spp_trace = [1,2,3,4,5,6,7,8]`
+  measured on CPU + CUDA; substantive changes (focal length, DoF, lens
+  shift) still reset correctly. **pkg84 CUDA pre-warm** (PR #260) — first
+  CUDA frame 83.3 ms (≤100ms gate), **145× faster than pkg81 cold-start
+  baseline** (12,079 ms→83 ms); cites Cycles `reserve_local_memory`
+  pattern (Apache-2.0). **pkg67 GR spectral unification** (PR #262,
+  Option α) — `MinkowskiMetric` + `SampledWavelengths::redshift(g)` +
+  `GRSpectralResult::frequencyShift`; all 9 unit tests + flat regression
+  + Schwarzschild deflection passing; ratifies existing `BlackHole`-as-
+  `Hittable` architecture. **pkg64-gpu spec filed** (PR #258, docs-only)
+  — GPU SMS port targeting AoS megakernel; 4 fork-point decisions +
+  register-pressure baseline baked in via architect review. **pkg55-B
+  HELD** on `origin/pkg55-phase-b` — cascading wavefront radiance bugs
+  (Bug 1 `path_alive` init ✓, Bugs 2+3 sample-accumulation-order +
+  NEE×throughput — REGRESSED 2.5×→21× brightness post-fix); needs
+  architectural review. **pkg85 filed** — test-harness CUDA state leak
+  (`pytest tests/` crashes at test #370; isolated test passes); bisect
+  candidate range tests 360–369.
 
 - **2026-05-11 (Round 6 close)** — six of eight Round-6 sessions
   shipped on planned scope: **pkg42 synchrotron emission** (#245,

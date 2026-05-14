@@ -3,7 +3,7 @@
 **Pillar:** 5
 **Track:** A
 **Codex-paste-ready:** yes
-**Status:** done (commit d6f4e6f, 2026-05-14 — addon-only, all tests green, pkg81 harness re-run pending)
+**Status:** done (PR #259, 2026-05-13 — spp_trace = [1,2,3,4,5,6,7,8] on CPU + CUDA; transform_edit still resets)
 **Estimated effort:** ~½ day (~3 h)
 **Depends on:** pkg52 (persistent viewport), pkg56 Phase C (depsgraph dispatch), pkg81 diagnosis
 

@@ -111,11 +111,18 @@ How this rule operates in practice:
 ## Build & Verification
 
 - Always work in the main checkout/worktree the user references; never silently switch to another worktree.
-- Before claiming a feature is verified on GPU, confirm the loaded `.pyd`/binary was rebuilt after the relevant PR. Use `astroray.__file__` to verify the canonical `build_cuda/Release/` path is loaded, not a shadow at the repo root. See [[stale_pyd_locations]] in memory for the failure mode this catches.
-- When CI fails, search for ALL existing call sites of changed signatures (use Grep) before pushing a fix commit.
+- **Before running any GPU verification:** (1) show the `.pyd` mtime vs `git log -1 --format=%cd HEAD`, (2) if `.pyd` is older, rebuild and re-import, (3) only then run the hardware test. Use `astroray.__file__` to verify the canonical `build_cuda/Release/` path is loaded, not a shadow at the repo root. See [[stale_pyd_locations]] in memory for the failure mode this catches.
+- **Before you push:** list every function/class signature you changed in this branch, then Grep the entire repo for each name and show any call sites you did NOT update. Treat tests, mocks, and stubs as first-class call sites. Do this proactively before opening a PR, not reactively after CI fails.
+- When CI fails despite the above, re-do the call-site sweep with the actual error context — usually the missed site is a non-obvious caller (test mock, Python binding, conftest helper).
 
 ## PR & Git Workflow
 
 - For infrastructure/hook/skill changes that affect the main branch toolchain, commit directly to main (or ask first) — do NOT open a PR that leaves main broken until merge.
 - After implementation, always run the full local test suite AND check for stale call sites before pushing.
 - When resolving merge conflicts, explicitly state the conflict resolution before committing.
+
+## Design & Co-design
+
+- **When asked for design help, do NOT impose a fixed number of options or force a multiple-choice framing.** Present the actual tradeoff axes seen, and let the owner decide whether to narrow to N options.
+- Surface real forks; don't manufacture artificial trichotomies (the "3 options" anti-pattern).
+- If only one option is genuinely viable, say so plainly — don't pad with weaker alternatives just to look balanced.

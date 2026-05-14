@@ -118,8 +118,11 @@ __device__ inline bool gpu_bvh_hit(
                     bool isHit = false;
                     if (p.type == GPRIM_TRIANGLE) {
                         isHit = gpu_triangle_hit(tris[p.index], ray, tMin, tMax, tmpRec);
-                    } else {
+                    } else if (p.type == GPRIM_SPHERE) {
                         isHit = gpu_sphere_hit(spheres[p.index], ray, tMin, tMax, tmpRec);
+                    } else {
+                        // pkg85-C: GPRIM_SKIP placeholder — see gpu_types.h.
+                        isHit = false;
                     }
                     if (isHit) {
                         hit  = true;

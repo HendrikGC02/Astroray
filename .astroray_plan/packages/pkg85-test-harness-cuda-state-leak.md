@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A (RTX verifier)
-**Status:** done (pkg85-B PR pending, 2026-05-14 — 893 passed; two pre-existing GPU bugs surfaced as architectural_glass illegal-mem-access + HDRI uploadScene defect, filed as pkg85-C below)
+**Status:** done (pkg85-C PR pending, 2026-05-14 — 901 passed, 0 CUDA illegal-access crashes on the full sweep; remaining HDRI world-only SSIM parity defect filed as pkg85-D)
 **Estimated effort:** ½ day (~4 h on RTX)
 **Depends on:** pkg67 (the verifier that surfaced this defect)
 
@@ -134,3 +134,24 @@ Both are pre-existing bugs the audit revealed by no longer letting silent kernel
 `pytest tests/ --ignore=tests/test_wavefront_parity.py --ignore=tests/test_benchmark_showcase_phase2.py --deselect tests/test_world_hdri_parity.py::test_gpu_cpu_ssim_hdri`: **893 passed, 4 skipped, 18 xfailed, 1 xpassed** — zero CUDA illegal-access crashes across the rest of the sweep.
 
 Without the exclusions the sweep still crashes — but the crash is now blamed on the *correct* test (the showcase one with the actual buggy material) instead of test #370 inheriting dead context. That is the pkg85-B success condition: kernel errors no longer migrate across tests.
+
+---
+
+**pkg85-C complete 2026-05-14 (PR pending).**
+
+### Root causes and fixes
+
+1. **GPU/CPU BVH primitive-array misalignment (Phase A + B).** `BVHAccel` builds from the full CPU `scene`, which can include non-renderable primitives like `DistantLight` (added by `add_sun_light`). `scene_upload.cu` only pushed `Triangle`/`Sphere` entries into `r.prims`, so when the CPU BVH collapsed two equal-centroid primitives into a single leaf (`nPrimitives=2, primitivesOffset=0`), the GPU BVH walk read `prims[1]` past the end of the uploaded array → `cudaErrorIllegalAddress` in `pathTraceKernel`. The fault was localized via compute-sanitizer (size-1 OOB read at +8 past an 8-byte allocation = `sizeof(GPrimitive)`). Fix: add `GPRIM_SKIP` to `GPrimType` and push placeholder `GPRIM_SKIP` entries from `scene_upload.cu` for non-{Triangle,Sphere} prims; `gpu_bvh_hit` and the area-light branch of `sampleDirectGPU` skip them. This unblocks every material in the showcase test and the diagnostic contact sheet.
+2. **World-only render rejected with "Scene not uploaded" (Phase D).** `CUDARenderer::render` / `renderMultiwavelength` required `impl->d_bvhNodes != nullptr`, but a scene with only an environment map (and no geometry) is a legitimate render configuration — `gpu_bvh_hit` already returns false when `nodes` is null. Fix: gate the precondition on `(!d_bvhNodes && !envMap.loaded)` instead of `!d_bvhNodes` alone.
+
+### Gate result
+
+`pytest tests/ --ignore=tests/test_wavefront_parity.py --deselect tests/test_world_hdri_parity.py::test_gpu_cpu_ssim_hdri`: **901 passed, 13 skipped, 16 xfailed, 3 xpassed** (vs. 893 baseline for pkg85-B). Zero CUDA illegal-access crashes anywhere in the sweep. The previously-quarantined `test_benchmark_showcase_phase2.py` is fully back in scope.
+
+Material contact sheet (`scripts/diagnostics/material_contact_sheet.py --resolution 480 --samples 1024 --device auto`) renders cleanly across all materials with GPU lowerings.
+
+### pkg85-D (escalation — file as new spec)
+
+One real defect still surfaces after pkg85-C closes the original blockers:
+
+- **`test_world_hdri_parity::test_gpu_cpu_ssim_hdri`** — now runs to completion but the GPU vs CPU SSIM is ~0.35 (gate ≥0.97). Likely a difference in how the world-only path samples the env map between the CPU integrator and `pathTraceKernel`'s miss branch (tonemapping, rotation matrix, or `gpu_envmap_lookup` parity). Pre-existing — pkg85-B hid it behind the "Scene not uploaded" early-exit. Not a CUDA crash; pkg85 gate (no illegal-access in full sweep) is met without fixing it.

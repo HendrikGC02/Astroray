@@ -260,8 +260,15 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             gs.materialId = getOrAddMat(sph->getMaterial());
             r.spheres.push_back(gs);
         } else {
-            // Skip unknown types (BVHAccel, etc.)
-            continue;
+            // pkg85-C: keep r.prims index-aligned with the BVH's orderedPrims
+            // by pushing a GPRIM_SKIP placeholder for non-{Triangle,Sphere}
+            // primitives (e.g., DistantLight). Without this, BVH leaves
+            // built from a 2-prim CPU scene whose centroids collide can
+            // produce a single leaf with nPrimitives=2, and gpu_bvh_hit
+            // reads prims[1] past the end of the uploaded r.prims array,
+            // crashing the path-trace kernel with cudaErrorIllegalAddress.
+            gp.type  = GPRIM_SKIP;
+            gp.index = -1;
         }
         r.prims.push_back(gp);
     }

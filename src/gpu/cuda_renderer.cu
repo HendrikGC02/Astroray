@@ -444,7 +444,13 @@ void CUDARenderer::render(
     int seed, int samplesPerPixel, int maxDepth)
 {
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
-    if (!impl->d_bvhNodes) throw std::runtime_error("Scene not uploaded — call uploadScene() first");
+    // pkg85-C: allow world-only renders. The path-trace kernel's
+    // gpu_bvh_hit() already returns false when d_bvhNodes is null, so a
+    // scene with an environment map but no geometry should produce a
+    // pure-env image rather than throwing here. Only fail if neither a
+    // scene nor an environment map has been uploaded.
+    if (!impl->d_bvhNodes && !impl->envMap.loaded)
+        throw std::runtime_error("Scene not uploaded — call uploadScene() first");
 
     astroray::gpu_profile::NvtxRange _nvtx_render("CUDARenderer::render");
     impl->ensureFramebuffer(width, height);
@@ -564,7 +570,9 @@ void CUDARenderer::renderMultiwavelength(
     float lambdaMin, float lambdaMax, bool useLuminanceOutput)
 {
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
-    if (!impl->d_bvhNodes) throw std::runtime_error("Scene not uploaded — call uploadScene() first");
+    // pkg85-C: see CUDARenderer::render() — world-only renders are valid.
+    if (!impl->d_bvhNodes && !impl->envMap.loaded)
+        throw std::runtime_error("Scene not uploaded — call uploadScene() first");
 
     astroray::gpu_profile::NvtxRange _nvtx_mw("CUDARenderer::renderMultiwavelength");
     impl->ensureFramebuffer(width, height);

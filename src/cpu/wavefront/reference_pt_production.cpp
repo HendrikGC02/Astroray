@@ -11,6 +11,7 @@
 #include "reference_pt_production.h"
 #include "raytracer.h"
 #include "astroray/spectrum.h"
+#include "astroray/spectral.h"
 #include <random>
 #include <cmath>
 #include <algorithm>
@@ -316,12 +317,22 @@ ReferencePTResult reference_pt_production_render(
 
                     colorXYZ = colorXYZ / float(samples);
 
-                    // Return linear XYZ (matching production Renderer.render with apply_gamma=False).
-                    // Caller handles XYZ→sRGB + gamma if needed.
+                    // Post-processing pipeline (production lines 2580, 2595, 2601-2603):
+                    // 1. Film exposure multiplication (XYZ space).
+                    colorXYZ *= renderer.getFilmExposure();
+
+                    // 2. XYZ → linear sRGB conversion (astroray/spectral.h:137-148).
+                    Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
+
+                    // 3. finiteOrZero clamping (production raytracer.h:2601-2603, apply_gamma=False path).
+                    colorSRGB.x = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);
+                    colorSRGB.y = std::max(Renderer::finiteOrZero(colorSRGB.y), 0.0f);
+                    colorSRGB.z = std::max(Renderer::finiteOrZero(colorSRGB.z), 0.0f);
+
                     int idx = pixel_index * 3;
-                    result.rgb[idx + 0] = std::max(0.0f, colorXYZ.x);
-                    result.rgb[idx + 1] = std::max(0.0f, colorXYZ.y);
-                    result.rgb[idx + 2] = std::max(0.0f, colorXYZ.z);
+                    result.rgb[idx + 0] = colorSRGB.x;
+                    result.rgb[idx + 1] = colorSRGB.y;
+                    result.rgb[idx + 2] = colorSRGB.z;
                 }
             }
         }

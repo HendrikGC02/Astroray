@@ -650,6 +650,14 @@ void launchMultiwavelengthKernel(
             fprintf(stderr, "MW kernel launch error: %s\n", cudaGetErrorString(err));
             throw std::runtime_error(cudaGetErrorString(err));
         }
-        cudaDeviceSynchronize();
+        // pkg85-B: check the post-launch sync. A discarded error here (e.g.
+        // illegal memory access surfaced asynchronously) becomes latent
+        // device state that contaminates the next test/renderer.
+        cudaError_t syncErr = cudaDeviceSynchronize();
+        if (syncErr != cudaSuccess) {
+            fprintf(stderr, "MW kernel runtime error: %s\n",
+                    cudaGetErrorString(syncErr));
+            throw std::runtime_error(cudaGetErrorString(syncErr));
+        }
     }
 }

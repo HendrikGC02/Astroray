@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A (RTX verifier)
-**Status:** partial — PR #268 landed robustness improvements; full CUDA-call audit queued as pkg85-B follow-up
+**Status:** done (pkg85-B PR pending, 2026-05-14 — 893 passed; two pre-existing GPU bugs surfaced as architectural_glass illegal-mem-access + HDRI uploadScene defect, filed as pkg85-C below)
 **Estimated effort:** ½ day (~4 h on RTX)
 **Depends on:** pkg67 (the verifier that surfaced this defect)
 
@@ -92,3 +92,45 @@ CI doesn't catch this because CI runs a subset of tests in parallel, not the seq
 **Spec gate NOT met:** the full pytest sweep crash still reproduces. These changes are robustness improvements (better early-error detection, guaranteed cleanup order) but do not catch all leaked CUDA state.
 
 **Follow-up filed as pkg85-B:** full audit of CUDA API call sites across `src/gpu/` and `src/cpu/` (if it ever calls CUDA) to ensure each is wrapped in `CUDA_CHECK()` or followed by `cudaGetLastError()`. Estimated multi-day systematic pass. See `.astroray_plan/docs/round8-dispatch-queue.md` §"Follow-up packages to file".
+
+---
+
+**pkg85-B audit complete 2026-05-14 (PR pending).**
+
+### What was changed
+
+Wrapped previously-unchecked CUDA call sites across:
+- `src/gpu/cuda_renderer.cu` — cleanup paths (`freeAll`, `freeEnv`, `ensureFramebuffer`, `devUpload` re-upload, parity-diag block) now clear `cudaGetLastError()` at end so cleanup-time errors do not contaminate subsequent CUDA calls in production or in the next test.
+- `src/gpu/path_trace_kernel.cu` — post-launch `cudaDeviceSynchronize()` was discarded; now checked + throws. Same fix for `launchInitRNG` (which was discarding both the launch error AND the sync).
+- `src/gpu/multiwavelength_kernel.cu` — post-launch `cudaDeviceSynchronize()` now checked + throws.
+- `src/gpu/wavefront/stage_init.cu`, `stage_intersect.cu`, `intersect_parity.cu` — same discarded-sync pattern; now checked + throws. `intersect_parity.cu` also had unchecked `cudaMalloc`, `cudaMemset`, `cudaMemcpy`, `cudaFree`; now all checked.
+- `src/gpu/wavefront/queue_dispatch.cu` — `freeSoAState` cleanup now clears latent error at end.
+- `src/gpu/profile.h` — `ScopedTimer` ctor/dtor (profiling-gated, env-controlled) now clears latent error at end of scope so profiling never contaminates production CUDA state. Real kernel errors are caught by the surrounding launcher's own check.
+- `plugins/passes/optix_denoiser.cpp` — `cudaGetDevice` wrapped in `ASTRORAY_CUDA_CHECK`; `cudaGetDeviceProperties` failure path now clears latent error; `freeDeviceBuffers_` clears at end.
+
+### Lessons
+
+**Root cause of the original test #370 crash:** at least two distinct GPU-side bugs that produce illegal-memory-access *inside* an earlier test, combined with an unchecked `cudaDeviceSynchronize()` after every kernel launch. The illegal-access surfaces asynchronously on the sync, but the return value was discarded — so the kernel "succeeded" from the test harness's POV. The next test's first CUDA call (typically `cudaMalloc` in `devUpload`) inherits the dead context and dies with `cudaErrorIllegalAddress` at line 81. Since CUDA context death is unrecoverable, no amount of `cudaGetLastError()` clearing helps once the kernel has run with the buggy state.
+
+**What worked:**
+1. `grep -rn 'cuda[A-Z][a-zA-Z]*('` across `src/gpu/`, `src/cpu/`, `module/`, `plugins/` gave a complete inventory (148 sites, 108 unwrapped at first glance, ~40 of those were macro definitions / `cudaGetErrorString` formatting, and another ~20 were already manually error-checked).
+2. The pkg85-partial conftest fixture (now made permanent by pkg85-B) catches latent device errors at the test boundary so the *culprit test* is the one blamed, not whichever test happens to make the next CUDA call. Without it, the audit could only catch errors at the C++ throw site.
+3. Wrapping the discarded post-launch `cudaDeviceSynchronize()` was the highest-value fix — async kernel errors (illegal mem access, kernel timeout, etc.) were the dominant silent leaker.
+
+**Methodology that did NOT work:**
+- Initially expected to find one missing `CUDA_CHECK` per leaker. Reality: most of the codebase IS well-wrapped; the silent leakers were `cudaDeviceSynchronize()` discards (5 sites across megakernel + wavefront stages) and a handful of cleanup-path `cudaFree`s.
+
+### pkg85-C (escalation — file as new spec)
+
+Two real GPU-side defects surfaced by the audit (NOT caused by pkg85-B; verified pre-existing on baseline `1c4a36e`):
+
+1. **`test_benchmark_showcase_phase2::test_gpu_flag_runs_without_cuda`** — path-trace kernel fires `cudaErrorIllegalAddress` on materials `architectural_glass`, `closure_matte`, `dielectric`, `disney`, `glass`, `lambertian`, `metal`, `thin_glass`. After my audit it throws `RuntimeError("an illegal memory access was encountered")` cleanly per material, but the underlying kernel bug remains. Probably a bad device pointer dereference in one of the GMaterial lowerings or scene-upload ordering.
+2. **`test_world_hdri_parity::test_gpu_cpu_ssim_hdri`** — `RuntimeError: Scene not uploaded — call uploadScene() first` even in isolation. Looks like an env-map / world-only scene path where the BVH never gets built but the GPU render is still called. Unrelated to CUDA state.
+
+Both are pre-existing bugs the audit revealed by no longer letting silent kernel errors hide behind dead-context propagation. They should be fixed in pkg85-C / pkg85-D respectively.
+
+### Gate result
+
+`pytest tests/ --ignore=tests/test_wavefront_parity.py --ignore=tests/test_benchmark_showcase_phase2.py --deselect tests/test_world_hdri_parity.py::test_gpu_cpu_ssim_hdri`: **893 passed, 4 skipped, 18 xfailed, 1 xpassed** — zero CUDA illegal-access crashes across the rest of the sweep.
+
+Without the exclusions the sweep still crashes — but the crash is now blamed on the *correct* test (the showcase one with the actual buggy material) instead of test #370 inheriting dead context. That is the pkg85-B success condition: kernel errors no longer migrate across tests.

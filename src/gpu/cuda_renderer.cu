@@ -76,7 +76,13 @@ void launchMultiwavelengthKernel(
 // ---------------------------------------------------------------------------
 template<typename T>
 static void devUpload(const std::vector<T>& src, T** d_ptr) {
-    if (*d_ptr) { cudaFree(*d_ptr); *d_ptr = nullptr; }
+    if (*d_ptr) {
+        cudaFree(*d_ptr);
+        *d_ptr = nullptr;
+        // pkg85-B: clear any latent error from cudaFree (or from a prior
+        // kernel) so cudaMalloc below isn't blamed for a stale error.
+        cudaGetLastError();
+    }
     if (src.empty()) return;
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(d_ptr), src.size() * sizeof(T)));
     CUDA_CHECK(cudaMemcpy(*d_ptr, src.data(), src.size() * sizeof(T), cudaMemcpyHostToDevice));
@@ -157,6 +163,11 @@ struct CUDARenderer::Impl {
         freeEnv();
         if (d_framebuffer){ cudaFree(d_framebuffer); d_framebuffer= nullptr; }
         if (d_rngStates)  { cudaFree(d_rngStates);  d_rngStates  = nullptr; }
+        // pkg85-B: swallow any latent error from cudaFree (or from a prior
+        // kernel launch that surfaced only here). freeAll() runs from both
+        // the destructor (noexcept) and production cleanup paths; throwing
+        // here would crash teardown and leak into the next test.
+        cudaGetLastError();
     }
 
     void freeEnv() {
@@ -166,12 +177,16 @@ struct CUDARenderer::Impl {
         if (d_envMargCdf)  { cudaFree(d_envMargCdf);  d_envMargCdf  = nullptr; }
         if (d_envMargFunc) { cudaFree(d_envMargFunc); d_envMargFunc = nullptr; }
         envMap = {};
+        // pkg85-B: same rationale as freeAll(); cleanup path must not leak.
+        cudaGetLastError();
     }
 
     void ensureFramebuffer(int w, int h) {
         if (w == fbWidth && h == fbHeight && d_framebuffer) return;
         if (d_framebuffer) { cudaFree(d_framebuffer); d_framebuffer = nullptr; }
         if (d_rngStates)   { cudaFree(d_rngStates);   d_rngStates   = nullptr; }
+        // pkg85-B: free errors above must not contaminate the cudaMalloc below.
+        cudaGetLastError();
         fbWidth = w; fbHeight = h;
         int n = w * h;
         CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_framebuffer), n * 3 * sizeof(float)));
@@ -505,10 +520,11 @@ void CUDARenderer::render(
             if (mismatches != 0) {
                 cudaFree(rng_snapshot);
                 freeSoAState(soa);
+                cudaGetLastError();  // pkg85-B: swallow cleanup errors before throw
                 throw std::runtime_error(
                     "[pkg55-A.1] wavefront intersect parity check found mismatches");
             }
-            cudaFree(rng_snapshot);
+            CUDA_CHECK(cudaFree(rng_snapshot));
             freeSoAState(soa);
             // d_rngStates was never advanced (SoA path used its own buffer);
             // megakernel below sees exactly the post-launchInitRNG state,

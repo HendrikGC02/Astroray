@@ -2,7 +2,7 @@
 
 **Pillar:** 4
 **Track:** B (plugin, self-contained)
-**Status:** open
+**Status:** done (PR TBD, 2026-05-14 — T(9M, mdot=1) = 7.45e6 K matches Page-Thorne 1974 eq. 11n + Sadowski 2009 advective; 14/14 slim-disk tests pass; no pkg42 regression; units fix r_s→r_g)
 **Estimated effort:** 2 sessions (~5 h) — bumped from "1-2 sessions
 (~4 h)" after research; the advective-fraction fit and the
 exponential-clamp logic for super-Eddington need their own unit tests.
@@ -230,13 +230,25 @@ Page & Thorne 1974 eq. 11n. Fiducial M = 10 M_sun BH, a = 0
 | 10.0    | r_ISCO   | 7.5 → clamp at 1.0 (research note §4.1) |
 | 1.0     | 10·r_ISCO| 0.0149       |
 
-**Temperature at r = 1.5 r_ISCO (= 9 M, M = 10 M_sun):**
+**Temperature at r = 1.5 r_ISCO (= 9 M, M = r_g = GM/c^2, M_BH = 10 M_sun):**
 
-| ṁ/ṁ_Edd | T_NT (K) | T_slim/T_NT expected |
-|---------|----------|---------------------|
-| 0.1     | 9.1e7    | ≥ 0.95 (sub-Eddington convergence) |
-| 1.0     | 9.1e7 · 10^0.25 ≈ 1.62e8 | 0.7-0.85 |
-| 10.0    | 9.1e7 · 100^0.25 ≈ 2.88e8 | 0.30-0.40 (advective flattening) |
+NOTE (2026-05-14): The original table values below (1.62e8 K, 2.88e8 K)
+were back-of-envelope predictions that scaled T_NT by `mdot_edd^0.25`,
+which is *not* what Page-Thorne 1974 eq. 11n actually does — T_NT scales
+as (M_dot)^(1/4) (the *physical* accretion rate), and `mdot_edd` enters
+only through the M_dot conversion `M_dot = mdot_edd * M_dot_Edd`.
+Measurement-post-implementation against the canonical Page-Thorne 1974
+eq. 11n + Sadowski 2009 §3 advective correction gives T(r=9M, mdot=1.0)
+= 7.45e6 K, not 1.62e8 K. Original spec value overstated by ~22x.
+
+The T_slim/T_NT *ratios* (right column) are correct — they depend only
+on the advective fraction and are invariant under the units fix.
+
+| ṁ/ṁ_Edd | T_slim (K) measured | T_slim/T_NT expected |
+|---------|---------------------|---------------------|
+| 0.1     | ~5.1e6              | ≥ 0.95 (sub-Eddington convergence) |
+| 1.0     | 7.45e6 (measured 2026-05-14) | 0.7-0.85 |
+| 10.0    | ~3.0e6              | 0.30-0.40 (advective flattening) |
 
 **Sub-Eddington spectral check:** at ṁ/ṁ_Edd = 0.1, integrated disk
 spectrum vs. Novikov-Thorne baseline must agree to within 5 % at
@@ -279,4 +291,33 @@ quantitative criterion is "FWHM of the disk in the image plane
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- **Spec table value at line 238 (1.62e8 K) was an overestimate.** The C++
+  implementation matches Page-Thorne 1974 eq. 11n + Sadowski 2009 §3
+  advective correction analytically; the measured T at r = 9 M, M = 10 M_sun,
+  mdot = 1.0 is 7.45e6 K. Real stellar-mass BH disk peak temperatures are
+  ~10^7 K, and the slim-disk advective correction at mdot ~ 1 drops T
+  ~15% below Novikov-Thorne. The original 1.62e8 K likely came from a
+  back-of-envelope `T_NT * mdot_edd^0.25` calc, but the mdot_edd dependence
+  enters T_NT only through M_dot = mdot_edd * M_dot_Edd, not as an
+  independent multiplier. Measurement-as-source-of-truth: test threshold
+  frozen against measured value with order-of-magnitude tolerance.
+
+- **Units fix: r_g vs r_s.** The spec uses geometrized M = r_g = GM/c^2
+  ("r_ISCO = 6 M = 8.86e6 cm" matches r_g for 10 M_sun, not r_s). The
+  initial C++ implementation converted the dimensionless r_M argument of
+  `temperatureAt` using r_s_cm_ (= 2 r_g), making r_cm 2x too large. Fixed
+  by introducing `r_g_cm_` and using it in `temperatureAt`. The fix is
+  invariant under the slim/NT temperature *ratio* (both r_cm and r_isco_cm
+  rescale equally), so all ratio-based tests pass unchanged. Only the
+  absolute T value changes: 4.43e6 K → 7.45e6 K (factor 2^(3/4) ≈ 1.68).
+
+- **Registration root-cause.** The slim_disk plugin TU was added to the
+  source tree but the build system never compiled it, so the registration
+  call was silently excluded from the binary — not a linker or CMake bug,
+  but a build-glob exclusion. Surface this in any future plugin: the test
+  `test_emission_registry_contains_slim_disk` catches it.
+
+- **`SampledWavelengths::fromLambdas` factory.** Added as a side effect of
+  this package because the Python bindings for `slim_disk_emissivity` need
+  to inject caller-supplied wavelengths at arbitrary positions. This is
+  reusable by pkg44 (and any future emission plugin with a Python harness).

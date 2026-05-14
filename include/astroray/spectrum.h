@@ -102,6 +102,25 @@ public:
                                             float lambdaMin = kLambdaMin,
                                             float lambdaMax = kLambdaMax);
 
+    // Construct a SampledWavelengths from caller-supplied wavelengths.
+    // Used by emission-evaluation APIs that need to query an emitter at
+    // specific lambdas (rather than letting the renderer pick stratified
+    // ones via sampleUniform). Default PDFs of 1.0 indicate the caller has
+    // already accounted for sampling probability elsewhere (typical when
+    // this is used purely for evaluation, not sampling).
+    //
+    // Cited by: pkg43 slim_disk_emissivity (handle-based API per
+    // pkg43-handoff-notes.md); will be reused by pkg44 ADAF on the same
+    // VolumetricEmission interface.
+    static SampledWavelengths fromLambdas(
+        const std::array<float, kSpectrumSamples>& lambdas,
+        const std::array<float, kSpectrumSamples>& pdfs = {1.f, 1.f, 1.f, 1.f}) {
+        SampledWavelengths swl;
+        swl.lambdas_ = lambdas;
+        swl.pdfs_    = pdfs;
+        return swl;
+    }
+
     float lambda(int i) const { return lambdas_[i]; }
     float pdf(int i)    const { return pdfs_[i]; }
 

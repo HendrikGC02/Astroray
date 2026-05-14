@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-14 (Round 7 closeout — pkg82/pkg83/pkg84/pkg67 all landed 2026-05-13; pkg64-gpu spec filed; pkg55-B architectural review + pkg85 test-harness leak remain open; Round 8 framing in NEXT_STAGE_REPORT.md)
+**Last updated:** 2026-05-14 (Round 8 mid-cycle — doc/spec/research wave landed: Round 8 strategy, pkg55-B Phase B' amendment, pkg86/87 specs, pkg88/89 research notes; implementation wave starts next session per round8-dispatch-queue.md)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -217,8 +217,12 @@ is currently the weakest link.
 | pkg82 | pkg54c visible-band SSIM gate variance characterisation — gate re-baselined 0.999→0.998 based on measured cross-build delta 0.0006. | **done** — PR #261, 2026-05-13. Closes issue #237. Intra-binary perfect determinism (20 runs, stddev=0); cross-build O(10⁻⁴) variance. | A |
 | pkg83 | Progressive accumulation continuation — addon-only fix for H2 from pkg81. Reset only on substantive camera changes (focal length, DoF, lens shift), not pure transforms. | **done** — PR #259, 2026-05-13. `spp_trace = [1,2,3,4,5,6,7,8]` measured on CPU + CUDA. | A |
 | pkg84 | CUDA kernel pre-warm at viewport start — addon-only fix for H5 from pkg81. First frame 83.3 ms (was 12,079 ms cold). | **done** — PR #260, 2026-05-13. **145× improvement** vs pkg81 baseline. Cites Cycles `reserve_local_memory` (Apache-2.0). | A |
-| pkg85 | Test-harness CUDA state leak — `pytest tests/` crashes at test #370 (isolated test passes); bisect candidate range tests 360–369. | **open** — Round 8 RTX pickup (~½ day). Discovered during pkg67 verification. | A |
-| pkg55 | Wavefront SoA GPU refactor — Phase A.0 (`ASTRORAY_PROFILE=1`-gated CUDA events + NVTX + baseline.json; **158 regs/thread + 1 active block/SM** documented as the occupancy cliff) **+ Phase A.1** (SoA path-state struct + intersect queue gated behind `-DASTRORAY_WAVEFRONT_INTERSECT=ON`, default OFF, bit-identical AoS megakernel output verified, PR #250 2026-05-11). | **Phases A.0 + A.1 done; Phase B (per-material shade kernels — now owns the viewport-parity acceptance gate from pkg81) + Phase C (megakernel removal) open** | A |
+| pkg85 | Test-harness CUDA state leak — `pytest tests/` crashes at test #370 (isolated test passes); bisect candidate range tests 360–369. | **partial** — PR #268 (2026-05-14) conftest autouse fixture + cuda_renderer error clearing; robustness improvement only; spec gate NOT met; full CUDA-call audit queued as pkg85-B follow-up | A |
+| pkg55 | Wavefront SoA GPU refactor — Phase A.0 (`ASTRORAY_PROFILE=1`-gated CUDA events + NVTX + baseline.json; **158 regs/thread + 1 active block/SM** documented as the occupancy cliff) **+ Phase A.1** (SoA path-state struct + intersect queue gated behind `-DASTRORAY_WAVEFRONT_INTERSECT=ON`, default OFF, bit-identical AoS megakernel output verified, PR #250 2026-05-11). **Phase B held on origin/pkg55-phase-b (HELD, NOT merged)**; cascading radiance bugs regressed 2.5× → 21× brightness. **Phase B' (restart) spec amendment** (PR #266, 2026-05-14) is now authoritative on main: CPU-first methodical rebuild with 8 design decisions. | **Phases A.0 + A.1 done; Phase B' (CPU wavefront + staged CUDA port) open per amendment on main** | A |
+| pkg86 | Light Tree (Conty 2018 many-lights importance sampling) — CPU first, GPU follow-up pkg86-B. | **open** — spec on main (PR #265); blocked on pkg89 Phase A for Light::orientationCone() + power() accessors | A |
+| pkg87 | Cryptomatte passes (CryptoObject / CryptoMaterial) — Psyop BSD-3 + Cycles Apache-2.0. | **open** — spec on main (PR #264); independent; ready to implement | A |
+| pkg88 | Motion blur (Cycles parity) — camera + object + deformation + wavefront hook. | **open** — research signed off (PR #267); DRAFT spec; design questions deferred per owner ("get to that later") | A |
+| pkg89 | Dedicated Light objects (Point / Spot / Distant / Area / Background) — first-class Light interface, emission spectrum composable, pkg86 unblocking accessors. | **open** — research signed off (PR #269); DRAFT spec; Q1/Q6/Q7/Q11 answered in round8-dispatch-queue.md, ready to promote to real spec + start Phase A | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
 original roadmap but no full spec written; capture intent before they're
@@ -252,38 +256,37 @@ forgotten):
 
 ## This week
 
-**Week of:** 2026-05-14 (Round 7 closed on four small packages + pkg67
-Option α; Round 8 framing available in NEXT_STAGE_REPORT.md)
+**Week of:** 2026-05-14 (Round 8 mid-cycle — doc/spec/research wave landed 2026-05-14; implementation wave starts next session per round8-dispatch-queue.md)
 
 ### Track A (Claude Code)
 
-- **Round 7 closed 2026-05-13** on a smaller deployable set than originally
-  planned. Four packages shipped:
-  - **pkg82** (PR #261) — pkg54c variance characterisation; gate re-baselined
-    0.999→0.998 with 0.0006 measured cross-build delta; closes issue #237.
-  - **pkg83** (PR #259) — progressive accumulation continuation (H2 from pkg81);
-    `spp_trace = [1,2,3,4,5,6,7,8]` on CPU + CUDA across camera pans.
-  - **pkg84** (PR #260) — CUDA kernel pre-warm (H5 from pkg81); first frame
-    83.3 ms (was 12,079 ms cold), **145× improvement**.
-  - **pkg67** (PR #262) — MinkowskiMetric + `SampledWavelengths::redshift` +
-    `GRSpectralResult::frequencyShift` exposure (Option α); all 9 unit tests +
-    flat regression + Schwarzschild deflection passing.
-  - **pkg64-gpu spec** (PR #258, docs-only) — files the follow-up spec for GPU
-    SMS port; megakernel target, not wavefront; ready to implement after
-    pkg55-B architectural review.
-- **pkg55 Phase B HELD on origin/pkg55-phase-b** — NOT merged. Cascading
-  wavefront radiance accounting bugs (Bug 1 fixed, Bugs 2+3 regressed from
-  2.5× brightness to 21× brightness after attempted fix). Needs deeper
-  architectural review, not another piecemeal fix. Flagged for architect.
-- **New follow-up: pkg85** (test-harness CUDA state leak) — discovered during
-  pkg67 verification. `pytest tests/ --ignore=tests/test_wavefront_parity.py`
-  crashes at test #370 with illegal memory access; same test in isolation
-  passes. Spec filed at `.astroray_plan/packages/pkg85-test-harness-cuda-state-leak.md`.
-- Round 8 recommended set (NEXT_STAGE_REPORT.md):
-  - pkg55-B architectural review (unblocking decision)
-  - pkg85 test-harness leak bisect (~½ day RTX)
-  - pkg64-gpu implementation (~2-3 weeks, AoS megakernel target)
-  - Continue Pillar 4: pkg43 slim disk, pkg44 ADAF, pkg45+
+- **Round 8 doc wave landed 2026-05-14** — 8 PRs merged (see Changelog above for full list). Headline artifacts on main:
+  - Round 8 strategy pass (architect assessment; pkg55-B fork decision → restart with CPU reference; Light Tree + Cryptomatte ranked highest non-pkg55 leverage).
+  - **pkg55 Phase B' amendment** (CPU-first restart) now authoritative on main; 8 design decisions; origin/pkg55-phase-b HELD as reference.
+  - **pkg86 Light Tree spec** (open, ready after pkg89 Phase A).
+  - **pkg87 Cryptomatte spec** (open, ready to implement; independent).
+  - **pkg88 motion blur research + DRAFT spec** (design Qs deferred).
+  - **pkg89 dedicated lights research + DRAFT spec** (Q1/Q6/Q7/Q11 answered in dispatch queue).
+  - **pkg85 partial fix** (PR #268) — conftest + cuda_renderer robustness; spec gate NOT met; full audit queued as pkg85-B.
+  - **round8-dispatch-queue.md** capturing owner's session-close answers.
+- **Implementation wave starts next session** (per round8-dispatch-queue.md §"Recommended ordering"):
+  - **Session 1 (next)** — parallel-safe, 3 implementers + N doc agents:
+    - pkg43 finish (worktree exists; static-init registration debug)
+    - pkg55-B Phase B' Session 2 (CPU wavefront; spec now authoritative; brief should quote 8 design decisions)
+    - pkg89 spec promotion → Phase A (Light interface + 5 type stubs)
+    - pkg85-B spec filing (doc-only; full CUDA-call audit follow-up)
+  - **Session 2** (assumes Session 1 lands):
+    - pkg44 ADAF (after pkg43)
+    - pkg89 Phase A continued
+    - pkg87 Cryptomatte implementation
+    - pkg64-gpu Phase 1 (megakernel target; acknowledged pkg55-C will re-port)
+  - **Session 3+**:
+    - pkg86 Light Tree (after pkg89 Phase A ships accessors)
+    - pkg55-B Phase B' Session 3+
+    - pkg85-B full audit (when prioritized)
+- **Open items to file when prioritized:**
+  - pkg85-B (full CUDA-call audit; multi-day systematic pass)
+  - `test_disney_clearcoat_adds_gloss` variance investigation (owner: "always been flakey; clearcoat may not be working well")
 
 ### Track A (Claude Code) — previous
 
@@ -399,7 +402,11 @@ events are summarized in the changelog below.
 | pkg82 | A | **done** | PR #261; gate 0.999→0.998; closes issue #237 |
 | pkg83 | A | **done** | PR #259; spp_trace accumulates across camera pans |
 | pkg84 | A | **done** | PR #260; first frame 83.3 ms (was 12,079 ms) |
-| pkg85 | A | open | test-harness CUDA leak; bisect tests 360–369 |
+| pkg85 | A | partial | PR #268 conftest+cuda_renderer robustness; spec gate NOT met; full audit queued as pkg85-B |
+| pkg86 | A | open — ready to implement | Light Tree after pkg89 Phase A ships Light::orientationCone() + power() |
+| pkg87 | A | open — ready to implement | Cryptomatte passes; independent |
+| pkg88 | A | open — research signed off, DRAFT spec | Motion blur; design Qs deferred; see round8-dispatch-queue.md |
+| pkg89 | A | open — research signed off, DRAFT spec | Dedicated Light objects; Q1/Q6/Q7/Q11 answered in dispatch queue |
 | pkg68 | A | **done** | persistent OIDN device, CUDA-first init, member-cached filter; CUDA verifier session 2026-05-10 on RTX 5070 Ti: 13/13 pytest green (incl. `test_cuda_capable_build_reports_cuda_device`), `[OIDN] Using CUDA device` confirmed, single device init across N=4 renders verified; viewport timing 256×256 spp=2: OIDN-on 50.67 ms/frame vs OIDN-off baseline 23.81 ms/frame (Δ=26.86 ms persistent-device overhead) |
 | pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
 | pkg70 | A | **done** | OptiX denoiser plugin co-equal with OIDN; persistent OptixDeviceContext + OptixDenoiser handle, lazy init, HDR vs AOV model selection by guide presence; `gpu_optix_available()` Python probe; addon `denoiser_backend` Auto/OptiX/OIDN with OptiX preferred when both present. **Verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0**: 17/17 pytest green; 5.31× synthetic-noise reduction at 256×256; 1.86× faster than OIDN-CUDA at 1080p (728.94 ms vs 1356.09 ms); SSIM(OptiX, OIDN) = 0.9987. Empty-normal-buffer defect surfaced upstream during verification → tracked as pkg75 |
@@ -494,6 +501,17 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-14 (Round 8 mid-cycle docs sync)** — doc/spec/research wave landed; implementation wave starts next session. **8 PRs merged:**
+  - **PR #263** (c476308) — Round 8 strategy pass (architect assessment of pkg55-B fork decision, Cycles-parity gap decomposition, top 3 non-pkg55 follow-ups ranked: Light Tree + Cryptomatte highest leverage).
+  - **PR #266** (fa896ff) — pkg55 Phase B' amendment (CPU-first restart spec now authoritative on main; 8 design decisions; session 1 summary at `.astroray_plan/docs/pkg55-B-restart-session1-summary.md`).
+  - **PR #265** (9cc920f) — pkg86 Light Tree spec (Conty 2018 + Cycles Apache-2.0; status open, ready to implement after pkg89 Phase A).
+  - **PR #264** (9403a8b) — pkg87 Cryptomatte spec (Psyop BSD-3 + Cycles Apache-2.0; status open, ready to implement; independent).
+  - **PR #267** (e3d5d1b) — pkg88 motion blur research note + DRAFT spec (research signed off; design Qs deferred).
+  - **PR #268** (5583bc0) — **pkg85 partial fix** — conftest autouse fixture + cuda_renderer error clearing; robustness improvement only; spec gate NOT met (full pytest sweep crash still reproduces); full CUDA-call audit queued as pkg85-B follow-up.
+  - **PR #269** (bd13a03) — pkg89 dedicated lights research note + DRAFT spec (research signed off; Q1/Q6/Q7/Q11 answered in round8-dispatch-queue.md).
+  - **Direct push** (4ae14d7) — Round 8 dispatch queue capturing owner's session-close answers.
+  **Status changes:** pkg85 → partial (not done); pkg86/87/88/89 → open (new specs/research). **pkg55-B Phase B' CPU-first restart** is now the authoritative path forward on main; origin/pkg55-phase-b HELD as reference. **Open items to file when prioritized:** pkg85-B (full CUDA-call audit, multi-day), `test_disney_clearcoat_adds_gloss` variance investigation (owner notes "always been flakey; clearcoat may not be working well").
 
 - **2026-05-14 (Round 7 closeout)** — four packages landed; pkg55-B held
   on branch for architectural review; pkg85 follow-up filed. **pkg82

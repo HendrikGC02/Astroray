@@ -605,7 +605,18 @@ __global__ void multiwavelengthKernel(
 
     curandState localRng = rngStates[pixelIdx];
 
-    GVec3 colorRGB(0.f);
+    // pkg85-D: accumulate in XYZ (or luminance-triplet) across SPP, then convert
+    // to linear sRGB ONCE at the end. The CPU integrator does the same:
+    //   raytracer.h:2548  sCol = finiteVecOrZero(XYZ)
+    //   raytracer.h:2550  firefly clamp on XYZ.Y > 20
+    //   raytracer.h:2552  color += sCol     (XYZ accumulation)
+    //   raytracer.h:2579  color /= samples
+    //   raytracer.h:2595  color = xyzToLinearSRGB(color)   (single conversion)
+    // The prior order (per-sample xyzToLinearSRGB → average) does not commute
+    // with averaging because xyzToLinearSRGB's negative-channel lift is
+    // non-linear; bluish HDRI samples produce negative R that the lift adds
+    // to G/B every sample, biasing green/blue upward. SSIM-killer.
+    GVec3 colorAccum(0.f);
     for (int s = 0; s < samplesPerPixel; ++s) {
         float u = (px + curand_uniform(&localRng)) / (width  - 1);
         float v = 1.f - (py + curand_uniform(&localRng)) / (height - 1);
@@ -631,18 +642,30 @@ __global__ void multiwavelengthKernel(
             L = fmaxf(0.f, L / float(G_SPECTRUM_SAMPLES));
             sample = GVec3(L, L, L);
         } else {
-            GVec3 xyz = spectrumToXYZ(rad, lambdas);
-            sample = xyzToLinearSRGB_dev(xyz);
+            // XYZ tristimulus (linear, additive, matches CPU sCol).
+            sample = spectrumToXYZ(rad, lambdas);
         }
 
-        // Per-sample firefly clamp (matches CPU path tracer).
-        float lum = luminance(sample);
-        if (lum > 20.f) sample *= (20.f / lum);
+        // finiteVecOrZero — replace NaN/Inf with zero (matches CPU).
+        sample.x = isfinite(sample.x) ? sample.x : 0.f;
+        sample.y = isfinite(sample.y) ? sample.y : 0.f;
+        sample.z = isfinite(sample.z) ? sample.z : 0.f;
 
-        colorRGB += sample;
+        // Per-sample firefly clamp on XYZ.Y (photometric luminance, matches CPU
+        // raytracer.h:2550). For useLuminanceOutput the triplet is (L,L,L) so
+        // .y == L; same clamp applies.
+        float sLum = sample.y;
+        if (sLum > 20.f) sample *= (20.f / sLum);
+
+        colorAccum += sample;
     }
 
-    colorRGB /= float(samplesPerPixel);
+    colorAccum /= float(samplesPerPixel);
+
+    // Single XYZ→sRGB conversion (skipped for useLuminanceOutput — already
+    // luminance triplet). Mirrors CPU raytracer.h:2595.
+    GVec3 colorRGB = useLuminanceOutput ? colorAccum
+                                        : xyzToLinearSRGB_dev(colorAccum);
     colorRGB.x = fmaxf(colorRGB.x, 0.f);
     colorRGB.y = fmaxf(colorRGB.y, 0.f);
     colorRGB.z = fmaxf(colorRGB.z, 0.f);

@@ -107,7 +107,13 @@ void launchStageIntersect(
                          cudaGetErrorString(err));
             throw std::runtime_error(cudaGetErrorString(err));
         }
-        cudaDeviceSynchronize();
+        // pkg85-B: async runtime errors must not be silently discarded.
+        cudaError_t syncErr = cudaDeviceSynchronize();
+        if (syncErr != cudaSuccess) {
+            std::fprintf(stderr, "stage_intersect runtime error: %s\n",
+                         cudaGetErrorString(syncErr));
+            throw std::runtime_error(cudaGetErrorString(syncErr));
+        }
     }
 }
 

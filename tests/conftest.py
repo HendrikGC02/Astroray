@@ -93,7 +93,13 @@ def cuda_cleanup_and_error_check():
                         cuda.cudaGetErrorString.restype = ctypes.c_char_p
                         sync_msg = cuda.cudaGetErrorString(sync_err).decode() if sync_err != 0 else ""
                         last_msg = cuda.cudaGetErrorString(last_err).decode() if last_err != 0 else ""
-                        pytest.fail(f"[pkg85-diag] Latent CUDA error after test: sync={sync_err} ({sync_msg}), last={last_err} ({last_msg})")  # remove after fix
+                        # pkg85-B: this is now a permanent regression guard,
+                        # not a diagnostic. Any latent CUDA error after a
+                        # test indicates a missing CUDA_CHECK or a real
+                        # GPU-side bug; fail loudly at the boundary so the
+                        # culprit test is the one blamed, not whichever
+                        # test happens to make the next CUDA call.
+                        pytest.fail(f"Latent CUDA error after test: sync={sync_err} ({sync_msg}), last={last_err} ({last_msg})")
                 except (OSError, AttributeError):
                     pass  # CUDA runtime not available, skip check
         except Exception:

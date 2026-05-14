@@ -443,7 +443,14 @@ void launchPathTraceKernel(
             fprintf(stderr, "Kernel launch error: %s\n", cudaGetErrorString(err));
             throw std::runtime_error(cudaGetErrorString(err));
         }
-        cudaDeviceSynchronize();
+        // pkg85-B: check post-launch sync — async errors (illegal memory
+        // access, etc.) surface here and must not be discarded.
+        cudaError_t syncErr = cudaDeviceSynchronize();
+        if (syncErr != cudaSuccess) {
+            fprintf(stderr, "Path-trace kernel runtime error: %s\n",
+                    cudaGetErrorString(syncErr));
+            throw std::runtime_error(cudaGetErrorString(syncErr));
+        }
     }
 }
 
@@ -453,6 +460,19 @@ void launchInitRNG(curandState* d_states, int n, unsigned long long seed) {
         astroray::gpu_profile::ScopedTimer _t(
             "init_rng", (const void*)initRNGKernel, blocks, 256);
         initRNGKernel<<<blocks, 256>>>(d_states, n, seed);
-        cudaDeviceSynchronize();
+        // pkg85-B: was previously discarding both the launch error and the
+        // sync result. Check both.
+        cudaError_t launchErr = cudaGetLastError();
+        if (launchErr != cudaSuccess) {
+            fprintf(stderr, "initRNG launch error: %s\n",
+                    cudaGetErrorString(launchErr));
+            throw std::runtime_error(cudaGetErrorString(launchErr));
+        }
+        cudaError_t syncErr = cudaDeviceSynchronize();
+        if (syncErr != cudaSuccess) {
+            fprintf(stderr, "initRNG runtime error: %s\n",
+                    cudaGetErrorString(syncErr));
+            throw std::runtime_error(cudaGetErrorString(syncErr));
+        }
     }
 }

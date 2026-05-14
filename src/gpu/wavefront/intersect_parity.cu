@@ -131,8 +131,24 @@ int launchIntersectParity(
     }
 
     int* d_mismatch = nullptr;
-    cudaMalloc(reinterpret_cast<void**>(&d_mismatch), sizeof(int));
-    cudaMemset(d_mismatch, 0, sizeof(int));
+    // pkg85-B: previously discarded errors from cudaMalloc/cudaMemset.
+    {
+        cudaError_t e = cudaMalloc(reinterpret_cast<void**>(&d_mismatch),
+                                   sizeof(int));
+        if (e != cudaSuccess) {
+            std::fprintf(stderr, "intersect_parity cudaMalloc failed: %s\n",
+                         cudaGetErrorString(e));
+            throw std::runtime_error(cudaGetErrorString(e));
+        }
+        e = cudaMemset(d_mismatch, 0, sizeof(int));
+        if (e != cudaSuccess) {
+            cudaFree(d_mismatch);
+            cudaGetLastError();
+            std::fprintf(stderr, "intersect_parity cudaMemset failed: %s\n",
+                         cudaGetErrorString(e));
+            throw std::runtime_error(cudaGetErrorString(e));
+        }
+    }
 
     int threads = 256;
     int blocks  = (total + threads - 1) / threads;
@@ -151,15 +167,38 @@ int launchIntersectParity(
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             cudaFree(d_mismatch);
+            cudaGetLastError();  // pkg85-B: swallow cleanup error pre-throw
             std::fprintf(stderr, "intersect_parity launch error: %s\n",
                          cudaGetErrorString(err));
             throw std::runtime_error(cudaGetErrorString(err));
         }
-        cudaDeviceSynchronize();
+        // pkg85-B: async runtime errors must not be silently discarded.
+        cudaError_t syncErr = cudaDeviceSynchronize();
+        if (syncErr != cudaSuccess) {
+            cudaFree(d_mismatch);
+            cudaGetLastError();
+            std::fprintf(stderr, "intersect_parity runtime error: %s\n",
+                         cudaGetErrorString(syncErr));
+            throw std::runtime_error(cudaGetErrorString(syncErr));
+        }
     }
     int h_mismatch = 0;
-    cudaMemcpy(&h_mismatch, d_mismatch, sizeof(int), cudaMemcpyDeviceToHost);
-    cudaFree(d_mismatch);
+    // pkg85-B: check the readback and the final free.
+    cudaError_t cpyErr = cudaMemcpy(&h_mismatch, d_mismatch, sizeof(int),
+                                    cudaMemcpyDeviceToHost);
+    if (cpyErr != cudaSuccess) {
+        cudaFree(d_mismatch);
+        cudaGetLastError();
+        std::fprintf(stderr, "intersect_parity cudaMemcpy failed: %s\n",
+                     cudaGetErrorString(cpyErr));
+        throw std::runtime_error(cudaGetErrorString(cpyErr));
+    }
+    cudaError_t freeErr = cudaFree(d_mismatch);
+    if (freeErr != cudaSuccess) {
+        cudaGetLastError();
+        std::fprintf(stderr, "intersect_parity cudaFree failed: %s\n",
+                     cudaGetErrorString(freeErr));
+    }
     return h_mismatch;
 }
 

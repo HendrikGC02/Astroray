@@ -167,6 +167,10 @@ public:
         cudaEventCreate(&start_);
         cudaEventCreate(&stop_);
         cudaEventRecord(start_);
+        // pkg85-B: profiling primitives never throw; if any of the above
+        // failed, swallow the error so it doesn't contaminate the wrapped
+        // kernel launch's own error check.
+        cudaGetLastError();
     }
     ~ScopedTimer() {
         if (!active_) return;
@@ -187,6 +191,12 @@ public:
         cudaEventDestroy(start_);
         cudaEventDestroy(stop_);
         nvtxRangePop();
+        // pkg85-B: ScopedTimer is opt-in profiling (ASTRORAY_PROFILE=1) and
+        // must never throw from a destructor. Real kernel errors are caught
+        // by the surrounding launcher's cudaGetLastError() + sync check;
+        // swallow any leftover error from the profiling primitives so it
+        // does not contaminate the next CUDA call.
+        cudaGetLastError();
     }
     ScopedTimer(const ScopedTimer&) = delete;
     ScopedTimer& operator=(const ScopedTimer&) = delete;

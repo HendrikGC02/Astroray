@@ -343,11 +343,15 @@ private:
         ASTRORAY_OPTIX_CHECK(optixDeviceContextCreate(/*ctx*/ 0, &ctxOpts, &context_));
 
         int dev = 0;
-        cudaGetDevice(&dev);
+        ASTRORAY_CUDA_CHECK(cudaGetDevice(&dev));
         cudaDeviceProp props{};
         if (cudaGetDeviceProperties(&props, dev) == cudaSuccess) {
             std::printf("[OptiX] Using CUDA device %d (%s)\n", dev, props.name);
         } else {
+            // pkg85-B: clear the latent error so it doesn't contaminate
+            // the next CUDA call. The print is informational; failure
+            // here is non-fatal but the error must not persist.
+            cudaGetLastError();
             std::printf("[OptiX] Using CUDA device %d\n", dev);
         }
         std::fflush(stdout);
@@ -455,6 +459,8 @@ private:
         auto freeIf = [](CUdeviceptr& p) {
             if (p) { cudaFree(reinterpret_cast<void*>(p)); p = 0; }
         };
+        // pkg85-B: see below — clear any latent free error at end of scope
+        // so denoiser teardown doesn't leak state into the next CUDA call.
         freeIf(stateDev_);
         freeIf(scratchDev_);
         freeIf(colorDev_);
@@ -469,6 +475,7 @@ private:
         stateSize_              = 0;
         scratchSize_            = 0;
         internalGuidePixelSize_ = 0;
+        cudaGetLastError();  // pkg85-B: swallow cudaFree errors in cleanup.
     }
 
     void destroy_() {

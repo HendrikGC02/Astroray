@@ -112,6 +112,9 @@ void freeSoAState(IntegratorStateSoA& s) {
     F(s.rng_state);
     s.capacity   = 0;
     s.num_active = 0;
+    // pkg85-B: swallow any latent cudaFree error so it doesn't contaminate
+    // the next CUDA call in production or the next test in the sweep.
+    cudaGetLastError();
 }
 
 }  // namespace astroray::wavefront

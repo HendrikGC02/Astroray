@@ -24,6 +24,8 @@
 #include "astroray/restir/reservoir.h"
 #include "astroray/restir/light_sample.h"
 #include "astroray/restir/frame_state.h"
+#include "../src/cpu/wavefront/reference_pt_production.h"
+#include "../src/cpu/wavefront/reference_pt_wavefront.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
 #endif
@@ -1498,6 +1500,12 @@ public:
         out["env_loaded"] = (envMap && envMap->loaded());
         return out;
     }
+
+    // pkg55 Phase B' Session 2b — accessors for reference PT bindings.
+    Renderer& getRenderer() { return renderer; }
+    const Renderer& getRenderer() const { return renderer; }
+    std::shared_ptr<Camera> getCamera() { return camera; }
+    const std::shared_ptr<Camera> getCamera() const { return camera; }
 };
 
 // pkg56 Phase A: viewport-sync per-stage timing ring buffer storage.
@@ -2305,6 +2313,52 @@ PYBIND11_MODULE(astroray, m) {
           "pkg56-A: per-stage mean ms over the last N completed frames "
           "(N≤100). Returns dict with keys 'geometry', 'materials', "
           "'lights', 'environment', 'render', 'total', 'frames'.");
+
+    // -----------------------------------------------------------------------
+    // pkg55 Phase B' Session 2b: reference path tracers for CPU wavefront.
+    // Exposed for trip-wire / equivalence tests. Not part of the production API.
+    // -----------------------------------------------------------------------
+    m.def("reference_pt_production_render",
+          [](PyRenderer& r, int samples, int max_depth, uint64_t seed,
+             bool record_snapshots) -> py::array_t<float> {
+              auto cam = r.getCamera();
+              if (!cam) {
+                  throw std::runtime_error("Camera not set up. Call setup_camera() first.");
+              }
+              auto result = astroray::cpu_wavefront::reference_pt_production_render(
+                  r.getRenderer(), *cam, samples, max_depth, seed, record_snapshots);
+              // Return RGB buffer as numpy array (height, width, 3).
+              py::array_t<float> arr({cam->height, cam->width, 3});
+              auto buf = arr.request();
+              float* ptr = static_cast<float*>(buf.ptr);
+              std::copy(result.rgb.begin(), result.rgb.end(), ptr);
+              return arr;
+          },
+          "renderer"_a, "samples"_a, "max_depth"_a, "seed"_a,
+          "record_snapshots"_a = false,
+          "pkg55-B' Session 2b: production-side reference PT (tile-shared RNG). "
+          "Trip-wire oracle for production drift. Lambertian-Cornell only.");
+
+    m.def("reference_pt_wavefront_render",
+          [](PyRenderer& r, int samples, int max_depth, uint64_t seed,
+             bool record_snapshots) -> py::array_t<float> {
+              auto cam = r.getCamera();
+              if (!cam) {
+                  throw std::runtime_error("Camera not set up. Call setup_camera() first.");
+              }
+              auto result = astroray::cpu_wavefront::reference_pt_wavefront_render(
+                  r.getRenderer(), *cam, samples, max_depth, seed, record_snapshots);
+              // Return RGB buffer as numpy array (height, width, 3).
+              py::array_t<float> arr({cam->height, cam->width, 3});
+              auto buf = arr.request();
+              float* ptr = static_cast<float*>(buf.ptr);
+              std::copy(result.rgb.begin(), result.rgb.end(), ptr);
+              return arr;
+          },
+          "renderer"_a, "samples"_a, "max_depth"_a, "seed"_a,
+          "record_snapshots"_a = false,
+          "pkg55-B' Session 2b: wavefront-side reference PT (per-path RNG). "
+          "Diff oracle for CPU wavefront. Lambertian-Cornell only.");
 
     m.def("viewport_perf_reset",
           []() {

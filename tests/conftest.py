@@ -54,3 +54,49 @@ def standalone_executable():
     if path:
         return path
     pytest.skip("raytracer executable not found")
+
+
+@pytest.fixture(autouse=True)
+def cuda_cleanup_and_error_check():
+    """pkg85: Force Python GC and check for latent CUDA errors after each test.
+
+    The root cause: Python's garbage collector doesn't run immediately after
+    a test function ends, so Renderer objects with GPU state (CUDARenderer)
+    can accumulate across tests. Explicit gc.collect() forces cleanup.
+
+    When a CUDA operation fails but the error isn't checked immediately,
+    the error persists and contaminates the next CUDA call. This fixture
+    first forces GC to clean up all pending renderers, then synchronizes
+    the device and checks for latent errors.
+    """
+    yield  # Let the test run
+
+    import gc
+    gc.collect()  # pkg85: Force cleanup of any Renderer objects left by the test
+
+    try:
+        import astroray
+        # Only check if astroray module loaded successfully
+        try:
+            renderer = astroray.Renderer()
+            if renderer.gpu_available:
+                # Import ctypes to call CUDA runtime directly
+                import ctypes
+                try:
+                    # Try to load CUDA runtime DLL
+                    cuda = ctypes.CDLL("cudart64_12.dll") if sys.platform == "win32" else ctypes.CDLL("libcudart.so")
+                    # cudaDeviceSynchronize() and cudaGetLastError()
+                    sync_err = cuda.cudaDeviceSynchronize()
+                    last_err = cuda.cudaGetLastError()
+                    if sync_err != 0 or last_err != 0:
+                        # Get error string
+                        cuda.cudaGetErrorString.restype = ctypes.c_char_p
+                        sync_msg = cuda.cudaGetErrorString(sync_err).decode() if sync_err != 0 else ""
+                        last_msg = cuda.cudaGetErrorString(last_err).decode() if last_err != 0 else ""
+                        pytest.fail(f"[pkg85-diag] Latent CUDA error after test: sync={sync_err} ({sync_msg}), last={last_err} ({last_msg})")  # remove after fix
+                except (OSError, AttributeError):
+                    pass  # CUDA runtime not available, skip check
+        except Exception:
+            pass  # Renderer construction failed, skip check
+    except ImportError:
+        pass  # astroray not available, skip check

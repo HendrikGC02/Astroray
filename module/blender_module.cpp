@@ -2384,17 +2384,6 @@ PYBIND11_MODULE(astroray, m) {
           "pkg56-A: clear the viewport perf ring buffer and "
           "in-flight accumulator.");
 
-    // pkg92 — WavefrontRNG (PCG32 counter-based RNG for wavefront oracles).
-    py::class_<astroray::WavefrontRNG>(m, "WavefrontRNG")
-        .def(py::init<uint32_t, uint32_t, uint64_t>(),
-             "pixel_index"_a, "sample_index"_a, "scene_seed"_a = 0,
-             "Construct RNG for a specific (pixel, sample) path. Dimension counter "
-             "starts at 0 and auto-increments with each Uniform() or UniformUInt32() call.")
-        .def("Uniform", &astroray::WavefrontRNG::Uniform,
-             "Generate uniform float in [0, 1). Increments internal dimension counter.")
-        .def("UniformUInt32", &astroray::WavefrontRNG::UniformUInt32,
-             "Generate uniform uint32_t. Increments internal dimension counter.");
-
     m.attr("__version__") = "3.0.0";
     m.attr("__features__") = py::dict(
         "nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,

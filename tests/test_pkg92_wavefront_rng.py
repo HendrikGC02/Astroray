@@ -19,45 +19,47 @@ def test_pcg32_bit_identity():
     Expected taps from pcg-c-basic for:
       pixel=0, sample=0, dimensions 0..9, seed=0
 
-    Reference C code:
-      pcg32_random_t rng;
-      uint64_t seq_index = (0ULL * 65536 + 0) << 32 | dim;
-      uint64_t stream = MixBits(seq_index);
-      pcg32_srandom_r(&rng, 0, stream);
-      uint32_t output = pcg32_random_r(&rng);
-
-    This test will be updated with actual expected values after we confirm
-    the implementation compiles and runs.
+    Reference generated via tests/generate_pcg32_reference.c:
+      - imneme/pcg-c-basic algorithm (Apache-2.0/MIT)
+      - PBRT-v4 keying: seq_index = (pixel * 65536 + sample) << 32 | dim
+      - MixBits(seq_index) -> stream -> inc = (stream << 1) | 1
     """
-    import astroray
+    import astroray_test_helpers
 
-    # Expected taps (placeholder — will be filled after first run verification).
-    # These should match imneme/pcg-c-basic output bit-exactly.
+    # Reference taps from imneme/pcg-c-basic (Apache-2.0/MIT).
+    # Generated with tests/generate_pcg32_reference.c on 2026-05-15.
     expected_taps_dim0_to_9 = [
-        # To be filled after manual verification against reference C impl.
-        # For now, we'll generate and print them.
+        0xe4c14788,  # dim 0
+        0x929ed1ed,  # dim 1
+        0xdbf4c14a,  # dim 2
+        0x9949df1b,  # dim 3
+        0x261e5f45,  # dim 4
+        0x4f00b92c,  # dim 5
+        0x32440852,  # dim 6
+        0xf7f7ec2e,  # dim 7
+        0x04b66ec9,  # dim 8
+        0x75c61ab8,  # dim 9
     ]
 
-    rng = astroray.WavefrontRNG(pixel_index=0, sample_index=0, scene_seed=0)
+    rng = astroray_test_helpers.WavefrontRNG(pixel_index=0, sample_index=0, scene_seed=0)
     actual_taps = [rng.UniformUInt32() for _ in range(10)]
 
     print("\n[pkg92-test] Generated taps for (pixel=0, sample=0, dim=0..9, seed=0):")
     for i, tap in enumerate(actual_taps):
         print(f"  dimension {i}: {tap:#010x} ({tap})")
 
-    # For the first implementation pass, we'll skip the assertion and just print.
-    # After manual verification, uncomment and fill expected_taps.
-    # assert actual_taps == expected_taps_dim0_to_9
+    assert actual_taps == expected_taps_dim0_to_9, \
+        f"PCG32 output does not match reference. Expected:\n{expected_taps_dim0_to_9}\nGot:\n{actual_taps}"
 
 
 def test_reseed_determinism():
     """
     Same (pixel, sample, seed) → same output across runs.
     """
-    import astroray
+    import astroray_test_helpers
 
     def generate_sequence(pixel, sample, seed, count=10):
-        rng = astroray.WavefrontRNG(pixel, sample, seed)
+        rng = astroray_test_helpers.WavefrontRNG(pixel, sample, seed)
         return [rng.Uniform() for _ in range(count)]
 
     seq1 = generate_sequence(42, 7, 12345, 10)
@@ -72,13 +74,13 @@ def test_stream_disjointness():
 
     We test pairwise correlation between streams and verify it's < 0.01.
     """
-    import astroray
+    import astroray_test_helpers
 
     np.random.seed(999)  # For reproducible test selection
 
     # Generate samples from two different streams.
-    rng1 = astroray.WavefrontRNG(pixel_index=0, sample_index=0, scene_seed=0)
-    rng2 = astroray.WavefrontRNG(pixel_index=1, sample_index=0, scene_seed=0)
+    rng1 = astroray_test_helpers.WavefrontRNG(pixel_index=0, sample_index=0, scene_seed=0)
+    rng2 = astroray_test_helpers.WavefrontRNG(pixel_index=1, sample_index=0, scene_seed=0)
 
     n_samples = 1024
     stream1 = np.array([rng1.Uniform() for _ in range(n_samples)], dtype=np.float32)
@@ -88,21 +90,48 @@ def test_stream_disjointness():
     corr = np.corrcoef(stream1, stream2)[0, 1]
     print(f"\n[pkg92-test] Stream correlation (pixel=0 vs pixel=1): {corr:.6f}")
 
-    assert abs(corr) < 0.05, f"Streams should be uncorrelated, got correlation {corr}"
+    assert abs(corr) < 0.01, f"Streams should be uncorrelated, got correlation {corr}"
 
 
 def test_uniform_range():
     """
     Verify Uniform() returns values in [0, 1).
     """
-    import astroray
+    import astroray_test_helpers
 
-    rng = astroray.WavefrontRNG(pixel_index=0, sample_index=0, scene_seed=0)
+    rng = astroray_test_helpers.WavefrontRNG(pixel_index=0, sample_index=0, scene_seed=0)
     samples = [rng.Uniform() for _ in range(10000)]
 
     assert all(0.0 <= s < 1.0 for s in samples), "Uniform() should return [0, 1)"
     assert min(samples) < 0.01, "Uniform() should cover low range"
     assert max(samples) > 0.99, "Uniform() should cover high range"
+
+
+def test_testu01_smallcrush():
+    """
+    TestU01 SmallCrush statistical quality gate (acceptance criterion #4).
+
+    BLOCKER: TestU01 is a heavyweight C library (http://simul.iro.umontreal.ca/testu01/)
+    that requires vendoring or system-level installation. It's not packaged in standard
+    Python/pip ecosystems. Options:
+
+    1. Vendor TestU01 and build it as part of Astroray's CMake (adds ~500KB binary + build complexity).
+    2. Substitute PractRand or Dieharder (lighter C-based RNG test suites with similar coverage).
+    3. Rely on the published PCG32 BigCrush pass (O'Neill 2014, §5.4) and document the
+       acceptance criterion as "verified by upstream; our keying tested via stream-disjointness."
+
+    Per CLAUDE.md §6 and the implementer contract, this blocker is STOPPED and REPORTED
+    to the owner. The existing tests (bit-identity, reseed-determinism, stream-disjointness)
+    verify our keying does not break PCG32; SmallCrush would verify that PCG32 itself is
+    statistically sound, which O'Neill 2014 already demonstrated with BigCrush.
+
+    Recommendation: Option 3 (document upstream BigCrush pass + our keying tests), unless
+    the owner requires CI-level statistical validation, in which case Option 1 or 2.
+    """
+    pytest.skip(
+        "TestU01 SmallCrush blocked on library availability. "
+        "See test docstring for options. Awaiting owner decision per CLAUDE.md §1."
+    )
 
 
 def test_compatibility_with_std_distributions():
@@ -112,9 +141,9 @@ def test_compatibility_with_std_distributions():
 
     This is a smoke test to ensure the operator() interface works.
     """
-    import astroray
+    import astroray_test_helpers
 
-    rng = astroray.WavefrontRNG(pixel_index=0, sample_index=0, scene_seed=0)
+    rng = astroray_test_helpers.WavefrontRNG(pixel_index=0, sample_index=0, scene_seed=0)
 
     # Generate some samples using the mt19937-compatible interface.
     # In C++, this works with std::uniform_real_distribution<float>.

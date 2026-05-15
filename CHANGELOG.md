@@ -6,6 +6,30 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+### pkg47 — FITS Data Loader
+
+- Added FITS I/O plugin for loading astronomical observation and simulation
+  data in FITS format (Flexible Image Transport System).
+- `include/astroray/fits_io.h`: RAII wrapper around cfitsio C API
+  (NASA/HEASARC, public domain). Exposes `FITSFile::open()`, `naxis()`,
+  `shape()`, `readFloat()`, and `header()` for reading IMAGE HDUs.
+- `plugins/data/fits_loader.cpp`: `FITSTexture` plugin for 2D FITS images
+  (NAXIS=2) and `FITSVolume` class for 3D data cubes (NAXIS=3).
+- CMake: optional build via `ASTRORAY_ENABLE_FITS` flag (default OFF).
+  Gracefully skips FITS plugins if cfitsio not found; prints warning.
+  Install cfitsio: `vcpkg install cfitsio` (Windows) or
+  `apt install libcfitsio-dev` (Linux).
+- Automatic BSCALE/BZERO scaling via cfitsio. Supports floating-point
+  (BITPIX −32, −64) and integer (BITPIX 8, 16, 32) data. Compressed FITS
+  (.fits.gz, tile compression) handled transparently.
+- Multi-HDU support: primary HDU by default, user-selectable via `hdu`
+  parameter (1-based index).
+- Tests: `tests/test_fits_loader.py` with synthetic FITS data generated at
+  runtime via astropy.io.fits (no binaries committed). Covers 2D/3D load,
+  BSCALE/BZERO, missing-file error, and NAXIS validation.
+- Reference: FITS Standard 4.0 (NASA/IAU, public domain),
+  `.astroray_plan/docs/pillar4-data-io-research.md §2`.
+
 ### pkg42 — Synchrotron Emission & Relativistic Jets
 
 - Added `include/astroray/emission.h` with the shared `Emission`

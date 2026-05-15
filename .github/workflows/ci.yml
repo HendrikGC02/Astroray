@@ -31,5 +31,17 @@ jobs:
           cmake .. -DCMAKE_BUILD_TYPE=Release
           make -j4
 
+      - name: Build PractRand
+        run: |
+          mkdir -p third_party/PractRand
+          cd third_party/PractRand
+          curl -L -o PractRand.zip "https://sourceforge.net/projects/pracrand/files/PractRand_0.96.zip/download"
+          echo "e4caf7fda98b2c597bbda3b576753cf5a0f6047aab837c82be370ab798a672e1  PractRand.zip" | sha256sum -c - || exit 1
+          unzip -q PractRand.zip
+          cd PractRand_0.96
+          g++ -c src/*.cpp src/RNGs/*.cpp src/RNGs/other/*.cpp -O3 -Iinclude
+          ar rcs PractRand.a *.o
+          g++ -o ../RNG_test tools/RNG_test.cpp PractRand.a -O3 -Iinclude -Itools -pthread
+
       - name: Test
         run: python -m pytest tests/ -v

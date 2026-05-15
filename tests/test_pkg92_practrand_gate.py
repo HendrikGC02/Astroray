@@ -39,17 +39,22 @@ def test_wavefront_rng_practrand_gate():
     import astroray_test_helpers
 
     # Locate PractRand RNG_test executable
-    # Assume it's built in third_party/PractRand/
+    # Cross-platform: RNG_test on Linux, RNG_test.exe on Windows
     repo_root = Path(__file__).parent.parent
-    rng_test_exe = repo_root / "third_party" / "PractRand" / "RNG_test.exe"
+    practrand_dir = repo_root / "third_party" / "PractRand"
+
+    # Try both names (Linux first for CI, then Windows for local dev)
+    rng_test_exe = practrand_dir / "RNG_test"
+    if not rng_test_exe.exists():
+        rng_test_exe = practrand_dir / "RNG_test.exe"
 
     if not rng_test_exe.exists():
         pytest.skip(
-            f"PractRand RNG_test.exe not found at {rng_test_exe}. "
+            f"PractRand RNG_test not found in {practrand_dir}. "
             "Build it with: cd third_party/PractRand && "
             "g++ -c src/*.cpp src/RNGs/*.cpp src/RNGs/other/*.cpp -O3 -Iinclude && "
             "ar rcs PractRand.a *.o && "
-            "g++ -o RNG_test.exe tools/RNG_test.cpp PractRand.a -O3 -Iinclude -Itools -pthread"
+            "g++ -o RNG_test tools/RNG_test.cpp PractRand.a -O3 -Iinclude -Itools -pthread"
         )
 
     # Generate 8M uint32s (32 MB) from WavefrontRNG

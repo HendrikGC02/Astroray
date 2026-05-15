@@ -161,7 +161,9 @@ This provides 2^63 disjoint streams, one per unique `(pixel, sample, dimension)`
 **Repository:** https://pracrand.sourceforge.net/ (SourceForge project)  
 **GitHub mirror:** https://github.com/MartyMacGyver/PractRand  
 **Author:** Chris Doty-Humphrey  
-**Version:** 0.95  
+**Version:** 0.96 (pinned for CI)  
+**Download URL:** https://sourceforge.net/projects/pracrand/files/PractRand_0.96.zip/download  
+**SHA256:** `e4caf7fda98b2c597bbda3b576753cf5a0f6047aab837c82be370ab798a672e1`  
 **License:** Public domain (dedicated to public domain by the author)  
 **License verification:** Confirmed via https://pracrand.sourceforge.net/license.txt (2026-05-15)
 

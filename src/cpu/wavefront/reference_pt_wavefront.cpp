@@ -121,9 +121,10 @@ SampledSpectrum tracePathSpectral(
         // Area-light NEE (MIS via power heuristic). Skipped on delta lobes.
         if (!rec.isDelta && !lights.empty()) {
             // pkg92: lights.sample expects mt19937&. Seed from WavefrontRNG.
+            // pkg89: lights.sample now requires normal + lambdas for spectral dedicated lights.
             uint32_t light_seed = gen.UniformUInt32();
             std::mt19937 light_gen(light_seed);
-            LightSample ls = lights.sample(rec.point, light_gen);
+            LightSample ls = lights.sample(rec.point, rec.normal, lambdas, light_gen);
             if (ls.pdf > 0) {
                 Vec3 wi = (ls.position - rec.point).normalized();
                 HitRecord shadow;
@@ -131,7 +132,8 @@ SampledSpectrum tracePathSpectral(
                 bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
                 if (!occluded) {
                     SampledSpectrum f_spec = rec.material->evalSpectral(rec, wo, wi, lambdas);
-                    SampledSpectrum L_spec = RGBIlluminantSpectrum({ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas);
+                    // pkg89: use emission_spec directly (fixes RGB-collapse bug).
+                    SampledSpectrum L_spec = ls.emission_spec;
                     float bsdfPdf = rec.material->pdf(rec, wo, wi);
                     float a = ls.pdf, b = bsdfPdf;
                     float wt = (a * a) / (a * a + b * b + 1e-8f);

@@ -2,13 +2,8 @@
 
 **Pillar:** 3 (light transport)
 **Track:** A
-**Status:** spec promoted from DRAFT (architect spec-promotion pass,
-  2026-05-14). 12 design forks from the research note resolved or
-  surfaced to owner; the four owner-blocking questions (Q1, Q6, Q7,
-  Q11) were already owner-answered per the round8-dispatch-queue and
-  are recorded here as confirmed. See "Design decisions" + "Owner-
-  preference questions deferred to owner". Ready to dispatch once the
-  one remaining owner-preference question is answered.
+**Status:** open — Phase A in progress (all 12 forks resolved; Q-Owner-1
+  owner-answered 2026-05-14).
 **Estimated effort:** 3–4 weeks across two phases (A: interface +
   types + integrator wiring, B: Blender addon migration). Phase C
   (mesh-emitter unification) is a separate future package.

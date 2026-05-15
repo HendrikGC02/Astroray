@@ -363,6 +363,13 @@ add_library(astroray_core_impl STATIC
     src/energy_compensation.cpp
     src/material_closure.cpp
     src/spectral_profile.cpp
+    src/emission_spectrum.cpp
+    src/light.cpp
+    src/lights/point_light.cpp
+    src/lights/spot_light.cpp
+    src/lights/distant_light.cpp
+    src/lights/area_light.cpp
+    src/lights/background_light.cpp
 )
 
 # pkg55 Phase B' — CPU wavefront reference oracle + driver (Session 2b/2c).

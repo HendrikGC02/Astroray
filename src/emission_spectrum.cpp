@@ -8,32 +8,37 @@
 namespace astroray {
 
 // Copy constructor (handles unique_ptr in Composite).
-EmissionSpectrum::EmissionSpectrum(const EmissionSpectrum& other) {
-    data_ = std::visit([](const auto& mode) -> Variant {
+EmissionSpectrum::EmissionSpectrum(const EmissionSpectrum& other)
+    : data_(std::visit([](const auto& mode) -> Variant {
         using T = std::decay_t<decltype(mode)>;
         if constexpr (std::is_same_v<T, Composite>) {
-            Composite newComp;
-            newComp.base = std::make_unique<EmissionSpectrum>(*mode.base);
-            newComp.filter_rgb = mode.filter_rgb;
-            return newComp;
+            // Deep copy the unique_ptr via direct Composite construction, then move into Variant.
+            Composite newComp{
+                std::make_unique<EmissionSpectrum>(*mode.base),
+                mode.filter_rgb
+            };
+            return Variant{std::move(newComp)};
         } else {
-            return mode;  // Blackbody, RGB, MeasuredSPD are trivially copyable
+            // Blackbody, RGB, MeasuredSPD are trivially copyable.
+            return Variant{mode};
         }
-    }, other.data_);
-}
+    }, other.data_))
+{}
 
 // Copy assignment (handles unique_ptr in Composite).
 EmissionSpectrum& EmissionSpectrum::operator=(const EmissionSpectrum& other) {
     if (this == &other) return *this;
-    data_ = std::visit([](const auto& mode) -> Variant {
+    std::visit([this](const auto& mode) {
         using T = std::decay_t<decltype(mode)>;
         if constexpr (std::is_same_v<T, Composite>) {
-            Composite newComp;
-            newComp.base = std::make_unique<EmissionSpectrum>(*mode.base);
-            newComp.filter_rgb = mode.filter_rgb;
-            return newComp;
+            // Deep copy the unique_ptr.
+            data_.emplace<Composite>(Composite{
+                std::make_unique<EmissionSpectrum>(*mode.base),
+                mode.filter_rgb
+            });
         } else {
-            return mode;  // Blackbody, RGB, MeasuredSPD are trivially copyable
+            // Blackbody, RGB, MeasuredSPD are trivially copyable.
+            data_.emplace<T>(mode);
         }
     }, other.data_);
     return *this;
@@ -57,9 +62,11 @@ SampledSpectrum EmissionSpectrum::eval(const SampledWavelengths& lambdas) const 
 
 // Helper: create a Composite by multiplying this spectrum by a filter.
 EmissionSpectrum EmissionSpectrum::composeWith(const Vec3& filterRGB) const {
-    Composite comp;
-    comp.base = std::make_unique<EmissionSpectrum>(*this);
-    comp.filter_rgb = filterRGB;
+    // Aggregate initialization to avoid default-constructing the unique_ptr.
+    Composite comp{
+        std::make_unique<EmissionSpectrum>(*this),
+        filterRGB
+    };
     return EmissionSpectrum(std::move(comp));
 }
 

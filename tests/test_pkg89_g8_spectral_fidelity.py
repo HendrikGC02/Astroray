@@ -174,8 +174,5 @@ def test_g8_candidate_spectral_rgb_match(astroray_module):
     # G8 gate: match within 1%.
     rel_error = abs(luminance_spectral_avg - luminance_rgb) / luminance_rgb
 
-    # Report the measured error for the spec.
-    print(f"\n[pkg89-g8-diag] spectral_avg={luminance_spectral_avg:.6f}, RGB={luminance_rgb:.6f}, error={rel_error*100:.4f}% (1000 wavelength samples)")  # remove after fix
-
     assert rel_error < 0.01, \
         f"G8 FAIL: spectral_avg={luminance_spectral_avg:.6f}, RGB={luminance_rgb:.6f}, error={rel_error*100:.4f}% (threshold 1%)"

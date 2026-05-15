@@ -25,12 +25,11 @@ PointLight::PointLight(const Vec3& position,
 {
 }
 
-Light::LiSample PointLight::sampleLi(const Vec3& shadingPoint,
-                                      const Vec3& shadingNormal,
-                                      const SampledWavelengths& lambdas,
-                                      std::mt19937& gen) const {
-    LiSample sample;
-
+void PointLight::sampleLi(LiSample& sample,
+                          const Vec3& shadingPoint,
+                          const Vec3& shadingNormal,
+                          const SampledWavelengths& lambdas,
+                          std::mt19937& gen) const {
     // Direction from shading point to light center.
     Vec3 lightToShading = shadingPoint - position_;
     float distance = lightToShading.length();
@@ -92,8 +91,6 @@ Light::LiSample PointLight::sampleLi(const Vec3& shadingPoint,
     } else {
         sample.pdf = 1.0f;
     }
-
-    return sample;
 }
 
 float PointLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {

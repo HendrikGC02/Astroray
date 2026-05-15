@@ -23,12 +23,11 @@ DistantLight::DistantLight(const Vec3& axis,
 {
 }
 
-Light::LiSample DistantLight::sampleLi(const Vec3& shadingPoint,
-                                        const Vec3& shadingNormal,
-                                        const SampledWavelengths& lambdas,
-                                        std::mt19937& gen) const {
-    LiSample sample;
-
+void DistantLight::sampleLi(LiSample& sample,
+                            const Vec3& shadingPoint,
+                            const Vec3& shadingNormal,
+                            const SampledWavelengths& lambdas,
+                            std::mt19937& gen) const {
     // Distant light: rays arrive from a fixed direction (axis points FROM light).
     // Sample a direction within the angular disk.
     Vec3 dir = -axis_;  // direction TO light
@@ -72,8 +71,6 @@ Light::LiSample DistantLight::sampleLi(const Vec3& shadingPoint,
     float halfAngle = angularDiameter_ / 2.0f;
     float solidAngle = 2.0f * static_cast<float>(M_PI) * (1.0f - std::cos(halfAngle));
     sample.pdf = 1.0f / solidAngle;
-
-    return sample;
 }
 
 float DistantLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {

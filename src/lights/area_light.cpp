@@ -47,12 +47,11 @@ AreaLight::AreaLight(const Vec3& position,
     }
 }
 
-Light::LiSample AreaLight::sampleLi(const Vec3& shadingPoint,
-                                     const Vec3& shadingNormal,
-                                     const SampledWavelengths& lambdas,
-                                     std::mt19937& gen) const {
-    LiSample sample;
-
+void AreaLight::sampleLi(LiSample& sample,
+                         const Vec3& shadingPoint,
+                         const Vec3& shadingNormal,
+                         const SampledWavelengths& lambdas,
+                         std::mt19937& gen) const {
     // Sample a point on the area light surface.
     Vec3 sampledPos = sampleSurface(gen);
     sample.position = sampledPos;
@@ -72,7 +71,7 @@ Light::LiSample AreaLight::sampleLi(const Vec3& shadingPoint,
         sample.emission_spec = SampledSpectrum(0.0f);
         sample.emission_rgb = Vec3(0);
         sample.pdf = 0.0f;
-        return sample;
+        return;
     }
 
     // Lambertian cosine falloff.
@@ -98,8 +97,6 @@ Light::LiSample AreaLight::sampleLi(const Vec3& shadingPoint,
 
     // PDF: 1 / area (uniform area sampling).
     sample.pdf = 1.0f / area_;
-
-    return sample;
 }
 
 float AreaLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {

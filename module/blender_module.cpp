@@ -2178,6 +2178,10 @@ PYBIND11_MODULE(astroray, m) {
         float targetLuminance(const astroray::SampledWavelengths& lambdas) const {
             return c.targetLuminance(lambdas);
         }
+
+        float targetLuminanceRGB() const {
+            return c.targetLuminanceRGB();
+        }
     };
 
     py::class_<ReSTIRCandidateHelper>(m, "ReSTIRCandidateHelper",
@@ -2186,8 +2190,9 @@ PYBIND11_MODULE(astroray, m) {
         .def(py::init<std::array<float,3>, std::array<float,3>,
                       std::array<float,3>, float, float>(),
              "position"_a, "normal"_a, "emission"_a, "pdf"_a, "distance"_a)
-        .def("is_valid",         &ReSTIRCandidateHelper::isValid)
-        .def("target_luminance", &ReSTIRCandidateHelper::targetLuminance, "lambdas"_a);
+        .def("is_valid",             &ReSTIRCandidateHelper::isValid)
+        .def("target_luminance",     &ReSTIRCandidateHelper::targetLuminance, "lambdas"_a)
+        .def("target_luminance_rgb", &ReSTIRCandidateHelper::targetLuminanceRGB);
 
     // -----------------------------------------------------------------------
     // pkg23: ReSTIR frame-state test helper.

@@ -15,12 +15,11 @@ BackgroundLight::BackgroundLight(const EnvironmentMap* envMap)
 {
 }
 
-Light::LiSample BackgroundLight::sampleLi(const Vec3& shadingPoint,
-                                           const Vec3& shadingNormal,
-                                           const SampledWavelengths& lambdas,
-                                           std::mt19937& gen) const {
-    LiSample sample;
-
+void BackgroundLight::sampleLi(LiSample& sample,
+                               const Vec3& shadingPoint,
+                               const Vec3& shadingNormal,
+                               const SampledWavelengths& lambdas,
+                               std::mt19937& gen) const {
     // BackgroundLight wraps EnvironmentMap. The EnvironmentMap::sample method
     // already performs importance sampling via marginal CDF.
     // For Phase A, we provide a simple uniform-sphere sampling stub.
@@ -52,8 +51,6 @@ Light::LiSample BackgroundLight::sampleLi(const Vec3& shadingPoint,
 
     // PDF: 1 / (4π) for uniform sphere sampling.
     sample.pdf = 1.0f / (4.0f * static_cast<float>(M_PI));
-
-    return sample;
 }
 
 float BackgroundLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {

@@ -31,12 +31,11 @@ SpotLight::SpotLight(const Vec3& position,
 {
 }
 
-Light::LiSample SpotLight::sampleLi(const Vec3& shadingPoint,
-                                     const Vec3& shadingNormal,
-                                     const SampledWavelengths& lambdas,
-                                     std::mt19937& gen) const {
-    LiSample sample;
-
+void SpotLight::sampleLi(LiSample& sample,
+                         const Vec3& shadingPoint,
+                         const Vec3& shadingNormal,
+                         const SampledWavelengths& lambdas,
+                         std::mt19937& gen) const {
     // Direction from shading point to light center.
     Vec3 lightToShading = shadingPoint - position_;
     float distance = lightToShading.length();
@@ -71,7 +70,7 @@ Light::LiSample SpotLight::sampleLi(const Vec3& shadingPoint,
         sample.emission_spec = SampledSpectrum(0.0f);
         sample.emission_rgb = Vec3(0);
         sample.pdf = 0.0f;
-        return sample;
+        return;
     }
 
     // Angle falloff (smooth transition from inner to outer cone).
@@ -107,8 +106,6 @@ Light::LiSample SpotLight::sampleLi(const Vec3& shadingPoint,
     } else {
         sample.pdf = 1.0f / coneSolidAngle;
     }
-
-    return sample;
 }
 
 float SpotLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {

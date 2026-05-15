@@ -1262,7 +1262,8 @@ public:
             // Dedicated Light path (pkg89 Phase A).
             size_t dedicatedIdx = idx - numHittableLights;
             const astroray::Light* light = dedicatedLights[dedicatedIdx].get();
-            astroray::Light::LiSample liSample = light->sampleLi(pt, normal, lambdas, gen);
+            astroray::Light::LiSample liSample;
+            light->sampleLi(liSample, pt, normal, lambdas, gen);
 
             s.position = liSample.position;
             s.normal = liSample.normal;

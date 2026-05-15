@@ -73,6 +73,10 @@ public:
     // will widen this signature when it lands (or if it lands first, this is
     // born with `time`).
     //
+    // NOTE: LiSample is returned via out-parameter (not by-value) to avoid MinGW
+    // large-struct corruption (>32 bytes across TU boundaries). See memory note
+    // mingw_large_struct_byval.md.
+    //
     // Reference: PBRT-v4 `Light::SampleLi` (Apache-2.0, src/pbrt/lights.h:163).
     struct LiSample {
         Vec3              position;       // sampled point on light surface
@@ -83,10 +87,11 @@ public:
         float             distance;       // distance to shading point
     };
 
-    virtual LiSample sampleLi(const Vec3& shadingPoint,
-                               const Vec3& shadingNormal,
-                               const SampledWavelengths& lambdas,
-                               std::mt19937& gen) const = 0;
+    virtual void sampleLi(LiSample& result,
+                          const Vec3& shadingPoint,
+                          const Vec3& shadingNormal,
+                          const SampledWavelengths& lambdas,
+                          std::mt19937& gen) const = 0;
 
     // PDF for the given direction from the shading point (for MIS).
     virtual float pdfLi(const Vec3& shadingPoint, const Vec3& direction) const = 0;

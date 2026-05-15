@@ -21,10 +21,11 @@ public:
     explicit BackgroundLight(const EnvironmentMap* envMap);
 
     // Light interface.
-    LiSample sampleLi(const Vec3& shadingPoint,
-                       const Vec3& shadingNormal,
-                       const SampledWavelengths& lambdas,
-                       std::mt19937& gen) const override;
+    void sampleLi(LiSample& result,
+                  const Vec3& shadingPoint,
+                  const Vec3& shadingNormal,
+                  const SampledWavelengths& lambdas,
+                  std::mt19937& gen) const override;
 
     float pdfLi(const Vec3& shadingPoint, const Vec3& direction) const override;
 

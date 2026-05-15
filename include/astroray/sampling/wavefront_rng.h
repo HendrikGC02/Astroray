@@ -92,6 +92,20 @@ public:
         return UniformUInt32();
     }
 
+    // pkg55-B' Session 2c — additive accessors so the CPU wavefront can
+    // carry the LIVE RNG state (the auto-incrementing dimension counter)
+    // slot-to-slot through the SoA, then reconstruct the IDENTICAL stream
+    // position. No fresh-RNG construction, no hand-counted dimension
+    // replay. These are pure getters/setters of existing POD state; they
+    // change no existing behaviour or codegen for any current caller.
+    uint32_t pixel()     const { return pixel_; }
+    uint32_t sample()    const { return sample_; }
+    uint32_t dimension() const { return dimension_; }
+    uint64_t seed()      const { return seed_; }
+
+    // Resume an RNG at an exact stream position (the carried dimension).
+    void setDimension(uint32_t dim) { dimension_ = dim; }
+
 private:
     uint32_t pixel_;
     uint32_t sample_;

@@ -383,6 +383,34 @@ file(GLOB ASTRORAY_CPU_WAVEFRONT_SOURCES CONFIGURE_DEPENDS
 if(ASTRORAY_CPU_WAVEFRONT_SOURCES)
     target_sources(astroray_core_impl PRIVATE ${ASTRORAY_CPU_WAVEFRONT_SOURCES})
     message(STATUS "pkg55-B': CPU wavefront sources: ${ASTRORAY_CPU_WAVEFRONT_SOURCES}")
+    # pkg55-B' Session 2c — DEFENSIVE FP-contraction guard for scaffold TUs.
+    #
+    # NOT the bit-identity mechanism. Bit-identity is achieved STRUCTURALLY
+    # by the shared per-bounce kernel (src/cpu/wavefront/path_kernel.{h,cpp}):
+    # reference_pt_wavefront AND the cpu_wavefront driver call the EXACT SAME
+    # compiled advance_one_bounce()/init_path() over carried live state, so
+    # the snapshot streams are bit-identical by construction.
+    #
+    # This flag is a belt-and-braces guard recommended by both senior reviews
+    # (architect PR #296 + Codex, 2026-05-15): -ffast-math may fuse identical
+    # source into FMA differently across inlining contexts; -ffp-contract=off
+    # on the scaffold TUs removes that as a confound and documents the FP-env
+    # precondition (SSE2, consistent rounding, no x87 80-bit intermediates).
+    # It is a guard, not the fix — if the shared kernel were duplicated this
+    # flag would NOT save bit-identity.
+    #
+    # Scaffold-only: the glob is src/cpu/wavefront/*.cpp ONLY. Production TUs
+    # keep -ffast-math UNCHANGED — production codegen is byte-identical to
+    # origin/main (verified: git diff origin/main excluding scaffold is empty).
+    # Owner decision 2026-05-15 (pkg55-bprime-session2c): scaffold guard only.
+    # Laine 2013 §3, PBRT-v4 src/pbrt/wavefront/integrator.cpp.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        set_source_files_properties(${ASTRORAY_CPU_WAVEFRONT_SOURCES}
+            PROPERTIES COMPILE_FLAGS "-ffp-contract=off")
+    elseif(MSVC)
+        set_source_files_properties(${ASTRORAY_CPU_WAVEFRONT_SOURCES}
+            PROPERTIES COMPILE_FLAGS "/fp:precise")
+    endif()
 endif()
 target_include_directories(astroray_core_impl
     PUBLIC  ${INCLUDE_DIR}

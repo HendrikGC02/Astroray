@@ -156,10 +156,25 @@ This provides 2^63 disjoint streams, one per unique `(pixel, sample, dimension)`
 
 ---
 
+## TestU01 (SmallCrush Statistical Gate)
+
+**Repository:** https://github.com/umontreal-simul/TestU01-2009  
+**License:** Apache-2.0  
+**Authors:** Pierre L'Ecuyer and Richard Simard, Université de Montréal  
+**Publication:** "TestU01: A C library for empirical testing of random number generators," ACM Transactions on Mathematical Software, Vol. 33, No. 4, Article 22 (2007), DOI: 10.1145/1268776.1268777
+
+**License compatibility:** Apache-2.0 → compatible ✅  
+**License verification date:** 2026-05-15 (verified via https://raw.githubusercontent.com/umontreal-simul/TestU01-2009/master/LICENSE)
+
+**Purpose in pkg92:** SmallCrush is a lightweight statistical test suite (subset of BigCrush) used to verify that our `(pixel, sample, dimension)` keying does not break PCG32's statistical properties. PCG32 itself already passes BigCrush per O'Neill 2014; the gate is to verify our keying implementation is correct.
+
+---
+
 ## License Compliance Summary
 
 - **imneme/pcg-c-basic:** Apache-2.0 OR MIT → compatible ✅
 - **PBRT-v4:** Apache-2.0 → compatible ✅
+- **TestU01-2009:** Apache-2.0 → compatible ✅
 - **O'Neill 2014 paper:** Public research, algorithm is public-domain per pcg-random.org FAQ ✅
 
 All sources are permissively licensed and compatible with Astroray's Apache-2.0 license.

@@ -2,8 +2,9 @@
 
 **Pillar:** 3 (light transport)
 **Track:** A
-**Status:** open — Phase A in progress (all 12 forks resolved; Q-Owner-1
-  owner-answered 2026-05-14).
+**Status:** Phase A done (PR #294, 2026-05-15 — interface + 5 types + integrator
+  wiring complete; 10 call sites swept, build clean). Phase B (Blender addon)
+  is next.
 **Estimated effort:** 3–4 weeks across two phases (A: interface +
   types + integrator wiring, B: Blender addon migration). Phase C
   (mesh-emitter unification) is a separate future package.

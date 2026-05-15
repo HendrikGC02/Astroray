@@ -275,11 +275,13 @@ ReferencePTResult reference_pt_production_render(
                         // RNG draw order (production lines 2506-2521):
                         // 1. filterSample(gen, dist) — 2 draws (box filter, default).
                         // 2. filterSample(gen, dist) — 2 draws.
-                        // 3. cam.getRay(u, v, gen) — randomInUnitDisk (variable, typically 2-4 draws).
+                        // 3. cam.getRay(u, v, time, gen) — randomInUnitDisk (variable, typically 2-4 draws).
+                        //    pkg88 added `time` as a required parameter; passing 0.0f matches
+                        //    production's behaviour when shutter=0 (no motion blur).
                         // 4. dist01(gen) — 1 draw for lambda sampling.
                         float u = (x + renderer.filterSample(gen, dist)) / (cam.width - 1);
                         float v = 1.0f - (y + renderer.filterSample(gen, dist)) / (cam.height - 1);
-                        Ray primaryRay = cam.getRay(u, v, gen);
+                        Ray primaryRay = cam.getRay(u, v, 0.0f, gen);
 
                         // Lambda sampling (production spectral_path_tracer.cpp:107-108).
                         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);

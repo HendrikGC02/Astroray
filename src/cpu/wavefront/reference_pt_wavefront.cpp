@@ -265,11 +265,12 @@ ReferencePTResult reference_pt_wavefront_render(
                 // RNG draw order (matches production exactly):
                 // 1. filterSample(gen, dist) — 2 draws (box filter).
                 // 2. filterSample(gen, dist) — 2 draws.
-                // 3. cam.getRay(u, v, gen) — randomInUnitDisk (variable).
+                // 3. cam.getRay(u, v, time, gen) — randomInUnitDisk (variable).
+                //    pkg88 added `time` as required; 0.0f matches no-motion-blur production.
                 // 4. dist01(gen) — 1 draw for lambda sampling.
                 float u = (x + renderer.filterSample(gen, dist)) / (cam.width - 1);
                 float v = 1.0f - (y + renderer.filterSample(gen, dist)) / (cam.height - 1);
-                Ray primaryRay = cam.getRay(u, v, gen);
+                Ray primaryRay = cam.getRay(u, v, 0.0f, gen);
 
                 std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
                 SampledWavelengths lambdas = SampledWavelengths::sampleUniform(dist01(gen));

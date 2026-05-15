@@ -155,7 +155,7 @@ static Vec3 tracePath(const BVHAccel& bvh, const LightList& lights,
 
         // NEE — direct lighting.  Lambertian BSDF: f(wo,wi) = albedo/PI.
         if (!lights.empty()) {
-            LightSample ls = lights.sample(rec.point, gen);
+            LightSample ls = lights.sample(rec.point, rec.normal, astroray::SampledWavelengths(), gen);
             if (ls.pdf > 0.0f) {
                 Vec3 wi = (ls.position - rec.point).normalized();
                 float cosN = wi.dot(rec.normal);
@@ -306,7 +306,7 @@ int main() {
                 // NEE — direct lighting (Lambertian BSDF, exact for this scene).
                 Vec3 direct(0);
                 if (!lights.empty()) {
-                    LightSample ls = lights.sample(rec.point, rng);
+                    LightSample ls = lights.sample(rec.point, rec.normal, astroray::SampledWavelengths(), rng);
                     if (ls.pdf > 0.0f) {
                         Vec3 wi = (ls.position - rec.point).normalized();
                         float cosN = wi.dot(rec.normal);

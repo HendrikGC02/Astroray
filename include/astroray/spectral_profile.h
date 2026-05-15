@@ -35,6 +35,14 @@ public:
         return data_[i] * (1.0f - f) + data_[i + 1] * f;
     }
 
+    // Alias for emission SPD evaluation (pkg89 Q5 resolution).
+    // The same spectral curve represents reflectance (BSDF) or relative SPD
+    // (emission) depending on caller context. This inline alias makes emission
+    // call sites self-documenting.
+    float emission(float lambda_nm) const noexcept {
+        return reflectance(lambda_nm);
+    }
+
     bool valid() const noexcept { return data_ != nullptr && n_ > 0; }
 };
 

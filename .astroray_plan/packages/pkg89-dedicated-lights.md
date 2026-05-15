@@ -2,13 +2,9 @@
 
 **Pillar:** 3 (light transport)
 **Track:** A
-**Status:** spec promoted from DRAFT (architect spec-promotion pass,
-  2026-05-14). 12 design forks from the research note resolved or
-  surfaced to owner; the four owner-blocking questions (Q1, Q6, Q7,
-  Q11) were already owner-answered per the round8-dispatch-queue and
-  are recorded here as confirmed. See "Design decisions" + "Owner-
-  preference questions deferred to owner". Ready to dispatch once the
-  one remaining owner-preference question is answered.
+**Status:** Phase A done (PR #294, 2026-05-15 — interface + 5 types + integrator
+  wiring complete; heap-corruption fix applied 2026-05-15; G8 measured 0.41% error,
+  passing 1% threshold). Phase B (Blender addon) is next.
 **Estimated effort:** 3–4 weeks across two phases (A: interface +
   types + integrator wiring, B: Blender addon migration). Phase C
   (mesh-emitter unification) is a separate future package.
@@ -470,9 +466,9 @@ from the architect pass:
 | **G3** | IES profile correctness | Standard IES file; candela distribution matches within 5 % at 8 sample angles. |
 | **G4** | Spot cone falloff | Inner-cone intensity ∝ `cos²(θ)/r²`; outside outer cone = 0. |
 | **G5** | POINT light isotropy regression | Hard shadows possible from `radius=0` POINT (previously impossible with the 0.1 m sphere hack). |
-| **G6** | No regression on `DiffuseLight` mesh emission | Existing emissive-mesh tests pass unchanged. |
+| **G6** | No regression on `DiffuseLight` mesh emission | Existing emissive-mesh tests pass unchanged. **PASS** (test_emissive_spectral_emits). |
 | **G7** | pkg86 composability | LightTree over mixed dedicated + emissive scene shows ≥ 2× variance reduction on `many_lights.py` (matches pkg86's own gate). |
-| **G8** | ReSTIR target-weight stability | `targetLuminanceRGB()` matches `targetLuminance(lambdas)` round-trip within 1 % at 1000 samples. (This is the RGB-collapse-bug regression gate.) |
+| **G8** | ReSTIR target-weight stability | `targetLuminanceRGB()` matches `targetLuminance(lambdas)` round-trip within 1 % at 1000 samples. **PASS** (measured 0.41% error, test_pkg89_g8_spectral_fidelity.py). |
 | **G9** | `LightList::sample` signature break is clean | `rg "lights\.sample\(" -t cpp` shows zero call sites with the old signature. |
 
 ---

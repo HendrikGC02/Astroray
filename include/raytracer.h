@@ -465,11 +465,22 @@ public:
     Vec3 centroid() const { return (min + max) * 0.5f; }
 };
 
+// Include EmissionSpectrum BEFORE Light to resolve circular dependency (pkg89).
+// emission_spectrum.h needs Vec3 (defined above), and light.h needs EmissionSpectrum.
+#include "astroray/emission_spectrum.h"
+
+// Include astroray::Light after Vec3/AABB/EmissionSpectrum are defined.
+#include "astroray/light.h"
+
 // ============================================================================
 // SAMPLING STRUCTURES
 // ============================================================================
 
-struct LightSample { Vec3 position, normal, emission; float pdf, distance; };
+struct LightSample {
+    Vec3 position, normal, emission;
+    astroray::SampledSpectrum emission_spec;  // pkg89 Q6: extend (not replace) RGB
+    float pdf, distance;
+};
 struct BSDFSample { Vec3 wi, f; float pdf; bool isDelta; };
 struct BSDFSampleSpectral { Vec3 wi; astroray::SampledSpectrum f_spectral; float pdf; bool isDelta; };
 
@@ -1178,10 +1189,12 @@ public:
 // ============================================================================
 
 class LightList {
-    std::vector<std::shared_ptr<Hittable>> lights;
-    std::vector<float> powerDist;
+    std::vector<std::shared_ptr<Hittable>> lights;              // emissive Hittables (legacy)
+    std::vector<std::unique_ptr<astroray::Light>> dedicatedLights;  // pkg89 dedicated Light objects
+    std::vector<float> powerDist;                               // unified CDF over both kinds
     float totalPower = 0;
 public:
+    // Add an emissive Hittable (legacy path for DiffuseLight / EmissivePlugin).
     void add(std::shared_ptr<Hittable> l) {
         lights.push_back(l);
         float power = luminance(l->emittedRadiance());
@@ -1193,41 +1206,101 @@ public:
         powerDist.push_back(totalPower);
     }
 
-    LightSample sample(const Vec3& pt, std::mt19937& gen) const {
-        if (lights.empty()) return LightSample{Vec3(0), Vec3(0), Vec3(0), 0, 0};
+    // Add a dedicated Light (pkg89 Phase A). Takes ownership.
+    void addLight(std::unique_ptr<astroray::Light> l) {
+        float power = l->power();
+        dedicatedLights.push_back(std::move(l));
+        totalPower += power;
+        powerDist.push_back(totalPower);
+    }
+
+    // Sample a light. Signature widened per pkg89 Q7: now requires lambdas + normal.
+    // The normal parameter is unused by most light types but required by anisotropic
+    // area lights (future extension).
+    LightSample sample(const Vec3& pt, const Vec3& normal,
+                        const astroray::SampledWavelengths& lambdas,
+                        std::mt19937& gen) const {
+        size_t numHittableLights = lights.size();
+        size_t numDedicatedLights = dedicatedLights.size();
+        size_t totalLights = numHittableLights + numDedicatedLights;
+
+        if (totalLights == 0) {
+            return LightSample{Vec3(0), Vec3(0), Vec3(0), astroray::SampledSpectrum(0.0f), 0, 0};
+        }
+
+        // Sample light index from unified power CDF.
         std::uniform_real_distribution<float> dist(0, 1);
         float u = dist(gen) * totalPower;
         size_t idx = 0;
-        for (size_t i = 0; i < powerDist.size(); ++i) if (u < powerDist[i]) { idx = i; break; }
-        Vec3 dir = lights[idx]->random(pt, gen);
-        HitRecord rec;
-        LightSample s;
-        if (lights[idx]->hit(Ray(pt, dir), 0.001f, std::numeric_limits<float>::max(), rec)) {
-            s.position = rec.point; s.normal = rec.normal;
-            Vec3 toPoint = (pt - rec.point).normalized();
-            Vec3 lightNormal = rec.frontFace ? rec.normal : -rec.normal;
-            s.emission = lights[idx]->emittedRadiance(lightNormal, toPoint) * lights[idx]->directionFalloff(toPoint);
-            s.distance = rec.t; s.pdf = lights[idx]->pdfValue(pt, dir);
-            float selPdf = (idx > 0 ? powerDist[idx] - powerDist[idx-1] : powerDist[0]) / totalPower;
-            s.pdf *= selPdf;
+        for (size_t i = 0; i < powerDist.size(); ++i) {
+            if (u < powerDist[i]) { idx = i; break; }
         }
+
+        LightSample s;
+        float selPdf = (idx > 0 ? powerDist[idx] - powerDist[idx-1] : powerDist[0]) / totalPower;
+
+        // Dispatch: first numHittableLights indices are legacy Hittables, rest are dedicated.
+        if (idx < numHittableLights) {
+            // Legacy Hittable path (emissive geometry).
+            Vec3 dir = lights[idx]->random(pt, gen);
+            HitRecord rec;
+            if (lights[idx]->hit(Ray(pt, dir), 0.001f, std::numeric_limits<float>::max(), rec)) {
+                s.position = rec.point;
+                s.normal = rec.normal;
+                Vec3 toPoint = (pt - rec.point).normalized();
+                Vec3 lightNormal = rec.frontFace ? rec.normal : -rec.normal;
+                s.emission = lights[idx]->emittedRadiance(lightNormal, toPoint) *
+                             lights[idx]->directionFalloff(toPoint);
+                s.distance = rec.t;
+                s.pdf = lights[idx]->pdfValue(pt, dir) * selPdf;
+
+                // Spectral emission: upsample RGB via RGBIlluminantSpectrum (temporary).
+                // This is the bug path (pkg89 research §2.2). Dedicated lights fix this.
+                s.emission_spec = astroray::RGBIlluminantSpectrum({s.emission.x, s.emission.y, s.emission.z}).sample(lambdas);
+            }
+        } else {
+            // Dedicated Light path (pkg89 Phase A).
+            size_t dedicatedIdx = idx - numHittableLights;
+            const astroray::Light* light = dedicatedLights[dedicatedIdx].get();
+            astroray::Light::LiSample liSample;
+            light->sampleLi(liSample, pt, normal, lambdas, gen);
+
+            s.position = liSample.position;
+            s.normal = liSample.normal;
+            s.emission = liSample.emission_rgb;
+            s.emission_spec = liSample.emission_spec;
+            s.distance = liSample.distance;
+            s.pdf = liSample.pdf * selPdf;
+        }
+
         return s;
     }
 
     float pdfValue(const Vec3& pt, const Vec3& dir) const {
-        if (lights.empty()) return 0;
+        if (lights.empty() && dedicatedLights.empty()) return 0;
         float pdf = 0;
-        for (size_t i = 0; i < lights.size(); ++i) {
-            float selPdf = (i > 0 ? powerDist[i] - powerDist[i-1] : powerDist[0]) / totalPower;
+        size_t idx = 0;
+
+        // Legacy Hittables.
+        for (size_t i = 0; i < lights.size(); ++i, ++idx) {
+            float selPdf = (idx > 0 ? powerDist[idx] - powerDist[idx-1] : powerDist[0]) / totalPower;
             pdf += selPdf * lights[i]->pdfValue(pt, dir);
         }
+
+        // Dedicated Lights.
+        for (size_t i = 0; i < dedicatedLights.size(); ++i, ++idx) {
+            float selPdf = (idx > 0 ? powerDist[idx] - powerDist[idx-1] : powerDist[0]) / totalPower;
+            pdf += selPdf * dedicatedLights[i]->pdfLi(pt, dir);
+        }
+
         return pdf;
     }
 
-    bool empty() const { return lights.empty(); }
+    bool empty() const { return lights.empty() && dedicatedLights.empty(); }
 
-    // Accessors for scene_upload.cu
+    // Accessors for scene_upload.cu and pkg86.
     const std::vector<std::shared_ptr<Hittable>>& getLights() const { return lights; }
+    const std::vector<std::unique_ptr<astroray::Light>>& getDedicatedLights() const { return dedicatedLights; }
     const std::vector<float>& getPowerDist() const { return powerDist; }
     float getTotalPower() const { return totalPower; }
 };
@@ -2331,7 +2404,7 @@ public:
 
             // Area-light NEE (MIS via power heuristic). Skipped on delta lobes.
             if (!rec.isDelta && !lights.empty()) {
-                LightSample ls = lights.sample(rec.point, gen);
+                LightSample ls = lights.sample(rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0) {
                     Vec3 wi = (ls.position - rec.point).normalized();
                     HitRecord shadow;
@@ -2340,8 +2413,8 @@ public:
                     if (!occluded) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
-                        astroray::SampledSpectrum L_spec =
-                            astroray::RGBIlluminantSpectrum({ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas);
+                        // pkg89: use emission_spec directly (fixes RGB-collapse bug).
+                        astroray::SampledSpectrum L_spec = ls.emission_spec;
                         float bsdfPdf = rec.material->pdf(rec, wo, wi);
                         float a = ls.pdf, b = bsdfPdf;
                         float wt = (a * a) / (a * a + b * b + 1e-8f);
@@ -2480,7 +2553,7 @@ public:
             Vec3 wo = -ray.direction.normalized();
 
             if (!rec.isDelta && !lights.empty()) {
-                LightSample ls = lights.sample(rec.point, gen);
+                LightSample ls = lights.sample(rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0) {
                     Vec3 wi = (ls.position - rec.point).normalized();
                     HitRecord shadow;
@@ -2489,8 +2562,8 @@ public:
                     if (!occluded) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
-                        astroray::SampledSpectrum L_spec =
-                            astroray::RGBIlluminantSpectrum({ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas);
+                        // pkg89: use emission_spec directly (fixes RGB-collapse bug).
+                        astroray::SampledSpectrum L_spec = ls.emission_spec;
                         float bsdfPdf = rec.material->pdf(rec, wo, wi);
                         float a = ls.pdf, b = bsdfPdf;
                         float wt = (a * a) / (a * a + b * b + 1e-8f);
@@ -2513,7 +2586,7 @@ public:
                 throughput * bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
 
             if (bss.isDelta) {
-                LightSample ls = lights.sample(rec.point, gen);
+                LightSample ls = lights.sample(rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0.0f) {
                     Ray walkRay(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
                     walkRay.hasCameraFrame = ray.hasCameraFrame;

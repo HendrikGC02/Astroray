@@ -61,11 +61,13 @@ void launchMultiwavelengthKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
     float lambdaMin, float lambdaMax, bool useLuminanceOutput,
+    bool enableNEE,
     const GBVHNode*  d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
     const GMaterial*  d_materials,
+    const GLight*     d_lights, int numLights, float totalLightPower,
     GEnvMap envMap,
     GCameraParams cam,
     GVec3 backgroundColor, bool hasBackgroundColor,
@@ -567,7 +569,8 @@ void CUDARenderer::render(
 void CUDARenderer::renderMultiwavelength(
     std::vector<Vec3>& pixels, int width, int height,
     int seed, int samplesPerPixel, int maxDepth,
-    float lambdaMin, float lambdaMax, bool useLuminanceOutput)
+    float lambdaMin, float lambdaMax, bool useLuminanceOutput,
+    bool enableNEE)
 {
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
     // pkg85-C: see CUDARenderer::render() — world-only renders are valid.
@@ -591,9 +594,10 @@ void CUDARenderer::renderMultiwavelength(
 
     launchMultiwavelengthKernel(
         impl->d_framebuffer, width, height, samplesPerPixel, maxDepth,
-        lambdaMin, lambdaMax, useLuminanceOutput,
+        lambdaMin, lambdaMax, useLuminanceOutput, enableNEE,
         impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
         impl->d_materials,
+        impl->d_lights, impl->numLights, impl->totalLightPower,
         impl->envMap,
         impl->camera,
         impl->backgroundColor, impl->hasBackgroundColor,

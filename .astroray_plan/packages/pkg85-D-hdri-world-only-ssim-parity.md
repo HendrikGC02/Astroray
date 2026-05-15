@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A (RTX verifier)
-**Status:** open (filed 2026-05-14 — surfaced by pkg85-C after the "Scene not uploaded" early-exit was removed)
+**Status:** done (PR #283, 2026-05-14 — GPU XYZ→sRGB ordering fix closed the 3× green bias; `test_gpu_cpu_ssim_hdri` SSIM 0.9793 ≥ 0.97 gate)
 **Estimated effort:** ½ day (~4 h on RTX)
 **Depends on:** pkg85-C (the precondition fix that lets this test reach SSIM)
 

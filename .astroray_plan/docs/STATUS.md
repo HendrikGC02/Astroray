@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-15 (Round 8 complete — waves 1+2 landed: 6 PRs merged (pkg38/pkg88-A/pkg43-selector/pkg85-D/pkg55-B'-Session-2b/pkg91+pkg92); Round 9 next)
+**Last updated:** 2026-05-16 (Round 9 complete — 6 PRs merged (pkg91/pkg47/pkg87-split/pkg92/pkg89-Phase-A/pkg55-B'-Session-2c); pkg85-D status corrected (PR #283); flake issue #298 filed; Round 10 next)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -113,8 +113,8 @@ personally should pick up.
 |---|---|---|---|---|---|
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
-| 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target | CUDA kernels for ReSTIR/NRC are not implemented |
-| 4 | Astrophysics platform | **Active, shipping** | 40% | pkg44 ADAF accretion model | gate released; pkg40 + pkg41 + pkg42 + pkg43 done; pkg44–51 queued |
+| 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target; pkg89 Phase B (Blender addon) | CUDA kernels for ReSTIR/NRC are not implemented; pkg89 Phase A done (PR #294) |
+| 4 | Astrophysics platform | **Active, shipping** | 45% | pkg44 ADAF accretion model | gate released; pkg40 + pkg41 + pkg42 + pkg43 + pkg47 (FITS loader) done; pkg44–51 queued (pkg47 FITS loader landed PR #292; FITSVolume registration deferred to pkg48) |
 | 5 | Production polish / Blender parity | **Feature-complete on planned scope; viewport-parity gate now owned by pkg55 Phase B** | ~98% (counter) | pkg55 Phase B (per-material shade kernels — owns the viewport-parity claim) | pkg73 ✓ + pkg80 ✓ + pkg81 P1+P2 ✓ + pkg55-A.1 ✓ all done 2026-05-11; pkg55-B is the long-tail |
 
 **Pillar 1 package summary:**
@@ -218,11 +218,11 @@ is currently the weakest link.
 | pkg83 | Progressive accumulation continuation — addon-only fix for H2 from pkg81. Reset only on substantive camera changes (focal length, DoF, lens shift), not pure transforms. | **done** — PR #259, 2026-05-13. `spp_trace = [1,2,3,4,5,6,7,8]` measured on CPU + CUDA. | A |
 | pkg84 | CUDA kernel pre-warm at viewport start — addon-only fix for H5 from pkg81. First frame 83.3 ms (was 12,079 ms cold). | **done** — PR #260, 2026-05-13. **145× improvement** vs pkg81 baseline. Cites Cycles `reserve_local_memory` (Apache-2.0). | A |
 | pkg85 | Test-harness CUDA state leak — `pytest tests/` crashes at test #370 (isolated test passes); bisect candidate range tests 360–369. | **partial** — PR #268 (2026-05-14) conftest autouse fixture + cuda_renderer error clearing; robustness improvement only; spec gate NOT met; full CUDA-call audit queued as pkg85-B follow-up | A |
-| pkg55 | Wavefront SoA GPU refactor — Phase A.0 (`ASTRORAY_PROFILE=1`-gated CUDA events + NVTX + baseline.json; **158 regs/thread + 1 active block/SM** documented as the occupancy cliff) **+ Phase A.1** (SoA path-state struct + intersect queue gated behind `-DASTRORAY_WAVEFRONT_INTERSECT=ON`, default OFF, bit-identical AoS megakernel output verified, PR #250 2026-05-11). **Phase B held on origin/pkg55-phase-b (HELD, NOT merged)**; cascading radiance bugs regressed 2.5× → 21× brightness. **Phase B' (restart) spec amendment** (PR #266, 2026-05-14) is now authoritative on main: CPU-first methodical rebuild with 8 design decisions. | **Phases A.0 + A.1 done; Phase B' (CPU wavefront + staged CUDA port) open per amendment on main** | A |
+| pkg55 | Wavefront SoA GPU refactor — Phase A.0 (`ASTRORAY_PROFILE=1`-gated CUDA events + NVTX + baseline.json; **158 regs/thread + 1 active block/SM** documented as the occupancy cliff) **+ Phase A.1** (SoA path-state struct + intersect queue gated behind `-DASTRORAY_WAVEFRONT_INTERSECT=ON`, default OFF, bit-identical AoS megakernel output verified, PR #250 2026-05-11). **Phase B held on origin/pkg55-phase-b (HELD, NOT merged)**; cascading radiance bugs regressed 2.5× → 21× brightness. **Phase B' (restart) spec amendment** (PR #266, 2026-05-14) is now authoritative on main: CPU-first methodical rebuild with 8 design decisions. **Phase B' Session 2b** (PR #281, 2026-05-14 — two reference PT oracles, both close gates green). **Phase B' Session 2c** (PR #297, 2026-05-15 — CPU wavefront skeleton; EXACT bit-identity by shared-kernel construction, max abs diff 0.0 across all 5 snapshot stages on 1 spp Lambertian Cornell, verified MinGW + Linux-GCC CI; production codegen byte-unchanged). | **Phases A.0 + A.1 + B' Sessions 2b + 2c done; Sessions 3..N (growing-oracle expansion) open. Two-tier gate (exact CPU↔CPU / bounded+SSIM CPU↔GPU) must be re-derived before CUDA-port sessions per the spec NOTE.** | A |
 | pkg86 | Light Tree (Conty 2018 many-lights importance sampling) — CPU first, GPU follow-up pkg86-B. | **open** — spec on main (PR #265); blocked on pkg89 Phase A for Light::orientationCone() + power() accessors | A |
 | pkg87 | Cryptomatte passes (CryptoObject / CryptoMaterial) — Psyop BSD-3 + Cycles Apache-2.0. | **open** — spec on main (PR #264); independent; ready to implement | A |
 | pkg88 | Motion blur (Cycles parity) — camera + object + deformation + wavefront hook. | **open** — research signed off (PR #267); DRAFT spec; design questions deferred per owner ("get to that later") | A |
-| pkg89 | Dedicated Light objects (Point / Spot / Distant / Area / Background) — first-class Light interface, emission spectrum composable, pkg86 unblocking accessors. | **open** — research signed off (PR #269); DRAFT spec; Q1/Q6/Q7/Q11 answered in round8-dispatch-queue.md, ready to promote to real spec + start Phase A | A |
+| pkg89 | Dedicated Light objects (Point / Spot / Distant / Area / Background) — first-class Light interface, emission spectrum composable, pkg86 unblocking accessors. | **Phase A done** (PR #294, 2026-05-15 — interface + 5 light types + integrator wiring; G6/G9 pass; G8 spectral fidelity 0.41% error < 1% threshold; MinGW large-struct heap-corruption fix re-applied). Full-scene G8 + G1–G5 explicitly Phase B (Blender addon). | A |
 
 **Deferred / not-yet-spec'd from the 2026-05-08 triage** (mentioned in the
 original roadmap but no full spec written; capture intent before they're
@@ -246,7 +246,7 @@ forgotten):
 | pkg44 | ADAF accretion model | open |
 | pkg45 | CLOUDY emissivity table preprocessing | open |
 | pkg46 | HII region emission plugin | open |
-| pkg47 | FITS loader | open |
+| pkg47 | FITS loader | **done** (PR #292, 2026-05-15 — FITS I/O wrapper + FITSTexture plugin + CMake gate `ASTRORAY_ENABLE_FITS` default OFF; FITSVolume registration+test deferred to pkg48 per owner ruling) |
 | pkg48 | HDF5/NumPy simulation-volume loader | open |
 | pkg49 | SPH-to-volume preprocessing | open |
 | pkg50 | Weak lensing pass | open |
@@ -256,27 +256,27 @@ forgotten):
 
 ## This week
 
-**Week of:** 2026-05-15 (Round 9 begins — Round 8 complete with 6 PRs merged)
+**Week of:** 2026-05-16 (Round 10 begins — Round 9 complete with 6 PRs merged)
 
 ### Track A (Claude Code)
 
-- **Round 8 wave 1+2 complete (2026-05-15)** — 6 PRs merged (see Changelog for full list). Headline wins:
-  - **pkg38 light-source spectra** (PR #282) — 7 SPDs added, 47 total entries. Unblocks pkg89 Phase A.
-  - **pkg88 Phase A** (PR #284) — camera motion blur with all 4 gates passing. Phase D awaits pkg55-B/C.
-  - **pkg43 Blender selector** (PR #285) — accretion dropdown wired. Unblocks pkg44.
-  - **pkg85-D** (PR #283) — GPU XYZ→sRGB order-of-ops fix; 3× green bias eliminated.
-  - **pkg55-B' Session 2b** (PR #281) — reference PT oracles; both close gates green.
-  - **pkg91 + pkg92 specs** (PR #286) — integrator-param-lifecycle + gpu-wavefront-rng-foundation filed.
+- **Round 9 complete (2026-05-16)** — 6 PRs merged (see Changelog for full list). Headline wins:
+  - **pkg91 integrator param lifecycle** (PR #290) — `Integrator::setMaxDepth` + integrator rebuild on `set_integrator_param`; closes the Q1/Q2 silent-no-op footguns.
+  - **pkg47 FITS loader** (PR #292) — FITS I/O wrapper + FITSTexture plugin, gated `ASTRORAY_ENABLE_FITS` default OFF; FITSVolume deferred to pkg48.
+  - **pkg87 split** (PR #293) — original pkg87 superseded; pkg87a/pkg87b/pkg87c now the Cryptomatte work units.
+  - **pkg92 GPU wavefront RNG foundation** (PR #291) — PCG32 + `(pixel,sample,dim)` keying; PractRand CI-enforced statistical gate (TestU01 unbuildable on MinGW).
+  - **pkg89 Phase A** (PR #294) — dedicated Light objects (interface + 5 types + integrator wiring); G6/G9 pass; full-scene G8 + G1–G5 deferred to Phase B.
+  - **pkg55-B' Session 2c** (PR #297) — CPU wavefront skeleton; EXACT bit-identity by shared-kernel construction (0.0 across all 5 stages, MinGW + Linux-GCC CI).
+  - **Doc-pass corrections:** pkg85-D status corrected to done (PR #283, SSIM 0.9793 ≥ 0.97); ReSTIR `test_spatial_reduces_mse` flake filed as issue #298.
 
-- **Round 9 next-up** (per updated NEXT_STAGE_REPORT.md):
-  - **Top priority:** **pkg91** (integrator param lifecycle fix — small footgun, pays back on every future session) and **pkg92** (RNG foundation before any CUDA-port session of pkg55 Phase B').
-  - **Second tier:** **pkg44 ADAF** (Pillar 4, now unblocked) and **pkg89 Phase A** (now unblocked).
-  - **Third tier:** **pkg55-B' Session 2c** (CPU wavefront skeleton — only after pkg92 lands).
-  - **Deferred:** pkg85-D test redesign (8192 spp fast but brittle; soften HDRI firefly is cleaner); Issue #276 clearcoat flake (owner triage).
-  - **Note:** PR #279 (architect-light Round 8 close pass) was closed at Round 8 wrap; a fresh architect state+refine pass against the post-Round-8 state is queued to pose the Round-9 direction question (finish backlog vs add visual-baseline track first) before /dispatch-next can pick the top item.
-  - **Later (after Round 9 top tier lands):**
-    - pkg86 Light Tree (after pkg89 Phase A ships accessors)
-    - pkg87 Cryptomatte implementation (independent; ready to pick up any time)
+- **Round 10 next-up** (per updated NEXT_STAGE_REPORT.md §2):
+  - **Top priority:** **pkg55-B' Sessions 3..N** (growing-oracle expansion — add metal/dielectric/disney/etc. shade kernels; the spec's two-tier gate MUST be re-derived before any CUDA-port session) and **Blender addon bug remediation** (triage PR #295 / `blender-addon-bug-triage-2026-05-15.md`; fixes owner-gated on review + the forthcoming architect first-principles plan).
+  - **Second tier:** **pkg44 ADAF** (Pillar 4, unblocked) and **pkg89 Phase B** (Blender addon — full-scene G8 + G1–G5).
+  - **Open doc PRs (context, not round-work):** #295 (addon bug triage), #296 (pkg55-2c technique review). The pkg55-2c review feeds the two-tier-gate re-derivation.
+  - **Deferred:** Issue #276 clearcoat flake (owner triage); issue #298 ReSTIR MC-noise strict-inequality flake (recommend seed-pin or tolerance).
+  - **Later:**
+    - pkg86 Light Tree (pkg89 Phase A accessors now available)
+    - pkg87a/pkg87b/pkg87c Cryptomatte implementation (independent)
     - pkg64-gpu Phase 1 (megakernel target; acknowledged pkg55-C will re-port)
     - pkg85-B full audit (when prioritized)
 - **Open items to file when prioritized:**
@@ -399,13 +399,13 @@ events are summarized in the changelog below.
 | pkg84 | A | **done** | PR #260; first frame 83.3 ms (was 12,079 ms) |
 | pkg85 | A | **done** | PR #278 (pkg85-C) — 901 passed, 0 CUDA illegal-access crashes; GPU/CPU BVH primitive-array index misalignment fixed; material-lowering bugs fixed; world-only GPU render trigger fixed; pkg85-D filed for HDRI world-only SSIM parity |
 | pkg86 | A | open — ready to implement | Light Tree after pkg89 Phase A ships Light::orientationCone() + power() |
-| pkg87 | A | open — ready to implement | Cryptomatte passes; independent |
+| pkg87 | A | **superseded — split into pkg87a/pkg87b/pkg87c** (PR #293, 2026-05-15, owner decision) | Original pkg87 Cryptomatte spec superseded; see pkg87a (infrastructure) / pkg87b (integrator integration) / pkg87c (Blender acceptance) |
 | pkg38-light-source-spectra | A | open — ready to implement | Amendment to pkg38: 7 emission SPDs (CIE F2/F3 fluorescent, LED 3000/5000/6500K, sodium vapor, mercury vapor); unblocks pkg89 Phase A MeasuredSPD presets |
-| pkg85-D | A | open | HDRI world-only GPU/CPU SSIM parity (≈0.35 vs 0.97 gate); surfaced after pkg85-C cleared "Scene not uploaded" early-exit |
-| pkg88 | A | open — spec promoted | Motion blur (PR #273 spec promotion); Phase A camera blur ready; Phase D blocked by pkg55-B/C |
-| pkg89 | A | open — spec promoted | Dedicated Light objects (PR #273 spec promotion); Phase A blocked by pkg38-light-source-spectra implementation |
-| pkg91 | A | open — spec promotion pending | Integrator parameter lifecycle: fixes Q1 (`Renderer.render(max_depth=N)` silently ignored under integrators) + Q2 (`set_integrator_param` after `set_integrator` is a no-op) — same architectural bug. Two design forks (A.1 forward-to-integrator vs A.2 deprecate; B.1 rebuild-on-mutation vs B.2 live-setters vs B.3 throw) need owner answer at promotion. Surfaced during pkg55-B' Session 2b debug. |
-| pkg92 | A | open — spec promotion pending | GPU wavefront RNG foundation: replace `reference_pt_wavefront`'s `mt19937(FNV1a(pixel,sample,0))` with PCG32 + PBRT-v4 `(seed, stream(pixel,sample,dim))` keying before the CUDA port begins. Cites Cycles `util/hash.h` + PBRT-v4 `util/rng.h` (both Apache-2.0). Sub-spec of pkg55 Phase B' but ships independently. |
+| pkg85-D | A | **done** | PR #283, 2026-05-14 — GPU XYZ→sRGB ordering fix closed the 3× green bias; `test_gpu_cpu_ssim_hdri` SSIM 0.9793 ≥ 0.97 gate. (Status corrected during Round 9 closeout — spec had lagged at `open`.) |
+| pkg88 | A | Phase A done | Phase A camera motion blur landed PR #284 (Round 8); Phase D blocked by pkg55-B/C |
+| pkg89 | A | **Phase A done** | PR #294, 2026-05-15 — Light interface + 5 types + integrator wiring; G6/G9 pass, G8 0.41% < 1%; MinGW large-struct heap-corruption fix re-applied. Full-scene G8 + G1–G5 are Phase B (Blender addon). Unblocks pkg86 Light Tree accessors. |
+| pkg91 | A | **done** | PR #290, 2026-05-15 — Fork A.1 + B.1: `Integrator::setMaxDepth(int)` virtual + integrator rebuild on `set_integrator_param`; 4 tests pass; post-construction param change verified (3.6% brightness diff proves max_depth now takes effect). Closes Q1+Q2 footguns surfaced during pkg55-B' Session 2b. |
+| pkg92 | A | **done** | PR #291, 2026-05-15 — PCG32 keyed by `(pixel, sample, dim)`; equivalence test passes at 64 spp (per-channel mean ratios within 5%). PractRand statistical gate CI-enforced; stream-disjointness threshold 0.03 @1024 with documented 1/√N rationale; TestU01 documented unbuildable on MinGW, PractRand substituted per owner decision. |
 | pkg68 | A | **done** | persistent OIDN device, CUDA-first init, member-cached filter; CUDA verifier session 2026-05-10 on RTX 5070 Ti: 13/13 pytest green (incl. `test_cuda_capable_build_reports_cuda_device`), `[OIDN] Using CUDA device` confirmed, single device init across N=4 renders verified; viewport timing 256×256 spp=2: OIDN-on 50.67 ms/frame vs OIDN-off baseline 23.81 ms/frame (Δ=26.86 ms persistent-device overhead) |
 | pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
 | pkg70 | A | **done** | OptiX denoiser plugin co-equal with OIDN; persistent OptixDeviceContext + OptixDenoiser handle, lazy init, HDR vs AOV model selection by guide presence; `gpu_optix_available()` Python probe; addon `denoiser_backend` Auto/OptiX/OIDN with OptiX preferred when both present. **Verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0**: 17/17 pytest green; 5.31× synthetic-noise reduction at 256×256; 1.86× faster than OIDN-CUDA at 1080p (728.94 ms vs 1356.09 ms); SSIM(OptiX, OIDN) = 0.9987. Empty-normal-buffer defect surfaced upstream during verification → tracked as pkg75 |
@@ -422,11 +422,24 @@ events are summarized in the changelog below.
   NOT merged. Three cascading bugs discovered: Bug 1 (`path_alive` initialization,
   fixed in 15d98f0), Bugs 2+3 (sample accumulation order + NEE×throughput)
   attempted fix REGRESSED from 2.5× brightness vs megakernel pre-fix to 21×
-  brightness post-fix. Needs deeper architectural review before continuing;
-  flagged for architect. Checkpoint: material-type guards on all 7 shade kernels
-  landed (15d98f0); do not merge until architect decides whether to debug-spiral-
-  more, restart from a clean baseline, or wait for pkg55-C wavefront/megakernel
-  decision.
+  brightness post-fix. **Superseded by the Phase B' CPU-first restart on main**
+  (PR #266 amendment; Sessions 2b PR #281 + 2c PR #297 landed — CPU wavefront
+  now bit-identical to `reference_pt_wavefront` by shared-kernel construction).
+  origin/pkg55-phase-b remains a HELD reference only.
+- **pkg55-B' two-tier gate re-derivation owed before CUDA port** — the
+  program-wide "bit-identity gates each port" line (Sessions N+2..M) must be
+  re-derived into a **two-tier** gate (exact CPU↔CPU / bounded+SSIM CPU↔GPU)
+  before any CUDA-port session begins. Flagged in the pkg55 spec NOTE; the
+  open pkg55-2c technique review (PR #296) feeds this. Not actioned in
+  Session 2c by design.
+- **ReSTIR `test_spatial_reduces_mse` MC-noise flake** —
+  [Issue #298](https://github.com/HendrikGC02/Astroray/issues/298):
+  `tests/test_restir_validation.py::TestSpatialMSE::test_spatial_reduces_mse`
+  non-deterministically fails on a strict inequality (observed
+  `no-reuse=0.008578` vs `spatial=0.008593`, ~0.2% inversion). MC-noise on a
+  too-tight assertion, not a correctness regression. Distinct from #276.
+  Recommended fix: seed-pin or tolerance/seed-averaging. Supersedes the
+  informal "pkg79" note.
 - **Disney clearcoat flake + suspected correctness defect** — [Issue #276](https://github.com/HendrikGC02/Astroray/issues/276): `test_disney_clearcoat_adds_gloss` chronic variance flake (PASSED/FAILED on identical scenes), owner notes clearcoat "may not be working well." Suggested package number `pkg90` in the issue body. Labels: bug, material.
 - **Pyd-shadow-guard hook upgrade** — `.claude/hooks/pre-pytest` warns on shadow pyds but doesn't auto-delete. Stale `astroray.pyd` (pkg84-era legacy name) at repo root shadowed fresh `astroray.cp313-win_amd64.pyd` from `build_cuda/Release/` twice in 2026-05-14 sessions. Potential follow-up package to upgrade hook to auto-delete before pytest.
 - **Stale orphan worktree directories** — 18 in `.claude/worktrees/*` from 2026-05-14 sessions: git registry removed them but OneDrive perm-denied the directory unlink. Cosmetic; clean later with non-sandboxed shell.
@@ -498,6 +511,17 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-16 (Round 9 closeout)** — 6 PRs merged; status corrections + 1 flake issue filed.
+  - **pkg91 integrator parameter lifecycle** (PR #290, 2026-05-15) — Fork A.1 + B.1: `Integrator::setMaxDepth(int)` virtual + integrator rebuild on `set_integrator_param`. Closes Q1 (`Renderer.render(max_depth=N)` silently ignored under integrators) + Q2 (`set_integrator_param` after `set_integrator` no-op). 4 tests pass; post-construction change verified (3.6% brightness diff).
+  - **pkg47 FITS data loader** (PR #292, 2026-05-15) — FITS I/O wrapper + FITSTexture plugin + CMake gate `ASTRORAY_ENABLE_FITS` (default OFF). FITSVolume registration + test deferred to pkg48 per owner ruling. Pillar 4 → ~45%.
+  - **pkg87 split** (PR #293, 2026-05-15) — owner decision: original pkg87 Cryptomatte spec superseded; split into **pkg87a** (infrastructure), **pkg87b** (integrator integration), **pkg87c** (Blender acceptance). All three specs on main.
+  - **pkg92 GPU wavefront RNG foundation** (PR #291, 2026-05-15) — PCG32 keyed by `(pixel, sample, dim)`; equivalence test passes at 64 spp (per-channel mean ratios within 5%). PractRand statistical gate CI-enforced; stream-disjointness threshold 0.03 @1024 with documented 1/√N rationale; TestU01 documented unbuildable on MinGW → PractRand substituted per owner decision.
+  - **pkg89 Phase A — dedicated Light objects** (PR #294, 2026-05-15) — Light interface + 5 types (Point/Spot/Distant/Area/Background) + integrator wiring. G6/G9 pass; G8 spectral fidelity 0.41% < 1% threshold; MinGW large-struct heap-corruption fix re-applied. Full-scene G8 + G1–G5 explicitly Phase B (Blender addon). Unblocks pkg86 Light Tree accessors.
+  - **pkg55-B' Session 2c — CPU wavefront skeleton** (PR #297, 2026-05-15) — EXACT bit-identity **by shared-kernel construction** (one per-bounce kernel called by both `reference_pt_wavefront` and the `cpu_wavefront` driver): max abs diff exactly 0.0 across all 5 snapshot stages on 1 spp Lambertian Cornell, verified MinGW + Linux-GCC CI; production codegen byte-unchanged; scaffold `-ffp-contract=off` is a documented guard only. Spec's two-tier-gate NOTE preserved for the upcoming CUDA sessions.
+  - **Status corrections in this doc pass:** pkg85-D flipped open → done (PR #283, 2026-05-14 — GPU XYZ→sRGB ordering fix; `test_gpu_cpu_ssim_hdri` SSIM 0.9793 ≥ 0.97; spec had lagged at `open`).
+  - **Flake issue filed:** [#298](https://github.com/HendrikGC02/Astroray/issues/298) — ReSTIR `test_spatial_reduces_mse` MC-noise strict-inequality flake (distinct from #276); recommend seed-pin or tolerance.
+  - **Open doc PRs (context only, not round-work):** #295 (Blender addon bug triage), #296 (pkg55-2c technique review). Addon-bug fixes are owner-gated on review + the forthcoming architect first-principles plan.
 
 - **2026-05-15 (architect — Q1/Q2/Q3 from pkg55-B' Session 2b)** — doc-only PR. Two specs filed (status: open, spec-promotion pending owner answers on the listed forks):
   - **pkg91 integrator-param-lifecycle** — unifies Q1 (`Renderer.render(max_depth=N)` silently ignored) + Q2 (`set_integrator_param` after `set_integrator` is a no-op). Same architectural bug: `ParamDict` read-once-at-construction with no API contract. Recommendation: `Integrator::setMaxDepth(int)` virtual + `setIntegratorParam` rebuilds on registered-integrator. Forks A/B listed; owner picks at promotion. Cites Cycles `intern/cycles/integrator/path_trace.h` (live-setter) and PBRT-v4 `src/pbrt/integrators.cpp` (rebuild-only). Apache-2.0.

@@ -93,8 +93,10 @@ back without user intervention.
 > emission, PR #245 — VolumetricEmission interface, Pandya 2016 fits,
 > bipolar jet plugin, 9 tests)** + **pkg43 (slim disk accretion model,
 > PR #271 — Abramowicz 1988 / Sadowski 2009, 14/14 tests, T(9M,mdot=1) =
-> 7.45e6 K)** all done. **Pillar 4 now 40% complete.** **pkg44 (ADAF)**
-> is the next Codex pickup; pkg45–pkg51 specs queued.
+> 7.45e6 K)** + **pkg47 (FITS data loader, PR #292 — FITS I/O wrapper +
+> FITSTexture plugin, gated `ASTRORAY_ENABLE_FITS` default OFF; FITSVolume
+> deferred to pkg48)** all done. **Pillar 4 now ~45% complete.** **pkg44
+> (ADAF)** is the next Codex pickup; pkg45–pkg51 specs queued.
 
 Kerr metric, synchrotron emission, HII recombination lines, simulation
 data import (FITS, HDF5, yt), telescope PSF. Each phenomenon is a
@@ -174,22 +176,26 @@ fix:
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
 
-Open Pillar 5 long-tail (Round 7+): **pkg55 Phase B + Phase C**
-(wavefront migration proper — Phase B is the user-facing parity
-unlock), **pkg82** variance characterisation, **pkg76 CSV** rows on
-RTX, **pkg83**/**pkg84** addon-only viewport polish. pkg67 (metric-
-aware path tracer) is now unblocked alongside Pillar 4; revisit once
-pkg40 + pkg55 maturity is in place.
+Open Pillar 5 long-tail (Round 10+): **pkg55 Phase B' Sessions 3..N**
+(growing-oracle expansion — CPU wavefront skeleton landed bit-identical
+by shared-kernel construction in Session 2c PR #297; the spec's
+**two-tier gate** — exact CPU↔CPU / bounded+SSIM CPU↔GPU — must be
+re-derived before the CUDA-port sessions), **Blender addon bug
+remediation** (triage PR #295 open; owner-gated), **pkg87a/pkg87b/pkg87c**
+Cryptomatte (pkg87 split into three units per PR #293), **pkg76 CSV**
+rows on RTX. pkg67 (metric-aware path tracer) shipped PR #262.
 
 **Pillar 4 thawed and shipping (2026-05-11+).** pkg40 (Kerr metric),
 **pkg41 Kerr validation** (PR #236), **pkg42 synchrotron emission**
 (PR #245 — VolumetricEmission interface, Pandya 2016 fits, bipolar jet
 plugin), **pkg43 slim disk accretion model** (PR #271 — Abramowicz
-1988 / Sadowski 2009, 14/14 tests), and **pkg43 Blender accretion
+1988 / Sadowski 2009, 14/14 tests), **pkg43 Blender accretion
 selector** (PR #285 — black-hole panel dropdown for Novikov-Thorne /
-Slim Disk / ADAF) all done. **Pillar 4 now 40% complete.** **pkg44
-(ADAF)** is now unblocked and ready for Round 9; pkg45–pkg51
-paste-ready specs queued.
+Slim Disk / ADAF), and **pkg47 FITS data loader** (PR #292 — FITS I/O
+wrapper + FITSTexture plugin, gated `ASTRORAY_ENABLE_FITS` default OFF;
+FITSVolume registration deferred to pkg48 per owner ruling) all done.
+**Pillar 4 now ~45% complete.** **pkg44 (ADAF)** is unblocked and
+queued for Round 10; pkg45–pkg51 paste-ready specs queued.
 
 - `pkg34-material-backend-capabilities.md` — capability metadata,
   no silent grey-Lambertian GPU fallback, CPU/GPU contact-sheet diffs.

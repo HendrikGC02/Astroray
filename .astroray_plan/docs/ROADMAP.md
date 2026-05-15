@@ -184,10 +184,12 @@ pkg40 + pkg55 maturity is in place.
 **Pillar 4 thawed and shipping (2026-05-11+).** pkg40 (Kerr metric),
 **pkg41 Kerr validation** (PR #236), **pkg42 synchrotron emission**
 (PR #245 — VolumetricEmission interface, Pandya 2016 fits, bipolar jet
-plugin), and **pkg43 slim disk accretion model** (PR #271 — Abramowicz
-1988 / Sadowski 2009, 14/14 tests) all done. **Pillar 4 now 40%
-complete.** **pkg44 (ADAF)** is next in series for Round 8 Codex;
-pkg45–pkg51 paste-ready specs queued.
+plugin), **pkg43 slim disk accretion model** (PR #271 — Abramowicz
+1988 / Sadowski 2009, 14/14 tests), and **pkg43 Blender accretion
+selector** (PR #285 — black-hole panel dropdown for Novikov-Thorne /
+Slim Disk / ADAF) all done. **Pillar 4 now 40% complete.** **pkg44
+(ADAF)** is now unblocked and ready for Round 9; pkg45–pkg51
+paste-ready specs queued.
 
 - `pkg34-material-backend-capabilities.md` — capability metadata,
   no silent grey-Lambertian GPU fallback, CPU/GPU contact-sheet diffs.

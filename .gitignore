@@ -114,6 +114,8 @@ Thumbs.db
 *.png
 # pkg74 docs example artefacts are static documentation, not generated.
 !docs/showcase/*.png
+# pkg93 README hero + gallery — checked-in static images referenced by README.md.
+!docs/renders/*.png
 *.deb
 .aider*
 

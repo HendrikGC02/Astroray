@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (production polish / showcase)
 **Track:** A (renders need RTX 5070 Ti to match the validation-snapshot numbers)
-**Status:** open — spec filed alongside `docs/readme-refresh-pkg93` branch
+**Status:** done — landed alongside the README refresh on branch `pkg93`
 **Estimated effort:** 1–2 sessions (~4–8 h on RTX 5070 Ti); most cost is the
   Kerr+jet hero scene composition (no checked-in source asset yet)
 **Depends on:** pkg42 (synchrotron jet plugin) done, pkg64 (SMS caustics) done,
@@ -144,3 +144,46 @@ a procedural sky (no new asset bundling).
 Immediately. No owner-preference forks. The Kerr+jet composition
 choices are documented above and can be iterated visually; if the
 first-cut doesn't land, fall back to the prism caustic as hero.
+
+---
+
+## Lessons (post-implementation)
+
+- **Kerr+jet hero at full 4096 SPP is ~80 min on CPU**, not 6–12 min as the
+  spec estimated. The spec extrapolation assumed Cornell-cost scaling, but
+  GR ray marching dominates and per-sample cost is ~30× higher than RGB PT.
+  Shipped at **1024 SPP** (≈ 20 min) — visually clean for this mostly-dark
+  scene; the lensed photon ring and arcs are smooth at this sample count.
+- **First-cut Kerr framing landed.** Inclination 75°, FOV 18°, distance 100 M
+  produced a recognizable EHT-style lensed-arc + jet composition on the
+  first preview. The fallback clause (demote to prism if framing fails)
+  was not needed.
+- **Reinhard tone-map needs the log-average variant on mostly-black scenes.**
+  Linear + soft-knee crushed the dim lensed arcs to near-black; using
+  `key = 0.18 / exp(mean(log(lum)))` per Reinhard 2002 §3 amplifies dim
+  features into visibility while soft-clipping the disk+jet core.
+- **`render(spp, depth, None, spectral=True)` clamps RGB output to [0,1].**
+  The spectral-to-RGB conversion in the renderer produces normalized
+  output, so log-average Reinhard has nothing to amplify (avg ≈ 0.02,
+  key/avg ≈ 9 → soft-knee plateaus). Use `spectral=False` for tone-mapping
+  freedom on HDR astrophysical scenes.
+- **Prism caustic re-render shipped at 2048 SPP** (≈ 8 min) using a
+  redesigned apex-up equilateral prism scene with horizontal beam (the
+  pkg29a validation scene's camera was looking at the prism *front* with
+  the screen *behind* and occluded, producing a flat-grey rendering at
+  hero scale). The redesigned scene shows clean refraction and physical
+  dispersion sampling but the rainbow band on the receiver wall is dim
+  relative to the directly-lit wall — this is physics-correct but not a
+  vivid hero. Future iteration: blocker between emitter and wall, or
+  mid-gray walls for higher contrast, or a much larger emitter-prism
+  separation to spread the rainbow wider.
+- **`Sellmeier` dielectric materials are CPU-only** on this build —
+  `set_use_gpu(True)` rejects materials with `sellmeier_preset` or
+  `glass_preset`. Hero/prism use CPU; HDRI-world tile swapped from
+  `sellmeier_preset:bk7` to fixed `ior:1.52` for GPU.
+- **Worktree `test_results/` is empty (gitignored).** The gallery
+  composite script must resolve the main repo's `test_results/` via
+  `git rev-parse --git-common-dir` to find the source assets.
+- **The hero render `.pyd` lookup needs `ASTRORAY_BUILD_DIR`** pointing at
+  the main repo's `build_cuda/` when invoked from a worktree, because
+  `build_cuda/` is gitignored and not present in worktrees.

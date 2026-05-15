@@ -2,7 +2,7 @@
 
 **Pillar:** 1 + 5 (plugin architecture + production polish)
 **Track:** A (core quality / correctness)
-**Status:** open
+**Status:** done (PR #291, 2026-05-15 — PCG32 keyed by (pixel, sample, dim); equivalence test passes at 64 spp with per-channel mean ratios within 5%)
 **Estimated effort:** 2 sessions (~6–8 h) — CPU retrofit + tests; the
 CUDA mirror lands later inside pkg55 Phase B' CUDA-port sessions
 **Depends on:** pkg55-B' Session 2 close (done, PR #281). Soft-depends

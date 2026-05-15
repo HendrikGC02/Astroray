@@ -8,30 +8,34 @@
 namespace astroray {
 
 // Copy constructor (handles unique_ptr in Composite).
-EmissionSpectrum::EmissionSpectrum(const EmissionSpectrum& other)
-    : data_(other.data_)
-{
-    // std::variant copy handles all cases except Composite (which contains unique_ptr).
-    if (std::holds_alternative<Composite>(other.data_)) {
-        const Composite& otherComp = std::get<Composite>(other.data_);
-        Composite newComp;
-        newComp.base = std::make_unique<EmissionSpectrum>(*otherComp.base);
-        newComp.filter_rgb = otherComp.filter_rgb;
-        data_ = std::move(newComp);
-    }
+EmissionSpectrum::EmissionSpectrum(const EmissionSpectrum& other) {
+    data_ = std::visit([](const auto& mode) -> Variant {
+        using T = std::decay_t<decltype(mode)>;
+        if constexpr (std::is_same_v<T, Composite>) {
+            Composite newComp;
+            newComp.base = std::make_unique<EmissionSpectrum>(*mode.base);
+            newComp.filter_rgb = mode.filter_rgb;
+            return newComp;
+        } else {
+            return mode;  // Blackbody, RGB, MeasuredSPD are trivially copyable
+        }
+    }, other.data_);
 }
 
 // Copy assignment (handles unique_ptr in Composite).
 EmissionSpectrum& EmissionSpectrum::operator=(const EmissionSpectrum& other) {
     if (this == &other) return *this;
-    data_ = other.data_;
-    if (std::holds_alternative<Composite>(other.data_)) {
-        const Composite& otherComp = std::get<Composite>(other.data_);
-        Composite newComp;
-        newComp.base = std::make_unique<EmissionSpectrum>(*otherComp.base);
-        newComp.filter_rgb = otherComp.filter_rgb;
-        data_ = std::move(newComp);
-    }
+    data_ = std::visit([](const auto& mode) -> Variant {
+        using T = std::decay_t<decltype(mode)>;
+        if constexpr (std::is_same_v<T, Composite>) {
+            Composite newComp;
+            newComp.base = std::make_unique<EmissionSpectrum>(*mode.base);
+            newComp.filter_rgb = mode.filter_rgb;
+            return newComp;
+        } else {
+            return mode;  // Blackbody, RGB, MeasuredSPD are trivially copyable
+        }
+    }, other.data_);
     return *this;
 }
 

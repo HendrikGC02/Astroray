@@ -1,7 +1,8 @@
+// NOTE: raytracer.h must be included BEFORE astroray/light.h (for Vec3/AABB/EmissionSpectrum).
+#include "raytracer.h"
 #include "astroray/light.h"
 #include "astroray/spectral.h"  // for planck()
 #include "astroray/spectrum.h"  // for cieCmf1964_10deg
-#include "raytracer.h"  // for Vec3
 #include <cmath>
 
 namespace astroray {

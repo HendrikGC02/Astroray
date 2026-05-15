@@ -1,3 +1,5 @@
+// NOTE: raytracer.h must come BEFORE light headers (Vec3/AABB/EmissionSpectrum dependency).
+#include "raytracer.h"
 #include "astroray/lights/distant_light.h"
 #include "astroray/spectrum.h"
 #include "raytracer.h"  // for Vec3, buildOrthonormalBasis

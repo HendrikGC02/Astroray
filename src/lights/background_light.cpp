@@ -1,3 +1,5 @@
+// NOTE: raytracer.h must come BEFORE light headers (Vec3/AABB/EmissionSpectrum dependency).
+#include "raytracer.h"
 #include "astroray/lights/background_light.h"
 #include "astroray/spectrum.h"
 #include "raytracer.h"  // for Vec3, EnvironmentMap, AABB
@@ -39,9 +41,9 @@ Light::LiSample BackgroundLight::sampleLi(const Vec3& shadingPoint,
     sample.distance = std::numeric_limits<float>::max();
 
     // Query EnvironmentMap for RGB emission.
-    // NOTE: EnvironmentMap::sample currently returns RGB only. Spectral
+    // NOTE: EnvironmentMap::lookup currently returns RGB only. Spectral
     // upsampling is a temporary workaround until EnvironmentMap is extended.
-    Vec3 emissionRGB = envMap_->sampleDirection(dir);
+    Vec3 emissionRGB = envMap_->lookup(dir);
 
     // Upsample RGB to spectral via RGBIlluminantSpectrum.
     RGBIlluminantSpectrum rgbSpectrum({emissionRGB.x, emissionRGB.y, emissionRGB.z});

@@ -1,6 +1,7 @@
+// NOTE: raytracer.h must come BEFORE area_light.h (Vec3/AABB/EmissionSpectrum dependency).
+#include "raytracer.h"
 #include "astroray/lights/area_light.h"
 #include "astroray/spectrum.h"
-#include "raytracer.h"  // for Vec3, AABB
 #include <cmath>
 #include <algorithm>
 #include <random>
@@ -65,7 +66,7 @@ Light::LiSample AreaLight::sampleLi(const Vec3& shadingPoint,
     sample.distance = distance;
 
     // Check spread cone constraint.
-    float cosTheta = dot(dir, normal_);
+    float cosTheta = dir.dot(normal_);
     if (!withinSpread(dir) || cosTheta <= 0.0f) {
         // Outside emission cone or back-facing: zero emission.
         sample.emission_spec = SampledSpectrum(0.0f);
@@ -139,7 +140,7 @@ AABB AreaLight::bounds() const {
 
     AABB box(corners[0], corners[0]);
     for (int i = 1; i < 4; ++i) {
-        box = AABB(box.min().min(corners[i]), box.max().max(corners[i]));
+        box = AABB(Vec3::min(box.min, corners[i]), Vec3::max(box.max, corners[i]));
     }
     return box;
 }
@@ -179,7 +180,7 @@ Vec3 AreaLight::sampleSurface(std::mt19937& gen) const {
 
 // Helper: check if angle from normal is within spread cone.
 bool AreaLight::withinSpread(const Vec3& direction) const {
-    float cosTheta = dot(direction, normal_);
+    float cosTheta = direction.dot(normal_);
     float angle = std::acos(std::clamp(cosTheta, -1.0f, 1.0f));
     return angle <= spread_;
 }

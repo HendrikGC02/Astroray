@@ -465,7 +465,11 @@ public:
     Vec3 centroid() const { return (min + max) * 0.5f; }
 };
 
-// Include astroray::Light after Vec3/AABB are defined (avoids circular dependency).
+// Include EmissionSpectrum BEFORE Light to resolve circular dependency (pkg89).
+// emission_spectrum.h needs Vec3 (defined above), and light.h needs EmissionSpectrum.
+#include "astroray/emission_spectrum.h"
+
+// Include astroray::Light after Vec3/AABB/EmissionSpectrum are defined.
 #include "astroray/light.h"
 
 // ============================================================================

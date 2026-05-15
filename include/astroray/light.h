@@ -18,18 +18,24 @@
 //   - Cycles intern/cycles/scene/light.{h,cpp} (Apache-2.0): per-light flags,
 //     normalize factor, emission profiles.
 //   - Conty 2018 "Importance Sampling of Many Lights": orientation cone metric.
+//
+// NOTE: This header requires raytracer.h to be included FIRST (for Vec3/AABB definitions).
+// When included from raytracer.h itself (line ~473), this is guaranteed. When included
+// standalone (e.g., from src/lights/*.cpp), raytracer.h must be included manually.
 
-#include "emission_spectrum.h"
 #include "spectrum.h"
 #include <memory>
 #include <random>
 #include <cmath>
 
-// Forward declarations (Vec3, AABB are defined in raytracer.h before this header is included).
+// Vec3 and AABB are assumed to be already defined (from raytracer.h).
+// Forward-declare them here to make the dependency explicit.
 struct Vec3;
 struct AABB;
 
 namespace astroray {
+
+class EmissionSpectrum;
 
 // --------------------------------------------------------------------------
 // OrientationCone — bounding cone for light's emission direction distribution.

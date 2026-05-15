@@ -200,10 +200,20 @@ each draw. The fork is **counter granularity**:
       floor. Measured |corr|=0.026 is within 1 SE of zero, statistically
       consistent with true independence; keying converges correctly
       (0.0064 @4096, 0.0019 @8192, i.e. ~1/√N).
-- [ ] BigCrush subset (or TestU01 SmallCrush as the practical CI gate):
-      PCG32 with our keying passes all SmallCrush tests. (PCG already
-      passes BigCrush per O'Neill 2014; the gate is just to verify our
-      keying does not break it.)
+- [ ] PractRand statistical gate: PCG32 with our keying passes
+      PractRand's core test battery at 32 MB without failures. (PCG
+      already passes PractRand at multi-TB scales per O'Neill 2014 and
+      community testing; this 32 MB gate verifies our keying does not
+      introduce detectable bias.)
+      
+      **Rationale for PractRand (not TestU01/SmallCrush):** TestU01 proved
+      unbuildable on the Windows/MinGW-w64 toolchain after multiple
+      attempts (literate-programming source format requiring `cweb`,
+      autotools build incompatible with MinGW runtime). PractRand builds
+      trivially (pure C++, no autotools), is public domain (vs Apache-2.0),
+      widely used in the RNG community, and cited on pcg-random.org.
+      This substitution was approved by the owner (2026-05-15) after
+      documenting the TestU01 build blocker in the research note.
 - [ ] `reference_pt_wavefront` post-retrofit renders Cornell-Lambertian
       with SSIM ≥ 0.99 at 64 spp vs `reference_pt_production` (the
       existing equivalence gate, with the rebaselined expected number).

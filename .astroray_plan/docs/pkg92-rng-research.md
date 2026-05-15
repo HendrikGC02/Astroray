@@ -156,17 +156,54 @@ This provides 2^63 disjoint streams, one per unique `(pixel, sample, dimension)`
 
 ---
 
-## TestU01 (SmallCrush Statistical Gate)
+## PractRand (Statistical Gate — Replaces TestU01/SmallCrush)
 
-**Repository:** https://github.com/umontreal-simul/TestU01-2009  
-**License:** Apache-2.0  
-**Authors:** Pierre L'Ecuyer and Richard Simard, Université de Montréal  
-**Publication:** "TestU01: A C library for empirical testing of random number generators," ACM Transactions on Mathematical Software, Vol. 33, No. 4, Article 22 (2007), DOI: 10.1145/1268776.1268777
+**Repository:** https://pracrand.sourceforge.net/ (SourceForge project)  
+**GitHub mirror:** https://github.com/MartyMacGyver/PractRand  
+**Author:** Chris Doty-Humphrey  
+**Version:** 0.95  
+**License:** Public domain (dedicated to public domain by the author)  
+**License verification:** Confirmed via https://pracrand.sourceforge.net/license.txt (2026-05-15)
 
-**License compatibility:** Apache-2.0 → compatible ✅  
-**License verification date:** 2026-05-15 (verified via https://raw.githubusercontent.com/umontreal-simul/TestU01-2009/master/LICENSE)
+**License compatibility:** Public domain → no restrictions, fully compatible with Apache-2.0 ✅
 
-**Purpose in pkg92:** SmallCrush is a lightweight statistical test suite (subset of BigCrush) used to verify that our `(pixel, sample, dimension)` keying does not break PCG32's statistical properties. PCG32 itself already passes BigCrush per O'Neill 2014; the gate is to verify our keying implementation is correct.
+**Purpose in pkg92:** PractRand is a comprehensive RNG statistical test suite used to verify that our `(pixel, sample, dimension)` keying does not break PCG32's statistical properties. PCG32 itself passes PractRand per O'Neill 2014 and community testing; this gate verifies our keying implementation is correct.
+
+**Usage pattern:**
+```bash
+./your_rng_program | ./RNG_test stdin32
+```
+
+The RNG program emits binary uint32 values to stdout; PractRand reads them and progressively tests at increasing data volumes (128 MB, 256 MB, 512 MB, ...), reporting any statistical anomalies ("FAIL") detected. We test the keyed WavefrontRNG stream (not bare PCG32) to verify the keying doesn't introduce correlations.
+
+**Why PractRand instead of TestU01/SmallCrush?**
+
+TestU01 was the original spec choice, but it proved unbuildable on this Windows/MinGW toolchain:
+- TestU01 distributes as a literate-programming `.w` file requiring `cweb` extraction (archaic workflow)
+- The autotools build process assumes MSYS2/Cygwin but conflicts with MinGW-w64 runtime assumptions
+- Multiple attempts to build TestU01 via cmake wrappers failed with linking errors and missing symbols
+- Hours sunk with no viable path to a working binary
+
+PractRand, by contrast:
+- Builds trivially on MinGW (pure C++, no autotools, just `g++ -c src/*.cpp && ar rcs`)
+- Is widely used in the RNG testing community (cited on pcg-random.org)
+- Is public domain (cleaner license than TestU01's Apache-2.0 for citation purposes)
+- Provides comparable or superior coverage (detects bias in more RNGs faster than most suites per its documentation)
+
+**Owner decision (2026-05-15):** Switch from TestU01/SmallCrush to PractRand due to TestU01 build blocker. This is a sanctioned substitution validated by the PractRand reference on the PCG paper's website.
+
+---
+
+## TestU01 (Attempted, Abandoned)
+
+**Attempted:** TestU01-2009 from https://github.com/umontreal-simul/TestU01-2009  
+**Result:** Unbuildable on Windows/MinGW-w64 after multiple attempts  
+**Blockers:**
+- Literate programming source format (`.w` files) requiring `cweb` extraction
+- Autotools build system incompatible with MinGW-w64
+- No working CMake wrapper found (several third-party attempts all failed)
+
+**Conclusion:** TestU01 is not a viable gate for this toolchain. PractRand chosen as replacement.
 
 ---
 
@@ -174,7 +211,7 @@ This provides 2^63 disjoint streams, one per unique `(pixel, sample, dimension)`
 
 - **imneme/pcg-c-basic:** Apache-2.0 OR MIT → compatible ✅
 - **PBRT-v4:** Apache-2.0 → compatible ✅
-- **TestU01-2009:** Apache-2.0 → compatible ✅
+- **PractRand (Doty-Humphrey):** Public domain → compatible ✅
 - **O'Neill 2014 paper:** Public research, algorithm is public-domain per pcg-random.org FAQ ✅
 
 All sources are permissively licensed and compatible with Astroray's Apache-2.0 license.

@@ -121,3 +121,6 @@ Thumbs.db
 
 # pkg55-A: per-scene profile JSONs (transient; baseline.json is canonical)
 benchmarks/wavefront/_per_scene/
+
+# pkg92: Third-party test tools (PractRand, TestU01) — downloaded at build time
+third_party/

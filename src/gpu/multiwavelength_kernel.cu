@@ -419,18 +419,139 @@ __device__ inline bool isInsideVisible(float lmin, float lmax) {
 }
 
 // ---------------------------------------------------------------------------
-// Spectral path trace — naive, no NEE (mirrors the CPU MW integrator).
+// MIS power heuristic — mirrors CPU pathTraceSpectral (raytracer.h:2420)
+//   wt = a*a / (a*a + b*b + 1e-8) ; and path_trace_kernel.cu::powerHeuristic.
+// ---------------------------------------------------------------------------
+__device__ inline float gpu_mw_powerHeuristic(float a, float b) {
+    return (a * a) / (a * a + b * b + 1e-8f);
+}
+
+// ---------------------------------------------------------------------------
+// Spectral next-event estimation — mirrors CPU Renderer::pathTraceSpectral
+// area-light NEE (include/raytracer.h:2405-2424): power-weighted light
+// selection, area-light point/solid-angle sampling, occlusion test, spectral
+// f * L, and an MIS power heuristic against the BSDF pdf. The area-light
+// geometric sampling (sphere solid angle, triangle area->solid-angle pdf)
+// reuses the exact construction already validated in
+// src/gpu/path_trace_kernel.cu::sampleDirectGPU (same codebase, CPU-faithful
+// port of Renderer::sampleDirect). CLAUDE.md §6 — no new algorithm.
+//
+// This closes the ~2x deficit caused by the previous "no NEE" megakernel:
+// the emissive-on-hit term is gated by (bounce==0 || wasSpecular) exactly
+// like the CPU, so without NEE all diffuse->emitter direct light was dropped.
+// ---------------------------------------------------------------------------
+__device__ GSampledSpectrum sampleDirectSpectralMW(
+    const GHitRecord& rec, const GVec3& wo,
+    const GSampledWavelengths& lambdas,
+    const GBVHNode*  bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GMaterial*  materials,
+    const GLight*     lights, int numLights, float totalLightPower,
+    curandState*      rng)
+{
+    GSampledSpectrum direct(0.f);
+    if (rec.isDelta || numLights <= 0 || totalLightPower <= 0.f) return direct;
+
+    const GMaterial& mat = materials[rec.materialId];
+
+    // Power-weighted light selection via CDF (mirrors LightList::sample).
+    float u  = curand_uniform(rng) * totalLightPower;
+    int   li = 0;
+    for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { li = i; break; } li = i; }
+    float selPdf = lights[li].power / totalLightPower;
+    int primIdx  = lights[li].primitiveIndex;
+    if (primIdx < 0) return direct;
+
+    const GPrimitive& lp = prims[primIdx];
+    if (lp.type == GPRIM_SKIP) return direct;
+
+    GVec3 wi;
+    float lightPdf;     // solid-angle pdf (incl. selPdf), mirrors LightList::sample s.pdf
+    float maxDist;      // shadow-ray extent
+    int   lightMatId;
+    bool  lightFront;
+
+    if (lp.type == GPRIM_SPHERE) {
+        const GSphere& s = spheres[lp.index];
+        GVec3 toC    = s.center - rec.point;
+        float distSq = toC.length2();
+        if (distSq <= s.radius * s.radius + 1e-8f) return direct;
+        GVec3 dir   = toC.normalized();
+        float cosTM = sqrtf(fmaxf(0.f, 1.f - s.radius * s.radius / distSq));
+        if (cosTM >= 1.f) return direct;
+        float z   = 1.f + curand_uniform(rng) * (cosTM - 1.f);
+        float phi = 2.f * M_PI_F * curand_uniform(rng);
+        GVec3 tu, tv; gpu_buildONB(dir, tu, tv);
+        float sinTh = sqrtf(fmaxf(0.f, 1.f - z * z));
+        wi          = (tu * cosf(phi) * sinTh + tv * sinf(phi) * sinTh + dir * z).normalized();
+        lightPdf    = (1.f / (2.f * M_PI_F * (1.f - cosTM))) * selPdf;
+        maxDist     = 1e30f;       // hit-the-sphere check below bounds it
+        lightMatId  = s.materialId;
+        GHitRecord sh;
+        if (!gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+                         GRay(rec.point, wi), 0.001f, maxDist, sh) ||
+            sh.materialId != lightMatId)
+            return direct;
+        lightFront = sh.frontFace;
+    } else {
+        const GTriangle& t = tris[lp.index];
+        float r1 = curand_uniform(rng), r2 = curand_uniform(rng);
+        if (r1 + r2 > 1.f) { r1 = 1.f - r1; r2 = 1.f - r2; }
+        GVec3 lpos = t.v0 + (t.v1 - t.v0) * r1 + (t.v2 - t.v0) * r2;
+        GVec3 d    = lpos - rec.point;
+        float dist = d.length();
+        wi         = d * (1.f / fmaxf(dist, 1e-8f));
+        GVec3 e1   = t.v1 - t.v0, e2 = t.v2 - t.v0;
+        float area = e1.cross(e2).length() * 0.5f;
+        float NdotWi = fabsf(t.n0.dot(wi));
+        if (NdotWi < 1e-8f || area < 1e-8f) return direct;
+        lightPdf   = (dist * dist) / (NdotWi * area) * selPdf;
+        maxDist    = dist - 0.001f;
+        lightMatId = t.materialId;
+        lightFront = true;
+        GHitRecord sh;
+        if (gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+                        GRay(rec.point, wi), 0.001f, maxDist, sh))
+            return direct;          // occluded
+    }
+
+    if (lightPdf <= 0.f) return direct;
+
+    // Spectral BSDF and emission — mirrors CPU pathTraceSpectral lines
+    // 2414-2421:  f_spec = evalSpectral ; L_spec = emission_spec (illuminant).
+    GSampledSpectrum f_spec =
+        gpu_material_eval_spectral(mat, const_cast<GHitRecord&>(rec), wo, wi, lambdas);
+    GSampledSpectrum L_spec =
+        gpu_material_emitted_spectral(materials[lightMatId], lightFront, lambdas);
+    if (f_spec.maxValue() <= 0.f || L_spec.maxValue() <= 0.f) return direct;
+
+    float bsdfPdf = gpu_material_pdf(mat, rec, wo, wi);
+    float wt      = gpu_mw_powerHeuristic(lightPdf, bsdfPdf);
+    // color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f))
+    return f_spec * L_spec * (wt / (lightPdf + 0.001f));
+}
+
+// ---------------------------------------------------------------------------
+// Spectral path trace — area-light NEE + MIS, mirroring the CPU
+// Renderer::pathTraceSpectral integrator (the CPU `path_tracer` selects this;
+// see plugins/integrators/spectral_path_tracer.cpp). The emissive-on-hit term
+// stays gated by (bounce==0 || wasSpecular) — the BSDF-sampling half of MIS —
+// while sampleDirectSpectralMW supplies the area-light direct term.
 // Returns raw per-sample SampledSpectrum radiance.
 // ---------------------------------------------------------------------------
 __device__ GSampledSpectrum tracePathMW(
     GRay ray, int maxDepth,
     GSampledWavelengths& lambdas,
     bool useLuminanceOutput,
+    bool enableNEE,
     const GBVHNode*  bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
     const GMaterial*  materials,
+    const GLight*     lights, int numLights, float totalLightPower,
     const GEnvMap&    envMap,
     const GVec3&      backgroundColor,
     bool              hasBackgroundColor,
@@ -524,6 +645,17 @@ __device__ GSampledSpectrum tracePathMW(
 
         GVec3 wo = -ray.direction.normalized();
 
+        // Area-light NEE (MIS via power heuristic). Skipped on delta lobes.
+        // Mirrors CPU pathTraceSpectral (include/raytracer.h:2405-2424).
+        // enableNEE is false when the kernel mirrors the naive no-NEE
+        // MultiwavelengthPathTracer (gated by integrator name in
+        // module/blender_module.cpp).
+        if (enableNEE && !rec.isDelta && numLights > 0) {
+            color += throughput * sampleDirectSpectralMW(
+                rec, wo, lambdas, bvhNodes, prims, tris, spheres, materials,
+                lights, numLights, totalLightPower, rng);
+        }
+
         // Russian roulette
         if (bounce > rrDepth) {
             float p;
@@ -586,11 +718,13 @@ __global__ void multiwavelengthKernel(
     int samplesPerPixel, int maxDepth,
     float lambdaMin, float lambdaMax,
     bool  useLuminanceOutput,
+    bool  enableNEE,
     const GBVHNode*  bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
     const GMaterial*  materials,
+    const GLight*     lights, int numLights, float totalLightPower,
     GEnvMap envMap,
     GCameraParams cam,
     GVec3 backgroundColor, bool hasBackgroundColor,
@@ -631,8 +765,9 @@ __global__ void multiwavelengthKernel(
             gpu_sampleBandWavelengths(&localRng, lambdaMin, lambdaMax);
 
         GSampledSpectrum rad = tracePathMW(
-            ray, maxDepth, lambdas, useLuminanceOutput,
+            ray, maxDepth, lambdas, useLuminanceOutput, enableNEE,
             bvhNodes, prims, tris, spheres, materials,
+            lights, numLights, totalLightPower,
             envMap, backgroundColor, hasBackgroundColor, &localRng);
 
         GVec3 sample;
@@ -684,11 +819,13 @@ void launchMultiwavelengthKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
     float lambdaMin, float lambdaMax, bool useLuminanceOutput,
+    bool enableNEE,
     const GBVHNode*  d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
     const GMaterial*  d_materials,
+    const GLight*     d_lights, int numLights, float totalLightPower,
     GEnvMap envMap,
     GCameraParams cam,
     GVec3 backgroundColor, bool hasBackgroundColor,
@@ -704,8 +841,9 @@ void launchMultiwavelengthKernel(
             (const void*)multiwavelengthKernel, blocks, threadsPerBlock);
         multiwavelengthKernel<<<blocks, threadsPerBlock>>>(
             d_framebuffer, width, height, samplesPerPixel, maxDepth,
-            lambdaMin, lambdaMax, useLuminanceOutput,
+            lambdaMin, lambdaMax, useLuminanceOutput, enableNEE,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            d_lights, numLights, totalLightPower,
             envMap, cam, backgroundColor, hasBackgroundColor,
             d_rngStates);
 

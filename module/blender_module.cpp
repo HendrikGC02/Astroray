@@ -891,11 +891,17 @@ public:
                     useLum = !(lmin >= 379.5f && lmax <= 780.5f);
                 else
                     useLum = (mode == "luminance");
+                // The GPU megakernel mirrors whichever CPU integrator the
+                // name selects: `path_tracer` -> Renderer::pathTraceSpectral
+                // (area-light NEE + MIS); `multiwavelength_path_tracer` ->
+                // the naive no-NEE MultiwavelengthPathTracer. The two share
+                // the kernel, so NEE must be gated by integrator identity.
+                bool enableNEE = (integratorName_ == "path_tracer");
                 cudaRenderer->renderMultiwavelength(
                     camera->pixels,
                     camera->width, camera->height, renderer.getSeed(),
                     samplesPerPixel, maxDepth,
-                    lmin, lmax, useLum);
+                    lmin, lmax, useLum, enableNEE);
             } else {
                 cudaRenderer->render(camera->pixels,
                                      camera->width, camera->height, renderer.getSeed(),

@@ -71,7 +71,8 @@ public:
                                int width, int height, int seed,
                                int samplesPerPixel, int maxDepth,
                                float lambdaMin, float lambdaMax,
-                               bool useLuminanceOutput);
+                               bool useLuminanceOutput,
+                               bool enableNEE = true);
 
     // pkg54d: test hook for the profile table uploaded by the latest
     // uploadScene() call.

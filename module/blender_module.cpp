@@ -26,6 +26,8 @@
 #include "astroray/restir/frame_state.h"
 #include "../src/cpu/wavefront/reference_pt_production.h"
 #include "../src/cpu/wavefront/reference_pt_wavefront.h"
+#include "../src/cpu/wavefront/cpu_wavefront_driver.h"
+#include "../src/cpu/wavefront/snapshot_diff.h"
 #include "astroray/sampling/wavefront_rng.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
@@ -2376,6 +2378,72 @@ PYBIND11_MODULE(astroray, m) {
           "record_snapshots"_a = false,
           "pkg55-B' Session 2b: wavefront-side reference PT (per-path RNG). "
           "Diff oracle for CPU wavefront. Lambertian-Cornell only.");
+
+    m.def("cpu_wavefront_render",
+          [](PyRenderer& r, int samples, int max_depth, uint64_t seed) -> py::array_t<float> {
+              auto cam = r.getCamera();
+              if (!cam) {
+                  throw std::runtime_error("Camera not set up. Call setup_camera() first.");
+              }
+              auto rgb = astroray::cpu_wavefront::cpu_wavefront_render(
+                  r.getRenderer(), *cam, samples, max_depth, seed, nullptr);
+              // Return RGB buffer as numpy array (height, width, 3).
+              py::array_t<float> arr({cam->height, cam->width, 3});
+              auto buf = arr.request();
+              float* ptr = static_cast<float*>(buf.ptr);
+              std::copy(rgb.begin(), rgb.end(), ptr);
+              return arr;
+          },
+          "renderer"_a, "samples"_a, "max_depth"_a, "seed"_a,
+          "pkg55-B' Session 2c: CPU wavefront skeleton (SoA stages). "
+          "Callable driver, not a registered plugin. Lambertian-Cornell only.");
+
+    m.def("cpu_wavefront_snapshot_diff",
+          [](PyRenderer& r, int samples, int max_depth, uint64_t seed) -> py::dict {
+              auto cam = r.getCamera();
+              if (!cam) {
+                  throw std::runtime_error("Camera not set up. Call setup_camera() first.");
+              }
+
+              // Render reference with snapshots.
+              auto ref_result = astroray::cpu_wavefront::reference_pt_wavefront_render(
+                  r.getRenderer(), *cam, samples, max_depth, seed, true);
+
+              // Render wavefront with snapshots.
+              astroray::cpu_wavefront::VectorSink wf_sink;
+              auto wf_rgb = astroray::cpu_wavefront::cpu_wavefront_render(
+                  r.getRenderer(), *cam, samples, max_depth, seed, &wf_sink);
+
+              // Compare snapshot streams.
+              auto diff = astroray::cpu_wavefront::compare_snapshot_streams(
+                  ref_result.snapshots, wf_sink.snapshots(), 0.0f);
+
+              // Package results.
+              py::dict result;
+              result["bit_identical"] = diff.bit_identical;
+              result["max_abs_diff"] = diff.max_abs_diff;
+              result["total_diverging_fields"] = diff.total_diverging_fields;
+              result["report"] = astroray::cpu_wavefront::format_diff_report(diff);
+
+              // Return RGB images for sanity check.
+              py::array_t<float> ref_arr({cam->height, cam->width, 3});
+              auto ref_buf = ref_arr.request();
+              float* ref_ptr = static_cast<float*>(ref_buf.ptr);
+              std::copy(ref_result.rgb.begin(), ref_result.rgb.end(), ref_ptr);
+              result["ref_image"] = ref_arr;
+
+              py::array_t<float> wf_arr({cam->height, cam->width, 3});
+              auto wf_buf = wf_arr.request();
+              float* wf_ptr = static_cast<float*>(wf_buf.ptr);
+              std::copy(wf_rgb.begin(), wf_rgb.end(), wf_ptr);
+              result["wf_image"] = wf_arr;
+
+              return result;
+          },
+          "renderer"_a, "samples"_a, "max_depth"_a, "seed"_a,
+          "pkg55-B' Session 2c: Compare snapshot streams for bit-identity gate. "
+          "Returns dict with: bit_identical (bool), max_abs_diff (float), "
+          "total_diverging_fields (int), report (str), ref_image (array), wf_image (array).");
 
     m.def("viewport_perf_reset",
           []() {

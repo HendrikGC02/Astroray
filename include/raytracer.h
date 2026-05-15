@@ -2651,7 +2651,10 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         (void)maxVolumeBounces; (void)maxTransparentBounces;
         ensureDefaultIntegrator();
         buildAcceleration();
-        if (integrator_) integrator_->beginFrame(*this, cam);
+        if (integrator_) {
+            integrator_->setMaxDepth(maxDepth);
+            integrator_->beginFrame(*this, cam);
+        }
         std::atomic<int> tilesCompleted{0};
         const int tileSize = 16;
         int tilesX = (cam.width + tileSize - 1) / tileSize;

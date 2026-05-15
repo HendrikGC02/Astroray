@@ -2,7 +2,7 @@
 
 **Pillar:** 1 (plugin architecture)
 **Track:** A (core quality / correctness)
-**Status:** open
+**Status:** done (PR #290, 2026-05-15 — Fork A.1 + B.1: setMaxDepth virtual + integrator rebuild on param change; 4 tests pass; 3.6% brightness diff proves post-construction param change works)
 **Estimated effort:** 1–2 sessions (~6 h); spec + minimal API change + tests + docs
 **Depends on:** pkg05 (integrator interface) — done
 

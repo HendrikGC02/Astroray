@@ -25,6 +25,12 @@ public:
     // Backend support metadata for UI diagnostics and GPU fallback policy.
     virtual IntegratorCapabilities capabilities() const { return {}; }
 
+    // pkg91: runtime max-depth mutation (called by Renderer::render once per
+    // frame, before the tile loop). Default impl is a no-op; integrators that
+    // store maxDepth_ override this to update their private member. Cycles
+    // pattern (intern/cycles/integrator/path_trace.h set_max_bounces).
+    virtual void setMaxDepth(int depth) { (void)depth; }
+
     // Full-path sample: returns XYZ color plus first-hit AOV data and render passes.
     virtual SampleResult sampleFull(const Ray& ray, std::mt19937& gen) = 0;
 };

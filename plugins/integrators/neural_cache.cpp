@@ -282,6 +282,10 @@ public:
         };
     }
 
+    void setMaxDepth(int depth) override {
+        maxDepth_ = depth;
+    }
+
     void beginFrame(Renderer& r, const Camera&) override {
         renderer_ = &r;
         ++frameIndex_;

@@ -2,9 +2,40 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — ready to implement
+**Status:** superseded — split into pkg87a/pkg87b/pkg87c (owner decision 2026-05-15)
 **Estimated effort:** 2–3 weeks
 **Depends on:** none (independent of pkg55-B and pkg86)
+
+---
+
+## SUPERSEDED — see pkg87a / pkg87b / pkg87c
+
+This single spec is **superseded**. During implementation the agent
+discovered the spec understated the integration depth: it modelled
+Cryptomatte as a first-hit AOV (one integrator bullet — "at first-hit
+and indirect bounces call `crypto_insert`"), but Psyop-conformant
+Cryptomatte requires **per-shade-point** histogram accumulation of
+`(hashed_name, coverage)` at *every* bounce across *every* integrator
+(7 CPU plugins + the GPU path-trace/multiwavelength kernels + the CPU
+wavefront reference oracles), exactly where Cycles calls
+`kernel_write_data_passes`. That is far more than the original Phase 2
+scoping implied. On 2026-05-15 the owner split the work into three
+phased, independently-reviewable packages:
+
+- **`pkg87a-cryptomatte-infrastructure.md`** — hashing, EXR manifest
+  writer, crypto framebuffer buffers, name plumbing, pass-plugin
+  skeleton. Scope = exactly the existing `pkg87-cryptomatte` branch;
+  becomes its own PR.
+- **`pkg87b-cryptomatte-integrator-integration.md`** — per-shade-point
+  `(hash, weight)` accumulation across all integrators (CPU + GPU).
+  Depends on pkg87a. This is the part this original spec understated.
+- **`pkg87c-cryptomatte-blender-acceptance.md`** — Blender pass
+  registration, manifest in RenderResult, UI toggles, IoU ≥ 0.95
+  acceptance gate. Depends on pkg87b.
+
+The remainder of this document is retained for historical context and
+as the source of the design decisions inherited by the three new specs.
+Do not implement from it directly.
 
 ---
 

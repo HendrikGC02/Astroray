@@ -1209,6 +1209,17 @@ public:
 
     void setIntegratorParam(const std::string& key, int value) {
         integratorParams_.set(key, value);
+        // pkg91: if an integrator is already registered, rebuild it with the
+        // updated params (option B.1 from spec). Mirrors PBRT-v4 scene rebuild
+        // on parameter change (src/pbrt/integrators.cpp, Apache-2.0). The cost
+        // is one integrator constructor invocation; all current integrators
+        // are cheap to construct (no pre-allocated reservoirs or caches at
+        // construction time — those are allocated in beginFrame).
+        if (!integratorName_.empty()) {
+            auto integrator = astroray::IntegratorRegistry::instance().create(
+                integratorName_, integratorParams_);
+            renderer.setIntegrator(integrator);
+        }
     }
 
     // pkg39: multi-wavelength rendering helpers

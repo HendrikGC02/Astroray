@@ -32,6 +32,10 @@ public:
         return {false, "caustic chain connection integrator has no CUDA kernel"};
     }
 
+    void setMaxDepth(int depth) override {
+        maxDepth_ = depth;
+    }
+
     SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {
         SampleResult r;
         if (!renderer_) return r;

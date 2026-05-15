@@ -83,6 +83,10 @@ public:
         return {false, "ReSTIR DI integrator stores CPU frame history and has no CUDA kernel"};
     }
 
+    void setMaxDepth(int depth) override {
+        maxDepth_ = depth;
+    }
+
     SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {
         SampleResult result;
         if (!renderer_) return result;

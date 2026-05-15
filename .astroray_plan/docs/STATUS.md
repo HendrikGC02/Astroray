@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-14 (Round 8 mid-cycle — doc/spec/research wave landed: Round 8 strategy, pkg55-B Phase B' amendment, pkg86/87 specs, pkg88/89 research notes; implementation wave starts next session per round8-dispatch-queue.md)
+**Last updated:** 2026-05-15 (Round 8 complete — waves 1+2 landed: 6 PRs merged (pkg38/pkg88-A/pkg43-selector/pkg85-D/pkg55-B'-Session-2b/pkg91+pkg92); Round 9 next)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -256,33 +256,28 @@ forgotten):
 
 ## This week
 
-**Week of:** 2026-05-14 (Round 8 mid-cycle — doc/spec/research wave landed 2026-05-14; implementation wave starts next session per round8-dispatch-queue.md)
+**Week of:** 2026-05-15 (Round 9 begins — Round 8 complete with 6 PRs merged)
 
 ### Track A (Claude Code)
 
-- **Round 8 doc wave landed 2026-05-14** — 8 PRs merged (see Changelog above for full list). Headline artifacts on main:
-  - Round 8 strategy pass (architect assessment; pkg55-B fork decision → restart with CPU reference; Light Tree + Cryptomatte ranked highest non-pkg55 leverage).
-  - **pkg55 Phase B' amendment** (CPU-first restart) now authoritative on main; 8 design decisions; origin/pkg55-phase-b HELD as reference.
-  - **pkg86 Light Tree spec** (open, ready after pkg89 Phase A).
-  - **pkg87 Cryptomatte spec** (open, ready to implement; independent).
-  - **pkg88 motion blur research + DRAFT spec** (design Qs deferred).
-  - **pkg89 dedicated lights research + DRAFT spec** (Q1/Q6/Q7/Q11 answered in dispatch queue).
-  - **pkg85 partial fix** (PR #268) — conftest + cuda_renderer robustness; spec gate NOT met; full audit queued as pkg85-B.
-  - **round8-dispatch-queue.md** capturing owner's session-close answers.
-- **Implementation wave starts next session** (per round8-dispatch-queue.md §"Recommended ordering"):
-  - **Session 1 (next)** — parallel-safe, 3 implementers + N doc agents:
-    - pkg43 finish (worktree exists; static-init registration debug)
-    - pkg55-B Phase B' Session 2 (CPU wavefront; spec now authoritative; brief should quote 8 design decisions)
-    - pkg89 spec promotion → Phase A (Light interface + 5 type stubs)
-    - pkg85-B spec filing (doc-only; full CUDA-call audit follow-up)
-  - **Session 2** (assumes Session 1 lands):
-    - pkg44 ADAF (after pkg43)
-    - pkg89 Phase A continued
-    - pkg87 Cryptomatte implementation
-    - pkg64-gpu Phase 1 (megakernel target; acknowledged pkg55-C will re-port)
-  - **Session 3+**:
+- **Round 8 wave 1+2 complete (2026-05-15)** — 6 PRs merged (see Changelog for full list). Headline wins:
+  - **pkg38 light-source spectra** (PR #282) — 7 SPDs added, 47 total entries. Unblocks pkg89 Phase A.
+  - **pkg88 Phase A** (PR #284) — camera motion blur with all 4 gates passing. Phase D awaits pkg55-B/C.
+  - **pkg43 Blender selector** (PR #285) — accretion dropdown wired. Unblocks pkg44.
+  - **pkg85-D** (PR #283) — GPU XYZ→sRGB order-of-ops fix; 3× green bias eliminated.
+  - **pkg55-B' Session 2b** (PR #281) — reference PT oracles; both close gates green.
+  - **pkg91 + pkg92 specs** (PR #286) — integrator-param-lifecycle + gpu-wavefront-rng-foundation filed.
+
+- **Round 9 next-up** (per updated NEXT_STAGE_REPORT.md):
+  - **Top priority:** **pkg91** (integrator param lifecycle fix — small footgun, pays back on every future session) and **pkg92** (RNG foundation before any CUDA-port session of pkg55 Phase B').
+  - **Second tier:** **pkg44 ADAF** (Pillar 4, now unblocked) and **pkg89 Phase A** (now unblocked).
+  - **Third tier:** **pkg55-B' Session 2c** (CPU wavefront skeleton — only after pkg92 lands).
+  - **Deferred:** pkg85-D test redesign (8192 spp fast but brittle; soften HDRI firefly is cleaner); Issue #276 clearcoat flake (owner triage).
+  - **Note:** PR #279 (architect-light Round 8 close pass) was closed at Round 8 wrap; a fresh architect state+refine pass against the post-Round-8 state is queued to pose the Round-9 direction question (finish backlog vs add visual-baseline track first) before /dispatch-next can pick the top item.
+  - **Later (after Round 9 top tier lands):**
     - pkg86 Light Tree (after pkg89 Phase A ships accessors)
-    - pkg55-B Phase B' Session 3+
+    - pkg87 Cryptomatte implementation (independent; ready to pick up any time)
+    - pkg64-gpu Phase 1 (megakernel target; acknowledged pkg55-C will re-port)
     - pkg85-B full audit (when prioritized)
 - **Open items to file when prioritized:**
   - pkg85-B (full CUDA-call audit; multi-day systematic pass)

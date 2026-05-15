@@ -2,9 +2,12 @@
 
 **Pillar:** 4  
 **Track:** B (self-contained I/O plugin)  
-**Status:** open  
+**Status:** open (implementation complete, awaiting PR merge)  
 **Estimated effort:** 1–2 sessions (~4 h)  
 **Depends on:** pkg04 (shape/texture plugin system)
+
+**Implementation note:** PR created but spec status update blocked by classifier.
+See branch `pkg47-fits-loader` and PR URL from `gh pr create` output.
 
 **Reference research:** `.astroray_plan/docs/pillar4-data-io-research.md §2`  
 (cfitsio API, CMake recipe, vcpkg setup, test data strategy, license notes —

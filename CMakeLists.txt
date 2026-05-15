@@ -184,6 +184,37 @@ if(NOT ASTRORAY_ENABLE_OPTIX STREQUAL "OFF")
     endif()
 endif()
 
+# ---------------------------------------------------------------------------
+# pkg47 — Optional FITS I/O (requires cfitsio)
+# cfitsio is a NASA/HEASARC public-domain library for reading FITS files.
+# System dependency; not vendored. Install via vcpkg (Windows) or package
+# manager (Linux): vcpkg install cfitsio  or  apt install libcfitsio-dev
+# ---------------------------------------------------------------------------
+option(ASTRORAY_ENABLE_FITS "Enable FITS I/O (requires cfitsio)" OFF)
+
+if(ASTRORAY_ENABLE_FITS)
+    # vcpkg provides cfitsio::cfitsio; system installs may use pkg-config
+    find_package(cfitsio CONFIG QUIET)
+    if(NOT cfitsio_FOUND)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(cfitsio IMPORTED_TARGET cfitsio)
+            if(cfitsio_FOUND)
+                add_library(cfitsio::cfitsio ALIAS PkgConfig::cfitsio)
+            endif()
+        endif()
+    endif()
+
+    if(cfitsio_FOUND)
+        message(STATUS "FITS I/O enabled (cfitsio found)")
+    else()
+        message(WARNING
+            "ASTRORAY_ENABLE_FITS=ON but cfitsio not found. "
+            "Install via: vcpkg install cfitsio  (Windows) or  apt install libcfitsio-dev  (Linux). "
+            "FITS plugins will be skipped.")
+    endif()
+endif()
+
 # Compiler flags for optimization
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # Base optimization flags
@@ -247,8 +278,10 @@ set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 file(GLOB_RECURSE HEADERS ${INCLUDE_DIR}/*.h)
 
 # Plugin sources — collected by glob; pkg02+ populates plugins/*.cpp
+# pkg47: FITS loader excluded from glob; added conditionally below if cfitsio found
 file(GLOB_RECURSE ASTRORAY_PLUGIN_SOURCES CONFIGURE_DEPENDS
      "${CMAKE_SOURCE_DIR}/plugins/*.cpp")
+list(FILTER ASTRORAY_PLUGIN_SOURCES EXCLUDE REGEX "plugins/data/fits_loader\\.cpp$")
 
 # Create header-only library for core raytracer
 add_library(raytracer_core INTERFACE)
@@ -281,6 +314,15 @@ if(ASTRORAY_PLUGIN_SOURCES)
         if(TARGET CUDA::cudart)
             target_link_libraries(astroray_plugins PUBLIC CUDA::cudart)
         endif()
+    endif()
+    # pkg47: FITS I/O conditionally included if cfitsio found
+    if(ASTRORAY_ENABLE_FITS AND cfitsio_FOUND)
+        target_sources(astroray_plugins PRIVATE
+            "${CMAKE_SOURCE_DIR}/plugins/data/fits_loader.cpp"
+            "${CMAKE_SOURCE_DIR}/src/io/fits_io.cpp"
+        )
+        target_link_libraries(astroray_plugins PUBLIC cfitsio::cfitsio)
+        target_compile_definitions(astroray_plugins PUBLIC ASTRORAY_FITS_ENABLED)
     endif()
 endif()
 

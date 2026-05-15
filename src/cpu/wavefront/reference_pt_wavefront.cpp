@@ -1,10 +1,12 @@
 // pkg55 Phase B' Session 2b — Wavefront-side reference path tracer implementation.
+// pkg92 — Retrofit with PCG32 counter-based RNG (2026-05-15).
 //
-// Per-path RNG keying: mt19937(FNV-1a-32(pixel_index, sample_index, rng_offset)).
+// Per-path RNG keying: PCG32 keyed by (pixel_index, sample_index, dimension).
 // Draw order matches production exactly (filter, lens, lambda, then path-trace loop).
 // Only the seeding scheme differs from reference_pt_production.
 //
-// Cite: Laine 2013 §3 (per-path keying for wavefront path tracers),
+// Cite: O'Neill 2014 (PCG32), PBRT-v4 SetSequence pattern (Apache-2.0),
+//       Laine 2013 §3 (per-path keying for wavefront path tracers),
 //       Cycles intern/cycles/kernel/random.h (rng_pixel + rng_offset convention, Apache-2.0),
 //       production pathTraceSpectral for per-bounce loop logic.
 
@@ -12,6 +14,7 @@
 #include "reference_pt_production.h"  // for ReferencePTResult
 #include "raytracer.h"
 #include "astroray/spectrum.h"
+#include "astroray/sampling/wavefront_rng.h"
 #include <random>
 #include <cmath>
 #include <algorithm>
@@ -34,26 +37,22 @@ void assertMaterialInScope(const Material* mat) {
     }
 }
 
-// FNV-1a-32 hash over 3 uint32 inputs.
-// Cite: FNV-1a spec (public domain), Laine 2013 §3 (wavefront RNG keying).
-uint32_t fnv1a_hash(uint32_t a, uint32_t b, uint32_t c) {
-    constexpr uint32_t FNV_PRIME = 16777619u;
-    constexpr uint32_t FNV_OFFSET = 2166136261u;
-    uint32_t h = FNV_OFFSET;
-    auto mix = [&](uint32_t x) {
-        h ^= (x >>  0) & 0xFF; h *= FNV_PRIME;
-        h ^= (x >>  8) & 0xFF; h *= FNV_PRIME;
-        h ^= (x >> 16) & 0xFF; h *= FNV_PRIME;
-        h ^= (x >> 24) & 0xFF; h *= FNV_PRIME;
-    };
-    mix(a); mix(b); mix(c);
-    return h;
+// pkg92 — Local RNG adapters for WavefrontRNG.
+// These mirror the Renderer/Camera RNG-consuming methods but accept any RNG
+// with operator()() returning uint32_t (e.g., WavefrontRNG or mt19937).
+
+// Box filter: returns uniform [-0.5, 0.5].
+template<typename RNG>
+inline float filterSample(RNG& gen, std::uniform_real_distribution<float>& dist) {
+    return dist(gen) - 0.5f;
 }
 
 // Per-bounce path trace (identical to reference_pt_production tracePathSpectral).
+// pkg92: template accepts any RNG with operator()() returning uint32_t.
+template<typename RNG>
 SampledSpectrum tracePathSpectral(
         Renderer& renderer, const Ray& r, int maxDepth,
-        SampledWavelengths& lambdas, std::mt19937& gen,
+        SampledWavelengths& lambdas, RNG& gen,
         int pixel_index, int sample_index,
         SnapshotSink* sink) {
     const int rrDepth = 3;
@@ -121,7 +120,10 @@ SampledSpectrum tracePathSpectral(
 
         // Area-light NEE (MIS via power heuristic). Skipped on delta lobes.
         if (!rec.isDelta && !lights.empty()) {
-            LightSample ls = lights.sample(rec.point, gen);
+            // pkg92: lights.sample expects mt19937&. Seed from WavefrontRNG.
+            uint32_t light_seed = gen.UniformUInt32();
+            std::mt19937 light_gen(light_seed);
+            LightSample ls = lights.sample(rec.point, light_gen);
             if (ls.pdf > 0) {
                 Vec3 wi = (ls.position - rec.point).normalized();
                 HitRecord shadow;
@@ -189,7 +191,10 @@ SampledSpectrum tracePathSpectral(
         }
 
         // BSDF sampling.
-        BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
+        // pkg92: material->sampleSpectral expects mt19937&. Seed from WavefrontRNG.
+        uint32_t bsdf_seed = gen.UniformUInt32();
+        std::mt19937 bsdf_gen(bsdf_seed);
+        BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, bsdf_gen, lambdas);
         if (bss.pdf <= 0.0f) break;
         wasSpecular = bss.isDelta;
         throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
@@ -246,31 +251,35 @@ ReferencePTResult reference_pt_wavefront_render(
     VectorSink snapSink;
     SnapshotSink* sink = record_snapshots ? &snapSink : nullptr;
 
-    // Per-path RNG keying. Seed is used as an XOR mask (0 = no mask).
-    uint32_t seed_mask = static_cast<uint32_t>(seed);
-
     for (int y = 0; y < cam.height; ++y) {
         for (int x = 0; x < cam.width; ++x) {
             int pixel_index = y * cam.width + x;
             Vec3 colorXYZ(0);
 
             for (int s = 0; s < samples; ++s) {
-                // RNG keying: hash(pixel_index, sample_index, rng_offset).
-                // rng_offset = 0 for integrator-frontend draws.
-                uint32_t h = fnv1a_hash(static_cast<uint32_t>(pixel_index), static_cast<uint32_t>(s), 0u);
-                h ^= seed_mask;
-                std::mt19937 gen(h);
+                // pkg92: PCG32 RNG keyed by (pixel_index, sample_index, dimension).
+                // Dimension counter auto-increments on each Uniform() call.
+                // Seed is a global XOR mask (0 = no mask, matches legacy behavior).
+                WavefrontRNG gen(static_cast<uint32_t>(pixel_index), static_cast<uint32_t>(s), seed);
                 std::uniform_real_distribution<float> dist(0, 1);
 
                 // RNG draw order (matches production exactly):
-                // 1. filterSample(gen, dist) — 2 draws (box filter).
-                // 2. filterSample(gen, dist) — 2 draws.
-                // 3. cam.getRay(u, v, time, gen) — randomInUnitDisk (variable).
+                // 1. filterSample(gen, dist) — 2 draws (dimensions 0-1).
+                // 2. filterSample(gen, dist) — 2 draws (dimensions 2-3).
+                // 3. cam.getRay(u, v, time, mt_gen) — lens sampling via temporary mt19937.
+                //    We seed mt19937 from WavefrontRNG to maintain determinism but allow
+                //    reuse of Camera::getRay without modification. The lens sampling
+                //    dimensions (4+) are still deterministic, just via a different RNG.
                 //    pkg88 added `time` as required; 0.0f matches no-motion-blur production.
-                // 4. dist01(gen) — 1 draw for lambda sampling.
-                float u = (x + renderer.filterSample(gen, dist)) / (cam.width - 1);
-                float v = 1.0f - (y + renderer.filterSample(gen, dist)) / (cam.height - 1);
-                Ray primaryRay = cam.getRay(u, v, 0.0f, gen);
+                // 4. dist01(gen) — 1 draw for lambda sampling (dimension varies).
+                float u = (x + filterSample(gen, dist)) / (cam.width - 1);
+                float v = 1.0f - (y + filterSample(gen, dist)) / (cam.height - 1);
+
+                // Seed a temporary mt19937 for Camera::getRay lens sampling.
+                // This consumes dimensions 4+ from WavefrontRNG.
+                uint32_t lens_seed = gen.UniformUInt32();
+                std::mt19937 mt_gen(lens_seed);
+                Ray primaryRay = cam.getRay(u, v, 0.0f, mt_gen);
 
                 std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
                 SampledWavelengths lambdas = SampledWavelengths::sampleUniform(dist01(gen));

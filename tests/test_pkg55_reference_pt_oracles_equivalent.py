@@ -5,7 +5,8 @@ produce statistically equivalent renders.
 
 The two oracles use different seeding:
 - reference_pt_production: mt19937(baseSeed + tileIdx) (tile-shared).
-- reference_pt_wavefront: mt19937(hash(pixel_index, sample_index, 0)) (per-path).
+- reference_pt_wavefront: PCG32 keyed by (pixel_index, sample_index, dimension)
+  per O'Neill 2014, PBRT-v4 SetSequence pattern (pkg92 retrofit, 2026-05-15).
 
 Gate: per-channel mean-ratio |GPU/CPU - 1| < 0.05 at 64 spp.
 
@@ -18,13 +19,7 @@ estimators target the same integral) and are a real semantic-drift gate.
 
 Spec: .astroray_plan/packages/pkg55-wavefront-soa-refactor.md §"Phase B'".
 Design: .astroray_plan/docs/pkg55-B-cpu-reference-design.md §2, §3, §9.
-
-Follow-ups deferred:
-- mt19937 per-path reseeding has known quality concerns (startup bias,
-  seed-stream correlation). The GPU wavefront should adopt a counter-based
-  RNG (Philox/PCG32) per Codex review 2026-05-15; FNV-1a → mt19937(uint32)
-  is acceptable for the CPU reference oracle but not the GPU production
-  RNG. Tracked separately.
+pkg92: .astroray_plan/packages/pkg92-gpu-wavefront-rng-foundation.md
 """
 
 import pytest

@@ -26,6 +26,7 @@
 #include "astroray/restir/frame_state.h"
 #include "../src/cpu/wavefront/reference_pt_production.h"
 #include "../src/cpu/wavefront/reference_pt_wavefront.h"
+#include "astroray/sampling/wavefront_rng.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
 #endif

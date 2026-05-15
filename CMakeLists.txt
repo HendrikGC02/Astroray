@@ -588,6 +588,28 @@ if(BUILD_PYTHON_MODULE)
         # On Windows, ensure the module is built as a shared library
         POSITION_INDEPENDENT_CODE ON
     )
+
+    # pkg92 — Test helpers module (internal utilities, not public API).
+    pybind11_add_module(astroray_test_helpers
+        module/test_helpers_module.cpp
+        ${HEADERS}
+    )
+
+    set_target_properties(astroray_test_helpers PROPERTIES
+        OUTPUT_NAME astroray_test_helpers
+    )
+
+    target_link_libraries(astroray_test_helpers PRIVATE
+        raytracer_core
+        astroray_core_impl
+    )
+
+    set_target_properties(astroray_test_helpers PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        OUTPUT_NAME astroray_test_helpers
+        POSITION_INDEPENDENT_CODE ON
+    )
 endif()
 
 # Build Blender module if requested

@@ -2,16 +2,9 @@
 
 **Pillar:** 4  
 **Track:** B (self-contained I/O plugin)  
-**Status:** open (implementation complete, awaiting PR merge)  
+**Status:** done (PR #292, merged 2026-05-15) — FITS I/O wrapper + FITSTexture plugin + CMake gate ASTRORAY_ENABLE_FITS; FITSVolume registration+test deferred to pkg48 per owner ruling 2026-05-15
 **Estimated effort:** 1–2 sessions (~4 h)  
 **Depends on:** pkg04 (shape/texture plugin system)
-
-**Implementation note:** PR created but spec status update blocked by classifier.
-See branch `pkg47-fits-loader` and PR URL from `gh pr create` output.
-
-**Reference research:** `.astroray_plan/docs/pillar4-data-io-research.md §2`  
-(cfitsio API, CMake recipe, vcpkg setup, test data strategy, license notes —
-read before writing any FITS code)
 
 ---
 

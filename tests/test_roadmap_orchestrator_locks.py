@@ -1,4 +1,4 @@
-import os, sys, json, time
+import os, sys, json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from roadmap_orchestrator.locks import acquire_lock, release_lock, lock_status
 
@@ -29,3 +29,9 @@ def test_lock_status_reports_held_and_meta(tmp_path):
     acquire_lock(p, stale_seconds=1500, meta={"sha": "abc"})
     st = lock_status(p, stale_seconds=1500)
     assert st["held"] is True and st["stale"] is False and st["meta"]["sha"] == "abc"
+
+def test_acquire_reclaims_corrupt_lock(tmp_path):
+    p = str(tmp_path / "t.lock")
+    (tmp_path / "t.lock").write_text("not-json{{{", encoding="utf-8")
+    assert acquire_lock(p, stale_seconds=10) is True
+    assert os.path.exists(p)

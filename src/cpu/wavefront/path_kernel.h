@@ -1,10 +1,10 @@
-// pkg55 Phase B' Session 2c/3/4 — Shared per-bounce path kernel.
+// pkg55 Phase B' Session 2c/3/4/5 — Shared per-bounce path kernel.
 //
-// Spec: .astroray_plan/packages/pkg55-wavefront-soa-refactor.md §"Sessions 2c/3/4".
+// Spec: .astroray_plan/packages/pkg55-wavefront-soa-refactor.md §"Sessions 2c/3/4/5".
 // Design: .astroray_plan/docs/pkg55-B-cpu-reference-design.md §2, §3, §6, §9.
 //
 // THE shared kernel. There is EXACTLY ONE generator of the per-bounce
-// arithmetic sequence (intersect -> shade(Lambertian/metal/dielectric) -> NEE -> RR ->
+// arithmetic sequence (intersect -> shade(Lambertian/metal/dielectric/disney) -> NEE -> RR ->
 // BSDF sample -> ray advance). Both reference_pt_wavefront AND
 // cpu_wavefront_driver call init_path()/advance_one_bounce() from THIS
 // file. Bit-identity between the two is therefore by construction — same

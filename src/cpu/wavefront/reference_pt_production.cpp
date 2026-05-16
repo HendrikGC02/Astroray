@@ -1,4 +1,4 @@
-// pkg55 Phase B' Session 2b — Production-side reference path tracer implementation.
+// pkg55 Phase B' Session 2b/3 — Production-side reference path tracer implementation.
 //
 // Independent transcription of production Renderer::pathTraceSpectral
 // (include/raytracer.h:2055-2205) with tile-shared RNG matching the
@@ -23,13 +23,13 @@ namespace cpu_wavefront {
 
 namespace {
 
-// Session 2 scope enforcement: Lambertian + area lights only.
+// Session 3 scope enforcement: Lambertian + metal + area lights.
 void assertMaterialInScope(const Material* mat) {
     if (!mat) return;  // emission-only lights have no BSDF material
     std::string gpuType = mat->getGPUTypeName();
-    if (gpuType != "lambertian" && !mat->isEmissive()) {
-        fprintf(stderr, "[pkg55-B-Session2b] ERROR: material '%s' is out of scope "
-                        "(Lambertian-Cornell only). Aborting.\n", gpuType.c_str());
+    if (gpuType != "lambertian" && gpuType != "metal" && !mat->isEmissive()) {
+        fprintf(stderr, "[pkg55-B-Session3] ERROR: material '%s' is out of scope "
+                        "(Lambertian + metal only). Aborting.\n", gpuType.c_str());
         std::abort();
     }
 }

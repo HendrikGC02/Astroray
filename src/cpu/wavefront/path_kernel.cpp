@@ -39,14 +39,14 @@ inline float filterSample(RNG& gen, std::uniform_real_distribution<float>& dist)
     return dist(gen) - 0.5f;
 }
 
-// Session 2c scope enforcement: Lambertian + area lights only.
+// Session 3 scope enforcement: Lambertian + metal + area lights.
 void assertMaterialInScope(const Material* mat) {
     if (!mat) return;
     std::string gpuType = mat->getGPUTypeName();
-    if (gpuType != "lambertian" && !mat->isEmissive()) {
+    if (gpuType != "lambertian" && gpuType != "metal" && !mat->isEmissive()) {
         fprintf(stderr,
-                "[pkg55-B-Session2c] ERROR: material '%s' is out of scope "
-                "(Lambertian-Cornell only). Aborting.\n", gpuType.c_str());
+                "[pkg55-B-Session3] ERROR: material '%s' is out of scope "
+                "(Lambertian + metal only). Aborting.\n", gpuType.c_str());
         std::abort();
     }
 }

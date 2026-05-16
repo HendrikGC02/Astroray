@@ -77,9 +77,9 @@ def main():
         python_exe = bba.pick_python(args.python_exe, want_minor)
         print(f"Building against Python: {python_exe}")
         try:
-            bba.configure_and_build(python_exe, clean=args.clean, jobs=args.jobs)
+            build_id = bba.configure_and_build(python_exe, clean=args.clean, jobs=args.jobs)
             module_path = bba.find_built_module()
-            zip_path = bba.stage_and_zip(module_path)
+            zip_path = bba.stage_and_zip(module_path, build_id=build_id)
             print(f"Built module: {module_path.name}")
             print(f"Addon package: {zip_path}")
         except Exception as e:

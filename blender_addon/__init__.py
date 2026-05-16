@@ -4266,7 +4266,57 @@ def _iter_compat_panels():
             yield panel
 
 
+def _check_build_integrity():
+    """pkg94: verify the loaded module is the one that was installed.
+
+    Compares astroray.__build__ (compile-time build-ID) vs the build-ID
+    recorded in the on-disk install manifest (build_report.json). On mismatch,
+    raises a loud error instructing the user to restart Blender.
+
+    Rationale: Blender memory-maps astroray.pyd on addon load and holds the
+    lock for the process lifetime. Re-installing while Blender runs leaves the
+    new .pyd on disk but the running interpreter keeps the *old* class surface.
+    The .~stale~NNNN shadow dirs are the OS refusing to overwrite a locked file.
+    Without this guard, a stale loaded module disguises itself as a code bug
+    (AttributeError: no attribute 'upload_*').
+    """
+    import json
+    if not RAYTRACER_AVAILABLE:
+        return  # module didn't load at all; skip guard
+
+    # Read the on-disk install manifest (written by build_blender_addon.py)
+    manifest_path = os.path.join(addon_dir, "build_report.json")
+    if not os.path.isfile(manifest_path):
+        # No manifest → likely a dev build or old addon version; skip guard
+        return
+
+    try:
+        manifest = json.loads(Path(manifest_path).read_text())
+        manifest_build_id = manifest.get("build_id", "")
+    except Exception:
+        # Corrupt manifest; skip guard rather than breaking the addon
+        return
+
+    # Compare with the loaded module's compile-time build-ID
+    loaded_build_id = getattr(astroray, "__build__", "")
+    if loaded_build_id != manifest_build_id:
+        raise RuntimeError(
+            f"\n{'='*70}\n"
+            f"RESTART BLENDER — stale module loaded\n"
+            f"{'='*70}\n"
+            f"The running astroray module is from a different build than the\n"
+            f"one just installed. Blender has the old .pyd memory-mapped.\n\n"
+            f"  Loaded module build-ID:    {loaded_build_id}\n"
+            f"  Installed manifest build-ID: {manifest_build_id}\n\n"
+            f"Quit Blender completely, then restart it to pick up the new module.\n"
+            f"{'='*70}\n"
+        )
+
+
 def register():
+    # pkg94: guard against stale loaded module (before any Renderer use)
+    _check_build_integrity()
+
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.custom_raytracer = PointerProperty(type=CustomRaytracerRenderSettings)

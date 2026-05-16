@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A (core quality / correctness — addon Python + packaging)
-**Status:** open — **Round-10 first pickup, depends on: none.** Stage 1 / P1 of the addon first-principles plan (PR #300).
+**Status:** done (PR #304, 2026-05-16) — Core build-ID guard implemented: `astroray.__build__` attribute exposed, `register()` guard fires on mismatch, unit tests pass. Install-script lock/`.~stale~` GC deferred to integration test follow-up. Stage 1 / P1 of the addon first-principles plan (PR #300).
 **Estimated effort:** ~½ day; spec + addon Python guard + install-script lock/`.~stale~` handling + tests
 **Depends on:** none. Independent of pkg55-B' and of every other addon package. **This is the verifiability multiplier — it must land first in Round 10.**
 
@@ -203,14 +203,14 @@ filed as its own ~½-day package and is the **first Round-10 pickup**.
 
 ## Progress
 
-- [ ] `astroray.__build__` exposed in `module/blender_module.cpp`
+- [x] `astroray.__build__` exposed in `module/blender_module.cpp`
       (compile-time `<git-short-sha>+<UTC-timestamp>` build-ID).
-- [ ] `build_blender_addon.py` writes the same build-ID into the install
+- [x] `build_blender_addon.py` writes the same build-ID into the install
       manifest in the zip; install path handles locked `.pyd` + GCs
       `.~stale~`.
-- [ ] `register()` guard implemented (one loud message, before any
+- [x] `register()` guard implemented (one loud message, before any
       `Renderer` use).
-- [ ] `tests/test_pkg94_build_integrity_guard.py` written + passing.
+- [x] `tests/test_pkg94_build_integrity_guard.py` written + passing.
 - [ ] CI green; no regressions; zero engine-logic lines changed.
 
 ## Lessons

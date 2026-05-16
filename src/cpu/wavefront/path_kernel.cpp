@@ -1,11 +1,11 @@
-// pkg55 Phase B' Session 2c — Shared per-bounce path kernel implementation.
+// pkg55 Phase B' Session 2c/3/4 — Shared per-bounce path kernel implementation.
 //
-// This is THE single generator of the Lambertian-Cornell per-bounce
-// arithmetic. The body of advance_one_bounce() is the loop body of the
-// (now-deleted) reference_pt_wavefront::tracePathSpectral, moved here
-// verbatim — same operations, same order, same RNG draws. Both the oracle
-// and the wavefront driver call this exact compiled function, so the
-// snapshot streams are bit-identical by construction.
+// This is THE single generator of the per-bounce arithmetic. The body of
+// advance_one_bounce() is the loop body of the (now-deleted)
+// reference_pt_wavefront::tracePathSpectral, moved here verbatim — same
+// operations, same order, same RNG draws. Both the oracle and the wavefront
+// driver call this exact compiled function, so the snapshot streams are
+// bit-identical by construction.
 //
 // Cite: Laine 2013 §3; Cycles shade_surface.h (Apache-2.0);
 //       PBRT-v4 wavefront/integrator.cpp (Apache-2.0);
@@ -39,14 +39,14 @@ inline float filterSample(RNG& gen, std::uniform_real_distribution<float>& dist)
     return dist(gen) - 0.5f;
 }
 
-// Session 3 scope enforcement: Lambertian + metal + area lights.
+// Session 4 scope enforcement: Lambertian + metal + dielectric + area lights.
 void assertMaterialInScope(const Material* mat) {
     if (!mat) return;
     std::string gpuType = mat->getGPUTypeName();
-    if (gpuType != "lambertian" && gpuType != "metal" && !mat->isEmissive()) {
+    if (gpuType != "lambertian" && gpuType != "metal" && gpuType != "dielectric" && !mat->isEmissive()) {
         fprintf(stderr,
-                "[pkg55-B-Session3] ERROR: material '%s' is out of scope "
-                "(Lambertian + metal only). Aborting.\n", gpuType.c_str());
+                "[pkg55-B-Session4] ERROR: material '%s' is out of scope "
+                "(Lambertian + metal + dielectric only). Aborting.\n", gpuType.c_str());
         std::abort();
     }
 }

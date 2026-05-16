@@ -1,10 +1,11 @@
 """Order the HW-untested queue: NEXT_STAGE_REPORT priority, then oldest PR."""
+import re
 
 
 def pkg_of(pr: dict, priority: list):
-    hay = f"{pr.get('title','')} {pr.get('headRefName','')}"
+    hay = f"{pr.get('title', '')} {pr.get('headRefName', '')}"
     for pkg in priority:
-        if pkg in hay:
+        if re.search(r'(?<![A-Za-z0-9\-])' + re.escape(pkg) + r'(?![A-Za-z0-9\-])', hay):
             return pkg
     return None
 

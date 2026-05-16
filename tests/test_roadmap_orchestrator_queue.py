@@ -22,3 +22,11 @@ def test_order_by_priority_then_created():
     }
     # pkg94 (idx0) before pkg96 (idx2) before unknown; within pkg94 older createdAt first
     assert order_hw_queue([1, 2, 3, 4], prs, PRIORITY) == [4, 2, 1, 3]
+
+def test_pkg_of_no_prefix_collision():
+    priority = ["pkg55-B", "pkg55-B-prime-cuda-gate-derivation"]
+    assert pkg_of(_pr(1, "feat: pkg55-B-prime-cuda-gate-derivation work", "x"), priority) == "pkg55-B-prime-cuda-gate-derivation"
+
+def test_pkg_of_no_substring_collision_pkg96():
+    priority = ["pkg96", "pkg96-internal"]
+    assert pkg_of(_pr(2, "pkg96-internal sync", "x"), priority) == "pkg96-internal"

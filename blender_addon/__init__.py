@@ -672,10 +672,15 @@ def _load_preview_image(path: str):
 
 
 def _create_live_preview_material(renderer, mat):
+    """P3-a fix (BUG-15): Convert a Blender material for the live preview without
+    constructing a RenderEngine (which Blender forbids).
+
+    Uses _convert_node_material_standalone, a module-level wrapper that provides
+    the same conversion logic as CustomRaytracerRenderEngine.convert_node_material
+    but without requiring a RenderEngine instance.
+    """
     if getattr(mat, "use_nodes", False) and getattr(mat, "node_tree", None):
-        engine = CustomRaytracerRenderEngine()
-        engine._volume_material_map = {}
-        return engine.convert_node_material(mat, renderer)
+        return _convert_node_material_standalone(mat, renderer)
 
     color = list(getattr(mat, "diffuse_color", [0.8, 0.8, 0.8])[:3])
     mat_settings = getattr(mat, "custom_raytracer", None)
@@ -1517,11 +1522,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def _setup_viewport_camera(self, renderer, context, width, height):
         """Build a lookFrom/lookAt from the 3D View's RegionView3D state.
 
+        P4 fix (BUG-08): derives vfov from Blender's perspective_matrix (when available)
+        instead of re-deriving from a hardcoded sensor_width guess, so the rendered
+        framing matches Blender's viewport overlay by construction.
+
         - In CAMERA view (numpad 0): use the scene camera, then apply the
           viewport-only `view_camera_zoom` and `view_camera_offset` so
           wheel-zoom and pan actually change the rendered framing.
         - In PERSP / ORTHO view: derive position + direction from
-          `rv3d.view_matrix.inverted()` and use `space_data.lens` for vfov.
+          `rv3d.view_matrix.inverted()` and vfov from `rv3d.perspective_matrix`.
         """
         rv3d = context.region_data
         space = context.space_data
@@ -1529,9 +1538,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if rv3d is not None and rv3d.view_perspective == 'CAMERA' and context.scene.camera:
             zoom_scale = self._camera_view_zoom_scale(getattr(rv3d, 'view_camera_zoom', 0.0))
             offset = getattr(rv3d, 'view_camera_offset', (0.0, 0.0))
+            # P4 fix (BUG-08): pass rv3d so _apply_camera can use perspective_matrix
             self._apply_camera(renderer, context.scene.camera, width, height,
                                vfov_scale=zoom_scale,
-                               viewport_shift=(float(offset[0]), float(offset[1])))
+                               viewport_shift=(float(offset[0]), float(offset[1])),
+                               rv3d=rv3d)
             return
 
         view_inv = rv3d.view_matrix.inverted()
@@ -1544,14 +1555,28 @@ class CustomRaytracerRenderEngine(RenderEngine):
         look_at   = [loc.x + forward.x, loc.y + forward.y, loc.z + forward.z]
         vup       = [up.x, up.y, up.z]
 
-        # Blender's viewport uses a fixed 32mm sensor width and exposes the
-        # effective focal length via space_data.lens (in mm).
-        sensor_width = 32.0
-        lens = getattr(space, 'lens', 50.0)
+        # P4 fix (BUG-08): extract vfov from Blender's perspective_matrix instead
+        # of re-deriving from a hardcoded 32mm sensor. This ensures the rendered
+        # framing equals Blender's viewport overlay.
         aspect = width / max(1, height)
-        hfov = 2.0 * math.atan(sensor_width / (2.0 * lens))
-        vfov_rad = 2.0 * math.atan(math.tan(hfov / 2.0) / aspect)
-        vfov = math.degrees(vfov_rad)
+        if hasattr(rv3d, 'perspective_matrix'):
+            # perspective_matrix[1][1] = 1 / tan(vfov/2) for a symmetric frustum
+            # → vfov = 2 * atan(1 / perspective_matrix[1][1])
+            persp = rv3d.perspective_matrix
+            if abs(persp[1][1]) > 1e-6:
+                vfov = math.degrees(2.0 * math.atan(1.0 / persp[1][1]))
+            else:
+                # Fallback: derive from space_data.lens (rare edge case)
+                lens = getattr(space, 'lens', 50.0)
+                sensor_width = 32.0
+                hfov = 2.0 * math.atan(sensor_width / (2.0 * lens))
+                vfov = math.degrees(2.0 * math.atan(math.tan(hfov / 2.0) / aspect))
+        else:
+            # Pre-2.80 fallback (perspective_matrix may not exist)
+            lens = getattr(space, 'lens', 50.0)
+            sensor_width = 32.0
+            hfov = 2.0 * math.atan(sensor_width / (2.0 * lens))
+            vfov = math.degrees(2.0 * math.atan(math.tan(hfov / 2.0) / aspect))
 
         renderer.setup_camera(look_from, look_at, vup, vfov, aspect,
                               0.0, 10.0, width, height)
@@ -1637,11 +1662,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return math.degrees(vfov_rad)
 
     def _apply_camera(self, renderer, cam_obj, width, height, vfov_scale=1.0,
-                      viewport_shift=(0.0, 0.0)):
+                      viewport_shift=(0.0, 0.0), rv3d=None):
         """Extract lookFrom/lookAt/vup from a Blender camera object and push
         it to the renderer. Blender cameras point along their local -Z and
         use local +Y as 'up'; we rotate those unit vectors by the camera's
         world rotation to get world-space directions.
+
+        P4 fix (BUG-08): when called from viewport code with rv3d, derives vfov
+        from rv3d.perspective_matrix (after zoom scaling) instead of re-deriving
+        from the camera datablock's sensor/lens, so the rendered framing matches
+        Blender's viewport overlay.
 
         `vfov_scale` (default 1.0) shrinks the effective image plane. Used by
         viewport CAMERA-view wheel-zoom to narrow the FOV without changing
@@ -1650,6 +1680,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         `viewport_shift` is the CAMERA-view pan offset from RegionView3D. It
         is added to the camera datablock's own shift and passed as an
         image-plane shift to the C++ camera.
+
+        `rv3d` (optional): when present, vfov is extracted from rv3d.perspective_matrix
+        instead of re-deriving from camera sensor/lens (P4 fix for viewport alignment).
         """
         matrix = cam_obj.matrix_world
         loc, rot_quat, _scale = matrix.decompose()
@@ -1662,12 +1695,29 @@ class CustomRaytracerRenderEngine(RenderEngine):
         vup       = [up.x, up.y, up.z]
 
         camera = cam_obj.data
-        vfov = self._compute_vfov_degrees(camera, width, height)
 
-        # Apply viewport zoom by scaling the image plane → tighter FOV.
-        if vfov_scale != 1.0 and vfov_scale > 0.0:
-            half = math.radians(vfov) / 2.0
-            vfov = math.degrees(2.0 * math.atan(math.tan(half) * vfov_scale))
+        # P4 fix (BUG-08): when rv3d is available (viewport CAMERA view), extract
+        # vfov from Blender's perspective_matrix *after* accounting for zoom, rather
+        # than re-deriving from camera sensor/lens. This ensures alignment with the
+        # viewport overlay. For F12 batch renders (rv3d=None), fall back to datablock.
+        if rv3d is not None and hasattr(rv3d, 'perspective_matrix'):
+            persp = rv3d.perspective_matrix
+            if abs(persp[1][1]) > 1e-6:
+                # Extract vfov from perspective_matrix[1][1] = 1 / tan(vfov/2)
+                vfov = math.degrees(2.0 * math.atan(1.0 / persp[1][1]))
+            else:
+                # Fallback if perspective_matrix is degenerate
+                vfov = self._compute_vfov_degrees(camera, width, height)
+                if vfov_scale != 1.0 and vfov_scale > 0.0:
+                    half = math.radians(vfov) / 2.0
+                    vfov = math.degrees(2.0 * math.atan(math.tan(half) * vfov_scale))
+        else:
+            # F12 or pre-2.80: derive from camera datablock
+            vfov = self._compute_vfov_degrees(camera, width, height)
+            # Apply viewport zoom by scaling the image plane → tighter FOV.
+            if vfov_scale != 1.0 and vfov_scale > 0.0:
+                half = math.radians(vfov) / 2.0
+                vfov = math.degrees(2.0 * math.atan(math.tan(half) * vfov_scale))
 
         aperture, focus_dist = 0.0, 10.0
         if camera.dof.use_dof:
@@ -1720,24 +1770,37 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 pass
             return material_id
 
+        # P3-c probe & fix (BUG-09): inline_shader_nodes() may strip custom node
+        # subclasses. Check the original tree for Astroray nodes; if present but
+        # absent in the flattened tree, use the original for detection. This ensures
+        # custom nodes reach the converter even if flattening removes them.
+        original_tree = getattr(mat, 'node_tree', None)
         inlined = None
         try:
             inlined = mat.inline_shader_nodes()
             node_tree = inlined.node_tree
         except (AttributeError, RuntimeError):
             # Pre-5.0 Blender: fall back to direct access
-            node_tree = getattr(mat, 'node_tree', None)
+            node_tree = original_tree
         if node_tree is None:
             return _apply_spectral_profile(renderer.create_material('disney', [0.8, 0.8, 0.8], {}))
 
-        # pkg57 pre-check: if an AstrorayOutputNode is present anywhere in the
-        # flattened tree, take the Astroray-native path. The original
-        # OUTPUT_MATERIAL (if any) is left wired so Cycles continues to render
-        # the same material correctly. See blender-shader-nodes-research.md §2.
+        # P3-c: defensive custom-node detection. Check both trees; prefer the one
+        # that actually contains the node. If flattening stripped it, detect on original.
         astroray_out = next(
             (n for n in node_tree.nodes if getattr(n, 'bl_idname', None) == 'AstrorayOutputNode'),
             None,
         )
+        if astroray_out is None and original_tree is not None and original_tree != node_tree:
+            # Not in flattened tree; check original (P3-c fallback for flatten-stripped nodes)
+            astroray_out = next(
+                (n for n in original_tree.nodes if getattr(n, 'bl_idname', None) == 'AstrorayOutputNode'),
+                None,
+            )
+            if astroray_out is not None:
+                # Custom node survived only in original tree — use original for conversion
+                node_tree = original_tree
+
         if astroray_out is not None:
             return _apply_spectral_profile(
                 self.convert_astroray_output(astroray_out, renderer, node_tree, mat))
@@ -1858,11 +1921,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
         surface_in = node.inputs.get('Surface')
         if surface_in is not None and surface_in.is_linked:
             base_node = surface_in.links[0].from_node
+        # P3-b fix (BUG-13): profile was hard-disabled by `if False`. Now reads
+        # the actual profile from the Response node so IR/UV materials render
+        # non-black outside the visible band.
         return {
             'kind': 'astroray_ir_uv',
             'band': getattr(node, 'band', 'ir'),
             'reflectance': float(getattr(node, 'reflectance', 0.5)),
-            'profile': self._astroray_read_profile(node, mat) if False else '',
+            'profile': self._astroray_read_profile(node, mat),
             'base_bl_idname': getattr(base_node, 'bl_idname', '') if base_node else '',
         }
 
@@ -1911,8 +1977,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # the base color for the chosen band. Spectral-aware multi-band
             # closures live in the integrator layer (pkg58/60) and are picked
             # up automatically via the spectral_profile path when set.
+            # P3-b fix (BUG-13): upload the spectral profile from the node.
             r = float(spec.get('reflectance', 0.5))
-            return renderer.create_material('disney', [r, r, r], {'roughness': 0.5})
+            mat_id = renderer.create_material('disney', [r, r, r], {'roughness': 0.5})
+            profile = spec.get('profile', '')
+            if profile and hasattr(renderer, 'set_material_spectral_profile'):
+                renderer.set_material_spectral_profile(mat_id, profile)
+            return mat_id
 
         if kind == 'astroray_passthrough':
             inner = spec.get('inner')
@@ -3577,6 +3648,39 @@ class AstrorayPanelBase:
     @classmethod
     def poll(cls, context):
         return context.scene.render.engine == 'CUSTOM_RAYTRACER'
+
+
+# ============================================================================ #
+# P3-a fix (BUG-15): Standalone material-conversion wrapper
+# ============================================================================ #
+
+def _convert_node_material_standalone(mat, renderer):
+    """Convert a Blender node material without constructing a RenderEngine.
+
+    P3-a fix (BUG-15): The preview operator needs convert_node_material logic
+    but Blender forbids direct RenderEngine() construction. This wrapper creates
+    a minimal context object with just `_volume_material_map` and delegates to
+    CustomRaytracerRenderEngine's unbound methods, avoiding the forbidden construction.
+    """
+    class _MinimalConverter:
+        """Holds the minimal state convert_node_material needs (_volume_material_map)."""
+        def __init__(self):
+            self._volume_material_map = {}
+
+    converter = _MinimalConverter()
+    # Bind CustomRaytracerRenderEngine's convert_node_material to the minimal converter
+    return CustomRaytracerRenderEngine.convert_node_material(converter, mat, renderer)
+
+
+def _convert_volume_node_standalone(node, node_tree):
+    """Convert a Blender volume node without constructing a RenderEngine.
+
+    P3-a fix (BUG-15): Companion to _convert_node_material_standalone for volume conversion.
+    """
+    class _MinimalConverter:
+        pass
+    converter = _MinimalConverter()
+    return CustomRaytracerRenderEngine.convert_volume_node(converter, node, node_tree)
 
 
 class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):

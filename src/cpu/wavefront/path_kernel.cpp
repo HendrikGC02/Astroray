@@ -1,4 +1,4 @@
-// pkg55 Phase B' Session 2c/3/4 — Shared per-bounce path kernel implementation.
+// pkg55 Phase B' Session 2c/3/4/5 — Shared per-bounce path kernel implementation.
 //
 // This is THE single generator of the per-bounce arithmetic. The body of
 // advance_one_bounce() is the loop body of the (now-deleted)
@@ -39,14 +39,14 @@ inline float filterSample(RNG& gen, std::uniform_real_distribution<float>& dist)
     return dist(gen) - 0.5f;
 }
 
-// Session 4 scope enforcement: Lambertian + metal + dielectric + area lights.
+// Session 5 scope enforcement: Lambertian + metal + dielectric + disney + area lights.
 void assertMaterialInScope(const Material* mat) {
     if (!mat) return;
     std::string gpuType = mat->getGPUTypeName();
-    if (gpuType != "lambertian" && gpuType != "metal" && gpuType != "dielectric" && !mat->isEmissive()) {
+    if (gpuType != "lambertian" && gpuType != "metal" && gpuType != "dielectric" && gpuType != "disney" && !mat->isEmissive()) {
         fprintf(stderr,
-                "[pkg55-B-Session4] ERROR: material '%s' is out of scope "
-                "(Lambertian + metal + dielectric only). Aborting.\n", gpuType.c_str());
+                "[pkg55-B-Session5] ERROR: material '%s' is out of scope "
+                "(Lambertian + metal + dielectric + disney only). Aborting.\n", gpuType.c_str());
         std::abort();
     }
 }

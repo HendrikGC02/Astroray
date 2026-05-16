@@ -55,6 +55,7 @@ sys.modules['gpu_extras'] = Mock()
 sys.modules['gpu_extras.presets'] = Mock()
 
 # Import after stubbing
+import blender_addon
 from blender_addon import CustomRaytracerRenderEngine, _configure_backend_for_context, _check_gpu_limitations_and_report
 
 
@@ -122,7 +123,7 @@ class TestP2BUG05DeviceModeDomain:
         renderer = Mock()
         renderer.set_use_gpu = Mock()
 
-        with patch('blender_addon._configure_backend_for_context') as mock_configure:
+        with patch.object(blender_addon, '_configure_backend_for_context') as mock_configure:
             mock_configure.return_value = 'cpu'
 
             # Mock a Scene update (simulating device_mode change)

@@ -1192,17 +1192,37 @@ git commit -m "feat(orchestrator): SKILL.md policy doc composing existing skills
 
 - [ ] **Step 1: Document the cron wiring**
 
-Append under "## /schedule wiring" in `SKILL.md`:
+Fill in the "## /schedule wiring" section of `SKILL.md` with the correct
+prose interface (no CLI flags — `/schedule` is natural-language only):
 
 ```markdown
-Run once by the owner to start the engine (every 10 minutes):
+Run once by the owner to start the engine. The `/schedule` skill is a
+natural-language front-end to the cron tools — describe the job in prose,
+do NOT use CLI flags (there is no `create`/`--name`/`--command` syntax).
+Say, verbatim intent:
 
-    /schedule create --name roadmap-orchestrator --cron "*/10 * * * *" \
-      --command "/roadmap-orchestrator"
+> /schedule Run `/roadmap-orchestrator` every 10 minutes, durably — it
+> must survive Claude restarts.
 
-Pause/stop: `/schedule list` then `/schedule delete roadmap-orchestrator`.
-The standup is updated every tick and finalized on day rollover — no separate
-daily cron is needed.
+This schedules a recurring job (cron `*/10 * * * *`; an off-:00/:30 minute
+offset such as `3-53/10 * * * *` is equally fine and slightly preferred
+for fleet hygiene since the tick cadence is approximate) with
+**`durable: true`** so it is written to `.claude/scheduled_tasks.json` and
+survives restarts. Without `durable`, the job is in-memory only and dies
+when this Claude session ends — the engine would silently stop. The tick
+lock makes exact firing time immaterial, so jitter/offset is harmless.
+
+**7-day auto-expiry (important):** the harness auto-expires recurring cron
+jobs after 7 days — it fires one final time, then deletes the job. The
+engine will silently stop after a week. Re-arm it weekly (re-issue the
+same `/schedule` request); keep a standing reminder to do so.
+
+**Pause/stop:** `/schedule list` to see the job and its **job ID**, then
+`/schedule delete <job-id>`. Deletion is by the ID returned at creation,
+not by name.
+
+The standup is updated every tick and finalized on day rollover, so no
+separate daily cron is needed.
 ```
 
 - [ ] **Step 2: Dry-run acceptance against the current §2 set**

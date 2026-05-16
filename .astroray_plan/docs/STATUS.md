@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-16 (Round 9 complete — 6 PRs merged (pkg91/pkg47/pkg87-split/pkg92/pkg89-Phase-A/pkg55-B'-Session-2c); pkg85-D status corrected (PR #283); flake issue #298 filed; Round 10 next)
+**Last updated:** 2026-05-16 (Round 10 planning — addon first-principles plan landed (#300); pkg94/95/96 + pkg55-B-prime-cuda-gate-derivation filed; P5/BUG-11 folded into pkg55-B' + pkg85-D as named gates; owner ruled Round-10 = concurrent, pkg94 first. Prior: Round 9 complete — 6 PRs merged (pkg91/pkg47/pkg87-split/pkg92/pkg89-Phase-A/pkg55-B'-Session-2c); pkg85-D status corrected (PR #283); flake issue #298 filed)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -115,7 +115,7 @@ personally should pick up.
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target; pkg89 Phase B (Blender addon) | CUDA kernels for ReSTIR/NRC are not implemented; pkg89 Phase A done (PR #294) |
 | 4 | Astrophysics platform | **Active, shipping** | 45% | pkg44 ADAF accretion model | gate released; pkg40 + pkg41 + pkg42 + pkg43 + pkg47 (FITS loader) done; pkg44–51 queued (pkg47 FITS loader landed PR #292; FITSVolume registration deferred to pkg48) |
-| 5 | Production polish / Blender parity | **Feature-complete on planned scope; viewport-parity gate now owned by pkg55 Phase B** | ~98% (counter) | pkg55 Phase B (per-material shade kernels — owns the viewport-parity claim) | pkg73 ✓ + pkg80 ✓ + pkg81 P1+P2 ✓ + pkg55-A.1 ✓ all done 2026-05-11; pkg55-B is the long-tail |
+| 5 | Production polish / Blender parity | **Feature-complete on planned scope; viewport-parity gate now owned by pkg55 Phase B; addon-remediation track spec-ready and dispatchable** | ~98% (counter) | pkg55 Phase B (per-material shade kernels — owns the viewport-parity claim) **+ addon remediation: pkg94 (first, no deps) → pkg95 ∥ pkg96 (depend on pkg94) — spec-ready, dispatchable now (owner ruled concurrent, pkg94 first)** | pkg73 ✓ + pkg80 ✓ + pkg81 P1+P2 ✓ + pkg55-A.1 ✓ all done 2026-05-11; pkg55-B is the long-tail; addon track unblocked (plan #300 landed; P5 folded into pkg55-B' + pkg85-D) |
 
 **Pillar 1 package summary:**
 
@@ -269,8 +269,15 @@ forgotten):
   - **pkg55-B' Session 2c** (PR #297) — CPU wavefront skeleton; EXACT bit-identity by shared-kernel construction (0.0 across all 5 stages, MinGW + Linux-GCC CI).
   - **Doc-pass corrections:** pkg85-D status corrected to done (PR #283, SSIM 0.9793 ≥ 0.97); ReSTIR `test_spatial_reduces_mse` flake filed as issue #298.
 
+- **Round 10 — addon first-principles plan landed; specs filed (2026-05-16)** — the architect first-principles plan merged (#300, building on triage #295). The Blender addon remediation track is now **spec-ready and dispatchable**:
+  - **pkg94** — Stage 1 / P1 build-integrity guard (~½ day, **Round-10 first pickup, depends on nothing**). Collapses BUG-01/03(crash)/07; the verifiability multiplier for the whole addon track.
+  - **pkg95** — Stage 2 / P3+P4 dead-UI-wires (BUG-15/13/09) + Blender-native camera (BUG-08). Depends on pkg94.
+  - **pkg96** — Stage 3 / P2 reconcile-then-upload sync (BUG-04/05) + P5 honesty guard (UX-only). Depends on pkg94; independent of pkg95.
+  - **pkg55-B-prime-cuda-gate-derivation** — #296 §4.4 filed as a doc-only package: two-tier gate reword + design decision #9 + A.1 checklist item. Blocks ONLY pkg55-B' CUDA Sessions N+2..M; does NOT block Sessions 3..N.
+  - **P5 / BUG-11 folded into pkg55-B' + pkg85-D as named gates** (BUG-02/10 ⇒ shade/terminate write pass buffers; BUG-12 ⇒ SoA per-domain upload; BUG-11 ≡ pkg85-D, done PR #283). pkg96 ships only the honesty guard — NOT a separate addon GPU package.
+  - **Owner decision (final): Round-10 = concurrent, pkg94 first.** pkg94 lands first; then pkg95 ∥ pkg96 run concurrently with pkg55-B' Session 3 — zero contention with pkg55-B' Session 3 (addon Python vs `src/cpu/wavefront/*`); however pkg95 and pkg96 both edit `blender_addon/__init__.py` in disjoint surfaces and require same-file coordination/rebase — they are logically parallel, not contention-free. No open owner decisions remain for the Round-10 addon track.
 - **Round 10 next-up** (per updated NEXT_STAGE_REPORT.md §2):
-  - **Top priority:** **pkg55-B' Sessions 3..N** (growing-oracle expansion — add metal/dielectric/disney/etc. shade kernels; the spec's two-tier gate MUST be re-derived before any CUDA-port session) and **Blender addon bug remediation** (triage PR #295 / `blender-addon-bug-triage-2026-05-15.md`; fixes owner-gated on review + the forthcoming architect first-principles plan).
+  - **Top priority:** **pkg94** (addon build-integrity guard — first pickup, no deps), then **pkg95 ∥ pkg96** concurrent with **pkg55-B' Sessions 3..N** (growing-oracle expansion — add metal/dielectric/disney/etc. shade kernels; **pkg55-B-prime-cuda-gate-derivation** MUST land before any CUDA-port session, but Sessions 3..N proceed unblocked).
   - **Second tier:** **pkg44 ADAF** (Pillar 4, unblocked) and **pkg89 Phase B** (Blender addon — full-scene G8 + G1–G5).
   - **Open doc PRs (context, not round-work):** #295 (addon bug triage), #296 (pkg55-2c technique review). The pkg55-2c review feeds the two-tier-gate re-derivation.
   - **Deferred:** Issue #276 clearcoat flake (owner triage); issue #298 ReSTIR MC-noise strict-inequality flake (recommend seed-pin or tolerance).

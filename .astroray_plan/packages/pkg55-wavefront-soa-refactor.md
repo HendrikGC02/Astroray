@@ -274,7 +274,7 @@ Notes: (a) the off↔on delta is within run-to-run noise; the small gap on `corn
      - **Close gate:** trip-wire + equivalence tests pass.
    - **Session 2c — CPU wavefront skeleton (done — PR #297, 2026-05-15 — EXACT bit-identity by shared-kernel construction: max abs diff exactly 0.0 across all 5 snapshot stages, 1 spp Lambertian Cornell; verified MinGW + Linux-GCC CI; production codegen byte-unchanged vs origin/main).** Shared-kernel construction: ONE per-bounce kernel `src/cpu/wavefront/path_kernel.{h,cpp}` (`init_path()` + `advance_one_bounce()`). Both `reference_pt_wavefront` AND the `cpu_wavefront` driver call the EXACT SAME compiled functions over carried live state — there is exactly one generator of the per-bounce arithmetic, not two transcriptions. State header (`cpu_wavefront_state.h` + `.cpp` byte-exact pack/unpack of `PathState`) + `stage_init` + `stage_advance` (supersedes the pre-shared-kernel `stage_intersect`/`stage_shade_lambertian` split — those re-traced the BVH in shade and rebuilt a fresh RNG with a brittle hand-counted dimension replay, the dominant divergence both senior reviews identified) + callable driver (not a registered plugin) + per-stage diff harness at `tests/wavefront_diff/`. Lambertian-Cornell scope only. Live state carried in the SoA (live `WavefrontRNG` counter, full `HitRecord`, already-normalized ray direction restored verbatim — Phase A.1 ulp-bug fix re-applied on CPU, throughput/lambdas/radiance/flags). The scaffold `-ffp-contract=off` CMake flag is a **documented defensive guard only** (both reviews: guard, not the mechanism); production codegen byte-unchanged vs `origin/main`.
      - **Close gate (MET):** EXACT bit-identity of CPU wavefront vs `reference_pt_wavefront` on Lambertian-only Cornell at 1 spp — snapshot-stream equality slot-by-slot, field-by-field, max abs diff exactly 0.0 for floats, exact for ints, at all 5 stage boundaries. Bit-identity is **by construction** (shared kernel + carried live state), not a measured tolerance. FP-env preconditions (documented, not a global build change): SSE2 target (no x87 80-bit intermediates), consistent rounding, FTZ/DAZ consistent — these hold within one toolchain and the gate is CPU↔CPU within a single build.
-     - **NOTE (round-closeout planning flag — both reviews):** the program-wide "bit-identity gates each port" line (Sessions N+2..M, CUDA) should be re-derived into a **two-tier** gate before CUDA work begins: **exact** bit-identity for CPU↔CPU diffs (achievable by shared-kernel construction, as Session 2c demonstrates), **bounded + SSIM** for CPU↔GPU diffs (exact bit-identity across host↔device toolchains/FP-contraction/transcendental implementations is not a realistic gate). This does not change any current session's gate; it flags a planning item for Round closeout. Not actioned here (Session 2c scope discipline).
+     - **HARD PRE-CUDA GATE (was the round-closeout NOTE; promoted Round 10 per PR #296 §4.4 + PR #300 §7):** the program-wide "bit-identity gates each port" line (Sessions N+2..M, CUDA) **must** be re-derived into a **two-tier** gate **before any CUDA-port session begins**: **exact** bit-identity for CPU↔CPU diffs (achievable by shared-kernel construction, as Session 2c demonstrates), **bounded + SSIM** for CPU↔GPU diffs (exact bit-identity across host↔device toolchains/FP-contraction/transcendental implementations is not a realistic gate — PR #296 §4.1). **Blocking action:** `pkg55-B-prime-cuda-gate-derivation` (the tracked doc-only package that produces the in-place §4.2 reword + design decision #9 + the A.1 checklist item). It **blocks ONLY Sessions N+2..M; it does NOT block Sessions 3..N** (those keep the existing exact-0.0 CPU↔CPU gate, which PR #296 confirms is correct). No current session's gate changes; do not start a CUDA session until `pkg55-B-prime-cuda-gate-derivation` is done.
 3. **Sessions 3..N — Growing-oracle expansion.** As each new shade kernel (metal, dielectric, disney, thin_glass, diffuse_light, closure_graph) is added to the CPU wavefront, both reference PTs grow alongside to cover the same feature surface. Trip-wire test scene grows; equivalence test scene grows. The reference PTs are "growing oracles" — they always match the current CPU wavefront feature surface; never lead, never lag.
 4. **Session N+1 — Shadow/miss/terminate stages on CPU.** Once all seven material types pass per-stage diff, add the remaining stages.
 5. **Sessions N+2..M — CUDA port stage-by-stage.** For each CPU stage, write the CUDA mirror; run a CPU↔GPU per-stage diff harness (mirrors the CPU↔CPU one). Bit-identity gates each port. *(See Session 2c NOTE: both senior reviews recommend re-deriving this into a two-tier gate — exact for CPU↔CPU, bounded+SSIM for CPU↔GPU — before CUDA work begins. Flagged for Round closeout planning; not actioned in Session 2c.)*
@@ -297,6 +297,49 @@ Notes: (a) the off↔on delta is within run-to-run noise; the small gap on `corn
 - **Sessions 3..N:** trip-wire + equivalence + bit-identity gates pass for each new material/feature.
 - **Session N+1:** stages all wired end-to-end; CPU wavefront SSIM ≥ 0.985 vs CPU `path_tracer` on the full pkg54 visible-band scene at 64 spp.
 - **Sessions N+2..M (CUDA port):** CPU↔GPU per-stage diff gates pass; final perf gate from the original Phase B (≥ 1.5× megakernel on the 7-material scene) closes the package.
+
+#### Phase B' named parity gates (folded in from the addon triage — PR #295/#300 §5)
+
+The addon first-principles plan (PR #300) §5 resolves the triage's
+focusing question: P5's GPU parity is **not** a separate addon GPU
+subsystem — it is *this* wavefront program. The four P5 symptoms become
+named pkg55-B' acceptance gates rather than megakernel patches (a
+parallel megakernel pass/upload path would be duplicate work deleted in
+Phase C):
+
+- **BUG-02 / BUG-10 — GPU AOV + denoise pass execution = explicit
+  Phase-B'/CUDA-port deliverable.** The wavefront shade / `stage_terminate`
+  stages must write the per-pixel auxiliary outputs
+  (albedo/normal/depth/denoise-guide and the compositor `renderPassBuffers`)
+  that the addon's `get_render_pass_buffer` already reads on CPU. Cycles
+  writes its passes from the wavefront shade/film stages — the reference
+  pkg55-B' mirrors. This is a named gate on the **Session N+1
+  (shadow/miss/terminate)** session and the **CUDA-port** sessions: GPU
+  AOV/denoise output present and SSIM-parity vs CPU.
+- **BUG-12 — incremental GPU upload = SoA lifecycle co-design.** Only
+  changed domains re-uploaded, mirroring pkg96's P2 CPU
+  reconcile-then-upload contract on the GPU side. The wavefront SoA state
+  model is inherently per-domain; "re-upload only the changed domain" is
+  co-designed with the SoA state lifecycle in Phase B'/C, not a
+  megakernel patch. Named gate: progressive viewport does **not**
+  full-upload the scene per sample-chunk.
+- **BUG-11 ≡ pkg85-D — world-as-light parity.** A named Phase-B/C parity
+  gate: GPU treats a solid/HDRI world as an environment light
+  (NEE/indirect), not a camera-ray miss color. pkg85-D
+  (`test_gpu_cpu_ssim_hdri`, SSIM 0.9793, **done** PR #283) is the
+  **env-map-only, no-geometry** witness and validates the world-as-light
+  *invariant* only on that no-geometry scene; it does **not** currently
+  exercise the geometry-bearing BUG-11 witness. The geometry-bearing
+  complement ("world-only diffuse sphere CPU vs GPU not-black") is
+  **deferred** and is added *here* as this named Phase-B/C parity gate —
+  it is not yet covered on main. Until this gate lands, pkg96's
+  world-only-on-GPU honesty guard is the only user-facing protection for
+  BUG-11. pkg85-D being done bounds (does not eliminate) the user-facing
+  risk; the residual geometry-bearing case is closed by this gate.
+
+These gates do **not** change any current session's close gate; they
+record where P5's real resolution lands so the addon track (pkg96) ships
+only the honesty guard.
 
 #### Phase B' non-goals
 

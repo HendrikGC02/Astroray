@@ -180,10 +180,22 @@ Open Pillar 5 long-tail (Round 10+): **pkg55 Phase B' Sessions 3..N**
 (growing-oracle expansion — CPU wavefront skeleton landed bit-identical
 by shared-kernel construction in Session 2c PR #297; the spec's
 **two-tier gate** — exact CPU↔CPU / bounded+SSIM CPU↔GPU — must be
-re-derived before the CUDA-port sessions), **Blender addon bug
-remediation** (triage PR #295 open; owner-gated), **pkg87a/pkg87b/pkg87c**
-Cryptomatte (pkg87 split into three units per PR #293), **pkg76 CSV**
-rows on RTX. pkg67 (metric-aware path tracer) shipped PR #262.
+re-derived before the CUDA-port sessions, filed as **pkg55-B-prime-cuda-gate-derivation**,
+which blocks ONLY Sessions N+2..M, not Sessions 3..N), **Blender addon
+remediation** (first-principles plan landed PR #300; PR #295 triage):
+the staged set is **pkg94** (Stage 1 / P1 build-integrity guard, ~½ day,
+**Round-10 first pickup, depends on nothing**) → **pkg95** (Stage 2 /
+P3+P4 dead-UI-wires + Blender-native camera, depends on pkg94) ∥
+**pkg96** (Stage 3 / P2 reconcile-then-upload sync + P5 honesty guard,
+depends on pkg94, independent of pkg95). **P5's GPU parity
+(BUG-02/10/11/12) is deferred into pkg55-B' as named acceptance gates
+(BUG-11 ≡ pkg85-D, done), NOT a separate addon GPU package** — pkg96
+ships only the cheap honesty guard. **Owner decision (final): Round 10 =
+concurrent, pkg94 first**; pkg95 ∥ pkg96 then run concurrently with
+pkg55-B' Session 3 (addon Python/packaging vs CPU wavefront — zero file
+contention). **pkg87a/pkg87b/pkg87c** Cryptomatte (pkg87 split into
+three units per PR #293), **pkg76 CSV** rows on RTX. pkg67 (metric-aware
+path tracer) shipped PR #262.
 
 **Pillar 4 thawed and shipping (2026-05-11+).** pkg40 (Kerr metric),
 **pkg41 Kerr validation** (PR #236), **pkg42 synchrotron emission**

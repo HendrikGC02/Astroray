@@ -100,11 +100,28 @@ pkg87-split, pkg92, pkg89 Phase A, pkg55-B' Session 2c.
   CPU↔CPU / bounded+SSIM CPU↔GPU) **before any CUDA-port session
   begins**. The open pkg55-2c technique review (PR #296) feeds this
   re-derivation; do not start a CUDA session until it is resolved.
-- **Blender addon bug remediation.** Triage is PR #295 /
-  `.astroray_plan/docs/blender-addon-bug-triage-2026-05-15.md`. Fixes
-  are **owner-gated** on review of the triage + the forthcoming
-  architect first-principles plan. Queued as the second top-priority
-  track; do not dispatch fix PRs until the owner clears the plan.
+- **Blender addon remediation — spec-ready, dispatchable now.** The
+  architect first-principles plan landed (PR #300, on triage PR #295).
+  **Owner decision (final): Round-10 = concurrent, pkg94 first.** The
+  staged set, with sequencing:
+  - **pkg94** — Stage 1 / P1 build-integrity guard (~½ day, **first
+    pickup, depends on nothing**). Collapses BUG-01/03(crash)/07; the
+    verifiability multiplier — every later addon fix is unverifiable
+    until it lands.
+  - **pkg95** — Stage 2 / P3+P4 dead-UI-wires (BUG-15/13/09) +
+    Blender-native camera (BUG-08). **Depends on pkg94.**
+  - **pkg96** — Stage 3 / P2 reconcile-then-upload sync (BUG-04/05) +
+    P5 honesty guard (UX-only). **Depends on pkg94; independent of
+    pkg95** (runs concurrently with it).
+  - **P5's GPU parity (BUG-02/10/11/12) is deferred into pkg55-B' as
+    named acceptance gates** (BUG-11 ≡ pkg85-D, done PR #283), NOT a
+    separate addon GPU package — pkg96 ships only the honesty guard.
+  - Sequencing: **pkg94 first → pkg95 ∥ pkg96 ∥ pkg55-B' Session 3**
+    (addon Python/packaging vs CPU wavefront — zero file contention).
+- **pkg55-B-prime-cuda-gate-derivation** — #296 §4.4 filed as a
+  doc-only package (two-tier gate reword + design decision #9 + A.1
+  checklist item). **Blocks ONLY pkg55-B' CUDA Sessions N+2..M; does
+  NOT block Sessions 3..N.**
 
 **Second tier (unblocked):**
 
@@ -132,11 +149,20 @@ pkg87-split, pkg92, pkg89 Phase A, pkg55-B' Session 2c.
 - **Issue #276** — `test_disney_clearcoat_adds_gloss` chronic flake +
   suspected clearcoat correctness defect; owner triage recommended.
 
-**Owner decision needed before /dispatch-next:**
+**Owner decisions — RESOLVED for the Round-10 addon track:**
 
-- Round 10 direction: continue the inherited backlog (pkg55-B'
-  expansion + Pillar 4) as default vs prioritising the Blender addon
-  remediation track once the architect first-principles plan lands.
+- ~~Round 10 direction: continue the inherited backlog vs prioritising
+  the Blender addon remediation track.~~ **RESOLVED (2026-05-16): Round
+  10 = concurrent, pkg94 first.** pkg94 (P1 build-integrity guard) lands
+  first as the verifiability multiplier; then pkg95 ∥ pkg96 run
+  concurrently with pkg55-B' Session 3. Addon track (Python/packaging)
+  and wavefront track (CPU wavefront) have zero file contention. **No
+  open owner decisions remain for the Round-10 addon track.**
+- Outstanding (pkg96-internal, not blocking dispatch): the PR #300 §9
+  question on the P5 guard *behavior* (display a notice vs auto-route
+  AOV/denoise/world-only passes to CPU) — implement the owner's choice;
+  default to a non-crashing notice if unspecified. This is a pkg96
+  implementation detail, not a Round-10 sequencing gate.
 
 ---
 
@@ -195,19 +221,97 @@ When done: doc-only PR amending the pkg55 spec; STATUS known-issues
 note resolved.
 ```
 
-### 3.3 Architect — Blender addon remediation plan (owner-gated)
+### 3.3 Claude Code (Track A) — pkg94 addon build-integrity guard (Round-10 FIRST pickup)
 
 ```
-You are the project architect. PR #295 filed the Blender addon bug
-triage. The owner has NOT yet cleared fixes.
+You are Claude Code on the RTX box. Round 10 addon track, FIRST pickup.
+Owner ruled: Round-10 = concurrent, pkg94 first. pkg94 depends on
+NOTHING and is the verifiability multiplier for pkg95/pkg96.
 
 Read first:
-  - PR #295 / .astroray_plan/docs/blender-addon-bug-triage-2026-05-15.md
+  - .astroray_plan/packages/pkg94-addon-build-integrity-guard.md
+  - .astroray_plan/docs/addon-remediation-first-principles-plan-2026-05-16.md (§2 P1, §4 Stage 1)
+  - .astroray_plan/docs/blender-addon-bug-triage-2026-05-15.md (§1, §5 Phase 0)
+  - blender_addon/__init__.py register(); build_blender_addon.py;
+    module/blender_module.cpp (__version__/__features__ surface)
 
-Deliver: a first-principles remediation plan (root-cause grouping,
-fix sequencing, package boundaries) for owner review. Do NOT open fix
-PRs; this is a planning artifact only until the owner clears it.
+Goal: addon emits a build stamp; register() compares vs astroray.__build__
+and raises ONE loud "RESTART BLENDER — stale module loaded" on mismatch;
+install script refuses/warns on locked .pyd and GCs .~stale~NNNN. Reuse
+the existing build_report.json hash — no new stamping scheme. ZERO
+engine-logic change.
+
+Constraints: CLAUDE.md 1,2,3. Packaging + observability only. Do NOT
+"fix" BUG-01/03/07 in C++/Python — they are a stale-loaded-module
+artifact. Test per the spec's acceptance criteria.
+
+When done: pkg94 spec status -> done + PR + the guard-fires smoke note.
+PR titled "feat(pkg94): addon build-integrity guard".
 ```
+
+### 3.3b Claude Code (Track A) — pkg95 addon dead-UI-wires + camera (depends on pkg94)
+
+```
+You are Claude Code on the RTX box. Round 10 addon track. Pick up AFTER
+pkg94 merges (so fixes are verifiable on a known-current module). Runs
+concurrently with pkg96 and with pkg55-B' Session 3.
+
+Read first:
+  - .astroray_plan/packages/pkg95-addon-dead-ui-wires-and-camera.md
+  - .astroray_plan/docs/addon-remediation-first-principles-plan-2026-05-16.md (§2 P3/P4, §4 Stage 2)
+  - .astroray_plan/docs/blender-addon-bug-triage-2026-05-15.md (BUG-15/13/09/08)
+  - blender_addon/__init__.py (preview path L676; if False L1865;
+    camera L1547-1554/L1639); blender_addon/nodes/__init__.py:163
+
+Goal: P3-c probe FIRST (does inline_shader_nodes() keep custom nodes?);
+P3-a de-RenderEngine() the preview path (BUG-15); P3-b remove `if False`
++ call set_material_spectral_profile on the IR/UV path (BUG-13, gated by
+P3-c); P4 replace BOTH FOV derivations with rv3d.window_matrix /
+perspective_matrix (BUG-08). CPU-path only; no GPU.
+
+Constraints: CLAUDE.md 1,2,3. Do NOT build the IR/UV multi-band closure
+(pkg-future) or re-architect inline_shader_nodes(). Test per spec.
+
+When done: pkg95 spec status -> done + PR + recorded P3-c probe result.
+PR titled "fix(pkg95): addon dead-UI-wires + Blender-native camera".
+```
+
+### 3.3c Claude Code (Track A) — pkg96 reconcile-then-upload sync + P5 guard (depends on pkg94)
+
+```
+You are Claude Code on the RTX box. Round 10 addon track. Pick up AFTER
+pkg94 merges. Independent of pkg95 (same file, different surfaces —
+coordinate edits, no logical dependency). Concurrent with pkg55-B'
+Session 3.
+
+Read first:
+  - .astroray_plan/packages/pkg96-addon-reconcile-then-upload-sync.md
+  - .astroray_plan/docs/addon-remediation-first-principles-plan-2026-05-16.md (§2 P2/P5, §4 Stage 3, §5, §9)
+  - .astroray_plan/docs/blender-addon-bug-triage-2026-05-15.md (BUG-04/05; Cluster B/D)
+  - blender_addon/__init__.py _apply_depsgraph_updates (L1158-1237),
+    _classify_depsgraph_update, setup_world, _configure_backend_for_context
+
+Goal: P2 — _apply_depsgraph_updates gains per-domain RECONCILE before
+upload (World edit re-parses world tree before upload_environment;
+device_mode gets a real domain calling _configure_backend_for_context,
+NOT accumulation_only) → BUG-04/05. P5 GUARD ONLY — honest non-crashing
+notice (or CPU auto-route per owner §9) for GPU AOV/denoise/world-only;
+NO GPU kernel code. P5's real fix is folded into pkg55-B', not here.
+
+Constraints: CLAUDE.md 1,2,3. Do NOT implement P5's GPU architecture or
+touch cuda_renderer.cu / the GPU render() branch. Do NOT edit pkg85-D
+or the pkg55 spec from this package (those are separate doc edits).
+Test per spec.
+
+When done: pkg96 spec status -> done + PR + the live-update smoke note.
+PR titled "fix(pkg96): reconcile-then-upload sync + P5 honesty guard".
+```
+
+> **Fork 1 RESOLVED.** The prior owner-gated "Blender addon remediation
+> plan" prompt is retired: PR #300 landed the first-principles plan, the
+> owner ruled **Round-10 = concurrent, pkg94 first**, and pkg94/95/96 +
+> pkg55-B-prime-cuda-gate-derivation are filed. No open owner decision
+> remains for the Round-10 addon track; dispatch pkg94 now.
 
 ### 3.4 Codex (main directory) — pkg44 ADAF accretion model
 
@@ -260,8 +364,10 @@ When done: PR titled
 | Session | Files |
 |---|---|
 | pkg55-B' Session 3 | `src/cpu/wavefront/*`, `tests/wavefront_diff/*`, growing test scenes, pkg55 spec, STATUS.md |
-| two-tier gate amendment | pkg55 spec only (doc) |
-| addon remediation plan | new doc under `.astroray_plan/docs/` (doc) |
+| pkg55-B-prime-cuda-gate-derivation | pkg55 spec + `pkg55-B-cpu-reference-design.md` (doc only) |
+| pkg94 | `blender_addon/__init__.py` (register), `build_blender_addon.py`, `module/blender_module.cpp` (__build__), new test, pkg94 spec, STATUS.md |
+| pkg95 | `blender_addon/__init__.py` (preview/IR-UV/camera), `blender_addon/nodes/__init__.py`, new test, pkg95 spec, STATUS.md |
+| pkg96 | `blender_addon/__init__.py` (depsgraph dispatcher + P5 guard), new test, pkg96 spec, STATUS.md |
 | pkg44 | new `plugins/emitters/adaf.cpp`, new tests, pkg44 spec, STATUS.md |
 | pkg89 Phase B | Blender addon files, pkg89 spec, STATUS.md |
 | pkg76 CSV | parity CSV, pkg76 spec Lessons, STATUS.md |
@@ -271,12 +377,21 @@ When done: PR titled
 1. **`STATUS.md`** — multiple sessions touch it; rebase + manual
    resolution as always.
 2. **pkg55 wavefront CPU sources** — single-owner (Track A); no
-   cross-track contention while Phase B' is CPU-only.
-3. **Per-emitter plugin files** — pkg44 lands in its own file.
+   cross-track contention while Phase B' is CPU-only. The addon track
+   (pkg94/95/96, Python/packaging) has **zero file contention** with
+   pkg55-B' Session 3 (CPU wavefront sources) — they run concurrently.
+3. **`blender_addon/__init__.py`** — pkg95 and pkg96 both edit it but in
+   **disjoint surfaces** (pkg95: preview/IR-UV/camera; pkg96: depsgraph
+   dispatcher + P5 guard). Coordinate edits / rebase; no logical
+   dependency between them. Both depend on pkg94 (which touches
+   `register()` only).
+4. **Per-emitter plugin files** — pkg44 lands in its own file.
    Conflict-free.
 
-**Recommended merge order:** two-tier-gate amendment (doc, unblocks
-later CUDA sessions) → pkg44 (Pillar 4) → pkg55-B' Session 3 → pkg89
+**Recommended merge order:** **pkg94** (addon verifiability multiplier,
+no deps — land FIRST) → pkg55-B-prime-cuda-gate-derivation (doc,
+unblocks later CUDA sessions) → pkg44 (Pillar 4) → pkg55-B' Session 3
+∥ pkg95 ∥ pkg96 (concurrent; pkg95/pkg96 gated on pkg94) → pkg89
 Phase B → pkg76 CSV.
 
 ---
@@ -288,8 +403,9 @@ When Round 10 closes:
 - **pkg55-B' growing-oracle** has at least the metal (and likely
   dielectric/disney) shade kernels bit-identical CPU↔CPU; the two-tier
   gate is re-derived so the CUDA-port sessions can begin in Round 11.
-- **Blender addon remediation plan** is owner-cleared (or explicitly
-  deferred) — fixes can be scheduled.
+- **Blender addon remediation** — pkg94 landed (the verifiability
+  multiplier); pkg95 ∥ pkg96 in flight or done. Owner Fork-1 resolved
+  (concurrent, pkg94 first); no open owner decision on the addon track.
 - **pkg44** done — Pillar 4 has four emission models (synchrotron, slim
   disk, ADAF, thermal/blackbody); real astrophysical scenes are
   composable. Pillar 4 ~50%.

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A (core quality / correctness — addon Python)
-**Status:** open — Stage 3 / P2 + P5-guard of the addon first-principles plan (PR #300). **Depends on pkg94; independent of pkg95.**
+**Status:** done (PR #307, 2026-05-16 — P2: World edits re-parse world tree before upload_environment, device_mode gets real backend_config domain calling _configure_backend_for_context; P5 guard: GPU + AOV/denoise shows explicit CPU-only notice, no silent backend switch; zero GPU kernel code)
 **Estimated effort:** ~2 days (P2 ~1–1.5 d; P5 honesty guard ~½ d)
 **Depends on:** **pkg94** (build-integrity guard — P2 is unverifiable while P1 masks it; this is *the* reason pkg94 is first). Independent of pkg95.
 
@@ -243,26 +243,31 @@ pkg55-B' Session 3**, depending only on pkg94.
 
 ## Progress
 
-- [ ] **pkg94 merged** (prerequisite).
-- [ ] P2: per-domain reconcile step added to `_apply_depsgraph_updates`
+- [x] **pkg94 merged** (prerequisite).
+- [x] P2: per-domain reconcile step added to `_apply_depsgraph_updates`
       (World re-parse before `upload_environment`).
-- [ ] P2: `device_mode` real domain → `_configure_backend_for_context`
+- [x] P2: `device_mode` real domain → `_configure_backend_for_context`
       (no longer `accumulation_only`).
-- [ ] P5 guard implemented (decided behavior: specific CPU-only notice,
+- [x] P5 guard implemented (decided behavior: specific CPU-only notice,
       no silent backend switch).
-- [ ] `tests/test_pkg96_reconcile_then_upload.py` written + passing.
+- [x] `tests/test_pkg96_reconcile_then_upload.py` written + passing.
 - [ ] CI green; no regressions.
 
 ## Lessons
 
-*(Fill in after the package is done.)*
-
 P2 is the addon's real correctness defect once P1's noise is removed:
 the incremental dispatcher was a *device-upload* contract masquerading
-as a *scene-sync* contract. The cost of conflating P5 into this package
-would have been a throwaway GPU subsystem deleted in pkg55 Phase C; the
-correct posture (PR #300 §5) is a cheap honesty guard now and the real
-GPU parity folded into pkg55-B' as named acceptance gates.
+as a *scene-sync* contract. The fix is surgical: add a reconcile step
+(re-parse Blender state) before each upload, and give backend-affecting
+Scene props a real domain. World color now updates live; CPU/GPU switch
+is instant.
+
+The cost of conflating P5 into this package would have been a throwaway
+GPU subsystem deleted in pkg55 Phase C; the correct posture (PR #300 §5)
+is a cheap honesty guard now and the real GPU parity folded into
+pkg55-B' as named acceptance gates. The guard is ~40 lines; a parallel
+megakernel AOV/env-light/upload path would have been hundreds and
+conflicted with the wavefront refactor.
 
 ---
 

@@ -406,6 +406,47 @@ def _integrator_capabilities(name):
         }
 
 
+def _check_gpu_limitations_and_report(renderer, settings, reporter=None, has_passes=False, has_denoise=False):
+    """pkg96 P5 guard: detect GPU mode + CPU-only features (AOV/denoise/world-only)
+    and show an explicit notice. Does NOT auto-route to CPU.
+
+    Returns True if a limitation was detected and reported, False otherwise.
+    """
+    # Only check if GPU is active
+    try:
+        is_gpu = bool(getattr(renderer, '_use_gpu', False))
+    except Exception:
+        is_gpu = False
+
+    if not is_gpu:
+        return False
+
+    # Check for CPU-only features
+    limitations = []
+    if has_passes:
+        limitations.append("AOV passes")
+    if has_denoise:
+        limitations.append("denoise")
+
+    # TODO: world-only check would require scene analysis (no geometry + world diffuse)
+    # That's expensive and the spec says "cheap guard" — defer to later if needed.
+
+    if limitations:
+        feature_list = " / ".join(limitations)
+        message = (
+            f"Astroray GPU limitation: {feature_list} are CPU-only "
+            "pending the pkg55-B' wavefront pass pipeline. "
+            "Switch device_mode to CPU to get this output."
+        )
+        if reporter:
+            reporter('WARNING', message)
+        else:
+            print(f"[pkg96-P5-guard] {message}")
+        return True
+
+    return False
+
+
 def configure_backend(renderer, settings, reporter=None, integrator_name=None) -> str:
     """Apply device_mode to renderer. Returns 'gpu' or 'cpu'.
 
@@ -855,12 +896,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
             if is_outside_visible:
                 renderer.set_output_mode("luminance")
             renderer.set_integrator(integrator_name)
+            has_denoise_pass = False
             if settings.use_denoising and not is_outside_visible:
                 denoise_pass = _resolve_denoiser_pass(settings)
                 if denoise_pass is not None:
                     renderer.add_pass(denoise_pass)
+                    has_denoise_pass = True
             if is_outside_visible and settings.colourmap != 'grayscale':
                 renderer.add_pass("colourmap_output")
+
+            # pkg96 P5 guard: detect GPU + CPU-only features
+            # (Final render doesn't have AOV selector, but denoise applies)
+            _check_gpu_limitations_and_report(
+                renderer, settings, self.report,
+                has_passes=False,  # Final render AOVs are handled separately
+                has_denoise=has_denoise_pass
+            )
+
             pixels = renderer.render(
                 settings.samples, settings.max_bounces, progress_callback, False,
                 settings.diffuse_bounces, settings.glossy_bounces,
@@ -1145,7 +1197,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if type_name == 'Image':
             return {'materials': True}
         if type_name == 'Scene':
-            return {'accumulation_only': True}
+            # pkg96: Scene edits may affect backend config (device_mode) or
+            # just accumulation (frame change). Give backend-affecting props
+            # a real domain that routes to _configure_backend_for_context,
+            # not just accumulation_only (BUG-05).
+            return {'backend_config': True, 'accumulation_only': True}
         if type_name == 'Object':
             out = {}
             is_geom = bool(getattr(upd, 'is_updated_geometry', False))
@@ -1182,6 +1238,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         env = materials = lights = geometry = False
         transforms = []  # list of (obj_id, mat16) for transform-only edits
         accumulation_only = False
+        backend_config = False  # pkg96: backend-affecting Scene props
 
         for upd in updates:
             kind = self._classify_depsgraph_update(upd)
@@ -1195,6 +1252,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             if kind.get('lights'):      lights = True
             if kind.get('materials'):   materials = True
             if kind.get('geometry'):    geometry = True
+            if kind.get('backend_config'): backend_config = True
             if kind.get('accumulation_only'):
                 accumulation_only = True
             if kind.get('transform_only') and not kind.get('geometry'):
@@ -1216,7 +1274,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     except Exception:
                         geometry = True
 
-        any_domain = env or materials or lights or geometry or bool(transforms)
+        # backend_config only counts as a real domain when settings is present
+        # (in tests, settings=None means no real backend change is possible).
+        backend_config_real = backend_config and settings is not None
+        any_domain = env or materials or lights or geometry or bool(transforms) or backend_config_real
         if not any_domain:
             if accumulation_only:
                 # Frame/Scene tick — image is unchanged but the user
@@ -1224,7 +1285,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 self._reset_viewport_accumulation()
             return 'idle'
 
-        if env:       renderer.upload_environment()
+        # pkg96 P2: reconcile-then-upload contract. Each domain re-derives
+        # its state from Blender before pushing device buffers (BUG-04/05).
+        if backend_config_real:
+            # Backend-affecting Scene props (device_mode) — reconfigure
+            # before any render (BUG-05).
+            _configure_backend_for_context(renderer, settings, self.report)
+
+        if env:
+            # World update — re-parse the world tree before device upload
+            # (BUG-04: only setup_world re-reads the Background node;
+            # upload_environment just pushes already-parsed state).
+            # Guard: tests may pass scene=None.
+            if depsgraph.scene is not None:
+                self.setup_world(depsgraph.scene, renderer)
+            renderer.upload_environment()
+
         if materials: renderer.upload_materials()
         if lights:    renderer.upload_lights()
         if geometry:  renderer.upload_geometry()
@@ -1352,10 +1428,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.add_pass("normal_aov")
         elif viewport_display_pass == "depth":
             renderer.add_pass("depth_aov")
+        has_denoise = False
         if getattr(settings, "viewport_oidn", False) and not is_outside_visible:
             denoise_pass = _resolve_denoiser_pass(settings)
             if denoise_pass is not None:
                 renderer.add_pass(denoise_pass)
+                has_denoise = True
+
+        # pkg96 P5 guard: detect GPU + CPU-only features and show explicit notice
+        has_aov_passes = viewport_display_pass in {"albedo", "normal", "depth"}
+        _check_gpu_limitations_and_report(
+            renderer, settings, self.report,
+            has_passes=has_aov_passes,
+            has_denoise=has_denoise
+        )
 
         samples = self._viewport_chunk_samples(settings, self._viewport_current_spp)
         if samples <= 0:

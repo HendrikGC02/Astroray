@@ -1,13 +1,13 @@
-// pkg55 Phase B' Session 2c — CPU wavefront SoA state layout.
+// pkg55 Phase B' Session 2c/3 — CPU wavefront SoA state layout.
 //
 // Cite: Laine, Karras, Aila 2013 §4 "Megakernels Considered Harmful" (HPG).
 //       Cycles intern/cycles/kernel/integrator/state.h (Apache-2.0).
 //       PBRT-v4 src/pbrt/wavefront/workitems.soa (Apache-2.0).
 //
-// This is the CPU mirror of Phase A.1's GPU `IntegratorStateSoA`. Session 2c
-// scope is Lambertian-Cornell only.
+// This is the CPU mirror of Phase A.1's GPU `IntegratorStateSoA`. Session 3
+// scope is Lambertian + metal + area lights (growing oracle).
 //
-// Session 2c — the SoA is a pure CARRIER for the shared kernel's PathState
+// Session 2c/3 — the SoA is a pure CARRIER for the shared kernel's PathState
 // (path_kernel.h). It serializes the LIVE per-path state between the
 // host-side stage iterations and reconstructs it byte-exactly:
 //

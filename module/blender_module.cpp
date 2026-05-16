@@ -16,6 +16,7 @@
 #include "astroray/emission.h"
 #include "astroray/synchrotron.h"
 #include "astroray/slim_disk.h"
+#include "astroray/adaf.h"
 #include "astroray/optical_presets.h"
 #include "astroray/integrator.h"
 #include "astroray/pass.h"
@@ -1908,6 +1909,97 @@ PYBIND11_MODULE(astroray, m) {
           },
           "disk"_a, "position"_a, "photon_direction"_a, "lambdas"_a,
           "Evaluate slim disk emissivity at given wavelengths.");
+
+    // pkg44 ADAF bindings (follows pkg42/pkg43 pattern).
+    m.def("adaf_density_at",
+          [](py::dict params, const std::vector<float>& position) {
+              if (position.size() != 3) throw std::runtime_error("position must have 3 values");
+              auto adaf = std::dynamic_pointer_cast<astroray::adaf::ADAF>(
+                  astroray::EmissionRegistry::instance().create("adaf", paramDictFromPyDict(params)));
+              if (!adaf) throw std::runtime_error("Failed to create ADAF");
+              double r_M = std::sqrt(position[0]*position[0] + position[1]*position[1] + position[2]*position[2]);
+              return adaf->densityAt(r_M);
+          },
+          "params"_a, "position"_a,
+          "Return electron density at position (in cm^-3).");
+    m.def("adaf_electron_temperature_at",
+          [](py::dict params, const std::vector<float>& position) {
+              if (position.size() != 3) throw std::runtime_error("position must have 3 values");
+              auto adaf = std::dynamic_pointer_cast<astroray::adaf::ADAF>(
+                  astroray::EmissionRegistry::instance().create("adaf", paramDictFromPyDict(params)));
+              if (!adaf) throw std::runtime_error("Failed to create ADAF");
+              double r_M = std::sqrt(position[0]*position[0] + position[1]*position[1] + position[2]*position[2]);
+              return adaf->electronTemperatureAt(r_M);
+          },
+          "params"_a, "position"_a,
+          "Return electron temperature at position (in K).");
+    m.def("adaf_ion_temperature_at",
+          [](py::dict params, const std::vector<float>& position) {
+              if (position.size() != 3) throw std::runtime_error("position must have 3 values");
+              auto adaf = std::dynamic_pointer_cast<astroray::adaf::ADAF>(
+                  astroray::EmissionRegistry::instance().create("adaf", paramDictFromPyDict(params)));
+              if (!adaf) throw std::runtime_error("Failed to create ADAF");
+              double r_M = std::sqrt(position[0]*position[0] + position[1]*position[1] + position[2]*position[2]);
+              return adaf->ionTemperatureAt(r_M);
+          },
+          "params"_a, "position"_a,
+          "Return ion temperature at position (in K).");
+    m.def("adaf_magnetic_field_at",
+          [](py::dict params, const std::vector<float>& position) {
+              if (position.size() != 3) throw std::runtime_error("position must have 3 values");
+              auto adaf = std::dynamic_pointer_cast<astroray::adaf::ADAF>(
+                  astroray::EmissionRegistry::instance().create("adaf", paramDictFromPyDict(params)));
+              if (!adaf) throw std::runtime_error("Failed to create ADAF");
+              double r_M = std::sqrt(position[0]*position[0] + position[1]*position[1] + position[2]*position[2]);
+              return adaf->magneticFieldAt(r_M);
+          },
+          "params"_a, "position"_a,
+          "Return magnetic field at position (in Gauss).");
+    m.def("adaf_contains",
+          [](py::dict params, const std::vector<float>& position) {
+              if (position.size() != 3) throw std::runtime_error("position must have 3 values");
+              auto adaf = astroray::EmissionRegistry::instance().create(
+                  "adaf", paramDictFromPyDict(params));
+              return adaf->contains(Vec3(position[0], position[1], position[2]));
+          },
+          "params"_a, "position"_a,
+          "Check if position is inside ADAF volume.");
+    m.def("adaf_sample_visible",
+          [](py::dict params, const std::vector<float>& position,
+             const std::vector<float>& photon_direction,
+             float lambda_min, float lambda_max) {
+              if (position.size() != 3 || photon_direction.size() != 3) {
+                  throw std::runtime_error("position and photon_direction must have 3 values");
+              }
+              auto adaf = astroray::EmissionRegistry::instance().create(
+                  "adaf", paramDictFromPyDict(params));
+              // Build SampledWavelengths uniformly in [lambda_min, lambda_max]
+              std::array<float, astroray::kSpectrumSamples> lambda_arr;
+              for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+                  lambda_arr[i] = lambda_min + (lambda_max - lambda_min)
+                                * float(i) / float(astroray::kSpectrumSamples - 1);
+              }
+              auto lambdas = astroray::SampledWavelengths::fromLambdas(lambda_arr);
+              auto values = adaf->emissivity(
+                  Vec3(position[0], position[1], position[2]),
+                  Vec3(photon_direction[0], photon_direction[1], photon_direction[2]),
+                  lambdas);
+              py::dict out;
+              out["lambdas"] = std::vector<float>(lambdas.lambdas().begin(), lambdas.lambdas().end());
+              out["values"] = std::vector<float>(values.values().begin(), values.values().end());
+              return out;
+          },
+          "params"_a, "position"_a, "photon_direction"_a,
+          "lambda_min"_a, "lambda_max"_a,
+          "Sample ADAF emissivity at visible wavelengths.");
+    m.def("gaunt_factor_ff",
+          &astroray::adaf::gauntFactorFF,
+          "nu_hz"_a, "T_e_K"_a,
+          "Karzas & Latter 1961 Gaunt factor for free-free emission.");
+    m.def("bremsstrahlung_emissivity",
+          &astroray::adaf::jnuBremsstrahlungI,
+          "nu_hz"_a, "n_e_cm3"_a, "T_e_K"_a,
+          "Thermal bremsstrahlung emissivity (Rybicki & Lightman 1979).");
 
     m.def("metric_isco_radius", [](const std::string& name, py::dict params) {
         auto metric = astroray::MetricRegistry::instance().create(name, metricParamsFromDict(params));

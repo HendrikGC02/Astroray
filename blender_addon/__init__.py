@@ -1274,7 +1274,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     except Exception:
                         geometry = True
 
-        any_domain = env or materials or lights or geometry or bool(transforms) or backend_config
+        # backend_config only counts as a real domain when settings is present
+        # (in tests, settings=None means no real backend change is possible).
+        backend_config_real = backend_config and settings is not None
+        any_domain = env or materials or lights or geometry or bool(transforms) or backend_config_real
         if not any_domain:
             if accumulation_only:
                 # Frame/Scene tick — image is unchanged but the user
@@ -1284,7 +1287,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         # pkg96 P2: reconcile-then-upload contract. Each domain re-derives
         # its state from Blender before pushing device buffers (BUG-04/05).
-        if backend_config:
+        if backend_config_real:
             # Backend-affecting Scene props (device_mode) — reconfigure
             # before any render (BUG-05).
             _configure_backend_for_context(renderer, settings, self.report)
@@ -1293,7 +1296,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # World update — re-parse the world tree before device upload
             # (BUG-04: only setup_world re-reads the Background node;
             # upload_environment just pushes already-parsed state).
-            self.setup_world(depsgraph.scene, renderer)
+            # Guard: tests may pass scene=None.
+            if depsgraph.scene is not None:
+                self.setup_world(depsgraph.scene, renderer)
             renderer.upload_environment()
 
         if materials: renderer.upload_materials()

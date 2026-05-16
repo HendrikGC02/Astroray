@@ -45,11 +45,16 @@ def _make_stub_bpy():
     bpy_module.utils = bpy_utils_module
     bpy_module.path = types.SimpleNamespace(abspath=lambda p: p)
 
+    # Stub mathutils module (blender_addon top-level import requires it)
+    mathutils_module = types.ModuleType("mathutils")
+    mathutils_module.Vector = lambda values: values
+
     # Register submodules in sys.modules so they can be imported directly
     sys.modules["bpy"] = bpy_module
     sys.modules["bpy.types"] = bpy_types_module
     sys.modules["bpy.props"] = bpy_props_module
     sys.modules["bpy.utils"] = bpy_utils_module
+    sys.modules["mathutils"] = mathutils_module
 
     return bpy_module
 

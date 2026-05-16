@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A (core quality / correctness — addon Python)
-**Status:** open — Stage 2 / P3 + P4 of the addon first-principles plan (PR #300). **Depends on pkg94.**
+**Status:** done (PR #305, 2026-05-16) — P3-c probe: defensive detection (checks both flattened and original trees); P3-a: node conversion factored off RenderEngine; P3-b: `if False` removed, profile uploaded; P4: vfov from perspective_matrix (no more hardcoded 32mm).
 **Estimated effort:** ~1.5–2 days; P3-a / P4 independent and parallelizable, P3-b gated on the P3-c probe
 **Depends on:** **pkg94** (build-integrity guard — so every fix here is verifiable on a known-current module). Independent of pkg96 and of pkg55-B'.
 

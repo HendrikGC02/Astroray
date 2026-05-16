@@ -74,3 +74,12 @@ In this order, respecting caps already applied by the engine:
 - `--dry-run` = zero side effects.
 
 ## /schedule wiring (one-time owner setup — see Task 11)
+
+Run once by the owner to start the engine (every 10 minutes):
+
+    /schedule create --name roadmap-orchestrator --cron "*/10 * * * *" \
+      --command "/roadmap-orchestrator"
+
+Pause/stop: `/schedule list` then `/schedule delete roadmap-orchestrator`.
+The standup is updated every tick and finalized on day rollover — no separate
+daily cron is needed.

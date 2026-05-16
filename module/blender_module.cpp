@@ -565,7 +565,37 @@ public:
             bh->addVolumetricEmission(slim_disk);
         }
         // For NOVIKOV_THORNE, the BlackHole constructor already creates the disk
-        // For ADAF (pkg44), will be handled when implemented
+
+        // pkg44: Add ADAF emission if selected. The scene uses adaf_-prefixed
+        // keys (same convention as slim_disk_ above) to avoid collision with
+        // generic BH params; ADAFPlugin reads un-prefixed keys, so map them
+        // explicitly. mass comes from the BlackHole mass argument.
+        bool enableAdaf = params.contains("enable_adaf")
+            ? params["enable_adaf"].cast<bool>() : false;
+        if (enableAdaf) {
+            astroray::ParamDict adaf_params;
+            adaf_params.set("mass", static_cast<float>(mass_solar));
+            if (params.contains("adaf_mdot_edd"))
+                adaf_params.set("mdot_edd", params["adaf_mdot_edd"].cast<float>());
+            if (params.contains("adaf_electron_temp"))
+                adaf_params.set("electron_temp", params["adaf_electron_temp"].cast<float>());
+            if (params.contains("adaf_beta_mag"))
+                adaf_params.set("beta_mag", params["adaf_beta_mag"].cast<float>());
+            if (params.contains("adaf_r_inner"))
+                adaf_params.set("r_inner", params["adaf_r_inner"].cast<float>());
+            if (params.contains("adaf_r_outer"))
+                adaf_params.set("r_outer", params["adaf_r_outer"].cast<float>());
+            if (params.contains("adaf_flattening"))
+                adaf_params.set("flattening", params["adaf_flattening"].cast<float>());
+            if (params.contains("adaf_alpha"))
+                adaf_params.set("alpha", params["adaf_alpha"].cast<float>());
+            if (params.contains("adaf_s"))
+                adaf_params.set("s", params["adaf_s"].cast<float>());
+            if (params.contains("adaf_intensity_scale"))
+                adaf_params.set("intensity_scale", params["adaf_intensity_scale"].cast<float>());
+            auto adaf = astroray::EmissionRegistry::instance().create("adaf", adaf_params);
+            bh->addVolumetricEmission(adaf);
+        }
 
         bool enableJet = params.contains("enable_jet")
             ? params["enable_jet"].cast<bool>() : false;

@@ -28,20 +28,26 @@ def build_scene(astroray, width: int = 32, height: int = 32):
     renderer.set_seed(42)
     renderer.set_adaptive_sampling(False)
 
-    # Camera: observer at 1e6 M from the black hole, 45° inclination.
-    # Field of view spans ~10 Schwarzschild radii at the BH distance.
-    # For M = 4e6 M_sun, 1 M_sun = 1.477 km, so M = 5.9e9 km.
-    # Observer distance: 1e6 M ~ 5.9e15 km ~ 39 AU (safe from tidal forces).
-    # Shadow angular size: ~5 R_S at 1e6 M ~ 10 / 1e6 rad ~ 10 μas.
-    # FOV = 40 deg to capture the shadow + surrounding glow.
+    # Camera in RENDER units (not physical km/AU). `add_black_hole`'s 3rd
+    # arg (20 below) is the BH GR influence-sphere radius in world units —
+    # ADAF emission is bounded by that sphere, so the visible structure is
+    # ~20 units in radius (NOT the 100 in adaf_r_outer, which is M units).
+    # Calibrated to the working synchrotron_jet scene (same M, same GR
+    # dispatch: camera dist ~75, FOV 28° for an influence-sphere arg of 16).
+    # The old physical 1e6 M observer distance collapsed the whole BH+ADAF
+    # to ~0.02 px → flat field. D=75, FOV 30° → ~1.25 render units/px at
+    # 32², resolving the quasi-spherical glow and the central dark-silhouette
+    # shadow. 45° inclination per spec. FOV 35° gives the ~40-unit glow
+    # margin inside the frame (avoids edge-clipping at 30°).
+    dist = 75.0
     renderer.setup_camera(
-        [0.0, 1.0e6 * 0.707, 1.0e6 * 0.707],  # 45° from equator
+        [0.0, dist * 0.707, dist * 0.707],  # 45° from equator
         [0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
-        40.0,  # FOV degrees
+        35.0,  # FOV degrees
         width / height,
         0.0,
-        1.0e6 * 1.414,  # focal distance
+        dist,  # focal distance ~ distance to target
         width,
         height,
     )

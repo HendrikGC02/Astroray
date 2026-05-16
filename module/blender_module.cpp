@@ -2464,6 +2464,10 @@ PYBIND11_MODULE(astroray, m) {
           "in-flight accumulator.");
 
     m.attr("__version__") = "3.0.0";
+#ifndef ASTRORAY_BUILD_ID
+#  define ASTRORAY_BUILD_ID "dev"
+#endif
+    m.attr("__build__") = ASTRORAY_BUILD_ID;
     m.attr("__features__") = py::dict(
         "nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,
         "adaptive_sampling"_a=true, "volumes"_a=true, "textures"_a=true, "subsurface"_a=true,

@@ -203,14 +203,14 @@ filed as its own ~½-day package and is the **first Round-10 pickup**.
 
 ## Progress
 
-- [ ] `astroray.__build__` exposed in `module/blender_module.cpp`
+- [x] `astroray.__build__` exposed in `module/blender_module.cpp`
       (compile-time `<git-short-sha>+<UTC-timestamp>` build-ID).
-- [ ] `build_blender_addon.py` writes the same build-ID into the install
+- [x] `build_blender_addon.py` writes the same build-ID into the install
       manifest in the zip; install path handles locked `.pyd` + GCs
       `.~stale~`.
-- [ ] `register()` guard implemented (one loud message, before any
+- [x] `register()` guard implemented (one loud message, before any
       `Renderer` use).
-- [ ] `tests/test_pkg94_build_integrity_guard.py` written + passing.
+- [x] `tests/test_pkg94_build_integrity_guard.py` written + passing.
 - [ ] CI green; no regressions; zero engine-logic lines changed.
 
 ## Lessons

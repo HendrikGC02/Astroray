@@ -494,12 +494,18 @@ def _ensure_git_longpaths():
         print("    git config --global core.longpaths true")
 
 
-def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str = "tcnn"):
+def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str = "tcnn", build_id: str | None = None):
     global BUILD_DIR
     if backend in ("cuda", "tcnn"):
         _ensure_git_longpaths()
     nvcc = _require_nvcc(backend)
     BUILD_DIR, extra_flags = _backend_config(backend)
+
+    # pkg94: compute build-ID once and inject into C++ compile
+    if build_id is None:
+        build_id = _compute_build_id()
+    print(f"build-ID: {build_id}")
+    extra_flags = [f"-DASTRORAY_BUILD_ID={build_id}", *extra_flags]
 
     # Pass the compiler path explicitly so CMake finds it even when nvcc is not
     # on the shell PATH (e.g. CUDA installed via VS integration or registry only).
@@ -553,6 +559,8 @@ def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str =
     run(["cmake", "--build", str(BUILD_DIR),
          "--config", "Release", "--target", "astroray",
          "-j", str(jobs)], env=cmake_env)
+
+    return build_id
 
 
 def find_built_module() -> Path:
@@ -768,8 +776,29 @@ def _bundle_oidn_dlls(module_path: Path) -> None:
     print("warning: OIDN DLLs not found — addon will rely on system PATH for OpenImageDenoise.dll")
 
 
-def stage_and_zip(module_path: Path, backend: str = "cpu") -> Path:
+def _compute_build_id() -> str:
+    """Return build-ID string: <git-short-sha>+<UTC-timestamp>.
+
+    Example: e6959a8+20260516T002503Z
+    pkg94: stale-loaded-module guard compares this between the loaded module
+    and the install manifest written by the same build.
+    """
+    import datetime
+    try:
+        git_sha = subprocess.check_output(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short=7", "HEAD"],
+            text=True, stderr=subprocess.DEVNULL, timeout=5).strip()
+    except Exception:
+        git_sha = "unknown"
+    utc_ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    return f"{git_sha}+{utc_ts}"
+
+
+def stage_and_zip(module_path: Path, backend: str = "cpu", build_id: str | None = None) -> Path:
     import json, datetime
+    if build_id is None:
+        build_id = _compute_build_id()
+
     _force_remove(STAGE_DIR)
     STAGE_DIR.mkdir(parents=True)
 
@@ -826,9 +855,11 @@ def stage_and_zip(module_path: Path, backend: str = "cpu") -> Path:
         shutil.copy2(license_src, STAGE_DIR / "LICENSE")
 
     # Write a build report so the packaged addon is self-describing
+    # pkg94: include build_id so register() can compare vs astroray.__build__
     _, extra_flags = _backend_config(backend)
     build_report = {
         "built_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "build_id": build_id,
         "backend": backend,
         "build_dir": str(BUILD_DIR),
         "module": module_path.name,
@@ -932,7 +963,9 @@ def main():
     print(f"Building against Python: {python_exe}")
 
     # 3. Configure + build (unless configure-only)
-    configure_and_build(python_exe, clean=args.clean, jobs=args.jobs, backend=args.backend)
+    # pkg94: thread build_id through configure→build→stage so the same ID is
+    # compiled into C++ and written to the manifest
+    build_id = configure_and_build(python_exe, clean=args.clean, jobs=args.jobs, backend=args.backend)
     if args.configure_only:
         print("configure-only: skipping stage/zip")
         return
@@ -941,7 +974,7 @@ def main():
     module_path = find_built_module()
     print(f"Built module: {module_path.name}")
     probe_built_module(module_path, args.backend)
-    zip_path = stage_and_zip(module_path, backend=args.backend)
+    zip_path = stage_and_zip(module_path, backend=args.backend, build_id=build_id)
     print(f"\nAddon package: {zip_path}")
     print(f"Staged dir:    {STAGE_DIR}")
 

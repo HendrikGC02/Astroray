@@ -14,6 +14,7 @@ def test_cli_emits_plan_json(tmp_path):
     led = tmp_path / "led.json"; led.write_text("{}", encoding="utf-8")
     out = subprocess.check_output(
         [sys.executable, "-m", "roadmap_orchestrator.cli", "--dry-run",
+         "--gpu-lock-free",
          "--prs-json", str(pj), "--ledger", str(led),
          "--next-stage-report", str(nsr),
          "--eligible", "pkg94", "--in-flight", "0"],
@@ -23,3 +24,4 @@ def test_cli_emits_plan_json(tmp_path):
     assert "Hardware gate" in plan["standup_md"]
     # dry-run must not have created/modified the ledger content
     assert led.read_text(encoding="utf-8") == "{}"
+    assert plan["dry_run"] is True

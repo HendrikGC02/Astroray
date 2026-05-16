@@ -1,4 +1,16 @@
-"""Parse the ordered package list from NEXT_STAGE_REPORT.md section 2."""
+"""Best-effort ordered package hint from NEXT_STAGE_REPORT.md section 2.
+
+SCOPE / ASSUMPTION: this is a permissive token scan over the whole §2 body.
+It deliberately does NOT distinguish the actionable "recommended deployable
+set" from packages merely mentioned in §2 prose (e.g. "Round 9 complete:
+pkgNN", "BUG-11 ≡ pkgNN", closed packages, fragments). That is acceptable
+because the only consumer is the hardware-queue *tiebreak ordering*
+(`queue.order_hw_queue`): relative order of real candidates is preserved,
+and phantom/closed tokens never match an open PR so they are never queued.
+The authoritative eligible/dispatch set is computed by SKILL.md via the
+dispatch-next eligibility logic, NOT from this function. Do not repurpose
+this as an authoritative dispatch list.
+"""
 import re
 
 _PKG = re.compile(r"pkg[0-9]+[A-Za-z0-9\-]*")

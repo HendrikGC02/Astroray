@@ -24,15 +24,17 @@ of the seventeen triaged symptoms (BUG-01, BUG-07, and the *crash* of
 BUG-03) are this one process artifact, and it *masks* the real P2 defects
 (BUG-04, BUG-05) so they cannot be verified at all.
 
-**After:** On `register()` the addon compares its expected build identity
-against `astroray.__build__`; on mismatch it raises exactly one loud,
+**After:** On `register()` the addon string-compares the loaded module's
+`astroray.__build__` build-ID against the build-ID recorded in the
+on-disk install manifest written by that same build; on mismatch it
+raises exactly one loud,
 unambiguous `RESTART BLENDER — stale module loaded` (not an
 `AttributeError` later, deeper, looking like a code bug). The install
 script refuses-or-warns when the target `.pyd` is locked, garbage-collects
 `.~stale~NNNN` shadow dirs, and prints `Quit Blender before reinstalling.`
 Re-installing under a running Blender produces the guard message, not a
 mystery `AttributeError`; a clean install on a quit Blender produces a
-matching stamp and no `.~stale~` residue.
+matching build-ID and no `.~stale~` residue.
 
 ---
 
@@ -79,12 +81,14 @@ filed as its own ~½-day package and is the **first Round-10 pickup**.
 - `blender_addon/__init__.py` — `register()` (addon entry point where the
   guard fires).
 - `module/blender_module.cpp` — the `astroray` extension module; the
-  build-stamp surface (`astroray.__build__`) lives here next to the
+  build-ID surface (`astroray.__build__`, a compile-time-embedded
+  `<git-short-sha>+<UTC-timestamp>` string) lives here next to the
   existing `__features__` / `__version__` attributes the pkg37
   Diagnostics panel already reads.
 - `build_blender_addon.py` — produces the packaged zip and the
-  `build_report.json` (pkg37, 2026-05-03 changelog) that already carries
-  per-backend build metadata; the stamp source of truth.
+  `build_report.json` / install manifest (pkg37, 2026-05-03 changelog)
+  that already carries per-backend build metadata; it records the same
+  build-ID string the C++ module is compiled with.
 - Installed-extension path:
   `%APPDATA%\Blender Foundation\Blender\5.1\extensions\user_default\astroray\`
   and its sibling `.~stale~NNNN` dirs.
@@ -101,20 +105,30 @@ filed as its own ~½-day package and is the **first Round-10 pickup**.
 
 ### Key design decisions
 
-1. **Stamp = content hash of the shipped `.pyd`, surfaced as
-   `astroray.__build__`.** The C++ module exposes a compile-time-embedded
-   build identity (the same hash `build_blender_addon.py` already records
-   in `build_report.json`). The addon ships a sibling constant (written
-   into the packaged zip at build time) with the *expected* value. On
-   `register()` the addon compares them. *Rationale:* a content hash is
-   the only thing that is immune to file-copy mtime games (the triage
-   proved the install mtime is just the copy timestamp, not a different
-   build). Reuse the existing `build_report.json` hash — do **not** invent
-   a second stamping scheme.
+1. **Stamp = a compile-time-embedded build identifier, surfaced as
+   `astroray.__build__`; NOT a content hash of the shipped `.pyd`.** A
+   content hash of the `.pyd` is unimplementable here: the stamp is part
+   of the module's bytes, so hashing the module that *contains* the stamp
+   is self-referential (the hash changes the moment you embed it). Instead
+   `astroray.__build__` is a build-ID string of the form
+   `<git-short-sha-of-build-commit>+<UTC-build-timestamp>` (example:
+   `e6959a8+20260516T002503Z`), embedded into `module/blender_module.cpp`
+   at compile time. The **same** build writes the **same** build-ID string
+   into the on-disk install manifest (`build_report.json` / the install
+   manifest). On `register()` the addon string-compares the loaded
+   module's `astroray.__build__` against the build-ID recorded in that
+   manifest. *Rationale:* the triage proved the install was byte-correct
+   and the *running* module was stale; a build-ID that is identical
+   between the loaded module and the manifest written by that same build
+   detects exactly the stale-loaded-module case, is immune to file-copy
+   mtime games (the SHA is the build commit, not a copy timestamp), and
+   avoids the self-referential-hash impossibility. Reuse the existing
+   `build_report.json` produced by pkg37 — do **not** invent a second
+   stamping scheme.
 2. **One loud failure, at `register()`, not a deferred `AttributeError`.**
    The guard raises a single, explicit
-   `RESTART BLENDER — stale module loaded (built <hash-a>, addon expects
-   <hash-b>)` at addon-registration time. It must fire *before* any
+   `RESTART BLENDER — stale module loaded (loaded build-ID <id-a>,
+   manifest build-ID <id-b>)` at addon-registration time. It must fire *before* any
    `Renderer` method is touched, so the user never sees the misleading
    `Did you mean load_environment_map?` hint. *Rationale:* the triage's
    core finding is that the failure currently surfaces late, deep, and
@@ -137,31 +151,32 @@ filed as its own ~½-day package and is the **first Round-10 pickup**.
 
 | File | What changes |
 |---|---|
-| `blender_addon/__init__.py` | `register()` gains the build-identity compare against `astroray.__build__`; raises one `RESTART BLENDER — stale module loaded` on mismatch, before any `Renderer` use. |
-| `module/blender_module.cpp` | Expose `astroray.__build__` (compile-time-embedded content hash; sibling to existing `__version__`/`__features__`). |
-| `build_blender_addon.py` | Write the expected-stamp constant into the packaged addon zip; ensure it equals the `build_report.json` hash. Install path: refuse-or-warn on locked `.pyd`, GC `.~stale~NNNN`, print "Quit Blender before reinstalling." |
+| `blender_addon/__init__.py` | `register()` reads the on-disk install manifest's recorded build-ID and string-compares it to the loaded `astroray.__build__`; raises one `RESTART BLENDER — stale module loaded` on mismatch, before any `Renderer` use. |
+| `module/blender_module.cpp` | Expose `astroray.__build__` — a compile-time-embedded `<git-short-sha-of-build-commit>+<UTC-build-timestamp>` build-ID string; sibling to existing `__version__`/`__features__`. |
+| `build_blender_addon.py` | Compute the build-ID once, compile it into the C++ module, and write the **same** string into the install manifest (`build_report.json`) shipped in the packaged addon zip. Install path: refuse-or-warn on locked `.pyd`, GC `.~stale~NNNN`, print "Quit Blender before reinstalling." |
 
 ### Files to create
 
 | File | Purpose |
 |---|---|
-| `tests/test_pkg94_build_integrity_guard.py` | (1) stamp match → `register()` succeeds silently; (2) stamp mismatch (simulated by patching the expected constant or `astroray.__build__`) → `register()` raises the exact `RESTART BLENDER — stale module loaded` message and does **not** raise a later `AttributeError`; (3) install-script helper: locked-target path produces the refuse/warn message + quit-Blender hint and does not silently create a shadow dir; (4) `.~stale~NNNN` GC removes the shadow dirs. |
+| `tests/test_pkg94_build_integrity_guard.py` | (1) build-ID match (loaded `astroray.__build__` string-equals manifest build-ID) → `register()` succeeds silently; (2) build-ID mismatch (simulated by patching the manifest build-ID or `astroray.__build__`) → `register()` raises the exact `RESTART BLENDER — stale module loaded` message and does **not** raise a later `AttributeError`; (3) install-script helper: locked-target path produces the refuse/warn message + quit-Blender hint and does not silently create a shadow dir; (4) `.~stale~NNNN` GC removes the shadow dirs. |
 
 ## Acceptance criteria
 
-- [ ] With a matching stamp, `register()` completes with no guard message
-      and no behavior change vs current main.
-- [ ] With a mismatched stamp (simulated), `register()` raises exactly
-      `RESTART BLENDER — stale module loaded` (with the built-vs-expected
-      hashes) and the test confirms **no** subsequent
+- [ ] With a matching build-ID, `register()` completes with no guard
+      message and no behavior change vs current main.
+- [ ] With a mismatched build-ID (simulated), `register()` raises exactly
+      `RESTART BLENDER — stale module loaded` (with the loaded-vs-manifest
+      build-IDs) and the test confirms **no** subsequent
       `AttributeError: ... 'upload_*'` is reachable in that session.
 - [ ] The install-script helper, given a locked target `.pyd`, emits the
       refuse/warn message and the `Quit Blender before reinstalling.`
       hint, and does not silently land a `.~stale~NNNN` shadow dir.
 - [ ] The install-script helper garbage-collects existing
       `.~stale~NNNN` directories.
-- [ ] `astroray.__build__` equals the `build_report.json` hash produced
-      by the same build (no second stamping scheme introduced).
+- [ ] The loaded `astroray.__build__` string-equals the build-ID recorded
+      in the install manifest written by the **same** build (one build-ID
+      scheme; no content hash; no second stamping scheme introduced).
 - [ ] All existing tests still pass (no regressions); zero engine-logic
       lines changed (diff is packaging + `register()` guard + the C++
       attribute only).
@@ -177,8 +192,11 @@ filed as its own ~½-day package and is the **first Round-10 pickup**.
   pkg56 Phase-C limitation — document, do not fix here.
 - Do **not** touch the depsgraph dispatcher, camera, materials, or any
   GPU path — those are pkg95 / pkg96 / pkg55-B'.
-- Do **not** invent a new versioning/stamping mechanism. Reuse the
-  existing `build_report.json` hash that pkg37 already produces.
+- Do **not** invent a new versioning/stamping mechanism, and do **not**
+  attempt a content hash of the shipped `.pyd` (self-referential — the
+  stamp is part of the hashed bytes). Reuse the existing
+  `build_report.json` / install manifest that pkg37 already produces,
+  recording the single `<git-short-sha>+<UTC-timestamp>` build-ID.
 - Do **not** add a generic "addon health check" framework. One stamp
   compare in `register()` plus the install-script lock handling — nothing
   speculative.
@@ -186,9 +204,10 @@ filed as its own ~½-day package and is the **first Round-10 pickup**.
 ## Progress
 
 - [ ] `astroray.__build__` exposed in `module/blender_module.cpp`
-      (content hash; equals `build_report.json`).
-- [ ] `build_blender_addon.py` writes the expected-stamp constant into
-      the zip; install path handles locked `.pyd` + GCs `.~stale~`.
+      (compile-time `<git-short-sha>+<UTC-timestamp>` build-ID).
+- [ ] `build_blender_addon.py` writes the same build-ID into the install
+      manifest in the zip; install path handles locked `.pyd` + GCs
+      `.~stale~`.
 - [ ] `register()` guard implemented (one loud message, before any
       `Renderer` use).
 - [ ] `tests/test_pkg94_build_integrity_guard.py` written + passing.
@@ -220,7 +239,9 @@ verifiability multiplier for the entire Round-10 addon track.
   before pkg95 / pkg96 (both depend on pkg94 for verifiability) and runs
   concurrently with, and independent of, pkg55-B' Session 3 (zero file
   contention — addon Python/packaging vs CPU wavefront sources).
-- **Acceptance gate (one line):** re-installing the addon under a running
-  Blender produces the `RESTART BLENDER — stale module loaded` guard
-  message (not an `AttributeError`), and a clean install on a quit
-  Blender leaves a matching stamp and no `.~stale~` residue.
+- **Acceptance gate (one line):** the loaded `astroray.__build__` string
+  equals the build-ID recorded in the install manifest written by the
+  same build; on an injected mismatch the addon raises the single loud
+  `RESTART BLENDER — stale module loaded` error at `register()` and
+  refuses to proceed (no later `AttributeError`); a clean install on a
+  quit Blender leaves a matching build-ID and no `.~stale~` residue.

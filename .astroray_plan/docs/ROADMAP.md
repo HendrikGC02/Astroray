@@ -192,8 +192,11 @@ depends on pkg94, independent of pkg95). **P5's GPU parity
 (BUG-11 ≡ pkg85-D, done), NOT a separate addon GPU package** — pkg96
 ships only the cheap honesty guard. **Owner decision (final): Round 10 =
 concurrent, pkg94 first**; pkg95 ∥ pkg96 then run concurrently with
-pkg55-B' Session 3 (addon Python/packaging vs CPU wavefront — zero file
-contention). **pkg87a/pkg87b/pkg87c** Cryptomatte (pkg87 split into
+pkg55-B' Session 3 — **zero contention with pkg55-B' Session 3** (addon
+Python vs `src/cpu/wavefront/*`); **however pkg95 and pkg96 both edit
+`blender_addon/__init__.py` in disjoint surfaces and require same-file
+coordination/rebase — they are logically parallel, not contention-free.**
+**pkg87a/pkg87b/pkg87c** Cryptomatte (pkg87 split into
 three units per PR #293), **pkg76 CSV** rows on RTX. pkg67 (metric-aware
 path tracer) shipped PR #262.
 

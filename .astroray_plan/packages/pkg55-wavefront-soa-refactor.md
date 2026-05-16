@@ -327,10 +327,15 @@ Phase C):
   gate: GPU treats a solid/HDRI world as an environment light
   (NEE/indirect), not a camera-ray miss color. pkg85-D
   (`test_gpu_cpu_ssim_hdri`, SSIM 0.9793, **done** PR #283) is the
-  env-map-only witness; the geometry-bearing complement ("world-only
-  diffuse sphere CPU vs GPU not-black", recorded in the pkg85-D spec) is
-  the addon-scene generalization. pkg85-D being done is *why* the owner
-  can defer P5's BUG-11 into this track without user risk.
+  **env-map-only, no-geometry** witness and validates the world-as-light
+  *invariant* only on that no-geometry scene; it does **not** currently
+  exercise the geometry-bearing BUG-11 witness. The geometry-bearing
+  complement ("world-only diffuse sphere CPU vs GPU not-black") is
+  **deferred** and is added *here* as this named Phase-B/C parity gate —
+  it is not yet covered on main. Until this gate lands, pkg96's
+  world-only-on-GPU honesty guard is the only user-facing protection for
+  BUG-11. pkg85-D being done bounds (does not eliminate) the user-facing
+  risk; the residual geometry-bearing case is closed by this gate.
 
 These gates do **not** change any current session's close gate; they
 record where P5's real resolution lands so the addon track (pkg96) ships

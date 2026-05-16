@@ -67,29 +67,46 @@ world-as-light parity defect pkg85-D was filed for and **closed**: the
 GPU XYZ→sRGB ordering fix that landed pkg85-D restored CPU/GPU
 world-only parity on the geometry-less env-map scene.
 
-**Coverage statement.** BUG-11's CPU/GPU world-only-diffuse symptom is
-**covered by pkg85-D's gate** (`test_gpu_cpu_ssim_hdri`, SSIM ≥ 0.97).
-The pkg85-D scene is env-map-only (no geometry); the addon's BUG-11
-disambiguating experiment (a single diffuse sphere, solid grey world, no
-lights, CPU vs GPU) is the geometry-bearing variant of the same
-invariant.
+**Coverage statement (accurate scope — do not overstate).**
 
-**Named regression check (add when pkg85-D is next touched):**
-`world-only diffuse sphere CPU vs GPU not-black` — a single diffuse
-sphere under a solid grey world with no light objects must render
-non-black on GPU and within SSIM parity of CPU. This is the
-geometry-bearing complement to `test_gpu_cpu_ssim_hdri` and the explicit
-witness for addon BUG-11. (Recorded here as a named gate; it folds into
-the pkg55-B' Phase-B/C parity gates per the pkg55 spec edits filed in the
-Round-10 doc PR — BUG-11 ≡ pkg85-D is a *named* Phase-B/C parity gate
-there.)
+1. **What pkg85-D's gate actually validates.** pkg85-D's existing SSIM
+   gate (`test_gpu_cpu_ssim_hdri`, SSIM 0.9793 ≥ 0.97) validates GPU/CPU
+   world-as-light parity on an **env-map-only scene with NO geometry**
+   (`load_environment_map(...) + setup_camera(...)`, no objects, no
+   lights). It does **not** currently exercise the geometry-bearing
+   BUG-11 witness. The BUG-11 disambiguating experiment is "a single
+   diffuse sphere, solid grey world, no lights, CPU vs GPU" — that scene
+   has *geometry* whose first-bounce BSDF illumination must come from the
+   world. pkg85-D's no-geometry scene shares the world-as-light
+   *invariant* but not the geometry-bearing *code path* (NEE / indirect
+   off a surface), so BUG-11 is **not** already covered by the pkg85-D
+   gate as it stands.
 
-**Why this makes P5's BUG-11 deferrable without user risk.** PR #300 §5
-defers P5's GPU architecture into pkg55-B' and ships only a UX honesty
-guard now (pkg96). That deferral is safe for BUG-11 specifically
-**because pkg85-D is already done**: the GPU world-as-light path has a
-passing SSIM parity gate on main, so BUG-11 is not an open correctness
-hole — it is a *covered* invariant whose addon-scene generalization is
-scheduled as a named pkg55-B' parity gate, not an unaddressed user-facing
-bug. pkg85-D being `done` is *why* the owner can defer P5's BUG-11 into
-the wavefront track without exposing users to a regression.
+2. **The geometry-bearing parity check is DEFERRED, not done.** A
+   `world-only diffuse sphere CPU vs GPU not-black` regression check — a
+   single diffuse sphere under a solid grey world with no light objects,
+   rendering non-black on GPU and within SSIM parity of CPU — is
+   **deferred**. It is to be added when pkg85-D is next touched / folded
+   into the pkg55-B' Phase-B/C parity gate (see the pkg55 spec edits in
+   the Round-10 doc PR, where BUG-11 ≡ pkg85-D is a *named* Phase-B/C
+   parity gate). Until that test exists, this geometry-bearing variant of
+   BUG-11 is **not** validated on main. Do not claim it is covered.
+
+3. **The fallback / safety net until then.** Because the geometry-bearing
+   parity test does not yet exist, **`pkg96`'s world-only-on-GPU honesty
+   guard is the only user-facing protection for BUG-11.** If pkg85-D's
+   geometry-bearing parity work slips (or pkg55-B' Phase-B/C is delayed),
+   pkg96 is the safety net: it makes the GPU world-only-diffuse limitation
+   honest to the user rather than silently producing a black surface. The
+   pkg96 honesty guard is therefore load-bearing for BUG-11 and must not
+   be dropped on the assumption that pkg85-D already covers it.
+
+**Why P5's BUG-11 is still deferrable.** PR #300 §5 defers P5's GPU
+architecture into pkg55-B' and ships only the pkg96 UX honesty guard now.
+That deferral is acceptable for BUG-11 **not** because pkg85-D fully
+covers the geometry-bearing case (it does not — see (1)/(2)), but because
+(a) the world-as-light *invariant* has a passing no-geometry SSIM gate on
+main, (b) the geometry-bearing parity check is scheduled as a named
+pkg55-B' Phase-B/C gate, and (c) until that gate lands, pkg96's honesty
+guard prevents users from silently hitting BUG-11. The user-facing risk
+is bounded by pkg96, not eliminated by pkg85-D.

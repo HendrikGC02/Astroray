@@ -101,7 +101,8 @@ pkg55-B' Session 3**, depending only on pkg94.
   Stage 3 (P2 work + P5 guard, dependency on Stage 1, P2 independent of
   pkg55-B', P5 must NOT be implemented here), §5 the P5/pkg55-B' overlap
   and recommended sequencing, §9 the owner focusing question on the
-  guard's behavior (notice vs auto-route-to-CPU).
+  guard's behavior — **resolved (Round-10 review): notice, no
+  auto-route** (see Key design decision 3).
 - Triage: `.astroray_plan/docs/blender-addon-bug-triage-2026-05-15.md`
   (PR #295) — BUG-04 (RC-3, World re-parse only on full sync), BUG-05
   (RC-3, `device_mode` classified as `accumulation_only`, never
@@ -125,9 +126,14 @@ pkg55-B' Session 3**, depending only on pkg94.
   BUG-11 ≡ pkg85-D), per the pkg55 spec edits filed alongside this
   package.
 - pkg85-D spec: `.astroray_plan/packages/pkg85-D-hdri-world-only-ssim-parity.md`
-  — BUG-11's CPU/GPU world-only-diffuse symptom is covered there
-  (done, PR #283, SSIM 0.9793); this is *why* P5's BUG-11 is deferrable
-  without user risk.
+  — pkg85-D's SSIM gate (done, PR #283, SSIM 0.9793) validates the
+  world-as-light invariant only on an **env-map-only, no-geometry** scene;
+  the geometry-bearing BUG-11 witness ("diffuse sphere, grey world, no
+  lights, not-black") is **deferred** to a named pkg55-B' Phase-B/C parity
+  gate and is **not** yet covered on main. Until that gate lands, **this
+  package's (pkg96) world-only-on-GPU honesty guard is the only
+  user-facing protection for BUG-11** — it is the safety net, not a
+  redundant check.
 
 ## Prerequisites
 
@@ -135,9 +141,10 @@ pkg55-B' Session 3**, depending only on pkg94.
       module throws before the dispatcher path is reached). This is *the*
       reason pkg94 is Round-10 first.
 - [ ] Build passes on main.
-- [ ] Owner's §9 decision on the P5 guard behavior (display a notice vs
-      auto-route AOV/denoise/world-only passes to CPU) — implement the
-      owner's choice; default to a non-crashing notice if unspecified.
+- [ ] §9 P5-guard behavior — **decided (Round-10 review): show a clear,
+      specific notice; do NOT auto-route to CPU.** Implement exactly the
+      notice (Key design decision 3); the "auto-route / default if
+      unspecified" option is removed.
 
 ## Specification
 
@@ -155,17 +162,30 @@ pkg55-B' Session 3**, depending only on pkg94.
 2. **P2 is independent of pkg55-B'.** It is a CPU-path Python dispatcher
    change; zero overlap with the wavefront SoA/CUDA track. It can land
    concurrently with any pkg55-B' session.
-3. **P5 guard is UX-only — the architecture is NOT built here.** When
-   `device_mode` resolves to GPU and the scene requests AOV / denoise /
-   compositor passes or is world-only-lit, surface a clear, non-crashing
-   notice ("AOV / denoise / world-as-light passes are CPU-only pending
-   the pkg55-B' wavefront pass pipeline"); optionally auto-route those
-   passes to CPU per the owner's §9 decision. **No GPU kernel work. No
-   parallel megakernel pass/upload path.** *Rationale:* PR #300 §5 — the
-   wavefront pipeline is already building exactly that infrastructure;
-   a parallel implementation is duplicate work deleted in Phase C.
+3. **P5 guard is UX-only — the architecture is NOT built here; the
+   behavior is a NOTICE, never a silent backend switch.** *Decided
+   (Round-10 review, resolving the §9 fork):* when `device_mode` resolves
+   to GPU and the scene requests AOV / denoise / compositor passes or is
+   world-only-diffuse-lit, the addon shows a **clear, specific notice**
+   that the feature is **CPU-only** and the GPU backend will **not**
+   produce it (e.g. "AOV / denoise / world-as-light passes are CPU-only
+   pending the pkg55-B' wavefront pass pipeline — switch the backend to
+   CPU to get this output"). It does **NOT** silently auto-route the
+   render to CPU and does **NOT** change the backend behind the user's
+   back. An honest notice with no hidden behavior change is the simpler,
+   non-surprising contract (CLAUDE.md Simplicity First); a silent
+   auto-route would mask which backend actually ran. **No GPU kernel
+   work. No parallel megakernel pass/upload path.** *Rationale:* PR #300
+   §5 — the wavefront pipeline is already building exactly that
+   infrastructure; a parallel implementation is duplicate work deleted in
+   Phase C.
 4. **P5's real close is scheduled into pkg55-B', not here.** BUG-11 ≡
-   pkg85-D (done — the GPU env-as-light SSIM gate); BUG-02/10 become
+   pkg85-D: pkg85-D validates the world-as-light invariant only on an
+   **env-map-only, no-geometry** scene (done, PR #283); the
+   geometry-bearing BUG-11 witness is a **deferred** named pkg55-B'
+   Phase-B/C parity gate, **not** yet covered on main — this pkg96 notice
+   is its only user-facing protection until that gate lands. BUG-02/10
+   become
    pkg55-B' shade/terminate-stage deliverables (the wavefront stages must
    write the pass buffers `get_render_pass_buffer` already reads on CPU);
    BUG-12 becomes a pkg55-B' SoA-per-domain-upload co-design note. These
@@ -194,10 +214,12 @@ pkg55-B' Session 3**, depending only on pkg94.
 - [ ] **P2/BUG-05:** switching CPU/GPU in the rendered viewport switches
       the backend without leaving rendered mode (`device_mode` has a real
       domain calling `_configure_backend_for_context`).
-- [ ] **P5 guard:** with GPU selected, an AOV/denoise/world-only scene
-      shows the guard notice (or silently renders correctly on CPU per
-      the owner's §9 decision) — never a black/wrong image presented as
-      if correct. **No GPU kernel code added.**
+- [ ] **P5 guard:** with GPU selected, an AOV/denoise/world-only-diffuse
+      scene shows the specific CPU-only notice text, and the test asserts
+      (a) the notice text appears and (b) **no silent backend switch
+      occurs** (the render still runs on the GPU backend the user
+      selected; it is not silently re-routed to CPU) — never a black/wrong
+      image presented as if correct. **No GPU kernel code added.**
 - [ ] All existing tests still pass; no regressions; the diff is the one
       dispatcher + the UX guard only (no GPU/SoA/megakernel lines).
 
@@ -226,7 +248,8 @@ pkg55-B' Session 3**, depending only on pkg94.
       (World re-parse before `upload_environment`).
 - [ ] P2: `device_mode` real domain → `_configure_backend_for_context`
       (no longer `accumulation_only`).
-- [ ] P5 guard implemented (owner's §9 behavior: notice vs auto-route).
+- [ ] P5 guard implemented (decided behavior: specific CPU-only notice,
+      no silent backend switch).
 - [ ] `tests/test_pkg96_reconcile_then_upload.py` written + passing.
 - [ ] CI green; no regressions.
 
@@ -258,6 +281,7 @@ GPU parity folded into pkg55-B' as named acceptance gates.
   close is tracked by the pkg55-B' spec edits, not by this package.
 - **Acceptance gate (one line):** world-color and CPU/GPU-switch edits
   take effect live in the rendered viewport without a full re-sync, and a
-  GPU AOV/denoise/world-only scene shows an honest guard (or CPU
-  auto-route) instead of a silent black/wrong image — with zero GPU
-  kernel code added.
+  GPU AOV/denoise/world-only-diffuse scene shows the specific CPU-only
+  notice text with **no silent backend switch** (the render stays on the
+  user-selected GPU backend) instead of a silent black/wrong image — with
+  zero GPU kernel code added.

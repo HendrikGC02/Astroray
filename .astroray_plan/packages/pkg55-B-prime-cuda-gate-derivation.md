@@ -153,6 +153,22 @@ session 3+ does not regress it a third time.
    blocking pointer are a *separate* pkg55 spec edit filed alongside (in
    the same Round-10 doc PR) — recorded here for traceability but not
    this package's deliverable text.
+6. **GATE-THRESHOLDS-PINNED (named gate, not prose).** The CPU↔GPU gate
+   *form* is fixed here, but the *numbers* are not closed until measured.
+   The named gate is: **the first CUDA-port session (pkg55-B' Session
+   N+2) MUST pin the numeric ULP bound (PostInit/PostIntersect geometry),
+   the p99.9 relative-error percentile bound (Post-Shade/LightSample/RR),
+   and the SSIM floor *before* any CUDA code change in that session.**
+   The gate is **not "closed"** until these three numbers are written
+   into this spec (replacing the `≤ 4 ULP` / `p99.9` / `SSIM ≥ 0.985`
+   placeholders, which are explicitly flagged "measured-and-pinned, not
+   invented"). **Sessions N+2..M are blocked until GATE-THRESHOLDS-PINNED
+   is satisfied** — measurement-then-pin is the first action of Session
+   N+2, gating any kernel edit in that and every subsequent CUDA session.
+   *Rationale:* PR #296 §4.2 — pinning the form without forcing the
+   numbers to be measured-first would let the CUDA sessions drift the
+   thresholds to whatever the current code happens to produce, defeating
+   the gate.
 
 ### Files to modify (the deliverable)
 
@@ -188,6 +204,12 @@ session 3+ does not regress it a third time.
       conversion is the companion pkg55 edit filed in the same Round-10
       doc PR; this criterion verifies the pointer exists and names this
       package).
+- [ ] **GATE-THRESHOLDS-PINNED** is recorded in the spec as a named gate:
+      it explicitly states that pkg55-B' Session N+2 must pin the numeric
+      ULP bound, the p99.9 percentile bound, and the SSIM floor **before**
+      any CUDA code change, that the gate is not "closed" until those
+      three numbers are written into the spec, and that Sessions N+2..M
+      are blocked until it is satisfied.
 - [ ] No code, no test, no behavior change anywhere.
 
 ## Non-goals
@@ -243,5 +265,7 @@ unblocked.
 - **Acceptance gate (one line):** the pkg55 spec no longer says
   "bit-identity" for CPU↔GPU; Phase B' design decision #9
   ("shared-kernel, never re-transcribe") is present with its structural
-  CI checks; and the A.1 ray-normalization checklist item is present in
-  the Session-2c design doc.
+  CI checks; the A.1 ray-normalization checklist item is present in the
+  Session-2c design doc; and the **GATE-THRESHOLDS-PINNED** named gate is
+  recorded (Session N+2 pins ULP / p99.9 / SSIM numbers before any CUDA
+  code change; Sessions N+2..M blocked until pinned).

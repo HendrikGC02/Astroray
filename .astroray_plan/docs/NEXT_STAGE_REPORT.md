@@ -116,8 +116,12 @@ pkg87-split, pkg92, pkg89 Phase A, pkg55-B' Session 2c.
   - **P5's GPU parity (BUG-02/10/11/12) is deferred into pkg55-B' as
     named acceptance gates** (BUG-11 ≡ pkg85-D, done PR #283), NOT a
     separate addon GPU package — pkg96 ships only the honesty guard.
-  - Sequencing: **pkg94 first → pkg95 ∥ pkg96 ∥ pkg55-B' Session 3**
-    (addon Python/packaging vs CPU wavefront — zero file contention).
+  - Sequencing: **pkg94 first → pkg95 ∥ pkg96 ∥ pkg55-B' Session 3**.
+    Zero contention with pkg55-B' Session 3 (addon Python vs
+    `src/cpu/wavefront/*`); however **pkg95 and pkg96 both edit
+    `blender_addon/__init__.py` in disjoint surfaces and require
+    same-file coordination/rebase — they are logically parallel, not
+    contention-free.**
 - **pkg55-B-prime-cuda-gate-derivation** — #296 §4.4 filed as a
   doc-only package (two-tier gate reword + design decision #9 + A.1
   checklist item). **Blocks ONLY pkg55-B' CUDA Sessions N+2..M; does
@@ -155,14 +159,17 @@ pkg87-split, pkg92, pkg89 Phase A, pkg55-B' Session 2c.
   the Blender addon remediation track.~~ **RESOLVED (2026-05-16): Round
   10 = concurrent, pkg94 first.** pkg94 (P1 build-integrity guard) lands
   first as the verifiability multiplier; then pkg95 ∥ pkg96 run
-  concurrently with pkg55-B' Session 3. Addon track (Python/packaging)
-  and wavefront track (CPU wavefront) have zero file contention. **No
-  open owner decisions remain for the Round-10 addon track.**
-- Outstanding (pkg96-internal, not blocking dispatch): the PR #300 §9
-  question on the P5 guard *behavior* (display a notice vs auto-route
-  AOV/denoise/world-only passes to CPU) — implement the owner's choice;
-  default to a non-crashing notice if unspecified. This is a pkg96
-  implementation detail, not a Round-10 sequencing gate.
+  concurrently with pkg55-B' Session 3. **Zero contention with pkg55-B'
+  Session 3** (addon Python vs `src/cpu/wavefront/*`); **however pkg95
+  and pkg96 both edit `blender_addon/__init__.py` in disjoint surfaces
+  and require same-file coordination/rebase — they are logically
+  parallel, not contention-free.** **No open owner decisions remain for
+  the Round-10 addon track.**
+- Resolved (pkg96-internal, Round-10 review): the PR #300 §9 question on
+  the P5 guard *behavior* is **decided — show a clear, specific CPU-only
+  notice; do NOT auto-route AOV/denoise/world-only passes to CPU** (no
+  silent backend switch). This is a settled pkg96 implementation
+  detail, not a Round-10 sequencing gate.
 
 ---
 
@@ -378,11 +385,15 @@ When done: PR titled
    resolution as always.
 2. **pkg55 wavefront CPU sources** — single-owner (Track A); no
    cross-track contention while Phase B' is CPU-only. The addon track
-   (pkg94/95/96, Python/packaging) has **zero file contention** with
-   pkg55-B' Session 3 (CPU wavefront sources) — they run concurrently.
-3. **`blender_addon/__init__.py`** — pkg95 and pkg96 both edit it but in
-   **disjoint surfaces** (pkg95: preview/IR-UV/camera; pkg96: depsgraph
-   dispatcher + P5 guard). Coordinate edits / rebase; no logical
+   (pkg94/95/96, Python/packaging) has **zero contention with pkg55-B'
+   Session 3** (addon Python vs `src/cpu/wavefront/*`) — they run
+   concurrently. **This zero-contention claim is scoped to the
+   addon-vs-wavefront boundary only; it does NOT extend to pkg95↔pkg96,
+   which share `blender_addon/__init__.py` (see item 3).**
+3. **`blender_addon/__init__.py`** — pkg95 and pkg96 **both edit it in
+   disjoint surfaces** (pkg95: preview/IR-UV/camera; pkg96: depsgraph
+   dispatcher + P5 guard) and **require same-file coordination/rebase —
+   they are logically parallel, not contention-free.** No logical
    dependency between them. Both depend on pkg94 (which touches
    `register()` only).
 4. **Per-emitter plugin files** — pkg44 lands in its own file.

@@ -55,7 +55,7 @@ sys.modules['gpu_extras'] = Mock()
 sys.modules['gpu_extras.presets'] = Mock()
 
 # Import after stubbing
-from blender_addon import CustomRaytracerRenderEngine, _configure_backend_for_context
+from blender_addon import CustomRaytracerRenderEngine, _configure_backend_for_context, _check_gpu_limitations_and_report
 
 
 class TestP2BUG04WorldReconcile:
@@ -192,8 +192,6 @@ class TestP5GuardGPULimitations:
         renderer._use_gpu = True  # GPU is active
         settings = Mock()
         settings.device_mode = 'gpu'
-
-        from blender_addon import _check_gpu_limitations_and_report
 
         # Call the guard with GPU active + AOV passes
         reported = _check_gpu_limitations_and_report(

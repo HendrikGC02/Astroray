@@ -243,14 +243,14 @@ pkg55-B' Session 3**, depending only on pkg94.
 
 ## Progress
 
-- [ ] **pkg94 merged** (prerequisite).
-- [ ] P2: per-domain reconcile step added to `_apply_depsgraph_updates`
+- [x] **pkg94 merged** (prerequisite).
+- [x] P2: per-domain reconcile step added to `_apply_depsgraph_updates`
       (World re-parse before `upload_environment`).
-- [ ] P2: `device_mode` real domain → `_configure_backend_for_context`
+- [x] P2: `device_mode` real domain → `_configure_backend_for_context`
       (no longer `accumulation_only`).
-- [ ] P5 guard implemented (decided behavior: specific CPU-only notice,
+- [x] P5 guard implemented (decided behavior: specific CPU-only notice,
       no silent backend switch).
-- [ ] `tests/test_pkg96_reconcile_then_upload.py` written + passing.
+- [x] `tests/test_pkg96_reconcile_then_upload.py` written + passing.
 - [ ] CI green; no regressions.
 
 ## Lessons

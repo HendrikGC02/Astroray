@@ -256,12 +256,26 @@ forgotten):
 
 ## This week
 
-**Week of:** 2026-05-17 (Round 10 closeout — 7 PRs merged since Round 9)
+**Week of:** 2026-05-17 (Round 10 closeout — 8 PRs merged since Round 9; Round 11 direction set)
 
 ### Track A (Claude Code)
 
-- **Round 10 complete (2026-05-17)** — 7 PRs merged. Headline wins:
+- **Round 11 direction (2026-05-17):** **CUDA-port path leads** to close
+  the still-unmet viewport-parity claim. Owner decision: pkg55-B'
+  Sessions N+1 (shadow/miss/terminate CPU stages) → N+2..M (CUDA port of
+  wavefront shade kernels) is top priority. pkg100 (.blend importer
+  camera-intrinsics fix) is **explicitly DEPRIORITIZED** relative to
+  CUDA-port work — the project accepts continued real-scene parity
+  blindness in the near term to close the performance/viewport-parity
+  claim first. Rationale: the viewport-parity acceptance gate (CUDA
+  pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene) is the
+  critical path to Pillar 5 completion and the competitive claim Astroray
+  makes publicly; real-scene CSV rows (blocked on pkg100) are a secondary
+  validation artifact, not the gate-releaser.
+
+- **Round 10 complete (2026-05-17)** — 8 PRs merged. Headline wins:
   - **pkg44 ADAF accretion model** (PR #310) — Narayan & Yi 1995 self-similar ADAF solution + Yuan & Narayan 2014 prefactors; synchrotron + bremsstrahlung thermal emission; 19 tests pass; power-law exponents exact; Sgr A* profiles within tolerance. Pillar 4 → ~50%.
+  - **pkg94 addon build-integrity guard** (PR #304) — Stage 1 / P1 of the addon remediation track. Core build-ID guard implemented: `astroray.__build__` attribute exposed, `register()` guard fires on mismatch, unit tests pass. The verifiability multiplier for all subsequent addon fixes.
   - **pkg55-B' Sessions 6/7/8** — growing-oracle expansion complete for thin_glass (PR #312), diffuse_light (PR #316), closure_graph (PR #318). All three: EXACT bit-identity (max abs diff 0.0, diverging fields = 0); production codegen byte-unchanged.
   - **pkg55-B-prime-cuda-gate-derivation** (PR #320) — two-tier CPU↔CPU / CPU↔GPU gate definition now authoritative in pkg55 spec; design decision #9 added; A.1 ray-normalization checklist item added. Unblocks CUDA-port Sessions N+2..M.
   - **Doc-only specs filed:** pkg99 (ADAF quasi-spherical glow re-investigation, PR #315), pkg90 (hardware-verifier build-env bootstrap, PR #319), pkg100 (.blend importer camera-intrinsics dynamic-attr defect, PR #321).
@@ -275,10 +289,10 @@ forgotten):
   - **pkg55-B' Session 2c** (PR #297) — CPU wavefront skeleton; EXACT bit-identity by shared-kernel construction (0.0 across all 5 stages, MinGW + Linux-GCC CI).
   - **Doc-pass corrections:** pkg85-D status corrected to done (PR #283, SSIM 0.9793 ≥ 0.97); ReSTIR `test_spatial_reduces_mse` flake filed as issue #298.
 
-- **Round 11 next-up** (per updated NEXT_STAGE_REPORT.md §2):
-  - **Top priority:** **pkg94** (addon build-integrity guard — first pickup, no deps), then **pkg95 ∥ pkg96** concurrent with **pkg55-B' Sessions N+1** (shadow/miss/terminate stages on CPU).
-  - **Second tier:** **pkg100** (.blend importer camera-intrinsics fix — small, unblocks pkg76 CSV rows), **pkg89 Phase B** (Blender addon — full-scene G8 + G1–G5), **pkg99** (ADAF quasi-spherical glow re-investigation).
-  - **Third tier:** **pkg90** (hardware-verifier build-env bootstrap — unblocks orchestrator HW gate for unattended operation).
+- **Round 11 next-up** (per updated NEXT_STAGE_REPORT.md §2; owner direction: **CUDA-port path leads**):
+  - **Top priority (lead track):** **pkg55-B' Session N+1** (shadow/miss/terminate stages on CPU — final CPU-only session before CUDA-port begins), then **Sessions N+2..M** (CUDA port of wavefront shade kernels — multi-session, ~4 weeks total; the path to viewport-parity acceptance gate closure).
+  - **Second tier (lower priority than CUDA-port track):** **pkg95 ∥ pkg96** (addon Stage 2/3; pkg94 already done PR #304), **pkg89 Phase B** (Blender addon — full-scene G8 + G1–G5), **pkg99** (ADAF quasi-spherical glow re-investigation).
+  - **Third tier (DEPRIORITIZED):** **pkg100** (.blend importer camera-intrinsics fix — small, unblocks pkg76 CSV rows; **owner decision: DEPRIORITIZED relative to CUDA-port work**), **pkg90** (hardware-verifier build-env bootstrap — unblocks orchestrator HW gate for unattended operation), **pkg76 CSV** (blocked on pkg100).
   - **Deferred:** Issue #276 clearcoat flake (owner triage); issue #298 ReSTIR MC-noise strict-inequality flake (recommend seed-pin or tolerance).
   - **Later:**
     - pkg86 Light Tree (pkg89 Phase A accessors now available)

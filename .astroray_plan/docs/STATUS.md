@@ -437,12 +437,16 @@ events are summarized in the changelog below.
   (PR #266 amendment; Sessions 2b PR #281 + 2c PR #297 landed — CPU wavefront
   now bit-identical to `reference_pt_wavefront` by shared-kernel construction).
   origin/pkg55-phase-b remains a HELD reference only.
-- **pkg55-B' two-tier gate re-derivation owed before CUDA port** — the
-  program-wide "bit-identity gates each port" line (Sessions N+2..M) must be
-  re-derived into a **two-tier** gate (exact CPU↔CPU / bounded+SSIM CPU↔GPU)
-  before any CUDA-port session begins. Flagged in the pkg55 spec NOTE; the
-  open pkg55-2c technique review (PR #296) feeds this. Not actioned in
-  Session 2c by design.
+- **pkg55-B' two-tier gate re-derivation DONE** — the program-wide "bit-identity
+  gates each port" line (Sessions N+2..M) has been re-derived into a **two-tier**
+  gate (exact CPU↔CPU / bounded+SSIM CPU↔GPU) per PR #296 §4.4. The pkg55 spec
+  now carries the authoritative two-tier definition (§4.2 table), design decision
+  #9 (shared-kernel, never re-transcribe), and the GATE-THRESHOLDS-PINNED named
+  gate (Session N+2 must measure-then-pin ULP/p99.9/SSIM bounds before any CUDA
+  code change). The A.1 ray-normalization checklist item has been added to the
+  Session-2c design doc. **Unblocks Sessions N+2..M** (CUDA-port sessions); Sessions
+  3..N (growing-oracle expansion on CPU) were never blocked and proceed with the
+  existing exact-0.0 CPU↔CPU gate.
 - **ReSTIR `test_spatial_reduces_mse` MC-noise flake** —
   [Issue #298](https://github.com/HendrikGC02/Astroray/issues/298):
   `tests/test_restir_validation.py::TestSpatialMSE::test_spatial_reduces_mse`

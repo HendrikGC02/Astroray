@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A / E (doc-only spec derivation; informs the wavefront CUDA-port methodology)
-**Status:** open — doc-only. Deliverable is a set of **in-place pkg55 spec edits**. **Blocks ONLY pkg55-B' CUDA-port Sessions N+2..M — does NOT block Sessions 3..N.**
+**Status:** done (PR #<TBD>, 2026-05-17) — two-tier CPU↔CPU / CPU↔GPU gate definition now authoritative in the pkg55 spec; design decision #9 added; A.1 ray-normalization checklist item added to Session-2c design doc; STATUS.md known-issues note resolved. **Unblocks pkg55-B' CUDA-port Sessions N+2..M.**
 **Estimated effort:** ~½ day; doc-only (no code, no tests)
 **Depends on:** PR #296 (pkg55-B' Session-2c technique review — the source of the §4.4 actions). pkg55-B' Session 2c done (PR #297).
 

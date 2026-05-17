@@ -39,14 +39,19 @@ inline float filterSample(RNG& gen, std::uniform_real_distribution<float>& dist)
     return dist(gen) - 0.5f;
 }
 
-// Session 7 scope enforcement: Lambertian + metal + dielectric + disney + thin_glass + diffuse_light.
+// Session 8 scope enforcement: Lambertian + metal + dielectric + disney + thin_glass + diffuse_light + closure_graph.
 void assertMaterialInScope(const Material* mat) {
     if (!mat) return;
-    std::string gpuType = mat->getGPUTypeName();
-    if (gpuType != "lambertian" && gpuType != "metal" && gpuType != "dielectric" && gpuType != "disney" && gpuType != "thin_glass" && !mat->isEmissive()) {
+    // Use backendCapabilities().gpuType to catch both explicit GPU type names
+    // (lambertian, metal, dielectric, disney, thin_glass) AND closure-graph-based
+    // materials (closure_matte, which has gpuType="closure_graph" via closureGraph()).
+    std::string gpuType = mat->backendCapabilities().gpuType;
+    if (gpuType != "lambertian" && gpuType != "metal" && gpuType != "dielectric" &&
+        gpuType != "disney" && gpuType != "thin_glass" && gpuType != "closure_graph" &&
+        !mat->isEmissive()) {
         fprintf(stderr,
-                "[pkg55-B-Session7] ERROR: material '%s' is out of scope "
-                "(Lambertian + metal + dielectric + disney + thin_glass + diffuse_light only). Aborting.\n", gpuType.c_str());
+                "[pkg55-B-Session8] ERROR: material '%s' is out of scope "
+                "(Lambertian + metal + dielectric + disney + thin_glass + diffuse_light + closure_graph only). Aborting.\n", gpuType.c_str());
         std::abort();
     }
 }

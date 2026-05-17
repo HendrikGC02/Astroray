@@ -23,13 +23,19 @@ namespace cpu_wavefront {
 
 namespace {
 
-// Session 6 scope enforcement: Lambertian + metal + dielectric + disney + thin_glass + area lights.
+// Session 8 scope enforcement: Lambertian + metal + dielectric + disney + thin_glass + diffuse_light + closure_graph.
 void assertMaterialInScope(const Material* mat) {
     if (!mat) return;  // emission-only lights have no BSDF material
-    std::string gpuType = mat->getGPUTypeName();
-    if (gpuType != "lambertian" && gpuType != "metal" && gpuType != "dielectric" && gpuType != "disney" && gpuType != "thin_glass" && !mat->isEmissive()) {
-        fprintf(stderr, "[pkg55-B-Session6] ERROR: material '%s' is out of scope "
-                        "(Lambertian + metal + dielectric + disney + thin_glass only). Aborting.\n", gpuType.c_str());
+    // Use backendCapabilities().gpuType to catch both explicit GPU type names
+    // (lambertian, metal, dielectric, disney, thin_glass) AND closure-graph-based
+    // materials (closure_matte, which has gpuType="closure_graph" via closureGraph()).
+    std::string gpuType = mat->backendCapabilities().gpuType;
+    if (gpuType != "lambertian" && gpuType != "metal" && gpuType != "dielectric" &&
+        gpuType != "disney" && gpuType != "thin_glass" && gpuType != "closure_graph" &&
+        !mat->isEmissive()) {
+        fprintf(stderr,
+                "[pkg55-B-Session8] ERROR: material '%s' is out of scope "
+                "(Lambertian + metal + dielectric + disney + thin_glass + diffuse_light + closure_graph only). Aborting.\n", gpuType.c_str());
         std::abort();
     }
 }

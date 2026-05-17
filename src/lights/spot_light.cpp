@@ -27,7 +27,7 @@ SpotLight::SpotLight(const Vec3& position,
     , intensity_(intensity)
     , radius_(radius)
     , ies_(ies)
-    , normalizeFactor_(Light::computeNormalizeFactor(emission, normalize))
+    , normalizeFactor_(Light::computeNormalizeFactor(emission, true))
 {
 }
 

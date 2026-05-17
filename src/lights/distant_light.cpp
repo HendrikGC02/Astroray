@@ -19,7 +19,7 @@ DistantLight::DistantLight(const Vec3& axis,
     , angularDiameter_(angularDiameter)
     , emission_(emission)
     , intensity_(intensity)
-    , normalizeFactor_(Light::computeNormalizeFactor(emission, normalize))
+    , normalizeFactor_(Light::computeNormalizeFactor(emission, true))
 {
 }
 

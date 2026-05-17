@@ -28,7 +28,7 @@ AreaLight::AreaLight(const Vec3& position,
     , emission_(emission)
     , intensity_(intensity)
     , spread_(spread)
-    , normalizeFactor_(Light::computeNormalizeFactor(emission, normalize))
+    , normalizeFactor_(Light::computeNormalizeFactor(emission, true))
 {
     // Compute normal (u × v).
     normal_ = u_.cross(v_).normalized();

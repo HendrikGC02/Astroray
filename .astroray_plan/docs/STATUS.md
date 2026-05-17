@@ -1,6 +1,6 @@
 # Astroray Status
 
-**Last updated:** 2026-05-17 (Round 10 in-progress — pkg55-B' Sessions 3/4/5 merged; growing-oracle expansion (metal/dielectric/disney) complete; all bit-identity gates PASS. Prior: addon first-principles plan landed (#300); pkg94/95/96 + pkg55-B-prime-cuda-gate-derivation filed; owner ruled Round-10 = concurrent, pkg94 first)
+**Last updated:** 2026-05-17 (Round 10 closeout — pkg44 ADAF + pkg55-B' Sessions 3/4/5/6/7/8 + pkg55-B-prime-cuda-gate-derivation + pkg100 spec all merged; growing-oracle expansion (metal/dielectric/disney/thin_glass/diffuse_light/closure_graph) complete; all bit-identity gates PASS. Prior: addon first-principles plan landed (#300); pkg94/95/96 filed; pkg90/99/100 specs queued)
 
 This is the source-of-truth for "where are we?" Updated by the overseer
 at the start of each week, and by the project owner when a significant
@@ -80,8 +80,8 @@ personally should pick up.
   1972 + Chandrasekhar + 39 tests), **pkg42 synchrotron emission** (PR
   #245, VolumetricEmission interface + Pandya 2016 power-law/thermal
   fits + bipolar jet plugin + Blender jet controls + 9 focused tests).
-  **pkg43 (slim disk)** + **pkg44 (ADAF)** are next in series for
-  Round 7 Codex; pkg45–51 paste-ready specs queued.
+  **pkg43 (slim disk, done PR #271)** + **pkg44 (ADAF, done PR #310)** shipped.
+  pkg45–51 paste-ready specs queued.
 - Pytest collection (`runtime_setup.py` `os.add_dll_directory` dedupe
   in PR #225): **801 tests collected** on the Windows MSVC `build_cuda`
   configuration. New since Round 3: pkg64-3 default-integrator + no-
@@ -114,7 +114,7 @@ personally should pick up.
 | 1 | Plugin architecture | **Done** | 100% | — | — |
 | 2 | Spectral core | **Done** | 100% | — | — |
 | 3 | Light transport | **Validation** | 90% | NRC batched-inference speedup target; pkg89 Phase B (Blender addon) | CUDA kernels for ReSTIR/NRC are not implemented; pkg89 Phase A done (PR #294) |
-| 4 | Astrophysics platform | **Active, shipping** | 45% | pkg44 ADAF accretion model | gate released; pkg40 + pkg41 + pkg42 + pkg43 + pkg47 (FITS loader) done; pkg44–51 queued (pkg47 FITS loader landed PR #292; FITSVolume registration deferred to pkg48) |
+| 4 | Astrophysics platform | **Active, shipping** | 50% | pkg45/46 CLOUDY/HII region | gate released; pkg40 + pkg41 + pkg42 + pkg43 + pkg44 + pkg47 (FITS loader) done; pkg45–51 queued (pkg47 FITS loader landed PR #292; FITSVolume registration deferred to pkg48) |
 | 5 | Production polish / Blender parity | **Feature-complete on planned scope; viewport-parity gate now owned by pkg55 Phase B; addon-remediation track spec-ready and dispatchable** | ~98% (counter) | pkg55 Phase B (per-material shade kernels — owns the viewport-parity claim) **+ addon remediation: pkg94 (first, no deps) → pkg95 ∥ pkg96 (depend on pkg94) — spec-ready, dispatchable now (owner ruled concurrent, pkg94 first)** | pkg73 ✓ + pkg80 ✓ + pkg81 P1+P2 ✓ + pkg55-A.1 ✓ all done 2026-05-11; pkg55-B is the long-tail; addon track unblocked (plan #300 landed; P5 folded into pkg55-B' + pkg85-D) |
 
 **Pillar 1 package summary:**
@@ -243,7 +243,7 @@ forgotten):
 | pkg41 | Kerr geodesic validation | **done** (PR #236 — 39 tests; BPT 1972 + Chandrasekhar analytic + null circular photon residuals + Kerr a=0 vs Schwarzschild identity + shadow-contour image-plane regression) |
 | pkg42 | Synchrotron emission and relativistic jets | **done** (PR #245, 2026-05-11 — VolumetricEmission interface, `synchrotron_jet` plugin, Pandya 2016 power-law/thermal fits, bipolar jet plugin, Blender jet controls, 9 focused tests) |
 | pkg43 | Slim disk accretion model | **done** (PR #271, 2026-05-14 — Abramowicz 1988 / Sadowski 2009, 14/14 tests, T(9M,mdot=1) = 7.45e6 K) |
-| pkg44 | ADAF accretion model | open |
+| pkg44 | ADAF accretion model | **done** |
 | pkg45 | CLOUDY emissivity table preprocessing | open |
 | pkg46 | HII region emission plugin | open |
 | pkg47 | FITS loader | **done** (PR #292, 2026-05-15 — FITS I/O wrapper + FITSTexture plugin + CMake gate `ASTRORAY_ENABLE_FITS` default OFF; FITSVolume registration+test deferred to pkg48 per owner ruling) |
@@ -256,11 +256,31 @@ forgotten):
 
 ## This week
 
-**Week of:** 2026-05-16 (Round 10 begins — Round 9 complete with 6 PRs merged)
+**Week of:** 2026-05-17 (Round 10 closeout — 8 PRs merged since Round 9; Round 11 direction set)
 
 ### Track A (Claude Code)
 
-- **Round 9 complete (2026-05-16)** — 6 PRs merged (see Changelog for full list). Headline wins:
+- **Round 11 direction (2026-05-17):** **CUDA-port path leads** to close
+  the still-unmet viewport-parity claim. Owner decision: pkg55-B'
+  Sessions N+1 (shadow/miss/terminate CPU stages) → N+2..M (CUDA port of
+  wavefront shade kernels) is top priority. pkg100 (.blend importer
+  camera-intrinsics fix) is **explicitly DEPRIORITIZED** relative to
+  CUDA-port work — the project accepts continued real-scene parity
+  blindness in the near term to close the performance/viewport-parity
+  claim first. Rationale: the viewport-parity acceptance gate (CUDA
+  pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene) is the
+  critical path to Pillar 5 completion and the competitive claim Astroray
+  makes publicly; real-scene CSV rows (blocked on pkg100) are a secondary
+  validation artifact, not the gate-releaser.
+
+- **Round 10 complete (2026-05-17)** — 8 PRs merged. Headline wins:
+  - **pkg44 ADAF accretion model** (PR #310) — Narayan & Yi 1995 self-similar ADAF solution + Yuan & Narayan 2014 prefactors; synchrotron + bremsstrahlung thermal emission; 19 tests pass; power-law exponents exact; Sgr A* profiles within tolerance. Pillar 4 → ~50%.
+  - **pkg94 addon build-integrity guard** (PR #304) — Stage 1 / P1 of the addon remediation track. Core build-ID guard implemented: `astroray.__build__` attribute exposed, `register()` guard fires on mismatch, unit tests pass. The verifiability multiplier for all subsequent addon fixes.
+  - **pkg55-B' Sessions 6/7/8** — growing-oracle expansion complete for thin_glass (PR #312), diffuse_light (PR #316), closure_graph (PR #318). All three: EXACT bit-identity (max abs diff 0.0, diverging fields = 0); production codegen byte-unchanged.
+  - **pkg55-B-prime-cuda-gate-derivation** (PR #320) — two-tier CPU↔CPU / CPU↔GPU gate definition now authoritative in pkg55 spec; design decision #9 added; A.1 ray-normalization checklist item added. Unblocks CUDA-port Sessions N+2..M.
+  - **Doc-only specs filed:** pkg99 (ADAF quasi-spherical glow re-investigation, PR #315), pkg90 (hardware-verifier build-env bootstrap, PR #319), pkg100 (.blend importer camera-intrinsics dynamic-attr defect, PR #321).
+
+- **Round 9 complete (2026-05-16)** — 6 PRs merged. Headline wins:
   - **pkg91 integrator param lifecycle** (PR #290) — `Integrator::setMaxDepth` + integrator rebuild on `set_integrator_param`; closes the Q1/Q2 silent-no-op footguns.
   - **pkg47 FITS loader** (PR #292) — FITS I/O wrapper + FITSTexture plugin, gated `ASTRORAY_ENABLE_FITS` default OFF; FITSVolume deferred to pkg48.
   - **pkg87 split** (PR #293) — original pkg87 superseded; pkg87a/pkg87b/pkg87c now the Cryptomatte work units.
@@ -269,21 +289,10 @@ forgotten):
   - **pkg55-B' Session 2c** (PR #297) — CPU wavefront skeleton; EXACT bit-identity by shared-kernel construction (0.0 across all 5 stages, MinGW + Linux-GCC CI).
   - **Doc-pass corrections:** pkg85-D status corrected to done (PR #283, SSIM 0.9793 ≥ 0.97); ReSTIR `test_spatial_reduces_mse` flake filed as issue #298.
 
-- **Round 10 — addon first-principles plan landed; specs filed; pkg55-B' Sessions 3/4/5 merged (2026-05-16/17)** — the architect first-principles plan merged (#300, building on triage #295). The Blender addon remediation track is now **spec-ready and dispatchable**:
-  - **pkg94** — Stage 1 / P1 build-integrity guard (~½ day, **Round-10 first pickup, depends on nothing**). Collapses BUG-01/03(crash)/07; the verifiability multiplier for the whole addon track.
-  - **pkg95** — Stage 2 / P3+P4 dead-UI-wires (BUG-15/13/09) + Blender-native camera (BUG-08). Depends on pkg94.
-  - **pkg96** — Stage 3 / P2 reconcile-then-upload sync (BUG-04/05) + P5 honesty guard (UX-only). Depends on pkg94; independent of pkg95.
-  - **pkg55-B-prime-cuda-gate-derivation** — #296 §4.4 filed as a doc-only package: two-tier gate reword + design decision #9 + A.1 checklist item. Blocks ONLY pkg55-B' CUDA Sessions N+2..M; does NOT block Sessions 3..N.
-  - **P5 / BUG-11 folded into pkg55-B' + pkg85-D as named gates** (BUG-02/10 ⇒ shade/terminate write pass buffers; BUG-12 ⇒ SoA per-domain upload; BUG-11 ≡ pkg85-D, done PR #283). pkg96 ships only the honesty guard — NOT a separate addon GPU package.
-  - **Owner decision (final): Round-10 = concurrent, pkg94 first.** pkg94 lands first; then pkg95 ∥ pkg96 run concurrently with pkg55-B' Session 3 — zero contention with pkg55-B' Session 3 (addon Python vs `src/cpu/wavefront/*`); however pkg95 and pkg96 both edit `blender_addon/__init__.py` in disjoint surfaces and require same-file coordination/rebase — they are logically parallel, not contention-free. No open owner decisions remain for the Round-10 addon track.
-  - **pkg55-B' Sessions 3/4/5 merged (2026-05-16/17)** — growing-oracle expansion complete for metal/dielectric/disney materials:
-    - **Session 3 — Metal** (PR #306, merged) — EXACT bit-identity (max abs diff 0.0, diverging fields 0). Full suite: 979 passed.
-    - **Session 4 — Dielectric** (PR #308, merged) — EXACT bit-identity (max abs diff 0.0, diverging fields 0). Full suite: 1006 passed.
-    - **Session 5 — Disney** (PR #309, open) — EXACT bit-identity (max abs diff 0.0, diverging fields 0). Full suite: 1006 passed. Production codegen byte-unchanged (only `src/cpu/wavefront/` modified). All three regression checks (Sessions 2c/3/4) still PASS.
-- **Round 10 next-up** (per updated NEXT_STAGE_REPORT.md §2):
-  - **Top priority:** **pkg94** (addon build-integrity guard — first pickup, no deps), then **pkg95 ∥ pkg96** concurrent with **pkg55-B' Sessions 3..N** (growing-oracle expansion — add metal/dielectric/disney/etc. shade kernels; **pkg55-B-prime-cuda-gate-derivation** MUST land before any CUDA-port session, but Sessions 3..N proceed unblocked).
-  - **Second tier:** **pkg44 ADAF** (Pillar 4, unblocked) and **pkg89 Phase B** (Blender addon — full-scene G8 + G1–G5).
-  - **Open doc PRs (context, not round-work):** #295 (addon bug triage), #296 (pkg55-2c technique review). The pkg55-2c review feeds the two-tier-gate re-derivation.
+- **Round 11 next-up** (per updated NEXT_STAGE_REPORT.md §2; owner direction: **CUDA-port path leads**):
+  - **Top priority (lead track):** **pkg55-B' Session N+1** (shadow/miss/terminate stages on CPU — final CPU-only session before CUDA-port begins), then **Sessions N+2..M** (CUDA port of wavefront shade kernels — multi-session, ~4 weeks total; the path to viewport-parity acceptance gate closure).
+  - **Second tier (lower priority than CUDA-port track):** **pkg95 ∥ pkg96** (addon Stage 2/3; pkg94 already done PR #304), **pkg89 Phase B** (Blender addon — full-scene G8 + G1–G5), **pkg99** (ADAF quasi-spherical glow re-investigation).
+  - **Third tier (DEPRIORITIZED):** **pkg100** (.blend importer camera-intrinsics fix — small, unblocks pkg76 CSV rows; **owner decision: DEPRIORITIZED relative to CUDA-port work**), **pkg90** (hardware-verifier build-env bootstrap — unblocks orchestrator HW gate for unattended operation), **pkg76 CSV** (blocked on pkg100).
   - **Deferred:** Issue #276 clearcoat flake (owner triage); issue #298 ReSTIR MC-noise strict-inequality flake (recommend seed-pin or tolerance).
   - **Later:**
     - pkg86 Light Tree (pkg89 Phase A accessors now available)
@@ -417,6 +426,10 @@ events are summarized in the changelog below.
 | pkg89 | A | **Phase A done** | PR #294, 2026-05-15 — Light interface + 5 types + integrator wiring; G6/G9 pass, G8 0.41% < 1%; MinGW large-struct heap-corruption fix re-applied. Full-scene G8 + G1–G5 are Phase B (Blender addon). Unblocks pkg86 Light Tree accessors. |
 | pkg91 | A | **done** | PR #290, 2026-05-15 — Fork A.1 + B.1: `Integrator::setMaxDepth(int)` virtual + integrator rebuild on `set_integrator_param`; 4 tests pass; post-construction param change verified (3.6% brightness diff proves max_depth now takes effect). Closes Q1+Q2 footguns surfaced during pkg55-B' Session 2b. |
 | pkg92 | A | **done** | PR #291, 2026-05-15 — PCG32 keyed by `(pixel, sample, dim)`; equivalence test passes at 64 spp (per-channel mean ratios within 5%). PractRand statistical gate CI-enforced; stream-disjointness threshold 0.03 @1024 with documented 1/√N rationale; TestU01 documented unbuildable on MinGW, PractRand substituted per owner decision. |
+| pkg55-B-prime-cuda-gate-derivation | A/E | **done** | PR #320, 2026-05-17 — two-tier CPU↔CPU / CPU↔GPU gate definition now authoritative in pkg55 spec; design decision #9 (shared-kernel, never re-transcribe); A.1 ray-normalization checklist item added to Session-2c design doc. Unblocks pkg55-B' CUDA-port Sessions N+2..M. |
+| pkg90 | A | open — ready to implement | Hardware-verifier build-env bootstrap (MSVC + worktree-parameterized CUDA build); unblocks orchestrator HW gate for unattended operation. Spec PR #319. |
+| pkg99 | A | open — ready to implement | ADAF quasi-spherical glow re-investigation; pkg44 wiring correct but visual gate only partial (faint emission sliver vs quasi-spherical glow). Spec PR #315. |
+| pkg100 | A | open — ready to implement | .blend importer camera-intrinsics dynamic-attr defect fix; blocks pkg76 §3.5 CSV follow-up. Spec PR #321. |
 | pkg68 | A | **done** | persistent OIDN device, CUDA-first init, member-cached filter; CUDA verifier session 2026-05-10 on RTX 5070 Ti: 13/13 pytest green (incl. `test_cuda_capable_build_reports_cuda_device`), `[OIDN] Using CUDA device` confirmed, single device init across N=4 renders verified; viewport timing 256×256 spp=2: OIDN-on 50.67 ms/frame vs OIDN-off baseline 23.81 ms/frame (Δ=26.86 ms persistent-device overhead) |
 | pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
 | pkg70 | A | **done** | OptiX denoiser plugin co-equal with OIDN; persistent OptixDeviceContext + OptixDenoiser handle, lazy init, HDR vs AOV model selection by guide presence; `gpu_optix_available()` Python probe; addon `denoiser_backend` Auto/OptiX/OIDN with OptiX preferred when both present. **Verified 2026-05-10 on RTX 5070 Ti + OptiX 9.1.0**: 17/17 pytest green; 5.31× synthetic-noise reduction at 256×256; 1.86× faster than OIDN-CUDA at 1080p (728.94 ms vs 1356.09 ms); SSIM(OptiX, OIDN) = 0.9987. Empty-normal-buffer defect surfaced upstream during verification → tracked as pkg75 |
@@ -526,6 +539,15 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-17 (Round 10 closeout)** — 7 PRs merged; Pillar 4 → 50%; pkg55-B' growing-oracle expansion complete.
+  - **pkg44 ADAF accretion model** (PR #310, 2026-05-17) — Narayan & Yi 1995 self-similar ADAF solution + Yuan & Narayan 2014 prefactors; synchrotron (Pandya 2016 reused from pkg42) + bremsstrahlung thermal emission; 19 tests pass (power-law exponents exact, Sgr A* profiles within tolerance). Pillar 4 → ~50%.
+  - **pkg99 spec — ADAF quasi-spherical glow re-investigation** (PR #315, 2026-05-17, doc-only) — pkg44 wiring correct but visual gate only partial (crisp shadow + faint emission sliver vs the specified quasi-spherical glow). Unblocks RTX visual-iteration follow-up.
+  - **pkg55-B' Session 7 — Diffuse Light** (PR #316, 2026-05-17) — scope guard extended to `lambertian + metal + dielectric + disney + thin_glass + diffuse_light`. Emissive sphere test coverage (distinct from area light triangles). Bit-identity gate: PASS (max abs diff 0.0, diverging fields 0). Full suite: 1006 passed. Production codegen: byte-unchanged.
+  - **pkg55-B' Session 8 — Closure Graph** (PR #318, 2026-05-17) — scope guard extended to all seven material types (`lambertian + metal + dielectric + disney + thin_glass + diffuse_light + closure_graph`). Closure_matte sphere (blue-tinted diffuse). Bit-identity gate: PASS (max abs diff 0.0, diverging fields 0). Full suite: 1006 passed. Production codegen: byte-unchanged. **Growing-oracle expansion now complete before Session N+1 (shadow/miss/terminate stages).**
+  - **pkg90 spec — Hardware-verifier build-env bootstrap** (PR #319, 2026-05-17, doc-only) — MSVC + worktree-parameterized CUDA build; unblocks orchestrator HW gate for unattended operation (currently `hw_blocked_buildenv` on every HW-gated PR).
+  - **pkg55-B-prime-cuda-gate-derivation** (PR #320, 2026-05-17, doc-only) — two-tier CPU↔CPU / CPU↔GPU gate definition now authoritative in pkg55 spec (exact bit-identity for CPU↔CPU, ULP-bounded + SSIM for CPU↔GPU); design decision #9 added (shared-kernel, never re-transcribe); A.1 ray-normalization checklist item added to Session-2c design doc. Unblocks CUDA-port Sessions N+2..M.
+  - **pkg100 spec — .blend importer camera-intrinsics dynamic-attr defect** (PR #321, 2026-05-17, doc-only) — every `.blend` import fails with `AttributeError: 'astroray.Renderer' object has no attribute '_cam_intrinsics' and no __dict__`; blocks pkg76 §3.5 CSV follow-up (Classroom / Junkshop / BMW27 RTX parity rows).
 
 - **2026-05-16 (Round 9 closeout)** — 6 PRs merged; status corrections + 1 flake issue filed.
   - **pkg91 integrator parameter lifecycle** (PR #290, 2026-05-15) — Fork A.1 + B.1: `Integrator::setMaxDepth(int)` virtual + integrator rebuild on `set_integrator_param`. Closes Q1 (`Renderer.render(max_depth=N)` silently ignored under integrators) + Q2 (`set_integrator_param` after `set_integrator` no-op). 4 tests pass; post-construction change verified (3.6% brightness diff).

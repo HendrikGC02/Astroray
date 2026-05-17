@@ -93,10 +93,12 @@ back without user intervention.
 > emission, PR #245 — VolumetricEmission interface, Pandya 2016 fits,
 > bipolar jet plugin, 9 tests)** + **pkg43 (slim disk accretion model,
 > PR #271 — Abramowicz 1988 / Sadowski 2009, 14/14 tests, T(9M,mdot=1) =
-> 7.45e6 K)** + **pkg47 (FITS data loader, PR #292 — FITS I/O wrapper +
-> FITSTexture plugin, gated `ASTRORAY_ENABLE_FITS` default OFF; FITSVolume
-> deferred to pkg48)** all done. **Pillar 4 now ~45% complete.** **pkg44
-> (ADAF)** is the next Codex pickup; pkg45–pkg51 specs queued.
+> 7.45e6 K)** + **pkg44 (ADAF accretion model, PR #310 — Narayan & Yi
+> 1995 self-similar solution, 19 tests, Sgr A* profiles within tolerance)**
+> + **pkg47 (FITS data loader, PR #292 — FITS I/O wrapper + FITSTexture
+> plugin, gated `ASTRORAY_ENABLE_FITS` default OFF; FITSVolume deferred to
+> pkg48)** all done. **Pillar 4 now ~50% complete.** pkg45–pkg51 specs
+> queued.
 
 Kerr metric, synchrotron emission, HII recombination lines, simulation
 data import (FITS, HDF5, yt), telescope PSF. Each phenomenon is a

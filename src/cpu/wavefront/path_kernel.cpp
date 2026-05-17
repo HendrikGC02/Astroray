@@ -39,14 +39,14 @@ inline float filterSample(RNG& gen, std::uniform_real_distribution<float>& dist)
     return dist(gen) - 0.5f;
 }
 
-// Session 5 scope enforcement: Lambertian + metal + dielectric + disney + area lights.
+// Session 6 scope enforcement: Lambertian + metal + dielectric + disney + thin_glass + area lights.
 void assertMaterialInScope(const Material* mat) {
     if (!mat) return;
     std::string gpuType = mat->getGPUTypeName();
-    if (gpuType != "lambertian" && gpuType != "metal" && gpuType != "dielectric" && gpuType != "disney" && !mat->isEmissive()) {
+    if (gpuType != "lambertian" && gpuType != "metal" && gpuType != "dielectric" && gpuType != "disney" && gpuType != "thin_glass" && !mat->isEmissive()) {
         fprintf(stderr,
-                "[pkg55-B-Session5] ERROR: material '%s' is out of scope "
-                "(Lambertian + metal + dielectric + disney only). Aborting.\n", gpuType.c_str());
+                "[pkg55-B-Session6] ERROR: material '%s' is out of scope "
+                "(Lambertian + metal + dielectric + disney + thin_glass only). Aborting.\n", gpuType.c_str());
         std::abort();
     }
 }

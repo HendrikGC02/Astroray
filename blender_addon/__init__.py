@@ -3445,32 +3445,53 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     return bpy.path.abspath(value)
             return ""
 
+        def _build_emission_dict(light):
+            # pkg89 Phase B: construct EmissionSpectrum dict from Blender light properties.
+            # Q-Owner-1 resolution: default to blackbody (D65 6500K) with color as tint filter.
+            # Blender 4.5+ has light.use_temperature toggle; fallback to RGB if not available.
+            use_temp = getattr(light, 'use_temperature', False)
+            if use_temp and hasattr(light, 'temperature'):
+                # Blackbody mode: temperature + color as tint filter.
+                temp_k = float(light.temperature)
+                tint = list(light.color)  # RGB tint (filter on top of blackbody)
+                return {
+                    'mode': 'blackbody',
+                    'temperature_K': temp_k,
+                    'tint_rgb': tint
+                }
+            else:
+                # RGB upsample mode (Jakob-Hanika).
+                return {
+                    'mode': 'rgb',
+                    'color': list(light.color)
+                }
+
         for obj in depsgraph.objects:
             if obj.type != 'LIGHT': continue
             light = obj.data
             matrix = obj.matrix_world
             position = list(matrix.translation)
-            mat_id = renderer.create_material('light', list(light.color), {'intensity': float(light.energy)})
             ies_path = _resolve_ies_path(light)
+            emission_dict = _build_emission_dict(light)
+            intensity = float(light.energy)
+            pass_idx = int(getattr(obj, "pass_index", 0))
 
             if light.type == 'POINT':
-                direction = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))
-                if direction.length_squared > 0.0:
-                    direction.normalize()
-                else:
-                    direction = mathutils.Vector((0.0, -1.0, 0.0))
-                renderer.add_sphere(
-                    position, 0.1, mat_id, [direction.x, direction.y, direction.z], ies_path,
-                    int(getattr(obj, "pass_index", 0)), 0
+                # pkg89 Phase B: use dedicated PointLight (no more 0.1 m sphere hack).
+                radius = float(max(getattr(light, 'shadow_soft_size', 0.0), 0.0))
+                renderer.add_point_light(
+                    position, emission_dict, intensity, radius, ies_path, pass_idx, 0
                 )
             elif light.type == 'SUN':
+                # pkg89 Phase B: use dedicated DistantLight with EmissionSpectrum.
                 direction = matrix.to_3x3() @ mathutils.Vector((0, 0, -1))
                 angle = float(getattr(light, 'angle', 0.0))
-                renderer.add_sun_light(
-                    [direction.x, direction.y, direction.z], angle, mat_id,
-                    int(getattr(obj, "pass_index", 0)), 0
+                renderer.add_sun_light_dedicated(
+                    [direction.x, direction.y, direction.z], angle, emission_dict, intensity,
+                    pass_idx, 0
                 )
             elif light.type == 'AREA':
+                # pkg89 Phase B: use dedicated AreaLight with EmissionSpectrum.
                 basis = matrix.to_3x3()
                 axis_u = list((basis @ mathutils.Vector((1, 0, 0))).normalized())
                 axis_v = list((basis @ mathutils.Vector((0, 1, 0))).normalized())
@@ -3486,23 +3507,30 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     'DISK': 'DISK',
                     'ELLIPSE': 'ELLIPSE',
                 }
-                renderer.add_area_light(
+                renderer.add_area_light_dedicated(
                     position, axis_u, axis_v, size_x, size_y,
-                    shape_map.get(shape, 'RECTANGLE'), mat_id, spread,
-                    int(getattr(obj, "pass_index", 0)), 0
+                    shape_map.get(shape, 'RECTANGLE'), emission_dict, intensity, spread,
+                    pass_idx, 0
                 )
             elif light.type == 'SPOT':
+                # pkg89 Phase B: use dedicated SpotLight with EmissionSpectrum.
                 direction = (matrix.to_3x3() @ mathutils.Vector((0, 0, -1))).normalized()
                 radius = float(max(getattr(light, 'shadow_soft_size', 0.0), 0.0))
-                renderer.add_spot_light(
+                # Blender spot_size is the full cone angle; we need outer half-angle.
+                outer_angle = float(light.spot_size) / 2.0
+                # Blender spot_blend is the blend zone fraction; compute inner angle.
+                blend_fraction = float(light.spot_blend)
+                inner_angle = outer_angle * (1.0 - blend_fraction)
+                renderer.add_spot_light_dedicated(
                     position,
                     [direction.x, direction.y, direction.z],
+                    inner_angle,
+                    outer_angle,
+                    emission_dict,
+                    intensity,
                     radius,
-                    mat_id,
-                    float(light.spot_size),
-                    float(light.spot_blend),
                     ies_path,
-                    int(getattr(obj, "pass_index", 0)),
+                    pass_idx,
                     0,
                 )
 

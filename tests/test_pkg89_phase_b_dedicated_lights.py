@@ -18,10 +18,6 @@ def test_g1_dedicated_lights_zoo(astroray_module):
     Verify each light type produces a non-trivial image and no crashes.
     """
     r = astroray_module.Renderer()
-    r.set_width(128)
-    r.set_height(128)
-    r.set_num_samples(64)
-    r.set_max_depth(4)
 
     # Camera looking at origin
     r.setup_camera(
@@ -94,7 +90,7 @@ def test_g1_dedicated_lights_zoo(astroray_module):
     )
 
     # Render
-    pixels = r.render()
+    pixels = r.render(64, 4)
 
     # Validate: non-NaN, non-negative, non-trivial mean
     assert np.all(np.isfinite(pixels)), "G1 FAIL: pixels contain NaN/inf"
@@ -114,10 +110,6 @@ def test_g2_blackbody_spectral_correctness(astroray_module):
     # that the rendered color matches the expected D65 white point in XYZ.
 
     r = astroray_module.Renderer()
-    r.set_width(64)
-    r.set_height(64)
-    r.set_num_samples(256)
-    r.set_max_depth(1)
 
     r.setup_camera(
         look_from=[0, 0, 3],
@@ -154,7 +146,7 @@ def test_g2_blackbody_spectral_correctness(astroray_module):
         spread=1.57
     )
 
-    pixels = r.render()
+    pixels = r.render(256, 1)
 
     # Compute mean RGB (should be close to D65 white point when rendered on white surface)
     mean_rgb = np.mean(pixels, axis=(0, 1))
@@ -193,10 +185,6 @@ def test_g4_spot_cone_falloff(astroray_module):
     Outside outer cone: zero intensity.
     """
     r = astroray_module.Renderer()
-    r.set_width(64)
-    r.set_height(64)
-    r.set_num_samples(256)
-    r.set_max_depth(1)
 
     r.setup_camera(
         look_from=[0, 0, 3],
@@ -233,7 +221,7 @@ def test_g4_spot_cone_falloff(astroray_module):
         radius=0.0
     )
 
-    pixels = r.render()
+    pixels = r.render(256, 1)
 
     # Check center (should be bright, within inner cone)
     center_lum = np.mean(pixels[32-2:32+2, 32-2:32+2])
@@ -253,10 +241,6 @@ def test_g5_point_light_isotropy_hard_shadows(astroray_module):
     old 0.1 m emissive-sphere hack which always produced soft shadows).
     """
     r = astroray_module.Renderer()
-    r.set_width(128)
-    r.set_height(128)
-    r.set_num_samples(256)
-    r.set_max_depth(2)
 
     r.setup_camera(
         look_from=[3, 3, 3],
@@ -292,7 +276,7 @@ def test_g5_point_light_isotropy_hard_shadows(astroray_module):
         radius=0.0  # Hard shadows (singularity at center)
     )
 
-    pixels = r.render()
+    pixels = r.render(256, 2)
 
     # Measure shadow sharpness: find the shadow boundary gradient.
     # Hard shadows should have high gradient; soft shadows have low gradient.

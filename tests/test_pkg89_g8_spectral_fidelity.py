@@ -21,10 +21,6 @@ def test_g8_restir_spectral_fidelity(astroray_module):
     # We'll sample the light via LightList and compare the two target-weight paths.
 
     r = astroray_module.Renderer()
-    r.set_max_depth(1)
-    r.set_num_samples(1000)  # Gate specifies 1000 SPP for 1% tolerance
-    r.set_width(64)
-    r.set_height(64)
 
     # Set up a blackbody point light (6500K, typical daylight).
     # Use the Python binding if available; if not, we'll construct via helper.
@@ -83,7 +79,7 @@ def test_g8_restir_spectral_fidelity(astroray_module):
     except:
         pytest.skip("restir_di integrator not available")
 
-    r.render()
+    r.render(1000, 1)
     pixels = r.get_pixels()
 
     # Check that pixels are valid (non-NaN, non-negative).

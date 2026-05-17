@@ -273,6 +273,55 @@ convention matching the existing scripts):
    Step 1 MUST invoke the wrapper with them. Update all three
    call sites consistently (call-site sweep — see Acceptance).
 
+### Phase 2.5 — HW-classifier CPU-only / no-CUDA-diff carve-out (classifier-side complement)
+
+This is the natural classifier-side complement to Phases 1–2:
+those make the GPU gate *work* for genuinely-GPU PRs; this stops
+*non-GPU* PRs from ever entering it. Motivating evidence: PR #318
+(pkg55-B' Session 8, `closure_graph`) was **CPU-only** — zero
+`.cu/.cuh` files in the diff — and its real acceptance gate is the
+exact-`0.0` CPU↔CPU bit-identity pytest that already runs in CI
+(`pytest tests/`, `ci.yml:47`). Per
+`pkg55-B-prime-cuda-gate-derivation.md` L277 the CPU-wavefront
+sessions (3..N) keep the CPU↔CPU gate; only the CUDA-port sessions
+(N+2..M) need the GPU two-tier gate. But the orchestrator
+HW-classifier (design spec `2026-05-16-roadmap-orchestrator-design.md`,
+line ~58) enqueues **every** mergeable PR with no recorded `PASS`
+into the CUDA HW-untested queue with **no CPU-only carve-out**, so
+it false-routed #318 into a CUDA build it never needed →
+`hw_blocked_buildenv` → manual owner intervention (the same wall
+Phases 1–2 fix for real-GPU PRs, hit here by a PR that should never
+have been in the queue at all).
+
+The carve-out:
+
+1. **Detect "CPU-only / no CUDA artifact in the diff."** Reuse
+   existing routing metadata or `git diff --name-only base...head`
+   for `.cu`/`.cuh`/CUDA build paths — **do not invent a new
+   taxonomy or package-classification scheme**. A PR whose diff
+   touches no CUDA artifact (and whose Track/spec carries no
+   GPU-port binding) is CPU-only for gating purposes.
+2. **Route CPU-only PRs to a CI-only gate**, not the CUDA
+   HW-untested queue: for such PRs **CI green == acceptance** (the
+   CPU↔CPU bit-identity / `pytest tests/` gate is the real and
+   sufficient gate — `pkg55-B-prime-cuda-gate-derivation.md` L277).
+   They are **never** enqueued into the CUDA HW-untested queue and
+   never dispatched to `hardware-verifier`.
+3. **Reuse the existing classifier buckets.** The design spec's
+   classifier already has Rebase-needed / CI-failing / HW-untested /
+   HW-failed / Ready / In-progress buckets — this adds a single
+   *CPU-only → CI-only* routing rule (a CPU-only mergeable PR with
+   CI green routes straight to **Ready**, bypassing HW-untested), it
+   does **not** add a new bucket system, a new gate framework, or
+   any CI rework (CLAUDE.md §2/§3).
+
+Mirrors the established misclassification patterns: memory
+`orchestrator-cpu-only-hw-misclassification` (this exact #318 CPU-only
+false-route) and the sibling `orchestrator-doc-pr-hw-misclassification`
+(docs-only PRs false-routed into the HW queue) — same root shape
+(no diff-content carve-out before the HW-untested enqueue), same
+minimal fix shape (a content-based route, not a new taxonomy).
+
 ### Phase 3 — preserve Step-0 hygiene + GPU serialization (regression fences)
 
 These are **not new behaviour** — they are invariants this package
@@ -341,6 +390,19 @@ must **not** break, called out so they are explicitly tested:
       `git rev-parse HEAD` ≠ the expected passed SHA, the wrapper
       fails fast and does **not** build (no stale/contaminated-tree
       gate). Mirrors design spec §6 (result bound to head SHA).
+- [ ] **CPU-only carve-out (no false CUDA route):** a CI-green,
+      `MERGEABLE` PR whose diff touches **no** `.cu`/`.cuh`/CUDA
+      artifact (the #318 / pkg55-B' Session-8 `closure_graph`
+      scenario) is routed to a **CI-only gate** (CI green ==
+      acceptance) and **never** enqueued into the CUDA HW-untested
+      queue / dispatched to `hardware-verifier`; a PR that *does*
+      touch a CUDA artifact still routes to the HW gate as today.
+      Detection reuses `git diff --name-only base...head` /
+      existing routing metadata (no new taxonomy); the rule reuses
+      the existing classifier buckets (CPU-only + CI-green → Ready,
+      bypassing HW-untested — no new bucket/framework). Mirrors
+      memory `orchestrator-cpu-only-hw-misclassification` /
+      `orchestrator-doc-pr-hw-misclassification`.
 - [ ] **Step-0 hygiene preserved:** the stale-`.pyd` scan +
       `astroray.__file__` canonical-path check
       (`hardware-verifier.md` Step 2) still runs and still resolves

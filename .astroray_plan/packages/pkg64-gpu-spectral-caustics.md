@@ -237,10 +237,40 @@ Lessons section, same format as pkg64-3 Phase 3 hardware verification.
 ## Progress
 
 Phase 1 — device-side header + flag plumbing:
-- [ ] `include/astroray/manifold/sms_attempt_device.cuh` ported from CPU header with line-matched citations
-- [ ] `GHittable.isCausticCaster` field added; `uploadScene` mirrors CPU
-- [ ] `tests/test_pkg64_gpu_sms_attempt_unit.py` passes (rel err ≤ 1e-3)
-- [ ] No regression on `pytest tests/ -k gpu`
+- [x] `include/astroray/manifold/sms_attempt_device.cuh` ported from CPU
+  header with line-matched citations. **Architect post-Phase-1 audit:
+  zero algorithm-level divergences — every numeric step BIT-FAITHFUL vs
+  merged CPU `sms_attempt.h`/`newton_iterate.h`/`half_vector_constraint.h`
+  (PR #230).** Monomorphized for the sphere caster (std::function Newton
+  callbacks inlined); `std::mt19937` → explicit `(r1, r2)`;
+  `dynamic_cast`/virtual → device types.
+- [x] Caster flag field added on **`GSphere`** (not a generic
+  `GHittable` — the GPU scene has no per-object base struct; sphere-only
+  caster scope matches CPU pkg64 Phases 1-3 and the spec's "or material
+  — pick at implementation time"); `scene_upload.cu` mirrors
+  `sph->isCausticCaster()`. No scene-dirty flag added: `render()` /
+  `upload_scene()` call `uploadScene()` unconditionally and
+  `scene_upload.cu` re-reads the flag fresh every upload (spec
+  explicitly sanctions "patch in place"; pkg56 geometry-uploader path
+  verified to also re-push `d_spheres`). Comment-not-code per
+  CLAUDE.md §2/§3 — architect-confirmed CORRECT call.
+- [ ] `tests/test_pkg64_gpu_sms_attempt_unit.py` — gate authored
+  (rel err ≤ 1e-3, subprocess+skip convention); **/verify-deferred**:
+  the probe harness (probe `.cu` + host wrapper + `ASTRORAY_CUDA_SOURCES`
+  CMake entry + `cuda_renderer.cu` env hook +
+  `build_bk7_sms_acceptance_scene` helper) is uncompilable by the
+  implementing agent (no vcvars in tools; CI has no GPU) and is the
+  remaining Phase 1 work, to be wired + run on the RTX box.
+- [ ] No regression on `pytest tests/ -k gpu` — /verify-deferred (GPU
+  build required).
+
+**Cadence — OWNER DECISION 2026-05-18: Option B.** Phase 1 *core* lands
+as its own PR and is `/verify`-ed on RTX before Phase 2 is written, so
+the GPU caustic stack is not built blind on an unverified
+Newton/refraction core (latent-bug risk compounds multiplicatively
+across 3 coupled uncompilable phases). Phase 2 (megakernel integration)
+and Phase 3 (acceptance gates) are follow-up PRs against the verified
+Phase 1 base, each preceded by an architect checkpoint.
 
 Phase 2 — megakernel integration:
 - [ ] `multiwavelength_kernel.cu` calls `runSMSAttemptDevice` at non-delta vertices

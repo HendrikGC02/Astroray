@@ -862,6 +862,16 @@ public:
     // pkg64 Phase 3 — per-object opt-in for SMS connection attempts in
     // the default path_tracer. `objectId` is the addObject call order
     // (same as Renderer::getScene() index).
+    //
+    // pkg64-gpu Phase 1: this mutates CPU Hittable state only. No GPU
+    // "scene dirty" mark is needed — render() (and upload_scene())
+    // re-run cudaRenderer->uploadScene() unconditionally every frame,
+    // and scene_upload.cu re-reads sph->isCausticCaster() fresh on each
+    // upload, so the flag crosses the CPU→GPU boundary on the next
+    // render with no extra plumbing. (When pkg56 Phase C replaces the
+    // unconditional upload with depsgraph-selective dispatch, this flag
+    // must be added to the per-object dirty set — tracked in the
+    // pkg64-gpu spec follow-ups, out of scope for Phase 1.)
     bool setObjectCausticCaster(int objectId, bool enabled) {
         return renderer.setObjectCausticCaster(objectId, enabled);
     }

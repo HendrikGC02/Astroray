@@ -153,3 +153,72 @@ None (no active implementation branches on remote).
 | Third | pkg90 | Yes — no PR | Unblocks pkg323 HW gate |
 
 <!-- unblocker-bootstrap -->
+
+---
+
+# Orchestrator Unblocker Run #2 — 2026-05-20 (afternoon)
+
+**Timestamp (UTC):** 2026-05-20T14:38:00Z  
+**Run type:** automated orchestrator unblocker (second pass today)
+
+---
+
+## State snapshot
+
+| Metric | Value |
+|---|---|
+| Hours since last standup (Run #1) | ~14.6 h |
+| Hours since last merge to main | ~0 h (PR #324 unblocker merged at ~14:36 UTC today) |
+| Open PRs | 2 (#317, #323) |
+| Open PRs older than 24 h | 2 — PR #317 (opened 2026-05-17, DRAFT), PR #323 (opened 2026-05-18, HW-blocked) |
+| Open PRs green-CI + HW-PASS | 0 |
+| New impl branches since Run #1 | 0 |
+
+---
+
+## Blockers found and actions taken
+
+### Action 1 — PR #317 stale branch nudge (ROUTINE)
+
+PR #317 (`pkg89-phase-b`, DRAFT) was 8 commits behind `main`. The gap commits are:
+`feat(pkg55): Session 7` (#316), `docs(pkg99)` (#315), `feat(pkg55): Session 8` (#318),
+`docs(pkg98)` (#314), `docs(pkg90)` (#319), `docs(pkg55) two-tier gate` (#320),
+`docs(pkg100)` (#321), `docs: round 10 closeout` (#322), and the orchestrator bootstrap
+`chore: unblocker run #324`. All non-conflicting with the Blender addon / `blender_module.cpp`
+work in PR #317.
+
+**Fix applied:** Called `update_pull_request_branch` on PR #317 to rebase it against current
+`main`. This triggers a fresh CI run; no manual action needed. PR remains DRAFT and still
+requires HW verification (G1–G5) before the owner marks it ready.
+
+---
+
+### No new blockers found
+
+- PR #323: `hw_blocked_buildenv` debounce from Run #1 is still active (~14.6 h of the 24 h
+  window). No re-dispatch. Needs local RTX `/verify` or pkg90 to land.
+- Orchestrator ledger is current; no stale `impl_dispatched` entries accumulating
+  (pattern #1 not triggered).
+- No doc-PR HW misclassification observed (pattern #3 not triggered).
+
+---
+
+## ESCALATION (carried from Run #1 — no change)
+
+### ESCALATION-1: No new implementation branches — orchestrator still not dispatching
+
+As of 14:38 UTC, **no new remote branch** has been pushed for `pkg55-B' Session N+1`
+(shadow/miss/terminate CPU wavefront stages) or any other Round 11 package. This is now
+~3.5 days since Round 10 closed (2026-05-17 UTC). 
+
+ESCALATION-1 from Run #1 still stands verbatim. Owner must verify the Windows Task Scheduler
+`Astroray-RoadmapOrchestrator` task is running and arm it if not.
+
+---
+
+## Hardware gate status (unchanged)
+
+| PR | Package | State | Notes |
+|---|---|---|---|
+| #317 | pkg89-phase-b | DRAFT (branch now rebased) | Mark ready + `/verify` on RTX when complete |
+| #323 | pkg64-gpu Phase 1 | hw_blocked_buildenv (debounced until ~2026-05-21T00:00Z) | Needs local RTX `/verify` |

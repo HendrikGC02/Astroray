@@ -433,3 +433,119 @@ visible. Recommend owner amend SKILL.md to commit/push standup file as part of i
 | Second | pkg95 | Ready (pkg94 done PR #304, no PR yet) | Can dispatch concurrently; zero overlap with #327 |
 | Second | pkg89-phase-b | PR #317 DRAFT, CI green | Await owner mark-ready + RTX verify |
 | Third | pkg90 | Ready, no PR | Unblocks #323 HW gate |
+
+---
+
+# Orchestrator Unblocker Run #5 — 2026-05-20 (night)
+
+**Timestamp (UTC):** 2026-05-20T20:40:00Z
+**Run type:** automated orchestrator unblocker (fifth pass today)
+
+---
+
+## State snapshot
+
+| Metric | Value |
+|---|---|
+| Hours since last standup (Run #4) | ~2.0 h |
+| Hours since last merge to main | ~3.2 h (PR #328 unblocker merged ~17:30 UTC) |
+| Open PRs | 3 (#317, #323, #327) |
+| PR #327 CI status | `in_progress` (started 20:35 UTC after gate-failure-reviewer SIGABRT fix) |
+| PR #317 CI status | `completed: success` (green since 16:48 UTC; DRAFT) |
+| PR #323 | hw_blocked_buildenv (debounce reset this run; expires 2026-05-21T20:40Z) |
+
+---
+
+## Blockers found and actions taken
+
+### Action 1 — PR #327 CI: two-bug diagnosis complete (MONITORING)
+
+**Summary of CI failure chain on PR #327:**
+
+1. **Run #4 (18:40 UTC)** — Fixed bare `from skimage.metrics import structural_similarity`
+   with no `try/except ImportError`. `scikit-image` absent from `requirements.txt`; CI
+   failed with `ModuleNotFoundError`. Fix: numpy fallback (commit `01cd34b`).
+
+2. **Gate-failure-reviewer (dispatched 19:16 UTC)** — CI still failing after the skimage
+   fix. Root cause found: `_build_renderer` called `r.render(WIDTH, HEIGHT, SPP, ...)` with
+   image dimensions in the wrong argument slots. `render(spp, max_depth, callback,
+   apply_gamma)` doesn't take width/height — those are set by `setup_camera()`. Passing `WIDTH`
+   (64) as `spp` and `HEIGHT` (64) as `max_depth` was fine, but further positional arg mismatch
+   caused a SIGABRT at the pybind11 boundary. Fix pushed as commit `f78ad87` at 20:35 UTC.
+
+3. **Current state** — CI runs started at 20:35 UTC (both matrix entries `in_progress`).
+   The fix looks correct and complete. No further action; monitoring.
+
+**Expected next step when CI goes green:** PR #327 is CPU-only; no HW gate required.
+Owner merges PR #327 → marks `impl_dispatches.pkg55-bprime-session-n1.status = merged` in
+ledger → Session N+2 (CUDA port, requires local Windows + RTX) can begin.
+
+---
+
+### Action 2 — STATUS.md doc drift: pkg94/95/96 marked done (DOC FIX)
+
+**Discovery:** pkg95 (PR #305) and pkg96 (PR #307) both merged 2026-05-16 but were ABSENT
+from the Round 10 closeout docs (PR #322, 2026-05-17). Prior unblocker runs #1–#4 all
+incorrectly listed pkg95/pkg96 as "ready to dispatch, no PR yet" — because the STATUS.md
+"This week" second-tier note still said `pkg95 ∥ pkg96 (not done)`.
+
+| Package | Actual status | PR | Merged |
+|---|---|---|---|
+| pkg94 | **done** | #304 | 2026-05-16 |
+| pkg95 | **done** | #305 | 2026-05-16 |
+| pkg96 | **done** | #307 | 2026-05-16 |
+
+**Fix applied:**
+- STATUS.md "This week" second-tier note corrected: pkg94/95/96 all done; active second tier
+  is pkg89 Phase B (PR #317 DRAFT) and pkg99 (RTX visual gate).
+- Package board: added pkg94, pkg95, pkg96 entries with PR references.
+- Changelog: added 2026-05-20 doc-drift correction entry.
+
+---
+
+### Action 3 — PR #323 debounce reset (ROUTINE)
+
+PR #323 (`pkg64-gpu` Phase 1) `hw_blocked_buildenv` debounce set 2026-05-20T00:00Z was
+expiring within ~3.5 hours. Without a reset, the orchestrator on the next tick after
+2026-05-21T00:00Z would attempt hardware-verifier dispatch again and hit pattern #7
+(MSVC/CUDA env unavailable in remote context). Reset `last_action_ts` to 2026-05-20T20:40Z
+(24 h window now expires 2026-05-21T20:40Z).
+
+PR #323 needs local RTX `/verify` or pkg90 (hardware-verifier build-env bootstrap) to land
+before the HW gate can be cleared automatically. No change to the PR itself.
+
+---
+
+## No new dispatch
+
+With pkg55-B' Session N+1 (PR #327) in flight and all second-tier addon work done, there is
+nothing new to dispatch remotely:
+
+| Package | Why not dispatched |
+|---|---|
+| pkg55-B' Session N+2 | Waits for PR #327 to merge + GATE-THRESHOLDS-PINNED; CUDA port needs local Windows RTX |
+| pkg99 | RTX visual gate required; not remotely dispatchable |
+| pkg90 | Needs local RTX build env bootstrap |
+| pkg100 | Explicitly deprioritized (owner decision 2026-05-17) |
+| pkg89 Phase B | In flight as DRAFT PR #317; awaiting mark-ready + RTX verify |
+
+---
+
+## Hardware gate status
+
+| PR | Package | State | Notes |
+|---|---|---|---|
+| #317 | pkg89-phase-b | DRAFT, CI green | Mark ready + `/verify` on RTX when complete |
+| #323 | pkg64-gpu Phase 1 | hw_blocked_buildenv (debounce reset; expires 2026-05-21T20:40Z) | Needs local RTX `/verify` or pkg90 |
+| #327 | pkg55-B' Session N+1 | CI `in_progress` (gate-review fix commit f78ad87) | Merge when CI green; CPU-only, no HW gate |
+
+## Dispatch queue status after Run #5
+
+| Priority | Package | State | Notes |
+|---|---|---|---|
+| Top | pkg55-B' Session N+1 | PR #327 — CI rerun after gate-review fix | Merge when green; then N+2 on local Windows RTX |
+| Second | pkg89-phase-b | PR #317 DRAFT, CI green | Mark-ready + RTX verify |
+| Second | pkg99 | Ready (spec PR #315) | RTX-only; local dispatch |
+| **Closed** | pkg94 | Done PR #304 | Was incorrectly listed as pending in prior runs |
+| **Closed** | pkg95 | Done PR #305 | Was incorrectly listed as pending in prior runs |
+| **Closed** | pkg96 | Done PR #307 | Was incorrectly listed as pending in prior runs |

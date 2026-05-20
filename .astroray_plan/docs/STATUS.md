@@ -291,7 +291,7 @@ forgotten):
 
 - **Round 11 next-up** (per updated NEXT_STAGE_REPORT.md §2; owner direction: **CUDA-port path leads**):
   - **Top priority (lead track):** **pkg55-B' Session N+1** (shadow/miss/terminate stages on CPU — final CPU-only session before CUDA-port begins), then **Sessions N+2..M** (CUDA port of wavefront shade kernels — multi-session, ~4 weeks total; the path to viewport-parity acceptance gate closure).
-  - **Second tier (lower priority than CUDA-port track):** **pkg95 ∥ pkg96** (addon Stage 2/3; pkg94 already done PR #304), **pkg89 Phase B** (Blender addon — full-scene G8 + G1–G5), **pkg99** (ADAF quasi-spherical glow re-investigation).
+  - **Second tier (lower priority than CUDA-port track):** pkg94/95/96 addon remediation **all done** (PR #304/305/307, 2026-05-16 — missed in Round 10 closeout; corrected by unblocker run #5, 2026-05-20). Active second tier: **pkg89 Phase B** (Blender addon full-scene lights, PR #317 DRAFT/CI-green), **pkg99** (ADAF quasi-spherical glow re-investigation, RTX visual gate required).
   - **Third tier (DEPRIORITIZED):** **pkg100** (.blend importer camera-intrinsics fix — small, unblocks pkg76 CSV rows; **owner decision: DEPRIORITIZED relative to CUDA-port work**), **pkg90** (hardware-verifier build-env bootstrap — unblocks orchestrator HW gate for unattended operation), **pkg76 CSV** (blocked on pkg100).
   - **Deferred:** Issue #276 clearcoat flake (owner triage); issue #298 ReSTIR MC-noise strict-inequality flake (recommend seed-pin or tolerance).
   - **Later:**
@@ -426,6 +426,9 @@ events are summarized in the changelog below.
 | pkg89 | A | **Phase A done** | PR #294, 2026-05-15 — Light interface + 5 types + integrator wiring; G6/G9 pass, G8 0.41% < 1%; MinGW large-struct heap-corruption fix re-applied. Full-scene G8 + G1–G5 are Phase B (Blender addon). Unblocks pkg86 Light Tree accessors. |
 | pkg91 | A | **done** | PR #290, 2026-05-15 — Fork A.1 + B.1: `Integrator::setMaxDepth(int)` virtual + integrator rebuild on `set_integrator_param`; 4 tests pass; post-construction param change verified (3.6% brightness diff proves max_depth now takes effect). Closes Q1+Q2 footguns surfaced during pkg55-B' Session 2b. |
 | pkg92 | A | **done** | PR #291, 2026-05-15 — PCG32 keyed by `(pixel, sample, dim)`; equivalence test passes at 64 spp (per-channel mean ratios within 5%). PractRand statistical gate CI-enforced; stream-disjointness threshold 0.03 @1024 with documented 1/√N rationale; TestU01 documented unbuildable on MinGW, PractRand substituted per owner decision. |
+| pkg94 | A | **done** | PR #304, 2026-05-16 — build-integrity guard: `astroray.__build__` attribute exposed, `register()` guard fires on stale-module mismatch, unit tests pass. Verifiability multiplier for all subsequent addon fixes. |
+| pkg95 | A | **done** | PR #305, 2026-05-16 — P3-a: preview-path TypeError fix (standalone converter, no `RenderEngine()` construct); P3-c: custom-node defensive detection (checks both flattened + original trees); P3-b: `if False` gate removed + `set_material_spectral_profile` wired; P4: Blender-native `perspective_matrix` vfov (hardcoded 32 mm deleted). |
+| pkg96 | A | **done** | PR #307, 2026-05-16 — P2: reconcile-then-upload sync (world/device_mode domains re-derive state before push); P5: GPU+AOV honesty guard (warning when GPU mode + CPU-only AOV pass, no silent routing change). |
 | pkg55-B-prime-cuda-gate-derivation | A/E | **done** | PR #320, 2026-05-17 — two-tier CPU↔CPU / CPU↔GPU gate definition now authoritative in pkg55 spec; design decision #9 (shared-kernel, never re-transcribe); A.1 ray-normalization checklist item added to Session-2c design doc. Unblocks pkg55-B' CUDA-port Sessions N+2..M. |
 | pkg90 | A | open — ready to implement | Hardware-verifier build-env bootstrap (MSVC + worktree-parameterized CUDA build); unblocks orchestrator HW gate for unattended operation. Spec PR #319. |
 | pkg99 | A | open — ready to implement | ADAF quasi-spherical glow re-investigation; pkg44 wiring correct but visual gate only partial (faint emission sliver vs quasi-spherical glow). Spec PR #315. |
@@ -539,6 +542,8 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-20 (doc-drift correction — unblocker run #5)** — pkg94/95/96 retroactively added to package board; second-tier dispatch queue corrected. All three addon-remediation packages shipped 2026-05-16 (pkg94 PR #304, pkg95 PR #305, pkg96 PR #307) but were omitted from the Round 10 closeout docs (PR #322, 2026-05-17). Unblocker runs #1–#4 incorrectly flagged pkg95/pkg96 as not-started and queued them for dispatch. **PR #327** (`pkg55-B' Session N+1`): two CI bugs fixed (bare `skimage` import, then `render()` wrong positional args → SIGABRT); CI rerun in progress as of 20:35 UTC. Gate-failure-reviewer (dispatched by orchestrator at 19:16 UTC) diagnosed and pushed the SIGABRT fix (commit `f78ad87`). Once CI passes, PR #327 is CPU-only and can be merged without HW gate — then Session N+2 (CUDA port, requires local Windows RTX) is the next dispatch.
 
 - **2026-05-17 (Round 10 closeout)** — 7 PRs merged; Pillar 4 → 50%; pkg55-B' growing-oracle expansion complete.
   - **pkg44 ADAF accretion model** (PR #310, 2026-05-17) — Narayan & Yi 1995 self-similar ADAF solution + Yuan & Narayan 2014 prefactors; synchrotron (Pandya 2016 reused from pkg42) + bremsstrahlung thermal emission; 19 tests pass (power-law exponents exact, Sgr A* profiles within tolerance). Pillar 4 → ~50%.

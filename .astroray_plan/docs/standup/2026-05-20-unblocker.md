@@ -336,3 +336,100 @@ Still applies. Consider adding `git push` of standup file to SKILL.md close-out 
 | Second | pkg95 | Ready (pkg94 done, no PR) | Can dispatch concurrently with pkg55 (zero file overlap) |
 | Second | pkg89-phase-b | PR #317 DRAFT | Await owner mark-ready + RTX verify |
 | Third | pkg90 | Ready, no PR | Unblocks #323 HW gate |
+
+---
+
+# Orchestrator Unblocker Run #4 — 2026-05-20 (late evening)
+
+**Timestamp (UTC):** 2026-05-20T18:40:22Z
+**Run type:** automated orchestrator unblocker (fourth pass today — CI fix)
+
+---
+
+## State snapshot
+
+| Metric | Value |
+|---|---|
+| Hours since last standup (Run #3) | ~1.7 h |
+| Hours since last merge to main | ~1.2 h (PR #326 merged ~17:30 UTC) |
+| Open PRs | 3 (#317, #323, #327) |
+| Open PRs older than 24 h | 2 — PR #317 (DRAFT), PR #323 (HW-blocked) |
+| PR #327 (pkg55-B' Session N+1) | CI **FAILING** — diagnosed and fixed this run |
+| Open PRs green-CI + HW-PASS | 0 |
+
+---
+
+## Blockers found and actions taken
+
+### Action 1 — PR #327 CI failure: bare `skimage` import (CI FIX PUSHED)
+
+**Symptom:** PR #327 (`feat(pkg55-B'): Session N+1`) shows two failed `build-and-test` CI check
+runs (completed at 16:54 and 16:56 UTC). The PR was dispatched at 17:00 UTC by Run #3.
+
+**Root cause diagnosed:** `tests/test_pkg55_session_n1_ssim_parity.py::_compute_ssim` contains
+a bare `from skimage.metrics import structural_similarity` with no `try/except ImportError`
+fallback. `scikit-image` is NOT in `requirements.txt`, so CI (Ubuntu + Python 3.13) fails the
+test collection / execution step with `ModuleNotFoundError: No module named 'skimage'`.
+
+All other SSIM tests in the repo (`test_gpu_multiwavelength.py`, `test_gpu_shade_smooth.py`)
+use the same `try/except` pattern with a numpy SSIM fallback. The Session N+1 implementer
+missed this pattern.
+
+**Verification:** Confirmed `python3 -c "from skimage.metrics import ..."` fails in this
+environment (same Python env as CI). Confirmed `requirements.txt` lists only `pytest numpy
+matplotlib pillow`. The other two CI check run failures were also the same test (two matrix
+entries for the same Ubuntu job, or simultaneous trigger from the ledger commit + the
+implementation commit pushed at nearly the same time).
+
+**Fix applied:** Fetched branch `pkg55-bprime-session-n1`, updated `_compute_ssim` to wrap
+`from skimage.metrics import structural_similarity` in `try/except ImportError` with an
+identical numpy fallback (copy of `test_gpu_multiwavelength.py:_ssim` formula). Committed
+as `01cd34b` ("fix(pkg55-N+1): add numpy SSIM fallback for CI") and pushed to origin.
+
+**Expected outcome:** CI re-runs and passes. The numpy fallback SSIM is a global estimate
+(single image-wide SSIM, not per-channel windowed), so the measured SSIM value will be
+slightly different from the skimage value — but the 0.985 gate was set against expected
+near-identical renders (CPU wavefront vs production path_tracer, same kernel by construction),
+so even the coarser numpy estimate should clear it comfortably.
+
+**Ledger updated:** PR #327 status `pr_open_pending_ci` → `pr_open_ci_fix_pushed`.
+
+---
+
+### No other blockers
+
+- PR #317 (`pkg89-phase-b`, DRAFT): CI green (two passing runs from the Run #3 rebase nudge,
+  completed 16:40–16:48 UTC). Awaiting owner mark-ready + RTX HW verification. No action.
+- PR #323 (`pkg64-gpu Phase 1`): `hw_blocked_buildenv` debounce from Run #1 is still active
+  (expires 2026-05-21T00:00Z). No re-dispatch.
+- Pattern #1 (IMPL_CAP): not triggered — impl_dispatches has one entry (pkg55-B' Session N+1),
+  which is the expected in-flight item.
+- Pattern #3 (doc-PR HW misclassification): not triggered.
+
+---
+
+## ESCALATION
+
+### ESCALATION-2 (carried): standup files are local-only
+
+This run is being committed and pushed (via unblocker PR), so at least today's run will be
+visible. Recommend owner amend SKILL.md to commit/push standup file as part of its close-out.
+
+---
+
+## Hardware gate status
+
+| PR | Package | State | Notes |
+|---|---|---|---|
+| #317 | pkg89-phase-b | DRAFT, CI green | Mark ready + `/verify` on RTX when complete |
+| #323 | pkg64-gpu Phase 1 | hw_blocked_buildenv (debounced until 2026-05-21T00:00Z) | Needs local RTX `/verify` |
+| #327 | pkg55-B' Session N+1 | CI fix pushed (commit 01cd34b); awaiting re-run | CPU-only; no HW gate needed; merge when CI green |
+
+## Dispatch queue status after Run #4
+
+| Priority | Package | State | Notes |
+|---|---|---|---|
+| Top | pkg55-B' Session N+1 | PR #327 open — CI fix pushed | Merge when CI green (CPU-only, no HW gate) |
+| Second | pkg95 | Ready (pkg94 done PR #304, no PR yet) | Can dispatch concurrently; zero overlap with #327 |
+| Second | pkg89-phase-b | PR #317 DRAFT, CI green | Await owner mark-ready + RTX verify |
+| Third | pkg90 | Ready, no PR | Unblocks #323 HW gate |

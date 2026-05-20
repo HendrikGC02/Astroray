@@ -22,7 +22,8 @@
       "pr_number": 327,
       "agent_id": "accdab80d65eda639",
       "reason": "top-priority Round-11 work stalled 3+ days; two prior unblocker runs escalated without resolution",
-      "status": "pr_open_pending_ci"
+      "status": "pr_open_ci_fix_pushed",
+      "ci_fix": "2026-05-20T18:40:22Z — Run #4 fixed bare skimage import in test_pkg55_session_n1_ssim_parity.py (commit 01cd34b)"
     }
   }
 }

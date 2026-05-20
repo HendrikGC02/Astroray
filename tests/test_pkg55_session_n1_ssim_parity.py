@@ -78,7 +78,7 @@ def test_cpu_wavefront_ssim_parity():
     print(f"\n[Session N+1 SSIM gate] Rendering production path_tracer "
           f"({WIDTH}×{HEIGHT} @ {SPP} spp)...")
     r.set_integrator("path_tracer")
-    ref_rgb = r.render(WIDTH, HEIGHT, SPP, apply_gamma=False)
+    ref_rgb = r.render(SPP, MAX_DEPTH, None, apply_gamma=False)
     ref_img = np.array(ref_rgb).reshape(HEIGHT, WIDTH, 3)
 
     # CPU wavefront render (via the cpu_wavefront_render entry point).

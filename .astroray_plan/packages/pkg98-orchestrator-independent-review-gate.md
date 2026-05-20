@@ -285,6 +285,51 @@ review applied only when the docs ship alongside code
 low-risk and the existing doc-only fast path is preserved (no
 independent review on pure-docs — keeps the gate minimal).
 
+### Phase 2b — structure-aware HW-gate acceptance criteria (folded-in scope)
+
+The pkg44 ADAF re-gate (PR #310 → merged commit `11644df`)
+exposed a *third*, complementary hole: a structure-blind HW-gate
+threshold passed a visually-inadequate render. After the
+`enable_adaf` wire was fixed the HW gate measured
+`shadow_fraction = 0.0015` and **auto-merged**, but visual
+inspection showed only a tiny central shadow dot in an otherwise
+uniform background-noise field — the structure pkg44-adaf.md L243
+*requires* ("a quasi-spherical glow around the black hole … with
+the shadow visible as a dark silhouette") was **not** met. A
+`shadow_fraction > 0` check alone is too lenient: mere *presence*
+of a dark region is not the spec's intended structure.
+
+Scope (minimal, per-package — **not** a gate-rework): where a
+package spec's acceptance criteria demand a specific render
+*structure* (e.g. glow-type packages requiring a quasi-spherical /
+radially-concentrated intensity profile, not just "a dark region
+exists"), the per-package HW-gate acceptance criterion in the
+verifier path MUST additionally assert that structure — e.g. a
+radial intensity-profile / quasi-spherical-concentration check —
+rather than a structure-blind presence-only threshold like bare
+`shadow_fraction > ε`. This reuses the package's *existing*
+acceptance criteria as the source of the required structure; it
+adds **no** new gate framework, no new metric registry, and no
+universal structural-gate mandate — only packages whose spec text
+already demands structure get the structure-aware assertion, and
+the assertion lives in that package's own acceptance criteria /
+verifier path, not in the orchestrator.
+
+This is the HW-gated-side analogue of pkg98's independent-review
+theme: independent (different-model) review and structure-aware
+per-package gate criteria are **complementary** defences against
+the same CI/gate blindspot (memory
+`ci_has_no_gpu_runtime_blindspot`). Independent review catches
+what tests and CI miss on non-HW-gated work; a structure-aware
+HW-gate criterion catches what a presence-only threshold rubber-
+stamps on HW-gated work. Like independent review, it is **not a
+substitute for integration tests** — the end-to-end scene
+assertions required by memory `gr-emission-model-wiring-checklist`
+(through `add_black_hole`, central-dark-region + radial-falloff)
+remain mandatory; the structure-aware gate criterion is a second,
+orthogonal line of defence on the empirical visual gate, not a
+relaxation of it.
+
 ### Rubber-stamp decay — explicit countermeasures
 
 A second model that habitually agrees is worthless. This package
@@ -342,6 +387,17 @@ hard-codes three countermeasures, stated in BOTH agent prompts:
       provably targets a different model lineage than the
       fix/PR author (assert the invocation uses the Codex/
       different-model path, not a same-lineage agent).
+- [ ] Structure-aware HW-gate (Phase 2b): for a package whose
+      spec acceptance criteria demand a render *structure*, the
+      per-package HW-gate criterion asserts that structure (e.g. a
+      radial-profile / quasi-spherical-concentration check), not a
+      structure-blind presence-only threshold; a render that
+      reproduces the pkg44 #310 failure mode (`shadow_fraction`
+      barely > 0 but no quasi-spherical glow per pkg44-adaf.md
+      L243) provably does **not** PASS that criterion. No new gate
+      framework introduced (assert: change is per-package
+      acceptance-criteria text in the verifier path, not an
+      orchestrator-wide gate change).
 - [ ] `--dry-run` performs **zero** review dispatches and zero
       ledger/standup mutations (regression guard on design spec §5).
 - [ ] Existing orchestrator test suite stays green

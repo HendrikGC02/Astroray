@@ -334,3 +334,26 @@ Apache-2.0. We cite, we do not paste.
 | `wavefront_snapshot.h` | `intern/cycles/device/cuda/queue.cpp` | Paranoid-debug per-launch state dump |
 | RNG keying | `intern/cycles/kernel/random.h` | `rng_pixel + rng_offset` convention |
 | `reference_pt_*.cpp` | (cite production `pathTraceSpectral` + Cycles `kernel_path.h`) | Reference oracle pattern; PBRT-v4 path-tracer integrator structure |
+
+---
+
+## 12. A.1 ray-normalization checklist item (added per pkg55-B-prime-cuda-gate-derivation)
+
+**Critical subtlety (regressed twice — GPU in Phase A.1, CPU in Session 2c pre-shared-kernel):**
+
+Never `Ray ray(origin, direction)` from SoA scalars in a wavefront stage. The `Ray` constructor normalizes `direction`. If you serialize a ray to SoA and then reconstruct it with `Ray(o, d)` from the SoA floats, the constructor re-normalizes and introduces 1-ulp drift relative to an oracle that normalized exactly once.
+
+**Correct pattern (pkg55 spec lines 156–157, Phase A.1):**
+```cpp
+// WRONG: re-normalizes on every restore
+Ray ray(soa.ray_origin[i], soa.ray_direction[i]);
+
+// CORRECT: restore the already-normalized fields verbatim
+Ray ray;  // default-construct
+ray.origin = soa.ray_origin[i];
+ray.direction = soa.ray_direction[i];  // already normalized once
+```
+
+The shared-kernel construction (`path_kernel.h/cpp`) already handles this correctly by carrying the live `Ray` object in `PathState` and serializing/restoring its fields verbatim. This checklist item exists to prevent a future session from re-introducing the bug in a new stage (e.g., shadow/miss/terminate).
+
+**Why this matters:** Phase A.1 discovered this on GPU (`GRay` constructor) and documented the fix in the spec. Session 2c's initial CPU skeleton regressed it (pre-shared-kernel `stage_intersect.cpp:43` and `stage_shade_lambertian.cpp:104` both re-constructed `Ray(o,d)` from SoA). The shared-kernel refactor eliminated the bug by construction, but the pattern must be enforced in any future stage that touches ray SoA.

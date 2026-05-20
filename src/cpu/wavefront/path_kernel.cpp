@@ -26,7 +26,6 @@ namespace {
 
 // Per-bounce constants (mirror the oracle exactly).
 constexpr int   kRRDepth         = 3;
-constexpr int   kWorldMaxBounces = 1024;
 
 // Box filter: returns uniform [-0.5, 0.5]. Mirrors the original
 // reference_pt_wavefront::filterSample. Templated on RNG so the byte-exact
@@ -170,8 +169,27 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     }
 
     if (!hit) {
-        // Lambertian-Cornell: no env map, background = [0,0,0].
-        (void)kWorldMaxBounces;
+        // Session N+1: env-map miss handling. Match production
+        // pathTraceSpectral lines 2339-2356 exactly — evaluate env map /
+        // backgroundColor / default sky gradient and accumulate, subject to
+        // worldMaxBounces gate.
+        if (bounce <= renderer.getWorldMaxBounces()) {
+            const auto& envMap = renderer.getEnvironmentMap();
+            const Vec3& backgroundColor = renderer.getBackgroundColor();
+            SampledSpectrum envSpec(0.0f);
+            if (envMap && envMap->loaded()) {
+                envSpec = envMap->evalSpectral(ps.ray_direction, ps.lambdas);
+            } else if (backgroundColor.x >= 0) {
+                envSpec = RGBIlluminantSpectrum(
+                    {backgroundColor.x, backgroundColor.y, backgroundColor.z}).sample(ps.lambdas);
+            } else {
+                // Default sky gradient (matches production line 2350-2352).
+                float t = 0.5f * (ps.ray_direction.y + 1.0f);
+                Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
+                envSpec = RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(ps.lambdas);
+            }
+            ps.color += ps.throughput * envSpec;
+        }
         ps.alive = false;
         return false;
     }

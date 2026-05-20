@@ -1,6 +1,6 @@
 {
   "317": {
-    "head_sha": "29f564510081bae14704e77c8cca974d3738057f",
+    "head_sha": "52d4fca2b6a438034ffa55a2c0539dbe42f755c0",
     "hw_artifact": null,
     "hw_numbers": null,
     "hw_result": null,
@@ -13,21 +13,25 @@
     "hw_numbers": "MSVC/CUDA build env unavailable in remote orchestrator context (pattern #7: hw-verifier-msvc-env-blocker). Needs local RTX verify via /verify on Windows box. Unblocked by pkg90.",
     "hw_result": null,
     "last_action": "hw_blocked_buildenv",
-    "last_action_ts": "2026-05-20T00:00:00Z"
+    "last_action_ts": "2026-05-20T20:40:00Z"
   },
   "327": {
-    "last_action": "ci_dispatched",
-    "last_action_ts": "2026-05-20T19:16:52Z"
+    "head_sha": "f78ad87bafcec41c41da8db60bc4c56646655356",
+    "hw_artifact": null,
+    "hw_numbers": "CPU-only package; no HW gate required. Two CI fixes applied: (1) Run #4 fixed bare skimage import (commit 01cd34b); (2) gate-failure-reviewer fixed render() wrong positional args SIGABRT (commit f78ad87). CI rerun in progress as of 2026-05-20T20:35Z.",
+    "hw_result": null,
+    "last_action": "ci_rerun_in_progress",
+    "last_action_ts": "2026-05-20T20:35:05Z"
   },
   "impl_dispatches": {
     "pkg55-bprime-session-n1": {
       "agent_id": "accdab80d65eda639",
       "branch": "pkg55-bprime-session-n1",
-      "ci_fix": "2026-05-20T18:40:22Z \u2014 Run #4 fixed bare skimage import in test_pkg55_session_n1_ssim_parity.py (commit 01cd34b)",
+      "ci_fix": "2026-05-20T18:40:22Z — Run #4 fixed bare skimage import in test_pkg55_session_n1_ssim_parity.py (commit 01cd34b); 2026-05-20T20:35:05Z — gate-failure-reviewer fixed render() wrong positional args causing SIGABRT (commit f78ad87); CI rerun in progress",
       "dispatched_at": "2026-05-20T17:00:00Z",
       "pr_number": 327,
       "reason": "top-priority Round-11 work stalled 3+ days; two prior unblocker runs escalated without resolution",
-      "status": "pr_open_ci_fix_pushed"
+      "status": "pr_open_ci_rerun"
     }
   }
 }

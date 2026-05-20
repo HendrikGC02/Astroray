@@ -19,8 +19,10 @@
     "pkg55-bprime-session-n1": {
       "dispatched_at": "2026-05-20T17:00:00Z",
       "branch": "pkg55-bprime-session-n1",
+      "pr_number": 327,
       "agent_id": "accdab80d65eda639",
-      "reason": "top-priority Round-11 work stalled 3+ days; two prior unblocker runs escalated without resolution"
+      "reason": "top-priority Round-11 work stalled 3+ days; two prior unblocker runs escalated without resolution",
+      "status": "pr_open_pending_ci"
     }
   }
 }

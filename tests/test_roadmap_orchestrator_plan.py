@@ -44,3 +44,27 @@ def test_ci_failing_becomes_ci_fixer():
     p = build_tick_plan([_pr(4, statusCheckRollup=FAILED)], {}, [], [], 0, 2, 1,
                         True, 3600, "2026-05-16T00:00:00Z")
     assert p["fixers"] == [{"pr": 4, "kind": "ci"}]
+
+def test_hw_failed_debounced_after_gate_review_dispatched():
+    led = {"5": {"head_sha": "s5", "hw_result": "FAIL",
+                 "last_action": "gate_review_dispatched",
+                 "last_action_ts": "2026-05-16T00:00:30Z"}}
+    p = build_tick_plan([_pr(5)], led, [], [], 0, 2, 1,
+                        True, 3600, "2026-05-16T00:01:00Z")
+    assert 5 not in p["hw_failed"]  # 30s < 3600s debounce window
+
+def test_hw_dispatch_skipped_for_blocked_buildenv():
+    led = {"6": {"last_action": "hw_blocked_buildenv",
+                 "last_action_ts": "2026-05-20T00:00:00Z"}}
+    # now_iso is 1 hour later — still within 24h window
+    p = build_tick_plan([_pr(6)], led, ["pkg64-gpu"], [], 0, 2, 1,
+                        True, 3600, "2026-05-20T01:00:00Z")
+    assert p["hw_dispatch"] is None  # blocked buildenv debounces HW dispatch
+
+def test_hw_dispatch_resumes_after_blocked_buildenv_expires():
+    led = {"7": {"last_action": "hw_blocked_buildenv",
+                 "last_action_ts": "2026-05-19T00:00:00Z"}}
+    # now_iso is 25 hours later — beyond 24h window
+    p = build_tick_plan([_pr(7)], led, ["pkg64-gpu"], [], 0, 2, 1,
+                        True, 3600, "2026-05-20T01:00:00Z")
+    assert p["hw_dispatch"] == 7  # debounce expired, retry

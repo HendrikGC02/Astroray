@@ -1,0 +1,18 @@
+{
+  "317": {
+    "head_sha": "29f564510081bae14704e77c8cca974d3738057f",
+    "hw_artifact": null,
+    "hw_numbers": null,
+    "hw_result": null,
+    "last_action": "in_progress_draft",
+    "last_action_ts": "2026-05-20T00:00:00Z"
+  },
+  "323": {
+    "head_sha": "2a092b4c2e88dab70b30af5b06539f8df182b968",
+    "hw_artifact": null,
+    "hw_numbers": "MSVC/CUDA build env unavailable in remote orchestrator context (pattern #7: hw-verifier-msvc-env-blocker). Needs local RTX verify via /verify on Windows box. Unblocked by pkg90.",
+    "hw_result": null,
+    "last_action": "hw_blocked_buildenv",
+    "last_action_ts": "2026-05-20T00:00:00Z"
+  }
+}

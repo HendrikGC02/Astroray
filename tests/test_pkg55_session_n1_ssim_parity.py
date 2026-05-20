@@ -40,15 +40,28 @@ def _build_renderer(width, height, seed, max_depth):
 def _compute_ssim(img1, img2):
     """Compute SSIM between two images (H×W×3 float arrays).
 
-    Simplified SSIM for RGB images — computes SSIM per channel and averages.
+    Uses scikit-image when available; falls back to a global numpy SSIM
+    estimate (same pattern as test_gpu_multiwavelength.py) so the gate runs
+    in CI where skimage is absent from requirements.txt.
     """
-    from skimage.metrics import structural_similarity
-
-    # SSIM per channel, then average.
-    ssim_r = structural_similarity(img1[:, :, 0], img2[:, :, 0], data_range=1.0)
-    ssim_g = structural_similarity(img1[:, :, 1], img2[:, :, 1], data_range=1.0)
-    ssim_b = structural_similarity(img1[:, :, 2], img2[:, :, 2], data_range=1.0)
-    return (ssim_r + ssim_g + ssim_b) / 3.0
+    try:
+        from skimage.metrics import structural_similarity
+        ssim_r = structural_similarity(img1[:, :, 0], img2[:, :, 0], data_range=1.0)
+        ssim_g = structural_similarity(img1[:, :, 1], img2[:, :, 1], data_range=1.0)
+        ssim_b = structural_similarity(img1[:, :, 2], img2[:, :, 2], data_range=1.0)
+        return (ssim_r + ssim_g + ssim_b) / 3.0
+    except ImportError:
+        a = img1.astype(np.float64)
+        b = img2.astype(np.float64)
+        c1 = 0.01 ** 2
+        c2 = 0.03 ** 2
+        mu_a = np.mean(a)
+        mu_b = np.mean(b)
+        var_a = np.var(a)
+        var_b = np.var(b)
+        cov = np.mean((a - mu_a) * (b - mu_b))
+        return float(((2 * mu_a * mu_b + c1) * (2 * cov + c2))
+                     / ((mu_a * mu_a + mu_b * mu_b + c1) * (var_a + var_b + c2)))
 
 
 def test_cpu_wavefront_ssim_parity():

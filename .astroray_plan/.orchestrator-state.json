@@ -4,8 +4,8 @@
     "hw_artifact": null,
     "hw_numbers": null,
     "hw_result": null,
-    "last_action": "in_progress_draft",
-    "last_action_ts": "2026-05-20T00:00:00Z"
+    "last_action": "rebase_nudge",
+    "last_action_ts": "2026-05-20T17:00:00Z"
   },
   "323": {
     "head_sha": "2a092b4c2e88dab70b30af5b06539f8df182b968",
@@ -14,5 +14,15 @@
     "hw_result": null,
     "last_action": "hw_blocked_buildenv",
     "last_action_ts": "2026-05-20T00:00:00Z"
+  },
+  "impl_dispatches": {
+    "pkg55-bprime-session-n1": {
+      "dispatched_at": "2026-05-20T17:00:00Z",
+      "branch": "pkg55-bprime-session-n1",
+      "pr_number": 327,
+      "agent_id": "accdab80d65eda639",
+      "reason": "top-priority Round-11 work stalled 3+ days; two prior unblocker runs escalated without resolution",
+      "status": "pr_open_pending_ci"
+    }
   }
 }

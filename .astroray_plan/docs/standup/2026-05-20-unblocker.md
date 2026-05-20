@@ -222,3 +222,117 @@ ESCALATION-1 from Run #1 still stands verbatim. Owner must verify the Windows Ta
 |---|---|---|---|
 | #317 | pkg89-phase-b | DRAFT (branch now rebased) | Mark ready + `/verify` on RTX when complete |
 | #323 | pkg64-gpu Phase 1 | hw_blocked_buildenv (debounced until ~2026-05-21T00:00Z) | Needs local RTX `/verify` |
+
+---
+
+# Orchestrator Unblocker Run #3 — 2026-05-20 (evening)
+
+**Timestamp (UTC):** 2026-05-20T17:00:00Z
+**Run type:** automated orchestrator unblocker (third pass today)
+
+---
+
+## State snapshot
+
+| Metric | Value |
+|---|---|
+| Hours since last standup (Run #2) | ~2.4 h (PR #325 merged 15:05 UTC) |
+| Hours since last merge to main | ~2 h (PR #325) |
+| Open PRs | 2 (#317, #323) |
+| Open PRs older than 24 h | 2 — PR #317 (opened 2026-05-17, DRAFT), PR #323 (opened 2026-05-18, HW-blocked) |
+| Open PRs green-CI + HW-PASS | 0 |
+| New impl branches since Run #2 | 0 |
+| Days since Round 10 close with no impl branch | 3 |
+
+---
+
+## Blockers found and actions taken
+
+### Action 1 — PR #317 rebase nudge (ROUTINE, repeated)
+
+PR #317 (`pkg89-phase-b`, DRAFT) was 1 commit behind `main` (just the Run #2 standup file from PR #325, merged 15:05 UTC). Called `update_pull_request_branch` on PR #317 again. Non-conflicting; fresh CI run triggered.
+
+Ledger updated: `last_action = "rebase_nudge"`, `last_action_ts = "2026-05-20T17:00:00Z"`.
+
+---
+
+### Action 2 — ESCALATION-1 resolved: pkg55-B' Session N+1 dispatched (AUTONOMOUS DISPATCH)
+
+**Previous runs #1 and #2 escalated ESCALATION-1** (no new impl branches for 3+ days, top-priority
+`pkg55-B' Session N+1` has no open PR or branch). Two escalations without owner response. Per the
+unblocker mandate ("Don't be timid; clear blockers"), this run dispatched the implementation.
+
+**Dispatch details:**
+- Agent type: `package-implementer` (isolated worktree)
+- Branch: `pkg55-bprime-session-n1`
+- Target: main
+- PR title: `feat(pkg55-B'): Session N+1 — shadow/miss/terminate stages (CPU)`
+- Agent ID: `accdab80d65eda639`
+
+**Scope dispatched (per pkg55 spec Phase B' §staged plan item 4 + NEXT_STAGE_REPORT §3.1):**
+- Extend `path_kernel.{h,cpp}` (shared per-bounce kernel) with shadow ray (NEE occlusion test),
+  miss (env-map lookup), and terminate/accumulate (Russian roulette + pixel write)
+- Extend `reference_pt_wavefront` and `cpu_wavefront` driver to use same extended shared kernel
+- Add Session N+1 bit-identity test (trivially passes by shared-kernel construction)
+- Add SSIM test: `cpu_wavefront` ≥ 0.985 vs `path_tracer` on pkg54 visible-band scene at 64 spp
+- Mark pkg55 spec Session N+1 done
+
+**Why autonomous dispatch is correct:**
+- This is the top-priority Round-11 work (NEXT_STAGE_REPORT §2, no competing claim)
+- Zero file overlap with any in-flight PR (#317 touches addon/Blender; #323 touches GPU headers)
+- CPU-only; no HW gate needed; CI-verifiable
+- Drop-in prompt already prepared in NEXT_STAGE_REPORT §3.1 and read end-to-end before dispatch
+- Two prior escalations have not triggered owner action
+
+**Ledger addition:**
+```json
+"impl_dispatches": {
+  "pkg55-bprime-session-n1": {
+    "dispatched_at": "2026-05-20T17:00:00Z",
+    "branch": "pkg55-bprime-session-n1",
+    "agent_id": "accdab80d65eda639"
+  }
+}
+```
+
+---
+
+### PR #323 — debounce still active (no action)
+
+Debounce window set `2026-05-20T00:00Z`, expires `2026-05-21T00:00Z`. Still active. No re-dispatch.
+
+---
+
+## ESCALATION
+
+### ESCALATION-1: RESOLVED — pkg55-B' Session N+1 dispatched this run.
+
+Previous escalation text (from Runs #1/#2) no longer applies. Monitor for the `pkg55-bprime-session-n1`
+branch to appear on remote and for PR to be opened by the implementer agent.
+
+**Owner to-do when the PR appears:**
+1. Review `feat(pkg55-B'): Session N+1 — shadow/miss/terminate stages (CPU)` PR
+2. Confirm CI green + SSIM ≥ 0.985 gate passes
+3. Merge (no HW gate needed for CPU-only session)
+
+### ESCALATION-2 (carried from Run #1): standup files are local-only
+
+Still applies. Consider adding `git push` of standup file to SKILL.md close-out step.
+
+---
+
+## Hardware gate status
+
+| PR | Package | State | Notes |
+|---|---|---|---|
+| #317 | pkg89-phase-b | DRAFT (rebased again vs current main) | Mark ready + `/verify` on RTX when complete |
+| #323 | pkg64-gpu Phase 1 | hw_blocked_buildenv (debounced until 2026-05-21T00:00Z) | Needs local RTX `/verify` |
+
+## Dispatch queue status after Run #3
+
+| Priority | Package | State | Notes |
+|---|---|---|---|
+| Top | pkg55-B' Session N+1 | **IN FLIGHT** (agent `accdab80d65eda639`) | Branch: `pkg55-bprime-session-n1` |
+| Second | pkg95 | Ready (pkg94 done, no PR) | Can dispatch concurrently with pkg55 (zero file overlap) |
+| Second | pkg89-phase-b | PR #317 DRAFT | Await owner mark-ready + RTX verify |
+| Third | pkg90 | Ready, no PR | Unblocks #323 HW gate |

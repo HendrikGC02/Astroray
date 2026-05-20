@@ -1,11 +1,11 @@
 {
   "schema": "astroray.wavefront.baseline.v1",
   "package": "pkg55",
-  "phase": "A.1 (SoA intersect dual-trace)",
-  "soa_mode_arg": "both",
-  "generated_utc": "2026-05-10T14:01:22Z",
-  "git_branch": "claude/vigorous-mclean-b58723",
-  "git_sha": "154538d",
+  "phase": "A.0 (megakernel baseline instrumentation)",
+  "soa_mode_arg": "off",
+  "generated_utc": "2026-05-17T12:34:36Z",
+  "git_branch": "docs/round10-closeout",
+  "git_sha": "1a3c159",
   "gpu": {
     "platform": "Windows-11-10.0.26200-SP0",
     "nvidia_smi": [
@@ -27,10 +27,10 @@
       "kernels": {
         "init_rng": {
           "count": 6,
-          "mean_ms": 0.417451,
-          "min_ms": 0.368928,
-          "max_ms": 0.614944,
-          "sum_ms": 2.504704,
+          "mean_ms": 0.363365,
+          "min_ms": 0.349248,
+          "max_ms": 0.377536,
+          "sum_ms": 2.180192,
           "regs_per_thread": 40,
           "shared_mem_bytes": 0,
           "max_threads_per_block": 1024,
@@ -38,101 +38,21 @@
           "launch_threads": 256,
           "launch_blocks": 256
         },
-        "path_trace_megakernel": {
+        "multiwavelength_megakernel": {
           "count": 6,
-          "mean_ms": 70.326124,
-          "min_ms": 62.726082,
-          "max_ms": 82.922462,
-          "sum_ms": 421.956741,
-          "regs_per_thread": 158,
+          "mean_ms": 19.923211,
+          "min_ms": 19.607168,
+          "max_ms": 20.656193,
+          "sum_ms": 119.539265,
+          "regs_per_thread": 125,
           "shared_mem_bytes": 0,
-          "max_threads_per_block": 384,
-          "active_blocks_per_sm": 1,
+          "max_threads_per_block": 512,
+          "active_blocks_per_sm": 2,
           "launch_threads": 256,
           "launch_blocks": 256
         }
       },
-      "stderr_tail": "[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray\\.claude\\worktrees\\vigorous-mclean-b58723\\benchmarks\\wavefront\\_per_scene\\cornell_diffuse.soa-off.json (2 kernels)\n"
-    },
-    {
-      "scene": "cornell_diffuse",
-      "soa_mode": "on",
-      "resolution": [
-        256,
-        256
-      ],
-      "spp": 64,
-      "max_depth": 8,
-      "warmup_runs": 1,
-      "measure_runs": 5,
-      "kernels": {
-        "init_rng": {
-          "count": 6,
-          "mean_ms": 0.375899,
-          "min_ms": 0.367392,
-          "max_ms": 0.384064,
-          "sum_ms": 2.255392,
-          "regs_per_thread": 40,
-          "shared_mem_bytes": 0,
-          "max_threads_per_block": 1024,
-          "active_blocks_per_sm": 6,
-          "launch_threads": 256,
-          "launch_blocks": 256
-        },
-        "path_trace_megakernel": {
-          "count": 6,
-          "mean_ms": 64.463755,
-          "min_ms": 63.399712,
-          "max_ms": 66.92749,
-          "sum_ms": 386.782532,
-          "regs_per_thread": 158,
-          "shared_mem_bytes": 0,
-          "max_threads_per_block": 384,
-          "active_blocks_per_sm": 1,
-          "launch_threads": 256,
-          "launch_blocks": 256
-        },
-        "wavefront_intersect_parity": {
-          "count": 6,
-          "mean_ms": 0.045157,
-          "min_ms": 0.03392,
-          "max_ms": 0.05792,
-          "sum_ms": 0.270944,
-          "regs_per_thread": 58,
-          "shared_mem_bytes": 0,
-          "max_threads_per_block": 1024,
-          "active_blocks_per_sm": 4,
-          "launch_threads": 256,
-          "launch_blocks": 256
-        },
-        "wavefront_stage_init": {
-          "count": 6,
-          "mean_ms": 0.057077,
-          "min_ms": 0.053856,
-          "max_ms": 0.065088,
-          "sum_ms": 0.342464,
-          "regs_per_thread": 40,
-          "shared_mem_bytes": 0,
-          "max_threads_per_block": 1024,
-          "active_blocks_per_sm": 6,
-          "launch_threads": 256,
-          "launch_blocks": 256
-        },
-        "wavefront_stage_intersect": {
-          "count": 6,
-          "mean_ms": 0.056443,
-          "min_ms": 0.04,
-          "max_ms": 0.092864,
-          "sum_ms": 0.338656,
-          "regs_per_thread": 56,
-          "shared_mem_bytes": 0,
-          "max_threads_per_block": 1024,
-          "active_blocks_per_sm": 4,
-          "launch_threads": 256,
-          "launch_blocks": 256
-        }
-      },
-      "stderr_tail": "[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray\\.claude\\worktrees\\vigorous-mclean-b58723\\benchmarks\\wavefront\\_per_scene\\cornell_diffuse.soa-on.json (5 kernels)\n"
+      "stderr_tail": "[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray\\benchmarks\\wavefront\\_per_scene\\cornell_diffuse.soa-off.json (2 kernels)\n"
     },
     {
       "scene": "cornell_glass",
@@ -148,10 +68,10 @@
       "kernels": {
         "init_rng": {
           "count": 6,
-          "mean_ms": 0.372821,
-          "min_ms": 0.36624,
-          "max_ms": 0.382752,
-          "sum_ms": 2.236928,
+          "mean_ms": 0.363899,
+          "min_ms": 0.349408,
+          "max_ms": 0.376448,
+          "sum_ms": 2.183392,
           "regs_per_thread": 40,
           "shared_mem_bytes": 0,
           "max_threads_per_block": 1024,
@@ -159,101 +79,21 @@
           "launch_threads": 256,
           "launch_blocks": 256
         },
-        "path_trace_megakernel": {
+        "multiwavelength_megakernel": {
           "count": 6,
-          "mean_ms": 66.044389,
-          "min_ms": 65.033249,
-          "max_ms": 69.620415,
-          "sum_ms": 396.266335,
-          "regs_per_thread": 158,
+          "mean_ms": 21.509466,
+          "min_ms": 21.436256,
+          "max_ms": 21.611551,
+          "sum_ms": 129.056799,
+          "regs_per_thread": 125,
           "shared_mem_bytes": 0,
-          "max_threads_per_block": 384,
-          "active_blocks_per_sm": 1,
+          "max_threads_per_block": 512,
+          "active_blocks_per_sm": 2,
           "launch_threads": 256,
           "launch_blocks": 256
         }
       },
-      "stderr_tail": "[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray\\.claude\\worktrees\\vigorous-mclean-b58723\\benchmarks\\wavefront\\_per_scene\\cornell_glass.soa-off.json (2 kernels)\n"
-    },
-    {
-      "scene": "cornell_glass",
-      "soa_mode": "on",
-      "resolution": [
-        256,
-        256
-      ],
-      "spp": 64,
-      "max_depth": 8,
-      "warmup_runs": 1,
-      "measure_runs": 5,
-      "kernels": {
-        "init_rng": {
-          "count": 6,
-          "mean_ms": 0.372667,
-          "min_ms": 0.369344,
-          "max_ms": 0.37616,
-          "sum_ms": 2.236,
-          "regs_per_thread": 40,
-          "shared_mem_bytes": 0,
-          "max_threads_per_block": 1024,
-          "active_blocks_per_sm": 6,
-          "launch_threads": 256,
-          "launch_blocks": 256
-        },
-        "path_trace_megakernel": {
-          "count": 6,
-          "mean_ms": 65.599482,
-          "min_ms": 64.049248,
-          "max_ms": 67.570496,
-          "sum_ms": 393.596893,
-          "regs_per_thread": 158,
-          "shared_mem_bytes": 0,
-          "max_threads_per_block": 384,
-          "active_blocks_per_sm": 1,
-          "launch_threads": 256,
-          "launch_blocks": 256
-        },
-        "wavefront_intersect_parity": {
-          "count": 6,
-          "mean_ms": 0.06704,
-          "min_ms": 0.027456,
-          "max_ms": 0.217184,
-          "sum_ms": 0.40224,
-          "regs_per_thread": 58,
-          "shared_mem_bytes": 0,
-          "max_threads_per_block": 1024,
-          "active_blocks_per_sm": 4,
-          "launch_threads": 256,
-          "launch_blocks": 256
-        },
-        "wavefront_stage_init": {
-          "count": 6,
-          "mean_ms": 0.053296,
-          "min_ms": 0.043328,
-          "max_ms": 0.063648,
-          "sum_ms": 0.319776,
-          "regs_per_thread": 40,
-          "shared_mem_bytes": 0,
-          "max_threads_per_block": 1024,
-          "active_blocks_per_sm": 6,
-          "launch_threads": 256,
-          "launch_blocks": 256
-        },
-        "wavefront_stage_intersect": {
-          "count": 6,
-          "mean_ms": 0.04096,
-          "min_ms": 0.028096,
-          "max_ms": 0.056576,
-          "sum_ms": 0.24576,
-          "regs_per_thread": 56,
-          "shared_mem_bytes": 0,
-          "max_threads_per_block": 1024,
-          "active_blocks_per_sm": 4,
-          "launch_threads": 256,
-          "launch_blocks": 256
-        }
-      },
-      "stderr_tail": "[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[pkg55-A.1] wavefront intersect parity: 0 / 65536 rays mismatched\n[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray\\.claude\\worktrees\\vigorous-mclean-b58723\\benchmarks\\wavefront\\_per_scene\\cornell_glass.soa-on.json (5 kernels)\n"
+      "stderr_tail": "[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray\\benchmarks\\wavefront\\_per_scene\\cornell_glass.soa-off.json (2 kernels)\n"
     }
   ]
 }

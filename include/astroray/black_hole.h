@@ -359,9 +359,15 @@ public:
             return result;
         }
 
+        // pkg99 (2026-05-22): exposureScale (5e-14) is a Novikov-Thorne disk
+        // brightness normalization (raw Planck values ~2e14 → ~1). It does NOT
+        // belong on volumetric emissions — those have their own intensity_scale
+        // parameters carrying any unit conversion they need. Multiplying by
+        // 5e-14 here made ADAF effectively invisible (ON==OFF) and forced jet
+        // scenes to use intensity_scale ~1e28 as empirical compensation. Scene
+        // files updated separately to use physically-meaningful scale values.
         result.emission = diskEmissionSpectral(ir, lambdas)
-                        + volumetricEmissionSpectral(incomingRay, lambdas)
-                            * exposureScale;
+                        + volumetricEmissionSpectral(incomingRay, lambdas);
         result.hasEmission = !result.emission.isZero();
         result.exitDirection = sanitizedExitDirection(ir);
         // pkg67: expose the integrator's frequency-shift factor so the caller

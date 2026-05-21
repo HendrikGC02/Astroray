@@ -71,6 +71,54 @@ Recommended next step: <single action — usually "add diag print at X and
 re-run" or "check Y with a minimal repro">
 ```
 
+## Deliverables (pkg98 independent review gate)
+
+Your final output must include:
+
+**(a) Root-cause analysis** — written, naming the actual defect surface (not
+just "the symptom"), with the distinguishing evidence. The above structured
+report format satisfies this requirement.
+
+**(b) Independent different-model sign-off on the proposed fix** — once a fix
+is drafted (by the routed `package-implementer`), **before it is pushed for
+re-gate**, invoke a **different model** (Codex via `codex:rescue`, or another
+different-model reviewer path) to review the proposed diff against the root
+cause you identified. The sign-off must return one of:
+
+- `SIGN-OFF` — the diff demonstrably addresses the named root cause; the
+  reviewer states *which lines* close it.
+- `BLOCK` — the diff does not address the root cause, addresses only a
+  symptom, or introduces a new defect. On BLOCK the fix is **not pushed**;
+  re-route to a fresh `package-implementer` with the BLOCK rationale.
+
+### Different-model requirement
+
+The sign-off MUST be produced by a different model lineage than the one that
+drafted the fix. Concrete invocation: use the Codex reviewer path or invoke
+an independent agent explicitly. The reviewer prompt is **adversarial by
+mandate**:
+
+> "Assume the fix is wrong until the diff proves otherwise. Your job is to
+> independently verify this fix closes the named root cause by reading the
+> diff and the failing artifact itself — NOT to agree it looks reasonable.
+> Cite the exact lines that close the root cause or return BLOCK."
+
+BLOCK is a first-class, expected outcome. Silence or uncertainty resolves to
+BLOCK, never to SIGN-OFF. A reviewer that never BLOCKs signals gate decay.
+
+### Recording the sign-off
+
+Record the root-cause text + sign-off verdict (SIGN-OFF/BLOCK + reviewing
+model + one-line rationale) via:
+
+```python
+from roadmap_orchestrator import state
+state.record_action(ledger, <pr_number>, "indep_review:SIGN-OFF")  # or "indep_review:BLOCK"
+```
+
+The artifact must also appear in the standup "CI under repair" / "Action
+items" section (PR number, root-cause one-liner, verdict, reviewing model).
+
 After producing the report, route to a fresh `package-implementer` session
 with the report attached. Do not attempt the fix yourself — the implementer
 session starts clean with your report as input.

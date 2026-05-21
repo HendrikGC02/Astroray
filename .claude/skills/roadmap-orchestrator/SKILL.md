@@ -49,16 +49,24 @@ In this order, respecting caps already applied by the engine:
    (memory `parallel_agent_worktree_contamination`). After spawning, re-check
    `git rev-parse main` == Step-0 value; if it moved, halt dispatch and write a
    `CONTAMINATION` Action item.
-2. **Fixers** — for each `plan.fixers` (each is `{"pr": n, "kind": "rebase"|"ci"}`): `kind=="rebase"` → rebase-fixer on that PR's branch worktree (rebase `origin/main`, push); `kind=="ci"` → `gate-failure-reviewer` then a `pkg-ship` CI-fix pass on that branch. Then `record_action(ledger, <pr number>, "rebase_dispatched"|"ci_dispatched")` (signature: `state.record_action(ledger, number, action)`).
+2. **Fixers** — for each `plan.fixers` (each is `{"pr": n, "kind": "rebase"|"ci"}`): `kind=="rebase"` → rebase-fixer on that PR's branch worktree (rebase `origin/main`, push); `kind=="ci"` → `gate-failure-reviewer` (which now produces a root-cause analysis + routes a fresh `package-implementer` to draft a fix + requires a different-model sign-off on the proposed fix before push — see `gate-failure-reviewer.md` § Deliverables). The fixer is **not pushed for re-gate** without a recorded `indep_review:SIGN-OFF`; a `BLOCK` verdict halts the push and writes an Action item to the standup. Then `record_action(ledger, <pr number>, "rebase_dispatched"|"ci_dispatched"|"indep_review:SIGN-OFF"|"indep_review:BLOCK")` (signature: `state.record_action(ledger, number, action)`).
 3. **Hardware gate (strictly serialized, asynchronous across ticks — design spec §2a).** `plan.hw_dispatch` is either `null` or a single **PR number** (int), not a dict.
    a. **Read back a finished result first.** Check `lock_status(".astroray_plan/.orchestrator.gpu.lock", 5400)`. If the GPU lock is held and its dispatched `hardware-verifier` job for that PR has finished, call `record_hw_result(ledger, <pr number>, <head_sha>, "PASS"|"FAIL", <numbers>, <artifact path>)` (signature: `state.record_hw_result(ledger, number, head_sha, result, numbers, artifact)`), then `release_lock(".astroray_plan/.orchestrator.gpu.lock")`.
    b. **Dispatch a new job only if the slot is free.** If `plan.hw_dispatch` is not `null` AND the GPU lock is free: look up that PR's `headRefOid` and `headRefName` from `gh pr view <plan.hw_dispatch> --json headRefOid,headRefName`; resolve the PR's worktree path (`.claude/worktrees/<pkg>` from the branch name, verified via `git worktree list`); `acquire_lock(".astroray_plan/.orchestrator.gpu.lock", 5400, meta={"sha": <headRefOid>})`; if acquired, dispatch the local hardware build+test via the `verify` skill / `hardware-verifier` on that PR's branch worktree, passing the worktree path + `headRefOid` + PR number + spec path + newest binding **as a background job — do NOT block the rest of this tick waiting for it** (a CUDA build+render runs far longer than the 10-min tick cadence; its result is read back by a later tick via step (a)). The HW build runs the PR's own worktree at its head SHA via the vcvars-bootstrapping wrapper; never `main`; Step-0 stale-`.pyd` hygiene and single-CUDA-job serialization are unchanged. **Exactly one GPU/CUDA job ever** — never start a second while this lock is held (memory `cuda_verifier_concurrency`). Never auto-run the full closeout sweep.
-4. **Merges** — for each `plan.merges`: invoke the `pr-reviewer` agent (its checklist
-   self-escalates and STOPS on gate/license problems). It only auto-merges a PR that is
-   `mergeable` + CI all-pass; the engine already confirmed hardware `PASS` bound to the
-   current head SHA.
-5. **HW-failed / Action items** — for each `plan.hw_failed`: dispatch
-   `gate-failure-reviewer` on the local failure artifacts; never override a HW `FAIL`.
+4. **Merges** — for each `plan.merges`: **if the PR's package is non-HW-gated** (Track A addon/orchestrator/engine plumbing / docs-with-code — no HW/render acceptance gate), dispatch one independent different-model pre-merge code review of the PR diff against the package spec's acceptance criteria **before** invoking `pr-reviewer`. Verdict is `SIGN-OFF` or `BLOCK`:
+   - `SIGN-OFF` → proceed to `pr-reviewer` (which still runs its full checklist; the independent review is additive).
+   - `BLOCK` → do **not** invoke `pr-reviewer`; write a standup Action item (PR number, the integration/logic gap named by the reviewer) and route a `gate-failure-reviewer` / fresh-implementer pass. The PR is not merged this tick.
+   
+   **If the PR's package is HW/render-gated** (has a HW/render acceptance gate in its spec — the empirical RTX visual gate is its real backstop), **skip** the independent review and proceed directly to `pr-reviewer` exactly as today. The `pr-reviewer` agent's checklist self-escalates and STOPS on gate/license problems. It only auto-merges a PR that is `mergeable` + CI all-pass; the engine already confirmed hardware `PASS` bound to the current head SHA.
+   
+   **Pure-docs PRs** (diff touches only `*.md` and `.astroray_plan/`): the existing `pr-reviewer` doc-only fast path is preserved; no independent review is dispatched (keeps the gate minimal).
+5. **HW-failed / Action items** — for each `plan.hw_failed`: dispatch `gate-failure-reviewer` on the local failure artifacts (which now produces a root-cause analysis + routes a fresh `package-implementer` to draft a fix + requires a different-model sign-off on the proposed fix before push — see Step 2.2 and `gate-failure-reviewer.md` § Deliverables). A HW `FAIL` is never overridden automatically; the fix is **not pushed for re-gate** without a recorded `indep_review:SIGN-OFF`. Then `record_action(ledger, <pr number>, "gate_review_dispatched")` to debounce re-dispatch (memory `orchestrator-hw-failed-no-debounce`).
+
+## Step 3 — Standup + close out
+1. `finalize_previous(.astroray_plan/docs/standup, <today>)`.
+2. `upsert_standup(.astroray_plan/docs/standup, <today>, plan, gpu_holder, hw_queue, ledger)` (pass ledger to surface independent-review verdicts in standup).
+3. `expire_closed(ledger, open_numbers)` where `open_numbers` is a Python `set` of int PR numbers from the `gh pr list`; then `save_ledger(".astroray_plan/.orchestrator-state.json", ledger)`.
+4. `release_lock(.astroray_plan/.orchestrator.lock)` (also release on every abort path).
 
 ## Step 3 — Standup + close out
 1. **Safe merged-worktree auto-GC (live path only; never under `--dry-run`).**
@@ -67,7 +75,7 @@ In this order, respecting caps already applied by the engine:
    This safely removes worktrees + branches for PRs that are (a) MERGED on GitHub, (b) content in `origin/main` (squash-aware), (c) zero uncommitted/unpushed changes.
    Anything not provably safe is escalated, never force-deleted. Design: pkg97 § Phase 1.
 2. `finalize_previous(.astroray_plan/docs/standup, <today>)`.
-3. `upsert_standup(.astroray_plan/docs/standup, <today>, plan, gpu_holder, hw_queue, merged_today, gc_report)` where `merged_today` is the list of PR numbers merged today (from `_get_merged_today()`) and `gc_report` is the GC report from step 1.
+3. `upsert_standup(.astroray_plan/docs/standup, <today>, plan, gpu_holder, hw_queue, merged_today, gc_report, ledger)` where `merged_today` is the list of PR numbers merged today (from `_get_merged_today()`) and `gc_report` is the GC report from step 1.
 4. `expire_closed(ledger, open_numbers)` where `open_numbers` is a Python `set` of int PR numbers from the `gh pr list`; then `save_ledger(".astroray_plan/.orchestrator-state.json", ledger)`.
 5. `release_lock(.astroray_plan/.orchestrator.lock)` (also release on every abort path).
 
@@ -77,6 +85,8 @@ In this order, respecting caps already applied by the engine:
 - The HW build runs the PR's own worktree at its head SHA via the vcvars-bootstrapping wrapper; never `main`; Step-0 stale-`.pyd` hygiene and single-CUDA-job serialization are unchanged.
 - Implementer cap 2 / fixer cap 1 (enforced in the engine).
 - Auto-merge requires BOTH CI all-pass AND head-SHA-bound hardware `PASS`. A HW `FAIL` blocks merge + escalates.
+- **A gate-failure fix (CI or HW) is never pushed for re-gate without a recorded different-model SIGN-OFF; BLOCK halts the push.** (pkg98)
+- **Non-HW-gated packages get one independent different-model pre-merge code review before `pr-reviewer`; HW-gated packages skip it** (the empirical HW visual gate already covers them). (pkg98)
 - `--dry-run` = zero side effects.
 - **Worktree/branch GC is merged-only, never force-delete on doubt.** Only PRs with `state == "MERGED"` AND content in `origin/main` (squash-aware) AND clean worktree are removed. No staleness/age heuristic. Escalate all ambiguous cases as Action items (pkg97 § Phase 1 hard invariant).
 

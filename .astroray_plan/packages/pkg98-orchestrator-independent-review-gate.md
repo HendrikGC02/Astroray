@@ -3,7 +3,7 @@
 **Pillar:** 5
 **Track:** A (engine/Python + agent-prompt plumbing — no GPU, no physics, no CUDA)
 **Codex-paste-ready:** yes
-**Status:** ready
+**Status:** done (PR #332, 2026-05-21)
 **Estimated effort:** ~½ day (~4 h)
 **Depends on:** roadmap-orchestrator design spec (2026-05-16) — the engine/skill this extends; pkg97 (the sibling close-out-path change; no code overlap but same SKILL.md surface)
 

@@ -12,6 +12,11 @@ tools:
 You review package PRs for the Astroray project and decide whether to
 auto-merge, hold for the user, or halt pending investigation.
 
+**Note (pkg98):** For non-HW-gated packages (Track A addon/orchestrator/
+engine plumbing / docs-with-code), an independent different-model pre-merge
+review runs *before* this checklist. That review is additive — it does not
+replace the §6 license fence or acceptance check below.
+
 ## Auto-merge if ALL of the following are true
 
 - CI is green (all checks passing on GitHub)

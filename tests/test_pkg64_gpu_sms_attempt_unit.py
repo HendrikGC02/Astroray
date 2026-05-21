@@ -87,8 +87,17 @@ def _run_probe_subprocess() -> subprocess.CompletedProcess:
       [pkg64-gpu] sms attempt probe: ok=<0|1> fhero=<f> w=<f> tr=<f> \
           caster_flag_crossed=<0|1>
     """
+    from pathlib import Path
+    ROOT = Path(__file__).resolve().parent.parent
     script = textwrap.dedent(
         f"""
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, {str(ROOT / 'tests')!r})
+        sys.path.insert(0, {str(ROOT)!r})
+        import runtime_setup
+        runtime_setup.configure_test_imports()
+
         import astroray
         # BK7-sphere acceptance scene — identical geometry/material to the
         # CPU SMS acceptance tests (tests/test_sms_caustic_validation.py).

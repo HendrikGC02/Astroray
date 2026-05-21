@@ -160,8 +160,8 @@ def test_g2_blackbody_spectral_correctness(astroray_module):
     min_channel = np.min(mean_rgb)
     rel_variation = (max_channel - min_channel) / max_channel if max_channel > 0 else 0
 
-    # G2 gate: D65 should produce near-neutral RGB (relaxed to 13%, pending calibration).
-    assert rel_variation < 0.13, \
+    # G2 gate: D65 should produce near-neutral RGB (< 10%).
+    assert rel_variation < 0.10, \
         f"G2 FAIL: D65 blackbody not neutral, RGB={mean_rgb}, variation={rel_variation*100:.2f}%"
 
     print(f"[G2 PASS] D65 blackbody RGB={mean_rgb}, variation={rel_variation*100:.2f}%")
@@ -223,13 +223,13 @@ def test_g4_spot_cone_falloff(astroray_module):
 
     pixels = r.render(256, 1)
 
-    # Check center (should be bright, within inner cone, threshold relaxed pending calibration)
+    # Check center (should be bright, within inner cone)
     center_lum = np.mean(pixels[32-2:32+2, 32-2:32+2])
-    assert center_lum > 0.4, f"G4 FAIL: center too dark ({center_lum}), inner cone not working"
+    assert center_lum > 1.0, f"G4 FAIL: center too dark ({center_lum}), inner cone not working"
 
     # Check corner (should be dark, outside outer cone)
     corner_lum = np.mean(pixels[0:4, 0:4])
-    assert corner_lum < 0.5, f"G4 FAIL: corner too bright ({corner_lum}), outer cone not working"  # TODO(pkg89): broken, corner=0.43
+    assert corner_lum < 0.01, f"G4 FAIL: corner too bright ({corner_lum}), outer cone not working"
 
     print(f"[G4 PASS] Spot cone: center={center_lum:.4f}, corner={corner_lum:.6f}")
 

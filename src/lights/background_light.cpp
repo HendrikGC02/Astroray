@@ -44,8 +44,9 @@ void BackgroundLight::sampleLi(LiSample& sample,
     // upsampling is a temporary workaround until EnvironmentMap is extended.
     Vec3 emissionRGB = envMap_->lookup(dir);
 
-    // Upsample RGB to spectral via RGBIlluminantSpectrum.
-    RGBIlluminantSpectrum rgbSpectrum({emissionRGB.x, emissionRGB.y, emissionRGB.z});
+    // Upsample RGB to spectral via RGBUnboundedSpectrum (no D65 weighting for emission).
+    // Reference: PBRT-v4 DiffuseAreaLight (Apache-2.0).
+    RGBUnboundedSpectrum rgbSpectrum({emissionRGB.x, emissionRGB.y, emissionRGB.z});
     sample.emission_spec = rgbSpectrum.sample(lambdas);
     sample.emission_rgb = emissionRGB;
 

@@ -123,10 +123,11 @@ public:
 protected:
     Light() = default;
 
-    // Helper: compute normalize factor for blackbody emission.
-    // Returns 1.0 if normalize is false or emission is non-blackbody.
-    // Called at construction time by concrete light types.
-    static float computeNormalizeFactor(const EmissionSpectrum& emission, bool shouldNormalize);
+    // Helper: compute geometric normalize factor (inverse area).
+    // Returns 1/area if shouldNormalize is true, else 1.0.
+    // The M_1_PI_F (1/π) factor is applied separately at sampling time.
+    // Reference: Cycles intern/cycles/scene/light.cpp:127-131 (Apache-2.0).
+    static float computeNormalizeFactor(float area, bool shouldNormalize);
 };
 
 } // namespace astroray

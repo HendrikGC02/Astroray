@@ -19,8 +19,10 @@ DistantLight::DistantLight(const Vec3& axis,
     , angularDiameter_(angularDiameter)
     , emission_(emission)
     , intensity_(intensity)
-    , normalizeFactor_(Light::computeNormalizeFactor(emission, true))
 {
+    // Distant lights don't use geometric normalization (no area concept).
+    // Just use 1.0 (Cycles distant light has no invarea factor).
+    normalizeFactor_ = 1.0f;
 }
 
 void DistantLight::sampleLi(LiSample& sample,

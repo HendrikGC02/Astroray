@@ -21,8 +21,10 @@ PointLight::PointLight(const Vec3& position,
     , intensity_(intensity)
     , radius_(radius)
     , ies_(ies)
-    , normalizeFactor_(Light::computeNormalizeFactor(emission, true))
 {
+    // Compute normalize factor using geometric normalization (Cycles parity).
+    // For point lights, pass area=1.0 (normalize factor is just 1/pi).
+    normalizeFactor_ = Light::computeNormalizeFactor(1.0f, true);
 }
 
 void PointLight::sampleLi(LiSample& sample,
@@ -71,8 +73,10 @@ void PointLight::sampleLi(LiSample& sample,
     }
 
     // Evaluate spectral emission.
+    // Reference: Cycles intern/cycles/scene/light.cpp:127-131 (eval_fac = invarea * M_1_PI_F, Apache-2.0).
+    constexpr float kM1PiF = 0.31830988618f;  // M_1_PI_F = 1/π
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
-    emissionSpec *= (intensity_ * normalizeFactor_ * falloff * iesModulation);
+    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF * falloff * iesModulation);
 
     sample.emission_spec = emissionSpec;
 

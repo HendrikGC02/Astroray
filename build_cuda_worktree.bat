@@ -1,0 +1,150 @@
+@echo off
+REM Worktree-parameterized CUDA build wrapper with MSVC bootstrap
+REM Usage: build_cuda_worktree.bat <worktree-path> <expected-head-sha>
+REM
+REM This wrapper:
+REM 1. Locates MSVC via vswhere (or falls back to hardcoded path)
+REM 2. Initializes vcvars64.bat so cl.exe + nvcc are on PATH
+REM 3. Validates the worktree is at the expected SHA
+REM 4. Builds the CUDA target in the worktree's own build_cuda directory
+REM
+REM Exit codes:
+REM   0 = build succeeded
+REM   1 = missing arguments
+REM   2 = MSVC bootstrap failed (cl.exe not on PATH after vcvars)
+REM   3 = nvcc not found
+REM   4 = worktree HEAD mismatch (contamination guard)
+REM   5 = cmake build failed
+
+setlocal enabledelayedexpansion
+
+REM Parse arguments
+if "%~1"=="" (
+    echo ERROR: Missing worktree path argument
+    echo Usage: build_cuda_worktree.bat ^<worktree-path^> ^<expected-head-sha^>
+    exit /b 1
+)
+if "%~2"=="" (
+    echo ERROR: Missing expected SHA argument
+    echo Usage: build_cuda_worktree.bat ^<worktree-path^> ^<expected-head-sha^>
+    exit /b 1
+)
+
+set "WORKTREE_PATH=%~1"
+set "EXPECTED_SHA=%~2"
+
+echo ========================================
+echo CUDA Worktree Build
+echo ========================================
+echo Worktree: %WORKTREE_PATH%
+echo Expected SHA: %EXPECTED_SHA%
+echo.
+
+REM Phase 1: MSVC bootstrap (idempotent)
+echo [Phase 1] MSVC bootstrap...
+
+REM Check if cl.exe is already on PATH (fast-path for dev shells)
+where cl.exe >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    echo cl.exe already on PATH (dev shell) - skipping vcvars init
+    goto :check_nvcc
+)
+
+REM Locate MSVC via vswhere
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+if not exist "%VSWHERE%" (
+    echo vswhere.exe not found at: %VSWHERE%
+    echo Falling back to hardcoded BuildTools path...
+    set "VCVARS_PATH=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+    goto :call_vcvars
+)
+
+echo Locating MSVC installation via vswhere...
+for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
+    set "VS_INSTALL_PATH=%%i"
+)
+
+if not defined VS_INSTALL_PATH (
+    echo vswhere returned no installation path
+    echo Falling back to hardcoded BuildTools path...
+    set "VCVARS_PATH=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+    goto :call_vcvars
+)
+
+set "VCVARS_PATH=%VS_INSTALL_PATH%\VC\Auxiliary\Build\vcvars64.bat"
+echo Found MSVC at: %VS_INSTALL_PATH%
+
+:call_vcvars
+if not exist "%VCVARS_PATH%" (
+    echo ERROR: vcvars64.bat not found at: %VCVARS_PATH%
+    echo MSVC bootstrap failed - cannot locate vcvars64.bat
+    exit /b 2
+)
+
+echo Calling: %VCVARS_PATH%
+call "%VCVARS_PATH%"
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: vcvars64.bat exited with code %ERRORLEVEL%
+    exit /b 2
+)
+
+REM Verify cl.exe is now on PATH
+where cl.exe >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: MSVC bootstrap failed - cl.exe not on PATH after vcvars64
+    exit /b 2
+)
+echo cl.exe located:
+where cl.exe
+
+:check_nvcc
+REM Verify nvcc is on PATH
+where nvcc.exe >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: nvcc not found on PATH
+    exit /b 3
+)
+echo nvcc located:
+where nvcc.exe
+echo.
+
+REM Phase 2: Worktree validation and build
+echo [Phase 2] Worktree validation...
+
+REM Change to worktree
+if not exist "%WORKTREE_PATH%" (
+    echo ERROR: Worktree path does not exist: %WORKTREE_PATH%
+    exit /b 4
+)
+cd /d "%WORKTREE_PATH%"
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: Failed to cd to worktree: %WORKTREE_PATH%
+    exit /b 4
+)
+echo Current directory: %CD%
+
+REM Verify HEAD SHA
+for /f "tokens=*" %%i in ('git rev-parse HEAD') do set "ACTUAL_SHA=%%i"
+if not "%ACTUAL_SHA%"=="%EXPECTED_SHA%" (
+    echo ERROR: Worktree HEAD mismatch - refusing to build stale/contaminated tree
+    echo   Expected: %EXPECTED_SHA%
+    echo   Actual:   %ACTUAL_SHA%
+    exit /b 4
+)
+echo HEAD SHA verified: %ACTUAL_SHA%
+echo.
+
+REM Phase 3: Build
+echo [Phase 3] CUDA build...
+echo Running: cmake --build build_cuda --target astroray
+cmake --build build_cuda --target astroray
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: cmake build failed with code %ERRORLEVEL%
+    exit /b 5
+)
+
+echo.
+echo ========================================
+echo Build succeeded
+echo ========================================
+exit /b 0

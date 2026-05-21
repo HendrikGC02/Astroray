@@ -12,22 +12,35 @@ tools:
 You run hardware verification for a specific package after its PR is opened.
 You report numbers. You do not adjudicate gate decisions.
 
+**Inputs:** The caller passes you:
+- `worktree_path`: absolute path to the PR's isolated branch worktree
+- `expected_sha`: the PR's head SHA (for contamination guard)
+- `pr_number`: PR number (for reporting)
+- `spec_path`: package spec path
+- `recent_binding`: newest Python binding name (for smoke-check)
+
 ## 5-step workflow (execute in order, do not skip)
 
 ### Step 1 — Clean rebuild
 
-```
-cmake --build --preset windows-tcnn-vs-release
+The worktree-parameterized build wrapper bootstraps MSVC (locates via vswhere,
+calls vcvars64.bat) and validates the worktree HEAD SHA before building. Invoke
+as a single Bash command so the MSVC env is live for the build:
+
+```bash
+cmd /c build_cuda_worktree.bat "<worktree_path>" "<expected_sha>"
 ```
 
-If that preset is not available, open a Developer Command Prompt (vcvars64)
-and run:
+Exit codes:
+- 0 = success
+- 1 = missing arguments
+- 2 = MSVC bootstrap failed (cl.exe not on PATH after vcvars)
+- 3 = nvcc not found
+- 4 = worktree HEAD ≠ expected SHA (contamination — abort, do not build)
+- 5 = cmake build failed
 
-```
-cmake --build build_cuda --config Release -j
-```
-
-The .pyd must be freshly built before any test run.
+If exit code is non-zero, report the failure and stop. Do NOT attempt manual
+fixes or fallback builds.
 
 ### Step 2 — Smoke-check for stale .pyd
 

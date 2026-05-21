@@ -1,6 +1,6 @@
 # pkg55-B' Session N+2 — Threshold Pinning + CUDA-Port Preflight
 
-**Status:** done (PR #XXX, 2026-05-21)  
+**Status:** done (PR #334, 2026-05-21)  
 **Spec:** `.astroray_plan/packages/pkg55-wavefront-soa-refactor.md` §4.2 GATE-THRESHOLDS-PINNED
 
 ---

@@ -77,6 +77,16 @@ def render_standup(plan: dict, gpu_holder, hw_queue: list, merged_today=None,
             action_lines.append(f"- #{n} HARDWARE FAILED — owner attention")
     if gc_report and gc_report.get("escalations"):
         action_lines += [f"- Worktree GC: {msg}" for msg in gc_report["escalations"]]
+    # Implementer escalations from impl_dispatches (outcome != PR success).
+    impl_dispatches = ledger.get("impl_dispatches", {})
+    if isinstance(impl_dispatches, dict):
+        for key, entry in impl_dispatches.items():
+            if not isinstance(entry, dict):
+                continue
+            outcome = entry.get("outcome", "")
+            if outcome and outcome.startswith("escalated"):
+                ctx = entry.get("context", "")
+                action_lines.append(f"- {key} IMPLEMENTER ESCALATED ({outcome}) — owner attention: {ctx}")
     L += action_lines or ["- (none)"]
     return "\n".join(L) + "\n"
 

@@ -3,7 +3,7 @@
 **Pillar:** 5
 **Track:** A (engine/build-script plumbing — no GPU correctness change, no physics, no CUDA kernel change; only how the existing CUDA build is invoked)
 **Codex-paste-ready:** yes
-**Status:** ready
+**Status:** done (PR #333, 2026-05-21 — 13/13 unit tests pass; vcvars bootstrap, worktree parameterization, head-SHA bind, CPU-only carve-out, Step-0 hygiene preservation, GPU serialization preservation all verified)
 **Estimated effort:** ~½ day (~4 h)
 **Depends on:** roadmap-orchestrator design spec (2026-05-16) — the engine/skill whose HW gate this unblocks; no code overlap with pkg97 (close-out GC) or pkg98 (review gate), but same SKILL.md Safety-rails surface — if any are in flight, rebase, do not blind-merge-resolve.
 

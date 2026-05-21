@@ -106,7 +106,7 @@ def _run_probe_subprocess() -> subprocess.CompletedProcess:
         # Flag the BK7 sphere as a caustic caster (acceptance #2 path).
         r.set_object_caustic_caster(r.scene_object_count() - 1, True)
         r.set_use_refractive_caustics(True)
-        r.use_gpu(True)
+        r.set_use_gpu(True)
         r.upload_scene()
         r.render(1, 4)
         """

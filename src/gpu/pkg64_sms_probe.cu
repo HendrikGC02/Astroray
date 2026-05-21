@@ -23,7 +23,7 @@
 // whether the first flagged CPU caster has its isCausticCaster flag set on
 // the device side.
 void launchPkg64SmsProbe(
-    const astroray::Renderer& hostRenderer,
+    const Renderer& hostRenderer,
     const GBVHNode*   /*d_bvhNodes*/,
     const GPrimitive* /*d_prims*/,
     const GTriangle*  /*d_tris*/,
@@ -52,9 +52,9 @@ void launchPkg64SmsProbe(
             // Find the sphere matching C_cpu.center/radius.
             for (size_t i = 0; i < host_spheres.size(); ++i) {
                 const GSphere& gs = host_spheres[i];
-                float dx = gs.center.x - static_cast<float>(C_cpu.center.x());
-                float dy = gs.center.y - static_cast<float>(C_cpu.center.y());
-                float dz = gs.center.z - static_cast<float>(C_cpu.center.z());
+                float dx = gs.center.x - static_cast<float>(C_cpu.center.x);
+                float dy = gs.center.y - static_cast<float>(C_cpu.center.y);
+                float dz = gs.center.z - static_cast<float>(C_cpu.center.z);
                 float dr = gs.radius - C_cpu.radius;
                 if (dx*dx + dy*dy + dz*dz < 1e-4f && dr*dr < 1e-6f) {
                     // Found the caster sphere in d_spheres[i]. Check its flag.

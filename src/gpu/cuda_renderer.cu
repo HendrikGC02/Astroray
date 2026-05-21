@@ -59,7 +59,7 @@ float launchProfileLookup(int profileIndex, float lambda);
 
 // pkg64-gpu Phase 1 probe harness (defined in pkg64_sms_probe.cu).
 void launchPkg64SmsProbe(
-    const astroray::Renderer& hostRenderer,
+    const Renderer& hostRenderer,
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
@@ -136,7 +136,7 @@ struct CUDARenderer::Impl {
     int          profileCount = 0;
 
     // pkg64-gpu Phase 1 probe: stashed host Renderer for CPU reference.
-    const astroray::Renderer* hostRenderer = nullptr;
+    const Renderer* hostRenderer = nullptr;
 
     // Device info
     bool        available = false;

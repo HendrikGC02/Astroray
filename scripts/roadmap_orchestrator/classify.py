@@ -72,7 +72,10 @@ def classify_prs(prs: list, ledger: dict) -> dict:
         if ci_state(pr) == "fail":
             out["ci_failing"].append(n); continue
         hw = _hw_for_current_sha(pr, ledger)
-        if hw == "FAIL":
+        # PARTIAL = verifier ran but some acceptance gates were inert / not
+        # exercised (e.g. probe-harness landed without full input plumbing).
+        # Route via the same fix-implementer path as FAIL; do not merge.
+        if hw in ("FAIL", "PARTIAL"):
             out["hw_failed"].append(n); continue
         if pr.get("mergeable") == "MERGEABLE" and ci_state(pr) == "pass" and hw == "PASS":
             out["ready"].append(n); continue

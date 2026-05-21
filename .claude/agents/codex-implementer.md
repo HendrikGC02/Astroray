@@ -36,6 +36,27 @@ constraints in the handoff:
 - Acceptance criteria must all be addressed in the PR body with measured
   numbers.
 
+## Liveness check (before sanity pass)
+
+The Codex rescue wrapper returns success once Codex is dispatched, NOT once
+it has produced code. Codex jobs can die silently after dispatch (observed
+2026-05-21: two consecutive pkg90 dispatches returned success but produced
+zero commits, zero remote branch, and no live `codex` process). Before
+treating Codex as having delivered, verify:
+
+1. `git -C <worktree> log --oneline main..HEAD` shows ≥1 commit, AND
+2. `git ls-remote origin <branch>` returns a SHA matching that branch.
+
+If either check fails:
+
+- Run `Get-Process -Name codex -ErrorAction SilentlyContinue | Stop-Process
+  -Force` to clean up any stale codex process.
+- Re-dispatch the SAME spec via `Agent` with `subagent_type:
+  package-implementer` (Opus). Do not retry Codex on the same spec — two
+  consecutive Codex deaths is the established fallback trigger.
+- Note in your return summary that Codex was unhealthy and Opus took over,
+  so the orchestrator can record the fallback in the ledger.
+
 ## Sanity pass (on Codex return)
 
 Before the PR is opened, verify:

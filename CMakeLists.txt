@@ -442,6 +442,7 @@ if(ASTRORAY_CUDA_FOUND)
         src/gpu/path_trace_kernel.cu
         src/gpu/multiwavelength_kernel.cu
         src/gpu/scene_upload.cu
+        src/gpu/pkg64_sms_probe.cu
     )
     if(ASTRORAY_WAVEFRONT_INTERSECT)
         list(APPEND ASTRORAY_CUDA_SOURCES

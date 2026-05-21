@@ -2595,6 +2595,47 @@ PYBIND11_MODULE(astroray, m) {
           "pkg56-A: clear the viewport perf ring buffer and "
           "in-flight accumulator.");
 
+    // pkg64-gpu Phase 1 probe helper — builds the BK7-sphere SMS acceptance
+    // scene (mirroring test_sms_caustic_validation.py geometry) for the
+    // device probe harness to run against.
+    m.def("build_bk7_sms_acceptance_scene", [](PyRenderer& r) {
+        // Floor quad (two triangles) with lambertian grey.
+        auto floor = r.createMaterial("lambertian",
+            std::vector<float>{0.78f, 0.78f, 0.78f},
+            std::map<std::string, float>{});
+        r.addTriangle(
+            std::vector<float>{-2.4f, -1.2f, -2.2f},
+            std::vector<float>{ 2.4f, -1.2f, -2.2f},
+            std::vector<float>{ 2.4f, -1.2f,  1.6f},
+            floor);
+        r.addTriangle(
+            std::vector<float>{-2.4f, -1.2f, -2.2f},
+            std::vector<float>{ 2.4f, -1.2f,  1.6f},
+            std::vector<float>{-2.4f, -1.2f,  1.6f},
+            floor);
+        // Point light (sphere).
+        auto light = r.createMaterial("light",
+            std::vector<float>{1.0f, 1.0f, 1.0f},
+            std::map<std::string, float>{{"intensity", 14.0f}});
+        r.addSphere(std::vector<float>{0.0f, 1.6f, 1.0f}, 0.22f, light);
+        // BK7 glass sphere (the caster).
+        auto glass = r.createMaterial("dielectric",
+            std::vector<float>{1.0f, 1.0f, 1.0f},
+            std::map<std::string, float>{{"ior", 1.52f}});
+        r.addSphere(std::vector<float>{0.0f, -0.4f, 0.15f}, 0.7f, glass);
+        // Camera.
+        r.setupCamera(
+            std::vector<float>{0.0f, 0.0f, 4.2f},
+            std::vector<float>{0.0f, -0.05f, 0.0f},
+            std::vector<float>{0.0f, 1.0f, 0.0f},
+            38.0f, 64.0f / 64.0f, 0.0f, 4.2f, 64, 64);
+        r.setBackgroundColor(std::vector<float>{0.01f, 0.012f, 0.018f});
+    }, "renderer"_a,
+    "pkg64-gpu Phase 1 probe: build the BK7-sphere SMS acceptance scene "
+    "(mirroring test_sms_caustic_validation.py). Caller must flag the BK7 "
+    "sphere as a caustic caster (r.set_object_caustic_caster(r.scene_object_count()-1, True)) "
+    "before calling uploadScene + render with ASTRORAY_PKG64_GPU_SMS_PROBE set.");
+
     m.attr("__version__") = "3.0.0";
 #ifndef ASTRORAY_BUILD_ID
 #  define ASTRORAY_BUILD_ID "dev"

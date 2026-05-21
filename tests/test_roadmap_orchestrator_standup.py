@@ -8,7 +8,7 @@ PLAN = {"dispatch": ["pkg94"], "fixers": [{"pr": 5, "kind": "ci"}],
                     "hw_untested": [7], "hw_failed": [9], "ready": [3]}}
 
 def test_render_contains_all_sections():
-    md = render_standup(PLAN, gpu_holder=None, hw_queue=[7])
+    md = render_standup(PLAN, gpu_holder=None, hw_queue=[7], merged_today=[3])
     for h in ["Shipped today", "In-flight", "Blocked", "Hardware gate",
               "CI under repair", "Action items"]:
         assert h in md
@@ -32,3 +32,19 @@ def test_finalize_previous_appends_footer_once(tmp_path):
     assert "<!-- finalized -->" in txt
     finalize_previous(str(tmp_path), "2026-05-16")  # second call no-ops
     assert (tmp_path / "2026-05-15.md").read_text(encoding="utf-8").count("<!-- finalized -->") == 1
+
+def test_shipped_today_lists_merged_prs():
+    """Phase 2 regression: Shipped today should list PRs passed via merged_today, not plan merges."""
+    md = render_standup(PLAN, gpu_holder=None, hw_queue=[], merged_today=[101, 102])
+    assert "#101" in md and "#102" in md
+    # Should NOT show plan["merges"] (which are about-to-be-merged)
+    shipped_section = md.split("## In-flight")[0]
+    assert "#101" in shipped_section and "#102" in shipped_section
+
+def test_gc_escalations_in_action_items():
+    """GC escalations should appear in Action items."""
+    gc_report = {"removed": [], "escalations": ["#123 (pkg97-test): no upstream → skip"]}
+    md = render_standup(PLAN, gpu_holder=None, hw_queue=[], merged_today=[], gc_report=gc_report)
+    action_section = md.split("## Action items")[1] if "## Action items" in md else ""
+    assert "Worktree GC" in action_section
+    assert "#123" in action_section and "no upstream" in action_section

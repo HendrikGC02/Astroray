@@ -47,9 +47,13 @@ def main(argv=None) -> int:
     plan = build_tick_plan(prs, ledger, priority, eligible, a.in_flight,
                            IMPL_CAP, FIXER_CAP, a.gpu_lock_free,
                            FIXER_DEBOUNCE, now_iso)
+    # Query merged-today for standup (Phase 2: pkg97 fix)
+    from roadmap_orchestrator.standup import _get_merged_today
+    merged_today = _get_merged_today()
     out = {"plan": plan,
            "standup_md": render_standup(plan, gpu_holder=None,
-                                        hw_queue=plan["buckets"]["hw_untested"]),
+                                        hw_queue=plan["buckets"]["hw_untested"],
+                                        merged_today=merged_today),
            "dry_run": bool(a.dry_run)}
     print(json.dumps(out, indent=2))
     return 0

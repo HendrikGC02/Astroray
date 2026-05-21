@@ -57,6 +57,17 @@ void uploadCmfTables();
 void uploadJakobHanikaLut();
 float launchProfileLookup(int profileIndex, float lambda);
 
+// pkg64-gpu Phase 1 probe harness (defined in pkg64_sms_probe.cu).
+void launchPkg64SmsProbe(
+    const Renderer& hostRenderer,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const GMaterial*  d_materials,
+    const GLight*     d_lights,
+    int numLights);
+
 void launchMultiwavelengthKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
@@ -123,6 +134,9 @@ struct CUDARenderer::Impl {
     curandState* d_rngStates   = nullptr;
     int          fbWidth = 0, fbHeight = 0;
     int          profileCount = 0;
+
+    // pkg64-gpu Phase 1 probe: stashed host Renderer for CPU reference.
+    const Renderer* hostRenderer = nullptr;
 
     // Device info
     bool        available = false;
@@ -339,6 +353,9 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
     astroray::gpu_profile::NvtxRange _nvtx_upload("CUDARenderer::uploadScene");
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
 
+    // pkg64-gpu Phase 1 probe: stash host Renderer for CPU reference.
+    impl->hostRenderer = &cpuRenderer;
+
     // Build flat arrays on the host (single pass).
     SceneUploadResult r = buildSceneArrays(cpuRenderer, &cam);
 
@@ -471,6 +488,30 @@ void CUDARenderer::render(
         ? (unsigned long long)time(nullptr)
         : (unsigned long long)seed;
     launchInitRNG(impl->d_rngStates, totalPixels, rngSeed);
+
+    // pkg64-gpu Phase 1 probe hook — when ASTRORAY_PKG64_GPU_SMS_PROBE env
+    // var is set, run the SMS probe harness (pkg64_sms_probe.cu) instead of
+    // the normal render. The probe emits a single stderr line for
+    // test_pkg64_gpu_sms_attempt_unit.py to parse.
+    {
+        const char* probe_env = std::getenv("ASTRORAY_PKG64_GPU_SMS_PROBE");
+        bool probe_on = probe_env && probe_env[0] && std::strcmp(probe_env, "0") != 0;
+        if (probe_on) {
+            if (!impl->hostRenderer) {
+                std::fprintf(stderr,
+                    "[pkg64-gpu] sms attempt probe: no host Renderer stashed "
+                    "(uploadScene not called before render)\n");
+                return;
+            }
+            launchPkg64SmsProbe(
+                *impl->hostRenderer,
+                impl->d_bvhNodes, impl->d_prims, impl->d_triangles,
+                impl->d_spheres, impl->d_materials,
+                impl->d_lights, impl->numLights);
+            // Return early without rendering — the probe ran instead.
+            return;
+        }
+    }
 
 #ifdef ASTRORAY_WAVEFRONT_INTERSECT
     // pkg55-A.1 dual-trace parity hook. Only fires when the env var is

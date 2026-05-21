@@ -237,10 +237,40 @@ Lessons section, same format as pkg64-3 Phase 3 hardware verification.
 ## Progress
 
 Phase 1 — device-side header + flag plumbing:
-- [ ] `include/astroray/manifold/sms_attempt_device.cuh` ported from CPU header with line-matched citations
-- [ ] `GHittable.isCausticCaster` field added; `uploadScene` mirrors CPU
-- [ ] `tests/test_pkg64_gpu_sms_attempt_unit.py` passes (rel err ≤ 1e-3)
-- [ ] No regression on `pytest tests/ -k gpu`
+- [x] `include/astroray/manifold/sms_attempt_device.cuh` ported from CPU
+  header with line-matched citations. **Architect post-Phase-1 audit:
+  zero algorithm-level divergences — every numeric step BIT-FAITHFUL vs
+  merged CPU `sms_attempt.h`/`newton_iterate.h`/`half_vector_constraint.h`
+  (PR #230).** Monomorphized for the sphere caster (std::function Newton
+  callbacks inlined); `std::mt19937` → explicit `(r1, r2)`;
+  `dynamic_cast`/virtual → device types.
+- [x] Caster flag field added on **`GSphere`** (not a generic
+  `GHittable` — the GPU scene has no per-object base struct; sphere-only
+  caster scope matches CPU pkg64 Phases 1-3 and the spec's "or material
+  — pick at implementation time"); `scene_upload.cu` mirrors
+  `sph->isCausticCaster()`. No scene-dirty flag added: `render()` /
+  `upload_scene()` call `uploadScene()` unconditionally and
+  `scene_upload.cu` re-reads the flag fresh every upload (spec
+  explicitly sanctions "patch in place"; pkg56 geometry-uploader path
+  verified to also re-push `d_spheres`). Comment-not-code per
+  CLAUDE.md §2/§3 — architect-confirmed CORRECT call.
+- [ ] `tests/test_pkg64_gpu_sms_attempt_unit.py` — gate authored
+  (rel err ≤ 1e-3, subprocess+skip convention); **/verify-deferred**:
+  the probe harness (probe `.cu` + host wrapper + `ASTRORAY_CUDA_SOURCES`
+  CMake entry + `cuda_renderer.cu` env hook +
+  `build_bk7_sms_acceptance_scene` helper) is uncompilable by the
+  implementing agent (no vcvars in tools; CI has no GPU) and is the
+  remaining Phase 1 work, to be wired + run on the RTX box.
+- [ ] No regression on `pytest tests/ -k gpu` — /verify-deferred (GPU
+  build required).
+
+**Cadence — OWNER DECISION 2026-05-18: Option B.** Phase 1 *core* lands
+as its own PR and is `/verify`-ed on RTX before Phase 2 is written, so
+the GPU caustic stack is not built blind on an unverified
+Newton/refraction core (latent-bug risk compounds multiplicatively
+across 3 coupled uncompilable phases). Phase 2 (megakernel integration)
+and Phase 3 (acceptance gates) are follow-up PRs against the verified
+Phase 1 base, each preceded by an architect checkpoint.
 
 Phase 2 — megakernel integration:
 - [ ] `multiwavelength_kernel.cu` calls `runSMSAttemptDevice` at non-delta vertices
@@ -260,3 +290,63 @@ Phase 3 — acceptance + numbers:
 ## Lessons (filled in on completion)
 
 *(empty until done)*
+
+### Hardware verification 2026-05-21 — PR #323 Phase 1 core
+
+**Hardware:** NVIDIA GeForce RTX 5070 Ti, driver 595.97, compute cap 12.0  
+**OS:** Windows 11 Enterprise 10.0.26200  
+**CUDA:** 12.8.61  
+**OptiX:** 9.1.0  
+**Compiler:** MSVC 19.44.35208.0  
+**Worktree:** `C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray\.claude\worktrees\pkg64-gpu`  
+**HEAD:** `2a092b4` (2026-05-18 20:06:08 +1000)  
+**Build:** `.pyd` mtime 2026-05-21 22:19:02 (fresh, post-HEAD)
+
+#### Phase 1 acceptance gates
+
+| Gate | Status | Details |
+|------|--------|---------|
+| **Gate 1:** `runSMSAttemptDevice` callable, hero rel err ≤ 1e-3 vs CPU | **BLOCKED** | Probe harness not present. `tests/test_pkg64_gpu_sms_attempt_unit.py::test_pkg64_gpu_sms_attempt_matches_cpu` skipped with message: "pkg64-gpu Phase 1 probe hook not present in this build. Phase 1 CORE (sms_attempt_device.cuh + GSphere.isCausticCaster + scene_upload mirror) has landed; the probe harness (probe .cu + host wrapper + cuda_renderer env hook + build_bk7_sms_acceptance_scene helper) is the /verify-deferred remainder." |
+| **Gate 2:** `is_caustic_caster=True` survives upload round-trip | **BLOCKED** | Probe debug-readback hook not present. `tests/test_pkg64_gpu_sms_attempt_unit.py::test_pkg64_gpu_caster_flag_crosses_upload` skipped (same reason as Gate 1). |
+| **Gate 3:** No regression on `pytest tests/ -k gpu` | **PASS** | 40 passed, 4 skipped (2 pkg64-gpu probes + 2 unrelated), 1 xfailed (pre-existing CPU/GPU SSIM diagnostic), 1018 deselected. No failures. |
+
+#### Core Phase 1 changes verified present
+
+1. **Device header:** `include/astroray/manifold/sms_attempt_device.cuh` exists, contains `__device__` port with Zeltner 2020 §4.2 citations.
+2. **GSphere.isCausticCaster field:** `include/astroray/gpu_types.h` line 253 declares `bool isCausticCaster = false`.
+3. **Scene upload mirror:** `src/gpu/scene_upload.cu` line 290 copies `sph->isCausticCaster()` to `gs.isCausticCaster`.
+4. **Python binding:** `Renderer.set_object_caustic_caster` binding present (from pkg64-3), confirmed via smoke-check.
+
+#### Probe harness status (Phase 1 /verify-deferred)
+
+The following components required to run Gates 1 and 2 are **not present** in PR #323:
+
+- `build_bk7_sms_acceptance_scene` Python helper function (test line 96 imports it from `astroray` module)
+- `ASTRORAY_PKG64_GPU_SMS_PROBE` env-var hook in `cuda_renderer.cu` (test line 106 sets this)
+- Probe device kernel that calls `runSMSAttemptDevice` and emits stderr line `[pkg64-gpu] sms attempt probe: ok=... fhero=... fhero_cpu=... caster_flag_crossed=...`
+
+The test file's subprocess (line 90-112) fails at import: `ModuleNotFoundError: No module named 'astroray'` when run in the subprocess environment, but more fundamentally the helper function does not exist in the module's namespace.
+
+This matches the memory note [[pkg64-gpu-blockers-stale-option-b]] expectation: "Phase 1 probe-harness wiring (probe .cu, host wrapper, ASTRORAY_CUDA_SOURCES CMake entry, cuda_renderer.cu env hook, build_bk7_sms_acceptance_scene helper) may not have landed in PR #323."
+
+#### Visual inspection
+
+No PNG outputs produced (Phase 1 tests are unit/upload parity, not visual render tests).
+
+#### Overall verdict for PR #323 Phase 1
+
+**Phase 1 CORE changes: VERIFIED PRESENT**  
+The device header, GSphere.isCausticCaster field, and scene_upload.cu mirror are all in place and build cleanly.
+
+**Phase 1 acceptance gates: BLOCKED (probe harness deferred)**  
+Gates 1 and 2 cannot be run without the probe harness. The test file explicitly handles this with skips (not false passes), correctly identifying the missing components.
+
+**GPU regression gate: PASS**  
+No regressions on the existing 40 GPU tests.
+
+**Recommendation:**  
+PR #323 Phase 1 core is **build-clean and regression-free**. Gates 1 and 2 require the /verify-deferred probe harness. The spec notes this is expected (Phase 1 acceptance comment: "not a production code path" for the debug readback). If the probe harness is intended to land in a follow-up commit or PR, schedule a second verification run once it's pushed. If the probe was intended to be part of PR #323, it is missing.
+
+#### Anomalies
+
+None observed. Build warnings (double→float conversions in raytracer.h, shapes.h) are pre-existing, not introduced by PR #323.

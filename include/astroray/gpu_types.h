@@ -245,6 +245,12 @@ struct GSphere {
     GVec3 center;
     float radius;
     int   materialId;
+    // pkg64-gpu Phase 1 — per-object caustic-caster opt-in, mirrored
+    // from CPU Hittable::isCausticCaster_ at scene upload. Sphere-only
+    // caster scope (same as CPU pkg64 Phases 1-3). One bool, no flag
+    // packing: gate selectivity dominates and a single bool keeps the
+    // CPU↔GPU upload diff minimal (pkg64-gpu spec, Phase 1 / decision 3).
+    bool  isCausticCaster = false;
 };
 
 // ---------------------------------------------------------------------------

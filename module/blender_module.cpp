@@ -862,6 +862,16 @@ public:
     // pkg64 Phase 3 — per-object opt-in for SMS connection attempts in
     // the default path_tracer. `objectId` is the addObject call order
     // (same as Renderer::getScene() index).
+    //
+    // pkg64-gpu Phase 1: this mutates CPU Hittable state only. No GPU
+    // "scene dirty" mark is needed — render() (and upload_scene())
+    // re-run cudaRenderer->uploadScene() unconditionally every frame,
+    // and scene_upload.cu re-reads sph->isCausticCaster() fresh on each
+    // upload, so the flag crosses the CPU→GPU boundary on the next
+    // render with no extra plumbing. (When pkg56 Phase C replaces the
+    // unconditional upload with depsgraph-selective dispatch, this flag
+    // must be added to the per-object dirty set — tracked in the
+    // pkg64-gpu spec follow-ups, out of scope for Phase 1.)
     bool setObjectCausticCaster(int objectId, bool enabled) {
         return renderer.setObjectCausticCaster(objectId, enabled);
     }
@@ -2584,6 +2594,52 @@ PYBIND11_MODULE(astroray, m) {
           },
           "pkg56-A: clear the viewport perf ring buffer and "
           "in-flight accumulator.");
+
+    // pkg64-gpu Phase 1 probe helper — builds the BK7-sphere SMS acceptance
+    // scene (mirroring test_sms_caustic_validation.py geometry) for the
+    // device probe harness to run against.
+    m.def("build_bk7_sms_acceptance_scene", [](PyRenderer& r) {
+        // Floor quad (two triangles) with lambertian grey.
+        py::dict floor_params;
+        auto floor = r.createMaterial("lambertian",
+            std::vector<float>{0.78f, 0.78f, 0.78f},
+            floor_params);
+        r.addTriangle(
+            std::vector<float>{-2.4f, -1.2f, -2.2f},
+            std::vector<float>{ 2.4f, -1.2f, -2.2f},
+            std::vector<float>{ 2.4f, -1.2f,  1.6f},
+            floor);
+        r.addTriangle(
+            std::vector<float>{-2.4f, -1.2f, -2.2f},
+            std::vector<float>{ 2.4f, -1.2f,  1.6f},
+            std::vector<float>{-2.4f, -1.2f,  1.6f},
+            floor);
+        // Point light (sphere).
+        py::dict light_params;
+        light_params["intensity"] = 14.0f;
+        auto light = r.createMaterial("light",
+            std::vector<float>{1.0f, 1.0f, 1.0f},
+            light_params);
+        r.addSphere(std::vector<float>{0.0f, 1.6f, 1.0f}, 0.22f, light);
+        // BK7 glass sphere (the caster).
+        py::dict glass_params;
+        glass_params["ior"] = 1.52f;
+        auto glass = r.createMaterial("dielectric",
+            std::vector<float>{1.0f, 1.0f, 1.0f},
+            glass_params);
+        r.addSphere(std::vector<float>{0.0f, -0.4f, 0.15f}, 0.7f, glass);
+        // Camera.
+        r.setupCamera(
+            std::vector<float>{0.0f, 0.0f, 4.2f},
+            std::vector<float>{0.0f, -0.05f, 0.0f},
+            std::vector<float>{0.0f, 1.0f, 0.0f},
+            38.0f, 64.0f / 64.0f, 0.0f, 4.2f, 64, 64);
+        r.setBackgroundColor(std::vector<float>{0.01f, 0.012f, 0.018f});
+    }, "renderer"_a,
+    "pkg64-gpu Phase 1 probe: build the BK7-sphere SMS acceptance scene "
+    "(mirroring test_sms_caustic_validation.py). Caller must flag the BK7 "
+    "sphere as a caustic caster (r.set_object_caustic_caster(r.scene_object_count()-1, True)) "
+    "before calling uploadScene + render with ASTRORAY_PKG64_GPU_SMS_PROBE set.");
 
     m.attr("__version__") = "3.0.0";
 #ifndef ASTRORAY_BUILD_ID

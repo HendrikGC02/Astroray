@@ -281,6 +281,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             gs.center     = GVec3(c.x, c.y, c.z);
             gs.radius     = sph->getRadius();
             gs.materialId = getOrAddMat(sph->getMaterial());
+            // pkg64-gpu Phase 1 — mirror the CPU per-object caustic-caster
+            // opt-in (Hittable::isCausticCaster, set via
+            // Renderer::setObjectCausticCaster / the
+            // set_object_caustic_caster binding) across the GPU scene
+            // boundary so the megakernel SMS dispatch (Phase 2) gates on
+            // the same flag as the CPU path.
+            gs.isCausticCaster = sph->isCausticCaster();
             r.spheres.push_back(gs);
         } else {
             // pkg85-C: keep r.prims index-aligned with the BVH's orderedPrims

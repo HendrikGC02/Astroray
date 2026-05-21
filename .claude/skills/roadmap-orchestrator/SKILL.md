@@ -61,10 +61,15 @@ In this order, respecting caps already applied by the engine:
    `gate-failure-reviewer` on the local failure artifacts; never override a HW `FAIL`.
 
 ## Step 3 — Standup + close out
-1. `finalize_previous(.astroray_plan/docs/standup, <today>)`.
-2. `upsert_standup(.astroray_plan/docs/standup, <today>, plan, gpu_holder, hw_queue)`.
-3. `expire_closed(ledger, open_numbers)` where `open_numbers` is a Python `set` of int PR numbers from the `gh pr list`; then `save_ledger(".astroray_plan/.orchestrator-state.json", ledger)`.
-4. `release_lock(.astroray_plan/.orchestrator.lock)` (also release on every abort path).
+1. **Safe merged-worktree auto-GC (live path only; never under `--dry-run`).**
+   Call `gc_merged_worktrees(".claude/worktrees", ledger)` (signature: `state.gc_merged_worktrees(worktrees_dir, ledger) -> dict`).
+   Returns `{"removed": [...], "escalations": [...]}`.
+   This safely removes worktrees + branches for PRs that are (a) MERGED on GitHub, (b) content in `origin/main` (squash-aware), (c) zero uncommitted/unpushed changes.
+   Anything not provably safe is escalated, never force-deleted. Design: pkg97 § Phase 1.
+2. `finalize_previous(.astroray_plan/docs/standup, <today>)`.
+3. `upsert_standup(.astroray_plan/docs/standup, <today>, plan, gpu_holder, hw_queue, merged_today, gc_report)` where `merged_today` is the list of PR numbers merged today (from `_get_merged_today()`) and `gc_report` is the GC report from step 1.
+4. `expire_closed(ledger, open_numbers)` where `open_numbers` is a Python `set` of int PR numbers from the `gh pr list`; then `save_ledger(".astroray_plan/.orchestrator-state.json", ledger)`.
+5. `release_lock(.astroray_plan/.orchestrator.lock)` (also release on every abort path).
 
 ## Safety rails (non-negotiable — see design spec §5)
 - One tick at a time (tick lock); one CUDA job at a time (GPU lock).
@@ -72,6 +77,7 @@ In this order, respecting caps already applied by the engine:
 - Implementer cap 2 / fixer cap 1 (enforced in the engine).
 - Auto-merge requires BOTH CI all-pass AND head-SHA-bound hardware `PASS`. A HW `FAIL` blocks merge + escalates.
 - `--dry-run` = zero side effects.
+- **Worktree/branch GC is merged-only, never force-delete on doubt.** Only PRs with `state == "MERGED"` AND content in `origin/main` (squash-aware) AND clean worktree are removed. No staleness/age heuristic. Escalate all ambiguous cases as Action items (pkg97 § Phase 1 hard invariant).
 
 ## /schedule wiring (one-time owner setup — see Task 11)
 

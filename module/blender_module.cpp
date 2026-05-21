@@ -2600,9 +2600,10 @@ PYBIND11_MODULE(astroray, m) {
     // device probe harness to run against.
     m.def("build_bk7_sms_acceptance_scene", [](PyRenderer& r) {
         // Floor quad (two triangles) with lambertian grey.
+        py::dict floor_params;
         auto floor = r.createMaterial("lambertian",
             std::vector<float>{0.78f, 0.78f, 0.78f},
-            std::map<std::string, float>{});
+            floor_params);
         r.addTriangle(
             std::vector<float>{-2.4f, -1.2f, -2.2f},
             std::vector<float>{ 2.4f, -1.2f, -2.2f},
@@ -2614,14 +2615,18 @@ PYBIND11_MODULE(astroray, m) {
             std::vector<float>{-2.4f, -1.2f,  1.6f},
             floor);
         // Point light (sphere).
+        py::dict light_params;
+        light_params["intensity"] = 14.0f;
         auto light = r.createMaterial("light",
             std::vector<float>{1.0f, 1.0f, 1.0f},
-            std::map<std::string, float>{{"intensity", 14.0f}});
+            light_params);
         r.addSphere(std::vector<float>{0.0f, 1.6f, 1.0f}, 0.22f, light);
         // BK7 glass sphere (the caster).
+        py::dict glass_params;
+        glass_params["ior"] = 1.52f;
         auto glass = r.createMaterial("dielectric",
             std::vector<float>{1.0f, 1.0f, 1.0f},
-            std::map<std::string, float>{{"ior", 1.52f}});
+            glass_params);
         r.addSphere(std::vector<float>{0.0f, -0.4f, 0.15f}, 0.7f, glass);
         // Camera.
         r.setupCamera(

@@ -53,7 +53,8 @@ def main(argv=None) -> int:
     out = {"plan": plan,
            "standup_md": render_standup(plan, gpu_holder=None,
                                         hw_queue=plan["buckets"]["hw_untested"],
-                                        merged_today=merged_today),
+                                        merged_today=merged_today,
+                                        ledger=ledger),
            "dry_run": bool(a.dry_run)}
     print(json.dumps(out, indent=2))
     return 0

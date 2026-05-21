@@ -8,7 +8,7 @@ PLAN = {"dispatch": ["pkg94"], "fixers": [{"pr": 5, "kind": "ci"}],
                     "hw_untested": [7], "hw_failed": [9], "ready": [3]}}
 
 def test_render_contains_all_sections():
-    md = render_standup(PLAN, gpu_holder=None, hw_queue=[7], merged_today=[3])
+    md = render_standup(PLAN, gpu_holder=None, hw_queue=[7], merged_today=[3], ledger=None)
     for h in ["Shipped today", "In-flight", "Blocked", "Hardware gate",
               "CI under repair", "Action items"]:
         assert h in md
@@ -16,13 +16,13 @@ def test_render_contains_all_sections():
     assert "debt ledger" not in md.lower()
 
 def test_upsert_writes_dated_file(tmp_path):
-    upsert_standup(str(tmp_path), "2026-05-16", PLAN, gpu_holder=None, hw_queue=[])
+    upsert_standup(str(tmp_path), "2026-05-16", PLAN, gpu_holder=None, hw_queue=[], ledger=None)
     f = tmp_path / "2026-05-16.md"
     assert f.exists() and "Hardware gate" in f.read_text(encoding="utf-8")
 
 def test_upsert_is_idempotent_overwrite(tmp_path):
-    upsert_standup(str(tmp_path), "2026-05-16", PLAN, None, [])
-    upsert_standup(str(tmp_path), "2026-05-16", PLAN, None, [])
+    upsert_standup(str(tmp_path), "2026-05-16", PLAN, None, [], None)
+    upsert_standup(str(tmp_path), "2026-05-16", PLAN, None, [], None)
     assert (tmp_path / "2026-05-16.md").read_text(encoding="utf-8").count("# Standup") == 1
 
 def test_finalize_previous_appends_footer_once(tmp_path):

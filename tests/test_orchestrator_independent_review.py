@@ -1,4 +1,7 @@
 """Unit tests for pkg98 independent review gates (mocked — no real review dispatch)."""
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+
 import pytest
 from roadmap_orchestrator.plan import build_tick_plan
 from roadmap_orchestrator.classify import classify_prs

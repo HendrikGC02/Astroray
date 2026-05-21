@@ -39,27 +39,43 @@ void launchPkg64SmsProbe(
     int caster_flag_crossed = 0;
     if (!casters.empty()) {
         const auto& C_cpu = casters[0];
-        // Read back the device sphere array (BK7 acceptance scene has ≤10 spheres).
-        std::vector<GSphere> host_spheres(10);
-        cudaError_t err = cudaMemcpy(host_spheres.data(), d_spheres,
-                                     host_spheres.size() * sizeof(GSphere),
-                                     cudaMemcpyDeviceToHost);
-        if (err != cudaSuccess) {
+        // Count spheres in the CPU BVH's ordered primitives.
+        int numSpheres = 0;
+        const auto& bvh = hostRenderer.getBVH();
+        if (bvh) {
+            const auto& orderedPrims = bvh->getPrimitives();
+            for (const auto& h : orderedPrims) {
+                if (dynamic_cast<Sphere*>(h.get())) {
+                    ++numSpheres;
+                }
+            }
+        }
+        if (numSpheres == 0 || d_spheres == nullptr) {
             std::fprintf(stderr,
-                "[pkg64-gpu] sms attempt probe: cudaMemcpy spheres failed: %s\n",
-                cudaGetErrorString(err));
+                "[pkg64-gpu] sms attempt probe: no spheres in scene\n");
         } else {
-            // Find the sphere matching C_cpu.center/radius.
-            for (size_t i = 0; i < host_spheres.size(); ++i) {
-                const GSphere& gs = host_spheres[i];
-                float dx = gs.center.x - static_cast<float>(C_cpu.center.x);
-                float dy = gs.center.y - static_cast<float>(C_cpu.center.y);
-                float dz = gs.center.z - static_cast<float>(C_cpu.center.z);
-                float dr = gs.radius - C_cpu.radius;
-                if (dx*dx + dy*dy + dz*dz < 1e-4f && dr*dr < 1e-6f) {
-                    // Found the caster sphere in d_spheres[i]. Check its flag.
-                    caster_flag_crossed = gs.isCausticCaster ? 1 : 0;
-                    break;
+            // Read back the device sphere array.
+            std::vector<GSphere> host_spheres(numSpheres);
+            cudaError_t err = cudaMemcpy(host_spheres.data(), d_spheres,
+                                         host_spheres.size() * sizeof(GSphere),
+                                         cudaMemcpyDeviceToHost);
+            if (err != cudaSuccess) {
+                std::fprintf(stderr,
+                    "[pkg64-gpu] sms attempt probe: cudaMemcpy spheres failed: %s\n",
+                    cudaGetErrorString(err));
+            } else {
+                // Find the sphere matching C_cpu.center/radius.
+                for (size_t i = 0; i < host_spheres.size(); ++i) {
+                    const GSphere& gs = host_spheres[i];
+                    float dx = gs.center.x - static_cast<float>(C_cpu.center.x);
+                    float dy = gs.center.y - static_cast<float>(C_cpu.center.y);
+                    float dz = gs.center.z - static_cast<float>(C_cpu.center.z);
+                    float dr = gs.radius - C_cpu.radius;
+                    if (dx*dx + dy*dy + dz*dz < 1e-4f && dr*dr < 1e-6f) {
+                        // Found the caster sphere in d_spheres[i]. Check its flag.
+                        caster_flag_crossed = gs.isCausticCaster ? 1 : 0;
+                        break;
+                    }
                 }
             }
         }

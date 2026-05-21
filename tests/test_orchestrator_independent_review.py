@@ -107,7 +107,7 @@ def test_signoff_recorded_in_ledger_and_standup(mock_ledger, mock_priority):
     record_action(mock_ledger, 125, "indep_review:SIGN-OFF")
 
     # Render standup with ledger
-    standup = render_standup(plan, None, [], mock_ledger)
+    standup = render_standup(plan, None, [], ledger=mock_ledger)
     assert "independent review: SIGN-OFF" in standup
     assert "#125" in standup
 

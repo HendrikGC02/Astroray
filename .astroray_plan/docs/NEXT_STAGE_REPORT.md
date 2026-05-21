@@ -109,7 +109,16 @@ importer fix explicitly deprioritized relative to wavefront work):
   dead-UI-wires (BUG-15/13/09) + Blender-native camera (BUG-08). pkg96:
   reconcile-then-upload sync (BUG-04/05) + honesty guard (UX-only).
 - **pkg89 Phase B** (Blender addon for dedicated lights) — full-scene
-  G8 + G1–G5; the Phase A interface landed PR #294.
+  G8 + G1–G5; the Phase A interface landed PR #294. **First attempt PR
+  #317 (DRAFT) is BLOCKED**: `cycles-parity-reviewer` 2026-05-21 found
+  three real physics defects in commit 29f5645 (invented
+  `light_normalize_factor` math + hallucinated Cycles citation + linear
+  cone falloff vs Cycles `smoothstepf`). **Implementer brief:**
+  `.astroray_plan/docs/pkg89-phase-b-cycles-parity-2026-05-21.md` —
+  paste-ready with Cycles file:line citations and patch sketches.
+  Original test thresholds (G2 < 0.10, G4 center > 1.0, G4 corner <
+  0.01) MUST be restored — no threshold relaxation. Re-dispatch
+  `package-implementer` with this doc when an IMPL_CAP slot frees.
 - **pkg99 — ADAF quasi-spherical glow re-investigation** (~1 day
   including RTX render iteration). pkg44 wiring correct but visual gate
   only partial (crisp shadow + faint emission sliver vs the specified

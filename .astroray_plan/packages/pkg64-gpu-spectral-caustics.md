@@ -290,3 +290,63 @@ Phase 3 — acceptance + numbers:
 ## Lessons (filled in on completion)
 
 *(empty until done)*
+
+### Hardware verification 2026-05-21 — PR #323 Phase 1 core
+
+**Hardware:** NVIDIA GeForce RTX 5070 Ti, driver 595.97, compute cap 12.0  
+**OS:** Windows 11 Enterprise 10.0.26200  
+**CUDA:** 12.8.61  
+**OptiX:** 9.1.0  
+**Compiler:** MSVC 19.44.35208.0  
+**Worktree:** `C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray\.claude\worktrees\pkg64-gpu`  
+**HEAD:** `2a092b4` (2026-05-18 20:06:08 +1000)  
+**Build:** `.pyd` mtime 2026-05-21 22:19:02 (fresh, post-HEAD)
+
+#### Phase 1 acceptance gates
+
+| Gate | Status | Details |
+|------|--------|---------|
+| **Gate 1:** `runSMSAttemptDevice` callable, hero rel err ≤ 1e-3 vs CPU | **BLOCKED** | Probe harness not present. `tests/test_pkg64_gpu_sms_attempt_unit.py::test_pkg64_gpu_sms_attempt_matches_cpu` skipped with message: "pkg64-gpu Phase 1 probe hook not present in this build. Phase 1 CORE (sms_attempt_device.cuh + GSphere.isCausticCaster + scene_upload mirror) has landed; the probe harness (probe .cu + host wrapper + cuda_renderer env hook + build_bk7_sms_acceptance_scene helper) is the /verify-deferred remainder." |
+| **Gate 2:** `is_caustic_caster=True` survives upload round-trip | **BLOCKED** | Probe debug-readback hook not present. `tests/test_pkg64_gpu_sms_attempt_unit.py::test_pkg64_gpu_caster_flag_crosses_upload` skipped (same reason as Gate 1). |
+| **Gate 3:** No regression on `pytest tests/ -k gpu` | **PASS** | 40 passed, 4 skipped (2 pkg64-gpu probes + 2 unrelated), 1 xfailed (pre-existing CPU/GPU SSIM diagnostic), 1018 deselected. No failures. |
+
+#### Core Phase 1 changes verified present
+
+1. **Device header:** `include/astroray/manifold/sms_attempt_device.cuh` exists, contains `__device__` port with Zeltner 2020 §4.2 citations.
+2. **GSphere.isCausticCaster field:** `include/astroray/gpu_types.h` line 253 declares `bool isCausticCaster = false`.
+3. **Scene upload mirror:** `src/gpu/scene_upload.cu` line 290 copies `sph->isCausticCaster()` to `gs.isCausticCaster`.
+4. **Python binding:** `Renderer.set_object_caustic_caster` binding present (from pkg64-3), confirmed via smoke-check.
+
+#### Probe harness status (Phase 1 /verify-deferred)
+
+The following components required to run Gates 1 and 2 are **not present** in PR #323:
+
+- `build_bk7_sms_acceptance_scene` Python helper function (test line 96 imports it from `astroray` module)
+- `ASTRORAY_PKG64_GPU_SMS_PROBE` env-var hook in `cuda_renderer.cu` (test line 106 sets this)
+- Probe device kernel that calls `runSMSAttemptDevice` and emits stderr line `[pkg64-gpu] sms attempt probe: ok=... fhero=... fhero_cpu=... caster_flag_crossed=...`
+
+The test file's subprocess (line 90-112) fails at import: `ModuleNotFoundError: No module named 'astroray'` when run in the subprocess environment, but more fundamentally the helper function does not exist in the module's namespace.
+
+This matches the memory note [[pkg64-gpu-blockers-stale-option-b]] expectation: "Phase 1 probe-harness wiring (probe .cu, host wrapper, ASTRORAY_CUDA_SOURCES CMake entry, cuda_renderer.cu env hook, build_bk7_sms_acceptance_scene helper) may not have landed in PR #323."
+
+#### Visual inspection
+
+No PNG outputs produced (Phase 1 tests are unit/upload parity, not visual render tests).
+
+#### Overall verdict for PR #323 Phase 1
+
+**Phase 1 CORE changes: VERIFIED PRESENT**  
+The device header, GSphere.isCausticCaster field, and scene_upload.cu mirror are all in place and build cleanly.
+
+**Phase 1 acceptance gates: BLOCKED (probe harness deferred)**  
+Gates 1 and 2 cannot be run without the probe harness. The test file explicitly handles this with skips (not false passes), correctly identifying the missing components.
+
+**GPU regression gate: PASS**  
+No regressions on the existing 40 GPU tests.
+
+**Recommendation:**  
+PR #323 Phase 1 core is **build-clean and regression-free**. Gates 1 and 2 require the /verify-deferred probe harness. The spec notes this is expected (Phase 1 acceptance comment: "not a production code path" for the debug readback). If the probe harness is intended to land in a follow-up commit or PR, schedule a second verification run once it's pushed. If the probe was intended to be part of PR #323, it is missing.
+
+#### Anomalies
+
+None observed. Build warnings (double→float conversions in raytracer.h, shapes.h) are pre-existing, not introduced by PR #323.

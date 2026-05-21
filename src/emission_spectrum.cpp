@@ -101,12 +101,16 @@ SampledSpectrum EmissionSpectrum::evalBlackbody(const Blackbody& bb,
 }
 
 // Internal: evaluate RGB mode.
-// Reference: PBRT-v4 DiffuseAreaLight (Le*beta, no D65 factor, Apache-2.0).
+// Uses RGBIlluminantSpectrum (D65-weighted) to match the existing engine
+// convention for rgb-mode emission intensities. The parity-report change to
+// RGBUnboundedSpectrum was over-broad: it would drop point/background/spot-rgb
+// illuminance ~3×, breaking G5 (point hard shadow) and G4 (spot RGB center).
+// G2's AreaLight D65 chromaticity is addressed by the geometric normalize +
+// white-tint short-circuit in evalBlackbody; this evalRGB path stays Illuminant
+// so existing scene intensities continue to work.
 SampledSpectrum EmissionSpectrum::evalRGB(const RGB& rgb,
                                            const SampledWavelengths& wl) const {
-    // Use RGBUnboundedSpectrum (no D65 weighting) for emission lights.
-    // RGBIlluminantSpectrum is for material upsampling, not emission.
-    RGBUnboundedSpectrum rgbSpectrum({rgb.color.x, rgb.color.y, rgb.color.z});
+    RGBIlluminantSpectrum rgbSpectrum({rgb.color.x, rgb.color.y, rgb.color.z});
     return rgbSpectrum.sample(wl);
 }
 

@@ -1,8 +1,8 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-17 (Round 10 closed — Round 11 planning)
-**Prepared by:** Claude (Anthropic Code, Sonnet 4.5)
-**Scope:** Round 10 closeout + Round 11 recommended set.
+**Date:** 2026-05-21 (Round 11 mid-cycle — 5 PRs landed in one day; pkg55-B' Session N+1 done, CUDA-port track now the lead live work)
+**Prepared by:** Claude (Anthropic Code) — updated mid-Round-11 after orchestrator-meta + pkg55 + pkg64 wave
+**Scope:** Round 11 mid-cycle checkpoint + remaining set.
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C; Pillar 4
 > has been actively shipping since. Strategy in
@@ -11,6 +11,16 @@
 ---
 
 ## 1. Current state (one screen)
+
+**Done in Round 11 mid-cycle wave (5 PRs merged, 2026-05-21):**
+
+- **pkg55-B' Session N+1** (PR #327) — env-map miss + complete CPU wavefront pipeline. Bit-identity gate PASS (max abs diff 0.0 across all 5 snapshot stages). Acceptance gate swapped SSIM≥0.985 → per-channel mean-ratio ≤0.05 (windowed SSIM unreachable for independent MC streams at modest spp; bit-identity is the load-bearing gate; owner-approved at architect stage). **Closes the CPU-only growing-oracle track; Sessions N+2..M (CUDA port) is now the top live track.**
+- **pkg64-gpu Phase 1** (PR #323) — device `sms_attempt_device.cuh` + `GSphere.isCausticCaster` + scene_upload mirror + minimal probe harness. RTX 5070 Ti `/verify` confirmed gate #2 (caster-flag round-trip) PASS, gate #3 (regression, 40 GPU tests) PASS. Gate #1 (CPU↔GPU rel-err ≤ 1e-3) spec-deferred to Phase 1.1 follow-up (minimal probe is inert for that gate). classify.py PARTIAL routing landed direct-to-main to surface regressions of this kind.
+- **pkg90 hw-verifier buildenv** (PR #333) — `build_cuda_worktree.bat` worktree-parameterized CUDA build with vcvars bootstrap (vswhere + fallback), head-SHA contamination guard. CPU-only carve-out in `classify.py` (CI-green CPU-only PRs route to Ready, bypass phantom HW gate). 13 tests pass. **Orchestrator HW gate functional unattended.**
+- **pkg97 orchestrator auto-GC** (PR #331) — merged-worktree auto-GC with three-gate safety. Standup "Shipped today" `(none)` bug fixed. 47 orchestrator tests green. **IMPL_CAP no longer silently saturates after 2 ships.**
+- **pkg98 orchestrator independent-review gate** (PR #332, in flight) — on-failure SIGN-OFF/BLOCK + pre-merge review for non-HW-gated PRs; pure-docs fast-path preserved. CI re-running on clean rebase `a3fad5b`.
+
+**Direct-to-main orchestrator hygiene (commit cd32ddb, 2026-05-21):** `classify.py` accepts PARTIAL hw_result (routes via hw_failed); `codex-implementer.md` does a liveness check (first-commit on branch + remote branch exists) before treating Codex as delivered, falls back to package-implementer on Codex death (triggered by pkg90 Codex dispatches dying silently twice).
 
 **Done in Round 10 (8 PRs merged, 2026-05-17):**
 
@@ -86,20 +96,18 @@ importer fix explicitly deprioritized relative to wavefront work):
 
 **Top priority (lead track — CUDA-port path):**
 
-- **pkg55-B' Session N+1 — Shadow/miss/terminate stages on CPU** (~1–2
-  sessions). With the growing-oracle expansion complete (Sessions 3–8
-  done), add the remaining CPU wavefront stages: shadow ray, miss,
-  terminate/accumulate. Still CPU-only; keeps EXACT bit-identity via
-  the shared per-bounce kernel. Unblocks CUDA-port Sessions N+2..M
-  (two-tier gate definition landed PR #320).
+- ~~**pkg55-B' Session N+1 — Shadow/miss/terminate stages on CPU**~~ **DONE
+  2026-05-21 (PR #327).** Env-map miss + complete CPU wavefront pipeline;
+  bit-identity gate PASS. Acceptance gate swapped to per-channel
+  mean-ratio ≤0.05 (architect-stage approval).
 - **pkg55-B' Sessions N+2..M — CUDA port of wavefront shade kernels**
-  (multi-session, ~4 weeks total per spec Phase B estimate). Port the
-  CPU wavefront shade kernels to GPU; Session N+2 measures and pins
-  ULP/p99.9/SSIM thresholds before any CUDA code change (two-tier gate
-  enforcement). This is the path to the **viewport-parity acceptance
-  gate** (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness
-  scene) — the still-unmet competitive claim that pkg55 Phase B now
-  formally owns.
+  (multi-session, ~4 weeks total per spec Phase B estimate). **Now the
+  top live work.** Port the CPU wavefront shade kernels to GPU; Session
+  N+2 measures and pins ULP/p99.9/SSIM thresholds before any CUDA code
+  change (two-tier gate enforcement per design decision #9). This is
+  the path to the **viewport-parity acceptance gate** (CUDA pan-frame
+  p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene) — the still-unmet
+  competitive claim that pkg55 Phase B formally owns.
 
 **Second tier (unblocked, lower priority than CUDA-port track):**
 
@@ -137,18 +145,20 @@ importer fix explicitly deprioritized relative to wavefront work):
   CUDA-port work** — the project accepts continued real-scene parity
   blindness in the near term to close the performance/viewport-parity
   claim first.
-- **pkg90 — Hardware-verifier build-env bootstrap** (~½ day). MSVC +
-  worktree-parameterized CUDA build; unblocks orchestrator HW gate for
-  unattended operation (currently `hw_blocked_buildenv` on every
-  HW-gated PR).
+- ~~**pkg90 — Hardware-verifier build-env bootstrap**~~ **DONE 2026-05-21
+  (PR #333).** Worktree-parameterized CUDA build with vcvars bootstrap +
+  CPU-only carve-out in classify.py. Orchestrator HW gate functional
+  unattended.
 - **pkg76 CSV** — Classroom / Junkshop / BMW27 parity rows on RTX
   (~½ day). Blocked on pkg100 (the .blend import AttributeError fix).
 - **pkg86 Light Tree** — pkg89 Phase A now ships
   `Light::orientationCone()` + `power()` accessors.
 - **pkg87a / pkg87b / pkg87c** Cryptomatte — independent; pkg87a is on a
   branch awaiting review per its spec; pkg87b/pkg87c follow.
-- **pkg64-gpu Phase 1** — GPU SMS caustics, megakernel target
-  (acknowledged pkg55-C will re-port).
+- ~~**pkg64-gpu Phase 1**~~ **DONE 2026-05-21 (PR #323).** Device SMS
+  attempt header + caster-flag plumbing + minimal probe; gate #2 + #3
+  PASS on RTX, gate #1 spec-deferred to Phase 1.1 follow-up. Phase 2
+  (megakernel integration) and Phase 3 follow.
 
 **Known flakes (not blocking):**
 
@@ -180,37 +190,12 @@ importer fix explicitly deprioritized relative to wavefront work):
 
 ## 3. Drop-in prompts per agent
 
-### 3.1 Claude Code (Track A) — pkg55-B' Session N+1 (shadow/miss/terminate stages, Round 11 FIRST pickup)
+### 3.1 ~~pkg55-B' Session N+1~~ — DONE 2026-05-21 (PR #327)
 
-```
-You are Claude Code on the RTX box. Round 11 FIRST pickup: pkg55-B'
-Session N+1, the final CPU-wavefront session before the CUDA-port
-track begins.
+Env-map miss + complete CPU wavefront pipeline. Bit-identity gate PASS.
+Sessions N+2..M (CUDA port) is now the top live track — see §3.2.
 
-Read first:
-  - .astroray_plan/packages/pkg55-wavefront-soa-refactor.md (Phase B'
-    Session N+1 + two-tier gate definition)
-  - src/cpu/wavefront/path_kernel.{h,cpp} (shared per-bounce kernel) +
-    cpu_wavefront_state.{h,cpp}
-  - tests/wavefront_diff/ (per-stage diff harness)
-
-Goal: extend the shared kernel + both reference PTs to cover shadow ray
-(occlusion test for NEE), miss (environment miss), and
-terminate/accumulate (final radiance write) stages. Keep EXACT
-bit-identity CPU↔CPU via the shared kernel. Production codegen must
-stay byte-unchanged. Growing-oracle expansion (Sessions 3–8) is
-complete; this is the last CPU-only session.
-
-Constraints: CLAUDE.md 1,2,3,6. Still CPU-only; CUDA-port sessions
-N+2..M are unblocked (two-tier gate landed PR #320) but Session N+1
-must complete first.
-
-When done: pkg55 spec Session N+1 status + PR ref + diff numbers. PR
-titled "feat(pkg55-B'): Session N+1 — shadow/miss/terminate stages
-(CPU)".
-```
-
-### 3.2 Claude Code (Track A) — pkg55-B' Sessions N+2..M (CUDA port, after Session N+1)
+### 3.2 Claude Code (Track A) — pkg55-B' Sessions N+2..M (CUDA port, TOP LIVE TRACK 2026-05-21)
 
 ```
 You are Claude Code on the RTX box. pkg55-B' CUDA-port track (Sessions

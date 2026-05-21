@@ -178,13 +178,24 @@ fix:
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
 
-Open Pillar 5 long-tail (Round 10+): **pkg55 Phase B' Sessions 3..N**
-(growing-oracle expansion — CPU wavefront skeleton landed bit-identical
-by shared-kernel construction in Session 2c PR #297; the spec's
-**two-tier gate** — exact CPU↔CPU / bounded+SSIM CPU↔GPU — must be
-re-derived before the CUDA-port sessions, filed as **pkg55-B-prime-cuda-gate-derivation**,
-which blocks ONLY Sessions N+2..M, not Sessions 3..N), **Blender addon
-remediation** (first-principles plan landed PR #300; PR #295 triage):
+Open Pillar 5 long-tail (Round 11 mid-cycle 2026-05-21): **pkg55 Phase B'
+CPU-only track is COMPLETE** — Sessions 2b/2c (PR #281/#297), Sessions
+3..8 (growing-oracle expansion: metal/dielectric/disney/thin_glass/
+diffuse_light/closure_graph, all bit-identity PASS), and **Session N+1**
+(env-map miss + complete CPU pipeline, PR #327 2026-05-21). The two-tier
+gate definition landed PR #320 (pkg55-B-prime-cuda-gate-derivation).
+**Sessions N+2..M (multi-session CUDA port of the wavefront shade
+kernels, ~4 weeks total)** is now the top live track — closes the
+viewport-parity acceptance gate (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA
+on pkg81). **Orchestrator-meta infrastructure landed 2026-05-21**:
+**pkg90** (hw-verifier worktree-parameterized CUDA build, PR #333) +
+**pkg97** (merged-worktree auto-GC, PR #331) + **pkg98** (independent-
+review gate, PR #332 in flight) — the HW gate now runs unattended,
+IMPL_CAP no longer silently saturates, and Track-A fixes get a
+different-model SIGN-OFF/BLOCK before push. **pkg64-gpu Phase 1**
+(device SMS attempt + caster flag, PR #323 2026-05-21) GPU-verified;
+Phase 1.1 follow-up closes the spec-deferred rel-err gate. **Blender
+addon remediation** (first-principles plan landed PR #300; PR #295 triage):
 the staged set is **pkg94** (Stage 1 / P1 build-integrity guard, ~½ day,
 **Round-10 first pickup, depends on nothing**) → **pkg95** (Stage 2 /
 P3+P4 dead-UI-wires + Blender-native camera, depends on pkg94) ∥

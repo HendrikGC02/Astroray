@@ -1,0 +1,106 @@
+# pkg55-B' Session N+2 — CPU↔GPU wavefront threshold pinning
+#
+# Spec: .astroray_plan/packages/pkg55-wavefront-soa-refactor.md §4.2 GATE-THRESHOLDS-PINNED
+# Design rationale: PR #296 §4.1, §4.2
+#
+# This file defines the two-tier gate thresholds for wavefront CUDA port:
+#   1. CPU oracle ↔ CPU wavefront: exact bit-identity (enforced by existing tests)
+#   2. CPU wavefront ↔ CUDA wavefront: ULP-bounded + p99.9 + SSIM (this file)
+#
+# Structure:
+#   - per_stage: thresholds for each wavefront stage boundary
+#   - final_image: whole-image SSIM threshold
+#
+# Measurement protocol (Session N+2 → N+3 handoff):
+#   - CPU↔CPU baseline measured NOW (origin/main, no CUDA changes)
+#   - CPU↔GPU thresholds use conservative placeholders until Session N+3
+#     first CUDA kernel port, at which point the actual measured values
+#     replace these placeholders.
+#
+# Rationale for bounded (not exact) CPU↔GPU gates:
+#   - nvcc FMA fusion differs from host SSE2
+#   - CUDA sinf/expf/__fdividef are not IEEE-correctly-rounded
+#   - PTX intermediate rounding differs from SSE2
+#   - Exact bit-identity across toolchains is physically impossible
+#   - The gate's job is LOCALIZATION (which stage widened), not exact equality
+
+# Baseline: CPU oracle ↔ CPU wavefront (Session 2c-N+1, origin/main)
+# Expected: exact 0.0 / 0 / 1.0 (bit-identity by shared-kernel construction)
+cpu_to_cpu_baseline:
+  max_abs_diff: 0.0
+  total_diverging_fields: 0
+  ssim: 1.0
+  scene: "session_n1_envmap_cornell"
+  resolution: "16x16"
+  spp: 1
+  seed: 424242
+  measured_on: "origin/main"
+  measured_date: "2026-05-21"
+
+# CPU wavefront ↔ CUDA wavefront thresholds (Sessions N+2..M)
+# Structure: per-stage thresholds + final image SSIM
+cpu_to_gpu_thresholds:
+  # PostInit: primary ray generation + wavelength sampling
+  # Geometry-only (camera ray math, no transcendentals beyond normalize)
+  # ULP bound: ≤ 4 ULP per spec §4.2
+  PostInit:
+    max_ulp: 4
+    fields: ["ray_origin", "ray_direction", "lambdas"]
+    # Placeholder p99.9 until Session N+3 measures actual
+    p99_9_relative_error: 1.0e-5
+    note: "Geometry-only stage. ULP bound from spec §4.2. p99.9 placeholder to be measured in Session N+3."
+
+  # PostIntersect: BVH traversal + hit record
+  # Geometry-only (ray-AABB/tri tests, barycentric coords)
+  # ULP bound: ≤ 4 ULP per spec §4.2
+  PostIntersect:
+    max_ulp: 4
+    fields: ["hit_t", "hit_point", "hit_normal", "hit_material"]
+    p99_9_relative_error: 1.0e-5
+    note: "Geometry-only stage. ULP bound from spec §4.2. p99.9 placeholder to be measured in Session N+3."
+
+  # PostShade: BSDF sampling (involves transcendentals: sin/cos/exp/log/pow)
+  # No ULP bound (transcendentals involved). Use p99.9 relative-error distribution.
+  PostShade:
+    # No max_ulp — transcendentals make ULP comparisons meaningless
+    # Conservative placeholder: 1e-4 (~0.01% relative error at p99.9)
+    p99_9_relative_error: 1.0e-4
+    fields: ["ray_origin", "ray_direction", "throughput", "wasSpecular"]
+    note: "BSDF stage with transcendentals. p99.9 placeholder (1e-4 = 0.01%) to be measured in Session N+3."
+
+  # PostLightSample: NEE shadow ray + MIS weight (involves div/sqrt/pow)
+  PostLightSample:
+    p99_9_relative_error: 1.0e-4
+    fields: ["shadow_ray_origin", "shadow_ray_direction", "nee_contribution", "mis_weight"]
+    note: "NEE stage with transcendentals. p99.9 placeholder (1e-4 = 0.01%) to be measured in Session N+3."
+
+  # PostRR: Russian roulette + radiance accumulation (div/comparison)
+  PostRR:
+    p99_9_relative_error: 1.0e-4
+    fields: ["throughput", "color", "alive"]
+    note: "RR stage. p99.9 placeholder (1e-4 = 0.01%) to be measured in Session N+3."
+
+  # Final image: whole-image SSIM gate (unchanged from Phase B/C spec)
+  final_image:
+    ssim_visible: 0.985
+    ssim_nir: 0.97
+    scene: "pkg54 multiwavelength_parity"
+    spp: 64
+    note: "Phase B/C SSIM gate, unchanged. Visible band ≥0.985, NIR ≥0.97."
+
+# Measurement scene for per-stage gates
+# Use session_n1_envmap_cornell (7 materials, env-map miss) at 16x16, 1 spp
+# for per-stage diff harness; use pkg54 multiwavelength_parity at 64 spp for
+# final SSIM image gate.
+measurement_protocol:
+  per_stage_scene: "session_n1_envmap_cornell"
+  per_stage_resolution: "16x16"
+  per_stage_spp: 1
+  per_stage_seed: 424242
+  final_image_scene: "pkg54 multiwavelength_parity"
+  final_image_spp: 64
+  note: |
+    Per-stage gates use a low-spp (1), small (16x16) render on the Session N+1
+    comprehensive scene to localize divergence. Final SSIM gate uses the pkg54
+    parity scene at 64 spp to validate whole-program correctness. The two are
+    complementary: per-stage localization + whole-image validation.

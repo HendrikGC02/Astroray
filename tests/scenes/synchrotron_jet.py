@@ -38,7 +38,7 @@ def build_scene(astroray, width: int = 24, height: int = 24):
             "power_law_index": 2.5,
             "base_density": 1.0e12,
             "magnetic_field": 1.0e6,
-            "intensity_scale": 1.0e28,
+            "intensity_scale": 5.0e13,  # pkg99 (2026-05-22): was 1.0e28 to compensate for 5e-14 exposureScale; that multiplication removed from black_hole.h → rescale by 5e-14 to preserve visual.
             "r_base": 1.0,
             "r_max": 120.0,
         },

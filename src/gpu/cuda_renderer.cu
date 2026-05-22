@@ -46,7 +46,11 @@ void launchPathTraceKernel(
     GCameraParams cam,
     float filmExposure,
     GVec3 backgroundColor, bool hasBackgroundColor,
-    curandState* d_rngStates);
+    curandState* d_rngStates,
+    float* d_cryptoObjectBuffer = nullptr,      // pkg87b
+    float* d_cryptoMaterialBuffer = nullptr,    // pkg87b
+    int cryptoDepth = 6,                         // pkg87b
+    bool cryptomatteEnabled = false);            // pkg87b
 
 // pkg54a — copies per-material spectral profiles into MW kernel constant memory.
 void uploadProfileTable(const float* host, int count);
@@ -135,6 +139,12 @@ struct CUDARenderer::Impl {
     int          fbWidth = 0, fbHeight = 0;
     int          profileCount = 0;
 
+    // pkg87b: Cryptomatte device buffers + state
+    float*       d_cryptoObjectBuffer = nullptr;
+    float*       d_cryptoMaterialBuffer = nullptr;
+    bool         cryptomatteEnabled = false;
+    int          cryptoDepth = 6;
+
     // pkg64-gpu Phase 1 probe: stashed host Renderer for CPU reference.
     const Renderer* hostRenderer = nullptr;
 
@@ -179,6 +189,8 @@ struct CUDARenderer::Impl {
         freeEnv();
         if (d_framebuffer){ cudaFree(d_framebuffer); d_framebuffer= nullptr; }
         if (d_rngStates)  { cudaFree(d_rngStates);  d_rngStates  = nullptr; }
+        if (d_cryptoObjectBuffer){ cudaFree(d_cryptoObjectBuffer); d_cryptoObjectBuffer= nullptr; }  // pkg87b
+        if (d_cryptoMaterialBuffer){ cudaFree(d_cryptoMaterialBuffer); d_cryptoMaterialBuffer= nullptr; }  // pkg87b
         // pkg85-B: swallow any latent error from cudaFree (or from a prior
         // kernel launch that surfaced only here). freeAll() runs from both
         // the destructor (noexcept) and production cleanup paths; throwing
@@ -197,16 +209,27 @@ struct CUDARenderer::Impl {
         cudaGetLastError();
     }
 
-    void ensureFramebuffer(int w, int h) {
-        if (w == fbWidth && h == fbHeight && d_framebuffer) return;
+    void ensureFramebuffer(int w, int h, int cryptoDepth = 0, bool needCrypto = false) {
+        bool resize = (w != fbWidth || h != fbHeight);
+        if (!resize && d_framebuffer && (!needCrypto || d_cryptoObjectBuffer)) return;
         if (d_framebuffer) { cudaFree(d_framebuffer); d_framebuffer = nullptr; }
         if (d_rngStates)   { cudaFree(d_rngStates);   d_rngStates   = nullptr; }
+        if (d_cryptoObjectBuffer) { cudaFree(d_cryptoObjectBuffer); d_cryptoObjectBuffer = nullptr; }  // pkg87b
+        if (d_cryptoMaterialBuffer) { cudaFree(d_cryptoMaterialBuffer); d_cryptoMaterialBuffer = nullptr; }  // pkg87b
         // pkg85-B: free errors above must not contaminate the cudaMalloc below.
         cudaGetLastError();
         fbWidth = w; fbHeight = h;
         int n = w * h;
         CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_framebuffer), n * 3 * sizeof(float)));
         CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_rngStates),   n * sizeof(curandState)));
+        // pkg87b: allocate crypto buffers when needed
+        if (needCrypto && cryptoDepth > 0) {
+            size_t cryptoSize = n * cryptoDepth * 2 * sizeof(float);
+            CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_cryptoObjectBuffer), cryptoSize));
+            CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_cryptoMaterialBuffer), cryptoSize));
+            CUDA_CHECK(cudaMemset(d_cryptoObjectBuffer, 0, cryptoSize));
+            CUDA_CHECK(cudaMemset(d_cryptoMaterialBuffer, 0, cryptoSize));
+        }
         // Seed RNG once; re-seed will be called from render()
     }
 };
@@ -220,6 +243,26 @@ CUDARenderer::~CUDARenderer() = default;
 bool CUDARenderer::isAvailable() const { return impl->available; }
 std::string CUDARenderer::deviceName() const { return impl->devName; }
 float CUDARenderer::getProgress() const { return 0.f; }
+
+// pkg87b
+void CUDARenderer::setCryptomatteEnabled(bool enabled) { impl->cryptomatteEnabled = enabled; }
+bool CUDARenderer::getCryptomatteEnabled() const { return impl->cryptomatteEnabled; }
+void CUDARenderer::copyCryptoBuffersToHost(std::vector<float>& objectBuffer,
+                                             std::vector<float>& materialBuffer,
+                                             int width, int height, int depth) {
+    if (!impl->d_cryptoObjectBuffer || !impl->d_cryptoMaterialBuffer) {
+        objectBuffer.clear();
+        materialBuffer.clear();
+        return;
+    }
+    size_t size = width * height * depth * 2;
+    objectBuffer.resize(size);
+    materialBuffer.resize(size);
+    CUDA_CHECK(cudaMemcpy(objectBuffer.data(), impl->d_cryptoObjectBuffer,
+                          size * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(materialBuffer.data(), impl->d_cryptoMaterialBuffer,
+                          size * sizeof(float), cudaMemcpyDeviceToHost));
+}
 
 // pkg56 Phase B — per-domain incremental uploaders.
 //
@@ -472,7 +515,7 @@ void CUDARenderer::render(
         throw std::runtime_error("Scene not uploaded — call uploadScene() first");
 
     astroray::gpu_profile::NvtxRange _nvtx_render("CUDARenderer::render");
-    impl->ensureFramebuffer(width, height);
+    impl->ensureFramebuffer(width, height, impl->cryptoDepth, impl->cryptomatteEnabled);  // pkg87b
     int totalPixels = width * height;
 
     // path_trace_kernel.cu uses gpu_rgbToSampledSpectrum(...) with
@@ -592,7 +635,9 @@ void CUDARenderer::render(
         impl->camera,
         impl->filmExposure,
         impl->backgroundColor, impl->hasBackgroundColor,
-        impl->d_rngStates);
+        impl->d_rngStates,
+        impl->d_cryptoObjectBuffer, impl->d_cryptoMaterialBuffer,  // pkg87b
+        impl->cryptoDepth, impl->cryptomatteEnabled);              // pkg87b
 
     // Copy result back to host
     std::vector<float> hostFb(totalPixels * 3);

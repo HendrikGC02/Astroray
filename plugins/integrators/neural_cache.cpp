@@ -82,6 +82,7 @@ class NeuralCacheIntegrator : public Integrator {
     int frameIndex_ = 0;
     bool backendReadyThisFrame_ = false;
     Renderer* renderer_ = nullptr;
+    Camera* camera_ = nullptr;  // pkg87b
     std::mutex cacheMutex_;
     std::mutex trainingMutex_;
     std::atomic<int> lastQueuedSamples_{0};
@@ -287,8 +288,9 @@ public:
         maxDepth_ = depth;
     }
 
-    void beginFrame(Renderer& r, const Camera&) override {
+    void beginFrame(Renderer& r, Camera& cam) override {
         renderer_ = &r;
+        camera_ = &cam;  // pkg87b
         ++frameIndex_;
         backendReadyThisFrame_ = refreshBackendReady();
         lastQueuedSamples_.store(0, std::memory_order_relaxed);
@@ -383,6 +385,36 @@ public:
         }
 
         astroray::SampledSpectrum f = bss.f_spectral;
+
+        // pkg87b: Cryptomatte accumulation at primary shade point (before indirect evaluation).
+        // Weight = average(throughput · bsdf_eval), where initial throughput is 1.0.
+        if (renderer_->getCryptomatteEnabled() && camera_) {
+            int pixelX = static_cast<int>(ray.screenU * (camera_->width - 1));
+            int pixelY = static_cast<int>((1.0f - ray.screenV) * (camera_->height - 1));
+            pixelX = std::max(0, std::min(pixelX, camera_->width - 1));
+            pixelY = std::max(0, std::min(pixelY, camera_->height - 1));
+            int pixelIndex = pixelY * camera_->width + pixelX;
+            int offset = pixelIndex * camera_->cryptomatteDepth * 2;
+            float* cryptoObjRanks = camera_->cryptoObjectBuffer.data() + offset;
+            float* cryptoMatRanks = camera_->cryptoMaterialBuffer.data() + offset;
+
+            astroray::SampledSpectrum contrib = f;  // throughput is 1.0 at primary hit
+            astroray::XYZ contribXYZ = contrib.toXYZ(lambdas);
+            float r =  3.2406f * contribXYZ.X - 1.5372f * contribXYZ.Y - 0.4986f * contribXYZ.Z;
+            float g = -0.9689f * contribXYZ.X + 1.8758f * contribXYZ.Y + 0.0415f * contribXYZ.Z;
+            float b =  0.0557f * contribXYZ.X - 0.2040f * contribXYZ.Y + 1.0570f * contribXYZ.Z;
+            float weight = (r + g + b) / 3.0f;
+
+            float objectId = CRYPTO_ID_NONE, materialId = CRYPTO_ID_NONE;
+            if (rec.hitObject && !rec.hitObject->getName().empty()) {
+                objectId = crypto_hash_name(rec.hitObject->getName());
+            }
+            if (rec.material && !rec.material->getName().empty()) {
+                materialId = crypto_hash_name(rec.material->getName());
+            }
+            crypto_accumulate_shade_point(cryptoObjRanks, cryptoMatRanks,
+                                           0, camera_->cryptomatteDepth, objectId, materialId, weight);
+        }
 
         Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
         next.hasCameraFrame = ray.hasCameraFrame;

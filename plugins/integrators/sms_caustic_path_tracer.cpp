@@ -77,14 +77,17 @@ public:
         smsCfg_.contribClamp  = p.getFloat("sms_contrib_clamp", 4.0f);
     }
 
-    void beginFrame(Renderer& scene, const Camera&) override {
+    Camera* camera_ = nullptr;  // pkg87b
+
+    void beginFrame(Renderer& scene, Camera& cam) override {
         renderer_ = &scene;
+        camera_ = &cam;  // pkg87b
         causticConnections_ = causticEnergy_ = 0.0f;
         smsAttempts_ = smsConverged_ = smsEnergy_ = 0.0f;
         // sms_caustic_path_tracer keeps the Phase-1+2 behavior of treating
         // every transmissive sphere as a candidate (requireFlag=false), so
         // its acceptance test scenes don't need to flip the new opt-in.
-        amf::gatherSphereCasters(scene, casters_, /*requireFlag=*/false);
+        amf:gatherSphereCasters(scene, casters_, /*requireFlag=*/false);
     }
 
     std::unordered_map<std::string, float> debugStats() const override {
@@ -116,6 +119,22 @@ public:
         astroray::SampledWavelengths lambdas =
             astroray::SampledWavelengths::sampleUniform(dist01(gen));
 
+        // pkg87b: Cryptomatte per-shade-point accumulation.
+        float* cryptoObjRanks = nullptr;
+        float* cryptoMatRanks = nullptr;
+        int cryptoDepth = 6;
+        if (renderer_->getCryptomatteEnabled() && camera_) {
+            int pixelX = static_cast<int>(ray.screenU * (camera_->width - 1));
+            int pixelY = static_cast<int>((1.0f - ray.screenV) * (camera_->height - 1));
+            pixelX = std::max(0, std::min(pixelX, camera_->width - 1));
+            pixelY = std::max(0, std::min(pixelY, camera_->height - 1));
+            int pixelIndex = pixelY * camera_->width + pixelX;
+            int offset = pixelIndex * camera_->cryptomatteDepth * 2;
+            cryptoObjRanks = camera_->cryptoObjectBuffer.data() + offset;
+            cryptoMatRanks = camera_->cryptoMaterialBuffer.data() + offset;
+            cryptoDepth = camera_->cryptomatteDepth;
+        }
+
         // 1. Baseline caustic path-tracer contribution (unchanged).
         int   bounces = 0;
         float weight  = 0.0f;
@@ -123,7 +142,7 @@ public:
         float energy = 0.0f;
         astroray::SampledSpectrum rad = renderer_->pathTraceSpectralCaustic(
             ray, maxDepth_, chainIters_, lambdas, gen, &bounces, &weight,
-            &connections, &energy);
+            &connections, &energy, cryptoObjRanks, cryptoMatRanks, cryptoDepth);
 
         // 2. Primary hit + SMS attempt on top.
         HitRecord rec;

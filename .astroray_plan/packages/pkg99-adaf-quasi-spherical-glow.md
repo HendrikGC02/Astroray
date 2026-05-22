@@ -3,7 +3,7 @@
 **Pillar:** 4
 **Track:** B (plugin/physics-adjacent render path — needs the RTX HW visual gate; no Track-A engine work)
 **Codex-paste-ready:** no — requires empirical render iteration on RTX hardware (visual gate); the fix cannot be verified by CI alone (see memory `ci_has_no_gpu_runtime_blindspot`).
-**Status:** ready
+**Status:** done (PR #335, 2026-05-22 — dropped exposureScale from volumetric emission path; jet intensity_scale 1e28→5e13; regression test asserts ADAF ON ≠ OFF; ADAF should now glow at spec intensity_scale=1e30; empirical RTX visual tuning is separate follow-up)
 **Estimated effort:** ~1 day (~6 h, including RTX render iteration)
 **Depends on:** pkg44 (the ADAF plugin + the merged scene-wiring fix, PR #310 → `main` `11644df`; the camera/param/enable_adaf wiring is DONE and is *not* in scope to re-do)
 

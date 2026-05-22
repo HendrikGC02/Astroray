@@ -8,6 +8,7 @@
 #include "gpu_wavefront_snapshot.h"
 #include "astroray/gpu_wavefront_state.h"
 #include "astroray/gpu_types.h"
+#include "astroray/gpu_scene_upload.h"
 #include "raytracer.h"
 #include <cuda_runtime.h>
 #include <stdexcept>
@@ -215,7 +216,7 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     GSphere* d_spheres = nullptr;
 
     try {
-        const auto& bvhRes = renderer.getBVHAsGPUData();
+        SceneUploadResult bvhRes = buildSceneArrays(renderer, &cam);
         devUpload(bvhRes.nodes, &d_bvhNodes);
         devUpload(bvhRes.prims, &d_prims);
         devUpload(bvhRes.triangles, &d_tris);
@@ -393,7 +394,7 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     GMaterial* d_materials = nullptr;
 
     try {
-        const auto& bvhRes = renderer.getBVHAsGPUData();
+        SceneUploadResult bvhRes = buildSceneArrays(renderer, &cam);
         devUpload(bvhRes.nodes, &d_bvhNodes);
         devUpload(bvhRes.prims, &d_prims);
         devUpload(bvhRes.triangles, &d_tris);

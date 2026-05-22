@@ -120,6 +120,9 @@ bool  allocateGPUWavefrontState(GPUWavefrontState& s, int capacity);
 void  freeGPUWavefrontState(GPUWavefrontState& s);
 
 // Session N+3 launchers. Defined in src/gpu/wavefront/stage_*.cu.
+struct GPUWavefrontHitBuffers;  // forward decl; full definition below
+// GMaterial is in the global namespace (gpu_types.h); referenced unqualified
+// below — do NOT forward-declare here or it shadows the real type.
 
 // stage_init: writes ray_origin/ray_direction/lambdas/throughput/rng_*/etc.
 // for slot i. Uses WavefrontRNG (PCG32) to match CPU baseline.
@@ -139,7 +142,6 @@ void launchStageIntersect_SessionN3(
     const GSphere*    d_spheres);
 
 // Session N+3 part 2: Lambertian shade stage.
-struct GMaterial;  // Forward declaration
 void launchStageShadeLambertian_SessionN3(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,

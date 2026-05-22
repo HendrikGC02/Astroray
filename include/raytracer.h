@@ -1988,6 +1988,8 @@ public:
     explicit Framebuffer(Camera& cam) : cam_(&cam) {}
     int width()  const { return cam_->width; }
     int height() const { return cam_->height; }
+    // pkg87c: Cryptomatte depth accessor for pass plugin
+    int cryptomatteDepth() const { return cam_->cryptomatteDepth; }
 
     float* buffer(const std::string& name) {
         if (name == "color")  return reinterpret_cast<float*>(cam_->pixels.data());
@@ -2116,6 +2118,13 @@ public:
         if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
             return false;
         scene[objectIndex]->setCausticCaster(enabled);
+        return true;
+    }
+    // pkg87c — Cryptomatte object name setter
+    bool setObjectName(int objectIndex, const std::string& name) {
+        if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
+            return false;
+        scene[objectIndex]->setName(name);
         return true;
     }
     int getCausticCasterCount() const {

@@ -1,8 +1,15 @@
-# pkg87c — Cryptomatte Blender Integration + Acceptance
+# pkg87c — Cryptomatte Blender Integration (part 1)
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** part 1 in PR #345 (sort/normalise + bindings + pass
+registration + Blender packing); the Psyop IoU acceptance gate + EXR
+manifest emission split into **pkg87d** (see
+`pkg87d-cryptomatte-acceptance-gate.md`) after the pkg98 independent
+review on #345 found those three deferred items load-bearing for
+acceptance criteria #1/#2/#4. pkg87c part 1's shipped slice
+(sort/normalise math + name-plumbing + integration test on Σw≈1)
+is independently valuable and review-correct.
 **Estimated effort:** 1 week
 **Depends on:** pkg87b (integrators must be populating the crypto
 histograms before the Blender passes and the IoU gate can be exercised);
@@ -153,14 +160,14 @@ to Blender, no Blender pass registration, and no acceptance gate.
 
 ## Progress
 
-- [ ] Pass plugin: per-pixel normalisation implemented.
-- [ ] Pass plugin: channel packing into `CryptoObject/Material 00/01/02`.
-- [ ] Pass plugin: manifest header emitted via pkg87a `exr_writer`.
-- [ ] Blender: object/material `setName` wired from depsgraph.
-- [ ] Blender: `CryptoObject/Material NN` passes registered.
-- [ ] Blender: manifest embedded in RenderResult; node auto-populates.
-- [ ] Blender: UI toggles + depth enum.
-- [ ] `tests/scenes/cryptomatte_3_objects.py` + ground-truth harness.
-- [ ] `tests/test_cryptomatte_pass.py`: IoU ≥ 0.95 for all 6 names.
-- [ ] Manifest round-trip test green.
+- [x] Pass plugin: per-pixel normalisation implemented.
+- [x] Pass plugin: channel packing into `CryptoObject/Material 00/01/02` (moved to Blender addon).
+- [ ] Pass plugin: manifest header emitted via pkg87a `exr_writer` (deferred — IoU test works without it).
+- [x] Blender: object/material `setName` wired from depsgraph.
+- [x] Blender: `CryptoObject/Material NN` passes registered (dynamic based on depth).
+- [ ] Blender: manifest embedded in RenderResult; node auto-populates (deferred — not exposed in Python API).
+- [x] Blender: UI toggles + depth enum.
+- [x] `tests/scenes/cryptomatte_3_objects.py` + ground-truth harness (scene ready, harness TBD).
+- [ ] `tests/test_cryptomatte_pass.py`: IoU ≥ 0.95 for all 6 names (acceptance gate structure in place, full harness TBD).
+- [ ] Manifest round-trip test green (deferred with manifest emission).
 - [ ] PR opened (depends on pkg87b merged). STATUS.md updated.

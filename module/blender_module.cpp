@@ -38,6 +38,9 @@
 #include "astroray/lights/area_light.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
+#  ifdef ASTRORAY_WAVEFRONT_CUDA_N3
+#    include "../src/gpu/wavefront/gpu_wavefront_snapshot.h"
+#  endif
 #endif
 // pkg87a — Cryptomatte infrastructure
 #include "astroray/cryptomatte.h"
@@ -2746,6 +2749,37 @@ PYBIND11_MODULE(astroray, m) {
           "pkg55-B' Session 2c: Compare snapshot streams for bit-identity gate. "
           "Returns dict with: bit_identical (bool), max_abs_diff (float), "
           "total_diverging_fields (int), report (str), ref_image (array), wf_image (array).");
+
+#ifdef ASTRORAY_WAVEFRONT_CUDA_N3
+    // pkg55-B' Session N+3: GPU wavefront PostInit snapshot for CPU↔GPU diff harness.
+    m.def("cuda_wavefront_snapshot_post_init",
+          [](PyRenderer& r, int width, int height, uint64_t seed) -> py::array_t<float> {
+              auto cam = r.getCamera();
+              if (!cam) {
+                  throw std::runtime_error("Camera not set up. Call setup_camera() first.");
+              }
+
+              // Run GPU stage_init and download PostInit snapshot.
+              // Returns flat array: (num_paths, 22) with fields per path:
+              //   [0..2]: ray_origin, [3..5]: ray_direction, [6..9]: lambdas,
+              //   [10..13]: throughput, [14..16]: pixel/sample/bounce,
+              //   [17..21]: rng (pixel, sample, dimension, seed_lo, seed_hi).
+              auto snapshot = astroray::wavefront::cuda_wavefront_snapshot_post_init(
+                  *cam, width, height, seed);
+
+              int total_paths = width * height;
+              py::array_t<float> arr({total_paths, 22});
+              auto buf = arr.request();
+              float* ptr = static_cast<float*>(buf.ptr);
+              std::copy(snapshot.begin(), snapshot.end(), ptr);
+              return arr;
+          },
+          "renderer"_a, "width"_a, "height"_a, "seed"_a,
+          "pkg55-B' Session N+3: Run GPU stage_init and download PostInit snapshot. "
+          "Returns (num_paths, 22) array for CPU↔GPU diff harness. "
+          "Fields: ray_origin (3), ray_direction (3), lambdas (4), throughput (4), "
+          "pixel_index, sample_index, bounce, rng state (5).");
+#endif  // ASTRORAY_WAVEFRONT_CUDA_N3
 
     m.def("viewport_perf_reset",
           []() {

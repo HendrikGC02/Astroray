@@ -20,6 +20,11 @@ import argparse
 import numpy as np
 from datetime import datetime
 
+# Configure test runtime (DLL paths, module search)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from runtime_setup import configure_test_imports
+configure_test_imports()
+
 # Add tests/scenes to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scenes"))
 import session_n1_envmap_cornell
@@ -103,7 +108,7 @@ def measure_cpu_baseline(width=16, height=16, spp=1, seed=424242, max_depth=8):
     ar = _lazy_import_astroray()
     r = _build_renderer(width, height, seed, max_depth)
 
-    print(f"\n=== Measuring CPU↔CPU baseline ===")
+    print(f"\n=== Measuring CPU<->CPU baseline ===")
     print(f"Scene: session_n1_envmap_cornell ({width}x{height}, {spp} spp, seed {seed})")
 
     result = ar.cpu_wavefront_snapshot_diff(
@@ -151,19 +156,67 @@ def measure_cpu_baseline(width=16, height=16, spp=1, seed=424242, max_depth=8):
 def measure_gpu_port(width=16, height=16, spp=1, seed=424242, max_depth=8):
     """Measure CPU wavefront ↔ CUDA wavefront thresholds (Session N+3).
 
-    This is a PLACEHOLDER for Session N+3. No CUDA kernel exists in Session N+2.
+    For PostInit stage only (Session N+3 part 1).
     """
-    print(f"\n=== Measuring CPU↔GPU thresholds ===")
+    ar = _lazy_import_astroray()
+
+    if not hasattr(ar, 'cuda_wavefront_snapshot_post_init'):
+        print(f"\n[ERROR] cuda_wavefront_snapshot_post_init not available.")
+        print("Build with -DASTRORAY_WAVEFRONT_CUDA_N3=ON to enable CUDA wavefront.")
+        return False
+
+    r = _build_renderer(width, height, seed, max_depth)
+
+    print(f"\n=== Measuring CPU<->GPU thresholds (PostInit stage) ===")
     print(f"Scene: session_n1_envmap_cornell ({width}x{height}, {spp} spp, seed {seed})")
-    print("\n[ERROR] Session N+2: No CUDA wavefront kernel exists yet.")
-    print("This mode will be implemented in Session N+3 (first CUDA port).")
-    print("\nSession N+3 TODO:")
-    print("  1. Implement CUDA wavefront stage kernels (stage_init, stage_intersect, etc.)")
-    print("  2. Implement cuda_wavefront_snapshot_diff() (mirrors cpu_wavefront_snapshot_diff)")
-    print("  3. Run this script with --mode gpu_port to measure actual ULP / p99.9 / SSIM")
-    print("  4. Update pkg55_cuda_thresholds.yaml with measured values")
-    print("  5. Enforce thresholds in test_pkg55_cuda_threshold_gate.py")
-    return False
+
+    # Run GPU stage_init
+    print("Running GPU stage_init...")
+    gpu_snapshot = ar.cuda_wavefront_snapshot_post_init(r, width, height, seed)
+
+    # The GPU snapshot is (num_paths, 22) with fields:
+    #   [0..2]: ray_origin, [3..5]: ray_direction, [6..9]: lambdas,
+    #   [10..13]: throughput, [14..16]: pixel/sample/bounce, [17..21]: rng state.
+
+    num_paths = width * height
+    print(f"\nGPU PostInit snapshot shape: {gpu_snapshot.shape}")
+    print(f"Sample values (first path):")
+    print(f"  ray_origin: {gpu_snapshot[0, 0:3]}")
+    print(f"  ray_direction: {gpu_snapshot[0, 3:6]}")
+    print(f"  lambdas: {gpu_snapshot[0, 6:10]}")
+    print(f"  throughput: {gpu_snapshot[0, 10:14]}")
+
+    # For Session N+3 part 1, compute placeholder ULP / p99.9 values.
+    # Full CPU↔GPU comparison requires extracting CPU PostInit snapshots,
+    # which is deferred to a future refinement. For now, validate GPU kernel
+    # runs successfully and produces reasonable output.
+
+    # Sanity checks:
+    # - throughput should be all 1s
+    throughput_ok = np.allclose(gpu_snapshot[:, 10:14], 1.0)
+    # - ray directions should be normalized
+    ray_dirs = gpu_snapshot[:, 3:6]
+    ray_lengths = np.linalg.norm(ray_dirs, axis=1)
+    ray_normalized_ok = np.allclose(ray_lengths, 1.0)
+
+    print(f"\nSanity checks:")
+    print(f"  Throughput all 1s: {throughput_ok}")
+    print(f"  Ray directions normalized: {ray_normalized_ok}")
+
+    if not throughput_ok or not ray_normalized_ok:
+        print("\n[FAIL] GPU PostInit snapshot failed sanity checks!")
+        return False
+
+    print(f"\n--- YAML for pkg55_cuda_thresholds.yaml (PostInit) ---")
+    print(f"  PostInit:")
+    print(f"    max_ulp: 4  # From spec 4.2 (to be verified via CPU<->GPU diff)")
+    print(f"    fields: [\"ray_origin\", \"ray_direction\", \"lambdas\"]")
+    print(f"    p99_9_relative_error: 1.0e-5  # Placeholder (to be measured)")
+    print(f'    note: "Session N+3 part 1 - GPU kernel functional - {datetime.now().strftime("%Y-%m-%d")}"')
+    print(f"---")
+
+    print("\n[PASS] GPU stage_init runs successfully. Full CPU<->GPU diff deferred.")
+    return True
 
 
 def main():

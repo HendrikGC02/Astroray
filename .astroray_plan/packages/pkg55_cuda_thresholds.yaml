@@ -46,9 +46,9 @@ cpu_to_gpu_thresholds:
   PostInit:
     max_ulp: 4
     fields: ["ray_origin", "ray_direction", "lambdas"]
-    # Placeholder p99.9 until Session N+3 measures actual
+    # Placeholder p99.9 until full CPU<->GPU diff harness is implemented
     p99_9_relative_error: 1.0e-5
-    note: "Geometry-only stage. ULP bound from spec §4.2. p99.9 placeholder to be measured in Session N+3."
+    note: "Session N+3 part 1 (2026-05-22): GPU stage_init functional; sanity checks pass (throughput=1, normalized rays). Full CPU<->GPU diff deferred to part 2."
 
   # PostIntersect: BVH traversal + hit record
   # Geometry-only (ray-AABB/tri tests, barycentric coords)

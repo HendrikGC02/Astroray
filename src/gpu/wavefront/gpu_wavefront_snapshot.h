@@ -49,6 +49,49 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     int width, int height,
     uint64_t seed);
 
+// cuda_wavefront_snapshot_post_intersect — Run GPU stage_init + stage_intersect,
+// download PostIntersect snapshot.
+//
+// Returns:
+//   Flat vector of PostIntersect snapshot fields, one row per pixel.
+//   Row format (mirrors CPU WavefrontSnapshot PostIntersect fields):
+//     [0..2]:   ray_origin (x,y,z)
+//     [3..5]:   ray_direction (x,y,z)
+//     [6..9]:   lambdas (4 floats)
+//     [10..13]: throughput (4 floats)
+//     [14]:     hit_valid (0 or 1)
+//     [15]:     hit_t
+//     [16..18]: hit_point (x,y,z)
+//     [19..21]: hit_normal (x,y,z)
+//     [22]:     hit_material_id
+//
+//   Total: 23 floats/ints per path.
+std::vector<float> cuda_wavefront_snapshot_post_intersect(
+    Renderer& renderer,
+    const Camera& cam,
+    int width, int height,
+    uint64_t seed);
+
+// cuda_wavefront_snapshot_post_shade — Run GPU stage_init + stage_intersect +
+// stage_shade_lambertian, download PostShade snapshot.
+//
+// Returns:
+//   Flat vector of PostShade snapshot fields, one row per pixel.
+//   Row format (mirrors CPU WavefrontSnapshot PostShade fields):
+//     [0..2]:   ray_origin (next bounce origin)
+//     [3..5]:   ray_direction (next bounce direction)
+//     [6..9]:   throughput (4 floats, updated by BSDF)
+//     [10..13]: lambdas (4 floats)
+//     [14]:     bsdf_pdf
+//     [15]:     bsdf_is_delta (0 or 1)
+//
+//   Total: 16 floats/ints per path.
+std::vector<float> cuda_wavefront_snapshot_post_shade(
+    Renderer& renderer,
+    const Camera& cam,
+    int width, int height,
+    uint64_t seed);
+
 }  // namespace wavefront
 }  // namespace astroray
 

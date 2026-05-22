@@ -1,8 +1,15 @@
-# pkg87c — Cryptomatte Blender Integration + Acceptance
+# pkg87c — Cryptomatte Blender Integration (part 1)
 
 **Pillar:** 5
 **Track:** A
-**Status:** implementation (PR pending)
+**Status:** part 1 in PR #345 (sort/normalise + bindings + pass
+registration + Blender packing); the Psyop IoU acceptance gate + EXR
+manifest emission split into **pkg87d** (see
+`pkg87d-cryptomatte-acceptance-gate.md`) after the pkg98 independent
+review on #345 found those three deferred items load-bearing for
+acceptance criteria #1/#2/#4. pkg87c part 1's shipped slice
+(sort/normalise math + name-plumbing + integration test on Σw≈1)
+is independently valuable and review-correct.
 **Estimated effort:** 1 week
 **Depends on:** pkg87b (integrators must be populating the crypto
 histograms before the Blender passes and the IoU gate can be exercised);

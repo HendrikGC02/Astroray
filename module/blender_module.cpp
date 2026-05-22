@@ -1344,8 +1344,8 @@ public:
         }
         if (key == "cryptomatte_object" || key == "cryptomatte_material") {
             const std::vector<Vec3>* vecBuffer = (key == "cryptomatte_object")
-                ? &camera->cryptomatteObjectBuffer
-                : &camera->cryptomatteMaterialBuffer;
+                ? &camera->cryptoObjectBuffer
+                : &camera->cryptoMaterialBuffer;
             py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
             auto result = py::array_t<float>(shape);
             py::buffer_info buf = result.request();

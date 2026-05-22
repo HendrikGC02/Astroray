@@ -215,6 +215,21 @@ if(ASTRORAY_ENABLE_FITS)
     endif()
 endif()
 
+# ---------------------------------------------------------------------------
+# pkg87a — Optional OpenEXR (for Cryptomatte EXR write)
+# OpenEXR is ILM's HDR image library (BSD-3). Install via vcpkg (Windows) or
+# package manager (Linux): vcpkg install openexr  or  apt install libopenexr-dev
+# Graceful degradation: Cryptomatte infrastructure builds without it; EXR write
+# stubs to runtime error until OpenEXR is available.
+# ---------------------------------------------------------------------------
+find_package(OpenEXR CONFIG QUIET)
+if(OpenEXR_FOUND)
+    message(STATUS "OpenEXR found — Cryptomatte EXR write enabled")
+else()
+    message(STATUS "OpenEXR not found — Cryptomatte EXR write will throw runtime error")
+    message(STATUS "  (Install via: vcpkg install openexr  or  apt install libopenexr-dev)")
+endif()
+
 # Compiler flags for optimization
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # Base optimization flags
@@ -324,6 +339,14 @@ if(ASTRORAY_PLUGIN_SOURCES)
         target_link_libraries(astroray_plugins PUBLIC cfitsio::cfitsio)
         target_compile_definitions(astroray_plugins PUBLIC ASTRORAY_FITS_ENABLED)
     endif()
+    # pkg87a: OpenEXR EXR writer conditionally included if OpenEXR found
+    if(OpenEXR_FOUND)
+        target_sources(astroray_core_impl PRIVATE
+            "${CMAKE_SOURCE_DIR}/src/io/exr_writer.cpp"
+        )
+        target_link_libraries(astroray_core_impl PUBLIC OpenEXR::OpenEXR)
+        target_compile_definitions(astroray_core_impl PUBLIC ASTRORAY_EXR_ENABLED)
+    endif()
 endif()
 
 # Source files
@@ -370,6 +393,9 @@ add_library(astroray_core_impl STATIC
     src/lights/distant_light.cpp
     src/lights/area_light.cpp
     src/lights/background_light.cpp
+    # pkg87a — Cryptomatte infrastructure
+    src/util/murmurhash3.cpp
+    src/util/cryptomatte.cpp
 )
 
 # pkg55 Phase B' — CPU wavefront reference oracle + driver (Session 2b/2c).

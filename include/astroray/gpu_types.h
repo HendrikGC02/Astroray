@@ -239,6 +239,9 @@ struct GTriangle {
     GVec3 v0, v1, v2;
     GVec3 n0, n1, n2;   // per-vertex normals (or face normal repeated 3×)
     int   materialId;
+    // pkg87a — Cryptomatte hashed names, populated at scene upload
+    uint32_t objectHash;
+    uint32_t materialHash;
 };
 
 struct GSphere {
@@ -251,6 +254,9 @@ struct GSphere {
     // packing: gate selectivity dominates and a single bool keeps the
     // CPU↔GPU upload diff minimal (pkg64-gpu spec, Phase 1 / decision 3).
     bool  isCausticCaster = false;
+    // pkg87a — Cryptomatte hashed names, populated at scene upload
+    uint32_t objectHash;
+    uint32_t materialHash;
 };
 
 // ---------------------------------------------------------------------------

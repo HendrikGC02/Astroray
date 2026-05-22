@@ -8,6 +8,8 @@
 #include "astroray/spectral_profile.h"
 #include "raytracer.h"
 #include "advanced_features.h"
+// pkg87a — Cryptomatte hash function
+#include "util/murmurhash3.h"
 
 #include <cuda_runtime.h>
 #include <vector>
@@ -272,6 +274,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 gt.n0 = gt.n1 = gt.n2 = GVec3(n.x, n.y, n.z);
             }
             gt.materialId = getOrAddMat(tri->getMaterial());
+            // pkg87a — Cryptomatte: hash object and material names
+            std::string objName = tri->getName();
+            if (objName.empty()) objName = "Unnamed_Triangle_" + std::to_string(r.triangles.size());
+            MurmurHash3_x86_32(objName.c_str(), static_cast<int>(objName.length()), 0, &gt.objectHash);
+            std::string matName = tri->getMaterial()->getName();
+            if (matName.empty()) matName = "Unnamed_Material_" + std::to_string(gt.materialId);
+            MurmurHash3_x86_32(matName.c_str(), static_cast<int>(matName.length()), 0, &gt.materialHash);
             r.triangles.push_back(gt);
         } else if (auto* sph = dynamic_cast<Sphere*>(hittable.get())) {
             gp.type  = GPRIM_SPHERE;
@@ -288,6 +297,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // boundary so the megakernel SMS dispatch (Phase 2) gates on
             // the same flag as the CPU path.
             gs.isCausticCaster = sph->isCausticCaster();
+            // pkg87a — Cryptomatte: hash object and material names
+            std::string objName = sph->getName();
+            if (objName.empty()) objName = "Unnamed_Sphere_" + std::to_string(r.spheres.size());
+            MurmurHash3_x86_32(objName.c_str(), static_cast<int>(objName.length()), 0, &gs.objectHash);
+            std::string matName = sph->getMaterial()->getName();
+            if (matName.empty()) matName = "Unnamed_Material_" + std::to_string(gs.materialId);
+            MurmurHash3_x86_32(matName.c_str(), static_cast<int>(matName.length()), 0, &gs.materialHash);
             r.spheres.push_back(gs);
         } else {
             // pkg85-C: keep r.prims index-aligned with the BVH's orderedPrims

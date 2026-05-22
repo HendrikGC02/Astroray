@@ -634,8 +634,13 @@ public:
         return bss;
     }
 
+    // pkg87a — Cryptomatte name plumbing
+    void setName(const std::string& name) { name_ = name; }
+    std::string getName() const { return name_; }
+
 private:
     const astroray::SpectralProfile* spectralProfile_ = nullptr;
+    std::string name_;  // pkg87a — for Cryptomatte material ID
 };
 
 class Lambertian : public Material {
@@ -690,6 +695,7 @@ class Hittable {
     // actual SMS sampling is the BSD-3 Mitsuba-2 / Hanika 2015 chain in
     // include/astroray/manifold/. CLAUDE.md §6.
     bool isCausticCaster_ = false;
+    std::string name_;  // pkg87a — for Cryptomatte object ID
 public:
     // Result type used by GR objects (BlackHole). Defined here so that
     // pathTraceSpectral() can use it without needing a full BlackHole definition.
@@ -748,6 +754,9 @@ public:
     int getMaterialPassIndex() const { return materialPassIndex; }
     void setCausticCaster(bool v) { isCausticCaster_ = v; }
     bool isCausticCaster() const { return isCausticCaster_; }
+    // pkg87a — Cryptomatte name plumbing
+    void setName(const std::string& name) { name_ = name; }
+    std::string getName() const { return name_; }
 };
 
 // Sphere class body moved to include/astroray/shapes.h (pkg04).
@@ -1837,8 +1846,9 @@ public:
     std::vector<float> motionBuffer;
     std::vector<float> alphaBuffer, depthBuffer, objectIndexBuffer, materialIndexBuffer;
     std::vector<float> bounceCountBuffer, sampleWeightBuffer;
-    std::vector<Vec3> cryptomatteObjectBuffer, cryptomatteMaterialBuffer;
-    std::vector<float> cryptomatteObjectCoverageBuffer, cryptomatteMaterialCoverageBuffer;
+    // pkg87a — Cryptomatte ranked histograms (flat arrays of [id0,weight0,id1,weight1,...])
+    std::vector<float> cryptoObjectBuffer, cryptoMaterialBuffer;
+    int cryptomatteDepth = 6;  // number of (id, weight) pairs per pixel (default 6 ranks = 3 EXR layers)
     std::array<std::vector<Vec3>, PASS_COUNT> renderPassBuffers;
 
     // pkg72: snapshot of previous-frame projection state. Populated by
@@ -1890,10 +1900,9 @@ public:
         materialIndexBuffer.resize(width * height, 0.0f);
         bounceCountBuffer.resize(width * height, 0.0f);
         sampleWeightBuffer.resize(width * height, 0.0f);
-        cryptomatteObjectBuffer.resize(width * height, Vec3(0));
-        cryptomatteMaterialBuffer.resize(width * height, Vec3(0));
-        cryptomatteObjectCoverageBuffer.resize(width * height, 0.0f);
-        cryptomatteMaterialCoverageBuffer.resize(width * height, 0.0f);
+        // pkg87a — Cryptomatte buffers: width*height*depth*2 floats (depth pairs of [id, weight])
+        cryptoObjectBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
+        cryptoMaterialBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
         for (auto& passBuffer : renderPassBuffers) {
             passBuffer.resize(width * height, Vec3(0));
         }
@@ -2034,6 +2043,9 @@ public:
         // pkg72: per-pixel previous->current screen-space motion (float2/pixel,
         // OptiX flow convention). See Camera::motionBuffer.
         if (name == "motion") return cam_->motionBuffer.data();
+        // pkg87a: Cryptomatte ranked histograms
+        if (name == "crypto_object") return cam_->cryptoObjectBuffer.data();
+        if (name == "crypto_material") return cam_->cryptoMaterialBuffer.data();
         return nullptr;
     }
     const float* buffer(const std::string& name) const {

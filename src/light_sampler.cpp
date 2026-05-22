@@ -73,7 +73,8 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
         // Dedicated Light path (pkg89 Phase A).
         size_t dedicatedIdx = idx - numHittableLights;
         const Light* light = dedicatedLights[dedicatedIdx].get();
-        Light::LiSample liSample{};  // Zero-initialize to avoid uninitialized reads if sampleLi() is buggy
+        Light::LiSample liSample;
+        std::memset(&liSample, 0, sizeof(liSample));  // Zero-fill defensively
         light->sampleLi(liSample, point, normal, lambdas, gen);
 
         out.position = liSample.position;
@@ -175,7 +176,8 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
         // Dedicated Light path.
         const auto& dedicatedLights = lightList_->getDedicatedLights();
         const Light* light = dedicatedLights[pick.lightIndex].get();
-        Light::LiSample liSample{};  // Zero-initialize to avoid uninitialized reads if sampleLi() is buggy
+        Light::LiSample liSample;
+        std::memset(&liSample, 0, sizeof(liSample));  // Zero-fill defensively
         light->sampleLi(liSample, point, normal, lambdas, gen);
 
         out.position = liSample.position;

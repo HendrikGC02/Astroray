@@ -74,6 +74,12 @@ EmissionSpectrum EmissionSpectrum::composeWith(const Vec3& filterRGB) const {
 SampledSpectrum EmissionSpectrum::evalBlackbody(const Blackbody& bb,
                                                  const SampledWavelengths& wl) const {
     SampledSpectrum result;
+
+    // Check if tint is white (1,1,1) - if so, skip the tint multiplication entirely.
+    bool isWhiteTint = (std::abs(bb.tint_rgb.x - 1.0f) < 1e-6f &&
+                        std::abs(bb.tint_rgb.y - 1.0f) < 1e-6f &&
+                        std::abs(bb.tint_rgb.z - 1.0f) < 1e-6f);
+
     for (int i = 0; i < kSpectrumSamples; ++i) {
         float lambda = wl.lambda(i);
         // Planck blackbody (W/(m²·sr·nm)) — note: spectral.h planck() returns
@@ -81,20 +87,29 @@ SampledSpectrum EmissionSpectrum::evalBlackbody(const Blackbody& bb,
         double bbValue = planck(static_cast<double>(lambda), static_cast<double>(bb.temperature_K));
         float bbFloat = static_cast<float>(bbValue * 1e9);  // W/(m²·sr·m) → W/(m²·sr·nm)
 
-        // Apply RGB tint as a multiplicative filter via Jakob-Hanika upsample.
-        // When tint == (1,1,1), this is a no-op (white filter).
-        RGBAlbedoSpectrum tintSpectrum({bb.tint_rgb.x, bb.tint_rgb.y, bb.tint_rgb.z});
-        float tintAt = tintSpectrum.evalAt(lambda);
-
-        result[i] = bbFloat * tintAt;
+        if (isWhiteTint) {
+            // No tint: pure blackbody emission.
+            result[i] = bbFloat;
+        } else {
+            // Apply RGB tint as a multiplicative filter via Jakob-Hanika upsample.
+            RGBAlbedoSpectrum tintSpectrum({bb.tint_rgb.x, bb.tint_rgb.y, bb.tint_rgb.z});
+            float tintAt = tintSpectrum.evalAt(lambda);
+            result[i] = bbFloat * tintAt;
+        }
     }
     return result;
 }
 
 // Internal: evaluate RGB mode.
+// Uses RGBIlluminantSpectrum (D65-weighted) to match the existing engine
+// convention for rgb-mode emission intensities. The parity-report change to
+// RGBUnboundedSpectrum was over-broad: it would drop point/background/spot-rgb
+// illuminance ~3×, breaking G5 (point hard shadow) and G4 (spot RGB center).
+// G2's AreaLight D65 chromaticity is addressed by the geometric normalize +
+// white-tint short-circuit in evalBlackbody; this evalRGB path stays Illuminant
+// so existing scene intensities continue to work.
 SampledSpectrum EmissionSpectrum::evalRGB(const RGB& rgb,
                                            const SampledWavelengths& wl) const {
-    // Pure Jakob-Hanika upsample (illuminant mode: scales by D65).
     RGBIlluminantSpectrum rgbSpectrum({rgb.color.x, rgb.color.y, rgb.color.z});
     return rgbSpectrum.sample(wl);
 }

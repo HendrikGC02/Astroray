@@ -30,6 +30,12 @@
 #include "../src/cpu/wavefront/cpu_wavefront_driver.h"
 #include "../src/cpu/wavefront/snapshot_diff.h"
 #include "astroray/sampling/wavefront_rng.h"
+#include "astroray/emission_spectrum.h"
+#include "astroray/light.h"
+#include "astroray/lights/point_light.h"
+#include "astroray/lights/spot_light.h"
+#include "astroray/lights/distant_light.h"
+#include "astroray/lights/area_light.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
 #endif
@@ -69,6 +75,73 @@ static astroray::ParamDict paramDictFromPyDict(py::dict params) {
         }
     }
     return p;
+}
+
+// pkg89 Phase B: parse EmissionSpectrum from Python dict.
+// Expected keys:
+//   - "mode": "blackbody" | "rgb" | "measured_spd" | "composite"
+//   - For blackbody: "temperature_K" (float), "tint_rgb" ([r,g,b])
+//   - For rgb: "color" ([r,g,b])
+//   - For measured_spd: "profile_name" (string)
+//   - For composite: "base" (dict), "filter_rgb" ([r,g,b])
+static astroray::EmissionSpectrum parseEmissionSpectrum(py::dict emissionDict) {
+    std::string mode = "blackbody";  // default
+    if (emissionDict.contains("mode")) {
+        mode = emissionDict["mode"].cast<std::string>();
+    }
+
+    if (mode == "blackbody") {
+        float tempK = emissionDict.contains("temperature_K") ?
+            emissionDict["temperature_K"].cast<float>() : 6500.0f;
+        Vec3 tint(1.0f, 1.0f, 1.0f);
+        if (emissionDict.contains("tint_rgb")) {
+            auto tintVec = emissionDict["tint_rgb"].cast<std::vector<float>>();
+            if (tintVec.size() == 3) {
+                tint = Vec3(tintVec[0], tintVec[1], tintVec[2]);
+            }
+        }
+        return astroray::EmissionSpectrum(
+            astroray::EmissionSpectrum::Blackbody{tempK, tint}
+        );
+    } else if (mode == "rgb") {
+        Vec3 color(1.0f, 1.0f, 1.0f);
+        if (emissionDict.contains("color")) {
+            auto colorVec = emissionDict["color"].cast<std::vector<float>>();
+            if (colorVec.size() == 3) {
+                color = Vec3(colorVec[0], colorVec[1], colorVec[2]);
+            }
+        }
+        return astroray::EmissionSpectrum(
+            astroray::EmissionSpectrum::RGB{color}
+        );
+    } else if (mode == "measured_spd") {
+        std::string profileName = emissionDict.contains("profile_name") ?
+            emissionDict["profile_name"].cast<std::string>() : "D65";
+        return astroray::EmissionSpectrum(
+            astroray::EmissionSpectrum::MeasuredSPD{profileName}
+        );
+    } else if (mode == "composite") {
+        if (!emissionDict.contains("base")) {
+            throw std::runtime_error("Composite EmissionSpectrum requires 'base' dict");
+        }
+        auto baseDict = emissionDict["base"].cast<py::dict>();
+        auto baseSpectrum = parseEmissionSpectrum(baseDict);
+        Vec3 filter(1.0f, 1.0f, 1.0f);
+        if (emissionDict.contains("filter_rgb")) {
+            auto filterVec = emissionDict["filter_rgb"].cast<std::vector<float>>();
+            if (filterVec.size() == 3) {
+                filter = Vec3(filterVec[0], filterVec[1], filterVec[2]);
+            }
+        }
+        return astroray::EmissionSpectrum(
+            astroray::EmissionSpectrum::Composite{
+                std::make_unique<astroray::EmissionSpectrum>(std::move(baseSpectrum)),
+                filter
+            }
+        );
+    } else {
+        throw std::runtime_error("Unknown EmissionSpectrum mode: " + mode);
+    }
 }
 
 class TextureManager {
@@ -210,9 +283,25 @@ class PyRenderer {
     bool useGPU = false;
     astroray::ParamDict integratorParams_;
     std::string integratorName_;
+    // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
+    std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
     std::unique_ptr<CUDARenderer> cudaRenderer;
 #endif
+
+    // pkg89 Phase B: load and cache IES profile.
+    const IESProfile* getOrLoadIESProfile(const std::string& iesFile) {
+        if (iesFile.empty()) return nullptr;
+        auto it = iesProfiles_.find(iesFile);
+        if (it != iesProfiles_.end()) {
+            return it->second.get();
+        }
+        auto profile = IESProfile::loadFromFile(iesFile);
+        if (!profile) return nullptr;
+        iesProfiles_[iesFile] = profile;
+        return profile.get();
+    }
+
 public:
     void loadTexture(const std::string& name, py::array_t<float> imageData, int width, int height,
                      const std::string& coordMode = "UV") {
@@ -433,6 +522,67 @@ public:
         area->setObjectPassIndex(objectPassIndex);
         area->setMaterialPassIndex(materialPassIndex);
         renderer.addObject(area);
+    }
+
+    // pkg89 Phase B: Dedicated light bindings (use EmissionSpectrum instead of material_id).
+    void addPointLight(const std::vector<float>& position, py::dict emissionDict, float intensity,
+                       float radius = 0.0f, const std::string& iesFile = "",
+                       int objectPassIndex = 0, int materialPassIndex = 0) {
+        Vec3 pos(position[0], position[1], position[2]);
+        auto emission = parseEmissionSpectrum(emissionDict);
+        const IESProfile* iesProfile = getOrLoadIESProfile(iesFile);
+        auto light = std::make_unique<astroray::PointLight>(pos, emission, intensity, radius, iesProfile);
+        // Dedicated lights don't have pass indices yet (Phase C unification), so we skip setObjectPassIndex.
+        renderer.addDedicatedLight(std::move(light));
+    }
+
+    void addSunLightDedicated(const std::vector<float>& direction, float angularDiameter,
+                              py::dict emissionDict, float intensity,
+                              int objectPassIndex = 0, int materialPassIndex = 0) {
+        Vec3 dir(direction[0], direction[1], direction[2]);
+        auto emission = parseEmissionSpectrum(emissionDict);
+        auto light = std::make_unique<astroray::DistantLight>(dir, angularDiameter, emission, intensity);
+        renderer.addDedicatedLight(std::move(light));
+    }
+
+    void addAreaLightDedicated(const std::vector<float>& center, const std::vector<float>& axisU,
+                               const std::vector<float>& axisV, float sizeX, float sizeY,
+                               const std::string& shape, py::dict emissionDict, float intensity,
+                               float spread = 1.0f,
+                               int objectPassIndex = 0, int materialPassIndex = 0) {
+        Vec3 pos(center[0], center[1], center[2]);
+        Vec3 u(axisU[0], axisU[1], axisU[2]);
+        Vec3 v(axisV[0], axisV[1], axisV[2]);
+        auto emission = parseEmissionSpectrum(emissionDict);
+
+        std::string shapeUpper = shape;
+        for (char& c : shapeUpper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+        astroray::AreaLight::Shape lightShape = astroray::AreaLight::Shape::Rectangle;
+        if (shapeUpper == "DISK") {
+            lightShape = astroray::AreaLight::Shape::Disk;
+        } else if (shapeUpper == "ELLIPSE") {
+            lightShape = astroray::AreaLight::Shape::Ellipse;
+        }
+
+        auto light = std::make_unique<astroray::AreaLight>(
+            pos, u, v, sizeX, sizeY, lightShape, emission, intensity, spread
+        );
+        renderer.addDedicatedLight(std::move(light));
+    }
+
+    void addSpotLightDedicated(const std::vector<float>& center, const std::vector<float>& direction,
+                               float innerAngle, float outerAngle, py::dict emissionDict, float intensity,
+                               float radius = 0.0f, const std::string& iesFile = "",
+                               int objectPassIndex = 0, int materialPassIndex = 0) {
+        Vec3 pos(center[0], center[1], center[2]);
+        Vec3 dir(direction[0], direction[1], direction[2]);
+        auto emission = parseEmissionSpectrum(emissionDict);
+        const IESProfile* iesProfile = getOrLoadIESProfile(iesFile);
+        auto light = std::make_unique<astroray::SpotLight>(
+            pos, dir, innerAngle, outerAngle, emission, intensity, radius, iesProfile
+        );
+        renderer.addDedicatedLight(std::move(light));
     }
 
     void addTriangle(const std::vector<float>& v0, const std::vector<float>& v1, const std::vector<float>& v2,
@@ -1636,6 +1786,24 @@ PYBIND11_MODULE(astroray, m) {
              "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,
              "shape"_a, "material_id"_a, "spread"_a = 1.0f,
              "object_pass_index"_a = 0, "material_pass_index"_a = 0)
+        .def("add_point_light", &PyRenderer::addPointLight,
+             "position"_a, "emission"_a, "intensity"_a, "radius"_a = 0.0f,
+             "ies_file"_a = std::string(), "object_pass_index"_a = 0, "material_pass_index"_a = 0,
+             "pkg89 Phase B: dedicated PointLight with EmissionSpectrum")
+        .def("add_sun_light_dedicated", &PyRenderer::addSunLightDedicated,
+             "direction"_a, "angular_diameter"_a, "emission"_a, "intensity"_a,
+             "object_pass_index"_a = 0, "material_pass_index"_a = 0,
+             "pkg89 Phase B: dedicated DistantLight with EmissionSpectrum")
+        .def("add_area_light_dedicated", &PyRenderer::addAreaLightDedicated,
+             "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,
+             "shape"_a, "emission"_a, "intensity"_a, "spread"_a = 1.0f,
+             "object_pass_index"_a = 0, "material_pass_index"_a = 0,
+             "pkg89 Phase B: dedicated AreaLight with EmissionSpectrum")
+        .def("add_spot_light_dedicated", &PyRenderer::addSpotLightDedicated,
+             "center"_a, "direction"_a, "inner_angle"_a, "outer_angle"_a,
+             "emission"_a, "intensity"_a, "radius"_a = 0.0f, "ies_file"_a = std::string(),
+             "object_pass_index"_a = 0, "material_pass_index"_a = 0,
+             "pkg89 Phase B: dedicated SpotLight with EmissionSpectrum")
         .def("add_triangle", &PyRenderer::addTriangle, "v0"_a, "v1"_a, "v2"_a, "material_id"_a,
              "uv0"_a = std::vector<float>(), "uv1"_a = std::vector<float>(), "uv2"_a = std::vector<float>(),
              "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>(),

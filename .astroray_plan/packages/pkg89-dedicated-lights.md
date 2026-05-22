@@ -2,9 +2,10 @@
 
 **Pillar:** 3 (light transport)
 **Track:** A
-**Status:** Phase A done (PR #294, 2026-05-15 — interface + 5 types + integrator
-  wiring complete; heap-corruption fix applied 2026-05-15; G8 measured 0.41% error,
-  passing 1% threshold). Phase B (Blender addon) is next.
+**Status:** Phase B done (PR #317, 2026-05-17 — Blender addon bindings +
+  EmissionSpectrum parsing + G1-G5 test scenes). Phase A done (PR #294, 2026-05-15 —
+  interface + 5 types + integrator wiring complete; G8 measured 0.41% error,
+  passing 1% threshold). Phase C (mesh-emitter unification) is a separate future package.
 **Estimated effort:** 3–4 weeks across two phases (A: interface +
   types + integrator wiring, B: Blender addon migration). Phase C
   (mesh-emitter unification) is a separate future package.

@@ -28,7 +28,6 @@ AreaLight::AreaLight(const Vec3& position,
     , emission_(emission)
     , intensity_(intensity)
     , spread_(spread)
-    , normalizeFactor_(Light::computeNormalizeFactor(emission, normalize))
 {
     // Compute normal (u × v).
     normal_ = u_.cross(v_).normalized();
@@ -45,6 +44,9 @@ AreaLight::AreaLight(const Vec3& position,
             area_ = static_cast<float>(M_PI) * width_ * height_;
             break;
     }
+
+    // Compute normalize factor using geometric normalization (Cycles parity).
+    normalizeFactor_ = Light::computeNormalizeFactor(area_, true);
 }
 
 void AreaLight::sampleLi(LiSample& sample,
@@ -82,8 +84,10 @@ void AreaLight::sampleLi(LiSample& sample,
     float geometricFactor = cosFalloff / distSq;
 
     // Evaluate spectral emission.
+    // Reference: Cycles intern/cycles/scene/light.cpp:127-131 (eval_fac = invarea * M_1_PI_F, Apache-2.0).
+    constexpr float kM1PiF = 0.31830988618f;  // M_1_PI_F = 1/π
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
-    emissionSpec *= (intensity_ * normalizeFactor_ * geometricFactor);
+    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF * geometricFactor);
 
     sample.emission_spec = emissionSpec;
 

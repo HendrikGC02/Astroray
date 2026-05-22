@@ -2682,6 +2682,11 @@ public:
         if (obj->isLight()) lights.add(obj);
     }
 
+    // pkg89 Phase B: add dedicated Light (not a Hittable).
+    void addDedicatedLight(std::unique_ptr<astroray::Light> light) {
+        lights.addLight(std::move(light));
+    }
+
     void buildAcceleration() { bvh = std::make_shared<BVHAccel>(scene); }
 
     // Accessors for CUDARenderer (scene_upload.cu reads these to upload scene to GPU)

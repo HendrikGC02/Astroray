@@ -27,8 +27,10 @@ SpotLight::SpotLight(const Vec3& position,
     , intensity_(intensity)
     , radius_(radius)
     , ies_(ies)
-    , normalizeFactor_(Light::computeNormalizeFactor(emission, normalize))
 {
+    // Compute normalize factor using geometric normalization (Cycles parity).
+    // For point/spot lights, pass area=1.0 (normalize factor is just 1/pi).
+    normalizeFactor_ = Light::computeNormalizeFactor(1.0f, true);
 }
 
 void SpotLight::sampleLi(LiSample& sample,
@@ -86,8 +88,10 @@ void SpotLight::sampleLi(LiSample& sample,
     }
 
     // Evaluate spectral emission.
+    // Reference: Cycles intern/cycles/scene/light.cpp:127-131 (eval_fac = invarea * M_1_PI_F, Apache-2.0).
+    constexpr float kM1PiF = 0.31830988618f;  // M_1_PI_F = 1/π
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
-    emissionSpec *= (intensity_ * normalizeFactor_ * falloff * angleFalloffFactor * iesModulation);
+    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF * falloff * angleFalloffFactor * iesModulation);
 
     sample.emission_spec = emissionSpec;
 
@@ -144,6 +148,8 @@ OrientationCone SpotLight::orientationCone() const {
 
 // Helper: compute falloff for angle θ from axis.
 // Smooth transition from inner (full intensity) to outer (zero).
+// Reference: Cycles intern/cycles/kernel/light/spot.h::spot_light_attenuation
+// and intern/cycles/util/math_base.h::smoothstepf (Apache-2.0).
 float SpotLight::angleFalloff(float cosTheta) const {
     float cosOuter = std::cos(outerAngle_);
     float cosInner = std::cos(innerAngle_);
@@ -155,9 +161,9 @@ float SpotLight::angleFalloff(float cosTheta) const {
         return 0.0f;  // outside outer cone
     }
 
-    // Linear interpolation in cos-space (Cycles convention).
+    // Cycles cubic Hermite smoothstep: 3t² - 2t³ (zero derivative at endpoints).
     float t = (cosTheta - cosOuter) / (cosInner - cosOuter);
-    return t;
+    return t * t * (3.0f - 2.0f * t);
 }
 
 } // namespace astroray

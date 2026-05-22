@@ -44,7 +44,8 @@ void BackgroundLight::sampleLi(LiSample& sample,
     // upsampling is a temporary workaround until EnvironmentMap is extended.
     Vec3 emissionRGB = envMap_->lookup(dir);
 
-    // Upsample RGB to spectral via RGBIlluminantSpectrum.
+    // Upsample RGB to spectral via RGBIlluminantSpectrum (D65-weighted),
+    // matching the existing engine convention for env-map rgb emission.
     RGBIlluminantSpectrum rgbSpectrum({emissionRGB.x, emissionRGB.y, emissionRGB.z});
     sample.emission_spec = rgbSpectrum.sample(lambdas);
     sample.emission_rgb = emissionRGB;

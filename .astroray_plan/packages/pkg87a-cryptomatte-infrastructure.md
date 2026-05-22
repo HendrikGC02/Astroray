@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** done (PR #337, 2026-05-22 — infra-only, no integrator writes yet)
+**Status:** done (PR #337, 2026-05-22 — MurmurHash3 + hash_to_float + crypto_insert/sort_ranks + EXR writer + GPU hash plumbing; Friedman 2015 + Cycles Apache-2.0 + alShaders2 + smhasher PD; infra-only, integrator writes deferred to pkg87b)
 **Estimated effort:** done on branch — review-only (~0.5 day to verify + open PR)
 **Depends on:** none
 **Reference research:** `.astroray_plan/docs/cryptomatte-research.md`

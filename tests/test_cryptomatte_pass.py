@@ -295,7 +295,8 @@ def test_cryptomatte_iou_roundtrip():
         gt_renderer.upload_scene()
         gt_pixels = gt_renderer.render(spp, 1, None, False)
 
-        alpha = gt_pixels[:, :, 3]
+        # Renderer returns RGB; sum channels for the binary visibility mask.
+        alpha = gt_pixels.sum(axis=2)
         ground_truth_mat[mat_name] = alpha > 0.5
 
     # === Reconstruct masks and compute IoU ===

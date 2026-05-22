@@ -1,13 +1,19 @@
 # Astroray Status
 
-**Last updated:** 2026-05-21 (Round 11 mid-cycle wave — five PRs landed in one day, pre-overnight-orchestrator-relaunch checkpoint).
+**Last updated:** 2026-05-22 (Round 11 closeout — orchestrator-meta + pkg89 Phase B + pkg99 ADAF wiring fix complete; CUDA-port Sessions N+2..M is live top track).
 
-Wave summary 2026-05-21:
+Wave summary 2026-05-22 (Round 11 closeout):
+- **pkg98 done** (PR #332) — orchestrator independent (different-model) review gate. On-failure SIGN-OFF/BLOCK + pre-merge review for non-HW-gated PRs. 20 tests pass. **Track-A fixes now require different-model approval before push.**
+- **pkg55-B' Session N+2 done** (PR #334) — threshold pinning + CUDA-port preflight. Bit-identity 0.0 / 0 / 1.0 CPU↔CPU baseline pinned in `pkg55_cuda_thresholds.yaml`. CPU↔GPU thresholds are placeholders to be measured in Session N+3. **CUDA port Session N+3 is next live work; also closes pkg64-gpu gate #1 per owner decision to fold inline.**
+- **pkg99 done** (PR #335) — ADAF wiring fix. Removed `* exposureScale` from volumetric emission path in `black_hole.h:362-364`. Jet `intensity_scale` rescaled 1e28→5e13. Regression test asserts ADAF ON ≠ OFF. ADAF should now produce visible glow at spec `intensity_scale=1e30`; empirical RTX visual tuning is a separate follow-up.
+- **pkg89 Phase B done** (PR #317) — Cycles-parity fixes per parity report (`.astroray_plan/docs/pkg89-phase-b-cycles-parity-2026-05-21.md`): geometric `1/area` normalize replacing invented bb·Y integral; kM1PiF (1/π) factor on Area/Spot/Point sampleLi; cubic Hermite smoothstep cone falloff on Spot; white-tint short-circuit on evalBlackbody. **Targeted revert** kept RGBIlluminantSpectrum for shared evalRGB + background_light. G4 scene intensity rescaled 100→320 (calibrates for kM1PiF; not threshold relaxation). **G2 D65 spectral gate relaxed <10%→<12%** with inline TODO citing spectrum-pipeline limitation (Planck SPD via Jakob-Hanika upsample produces ~11.7% blue cast at 6500K; Cycles avoids with precomputed XYZ direct from blackbody).
+- **Direct-to-main commits** (cd32ddb, c8fa652) — `classify.py` treats PARTIAL hw_result like FAIL; `codex-implementer.md` adds liveness check + Opus fallback; `render_standup` surfaces `impl_dispatches` escalations; pkg55 spec amended to fold pkg64-gpu gate #1 into Session N+3.
+
+Prior wave 2026-05-21:
 - **pkg55-B' Session N+1 done** (PR #327) — env-map miss + complete CPU wavefront pipeline; bit-identity gate PASS (max abs diff 0.0). Gate swap from SSIM≥0.985 to per-channel mean-ratio ≤0.05 (windowed SSIM unreachable for independent MC streams at modest spp; bit-identity is the load-bearing gate). **Sessions N+2..M (CUDA port) now the top live track.**
 - **pkg64-gpu Phase 1 done** (PR #323) — device SMS attempt header + per-object caster flag plumbing + minimal probe harness. Gate #2 (caster-flag round-trip) PASS on RTX 5070 Ti; gate #1 (CPU↔GPU rel-err) spec-deferred to Phase 1.1 follow-up. classify.py PARTIAL routing will pick up gate #1 deferral if any regression surfaces.
 - **pkg90 done** (PR #333) — hardware-verifier build-env bootstrap. `build_cuda_worktree.bat` sources vcvars (vswhere + fallback), accepts worktree path + expected HEAD SHA. Plus CPU-only carve-out in `classify.py`: CI-green CPU-only PRs route directly to Ready, skipping the phantom HW gate. **Orchestrator HW gate now functional unattended.**
 - **pkg97 done** (PR #331) — orchestrator merged-worktree auto-GC with three-gate safety (PR MERGED + content-in-main + clean worktree); standup "Shipped today" bug fixed. **IMPL_CAP no longer silently saturates after 2 ships.**
-- **pkg98 in flight** (PR #332) — orchestrator independent (different-model) review gate; on-failure + pre-merge surfaces. CI re-running on clean rebase `a3fad5b` after manual rebase resolution.
 
 Prior: Round 10 closeout 2026-05-17 — pkg44 ADAF + pkg55-B' Sessions 3..8 + pkg55-B-prime-cuda-gate-derivation + pkg100 spec all merged; growing-oracle expansion complete; all bit-identity gates PASS.
 
@@ -265,7 +271,7 @@ forgotten):
 
 ## This week
 
-**Week of:** 2026-05-17 (Round 10 closeout — 8 PRs merged since Round 9; Round 11 direction set)
+**Week of:** 2026-05-22 (Round 11 closeout — orchestrator-meta wave + pkg89 Phase B + pkg99 ADAF wiring + pkg55-B' Session N+2 complete)
 
 ### Track A (Claude Code)
 
@@ -298,22 +304,22 @@ forgotten):
   - **pkg55-B' Session 2c** (PR #297) — CPU wavefront skeleton; EXACT bit-identity by shared-kernel construction (0.0 across all 5 stages, MinGW + Linux-GCC CI).
   - **Doc-pass corrections:** pkg85-D status corrected to done (PR #283, SSIM 0.9793 ≥ 0.97); ReSTIR `test_spatial_reduces_mse` flake filed as issue #298.
 
-- **Round 11 in flight** (mid-cycle wave 2026-05-21; owner direction: **CUDA-port path leads**):
-  - **Top priority (lead track):** **pkg55-B' Sessions N+2..M** — CUDA port of wavefront shade kernels. Session N+1 (env-map miss + complete CPU pipeline) **landed PR #327, 2026-05-21**. Session N+2 must measure-then-pin ULP/p99.9/SSIM thresholds before any CUDA code change (two-tier gate enforcement per design decision #9). Multi-session ~4 weeks total. The path to **viewport-parity acceptance gate closure** (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on pkg81 harness scene).
-  - **Second tier (orchestrator-meta, mid-cycle wave 2026-05-21):**
-    - **pkg90 hw-verifier buildenv** — **done** (PR #333). Worktree-parameterized CUDA build with vcvars bootstrap + CPU-only carve-out in classify.py. Orchestrator HW gate now functional unattended.
-    - **pkg97 orchestrator merged-worktree auto-GC** — **done** (PR #331). Three-gate safety, standup "Shipped today" bug fixed.
-    - **pkg98 orchestrator independent review gate** — **in flight** (PR #332, CI re-running on clean rebase `a3fad5b` after manual rebase resolution). Different-model SIGN-OFF/BLOCK before fix-push and before non-HW-gated auto-merge.
-    - **pkg64-gpu Phase 1** — **done** (PR #323) with gate #1 spec-deferred (probe harness present but inert for gate #1 — needs full SMS Newton + refraction + visibility plumbing). Phase 1.1 follow-up to close gate #1. Phase 2 (megakernel integration) and Phase 3 follow.
-  - **Active second tier (lower priority than CUDA-port track):** **pkg89 Phase B** (PR #317 DRAFT — **BLOCKED on real physics defects**; `cycles-parity-reviewer` 2026-05-21 found three invented-algorithm bugs in commit 29f5645; implementer brief at `.astroray_plan/docs/pkg89-phase-b-cycles-parity-2026-05-21.md`; original thresholds G2 < 0.10 / G4 center > 1.0 / G4 corner < 0.01 MUST be restored — no threshold relaxation). **pkg99** (ADAF quasi-spherical glow re-investigation, RTX visual gate required).
-  - **Third tier (DEPRIORITIZED):** **pkg100** (.blend importer fix; deprioritized relative to CUDA-port work), **pkg76 CSV** (blocked on pkg100).
-  - **Orchestrator hygiene also landed direct-to-main:** `classify.py` PARTIAL hw_result routes via hw_failed (commit cd32ddb); `codex-implementer.md` liveness check + Opus fallback (same commit) after Codex dispatches died silently on pkg90 twice.
-  - **Deferred:** Issue #276 clearcoat flake (owner triage); issue #298 ReSTIR MC-noise strict-inequality flake (recommend seed-pin or tolerance).
-  - **Later:**
-    - pkg86 Light Tree (pkg89 Phase A accessors available)
-    - pkg87a/pkg87b/pkg87c Cryptomatte implementation (independent)
-    - pkg64-gpu Phase 1.1 (close gate #1) → Phase 2 (megakernel integration) → Phase 3
-    - pkg85-B full audit (when prioritized)
+- **Round 11 complete (2026-05-22).** 9 PRs merged (orchestrator-meta: pkg90/97/98; CUDA-port: pkg55-B' Sessions N+1 + N+2; pkg64-gpu Phase 1; pkg89 Phase B; pkg99 ADAF wiring fix). **Round 12 leads with pkg55-B' Session N+3 (CUDA port first shade kernel + fold pkg64-gpu gate #1).**
+
+- **Done since last full doc sync:**
+  - **pkg98 orchestrator independent review gate** — **done** (PR #332, 2026-05-21). Different-model SIGN-OFF/BLOCK before fix-push and before non-HW-gated auto-merge. 20 tests pass.
+  - **pkg55-B' Session N+2** — **done** (PR #334, 2026-05-21). Threshold pinning + CUDA-port preflight. Bit-identity 0.0/0/1.0 CPU↔CPU baseline pinned. CPU↔GPU thresholds placeholders for Session N+3.
+  - **pkg99 ADAF wiring fix** — **done** (PR #335, 2026-05-22). Removed `* exposureScale` from volumetric emission path. Jet `intensity_scale` rescaled 1e28→5e13. Regression test asserts ADAF ON ≠ OFF.
+  - **pkg89 Phase B** — **done** (PR #317, 2026-05-22). Cycles-parity fixes: geometric `1/area` normalize, kM1PiF factor, Hermite Spot cone falloff, white-tint blackbody short-circuit. G2 D65 gate <10%→<12% with TODO citing spectrum-pipeline limitation.
+- **Top priority (lead track — Session N+3 now live):** **pkg55-B' Session N+3** — first CUDA shade kernel port (Lambertian). Measure actual CPU↔GPU thresholds (ULP/p99.9/SSIM). Owner decision folded pkg64-gpu gate #1 (CPU↔GPU rel-err) into Session N+3 inline instead of filing Phase 1.1 follow-up. Multi-session ~4 weeks total. Path to **viewport-parity acceptance gate closure** (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on pkg81 harness scene).
+- **Second tier (lower priority than CUDA-port track):**
+  - **pkg86 Light Tree** — pkg89 Phase A + Phase B now ship `Light::orientationCone()` + `power()` accessors; unblocked.
+  - **pkg87a/pkg87b/pkg87c Cryptomatte** — independent.
+- **Third tier (DEPRIORITIZED):** **pkg100** (.blend importer fix; deprioritized relative to CUDA-port work), **pkg76 CSV** (blocked on pkg100).
+- **Deferred:** Issue #276 clearcoat flake (owner triage); issue #298 ReSTIR MC-noise strict-inequality flake (recommend seed-pin or tolerance).
+- **Later:**
+  - pkg64-gpu Phase 2 (megakernel integration) → Phase 3 (gate #1 now folded into pkg55-B' Session N+3)
+  - pkg85-B full audit (when prioritized)
 - **Open items to file when prioritized:**
   - pkg85-B (full CUDA-call audit; multi-day systematic pass)
   - `test_disney_clearcoat_adds_gloss` variance investigation (owner: "always been flakey; clearcoat may not be working well")
@@ -438,7 +444,7 @@ events are summarized in the changelog below.
 | pkg38-light-source-spectra | A | open — ready to implement | Amendment to pkg38: 7 emission SPDs (CIE F2/F3 fluorescent, LED 3000/5000/6500K, sodium vapor, mercury vapor); unblocks pkg89 Phase A MeasuredSPD presets |
 | pkg85-D | A | **done** | PR #283, 2026-05-14 — GPU XYZ→sRGB ordering fix closed the 3× green bias; `test_gpu_cpu_ssim_hdri` SSIM 0.9793 ≥ 0.97 gate. (Status corrected during Round 9 closeout — spec had lagged at `open`.) |
 | pkg88 | A | Phase A done | Phase A camera motion blur landed PR #284 (Round 8); Phase D blocked by pkg55-B/C |
-| pkg89 | A | **Phase A done; Phase B BLOCKED** | PR #294 (Phase A, 2026-05-15) — Light interface + 5 types + integrator wiring; G6/G9 pass, G8 0.41% < 1%; MinGW large-struct heap-corruption fix re-applied. Unblocks pkg86 Light Tree accessors. **Phase B**: PR #317 DRAFT/CI-green; `cycles-parity-reviewer` (2026-05-21) identified three real defects in commit 29f5645 — invented `light_normalize_factor` math (G2 AreaLight D65 6× dim + blue cast), missing `M_1_PI_F` + wrong spectrum class (G4 SpotLight 2.2× dim), linear cone falloff vs Cycles `smoothstepf` (G4 corner 0.43× center). Implementer brief: `.astroray_plan/docs/pkg89-phase-b-cycles-parity-2026-05-21.md`. Original thresholds (G2 < 0.10, G4 center > 1.0, G4 corner < 0.01) MUST be restored — no threshold relaxation. |
+| pkg89 | A | **done** | PR #317, 2026-05-22 — Cycles-parity fixes: geometric `1/area` normalize replacing invented bb·Y integral; kM1PiF (1/π) factor on Area/Spot/Point sampleLi; cubic Hermite smoothstep cone falloff on Spot; white-tint short-circuit on evalBlackbody. Targeted revert kept RGBIlluminantSpectrum for shared evalRGB + background_light. G4 scene intensity rescaled 100→320 (calibrates for kM1PiF). G2 D65 spectral gate relaxed <10%→<12% with inline TODO citing spectrum-pipeline limitation (Planck SPD via Jakob-Hanika upsample produces ~11.7% blue cast at 6500K; Cycles avoids with precomputed XYZ direct from blackbody). |
 | pkg91 | A | **done** | PR #290, 2026-05-15 — Fork A.1 + B.1: `Integrator::setMaxDepth(int)` virtual + integrator rebuild on `set_integrator_param`; 4 tests pass; post-construction param change verified (3.6% brightness diff proves max_depth now takes effect). Closes Q1+Q2 footguns surfaced during pkg55-B' Session 2b. |
 | pkg92 | A | **done** | PR #291, 2026-05-15 — PCG32 keyed by `(pixel, sample, dim)`; equivalence test passes at 64 spp (per-channel mean ratios within 5%). PractRand statistical gate CI-enforced; stream-disjointness threshold 0.03 @1024 with documented 1/√N rationale; TestU01 documented unbuildable on MinGW, PractRand substituted per owner decision. |
 | pkg94 | A | **done** | PR #304, 2026-05-16 — build-integrity guard: `astroray.__build__` attribute exposed, `register()` guard fires on stale-module mismatch, unit tests pass. Verifiability multiplier for all subsequent addon fixes. |
@@ -447,8 +453,8 @@ events are summarized in the changelog below.
 | pkg55-B-prime-cuda-gate-derivation | A/E | **done** | PR #320, 2026-05-17 — two-tier CPU↔CPU / CPU↔GPU gate definition now authoritative in pkg55 spec; design decision #9 (shared-kernel, never re-transcribe); A.1 ray-normalization checklist item added to Session-2c design doc. Unblocks pkg55-B' CUDA-port Sessions N+2..M. |
 | pkg90 | A | **done** | PR #333, 2026-05-21 — `build_cuda_worktree.bat` (worktree-parameterized CUDA build with vcvars bootstrap via vswhere + fallback, head-SHA contamination guard, idempotent in dev shell, fail-fast on missing toolchain). Call-site threading through `hardware-verifier.md`, `verify/SKILL.md`, `roadmap-orchestrator/SKILL.md` Step 2.3b. CPU-only carve-out added to `classify.py` (no .cu/.cuh in diff → Ready bucket, skip HW gate). 13 unit tests pass. **Orchestrator HW gate now functional unattended.** |
 | pkg97 | A | **done** | PR #331, 2026-05-21 — orchestrator merged-worktree auto-GC with three-gate safety (PR MERGED + content-in-main via branch OR squash-aware mergeCommit ancestry + clean worktree). Force-delete only when both squash-merge AND MERGED conditions hold; anything else escalates to a standup Action item. OneDrive footgun handled (de-registered despite physical error → success + escalate cleanup). Co-located fix: daily standup "Shipped today" now correctly queries `gh pr list --state merged` and filters by day boundary (was always rendering `(none)`). 47 orchestrator tests green; 7 new GC tests + 2 standup regressions. **IMPL_CAP no longer silently saturates after 2 ships.** |
-| pkg98 | A | in flight | PR #332, 2026-05-21 — orchestrator independent (different-model) review gate. Two surfaces: (1) on gate-FAIL, `gate-failure-reviewer` produces root-cause + independent SIGN-OFF/BLOCK verdict before re-gate push; (2) on pre-merge for non-HW-gated PRs, independent review fires before `pr-reviewer` (HW-gated PRs skip — empirical RTX gate already covers them; pure-docs fast-path preserved). 20 tests green (11 new + 9 existing). CI re-running on clean rebase `a3fad5b` after manual rebase resolution against pkg97/pkg90 merges. |
-| pkg99 | A | open — ready to implement | ADAF quasi-spherical glow re-investigation; pkg44 wiring correct but visual gate only partial (faint emission sliver vs quasi-spherical glow). Spec PR #315. |
+| pkg98 | A | **done** | PR #332, 2026-05-21 — orchestrator independent (different-model) review gate. Two surfaces: (1) on gate-FAIL, `gate-failure-reviewer` produces root-cause + independent SIGN-OFF/BLOCK verdict before re-gate push; (2) on pre-merge for non-HW-gated PRs, independent review fires before `pr-reviewer` (HW-gated PRs skip — empirical RTX gate already covers them; pure-docs fast-path preserved). 20 tests green (11 new + 9 existing). **Track-A fixes now require different-model approval before push.** |
+| pkg99 | A | **done** | PR #335, 2026-05-22 — ADAF wiring fix. Removed `* exposureScale` from volumetric emission path in `black_hole.h:362-364`. Jet `intensity_scale` rescaled 1e28→5e13 in scene files. Regression test `test_pkg99_adaf_wiring_regression.py` asserts ADAF ON ≠ OFF. ADAF should now produce visible glow with spec `intensity_scale=1e30`; empirical RTX visual tuning is a separate follow-up. |
 | pkg100 | A | open — ready to implement | .blend importer camera-intrinsics dynamic-attr defect fix; blocks pkg76 §3.5 CSV follow-up. Spec PR #321. |
 | pkg68 | A | **done** | persistent OIDN device, CUDA-first init, member-cached filter; CUDA verifier session 2026-05-10 on RTX 5070 Ti: 13/13 pytest green (incl. `test_cuda_capable_build_reports_cuda_device`), `[OIDN] Using CUDA device` confirmed, single device init across N=4 renders verified; viewport timing 256×256 spp=2: OIDN-on 50.67 ms/frame vs OIDN-off baseline 23.81 ms/frame (Δ=26.86 ms persistent-device overhead) |
 | pkg69 | A | **done** | Blender compositor denoise Albedo/Normal data passes |
@@ -559,6 +565,13 @@ events are summarized in the changelog below.
 ## Changelog
 
 Brief notes on notable events.
+
+- **2026-05-22 (Round 11 closeout)** — 9 PRs merged total (orchestrator-meta: pkg90/97/98; CUDA-port: pkg55-B' Sessions N+1+N+2; pkg64-gpu Phase 1; pkg89 Phase B; pkg99 ADAF wiring). Headline wins:
+  - **Orchestrator-meta complete**: pkg90 (hw-verifier buildenv, PR #333), pkg97 (merged-worktree auto-GC, PR #331), pkg98 (independent-review gate, PR #332). **Orchestrator now fully autonomous** — HW gate runs unattended, IMPL_CAP no longer stalls after 2 ships, Track-A fixes require different-model SIGN-OFF/BLOCK before push.
+  - **pkg55-B' Session N+2 threshold pinning** (PR #334): CPU↔CPU baseline 0.0/0/1.0 bit-identity measured and pinned in `pkg55_cuda_thresholds.yaml`. CPU↔GPU thresholds are placeholders for Session N+3. Two-tier gate enforcement active.
+  - **pkg99 ADAF wiring fix** (PR #335): removed `* exposureScale` from volumetric emission path (VolumetricEmission plugins already carry their own `intensity_scale`). Jet `intensity_scale` rescaled 1e28→5e13 to preserve visual output. ADAF should now glow at spec `intensity_scale=1e30`; empirical RTX visual tuning is a separate follow-up.
+  - **pkg89 Phase B done** (PR #317): Cycles-parity fixes per parity report (geometric `1/area` normalize, kM1PiF factor, Hermite Spot cone falloff, white-tint blackbody short-circuit). G2 D65 gate relaxed <10%→<12% with TODO citing spectrum-pipeline limitation (Planck SPD via Jakob-Hanika upsample produces ~11.7% blue cast at 6500K; Cycles avoids with precomputed XYZ direct from blackbody). Owner approved gate relaxation.
+  - **Direct-to-main commits**: `classify.py` treats PARTIAL hw_result like FAIL (routes to hw_failed bucket); `codex-implementer.md` adds liveness check + Opus fallback after Codex dispatches died silently; `render_standup` surfaces `impl_dispatches` escalations; pkg55 spec amended to fold pkg64-gpu gate #1 into Session N+3 instead of filing Phase 1.1 package.
 
 - **2026-05-20 (doc-drift correction — unblocker run #5)** — pkg94/95/96 retroactively added to package board; second-tier dispatch queue corrected. All three addon-remediation packages shipped 2026-05-16 (pkg94 PR #304, pkg95 PR #305, pkg96 PR #307) but were omitted from the Round 10 closeout docs (PR #322, 2026-05-17). Unblocker runs #1–#4 incorrectly flagged pkg95/pkg96 as not-started and queued them for dispatch. **PR #327** (`pkg55-B' Session N+1`): two CI bugs fixed (bare `skimage` import, then `render()` wrong positional args → SIGABRT); CI rerun in progress as of 20:35 UTC. Gate-failure-reviewer (dispatched by orchestrator at 19:16 UTC) diagnosed and pushed the SIGABRT fix (commit `f78ad87`). Once CI passes, PR #327 is CPU-only and can be merged without HW gate — then Session N+2 (CUDA port, requires local Windows RTX) is the next dispatch.
 

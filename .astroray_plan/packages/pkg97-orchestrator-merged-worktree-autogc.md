@@ -3,7 +3,7 @@
 **Pillar:** 5
 **Track:** A (engine/Python + git plumbing — no GPU, no physics, no CUDA)
 **Codex-paste-ready:** yes
-**Status:** ready
+**Status:** done (PR #331, 2026-05-21 — three-gate safety: PR MERGED + content-in-main + clean worktree; squash-aware mergeCommit ancestry; OneDrive footgun handled; "Shipped today" fix; 47 tests pass)
 **Estimated effort:** ~½ day (~4 h)
 **Depends on:** roadmap-orchestrator design spec (2026-05-16) — the engine/skill this extends; pkg94 (the most recent ship that exposed the stall)
 

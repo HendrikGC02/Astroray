@@ -2,10 +2,7 @@
 
 **Pillar:** 3 (light transport)
 **Track:** A
-**Status:** Phase B done (PR #317, 2026-05-17 — Blender addon bindings +
-  EmissionSpectrum parsing + G1-G5 test scenes). Phase A done (PR #294, 2026-05-15 —
-  interface + 5 types + integrator wiring complete; G8 measured 0.41% error,
-  passing 1% threshold). Phase C (mesh-emitter unification) is a separate future package.
+**Status:** done (Phase A: PR #294, 2026-05-15 — interface + 5 types + integrator wiring; G8 measured 0.41% error vs 1% threshold. Phase B: PR #317, 2026-05-22 — Blender addon bindings + EmissionSpectrum parsing + G1–G5 test scenes; Cycles-parity fixes per parity report: geometric 1/area normalize, kM1PiF factor on Area/Spot/Point sampleLi, cubic Hermite Spot cone falloff, white-tint short-circuit on evalBlackbody; targeted RGBIlluminantSpectrum kept for point+background; G4 scene intensity 100→320 (kM1PiF calibration), G2 D65 gate <10%→<12% with TODO citing spectrum-pipeline limit). Phase C (mesh-emitter unification) is a separate future package.
 **Estimated effort:** 3–4 weeks across two phases (A: interface +
   types + integrator wiring, B: Blender addon migration). Phase C
   (mesh-emitter unification) is a separate future package.

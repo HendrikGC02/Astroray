@@ -178,26 +178,27 @@ fix:
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
 
-Open Pillar 5 long-tail (Round 11 mid-cycle 2026-05-21): **pkg55 Phase B'
+Open Pillar 5 long-tail (Round 12 pickup 2026-05-22): **pkg55 Phase B'
 CPU-only track is COMPLETE** — Sessions 2b/2c (PR #281/#297), Sessions
 3..8 (growing-oracle expansion: metal/dielectric/disney/thin_glass/
-diffuse_light/closure_graph, all bit-identity PASS), and **Session N+1**
-(env-map miss + complete CPU pipeline, PR #327 2026-05-21). The two-tier
-gate definition landed PR #320 (pkg55-B-prime-cuda-gate-derivation).
-**Sessions N+2..M (multi-session CUDA port of the wavefront shade
-kernels, ~4 weeks total)** is now the top live track — closes the
-viewport-parity acceptance gate (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA
-on pkg81). **Orchestrator-meta infrastructure landed 2026-05-21**:
-**pkg90** (hw-verifier worktree-parameterized CUDA build, PR #333) +
-**pkg97** (merged-worktree auto-GC, PR #331) + **pkg98** (independent-
-review gate, PR #332 in flight) — the HW gate now runs unattended,
-IMPL_CAP no longer silently saturates, and Track-A fixes get a
-different-model SIGN-OFF/BLOCK before push. **pkg64-gpu Phase 1**
-(device SMS attempt + caster flag, PR #323 2026-05-21) GPU-verified;
-Phase 1.1 follow-up closes the spec-deferred rel-err gate. **Blender
-addon remediation** (first-principles plan landed PR #300; PR #295 triage):
-the staged set is **pkg94** (Stage 1 / P1 build-integrity guard, ~½ day,
-**Round-10 first pickup, depends on nothing**) → **pkg95** (Stage 2 /
+diffuse_light/closure_graph, all bit-identity PASS), **Session N+1**
+(env-map miss + complete CPU pipeline, PR #327 2026-05-21), and **Session N+2**
+(threshold pinning + CUDA-port preflight, PR #334 2026-05-21). CPU↔CPU baseline
+0.0/0/1.0 bit-identity pinned in `pkg55_cuda_thresholds.yaml`. CPU↔GPU thresholds
+are placeholders for Session N+3. **Session N+3 (first CUDA shade kernel port:
+Lambertian, ~4 weeks total multi-session)** is now the top live track — measures
+actual CPU↔GPU thresholds, validates pkg64-gpu gate #1 (CPU↔GPU rel-err) inline
+per owner decision to fold instead of filing Phase 1.1 follow-up, closes the
+viewport-parity acceptance gate (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on pkg81).
+**Orchestrator-meta infrastructure complete 2026-05-22**: **pkg90** (hw-verifier
+worktree-parameterized CUDA build, PR #333) + **pkg97** (merged-worktree auto-GC,
+PR #331) + **pkg98** (independent-review gate, PR #332) — the HW gate now runs
+unattended, IMPL_CAP no longer silently saturates, and Track-A fixes require
+different-model SIGN-OFF/BLOCK before push. **pkg64-gpu Phase 1** (device SMS
+attempt + caster flag, PR #323 2026-05-21) GPU-verified; gate #1 folded into
+pkg55-B' Session N+3. **Blender addon remediation** (first-principles plan
+landed PR #300; PR #295 triage): the staged set is **pkg94** (Stage 1 / P1
+build-integrity guard, ~½ day, **Round-10 first pickup, depends on nothing**) → **pkg95** (Stage 2 /
 P3+P4 dead-UI-wires + Blender-native camera, depends on pkg94) ∥
 **pkg96** (Stage 3 / P2 reconcile-then-upload sync + P5 honesty guard,
 depends on pkg94, independent of pkg95). **P5's GPU parity

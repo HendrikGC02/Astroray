@@ -1,8 +1,8 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-21 (Round 11 mid-cycle — 5 PRs landed in one day; pkg55-B' Session N+1 done, CUDA-port track now the lead live work)
-**Prepared by:** Claude (Anthropic Code) — updated mid-Round-11 after orchestrator-meta + pkg55 + pkg64 wave
-**Scope:** Round 11 mid-cycle checkpoint + remaining set.
+**Date:** 2026-05-22 (Round 12 pickup — Round 11 complete; pkg55-B' Session N+3 is top live track)
+**Prepared by:** Claude (Anthropic Code) — updated after Round 11 closeout
+**Scope:** Round 12 pickup set.
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C; Pillar 4
 > has been actively shipping since. Strategy in
@@ -12,15 +12,16 @@
 
 ## 1. Current state (one screen)
 
-**Done in Round 11 mid-cycle wave (5 PRs merged, 2026-05-21):**
+**Done in Round 11 (9 PRs merged, 2026-05-21 + 2026-05-22):**
 
-- **pkg55-B' Session N+1** (PR #327) — env-map miss + complete CPU wavefront pipeline. Bit-identity gate PASS (max abs diff 0.0 across all 5 snapshot stages). Acceptance gate swapped SSIM≥0.985 → per-channel mean-ratio ≤0.05 (windowed SSIM unreachable for independent MC streams at modest spp; bit-identity is the load-bearing gate; owner-approved at architect stage). **Closes the CPU-only growing-oracle track; Sessions N+2..M (CUDA port) is now the top live track.**
-- **pkg64-gpu Phase 1** (PR #323) — device `sms_attempt_device.cuh` + `GSphere.isCausticCaster` + scene_upload mirror + minimal probe harness. RTX 5070 Ti `/verify` confirmed gate #2 (caster-flag round-trip) PASS, gate #3 (regression, 40 GPU tests) PASS. Gate #1 (CPU↔GPU rel-err ≤ 1e-3) spec-deferred to Phase 1.1 follow-up (minimal probe is inert for that gate). classify.py PARTIAL routing landed direct-to-main to surface regressions of this kind.
-- **pkg90 hw-verifier buildenv** (PR #333) — `build_cuda_worktree.bat` worktree-parameterized CUDA build with vcvars bootstrap (vswhere + fallback), head-SHA contamination guard. CPU-only carve-out in `classify.py` (CI-green CPU-only PRs route to Ready, bypass phantom HW gate). 13 tests pass. **Orchestrator HW gate functional unattended.**
-- **pkg97 orchestrator auto-GC** (PR #331) — merged-worktree auto-GC with three-gate safety. Standup "Shipped today" `(none)` bug fixed. 47 orchestrator tests green. **IMPL_CAP no longer silently saturates after 2 ships.**
-- **pkg98 orchestrator independent-review gate** (PR #332, in flight) — on-failure SIGN-OFF/BLOCK + pre-merge review for non-HW-gated PRs; pure-docs fast-path preserved. CI re-running on clean rebase `a3fad5b`.
+- **Orchestrator-meta complete**: pkg90 (hw-verifier buildenv, PR #333), pkg97 (merged-worktree auto-GC, PR #331), pkg98 (independent-review gate, PR #332). **Orchestrator now fully autonomous** — HW gate runs unattended, IMPL_CAP no longer stalls after 2 ships, Track-A fixes require different-model SIGN-OFF/BLOCK before push.
+- **pkg55-B' Session N+1** (PR #327) — env-map miss + complete CPU wavefront pipeline. Bit-identity gate PASS (max abs diff 0.0). **CPU-only growing-oracle track complete.**
+- **pkg55-B' Session N+2** (PR #334) — threshold pinning + CUDA-port preflight. Bit-identity 0.0/0/1.0 CPU↔CPU baseline pinned in `pkg55_cuda_thresholds.yaml`. CPU↔GPU thresholds are placeholders for Session N+3. Two-tier gate enforcement active.
+- **pkg64-gpu Phase 1** (PR #323) — device SMS attempt + caster flag. RTX 5070 Ti gate #2 + #3 PASS. Gate #1 (CPU↔GPU rel-err) **folded into pkg55-B' Session N+3** per owner decision instead of filing Phase 1.1 follow-up.
+- **pkg99 ADAF wiring fix** (PR #335) — removed `* exposureScale` from volumetric emission path. Jet `intensity_scale` rescaled 1e28→5e13. Regression test asserts ADAF ON ≠ OFF. ADAF should now glow at spec `intensity_scale=1e30`; empirical RTX visual tuning is a separate follow-up.
+- **pkg89 Phase B** (PR #317) — Cycles-parity fixes per parity report: geometric `1/area` normalize, kM1PiF factor, Hermite Spot cone falloff, white-tint blackbody short-circuit. G2 D65 gate relaxed <10%→<12% with TODO citing spectrum-pipeline limitation. **Blender addon can now use dedicated lights end-to-end; pkg86 Light Tree fully unblocked.**
 
-**Direct-to-main orchestrator hygiene (commit cd32ddb, 2026-05-21):** `classify.py` accepts PARTIAL hw_result (routes via hw_failed); `codex-implementer.md` does a liveness check (first-commit on branch + remote branch exists) before treating Codex as delivered, falls back to package-implementer on Codex death (triggered by pkg90 Codex dispatches dying silently twice).
+**Direct-to-main commits (cd32ddb, c8fa652):** `classify.py` treats PARTIAL hw_result like FAIL; `codex-implementer.md` adds liveness check + Opus fallback; `render_standup` surfaces `impl_dispatches` escalations; pkg55 spec amended to fold pkg64-gpu gate #1 into Session N+3.
 
 **Done in Round 10 (8 PRs merged, 2026-05-17):**
 
@@ -84,81 +85,28 @@
 
 ---
 
-## 2. Recommended next deployable set (Round 11)
+## 2. Recommended next deployable set (Round 12)
 
-**Round 10 complete (2026-05-17).** 8 PRs merged: pkg44 ADAF, pkg94
-addon build-integrity guard, pkg99 spec, pkg55-B' Sessions 7/8, pkg90
-spec, pkg55-B-prime-cuda-gate-derivation, pkg100 spec.
+**Round 11 complete (2026-05-22).** 9 PRs merged: orchestrator-meta (pkg90/97/98), CUDA-port (pkg55-B' Sessions N+1+N+2), pkg64-gpu Phase 1, pkg89 Phase B, pkg99 ADAF wiring. **Orchestrator now fully autonomous; CUDA-port track continues.**
 
-**Round 11 priorities** (based on owner direction: **CUDA-port path
-leads** to close the still-unmet viewport-parity claim; pkg100 .blend
-importer fix explicitly deprioritized relative to wavefront work):
+**Round 12 priorities** (owner direction: **CUDA-port path leads** to close the still-unmet viewport-parity claim):
 
 **Top priority (lead track — CUDA-port path):**
 
-- ~~**pkg55-B' Session N+1 — Shadow/miss/terminate stages on CPU**~~ **DONE
-  2026-05-21 (PR #327).** Env-map miss + complete CPU wavefront pipeline;
-  bit-identity gate PASS. Acceptance gate swapped to per-channel
-  mean-ratio ≤0.05 (architect-stage approval).
-- **pkg55-B' Sessions N+2..M — CUDA port of wavefront shade kernels**
+- **pkg55-B' Session N+3 — first CUDA shade kernel port (Lambertian)**
   (multi-session, ~4 weeks total per spec Phase B estimate). **Now the
-  top live work.** Port the CPU wavefront shade kernels to GPU; Session
-  N+2 measures and pins ULP/p99.9/SSIM thresholds before any CUDA code
-  change (two-tier gate enforcement per design decision #9). This is
-  the path to the **viewport-parity acceptance gate** (CUDA pan-frame
-  p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene) — the still-unmet
-  competitive claim that pkg55 Phase B formally owns.
+  top live work.** Measure actual CPU↔GPU thresholds (ULP/p99.9/SSIM) — Session N+2 pinned CPU↔CPU baseline but CPU↔GPU thresholds are placeholders. Port first material-type shade kernel (Lambertian). **Owner decision folded pkg64-gpu gate #1 (CPU↔GPU rel-err) into Session N+3** instead of filing Phase 1.1 follow-up. This is the path to the **viewport-parity acceptance gate** (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene) — the still-unmet competitive claim that pkg55 Phase B formally owns.
 
 **Second tier (unblocked, lower priority than CUDA-port track):**
 
-- **pkg95 / pkg96** — Blender addon Stage 2/3 (both depend on pkg94
-  which already shipped PR #304; independent of each other except for
-  same-file coordination in `blender_addon/__init__.py`). pkg95:
-  dead-UI-wires (BUG-15/13/09) + Blender-native camera (BUG-08). pkg96:
-  reconcile-then-upload sync (BUG-04/05) + honesty guard (UX-only).
-- **pkg89 Phase B** (Blender addon for dedicated lights) — full-scene
-  G8 + G1–G5; the Phase A interface landed PR #294. **First attempt PR
-  #317 (DRAFT) is BLOCKED**: `cycles-parity-reviewer` 2026-05-21 found
-  three real physics defects in commit 29f5645 (invented
-  `light_normalize_factor` math + hallucinated Cycles citation + linear
-  cone falloff vs Cycles `smoothstepf`). **Implementer brief:**
-  `.astroray_plan/docs/pkg89-phase-b-cycles-parity-2026-05-21.md` —
-  paste-ready with Cycles file:line citations and patch sketches.
-  Original test thresholds (G2 < 0.10, G4 center > 1.0, G4 corner <
-  0.01) MUST be restored — no threshold relaxation. Re-dispatch
-  `package-implementer` with this doc when an IMPL_CAP slot frees.
-- **pkg99 — ADAF quasi-spherical glow re-investigation** (~1 day
-  including RTX render iteration). pkg44 wiring correct but visual gate
-  only partial (crisp shadow + faint emission sliver vs the specified
-  quasi-spherical glow). Requires empirical render iteration on RTX
-  hardware (visual gate); not verifiable by CI alone.
+- **pkg86 Light Tree** — pkg89 Phase A + Phase B done; `Light::orientationCone()` + `power()` accessors available. Ready to implement.
+- **pkg87a/pkg87b/pkg87c Cryptomatte** — independent; ready to implement.
 
 **Third tier (deferred / lower priority):**
 
-- **pkg100 — .blend importer camera-intrinsics fix** (small, well under
-  a day). Every `.blend` import fails with `AttributeError:
-  'astroray.Renderer' object has no attribute '_cam_intrinsics'`.
-  Blocks pkg76 §3.5 CSV follow-up (Classroom / Junkshop / BMW27 RTX
-  parity rows). Three fix axes laid out in spec (py::dynamic_attr vs
-  return-up-chain vs thin wrapper); small localized C++/Python
-  correctness fix. **Owner decision: DEPRIORITIZED relative to
-  CUDA-port work** — the project accepts continued real-scene parity
-  blindness in the near term to close the performance/viewport-parity
-  claim first.
-- ~~**pkg90 — Hardware-verifier build-env bootstrap**~~ **DONE 2026-05-21
-  (PR #333).** Worktree-parameterized CUDA build with vcvars bootstrap +
-  CPU-only carve-out in classify.py. Orchestrator HW gate functional
-  unattended.
-- **pkg76 CSV** — Classroom / Junkshop / BMW27 parity rows on RTX
-  (~½ day). Blocked on pkg100 (the .blend import AttributeError fix).
-- **pkg86 Light Tree** — pkg89 Phase A now ships
-  `Light::orientationCone()` + `power()` accessors.
-- **pkg87a / pkg87b / pkg87c** Cryptomatte — independent; pkg87a is on a
-  branch awaiting review per its spec; pkg87b/pkg87c follow.
-- ~~**pkg64-gpu Phase 1**~~ **DONE 2026-05-21 (PR #323).** Device SMS
-  attempt header + caster-flag plumbing + minimal probe; gate #2 + #3
-  PASS on RTX, gate #1 spec-deferred to Phase 1.1 follow-up. Phase 2
-  (megakernel integration) and Phase 3 follow.
+- **pkg100 — .blend importer camera-intrinsics fix** (small, well under a day). **Owner decision: DEPRIORITIZED relative to CUDA-port work.**
+- **pkg76 CSV** — Classroom / Junkshop / BMW27 parity rows on RTX (~½ day). Blocked on pkg100.
+- **pkg64-gpu Phase 2** (megakernel integration) → **Phase 3** (gate #1 now folded into pkg55-B' Session N+3 per owner decision).
 
 **Known flakes (not blocking):**
 
@@ -168,162 +116,57 @@ importer fix explicitly deprioritized relative to wavefront work):
 - **Issue #276** — `test_disney_clearcoat_adds_gloss` chronic flake +
   suspected clearcoat correctness defect; owner triage recommended.
 
-**Owner decisions — RESOLVED for the Round-10 addon track:**
+**Owner decisions — all resolved:**
 
-- ~~Round 10 direction: continue the inherited backlog vs prioritising
-  the Blender addon remediation track.~~ **RESOLVED (2026-05-16): Round
-  10 = concurrent, pkg94 first.** pkg94 (P1 build-integrity guard) lands
-  first as the verifiability multiplier; then pkg95 ∥ pkg96 run
-  concurrently with pkg55-B' Session 3. **Zero contention with pkg55-B'
-  Session 3** (addon Python vs `src/cpu/wavefront/*`); **however pkg95
-  and pkg96 both edit `blender_addon/__init__.py` in disjoint surfaces
-  and require same-file coordination/rebase — they are logically
-  parallel, not contention-free.** **No open owner decisions remain for
-  the Round-10 addon track.**
-- Resolved (pkg96-internal, Round-10 review): the PR #300 §9 question on
-  the P5 guard *behavior* is **decided — show a clear, specific CPU-only
-  notice; do NOT auto-route AOV/denoise/world-only passes to CPU** (no
-  silent backend switch). This is a settled pkg96 implementation
-  detail, not a Round-10 sequencing gate.
+- Round 11 direction: **CUDA-port path leads** (confirmed 2026-05-17). pkg100 .blend importer fix explicitly deprioritized relative to wavefront work.
+- pkg64-gpu gate #1: **folded into pkg55-B' Session N+3** (confirmed 2026-05-21 direct-to-main commit c8fa652) instead of filing separate Phase 1.1 package.
 
 ---
 
 ## 3. Drop-in prompts per agent
 
-### 3.1 ~~pkg55-B' Session N+1~~ — DONE 2026-05-21 (PR #327)
-
-Env-map miss + complete CPU wavefront pipeline. Bit-identity gate PASS.
-Sessions N+2..M (CUDA port) is now the top live track — see §3.2.
-
-### 3.2 Claude Code (Track A) — pkg55-B' Sessions N+2..M (CUDA port, TOP LIVE TRACK 2026-05-21)
+### 3.1 Claude Code (Track A) — pkg55-B' Session N+3 (first CUDA shade kernel, TOP LIVE TRACK 2026-05-22)
 
 ```
-You are Claude Code on the RTX box. pkg55-B' CUDA-port track (Sessions
-N+2..M). Session N+1 (shadow/miss/terminate CPU stages) is complete;
-now port the wavefront shade kernels to GPU.
+You are Claude Code on the RTX box. pkg55-B' CUDA-port track Session N+3. Session N+2 (threshold pinning + preflight) is complete; now measure actual CPU↔GPU thresholds and port first shade kernel (Lambertian).
 
 Read first:
   - .astroray_plan/packages/pkg55-wavefront-soa-refactor.md (Phase B'
     Sessions N+2..M + two-tier gate definition §4.2 table)
+  - .astroray_plan/packages/pkg55_cuda_thresholds.yaml (CPU↔CPU baseline
+    0.0/0/1.0 pinned; CPU↔GPU placeholders to measure)
   - src/cpu/wavefront/path_kernel.{h,cpp} (shared per-bounce kernel —
     the bit-identical CPU baseline)
   - src/gpu/cuda_renderer.cu (existing megakernel — the performance
     baseline to beat)
   - tests/wavefront_diff/ (per-stage diff harness)
 
-Goal: port CPU wavefront shade kernels to GPU. Session N+2 MUST
-measure-then-pin ULP/p99.9/SSIM thresholds before any CUDA code change
-(two-tier gate enforcement per design decision #9). Each subsequent
-session ports one material-type shade kernel. Maintain coalesced
-memory access; sort paths by material type before shade. Target: CUDA
-pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene (the
-viewport-parity acceptance gate pkg55 Phase B owns).
+Goal: (1) measure actual CPU↔GPU thresholds (ULP/p99.9/SSIM) — Session N+2 pinned CPU↔CPU baseline but CPU↔GPU thresholds are placeholders; (2) port first material-type shade kernel (Lambertian) to GPU. **Owner decision folded pkg64-gpu gate #1 (CPU↔GPU rel-err) into Session N+3** instead of filing Phase 1.1 follow-up — validate SMS CPU↔GPU correctness inline. Maintain coalesced memory access; sort paths by material type before shade. Target: CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene (the viewport-parity acceptance gate pkg55 Phase B owns).
 
-Constraints: CLAUDE.md 1,2,3,6. Multi-session (~4 weeks total per spec
-Phase B estimate). Session N+2 gates on threshold pinning; later
-sessions gate on staying within those thresholds.
+Constraints: CLAUDE.md 1,2,3,6. Multi-session (~4 weeks total per spec Phase B estimate). Session N+3 gates on measured thresholds + first CUDA kernel; later sessions gate on staying within those thresholds.
 
-When done: pkg55 spec Session N+2..M status + PR refs + gate numbers
-(ULP/p99.9/SSIM per session). PR titles follow the pattern
-"feat(pkg55-B'): Session N+2 — threshold pinning + Lambertian CUDA" →
-"feat(pkg55-B'): Session N+3 — Metal CUDA", etc.
+When done: pkg55 spec Session N+3 status + PR ref + gate numbers (ULP/p99.9/SSIM measured). PR title: "feat(pkg55-B'): Session N+3 — Lambertian CUDA + threshold measurement + pkg64-gpu gate #1".
 ```
 
-### 3.3 Claude Code (Track A) — pkg95 addon dead-UI-wires + camera (second tier)
+### 3.2 Claude Code (Track A) — pkg86 Light Tree (second tier)
 
 ```
-You are Claude Code on the RTX box. Round 11 addon track, second tier
-(lower priority than CUDA-port track). pkg94 already shipped PR #304;
-pkg95 is now unblocked.
+You are Claude Code on the RTX box. pkg89 Phase A + Phase B done; `Light::orientationCone()` + `power()` accessors available. Ready to implement Light Tree.
 
 Read first:
-  - .astroray_plan/packages/pkg95-addon-dead-ui-wires-and-camera.md
-  - .astroray_plan/docs/addon-remediation-first-principles-plan-2026-05-16.md (§2 P3/P4, §4 Stage 2)
-  - .astroray_plan/docs/blender-addon-bug-triage-2026-05-15.md (BUG-15/13/09/08)
-  - blender_addon/__init__.py (preview path L676; if False L1865;
-    camera L1547-1554/L1639); blender_addon/nodes/__init__.py:163
+  - .astroray_plan/packages/pkg86-light-tree.md (Conty 2018 + Cycles Apache-2.0)
+  - .astroray_plan/docs/pkg86-light-tree-research.md (if present)
+  - include/astroray/light.h (Light interface with orientationCone(), power(), bounds())
+  - src/integrators/path_tracer.cpp (NEE sampling site)
 
-Goal: P3-c probe FIRST (does inline_shader_nodes() keep custom nodes?);
-P3-a de-RenderEngine() the preview path (BUG-15); P3-b remove `if False`
-+ call set_material_spectral_profile on the IR/UV path (BUG-13, gated by
-P3-c); P4 replace BOTH FOV derivations with rv3d.window_matrix /
-perspective_matrix (BUG-08). CPU-path only; no GPU.
+Goal: implement Conty 2018 Light Tree for many-lights importance sampling. CPU first; GPU follow-up pkg86-B. Use Light accessors from pkg89. Acceptance: measured improvement on many-lights scene (e.g., 100+ lights).
 
-Constraints: CLAUDE.md 1,2,3. Do NOT build the IR/UV multi-band closure
-(pkg-future) or re-architect inline_shader_nodes(). Test per spec.
+Constraints: CLAUDE.md 1,2,3,6. Cite Conty 2018 + Cycles Apache-2.0 references.
 
-When done: pkg95 spec status -> done + PR + recorded P3-c probe result.
-PR titled "fix(pkg95): addon dead-UI-wires + Blender-native camera".
+When done: pkg86 spec status -> done + PR. PR titled "feat(pkg86): Light Tree (Conty 2018, CPU)".
 ```
 
-### 3.4 Claude Code (Track A) — pkg96 reconcile-then-upload sync + P5 guard (second tier)
-
-```
-You are Claude Code on the RTX box. Round 11 addon track, second tier
-(lower priority than CUDA-port track). pkg94 already shipped PR #304;
-pkg96 is now unblocked. Independent of pkg95 (same file, different
-surfaces — coordinate edits, no logical dependency).
-
-Read first:
-  - .astroray_plan/packages/pkg96-addon-reconcile-then-upload-sync.md
-  - .astroray_plan/docs/addon-remediation-first-principles-plan-2026-05-16.md (§2 P2/P5, §4 Stage 3, §5, §9)
-  - .astroray_plan/docs/blender-addon-bug-triage-2026-05-15.md (BUG-04/05; Cluster B/D)
-  - blender_addon/__init__.py _apply_depsgraph_updates (L1158-1237),
-    _classify_depsgraph_update, setup_world, _configure_backend_for_context
-
-Goal: P2 — _apply_depsgraph_updates gains per-domain RECONCILE before
-upload (World edit re-parses world tree before upload_environment;
-device_mode gets a real domain calling _configure_backend_for_context,
-NOT accumulation_only) → BUG-04/05. P5 GUARD ONLY — honest non-crashing
-notice (or CPU auto-route per owner §9) for GPU AOV/denoise/world-only;
-NO GPU kernel code. P5's real fix is folded into pkg55-B', not here.
-
-Constraints: CLAUDE.md 1,2,3. Do NOT implement P5's GPU architecture or
-touch cuda_renderer.cu / the GPU render() branch. Do NOT edit pkg85-D
-or the pkg55 spec from this package (those are separate doc edits).
-Test per spec.
-
-When done: pkg96 spec status -> done + PR + the live-update smoke note.
-PR titled "fix(pkg96): reconcile-then-upload sync + P5 honesty guard".
-```
-
-> **Round-11 direction RESOLVED (2026-05-17).** Owner decision: **Round
-> 11 leads with the pkg55 wavefront CUDA port** (the path to the
-> still-unmet viewport-parity claim). pkg100 (.blend importer fix) is
-> explicitly DEPRIORITIZED relative to the CUDA-port work — the owner
-> accepts continued real-scene parity blindness in the near term to close
-> the performance/viewport-parity claim first. pkg94 shipped in Round 10
-> (PR #304); pkg55-B' Sessions N+1 (shadow/miss/terminate CPU stages) →
-> N+2..M (CUDA port) is the top-priority track.
-
-### 3.5 Codex (RTX hardware) — pkg99 ADAF quasi-spherical glow re-investigation (second tier)
-
-```
-You are Codex on the RTX 5070 Ti box. pkg44 wiring correct (enable_adaf
-branch, adaf_ prefix mapping, render-unit camera all present), but
-visual gate only partial: crisp shadow + faint emission sliver vs the
-specified quasi-spherical glow.
-
-Read first:
-  - .astroray_plan/packages/pkg99-adaf-quasi-spherical-glow.md
-  - .astroray_plan/packages/pkg44-adaf.md (acceptance L243, the missing
-    glow)
-  - plugins/volumetric_emission/adaf_plugin.cpp (existing implementation)
-  - gate renders: astroray-wt-pkg44/test_results/adaf_sgra_gate_*.png
-
-Goal: empirical render iteration on RTX to achieve the quasi-spherical
-glow around the black hole. Requires visual gate (CI cannot verify).
-Spec §2 hypotheses: normalization scaling, temperature floor,
-density/emissivity interplay, transfer tau accumulation.
-
-Constraints: CLAUDE.md 1,2,3,6. DO NOT re-do the scene wiring (it is
-correct). ~1 day including RTX iteration.
-
-When done: pkg99 spec status -> done + PR + visual-gate comparison
-note. PR titled "fix(pkg99): ADAF quasi-spherical glow".
-```
-
-### 3.6 Claude Code (Track A) — pkg100 .blend importer camera-intrinsics fix (third tier, DEPRIORITIZED)
+### 3.3 Claude Code (Track A) — pkg100 .blend importer camera-intrinsics fix (third tier, DEPRIORITIZED)
 
 ```
 You are Claude Code on the RTX box. Every .blend import fails at
@@ -357,7 +200,7 @@ When done: pkg100 spec status -> done + PR. PR titled "fix(pkg100):
 .blend importer camera-intrinsics dynamic-attr defect".
 ```
 
-### 3.7 Codex (RTX hardware, small) — pkg76 CSV rows (third tier, blocked on pkg100)
+### 3.4 Codex (RTX hardware, small) — pkg76 CSV rows (third tier, blocked on pkg100)
 
 ```
 You are Codex on the RTX 5070 Ti box. Small ~½-day follow-up. Now
@@ -417,50 +260,20 @@ When done: PR titled
    **blocked on pkg100** (the .blend import AttributeError fix); both
    explicitly DEPRIORITIZED per owner decision (§2).
 
-**Recommended merge order:** **pkg55-B' Session N+1** (top priority,
-CUDA-port path lead) → **Sessions N+2..M** (multi-session CUDA port) ∥
-**pkg95 ∥ pkg96** (second tier, concurrent with CUDA-port track) →
-**pkg99** (ADAF glow, RTX iteration, second tier) → **pkg89 Phase B** →
-**pkg100** (third tier, deprioritized) → **pkg76 CSV** (third tier,
-blocked on pkg100) → **pkg90** (orchestrator HW gate bootstrap, third
-tier).
+**Recommended merge order:** **pkg55-B' Session N+3** (top priority, CUDA-port path lead) → **Sessions N+4..M** (multi-session CUDA port continues) ∥ **pkg86** (Light Tree, second tier) → **pkg87a/pkg87b/pkg87c** (Cryptomatte, second tier) → **pkg100** (third tier, deprioritized) → **pkg76 CSV** (third tier, blocked on pkg100) → **pkg64-gpu Phase 2/3** (later).
 
 ---
 
-## 5. After Round 11 lands
+## 5. After Round 12 lands
 
-When Round 11 closes:
+When Round 12 closes:
 
-- **pkg55-B' Session N+1** done — shadow/miss/terminate stages on CPU;
-  growing-oracle expansion complete for all CPU wavefront stages. **CUDA-
-  port sessions N+2..M ready to begin** (two-tier gate definition landed
-  PR #320). This is the critical path to the **viewport-parity acceptance
-  gate** (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness
-  scene) — the still-unmet competitive claim that pkg55 Phase B now
-  formally owns.
-- **pkg55-B' Sessions N+2..M** in flight or partially done — multi-
-  session CUDA port (~4 weeks total per spec Phase B estimate). Session
-  N+2 pins ULP/p99.9/SSIM thresholds; later sessions port one material-
-  type shade kernel each. When complete: **viewport-parity claim
-  closes** and Pillar 5 is fully done.
-- **Blender addon remediation** — pkg94 done (Round 10, PR #304); pkg95
-  ∥ pkg96 in flight or done (second tier). All three specs filed and
-  dispatchable; no open owner decision on the addon track.
-- **pkg100** (optional, third tier) — .blend import AttributeError
-  fixed; pkg76 §3.5 CSV follow-up (Classroom/Junkshop/BMW27 RTX parity
-  rows) unblocked. **Explicitly DEPRIORITIZED** per owner decision —
-  pick up only if CUDA-port sessions stall or after they complete.
-- **pkg44** done (Round 10) — Pillar 4 has four emission models
-  (synchrotron, slim disk, ADAF, thermal/blackbody); real astrophysical
-  scenes are composable. Pillar 4 ~50%.
-- **pkg99** in flight or done (second tier) — ADAF quasi-spherical glow
-  re-investigation (RTX visual gate); pkg44 wiring correct but visual
-  gate only partial.
-- **pkg89 Phase B** in flight or done — dedicated lights usable from
-  the Blender addon end-to-end; pkg86 Light Tree fully unblocked.
-- **pkg90** (optional, third tier) — hardware-verifier build-env
-  bootstrap; orchestrator HW gate for unattended operation.
+- **pkg55-B' Session N+3** done — first CUDA shade kernel (Lambertian) ported, actual CPU↔GPU thresholds measured and pinned, pkg64-gpu gate #1 (CPU↔GPU rel-err) validated inline. **Sessions N+4..M continue** the CUDA port (~4 weeks total per spec Phase B estimate). This is the critical path to the **viewport-parity acceptance gate** (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene) — the still-unmet competitive claim that pkg55 Phase B now formally owns.
+- **pkg86 Light Tree** in flight or done (second tier) — Conty 2018 many-lights importance sampling, CPU first. Unblocked by pkg89 Phase A + Phase B accessors.
+- **pkg87a/pkg87b/pkg87c Cryptomatte** in flight or done (second tier) — independent; ready to implement.
+- **Orchestrator fully autonomous** — pkg90/97/98 done (Round 11). HW gate runs unattended, IMPL_CAP no longer stalls, Track-A fixes require different-model SIGN-OFF/BLOCK.
+- **pkg100** (optional, third tier) — .blend import AttributeError fixed; pkg76 §3.5 CSV follow-up unblocked. **Explicitly DEPRIORITIZED** per owner decision — pick up only if CUDA-port sessions stall or after they complete.
+- **Pillar 4 ~50%** — pkg40/41/42/43/44/47/99 done; synchrotron, slim disk, ADAF, thermal/blackbody emission all shipped. pkg99 ADAF wiring fix (Round 11) resolved `exposureScale` multiplication bug.
+- **pkg89 done** (Round 11) — dedicated lights usable from Blender addon end-to-end; pkg86 Light Tree fully unblocked.
 
-Bump this report when pkg55-B' CUDA-port sessions N+2..M complete
-(viewport-parity claim closure) or when a new major pillar milestone is
-reached.
+Bump this report when pkg55-B' CUDA-port sessions N+3..M complete (viewport-parity claim closure) or when a new major pillar milestone is reached.

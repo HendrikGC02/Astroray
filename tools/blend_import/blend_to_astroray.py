@@ -39,16 +39,15 @@ def import_blend(path: str | Path,
     width, height
         Render resolution. If both are provided we call
         ``renderer.setup_camera`` once the scene's camera intrinsics are read.
-        Otherwise the caller is responsible for calling setup_camera with
-        ``import_blend_camera_intrinsics`` (returned via the renderer's
-        attached ``_cam_intrinsics`` attribute, see below).
+        Otherwise the caller is responsible for calling setup_camera
+        separately (camera intrinsics are available in the returned stats dict
+        under the ``"cam_intrinsics"`` key).
 
     Returns
     -------
-    The populated renderer. If the file's camera was decoded, the renderer
-    carries an attribute ``_cam_intrinsics`` (a dict with
-    eye/target/up/fov/aspect/near/far) so the caller can finish setup_camera
-    once a final width/height is known.
+    The populated renderer. Import statistics (objects/triangles/lights/materials
+    counts plus camera intrinsics if decoded) are available via
+    ``renderer._blend_import_stats`` for inspection.
     """
     if renderer is None:
         import astroray  # deferred — lets unit tests import this module without astroray
@@ -57,7 +56,7 @@ def import_blend(path: str | Path,
     blend = BlendFile.from_path(path)
     stats = build_scene(blend, renderer, strict=strict, on_warning=on_warning)
 
-    intrinsics = getattr(renderer, "_cam_intrinsics", None)
+    intrinsics = stats.get("cam_intrinsics")
     if intrinsics and width and height and hasattr(renderer, "setup_camera"):
         renderer.setup_camera(
             intrinsics["eye"], intrinsics["target"], intrinsics["up"],

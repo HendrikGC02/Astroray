@@ -71,7 +71,7 @@ class _ImportContext:
 
 def build_scene(blend: BlendFile, renderer: Any, *, strict: bool = False,
                 on_warning: Callable[[str], None] | None = None) -> dict:
-    """Populate *renderer* from *blend*. Returns a small stats dict."""
+    """Populate *renderer* from *blend*. Returns a stats dict with camera intrinsics."""
     on_warning = on_warning or (lambda m: print(f"[blend_import] {m}"))
     ctx = _ImportContext(blend=blend, renderer=renderer, strict=strict,
                          on_warning=on_warning, material_ids={})
@@ -83,7 +83,7 @@ def build_scene(blend: BlendFile, renderer: Any, *, strict: bool = False,
     _import_all_materials(ctx)
 
     # 3. Camera — pick the active scene's camera.
-    _import_active_camera(ctx)
+    cam_intrinsics = _import_active_camera(ctx)
 
     # 4. Objects — meshes (triangles) + lights.
     n_obj, n_tri, n_light = _import_objects(ctx)
@@ -93,6 +93,7 @@ def build_scene(blend: BlendFile, renderer: Any, *, strict: bool = False,
         "triangles": n_tri,
         "lights": n_light,
         "materials": len(ctx.material_ids),
+        "cam_intrinsics": cam_intrinsics,
     }
 
 
@@ -111,29 +112,30 @@ def _active_scene_block(blend: BlendFile) -> Block | None:
     return blend.follow(ptr)
 
 
-def _import_active_camera(ctx: _ImportContext) -> None:
+def _import_active_camera(ctx: _ImportContext) -> dict | None:
+    """Import active camera, return intrinsics dict or None if no camera."""
     blend = ctx.blend
     scene = _active_scene_block(blend)
     if scene is None:
         ctx.warn("no active scene found (FileGlobal.curscene)")
-        return
+        return None
     sc_struct = blend.struct_of(scene)
     cam_obj_ptr = blend.read_pointer(scene, sc_struct, "camera")
     cam_obj_blk = blend.follow(cam_obj_ptr)
     if cam_obj_blk is None:
         ctx.warn("scene has no camera object")
-        return
+        return None
     ob_struct = blend.struct_of(cam_obj_blk)
     cam_data_ptr = blend.read_pointer(cam_obj_blk, ob_struct, "data")
     cam_data_blk = blend.follow(cam_data_ptr)
     if cam_data_blk is None or cam_data_blk.code != "CA":
         ctx.warn("camera object data does not point at a CA block")
-        return
-    _emit_camera(ctx, cam_obj_blk, cam_data_blk)
+        return None
+    return _emit_camera(ctx, cam_obj_blk, cam_data_blk)
 
 
-def _emit_camera(ctx: _ImportContext, ob_blk: Block, cam_blk: Block) -> None:
-    """Reproduce camera intrinsics + extrinsics on the renderer.
+def _emit_camera(ctx: _ImportContext, ob_blk: Block, cam_blk: Block) -> dict | None:
+    """Decode camera intrinsics + extrinsics, return as dict for setup_camera.
 
     Citation: matches the field set in
     intern/cycles/blender/camera.cpp:BlenderSync::sync_camera (read for
@@ -161,24 +163,21 @@ def _emit_camera(ctx: _ImportContext, ob_blk: Block, cam_blk: Block) -> None:
     sensor = sensor_y if sensor_fit == 2 else sensor_x  # 0=AUTO,1=H,2=V
     if sensor <= 0.0 or lens <= 0.0:
         ctx.warn("camera has invalid lens/sensor — skipping")
-        return
+        return None
     # Convert to vertical FOV. For sensor_fit=AUTO/HORIZONTAL, sensor_x drives
     # horizontal FOV; we approximate vfov = 2*atan(sensor_y/(2*lens)) using
     # sensor_y for accuracy. The harness will override aspect explicitly.
     vfov_deg = 2.0 * math.degrees(math.atan(sensor_y / (2.0 * lens)))
     aspect = sensor_x / sensor_y if sensor_y > 0 else 1.0
 
-    # The Astroray Renderer.setup_camera signature taken from
-    # scripts/run_parity.py (cornell): (eye, target, up, fov, aspect, near,
-    # far, w, h). The harness fills width/height; we pass placeholders that
-    # the harness overrides via the public import_blend signature.
-    ctx.renderer._cam_intrinsics = {
+    # Return intrinsics for the caller to pass to setup_camera once resolution
+    # is known (signature from scripts/run_parity.py: eye, target, up, fov,
+    # aspect, near, far, w, h).
+    return {
         "eye": eye, "target": target, "up": up,
         "fov": vfov_deg, "aspect": aspect,
         "near": clipsta, "far": clipend,
     }
-    # Don't call setup_camera here — the public entry point does it once it
-    # knows the render resolution.
 
 
 def _object_local_matrix(ctx: _ImportContext, ob_blk: Block) -> list[list[float]]:

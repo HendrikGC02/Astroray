@@ -214,7 +214,8 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     if (!rec.isDelta && !lights.empty()) {
         uint32_t light_seed = ps.rng.UniformUInt32();
         std::mt19937 light_gen(light_seed);
-        LightSample ls = lights.sample(rec.point, rec.normal, ps.lambdas, light_gen);
+        LightSample ls;
+        lights.sample(ls, rec.point, rec.normal, ps.lambdas, light_gen);
         if (ls.pdf > 0) {
             Vec3 wi = (ls.position - rec.point).normalized();
             HitRecord shadow;

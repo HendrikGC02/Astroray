@@ -396,6 +396,10 @@ add_library(astroray_core_impl STATIC
     # pkg87a — Cryptomatte infrastructure
     src/util/murmurhash3.cpp
     src/util/cryptomatte.cpp
+    # pkg86 — Light Tree (Conty 2018 + Cycles, CPU)
+    src/light_tree.cpp
+    src/light_sampler.cpp
+    src/light_list.cpp
 )
 
 # pkg55 Phase B' — CPU wavefront reference oracle + driver (Session 2b/2c).

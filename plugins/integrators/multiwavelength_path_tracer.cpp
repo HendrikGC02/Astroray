@@ -23,6 +23,7 @@ class MultiwavelengthPathTracer : public Integrator {
     float lambdaMax_;
     bool  useLuminanceOutput_;  // true when rendering outside visible
     Renderer* renderer_ = nullptr;
+    Camera*   camera_   = nullptr;
 
     static constexpr float kVisMin = 380.0f;
     static constexpr float kVisMax = 780.0f;
@@ -50,7 +51,7 @@ public:
             useLuminanceOutput_ = (mode == "luminance");
     }
 
-    void beginFrame(Renderer& scene, const Camera&) override { renderer_ = &scene; }
+    void beginFrame(Renderer& scene, Camera& cam) override { renderer_ = &scene; camera_ = &cam; }
 
     IntegratorCapabilities capabilities() const override {
         // pkg54: CUDA megakernel in src/gpu/multiwavelength_kernel.cu mirrors
@@ -83,10 +84,27 @@ public:
             }
         }
 
+        // pkg87b: Cryptomatte per-shade-point accumulation.
+        float* cryptoObjRanks = nullptr;
+        float* cryptoMatRanks = nullptr;
+        int cryptoDepth = 6;
+        if (renderer_->getCryptomatteEnabled() && camera_) {
+            int pixelX = static_cast<int>(ray.screenU * (camera_->width - 1));
+            int pixelY = static_cast<int>((1.0f - ray.screenV) * (camera_->height - 1));
+            pixelX = std::max(0, std::min(pixelX, camera_->width - 1));
+            pixelY = std::max(0, std::min(pixelY, camera_->height - 1));
+            int pixelIndex = pixelY * camera_->width + pixelX;
+            int offset = pixelIndex * camera_->cryptomatteDepth * 2;
+            cryptoObjRanks = camera_->cryptoObjectBuffer.data() + offset;
+            cryptoMatRanks = camera_->cryptoMaterialBuffer.data() + offset;
+            cryptoDepth = camera_->cryptomatteDepth;
+        }
+
         int bounces = 0;
         float weight = 0.0f;
         astroray::SampledSpectrum rad =
-            pathTrace(ray, maxDepth_, lambdas, gen, &bounces, &weight);
+            pathTrace(ray, maxDepth_, lambdas, gen, &bounces, &weight,
+                      cryptoObjRanks, cryptoMatRanks, cryptoDepth);
 
         if (useLuminanceOutput_) {
             // Band luminance → neutral grey so the colourmap pass can map it.
@@ -118,7 +136,10 @@ private:
             const Ray& r, int maxDepth,
             astroray::SampledWavelengths& lambdas,
             std::mt19937& gen,
-            int* outBounces, float* outWeight) {
+            int* outBounces, float* outWeight,
+            float* cryptoObjRanks = nullptr,
+            float* cryptoMatRanks = nullptr,
+            int cryptoDepth = 6) {
 
         const int rrDepth = 3;
         astroray::SampledSpectrum color(0.0f);
@@ -192,6 +213,28 @@ private:
             BSDFSampleSpectral bss = rec.material->sampleSpectralExt(rec, wo, gen, lambdas);
             if (bss.pdf <= 0.0f) break;
             wasSpecular = bss.isDelta;
+
+            // pkg87b: Cryptomatte accumulation at shade point (before throughput update).
+            // Weight = average(throughput · bsdf_eval), per Cycles.
+            if (renderer_->getCryptomatteEnabled() && cryptoObjRanks && cryptoMatRanks) {
+                astroray::SampledSpectrum contrib = throughput * bss.f_spectral;
+                astroray::XYZ contribXYZ = contrib.toXYZ(lambdas);
+                float r =  3.2406f * contribXYZ.X - 1.5372f * contribXYZ.Y - 0.4986f * contribXYZ.Z;
+                float g = -0.9689f * contribXYZ.X + 1.8758f * contribXYZ.Y + 0.0415f * contribXYZ.Z;
+                float b =  0.0557f * contribXYZ.X - 0.2040f * contribXYZ.Y + 1.0570f * contribXYZ.Z;
+                float weight = (r + g + b) / 3.0f;
+
+                float objectId = CRYPTO_ID_NONE, materialId = CRYPTO_ID_NONE;
+                if (rec.hitObject && !rec.hitObject->getName().empty()) {
+                    objectId = crypto_hash_name(rec.hitObject->getName());
+                }
+                if (rec.material && !rec.material->getName().empty()) {
+                    materialId = crypto_hash_name(rec.material->getName());
+                }
+                crypto_accumulate_shade_point(cryptoObjRanks, cryptoMatRanks,
+                                               0, cryptoDepth, objectId, materialId, weight);
+            }
+
             throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);

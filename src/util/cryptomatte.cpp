@@ -11,35 +11,7 @@ float crypto_hash_name(const std::string& name) {
     return hash_to_float(hash);
 }
 
-void crypto_insert(float* ranks, int depth, float id, float weight) {
-    if (weight == 0.0f) {
-        return;
-    }
-
-    // Search for empty slot or matching id
-    for (int slot = 0; slot < depth; slot++) {
-        float slot_id = ranks[slot * 2];
-
-        // Empty slot found - insert here
-        if (slot_id == CRYPTO_ID_NONE) {
-            ranks[slot * 2] = id;
-            ranks[slot * 2 + 1] = weight;
-            return;
-        }
-
-        // Matching id found - accumulate weight
-        if (slot_id == id) {
-            ranks[slot * 2 + 1] += weight;
-            return;
-        }
-
-        // Last slot reached - accumulate here (overflow bucket)
-        if (slot == depth - 1) {
-            ranks[slot * 2 + 1] += weight;
-            return;
-        }
-    }
-}
+// crypto_insert moved to header as inline __host__ __device__ function (pkg87b)
 
 void crypto_sort_ranks(float* ranks, int depth) {
     // Insertion sort by weight descending (adapted from Cycles)

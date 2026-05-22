@@ -6,6 +6,7 @@
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
+#include "astroray/cryptomatte.h"  // pkg87b
 #include "profile.h"  // pkg55-A: env-gated CUDA-event + NVTX instrumentation
 
 #include <cuda_runtime.h>
@@ -313,7 +314,11 @@ __device__ GVec3 tracePathGPU(
     const GEnvMap&    envMap,
     const GVec3&      backgroundColor,
     bool              hasBackgroundColor,
-    curandState*      rng)
+    curandState*      rng,
+    float*            cryptoObjectRanks = nullptr,    // pkg87b
+    float*            cryptoMaterialRanks = nullptr,  // pkg87b
+    int               cryptoDepth = 6,                 // pkg87b
+    bool              cryptomatteEnabled = false)      // pkg87b
 {
     const int rrDepth = 3;
     GVec3 color(0.f), throughput(1.f);
@@ -378,6 +383,33 @@ __device__ GVec3 tracePathGPU(
         GBSDFSample bs = gpu_material_sample_spectral(mat, rec, wo, lambdas, rng);
         if (bs.pdf <= 0.f) break;
 
+        // pkg87b: Cryptomatte accumulation at shade point (before throughput update).
+        // Weight = average(throughput · bsdf_eval), per Cycles.
+        if (cryptomatteEnabled && cryptoObjectRanks && cryptoMaterialRanks) {
+            GSampledSpectrum contrib = throughputSpectral * bs.fSpectral;
+            // Convert spectral to XYZ, then to sRGB for weight computation
+            GVec3 xyz = gpu_sampledSpectrumToXYZ(contrib, lambdas);
+            float r =  3.2406f * xyz.x - 1.5372f * xyz.y - 0.4986f * xyz.z;
+            float g = -0.9689f * xyz.x + 1.8758f * xyz.y + 0.0415f * xyz.z;
+            float b =  0.0557f * xyz.x - 0.2040f * xyz.y + 1.0570f * xyz.z;
+            float weight = (r + g + b) / 3.0f;
+
+            // Extract object/material hash from GPU primitive data
+            float objectId = CRYPTO_ID_NONE, materialId = CRYPTO_ID_NONE;
+            if (rec.primType == GPRIM_TRIANGLE) {
+                const GTriangle& tri = tris[rec.primIndex];
+                objectId = tri.objectHash;
+                materialId = tri.materialHash;
+            } else if (rec.primType == GPRIM_SPHERE) {
+                const GSphere& sph = spheres[rec.primIndex];
+                objectId = sph.objectHash;
+                materialId = sph.materialHash;
+            }
+            // crypto_accumulate_shade_point is __host__ __device__, pixelIndex already encoded in pointer offset
+            crypto_accumulate_shade_point(cryptoObjectRanks, cryptoMaterialRanks,
+                                           0, cryptoDepth, objectId, materialId, weight);
+        }
+
         wasSpecular = bs.isDelta;
         throughput *= bs.f / (bs.pdf + 0.001f);
         throughputSpectral *= bs.fSpectral * (1.f / (bs.pdf + 0.001f));
@@ -417,7 +449,11 @@ __global__ void pathTraceKernel(
     GCameraParams cam,
     float filmExposure,
     GVec3 backgroundColor, bool hasBackgroundColor,
-    curandState* rngStates)
+    curandState* rngStates,
+    float* cryptoObjectBuffer = nullptr,      // pkg87b
+    float* cryptoMaterialBuffer = nullptr,    // pkg87b
+    int cryptoDepth = 6,                       // pkg87b
+    bool cryptomatteEnabled = false)           // pkg87b
 {
     int pixelIdx = blockIdx.x * blockDim.x + threadIdx.x;
     int totalPixels = width * height;
@@ -479,10 +515,20 @@ __global__ void pathTraceKernel(
                        - origin_cam - offset;
         GRay ray(origin_cam + offset, dir);
 
+        // pkg87b: compute per-pixel crypto buffer offset
+        float* pixelCryptoObj = nullptr;
+        float* pixelCryptoMat = nullptr;
+        if (cryptomatteEnabled && cryptoObjectBuffer && cryptoMaterialBuffer) {
+            int offset = pixelIdx * cryptoDepth * 2;
+            pixelCryptoObj = cryptoObjectBuffer + offset;
+            pixelCryptoMat = cryptoMaterialBuffer + offset;
+        }
+
         GVec3 sample = tracePathGPU(
             ray, maxDepth, bvhNodes, prims, tris, spheres,
             materials, lights, numLights, totalLightPower,
-            envMap, backgroundColor, hasBackgroundColor, &localRng);
+            envMap, backgroundColor, hasBackgroundColor, &localRng,
+            pixelCryptoObj, pixelCryptoMat, cryptoDepth, cryptomatteEnabled);
 
         // Per-sample firefly clamp (matches CPU: lum > 20 → scale down)
         float lum = luminance(sample);
@@ -521,7 +567,11 @@ void launchPathTraceKernel(
     GCameraParams cam,
     float filmExposure,
     GVec3 backgroundColor, bool hasBackgroundColor,
-    curandState* d_rngStates)
+    curandState* d_rngStates,
+    float* d_cryptoObjectBuffer = nullptr,      // pkg87b
+    float* d_cryptoMaterialBuffer = nullptr,    // pkg87b
+    int cryptoDepth = 6,                         // pkg87b
+    bool cryptomatteEnabled = false)             // pkg87b
 {
     int totalPixels    = width * height;
     int threadsPerBlock = 256;
@@ -536,7 +586,8 @@ void launchPathTraceKernel(
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, numLights, totalLightPower,
             envMap, cam, filmExposure, backgroundColor, hasBackgroundColor,
-            d_rngStates);
+            d_rngStates, d_cryptoObjectBuffer, d_cryptoMaterialBuffer,
+            cryptoDepth, cryptomatteEnabled);
 
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {

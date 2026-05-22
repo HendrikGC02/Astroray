@@ -23,6 +23,7 @@
 #include "astroray/spectrum.h"
 #include "astroray/spectral_profile.h"
 #include "astroray/light_sampler.h"
+#include "astroray/cryptomatte.h"
 
 // Forward declaration needed by HitRecord
 class Hittable;
@@ -2065,6 +2066,8 @@ class Renderer {
     float worldVolumeDensity = 0.0f;
     Vec3 worldVolumeColor = Vec3(1.0f);
     float worldVolumeAnisotropy = 0.0f;
+    // pkg87b — Cryptomatte per-shade-point accumulation gate
+    bool cryptomatteEnabled = false;
     std::shared_ptr<Integrator> integrator_;
     std::vector<std::shared_ptr<Pass>> passes_;
 
@@ -2144,6 +2147,10 @@ public:
         lights.setSampler(mode);
     }
 
+    // pkg87b: Enable/disable Cryptomatte per-shade-point accumulation
+    void setCryptomatteEnabled(bool enabled) { cryptomatteEnabled = enabled; }
+    bool getCryptomatteEnabled() const { return cryptomatteEnabled; }
+
     void clear() {
         scene.clear(); bvh.reset(); lights = LightList();
         envMap.reset();
@@ -2164,6 +2171,7 @@ public:
         worldVolumeDensity = 0.0f;
         worldVolumeColor = Vec3(1.0f);
         worldVolumeAnisotropy = 0.0f;
+        cryptomatteEnabled = false;
         integrator_.reset();
         passes_.clear();
     }
@@ -2299,7 +2307,10 @@ public:
             std::mt19937& gen,
             int* outBounces = nullptr,
             float* outWeight = nullptr,
-            const SMSHook& smsHook = SMSHook()) {
+            const SMSHook& smsHook = SMSHook(),
+            float* cryptoObjectRanks = nullptr,    // pkg87b: per-pixel crypto object ranks
+            float* cryptoMaterialRanks = nullptr,  // pkg87b: per-pixel crypto material ranks
+            int cryptoDepth = 6) {                  // pkg87b: number of (id, weight) pairs
         const int rrDepth = 3;
         astroray::SampledSpectrum color(0.0f);
         astroray::SampledSpectrum throughput(1.0f);
@@ -2427,6 +2438,33 @@ public:
             BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
             if (bss.pdf <= 0.0f) break;
             wasSpecular = bss.isDelta;
+
+            // pkg87b: Cryptomatte per-shade-point accumulation.
+            // Weight = average(throughput · bsdf_eval), per Cycles film_write_cryptomatte_slots (Apache-2.0).
+            // Accumulated *before* throughput is updated for the next bounce.
+            // cryptoObjectRanks/cryptoMaterialRanks point to this pixel's rank array (already offset).
+            if (cryptomatteEnabled && cryptoObjectRanks && cryptoMaterialRanks) {
+                astroray::SampledSpectrum contrib = throughput * bss.f_spectral;
+                astroray::XYZ contribXYZ = contrib.toXYZ(lambdas);
+                // Inline XYZ→sRGB (avoiding spectral.h circular dependency).
+                // Matrix from spectral.h xyzToLinearSRGB (CIE XYZ D65 → linear sRGB).
+                float r =  3.2406f * contribXYZ.X - 1.5372f * contribXYZ.Y - 0.4986f * contribXYZ.Z;
+                float g = -0.9689f * contribXYZ.X + 1.8758f * contribXYZ.Y + 0.0415f * contribXYZ.Z;
+                float b =  0.0557f * contribXYZ.X - 0.2040f * contribXYZ.Y + 1.0570f * contribXYZ.Z;
+                float weight = (r + g + b) / 3.0f;
+
+                float objectId = CRYPTO_ID_NONE, materialId = CRYPTO_ID_NONE;
+                if (rec.hitObject && !rec.hitObject->getName().empty()) {
+                    objectId = crypto_hash_name(rec.hitObject->getName());
+                }
+                if (rec.material && !rec.material->getName().empty()) {
+                    materialId = crypto_hash_name(rec.material->getName());
+                }
+                // Pass pixelIndex=0 since cryptoObjectRanks/cryptoMaterialRanks already point to this pixel's data
+                crypto_accumulate_shade_point(cryptoObjectRanks, cryptoMaterialRanks,
+                                               0, cryptoDepth, objectId, materialId, weight);
+            }
+
             throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
@@ -2457,9 +2495,13 @@ public:
             int* outBounces = nullptr,
             float* outWeight = nullptr,
             int* outCausticConnections = nullptr,
-            float* outCausticEnergy = nullptr) {
+            float* outCausticEnergy = nullptr,
+            float* cryptoObjectRanks = nullptr,    // pkg87b
+            float* cryptoMaterialRanks = nullptr,  // pkg87b
+            int cryptoDepth = 6) {                  // pkg87b
         if (lights.empty() || chainIters <= 0) {
-            return pathTraceSpectral(r, maxDepth, lambdas, gen, outBounces, outWeight);
+            return pathTraceSpectral(r, maxDepth, lambdas, gen, outBounces, outWeight,
+                                     SMSHook(), cryptoObjectRanks, cryptoMaterialRanks, cryptoDepth);
         }
 
         const int rrDepth = 3;
@@ -2559,6 +2601,26 @@ public:
 
             BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
             if (bss.pdf <= 0.0f) break;
+
+            // pkg87b: Cryptomatte accumulation at shade point (before throughput update).
+            if (cryptomatteEnabled && cryptoObjectRanks && cryptoMaterialRanks) {
+                astroray::SampledSpectrum contrib = throughput * bss.f_spectral;
+                astroray::XYZ contribXYZ = contrib.toXYZ(lambdas);
+                float r =  3.2406f * contribXYZ.X - 1.5372f * contribXYZ.Y - 0.4986f * contribXYZ.Z;
+                float g = -0.9689f * contribXYZ.X + 1.8758f * contribXYZ.Y + 0.0415f * contribXYZ.Z;
+                float b =  0.0557f * contribXYZ.X - 0.2040f * contribXYZ.Y + 1.0570f * contribXYZ.Z;
+                float weight = (r + g + b) / 3.0f;
+
+                float objectId = CRYPTO_ID_NONE, materialId = CRYPTO_ID_NONE;
+                if (rec.hitObject && !rec.hitObject->getName().empty()) {
+                    objectId = crypto_hash_name(rec.hitObject->getName());
+                }
+                if (rec.material && !rec.material->getName().empty()) {
+                    materialId = crypto_hash_name(rec.material->getName());
+                }
+                crypto_accumulate_shade_point(cryptoObjectRanks, cryptoMaterialRanks,
+                                               0, cryptoDepth, objectId, materialId, weight);
+            }
 
             astroray::SampledSpectrum nextThroughput =
                 throughput * bss.f_spectral * (1.0f / (bss.pdf + 0.001f));

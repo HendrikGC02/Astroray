@@ -16,7 +16,8 @@ public:
     virtual ~Integrator() = default;
 
     // Optional per-frame setup (reservoirs, cache warmup).
-    virtual void beginFrame(Renderer&, const Camera&) {}
+    // pkg87b: Camera is now non-const to allow Cryptomatte per-shade-point writes.
+    virtual void beginFrame(Renderer&, Camera&) {}
     virtual void endFrame() {}
 
     // Optional observability for tests and developer diagnostics.

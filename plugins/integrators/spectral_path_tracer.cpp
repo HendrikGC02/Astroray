@@ -36,6 +36,7 @@ class SpectralPathTracer : public Integrator {
     amf::SMSConfig smsCfg_;
 
     Renderer* renderer_ = nullptr;
+    Camera* camera_ = nullptr;  // pkg87b: for Cryptomatte buffer access
     std::vector<amf::SMSCaster> casters_;
     float smsAttempts_  = 0.0f;
     float smsConverged_ = 0.0f;
@@ -55,8 +56,9 @@ public:
         smsCfg_.contribClamp  = p.getFloat("sms_contrib_clamp", 4.0f);
     }
 
-    void beginFrame(Renderer& scene, const Camera&) override {
+    void beginFrame(Renderer& scene, Camera& cam) override {
         renderer_ = &scene;
+        camera_ = &cam;  // pkg87b: store for Cryptomatte buffer access
         casters_.clear();
         smsAttempts_ = smsConverged_ = smsEnergy_ = 0.0f;
         if (scene.getUseRefractiveCaustics()) {
@@ -129,9 +131,27 @@ public:
             };
         }
 
+        // pkg87b: Cryptomatte per-shade-point accumulation.
+        // Compute pixel index from ray screen coordinates and pass per-pixel crypto buffers.
+        float* cryptoObjRanks = nullptr;
+        float* cryptoMatRanks = nullptr;
+        int cryptoDepth = 6;
+        if (renderer_->getCryptomatteEnabled() && camera_) {
+            int pixelX = static_cast<int>(ray.screenU * (camera_->width - 1));
+            int pixelY = static_cast<int>((1.0f - ray.screenV) * (camera_->height - 1));
+            pixelX = std::max(0, std::min(pixelX, camera_->width - 1));
+            pixelY = std::max(0, std::min(pixelY, camera_->height - 1));
+            int pixelIndex = pixelY * camera_->width + pixelX;
+            int offset = pixelIndex * camera_->cryptomatteDepth * 2;
+            cryptoObjRanks = camera_->cryptoObjectBuffer.data() + offset;
+            cryptoMatRanks = camera_->cryptoMaterialBuffer.data() + offset;
+            cryptoDepth = camera_->cryptomatteDepth;
+        }
+
         astroray::SampledSpectrum rad =
             renderer_->pathTraceSpectral(ray, maxDepth_, lambdas, gen,
-                                          &bounces, &weight, smsHook);
+                                          &bounces, &weight, smsHook,
+                                          cryptoObjRanks, cryptoMatRanks, cryptoDepth);
         astroray::XYZ xyz = rad.toXYZ(lambdas);
         r.color = Vec3(xyz.X, xyz.Y, xyz.Z);
         r.bounceCount = static_cast<float>(bounces);

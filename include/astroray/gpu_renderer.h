@@ -81,6 +81,13 @@ public:
     // [0, 1] progress estimate (reserved for async use in Phase 3).
     float getProgress() const;
 
+    // pkg87b: Cryptomatte control + retrieval
+    void setCryptomatteEnabled(bool enabled);
+    bool getCryptomatteEnabled() const;
+    void copyCryptoBuffersToHost(std::vector<float>& objectBuffer,
+                                  std::vector<float>& materialBuffer,
+                                  int width, int height, int depth);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl;

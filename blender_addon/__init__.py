@@ -3459,7 +3459,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # Flip the caustic-caster flag and set Cryptomatte names on every
             # renderer object the current Blender object contributed (one Blender
             # mesh → many add_triangle calls).
-            scene_count_after = renderer.scene_object_count()
+            scene_count_after = (renderer.scene_object_count()
+                                 if hasattr(renderer, "scene_object_count") else 0)
             for oid in range(scene_count_before, scene_count_after):
                 # pkg64 Phase 3 — caustic caster flag
                 if is_caustic_caster and hasattr(renderer, "set_object_caustic_caster"):

@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (light transport)
 **Track:** A
-**Status:** open — ready to implement
+**Status:** done — PR #340, 2026-05-22 — CPU median-split tree, PSNR=100dB single-light, 17ms/1000-light build, composability green
 **Estimated effort:** 3 weeks (~60 h, multiple sessions) — 1 wk research + tree build, 1 wk traversal + integrator wire-up, 1 wk validation.
 **Depends on:** none (independent of pkg55; the build-once-sample-many pattern is integrator-agnostic and composes with every existing integrator)
 

@@ -240,8 +240,10 @@ def test_cryptomatte_iou_roundtrip():
         gt_renderer.upload_scene()
         gt_pixels = gt_renderer.render(spp, 1, None, False)
 
-        # Threshold alpha to binary mask
-        alpha = gt_pixels[:, :, 3]
+        # Threshold luminance to a binary mask. The renderer outputs RGB
+        # (no alpha channel); every other object is hidden in this ground-truth
+        # pass, so any non-black pixel marks visibility of the named entity.
+        alpha = gt_pixels.sum(axis=2)
         ground_truth_obj[obj_name] = alpha > 0.5
 
     # For each material name, render only objects with that material

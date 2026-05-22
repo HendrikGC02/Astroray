@@ -1342,6 +1342,10 @@ public:
             }
             return result;
         }
+        // Dead code: cryptoObjectBuffer / cryptoMaterialBuffer are std::vector<float>,
+        // not std::vector<Vec3>. Dedicated getCryptomatteObjectBuffer/MaterialBuffer
+        // methods exist at lines 1285-1305. Remove in pkg87b cleanup.
+        /*
         if (key == "cryptomatte_object" || key == "cryptomatte_material") {
             const std::vector<Vec3>* vecBuffer = (key == "cryptomatte_object")
                 ? &camera->cryptoObjectBuffer
@@ -1358,6 +1362,7 @@ public:
             }
             return result;
         }
+        */
 
         static const std::unordered_map<std::string, int> kPassNameToIndex = {
             {"diffuse_direct", PASS_DIFFUSE_DIRECT},

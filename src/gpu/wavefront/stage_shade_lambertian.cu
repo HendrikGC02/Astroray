@@ -114,7 +114,7 @@ __device__ inline GVec3 tangentToWorld(const GVec3& wi_tangent,
 __global__ void stageShadeLambertianKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
-    const GMaterial* materials,
+    const ::GMaterial* materials,
     int num_materials)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -179,7 +179,7 @@ __global__ void stageShadeLambertianKernel(
         return;
     }
 
-    const GMaterial& mat = materials[material_id];
+    const ::GMaterial& mat = materials[material_id];
 
     // For Session N+3 part 2: only Lambertian materials are in scope.
     // GMaterial stores RGB baseColor; upsample to spectral via the same path
@@ -248,7 +248,7 @@ __global__ void stageShadeLambertianKernel(
 void launchStageShadeLambertian_SessionN3(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
-    const GMaterial* d_materials,
+    const ::GMaterial* d_materials,
     int num_materials)
 {
     int n = state.num_active;

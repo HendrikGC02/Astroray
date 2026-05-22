@@ -142,10 +142,14 @@ void launchStageIntersect_SessionN3(
     const GSphere*    d_spheres);
 
 // Session N+3 part 2: Lambertian shade stage.
+// NOTE: ::GMaterial is in the global namespace (gpu_types.h); we qualify with
+// :: because unqualified `GMaterial` inside namespace astroray::wavefront
+// caused NVCC to forward-declare an incomplete astroray::wavefront::GMaterial
+// in some TUs and shadow the global type.
 void launchStageShadeLambertian_SessionN3(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
-    const GMaterial* d_materials,
+    const ::GMaterial* d_materials,
     int num_materials);
 
 // Session N+3 part 2: Hit record fields (extend GPUWavefrontState for intersect->shade flow).

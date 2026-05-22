@@ -391,7 +391,7 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     GPrimitive* d_prims = nullptr;
     GTriangle* d_tris = nullptr;
     GSphere* d_spheres = nullptr;
-    GMaterial* d_materials = nullptr;
+    ::GMaterial* d_materials = nullptr;
 
     try {
         SceneUploadResult bvhRes = buildSceneArrays(renderer, &cam);

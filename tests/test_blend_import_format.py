@@ -95,3 +95,29 @@ def test_pointer_resolution():
     sc = bf.follow(ptr)
     assert sc is not None
     assert sc.code == "SC"
+
+
+def test_import_blend_into_real_renderer_no_dynamic_attr():
+    """pkg100 regression: end-to-end import_blend against the real pybind11
+    Renderer using the committed synthetic_min.blend (no bpy needed).
+
+    The original pkg100 fix moved ``_cam_intrinsics`` off the renderer attribute,
+    but missed a second site that still did ``renderer._blend_import_stats = stats``.
+    On the real ``astroray.Renderer`` (no ``__dict__``) that second assignment
+    raised AttributeError, so any real-world import would fail. The
+    bpy-gated regression test in ``test_blend_import_roundtrip.py`` skipped
+    in CI (no bpy), so this regression rode into main. The current fix uses
+    a ``stats_out`` out-parameter; this test exercises that path with no bpy.
+    """
+    astroray = pytest.importorskip("astroray")
+    from tools.blend_import import import_blend
+
+    renderer = astroray.Renderer()
+    stats: dict = {}
+    result = import_blend(
+        FIXTURE, renderer=renderer, width=128, height=128, stats_out=stats,
+    )
+    assert result is renderer
+    assert isinstance(stats, dict)
+    # synthetic_min.blend has no real camera intrinsics; just verify the
+    # function returned without raising AttributeError on the real binding.

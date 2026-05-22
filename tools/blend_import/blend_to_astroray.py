@@ -22,7 +22,8 @@ def import_blend(path: str | Path,
                  renderer: Any | None = None,
                  width: int | None = None,
                  height: int | None = None,
-                 on_warning: Callable[[str], None] | None = None) -> Any:
+                 on_warning: Callable[[str], None] | None = None,
+                 stats_out: dict | None = None) -> Any:
     """Build an Astroray Renderer from a .blend file at *path*.
 
     Parameters
@@ -42,12 +43,16 @@ def import_blend(path: str | Path,
         Otherwise the caller is responsible for calling setup_camera
         separately (camera intrinsics are available in the returned stats dict
         under the ``"cam_intrinsics"`` key).
+    stats_out
+        Optional dict; if provided, populated with import statistics
+        (objects/triangles/lights/materials counts + cam_intrinsics). This is
+        the preferred way to retrieve stats — the renderer-attribute path is
+        kept best-effort for the _FakeRenderer test stub but is impossible on
+        the real pybind11 ``astroray.Renderer`` (no ``__dict__``).
 
     Returns
     -------
-    The populated renderer. Import statistics (objects/triangles/lights/materials
-    counts plus camera intrinsics if decoded) are available via
-    ``renderer._blend_import_stats`` for inspection.
+    The populated renderer.
     """
     if renderer is None:
         import astroray  # deferred — lets unit tests import this module without astroray
@@ -64,7 +69,18 @@ def import_blend(path: str | Path,
             intrinsics["far"], width, height,
         )
 
-    renderer._blend_import_stats = stats
+    if stats_out is not None:
+        stats_out.clear()
+        stats_out.update(stats)
+
+    # Best-effort: stash stats on the renderer for the _FakeRenderer stub
+    # (has __dict__) and any pybind11 Renderer that opted into py::dynamic_attr().
+    # The real astroray.Renderer has no __dict__, so this silently no-ops there;
+    # callers who need stats from the real binding must pass ``stats_out``.
+    try:
+        renderer._blend_import_stats = stats
+    except AttributeError:
+        pass
     return renderer
 
 

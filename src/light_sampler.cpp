@@ -17,6 +17,9 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
     // This is a bit circular, but we need to extract the logic here.
     // For now, we'll inline the original LightList::sample logic.
 
+    // Initialize to zero in case no valid sample is found.
+    out = LightSample{Vec3(0), Vec3(0), Vec3(0), SampledSpectrum(0.0f), 0, 0};
+
     const auto& lights = lightList_->getLights();
     const auto& dedicatedLights = lightList_->getDedicatedLights();
     const auto& powerDist = lightList_->getPowerDist();
@@ -27,7 +30,6 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
     size_t totalLights = numHittableLights + numDedicatedLights;
 
     if (totalLights == 0) {
-        out = LightSample{Vec3(0), Vec3(0), Vec3(0), SampledSpectrum(0.0f), 0, 0};
         return;
     }
 
@@ -122,8 +124,10 @@ TreeLightSampler::~TreeLightSampler() = default;
 void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& normal,
                               const SampledWavelengths& lambdas,
                               std::mt19937& gen) const {
+    // Initialize to zero in case no valid sample is found.
+    out = LightSample{Vec3(0), Vec3(0), Vec3(0), SampledSpectrum(0.0f), 0, 0};
+
     if (tree_->empty()) {
-        out = LightSample{Vec3(0), Vec3(0), Vec3(0), SampledSpectrum(0.0f), 0, 0};
         return;
     }
 
@@ -133,7 +137,6 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
     LightTree::PickResult pick = tree_->pick(point, normal, u, gen);
 
     if (pick.lightIndex < 0) {
-        out = LightSample{Vec3(0), Vec3(0), Vec3(0), SampledSpectrum(0.0f), 0, 0};
         return;
     }
 

@@ -998,6 +998,16 @@ public:
         renderer.setPixelFilter(filterType, filterWidth);
     }
 
+    void setLightSampler(const std::string& mode) {
+        if (mode == "power") {
+            renderer.setLightSampler(LightList::SamplerMode::Power);
+        } else if (mode == "tree") {
+            renderer.setLightSampler(LightList::SamplerMode::Tree);
+        } else {
+            throw std::invalid_argument("Unknown light sampler mode: " + mode + " (valid: 'power', 'tree')");
+        }
+    }
+
     void setWorldMaxBounces(int maxB) {
         renderer.setWorldMaxBounces(maxB);
     }
@@ -1835,6 +1845,7 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_filter_glossy", &PyRenderer::setFilterGlossy, "value"_a)
         .def("set_seed", &PyRenderer::setSeed, "seed"_a)
         .def("set_pixel_filter", &PyRenderer::setPixelFilter, "filter_type"_a, "filter_width"_a)
+        .def("set_light_sampler", &PyRenderer::setLightSampler, "mode"_a)
         .def("set_world_max_bounces", &PyRenderer::setWorldMaxBounces, "max_bounces"_a)
         .def("set_world_volume", &PyRenderer::setWorldVolume,
              "density"_a, "color"_a, "anisotropy"_a = 0.0f)

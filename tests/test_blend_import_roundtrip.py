@@ -156,15 +156,21 @@ def test_real_renderer_accepts_dynamic_attrs(authored_blend_path):
     renderer = astroray.Renderer()
 
     # This call must not raise AttributeError. Prior to the fix, it would fail at
-    # scene_builder.py:175 with "no attribute '_cam_intrinsics' and no __dict__".
-    result = import_blend(authored_blend_path, renderer=renderer, width=512, height=512)
+    # scene_builder.py:175 with "no attribute '_cam_intrinsics' and no __dict__",
+    # and (post-pkg100-original-fix) it would still fail one line later at
+    # blend_to_astroray.py:67 trying to set `_blend_import_stats`. The current
+    # fix uses an explicit ``stats_out`` out-parameter for the real binding
+    # because it has no ``__dict__``; the attribute-stash is best-effort.
+    stats = {}
+    result = import_blend(
+        authored_blend_path, renderer=renderer, width=512, height=512,
+        stats_out=stats,
+    )
 
     # Verify the renderer was populated and setup_camera was called.
     assert result is renderer
 
-    # Verify stats are attached and include camera intrinsics.
-    assert hasattr(renderer, "_blend_import_stats")
-    stats = renderer._blend_import_stats
+    # Verify stats include camera intrinsics.
     assert isinstance(stats, dict)
     assert "cam_intrinsics" in stats
     assert stats["cam_intrinsics"] is not None

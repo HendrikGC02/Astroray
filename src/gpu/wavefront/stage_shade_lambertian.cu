@@ -22,6 +22,7 @@
 #include "astroray/gpu_wavefront_state.h"
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_bvh.h"
+#include "astroray/gpu_materials.h"  // gpu_rgbToSampledSpectrum
 #include "astroray/sampling/wavefront_rng_device.h"
 #include "../profile.h"
 
@@ -181,9 +182,11 @@ __global__ void stageShadeLambertianKernel(
     const GMaterial& mat = materials[material_id];
 
     // For Session N+3 part 2: only Lambertian materials are in scope.
-    // mat.albedo is the spectral albedo (RGBIlluminantSpectrum sampled at lambdas).
-    // This is a simplification for Session N+3; full material dispatch happens in later sessions.
-    GSampledSpectrum albedo_spec = mat.albedo;  // TODO: proper spectral evaluation
+    // GMaterial stores RGB baseColor; upsample to spectral via the same path
+    // the megakernel uses (gpu_rgbToSampledSpectrum, gpu_materials.h:89). Full
+    // material dispatch happens in later sessions.
+    GSampledSpectrum albedo_spec =
+        gpu_rgbToSampledSpectrum(mat.baseColor, lambdas, mat.spectralMode);
 
     // BSDF sampling (Lambertian).
     // Note: the CPU path_kernel calls Material::sampleSpectral via a seeded mt19937.

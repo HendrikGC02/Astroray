@@ -155,7 +155,7 @@ def test_cryptomatte_iou_roundtrip():
     renderer.add_sun_light_dedicated(
         direction=[0.577, 0.577, 0.577],
         angular_diameter=0.0093,  # ~0.53 deg, real sun
-        emission=[1.0, 1.0, 1.0],
+        emission={'mode': 'rgb', 'color': [1.0, 1.0, 1.0]},
         intensity=2.0,
     )
 
@@ -234,7 +234,7 @@ def test_cryptomatte_iou_roundtrip():
         gt_renderer.add_sun_light_dedicated(
             direction=[0.577, 0.577, 0.577],
             angular_diameter=0.0093,
-            emission=[1.0, 1.0, 1.0],
+            emission={'mode': 'rgb', 'color': [1.0, 1.0, 1.0]},
             intensity=2.0,
         )
         gt_renderer.uploadScene()
@@ -287,7 +287,7 @@ def test_cryptomatte_iou_roundtrip():
         gt_renderer.add_sun_light_dedicated(
             direction=[0.577, 0.577, 0.577],
             angular_diameter=0.0093,
-            emission=[1.0, 1.0, 1.0],
+            emission={'mode': 'rgb', 'color': [1.0, 1.0, 1.0]},
             intensity=2.0,
         )
         gt_renderer.uploadScene()

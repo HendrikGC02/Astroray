@@ -2469,6 +2469,16 @@ public:
                 if (rec.material && !rec.material->getName().empty()) {
                     materialId = crypto_hash_name(rec.material->getName());
                 }
+
+                // [pkg87d-diag] probe crypto-accumulate site for name resolution
+                static int once = 0; // remove after fix
+                if (once < 20) { // remove after fix
+                    printf("[pkg87d-diag] obj=%s objId=%.6f weight=%.6f\n", // remove after fix
+                           rec.hitObject ? rec.hitObject->getName().c_str() : "<none>", // remove after fix
+                           objectId, weight); // remove after fix
+                    once++; // remove after fix
+                } // remove after fix
+
                 // Pass pixelIndex=0 since cryptoObjectRanks/cryptoMaterialRanks already point to this pixel's data
                 crypto_accumulate_shade_point(cryptoObjectRanks, cryptoMaterialRanks,
                                                0, cryptoDepth, objectId, materialId, weight);

@@ -2836,14 +2836,38 @@ PYBIND11_MODULE(astroray, m) {
     m.def("crypto_hash_name", &crypto_hash_name, "name"_a,
           "Hash a name string to a Cryptomatte float ID (MurmurHash3 seed 0 + hash_to_float)");
     m.def("crypto_insert",
-          [](std::vector<float>& ranks, int depth, float id, float weight) {
-              crypto_insert(ranks.data(), depth, id, weight);
+          [](py::list ranks, int depth, float id, float weight) {
+              // Convert Python list to C array for mutation
+              if (ranks.size() != static_cast<size_t>(depth * 2)) {
+                  throw std::runtime_error("ranks list must have length depth*2");
+              }
+              std::vector<float> buffer(depth * 2);
+              for (size_t i = 0; i < buffer.size(); ++i) {
+                  buffer[i] = ranks[i].cast<float>();
+              }
+              crypto_insert(buffer.data(), depth, id, weight);
+              // Write back to Python list
+              for (size_t i = 0; i < buffer.size(); ++i) {
+                  ranks[i] = buffer[i];
+              }
           },
           "ranks"_a, "depth"_a, "id"_a, "weight"_a,
           "Insert (id, weight) into a ranked histogram (in-place mutation)");
     m.def("crypto_sort_ranks",
-          [](std::vector<float>& ranks, int depth) {
-              crypto_sort_ranks(ranks.data(), depth);
+          [](py::list ranks, int depth) {
+              // Convert Python list to C array for mutation
+              if (ranks.size() != static_cast<size_t>(depth * 2)) {
+                  throw std::runtime_error("ranks list must have length depth*2");
+              }
+              std::vector<float> buffer(depth * 2);
+              for (size_t i = 0; i < buffer.size(); ++i) {
+                  buffer[i] = ranks[i].cast<float>();
+              }
+              crypto_sort_ranks(buffer.data(), depth);
+              // Write back to Python list
+              for (size_t i = 0; i < buffer.size(); ++i) {
+                  ranks[i] = buffer[i];
+              }
           },
           "ranks"_a, "depth"_a,
           "Sort ranked histogram by weight descending (in-place mutation)");

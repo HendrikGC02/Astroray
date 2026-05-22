@@ -29,10 +29,11 @@ class LightSampler {
 public:
     virtual ~LightSampler() = default;
 
-    // Sample a light. Returns a LightSample with position, emission, pdf, etc.
-    virtual LightSample sample(const Vec3& point, const Vec3& normal,
-                               const SampledWavelengths& lambdas,
-                               std::mt19937& gen) const = 0;
+    // Sample a light. Populates `out` with position, emission, pdf, etc.
+    // Passing by reference avoids MinGW large-struct-by-value corruption (memory/mingw_large_struct_byval.md).
+    virtual void sample(LightSample& out, const Vec3& point, const Vec3& normal,
+                        const SampledWavelengths& lambdas,
+                        std::mt19937& gen) const = 0;
 
     // PDF for a given direction from the shading point (for MIS).
     virtual float pdfValue(const Vec3& point, const Vec3& dir) const = 0;
@@ -48,9 +49,9 @@ class PowerLightSampler : public LightSampler {
 public:
     explicit PowerLightSampler(const LightList* lightList) : lightList_(lightList) {}
 
-    LightSample sample(const Vec3& point, const Vec3& normal,
-                       const SampledWavelengths& lambdas,
-                       std::mt19937& gen) const override;
+    void sample(LightSample& out, const Vec3& point, const Vec3& normal,
+                const SampledWavelengths& lambdas,
+                std::mt19937& gen) const override;
 
     float pdfValue(const Vec3& point, const Vec3& dir) const override;
 
@@ -68,9 +69,9 @@ public:
     explicit TreeLightSampler(const LightList* lightList);
     ~TreeLightSampler() override;  // Defined in .cpp where LightTree is complete
 
-    LightSample sample(const Vec3& point, const Vec3& normal,
-                       const SampledWavelengths& lambdas,
-                       std::mt19937& gen) const override;
+    void sample(LightSample& out, const Vec3& point, const Vec3& normal,
+                const SampledWavelengths& lambdas,
+                std::mt19937& gen) const override;
 
     float pdfValue(const Vec3& point, const Vec3& dir) const override;
 

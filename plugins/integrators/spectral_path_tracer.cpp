@@ -164,7 +164,8 @@ private:
         if (iorHero <= 1.0f) return out;
         float eta = 1.0f / iorHero;
 
-        LightSample ls = lights.sample(x0Rec.point, x0Rec.normal, lambdas, gen);
+        LightSample ls;
+        lights.sample(ls, x0Rec.point, x0Rec.normal, lambdas, gen);
         if (ls.pdf <= 0.0f) return out;
 
         // The SMS attempt depends only on the vertex (x0) and the picked
@@ -215,7 +216,8 @@ private:
         float casterPickPdf = 1.0f / static_cast<float>(casters_.size());
         float eta = 1.0f / C.iorFlat;
 
-        LightSample ls = lights.sample(x0Rec.point, x0Rec.normal, lambdas, gen);
+        LightSample ls;
+        lights.sample(ls, x0Rec.point, x0Rec.normal, lambdas, gen);
         if (ls.pdf <= 0.0f) return out;
 
         Ray syntheticPrimary(x0Rec.point - x0Rec.normal,

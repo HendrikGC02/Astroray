@@ -179,7 +179,8 @@ public:
                 // Use RGB luminance (wavelength-independent) so W values are
                 // consistent across frames with different wavelength samples.
                 for (int i = 0; i < numCandidates_; ++i) {
-                    LightSample ls = lights.sample(rec.point, rec.normal, lambdas, gen);
+                    LightSample ls;
+                    lights.sample(ls, rec.point, rec.normal, lambdas, gen);
                     if (ls.pdf <= 0.0f || !std::isfinite(ls.pdf)) continue;
                     ReSTIRCandidate cand = ReSTIRCandidate::fromLightSample(ls);
                     float pHat = cand.targetLuminanceRGB();

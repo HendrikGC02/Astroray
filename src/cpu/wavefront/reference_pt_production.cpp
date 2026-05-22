@@ -131,7 +131,8 @@ SampledSpectrum tracePathSpectral(
         // Area-light NEE (MIS via power heuristic). Skipped on delta lobes.
         // Production lines 2141-2159.
         if (!rec.isDelta && !lights.empty()) {
-            LightSample ls = lights.sample(rec.point, rec.normal, lambdas, gen);
+            LightSample ls;
+            lights.sample(ls, rec.point, rec.normal, lambdas, gen);
             if (ls.pdf > 0) {
                 Vec3 wi = (ls.position - rec.point).normalized();
                 HitRecord shadow;

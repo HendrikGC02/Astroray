@@ -127,7 +127,8 @@ class NeuralCacheIntegrator : public Integrator {
             return direct;
         }
 
-        LightSample ls = renderer_->getLights().sample(rec.point, rec.normal, lambdas, gen);
+        LightSample ls;
+        renderer_->getLights().sample(ls, rec.point, rec.normal, lambdas, gen);
         if (ls.pdf <= 0.0f || !std::isfinite(ls.pdf)) {
             return direct;
         }

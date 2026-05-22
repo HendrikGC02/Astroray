@@ -1241,15 +1241,16 @@ public:
     // The normal parameter is unused by most light types but required by anisotropic
     // area lights (future extension).
     // pkg86: Delegates to sampler_ (defaults to PowerLightSampler).
-    LightSample sample(const Vec3& pt, const Vec3& normal,
-                        const astroray::SampledWavelengths& lambdas,
-                        std::mt19937& gen) const {
+    // Passing by reference avoids MinGW large-struct-by-value corruption (memory/mingw_large_struct_byval.md).
+    void sample(LightSample& out, const Vec3& pt, const Vec3& normal,
+                const astroray::SampledWavelengths& lambdas,
+                std::mt19937& gen) const {
         // Lazy-initialize sampler_ if not set.
         if (!sampler_) {
             const_cast<LightList*>(this)->setSampler(SamplerMode::Power);
         }
 
-        return sampler_->sample(pt, normal, lambdas, gen);
+        sampler_->sample(out, pt, normal, lambdas, gen);
     }
 
     float pdfValue(const Vec3& pt, const Vec3& dir) const {
@@ -2377,7 +2378,8 @@ public:
 
             // Area-light NEE (MIS via power heuristic). Skipped on delta lobes.
             if (!rec.isDelta && !lights.empty()) {
-                LightSample ls = lights.sample(rec.point, rec.normal, lambdas, gen);
+                LightSample ls;
+                lights.sample(ls, rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0) {
                     Vec3 wi = (ls.position - rec.point).normalized();
                     HitRecord shadow;
@@ -2526,7 +2528,8 @@ public:
             Vec3 wo = -ray.direction.normalized();
 
             if (!rec.isDelta && !lights.empty()) {
-                LightSample ls = lights.sample(rec.point, rec.normal, lambdas, gen);
+                LightSample ls;
+                lights.sample(ls, rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0) {
                     Vec3 wi = (ls.position - rec.point).normalized();
                     HitRecord shadow;
@@ -2559,7 +2562,8 @@ public:
                 throughput * bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
 
             if (bss.isDelta) {
-                LightSample ls = lights.sample(rec.point, rec.normal, lambdas, gen);
+                LightSample ls;
+                lights.sample(ls, rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0.0f) {
                     Ray walkRay(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
                     walkRay.hasCameraFrame = ray.hasCameraFrame;

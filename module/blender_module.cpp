@@ -2690,7 +2690,7 @@ PYBIND11_MODULE(astroray, m) {
                   auto buf = arr.request();
                   float* ptr = static_cast<float*>(buf.ptr);
                   std::copy(result.rgb.begin(), result.rgb.end(), ptr);
-                  return py::cast(arr);
+                  return py::object(std::move(arr));
               } else {
                   // Return dict with RGB and snapshots.
                   py::dict d;
@@ -2737,7 +2737,7 @@ PYBIND11_MODULE(astroray, m) {
                   }
                   d["snapshots"] = snapshot_list;
 
-                  return py::cast(d);
+                  return py::object(std::move(d));
               }
           },
           "renderer"_a, "samples"_a, "max_depth"_a, "seed"_a,

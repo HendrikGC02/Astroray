@@ -164,7 +164,7 @@ def test_cryptomatte_iou_roundtrip():
     renderer.set_cryptomatte_depth(6)
     renderer.add_pass("cryptomatte")
 
-    renderer.uploadScene()
+    renderer.upload_scene()
     renderer.render(spp, 1, None, False)
 
     # Get crypto buffers
@@ -237,7 +237,7 @@ def test_cryptomatte_iou_roundtrip():
             emission={'mode': 'rgb', 'color': [1.0, 1.0, 1.0]},
             intensity=2.0,
         )
-        gt_renderer.uploadScene()
+        gt_renderer.upload_scene()
         gt_pixels = gt_renderer.render(spp, 1, None, False)
 
         # Threshold alpha to binary mask
@@ -290,7 +290,7 @@ def test_cryptomatte_iou_roundtrip():
             emission={'mode': 'rgb', 'color': [1.0, 1.0, 1.0]},
             intensity=2.0,
         )
-        gt_renderer.uploadScene()
+        gt_renderer.upload_scene()
         gt_pixels = gt_renderer.render(spp, 1, None, False)
 
         alpha = gt_pixels[:, :, 3]
@@ -357,7 +357,7 @@ def test_cryptomatte_manifest_roundtrip():
     renderer.set_cryptomatte_depth(6)
     renderer.add_pass("cryptomatte")
 
-    renderer.uploadScene()
+    renderer.upload_scene()
     renderer.render(4, 1, None, False)
 
     # Write EXR with manifest

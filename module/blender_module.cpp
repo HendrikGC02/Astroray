@@ -39,6 +39,8 @@
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
 #endif
+// pkg87a — Cryptomatte infrastructure
+#include "astroray/cryptomatte.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -1279,38 +1281,27 @@ public:
         return result;
     }
 
+    // pkg87a — Cryptomatte buffers (flat float arrays of ranked [id, weight] pairs)
     py::array_t<float> getCryptomatteObjectBuffer() {
         if (!camera) throw std::runtime_error("Camera not set up");
-
-        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 4};
-        auto result = py::array_t<float>(shape);
-        py::buffer_info buf = result.request();
-        float* ptr = static_cast<float*>(buf.ptr);
-        size_t size = camera->cryptomatteObjectBuffer.size();
-        for (size_t i = 0; i < size; ++i) {
-            ptr[i*4] = camera->cryptomatteObjectBuffer[i].x;
-            ptr[i*4+1] = camera->cryptomatteObjectBuffer[i].y;
-            ptr[i*4+2] = camera->cryptomatteObjectBuffer[i].z;
-            ptr[i*4+3] = camera->cryptomatteObjectCoverageBuffer[i];
-        }
-        return result;
+        // Shape: [height, width, depth*2] where depth*2 = [id0, weight0, id1, weight1, ...]
+        py::ssize_t shape[3] = {
+            static_cast<py::ssize_t>(camera->height),
+            static_cast<py::ssize_t>(camera->width),
+            static_cast<py::ssize_t>(camera->cryptomatteDepth * 2)
+        };
+        return py::array_t<float>(shape, camera->cryptoObjectBuffer.data());
     }
 
     py::array_t<float> getCryptomatteMaterialBuffer() {
         if (!camera) throw std::runtime_error("Camera not set up");
-
-        py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 4};
-        auto result = py::array_t<float>(shape);
-        py::buffer_info buf = result.request();
-        float* ptr = static_cast<float*>(buf.ptr);
-        size_t size = camera->cryptomatteMaterialBuffer.size();
-        for (size_t i = 0; i < size; ++i) {
-            ptr[i*4] = camera->cryptomatteMaterialBuffer[i].x;
-            ptr[i*4+1] = camera->cryptomatteMaterialBuffer[i].y;
-            ptr[i*4+2] = camera->cryptomatteMaterialBuffer[i].z;
-            ptr[i*4+3] = camera->cryptomatteMaterialCoverageBuffer[i];
-        }
-        return result;
+        // Shape: [height, width, depth*2] where depth*2 = [id0, weight0, id1, weight1, ...]
+        py::ssize_t shape[3] = {
+            static_cast<py::ssize_t>(camera->height),
+            static_cast<py::ssize_t>(camera->width),
+            static_cast<py::ssize_t>(camera->cryptomatteDepth * 2)
+        };
+        return py::array_t<float>(shape, camera->cryptoMaterialBuffer.data());
     }
 
     py::array_t<float> getRenderPassBuffer(const std::string& passName) {
@@ -1351,10 +1342,14 @@ public:
             }
             return result;
         }
+        // Dead code: cryptoObjectBuffer / cryptoMaterialBuffer are std::vector<float>,
+        // not std::vector<Vec3>. Dedicated getCryptomatteObjectBuffer/MaterialBuffer
+        // methods exist at lines 1285-1305. Remove in pkg87b cleanup.
+        /*
         if (key == "cryptomatte_object" || key == "cryptomatte_material") {
             const std::vector<Vec3>* vecBuffer = (key == "cryptomatte_object")
-                ? &camera->cryptomatteObjectBuffer
-                : &camera->cryptomatteMaterialBuffer;
+                ? &camera->cryptoObjectBuffer
+                : &camera->cryptoMaterialBuffer;
             py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width), 3};
             auto result = py::array_t<float>(shape);
             py::buffer_info buf = result.request();
@@ -1367,6 +1362,7 @@ public:
             }
             return result;
         }
+        */
 
         static const std::unordered_map<std::string, int> kPassNameToIndex = {
             {"diffuse_direct", PASS_DIFFUSE_DIRECT},
@@ -2835,4 +2831,44 @@ PYBIND11_MODULE(astroray, m) {
         "cuda"_a=false
 #endif
     );
+
+    // pkg87a — Cryptomatte infrastructure bindings
+    m.def("crypto_hash_name", &crypto_hash_name, "name"_a,
+          "Hash a name string to a Cryptomatte float ID (MurmurHash3 seed 0 + hash_to_float)");
+    m.def("crypto_insert",
+          [](py::list ranks, int depth, float id, float weight) {
+              // Convert Python list to C array for mutation
+              if (ranks.size() != static_cast<size_t>(depth * 2)) {
+                  throw std::runtime_error("ranks list must have length depth*2");
+              }
+              std::vector<float> buffer(depth * 2);
+              for (size_t i = 0; i < buffer.size(); ++i) {
+                  buffer[i] = ranks[i].cast<float>();
+              }
+              crypto_insert(buffer.data(), depth, id, weight);
+              // Write back to Python list
+              for (size_t i = 0; i < buffer.size(); ++i) {
+                  ranks[i] = buffer[i];
+              }
+          },
+          "ranks"_a, "depth"_a, "id"_a, "weight"_a,
+          "Insert (id, weight) into a ranked histogram (in-place mutation)");
+    m.def("crypto_sort_ranks",
+          [](py::list ranks, int depth) {
+              // Convert Python list to C array for mutation
+              if (ranks.size() != static_cast<size_t>(depth * 2)) {
+                  throw std::runtime_error("ranks list must have length depth*2");
+              }
+              std::vector<float> buffer(depth * 2);
+              for (size_t i = 0; i < buffer.size(); ++i) {
+                  buffer[i] = ranks[i].cast<float>();
+              }
+              crypto_sort_ranks(buffer.data(), depth);
+              // Write back to Python list
+              for (size_t i = 0; i < buffer.size(); ++i) {
+                  ranks[i] = buffer[i];
+              }
+          },
+          "ranks"_a, "depth"_a,
+          "Sort ranked histogram by weight descending (in-place mutation)");
 }

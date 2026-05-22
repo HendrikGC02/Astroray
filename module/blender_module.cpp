@@ -44,6 +44,8 @@
 #endif
 // pkg87a — Cryptomatte infrastructure
 #include "astroray/cryptomatte.h"
+// pkg87d — EXR writer for manifest emission
+#include "../src/io/exr_writer.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -1050,13 +1052,19 @@ public:
     }
 
     // pkg87c — Cryptomatte name setters
+    // pkg87d — register names in manifest registry
     bool setObjectName(int objectId, const std::string& name) {
-        return renderer.setObjectName(objectId, name);
+        bool ok = renderer.setObjectName(objectId, name);
+        if (ok) {
+            crypto_name_registry::instance().add_object(name);
+        }
+        return ok;
     }
 
     void setMaterialName(int materialId, const std::string& name) {
         if (materials.count(materialId)) {
             materials[materialId]->setName(name);
+            crypto_name_registry::instance().add_material(name);
         }
     }
 
@@ -1336,6 +1344,89 @@ public:
             static_cast<py::ssize_t>(camera->cryptomatteDepth * 2)
         };
         return py::array_t<float>(shape, camera->cryptoMaterialBuffer.data());
+    }
+
+    // pkg87d — Write Cryptomatte EXR with Psyop §3 manifest headers
+    void writeCryptomatteEXR(const std::string& filepath) {
+#ifdef ASTRORAY_EXR_ENABLED
+        if (!camera) throw std::runtime_error("Camera not set up");
+
+        int width = camera->width;
+        int height = camera->height;
+        int depth = camera->cryptomatteDepth;
+
+        // Build channel list (per Psyop naming convention: CryptoObject00.{R,G,B,A}, etc.)
+        std::vector<astroray::ExrChannel> channels;
+        int numLayers = (depth + 1) / 2;  // depth 6 → 3 layers
+
+        // Temporary buffers to unpack [id,weight] pairs into separate RGBA channels
+        std::vector<float> objChannels[3][4];  // [layer][RGBA]
+        std::vector<float> matChannels[3][4];
+        for (int layer = 0; layer < numLayers && layer < 3; ++layer) {
+            for (int ch = 0; ch < 4; ++ch) {
+                objChannels[layer][ch].resize(width * height, 0.0f);
+                matChannels[layer][ch].resize(width * height, 0.0f);
+            }
+        }
+
+        // Unpack ranked [id, weight] pairs into RGBA channels
+        // Layer N contains ranks 2*N and 2*N+1: R=id(2N), G=weight(2N), B=id(2N+1), A=weight(2N+1)
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                int pixelIdx = y * width + x;
+                int bufferOffset = pixelIdx * depth * 2;
+
+                for (int layer = 0; layer < numLayers && layer < 3; ++layer) {
+                    int rank0 = layer * 2;
+                    int rank1 = layer * 2 + 1;
+
+                    // Object layer
+                    if (rank0 < depth) {
+                        objChannels[layer][0][pixelIdx] = camera->cryptoObjectBuffer[bufferOffset + rank0 * 2];     // R = id0
+                        objChannels[layer][1][pixelIdx] = camera->cryptoObjectBuffer[bufferOffset + rank0 * 2 + 1]; // G = weight0
+                    }
+                    if (rank1 < depth) {
+                        objChannels[layer][2][pixelIdx] = camera->cryptoObjectBuffer[bufferOffset + rank1 * 2];     // B = id1
+                        objChannels[layer][3][pixelIdx] = camera->cryptoObjectBuffer[bufferOffset + rank1 * 2 + 1]; // A = weight1
+                    }
+
+                    // Material layer
+                    if (rank0 < depth) {
+                        matChannels[layer][0][pixelIdx] = camera->cryptoMaterialBuffer[bufferOffset + rank0 * 2];
+                        matChannels[layer][1][pixelIdx] = camera->cryptoMaterialBuffer[bufferOffset + rank0 * 2 + 1];
+                    }
+                    if (rank1 < depth) {
+                        matChannels[layer][2][pixelIdx] = camera->cryptoMaterialBuffer[bufferOffset + rank1 * 2];
+                        matChannels[layer][3][pixelIdx] = camera->cryptoMaterialBuffer[bufferOffset + rank1 * 2 + 1];
+                    }
+                }
+            }
+        }
+
+        // Add channels to EXR
+        const char* chanNames[4] = {"R", "G", "B", "A"};
+        for (int layer = 0; layer < numLayers && layer < 3; ++layer) {
+            for (int ch = 0; ch < 4; ++ch) {
+                char objName[64], matName[64];
+                snprintf(objName, sizeof(objName), "CryptoObject%02d.%s", layer, chanNames[ch]);
+                snprintf(matName, sizeof(matName), "CryptoMaterial%02d.%s", layer, chanNames[ch]);
+                channels.push_back({objName, objChannels[layer][ch].data()});
+                channels.push_back({matName, matChannels[layer][ch].data()});
+            }
+        }
+
+        // Build Psyop §3 manifest headers
+        auto objHeaders = crypto_manifest_headers("CryptoObject");
+        auto matHeaders = crypto_manifest_headers("CryptoMaterial");
+        std::map<std::string, std::string> allHeaders;
+        allHeaders.insert(objHeaders.begin(), objHeaders.end());
+        allHeaders.insert(matHeaders.begin(), matHeaders.end());
+
+        // Write EXR
+        astroray::writeExr(filepath, width, height, channels, allHeaders);
+#else
+        throw std::runtime_error("Cryptomatte EXR writer not available — OpenEXR not found at build time");
+#endif
     }
 
     py::array_t<float> getRenderPassBuffer(const std::string& passName) {
@@ -1922,6 +2013,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_material_index_buffer", &PyRenderer::getMaterialIndexBuffer)
         .def("get_cryptomatte_object_buffer", &PyRenderer::getCryptomatteObjectBuffer)
         .def("get_cryptomatte_material_buffer", &PyRenderer::getCryptomatteMaterialBuffer)
+        .def("write_cryptomatte_exr", &PyRenderer::writeCryptomatteEXR, "filepath"_a,
+             "pkg87d: Write Cryptomatte EXR with Psyop §3 manifest headers")
         .def("get_render_pass_buffer", &PyRenderer::getRenderPassBuffer, "pass_name"_a)
         .def("clear", &PyRenderer::clear)
         .def("get_width", &PyRenderer::getWidth)
@@ -3058,4 +3151,8 @@ PYBIND11_MODULE(astroray, m) {
           },
           "ranks"_a, "depth"_a,
           "Sort ranked histogram by weight descending (in-place mutation)");
+
+    // pkg87d — Cryptomatte hash function (for test verification)
+    m.def("crypto_hash_name", &crypto_hash_name, "name"_a,
+          "Hash a name string to a Cryptomatte float ID (MurmurHash3 + uint32_to_float32)");
 }

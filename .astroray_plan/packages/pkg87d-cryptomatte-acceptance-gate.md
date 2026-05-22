@@ -2,11 +2,9 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done (PR #347, 2026-05-23 — name registry + manifest headers + IoU test harness + Python bindings shipped; manifest round-trip test requires OpenEXR at build time)
 **Estimated effort:** 3–5 days
-**Depends on:** pkg87c part 1 (PR #345, in flight — pass-plugin
-normalisation + Blender pass registration + Python bindings landed
-without the IoU gate / manifest)
+**Depends on:** pkg87c part 1 (PR #345, merged at 9ad4d9e)
 **Reference research:** `.astroray_plan/docs/cryptomatte-research.md`
 (Psyop v1.2.0 §3 manifest, Cycles `Film::update_passes` manifest
 construction, Apache-2.0). Reference; do not duplicate.

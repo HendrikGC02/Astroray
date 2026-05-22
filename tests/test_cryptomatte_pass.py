@@ -68,7 +68,7 @@ def test_cryptomatte_iou_roundtrip():
 
     # === Full scene render ===
     renderer = astroray.Renderer()
-    renderer.setupCamera(
+    renderer.setup_camera(
         [0, -8, 3],  # look_from
         [0, 0, 0.5],  # look_at (cube centers at z=0.5)
         [0, 0, 1],   # vup
@@ -186,7 +186,7 @@ def test_cryptomatte_iou_roundtrip():
     # For each object name, render only that object
     for obj_name in obj_names:
         gt_renderer = astroray.Renderer()
-        gt_renderer.setupCamera(
+        gt_renderer.setup_camera(
             [0, -8, 3], [0, 0, 0.5], [0, 0, 1], 35, 1.0, 0, 5, width, height
         )
 
@@ -239,7 +239,7 @@ def test_cryptomatte_iou_roundtrip():
     # For each material name, render only objects with that material
     for mat_name in mat_names:
         gt_renderer = astroray.Renderer()
-        gt_renderer.setupCamera(
+        gt_renderer.setup_camera(
             [0, -8, 3], [0, 0, 0.5], [0, 0, 1], 35, 1.0, 0, 5, width, height
         )
 
@@ -326,7 +326,7 @@ def test_cryptomatte_manifest_roundtrip():
 
     # Render a minimal scene
     renderer = astroray.Renderer()
-    renderer.setupCamera([0, 0, 5], [0, 0, 0], [0, 1, 0], 45, 1, 0, 5, 16, 16)
+    renderer.setup_camera([0, 0, 5], [0, 0, 0], [0, 1, 0], 45, 1, 0, 5, 16, 16)
 
     mat_id = renderer.create_material("disney", [0.8, 0.0, 0.0], {})
     renderer.set_material_name(mat_id, "test_material")

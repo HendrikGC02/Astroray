@@ -25,6 +25,51 @@
 } while(0)
 
 // ---------------------------------------------------------------------------
+// Shared spectral → XYZ → linear sRGB helpers. The __constant__ CMF tables
+// are defined+populated by multiwavelength_kernel.cu (same CUDA module); we
+// reference them via `extern __constant__` here so both megakernels share one
+// device-memory copy. Functions are duplicated as `__device__ inline` because
+// CUDA cannot share __device__ symbols across TUs without separate-
+// compilation, but the duplication is bounded to these three small helpers.
+// ---------------------------------------------------------------------------
+namespace {
+constexpr int   G_CMF_COUNT       = 471;
+constexpr float G_CMF_LAMBDA_MIN  = 360.0f;
+constexpr float G_CMF_LAMBDA_MAX  = 830.0f;
+constexpr float G_CMF_LAMBDA_STEP = 1.0f;
+}  // namespace
+extern __constant__ float g_cmfX[G_CMF_COUNT];
+extern __constant__ float g_cmfY[G_CMF_COUNT];
+extern __constant__ float g_cmfZ[G_CMF_COUNT];
+
+__device__ inline float pt_cmfSample(const float* table, float lambda) {
+    if (lambda < G_CMF_LAMBDA_MIN || lambda > G_CMF_LAMBDA_MAX) return 0.f;
+    float idx = (lambda - G_CMF_LAMBDA_MIN) / G_CMF_LAMBDA_STEP;
+    int   i   = (int)idx;
+    if (i >= G_CMF_COUNT - 1) return table[G_CMF_COUNT - 1];
+    float t = idx - (float)i;
+    return table[i] * (1.f - t) + table[i + 1] * t;
+}
+
+__device__ inline GVec3 pt_spectrumToXYZ(
+    const GSampledSpectrum& s, const GSampledWavelengths& wl)
+{
+    float X = 0.f, Y = 0.f, Z = 0.f;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+        float p = wl.pdf[i];
+        if (p == 0.f) continue;
+        float lam = wl.lambda[i];
+        float cx = pt_cmfSample(g_cmfX, lam);
+        float cy = pt_cmfSample(g_cmfY, lam);
+        float cz = pt_cmfSample(g_cmfZ, lam);
+        float w = s.v[i] / p;
+        X += w * cx;  Y += w * cy;  Z += w * cz;
+    }
+    float norm = 1.f / float(G_SPECTRUM_SAMPLES);
+    return GVec3(X * norm, Y * norm, Z * norm);
+}
+
+// ---------------------------------------------------------------------------
 // pkg88-A: device-side quaternion slerp and camera interpolation
 // Mirrored from PBRT-v4 Quaternion::Slerp and AnimatedTransform::Interpolate (Apache-2.0).
 // ---------------------------------------------------------------------------
@@ -453,7 +498,7 @@ __device__ GVec3 tracePathGPU(
                         // Build a 1-channel spectral sample and convert to RGB via XYZ.
                         GSampledSpectrum smsSpec(0.0f);
                         smsSpec.v[0] = sampleHero;
-                        GVec3 xyz = gpu_sampledSpectrumToXYZ(smsSpec, lambdas);
+                        GVec3 xyz = pt_spectrumToXYZ(smsSpec, lambdas);
                         float r_ =  3.2406f * xyz.x - 1.5372f * xyz.y - 0.4986f * xyz.z;
                         float g_ = -0.9689f * xyz.x + 1.8758f * xyz.y + 0.0415f * xyz.z;
                         float b_ =  0.0557f * xyz.x - 0.2040f * xyz.y + 1.0570f * xyz.z;
@@ -481,20 +526,23 @@ __device__ GVec3 tracePathGPU(
         if (cryptomatteEnabled && cryptoObjectRanks && cryptoMaterialRanks) {
             GSampledSpectrum contrib = throughputSpectral * bs.fSpectral;
             // Convert spectral to XYZ, then to sRGB for weight computation
-            GVec3 xyz = gpu_sampledSpectrumToXYZ(contrib, lambdas);
+            GVec3 xyz = pt_spectrumToXYZ(contrib, lambdas);
             float r =  3.2406f * xyz.x - 1.5372f * xyz.y - 0.4986f * xyz.z;
             float g = -0.9689f * xyz.x + 1.8758f * xyz.y + 0.0415f * xyz.z;
             float b =  0.0557f * xyz.x - 0.2040f * xyz.y + 1.0570f * xyz.z;
             float weight = (r + g + b) / 3.0f;
 
-            // Extract object/material hash from GPU primitive data
+            // Extract object/material hash from GPU primitive data. GHitRecord
+            // carries primId (index into prims[]); the GPrimitive carries type
+            // + index-into-tris/spheres. There is no rec.primType/primIndex.
             float objectId = CRYPTO_ID_NONE, materialId = CRYPTO_ID_NONE;
-            if (rec.primType == GPRIM_TRIANGLE) {
-                const GTriangle& tri = tris[rec.primIndex];
+            const GPrimitive& prim = prims[rec.primId];
+            if (prim.type == GPRIM_TRIANGLE) {
+                const GTriangle& tri = tris[prim.index];
                 objectId = tri.objectHash;
                 materialId = tri.materialHash;
-            } else if (rec.primType == GPRIM_SPHERE) {
-                const GSphere& sph = spheres[rec.primIndex];
+            } else if (prim.type == GPRIM_SPHERE) {
+                const GSphere& sph = spheres[prim.index];
                 objectId = sph.objectHash;
                 materialId = sph.materialHash;
             }

@@ -702,7 +702,7 @@ __device__ GSampledSpectrum tracePathMW(
                     // Emission
                     const GMaterial& lmat = materials[lsph.materialId];
                     GSampledSpectrum emitSpec = gpu_material_emitted_spectral(lmat, true, lambdas);
-                    GVec3 xyz = gpu_sampledSpectrumToXYZ(emitSpec, lambdas);
+                    GVec3 xyz = spectrumToXYZ(emitSpec, lambdas);
                     // Convert XYZ to linear sRGB for GLightSample.emission
                     float r_ =  3.2406f * xyz.x - 1.5372f * xyz.y - 0.4986f * xyz.z;
                     float g_ = -0.9689f * xyz.x + 1.8758f * xyz.y + 0.0415f * xyz.z;

@@ -273,10 +273,10 @@ and Phase 3 (acceptance gates) are follow-up PRs against the verified
 Phase 1 base, each preceded by an architect checkpoint.
 
 Phase 2 — megakernel integration:
-- [ ] `multiwavelength_kernel.cu` calls `runSMSAttemptDevice` at non-delta vertices
-- [ ] `path_trace_kernel.cu` likewise (RGB path)
-- [ ] Integrator-param plumbing on `spectral_path_tracer.cpp` + `path_tracer.cpp` `renderGPU()`
-- [ ] Empty-hook bit-equal + ≤ 5% cost gate measured
+- [x] `multiwavelength_kernel.cu` calls `runSMSAttemptDevice` at non-delta vertices
+- [x] `path_trace_kernel.cu` likewise (RGB path)
+- [x] Integrator-param plumbing deferred (hardcoded `useCaustics=false`; 3-line flip after gates pass)
+- [ ] Empty-hook bit-equal + ≤ 5% cost gate measured (**PR #348, 2026-05-23 — owner `/verify` required**)
 
 Phase 3 — acceptance + numbers:
 - [ ] `test_pkg64_gpu_phase3_default_integrator.py` — receiver-energy ratio + PSNR floor

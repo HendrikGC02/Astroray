@@ -1,8 +1,11 @@
 # Astroray Status
 
-**Last updated:** 2026-05-22 (Round 12 closeout — pkg87a/pkg86/pkg100 + pkg55-B' Session N+3 part 1 complete).
+**Last updated:** 2026-05-23 (pkg64-gpu Phase 2 PR #348 — megakernel SMS integration ready for owner `/verify`).
 
-Wave summary 2026-05-22 (Round 12 closeout):
+Wave summary 2026-05-23:
+- **pkg64-gpu Phase 2 PR #348** — megakernel integration of device SMS attempt (Phase 1, PR #323). At each non-delta vertex, when `useCaustics` is enabled and casters exist, samples one caster + one light uniformly and calls `runSMSAttemptDevice`. Hero-channel contribution added via additive MIS (disjoint-strategy pattern, mirrors CPU `pathTraceSpectral`). **Empty-hook acceptance gates deferred to owner `/verify`** (bit-equality vs pre-pkg64-gpu, ≤5% walltime overhead at 64 spp, CUDA build green). Integrator-param plumbing (`use_refractive_caustics` / `use_reflective_caustics`) deferred; `useCaustics` hardcoded to `false` for Phase 2 gates.
+
+Prior wave 2026-05-22 (Round 12 closeout):
 - **pkg87a Cryptomatte infrastructure done** (PR #337) — MurmurHash3 + hash_to_float + crypto_insert/sort_ranks + EXR writer + GPU hash plumbing. Cited: Friedman 2015 + Cycles Apache-2.0 + alShaders2 + smhasher PD. Infra-only scope; integrator writes (pkg87b) and Blender acceptance (pkg87c) are explicit follow-ups.
 - **pkg86 Light Tree done** (PR #340) — Conty 2018 + Cycles Apache-2.0 CPU median-split tree. Single-light PSNR=100dB, 17ms/1000-light build, composability green. **2× variance-reduction gate xfailed strict=False** — 64-light tree sampler shows visible firefly noise; adaptive splitting (pkg86-B) will close the strict gate.
 - **pkg100 .blend importer camera-intrinsics fix done** (PR #339 + #341) — Axis 2: return intrinsics up call chain (no pybind11 ABI change). `_blend_import_stats` stashed best-effort. **bpy-free regression test** added (the stub-based roundtrip test missed the defect).

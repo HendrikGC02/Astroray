@@ -126,4 +126,63 @@ void freeGPUWavefrontState(GPUWavefrontState& s) {
     s = GPUWavefrontState{};
 }
 
+// Session N+3 part 2: Hit buffer allocation.
+bool allocateGPUWavefrontHitBuffers(GPUWavefrontHitBuffers& hb, int capacity) {
+    if (capacity <= 0) {
+        std::fprintf(stderr, "allocateGPUWavefrontHitBuffers: capacity %d invalid\n", capacity);
+        return false;
+    }
+
+    #define ALLOC_CHECK(ptr, size) \
+        if (cudaMalloc(&(ptr), (size)) != cudaSuccess) { \
+            std::fprintf(stderr, "allocateGPUWavefrontHitBuffers: cudaMalloc failed for " #ptr "\n"); \
+            freeGPUWavefrontHitBuffers(hb); \
+            return false; \
+        }
+
+    ALLOC_CHECK(hb.hit_t,          capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_point_x,    capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_point_y,    capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_point_z,    capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_normal_x,   capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_normal_y,   capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_normal_z,   capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_tangent_x,  capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_tangent_y,  capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_tangent_z,  capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_bitangent_x, capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_bitangent_y, capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_bitangent_z, capacity * sizeof(float));
+    ALLOC_CHECK(hb.hit_material_id, capacity * sizeof(int));
+    ALLOC_CHECK(hb.hit_front_face,  capacity * sizeof(int));
+    ALLOC_CHECK(hb.hit_is_delta,    capacity * sizeof(int));
+    ALLOC_CHECK(hb.hit_valid,       capacity * sizeof(int));
+
+    #undef ALLOC_CHECK
+
+    return true;
+}
+
+void freeGPUWavefrontHitBuffers(GPUWavefrontHitBuffers& hb) {
+    cudaFree(hb.hit_t);
+    cudaFree(hb.hit_point_x);
+    cudaFree(hb.hit_point_y);
+    cudaFree(hb.hit_point_z);
+    cudaFree(hb.hit_normal_x);
+    cudaFree(hb.hit_normal_y);
+    cudaFree(hb.hit_normal_z);
+    cudaFree(hb.hit_tangent_x);
+    cudaFree(hb.hit_tangent_y);
+    cudaFree(hb.hit_tangent_z);
+    cudaFree(hb.hit_bitangent_x);
+    cudaFree(hb.hit_bitangent_y);
+    cudaFree(hb.hit_bitangent_z);
+    cudaFree(hb.hit_material_id);
+    cudaFree(hb.hit_front_face);
+    cudaFree(hb.hit_is_delta);
+    cudaFree(hb.hit_valid);
+
+    hb = GPUWavefrontHitBuffers{};
+}
+
 }  // namespace astroray::wavefront

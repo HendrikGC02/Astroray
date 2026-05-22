@@ -119,7 +119,7 @@ struct GPUWavefrontState {
 bool  allocateGPUWavefrontState(GPUWavefrontState& s, int capacity);
 void  freeGPUWavefrontState(GPUWavefrontState& s);
 
-// Session N+3 launchers. Defined in src/gpu/wavefront/stage_init.cu.
+// Session N+3 launchers. Defined in src/gpu/wavefront/stage_*.cu.
 
 // stage_init: writes ray_origin/ray_direction/lambdas/throughput/rng_*/etc.
 // for slot i. Uses WavefrontRNG (PCG32) to match CPU baseline.
@@ -128,6 +128,50 @@ void launchStageInit(
     const GCameraParams& cam,
     int width, int height,
     uint64_t seed);
+
+// Session N+3 part 2: intersect stage.
+void launchStageIntersect_SessionN3(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres);
+
+// Session N+3 part 2: Lambertian shade stage.
+struct GMaterial;  // Forward declaration
+void launchStageShadeLambertian_SessionN3(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const GMaterial* d_materials,
+    int num_materials);
+
+// Session N+3 part 2: Hit record fields (extend GPUWavefrontState for intersect->shade flow).
+// These are passed as separate device pointers; will be folded into GPUWavefrontState
+// struct after Session N+3 verification.
+struct GPUWavefrontHitBuffers {
+    float* hit_t            = nullptr;
+    float* hit_point_x      = nullptr;
+    float* hit_point_y      = nullptr;
+    float* hit_point_z      = nullptr;
+    float* hit_normal_x     = nullptr;
+    float* hit_normal_y     = nullptr;
+    float* hit_normal_z     = nullptr;
+    float* hit_tangent_x    = nullptr;
+    float* hit_tangent_y    = nullptr;
+    float* hit_tangent_z    = nullptr;
+    float* hit_bitangent_x  = nullptr;
+    float* hit_bitangent_y  = nullptr;
+    float* hit_bitangent_z  = nullptr;
+    int*   hit_material_id  = nullptr;
+    int*   hit_front_face   = nullptr;  // 0/1
+    int*   hit_is_delta     = nullptr;  // 0/1
+    int*   hit_valid        = nullptr;  // 0 = miss, 1 = hit
+};
+
+// Allocation helper for hit buffers. Returns true on success.
+bool allocateGPUWavefrontHitBuffers(GPUWavefrontHitBuffers& hb, int capacity);
+void freeGPUWavefrontHitBuffers(GPUWavefrontHitBuffers& hb);
 
 }  // namespace astroray::wavefront
 

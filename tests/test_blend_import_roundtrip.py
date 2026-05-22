@@ -136,3 +136,45 @@ def test_round_trip_matches_authored_values(authored_blend_path):
     fov_deg = r.cam_args[3]
     # 24mm sensor / 2 / 50mm lens → atan(0.24) → ~26.99° vertical FOV.
     assert 25.0 < fov_deg < 29.0
+
+
+def test_real_renderer_accepts_dynamic_attrs(authored_blend_path):
+    """Regression test for pkg100 — real pybind11 Renderer must accept intrinsics.
+
+    The _FakeRenderer stub has a __dict__ (plain Python class), so
+    `renderer._cam_intrinsics = {...}` succeeds against the stub. The real
+    pybind11 astroray.Renderer (without py::dynamic_attr()) has no __dict__ and
+    raises AttributeError on dynamic attribute assignment. This test exercises
+    the real binding to ensure the fix (Axis 2: return intrinsics up the call
+    chain) works correctly.
+
+    Skipped when astroray module is unavailable (e.g., CI without a built .pyd).
+    """
+    astroray = pytest.importorskip("astroray")
+
+    # Use the real pybind11 Renderer, not the stub.
+    renderer = astroray.Renderer()
+
+    # This call must not raise AttributeError. Prior to the fix, it would fail at
+    # scene_builder.py:175 with "no attribute '_cam_intrinsics' and no __dict__".
+    result = import_blend(authored_blend_path, renderer=renderer, width=512, height=512)
+
+    # Verify the renderer was populated and setup_camera was called.
+    assert result is renderer
+
+    # Verify stats are attached and include camera intrinsics.
+    assert hasattr(renderer, "_blend_import_stats")
+    stats = renderer._blend_import_stats
+    assert isinstance(stats, dict)
+    assert "cam_intrinsics" in stats
+    assert stats["cam_intrinsics"] is not None
+
+    # Verify the intrinsics dict has the expected keys.
+    intrinsics = stats["cam_intrinsics"]
+    assert "eye" in intrinsics
+    assert "target" in intrinsics
+    assert "up" in intrinsics
+    assert "fov" in intrinsics
+    assert "aspect" in intrinsics
+    assert "near" in intrinsics
+    assert "far" in intrinsics

@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon / importer tooling)
 **Track:** A (core quality / correctness — small, well-localized C++/Python fix; not a hardware-gated package)
 **Codex-paste-ready:** yes — defect is fully localized to three named files with exact line citations, the fix is a one-of-N small change with no algorithm research required (CLAUDE.md §6 N/A: this is plumbing, not a physics/numerical algorithm), and the acceptance test is mechanically specified. The only judgement call is the fix-axis choice, which the spec lays out explicitly.
-**Status:** open
+**Status:** done
 **Depends on:** none
 **Estimated effort:** small (well under a day; the change itself is a few lines, most of the time is the real-Renderer regression test)
 

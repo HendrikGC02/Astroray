@@ -178,12 +178,40 @@ LightSample TreeLightSampler::sample(const Vec3& point, const Vec3& normal,
 }
 
 float TreeLightSampler::pdfValue(const Vec3& point, const Vec3& dir) const {
-    // For MIS, we need to compute the pdf of sampling direction `dir` from `point`.
-    // This requires: (1) tree pdf for selecting the light, (2) light's pdf for sampling that direction.
-    // Since we don't have the light index here, this is expensive (need to trace ray and find hit light).
-    // For Phase 2, fall back to zero (no MIS for tree sampler yet; defer to refinement).
-    // TODO: Implement proper pdf evaluation in pkg86-B.
-    return 0.0f;
+    // For MIS, we compute the pdf of sampling direction `dir` from `point`.
+    // This requires summing over all lights that could be sampled in that direction:
+    //   pdf = sum_i [ tree_pdf(i) * light_i.pdfValue(point, dir) ]
+    // This mirrors PowerLightSampler::pdfValue but uses tree selection probabilities.
+
+    if (tree_->empty()) return 0.0f;
+
+    const auto& lights = lightList_->getLights();
+    const auto& dedicatedLights = lightList_->getDedicatedLights();
+
+    // We need a normal for tree traversal. Since we don't have the actual surface normal here,
+    // use the direction as a proxy (assume normal ≈ -dir for backfacing logic).
+    // This is a heuristic; proper MIS would cache the shading normal from the hit point.
+    Vec3 normal = -dir.normalized();
+
+    float pdf = 0.0f;
+
+    // Legacy Hittables.
+    for (size_t i = 0; i < lights.size(); ++i) {
+        float treePdf = tree_->pdf(point, normal, static_cast<int>(i), false);
+        if (treePdf > 0.0f) {
+            pdf += treePdf * lights[i]->pdfValue(point, dir);
+        }
+    }
+
+    // Dedicated Lights.
+    for (size_t i = 0; i < dedicatedLights.size(); ++i) {
+        float treePdf = tree_->pdf(point, normal, static_cast<int>(i), true);
+        if (treePdf > 0.0f) {
+            pdf += treePdf * dedicatedLights[i]->pdfLi(point, dir);
+        }
+    }
+
+    return pdf;
 }
 
 bool TreeLightSampler::empty() const {

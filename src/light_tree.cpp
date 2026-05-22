@@ -172,17 +172,16 @@ int LightTree::buildRecursive(int start, int end, int depth) {
 
     int nodeIdx = static_cast<int>(nodes.size());
     nodes.emplace_back();
-    LightTreeNode& node = nodes[nodeIdx];
 
     // Compute bounding box and orientation cone for this cluster.
-    node.bbox = emitters[start].bbox;
-    node.bcone = emitters[start].bcone;
-    node.energy = emitters[start].energy;
+    AABB bbox = emitters[start].bbox;
+    OrientationBounds bcone = emitters[start].bcone;
+    float energy = emitters[start].energy;
 
     for (int i = start + 1; i < end; ++i) {
-        node.bbox = node.bbox.merge(emitters[i].bbox);
-        node.bcone = OrientationBounds::merge(node.bcone, emitters[i].bcone);
-        node.energy += emitters[i].energy;
+        bbox = bbox.merge(emitters[i].bbox);
+        bcone = OrientationBounds::merge(bcone, emitters[i].bcone);
+        energy += emitters[i].energy;
     }
 
     int numEmitters = end - start;
@@ -193,8 +192,11 @@ int LightTree::buildRecursive(int start, int end, int depth) {
 
     if (numEmitters <= maxLeafSize || depth >= maxDepth) {
         // Create leaf.
-        node.firstEmitter = start;
-        node.numEmitters = numEmitters;
+        nodes[nodeIdx].bbox = bbox;
+        nodes[nodeIdx].bcone = bcone;
+        nodes[nodeIdx].energy = energy;
+        nodes[nodeIdx].firstEmitter = start;
+        nodes[nodeIdx].numEmitters = numEmitters;
         return nodeIdx;
     }
 
@@ -203,8 +205,11 @@ int LightTree::buildRecursive(int start, int end, int depth) {
     float splitCost;
     if (!shouldSplit(start, end, splitAxis, splitIndex, splitCost)) {
         // Split not beneficial; make leaf.
-        node.firstEmitter = start;
-        node.numEmitters = numEmitters;
+        nodes[nodeIdx].bbox = bbox;
+        nodes[nodeIdx].bcone = bcone;
+        nodes[nodeIdx].energy = energy;
+        nodes[nodeIdx].firstEmitter = start;
+        nodes[nodeIdx].numEmitters = numEmitters;
         return nodeIdx;
     }
 
@@ -218,8 +223,15 @@ int LightTree::buildRecursive(int start, int end, int depth) {
                      });
 
     // Recurse.
-    node.leftChild = buildRecursive(start, splitIndex, depth + 1);
-    node.rightChild = buildRecursive(splitIndex, end, depth + 1);
+    int leftChild = buildRecursive(start, splitIndex, depth + 1);
+    int rightChild = buildRecursive(splitIndex, end, depth + 1);
+
+    // Write to node after recursion (safe from reallocation).
+    nodes[nodeIdx].bbox = bbox;
+    nodes[nodeIdx].bcone = bcone;
+    nodes[nodeIdx].energy = energy;
+    nodes[nodeIdx].leftChild = leftChild;
+    nodes[nodeIdx].rightChild = rightChild;
 
     return nodeIdx;
 }
@@ -337,6 +349,24 @@ LightTree::PickResult LightTree::pick(const Vec3& point, const Vec3& normal, flo
 // LightTree::pdf — compute PDF for a given light index
 // ============================================================================
 
+// Helper: check if a subtree contains a given emitter index.
+bool LightTree::subtreeContainsEmitter(int nodeIdx, int emitterIdx) const {
+    if (nodeIdx < 0 || nodeIdx >= static_cast<int>(nodes.size())) {
+        return false;
+    }
+
+    const LightTreeNode& node = nodes[nodeIdx];
+    if (node.isLeaf()) {
+        int leafStart = node.firstEmitter;
+        int leafEnd = node.firstEmitter + node.numEmitters;
+        return emitterIdx >= leafStart && emitterIdx < leafEnd;
+    }
+
+    // Recurse into children.
+    return subtreeContainsEmitter(node.leftChild, emitterIdx) ||
+           subtreeContainsEmitter(node.rightChild, emitterIdx);
+}
+
 float LightTree::pdf(const Vec3& point, const Vec3& normal, int lightIndex,
                      bool isDedicated) const {
     // Find the emitter in the flat array.
@@ -348,11 +378,12 @@ float LightTree::pdf(const Vec3& point, const Vec3& normal, int lightIndex,
         }
     }
 
-    if (emitterIdx < 0) {
+    if (emitterIdx < 0 || nodes.empty()) {
         return 0.0f;
     }
 
     // Walk the tree to compute the probability of reaching this emitter.
+    // This mirrors the traversal logic in pick().
     float pdf = 1.0f;
     int nodeIdx = 0;
 
@@ -365,32 +396,32 @@ float LightTree::pdf(const Vec3& point, const Vec3& normal, int lightIndex,
         float rightImp = importance(right, point, normal);
         float totalImp = leftImp + rightImp;
 
+        // Determine which subtree contains our target emitter.
+        bool inLeft = subtreeContainsEmitter(node.leftChild, emitterIdx);
+        bool inRight = subtreeContainsEmitter(node.rightChild, emitterIdx);
+
+        if (!inLeft && !inRight) {
+            // Emitter not in this subtree (shouldn't happen).
+            return 0.0f;
+        }
+
         if (totalImp < 1e-8f) {
+            // Both children have zero importance. Uniform fallback.
             pdf *= 0.5f;
-            // Arbitrarily pick left; if emitter is in right, this path is wrong.
-            // For simplicity, assume we'd have picked left. This is a corner case.
-            nodeIdx = node.leftChild;
+            nodeIdx = inLeft ? node.leftChild : node.rightChild;
         } else {
             float leftProb = leftImp / totalImp;
-            // Determine which branch contains the emitter.
-            // We need to know the leaf index for the emitter. Walk tree again.
-            // This is inefficient; a production implementation would cache leaf indices.
-            // For Phase 2, use a linear scan over leaves.
-
-            // Simplified: check if emitter is in left or right subtree.
-            // We don't have leaf indices cached, so walk recursively.
-            // For now, assume we can determine this by emitter index range.
-            // (This is a simplification; full implementation would cache subtree ranges.)
-
-            // Hack: assume left subtree covers [leaf.firstEmitter, splitIndex) and right covers [splitIndex, leaf.firstEmitter + numEmitters).
-            // Since we don't have this info here, just return uniform pdf for now.
-            // TODO: Fix this in refinement phase.
-
-            return 0.0f;  // Placeholder; proper pdf requires tree-walk cache.
+            if (inLeft) {
+                pdf *= leftProb;
+                nodeIdx = node.leftChild;
+            } else {
+                pdf *= (1.0f - leftProb);
+                nodeIdx = node.rightChild;
+            }
         }
     }
 
-    // At leaf: uniform pdf over emitters.
+    // At leaf: uniform pdf over emitters in the leaf.
     const LightTreeNode& leaf = nodes[nodeIdx];
     pdf *= 1.0f / leaf.numEmitters;
 

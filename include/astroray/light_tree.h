@@ -139,6 +139,9 @@ private:
     // Compute importance of a node from a shading point.
     // Mirrors Cycles light_tree_importance (kernel/light/tree.h, Apache-2.0).
     float importance(const LightTreeNode& node, const Vec3& point, const Vec3& normal) const;
+
+    // Helper for pdf(): check if a subtree contains a given emitter index.
+    bool subtreeContainsEmitter(int nodeIdx, int emitterIdx) const;
 };
 
 } // namespace astroray

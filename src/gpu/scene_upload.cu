@@ -309,6 +309,24 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             if (matName.empty()) matName = "Unnamed_Material_" + std::to_string(gs.materialId);
             MurmurHash3_x86_32(matName.c_str(), static_cast<int>(matName.length()), 0, &gs.materialHash);
             r.spheres.push_back(gs);
+
+            // pkg64-gpu Phase 2: gather caustic-caster spheres inline.
+            // Check if this sphere is flagged + transmissive + IOR > 1.
+            if (gs.isCausticCaster) {
+                const auto& mat = sph->getMaterial();
+                if (mat && mat->isTransmissive()) {
+                    float ior = mat->getIOR();
+                    if (ior > 1.0f) {
+                        // primId is the index into r.prims that will be assigned next.
+                        int primIdx = (int)orderedPrims.size() - 1;
+                        astroray::manifold::device::GSMSCaster gc;
+                        gc.center = gs.center;
+                        gc.radius = gs.radius;
+                        gc.primId = primIdx;
+                        r.smsCasters.push_back(gc);
+                    }
+                }
+            }
         } else {
             // pkg85-C: keep r.prims index-aligned with the BVH's orderedPrims
             // by pushing a GPRIM_SKIP placeholder for non-{Triangle,Sphere}
@@ -345,6 +363,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         gl.cumulativePower = powerDist[i];
         r.lights.push_back(gl);
     }
+
+    // (pkg64-gpu Phase 2 caster gathering moved inline during sphere loop above)
 
     // --- pkg54a: Spectral profile table for the multi-wavelength kernel ---
     // Walk uploaded materials in order; assign each a profileIndex if its CPU

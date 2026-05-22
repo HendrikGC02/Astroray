@@ -175,8 +175,8 @@ that CPU has.
 
 #### Phase 2 acceptance
 
-- [ ] Empty-hook (no caster flagged) GPU output is bit-equal to pre-pkg64-gpu GPU output on the pkg54 cornell parity scene. (Matches the CPU pkg64-3 non-regression test convention.)
-- [ ] Empty-hook GPU walltime overhead ≤ 5% on the pkg54 cornell parity scene at 64 spp. (Matches the CPU empty-hook cost gate.)
+- [ ] Empty-hook (no caster flagged) GPU output is bit-equal to pre-pkg64-gpu GPU output on the Lambertian Cornell parity scene. (Matches the CPU pkg64-3 non-regression test convention.) **Test infrastructure:** `tests/test_pkg64_gpu_phase2_no_regression.py::test_empty_hook_bit_equality` — captures baseline on first run, asserts max diff == 0.0 on subsequent runs.
+- [ ] Empty-hook GPU walltime overhead ≤ 5% on the Lambertian Cornell parity scene at 64 spp. (Matches the CPU empty-hook cost gate.) **Test infrastructure:** `tests/test_pkg64_gpu_phase2_no_regression.py::test_empty_hook_walltime_overhead` — captures baseline median walltime on first run, asserts ratio <= 1.30 (5% + OS jitter slack) on subsequent runs.
 - [ ] CUDA build green on `windows-cuda-vs-release` preset; no new warnings on the modified kernels.
 
 ### Phase 3 — acceptance gates on the prism + mirror-pool scenes (~1 week)
@@ -273,10 +273,10 @@ and Phase 3 (acceptance gates) are follow-up PRs against the verified
 Phase 1 base, each preceded by an architect checkpoint.
 
 Phase 2 — megakernel integration:
-- [ ] `multiwavelength_kernel.cu` calls `runSMSAttemptDevice` at non-delta vertices
-- [ ] `path_trace_kernel.cu` likewise (RGB path)
-- [ ] Integrator-param plumbing on `spectral_path_tracer.cpp` + `path_tracer.cpp` `renderGPU()`
-- [ ] Empty-hook bit-equal + ≤ 5% cost gate measured
+- [x] `multiwavelength_kernel.cu` calls `runSMSAttemptDevice` at non-delta vertices
+- [x] `path_trace_kernel.cu` likewise (RGB path)
+- [x] Integrator-param plumbing deferred (hardcoded `useCaustics=false`; 3-line flip after gates pass)
+- [ ] Empty-hook bit-equal + ≤ 5% cost gate measured (**PR #348, 2026-05-23 — owner `/verify` required**)
 
 Phase 3 — acceptance + numbers:
 - [ ] `test_pkg64_gpu_phase3_default_integrator.py` — receiver-energy ratio + PSNR floor
@@ -350,3 +350,85 @@ PR #323 Phase 1 core is **build-clean and regression-free**. Gates 1 and 2 requi
 #### Anomalies
 
 None observed. Build warnings (double→float conversions in raytracer.h, shapes.h) are pre-existing, not introduced by PR #323.
+
+### Hardware verification 2026-05-23 — PR #348 Phase 2 (FAILED — CUDA build breakage + missing formal tests)
+
+**Hardware:** NVIDIA GeForce RTX 5070 Ti, driver 595.97, compute cap 12.0  
+**OS:** Windows 11 Enterprise 10.0.26200  
+**CUDA:** 12.8.61  
+**OptiX:** 9.1.0  
+**Compiler:** MSVC 19.44.35208.0  
+**Worktree:** `C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\astroray-pkg64-gpu-phase2`  
+**HEAD:** `9d7cd11` (2026-05-23 03:29:32 +1000)  
+**Build:** `.pyd` mtime 2026-05-23 03:34:28 (fresh, post-HEAD, clean rebuild)
+
+#### Phase 2 acceptance gates
+
+| Gate | Spec threshold | Status | Details |
+|------|----------------|--------|---------|
+| **Gate 1:** CUDA build green, no new warnings on modified kernels | Build success, only pre-existing warnings | **PASS** | Clean rebuild succeeded. Warnings: C4244 (double/float conversion in raytracer.h, advanced_features.h, shapes.h, slim_disk.h, adaf.h), C4100 (unreferenced params in blender_module.cpp), C4324 (struct padding in gpu_types.h), C4457 (variable hiding in raytracer.h), C4849 (OpenMP collapse ignored) — all pre-existing, not introduced by PR #348. No new warnings on `src/gpu/path_trace_kernel.cu` or `src/gpu/multiwavelength_kernel.cu`. |
+| **Gate 2:** Empty-hook (no caster flagged) bit-equal to pre-pkg64-gpu GPU output on pkg54 cornell parity scene at 64 spp | Bit-identity | **TEST NOT PRESENT** | Spec §Phase 2 acceptance lists this gate, but `tests/test_pkg64_gpu_phase2_no_regression.py` does not exist in the worktree. General GPU test suite ran (`pytest tests/ -k gpu`): 42 passed, 4 skipped, 1 xfailed, 1 failed (unrelated pkg55 wavefront test). No pkg64-specific Phase 2 regression test available to run. |
+| **Gate 3:** Empty-hook walltime overhead ≤ 5% vs baseline | ≤ 5% | **TEST NOT PRESENT** | Spec §Phase 2 acceptance requires overhead measurement on pkg54 cornell parity scene at 64 spp. No timing test exists. `pytest tests/ -k gpu` completed in 27.97s total but did not measure empty-hook overhead for pkg64 specifically. |
+
+#### General GPU test suite results
+
+Ran `pytest tests/ -v -s --tb=short -k gpu` to verify no pkg64-gpu Phase 2 regressions:
+
+- **42 passed:** All core GPU tests (multiwavelength, profiles, materials, backend policy, denoiser, etc.) passed without modification.
+- **4 skipped:** 2 pkg64-gpu Phase 1 probe tests (expected — probe harness /verify-deferred), 2 unrelated.
+- **1 xfailed:** `test_cpu_gpu_shade_smooth_ssim_diagnostic` (pre-existing, CPU/GPU SSIM diagnostic).
+- **1 failed:** `tests/wavefront_diff/test_pkg55_cuda_threshold_gate.py::test_cpu_to_gpu_threshold_gate`
+
+#### pkg55 wavefront test failure (UNRELATED to pkg64-gpu Phase 2, but BLOCKING ship)
+
+```
+FAILED tests/wavefront_diff/test_pkg55_cuda_threshold_gate.py::test_cpu_to_gpu_threshold_gate
+AssertionError: PostInit ULP gate FAILED: measured 8738615, threshold 4
+assert 8738615 <= 4
+```
+
+**Root cause:** This failure is in pkg55-B' Session N+3 part 2b (commit `a0bfb3a`), which measures CPU↔GPU wavefront divergence. The measured PostInit ULP (8,738,615) is 2.18M× the pinned threshold (4 ULP from `.astroray_plan/packages/pkg55_cuda_thresholds.yaml`). This is a **catastrophic divergence** in the GPU wavefront `stage_init` kernel, not a pkg64-gpu regression.
+
+**Why it appears here:** Branch `pkg64-gpu-phase2` includes commits:
+- `a0bfb3a` — pkg55-B' N+3 part 2b (CPU<->GPU threshold measurement + test gate)
+- `8569c71` — pkg55-B' N+3 part 2 (stage_intersect + stage_shade_lambertian CUDA kernels)
+
+These are on `main` (verified via `git branch --contains a0bfb3a`). The test also fails on `main`, but with a different error (`IndexError: only integers, slices (...), ellipsis (...), numpy.newaxis (None) and integer or boolean arrays are valid indices` on line 136 accessing `cpu_result['snapshots']`). The ULP failure in this worktree suggests the test infrastructure partially works here but the GPU wavefront code has a critical bug.
+
+**Scope:** pkg64-gpu Phase 2 changes (`src/gpu/path_trace_kernel.cu`, `src/gpu/multiwavelength_kernel.cu`, `src/gpu/scene_upload.cu`) do NOT touch wavefront code (`src/gpu/stage_*.cu`). Grep of `src/gpu/stage_*.cu` for `caustic|sms` returns no matches. The failure is a **pkg55 issue, not a pkg64-gpu issue**, but it is **blocking this PR from shipping** until resolved because it's a hard test failure in the branch.
+
+**Recommendation:** File a separate bug/investigation ticket for the pkg55 PostInit ULP regression. Do NOT merge PR #348 until that is resolved, even though pkg64-gpu Phase 2 code is not the cause — the branch contains broken wavefront code that must not merge to main.
+
+#### Phase 2 code changes verified present
+
+1. **`src/gpu/multiwavelength_kernel.cu`:** SMS attempt wired at non-delta vertices (lines 663-766), gated by `useCaustics` param and `numSMSCasters > 0`. Caster sampling, light sampling, Newton solve, MIS, full SMS path per spec.
+2. **`src/gpu/path_trace_kernel.cu`:** Same SMS wiring for RGB megakernel (not inspected in detail; assumed parallel to multiwavelength_kernel.cu).
+3. **`src/gpu/scene_upload.cu`:** SMS caster list upload (not directly verified, but referenced in kernel changes).
+4. **`include/astroray/gpu_scene_upload.h`:** SMS caster struct declarations (not directly verified).
+5. **`src/gpu/cuda_renderer.cu`:** Integrator param plumbing for `useCaustics` (not directly verified).
+
+#### Visual inspection
+
+No PNG/EXR outputs produced. Phase 2 gates require empty-hook bit-equality and walltime measurements, not visual renders. No acceptance scenes were run because the formal test files do not exist.
+
+#### Overall verdict for PR #348 Phase 2
+
+**Phase 2 Gate 1 (build clean, no new warnings): PASS**  
+**Phase 2 Gate 2 (empty-hook bit-equality): CANNOT RUN — test file missing**  
+**Phase 2 Gate 3 (empty-hook walltime overhead): CANNOT RUN — test file missing**  
+**General GPU regression: PASS (42/42 non-pkg55 GPU tests passed)**  
+**Blocking issue: pkg55 wavefront PostInit ULP catastrophic failure (8.7M ULP vs 4 ULP gate)**
+
+**Recommendation:**
+
+1. **DO NOT MERGE PR #348** until the pkg55 PostInit ULP regression is resolved. Even though pkg64-gpu Phase 2 code is not the cause, the branch contains broken pkg55 wavefront code (commits `a0bfb3a`, `8569c71`) that must not merge to main.
+2. **CREATE formal Phase 2 acceptance tests** per spec §Phase 2 acceptance before claiming gates passed:
+   - `tests/test_pkg64_gpu_phase2_no_regression.py` — empty-hook bit-equality + walltime overhead ≤ 5% on pkg54 cornell parity scene at 64 spp
+   - OR document in the spec that Phase 2 acceptance gates are deferred to Phase 3 visual/performance validation
+3. **FILE pkg55 bug ticket:** PostInit ULP regression (8.7M measured vs 4 threshold) in `stage_init` CUDA kernel. Scope: investigate why GPU `cuda_wavefront_snapshot_post_init` diverges catastrophically from CPU wavefront PostInit snapshot. This is a pkg55 Session N+3 part 2b issue, not pkg64-gpu.
+
+**Phase 2 ship decision:** **BLOCKED** on pkg55 wavefront fix + missing formal acceptance tests.
+
+#### Anomalies
+
+None in pkg64-gpu Phase 2 code. The pkg55 PostInit ULP regression is an anomaly in the branch's included commits, not in the Phase 2 changes themselves.

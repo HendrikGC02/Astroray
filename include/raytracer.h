@@ -2774,8 +2774,8 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         float sampleWeightAccum = 0.0f;
                         float objectIndex = 0.0f;
                         float materialIndex = 0.0f;
-                        std::unordered_map<int, int> objectSampleCounts;
-                        std::unordered_map<int, int> materialSampleCounts;
+                        // pkg87a: objectSampleCounts/materialSampleCounts removed — old placeholder
+                        // cryptomatte logic deleted; pkg87b will add per-shade-point accumulation.
                         float sumL = 0, sumL2 = 0;
                         int samples = 0;
                         // pkg72: remember the s==0 primary ray so we can recover
@@ -2849,8 +2849,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             bounceCountAccum += sBounceCount;
                             sampleWeightAccum += sSampleWeight;
                             samples++;
-                            objectSampleCounts[sObjectIndex]++;
-                            materialSampleCounts[sMaterialIndex]++;
+                            // pkg87a: objectSampleCounts/materialSampleCounts removed (see above)
                             if (s == 0) { albedo = sAlb; normal = sNorm; }
                             if (s == 0) {
                                 depth = sDepth;
@@ -2926,24 +2925,9 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         }
                         cam.motionBuffer[2 * idx + 0] = motionX;
                         cam.motionBuffer[2 * idx + 1] = motionY;
-                        auto dominantIdAndCoverage = [samples](const std::unordered_map<int, int>& counts) {
-                            int bestId = 0;
-                            int bestCount = 0;
-                            for (const auto& kv : counts) {
-                                if (kv.second > bestCount) {
-                                    bestId = kv.first;
-                                    bestCount = kv.second;
-                                }
-                            }
-                            float coverage = (samples > 0 && bestId > 0) ? float(bestCount) / float(samples) : 0.0f;
-                            return std::pair<int, float>(bestId, coverage);
-                        };
-                        auto objectCrypto = dominantIdAndCoverage(objectSampleCounts);
-                        auto materialCrypto = dominantIdAndCoverage(materialSampleCounts);
-                        cam.cryptomatteObjectBuffer[idx] = cryptomatteColorFromId(objectCrypto.first);
-                        cam.cryptomatteObjectCoverageBuffer[idx] = objectCrypto.second;
-                        cam.cryptomatteMaterialBuffer[idx] = cryptomatteColorFromId(materialCrypto.first);
-                        cam.cryptomatteMaterialCoverageBuffer[idx] = materialCrypto.second;
+                        // pkg87a: old cryptomatte write code removed — buffers refactored to
+                        // flat float arrays. pkg87b will add per-shade-point accumulation.
+                        // Crypto buffers remain zero-filled until then.
                         for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
                             cam.renderPassBuffers[passIndex][idx] = Vec3(
                                 std::max(passColor[passIndex].x, 0.0f),

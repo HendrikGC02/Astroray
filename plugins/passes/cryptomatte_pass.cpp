@@ -1,6 +1,7 @@
-// Cryptomatte pass plugin skeleton (pkg87a)
-// Reads crypto_object / crypto_material buffers and (future pkg87c) writes EXR.
-// Non-functional at pkg87a stage — buffers are zero-filled until pkg87b populates them.
+// Cryptomatte pass plugin — normalisation (pkg87c)
+// References:
+// - Cycles intern/cycles/kernel/film/cryptomatte_passes.h film_cryptomatte_post (Apache-2.0)
+// - Psyop Cryptomatte Specification v1.2.0 §2 weight normalization (BSD-3-Clause)
 
 #include "astroray/pass.h"
 #include "astroray/register.h"
@@ -10,24 +11,63 @@
 class CryptomattePass : public Pass {
 public:
     explicit CryptomattePass(const astroray::ParamDict&) {}
+
     std::string name() const override { return "Cryptomatte"; }
 
     void execute(Framebuffer& fb) override {
-        // pkg87a: infrastructure-only. The crypto buffers exist and are
-        // zero-filled; nothing populates them yet (that is pkg87b).
-        // pkg87c will add EXR write, manifest emission, and Blender integration.
-        //
-        // For now, validate buffers are accessible (smoke test).
-        const float* objBuf = fb.buffer("crypto_object");
-        const float* matBuf = fb.buffer("crypto_material");
+        float* objBuf = fb.buffer("crypto_object");
+        float* matBuf = fb.buffer("crypto_material");
         if (!objBuf || !matBuf) {
             return;  // Crypto passes not enabled
         }
 
-        // pkg87a acceptance: buffers are allocated and readable.
-        // No further action until pkg87b provides data to sort.
-        (void)objBuf;
-        (void)matBuf;
+        int width = fb.width();
+        int height = fb.height();
+        int depth = fb.cryptomatteDepth();  // typically 6
+
+        // Step 1: Sort each pixel's ranks weight-descending
+        // Per Cycles film_cryptomatte_post (Apache-2.0): sorting happens before normalization.
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                int pixelOffset = (y * width + x) * depth * 2;
+                crypto_sort_ranks(objBuf + pixelOffset, depth);
+                crypto_sort_ranks(matBuf + pixelOffset, depth);
+            }
+        }
+
+        // Step 2: Normalize per-pixel weights (Σ weight = 1 on hit pixels, 0 on sky)
+        // Per Cycles film_cryptomatte_post, normalisation happens after sorting.
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                int pixelOffset = (y * width + x) * depth * 2;
+
+                // Object normalization
+                float objSum = 0.0f;
+                for (int rank = 0; rank < depth; ++rank) {
+                    objSum += objBuf[pixelOffset + rank * 2 + 1];
+                }
+                if (objSum > 0.0f) {
+                    for (int rank = 0; rank < depth; ++rank) {
+                        objBuf[pixelOffset + rank * 2 + 1] /= objSum;
+                    }
+                }
+
+                // Material normalization
+                float matSum = 0.0f;
+                for (int rank = 0; rank < depth; ++rank) {
+                    matSum += matBuf[pixelOffset + rank * 2 + 1];
+                }
+                if (matSum > 0.0f) {
+                    for (int rank = 0; rank < depth; ++rank) {
+                        matBuf[pixelOffset + rank * 2 + 1] /= matSum;
+                    }
+                }
+            }
+        }
+
+        // Note: Channel packing + EXR emission happens in Blender addon (blender_module.cpp),
+        // which reads the normalised crypto buffers and writes them to RenderResult passes.
+        // The pass plugin only sorts and normalises the ranked histograms.
     }
 };
 

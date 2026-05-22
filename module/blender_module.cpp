@@ -1049,6 +1049,27 @@ public:
         return renderer.getSceneObjectCount();
     }
 
+    // pkg87c — Cryptomatte name setters
+    bool setObjectName(int objectId, const std::string& name) {
+        return renderer.setObjectName(objectId, name);
+    }
+
+    void setMaterialName(int materialId, const std::string& name) {
+        if (materials.count(materialId)) {
+            materials[materialId]->setName(name);
+        }
+    }
+
+    void setCryptomatteEnabled(bool enabled) {
+        renderer.setCryptomatteEnabled(enabled);
+    }
+
+    void setCryptomatteDepth(int depth) {
+        if (camera) {
+            camera->cryptomatteDepth = depth;
+        }
+    }
+
     void setUseTransparentFilm(bool use) {
         renderer.setUseTransparentFilm(use);
     }
@@ -1858,6 +1879,18 @@ PYBIND11_MODULE(astroray, m) {
              "through flagged objects when use_refractive_caustics=True.")
         .def("caustic_caster_count", &PyRenderer::getCausticCasterCount)
         .def("scene_object_count", &PyRenderer::getSceneObjectCount)
+        .def("set_object_name", &PyRenderer::setObjectName,
+             "object_id"_a, "name"_a,
+             "pkg87c — Set object name for Cryptomatte hashing (by addObject order)")
+        .def("set_material_name", &PyRenderer::setMaterialName,
+             "material_id"_a, "name"_a,
+             "pkg87c — Set material name for Cryptomatte hashing (by create_material return ID)")
+        .def("set_cryptomatte_enabled", &PyRenderer::setCryptomatteEnabled,
+             "enabled"_a,
+             "pkg87c — Enable/disable Cryptomatte per-shade-point accumulation")
+        .def("set_cryptomatte_depth", &PyRenderer::setCryptomatteDepth,
+             "depth"_a,
+             "pkg87c — Set Cryptomatte rank depth (number of ID/weight pairs per pixel)")
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
              "path"_a, "strength"_a = 1.0f,
              "rx"_a = 0.0f, "ry"_a = 0.0f, "rz"_a = 0.0f,

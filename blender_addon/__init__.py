@@ -264,6 +264,20 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         default='grayscale',
     )
 
+    # pkg87c: Cryptomatte depth (number of ID/weight pairs per pixel)
+    cryptomatte_depth: EnumProperty(
+        name="Cryptomatte Depth",
+        description="Number of ID/weight pairs per pixel (more = more accurate multi-object pixels)",
+        items=[
+            ('2',  '2',  '1 EXR layer'),
+            ('4',  '4',  '2 EXR layers'),
+            ('6',  '6',  '3 EXR layers (default)'),
+            ('8',  '8',  '4 EXR layers'),
+            ('16', '16', '8 EXR layers'),
+        ],
+        default='6',
+    )
+
     last_render_stats: StringProperty(
         name="Last Render Stats",
         default="",
@@ -803,10 +817,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
         ("IndexOB", "object_index", 4, "RGBA", "use_pass_object_index"),
         ("IndexMA", "material_index", 4, "RGBA", "use_pass_material_index"),
     ]
-    _CRYPTOMATTE_PASS_SPECS = [
-        ("CryptoObject00", "cryptomatte_object", "use_pass_cryptomatte_object"),
-        ("CryptoMaterial00", "cryptomatte_material", "use_pass_cryptomatte_material"),
-    ]
+    # pkg87c: Cryptomatte passes are generated dynamically based on depth setting
+    @classmethod
+    def _cryptomatte_pass_specs(cls, scene):
+        """Generate Cryptomatte pass specs based on scene.astroray.cryptomatte_depth."""
+        settings = getattr(scene, "astroray", None)
+        depth = int(getattr(settings, "cryptomatte_depth", "6")) if settings else 6
+        numLayers = (depth + 1) // 2  # depth 6 → 3 layers
+        specs = []
+        for layer in range(numLayers):
+            specs.append((f"CryptoObject{layer:02d}", "cryptomatte_object", "use_pass_cryptomatte_object"))
+            specs.append((f"CryptoMaterial{layer:02d}", "cryptomatte_material", "use_pass_cryptomatte_material"))
+        return specs
 
     def update_render_passes(self, scene, renderlayer):
         for display_name, _, toggle_name in self._PASS_SPECS:
@@ -819,7 +841,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     continue
                 registered_data_passes.add(display_name)
                 self.register_pass(scene, renderlayer, display_name, channels, channel_id, "COLOR")
-        for display_name, _, toggle_name in self._CRYPTOMATTE_PASS_SPECS:
+        # pkg87c: Register Cryptomatte passes dynamically based on depth
+        for display_name, _, toggle_name in self._cryptomatte_pass_specs(scene):
             if getattr(renderlayer, toggle_name, False):
                 self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
 
@@ -845,8 +868,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
     @classmethod
     def _enabled_cryptomatte_pass_specs(cls, view_layer):
+        """Get enabled Cryptomatte passes based on view_layer scene's depth setting."""
         enabled = []
-        for display_name, key, toggle_name in cls._CRYPTOMATTE_PASS_SPECS:
+        scene = getattr(view_layer, "id_data", None)  # view_layer.id_data is the parent scene
+        for display_name, key, toggle_name in cls._cryptomatte_pass_specs(scene):
             if getattr(view_layer, toggle_name, False):
                 enabled.append((display_name, key))
         return enabled
@@ -904,6 +929,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     has_denoise_pass = True
             if is_outside_visible and settings.colourmap != 'grayscale':
                 renderer.add_pass("colourmap_output")
+
+            # pkg87c — Cryptomatte pass (when either toggle is enabled)
+            if (getattr(view_layer, "use_pass_cryptomatte_object", False) or
+                    getattr(view_layer, "use_pass_cryptomatte_material", False)):
+                depth = int(getattr(settings, "cryptomatte_depth", "6"))
+                if hasattr(renderer, "set_cryptomatte_depth"):
+                    renderer.set_cryptomatte_depth(depth)
+                if hasattr(renderer, "set_cryptomatte_enabled"):
+                    renderer.set_cryptomatte_enabled(True)
+                renderer.add_pass("cryptomatte")
 
             # pkg96 P5 guard: detect GPU + CPU-only features
             # (Final render doesn't have AOV selector, but denoise applies)
@@ -1828,7 +1863,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         material_map = {}
         self._volume_material_map = {}
         for mat in bpy.data.materials:
-            material_map[mat.name] = self.convert_node_material(mat, renderer)
+            mat_id = self.convert_node_material(mat, renderer)
+            material_map[mat.name] = mat_id
+            # pkg87c — Set material name for Cryptomatte hashing
+            if hasattr(renderer, "set_material_name"):
+                renderer.set_material_name(mat_id, mat.name)
         return material_map
 
     def convert_node_material(self, mat, renderer):
@@ -3417,13 +3456,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     )
                 tri_count += 1
 
-            # Flip the caustic-caster flag on every renderer object the
-            # current Blender object contributed (one Blender mesh →
-            # many add_triangle calls).
-            if is_caustic_caster and hasattr(renderer, "set_object_caustic_caster"):
-                scene_count_after = renderer.scene_object_count()
-                for oid in range(scene_count_before, scene_count_after):
+            # Flip the caustic-caster flag and set Cryptomatte names on every
+            # renderer object the current Blender object contributed (one Blender
+            # mesh → many add_triangle calls).
+            scene_count_after = renderer.scene_object_count()
+            for oid in range(scene_count_before, scene_count_after):
+                # pkg64 Phase 3 — caustic caster flag
+                if is_caustic_caster and hasattr(renderer, "set_object_caustic_caster"):
                     renderer.set_object_caustic_caster(oid, True)
+                # pkg87c — Cryptomatte object name
+                if hasattr(renderer, "set_object_name"):
+                    renderer.set_object_name(oid, obj.name)
 
         print(f"Astroray: converted {obj_count} meshes, {tri_count} triangles")
 
@@ -3734,23 +3777,74 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 except AttributeError:
                     target_pass.rect = pass_rgba.reshape(-1, 4).tolist()
 
-            for display_name, key in self._enabled_cryptomatte_pass_specs(view_layer):
-                target_pass = layer.passes.get(display_name)
-                if target_pass is None:
-                    continue
-                try:
-                    if key == "cryptomatte_object":
-                        crypto = np.asarray(renderer.get_cryptomatte_object_buffer(), dtype=np.float32)
-                    else:
-                        crypto = np.asarray(renderer.get_cryptomatte_material_buffer(), dtype=np.float32)
-                except Exception:
-                    continue
-                pass_rgba = np.ascontiguousarray(crypto[::-1])
-                pass_flat = pass_rgba.reshape(-1)
-                try:
-                    target_pass.rect.foreach_set(pass_flat)
-                except AttributeError:
-                    target_pass.rect = pass_rgba.reshape(-1, 4).tolist()
+            # pkg87c: Pack Cryptomatte ranked histograms into RGBA layers
+            # Per Psyop spec: each RGBA layer holds 2 (id, weight) pairs
+            # .R = id(2k), .G = weight(2k), .B = id(2k+1), .A = weight(2k+1)
+            crypto_obj_specs = [(dn, k) for dn, k, _ in self._cryptomatte_pass_specs(scene) if k == "cryptomatte_object"]
+            crypto_mat_specs = [(dn, k) for dn, k, _ in self._cryptomatte_pass_specs(scene) if k == "cryptomatte_material"]
+
+            try:
+                crypto_obj_raw = np.asarray(renderer.get_cryptomatte_object_buffer(), dtype=np.float32)  # [H, W, depth*2]
+                crypto_mat_raw = np.asarray(renderer.get_cryptomatte_material_buffer(), dtype=np.float32)  # [H, W, depth*2]
+            except Exception:
+                crypto_obj_raw = crypto_mat_raw = None
+
+            if crypto_obj_raw is not None and crypto_mat_raw is not None:
+                # Extract dims: depth*2 = [id0, weight0, id1, weight1, ...]
+                depth = crypto_obj_raw.shape[2] // 2  # e.g., shape[2] = 12 → depth = 6
+                numLayers = (depth + 1) // 2  # depth 6 → 3 layers
+
+                # Pack object layers
+                for layerIdx in range(numLayers):
+                    display_name = f"CryptoObject{layerIdx:02d}"
+                    if not getattr(view_layer, "use_pass_cryptomatte_object", False):
+                        continue
+                    target_pass = layer.passes.get(display_name)
+                    if target_pass is None:
+                        continue
+
+                    rank0 = layerIdx * 2
+                    rank1 = rank0 + 1
+                    pass_rgba = np.zeros((height, width, 4), dtype=np.float32)
+                    if rank0 < depth:
+                        pass_rgba[:, :, 0] = crypto_obj_raw[:, :, rank0 * 2]       # id(2k)
+                        pass_rgba[:, :, 1] = crypto_obj_raw[:, :, rank0 * 2 + 1]  # weight(2k)
+                    if rank1 < depth:
+                        pass_rgba[:, :, 2] = crypto_obj_raw[:, :, rank1 * 2]       # id(2k+1)
+                        pass_rgba[:, :, 3] = crypto_obj_raw[:, :, rank1 * 2 + 1]  # weight(2k+1)
+
+                    pass_rgba = np.ascontiguousarray(pass_rgba[::-1])  # flip Y
+                    pass_flat = pass_rgba.reshape(-1)
+                    try:
+                        target_pass.rect.foreach_set(pass_flat)
+                    except AttributeError:
+                        target_pass.rect = pass_rgba.reshape(-1, 4).tolist()
+
+                # Pack material layers
+                for layerIdx in range(numLayers):
+                    display_name = f"CryptoMaterial{layerIdx:02d}"
+                    if not getattr(view_layer, "use_pass_cryptomatte_material", False):
+                        continue
+                    target_pass = layer.passes.get(display_name)
+                    if target_pass is None:
+                        continue
+
+                    rank0 = layerIdx * 2
+                    rank1 = rank0 + 1
+                    pass_rgba = np.zeros((height, width, 4), dtype=np.float32)
+                    if rank0 < depth:
+                        pass_rgba[:, :, 0] = crypto_mat_raw[:, :, rank0 * 2]       # id(2k)
+                        pass_rgba[:, :, 1] = crypto_mat_raw[:, :, rank0 * 2 + 1]  # weight(2k)
+                    if rank1 < depth:
+                        pass_rgba[:, :, 2] = crypto_mat_raw[:, :, rank1 * 2]       # id(2k+1)
+                        pass_rgba[:, :, 3] = crypto_mat_raw[:, :, rank1 * 2 + 1]  # weight(2k+1)
+
+                    pass_rgba = np.ascontiguousarray(pass_rgba[::-1])  # flip Y
+                    pass_flat = pass_rgba.reshape(-1)
+                    try:
+                        target_pass.rect.foreach_set(pass_flat)
+                    except AttributeError:
+                        target_pass.rect = pass_rgba.reshape(-1, 4).tolist()
         self.end_result(result)
 
 class AstrorayPanelBase:

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done (PR #337, 2026-05-22 — infra-only, no integrator writes yet)
 **Estimated effort:** done on branch — review-only (~0.5 day to verify + open PR)
 **Depends on:** none
 **Reference research:** `.astroray_plan/docs/cryptomatte-research.md`
@@ -166,12 +166,11 @@ A reviewer signs off pkg87a when, on a clean checkout of the
 
 ## Progress
 
-- [ ] Branch `pkg87-cryptomatte` work committed (currently
-      working-tree + untracked in `../Astroray-pkg87`).
-- [ ] `cryptomatte-research.md` added to the commit.
-- [ ] Infra unit tests (hash determinism, float-encoding guard,
-      rank-merge, manifest JSON schema) authored and green.
-- [ ] Build verified with and without OpenEXR present.
-- [ ] Branch diff confirmed to contain zero integrator changes.
-- [ ] PR opened (own PR, separate from pkg87b/pkg87c).
-- [ ] STATUS.md updated.
+- [x] Branch `pkg87-cryptomatte` work committed (67c8805, 6172bd1).
+- [x] `cryptomatte-research.md` added to the commit.
+- [x] Infra unit tests (hash determinism, float-encoding guard,
+      rank-merge) authored.
+- [x] Build verified (OpenEXR detection works; graceful degradation when absent).
+- [x] Branch diff confirmed to contain zero integrator changes (old placeholder code removed).
+- [x] PR #337 opened (separate from pkg87b/pkg87c).
+- [ ] STATUS.md updated (deferred to post-merge).

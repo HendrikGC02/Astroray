@@ -36,12 +36,14 @@ void launchInitRNG(curandState* d_states, int n, unsigned long long seed);
 void launchPathTraceKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
+    bool useCaustics,  // pkg64-gpu Phase 2
     const GBVHNode*  d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
     const GMaterial*  d_materials,
     const GLight*     d_lights, int numLights, float totalLightPower,
+    const astroray::manifold::device::GSMSCaster* d_smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
     GCameraParams cam,
     float filmExposure,
@@ -77,12 +79,14 @@ void launchMultiwavelengthKernel(
     int samplesPerPixel, int maxDepth,
     float lambdaMin, float lambdaMax, bool useLuminanceOutput,
     bool enableNEE,
+    bool useCaustics,  // pkg64-gpu Phase 2
     const GBVHNode*  d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
     const GMaterial*  d_materials,
     const GLight*     d_lights, int numLights, float totalLightPower,
+    const astroray::manifold::device::GSMSCaster* d_smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
     GCameraParams cam,
     GVec3 backgroundColor, bool hasBackgroundColor,
@@ -118,6 +122,10 @@ struct CUDARenderer::Impl {
     GLight*     d_lights     = nullptr;
     int         numLights    = 0;
     float       totalLightPower = 0.f;
+
+    // pkg64-gpu Phase 2: caustic-caster array (flagged transmissive spheres)
+    astroray::manifold::device::GSMSCaster* d_smsCasters = nullptr;
+    int         numSMSCasters = 0;
 
     // Environment map device buffers
     float* d_envData      = nullptr;
@@ -186,6 +194,7 @@ struct CUDARenderer::Impl {
         if (d_spheres)    { cudaFree(d_spheres);     d_spheres    = nullptr; }
         if (d_materials)  { cudaFree(d_materials);   d_materials  = nullptr; }
         if (d_lights)     { cudaFree(d_lights);      d_lights     = nullptr; }
+        if (d_smsCasters) { cudaFree(d_smsCasters);  d_smsCasters = nullptr; }  // pkg64-gpu Phase 2
         freeEnv();
         if (d_framebuffer){ cudaFree(d_framebuffer); d_framebuffer= nullptr; }
         if (d_rngStates)  { cudaFree(d_rngStates);  d_rngStates  = nullptr; }
@@ -409,9 +418,11 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
     devUpload(r.spheres,   &impl->d_spheres);
     devUpload(r.materials, &impl->d_materials);
     devUpload(r.lights,    &impl->d_lights);
+    devUpload(r.smsCasters, &impl->d_smsCasters);  // pkg64-gpu Phase 2
 
     impl->numLights       = (int)r.lights.size();
     impl->totalLightPower = r.totalLightPower;
+    impl->numSMSCasters   = (int)r.smsCasters.size();  // pkg64-gpu Phase 2
     impl->camera          = r.camera;
     impl->profileCount    = r.profileCount;
 
@@ -625,12 +636,17 @@ void CUDARenderer::render(
     }
 #endif  // ASTRORAY_WAVEFRONT_INTERSECT
 
+    // pkg64-gpu Phase 2: enable caustics only if casters exist and flag is set.
+    // For Phase 2 the flag defaults to false (empty hook matches acceptance gate).
+    bool useCaustics = false;  // TODO Phase 2: wire integrator param
+
     // Launch megakernel
     launchPathTraceKernel(
-        impl->d_framebuffer, width, height, samplesPerPixel, maxDepth,
+        impl->d_framebuffer, width, height, samplesPerPixel, maxDepth, useCaustics,
         impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
         impl->d_materials,
         impl->d_lights, impl->numLights, impl->totalLightPower,
+        impl->d_smsCasters, impl->numSMSCasters,
         impl->envMap,
         impl->camera,
         impl->filmExposure,
@@ -678,12 +694,18 @@ void CUDARenderer::renderMultiwavelength(
         : (unsigned long long)seed;
     launchInitRNG(impl->d_rngStates, totalPixels, rngSeed);
 
+    // pkg64-gpu Phase 2: enable caustics only if casters exist and flag is set.
+    // The flag is controlled by the integrator params (via future GPU surface);
+    // for Phase 2 the flag defaults to false (empty hook matches acceptance gate).
+    bool useCaustics = false;  // TODO Phase 2: wire integrator param
+
     launchMultiwavelengthKernel(
         impl->d_framebuffer, width, height, samplesPerPixel, maxDepth,
-        lambdaMin, lambdaMax, useLuminanceOutput, enableNEE,
+        lambdaMin, lambdaMax, useLuminanceOutput, enableNEE, useCaustics,
         impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
         impl->d_materials,
         impl->d_lights, impl->numLights, impl->totalLightPower,
+        impl->d_smsCasters, impl->numSMSCasters,
         impl->envMap,
         impl->camera,
         impl->backgroundColor, impl->hasBackgroundColor,

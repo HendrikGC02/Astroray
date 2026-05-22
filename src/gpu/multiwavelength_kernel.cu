@@ -22,6 +22,7 @@
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
 #include "astroray/spectrum.h"  // jhEvalSpectrumF + JH LUT accessors (pkg54c)
+#include "astroray/manifold/sms_attempt_device.cuh"  // pkg64-gpu Phase 2
 #include "profile.h"  // pkg55-A: env-gated CUDA-event + NVTX instrumentation
 
 #include <cuda_runtime.h>
@@ -546,15 +547,18 @@ __device__ GSampledSpectrum tracePathMW(
     GSampledWavelengths& lambdas,
     bool useLuminanceOutput,
     bool enableNEE,
+    bool useCaustics,  // pkg64-gpu Phase 2
     const GBVHNode*  bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
+    const astroray::manifold::device::GSMSCaster* smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     const GEnvMap&    envMap,
     const GVec3&      backgroundColor,
     bool              hasBackgroundColor,
+    GRay              primaryRay,  // pkg64-gpu Phase 2: needed for SMS wo_eye
     curandState*      rng)
 {
     const int rrDepth = 3;
@@ -656,6 +660,107 @@ __device__ GSampledSpectrum tracePathMW(
                 lights, numLights, totalLightPower, rng);
         }
 
+        // pkg64-gpu Phase 2: SMS caustic attempt at non-delta vertices.
+        // Mirrors CPU pathTraceSpectral (include/raytracer.h:2427-2437):
+        // disjoint-strategy additive MIS (w_sms ≈ 1, w_nee ≈ 1 for their
+        // respective sample sets; balance heuristic reduction).
+        if (useCaustics && !rec.isDelta && numSMSCasters > 0 && numLights > 0) {
+            // Sample one caster uniformly (mirrors CPU gatherSphereCasters + pick).
+            int cIdx = (int)(curand_uniform(rng) * numSMSCasters);
+            if (cIdx >= numSMSCasters) cIdx = numSMSCasters - 1;
+            const auto& C = smsCasters[cIdx];
+            float casterPickPdf = 1.0f / float(numSMSCasters);
+
+            // Sample one light (mirrors CPU hook's light sampling).
+            // Power-weighted selection via CDF (same pattern as sampleDirectSpectralMW).
+            float u = curand_uniform(rng) * totalLightPower;
+            int lIdx = numLights - 1;
+            for (int li = 0; li < numLights; ++li) {
+                if (u < lights[li].cumulativePower) { lIdx = li; break; }
+            }
+            const GLight& lt = lights[lIdx];
+            int primIdx = lt.primitiveIndex;
+            if (primIdx < 0 || primIdx >= (int)~0u) {
+                // Invalid light index; skip SMS.
+            } else {
+                const GPrimitive& lp = prims[primIdx];
+                astroray::manifold::device::GLightSample ls;
+                ls.pdf = 0.0f;
+
+                if (lp.type == GPRIM_SPHERE) {
+                    const GSphere& lsph = spheres[lp.index];
+                    // Uniform sphere surface sample
+                    float u1 = curand_uniform(rng);
+                    float u2 = curand_uniform(rng);
+                    float z = 1.0f - 2.0f * u1;
+                    float r = sqrtf(fmaxf(0.0f, 1.0f - z * z));
+                    float phi = 2.0f * M_PI_F * u2;
+                    GVec3 localP(r * cosf(phi), r * sinf(phi), z);
+                    ls.position = lsph.center + localP * lsph.radius;
+                    ls.normal = localP;
+                    ls.pdf = 1.0f / (4.0f * M_PI_F * lsph.radius * lsph.radius);
+                    // Emission
+                    const GMaterial& lmat = materials[lsph.materialId];
+                    GSampledSpectrum emitSpec = gpu_material_emitted_spectral(lmat, true, lambdas);
+                    GVec3 xyz = gpu_sampledSpectrumToXYZ(emitSpec, lambdas);
+                    // Convert XYZ to linear sRGB for GLightSample.emission
+                    float r_ =  3.2406f * xyz.x - 1.5372f * xyz.y - 0.4986f * xyz.z;
+                    float g_ = -0.9689f * xyz.x + 1.8758f * xyz.y + 0.0415f * xyz.z;
+                    float b_ =  0.0557f * xyz.x - 0.2040f * xyz.y + 1.0570f * xyz.z;
+                    ls.emission = GVec3(r_, g_, b_);
+                } else {
+                    // Triangle or other primitive — skip for Phase 2 (sphere caster only).
+                    ls.pdf = 0.0f;
+                }
+
+                if (ls.pdf > 0.0f) {
+                    // Get caster material IOR at hero wavelength.
+                    // C.primId is index into prims[]; prims[C.primId].index is the sphere index.
+                    float eta = 1.0f;
+                    const GPrimitive& casterPrim = prims[C.primId];
+                    if (casterPrim.type == GPRIM_SPHERE) {
+                        const GSphere& casterSph = spheres[casterPrim.index];
+                        const GMaterial& casterMat = materials[casterSph.materialId];
+                        if (casterMat.type == GMAT_DIELECTRIC) {
+                            eta = 1.0f / casterMat.ior;
+                        }
+                    }
+
+                    astroray::manifold::device::GSMSConfig cfg;
+                    cfg.seeds = 1;
+                    cfg.maxIterations = 20;
+                    cfg.tolerance = 1e-4f;
+                    cfg.contribClamp = 4.0f;
+
+                    float r1 = curand_uniform(rng);
+                    float r2 = curand_uniform(rng);
+
+                    GSampledSpectrum fSpec;
+                    float w = 0.0f, Tr = 0.0f;
+                    GVec3 Le(0.0f), wi(0.0f);
+
+                    if (astroray::manifold::device::runSMSAttemptDevice(
+                            bvhNodes, prims, tris, spheres, materials,
+                            rec, primaryRay, lambdas, r1, r2, C, eta, casterPickPdf,
+                            ls, cfg, fSpec, w, Le, Tr, wi)) {
+                        // Clamp and accumulate hero-channel contribution
+                        float fHero = fSpec.v[0];
+                        // Convert Le (linear sRGB) to spectral
+                        GSampledSpectrum LeSpec = gpu_rgbToSampledSpectrum(Le, lambdas, GSPEC_RGB_ILLUMINANT);
+                        float LeHero = LeSpec.v[0];
+                        float sampleHero = fHero * LeHero * Tr * w;
+                        if (sampleHero > cfg.contribClamp) sampleHero = cfg.contribClamp;
+                        if (sampleHero < 0.0f) sampleHero = 0.0f;
+
+                        // Additive MIS: write contribution to hero channel only (matches CPU hook).
+                        GSampledSpectrum smsContrib(0.0f);
+                        smsContrib.v[0] = sampleHero;
+                        color += throughput * smsContrib;
+                    }
+                }
+            }
+        }
+
         // Russian roulette
         if (bounce > rrDepth) {
             float p;
@@ -719,12 +824,14 @@ __global__ void multiwavelengthKernel(
     float lambdaMin, float lambdaMax,
     bool  useLuminanceOutput,
     bool  enableNEE,
+    bool  useCaustics,  // pkg64-gpu Phase 2
     const GBVHNode*  bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
+    const astroray::manifold::device::GSMSCaster* smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
     GCameraParams cam,
     GVec3 backgroundColor, bool hasBackgroundColor,
@@ -765,10 +872,13 @@ __global__ void multiwavelengthKernel(
             gpu_sampleBandWavelengths(&localRng, lambdaMin, lambdaMax);
 
         GSampledSpectrum rad = tracePathMW(
-            ray, maxDepth, lambdas, useLuminanceOutput, enableNEE,
+            ray, maxDepth, lambdas, useLuminanceOutput, enableNEE, useCaustics,
             bvhNodes, prims, tris, spheres, materials,
             lights, numLights, totalLightPower,
-            envMap, backgroundColor, hasBackgroundColor, &localRng);
+            smsCasters, numSMSCasters,
+            envMap, backgroundColor, hasBackgroundColor,
+            ray,  // primaryRay for SMS wo_eye
+            &localRng);
 
         GVec3 sample;
         if (useLuminanceOutput) {
@@ -820,12 +930,14 @@ void launchMultiwavelengthKernel(
     int samplesPerPixel, int maxDepth,
     float lambdaMin, float lambdaMax, bool useLuminanceOutput,
     bool enableNEE,
+    bool useCaustics,  // pkg64-gpu Phase 2
     const GBVHNode*  d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
     const GMaterial*  d_materials,
     const GLight*     d_lights, int numLights, float totalLightPower,
+    const astroray::manifold::device::GSMSCaster* d_smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
     GCameraParams cam,
     GVec3 backgroundColor, bool hasBackgroundColor,
@@ -841,9 +953,10 @@ void launchMultiwavelengthKernel(
             (const void*)multiwavelengthKernel, blocks, threadsPerBlock);
         multiwavelengthKernel<<<blocks, threadsPerBlock>>>(
             d_framebuffer, width, height, samplesPerPixel, maxDepth,
-            lambdaMin, lambdaMax, useLuminanceOutput, enableNEE,
+            lambdaMin, lambdaMax, useLuminanceOutput, enableNEE, useCaustics,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, numLights, totalLightPower,
+            d_smsCasters, numSMSCasters,
             envMap, cam, backgroundColor, hasBackgroundColor,
             d_rngStates);
 

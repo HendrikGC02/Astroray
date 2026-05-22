@@ -3,6 +3,7 @@
 // Included by both scene_upload.cu and cuda_renderer.cu.
 
 #include "astroray/gpu_types.h"
+#include "astroray/manifold/sms_attempt_device.cuh"  // pkg64-gpu Phase 2
 #include <vector>
 
 struct SceneUploadResult {
@@ -13,6 +14,9 @@ struct SceneUploadResult {
     std::vector<GMaterial>  materials;
     std::vector<GLight>     lights;
     float totalLightPower = 0.f;
+
+    // pkg64-gpu Phase 2: caustic-caster spheres (flagged + transmissive + IOR > 1)
+    std::vector<astroray::manifold::device::GSMSCaster> smsCasters;
 
     // Camera
     GCameraParams camera{};

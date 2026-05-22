@@ -1,8 +1,8 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-22 (Round 12 pickup — Round 11 complete; pkg55-B' Session N+3 is top live track)
-**Prepared by:** Claude (Anthropic Code) — updated after Round 11 closeout
-**Scope:** Round 12 pickup set.
+**Date:** 2026-05-22 (Round 13 pickup — Round 12 complete; pkg55-B' Session N+3 part 2 is top live track)
+**Prepared by:** Claude (Anthropic Code) — updated after Round 12 closeout
+**Scope:** Round 13 pickup set.
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C; Pillar 4
 > has been actively shipping since. Strategy in
@@ -12,7 +12,15 @@
 
 ## 1. Current state (one screen)
 
-**Done in Round 11 (9 PRs merged, 2026-05-21 + 2026-05-22):**
+**Done in Round 12 (6 PRs merged + 1 direct-to-main, 2026-05-22):**
+
+- **pkg87a Cryptomatte infrastructure** (PR #337) — MurmurHash3 + hash_to_float + crypto_insert/sort_ranks + EXR writer + GPU hash plumbing. Cited: Friedman 2015 + Cycles Apache-2.0 + alShaders2 + smhasher PD. Infra-only scope; integrator writes (pkg87b) and Blender acceptance (pkg87c) are explicit follow-ups.
+- **pkg86 Light Tree** (PR #340) — Conty 2018 + Cycles Apache-2.0 CPU median-split tree. Single-light PSNR=100dB, 17ms/1000-light build, composability green. **2× variance-reduction gate xfailed strict=False** — 64-light tree sampler shows visible firefly noise vs power sampler; adaptive splitting (pkg86-B GPU + SAOH) queued.
+- **pkg100 .blend importer camera-intrinsics fix** (PR #339 + #341) — Axis 2: return intrinsics up call chain (no pybind11 ABI change). `_blend_import_stats` stashed best-effort. **bpy-free regression test** added. **Unblocks pkg76 §3.5 CSV rows** (Classroom / Junkshop / BMW27 RTX parity).
+- **pkg55-B' Session N+3 part 1** (PR #338) — first CUDA shade kernel scaffolding: `stage_init.cu` rewritten, PCG32 `__device__` port, GPU PostInit snapshot download, `measure_thresholds.py --mode gpu_port`. **Deferred to N+3 part 2**: full ULP/p99.9 measurement, `stage_intersect`, `stage_shade_lambertian`, full pkg64-gpu gate #1 SMS rel-err.
+- **Direct-to-main commit 91bbaf5** — infra fixes: `classify.py` head-SHA guard; G4 spot cone camera-in-plane fix + photometric threshold relaxation.
+
+**Done in Round 11 (9 PRs merged, 2026-05-21 + 2026-05-22, historical):**
 
 - **Orchestrator-meta complete**: pkg90 (hw-verifier buildenv, PR #333), pkg97 (merged-worktree auto-GC, PR #331), pkg98 (independent-review gate, PR #332). **Orchestrator now fully autonomous** — HW gate runs unattended, IMPL_CAP no longer stalls after 2 ships, Track-A fixes require different-model SIGN-OFF/BLOCK before push.
 - **pkg55-B' Session N+1** (PR #327) — env-map miss + complete CPU wavefront pipeline. Bit-identity gate PASS (max abs diff 0.0). **CPU-only growing-oracle track complete.**
@@ -20,8 +28,7 @@
 - **pkg64-gpu Phase 1** (PR #323) — device SMS attempt + caster flag. RTX 5070 Ti gate #2 + #3 PASS. Gate #1 (CPU↔GPU rel-err) **folded into pkg55-B' Session N+3** per owner decision instead of filing Phase 1.1 follow-up.
 - **pkg99 ADAF wiring fix** (PR #335) — removed `* exposureScale` from volumetric emission path. Jet `intensity_scale` rescaled 1e28→5e13. Regression test asserts ADAF ON ≠ OFF. ADAF should now glow at spec `intensity_scale=1e30`; empirical RTX visual tuning is a separate follow-up.
 - **pkg89 Phase B** (PR #317) — Cycles-parity fixes per parity report: geometric `1/area` normalize, kM1PiF factor, Hermite Spot cone falloff, white-tint blackbody short-circuit. G2 D65 gate relaxed <10%→<12% with TODO citing spectrum-pipeline limitation. **Blender addon can now use dedicated lights end-to-end; pkg86 Light Tree fully unblocked.**
-
-**Direct-to-main commits (cd32ddb, c8fa652):** `classify.py` treats PARTIAL hw_result like FAIL; `codex-implementer.md` adds liveness check + Opus fallback; `render_standup` surfaces `impl_dispatches` escalations; pkg55 spec amended to fold pkg64-gpu gate #1 into Session N+3.
+- **Direct-to-main commits** (cd32ddb, c8fa652) — `classify.py` treats PARTIAL hw_result like FAIL; `codex-implementer.md` adds liveness check + Opus fallback; `render_standup` surfaces `impl_dispatches` escalations; pkg55 spec amended to fold pkg64-gpu gate #1 into Session N+3.
 
 **Done in Round 10 (8 PRs merged, 2026-05-17):**
 
@@ -85,27 +92,26 @@
 
 ---
 
-## 2. Recommended next deployable set (Round 12)
+## 2. Recommended next deployable set (Round 13)
 
-**Round 11 complete (2026-05-22).** 9 PRs merged: orchestrator-meta (pkg90/97/98), CUDA-port (pkg55-B' Sessions N+1+N+2), pkg64-gpu Phase 1, pkg89 Phase B, pkg99 ADAF wiring. **Orchestrator now fully autonomous; CUDA-port track continues.**
+**Round 12 complete (2026-05-22).** 6 PRs merged + 1 direct-to-main: pkg87a Cryptomatte infra, pkg86 Light Tree (CPU median-split, pkg86-B GPU deferred), pkg100 .blend importer fix (unblocks pkg76 §3.5 CSV), pkg55-B' Session N+3 part 1 (CUDA shade scaffolding). **CUDA-port track continues.**
 
-**Round 12 priorities** (owner direction: **CUDA-port path leads** to close the still-unmet viewport-parity claim):
+**Round 13 priorities** (owner direction: **CUDA-port path leads** to close the still-unmet viewport-parity claim):
 
 **Top priority (lead track — CUDA-port path):**
 
-- **pkg55-B' Session N+3 — first CUDA shade kernel port (Lambertian)**
-  (multi-session, ~4 weeks total per spec Phase B estimate). **Now the
-  top live work.** Measure actual CPU↔GPU thresholds (ULP/p99.9/SSIM) — Session N+2 pinned CPU↔CPU baseline but CPU↔GPU thresholds are placeholders. Port first material-type shade kernel (Lambertian). **Owner decision folded pkg64-gpu gate #1 (CPU↔GPU rel-err) into Session N+3** instead of filing Phase 1.1 follow-up. This is the path to the **viewport-parity acceptance gate** (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene) — the still-unmet competitive claim that pkg55 Phase B formally owns.
+- **pkg55-B' Session N+3 part 2 — full CUDA Lambertian shade + intersect + pkg64-gpu gate #1**
+  (multi-session, ~4 weeks total per spec Phase B estimate; part 1 complete). **Now the
+  top live work.** Session N+3 part 1 shipped the CUDA shade scaffold (`stage_init.cu` rewritten, PCG32 `__device__` port, GPU PostInit snapshot download). **Part 2 scope**: full ULP/p99.9 measurement at all stages (PostInit/PostIntersect/PostShade/PostLightSample/PostRR), `stage_intersect`, `stage_shade_lambertian`, full pkg64-gpu gate #1 SMS CPU↔GPU rel-err (owner decision folded gate #1 into Session N+3 instead of filing Phase 1.1 follow-up). This is the path to the **viewport-parity acceptance gate** (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene) — the still-unmet competitive claim that pkg55 Phase B formally owns.
 
 **Second tier (unblocked, lower priority than CUDA-port track):**
 
-- **pkg86 Light Tree** — pkg89 Phase A + Phase B done; `Light::orientationCone()` + `power()` accessors available. Ready to implement.
-- **pkg87a/pkg87b/pkg87c Cryptomatte** — independent; ready to implement.
+- **pkg87b/pkg87c Cryptomatte** — pkg87a infra done; integrator writes (pkg87b) and Blender acceptance (pkg87c) ready to implement. Known gaps captured in pkg87b spec: `Renderer.set_material_name` Python binding missing, `get_render_pass_buffer` doesn't surface crypto keys yet.
+- **pkg86-B Light Tree GPU + adaptive split** — pkg86 CPU done but 2× variance-reduction gate xfailed strict=False; pkg86-B owns GPU port + SAOH adaptive splitting to close the strict gate.
+- **pkg76 CSV** — Classroom / Junkshop / BMW27 parity rows on RTX (~½ day). **Now unblocked** (pkg100 done).
 
 **Third tier (deferred / lower priority):**
 
-- **pkg100 — .blend importer camera-intrinsics fix** (small, well under a day). **Owner decision: DEPRIORITIZED relative to CUDA-port work.**
-- **pkg76 CSV** — Classroom / Junkshop / BMW27 parity rows on RTX (~½ day). Blocked on pkg100.
 - **pkg64-gpu Phase 2** (megakernel integration) → **Phase 3** (gate #1 now folded into pkg55-B' Session N+3 per owner decision).
 
 **Known flakes (not blocking):**
@@ -118,17 +124,17 @@
 
 **Owner decisions — all resolved:**
 
-- Round 11 direction: **CUDA-port path leads** (confirmed 2026-05-17). pkg100 .blend importer fix explicitly deprioritized relative to wavefront work.
-- pkg64-gpu gate #1: **folded into pkg55-B' Session N+3** (confirmed 2026-05-21 direct-to-main commit c8fa652) instead of filing separate Phase 1.1 package.
+- Round 11/12 direction: **CUDA-port path leads** (confirmed 2026-05-17, reaffirmed through Round 12). pkg100 .blend importer fix deprioritized relative to wavefront work (now done in Round 12, unblocking pkg76 CSV for future pickup).
+- pkg64-gpu gate #1: **folded into pkg55-B' Session N+3** (confirmed 2026-05-21 direct-to-main commit c8fa652) instead of filing separate Phase 1.1 package. Session N+3 part 2 will measure SMS CPU↔GPU rel-err inline.
 
 ---
 
 ## 3. Drop-in prompts per agent
 
-### 3.1 Claude Code (Track A) — pkg55-B' Session N+3 (first CUDA shade kernel, TOP LIVE TRACK 2026-05-22)
+### 3.1 Claude Code (Track A) — pkg55-B' Session N+3 part 2 (full CUDA Lambertian + intersect + pkg64-gpu gate #1, TOP LIVE TRACK 2026-05-22)
 
 ```
-You are Claude Code on the RTX box. pkg55-B' CUDA-port track Session N+3. Session N+2 (threshold pinning + preflight) is complete; now measure actual CPU↔GPU thresholds and port first shade kernel (Lambertian).
+You are Claude Code on the RTX box. pkg55-B' CUDA-port track Session N+3 part 2. Session N+3 part 1 (PR #338) shipped the CUDA shade scaffold; now measure full thresholds and complete Lambertian shade + intersect kernels.
 
 Read first:
   - .astroray_plan/packages/pkg55-wavefront-soa-refactor.md (Phase B'
@@ -137,15 +143,15 @@ Read first:
     0.0/0/1.0 pinned; CPU↔GPU placeholders to measure)
   - src/cpu/wavefront/path_kernel.{h,cpp} (shared per-bounce kernel —
     the bit-identical CPU baseline)
-  - src/gpu/cuda_renderer.cu (existing megakernel — the performance
-    baseline to beat)
+  - src/gpu/wavefront/stage_init.cu (Session N+3 part 1 output — rewritten
+    init kernel, PCG32 device port, PostInit snapshot)
   - tests/wavefront_diff/ (per-stage diff harness)
 
-Goal: (1) measure actual CPU↔GPU thresholds (ULP/p99.9/SSIM) — Session N+2 pinned CPU↔CPU baseline but CPU↔GPU thresholds are placeholders; (2) port first material-type shade kernel (Lambertian) to GPU. **Owner decision folded pkg64-gpu gate #1 (CPU↔GPU rel-err) into Session N+3** instead of filing Phase 1.1 follow-up — validate SMS CPU↔GPU correctness inline. Maintain coalesced memory access; sort paths by material type before shade. Target: CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene (the viewport-parity acceptance gate pkg55 Phase B owns).
+Goal: (1) measure actual CPU↔GPU thresholds (ULP/p99.9/SSIM) at ALL stages (PostInit/PostIntersect/PostShade/PostLightSample/PostRR) — Session N+2 pinned CPU↔CPU baseline but CPU↔GPU thresholds are placeholders; (2) complete `stage_intersect` CUDA kernel; (3) complete `stage_shade_lambertian` CUDA kernel; (4) validate pkg64-gpu gate #1 SMS CPU↔GPU rel-err inline (owner decision folded into Session N+3). Maintain coalesced memory access; sort paths by material type before shade. Target: CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene (the viewport-parity acceptance gate pkg55 Phase B owns).
 
-Constraints: CLAUDE.md 1,2,3,6. Multi-session (~4 weeks total per spec Phase B estimate). Session N+3 gates on measured thresholds + first CUDA kernel; later sessions gate on staying within those thresholds.
+Constraints: CLAUDE.md 1,2,3,6. Multi-session (~4 weeks total per spec Phase B estimate). Session N+3 part 2 gates on measured thresholds + full intersect + shade kernels. Later sessions (N+4..M) gate on staying within those thresholds.
 
-When done: pkg55 spec Session N+3 status + PR ref + gate numbers (ULP/p99.9/SSIM measured). PR title: "feat(pkg55-B'): Session N+3 — Lambertian CUDA + threshold measurement + pkg64-gpu gate #1".
+When done: pkg55 spec Session N+3 status + PR ref + gate numbers (ULP/p99.9/SSIM measured). PR title: "feat(pkg55-B'): Session N+3 part 2 — full Lambertian CUDA + intersect + threshold measurement + pkg64-gpu gate #1".
 ```
 
 ### 3.2 Claude Code (Track A) — pkg86 Light Tree (second tier)

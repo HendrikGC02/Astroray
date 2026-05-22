@@ -23,6 +23,7 @@ class MultiwavelengthPathTracer : public Integrator {
     float lambdaMax_;
     bool  useLuminanceOutput_;  // true when rendering outside visible
     Renderer* renderer_ = nullptr;
+    Camera*   camera_   = nullptr;
 
     static constexpr float kVisMin = 380.0f;
     static constexpr float kVisMax = 780.0f;
@@ -50,7 +51,7 @@ public:
             useLuminanceOutput_ = (mode == "luminance");
     }
 
-    void beginFrame(Renderer& scene, Camera&) override { renderer_ = &scene; }
+    void beginFrame(Renderer& scene, Camera& cam) override { renderer_ = &scene; camera_ = &cam; }
 
     IntegratorCapabilities capabilities() const override {
         // pkg54: CUDA megakernel in src/gpu/multiwavelength_kernel.cu mirrors

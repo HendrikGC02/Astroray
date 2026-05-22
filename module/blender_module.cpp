@@ -2676,24 +2676,75 @@ PYBIND11_MODULE(astroray, m) {
 
     m.def("reference_pt_wavefront_render",
           [](PyRenderer& r, int samples, int max_depth, uint64_t seed,
-             bool record_snapshots) -> py::array_t<float> {
+             bool record_snapshots) -> py::object {
               auto cam = r.getCamera();
               if (!cam) {
                   throw std::runtime_error("Camera not set up. Call setup_camera() first.");
               }
               auto result = astroray::cpu_wavefront::reference_pt_wavefront_render(
                   r.getRenderer(), *cam, samples, max_depth, seed, record_snapshots);
-              // Return RGB buffer as numpy array (height, width, 3).
-              py::array_t<float> arr({cam->height, cam->width, 3});
-              auto buf = arr.request();
-              float* ptr = static_cast<float*>(buf.ptr);
-              std::copy(result.rgb.begin(), result.rgb.end(), ptr);
-              return arr;
+
+              if (!record_snapshots) {
+                  // Return RGB buffer only as numpy array (height, width, 3).
+                  py::array_t<float> arr({cam->height, cam->width, 3});
+                  auto buf = arr.request();
+                  float* ptr = static_cast<float*>(buf.ptr);
+                  std::copy(result.rgb.begin(), result.rgb.end(), ptr);
+                  return py::cast(arr);
+              } else {
+                  // Return dict with RGB and snapshots.
+                  py::dict d;
+
+                  // RGB image
+                  py::array_t<float> rgb_arr({cam->height, cam->width, 3});
+                  auto rgb_buf = rgb_arr.request();
+                  float* rgb_ptr = static_cast<float*>(rgb_buf.ptr);
+                  std::copy(result.rgb.begin(), result.rgb.end(), rgb_ptr);
+                  d["rgb"] = rgb_arr;
+
+                  // Snapshots as list of dicts
+                  py::list snapshot_list;
+                  for (const auto& snap : result.snapshots) {
+                      py::dict snap_dict;
+                      snap_dict["pixel_index"] = snap.pixel_index;
+                      snap_dict["sample_index"] = snap.sample_index;
+                      snap_dict["bounce"] = snap.bounce;
+                      snap_dict["stage"] = static_cast<int>(snap.stage);
+
+                      snap_dict["ray_origin"] = py::array_t<float>({3}, snap.ray_origin);
+                      snap_dict["ray_direction"] = py::array_t<float>({3}, snap.ray_direction);
+                      snap_dict["throughput"] = py::array_t<float>({4}, snap.throughput);
+                      snap_dict["lambdas"] = py::array_t<float>({4}, snap.lambdas);
+
+                      snap_dict["hit_valid"] = snap.hit_valid;
+                      snap_dict["hit_t"] = snap.hit_t;
+                      snap_dict["hit_point"] = py::array_t<float>({3}, snap.hit_point);
+                      snap_dict["hit_normal"] = py::array_t<float>({3}, snap.hit_normal);
+                      snap_dict["hit_material_id"] = snap.hit_material_id;
+
+                      snap_dict["bsdf_pdf"] = snap.bsdf_pdf;
+                      snap_dict["bsdf_is_delta"] = snap.bsdf_is_delta;
+
+                      snap_dict["nee_contribution"] = py::array_t<float>({4}, snap.nee_contribution);
+                      snap_dict["nee_light_pdf"] = snap.nee_light_pdf;
+                      snap_dict["nee_bsdf_pdf_at_dir"] = snap.nee_bsdf_pdf_at_dir;
+                      snap_dict["nee_mis_weight"] = snap.nee_mis_weight;
+
+                      snap_dict["rr_prob"] = snap.rr_prob;
+                      snap_dict["rr_survived"] = snap.rr_survived;
+
+                      snapshot_list.append(snap_dict);
+                  }
+                  d["snapshots"] = snapshot_list;
+
+                  return py::cast(d);
+              }
           },
           "renderer"_a, "samples"_a, "max_depth"_a, "seed"_a,
           "record_snapshots"_a = false,
-          "pkg55-B' Session 2b: wavefront-side reference PT (per-path RNG). "
-          "Diff oracle for CPU wavefront. Lambertian-Cornell only.");
+          "pkg55-B' Session 2b/N+3: wavefront-side reference PT (per-path RNG). "
+          "Diff oracle for CPU wavefront. Returns RGB array if record_snapshots=False, "
+          "or dict with 'rgb' and 'snapshots' if record_snapshots=True. Lambertian-Cornell only.");
 
     m.def("cpu_wavefront_render",
           [](PyRenderer& r, int samples, int max_depth, uint64_t seed) -> py::array_t<float> {

@@ -87,7 +87,7 @@ public:
         // sms_caustic_path_tracer keeps the Phase-1+2 behavior of treating
         // every transmissive sphere as a candidate (requireFlag=false), so
         // its acceptance test scenes don't need to flip the new opt-in.
-        amf:gatherSphereCasters(scene, casters_, /*requireFlag=*/false);
+        amf::gatherSphereCasters(scene, casters_, /*requireFlag=*/false);
     }
 
     std::unordered_map<std::string, float> debugStats() const override {

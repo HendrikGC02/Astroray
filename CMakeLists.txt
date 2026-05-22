@@ -429,12 +429,11 @@ endif()
 # ---------------------------------------------------------------------------
 # CUDA static library (compiled by nvcc, exposes pure-C++ CUDARenderer)
 # ---------------------------------------------------------------------------
-# pkg55 Phase A.1 — wavefront SoA path is opt-in. Default OFF so the AoS
-# megakernel remains the production path and compiles bit-identically to
-# pre-pkg55-A.1 builds.
-option(ASTRORAY_WAVEFRONT_INTERSECT
-    "Build the wavefront SoA primary-ray + intersect kernels alongside the AoS megakernel (pkg55 Phase A.1)."
-    OFF)
+# pkg55-B' Session N+3 — CUDA wavefront (spectral + PCG32).
+# Phase A.1's curandState + RGB structure is REPLACED.
+option(ASTRORAY_WAVEFRONT_CUDA_N3
+    "Build the Session N+3 CUDA wavefront (stage_init spectral + PCG32) [pkg55-B']."
+    ON)
 
 if(ASTRORAY_CUDA_FOUND)
     set(ASTRORAY_CUDA_SOURCES
@@ -444,18 +443,16 @@ if(ASTRORAY_CUDA_FOUND)
         src/gpu/scene_upload.cu
         src/gpu/pkg64_sms_probe.cu
     )
-    if(ASTRORAY_WAVEFRONT_INTERSECT)
+    if(ASTRORAY_WAVEFRONT_CUDA_N3)
         list(APPEND ASTRORAY_CUDA_SOURCES
+            src/gpu/wavefront/wavefront_state.cu
             src/gpu/wavefront/stage_init.cu
-            src/gpu/wavefront/stage_intersect.cu
-            src/gpu/wavefront/intersect_parity.cu
-            src/gpu/wavefront/queue_dispatch.cu
         )
-        message(STATUS "pkg55-A.1: wavefront SoA intersect path enabled")
+        message(STATUS "pkg55-B' Session N+3: CUDA wavefront stage_init (spectral + PCG32)")
     endif()
     add_library(astroray_cuda STATIC ${ASTRORAY_CUDA_SOURCES})
-    if(ASTRORAY_WAVEFRONT_INTERSECT)
-        target_compile_definitions(astroray_cuda PUBLIC ASTRORAY_WAVEFRONT_INTERSECT)
+    if(ASTRORAY_WAVEFRONT_CUDA_N3)
+        target_compile_definitions(astroray_cuda PUBLIC ASTRORAY_WAVEFRONT_CUDA_N3)
     endif()
     target_include_directories(astroray_cuda
         PUBLIC  ${CMAKE_SOURCE_DIR}/include
@@ -479,21 +476,25 @@ if(ASTRORAY_CUDA_FOUND)
         set_property(TARGET astroray_cuda PROPERTY CUDA_FLAGS
             "--extended-lambda --expt-relaxed-constexpr -O3")
     endif()
-    if(TARGET CUDA::curand)
-        target_link_libraries(astroray_cuda PRIVATE CUDA::curand)
-    elseif(TARGET CUDA::curand_static)
-        target_link_libraries(astroray_cuda PRIVATE CUDA::curand_static)
-    else()
-        find_library(CURAND_LIB curand
-            HINTS
-                "${CUDAToolkit_LIBRARY_DIR}"
-                "${CUDAToolkit_LIBRARY_ROOT}/lib"
-                "${CUDAToolkit_LIBRARY_ROOT}/lib64"
-        )
-        if(NOT CURAND_LIB)
-            message(FATAL_ERROR "CUDA Toolkit found, but cuRAND is missing (no CUDA::curand and curand not found in library path).")
+    # pkg55-B' Session N+3: PCG32 RNG (no cuRAND needed for wavefront).
+    # The megakernel still uses cuRAND; only link it when building megakernel.
+    if(NOT ASTRORAY_WAVEFRONT_CUDA_N3)
+        if(TARGET CUDA::curand)
+            target_link_libraries(astroray_cuda PRIVATE CUDA::curand)
+        elseif(TARGET CUDA::curand_static)
+            target_link_libraries(astroray_cuda PRIVATE CUDA::curand_static)
+        else()
+            find_library(CURAND_LIB curand
+                HINTS
+                    "${CUDAToolkit_LIBRARY_DIR}"
+                    "${CUDAToolkit_LIBRARY_ROOT}/lib"
+                    "${CUDAToolkit_LIBRARY_ROOT}/lib64"
+            )
+            if(NOT CURAND_LIB)
+                message(FATAL_ERROR "CUDA Toolkit found, but cuRAND is missing (no CUDA::curand and curand not found in library path).")
+            endif()
+            target_link_libraries(astroray_cuda PRIVATE "${CURAND_LIB}")
         endif()
-        target_link_libraries(astroray_cuda PRIVATE "${CURAND_LIB}")
     endif()
 endif()
 

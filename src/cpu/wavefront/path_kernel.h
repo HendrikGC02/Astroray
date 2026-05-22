@@ -98,10 +98,15 @@ struct PathState {
 // init_path — primary ray generation + lambda sampling for one path.
 //
 // EXACT RNG draw order (the single generator of init outputs):
-//   1. filter u  (std::uniform_real_distribution<float>(0,1) on rng)
-//   2. filter v  (std::uniform_real_distribution<float>(0,1) on rng)
+//   1. filter u  (rng.Uniform() - 0.5f)
+//   2. filter v  (rng.Uniform() - 0.5f)
 //   3. lens      (mt19937 seeded from rng.UniformUInt32(), -> Camera::getRay)
-//   4. lambda    (std::uniform_real_distribution<float>(0,1) on rng)
+//   4. lambda    (rng.Uniform())
+//
+// Each Uniform() draw consumes exactly one PCG32 dimension; this mirrors GPU
+// stage_init.cu byte-for-byte. (Was std::uniform_real_distribution<float>
+// pre-2026-05-23, which libstdc++ implements with 2 uint32 draws per float,
+// causing 8.7M-ULP CPU↔GPU drift at PostInit.)
 //
 // Populates ps.ray_origin / ps.ray_direction (direction already normalized
 // by Camera::getRay) and ps.lambdas. Emits the PostInit snapshot.

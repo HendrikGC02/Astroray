@@ -27,15 +27,29 @@ namespace {
 // Per-bounce constants (mirror the oracle exactly).
 constexpr int   kRRDepth         = 3;
 
-// Box filter: returns uniform [-0.5, 0.5]. Mirrors the original
-// reference_pt_wavefront::filterSample. Templated on RNG so the byte-exact
-// std::uniform_real_distribution<float> conversion is the SAME compiled code
-// for every caller (Codex portability finding: as long as both sides run
-// the SAME shared code, the libstdc++ distribution behaviour matches itself
-// within a build; the gate is CPU<->CPU within one toolchain).
+// Box filter: returns uniform [-0.5, 0.5]. Mirrors the GPU stage_init.cu
+// filterSample exactly so PostInit / PostIntersect agree CPU↔GPU within
+// bounded ULP (spec §4.2 two-tier gate).
+//
+// HISTORY: this previously used `std::uniform_real_distribution<float>`. That
+// preserves CPU↔CPU bit-identity (both call sites compile the same libstdc++
+// adaptor bytes), but breaks CPU↔GPU agreement because libstdc++ calls the
+// engine's `operator()` MULTIPLE times per float draw (it builds a double from
+// two uint32s, then casts), while the GPU does one `Uniform()` = one uint32 ->
+// `u * 2^-32` clamp. After init_path, CPU rng.dimension() was 6-7 while GPU's
+// was 4 — every subsequent stage's RNG state was therefore mis-keyed against
+// the GPU. Caught in pkg64-gpu Phase 2 HW verify (PostInit ULP measured at
+// 8.7M vs placeholder 4). Diagnostic 2026-05-23 §"pkg55 GPU stage_init
+// CPU/GPU RNG-adaptor mismatch" in standup.
+//
+// FIX: call rng.Uniform() directly. Both `WavefrontRNG::Uniform()` (CPU,
+// include/astroray/sampling/wavefront_rng.h:69) and the device twin
+// (wavefront_rng_device.h:78) use the same `u * 2^-32` + OneMinusEpsilon
+// clamp, so this makes CPU and GPU byte-identical at PostInit by construction
+// (not bounded drift — the bit-identity guarantee design decision #9 wanted).
 template <typename RNG>
-inline float filterSample(RNG& gen, std::uniform_real_distribution<float>& dist) {
-    return dist(gen) - 0.5f;
+inline float filterSample(RNG& gen) {
+    return gen.Uniform() - 0.5f;
 }
 
 // Session 8 scope enforcement: Lambertian + metal + dielectric + disney + thin_glass + diffuse_light + closure_graph.
@@ -60,12 +74,15 @@ void assertMaterialInScope(const Material* mat) {
 void init_path(PathState& ps, const Camera& cam, int x, int y,
                 int width, int height, SnapshotSink* sink) {
     // RNG draw order — the single generator of init outputs. Identical to
-    // the original reference_pt_wavefront per-sample loop:
-    //   1. filter u  2. filter v  3. lens seed  4. lambda.
-    std::uniform_real_distribution<float> dist(0, 1);
+    // the original reference_pt_wavefront per-sample loop AND to the GPU
+    // stage_init.cu kernel:
+    //   1. filter u  2. filter v  3. lens seed  4. lambda u.
+    // Each is one WavefrontRNG::Uniform() / UniformUInt32() call → one PCG32
+    // dimension, byte-identical to the GPU sampler. See the filterSample
+    // history comment above.
 
-    float u = (x + filterSample(ps.rng, dist)) / (width - 1);
-    float v = 1.0f - (y + filterSample(ps.rng, dist)) / (height - 1);
+    float u = (x + filterSample(ps.rng)) / (width - 1);
+    float v = 1.0f - (y + filterSample(ps.rng)) / (height - 1);
 
     // Lens sampling via a temporary mt19937 seeded from the live RNG. This
     // consumes exactly one WavefrontRNG draw (dimension auto-increments).
@@ -74,8 +91,7 @@ void init_path(PathState& ps, const Camera& cam, int x, int y,
     std::mt19937 mt_gen(lens_seed);
     Ray primaryRay = cam.getRay(u, v, 0.0f, mt_gen);
 
-    std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
-    ps.lambdas = SampledWavelengths::sampleUniform(dist01(ps.rng));
+    ps.lambdas = SampledWavelengths::sampleUniform(ps.rng.Uniform());
 
     // Store the already-normalized direction directly. Camera::getRay's Ray
     // ctor already normalized it; we keep that exact bit pattern and never
@@ -260,8 +276,8 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     if (bounce > kRRDepth) {
         XYZ thrXYZ = ps.throughput.toXYZ(ps.lambdas);
         float p = std::min(0.95f, std::max(0.0f, thrXYZ.Y));
-        std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
-        float rr_u = dist01(ps.rng);
+        // Single PCG32 dimension — matches GPU stage_rr.cu (when ported).
+        float rr_u = ps.rng.Uniform();
         bool survived = (rr_u <= p);
 
         if (sink) {

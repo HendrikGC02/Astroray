@@ -151,10 +151,13 @@ def test_cryptomatte_iou_roundtrip():
     for oi in range(floor_start, floor_end):
         renderer.set_object_name(oi, "floor")
 
-    # Add sun light
-    from astroray import DistantLight
-    sun = DistantLight([0.577, 0.577, 0.577], [1, 1, 1], 2.0)
-    renderer.add_light(sun)
+    # Add sun light (pkg89 Phase B dedicated binding — no Python class needed)
+    renderer.add_sun_light_dedicated(
+        direction=[0.577, 0.577, 0.577],
+        angular_diameter=0.0093,  # ~0.53 deg, real sun
+        emission=[1.0, 1.0, 1.0],
+        intensity=2.0,
+    )
 
     # Enable Cryptomatte
     renderer.set_cryptomatte_enabled(True)
@@ -228,7 +231,12 @@ def test_cryptomatte_iou_roundtrip():
             [0, 0], [1, 1], [0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], 0, 0
         )
 
-        gt_renderer.add_light(sun)
+        gt_renderer.add_sun_light_dedicated(
+            direction=[0.577, 0.577, 0.577],
+            angular_diameter=0.0093,
+            emission=[1.0, 1.0, 1.0],
+            intensity=2.0,
+        )
         gt_renderer.uploadScene()
         gt_pixels = gt_renderer.render(spp, 1, None, False)
 
@@ -276,7 +284,12 @@ def test_cryptomatte_iou_roundtrip():
             [0, 0], [1, 1], [0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], 0, 0
         )
 
-        gt_renderer.add_light(sun)
+        gt_renderer.add_sun_light_dedicated(
+            direction=[0.577, 0.577, 0.577],
+            angular_diameter=0.0093,
+            emission=[1.0, 1.0, 1.0],
+            intensity=2.0,
+        )
         gt_renderer.uploadScene()
         gt_pixels = gt_renderer.render(spp, 1, None, False)
 

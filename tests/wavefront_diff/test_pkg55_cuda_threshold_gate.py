@@ -107,34 +107,217 @@ def test_cpu_to_cpu_baseline_bit_identity():
           f"(max diff = {max_abs_diff!r}, diverging fields = {total_diverging_fields})")
 
 
-@pytest.mark.skip(reason="Session N+2: no CUDA kernel changes yet. Un-skip in Session N+3.")
 def test_cpu_to_gpu_threshold_gate():
     """CPU wavefront ↔ CUDA wavefront: ULP + p99.9 + SSIM gate (GATE 2 of 2).
 
-    This test is SKIPPED in Session N+2 (no CUDA kernel changes yet).
-    Session N+3 will un-skip this and implement:
-      1. CUDA wavefront stage kernels
-      2. CPU↔GPU per-stage diff harness (mirrors cpu_wavefront_snapshot_diff)
-      3. Measure actual ULP / p99.9 / SSIM on first CUDA port
-      4. Update pkg55_cuda_thresholds.yaml with measured values
-      5. Enforce thresholds in subsequent CUDA sessions (N+4..M)
+    Session N+3 part 2b: enforces measured thresholds at PostInit/PostIntersect/PostShade stages.
 
     Spec: §4.2 GATE-THRESHOLDS-PINNED blocks Sessions N+2..M until thresholds
     are measured. Session N+2 pins the *structure*; Session N+3 measures the
     *values*.
     """
     ar = _lazy_import_astroray()
+
+    if not hasattr(ar, 'cuda_wavefront_snapshot_post_init'):
+        pytest.skip("CUDA wavefront not available. Build with -DASTRORAY_WAVEFRONT_CUDA_N3=ON.")
+
     thresholds = _load_thresholds()
     gpu_thresholds = thresholds["cpu_to_gpu_thresholds"]
 
-    # TODO(Session N+3): implement CUDA wavefront stages + diff harness
-    # ar.cuda_wavefront_snapshot_diff(renderer, samples, max_depth, seed)
-    # Then enforce gpu_thresholds per stage:
-    #   PostInit/PostIntersect: max_ulp ≤ gpu_thresholds["PostInit"]["max_ulp"]
-    #   PostShade/LightSample/RR: p99.9 ≤ gpu_thresholds["PostShade"]["p99_9_relative_error"]
-    #   Final image: SSIM ≥ gpu_thresholds["final_image"]["ssim_visible"]
+    WIDTH, HEIGHT = 16, 16
+    SEED = 424242
+    SPP = 1
+    MAX_DEPTH = 8
 
-    pytest.fail("Session N+3: implement CUDA wavefront + diff harness here.")
+    r = _build_renderer(WIDTH, HEIGHT, SEED, MAX_DEPTH)
+
+    # Get CPU reference snapshots
+    cpu_result = ar.reference_pt_wavefront_render(r, SPP, MAX_DEPTH, SEED, True)
+    cpu_snapshots_raw = cpu_result['snapshots']
+
+    # Extract CPU snapshots by stage
+    cpu_post_init = _extract_cpu_stage_snapshots(cpu_snapshots_raw, stage='PostInit')
+    cpu_post_intersect = _extract_cpu_stage_snapshots(cpu_snapshots_raw, stage='PostIntersect')
+    cpu_post_shade = _extract_cpu_stage_snapshots(cpu_snapshots_raw, stage='PostShade')
+
+    # Get GPU snapshots
+    gpu_post_init = ar.cuda_wavefront_snapshot_post_init(r, WIDTH, HEIGHT, SEED)
+    gpu_post_intersect = ar.cuda_wavefront_snapshot_post_intersect(r, WIDTH, HEIGHT, SEED)
+    gpu_post_shade = ar.cuda_wavefront_snapshot_post_shade(r, WIDTH, HEIGHT, SEED)
+
+    # Gate 1: PostInit ULP + p99.9
+    post_init_ulp = _compute_stage_ulp(cpu_post_init, gpu_post_init, stage='PostInit')
+    post_init_p999 = _compute_stage_p999(cpu_post_init, gpu_post_init, stage='PostInit')
+
+    assert post_init_ulp <= gpu_thresholds["PostInit"]["max_ulp"], (
+        f"PostInit ULP gate FAILED: measured {post_init_ulp}, threshold {gpu_thresholds['PostInit']['max_ulp']}"
+    )
+    assert post_init_p999 <= gpu_thresholds["PostInit"]["p99_9_relative_error"], (
+        f"PostInit p99.9 gate FAILED: measured {post_init_p999:.6e}, threshold {gpu_thresholds['PostInit']['p99_9_relative_error']:.6e}"
+    )
+
+    # Gate 2: PostIntersect ULP + p99.9
+    post_intersect_ulp = _compute_stage_ulp(cpu_post_intersect, gpu_post_intersect, stage='PostIntersect')
+    post_intersect_p999 = _compute_stage_p999(cpu_post_intersect, gpu_post_intersect, stage='PostIntersect')
+
+    assert post_intersect_ulp <= gpu_thresholds["PostIntersect"]["max_ulp"], (
+        f"PostIntersect ULP gate FAILED: measured {post_intersect_ulp}, threshold {gpu_thresholds['PostIntersect']['max_ulp']}"
+    )
+    assert post_intersect_p999 <= gpu_thresholds["PostIntersect"]["p99_9_relative_error"], (
+        f"PostIntersect p99.9 gate FAILED: measured {post_intersect_p999:.6e}, threshold {gpu_thresholds['PostIntersect']['p99_9_relative_error']:.6e}"
+    )
+
+    # Gate 3: PostShade p99.9
+    post_shade_p999 = _compute_stage_p999(cpu_post_shade, gpu_post_shade, stage='PostShade')
+
+    assert post_shade_p999 <= gpu_thresholds["PostShade"]["p99_9_relative_error"], (
+        f"PostShade p99.9 gate FAILED: measured {post_shade_p999:.6e}, threshold {gpu_thresholds['PostShade']['p99_9_relative_error']:.6e}"
+    )
+
+    print(f"\n[pkg55-Session-N+3-part2b CPU↔GPU threshold gate] PASS:")
+    print(f"  PostInit: ULP={post_init_ulp}, p99.9={post_init_p999:.6e}")
+    print(f"  PostIntersect: ULP={post_intersect_ulp}, p99.9={post_intersect_p999:.6e}")
+    print(f"  PostShade: p99.9={post_shade_p999:.6e}")
+
+
+def _extract_cpu_stage_snapshots(snapshots_raw, stage):
+    """Extract CPU snapshots for a given stage from the raw snapshot list."""
+    stage_map = {
+        'PostInit': 0,
+        'PostIntersect': 1,
+        'PostShade': 2,
+        'PostLightSample': 3,
+        'PostRR': 4,
+    }
+    stage_id = stage_map[stage]
+
+    result = []
+    for snap in snapshots_raw:
+        if snap['stage'] == stage_id:
+            result.append(snap)
+    return result
+
+
+def _compute_ulp_distance(a, b):
+    """Compute max ULP distance between two float arrays."""
+    import numpy as np
+    a_int = np.frombuffer(a.astype(np.float32).tobytes(), dtype=np.int32)
+    b_int = np.frombuffer(b.astype(np.float32).tobytes(), dtype=np.int32)
+    ulp_dist = np.abs(a_int - b_int)
+    return int(np.max(ulp_dist))
+
+
+def _compute_stage_ulp(cpu_snapshots, gpu_snapshot_array, stage):
+    """Compute max ULP distance for geometry fields at a given stage."""
+    import numpy as np
+
+    if stage == 'PostInit':
+        cpu_ray_origin = np.array([snap['ray_origin'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_ray_dir = np.array([snap['ray_direction'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_lambdas = np.array([snap['lambdas'] for snap in cpu_snapshots], dtype=np.float32)
+
+        gpu_ray_origin = gpu_snapshot_array[:, 0:3].astype(np.float32)
+        gpu_ray_dir = gpu_snapshot_array[:, 3:6].astype(np.float32)
+        gpu_lambdas = gpu_snapshot_array[:, 6:10].astype(np.float32)
+
+        ulp_origin = _compute_ulp_distance(cpu_ray_origin.flatten(), gpu_ray_origin.flatten())
+        ulp_dir = _compute_ulp_distance(cpu_ray_dir.flatten(), gpu_ray_dir.flatten())
+        ulp_lambdas = _compute_ulp_distance(cpu_lambdas.flatten(), gpu_lambdas.flatten())
+
+        return max(ulp_origin, ulp_dir, ulp_lambdas)
+
+    elif stage == 'PostIntersect':
+        cpu_hit_t = np.array([snap['hit_t'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_hit_point = np.array([snap['hit_point'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_hit_normal = np.array([snap['hit_normal'] for snap in cpu_snapshots], dtype=np.float32)
+
+        gpu_hit_t = gpu_snapshot_array[:, 15].astype(np.float32)
+        gpu_hit_point = gpu_snapshot_array[:, 16:19].astype(np.float32)
+        gpu_hit_normal = gpu_snapshot_array[:, 19:22].astype(np.float32)
+
+        ulp_hit_t = _compute_ulp_distance(cpu_hit_t, gpu_hit_t)
+        ulp_hit_point = _compute_ulp_distance(cpu_hit_point.flatten(), gpu_hit_point.flatten())
+        ulp_hit_normal = _compute_ulp_distance(cpu_hit_normal.flatten(), gpu_hit_normal.flatten())
+
+        return max(ulp_hit_t, ulp_hit_point, ulp_hit_normal)
+
+    else:
+        raise ValueError(f"ULP comparison not defined for stage {stage}")
+
+
+def _compute_stage_p999(cpu_snapshots, gpu_snapshot_array, stage):
+    """Compute p99.9 relative error for all numeric fields at a given stage."""
+    import numpy as np
+
+    def rel_err_p999(a, b, epsilon=1e-8):
+        abs_diff = np.abs(a - b)
+        denom = np.abs(a) + epsilon
+        rel_err = abs_diff / denom
+        return float(np.percentile(rel_err, 99.9))
+
+    all_rel_errors = []
+
+    if stage == 'PostInit':
+        cpu_ray_origin = np.array([snap['ray_origin'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_ray_dir = np.array([snap['ray_direction'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_lambdas = np.array([snap['lambdas'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_throughput = np.array([snap['throughput'] for snap in cpu_snapshots], dtype=np.float32)
+
+        gpu_ray_origin = gpu_snapshot_array[:, 0:3].astype(np.float32)
+        gpu_ray_dir = gpu_snapshot_array[:, 3:6].astype(np.float32)
+        gpu_lambdas = gpu_snapshot_array[:, 6:10].astype(np.float32)
+        gpu_throughput = gpu_snapshot_array[:, 10:14].astype(np.float32)
+
+        all_rel_errors.append(rel_err_p999(cpu_ray_origin, gpu_ray_origin))
+        all_rel_errors.append(rel_err_p999(cpu_ray_dir, gpu_ray_dir))
+        all_rel_errors.append(rel_err_p999(cpu_lambdas, gpu_lambdas))
+        all_rel_errors.append(rel_err_p999(cpu_throughput, gpu_throughput))
+
+    elif stage == 'PostIntersect':
+        cpu_ray_origin = np.array([snap['ray_origin'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_ray_dir = np.array([snap['ray_direction'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_lambdas = np.array([snap['lambdas'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_throughput = np.array([snap['throughput'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_hit_t = np.array([snap['hit_t'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_hit_point = np.array([snap['hit_point'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_hit_normal = np.array([snap['hit_normal'] for snap in cpu_snapshots], dtype=np.float32)
+
+        gpu_ray_origin = gpu_snapshot_array[:, 0:3].astype(np.float32)
+        gpu_ray_dir = gpu_snapshot_array[:, 3:6].astype(np.float32)
+        gpu_lambdas = gpu_snapshot_array[:, 6:10].astype(np.float32)
+        gpu_throughput = gpu_snapshot_array[:, 10:14].astype(np.float32)
+        gpu_hit_t = gpu_snapshot_array[:, 15].astype(np.float32)
+        gpu_hit_point = gpu_snapshot_array[:, 16:19].astype(np.float32)
+        gpu_hit_normal = gpu_snapshot_array[:, 19:22].astype(np.float32)
+
+        all_rel_errors.append(rel_err_p999(cpu_ray_origin, gpu_ray_origin))
+        all_rel_errors.append(rel_err_p999(cpu_ray_dir, gpu_ray_dir))
+        all_rel_errors.append(rel_err_p999(cpu_lambdas, gpu_lambdas))
+        all_rel_errors.append(rel_err_p999(cpu_throughput, gpu_throughput))
+        all_rel_errors.append(rel_err_p999(cpu_hit_t, gpu_hit_t))
+        all_rel_errors.append(rel_err_p999(cpu_hit_point, gpu_hit_point))
+        all_rel_errors.append(rel_err_p999(cpu_hit_normal, gpu_hit_normal))
+
+    elif stage == 'PostShade':
+        cpu_ray_origin = np.array([snap['ray_origin'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_ray_dir = np.array([snap['ray_direction'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_throughput = np.array([snap['throughput'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_bsdf_pdf = np.array([snap['bsdf_pdf'] for snap in cpu_snapshots], dtype=np.float32)
+
+        gpu_ray_origin = gpu_snapshot_array[:, 0:3].astype(np.float32)
+        gpu_ray_dir = gpu_snapshot_array[:, 3:6].astype(np.float32)
+        gpu_throughput = gpu_snapshot_array[:, 6:10].astype(np.float32)
+        gpu_bsdf_pdf = gpu_snapshot_array[:, 14].astype(np.float32)
+
+        all_rel_errors.append(rel_err_p999(cpu_ray_origin, gpu_ray_origin))
+        all_rel_errors.append(rel_err_p999(cpu_ray_dir, gpu_ray_dir))
+        all_rel_errors.append(rel_err_p999(cpu_throughput, gpu_throughput))
+        all_rel_errors.append(rel_err_p999(cpu_bsdf_pdf, gpu_bsdf_pdf))
+
+    else:
+        raise ValueError(f"p99.9 comparison not defined for stage {stage}")
+
+    return max(all_rel_errors)
 
 
 if __name__ == "__main__":

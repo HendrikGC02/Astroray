@@ -23,42 +23,47 @@ def _is_cpu_only_pr(pr: dict) -> bool:
     / pytest tests/ gate is the real and sufficient gate — pkg55-B-prime
     L277). They are routed to CI-only gate, never the CUDA HW-untested queue.
 
+    Source of file list (in priority order):
+      1. pr["files"] — pre-fetched by cli.py for live PRs; also lets unit
+         tests inject a synthetic file list without hitting gh.
+      2. Live `gh pr diff` — fallback for callers that didn't enrich.
+
     Returns True if the PR is CPU-only (no .cu/.cuh/CUDA build paths in diff).
     """
-    n = pr["number"]
-    try:
-        # Get the PR's base ref (usually main)
-        pr_info = subprocess.check_output(
-            ["gh", "pr", "view", str(n), "--json", "baseRefName"],
-            text=True
-        )
-        base_ref = json.loads(pr_info)["baseRefName"]
-
-        # Get the diff file list
-        files = subprocess.check_output(
-            ["gh", "pr", "diff", str(n), "--name-only"],
-            text=True
-        ).splitlines()
-
-        # Check if any file is a CUDA artifact
-        cuda_extensions = {".cu", ".cuh"}
-        cuda_paths = {"build_cuda", "cuda", "nvcc"}
-
-        for f in files:
-            # Check extension
-            if any(f.endswith(ext) for ext in cuda_extensions):
+    files = pr.get("files")
+    if files is None:
+        n = pr["number"]
+        try:
+            # Verify the live PR's head SHA matches what the caller passed in.
+            # If not, we're being handed synthetic / replay data (e.g. unit
+            # tests with fake SHAs colliding with real PR numbers); fall back
+            # to the conservative "route to HW gate" answer.
+            head = subprocess.check_output(
+                ["gh", "pr", "view", str(n), "--json", "headRefOid"],
+                text=True, stderr=subprocess.DEVNULL,
+            )
+            if json.loads(head).get("headRefOid") != pr.get("headRefOid"):
                 return False
-            # Check path components (case-insensitive on Windows)
-            f_lower = f.lower()
-            if any(cuda_path in f_lower for cuda_path in cuda_paths):
-                return False
+            files = subprocess.check_output(
+                ["gh", "pr", "diff", str(n), "--name-only"],
+                text=True
+            ).splitlines()
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            # gh unavailable or PR not on GitHub (e.g. synthetic test PR):
+            # conservatively treat as non-CPU-only — route to HW gate.
+            return False
 
-        # No CUDA artifacts found
-        return True
-    except subprocess.CalledProcessError:
-        # On error (e.g., gh unavailable), conservatively treat as non-CPU-only
-        # (route to HW gate — safer to over-test than under-test)
-        return False
+    cuda_extensions = {".cu", ".cuh"}
+    cuda_paths = {"build_cuda", "cuda", "nvcc"}
+
+    for f in files:
+        if any(f.endswith(ext) for ext in cuda_extensions):
+            return False
+        f_lower = f.lower()
+        if any(cuda_path in f_lower for cuda_path in cuda_paths):
+            return False
+
+    return True
 
 
 def classify_prs(prs: list, ledger: dict) -> dict:

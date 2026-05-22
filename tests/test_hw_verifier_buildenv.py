@@ -139,10 +139,10 @@ def test_cpu_only_carve_out_no_cuda_files():
     pr = {"number": 123, "headRefOid": "abc123"}
 
     with patch("subprocess.check_output") as mock_gh:
-        # gh pr view returns base ref
+        # gh pr view returns head SHA matching the PR dict's headRefOid
+        # (synthetic-data guard), then gh pr diff returns CPU-only files.
         mock_gh.side_effect = [
-            '{"baseRefName": "main"}',
-            # gh pr diff --name-only returns CPU-only files
+            '{"headRefOid": "abc123"}',
             "README.md\ntests/test_cpu_code.py\nsrc/cpu_only.cpp\n",
         ]
 
@@ -158,7 +158,7 @@ def test_cpu_only_carve_out_with_cuda_files():
 
     with patch("subprocess.check_output") as mock_gh:
         mock_gh.side_effect = [
-            '{"baseRefName": "main"}',
+            '{"headRefOid": "def456"}',
             # Diff includes a .cu file
             "README.md\nsrc/kernel.cu\n",
         ]

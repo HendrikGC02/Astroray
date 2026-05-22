@@ -8,8 +8,12 @@
 #include "astroray/spectral_profile.h"
 #include "raytracer.h"
 #include "advanced_features.h"
-// pkg87a — Cryptomatte hash function
-#include "util/murmurhash3.h"
+// pkg87a — Cryptomatte hash function.
+// Path is `src/util/...` (not `util/...`) because astroray_cuda's include
+// search has `${CMAKE_SOURCE_DIR}` private — not `${CMAKE_SOURCE_DIR}/src`.
+// CI runs on Ubuntu without CUDA so this never failed there; only the RTX
+// hardware build hit it (memory: ci_has_no_gpu_runtime_blindspot).
+#include "src/util/murmurhash3.h"
 
 #include <cuda_runtime.h>
 #include <vector>

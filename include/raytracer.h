@@ -1209,10 +1209,22 @@ class LightList {
     std::vector<float> powerDist;                               // unified CDF over both kinds
     float totalPower = 0;
 
-    // pkg86: Light sampler (Power or Tree). Defaults to Power for safety.
-    mutable std::unique_ptr<astroray::LightSampler> sampler_;
+    // pkg86: Light sampler (Power or Tree). Eagerly constructed in the
+    // default ctor so OpenMP-parallel render workers don't race on a lazy
+    // first-use init. (The original lazy pattern crashed under SIGSEGV on
+    // Linux/GCC when two threads entered sample() simultaneously.)
+    std::unique_ptr<astroray::LightSampler> sampler_;
 
 public:
+    // Defined in src/light_list.cpp because LightSampler is forward-declared
+    // here; the eager PowerLightSampler ctor body needs the complete type.
+    LightList();
+    ~LightList();
+    LightList(LightList&&) noexcept;
+    LightList& operator=(LightList&&) noexcept;
+    LightList(const LightList&) = delete;
+    LightList& operator=(const LightList&) = delete;
+
     // Add an emissive Hittable (legacy path for DiffuseLight / EmissivePlugin).
     void add(std::shared_ptr<Hittable> l) {
         lights.push_back(l);
@@ -1245,20 +1257,10 @@ public:
     void sample(LightSample& out, const Vec3& pt, const Vec3& normal,
                 const astroray::SampledWavelengths& lambdas,
                 std::mt19937& gen) const {
-        // Lazy-initialize sampler_ if not set.
-        if (!sampler_) {
-            const_cast<LightList*>(this)->setSampler(SamplerMode::Power);
-        }
-
         sampler_->sample(out, pt, normal, lambdas, gen);
     }
 
     float pdfValue(const Vec3& pt, const Vec3& dir) const {
-        // pkg86: Delegate to sampler.
-        if (!sampler_) {
-            const_cast<LightList*>(this)->setSampler(SamplerMode::Power);
-        }
-
         return sampler_->pdfValue(pt, dir);
     }
 

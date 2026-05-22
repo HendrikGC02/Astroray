@@ -18,7 +18,12 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
     // For now, we'll inline the original LightList::sample logic.
 
     // Initialize to zero in case no valid sample is found.
-    out = LightSample{Vec3(0), Vec3(0), Vec3(0), SampledSpectrum(0.0f), 0, 0};
+    out.position = Vec3(0);
+    out.normal = Vec3(0);
+    out.emission = Vec3(0);
+    out.emission_spec = SampledSpectrum(0.0f);
+    out.pdf = 0;
+    out.distance = 0;
 
     const auto& lights = lightList_->getLights();
     const auto& dedicatedLights = lightList_->getDedicatedLights();
@@ -125,7 +130,12 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
                               const SampledWavelengths& lambdas,
                               std::mt19937& gen) const {
     // Initialize to zero in case no valid sample is found.
-    out = LightSample{Vec3(0), Vec3(0), Vec3(0), SampledSpectrum(0.0f), 0, 0};
+    out.position = Vec3(0);
+    out.normal = Vec3(0);
+    out.emission = Vec3(0);
+    out.emission_spec = SampledSpectrum(0.0f);
+    out.pdf = 0;
+    out.distance = 0;
 
     if (tree_->empty()) {
         return;

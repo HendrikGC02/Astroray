@@ -1132,15 +1132,21 @@ public:
                 // the naive no-NEE MultiwavelengthPathTracer. The two share
                 // the kernel, so NEE must be gated by integrator identity.
                 bool enableNEE = (integratorName_ == "path_tracer");
+                // pkg64-gpu Phase 3: plumb caustics flags from CPU Renderer.
                 cudaRenderer->renderMultiwavelength(
                     camera->pixels,
                     camera->width, camera->height, renderer.getSeed(),
                     samplesPerPixel, maxDepth,
-                    lmin, lmax, useLum, enableNEE);
+                    lmin, lmax, useLum, enableNEE,
+                    renderer.getUseRefractiveCaustics(),
+                    renderer.getUseReflectiveCaustics());
             } else {
+                // pkg64-gpu Phase 3: plumb caustics flags from CPU Renderer.
                 cudaRenderer->render(camera->pixels,
                                      camera->width, camera->height, renderer.getSeed(),
-                                     samplesPerPixel, maxDepth);
+                                     samplesPerPixel, maxDepth,
+                                     renderer.getUseRefractiveCaustics(),
+                                     renderer.getUseReflectiveCaustics());
             }
         } else
 #endif

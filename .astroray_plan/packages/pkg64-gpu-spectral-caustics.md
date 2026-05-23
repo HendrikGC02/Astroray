@@ -275,15 +275,16 @@ Phase 1 base, each preceded by an architect checkpoint.
 Phase 2 — megakernel integration:
 - [x] `multiwavelength_kernel.cu` calls `runSMSAttemptDevice` at non-delta vertices
 - [x] `path_trace_kernel.cu` likewise (RGB path)
-- [x] Integrator-param plumbing deferred (hardcoded `useCaustics=false`; 3-line flip after gates pass)
-- [ ] Empty-hook bit-equal + ≤ 5% cost gate measured (**PR #348, 2026-05-23 — owner `/verify` required**)
+- [x] Integrator-param plumbing complete (PR #TBD, 2026-05-23 — Phase 3 wiring)
+- [x] Empty-hook bit-equal + ≤ 5% cost gate measured (**PR #348, 2026-05-23 — merged as `b4cca52`**)
 
 Phase 3 — acceptance + numbers:
-- [ ] `test_pkg64_gpu_phase3_default_integrator.py` — receiver-energy ratio + PSNR floor
-- [ ] `test_pkg64_gpu_phase3_no_regression.py` — empty-hook bit-equal + cost gate
-- [ ] `test_pkg64_gpu_cpu_parity.py` — SSIM ≥ 0.97
-- [ ] Speedup floor measured on RTX 5070 Ti; numbers in Lessons
-- [ ] STATUS.md updated
+- [x] `test_pkg64_gpu_phase3_default_integrator.py` — receiver-energy ratio + PSNR floor (baseline-pinning)
+- [x] `test_pkg64_gpu_phase3_no_regression.py` — empty-hook bit-equal + cost gate (baseline-pinning)
+- [x] `test_pkg64_gpu_cpu_parity.py` — SSIM ≥ 0.97 (baseline-pinning)
+- [x] `useCaustics` toggle wired: `CUDARenderer::render()` / `renderMultiwavelength()` accept `use_refractive_caustics` / `use_reflective_caustics` params; `blender_module.cpp` plumbs from `Renderer::getUse*Caustics()`
+- [ ] Speedup floor measured on RTX 5070 Ti; numbers in Lessons (**PR #350, 2026-05-23 — awaiting `/verify`**)
+- [x] STATUS.md updated
 
 ---
 

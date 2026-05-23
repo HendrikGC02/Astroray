@@ -514,7 +514,9 @@ void CUDARenderer::uploadEnvironmentMap(const EnvironmentMap& envMap) {
 
 void CUDARenderer::render(
     std::vector<Vec3>& pixels, int width, int height,
-    int seed, int samplesPerPixel, int maxDepth)
+    int seed, int samplesPerPixel, int maxDepth,
+    bool use_refractive_caustics,
+    bool use_reflective_caustics)
 {
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
     // pkg85-C: allow world-only renders. The path-trace kernel's
@@ -636,9 +638,10 @@ void CUDARenderer::render(
     }
 #endif  // ASTRORAY_WAVEFRONT_INTERSECT
 
-    // pkg64-gpu Phase 2: enable caustics only if casters exist and flag is set.
-    // For Phase 2 the flag defaults to false (empty hook matches acceptance gate).
-    bool useCaustics = false;  // TODO Phase 2: wire integrator param
+    // pkg64-gpu Phase 3: enable caustics only if casters exist and flags are set.
+    // SMS requires BOTH refractive AND reflective flags to be true (matching
+    // the CPU integrator convention — per-vertex SMS attempt checks both).
+    bool useCaustics = use_refractive_caustics && use_reflective_caustics;
 
     // Launch megakernel
     launchPathTraceKernel(
@@ -672,7 +675,9 @@ void CUDARenderer::renderMultiwavelength(
     std::vector<Vec3>& pixels, int width, int height,
     int seed, int samplesPerPixel, int maxDepth,
     float lambdaMin, float lambdaMax, bool useLuminanceOutput,
-    bool enableNEE)
+    bool enableNEE,
+    bool use_refractive_caustics,
+    bool use_reflective_caustics)
 {
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
     // pkg85-C: see CUDARenderer::render() — world-only renders are valid.
@@ -694,10 +699,10 @@ void CUDARenderer::renderMultiwavelength(
         : (unsigned long long)seed;
     launchInitRNG(impl->d_rngStates, totalPixels, rngSeed);
 
-    // pkg64-gpu Phase 2: enable caustics only if casters exist and flag is set.
-    // The flag is controlled by the integrator params (via future GPU surface);
-    // for Phase 2 the flag defaults to false (empty hook matches acceptance gate).
-    bool useCaustics = false;  // TODO Phase 2: wire integrator param
+    // pkg64-gpu Phase 3: enable caustics only if casters exist and flags are set.
+    // SMS requires BOTH refractive AND reflective flags to be true (matching
+    // the CPU integrator convention — per-vertex SMS attempt checks both).
+    bool useCaustics = use_refractive_caustics && use_reflective_caustics;
 
     launchMultiwavelengthKernel(
         impl->d_framebuffer, width, height, samplesPerPixel, maxDepth,

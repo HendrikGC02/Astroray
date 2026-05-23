@@ -479,9 +479,11 @@ if(ASTRORAY_CUDA_FOUND)
             src/gpu/wavefront/stage_init.cu
             src/gpu/wavefront/stage_intersect_session_n3.cu
             src/gpu/wavefront/stage_shade_lambertian.cu
+            src/gpu/wavefront/stage_light_sample.cu
+            src/gpu/wavefront/stage_russian_roulette.cu
             src/gpu/wavefront/gpu_wavefront_snapshot.cu
         )
-        message(STATUS "pkg55-B' Session N+3: CUDA wavefront stage_init + intersect + shade_lambertian (spectral + PCG32)")
+        message(STATUS "pkg55-B' Session N+3+N+4: CUDA wavefront stage_init + intersect + shade + light_sample + RR (spectral + PCG32)")
     endif()
     add_library(astroray_cuda STATIC ${ASTRORAY_CUDA_SOURCES})
     if(ASTRORAY_WAVEFRONT_CUDA_N3)

@@ -140,11 +140,15 @@ def test_cpu_to_gpu_threshold_gate():
     cpu_post_init = _extract_cpu_stage_snapshots(cpu_snapshots_raw, stage='PostInit')
     cpu_post_intersect = _extract_cpu_stage_snapshots(cpu_snapshots_raw, stage='PostIntersect')
     cpu_post_shade = _extract_cpu_stage_snapshots(cpu_snapshots_raw, stage='PostShade')
+    cpu_post_light_sample = _extract_cpu_stage_snapshots(cpu_snapshots_raw, stage='PostLightSample')
+    cpu_post_rr = _extract_cpu_stage_snapshots(cpu_snapshots_raw, stage='PostRR')
 
     # Get GPU snapshots
     gpu_post_init = ar.cuda_wavefront_snapshot_post_init(r, WIDTH, HEIGHT, SEED)
     gpu_post_intersect = ar.cuda_wavefront_snapshot_post_intersect(r, WIDTH, HEIGHT, SEED)
     gpu_post_shade = ar.cuda_wavefront_snapshot_post_shade(r, WIDTH, HEIGHT, SEED)
+    gpu_post_light_sample = ar.cuda_wavefront_snapshot_post_light_sample(r, WIDTH, HEIGHT, SEED)
+    gpu_post_rr = ar.cuda_wavefront_snapshot_post_rr(r, WIDTH, HEIGHT, SEED)
 
     # Gate 1: PostInit ULP + p99.9
     post_init_ulp = _compute_stage_ulp(cpu_post_init, gpu_post_init, stage='PostInit')
@@ -220,11 +224,34 @@ def test_cpu_to_gpu_threshold_gate():
         f"PostShade p99.9 gate FAILED: measured {post_shade_p999:.6e}, threshold {gpu_thresholds['PostShade']['p99_9_relative_error']:.6e}"
     )
 
+    # Gate 4: PostLightSample p99.9 on common fields (ray state, throughput, lambdas).
+    # For Session N+4, NEE-specific fields (nee_contribution, nee_light_pdf, etc.) are
+    # TODO placeholders (0.0) and not compared. We only verify the geometric/spectral
+    # state that flows through the stage.
+    post_light_sample_p999 = _compute_stage_p999(cpu_post_light_sample, gpu_post_light_sample, stage='PostLightSample')
+
+    assert post_light_sample_p999 <= gpu_thresholds["PostLightSample"]["p99_9_relative_error"], (
+        f"PostLightSample p99.9 gate FAILED: measured {post_light_sample_p999:.6e}, "
+        f"threshold {gpu_thresholds['PostLightSample']['p99_9_relative_error']:.6e}"
+    )
+
+    # Gate 5: PostRR p99.9 on common fields (ray state, throughput, lambdas).
+    # For Session N+4, RR-specific fields (rr_prob, rr_survived) are TODO placeholders
+    # (0.0) and not compared. We only verify the geometric/spectral state.
+    post_rr_p999 = _compute_stage_p999(cpu_post_rr, gpu_post_rr, stage='PostRR')
+
+    assert post_rr_p999 <= gpu_thresholds["PostRR"]["p99_9_relative_error"], (
+        f"PostRR p99.9 gate FAILED: measured {post_rr_p999:.6e}, "
+        f"threshold {gpu_thresholds['PostRR']['p99_9_relative_error']:.6e}"
+    )
+
     # ASCII-safe print: cp1252 Windows consoles can't encode the bidi arrow.
-    print(f"\n[pkg55-Session-N+3-part2b CPU<->GPU threshold gate] PASS:")
-    print(f"  PostInit:      ULP={post_init_ulp}, p99.9={post_init_p999:.6e}")
-    print(f"  PostIntersect: ULP={post_intersect_ulp}, p99.9={post_intersect_p999:.6e}")
-    print(f"  PostShade:     p99.9={post_shade_p999:.6e}")
+    print(f"\n[pkg55-Session-N+3+N+4 CPU<->GPU threshold gate] PASS:")
+    print(f"  PostInit:        ULP={post_init_ulp}, p99.9={post_init_p999:.6e}")
+    print(f"  PostIntersect:   ULP={post_intersect_ulp}, p99.9={post_intersect_p999:.6e}")
+    print(f"  PostShade:       p99.9={post_shade_p999:.6e}")
+    print(f"  PostLightSample: p99.9={post_light_sample_p999:.6e}")
+    print(f"  PostRR:          p99.9={post_rr_p999:.6e}")
 
 
 def _extract_cpu_stage_snapshots(snapshots_raw, stage):
@@ -404,6 +431,48 @@ def _compute_stage_p999(cpu_snapshots, gpu_snapshot_array, stage):
         gpu_lambdas = gpu_snapshot_array[:, 10:14].astype(np.float32)
 
         all_rel_errors.append(rel_err_p999(cpu_ray_origin, gpu_ray_origin))
+        all_rel_errors.append(rel_err_p999(cpu_lambdas, gpu_lambdas))
+
+    elif stage == 'PostLightSample':
+        # PostLightSample (Session N+4): compare common fields (ray_origin, ray_direction,
+        # throughput, lambdas). NEE-specific fields (nee_contribution, nee_light_pdf,
+        # nee_bsdf_pdf_at_dir, nee_mis_weight) are TODO placeholders (0.0) and not compared.
+        # Row format: [0..2]: ray_origin, [3..5]: ray_direction, [6..9]: throughput,
+        #             [10..13]: lambdas, [14..20]: nee_* fields (TODO).
+        cpu_ray_origin = np.array([snap['ray_origin'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_ray_dir = np.array([snap['ray_direction'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_throughput = np.array([snap['throughput'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_lambdas = np.array([snap['lambdas'] for snap in cpu_snapshots], dtype=np.float32)
+
+        gpu_ray_origin = gpu_snapshot_array[:, 0:3].astype(np.float32)
+        gpu_ray_dir = gpu_snapshot_array[:, 3:6].astype(np.float32)
+        gpu_throughput = gpu_snapshot_array[:, 6:10].astype(np.float32)
+        gpu_lambdas = gpu_snapshot_array[:, 10:14].astype(np.float32)
+
+        all_rel_errors.append(rel_err_p999(cpu_ray_origin, gpu_ray_origin))
+        all_rel_errors.append(rel_err_p999(cpu_ray_dir, gpu_ray_dir))
+        all_rel_errors.append(rel_err_p999(cpu_throughput, gpu_throughput))
+        all_rel_errors.append(rel_err_p999(cpu_lambdas, gpu_lambdas))
+
+    elif stage == 'PostRR':
+        # PostRR (Session N+4): compare common fields (ray_origin, ray_direction,
+        # throughput, lambdas). RR-specific fields (rr_prob, rr_survived) are TODO
+        # placeholders (0.0) and not compared.
+        # Row format: [0..2]: ray_origin, [3..5]: ray_direction, [6..9]: throughput,
+        #             [10..13]: lambdas, [14..15]: rr_* fields (TODO).
+        cpu_ray_origin = np.array([snap['ray_origin'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_ray_dir = np.array([snap['ray_direction'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_throughput = np.array([snap['throughput'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_lambdas = np.array([snap['lambdas'] for snap in cpu_snapshots], dtype=np.float32)
+
+        gpu_ray_origin = gpu_snapshot_array[:, 0:3].astype(np.float32)
+        gpu_ray_dir = gpu_snapshot_array[:, 3:6].astype(np.float32)
+        gpu_throughput = gpu_snapshot_array[:, 6:10].astype(np.float32)
+        gpu_lambdas = gpu_snapshot_array[:, 10:14].astype(np.float32)
+
+        all_rel_errors.append(rel_err_p999(cpu_ray_origin, gpu_ray_origin))
+        all_rel_errors.append(rel_err_p999(cpu_ray_dir, gpu_ray_dir))
+        all_rel_errors.append(rel_err_p999(cpu_throughput, gpu_throughput))
         all_rel_errors.append(rel_err_p999(cpu_lambdas, gpu_lambdas))
 
     else:

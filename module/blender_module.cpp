@@ -3031,6 +3031,66 @@ PYBIND11_MODULE(astroray, m) {
           "Returns (num_paths, 16) array for CPU↔GPU diff harness. "
           "Fields: ray_origin (3), ray_direction (3), throughput (4), lambdas (4), "
           "bsdf_pdf, bsdf_is_delta.");
+
+    // pkg55-B' Session N+4: GPU wavefront PostLightSample snapshot for CPU↔GPU diff harness.
+    m.def("cuda_wavefront_snapshot_post_light_sample",
+          [](PyRenderer& r, int width, int height, uint64_t seed) -> py::array_t<float> {
+              auto cam = r.getCamera();
+              if (!cam) {
+                  throw std::runtime_error("Camera not set up. Call setup_camera() first.");
+              }
+
+              // Run GPU stage_init + stage_intersect + stage_shade_lambertian + stage_light_sample
+              // and download PostLightSample snapshot.
+              // Returns flat array: (num_paths, 21) with fields per path:
+              //   [0..2]: ray_origin, [3..5]: ray_direction, [6..9]: throughput,
+              //   [10..13]: lambdas, [14..17]: nee_contribution (TODO),
+              //   [18]: nee_light_pdf (TODO), [19]: nee_bsdf_pdf_at_dir (TODO),
+              //   [20]: nee_mis_weight (TODO).
+              auto snapshot = astroray::wavefront::cuda_wavefront_snapshot_post_light_sample(
+                  r.getRenderer(), *cam, width, height, seed);
+
+              int total_paths = width * height;
+              py::array_t<float> arr({total_paths, 21});
+              auto buf = arr.request();
+              float* ptr = static_cast<float*>(buf.ptr);
+              std::copy(snapshot.begin(), snapshot.end(), ptr);
+              return arr;
+          },
+          "renderer"_a, "width"_a, "height"_a, "seed"_a,
+          "pkg55-B' Session N+4: Run GPU stage_init + stage_intersect + stage_shade_lambertian + stage_light_sample and download PostLightSample snapshot. "
+          "Returns (num_paths, 21) array for CPU↔GPU diff harness. "
+          "Fields: ray_origin (3), ray_direction (3), throughput (4), lambdas (4), "
+          "nee_contribution (4), nee_light_pdf, nee_bsdf_pdf_at_dir, nee_mis_weight.");
+
+    // pkg55-B' Session N+4: GPU wavefront PostRR snapshot for CPU↔GPU diff harness.
+    m.def("cuda_wavefront_snapshot_post_rr",
+          [](PyRenderer& r, int width, int height, uint64_t seed) -> py::array_t<float> {
+              auto cam = r.getCamera();
+              if (!cam) {
+                  throw std::runtime_error("Camera not set up. Call setup_camera() first.");
+              }
+
+              // Run GPU stage_init + stage_intersect + stage_shade_lambertian + stage_light_sample + stage_russian_roulette
+              // and download PostRR snapshot.
+              // Returns flat array: (num_paths, 16) with fields per path:
+              //   [0..2]: ray_origin, [3..5]: ray_direction, [6..9]: throughput (scaled),
+              //   [10..13]: lambdas, [14]: rr_prob (TODO), [15]: rr_survived (TODO).
+              auto snapshot = astroray::wavefront::cuda_wavefront_snapshot_post_rr(
+                  r.getRenderer(), *cam, width, height, seed);
+
+              int total_paths = width * height;
+              py::array_t<float> arr({total_paths, 16});
+              auto buf = arr.request();
+              float* ptr = static_cast<float*>(buf.ptr);
+              std::copy(snapshot.begin(), snapshot.end(), ptr);
+              return arr;
+          },
+          "renderer"_a, "width"_a, "height"_a, "seed"_a,
+          "pkg55-B' Session N+4: Run GPU stage_init + stage_intersect + stage_shade_lambertian + stage_light_sample + stage_russian_roulette and download PostRR snapshot. "
+          "Returns (num_paths, 16) array for CPU↔GPU diff harness. "
+          "Fields: ray_origin (3), ray_direction (3), throughput (4), lambdas (4), "
+          "rr_prob, rr_survived.");
 #endif  // ASTRORAY_WAVEFRONT_CUDA_N3
 
     m.def("viewport_perf_reset",

@@ -45,3 +45,60 @@ jobs:
 
       - name: Test
         run: python -m pytest tests/ -v
+
+  cuda-syntax-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.35
+        with:
+          cuda: '12.8.0'
+          method: 'network'
+          sub-packages: '["nvcc", "cudart"]'
+
+      - name: Verify CUDA installation
+        run: |
+          nvcc --version
+          echo "CUDA_PATH=$CUDA_PATH"
+
+      - name: Compile CUDA sources (syntax check)
+        run: |
+          set -e
+
+          # Find all .cu files
+          cuda_files=$(find src -type f -name "*.cu")
+
+          echo "=== CUDA files found ==="
+          echo "$cuda_files"
+          echo ""
+
+          # Compile each .cu file with -c (compile only, no linking)
+          # Using -arch=sm_75 (Turing baseline) for broad compatibility
+          failed=0
+          for cu_file in $cuda_files; do
+            echo "=== Compiling $cu_file ==="
+            if ! nvcc -c "$cu_file" \
+              -std=c++17 \
+              -arch=sm_75 \
+              -I include \
+              -I src \
+              --expt-relaxed-constexpr \
+              -Wno-deprecated-gpu-targets \
+              -o "/tmp/$(basename "$cu_file" .cu).o" 2>&1; then
+              echo "ERROR: Failed to compile $cu_file"
+              failed=1
+            else
+              echo "OK: $cu_file compiled successfully"
+            fi
+            echo ""
+          done
+
+          if [ $failed -eq 1 ]; then
+            echo "=== CUDA syntax check FAILED ==="
+            exit 1
+          fi
+
+          echo "=== All CUDA files compiled successfully ==="

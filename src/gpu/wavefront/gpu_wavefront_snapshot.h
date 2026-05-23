@@ -92,6 +92,49 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     int width, int height,
     uint64_t seed);
 
+// cuda_wavefront_snapshot_post_light_sample — Run GPU stage_init + stage_intersect +
+// stage_shade_lambertian + stage_light_sample, download PostLightSample snapshot.
+//
+// Returns:
+//   Flat vector of PostLightSample snapshot fields, one row per pixel.
+//   Row format (mirrors CPU WavefrontSnapshot PostLightSample fields):
+//     [0..2]:   ray_origin (x,y,z)
+//     [3..5]:   ray_direction (x,y,z)
+//     [6..9]:   throughput (4 floats)
+//     [10..13]: lambdas (4 floats)
+//     [14..17]: nee_contribution (4 floats)
+//     [18]:     nee_light_pdf
+//     [19]:     nee_bsdf_pdf_at_dir
+//     [20]:     nee_mis_weight
+//
+//   Total: 21 floats/ints per path.
+std::vector<float> cuda_wavefront_snapshot_post_light_sample(
+    Renderer& renderer,
+    const Camera& cam,
+    int width, int height,
+    uint64_t seed);
+
+// cuda_wavefront_snapshot_post_rr — Run GPU stage_init + stage_intersect +
+// stage_shade_lambertian + stage_light_sample + stage_russian_roulette,
+// download PostRR snapshot.
+//
+// Returns:
+//   Flat vector of PostRR snapshot fields, one row per pixel.
+//   Row format (mirrors CPU WavefrontSnapshot PostRR fields):
+//     [0..2]:   ray_origin (x,y,z)
+//     [3..5]:   ray_direction (x,y,z)
+//     [6..9]:   throughput (4 floats, scaled by 1/p if survived)
+//     [10..13]: lambdas (4 floats)
+//     [14]:     rr_prob (continuation probability)
+//     [15]:     rr_survived (0 or 1)
+//
+//   Total: 16 floats/ints per path.
+std::vector<float> cuda_wavefront_snapshot_post_rr(
+    Renderer& renderer,
+    const Camera& cam,
+    int width, int height,
+    uint64_t seed);
+
 }  // namespace wavefront
 }  // namespace astroray
 

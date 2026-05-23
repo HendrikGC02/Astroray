@@ -396,6 +396,22 @@ struct GLight {
 };
 
 // ---------------------------------------------------------------------------
+// Area light structure for wavefront NEE (pkg55-B' Session N+4)
+// ---------------------------------------------------------------------------
+// This is a SIMPLIFIED light structure for Session N+4 (Lambertian-only Cornell).
+// It inlines the triangle vertices + emission for direct light sampling without
+// primitive indirection. Production would use GLight + primitive lookup.
+//
+// Session N+4 scope: single triangle area light (Cornell box ceiling).
+// Future sessions: merge with GLight or add multi-triangle area light support.
+struct GAreaLight {
+    GVec3 v0, v1, v2;       // triangle vertices (world space)
+    GVec3 normal;           // triangle normal (flat shading for Session N+4)
+    GVec3 emission;         // RGB emission (converted to spectral in kernel)
+    float power;            // luminance * area (for importance sampling, unused in N+4)
+};
+
+// ---------------------------------------------------------------------------
 // Environment map (device pointers set during upload)
 // ---------------------------------------------------------------------------
 struct GEnvMap {

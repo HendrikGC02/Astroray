@@ -52,13 +52,17 @@ def test_core_materials_export_closure_graphs(material_type, color, params, expe
 
 
 def test_dispersive_dielectric_does_not_export_flat_closure_graph():
+    # pkg64-gpu-sellmeier-upload (PR #354): dispersive dielectric is gpu-enabled
+    # via Sellmeier hero-channel upload, but still does NOT use the closure-graph
+    # GPU path (it goes through the dedicated dispersion BSDF), so the closure
+    # graph must remain empty even though caps["gpu"] is now True.
     r = _renderer()
     mat = r.create_material("dielectric", [1.0, 1.0, 1.0], {"sellmeier_preset": "bk7"})
     caps = r.get_material_backend_capabilities(mat)
 
     assert r.get_material_closure_graph(mat) == []
     assert caps["closure_graph"] is False
-    assert caps["gpu"] is False
+    assert caps["gpu"] is True
 
 
 def test_closure_only_plugin_gets_gpu_capability_without_gpu_type_name():

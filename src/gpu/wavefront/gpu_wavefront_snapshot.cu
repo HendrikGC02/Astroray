@@ -579,7 +579,7 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
 
         // Download PostLightSample snapshot fields.
         // Row format (21 elements per path):
-        //   [0..2]:   ray_origin (x,y,z)
+        //   [0..2]:   ray_origin (x,y,z) — SEMANTIC: pre-bounce shading point
         //   [3..5]:   ray_direction (x,y,z)
         //   [6..9]:   throughput (4 floats)
         //   [10..13]: lambdas (4 floats)
@@ -606,6 +606,10 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
         std::vector<float> h_lambda_3(total_paths);
 
         // Download all fields.
+        // NOTE: ray_origin reads from hitBufs.hit_point_* (shading point), NOT
+        // state.ray_origin_* (already overwritten by stage_shade to next-bounce
+        // origin). This matches CPU path_kernel.cpp which captures ps.ray_origin
+        // before the advance (lines 255-257).
         cudaError_t err;
         #define DOWNLOAD(dst, src, count) \
             err = cudaMemcpy((dst).data(), (src), (count) * sizeof((dst)[0]), cudaMemcpyDeviceToHost); \
@@ -615,9 +619,9 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
                 throw std::runtime_error(std::string("cudaMemcpy failed: ") + cudaGetErrorString(err)); \
             }
 
-        DOWNLOAD(h_ray_origin_x, state.ray_origin_x, total_paths);
-        DOWNLOAD(h_ray_origin_y, state.ray_origin_y, total_paths);
-        DOWNLOAD(h_ray_origin_z, state.ray_origin_z, total_paths);
+        DOWNLOAD(h_ray_origin_x, hitBufs.hit_point_x, total_paths);
+        DOWNLOAD(h_ray_origin_y, hitBufs.hit_point_y, total_paths);
+        DOWNLOAD(h_ray_origin_z, hitBufs.hit_point_z, total_paths);
         DOWNLOAD(h_ray_direction_x, state.ray_direction_x, total_paths);
         DOWNLOAD(h_ray_direction_y, state.ray_direction_y, total_paths);
         DOWNLOAD(h_ray_direction_z, state.ray_direction_z, total_paths);
@@ -749,7 +753,7 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
 
         // Download PostRR snapshot fields.
         // Row format (16 elements per path):
-        //   [0..2]:   ray_origin (x,y,z)
+        //   [0..2]:   ray_origin (x,y,z) — SEMANTIC: pre-bounce shading point
         //   [3..5]:   ray_direction (x,y,z)
         //   [6..9]:   throughput (4 floats, scaled by 1/p if survived)
         //   [10..13]: lambdas (4 floats)
@@ -774,6 +778,10 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
         std::vector<float> h_lambda_3(total_paths);
 
         // Download all fields.
+        // NOTE: ray_origin reads from hitBufs.hit_point_* (shading point), NOT
+        // state.ray_origin_* (already overwritten by stage_shade to next-bounce
+        // origin). This matches CPU path_kernel.cpp which captures ps.ray_origin
+        // before the advance (lines 289-291).
         cudaError_t err;
         #define DOWNLOAD(dst, src, count) \
             err = cudaMemcpy((dst).data(), (src), (count) * sizeof((dst)[0]), cudaMemcpyDeviceToHost); \
@@ -783,9 +791,9 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
                 throw std::runtime_error(std::string("cudaMemcpy failed: ") + cudaGetErrorString(err)); \
             }
 
-        DOWNLOAD(h_ray_origin_x, state.ray_origin_x, total_paths);
-        DOWNLOAD(h_ray_origin_y, state.ray_origin_y, total_paths);
-        DOWNLOAD(h_ray_origin_z, state.ray_origin_z, total_paths);
+        DOWNLOAD(h_ray_origin_x, hitBufs.hit_point_x, total_paths);
+        DOWNLOAD(h_ray_origin_y, hitBufs.hit_point_y, total_paths);
+        DOWNLOAD(h_ray_origin_z, hitBufs.hit_point_z, total_paths);
         DOWNLOAD(h_ray_direction_x, state.ray_direction_x, total_paths);
         DOWNLOAD(h_ray_direction_y, state.ray_direction_y, total_paths);
         DOWNLOAD(h_ray_direction_z, state.ray_direction_z, total_paths);

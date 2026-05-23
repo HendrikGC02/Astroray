@@ -230,46 +230,30 @@ def test_cpu_to_gpu_threshold_gate():
     # state that flows through the stage. CPU emits one PostLightSample row per
     # NEE-attempted path (subset of shaded paths); subset GPU rows to that same
     # pixel index list. GPU emits a row per launch-grid pixel like PostShade.
+    #
+    # Session N+4 part 2 aligned CPU/GPU snapshot semantics: both now capture the
+    # shading point (CPU: rec.point, GPU: hitBufs.hit_point_*) in the ray_origin
+    # field, bringing p99.9 down from 1e8 to ~2e-6.
     cpu_light_sample_pixels = np.array(
         [snap['pixel_index'] for snap in cpu_post_light_sample], dtype=np.int32)
     gpu_post_light_sample_common = gpu_post_light_sample[cpu_light_sample_pixels]
     post_light_sample_p999 = _compute_stage_p999(cpu_post_light_sample, gpu_post_light_sample_common, stage='PostLightSample')
 
-    # Session N+4 part 1 deferral: CPU/GPU snapshot capture-order semantics for
-    # ray_origin at the new NEE/RR stages don't yet match (CPU appears to capture
-    # pre-shade ray_origin; GPU captures post-shade where it's already been
-    # overwritten to the next-bounce origin). This shows up as huge ray_origin
-    # rel-err (~1e8) even with deterministic fields. The kernels compile and
-    # produce reasonable output; the snapshot wiring needs a follow-up pass to
-    # align what `ray_origin` semantically holds at PostLightSample/PostRR
-    # between the two sides. Session N+3 gates (PostInit/PostIntersect/PostShade)
-    # remain enforced above — no regression there.
-    post_light_sample_threshold = gpu_thresholds["PostLightSample"]["p99_9_relative_error"]
-    if post_light_sample_p999 > post_light_sample_threshold:
-        import warnings
-        warnings.warn(
-            f"PostLightSample p99.9 measured {post_light_sample_p999:.6e} "
-            f"(threshold {post_light_sample_threshold:.6e}) — gate DEFERRED to "
-            f"a snapshot-semantics-alignment follow-up. Session N+3 gates remain enforced.",
-            UserWarning,
-        )
+    assert post_light_sample_p999 <= gpu_thresholds["PostLightSample"]["p99_9_relative_error"], (
+        f"PostLightSample p99.9 gate FAILED: measured {post_light_sample_p999:.6e}, threshold {gpu_thresholds['PostLightSample']['p99_9_relative_error']:.6e}"
+    )
 
-    # Gate 5: PostRR p99.9 on common fields. Same deferral rationale as PostLightSample.
+    # Gate 5: PostRR p99.9 on common fields. Session N+4 part 2 semantics-alignment
+    # same as PostLightSample (CPU: rec.point, GPU: hitBufs.hit_point_*).
     if len(cpu_post_rr) > 0:
         cpu_rr_pixels = np.array(
             [snap['pixel_index'] for snap in cpu_post_rr], dtype=np.int32)
         gpu_post_rr_common = gpu_post_rr[cpu_rr_pixels]
         post_rr_p999 = _compute_stage_p999(cpu_post_rr, gpu_post_rr_common, stage='PostRR')
 
-        post_rr_threshold = gpu_thresholds["PostRR"]["p99_9_relative_error"]
-        if post_rr_p999 > post_rr_threshold:
-            import warnings
-            warnings.warn(
-                f"PostRR p99.9 measured {post_rr_p999:.6e} "
-                f"(threshold {post_rr_threshold:.6e}) — gate DEFERRED to a "
-                f"snapshot-semantics-alignment follow-up. Session N+3 gates remain enforced.",
-                UserWarning,
-            )
+        assert post_rr_p999 <= gpu_thresholds["PostRR"]["p99_9_relative_error"], (
+            f"PostRR p99.9 gate FAILED: measured {post_rr_p999:.6e}, threshold {gpu_thresholds['PostRR']['p99_9_relative_error']:.6e}"
+        )
     else:
         # No bounce-0 PostRR rows on this scene (RR depth threshold not reached at
         # bounce 0). The gate is structurally inactive here; not an error.

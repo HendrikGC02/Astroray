@@ -169,7 +169,23 @@ def test_cpu_to_gpu_threshold_gate():
     )
 
     # Gate 3: PostShade p99.9
-    post_shade_p999 = _compute_stage_p999(cpu_post_shade, gpu_post_shade, stage='PostShade')
+    # CPU emits PostShade snapshots only on hit paths (inside the `if (hit)`
+    # branch in path_kernel.cpp). GPU emits one PostShade row per pixel
+    # regardless. To compare apples-to-apples, mask GPU PostShade rows by
+    # the hit_valid bits we just downloaded with gpu_post_intersect.
+    # Snapshot row format puts hit_valid at column 14 in PostIntersect.
+    import numpy as np
+    _gpi = np.asarray(gpu_post_intersect, dtype=np.float32).reshape(-1, 23)
+    _hit_mask = _gpi[:, 14].astype(np.int32) == 1
+    _gps = np.asarray(gpu_post_shade, dtype=np.float32).reshape(-1, 16)
+    gpu_post_shade_hits = _gps[_hit_mask]
+    assert gpu_post_shade_hits.shape[0] == len(cpu_post_shade), (
+        f"PostShade row count mismatch after masking GPU hits: "
+        f"cpu={len(cpu_post_shade)} gpu_hits={gpu_post_shade_hits.shape[0]}. "
+        f"Likely a CPU/GPU divergence in which paths terminate at stage_intersect."
+    )
+
+    post_shade_p999 = _compute_stage_p999(cpu_post_shade, gpu_post_shade_hits, stage='PostShade')
 
     assert post_shade_p999 <= gpu_thresholds["PostShade"]["p99_9_relative_error"], (
         f"PostShade p99.9 gate FAILED: measured {post_shade_p999:.6e}, threshold {gpu_thresholds['PostShade']['p99_9_relative_error']:.6e}"

@@ -89,6 +89,8 @@ jobs:
               -I . \
               -I "$CUDA_PATH/include" \
               --expt-relaxed-constexpr \
+              --extended-lambda \
+              -rdc=true \
               -Wno-deprecated-gpu-targets \
               -o "/tmp/$(basename "$cu_file" .cu).o" 2>&1; then
               echo "ERROR: Failed to compile $cu_file"

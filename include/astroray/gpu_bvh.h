@@ -35,9 +35,16 @@ __device__ inline bool gpu_triangle_hit(
     rec.t     = t;
     rec.point = ray.at(t);
 
-    // Interpolate vertex normals if per-vertex normals were set
-    float w = 1.f - u - v;
-    GVec3 outwardNormal = (tri.n0 * w + tri.n1 * u + tri.n2 * v).normalized();
+    // pkg55-followup: skip redundant interpolation for flat-shaded triangles
+    GVec3 outwardNormal;
+    if (tri.flat_shaded) {
+        // n0==n1==n2, already unit; avoid (n0*w + n1*u + n2*v).normalized()
+        outwardNormal = tri.n0;
+    } else {
+        // Per-vertex normals present; interpolate and renormalize
+        float w = 1.f - u - v;
+        outwardNormal = (tri.n0 * w + tri.n1 * u + tri.n2 * v).normalized();
+    }
 
     // Front-face test
     rec.frontFace = ray.direction.dot(outwardNormal) < 0.f;

@@ -242,6 +242,9 @@ struct GTriangle {
     // pkg87a — Cryptomatte hashed names, populated at scene upload
     uint32_t objectHash;
     uint32_t materialHash;
+    // pkg55-followup — flat-shaded flag: true when n0==n1==n2 (no per-vertex normals),
+    // allows gpu_triangle_hit to skip the redundant interpolate+normalize chain.
+    bool flat_shaded;
 };
 
 struct GSphere {

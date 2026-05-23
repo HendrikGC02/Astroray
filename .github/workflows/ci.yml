@@ -68,8 +68,8 @@ jobs:
         run: |
           set -e
 
-          # Find all .cu files
-          cuda_files=$(find src -type f -name "*.cu")
+          # Find all .cu files, excluding neural_cache.cu (requires tiny-cuda-nn opt-in dependency)
+          cuda_files=$(find src -type f -name "*.cu" | grep -v "neural_cache.cu")
 
           echo "=== CUDA files found ==="
           echo "$cuda_files"
@@ -85,6 +85,7 @@ jobs:
               -arch=sm_75 \
               -I include \
               -I src \
+              -I "$CUDA_PATH/include" \
               --expt-relaxed-constexpr \
               -Wno-deprecated-gpu-targets \
               -o "/tmp/$(basename "$cu_file" .cu).o" 2>&1; then

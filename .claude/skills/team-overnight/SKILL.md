@@ -54,7 +54,21 @@ exit.
 ## Kickoff (team-lead executes once at boot)
 
 1. `TeamCreate` (`astroray-overnight`).
-2. Spawn `architect`, `pr-merger`, `docs-scribe` (all persistent).
+2. Spawn `architect`, `pr-merger`, `docs-scribe` as **persistent team members**.
+
+   ⚠️ **CRITICAL — they MUST be spawned with `team_name` AND `name` params, not as bare `Agent` calls.** A bare `Agent` call runs the prompt and exits; the agent never joins the team and never goes idle waiting for messages. `SendMessage` to a non-joined name silently fails (message routes nowhere). Verified failure mode 2026-05-24 overnight run — the entire persistent-specialists topology was a ghost layer.
+
+   Correct invocation per teammate (run all three in parallel):
+   ```
+   Agent(
+     subagent_type: "general-purpose"   (or pr-reviewer / docs-updater)
+     team_name:     "astroray-overnight"
+     name:          "architect"          (or pr-merger / docs-scribe)
+     prompt:        "<role brief; ends with `Join the team and go idle when done with the boot task. Wake on messages from team-lead.`>"
+   )
+   ```
+
+   After spawning, **verify** they joined: read `C:\Users\hgcom\.claude\teams\astroray-overnight\config.json` — the `members` array should list four entries (team-lead + the three persistent). If only team-lead is there, the spawn didn't join and `SendMessage` to those names will go to /dev/null. Re-spawn with the correct params before kickoff Step 3.
 3. Send `architect` this task: *"Run `/strategy-review`. Survey STATUS.md / ROADMAP.md / NEXT_STAGE_REPORT.md / open PRs / recent standups. Identify the next 2–4 highest-leverage deployable packages for tonight's run. If any need a spec written or refreshed before they're dispatchable, write it now via `/file-followup` or by editing the existing spec under `.astroray_plan/packages/`. Do NOT implement; your output is research + specs ready for the orchestrator to pick up. When done, message team-lead with the list of packages you've made dispatchable and any research notes saved under `.astroray_plan/docs/`."*
 4. Wait for `architect` to report back. Confirm the named specs exist and `Status:` lines are set so the orchestrator's eligibility check passes (see `memory/orchestrator-next-stage-report-stale.md`).
 5. Confirm `Astroray-RoadmapOrchestrator` Task Scheduler task is **Disabled** (preconditions §6). The team-lead — not the scheduler — drives the loop.

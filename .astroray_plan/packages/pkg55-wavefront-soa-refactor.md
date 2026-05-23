@@ -469,3 +469,47 @@ Phase C:
 - [ ] Megakernel files deleted
 - [ ] 2× performance gate passing
 - [ ] Full test suite clean
+
+---
+
+## Lessons
+
+### Hardware verification 2026-05-24
+
+**Environment:**
+- Hardware: NVIDIA GeForce RTX 5070 Ti (16 GB)
+- OS: Windows 11 Enterprise 10.0.26200
+- Driver: 597.72
+- CUDA: 12.8
+- OptiX: 9.1.0
+- Python: 3.13.12
+- Commit: cf78ca7d00aebf025bb0feb71ef6ced81e85e883
+- Branch: pkg55-B-prime-N-plus-4
+- PR: #355
+
+**Scope:** Session N+4 part 1 — PostLightSample + PostRR kernel stages added.
+
+**Gate results:**
+
+| Test | Result | Measured values |
+|------|--------|-----------------|
+| CPU↔CPU baseline bit-identity | PASS | max diff = 0.0, diverging fields = 0 |
+| PostInit ULP | PASS | ULP = 2 (threshold 4) |
+| PostIntersect ULP | PASS | ULP = 32 (threshold 64) |
+| PostShade p99.9 | PASS | p99.9 = 2.165780e-06 (threshold 1e-4) |
+| PostLightSample p99.9 | DEFERRED | p99.9 = 1.000000e+08 (threshold 1e-4) — UserWarning emitted per commit message |
+| PostRR p99.9 | DEFERRED | p99.9 = 0.0 (empty snapshot at bounce 0) |
+
+**No-regression suite:**
+- **1084 passed, 15 skipped, 20 xfailed, 2 xpassed, 2 warnings** in 252.09s (4:12)
+- `test_pkg64_gpu_phase3_prism_receiver_energy`: **PASS** (was failing pre-Sellmeier; now green after PR #354 merge)
+- All Session N+3 gates remain enforced; no regressions
+
+**Visual inspection:** Not applicable — Session N+4 adds kernel stages without new render outputs.
+
+**Verdict:** PASS — Session N+3 gates hold; PostLightSample/PostRR deferred per commit message; no-regression suite green; prism receiver-energy test unblocked by Sellmeier merge.
+
+**Notes:**
+- PostLightSample/PostRR threshold gates deferred to a snapshot-semantics-alignment follow-up due to CPU/GPU disagreement on ray_origin capture timing (CPU captures pre-shade shading point; GPU captures post-shade next-bounce origin).
+- Session N+4 test harness aligns GPU row filtering to CPU-active pixels per stage (missing pattern from PostShade now replicated at PostLightSample/PostRR).
+- Empty PostRR snapshot at bounce 0 expected (RR depth threshold not reached).

@@ -121,3 +121,36 @@ def test_import_blend_into_real_renderer_no_dynamic_attr():
     assert isinstance(stats, dict)
     # synthetic_min.blend has no real camera intrinsics; just verify the
     # function returned without raising AttributeError on the real binding.
+
+
+def test_mesh_poly_offset_indices_fallback():
+    """pkg76-followup (BMW27 fix): verify _mesh_face_offsets tries attribute
+    lookup before falling back to legacy paths.
+
+    synthetic_min.blend (Blender 5.1) stores poly_offset_indices as an
+    attribute; older Blender stored it as a direct Mesh pointer; even older
+    stored MPoly[].loopstart arrays. The importer must handle all three layouts.
+    """
+    from tools.blend_import.scene_builder import _mesh_face_offsets
+
+    bf = BlendFile.from_path(FIXTURE)
+    me_blk = bf.by_code["ME"][0]
+    me_struct = bf.struct_of(me_blk)
+    totpoly = bf.read_int(me_blk, me_struct, "totpoly")
+    if totpoly == 0:
+        pytest.skip("synthetic_min.blend has no polygons")
+
+    # Minimal stub context — only .blend is accessed by _mesh_face_offsets.
+    class MinimalCtx:
+        def __init__(self, blend):
+            self.blend = blend
+        def warn(self, msg):
+            pass
+
+    ctx = MinimalCtx(bf)
+    offsets = _mesh_face_offsets(ctx, me_blk, totpoly)
+    assert offsets is not None, "poly_offset_indices read failed"
+    assert len(offsets) == totpoly + 1, f"expected {totpoly+1} offsets, got {len(offsets)}"
+    # Offsets must be monotonic non-decreasing.
+    for i in range(totpoly):
+        assert offsets[i] <= offsets[i + 1], f"non-monotonic offsets at poly {i}"

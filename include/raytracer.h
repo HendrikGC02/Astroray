@@ -545,6 +545,12 @@ public:
     // the half-vector residual at the hero wavelength of the current
     // SampledWavelengths bundle.
     virtual float iorAt(float /*lambda_nm*/) const { return getIOR(); }
+    // pkg64-gpu-sellmeier-upload: Sellmeier dispersion queries for GPU upload.
+    // Non-dispersive materials return false; DielectricPlugin with Sellmeier
+    // preset returns true and populates the coefficients.
+    virtual bool isDispersive() const { return false; }
+    virtual Vec3 getSellmeierB() const { return Vec3(0.0f); }
+    virtual Vec3 getSellmeierC() const { return Vec3(0.0f); }
     virtual float getTransmission() const { return 0.0f; }
     virtual float getClearcoat() const { return 0.0f; }
     virtual float getClearcoatGloss() const { return 1.0f; }

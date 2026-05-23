@@ -4,6 +4,7 @@
 // Only include this from .cu files compiled by nvcc.
 
 #include "gpu_types.h"
+#include "gpu_dispersion.cuh"
 #include <curand_kernel.h>
 
 #ifndef M_PI_F
@@ -263,6 +264,48 @@ __device__ inline GBSDFSample gpu_dielectric_sample(
 
     float cosTheta = wo.dot(rec.normal);
     float etaI = 1.f, etaT = mat.ior;
+    GVec3 n = rec.normal;
+    if (cosTheta < 0.f) { cosTheta = -cosTheta; float tmp=etaI; etaI=etaT; etaT=tmp; n = -n; }
+
+    float eta      = etaI / etaT;
+    float sinTheta = sqrtf(fmaxf(0.f, 1.f - cosTheta*cosTheta));
+    bool  tir      = eta * sinTheta > 1.f;
+
+    float fresnel = gpu_fresnelDielectric(cosTheta, etaI, etaT);
+
+    if (tir || curand_uniform(rng) < fresnel) {
+        // Reflect: wi = 2*(wo·n)*n - wo
+        s.wi  = n * (2.f * wo.dot(n)) - wo;
+        s.f   = GVec3(1.f);
+        s.pdf = 1.f;
+    } else {
+        GVec3 wt_perp   = (wo - n*cosTheta) * (-eta);
+        GVec3 wt_para   = n * (-sqrtf(fabsf(1.f - wt_perp.length2())));
+        s.wi  = (wt_perp + wt_para).normalized();
+        s.f   = GVec3(eta * eta);
+        s.pdf = 1.f;
+    }
+    return s;
+}
+
+// pkg64-gpu-sellmeier-upload: wavelength-aware dielectric sampler for dispersive
+// materials. Uses hero wavelength (lambdas.lambda[0]) to evaluate Sellmeier IOR.
+// Mirrors CPU DielectricPlugin::sampleSpectral() hero-channel path.
+__device__ inline GBSDFSample gpu_dielectric_sample_spectral(
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
+    const GSampledWavelengths& lambdas, curandState* rng)
+{
+    GBSDFSample s;
+    s.isDelta = true;
+    rec.isDelta = true;
+
+    // Hero-wavelength IOR: evaluate Sellmeier at lambda[0] if dispersive
+    float ior = mat.isDispersive
+        ? gpu_sellmeier_ior(mat.dispersion, lambdas.lambda[0])
+        : mat.ior;
+
+    float cosTheta = wo.dot(rec.normal);
+    float etaI = 1.f, etaT = ior;
     GVec3 n = rec.normal;
     if (cosTheta < 0.f) { cosTheta = -cosTheta; float tmp=etaI; etaI=etaT; etaT=tmp; n = -n; }
 
@@ -900,6 +943,12 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
     const GSampledWavelengths& wl, curandState* rng)
 {
+    // pkg64-gpu-sellmeier-upload: dispatch to wavelength-aware sampler for dispersive dielectrics
+    if (mat.type == GMAT_DIELECTRIC && mat.isDispersive) {
+        GBSDFSample s = gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng);
+        s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
+        return s;
+    }
     GBSDFSample s = gpu_material_sample(mat, rec, wo, rng);
     s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
     return s;

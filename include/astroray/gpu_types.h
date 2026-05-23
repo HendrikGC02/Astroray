@@ -265,6 +265,15 @@ struct GSphere {
 // ---------------------------------------------------------------------------
 // Material
 // ---------------------------------------------------------------------------
+// Sellmeier dispersion coefficients (Sellmeier 1871, public domain).
+// Used by dispersive dielectrics to compute wavelength-dependent IOR:
+//   n²(λ) = 1 + B1·λ²/(λ²−C1) + B2·λ²/(λ²−C2) + B3·λ²/(λ²−C3)
+// with λ in μm. For non-dispersive materials, all coefficients are zero.
+struct GDispersion {
+    float b1, b2, b3;  // Sellmeier B coefficients
+    float c1, c2, c3;  // Sellmeier C coefficients (μm²)
+};
+
 enum GMaterialType : uint8_t {
     GMAT_LAMBERTIAN   = 0,
     GMAT_METAL        = 1,
@@ -343,6 +352,10 @@ struct alignas(64) GMaterial {
     float  subsurface;
     float  anisotropic;
     float  anisotropicRotation;
+
+    // pkg64-gpu-sellmeier-upload: wavelength-dependent IOR (Sellmeier dispersion)
+    GDispersion dispersion;
+    bool        isDispersive;
 
     GMaterialClosure closures[G_MAX_MATERIAL_CLOSURES];
 };

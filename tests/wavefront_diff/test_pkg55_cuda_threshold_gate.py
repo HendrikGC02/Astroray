@@ -103,7 +103,8 @@ def test_cpu_to_cpu_baseline_bit_identity():
         f"Harness inconsistency."
     )
 
-    print(f"\n[pkg55-Session-N+2 CPU↔CPU baseline] PASS: exact bit-identity "
+    # ASCII-only print so the test passes on Windows consoles using cp1252.
+    print(f"\n[pkg55-Session-N+2 CPU<->CPU baseline] PASS: exact bit-identity "
           f"(max diff = {max_abs_diff!r}, diverging fields = {total_diverging_fields})")
 
 
@@ -300,6 +301,14 @@ def _compute_stage_p999(cpu_snapshots, gpu_snapshot_array, stage):
         all_rel_errors.append(rel_err_p999(cpu_throughput, gpu_throughput))
 
     elif stage == 'PostIntersect':
+        # hit_* fields are only meaningful on rows where both sides have
+        # hit_valid==1; miss-row sentinels diverge by design (CPU writes 0s,
+        # GPU writes -1/garbage). Mask before the relative-error percentile,
+        # same convention as _compute_stage_ulp.
+        cpu_hit_valid = np.array([snap['hit_valid'] for snap in cpu_snapshots], dtype=np.int32)
+        gpu_hit_valid = gpu_snapshot_array[:, 14].astype(np.int32)
+        hit_mask = (cpu_hit_valid == 1) & (gpu_hit_valid == 1)
+
         cpu_ray_origin = np.array([snap['ray_origin'] for snap in cpu_snapshots], dtype=np.float32)
         cpu_ray_dir = np.array([snap['ray_direction'] for snap in cpu_snapshots], dtype=np.float32)
         cpu_lambdas = np.array([snap['lambdas'] for snap in cpu_snapshots], dtype=np.float32)
@@ -316,13 +325,17 @@ def _compute_stage_p999(cpu_snapshots, gpu_snapshot_array, stage):
         gpu_hit_point = gpu_snapshot_array[:, 16:19].astype(np.float32)
         gpu_hit_normal = gpu_snapshot_array[:, 19:22].astype(np.float32)
 
+        # Pre-shade ray state is valid for every path regardless of hit:
         all_rel_errors.append(rel_err_p999(cpu_ray_origin, gpu_ray_origin))
         all_rel_errors.append(rel_err_p999(cpu_ray_dir, gpu_ray_dir))
         all_rel_errors.append(rel_err_p999(cpu_lambdas, gpu_lambdas))
         all_rel_errors.append(rel_err_p999(cpu_throughput, gpu_throughput))
-        all_rel_errors.append(rel_err_p999(cpu_hit_t, gpu_hit_t))
-        all_rel_errors.append(rel_err_p999(cpu_hit_point, gpu_hit_point))
-        all_rel_errors.append(rel_err_p999(cpu_hit_normal, gpu_hit_normal))
+        # Hit fields: mask out miss rows so sentinel divergence doesn't
+        # contaminate the percentile. If no common hits, skip.
+        if hit_mask.any():
+            all_rel_errors.append(rel_err_p999(cpu_hit_t[hit_mask], gpu_hit_t[hit_mask]))
+            all_rel_errors.append(rel_err_p999(cpu_hit_point[hit_mask], gpu_hit_point[hit_mask]))
+            all_rel_errors.append(rel_err_p999(cpu_hit_normal[hit_mask], gpu_hit_normal[hit_mask]))
 
     elif stage == 'PostShade':
         cpu_ray_origin = np.array([snap['ray_origin'] for snap in cpu_snapshots], dtype=np.float32)

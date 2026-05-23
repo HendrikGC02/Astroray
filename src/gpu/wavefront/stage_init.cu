@@ -46,18 +46,34 @@ __device__ inline float filterSample(WavefrontRNG& rng) {
     return rng.Uniform() - 0.5f;
 }
 
-// sampleUniformWavelength: stratified-uniform over [lambdaMin, lambdaMax].
-// Mirrors astroray::SampledWavelengths::sampleUniform() from spectrum.h.
-// Returns a GSampledWavelengths with 4 stratified samples.
+// sampleUniformWavelength: hero-wavelength sampling with wrap-around.
+// Mirrors astroray::SampledWavelengths::sampleUniform() from spectrum.cpp:82
+// byte-for-byte:
+//   hero    = lambdaMin + u * span
+//   lam[i]  = hero + i * step                          (stratified offset)
+//   lam[i] -= span  if lam[i] > lambdaMax              (wrap into range)
+//   pdf[i]  = 1 / span
+//
+// The hero sample over the full range keeps dispersion / wavelength-dependent
+// paths unbiased when they collapse to the hero wavelength. Previous GPU
+// implementation used pure stratified (`lambdaMin + (i + u) * delta`) which
+// produced a DIFFERENT wavelength SET than the CPU for the same u — caught by
+// pkg64-gpu Phase 2 HW verify as 8.7M-ULP CPU↔GPU PostInit divergence (the
+// RNG draw count fix was necessary but not sufficient). See
+// `src/spectrum.cpp:82-99` for the CPU reference.
 __device__ inline GSampledWavelengths sampleUniformWavelength(float u,
                                                                float lambdaMin = G_LAMBDA_MIN,
                                                                float lambdaMax = G_LAMBDA_MAX) {
     GSampledWavelengths swl;
-    float delta = (lambdaMax - lambdaMin) / G_SPECTRUM_SAMPLES;
-    // Stratified: lambda[i] = lambdaMin + (i + u) * delta.
+    float span = lambdaMax - lambdaMin;
+    float step = span / static_cast<float>(G_SPECTRUM_SAMPLES);
+    float hero = lambdaMin + u * span;
+    float invSpan = 1.0f / span;
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
-        swl.lambda[i] = lambdaMin + (i + u) * delta;
-        swl.pdf[i] = 1.0f / (lambdaMax - lambdaMin);
+        float lam = hero + static_cast<float>(i) * step;
+        if (lam > lambdaMax) lam -= span;
+        swl.lambda[i] = lam;
+        swl.pdf[i]    = invSpan;
     }
     return swl;
 }

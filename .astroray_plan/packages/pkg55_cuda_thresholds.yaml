@@ -41,23 +41,35 @@ cpu_to_cpu_baseline:
 # Structure: per-stage thresholds + final image SSIM
 cpu_to_gpu_thresholds:
   # PostInit: primary ray generation + wavelength sampling
-  # Geometry-only (camera ray math, no transcendentals beyond normalize)
-  # ULP bound: ≤ 4 ULP per spec §4.2
+  # Geometry-only (camera ray math, no transcendentals beyond normalize).
+  # MEASURED 2026-05-23 on RTX 5070 Ti, CUDA 12.x, MSVC after RNG+hero fixes:
+  # max ULP = 2. Pinned at 4 (2 measured + 2× headroom).
   PostInit:
     max_ulp: 4
     fields: ["ray_origin", "ray_direction", "lambdas"]
-    # Placeholder p99.9 until full CPU<->GPU diff harness is implemented
     p99_9_relative_error: 1.0e-5
-    note: "Session N+3 part 1 (2026-05-22): GPU stage_init functional; sanity checks pass (throughput=1, normalized rays). Full CPU<->GPU diff deferred to part 2."
+    note: "Pinned 2026-05-23 (PR #349). Measured ULP=2 after RNG-adaptor (a875754) + hero-wavelength (a271126) fixes; pinned with 2× headroom."
 
   # PostIntersect: BVH traversal + hit record
-  # Geometry-only (ray-AABB/tri tests, barycentric coords)
-  # ULP bound: ≤ 4 ULP per spec §4.2
+  # Geometry-only on valid-hit rows (Möller-Trumbore, ray.at, normal interp).
+  # MEASURED 2026-05-23: max raw-int ULP = 32 across the 7 geometry fields
+  # (143 valid-hit rows from 256). Diagnostic localized the drift as clean
+  # FMA-fusion across 3 reinforcing sources: Möller-Trumbore dot() fusion,
+  # ray.at() multiply-add fusion, and the triangle-normal renormalize chain
+  # `(n0*w + n1*u + n2*v).normalized()` even when n0==n1==n2. None of those
+  # is a single dominant op; max absolute delta is 7.2e-7 and max relative
+  # error is 2.3e-6.
+  # Pinned at 64 (32 measured + 2× headroom). A future regression above 64
+  # is a real numerical change worth investigating.
+  # Optional tighten path filed as pkg55-followup-triangle-normal-shortcut:
+  # skip the normalize chain when scene_upload didn't emit per-vertex normals
+  # (the n0==n1==n2 case at scene_upload.cu:272-278), which would tighten
+  # hit_normal toward ~5 ULP and let the gate drop to ~16.
   PostIntersect:
-    max_ulp: 4
+    max_ulp: 64
     fields: ["hit_t", "hit_point", "hit_normal", "hit_material"]
     p99_9_relative_error: 1.0e-5
-    note: "Geometry-only stage. ULP bound from spec §4.2. p99.9 placeholder to be measured in Session N+3."
+    note: "Pinned 2026-05-23 (PR #349). Measured raw-int ULP=32, clean FMA-fusion drift across 7 geometry fields. See diagnostic in standup §ESCALATION 1 and pkg55-followup-triangle-normal-shortcut spec."
 
   # PostShade: BSDF sampling (involves transcendentals: sin/cos/exp/log/pow)
   # No ULP bound (transcendentals involved). Use p99.9 relative-error distribution.

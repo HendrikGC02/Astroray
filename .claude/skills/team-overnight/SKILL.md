@@ -17,7 +17,7 @@ with HW verification.
 3. `.astroray_plan/.orchestrator.gpu.lock` not held.
 4. `git worktree list` — no leftover merged worktrees (orchestrator will GC, but a clean start avoids first-tick noise).
 5. `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `.claude/settings.json` (already set).
-6. Confirm the `/roadmap-orchestrator` Windows Task Scheduler task exists and is enabled. If not, either re-arm via `/schedule` or run the orchestrator tick from inside the team on a cadence (see Loop below).
+6. **The Task Scheduler `Astroray-RoadmapOrchestrator` task must be DISABLED for the duration of the team run.** The team-lead drives the tick loop itself (see Loop below); two engines running in parallel would double-dispatch even though locks would prevent corruption. `Disable-ScheduledTask -TaskName 'Astroray-RoadmapOrchestrator'`. Re-enable on team shutdown if you want the scheduled tick to resume after the run.
 7. Recent `.pyd` built (mtime within ~24h of HEAD on `main`). If stale, run `/rebuild-pyd` first.
 
 ## Team topology
@@ -57,14 +57,15 @@ exit.
 2. Spawn `architect`, `pr-merger`, `docs-scribe` (all persistent).
 3. Send `architect` this task: *"Run `/strategy-review`. Survey STATUS.md / ROADMAP.md / NEXT_STAGE_REPORT.md / open PRs / recent standups. Identify the next 2–4 highest-leverage deployable packages for tonight's run. If any need a spec written or refreshed before they're dispatchable, write it now via `/file-followup` or by editing the existing spec under `.astroray_plan/packages/`. Do NOT implement; your output is research + specs ready for the orchestrator to pick up. When done, message team-lead with the list of packages you've made dispatchable and any research notes saved under `.astroray_plan/docs/`."*
 4. Wait for `architect` to report back. Confirm the named specs exist and `Status:` lines are set so the orchestrator's eligibility check passes (see `memory/orchestrator-next-stage-report-stale.md`).
-5. Verify Windows Task Scheduler `Astroray-Orchestrator-Tick` task is **enabled** and next-run is within 10 minutes. If absent, run `/schedule` to arm it durably.
+5. Confirm `Astroray-RoadmapOrchestrator` Task Scheduler task is **Disabled** (preconditions §6). The team-lead — not the scheduler — drives the loop.
 
-## Loop (runs unattended until last-call)
+## Loop (team-lead drives, runs unattended until last-call)
 
-The orchestrator tick fires every ~10 minutes via Task Scheduler. Each tick is
-self-contained: guards → dispatch → fixers → HW gate → merges → standup upsert
-→ GC → release lock. The team's persistent members only act when messaged or
-when the orchestrator routes a hand-off:
+The team-lead session runs `/roadmap-orchestrator` itself on a ~10-minute
+cadence (use `/loop 10m /roadmap-orchestrator` or self-pace via
+`ScheduleWakeup`). Each tick is self-contained: guards → dispatch → fixers →
+HW gate → merges → standup upsert → GC → release lock. Between ticks, the
+team's persistent members work asynchronously on messaged tasks:
 
 - **`pr-merger`** wakes when the orchestrator posts a "ready-to-merge" PR. Runs the `pr-reviewer` checklist (CI all-pass, HW PASS bound to head SHA, no license issues). Merges or escalates with reason.
 - **`docs-scribe`** wakes on ship events: updates STATUS/ROADMAP and appends to today's standup. Finalizes yesterday's standup at day-roll.
@@ -92,7 +93,8 @@ About 45 minutes before the run ends:
    - Blocked / escalated items needing owner attention
    - Specs updated / created
 4. `SendMessage {type: shutdown_request}` to each persistent teammate.
-5. Final message to owner: link to the standup file + summary of any standup `Action:` items.
+5. Optionally `Enable-ScheduledTask -TaskName 'Astroray-RoadmapOrchestrator'` to restore the scheduled-tick fallback.
+6. Final message to owner: link to the standup file + summary of any standup `Action:` items.
 
 ## Safety rails (lifted from /roadmap-orchestrator SKILL)
 
@@ -108,7 +110,7 @@ About 45 minutes before the run ends:
 
 | Symptom                                  | Action                                                                                |
 |------------------------------------------|---------------------------------------------------------------------------------------|
-| Orchestrator tick missing                | Re-arm via `/schedule`; weekly 7-day auto-expiry is a known harness behavior.         |
+| Team-lead loop missed a tick             | Re-issue `/loop 10m /roadmap-orchestrator`; if the team-lead session itself died, re-enable the Task Scheduler task as the resilient fallback and re-kickoff. |
 | GPU lock stuck > 90 min                  | The verifier crashed. Inspect `.astroray_plan/.orchestrator.gpu.lock` meta, release.  |
 | Worktree contamination on `main`         | Halt all dispatch; `git status` on main, isolate, file an Action item for owner.      |
 | Persistent CI-rescue commits on same PR  | Route to `gate-failure-reviewer` for root-cause; do not let an implementer thrash.    |

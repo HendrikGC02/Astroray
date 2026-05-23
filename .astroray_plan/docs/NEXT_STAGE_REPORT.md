@@ -164,7 +164,33 @@
 
 ## 3. Drop-in prompts per agent
 
-### 3.1 Claude Code (Track A) — pkg55-B' Session N+4 (next CUDA port stage continuation, TOP LIVE TRACK 2026-05-23)
+### 3.0 Claude Code (Track A) — pkg64-gpu-sellmeier-upload (TOP PRIORITY 2026-05-24, ship BEFORE Session N+4)
+
+```
+You are Claude Code on the RTX box. pkg64-gpu-sellmeier-upload — owner directive: ship this BEFORE pkg55-B' Session N+4. Unblocks pkg64-gpu Phase 3 hardware baseline-pinning (prism rainbow + mirror-pool acceptance scenes).
+
+Read first:
+  - .astroray_plan/packages/pkg64-gpu-sellmeier-upload.md (full spec; ~1 week effort)
+  - include/astroray/gpu_types.h (GMaterial struct — add GDispersion sub-struct)
+  - src/gpu/scene_upload.cu (material-pack code that currently rejects Sellmeier)
+  - include/astroray/gpu_materials.h / gpu_bsdf.h (dielectric BSDF — branch on mat.isDispersive)
+  - tests/test_pkg64_gpu_phase3_*.py (the three tests currently blocked on this)
+
+Goal: GPU upload of Sellmeier dispersion coefficients (B1,B2,B3,C1,C2,C3) + device-callable gpu_sellmeier_ior(coeffs, lambda_nm) per Sellmeier 1871 closed form. Hero-channel-only refraction is sufficient for Session 1 (per-wavelength multi-IOR is non-goal). After this lands, pkg64-gpu Phase 3 prism receiver-energy, PSNR-floor, and GPU↔CPU SSIM parity gates all run end-to-end on RTX.
+
+Acceptance (per spec):
+  - gpu_sellmeier_ior matches Schott BK7 datasheet at 587.6/486.1/656.3 nm within 1e-4 rel-err.
+  - scene_upload.cu accepts Sellmeier materials without raising.
+  - Three Phase 3 HW gates pass: receiver-energy ≥1.10×, PSNR-floor delta ≥−0.5 dB, GPU↔CPU SSIM ≥0.97.
+  - Existing scalar-IOR dielectric path remains bit-identical (no regression).
+
+Constraints: CLAUDE.md 1,2,3,6. Cite Sellmeier 1871 (public domain), Cycles closure_principled.h (Apache-2.0), PBRT-v4 DielectricBxDF (Apache-2.0). Watch the MinGW large-struct-by-value memo (`mingw_large_struct_byval`) — GDispersion is 24 B but GMaterial growth may push the total over 32 B; pass-by-const-ref where it appears as a parameter.
+
+When done: pkg64-gpu-sellmeier-upload spec status → done + PR. PR titled
+"feat(pkg64-gpu): GPU Sellmeier dispersion upload + per-wavelength IOR (hero)".
+```
+
+### 3.1 Claude Code (Track A) — pkg55-B' Session N+4 (next CUDA port stage continuation, RESUMES AFTER SELLMEIER)
 
 ```
 You are Claude Code on the RTX box. pkg55-B' CUDA-port track Session N+4. Session N+3 (PRs #338/#343/#346/#349/#351) COMPLETE — PostInit ULP=2 PASS, PostIntersect=32 (pinned 64), PostShade in bound. Now continue CUDA kernel port.
@@ -315,7 +341,7 @@ When done: PR titled
    **blocked on pkg100** (the .blend import AttributeError fix); both
    explicitly DEPRIORITIZED per owner decision (§2).
 
-**Recommended merge order:** **pkg55-B' Session N+4** (top priority, CUDA-port path lead) → **Sessions N+5..M** (multi-session CUDA port continues) ∥ **pkg64-gpu-sellmeier-upload** (second tier, unblocks Phase 3 HW) → **pkg86-B** (GPU Light Tree, second tier) → **pkg76 CSV** (second tier, RTX parity rows).
+**Recommended merge order (owner directive 2026-05-23, reaffirmed for Round 14 pickup):** **pkg64-gpu-sellmeier-upload** (TOP PRIORITY — ship before Session N+4) → **pkg55-B' Session N+4** (CUDA-port lead resumes) → **Sessions N+5..M** (multi-session CUDA port continues) → **pkg86-B** (GPU Light Tree, needs spec) → **pkg76 CSV** (RTX parity rows).
 
 ---
 

@@ -46,7 +46,7 @@ echo [Phase 1] MSVC bootstrap...
 REM Check if cl.exe is already on PATH (fast-path for dev shells)
 where cl.exe >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    echo cl.exe already on PATH (dev shell) - skipping vcvars init
+    echo cl.exe already on PATH ^(dev shell^) - skipping vcvars init
     goto :check_nvcc
 )
 

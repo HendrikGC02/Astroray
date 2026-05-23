@@ -63,12 +63,13 @@ def test_backend_capabilities_report_explicit_preview_approximation():
     assert "closure-graph" in caps["notes"]
 
 
-def test_dispersive_dielectric_is_cpu_only_until_spectral_gpu_support():
+def test_dispersive_dielectric_gpu_upload_via_sellmeier_hero():
+    # pkg64-gpu-sellmeier-upload (PR #354) flipped this from cpu_only to gpu-enabled.
+    # Hero-channel-only refraction; per-wavelength multi-IOR deferred to Session 2.
     r = _renderer()
     mat = r.create_material("dielectric", [1.0, 1.0, 1.0], {"glass_preset": "bk7"})
     caps = r.get_material_backend_capabilities(mat)
-    assert caps["gpu"] is False
-    assert caps["gpu_spectral"] is False
+    assert caps["gpu"] is True
     assert "Sellmeier" in caps["notes"]
 
 

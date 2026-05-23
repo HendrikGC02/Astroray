@@ -98,6 +98,8 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
     g.subsurface       = 0.f;
     g.anisotropic      = 0.f;
     g.anisotropicRotation = 0.f;
+    g.isDispersive     = false;
+    g.dispersion       = GDispersion{0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
 
     astroray::MaterialClosureGraph graph = mat->closureGraph();
     std::string graphReason;
@@ -159,6 +161,14 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         g.spectralMode = GSPEC_RGB_ALBEDO;
         g.baseColor = GVec3(1.f);
         g.ior = mat->getIOR();
+        // pkg64-gpu-sellmeier-upload: populate Sellmeier dispersion if present
+        if (mat->isDispersive()) {
+            Vec3 B = mat->getSellmeierB();
+            Vec3 C = mat->getSellmeierC();
+            g.dispersion.b1 = B.x; g.dispersion.b2 = B.y; g.dispersion.b3 = B.z;
+            g.dispersion.c1 = C.x; g.dispersion.c2 = C.y; g.dispersion.c3 = C.z;
+            g.isDispersive = true;
+        }
     } else if (gpuType == "thin_glass") {
         g.type = GMAT_THIN_GLASS;
         g.spectralMode = GSPEC_RGB_ALBEDO;

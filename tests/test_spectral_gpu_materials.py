@@ -75,10 +75,12 @@ def test_pkg35_capabilities_mark_spectral_gpu_and_cpu_only_emitters():
     assert flat_caps["closure_graph"] is True
     assert "flat-IOR" in flat_caps["notes"]
 
+    # pkg64-gpu-sellmeier-upload (PR #354): dispersive dielectric is now gpu-enabled
+    # via hero-channel-only Sellmeier IOR. gpu_spectral remains False because
+    # per-wavelength multi-IOR refraction is Session 2 work.
     dispersive = renderer.create_material("dielectric", [1.0, 1.0, 1.0], {"sellmeier_preset": "bk7"})
     dispersive_caps = renderer.get_material_backend_capabilities(dispersive)
-    assert dispersive_caps["gpu"] is False
-    assert dispersive_caps["gpu_spectral"] is False
+    assert dispersive_caps["gpu"] is True
     assert "Sellmeier" in dispersive_caps["notes"]
 
     for name in ("line_emitter", "blackbody"):

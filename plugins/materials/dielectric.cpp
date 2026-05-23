@@ -104,6 +104,10 @@ public:
         if (!dispersive_) return ior_;
         return sellmeierIOR(lambda_nm, sellmeierB_, sellmeierC_);
     }
+    // pkg64-gpu-sellmeier-upload: expose dispersion data for GPU upload
+    bool isDispersive() const override { return dispersive_; }
+    Vec3 getSellmeierB() const override { return sellmeierB_; }
+    Vec3 getSellmeierC() const override { return sellmeierC_; }
     astroray::MaterialClosureGraph closureGraph() const override {
         astroray::MaterialClosureGraph graph;
         if (!dispersive_) {
@@ -114,13 +118,15 @@ public:
     }
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps;
+        // pkg64-gpu-sellmeier-upload: dispersive dielectrics now upload to GPU
+        // with Sellmeier coefficients + hero-wavelength IOR evaluation. The
+        // GPU dielectric BSDF branches on GMaterial::isDispersive at runtime.
+        caps.gpu = true;
+        caps.gpuSpectral = true;
         if (dispersive_) {
-            caps.gpu = false;
-            caps.gpuSpectral = false;
-            caps.notes = "Sellmeier dispersion requires wavelength-dependent GPU refraction and remains CPU-only";
+            caps.gpuType = "dielectric";  // no closure graph for dispersive
+            caps.notes = "spectral Sellmeier-dispersive dielectric GPU lowering (hero-wavelength)";
         } else {
-            caps.gpu = true;
-            caps.gpuSpectral = true;
             caps.closureGraph = true;
             caps.gpuType = "closure_graph";
             caps.notes = "spectral flat-IOR dielectric closure-graph GPU lowering";

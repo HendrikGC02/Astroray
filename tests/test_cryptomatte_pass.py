@@ -43,7 +43,11 @@ def reconstruct_mask(crypto_buffer, target_hash):
             for rank in range(depth):
                 id_val = crypto_buffer[y, x, rank * 2]
                 weight = crypto_buffer[y, x, rank * 2 + 1]
-                if np.abs(id_val - target_hash) < 1e-6:  # float equality with epsilon
+                # Use exact equality for float hash comparison.
+                # Cryptomatte hashes are bitwise-identical when computed from the same string,
+                # so no epsilon is needed. An absolute epsilon like 1e-6 fails for tiny hashes
+                # (e.g., 6e-30) because it matches unrelated values in the range [-1e-6, +1e-6].
+                if id_val == target_hash:
                     total_weight += weight
             mask[y, x] = total_weight
 
@@ -243,8 +247,10 @@ def test_cryptomatte_iou_roundtrip():
         # Threshold luminance to a binary mask. The renderer outputs RGB
         # (no alpha channel); every other object is hidden in this ground-truth
         # pass, so any non-black pixel marks visibility of the named entity.
+        # Use a low threshold (> 0.01) instead of > 0.5 because matte surfaces
+        # lit only by the sun produce dim pixels (sum-of-RGB typically 0.1-0.5).
         alpha = gt_pixels.sum(axis=2)
-        ground_truth_obj[obj_name] = alpha > 0.5
+        ground_truth_obj[obj_name] = alpha > 0.01
 
     # For each material name, render only objects with that material
     for mat_name in mat_names:
@@ -296,8 +302,9 @@ def test_cryptomatte_iou_roundtrip():
         gt_pixels = gt_renderer.render(spp, 1, None, False)
 
         # Renderer returns RGB; sum channels for the binary visibility mask.
+        # Use a low threshold (> 0.01) to match the object ground-truth logic.
         alpha = gt_pixels.sum(axis=2)
-        ground_truth_mat[mat_name] = alpha > 0.5
+        ground_truth_mat[mat_name] = alpha > 0.01
 
     # === Reconstruct masks and compute IoU ===
     iou_results = {}

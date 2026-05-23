@@ -2452,7 +2452,8 @@ public:
             // Weight = average(throughput · bsdf_eval), per Cycles film_write_cryptomatte_slots (Apache-2.0).
             // Accumulated *before* throughput is updated for the next bounce.
             // cryptoObjectRanks/cryptoMaterialRanks point to this pixel's rank array (already offset).
-            if (cryptomatteEnabled && cryptoObjectRanks && cryptoMaterialRanks) {
+            // Cryptomatte records only the first hit (bounce == 0), not indirect bounces.
+            if (cryptomatteEnabled && cryptoObjectRanks && cryptoMaterialRanks && bounce == 0) {
                 astroray::SampledSpectrum contrib = throughput * bss.f_spectral;
                 astroray::XYZ contribXYZ = contrib.toXYZ(lambdas);
                 // Inline XYZ→sRGB (avoiding spectral.h circular dependency).
@@ -2469,15 +2470,6 @@ public:
                 if (rec.material && !rec.material->getName().empty()) {
                     materialId = crypto_hash_name(rec.material->getName());
                 }
-
-                // [pkg87d-diag] probe crypto-accumulate site for name resolution
-                static int once = 0; // remove after fix
-                if (once < 20) { // remove after fix
-                    printf("[pkg87d-diag] obj=%s objId=%.6f weight=%.6f\n", // remove after fix
-                           rec.hitObject ? rec.hitObject->getName().c_str() : "<none>", // remove after fix
-                           objectId, weight); // remove after fix
-                    once++; // remove after fix
-                } // remove after fix
 
                 // Pass pixelIndex=0 since cryptoObjectRanks/cryptoMaterialRanks already point to this pixel's data
                 crypto_accumulate_shade_point(cryptoObjectRanks, cryptoMaterialRanks,
@@ -2990,6 +2982,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             }
         }
         if (integrator_) integrator_->endFrame();
+
         if (!passes_.empty()) {
             Framebuffer fb(cam);
             for (auto& pass : passes_)

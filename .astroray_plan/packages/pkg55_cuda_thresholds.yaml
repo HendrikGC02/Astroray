@@ -81,16 +81,21 @@ cpu_to_gpu_thresholds:
     note: "BSDF stage with transcendentals. p99.9 placeholder (1e-4 = 0.01%) to be measured in Session N+3."
 
   # PostLightSample: NEE shadow ray + MIS weight (involves div/sqrt/pow)
+  # MEASURED 2026-05-24 on RTX 5070 Ti after Session N+4 part 2 snapshot-semantics alignment:
+  # p99.9 = 2.211559e-06 on common deterministic fields (ray_origin=shading point, lambdas).
+  # Pinned at 3.5e-06 (1.5× measured, Session N+3 convention).
   PostLightSample:
-    p99_9_relative_error: 1.0e-4
-    fields: ["shadow_ray_origin", "shadow_ray_direction", "nee_contribution", "mis_weight"]
-    note: "NEE stage with transcendentals. p99.9 placeholder (1e-4 = 0.01%) to be measured in Session N+3."
+    p99_9_relative_error: 3.5e-06
+    fields: ["ray_origin", "lambdas"]
+    note: "Pinned 2026-05-24 (Session N+4 part 2). Measured p99.9=2.21e-06 after aligning CPU/GPU snapshot capture to both use shading point (rec.point / hitBufs.hit_point_*). NEE-specific fields (nee_contribution, nee_*_pdf, mis_weight) are TODO placeholders and not compared."
 
   # PostRR: Russian roulette + radiance accumulation (div/comparison)
+  # MEASURED 2026-05-24: p99.9 = 0.0 (no bounce-0 RR rows on Session N+1 scene at max_depth=8).
+  # Pinned conservatively at 3.5e-06 (match PostLightSample; will tighten when RR rows exist).
   PostRR:
-    p99_9_relative_error: 1.0e-4
-    fields: ["throughput", "color", "alive"]
-    note: "RR stage. p99.9 placeholder (1e-4 = 0.01%) to be measured in Session N+3."
+    p99_9_relative_error: 3.5e-06
+    fields: ["ray_origin", "lambdas"]
+    note: "Pinned 2026-05-24 (Session N+4 part 2). Measured p99.9=0.0 (no RR rows at bounce 0 on session_n1_envmap_cornell). Conservative bound matches PostLightSample. RR-specific fields (rr_prob, rr_survived) are TODO placeholders and not compared."
 
   # Final image: whole-image SSIM gate (unchanged from Phase B/C spec)
   final_image:

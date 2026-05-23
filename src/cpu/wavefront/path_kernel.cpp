@@ -252,9 +252,12 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
                     s.sample_index = ps.sample_index;
                     s.bounce       = bounce;
                     s.stage        = SnapshotStage::PostLightSample;
-                    s.ray_origin[0] = ps.ray_origin.x;
-                    s.ray_origin[1] = ps.ray_origin.y;
-                    s.ray_origin[2] = ps.ray_origin.z;
+                    // Capture shading point (rec.point), not incoming ray origin.
+                    // This matches GPU snapshot which downloads hitBufs.hit_point_*
+                    // (Session N+4 part 2 snapshot-semantics alignment).
+                    s.ray_origin[0] = rec.point.x;
+                    s.ray_origin[1] = rec.point.y;
+                    s.ray_origin[2] = rec.point.z;
                     s.ray_direction[0] = ps.ray_direction.x;
                     s.ray_direction[1] = ps.ray_direction.y;
                     s.ray_direction[2] = ps.ray_direction.z;
@@ -286,9 +289,12 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
             s.sample_index = ps.sample_index;
             s.bounce       = bounce;
             s.stage        = SnapshotStage::PostRR;
-            s.ray_origin[0] = ps.ray_origin.x;
-            s.ray_origin[1] = ps.ray_origin.y;
-            s.ray_origin[2] = ps.ray_origin.z;
+            // Capture shading point (rec.point), not incoming ray origin.
+            // This matches GPU snapshot which downloads hitBufs.hit_point_*
+            // (Session N+4 part 2 snapshot-semantics alignment).
+            s.ray_origin[0] = rec.point.x;
+            s.ray_origin[1] = rec.point.y;
+            s.ray_origin[2] = rec.point.z;
             s.ray_direction[0] = ps.ray_direction.x;
             s.ray_direction[1] = ps.ray_direction.y;
             s.ray_direction[2] = ps.ray_direction.z;

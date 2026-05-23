@@ -770,36 +770,58 @@ def _mesh_corner_verts(ctx, me_blk: Block, totloop: int) -> list[int] | None:
 
 
 def _mesh_face_offsets(ctx, me_blk: Block, totpoly: int) -> list[int] | None:
+    """Read polygon loop offsets from Blender 4.x attribute storage or legacy
+    Mesh.poly_offset_indices pointer, falling back to MPoly[].loopstart synthesis
+    for pre-4.0 files.
+
+    Blender 4.0+ stores polygon topology as an `OffsetIndices` attribute where
+    polygon i's loops span [offsets[i] .. offsets[i+1]). Pre-4.0 stored explicit
+    MPoly structs with loopstart + totloop fields.
+
+    References:
+    - https://projects.blender.org/blender/blender/pulls/105938 (Blender 4.0 change)
+    - https://developer.blender.org/docs/features/objects/mesh/mesh/ (OffsetIndices)
+    """
     blend = ctx.blend
     me_struct = blend.struct_of(me_blk)
-    if me_struct.by_name.get("poly_offset_indices") is None:
-        return None
-    ptr = blend.read_pointer(me_blk, me_struct, "poly_offset_indices")
-    blk = blend.follow(ptr)
-    if blk is None:
-        # Legacy fallback: MPoly.loopstart + MPoly.totloop synthesized to offsets.
-        if me_struct.by_name.get("mpoly") is not None:
-            mp_ptr = blend.read_pointer(me_blk, me_struct, "mpoly")
-            mp_blk = blend.follow(mp_ptr)
-            if mp_blk is not None:
-                mp_struct = blend.sdna.struct_for("MPoly")
-                if mp_struct is not None and mp_struct.by_name.get("loopstart"):
-                    ls_off = mp_struct.by_name["loopstart"].offset
-                    tl_off = mp_struct.by_name["totloop"].offset
-                    offsets = []
-                    last_end = 0
-                    for i in range(totpoly):
-                        base = mp_blk.payload_offset + i * mp_struct.size
-                        ls = _struct.unpack_from(blend.header.endian_char + "i", blend.buf, base + ls_off)[0]
-                        tl = _struct.unpack_from(blend.header.endian_char + "i", blend.buf, base + tl_off)[0]
-                        offsets.append(ls)
-                        last_end = ls + tl
-                    offsets.append(last_end)
-                    return offsets
-        return None
-    offsets = list(_struct.unpack_from(blend.header.endian_char + "i" * (totpoly + 1),
-                                       blend.buf, blk.payload_offset))
-    return offsets
+
+    # Modern Blender 4.x: poly_offset_indices as attribute.
+    blk = _attribute_data_block(blend, me_blk, "poly_offset_indices")
+    if blk is not None:
+        offsets = list(_struct.unpack_from(blend.header.endian_char + "i" * (totpoly + 1),
+                                           blend.buf, blk.payload_offset))
+        return offsets
+
+    # Older Blender (or 4.x with direct pointer): Mesh.poly_offset_indices field.
+    if me_struct.by_name.get("poly_offset_indices") is not None:
+        ptr = blend.read_pointer(me_blk, me_struct, "poly_offset_indices")
+        blk = blend.follow(ptr)
+        if blk is not None:
+            offsets = list(_struct.unpack_from(blend.header.endian_char + "i" * (totpoly + 1),
+                                               blend.buf, blk.payload_offset))
+            return offsets
+
+    # Legacy fallback: MPoly.loopstart + MPoly.totloop synthesized to offsets.
+    if me_struct.by_name.get("mpoly") is not None:
+        mp_ptr = blend.read_pointer(me_blk, me_struct, "mpoly")
+        mp_blk = blend.follow(mp_ptr)
+        if mp_blk is not None:
+            mp_struct = blend.sdna.struct_for("MPoly")
+            if mp_struct is not None and mp_struct.by_name.get("loopstart"):
+                ls_off = mp_struct.by_name["loopstart"].offset
+                tl_off = mp_struct.by_name["totloop"].offset
+                offsets = []
+                last_end = 0
+                for i in range(totpoly):
+                    base = mp_blk.payload_offset + i * mp_struct.size
+                    ls = _struct.unpack_from(blend.header.endian_char + "i", blend.buf, base + ls_off)[0]
+                    tl = _struct.unpack_from(blend.header.endian_char + "i", blend.buf, base + tl_off)[0]
+                    offsets.append(ls)
+                    last_end = ls + tl
+                offsets.append(last_end)
+                return offsets
+
+    return None
 
 
 def _mesh_material_index(ctx, me_blk: Block, totpoly: int) -> list[int] | None:

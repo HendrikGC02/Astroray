@@ -152,6 +152,26 @@ void launchStageShadeLambertian_SessionN3(
     const ::GMaterial* d_materials,
     int num_materials);
 
+// Session N+4: Light sampling (NEE) stage.
+// GAreaLight is defined in gpu_types.h (global namespace); use ::GAreaLight to
+// avoid shadowing with an in-namespace forward decl (incomplete-type errors).
+
+void launchStageLightSample_SessionN4(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const ::GMaterial* d_materials,
+    int num_materials,
+    const ::GAreaLight* d_lights,
+    int num_lights,
+    const GBVHNode* d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle* d_tris,
+    const GSphere* d_spheres);
+
+// Session N+4: Russian roulette stage.
+void launchStageRussianRoulette_SessionN4(
+    GPUWavefrontState& state);
+
 // Session N+3 part 2: Hit record fields (extend GPUWavefrontState for intersect->shade flow).
 // These are passed as separate device pointers; will be folded into GPUWavefrontState
 // struct after Session N+3 verification.

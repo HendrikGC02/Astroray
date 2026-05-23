@@ -374,6 +374,32 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         gl.power          = powerDist[i] - prev;
         gl.cumulativePower = powerDist[i];
         r.lights.push_back(gl);
+
+        // pkg55-B' Session N+4: populate GAreaLight for wavefront NEE
+        // For Session N+4 (Lambertian-only Cornell), we assume each light is a single
+        // triangle emitter. Extract vertices + emission from the Triangle primitive.
+        if (primIdx >= 0 && primIdx < (int)r.prims.size()) {
+            const GPrimitive& gp = r.prims[primIdx];
+            if (gp.type == GPRIM_TRIANGLE) {
+                const GTriangle& tri = r.triangles[gp.index];
+                GAreaLight al;
+                al.v0 = tri.v0;
+                al.v1 = tri.v1;
+                al.v2 = tri.v2;
+                al.normal = tri.n0;  // flat shading: use first normal (all equal for flat tri)
+                // Emission: get from material
+                if (tri.materialId >= 0 && tri.materialId < (int)r.materials.size()) {
+                    const GMaterial& mat = r.materials[tri.materialId];
+                    al.emission = GVec3(mat.baseColor.x * mat.emissionIntensity,
+                                        mat.baseColor.y * mat.emissionIntensity,
+                                        mat.baseColor.z * mat.emissionIntensity);
+                } else {
+                    al.emission = GVec3(0, 0, 0);
+                }
+                al.power = gl.power;  // copy from GLight
+                r.areaLights.push_back(al);
+            }
+        }
     }
 
     // (pkg64-gpu Phase 2 caster gathering moved inline during sphere loop above)

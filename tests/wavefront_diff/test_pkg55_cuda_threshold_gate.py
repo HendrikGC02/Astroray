@@ -181,7 +181,15 @@ def test_cpu_to_gpu_threshold_gate():
 
 
 def _extract_cpu_stage_snapshots(snapshots_raw, stage):
-    """Extract CPU snapshots for a given stage from the raw snapshot list."""
+    """Extract CPU snapshots for a given stage at the first-bounce kernel call.
+
+    CPU reference_pt_wavefront_render emits a snapshot at each stage on EVERY
+    bounce of EVERY path. GPU cuda_wavefront_snapshot_post_<stage> launches the
+    single-stage kernel once and downloads the result — i.e. only the bounce==0
+    snapshot semantics. Filter to bounce==0 so the shapes align (width*height
+    snapshots on both sides) and the per-field diff is comparing the same
+    logical work unit.
+    """
     stage_map = {
         'PostInit': 0,
         'PostIntersect': 1,
@@ -193,7 +201,7 @@ def _extract_cpu_stage_snapshots(snapshots_raw, stage):
 
     result = []
     for snap in snapshots_raw:
-        if snap['stage'] == stage_id:
+        if snap['stage'] == stage_id and snap['bounce'] == 0:
             result.append(snap)
     return result
 

@@ -390,7 +390,9 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 // Emission: get from material
                 if (tri.materialId >= 0 && tri.materialId < (int)r.materials.size()) {
                     const GMaterial& mat = r.materials[tri.materialId];
-                    al.emission = mat.emission;
+                    al.emission = GVec3(mat.baseColor.x * mat.emissionIntensity,
+                                        mat.baseColor.y * mat.emissionIntensity,
+                                        mat.baseColor.z * mat.emissionIntensity);
                 } else {
                     al.emission = GVec3(0, 0, 0);
                 }

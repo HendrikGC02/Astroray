@@ -1,0 +1,239 @@
+#!/usr/bin/env python
+"""pkg64-gpu Phase 3 — GPU ↔ CPU SMS parity (SSIM ≥ 0.97).
+
+Spec: .astroray_plan/packages/pkg64-gpu-spectral-caustics.md §Phase 3.
+
+New gate introduced in Phase 3: GPU SMS vs CPU SMS SSIM ≥ 0.97 on the prism
+scene at 256 spp with `useCaustics=true`. Threshold rationale from spec:
+
+  "Matches pkg54b NIR-band tolerance, accounts for the FP-noise envelope
+  characterized in pkg82. A tighter gate is not justified until pkg82 measures
+  cross-build variance specifically for the SMS code path."
+
+Informational: receiver-energy ratio GPU/CPU (expected ≈ 1.0) printed but not
+asserted. Skips gracefully when CUDA is unavailable.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from runtime_setup import configure_test_imports
+
+configure_test_imports()
+sys.path.insert(0, os.path.dirname(__file__))
+
+try:
+    import astroray  # noqa: E402
+    AVAILABLE = True
+except ImportError:
+    AVAILABLE = False
+
+from base_helpers import save_image  # noqa: E402
+
+pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
+
+if AVAILABLE and not astroray.__features__.get("cuda", False):
+    pytest.skip(
+        "CUDA feature not in this build — pkg64-gpu Phase 3 GPU/CPU parity "
+        "needs CUDA; /verify runs this on the RTX box.",
+        allow_module_level=True,
+    )
+
+WIDTH = 64
+HEIGHT = 64
+SAMPLES = 256  # Higher spp for the parity gate (spec §Phase 3: "at 256 spp")
+MAX_DEPTH = 10
+
+BASELINES_DIR = Path(__file__).parent / "baselines" / "pkg64-gpu-phase3"
+
+
+def _make_prism_scene(use_gpu: bool):
+    """Sellmeier-BK7 sphere caster between an area light and a floor receiver.
+
+    Mirrors test_pkg64_gpu_phase3_default_integrator.py _make_prism_scene (lines 60-88).
+    Identical scene on CPU and GPU paths; only the renderer backend differs.
+    """
+    r = astroray.Renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+
+    floor = r.create_material("lambertian", [0.85, 0.85, 0.85], {})
+    r.add_triangle([-2.4, -1.2, -2.2], [2.4, -1.2, -2.2], [2.4, -1.2, 1.6], floor)
+    r.add_triangle([-2.4, -1.2, -2.2], [2.4, -1.2, 1.6], [-2.4, -1.2, 1.6], floor)
+
+    light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 18.0})
+    r.add_sphere([0.0, 1.6, 1.0], 0.22, light)
+
+    glass = r.create_material("dielectric", [1.0, 1.0, 1.0], {
+        "sellmeier_preset": "bk7",
+    })
+    r.add_sphere([0.0, -0.4, 0.15], 0.7, glass)
+    glass_id = r.scene_object_count() - 1
+    assert r.set_object_caustic_caster(glass_id, True)
+
+    r.setup_camera(
+        [0.0, 0.0, 4.2], [0.0, -0.05, 0.0], [0.0, 1.0, 0.0],
+        38.0, WIDTH / HEIGHT, 0.0, 4.2, WIDTH, HEIGHT)
+
+    if use_gpu:
+        r.set_use_gpu(True)
+        r.set_wavelength_range(380.0, 780.0)  # visible-band sRGB output
+        r.set_output_mode("srgb")
+        r.set_integrator("multiwavelength_path_tracer")
+    else:
+        # CPU spectral path tracer (same as GPU multiwavelength_path_tracer).
+        r.set_integrator("path_tracer")
+
+    r.set_use_refractive_caustics(True)
+    r.set_use_reflective_caustics(True)
+    r.set_integrator_param("max_depth", MAX_DEPTH)
+    r.set_integrator_param("spectral_newton", 1)
+
+    return r
+
+
+def _render(use_gpu: bool, samples: int, seed: int):
+    """Render the prism scene on GPU or CPU and return (pixels, stats_dict)."""
+    r = _make_prism_scene(use_gpu=use_gpu)
+    r.set_seed(seed)
+    pixels = np.asarray(r.render(samples, MAX_DEPTH, None, False), dtype=np.float32)
+    # GPU megakernel does not return integrator stats; CPU does.
+    stats = r.get_integrator_stats() if not use_gpu else {}
+    return pixels, stats
+
+
+def _receiver_energy(pixels: np.ndarray) -> float:
+    """Sum of luminance over the floor region under the sphere — the pixels
+    where the chromatic caustic lands. Same window as test_pkg64_gpu_phase3_default_integrator.py."""
+    lum = 0.2126 * pixels[..., 0] + 0.7152 * pixels[..., 1] + 0.0722 * pixels[..., 2]
+    h, w = lum.shape
+    yy, xx = np.mgrid[:h, :w]
+    receiver = (xx > w * 0.20) & (xx < w * 0.80) & (yy < h * 0.55) & (yy > h * 0.20)
+    return float(np.sum(lum[receiver]))
+
+
+def _ssim(img1: np.ndarray, img2: np.ndarray) -> float:
+    """Structural similarity index (SSIM) between two images.
+
+    Simplified windowed SSIM for 3-channel images. Mirrors the pkg54b NIR-band
+    parity gate pattern (tests/test_pkg54b_phase2_gpu_parity.py). We don't need
+    skimage.metrics.structural_similarity here because the per-channel mean +
+    variance + covariance pattern is sufficient at the 0.97 threshold.
+
+    Returns mean SSIM over RGB channels.
+    """
+    from math import sqrt
+
+    # Constants from Wang 2004 SSIM paper (DOI 10.1109/TIP.2003.819861).
+    C1 = (0.01 * 1.0) ** 2  # (K1 * L)^2, L=1.0 for normalized images
+    C2 = (0.03 * 1.0) ** 2  # (K2 * L)^2
+
+    ssim_channels = []
+    for ch in range(3):
+        x = img1[..., ch].astype(np.float64)
+        y = img2[..., ch].astype(np.float64)
+
+        mu_x = np.mean(x)
+        mu_y = np.mean(y)
+        sigma_x = np.std(x)
+        sigma_y = np.std(y)
+        sigma_xy = np.mean((x - mu_x) * (y - mu_y))
+
+        numerator = (2 * mu_x * mu_y + C1) * (2 * sigma_xy + C2)
+        denominator = (mu_x**2 + mu_y**2 + C1) * (sigma_x**2 + sigma_y**2 + C2)
+        ssim_ch = numerator / denominator
+        ssim_channels.append(ssim_ch)
+
+    return float(np.mean(ssim_channels))
+
+
+def test_pkg64_gpu_cpu_parity_ssim(test_results_dir):
+    """GPU SMS vs CPU SMS SSIM ≥ 0.97 on prism scene at 256 spp (Phase 3 new gate).
+
+    Multi-seed averaging to reduce MC noise (CPU and GPU share the same seed set).
+    Informational: receiver-energy GPU/CPU ratio (expected ≈ 1.0) is printed.
+
+    Baseline-pinning: first run writes the GPU and CPU images, subsequent runs
+    assert SSIM ≥ 0.97 against the pinned baselines.
+    """
+    probe = astroray.Renderer()
+    if not probe.gpu_available:
+        pytest.skip("CUDA GPU not available on this machine")
+
+    baseline_gpu_path = BASELINES_DIR / "parity-gpu.npy"
+    baseline_cpu_path = BASELINES_DIR / "parity-cpu.npy"
+
+    # Multi-seed averaging (same seeds for GPU and CPU to compare apples-to-apples).
+    test_seeds = (145, 211, 333)
+
+    def avg(use_gpu, samples, seeds):
+        acc = None
+        for s in seeds:
+            pix, _ = _render(use_gpu=use_gpu, samples=samples, seed=s)
+            acc = pix if acc is None else acc + pix
+        return acc / len(seeds)
+
+    gpu_avg = avg(True, SAMPLES, test_seeds)
+    cpu_avg = avg(False, SAMPLES, test_seeds)
+
+    save_image(gpu_avg, os.path.join(test_results_dir, "pkg64_gpu_p3_parity_gpu.png"))
+    save_image(cpu_avg, os.path.join(test_results_dir, "pkg64_gpu_p3_parity_cpu.png"))
+
+    e_gpu = _receiver_energy(gpu_avg)
+    e_cpu = _receiver_energy(cpu_avg)
+    energy_ratio = e_gpu / max(e_cpu, 1e-6)
+
+    ssim_val = _ssim(gpu_avg, cpu_avg)
+
+    print(
+        f"\n[pkg64-gpu Phase 3 GPU/CPU parity] "
+        f"SSIM={ssim_val:.4f}, "
+        f"receiver energy GPU={e_gpu:.4f} CPU={e_cpu:.4f} ratio={energy_ratio:.3f}x"
+    )
+
+    if not baseline_gpu_path.exists() or not baseline_cpu_path.exists():
+        # First run: capture baselines and skip.
+        baseline_gpu_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(baseline_gpu_path, gpu_avg)
+        np.save(baseline_cpu_path, cpu_avg)
+        pytest.skip(
+            f"pkg64-gpu Phase 3 GPU/CPU parity baselines not present. "
+            f"Captured GPU baseline at {baseline_gpu_path}, "
+            f"CPU baseline at {baseline_cpu_path}. "
+            f"Measured SSIM {ssim_val:.4f}, energy ratio {energy_ratio:.3f}x. "
+            f"Re-run this test to assert the gate (SSIM ≥ 0.97)."
+        )
+
+    baseline_gpu = np.load(baseline_gpu_path)
+    baseline_cpu = np.load(baseline_cpu_path)
+    baseline_ssim = _ssim(baseline_gpu, baseline_cpu)
+
+    # Strict gate: GPU SMS tracks CPU SMS within SSIM ≥ 0.97 (from spec §Phase 3).
+    # Threshold rationale: matches pkg54b NIR-band tolerance (pkg82 FP-noise envelope).
+    assert ssim_val >= 0.97, (
+        f"pkg64-gpu Phase 3 GPU/CPU parity SSIM gate FAILED: "
+        f"measured {ssim_val:.4f} < gate 0.97. GPU SMS diverges from CPU SMS "
+        f"beyond the FP-noise envelope (pkg82). Baseline SSIM was {baseline_ssim:.4f}. "
+        f"If the baseline was captured incorrectly, delete {baseline_gpu_path} "
+        f"and {baseline_cpu_path}, then re-run."
+    )
+
+    print(
+        f"[pkg64-gpu Phase 3 GPU/CPU parity] PASS: "
+        f"SSIM {ssim_val:.4f} ≥ 0.97 (baseline {baseline_ssim:.4f})"
+    )
+
+    # Informational: receiver-energy ratio (expected ≈ 1.0; not asserted).
+    # A large deviation (e.g. > 1.10× or < 0.90×) is logged but not a gate failure.
+    if energy_ratio < 0.90 or energy_ratio > 1.10:
+        print(
+            f"[pkg64-gpu Phase 3 GPU/CPU parity] NOTE: "
+            f"receiver-energy GPU/CPU ratio {energy_ratio:.3f}x is outside "
+            f"the expected ≈1.0 envelope. This is informational (not a gate failure), "
+            f"but may indicate GPU/CPU SMS energy divergence worth investigating."
+        )

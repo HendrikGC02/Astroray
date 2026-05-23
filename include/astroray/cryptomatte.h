@@ -139,3 +139,109 @@ inline void crypto_accumulate_shade_point(
     crypto_insert(objectRanks + offset, depth, objectId, weight);
     crypto_insert(materialRanks + offset, depth, materialId, weight);
 }
+
+// crypto_name_registry: Thread-safe name→hash registry for manifest emission
+// Records every setObjectName/setMaterialName call during scene setup.
+// Serializes to JSON {"name": "<hash_hex>", ...} at render end.
+//
+// Reference: Cycles intern/cycles/scene/film.cpp Film::update_passes (Apache-2.0)
+// https://projects.blender.org/blender/blender/src/branch/main/intern/cycles/scene/film.cpp
+//
+// Usage:
+//   auto& registry = crypto_name_registry::instance();
+//   registry.add_object("cube_red");
+//   registry.add_material("mat_blue");
+//   std::string json = registry.to_manifest_json("CryptoObject"); // all object names
+//
+#include <map>
+#include <mutex>
+#include <sstream>
+#include <iomanip>
+
+class crypto_name_registry {
+public:
+    static crypto_name_registry& instance() {
+        static crypto_name_registry registry;
+        return registry;
+    }
+
+    void add_object(const std::string& name) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        float hash = crypto_hash_name(name);
+        object_names_[name] = hash;
+    }
+
+    void add_material(const std::string& name) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        float hash = crypto_hash_name(name);
+        material_names_[name] = hash;
+    }
+
+    void clear() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        object_names_.clear();
+        material_names_.clear();
+    }
+
+    // to_manifest_json: Serialize names to Psyop manifest JSON
+    // typename: "CryptoObject" or "CryptoMaterial"
+    // Returns: JSON string {"name1": "<hash_hex>", "name2": "<hash_hex>", ...}
+    std::string to_manifest_json(const std::string& typename_) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto& names = (typename_ == "CryptoObject") ? object_names_ : material_names_;
+
+        std::ostringstream json;
+        json << "{";
+        bool first = true;
+        for (const auto& [name, hash] : names) {
+            if (!first) json << ",";
+            first = false;
+
+            // Convert float hash back to uint32 for hex representation
+            uint32_t hash_u32;
+            std::memcpy(&hash_u32, &hash, 4);
+
+            json << "\"" << name << "\":\"" << std::hex << std::setw(8) << std::setfill('0') << hash_u32 << "\"";
+        }
+        json << "}";
+        return json.str();
+    }
+
+private:
+    crypto_name_registry() = default;
+    mutable std::mutex mutex_;
+    std::map<std::string, float> object_names_;
+    std::map<std::string, float> material_names_;
+};
+
+// crypto_manifest_headers: Generate Psyop §3 EXR header entries for a typename
+// Reference: Psyop Cryptomatte Specification v1.2.0 §3 (BSD-3-Clause)
+// https://github.com/Psyop/Cryptomatte/blob/master/specification/IDmattes_poster.pdf
+//
+// typename_: "CryptoObject" or "CryptoMaterial"
+// Returns: map of header key-value pairs:
+//   cryptomatte/<hash7>/name       = typename_
+//   cryptomatte/<hash7>/hash       = "MurmurHash3_32"
+//   cryptomatte/<hash7>/conversion = "uint32_to_float32"
+//   cryptomatte/<hash7>/manifest   = JSON from registry
+//
+// <hash7> = first 7 hex chars of crypto_hash_name(typename_)
+inline std::map<std::string, std::string> crypto_manifest_headers(const std::string& typename_) {
+    // Compute hash7: first 7 hex digits of hashed typename
+    float hash_float = crypto_hash_name(typename_);
+    uint32_t hash_u32;
+    std::memcpy(&hash_u32, &hash_float, 4);
+    std::ostringstream hash7_stream;
+    hash7_stream << std::hex << std::setw(8) << std::setfill('0') << hash_u32;
+    std::string hash7 = hash7_stream.str().substr(0, 7);
+
+    // Build header keys
+    std::string prefix = "cryptomatte/" + hash7 + "/";
+    std::map<std::string, std::string> headers;
+    headers[prefix + "name"] = typename_;
+    headers[prefix + "hash"] = "MurmurHash3_32";
+    headers[prefix + "conversion"] = "uint32_to_float32";
+    headers[prefix + "manifest"] = crypto_name_registry::instance().to_manifest_json(typename_);
+
+    return headers;
+}

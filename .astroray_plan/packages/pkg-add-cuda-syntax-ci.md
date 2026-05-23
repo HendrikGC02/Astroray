@@ -2,7 +2,7 @@
 
 **Pillar:** 0 (Infrastructure)
 **Track:** Track A (CI/build infrastructure)
-**Status:** in-progress
+**Status:** done (PR #358, 2026-05-24 — 15 .cu files compile clean in ~4min CI)
 **Estimated effort:** ~2 hours (spec + CI workflow + test)
 **Depends on:** none
 
@@ -180,4 +180,69 @@ This CI job catches all frontend errors in ~2 minutes, before merge.
 
 ## Lessons
 
-(To be filled after implementation)
+**Implementation:** 2026-05-24 (PR #358)
+
+### Final working configuration
+
+```yaml
+- uses: Jimver/cuda-toolkit@v0.2.35
+  with:
+    cuda: '12.8.0'
+    method: 'network'
+    # Use default sub-packages (includes all essential headers)
+
+- run: nvcc -c "$cu_file" \
+    -std=c++17 \
+    -arch=sm_75 \
+    -I include -I src -I . -I "$CUDA_PATH/include" \
+    --expt-relaxed-constexpr \
+    --extended-lambda \
+    -rdc=true \
+    -Wno-deprecated-gpu-targets
+```
+
+### Key findings
+
+1. **Sub-package selection is fragile.** Explicitly requesting `["nvcc", "cudart", "curand", "nvtx"]` failed because the apt package names don't match the sub-package names (`cuda-curand-12-8` doesn't exist). Using the action's default sub-packages for `method: 'network'` works reliably.
+
+2. **Include path requirements:**
+   - `-I include` — project headers under `include/astroray/`
+   - `-I src` — local headers like `src/gpu/profile.h`
+   - `-I .` — data files like `data/spectra/cie_cmf.inc`, `src/util/murmurhash3.h`
+   - `-I "$CUDA_PATH/include"` — CUDA SDK headers (curand_kernel.h, nvtx3/nvToolsExt.h)
+
+3. **Compilation flags:**
+   - `--extended-lambda` — required for device lambdas in `multiwavelength_kernel.cu`
+   - `-rdc=true` (relocatable device code) — allows separate compilation without link-time resolution, avoiding `ptxas fatal: Unresolved extern function` errors
+
+4. **Excluded files:**
+   - `src/neural_cache.cu` — requires `tiny-cuda-nn` opt-in dependency (not available in CI)
+
+### CI overhead
+
+- CUDA toolkit install: ~20s (network method with default sub-packages)
+- Compilation (15 .cu files): ~3m30s
+- **Total overhead: ~4 minutes per PR**
+
+This is acceptable for catching syntax errors before merge (vs 5-10 min RTX build + human diagnosis time).
+
+### Files verified
+
+All 15 non-neural .cu files compile successfully:
+- `src/gpu/scene_upload.cu`
+- `src/gpu/path_trace_kernel.cu`
+- `src/gpu/multiwavelength_kernel.cu`
+- `src/gpu/cuda_renderer.cu`
+- `src/gpu/pkg64_sms_probe.cu`
+- `src/gpu/wavefront/*.cu` (10 files)
+
+### Examples this would have caught
+
+All Round 13 errors from NEXT_STAGE_REPORT.md line 146:
+- `gpu_sampledSpectrumToXYZ` undefined
+- `rec.primType` / `rec.primIndex` wrong field names
+- `GAreaLight` incomplete-type (forward-decl shadowing)
+- `cross()` / `dot()` free-function vs member
+- `mat.base_color` vs `mat.baseColor`
+
+All are frontend syntax/type errors that `nvcc -c` catches.

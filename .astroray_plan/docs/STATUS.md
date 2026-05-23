@@ -1,8 +1,9 @@
 # Astroray Status
 
-**Last updated:** 2026-05-23 (pkg64-gpu Phase 2 PR #348 — megakernel SMS integration ready for owner `/verify`).
+**Last updated:** 2026-05-23 (pkg55-followup PR #351 — flat-shaded triangle normal shortcut).
 
 Wave summary 2026-05-23:
+- **pkg55-followup done** (PR #351) — flat-shaded triangle normal shortcut. Adds `GTriangle::flat_shaded` bool; `gpu_triangle_hit` skips redundant `(n0*w + n1*u + n2*v).normalized()` when `n0==n1==n2` (mirrors CPU `Triangle::hit` fast path). Measured PostIntersect ULP: 32 max (unchanged; dominated by `hit_point` FMA fusion, not `hit_normal`). Threshold remains 64 ULP. Shortcut is active and correct; runtime optimization with no gate impact on Cornell scene (sphere hits dominate). Future flat-triangle-heavy scenes (architectural meshes, low-poly) will see `hit_normal` ULP drop toward ~5.
 - **pkg64-gpu Phase 2 PR #348** — megakernel integration of device SMS attempt (Phase 1, PR #323). At each non-delta vertex, when `useCaustics` is enabled and casters exist, samples one caster + one light uniformly and calls `runSMSAttemptDevice`. Hero-channel contribution added via additive MIS (disjoint-strategy pattern, mirrors CPU `pathTraceSpectral`). **Empty-hook acceptance gates deferred to owner `/verify`** (bit-equality vs pre-pkg64-gpu, ≤5% walltime overhead at 64 spp, CUDA build green). Integrator-param plumbing (`use_refractive_caustics` / `use_reflective_caustics`) deferred; `useCaustics` hardcoded to `false` for Phase 2 gates.
 
 Prior wave 2026-05-22 (Round 12 closeout):

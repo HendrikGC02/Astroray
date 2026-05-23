@@ -274,8 +274,10 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 gt.n0 = GVec3(n0.x, n0.y, n0.z);
                 gt.n1 = GVec3(n1.x, n1.y, n1.z);
                 gt.n2 = GVec3(n2.x, n2.y, n2.z);
+                gt.flat_shaded = false;  // per-vertex normals present
             } else {
                 gt.n0 = gt.n1 = gt.n2 = GVec3(n.x, n.y, n.z);
+                gt.flat_shaded = true;   // n0==n1==n2, shortcut eligible
             }
             gt.materialId = getOrAddMat(tri->getMaterial());
             // pkg87a — Cryptomatte: hash object and material names

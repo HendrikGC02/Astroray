@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done (PR #344, 2026-05-22 — partial: all 7 CPU integrators + GPU megakernel paths fully instrumented; multiwavelength_kernel + CPU wavefront refs deferred to minimal-PR scope; CMake/CUDA build flag conflict resolved out-of-band)
 **Estimated effort:** 1.5–2 weeks (the depth the original spec
 understated — per-shade-point accumulation across every integrator,
 CPU + GPU)

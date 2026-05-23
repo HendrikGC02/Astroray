@@ -547,7 +547,7 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     GTriangle* d_tris = nullptr;
     GSphere* d_spheres = nullptr;
     ::GMaterial* d_materials = nullptr;
-    GAreaLight* d_lights = nullptr;
+    ::GAreaLight* d_lights = nullptr;
 
     try {
         SceneUploadResult bvhRes = buildSceneArrays(renderer, &cam);
@@ -716,7 +716,7 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     GTriangle* d_tris = nullptr;
     GSphere* d_spheres = nullptr;
     ::GMaterial* d_materials = nullptr;
-    GAreaLight* d_lights = nullptr;
+    ::GAreaLight* d_lights = nullptr;
 
     try {
         SceneUploadResult bvhRes = buildSceneArrays(renderer, &cam);

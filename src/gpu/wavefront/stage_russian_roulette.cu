@@ -105,17 +105,16 @@ __global__ void stageRussianRouletteKernel(
     // Skip RR if bounce <= kRRDepth. Mirrors CPU line 276: if (bounce > kRRDepth).
     if (bounce <= kRRDepth) return;
 
-    // Reconstruct RNG.
-    WavefrontRNG rng(state.rng_pixel[i], state.rng_sample[i],
-                     state.rng_dimension[i], state.rng_seed[i]);
+    // Reconstruct RNG (3-arg ctor + setDimension; mirrors stage_init.cu).
+    WavefrontRNG rng(state.rng_pixel[i], state.rng_sample[i], state.rng_seed[i]);
+    rng.setDimension(state.rng_dimension[i]);
 
-    // Reconstruct throughput.
-    GSampledSpectrum throughput(
-        state.throughput_0[i],
-        state.throughput_1[i],
-        state.throughput_2[i],
-        state.throughput_3[i]
-    );
+    // Reconstruct throughput (default-construct + assign by index; no 4-arg ctor).
+    GSampledSpectrum throughput;
+    throughput[0] = state.throughput_0[i];
+    throughput[1] = state.throughput_1[i];
+    throughput[2] = state.throughput_2[i];
+    throughput[3] = state.throughput_3[i];
 
     // Reconstruct wavelengths.
     GSampledWavelengths lambdas;
@@ -163,7 +162,7 @@ __global__ void stageRussianRouletteKernel(
     }
 
     // Update RNG dimension (consumed 1 dimension for RR test).
-    state.rng_dimension[i] = rng.dimension_;
+    state.rng_dimension[i] = rng.dimension();
 }
 
 }  // anonymous namespace

@@ -153,15 +153,15 @@ void launchStageShadeLambertian_SessionN3(
     int num_materials);
 
 // Session N+4: Light sampling (NEE) stage.
-// Forward decl for GAreaLight (defined in gpu_types.h, global namespace).
-struct GAreaLight;
+// GAreaLight is defined in gpu_types.h (global namespace); use ::GAreaLight to
+// avoid shadowing with an in-namespace forward decl (incomplete-type errors).
 
 void launchStageLightSample_SessionN4(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
     const ::GMaterial* d_materials,
     int num_materials,
-    const GAreaLight* d_lights,
+    const ::GAreaLight* d_lights,
     int num_lights,
     const GBVHNode* d_bvhNodes,
     const GPrimitive* d_prims,

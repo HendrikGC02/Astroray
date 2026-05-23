@@ -85,7 +85,7 @@ __device__ GLightSample sampleAreaLight(
     const GVec3& shading_point,
     const GVec3& shading_normal,
     const GSampledWavelengths& lambdas,
-    const GAreaLight* d_lights,
+    const ::GAreaLight* d_lights,
     int num_lights)
 {
     GLightSample result;
@@ -105,7 +105,7 @@ __device__ GLightSample sampleAreaLight(
         if (light_idx >= num_lights) light_idx = num_lights - 1;
     }
 
-    const GAreaLight& light = d_lights[light_idx];
+    const ::GAreaLight& light = d_lights[light_idx];
 
     // Sample two uniform coordinates on the light surface.
     float u1 = rng.Uniform();
@@ -142,12 +142,13 @@ __device__ GLightSample sampleAreaLight(
     // Light area = 0.5 * ||(v1 - v0) × (v2 - v0)||.
     GVec3 e1 = light.v1 - light.v0;
     GVec3 e2 = light.v2 - light.v0;
-    float area = 0.5f * cross(e1, e2).length();
+    float area = 0.5f * e1.cross(e2).length();
     result.pdf = (area > 0.0f) ? (1.0f / (area * num_lights)) : 0.0f;
 
     // Emitted radiance: convert light RGB emission to spectral.
     // Mirrors CPU LightSample::emission_spec = RGBIlluminantSpectrum(emission).sample(lambdas).
-    result.emission = gpu_rgbToSampledSpectrum(light.emission, lambdas);
+    // Session N+4: default illuminant spectral mode for area lights (no per-light spectralMode yet).
+    result.emission = gpu_rgbToSampledSpectrum(light.emission, lambdas, GSPEC_RGB_ILLUMINANT);
 
     return result;
 }
@@ -180,9 +181,11 @@ __device__ bool traceShadowRay(
     // Session N+5+ would add a dedicated gpu_bvh_any_hit() function for
     // shadow rays (terminates on first hit, no material/normal computation).
     GHitRecord shadow_hit;
-    bool hit = gpu_bvh_hit(origin, direction, tmin, tmax,
-                            d_bvhNodes, d_prims, d_tris, d_spheres,
-                            shadow_hit);
+    GRay shadow_ray;
+    shadow_ray.origin = origin;
+    shadow_ray.direction = direction;  // assume normalized by caller
+    bool hit = gpu_bvh_hit(d_bvhNodes, d_prims, d_tris, d_spheres,
+                            shadow_ray, tmin, tmax, shadow_hit);
 
     // If we hit something within [tmin, tmax], the shadow ray is occluded.
     // NOTE: The CPU version checks `!(shadow.hitObject && shadow.hitObject->isInfiniteLight())`.
@@ -212,7 +215,7 @@ __global__ void stageLightSampleKernel(
     GPUWavefrontHitBuffers hitBufs,
     const ::GMaterial* d_materials,
     int num_materials,
-    const GAreaLight* d_lights,
+    const ::GAreaLight* d_lights,
     int num_lights,
     const GBVHNode* d_bvhNodes,
     const GPrimitive* d_prims,
@@ -239,9 +242,9 @@ __global__ void stageLightSampleKernel(
 
     if (material_id < 0 || material_id >= num_materials) return;
 
-    // Reconstruct RNG.
-    WavefrontRNG rng(state.rng_pixel[i], state.rng_sample[i],
-                     state.rng_dimension[i], state.rng_seed[i]);
+    // Reconstruct RNG (3-arg ctor + setDimension; mirrors stage_init.cu).
+    WavefrontRNG rng(state.rng_pixel[i], state.rng_sample[i], state.rng_seed[i]);
+    rng.setDimension(state.rng_dimension[i]);
 
     // Reconstruct wavelengths.
     GSampledWavelengths lambdas;
@@ -254,13 +257,12 @@ __global__ void stageLightSampleKernel(
     lambdas.pdf[2] = state.lambda_pdf_2[i];
     lambdas.pdf[3] = state.lambda_pdf_3[i];
 
-    // Reconstruct throughput.
-    GSampledSpectrum throughput(
-        state.throughput_0[i],
-        state.throughput_1[i],
-        state.throughput_2[i],
-        state.throughput_3[i]
-    );
+    // Reconstruct throughput (default-construct + assign by index; no 4-arg ctor).
+    GSampledSpectrum throughput;
+    throughput[0] = state.throughput_0[i];
+    throughput[1] = state.throughput_1[i];
+    throughput[2] = state.throughput_2[i];
+    throughput[3] = state.throughput_3[i];
 
     // Sample one area light.
     GLightSample ls = sampleAreaLight(rng, hit_point, hit_normal, lambdas,
@@ -268,7 +270,7 @@ __global__ void stageLightSampleKernel(
 
     if (ls.pdf <= 0.0f) {
         // Invalid light sample; update RNG dimension and return.
-        state.rng_dimension[i] = rng.dimension_;
+        state.rng_dimension[i] = rng.dimension();
         return;
     }
 
@@ -294,13 +296,13 @@ __global__ void stageLightSampleKernel(
         // Lambertian BSDF: f(wo, wi) = albedo / π.
         // albedo is stored in the material's base_color.
         const ::GMaterial& mat = d_materials[material_id];
-        GSampledSpectrum albedo_spec = gpu_rgbToSampledSpectrum(mat.base_color, lambdas);
+        GSampledSpectrum albedo_spec = gpu_rgbToSampledSpectrum(mat.baseColor, lambdas, mat.spectralMode);
         const float kInvPi = 0.31830988618379067f;  // 1 / π
         GSampledSpectrum f_spec = albedo_spec * kInvPi;
 
         // BSDF PDF at light direction (for MIS).
         // Lambertian pdf = cos(θ) / π, where cos(θ) = dot(hit_normal, wi).
-        float cosTheta = fmaxf(0.0f, dot(hit_normal, wi));
+        float cosTheta = fmaxf(0.0f, hit_normal.dot(wi));
         float bsdfPdf = cosTheta * kInvPi;
 
         // MIS weight: power heuristic (balance heuristic alternative).
@@ -324,7 +326,7 @@ __global__ void stageLightSampleKernel(
     }
 
     // Update RNG dimension (consumed 2-3 dimensions for light sampling).
-    state.rng_dimension[i] = rng.dimension_;
+    state.rng_dimension[i] = rng.dimension();
 }
 
 }  // anonymous namespace
@@ -335,7 +337,7 @@ void launchStageLightSample_SessionN4(
     GPUWavefrontHitBuffers& hitBufs,
     const ::GMaterial* d_materials,
     int num_materials,
-    const GAreaLight* d_lights,
+    const ::GAreaLight* d_lights,
     int num_lights,
     const GBVHNode* d_bvhNodes,
     const GPrimitive* d_prims,

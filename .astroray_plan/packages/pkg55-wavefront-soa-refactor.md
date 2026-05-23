@@ -513,3 +513,48 @@ Phase C:
 - PostLightSample/PostRR threshold gates deferred to a snapshot-semantics-alignment follow-up due to CPU/GPU disagreement on ray_origin capture timing (CPU captures pre-shade shading point; GPU captures post-shade next-bounce origin).
 - Session N+4 test harness aligns GPU row filtering to CPU-active pixels per stage (missing pattern from PostShade now replicated at PostLightSample/PostRR).
 - Empty PostRR snapshot at bounce 0 expected (RR depth threshold not reached).
+
+---
+
+### Hardware verification 2026-05-24
+
+**Hardware:** NVIDIA GeForce RTX 5070 Ti  
+**OS:** Windows 11 Enterprise 10.0.26200  
+**Driver:** 595.97  
+**CUDA:** 12.8 (V12.8.61)  
+**OptiX:** 8.1 (SDK bundled with CUDA 12.8)  
+**Toolchain:** MSVC 19.43 (Visual Studio 2022 BuildTools)  
+**Python:** 3.13.12  
+**Commit:** 57e44d1b9db645016079aaec00fe28d2084b9e9e  
+**Branch:** pkg55-N4-part2  
+**PR:** #356  
+
+**Scope:** Session N+4 part 2 — snapshot-semantics alignment. Closes deferred PostLightSample/PostRR threshold gates from Session N+4 part 1 by aligning CPU and GPU snapshot capture sites to use shading point (rec.point / hitBufs.hit_point_*) at both PostLightSample and PostRR stages, rather than CPU using shading point while GPU used next-bounce ray_origin.
+
+**Gate results:**
+
+| Test | Result | Measured values |
+|------|--------|-----------------|
+| CPU↔CPU baseline bit-identity | PASS | max diff = 0.0, diverging fields = 0 |
+| PostInit ULP | PASS | ULP = 2 (threshold 4) |
+| PostIntersect ULP | PASS | ULP = 32 (threshold 64) |
+| PostShade p99.9 | PASS | p99.9 = 2.165780e-06 (threshold 1e-4) |
+| PostLightSample p99.9 | PASS | p99.9 = 2.211559e-06 (threshold 3.5e-06) — **no UserWarning; gate enforced** |
+| PostRR p99.9 | PASS | p99.9 = 0.000000e+00 (threshold 3.5e-06) — empty snapshot at bounce 0 expected |
+
+**No-regression suite:**
+- **1084 passed, 15 skipped, 20 xfailed, 2 xpassed, 2 warnings** in 263.00s (4:23)
+- Matches Session N+4 part 1 baseline counts; no new failures
+- All Session N+3 gates remain enforced; no regressions
+
+**Visual inspection:** Not applicable — Session N+4 part 2 is a snapshot-capture alignment change (CPU path_kernel.cpp and GPU gpu_wavefront_snapshot.cu both now capture the shading point at PostLightSample/PostRR, rather than CPU capturing shading point and GPU capturing next-bounce origin). No render output changed.
+
+**Verdict:** PASS — Session N+3 gates hold; PostLightSample/PostRR threshold gates now **enforced** (no UserWarning) with measured p99.9 = 2.21e-06 well within pinned threshold 3.5e-06 (1.5× measured); no-regression suite green with matching counts to part 1 baseline.
+
+**Notes:**
+- PostLightSample/PostRR thresholds pinned at 3.5e-06 in `pkg55_cuda_thresholds.yaml` (1.5× measured 2.21e-06, consistent with Session N+3 convention).
+- CPU capture sites changed from `ps.ray_origin` → `rec.point` at PostLightSample/PostRR in `src/cpu/wavefront/path_kernel.cpp`.
+- GPU capture sites changed from `state.ray_origin_*` → `hitBufs.hit_point_*` at PostLightSample/PostRR in `src/gpu/wavefront/gpu_wavefront_snapshot.cu`.
+- Both sides now capture the SAME logical moment: the shading point where NEE/RR occurred, not the next-bounce ray origin.
+- Empty PostRR snapshot at bounce 0 remains expected (RR depth threshold not reached on session_n1_envmap_cornell at max_depth=8, 1 spp).
+- Measured PostLightSample p99.9 = 2.211559e-06 is the gate value; threshold conservatively set at 1.5× (3.5e-06) to allow for minor numerical drift on future hardware/driver updates while catching real regressions.

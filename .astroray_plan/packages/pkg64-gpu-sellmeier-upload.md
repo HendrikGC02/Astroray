@@ -2,7 +2,7 @@
 
 **Pillar:** 1
 **Track:** A
-**Status:** open
+**Status:** done (PR #354, 2026-05-24 — BK7 IOR 1.03e-06/7.97e-05/1.42e-05 rel-err; prism 1.17× energy gate ✅; SSIM 0.52 baseline)
 **Estimated effort:** 1–1.5 weeks
 **Depends on:** pkg64-gpu Phase 2 (PR #348) + Phase 3 (PR #350) — both merged. The CPU Sellmeier path tracer is the reference.
 **Reference research:** Sellmeier 1871 dispersion equation (public domain); Cycles `intern/cycles/kernel/svm/closure_principled.h` wavelength-dependent IOR (Apache-2.0); PBRT-v4 `pbrt::DispersiveBSDF` (Apache-2.0).

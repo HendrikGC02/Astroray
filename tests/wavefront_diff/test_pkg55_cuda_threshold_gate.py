@@ -383,20 +383,27 @@ def _compute_stage_p999(cpu_snapshots, gpu_snapshot_array, stage):
             all_rel_errors.append(rel_err_p999(cpu_hit_normal[hit_mask], gpu_hit_normal[hit_mask]))
 
     elif stage == 'PostShade':
+        # PostShade compares only ray_origin (== rec.point from PostIntersect,
+        # bounded by the PostIntersect ULP gate) and lambdas (unchanged since
+        # PostInit). We intentionally do NOT compare ray_direction, throughput,
+        # or bsdf_pdf at this stage: spec §4.2 design decision #2 says CPU
+        # uses mt19937 seeded from a PCG32 dimension for BSDF sampling while
+        # GPU uses PCG32 directly. Those produce independent MC samples even
+        # at matched dimensions, so post-BSDF ray_direction and throughput
+        # diverge by uniform-sample variance (~1.0 absolute), not numerical
+        # drift. Asserting bounded p99.9 on those is comparing apples to
+        # oranges — variance, not error. The final-image SSIM gate
+        # (final_image: ssim_visible ≥ 0.985) catches whole-program
+        # correctness; this per-stage gate validates only that the values
+        # which SHOULD be deterministic-given-the-stage actually are.
         cpu_ray_origin = np.array([snap['ray_origin'] for snap in cpu_snapshots], dtype=np.float32)
-        cpu_ray_dir = np.array([snap['ray_direction'] for snap in cpu_snapshots], dtype=np.float32)
-        cpu_throughput = np.array([snap['throughput'] for snap in cpu_snapshots], dtype=np.float32)
-        cpu_bsdf_pdf = np.array([snap['bsdf_pdf'] for snap in cpu_snapshots], dtype=np.float32)
+        cpu_lambdas = np.array([snap['lambdas'] for snap in cpu_snapshots], dtype=np.float32)
 
         gpu_ray_origin = gpu_snapshot_array[:, 0:3].astype(np.float32)
-        gpu_ray_dir = gpu_snapshot_array[:, 3:6].astype(np.float32)
-        gpu_throughput = gpu_snapshot_array[:, 6:10].astype(np.float32)
-        gpu_bsdf_pdf = gpu_snapshot_array[:, 14].astype(np.float32)
+        gpu_lambdas = gpu_snapshot_array[:, 10:14].astype(np.float32)
 
         all_rel_errors.append(rel_err_p999(cpu_ray_origin, gpu_ray_origin))
-        all_rel_errors.append(rel_err_p999(cpu_ray_dir, gpu_ray_dir))
-        all_rel_errors.append(rel_err_p999(cpu_throughput, gpu_throughput))
-        all_rel_errors.append(rel_err_p999(cpu_bsdf_pdf, gpu_bsdf_pdf))
+        all_rel_errors.append(rel_err_p999(cpu_lambdas, gpu_lambdas))
 
     else:
         raise ValueError(f"p99.9 comparison not defined for stage {stage}")

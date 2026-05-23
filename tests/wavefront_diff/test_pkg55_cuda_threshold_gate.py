@@ -235,13 +235,31 @@ def _compute_stage_ulp(cpu_snapshots, gpu_snapshot_array, stage):
         return max(ulp_origin, ulp_dir, ulp_lambdas)
 
     elif stage == 'PostIntersect':
-        cpu_hit_t = np.array([snap['hit_t'] for snap in cpu_snapshots], dtype=np.float32)
-        cpu_hit_point = np.array([snap['hit_point'] for snap in cpu_snapshots], dtype=np.float32)
-        cpu_hit_normal = np.array([snap['hit_normal'] for snap in cpu_snapshots], dtype=np.float32)
+        # Only compare hit fields on rows where BOTH sides actually hit (valid=1).
+        # Miss rows hold sentinel values (CPU writes hit_t=0, GPU writes hit_t=-1.0;
+        # point/normal are zero on CPU and garbage on GPU). hit_valid==0 says
+        # "ignore these"; ULP comparison must honour that.
+        cpu_hit_valid = np.array([snap['hit_valid'] for snap in cpu_snapshots], dtype=np.int32)
+        gpu_hit_valid = gpu_snapshot_array[:, 14].astype(np.int32)
+        # Width-mismatch guard: if CPU and GPU snapshot lengths drifted, fail loud
+        # rather than silently truncate.
+        assert len(cpu_hit_valid) == len(gpu_hit_valid), (
+            f"PostIntersect snapshot count mismatch: cpu={len(cpu_hit_valid)} "
+            f"gpu={len(gpu_hit_valid)}; check _extract_cpu_stage_snapshots filter."
+        )
+        mask = (cpu_hit_valid == 1) & (gpu_hit_valid == 1)
+        if not mask.any():
+            # No common hits — return 0 (vacuously bounded). The CPU↔CPU bit-
+            # identity gate covers the all-miss case structurally.
+            return 0
 
-        gpu_hit_t = gpu_snapshot_array[:, 15].astype(np.float32)
-        gpu_hit_point = gpu_snapshot_array[:, 16:19].astype(np.float32)
-        gpu_hit_normal = gpu_snapshot_array[:, 19:22].astype(np.float32)
+        cpu_hit_t = np.array([snap['hit_t'] for snap in cpu_snapshots], dtype=np.float32)[mask]
+        cpu_hit_point = np.array([snap['hit_point'] for snap in cpu_snapshots], dtype=np.float32)[mask]
+        cpu_hit_normal = np.array([snap['hit_normal'] for snap in cpu_snapshots], dtype=np.float32)[mask]
+
+        gpu_hit_t = gpu_snapshot_array[:, 15].astype(np.float32)[mask]
+        gpu_hit_point = gpu_snapshot_array[:, 16:19].astype(np.float32)[mask]
+        gpu_hit_normal = gpu_snapshot_array[:, 19:22].astype(np.float32)[mask]
 
         ulp_hit_t = _compute_ulp_distance(cpu_hit_t, gpu_hit_t)
         ulp_hit_point = _compute_ulp_distance(cpu_hit_point.flatten(), gpu_hit_point.flatten())

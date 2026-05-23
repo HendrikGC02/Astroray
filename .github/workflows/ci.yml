@@ -86,6 +86,7 @@ jobs:
               -arch=sm_75 \
               -I include \
               -I src \
+              -I . \
               -I "$CUDA_PATH/include" \
               --expt-relaxed-constexpr \
               -Wno-deprecated-gpu-targets \

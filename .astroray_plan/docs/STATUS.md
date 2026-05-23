@@ -1,6 +1,28 @@
 # Astroray Status
 
-**Last updated:** 2026-05-23 (Round 13 closeout — 9 PRs merged 2026-05-22→2026-05-23).
+**Last updated:** 2026-05-24 (Round 14 overnight: 3 PRs shipped + 1 partial + 3 in-flight at ~04:15 Melbourne).
+
+## Round 14 overnight (2026-05-24, in progress)
+
+**Shipped:**
+- **PR #354 — pkg64-gpu-sellmeier-upload** (`8f0eb03`). GPU Sellmeier dispersion + hero-only refraction. Unblocks pkg64-gpu Phase 3 prism receiver-energy gate (1.17× ≥ 1.10× PASS). PSNR floor (−2.13 dB) and SSIM (0.52) deferred to Session 2 (per-wavelength multi-IOR): hero-only GPU lacks chromatic spread, so per-pixel error is dominated by spatial caustic divergence by construction — visual inspection confirms physics correct on RTX 3060 Ti.
+- **PR #355 — pkg55-B' Session N+4 part 1** (`09d31ff`). PostLightSample + PostRR CUDA kernel stages. Session N+3 gates still pass (PostInit ULP=2, PostIntersect ULP=32, PostShade p99.9=2.17e-6). HW-verified on RTX 5070 Ti.
+- **PR #356 — pkg55-B' Session N+4 part 2** (`68326d8`). Snapshot-semantics alignment: CPU and GPU now both capture `rec.point` at PostLightSample / PostRR. NEE/RR threshold gates **enforced** at 3.5e-6 = 1.5× measured 2.21e-6. Closes the deferred-gate marker that part 1 introduced. No UserWarning.
+
+**Open / in-flight:**
+- **PR #357 — pkg76 CSV** (`09e5dac`, partial 1/3). Junkshop SSIM 0.972 PASS; Classroom (0.47) and BMW27 (importer crash on Blender 4.x `poly_offset_indices`) flagged as importer gaps. Bonus: `scripts/run_parity.py` SSIM EXR env-var fix. **Owner review required** (spec acceptance is per-scene ≥0.85; partial passing).
+- 3 implementers/architects in-flight: `pkg-add-cuda-syntax-ci` (CI hardening), `pkg76-followup-bmw27` (Blender 4.x mesh fix), `pkg86-B-spec` (Light Tree GPU + SAOH spec).
+
+**Direct-to-main infra fixes shipped:**
+- `fix(orchestrator)`: `expire_closed` non-numeric ledger key crash.
+- `fix(build)`: `build_cuda_worktree.bat` unescaped `(dev shell)` parens.
+- `team-overnight` SKILL: team_name+name spawn requirement (closes the ghost-agent bug we hit when 3 "persistent" team members never joined the team).
+- `docs`: ROADMAP + standup updates, pkg76-followup-classroom-fidelity spec filed.
+
+**Deferred to Round 15 follow-ups:**
+- pkg64-gpu Session 2: per-wavelength multi-IOR GPU refraction (re-instates the deferred SSIM + PSNR gates).
+- pkg76-followup-classroom-fidelity (spec filed): audit Classroom SSIM 0.47 gap, propose targeted importer fix.
+- pkg76-followup-bmw27 (in-flight): Blender 4.x `poly_offset_indices` mesh layout fallback.
 
 ## Round 13 closeout (9 PRs merged + 1 in-flight, 2026-05-22→2026-05-23)
 

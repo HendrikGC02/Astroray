@@ -220,10 +220,11 @@ def test_cpu_to_gpu_threshold_gate():
         f"PostShade p99.9 gate FAILED: measured {post_shade_p999:.6e}, threshold {gpu_thresholds['PostShade']['p99_9_relative_error']:.6e}"
     )
 
-    print(f"\n[pkg55-Session-N+3-part2b CPU↔GPU threshold gate] PASS:")
-    print(f"  PostInit: ULP={post_init_ulp}, p99.9={post_init_p999:.6e}")
+    # ASCII-safe print: cp1252 Windows consoles can't encode the bidi arrow.
+    print(f"\n[pkg55-Session-N+3-part2b CPU<->GPU threshold gate] PASS:")
+    print(f"  PostInit:      ULP={post_init_ulp}, p99.9={post_init_p999:.6e}")
     print(f"  PostIntersect: ULP={post_intersect_ulp}, p99.9={post_intersect_p999:.6e}")
-    print(f"  PostShade: p99.9={post_shade_p999:.6e}")
+    print(f"  PostShade:     p99.9={post_shade_p999:.6e}")
 
 
 def _extract_cpu_stage_snapshots(snapshots_raw, stage):

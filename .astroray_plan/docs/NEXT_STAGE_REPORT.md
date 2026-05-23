@@ -110,28 +110,34 @@
 
 **Round 13 complete (2026-05-23).** 9 PRs merged + 1 in-flight: pkg87b/c/d Cryptomatte end-to-end, pkg55-B' Session N+3 parts 1/2/2b + RNG/hero/harness fixes + triangle-normal-shortcut, pkg64-gpu Phase 2+3. **CPU↔GPU PostInit gate CLOSED at ULP=2.** PostIntersect bounded at 32 ULP (pinned 64). Cryptomatte IoU 0.977–0.984 (0.85 gate). **CUDA-port track continues.**
 
-**Round 14 priorities** (owner direction: **CUDA-port path leads** to close the still-unmet viewport-parity claim):
+**Round 14 priorities** (owner decision 2026-05-23 evening: **interleave Sellmeier first**, then resume the CUDA-port lead track):
 
-**Top priority (lead track — CUDA-port path):**
+**Top priority (1-week diversion before resuming CUDA-port lead):**
+
+- **pkg64-gpu-sellmeier-upload** (spec filed in PR #352, merged on Round-13 closeout)
+  — GPU upload of Sellmeier dispersion coefficients. Unblocks pkg64-gpu Phase 3 hardware
+  baseline-pinning (prism rainbow + mirror-pool acceptance scenes), so Round 14's closeout
+  HW sweep can include a GPU dispersion render alongside Session N+4 progress. BK7 prism
+  currently falls back to const IOR=1.5; no rainbow baseline-pinnable. Estimated ~1 week.
+  **Owner directive: ship this BEFORE Session N+4.**
+
+**Lead track (resumes after Sellmeier ships):**
 
 - **pkg55-B' Session N+4 — next CUDA port stage continuation**
-  (multi-session continuation after Session N+3 complete). **Now the top live work.**
+  (multi-session continuation after Session N+3 complete).
   Session N+3 shipped PostInit (ULP=2 PASS), PostIntersect (32 ULP, pinned 64), PostShade
   (p99.9 in bound). **Session N+4 scope**: continue CUDA kernel port for remaining stages
   (PostLightSample / PostRR) or widen material coverage beyond Lambertian (metal/dielectric/
   disney per growing-oracle expansion pattern). This is the path to the **viewport-parity
   acceptance gate** (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene) —
-  the still-unmet competitive claim that pkg55 Phase B formally owns.
+  the still-unmet competitive claim that pkg55 Phase B formally owns. Architect estimate:
+  ~4-6 sessions to parity claim (2 stage ports + ~4 material kernels).
 
-**Second tier (unblocked, lower priority than CUDA-port track):**
+**Second tier (unblocked, lower priority):**
 
-- **pkg64-gpu-sellmeier-upload** (new spec filed in PR #352) — GPU upload of Sellmeier
-  dispersion coefficients; unblocks pkg64-gpu Phase 3 hardware baseline-pinning (prism
-  rainbow + mirror-pool acceptance scenes). BK7 prism currently falls back to const
-  IOR=1.5; no rainbow baseline-pinnable. Estimated ~1 week.
 - **pkg86-B Light Tree GPU + adaptive split** — pkg86 CPU done but 2× variance-reduction
   gate xfailed strict=False; pkg86-B owns GPU port + SAOH adaptive splitting to close
-  the strict gate.
+  the strict gate. Still needs a spec filed.
 - **pkg76 CSV** — Classroom / Junkshop / BMW27 parity rows on RTX (~½ day). **Unblocked
   since pkg100** (Round 12).
 

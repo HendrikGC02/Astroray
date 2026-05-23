@@ -2,7 +2,7 @@
 
 **Pillar:** 1
 **Track:** A
-**Status:** done (PR #XXX, 2026-05-23)
+**Status:** done (PR #351, 2026-05-23)
 **Estimated effort:** 0.5 day
 **Depends on:** pkg55-N+3 part 2 + part 2b (already merged); PR #349 (RNG+hero+harness fixes pinning the PostIntersect gate at ULP=64).
 **Reference research:** PR #349's PostIntersect 32-ULP localization diagnostic in the 2026-05-23 standup §ESCALATION 1.

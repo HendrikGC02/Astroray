@@ -2,14 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** part 1 in PR #345 (sort/normalise + bindings + pass
-registration + Blender packing); the Psyop IoU acceptance gate + EXR
-manifest emission split into **pkg87d** (see
-`pkg87d-cryptomatte-acceptance-gate.md`) after the pkg98 independent
-review on #345 found those three deferred items load-bearing for
-acceptance criteria #1/#2/#4. pkg87c part 1's shipped slice
-(sort/normalise math + name-plumbing + integration test on Σw≈1)
-is independently valuable and review-correct.
+**Status:** done (PR #345, 2026-05-22 — part 1: sort/normalise + bindings + pass registration + Blender packing; IoU gate + manifest emission split to pkg87d per independent review)
 **Estimated effort:** 1 week
 **Depends on:** pkg87b (integrators must be populating the crypto
 histograms before the Blender passes and the IoU gate can be exercised);

@@ -37,7 +37,7 @@ def record_action(ledger, number, action):
 
 
 def expire_closed(ledger: dict, open_numbers: set) -> None:
-    for k in [k for k in ledger if int(k) not in open_numbers]:
+    for k in [k for k in ledger if str(k).isdigit() and int(k) not in open_numbers]:
         del ledger[k]
 
 

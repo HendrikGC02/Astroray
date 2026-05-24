@@ -55,7 +55,7 @@ set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 if not exist "%VSWHERE%" (
     echo vswhere.exe not found at: %VSWHERE%
     echo Falling back to hardcoded BuildTools path...
-    set "VCVARS_PATH=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+    set "VCVARS_PATH=C:\Program Files (x86^)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
     goto :call_vcvars
 )
 
@@ -67,7 +67,7 @@ for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -products * -requires Mi
 if not defined VS_INSTALL_PATH (
     echo vswhere returned no installation path
     echo Falling back to hardcoded BuildTools path...
-    set "VCVARS_PATH=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+    set "VCVARS_PATH=C:\Program Files (x86^)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
     goto :call_vcvars
 )
 

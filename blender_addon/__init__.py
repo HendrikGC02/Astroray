@@ -1643,7 +1643,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def _setup_viewport_camera(self, renderer, context, width, height):
         """Build a lookFrom/lookAt from the 3D View's RegionView3D state.
 
-        P4 fix (BUG-08): derives vfov from Blender's perspective_matrix (when available)
+        P4 fix (BUG-08): derives vfov from Blender's window_matrix (when available)
         instead of re-deriving from a hardcoded sensor_width guess, so the rendered
         framing matches Blender's viewport overlay by construction.
 
@@ -1651,7 +1651,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
           viewport-only `view_camera_zoom` and `view_camera_offset` so
           wheel-zoom and pan actually change the rendered framing.
         - In PERSP / ORTHO view: derive position + direction from
-          `rv3d.view_matrix.inverted()` and vfov from `rv3d.perspective_matrix`.
+          `rv3d.view_matrix.inverted()` and vfov from `rv3d.window_matrix`.
         """
         rv3d = context.region_data
         space = context.space_data
@@ -1659,7 +1659,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if rv3d is not None and rv3d.view_perspective == 'CAMERA' and context.scene.camera:
             zoom_scale = self._camera_view_zoom_scale(getattr(rv3d, 'view_camera_zoom', 0.0))
             offset = getattr(rv3d, 'view_camera_offset', (0.0, 0.0))
-            # P4 fix (BUG-08): pass rv3d so _apply_camera can use perspective_matrix
+            # P4 fix (BUG-08): pass rv3d so _apply_camera can use window_matrix
             self._apply_camera(renderer, context.scene.camera, width, height,
                                vfov_scale=zoom_scale,
                                viewport_shift=(float(offset[0]), float(offset[1])),
@@ -1676,16 +1676,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
         look_at   = [loc.x + forward.x, loc.y + forward.y, loc.z + forward.z]
         vup       = [up.x, up.y, up.z]
 
-        # P4 fix (BUG-08): extract vfov from Blender's perspective_matrix instead
-        # of re-deriving from a hardcoded 32mm sensor. This ensures the rendered
-        # framing equals Blender's viewport overlay.
+        # P4 fix (BUG-08): extract vfov from Blender's window_matrix (projection-only)
+        # instead of re-deriving from a hardcoded 32mm sensor. This ensures the
+        # rendered framing equals Blender's viewport overlay.
+        # window_matrix[1][1] = 1 / tan(vfov/2) for a symmetric frustum (OpenGL convention).
         aspect = width / max(1, height)
-        if hasattr(rv3d, 'perspective_matrix'):
-            # perspective_matrix[1][1] = 1 / tan(vfov/2) for a symmetric frustum
-            # → vfov = 2 * atan(1 / perspective_matrix[1][1])
-            persp = rv3d.perspective_matrix
-            if abs(persp[1][1]) > 1e-6:
-                vfov = math.degrees(2.0 * math.atan(1.0 / persp[1][1]))
+        if hasattr(rv3d, 'window_matrix'):
+            # window_matrix is the pure projection; perspective_matrix = window_matrix @ view_matrix
+            # couples view rotation into [1][1], causing vfov to vary with camera orbit.
+            proj = rv3d.window_matrix
+            if abs(proj[1][1]) > 1e-6:
+                vfov = math.degrees(2.0 * math.atan(1.0 / proj[1][1]))
             else:
                 # Fallback: derive from space_data.lens (rare edge case)
                 lens = getattr(space, 'lens', 50.0)
@@ -1693,7 +1694,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 hfov = 2.0 * math.atan(sensor_width / (2.0 * lens))
                 vfov = math.degrees(2.0 * math.atan(math.tan(hfov / 2.0) / aspect))
         else:
-            # Pre-2.80 fallback (perspective_matrix may not exist)
+            # Pre-2.80 fallback (window_matrix may not exist)
             lens = getattr(space, 'lens', 50.0)
             sensor_width = 32.0
             hfov = 2.0 * math.atan(sensor_width / (2.0 * lens))
@@ -1790,7 +1791,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         world rotation to get world-space directions.
 
         P4 fix (BUG-08): when called from viewport code with rv3d, derives vfov
-        from rv3d.perspective_matrix (after zoom scaling) instead of re-deriving
+        from rv3d.window_matrix (after zoom scaling) instead of re-deriving
         from the camera datablock's sensor/lens, so the rendered framing matches
         Blender's viewport overlay.
 
@@ -1802,7 +1803,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         is added to the camera datablock's own shift and passed as an
         image-plane shift to the C++ camera.
 
-        `rv3d` (optional): when present, vfov is extracted from rv3d.perspective_matrix
+        `rv3d` (optional): when present, vfov is extracted from rv3d.window_matrix
         instead of re-deriving from camera sensor/lens (P4 fix for viewport alignment).
         """
         matrix = cam_obj.matrix_world
@@ -1818,16 +1819,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
         camera = cam_obj.data
 
         # P4 fix (BUG-08): when rv3d is available (viewport CAMERA view), extract
-        # vfov from Blender's perspective_matrix *after* accounting for zoom, rather
-        # than re-deriving from camera sensor/lens. This ensures alignment with the
-        # viewport overlay. For F12 batch renders (rv3d=None), fall back to datablock.
-        if rv3d is not None and hasattr(rv3d, 'perspective_matrix'):
-            persp = rv3d.perspective_matrix
-            if abs(persp[1][1]) > 1e-6:
-                # Extract vfov from perspective_matrix[1][1] = 1 / tan(vfov/2)
-                vfov = math.degrees(2.0 * math.atan(1.0 / persp[1][1]))
+        # vfov from Blender's window_matrix (projection-only) *after* accounting for
+        # zoom, rather than re-deriving from camera sensor/lens. This ensures alignment
+        # with the viewport overlay. For F12 batch renders (rv3d=None), fall back to datablock.
+        if rv3d is not None and hasattr(rv3d, 'window_matrix'):
+            proj = rv3d.window_matrix
+            if abs(proj[1][1]) > 1e-6:
+                # Extract vfov from window_matrix[1][1] = 1 / tan(vfov/2) (OpenGL convention)
+                vfov = math.degrees(2.0 * math.atan(1.0 / proj[1][1]))
             else:
-                # Fallback if perspective_matrix is degenerate
+                # Fallback if window_matrix is degenerate
                 vfov = self._compute_vfov_degrees(camera, width, height)
                 if vfov_scale != 1.0 and vfov_scale > 0.0:
                     half = math.radians(vfov) / 2.0

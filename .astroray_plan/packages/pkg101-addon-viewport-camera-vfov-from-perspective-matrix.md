@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon)
 **Track:** A (correctness, small Python-only fix)
 **Codex-paste-ready:** yes
-**Status:** open
+**Status:** done (PR #368, 2026-05-24 — test FAILS before (vfov=67.38° at pitch=30°), PASSES after; 90 Blender tests green)
 **Depends on:** none
 **Estimated effort:** small (<½ day; few-line fix + regression test)
 

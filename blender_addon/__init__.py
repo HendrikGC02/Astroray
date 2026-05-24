@@ -1844,7 +1844,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
         aperture, focus_dist = 0.0, 10.0
         if camera.dof.use_dof:
             if camera.dof.aperture_fstop > 0:
-                aperture = 1.0 / (2 * camera.dof.aperture_fstop)
+                # Cycles intern/cycles/blender/camera.cpp::BlenderCamera::sync (Apache-2.0):
+                # aperture_radius = (focal_length_m) / (2 * fstop). camera.lens is in mm.
+                focal_length_m = float(camera.lens) * 1e-3
+                aperture_radius = focal_length_m / (2.0 * float(camera.dof.aperture_fstop))
+                # C++ Camera takes diameter (lensRadius = aperture/2), so pass 2x.
+                aperture = 2.0 * aperture_radius
             if camera.dof.focus_object:
                 focus_dist = (loc - camera.dof.focus_object.matrix_world.translation).length
             else:

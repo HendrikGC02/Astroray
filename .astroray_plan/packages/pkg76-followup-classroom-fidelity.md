@@ -2,7 +2,7 @@
 
 **Pillar:** 0 (infrastructure / verification)
 **Track:** A
-**Status:** in_review (PR #361, 2026-05-24 — Gap 1 image texture loading implemented; GPU verification pending)
+**Status:** partial_done (4 gaps addressed: Gap 1 PR #361, Gap 2a PR #365, Gap 3 false-positive PR #364, Gap 4 PR #363; SSIM gate ≥0.85 not yet met, Gap 2 non-Principled shader graphs remain as 40/42 mat coverage blocker)
 **Estimated effort:** 1–2 days
 **Depends on:** pkg100 (.blend importer dynamic-attr fix, shipped Round 12), pkg76 CSV (PR #357, open)
 **Reference research:** Cycles `intern/cycles/blender/sync.cpp`, `intern/cycles/blender/mesh.cpp`, `intern/cycles/blender/material.cpp` (Apache-2.0) — the reference shader graph + mesh + material walk that Astroray's `tools/blend_import/` mirrors at parity-scope.

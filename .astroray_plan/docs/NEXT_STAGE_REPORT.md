@@ -1,8 +1,8 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-23 (Round 14 pickup — Round 13 complete; pkg55-B' Session N+4 continuation is top live track)
-**Prepared by:** Claude (Anthropic Code) — updated after Round 13 closeout
-**Scope:** Round 14 pickup set.
+**Date:** 2026-05-24 (Round 15 pickup — Round 14 complete; pkg55-B' Session N+5 continuation is top live track)
+**Prepared by:** Claude (Anthropic Code) — updated after Round 14 closeout
+**Scope:** Round 15 pickup set.
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C; Pillar 4
 > has been actively shipping since. Strategy in
@@ -12,27 +12,33 @@
 
 ## 1. Current state (one screen)
 
-**Done in Round 13 (9 PRs merged + 1 in-flight, 2026-05-22→2026-05-23):**
+**Done in Round 14 (12 PRs merged, 2026-05-24 overnight):**
 
 **Key achievements:**
-- **Pillar 1 (CUDA port) major step:** pkg55 CPU↔GPU PostInit gate **closed at ULP=2** (vs threshold 4). PostIntersect bounded at 32 ULP (pinned 64). The 5-round build-fix saga (#343) + 9-round threshold-gate evolution (#349) was the round's hardest-fought win.
-- **Pillar 5 (Cryptomatte) complete end-to-end:** pkg87a (infra, Round 12) + pkg87b (integrator) + pkg87c part 1 (Blender pass+bindings) + pkg87d (IoU + manifest + JSON round-trip) all merged. IoU 0.85 gate; measured 0.977–0.984.
-- **pkg64-gpu Phase 2 + Phase 3 both shipped.** Hardware acceptance for Phase 3 prism scenes blocked on new `pkg64-gpu-sellmeier-upload` spec.
-- **Final HW sweep on `0c2cd62`:** 1097 tests pass; pkg55 CPU↔GPU gates pass at pinned thresholds; visual renders clean.
+- **pkg55-B' Session N+4 COMPLETE** (PRs #355 + #356) — PostLightSample + PostRR CUDA kernel stages shipped with full CPU↔GPU threshold gates enforced (p99.9 = 2.21e-6, threshold 3.5e-6). Session N+3 gates remain green (PostInit ULP=2, PostIntersect ULP=32). **CUDA-port track continues.**
+- **pkg64-gpu-sellmeier-upload DONE** (PR #354) — GPU Sellmeier dispersion upload + hero-wavelength IOR. Unblocks pkg64-gpu Phase 3 prism receiver-energy gate (measured 1.17× ≥ 1.10× PASS). PSNR floor (−2.13 dB) and SSIM (0.52) deferred to Session 2 (per-wavelength multi-IOR).
+- **pkg86-B Phase 1 DONE** (PR #362) — CPU SAOH split + full Conty 2018 importance. Measured 1.14× variance reduction (2× gate xfail retained pending scene tuning or Phase 2/3 GPU validation).
+- **pkg76 CSV baseline DONE** (PR #357) — Junkshop SSIM 0.972 PASS (≥0.85 gate). Classroom/BMW27 gaps documented for follow-up.
+- **pkg76-followup 4 gaps addressed** (PRs #360, #361, #363, #365) — BMW27 Blender 4.x mesh layout fix, Classroom Gap 1 (image textures), Gap 2a (non-Principled shader graphs), Gap 3 (false-positive doc), Gap 4 (area light shapes). **Classroom SSIM gate ≥0.85 not yet met** — Gap 2 (40/42 mats need non-Principled shader graph walk) remains as primary blocker.
+- **pkg-add-cuda-syntax-ci DONE** (PR #358) — Linux CI now compiles all .cu files with nvcc (syntax + typecheck only); catches CUDA frontend errors before RTX build.
 
 **Merged:**
-1. **PR #344 — pkg87b** (integrator integration): 7/7 CPU integrators + GPU megakernel instrumented per Cycles weight model.
-2. **PR #343 — pkg55-B' Session N+3 part 2** (CUDA kernels + snapshot bindings): `stage_intersect_session_n3.cu` + `stage_shade_lambertian.cu`. 5 rounds of build fixes.
-3. **PR #345 — pkg87c part 1** (Cryptomatte Blender pass + bindings): sort/normalise + dynamic pass registration + RenderResult packing.
-4. **PR #346 — pkg55-B' Session N+3 part 2b** (CPU↔GPU threshold harness): extends `measure_thresholds.py`, un-skips gate.
-5. **PR #348 — pkg64-gpu Phase 2** (megakernel SMS integration): wires device SMS attempt into both megakernels.
-6. **PR #349 — pkg55-B' CPU/GPU PostInit gate** (RNG + hero + diff harness): PostInit ULP=2, PostIntersect=32, PostShade in bound.
-7. **PR #351 — pkg55-followup** (triangle normal shortcut): flat-shaded triangle shortcut active; ULP=32 unchanged.
-8. **PR #347 — pkg87d** (Cryptomatte acceptance gate): IoU 0.977–0.984; manifest + JSON round-trip.
-9. **PR #350 — pkg64-gpu Phase 3** (acceptance gates + caustics toggle): test infrastructure + toggle wiring; HW blocked on Sellmeier.
+1. **PR #354 — pkg64-gpu-sellmeier-upload** (`8f0eb03`) — GPU Sellmeier dispersion + hero-wavelength IOR. BK7 IOR validation within 1e-4 rel-err. Prism receiver-energy 1.17× (gate ≥1.10×) PASS.
+2. **PR #355 — pkg55-B' Session N+4 part 1** (`09d31ff`) — PostLightSample + PostRR kernel stages. Session N+3 gates hold; PostLightSample/PostRR deferred to part 2.
+3. **PR #356 — pkg55-B' Session N+4 part 2** (`68326d8`) — Snapshot-semantics alignment. NEE/RR threshold gates **enforced** (p99.9 = 2.21e-6, threshold 3.5e-6).
+4. **PR #358 — pkg-add-cuda-syntax-ci** (`58df412`) — CUDA syntax check in Linux CI. 15 .cu files compile clean in ~4 min.
+5. **PR #359 — pkg86-B spec** (`7e1c717`) — Light Tree GPU + SAOH adaptive split spec filed (docs-only).
+6. **PR #360 — pkg76-followup-bmw27** (`41582fd`) — Blender 4.x `poly_offset_indices` mesh layout fallback.
+7. **PR #361 — pkg76-followup-classroom Gap 1** (`c004154`) — Image texture loading for Principled BSDF. Audit doc with 4 gaps.
+8. **PR #362 — pkg86-B Phase 1** (`404509d`) — CPU SAOH split + full Conty 2018 importance. 1.14× variance reduction (2× gate xfail).
+9. **PR #357 — pkg76 CSV** (`e7816d0`) — Junkshop SSIM 0.972 PASS; Classroom/BMW27 gaps documented.
+10. **PR #364 — pkg76-classroom Gap 3 doc** (`d679a75`) — Gap 3 is a false positive.
+11. **PR #363 — pkg76-followup-classroom Gap 4** (`fed1eb6`) — Area light shape import.
+12. **PR #365 — pkg76-followup-classroom Gap 2a** (`645bcc1`) — Walk non-Principled shader graphs (Diffuse, Glass, Emission, Mix).
 
-**Lessons for Round 14:**
-- **Linux CI doesn't build CUDA** — pkg87b's broken CUDA paths shipped to main and bit pkg55 #343 (5 build-fix rounds) + pkg64-gpu Phase 2. Worth `pkg-add-cuda-syntax-ci` follow-up.
+**Lessons for Round 15:**
+- **pkg-add-cuda-syntax-ci shipped** — Linux CI now catches CUDA frontend errors, closing the Round 13 lesson.
+- **pkg76 Classroom SSIM gate still open** — Gap 2 (40/42 mats need non-Principled shader graph walk) is the remaining blocker after Gap 1/2a/4 closed.
 
 **Done in Round 11 (9 PRs merged, 2026-05-21 + 2026-05-22, historical):**
 
@@ -106,46 +112,40 @@
 
 ---
 
-## 2. Recommended next deployable set (Round 14)
+## 2. Recommended next deployable set (Round 15)
 
-**Round 13 complete (2026-05-23).** 9 PRs merged + 1 in-flight: pkg87b/c/d Cryptomatte end-to-end, pkg55-B' Session N+3 parts 1/2/2b + RNG/hero/harness fixes + triangle-normal-shortcut, pkg64-gpu Phase 2+3. **CPU↔GPU PostInit gate CLOSED at ULP=2.** PostIntersect bounded at 32 ULP (pinned 64). Cryptomatte IoU 0.977–0.984 (0.85 gate). **CUDA-port track continues.**
+**Round 14 complete (2026-05-24).** 12 PRs merged: pkg64-gpu-sellmeier-upload, pkg55-B' Session N+4 parts 1+2, pkg86-B Phase 1 (CPU SAOH), pkg76 CSV + 4 Classroom followup gaps, pkg-add-cuda-syntax-ci. **Session N+4 gates enforced** (PostLightSample/PostRR p99.9 = 2.21e-6, threshold 3.5e-6). Session N+3 gates remain green (PostInit ULP=2, PostIntersect ULP=32). **CUDA-port track continues.**
 
-**Round 14 priorities** (owner decision 2026-05-23 evening: **interleave Sellmeier first**, then resume the CUDA-port lead track):
+**Round 15 priorities**:
 
-**Top priority (1-week diversion before resuming CUDA-port lead):**
+**Lead track:**
 
-- **pkg64-gpu-sellmeier-upload** (spec filed in PR #352, merged on Round-13 closeout)
-  — GPU upload of Sellmeier dispersion coefficients. Unblocks pkg64-gpu Phase 3 hardware
-  baseline-pinning (prism rainbow + mirror-pool acceptance scenes), so Round 14's closeout
-  HW sweep can include a GPU dispersion render alongside Session N+4 progress. BK7 prism
-  currently falls back to const IOR=1.5; no rainbow baseline-pinnable. Estimated ~1 week.
-  **Owner directive: ship this BEFORE Session N+4.**
-
-**Lead track (resumes after Sellmeier ships):**
-
-- **pkg55-B' Session N+4 — next CUDA port stage continuation**
-  (multi-session continuation after Session N+3 complete).
-  Session N+3 shipped PostInit (ULP=2 PASS), PostIntersect (32 ULP, pinned 64), PostShade
-  (p99.9 in bound). **Session N+4 scope**: continue CUDA kernel port for remaining stages
-  (PostLightSample / PostRR) or widen material coverage beyond Lambertian (metal/dielectric/
-  disney per growing-oracle expansion pattern). This is the path to the **viewport-parity
-  acceptance gate** (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene) —
-  the still-unmet competitive claim that pkg55 Phase B formally owns. Architect estimate:
-  ~4-6 sessions to parity claim (2 stage ports + ~4 material kernels).
+- **pkg55-B' Session N+5 — next CUDA port stage continuation**
+  (multi-session continuation after Session N+4 complete).
+  Session N+4 shipped PostLightSample + PostRR kernels with full threshold gates enforced.
+  **Session N+5 scope**: widen material coverage beyond Lambertian (metal/dielectric/disney
+  per growing-oracle expansion pattern from Sessions 3..8 CPU track) OR continue with
+  advanced stages (Russian Roulette path termination, miss handling). This is the path
+  to the **viewport-parity acceptance gate** (CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on
+  the pkg81 harness scene) — the still-unmet competitive claim that pkg55 Phase B formally
+  owns. Architect estimate: ~3-5 sessions to parity claim (~3 material kernels).
 
 **Second tier (unblocked, lower priority):**
 
-- **pkg86-B Light Tree GPU + adaptive split** — pkg86 CPU done but 2× variance-reduction
-  gate xfailed strict=False; pkg86-B owns GPU port + SAOH adaptive splitting to close
-  the strict gate. Still needs a spec filed.
-- **pkg76 CSV** — Classroom / Junkshop / BMW27 parity rows on RTX (~½ day). **Unblocked
-  since pkg100** (Round 12).
+- **pkg64-gpu-sellmeier-session2-multi-ior** (spec filed) — per-wavelength multi-IOR GPU
+  refraction. Re-instates the deferred PSNR floor (≥−0.5 dB) and GPU↔CPU SSIM parity
+  (≥0.97) gates from pkg64-gpu Phase 3. Hero-only GPU (Session 1) passed receiver-energy
+  but deferred the chromatic-dispersion-dependent gates.
+- **pkg86-B Phase 2+3** — GPU port + SAOH adaptive split RTX validation. Phase 1 (CPU SAOH)
+  shipped; 1.14× variance reduction measured (2× gate xfail retained pending scene tuning
+  or GPU validation).
+- **pkg76-classroom Gap 2** — non-Principled shader graph walk for 40/42 materials (highest
+  remaining SSIM blocker after Gaps 1/2a/4 closed). Requires full shader-graph evaluation
+  (Mix nodes, procedural textures, etc.) — this may be a pkg57 follow-up scope.
 
 **Third tier (deferred / lower priority):**
 
-- **pkg-add-cuda-syntax-ci** (not yet spec'd) — Linux CI matrix job building CUDA paths
-  to catch syntax errors before main. Round 13 Lesson: pkg87b's broken CUDA paths shipped
-  to main (Linux CI green) and bit pkg55 #343 (5 build-fix rounds) + pkg64-gpu Phase 2.
+- None currently staged — all Round 14 third-tier items shipped or filed as specs.
 
 **Known flakes (not blocking):**
 
@@ -164,87 +164,97 @@
 
 ## 3. Drop-in prompts per agent
 
-### 3.0 Claude Code (Track A) — pkg64-gpu-sellmeier-upload (TOP PRIORITY 2026-05-24, ship BEFORE Session N+4)
+### 3.0 Claude Code (Track A) — pkg55-B' Session N+5 (next CUDA port stage continuation, TOP PRIORITY)
 
 ```
-You are Claude Code on the RTX box. pkg64-gpu-sellmeier-upload — owner directive: ship this BEFORE pkg55-B' Session N+4. Unblocks pkg64-gpu Phase 3 hardware baseline-pinning (prism rainbow + mirror-pool acceptance scenes).
-
-Read first:
-  - .astroray_plan/packages/pkg64-gpu-sellmeier-upload.md (full spec; ~1 week effort)
-  - include/astroray/gpu_types.h (GMaterial struct — add GDispersion sub-struct)
-  - src/gpu/scene_upload.cu (material-pack code that currently rejects Sellmeier)
-  - include/astroray/gpu_materials.h / gpu_bsdf.h (dielectric BSDF — branch on mat.isDispersive)
-  - tests/test_pkg64_gpu_phase3_*.py (the three tests currently blocked on this)
-
-Goal: GPU upload of Sellmeier dispersion coefficients (B1,B2,B3,C1,C2,C3) + device-callable gpu_sellmeier_ior(coeffs, lambda_nm) per Sellmeier 1871 closed form. Hero-channel-only refraction is sufficient for Session 1 (per-wavelength multi-IOR is non-goal). After this lands, pkg64-gpu Phase 3 prism receiver-energy, PSNR-floor, and GPU↔CPU SSIM parity gates all run end-to-end on RTX.
-
-Acceptance (per spec):
-  - gpu_sellmeier_ior matches Schott BK7 datasheet at 587.6/486.1/656.3 nm within 1e-4 rel-err.
-  - scene_upload.cu accepts Sellmeier materials without raising.
-  - Three Phase 3 HW gates pass: receiver-energy ≥1.10×, PSNR-floor delta ≥−0.5 dB, GPU↔CPU SSIM ≥0.97.
-  - Existing scalar-IOR dielectric path remains bit-identical (no regression).
-
-Constraints: CLAUDE.md 1,2,3,6. Cite Sellmeier 1871 (public domain), Cycles closure_principled.h (Apache-2.0), PBRT-v4 DielectricBxDF (Apache-2.0). Watch the MinGW large-struct-by-value memo (`mingw_large_struct_byval`) — GDispersion is 24 B but GMaterial growth may push the total over 32 B; pass-by-const-ref where it appears as a parameter.
-
-When done: pkg64-gpu-sellmeier-upload spec status → done + PR. PR titled
-"feat(pkg64-gpu): GPU Sellmeier dispersion upload + per-wavelength IOR (hero)".
-```
-
-### 3.1 Claude Code (Track A) — pkg55-B' Session N+4 (next CUDA port stage continuation, RESUMES AFTER SELLMEIER)
-
-```
-You are Claude Code on the RTX box. pkg55-B' CUDA-port track Session N+4. Session N+3 (PRs #338/#343/#346/#349/#351) COMPLETE — PostInit ULP=2 PASS, PostIntersect=32 (pinned 64), PostShade in bound. Now continue CUDA kernel port.
+You are Claude Code on the RTX box. pkg55-B' CUDA-port track Session N+5. Session N+4 (PRs #355 + #356) COMPLETE — PostLightSample + PostRR kernel stages shipped with full threshold gates enforced (p99.9 = 2.21e-6, threshold 3.5e-6). Session N+3 gates remain green (PostInit ULP=2, PostIntersect=32, PostShade p99.9 in bound). Now continue CUDA kernel port.
 
 Read first:
   - .astroray_plan/packages/pkg55-wavefront-soa-refactor.md (Phase B'
-    Sessions N+2..M + two-tier gate definition §4.2 table; Session N+3
-    status updated with parts 1/2/2b + RNG/hero/harness fixes)
+    Sessions N+2..M + two-tier gate definition §4.2 table; Session N+4
+    status updated with parts 1+2 + snapshot-semantics alignment)
   - .astroray_plan/packages/pkg55_cuda_thresholds.yaml (CPU↔CPU baseline
-    0.0/0/1.0 pinned; CPU↔GPU PostInit/PostIntersect/PostShade measured
-    and pinned)
+    0.0/0/1.0 pinned; CPU↔GPU PostInit/PostIntersect/PostShade/PostLightSample/PostRR
+    measured and pinned)
   - src/cpu/wavefront/path_kernel.{h,cpp} (shared per-bounce kernel —
     the bit-identical CPU baseline)
-  - src/gpu/wavefront/stage_init.cu + stage_intersect_session_n3.cu +
-    stage_shade_lambertian.cu (Session N+3 output)
+  - src/gpu/wavefront/stage_*.cu (Session N+3 + N+4 output)
   - tests/wavefront_diff/ (per-stage diff harness)
 
-Goal: Continue CUDA kernel port. Two expansion axes available:
-  (A) Port remaining stages (PostLightSample / PostRR) to CUDA, OR
+Goal: Continue CUDA kernel port. Recommended axis:
   (B) Widen material coverage beyond Lambertian (metal/dielectric/disney
       per growing-oracle expansion pattern from Sessions 3..8 CPU track).
 
-Recommend Axis A (stage completion) before Axis B (material widening) to
-close the full per-stage diff harness coverage and prove the two-tier
-gate holds across all five stages before widening material surface.
+All five stages (PostInit/PostIntersect/PostShade/PostLightSample/PostRR) are now
+ported and gated. The next expansion is material coverage (add metal, dielectric,
+disney shade kernels mirroring the CPU wavefront Sessions 3..8 pattern).
 
 Target: CUDA pan-frame p99 ≤ 1.2× Cycles-CUDA on the pkg81 harness scene
 (the viewport-parity acceptance gate pkg55 Phase B owns).
 
-Constraints: CLAUDE.md 1,2,3,6. Multi-session continuation. Session N+4
-gates on staying within pinned thresholds (PostInit/PostIntersect/PostShade)
-and measuring new stages (PostLightSample/PostRR if Axis A).
+Constraints: CLAUDE.md 1,2,3,6. Multi-session continuation. Session N+5
+gates on staying within pinned thresholds (all five stages) and widening
+material coverage (e.g., add metal BSDF).
 
-When done: pkg55 spec Session N+4 status + PR ref + gate numbers (new
-stage thresholds if Axis A, or new material coverage if Axis B). PR title:
-"feat(pkg55-B'): Session N+4 — <scope>".
+When done: pkg55 spec Session N+5 status + PR ref + gate numbers. PR title:
+"feat(pkg55-B'): Session N+5 — <scope>".
 ```
 
-### 3.2 Claude Code (Track A) — pkg86 Light Tree (second tier)
+### 3.1 Claude Code (Track A) — pkg64-gpu-sellmeier-session2-multi-ior (second tier)
 
 ```
-You are Claude Code on the RTX box. pkg89 Phase A + Phase B done; `Light::orientationCone()` + `power()` accessors available. Ready to implement Light Tree.
+You are Claude Code on the RTX box. pkg64-gpu-sellmeier-upload (Session 1, PR #354) shipped hero-wavelength IOR. Session 2 adds per-wavelength multi-IOR GPU refraction to close the deferred PSNR floor + GPU↔CPU SSIM parity gates.
 
 Read first:
-  - .astroray_plan/packages/pkg86-light-tree.md (Conty 2018 + Cycles Apache-2.0)
-  - .astroray_plan/docs/pkg86-light-tree-research.md (if present)
-  - include/astroray/light.h (Light interface with orientationCone(), power(), bounds())
-  - src/integrators/path_tracer.cpp (NEE sampling site)
+  - .astroray_plan/packages/pkg64-gpu-sellmeier-session2-multi-ior.md (full spec)
+  - include/astroray/gpu_types.h (GMaterial + GDispersion from Session 1)
+  - src/gpu/gpu_dispersion.cuh (gpu_sellmeier_ior device function)
+  - include/astroray/gpu_materials.h (gpu_dielectric_sample_spectral — extend to sample per-wavelength IOR)
+  - tests/test_pkg64_gpu_phase3_*.py (the deferred PSNR + SSIM gates)
 
-Goal: implement Conty 2018 Light Tree for many-lights importance sampling. CPU first; GPU follow-up pkg86-B. Use Light accessors from pkg89. Acceptance: measured improvement on many-lights scene (e.g., 100+ lights).
+Goal: Extend GPU dielectric BSDF to sample per-wavelength IOR (not just hero).
+Evaluate n(λ) for each sampled wavelength, apply wavelength-dependent refraction,
+and close the deferred PSNR floor delta ≥−0.5 dB + GPU↔CPU SSIM ≥0.97 gates.
 
-Constraints: CLAUDE.md 1,2,3,6. Cite Conty 2018 + Cycles Apache-2.0 references.
+Acceptance (per spec):
+  - PSNR floor delta ≥−0.5 dB (prism scene).
+  - GPU↔CPU SSIM ≥0.97 at 256 spp (prism scene).
+  - Receiver-energy gate remains ≥1.10× (no regression from Session 1).
 
-When done: pkg86 spec status -> done + PR. PR titled "feat(pkg86): Light Tree (Conty 2018, CPU)".
+Constraints: CLAUDE.md 1,2,3,6. Cite Cycles/PBRT-v4 for spectral refraction.
+
+When done: pkg64-gpu-sellmeier-session2-multi-ior spec status → done + PR. PR titled
+"feat(pkg64-gpu Session 2): per-wavelength multi-IOR GPU refraction".
+```
+
+### 3.2 Claude Code (Track A) — pkg86-B Phase 2+3 (second tier)
+
+```
+You are Claude Code on the RTX box. pkg86-B Phase 1 (CPU SAOH, PR #362) shipped. Phase 2+3 owns GPU port + SAOH adaptive split RTX validation.
+
+Read first:
+  - .astroray_plan/packages/pkg86-B-light-tree-gpu.md (full spec)
+  - .astroray_plan/docs/pkg86-B-saoh-and-gpu-research.md (Phase 1 research addendum)
+  - src/light_tree.cpp (CPU SAOH implementation from Phase 1)
+  - include/astroray/gpu_types.h (add GLightTreeNode)
+  - src/gpu/scene_upload.cu (light tree upload site)
+
+Goal: Port CPU SAOH Light Tree to GPU. Upload GLightTreeNode[] + GLightTreeEmitter[]
+in scene_upload.cu. Implement device-callable gpu_light_tree_sample(...) mirroring
+Cycles kernel/light/tree.h::light_tree_sample. Add CPU/GPU parity gate: same (point,
+normal, u) → same (light_idx, pdf) within FP tolerance. Close the 2× variance-reduction
+gate xfail from pkg86 (Phase 1 measured 1.14×; GPU validation on archviz scenes may
+reach 2× or trigger scene tuning).
+
+Acceptance (per spec):
+  - CPU/GPU parity gate: same light_idx + pdf within FP tolerance.
+  - 2× variance reduction gate promoted to strict OR documented scene-dependency analysis.
+  - RTX validation on archviz scenes (many lights, clustered distribution).
+
+Constraints: CLAUDE.md 1,2,3,6. Cite Conty 2018 + Cycles Apache-2.0.
+
+When done: pkg86-B spec Phase 2+3 status → done + PR. PR titled
+"feat(pkg86-B Phase 2+3): Light Tree GPU port + SAOH adaptive split validation".
 ```
 
 ### 3.3 Claude Code (Track A) — pkg100 .blend importer camera-intrinsics fix (third tier, DEPRIORITIZED)

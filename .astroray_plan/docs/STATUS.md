@@ -1,28 +1,43 @@
 # Astroray Status
 
-**Last updated:** 2026-05-24 (Round 14 overnight: 3 PRs shipped + 1 partial + 3 in-flight at ~04:15 Melbourne).
+**Last updated:** 2026-05-24 (Round 14 closeout: 12 PRs merged overnight).
 
-## Round 14 overnight (2026-05-24, in progress)
+## Round 14 closeout (12 PRs merged, 2026-05-24 overnight)
 
-**Shipped:**
-- **PR #354 — pkg64-gpu-sellmeier-upload** (`8f0eb03`). GPU Sellmeier dispersion + hero-only refraction. Unblocks pkg64-gpu Phase 3 prism receiver-energy gate (1.17× ≥ 1.10× PASS). PSNR floor (−2.13 dB) and SSIM (0.52) deferred to Session 2 (per-wavelength multi-IOR): hero-only GPU lacks chromatic spread, so per-pixel error is dominated by spatial caustic divergence by construction — visual inspection confirms physics correct on RTX 3060 Ti.
-- **PR #355 — pkg55-B' Session N+4 part 1** (`09d31ff`). PostLightSample + PostRR CUDA kernel stages. Session N+3 gates still pass (PostInit ULP=2, PostIntersect ULP=32, PostShade p99.9=2.17e-6). HW-verified on RTX 5070 Ti.
-- **PR #356 — pkg55-B' Session N+4 part 2** (`68326d8`). Snapshot-semantics alignment: CPU and GPU now both capture `rec.point` at PostLightSample / PostRR. NEE/RR threshold gates **enforced** at 3.5e-6 = 1.5× measured 2.21e-6. Closes the deferred-gate marker that part 1 introduced. No UserWarning.
+**Key achievements:**
+- **pkg55-B' Session N+4 COMPLETE** (PRs #355 + #356) — PostLightSample + PostRR CUDA kernel stages shipped with full CPU↔GPU threshold gates enforced (p99.9 = 2.21e-6, threshold 3.5e-6). Session N+3 gates remain green (PostInit ULP=2, PostIntersect ULP=32). **CUDA-port track continues.**
+- **pkg64-gpu-sellmeier-upload DONE** (PR #354) — GPU Sellmeier dispersion upload + hero-wavelength IOR. Unblocks pkg64-gpu Phase 3 prism receiver-energy gate (measured 1.17× ≥ 1.10× PASS). PSNR floor (−2.13 dB) and SSIM (0.52) deferred to Session 2 (per-wavelength multi-IOR): hero-only GPU lacks chromatic spread, so per-pixel error is dominated by spatial caustic divergence by construction.
+- **pkg86-B Phase 1 DONE** (PR #362) — CPU SAOH split + full Conty 2018 importance. Measured 1.14× variance reduction (2× gate xfail retained pending scene tuning or Phase 2/3 GPU validation).
+- **pkg76 CSV baseline DONE** (PR #357) — Junkshop SSIM 0.972 PASS (≥0.85 gate). Classroom/BMW27 gaps documented for follow-up.
+- **pkg76-followup 4 gaps addressed** (PRs #360, #361, #363, #365) — BMW27 Blender 4.x mesh layout fix, Classroom Gap 1 (image textures), Gap 2a (non-Principled shader graphs), Gap 3 (false-positive doc), Gap 4 (area light shapes). **Classroom SSIM gate ≥0.85 not yet met** — Gap 2 (40/42 mats need non-Principled shader graph walk) remains as primary blocker.
+- **pkg-add-cuda-syntax-ci DONE** (PR #358) — Linux CI now compiles all .cu files with nvcc (syntax + typecheck only); catches CUDA frontend errors before RTX build.
 
-**Open / in-flight:**
-- **PR #357 — pkg76 CSV** (`09e5dac`, partial 1/3). Junkshop SSIM 0.972 PASS; Classroom (0.47) and BMW27 (importer crash on Blender 4.x `poly_offset_indices`) flagged as importer gaps. Bonus: `scripts/run_parity.py` SSIM EXR env-var fix. **Owner review required** (spec acceptance is per-scene ≥0.85; partial passing).
-- 3 implementers/architects in-flight: `pkg-add-cuda-syntax-ci` (CI hardening), `pkg76-followup-bmw27` (Blender 4.x mesh fix), `pkg86-B-spec` (Light Tree GPU + SAOH spec).
+**Merged 2026-05-24:**
+1. **PR #354 — pkg64-gpu-sellmeier-upload** (`8f0eb03`) — GPU Sellmeier dispersion + hero-wavelength IOR. BK7 IOR validation within 1e-4 rel-err. Prism receiver-energy 1.17× (gate ≥1.10×) PASS.
+2. **PR #355 — pkg55-B' Session N+4 part 1** (`09d31ff`) — PostLightSample + PostRR kernel stages. Session N+3 gates hold; PostLightSample/PostRR deferred to part 2 due to snapshot-semantics mismatch.
+3. **PR #356 — pkg55-B' Session N+4 part 2** (`68326d8`) — Snapshot-semantics alignment (CPU + GPU both capture `rec.point`). NEE/RR threshold gates **enforced** (p99.9 = 2.21e-6, threshold 3.5e-6). No UserWarning.
+4. **PR #358 — pkg-add-cuda-syntax-ci** (`58df412`) — CUDA syntax check in Linux CI. 15 .cu files compile clean in ~4 min.
+5. **PR #359 — pkg86-B spec** (`7e1c717`) — Light Tree GPU + SAOH adaptive split spec filed (docs-only).
+6. **PR #360 — pkg76-followup-bmw27** (`41582fd`) — Blender 4.x `poly_offset_indices` mesh layout fallback (attribute storage path).
+7. **PR #361 — pkg76-followup-classroom Gap 1** (`c004154`) — Image texture loading for Principled BSDF. Audit doc committed with 4 gaps classified.
+8. **PR #362 — pkg86-B Phase 1** (`404509d`) — CPU SAOH split + full Conty 2018 importance. Measured 1.14× variance reduction (2× gate xfail retained).
+9. **PR #357 — pkg76 CSV** (`e7816d0`) — Junkshop SSIM 0.972 PASS; Classroom/BMW27 gaps documented. SSIM env-var fix.
+10. **PR #364 — pkg76-classroom Gap 3 doc** (`d679a75`) — Gap 3 is a false positive (spot light params already implemented since pkg76).
+11. **PR #363 — pkg76-followup-classroom Gap 4** (`fed1eb6`) — Area light shape import (square/rect/disk/ellipse).
+12. **PR #365 — pkg76-followup-classroom Gap 2a** (`645bcc1`) — Walk non-Principled shader graphs for base color (Diffuse, Glass, Emission, Mix).
 
-**Direct-to-main infra fixes shipped:**
+**Direct-to-main infra fixes (Round 14 start):**
 - `fix(orchestrator)`: `expire_closed` non-numeric ledger key crash.
-- `fix(build)`: `build_cuda_worktree.bat` unescaped `(dev shell)` parens.
-- `team-overnight` SKILL: team_name+name spawn requirement (closes the ghost-agent bug we hit when 3 "persistent" team members never joined the team).
-- `docs`: ROADMAP + standup updates, pkg76-followup-classroom-fidelity spec filed.
+- `fix(build)`: `build_cuda_worktree.bat` unescaped parens.
+- `team-overnight` SKILL: team_name+name spawn requirement.
+- 4 specs filed: pkg64-gpu-sellmeier-session2-multi-ior, pkg76-followup-classroom-fidelity, pkg86-B, pkg-add-cuda-syntax-ci.
 
-**Deferred to Round 15 follow-ups:**
-- pkg64-gpu Session 2: per-wavelength multi-IOR GPU refraction (re-instates the deferred SSIM + PSNR gates).
-- pkg76-followup-classroom-fidelity (spec filed): audit Classroom SSIM 0.47 gap, propose targeted importer fix.
-- pkg76-followup-bmw27 (in-flight): Blender 4.x `poly_offset_indices` mesh layout fallback.
+**Deferred to Round 15:**
+- **pkg64-gpu Session 2 (multi-IOR)** — per-wavelength GPU refraction (re-instates deferred PSNR/SSIM gates). Spec filed as pkg64-gpu-sellmeier-session2-multi-ior.
+- **pkg86-B Phase 2+3** — GPU port + SAOH adaptive split RTX validation.
+- **pkg76-classroom Gap 2** — non-Principled shader graph walk for 40/42 materials (highest remaining SSIM blocker).
+
+**Full standup:** `.astroray_plan/docs/standup/2026-05-24.md`
 
 ## Round 13 closeout (9 PRs merged + 1 in-flight, 2026-05-22→2026-05-23)
 

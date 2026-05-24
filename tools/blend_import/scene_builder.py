@@ -303,6 +303,10 @@ def _material_base_color(ctx: _ImportContext, mat_blk: Block) -> list[float]:
 
 _PRINCIPLED_IDS = ("ShaderNodeBsdfPrincipled",)
 _DIFFUSE_IDS = ("ShaderNodeBsdfDiffuse",)
+_GLASS_IDS = ("ShaderNodeBsdfGlass",)
+_REFRACTION_IDS = ("ShaderNodeBsdfRefraction",)
+_EMISSION_IDS = ("ShaderNodeEmission",)
+_MIX_SHADER_IDS = ("ShaderNodeMixShader",)
 _BACKGROUND_IDS = ("ShaderNodeBackground",)
 
 
@@ -322,19 +326,29 @@ def _iter_listbase(blend: BlendFile, blk: Block, struct: StructDecl,
 
 def _nodetree_principled_or_diffuse_color(ctx: _ImportContext,
                                           nt_blk: Block) -> list[float] | None:
-    """Extract base color from Principled/Diffuse BSDF in a node tree.
+    """Extract base color from shader BSDF nodes in a node tree.
 
-    Priority order (per pkg76-followup-classroom-fidelity Gap 1 fix):
-    1. If Principled/Diffuse BSDF exists, check if its Base Color socket is
-       connected to a TEX_IMAGE node. If so, load the image and sample it.
+    Priority order (per pkg76-followup-classroom-fidelity Gap 1 + Gap 2a):
+    1. For each supported BSDF type, check if its Color socket is connected to
+       a TEX_IMAGE node. If so, load the image and sample it.
     2. Otherwise use the socket's default RGBA value.
-    3. If no Principled/Diffuse BSDF found, return None (caller falls back to
-       legacy Material.r/g/b).
+    3. If no supported BSDF found, return None (caller falls back to legacy
+       Material.r/g/b).
+
+    Supported node types (Cycles reference: intern/cycles/blender/shader.cpp
+    lines 941-1157, Apache-2.0):
+    - ShaderNodeBsdfPrincipled (line ~880): "Base Color" socket
+    - ShaderNodeBsdfDiffuse (line ~845): "Color" socket
+    - ShaderNodeBsdfGlass (line ~1062): "Color" socket
+    - ShaderNodeBsdfRefraction (line ~1075): "Color" socket
+    - ShaderNodeEmission (line ~1156): "Color" socket
+    - ShaderNodeMixShader (line ~941): recursively walk Shader inputs, pick
+      heavier weight (Fac > 0.5 → Shader2, else Shader1)
 
     Cycles reference: intern/cycles/blender/shader.cpp (Apache-2.0, read for
     understanding). The Cycles approach walks node links to evaluate shader
     graphs; we implement a simplified parity-scope variant: for TEX_IMAGE nodes
-    connected to Base Color, we load the image once and compute its average
+    connected to Color inputs, we load the image once and compute its average
     color, emulating a constant-color approximation.
     """
     blend = ctx.blend
@@ -345,7 +359,7 @@ def _nodetree_principled_or_diffuse_color(ctx: _ImportContext,
     for node_blk in _iter_listbase(blend, nt_blk, nt_struct, "nodes"):
         idname = blend.read_string(node_blk, bnode_struct, "idname")
         if idname in _PRINCIPLED_IDS:
-            # Try image texture first, then fall back to default RGBA
+            # Cycles intern/cycles/blender/shader.cpp:~880
             rgb_from_tex = _node_texture_color(ctx, nt_blk, node_blk, "Base Color")
             if rgb_from_tex is not None:
                 return rgb_from_tex
@@ -353,13 +367,132 @@ def _nodetree_principled_or_diffuse_color(ctx: _ImportContext,
             if rgb is not None:
                 return rgb
         elif idname in _DIFFUSE_IDS:
+            # Cycles intern/cycles/blender/shader.cpp:~845
             rgb_from_tex = _node_texture_color(ctx, nt_blk, node_blk, "Color")
             if rgb_from_tex is not None:
                 return rgb_from_tex
             rgb = _node_socket_default_rgba(ctx, node_blk, "Color")
             if rgb is not None:
                 return rgb
+        elif idname in _GLASS_IDS:
+            # Cycles intern/cycles/blender/shader.cpp:1062-1073
+            rgb_from_tex = _node_texture_color(ctx, nt_blk, node_blk, "Color")
+            if rgb_from_tex is not None:
+                return rgb_from_tex
+            rgb = _node_socket_default_rgba(ctx, node_blk, "Color")
+            if rgb is not None:
+                return rgb
+        elif idname in _REFRACTION_IDS:
+            # Cycles intern/cycles/blender/shader.cpp:1075-1085
+            rgb_from_tex = _node_texture_color(ctx, nt_blk, node_blk, "Color")
+            if rgb_from_tex is not None:
+                return rgb_from_tex
+            rgb = _node_socket_default_rgba(ctx, node_blk, "Color")
+            if rgb is not None:
+                return rgb
+        elif idname in _EMISSION_IDS:
+            # Cycles intern/cycles/blender/shader.cpp:1156-1157
+            # For now, treat Emission color as base color (strength handling is
+            # Gap 2b follow-up — emissive material tagging requires Renderer API)
+            rgb_from_tex = _node_texture_color(ctx, nt_blk, node_blk, "Color")
+            if rgb_from_tex is not None:
+                return rgb_from_tex
+            rgb = _node_socket_default_rgba(ctx, node_blk, "Color")
+            if rgb is not None:
+                return rgb
+        elif idname in _MIX_SHADER_IDS:
+            # Cycles intern/cycles/blender/shader.cpp:941-943
+            # Recursively walk the two Shader inputs; for a deterministic
+            # single-color fallback, pick the heavier weight (Fac > 0.5 → Shader2,
+            # else Shader1). Full mixing requires multi-BSDF support (out of parity
+            # scope).
+            rgb_from_mix = _mix_shader_fallback_color(ctx, nt_blk, node_blk)
+            if rgb_from_mix is not None:
+                return rgb_from_mix
     return None
+
+
+def _mix_shader_fallback_color(ctx: _ImportContext, nt_blk: Block,
+                                mix_node_blk: Block) -> list[float] | None:
+    """Extract a single representative color from a MixShader node.
+
+    A MixShader has three inputs: Fac (float), Shader (closure), Shader (closure).
+    For a deterministic single-color fallback, we pick the heavier-weighted shader
+    input (Fac > 0.5 → Shader2, else Shader1) and recursively walk it to extract
+    its color. If the linked shader is a BSDF with a Color socket, read it.
+
+    This is a simplified parity-scope approximation; full shader mixing requires
+    multi-BSDF support (out of scope). Cycles reference:
+    intern/cycles/blender/shader.cpp:941-943 (MixClosureNode creation).
+    """
+    blend = ctx.blend
+    bnode_struct = blend.struct_of(mix_node_blk)
+    sock_struct = blend.sdna.struct_for("bNodeSocket")
+    if sock_struct is None:
+        return None
+
+    # Read the Fac socket default value (float, 0-1)
+    fac = 0.5  # default fallback
+    for sock_blk in _iter_listbase(blend, mix_node_blk, bnode_struct, "inputs"):
+        name = blend.read_string(sock_blk, sock_struct, "name")
+        if name == "Fac":
+            val_ptr = blend.read_pointer(sock_blk, sock_struct, "default_value")
+            val_blk = blend.follow(val_ptr)
+            if val_blk is not None:
+                # bNodeSocketValueFloat is `float value;` at offset 0
+                (fac,) = blend.read_float(val_blk, blend.struct_of(val_blk), "value")
+            break
+
+    # Pick the heavier-weighted shader input socket
+    target_shader_name = "Shader_001" if fac > 0.5 else "Shader"
+
+    # Find the node connected to this shader input and recursively extract color
+    link_struct = blend.sdna.struct_for("bNodeLink")
+    if link_struct is None:
+        return None
+    nt_struct = blend.struct_of(nt_blk)
+    for sock_blk in _iter_listbase(blend, mix_node_blk, bnode_struct, "inputs"):
+        name = blend.read_string(sock_blk, sock_struct, "name")
+        if name != target_shader_name:
+            continue
+        # Walk links to find one that targets this socket
+        for link_blk in _iter_listbase(blend, nt_blk, nt_struct, "links"):
+            tosock_ptr = blend.read_pointer(link_blk, link_struct, "tosock")
+            if tosock_ptr != sock_blk.old:
+                continue
+            fromnode_ptr = blend.read_pointer(link_blk, link_struct, "fromnode")
+            fromnode_blk = blend.follow(fromnode_ptr)
+            if fromnode_blk is None:
+                continue
+            # Recursively extract color from the connected shader node
+            idname = blend.read_string(fromnode_blk, bnode_struct, "idname")
+            return _shader_node_color(ctx, nt_blk, fromnode_blk, idname)
+    return None
+
+
+def _shader_node_color(ctx: _ImportContext, nt_blk: Block, node_blk: Block,
+                       idname: str) -> list[float] | None:
+    """Extract base color from a single shader node by type.
+
+    Helper for recursive shader graph walking (e.g., from MixShader inputs).
+    """
+    if idname in _PRINCIPLED_IDS:
+        rgb_from_tex = _node_texture_color(ctx, nt_blk, node_blk, "Base Color")
+        if rgb_from_tex is not None:
+            return rgb_from_tex
+        return _node_socket_default_rgba(ctx, node_blk, "Base Color")
+    elif idname in (_DIFFUSE_IDS + _GLASS_IDS + _REFRACTION_IDS + _EMISSION_IDS):
+        rgb_from_tex = _node_texture_color(ctx, nt_blk, node_blk, "Color")
+        if rgb_from_tex is not None:
+            return rgb_from_tex
+        return _node_socket_default_rgba(ctx, node_blk, "Color")
+    elif idname in _MIX_SHADER_IDS:
+        # Recursively handle nested Mix Shaders
+        return _mix_shader_fallback_color(ctx, nt_blk, node_blk)
+    else:
+        # Unhandled shader type — log and return None
+        ctx.warn(f"MixShader connected to unsupported shader node type: {idname}")
+        return None
 
 
 def _node_texture_color(ctx: _ImportContext, nt_blk: Block, bsdf_node_blk: Block,

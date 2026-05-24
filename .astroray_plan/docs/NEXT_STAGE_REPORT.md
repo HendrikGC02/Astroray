@@ -130,6 +130,22 @@
   the pkg81 harness scene) — the still-unmet competitive claim that pkg55 Phase B formally
   owns. Architect estimate: ~3-5 sessions to parity claim (~3 material kernels).
 
+**Addon defect triage (filed 2026-05-24, owner-reported bugs):**
+
+- **pkg101 — viewport camera vfov mis-extracted from `perspective_matrix`** — Blender
+  PERSP/ORTHO orbit causes apparent object shrink/grow/flip because the addon reads
+  `rv3d.perspective_matrix[1][1]` (projection × view, rotation-coupled) instead of
+  `rv3d.window_matrix[1][1]`. Small Python fix + rotated-view regression test.
+- **pkg102 — HDRI blur from DOF aperture unit mismatch** — addon computes
+  `aperture = 1/(2*fstop)` and the C++ then halves it again as `lensRadius`, producing
+  ~45 mm lens radius at f/5.6. Cycles' expression is
+  `aperture_radius = (focal_length_m) / (2 * fstop)`. Small Python fix.
+- **pkg103 — addon feature-wiring audit (Phase 1: audit doc only)** — produce the
+  complete `set_*`/`enable_*`/`add_*` binding-vs-addon-call-site table. Confirmed gaps
+  already include Light Tree (`set_light_sampler`, no addon call) and camera motion
+  blur (`set_camera_motion_blur`, no addon call). Phase 2 wiring is per-feature
+  follow-up specs (e.g. pkg103a Light Tree, pkg103b motion blur).
+
 **Second tier (unblocked, lower priority):**
 
 - **pkg64-gpu-sellmeier-session2-multi-ior** (spec filed) — per-wavelength multi-IOR GPU

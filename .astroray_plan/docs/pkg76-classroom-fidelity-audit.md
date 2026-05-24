@@ -115,15 +115,18 @@ Full shader-graph evaluation (Mix nodes, Emission, Glossy, etc.) is a much large
 
 ---
 
-### Gap 3: Spot light shape and falloff parameters missing
+### Gap 3: Spot light shape and falloff parameters missing — **FALSE POSITIVE; ALREADY CLOSED**
 
-**Symptom:** Classroom has 5 spot lights (energy=100 each). Astroray's importer reads light type and energy but does NOT import spot cone angle, blend (soft edge), or distance falloff. Cycles uses these to produce focused pools of light; Astroray may default to a wider cone or no falloff, producing over-bright or mis-distributed illumination.
+**Update 2026-05-24:** Investigation by team-lead Gap 3 dispatch found this gap was incorrectly audited. The spot-light cone (`spotsize`) and blend (`spotblend`) parameters ARE already being imported correctly — see `tools/blend_import/scene_builder.py:649-652` and `module/blender_module.cpp::PyRenderer::addSpotLight` (lines 492-507). The `SpotLightSphere` (`include/astroray/raytracer.h:867-931`) consumes them correctly for angular falloff. Existing test coverage in `tests/test_python_bindings.py:263, 293`. The "distance falloff" parameter the audit cited (`Light.att_dist`) is non-physical and Cycles does NOT use it (confirmed via `intern/cycles/blender/light.cpp` analysis — physical inverse-square falloff is implicit in path tracing). No code change needed; remove this gap from the residual-fix budget.
 
-**Astroray imported:** From `_emit_light()` in `scene_builder.py` (lines 483–533):
+**Original symptom (now refuted):** Classroom has 5 spot lights (energy=100 each). Astroray's importer reads light type and energy but does NOT import spot cone angle, blend (soft edge), or distance falloff. Cycles uses these to produce focused pools of light; Astroray may default to a wider cone or no falloff, producing over-bright or mis-distributed illumination.
+
+**Astroray actually imports (corrected 2026-05-24):** From `_emit_light()` in `scene_builder.py:649-652`:
 - Light type (spot → `Renderer.add_spot_light`)
 - `color` (from Light.r/g/b)
 - `energy` (from Light.energy)
-- NO spot-specific parameters (spot_size, spot_blend)
+- `spotsize` (cone outer angle, radians)
+- `spotblend` (soft-edge width, 0-1)
 
 **Cycles parses:** From Blender's `Light` (Lamp) SDNA:
 - `spot_size` (float, radians) — cone outer angle
@@ -196,9 +199,8 @@ If `add_area_light()` does not exist, file `pkg76-followup-area-light-backend` f
    - **Estimated time:** 2–4 hours
    - **SSIM lift:** +0.25–0.33 (0.47 → 0.70–0.80)
 
-2. **Gap 3 (spot light cone + blend)** — low effort, small impact.
-   - **Estimated time:** 30 min
-   - **SSIM lift:** +0.01–0.03
+2. ~~**Gap 3 (spot light cone + blend)** — low effort, small impact.~~
+   - **Status (2026-05-24):** FALSE POSITIVE — already implemented in pkg76 original; see Gap 3 entry above. Removed from the residual-fix budget.
 
 3. **Gap 2a (emissive materials)** — medium effort, small-to-medium impact. Requires Renderer API extension (`set_material_emission`).
    - **Estimated time:** 1–2 hours
@@ -214,10 +216,10 @@ If `add_area_light()` does not exist, file `pkg76-followup-area-light-backend` f
 
 ## Next Steps (per pkg76-followup-classroom-fidelity spec)
 
-1. **Close Gap 1** (this package): Implement image texture loading for Principled BSDF base color. Re-measure SSIM.
-2. If SSIM < 0.85 after Gap 1, close Gap 3 (spot light params) and re-measure.
-3. If still < 0.85, file follow-up packages for Gap 2a (emissive) and Gap 4 (area lights).
-4. If SSIM ≥ 0.85 after Gap 1+3, declare parity gate CLOSED for Classroom.
+1. **Close Gap 1** (this package): Implement image texture loading for Principled BSDF base color. Re-measure SSIM. **DONE 2026-05-24 (PR #361 merged).** Measured SSIM 0.470 — no change because only 2/42 mats are Principled BSDF; Gap 2 dominates.
+2. ~~If SSIM < 0.85 after Gap 1, close Gap 3 (spot light params) and re-measure.~~ **Gap 3 was a false positive — already implemented since pkg76; removed from residual budget.**
+3. If still < 0.85, file follow-up packages for Gap 2a (emissive) and Gap 4 (area lights). **Gap 4 IN PROGRESS (PR #363, area light shape mapping).** Gap 2a remains the highest-impact remaining lift (40/42 mats need non-Principled shader graph walking).
+4. If SSIM ≥ 0.85 after Gap 1 + Gap 4 + Gap 2a, declare parity gate CLOSED for Classroom.
 
 ---
 

@@ -48,6 +48,8 @@ Use the Wilkie et al. 2014 hero-wavelength algorithm: at each dispersive-dielect
 
 **Recommended Phase 1 decision:** Option B (hero-wavelength MIS), with a documented fallback to Option A if SSIM doesn't reach 0.97 at the 256-SPP gate. Justification: Cycles uses B, and the integrator integration is lighter — the spectral kernel already evaluates per-lambda pdfs for emission, so the BSDF MIS extension is a smaller delta.
 
+**Owner decision (2026-05-24, Round 14 close-round):** confirmed — start with Option B, accept the risk that it may not clear the 0.97 SSIM gate at 256 SPP. If Option B converges to ~0.93–0.95 and stalls, fall back to Option A in a follow-up session rather than committing to A upfront. This trades a possible second deferral for the simpler (and Cycles-aligned) implementation path. Architect surfaced this as the highest-value Session 2 open question; owner adjudicated.
+
 ---
 
 ## Specification

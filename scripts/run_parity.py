@@ -423,6 +423,8 @@ def _ssim(output: Path, reference: Path) -> str:
     if not output.exists() or not reference.exists():
         return ""
     try:
+        import os
+        os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')  # pkg76: SSIM runs in parent process
         import imageio.v3 as iio  # type: ignore
         from skimage.metrics import structural_similarity  # type: ignore
 

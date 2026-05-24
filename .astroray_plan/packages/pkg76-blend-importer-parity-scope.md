@@ -347,3 +347,17 @@ PR with a one-line note explaining the drop.
   a populated `Renderer` and stashes camera intrinsics on it for
   the harness to call `setup_camera` once it knows the render
   resolution.
+
+### pkg76 CSV Population (2026-05-24, RTX hardware)
+
+Three-scene parity run on astroray-gpu (300 SPP classroom, 240 SPP junkshop, 1024 SPP bmw27):
+
+- **Junkshop: SSIM = 0.972** ✅ (gate: ≥0.85) — full parity-scope import success, 1.44s @ 1085 MB peak.
+- **Classroom: SSIM = 0.470** ❌ (gate: ≥0.85) — render completes (0.90s @ 951 MB) but structural divergence vs Cycles-CPU reference suggests material/lighting fidelity loss beyond parity-scope shader-graph limitations. Requires visual diff + importer audit.
+- **BMW27: crash** ❌ — all meshes skipped with "no 'poly_offset_indices'" (Blender 4.x attribute-storage variant not fully handled by importer), then `uploadScene()` fails with 0 prims. Requires mesh-attribute fallback path or BMW27-specific format handling.
+
+**Parity script bug fixed:** `scripts/run_parity.py` _ssim() function runs in parent process, not subprocess, so it didn't inherit `OPENCV_IO_ENABLE_OPENEXR=1` from _subprocess_env(). Added `os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')` at top of _ssim() to fix silent EXR read failures.
+
+**CSV:** `benchmarks/cycles-parity/2026-05-24-pkg76-csv-astroray-gpu.csv`
+
+**Acceptance verdict:** 1/3 scenes pass the ≥0.85 gate. Classroom and BMW27 failures are implementation gaps (not environment/toolchain issues), deferred to follow-up pkg76-followup or blend-importer-audit packages.

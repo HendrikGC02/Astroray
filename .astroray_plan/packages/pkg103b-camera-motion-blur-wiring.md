@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon)
 **Track:** A (single-feature wiring)
 **Codex-paste-ready:** yes (well-scoped depsgraph + pybind wiring)
-**Status:** open
+**Status:** done (PR #372, 2026-05-24 — wired `set_camera_motion_blur` via depsgraph T/R/S decomposition; CENTER shutter window; 3/3 tests green)
 **Depends on:** pkg88-A (done)
 **Estimated effort:** 1 day (depsgraph evaluation + transform decomposition + test)
 

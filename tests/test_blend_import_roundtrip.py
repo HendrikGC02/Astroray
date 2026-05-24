@@ -184,3 +184,65 @@ def test_real_renderer_accepts_dynamic_attrs(authored_blend_path):
     assert "aspect" in intrinsics
     assert "near" in intrinsics
     assert "far" in intrinsics
+
+
+def test_area_light_shape_import():
+    """pkg76-followup Gap 4: area lights import shape (square/rect/disk/ellipse).
+
+    Citation: Cycles intern/cycles/blender/light.cpp:BlenderSync::sync_light
+    reads b_light.shape() for area lights. Blender's DNA_light_types.h defines
+    eLightAreaShape enum: SQUARE=0, RECT=1, DISK=4, ELLIPSE=5.
+    """
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # Create 4 area lights with different shapes
+    shapes_to_test = [
+        ("SQUARE", 1.5, 1.5),
+        ("RECTANGLE", 2.0, 1.0),
+        ("DISK", 1.2, 1.2),
+        ("ELLIPSE", 1.8, 0.9),
+    ]
+
+    for i, (shape, size_x, size_y) in enumerate(shapes_to_test):
+        light = bpy.data.lights.new(f"Area_{shape}", type="AREA")
+        light.shape = shape
+        light.size = size_x
+        light.size_y = size_y
+        light.color = (1.0, 1.0, 1.0)
+        light.energy = 50.0
+
+        obj = bpy.data.objects.new(f"AreaLight_{shape}", light)
+        obj.location = (i * 3.0, 0.0, 2.0)
+        bpy.context.scene.collection.objects.link(obj)
+
+    tmp = Path(tempfile.mkstemp(suffix=".blend")[1])
+    bpy.ops.wm.save_as_mainfile(filepath=str(tmp), compress=False, copy=True)
+
+    # Import and verify
+    r = _FakeRenderer()
+    import_blend(tmp, renderer=r, width=512, height=512)
+
+    # Should have 4 area lights
+    area_lights = [light for light in r.lights if light[0] == "area"]
+    assert len(area_lights) == 4, f"Expected 4 area lights, got {len(area_lights)}"
+
+    # Verify shapes were imported correctly
+    # args tuple: (center, axis_u, axis_v, size_x, size_y, shape, material_id, spread, obj_idx, mat_idx)
+    shapes_imported = [light[1][5] for light in area_lights]
+
+    # SQUARE and RECTANGLE both map to "RECTANGLE" in Astroray
+    # (distinction is implicit in size_x == size_y)
+    assert shapes_imported[0] == "RECTANGLE", f"SQUARE should map to RECTANGLE, got {shapes_imported[0]}"
+    assert shapes_imported[1] == "RECTANGLE", f"RECTANGLE should map to RECTANGLE, got {shapes_imported[1]}"
+    assert shapes_imported[2] == "DISK", f"DISK should map to DISK, got {shapes_imported[2]}"
+    assert shapes_imported[3] == "ELLIPSE", f"ELLIPSE should map to ELLIPSE, got {shapes_imported[3]}"
+
+    # Verify sizes were imported correctly
+    for i, (shape, expected_x, expected_y) in enumerate(shapes_to_test):
+        size_x, size_y = area_lights[i][1][3], area_lights[i][1][4]
+        assert size_x == pytest.approx(expected_x, abs=1e-3), \
+            f"{shape} size_x mismatch: expected {expected_x}, got {size_x}"
+        assert size_y == pytest.approx(expected_y, abs=1e-3), \
+            f"{shape} size_y mismatch: expected {expected_y}, got {size_y}"
+
+    tmp.unlink()

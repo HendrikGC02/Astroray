@@ -31,6 +31,13 @@ LA_SUN = 1
 LA_SPOT = 2
 LA_AREA = 4
 
+# Area light shape enum (eLightAreaShape from DNA_light_types.h)
+# Citation: UPBGE/upbge@master/source/blender/makesdna/DNA_light_types.h
+LA_AREA_SQUARE = 0
+LA_AREA_RECT = 1
+LA_AREA_DISK = 4
+LA_AREA_ELLIPSE = 5
+
 CAM_PERSP = 0
 CAM_ORTHO = 1
 CAM_PANO = 2
@@ -655,10 +662,23 @@ def _emit_lamp(ctx: _ImportContext, ob_blk: Block, la_blk: Block) -> bool:
         if hasattr(ctx.renderer, "add_area_light"):
             size_x = blend.read_float(la_blk, la_struct, "area_size")[0]
             size_y = blend.read_float(la_blk, la_struct, "area_sizey")[0] or size_x
+            # Read area shape (defaults to SQUARE=0 if field missing)
+            # Citation: Cycles intern/cycles/blender/light.cpp:BlenderSync::sync_light
+            area_shape_val = blend.read_int(la_blk, la_struct, "area_shape") \
+                if la_struct.by_name.get("area_shape") else LA_AREA_SQUARE
+            # Map Blender enum → Astroray shape string
+            if area_shape_val == LA_AREA_DISK:
+                shape_str = "DISK"
+            elif area_shape_val == LA_AREA_ELLIPSE:
+                shape_str = "ELLIPSE"
+            else:
+                # LA_AREA_SQUARE and LA_AREA_RECT both map to RECTANGLE
+                # (Astroray doesn't distinguish square from rect; it's implicit in size_x == size_y)
+                shape_str = "RECTANGLE"
             ux = [M[0][0], M[1][0], M[2][0]]
             uy = [M[0][1], M[1][1], M[2][1]]
             ctx.renderer.add_area_light(eye, ux, uy, size_x, size_y,
-                                        "RECTANGLE", mat_id, 1.0, 0, 0)
+                                        shape_str, mat_id, 1.0, 0, 0)
             return True
     ctx.warn(f"unsupported lamp type={la_type} — skipped")
     return False

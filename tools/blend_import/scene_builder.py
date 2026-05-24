@@ -315,6 +315,21 @@ def _iter_listbase(blend: BlendFile, blk: Block, struct: StructDecl,
 
 def _nodetree_principled_or_diffuse_color(ctx: _ImportContext,
                                           nt_blk: Block) -> list[float] | None:
+    """Extract base color from Principled/Diffuse BSDF in a node tree.
+
+    Priority order (per pkg76-followup-classroom-fidelity Gap 1 fix):
+    1. If Principled/Diffuse BSDF exists, check if its Base Color socket is
+       connected to a TEX_IMAGE node. If so, load the image and sample it.
+    2. Otherwise use the socket's default RGBA value.
+    3. If no Principled/Diffuse BSDF found, return None (caller falls back to
+       legacy Material.r/g/b).
+
+    Cycles reference: intern/cycles/blender/shader.cpp (Apache-2.0, read for
+    understanding). The Cycles approach walks node links to evaluate shader
+    graphs; we implement a simplified parity-scope variant: for TEX_IMAGE nodes
+    connected to Base Color, we load the image once and compute its average
+    color, emulating a constant-color approximation.
+    """
     blend = ctx.blend
     nt_struct = blend.struct_of(nt_blk)
     bnode_struct = blend.sdna.struct_for("bNode")
@@ -323,14 +338,147 @@ def _nodetree_principled_or_diffuse_color(ctx: _ImportContext,
     for node_blk in _iter_listbase(blend, nt_blk, nt_struct, "nodes"):
         idname = blend.read_string(node_blk, bnode_struct, "idname")
         if idname in _PRINCIPLED_IDS:
+            # Try image texture first, then fall back to default RGBA
+            rgb_from_tex = _node_texture_color(ctx, nt_blk, node_blk, "Base Color")
+            if rgb_from_tex is not None:
+                return rgb_from_tex
             rgb = _node_socket_default_rgba(ctx, node_blk, "Base Color")
             if rgb is not None:
                 return rgb
         elif idname in _DIFFUSE_IDS:
+            rgb_from_tex = _node_texture_color(ctx, nt_blk, node_blk, "Color")
+            if rgb_from_tex is not None:
+                return rgb_from_tex
             rgb = _node_socket_default_rgba(ctx, node_blk, "Color")
             if rgb is not None:
                 return rgb
     return None
+
+
+def _node_texture_color(ctx: _ImportContext, nt_blk: Block, bsdf_node_blk: Block,
+                        socket_name: str) -> list[float] | None:
+    """Find a TEX_IMAGE node connected to the specified socket and sample its color.
+
+    Walks the node tree's links to find a link from (any node, any output) to
+    (bsdf_node_blk, socket_name input). If the source node is a TEX_IMAGE, loads
+    the image and returns its average RGB color.
+
+    Returns None if no image texture is connected or if the image can't be loaded.
+
+    Cycles reference: intern/cycles/blender/shader.cpp:add_node() dispatches on
+    node type and walks links via bNodeTree.links ListBase (Apache-2.0).
+    """
+    blend = ctx.blend
+    nt_struct = blend.struct_of(nt_blk)
+    bnode_struct = blend.sdna.struct_for("bNode")
+    link_struct = blend.sdna.struct_for("bNodeLink")
+    sock_struct = blend.sdna.struct_for("bNodeSocket")
+    if link_struct is None or sock_struct is None or bnode_struct is None:
+        return None
+
+    # Find the input socket on bsdf_node_blk that matches socket_name
+    target_sock_blk = None
+    for sock_blk in _iter_listbase(blend, bsdf_node_blk, bnode_struct, "inputs"):
+        name = blend.read_string(sock_blk, sock_struct, "name")
+        if name == socket_name:
+            target_sock_blk = sock_blk
+            break
+    if target_sock_blk is None:
+        return None
+
+    # Walk links to find one that targets this socket
+    for link_blk in _iter_listbase(blend, nt_blk, nt_struct, "links"):
+        # bNodeLink has: *fromnode, *fromsock, *tonode, *tosock
+        tosock_ptr = blend.read_pointer(link_blk, link_struct, "tosock")
+        if tosock_ptr != target_sock_blk.old:
+            continue
+        # Found a link to our target socket; check if fromnode is TEX_IMAGE
+        fromnode_ptr = blend.read_pointer(link_blk, link_struct, "fromnode")
+        fromnode_blk = blend.follow(fromnode_ptr)
+        if fromnode_blk is None:
+            continue
+        idname = blend.read_string(fromnode_blk, bnode_struct, "idname")
+        if idname == "ShaderNodeTexImage":
+            return _load_image_texture_color(ctx, fromnode_blk)
+    return None
+
+
+def _load_image_texture_color(ctx: _ImportContext, tex_node_blk: Block) -> list[float] | None:
+    """Load an image from a ShaderNodeTexImage node and return its average RGB color.
+
+    The node's `id` pointer references an Image block. The Image block's
+    `filepath[1024]` field holds the path (potentially with Blender's `//`
+    relative-path prefix). We resolve it, load the image, and compute the average.
+
+    Blender's `//` prefix means "relative to the .blend file's directory."
+    Cycles handles this via BKE_image_acquire_ibuf; we replicate the path
+    resolution manually since we're reading .blend files without Blender's runtime.
+
+    Returns None if the image can't be loaded (missing file, unsupported format, etc.).
+    """
+    blend = ctx.blend
+    tex_node_struct = blend.struct_of(tex_node_blk)
+    # bNode.id points at the Image block
+    img_ptr = blend.read_pointer(tex_node_blk, tex_node_struct, "id")
+    img_blk = blend.follow(img_ptr)
+    if img_blk is None or img_blk.code != "IM":
+        return None
+
+    img_struct = blend.struct_of(img_blk)
+    # Image.filepath is char filepath[1024] (historically called "name" in older DNA)
+    # Try both field names for robustness across Blender versions
+    filepath_field = "filepath" if "filepath" in img_struct.by_name else "filepath"
+    if filepath_field not in img_struct.by_name:
+        # Very old Blender used "name"; unlikely but handle it
+        filepath_field = "name" if "name" in img_struct.by_name else None
+    if filepath_field is None:
+        ctx.warn(f"image block {img_blk.old:x} has no filepath/name field")
+        return None
+
+    raw_path = blend.read_string(img_blk, img_struct, filepath_field)
+    if not raw_path:
+        return None
+
+    # Resolve Blender's // prefix
+    import os
+    if raw_path.startswith("//"):
+        # Relative to .blend file directory. Blender demo scenes (Classroom,
+        # Junkshop, BMW27) use // paths that assume the .blend lives alongside
+        # the textures, but when unpacked from archives they often nest an extra
+        # directory level. Try both:
+        # 1. <blend_dir>/<rel_path>
+        # 2. <blend_dir>/<scene_name>/<rel_path> (common archive layout)
+        blend_dir = os.path.dirname(blend.path) if hasattr(blend, 'path') and blend.path else "."
+        rel_path = raw_path[2:].replace("\\", os.sep).replace("/", os.sep)
+
+        # Try direct resolution first
+        resolved_path = os.path.join(blend_dir, rel_path)
+        if not os.path.isfile(resolved_path):
+            # Try nested directory (scene name from .blend filename)
+            blend_name = os.path.basename(blend.path) if blend.path else ""
+            scene_name = blend_name.replace(".blend", "").replace("000_", "").replace("_", "")
+            nested_path = os.path.join(blend_dir, scene_name, rel_path)
+            if os.path.isfile(nested_path):
+                resolved_path = nested_path
+    else:
+        resolved_path = raw_path
+
+    # Load the image and compute average RGB
+    try:
+        if not os.path.isfile(resolved_path):
+            ctx.warn(f"image texture not found: {resolved_path}")
+            return None
+
+        # Use PIL (Pillow) to load the image — it handles JPG, PNG, etc.
+        from PIL import Image
+        img = Image.open(resolved_path).convert("RGB")
+        import numpy as np
+        pixels = np.array(img, dtype=np.float32) / 255.0
+        avg_rgb = pixels.mean(axis=(0, 1)).tolist()
+        return avg_rgb[:3]
+    except Exception as e:
+        ctx.warn(f"failed to load image texture {resolved_path}: {e}")
+        return None
 
 
 def _node_socket_default_rgba(ctx: _ImportContext, node_blk: Block,

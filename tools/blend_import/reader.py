@@ -92,8 +92,9 @@ def _block_header_fmt(header: FileHeader) -> tuple[str, int, bool]:
 class BlendFile:
     """Parsed .blend file: SDNA + block table + pointer dictionary."""
 
-    def __init__(self, raw: bytes):
+    def __init__(self, raw: bytes, path: str | Path | None = None):
         self.buf: bytes = _decompress(raw)
+        self.path: str | None = str(path) if path is not None else None
         self.header: FileHeader = decode_header(self.buf[:17])
         self.blocks: list[Block] = []
         self.by_old: dict[int, Block] = {}
@@ -138,7 +139,8 @@ class BlendFile:
 
     @classmethod
     def from_path(cls, path: str | Path) -> "BlendFile":
-        return cls(Path(path).read_bytes())
+        path_obj = Path(path)
+        return cls(path_obj.read_bytes(), path=path_obj)
 
     def struct_of(self, block: Block) -> StructDecl:
         return self.sdna.structs[block.sdna_index]

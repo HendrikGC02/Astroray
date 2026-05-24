@@ -3,7 +3,7 @@
 # PreToolUse hook. Fires when Claude is about to `git push` or `gh pr create`.
 # Computes function/class signatures that changed on this branch vs origin/main,
 # then greps the repo for each name and surfaces call sites NOT touched on the
-# branch — i.e. likely-stale callers that will break CI.
+# branch - i.e. likely-stale callers that will break CI.
 #
 # Non-blocking: emits a warning on stderr (exit 0). The model sees the warning
 # and decides whether to update the call sites before pushing.
@@ -63,7 +63,7 @@ foreach ($line in ($diff -split "`n")) {
     elseif ($body -match '^\s*(?:template\s*<[^>]*>\s*)?(?:class|struct)\s+([A-Za-z_][A-Za-z0-9_]*)\b') {
         [void]$names.Add($Matches[1])
     }
-    # C++ free / member function: crude — "Type  name(" near start of line
+    # C++ free / member function: crude - "Type  name(" near start of line
     elseif ($body -match '^\s*(?:[A-Za-z_][A-Za-z0-9_:<>\*\&\s]*\s)([A-Za-z_][A-Za-z0-9_]+)\s*\([^;]*\)\s*(?:const)?\s*(?:override)?\s*[{;]?\s*$') {
         $n = $Matches[1]
         # Skip obvious keywords / control flow
@@ -103,7 +103,7 @@ foreach ($name in $names) {
 
 if ($stale.Count -eq 0) { exit 0 }
 
-[Console]::Error.WriteLine("[signature-sweep] $($stale.Count) changed name(s) have call sites in files NOT touched on this branch — likely-stale callers:")
+[Console]::Error.WriteLine("[signature-sweep] $($stale.Count) changed name(s) have call sites in files NOT touched on this branch - likely-stale callers:")
 foreach ($k in ($stale.Keys | Sort-Object)) {
     [Console]::Error.WriteLine("  $k :")
     foreach ($f in ($stale[$k] | Select-Object -First 8)) {
@@ -113,6 +113,6 @@ foreach ($k in ($stale.Keys | Sort-Object)) {
         [Console]::Error.WriteLine("    ... ($($stale[$k].Count - 8) more)")
     }
 }
-[Console]::Error.WriteLine("[signature-sweep] Verify each is genuinely unaffected before pushing — this is the CI-rescue pattern the insights report flagged.")
+[Console]::Error.WriteLine("[signature-sweep] Verify each is genuinely unaffected before pushing - this is the CI-rescue pattern the insights report flagged.")
 
 exit 0

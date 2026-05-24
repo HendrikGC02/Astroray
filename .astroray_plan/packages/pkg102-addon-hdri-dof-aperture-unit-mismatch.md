@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon)
 **Track:** A (correctness, small Python-only fix)
 **Codex-paste-ready:** yes
-**Status:** open
+**Status:** done (PR #369, 2026-05-24 — aperture 4.5mm vs 45mm, tests green)
 **Depends on:** none
 **Estimated effort:** small (<½ day; few-line fix + regression test)
 

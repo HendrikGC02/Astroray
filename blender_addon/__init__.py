@@ -1745,6 +1745,49 @@ class CustomRaytracerRenderEngine(RenderEngine):
         transparent_glass = bool(getattr(cycles, 'film_transparent_glass', False)) if cycles else False
         renderer.set_use_transparent_film(use_transparent_film)
         renderer.set_transparent_glass(transparent_glass)
+
+        # pkg103b: Camera motion blur wiring (requires pkg88-A renderer support)
+        # Cycles reference: intern/cycles/blender/camera.cpp::BlenderSync::sync_camera_motion (Apache-2.0)
+        if render_settings and getattr(render_settings, 'use_motion_blur', False):
+            cam_obj = scene.camera
+            if cam_obj is not None:
+                shutter = float(getattr(render_settings, 'motion_blur_shutter', 0.5))
+                position = getattr(render_settings, 'motion_blur_position', 'CENTER')
+                frame = float(scene.frame_current)
+
+                # Compute shutter start/end times (Blender convention)
+                if position == 'START':
+                    t_start, t_end = frame, frame + shutter
+                elif position == 'CENTER':
+                    t_start, t_end = frame - shutter / 2.0, frame + shutter / 2.0
+                elif position == 'END':
+                    t_start, t_end = frame - shutter, frame
+                else:
+                    t_start, t_end = frame, frame + shutter  # fallback to START
+
+                # Evaluate camera transform at shutter boundaries
+                T_start = self._get_camera_transform_at_time(scene, depsgraph, cam_obj, t_start)
+                T_end = self._get_camera_transform_at_time(scene, depsgraph, cam_obj, t_end)
+
+                # Decompose transforms into T/R/S (pkg88-A requires decomposed components)
+                loc_start, rot_start, scale_start = T_start.decompose()
+                loc_end, rot_end, scale_end = T_end.decompose()
+
+                # Convert to lists for pybind (quaternion: [w,x,y,z], translation/scale: [x,y,z])
+                start_t = [loc_start.x, loc_start.y, loc_start.z]
+                start_r = [rot_start.w, rot_start.x, rot_start.y, rot_start.z]
+                start_s = [scale_start.x, scale_start.y, scale_start.z]
+                end_t = [loc_end.x, loc_end.y, loc_end.z]
+                end_r = [rot_end.w, rot_end.x, rot_end.y, rot_end.z]
+                end_s = [scale_end.x, scale_end.y, scale_end.z]
+
+                # Map Blender position enum to renderer convention (0=Start, 1=Center, 2=End)
+                position_map = {'START': 0, 'CENTER': 1, 'END': 2}
+                shutter_position = position_map.get(position, 0)
+
+                renderer.set_camera_motion_blur(start_t, start_r, start_s, end_t, end_r, end_s,
+                                                shutter, shutter_position)
+
         seed = int(getattr(cycles, 'seed', 0)) if cycles else 0
         use_animated_seed = bool(getattr(cycles, 'use_animated_seed', False)) if cycles else False
         if use_animated_seed:
@@ -1765,6 +1808,29 @@ class CustomRaytracerRenderEngine(RenderEngine):
         cam_obj = scene.camera
         if not cam_obj: return
         self._apply_camera(renderer, cam_obj, width, height)
+
+    def _get_camera_transform_at_time(self, scene, depsgraph, cam_obj, frame):
+        """Evaluate depsgraph at `frame` and return camera.matrix_world.
+
+        Cycles reference: intern/cycles/blender/camera.cpp::BlenderSync::sync_camera_motion (Apache-2.0).
+        Temporarily sets scene.frame_current to the requested time, updates the depsgraph,
+        and samples the camera transform. Restores the original frame before returning.
+        """
+        original_frame = scene.frame_current
+        original_subframe = scene.frame_subframe
+        try:
+            # Set scene to target frame (Blender accepts fractional frames)
+            scene.frame_set(int(frame), subframe=frame - int(frame))
+            # Force depsgraph to update at the new time
+            depsgraph.update()
+            # Sample the evaluated camera transform
+            evaluated_camera = cam_obj.evaluated_get(depsgraph)
+            matrix = evaluated_camera.matrix_world.copy()  # mathutils.Matrix (4x4)
+            return matrix
+        finally:
+            # Restore original frame state
+            scene.frame_set(int(original_frame), subframe=original_subframe)
+            depsgraph.update()
 
     def _compute_vfov_degrees(self, camera, width, height):
         """Vertical FOV in degrees for a Blender camera datablock.

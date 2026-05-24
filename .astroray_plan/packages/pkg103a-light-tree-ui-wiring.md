@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon)
 **Track:** A (single-feature wiring)
 **Codex-paste-ready:** yes (well-scoped addon wiring task)
-**Status:** open
+**Status:** done (PR #371, 2026-05-24 — 3 sampler modes wired, 93 tests green)
 **Depends on:** pkg86 (done), pkg86-B Phase 1 (done)
 **Estimated effort:** ½ day (UI property + panel + call site + test)
 

@@ -1,4 +1,4 @@
-# pkg93 — README hero + gallery renders — SPEC
+# pkg93 — README hero + gallery renders
 
 **Pillar:** 5 (production polish / showcase)
 **Track:** A (renders need RTX 5070 Ti to match the validation-snapshot numbers)

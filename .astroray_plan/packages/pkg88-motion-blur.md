@@ -1,12 +1,8 @@
-# pkg88 — Motion Blur (Cycles-shaped, STBVH-aware) — SPEC
+# pkg88 — Motion Blur (Cycles-shaped, STBVH-aware)
 
 **Pillar:** 5
 **Track:** A
-**Status:** spec promoted from DRAFT (architect spec-promotion pass,
-  2026-05-14). 10 design forks from the research note resolved or
-  surfaced to owner; see "Design decisions" + "Owner-preference
-  questions deferred to owner" below. Ready to dispatch once the four
-  remaining owner-preference questions are answered.
+**Status:** spec promoted from DRAFT (architect spec-promotion pass, 2026-05-14). 10 design forks resolved or surfaced to owner; see "Design decisions" + "Owner-preference questions deferred to owner" below. Ready to dispatch once the four remaining owner-preference questions are answered.
 **Estimated effort:** 5–7 weeks across 4 phases (A camera, B object,
   C deformation, D wavefront hook).
 **Depends on:** pkg55-A.1 (done — SoA infra exists, time field can be

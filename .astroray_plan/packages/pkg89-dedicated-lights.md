@@ -1,4 +1,4 @@
-# pkg89 — Dedicated Light Objects — SPEC
+# pkg89 — Dedicated Light Objects
 
 **Pillar:** 3 (light transport)
 **Track:** A

@@ -132,6 +132,11 @@ struct GSampledSpectrum {
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) r.v[i] = v[i] + o.v[i];
         return r;
     }
+    HD GSampledSpectrum operator-(const GSampledSpectrum& o) const {
+        GSampledSpectrum r;
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) r.v[i] = v[i] - o.v[i];
+        return r;
+    }
     HD GSampledSpectrum operator*(const GSampledSpectrum& o) const {
         GSampledSpectrum r;
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) r.v[i] = v[i] * o.v[i];
@@ -148,6 +153,10 @@ struct GSampledSpectrum {
     }
     HD GSampledSpectrum& operator+=(const GSampledSpectrum& o) {
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) v[i] += o.v[i];
+        return *this;
+    }
+    HD GSampledSpectrum& operator-=(const GSampledSpectrum& o) {
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) v[i] -= o.v[i];
         return *this;
     }
     HD GSampledSpectrum& operator*=(const GSampledSpectrum& o) {

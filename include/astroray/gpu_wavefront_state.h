@@ -172,6 +172,13 @@ void launchStageLightSample_SessionN4(
 void launchStageRussianRoulette_SessionN4(
     GPUWavefrontState& state);
 
+// Session N+5: Metal shade stage.
+void launchStageShadeMetalGPU(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const ::GMaterial* d_materials,
+    int num_materials);
+
 // Session N+3 part 2: Hit record fields (extend GPUWavefrontState for intersect->shade flow).
 // These are passed as separate device pointers; will be folded into GPUWavefrontState
 // struct after Session N+3 verification.

@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon)
 **Track:** A (UI-wiring audit; mixed surface across `blender_addon/__init__.py`)
 **Codex-paste-ready:** partial — Phase 1 (audit) is mechanical; Phase 2 (wiring) requires per-feature UI design judgement and should ship as several small follow-up PRs.
-**Status:** open
+**Status:** done (PR #370, 2026-05-24 — audit complete: 37 bindings audited, 6 MISSING identified, 2 high-priority follow-ups filed as pkg103a/pkg103b)
 **Depends on:** none (but coordinates with pkg101, pkg102 in the same file)
 **Estimated effort:** Phase 1 ≈ ½ day (audit table). Phase 2 ≈ 1 day per
 feature wired.

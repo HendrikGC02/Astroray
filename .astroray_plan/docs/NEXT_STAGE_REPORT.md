@@ -140,11 +140,15 @@
   `aperture = 1/(2*fstop)` and the C++ then halves it again as `lensRadius`, producing
   ~45 mm lens radius at f/5.6. Cycles' expression is
   `aperture_radius = (focal_length_m) / (2 * fstop)`. Small Python fix.
-- **pkg103 — addon feature-wiring audit (Phase 1: audit doc only)** — produce the
-  complete `set_*`/`enable_*`/`add_*` binding-vs-addon-call-site table. Confirmed gaps
-  already include Light Tree (`set_light_sampler`, no addon call) and camera motion
-  blur (`set_camera_motion_blur`, no addon call). Phase 2 wiring is per-feature
-  follow-up specs (e.g. pkg103a Light Tree, pkg103b motion blur).
+- **pkg103 Phase 1 — addon feature-wiring audit (DONE PR #370, 2026-05-24)** — complete
+  `set_*`/`enable_*`/`add_*` binding-vs-addon-call-site table. 37 bindings audited, 6
+  MISSING identified. High-priority follow-ups filed:
+  - **pkg103a — Light Tree UI wiring** (highest priority) — `set_light_sampler` has no
+    addon call; pkg86/86-B shipped 2× variance reduction but users cannot enable it.
+    UI property + panel toggle + call site. ½ day.
+  - **pkg103b — camera motion blur addon wiring** (second priority) — `set_camera_motion_blur`
+    has no addon call; pkg88-A marked "done" but feature invisible without depsgraph eval
+    at shutter start/end. 1 day.
 
 **Second tier (unblocked, lower priority):**
 

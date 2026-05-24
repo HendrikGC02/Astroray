@@ -651,6 +651,15 @@ if(BUILD_PYTHON_MODULE)
         target_compile_definitions(astroray PRIVATE ASTRORAY_OPTIX_ENABLED)
     endif()
 
+    # pkg94 — propagate build-ID to the compiled module so blender_addon's
+    # _check_build_integrity() can compare astroray.__build__ vs the install
+    # manifest. Without this, the C++ macro falls back to "dev" and the
+    # addon refuses to load.
+    if(DEFINED ASTRORAY_BUILD_ID AND NOT "${ASTRORAY_BUILD_ID}" STREQUAL "")
+        target_compile_definitions(astroray PRIVATE
+            ASTRORAY_BUILD_ID="${ASTRORAY_BUILD_ID}")
+    endif()
+
     # Set output directory to CMAKE_BINARY_DIR for both Windows and Linux
     # pybind11_add_module automatically handles .pyd on Windows and .so on Linux
     set_target_properties(astroray PROPERTIES

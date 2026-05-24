@@ -445,10 +445,12 @@ def _verify_cuda_compiled_in(build_dir: Path, backend: str):
     if not cache.exists():
         return
     text = cache.read_text(errors="replace")
-    # CMake may store the compiler as :FILEPATH= or :STRING= depending on version/platform.
-    # Check both; treat absent or =NOTFOUND as failure.
+    # CMake may store the compiler as :FILEPATH=, :STRING=, or :UNINITIALIZED=
+    # depending on whether the language-enable step auto-detected nvcc or the
+    # user passed -DCMAKE_CUDA_COMPILER explicitly. Accept all; treat absent
+    # or =NOTFOUND as failure.
     import re as _re
-    m = _re.search(r"CMAKE_CUDA_COMPILER:(?:FILEPATH|STRING)=(.+)", text)
+    m = _re.search(r"CMAKE_CUDA_COMPILER:[^=]+=(.+)", text)
     cuda_compiler_val = m.group(1).strip() if m else ""
     if not cuda_compiler_val or "NOTFOUND" in cuda_compiler_val.upper():
         sys.exit(
@@ -541,18 +543,23 @@ def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str =
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
 
     cache_file = BUILD_DIR / "CMakeCache.txt"
-    if not cache_file.exists():
-        generator_args = _cmake_generator_args(use_cuda=(nvcc is not None))
-        run([
-            "cmake", "-S", str(REPO_ROOT), "-B", str(BUILD_DIR),
-            *generator_args,
-            "-DCMAKE_BUILD_TYPE=Release",
-            "-DBUILD_PYTHON_MODULE=ON",
-            *extra_flags,
-            f"-DPython3_EXECUTABLE={python_exe}",
-            f"-DPython3_ROOT_DIR={python_exe.parent}",
-            "-DPython3_FIND_STRATEGY=LOCATION",
-        ], env=cmake_env)
+    # Always run configure: the build-ID changes every invocation and must
+    # land in the CMake cache so target_compile_definitions(astroray ...
+    # ASTRORAY_BUILD_ID=...) picks up the fresh value. Skipping configure on
+    # rebuilds bakes a stale ID into the .pyd, breaking the pkg94 stale-load
+    # guard in __init__.py. CMake itself is fast/idempotent when nothing
+    # else changed, so the extra reconfigure has negligible cost.
+    generator_args = _cmake_generator_args(use_cuda=(nvcc is not None)) if not cache_file.exists() else []
+    run([
+        "cmake", "-S", str(REPO_ROOT), "-B", str(BUILD_DIR),
+        *generator_args,
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_PYTHON_MODULE=ON",
+        *extra_flags,
+        f"-DPython3_EXECUTABLE={python_exe}",
+        f"-DPython3_ROOT_DIR={python_exe.parent}",
+        "-DPython3_FIND_STRATEGY=LOCATION",
+    ], env=cmake_env)
 
     _verify_cuda_compiled_in(BUILD_DIR, backend)
 

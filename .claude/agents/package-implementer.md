@@ -34,7 +34,17 @@ paper over problems, and you stop when something the spec doesn't resolve.
 
 ## Worktree discipline
 
-Work in `.claude/worktrees/<pkg>` via `EnterWorktree`. Do not work on `main`.
+**Do NOT rely on `EnterWorktree` — it's harness-level and doesn't propagate to subagent tool calls.** Create your own worktree as a SIBLING of the main checkout:
+
+```
+cd C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray
+git fetch origin
+git worktree add ../Astroray-<pkg> -b <pkg> origin/main
+cd ../Astroray-<pkg>
+git worktree list && pwd && git status   # verify you're on the new branch with HEAD = current main
+```
+
+Every Write/Edit you do MUST be inside `../Astroray-<pkg>/`. Do not work on the main checkout. Memory: `parallel_agent_worktree_contamination`.
 
 ## Implementation discipline
 
@@ -64,6 +74,32 @@ Before implementing any non-trivial physics, sampling, or numerical algorithm:
 "Trivial" means: undergraduate-textbook math, Lambertian cosine, Schlick
 Fresnel, Halton sequences. When in doubt, treat as non-trivial.
 
+## Before you declare done — empirical build is non-negotiable
+
+If your changes touch any `.cu`, `.cuh`, `.cpp`, `.hpp`, `.h`, or `CMakeLists.txt`:
+
+1. **Run the build.** From the main checkout (NOT inside your worktree — the wrapper takes the worktree path as an argument):
+   ```
+   C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray\build_cuda_worktree.bat ../Astroray-<pkg> <head-sha>
+   ```
+   The wrapper sources MSVC vcvars itself; you do not need a Developer PowerShell. Exit code 0 = clean build. If non-zero, you are NOT done; iterate.
+2. **Paste the last 5 lines of the build log into your final report.** Self-attestation ("I believe this builds") is not acceptance evidence. Memory: `implementer-ships-without-building`.
+3. **The Linux CI `cuda-syntax-check` job** (added 2026-05-24 via pkg-add-cuda-syntax-ci) compiles every `.cu` file via `nvcc -c`. It will catch frontend errors at PR time, but is a backstop — pre-push local build is still required.
+
+If your changes are pure Python / docs only, skip the build but still:
+1. Run the relevant `pytest tests/<spec-relevant>.py -v` locally.
+2. Run the broader test suite to confirm no regression: `pytest tests/ --ignore=tests/wavefront_diff -x` (excluding wavefront_diff which is the long pkg55-specific gate).
+
+## Behavioral test sweep (pre-existing tests that assert your behavior was untrue)
+
+Before push, **search for tests that assert the OPPOSITE of what you just implemented**. The `pre_push_signature_sweep` hook catches changed function/class signatures, but it does NOT catch behavioral assertions. Example from PR #354 (Sellmeier): three pre-existing tests asserted `caps["gpu"] is False` for dispersive dielectric; the implementation flipped that to True but the tests weren't updated. CI caught it. Find them yourself first:
+
+```
+git grep -E "(False|True|0|1)" -- tests/ | grep <relevant-keyword>
+```
+
+Update or delete every guard test that's now wrong; cite the original test author's intent in the commit if you flip a `False` → `True`.
+
 ## When done
 
 1. Run the full test suite. All acceptance criteria in the spec must pass.
@@ -71,7 +107,7 @@ Fresnel, Halton sequences. When in doubt, treat as non-trivial.
    - Title: `feat(<pkg>): <one-line description>`
    - Body: measured numbers (not "trust me"), spec status flipped to
      "done (PR #X, YYYY-MM-DD — headline numbers)", every algorithm cited
-     per CLAUDE.md §6, acceptance-criteria checklist ticked.
+     per CLAUDE.md §6, acceptance-criteria checklist ticked, **last 5 lines of build log pasted** for any .cu/.cpp/.h change.
 3. Update the spec's status line.
 
 Do not merge the PR. The `pr-reviewer` agent handles that.

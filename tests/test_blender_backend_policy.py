@@ -107,6 +107,7 @@ def _make_settings(device_mode="auto", wavelength_preset="visible",
         transmission_bounces=2,
         volume_bounces=0,
         transparent_bounces=2,
+        light_sampler="power",
     )
 
 
@@ -274,6 +275,7 @@ def test_viewport_render_calls_set_wavelength_range(monkeypatch):
         def set_filter_glossy(self, v): pass
         def set_use_reflective_caustics(self, v): pass
         def set_use_refractive_caustics(self, v): pass
+        def set_light_sampler(self, mode): pass
         def set_wavelength_range(self, lo, hi):
             wl_calls.append((lo, hi))
         def set_output_mode(self, m): pass

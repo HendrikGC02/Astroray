@@ -133,6 +133,7 @@ def _make_settings():
         use_adaptive_sampling=False,
         clamp_direct=0.0, clamp_indirect=0.0, filter_glossy=0.0,
         use_reflective_caustics=True, use_refractive_caustics=True,
+        light_sampler='power',
         device_mode='cpu',
         preview_samples=1, max_bounces=4,
         diffuse_bounces=2, glossy_bounces=2, transmission_bounces=2,
@@ -251,6 +252,7 @@ class _RecordingRenderer:
     def set_filter_glossy(self, *_): pass
     def set_use_reflective_caustics(self, *_): pass
     def set_use_refractive_caustics(self, *_): pass
+    def set_light_sampler(self, *_): pass
     def set_wavelength_range(self, *_): pass
     def set_output_mode(self, *_): pass
     def set_integrator(self, *_): pass

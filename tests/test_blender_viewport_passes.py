@@ -115,6 +115,7 @@ def _make_settings(
         transmission_bounces=2,
         volume_bounces=0,
         transparent_bounces=2,
+        light_sampler="power",
     )
 
 
@@ -157,6 +158,7 @@ def test_view_update_registers_albedo_aov_pass(monkeypatch):
         def set_filter_glossy(self, _v): pass
         def set_use_reflective_caustics(self, _v): pass
         def set_use_refractive_caustics(self, _v): pass
+        def set_light_sampler(self, _mode): pass
         def set_wavelength_range(self, _lo, _hi): pass
         def set_output_mode(self, _m): pass
         def set_integrator(self, _name): pass
@@ -207,6 +209,7 @@ def test_view_update_fetches_diffuse_direct_render_pass(monkeypatch):
         def set_filter_glossy(self, _v): pass
         def set_use_reflective_caustics(self, _v): pass
         def set_use_refractive_caustics(self, _v): pass
+        def set_light_sampler(self, _mode): pass
         def set_wavelength_range(self, _lo, _hi): pass
         def set_output_mode(self, _m): pass
         def set_integrator(self, _name): pass
@@ -258,6 +261,7 @@ def test_viewport_oidn_pass_added_after_display_pass(monkeypatch):
         def set_filter_glossy(self, _v): pass
         def set_use_reflective_caustics(self, _v): pass
         def set_use_refractive_caustics(self, _v): pass
+        def set_light_sampler(self, _mode): pass
         def set_wavelength_range(self, _lo, _hi): pass
         def set_output_mode(self, _m): pass
         def set_integrator(self, _name): pass
@@ -301,6 +305,7 @@ def test_viewport_oidn_not_added_outside_visible_wavelengths(monkeypatch):
         def set_filter_glossy(self, _v): pass
         def set_use_reflective_caustics(self, _v): pass
         def set_use_refractive_caustics(self, _v): pass
+        def set_light_sampler(self, _mode): pass
         def set_wavelength_range(self, _lo, _hi): pass
         def set_output_mode(self, _m): pass
         def set_integrator(self, _name): pass

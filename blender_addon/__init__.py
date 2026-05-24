@@ -218,6 +218,16 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         description="Enable reflective caustics from specular reflections after diffuse bounces")
     use_refractive_caustics: BoolProperty(name="Refractive Caustics", default=True,
         description="Enable refractive caustics from transmission after diffuse bounces")
+    light_sampler: EnumProperty(
+        name="Light Sampler",
+        description="Strategy for sampling lights in Next Event Estimation (Conty et al. 2018 Light Tree)",
+        items=[
+            ('uniform', "Uniform", "Sample all lights uniformly (unbiased baseline, lowest variance for few lights)"),
+            ('power', "Power", "Sample lights by total emitted power (default, good for moderate light counts)"),
+            ('light_tree', "Light Tree", "Importance sampling via hierarchical tree (best for many lights, pkg86/pkg86-B)"),
+        ],
+        default='power',
+    )
     device_mode: EnumProperty(
         name="Device",
         description="Rendering device — Auto picks GPU when available and safe",
@@ -1383,6 +1393,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.set_filter_glossy(settings.filter_glossy)
         renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
         renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
+        renderer.set_light_sampler(settings.light_sampler)
 
         t0 = time.perf_counter()
         material_map = self.convert_materials(depsgraph, renderer)
@@ -1725,6 +1736,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.set_filter_glossy(settings.filter_glossy)
         renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
         renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
+        renderer.set_light_sampler(settings.light_sampler)
         cycles = getattr(scene, 'cycles', None)
         render_settings = getattr(scene, 'render', None)
         exposure = float(getattr(cycles, 'film_exposure', 1.0)) if cycles else 1.0
@@ -3928,6 +3940,9 @@ class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):
         sub = layout.column()
         sub.active = settings.use_adaptive_sampling
         sub.prop(settings, "adaptive_threshold")
+
+        layout.separator()
+        layout.prop(settings, "light_sampler")
 
 
 class RENDER_PT_custom_raytracer_light_paths(AstrorayPanelBase, Panel):

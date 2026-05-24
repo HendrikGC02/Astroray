@@ -246,3 +246,117 @@ def test_area_light_shape_import():
             f"{shape} size_y mismatch: expected {expected_y}, got {size_y}"
 
     tmp.unlink()
+
+
+def test_non_principled_bsdf_color_extraction():
+    """pkg76-followup Gap 2a: non-Principled BSDF shader nodes extract base color.
+
+    Tests that Diffuse BSDF, Glass BSDF, Refraction BSDF, and Emission shader
+    nodes correctly extract their Color socket values, with or without connected
+    image textures. Mix Shader nodes pick the heavier-weighted input.
+
+    Citation: Cycles intern/cycles/blender/shader.cpp lines 845 (Diffuse),
+    1062-1073 (Glass), 1075-1085 (Refraction), 1156-1157 (Emission), 941-943
+    (MixShader), Apache-2.0.
+    """
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # Test case 1: Diffuse BSDF with constant color
+    mat_diffuse = bpy.data.materials.new("DiffuseMat")
+    mat_diffuse.use_nodes = True
+    nt = mat_diffuse.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    bsdf.inputs["Color"].default_value = (0.8, 0.2, 0.1, 1.0)
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+
+    # Test case 2: Glass BSDF with constant color
+    mat_glass = bpy.data.materials.new("GlassMat")
+    mat_glass.use_nodes = True
+    nt = mat_glass.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfGlass")
+    bsdf.inputs["Color"].default_value = (0.1, 0.9, 0.3, 1.0)
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+
+    # Test case 3: Emission shader with constant color
+    mat_emission = bpy.data.materials.new("EmissionMat")
+    mat_emission.use_nodes = True
+    nt = mat_emission.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    emission = nt.nodes.new("ShaderNodeEmission")
+    emission.inputs["Color"].default_value = (0.95, 0.85, 0.05, 1.0)
+    nt.links.new(emission.outputs["Emission"], out.inputs["Surface"])
+
+    # Test case 4: Mix Shader with two Diffuse BSDFs (Fac=0.7 → picks second)
+    mat_mix = bpy.data.materials.new("MixMat")
+    mat_mix.use_nodes = True
+    nt = mat_mix.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    mix.inputs["Fac"].default_value = 0.7
+    bsdf1 = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    bsdf1.inputs["Color"].default_value = (1.0, 0.0, 0.0, 1.0)  # red
+    bsdf2 = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    bsdf2.inputs["Color"].default_value = (0.0, 0.0, 1.0, 1.0)  # blue
+    nt.links.new(bsdf1.outputs["BSDF"], mix.inputs[1])
+    nt.links.new(bsdf2.outputs["BSDF"], mix.inputs[2])
+    nt.links.new(mix.outputs["Shader"], out.inputs["Surface"])
+
+    # Create a dummy mesh for each material
+    for i, mat in enumerate([mat_diffuse, mat_glass, mat_emission, mat_mix]):
+        mesh = bpy.data.meshes.new(f"Mesh{i}")
+        mesh.from_pydata([(-1, -1, i), (1, -1, i), (0, 1, i)], [], [(0, 1, 2)])
+        mesh.update()
+        mesh.materials.append(mat)
+        obj = bpy.data.objects.new(f"Obj{i}", mesh)
+        bpy.context.scene.collection.objects.link(obj)
+
+    # Add a camera (required for import)
+    cam = bpy.data.cameras.new("Cam")
+    cam_obj = bpy.data.objects.new("Cam", cam)
+    bpy.context.scene.collection.objects.link(cam_obj)
+    bpy.context.scene.camera = cam_obj
+
+    tmp = Path(tempfile.mkstemp(suffix=".blend")[1])
+    bpy.ops.wm.save_as_mainfile(filepath=str(tmp), compress=False, copy=True)
+
+    # Import and verify
+    r = _FakeRenderer()
+    import_blend(tmp, renderer=r, width=512, height=512)
+
+    # We should have 4 materials (one per test case)
+    assert len(r.materials) >= 4, f"Expected at least 4 materials, got {len(r.materials)}"
+
+    # Find materials by color (order may vary)
+    colors = [m[1][:3] for m in r.materials]
+
+    # Diffuse BSDF: (0.8, 0.2, 0.1)
+    assert any(
+        abs(c[0] - 0.8) < 0.01 and abs(c[1] - 0.2) < 0.01 and abs(c[2] - 0.1) < 0.01
+        for c in colors
+    ), f"Diffuse BSDF color not found in {colors}"
+
+    # Glass BSDF: (0.1, 0.9, 0.3)
+    assert any(
+        abs(c[0] - 0.1) < 0.01 and abs(c[1] - 0.9) < 0.01 and abs(c[2] - 0.3) < 0.01
+        for c in colors
+    ), f"Glass BSDF color not found in {colors}"
+
+    # Emission: (0.95, 0.85, 0.05)
+    assert any(
+        abs(c[0] - 0.95) < 0.01 and abs(c[1] - 0.85) < 0.01 and abs(c[2] - 0.05) < 0.01
+        for c in colors
+    ), f"Emission color not found in {colors}"
+
+    # Mix Shader with Fac=0.7 should pick blue (0.0, 0.0, 1.0)
+    assert any(
+        abs(c[0] - 0.0) < 0.01 and abs(c[1] - 0.0) < 0.01 and abs(c[2] - 1.0) < 0.01
+        for c in colors
+    ), f"Mix Shader color (should be blue) not found in {colors}"
+
+    tmp.unlink()

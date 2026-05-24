@@ -52,31 +52,29 @@ if %ERRORLEVEL% equ 0 (
 
 REM Locate MSVC via vswhere
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
-if not exist "%VSWHERE%" (
-    echo vswhere.exe not found at: %VSWHERE%
-    echo Falling back to hardcoded BuildTools path...
-    set "VCVARS_PATH=C:\Program Files (x86^)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
-    goto :call_vcvars
-)
+if not exist "%VSWHERE%" goto :fallback_vcvars
 
 echo Locating MSVC installation via vswhere...
 for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
     set "VS_INSTALL_PATH=%%i"
 )
 
-if not defined VS_INSTALL_PATH (
-    echo vswhere returned no installation path
-    echo Falling back to hardcoded BuildTools path...
-    set "VCVARS_PATH=C:\Program Files (x86^)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
-    goto :call_vcvars
-)
+if not defined VS_INSTALL_PATH goto :fallback_vcvars
+goto :have_vs_install
+
+:fallback_vcvars
+echo Falling back to hardcoded BuildTools path...
+set "VCVARS_PATH=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+goto :call_vcvars
+
+:have_vs_install
 
 set "VCVARS_PATH=%VS_INSTALL_PATH%\VC\Auxiliary\Build\vcvars64.bat"
 echo Found MSVC at: %VS_INSTALL_PATH%
 
 :call_vcvars
-if not exist "%VCVARS_PATH%" (
-    echo ERROR: vcvars64.bat not found at: %VCVARS_PATH%
+if not exist "!VCVARS_PATH!" (
+    echo ERROR: vcvars64.bat not found at: !VCVARS_PATH!
     echo MSVC bootstrap failed - cannot locate vcvars64.bat
     exit /b 2
 )

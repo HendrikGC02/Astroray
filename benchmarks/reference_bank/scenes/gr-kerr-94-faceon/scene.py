@@ -28,11 +28,15 @@ SEED = 17
 def make_scene(astroray):
     r = astroray.Renderer()
     r.set_integrator("path_tracer")
-    r.set_background_color([1.0, 1.0, 1.0])
+    # Black background so the Novikov-Thorne thin disk emission is visible
+    # and the Kerr asymmetry (Doppler-boosted approaching side) shows
+    # clearly. Differentiates this scene from gr-schwarzschild which has
+    # no emission and uses a white background.
+    r.set_background_color([0.0, 0.0, 0.0])
     r.set_seed(SEED)
     r.set_adaptive_sampling(False)
 
-    dist = 8.0
+    dist = 12.0
     r.setup_camera(
         [0.0, 0.0, dist], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
         45.0,
@@ -47,11 +51,12 @@ def make_scene(astroray):
         4.0e6,
         5.0,
         {
-            "spin": 0.94,             # near-maximal Kerr
-            "disk_outer": 12.0,        # thin disk extends to 12 units radius
+            "spin": 0.94,
+            "disk_outer": 18.0,        # disk extends to ~18 M (Novikov-Thorne)
             "accretion_rate": 1.0,
-            "inclination": 85.0,       # nearly edge-on for visible asymmetry
+            "inclination": 78.0,       # near edge-on; doppler asymmetry maximal
             "enable_adaf": False,
+            "r_obs_M": 20.0,
         },
     )
     return r

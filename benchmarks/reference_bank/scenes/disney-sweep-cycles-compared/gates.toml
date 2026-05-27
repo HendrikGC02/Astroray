@@ -10,6 +10,7 @@
 
 [scene]
 description = "Disney 3x3 sphere grid: roughness × metallic. Reference is Cycles 5.1's render of the same scene (rebuild via `cycles_bless.py`). Gate measures Astroray-vs-Cycles SSIM agreement."
+bless_source = "cycles"
 
 [[gate]]
 type = "ssim"

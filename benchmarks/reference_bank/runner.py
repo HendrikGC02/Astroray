@@ -131,13 +131,21 @@ def _load_scene_module(scene_dir: Path):
     return module
 
 
-def _load_gates(scene_dir: Path) -> tuple[str, list[GateSpec]]:
+def _load_gates(scene_dir: Path) -> tuple[str, list[GateSpec], str]:
+    """Return (description, gate_specs, bless_source).
+
+    `bless_source` controls how `--bless` produces the reference image:
+        "astroray" (default) — save the rendered Astroray output as reference.png
+        "cycles"   — shell out to Blender 5.x with the scene's cycles_bless.py
+    """
     gates_toml = scene_dir / "gates.toml"
     if not gates_toml.exists():
-        return ("(no description)", [])
+        return ("(no description)", [], "astroray")
     with gates_toml.open("rb") as f:
         data = tomllib.load(f)
-    description = data.get("scene", {}).get("description", "(no description)")
+    scene_meta = data.get("scene", {})
+    description = scene_meta.get("description", "(no description)")
+    bless_source = scene_meta.get("bless_source", "astroray")
     gates: list[GateSpec] = []
     for g in data.get("gate", []):
         gates.append(GateSpec(
@@ -149,7 +157,48 @@ def _load_gates(scene_dir: Path) -> tuple[str, list[GateSpec]]:
             saturation_floor=g.get("saturation_floor"),
             description=g.get("description"),
         ))
-    return description, gates
+    return description, gates, bless_source
+
+
+def _find_blender_exe() -> str | None:
+    """Locate a Blender 5.x executable.
+
+    Priority order:
+      1. $BLENDER_EXE env var.
+      2. `blender` on PATH (via shutil.which).
+      3. Windows default install: `C:/Program Files/Blender Foundation/Blender 5.1/blender.exe`.
+    """
+    import shutil
+    env = os.environ.get("BLENDER_EXE")
+    if env and Path(env).exists():
+        return env
+    on_path = shutil.which("blender")
+    if on_path:
+        return on_path
+    win_default = r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe"
+    if Path(win_default).exists():
+        return win_default
+    return None
+
+
+def _bless_via_cycles(scene_dir: Path) -> bool:
+    """Invoke Blender on the scene's `cycles_bless.py`. Returns True on success."""
+    bless_py = scene_dir / "cycles_bless.py"
+    if not bless_py.exists():
+        print(f"  bless_source=cycles requires {bless_py} (not found)")
+        return False
+    blender = _find_blender_exe()
+    if blender is None:
+        print("  bless_source=cycles requires Blender; set $BLENDER_EXE or install to default Windows location")
+        return False
+    out = subprocess.run(
+        [blender, "--background", "--python", str(bless_py)],
+        capture_output=True, text=True, timeout=600,
+    )
+    if out.returncode != 0:
+        print(f"  Blender subprocess failed ({out.returncode}):\n{out.stderr[-1000:]}")
+        return False
+    return (scene_dir / "reference.png").exists()
 
 
 def _render_scene(module) -> tuple[np.ndarray, float]:
@@ -321,7 +370,20 @@ def run(scene_names: list[str] | None, mode: str, bless: bool) -> int:
         scene_name = scene_dir.name
         print(f"[reference_bank] {scene_name} ... ", end="", flush=True)
         module = _load_scene_module(scene_dir)
-        description, gate_specs = _load_gates(scene_dir)
+        description, gate_specs, bless_source = _load_gates(scene_dir)
+
+        if bless and bless_source == "cycles":
+            # Don't render Astroray at all — shell out to Blender + Cycles.
+            ok = _bless_via_cycles(scene_dir)
+            if ok:
+                ref_path = scene_dir / "reference.png"
+                print(f"BLESSED via Cycles -> {ref_path.relative_to(_REPO_ROOT)}")
+                csv_rows.append({"scene": scene_name, "status": "blessed_cycles"})
+            else:
+                print("CYCLES-BLESS-FAILED")
+                overall_pass = False
+                csv_rows.append({"scene": scene_name, "status": "cycles_bless_failed"})
+            continue
 
         try:
             actual, dt = _render_scene(module)

@@ -29,7 +29,13 @@ def make_scene(astroray):
     r.set_seed(SEED)
     r.set_adaptive_sampling(False)
 
-    dist = 8.0
+    # pkg107 (implemented 2026-05-27): r_obs_M=20 shrinks the world-to-GR
+    # scale 5x vs the previous 100.0 default, growing the visible shadow.
+    # At camera dist 12, influence_radius 5, r_obs_M 20:
+    #   shadow_angular_radius ≈ 5.196 * 5 / (20 * 12) = 0.108 rad ≈ 6.2°
+    #   frame half-width at FOV 45° = 22.5°
+    #   shadow occupies ~28% of frame width — substantial visible feature.
+    dist = 12.0
     r.setup_camera(
         [0.0, 0.0, dist], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
         45.0,
@@ -49,6 +55,7 @@ def make_scene(astroray):
             "accretion_rate": 0.0,
             "inclination": 0.0,
             "enable_adaf": False,
+            "r_obs_M": 20.0,
         },
     )
     return r

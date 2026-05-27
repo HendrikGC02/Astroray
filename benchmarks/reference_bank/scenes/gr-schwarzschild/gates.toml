@@ -1,6 +1,6 @@
 # gr-schwarzschild — non-rotating BH shadow on white background
-# Reference blessed 2026-05-27. Measured baseline:
-#   dark_disk fraction (L<0.05, full image) = 0.0044
+# Reference re-blessed 2026-05-27 with pkg107 r_obs_M=20. Measured baseline:
+#   dark_disk fraction (L<0.05, full image) = 0.0519 (~5% of frame, clearly visible)
 
 [scene]
 description = "Schwarzschild (spin=0) BH at origin against a white background. Validates that GR geodesic dispatch produces a detectable dark shadow. The visible shadow is small (~0.4% of frame) because the Astroray BH parameter mapping makes the horizon-radius-in-render-units a small fraction of the influence radius. Bigger shadow scenes require either non-standard parameter tuning or addon-side BH geometry (a separate spec)."
@@ -13,10 +13,10 @@ description = "Tight SSIM: the white-background-with-small-shadow image is struc
 
 [[gate]]
 type = "dark_disk"
-threshold = 0.0025
+threshold = 0.03
 direction = "ge"
 luminance_threshold = 0.05
-description = "GR-dispatch presence gate. Measured 0.0044; threshold gives ~40% headroom. If GR is mis-wired (no geodesic integration), the dark disk vanishes and this trips."
+description = "GR-dispatch presence gate. Measured 0.052 at pkg107 r_obs_M=20; threshold gives ~40% headroom. If GR is mis-wired (no geodesic integration), the dark disk vanishes and this trips."
 
 [[gate]]
 type = "phash"

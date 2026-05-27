@@ -46,6 +46,14 @@ jobs:
       - name: Test
         run: python -m pytest tests/ -v
 
+      - name: Reference bank smoke
+        run: |
+          # Explicit smoke-runner pass for fast visibility (the pytest suite
+          # above also exercises it via tests/test_reference_bank_smoke.py).
+          # Smoke mode renders only cornell-mini and compares to the pinned
+          # PNG reference checked into the repo.
+          python -m benchmarks.reference_bank.runner --mode smoke
+
   cuda-syntax-check:
     runs-on: ubuntu-latest
     steps:

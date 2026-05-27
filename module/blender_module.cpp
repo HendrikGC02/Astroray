@@ -679,6 +679,10 @@ public:
             ? params["accretion_rate"].cast<double>() : 1.0;
         double incl = params.contains("inclination")
             ? params["inclination"].cast<double>() : 75.0;
+        // pkg107: world-to-GR scale factor. Default 100.0 matches pkg40-pkg44
+        // baselines. Smaller values produce a larger visible shadow.
+        double r_obs_M = params.contains("r_obs_M")
+            ? params["r_obs_M"].cast<double>() : 100.0;
 
         // pkg43: accretion model selector. Default to NOVIKOV_THORNE for backward compatibility.
         std::string accretion_model = params.contains("accretion_model")
@@ -687,7 +691,7 @@ public:
         auto bh = std::make_shared<BlackHole>(
             Vec3(position[0], position[1], position[2]),
             double(mass_solar), double(influence_radius),
-            disk_outer, mdot, incl);
+            disk_outer, mdot, incl, r_obs_M);
 
         // pkg43: Add slim disk emission if selected
         if (accretion_model == "SLIM_DISK") {

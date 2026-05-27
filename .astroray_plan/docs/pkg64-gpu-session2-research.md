@@ -131,3 +131,34 @@ Each step is a CUDA build cycle (~5 minutes). Steps 3-4 need RTX hardware testin
 - **Keep Session 1's hero-only GPU dielectric as the shipping baseline.** Receiver-energy gate passes; PSNR/SSIM remain documented as deferred.
 - **File this note as the Phase 1 artifact** so a future implementation session can pick up cold with the implementation sketch above.
 - **The pkg104 reference bank's `prism-bk7-collimated` scene runs on CPU** (forced via the SMS caustic integrator, which is CPU-only). The visible chromatic ring is already there. GPU port of that scene is gated on this work landing properly.
+
+---
+
+## Update 2026-05-28 (morning) — Session 2 Phase 2 attempt revisited
+
+Tried the `useExplicitSpectral` approach sketched above. Result: the math is more interlocked than the sketch suggested.
+
+**Attempt A — explicit per-wavelength fSpectral (hero gets eta², secondaries 0):**
+- Receiver-energy gate: 1.17× → 0.98× (regressed, same as the naive try).
+- SSIM vs CPU: 0.523 → 0.485 (slightly worse).
+- Root cause: the `spectrumToXYZ` integrator divides by `1/G_SPECTRUM_SAMPLES = 1/4` regardless of how many wavelengths are alive. Hero contributes 1× and gets divided by 4 → 1/4 of the all-4-alive integrated radiance.
+
+**Attempt B — hero gets `N × eta² × hero_spec` (compensate the 1/N divisor):**
+- Receiver-energy gate: 1.17× → **passed** (1.64× — actually too bright).
+- SSIM vs CPU: 0.523 → 0.377 (worse).
+- The N× compensation overshoots: per-ray hero now carries 4× the energy it should, and the MC estimator over many rays converges to 4× the integral.
+
+**Attempt C — change `spectrumToXYZ` to divide by alive-count (not N):**
+- Combined with Attempt A (hero at plain eta²): receiver energy 1.17× → 1.47× (still too bright), SSIM = 0.481.
+- The CPU's `SampledSpectrum::toXYZ` ALSO uses `1/N`, not alive-count. So changing only the GPU asymmetrically breaks CPU↔GPU parity even when both terminate secondaries correctly.
+
+**Hard conclusion:** Session 2 needs the CHANGE TO BE COORDINATED across:
+1. **CPU + GPU spectrum integration** (both should consistently normalise — likely keep 1/N for unbiased MC over many rays; the per-ray reduction is the natural variance cost, not a bug).
+2. **The receiver-energy and SSIM tests** (their baselines may have been captured before the spec's hero-wavelength semantics were intended; the 1.17× baseline assumed 4-wavelength-broadcast behavior which is monochromatic-by-design).
+3. **Possibly the wavelength-stratification scheme** (Cycles uses RR-style hero selection that the path-length-averaging absorbs naturally; Astroray's static 4-per-ray stratification doesn't average as cleanly when individual rays kill secondaries).
+
+This is **at least a full day of integrator-side surgery + owner-eyes-on-math + RTX baseline re-pinning**. The naive port produces wrong numbers in three different ways depending on which compensation you try. Filing this update so the next implementation session doesn't waste cycles re-walking these dead ends.
+
+**Action for owner:** when ready to pick up Session 2, the right entry point is probably the CPU `SampledSpectrum::toXYZ` + `dielectric.cpp:181-188` pair — verify that the CPU is ALSO undergoing the 1/4 energy reduction we measured on GPU (it may be, and it may simply not be a gated test there). If yes, the per-ray reduction is the expected MC variance and the test baselines need updating. If no, there's some compensation in CPU's path-integrator that isn't on GPU and we need to find it.
+
+**Code-side artifact:** three files were modified and reverted today (`gpu_types.h`, `gpu_materials.h`, `multiwavelength_kernel.cu`). The hero-only Session 1 behavior remains as shipped. No engine changes ship from this session.

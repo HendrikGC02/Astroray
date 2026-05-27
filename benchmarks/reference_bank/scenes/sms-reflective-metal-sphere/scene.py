@@ -90,9 +90,11 @@ def make_scene(astroray):
     cup_ids = _add_cup_walls(r, metal)
 
     # Area emitter at the rim on the +X side, positioned so it shines
-    # ACROSS the cup interior toward the -X inside wall.
+    # ACROSS the cup interior toward the -X inside wall. From the
+    # camera's high front-quarter pose the light is in frame but the
+    # primary visual feature is the caustic crescent on the -X wall.
     light_mat = r.create_material("light", [1.0, 0.97, 0.92], {"intensity": 35.0})
-    light_x = 0.92 * RADIUS    # just inside the rim on +X side
+    light_x = 0.92 * RADIUS
     light_y = HEIGHT_CUP / 2 - 0.05
     light_r = 0.16
     r.add_sphere([light_x, light_y, 0.0], light_r, light_mat)
@@ -106,7 +108,11 @@ def make_scene(astroray):
     for oid in cup_ids:
         r.set_object_caustic_caster(oid, True)
 
-    # Camera: high front-quarter view looking down into the cup.
+    # Camera: high front-quarter view from -X side looking diagonally
+    # down into the cup so the inside walls, floor, and -X caustic
+    # crescent are all visible. The light source on the +X rim is in
+    # the upper-right of frame; the bright caustic crescent on the
+    # -X (camera-side) inside wall is the primary visual feature.
     r.setup_camera(
         look_from=[2.4, 2.4, 2.4],
         look_at=[0.0, -0.2, 0.0],

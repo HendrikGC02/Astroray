@@ -43,15 +43,19 @@ documented next-step plan.
 
 ### BUG-09 — Astroray Output node
 
-**Investigation needed:** Trace from `inline_shader_nodes()` at line
-~1737 through the output detection. If the custom node subclass IS
-detected but its outputs aren't reached, the issue is in how
-`inline_shader_nodes()` flattens the graph (it may skip non-
-Principled outputs entirely). Verify by adding a debug print
-inside the `astroray_output` branch of the converter.
+**Likely already fixed** (verified during pkg104 night):
+- The original-tree fallback `(P3-c probe & fix)` at `__init__.py:1987-2016`
+  detects `AstrorayOutputNode` in the pre-flatten tree and switches the
+  conversion path to it if flattening stripped it.
+- The handler `convert_astroray_output()` at `:2055-2080` dispatches
+  to the right Astroray BSDF (Sellmeier, IR/UV, NRC hint, spectral
+  profile) and produces the correct material id.
+- `tests/test_blender_native_nodes.py::test_astroray_output_takes_precedence_with_sellmeier_glass`
+  exercises the chain end-to-end with stub-Blender and passes.
 
-**Likely fix:** add a dedicated branch in the converter that handles
-`ShaderNodeOutput` subclasses by name.
+**Remaining action:** owner verification on a live Blender scene with
+an actual AstrorayOutputNode wired up. If the bug still reproduces,
+attach the reproduction scene + capture the path that's broken.
 
 ### BUG-14 — Glass color at low roughness
 

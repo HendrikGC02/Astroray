@@ -40,6 +40,9 @@ HEIGHT = 256
 SAMPLES = 4096
 MAX_DEPTH = 10
 SEED = 17
+# Note: 8192 spp gives a slightly cleaner chromatic ring at ~2x the
+# render time. 4096 is the bank's standard; bump to 8192 locally if
+# you want a less-noisy reference.
 
 
 def make_scene(astroray):

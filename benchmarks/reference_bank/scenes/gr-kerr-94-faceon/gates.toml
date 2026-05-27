@@ -1,0 +1,26 @@
+# gr-kerr-94-faceon — Kerr a/M=0.94 with thin disk (paired with gr-schwarzschild)
+# Reference re-blessed 2026-05-27 with pkg107 r_obs_M=20 + edge-on disk view.
+# Measured baselines:
+#   bright_coverage (L>0.3) = 0.087 (the photon ring + lensed disk emission)
+#   pHash distance vs gr-schwarzschild = 18 (visibly distinct geometry)
+
+[scene]
+description = "Kerr a/M=0.94, near-edge-on view (inclination 78°), Novikov-Thorne thin disk emission on black background. Visible: the BH shadow + a bright photon-sphere ring formed by gravitationally-lensed disk light + Doppler-asymmetric disk emission. Paired with gr-schwarzschild to exercise metric-plugin dispatch."
+
+[[gate]]
+type = "ssim"
+threshold = 0.85
+direction = "ge"
+
+[[gate]]
+type = "bright_coverage"
+threshold = 0.04
+direction = "ge"
+luminance_threshold = 0.3
+description = "Lensed-disk presence gate. Measured 0.087; threshold gives ~50% headroom. If GR lensing breaks the disk vanishes entirely."
+
+[[gate]]
+type = "phash"
+threshold = 20
+direction = "le"
+description = "Self-stability gate. Comparing this scene against itself (re-renders) should be stable."

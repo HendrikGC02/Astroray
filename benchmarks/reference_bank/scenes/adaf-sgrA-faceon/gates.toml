@@ -1,0 +1,31 @@
+# adaf-sgrA-faceon — Phase 2b ADAF Sgr A*-like emission scene
+# Reference blessed 2026-05-27 (pkg104 night + pkg107 r_obs_M=20).
+# Permissive gates: low priority per owner — captured for visual reference,
+# not a tight regression target yet. Tighten in a follow-up.
+
+[scene]
+description = "Sgr A*-like ADAF (Narayan & Yi 1995) quasi-spherical emission around a Kerr BH (spin 0.9). Visible: bright halo of accretion glow + dark central BH shadow."
+
+[[gate]]
+type = "ssim"
+threshold = 0.85
+direction = "ge"
+
+[[gate]]
+type = "bright_coverage"
+threshold = 0.25
+direction = "ge"
+luminance_threshold = 0.5
+description = "ADAF glow presence — emission must occupy at least 25% of frame at L>0.5."
+
+[[gate]]
+type = "dark_disk"
+threshold = 0.02
+direction = "ge"
+luminance_threshold = 0.05
+description = "Central BH shadow must remain visible inside the glow."
+
+[[gate]]
+type = "phash"
+threshold = 18
+direction = "le"

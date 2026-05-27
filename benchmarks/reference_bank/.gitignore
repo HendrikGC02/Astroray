@@ -1,0 +1,7 @@
+results/
+history.csv
+*.exr
+
+# Root .gitignore has *.png blanket-ignored; reference.png files ARE
+# the bank's pinned baseline and MUST be tracked. Un-ignore them.
+!scenes/*/reference.png

@@ -1,0 +1,29 @@
+# sms-refractive-glass-sphere — non-dispersive refractive caustic
+# Reference blessed 2026-05-27. Measured baselines:
+#   bright_coverage L>0.35 in floor ROI = 0.6080
+
+[scene]
+description = "Non-dispersive BK7-equivalent (scalar IOR 1.52) glass sphere + area emitter + diffuse floor. Tests SMS path-finding for refractive caustics without the per-wavelength complication."
+
+[[gate]]
+type = "ssim"
+threshold = 0.82
+direction = "ge"
+
+[[gate]]
+type = "delta_e_2000"
+threshold = 6.0
+direction = "le"
+
+[[gate]]
+type = "bright_coverage"
+threshold = 0.45
+direction = "ge"
+roi = [140, 256, 60, 324]
+luminance_threshold = 0.35
+description = "Caustic-presence gate. Measured 0.61; threshold gives headroom for MC noise."
+
+[[gate]]
+type = "phash"
+threshold = 16
+direction = "le"

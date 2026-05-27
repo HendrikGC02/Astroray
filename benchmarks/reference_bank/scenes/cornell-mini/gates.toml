@@ -1,0 +1,25 @@
+# cornell-mini — harness sanity-check gates (NOT vision-driven; see pkg104 §Open question).
+# Thresholds are deliberately loose: this scene proves the runner+metrics work
+# end-to-end, not that visual quality is correct. The vision-driven Cornell
+# (if any) is decided in Phase 2 per owner Q1/Q2.
+
+[scene]
+description = "Cornell box (mini) — 256x144 16 spp. Harness self-test scene."
+
+[[gate]]
+type = "ssim"
+threshold = 0.85
+direction = "ge"
+description = "Loose SSIM floor; trips only on gross structural change."
+
+[[gate]]
+type = "delta_e_2000"
+threshold = 8.0
+direction = "le"
+description = "Loose perceptual color floor; trips on hue/brightness regression."
+
+[[gate]]
+type = "phash"
+threshold = 16
+direction = "le"
+description = "Loose perceptual-hash distance; trips on layout regression."

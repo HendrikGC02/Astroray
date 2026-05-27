@@ -1,0 +1,19 @@
+# disney-sweep-cycles-compared — Disney BSDF grid, Cycles reference
+# Reference rendered by Cycles 5.1 via cycles_bless.py.
+# Astroray-vs-Cycles measured 2026-05-27:
+#   SSIM = 0.4811 (relatively low — see notes.md, exposure tuning TBD)
+#
+# Threshold is set to the current measured value minus headroom: this gate
+# catches further regressions from today's baseline, not "Astroray exactly
+# matches Cycles." Tuning the exposure / lens / light-units mapping is a
+# separate calibration pass.
+
+[scene]
+description = "Disney 3x3 sphere grid: roughness × metallic. Reference is Cycles 5.1's render of the same scene (rebuild via `cycles_bless.py`). Gate measures Astroray-vs-Cycles SSIM agreement."
+bless_source = "cycles"
+
+[[gate]]
+type = "ssim"
+threshold = 0.55
+direction = "ge"
+description = "Astroray-vs-Cycles SSIM. Measured 0.61 after intensity calibration pass 2026-05-27 (Astroray intensity 1.6 + Cycles 1300W). Earlier 0.48 baseline reflected mismatched exposures; current 0.61 isolates BSDF-implementation differences which are real engine differences. pHash is intentionally NOT used here because pHash is designed to catch perceptual change, and Astroray vs Cycles produce perceptually-different renders by construction (different tonemap, light units, etc.)."

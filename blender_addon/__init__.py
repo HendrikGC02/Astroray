@@ -1699,15 +1699,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
             if abs(proj[1][1]) > 1e-6:
                 vfov = math.degrees(2.0 * math.atan(1.0 / proj[1][1]))
             else:
-                # Fallback: derive from space_data.lens (rare edge case)
+                # Fallback: derive from space_data.lens (rare edge case).
+                # BUG-08 fix 2026-05-27: was 32.0, mismatching the 36mm
+                # default used by `_apply_camera`'s `_compute_vfov_degrees`
+                # path. Changed to 36.0 so the fallback agrees with the
+                # camera-datablock path when both fire on the same camera.
                 lens = getattr(space, 'lens', 50.0)
-                sensor_width = 32.0
+                sensor_width = 36.0
                 hfov = 2.0 * math.atan(sensor_width / (2.0 * lens))
                 vfov = math.degrees(2.0 * math.atan(math.tan(hfov / 2.0) / aspect))
         else:
-            # Pre-2.80 fallback (window_matrix may not exist)
+            # Pre-2.80 fallback (window_matrix may not exist). Same BUG-08
+            # consistency fix as the inner fallback above.
             lens = getattr(space, 'lens', 50.0)
-            sensor_width = 32.0
+            sensor_width = 36.0
             hfov = 2.0 * math.atan(sensor_width / (2.0 * lens))
             vfov = math.degrees(2.0 * math.atan(math.tan(hfov / 2.0) / aspect))
 

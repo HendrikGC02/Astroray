@@ -1,0 +1,23 @@
+# synchrotron-jet-m87 — Phase 2b bipolar synchrotron jet scene
+# Reference blessed 2026-05-27 (pkg104 night + pkg107 r_obs_M=20).
+# Permissive gates: low priority per owner.
+
+[scene]
+description = "Bipolar synchrotron jet (Pandya 2016 + pkg42) around a Kerr BH (spin default). M87-like, viewed at 45° from jet axis. Visible: two opposing cone-shaped emission features above and below the central BH."
+
+[[gate]]
+type = "ssim"
+threshold = 0.85
+direction = "ge"
+
+[[gate]]
+type = "bright_coverage"
+threshold = 0.08
+direction = "ge"
+luminance_threshold = 0.5
+description = "Jet emission presence. Measured ~0.10."
+
+[[gate]]
+type = "phash"
+threshold = 18
+direction = "le"

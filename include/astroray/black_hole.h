@@ -211,10 +211,15 @@ private:
 public:
     BlackHole(Vec3 pos, double mass_solar, double influence_r,
               double disk_outer_M = 30.0, double mdot = 1.0,
-              double incl_deg = 75.0)
+              double incl_deg = 75.0, double r_obs_M_in = 100.0)
         : position(pos), mass(mass_solar), influenceRadius(influence_r)
     {
-        r_obs_M   = 100.0;
+        // pkg107: r_obs_M_in controls the world-to-GR scale factor.
+        // Default 100.0 preserves pkg40-pkg44 baselines. Smaller values
+        // (e.g. 20.0) shrink the world-to-GR scale and grow the visible
+        // photon-orbit shadow at the same camera distance — required for
+        // BH-shadow visualisation scenes (pkg104 gr-*).
+        r_obs_M   = r_obs_M_in > 0.0 ? r_obs_M_in : 100.0;
         worldToGR = r_obs_M / double(influence_r);
 
         metric = std::make_unique<SchwarzschildMetric>(1.0);

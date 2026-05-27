@@ -276,10 +276,20 @@ public:
         float FV = std::pow(1 - NdotV, 5);
         float Fd90 = 0.5f + 2 * LdotH * LdotH * roughness_;
         float Fd = (1 + (Fd90 - 1) * FL) * (1 + (Fd90 - 1) * FV);
+        // pkg108 BUG-16 fix: Burley 2012 Hanrahan-Krueger subsurface
+        // approximation. The subsurface_ parameter was previously parsed,
+        // stored, and exposed via getSubsurface() but never used in eval(),
+        // so toggling subsurface produced bit-identical renders.
+        // Burley 2012 "Physically-Based Shading at Disney" §5.3
+        // (Hanrahan-Krueger subsurface BRDF approximation).
+        float Fss90 = LdotH * LdotH * roughness_;
+        float Fss = (1 + (Fss90 - 1) * FL) * (1 + (Fss90 - 1) * FV);
+        float ss = 1.25f * (Fss * (1.0f / std::max(NdotL + NdotV, 1e-4f) - 0.5f) + 0.5f);
+        float FdMixed = (1.0f - subsurface_) * Fd + subsurface_ * ss;
         // Burley 2015 diffuse retro-reflection is not energy-normalized at
         // white albedo in Astroray's implementation. Apply the pkg60 furnace
         // normalization before Cycles-style top-layer attenuation.
-        Vec3 diffuse = (1 / float(M_PI)) * Cdlin * Fd *
+        Vec3 diffuse = (1 / float(M_PI)) * Cdlin * FdMixed *
                        diffuseFurnaceScale(roughness_, NdotV);
 
         float a = std::max(roughness_ * roughness_, 0.0064f);

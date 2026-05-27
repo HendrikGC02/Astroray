@@ -59,23 +59,20 @@ attach the reproduction scene + capture the path that's broken.
 
 ### BUG-14 — Glass color at low roughness
 
-**Investigation needed:** Look at the glass material kind handling
-in `_principled_shader_spec` lines ~2763–2767. Determine whether
-the existing tint goes through the BTDF or is silently dropped at
-near-zero roughness.
+**Does NOT reproduce in basic configuration** (verified during pkg104
+night via `tests/test_pkg108_glass_color_lowroughness.py`): a glass
+slab with `roughness=0.02` + `base_color` set to strong red vs strong
+blue produces visibly different transmission on a white floor below.
+The dielectric BSDF's tint slot IS reaching the renderer at low
+roughness in this path.
 
-**Likely fix:** Either:
-  - Apply tint to the BSDF via per-wavelength Beer-Lambert
-    absorption (geometry-thickness-dependent — needs C++ volume
-    support).
-  - Or: tint the BTDF at the surface using the existing dielectric
-    material's color slot. Cheap. Cosmetic-quality only — doesn't
-    capture true volumetric tinting.
-
-For pkg104's `prism-bk7-collimated` scene, the dispersion-via-
-Sellmeier path already side-steps this (sphere acts as a lens
-without per-wavelength absorption). But for user-facing scenes
-with thick glass, BUG-14 will bite.
+**Remaining action:** owner verification with the actual Blender shader
+graph that triggered the original report. The most likely scenario
+that still breaks is when the tint goes through the Blender addon's
+`_principled_shader_spec` → `disney` material routing at line ~2763,
+which may have different tint plumbing than the direct
+`dielectric` material path. If owner can reproduce on a specific
+.blend file, attach it and the test can be extended.
 
 ### BUG-16 — Subsurface no-op
 

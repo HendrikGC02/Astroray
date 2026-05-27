@@ -1,3 +1,28 @@
+# Standup — 2026-05-27 → 2026-05-28
+
+## Night 2 addendum (2026-05-28, post-review)
+
+Owner reviewed the night-1 work, approved, asked for plan + execution.
+Plan filed; three PRs follow:
+
+| PR | Status | What |
+|----|--------|------|
+| [#375](https://github.com/HendrikGC02/Astroray/pull/375) | **merged** | pkg108 BUG-16 fix. Disney `subsurface` parameter was parsed + stored + exposed via getter but never used in eval() — pure dead wire. Implemented Burley 2012 §5.3 Hanrahan-Krueger lerp on the diffuse lobe. Probe test + 337 existing Disney/material tests pass. pkg104 bank unaffected. |
+| [#376](https://github.com/HendrikGC02/Astroray/pull/376) | docs-only, in flight | pkg64-gpu Session 2 Phase 1 research. Tried the naive "mirror CPU `terminateSecondary()`" approach on the GPU dielectric path. **Result: receiver-energy gate regressed 1.17× → 0.98× and SSIM got worse (0.523 → 0.485).** Engine code reverted; the proper Wilkie 2014 hero-MIS implementation needs an integrator-side `useExplicitSpectral` flag on `GBSDFSample` and is a real ½ day of focused C++/CUDA work + RTX validation — not safe overnight. Note documents what was tried, why it fails, and the implementation sketch for a future session. |
+| [#377](https://github.com/HendrikGC02/Astroray/pull/377) | docs-only, in flight | pkg106 Phase 1 research. Read Cycles `src/kernel/integrator/mnee.h` end-to-end. **Decision: port Cycles MNEE** as the new `mnee_caustic_path_tracer` integrator (Apache-2.0, MIT-compatible). Cycles MNEE eta is scalar — chromatic spread layers on top via the existing hero-wavelength MC infrastructure (which Astroray's CPU dielectric already does). Smoothed-normal SMS rejected as biased + no published precedent. 1-2 weeks of owner-scheduled work to ship. |
+
+**Specs flipped to ~done after night-2:**
+- pkg108 BUG-16 — closed by PR #375. (BUG-09 + BUG-14 already documented as not-reproducing in night-1.)
+- pkg64-gpu Session 2 Phase 1 — closed by PR #376 (research filed; implementation tomorrow).
+- pkg106 Phase 1 — closed by PR #377 (research filed; implementation 1-2 weeks).
+
+**Engine code changed tonight:** `plugins/materials/disney.cpp` (5-line Burley 2012 HK subsurface mix, in #375). No CUDA / GPU code shipped.
+
+**Open for owner morning review:** the two docs-only PRs (#376, #377) are
+informational artifacts; the implementations they describe are tomorrow-jobs.
+
+---
+
 # Overnight standup — 2026-05-27 → 2026-05-28
 
 **Operator:** Claude (Opus 4.7, 1M ctx). Long-running solo session per owner

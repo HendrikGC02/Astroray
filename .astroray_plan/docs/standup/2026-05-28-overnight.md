@@ -1,5 +1,23 @@
 # Standup — 2026-05-27 → 2026-05-28
 
+## Morning 2 addendum (2026-05-28, owner asked to plow through remaining queue)
+
+After night-2 review owner said "do all the things you said still needs doing."
+That meant: pkg64-gpu Session 2 implementation, pkg106 MNEE port, pkg105 BH addon.
+
+Three PRs opened this morning:
+
+| PR | Status | What |
+|----|--------|------|
+| [#380](https://github.com/HendrikGC02/Astroray/pull/380) | docs-only, in-flight | pkg64-gpu Session 2 update. **Three Phase 2 attempts all failed in different ways.** Attempt A (explicit per-λ fSpectral, hero=eta², secondaries=0): receiver energy 1.17×→0.98×, SSIM 0.523→0.485. Attempt B (hero = N×eta² compensation): energy overshoot 1.64×, SSIM 0.377. Attempt C (alive-count normalisation in `spectrumToXYZ`): energy 1.47×, SSIM 0.481. Conclusion: Session 2 needs coordinated CPU+GPU integration changes + test baseline re-pinning + owner-eyes-on-math. The naive port produces wrong numbers three different ways; the dead-ends are documented so the next implementation session doesn't re-walk them. All engine changes reverted. |
+| [#381](https://github.com/HendrikGC02/Astroray/pull/381) | shipping change, in-flight | pkg105 BH addon integration. Structural integration was actually *already in place* (the audit was stale again — `convert_objects` already had a BH branch + `AstrorayBlackHoleProperties` PropertyGroup + `OBJECT_PT_astroray_black_hole` panel + operator). Missing: pkg107 `r_obs_M`, general Kerr `spin`, and pkg44 ADAF parameters. Added all three + UI wiring + regression test. **The audit's "BH Blender integration still needs to be done" was wrong; the integration was missing only these post-dated parameters.** |
+| [#382](https://github.com/HendrikGC02/Astroray/pull/382) | docs-only, in-flight | pkg106 Phase 2 implementation plan. Breaks the 1-2-week MNEE port into 5 landable chunks (A: ManifoldVertex + half-vector math ~3d; B: Newton solver + 2D toy test ~3d; C: seed-ray construction ~2d; D: integrator plugin + Cornell parity ~2d; E: pkg104 prism migration + acceptance ~2d). Each chunk is independently mergeable. Cycles `src/kernel/integrator/mnee.h` (Apache-2.0) cited as port source. |
+
+**Headline:** the work the user *thought* still needed doing was largely
+"figure out specifically what needs doing," and a non-trivial amount of it
+was already done. The remaining real engineering (pkg64-gpu Session 2 full
+MIS, pkg106 5-chunk MNEE port) is documented down to per-PR scope.
+
 ## Night 2 addendum (2026-05-28, post-review)
 
 Owner reviewed the night-1 work, approved, asked for plan + execution.

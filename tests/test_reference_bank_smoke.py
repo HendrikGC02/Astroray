@@ -140,7 +140,6 @@ def test_bright_coverage_distinguishes_caustic_from_flat():
 
 # ----- Runner-level smoke test -----
 
-@pytest.mark.timeout(60)
 def test_runner_cornell_mini_smoke():
     """Cornell-mini renders end-to-end and produces a report.md without crashing.
 

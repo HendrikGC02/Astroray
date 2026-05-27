@@ -9,11 +9,24 @@ astrophysics).
 See `.astroray_plan/packages/pkg104-visual-reference-bank.md` for the
 full spec, rationale, and reference citations.
 
-## Status
+## Status (2026-05-28)
 
-Phase 1 scaffolding only — runner + metrics + harness self-test landed.
-Owner-curated vision scenes are blocked on the Q1+Q2 scene-selection gate
-in the spec.
+Phase 2a complete. 10 scenes pinned. 31 gates green on Windows.
+
+| Scene | Category | Render time | What it shows |
+|-------|----------|-------------|---------------|
+| `cornell-mini` | Sanity | 0.3 s | Cornell box; harness self-test |
+| `prism-bk7-collimated` | Spectral | ~2 min | BK7 dispersive sphere caustic, chromatic ring |
+| `prism-sf11-collimated` | Spectral | ~2 min | SF11 (higher dispersion) variant |
+| `sms-refractive-glass-sphere` | Caustic | ~50 s | Non-dispersive focused caustic |
+| `sms-reflective-metal-sphere` | Caustic | ~50 s | Concave coffee-cup interior, caustic crescent |
+| `gr-schwarzschild` | GR | ~2 s | BH shadow on white background |
+| `gr-kerr-94-faceon` | GR | ~2 s | Kerr with thin disk, photon ring visible |
+| `disney-sweep-cycles-compared` | Cross-engine | ~4 s | Disney roughness×metallic vs Cycles 5.1 |
+| `adaf-sgrA-faceon` | Astrophys | ~15 s | Sgr A* ADAF emission halo |
+| `synchrotron-jet-m87` | Astrophys | ~3 s | M87-like bipolar jet |
+
+Full bank ~6 min on CPU. Smoke (cornell-mini only): <1 s.
 
 ## Quick start
 

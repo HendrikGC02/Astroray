@@ -40,7 +40,15 @@ def _build_scene():
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_depth = "8"
     scene.render.image_settings.color_mode = "RGB"
-    scene.view_settings.view_transform = "Standard"  # match Astroray's gamma-only
+    # "Standard" view transform applies sRGB encoding for 8-bit PNG output,
+    # which matches Astroray's gamma-2.2 output. "Raw" was tested and
+    # produced near-black PNGs because the linear-scene-referred values get
+    # truncated to 8-bit without gamma encoding.
+    scene.view_settings.view_transform = "Standard"
+    scene.view_settings.exposure = 0.0
+    scene.view_settings.gamma = 1.0
+    # Filmic is the Blender 5.1 default; explicitly forcing Standard is what
+    # gets us closest to Astroray's tonemap.
 
     # --- Floor ---
     bpy.ops.mesh.primitive_plane_add(size=10.0, location=(0.0, -1.0, 0.0))
@@ -69,7 +77,12 @@ def _build_scene():
     area.data.shape = "RECTANGLE"
     area.data.size = 3.0   # X
     area.data.size_y = 2.0  # Z (depth)
-    area.data.energy = 200.0  # Cycles uses watts; tuned to roughly match Astroray's intensity
+    # Cycles area-light energy in watts. With Astroray intensity=14 + sRGB-
+    # encoded 8-bit output, Cycles needs ~1300W to bring its image mean
+    # close to Astroray's (which renders at mean luminance ~0.44 of 1.0
+    # for this scene). Without matching exposures, SSIM gates on structural
+    # similarity get dragged below 0.5 by brightness mismatch alone.
+    area.data.energy = 1300.0
     area.rotation_euler = (3.14159, 0, 0)  # point downward
 
     # --- Disney sphere grid ---

@@ -60,8 +60,12 @@ def make_scene(astroray):
     r.add_triangle([-5, -1.0, -5], [5, -1.0, -5], [5, -1.0, 5], floor)
     r.add_triangle([-5, -1.0, -5], [5, -1.0, 5], [-5, -1.0, 5], floor)
 
-    # Overhead area light (single small panel).
-    light_mat = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 14.0})
+    # Overhead area light. Intensity 1.6 brings Astroray's mean close to
+    # Cycles' (~0.18) for cross-engine SSIM comparison. Cycles area-light
+    # energy 1300W ↔ Astroray intensity 1.6 produces matched-exposure
+    # renders for the SSIM gate. Unit mismatch between engines was
+    # producing SSIM ~0.48 at the earlier matched-energy setting.
+    light_mat = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1.6})
     lx, lz = 1.5, 1.0
     r.add_triangle([-lx, 4.0, -lz], [lx, 4.0, -lz], [lx, 4.0, lz], light_mat)
     r.add_triangle([-lx, 4.0, -lz], [lx, 4.0, lz], [-lx, 4.0, lz], light_mat)

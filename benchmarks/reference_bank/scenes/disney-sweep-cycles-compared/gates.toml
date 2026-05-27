@@ -14,6 +14,6 @@ bless_source = "cycles"
 
 [[gate]]
 type = "ssim"
-threshold = 0.40
+threshold = 0.55
 direction = "ge"
-description = "Astroray-vs-Cycles SSIM. Measured 0.48; threshold gives headroom for MC noise. NOT a tight match — see notes.md. pHash is intentionally NOT used here because pHash is designed to catch perceptual change, and Astroray vs Cycles produce perceptually-different renders by construction (different tonemap, light units, etc.). For pHash on this scene to be meaningful we'd need to compare Astroray-against-Astroray at different commits, which is what the Phase 2b self-bless variant would add."
+description = "Astroray-vs-Cycles SSIM. Measured 0.61 after intensity calibration pass 2026-05-27 (Astroray intensity 1.6 + Cycles 1300W). Earlier 0.48 baseline reflected mismatched exposures; current 0.61 isolates BSDF-implementation differences which are real engine differences. pHash is intentionally NOT used here because pHash is designed to catch perceptual change, and Astroray vs Cycles produce perceptually-different renders by construction (different tonemap, light units, etc.)."

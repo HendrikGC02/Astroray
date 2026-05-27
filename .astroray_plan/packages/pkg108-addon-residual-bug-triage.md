@@ -1,0 +1,122 @@
+# pkg108 — Blender Addon Residual Bug Triage
+
+**Pillar:** 5 (Production polish)
+**Track:** A (small targeted fixes) + investigation
+**Status:** open
+**Estimated effort:** 2–4 days (one bug per ½–1 day)
+**Depends on:** none
+
+---
+
+## Goal
+
+**Before:** A handful of named addon defects from the 2026-05-16
+first-principles plan remain open after the structural-primitive
+sweep (P1 build guard, P2 sync re-parse, P3 wires, P4 native
+matrices, P5 GPU asymmetry guard) closed in Rounds 12–14. These are
+individual material/shader-node bugs that don't roll up to a
+primitive collapse:
+
+- **BUG-09 (Astroray Output shader node):** custom `ShaderNode`
+  subclass is detected by the addon's `inline_shader_nodes()` flat-
+  tening pass via `next(...)` at `:1737` but the node's output
+  isn't picked up; the material falls through to standard
+  Principled-BSDF translation.
+- **BUG-14 (glass color at low roughness):** at near-zero roughness
+  the glass material's base-color tint is invisible. Hypothesis:
+  surface BTDF tint (lines 2763–2767 of `__init__.py`) instead of
+  Beer-Lambert volumetric absorption inside the glass.
+- **BUG-16 (Subsurface possibly no-op):** Principled-BSDF
+  `subsurface_weight` / `subsurface_radius` may not be plumbed
+  through to the C++ Disney implementation.
+
+BUG-08 (32mm sensor hardcode) was closed 2026-05-27 by changing
+the `_setup_viewport_camera` fallback path to 36mm (matching
+`_compute_vfov_degrees`). See pkg104 commit.
+
+**After:** Each remaining bug is either fixed surgically or has a
+documented next-step plan.
+
+---
+
+## Specification
+
+### BUG-09 — Astroray Output node
+
+**Investigation needed:** Trace from `inline_shader_nodes()` at line
+~1737 through the output detection. If the custom node subclass IS
+detected but its outputs aren't reached, the issue is in how
+`inline_shader_nodes()` flattens the graph (it may skip non-
+Principled outputs entirely). Verify by adding a debug print
+inside the `astroray_output` branch of the converter.
+
+**Likely fix:** add a dedicated branch in the converter that handles
+`ShaderNodeOutput` subclasses by name.
+
+### BUG-14 — Glass color at low roughness
+
+**Investigation needed:** Look at the glass material kind handling
+in `_principled_shader_spec` lines ~2763–2767. Determine whether
+the existing tint goes through the BTDF or is silently dropped at
+near-zero roughness.
+
+**Likely fix:** Either:
+  - Apply tint to the BSDF via per-wavelength Beer-Lambert
+    absorption (geometry-thickness-dependent — needs C++ volume
+    support).
+  - Or: tint the BTDF at the surface using the existing dielectric
+    material's color slot. Cheap. Cosmetic-quality only — doesn't
+    capture true volumetric tinting.
+
+For pkg104's `prism-bk7-collimated` scene, the dispersion-via-
+Sellmeier path already side-steps this (sphere acts as a lens
+without per-wavelength absorption). But for user-facing scenes
+with thick glass, BUG-14 will bite.
+
+### BUG-16 — Subsurface no-op
+
+**Investigation needed:** Run a test with `subsurface_weight=0` vs
+`subsurface_weight=1` on a thick sphere; if the rendered output is
+identical, the subsurface plumbing is broken. Inspect
+`module/blender_module.cpp` for whether `subsurface_*` params reach
+the Disney material constructor.
+
+**Likely fix:** Either it's a missing binding (Python sees the
+param, C++ ignores it) or a missing material-implementation branch.
+
+---
+
+## Acceptance criteria
+
+- [ ] Each bug closed has a regression test showing the fix.
+- [ ] BUG-09: setting "Astroray Output" as material output → render
+      matches manually-configured material spec.
+- [ ] BUG-14: glass cube with base_color = strong tint, low
+      roughness, in a Cornell-like scene → tinted transmission
+      visible vs untinted variant.
+- [ ] BUG-16: subsurface_weight=0 vs subsurface_weight=1 produces a
+      measurable color difference on a same-geometry render.
+
+---
+
+## Non-goals
+
+- Not BUG-08 (already closed by 2026-05-27 fallback fix).
+- Not full Beer-Lambert volumetric absorption (large C++ scope; if
+  needed, separate spec).
+- Not the deferred Phase-2b astrophysics tuning.
+
+---
+
+## Progress
+
+- [x] BUG-08 closed (pkg104 sensor-width fallback fix).
+- [ ] BUG-09 investigation.
+- [ ] BUG-14 investigation.
+- [ ] BUG-16 investigation.
+
+---
+
+## Lessons
+
+*(Fill in after the package is done.)*

@@ -18,7 +18,7 @@ from __future__ import annotations
 NAME = "prism-sf11-collimated"
 WIDTH = 384
 HEIGHT = 256
-SAMPLES = 1024
+SAMPLES = 4096
 MAX_DEPTH = 10
 SEED = 17
 

@@ -1,9 +1,10 @@
-# sms-reflective-metal-sphere — reflective caustic
-# Reference blessed 2026-05-27. Measured baselines:
-#   bright_coverage L>0.5 in floor ROI = 0.5120
+# sms-reflective-metal-sphere — reflective caustic (concave coffee-cup)
+# Reference re-blessed 2026-05-27 after owner feedback (convex sphere
+# was wrong — needed concave). Now a triangulated polished-metal
+# cylinder (coffee-cup interior) with side rim light.
 
 [scene]
-description = "Polished low-roughness metal sphere + area emitter. Reflective caustic ring at the sphere's base; tests the SMS reflective branch."
+description = "Coffee-cup-interior concave reflector + side-mounted area emitter. Light bounces off curved inside walls and focuses as a visible caustic crescent on the opposite inside wall. Tests the SMS reflective branch under concave geometry."
 
 [[gate]]
 type = "ssim"
@@ -17,11 +18,11 @@ direction = "le"
 
 [[gate]]
 type = "bright_coverage"
-threshold = 0.38
+threshold = 0.05
 direction = "ge"
-roi = [140, 256, 60, 324]
-luminance_threshold = 0.5
-description = "Reflective caustic ring presence. Measured 0.51; threshold gives headroom."
+roi = [80, 256, 50, 320]
+luminance_threshold = 0.10
+description = "Caustic-presence gate. Inside-cup ROI; if caustic-finding regresses (SMS reflective branch breaks), bright-region coverage collapses."
 
 [[gate]]
 type = "phash"

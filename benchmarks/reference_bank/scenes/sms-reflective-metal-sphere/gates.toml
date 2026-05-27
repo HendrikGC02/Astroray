@@ -1,0 +1,29 @@
+# sms-reflective-metal-sphere — reflective caustic
+# Reference blessed 2026-05-27. Measured baselines:
+#   bright_coverage L>0.5 in floor ROI = 0.5120
+
+[scene]
+description = "Polished low-roughness metal sphere + area emitter. Reflective caustic ring at the sphere's base; tests the SMS reflective branch."
+
+[[gate]]
+type = "ssim"
+threshold = 0.82
+direction = "ge"
+
+[[gate]]
+type = "delta_e_2000"
+threshold = 6.0
+direction = "le"
+
+[[gate]]
+type = "bright_coverage"
+threshold = 0.38
+direction = "ge"
+roi = [140, 256, 60, 324]
+luminance_threshold = 0.5
+description = "Reflective caustic ring presence. Measured 0.51; threshold gives headroom."
+
+[[gate]]
+type = "phash"
+threshold = 16
+direction = "le"

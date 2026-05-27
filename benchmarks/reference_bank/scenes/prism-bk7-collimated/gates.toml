@@ -1,0 +1,36 @@
+# prism-bk7-collimated — spectral dispersion via BK7 sphere caustic
+# Reference blessed 2026-05-27 (commit b02b161). Measured baselines:
+#   hue_spread (floor ROI 160:256, 80:304) = 0.8006
+#   hue_spread (full image, lum>0.05)      = 0.6992
+# Thresholds set ~25% below measured to give regression headroom without
+# false positives on small MC variance.
+
+[scene]
+description = "BK7 dispersive sphere + white area emitter + floor receiver. SMS caustic with per-wavelength Newton produces a visible chromatic rainbow ring on the floor."
+
+[[gate]]
+type = "ssim"
+threshold = 0.78
+direction = "ge"
+description = "Loose SSIM floor; SMS caustic noise prevents tighter gate at 1024 spp."
+
+[[gate]]
+type = "delta_e_2000"
+threshold = 8.0
+direction = "le"
+description = "Perceptual color floor across the full image."
+
+[[gate]]
+type = "hue_spread"
+threshold = 0.55
+direction = "ge"
+roi = [160, 256, 80, 304]
+luminance_threshold = 0.05
+saturation_floor = 0.05
+description = "Rainbow-presence gate on the floor ROI. Measured 0.80; this trips when chromatic spread collapses (e.g., spectral_newton accidentally disabled)."
+
+[[gate]]
+type = "phash"
+threshold = 20
+direction = "le"
+description = "Layout regression — sphere position or floor framing shifted."

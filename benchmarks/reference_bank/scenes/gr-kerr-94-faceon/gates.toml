@@ -1,0 +1,23 @@
+# gr-kerr-94-faceon — Kerr a/M=0.94 (paired with gr-schwarzschild)
+# Reference blessed 2026-05-27. Measured baselines:
+#   dark_disk fraction (L<0.05) = 0.0044
+#   pHash distance vs gr-schwarzschild = 2 (small but non-zero)
+
+[scene]
+description = "Kerr a/M=0.94. Paired with gr-schwarzschild as a metric-dispatcher differentiator. If the dispatcher silently routes both spin values to the Schwarzschild plugin, both scenes converge and the pair-comparison signal vanishes."
+
+[[gate]]
+type = "ssim"
+threshold = 0.92
+direction = "ge"
+
+[[gate]]
+type = "dark_disk"
+threshold = 0.0025
+direction = "ge"
+luminance_threshold = 0.05
+
+[[gate]]
+type = "phash"
+threshold = 20
+direction = "le"

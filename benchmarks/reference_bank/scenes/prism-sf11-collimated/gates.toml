@@ -1,0 +1,31 @@
+# prism-sf11-collimated — spectral dispersion via SF11 flint glass
+# Reference blessed 2026-05-27 (commit b02b161). Measured baseline:
+#   hue_spread (floor ROI 160:256, 80:304) = 0.7489
+
+[scene]
+description = "SF11 flint dispersive sphere (Abbe 25, IOR 1.785). Higher dispersion than BK7; chromatic caustic occupies a tighter, more concentrated region."
+
+[[gate]]
+type = "ssim"
+threshold = 0.78
+direction = "ge"
+description = "Loose SSIM floor."
+
+[[gate]]
+type = "delta_e_2000"
+threshold = 8.0
+direction = "le"
+
+[[gate]]
+type = "hue_spread"
+threshold = 0.50
+direction = "ge"
+roi = [160, 256, 80, 304]
+luminance_threshold = 0.05
+saturation_floor = 0.05
+description = "Rainbow-presence gate. Measured 0.75; threshold gives headroom."
+
+[[gate]]
+type = "phash"
+threshold = 20
+direction = "le"

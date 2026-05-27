@@ -5,7 +5,8 @@ mandate to "make headway all night."
 
 **Branch:** `feat/pkg104-visual-reference-bank`
 **PR:** [#374](https://github.com/HendrikGC02/Astroray/pull/374)
-**Files changed:** ~30 (10 new scenes + harness + 4 spec files + C++ + CI)
+**Files changed:** ~35 (10 new scenes + harness + 5 spec files + C++ + CI + 3 new test files)
+**Commits on branch:** 14 (atomic, well-documented)
 
 ---
 
@@ -94,8 +95,16 @@ captured and viewable in `benchmarks/reference_bank/scenes/*/reference.png`.
 | `pkg104` | Visual reference bank — full design, citations, scope (this work) |
 | `pkg105` | Black-hole Blender addon integration — owner noted "BH Blender support still needs to be done" 2026-05-27 |
 | `pkg106` | SMS chromatic caustics on triangulated prisms — investigation of smoothed-normal SMS vs Cycles-MNEE port (needed because SMS Newton doesn't converge on piecewise-flat surfaces) |
-| `pkg107` | Parameterise `BlackHole::r_obs_M` — **shipped in this session** |
-| `pkg108` | Residual addon bugs triage — BUG-09 (Astroray Output node), BUG-14 (glass color at low roughness), BUG-16 (Subsurface no-op). Each ~½–1 day investigation. |
+| `pkg107` | Parameterise `BlackHole::r_obs_M` — **shipped in this session** with regression test |
+| `pkg108` | Residual addon bugs triage. **Updates this session:** BUG-09 appears already fixed (defensive P3-c probe + handler + existing test). BUG-14 does NOT reproduce in basic configuration (new `tests/test_pkg108_glass_color_lowroughness.py` proves the dielectric tint plumbing works). BUG-16 (Subsurface no-op) is the remaining open item; needs owner repro. |
+
+## Tests added
+
+- `tests/test_reference_bank_smoke.py` — 10 assertions (metrics + end-to-end harness smoke)
+- `tests/test_pkg107_blackhole_r_obs_m.py` — 3 assertions (r_obs_M default, scaling, explicit-vs-omitted)
+- `tests/test_pkg108_glass_color_lowroughness.py` — 1 assertion (red vs blue glass tint produces visible diff)
+
+Total: 14 new tests, all passing locally.
 
 ---
 

@@ -26,6 +26,8 @@
 // optimization once the skeleton is validated.
 
 #include "../../raytracer.h"
+#include "half_vector_constraint.h"  // pkg106 Chunk B: analytic Jacobian path
+#include <cmath>
 #include <functional>
 
 namespace astroray::manifold {
@@ -112,6 +114,72 @@ inline NewtonResult solve(const Vec3& x1Init, const Vec3& n1Init,
         Vec3 xNew, nNew, sNew, tNew;
         if (!reproject(R.x1, R.s1, R.t1, du, dv, xNew, nNew, sNew, tNew)) break;
         R.x1 = xNew; R.n1 = nNew; R.s1 = sNew; R.t1 = tNew;
+    }
+    return R;
+}
+
+// ---------------------------------------------------------------------------
+// pkg106 Chunk B — analytic-Jacobian manifold solve.
+//
+// Same Newton loop as solve() above, but the 2x2 Jacobian comes from
+// halfVectorConstraintJacobian (Cycles mnee.h analytic derivatives) instead of
+// central differences. The FD path reprojects with +/-h tangent steps and
+// finite-differences the constraint; on a triangulated caster a +/-h step can
+// cross a triangle edge into a neighbour with a different normal, producing a
+// spurious Jacobian discontinuity that stalls/diverges Newton (the SMS-fails-
+// on-triangles failure, see pkg106-research-2026-05-28.md). The analytic
+// Jacobian has no such artefact.
+// ---------------------------------------------------------------------------
+struct AnalyticNewtonResult {
+    Vec3  x1, n1;                       // converged manifold vertex + normal
+    Vec3  dp_du, dp_dv, dn_du, dn_dv;   // surface partials at x1
+    bool  converged;
+    int   iterations;
+    float residualNorm;
+};
+
+// Reproject for the analytic path: given the current vertex x1 and a tangent
+// step (du, dv) in the constraint's (s, t) frame, return the new surface point,
+// its unit normal, and the surface partials there (from surface_partials.h on
+// real geometry; a closed form for analytic surfaces). Returns false if the
+// step leaves the surface.
+using ReprojectFnAnalytic = std::function<bool(
+    const Vec3& x1, const Vec3& s, const Vec3& t, float du, float dv,
+    Vec3& outX, Vec3& outN,
+    Vec3& outDpDu, Vec3& outDpDv, Vec3& outDnDu, Vec3& outDnDv)>;
+
+inline AnalyticNewtonResult solveAnalytic(
+        const Vec3& x0, const Vec3& x2, float eta, bool refraction,
+        const Vec3& x1Init, const Vec3& n1Init,
+        const Vec3& dpduInit, const Vec3& dpdvInit,
+        const Vec3& dnduInit, const Vec3& dndvInit,
+        const ReprojectFnAnalytic& reproject,
+        const NewtonConfig& cfg = {}) {
+    AnalyticNewtonResult R;
+    R.x1 = x1Init; R.n1 = n1Init;
+    R.dp_du = dpduInit; R.dp_dv = dpdvInit; R.dn_du = dnduInit; R.dn_dv = dndvInit;
+    R.converged = false; R.iterations = 0; R.residualNorm = 0.0f;
+
+    for (int it = 0; it < cfg.maxIterations; ++it) {
+        R.iterations = it + 1;
+        HalfVectorConstraint c = halfVectorConstraintJacobian(
+            x0, R.x1, x2, R.n1, R.dp_du, R.dp_dv, R.dn_du, R.dn_dv, eta, refraction);
+        if (!c.valid) break;
+        R.residualNorm = std::sqrt(c.residual.u * c.residual.u +
+                                   c.residual.v * c.residual.v);
+        if (R.residualNorm < cfg.tolerance) { R.converged = true; break; }
+
+        const float det = c.j00 * c.j11 - c.j01 * c.j10;
+        if (std::fabs(det) < 1e-12f) break;
+        const float invDet = 1.0f / det;
+        // Solve J * (du,dv) = -c  =>  (du,dv) = -J^{-1} c.
+        const float du = -invDet * ( c.j11 * c.residual.u - c.j01 * c.residual.v) * cfg.damping;
+        const float dv = -invDet * (-c.j10 * c.residual.u + c.j00 * c.residual.v) * cfg.damping;
+
+        Vec3 nx, nn, ndpu, ndpv, ndnu, ndnv;
+        if (!reproject(R.x1, c.s, c.t, du, dv, nx, nn, ndpu, ndpv, ndnu, ndnv)) break;
+        R.x1 = nx; R.n1 = nn;
+        R.dp_du = ndpu; R.dp_dv = ndpv; R.dn_du = ndnu; R.dn_dv = ndnv;
     }
     return R;
 }

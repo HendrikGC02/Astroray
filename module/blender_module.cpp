@@ -22,6 +22,7 @@
 #include "astroray/pass.h"
 #include "astroray/spectrum.h"
 #include "astroray/spectral_profile.h"
+#include "astroray/manifold/half_vector_constraint.h"  // pkg106 Chunk A test helper
 #include "astroray/restir/reservoir.h"
 #include "astroray/restir/light_sample.h"
 #include "astroray/restir/frame_state.h"
@@ -2148,6 +2149,29 @@ PYBIND11_MODULE(astroray, m) {
     m.def("emission_registry_names", []() {
         return astroray::EmissionRegistry::instance().names();
     });
+
+    // pkg106 Chunk A test helper — evaluate the analytic half-vector constraint
+    // Jacobian (astroray::manifold::halfVectorConstraintJacobian) from pytest.
+    // Each vector arg is a length-3 sequence. Returns a tuple:
+    //   (residual_u, residual_v, j00, j01, j10, j11, valid).
+    m.def("_mnee_half_vector_constraint",
+          [](const std::array<float, 3>& x0, const std::array<float, 3>& x1,
+             const std::array<float, 3>& x2, const std::array<float, 3>& n1,
+             const std::array<float, 3>& dp_du, const std::array<float, 3>& dp_dv,
+             const std::array<float, 3>& dn_du, const std::array<float, 3>& dn_dv,
+             float eta, bool refraction) {
+              auto V = [](const std::array<float, 3>& a) {
+                  return Vec3(a[0], a[1], a[2]);
+              };
+              astroray::manifold::HalfVectorConstraint c =
+                  astroray::manifold::halfVectorConstraintJacobian(
+                      V(x0), V(x1), V(x2), V(n1), V(dp_du), V(dp_dv),
+                      V(dn_du), V(dn_dv), eta, refraction);
+              return py::make_tuple(c.residual.u, c.residual.v,
+                                    c.j00, c.j01, c.j10, c.j11, c.valid);
+          },
+          "x0"_a, "x1"_a, "x2"_a, "n1"_a, "dp_du"_a, "dp_dv"_a,
+          "dn_du"_a, "dn_dv"_a, "eta"_a, "refraction"_a);
     m.def("synchrotron_thermal_emissivity",
           &astroray::synchrotron::jnuThermalI,
           "nu_hz"_a, "n_e_cm3"_a, "T_e_K"_a, "B_gauss"_a, "theta_B"_a,

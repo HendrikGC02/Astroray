@@ -1,77 +1,107 @@
 # pkg106 Phase 2 — Implementation plan (2026-05-28)
 
 Per the 2026-05-28 research note (`pkg106-research-2026-05-28.md`), Phase 2
-ports Cycles MNEE for triangulated prism caustics. The full port is
-~1-2 weeks; this document breaks it into landable chunks so the work
-ships incrementally rather than as one giant PR.
+brings Cycles-MNEE-quality manifold solving to triangulated prism caustics.
+
+## REVISED 2026-05-28 (afternoon, supervised) — scope correction
+
+A codebase audit (see the research note's afternoon update) found the original
+"port a ~1000-line `mnee.h` from scratch" framing was inaccurate. Astroray
+**already has**:
+- `include/astroray/manifold/half_vector_constraint.h` — generalized
+  half-vector (`wi+eta*wo`) + 2D tangent residual (Zeltner 2020 / Hanika 2015).
+- `include/astroray/manifold/newton_iterate.h` — the manifold Newton loop,
+  but with a **numerical central-difference Jacobian** (its own comment flags
+  the analytic Jacobian as the Phase-2/3 upgrade).
+- `manifold/sms_attempt.h` + `plugins/integrators/sms_caustic_path_tracer.cpp`.
+
+The SMS-fails-on-triangles failure is specifically that central-difference
+Jacobian: ±h tangent steps cross triangle edges into neighbours with different
+normals → spurious Jacobian discontinuity → divergence → chromatic noise. The
+fix is the **analytic constraint Jacobian** (Cycles `mnee.h` `b` matrix, via
+the per-`(u,v)` surface partials `dp_du/dp_dv/dn_du/dn_dv`). We therefore do
+NOT add a duplicate `mnee.h`; we extend the existing manifold code.
 
 ## Source-of-truth
 
-Cycles `src/kernel/integrator/mnee.h` (Apache-2.0). Every ported function
-should cite the Cycles file + line range it mirrors per CLAUDE.md §6.
+Cycles `src/kernel/integrator/mnee.h` (Apache-2.0) — `mnee_compute_constraint_derivatives`
+lines 248–365 (verbatim core math in the research note). Every ported function
+cites the Cycles file + line range per CLAUDE.md §6.
 
-## Five landable chunks
+## Five landable chunks (revised)
 
-### Chunk A — Port `ManifoldVertex` + half-vector math (~3 days)
+### Chunk A — Analytic constraint Jacobian + 2D Snell unit test (this PR)
 
-**Lands as:** `include/astroray/mnee.h` (new file).
+**Lands as:** extends `include/astroray/manifold/half_vector_constraint.h`
+(NOT a new `mnee.h` — the half-vector + residual already live there).
 
 **Contents:**
-- `ManifoldVertex` struct (position, tangent frame, normal, eta).
-- `compute_half_vector()`, `compute_half_vector_derivatives()` helpers —
-  mirrors Cycles `mnee_compute_constraint_derivatives()` lines 646-731.
-- Unit tests for the half-vector math against a hand-computed 2D Snell
-  example (refraction through a single tilted plane).
+- `halfVectorConstraintJacobian(...)` — the analytic 2×2 Jacobian `db` of the
+  tangent residual `(h·s, h·t)` w.r.t. the manifold `(u,v)` offset, given the
+  surface partials `dp_du, dp_dv, dn_du, dn_dv`. Mirrors Cycles
+  `mnee_compute_constraint_derivatives` lines 285–356 (current-vertex `b`
+  block); cite Cycles file:line + Hanika 2015 §5.
+- A tiny pybind test-binding (or reuse an existing test surface) so Python can
+  evaluate the residual + analytic Jacobian on a supplied geometry.
 
 **Acceptance:**
-- New tests pass (constraint math agrees with analytic Snell).
-- No integrator-side change yet; builds clean.
-- Other tests untouched.
+- New unit test: refraction through a single tilted plane (flat ⇒
+  `dn_du=dn_dv=0`). Assert (1) residual ≈ 0 at the analytic Snell solution,
+  (2) the analytic Jacobian matches a central-difference Jacobian of the
+  existing `halfVectorResidual` to ~1e-3.
+- No integrator-side change yet; builds clean; other tests untouched.
+- The test supplies `dp_du/dp_dv/dn_du/dn_dv` directly (surface plumbing is
+  Chunk B), so Chunk A is self-contained.
 
-### Chunk B — Port Newton solver (~3 days)
+### Chunk B — Surface (u,v) partials + wire analytic Jacobian into Newton
 
-**Lands as:** extends `mnee.h` + new `tests/test_mnee_newton_convergence.py`.
-
-**Contents:**
-- `mnee_newton_solve()` — Cycles lines 824-903 (the manifold walk loop).
-- Step-size `beta` adaptation + threshold-based exit.
-- Unit tests on a 2-vertex toy chain: light → flat refractor → receiver,
-  with a known analytic solution. Assert convergence in ≤8 iterations.
-
-**Acceptance:**
-- Toy 2D Newton converges to the analytic Snell-law solution at
-  machine precision.
-- No real-scene rendering yet.
-
-### Chunk C — Seed-ray construction + caustic-caster detection (~2 days)
-
-**Lands as:** extends `mnee.h` + small touch to `Hittable` interface.
+**Lands as:** triangle/sphere intersection computes `dp_du/dp_dv/dn_du/dn_dv`
+into `HitRecord` (currently it only builds an arbitrary `buildOrthonormalBasis`
+tangent frame, not the true surface partials); `newton_iterate.h` gains an
+analytic-Jacobian path (replacing the central-difference scaffolding for
+caustic casters).
 
 **Contents:**
-- `mnee_construct_seed_ray()` — Cycles lines 29-44.
-- Reuse existing `Hittable::isCausticCaster()` flag (pkg29a).
-- Unit test on a fixed scene (sphere + plane caustic chain) that the
-  seed ray's intersection list matches a hand-traced expectation.
+- Triangle: `dp_du/dp_dv` = edge vectors; `dn_du/dn_dv` from shading-normal
+  interpolation (0 for flat). Sphere: analytic tangents/normal derivatives.
+- New `tests/test_mnee_newton_convergence.py`: light → flat triangulated
+  refractor → receiver; assert the analytic-Jacobian Newton converges in ≤8
+  iters where the central-difference one diverges/stalls on the facet.
 
-### Chunk D — Integrator plugin + wiring (~2 days)
+**Acceptance:** analytic Newton converges on a triangulated refractor to the
+Snell solution; the FD path's triangle-edge divergence is gone.
 
-**Lands as:** new `plugins/integrators/mnee_caustic_path_tracer.cpp`,
-register via `ASTRORAY_REGISTER_INTEGRATOR("mnee_caustic_path_tracer", …)`.
+### Chunk C — Caustic-caster seed + triangle reprojection (~2 days)
+
+**Lands as:** extends the manifold reprojection to BVH/triangle ray-cast (the
+existing reproject callback is sphere-analytic only); reuse
+`Hittable::isCausticCaster()`.
 
 **Contents:**
-- The plugin invokes A/B/C on each path vertex that hits a caustic-
-  flagged object during NEE.
-- Stays single-wavelength per ray (the existing CPU dielectric's hero-
-  wavelength + `terminateSecondary()` infrastructure handles dispersion).
-- Cornell-box parity test: render the simple sphere-caustic scene with
-  both the existing `sms_caustic_path_tracer` and the new
-  `mnee_caustic_path_tracer`; assert SSIM ≥ 0.95 between them
-  (different algorithms, similar visual result).
+- Triangle reprojection step for the Newton walk (ray-cast onto the caster
+  mesh instead of the analytic sphere hit).
+- Unit test: seed + reproject on a fixed sphere+plane chain matches a
+  hand-traced expectation.
+
+### Chunk D — Wire into the SMS integrator (~2 days)
+
+**Lands as:** `plugins/integrators/sms_caustic_path_tracer.cpp` uses the
+analytic-Jacobian Newton for caustic casters (no NEW integrator needed — the
+SMS integrator already exists; the original plan's separate
+`mnee_caustic_path_tracer` would duplicate it). If a clean toggle is wanted,
+gate analytic-vs-FD behind an integrator param.
+
+**Contents:**
+- Stays single-wavelength per ray (existing CPU dielectric hero-wavelength +
+  `terminateSecondary()` handles dispersion).
+- Cornell-box parity: the analytic-Jacobian SMS reproduces the existing
+  sphere-caustic result (regression guard, SSIM ≥ 0.95 vs the FD path on the
+  sphere scene where FD already works).
 
 ### Chunk E — pkg104 prism scene + acceptance (~2 days)
 
 **Lands as:** pkg104 `prism-bk7-collimated/scene.py` switches to a true
-triangulated prism + `mnee_caustic_path_tracer` integrator; new gates
+triangulated prism + the analytic-Jacobian `sms_caustic_path_tracer`; new gates
 config with `hue_spread ≥ 0.7` in a rainbow ROI.
 
 **Contents:**

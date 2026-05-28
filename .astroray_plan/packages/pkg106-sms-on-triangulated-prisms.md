@@ -2,7 +2,7 @@
 
 **Pillar:** 2 (Spectral core) + 3 (Light transport)
 **Track:** A (CPU integrator + numerical work) + C (research)
-**Status:** in progress (Chunk A done PR #387, 2026-05-28 — analytic Jacobian; Chunks B-E remain)
+**Status:** in progress (Chunks A/B/C/D-seed done PRs #387/#389/#390/#391, 2026-05-28 — MNEE foundation complete; Chunk D-radiance + E remain on wip/pkg106-chunk-d-radiance)
 **Estimated effort:** 1–2 weeks investigation, then either 2–4 weeks port-and-validate or 1 week deferral note
 **Depends on:** pkg64-gpu Phase 1/2/3 (done) + pkg64-gpu-sellmeier-session2-multi-ior (filed)
 
@@ -106,9 +106,10 @@ pick one based on:
 ## Progress
 
 - [x] Spec drafted 2026-05-27 (this file).
-- [ ] Phase 1: 1–2 day literature read + toy Newton convergence test.
-- [ ] Phase 2: Pick approach, implement.
-- [ ] Phase 3: Validate against pkg104 prism-bk7 scene.
+- [x] Phase 1: Literature read + toy Newton convergence test (2026-05-28).
+- [x] Phase 2 Chunks A/B/C/D-seed: MNEE foundation complete (PRs #387/#389/#390/#391, 2026-05-28) — analytic Jacobian, surface partials, multi-vertex manifold chain, mesh seed-ray + triangulated prism chain convergence.
+- [ ] Phase 2 Chunk D-radiance: Wire multi-vertex MNEE into live integrator (transfer-matrix geometry term + finite prism faces + in-triangle validity + visibility; currently renders chromatic noise on wip/pkg106-chunk-d-radiance).
+- [ ] Phase 2 Chunk E: Triangulated prism scene + hue_spread ≥0.7 tuning.
 
 ---
 

@@ -1,7 +1,7 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-28 (Round 15 active — pkg64-gpu Session 2 + pkg106 Chunk A + pkg105 shipped; pkg106 Chunk B next)
-**Prepared by:** Claude (Anthropic Code) — updated after Round 15 partial closeout
+**Date:** 2026-05-29 (Round 15 active — pkg106 Chunks B/C/D-seed shipped; pkg106 Chunk D-radiance next)
+**Prepared by:** Claude (Anthropic Code) — updated after Round 15 Wave 2 closeout
 **Scope:** Round 15 continuation.
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C; Pillar 4
@@ -12,11 +12,21 @@
 
 ## 1. Current state (one screen)
 
-**Done in Round 15 partial (3 PRs merged, 2026-05-28):**
+**Done in Round 15 Wave 2 (3 PRs merged, 2026-05-28):**
+
+**Key achievements:**
+- **pkg106 MNEE foundation COMPLETE** (PRs #389/#390/#391) — Chunks B/C/D-seed shipped: surface (u,v) partials (`manifold/surface_partials.h` — `trianglePartials` / `spherePartials` computed on-demand, not stored in HitRecord), analytic Newton solver (`newton_iterate.h::solveAnalytic` — driven by analytic Jacobian, replaces FD path on triangulated casters), multi-vertex manifold chain (`manifold/manifold_chain.h` — `chainEval` block-tridiagonal `a`/`b`/`c` Jacobian + dense Gaussian-elimination solve + `solveChain` damped block Newton with Cycles `beta` step control), mesh seed-ray + chain convergence on triangulated prism (`manifold/mesh_caustic.h` — `seedChainFromRay` + `rayTriHit` Möller-Trumbore + `makeFlatReproject`). **All CPU-only header math + unit tests, validated to ~1e-11 vs finite-difference / analytic Snell.** Remaining work: **Chunk D-radiance** (wire multi-vertex mesh MNEE into live `sms_caustic_path_tracer` — port Cycles `mnee_compute_transfer_matrix` generalized-geometry term + finite prism faces + in-triangle validity + tighter visibility; WIP branch `wip/pkg106-chunk-d-radiance` pushed to origin renders a chromatic caustic END-TO-END but as noise, not a clean rainbow) + **Chunk E** (prism scene + hue_spread ≥0.7 tuning).
+
+**Merged:**
+1. **PR #389 — pkg106 Chunk B** (`95df0a5`) — Surface partials + analytic Newton. 9/9 mnee tests pass. Newton converges in ≤8 iterations on tilted plane.
+2. **PR #390 — pkg106 Chunk C** (`3588bed`) — Multi-vertex manifold chain. Ports Cycles `mnee.h` lines 248–365 (Apache-2.0). 3/3 chain tests pass; Jacobian-vs-FD ~1e-11, block Newton converges in 4 iterations on 2-refraction chain.
+3. **PR #391 — pkg106 Chunk D-seed** (`6a18e9c`) — Mesh seed-ray + chain on triangulated prism. Mirrors Cycles `mnee.h` lines 29-44 (Apache-2.0). Orthonormal in-plane (u,v) frame → 3-iteration convergence. 14/14 mnee tests pass.
+
+**Done in Round 15 Wave 1 (3 PRs merged, 2026-05-28):**
 
 **Key achievements:**
 - **pkg64-gpu Session 2 DONE** (PR #385) — Root cause: GPU hero-wavelength distribution bug (lambda[0] confined to violet quarter). Fixed both GPU samplers + mirrored CPU terminateSecondary. Gates re-spec'd (SSIM ≥0.97 unreachable for independent MC streams, CPU-vs-CPU ~0.53 at 256 spp). New gates: SSIM ≥0.85 + ROI luminance-parity [0.5,2.0]. Measured: SSIM 0.928, energy 1.38×, PSNR +2.19 dB.
-- **pkg106 Chunk A DONE** (PR #387) — Analytic half-vector constraint Jacobian (Cycles mnee.h + Hanika 2015 §5). Root cause of SMS-on-triangles failure: central-difference Jacobian → spurious discontinuity on facet edges. Chunks B-E remain (surface (u,v) partials, Newton wiring, triangulated prism scene with hue_spread ≥0.7).
+- **pkg106 Chunk A DONE** (PR #387) — Analytic half-vector constraint Jacobian (Cycles mnee.h + Hanika 2015 §5). Root cause of SMS-on-triangles failure: central-difference Jacobian → spurious discontinuity on facet edges.
 - **pkg105 DONE** (PR #381) — BH Blender addon integration. Exposed r_obs_M (pkg107), Kerr spin, ADAF params (pkg44). Pillar 4 Blender surface complete for BH objects.
 
 **Merged:**
@@ -126,14 +136,14 @@
 
 ## 2. Recommended next deployable set (Round 15 continuation)
 
-**Round 15 partial complete (2026-05-28).** 3 PRs merged: pkg64-gpu Session 2, pkg106 Chunk A, pkg105. **pkg64-gpu Session 2 complete** (hero-wavelength bug fixed, gates re-spec'd + green). **pkg106 Chunk A complete** (analytic Jacobian). **pkg105 complete** (BH addon params).
+**Round 15 Wave 2 complete (2026-05-28).** 3 PRs merged: pkg106 Chunks B/C/D-seed. **pkg106 MNEE foundation complete** (surface partials + analytic Newton + multi-vertex manifold chain + mesh seed-ray; all CPU-only header math + unit tests).
 
 **Round 15 continuation priorities**:
 
 **Lead track:**
 
-- **pkg106 Chunk B — surface (u,v) partials + analytic Newton solver wiring**
-  Chunk A (PR #387) added the analytic half-vector constraint Jacobian. Chunk B wires it into the Newton solver (replacing the central-difference path for caustic casters) and adds the surface (u,v) partials (dp_du/dp_dv/dn_du/dn_dv) to triangle/sphere intersection. Astroray's HitRecord currently carries only an arbitrary buildOrthonormalBasis frame, not the true surface partials. This is the direct continuation of the pkg106 implementation plan (see .astroray_plan/docs/pkg106-phase2-implementation-plan.md). Architect estimate: ~1-2 days for Chunk B, then Chunks C-E (triangle reprojection, integrator wiring, triangulated prism scene with hue_spread ≥0.7).
+- **pkg106 Chunk D-radiance — wire multi-vertex mesh MNEE into live integrator (the rainbow finish)**
+  Chunks A/B/C/D-seed (PRs #387/#389/#390/#391) complete — the full MNEE math+geometry FOUNDATION is merged. Chunk D-radiance wires it into the live `sms_caustic_path_tracer` and RENDERS a chromatic caustic from a triangulated prism. WIP branch `wip/pkg106-chunk-d-radiance` (pushed to origin) renders a chromatic caustic END-TO-END but currently as chromatic NOISE, not a clean rainbow band. Precise remaining work documented in `.astroray_plan/docs/pkg106-research-2026-05-28.md` (Update 2026-05-29 section, on the wip branch): port Cycles `mnee_compute_transfer_matrix` generalized-geometry term (block-tridiagonal LU of the chain Jacobian for the 2-face Fresnel transfer + chromatic hero contribution), finite prism faces + in-triangle validity, tighter visibility, then Chunk E (prism scene + hue_spread ≥0.7 tuning). Architect estimate: ~2-3 days for Chunk D-radiance, then ~1 day for Chunk E tuning.
 
 **Second tier:**
 
@@ -201,32 +211,35 @@
 
 ## 3. Drop-in prompts per agent
 
-### 3.0 Claude Code (Track A) — pkg106 Chunk B (surface partials + Newton wiring, TOP PRIORITY)
+### 3.0 Claude Code (Track A) — pkg106 Chunk D-radiance (rainbow finish, TOP PRIORITY)
 
 ```
-You are Claude Code on the RTX box. pkg106 Chunk B — surface (u,v) partials + analytic Newton solver wiring. Chunk A (PR #387, merged 2026-05-28) added the analytic half-vector constraint Jacobian (halfVectorConstraintJacobian in manifold/half_vector_constraint.h). Now wire it into the Newton solver and add surface (u,v) partials to intersection records.
+You are Claude Code on the RTX box. pkg106 Chunk D-radiance — wire multi-vertex mesh MNEE into live integrator (the rainbow finish). Chunks A/B/C/D-seed (PRs #387/#389/#390/#391, merged 2026-05-28) COMPLETE — the full MNEE math+geometry FOUNDATION is merged to main.
+
+WIP branch `wip/pkg106-chunk-d-radiance` (pushed to origin) renders a chromatic caustic from a triangulated prism END-TO-END but currently as chromatic NOISE, not a clean rainbow band.
 
 Read first:
   - .astroray_plan/packages/pkg106-sms-on-triangulated-prisms.md (spec)
-  - .astroray_plan/docs/pkg106-phase2-implementation-plan.md (5-chunk breakdown)
-  - .astroray_plan/docs/pkg106-research-2026-05-28.md (Cycles math + citations)
-  - include/astroray/manifold/half_vector_constraint.h (Chunk A output)
-  - include/astroray/manifold/newton_iterate.h (central-difference Jacobian to replace)
-  - include/astroray/hit_record.h (add dp_du/dp_dv/dn_du/dn_dv)
-  - src/shapes/triangle.cpp + src/shapes/sphere.cpp (compute surface partials at intersection)
+  - .astroray_plan/docs/pkg106-research-2026-05-28.md (Cycles math + Update 2026-05-29 section on wip/pkg106-chunk-d-radiance branch)
+  - wip/pkg106-chunk-d-radiance branch: plugins/integrators/sms_caustic_path_tracer.cpp (WIP integration)
+  - include/astroray/manifold/manifold_chain.h (Chunk C — multi-vertex chain solver)
+  - include/astroray/manifold/mesh_caustic.h (Chunk D-seed — seed-ray construction)
 
-Goal: Replace newton_iterate.h's central-difference Jacobian with the analytic one for caustic casters. Add surface (u,v) partial derivatives (dp_du/dp_dv/dn_du/dn_dv) to HitRecord and compute them in triangle/sphere hit methods. This closes the SMS-on-triangles root cause (central-difference → spurious discontinuity on facet edges).
+Precise remaining work (from pkg106-research-2026-05-28.md Update 2026-05-29 on wip branch):
+  1. Port Cycles `mnee_compute_transfer_matrix` generalized-geometry term — block-tridiagonal LU of the chain Jacobian for the 2-face Fresnel transfer + chromatic hero contribution (the term currently missing from the WIP integrator).
+  2. Finite prism faces + in-triangle validity — seed-ray currently treats prism as infinite; need to clip to triangle bounds.
+  3. Tighter visibility — full sender-to-receiver visibility check through the multi-vertex chain.
+  4. Chunk E follow-up: prism scene + hue_spread ≥0.7 tuning.
 
 Acceptance (per spec):
-  - Analytic Jacobian used for caustic casters (triangles + spheres).
-  - Triangle hit computes dp_du/dp_dv/dn_du/dn_dv from edge vectors.
-  - Sphere hit computes dp_du/dp_dv/dn_du/dn_dv from parametric sphere partials.
-  - Existing SMS sphere caustic tests pass (no regression).
-  - New test: triangulated prism scene renders with reduced salt-and-pepper noise (visual inspection; hue_spread gate deferred to Chunk D).
+  - Rendered triangulated prism scene at 1024 spp shows a visible rainbow band on the receiver, distinguishable from MC noise (hue_spread ≥0.7 AND a continuous rainbow region, not isolated chromatic pixels).
+  - Existing sphere-as-lens scene still passes (no regression).
+  - Reflective cup scene still passes.
+  - Cited reference: Cycles `kernel/integrator/mnee.h` Apache-2.0.
 
-Constraints: CLAUDE.md 1,2,3,6. Cite Cycles mnee.h + Hanika 2015.
+Constraints: CLAUDE.md 1,2,3,6. Cite Cycles mnee.h (lines for transfer-matrix term).
 
-When done: pkg106 spec Chunk B status → done + PR. PR titled "feat(pkg106 Chunk B): surface (u,v) partials + analytic Newton wiring".
+When done: pkg106 spec Chunk D-radiance status → done + PR. PR titled "feat(pkg106 Chunk D-radiance): wire multi-vertex mesh MNEE + rainbow caustic".
 ```
 
 ### 3.1 Claude Code (Track A) — pkg55-B' Session N+5 (next CUDA port stage continuation, SECOND TIER)

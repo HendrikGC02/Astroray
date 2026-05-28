@@ -1,26 +1,40 @@
 # Astroray Status
 
-**Last updated:** 2026-05-28 (Round 15 partial: 3 PRs merged — pkg64-gpu Session 2, pkg106 Chunk A, pkg105).
+**Last updated:** 2026-05-29 (Round 15 Wave 2: pkg106 Chunks B/C/D-seed merged — MNEE foundation complete).
 
-## Round 15 partial closeout (3 PRs merged, 2026-05-28)
+## Round 15 Wave 2 closeout (3 PRs merged, 2026-05-28)
+
+**Key achievements:**
+- **pkg106 MNEE foundation COMPLETE** (PRs #389/#390/#391) — Chunks B/C/D-seed shipped: surface (u,v) partials (`manifold/surface_partials.h`), analytic Newton solver (`newton_iterate.h::solveAnalytic`), multi-vertex manifold chain (`manifold/manifold_chain.h` — block-tridiagonal Jacobian + damped Newton), mesh seed-ray + chain convergence on triangulated prism (`manifold/mesh_caustic.h`). **All CPU-only header math + unit tests, validated to ~1e-11 vs finite-difference / analytic Snell.** Remaining work: **Chunk D-radiance** (wire multi-vertex MNEE into live integrator — port Cycles transfer-matrix geometry term + finite prism faces + in-triangle validity + tighter visibility; currently renders chromatic noise on wip/pkg106-chunk-d-radiance) + **Chunk E** (prism scene + hue_spread ≥0.7 tuning).
+
+**Merged 2026-05-28:**
+1. **PR #389 — pkg106 Chunk B** (`95df0a5`) — Surface (u,v) partials + analytic Newton solver. `trianglePartials` / `spherePartials` (computed on-demand from geometry, not stored in HitRecord) + `solveAnalytic()` driven by analytic Jacobian (replaces FD path on triangulated casters). 9/9 mnee tests pass. Validation: Newton converges in ≤8 iterations on tilted plane.
+2. **PR #390 — pkg106 Chunk C** (`3588bed`) — Multi-vertex manifold chain. `ChainVertex` + `chainEval` (residual + block-tridiagonal `a`/`b`/`c` Jacobian) + dense Gaussian-elimination solve + `solveChain` damped block Newton (Cycles `beta` step control + per-vertex reprojection). Ports Cycles `mnee.h` lines 248–365 (Apache-2.0). 3/3 chain tests pass; Jacobian-vs-FD ~1e-11, block Newton converges in 4 iterations on 2-refraction chain.
+3. **PR #391 — pkg106 Chunk D-seed** (`6a18e9c`) — Mesh seed-ray + chain on triangulated prism. `CausticTri` + Möller-Trumbore `rayTriHit` + `seedChainFromRay` (cast x0→light, collect ordered caustic-caster intersections) + `makeFlatReproject`. Mirrors Cycles `mnee.h` lines 29-44 (Apache-2.0). Seed vertices use **orthonormal** in-plane (u,v) frame (non-unit parameterization breaks clamp → divergence); verified: raw edges → no convergence, orthonormal → 3 iterations. 14/14 mnee tests pass.
+
+**In-flight / deferred:**
+- **pkg106 Chunk D-radiance + E** — wire multi-vertex mesh MNEE into live `sms_caustic_path_tracer` (generalized-geometry term + 2-face Fresnel + chromatic hero contribution) + triangulated prism scene + hue_spread ≥0.7. WIP branch `wip/pkg106-chunk-d-radiance` (pushed to origin) renders a chromatic caustic END-TO-END but as noise, not a clean rainbow. Precise remaining work documented in `.astroray_plan/docs/pkg106-research-2026-05-28.md` (Update 2026-05-29 section on the wip branch). **Lead track for Round 15 continuation.**
+- **pkg55-B' Session N+5** — next CUDA-port stage continuation (metal/dielectric/disney shade kernels or RR/miss handling). Second-tier track.
+
+**Full standup:** (not yet committed).
+
+---
+
+## Round 15 Wave 1 closeout (3 PRs merged, 2026-05-28)
 
 **Key achievements:**
 - **pkg64-gpu Session 2 DONE** (PR #385) — Root cause: GPU hero-wavelength distribution bug (lambda[0] confined to violet quarter). Fixed both GPU samplers + mirrored CPU terminateSecondary. **Gates re-spec'd** (owner-adjudicated): SSIM ≥0.97 unreachable for independent MC streams (CPU-vs-CPU ~0.53 at 256 spp), new gates SSIM ≥0.85 + ROI luminance-parity [0.5,2.0]. Measured: SSIM 0.928, energy 1.38×, PSNR +2.19 dB. Test integrator mismatch fixed (GPU no-NEE vs CPU NEE). **Session 2 complete.**
-- **pkg106 Chunk A DONE** (PR #387) — Analytic half-vector constraint Jacobian (Cycles mnee.h + Hanika 2015 §5). Root cause of SMS-on-triangles failure: newton_iterate.h central-difference Jacobian → spurious discontinuity on facet edges. Chunk A adds halfVectorConstraintJacobian + test. **Chunks B-E remain** (surface (u,v) partials, Newton wiring, triangulated prism scene with hue_spread ≥0.7).
+- **pkg106 Chunk A DONE** (PR #387) — Analytic half-vector constraint Jacobian (Cycles mnee.h + Hanika 2015 §5). Root cause of SMS-on-triangles failure: newton_iterate.h central-difference Jacobian → spurious discontinuity on facet edges. Chunk A adds halfVectorConstraintJacobian + test. Validation: analytic-vs-FD ~2e-7 (C++ float32) / ~2e-10 (Python float64). 5/5 new tests pass.
 - **pkg105 DONE** (PR #381) — Blender BH addon integration. Exposed r_obs_M (pkg107), Kerr spin, ADAF params (pkg44). **Pillar 4 Blender surface complete** for BH objects.
 
 **Merged 2026-05-28:**
 1. **PR #385 — pkg64-gpu Session 2** (`806991b`) — Hero-wavelength sampler fix + terminateSecondary + gates re-spec'd. SSIM 0.928 ≥0.85 PASS; energy 1.38× ≥1.045× PASS; PSNR +2.19 dB ≥−0.5 dB PASS.
-2. **PR #387 — pkg106 Chunk A** (`53b279b`) — Analytic Jacobian + test. Analytic-vs-FD validation ~2e-7 (C++ float32) / ~2e-10 (Python float64). 5/5 new tests pass.
-3. **PR #381 — pkg105** (`e7435a6`) — BH addon panel params. r_obs_M + spin + ADAF mdot_edd/electron_temp/beta_mag/r_inner/r_outer/flattening/alpha/s/intensity_scale. 2 new tests pass.
+2. **PR #387 — pkg106 Chunk A** (`53b279b`) — Analytic Jacobian + test. 5/5 new tests pass.
+3. **PR #381 — pkg105** (`e7435a6`) — BH addon panel params. 2 new tests pass.
 
 **Additional merges (test-only, no packages):**
 4. **PR #386 — fix #298** (`f22d1cb`) — ReSTIR spatial-MSE flake: pinned reference seed (seed=0 std::random_device sentinel was re-randomising).
 5. **PR #384 — fix #276** (`89f8fe7`) — Clearcoat test flake: pinned seed.
-
-**In-flight / deferred:**
-- **pkg55-B' Session N+5** — next CUDA-port stage continuation (metal/dielectric/disney shade kernels or RR/miss handling). Lead track per NEXT_STAGE_REPORT §2.
-- **pkg106 Chunks B-E** — surface partials + Newton wiring + triangulated prism acceptance (hue_spread ≥0.7). In progress.
 
 **Full standup:** (not yet committed).
 

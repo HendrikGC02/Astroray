@@ -165,8 +165,16 @@ class TestSpatialMSE:
     dramatically improves light coverage and lowers MSE.
 
     Averaging N_MEASURE frames reduces single-frame noise. Seeds are aligned:
-    render_warmed(seed=0, warmup=WARMUP) measures at seeds WARMUP..WARMUP+N-1;
-    the no-reuse baseline uses the same seeds.
+    render_warmed(seed=SEED, warmup=WARMUP) measures at seeds
+    SEED+WARMUP..SEED+WARMUP+N-1; the no-reuse baseline uses the same seeds.
+
+    SEED must be non-zero: renderSeed==0 is the engine's std::random_device
+    sentinel (raytracer.h:2803), which would re-randomise the reference and
+    the first warmup frame every run. Because the same reference is reused
+    across all N_MEASURE frames, that shared noise does NOT average out — it
+    biases the whole comparison and flips this razor-thin (~0.3%) assertion
+    across CI runs. A fixed non-zero seed makes every render reproducible;
+    the spatial benefit itself is structurally positive across seeds.
     """
     WIDTH     = 24
     HEIGHT    = 24
@@ -175,28 +183,31 @@ class TestSpatialMSE:
     TEST_SPP  = 1   # low SPP maximises the reuse benefit
     WARMUP    = 3
     N_MEASURE = 8   # average over 8 frames to suppress single-frame noise
+    SEED      = 1   # non-zero: avoids the renderSeed==0 random sentinel
 
     def _scene(self, r):
         build_many_light_scene(r, n_lights=self.N_LIGHTS, light_intensity=6.0)
 
     def test_spatial_reduces_mse(self, astroray_module):
-        # Converged reference.
+        # Converged reference (fixed non-zero seed — see class docstring).
         ref_r = make_renderer(astroray_module, self.WIDTH, self.HEIGHT)
         self._scene(ref_r)
-        reference = render(ref_r, "restir-di", samples=self.REF_SPP, seed=0)
+        reference = render(ref_r, "restir-di", samples=self.REF_SPP, seed=self.SEED)
 
-        # Baseline: N_MEASURE no-reuse frames at seeds WARMUP..WARMUP+N-1.
+        # Baseline: N_MEASURE no-reuse frames at seeds
+        # SEED+WARMUP..SEED+WARMUP+N-1.
         no_r = make_renderer(astroray_module, self.WIDTH, self.HEIGHT)
         self._scene(no_r)
         mse_no_list = []
         for i in range(self.N_MEASURE):
             frame = render(no_r, "restir-di", samples=self.TEST_SPP,
-                           seed=self.WARMUP + i)
+                           seed=self.SEED + self.WARMUP + i)
             mse_no_list.append(mse(frame, reference))
         mean_mse_no = float(np.mean(mse_no_list))
 
-        # Spatial with warmup: render_warmed(seed=0, warmup=WARMUP) uses
-        # measure seeds WARMUP..WARMUP+N-1 — identical to the no-reuse seeds.
+        # Spatial with warmup: render_warmed(seed=SEED, warmup=WARMUP) uses
+        # measure seeds SEED+WARMUP..SEED+WARMUP+N-1 — identical to the
+        # no-reuse seeds.
         spatial_imgs = render_warmed(
             astroray_module,
             self._scene,
@@ -204,7 +215,7 @@ class TestSpatialMSE:
             warmup_frames=self.WARMUP,
             measure_frames=self.N_MEASURE,
             width=self.WIDTH, height=self.HEIGHT,
-            samples=self.TEST_SPP, seed=0,
+            samples=self.TEST_SPP, seed=self.SEED,
             use_spatial=True,
         )
         mean_mse_spatial = float(np.mean([mse(img, reference)

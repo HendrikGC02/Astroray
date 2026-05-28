@@ -25,6 +25,10 @@ own because a dependency for 40 lines of code is ridiculous.
     `SampledWavelengths`, `RGBAlbedoSpectrum` design. Apache 2.0 —
     permissive, but we port the idea not the code (to avoid license
     contamination).
+  - `SampledWavelengths::TerminateSecondary()` `pdf[0] /= N` normalization
+    term for dispersive/delta interfaces — see
+    `.astroray_plan/docs/pkg64-gpu-session2-research.md` (Wilkie 2014 hero
+    sampling + the compensation Astroray's `terminateSecondary` was missing).
   - `src/pbrt/util/color.h` — CIE color matching functions.
 - **Mitsuba 3** — https://github.com/mitsuba-renderer/mitsuba3
   - `src/librender/spectrum.cpp` — alternative design for cross-ref.

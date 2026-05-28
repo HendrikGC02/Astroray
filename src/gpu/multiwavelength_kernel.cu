@@ -114,14 +114,25 @@ void uploadProfileTable(const float* host, int count) {
 __device__ inline GSampledWavelengths gpu_sampleBandWavelengths(
     curandState* rng, float lmin, float lmax)
 {
+    // Hero-wavelength layout MUST match CPU SampledWavelengths::sampleUniform
+    // (src/spectrum.cpp:82) and the wavefront sampler (stage_init.cu:64):
+    //   hero    = lmin + u*span          (hero spans the FULL band)
+    //   lam[i]  = hero + i*step          (stratified secondaries)
+    //   lam[i] -= span  if lam[i] > lmax (wrap into range)
+    // The previous `(u+i)/N` form confined the hero lam[0] to the first 1/N of
+    // the band (violet/blue with a [380,780] prism band) — the SMS caustic
+    // colorizes off lam[0], so that produced a violet caustic instead of a
+    // full rainbow. See pkg64-gpu-session2-research.md (afternoon update).
     GSampledWavelengths wl;
-    float u = curand_uniform(rng);
+    float u    = curand_uniform(rng);
     float span = lmax - lmin;
-    float pdf = 1.f / span;
+    float step = span / float(G_SPECTRUM_SAMPLES);
+    float hero = lmin + u * span;
+    float pdf  = 1.f / span;
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
-        float offset = (u + float(i)) / float(G_SPECTRUM_SAMPLES);
-        offset -= floorf(offset);
-        wl.lambda[i] = lmin + offset * span;
+        float lam = hero + float(i) * step;
+        if (lam > lmax) lam -= span;
+        wl.lambda[i] = lam;
         wl.pdf[i]    = pdf;
     }
     return wl;

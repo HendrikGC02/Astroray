@@ -23,6 +23,8 @@
 #include "astroray/spectrum.h"
 #include "astroray/spectral_profile.h"
 #include "astroray/manifold/half_vector_constraint.h"  // pkg106 Chunk A test helper
+#include "astroray/manifold/surface_partials.h"         // pkg106 Chunk B test helper
+#include "astroray/manifold/newton_iterate.h"           // pkg106 Chunk B test helper
 #include "astroray/restir/reservoir.h"
 #include "astroray/restir/light_sample.h"
 #include "astroray/restir/frame_state.h"
@@ -2172,6 +2174,64 @@ PYBIND11_MODULE(astroray, m) {
           },
           "x0"_a, "x1"_a, "x2"_a, "n1"_a, "dp_du"_a, "dp_dv"_a,
           "dn_du"_a, "dn_dv"_a, "eta"_a, "refraction"_a);
+
+    // pkg106 Chunk B test helpers ----------------------------------------------
+    auto vtuple = [](const Vec3& v) { return py::make_tuple(v.x, v.y, v.z); };
+
+    // Triangle (u,v) partials: returns (dp_du, dp_dv, dn_du, dn_dv) each a 3-tuple.
+    m.def("_mnee_triangle_partials",
+          [vtuple](const std::array<float, 3>& v0, const std::array<float, 3>& v1,
+                   const std::array<float, 3>& v2) {
+              auto V = [](const std::array<float, 3>& a) { return Vec3(a[0], a[1], a[2]); };
+              Vec3 dpu, dpv, dnu, dnv;
+              astroray::manifold::trianglePartials(V(v0), V(v1), V(v2), dpu, dpv, dnu, dnv);
+              return py::make_tuple(vtuple(dpu), vtuple(dpv), vtuple(dnu), vtuple(dnv));
+          },
+          "v0"_a, "v1"_a, "v2"_a);
+
+    // Sphere (u,v) partials at point p on a sphere(center, radius).
+    m.def("_mnee_sphere_partials",
+          [vtuple](const std::array<float, 3>& center, const std::array<float, 3>& p,
+                   float radius) {
+              auto V = [](const std::array<float, 3>& a) { return Vec3(a[0], a[1], a[2]); };
+              Vec3 dpu, dpv, dnu, dnv;
+              astroray::manifold::spherePartials(V(center), V(p), radius, dpu, dpv, dnu, dnv);
+              return py::make_tuple(vtuple(dpu), vtuple(dpv), vtuple(dnu), vtuple(dnv));
+          },
+          "center"_a, "p"_a, "radius"_a);
+
+    // Analytic-Jacobian manifold Newton on a FLAT refractor (constant normal +
+    // partials; tangent step stays on the plane). Returns
+    // (converged, iterations, residual_norm, x1_u, x1_v, x1_w).
+    m.def("_mnee_newton_solve_flat",
+          [](const std::array<float, 3>& x0, const std::array<float, 3>& x2,
+             const std::array<float, 3>& n1, const std::array<float, 3>& dp_du,
+             const std::array<float, 3>& dp_dv, const std::array<float, 3>& x1_init,
+             float eta, bool refraction, int max_iter, float tol) {
+              auto V = [](const std::array<float, 3>& a) { return Vec3(a[0], a[1], a[2]); };
+              const Vec3 n = V(n1), dpu = V(dp_du), dpv = V(dp_dv);
+              // Flat reprojection: stay on the plane, normal + partials constant.
+              astroray::manifold::ReprojectFnAnalytic reproject =
+                  [n, dpu, dpv](const Vec3& x1, const Vec3& s, const Vec3& t,
+                                float du, float dv, Vec3& ox, Vec3& on,
+                                Vec3& odpu, Vec3& odpv, Vec3& odnu, Vec3& odnv) {
+                      ox = x1 + s * du + t * dv;
+                      on = n; odpu = dpu; odpv = dpv;
+                      odnu = Vec3(0.0f); odnv = Vec3(0.0f);
+                      return true;
+                  };
+              astroray::manifold::NewtonConfig cfg;
+              cfg.maxIterations = max_iter;
+              cfg.tolerance = tol;
+              astroray::manifold::AnalyticNewtonResult r =
+                  astroray::manifold::solveAnalytic(
+                      V(x0), V(x2), eta, refraction, V(x1_init), n,
+                      dpu, dpv, Vec3(0.0f), Vec3(0.0f), reproject, cfg);
+              return py::make_tuple(r.converged, r.iterations, r.residualNorm,
+                                    r.x1.x, r.x1.y, r.x1.z);
+          },
+          "x0"_a, "x2"_a, "n1"_a, "dp_du"_a, "dp_dv"_a, "x1_init"_a,
+          "eta"_a, "refraction"_a, "max_iter"_a = 20, "tol"_a = 1e-5f);
     m.def("synchrotron_thermal_emissivity",
           &astroray::synchrotron::jnuThermalI,
           "nu_hz"_a, "n_e_cm3"_a, "T_e_K"_a, "B_gauss"_a, "theta_B"_a,

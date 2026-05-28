@@ -3391,6 +3391,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                             'base_density': bh.jet_base_density,
                             'magnetic_field': bh.jet_magnetic_field,
                         }
+                        # pkg107: r_obs_M world-to-GR scale (default 100, smaller → bigger shadow)
+                        if hasattr(bh, 'r_obs_M'):
+                            params['r_obs_M'] = bh.r_obs_M
+                        # General Kerr spin (Schwarzschild = 0)
+                        if hasattr(bh, 'spin'):
+                            params['spin'] = bh.spin
                         # pkg43: accretion model selector
                         if hasattr(bh, 'accretion_model'):
                             params['accretion_model'] = bh.accretion_model
@@ -3400,6 +3406,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                 params['slim_disk_r_inner'] = bh.slim_disk_r_inner
                                 params['slim_disk_intensity_scale'] = bh.slim_disk_intensity_scale
                                 params['slim_disk_base_density'] = bh.slim_disk_base_density
+                            # pkg44: ADAF parameters
+                            elif bh.accretion_model == 'ADAF':
+                                params['enable_adaf'] = True
+                                params['adaf_mdot_edd'] = bh.adaf_mdot_edd
+                                params['adaf_electron_temp'] = bh.adaf_electron_temp
+                                params['adaf_beta_mag'] = bh.adaf_beta_mag
+                                params['adaf_r_inner'] = bh.adaf_r_inner
+                                params['adaf_r_outer'] = bh.adaf_r_outer
+                                params['adaf_flattening'] = bh.adaf_flattening
+                                params['adaf_alpha'] = bh.adaf_alpha
+                                params['adaf_s'] = bh.adaf_s
+                                params['adaf_intensity_scale'] = bh.adaf_intensity_scale
                         renderer.add_black_hole(
                             [mw.translation.x, mw.translation.y, mw.translation.z],
                             bh.mass,
@@ -4447,6 +4465,18 @@ class AstrorayBlackHoleProperties(PropertyGroup):
     influence_radius: FloatProperty(name="Influence Radius", min=1.0, max=10000.0, default=100.0,
                                     description="World-space radius of the GR influence sphere")
 
+    # pkg107: world-to-GR scale factor. Smaller values shrink the world-to-GR
+    # mapping, growing the visible photon-orbit shadow at the same camera
+    # distance. Default 100.0 preserves pkg40-pkg44 baselines; pkg104 reference
+    # bank GR scenes use 20.0 for dramatic shadow visualisation.
+    r_obs_M: FloatProperty(name="r_obs_M", min=1.0, max=1000.0, default=100.0,
+                           description="World-to-GR scale: smaller \u2192 bigger visible shadow at the same camera distance")
+
+    # General Kerr spin (separates from slim_disk_spin which is specific to slim disk).
+    # Default 0 = Schwarzschild; \u00b10.998 = near-maximal Kerr.
+    spin: FloatProperty(name="Spin (a/M)", min=-0.998, max=0.998, default=0.0,
+                        description="Dimensionless Kerr spin parameter (a/M). 0 = Schwarzschild.")
+
     # pkg43/pkg44: accretion model selector
     accretion_model: EnumProperty(
         name="Accretion Model",
@@ -4454,7 +4484,7 @@ class AstrorayBlackHoleProperties(PropertyGroup):
         items=[
             ('NOVIKOV_THORNE', "Novikov-Thorne", "Standard thin disk (Page & Thorne 1974)"),
             ('SLIM_DISK', "Slim Disk", "Super-Eddington disk with advection (Abramowicz 1988 / Sadowski 2009)"),
-            ('ADAF', "ADAF", "Advection-dominated accretion flow (pkg44, not yet implemented)"),
+            ('ADAF', "ADAF", "Advection-dominated accretion flow (Narayan & Yi 1995 / pkg44)"),
         ],
         default='NOVIKOV_THORNE'
     )
@@ -4466,6 +4496,27 @@ class AstrorayBlackHoleProperties(PropertyGroup):
     inclination: FloatProperty(name="Inclination (\u00b0)", min=0.0, max=90.0, default=75.0,
                                 description="Observer inclination from the spin axis")
     show_disk: BoolProperty(name="Show Accretion Disk", default=True)
+
+    # pkg44 ADAF parameters (active when accretion_model == 'ADAF').
+    # Defaults are Sgr A*-like (radiatively-inefficient, near-spherical glow).
+    adaf_mdot_edd: FloatProperty(name="ADAF mdot/mdot_Edd", min=1e-12, max=1.0, default=1.0e-8,
+                                  description="Dimensionless mass accretion rate in units of Eddington")
+    adaf_electron_temp: FloatProperty(name="ADAF T_e (K)", min=1e8, max=1e12, default=1.0e10,
+                                       description="Electron temperature at outer boundary (K)")
+    adaf_beta_mag: FloatProperty(name="ADAF \u03b2 (p_mag/p_gas)", min=0.0, max=1.0, default=0.1,
+                                  description="Magnetic-to-gas pressure ratio")
+    adaf_r_inner: FloatProperty(name="ADAF r_inner (M)", min=1.0, max=100.0, default=1.5,
+                                 description="Inner radius of ADAF flow (M)")
+    adaf_r_outer: FloatProperty(name="ADAF r_outer (M)", min=10.0, max=10000.0, default=100.0,
+                                 description="Outer radius of ADAF flow (M)")
+    adaf_flattening: FloatProperty(name="ADAF flattening", min=0.0, max=1.0, default=0.0,
+                                    description="Vertical flattening (0 = spherical, 1 = disk)")
+    adaf_alpha: FloatProperty(name="ADAF \u03b1 viscosity", min=0.01, max=1.0, default=0.1,
+                               description="Shakura-Sunyaev viscosity")
+    adaf_s: FloatProperty(name="ADAF s (outflow)", min=0.0, max=1.0, default=0.3,
+                          description="Outflow exponent")
+    adaf_intensity_scale: FloatProperty(name="ADAF Intensity Scale", min=1e20, max=1e35, default=1.0e30,
+                                         description="Emission intensity multiplier (Sgr A* ~1e30)")
 
     # Slim disk specific parameters (pkg43)
     slim_disk_spin: FloatProperty(name="Spin (a)", min=-0.998, max=0.998, default=0.0,
@@ -4523,15 +4574,12 @@ class OBJECT_PT_astroray_black_hole(Panel):
         col = layout.column(align=True)
         col.prop(bh, "mass")
         col.prop(bh, "influence_radius")
+        col.prop(bh, "r_obs_M")          # pkg107: controls visible shadow size
+        col.prop(bh, "spin")             # general Kerr spin
         col.separator()
 
         # Accretion model selector (pkg43/pkg44)
         col.prop(bh, "accretion_model")
-
-        # ADAF is not yet implemented (pkg44), so disable that option
-        if bh.accretion_model == 'ADAF':
-            box = col.box()
-            box.label(text="ADAF not yet implemented (pkg44)", icon='ERROR')
 
         col.separator()
         col.prop(bh, "disk_outer")
@@ -4548,6 +4596,21 @@ class OBJECT_PT_astroray_black_hole(Panel):
             slim_col.prop(bh, "slim_disk_r_inner")
             slim_col.prop(bh, "slim_disk_intensity_scale")
             slim_col.prop(bh, "slim_disk_base_density")
+
+        # pkg44 ADAF parameters
+        if bh.accretion_model == 'ADAF':
+            col.separator()
+            adaf_col = col.column(align=True)
+            adaf_col.label(text="ADAF Parameters (Narayan & Yi 1995 / pkg44):")
+            adaf_col.prop(bh, "adaf_mdot_edd")
+            adaf_col.prop(bh, "adaf_electron_temp")
+            adaf_col.prop(bh, "adaf_beta_mag")
+            adaf_col.prop(bh, "adaf_r_inner")
+            adaf_col.prop(bh, "adaf_r_outer")
+            adaf_col.prop(bh, "adaf_flattening")
+            adaf_col.prop(bh, "adaf_alpha")
+            adaf_col.prop(bh, "adaf_s")
+            adaf_col.prop(bh, "adaf_intensity_scale")
 
         col.separator()
         col.prop(bh, "enable_jet")

@@ -2,7 +2,7 @@
 
 **Pillar:** 2 (Spectral core) + 3 (Light transport)
 **Track:** A (CPU integrator + numerical work) + C (research)
-**Status:** open — investigation spec
+**Status:** in progress (Chunk A done PR #387, 2026-05-28 — analytic Jacobian; Chunks B-E remain)
 **Estimated effort:** 1–2 weeks investigation, then either 2–4 weeks port-and-validate or 1 week deferral note
 **Depends on:** pkg64-gpu Phase 1/2/3 (done) + pkg64-gpu-sellmeier-session2-multi-ior (filed)
 

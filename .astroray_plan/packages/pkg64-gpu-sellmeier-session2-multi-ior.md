@@ -2,7 +2,7 @@
 
 **Pillar:** 1
 **Track:** A
-**Status:** Session 2 implemented 2026-05-28 (PR pending merge); SSIM/PSNR gates re-spec'd, energy gate green
+**Status:** done (PR #385, 2026-05-28 — SSIM 0.928 ≥0.85, energy 1.38×, PSNR +2.19 dB)
 **Estimated effort:** 1–2 weeks
 **Depends on:** pkg64-gpu-sellmeier-upload (PR #354, merged Round 14 2026-05-24, hero-only) + pkg55-B' Session N+4 part 1+2 (PRs #355+#356, NEE infrastructure on GPU)
 **Reference research:** Sellmeier 1871 (public domain); Cycles `intern/cycles/kernel/svm/closure_principled.h` per-wavelength refraction (Apache-2.0); PBRT-v4 `src/pbrt/bxdfs.h` `DielectricBxDF::Sample_f` multi-wavelength branch (Apache-2.0); Hero-wavelength algorithm — Wilkie et al. 2014 "Hero Wavelength Spectral Sampling" (EGSR 2014), reference for the splitting strategy.

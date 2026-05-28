@@ -42,14 +42,20 @@ __device__ inline GVec3 gpu_randomInUnitDisk(curandState* rng) {
 }
 
 __device__ inline GSampledWavelengths gpu_sampleUniformWavelengths(curandState* rng) {
+    // Hero layout must match CPU sampleUniform (src/spectrum.cpp:82): hero spans
+    // the full band, secondaries are stratified offsets with wrap-around. The
+    // prior `(u+i)/N` form confined lam[0] to the first 1/N of the band — see
+    // pkg64-gpu-session2-research.md (afternoon update) and stage_init.cu:64.
     GSampledWavelengths wl;
-    float u = curand_uniform(rng);
+    float u    = curand_uniform(rng);
     float span = G_LAMBDA_MAX - G_LAMBDA_MIN;
-    float pdf = 1.f / span;
+    float step = span / float(G_SPECTRUM_SAMPLES);
+    float hero = G_LAMBDA_MIN + u * span;
+    float pdf  = 1.f / span;
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
-        float offset = (u + float(i)) / float(G_SPECTRUM_SAMPLES);
-        offset -= floorf(offset);
-        wl.lambda[i] = G_LAMBDA_MIN + offset * span;
+        float lam = hero + float(i) * step;
+        if (lam > G_LAMBDA_MAX) lam -= span;
+        wl.lambda[i] = lam;
         wl.pdf[i] = pdf;
     }
     return wl;
@@ -291,9 +297,17 @@ __device__ inline GBSDFSample gpu_dielectric_sample(
 // pkg64-gpu-sellmeier-upload: wavelength-aware dielectric sampler for dispersive
 // materials. Uses hero wavelength (lambdas.lambda[0]) to evaluate Sellmeier IOR.
 // Mirrors CPU DielectricPlugin::sampleSpectral() hero-channel path.
+//
+// pkg64-gpu Session 2: on a dispersive REFRACTION the per-wavelength bend angles
+// differ, so the path can only follow the hero's direction — mirror CPU
+// dielectric.cpp:181-188 and terminate the secondary wavelengths. This is the
+// delta-dispersive collapse of Wilkie 2014 hero-wavelength MIS (CGF 33(4),
+// DOI:10.1111/cgf.12419): at a perfectly-specular interface only the hero's pdf
+// is nonzero at the sampled direction, so the MIS weights are [1,0,0,...].
+// `lambdas` is non-const so this terminate is visible to the downstream toXYZ.
 __device__ inline GBSDFSample gpu_dielectric_sample_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
-    const GSampledWavelengths& lambdas, curandState* rng)
+    GSampledWavelengths& lambdas, curandState* rng)
 {
     GBSDFSample s;
     s.isDelta = true;
@@ -326,6 +340,9 @@ __device__ inline GBSDFSample gpu_dielectric_sample_spectral(
         s.wi  = (wt_perp + wt_para).normalized();
         s.f   = GVec3(eta * eta);
         s.pdf = 1.f;
+        // Dispersive refraction: only the hero wavelength follows this bend.
+        // Mirror CPU dielectric.cpp:188 — terminate the secondary wavelengths.
+        if (mat.isDispersive) lambdas.terminateSecondary();
     }
     return s;
 }
@@ -941,9 +958,11 @@ __device__ inline GBSDFSample gpu_material_sample(
 
 __device__ inline GBSDFSample gpu_material_sample_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
-    const GSampledWavelengths& wl, curandState* rng)
+    GSampledWavelengths& wl, curandState* rng)
 {
     // pkg64-gpu-sellmeier-upload: dispatch to wavelength-aware sampler for dispersive dielectrics
+    // pkg64-gpu Session 2: `wl` is non-const — the dispersive dielectric calls
+    // wl.terminateSecondary() on refraction (hero-wavelength collapse).
     if (mat.type == GMAT_DIELECTRIC && mat.isDispersive) {
         GBSDFSample s = gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng);
         s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);

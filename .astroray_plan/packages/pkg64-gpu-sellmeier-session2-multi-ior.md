@@ -2,7 +2,7 @@
 
 **Pillar:** 1
 **Track:** A
-**Status:** open
+**Status:** Session 2 implemented 2026-05-28 (PR pending merge); SSIM/PSNR gates re-spec'd, energy gate green
 **Estimated effort:** 1–2 weeks
 **Depends on:** pkg64-gpu-sellmeier-upload (PR #354, merged Round 14 2026-05-24, hero-only) + pkg55-B' Session N+4 part 1+2 (PRs #355+#356, NEE infrastructure on GPU)
 **Reference research:** Sellmeier 1871 (public domain); Cycles `intern/cycles/kernel/svm/closure_principled.h` per-wavelength refraction (Apache-2.0); PBRT-v4 `src/pbrt/bxdfs.h` `DielectricBxDF::Sample_f` multi-wavelength branch (Apache-2.0); Hero-wavelength algorithm — Wilkie et al. 2014 "Hero Wavelength Spectral Sampling" (EGSR 2014), reference for the splitting strategy.
@@ -107,13 +107,45 @@ Update the `pkg64-gpu-sellmeier-upload.md` spec acceptance list to flip the defe
 
 ## Acceptance criteria
 
-- [ ] Phase 1 research notes filed at `.astroray_plan/docs/pkg64-gpu-session2-research.md` with chosen algorithm + Cycles file:line + acceptance plan.
-- [ ] Phase 2 implementation lands; the chosen algorithm is cited in code comments.
-- [ ] `test_pkg64_gpu_cpu_parity_ssim` un-xfail'd and PASSES at SSIM ≥ 0.97 on RTX.
-- [ ] `test_pkg64_gpu_phase3_prism_psnr_floor` un-xfail'd and PASSES at PSNR delta ≥ −0.5 dB on RTX.
-- [ ] No regression in any pkg55 / pkg64 existing tests.
-- [ ] Visual inspection: GPU prism render now shows chromatic spread (rainbow) matching CPU per-wavelength reference, not the Session 1 hero-only single bright point.
-- [ ] Spec amendment: `pkg64-gpu-sellmeier-upload.md` acceptance lines 112–113 flipped from `[x] ~~deferred~~` to `[x] PASS` with measured numbers.
+- [x] Phase 1 research notes filed at `.astroray_plan/docs/pkg64-gpu-session2-research.md` with chosen algorithm + Cycles/PBRT file:line + acceptance plan.
+- [x] Phase 2 implementation lands; the chosen algorithm is cited in code comments (Wilkie 2014 + PBRT-v4 `SampledWavelengths::TerminateSecondary`).
+- [x] `test_pkg64_gpu_cpu_parity_ssim` un-xfail'd and PASSES — **re-spec'd** (see Session 2 outcome below): SSIM 0.9277 ≥ 0.85 + ROI luminance-parity 1.30× in [0.5,2.0]. The original 0.97 was unreachable for independent MC streams (CPU-vs-CPU SSIM ≈ 0.53 at 256 spp).
+- [x] `test_pkg64_gpu_phase3_prism_psnr_floor` un-xfail'd and PASSES at PSNR delta = +2.19 dB ≥ −0.5 dB on RTX.
+- [x] No regression: 21 GPU-spectral tests pass (gpu_sellmeier_ior, gpu_multiwavelength, spectral_gpu_materials, sms_caustic_spectral, pkg64 phase2/phase3 no-regression, pkg55 CUDA threshold gate); 58 CPU spectral tests pass.
+- [x] Visual inspection: GPU prism render shows chromatic spread (color speckles, ROI energy matched 1.08×); hero-wavelength now spans the full band.
+- [ ] Spec amendment: `pkg64-gpu-sellmeier-upload.md` acceptance lines 112–113.
+
+## Session 2 outcome (2026-05-28, supervised)
+
+The Session 1 deferral framed this as "GPU needs per-wavelength chromatic spread."
+The real root cause was a **GPU hero-wavelength distribution bug**:
+`gpu_sampleBandWavelengths`/`gpu_sampleUniformWavelengths` confined `λ[0]` to the
+first 1/N of the band (violet), while CPU `sampleUniform` (and the already-fixed
+wavefront `stage_init.cu`) span the full band. The SMS caustic colorizes off
+`λ[0]`, so the GPU caustic was violet (near-zero luminance) — which is why the
+three 2026-05-28-morning attempts (all energy-normalization tweaks) failed on
+both SSIM and energy. Fix: match the CPU/wavefront hero layout + mirror CPU's
+`terminateSecondary` on dispersive refraction (the delta-collapse of Wilkie 2014
+hero-MIS). Receiver-energy improved 1.17× → 1.38×.
+
+Two gate-methodology findings (owner-adjudicated):
+1. **SSIM ≥ 0.97 / PSNR ≥ −0.5 were unreachable as written.** CPU-vs-CPU SSIM
+   (same engine, different seed) is only ~0.53 at 256 spp — the threshold
+   exceeded the scene's own noise floor (`ssim-wrong-gate-for-independent-rng`).
+   Re-spec'd to a noise-floor-aware SSIM ≥ 0.85 + ROI luminance-parity gate; the
+   residual gap to 0.97 is the spec's pre-accepted "Option B stalls at 0.93–0.95"
+   case (Option A = per-wavelength split remains a future option).
+2. **The parity test had an integrator mismatch:** GPU ran
+   `multiwavelength_path_tracer` (NEE off → dark floor) vs CPU `path_tracer`
+   (NEE on → lit floor). Both route through the same megakernel; matching the
+   integrator (GPU → `path_tracer`) fixed the floor and lifted SSIM 0.49 → 0.93
+   and PSNR −3.9 → +2.2 dB. Receiver-energy keeps the no-NEE variant to isolate
+   the caustic.
+
+**Deferred (not needed):** the PBRT `pdf[0] /= N` compensation term (Astroray's
+`terminateSecondary` omits it on both CPU and GPU). Energy already clears the
+gate at 1.38× without it; adding it would change CPU caustic brightness and need
+a CPU baseline re-bless. Filed in the research note as a future correctness item.
 
 ---
 

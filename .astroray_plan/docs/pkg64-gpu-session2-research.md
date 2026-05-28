@@ -162,3 +162,125 @@ This is **at least a full day of integrator-side surgery + owner-eyes-on-math + 
 **Action for owner:** when ready to pick up Session 2, the right entry point is probably the CPU `SampledSpectrum::toXYZ` + `dielectric.cpp:181-188` pair — verify that the CPU is ALSO undergoing the 1/4 energy reduction we measured on GPU (it may be, and it may simply not be a gated test there). If yes, the per-ray reduction is the expected MC variance and the test baselines need updating. If no, there's some compensation in CPU's path-integrator that isn't on GPU and we need to find it.
 
 **Code-side artifact:** three files were modified and reverted today (`gpu_types.h`, `gpu_materials.h`, `multiwavelength_kernel.cu`). The hero-only Session 1 behavior remains as shipped. No engine changes ship from this session.
+
+---
+
+## Update 2026-05-28 (afternoon, supervised session) — ROOT CAUSE FOUND
+
+The three morning attempts chased the wrong variable (energy normalization). The
+actual SSIM-killer is a **hero-wavelength distribution bug** in the GPU sampler,
+and the receiver-energy collapse is explained by a **missing PBRT compensation
+term** in `terminateSecondary`. Both are concrete and citable.
+
+### Canonical paper
+
+- **Title:** Hero Wavelength Spectral Sampling
+- **Authors:** A. Wilkie, S. Nawaz, M. Droske, A. Weidlich, J. Hanika
+- **Year / Venue:** 2014, EGSR (Eurographics Symposium on Rendering); Computer
+  Graphics Forum 33(4):123–131.
+- **DOI:** 10.1111/cgf.12419
+- **PDF:** https://cgg.mff.cuni.cz/publications/hero-wavelength-spectral-sampling/
+- **Core idea:** sample one *hero* wavelength λ_h uniformly per path; place the
+  C−1 secondaries at equal spacing so the C samples evenly cover the band; do
+  all directional sampling with the hero; combine the per-wavelength estimators
+  with MIS (balance/power heuristic over the C wavelength pdfs at the sampled
+  direction). At a **delta (perfectly specular) dispersive interface** each
+  wavelength refracts at a *different* angle, so only the hero's pdf is nonzero
+  at the sampled direction → the MIS weights collapse to `[1,0,0,…]` and the
+  secondaries must be dropped. This is the `terminateSecondary` case.
+
+### Reference implementation (license-compatible)
+
+- **Repo:** PBRT-v4 — https://github.com/mmp/pbrt-v4
+- **File:** `src/pbrt/util/spectrum.h` — `class SampledWavelengths`.
+- **License:** Apache-2.0 → compatible with Astroray's MIT (permissive; we port
+  the *idea/term*, with attribution, not a verbatim copy).
+- The canonical `TerminateSecondary()` body (retrieved 2026-05-28):
+  ```cpp
+  void TerminateSecondary() {
+      if (SecondaryTerminated()) return;
+      for (int i = 1; i < NSpectrumSamples; ++i) pdf[i] = 0;
+      pdf[0] /= NSpectrumSamples;          // <-- THE COMPENSATION TERM
+  }
+  ```
+  PBRT's `SampledSpectrum::ToXYZ` divides by `NSpectrumSamples` via `.Average()`
+  (same structure as Astroray `toXYZ`'s `1/N`). The `pdf[0] /= N` line cancels
+  that `1/N` for the surviving hero, so a terminated dispersive path is an
+  **unbiased** single-hero estimate. Without it the path is N× too dark.
+- Spec also names Cycles `closure_principled.h` (hero branch) and PBRT-v4
+  `bxdfs.h DielectricBxDF::Sample_f`; PBRT's `SampledWavelengths` is the cleaner
+  citation for the *normalization* term that Astroray is missing.
+
+### Bug 1 (load-bearing): GPU hero-wavelength distribution
+
+`src/gpu/multiwavelength_kernel.cu::gpu_sampleBandWavelengths` (and the twin
+`include/astroray/gpu_materials.h::gpu_sampleUniformWavelengths`) compute
+`offset=(u+i)/N` ⇒ `λ[0] = lmin + (u/N)·span` — the hero is confined to the
+**first 1/N of the band** (with the prism's [380,780] band: λ[0]∈[380,480),
+pure violet/blue). CPU `SampledWavelengths::sampleUniform` (`src/spectrum.cpp:82`)
+and the *already-fixed* wavefront `src/gpu/wavefront/stage_init.cu:64` use
+`hero = lmin + u·span` ⇒ λ[0] spans the **full band**. Verified numerically:
+CPU hero mean 580 nm (full band), GPU multiwave hero mean 430 nm (violet).
+The 4-sample *sets* are statistically identical; only element [0] (the survivor
++ the SMS-caustic colorizing wavelength) differs. The fix already exists in
+`stage_init.cu` — it was never propagated to the multiwavelength kernel. This
+single bug confined the GPU prism caustic to violet (near-zero CMF_Y luminance),
+which is why all three morning attempts failed on *both* SSIM and energy, and
+why energy-normalization tweaks could never fix it.
+
+### Bug 2: missing compensation term (shared CPU + GPU spectral core)
+
+`astroray::SampledWavelengths::terminateSecondary()` (`src/spectrum.cpp:102`) and
+`GSampledWavelengths::terminateSecondary()` (`include/astroray/gpu_types.h:102`)
+both zero the secondary pdfs but **never divide `pdf[0]` by N** — they are an
+incomplete port of PBRT's `TerminateSecondary`. No integrator compensates
+elsewhere (`secondaryTerminated()` is exposed via the pybind binding but is not
+read by any integrator). Consequence: every Astroray dispersive caustic — CPU
+*and* GPU — is N× (≈4×) too dark in absolute terms. Parity holds (both equally
+dark) so the GPU↔CPU SSIM gate is unaffected, but the GPU receiver-energy
+ON/OFF ratio gate (fixed 1.045× threshold, luminance-weighted) is at risk: at
+1/N weight the chromatic caustic adds only ~4–5% in-window luminance, right at
+the gate. The SMS caustic hooks (`plugins/integrators/sms_caustic_path_tracer.cpp`
+out[0]=heroAccum; `multiwavelength_kernel.cu` smsContrib.v[0]=sampleHero) bypass
+`terminateSecondary` entirely, so the term has to be applied there as an explicit
+`×N` on the hero-only contribution.
+
+### What we reproduce vs deliberately omit
+
+- **Reproduce:** Wilkie hero sampling layout (full-band hero) + the PBRT
+  `pdf[0]/=N` delta-collapse normalization.
+- **Omit:** the general non-delta MIS power-heuristic branch. Astroray's
+  dielectric is pure specular (no roughness); no gate exercises a rough
+  dispersive closure, so writing that branch would be unreachable, untested
+  code (CLAUDE.md §2). Documented here as a future package if a glossy
+  dispersive material is ever added.
+
+### Implementation plan (incremental, measure before expanding scope)
+
+**Phase 2a (GPU-only, no CPU-output change, reversible):**
+1. Fix `gpu_sampleBandWavelengths` (+ `gpu_sampleUniformWavelengths`) to the CPU
+   `hero = lmin + u·span` layout, matching `stage_init.cu`.
+2. Mirror CPU's current `terminateSecondary` in the GPU dielectric refraction
+   (`gpu_materials.h:294`), making `lambdas` non-const.
+3. Build, run the 3 gates + reference-bank prism on RTX. Measure.
+
+**Phase 2b (only if 2a leaves receiver-energy < 1.045× or SSIM short) — touches
+the shared CPU spectral core, OWNER SIGN-OFF REQUIRED:**
+4. Add `pdf[0] /= N` to *both* `SampledWavelengths::terminateSecondary` (CPU) and
+   `GSampledWavelengths::terminateSecondary` (GPU) — the PBRT term.
+5. Multiply the hero-only SMS caustic contribution by N in *both* SMS hooks.
+6. Re-bless CPU baselines + the reference-bank prism (CPU caustics brighten ≈N×);
+   sweep CPU dispersive tests (test_pkg64_phase3_* CPU, test_pkg31, test_pkg13,
+   test_spectral_*) for shifted pins.
+
+### Citation block for the code
+
+```cpp
+// Hero-wavelength spectral sampling: Wilkie, Nawaz, Droske, Weidlich, Hanika,
+// "Hero Wavelength Spectral Sampling", EGSR 2014, CGF 33(4):123-131.
+// DOI:10.1111/cgf.12419. Delta-dispersive interface collapses the MIS weights
+// to hero-only (terminate secondaries). Normalization term mirrors PBRT-v4
+// (Apache-2.0) src/pbrt/util/spectrum.h SampledWavelengths::TerminateSecondary
+// (pdf[0] /= NSpectrumSamples). Hero-band layout mirrors CPU sampleUniform
+// (src/spectrum.cpp:82) and wavefront stage_init.cu:64.
+```

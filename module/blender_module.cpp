@@ -26,6 +26,7 @@
 #include "astroray/manifold/surface_partials.h"         // pkg106 Chunk B test helper
 #include "astroray/manifold/newton_iterate.h"           // pkg106 Chunk B test helper
 #include "astroray/manifold/manifold_chain.h"           // pkg106 Chunk C test helper
+#include "astroray/manifold/mesh_caustic.h"              // pkg106 Chunk D test helper
 #include "astroray/restir/reservoir.h"
 #include "astroray/restir/light_sample.h"
 #include "astroray/restir/frame_state.h"
@@ -2311,6 +2312,37 @@ PYBIND11_MODULE(astroray, m) {
               },
               "ps"_a, "ns"_a, "dp_dus"_a, "dp_dvs"_a, "etas"_a, "x0"_a, "light"_a,
               "refraction"_a, "max_iter"_a = 30, "tol"_a = 1e-5f, "max_step"_a = 0.3f);
+
+        // pkg106 Chunk D — mesh seed-ray + chain solve on a triangulated caster.
+        // tris is a flat list of 9 floats per triangle (v0,v1,v2). Returns
+        // (n_vertices, converged, iterations, residual, final_ps_flat[3N]).
+        m.def("_mnee_mesh_solve",
+              [](const std::vector<std::array<float, 9>>& tris,
+                 const std::array<float, 3>& x0, const std::array<float, 3>& light,
+                 float ior, int max_iter, float tol, float max_step) {
+                  std::vector<am::CausticTri> ctris(tris.size());
+                  for (size_t i = 0; i < tris.size(); ++i) {
+                      const auto& a = tris[i];
+                      ctris[i].v0 = Vec3(a[0], a[1], a[2]);
+                      ctris[i].v1 = Vec3(a[3], a[4], a[5]);
+                      ctris[i].v2 = Vec3(a[6], a[7], a[8]);
+                  }
+                  const Vec3 X0(x0[0], x0[1], x0[2]);
+                  const Vec3 L(light[0], light[1], light[2]);
+                  am::ChainVertex v[am::kMaxChainVertices];
+                  int N = am::seedChainFromRay(ctris.data(), (int)ctris.size(), X0, L,
+                                               ior, v, am::kMaxChainVertices);
+                  if (N == 0)
+                      return py::make_tuple(0, false, 0, 0.0f, std::vector<float>{});
+                  am::NewtonConfig cfg; cfg.maxIterations = max_iter; cfg.tolerance = tol;
+                  am::ChainResult r = am::solveChain(v, N, X0, L, /*refraction=*/true,
+                                                     am::makeFlatReproject(), cfg, max_step);
+                  std::vector<float> fp;
+                  for (int i = 0; i < N; ++i) { fp.push_back(v[i].p.x); fp.push_back(v[i].p.y); fp.push_back(v[i].p.z); }
+                  return py::make_tuple(N, r.converged, r.iterations, r.residualNorm, fp);
+              },
+              "tris"_a, "x0"_a, "light"_a, "ior"_a,
+              "max_iter"_a = 30, "tol"_a = 1e-5f, "max_step"_a = 0.3f);
     }
 
     m.def("synchrotron_thermal_emissivity",

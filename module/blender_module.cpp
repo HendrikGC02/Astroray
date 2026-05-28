@@ -25,6 +25,7 @@
 #include "astroray/manifold/half_vector_constraint.h"  // pkg106 Chunk A test helper
 #include "astroray/manifold/surface_partials.h"         // pkg106 Chunk B test helper
 #include "astroray/manifold/newton_iterate.h"           // pkg106 Chunk B test helper
+#include "astroray/manifold/manifold_chain.h"           // pkg106 Chunk C test helper
 #include "astroray/restir/reservoir.h"
 #include "astroray/restir/light_sample.h"
 #include "astroray/restir/frame_state.h"
@@ -2232,6 +2233,86 @@ PYBIND11_MODULE(astroray, m) {
           },
           "x0"_a, "x2"_a, "n1"_a, "dp_du"_a, "dp_dv"_a, "x1_init"_a,
           "eta"_a, "refraction"_a, "max_iter"_a = 20, "tol"_a = 1e-5f);
+
+    // pkg106 Chunk C test helpers — multi-vertex manifold chain ----------------
+    {
+        namespace am = astroray::manifold;
+        auto buildChain = [](const std::vector<std::array<float, 3>>& ps,
+                             const std::vector<std::array<float, 3>>& ns,
+                             const std::vector<std::array<float, 3>>& dpus,
+                             const std::vector<std::array<float, 3>>& dpvs,
+                             const std::vector<std::array<float, 3>>& dnus,
+                             const std::vector<std::array<float, 3>>& dnvs,
+                             const std::vector<float>& etas,
+                             am::ChainVertex* v) {
+            auto V = [](const std::array<float, 3>& a) { return Vec3(a[0], a[1], a[2]); };
+            int N = static_cast<int>(ps.size());
+            for (int i = 0; i < N; ++i) {
+                v[i].p = V(ps[i]); v[i].n = V(ns[i]);
+                v[i].dp_du = V(dpus[i]); v[i].dp_dv = V(dpvs[i]);
+                v[i].dn_du = V(dnus[i]); v[i].dn_dv = V(dnvs[i]);
+                v[i].eta = etas[i];
+            }
+            return N;
+        };
+
+        // Returns (ok, residual[2N], J_flat[(2N)^2]) for the FD Jacobian check.
+        m.def("_mnee_chain_eval",
+              [buildChain](const std::vector<std::array<float, 3>>& ps,
+                           const std::vector<std::array<float, 3>>& ns,
+                           const std::vector<std::array<float, 3>>& dpus,
+                           const std::vector<std::array<float, 3>>& dpvs,
+                           const std::vector<std::array<float, 3>>& dnus,
+                           const std::vector<std::array<float, 3>>& dnvs,
+                           const std::vector<float>& etas,
+                           const std::array<float, 3>& x0,
+                           const std::array<float, 3>& light, bool refraction) {
+                  am::ChainVertex v[am::kMaxChainVertices];
+                  int N = buildChain(ps, ns, dpus, dpvs, dnus, dnvs, etas, v);
+                  int n2 = 2 * N;
+                  std::vector<float> residual(n2, 0.f), J(static_cast<size_t>(n2) * n2, 0.f);
+                  Vec3 s[am::kMaxChainVertices], t[am::kMaxChainVertices];
+                  bool ok = am::chainEval(v, N, Vec3(x0[0], x0[1], x0[2]),
+                                          Vec3(light[0], light[1], light[2]),
+                                          refraction, residual.data(), J.data(), s, t);
+                  return py::make_tuple(ok, residual, J);
+              },
+              "ps"_a, "ns"_a, "dp_dus"_a, "dp_dvs"_a, "dn_dus"_a, "dn_dvs"_a,
+              "etas"_a, "x0"_a, "light"_a, "refraction"_a);
+
+        // Damped block Newton on a FLAT chain (dn=0; tangent step stays on each
+        // plane). Returns (converged, iterations, residual_norm, final_ps_flat[3N]).
+        m.def("_mnee_chain_solve_flat",
+              [buildChain](const std::vector<std::array<float, 3>>& ps,
+                           const std::vector<std::array<float, 3>>& ns,
+                           const std::vector<std::array<float, 3>>& dpus,
+                           const std::vector<std::array<float, 3>>& dpvs,
+                           const std::vector<float>& etas,
+                           const std::array<float, 3>& x0,
+                           const std::array<float, 3>& light, bool refraction,
+                           int max_iter, float tol, float max_step) {
+                  std::vector<std::array<float, 3>> z(ps.size(), {0.f, 0.f, 0.f});
+                  am::ChainVertex v[am::kMaxChainVertices];
+                  int N = buildChain(ps, ns, dpus, dpvs, z, z, etas, v);
+                  am::ReprojectChainFn rp = [](int, const Vec3& s, const Vec3& t,
+                                               float du, float dv, am::ChainVertex& vv) {
+                      vv.p = vv.p + s * du + t * dv;  // flat: stay on the plane
+                      return true;
+                  };
+                  am::NewtonConfig cfg;
+                  cfg.maxIterations = max_iter;
+                  cfg.tolerance = tol;
+                  am::ChainResult r = am::solveChain(
+                      v, N, Vec3(x0[0], x0[1], x0[2]),
+                      Vec3(light[0], light[1], light[2]), refraction, rp, cfg, max_step);
+                  std::vector<float> finalP;
+                  for (int i = 0; i < N; ++i) { finalP.push_back(v[i].p.x); finalP.push_back(v[i].p.y); finalP.push_back(v[i].p.z); }
+                  return py::make_tuple(r.converged, r.iterations, r.residualNorm, finalP);
+              },
+              "ps"_a, "ns"_a, "dp_dus"_a, "dp_dvs"_a, "etas"_a, "x0"_a, "light"_a,
+              "refraction"_a, "max_iter"_a = 30, "tol"_a = 1e-5f, "max_step"_a = 0.3f);
+    }
+
     m.def("synchrotron_thermal_emissivity",
           &astroray::synchrotron::jnuThermalI,
           "nu_hz"_a, "n_e_cm3"_a, "T_e_K"_a, "B_gauss"_a, "theta_B"_a,

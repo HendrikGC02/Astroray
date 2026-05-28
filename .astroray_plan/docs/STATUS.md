@@ -1,6 +1,30 @@
 # Astroray Status
 
-**Last updated:** 2026-05-24 (Round 14 closeout: 12 PRs merged overnight).
+**Last updated:** 2026-05-28 (Round 15 partial: 3 PRs merged — pkg64-gpu Session 2, pkg106 Chunk A, pkg105).
+
+## Round 15 partial closeout (3 PRs merged, 2026-05-28)
+
+**Key achievements:**
+- **pkg64-gpu Session 2 DONE** (PR #385) — Root cause: GPU hero-wavelength distribution bug (lambda[0] confined to violet quarter). Fixed both GPU samplers + mirrored CPU terminateSecondary. **Gates re-spec'd** (owner-adjudicated): SSIM ≥0.97 unreachable for independent MC streams (CPU-vs-CPU ~0.53 at 256 spp), new gates SSIM ≥0.85 + ROI luminance-parity [0.5,2.0]. Measured: SSIM 0.928, energy 1.38×, PSNR +2.19 dB. Test integrator mismatch fixed (GPU no-NEE vs CPU NEE). **Session 2 complete.**
+- **pkg106 Chunk A DONE** (PR #387) — Analytic half-vector constraint Jacobian (Cycles mnee.h + Hanika 2015 §5). Root cause of SMS-on-triangles failure: newton_iterate.h central-difference Jacobian → spurious discontinuity on facet edges. Chunk A adds halfVectorConstraintJacobian + test. **Chunks B-E remain** (surface (u,v) partials, Newton wiring, triangulated prism scene with hue_spread ≥0.7).
+- **pkg105 DONE** (PR #381) — Blender BH addon integration. Exposed r_obs_M (pkg107), Kerr spin, ADAF params (pkg44). **Pillar 4 Blender surface complete** for BH objects.
+
+**Merged 2026-05-28:**
+1. **PR #385 — pkg64-gpu Session 2** (`806991b`) — Hero-wavelength sampler fix + terminateSecondary + gates re-spec'd. SSIM 0.928 ≥0.85 PASS; energy 1.38× ≥1.045× PASS; PSNR +2.19 dB ≥−0.5 dB PASS.
+2. **PR #387 — pkg106 Chunk A** (`53b279b`) — Analytic Jacobian + test. Analytic-vs-FD validation ~2e-7 (C++ float32) / ~2e-10 (Python float64). 5/5 new tests pass.
+3. **PR #381 — pkg105** (`e7435a6`) — BH addon panel params. r_obs_M + spin + ADAF mdot_edd/electron_temp/beta_mag/r_inner/r_outer/flattening/alpha/s/intensity_scale. 2 new tests pass.
+
+**Additional merges (test-only, no packages):**
+4. **PR #386 — fix #298** (`f22d1cb`) — ReSTIR spatial-MSE flake: pinned reference seed (seed=0 std::random_device sentinel was re-randomising).
+5. **PR #384 — fix #276** (`89f8fe7`) — Clearcoat test flake: pinned seed.
+
+**In-flight / deferred:**
+- **pkg55-B' Session N+5** — next CUDA-port stage continuation (metal/dielectric/disney shade kernels or RR/miss handling). Lead track per NEXT_STAGE_REPORT §2.
+- **pkg106 Chunks B-E** — surface partials + Newton wiring + triangulated prism acceptance (hue_spread ≥0.7). In progress.
+
+**Full standup:** (not yet committed).
+
+---
 
 ## Round 14 closeout (12 PRs merged, 2026-05-24 overnight)
 

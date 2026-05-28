@@ -178,6 +178,9 @@ fix:
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
 
+**Round 15 partial (2026-05-28, 3 PRs merged): pkg64-gpu Session 2 + pkg106 Chunk A + pkg105.**
+**pkg64-gpu Session 2 DONE** (PR #385) — Hero-wavelength distribution bug fixed (lambda[0] violet-only → full-band). Gates re-spec'd (SSIM ≥0.85 + ROI luminance-parity; 0.97 unreachable for independent MC). Measured: SSIM 0.928, energy 1.38×, PSNR +2.19 dB. **pkg106 Chunk A DONE** (PR #387) — Analytic half-vector constraint Jacobian (Cycles mnee.h + Hanika 2015); Chunks B-E in progress. **pkg105 DONE** (PR #381) — BH Blender addon params (r_obs_M + Kerr spin + ADAF). Pillar 4 Blender surface complete for BH objects.
+
 **Round 14 closeout (2026-05-24, 12 PRs merged): CUDA-port Session N+4 + Sellmeier + pkg76 Classroom audit wave.**
 **pkg55-B' Session N+4 COMPLETE** (PRs #355 + #356) — PostLightSample + PostRR CUDA kernel stages
 shipped with full CPU↔GPU threshold gates enforced (p99.9 = 2.21e-6, threshold 3.5e-6). Session N+3

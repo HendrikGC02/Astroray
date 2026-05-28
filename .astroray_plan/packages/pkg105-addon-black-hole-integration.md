@@ -2,7 +2,7 @@
 
 **Pillar:** 4 (Astrophysics) + Pillar 5 (Production polish) — touches both
 **Track:** A (Blender addon Python + C++ binding glue)
-**Status:** open
+**Status:** done (PR #381, 2026-05-28 — r_obs_M + Kerr spin + ADAF params exposed)
 **Estimated effort:** 1–2 weeks (~25–50 h)
 **Depends on:** pkg40 (Kerr/Schwarzschild metric plugins, done) + pkg44 (ADAF model, done) + pkg103 wiring audit (done)
 

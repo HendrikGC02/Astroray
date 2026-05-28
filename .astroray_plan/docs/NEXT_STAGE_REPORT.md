@@ -1,8 +1,8 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-24 (Round 15 pickup — Round 14 complete; pkg55-B' Session N+5 continuation is top live track)
-**Prepared by:** Claude (Anthropic Code) — updated after Round 14 closeout
-**Scope:** Round 15 pickup set.
+**Date:** 2026-05-28 (Round 15 active — pkg64-gpu Session 2 + pkg106 Chunk A + pkg105 shipped; pkg106 Chunk B next)
+**Prepared by:** Claude (Anthropic Code) — updated after Round 15 partial closeout
+**Scope:** Round 15 continuation.
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C; Pillar 4
 > has been actively shipping since. Strategy in
@@ -11,6 +11,18 @@
 ---
 
 ## 1. Current state (one screen)
+
+**Done in Round 15 partial (3 PRs merged, 2026-05-28):**
+
+**Key achievements:**
+- **pkg64-gpu Session 2 DONE** (PR #385) — Root cause: GPU hero-wavelength distribution bug (lambda[0] confined to violet quarter). Fixed both GPU samplers + mirrored CPU terminateSecondary. Gates re-spec'd (SSIM ≥0.97 unreachable for independent MC streams, CPU-vs-CPU ~0.53 at 256 spp). New gates: SSIM ≥0.85 + ROI luminance-parity [0.5,2.0]. Measured: SSIM 0.928, energy 1.38×, PSNR +2.19 dB.
+- **pkg106 Chunk A DONE** (PR #387) — Analytic half-vector constraint Jacobian (Cycles mnee.h + Hanika 2015 §5). Root cause of SMS-on-triangles failure: central-difference Jacobian → spurious discontinuity on facet edges. Chunks B-E remain (surface (u,v) partials, Newton wiring, triangulated prism scene with hue_spread ≥0.7).
+- **pkg105 DONE** (PR #381) — BH Blender addon integration. Exposed r_obs_M (pkg107), Kerr spin, ADAF params (pkg44). Pillar 4 Blender surface complete for BH objects.
+
+**Merged:**
+1. **PR #385 — pkg64-gpu Session 2** (`806991b`) — Hero-wavelength sampler fix + terminateSecondary + gates re-spec'd. SSIM 0.928, energy 1.38×, PSNR +2.19 dB.
+2. **PR #387 — pkg106 Chunk A** (`53b279b`) — Analytic Jacobian + test. 5/5 new tests pass.
+3. **PR #381 — pkg105** (`e7435a6`) — BH addon panel params. 2 new tests pass.
 
 **Done in Round 14 (12 PRs merged, 2026-05-24 overnight):**
 
@@ -112,13 +124,18 @@
 
 ---
 
-## 2. Recommended next deployable set (Round 15)
+## 2. Recommended next deployable set (Round 15 continuation)
 
-**Round 14 complete (2026-05-24).** 12 PRs merged: pkg64-gpu-sellmeier-upload, pkg55-B' Session N+4 parts 1+2, pkg86-B Phase 1 (CPU SAOH), pkg76 CSV + 4 Classroom followup gaps, pkg-add-cuda-syntax-ci. **Session N+4 gates enforced** (PostLightSample/PostRR p99.9 = 2.21e-6, threshold 3.5e-6). Session N+3 gates remain green (PostInit ULP=2, PostIntersect ULP=32). **CUDA-port track continues.**
+**Round 15 partial complete (2026-05-28).** 3 PRs merged: pkg64-gpu Session 2, pkg106 Chunk A, pkg105. **pkg64-gpu Session 2 complete** (hero-wavelength bug fixed, gates re-spec'd + green). **pkg106 Chunk A complete** (analytic Jacobian). **pkg105 complete** (BH addon params).
 
-**Round 15 priorities**:
+**Round 15 continuation priorities**:
 
 **Lead track:**
+
+- **pkg106 Chunk B — surface (u,v) partials + analytic Newton solver wiring**
+  Chunk A (PR #387) added the analytic half-vector constraint Jacobian. Chunk B wires it into the Newton solver (replacing the central-difference path for caustic casters) and adds the surface (u,v) partials (dp_du/dp_dv/dn_du/dn_dv) to triangle/sphere intersection. Astroray's HitRecord currently carries only an arbitrary buildOrthonormalBasis frame, not the true surface partials. This is the direct continuation of the pkg106 implementation plan (see .astroray_plan/docs/pkg106-phase2-implementation-plan.md). Architect estimate: ~1-2 days for Chunk B, then Chunks C-E (triangle reprojection, integrator wiring, triangulated prism scene with hue_spread ≥0.7).
+
+**Second tier:**
 
 - **pkg55-B' Session N+5 — next CUDA port stage continuation**
   (multi-session continuation after Session N+4 complete).
@@ -184,7 +201,35 @@
 
 ## 3. Drop-in prompts per agent
 
-### 3.0 Claude Code (Track A) — pkg55-B' Session N+5 (next CUDA port stage continuation, TOP PRIORITY)
+### 3.0 Claude Code (Track A) — pkg106 Chunk B (surface partials + Newton wiring, TOP PRIORITY)
+
+```
+You are Claude Code on the RTX box. pkg106 Chunk B — surface (u,v) partials + analytic Newton solver wiring. Chunk A (PR #387, merged 2026-05-28) added the analytic half-vector constraint Jacobian (halfVectorConstraintJacobian in manifold/half_vector_constraint.h). Now wire it into the Newton solver and add surface (u,v) partials to intersection records.
+
+Read first:
+  - .astroray_plan/packages/pkg106-sms-on-triangulated-prisms.md (spec)
+  - .astroray_plan/docs/pkg106-phase2-implementation-plan.md (5-chunk breakdown)
+  - .astroray_plan/docs/pkg106-research-2026-05-28.md (Cycles math + citations)
+  - include/astroray/manifold/half_vector_constraint.h (Chunk A output)
+  - include/astroray/manifold/newton_iterate.h (central-difference Jacobian to replace)
+  - include/astroray/hit_record.h (add dp_du/dp_dv/dn_du/dn_dv)
+  - src/shapes/triangle.cpp + src/shapes/sphere.cpp (compute surface partials at intersection)
+
+Goal: Replace newton_iterate.h's central-difference Jacobian with the analytic one for caustic casters. Add surface (u,v) partial derivatives (dp_du/dp_dv/dn_du/dn_dv) to HitRecord and compute them in triangle/sphere hit methods. This closes the SMS-on-triangles root cause (central-difference → spurious discontinuity on facet edges).
+
+Acceptance (per spec):
+  - Analytic Jacobian used for caustic casters (triangles + spheres).
+  - Triangle hit computes dp_du/dp_dv/dn_du/dn_dv from edge vectors.
+  - Sphere hit computes dp_du/dp_dv/dn_du/dn_dv from parametric sphere partials.
+  - Existing SMS sphere caustic tests pass (no regression).
+  - New test: triangulated prism scene renders with reduced salt-and-pepper noise (visual inspection; hue_spread gate deferred to Chunk D).
+
+Constraints: CLAUDE.md 1,2,3,6. Cite Cycles mnee.h + Hanika 2015.
+
+When done: pkg106 spec Chunk B status → done + PR. PR titled "feat(pkg106 Chunk B): surface (u,v) partials + analytic Newton wiring".
+```
+
+### 3.1 Claude Code (Track A) — pkg55-B' Session N+5 (next CUDA port stage continuation, SECOND TIER)
 
 ```
 You are Claude Code on the RTX box. pkg55-B' CUDA-port track Session N+5. Session N+4 (PRs #355 + #356) COMPLETE — PostLightSample + PostRR kernel stages shipped with full threshold gates enforced (p99.9 = 2.21e-6, threshold 3.5e-6). Session N+3 gates remain green (PostInit ULP=2, PostIntersect=32, PostShade p99.9 in bound). Now continue CUDA kernel port.
@@ -218,33 +263,6 @@ material coverage (e.g., add metal BSDF).
 
 When done: pkg55 spec Session N+5 status + PR ref + gate numbers. PR title:
 "feat(pkg55-B'): Session N+5 — <scope>".
-```
-
-### 3.1 Claude Code (Track A) — pkg64-gpu-sellmeier-session2-multi-ior (second tier)
-
-```
-You are Claude Code on the RTX box. pkg64-gpu-sellmeier-upload (Session 1, PR #354) shipped hero-wavelength IOR. Session 2 adds per-wavelength multi-IOR GPU refraction to close the deferred PSNR floor + GPU↔CPU SSIM parity gates.
-
-Read first:
-  - .astroray_plan/packages/pkg64-gpu-sellmeier-session2-multi-ior.md (full spec)
-  - include/astroray/gpu_types.h (GMaterial + GDispersion from Session 1)
-  - src/gpu/gpu_dispersion.cuh (gpu_sellmeier_ior device function)
-  - include/astroray/gpu_materials.h (gpu_dielectric_sample_spectral — extend to sample per-wavelength IOR)
-  - tests/test_pkg64_gpu_phase3_*.py (the deferred PSNR + SSIM gates)
-
-Goal: Extend GPU dielectric BSDF to sample per-wavelength IOR (not just hero).
-Evaluate n(λ) for each sampled wavelength, apply wavelength-dependent refraction,
-and close the deferred PSNR floor delta ≥−0.5 dB + GPU↔CPU SSIM ≥0.97 gates.
-
-Acceptance (per spec):
-  - PSNR floor delta ≥−0.5 dB (prism scene).
-  - GPU↔CPU SSIM ≥0.97 at 256 spp (prism scene).
-  - Receiver-energy gate remains ≥1.10× (no regression from Session 1).
-
-Constraints: CLAUDE.md 1,2,3,6. Cite Cycles/PBRT-v4 for spectral refraction.
-
-When done: pkg64-gpu-sellmeier-session2-multi-ior spec status → done + PR. PR titled
-"feat(pkg64-gpu Session 2): per-wavelength multi-IOR GPU refraction".
 ```
 
 ### 3.2 Claude Code (Track A) — pkg86-B Phase 2+3 (second tier)

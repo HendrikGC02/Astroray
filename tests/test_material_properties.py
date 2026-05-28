@@ -458,6 +458,14 @@ def test_disney_clearcoat_adds_gloss():
 
     def render_clearcoat(coat_val):
         r = create_renderer()
+        # Issue #276 flake fix (2026-05-28): pin the SAME seed for both the
+        # clearcoat=0 and clearcoat=1 renders. With correlated RNG streams the
+        # MC noise cancels in the A/B comparison and only the clearcoat's
+        # systematic contribution remains — the bright-mean delta was
+        # previously tripping intermittently at the noise floor (0.218 vs
+        # 0.215, margin 0.0003 < gate 0.003) because the two renders used
+        # independent streams. Standard correlated-sampling variance reduction.
+        r.set_seed(20260528)
         mat = r.create_material('disney', [0.1, 0.1, 0.1],
                                 {'metallic': 0.0, 'roughness': 0.85,
                                  'clearcoat': coat_val, 'clearcoat_gloss': 1.0})

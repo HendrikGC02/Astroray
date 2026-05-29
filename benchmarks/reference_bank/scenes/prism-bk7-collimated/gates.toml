@@ -1,36 +1,32 @@
-# prism-bk7-collimated — spectral dispersion via BK7 sphere caustic
-# Reference blessed 2026-05-27 (commit b02b161). Measured baselines:
-#   hue_spread (floor ROI 160:256, 80:304) = 0.8006
-#   hue_spread (full image, lum>0.05)      = 0.6992
-# Thresholds set ~25% below measured to give regression headroom without
-# false positives on small MC variance.
+# prism-bk7-collimated — triangulated BK7 prism rainbow caustic (pkg106 finish).
+# Forward light-tracer (light_tracer_caustic); reference blessed 2026-05-29.
+# Measured baselines (deterministic — baked caustic, fixed photon seed):
+#   hue_spread     (band ROI) = 0.754
+#   bright_coverage(band ROI) = 0.88   (continuity: a SOLID band, not speckle)
+# Band lands at y[107,185] x[203,251] in the 384x288 frame.
 
 [scene]
-description = "BK7 dispersive sphere + white area emitter + floor receiver. SMS caustic with per-wavelength Newton produces a visible chromatic rainbow ring on the floor."
-
-[[gate]]
-type = "ssim"
-threshold = 0.78
-direction = "ge"
-description = "Loose SSIM floor; SMS caustic noise prevents tighter gate at 1024 spp."
-
-[[gate]]
-type = "delta_e_2000"
-threshold = 8.0
-direction = "le"
-description = "Perceptual color floor across the full image."
+description = "Triangulated equilateral BK7 prism + collimated sun + white floor. A forward light-tracer deposits per-wavelength refracted light on the floor, producing a clean continuous red->violet rainbow band (no salt-and-pepper chromatic noise)."
 
 [[gate]]
 type = "hue_spread"
-threshold = 0.55
+threshold = 0.7
 direction = "ge"
-roi = [160, 256, 80, 304]
-luminance_threshold = 0.05
-saturation_floor = 0.05
-description = "Rainbow-presence gate on the floor ROI. Measured 0.80; this trips when chromatic spread collapses (e.g., spectral_newton accidentally disabled)."
+roi = [100, 192, 196, 258]
+luminance_threshold = 0.1
+saturation_floor = 0.04
+description = "Rainbow-presence: full red->violet hue spread in the band ROI (pkg106 acceptance >= 0.7; measured 0.754)."
 
 [[gate]]
-type = "phash"
-threshold = 20
-direction = "le"
-description = "Layout regression — sphere position or floor framing shifted."
+type = "bright_coverage"
+threshold = 0.5
+direction = "ge"
+roi = [100, 192, 196, 258]
+luminance_threshold = 0.1
+description = "Band-continuity discriminator: a real continuous band fills its ROI (measured 0.88). Salt-and-pepper chromatic noise — which also scores high hue_spread — collapses this well below 0.5."
+
+[[gate]]
+type = "ssim"
+threshold = 0.95
+direction = "ge"
+description = "Layout/appearance regression vs the blessed prism reference (render is near-deterministic, so a tight floor is safe)."

@@ -1,77 +1,107 @@
-"""Spectral-dispersion reference — BK7 dispersive lens caustic.
+"""Spectral-dispersion reference — BK7 triangulated-prism rainbow caustic.
 
-**Geometry**: BK7 sphere acting as a converging lens. The sphere refracts
-incoming light per-wavelength (Sellmeier) and focuses it onto a white
-floor receiver as a chromatic caustic ring — the iconic rainbow disk
-under a glass marble.
+**Geometry**: a triangulated equilateral BK7 prism (two refracting faces, each a
+finite quad = 2 triangles, flagged as caustic casters), a collimated "sun"
+(distant directional light) entering the prism, and a white diffuse floor that
+catches the dispersed spectrum. Each wavelength refracts by its own Sellmeier
+IOR and lands at a different floor position -> a clean continuous red->violet
+rainbow band.
 
-**Why sphere, not triangular prism (owner-requested 2026-05-27):**
-I built a full triangulated equilateral-prism variant + collimated sun +
-baffle + flat-screen receiver and tested it at 4096 spp with
-`sms_caustic_path_tracer` + `spectral_newton=1`. The result was *chromatic
-noise* (high `hue_spread`, but salt-and-pepper distribution) rather than
-a clean rainbow band. Diagnosis: SMS Newton iteration is designed for
-analytic surfaces with smooth normals; on a triangulated prism the
-piecewise-flat faces produce discontinuous manifolds that the Newton
-solver doesn't converge on efficiently. The chromatic signal therefore
-comes from rare path-tracer luck (fireflies), not from SMS finding the
-manifold.
+**Why forward light-tracing, not camera-side SMS/MNEE (pkg106 finish, 2026-05-29):**
+The original plan refracted the caustic with the camera-side SMS/MNEE integrator.
+The full MNEE machinery was implemented and unit-tested (analytic transfer-matrix
+geometry term, positional + collimated branches, caster-aimed seed — see
+include/astroray/manifold/ and tests/test_mnee_*.py), and it does produce a
+*localized dispersive* caustic. But a flat prism does not focus: its dispersion
+is weak and the camera-side specular connection is a near-delta whose Newton
+basin is spatially chaotic, so the result is salt-and-pepper chromatic noise that
+does not clean up with samples (deterministic structure). A prism rainbow is a
+forward light-transport phenomenon, so this scene uses the `light_tracer_caustic`
+integrator (Arvo 1986 backward ray tracing / Jensen 1996 photon deposition):
+wavelengths are traced FROM the sun through the prism and deposited on the floor,
+giving a smooth spectrum with no specular-connection noise. The MNEE math remains
+for genuinely focusing casters (lenses, spheres).
 
-Filed as **pkg106 follow-up** (TODO: file): "SMS chromatic caustics on
-triangulated prisms — investigate whether the Newton iteration can be
-extended to piecewise-smooth surfaces, or whether a Cycles-style MNEE
-approach is more appropriate for prisms."
-
-For now, this scene uses the proven-working sphere geometry with 4×
-the previous sample budget (4096 spp) so the chromatic ring is cleaner
-than the original "fireflies" the owner observed.
-
-**Integrator**: `sms_caustic_path_tracer` + `spectral_newton=1` +
-`caustic_chain_iters=3`. Light source is an area emitter above the
-sphere; receiver is a white floor.
+**Integrator**: `light_tracer_caustic` (CPU forward light-tracer; the caustic is
+baked in beginFrame so the camera pass needs few samples).
 """
 
 from __future__ import annotations
 
+import math
+
 
 NAME = "prism-bk7-collimated"
 WIDTH = 384
-HEIGHT = 256
-SAMPLES = 4096
-MAX_DEPTH = 10
+HEIGHT = 288
+SAMPLES = 64
+MAX_DEPTH = 8
 SEED = 17
-# Note: 8192 spp gives a slightly cleaner chromatic ring at ~2x the
-# render time. 4096 is the bank's standard; bump to 8192 locally if
-# you want a less-noisy reference.
+
+
+def _norm(v):
+    n = math.sqrt(sum(c * c for c in v))
+    return [c / n for c in v]
+
+
+def _quad_from_plane(p, n, half_u, half_v):
+    """Finite quad on plane(p, n): pick an in-plane (u,v) frame -> 4 CCW corners."""
+    n = _norm(n)
+    up = [0.0, 1.0, 0.0] if abs(n[1]) < 0.9 else [1.0, 0.0, 0.0]
+    d = sum(up[i] * n[i] for i in range(3))
+    u = _norm([up[i] - d * n[i] for i in range(3)])
+    v = [n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0]]
+    def corner(su, sv):
+        return [p[i] + su * half_u * u[i] + sv * half_v * v[i] for i in range(3)]
+    return [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)]
+
+
+def _add_quad(r, corners, mat):
+    i0 = r.scene_object_count()
+    a, b, c, d = corners
+    r.add_triangle(a, b, c, mat)
+    r.add_triangle(a, c, d, mat)
+    return [i0, i0 + 1]
 
 
 def make_scene(astroray):
     r = astroray.Renderer()
     r.set_background_color([0.0, 0.0, 0.0])
 
-    # White diffuse floor — the rainbow ring lands here.
-    floor = r.create_material("lambertian", [0.92, 0.92, 0.92], {})
-    r.add_triangle([-2.4, -1.2, -2.2], [2.4, -1.2, -2.2], [2.4, -1.2, 1.6], floor)
-    r.add_triangle([-2.4, -1.2, -2.2], [2.4, -1.2, 1.6], [-2.4, -1.2, 1.6], floor)
+    # BK7 dispersive prism — two refracting faces of an equilateral prism
+    # (60deg dihedral, apex +y), each a finite quad flagged as a caustic caster.
+    glass = r.create_material("dielectric", [1.0, 1.0, 1.0], {"sellmeier_preset": "bk7"})
+    apex_y, base_y, half_v = 0.5, -0.5, 0.7
+    half = math.radians(30.0)
+    bx = (apex_y - base_y) * math.tan(half)
+    cy = (apex_y + base_y) / 2.0
+    faces = [
+        ([-bx / 2, cy, 0.0], _norm([-math.cos(half), math.sin(half), 0.0])),  # left
+        ([bx / 2, cy, 0.0], _norm([math.cos(half), math.sin(half), 0.0])),    # right
+    ]
+    casters = []
+    for p, n in faces:
+        casters += _add_quad(r, _quad_from_plane(p, n, 0.62, half_v), glass)
+    for idx in casters:
+        r.set_object_caustic_caster(idx, True)
 
-    # Compact bright area emitter directly above the caster.
-    light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 18.0})
-    r.add_sphere([0.0, 1.6, 1.0], 0.22, light)
+    # Collimated sun: distant directional light travelling +x into the prism.
+    r.add_sun_light_dedicated([1.0, 0.0, 0.0], 0.01,
+                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 6.0)
 
-    # BK7 dispersive sphere — the caster.
-    glass = r.create_material("dielectric", [1.0, 1.0, 1.0], {
-        "sellmeier_preset": "bk7",
-    })
-    r.add_sphere([0.0, -0.4, 0.15], 0.7, glass)
+    # White diffuse floor — the dispersed spectrum lands here (beam deviates
+    # ~52deg down; lands ~x=1.9 at y=-3).
+    floor = r.create_material("lambertian", [0.9, 0.9, 0.9], {})
+    _add_quad(r, [[-1.0, -3.0, -2.5], [9.0, -3.0, -2.5], [9.0, -3.0, 2.5], [-1.0, -3.0, 2.5]], floor)
 
-    # SMS-caustic integrator with per-wavelength Newton (the chromatic path).
-    r.set_integrator("sms_caustic_path_tracer")
+    # Forward light-tracer: bakes the prism caustic onto the floor in beginFrame.
+    r.set_integrator("light_tracer_caustic")
     r.set_integrator_param("max_depth", MAX_DEPTH)
-    r.set_integrator_param("caustic_chain_iters", 3)
-    r.set_integrator_param("spectral_newton", 1)
+    r.set_integrator_param("photon_count", 3000000)
+    r.set_integrator_param("caustic_grid_res", 256)
+    r.set_integrator_param("caustic_boost", 12)
 
-    # Camera angled down so the caustic floor area fills more of the frame.
-    r.setup_camera(
-        [0.0, 1.2, 3.4], [0.0, -0.8, 0.0], [0.0, 1.0, 0.0],
-        38.0, WIDTH / HEIGHT, 0.0, 3.6, WIDTH, HEIGHT)
+    # Camera looks down the floor at the rainbow landing zone.
+    r.setup_camera([1.86, 1.5, 3.2], [1.86, -3.0, 0.0], [0.0, 1.0, 0.0],
+                   42.0, WIDTH / HEIGHT, 0.0, 4.5, WIDTH, HEIGHT)
     return r

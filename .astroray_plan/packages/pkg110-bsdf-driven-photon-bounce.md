@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (Light transport)
 **Track:** A (CPU integrator)
-**Status:** open — proposed 2026-05-29 (general-caustics chain pkg109 → **pkg110** → pkg111)
+**Status:** WIP (branch `pkg110-bsdf-photon-bounce`, 2026-05-30) — general BSDF photon loop done + validated on a glass sphere (~48× caustic concentration); prism `hue_spread` gate not yet reproduced (0.52–0.60 vs 0.70). See `.astroray_plan/docs/pkg110-status-finding.md`.
 **Estimated effort:** M (~3-4 days)
 **Depends on:** pkg109 (photon-map kd-tree store)
 

@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (Light transport)
 **Track:** A (CPU integrator + numerical)
-**Status:** open — proposed 2026-05-29 (post-pkg106; first of the general-caustics chain pkg109 → pkg110 → pkg111)
+**Status:** done (PR #395 / `bc3464b`, 2026-05-30) — balanced kd-tree + k-NN density estimate; C++ validated vs numpy oracle; prism regression reproduced (hue 0.750, coverage 0.615); full suite 1155 passed.
 **Estimated effort:** S/M (~2-3 days)
 **Depends on:** pkg106 (forward `light_tracer_caustic` exists as the emission stub)
 

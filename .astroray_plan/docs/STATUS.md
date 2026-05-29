@@ -1,6 +1,53 @@
 # Astroray Status
 
-**Last updated:** 2026-05-29 (Round 15 Wave 3: pkg106 DONE — prism rainbow caustic shipped via a forward light-tracer, PR #393).
+**Last updated:** 2026-05-30 (Round 15 Wave 4: pkg109 photon-map kd-tree DONE — general-caustics foundation, PR #395; pkg76 Gap 2 DONE, PR #394; pkg110 general photon bounce WIP).
+
+## Round 15 Wave 4 — general-caustics foundation (overnight, 2026-05-30)
+
+**Two PRs merged, one lead-track package validated-but-WIP.**
+
+- **pkg109 — world-space photon-map kd-tree DONE (PR #395 / `bc3464b`).** Replaces
+  the prism-specific 2D `(x,z)` grid in `light_tracer_caustic` with a general
+  world-space photon map: a balanced kd-tree (`include/astroray/photon/photon_map.h`,
+  Jensen 2000 Course 8 Fig. 7 `balance` + Fig. 10 `locate_photons` + Eq. 8 + §3.2.1
+  cone filter; disk-area factor per pbrt-v4, Apache-2.0) + k-NN density-estimate
+  gather. **Validated**: C++ kd-tree matches a numpy float64 brute-force oracle
+  exactly (`tests/test_photon_map.py`, via `_photon_map_*` test bindings); prism
+  regression reproduced through the kd-tree (hue_spread 0.750 ≥0.7, bright_coverage
+  0.615 ≥0.5); full local suite 1155 passed. This is the **foundation of general
+  caustics** (pkg110/111). Numeric prototype + research notes:
+  `scripts/prototypes/pkg109_photon_map_prototype.py`,
+  `.astroray_plan/docs/pkg109-110-111-photon-map-research.md`.
+- **pkg76 Classroom Gap 2 DONE (PR #394 / `563ab79`).** Extended the .blend
+  importer's non-Principled shader-graph walk with 8 BSDF node types (Glossy,
+  Translucent, Transparent, Anisotropic, Add Shader, Velvet, Sheen, Toon) + bpy-free
+  unit tests. SSIM/GPU gate explicitly deferred (no GPU in CI). Ran in parallel via
+  a background implementer in its own worktree.
+- **pkg110 — BSDF-driven photon bounce: VALIDATED on a glass sphere, but WIP / NOT
+  merged** (branch `pkg110-bsdf-photon-bounce` pushed). The general BVH +
+  `Material::sampleSpectral` photon loop traces through ANY glass shape (sphere/lens/
+  mesh, TIR, multi-bounce, hero-λ dispersion) — proven on a new glass-sphere scene
+  (focused caustic, peak luminance 0.79 vs floor median 0.016, ~48× concentration).
+  **Blocker**: the prism rainbow `hue_spread` gate does not reproduce under the
+  general loop (0.52–0.60 vs gate 0.70; bright_coverage passes) — the stochastic-
+  Fresnel + solid-prism deposit produces a different floor spectrum than the explicit
+  deterministic 2-face deposit. Detailed finding + next steps:
+  `.astroray_plan/docs/pkg110-status-finding.md`. **Did not thrash on prism tuning;
+  filed the finding and preserved the work** per the overnight guardrail.
+- **pkg100 / pkg101 / pkg102 confirmed already on main** (specs marked done, PRs
+  #339/#341, #368, #369). The lingering `origin/pkg101-*`/`pkg102-*` branches were
+  stale leftovers — no work needed (the "re-verify vs current main" check caught it).
+
+**Next deployable set (post-Wave-4):**
+- **pkg110 (resume):** strip the radiance η² for power transport; consider a
+  Fresnel-weighted (non-stochastic) deposit to match the explicit spectrum density;
+  finalize the glass-sphere concentration gate; re-confirm the prism hue gate (or
+  re-derive its ROI/threshold for the solid prism, owner sign-off). Then **pkg111**
+  (k-NN gather on any receiver into the default `path_tracer`).
+- **Integrator float-param ergonomics** (`set_integrator_param` is int-only;
+  `light_tracer_caustic` `caustic_boost` is an int×0.1 hack) — small binding fix.
+
+**Standup:** `.astroray_plan/docs/standup/2026-05-30.md`.
 
 ## Round 15 Wave 3 — pkg106 FINISHED (PR #393 / `6e6fd74`, 2026-05-29)
 

@@ -13,22 +13,23 @@
 //     transport (light particles) for caustics.
 //   Jensen, "Global Illumination using Photon Maps", EGWR 1996 — diffuse-surface
 //     photon deposition + density estimation (here: a 2D grid on the receiver).
-//   Refraction/Fresnel mirror plugins/materials/dielectric.cpp; the prism faces
-//     are the setCausticCaster-flagged triangles (mesh_attempt.h gather).
+//   pkg110: the photon bounce is BSDF-driven — at each transmissive surface the
+//     hit material's sampleSpectral (plugins/materials/dielectric.cpp) chooses
+//     reflect/refract by Fresnel and handles TIR + Sellmeier dispersion at the hero
+//     wavelength, so photons traverse ANY glass shape (sphere/lens/mesh) and
+//     multi-bounce/TIR chains — not just the original hard-coded 2-face prism.
 //
-// Scope: deposits onto a horizontal (normal ~ +y) diffuse receiver. pkg109 swaps
-// the original 2D (x,z) grid for a world-space photon map (kd-tree, photon_map.h)
-// built in beginFrame (serial, before the parallel camera loop, so no contention);
-// the camera pass gathers via a k-NN density estimate (Jensen 1996 Eq. 8). The
-// per-wavelength CIE deposit (spectrum.h cieCmf1964_10deg) gives physically-based
-// rainbow colours. The kd-tree is the foundation for general caustics (pkg110/111).
+// Scope: deposits onto a horizontal (normal ~ +y) diffuse receiver. pkg109 stores
+// photons in a world-space photon map (kd-tree, photon_map.h) built in beginFrame
+// (serial, before the parallel camera loop, so no contention); the camera pass
+// gathers via a k-NN density estimate (Jensen 1996 Eq. 8). The per-wavelength CIE
+// deposit (spectrum.h cieCmf1964_10deg) gives physically-based colours. The
+// horizontal-receiver restriction is lifted in pkg111 (gather on any surface).
 
 #include "astroray/register.h"
 #include "astroray/integrator.h"
 #include "astroray/spectrum.h"
 #include "astroray/shapes.h"
-#include "astroray/manifold/mesh_attempt.h"   // gatherTriangleCasters, CausticTri
-#include "astroray/manifold/mesh_caustic.h"    // rayTriHit
 #include "astroray/photon/photon_map.h"        // pkg109 world-space photon map (kd-tree)
 
 #include <algorithm>
@@ -36,8 +37,6 @@
 #include <limits>
 #include <random>
 #include <vector>
-
-namespace amf = astroray::manifold;
 
 class LightTracerCaustic : public Integrator {
     int   maxDepth_;
@@ -116,111 +115,104 @@ public:
     }
 
 private:
-    // Nearest caster-triangle hit along (o,d); fills the geometric normal
-    // oriented against d. Returns t (>0) or -1 on miss.
-    static float nearestCaster(const std::vector<amf::CausticTri>& tris,
-                               const Vec3& o, const Vec3& d, Vec3& nOut) {
-        float best = std::numeric_limits<float>::max(); int bi = -1;
-        for (int i = 0; i < (int)tris.size(); ++i) {
-            float t;
-            if (amf::rayTriHit(o, d, tris[i], t) && t < best) { best = t; bi = i; }
+    // Union AABB of all caustic-caster objects (any shape: triangles, spheres,
+    // meshes) flagged via setCausticCaster. We only need their combined bounds to
+    // aim the emission aperture — the bounce uses the BVH + the hit material's
+    // spectral BSDF, so no per-shape refraction code is needed.
+    static bool gatherCausticCasterBounds(Renderer& scene, AABB& out, int& count) {
+        AABB acc; bool any = false; count = 0;
+        for (const auto& obj : scene.getScene()) {
+            if (!obj || !obj->isCausticCaster()) continue;
+            AABB ob;
+            if (!obj->boundingBox(ob)) continue;
+            acc = any ? acc.merge(ob) : ob;
+            any = true; ++count;
         }
-        if (bi < 0) return -1.0f;
-        Vec3 n = (tris[bi].v1 - tris[bi].v0).cross(tris[bi].v2 - tris[bi].v0).normalized();
-        if (n.dot(d) > 0.0f) n = n * -1.0f;   // orient against the incident ray
-        nOut = n;
-        return best;
-    }
-
-    static bool refract(const Vec3& d, const Vec3& n, float eta, Vec3& out) {
-        float cosi = -d.dot(n);
-        float s2 = eta * eta * (1.0f - cosi * cosi);
-        if (s2 >= 1.0f) return false;          // TIR
-        out = (d * eta + n * (eta * cosi - std::sqrt(1.0f - s2))).normalized();
-        return true;
-    }
-    static float fresnelT(float cosi, float eta) {
-        float f0 = (1.0f - eta) / (1.0f + eta); f0 *= f0;
-        float fr = f0 + (1.0f - f0) * std::pow(std::max(0.0f, 1.0f - std::fabs(cosi)), 5.0f);
-        return 1.0f - fr;
+        if (any) out = acc;
+        return any;
     }
 
     void buildPhotonMap(Renderer& scene) {
         ready_ = false; depositedFlux_ = 0.0f; gatherRadius_ = 0.0f; causticScale_ = 1.0f;
-        std::vector<amf::CausticTri> tris;
-        const Material* mat = amf::gatherTriangleCasters(scene, tris);
-        if (tris.empty() || !mat) return;
         const auto* bvh = scene.getBVH().get();
         if (!bvh) return;
 
-        // Sun propagation direction: sample the (collimated/distant) light.
+        // Casters can be ANY transmissive geometry flagged via setCausticCaster;
+        // we only need their combined bounds to aim the emission aperture.
+        AABB casterBounds; int casterCount = 0;
+        if (!gatherCausticCasterBounds(scene, casterBounds, casterCount)) return;
+        const Vec3 casterC = casterBounds.centroid();
+        const float crad = (casterBounds.max - casterBounds.min).length() * 0.55f + 1e-3f;
+
         const auto& lights = scene.getLights();
         if (lights.empty()) return;
-        Vec3 prismC(0.0f), lo(1e30f), hi(-1e30f);
-        for (const auto& tr : tris) {
-            for (const Vec3& v : {tr.v0, tr.v1, tr.v2}) {
-                prismC = prismC + v;
-                lo = Vec3(std::min(lo.x, v.x), std::min(lo.y, v.y), std::min(lo.z, v.z));
-                hi = Vec3(std::max(hi.x, v.x), std::max(hi.y, v.y), std::max(hi.z, v.z));
-            }
-        }
-        prismC = prismC * (1.0f / (3.0f * tris.size()));
-        float prad = (hi - lo).length() * 0.55f;
 
         std::mt19937 gen(12345u);
         std::uniform_real_distribution<float> u01(0.0f, 1.0f);
         astroray::SampledWavelengths probe = astroray::SampledWavelengths::sampleUniform(0.5f);
-        LightSample ls; lights.sample(ls, prismC, Vec3(0, 1, 0), probe, gen);
-        Vec3 sunDir = (prismC - ls.position).normalized();   // propagation (toward prism)
+        LightSample ls; lights.sample(ls, casterC, Vec3(0, 1, 0), probe, gen);
+        Vec3 sunDir = (casterC - ls.position).normalized();   // propagation toward the casters
         if (sunDir.length2() < 1e-6f) return;
 
-        // Orthonormal frame around the sun direction for sampling the entry aperture.
+        // Aperture frame around the sun direction (sample the entry disc).
         Vec3 a = (std::fabs(sunDir.x) < 0.9f) ? Vec3(1, 0, 0) : Vec3(0, 1, 0);
         Vec3 fu = (a - sunDir * a.dot(sunDir)).normalized();
         Vec3 fv = sunDir.cross(fu);
-        Vec3 origin0 = prismC - sunDir * (prad + 2.0f);
+        Vec3 origin0 = casterC - sunDir * (crad + 2.0f);
 
-        // Pass 1: trace photons, deposit each on the first diffuse receiver hit.
+        // Pass 1: BSDF-driven photon trace. Each photon carries a hero wavelength;
+        // at every transmissive surface the material's sampleSpectral chooses
+        // reflect/refract by Fresnel — handling TIR, multi-bounce, and Sellmeier
+        // dispersion at the hero IOR — so a photon traverses ANY glass shape. It is
+        // deposited on the first diffuse (non-transmissive) receiver, but only if it
+        // passed >=1 caster (an L S+ D caustic path), so direct light is not
+        // double-counted. (The dielectric f carries the radiance eta^2 factor; for
+        // an air->glass->air caustic path the enter/exit factors cancel, and the
+        // brightness auto-scale below normalizes the rest.)
+        // Cited: Jensen 1996 photon tracing; dielectric.cpp sampleSpectral (hero-λ).
         std::vector<astroray::photon::Photon> photons;
         photons.reserve(photons_ / 2);
         std::vector<float> ys;
-        const float lmin = 380.0f, lmax = 720.0f;
+        const float eps = 1e-3f;
         for (int p = 0; p < photons_; ++p) {
-            float lambda = lmin + (lmax - lmin) * u01(gen);
-            float ior = mat->iorAt(lambda);
-            if (ior <= 1.0f) continue;
-            float ra = (u01(gen) * 2.0f - 1.0f) * prad;
-            float rb = (u01(gen) * 2.0f - 1.0f) * prad;
+            astroray::SampledWavelengths lambdas =
+                astroray::SampledWavelengths::sampleUniform(u01(gen), 380.0f, 720.0f);
+            float ra = (u01(gen) * 2.0f - 1.0f) * crad;
+            float rb = (u01(gen) * 2.0f - 1.0f) * crad;
             Vec3 o = origin0 + fu * ra + fv * rb;
             Vec3 d = sunDir;
-            // entry face (air -> glass)
-            Vec3 n1; float t1 = nearestCaster(tris, o, d, n1);
-            if (t1 < 0) continue;
-            Vec3 p1 = o + d * t1;
-            float tr = fresnelT(d.dot(n1), ior);
-            Vec3 d1; if (!refract(d, n1, 1.0f / ior, d1)) continue;
-            // exit face (glass -> air)
-            Vec3 n2; float t2 = nearestCaster(tris, p1 + d1 * 1e-4f, d1, n2);
-            if (t2 < 0) continue;
-            Vec3 p2 = p1 + d1 * (t2 + 1e-4f);
-            tr *= fresnelT(d1.dot(n2), ior);
-            Vec3 d2; if (!refract(d1, n2, ior, d2)) continue;
-            // trace to the receiver (first non-caster, non-emissive surface)
-            HitRecord rec;
-            if (!bvh->hit(Ray(p2 + d2 * 1e-3f, d2), 1e-3f,
-                          std::numeric_limits<float>::max(), rec)) continue;
-            if (!rec.material || rec.material->isEmissive()) continue;
-            if (rec.hitObject && rec.hitObject->isCausticCaster()) continue;
-            if (rec.normal.y < 0.7f) continue;            // horizontal receiver only
-            astroray::XYZ cmf = astroray::cieCmf1964_10deg(lambda);
-            astroray::photon::Photon ph;
-            ph.position = rec.point;
-            ph.incidentDir = d2;                          // photon travel direction
-            ph.power = astroray::XYZ{cmf.X * tr, cmf.Y * tr, cmf.Z * tr};
-            ph.lambda = lambda;
-            photons.push_back(ph);
-            depositedFlux_ += ph.power.Y;
-            ys.push_back(rec.point.y);
+            float throughput = 1.0f;
+            bool passedCaster = false;
+            for (int bounce = 0; bounce < maxDepth_; ++bounce) {
+                HitRecord rec;
+                if (!bvh->hit(Ray(o, d), eps, std::numeric_limits<float>::max(), rec)) break;
+                if (!rec.material || rec.material->isEmissive()) break;
+                if (rec.material->isTransmissive()) {
+                    BSDFSampleSpectral bss =
+                        rec.material->sampleSpectral(rec, d * -1.0f, gen, lambdas);
+                    throughput *= bss.f_spectral[0];          // hero-channel throughput
+                    if (rec.hitObject && rec.hitObject->isCausticCaster()) passedCaster = true;
+                    if (throughput <= 0.0f || bss.wi.length2() < 1e-8f) break;
+                    d = bss.wi.normalized();
+                    o = rec.point + d * eps;
+                    continue;
+                }
+                // Diffuse receiver: deposit a caustic photon (only L S+ D paths).
+                if (passedCaster && rec.normal.y > 0.7f && throughput > 0.0f) {
+                    const float lambdaHero = lambdas.lambda(0);
+                    astroray::XYZ cmf = astroray::cieCmf1964_10deg(lambdaHero);
+                    astroray::photon::Photon ph;
+                    ph.position = rec.point;
+                    ph.incidentDir = d;                       // photon travel direction
+                    ph.power = astroray::XYZ{cmf.X * throughput, cmf.Y * throughput,
+                                             cmf.Z * throughput};
+                    ph.lambda = lambdaHero;
+                    photons.push_back(ph);
+                    depositedFlux_ += ph.power.Y;
+                    ys.push_back(rec.point.y);
+                }
+                break;
+            }
         }
         if (photons.size() < 16) return;
 

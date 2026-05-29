@@ -1,20 +1,58 @@
 # Astroray Status
 
-**Last updated:** 2026-05-29 (Round 15 Wave 2: pkg106 Chunks B/C/D-seed merged — MNEE foundation complete).
+**Last updated:** 2026-05-29 (Round 15 Wave 3: pkg106 DONE — prism rainbow caustic shipped via a forward light-tracer, PR #393).
+
+## Round 15 Wave 3 — pkg106 FINISHED (PR #393 / `6e6fd74`, 2026-05-29)
+
+**A triangulated equilateral BK7 prism now throws a clean continuous rainbow
+caustic** — hue_spread 0.754 (≥ 0.7) and bright_coverage 0.88 (the continuity
+discriminator that rejects salt-and-pepper). Shipped via a NEW forward light-tracer
+integrator `plugins/integrators/light_tracer_caustic.cpp` (Arvo 1986 / Jensen
+1996): wavelengths are traced FROM the collimated sun THROUGH the prism and
+deposited (per-wavelength CIE flux) on the floor. Tests:
+`tests/test_prism_caustic_rainbow.py` + `tests/test_mnee_geometry_term.py`.
+
+**Why NOT the camera-side MNEE plan (Chunk D-radiance is ABANDONED):** the MNEE
+transfer-matrix geometry term (both positional + collimated branches) was ported
+from Cycles `mnee.h` and FD-validated (~7.6e-11), but a flat prism does not focus →
+camera-side specular connection is spatially chaotic → salt-and-pepper noise
+invariant to spp. A prism rainbow is a *forward* light-transport phenomenon. The
+MNEE math is KEPT (validated, in `include/astroray/manifold/`) for genuinely
+focusing casters (lenses/spheres). Write-up:
+`.astroray_plan/docs/pkg106-forward-lighttracing-research.md`.
+
+**SCOPE LIMIT — this is NOT yet general caustics.** The light-tracer is prism-
+specific: 2-face explicit refraction, a HORIZONTAL floor receiver, flagged triangle
+casters, a distant sun, dedicated integrator only. "Drop ANY glass + light →
+caustics on ANY surface through the default path" is the **general-caustics chain**:
+**pkg109** (world-space photon-map kd-tree) → **pkg110** (BSDF-driven photon bounce
+— any glass/TIR/multi-bounce) → **pkg111** (k-NN gather on any receiver, wired into
+the default `path_tracer`). SPPM-progressive + VCM are later.
 
 ## Round 15 Wave 2 closeout (3 PRs merged, 2026-05-28)
 
 **Key achievements:**
-- **pkg106 MNEE foundation COMPLETE** (PRs #389/#390/#391) — Chunks B/C/D-seed shipped: surface (u,v) partials (`manifold/surface_partials.h`), analytic Newton solver (`newton_iterate.h::solveAnalytic`), multi-vertex manifold chain (`manifold/manifold_chain.h` — block-tridiagonal Jacobian + damped Newton), mesh seed-ray + chain convergence on triangulated prism (`manifold/mesh_caustic.h`). **All CPU-only header math + unit tests, validated to ~1e-11 vs finite-difference / analytic Snell.** Remaining work: **Chunk D-radiance** (wire multi-vertex MNEE into live integrator — port Cycles transfer-matrix geometry term + finite prism faces + in-triangle validity + tighter visibility; currently renders chromatic noise on wip/pkg106-chunk-d-radiance) + **Chunk E** (prism scene + hue_spread ≥0.7 tuning).
+- **pkg106 MNEE foundation COMPLETE** (PRs #389/#390/#391) — Chunks B/C/D-seed shipped: surface (u,v) partials (`manifold/surface_partials.h`), analytic Newton solver (`newton_iterate.h::solveAnalytic`), multi-vertex manifold chain (`manifold/manifold_chain.h` — block-tridiagonal Jacobian + damped Newton), mesh seed-ray + chain convergence on triangulated prism (`manifold/mesh_caustic.h`). **All CPU-only header math + unit tests, validated to ~1e-11 vs finite-difference / analytic Snell.** _(Note: this Wave-2 entry's "Remaining work: Chunk D-radiance / Chunk E" is SUPERSEDED — pkg106 FINISHED in Wave 3 above via the forward light-tracer, not camera-side MNEE. Chunk D-radiance is abandoned.)_
 
 **Merged 2026-05-28:**
 1. **PR #389 — pkg106 Chunk B** (`95df0a5`) — Surface (u,v) partials + analytic Newton solver. `trianglePartials` / `spherePartials` (computed on-demand from geometry, not stored in HitRecord) + `solveAnalytic()` driven by analytic Jacobian (replaces FD path on triangulated casters). 9/9 mnee tests pass. Validation: Newton converges in ≤8 iterations on tilted plane.
 2. **PR #390 — pkg106 Chunk C** (`3588bed`) — Multi-vertex manifold chain. `ChainVertex` + `chainEval` (residual + block-tridiagonal `a`/`b`/`c` Jacobian) + dense Gaussian-elimination solve + `solveChain` damped block Newton (Cycles `beta` step control + per-vertex reprojection). Ports Cycles `mnee.h` lines 248–365 (Apache-2.0). 3/3 chain tests pass; Jacobian-vs-FD ~1e-11, block Newton converges in 4 iterations on 2-refraction chain.
 3. **PR #391 — pkg106 Chunk D-seed** (`6a18e9c`) — Mesh seed-ray + chain on triangulated prism. `CausticTri` + Möller-Trumbore `rayTriHit` + `seedChainFromRay` (cast x0→light, collect ordered caustic-caster intersections) + `makeFlatReproject`. Mirrors Cycles `mnee.h` lines 29-44 (Apache-2.0). Seed vertices use **orthonormal** in-plane (u,v) frame (non-unit parameterization breaks clamp → divergence); verified: raw edges → no convergence, orthonormal → 3 iterations. 14/14 mnee tests pass.
 
-**In-flight / deferred:**
-- **pkg106 Chunk D-radiance + E** — wire multi-vertex mesh MNEE into live `sms_caustic_path_tracer` (generalized-geometry term + 2-face Fresnel + chromatic hero contribution) + triangulated prism scene + hue_spread ≥0.7. WIP branch `wip/pkg106-chunk-d-radiance` (pushed to origin) renders a chromatic caustic END-TO-END but as noise, not a clean rainbow. Precise remaining work documented in `.astroray_plan/docs/pkg106-research-2026-05-28.md` (Update 2026-05-29 section on the wip branch). **Lead track for Round 15 continuation.**
-- **pkg55-B' Session N+5** — next CUDA-port stage continuation (metal/dielectric/disney shade kernels or RR/miss handling). Second-tier track.
+**Next deployable set (post-pkg106, 2026-05-29):**
+- **General-caustics chain (lead track):** **pkg109** photon-map kd-tree → **pkg110**
+  BSDF-driven photon bounce (any glass/TIR) → **pkg111** k-NN gather on any receiver
+  into the default path. This is what makes caustics general ("drop in any glass").
+- **Small independent CPU fixes (parallelizable):** pkg100 (.blend importer camera
+  intrinsics), pkg101 (viewport vfov), pkg102 (HDRI/DOF aperture units). Branches
+  exist on origin — re-verify vs current main, finish + merge.
+- **pkg76 Classroom Gap 2** — non-Principled shader-graph walk (importer code +
+  bpy-free unit tests land on CI; the full SSIM gate needs GPU, defer the gate).
+- **Integrator float-param ergonomics** — `set_integrator_param` is int-only;
+  `light_tracer_caustic.cpp:58-60` notes `caustic_boost` is an int×0.1 hack. Small
+  binding fix + test.
+- **pkg55-B' Session N+5** — CUDA shade kernels. NOT an overnight target: GPU-only
+  correctness gates can't be CI-verified (CI has no GPU).
 
 **Full standup:** (not yet committed).
 

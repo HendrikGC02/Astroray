@@ -16,10 +16,12 @@
 //   Refraction/Fresnel mirror plugins/materials/dielectric.cpp; the prism faces
 //     are the setCausticCaster-flagged triangles (mesh_attempt.h gather).
 //
-// Scope: deposits onto a horizontal (normal ~ +y) diffuse receiver via a 2D
-// (x,z) grid built in beginFrame (serial, before the parallel camera loop, so no
-// contention); the camera pass gathers bilinearly. Per-wavelength CIE deposit
-// (spectrum.h cieCmf1964_10deg) gives physically-based rainbow colours.
+// Scope: deposits onto a horizontal (normal ~ +y) diffuse receiver. pkg109 swaps
+// the original 2D (x,z) grid for a world-space photon map (kd-tree, photon_map.h)
+// built in beginFrame (serial, before the parallel camera loop, so no contention);
+// the camera pass gathers via a k-NN density estimate (Jensen 1996 Eq. 8). The
+// per-wavelength CIE deposit (spectrum.h cieCmf1964_10deg) gives physically-based
+// rainbow colours. The kd-tree is the foundation for general caustics (pkg110/111).
 
 #include "astroray/register.h"
 #include "astroray/integrator.h"
@@ -27,6 +29,7 @@
 #include "astroray/shapes.h"
 #include "astroray/manifold/mesh_attempt.h"   // gatherTriangleCasters, CausticTri
 #include "astroray/manifold/mesh_caustic.h"    // rayTriHit
+#include "astroray/photon/photon_map.h"        // pkg109 world-space photon map (kd-tree)
 
 #include <algorithm>
 #include <cmath>
@@ -39,14 +42,14 @@ namespace amf = astroray::manifold;
 class LightTracerCaustic : public Integrator {
     int   maxDepth_;
     int   photons_;
-    int   gridRes_;
+    int   gatherK_;
     float boost_;
     Renderer* renderer_ = nullptr;
 
-    std::vector<astroray::XYZ> grid_;  // gridRes_ x gridRes_ accumulated irradiance
-    int   gn_ = 0;
-    float floorY_ = 0.0f;
-    float gx0_ = 0, gx1_ = 0, gz0_ = 0, gz1_ = 0;
+    astroray::photon::PhotonMap pm_;  // pkg109 world-space photon store (was a 2D grid)
+    float floorY_ = 0.0f;             // receiver plane (still floor-only; pkg111 generalizes)
+    float gatherRadius_ = 0.0f;       // k-NN search radius, auto-calibrated to photon density
+    float causticScale_ = 1.0f;       // brightness auto-scale (peak band E -> boost_)
     bool  ready_ = false;
     float depositedFlux_ = 0.0f;
 
@@ -54,7 +57,7 @@ public:
     explicit LightTracerCaustic(const astroray::ParamDict& p)
         : maxDepth_(p.getInt("max_depth", 12)),
           photons_(p.getInt("photon_count", 2000000)),
-          gridRes_(p.getInt("caustic_grid_res", 256)),
+          gatherK_(p.getInt("caustic_knn", 50)),
           // float params don't route through the Python int-only set_integrator_param,
           // so brightness is an int knob (x0.1); default 10 -> 1.0.
           boost_(p.getInt("caustic_boost", 10) * 0.1f) {}
@@ -67,12 +70,14 @@ public:
     std::unordered_map<std::string, float> debugStats() const override {
         return {{"lt_photons", static_cast<float>(photons_)},
                 {"lt_deposited_flux", depositedFlux_},
+                {"lt_gather_radius", gatherRadius_},
+                {"lt_stored_photons", static_cast<float>(pm_.size())},
                 {"lt_grid_ready", ready_ ? 1.0f : 0.0f}};
     }
 
     void beginFrame(Renderer& scene, Camera& /*cam*/) override {
         renderer_ = &scene;
-        buildCausticGrid(scene);
+        buildPhotonMap(scene);
     }
 
     SampleResult sampleFull(const Ray& ray, std::mt19937& gen) override {
@@ -95,12 +100,14 @@ public:
             if (bvh && bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec) &&
                 rec.material && !rec.material->isEmissive() &&
                 rec.normal.y > 0.9f && std::fabs(rec.point.y - floorY_) < 0.05f) {
-                astroray::XYZ E = gather(rec.point.x, rec.point.z);
+                // pkg109: k-NN density estimate at the floor hit (Jensen 1996 Eq. 8)
+                // replaces the bilinear 2D-grid lookup.
+                astroray::XYZ E = pm_.estimateIrradiance(rec.point, gatherK_, gatherRadius_);
                 const Vec3 alb = rec.material->getAlbedo();
                 // Lambertian receiver: Lo = albedo/pi * E_irradiance (boost folds 1/pi + scale).
-                xyz.X += alb.x * E.X;
-                xyz.Y += alb.y * E.Y;
-                xyz.Z += alb.z * E.Z;
+                xyz.X += alb.x * E.X * causticScale_;
+                xyz.Y += alb.y * E.Y * causticScale_;
+                xyz.Z += alb.z * E.Z * causticScale_;
             }
         }
         r.color = Vec3(xyz.X, xyz.Y, xyz.Z);
@@ -109,25 +116,6 @@ public:
     }
 
 private:
-    int idx(int i, int j) const { return j * gn_ + i; }
-
-    astroray::XYZ gather(float x, float z) const {
-        if (gn_ <= 0 || gx1_ <= gx0_ || gz1_ <= gz0_) return {};
-        float fx = (x - gx0_) / (gx1_ - gx0_) * (gn_ - 1);
-        float fz = (z - gz0_) / (gz1_ - gz0_) * (gn_ - 1);
-        if (fx < 0 || fx > gn_ - 1 || fz < 0 || fz > gn_ - 1) return {};
-        int i0 = (int)fx, j0 = (int)fz;
-        int i1 = std::min(i0 + 1, gn_ - 1), j1 = std::min(j0 + 1, gn_ - 1);
-        float tx = fx - i0, tz = fz - j0;
-        auto L = [&](int i, int j) { return grid_[idx(i, j)]; };
-        astroray::XYZ out;
-        auto add = [&](const astroray::XYZ& v, float w) {
-            out.X += v.X * w; out.Y += v.Y * w; out.Z += v.Z * w; };
-        add(L(i0, j0), (1 - tx) * (1 - tz)); add(L(i1, j0), tx * (1 - tz));
-        add(L(i0, j1), (1 - tx) * tz);       add(L(i1, j1), tx * tz);
-        return out;
-    }
-
     // Nearest caster-triangle hit along (o,d); fills the geometric normal
     // oriented against d. Returns t (>0) or -1 on miss.
     static float nearestCaster(const std::vector<amf::CausticTri>& tris,
@@ -157,8 +145,8 @@ private:
         return 1.0f - fr;
     }
 
-    void buildCausticGrid(Renderer& scene) {
-        ready_ = false; depositedFlux_ = 0.0f;
+    void buildPhotonMap(Renderer& scene) {
+        ready_ = false; depositedFlux_ = 0.0f; gatherRadius_ = 0.0f; causticScale_ = 1.0f;
         std::vector<amf::CausticTri> tris;
         const Material* mat = amf::gatherTriangleCasters(scene, tris);
         if (tris.empty() || !mat) return;
@@ -192,9 +180,9 @@ private:
         Vec3 fv = sunDir.cross(fu);
         Vec3 origin0 = prismC - sunDir * (prad + 2.0f);
 
-        // Pass 1: trace photons, collect receiver deposits.
-        struct Dep { float x, z; astroray::XYZ c; };
-        std::vector<Dep> deps; deps.reserve(photons_ / 2);
+        // Pass 1: trace photons, deposit each on the first diffuse receiver hit.
+        std::vector<astroray::photon::Photon> photons;
+        photons.reserve(photons_ / 2);
         std::vector<float> ys;
         const float lmin = 380.0f, lmax = 720.0f;
         for (int p = 0; p < photons_; ++p) {
@@ -225,47 +213,53 @@ private:
             if (rec.hitObject && rec.hitObject->isCausticCaster()) continue;
             if (rec.normal.y < 0.7f) continue;            // horizontal receiver only
             astroray::XYZ cmf = astroray::cieCmf1964_10deg(lambda);
-            deps.push_back({rec.point.x, rec.point.z,
-                            {cmf.X * tr, cmf.Y * tr, cmf.Z * tr}});
+            astroray::photon::Photon ph;
+            ph.position = rec.point;
+            ph.incidentDir = d2;                          // photon travel direction
+            ph.power = astroray::XYZ{cmf.X * tr, cmf.Y * tr, cmf.Z * tr};
+            ph.lambda = lambda;
+            photons.push_back(ph);
+            depositedFlux_ += ph.power.Y;
             ys.push_back(rec.point.y);
         }
-        if (deps.size() < 16) return;
+        if (photons.size() < 16) return;
 
-        // Receiver plane + (x,z) bounds from the deposits.
+        // Receiver plane (median y of deposits) for the floor gate in sampleFull.
         std::sort(ys.begin(), ys.end());
         floorY_ = ys[ys.size() / 2];
-        float x0 = 1e30f, x1 = -1e30f, z0 = 1e30f, z1 = -1e30f;
-        for (const auto& d : deps) {
-            x0 = std::min(x0, d.x); x1 = std::max(x1, d.x);
-            z0 = std::min(z0, d.z); z1 = std::max(z1, d.z);
-        }
-        float mx = (x1 - x0) * 0.08f + 1e-3f, mz = (z1 - z0) * 0.08f + 1e-3f;
-        gx0_ = x0 - mx; gx1_ = x1 + mx; gz0_ = z0 - mz; gz1_ = z1 + mz;
-        gn_ = std::max(16, gridRes_);
-        grid_.assign((size_t)gn_ * gn_, astroray::XYZ{});
 
-        // Bilinear splat of each photon's CIE-weighted flux into the grid.
-        for (const auto& d : deps) {
-            float fx = (d.x - gx0_) / (gx1_ - gx0_) * (gn_ - 1);
-            float fz = (d.z - gz0_) / (gz1_ - gz0_) * (gn_ - 1);
-            int i0 = (int)fx, j0 = (int)fz;
-            if (i0 < 0 || i0 >= gn_ - 1 || j0 < 0 || j0 >= gn_ - 1) continue;
-            float tx = fx - i0, tz = fz - j0;
-            auto spl = [&](int i, int j, float w) {
-                grid_[idx(i, j)].X += d.c.X * w; grid_[idx(i, j)].Y += d.c.Y * w;
-                grid_[idx(i, j)].Z += d.c.Z * w; };
-            spl(i0, j0, (1 - tx) * (1 - tz)); spl(i0 + 1, j0, tx * (1 - tz));
-            spl(i0, j0 + 1, (1 - tx) * tz);   spl(i0 + 1, j0 + 1, tx * tz);
-            depositedFlux_ += d.c.Y;
+        // Build the world-space photon map (kd-tree). Jensen 1996 / photon_map.h.
+        pm_.build(std::move(photons));
+
+        // Calibrate the gather. (1) Density-adaptive search radius = 1.5x the median
+        // k-th-nearest distance over a subsample of stored photons. (2) Brightness
+        // auto-scale so the band's near-peak irradiance maps to ~boost (keeps the
+        // result resolution/count-independent, as the old per-cell peak-scale did).
+        const int N = static_cast<int>(pm_.size());
+        const int S = std::min(N, 4096);
+        const int stride = std::max(1, N / S);
+        std::vector<int> qi; std::vector<float> qd2;
+        std::vector<float> kth;
+        for (int i = 0; i < N; i += stride) {
+            pm_.knn(pm_.photon(i).position, gatherK_, 1e30f, qi, qd2);
+            if (!qd2.empty()) kth.push_back(std::sqrt(qd2.back()));
         }
-        // Per-cell area normalization (irradiance = flux / cell area / photon density)
-        // then auto-scale so the brightest band cell maps to ~boost (brightness is
-        // arbitrary for the hue gate; this keeps it resolution/count-independent).
-        float peak = 0.0f;
-        for (const auto& c : grid_) peak = std::max(peak, c.Y);
+        if (kth.empty()) return;
+        std::sort(kth.begin(), kth.end());
+        gatherRadius_ = 1.5f * kth[kth.size() / 2];
+        if (gatherRadius_ <= 0.0f) return;
+
+        std::vector<float> peaks;
+        for (int i = 0; i < N; i += stride) {
+            astroray::XYZ E =
+                pm_.estimateIrradiance(pm_.photon(i).position, gatherK_, gatherRadius_);
+            if (E.Y > 0.0f) peaks.push_back(E.Y);
+        }
+        if (peaks.empty()) return;
+        std::sort(peaks.begin(), peaks.end());
+        const float peak = peaks[static_cast<size_t>(peaks.size() * 0.95f)];
         if (peak <= 0.0f) return;
-        float s = boost_ / peak;
-        for (auto& c : grid_) { c.X *= s; c.Y *= s; c.Z *= s; }
+        causticScale_ = boost_ / peak;
         ready_ = true;
     }
 };

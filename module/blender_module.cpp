@@ -27,6 +27,7 @@
 #include "astroray/manifold/newton_iterate.h"           // pkg106 Chunk B test helper
 #include "astroray/manifold/manifold_chain.h"           // pkg106 Chunk C test helper
 #include "astroray/manifold/mesh_caustic.h"              // pkg106 Chunk D test helper
+#include "astroray/photon/photon_map.h"                   // pkg109 photon-map test helper
 #include "astroray/restir/reservoir.h"
 #include "astroray/restir/light_sample.h"
 #include "astroray/restir/frame_state.h"
@@ -2375,6 +2376,50 @@ PYBIND11_MODULE(astroray, m) {
               "light"_a, "light_n"_a, "light_fixed_dir"_a = false,
               "light_dir"_a = std::array<float, 3>{0.f, 0.f, 0.f});
     }
+
+    // pkg109 — photon-map kd-tree test bindings. Validate the balanced kd-tree
+    // build + k-NN locate + Jensen density estimate against a numpy float64
+    // brute-force oracle (tests/test_photon_map.py). Both functions build a
+    // throwaway PhotonMap from the supplied points.
+    m.def("_photon_map_knn_d2",
+          [](const std::vector<std::array<float, 3>>& pts,
+             const std::array<float, 3>& q, int k, float max_radius) {
+              std::vector<astroray::photon::Photon> ph;
+              ph.reserve(pts.size());
+              for (const auto& p : pts) {
+                  astroray::photon::Photon pt;
+                  pt.position = Vec3(p[0], p[1], p[2]);
+                  ph.push_back(pt);
+              }
+              astroray::photon::PhotonMap pm;
+              pm.build(std::move(ph));
+              std::vector<int> idx;
+              std::vector<float> d2;
+              pm.knn(Vec3(q[0], q[1], q[2]), k, max_radius, idx, d2);
+              return d2;  // squared distances of the k nearest, sorted ascending
+          },
+          "points"_a, "query"_a, "k"_a, "max_radius"_a);
+
+    m.def("_photon_map_irradiance",
+          [](const std::vector<std::array<float, 3>>& pts,
+             const std::vector<std::array<float, 3>>& powers,
+             const std::array<float, 3>& q, int k, float max_radius) {
+              std::vector<astroray::photon::Photon> ph;
+              ph.reserve(pts.size());
+              for (std::size_t i = 0; i < pts.size(); ++i) {
+                  astroray::photon::Photon pt;
+                  pt.position = Vec3(pts[i][0], pts[i][1], pts[i][2]);
+                  if (i < powers.size())
+                      pt.power = astroray::XYZ{powers[i][0], powers[i][1], powers[i][2]};
+                  ph.push_back(pt);
+              }
+              astroray::photon::PhotonMap pm;
+              pm.build(std::move(ph));
+              astroray::XYZ E =
+                  pm.estimateIrradiance(Vec3(q[0], q[1], q[2]), k, max_radius);
+              return py::make_tuple(E.X, E.Y, E.Z);
+          },
+          "points"_a, "powers"_a, "query"_a, "k"_a, "max_radius"_a);
 
     m.def("synchrotron_thermal_emissivity",
           &astroray::synchrotron::jnuThermalI,

@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (Light transport)
 **Track:** A (CPU integrator)
-**Status:** WIP (branch `pkg110-bsdf-photon-bounce`, 2026-05-30) — general BSDF photon loop done + validated on a glass sphere (~48× caustic concentration); prism `hue_spread` gate not yet reproduced (0.52–0.60 vs 0.70). See `.astroray_plan/docs/pkg110-status-finding.md`.
+**Status:** WIP (branch `pkg110-photon-bounce`, 2026-05-30) — general DETERMINISTIC refraction photon loop done + validated on a glass sphere (peak 0.673, ~41× concentration; `tests/test_glass_sphere_caustic.py` passes). Prism `hue_spread` gate NOT reproduced under any general loop (root cause: the gate relies on the exactly-2-slant-face purity) → needs an OWNER DECISION (re-derive the prism gate, or keep a special-case flat-caster path). See `.astroray_plan/docs/pkg110-status-finding.md`.
 **Estimated effort:** M (~3-4 days)
 **Depends on:** pkg109 (photon-map kd-tree store)
 

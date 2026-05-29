@@ -89,3 +89,49 @@ gate built on a *spectral-spread metric over a deterministic special-case deposi
 (the prism `hue_spread`) is sensitive to the deposit-weighting details and does not
 transfer for free to a stochastic general loop — reproducing the **physics** (the
 band) is easy; reproducing the **exact metric value** needs deposit-weighting parity.
+
+## Update 2026-05-30 — deterministic loop tried; root cause confirmed
+
+The latest WIP (branch **`pkg110-photon-bounce`**, supersedes the stochastic
+`pkg110-bsdf-photon-bounce`) replaces `sampleSpectral` with a **deterministic**
+loop: Snell refraction (`iorAt(λ)`, enter/exit from the sign of the geometric
+normal) + Schlick-Fresnel-weighted throughput + TIR-reflect; always-refract (no
+stochastic reflection), so the deposit is dense and noise-free. Results:
+
+| loop × prism geometry | photons | hue_spread (0.70) | bright_coverage (0.50) |
+|---|---|---|---|
+| deterministic × 2-quad prism | **0** | 0.000 | 0.000 |
+| deterministic × solid prism (9M) | 487k | **0.475** | 0.741 |
+| (for reference) stochastic × solid prism | 130–391k | 0.52–0.60 | 0.74–0.77 |
+
+- **Glass sphere (deterministic): peak luminance 0.673, ~41× concentration, a
+  focused spot (<0.02 % of pixels > 0.3).** Gate `tests/test_glass_sphere_caustic.py`
+  PASSES. The deterministic refraction is **proven correct** (sphere focuses).
+- **2-quad prism still gives 0 deposits** with the general loop (the old explicit
+  code's `nearestCaster` deposited only clean 2-refraction photons; `bvh->hit`
+  through 2 thin coplanar quads doesn't reconstruct that path). Needs a closed solid.
+- **Solid prism + deterministic still gives hue 0.475** — and density does NOT help
+  (more photons made the stochastic version *worse*). **Confirmed root cause: the
+  prism gate relies on the PURITY of the exactly-2-slant-face path.** A general loop
+  on a closed solid also captures bottom/end-cap-scattered photons that land in the
+  ROI and desaturate it. There is no deposit-weighting tweak that recovers 0.75 while
+  staying general.
+
+**Conclusion — needs an OWNER DECISION, not a tuning fix.** The general loop is the
+right design and is validated for focusing casters (the sphere). The prism rainbow
+`hue_spread ≥ 0.70` regression conflicts with generalization. Options for the owner:
+1. **Re-derive the prism gate for the general loop** — measure the solid-prism band
+   with the general loop, pick an ROI on the actual band, and set a hue threshold
+   that the general (impure) deposit can meet (with `bright_coverage` still guarding
+   continuity). The thresholds change because the *scene/algorithm* legitimately
+   changed, not to fit a number.
+2. **Keep a special-case flat-caster path** — detect coplanar/flat casters (a prism)
+   and use the explicit 2-slant-face deposit for them, general loop for the rest.
+   Pragmatic but reintroduces a special case the spec wanted gone.
+3. **Accept the sphere/focusing-caster gate as pkg110's acceptance** and move the
+   prism to a separate "flat-caster dispersion" gate, since a flat prism is a
+   non-focusing special case (the original pkg106 rationale).
+
+Recommended: option 1 (re-derive) + option 3 framing. The shippable core today is
+the deterministic general loop + the glass-sphere caustic gate (both on
+`pkg110-photon-bounce`).

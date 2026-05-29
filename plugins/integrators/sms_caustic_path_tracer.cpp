@@ -43,6 +43,7 @@
 #include "astroray/spectrum.h"
 #include "astroray/shapes.h"
 #include "astroray/manifold/sms_attempt.h"
+#include "astroray/manifold/mesh_attempt.h"   // pkg106 Chunk D: triangulated-prism MNEE
 
 #include <algorithm>
 #include <limits>
@@ -63,6 +64,11 @@ class SMSCausticPathTracer : public Integrator {
     float smsConverged_ = 0.0f;
     float smsEnergy_    = 0.0f;
     std::vector<amf::SMSCaster> casters_;
+    // pkg106 Chunk D: triangle-mesh caustic casters (a triangulated prism) for
+    // the multi-vertex MNEE path. Sphere casters above stay on the single-vertex
+    // path; mesh casters use the chromatic 2-vertex chain.
+    std::vector<amf::CausticTri> meshCasters_;
+    const Material* meshCasterMat_ = nullptr;
 
 public:
     explicit SMSCausticPathTracer(const astroray::ParamDict& p)
@@ -88,6 +94,8 @@ public:
         // every transmissive sphere as a candidate (requireFlag=false), so
         // its acceptance test scenes don't need to flip the new opt-in.
         amf::gatherSphereCasters(scene, casters_, /*requireFlag=*/false);
+        // pkg106 Chunk D: gather triangle-mesh caustic-casters (opt-in flag).
+        meshCasterMat_ = amf::gatherTriangleCasters(scene, meshCasters_);
     }
 
     std::unordered_map<std::string, float> debugStats() const override {
@@ -153,12 +161,23 @@ public:
         if (primaryHit && rec.material) {
             r.albedo = rec.material->getAlbedo();
             r.depth  = rec.t;
-            if (!rec.material->isEmissive() && !rec.isDelta && !casters_.empty()) {
+            if (!rec.material->isEmissive() && !rec.isDelta) {
                 if (spectralNewton_) {
-                    astroray::SampledSpectrum sms =
-                        sampleSMSSpectral(rec, ray, lambdas, gen);
+                    astroray::SampledSpectrum sms(0.0f);
+                    if (!casters_.empty())
+                        sms = sms + sampleSMSSpectral(rec, ray, lambdas, gen);
+                    // pkg106: EXPERIMENTAL chromatic multi-vertex MNEE on
+                    // triangulated casters. Validated math (analytic transfer-
+                    // matrix geometry term, caster-aimed seed), but camera-side
+                    // MNEE on a FLAT/weakly-dispersing prism is salt-and-pepper
+                    // grainy (deterministic basin chaos). The prism RAINBOW ships
+                    // via the forward light_tracer_caustic integrator instead;
+                    // this path is kept for focusing mesh casters. See
+                    // pkg106-forward-lighttracing-research.md.
+                    if (!meshCasters_.empty())
+                        sms = sms + sampleMeshSMSSpectral(rec, ray, lambdas, gen);
                     rad = rad + sms;
-                } else {
+                } else if (!casters_.empty()) {
                     Vec3 sms = sampleSMSRGB(rec, ray, lambdas, gen);
                     rad = rad + astroray::RGBIlluminantSpectrum(
                         {sms.x, sms.y, sms.z}).sample(lambdas);
@@ -273,6 +292,35 @@ private:
             heroAccum += sampleHero;
             smsConverged_ += 1.0f;
             smsEnergy_ += sampleHero;
+        }
+        out[0] = heroAccum;
+        return out;
+    }
+
+    // pkg106 Chunk D — chromatic multi-vertex MNEE on triangulated (prism)
+    // casters. Like sampleSMSSpectral but the geometric solve is the 2-vertex
+    // (entry+exit face) block-tridiagonal chain at the hero-wavelength IOR; the
+    // contribution is written to the hero channel only, so per-ray hero rotation
+    // spreads the caustic into a rainbow (mesh_attempt.h / manifold_chain.h).
+    astroray::SampledSpectrum sampleMeshSMSSpectral(
+            const HitRecord& x0Rec, const Ray& primary,
+            const astroray::SampledWavelengths& lambdas,
+            std::mt19937& gen) {
+        astroray::SampledSpectrum out(0.0f);
+        const auto& lights = renderer_->getLights();
+        if (lights.empty() || meshCasters_.empty()) return out;
+
+        LightSample ls;
+        lights.sample(ls, x0Rec.point, x0Rec.normal, lambdas, gen);
+        if (ls.pdf <= 0.0f) return out;
+
+        float heroAccum = 0.0f;
+        for (int s = 0; s < smsCfg_.seeds; ++s) {
+            smsAttempts_ += 1.0f;
+            float c = amf::runMeshSMSAttempt(*renderer_, x0Rec, primary, lambdas,
+                                             meshCasters_, meshCasterMat_,
+                                             /*casterPickPdf=*/1.0f, ls, smsCfg_);
+            if (c > 0.0f) { heroAccum += c; smsConverged_ += 1.0f; smsEnergy_ += c; }
         }
         out[0] = heroAccum;
         return out;

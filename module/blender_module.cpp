@@ -2343,6 +2343,37 @@ PYBIND11_MODULE(astroray, m) {
               },
               "tris"_a, "x0"_a, "light"_a, "ior"_a,
               "max_iter"_a = 30, "tol"_a = 1e-5f, "max_step"_a = 0.3f);
+
+        // pkg106 Chunk D (radiance) — MNEE generalized geometry term.
+        // Builds a FLAT chain (dn=0) at the supplied (converged) vertices and
+        // returns (dx1_dxlight, dh_dx). Used by test_mnee_geometry_term.py to
+        // check the C++ transfer matrix vs a float64 finite-difference of the
+        // re-solved manifold (Cycles mnee_compute_transfer_matrix l.663-731).
+        m.def("_mnee_geometry_term",
+              [buildChain](const std::vector<std::array<float, 3>>& ps,
+                           const std::vector<std::array<float, 3>>& ns,
+                           const std::vector<std::array<float, 3>>& dpus,
+                           const std::vector<std::array<float, 3>>& dpvs,
+                           const std::vector<float>& etas,
+                           const std::array<float, 3>& x0,
+                           const std::array<float, 3>& light,
+                           const std::array<float, 3>& light_n,
+                           bool light_fixed_dir,
+                           const std::array<float, 3>& light_dir) {
+                  std::vector<std::array<float, 3>> z(ps.size(), {0.f, 0.f, 0.f});
+                  am::ChainVertex v[am::kMaxChainVertices];
+                  int N = buildChain(ps, ns, dpus, dpvs, z, z, etas, v);
+                  float dhdx = 0.0f;
+                  float dx1 = am::chainGeometryTerm(
+                      v, N, Vec3(x0[0], x0[1], x0[2]),
+                      Vec3(light[0], light[1], light[2]),
+                      Vec3(light_n[0], light_n[1], light_n[2]), &dhdx,
+                      light_fixed_dir, Vec3(light_dir[0], light_dir[1], light_dir[2]));
+                  return py::make_tuple(dx1, dhdx);
+              },
+              "ps"_a, "ns"_a, "dp_dus"_a, "dp_dvs"_a, "etas"_a, "x0"_a,
+              "light"_a, "light_n"_a, "light_fixed_dir"_a = false,
+              "light_dir"_a = std::array<float, 3>{0.f, 0.f, 0.f});
     }
 
     m.def("synchrotron_thermal_emissivity",

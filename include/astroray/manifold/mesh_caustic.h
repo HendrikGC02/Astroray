@@ -51,7 +51,7 @@ inline bool rayTriHit(const Vec3& o, const Vec3& d, const CausticTri& tri, float
 // casters, or > maxV which is treated as unsupported).
 inline int seedChainFromRay(const CausticTri* tris, int nTris,
                             const Vec3& x0, const Vec3& light, float ior,
-                            ChainVertex* outV, int maxV) {
+                            ChainVertex* outV, int maxV, int* outTriIdx = nullptr) {
     const Vec3 seg = light - x0;
     const float segLen = std::sqrt(seg.length2());
     if (segLen < 1e-9f) return 0;
@@ -97,8 +97,88 @@ inline int seedChainFromRay(const CausticTri* tris, int nTris,
         v.dn_du = Vec3(0.0f);   // flat facet
         v.dn_dv = Vec3(0.0f);
         v.eta = ior;
+        if (outTriIdx) outTriIdx[i] = idx[i];
     }
     return count;
+}
+
+// Seed the chain by aiming x0 at the CASTER (its centroid), not at the light.
+//
+// The straight x0->light seed only crosses the prism when the prism lies on the
+// receiver->light line — i.e. for a near-zero-deviation slab. A real prism bends
+// the path by its deviation angle (~38 deg for an equilateral BK7), so for the
+// receiver points the dispersed beam actually illuminates, the straight seed
+// misses the prism entirely and no caustic is found (the Cycles-MNEE-flaky-on-
+// prisms failure the research note warns about). Aiming the seed ray at the
+// caster guarantees it crosses both faces; the damped Newton then bends the path
+// so its last segment points at the (far, ~collimated) light. This is what lets
+// the rainbow form off the optical axis. Returns the vertex count (0 on miss).
+inline int seedChainTowardCaster(const CausticTri* tris, int nTris,
+                                 const Vec3& x0, const Vec3& aim, float ior,
+                                 ChainVertex* outV, int maxV, int* outTriIdx = nullptr) {
+    const Vec3 seg = aim - x0;
+    const float aimLen = std::sqrt(seg.length2());
+    if (aimLen < 1e-9f) return 0;
+    const Vec3 dir = seg * (1.0f / aimLen);
+    const float tMax = aimLen * 4.0f;   // far face sits a little beyond the centroid
+
+    float ts[2 * kMaxChainVertices];
+    int idx[2 * kMaxChainVertices];
+    int count = 0;
+    for (int i = 0; i < nTris; ++i) {
+        float t;
+        if (!rayTriHit(x0, dir, tris[i], t)) continue;
+        if (t <= 1e-4f || t >= tMax) continue;
+        if (count < 2 * kMaxChainVertices) { ts[count] = t; idx[count] = i; ++count; }
+    }
+    if (count == 0) return 0;
+    for (int i = 1; i < count; ++i) {   // insertion sort by t (nearest x0 first)
+        float kt = ts[i]; int ki = idx[i]; int j = i - 1;
+        while (j >= 0 && ts[j] > kt) { ts[j + 1] = ts[j]; idx[j + 1] = idx[j]; --j; }
+        ts[j + 1] = kt; idx[j + 1] = ki;
+    }
+    if (count > maxV) count = maxV;     // keep the nearest maxV crossings
+
+    for (int i = 0; i < count; ++i) {
+        const CausticTri& tri = tris[idx[i]];
+        ChainVertex& v = outV[i];
+        v.p = x0 + dir * ts[i];
+        v.n = (tri.v1 - tri.v0).cross(tri.v2 - tri.v0).normalized();
+        // Orient the normal toward x0 (a consistent convention for ALL vertices).
+        // chainEval picks eta via sign(wi.n); the raw geometric normal points the
+        // wrong way on the far face, flipping eta to its reciprocal -> wrong Snell
+        // -> the Newton diverges (verified: raw normal diverges, oriented converges
+        // in ~5 iters on the equilateral prism). cf. mesh_caustic seed convention.
+        if (v.n.dot(x0 - v.p) < 0.0f) v.n = v.n * -1.0f;
+        Vec3 e1 = tri.v1 - tri.v0;
+        Vec3 s = e1 - v.n * e1.dot(v.n);
+        float ls = std::sqrt(s.length2());
+        s = (ls > 1e-12f) ? s * (1.0f / ls) : Vec3(1.0f, 0.0f, 0.0f);
+        v.dp_du = s;
+        v.dp_dv = v.n.cross(s);
+        v.dn_du = Vec3(0.0f);
+        v.dn_dv = Vec3(0.0f);
+        v.eta = ior;
+        if (outTriIdx) outTriIdx[i] = idx[i];
+    }
+    return count;
+}
+
+// Barycentric in-triangle test (the converged manifold vertex must land inside
+// the FINITE caster face — without this every receiver pixel finds a "valid"
+// path on the infinite face plane and the caustic is uniform noise rather than
+// a localized band). `eps` allows a small slack at shared edges.
+inline bool pointInTriangle(const Vec3& p, const CausticTri& tri, float eps = 1e-3f) {
+    const Vec3 e1 = tri.v1 - tri.v0;
+    const Vec3 e2 = tri.v2 - tri.v0;
+    const Vec3 vp = p - tri.v0;
+    const float d11 = e1.dot(e1), d12 = e1.dot(e2), d22 = e2.dot(e2);
+    const float den = d11 * d22 - d12 * d12;
+    if (std::fabs(den) < 1e-20f) return false;
+    const float dp1 = vp.dot(e1), dp2 = vp.dot(e2);
+    const float u = (d22 * dp1 - d12 * dp2) / den;
+    const float w = (d11 * dp2 - d12 * dp1) / den;
+    return u >= -eps && w >= -eps && (u + w) <= 1.0f + eps;
 }
 
 // Flat-facet reprojection for solveChain: the in-plane tangent step keeps the

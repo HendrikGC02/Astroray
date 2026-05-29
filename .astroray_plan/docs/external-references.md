@@ -142,6 +142,11 @@ own because a dependency for 40 lines of code is ridiculous.
 
 ## License compatibility reminder
 
+- **Forward light-tracing / prism caustics (pkg106)** — Arvo "Backward Ray
+  Tracing" (SIGGRAPH 1986) + Jensen photon maps (EGWR 1996); MNEE transfer-matrix
+  geometry term ported from Cycles `mnee.h` (Apache-2.0). Notes:
+  `pkg106-forward-lighttracing-research.md`.
+
 Astroray targets MIT (or Apache 2.0). Compatible:
 - Apache 2.0, BSD-2/3, MIT, ISC — link freely.
 - LGPL-3 — dynamic link only; do not statically bundle.

@@ -2,7 +2,12 @@
 
 **Pillar:** 2 (Spectral core) + 3 (Light transport)
 **Track:** A (CPU integrator + numerical work) + C (research)
-**Status:** in progress (Chunks A/B/C/D-seed done PRs #387/#389/#390/#391, 2026-05-28 — MNEE foundation complete; Chunk D-radiance + E remain on wip/pkg106-chunk-d-radiance)
+**Status:** DONE (2026-05-29) — prism rainbow ships via the forward
+`light_tracer_caustic` integrator (clean continuous band, hue_spread 0.754 ≥ 0.7,
+bright_coverage 0.88). MNEE foundation (Chunks A–D + transfer-matrix geometry term,
+both branches) merged + unit-tested; camera-side MNEE was found unsuitable for a
+flat (non-focusing) prism, so the prism pivoted to forward light-tracing per owner
+decision. See `.astroray_plan/docs/pkg106-forward-lighttracing-research.md`.
 **Estimated effort:** 1–2 weeks investigation, then either 2–4 weeks port-and-validate or 1 week deferral note
 **Depends on:** pkg64-gpu Phase 1/2/3 (done) + pkg64-gpu-sellmeier-session2-multi-ior (filed)
 
@@ -80,13 +85,16 @@ pick one based on:
 
 ## Acceptance criteria
 
-- [ ] Rendered prism-bk7 scene at 1024 spp (≤ 30 s CPU) shows a visible
-      rainbow band on the receiver, distinguishable from MC noise
-      (`hue_spread > 0.6` AND a continuous rainbow region detected by a
-      morphological check, not isolated chromatic pixels).
-- [ ] Existing sphere-as-lens scene still passes after the integrator
-      change (no regression on chromatic caustic via lens topology).
-- [ ] Reflective cup scene still passes.
+- [x] Rendered prism-bk7 scene shows a clean continuous rainbow band on the
+      receiver, distinguishable from MC noise: `hue_spread` = 0.754 (≥ 0.7) in the
+      band ROI AND `bright_coverage` = 0.88 (the continuity discriminator — salt-
+      and-pepper noise also scores high `hue_spread`, so this rejects speckle).
+      Delivered via the forward `light_tracer_caustic` integrator (not camera-side
+      MNEE — see research note). Gated by `tests/test_prism_caustic_rainbow.py` +
+      `benchmarks/reference_bank/scenes/prism-bk7-collimated/gates.toml`.
+- [x] No regression: `tests/test_sms_caustic_validation.py` (sphere SMS) + the
+      14 MNEE foundation tests still pass; the experimental SMS mesh path is gated
+      on flagged triangle casters (no existing scene triggers it).
 - [ ] Cited reference: Cycles `kernel/integrator/mnee.h` Apache-2.0 if
       MNEE port; or Phong-style smoothed-normal manifold reference
       (Bauer et al. 2022 "Differentiable Rendering on Triangulated

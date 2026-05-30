@@ -426,6 +426,15 @@ __device__ inline float gpu_smithG_GGX(float NdotV, float alphaG) {
     return 1.f / (NdotV + sqrtf(a + b - a*b) + 0.001f);
 }
 
+// True Smith G1 in [0,1] (Walter 2007 Eq. 34) = 2*NdotV*gpu_smithG_GGX. gpu_smithG_GGX
+// is the combined visibility form G1/(2*NdotV); the rough-transmission estimator needs
+// the true G1 or a spurious 1/(4*cosO*cosI) survives -> ~70% energy loss (CPU mirror).
+__device__ inline float gpu_smithG1_GGX(float NdotV, float alphaG) {
+    float a = alphaG*alphaG;
+    float b = NdotV*NdotV;
+    return 2.f * NdotV / (NdotV + sqrtf(a + b - a*b) + 0.001f);
+}
+
 __device__ inline GVec3 gpu_disney_fresnelSchlick(float cosTheta, const GVec3& F0, float scale = 0.8f) {
     float c = fminf(fmaxf(1.f - cosTheta, 0.f), 1.f);
     // Reduced Fresnel for dielectric Disney lobes; metallic lobes approach full conductor Schlick.
@@ -451,18 +460,42 @@ __device__ inline float gpu_disney_fresnelDielectric(float cosThetaI, float etaI
     return fminf(fmaxf(0.5f * (rPar*rPar + rPerp*rPerp), 0.f), 1.f);
 }
 
-__device__ inline GVec3 gpu_disney_sampleGgxMicroNormal(
+// Heitz 2018 "Sampling the GGX Distribution of Visible Normals", JCGT 7(4).
+// Ported from PBRT-v4 TrowbridgeReitzDistribution::Sample_wm (BSD-3-Clause).
+__device__ inline GVec3 gpu_disney_sampleGgxVNDF(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, curandState* rng)
 {
     float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
-    float r1 = curand_uniform(rng);
-    float r2 = curand_uniform(rng);
-    float phi = 2.f * M_PI_F * r1;
-    float cosT = sqrtf((1.f - r2) / (1.f + (a*a - 1.f)*r2));
-    float sinT = sqrtf(fmaxf(0.f, 1.f - cosT*cosT));
-    GVec3 h(cosf(phi)*sinT, sinf(phi)*sinT, cosT);
-    h = (rec.tangent*h.x + rec.bitangent*h.y + rec.normal*h.z).normalized();
-    return h.dot(wo) < 0.f ? -h : h;
+    float u1 = curand_uniform(rng), u2 = curand_uniform(rng);
+
+    // Transform wo to local tangent space
+    GVec3 wo_local(wo.dot(rec.tangent), wo.dot(rec.bitangent), wo.dot(rec.normal));
+    // Transform to hemispherical configuration
+    GVec3 wh = GVec3(a*wo_local.x, a*wo_local.y, wo_local.z).normalized();
+    if (wh.z < 0.f) wh = -wh;
+
+    // Orthonormal basis for visible normal sampling
+    GVec3 T1 = (wh.z < 0.99999f) ? GVec3(0.f, 0.f, 1.f).cross(wh).normalized() : GVec3(1.f, 0.f, 0.f);
+    GVec3 T2 = wh.cross(T1);
+
+    // Sample uniform disk (polar)
+    float r = sqrtf(u1);
+    float phi = 2.f * M_PI_F * u2;
+    float px = r * cosf(phi);
+    float py = r * sinf(phi);
+
+    // Warp hemispherical projection for visible normal sampling
+    float h = sqrtf(fmaxf(0.f, 1.f - px*px));
+    py = ((1.f + wh.z) / 2.f) * h + (1.f - (1.f + wh.z) / 2.f) * py;
+
+    // Reproject to hemisphere and transform normal to ellipsoid configuration
+    float pz = sqrtf(fmaxf(0.f, 1.f - px*px - py*py));
+    GVec3 nh = T1*px + T2*py + wh*pz;
+    GVec3 m_local = GVec3(a*nh.x, a*nh.y, fmaxf(1e-6f, nh.z)).normalized();
+
+    // Transform back to world space
+    GVec3 m = rec.tangent*m_local.x + rec.bitangent*m_local.y + rec.normal*m_local.z;
+    return m.normalized();
 }
 
 __device__ inline bool gpu_disney_refractMicro(
@@ -478,56 +511,84 @@ __device__ inline bool gpu_disney_refractMicro(
     return wi.length2() > 1e-10f;
 }
 
+// Forward decl — defined below (used by gpu_disney_microfacetReflectionPdf).
+__device__ inline float gpu_disney_vndfPdf(
+    const GMaterial& mat, const GVec3& rec_normal, const GVec3& wo, const GVec3& wm);
+
+// VNDF reflection PDF (PBRT-v4 DielectricBxDF::PDF reflection branch).
 __device__ inline float gpu_disney_microfacetReflectionPdf(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
     if (rec.normal.dot(wo) * rec.normal.dot(wi) <= 0.f) return 0.f;
-    GVec3 h = (wo + wi).normalized();
-    if (h.length2() <= 1e-10f) return 0.f;
-    if (h.dot(rec.normal) < 0.f) h = -h;
-    float NdotH = fabsf(rec.normal.dot(h));
-    float HdotV = fabsf(h.dot(wo));
-    if (NdotH <= 0.f || HdotV <= 0.f) return 0.f;
-    float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
-    float D = gpu_D_GTR2(NdotH, a);
-    return D * NdotH / (4.f * HdotV + 1e-6f);
+    GVec3 wm = (wo + wi).normalized();
+    if (wm.length2() <= 1e-10f) return 0.f;
+    if (wm.dot(rec.normal) < 0.f) wm = -wm;
+
+    float HdotO = fabsf(wo.dot(wm));
+    if (HdotO <= 1e-10f) return 0.f;
+
+    // PBRT-v4: reflection PDF = VNDF_PDF / (4 * |HdotO|)
+    return gpu_disney_vndfPdf(mat, rec.normal, wo, wm) / (4.f * HdotO + 1e-10f);
 }
 
+// PBRT-v4 DielectricBxDF::f transmission (BSD-3-Clause).
+// Walter 2007 "Microfacet Models for Refraction through Rough Surfaces" Eq. 21.
 __device__ inline GVec3 gpu_disney_roughTransmissionEval(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
     float cosO = rec.normal.dot(wo);
     float cosI = rec.normal.dot(wi);
     if (cosO == 0.f || cosI == 0.f || cosO*cosI >= 0.f) return GVec3(0.f);
+
     bool entering = cosO > 0.f;
     float etaI = entering ? 1.f : mat.ior;
     float etaT = entering ? mat.ior : 1.f;
-    float eta = etaI / etaT;
-    GVec3 h = (wo + wi*eta).normalized();
-    if (h.length2() <= 1e-10f) return GVec3(0.f);
-    if (h.dot(rec.normal) < 0.f) h = -h;
+    float etap = entering ? mat.ior : (1.f / mat.ior);  // etaT/etaI
+    GVec3 wm = (wi*etap + wo).normalized();
+    if (wm.length2() <= 1e-10f) return GVec3(0.f);
+    // Face forward (PBRT-v4 FaceForward)
+    if (wm.dot(rec.normal) < 0.f) wm = -wm;
 
-    float HdotO = wo.dot(h);
-    float HdotI = wi.dot(h);
-    if (HdotO * HdotI >= 0.f) return GVec3(0.f);
-    float NdotH = fabsf(rec.normal.dot(h));
-    float absCosO = fabsf(cosO);
-    float denom = etaI*HdotO + etaT*HdotI;
-    float denom2 = denom*denom;
-    if (NdotH <= 0.f || absCosO <= 0.f || denom2 <= 1e-10f) return GVec3(0.f);
+    // Discard backfacing microfacets
+    if (wm.dot(wi)*cosI < 0.f || wm.dot(wo)*cosO < 0.f) return GVec3(0.f);
 
     float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
-    float D = gpu_D_GTR2(NdotH, a);
-    float G = gpu_smithG_GGX(absCosO, a) * gpu_smithG_GGX(fabsf(cosI), a);
-    float F = gpu_disney_fresnelDielectric(HdotO, etaI, etaT);
-    float jacobianAndCos = fabsf(HdotO * HdotI) * (etaT * etaT) /
-                           (absCosO * denom2 + 1e-6f);
-    float scale = (1.f - mat.metallic) * mat.transmission * (1.f - F) * D * G * jacobianAndCos;
+    float D = gpu_D_GTR2(fabsf(wm.dot(rec.normal)), a);
+    // PBRT-v4: G(wo, wi) = 1 / (1 + Lambda(wo) + Lambda(wi))
+    float G = gpu_smithG1_GGX(fabsf(cosO), a) * gpu_smithG1_GGX(fabsf(cosI), a);
+    float F = gpu_disney_fresnelDielectric(fabsf(wo.dot(wm)), etaI, etaT);
+
+    // PBRT-v4 transmission eval: D * (1-F) * G * |HdotI * HdotO / denom|
+    float denom = (wi.dot(wm) + wo.dot(wm) / etap);
+    denom = denom*denom * cosI * cosO;
+    float ft = D * (1.f - F) * G * fabsf(wi.dot(wm) * wo.dot(wm) / (denom + 1e-10f));
+
+    // PBRT-v4: radiance transport correction (Astroray is a radiance path tracer)
+    ft /= (etap * etap);
+
+    float scale = (1.f - mat.metallic) * mat.transmission * ft;
     GVec3 result = mat.baseColor * scale;
     result.x = fminf(fmaxf(result.x, 0.f), 4.f);
     result.y = fminf(fmaxf(result.y, 0.f), 4.f);
     result.z = fminf(fmaxf(result.z, 0.f), 4.f);
     return result;
+}
+
+// VNDF PDF including half-vector Jacobian (PBRT-v4 DielectricBxDF::PDF).
+__device__ inline float gpu_disney_vndfPdf(
+    const GMaterial& mat, const GVec3& rec_normal, const GVec3& wo, const GVec3& wm)
+{
+    float absCosO = fabsf(wo.dot(rec_normal));
+    if (absCosO <= 1e-10f) return 0.f;
+    float HdotO = fabsf(wo.dot(wm));
+    float NdotH = fabsf(wm.dot(rec_normal));
+    if (HdotO <= 1e-10f || NdotH <= 1e-10f) return 0.f;
+
+    float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
+    float D = gpu_D_GTR2(NdotH, a);
+    float G1 = gpu_smithG1_GGX(absCosO, a);
+    // PBRT-v4: VNDF PDF = D(wo, wm) = G1(wo) / absCosO * D(wm) * absDot(wo, wm)
+    return G1 / absCosO * D * HdotO;
 }
 
 __device__ inline float gpu_disney_roughTransmissionPdf(
@@ -536,27 +597,28 @@ __device__ inline float gpu_disney_roughTransmissionPdf(
     float cosO = rec.normal.dot(wo);
     float cosI = rec.normal.dot(wi);
     if (cosO == 0.f || cosI == 0.f || cosO*cosI >= 0.f) return 0.f;
+
     bool entering = cosO > 0.f;
+    float etap = entering ? mat.ior : (1.f / mat.ior);
+    GVec3 wm = (wi*etap + wo).normalized();
+    if (wm.length2() <= 1e-10f) return 0.f;
+    if (wm.dot(rec.normal) < 0.f) wm = -wm;
+
+    float HdotO = wo.dot(wm);
+    float HdotI = wi.dot(wm);
+    if (HdotO * HdotI >= 0.f) return 0.f;
+
+    // PBRT-v4: dwm_dwi Jacobian
+    float denom = (HdotI + HdotO / etap);
+    float denom2 = denom*denom;
+    if (denom2 <= 1e-10f) return 0.f;
+    float dwm_dwi = fabsf(HdotI) / denom2;
+
+    // VNDF PDF * Jacobian * transmission probability
     float etaI = entering ? 1.f : mat.ior;
     float etaT = entering ? mat.ior : 1.f;
-    float eta = etaI / etaT;
-    GVec3 h = (wo + wi*eta).normalized();
-    if (h.length2() <= 1e-10f) return 0.f;
-    if (h.dot(rec.normal) < 0.f) h = -h;
-
-    float HdotO = wo.dot(h);
-    float HdotI = wi.dot(h);
-    if (HdotO * HdotI >= 0.f) return 0.f;
-    float NdotH = fabsf(rec.normal.dot(h));
-    float denom = etaI*HdotO + etaT*HdotI;
-    float denom2 = denom*denom;
-    if (NdotH <= 0.f || denom2 <= 1e-10f) return 0.f;
-
-    float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
-    float D = gpu_D_GTR2(NdotH, a);
-    float dwhDwi = fabsf((etaT * etaT * HdotI) / (denom2 + 1e-6f));
-    float F = gpu_disney_fresnelDielectric(HdotO, etaI, etaT);
-    return mat.transmission * (1.f - F) * D * NdotH * dwhDwi;
+    float F = gpu_disney_fresnelDielectric(fabsf(HdotO), etaI, etaT);
+    return mat.transmission * (1.f - F) * gpu_disney_vndfPdf(mat, rec.normal, wo, wm) * dwm_dwi;
 }
 
 __device__ inline GVec3 gpu_disney_eval(
@@ -644,19 +706,31 @@ __device__ inline GBSDFSample gpu_disney_sample(
         float fresnel = f0 + (1.f-f0)*powf(1.f-cosTheta, 5.f);
 
         if (mat.roughness > 0.03f) {
-            GVec3 m = gpu_disney_sampleGgxMicroNormal(mat, rec, wo, rng);
-            float microCos = fabsf(wo.dot(m));
-            float microFresnel = gpu_disney_fresnelDielectric(microCos, etaI, etaT);
-            if (cannotRef || curand_uniform(rng) < microFresnel) {
-                s.wi = (m * (2.f * wo.dot(m)) - wo).normalized();
+            // Sample VNDF microfacet normal (Heitz 2018, PBRT-v4)
+            GVec3 wm = gpu_disney_sampleGgxVNDF(mat, rec, wo, rng);
+            float HdotO = wo.dot(wm);
+            float F = gpu_disney_fresnelDielectric(fabsf(HdotO), etaI, etaT);
+
+            // Sample reflection or transmission based on Fresnel
+            float R = F, T = 1.f - F;
+            bool sampleReflection = cannotRef || curand_uniform(rng) < R / (R + T);
+
+            if (sampleReflection) {
+                // Reflect off microfacet
+                s.wi = (wm * (2.f * HdotO) - wo).normalized();
                 if (s.wi.dot(rec.normal) * wo.dot(rec.normal) > 0.f) {
+                    // Evaluate reflection (specular lobe contribution)
                     s.f = gpu_disney_eval(mat, rec, wo, s.wi);
-                    s.pdf = mat.transmission * microFresnel *
-                            gpu_disney_microfacetReflectionPdf(mat, rec, wo, s.wi);
+                    // PDF = VNDF_PDF / (4 * |HdotO|) * R / (R + T)
+                    float vndfPdfVal = gpu_disney_vndfPdf(mat, rec.normal, wo, wm);
+                    s.pdf = mat.transmission * vndfPdfVal / (4.f * fabsf(HdotO) + 1e-10f) * R / (R + T + 1e-10f);
                 }
-            } else if (gpu_disney_refractMicro(wo, m, eta, s.wi)) {
-                s.f = gpu_disney_roughTransmissionEval(mat, rec, wo, s.wi);
-                s.pdf = gpu_disney_roughTransmissionPdf(mat, rec, wo, s.wi);
+            } else {
+                // Refract through microfacet
+                if (gpu_disney_refractMicro(wo, wm, eta, s.wi)) {
+                    s.f = gpu_disney_roughTransmissionEval(mat, rec, wo, s.wi);
+                    s.pdf = gpu_disney_roughTransmissionPdf(mat, rec, wo, s.wi);
+                }
             }
             if (s.pdf > 0.f && s.f.length2() > 0.f) {
                 s.isDelta = false;
@@ -969,16 +1043,27 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
     GSampledWavelengths& wl, curandState* rng)
 {
-    // pkg64-gpu-sellmeier-upload: dispatch to wavelength-aware sampler for dispersive dielectrics
-    // pkg64-gpu Session 2: `wl` is non-const — the dispersive dielectric calls
-    // wl.terminateSecondary() on refraction (hero-wavelength collapse).
-    if (mat.type == GMAT_DIELECTRIC && mat.isDispersive) {
-        GBSDFSample s = gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng);
+    // pkg64-gpu-sellmeier-upload: dispersive dielectrics need the wavelength-aware
+    // sampler (it calls wl.terminateSecondary() on refraction — hero collapse).
+    GBSDFSample s = (mat.type == GMAT_DIELECTRIC && mat.isDispersive)
+        ? gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng)
+        : gpu_material_sample(mat, rec, wo, rng);
+
+    // Delta lobes (dielectric reflect/refract, smooth-glass disney/closure-graph
+    // closures — a plain "dielectric" material lowers to GMAT_CLOSURE_GRAPH) carry a
+    // radiance-TRANSPORT factor in s.f, NOT a [0,1] albedo: the refraction f is
+    // baseColor*eta^2 and eta^2 reaches 2.25 @ ior 1.5, 4.0 @ ior 2.0. The ALBEDO
+    // upsampler (gpu_rgbToSampledSpectrum) clamps rgb to [0,1], so the exit eta^2 was
+    // clipped to 1.0 and the enter(0.44)/exit(2.25) factors no longer cancelled — the
+    // white furnace lost energy scaling with IOR (GPU 0.705 @ ior 1.5 vs CPU 0.985).
+    // Factor the >1 magnitude out as a flat spectral scalar and upsample only the
+    // normalized tint, mirroring CPU dielectric.cpp:72 (tintSpec * eta^2).
+    float m = fmaxf(fmaxf(s.f.x, s.f.y), s.f.z);
+    if (s.isDelta && m > 1.0f) {
+        s.fSpectral = gpu_rgbToSampledSpectrum(s.f * (1.0f / m), wl, mat.spectralMode) * m;
+    } else {
         s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
-        return s;
     }
-    GBSDFSample s = gpu_material_sample(mat, rec, wo, rng);
-    s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
     return s;
 }
 

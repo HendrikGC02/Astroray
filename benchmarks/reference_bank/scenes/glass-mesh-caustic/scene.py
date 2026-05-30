@@ -38,7 +38,7 @@ NAME = "glass-mesh-caustic"
 WIDTH = 768
 HEIGHT = 480
 SAMPLES = 96
-MAX_DEPTH = 32
+MAX_DEPTH = 40   # glass needs deep transmission bounces or grazing edges go black
 SEED = 17
 
 # samples/Glass.obj relative to the repo root (this file is 4 dirs deep:
@@ -60,7 +60,9 @@ def make_scene(astroray):
             "asset present.")
 
     r = astroray.Renderer()
-    r.set_background_color([0.95, 0.96, 0.98])
+    # Slightly dimmed studio ambient: a too-bright environment floods the floor and
+    # drowns the shadow the glass casts, which is where the focused caustic reads.
+    r.set_background_color([0.78, 0.80, 0.85])
 
     # Clear cut-glass crystal (ior 1.5), smooth-shaded so the tessellated surface
     # refracts continuously. Scaled 0.1 (~15 units across) and lifted to sit on
@@ -73,18 +75,20 @@ def make_scene(astroray):
 
     # Grazing collimated sun from the right (travelling down-left) -> a long,
     # focused caustic streak landing on the floor to the left of the crystal.
+    # Strong so the crystal casts a clear shadow (vs the dimmed ambient) for the
+    # caustic to land inside.
     r.add_sun_light_dedicated(_norm([-0.92, -0.33, 0.04]), 0.02,
-                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 10.0)
+                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 16.0)
 
-    # White studio floor catches the caustic.
-    floor = r.create_material("lambertian", [0.9, 0.91, 0.93], {})
+    # Mid-grey studio floor catches the caustic and lets it pop.
+    floor = r.create_material("lambertian", [0.62, 0.63, 0.66], {})
     r.add_triangle([-60, 0, -60], [60, 0, -60], [60, 0, 60], floor)
     r.add_triangle([-60, 0, -60], [60, 0, 60], [-60, 0, 60], floor)
 
     r.set_integrator("light_tracer_caustic")
     r.set_integrator_param("max_depth", MAX_DEPTH)
     r.set_integrator_param("photon_count", 4000000)
-    r.set_integrator_param_float("caustic_boost", 2.0)
+    r.set_integrator_param_float("caustic_boost", 2.2)
 
     # Low, near-level camera: crystal on the right, caustic streaming left.
     r.setup_camera([-1.0, 4.5, 23.0], [1.5, 1.2, 0.0], [0.0, 1.0, 0.0],

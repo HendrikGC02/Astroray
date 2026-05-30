@@ -58,9 +58,10 @@ public:
         : maxDepth_(p.getInt("max_depth", 12)),
           photons_(p.getInt("photon_count", 2000000)),
           gatherK_(p.getInt("caustic_knn", 50)),
-          // float params don't route through the Python int-only set_integrator_param,
-          // so brightness is an int knob (x0.1); default 10 -> 1.0.
-          boost_(p.getInt("caustic_boost", 10) * 0.1f) {}
+          // pkg-integrator-float-param: caustic_boost is now a direct float
+          // brightness multiplier read via getNumber (accepts the int or float
+          // Python route: set_integrator_param_float / set_integrator_param).
+          boost_(p.getNumber("caustic_boost", 1.0f)) {}
 
     IntegratorCapabilities capabilities() const override {
         return {false, "forward light-tracer caustic (CPU-only)"};

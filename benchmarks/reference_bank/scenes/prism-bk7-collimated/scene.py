@@ -98,8 +98,9 @@ def make_scene(astroray):
     r.set_integrator("light_tracer_caustic")
     r.set_integrator_param("max_depth", MAX_DEPTH)
     r.set_integrator_param("photon_count", 3000000)
-    r.set_integrator_param("caustic_grid_res", 256)
-    r.set_integrator_param("caustic_boost", 12)
+    # pkg-integrator-float-param: caustic_boost is now a direct float multiplier
+    # (1.2 == the old int-knob 12 x 0.1) routed via set_integrator_param_float.
+    r.set_integrator_param_float("caustic_boost", 1.2)
 
     # Camera looks down the floor at the rainbow landing zone.
     r.setup_camera([1.86, 1.5, 3.2], [1.86, -3.0, 0.0], [0.0, 1.0, 0.0],

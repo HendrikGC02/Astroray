@@ -1,31 +1,32 @@
-# prism-sf11-collimated — spectral dispersion via SF11 flint glass
-# Reference blessed 2026-05-27 (commit b02b161). Measured baseline:
-#   hue_spread (floor ROI 160:256, 80:304) = 0.7489
+# prism-sf11-collimated — triangulated SF11 flint prism rainbow caustic.
+# Re-authored 2026-05-30 to match prism-bk7-collimated: forward light-tracer
+# (light_tracer_caustic), 512x512, camera zoomed onto the band. SF11's ~4x-higher
+# dispersion gives a visibly WIDER red->violet band than BK7 (the A/B distinguisher).
+# The continuous band fills the central frame: roughly y[100,424] x[60,405].
+# Measured baselines (deterministic — baked caustic, fixed photon seed).
 
 [scene]
-description = "SF11 flint dispersive sphere (Abbe 25, IOR 1.785). Higher dispersion than BK7; chromatic caustic occupies a tighter, more concentrated region."
-
-[[gate]]
-type = "ssim"
-threshold = 0.78
-direction = "ge"
-description = "Loose SSIM floor."
-
-[[gate]]
-type = "delta_e_2000"
-threshold = 8.0
-direction = "le"
+description = "Triangulated shallow SF11 flint prism + collimated sun + white floor. The forward light-tracer deposits per-wavelength refracted light on the floor; SF11's high dispersion (Abbe 25) yields a clean continuous red->violet band that is visibly wider than the BK7 reference."
 
 [[gate]]
 type = "hue_spread"
-threshold = 0.50
+threshold = 0.75
 direction = "ge"
-roi = [160, 256, 80, 304]
-luminance_threshold = 0.05
-saturation_floor = 0.05
-description = "Rainbow-presence gate. Measured 0.75; threshold gives headroom."
+roi = [90, 430, 70, 410]
+luminance_threshold = 0.1
+saturation_floor = 0.04
+description = "Rainbow-presence: full red->violet hue spread in the band ROI. Threshold above BK7's (0.7) because SF11's wider, better-separated spread scores higher."
 
 [[gate]]
-type = "phash"
-threshold = 20
-direction = "le"
+type = "bright_coverage"
+threshold = 0.25
+direction = "ge"
+roi = [90, 430, 70, 410]
+luminance_threshold = 0.1
+description = "Band-continuity discriminator: a real continuous band fills its ROI. Salt-and-pepper chromatic noise — which also scores high hue_spread — collapses this. Threshold below BK7's because the thin SF11 aperture makes a narrower (still continuous) band."
+
+[[gate]]
+type = "ssim"
+threshold = 0.95
+direction = "ge"
+description = "Layout/appearance regression vs the blessed SF11 reference (render is near-deterministic, so a tight floor is safe)."

@@ -128,9 +128,16 @@ def _build_scene():
     # Match Astroray's 30° vfov via lens-in-mm: with 36mm sensor width and
     # 384x256 (aspect 1.5), vfov 30° corresponds to ~67mm lens. Blender's
     # default sensor_fit='AUTO' picks the larger dimension automatically.
-    cam.data.lens_unit = "FOV"
-    cam.data.angle = 0.5236  # radians (30°)
+    # Set sensor_fit BEFORE angle: Blender derives lens(mm) from `angle` using the
+    # sensor dimension of the CURRENT sensor_fit. If angle is set while sensor_fit is
+    # still the default AUTO (which picks the LARGER/horizontal dimension at 1.5
+    # aspect), the 30° lands on the horizontal axis and the resulting VERTICAL fov is
+    # smaller than Astroray's 30° — the renders then don't line up (the owner-observed
+    # FOV mismatch). Setting sensor_fit="VERTICAL" first makes `angle` the vertical fov,
+    # matching Astroray's vfov=30. (Re-run this bless via Blender to regenerate reference.png.)
     cam.data.sensor_fit = "VERTICAL"
+    cam.data.lens_unit = "FOV"
+    cam.data.angle = 0.5236  # radians (30°) — vertical fov, set AFTER sensor_fit
     scene.camera = cam
 
     # World background: nearly black (Astroray's 0.04, 0.05, 0.06).

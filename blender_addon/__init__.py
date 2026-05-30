@@ -3617,10 +3617,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     'color': list(light.color)
                 }
 
-        for obj in depsgraph.objects:
-            if obj.type != 'LIGHT': continue
+        # Iterate object_instances (not depsgraph.objects) so lights created by
+        # instancing (collection instances, particle/dupli systems) are rendered,
+        # matching convert_objects. Real (non-instanced) lights still appear once
+        # with is_instance=False, so existing non-instanced scenes are unaffected.
+        for obj_instance in depsgraph.object_instances:
+            obj = obj_instance.object
+            if obj is None or obj.type != 'LIGHT': continue
             light = obj.data
-            matrix = obj.matrix_world
+            matrix = obj_instance.matrix_world
             position = list(matrix.translation)
             ies_path = _resolve_ies_path(light)
             emission_dict = _build_emission_dict(light)

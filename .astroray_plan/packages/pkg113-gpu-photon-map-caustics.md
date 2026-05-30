@@ -7,9 +7,10 @@ general-caustics chain pkg109/110/111). **GPU-gated: do NOT pick up in a CI-only
 run — correctness must be RTX-`/verify`-ed; CI has no GPU and CI-green ≠ correct.**
 **Estimated effort:** L (~3–4 weeks, multiple RTX sessions)
 **Depends on:** pkg109 (photon-map kd-tree, done), pkg110 (BSDF photon bounce, done),
-**pkg111** (CPU k-NN gather into the default path — do FIRST), and the **caustics-fork
-decision** in `.astroray_plan/docs/cpu-gpu-parity-status.md` §3 (which caustic path
-is canonical on GPU). Related: pkg64-gpu (SMS GPU caustics), pkg55-B' (wavefront).
+**pkg111** (CPU k-NN gather into the default path — do FIRST). The caustics-fork is
+**decided** (owner 2026-05-30: the photon map is the canonical GPU caustic path,
+SMS-GPU is legacy — `cpu-gpu-parity-status.md` Decisions §1), so pkg113 IS the GPU
+caustic work, not subordinate to pkg64-gpu. Related: pkg55-B' (wavefront).
 
 ---
 
@@ -38,23 +39,21 @@ hue_spread / glass-sphere concentration acceptance, re-measured on GPU).
 
 ## Context / fork
 
-`.astroray_plan/docs/cpu-gpu-parity-status.md` is the umbrella. Two points gate this
-package:
+`.astroray_plan/docs/cpu-gpu-parity-status.md` is the umbrella. Both gating points
+are now **DECIDED (owner, 2026-05-30)**:
 
-1. **Architectural fork (§3 of the parity doc).** Astroray has two caustic
-   mechanisms — camera-side **SMS** (pkg64-gpu, already on GPU) and the forward
-   **photon map** (this chain). They overlap for focusing casters. The owner must
-   pick the canonical GPU caustic path (photon map / both / SMS-only) **before** this
-   package, because it determines whether pkg113 *replaces*, *coexists with*, or is
-   *subordinate to* the pkg64-gpu SMS path.
-2. **Store choice — kd-tree vs hash grid.** The CPU code uses a balanced kd-tree
-   (`photon_map.h`). On the GPU, the canonical SPPM approach (pbrt-v4
-   `cpu/integrators.cpp`, Apache-2.0) is a **uniform spatial hash grid**, which is
-   far friendlier to GPU parallelism than a pointer-chasing kd-tree. Decide at Phase
-   1: port the kd-tree for exact CPU parity, or build a hash grid and accept a
-   gather-equivalence (not bit-) tolerance. Recommendation: **hash grid** + an SSIM/
-   energy parity gate, because a balanced-kd-tree build is a poor GPU fit and the
-   gather is a density estimate (tolerant), not a bit-exact quantity.
+1. **Architectural fork — DECIDED: the photon map is canonical; SMS-GPU is legacy.**
+   The forward photon map (this chain) is the one GPU caustic path; SMS (pkg64-gpu)
+   is frozen/legacy and is NOT extended further. So pkg113 *replaces* SMS-GPU as the
+   caustic path (SMS retained only for any specular-manifold case the photon map
+   can't cover). (parity doc Decisions §1.)
+2. **Store + equivalence bar — DECIDED: GPU uniform hash grid + SSIM/energy parity
+   (tiered equivalence).** Caustics are stochastic/Monte-Carlo, so the equivalence
+   bar is perceptual (SSIM ≥ ~0.97 + energy bounds), NOT bit-exact. Build the GPU
+   store as a **uniform spatial hash grid** (pbrt-v4 `cpu/integrators.cpp` SPPM,
+   Apache-2.0 — far friendlier to GPU parallelism than the CPU balanced kd-tree) and
+   gate on SSIM/energy vs the CPU result. Do **not** port the kd-tree for bit-exact
+   parity. (parity doc Decisions §2.)
 
 CLAUDE.md §6: cite Jensen 1996 (photon map) + pbrt-v4 SPPM grid (Apache-2.0) +
 Wilkie 2014 (hero-λ); same algorithm citations as pkg109/110, no GPU-specific
@@ -65,10 +64,11 @@ algorithm invented.
 ## Phases
 
 ### Phase 1 — GPU photon store + parity-harness (RTX)
-- Choose kd-tree-port vs hash-grid (above). Implement the store + a device build pass.
+- Implement the **uniform hash-grid** store (decided — see Context) + a device build
+  pass. Mirror pbrt-v4 `cpu/integrators.cpp` ToGrid/Hash/NextPrime (Apache-2.0).
 - Unit parity: build the store from a fixed photon set on GPU, gather at fixed query
-  points, compare to the CPU `photon_map.h` gather. Tolerance: per-query rel-err
-  ≤ 1e-3 for the kd-tree port (exact), or an aggregate energy/SSIM bound for the grid.
+  points, compare to the CPU `photon_map.h` gather. Tolerance: an aggregate
+  energy/SSIM bound (the gather is a stochastic density estimate, not bit-exact).
 - Mirror the pkg64-gpu probe-harness pattern (host wrapper + device entry point), and
   heed memory `[[pkg64-gpu-blockers-stale-option-b]]`: land the probe harness WITH the
   core, or the gates can't run.
@@ -98,7 +98,7 @@ algorithm invented.
 
 | Gate | Threshold | Source |
 |---|---|---|
-| GPU store gather vs CPU (Phase 1) | rel-err ≤ 1e-3 (kd-tree) or energy/SSIM bound (grid) | pkg64-gpu Phase-1 style |
+| GPU store gather vs CPU (Phase 1) | aggregate energy/SSIM bound (hash grid; stochastic) | pkg64-gpu Phase-1 style |
 | GPU-vs-CPU caustic SSIM | ≥ 0.97 | pkg64-gpu + pkg54b/pkg82 envelope |
 | Prism rainbow on GPU | hue_spread ≥ (pkg110 gate) + bright_coverage ≥ 0.5 + **visual** | pkg106/110 |
 | Glass-sphere caustic on GPU | peak/median concentration (pkg110 gate) + **visual** | pkg110 |

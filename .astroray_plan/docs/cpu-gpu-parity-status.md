@@ -29,6 +29,30 @@ single place a future session should start for the CPU↔GPU-equivalence picture
 
 ---
 
+## Decisions (owner, 2026-05-30)
+
+1. **Caustics fork → the photon map is canonical (CPU + GPU); SMS-GPU is legacy.**
+   The forward photon map (pkg109/110/111 + GPU pkg113) is the one caustic path.
+   SMS (pkg64 / pkg64-gpu) is frozen/legacy — retained only for pure
+   specular-manifold cases the photon map does not cover; **do not invest further in
+   SMS-GPU**. The SMS-GPU port that exists (Phases 1–3 + Session 2 multi-IOR, PR #385)
+   is already DONE and stays as-is; what's dropped is *further* SMS-GPU work — in
+   particular the pkg55-C wavefront SMS re-wire is **skipped** (build the photon-map
+   caustic on the wavefront instead). Rationale: the photon map is strictly more
+   general (it also does flat prisms, which camera-side SMS cannot) and pkg111 already
+   puts it on the default path.
+2. **Equivalence bar → tiered.** Bit-/ULP-identical where the algorithm is
+   deterministic (the path-tracer wavefront, pkg55); perceptual **SSIM ≥ ~0.97 +
+   energy bounds** where it is inherently stochastic / Monte-Carlo (caustics, photon
+   maps). For **pkg113** this means a GPU **uniform hash-grid** photon store + an
+   SSIM/energy parity gate — NOT a bit-exact kd-tree port.
+3. **Umbrella → deferred until pkg55 (wavefront) lands.** Do NOT file a formal
+   "full-equivalence" acceptance spec yet; this doc + the §2 matrix is the living
+   reference. Revisit formalizing the umbrella once the wavefront CUDA port (the
+   equivalence backbone) is further along and the post-megakernel GPU shape is known.
+
+---
+
 ## 1. Why the refactor does NOT touch existing parity (evidence)
 
 pkg109 + pkg110 changed exactly **four** code files (`git diff --stat 6e22a11..HEAD`):
@@ -58,7 +82,7 @@ spectral pipeline (`SampledWavelengths`/`SampledSpectrum`/`XYZ`/`cieCmf1964_10de
 |---|---|---|---|---|
 | Backend capability contract (materials lower to a shared CPU/GPU closure or fall back) | ✓ | ✓ | declared per-material | **done** (pkg34–37) |
 | Spectral / multi-wavelength path tracer (megakernel mirror, CMF table, Jakob–Hanika upsample, profile dispatch) | ✓ | ✓ | visible-band SSIM 0.999 @8192 spp | **done, HW-verified** (pkg35, pkg54/54a–d) |
-| **SMS / MNEE refractive caustics** (camera-side specular-manifold Newton solve, per-bounce hook) | ✓ | ✓ (megakernel) | GPU-vs-CPU SMS SSIM ≥ 0.97; receiver-energy ratio; empty-hook cost | **code landed**; HW acceptance partly **blocked on multi-IOR** (pkg64-gpu Session 2) | 
+| **SMS / MNEE refractive caustics** (camera-side specular-manifold Newton solve, per-bounce hook) | ✓ | ✓ (megakernel) | GPU-vs-CPU SMS SSIM ≥ 0.97; receiver-energy ratio; empty-hook cost | **done → now LEGACY**: Phases 1–3 + Session 2 multi-IOR shipped (PR #385, SSIM 0.928); **frozen** per the 2026-05-30 caustics decision (photon map is canonical) | 
 | Sellmeier dispersion upload (hero-λ IOR on GPU) | ✓ | ✓ | BK7 IOR ≤1e-4 rel-err | **done** (pkg64-gpu-sellmeier-upload) |
 | Wavefront CUDA port (SoA path state; per-stage kernels) | ✓ (reference wavefront) | partial | **per-stage CPU↔GPU ULP/threshold gates** (PostInit ULP=2, PostIntersect ≤32, NEE/RR p99.9) | **in-flight** (pkg55, pkg55-B' sessions) — the bit-equivalence backbone |
 | GPU Light Tree (SAOH split + Conty 2018) | ✓ | — | 2× variance gate | CPU Phase 1 done; **GPU deferred** (pkg86-B) |
@@ -95,20 +119,21 @@ These overlap: a **glass sphere** caustic is now achievable by *both* the SMS-GP
 path and the forward photon map. That redundancy is fine on CPU, but on GPU it is a
 fork: **which is the canonical GPU caustic path?**
 
-**Owner decision needed (not made here):**
+**RESOLVED — owner chose (a) on 2026-05-30 (see Decisions block above).** The
+options are kept here for context:
 - **(a) Photon map becomes the canonical caustic path** (CPU + GPU); SMS-GPU
   (pkg64-gpu) is frozen/legacy or kept only for pure specular-manifold cases not
   covered by forward tracing. Simplest long-term story; means pkg113 (GPU photon
-  map) is the priority and pkg64-gpu Session 2 (multi-IOR) may be deprioritized.
+  map) is the priority and pkg64-gpu Session 2 (multi-IOR) is deprioritized. **← chosen.**
 - **(b) Keep both on GPU**: SMS for camera-side specular connections, photon map for
   general/diffuse-receiver caustics, combined (VCM-like). Most capable, most work.
 - **(c) SMS stays the GPU caustic path; the forward photon map is CPU-only** (e.g.
   a preview/reference path). Cheapest, but contradicts the "everything on GPU"
   goal and leaves the prism rainbow CPU-only on GPU renders.
 
-Recommendation to evaluate: **(a)**, because the forward photon map is strictly more
-general (handles flat prisms, which SMS cannot) and pkg111 puts it on the default
-path anyway — but this is the owner's call and should be decided before pkg113 starts.
+**Implication:** pkg113 (GPU photon map) is the canonical GPU caustic work; SMS-GPU
+(pkg64-gpu, incl. Session 2 multi-IOR) is **frozen/legacy — do not add surface area**
+unless a specular-manifold case the photon map can't cover demands it.
 
 ---
 

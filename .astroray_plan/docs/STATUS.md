@@ -62,7 +62,12 @@
   CPU↔GPU-equivalence picture, the existing parity matrix, and the caustics
   architectural fork (SMS-GPU vs forward photon map — owner decision) live in
   **`.astroray_plan/docs/cpu-gpu-parity-status.md`**; the new GPU parity work is
-  **`packages/pkg113-gpu-photon-map-caustics.md`**.
+  **`packages/pkg113-gpu-photon-map-caustics.md`**. **Owner decisions (2026-05-30):**
+  (1) the photon map is the canonical caustic path on CPU+GPU — SMS-GPU (pkg64-gpu) is
+  frozen/legacy, no further SMS-GPU work; (2) tiered equivalence bar (ULP where
+  deterministic, SSIM ≥ ~0.97 where stochastic) → pkg113 uses a GPU hash-grid store +
+  SSIM parity; (3) the formal full-equivalence umbrella spec is deferred until pkg55
+  (wavefront) lands.
 
 **Standup:** `.astroray_plan/docs/standup/2026-05-30.md`.
 

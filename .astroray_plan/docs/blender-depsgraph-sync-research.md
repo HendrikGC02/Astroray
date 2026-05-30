@@ -321,3 +321,34 @@ The work decomposes into three phases, each landable as its own PR. Phase A is m
 - Apache-2.0 → MIT: compatible (Apache-2.0 patent-grant clause is preserved when integrated into MIT codebases per standard re-licensing practice; per-file headers retain the Apache notice).
 - GPL-3.0 → MIT: incompatible, BlendLuxCore is reference-only.
 - Blender Python API (GPL): consuming the documented Python API from a Python addon is the normal extension contract, not a derivative work concern.
+
+---
+
+## Future work note — GPU `view_draw` viewport & color management (added 2026-05-30, rabbit-hole #3)
+
+**Context:** today Astroray's viewport path writes a CPU pixel buffer back to
+Blender (linear scene-referred float → Blender applies the view transform; see
+[blender-integration-parity-report-2026-05-30.md](blender-integration-parity-report-2026-05-30.md)
+Q4). A future performance step is a **true GPU `view_draw` viewport** that draws
+the engine's framebuffer directly via the `gpu` module instead of round-tripping
+pixels through a render result. This would be the big interactivity leap once the
+sync work (pkg56) and batched upload (pkg112) land.
+
+**The catch to remember when that work starts:** the canonical Blender
+`RenderEngine.py` example applies color management in `view_draw` via
+`bind_display_space_shader(scene)` / `unbind_display_space_shader()`. That is the
+**legacy GPU-draw color-management surface**. Blender 4.x/5.x has reworked
+viewport color management in the `gpu` module
+(`developer.blender.org/docs/features/gpu/viewports/color_management/`), so the
+exact API to apply the scene view transform on a GPU-drawn buffer may differ from
+the legacy example.
+
+**Invariant that does NOT change:** the engine still outputs **linear
+scene-referred** data and lets Blender apply the view transform (AgX/Filmic/OCIO).
+Do not bake a tonemapper into the engine buffer (that is the LuxCore deviation we
+deliberately avoid — parity report Q4). When a GPU-viewport package is opened,
+verify the **current** `gpu`-module color-management API before wiring, rather
+than copying the legacy `bind_display_space_shader` snippet.
+
+**No spec yet** — this note exists so the consideration is picked up when a GPU
+`view_draw` viewport package is eventually scoped.

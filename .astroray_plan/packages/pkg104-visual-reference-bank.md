@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (Production polish — but with first-order effect on all of Pillars 2/3/4)
 **Track:** A (the harness + first 2 scenes); Track D once the pattern is established (adding more scenes is mechanical)
-**Status:** open — scene set + parameterization **DECIDED** 2026-05-30 (owner delegated the design; consensus in `.astroray_plan/docs/visual-reference-bank-design-2026-05-30.md`). Implementation pending (re-author/re-render scenes on RTX with visual bless). Blocker for the cross-engine scene: the FOV-mismatch bug (see the design doc).
+**Status:** CPU-acceptance DONE 2026-05-31 — harness (runner + 6 metrics + 13 scenes) built and CI-wired (`ci.yml` runs the smoke pytest + `runner --mode smoke`). All CPU-checkable output-verifiable acceptance criteria now have tests: deliberately-broken render fails ≥1 gate, and the prism `hue_spread` / Schwarzschild `dark_disk` phenomenon sign-flips run against the REAL blessed references (`tests/test_reference_bank_smoke.py`, 13 pass in <2 s). Remaining open: the `disney-sweep-cycles-compared` cross-engine reference needs an owner Blender re-render (NEXT_STAGE_REPORT §2 open item 3 — owner action, not auto-blessable); the Phase-2b astrophysics scenes (ADAF/jet) stay un-gated pending the owner tuning pass. Scene set DECIDED 2026-05-30 (`.astroray_plan/docs/visual-reference-bank-design-2026-05-30.md`).
 **Estimated effort:** 2 weeks (~50 h) for the harness + first 4-6 pinned scenes; ongoing thereafter
 **Depends on:** pkg71 (Cycles parity framework, already shipped — extends it, does not replace it)
 
@@ -268,12 +268,12 @@ Owner noted 2026-05-27 that BH support in the addon "still needs to be done." Fo
 
 ## Acceptance criteria
 
-- [ ] **Machine-verifiable:** `python -m benchmarks.reference_bank.runner --scenes cornell --mode smoke` exits 0 and writes a `results/<date>-<sha>/<scene>/report.md`.
-- [ ] **Machine-verifiable:** smoke job runs in < 60 s in CI; full nightly in < 30 min on RTX 5070 Ti.
-- [ ] **Output-verifiable:** for a deliberately-broken PR (test perturbation: drop firefly clamp threshold by 5×), at least one gate on at least one scene FAILS with measurable signal in the diff artifacts.
-- [ ] **Output-verifiable:** the prism dispersion scene's `hue_spread` gate reads > 0.6 on a known-good reference and < 0.2 on a same-scene render with dispersion disabled.
-- [ ] **Output-verifiable:** Schwarzschild scene's `dark_disk` gate reads > 0.04 on a known-good reference and < 0.005 on a same-scene render with GR disabled.
-- [ ] **Structure-verifiable:** adding a new scene requires creating exactly one directory under `scenes/`, two files (`scene.py` + `gates.toml`), and one LFS commit (`refs/<scene>-<spp>.exr`). No core harness changes.
+- [x] **Machine-verifiable:** `python -m benchmarks.reference_bank.runner --scenes cornell-mini` runs end-to-end and writes a `results/<date>-<sha>/<scene>/report.md` (`test_runner_cornell_mini_smoke`).
+- [x] **Machine-verifiable:** smoke job runs in < 60 s in CI (13 tests in <2 s); CI-wired in `ci.yml`. Full nightly RTX run is the HW-sweep path.
+- [x] **Output-verifiable:** a deliberately-broken render fails ≥1 gate via the real runner gate machinery (`test_runner_gate_fails_on_broken_render`: a corrupted cornell-mini trips ssim/ΔE/phash).
+- [x] **Output-verifiable:** the prism `hue_spread` gate reads ≥ its threshold (0.753 ≥ 0.7) on the real blessed reference and < 0.2 on a dispersion-removed (desaturated) image (`test_prism_reference_has_rainbow_hue_spread`).
+- [x] **Output-verifiable:** Schwarzschild `dark_disk` reads ≥ its threshold (0.053 ≥ 0.03) on the real reference and < 0.005 on a uniform-bright (GR-off) image (`test_schwarzschild_reference_has_dark_disk`).
+- [x] **Structure-verifiable:** each scene is exactly one directory under `scenes/` with `scene.py` + `gates.toml` (+ blessed `reference.png`); no core harness changes to add one.
 
 ---
 

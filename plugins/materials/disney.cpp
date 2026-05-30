@@ -487,9 +487,19 @@ public:
             s.f = eval(rec, wo, s.wi);
             s.pdf = pdf(rec, wo, s.wi);
         } else {
-            // Sample specular lobe via VNDF
-            Vec3 wm = sampleGgxVNDF(rec, wo, gen);
-            s.wi = (wm * (2.0f * wo.dot(wm)) - wo).normalized();
+            // Specular REFLECTION lobe: sample standard GGX NDF (matches the NDF
+            // spec pdf in pdf() below, and the GPU non-transmission spec lobe). The
+            // VNDF sampler is only paired with a matching VNDF pdf on the
+            // transmission path — using it here against the NDF pdf was a
+            // sample/pdf mismatch that darkened disney metal/specular reflection.
+            float a = std::max(roughness_ * roughness_, 0.0064f);
+            float r1 = dist(gen), r2 = dist(gen);
+            float phi = 2.0f * float(M_PI) * r1;
+            float cosTheta = std::sqrt((1.0f - r2) / (1.0f + (a * a - 1.0f) * r2));
+            float sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+            Vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
+            h = rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z;
+            s.wi = (h * (2.0f * wo.dot(h)) - wo).normalized();
             if (rec.normal.dot(s.wi) > 0) {
                 s.f = eval(rec, wo, s.wi);
                 s.pdf = pdf(rec, wo, s.wi);

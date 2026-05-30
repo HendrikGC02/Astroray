@@ -3,12 +3,7 @@
 **Pillar:** 5 (addon) + geometry
 **Track:** A
 **Codex-paste-ready:** no (addon change + RTX visual verify)
-**Status:** done (2026-05-31) — `convert_objects` now routes CURVE/SURFACE/FONT/META
-through the evaluated object's `to_mesh()` + `to_mesh_clear()`; 4 bpy-free tests
-(`tests/test_blender_nonmesh_to_mesh.py`) assert routing + lifecycle + the mesh-path
-no-regression, and a headless Blender 5.1 check (`scripts/verify_pkg117_to_mesh.py`)
-confirms an evaluated curve/text/metaball yields triangles (288 / 58 / 170 polys).
-A full addon-render visual match in Blender is a follow-up HW-sweep item.
+**Status:** done (PR #411, 2026-05-31 — CURVE/SURFACE/FONT/META via evaluated `to_mesh()` + `to_mesh_clear()`). 4 bpy-free tests (`tests/test_blender_nonmesh_to_mesh.py`) + 10 existing convert_objects tests pass; headless Blender 5.1 check (`scripts/verify_pkg117_to_mesh.py`) confirms evaluated geometry yields triangles (curve 288 polys, text 58, metaball 170). Full addon-render visual pixel-match in Blender deferred to next HW sweep.
 **Depends on:** none. Complements pkg112 (reuses the triangle-upload path).
 **Estimated effort:** S–M
 

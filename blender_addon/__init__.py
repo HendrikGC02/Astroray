@@ -3428,10 +3428,28 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         print(f"Black hole conversion error: {e}")
                 continue
 
-            if obj.type != 'MESH':
+            # pkg117: render to_mesh()-able non-MESH geometry (curve/text/metaball/
+            # surface) by evaluating it to a temporary mesh, mirroring Cycles
+            # (intern/cycles/blender/mesh.cpp BlenderSync::sync_mesh). Objects from
+            # depsgraph.object_instances are already evaluated, so modifiers and
+            # curve/text/metaball resolution apply. The temporary mesh must be freed
+            # with to_mesh_clear() once its triangles are uploaded.
+            _temp_mesh = False
+            if obj.type == 'MESH':
+                mesh = obj.data
+            elif obj.type in {'CURVE', 'SURFACE', 'FONT', 'META'}:
+                try:
+                    mesh = obj.to_mesh()
+                except Exception as e:
+                    print(f"Astroray: to_mesh() failed on '{obj.name}': {e}")
+                    mesh = None
+                if mesh is None:
+                    # Empty curves and non-basis metaball members produce no mesh.
+                    continue
+                _temp_mesh = True
+            else:
                 continue
 
-            mesh = obj.data
             if mesh is None:
                 continue
             matrix = obj_instance.matrix_world
@@ -3575,6 +3593,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # pkg87c — Cryptomatte object name
                 if hasattr(renderer, "set_object_name"):
                     renderer.set_object_name(oid, obj.name)
+
+            # pkg117: free the temporary mesh produced by to_mesh() for non-MESH
+            # geometry. Blender requires an explicit to_mesh_clear(); plain meshes
+            # (obj.data) are not temporary and must NOT be cleared.
+            if _temp_mesh:
+                obj.to_mesh_clear()
 
         print(f"Astroray: converted {obj_count} meshes, {tri_count} triangles")
 

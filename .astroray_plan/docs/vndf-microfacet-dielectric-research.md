@@ -70,6 +70,28 @@ DO NOT re-derive. Mirror PBRT-v4's transmission formula EXACTLY. The objective c
 5. `test_dielectric_glass_furnace.py` still passes CPU+GPU.
 6. No caustic gate test regressions.
 
+## UPDATE 3 (2026-05-31): CPU residual root-caused — it is multi-scatter, not VNDF
+
+A full instrumented pass (env `DISNEY_DBG=1`, see `scripts/diag_rough_glass_*.py`)
+showed the remaining CPU residual is NOT a VNDF/low-alpha bug. The VNDF rewrite is
+correct. The residual is **missing multiple-scattering energy compensation** for the
+rough dielectric, masked by a **forced-TIR delta over-count**:
+- At R=0.05, ~1.3M rough samples fall through to the delta path (grazing exit-TIR
+  reflections whose VNDF `wi` lands below the surface — PBRT discards these). The
+  delta-reflect branch then over-counts forced TIR at throughput ~21× (=1/Fresnel)
+  instead of 1.0.
+- The single-scattering Smith-G masking loss (transmission lobe has NO Kulla-Conty
+  compensation, unlike the reflection lobe's `ggxCompensationFactor`) is only
+  partly offset by that over-count. They balance at high R (~0.96) and diverge at
+  low R (0.77).
+- A faceforward of the VNDF sampling frame to `wo` was tried and is a **verified
+  no-op** (`rec.normal` is already faceforwarded by the integrator) — do not repeat.
+
+Fix = (A) correct the forced-TIR delta pdf to `transmission_` (not `F·transmission_`)
++ (B) Kulla-Conty 2017 multi-scatter compensation for the rough-dielectric lobe
+(precompute `E_glass(alpha,mu,eta)`; apply `1+F_avg·(1-E)/E`). Full spec:
+`packages/pkg118-rough-dielectric-multiscatter-energy.md`.
+
 ## Notes
 - PBRT-v4's BSD-3-Clause license is compatible with Astroray's Apache-2.0.
 - The VNDF algorithm is from a peer-reviewed academic paper (JCGT 2018), freely implementable.

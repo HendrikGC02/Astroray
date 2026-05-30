@@ -663,10 +663,10 @@ public:
     }
 
     void addMesh(const std::string& filename, int materialId, const std::vector<float>& position = {0,0,0},
-                const std::vector<float>& scale = {1,1,1}, float rotationY = 0) {
+                const std::vector<float>& scale = {1,1,1}, float rotationY = 0, bool smoothNormals = false) {
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
         auto mesh = std::make_shared<Mesh>(mat);
-        if (mesh->loadOBJ(filename)) {
+        if (mesh->loadOBJ(filename, smoothNormals)) {
             std::shared_ptr<Hittable> obj = mesh;
             if (scale[0] != 1 || scale[1] != 1 || scale[2] != 1)
                 obj = std::make_shared<Scale>(obj, Vec3(scale[0], scale[1], scale[2]));
@@ -1963,7 +1963,8 @@ PYBIND11_MODULE(astroray, m) {
              "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>(),
              "object_pass_index"_a = 0, "material_pass_index"_a = 0)
         .def("add_mesh", &PyRenderer::addMesh, "filename"_a, "material_id"_a,
-             "position"_a = std::vector<float>{0,0,0}, "scale"_a = std::vector<float>{1,1,1}, "rotation_y"_a = 0.0f)
+             "position"_a = std::vector<float>{0,0,0}, "scale"_a = std::vector<float>{1,1,1}, "rotation_y"_a = 0.0f,
+             "smooth_normals"_a = false)
         .def("add_volume", &PyRenderer::addVolume,
              "center"_a, "radius"_a, "density"_a, "color"_a,
              "anisotropy"_a = 0.0f, "emission_strength"_a = 0.0f,

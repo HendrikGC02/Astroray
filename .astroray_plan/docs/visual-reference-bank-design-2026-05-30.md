@@ -115,6 +115,51 @@ vs vfov. Until resolved, scene 5's cross-engine SSIM gate is not trustworthy.
 
 ---
 
+## Update 2026-05-30 — refractive caustic showcase now uses the Glass.obj crystal mesh
+
+The owner provided `samples/Glass.obj` (a finely-tessellated cut-glass crystal,
+~470k tris) + a Cycles reference `Glass_Blender_ref.png` (crystal on the right,
+grazing spot-lamp from the right, a long focused caustic streak to the left) and
+asked to use it for the refractive-caustic showcase instead of a bare sphere.
+New scene: `benchmarks/reference_bank/scenes/glass-mesh-caustic/` — it reproduces
+that grazing-light caustic streak. The pkg110 forward light-tracer now drives an
+**arbitrary triangle-mesh caster** (previously only the prism + primitive sphere).
+
+Three engine fixes were needed (one was a real latent core bug), all in this PR:
+1. **`Scale::hit` t-units bug (core).** The `Scale` decorator transforms a ray
+   into mesh-local space by dividing origin+direction by the scale, but the `Ray`
+   ctor *normalizes* the direction — discarding the scale. The inner mesh then
+   measured `rec.t` in normalized scaled-space distance (~1/scale too large), so
+   the scene BVH mis-ordered the scaled mesh behind nearer primitives and a
+   **scaled mesh was invisible to all rays** (camera + caustic photons passed
+   through it → 0 deposited photons). Fixed by scaling the t-bounds in / `rec.t`
+   out by the scaled-direction length. Spheres were unaffected (Sphere::hit uses
+   `direction.length2()`), which is why only scaled *meshes* showed it. Guarded by
+   `tests/test_scaled_mesh_visible.py`. Full suite (1162) stays green — nothing
+   relied on the buggy `rec.t`.
+2. **`loadOBJ(smooth_normals=True)`** — area-weighted per-vertex normals (opt-in,
+   default off so existing flat meshes are unchanged). A tessellated smooth
+   surface then refracts continuously instead of per-facet, essential for a clean
+   caustic (and exposed via `add_mesh(..., smooth_normals=True)`).
+3. **light_tracer_caustic marks the L S⁺ D path on transmission**, not via the
+   per-hit caster flag — a mesh caster's flag lives on the wrapping Translate/Scale
+   decorator, not its per-triangle hits, so the flag check never tripped for a mesh.
+
+**Asset / CI note:** `*.obj` is gitignored and Glass.obj is ~18 MB, so it is NOT
+checked in. `glass-mesh-caustic` is a **local** showcase — `make_scene` raises a
+clear error if the mesh is absent; CI does not render it. Owner renders locally.
+
+**Known follow-up (glass body):** the caustic (the hero) is faithful, but the
+crystal *body* renders as a dark/grey smoky solid rather than the reference's
+clear glass. This is inherent to a cut crystal with many internal Fresnel/TIR
+surfaces under a uniform studio dome + a strong directional sun (path-traced
+glass-caustic fireflies on the body). Candidate improvements for a later pass: an
+HDRI environment (owner also added `samples/test_env_aerodynamics_workshop_exr_4k.exr`)
+so the body refracts a rich environment, firefly clamping, or higher spp. The
+caustic itself does not depend on this.
+
+---
+
 ## Caustic-path alignment with the 2026-05-30 fork decision
 
 The owner chose the **forward photon map as the canonical caustic path** (see

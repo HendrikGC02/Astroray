@@ -1,5 +1,18 @@
 # pkg110 status + finding — BSDF-driven photon bounce (2026-05-30)
 
+> **RESOLVED — shipped via HYBRID auto-select (PR #397, owner-chosen).** The
+> integrator routes flat prisms (caster triangles → exactly 2 planar faces) to the
+> explicit 2-face refraction (clean rainbow, gate unchanged) and any other caster
+> (curved/solid: sphere/lens/mesh) to the general deterministic BVH refraction loop
+> (glass sphere focuses a caustic). **Key catch:** the owner first chose "re-derive
+> the gate", but executing it exposed that a low-K general loop on a SOLID prism
+> PASSES both numeric gates (hue 0.72, cov 0.80) while rendering salt-and-pepper
+> NOISE — caught only by a VISUAL check, after which the owner switched to the
+> hybrid. **Lesson: always visually verify caustic/dispersion renders; hue_spread +
+> bright_coverage can both pass on dense chromatic noise.** The history below is the
+> investigation that led here.
+
+
 **Status: WORK IN PROGRESS, NOT merged.** Preserved on branch
 `pkg110-bsdf-photon-bounce`. pkg109 (the kd-tree foundation) is merged; pkg110
 builds on it. The general photon loop is implemented and **validated on a glass

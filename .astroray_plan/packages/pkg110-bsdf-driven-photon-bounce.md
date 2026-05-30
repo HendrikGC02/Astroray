@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (Light transport)
 **Track:** A (CPU integrator)
-**Status:** WIP (branch `pkg110-photon-bounce`, 2026-05-30) — general DETERMINISTIC refraction photon loop done + validated on a glass sphere (peak 0.673, ~41× concentration; `tests/test_glass_sphere_caustic.py` passes). Prism `hue_spread` gate NOT reproduced under any general loop (root cause: the gate relies on the exactly-2-slant-face purity) → needs an OWNER DECISION (re-derive the prism gate, or keep a special-case flat-caster path). See `.astroray_plan/docs/pkg110-status-finding.md`.
+**Status:** DONE (PR #397 / `da8e36c`, 2026-05-30) — **hybrid auto-select** (owner-chosen). Flat prism (caster triangles → 2 planar faces) keeps the explicit 2-face refraction (clean rainbow, gate unchanged); any other caster (curved/solid: sphere/lens/mesh) uses a general deterministic BVH refraction loop. Glass sphere focuses a caustic via `tests/test_glass_sphere_caustic.py` (peak 0.673, ~41× concentration). A low-K general-loop attempt on a solid prism passed the numeric gates on salt-and-pepper NOISE — caught by a visual check (now a required step). Still CPU-only. See `.astroray_plan/docs/pkg110-status-finding.md`.
 **Estimated effort:** M (~3-4 days)
 **Depends on:** pkg109 (photon-map kd-tree store)
 

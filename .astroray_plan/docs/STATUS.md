@@ -1,10 +1,25 @@
 # Astroray Status
 
-**Last updated:** 2026-05-30 (Round 15 Wave 4: pkg109 photon-map kd-tree DONE — general-caustics foundation, PR #395; pkg76 Gap 2 DONE, PR #394; integrator float-param DONE, PR #396; pkg110 general photon bounce validated-but-WIP).
+**Last updated:** 2026-05-30 (Round 15 Wave 4: pkg109 photon-map kd-tree DONE, PR #395; pkg76 Gap 2 DONE, PR #394; integrator float-param DONE, PR #396; pkg110 general photon bounce DONE — hybrid auto-select, PR #397).
 
 ## Round 15 Wave 4 — general-caustics foundation (overnight, 2026-05-30)
 
-**Three PRs merged (pkg109, pkg76 Gap 2, integrator float-param), one lead-track package validated-but-WIP (pkg110).**
+**Four PRs merged: pkg109 (photon-map kd-tree), pkg76 Gap 2, integrator float-param, pkg110 (general BSDF photon bounce — hybrid auto-select).**
+
+- **pkg110 — general BSDF-driven photon bounce DONE (PR #397 / `da8e36c`).** The
+  forward caustic light-tracer now AUTO-SELECTS by caster geometry
+  (`countDistinctCasterPlanes`): a FLAT prism (caster triangles → exactly 2 planar
+  faces) keeps the explicit 2-face refraction (clean rainbow, gate unchanged at
+  hue 0.751 ≥ 0.7), while ANY OTHER caster (curved/solid: sphere/lens/mesh) uses a
+  general deterministic BVH refraction loop (Snell + Schlick-Fresnel, enter/exit
+  from the geometric-normal sign, per-λ iorAt, TIR). A glass SPHERE now focuses a
+  caustic through the same integrator (`tests/test_glass_sphere_caustic.py`: peak
+  0.673, ~41× concentration). **Critical process note**: a low-K general-loop
+  attempt on a SOLID prism PASSED both numeric gates (hue 0.72, cov 0.80) but was
+  salt-and-pepper NOISE — caught only by a VISUAL check. The visual check is
+  mandatory for caustic/dispersion renders; hue_spread + bright_coverage can both
+  pass on dense chromatic noise. Full investigation (4 approaches):
+  `.astroray_plan/docs/pkg110-status-finding.md`. Still CPU-only (Not GPU per spec).
 
 - **pkg109 — world-space photon-map kd-tree DONE (PR #395 / `bc3464b`).** Replaces
   the prism-specific 2D `(x,z)` grid in `light_tracer_caustic` with a general
@@ -30,32 +45,20 @@
   hack (now a direct float multiplier); the prism scene sets `caustic_boost = 1.2`
   via the float route (== old 12×0.1, prism gate unchanged). `tests/test_integrator_float_param.py`:
   a fractional boost in (0,1) renders a caustic only if honored as a float.
-- **pkg110 — BSDF-driven photon bounce: VALIDATED on a glass sphere, but WIP / NOT
-  merged** (branch `pkg110-photon-bounce`; supersedes the stochastic
-  `pkg110-bsdf-photon-bounce`, now deleted). A general **deterministic** refraction
-  loop (Snell + Schlick-Fresnel, enter/exit from the geometric-normal sign, `iorAt(λ)`
-  per hit, TIR) traces through ANY glass shape — proven on a new glass-sphere scene
-  (`tests/test_glass_sphere_caustic.py`: peak luminance 0.673, ~41× concentration,
-  focused spot — PASSES). **Blocker (now confirmed across stochastic AND
-  deterministic loops, 2-quad AND solid prism)**: the prism rainbow `hue_spread`
-  gate (0.70) does not reproduce under any general loop (0.0 on the 2-quad; 0.47–0.60
-  on a solid). Root cause: the gate relies on the **purity of the exactly-2-slant-face
-  path**; a general loop on a closed solid also captures bottom/cap-scattered photons
-  that desaturate the ROI. **Needs an OWNER DECISION** (re-derive the prism gate for
-  the general loop, or keep a special-case flat-caster path), not a tuning fix —
-  options in `.astroray_plan/docs/pkg110-status-finding.md`. Did not thrash; preserved
-  the validated work.
+  (pkg110 detail is above; the owner chose the hybrid auto-select after the visual
+  check overturned the "re-derive the gate" path.)
 - **pkg100 / pkg101 / pkg102 confirmed already on main** (specs marked done, PRs
   #339/#341, #368, #369). The lingering `origin/pkg101-*`/`pkg102-*` branches were
   stale leftovers — no work needed (the "re-verify vs current main" check caught it).
 
 **Next deployable set (post-Wave-4):**
-- **pkg110 (resume, needs owner input):** decide the prism-gate path (re-derive vs
-  special-case flat caster); when caustic_boost moves to main's `getNumber`, the
-  glass-sphere scene must switch its `caustic_boost` to the float route
-  (`set_integrator_param_float`, value 1.4) or it reads 14.0 (10× too bright). Then
-  finalize pkg110 and proceed to **pkg111** (k-NN gather on any receiver into the
-  default `path_tracer`).
+- **pkg111** — k-NN gather on any receiver, wired into the default `path_tracer`
+  (lifts the horizontal-floor restriction; caustics on the default path). The lead
+  track's final piece.
+- **GPU port of the photon-map caustics** (NOT specced yet) — pkg109–111 are CPU-only
+  by design; a future "GPU photon map + CPU/GPU parity" package would extend the
+  pkg55-style ULP/threshold equivalence gates to the caustic path (owner asked about
+  full CPU/GPU equivalence — it's a per-feature program today, not one umbrella spec).
 
 **Standup:** `.astroray_plan/docs/standup/2026-05-30.md`.
 

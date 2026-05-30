@@ -426,6 +426,15 @@ __device__ inline float gpu_smithG_GGX(float NdotV, float alphaG) {
     return 1.f / (NdotV + sqrtf(a + b - a*b) + 0.001f);
 }
 
+// True Smith G1 in [0,1] (Walter 2007 Eq. 34) = 2*NdotV*gpu_smithG_GGX. gpu_smithG_GGX
+// is the combined visibility form G1/(2*NdotV); the rough-transmission estimator needs
+// the true G1 or a spurious 1/(4*cosO*cosI) survives -> ~70% energy loss (CPU mirror).
+__device__ inline float gpu_smithG1_GGX(float NdotV, float alphaG) {
+    float a = alphaG*alphaG;
+    float b = NdotV*NdotV;
+    return 2.f * NdotV / (NdotV + sqrtf(a + b - a*b) + 0.001f);
+}
+
 __device__ inline GVec3 gpu_disney_fresnelSchlick(float cosTheta, const GVec3& F0, float scale = 0.8f) {
     float c = fminf(fmaxf(1.f - cosTheta, 0.f), 1.f);
     // Reduced Fresnel for dielectric Disney lobes; metallic lobes approach full conductor Schlick.
@@ -518,7 +527,8 @@ __device__ inline GVec3 gpu_disney_roughTransmissionEval(
 
     float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
     float D = gpu_D_GTR2(NdotH, a);
-    float G = gpu_smithG_GGX(absCosO, a) * gpu_smithG_GGX(fabsf(cosI), a);
+    // True Smith G1 (NOT the combined gpu_smithG_GGX): Walter 2007 Eq. 21 + §5.3 (CPU mirror).
+    float G = gpu_smithG1_GGX(absCosO, a) * gpu_smithG1_GGX(fabsf(cosI), a);
     float F = gpu_disney_fresnelDielectric(HdotO, etaI, etaT);
     float jacobianAndCos = fabsf(HdotO * HdotI) * (etaT * etaT) /
                            (absCosO * denom2 + 1e-6f);
@@ -969,16 +979,27 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
     GSampledWavelengths& wl, curandState* rng)
 {
-    // pkg64-gpu-sellmeier-upload: dispatch to wavelength-aware sampler for dispersive dielectrics
-    // pkg64-gpu Session 2: `wl` is non-const — the dispersive dielectric calls
-    // wl.terminateSecondary() on refraction (hero-wavelength collapse).
-    if (mat.type == GMAT_DIELECTRIC && mat.isDispersive) {
-        GBSDFSample s = gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng);
+    // pkg64-gpu-sellmeier-upload: dispersive dielectrics need the wavelength-aware
+    // sampler (it calls wl.terminateSecondary() on refraction — hero collapse).
+    GBSDFSample s = (mat.type == GMAT_DIELECTRIC && mat.isDispersive)
+        ? gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng)
+        : gpu_material_sample(mat, rec, wo, rng);
+
+    // Delta lobes (dielectric reflect/refract, smooth-glass disney/closure-graph
+    // closures — a plain "dielectric" material lowers to GMAT_CLOSURE_GRAPH) carry a
+    // radiance-TRANSPORT factor in s.f, NOT a [0,1] albedo: the refraction f is
+    // baseColor*eta^2 and eta^2 reaches 2.25 @ ior 1.5, 4.0 @ ior 2.0. The ALBEDO
+    // upsampler (gpu_rgbToSampledSpectrum) clamps rgb to [0,1], so the exit eta^2 was
+    // clipped to 1.0 and the enter(0.44)/exit(2.25) factors no longer cancelled — the
+    // white furnace lost energy scaling with IOR (GPU 0.705 @ ior 1.5 vs CPU 0.985).
+    // Factor the >1 magnitude out as a flat spectral scalar and upsample only the
+    // normalized tint, mirroring CPU dielectric.cpp:72 (tintSpec * eta^2).
+    float m = fmaxf(fmaxf(s.f.x, s.f.y), s.f.z);
+    if (s.isDelta && m > 1.0f) {
+        s.fSpectral = gpu_rgbToSampledSpectrum(s.f * (1.0f / m), wl, mat.spectralMode) * m;
+    } else {
         s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
-        return s;
     }
-    GBSDFSample s = gpu_material_sample(mat, rec, wo, rng);
-    s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
     return s;
 }
 

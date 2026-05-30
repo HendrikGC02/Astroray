@@ -23,6 +23,18 @@ class DisneyPlugin : public Material {
         return 1 / (NdotV + std::sqrt(a + b - a * b) + 0.001f);
     }
 
+    // True Smith masking-shadowing G1 in [0,1] (Walter 2007 Eq. 34). Note smithG_GGX
+    // above is the COMBINED visibility form G1/(2·NdotV) — it folds the reflection
+    // BRDF's 1/(4·cosO·cosI) into G (so the reflection lobe uses spec = D·F·Gs bare).
+    // The rough-TRANSMISSION estimator (Walter 2007 §5.3) needs the true G1, not the
+    // combined form, otherwise a spurious 1/(4·cosO·cosI) ≈ 0.25 factor survives in
+    // f/pdf and rough glass loses ~70% energy. smithG1_GGX = 2·NdotV·smithG_GGX.
+    float smithG1_GGX(float NdotV, float alphaG) const {
+        float a = alphaG * alphaG;
+        float b = NdotV * NdotV;
+        return 2.0f * NdotV / (NdotV + std::sqrt(a + b - a * b) + 0.001f);
+    }
+
     Vec3 fresnelSchlick(float cosTheta, const Vec3& F0, float scale = 0.8f) const {
         float c = std::clamp(1 - cosTheta, 0.0f, 1.0f);
         return F0 + (Vec3(1) - F0) * std::pow(c, 5) * scale;
@@ -147,7 +159,8 @@ class DisneyPlugin : public Material {
 
         float alpha = std::max(roughness_ * roughness_, 0.0064f);
         float D = D_GTR2(NdotH, alpha);
-        float G = smithG_GGX(absCosO, alpha) * smithG_GGX(std::abs(cosI), alpha);
+        // True Smith G1 (NOT the combined smithG_GGX): Walter 2007 Eq. 21 + §5.3.
+        float G = smithG1_GGX(absCosO, alpha) * smithG1_GGX(std::abs(cosI), alpha);
         float F = fresnelDielectric(HdotO, etaI, etaT);
 
         float jacobianAndCos = std::abs(HdotO * HdotI) * (etaT * etaT) /

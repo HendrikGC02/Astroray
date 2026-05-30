@@ -31,6 +31,16 @@ SSIM ≥ 0.97 at the test spp. CPU SMS path is unchanged.
 
 ## Context
 
+**2026-05-30 fork note:** a SECOND caustic mechanism now exists — the forward
+**photon-map** caustics (pkg106/109/110/111, CPU-only today). It overlaps this SMS
+path for focusing casters (e.g. a glass sphere) and is strictly more general (it
+also handles flat prisms, which camera-side SMS cannot — see pkg106). Before more
+SMS-GPU surface area is added (e.g. pkg64-gpu Session 2 multi-IOR), the owner should
+decide the canonical GPU caustic path (SMS / photon map / both) —
+`.astroray_plan/docs/cpu-gpu-parity-status.md` §3 and the GPU photon-map package
+**pkg113**. This package (SMS-GPU) is NOT invalidated by the photon-map refactor;
+it gates a different code path.
+
 pkg64 (CPU) closed with a 113-line non-goal: *"Do not port to GPU in
 this package. SMS GPU port is a follow-up after pkg54."* pkg54 has
 shipped (PR series 54/54a/54b). Project owner authorized starting the

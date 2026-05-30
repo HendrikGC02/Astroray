@@ -1,0 +1,129 @@
+# pkg113 — GPU port of the photon-map caustics, with CPU/GPU parity
+
+**Pillar:** 3 (light transport) + 5 (GPU)
+**Track:** A
+**Status:** open — proposed 2026-05-30 (the GPU-equivalence follow-up for the
+general-caustics chain pkg109/110/111). **GPU-gated: do NOT pick up in a CI-only
+run — correctness must be RTX-`/verify`-ed; CI has no GPU and CI-green ≠ correct.**
+**Estimated effort:** L (~3–4 weeks, multiple RTX sessions)
+**Depends on:** pkg109 (photon-map kd-tree, done), pkg110 (BSDF photon bounce, done),
+**pkg111** (CPU k-NN gather into the default path — do FIRST), and the **caustics-fork
+decision** in `.astroray_plan/docs/cpu-gpu-parity-status.md` §3 (which caustic path
+is canonical on GPU). Related: pkg64-gpu (SMS GPU caustics), pkg55-B' (wavefront).
+
+---
+
+## Goal
+
+**Before:** the forward photon-map caustics (pkg106/109/110, and pkg111 once it
+lands) run **CPU-only**. `light_tracer_caustic` declares `capabilities() =
+{gpuSupported=false}`; there is no GPU photon map, no GPU photon bounce, and no
+GPU gather. A scene that shows a prism rainbow or a glass-sphere caustic on CPU
+shows **none of it** on a GPU render — breaking the "everything runs on GPU with
+CPU/GPU equivalence" goal.
+
+**After:** the photon-map caustic pipeline runs on the GPU and matches the CPU
+result within a pinned tolerance:
+1. **Photon emission + bounce** on the GPU (the forward trace through flagged glass,
+   per-λ Sellmeier refraction — reuse the pkg64-gpu Sellmeier upload + hero-λ IOR).
+2. **Photon store** on the GPU — either a CUDA build of the `photon_map.h` kd-tree
+   **or** a uniform spatial hash grid (pbrt-v4 SPPM style; see Non-goals on which).
+3. **k-NN / radius gather** on the GPU at receiver hits, wired into the GPU
+   integrator the same way the CPU gather wires into the default `path_tracer`
+   (pkg111).
+And it is **gated** to track the CPU photon-map result (SSIM + the existing
+hue_spread / glass-sphere concentration acceptance, re-measured on GPU).
+
+---
+
+## Context / fork
+
+`.astroray_plan/docs/cpu-gpu-parity-status.md` is the umbrella. Two points gate this
+package:
+
+1. **Architectural fork (§3 of the parity doc).** Astroray has two caustic
+   mechanisms — camera-side **SMS** (pkg64-gpu, already on GPU) and the forward
+   **photon map** (this chain). They overlap for focusing casters. The owner must
+   pick the canonical GPU caustic path (photon map / both / SMS-only) **before** this
+   package, because it determines whether pkg113 *replaces*, *coexists with*, or is
+   *subordinate to* the pkg64-gpu SMS path.
+2. **Store choice — kd-tree vs hash grid.** The CPU code uses a balanced kd-tree
+   (`photon_map.h`). On the GPU, the canonical SPPM approach (pbrt-v4
+   `cpu/integrators.cpp`, Apache-2.0) is a **uniform spatial hash grid**, which is
+   far friendlier to GPU parallelism than a pointer-chasing kd-tree. Decide at Phase
+   1: port the kd-tree for exact CPU parity, or build a hash grid and accept a
+   gather-equivalence (not bit-) tolerance. Recommendation: **hash grid** + an SSIM/
+   energy parity gate, because a balanced-kd-tree build is a poor GPU fit and the
+   gather is a density estimate (tolerant), not a bit-exact quantity.
+
+CLAUDE.md §6: cite Jensen 1996 (photon map) + pbrt-v4 SPPM grid (Apache-2.0) +
+Wilkie 2014 (hero-λ); same algorithm citations as pkg109/110, no GPU-specific
+algorithm invented.
+
+---
+
+## Phases
+
+### Phase 1 — GPU photon store + parity-harness (RTX)
+- Choose kd-tree-port vs hash-grid (above). Implement the store + a device build pass.
+- Unit parity: build the store from a fixed photon set on GPU, gather at fixed query
+  points, compare to the CPU `photon_map.h` gather. Tolerance: per-query rel-err
+  ≤ 1e-3 for the kd-tree port (exact), or an aggregate energy/SSIM bound for the grid.
+- Mirror the pkg64-gpu probe-harness pattern (host wrapper + device entry point), and
+  heed memory `[[pkg64-gpu-blockers-stale-option-b]]`: land the probe harness WITH the
+  core, or the gates can't run.
+
+### Phase 2 — GPU photon emission + bounce
+- Port the deterministic refraction loop (`light_tracer_caustic.cpp` general path) to
+  a device kernel: Snell + Schlick-Fresnel, enter/exit from the geometric-normal sign,
+  per-λ `iorAt` (reuse pkg64-gpu Sellmeier upload), TIR; deposit per-λ CIE flux into
+  the Phase-1 store. Keep the **flat-prism explicit 2-face** path too (or decide it
+  stays CPU — the prism is a flat special case).
+- Parity: GPU deposit set vs CPU deposit set on the prism + glass-sphere scenes
+  (aggregate energy/position bounds).
+
+### Phase 3 — GPU gather wired into the integrator + acceptance gates (RTX)
+- Gather at receiver hits in the GPU integrator (mirror pkg111's CPU wiring).
+- Re-run the acceptance scenes on GPU: `prism-bk7-collimated`
+  (hue_spread ≥ 0.65–0.7 + bright_coverage ≥ 0.5) and `glass-sphere-caustic`
+  (peak/median concentration gate). **Visual check required** (memory
+  `[[general-photon-loop-needs-solid-glass]]`: the caustic numeric gates pass on
+  salt-and-pepper noise — always `Read` the rendered PNG).
+- **GPU-vs-CPU parity gate:** SSIM ≥ 0.97 on both scenes at the test spp (matching the
+  pkg64-gpu / pkg54b + pkg82 variance envelope), plus an energy-ratio bound.
+
+---
+
+## Acceptance criteria (summary)
+
+| Gate | Threshold | Source |
+|---|---|---|
+| GPU store gather vs CPU (Phase 1) | rel-err ≤ 1e-3 (kd-tree) or energy/SSIM bound (grid) | pkg64-gpu Phase-1 style |
+| GPU-vs-CPU caustic SSIM | ≥ 0.97 | pkg64-gpu + pkg54b/pkg82 envelope |
+| Prism rainbow on GPU | hue_spread ≥ (pkg110 gate) + bright_coverage ≥ 0.5 + **visual** | pkg106/110 |
+| Glass-sphere caustic on GPU | peak/median concentration (pkg110 gate) + **visual** | pkg110 |
+| No regression on `pytest tests/ -k gpu` | pass | standard |
+
+---
+
+## Non-goals
+
+- **Not** until the §3 fork is decided and pkg111 (CPU default-path gather) lands.
+- **Not** a new caustic algorithm — port pkg109/110/111 math only.
+- **Not** SPPM progressive radius reduction (separate pkg112) — fixed radius + enough
+  photons, same as the CPU chain.
+- **Not** a CI gate — GPU correctness can't be CI-verified; gate on RTX `/verify`.
+- **Not** touching the SMS GPU path (pkg64-gpu) unless §3 chooses to deprecate it
+  (separate change).
+
+---
+
+## References
+
+- `.astroray_plan/docs/cpu-gpu-parity-status.md` — umbrella + the fork.
+- `.astroray_plan/docs/pkg109-110-111-photon-map-research.md` — CPU algorithm + citations.
+- `packages/pkg109-photon-map-core.md`, `pkg110-bsdf-driven-photon-bounce.md`,
+  `pkg111-caustic-gather-default-path.md` — the CPU chain.
+- `packages/pkg64-gpu-spectral-caustics.md` — the SMS GPU port; mirror its phased
+  probe-harness + parity-gate methodology, and the pkg55-C megakernel→wavefront note.
+- Jensen 1996; pbrt-v4 SPPM grid (Apache-2.0); Wilkie 2014 hero-λ.

@@ -55,10 +55,14 @@
 - **pkg111** — k-NN gather on any receiver, wired into the default `path_tracer`
   (lifts the horizontal-floor restriction; caustics on the default path). The lead
   track's final piece.
-- **GPU port of the photon-map caustics** (NOT specced yet) — pkg109–111 are CPU-only
-  by design; a future "GPU photon map + CPU/GPU parity" package would extend the
-  pkg55-style ULP/threshold equivalence gates to the caustic path (owner asked about
-  full CPU/GPU equivalence — it's a per-feature program today, not one umbrella spec).
+- **GPU port of the photon-map caustics — now specced: pkg113** (GPU-gated, do on
+  RTX not CI). pkg109–111 are CPU-only by design; the forward photon-map caustics
+  have NO GPU equivalence yet. The refactor did NOT invalidate any existing parity
+  work (it's net-new CPU code — see the evidence in the parity doc). The full
+  CPU↔GPU-equivalence picture, the existing parity matrix, and the caustics
+  architectural fork (SMS-GPU vs forward photon map — owner decision) live in
+  **`.astroray_plan/docs/cpu-gpu-parity-status.md`**; the new GPU parity work is
+  **`packages/pkg113-gpu-photon-map-caustics.md`**.
 
 **Standup:** `.astroray_plan/docs/standup/2026-05-30.md`.
 

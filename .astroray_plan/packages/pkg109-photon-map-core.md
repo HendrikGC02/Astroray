@@ -54,4 +54,5 @@ from the 2D grid to the kd-tree, and reproduce the prism band (regression-safe).
 
 - Not BSDF-driven photon bouncing (that's pkg110) — keep the 2-face emission.
 - Not the camera-side general gather into the default path (pkg111).
-- Not GPU. Not progressive/SPPM (a later package).
+- Not GPU. Not progressive/SPPM (a later package). GPU port + CPU/GPU parity is the
+  separate follow-up **pkg113** (`.astroray_plan/docs/cpu-gpu-parity-status.md`).

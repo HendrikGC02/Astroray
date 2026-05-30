@@ -59,7 +59,10 @@ work whose correctness can be gated without a GPU.
    the importer code + bpy-free unit tests (defer the GPU SSIM gate).
 
 NOT overnight: pkg64-gpu multi-IOR, pkg55-B' sessions, pkg86-B, SPPM-progressive
-(pkg112, large), VCM (owner decision).
+(pkg112, large), VCM (owner decision), and **pkg113 — GPU photon-map caustics +
+CPU/GPU parity** (all GPU-gated; CI has no GPU). The full CPU↔GPU-equivalence
+picture + the SMS-vs-photon-map caustics fork is in
+`.astroray_plan/docs/cpu-gpu-parity-status.md`.
 
 ---
 

@@ -52,4 +52,7 @@ caustics without selecting a special integrator. The pkg106/109 gather is gated 
 
 - Not SPPM progressive radius reduction (separate follow-up: pkg-SPPM) — a fixed
   gather radius + enough photons is acceptable for the gate.
-- Not GPU. Not VCM (the long-horizon endgame; owner decision).
+- Not GPU. Not VCM (the long-horizon endgame; owner decision). GPU port + CPU/GPU
+  parity is the separate follow-up **pkg113**
+  (`.astroray_plan/docs/cpu-gpu-parity-status.md`); pkg113 depends on this package
+  (the CPU default-path gather) landing first.

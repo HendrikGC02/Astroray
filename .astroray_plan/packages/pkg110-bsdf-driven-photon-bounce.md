@@ -54,4 +54,5 @@ prism-specific.
 ## Non-goals
 
 - Not the default-path integration (pkg111) — still a dedicated integrator.
-- Not GPU. Not SPPM progressive convergence.
+- Not GPU. Not SPPM progressive convergence. GPU port + CPU/GPU parity is the
+  separate follow-up **pkg113** (`.astroray_plan/docs/cpu-gpu-parity-status.md`).

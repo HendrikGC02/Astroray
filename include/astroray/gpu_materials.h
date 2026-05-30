@@ -268,10 +268,16 @@ __device__ inline GBSDFSample gpu_dielectric_sample(
     s.isDelta = true;
     rec.isDelta = true;
 
+    // Enter/exit from rec.frontFace, not sign(wo·rec.normal): rec.normal is the
+    // front-facing normal (gpu_bvh.h sets rec.normal = frontFace?out:-out), so the
+    // sign test always read "entering" -> eta = 1/ior at BOTH surfaces -> the eta^2
+    // radiance factor never cancelled across the glass -> too dark. Mirrors the CPU
+    // DielectricPlugin fix.
     float cosTheta = wo.dot(rec.normal);
-    float etaI = 1.f, etaT = mat.ior;
+    float etaI = rec.frontFace ? 1.f : mat.ior;
+    float etaT = rec.frontFace ? mat.ior : 1.f;
     GVec3 n = rec.normal;
-    if (cosTheta < 0.f) { cosTheta = -cosTheta; float tmp=etaI; etaI=etaT; etaT=tmp; n = -n; }
+    if (cosTheta < 0.f) { cosTheta = -cosTheta; n = -n; }
 
     float eta      = etaI / etaT;
     float sinTheta = sqrtf(fmaxf(0.f, 1.f - cosTheta*cosTheta));
@@ -318,10 +324,13 @@ __device__ inline GBSDFSample gpu_dielectric_sample_spectral(
         ? gpu_sellmeier_ior(mat.dispersion, lambdas.lambda[0])
         : mat.ior;
 
+    // Enter/exit from rec.frontFace (see gpu_dielectric_sample above) — the wo·n
+    // sign test always read "entering" because rec.normal is front-facing.
     float cosTheta = wo.dot(rec.normal);
-    float etaI = 1.f, etaT = ior;
+    float etaI = rec.frontFace ? 1.f : ior;
+    float etaT = rec.frontFace ? ior : 1.f;
     GVec3 n = rec.normal;
-    if (cosTheta < 0.f) { cosTheta = -cosTheta; float tmp=etaI; etaI=etaT; etaT=tmp; n = -n; }
+    if (cosTheta < 0.f) { cosTheta = -cosTheta; n = -n; }
 
     float eta      = etaI / etaT;
     float sinTheta = sqrtf(fmaxf(0.f, 1.f - cosTheta*cosTheta));

@@ -568,7 +568,10 @@ public:
         moved.cameraW = r.cameraW;
         if (!object->hit(moved, tMin, tMax, rec)) return false;
         rec.point += offset;
-        rec.setFaceNormal(moved, rec.normal);
+        // Keep the inner hit's normal AND rec.frontFace. Translation does not rotate
+        // normals; re-running setFaceNormal on the already-front-facing inner normal
+        // would force rec.frontFace = true, breaking refraction enter/exit (the
+        // dielectric keys off frontFace) on transformed glass meshes.
         return true;
     }
     bool boundingBox(AABB& box) const override {
@@ -604,7 +607,10 @@ public:
         rec.t /= sdlen;
         rec.point = Vec3(rec.point.x*scale.x, rec.point.y*scale.y, rec.point.z*scale.z);
         Vec3 n(rec.normal.x/scale.x, rec.normal.y/scale.y, rec.normal.z/scale.z);
-        rec.setFaceNormal(r, n.normalized());
+        // Transform the (already front-facing) normal but PRESERVE rec.frontFace —
+        // setFaceNormal would clobber it to always-true and break refraction
+        // enter/exit on scaled glass. (Assumes orientation-preserving positive scale.)
+        rec.normal = n.normalized();
         return true;
     }
     bool boundingBox(AABB& box) const override {
@@ -636,7 +642,10 @@ public:
         Vec3 p = rec.point;
         rec.point = Vec3(cosT*p.x - sinT*p.z, p.y, sinT*p.x + cosT*p.z);
         Vec3 n = rec.normal;
-        rec.setFaceNormal(r, Vec3(cosT*n.x - sinT*n.z, n.y, sinT*n.x + cosT*n.z));
+        // Rotate the (already front-facing) normal but PRESERVE rec.frontFace —
+        // setFaceNormal would clobber it to always-true and break refraction on
+        // rotated glass. Rotation preserves the front-facing relationship.
+        rec.normal = Vec3(cosT*n.x - sinT*n.z, n.y, sinT*n.x + cosT*n.z);
         return true;
     }
     bool boundingBox(AABB& box) const override { return object->boundingBox(box); }

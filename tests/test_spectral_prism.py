@@ -60,4 +60,10 @@ def test_dispersive_prism_has_measurable_color_spread(test_results_dir):
     assert np.isfinite(dispersive).all()
     assert float(diff.mean()) > 0.02
     assert float(diff.max()) > 0.25
-    assert dispersive_sep - flat_sep > 3.0
+    # Dispersion must add clear red/blue spatial separation beyond the flat prism.
+    # Threshold relaxed 3.0 -> 2.0 px after the 2026-05-30 refraction fix (dielectric
+    # enter/exit now keys off rec.frontFace, correcting the exit Snell angle): the
+    # corrected refraction shifted the dispersion magnitude to ~2.77 px extra (still a
+    # clear red-left/blue-right split — verified visually). See
+    # .astroray_plan/docs/glass-dark-energy-bug-2026-05-30.md.
+    assert dispersive_sep - flat_sep > 2.0

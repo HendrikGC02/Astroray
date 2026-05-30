@@ -1,6 +1,48 @@
 # Astroray Status
 
-**Last updated:** 2026-05-30 (Round 15 Wave 4: pkg109 photon-map kd-tree DONE, PR #395; pkg76 Gap 2 DONE, PR #394; integrator float-param DONE, PR #396; pkg110 general photon bounce DONE — hybrid auto-select, PR #397).
+**Last updated:** 2026-05-30 (Round 15 Wave 5: GPU clear-glass energy fix + Heitz-2018 VNDF rough transmission, PR #404; refbank showcase re-author, PR #405. Wave 5 also landed pkg111 caustic-gather-default-path PR #403, glass-dark frontFace fix PR #402, mesh-caustic + scaled-mesh fix PR #401, refbank prism recompose PR #400, addon parity tests PR #399).
+
+## Round 15 Wave 5 — GPU glass energy + showcase polish (overnight, 2026-05-30)
+
+**Two quality PRs merged this closeout: PR #404 (GPU clear-glass energy + Heitz-2018 VNDF rough transmission) and PR #405 (re-author 6 reference-bank showcase scenes). Both verified on RTX.**
+
+- **PR #404 — GPU clear-glass energy + Disney rough transmission (`8b7184b`).** The dominant
+  GPU glass-energy bug: a plain `dielectric` and Disney glass lower to `GMAT_CLOSURE_GRAPH`
+  on the GPU, and the delta refraction `f = eta^2` was routed through
+  `gpu_rgbToSampledSpectrum` in `GSPEC_RGB_ALBEDO` mode (the JH upsampler clamps rgb to
+  [0,1]), clipping the exit eta^2 (2.25 @ ior 1.5) so the enter/exit radiance-transport
+  factors no longer cancelled. **White-furnace (clear glass): GPU 0.705 → 0.991 flat @ ior 1.5
+  (CPU was always 0.985).** Fix in `gpu_material_sample_spectral`: factor any >1 delta
+  magnitude out as a flat spectral scalar, upsample only the normalized tint (mirrors the CPU).
+  Also: a **Heitz-2018 VNDF microfacet-dielectric rough-transmission rewrite** (ported from
+  PBRT-v4 `DielectricBxDF`, BSD-3-Clause; cross-checked vs Cycles `bsdf_microfacet.h`)
+  replaced the bespoke NDF path that lost ~70% at R≥0.3 — **GPU rough glass now
+  energy-conserving for R≥0.1** (`test_disney_rough_glass_furnace_energy_gpu` passes). Fixed a
+  CPU Disney specular-reflection regression the VNDF rewrite introduced (CPU spec lobe sampled
+  VNDF against an NDF pdf → below-surface directions → Disney metal rendered PURE BLACK on CPU;
+  reverted to NDF sampling). New regression tests: `test_dielectric_glass_furnace.py`,
+  `test_disney_rough_glass_furnace.py`, `test_disney_reflection_not_black.py`. Research:
+  `.astroray_plan/docs/vndf-microfacet-dielectric-research.md` + UPDATE 2 in
+  `disney-rough-transmission-walter2007.md`.
+- **PR #405 — re-author 6 showcase reference-bank scenes (`07a7d65`).** Visual-checked +
+  gate-green re-authoring of CPU showcase scenes (all ≥512²): true SF11 prism (15° apex,
+  hue_spread 0.892 vs BK7 0.753 — the A/B distinguisher), glass-sphere-caustic (tight framing +
+  brighter), sms-reflective-metal-sphere (smooth normals → clear nephroid crescent),
+  gr-schwarzschild + gr-kerr-94-faceon (high-contrast equirectangular checker background,
+  upres 512²). All six gate-green on RTX. `glass-sphere` + `prism-bk7` were reverted to keep
+  their standalone physics gates green. `disney-sweep` `cycles_bless.py` gets a `sensor_fit=VERTICAL`
+  FOV fix — but the cross-engine Cycles `reference.png` still needs an owner Blender re-render
+  (cannot be auto-blessed). These re-authored scenes are pkg104 Phase 2/3 implementation
+  progress; pkg104's full harness/CI acceptance is NOT yet complete (stays open).
+
+**Flag for the next HW sweep (NOT a regression — the glass fixes changed GPU output for the
+better):** two pkg64-gpu gates now need re-baselining with written justification — pkg64-gpu
+parity SSIM 0.835 < 0.85 (dielectric caustic: GPU now diverges from the CPU's residual) and
+pkg64-gpu Phase-3 prism PSNR delta −0.59 < −0.5 dB (SMS caustic shift). These do NOT run on CI
+(no GPU) so they merged green. Spec gate floors are unchanged pending owner adjudication; see
+NEXT_STAGE_REPORT.md §2 open item 2. Also tracked: CPU rough-glass low-α residual (xfail'd,
+`test_disney_rough_glass_furnace_energy_cpu`) and a rough-glass high-variance / denoising-default
+optimization candidate.
 
 ## Round 15 Wave 4 — general-caustics foundation (overnight, 2026-05-30)
 
@@ -52,9 +94,12 @@
   stale leftovers — no work needed (the "re-verify vs current main" check caught it).
 
 **Next deployable set (post-Wave-4):**
-- **pkg111** — k-NN gather on any receiver, wired into the default `path_tracer`
-  (lifts the horizontal-floor restriction; caustics on the default path). The lead
-  track's final piece.
+- **pkg111 — k-NN gather on any receiver, into the default `path_tracer` DONE
+  (PR #403 / `ae138b6`, 2026-05-30).** Lifts the horizontal-floor restriction;
+  caustics now render on the default path (tilted-receiver hue_spread 0.37,
+  bright_coverage 0.65; horizontal-floor regression passes). The lead general-
+  caustics chain (pkg109→pkg110→pkg111) is now CPU-complete. _(Landed in Wave 5;
+  see the Wave 5 section above for the glass-energy + showcase follow-ons.)_
 - **GPU port of the photon-map caustics — now specced: pkg113** (GPU-gated, do on
   RTX not CI). pkg109–111 are CPU-only by design; the forward photon-map caustics
   have NO GPU equivalence yet. The refactor did NOT invalidate any existing parity

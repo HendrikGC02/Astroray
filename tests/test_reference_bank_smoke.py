@@ -177,3 +177,101 @@ def test_runner_cornell_mini_smoke():
         f"--- stdout ---\n{result.stdout}\n"
         f"--- stderr ---\n{result.stderr}"
     )
+
+
+# ----- Output-verifiable acceptance on the REAL pinned references (pkg104 §Acceptance) -----
+#
+# The metric-level tests above use synthetic arrays. These exercise the spec's
+# output-verifiable acceptance against the actual blessed reference PNGs and the
+# real gates.toml machinery, so a regression that silently passes the bank is
+# caught. Pure numpy/PIL — no astroray build required (CI-safe, fast).
+
+_BANK_SCENES = _REPO_ROOT / "benchmarks" / "reference_bank" / "scenes"
+
+
+def _load_ref_png(scene: str) -> np.ndarray:
+    from PIL import Image
+    p = _BANK_SCENES / scene / "reference.png"
+    if not p.exists():
+        pytest.skip(f"{scene} reference not blessed yet")
+    return np.asarray(Image.open(p).convert("RGB"), dtype=np.float32) / 255.0
+
+
+def _scene_gate(scene: str, gate_type: str):
+    from benchmarks.reference_bank.runner import _load_gates
+    _, gates, _ = _load_gates(_BANK_SCENES / scene)
+    for g in gates:
+        if g.type == gate_type:
+            return g
+    pytest.skip(f"{scene} declares no {gate_type} gate")
+
+
+def test_runner_gate_fails_on_broken_render():
+    """pkg104 acceptance: a deliberately-broken render FAILS >=1 gate.
+
+    Drives the real runner gate machinery (gates.toml -> metric dispatch ->
+    direction/threshold), not a metric unit. Proves the bank would catch a
+    regression instead of passing it through behind green CI — the entire reason
+    pkg104 exists. cornell-mini's blessed reference passes its own gates;
+    a corrupted copy must trip at least one.
+    """
+    from benchmarks.reference_bank.runner import _load_gates, _evaluate_gate
+    ref = _load_ref_png("cornell-mini")
+    _, gates, _ = _load_gates(_BANK_SCENES / "cornell-mini")
+    assert gates, "cornell-mini declares no gates"
+    # Self-consistency: the blessed reference passes all its own gates.
+    self_res = [_evaluate_gate(g, ref, ref) for g in gates]
+    assert all(r.passed for r in self_res), (
+        "blessed reference fails its own gates: "
+        + ", ".join(f"{r.spec.type}={r.measured:.3f}" for r in self_res if not r.passed)
+    )
+    # Deliberately-broken render: structural shift + heavy colour noise.
+    rng = np.random.default_rng(0)
+    broken = np.clip(
+        np.roll(ref, ref.shape[1] // 3, axis=1)
+        + rng.normal(0, 0.3, ref.shape).astype(np.float32), 0.0, 1.0)
+    broken_res = [_evaluate_gate(g, broken, ref) for g in gates]
+    assert not all(r.passed for r in broken_res), (
+        "a deliberately-broken render passed ALL gates — the bank would not catch "
+        "this regression: "
+        + ", ".join(f"{r.spec.type}={r.measured:.3f}" for r in broken_res)
+    )
+
+
+def test_prism_reference_has_rainbow_hue_spread():
+    """pkg104 acceptance: the real prism reference exhibits a rainbow the hue_spread
+    gate detects (>= its own threshold), and a dispersion-removed (desaturated)
+    image fails it (< 0.2). Validates the blessed reference + gate are real."""
+    from benchmarks.reference_bank.metrics import compute_hue_spread
+    gate = _scene_gate("prism-bk7-collimated", "hue_spread")
+    ref = _load_ref_png("prism-bk7-collimated")
+    kw = dict(luminance_threshold=gate.luminance_threshold or 0.05,
+              roi=gate.roi, saturation_floor=gate.saturation_floor or 0.05)
+    measured, _ = compute_hue_spread(ref, **kw)
+    assert measured >= gate.threshold, (
+        f"real prism reference hue_spread {measured:.3f} is below its own gate "
+        f"{gate.threshold} — reference no longer shows the rainbow")
+    # Dispersion-disabled analog: collapse to luminance (no hue) -> spread vanishes.
+    lum = 0.2126 * ref[..., 0] + 0.7152 * ref[..., 1] + 0.0722 * ref[..., 2]
+    gray = np.repeat(lum[..., None], 3, axis=2)
+    gray_score, _ = compute_hue_spread(gray, **kw)
+    assert gray_score < 0.2, (
+        f"desaturated (dispersion-off) prism still scored hue_spread {gray_score:.3f}")
+
+
+def test_schwarzschild_reference_has_dark_disk():
+    """pkg104 acceptance: the real Schwarzschild reference shows a BH shadow the
+    dark_disk gate detects (>= its own threshold), and a uniform-bright image
+    (GR-dispatch off analog) fails it (< 0.005)."""
+    from benchmarks.reference_bank.metrics import compute_dark_disk_fraction
+    gate = _scene_gate("gr-schwarzschild", "dark_disk")
+    ref = _load_ref_png("gr-schwarzschild")
+    lt = gate.luminance_threshold or 0.02
+    measured, _ = compute_dark_disk_fraction(ref, luminance_threshold=lt, roi=gate.roi)
+    assert measured >= gate.threshold, (
+        f"real Schwarzschild reference dark_disk {measured:.4f} below its own gate "
+        f"{gate.threshold} — BH shadow missing")
+    bright = np.full_like(ref, 0.9)
+    bright_score, _ = compute_dark_disk_fraction(bright, luminance_threshold=lt, roi=gate.roi)
+    assert bright_score < 0.005, (
+        f"uniform-bright (GR-off) image scored dark_disk {bright_score:.4f}")

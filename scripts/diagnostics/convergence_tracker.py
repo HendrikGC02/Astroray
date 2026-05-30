@@ -198,7 +198,13 @@ def run_convergence(
         print(f"  Rendering {scene} @ {spp} spp ...", flush=True)
         renders[spp] = _render(scene, spp, width, height, seed)
 
-    reference = renders[spp_levels[-1]]
+    # Render a SEPARATE high-spp reference with an INDEPENDENT seed, and MSE every
+    # plotted level (including the top one) against it. The prior code used the
+    # highest-spp render as its OWN reference -> that level's MSE collapsed to 0 /
+    # PSNR inf, producing a spurious cliff instead of a smooth ~1/spp decay.
+    ref_spp = max(4096, max_spp * 4)
+    print(f"  Rendering {scene} reference @ {ref_spp} spp (independent seed) ...", flush=True)
+    reference = _render(scene, ref_spp, width, height, seed + 1)
 
     # Save per-SPP PNGs and build results table.
     import matplotlib

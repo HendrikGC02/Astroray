@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (Light transport)
 **Track:** A (CPU integrator)
-**Status:** done (PR #TBD, 2026-05-30 — caustics render on arbitrary receivers via default path; tilted-receiver hue_spread 0.37, bright_coverage 0.65; horizontal-floor regression passes)
+**Status:** done (PR #403, 2026-05-30 — caustics render on arbitrary receivers via default path; tilted-receiver hue_spread 0.37, bright_coverage 0.65; horizontal-floor regression passes)
 **Estimated effort:** M (~3-4 days)
 **Depends on:** pkg109 (kd-tree store), pkg110 (BSDF-driven photons)
 

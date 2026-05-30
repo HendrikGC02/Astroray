@@ -178,6 +178,27 @@ fix:
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
 
+**Round 15 Waves 3–5 (2026-05-29→30): forward-light-tracer prism rainbow → general caustics → GPU glass energy + showcase.**
+**pkg106 FINISHED** (PR #393) — a triangulated BK7 prism throws a clean continuous rainbow caustic
+(hue_spread 0.754 ≥0.7, bright_coverage 0.88) via a NEW forward light-tracer integrator
+`plugins/integrators/light_tracer_caustic.cpp` (Arvo 1986 / Jensen 1996); camera-side MNEE is
+ABANDONED for flat prisms (the MNEE math is kept for focusing casters). **General-caustics chain
+CPU-complete: pkg109** (world-space photon-map kd-tree, PR #395) → **pkg110** (BSDF-driven photon
+bounce — hybrid auto-select by caster geometry, PR #397) → **pkg111** (k-NN gather on any receiver,
+into the default `path_tracer`, PR #403). "Drop ANY glass + light → caustics on ANY surface through
+the default path" now works on CPU. Also: **pkg76 Classroom Gap 2** (non-Principled shader-graph
+walk, PR #394), **integrator float-param** ergonomics (PR #396), mesh-caster caustics + scaled-mesh
+visibility fix (PR #401), and the **glass-dark frontFace fix** (PR #402 — key enter/exit off
+`rec.frontFace`, CPU+GPU). **Wave 5 quality:** **PR #404** fixes the dominant GPU clear-glass
+energy bug (delta refraction eta^2 was albedo-clamped to [0,1] by the JH upsampler; white-furnace
+0.705 → 0.991 flat @ ior 1.5) and lands a **Heitz-2018 VNDF microfacet-dielectric rough-transmission
+rewrite** (PBRT-v4 `DielectricBxDF`, BSD-3-Clause — GPU rough glass now energy-conserving for R≥0.1);
+**PR #405** re-authors 6 reference-bank showcase scenes (≥512², gate-green on RTX). The forward
+photon-map caustics are CPU-only by design; the GPU port is specced as **pkg113** (GPU-gated). The
+glass-energy fix legitimately moved GPU output, so **two pkg64-gpu HW gates need re-baselining with
+written justification** (parity SSIM 0.835 < 0.85; Phase-3 prism PSNR delta −0.59 < −0.5 dB) — these
+do not run on CI (no GPU); flagged for the next HW sweep.
+
 **Round 15 Wave 2 (2026-05-28, 3 PRs merged): pkg106 Chunks B/C/D-seed — MNEE foundation complete.**
 **pkg106 MNEE foundation COMPLETE** (PRs #389/#390/#391) — Chunks B/C/D-seed shipped: surface (u,v) partials (`manifold/surface_partials.h`), analytic Newton solver (`newton_iterate.h::solveAnalytic`), multi-vertex manifold chain (`manifold/manifold_chain.h` — block-tridiagonal Jacobian + damped Newton), mesh seed-ray + chain convergence on triangulated prism (`manifold/mesh_caustic.h`). All CPU-only header math + unit tests, validated to ~1e-11 vs finite-difference / analytic Snell. **Remaining: Chunk D-radiance** (wire multi-vertex MNEE into live integrator — transfer-matrix geometry term + finite prism faces + in-triangle validity + visibility; currently renders chromatic noise on wip/pkg106-chunk-d-radiance) + **Chunk E** (prism scene + hue_spread ≥0.7).
 

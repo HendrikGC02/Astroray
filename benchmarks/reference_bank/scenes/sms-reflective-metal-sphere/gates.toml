@@ -1,10 +1,12 @@
 # sms-reflective-metal-sphere — reflective caustic (concave coffee-cup)
-# Reference re-blessed 2026-05-27 after owner feedback (convex sphere
-# was wrong — needed concave). Now a triangulated polished-metal
-# cylinder (coffee-cup interior) with side rim light.
+# Reference re-blessed 2026-05-30 after the visual-reference-bank polish
+# (fix #2): SMOOTH per-vertex (radial) normals on the cylinder wall so it
+# reads as a proper cup, a matte diffuse bottom so the focused reflective
+# caustic lands on a receiver, a distant off-axis light (off the rim), and
+# a steep down-axis camera that centers the nephroid crescent. 512x512.
 
 [scene]
-description = "Coffee-cup-interior concave reflector + side-mounted area emitter. Light bounces off curved inside walls and focuses as a visible caustic crescent on the opposite inside wall. Tests the SMS reflective branch under concave geometry."
+description = "Coffee-cup-interior concave reflector (smooth-shaded polished-metal cylinder) + a distant off-axis area emitter. Light bounces off the curved inside wall and focuses as a bright nephroid crescent on the matte cup bottom. Tests the SMS reflective-caustic branch under concave geometry."
 
 [[gate]]
 type = "ssim"
@@ -18,11 +20,11 @@ direction = "le"
 
 [[gate]]
 type = "bright_coverage"
-threshold = 0.05
+threshold = 0.10
 direction = "ge"
-roi = [80, 256, 50, 320]
-luminance_threshold = 0.10
-description = "Caustic-presence gate. Inside-cup ROI; if caustic-finding regresses (SMS reflective branch breaks), bright-region coverage collapses."
+roi = [120, 460, 60, 452]
+luminance_threshold = 0.30
+description = "Caustic-presence gate. Centered on the lit cup floor where the focused nephroid crescent lands; if caustic-finding regresses (reflective focus breaks), the bright floor + crescent coverage collapses below threshold."
 
 [[gate]]
 type = "phash"

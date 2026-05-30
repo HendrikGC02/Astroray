@@ -1,24 +1,29 @@
-# gr-schwarzschild — non-rotating BH shadow on white background
-# Reference re-blessed 2026-05-27 with pkg107 r_obs_M=20. Measured baseline:
-#   dark_disk fraction (L<0.05, full image) = 0.0519 (~5% of frame, clearly visible)
+# gr-schwarzschild — non-rotating BH lensing a structured grid sky (512^2, 64 spp)
+# Re-blessed 2026-05-30 (design doc visual-reference-bank-design-2026-05-30.md,
+# owner feedback #1: structured background so lensing detail is catchable).
+# Background: deterministic equirect grid/checker (scene.py:_ensure_background),
+# gravitationally lensed by the escaped GR geodesics. Measured baselines:
+#   dark_disk fraction (L<0.05, full image) = 0.053 (the BH shadow)
+#   same-seed SSIM (gate render vs reference, fixed SEED=17) = 1.0 (deterministic)
 
 [scene]
-description = "Schwarzschild (spin=0) BH at origin against a white background. Validates that GR geodesic dispatch produces a detectable dark shadow. The visible shadow is small (~0.4% of frame) because the Astroray BH parameter mapping makes the horizon-radius-in-render-units a small fraction of the influence radius. Bigger shadow scenes require either non-standard parameter tuning or addon-side BH geometry (a separate spec)."
+description = "Schwarzschild (spin=0) BH at origin gravitationally lensing a high-contrast equirectangular grid sky. The straight background grid warps into concentric Einstein-ring arcs that pile up at the photon ring, with a crisp circular shadow in the centre. Validates that GR geodesic dispatch produces both the dark shadow AND the correct deflection field — a lensing regression now visibly bends the grid wrongly instead of nudging a flat field."
 
 [[gate]]
 type = "ssim"
-threshold = 0.92
+threshold = 0.96
 direction = "ge"
-description = "Tight SSIM: the white-background-with-small-shadow image is structurally simple and should reproduce closely."
+description = "Tight SSIM on a now-detail-rich lensed-grid frame. The gate render shares the reference's fixed SEED=17, so it is deterministic (same-seed SSIM=1.0); 0.96 leaves headroom for any residual jitter while catching a structural lensing regression."
 
 [[gate]]
 type = "dark_disk"
 threshold = 0.03
 direction = "ge"
 luminance_threshold = 0.05
-description = "GR-dispatch presence gate. Measured 0.052 at pkg107 r_obs_M=20; threshold gives ~40% headroom. If GR is mis-wired (no geodesic integration), the dark disk vanishes and this trips."
+description = "GR-dispatch presence gate. Measured 0.053; threshold gives ~40% headroom. If GR is mis-wired (no geodesic integration) the dark disk vanishes and this trips."
 
 [[gate]]
 type = "phash"
-threshold = 16
+threshold = 12
 direction = "le"
+description = "Structural self-stability gate. Tightened from 16 to 12 now that the lensed grid gives the frame rich perceptual structure to lock onto."

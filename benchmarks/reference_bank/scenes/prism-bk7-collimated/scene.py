@@ -102,7 +102,9 @@ def make_scene(astroray):
     # (1.2 == the old int-knob 12 x 0.1) routed via set_integrator_param_float.
     r.set_integrator_param_float("caustic_boost", 1.2)
 
-    # Camera zoomed onto the rainbow band (pkg104 showcase composition).
-    r.setup_camera([2.5, 0.1, 3.4], [2.5, -3.0, 0.0], [0.0, 1.0, 0.0],
-                   25.0, WIDTH / HEIGHT, 0.0, 4.5, WIDTH, HEIGHT)
+    # Camera zoomed tight onto the rainbow band (pkg104 showcase composition):
+    # aim at the band center and narrow the vfov so the continuous red->violet
+    # spectrum fills the frame instead of floating small in a wide black field.
+    r.setup_camera([2.4, 0.3, 2.9], [2.4, -3.0, 0.1], [0.0, 1.0, 0.0],
+                   19.0, WIDTH / HEIGHT, 0.0, 4.0, WIDTH, HEIGHT)
     return r

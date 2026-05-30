@@ -1,26 +1,37 @@
-# gr-kerr-94-faceon — Kerr a/M=0.94 with thin disk (paired with gr-schwarzschild)
-# Reference re-blessed 2026-05-27 with pkg107 r_obs_M=20 + edge-on disk view.
+# gr-kerr-94-faceon — Kerr a/M=0.94 with thin disk, lensing a structured grid sky
+# (512^2, 64 spp). Re-blessed 2026-05-30 (design doc, owner feedback #1).
+# Paired with gr-schwarzschild: same grid + same shadow, plus a bright disk ring.
 # Measured baselines:
-#   bright_coverage (L>0.3) = 0.087 (the photon ring + lensed disk emission)
-#   pHash distance vs gr-schwarzschild = 18 (visibly distinct geometry)
+#   bright_coverage (L>0.3) = 0.27  (disk photon ring + bright lensed grid lines)
+#   dark_disk fraction (L<0.05) = 0.053  (the BH shadow)
+#   pHash distance vs gr-schwarzschild = 18 (the disk ring keeps the pair distinct)
+#   same-seed SSIM (gate render vs reference, fixed SEED=17) = 1.0 (deterministic)
 
 [scene]
-description = "Kerr a/M=0.94, near-edge-on view (inclination 78°), Novikov-Thorne thin disk emission on black background. Visible: the BH shadow + a bright photon-sphere ring formed by gravitationally-lensed disk light + Doppler-asymmetric disk emission. Paired with gr-schwarzschild to exercise metric-plugin dispatch."
+description = "Kerr a/M=0.94, Novikov-Thorne thin disk, gravitationally lensing a high-contrast equirectangular grid sky. Visible: a crisp central shadow, a bright photon-sphere ring (lensed disk emission) hugging it, and the background grid bending into concentric Einstein-ring arcs. The distinguished partner of gr-schwarzschild (same grid + shadow, but the bright disk ring is absent there) — exercises the Kerr metric plugin + disk-emission dispatch and keeps the pair pHash-distinct."
 
 [[gate]]
 type = "ssim"
-threshold = 0.85
+threshold = 0.96
 direction = "ge"
+description = "Tight SSIM on the detail-rich lensed-grid + disk-ring frame. The gate render shares the reference's fixed SEED=17 (same-seed SSIM=1.0); 0.96 leaves headroom while catching a structural lensing/disk regression."
 
 [[gate]]
 type = "bright_coverage"
-threshold = 0.04
+threshold = 0.18
 direction = "ge"
 luminance_threshold = 0.3
-description = "Lensed-disk presence gate. Measured 0.087; threshold gives ~50% headroom. If GR lensing breaks the disk vanishes entirely."
+description = "Lensed-disk + bright-grid presence gate. Measured 0.27; threshold gives ~50% headroom. If GR lensing breaks the disk + bright structure collapse and this trips."
+
+[[gate]]
+type = "dark_disk"
+threshold = 0.03
+direction = "ge"
+luminance_threshold = 0.05
+description = "Shadow presence gate. Measured 0.053; ~40% headroom. The disk ring surrounds but does not fill the shadow, so the dark core persists."
 
 [[gate]]
 type = "phash"
-threshold = 20
+threshold = 12
 direction = "le"
-description = "Self-stability gate. Comparing this scene against itself (re-renders) should be stable."
+description = "Structural self-stability gate. Tightened from 20 to 12 now that the lensed grid + disk ring give the frame rich perceptual structure."

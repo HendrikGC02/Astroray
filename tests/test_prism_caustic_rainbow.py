@@ -37,7 +37,7 @@ pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SCENE = os.path.join(_REPO, "benchmarks", "reference_bank", "scenes",
                       "prism-bk7-collimated", "scene.py")
-_ROI = (100, 192, 196, 258)  # band ROI in the 384x288 frame (see gates.toml)
+_ROI = (150, 390, 125, 322)  # band ROI (y0,y1,x0,x1) in the 512x512 showcase frame
 
 
 @pytest.mark.skipif(not os.path.exists(_SCENE), reason="prism scene not present")

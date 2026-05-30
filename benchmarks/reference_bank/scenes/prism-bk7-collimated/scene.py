@@ -32,9 +32,9 @@ import math
 
 
 NAME = "prism-bk7-collimated"
-WIDTH = 384
-HEIGHT = 288
-SAMPLES = 64
+WIDTH = 512
+HEIGHT = 512
+SAMPLES = 96
 MAX_DEPTH = 8
 SEED = 17
 
@@ -102,7 +102,7 @@ def make_scene(astroray):
     # (1.2 == the old int-knob 12 x 0.1) routed via set_integrator_param_float.
     r.set_integrator_param_float("caustic_boost", 1.2)
 
-    # Camera looks down the floor at the rainbow landing zone.
-    r.setup_camera([1.86, 1.5, 3.2], [1.86, -3.0, 0.0], [0.0, 1.0, 0.0],
-                   42.0, WIDTH / HEIGHT, 0.0, 4.5, WIDTH, HEIGHT)
+    # Camera zoomed onto the rainbow band (pkg104 showcase composition).
+    r.setup_camera([2.5, 0.1, 3.4], [2.5, -3.0, 0.0], [0.0, 1.0, 0.0],
+                   25.0, WIDTH / HEIGHT, 0.0, 4.5, WIDTH, HEIGHT)
     return r

@@ -93,3 +93,30 @@ Turquin 2019 multiscatter energy compensation if VNDF alone undershoots at high 
 Tracked by the **xfail** `test_disney_rough_glass_furnace_energy_cpu`.
 - Heitz 2018, "Sampling the GGX Distribution of Visible Normals", JCGT 7(4).
   https://jcgt.org/published/0007/04/01/
+
+### UPDATE 2 — 2026-05-30: VNDF rewrite LANDED (mostly closes the residual)
+The rough-transmission sample/eval/pdf were rewritten to a Heitz-2018 VNDF microfacet
+dielectric BSDF ported from **PBRT-v4 `DielectricBxDF`** (BSD-3-Clause) — generalized
+half-vector `wm = normalize(wi*etap + wo)`, transmission `ft = D·(1-F)·G·|HdotI·HdotO/denom|`
+with the radiance factor `ft /= etap²`, VNDF pdf `G1(wo)/|cosO|·D·|HdotO|` × the half-vector
+Jacobian, and a Fresnel-weighted reflect-or-transmit sample. CPU + GPU in lockstep. Full
+notes: `.astroray_plan/docs/vndf-microfacet-dielectric-research.md`.
+
+Measured white-furnace at **256 spp** (the VNDF estimator needs ~256 spp to converge —
+higher variance than the old flat-bias path):
+
+| roughness | CPU  | GPU  |
+|-----------|------|------|
+| 0.0, 0.03 | 0.995| 0.994|
+| 0.05      | 0.771| 0.905|
+| 0.1       | 0.814| 0.956|
+| 0.3       | 0.928| 1.000|
+| 0.6       | 0.974| 1.000|
+| 1.0       | 0.962| 1.000|
+
+The old ~70% high-R collapse is gone. **GPU rough glass is now energy-conserving for
+R>=0.1** (passing test `test_disney_rough_glass_furnace_energy_gpu`). The CPU lags the GPU
+a few percent at mid roughness, and a real residual loss remains at the **low-alpha boundary
+R=0.05-0.1** (just above the smooth threshold, where alpha hits its 0.0064 floor) — likely
+the smooth-fallthrough path or the Schlick-vs-dielectric reflection-lobe approximation.
+Tracked by the (now smaller) xfail `test_disney_rough_glass_furnace_energy_cpu`.

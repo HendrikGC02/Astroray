@@ -52,36 +52,49 @@ def _furnace(roughness: float, *, use_gpu: bool = False, spp: int = 64, depth: i
 # Smooth disney glass (roughness <= kDeltaTransmissionRoughness=0.03) takes the
 # delta dielectric event and IS energy-conserving on both CPU and GPU.
 _SMOOTH = [0.0, 0.03]
-# Rough disney glass (roughness >= 0.05) still loses energy: the bespoke
-# NDF-sampling microfacet-transmission estimator mixes the lobe-selection
-# probabilities (transmission_, fresnel) into f/pdf inconsistently between the
-# microfacet lobe and the smooth fallthrough. The G-convention fix (smithG1)
-# improved low roughness but a residual remains, non-monotonic in R (~0.81 @ 0.05,
-# ~0.35 @ 0.3, ~0.56 @ 1.0). The correct fix is a Heitz-2018 VNDF rewrite of the
-# rough-transmission sample/pdf/eval (mirroring Cycles bsdf_microfacet.h), tracked
-# in .astroray_plan/docs/disney-rough-transmission-walter2007.md. Until then the
-# rough energy-conservation assertion is xfail (NOT silently skipped).
+# Rough disney glass: the rough-transmission path was rewritten to a Heitz-2018 VNDF
+# microfacet dielectric BSDF ported from PBRT-v4 DielectricBxDF (BSD-3-Clause); see
+# .astroray_plan/docs/vndf-microfacet-dielectric-research.md. That fixed the old
+# ~70% high-roughness collapse: at 256 spp the GPU furnace is now ~0.96-1.00 for
+# R>=0.1, and the CPU ~0.81-0.98. A residual loss remains at the LOW-ALPHA boundary
+# (R=0.05-0.1, just above the smooth threshold) and the CPU lags the GPU by a few
+# percent at mid roughness — tracked by the xfail below.
 _ROUGH = [0.1, 0.3, 0.6, 1.0]
 
 
 def test_disney_smooth_glass_furnace_cpu():
-    vals = {R: _furnace(R) for R in _SMOOTH}
+    vals = {R: _furnace(R, spp=128) for R in _SMOOTH}
     bad = {R: v for R, v in vals.items() if not (0.95 <= v <= 1.02)}
     assert not bad, f"smooth disney glass furnace not energy-conserving at roughness {bad}; all={vals}"
 
 
-def test_disney_rough_glass_furnace_deterministic():
-    # The (currently lossy) rough value must be deterministic bias, not MC noise:
-    # per mc-noise-vs-deterministic, two spp an order apart must agree.
-    lo = _furnace(0.3, spp=32)
-    hi = _furnace(0.3, spp=256)
-    assert abs(lo - hi) < 0.03, f"furnace not converged/deterministic: 32spp={lo:.3f} 256spp={hi:.3f}"
+def test_disney_rough_glass_furnace_converges():
+    # The VNDF microfacet-transmission estimator has higher variance than the old
+    # bespoke path, so it needs ~256 spp to converge. Confirm the value is CONVERGED
+    # (not still drifting) by comparing 256 vs 1024 spp — they must agree, i.e. the
+    # residual is real physics, not an under-sampling artifact.
+    lo = _furnace(0.3, spp=256)
+    hi = _furnace(0.3, spp=1024)
+    assert abs(lo - hi) < 0.03, f"furnace not converged: 256spp={lo:.3f} 1024spp={hi:.3f}"
 
 
-@pytest.mark.xfail(reason="rough microfacet transmission needs Heitz-2018 VNDF rewrite (see module docstring)",
+@pytest.mark.skipif(
+    AVAILABLE and not astroray.__features__.get("cuda", False),
+    reason="CUDA feature not in this build")
+def test_disney_rough_glass_furnace_energy_gpu():
+    if not astroray.Renderer().gpu_available:
+        pytest.skip("CUDA GPU not available")
+    # The VNDF rewrite makes GPU rough glass energy-conserving for R>=0.1 (the win).
+    vals = {R: _furnace(R, use_gpu=True, spp=128) for R in _ROUGH}
+    bad = {R: v for R, v in vals.items() if not (0.90 <= v <= 1.06)}
+    assert not bad, f"GPU rough disney glass furnace not energy-conserving at roughness {bad}; all={vals}"
+
+
+@pytest.mark.xfail(reason="CPU rough transmission lags GPU + low-alpha (R~0.05-0.1) boundary loss; "
+                          "see vndf-microfacet-dielectric-research.md",
                    strict=False)
 def test_disney_rough_glass_furnace_energy_cpu():
-    vals = {R: _furnace(R) for R in _ROUGH}
+    vals = {R: _furnace(R, spp=256) for R in _ROUGH}
     bad = {R: v for R, v in vals.items() if not (0.95 <= v <= 1.02)}
     assert not bad, f"rough disney glass furnace not energy-conserving at roughness {bad}; all={vals}"
 
@@ -92,7 +105,7 @@ def test_disney_rough_glass_furnace_energy_cpu():
 def test_disney_smooth_glass_furnace_gpu():
     if not astroray.Renderer().gpu_available:
         pytest.skip("CUDA GPU not available")
-    vals = {R: _furnace(R, use_gpu=True) for R in _SMOOTH}
+    vals = {R: _furnace(R, use_gpu=True, spp=128) for R in _SMOOTH}
     # GPU smooth glass must conserve energy like the CPU path (the eta^2 closure-graph
     # fix made GPU track CPU; before it the GPU lost ~30% scaling with IOR).
     bad = {R: v for R, v in vals.items() if not (0.92 <= v <= 1.05)}

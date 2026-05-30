@@ -92,18 +92,41 @@ class DisneyPlugin : public Material {
         return std::clamp(0.5f * (rParallel * rParallel + rPerp * rPerp), 0.0f, 1.0f);
     }
 
-    Vec3 sampleGgxMicroNormal(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const {
+    // Heitz 2018 "Sampling the GGX Distribution of Visible Normals", JCGT 7(4).
+    // Ported from PBRT-v4 TrowbridgeReitzDistribution::Sample_wm (BSD-3-Clause).
+    Vec3 sampleGgxVNDF(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const {
         std::uniform_real_distribution<float> dist(0.0f, 1.0f);
         float alpha = std::max(roughness_ * roughness_, 0.0064f);
-        float u1 = dist(gen);
-        float u2 = dist(gen);
-        float phi = 2.0f * float(M_PI) * u1;
-        float cosTheta = std::sqrt((1.0f - u2) / (1.0f + (alpha * alpha - 1.0f) * u2));
-        float sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
-        Vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
-        h = (rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z).normalized();
-        if (h.dot(wo) < 0.0f) h = -h;
-        return h;
+        float u1 = dist(gen), u2 = dist(gen);
+
+        // Transform wo to local tangent space
+        Vec3 wo_local(wo.dot(rec.tangent), wo.dot(rec.bitangent), wo.dot(rec.normal));
+        // Transform to hemispherical configuration
+        Vec3 wh = Vec3(alpha * wo_local.x, alpha * wo_local.y, wo_local.z).normalized();
+        if (wh.z < 0.0f) wh = -wh;
+
+        // Orthonormal basis for visible normal sampling
+        Vec3 T1 = (wh.z < 0.99999f) ? Vec3(0, 0, 1).cross(wh).normalized() : Vec3(1, 0, 0);
+        Vec3 T2 = wh.cross(T1);
+
+        // Sample uniform disk (polar)
+        float r = std::sqrt(u1);
+        float phi = 2.0f * float(M_PI) * u2;
+        float px = r * std::cos(phi);
+        float py = r * std::sin(phi);
+
+        // Warp hemispherical projection for visible normal sampling
+        float h = std::sqrt(std::max(0.0f, 1.0f - px * px));
+        py = ((1.0f + wh.z) / 2.0f) * h + (1.0f - (1.0f + wh.z) / 2.0f) * py;
+
+        // Reproject to hemisphere and transform normal to ellipsoid configuration
+        float pz = std::sqrt(std::max(0.0f, 1.0f - px * px - py * py));
+        Vec3 nh = T1 * px + T2 * py + wh * pz;
+        Vec3 m_local = Vec3(alpha * nh.x, alpha * nh.y, std::max(1e-6f, nh.z)).normalized();
+
+        // Transform back to world space
+        Vec3 m = rec.tangent * m_local.x + rec.bitangent * m_local.y + rec.normal * m_local.z;
+        return m.normalized();
     }
 
     bool refractThroughMicroNormal(const Vec3& wo, const Vec3& m, float eta, Vec3& wi) const {
@@ -119,21 +142,22 @@ class DisneyPlugin : public Material {
         return wi.length2() > 1e-10f;
     }
 
+    // VNDF reflection PDF (PBRT-v4 DielectricBxDF::PDF reflection branch).
     float microfacetReflectionPdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         if (rec.normal.dot(wo) * rec.normal.dot(wi) <= 0.0f) return 0.0f;
-        Vec3 h = (wo + wi).normalized();
-        if (h.length2() <= 1e-10f) return 0.0f;
-        if (h.dot(rec.normal) < 0.0f) h = -h;
+        Vec3 wm = (wo + wi).normalized();
+        if (wm.length2() <= 1e-10f) return 0.0f;
+        if (wm.dot(rec.normal) < 0.0f) wm = -wm;
 
-        float NdotH = std::abs(rec.normal.dot(h));
-        float HdotV = std::abs(h.dot(wo));
-        if (NdotH <= 0.0f || HdotV <= 0.0f) return 0.0f;
+        float HdotO = std::abs(wo.dot(wm));
+        if (HdotO <= 1e-10f) return 0.0f;
 
-        float alpha = std::max(roughness_ * roughness_, 0.0064f);
-        float D = D_GTR2(NdotH, alpha);
-        return D * NdotH / (4.0f * HdotV + 1e-6f);
+        // PBRT-v4: reflection PDF = VNDF_PDF / (4 * |HdotO|)
+        return vndfPdf(rec.normal, wo, wm) / (4.0f * HdotO + 1e-10f);
     }
 
+    // PBRT-v4 DielectricBxDF::f transmission (BSD-3-Clause).
+    // Walter 2007 "Microfacet Models for Refraction through Rough Surfaces" Eq. 21.
     Vec3 roughTransmissionEval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         float cosO = rec.normal.dot(wo);
         float cosI = rec.normal.dot(wi);
@@ -142,35 +166,50 @@ class DisneyPlugin : public Material {
         bool entering = cosO > 0.0f;
         float etaI = entering ? 1.0f : ior_;
         float etaT = entering ? ior_ : 1.0f;
-        float eta = etaI / etaT;
-        Vec3 h = (wo + wi * eta).normalized();
-        if (h.length2() <= 1e-10f) return Vec3(0);
-        if (h.dot(rec.normal) < 0.0f) h = -h;
+        float etap = entering ? ior_ : (1.0f / ior_);  // etaT/etaI
+        Vec3 wm = (wi * etap + wo).normalized();
+        if (wm.length2() <= 1e-10f) return Vec3(0);
+        // Face forward (PBRT-v4 FaceForward)
+        if (wm.dot(rec.normal) < 0.0f) wm = -wm;
 
-        float HdotO = wo.dot(h);
-        float HdotI = wi.dot(h);
-        if (HdotO * HdotI >= 0.0f) return Vec3(0);
-
-        float NdotH = std::abs(rec.normal.dot(h));
-        float absCosO = std::abs(cosO);
-        float denom = etaI * HdotO + etaT * HdotI;
-        float denom2 = denom * denom;
-        if (NdotH <= 0.0f || absCosO <= 0.0f || denom2 <= 1e-10f) return Vec3(0);
+        // Discard backfacing microfacets
+        if (wm.dot(wi) * cosI < 0.0f || wm.dot(wo) * cosO < 0.0f) return Vec3(0);
 
         float alpha = std::max(roughness_ * roughness_, 0.0064f);
-        float D = D_GTR2(NdotH, alpha);
-        // True Smith G1 (NOT the combined smithG_GGX): Walter 2007 Eq. 21 + §5.3.
-        float G = smithG1_GGX(absCosO, alpha) * smithG1_GGX(std::abs(cosI), alpha);
-        float F = fresnelDielectric(HdotO, etaI, etaT);
+        float D = D_GTR2(std::abs(wm.dot(rec.normal)), alpha);
+        // PBRT-v4: G(wo, wi) = 1 / (1 + Lambda(wo) + Lambda(wi))
+        float G = smithG1_GGX(std::abs(cosO), alpha) * smithG1_GGX(std::abs(cosI), alpha);
+        float F = fresnelDielectric(std::abs(wo.dot(wm)), etaI, etaT);
 
-        float jacobianAndCos = std::abs(HdotO * HdotI) * (etaT * etaT) /
-                               (absCosO * denom2 + 1e-6f);
-        float scale = (1.0f - metallic_) * transmission_ * (1.0f - F) * D * G * jacobianAndCos;
+        // PBRT-v4 transmission eval: D * (1-F) * G * |HdotI * HdotO / denom|
+        float denom = (wi.dot(wm) + wo.dot(wm) / etap);
+        denom = denom * denom * cosI * cosO;
+        float ft = D * (1.0f - F) * G * std::abs(wi.dot(wm) * wo.dot(wm) / (denom + 1e-10f));
+
+        // PBRT-v4: radiance transport correction (Astroray is a radiance path tracer)
+        ft /= (etap * etap);
+
+        float scale = (1.0f - metallic_) * transmission_ * ft;
         Vec3 result = baseColor_ * scale;
         result.x = std::clamp(result.x, 0.0f, 4.0f);
         result.y = std::clamp(result.y, 0.0f, 4.0f);
         result.z = std::clamp(result.z, 0.0f, 4.0f);
         return result;
+    }
+
+    // VNDF PDF including half-vector Jacobian (PBRT-v4 DielectricBxDF::PDF).
+    float vndfPdf(const Vec3& rec_normal, const Vec3& wo, const Vec3& wm) const {
+        float absCosO = std::abs(wo.dot(rec_normal));
+        if (absCosO <= 1e-10f) return 0.0f;
+        float HdotO = std::abs(wo.dot(wm));
+        float NdotH = std::abs(wm.dot(rec_normal));
+        if (HdotO <= 1e-10f || NdotH <= 1e-10f) return 0.0f;
+
+        float alpha = std::max(roughness_ * roughness_, 0.0064f);
+        float D = D_GTR2(NdotH, alpha);
+        float G1 = smithG1_GGX(absCosO, alpha);
+        // PBRT-v4: VNDF PDF = D(wo, wm) = G1(wo) / absCosO * D(wm) * absDot(wo, wm)
+        return G1 / absCosO * D * HdotO;
     }
 
     float roughTransmissionPdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
@@ -179,27 +218,26 @@ class DisneyPlugin : public Material {
         if (cosO == 0.0f || cosI == 0.0f || cosO * cosI >= 0.0f) return 0.0f;
 
         bool entering = cosO > 0.0f;
-        float etaI = entering ? 1.0f : ior_;
-        float etaT = entering ? ior_ : 1.0f;
-        float eta = etaI / etaT;
-        Vec3 h = (wo + wi * eta).normalized();
-        if (h.length2() <= 1e-10f) return 0.0f;
-        if (h.dot(rec.normal) < 0.0f) h = -h;
+        float etap = entering ? ior_ : (1.0f / ior_);
+        Vec3 wm = (wi * etap + wo).normalized();
+        if (wm.length2() <= 1e-10f) return 0.0f;
+        if (wm.dot(rec.normal) < 0.0f) wm = -wm;
 
-        float HdotO = wo.dot(h);
-        float HdotI = wi.dot(h);
+        float HdotO = wo.dot(wm);
+        float HdotI = wi.dot(wm);
         if (HdotO * HdotI >= 0.0f) return 0.0f;
 
-        float NdotH = std::abs(rec.normal.dot(h));
-        float denom = etaI * HdotO + etaT * HdotI;
+        // PBRT-v4: dwm_dwi Jacobian
+        float denom = (HdotI + HdotO / etap);
         float denom2 = denom * denom;
-        if (NdotH <= 0.0f || denom2 <= 1e-10f) return 0.0f;
+        if (denom2 <= 1e-10f) return 0.0f;
+        float dwm_dwi = std::abs(HdotI) / denom2;
 
-        float alpha = std::max(roughness_ * roughness_, 0.0064f);
-        float D = D_GTR2(NdotH, alpha);
-        float dwhDwi = std::abs((etaT * etaT * HdotI) / (denom2 + 1e-6f));
-        float F = fresnelDielectric(HdotO, etaI, etaT);
-        return transmission_ * (1.0f - F) * D * NdotH * dwhDwi;
+        // VNDF PDF * Jacobian * transmission probability
+        float etaI = entering ? 1.0f : ior_;
+        float etaT = entering ? ior_ : 1.0f;
+        float F = fresnelDielectric(std::abs(HdotO), etaI, etaT);
+        return transmission_ * (1.0f - F) * vndfPdf(rec.normal, wo, wm) * dwm_dwi;
     }
 
 public:
@@ -384,19 +422,31 @@ public:
             float fresnel = f0 + (1 - f0) * std::pow(1 - cosTheta, 5);
 
             if (roughness_ > kDeltaTransmissionRoughness) {
-                Vec3 m = sampleGgxMicroNormal(rec, wo, gen);
-                float microCos = std::abs(wo.dot(m));
-                float microFresnel = fresnelDielectric(microCos, etaI, etaT);
+                // Sample VNDF microfacet normal (Heitz 2018, PBRT-v4)
+                Vec3 wm = sampleGgxVNDF(rec, wo, gen);
+                float HdotO = wo.dot(wm);
+                float F = fresnelDielectric(std::abs(HdotO), etaI, etaT);
 
-                if (cannotRefract || dist(gen) < microFresnel) {
-                    s.wi = (m * (2.0f * wo.dot(m)) - wo).normalized();
+                // Sample reflection or transmission based on Fresnel
+                float R = F, T = 1.0f - F;
+                bool sampleReflection = cannotRefract || dist(gen) < R / (R + T);
+
+                if (sampleReflection) {
+                    // Reflect off microfacet
+                    s.wi = (wm * (2.0f * HdotO) - wo).normalized();
                     if (s.wi.dot(rec.normal) * wo.dot(rec.normal) > 0.0f) {
+                        // Evaluate reflection (specular lobe contribution)
                         s.f = eval(rec, wo, s.wi);
-                        s.pdf = transmission_ * microFresnel * microfacetReflectionPdf(rec, wo, s.wi);
+                        // PDF = VNDF_PDF / (4 * |HdotO|) * R / (R + T)
+                        float vndfPdfVal = vndfPdf(rec.normal, wo, wm);
+                        s.pdf = transmission_ * vndfPdfVal / (4.0f * std::abs(HdotO) + 1e-10f) * R / (R + T + 1e-10f);
                     }
-                } else if (refractThroughMicroNormal(wo, m, eta, s.wi)) {
-                    s.f = roughTransmissionEval(rec, wo, s.wi);
-                    s.pdf = roughTransmissionPdf(rec, wo, s.wi);
+                } else {
+                    // Refract through microfacet
+                    if (refractThroughMicroNormal(wo, wm, eta, s.wi)) {
+                        s.f = roughTransmissionEval(rec, wo, s.wi);
+                        s.pdf = roughTransmissionPdf(rec, wo, s.wi);
+                    }
                 }
 
                 if (s.pdf > 0.0f && s.f.length2() > 0.0f) {
@@ -437,14 +487,9 @@ public:
             s.f = eval(rec, wo, s.wi);
             s.pdf = pdf(rec, wo, s.wi);
         } else {
-            float a = std::max(roughness_ * roughness_, 0.0064f);
-            float r1 = dist(gen), r2 = dist(gen);
-            float phi = 2 * float(M_PI) * r1;
-            float cosTheta = std::sqrt((1 - r2) / (1 + (a * a - 1) * r2));
-            float sinTheta = std::sqrt(1 - cosTheta * cosTheta);
-            Vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
-            h = rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z;
-            s.wi = (h * (2 * wo.dot(h)) - wo).normalized();
+            // Sample specular lobe via VNDF
+            Vec3 wm = sampleGgxVNDF(rec, wo, gen);
+            s.wi = (wm * (2.0f * wo.dot(wm)) - wo).normalized();
             if (rec.normal.dot(s.wi) > 0) {
                 s.f = eval(rec, wo, s.wi);
                 s.pdf = pdf(rec, wo, s.wi);

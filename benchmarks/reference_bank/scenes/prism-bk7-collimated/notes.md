@@ -34,11 +34,7 @@ When the gate trips, look at:
    its direction)?
 
 **Reference render notes:**
-- 512×512, 96 camera spp, 3M photons, integrator `light_tracer_caustic`.
-- Camera zoomed tight onto the band (pkg104 polish, 2026-05-30): the continuous
-  red→violet spectrum now fills the central frame (~y[40,460] x[110,400]) instead
-  of floating small in a wide black field.
-- The caustic is baked in `beginFrame`; the camera pass is near-deterministic, so
-  the gate is stable — no MC flake.
-- Re-blessed 2026-05-30. Measured baselines: hue_spread 0.753, bright_coverage
-  0.789, SSIM 0.997 (band ROI y[60,460] x[120,390]).
+- 384×288, 64 camera spp, 3M photons, integrator `light_tracer_caustic`.
+- ~1 s CPU walltime (the caustic is baked in `beginFrame`; the camera pass is
+  near-deterministic, so the gate is stable — no MC flake).
+- Re-blessed 2026-05-29 (pkg106 finish).

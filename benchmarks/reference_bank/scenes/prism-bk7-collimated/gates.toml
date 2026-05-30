@@ -1,8 +1,9 @@
 # prism-bk7-collimated — triangulated BK7 prism rainbow caustic (pkg106 finish).
-# Forward light-tracer (light_tracer_caustic); reference re-blessed 2026-05-30.
-# Frame is now 512x512 (was 384x288) and the camera is zoomed tight onto the band.
-# The continuous red->violet band fills the central frame: roughly y[40,460] x[110,400].
-# Measured baselines (deterministic — baked caustic, fixed photon seed).
+# Forward light-tracer (light_tracer_caustic); reference blessed 2026-05-29.
+# Measured baselines (deterministic — baked caustic, fixed photon seed):
+#   hue_spread     (band ROI) = 0.754
+#   bright_coverage(band ROI) = 0.88   (continuity: a SOLID band, not speckle)
+# Band lands at y[107,185] x[203,251] in the 384x288 frame.
 
 [scene]
 description = "Triangulated equilateral BK7 prism + collimated sun + white floor. A forward light-tracer deposits per-wavelength refracted light on the floor, producing a clean continuous red->violet rainbow band (no salt-and-pepper chromatic noise)."
@@ -11,18 +12,18 @@ description = "Triangulated equilateral BK7 prism + collimated sun + white floor
 type = "hue_spread"
 threshold = 0.7
 direction = "ge"
-roi = [60, 460, 120, 390]
+roi = [100, 192, 196, 258]
 luminance_threshold = 0.1
 saturation_floor = 0.04
-description = "Rainbow-presence: full red->violet hue spread in the band ROI (pkg106 acceptance >= 0.7)."
+description = "Rainbow-presence: full red->violet hue spread in the band ROI (pkg106 acceptance >= 0.7; measured 0.754)."
 
 [[gate]]
 type = "bright_coverage"
 threshold = 0.5
 direction = "ge"
-roi = [60, 460, 120, 390]
+roi = [100, 192, 196, 258]
 luminance_threshold = 0.1
-description = "Band-continuity discriminator: a real continuous band fills its ROI. Salt-and-pepper chromatic noise — which also scores high hue_spread — collapses this well below 0.5."
+description = "Band-continuity discriminator: a real continuous band fills its ROI (measured 0.88). Salt-and-pepper chromatic noise — which also scores high hue_spread — collapses this well below 0.5."
 
 [[gate]]
 type = "ssim"

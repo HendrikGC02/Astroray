@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (Production polish — but with first-order effect on all of Pillars 2/3/4)
 **Track:** A (the harness + first 2 scenes); Track D once the pattern is established (adding more scenes is mechanical)
-**Status:** open — owner-input gate on scene selection
+**Status:** open — scene set + parameterization **DECIDED** 2026-05-30 (owner delegated the design; consensus in `.astroray_plan/docs/visual-reference-bank-design-2026-05-30.md`). Implementation pending (re-author/re-render scenes on RTX with visual bless). Blocker for the cross-engine scene: the FOV-mismatch bug (see the design doc).
 **Estimated effort:** 2 weeks (~50 h) for the harness + first 4-6 pinned scenes; ongoing thereafter
 **Depends on:** pkg71 (Cycles parity framework, already shipped — extends it, does not replace it)
 
@@ -148,7 +148,15 @@ All cited per CLAUDE.md §6. Algorithm + harness sources, license-checked.
 
 ---
 
-## Open question to owner (the stop point — needs input before §Scene set lands)
+## Open question to owner — RESOLVED 2026-05-30
+
+> The owner delegated the scene-set/parameterization design to Claude and gave
+> per-render feedback. The consensus design + the captured feedback + the
+> FOV-mismatch-bug analysis are in
+> **`.astroray_plan/docs/visual-reference-bank-design-2026-05-30.md`**. The Q1/Q2
+> below are retained for history; the design doc is authoritative.
+
+## Open question to owner (HISTORICAL — superseded by the design doc above)
 
 The harness, metrics, runner, CSV history, and CI plumbing can be built without knowing which scenes go in. But the **scene set** is the spec's crown jewel and must reflect *the owner's vision of what Astroray should look like*, not my best guess.
 

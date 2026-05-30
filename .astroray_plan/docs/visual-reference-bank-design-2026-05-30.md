@@ -140,7 +140,11 @@ Three engine fixes were needed (one was a real latent core bug), all in this PR:
 2. **`loadOBJ(smooth_normals=True)`** — area-weighted per-vertex normals (opt-in,
    default off so existing flat meshes are unchanged). A tessellated smooth
    surface then refracts continuously instead of per-facet, essential for a clean
-   caustic (and exposed via `add_mesh(..., smooth_normals=True)`).
+   caustic (and exposed via `add_mesh(..., smooth_normals=True)`). This is also a
+   **parity requirement, not just cleanliness**: Cycles shadow-caustics only show
+   on a caster that is *shaded smooth* (owner, 2026-05-30), so reproducing any
+   Cycles caustic reference from a flat `.obj` requires this. When blessing a
+   Cycles-compared caustic reference, confirm both sides shade the caster smooth.
 3. **light_tracer_caustic marks the L S⁺ D path on transmission**, not via the
    per-hit caster flag — a mesh caster's flag lives on the wrapping Translate/Scale
    decorator, not its per-triangle hits, so the flag check never tripped for a mesh.

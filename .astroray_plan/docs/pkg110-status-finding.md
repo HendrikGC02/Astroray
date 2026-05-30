@@ -135,3 +135,15 @@ right design and is validated for focusing casters (the sphere). The prism rainb
 Recommended: option 1 (re-derive) + option 3 framing. The shippable core today is
 the deterministic general loop + the glass-sphere caustic gate (both on
 `pkg110-photon-bounce`).
+
+### Rebase caveat (float-param landed after this branch)
+
+`pkg110-photon-bounce` was cut before PR #396 (integrator float-param). main now
+reads `caustic_boost` via `ParamDict::getNumber` (int OR float). When this branch
+rebases onto main:
+- Resolve the `plugins/integrators/light_tracer_caustic.cpp` constructor conflict
+  in favour of main's `boost_(p.getNumber("caustic_boost", 1.0f))`.
+- The glass-sphere scene sets `caustic_boost = 14` via the **int** route; under
+  `getNumber` that reads as `14.0` (10× too bright; the old int×0.1 hack is gone).
+  Change it to `r.set_integrator_param_float("caustic_boost", 1.4)` and re-confirm
+  `tests/test_glass_sphere_caustic.py` (calibrated at boost 1.4 → peak 0.673).

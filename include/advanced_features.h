@@ -586,13 +586,22 @@ public:
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         Vec3 o(r.origin.x/scale.x, r.origin.y/scale.y, r.origin.z/scale.z);
         Vec3 d(r.direction.x/scale.x, r.direction.y/scale.y, r.direction.z/scale.z);
+        // The Ray ctor normalizes the direction, discarding the length change the
+        // scale introduces. Track that factor so the hit parameter t stays a WORLD
+        // distance: the inner shape measures t in normalized scaled space, so scale
+        // the t-bounds in and rec.t back out by |d|. Without this, rec.t for a scaled
+        // mesh comes back ~1/scale too large and the scene BVH mis-orders the mesh
+        // behind nearer primitives, so a scaled mesh becomes invisible to rays.
+        const float sdlen = d.length();
+        if (sdlen <= 0.0f) return false;
         Ray scaled(o, d, r.time, r.screenU, r.screenV);
         scaled.hasCameraFrame = r.hasCameraFrame;
         scaled.cameraOrigin = r.cameraOrigin;
         scaled.cameraU = r.cameraU;
         scaled.cameraV = r.cameraV;
         scaled.cameraW = r.cameraW;
-        if (!object->hit(scaled, tMin, tMax, rec)) return false;
+        if (!object->hit(scaled, tMin * sdlen, tMax * sdlen, rec)) return false;
+        rec.t /= sdlen;
         rec.point = Vec3(rec.point.x*scale.x, rec.point.y*scale.y, rec.point.z*scale.z);
         Vec3 n(rec.normal.x/scale.x, rec.normal.y/scale.y, rec.normal.z/scale.z);
         rec.setFaceNormal(r, n.normalized());

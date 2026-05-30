@@ -268,11 +268,13 @@ class Mesh : public Hittable {
 public:
     Mesh(std::shared_ptr<Material> mat) : material(mat) {}
 
-    bool loadOBJ(const std::string& filename) {
+    bool loadOBJ(const std::string& filename, bool smoothNormals = false) {
         std::ifstream file(filename);
         if (!file.is_open()) return false;
         std::vector<Vec3> positions;
         std::vector<Vec2> uvs;
+        struct Face { int v[3]; int t[3]; };          // triangulated faces
+        std::vector<Face> faces;
         std::string line;
         while (std::getline(file, line)) {
             std::istringstream iss(line);
@@ -298,15 +300,48 @@ public:
                     }
                 }
                 for (size_t i = 1; i + 1 < vi.size(); ++i) {
-                    Vec2 t0 = ti.size() > 0 ? uvs[ti[0]] : Vec2(0, 0);
-                    Vec2 t1 = ti.size() > i ? uvs[ti[i]] : Vec2(1, 0);
-                    Vec2 t2 = ti.size() > i + 1 ? uvs[ti[i + 1]] : Vec2(0, 1);
-                    triangles.push_back(std::make_shared<Triangle>(
-                        positions[vi[0]], positions[vi[i]], positions[vi[i + 1]], t0, t1, t2, material));
+                    Face f;
+                    f.v[0] = vi[0]; f.v[1] = vi[i]; f.v[2] = vi[i + 1];
+                    f.t[0] = ti.size() > 0     ? ti[0]     : -1;
+                    f.t[1] = ti.size() > i     ? ti[i]     : -1;
+                    f.t[2] = ti.size() > i + 1 ? ti[i + 1] : -1;
+                    faces.push_back(f);
                 }
             }
         }
-        if (triangles.empty()) return false;
+        if (faces.empty()) return false;
+
+        // Optional smooth shading: area-weighted per-vertex normals. The
+        // (un-normalized) face normal cross(e1,e2) has magnitude 2*area, so
+        // accumulating it into each vertex gives the standard area-weighted
+        // average. A finely-tessellated smooth surface (e.g. a cut-glass mesh
+        // with no vertex normals in the .obj) then refracts continuously instead
+        // of per-facet, which is essential for clean dielectric caustics.
+        std::vector<Vec3> vnormals;
+        if (smoothNormals) {
+            vnormals.assign(positions.size(), Vec3(0, 0, 0));
+            for (const auto& f : faces) {
+                Vec3 fn = (positions[f.v[1]] - positions[f.v[0]])
+                              .cross(positions[f.v[2]] - positions[f.v[0]]);
+                vnormals[f.v[0]] = vnormals[f.v[0]] + fn;
+                vnormals[f.v[1]] = vnormals[f.v[1]] + fn;
+                vnormals[f.v[2]] = vnormals[f.v[2]] + fn;
+            }
+            for (auto& n : vnormals) if (n.length2() > 0.0f) n = n.normalized();
+        }
+
+        auto uvAt = [&](int idx, Vec2 dflt) {
+            return (idx >= 0 && idx < static_cast<int>(uvs.size())) ? uvs[idx] : dflt;
+        };
+        for (const auto& f : faces) {
+            auto tri = std::make_shared<Triangle>(
+                positions[f.v[0]], positions[f.v[1]], positions[f.v[2]],
+                uvAt(f.t[0], Vec2(0, 0)), uvAt(f.t[1], Vec2(1, 0)), uvAt(f.t[2], Vec2(0, 1)),
+                material);
+            if (smoothNormals)
+                tri->setVertexNormals(vnormals[f.v[0]], vnormals[f.v[1]], vnormals[f.v[2]]);
+            triangles.push_back(tri);
+        }
         std::vector<std::shared_ptr<Hittable>> hits;
         for (auto& t : triangles) hits.push_back(t);
         bvh = std::make_shared<BVHAccel>(hits);

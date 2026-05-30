@@ -274,11 +274,11 @@ private:
                 ys.push_back(rec.point.y);
             }
         } else {
-            // General deterministic refraction loop (curved/solid glass). At each
-            // transmissive hit refract (Snell + Schlick-Fresnel, enter/exit from the
-            // geometric-normal sign, per-wavelength iorAt) or reflect on TIR; deposit
-            // on the first diffuse receiver, only on an L S+ D path (passed >= 1
-            // caster) so direct light is not double-counted.
+            // General deterministic refraction loop (curved/solid glass: sphere,
+            // lens, mesh). At each transmissive hit refract (Snell + Schlick-Fresnel,
+            // enter/exit from the geometric-normal sign, per-wavelength iorAt) or
+            // reflect on TIR; deposit on the first diffuse receiver, only on an L S+ D
+            // path (passed >= 1 caster) so direct light is not double-counted.
             for (int p = 0; p < photons_; ++p) {
                 const float lambda = lmin + (lmax - lmin) * u01(gen);
                 const float ra = (u01(gen) * 2.0f - 1.0f) * crad;
@@ -301,7 +301,12 @@ private:
                         Vec3 nd;
                         if (refract(d, nf, eta, nd)) { tr *= fresnelT(d.dot(nf), ior); d = nd; }
                         else { d = (d - nf * (2.0f * d.dot(nf))).normalized(); }       // TIR
-                        if (rec.hitObject && rec.hitObject->isCausticCaster()) passedCaster = true;
+                        // Mark the path as a caustic path on transmission (not via the
+                        // per-hit caster flag): a mesh caster's flag sits on the wrapping
+                        // Translate/Scale decorator, not its per-triangle hits, so checking
+                        // rec.hitObject->isCausticCaster() would never trip for a mesh. The
+                        // integrator only runs when a flagged caster exists, so this is safe.
+                        passedCaster = true;
                         o = rec.point + d * eps;
                         continue;
                     }

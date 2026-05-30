@@ -21,7 +21,7 @@ img = np.asarray(r.render(64,32,None,True)).reshape(80,80,3)
 print(img[28:52,28:52].mean())   # sphere centre; want ~1.0
 ```
 
-## Bug 1 (PRIMARY, root-caused + verified) — the η² radiance factor nets to a loss
+## Bug 1 (PRIMARY, FIXED 2026-05-30) — refraction enter/exit ignored `rec.frontFace`
 
 Refraction BSDFs apply the radiance-transport factor `η² = (η_i/η_t)²` (PBRT/Cycles
 do this). Over a closed air→glass→air path it **should cancel** (enter ×(1/1.5)²=0.444,
@@ -36,31 +36,39 @@ loss grows with IOR:
 | 1.5 | **0.511** | 0.985 |
 | 2.0 | 0.440 | 0.985 |
 
-**Removing the `eta*eta` factor restores flat 0.985 energy conservation at every IOR**
-(depth-independent: identical at maxDepth 4 and 160, so it is not TIR/maxDepth
-trapping). This is the dominant cause of the dark `Glass.obj` crystal (it uses the
-smooth `dielectric`, roughness 0). Disney *delta* glass (roughness 0) furnaces at 0.97
-because its delta path routes `bs.f` through `RGBAlbedoSpectrum`, which clamps the
-exit's 2.25 toward 1 — accidentally masking most of the loss.
+### RESOLVED 2026-05-30 — enter/exit used the normal sign instead of `rec.frontFace`
 
-**Affected sites (CPU + GPU must change together — CI is GPU-blind):**
-- CPU `plugins/materials/dielectric.cpp:65` (spectral), `:170` (rgb)
-- CPU `plugins/materials/disney.cpp:407` (smooth refract)
-- GPU `include/astroray/gpu_materials.h:291`, `:341` (dielectric), `:667` (disney)
-- (GPU `:514` is the rough-transmission `etaT²` Jacobian, which cancels in f/pdf — leave.)
+A single-furnace-ray trace (per-bounce throughput) showed the smoking gun: at the
+EXIT surface the refraction applied the **entering** η² (×0.444) again instead of
+×2.25, so 0.444×0.444 = 0.197 instead of cancelling. The `HitRecord.frontFace`
+flag was correctly `false` at the exit, but the dielectric **ignored it** and
+detected enter/exit from `sign(wo·rec.normal)` — and `rec.normal` is the
+front-facing (`setFaceNormal`'d) shading normal, so `wo·rec.normal` is ALWAYS > 0,
+i.e. every hit read as "entering." So η² is correct and KEPT (parity-faithful with
+Cycles/PBRT); the bug was enter/exit detection. This is option (b) from the fork.
+Disney already keyed off `rec.frontFace`, which is why its delta glass was ~0.97.
 
-**The open question / fork.** Cycles keeps η² *and* conserves energy, so the correct
-fix is to find WHY our cancellation breaks (not just delete η², which deviates from the
-reference this project mirrors). The non-cancellation mechanism is **not yet pinned**:
-enter ×0.444 and exit ×2.25 are each applied at the right interface, Russian roulette
-(raytracer.h:2620) is unbiased, and no double-application or throughput clamp was found
-in `pathTraceSpectral`. The loss factor (0.85@1.1, 0.52@1.5, 0.45@2.0) doesn't match a
-single clean missing factor, so it's an interaction. Two paths:
-- **(a) Remove η²** — verified energy-conserving, correct for air↔glass↔air (the common
-  case), but omits the radiance factor Cycles/PBRT keep. 6-site CPU+GPU change.
-- **(b) Keep η², fix the cancellation** — parity-faithful, but the mechanism is unsolved.
-  Needs integrator-side instrumentation (track per-bounce throughput across the
-  enter/exit pair on a single furnace ray).
+**Fix part 1 — key enter/exit off `rec.frontFace`:**
+- CPU `plugins/materials/dielectric.cpp` `refractSpectral` + `sample`.
+- GPU `include/astroray/gpu_materials.h` `gpu_dielectric_sample` + `_spectral`.
+- (Disney CPU+GPU already used `frontFace`; the rough-transmission `etaT²` cancels
+  in f/pdf — untouched. So Bug 2 below is unaffected and still open.)
+
+**Fix part 2 — transformed glass: decorators must PRESERVE `rec.frontFace`.**
+A *bare* mesh furnaced 0.966 after part 1, but a *scaled* one still 0.388. The
+`Translate`/`Scale`/`RotateY` decorators (`include/advanced_features.h`) re-ran
+`setFaceNormal` on the inner hit's *already-front-facing* normal, forcing
+`rec.frontFace = true` on every transformed hit → refraction read "entering" again.
+This silently broke refraction on **all transformed glass** (the Blender addon
+transforms every object). Fixed: each decorator transforms the normal direction but
+preserves the inner `frontFace` (it already set the normal front-facing, so
+`rec.normal = X` replaces `setFaceNormal(ray, X)` with no normal change).
+
+**Verified:** dielectric sphere furnace 0.51 → **0.983** flat across IOR; scaled
+`Glass.obj` mesh furnace 0.39 → **0.963**; the crystal renders as clear glass. η²
+retained. Full pytest suite re-run as the regression gate (decorator change is
+core). GPU mirrors CPU; CPU↔GPU runtime parity needs the RTX `/verify` sweep
+(CI is GPU-blind — but `cuda-syntax-check` compiles the GPU header).
 
 ## Bug 2 (SEPARATE, still open) — Disney rough (GGX) transmission loses ~70%
 

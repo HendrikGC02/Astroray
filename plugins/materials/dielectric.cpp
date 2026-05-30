@@ -42,10 +42,17 @@ class DielectricPlugin : public Material {
         bss.isDelta = true;
         const_cast<HitRecord&>(rec).isDelta = true;
 
+        // Enter/exit MUST come from rec.frontFace, not the sign of wo·rec.normal.
+        // rec.normal is the front-facing (setFaceNormal'd) shading normal, so
+        // wo·rec.normal is ALWAYS > 0 and the old sign test read every hit as
+        // "entering" -> eta = 1/ior at BOTH surfaces -> the eta^2 radiance factor
+        // never cancelled (glass rendered too dark, loss growing with IOR). Disney
+        // already keys off rec.frontFace; this mirrors it.
         float cosTheta = wo.dot(rec.normal);
-        float etaI = 1.0f, etaT = ior;
+        float etaI = rec.frontFace ? 1.0f : ior;
+        float etaT = rec.frontFace ? ior : 1.0f;
         Vec3 n = rec.normal;
-        if (cosTheta < 0) { cosTheta = -cosTheta; std::swap(etaI, etaT); n = -n; }
+        if (cosTheta < 0) { cosTheta = -cosTheta; n = -n; }
 
         float eta = etaI / etaT;
         float sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
@@ -145,10 +152,14 @@ public:
         s.isDelta = true;
         const_cast<HitRecord&>(rec).isDelta = true;
 
+        // Enter/exit from rec.frontFace (see refractSpectral above): rec.normal is
+        // front-facing so the old sign test always read "entering" -> eta^2 never
+        // cancelled across the glass -> too dark.
         float cosTheta = wo.dot(rec.normal);
-        float etaI = 1, etaT = ior_;
+        float etaI = rec.frontFace ? 1.0f : ior_;
+        float etaT = rec.frontFace ? ior_ : 1.0f;
         Vec3 n = rec.normal;
-        if (cosTheta < 0) { cosTheta = -cosTheta; std::swap(etaI, etaT); n = -n; }
+        if (cosTheta < 0) { cosTheta = -cosTheta; n = -n; }
 
         float eta = etaI / etaT;
         float sinTheta = std::sqrt(std::max(0.0f, 1 - cosTheta * cosTheta));

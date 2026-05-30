@@ -298,3 +298,118 @@ def test_vfov_extraction_is_rotation_invariant(monkeypatch):
         f"{extracted_vfovs} across pitches {pitches}. "
         f"Expected rotation-invariance."
     )
+
+
+# ---------------------------------------------------------------------------
+# Full frustum parity for the F12 camera-datablock path
+# (_apply_camera / _compute_vfov_degrees).
+#
+# pkg101 covered viewport vfov *rotation-invariance*. It did NOT cover the
+# remaining frustum parameters that decide whether the F12 render lines up
+# with Blender's camera: sensor_fit (which sensor axis is used), film shift,
+# and aspect ratio. These tests lock that parity so a future edit to the
+# bridge can't silently re-break alignment (closes the Q1 "no parity gate" gap).
+# ---------------------------------------------------------------------------
+
+
+class _Quat:
+    """Identity rotation quaternion stub. `rot @ vec` returns the vector
+    unchanged as a _Vec3. Camera direction is not under test here (vfov / shift
+    / aspect are), so an identity rotation is sufficient."""
+    def __matmul__(self, vec):
+        return _Vec3(vec[0], vec[1], vec[2])
+
+
+class _CamMatrix4:
+    """4x4 camera world-matrix stub supporting `.decompose()` and `.translation`."""
+    def __init__(self, loc=(0.0, 0.0, 0.0)):
+        self._loc = loc
+
+    @property
+    def translation(self):
+        return _Vec3(*self._loc)
+
+    def decompose(self):
+        return _Vec3(*self._loc), _Quat(), _Vec3(1.0, 1.0, 1.0)
+
+
+def _make_camera_obj(lens=50.0, sensor_fit='AUTO', sensor_width=36.0,
+                     sensor_height=24.0, shift_x=0.0, shift_y=0.0,
+                     cam_type='PERSP'):
+    dof = types.SimpleNamespace(use_dof=False, aperture_fstop=0.0,
+                                focus_object=None, focus_distance=10.0)
+    camera = types.SimpleNamespace(
+        type=cam_type, lens=lens, sensor_fit=sensor_fit,
+        sensor_width=sensor_width, sensor_height=sensor_height,
+        shift_x=shift_x, shift_y=shift_y, dof=dof,
+    )
+    return types.SimpleNamespace(data=camera, matrix_world=_CamMatrix4())
+
+
+def _apply_camera_args(monkeypatch, width=160, height=90, **cam_kwargs):
+    """Run the F12 path (_apply_camera with rv3d=None) and return the
+    positional args of the resulting setup_camera call:
+      (look_from, look_at, vup, vfov, aspect, aperture, focus, w, h, shift_x, shift_y)
+    """
+    addon = _load_blender_addon(monkeypatch)
+    engine = addon.CustomRaytracerRenderEngine()
+    renderer = _RecordingRenderer()
+    cam_obj = _make_camera_obj(**cam_kwargs)
+    engine._apply_camera(renderer, cam_obj, width, height)  # rv3d=None → F12 datablock path
+    return renderer.setup_camera_calls[-1]
+
+
+def test_apply_camera_sensor_fit_horizontal_vs_vertical(monkeypatch):
+    """sensor_fit must pick the sensor axis. On a non-square image, HORIZONTAL
+    and VERTICAL fits must yield different vfov, each matching the Cycles/Eevee
+    formula independently recomputed here."""
+    w, h = 160, 90
+    aspect = w / h
+    h_args = _apply_camera_args(monkeypatch, width=w, height=h,
+                                sensor_fit='HORIZONTAL',
+                                sensor_width=36.0, sensor_height=24.0, lens=50.0)
+    v_args = _apply_camera_args(monkeypatch, width=w, height=h,
+                                sensor_fit='VERTICAL',
+                                sensor_width=36.0, sensor_height=24.0, lens=50.0)
+    # HORIZONTAL: hfov from sensor_width, then convert to vfov via aspect.
+    exp_h = math.degrees(2.0 * math.atan((36.0 / (2 * 50.0)) / aspect))
+    # VERTICAL: vfov directly from sensor_height.
+    exp_v = math.degrees(2.0 * math.atan(24.0 / (2 * 50.0)))
+    assert abs(h_args[3] - exp_h) < 0.05
+    assert abs(v_args[3] - exp_v) < 0.05
+    assert abs(h_args[3] - v_args[3]) > 1.0, "sensor_fit branch had no effect on vfov"
+
+
+def test_apply_camera_auto_fit_landscape_matches_horizontal(monkeypatch):
+    """AUTO on a landscape image (width >= height) must equal HORIZONTAL fit."""
+    auto = _apply_camera_args(monkeypatch, width=160, height=90, sensor_fit='AUTO')
+    horiz = _apply_camera_args(monkeypatch, width=160, height=90, sensor_fit='HORIZONTAL')
+    assert abs(auto[3] - horiz[3]) < 1e-6
+
+
+def test_apply_camera_auto_fit_portrait_matches_vertical(monkeypatch):
+    """AUTO on a portrait image (height > width) must equal VERTICAL fit."""
+    auto = _apply_camera_args(monkeypatch, width=90, height=160, sensor_fit='AUTO')
+    vert = _apply_camera_args(monkeypatch, width=90, height=160, sensor_fit='VERTICAL')
+    assert abs(auto[3] - vert[3]) < 1e-6
+
+
+def test_apply_camera_shift_passthrough(monkeypatch):
+    """camera.shift_x / shift_y (film offset) must reach setup_camera unchanged."""
+    args = _apply_camera_args(monkeypatch, shift_x=0.125, shift_y=-0.0625)
+    assert abs(args[9] - 0.125) < 1e-9, "shift_x not passed through"
+    assert abs(args[10] - (-0.0625)) < 1e-9, "shift_y not passed through"
+
+
+def test_apply_camera_aspect_ratio(monkeypatch):
+    """The aspect ratio passed to setup_camera must equal width / height."""
+    args = _apply_camera_args(monkeypatch, width=320, height=200)
+    assert abs(args[4] - (320.0 / 200.0)) < 1e-9
+
+
+def test_apply_camera_known_square_vfov(monkeypatch):
+    """Hardcoded ground truth: 50 mm lens, 36 mm sensor, square image → vfov ≈ 39.6°.
+    Independent of the addon's formula; locks against unit / parameter drift."""
+    args = _apply_camera_args(monkeypatch, width=100, height=100,
+                              sensor_fit='HORIZONTAL', sensor_width=36.0, lens=50.0)
+    assert abs(args[3] - 39.598) < 0.1, f"expected ~39.6deg, got {args[3]:.3f}"

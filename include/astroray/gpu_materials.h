@@ -289,12 +289,14 @@ __device__ inline GBSDFSample gpu_dielectric_sample(
         // Reflect: wi = 2*(wo·n)*n - wo
         s.wi  = n * (2.f * wo.dot(n)) - wo;
         s.f   = GVec3(1.f);
+        s.fSpectral = GSampledSpectrum(1.f);  // Scalar throughput
         s.pdf = 1.f;
     } else {
         GVec3 wt_perp   = (wo - n*cosTheta) * (-eta);
         GVec3 wt_para   = n * (-sqrtf(fabsf(1.f - wt_perp.length2())));
         s.wi  = (wt_perp + wt_para).normalized();
         s.f   = GVec3(eta * eta);
+        s.fSpectral = GSampledSpectrum(eta * eta);  // Scalar throughput
         s.pdf = 1.f;
     }
     return s;
@@ -342,12 +344,14 @@ __device__ inline GBSDFSample gpu_dielectric_sample_spectral(
         // Reflect: wi = 2*(wo·n)*n - wo
         s.wi  = n * (2.f * wo.dot(n)) - wo;
         s.f   = GVec3(1.f);
+        s.fSpectral = GSampledSpectrum(1.f);  // Scalar throughput
         s.pdf = 1.f;
     } else {
         GVec3 wt_perp   = (wo - n*cosTheta) * (-eta);
         GVec3 wt_para   = n * (-sqrtf(fabsf(1.f - wt_perp.length2())));
         s.wi  = (wt_perp + wt_para).normalized();
         s.f   = GVec3(eta * eta);
+        s.fSpectral = GSampledSpectrum(eta * eta);  // Scalar throughput, mirrors CPU dielectric.cpp:188
         s.pdf = 1.f;
         // Dispersive refraction: only the hero wavelength follows this bend.
         // Mirror CPU dielectric.cpp:188 — terminate the secondary wavelengths.
@@ -983,10 +987,14 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     // pkg64-gpu Session 2: `wl` is non-const — the dispersive dielectric calls
     // wl.terminateSecondary() on refraction (hero-wavelength collapse).
     if (mat.type == GMAT_DIELECTRIC && mat.isDispersive) {
-        GBSDFSample s = gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng);
-        s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
-        return s;
+        // Dispersive dielectric: gpu_dielectric_sample_spectral sets fSpectral directly.
+        return gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng);
     }
+    if (mat.type == GMAT_DIELECTRIC) {
+        // Non-dispersive dielectric: gpu_dielectric_sample sets fSpectral directly.
+        return gpu_dielectric_sample(mat, rec, wo, rng);
+    }
+    // Non-delta materials: s.f is RGB reflectance, needs spectral upsampling.
     GBSDFSample s = gpu_material_sample(mat, rec, wo, rng);
     s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
     return s;

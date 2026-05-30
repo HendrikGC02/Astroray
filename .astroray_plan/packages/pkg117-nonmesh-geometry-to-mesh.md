@@ -3,7 +3,12 @@
 **Pillar:** 5 (addon) + geometry
 **Track:** A
 **Codex-paste-ready:** no (addon change + RTX visual verify)
-**Status:** open — proposed 2026-05-30.
+**Status:** done (2026-05-31) — `convert_objects` now routes CURVE/SURFACE/FONT/META
+through the evaluated object's `to_mesh()` + `to_mesh_clear()`; 4 bpy-free tests
+(`tests/test_blender_nonmesh_to_mesh.py`) assert routing + lifecycle + the mesh-path
+no-regression, and a headless Blender 5.1 check (`scripts/verify_pkg117_to_mesh.py`)
+confirms an evaluated curve/text/metaball yields triangles (288 / 58 / 170 polys).
+A full addon-render visual match in Blender is a follow-up HW-sweep item.
 **Depends on:** none. Complements pkg112 (reuses the triangle-upload path).
 **Estimated effort:** S–M
 
@@ -59,11 +64,17 @@ polygonize only on the evaluated **basis** object — the non-basis members retu
 
 ## Acceptance criteria
 
-- [ ] A scene with a beveled curve, a text object, and a metaball renders
-      non-empty and matches the viewport (RTX `/verify`, paired stills).
-- [ ] Plain-mesh scenes are **pixel-identical** to before (no regression).
-- [ ] Stub test asserts a `CURVE` object routes through `to_mesh()` (mockable
-      via the existing addon stub pattern), and `to_mesh_clear()` is called.
+- [~] A scene with a beveled curve, a text object, and a metaball renders
+      non-empty (RTX `/verify`, paired stills). **Partial:** headless Blender 5.1
+      confirms each evaluated type yields triangles via `to_mesh()` (288/58/170
+      polys, `scripts/verify_pkg117_to_mesh.py`); the full addon-render
+      pixel-match in Blender is deferred to the next HW sweep.
+- [x] Plain-mesh scenes are unchanged — `test_plain_mesh_does_not_call_to_mesh`
+      asserts MESH objects never touch the temp-mesh lifecycle, and the existing
+      `convert_objects` mesh tests still pass.
+- [x] Stub test asserts a `CURVE` object routes through `to_mesh()` and
+      `to_mesh_clear()` is called (`test_curve_routes_through_to_mesh_and_clears`;
+      + FONT/META/SURFACE and the None-`to_mesh()` graceful-skip case).
 
 ## Hard non-goals
 

@@ -90,8 +90,12 @@ def test_disney_rough_glass_furnace_energy_gpu():
     assert not bad, f"GPU rough disney glass furnace not energy-conserving at roughness {bad}; all={vals}"
 
 
-@pytest.mark.xfail(reason="CPU rough transmission lags GPU + low-alpha (R~0.05-0.1) boundary loss; "
-                          "see vndf-microfacet-dielectric-research.md",
+@pytest.mark.xfail(reason="CPU rough dielectric lacks multiple-scattering energy "
+                          "compensation; single-scatter masking loss is only partly "
+                          "offset by a forced-TIR delta over-count, so the furnace sags "
+                          "at low roughness (R=0.1: 0.81, R=0.3: 0.92). Root-caused + "
+                          "fix plan in packages/pkg118-rough-dielectric-multiscatter-energy.md "
+                          "(Kulla-Conty 2017 / Heitz 2016).",
                    strict=False)
 def test_disney_rough_glass_furnace_energy_cpu():
     vals = {R: _furnace(R, spp=256) for R in _ROUGH}

@@ -1559,6 +1559,19 @@ public:
         }
     }
 
+    // pkg-integrator-float-param: float route mirroring setIntegratorParam.
+    // ParamDict distinguishes int and float storage (std::get_if exact-type match),
+    // so a float-valued integrator param must be set via this route; integrators
+    // read such params with ParamDict::getNumber (accepts either int or float).
+    void setIntegratorParamFloat(const std::string& key, float value) {
+        integratorParams_.set(key, value);
+        if (!integratorName_.empty()) {
+            auto integrator = astroray::IntegratorRegistry::instance().create(
+                integratorName_, integratorParams_);
+            renderer.setIntegrator(integrator);
+        }
+    }
+
     // pkg39: multi-wavelength rendering helpers
     void setWavelengthRange(float lambdaMin, float lambdaMax) {
         integratorParams_.set("lambda_min", lambdaMin);
@@ -2121,6 +2134,10 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_integrator_param", &PyRenderer::setIntegratorParam,
              "key"_a, "value"_a,
              "Set an integer parameter passed to the integrator constructor.")
+        .def("set_integrator_param_float", &PyRenderer::setIntegratorParamFloat,
+             "key"_a, "value"_a,
+             "Set a float parameter passed to the integrator constructor "
+             "(read via ParamDict::getNumber, which accepts int or float).")
         // pkg39: multi-wavelength rendering
         .def("set_wavelength_range", &PyRenderer::setWavelengthRange,
              "lambda_min"_a, "lambda_max"_a,

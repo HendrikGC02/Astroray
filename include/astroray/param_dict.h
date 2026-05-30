@@ -33,6 +33,19 @@ public:
 
     float              getFloat     (const std::string& key, float              dflt = 0.0f) const { return get_<float>(key, dflt); }
     int                getInt       (const std::string& key, int                dflt = 0)    const { return get_<int>(key, dflt); }
+
+    // Numeric accessor that returns a float whether the value was stored as a
+    // float or an int. get_<T> uses std::get_if<T> (exact-type match), so a value
+    // set via the int route is invisible to getFloat and vice-versa; getNumber
+    // bridges that so an integrator param can be supplied as either from Python
+    // (set_integrator_param / set_integrator_param_float). pkg-integrator-float-param.
+    float getNumber(const std::string& key, float dflt = 0.0f) const {
+        auto it = data_.find(key);
+        if (it == data_.end()) return dflt;
+        if (const float* f = std::get_if<float>(&it->second)) return *f;
+        if (const int*   i = std::get_if<int>(&it->second))   return static_cast<float>(*i);
+        return dflt;
+    }
     bool               getBool      (const std::string& key, bool               dflt = false) const { return get_<bool>(key, dflt); }
     std::string        getString    (const std::string& key, std::string        dflt = "")   const { return get_<std::string>(key, dflt); }
     Vec3               getVec3      (const std::string& key, Vec3               dflt = {})   const { return get_<Vec3>(key, dflt); }

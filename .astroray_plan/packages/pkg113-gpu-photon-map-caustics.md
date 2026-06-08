@@ -78,6 +78,17 @@ algorithm invented.
   core, or the gates can't run.
 
 ### Phase 2 — GPU photon emission + bounce
+**Status: implemented (branch `feat/pkg113-gpu-photon-emission`, 2026-06-08 — awaiting
+RTX `/verify`).** Device kernel `kEmitPhotons` (`src/gpu/photon_emission.cu`) +
+host-callable `cuda_photon_emit_sphere` (`include/astroray/gpu_photon_emit.h`) +
+`_gpu_photon_emit_sphere` pybind. Parity test `tests/test_gpu_photon_emission.py`
+(CUDA-gated) compares the GPU deposit set to a numpy float64 oracle of the identical
+math (same jittered aperture lattice, Sellmeier IOR, Schlick transmittance, CIE-CMF
+table) by aggregate bounds: total Y-energy ±5 %, Y-weighted centroid < 0.05·radius,
+radial RMS extent ±15 %. **Flat-prism decision: stays CPU** (the general loop covers
+the glass sphere + any solid/curved caster; the 2-face path needs host-side geometry
+classification not uploaded to GPU and scatters into chromatic noise on a flat caster
+— research note + `gpu_photon_emit.h` header). NOTE: not yet RTX-built/verified.
 - Port the deterministic refraction loop (`light_tracer_caustic.cpp` general path) to
   a device kernel: Snell + Schlick-Fresnel, enter/exit from the geometric-normal sign,
   per-λ `iorAt` (reuse pkg64-gpu Sellmeier upload), TIR; deposit per-λ CIE flux into

@@ -4,7 +4,7 @@
 
 ## Maintenance session — cleanup + gallery + pkg118 re-scope (2026-06-08)
 
-**Three PRs (no new package closed): repo hygiene + a pkg118 root-cause correction.**
+**Four PRs (no new package closed): repo hygiene + a pkg118 root-cause correction + removal of the broken old-Blender benchmark scenes.**
 
 - **Repo cleanup (PR #413, merged).** Removed 5 worktrees (+15 dead `.git/worktrees`
   registrations), 22 local + 12 remote branches, 8 stashes. Everything recoverable via
@@ -27,9 +27,20 @@
   CPU 0.823). pkg118 stays OPEN, re-scoped to a CPU-RGB-vs-closure-path formulation fix;
   `test_disney_rough_glass_furnace_energy_cpu` xfail kept. Analysis:
   `.astroray_plan/docs/pkg118-multiscatter-energy-research.md`.
+- **Removed broken old-Blender benchmark scenes (owner directive).** The Blender
+  Foundation demo scenes (Classroom, BMW27, Junkshop, UDIM_monster) ship from old
+  Blender versions, load/render incorrectly under current Blender/Cycles, and the
+  Classroom reference render was broken. Removed the scene binaries + reference EXRs +
+  manifest/attribution entries + Classroom-specific scripts + per-scene parity CSVs +
+  the pkg76-followup-classroom-fidelity spec/audit. **pkg76 Classroom/BMW27/Junkshop
+  fidelity is dropped** (general .blend-importer code + the bpy-free tests are retained;
+  cornell remains the only Cycles-parity scene). See `benchmarks/cycles-parity/README.md`.
 
-**Owner decisions still pending (unchanged):** pkg64-gpu SMS gate resolution (re-bless
-PSNR ref + xfail-vs-recalibrate SSIM parity — see `pkg64-gpu-hw-sweep-2026-05-31.md`).
+**Owner directives (2026-06-08):**
+- **Pillar 4 (astro data I/O: pkg45/46/48/49/50/51) is ON PAUSE** until the rest is
+  working, stable, and has progressed sufficiently far. Do NOT pick up Pillar-4 specs.
+- pkg64-gpu SMS gate resolution still **owner-reserved** (re-bless PSNR ref +
+  xfail-vs-recalibrate SSIM parity — see `pkg64-gpu-hw-sweep-2026-05-31.md`).
 
 ## Round 15 Wave 6 — pkg104 complete + pkg118 filed (2026-05-31)
 

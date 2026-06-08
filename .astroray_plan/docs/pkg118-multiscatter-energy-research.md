@@ -219,3 +219,24 @@ The only differences when the delta path is reached via the rough branch vs dire
 `isDelta=false` spectral-wrapper path. **Per-bounce ray trace (rough R=0.031 vs smooth R=0.029,
 same seed) is the next step and should now nail it in one build.** This is the tightest the
 problem has been bounded; the fix is close.
+
+### Final integrator candidates (2026-06-08) — all appear unbiased; per-bounce trace will decide
+
+Read the full `pathTraceSpectral` loop (`raytracer.h:2338-2490`). Two mechanisms treat rough
+rays differently from smooth, because **rough rays take more bounces to escape the sphere**
+(rough scatter + internal TIR) while smooth escapes in ~2:
+- **Russian Roulette** (`raytracer.h:2446-2451`, `rrDepth=3`): kills paths after bounce 3 with
+  survival `p=min(0.95, throughput.Y)`; survivors get `throughput*=1/p`. Smooth escapes at
+  bounce ≤3 → never RR'd; rough escapes at bounce >3 → RR'd. **Appears unbiased** (the 1/p
+  compensation is exact), but it is the FIRST place rough and smooth structurally diverge.
+- **`throughput *= f / (pdf + 0.001f)`** (`raytracer.h:2485`): the 0.001 epsilon biases
+  small-pdf events low. Negligible for the smooth delta (pdf~0.96) but compounds over the
+  rough path's extra bounces — check the actual `roughTransmissionPdf`/`delta_refl` pdf
+  magnitudes in the trace.
+
+Every analytical lead this session has turned out unbiased/equal-for-both — which means the
+22% loss is a subtle value error invisible to aggregates. **The per-bounce ray trace
+(instrument `pathTraceSpectral`: log `bounce, mat, isDelta, bss.f_spectral.Y, bss.pdf,
+throughput.Y, RR-kill, escape contribution` for ONE centre ray gated on `screenU/V≈0.5`;
+run rough R=0.05 vs smooth R=0.029 single-threaded; diff the logs) is the decisive next step
+and should localize it in ONE build.** Start a fresh focused session here.

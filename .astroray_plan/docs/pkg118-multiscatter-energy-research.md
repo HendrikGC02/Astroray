@@ -199,3 +199,23 @@ and smooth identically). Instrument the **per-bounce throughput of ONE rough vs 
 furnace ray** (same seed, log `throughput`, `bss.f_spectral` luminance, `bss.pdf`, `isDelta`,
 hit point at each bounce until escape) and find the exact bounce where they diverge. That is
 the only remaining way to localize a loss that is invisible to per-event-type aggregates.
+
+### DECISIVE: sharp threshold step (2026-06-08) — the rough branch loses 22% at flat microfacets
+
+Furnace vs roughness right at `kDeltaTransmissionRoughness=0.03`:
+
+| R | 0.025 | 0.029 | 0.031 | 0.04 | 0.05 |
+|---|-------|-------|-------|------|------|
+| CPU furnace | 0.995 | 0.995 | 0.771 | 0.771 | 0.771 |
+
+At R=0.031 α is clamped to 0.0064 (microfacets essentially FLAT — physically identical to the
+smooth delta), yet the furnace drops 0.995 → 0.771 **the instant the rough VNDF branch is
+entered**. So the 22% loss is a DISCRETE code-path effect of entering the rough branch, not
+roughness/physics. And the algebra rules out the rough successes alone: 80% of rough samples
+hit the byte-identical fallthrough-delta, so `0.8·0.995 + 0.2·X = 0.771 ⇒ X < 0` (impossible)
+— the fallthrough-delta must NOT behave like the smooth delta despite running the same code.
+The only differences when the delta path is reached via the rough branch vs directly are
+(a) the RNG state (3 extra draws: 2 VNDF + 1 R/(R+T) selection) and (b) the rough successes'
+`isDelta=false` spectral-wrapper path. **Per-bounce ray trace (rough R=0.031 vs smooth R=0.029,
+same seed) is the next step and should now nail it in one build.** This is the tightest the
+problem has been bounded; the fix is close.

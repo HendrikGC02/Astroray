@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <vector>
 
@@ -264,6 +265,57 @@ __global__ void kPeakGather(GPhotonGrid grid, int subStride, int subCount,
     outPeakY[j] = e.y;   // E already / (π r²) inside photonGridGather
 }
 
+// pkg113 Phase-3: per-photon k-th-nearest distance over the 27-cell neighborhood, so the
+// host can set the gather radius = 1.5 * median(kth) — the EXACT CPU calibration
+// (spectral_path_tracer.cpp:481-494). The CPU kNN is LOCAL/density-adaptive: in a focused
+// caustic the median k-th-nearest is dominated by the dense focal CORE (small radius). The
+// previous global-AABB mean-spacing instead used the whole-region (low) mean density, which
+// over-estimated the radius -> over-diffusion -> peak95 too small -> causticScale exploded
+// (~433x ROI energy). Run this on a grid built with a GENEROUS provisional radius so the 27
+// cells contain >= K neighbours for the median (sparse-tail photons land above the median
+// and do not affect it).
+__global__ void kKthNearest(GPhotonGrid grid, int subStride, int subCount, int K,
+                            float* outKth) {
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    if (j >= subCount) return;
+    int pi = j * subStride;
+    if (pi >= grid.numPhotons) { outKth[j] = 0.f; return; }
+    const int KMAX = 64;
+    float best[KMAX];                 // the K smallest squared distances seen so far
+    int kk = (K < KMAX) ? K : KMAX;
+    int cnt = 0;
+    GVec3 q = grid.photons[pi].position;
+    int base[3];
+    photonToGrid(q, grid.bounds, grid.gridRes, base);
+    for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+    for (int dx = -1; dx <= 1; ++dx) {
+        int cx = base[0] + dx, cy = base[1] + dy, cz = base[2] + dz;
+        if (cx < 0 || cy < 0 || cz < 0 ||
+            cx >= grid.gridRes[0] || cy >= grid.gridRes[1] || cz >= grid.gridRes[2]) continue;
+        int wantCell = photonCellFlatten(cx, cy, cz, grid.gridRes);
+        unsigned int h = photonHash(cx, cy, cz, grid.hashSize);
+        int start = grid.cellStart[h], count = grid.cellCount[h];
+        for (int s = 0; s < count; ++s) {
+            if (grid.photonCellId[start + s] != wantCell) continue;
+            int npi = grid.photonIndex[start + s];
+            if (npi == pi) continue;          // exclude self
+            float d2 = (grid.photons[npi].position - q).length2();
+            if (cnt < kk) {
+                best[cnt++] = d2;
+            } else {
+                int mi = 0; float mv = best[0];
+                for (int t = 1; t < kk; ++t) if (best[t] > mv) { mv = best[t]; mi = t; }
+                if (d2 < mv) best[mi] = d2;
+            }
+        }
+    }
+    if (cnt == 0) { outKth[j] = 0.f; return; }
+    float kth2 = best[0];                       // k-th nearest dist^2 = max of the K smallest
+    for (int t = 1; t < cnt; ++t) if (best[t] > kth2) kth2 = best[t];
+    outKth[j] = sqrtf(kth2);
+}
+
 // RAII holder for the resident device CSR buffers + deposit array. The result's
 // opaque `owner` points at one of these; cuda_photon_caustic_free deletes it.
 struct CausticGridOwner {
@@ -342,95 +394,117 @@ GPhotonCausticResult cuda_photon_caustic_build(
     const int n = static_cast<int>(photons.size());
     if (n < 16) return result;   // CPU bails below 16 photons too
 
-    // --- Gather radius: density-adaptive, like the CPU 1.5·median-kth-nearest.
-    // On the hash grid we set the radius from the mean photon spacing implied by
-    // the deposit AABB volume and the photon count (a fixed-radius proxy for the
-    // CPU kNN radius; same intent, hash-grid-friendly). ---
+    // --- Deposit AABB (over ALL deposits; the grid bounds must bucket every photon). ---
     GVec3 mn = photons[0].position, mx = photons[0].position;
     for (int i = 1; i < n; ++i) {
         mn = gvec3_min(mn, photons[i].position);
         mx = gvec3_max(mx, photons[i].position);
     }
+    // Provisional radius (global in-plane mean-spacing): NOT the final gather radius — only
+    // a generous seed so the provisional grid's 27-cell neighbourhood contains >= K
+    // neighbours for the k-NN pass below. The CPU-faithful LOCAL radius is computed from the
+    // per-photon median k-th-nearest distance (kKthNearest), exactly like the CPU.
     GVec3 ext = mx - mn;
-    // Receiver deposits are ~planar; use the in-plane area / count for spacing.
     float dims[3] = {ext.x, ext.y, ext.z};
     std::sort(dims, dims + 3);
-    float planeA = std::max(dims[1], 1e-4f);   // largest extent
-    float planeB = std::max(dims[2], 1e-4f);   // second-largest
-    float area = planeA * planeB;
-    float meanSpacing = std::sqrt(area / std::max(n, 1));
-    // K~50-neighbor radius ≈ sqrt(K/π)·spacing; 1.5× like the CPU calibration.
+    float area0 = std::max(dims[1], 1e-4f) * std::max(dims[2], 1e-4f);
     const int K = 50;
-    float radius = 1.5f * std::sqrt((float)K / 3.14159265358979323846f) * meanSpacing;
-    if (radius <= 0.f) return result;
+    float provRadius = 1.5f * std::sqrt((float)K / 3.14159265358979323846f) *
+                       std::sqrt(area0 / std::max(n, 1));
+    if (provRadius <= 0.f) return result;
 
-    // --- Upload deposits + build the resident hash grid (count/scan/scatter). ---
+    // --- Upload deposits + alloc the (radius-independent-size) CSR buffers once. ---
     CausticGridOwner* owner = new CausticGridOwner();
     APC_CUDA_CHECK(cudaMalloc(&owner->d_photons, (size_t)n * sizeof(GPhoton)));
     APC_CUDA_CHECK(cudaMemcpy(owner->d_photons, photons.data(),
                               (size_t)n * sizeof(GPhoton), cudaMemcpyHostToDevice));
-
-    GVec3 pad(radius);
-    GAABB bounds; bounds.min = mn - pad; bounds.max = mx + pad;
-    GVec3 diag = bounds.max - bounds.min;
-    float maxDiag = diag.maxComponent();
-    int baseRes = std::max(1, static_cast<int>(maxDiag / radius));
-    int gridRes[3];
-    for (int i = 0; i < 3; ++i)
-        gridRes[i] = std::max(static_cast<int>(baseRes * diag[i] / maxDiag), 1);
     const int hashSize = n;   // pbrt convention
-
-    APC_CUDA_CHECK(cudaMalloc(&owner->d_cellCount,  (size_t)hashSize * sizeof(int)));
-    APC_CUDA_CHECK(cudaMalloc(&owner->d_cellStart,  (size_t)hashSize * sizeof(int)));
-    APC_CUDA_CHECK(cudaMalloc(&owner->d_photonIndex, (size_t)n * sizeof(int)));
+    APC_CUDA_CHECK(cudaMalloc(&owner->d_cellCount,   (size_t)hashSize * sizeof(int)));
+    APC_CUDA_CHECK(cudaMalloc(&owner->d_cellStart,   (size_t)hashSize * sizeof(int)));
+    APC_CUDA_CHECK(cudaMalloc(&owner->d_photonIndex,  (size_t)n * sizeof(int)));
     APC_CUDA_CHECK(cudaMalloc(&owner->d_photonCellId, (size_t)n * sizeof(int)));
     int* d_cellCursor = nullptr;
     APC_CUDA_CHECK(cudaMalloc(&d_cellCursor, (size_t)hashSize * sizeof(int)));
-    APC_CUDA_CHECK(cudaMemset(owner->d_cellCount, 0, (size_t)hashSize * sizeof(int)));
-
     const int TPB = 256;
     const int pblocks = (n + TPB - 1) / TPB;
-    kCount<<<pblocks, TPB>>>(owner->d_photons, n, bounds,
-                             gridRes[0], gridRes[1], gridRes[2],
-                             hashSize, owner->d_cellCount);
-    APC_CUDA_CHECK(cudaGetLastError());
 
-    std::vector<int> h_count(hashSize);
-    APC_CUDA_CHECK(cudaMemcpy(h_count.data(), owner->d_cellCount,
-                              (size_t)hashSize * sizeof(int), cudaMemcpyDeviceToHost));
-    std::vector<int> h_start(hashSize);
-    int acc = 0;
-    for (int i = 0; i < hashSize; ++i) { h_start[i] = acc; acc += h_count[i]; }
-    APC_CUDA_CHECK(cudaMemcpy(owner->d_cellStart, h_start.data(),
-                              (size_t)hashSize * sizeof(int), cudaMemcpyHostToDevice));
-    APC_CUDA_CHECK(cudaMemset(d_cellCursor, 0, (size_t)hashSize * sizeof(int)));
+    // buildGrid(radius): (re)derive bounds/gridRes from `radius`, run count/scan/scatter into
+    // the owner CSR buffers (reused across the two passes), return the grid view.
+    auto buildGrid = [&](float radius) -> GPhotonGrid {
+        GVec3 pad(radius);
+        GAABB bounds; bounds.min = mn - pad; bounds.max = mx + pad;
+        GVec3 diag = bounds.max - bounds.min;
+        float maxDiag = diag.maxComponent();
+        int baseRes = std::max(1, static_cast<int>(maxDiag / radius));
+        int gridRes[3];
+        for (int i = 0; i < 3; ++i)
+            gridRes[i] = std::max(static_cast<int>(baseRes * diag[i] / maxDiag), 1);
+        APC_CUDA_CHECK(cudaMemset(owner->d_cellCount, 0, (size_t)hashSize * sizeof(int)));
+        kCount<<<pblocks, TPB>>>(owner->d_photons, n, bounds,
+                                 gridRes[0], gridRes[1], gridRes[2],
+                                 hashSize, owner->d_cellCount);
+        APC_CUDA_CHECK(cudaGetLastError());
+        std::vector<int> h_count(hashSize);
+        APC_CUDA_CHECK(cudaMemcpy(h_count.data(), owner->d_cellCount,
+                                  (size_t)hashSize * sizeof(int), cudaMemcpyDeviceToHost));
+        std::vector<int> h_start(hashSize);
+        int acc = 0;
+        for (int i = 0; i < hashSize; ++i) { h_start[i] = acc; acc += h_count[i]; }
+        APC_CUDA_CHECK(cudaMemcpy(owner->d_cellStart, h_start.data(),
+                                  (size_t)hashSize * sizeof(int), cudaMemcpyHostToDevice));
+        APC_CUDA_CHECK(cudaMemset(d_cellCursor, 0, (size_t)hashSize * sizeof(int)));
+        kScatter<<<pblocks, TPB>>>(owner->d_photons, n, bounds,
+                                   gridRes[0], gridRes[1], gridRes[2], hashSize,
+                                   owner->d_cellStart, d_cellCursor,
+                                   owner->d_photonIndex, owner->d_photonCellId);
+        APC_CUDA_CHECK(cudaGetLastError());
+        APC_CUDA_CHECK(cudaDeviceSynchronize());
+        GPhotonGrid g;
+        g.photons      = owner->d_photons;
+        g.cellStart    = owner->d_cellStart;
+        g.cellCount    = owner->d_cellCount;
+        g.photonIndex  = owner->d_photonIndex;
+        g.photonCellId = owner->d_photonCellId;
+        g.bounds       = bounds;
+        g.gridRes[0] = gridRes[0]; g.gridRes[1] = gridRes[1]; g.gridRes[2] = gridRes[2];
+        g.hashSize    = hashSize;
+        g.numPhotons  = n;
+        g.radius      = radius;
+        return g;
+    };
 
-    kScatter<<<pblocks, TPB>>>(owner->d_photons, n, bounds,
-                               gridRes[0], gridRes[1], gridRes[2], hashSize,
-                               owner->d_cellStart, d_cellCursor,
-                               owner->d_photonIndex, owner->d_photonCellId);
-    APC_CUDA_CHECK(cudaGetLastError());
-    APC_CUDA_CHECK(cudaDeviceSynchronize());
-    cudaFree(d_cellCursor);
-
-    // --- Assemble the resident grid view. ---
-    GPhotonGrid grid;
-    grid.photons      = owner->d_photons;
-    grid.cellStart    = owner->d_cellStart;
-    grid.cellCount    = owner->d_cellCount;
-    grid.photonIndex  = owner->d_photonIndex;
-    grid.photonCellId = owner->d_photonCellId;
-    grid.bounds       = bounds;
-    grid.gridRes[0] = gridRes[0]; grid.gridRes[1] = gridRes[1]; grid.gridRes[2] = gridRes[2];
-    grid.hashSize    = hashSize;
-    grid.numPhotons  = n;
-    grid.radius      = radius;
-
-    // --- Calibrate causticScale = boost/(π·peak_95) over a photon subsample
-    // (CPU :500-513). The 1/π folds the Lambertian L = (albedo/π)·E. ---
+    // --- Pass 1: provisional grid -> per-photon k-th-nearest -> CPU median radius. ---
+    GPhotonGrid gridProv = buildGrid(provRadius);
     const int S = std::min(n, 4096);
     const int subStride = std::max(1, n / S);
     const int subCount = (n + subStride - 1) / subStride;
+    float* d_kth = nullptr;
+    APC_CUDA_CHECK(cudaMalloc(&d_kth, (size_t)subCount * sizeof(float)));
+    {
+        int blocks = (subCount + TPB - 1) / TPB;
+        kKthNearest<<<blocks, TPB>>>(gridProv, subStride, subCount, K, d_kth);
+        APC_CUDA_CHECK(cudaGetLastError());
+        APC_CUDA_CHECK(cudaDeviceSynchronize());
+    }
+    std::vector<float> kth(subCount);
+    APC_CUDA_CHECK(cudaMemcpy(kth.data(), d_kth,
+                              (size_t)subCount * sizeof(float), cudaMemcpyDeviceToHost));
+    cudaFree(d_kth);
+    std::vector<float> kthnz; kthnz.reserve(subCount);
+    for (float v : kth) if (v > 0.f) kthnz.push_back(v);
+    if (kthnz.empty()) { cudaFree(d_cellCursor); delete owner; return result; }
+    std::sort(kthnz.begin(), kthnz.end());
+    // CPU spectral_path_tracer.cpp:494 — radius = 1.5 * median(k-th-nearest).
+    float radius = 1.5f * kthnz[kthnz.size() / 2];
+    if (radius <= 0.f) { cudaFree(d_cellCursor); delete owner; return result; }
+
+    // --- Pass 2: rebuild the grid at the calibrated (tight) radius for the real gather. ---
+    GPhotonGrid grid = buildGrid(radius);
+    cudaFree(d_cellCursor);
+
+    // --- Calibrate causticScale = boost/(π·peak_95) over the same photon subsample
+    // (CPU :500-513). The 1/π folds the Lambertian L = (albedo/π)·E. Reuses S/subStride/
+    // subCount from the k-NN pass above. ---
     float* d_peak = nullptr;
     APC_CUDA_CHECK(cudaMalloc(&d_peak, (size_t)subCount * sizeof(float)));
     {
@@ -458,6 +532,23 @@ GPhotonCausticResult cuda_photon_caustic_build(
     result.numPhotons = n;
     result.owner      = owner;
     result.ready      = true;
+
+    if (std::getenv("CAUSTIC_DBG")) {
+        GVec3 c(0.f, 0.f, 0.f); float wsum = 0.f;
+        for (const auto& p : photons) { c = c + p.position * p.power.y; wsum += p.power.y; }
+        c = c * (1.0f / std::max(wsum, 1e-12f));
+        float rms = 0.f;
+        for (const auto& p : photons) {
+            GVec3 d = p.position - c;
+            rms += p.power.y * (d.x * d.x + d.z * d.z);
+        }
+        rms = std::sqrt(rms / std::max(wsum, 1e-12f));
+        GVec3 e = mx - mn;
+        std::fprintf(stderr,
+            "[CAUSTIC_DBG] n=%d depositExt=(%.3f,%.3f,%.3f) centroidXZ=(%.3f,%.3f) "
+            "rmsXZ=%.4f provRadius=%.5f knnRadius=%.5f peak95=%.5f scale=%.5f totalY=%.4f\n",
+            n, e.x, e.y, e.z, c.x, c.z, rms, provRadius, radius, peak95, result.scale, wsum);
+    }
     return result;
 }
 

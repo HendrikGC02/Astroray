@@ -158,3 +158,43 @@ The spec's literal SSIM≥0.97 is unreachable for independent MC camera streams 
 `ssim-wrong-gate-for-independent-rng`; pkg64-gpu retired the identical gate, #419). The test
 already gates PRIMARILY on the robust caustic-ROI energy parity + the mandatory visual PNG,
 with SSIM as a secondary 0.80 floor — consistent with the pkg64-gpu resolution.
+
+---
+
+## UPDATE 2026-06-09 — polish pass: 2 fixes LANDED, root cause of the 433x COMPLETE
+
+Ran the workflow-designed polish (understand→design→adversarial-verify; the critique caught
+two would-be defects: a floor-fill that defeats the ROI gate, and Design-A global-density
+proxy ≠ the CPU local kNN). Implemented the corrected plan:
+
+**LANDED + verified:**
+1. **SMS regression FIXED.** New opt-in `usePhotonCaustics` Renderer flag (default false) gates
+   the pre-pass in both `cuda_renderer.cu` sites; the pkg64-gpu SMS test (no opt-in) keeps SMS.
+   `test_pkg64_gpu_phase3_prism_receiver_energy` PASSES again; 60 GPU tests pass, 0 regressions.
+2. **Radius now CPU-faithful.** Replaced the global-AABB mean-spacing with the CPU's exact
+   `1.5*median(k-th-nearest)` via a new `kKthNearest` device kernel + a two-pass build
+   (provisional grid → measure kth-nearest → rebuild tight). Radius 0.044 → 0.015.
+
+**The 433x is NOT the radius (it is ROI-INVARIANT under peak95 auto-scale).** CAUSTIC_DBG
+(env-gated, kept) shows: n=791530 deposits, depositExt=(7,0,6), **rmsXZ=0.83**, peak95≈2.1e5,
+scale≈1.8e-6. The CPU and GPU **aperture, emission loop, and geometric-normal handling are
+byte-identical** (verified: crad, origin0, sunDir, the refract/passedCaster/deposit loop, and
+the GPU's `frontFace?normal:-normal` recovery all match the CPU). Both produce the same caustic
+core + aberration skirt.
+
+**THE root cause = the density ESTIMATOR.** CPU `estimateIrradiance` (`photon_map.h:89-108`) is
+an **adaptive k-NN + Jensen cone filter**: the effective radius is the k-th-nearest distance AT
+EACH QUERY POINT (`r2 = heap.front()`), so it SHRINKS in the dense focal core → a SHARP bright
+peak; the cone weight `1 - sqrt(d)/(kf·r)` further sharpens. The GPU `photonGridGather`
+(`gpu_photon_store.h`) is **fixed-radius, no cone filter** → the core is over-smoothed → flat
+peak → peak95 too small → `causticScale = boost/(π·peak95)` too large → the (real, shared)
+aberration skirt rises above the ROI's 0.01 floor → ROI ~430x the CPU's tight speck.
+
+**FIX (the focused next task):** add a SEPARATE adaptive k-NN cone gather for the caustic path
+— mirror `estimateIrradiance` exactly (find K nearest in the 27-cell neighbourhood like
+`kKthNearest`, use the k-th distance as the local radius, cone-weight `kf=1.1`, normalize by
+`(1 - 2/(3kf))·π·r²`). Use it in (a) `kPeakGather` calibration and (b) the megakernel receiver
+gather. KEEP the fixed-radius `photonGridGather` for the phase-1 store unit test (which pins
+it). Perf: the gather is per-receiver-pixel in the hot megakernel, so the bounded-K max-array
+(K=50) cost matters — profile. Then the ROI ratio should land in [0.4,2.5] and the PNG show a
+sharp caustic; un-xfail `test_gpu_glass_sphere_caustic_parity`.

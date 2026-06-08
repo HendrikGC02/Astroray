@@ -130,6 +130,9 @@ def _build_glass_sphere(use_gpu: bool):
 
     if use_gpu:
         r.set_use_gpu(True)
+        r.set_use_photon_caustics(True)        # pkg113 Phase-3: opt into the GPU photon-caustic
+                                               # pre-pass (without this the gate is closed and the
+                                               # pre-pass never fires — legacy SMS scenes stay on SMS)
         r.set_wavelength_range(380.0, 780.0)   # visible-band sRGB output
         r.set_output_mode("srgb")
         r.set_integrator("path_tracer")        # routes to the MW kernel + pre-pass
@@ -198,16 +201,18 @@ def _caustic_roi_energy(img: np.ndarray) -> float:
 # correct). This is the package's acceptance scene.
 # ---------------------------------------------------------------------------
 @pytest.mark.xfail(
-    reason="Phase-3 WIRING lands (scene-driven pre-pass + gather in both GPU "
-           "megakernels; builds, gather fires, peak luminance calibrated ~0.39). "
-           "CALIBRATION is the follow-up: the GPU gather radius uses a GLOBAL "
-           "deposit-AABB mean-spacing that outlier deposits inflate, so the caustic "
-           "over-diffuses → peak95 too small → causticScale too large → caustic-ROI "
-           "energy ~433x the CPU (visual: a soft over-bright blob vs the CPU's tight "
-           "speck). Fix = a local/robust radius (percentile AABB or true k-NN) to "
-           "match the CPU kNN, AND a brighter acceptance scene (this caustic-only "
-           "scene renders near-black on BOTH backends — add direct floor lighting "
-           "for a clear parity target). Tracked in the Phase-3 research note.",
+    reason="Phase-3 WIRING lands + SMS regression fixed (opt-in use_photon_caustics) + "
+           "radius now matches the CPU 1.5*median-kth-nearest. REMAINING: the GPU device "
+           "gather (gpu_photon_store.h photonGridGather) is FIXED-RADIUS, but the CPU "
+           "estimateIrradiance (photon_map.h:89-108) is an ADAPTIVE k-NN + cone-filter "
+           "estimate (radius shrinks in the dense focal core -> SHARP peak; cone weight). "
+           "Fixed-radius over-smooths the core -> flat peak -> peak95 too small -> scale "
+           "too large -> the aberration skirt (real, shared with the CPU) rises above the "
+           "ROI's 0.01 floor -> caustic-ROI energy ~430x the CPU's tight speck. (Confirmed "
+           "via CAUSTIC_DBG: identical aperture/emission/normals both sides; deposits "
+           "rmsXZ=0.83; the difference is purely the estimator.) Fix = a SEPARATE adaptive "
+           "k-NN cone gather for the caustic path (keep the fixed-radius photonGridGather "
+           "for the phase-1 store test which pins it). Tracked in the Phase-3 research note.",
     strict=False,
 )
 def test_gpu_glass_sphere_caustic_parity(test_results_dir):

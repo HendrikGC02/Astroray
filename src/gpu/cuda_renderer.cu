@@ -702,12 +702,15 @@ void CUDARenderer::render(
     // caustics are on and the uploaded scene has flagged caster glass, forward-
     // trace photons through it, build a resident hash grid, and hand the grid +
     // calibrated brightness scale to the megakernel (it gathers at receiver hits).
-    // Mirrors the CPU pkg111 beginFrame pre-pass + sampleFull gather. Gated on the
-    // refractive flag alone (the photon map is the canonical GPU caustic path —
-    // parity doc Decisions §1 — independent of the SMS reflective flag).
+    // Mirrors the CPU pkg111 beginFrame pre-pass + sampleFull gather. Gated on the OPT-IN
+    // usePhotonCaustics flag (pkg113 Phase-3): the photon map is the canonical GPU caustic
+    // path (parity doc Decisions §1), but during the SMS->photon-map transition it is opt-in
+    // so legacy SMS-GPU scenes (use_refractive_caustics alone) keep the SMS path unchanged
+    // (otherwise the pre-pass disables SMS and regresses the pkg64-gpu receiver-energy gate).
     astroray::photon::gpu::GPhotonCausticResult caustic{};
     caustic.ready = false;
-    if (use_refractive_caustics && impl->hostRenderer) {
+    if (use_refractive_caustics && impl->hostRenderer &&
+        impl->hostRenderer->getUsePhotonCaustics()) {
         astroray::photon::gpu::PhotonCausticAim aim =
             buildCausticAim(*impl->hostRenderer, maxDepth);
         if (aim.valid) {
@@ -793,10 +796,12 @@ void CUDARenderer::renderMultiwavelength(
 
     // pkg113 Phase 3: scene-driven photon-map caustic pre-pass (see render()).
     // The spectral `path_tracer` routes here, so this is the canonical caustic
-    // path for the dispersive acceptance scenes. Gated on the refractive flag.
+    // path for the dispersive acceptance scenes. Gated on the OPT-IN usePhotonCaustics
+    // flag (transition-clean; legacy SMS scenes keep SMS — see render()).
     astroray::photon::gpu::GPhotonCausticResult caustic{};
     caustic.ready = false;
-    if (use_refractive_caustics && impl->hostRenderer) {
+    if (use_refractive_caustics && impl->hostRenderer &&
+        impl->hostRenderer->getUsePhotonCaustics()) {
         astroray::photon::gpu::PhotonCausticAim aim =
             buildCausticAim(*impl->hostRenderer, maxDepth);
         if (aim.valid) {

@@ -2,20 +2,20 @@
 
 **Pillar:** 3 (light transport) + 5 (GPU)
 **Track:** A
-**Status:** **Phases 1 + 2 DONE** (2026-06-08/09, both RTX-verified). **Phase 3 WIRING
-DONE, CALIBRATION follow-up** (branch `feat/pkg113-gpu-caustic-gather`, RTX-checked
-2026-06-09): builds clean, the scene-driven pre-pass + gather FIRE and produce a caustic
-(peak luminance ~0.39), BUT the gather radius over-diffuses — global deposit-AABB
-mean-spacing is outlier-inflated → peak95 too small → causticScale too large → caustic-ROI
-energy ~433x the CPU (visual: a soft over-bright blob vs the CPU's tight speck). **Follow-up
-(focused):** local/robust gather radius (percentile AABB or true k-NN) to match the CPU kNN,
-+ a brighter acceptance scene (the caustic-only scene renders near-black on BOTH backends —
-add direct floor lighting). **AND a second follow-up: the wiring REGRESSES
-`test_pkg64_gpu_phase3_prism_receiver_energy`** (the SMS-disable-when-photon-grid-active gate,
-or the pre-pass firing on the prism scene, interferes with the legacy SMS-GPU receiver
-energy) — the gating must be isolated so non-caustic-caster GPU scenes are untouched.
-Glass-sphere gate xfailed (calibration WIP) until both are fixed; **NOT merged** (a draft PR
-documents the wiring increment; do not merge into main while it regresses a live GPU gate). Phase 1: GPU uniform hash-grid photon STORE +
+**Status:** **Phases 1 + 2 DONE** (RTX-verified). **Phase 3 WIRING DONE + 2 of 3 polish
+fixes LANDED; one focused follow-up remains** (branch `feat/pkg113-gpu-caustic-gather`,
+RTX-checked 2026-06-09). FIXED: (1) the SMS regression — new opt-in `usePhotonCaustics`
+flag gates the pre-pass so legacy SMS scenes are untouched (`test_pkg64_gpu_phase3_prism_
+receiver_energy` passes again; 60 GPU tests, 0 regressions); (2) the gather radius now
+matches the CPU `1.5*median(k-th-nearest)` via a `kKthNearest` kernel + two-pass build.
+REMAINING (fully root-caused): the caustic-ROI energy is ~430x the CPU NOT from the radius
+(it is ROI-invariant under peak95 auto-scale) but from the density ESTIMATOR — the GPU
+`photonGridGather` is FIXED-radius while the CPU `estimateIrradiance` is an ADAPTIVE k-NN +
+cone filter (sharp focal-core peak). Fixed-radius over-smooths the core → flat peak → scale
+too high → the (real, shared) aberration skirt clears the ROI floor. **Fix = a separate
+adaptive k-NN cone gather for the caustic path** (mirror `photon_map.h:89-108`; keep the
+fixed-radius gather for the phase-1 store test). Glass-sphere gate xfailed until then; **NOT
+merged** (draft PR). Verified identical CPU/GPU aperture+emission+normals via CAUSTIC_DBG. Phase 1: GPU uniform hash-grid photon STORE +
 device query (4/4 PASS vs numpy oracle). Phase 2: GPU photon EMISSION + bounce →
 deposit (forward Snell/Schlick/per-λ Sellmeier/TIR port of `light_tracer_caustic.cpp`
 general path; flat-prism 2-face stays CPU) — **3/3 PASS on RTX**. Phase 3: scene-driven

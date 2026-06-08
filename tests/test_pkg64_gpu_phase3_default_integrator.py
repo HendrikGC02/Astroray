@@ -202,8 +202,22 @@ def test_pkg64_gpu_phase3_prism_receiver_energy(test_results_dir):
     )
 
 
+@pytest.mark.xfail(
+    reason="SMS-GPU PSNR floor FROZEN AS LEGACY (owner decision 2026-06-08). The "
+           "Wave-5 glass fix (PR #404) legitimately changed the SMS chromatic caustic, "
+           "so the SMS-vs-no-caustic PSNR delta drifted to ~-0.59 dB < -0.5 floor. The "
+           "high-spp `ref` here is recomputed every run (no stored reference to re-bless "
+           "as the HW-sweep doc assumed), so the only options were recalibrate or retire. "
+           "SMS-GPU is no longer the canonical caustic path (pkg113 forward photon-map "
+           "is), so this gate is retired as legacy rather than recalibrated. Evidence: "
+           "pkg64-gpu-hw-sweep-2026-05-31.md. To keep it live instead, replace this xfail "
+           "by lowering the -0.5 floor with justification.",
+    strict=False,
+)
 def test_pkg64_gpu_phase3_prism_psnr_floor(test_results_dir):
     """PSNR floor delta (SMS - baseline) >= -0.5 dB (non-regression).
+
+    LEGACY/xfail since 2026-06-08 — see the xfail marker above (SMS-GPU frozen).
 
     pkg64-gpu Session 2 un-xfail: this gate uses the NEE integrator ("path_tracer")
     rather than the no-NEE "multiwavelength_path_tracer". With NEE off, the

@@ -112,3 +112,49 @@ same density estimate and the same `albedo · E · scale` applies.
   raw photon count (the same tiered-equivalence rule as Phase 1/2).
 </content>
 </invoke>
+
+---
+
+## FOLLOW-UP FIX PLAN (RTX-checked 2026-06-09 — wiring builds + fires, 2 issues)
+
+The Phase-3 wiring is complete and the gather fires (GPU glass-sphere peak luminance
+~0.39), but RTX verification surfaced two issues. Both are fully root-caused below; this
+is a self-contained follow-up task.
+
+### Issue 1 — SMS regression (test_pkg64_gpu_phase3_prism_receiver_energy)
+**Root cause:** the pre-pass is gated on `use_refractive_caustics && hostRenderer && a
+caustic-caster exists` (`cuda_renderer.cu` render + renderMultiwavelength, ~l.101/147),
+and on success sets `useCaustics=false` to disable legacy SMS-GPU (no double-count). But
+the pkg64-gpu SMS test sets the **identical** trigger (`use_refractive_caustics=True` +
+`set_object_caustic_caster(True)`), so the photon pre-pass takes over and disables the SMS
+path the test measures → receiver energy collapses.
+**Fix (transition-clean):** gate the photon pre-pass on a NEW opt-in flag
+`use_photon_caustics` (default false), distinct from `use_refractive_caustics`. The
+glass-sphere Phase-3 test opts in; the pkg64-gpu SMS test (no opt-in) keeps SMS. Add
+`use_photon_caustics_` + `setUsePhotonCaustics` to the Renderer + a pybind setter, gate the
+two `cuda_renderer.cu` call sites on it. (Once the photon path is fully validated, the owner
+flips the default to photon-map and retires SMS per parity-doc Decisions §1 — but that is a
+separate owner step, NOT this fix.)
+
+### Issue 2 — calibration over-diffuses (caustic-ROI energy ~433x CPU)
+**Root cause:** the gather radius (`photon_caustic.cu` ~l.345-364) is set from a GLOBAL
+deposit-AABB mean-spacing `sqrt(area/n)`, which outlier deposits (grazing/TIR strays) inflate
+→ radius too large → the caustic over-smooths → `peak95` (the calibration percentile) too
+small → `causticScale = boost/(π·peak95)` too large → total ROI energy ~433x the CPU's tight
+kNN speck (visual confirmed: soft over-bright blob vs CPU tight spot).
+**Fix:** make the radius LOCAL/robust like the CPU 1.5·median-kth-nearest — either (a) a
+percentile deposit-AABB (clip the outer ~5% of deposits before computing area), or (b) a true
+per-receiver k-NN radius on the hash grid. Re-measure the ROI ratio (target [0.4,2.5]) + the
+visual (a focused spot).
+
+### Issue 3 — acceptance scene renders near-black on BOTH backends
+The `glass-sphere` test scene is caustic-only (no direct floor lighting), so CPU and GPU both
+render near-black (CPU ROI energy 0.71) — a poor parity target. **Add direct floor lighting**
+(NEE to the sun on the lambertian floor) so there is a clear bright caustic on a lit floor to
+calibrate against and to eyeball. Then un-xfail `test_gpu_glass_sphere_caustic_parity`.
+
+### Gate note (settled by precedent, not a new decision)
+The spec's literal SSIM≥0.97 is unreachable for independent MC camera streams (memory
+`ssim-wrong-gate-for-independent-rng`; pkg64-gpu retired the identical gate, #419). The test
+already gates PRIMARILY on the robust caustic-ROI energy parity + the mandatory visual PNG,
+with SSIM as a secondary 0.80 floor — consistent with the pkg64-gpu resolution.

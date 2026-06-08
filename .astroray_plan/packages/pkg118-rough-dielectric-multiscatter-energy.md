@@ -3,7 +3,16 @@
 **Pillar:** 2 (materials / BSDF correctness)
 **Track:** A (CPU-gated; furnace test runs on CI — no GPU needed)
 **Codex-paste-ready:** no (numerical precompute + furnace verification)
-**Status:** open — proposed 2026-05-31. Root cause fully diagnosed (this spec).
+**Status:** open — RE-SCOPED 2026-06-08. Part A (forced-TIR pdf) landed (correct,
+gate-neutral). **Part B (Kulla-Conty compensation table) REJECTED — the diagnosis
+below is incomplete:** the furnace deficit is worst at LOW roughness (not single-scatter
+masking), and compensating the rough-transmission lobe AND the rough→delta fallthrough
+moves R=0.1 only 0.815→0.823. The real defect is the **CPU bespoke RGB `disney_sample`
+diverging from the energy-conserving GPU spectral closure path** (GPU furnace R=0.1 =
+0.956 vs CPU 0.823). Re-scope: match the CPU rough Disney glass to the closure-path
+dielectric formulation, NOT a compensation table. Full analysis:
+[`pkg118-multiscatter-energy-research.md`](../docs/pkg118-multiscatter-energy-research.md).
+Keep the `test_disney_rough_glass_furnace_energy_cpu` xfail.
 **Depends on:** none. Extends the existing `DisneyEnergyCompensationTables` (pkg60).
 **Estimated effort:** M (a precompute pass + apply + furnace re-gate)
 

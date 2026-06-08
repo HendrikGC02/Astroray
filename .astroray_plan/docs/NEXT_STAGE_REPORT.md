@@ -17,9 +17,15 @@
 > The deployable set below (§2) treats pkg118 item 1 as superseded by this finding.
 >
 > The remaining lead pool is **pkg64-gpu gate resolution** (RTX owner adjudication) + the
-> standing GPU-gated work (pkg113 GPU photon-map, pkg116, pkg108, pkg115, pkg76 Classroom).
+> standing GPU-gated work (pkg113 GPU photon-map, pkg116, pkg108, pkg115).
 > Clean CI-only CPU wins are largely exhausted; the next substantive work is GPU-gated
 > (do on this RTX with hardware verification) or the pkg118 CPU rough-glass rewrite.
+>
+> **Owner directives (2026-06-08):** (1) **Pillar 4 (pkg45/46/48/49/50/51) is ON PAUSE**
+> until the rest is working/stable/sufficiently progressed — do not pick it up. (2) The
+> broken old-Blender benchmark scenes (Classroom/BMW27/Junkshop/UDIM_monster) were
+> **removed**; **pkg76 Classroom/BMW27/Junkshop fidelity is dropped** from the pool
+> (item 9 below is void). cornell is the only remaining Cycles-parity scene.
 
 ---
 

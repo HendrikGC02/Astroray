@@ -1,3 +1,0 @@
-# Cycles-CPU EXR references for pkg71.
-# Large *.exr files are gitignored. Regenerate and pin hashes when a baseline
-# machine with Blender/Cycles 4.x is available.

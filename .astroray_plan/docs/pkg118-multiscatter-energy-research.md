@@ -78,3 +78,45 @@ against the closure path.
   is removed from scope. Keep the `test_disney_rough_glass_furnace_energy_cpu` xfail.
 - Only `disney` rough glass is affected; the prism / glass-sphere / dielectric-furnace
   scenes use the separate `dielectric` plugin and are untouched by any of this.
+
+## PRECISE LOCALIZATION (2026-06-08, instrumented — the actionable lead)
+
+Added DISNEY_DBG per-event instrumentation to `disney.cpp::sample()` (gated by env
+`DISNEY_DBG`, near-zero cost off) + `scripts/diag_disney_dbg.py` (single-roughness
+furnace + depth sweep). Findings at R=0.05 (furnace 0.771, ior 1.5, 256 spp):
+
+```
+rough_refl  count=359       avg_tp=0.19
+rough_refr  count=330210    avg_tp=0.50
+delta_refl  count=581425    avg_tp=2.24
+delta_refr  count=719513    avg_tp=1.81
+fallthrough count=1300938                 (= delta_refl + delta_refr)
+```
+
+1. **Not truncation.** Depth sweep R=0.05: furnace = 0.749 / 0.759 / 0.755 / 0.768 at
+   depth 4 / 16 / 64 / 256. The loss saturates by depth ~4 — a genuine per-bounce leak,
+   not rays trapped inside the sphere.
+2. **alpha is CLAMPED at 0.0064 for R≤0.08** (`alpha = max(R², 0.0064)`), so the rough
+   microfacets at R=0.05 are *near-flat* — yet the rough path furnaces 0.77 while the
+   smooth-delta path (R=0.03) furnaces 0.97. So the rough VNDF path itself leaks ~20% vs
+   the delta path at essentially-identical (near-flat) microfacet geometry.
+3. **The leak is the rough→delta fallthrough mis-weighting.** 80% of rough samples fall
+   through (1.3M of 1.63M). The dominant fallthrough trigger is the **rough-reflection
+   side-check** (`disney.cpp` `if (s.wi.dot(rec.normal) * wo.dot(rec.normal) > 0)`): on
+   the curved sphere, grazing/TIR microfacet reflections land *below* the macro surface,
+   the check rejects them, and they fall through to the **macro-delta path** (geometric-
+   normal reflection with `pdf = fresnel·transmission`). That macro-delta is sampled
+   AFTER the VNDF + R/(R+T) randoms were already drawn, so its pdf does not account for
+   the VNDF sampling that preceded it → energy mis-weighted (the delta avg_tp 1.8–2.2
+   are η²-amplified exit events whose contribution does not balance the entering side).
+
+**The fix (next attempt):** replace the bespoke VNDF-rough + smooth-delta hybrid +
+fallthrough with a clean **PBRT-v4 `DielectricBxDF::Sample_f`** (BSD-3-Clause): sample
+wm via VNDF, `pr=F, pt=1−F`, reflect or transmit *within the microfacet framework* with
+matching `f` and `pdf` (`f_reflect = D·F·G/(4|cosO||cosI|)`, `pdf_reflect =
+VNDF·pr/(4|wo·wm|)`; transmit via the existing `roughTransmissionEval/Pdf` scaled by
+`pt`). NO macro-delta fallthrough for rough glass — invalid micro-samples return f=0
+(unbiased VNDF). Validate: furnace ∈[0.95,1.02] for R∈{0.1,0.3,0.6,1.0} AND no
+regression to `test_glass_sphere_caustic`, the prism gates, and the disney-sweep SSIM
+(disney glass is in that scene). The GPU `gpu_disney_sample` mirror must be updated in
+lockstep. Mirror Cycles `bsdf_microfacet.h` (Apache-2.0) for cross-check.

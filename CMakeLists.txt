@@ -472,6 +472,7 @@ if(ASTRORAY_CUDA_FOUND)
         src/gpu/multiwavelength_kernel.cu
         src/gpu/scene_upload.cu
         src/gpu/pkg64_sms_probe.cu
+        src/gpu/photon_store.cu
     )
     if(ASTRORAY_WAVEFRONT_CUDA_N3)
         list(APPEND ASTRORAY_CUDA_SOURCES

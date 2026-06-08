@@ -2,9 +2,11 @@
 
 **Pillar:** 3 (light transport) + 5 (GPU)
 **Track:** A
-**Status:** open — proposed 2026-05-30 (the GPU-equivalence follow-up for the
-general-caustics chain pkg109/110/111). **GPU-gated: do NOT pick up in a CI-only
-run — correctness must be RTX-`/verify`-ed; CI has no GPU and CI-green ≠ correct.**
+**Status:** Phase 1 in progress (PR #TBD, 2026-06-08 — GPU uniform spatial
+hash-grid photon STORE + device fixed-radius query landed; CUDA-gated unit test
+vs numpy brute-force oracle. Phases 2 (emission/bounce) + 3 (integrator gather +
+acceptance gates) remain). **GPU-gated: do NOT pick up in a CI-only run —
+correctness must be RTX-`/verify`-ed; CI has no GPU and CI-green ≠ correct.**
 **Estimated effort:** L (~3–4 weeks, multiple RTX sessions)
 **Depends on:** pkg109 (photon-map kd-tree, done), pkg110 (BSDF photon bounce, done),
 **pkg111** (CPU k-NN gather into the default path — do FIRST). The caustics-fork is

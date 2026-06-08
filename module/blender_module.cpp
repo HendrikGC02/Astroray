@@ -44,6 +44,7 @@
 #include "astroray/lights/area_light.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
+#  include "astroray/gpu_photon_store.h"   // pkg113 Phase 1 — GPU photon store query
 #  ifdef ASTRORAY_WAVEFRONT_CUDA_N3
 #    include "../src/gpu/wavefront/gpu_wavefront_snapshot.h"
 #  endif
@@ -2451,6 +2452,57 @@ PYBIND11_MODULE(astroray, m) {
               return py::make_tuple(E.X, E.Y, E.Z);
           },
           "points"_a, "powers"_a, "query"_a, "k"_a, "max_radius"_a);
+
+#ifdef ASTRORAY_CUDA_ENABLED
+    // pkg113 Phase 1 — GPU photon STORE + query parity binding. Builds the
+    // uniform spatial hash grid on the GPU from a fixed photon set, runs a
+    // fixed-radius gather at each query point, and returns the per-query
+    // (irradiance estimate, in-radius neighbor index set, in-radius count).
+    // Validated against a numpy float64 brute-force oracle in
+    // tests/test_gpu_photon_store.py (mirrors tests/test_photon_map.py for the
+    // CPU kd-tree). STORE+QUERY only — no emission/bounce, no integrator wiring.
+    m.def("_gpu_photon_store_query",
+          [](const std::vector<std::array<float, 3>>& pts,
+             const std::vector<std::array<float, 3>>& powers,
+             const std::vector<std::array<float, 3>>& queries,
+             float radius, int max_neighbors) {
+              namespace pg = astroray::photon::gpu;
+              std::vector<pg::GPhoton> photons;
+              photons.reserve(pts.size());
+              for (std::size_t i = 0; i < pts.size(); ++i) {
+                  pg::GPhoton ph;
+                  ph.position = GVec3(pts[i][0], pts[i][1], pts[i][2]);
+                  if (i < powers.size())
+                      ph.power = GVec3(powers[i][0], powers[i][1], powers[i][2]);
+                  else
+                      ph.power = GVec3(0.f);
+                  ph.incidentDir = GVec3(0.f);
+                  ph.lambda = 0.f;
+                  photons.push_back(ph);
+              }
+              std::vector<GVec3> qs;
+              qs.reserve(queries.size());
+              for (const auto& q : queries) qs.push_back(GVec3(q[0], q[1], q[2]));
+
+              auto res = pg::cuda_photon_store_query(photons, qs, radius,
+                                                     max_neighbors);
+              // Return one tuple per query:
+              //   (irradiance[3], neighbor_indices[list], found_count)
+              py::list out;
+              for (const auto& r : res) {
+                  py::list idx;
+                  for (int v : r.neighborIdx) idx.append(v);
+                  out.append(py::make_tuple(
+                      py::make_tuple(r.irradiance.x, r.irradiance.y, r.irradiance.z),
+                      idx, r.foundCount));
+              }
+              return out;
+          },
+          "points"_a, "powers"_a, "queries"_a, "radius"_a,
+          "max_neighbors"_a = 256,
+          "pkg113 Phase 1: build the GPU photon hash grid and gather at each "
+          "query. Returns [(irradiance(3), neighbor_indices, found_count), ...].");
+#endif
 
     m.def("synchrotron_thermal_emissivity",
           &astroray::synchrotron::jnuThermalI,

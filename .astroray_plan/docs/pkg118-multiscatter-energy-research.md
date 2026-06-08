@@ -120,3 +120,33 @@ VNDF·pr/(4|wo·wm|)`; transmit via the existing `roughTransmissionEval/Pdf` sca
 regression to `test_glass_sphere_caustic`, the prism gates, and the disney-sweep SSIM
 (disney glass is in that scene). The GPU `gpu_disney_sample` mirror must be updated in
 lockstep. Mirror Cycles `bsdf_microfacet.h` (Apache-2.0) for cross-check.
+
+### ATTEMPT 2026-06-08 — "remove the fallthrough" TANKS (the fallthrough is load-bearing)
+
+Implemented exactly the above (clean PBRT-v4 reflect/transmit, correct dielectric
+microfacet reflection `f = D·F·G/(4·cosO)`, NO macro-delta fallthrough, invalid micro
+returns f=0). **Result: the CPU furnace collapsed to 0.000 at every roughness.** Built +
+measured; reverted.
+
+Why: removing the fallthrough kills the glass entirely. The deficit's 80% "fallthrough"
+is dominated by **EXIT** interactions (ray inside the sphere hitting the curved surface
+at grazing → micro-TIR / micro-reflection below the surface → invalid). Without the
+fallthrough those exit samples return f=0 and the path DIES inside the sphere before it
+can escape to the white environment → no light returns. The macro-delta fallthrough was
+keeping those rays alive (giving them a valid continuation direction).
+
+**So the next attempt must NOT just delete the fallthrough.** Two viable directions:
+1. **Fix WHY exit micro-samples are invalid.** On a curved exit at grazing the VNDF
+   microfacet reflection often lands below the geometric surface and the same-hemisphere
+   check rejects it. PBRT-v4 keeps these alive because micro-TIR reflects *off the
+   microfacet* and stays in the lobe; the disney port rejects them. Make the rough
+   reflection produce a valid in-medium TIR reflection (so few samples are invalid),
+   THEN the no-fallthrough estimator conserves.
+2. **Keep the fallthrough but make it energy-CONSISTENT.** The fallthrough's macro-delta
+   pdf must account for the VNDF + R/(R+T) randoms already drawn (MIS-weight it against
+   the rough lobe), instead of the bare `fresnel·transmission`. This is the lower-risk
+   path — it preserves the working ray continuation and only fixes the mis-weighting.
+
+This is a careful multi-step microfacet-dielectric rewrite (instrument exit vs enter
+separately first — the 2026-06-08 DISNEY_DBG `entering` flag was the macro `cosTheta`
+sign, which mislabels exits; use `rec.frontFace`). Best done as a focused session.

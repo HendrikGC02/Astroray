@@ -2,13 +2,16 @@
 
 **Pillar:** 3 (light transport) + 5 (GPU)
 **Track:** A
-**Status:** **Phase 1 DONE** (2026-06-08 — GPU uniform spatial hash-grid photon
-STORE + device fixed-radius query; CUDA-gated unit test vs numpy brute-force oracle
-**4/4 PASS verified on RTX**: neighbor-set match, Jensen Eq.8 irradiance rel-err
-<1e-3, areal-density convergence, empty-region dark). Phases 2 (GPU emission/bounce
-→ deposit into this store) + 3 (integrator gather wiring + SSIM/energy acceptance
-gates vs the CPU photon map) remain. **GPU-gated: do NOT pick up in a CI-only run —
-correctness must be RTX-`/verify`-ed; CI has no GPU and CI-green ≠ correct.**
+**Status:** **Phases 1 + 2 DONE** (2026-06-08/09, both RTX-verified). Phase 1: GPU
+uniform hash-grid photon STORE + device query (4/4 PASS vs numpy oracle). Phase 2: GPU
+photon EMISSION + bounce → deposit (forward Snell/Schlick/per-λ Sellmeier/TIR port of
+`light_tracer_caustic.cpp` general path; flat-prism 2-face stays CPU) — **3/3 PASS on
+RTX** vs a numpy float64 oracle (energy ±5%, centroid <0.05·r, RMS ±15%, dispersion
+band >100nm). **Phase 3 remains:** wire the device `photonGridGather` into the GPU
+integrator at receiver hits (mirror pkg111), drive emission from the uploaded scene,
+re-run the prism + glass-sphere acceptance scenes on GPU with the **visual PNG check**
++ the GPU-vs-CPU SSIM≥0.97 / energy parity gate. **GPU-gated: do NOT pick up in a
+CI-only run — correctness must be RTX-`/verify`-ed; CI has no GPU and CI-green ≠ correct.**
 **Estimated effort:** L (~3–4 weeks, multiple RTX sessions)
 **Depends on:** pkg109 (photon-map kd-tree, done), pkg110 (BSDF photon bounce, done),
 **pkg111** (CPU k-NN gather into the default path — do FIRST). The caustics-fork is
@@ -78,6 +81,17 @@ algorithm invented.
   core, or the gates can't run.
 
 ### Phase 2 — GPU photon emission + bounce
+**Status: implemented (branch `feat/pkg113-gpu-photon-emission`, 2026-06-08 — awaiting
+RTX `/verify`).** Device kernel `kEmitPhotons` (`src/gpu/photon_emission.cu`) +
+host-callable `cuda_photon_emit_sphere` (`include/astroray/gpu_photon_emit.h`) +
+`_gpu_photon_emit_sphere` pybind. Parity test `tests/test_gpu_photon_emission.py`
+(CUDA-gated) compares the GPU deposit set to a numpy float64 oracle of the identical
+math (same jittered aperture lattice, Sellmeier IOR, Schlick transmittance, CIE-CMF
+table) by aggregate bounds: total Y-energy ±5 %, Y-weighted centroid < 0.05·radius,
+radial RMS extent ±15 %. **Flat-prism decision: stays CPU** (the general loop covers
+the glass sphere + any solid/curved caster; the 2-face path needs host-side geometry
+classification not uploaded to GPU and scatters into chromatic noise on a flat caster
+— research note + `gpu_photon_emit.h` header). NOTE: not yet RTX-built/verified.
 - Port the deterministic refraction loop (`light_tracer_caustic.cpp` general path) to
   a device kernel: Snell + Schlick-Fresnel, enter/exit from the geometric-normal sign,
   per-λ `iorAt` (reuse pkg64-gpu Sellmeier upload), TIR; deposit per-λ CIE flux into

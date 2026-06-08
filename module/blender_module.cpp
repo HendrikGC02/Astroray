@@ -45,6 +45,7 @@
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include "astroray/gpu_renderer.h"
 #  include "astroray/gpu_photon_store.h"   // pkg113 Phase 1 — GPU photon store query
+#  include "astroray/gpu_photon_emit.h"    // pkg113 Phase 2 — GPU photon emission/bounce
 #  ifdef ASTRORAY_WAVEFRONT_CUDA_N3
 #    include "../src/gpu/wavefront/gpu_wavefront_snapshot.h"
 #  endif
@@ -2502,6 +2503,60 @@ PYBIND11_MODULE(astroray, m) {
           "max_neighbors"_a = 256,
           "pkg113 Phase 1: build the GPU photon hash grid and gather at each "
           "query. Returns [(irradiance(3), neighbor_indices, found_count), ...].");
+
+    // pkg113 Phase 2 — GPU photon EMISSION + BOUNCE parity binding. Forward-
+    // traces a batch of collimated-sun photons through a single glass sphere
+    // (Snell + Schlick-Fresnel + enter/exit from the geometric-normal sign +
+    // per-λ Sellmeier iorAt + TIR) and returns the surviving per-λ CIE-weighted
+    // deposit set — the GPhotons Phase 1's store ingests. Validated against a
+    // numpy float64 oracle (identical math, same jittered aperture lattice) by
+    // tests/test_gpu_photon_emission.py with AGGREGATE energy/position bounds
+    // (the flat-prism 2-face path stays CPU — see gpu_photon_emit.h).
+    m.def("_gpu_photon_emit_sphere",
+          [](const std::array<float, 3>& center, float radius,
+             const std::array<float, 6>& sellmeier, float flat_ior,
+             bool is_dispersive,
+             const std::array<float, 3>& sun_dir,
+             const std::array<float, 3>& aperture_center, float aperture_radius,
+             float receiver_y, int aperture_n,
+             float lambda_min, float lambda_max, int max_depth) {
+              namespace pe = astroray::photon::gpu;
+              pe::PhotonEmitSphereScene sc;
+              sc.sphereCenter   = GVec3(center[0], center[1], center[2]);
+              sc.sphereRadius   = radius;
+              sc.dispersion     = GDispersion{sellmeier[0], sellmeier[1],
+                                              sellmeier[2], sellmeier[3],
+                                              sellmeier[4], sellmeier[5]};
+              sc.flatIor        = flat_ior;
+              sc.isDispersive   = is_dispersive;
+              sc.sunDir         = GVec3(sun_dir[0], sun_dir[1], sun_dir[2]);
+              sc.apertureCenter = GVec3(aperture_center[0], aperture_center[1],
+                                        aperture_center[2]);
+              sc.apertureRadius = aperture_radius;
+              sc.receiverY      = receiver_y;
+              sc.apertureN      = aperture_n;
+              sc.lambdaMin      = lambda_min;
+              sc.lambdaMax      = lambda_max;
+              sc.maxDepth       = max_depth;
+
+              auto deposits = pe::cuda_photon_emit_sphere(sc);
+              // Return one tuple per surviving deposit:
+              //   (position[3], power_xyz[3], lambda)
+              py::list out;
+              for (const auto& dpt : deposits) {
+                  out.append(py::make_tuple(
+                      py::make_tuple(dpt.position.x, dpt.position.y, dpt.position.z),
+                      py::make_tuple(dpt.power.x, dpt.power.y, dpt.power.z),
+                      dpt.lambda));
+              }
+              return out;
+          },
+          "center"_a, "radius"_a, "sellmeier"_a, "flat_ior"_a,
+          "is_dispersive"_a, "sun_dir"_a, "aperture_center"_a,
+          "aperture_radius"_a, "receiver_y"_a, "aperture_n"_a,
+          "lambda_min"_a = 380.f, "lambda_max"_a = 720.f, "max_depth"_a = 12,
+          "pkg113 Phase 2: forward-trace photons through a glass sphere and "
+          "return the GPhoton deposit set [(position(3), power_xyz(3), lambda), ...].");
 #endif
 
     m.def("synchrotron_thermal_emissivity",

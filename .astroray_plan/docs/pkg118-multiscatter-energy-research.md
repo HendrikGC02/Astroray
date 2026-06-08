@@ -150,3 +150,32 @@ keeping those rays alive (giving them a valid continuation direction).
 This is a careful multi-step microfacet-dielectric rewrite (instrument exit vs enter
 separately first — the 2026-06-08 DISNEY_DBG `entering` flag was the macro `cosTheta`
 sign, which mislabels exits; use `rec.frontFace`). Best done as a focused session.
+
+### ATTEMPT 2026-06-08 (#2) — wo-facing VNDF + dielectric reflection f: furnace UNCHANGED → leak is INTEGRATOR-level
+
+Re-instrumented with the correct `rec.frontFace` enter/exit. **Decisive data at R=0.05:**
+at EXIT `refl_ok=0`, `fall<refl=1,062,716` — **100% of exit rough reflections failed the
+same-hemisphere side-check and fell through.** Root: `sampleGgxVNDF` built its frame from
+`rec.normal`, which does NOT face `wo` at an exit interaction, so it sampled microfacets
+on the wrong side. Fixed it (wo-facing frame `wrec.normal = -rec.normal` when
+`wo·rec.normal < 0` + the correct dielectric microfacet reflection `f = D·F·G/(4·cosO)`
+instead of the disney spec lobe). Built + measured.
+
+**Result: the CPU furnace is BIT-IDENTICAL (0.7712, 0.8145, …).** Exit `refl_ok` rose
+0 → 254K (the fix took effect) but the furnace did not move. Fixing the exit reflection
+is **energy-neutral** — the fallthrough already reflected that energy back into the glass
+with equivalent throughput. **So the leak is NOT in the exit reflection and NOT in the
+BSDF `sample()` per-event throughput** (all measured avg_tp are sensible and ≈ the
+smooth-delta values).
+
+**Boundary this session establishes:** the deficit is in the **entering through-
+transmission path**, is **converged** (`..._converges` passes — systematic, not
+fireflies/clamping), and survives FOUR correct fixes (Part A; Kulla-Conty table; furnace-
+calibrated table; wo-facing VNDF + dielectric reflection f). **Next lead = INTEGRATOR
+level, not the BSDF.** Rough successes set `isDelta=false` while smooth/fallthrough set
+`isDelta=true`; the path integrator (`include/raytracer.h`) likely treats `isDelta` paths
+differently (MIS weight / pdf use / russian-roulette), and a furnace ray through rough
+glass is a MIX of the two. Investigate that branch by stepping a rough vs a smooth furnace
+ray through the path loop. The disney `sample()` is ruled out. (The wo-facing-VNDF +
+dielectric-reflection-f fix is correct but furnace-neutral + carries disney-sweep/caustic
+regression risk, so it was not landed alone; re-apply it with the integrator fix.)

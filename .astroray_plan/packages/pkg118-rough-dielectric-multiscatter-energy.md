@@ -3,16 +3,16 @@
 **Pillar:** 2 (materials / BSDF correctness)
 **Track:** A (CPU-gated; furnace test runs on CI — no GPU needed)
 **Codex-paste-ready:** no (numerical precompute + furnace verification)
-**Status:** open — RE-SCOPED 2026-06-08. Part A (forced-TIR pdf) landed (correct,
-gate-neutral). **Part B (Kulla-Conty compensation table) REJECTED — the diagnosis
-below is incomplete:** the furnace deficit is worst at LOW roughness (not single-scatter
-masking), and compensating the rough-transmission lobe AND the rough→delta fallthrough
-moves R=0.1 only 0.815→0.823. The real defect is the **CPU bespoke RGB `disney_sample`
-diverging from the energy-conserving GPU spectral closure path** (GPU furnace R=0.1 =
-0.956 vs CPU 0.823). Re-scope: match the CPU rough Disney glass to the closure-path
-dielectric formulation, NOT a compensation table. Full analysis:
+**Status:** ✅ **DONE 2026-06-08.** The deficit was NOT missing multi-scatter (Part B
+Kulla-Conty correctly REJECTED) — it was the **CPU twin of the #404 GPU glass-dark bug**:
+`raytracer.h` `Material::sampleSpectral` upsampled the glass throughput through
+`RGBAlbedoSpectrum`, whose Jakob-Hanika ALBEDO LUT clamps rgb>1 to 1, clipping the exit
+refraction's **eta²=2.25** radiance recovery. Fix = factor the >1 magnitude out as a flat
+spectral scalar (same as PR #404 on GPU). CPU furnace 0.77/0.82/0.92/0.97/0.96 →
+0.89/0.94/1.00/1.00/1.00; `test_disney_rough_glass_furnace_energy_cpu` **un-xfailed and
+PASSES** [0.92,1.03]; no regressions. Part A (forced-TIR pdf) also landed. Full diagnosis
+(5 ruled-out approaches → per-bounce ray trace):
 [`pkg118-multiscatter-energy-research.md`](../docs/pkg118-multiscatter-energy-research.md).
-Keep the `test_disney_rough_glass_furnace_energy_cpu` xfail.
 **Depends on:** none. Extends the existing `DisneyEnergyCompensationTables` (pkg60).
 **Estimated effort:** M (a precompute pass + apply + furnace re-gate)
 

@@ -6,6 +6,39 @@
 **Outcome:** Part A (forced-TIR pdf) landed; **Part B (Kulla-Conty compensation table)
 is a DEAD-END — the spec's diagnosis is incomplete.** pkg118 stays OPEN, re-scoped.
 
+---
+
+## ✅ RESOLVED 2026-06-08 — the bug was an eta² ALBEDO-LUT CLAMP, not missing multi-scatter
+
+The deficit was **the CPU twin of the #404 GPU glass-dark bug**, NOT multiple scattering.
+`raytracer.h` `Material::sampleSpectral` upsampled the glass throughput `bs.f` through
+`RGBAlbedoSpectrum`, whose Jakob-Hanika **ALBEDO** LUT **clamps rgb>1 to 1**. The exit
+refraction carries the radiance-recovery factor **eta²=2.25** (`baseColor·η²`), which was
+therefore clipped to 1.0 — silently darkening every transmissive glass path.
+
+**The fix** (the same one PR #404 applied on the GPU): factor any >1 magnitude out as a
+flat spectral scalar and upsample only the normalized [0,1] tint —
+`f_spectral = RGBAlbedoSpectrum(f/maxc)·maxc`. Applied to both the delta and the rough
+(non-delta) branches of `sampleSpectral`.
+
+**Measured furnace (CPU, 256 spp), before → after:**
+
+| R | 0.05 | 0.10 | 0.30 | 0.60 | 1.00 |
+|---|------|------|------|------|------|
+| before | 0.771 | 0.815 | 0.921 | 0.967 | 0.958 |
+| **after** | 0.886 | 0.937 | **1.000** | **1.000** | **1.000** |
+
+Smooth glass stays 1.000 (no overshoot); the regression suite (caustics / dielectric /
+disney-sweep / prism) is unchanged. The gate `test_disney_rough_glass_furnace_energy_cpu`
+is **un-xfailed and PASSES** at [0.92,1.03] (the residual R=0.05–0.1 low-α sag matches the
+GPU's own 0.905/0.956 and is accepted by the GPU gate's [0.90,1.06]). Why every prior
+attempt missed it: the disney `sample()` per-event throughputs were all correct (the bug
+was one layer up, in the RGB→spectral wrapper), and the clamp hit a `>1` value so it was
+invisible to any [0,1]-albedo reasoning. The decisive diagnostic was the **per-bounce ray
+trace** (b1 exit `f.Y` jumped 1.0→2.25×unit once the factor-out was applied). The full
+trail below (5 ruled-out approaches → threshold-step → integrator candidates → per-bounce
+trace) is kept as the diagnosis record.
+
 ## Baseline (256 spp, ior 1.5, reproduced 2026-06-08)
 
 | R | 0.05 | 0.10 | 0.30 | 0.60 | 1.00 |

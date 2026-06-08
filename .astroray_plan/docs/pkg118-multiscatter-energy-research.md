@@ -150,3 +150,93 @@ keeping those rays alive (giving them a valid continuation direction).
 This is a careful multi-step microfacet-dielectric rewrite (instrument exit vs enter
 separately first — the 2026-06-08 DISNEY_DBG `entering` flag was the macro `cosTheta`
 sign, which mislabels exits; use `rec.frontFace`). Best done as a focused session.
+
+### ATTEMPT 2026-06-08 (#2) — wo-facing VNDF + dielectric reflection f: furnace UNCHANGED → leak is INTEGRATOR-level
+
+Re-instrumented with the correct `rec.frontFace` enter/exit. **Decisive data at R=0.05:**
+at EXIT `refl_ok=0`, `fall<refl=1,062,716` — **100% of exit rough reflections failed the
+same-hemisphere side-check and fell through.** Root: `sampleGgxVNDF` built its frame from
+`rec.normal`, which does NOT face `wo` at an exit interaction, so it sampled microfacets
+on the wrong side. Fixed it (wo-facing frame `wrec.normal = -rec.normal` when
+`wo·rec.normal < 0` + the correct dielectric microfacet reflection `f = D·F·G/(4·cosO)`
+instead of the disney spec lobe). Built + measured.
+
+**Result: the CPU furnace is BIT-IDENTICAL (0.7712, 0.8145, …).** Exit `refl_ok` rose
+0 → 254K (the fix took effect) but the furnace did not move. Fixing the exit reflection
+is **energy-neutral** — the fallthrough already reflected that energy back into the glass
+with equivalent throughput. **So the leak is NOT in the exit reflection and NOT in the
+BSDF `sample()` per-event throughput** (all measured avg_tp are sensible and ≈ the
+smooth-delta values).
+
+**Boundary this session establishes:** the deficit is in the **entering through-
+transmission path**, is **converged** (`..._converges` passes — systematic, not
+fireflies/clamping), and survives FOUR correct fixes (Part A; Kulla-Conty table; furnace-
+calibrated table; wo-facing VNDF + dielectric reflection f). **Next lead = INTEGRATOR
+level, not the BSDF.** Rough successes set `isDelta=false` while smooth/fallthrough set
+`isDelta=true`; the path integrator (`include/raytracer.h`) likely treats `isDelta` paths
+differently (MIS weight / pdf use / russian-roulette), and a furnace ray through rough
+glass is a MIX of the two. Investigate that branch by stepping a rough vs a smooth furnace
+ray through the path loop. The disney `sample()` is ruled out. (The wo-facing-VNDF +
+dielectric-reflection-f fix is correct but furnace-neutral + carries disney-sweep/caustic
+regression risk, so it was not landed alone; re-apply it with the integrator fix.)
+
+### Integrator leads checked 2026-06-08 (both ruled out — they hit rough AND smooth equally)
+
+- **env-on-escape gate** (`raytracer.h:2344` `if (bounce <= worldMaxBounces)`): `worldMaxBounces`
+  defaults to **1024**, so rough rays that take many internal bounces still get the background.
+  NOT the leak.
+- **`sampleSpectral` delta/non-delta split** (`raytracer.h:583`): delta uses
+  `RGBAlbedoSpectrum(bs.f)`, non-delta re-evals via `evalSpectral`. For the rough refraction
+  `bs.f == eval() == roughTransmissionEval`, so the two are numerically equal. And the
+  `RGBAlbedoSpectrum`/Jakob-Hanika ALBEDO path DOES clamp rgb>1 (LUT index clamp,
+  `spectrum.cpp:399-401`) — clipping the exit η²≈2.25 (the CPU analog of the #404 GPU bug) —
+  BUT this clamp hits the smooth-delta exit (`bs.f = η²`) and the rough exit equally, so it
+  is not the rough-vs-smooth differentiator. (It IS worth fixing on its own — factor the >1
+  scale out as a flat spectral scalar like #404 did on GPU — but it won't explain 0.77 vs 0.97.)
+
+**DEFINITIVE NEXT STEP:** stop hypothesizing mechanisms (every one found so far affects rough
+and smooth identically). Instrument the **per-bounce throughput of ONE rough vs ONE smooth
+furnace ray** (same seed, log `throughput`, `bss.f_spectral` luminance, `bss.pdf`, `isDelta`,
+hit point at each bounce until escape) and find the exact bounce where they diverge. That is
+the only remaining way to localize a loss that is invisible to per-event-type aggregates.
+
+### DECISIVE: sharp threshold step (2026-06-08) — the rough branch loses 22% at flat microfacets
+
+Furnace vs roughness right at `kDeltaTransmissionRoughness=0.03`:
+
+| R | 0.025 | 0.029 | 0.031 | 0.04 | 0.05 |
+|---|-------|-------|-------|------|------|
+| CPU furnace | 0.995 | 0.995 | 0.771 | 0.771 | 0.771 |
+
+At R=0.031 α is clamped to 0.0064 (microfacets essentially FLAT — physically identical to the
+smooth delta), yet the furnace drops 0.995 → 0.771 **the instant the rough VNDF branch is
+entered**. So the 22% loss is a DISCRETE code-path effect of entering the rough branch, not
+roughness/physics. And the algebra rules out the rough successes alone: 80% of rough samples
+hit the byte-identical fallthrough-delta, so `0.8·0.995 + 0.2·X = 0.771 ⇒ X < 0` (impossible)
+— the fallthrough-delta must NOT behave like the smooth delta despite running the same code.
+The only differences when the delta path is reached via the rough branch vs directly are
+(a) the RNG state (3 extra draws: 2 VNDF + 1 R/(R+T) selection) and (b) the rough successes'
+`isDelta=false` spectral-wrapper path. **Per-bounce ray trace (rough R=0.031 vs smooth R=0.029,
+same seed) is the next step and should now nail it in one build.** This is the tightest the
+problem has been bounded; the fix is close.
+
+### Final integrator candidates (2026-06-08) — all appear unbiased; per-bounce trace will decide
+
+Read the full `pathTraceSpectral` loop (`raytracer.h:2338-2490`). Two mechanisms treat rough
+rays differently from smooth, because **rough rays take more bounces to escape the sphere**
+(rough scatter + internal TIR) while smooth escapes in ~2:
+- **Russian Roulette** (`raytracer.h:2446-2451`, `rrDepth=3`): kills paths after bounce 3 with
+  survival `p=min(0.95, throughput.Y)`; survivors get `throughput*=1/p`. Smooth escapes at
+  bounce ≤3 → never RR'd; rough escapes at bounce >3 → RR'd. **Appears unbiased** (the 1/p
+  compensation is exact), but it is the FIRST place rough and smooth structurally diverge.
+- **`throughput *= f / (pdf + 0.001f)`** (`raytracer.h:2485`): the 0.001 epsilon biases
+  small-pdf events low. Negligible for the smooth delta (pdf~0.96) but compounds over the
+  rough path's extra bounces — check the actual `roughTransmissionPdf`/`delta_refl` pdf
+  magnitudes in the trace.
+
+Every analytical lead this session has turned out unbiased/equal-for-both — which means the
+22% loss is a subtle value error invisible to aggregates. **The per-bounce ray trace
+(instrument `pathTraceSpectral`: log `bounce, mat, isDelta, bss.f_spectral.Y, bss.pdf,
+throughput.Y, RR-kill, escape contribution` for ONE centre ray gated on `screenU/V≈0.5`;
+run rough R=0.05 vs smooth R=0.029 single-threaded; diff the logs) is the decisive next step
+and should localize it in ONE build.** Start a fresh focused session here.

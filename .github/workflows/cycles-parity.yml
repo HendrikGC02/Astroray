@@ -37,7 +37,7 @@ jobs:
           scenes="${{ github.event.inputs.scenes || '' }}"
           engines="${{ github.event.inputs.engines || '' }}"
           if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-            scenes="cornell,classroom"
+            scenes="cornell"
             engines=""
           fi
           scene_args=""

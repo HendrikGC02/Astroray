@@ -1,5 +1,12 @@
 # Cycles Parity Benchmark
 
+> **2026-06-08:** the Blender Foundation demo scenes (Classroom, BMW27, Junkshop,
+> UDIM_monster) were **removed** — they ship from old Blender versions, load/render
+> incorrectly under current Blender/Cycles, and the Classroom reference render was
+> broken. Only the self-authored `cornell` control scene remains. The harness below
+> is retained (it runs cornell); re-introduce a demo scene by adding a pinned
+> `[[scene]]` block to `scenes/manifest.toml` with a current-Blender reference EXR.
+
 pkg71 provides a reproducible harness for comparing Astroray CPU/GPU output
 against Cycles CPU/CUDA on a small Blender demo scene matrix. It records
 quality as SSIM against a Cycles-CPU EXR reference and records timing/memory

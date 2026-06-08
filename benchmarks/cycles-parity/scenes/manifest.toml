@@ -1,47 +1,11 @@
-# Scene metadata for pkg71. Downloaded archives live in scenes/cache/ and are
-# intentionally not committed. SHA-256 values set to "pending" are refused by
-# the fetcher unless --allow-unpinned is passed; pin them after the first
-# audited download from the canonical source.
-
-[[scene]]
-id = "classroom"
-name = "Classroom"
-author = "Christophe Seux"
-license = "CC0-1.0"
-url = "https://download.blender.org/demo/test/classroom.zip"
-sha256 = "pending"
-archive = "classroom.zip"
-reference_spp = 300
-resolution = [1920, 1080]
-attribution = "Classroom by Christophe Seux, CC0-1.0, https://download.blender.org/demo/test/classroom.zip"
-
-# Monster (UDIM_monster.blend) was dropped in pkg76 — it ships as a paint /
-# UDIM rig without a render camera, and Cycles itself errors on it with
-# "RuntimeError: Error: Cannot render, no camera". The four-scene set
-# (Cornell + Classroom + Junkshop + BMW27) covers indoor lighting, dense
-# props, and HDRI studio; a hero-render replacement is a future package.
-# See pkg76 spec §"Monster Scene Decision".
-
-[[scene]]
-id = "junkshop"
-name = "Junkshop"
-author = "Alex Trevino"
-license = "CC-BY-4.0"
-url = "https://download.blender.org/demo/test/junkshop.zip"
-sha256 = "pending"
-archive = "junkshop.zip"
-reference_spp = 240
-resolution = [2000, 1000]
-attribution = "Junkshop by Alex Trevino, CC-BY-4.0, Blender Foundation demo files"
-
-[[scene]]
-id = "bmw27"
-name = "BMW27"
-author = "Mike Pan"
-license = "CC-BY-3.0"
-url = "https://download.blender.org/demo/test/BMW27.blend.zip"
-sha256 = "pending"
-archive = "BMW27.blend.zip"
-reference_spp = 1024
-resolution = [1920, 1080]
-attribution = "BMW27 by Mike Pan, CC-BY-3.0, https://download.blender.org/demo/test/BMW27.blend.zip"
+# Scene metadata for the Cycles-parity benchmark (pkg71).
+#
+# The downloadable Blender Foundation demo scenes (Classroom, BMW27, Junkshop,
+# UDIM_monster) were REMOVED 2026-06-08: they ship from old Blender versions,
+# load/render incorrectly under current Blender/Cycles, and the Classroom
+# reference render was broken. The only remaining parity scene is the
+# self-authored `cornell` (defined directly in scripts/run_parity.py, not here).
+#
+# To re-introduce a demo scene in future, add a [[scene]] block here with a
+# pinned sha256 and a current-Blender-rendered reference EXR. Archives download
+# into scenes/cache/ (gitignored) via scenes/scripts/fetch_scenes.py.

@@ -5,6 +5,8 @@
 #include "astroray/gpu_renderer.h"
 #include "astroray/gpu_scene_upload.h"
 #include "astroray/gpu_types.h"
+#include "astroray/gpu_photon_store.h"     // pkg113 Phase 3: GPhotonGrid
+#include "astroray/gpu_photon_caustic.h"   // pkg113 Phase 3: scene-driven pre-pass
 #include "raytracer.h"
 #include "advanced_features.h"
 #include "profile.h"  // pkg55-A: env-gated NVTX ranges around upload + render
@@ -48,6 +50,8 @@ void launchPathTraceKernel(
     GCameraParams cam,
     float filmExposure,
     GVec3 backgroundColor, bool hasBackgroundColor,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
+    float photonScale,                                                   // pkg113 Phase 3
     curandState* d_rngStates,
     float* d_cryptoObjectBuffer = nullptr,      // pkg87b
     float* d_cryptoMaterialBuffer = nullptr,    // pkg87b
@@ -90,6 +94,8 @@ void launchMultiwavelengthKernel(
     GEnvMap envMap,
     GCameraParams cam,
     GVec3 backgroundColor, bool hasBackgroundColor,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
+    float photonScale,                                                   // pkg113 Phase 3
     curandState* d_rngStates);
 
 // ---------------------------------------------------------------------------
@@ -512,6 +518,55 @@ void CUDARenderer::uploadEnvironmentMap(const EnvironmentMap& envMap) {
     impl->envMap.loaded          = true;
 }
 
+// pkg113 Phase 3 — build the forward-photon aperture aim from the CPU Renderer,
+// mirroring the host setup in spectral_path_tracer.cpp::buildPhotonMap (l.346-368):
+// union AABB of flagged caustic casters → centroid + radius; collimated sun
+// direction → an aperture disc upstream of the casters. Returns aim.valid=false
+// when there are no casters or no lights (the pre-pass is then skipped).
+static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
+    const Renderer& scene, int maxDepth) {
+    astroray::photon::gpu::PhotonCausticAim aim{};
+    aim.valid = false;
+    aim.lambdaMin = 380.0f;
+    aim.lambdaMax = 720.0f;
+    aim.maxDepth  = maxDepth;
+    aim.boost     = 1.2f;   // CPU caustic_boost default (spectral_path_tracer.cpp:499)
+    aim.photonCount = 4000000;  // forward photons (≈2000² lattice); CPU traces 3e6
+
+    // Union AABB of all flagged caustic-caster objects.
+    AABB casterBounds; bool any = false;
+    for (const auto& obj : scene.getScene()) {
+        if (!obj || !obj->isCausticCaster()) continue;
+        AABB ob;
+        if (!obj->boundingBox(ob)) continue;
+        casterBounds = any ? casterBounds.merge(ob) : ob;
+        any = true;
+    }
+    if (!any) return aim;
+
+    const Vec3 casterC = casterBounds.centroid();
+    const float crad = (casterBounds.max - casterBounds.min).length() * 0.55f + 1e-3f;
+
+    const auto& lights = scene.getLights();
+    if (lights.empty()) return aim;
+
+    // Probe one light sample toward the caster centroid to get the sun direction
+    // (CPU :356-362). A fixed seed keeps the aim deterministic frame-to-frame.
+    std::mt19937 gen(12345u);
+    astroray::SampledWavelengths probe = astroray::SampledWavelengths::sampleUniform(0.5f);
+    LightSample ls;
+    lights.sample(ls, casterC, Vec3(0, 1, 0), probe, gen);
+    Vec3 sunDir = (casterC - ls.position).normalized();
+    if (sunDir.length2() < 1e-6f) return aim;
+
+    Vec3 origin0 = casterC - sunDir * (crad + 2.0f);
+    aim.sunDir         = GVec3(sunDir.x, sunDir.y, sunDir.z);
+    aim.apertureOrigin = GVec3(origin0.x, origin0.y, origin0.z);
+    aim.apertureRadius = crad;
+    aim.valid = true;
+    return aim;
+}
+
 void CUDARenderer::render(
     std::vector<Vec3>& pixels, int width, int height,
     int seed, int samplesPerPixel, int maxDepth,
@@ -643,6 +698,34 @@ void CUDARenderer::render(
     // the CPU integrator convention — per-vertex SMS attempt checks both).
     bool useCaustics = use_refractive_caustics && use_reflective_caustics;
 
+    // pkg113 Phase 3: scene-driven photon-map caustic pre-pass. When refractive
+    // caustics are on and the uploaded scene has flagged caster glass, forward-
+    // trace photons through it, build a resident hash grid, and hand the grid +
+    // calibrated brightness scale to the megakernel (it gathers at receiver hits).
+    // Mirrors the CPU pkg111 beginFrame pre-pass + sampleFull gather. Gated on the
+    // refractive flag alone (the photon map is the canonical GPU caustic path —
+    // parity doc Decisions §1 — independent of the SMS reflective flag).
+    astroray::photon::gpu::GPhotonCausticResult caustic{};
+    caustic.ready = false;
+    if (use_refractive_caustics && impl->hostRenderer) {
+        astroray::photon::gpu::PhotonCausticAim aim =
+            buildCausticAim(*impl->hostRenderer, maxDepth);
+        if (aim.valid) {
+            astroray::gpu_profile::NvtxRange _nvtx_pm("pkg113 photon caustic pre-pass");
+            caustic = astroray::photon::gpu::cuda_photon_caustic_build(
+                impl->d_bvhNodes, impl->d_prims, impl->d_triangles,
+                impl->d_spheres, impl->d_materials, aim);
+            if (caustic.ready) {
+                printf("[CUDA] pkg113 photon caustic: %d photons, scale %g\n",
+                       caustic.numPhotons, caustic.scale);
+            }
+        }
+    }
+    // pkg113 / parity doc Decisions §1: the photon map is the canonical GPU
+    // caustic path; SMS-GPU is legacy. When the photon caustic grid is active,
+    // disable the legacy SMS attempt so the caustic is not double-counted.
+    if (caustic.ready) useCaustics = false;
+
     // Launch megakernel
     launchPathTraceKernel(
         impl->d_framebuffer, width, height, samplesPerPixel, maxDepth, useCaustics,
@@ -654,9 +737,13 @@ void CUDARenderer::render(
         impl->camera,
         impl->filmExposure,
         impl->backgroundColor, impl->hasBackgroundColor,
+        caustic.grid, caustic.ready, caustic.scale,  // pkg113 Phase 3
         impl->d_rngStates,
         impl->d_cryptoObjectBuffer, impl->d_cryptoMaterialBuffer,  // pkg87b
         impl->cryptoDepth, impl->cryptomatteEnabled);              // pkg87b
+
+    // pkg113 Phase 3: release the resident photon grid after the render.
+    astroray::photon::gpu::cuda_photon_caustic_free(caustic);
 
     // Copy result back to host
     std::vector<float> hostFb(totalPixels * 3);
@@ -704,6 +791,29 @@ void CUDARenderer::renderMultiwavelength(
     // the CPU integrator convention — per-vertex SMS attempt checks both).
     bool useCaustics = use_refractive_caustics && use_reflective_caustics;
 
+    // pkg113 Phase 3: scene-driven photon-map caustic pre-pass (see render()).
+    // The spectral `path_tracer` routes here, so this is the canonical caustic
+    // path for the dispersive acceptance scenes. Gated on the refractive flag.
+    astroray::photon::gpu::GPhotonCausticResult caustic{};
+    caustic.ready = false;
+    if (use_refractive_caustics && impl->hostRenderer) {
+        astroray::photon::gpu::PhotonCausticAim aim =
+            buildCausticAim(*impl->hostRenderer, maxDepth);
+        if (aim.valid) {
+            astroray::gpu_profile::NvtxRange _nvtx_pm("pkg113 photon caustic pre-pass (MW)");
+            caustic = astroray::photon::gpu::cuda_photon_caustic_build(
+                impl->d_bvhNodes, impl->d_prims, impl->d_triangles,
+                impl->d_spheres, impl->d_materials, aim);
+            if (caustic.ready) {
+                printf("[CUDA] pkg113 photon caustic (MW): %d photons, scale %g\n",
+                       caustic.numPhotons, caustic.scale);
+            }
+        }
+    }
+    // pkg113 / parity doc Decisions §1: photon map supersedes the legacy SMS
+    // attempt; disable SMS when the photon grid is active (no double-count).
+    if (caustic.ready) useCaustics = false;
+
     launchMultiwavelengthKernel(
         impl->d_framebuffer, width, height, samplesPerPixel, maxDepth,
         lambdaMin, lambdaMax, useLuminanceOutput, enableNEE, useCaustics,
@@ -714,7 +824,10 @@ void CUDARenderer::renderMultiwavelength(
         impl->envMap,
         impl->camera,
         impl->backgroundColor, impl->hasBackgroundColor,
+        caustic.grid, caustic.ready, caustic.scale,  // pkg113 Phase 3
         impl->d_rngStates);
+
+    astroray::photon::gpu::cuda_photon_caustic_free(caustic);  // pkg113 Phase 3
 
     std::vector<float> hostFb(totalPixels * 3);
     CUDA_CHECK(cudaMemcpy(hostFb.data(), impl->d_framebuffer,

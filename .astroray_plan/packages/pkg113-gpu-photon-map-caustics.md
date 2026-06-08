@@ -2,16 +2,28 @@
 
 **Pillar:** 3 (light transport) + 5 (GPU)
 **Track:** A
-**Status:** **Phases 1 + 2 DONE** (2026-06-08/09, both RTX-verified). Phase 1: GPU
-uniform hash-grid photon STORE + device query (4/4 PASS vs numpy oracle). Phase 2: GPU
-photon EMISSION + bounce → deposit (forward Snell/Schlick/per-λ Sellmeier/TIR port of
-`light_tracer_caustic.cpp` general path; flat-prism 2-face stays CPU) — **3/3 PASS on
-RTX** vs a numpy float64 oracle (energy ±5%, centroid <0.05·r, RMS ±15%, dispersion
-band >100nm). **Phase 3 remains:** wire the device `photonGridGather` into the GPU
-integrator at receiver hits (mirror pkg111), drive emission from the uploaded scene,
-re-run the prism + glass-sphere acceptance scenes on GPU with the **visual PNG check**
-+ the GPU-vs-CPU SSIM≥0.97 / energy parity gate. **GPU-gated: do NOT pick up in a
-CI-only run — correctness must be RTX-`/verify`-ed; CI has no GPU and CI-green ≠ correct.**
+**Status:** **Phases 1 + 2 DONE** (2026-06-08/09, both RTX-verified). **Phase 3
+IMPLEMENTED** (branch `feat/pkg113-gpu-caustic-gather`, 2026-06-09 — awaiting RTX
+`/verify` + parent visual PNG check). Phase 1: GPU uniform hash-grid photon STORE +
+device query (4/4 PASS vs numpy oracle). Phase 2: GPU photon EMISSION + bounce →
+deposit (forward Snell/Schlick/per-λ Sellmeier/TIR port of `light_tracer_caustic.cpp`
+general path; flat-prism 2-face stays CPU) — **3/3 PASS on RTX**. Phase 3: scene-driven
+photon-caustic PRE-PASS (`src/gpu/photon_caustic.cu`: forward BVH photon trace through
+the uploaded caustic-caster glass → resident hash grid + calibrated radius/scale,
+mirroring the CPU pkg111 `spectral_path_tracer.cpp::buildPhotonMap`) + `photonGridGather`
+wired into BOTH GPU integrators (the spectral `multiwavelength_kernel.cu` path_tracer
+and the RGB `path_trace_kernel.cu`) at the primary receiver hit, adding `albedo·E·scale`
+(the device twin of `sampleFull` l.207-221). Legacy SMS-GPU is disabled when the photon
+grid is active (parity doc Decisions §1, no double-count). Acceptance test
+`tests/test_gpu_caustic_parity.py` (CUDA-gated): glass-sphere GPU-vs-CPU caustic-ROI
+energy parity + SSIM + PNG visual check. **In scope: the glass SPHERE (closed solid,
+general loop correct). OUT of scope on GPU: the flat dispersive PRISM — the GPU general
+loop scatters a flat 2-quad caster into noise (Phase 2 decision; the 2-face port is a
+documented follow-up, xfailed in the test).** SSIM≥0.97 is documented-unreachable for
+the noisy full render (pkg64-gpu retired the identical gate; memory
+`ssim-wrong-gate-for-independent-rng`) — the robust caustic-ROI energy parity + visual
+PNG is the real gate. **GPU-gated: correctness must be RTX-`/verify`-ed + the PNGs
+eyeballed; CI has no GPU and CI-green ≠ correct.**
 **Estimated effort:** L (~3–4 weeks, multiple RTX sessions)
 **Depends on:** pkg109 (photon-map kd-tree, done), pkg110 (BSDF photon bounce, done),
 **pkg111** (CPU k-NN gather into the default path — do FIRST). The caustics-fork is

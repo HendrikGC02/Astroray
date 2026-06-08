@@ -23,6 +23,7 @@
 #include "astroray/gpu_bvh.h"
 #include "astroray/spectrum.h"  // jhEvalSpectrumF + JH LUT accessors (pkg54c)
 #include "astroray/manifold/sms_attempt_device.cuh"  // pkg64-gpu Phase 2
+#include "astroray/gpu_photon_store.h"  // pkg113 Phase 3: GPhotonGrid + photonGridGather
 #include "profile.h"  // pkg55-A: env-gated CUDA-event + NVTX instrumentation
 
 #include <cuda_runtime.h>
@@ -846,6 +847,8 @@ __global__ void multiwavelengthKernel(
     GEnvMap envMap,
     GCameraParams cam,
     GVec3 backgroundColor, bool hasBackgroundColor,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
+    float photonScale,                                                   // pkg113 Phase 3
     curandState* rngStates)
 {
     int pixelIdx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -902,6 +905,30 @@ __global__ void multiwavelengthKernel(
             sample = spectrumToXYZ(rad, lambdas);
         }
 
+        // pkg113 Phase 3: photon-map caustic gather at the primary first hit,
+        // added in XYZ space — the device twin of spectral_path_tracer.cpp::
+        // sampleFull (l.207-221), which re-hits the first surface after the
+        // spectral path trace and adds albedo·E·causticScale to the XYZ. The grid
+        // gather returns E = (1/πr²)Σpower (Jensen 2000 Eq. 8); causticScale folds
+        // the Lambertian 1/π. Only meaningful for the visible-band (XYZ) output.
+        if (hasPhotonGrid && !useLuminanceOutput && photonGrid.numPhotons > 0) {
+            GHitRecord pr;
+            if (gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+                            ray, 0.001f, 1e30f, pr)) {
+                const GMaterial& pmat = materials[pr.materialId];
+                if (pmat.emissionIntensity <= 0.0f) {
+                    GVec3 E; int found = 0;
+                    astroray::photon::gpu::photonGridGather(
+                        photonGrid, pr.point, E, nullptr, 0, found);
+                    if (found > 0) {
+                        GVec3 alb = pmat.baseColor;
+                        sample += GVec3(alb.x * E.x, alb.y * E.y, alb.z * E.z)
+                                  * photonScale;
+                    }
+                }
+            }
+        }
+
         // finiteVecOrZero — replace NaN/Inf with zero (matches CPU).
         sample.x = isfinite(sample.x) ? sample.x : 0.f;
         sample.y = isfinite(sample.y) ? sample.y : 0.f;
@@ -952,6 +979,8 @@ void launchMultiwavelengthKernel(
     GEnvMap envMap,
     GCameraParams cam,
     GVec3 backgroundColor, bool hasBackgroundColor,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
+    float photonScale,                                                   // pkg113 Phase 3
     curandState* d_rngStates)
 {
     int totalPixels    = width * height;
@@ -969,6 +998,7 @@ void launchMultiwavelengthKernel(
             d_lights, numLights, totalLightPower,
             d_smsCasters, numSMSCasters,
             envMap, cam, backgroundColor, hasBackgroundColor,
+            photonGrid, hasPhotonGrid, photonScale,  // pkg113 Phase 3
             d_rngStates);
 
         cudaError_t err = cudaGetLastError();

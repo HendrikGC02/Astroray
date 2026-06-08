@@ -8,12 +8,18 @@
 > [`ROADMAP.md`](ROADMAP.md), full status in [`STATUS.md`](STATUS.md) (the
 > Round 15 Wave 6 section is authoritative for the current state).
 
-> ⚠️ The previous version's top open item was the CPU rough-glass low-α residual.
-> That residual is now **correctly diagnosed as missing multi-scatter energy
-> compensation** (pkg118, not VNDF/low-alpha). pkg104 + pkg117 are **DONE**. The
-> new lead pool is **pkg118 rough-dielectric multi-scatter** (CPU, M, dielectric
-> E precompute) + **pkg64-gpu gate resolution** (RTX owner adjudication) + the
-> standing GPU-gated work (pkg113, pkg116, pkg108, pkg76 Classroom).
+> ⚠️ **UPDATE 2026-06-08:** pkg118 was attempted and **the multi-scatter-table
+> approach is a DEAD-END** (see STATUS.md 2026-06-08 + `pkg118-multiscatter-energy-research.md`).
+> Part A (forced-TIR pdf) landed (PR #415) but is gate-neutral; the furnace deficit is
+> NOT single-scatter masking (it is worst at LOW roughness) — it is the CPU bespoke RGB
+> `disney_sample` diverging from the energy-conserving GPU spectral closure path. pkg118
+> is OPEN, **re-scoped** to a CPU formulation fix and is **no longer a quick CPU win**.
+> The deployable set below (§2) treats pkg118 item 1 as superseded by this finding.
+>
+> The remaining lead pool is **pkg64-gpu gate resolution** (RTX owner adjudication) + the
+> standing GPU-gated work (pkg113 GPU photon-map, pkg116, pkg108, pkg115, pkg76 Classroom).
+> Clean CI-only CPU wins are largely exhausted; the next substantive work is GPU-gated
+> (do on this RTX with hardware verification) or the pkg118 CPU rough-glass rewrite.
 
 ---
 

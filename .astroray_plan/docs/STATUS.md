@@ -1,6 +1,35 @@
 # Astroray Status
 
-**Last updated:** 2026-05-31 (Round 15 Wave 6: pkg104 CPU+cross-engine acceptance closed PRs #407+#410, pkg118 rough-glass root-cause PR #408, pkg64-gpu HW-sweep evidence PR #409, pkg117 nonmesh-to-mesh PR #411).
+**Last updated:** 2026-06-08 (maintenance session: repo cleanup PR #413, gallery render restore PR #414, pkg118 Part A + root-cause re-scope PR #415).
+
+## Maintenance session — cleanup + gallery + pkg118 re-scope (2026-06-08)
+
+**Three PRs (no new package closed): repo hygiene + a pkg118 root-cause correction.**
+
+- **Repo cleanup (PR #413, merged).** Removed 5 worktrees (+15 dead `.git/worktrees`
+  registrations), 22 local + 12 remote branches, 8 stashes. Everything recoverable via
+  `archive/*` tags (pushed to origin) + `cleanup/stash-*` tags + `--binary` patches in
+  `_cleanup_backup_2026-06-08/`. Final state: local/remote = `main` only. Record in
+  `.astroray_plan/docs/archive/repo-cleanup-2026-06-08.md`.
+- **Gallery render restore (PR #414).** Restored the newer `gallery_disney_sweep.png`
+  + `gallery_hdri_world.png` (2026-05-30, showing the fixed clear glass from #402/#404)
+  from the uncommitted gallery stash that predated the cleanup; main had the pre-fix
+  dark-glass renders. `gallery_prism_caustics.png` left as main's (the stash version is
+  a broken black render).
+- **pkg118 — forced-TIR pdf fix + Kulla-Conty table REJECTED (PR #415).** Part A: the
+  forced-TIR delta-reflect pdf was `fresnel*transmission_`; corrected to `transmission_`
+  for deterministic TIR (PBRT-v4 §9.5), CPU + GPU. Correct firefly fix but **gate-neutral**.
+  **Key finding: the spec's Part B (multi-scatter compensation table) is a dead-end.**
+  The furnace deficit is worst at LOW roughness (not single-scatter masking), and
+  compensating the rough-transmission lobe AND the rough→delta fallthrough moves R=0.1
+  only 0.815→0.823. The real defect is the **CPU bespoke RGB `disney_sample` diverging
+  from the energy-conserving GPU spectral closure path** (GPU furnace R=0.1 = 0.956 vs
+  CPU 0.823). pkg118 stays OPEN, re-scoped to a CPU-RGB-vs-closure-path formulation fix;
+  `test_disney_rough_glass_furnace_energy_cpu` xfail kept. Analysis:
+  `.astroray_plan/docs/pkg118-multiscatter-energy-research.md`.
+
+**Owner decisions still pending (unchanged):** pkg64-gpu SMS gate resolution (re-bless
+PSNR ref + xfail-vs-recalibrate SSIM parity — see `pkg64-gpu-hw-sweep-2026-05-31.md`).
 
 ## Round 15 Wave 6 — pkg104 complete + pkg118 filed (2026-05-31)
 

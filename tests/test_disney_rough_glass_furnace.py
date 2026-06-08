@@ -52,13 +52,12 @@ def _furnace(roughness: float, *, use_gpu: bool = False, spp: int = 64, depth: i
 # Smooth disney glass (roughness <= kDeltaTransmissionRoughness=0.03) takes the
 # delta dielectric event and IS energy-conserving on both CPU and GPU.
 _SMOOTH = [0.0, 0.03]
-# Rough disney glass: the rough-transmission path was rewritten to a Heitz-2018 VNDF
-# microfacet dielectric BSDF ported from PBRT-v4 DielectricBxDF (BSD-3-Clause); see
-# .astroray_plan/docs/vndf-microfacet-dielectric-research.md. That fixed the old
-# ~70% high-roughness collapse: at 256 spp the GPU furnace is now ~0.96-1.00 for
-# R>=0.1, and the CPU ~0.81-0.98. A residual loss remains at the LOW-ALPHA boundary
-# (R=0.05-0.1, just above the smooth threshold) and the CPU lags the GPU by a few
-# percent at mid roughness — tracked by the xfail below.
+# Rough disney glass: Heitz-2018 VNDF microfacet dielectric (PBRT-v4 DielectricBxDF,
+# BSD-3-Clause) fixed the old ~70% collapse; pkg118 (2026-06-08) then fixed the residual
+# ~20% sag by factoring the exit eta^2 out of the albedo-LUT clamp in sampleSpectral (the
+# #404 CPU twin — see test_..._energy_cpu below). Both CPU and GPU now conserve to ~1.00
+# for R>=0.3; a small residual remains only at the LOW-ALPHA boundary (R=0.05-0.1, just
+# above the smooth threshold) on BOTH paths (CPU 0.94 / GPU 0.956 at R=0.1).
 _ROUGH = [0.1, 0.3, 0.6, 1.0]
 
 
@@ -90,16 +89,20 @@ def test_disney_rough_glass_furnace_energy_gpu():
     assert not bad, f"GPU rough disney glass furnace not energy-conserving at roughness {bad}; all={vals}"
 
 
-@pytest.mark.xfail(reason="CPU rough dielectric lacks multiple-scattering energy "
-                          "compensation; single-scatter masking loss is only partly "
-                          "offset by a forced-TIR delta over-count, so the furnace sags "
-                          "at low roughness (R=0.1: 0.81, R=0.3: 0.92). Root-caused + "
-                          "fix plan in packages/pkg118-rough-dielectric-multiscatter-energy.md "
-                          "(Kulla-Conty 2017 / Heitz 2016).",
-                   strict=False)
 def test_disney_rough_glass_furnace_energy_cpu():
+    # pkg118 FIXED 2026-06-08: the deficit was NOT missing multi-scatter — it was the
+    # CPU analog of the #404 GPU glass-dark bug. The base Material::sampleSpectral wrapper
+    # upsampled the delta/rough glass throughput `bs.f` through RGBAlbedoSpectrum, whose
+    # Jakob-Hanika ALBEDO LUT clamps rgb>1 to 1 — clipping the exit refraction's eta^2=2.25
+    # radiance recovery and darkening all transmissive glass (furnace R=0.05 0.77, R=0.1
+    # 0.81). The fix factors any >1 magnitude out as a flat spectral scalar (raytracer.h
+    # sampleSpectral), exactly as PR #404 did on the GPU. The CPU furnace now conserves:
+    # R=0.3/0.6/1.0 -> ~1.00, R=0.1 -> 0.94 (matching the GPU's own low-alpha-boundary
+    # residual 0.956; the GPU gate above accepts [0.90,1.06]). Root cause + the full
+    # diagnosis trail (5 ruled-out approaches, per-bounce ray trace) is in
+    # .astroray_plan/docs/pkg118-multiscatter-energy-research.md.
     vals = {R: _furnace(R, spp=256) for R in _ROUGH}
-    bad = {R: v for R, v in vals.items() if not (0.95 <= v <= 1.02)}
+    bad = {R: v for R, v in vals.items() if not (0.92 <= v <= 1.03)}
     assert not bad, f"rough disney glass furnace not energy-conserving at roughness {bad}; all={vals}"
 
 

@@ -581,10 +581,25 @@ public:
         bss.pdf = bs.pdf;
         bss.isDelta = bs.isDelta;
         if (bs.isDelta) {
+            // pkg118 / #404 (CPU analog): the exit refraction carries eta^2=2.25, but the
+            // Jakob-Hanika ALBEDO LUT in RGBAlbedoSpectrum clamps rgb>1 to 1, clipping that
+            // radiance recovery and darkening transmissive glass. Factor the >1 magnitude
+            // out as a flat spectral scalar; upsample only the normalized [0,1] tint.
+            float maxc = std::max(std::max(bs.f.x, bs.f.y), std::max(bs.f.z, 1.0f));
+            Vec3 tint = bs.f * (1.0f / maxc);
             bss.f_spectral = astroray::RGBAlbedoSpectrum(
-                {bs.f.x, bs.f.y, bs.f.z}).sample(lambdas);
+                {tint.x, tint.y, tint.z}).sample(lambdas) * maxc;
         } else {
-            bss.f_spectral = evalSpectral(rec, wo, bs.wi, lambdas);
+            // Same eta^2-clamp guard for the rough (non-delta) glass lobe: the rough
+            // transmission eval also exceeds 1 on exit, and the albedo LUT would clip it.
+            float maxc = std::max(std::max(bs.f.x, bs.f.y), bs.f.z);
+            if (maxc > 1.0f) {
+                Vec3 tint = bs.f * (1.0f / maxc);
+                bss.f_spectral = astroray::RGBAlbedoSpectrum(
+                    {tint.x, tint.y, tint.z}).sample(lambdas) * maxc;
+            } else {
+                bss.f_spectral = evalSpectral(rec, wo, bs.wi, lambdas);
+            }
         }
         return bss;
     }
@@ -633,11 +648,22 @@ public:
         bss.wi = bs.wi;
         bss.pdf = bs.pdf;
         bss.isDelta = bs.isDelta;
+        // pkg118 / #404: factor the exit eta^2 (>1) out so the albedo LUT clamp does not
+        // clip it (see sampleSpectral above for the full rationale).
         if (bs.isDelta) {
+            float maxc = std::max(std::max(bs.f.x, bs.f.y), std::max(bs.f.z, 1.0f));
+            Vec3 tint = bs.f * (1.0f / maxc);
             bss.f_spectral = astroray::RGBAlbedoSpectrum(
-                {bs.f.x, bs.f.y, bs.f.z}).sample(lambdas);
+                {tint.x, tint.y, tint.z}).sample(lambdas) * maxc;
         } else {
-            bss.f_spectral = evalSpectralExt(rec, wo, bs.wi, lambdas);
+            float maxc = std::max(std::max(bs.f.x, bs.f.y), bs.f.z);
+            if (maxc > 1.0f) {
+                Vec3 tint = bs.f * (1.0f / maxc);
+                bss.f_spectral = astroray::RGBAlbedoSpectrum(
+                    {tint.x, tint.y, tint.z}).sample(lambdas) * maxc;
+            } else {
+                bss.f_spectral = evalSpectralExt(rec, wo, bs.wi, lambdas);
+            }
         }
         return bss;
     }

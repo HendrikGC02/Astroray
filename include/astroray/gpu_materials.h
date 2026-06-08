@@ -742,7 +742,10 @@ __device__ inline GBSDFSample gpu_disney_sample(
         if (cannotRef || curand_uniform(rng) < fresnel) {
             s.wi  = n * (2.f * wo.dot(n)) - wo;
             s.f   = GVec3(1.f);
-            s.pdf = fresnel * mat.transmission;
+            // pkg118 Part A: forced-TIR reflection is deterministic (selection prob 1),
+            // so pdf = transmission (not fresnel*transmission). PBRT-v4 §9.5. Mirrors CPU
+            // disney.cpp forced-TIR fix; keeps the bespoke RGB GPU path in lockstep.
+            s.pdf = cannotRef ? mat.transmission : (fresnel * mat.transmission);
         } else {
             GVec3 perp = (wo - n*cosTheta) * (-eta);
             GVec3 para = n * (-sqrtf(fabsf(1.f - perp.length2())));

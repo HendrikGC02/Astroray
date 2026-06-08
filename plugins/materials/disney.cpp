@@ -462,7 +462,13 @@ public:
             if (cannotRefract || dist(gen) < fresnel) {
                 s.wi = n * (2 * wo.dot(n)) - wo;
                 s.f = Vec3(1);
-                s.pdf = fresnel * transmission_;
+                // pkg118 Part A: a forced-TIR reflection is deterministic (selection
+                // probability 1), so pdf = transmission_; only a Fresnel-roulette-selected
+                // reflection keeps the `fresnel` factor. PBRT-v4 §9.5 DielectricBxDF::Sample_f:
+                // reflection pdf = pr/(pr+pt); for TIR pt=0 => pdf=1. The old
+                // `fresnel * transmission_` over-counted forced-TIR throughput by ~1/fresnel
+                // (~21x firefly that masked the single-scatter masking loss).
+                s.pdf = (cannotRefract ? transmission_ : fresnel * transmission_);
             } else {
                 Vec3 perp = (wo - n * cosTheta) * (-eta);
                 Vec3 para = n * (-std::sqrt(std::abs(1 - perp.length2())));

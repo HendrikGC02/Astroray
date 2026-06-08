@@ -432,9 +432,9 @@ __device__ GVec3 tracePathGPU(
         // gathers only at the primary first hit (throughput == 1 there).
         if (photonGrid && !causticGathered && photonGrid->numPhotons > 0) {
             causticGathered = true;
-            GVec3 E; int found = 0;
-            astroray::photon::gpu::photonGridGather(
-                *photonGrid, rec.point, E, nullptr, 0, found);
+            int found = 0;
+            GVec3 E = astroray::photon::gpu::photonGridGatherKnn(
+                *photonGrid, rec.point, 50, 1.1f, found);
             if (found > 0) {
                 GVec3 alb = mat.baseColor;   // Lambertian receiver albedo
                 color += throughput * GVec3(alb.x * E.x, alb.y * E.y, alb.z * E.z)

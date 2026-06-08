@@ -260,9 +260,9 @@ __global__ void kPeakGather(GPhotonGrid grid, int subStride, int subCount,
     if (j >= subCount) return;
     int pi = j * subStride;
     if (pi >= grid.numPhotons) { outPeakY[j] = 0.f; return; }
-    GVec3 e; int found = 0;
-    photonGridGather(grid, grid.photons[pi].position, e, nullptr, 0, found);
-    outPeakY[j] = e.y;   // E already / (π r²) inside photonGridGather
+    int found = 0;
+    GVec3 e = photonGridGatherKnn(grid, grid.photons[pi].position, 50, 1.1f, found);
+    outPeakY[j] = e.y;   // adaptive k-NN cone estimate — same as the megakernel gather
 }
 
 // pkg113 Phase-3: per-photon k-th-nearest distance over the 27-cell neighborhood, so the

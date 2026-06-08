@@ -7,6 +7,8 @@
 #include "astroray/manifold/mesh_caustic.h"    // pkg111: rayTriHit
 
 #include <algorithm>  // pkg111: std::sort, std::min, std::max
+#include <cstdio>     // pkg113 CAUSTIC_DBG
+#include <cstdlib>    // pkg113 CAUSTIC_DBG (getenv)
 #include <cmath>      // pkg111: std::sqrt, std::pow, std::fabs
 #include <limits>     // pkg111: std::numeric_limits
 #include <random>     // pkg111: std::mt19937
@@ -474,6 +476,20 @@ private:
             }
         }
         if (photons.size() < 16) return;
+
+        if (std::getenv("CAUSTIC_DBG")) {
+            Vec3 c(0, 0, 0); float wsum = 0.f;
+            for (const auto& p : photons) { c = c + p.position * p.power.Y; wsum += p.power.Y; }
+            c = c * (1.0f / std::max(wsum, 1e-12f));
+            float rms = 0.f;
+            for (const auto& p : photons) {
+                Vec3 d = p.position - c;
+                rms += p.power.Y * (d.x * d.x + d.z * d.z);
+            }
+            rms = std::sqrt(rms / std::max(wsum, 1e-12f));
+            std::fprintf(stderr, "[CAUSTIC_DBG CPU] n=%zu centroidXZ=(%.3f,%.3f) rmsXZ=%.4f "
+                         "totalY=%.4f\n", photons.size(), c.x, c.z, rms, wsum);
+        }
 
         // Build the kd-tree photon map (Jensen 1996, photon_map.h).
         photonMap_.build(std::move(photons));

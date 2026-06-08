@@ -917,9 +917,9 @@ __global__ void multiwavelengthKernel(
                             ray, 0.001f, 1e30f, pr)) {
                 const GMaterial& pmat = materials[pr.materialId];
                 if (pmat.emissionIntensity <= 0.0f) {
-                    GVec3 E; int found = 0;
-                    astroray::photon::gpu::photonGridGather(
-                        photonGrid, pr.point, E, nullptr, 0, found);
+                    int found = 0;
+                    GVec3 E = astroray::photon::gpu::photonGridGatherKnn(
+                        photonGrid, pr.point, 50, 1.1f, found);
                     if (found > 0) {
                         GVec3 alb = pmat.baseColor;
                         sample += GVec3(alb.x * E.x, alb.y * E.y, alb.z * E.z)

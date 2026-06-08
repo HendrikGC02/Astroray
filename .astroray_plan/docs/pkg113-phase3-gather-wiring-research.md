@@ -198,3 +198,39 @@ gather. KEEP the fixed-radius `photonGridGather` for the phase-1 store unit test
 it). Perf: the gather is per-receiver-pixel in the hot megakernel, so the bounded-K max-array
 (K=50) cost matters — profile. Then the ROI ratio should land in [0.4,2.5] and the PNG show a
 sharp caustic; un-xfail `test_gpu_glass_sphere_caustic_parity`.
+
+---
+
+## UPDATE 2026-06-09 (cont.) — adaptive gather LANDED; remaining issue is the DEPOSITS, not the gather
+
+Implemented the adaptive k-NN cone gather (`photonGridGatherKnn` in gpu_photon_store.h, mirroring
+`estimateIrradiance` exactly: k-th-nearest = local radius, Jensen cone weight kf=1.1, cone-norm)
+and wired it into both megakernels + `kPeakGather` (phase-1's fixed `photonGridGather` kept for
+its pinned unit test). **It did NOT change the ROI (428x) or peak95 (~212K).** So the gather was
+NOT the dominant cause — the deposits themselves lack the CPU's sharp core.
+
+**DECISIVE direct comparison (CAUSTIC_DBG on both backends, same scene):**
+| | n | centroidXZ | **rmsXZ** | totalY |
+|---|---|---|---|---|
+| GPU | 791530 | (0.649, 0.003) | **0.8323** | 184222 |
+| CPU | 648455 | (0.712, 0.003) | **0.1495** | 175944 |
+
+Same total energy, similar count + centroid, but **the GPU caustic deposits are 5.6x more SPREAD**
+(rmsXZ 0.83 vs 0.15; GPU depositExt spans the whole 7x6 floor — wide-angle exit outliers the CPU
+does not have). So the GPU caustic genuinely does not focus like the CPU's.
+
+**This is NOT the gather, calibration, or wiring — it is the EMISSION deposit distribution.** And
+the emission CODE is byte-identical: verified `pc_refract` == CPU `refract` (spectral_path_tracer.cpp:588
+== photon_caustic.cu:90, identical Snell), `pc_iorAt`→1.5 for the dielectric, the geometric-normal
+recovery (`frontFace?n:-n`) == CPU `rec.normal`, the aperture (crad/origin0/sunDir), maxDepth, and
+the TIR-reflect fallback all match. So the divergence is in **the GPU sphere INTERSECTION numerics**
+(`gpu_bvh_hit` entry/exit point + normal precision at/near the rim) **or the jittered-lattice vs
+random aperture sampling** producing wide-angle exit strays.
+
+**NEXT (focused diagnostic):** trace the SAME aperture point through both emitters and log each
+hit point + normal + refracted direction at the sphere entry and exit; find the bounce where the
+GPU exit direction diverges from the CPU. Prime suspects: (1) the GPU sphere-exit intersection
+(ray origin INSIDE the sphere — does `gpu_bvh_hit` pick the correct far root + outward normal?),
+(2) grazing-rim precision. Once the deposits match (rmsXZ ~0.15), the adaptive gather + the
+CPU-median radius already in place should put the ROI in band. The SMS-regression fix + the
+adaptive gather + the CPU-median radius are correct and stay.

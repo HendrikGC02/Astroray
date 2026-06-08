@@ -173,6 +173,65 @@ __device__ inline int photonGridGather(const GPhotonGrid& g, const GVec3& q,
     }
     return written;
 }
+
+// pkg113 Phase-3: ADAPTIVE k-NN + Jensen cone-filter irradiance estimate — the device twin
+// of the CPU photon_map.h estimateIrradiance() (l.89-108), for the caustic gather in the
+// integrators. Unlike photonGridGather (fixed radius, for the Phase-1 parity harness), this
+// uses the k-th-nearest distance AT THE QUERY POINT as the effective radius, so it shrinks in
+// the dense focal core -> a SHARP caustic peak that matches the CPU. The fixed-radius estimate
+// over-smooths the core (flat peak), which mis-calibrates causticScale and inflates the
+// receiver ROI. `g.radius` is the calibrated 1.5*median(kth) cap (CPU maxRadius); the 27-cell
+// neighbourhood (cell size ~ g.radius) contains every photon within it. Returns E (XYZ);
+// foundCount = number of in-radius neighbours.
+__device__ inline GVec3 photonGridGatherKnn(const GPhotonGrid& g, const GVec3& q,
+                                            int K, float kf, int& foundCount) {
+    foundCount = 0;
+    const int KMAX = 64;
+    int kk = (K < KMAX) ? K : KMAX;
+    float bestD2[KMAX];   // the K smallest squared distances
+    int   bestIx[KMAX];   // parallel photon indices
+    int cnt = 0;
+    const float maxR2 = g.radius * g.radius;
+    int base[3];
+    photonToGrid(q, g.bounds, g.gridRes, base);
+    for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+    for (int dx = -1; dx <= 1; ++dx) {
+        int cx = base[0] + dx, cy = base[1] + dy, cz = base[2] + dz;
+        if (cx < 0 || cy < 0 || cz < 0 ||
+            cx >= g.gridRes[0] || cy >= g.gridRes[1] || cz >= g.gridRes[2]) continue;
+        int wantCell = photonCellFlatten(cx, cy, cz, g.gridRes);
+        unsigned int h = photonHash(cx, cy, cz, g.hashSize);
+        int start = g.cellStart[h], count = g.cellCount[h];
+        for (int s = 0; s < count; ++s) {
+            if (g.photonCellId[start + s] != wantCell) continue;
+            int pi = g.photonIndex[start + s];
+            float d2 = (g.photons[pi].position - q).length2();
+            if (d2 >= maxR2) continue;
+            ++foundCount;
+            if (cnt < kk) {
+                bestD2[cnt] = d2; bestIx[cnt] = pi; ++cnt;
+            } else {
+                int mi = 0; float mv = bestD2[0];
+                for (int t = 1; t < kk; ++t) if (bestD2[t] > mv) { mv = bestD2[t]; mi = t; }
+                if (d2 < mv) { bestD2[mi] = d2; bestIx[mi] = pi; }
+            }
+        }
+    }
+    if (cnt == 0) return GVec3(0.f);
+    float r2 = bestD2[0];                       // adaptive radius^2 = the farthest kept
+    for (int t = 1; t < cnt; ++t) if (bestD2[t] > r2) r2 = bestD2[t];
+    if (r2 <= 0.f) return GVec3(0.f);
+    float r = sqrtf(r2);
+    GVec3 sum(0.f);
+    for (int t = 0; t < cnt; ++t) {
+        float w = 1.0f - sqrtf(bestD2[t]) / (kf * r);   // Jensen cone weight (>= 0)
+        sum = sum + g.photons[bestIx[t]].power * w;
+    }
+    float norm = (1.0f - 2.0f / (3.0f * kf)) * 3.14159265358979323846f * r2;
+    if (norm <= 0.f) return GVec3(0.f);
+    return sum / norm;
+}
 #endif  // __CUDACC__
 
 #undef APH_HD

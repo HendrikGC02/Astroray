@@ -201,18 +201,17 @@ def _caustic_roi_energy(img: np.ndarray) -> float:
 # correct). This is the package's acceptance scene.
 # ---------------------------------------------------------------------------
 @pytest.mark.xfail(
-    reason="Phase-3 WIRING lands + SMS regression fixed (opt-in use_photon_caustics) + "
-           "radius now matches the CPU 1.5*median-kth-nearest. REMAINING: the GPU device "
-           "gather (gpu_photon_store.h photonGridGather) is FIXED-RADIUS, but the CPU "
-           "estimateIrradiance (photon_map.h:89-108) is an ADAPTIVE k-NN + cone-filter "
-           "estimate (radius shrinks in the dense focal core -> SHARP peak; cone weight). "
-           "Fixed-radius over-smooths the core -> flat peak -> peak95 too small -> scale "
-           "too large -> the aberration skirt (real, shared with the CPU) rises above the "
-           "ROI's 0.01 floor -> caustic-ROI energy ~430x the CPU's tight speck. (Confirmed "
-           "via CAUSTIC_DBG: identical aperture/emission/normals both sides; deposits "
-           "rmsXZ=0.83; the difference is purely the estimator.) Fix = a SEPARATE adaptive "
-           "k-NN cone gather for the caustic path (keep the fixed-radius photonGridGather "
-           "for the phase-1 store test which pins it). Tracked in the Phase-3 research note.",
+    reason="Phase-3 WIRING lands + 3 fixes done (SMS regression: opt-in use_photon_caustics; "
+           "radius: CPU 1.5*median-kth-nearest; gather: adaptive k-NN cone, photonGridGatherKnn). "
+           "REMAINING is the EMISSION deposit distribution, NOT the gather: CAUSTIC_DBG direct "
+           "comparison shows the GPU caustic deposits are 5.6x more SPREAD than the CPU's "
+           "(rmsXZ 0.83 vs 0.15; same n/centroid/totalY) -> the GPU caustic does not focus -> "
+           "caustic-ROI energy ~430x. The emission CODE is byte-identical (verified pc_refract == "
+           "CPU refract, pc_iorAt->1.5, geometric-normal recovery, aperture, maxDepth, TIR), so the "
+           "divergence is the GPU sphere-INTERSECTION numerics (gpu_bvh_hit entry/exit + rim "
+           "precision) or jittered-lattice vs random aperture sampling. NEXT: per-photon GPU-vs-CPU "
+           "emission trace (find the bounce where the exit dir diverges). Full detail in the "
+           "Phase-3 research note.",
     strict=False,
 )
 def test_gpu_glass_sphere_caustic_parity(test_results_dir):

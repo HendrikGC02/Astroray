@@ -179,3 +179,23 @@ glass is a MIX of the two. Investigate that branch by stepping a rough vs a smoo
 ray through the path loop. The disney `sample()` is ruled out. (The wo-facing-VNDF +
 dielectric-reflection-f fix is correct but furnace-neutral + carries disney-sweep/caustic
 regression risk, so it was not landed alone; re-apply it with the integrator fix.)
+
+### Integrator leads checked 2026-06-08 (both ruled out — they hit rough AND smooth equally)
+
+- **env-on-escape gate** (`raytracer.h:2344` `if (bounce <= worldMaxBounces)`): `worldMaxBounces`
+  defaults to **1024**, so rough rays that take many internal bounces still get the background.
+  NOT the leak.
+- **`sampleSpectral` delta/non-delta split** (`raytracer.h:583`): delta uses
+  `RGBAlbedoSpectrum(bs.f)`, non-delta re-evals via `evalSpectral`. For the rough refraction
+  `bs.f == eval() == roughTransmissionEval`, so the two are numerically equal. And the
+  `RGBAlbedoSpectrum`/Jakob-Hanika ALBEDO path DOES clamp rgb>1 (LUT index clamp,
+  `spectrum.cpp:399-401`) — clipping the exit η²≈2.25 (the CPU analog of the #404 GPU bug) —
+  BUT this clamp hits the smooth-delta exit (`bs.f = η²`) and the rough exit equally, so it
+  is not the rough-vs-smooth differentiator. (It IS worth fixing on its own — factor the >1
+  scale out as a flat spectral scalar like #404 did on GPU — but it won't explain 0.77 vs 0.97.)
+
+**DEFINITIVE NEXT STEP:** stop hypothesizing mechanisms (every one found so far affects rough
+and smooth identically). Instrument the **per-bounce throughput of ONE rough vs ONE smooth
+furnace ray** (same seed, log `throughput`, `bss.f_spectral` luminance, `bss.pdf`, `isDelta`,
+hit point at each bounce until escape) and find the exact bounce where they diverge. That is
+the only remaining way to localize a loss that is invisible to per-event-type aggregates.

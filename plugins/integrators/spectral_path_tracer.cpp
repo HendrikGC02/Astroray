@@ -438,7 +438,14 @@ private:
                     if (rec.material->isTransmissive()) {
                         float ior = rec.material->iorAt(lambda);
                         if (ior <= 1.0f) ior = 1.5f;
-                        const Vec3 ng = rec.normal;
+                        // pkg113: rec.normal is the RAY-ORIENTED normal (Sphere::hit ->
+                        // setFaceNormal flips it to face the ray), NOT the geometric outward
+                        // normal. Recover the geometric outward normal so the enter/exit test
+                        // selects eta=ior at the glass->air exit. The old `ng = rec.normal`
+                        // always took the "entering" branch (eta=1/ior at the exit) — a
+                        // refraction-sign bug that lengthened the focal distance. The GPU
+                        // pre-pass (photon_caustic.cu) already recovers it this way.
+                        const Vec3 ng = rec.frontFace ? rec.normal : -rec.normal;
                         Vec3 nf;
                         float eta;
                         if (d.dot(ng) < 0.0f) {

@@ -234,3 +234,53 @@ GPU exit direction diverges from the CPU. Prime suspects: (1) the GPU sphere-exi
 (2) grazing-rim precision. Once the deposits match (rmsXZ ~0.15), the adaptive gather + the
 CPU-median radius already in place should put the ROI in band. The SMS-regression fix + the
 adaptive gather + the CPU-median radius are correct and stay.
+
+---
+
+## RESOLUTION 2026-06-09/10 — the diagnosis above was INVERTED. The GPU was correct; the CPU reference had an exit-refraction sign bug.
+
+A matched per-photon GPU-vs-CPU trace (same aperture rays, λ=550) settled it:
+
+- **Entry bounce: byte-identical** on both backends (same hit point, normal, eta=1/ior, refracted dir).
+- **Exit bounce: divergent.** GPU `ng=(0.480,-0.877)` (geometric OUTWARD), **eta=1.5** → correct
+  Snell (internal 9.6° → exit 14.5°, bends away from the normal). CPU `ng=(-0.480,0.877)`
+  (ray-ORIENTED, = inward), **eta=0.6667** → bends *toward* the normal (the wrong direction for
+  glass→air).
+- **Floor landings:** CPU rays all converge to x≈0.6–0.73 (artificially "focused"); GPU rays fan
+  out from +0.71 to −1.15 (the real ball-lens spread).
+
+**Root cause:** `Sphere::hit` → `HitRecord::setFaceNormal` stores the **ray-oriented** normal
+(`frontFace ? outward : -outward`), NOT the geometric outward normal. Both CPU forward-photon
+caustic loops — `light_tracer_caustic.cpp:297` and `spectral_path_tracer.cpp::buildPhotonMap`
+(general loop) — did `const Vec3 ng = rec.normal;` (commented "geometric outward normal" — a
+misconception). With the oriented normal, `if (d.dot(ng) < 0)` is **always** true, so the loop
+always took the "entering" branch → **eta = 1/ior at the glass→air exit**. That wrong eta
+lengthens the effective focal distance, which happened to drop the focus onto the old y=−1.6
+floor → an artificially tight spot. The GPU `kEmitSceneCaustic` already recovered the geometric
+outward normal (`ng = frontFace ? rec.normal : -rec.normal`) → correct eta=ior → the *physically
+correct* caustic, which focuses at f = nR/(2(n−1)) = 0.9 from the sphere centre and therefore
+**diverges on a floor placed beyond that focus**.
+
+The earlier note's "the emission CODE is byte-identical … so the divergence is GPU intersection
+numerics or jittered-lattice sampling" was **wrong** — the code was NOT identical (CPU oriented
+vs GPU recovered-geometric normal, which the note itself displayed but dismissed as equivalent).
+
+**Fix (owner-approved "fix the physics properly"):**
+1. Recover the geometric outward normal in both CPU caustic general loops:
+   `const Vec3 ng = rec.frontFace ? rec.normal : -rec.normal;` (flat-prism explicit 2-face paths
+   were already correct and untouched; SMS is a separate integrator, unaffected).
+2. Move the acceptance floors to ~the focal plane so the *correct* caustic is concentrated:
+   refbank `glass-sphere-caustic/scene.py` floor → y=−0.82 (true paraxial focus; pkg110 conc
+   6.2→32.4); the GPU-parity scene floor → y=−1.1 (a touch beyond focus so the camera-side
+   photon-map *gather* radius exceeds the pixel footprint — at the exact focal plane the focus is
+   sub-pixel and the gather under-resolves it / goes dim).
+3. Un-xfail `test_gpu_glass_sphere_caustic_parity`.
+
+**Verified (RTX, this box):** glass-sphere parity ROI ratio **1.09×** (gate [0.4,2.5]), SSIM
+**0.962** (gate ≥0.80), GPU peak luminance **0.409** (gate ≥0.20). pkg110 `conc=32.4` (gate ≥8).
+26 caustic/GPU tests pass, 0 regressions; prism + SMS reference scenes unaffected (the explicit
+2-face path / SMS integrator never had the bug). Both PNGs show the same focused caustic.
+
+The three Phase-3 fixes from the prior pass stay and are correct: opt-in `usePhotonCaustics`
+(SMS-regression isolation), CPU 1.5·median-kth-nearest radius, and the adaptive k-NN cone gather
+`photonGridGatherKnn`.

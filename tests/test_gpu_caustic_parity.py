@@ -121,9 +121,17 @@ def _build_glass_sphere(use_gpu: bool):
     r.add_sun_light_dedicated(_norm([0.45, -1.0, 0.0]), 0.01,
                               {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 6.0)
 
+    # Floor just past the ball-lens focal plane (paraxial focus is at centre +
+    # sunDir*0.9 = (0.37,-0.82,0); floor at y=-1.1 -> caustic at x~0.50). The
+    # physically-correct refraction produces a CONCENTRATED caustic here. We sit a
+    # touch beyond the exact focus on purpose: the camera-side photon-map GATHER needs
+    # the caustic spread enough that the adaptive kNN radius exceeds the pixel
+    # footprint — at the exact focal plane the focus is sub-pixel and the gather
+    # under-resolves it (dim). The old y=-1.6 sat far beyond the focus, where correct
+    # refraction diverges into a dim disc (see pkg113 exit-refraction fix).
     floor = r.create_material("lambertian", [0.85, 0.85, 0.85], {})
-    r.add_triangle([-3.0, -1.6, -3.0], [4.0, -1.6, -3.0], [4.0, -1.6, 3.0], floor)
-    r.add_triangle([-3.0, -1.6, -3.0], [4.0, -1.6, 3.0], [-3.0, -1.6, 3.0], floor)
+    r.add_triangle([-3.0, -1.1, -3.0], [4.0, -1.1, -3.0], [4.0, -1.1, 3.0], floor)
+    r.add_triangle([-3.0, -1.1, -3.0], [4.0, -1.1, 3.0], [-3.0, -1.1, 3.0], floor)
 
     r.set_use_refractive_caustics(True)
     r.set_use_reflective_caustics(True)
@@ -147,7 +155,7 @@ def _build_glass_sphere(use_gpu: bool):
         r.set_integrator_param_str("caustics", "photon_map")
         r.set_integrator_param("photon_knn", 50)
 
-    r.setup_camera([0.7, 1.1, 3.2], [0.7, -1.6, 0.0], [0.0, 1.0, 0.0],
+    r.setup_camera([0.7, 1.1, 3.2], [0.50, -1.1, 0.0], [0.0, 1.0, 0.0],
                    42.0, WIDTH / HEIGHT, 0.0, 3.6, WIDTH, HEIGHT)
     return r
 
@@ -200,20 +208,18 @@ def _caustic_roi_energy(img: np.ndarray) -> float:
 # IN-SCOPE GPU caustic gate: the glass SPHERE (closed solid, general loop is
 # correct). This is the package's acceptance scene.
 # ---------------------------------------------------------------------------
-@pytest.mark.xfail(
-    reason="Phase-3 WIRING lands + 3 fixes done (SMS regression: opt-in use_photon_caustics; "
-           "radius: CPU 1.5*median-kth-nearest; gather: adaptive k-NN cone, photonGridGatherKnn). "
-           "REMAINING is the EMISSION deposit distribution, NOT the gather: CAUSTIC_DBG direct "
-           "comparison shows the GPU caustic deposits are 5.6x more SPREAD than the CPU's "
-           "(rmsXZ 0.83 vs 0.15; same n/centroid/totalY) -> the GPU caustic does not focus -> "
-           "caustic-ROI energy ~430x. The emission CODE is byte-identical (verified pc_refract == "
-           "CPU refract, pc_iorAt->1.5, geometric-normal recovery, aperture, maxDepth, TIR), so the "
-           "divergence is the GPU sphere-INTERSECTION numerics (gpu_bvh_hit entry/exit + rim "
-           "precision) or jittered-lattice vs random aperture sampling. NEXT: per-photon GPU-vs-CPU "
-           "emission trace (find the bounce where the exit dir diverges). Full detail in the "
-           "Phase-3 research note.",
-    strict=False,
-)
+# RESOLVED 2026-06-09 (was xfail): the GPU caustic now matches the CPU. The prior
+# "GPU deposits 5.6x more spread" finding was REAL but the diagnosis was inverted —
+# the GPU emission was physically CORRECT and the CPU reference carried an
+# exit-refraction sign bug. A per-photon GPU/CPU trace showed: identical entry, but at
+# the glass->air EXIT the CPU used eta=1/ior (it keyed enter/exit off the RAY-ORIENTED
+# `rec.normal` from setFaceNormal, so the test was always "entering"), while the GPU
+# recovered the geometric outward normal -> eta=ior (correct Snell). The CPU's wrong
+# eta lengthened the focal distance and dragged the focus onto the y=-1.6 floor (an
+# artificially tight spot); correct physics focuses at f=0.9 from centre. Fix: recover
+# the geometric outward normal in both CPU caustic loops (light_tracer_caustic.cpp,
+# spectral_path_tracer.cpp::buildPhotonMap). The floor was moved to ~the focal plane so
+# the correct caustic is concentrated. Now: ROI ratio ~1.09x, SSIM ~0.96, GPU peak ~0.41.
 def test_gpu_glass_sphere_caustic_parity(test_results_dir):
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")

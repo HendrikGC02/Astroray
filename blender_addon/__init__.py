@@ -16,6 +16,10 @@ from bpy.props import BoolProperty, IntProperty, FloatProperty, StringProperty, 
 import mathutils, math, numpy as np, traceback, sys, os, time, inspect
 from pathlib import Path
 
+# pkg112: gate the batched geometry-upload path. Default on; a parity/benchmark
+# harness can set this False to force the legacy per-triangle loop for A/B compare.
+BULK_GEOMETRY_UPLOAD = True
+
 addon_dir = os.path.dirname(__file__)
 if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
 
@@ -3527,59 +3531,134 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 uv_layer_items.append((getattr(layer, "name", "") or "UVMap", layer.data))
             uv_data = uv_layer_items[0][1] if uv_layer_items else None
 
-            for tri in mesh.loop_triangles:
-                v0 = matrix @ mesh.vertices[tri.vertices[0]].co
-                v1 = matrix @ mesh.vertices[tri.vertices[1]].co
-                v2 = matrix @ mesh.vertices[tri.vertices[2]].co
-
-                # Per-face material index
-                mat_id = slot_to_id.get(tri.material_index, default_mat_id)
-
-                # UVs
-                uv0 = uv1 = uv2 = []
-                if uv_data is not None:
-                    uv0 = list(uv_data[tri.loops[0]].uv)
-                    uv1 = list(uv_data[tri.loops[1]].uv)
-                    uv2 = list(uv_data[tri.loops[2]].uv)
-                uv_layers = {}
-                if len(uv_layer_items) > 1:
-                    for layer_name, layer_data in uv_layer_items:
-                        uv_layers[layer_name] = [
-                            list(layer_data[tri.loops[0]].uv),
-                            list(layer_data[tri.loops[1]].uv),
-                            list(layer_data[tri.loops[2]].uv),
-                        ]
-
-                # Per-corner normals (Blender 4.1+). Fall back gracefully.
-                n0 = n1 = n2 = []
-                try:
-                    sn = tri.split_normals
-                    raw_n0 = mathutils.Vector(sn[0])
-                    raw_n1 = mathutils.Vector(sn[1])
-                    raw_n2 = mathutils.Vector(sn[2])
-                    n0 = list((normal_matrix @ raw_n0).normalized())
-                    n1 = list((normal_matrix @ raw_n1).normalized())
-                    n2 = list((normal_matrix @ raw_n2).normalized())
-                except (AttributeError, IndexError):
-                    n0 = n1 = n2 = []
-
-                if uv_layers and hasattr(renderer, "add_triangle_layers"):
-                    renderer.add_triangle_layers(
-                        list(v0), list(v1), list(v2), mat_id,
-                        uv_layers,
-                        n0, n1, n2,
-                        int(getattr(obj, "pass_index", 0)),
-                        int(tri.material_index),
-                    )
+            n_tri = len(mesh.loop_triangles)
+            # pkg112: bulk geometry upload — fill contiguous NumPy arrays with
+            # Blender's C-speed foreach_get and push the whole mesh in ONE
+            # add_triangles_bulk() call instead of one pybind round-trip per
+            # triangle (the dominant geometry-sync cost on big meshes). Pixel-
+            # identical to the per-tri fallback below: same world transform, same
+            # slot→id remap, same active-first UV-layer order, same inverse-
+            # transpose corner normals. Falls back when the engine build lacks the
+            # bulk binding (older .pyd) or when BULK_GEOMETRY_UPLOAD is disabled.
+            if (BULK_GEOMETRY_UPLOAD and n_tri > 0
+                    and hasattr(renderer, "add_triangles_bulk")):
+                obj_pass = int(getattr(obj, "pass_index", 0))
+                # Vertices (object space) → world via the 4×4 model matrix.
+                n_vert = len(mesh.vertices)
+                co = np.empty(n_vert * 3, dtype=np.float32)
+                mesh.vertices.foreach_get("co", co)
+                co = co.reshape(n_vert, 3)
+                M = np.asarray(matrix, dtype=np.float32)              # 4×4
+                world = co @ M[:3, :3].T + M[:3, 3]                   # (n_vert,3)
+                # Loop-triangle vertex + loop indices.
+                vidx = np.empty(n_tri * 3, dtype=np.int32)
+                mesh.loop_triangles.foreach_get("vertices", vidx)
+                vidx = vidx.reshape(n_tri, 3)
+                lidx = np.empty(n_tri * 3, dtype=np.int32)
+                mesh.loop_triangles.foreach_get("loops", lidx)
+                lidx = lidx.reshape(n_tri, 3)
+                positions = world[vidx]                              # (n_tri,3,3)
+                # Per-face material slot → engine id (same map as the per-tri path).
+                mface = np.empty(n_tri, dtype=np.int32)
+                mesh.loop_triangles.foreach_get("material_index", mface)
+                lut_size = int(mface.max()) + 1
+                if slot_to_id:
+                    lut_size = max(lut_size, max(slot_to_id.keys()) + 1)
+                lut = np.full(lut_size, default_mat_id, dtype=np.int32)
+                for _s, _mi in slot_to_id.items():
+                    if 0 <= _s < lut_size:
+                        lut[_s] = _mi
+                material_ids = lut[mface]
+                # UV layers, ACTIVE FIRST: (nLayers, n_tri, 3, 2).
+                if uv_layer_items:
+                    n_loop = len(mesh.loops)
+                    layer_arrs = []
+                    for _name, layer_data in uv_layer_items:
+                        uvbuf = np.empty(n_loop * 2, dtype=np.float32)
+                        layer_data.foreach_get("uv", uvbuf)
+                        layer_arrs.append(uvbuf.reshape(n_loop, 2)[lidx])  # (n_tri,3,2)
+                    uvs = np.stack(layer_arrs, axis=0)
+                    uv_names = [name for name, _ in uv_layer_items]
                 else:
-                    renderer.add_triangle(
-                        list(v0), list(v1), list(v2), mat_id,
-                        uv0, uv1, uv2,
-                        n0, n1, n2,
-                        int(getattr(obj, "pass_index", 0)),
-                        int(tri.material_index),
-                    )
-                tri_count += 1
+                    uvs = np.zeros((0,), dtype=np.float32)
+                    uv_names = []
+                # Per-corner split normals (Blender 4.1+ mesh.corner_normals),
+                # inverse-transpose 3×3 transformed + normalized. Fall back to face
+                # normals (empty) if unavailable — mirrors the per-tri try/except.
+                try:
+                    n_loop = len(mesh.loops)
+                    cn = np.empty(n_loop * 3, dtype=np.float32)
+                    mesh.corner_normals.foreach_get("vector", cn)
+                    cn = cn.reshape(n_loop, 3)[lidx]                 # (n_tri,3,3)
+                    N3 = np.asarray(normal_matrix, dtype=np.float32)
+                    cn = cn @ N3.T
+                    ln = np.linalg.norm(cn, axis=2, keepdims=True)
+                    ln[ln == 0.0] = 1.0
+                    normals = (cn / ln).astype(np.float32)
+                except (AttributeError, KeyError, RuntimeError, TypeError, ValueError):
+                    normals = np.zeros((0,), dtype=np.float32)
+                renderer.add_triangles_bulk(
+                    np.ascontiguousarray(positions, dtype=np.float32),
+                    np.ascontiguousarray(material_ids, dtype=np.int32),
+                    np.ascontiguousarray(mface, dtype=np.int32),
+                    obj_pass,
+                    np.ascontiguousarray(uvs, dtype=np.float32), uv_names,
+                    np.ascontiguousarray(normals, dtype=np.float32))
+                tri_count += n_tri
+            else:
+                for tri in mesh.loop_triangles:
+                    v0 = matrix @ mesh.vertices[tri.vertices[0]].co
+                    v1 = matrix @ mesh.vertices[tri.vertices[1]].co
+                    v2 = matrix @ mesh.vertices[tri.vertices[2]].co
+
+                    # Per-face material index
+                    mat_id = slot_to_id.get(tri.material_index, default_mat_id)
+
+                    # UVs
+                    uv0 = uv1 = uv2 = []
+                    if uv_data is not None:
+                        uv0 = list(uv_data[tri.loops[0]].uv)
+                        uv1 = list(uv_data[tri.loops[1]].uv)
+                        uv2 = list(uv_data[tri.loops[2]].uv)
+                    uv_layers = {}
+                    if len(uv_layer_items) > 1:
+                        for layer_name, layer_data in uv_layer_items:
+                            uv_layers[layer_name] = [
+                                list(layer_data[tri.loops[0]].uv),
+                                list(layer_data[tri.loops[1]].uv),
+                                list(layer_data[tri.loops[2]].uv),
+                            ]
+
+                    # Per-corner normals (Blender 4.1+). Fall back gracefully.
+                    n0 = n1 = n2 = []
+                    try:
+                        sn = tri.split_normals
+                        raw_n0 = mathutils.Vector(sn[0])
+                        raw_n1 = mathutils.Vector(sn[1])
+                        raw_n2 = mathutils.Vector(sn[2])
+                        n0 = list((normal_matrix @ raw_n0).normalized())
+                        n1 = list((normal_matrix @ raw_n1).normalized())
+                        n2 = list((normal_matrix @ raw_n2).normalized())
+                    except (AttributeError, IndexError):
+                        n0 = n1 = n2 = []
+
+                    if uv_layers and hasattr(renderer, "add_triangle_layers"):
+                        renderer.add_triangle_layers(
+                            list(v0), list(v1), list(v2), mat_id,
+                            uv_layers,
+                            n0, n1, n2,
+                            int(getattr(obj, "pass_index", 0)),
+                            int(tri.material_index),
+                        )
+                    else:
+                        renderer.add_triangle(
+                            list(v0), list(v1), list(v2), mat_id,
+                            uv0, uv1, uv2,
+                            n0, n1, n2,
+                            int(getattr(obj, "pass_index", 0)),
+                            int(tri.material_index),
+                        )
+                    tri_count += 1
 
             # Flip the caustic-caster flag and set Cryptomatte names on every
             # renderer object the current Blender object contributed (one Blender

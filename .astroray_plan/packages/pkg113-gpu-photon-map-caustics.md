@@ -2,21 +2,21 @@
 
 **Pillar:** 3 (light transport) + 5 (GPU)
 **Track:** A
-**Status:** **Phases 1 + 2 DONE** (RTX-verified). **Phase 3 WIRING DONE + 3 polish fixes
-LANDED; one focused EMISSION follow-up remains** (branch `feat/pkg113-gpu-caustic-gather`,
-RTX-checked 2026-06-09). FIXED + correct: (1) SMS regression — opt-in `usePhotonCaustics`
-flag (`test_pkg64_gpu_phase3_prism_receiver_energy` passes; 60 GPU tests, 0 regressions);
-(2) gather radius = CPU `1.5*median(k-th-nearest)` (`kKthNearest` kernel + two-pass build);
-(3) adaptive k-NN cone gather `photonGridGatherKnn` mirroring the CPU `estimateIrradiance`
-(phase-1's fixed gather kept for its pinned test). REMAINING (decisively root-caused via
-CAUSTIC_DBG, env-gated, on BOTH backends): the ~430x ROI is the **EMISSION deposit
-distribution** — the GPU caustic deposits are **5.6x more SPREAD than the CPU** (rmsXZ 0.83
-vs 0.15; same n/centroid/totalY), i.e. the GPU caustic does not focus. The emission CODE is
-byte-identical (`pc_refract`==CPU `refract`, `pc_iorAt`→1.5, geometric-normal recovery,
-aperture, maxDepth, TIR all verified), so the divergence is the GPU sphere-INTERSECTION
-numerics (`gpu_bvh_hit` entry/exit + rim precision) or jittered-lattice vs random aperture
-sampling. **Next: a per-photon GPU-vs-CPU emission trace** (find the bounce where the exit
-direction diverges). Glass-sphere gate xfailed; **NOT merged** (draft PR). Phase 1: GPU uniform hash-grid photon STORE +
+**Status:** **DONE — all 3 phases merged + RTX-verified** (#422 store, #424 emission,
+#425 gather, 2026-06-10). The Phase-3 follow-up was resolved: the "GPU caustic 5.6x more
+spread" was REAL but the diagnosis was INVERTED — the GPU emission was physically correct
+and the CPU reference carried an exit-refraction sign bug. A matched per-photon GPU/CPU
+trace showed identical entry but `eta=ior` (GPU, correct Snell) vs `eta=1/ior` (CPU) at the
+glass→air exit: both CPU caustic loops keyed enter/exit off the ray-ORIENTED `rec.normal`
+(`Sphere::hit`→`setFaceNormal`), so they always took the "entering" branch. Fix: recover the
+geometric outward normal (`ng = frontFace ? rec.normal : -rec.normal`) in
+`light_tracer_caustic.cpp` + `spectral_path_tracer.cpp::buildPhotonMap`; acceptance floors
+moved to ~the focal plane so the correct caustic concentrates. RTX-verified: glass-sphere
+parity ROI ratio 1.09x, SSIM 0.962, peak 0.409; pkg110 conc 32.4; 26 caustic/GPU tests pass,
+0 regressions. See `.astroray_plan/docs/pkg113-phase3-gather-wiring-research.md` (RESOLUTION
+section) and memory `photon-caustic-exit-refraction-oriented-normal`. The 3 polish fixes stay
+(opt-in `usePhotonCaustics`, CPU `1.5*median-kth-nearest` radius, adaptive k-NN cone gather
+`photonGridGatherKnn`). Phase 1: GPU uniform hash-grid photon STORE +
 device query (4/4 PASS vs numpy oracle). Phase 2: GPU photon EMISSION + bounce →
 deposit (forward Snell/Schlick/per-λ Sellmeier/TIR port of `light_tracer_caustic.cpp`
 general path; flat-prism 2-face stays CPU) — **3/3 PASS on RTX**. Phase 3: scene-driven

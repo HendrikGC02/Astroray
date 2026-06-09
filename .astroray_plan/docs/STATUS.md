@@ -1,6 +1,26 @@
 # Astroray Status
 
-**Last updated:** 2026-06-08 (maintenance session: repo cleanup PR #413, gallery render restore PR #414, pkg118 Part A + root-cause re-scope PR #415).
+**Last updated:** 2026-06-10 (pkg113 GPU photon-map caustics COMPLETE — phase 3 #425).
+
+## pkg113 — GPU photon-map caustics COMPLETE (2026-06-10, PR #425)
+
+**All three phases merged + RTX-verified** (#422 store, #424 emission, #425 gather). pkg113
+is DONE. The phase-3 follow-up (the xfail'd glass-sphere parity) is resolved — and the prior
+"GPU caustic 5.6x more spread" diagnosis was **inverted**: the GPU emission was physically
+correct; the **CPU reference carried an exit-refraction sign bug**. A matched per-photon
+GPU/CPU trace showed identical entry but `eta=ior` (GPU, correct Snell) vs `eta=1/ior` (CPU)
+at the glass→air exit — both CPU caustic loops keyed enter/exit off the ray-ORIENTED
+`rec.normal` (`Sphere::hit`→`setFaceNormal`) so they always took the "entering" branch. Fix:
+recover the geometric outward normal in `light_tracer_caustic.cpp` +
+`spectral_path_tracer.cpp::buildPhotonMap`; the wrong eta had lengthened the focal distance,
+so acceptance floors were moved to ~the ball-lens focal plane (f=nR/(2(n-1))=0.9) for a
+concentrated caustic. RTX-verified: glass-sphere parity ROI ratio 1.09x [0.4,2.5], SSIM
+0.962, peak 0.409; pkg110 `conc` 6.2→32.4; 26 caustic/GPU tests pass, 0 regressions; prism +
+SMS reference scenes unaffected (their explicit-2-face / separate-SMS paths never had the
+bug). The 3 prior polish fixes stay (opt-in `usePhotonCaustics`, CPU `1.5*median-kth-nearest`
+radius, adaptive k-NN cone gather `photonGridGatherKnn`). Detail:
+`pkg113-phase3-gather-wiring-research.md` (RESOLUTION). **Next pickup:** pkg112 (batched
+geometry upload, GPU-gated, RTX-verifiable).
 
 ## Maintenance session — cleanup + gallery + pkg118 re-scope (2026-06-08)
 

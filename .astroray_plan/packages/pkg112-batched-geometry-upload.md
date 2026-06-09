@@ -3,7 +3,16 @@
 **Pillar:** 5 (addon) + core bindings
 **Track:** A
 **Codex-paste-ready:** no (C++ binding + addon change + clean rebuild + RTX verify)
-**Status:** open — proposed 2026-05-30. **GPU-gated: pixel-parity must be RTX-`/verify`-ed; CI has no GPU and CI-green ≠ correct.**
+**Status:** **DONE — merged 2026-06-10 (PR #427).** `PyRenderer::addTrianglesBulk`
+(`module/blender_module.cpp`) + addon `mesh_to_bulk_arrays` helper
+(`blender_addon/_bulk_geometry.py`) → one `add_triangles_bulk` pybind call per mesh.
+Verified at four layers: binding pixel-identity (bit-identical CPU render,
+`tests/test_bulk_geometry_upload.py`); **31.7× upload speedup** on 100,352 tris (692.7ms→21.9ms);
+extraction-parity unit test (`tests/test_bulk_geometry_helper.py`, incl. non-uniform-scale
+transform + inverse-transpose normals + multi-UV order); and a **real-Blender end-to-end
+bit-identical render** (`scripts/verify_pkg112_bulk_blender.py`, headless Blender 5.1 reusing the
+build_cuda module via `--factory-startup` — `identical=True max_abs_diff=0`). `add_triangle`
+kept as fallback (older `.pyd` / `BULK_GEOMETRY_UPLOAD=False` toggle).
 **Depends on:** none (independent of pkg114; complementary). Plays well with pkg117.
 **Estimated effort:** M (~1 week incl. one RTX session)
 

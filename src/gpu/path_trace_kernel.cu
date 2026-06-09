@@ -7,6 +7,7 @@
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
 #include "astroray/manifold/sms_attempt_device.cuh"  // pkg64-gpu Phase 2
+#include "astroray/gpu_photon_store.h"  // pkg113 Phase 3: GPhotonGrid + photonGridGather
 #include "astroray/cryptomatte.h"  // pkg87b
 #include "profile.h"  // pkg55-A: env-gated CUDA-event + NVTX instrumentation
 
@@ -363,6 +364,8 @@ __device__ GVec3 tracePathGPU(
     const GVec3&      backgroundColor,
     bool              hasBackgroundColor,
     GRay              primaryRay,  // pkg64-gpu Phase 2
+    const astroray::photon::gpu::GPhotonGrid* photonGrid,  // pkg113 Phase 3 (null = off)
+    float             photonScale,                          // pkg113 Phase 3
     curandState*      rng,
     float*            cryptoObjectRanks = nullptr,    // pkg87b
     float*            cryptoMaterialRanks = nullptr,  // pkg87b
@@ -371,6 +374,7 @@ __device__ GVec3 tracePathGPU(
 {
     const int rrDepth = 3;
     GVec3 color(0.f), throughput(1.f);
+    bool  causticGathered = false;  // pkg113 Phase 3: gather once, at first diffuse hit
     GSampledWavelengths lambdas = gpu_sampleUniformWavelengths(rng);
     GSampledSpectrum colorSpectral(0.f), throughputSpectral(1.f);
     bool  wasSpecular = true;
@@ -418,6 +422,24 @@ __device__ GVec3 tracePathGPU(
                 rec, wo, bvhNodes, prims, tris, spheres,
                 materials, lights, numLights, totalLightPower,
                 envMap, rng);
+        }
+
+        // pkg113 Phase 3: photon-map caustic gather at the FIRST non-emissive hit
+        // (the device twin of spectral_path_tracer.cpp::sampleFull l.207-221). The
+        // grid gather returns E = (1/πr²)Σpower (Jensen 2000 Eq. 8); for a
+        // Lambertian receiver Lo += (albedo/π)·E, the 1/π folded into photonScale.
+        // Gather once, at the first non-emissive surface, mirroring the CPU which
+        // gathers only at the primary first hit (throughput == 1 there).
+        if (photonGrid && !causticGathered && photonGrid->numPhotons > 0) {
+            causticGathered = true;
+            int found = 0;
+            GVec3 E = astroray::photon::gpu::photonGridGatherKnn(
+                *photonGrid, rec.point, 50, 1.1f, found);
+            if (found > 0) {
+                GVec3 alb = mat.baseColor;   // Lambertian receiver albedo
+                color += throughput * GVec3(alb.x * E.x, alb.y * E.y, alb.z * E.z)
+                                    * photonScale;
+            }
         }
 
         // pkg64-gpu Phase 2: SMS caustic attempt (RGB path mirrors spectral MW path).
@@ -592,6 +614,8 @@ __global__ void pathTraceKernel(
     GCameraParams cam,
     float filmExposure,
     GVec3 backgroundColor, bool hasBackgroundColor,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
+    float photonScale,                                                   // pkg113 Phase 3
     curandState* rngStates,
     float* cryptoObjectBuffer = nullptr,      // pkg87b
     float* cryptoMaterialBuffer = nullptr,    // pkg87b
@@ -674,6 +698,7 @@ __global__ void pathTraceKernel(
             smsCasters, numSMSCasters,
             envMap, backgroundColor, hasBackgroundColor,
             ray,  // primaryRay for SMS
+            hasPhotonGrid ? &photonGrid : nullptr, photonScale,  // pkg113 Phase 3
             &localRng,
             pixelCryptoObj, pixelCryptoMat, cryptoDepth, cryptomatteEnabled);
 
@@ -716,6 +741,8 @@ void launchPathTraceKernel(
     GCameraParams cam,
     float filmExposure,
     GVec3 backgroundColor, bool hasBackgroundColor,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
+    float photonScale,                                                   // pkg113 Phase 3
     curandState* d_rngStates,
     float* d_cryptoObjectBuffer = nullptr,      // pkg87b
     float* d_cryptoMaterialBuffer = nullptr,    // pkg87b
@@ -736,6 +763,7 @@ void launchPathTraceKernel(
             d_lights, numLights, totalLightPower,
             d_smsCasters, numSMSCasters,
             envMap, cam, filmExposure, backgroundColor, hasBackgroundColor,
+            photonGrid, hasPhotonGrid, photonScale,  // pkg113 Phase 3
             d_rngStates, d_cryptoObjectBuffer, d_cryptoMaterialBuffer,
             cryptoDepth, cryptomatteEnabled);
 

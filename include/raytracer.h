@@ -2089,6 +2089,10 @@ class Renderer {
     float filterGlossy = 0.0f;
     bool useReflectiveCaustics = true;
     bool useRefractiveCaustics = true;
+    // pkg113 Phase-3: opt-in GPU photon-map caustic pre-pass. Default FALSE so existing GPU
+    // caustic renders (incl. the legacy SMS-GPU path) are unchanged; the photon-map scene
+    // pre-pass + gather only runs when a caller explicitly opts in (set_use_photon_caustics).
+    bool usePhotonCaustics = false;
     int renderSeed = 0;  // 0 = random (non-deterministic), non-zero = deterministic seed
     // Pixel reconstruction filter (0=Box, 1=Gaussian, 2=Blackman-Harris)
     int pixelFilterType = 0;
@@ -2141,8 +2145,10 @@ public:
     void setFilterGlossy(float value) { filterGlossy = std::max(0.0f, value); }
     void setUseReflectiveCaustics(bool use) { useReflectiveCaustics = use; }
     void setUseRefractiveCaustics(bool use) { useRefractiveCaustics = use; }
+    void setUsePhotonCaustics(bool use) { usePhotonCaustics = use; }
     bool getUseReflectiveCaustics() const { return useReflectiveCaustics; }
     bool getUseRefractiveCaustics() const { return useRefractiveCaustics; }
+    bool getUsePhotonCaustics() const { return usePhotonCaustics; }
     // pkg64 Phase 3 — per-object opt-in for SMS connection attempts. The
     // index is the order in which `addObject` was called (same order as
     // `getScene()`). Returns true on success.
@@ -2204,6 +2210,7 @@ public:
         filterGlossy = 0.0f;
         useReflectiveCaustics = true;
         useRefractiveCaustics = true;
+        usePhotonCaustics = false;
         renderSeed = 0;
         pixelFilterType = 0;
         pixelFilterWidth = 1.5f;

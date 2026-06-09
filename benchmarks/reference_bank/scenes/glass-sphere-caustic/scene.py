@@ -57,10 +57,16 @@ def make_scene(astroray):
     r.add_sun_light_dedicated(_norm([0.45, -1.0, 0.0]), 0.01,
                               {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 6.0)
 
-    # White diffuse floor below the sphere.
+    # White diffuse floor at the ball-lens FOCAL plane. A clear ior-1.5 sphere of
+    # radius 0.6 has paraxial focal distance f = nR/(2(n-1)) = 0.9 from its centre,
+    # i.e. the collimated sun focuses at centre + sunDir*0.9 = (0.37, -0.82, 0). The
+    # floor sits at that depth so the (physically correct) caustic is a tight focused
+    # spot; placing it deeper (the old y=-1.6) put the floor BEYOND the focus, where
+    # correct refraction necessarily diverges into a dim disc. (See pkg113: the prior
+    # tight spot at y=-1.6 was an artefact of an exit-refraction sign bug.)
     floor = r.create_material("lambertian", [0.85, 0.85, 0.85], {})
-    _add_quad(r, [[-3.0, -1.6, -3.0], [4.0, -1.6, -3.0],
-                  [4.0, -1.6, 3.0], [-3.0, -1.6, 3.0]], floor)
+    _add_quad(r, [[-3.0, -0.82, -3.0], [4.0, -0.82, -3.0],
+                  [4.0, -0.82, 3.0], [-3.0, -0.82, 3.0]], floor)
 
     r.set_integrator("light_tracer_caustic")
     r.set_integrator_param("max_depth", MAX_DEPTH)
@@ -68,7 +74,7 @@ def make_scene(astroray):
     # Direct float brightness multiplier (pkg-integrator-float-param route).
     r.set_integrator_param_float("caustic_boost", 1.4)
 
-    # Camera looks at the caustic landing zone (~x=0.7 on the floor).
-    r.setup_camera([0.7, 1.1, 3.2], [0.7, -1.6, 0.0], [0.0, 1.0, 0.0],
+    # Camera looks at the caustic landing zone (~x=0.37 on the focal-plane floor).
+    r.setup_camera([0.7, 1.1, 3.2], [0.37, -0.82, 0.0], [0.0, 1.0, 0.0],
                    42.0, WIDTH / HEIGHT, 0.0, 3.6, WIDTH, HEIGHT)
     return r

@@ -1037,6 +1037,9 @@ public:
     void setUseRefractiveCaustics(bool use) {
         renderer.setUseRefractiveCaustics(use);
     }
+    void setUsePhotonCaustics(bool use) {  // pkg113 Phase-3: opt-in GPU photon-map caustics
+        renderer.setUsePhotonCaustics(use);
+    }
 
     // pkg64 Phase 3 — per-object opt-in for SMS connection attempts in
     // the default path_tracer. `objectId` is the addObject call order
@@ -2005,6 +2008,7 @@ PYBIND11_MODULE(astroray, m) {
              "density"_a, "color"_a, "anisotropy"_a = 0.0f)
         .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
+        .def("set_use_photon_caustics", &PyRenderer::setUsePhotonCaustics, "use"_a)
         .def("set_object_caustic_caster", &PyRenderer::setObjectCausticCaster,
              "object_id"_a, "enabled"_a,
              "pkg64 Phase 3 — flag an object (by addObject order) as a "

@@ -294,7 +294,11 @@ private:
                     if (rec.material->isTransmissive()) {
                         float ior = rec.material->iorAt(lambda);
                         if (ior <= 1.0f) ior = 1.5f;
-                        const Vec3 ng = rec.normal;            // geometric outward normal
+                        // pkg113: rec.normal is RAY-ORIENTED (setFaceNormal), not geometric
+                        // outward. Recover the outward normal so the exit takes eta=ior; the
+                        // old `ng = rec.normal` always hit the "entering" branch (eta=1/ior at
+                        // the glass->air exit) — a refraction-sign bug lengthening the focus.
+                        const Vec3 ng = rec.frontFace ? rec.normal : -rec.normal;
                         Vec3 nf; float eta;
                         if (d.dot(ng) < 0.0f) { nf = ng;         eta = 1.0f / ior; }  // entering
                         else                  { nf = ng * -1.0f; eta = ior; }         // exiting

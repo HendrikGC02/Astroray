@@ -7,6 +7,8 @@
 #include "astroray/manifold/mesh_caustic.h"    // pkg111: rayTriHit
 
 #include <algorithm>  // pkg111: std::sort, std::min, std::max
+#include <cstdio>     // pkg113 CAUSTIC_DBG
+#include <cstdlib>    // pkg113 CAUSTIC_DBG (getenv)
 #include <cmath>      // pkg111: std::sqrt, std::pow, std::fabs
 #include <limits>     // pkg111: std::numeric_limits
 #include <random>     // pkg111: std::mt19937
@@ -436,7 +438,14 @@ private:
                     if (rec.material->isTransmissive()) {
                         float ior = rec.material->iorAt(lambda);
                         if (ior <= 1.0f) ior = 1.5f;
-                        const Vec3 ng = rec.normal;
+                        // pkg113: rec.normal is the RAY-ORIENTED normal (Sphere::hit ->
+                        // setFaceNormal flips it to face the ray), NOT the geometric outward
+                        // normal. Recover the geometric outward normal so the enter/exit test
+                        // selects eta=ior at the glass->air exit. The old `ng = rec.normal`
+                        // always took the "entering" branch (eta=1/ior at the exit) — a
+                        // refraction-sign bug that lengthened the focal distance. The GPU
+                        // pre-pass (photon_caustic.cu) already recovers it this way.
+                        const Vec3 ng = rec.frontFace ? rec.normal : -rec.normal;
                         Vec3 nf;
                         float eta;
                         if (d.dot(ng) < 0.0f) {
@@ -474,6 +483,20 @@ private:
             }
         }
         if (photons.size() < 16) return;
+
+        if (std::getenv("CAUSTIC_DBG")) {
+            Vec3 c(0, 0, 0); float wsum = 0.f;
+            for (const auto& p : photons) { c = c + p.position * p.power.Y; wsum += p.power.Y; }
+            c = c * (1.0f / std::max(wsum, 1e-12f));
+            float rms = 0.f;
+            for (const auto& p : photons) {
+                Vec3 d = p.position - c;
+                rms += p.power.Y * (d.x * d.x + d.z * d.z);
+            }
+            rms = std::sqrt(rms / std::max(wsum, 1e-12f));
+            std::fprintf(stderr, "[CAUSTIC_DBG CPU] n=%zu centroidXZ=(%.3f,%.3f) rmsXZ=%.4f "
+                         "totalY=%.4f\n", photons.size(), c.x, c.z, rms, wsum);
+        }
 
         // Build the kd-tree photon map (Jensen 1996, photon_map.h).
         photonMap_.build(std::move(photons));

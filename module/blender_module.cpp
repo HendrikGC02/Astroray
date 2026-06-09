@@ -664,6 +664,83 @@ public:
         renderer.addObject(tri);
     }
 
+    // pkg112: bulk triangle ingest. One pybind call uploads an entire mesh's
+    // triangles from contiguous NumPy arrays, looping in C++ to avoid the
+    // per-triangle Python/pybind round-trip that dominates geometry-sync cost.
+    // Mirrors addTriangle / addTriangleLayers EXACTLY (same Triangle constructors,
+    // same UV-layer-count branching, same normal + pass-index handling) so the
+    // result is pixel-identical to the per-triangle path. Layout (all C-contiguous,
+    // forcecast): positions (Nt,3,3) world-space corners; materialIds (Nt,) engine
+    // material ids (already slot-remapped by the addon); materialPassIndices (Nt,);
+    // uvs (nLayers,Nt,3,2) with the ACTIVE layer first (empty -> no UVs); normals
+    // (Nt,3,3) world-space corner normals (empty -> face-normal fallback).
+    void addTrianglesBulk(
+            py::array_t<float, py::array::c_style | py::array::forcecast> positions,
+            py::array_t<int,   py::array::c_style | py::array::forcecast> materialIds,
+            py::array_t<int,   py::array::c_style | py::array::forcecast> materialPassIndices,
+            int objectPassIndex,
+            py::array_t<float, py::array::c_style | py::array::forcecast> uvs,
+            std::vector<std::string> uvLayerNames,
+            py::array_t<float, py::array::c_style | py::array::forcecast> normals) {
+        auto pos = positions.unchecked<3>();              // (Nt, 3, 3)
+        const py::ssize_t nt = pos.shape(0);
+        if (pos.shape(1) != 3 || pos.shape(2) != 3)
+            throw std::runtime_error("add_triangles_bulk: positions must be (N,3,3)");
+        auto mid = materialIds.unchecked<1>();            // (Nt,)
+        auto mpi = materialPassIndices.unchecked<1>();    // (Nt,)
+        if (mid.shape(0) != nt || mpi.shape(0) != nt)
+            throw std::runtime_error("add_triangles_bulk: material arrays must match triangle count");
+
+        const py::ssize_t nLayers = (uvs.size() > 0) ? uvs.shape(0) : 0;
+        const bool hasNormals = normals.size() > 0;
+        if (hasNormals && normals.shape(0) != nt)
+            throw std::runtime_error("add_triangles_bulk: normals must be (N,3,3)");
+        // Layer names are constant across triangles (the mesh's UV-layer set).
+        // Mirrors addTriangleLayers' empty-name fallback.
+        std::vector<std::string> names;
+        for (py::ssize_t l = 0; l < nLayers; ++l) {
+            std::string nm = (l < (py::ssize_t)uvLayerNames.size()) ? uvLayerNames[l] : std::string();
+            names.push_back(nm.empty() ? (l == 0 ? "UVMap" : "UVMap" + std::to_string(l + 1)) : nm);
+        }
+        const float* uvPtr = (nLayers > 0) ? uvs.data() : nullptr;   // (nLayers, nt, 3, 2)
+        const float* nPtr  = hasNormals ? normals.data() : nullptr;  // (nt, 3, 3)
+        auto uvAt = [&](py::ssize_t l, py::ssize_t t, int c) -> Vec2 {
+            const float* p = uvPtr + (((l * nt + t) * 3 + c) * 2);
+            return Vec2(p[0], p[1]);
+        };
+
+        for (py::ssize_t t = 0; t < nt; ++t) {
+            Vec3 p0(pos(t, 0, 0), pos(t, 0, 1), pos(t, 0, 2));
+            Vec3 p1(pos(t, 1, 0), pos(t, 1, 1), pos(t, 1, 2));
+            Vec3 p2(pos(t, 2, 0), pos(t, 2, 1), pos(t, 2, 2));
+            int materialId = mid(t);
+            auto mat = materials.count(materialId) ? materials[materialId]
+                                                   : std::make_shared<Lambertian>(Vec3(0.5f));
+            std::shared_ptr<Triangle> tri;
+            if (nLayers == 0) {
+                tri = std::make_shared<Triangle>(p0, p1, p2, mat);
+            } else if (nLayers == 1) {
+                tri = std::make_shared<Triangle>(p0, p1, p2,
+                        uvAt(0, t, 0), uvAt(0, t, 1), uvAt(0, t, 2), mat);
+            } else {
+                std::vector<std::array<Vec2, 3>> layers;
+                layers.reserve(nLayers);
+                for (py::ssize_t l = 0; l < nLayers; ++l)
+                    layers.push_back({ uvAt(l, t, 0), uvAt(l, t, 1), uvAt(l, t, 2) });
+                tri = std::make_shared<Triangle>(p0, p1, p2, layers, names, mat);
+            }
+            if (hasNormals) {
+                const float* n = nPtr + (t * 9);
+                tri->setVertexNormals(Vec3(n[0], n[1], n[2]),
+                                      Vec3(n[3], n[4], n[5]),
+                                      Vec3(n[6], n[7], n[8]));
+            }
+            tri->setObjectPassIndex(objectPassIndex);
+            tri->setMaterialPassIndex(mpi(t));
+            renderer.addObject(tri);
+        }
+    }
+
     void addMesh(const std::string& filename, int materialId, const std::vector<float>& position = {0,0,0},
                 const std::vector<float>& scale = {1,1,1}, float rotationY = 0, bool smoothNormals = false) {
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
@@ -1977,6 +2054,12 @@ PYBIND11_MODULE(astroray, m) {
              "v0"_a, "v1"_a, "v2"_a, "material_id"_a, "uv_layers"_a,
              "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>(),
              "object_pass_index"_a = 0, "material_pass_index"_a = 0)
+        .def("add_triangles_bulk", &PyRenderer::addTrianglesBulk,
+             "positions"_a, "material_ids"_a, "material_pass_indices"_a, "object_pass_index"_a,
+             "uvs"_a, "uv_layer_names"_a, "normals"_a,
+             "pkg112: bulk triangle ingest from NumPy arrays (loops in C++ to cut per-tri "
+             "pybind overhead). positions (N,3,3) world; uvs (nLayers,N,3,2) active-first; "
+             "normals (N,3,3) or empty. Pixel-identical to add_triangle/add_triangle_layers.")
         .def("add_mesh", &PyRenderer::addMesh, "filename"_a, "material_id"_a,
              "position"_a = std::vector<float>{0,0,0}, "scale"_a = std::vector<float>{1,1,1}, "rotation_y"_a = 0.0f,
              "smooth_normals"_a = false)

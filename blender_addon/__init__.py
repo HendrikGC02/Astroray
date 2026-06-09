@@ -24,6 +24,7 @@ addon_dir = os.path.dirname(__file__)
 if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
 
 from shader_blending import blend_shader_specs, add_shader_specs
+from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
 
 # pkg57: native Astroray shader nodes (Spectral Profile, Sellmeier Glass,
 # IR/UV Response, NRC Hint, Output). Imported defensively so a partial install
@@ -3542,68 +3543,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # bulk binding (older .pyd) or when BULK_GEOMETRY_UPLOAD is disabled.
             if (BULK_GEOMETRY_UPLOAD and n_tri > 0
                     and hasattr(renderer, "add_triangles_bulk")):
-                obj_pass = int(getattr(obj, "pass_index", 0))
-                # Vertices (object space) → world via the 4×4 model matrix.
-                n_vert = len(mesh.vertices)
-                co = np.empty(n_vert * 3, dtype=np.float32)
-                mesh.vertices.foreach_get("co", co)
-                co = co.reshape(n_vert, 3)
-                M = np.asarray(matrix, dtype=np.float32)              # 4×4
-                world = co @ M[:3, :3].T + M[:3, 3]                   # (n_vert,3)
-                # Loop-triangle vertex + loop indices.
-                vidx = np.empty(n_tri * 3, dtype=np.int32)
-                mesh.loop_triangles.foreach_get("vertices", vidx)
-                vidx = vidx.reshape(n_tri, 3)
-                lidx = np.empty(n_tri * 3, dtype=np.int32)
-                mesh.loop_triangles.foreach_get("loops", lidx)
-                lidx = lidx.reshape(n_tri, 3)
-                positions = world[vidx]                              # (n_tri,3,3)
-                # Per-face material slot → engine id (same map as the per-tri path).
-                mface = np.empty(n_tri, dtype=np.int32)
-                mesh.loop_triangles.foreach_get("material_index", mface)
-                lut_size = int(mface.max()) + 1
-                if slot_to_id:
-                    lut_size = max(lut_size, max(slot_to_id.keys()) + 1)
-                lut = np.full(lut_size, default_mat_id, dtype=np.int32)
-                for _s, _mi in slot_to_id.items():
-                    if 0 <= _s < lut_size:
-                        lut[_s] = _mi
-                material_ids = lut[mface]
-                # UV layers, ACTIVE FIRST: (nLayers, n_tri, 3, 2).
-                if uv_layer_items:
-                    n_loop = len(mesh.loops)
-                    layer_arrs = []
-                    for _name, layer_data in uv_layer_items:
-                        uvbuf = np.empty(n_loop * 2, dtype=np.float32)
-                        layer_data.foreach_get("uv", uvbuf)
-                        layer_arrs.append(uvbuf.reshape(n_loop, 2)[lidx])  # (n_tri,3,2)
-                    uvs = np.stack(layer_arrs, axis=0)
-                    uv_names = [name for name, _ in uv_layer_items]
-                else:
-                    uvs = np.zeros((0,), dtype=np.float32)
-                    uv_names = []
-                # Per-corner split normals (Blender 4.1+ mesh.corner_normals),
-                # inverse-transpose 3×3 transformed + normalized. Fall back to face
-                # normals (empty) if unavailable — mirrors the per-tri try/except.
-                try:
-                    n_loop = len(mesh.loops)
-                    cn = np.empty(n_loop * 3, dtype=np.float32)
-                    mesh.corner_normals.foreach_get("vector", cn)
-                    cn = cn.reshape(n_loop, 3)[lidx]                 # (n_tri,3,3)
-                    N3 = np.asarray(normal_matrix, dtype=np.float32)
-                    cn = cn @ N3.T
-                    ln = np.linalg.norm(cn, axis=2, keepdims=True)
-                    ln[ln == 0.0] = 1.0
-                    normals = (cn / ln).astype(np.float32)
-                except (AttributeError, KeyError, RuntimeError, TypeError, ValueError):
-                    normals = np.zeros((0,), dtype=np.float32)
+                positions, material_ids, mat_pass, uvs, uv_names, normals = \
+                    mesh_to_bulk_arrays(mesh, matrix, normal_matrix,
+                                        slot_to_id, default_mat_id, uv_layer_items)
                 renderer.add_triangles_bulk(
-                    np.ascontiguousarray(positions, dtype=np.float32),
-                    np.ascontiguousarray(material_ids, dtype=np.int32),
-                    np.ascontiguousarray(mface, dtype=np.int32),
-                    obj_pass,
-                    np.ascontiguousarray(uvs, dtype=np.float32), uv_names,
-                    np.ascontiguousarray(normals, dtype=np.float32))
+                    positions, material_ids, mat_pass,
+                    int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
                 tri_count += n_tri
             else:
                 for tri in mesh.loop_triangles:

@@ -99,6 +99,76 @@ def test_bulk_render_pixel_identical_to_per_triangle():
     )
 
 
+def _synthetic_grid(k):
+    """A (k x k) quad grid -> 2*k*k triangles with UVs + normals, as the arrays
+    the addon would build. Returns (positions, material_ids, mat_pass, uvs, normals)."""
+    xs = np.linspace(-1.0, 1.0, k + 1, dtype=np.float32)
+    ys = np.linspace(-1.0, 1.0, k + 1, dtype=np.float32)
+    gx, gy = np.meshgrid(xs, ys)                      # (k+1, k+1)
+    gz = np.zeros_like(gx)
+    verts = np.stack([gx, gy, gz], axis=-1).reshape(-1, 3)   # ((k+1)^2, 3)
+    def vid(i, j):
+        return i * (k + 1) + j
+    tris = []
+    for i in range(k):
+        for j in range(k):
+            a, b, c, d = vid(i, j), vid(i, j + 1), vid(i + 1, j + 1), vid(i + 1, j)
+            tris.append((a, b, c)); tris.append((a, c, d))
+    idx = np.array(tris, dtype=np.int32)              # (Nt, 3)
+    nt = idx.shape[0]
+    positions = verts[idx].astype(np.float32)         # (Nt, 3, 3)
+    material_ids = (np.arange(nt, dtype=np.int32) % 2)  # alternate 2 materials (ids 0/1 set by caller)
+    mat_pass = material_ids.copy()
+    uvs = ((positions[:, :, :2] + 1.0) * 0.5)[None].astype(np.float32)  # (1, Nt, 3, 2)
+    normals = np.tile(np.array([0, 0, 1], np.float32), (nt, 3, 1)).astype(np.float32)  # (Nt,3,3)
+    return positions, material_ids, mat_pass, uvs, normals
+
+
+def test_bulk_upload_at_least_5x_faster_than_per_triangle():
+    """pkg112 acceptance: bulk geometry upload >= 5x faster than the per-triangle
+    pybind path on a ~100k-triangle mesh (the dominant viewport/F12 sync cost)."""
+    import time
+    k = 224  # 2*224*224 = 100,352 triangles
+    positions, material_ids, mat_pass, uvs, normals = _synthetic_grid(k)
+    nt = positions.shape[0]
+    m0 = astroray.Renderer().create_material("lambertian", [0.8, 0.8, 0.8], {})  # warm up
+    # Remap synthetic 0/1 ids to real engine material ids.
+    rr = astroray.Renderer()
+    mids = [rr.create_material("lambertian", [0.8, 0.2, 0.2], {}),
+            rr.create_material("lambertian", [0.2, 0.2, 0.8], {})]
+    eng_ids = np.array([mids[i] for i in material_ids], dtype=np.int32)
+
+    # --- per-triangle path (what the addon did before) ---
+    r_pt = astroray.Renderer()
+    [r_pt.create_material("lambertian", [0.8, 0.2, 0.2], {}),
+     r_pt.create_material("lambertian", [0.2, 0.2, 0.8], {})]
+    t0 = time.perf_counter()
+    for t in range(nt):
+        p = positions[t]
+        u = uvs[0, t]
+        n = normals[t]
+        r_pt.add_triangle(list(map(float, p[0])), list(map(float, p[1])), list(map(float, p[2])),
+                          int(eng_ids[t]),
+                          list(map(float, u[0])), list(map(float, u[1])), list(map(float, u[2])),
+                          list(map(float, n[0])), list(map(float, n[1])), list(map(float, n[2])),
+                          0, int(mat_pass[t]))
+    t_per_tri = time.perf_counter() - t0
+
+    # --- bulk path ---
+    r_b = astroray.Renderer()
+    [r_b.create_material("lambertian", [0.8, 0.2, 0.2], {}),
+     r_b.create_material("lambertian", [0.2, 0.2, 0.8], {})]
+    t0 = time.perf_counter()
+    r_b.add_triangles_bulk(positions, eng_ids, mat_pass, 0, uvs, ["UVMap"], normals)
+    t_bulk = time.perf_counter() - t0
+
+    speedup = t_per_tri / max(t_bulk, 1e-9)
+    print(f"\n[pkg112 bulk-upload benchmark] {nt} tris | per-tri {t_per_tri*1e3:.1f} ms | "
+          f"bulk {t_bulk*1e3:.1f} ms | speedup {speedup:.1f}x")
+    assert r_pt.scene_object_count() == r_b.scene_object_count() == nt
+    assert speedup >= 5.0, f"bulk upload only {speedup:.1f}x faster (target >=5x)"
+
+
 def test_bulk_no_uv_no_normals_ok():
     """nLayers==0 + empty normals path (face-normal fallback) must not crash."""
     r, mats = _scene_skeleton()

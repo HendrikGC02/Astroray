@@ -272,6 +272,74 @@ struct GSphere {
 };
 
 // ---------------------------------------------------------------------------
+// pkg114 — Two-level BVH (TLAS over per-mesh BLAS + instance transforms).
+//
+// Ported from pbrt-v4 (Apache-2.0) Transform::ApplyInverse / operator() and
+// Cycles (Apache-2.0) transform_point/transform_direction. See
+// .astroray_plan/docs/two-level-bvh-research.md. Row-major affine; we store
+// BOTH M (object->world) and Minv (world->object) so the device never inverts
+// a matrix per ray (pbrt/Cycles both precompute the inverse).
+// ---------------------------------------------------------------------------
+struct GMat4 {
+    float m[16];   // row-major: m[row*4 + col]
+
+    HD static GMat4 identity() {
+        GMat4 r;
+        for (int i = 0; i < 16; ++i) r.m[i] = 0.f;
+        r.m[0] = r.m[5] = r.m[10] = r.m[15] = 1.f;
+        return r;
+    }
+
+    // Point transform: full 4x4 incl. translation + homogeneous w-divide.
+    HD GVec3 xformPoint(const GVec3& p) const {
+        float x = m[0]*p.x + m[1]*p.y + m[2]*p.z + m[3];
+        float y = m[4]*p.x + m[5]*p.y + m[6]*p.z + m[7];
+        float z = m[8]*p.x + m[9]*p.y + m[10]*p.z + m[11];
+        float w = m[12]*p.x + m[13]*p.y + m[14]*p.z + m[15];
+        float inv = (w != 0.f) ? 1.f/w : 1.f;
+        return GVec3(x*inv, y*inv, z*inv);
+    }
+    // Vector transform: upper 3x3, NO translation, *** NOT renormalized ***
+    // (so a ray direction keeps the object-space scale and local t == world t;
+    //  pbrt §6.1.4 / Cycles transform_direction).
+    HD GVec3 xformDir(const GVec3& d) const {
+        return GVec3(m[0]*d.x + m[1]*d.y + m[2]*d.z,
+                     m[4]*d.x + m[5]*d.y + m[6]*d.z,
+                     m[8]*d.x + m[9]*d.y + m[10]*d.z);
+    }
+    // Normal transform by the inverse-transpose: 'this' MUST be Minv
+    // (world<-object), and we read it transposed (multiply by columns) to get
+    // (Minv)^T * n_local = world normal direction. Caller renormalizes.
+    HD GVec3 xformNormalByInvTranspose(const GVec3& n) const {
+        return GVec3(m[0]*n.x + m[4]*n.y + m[8]*n.z,
+                     m[1]*n.x + m[5]*n.y + m[9]*n.z,
+                     m[2]*n.x + m[6]*n.y + m[10]*n.z);
+    }
+};
+
+// One BLAS = one unique mesh BVH. Slices into the shared global node/prim
+// arrays. Each BLAS is flattened INDEPENDENTLY starting at node 0, so its
+// GBVHNode.secondChildOffset values are BLAS-local; only the root pointer
+// (blasNodes + nodeOffset) is offset at traversal time.
+struct GBLAS {
+    int nodeOffset;   // first GBVHNode of this BLAS in the global blas-node array
+    int primOffset;   // added to a BLAS-local leaf primId to land in global prims[]
+};
+
+// One instance. A TLAS leaf points at a list of these.
+struct GInstance {
+    GMat4 worldFromObject;   // M    — hit point + tangents back to world
+    GMat4 objectFromWorld;   // Minv — ray into local space + normal inverse-transpose
+    int   blasIndex;         // index into the GBLAS array
+    int   instanceId;        // stable id (Cryptomatte/NEE join handle; used in inc 2)
+};
+
+// The TLAS reuses the 32-byte GBVHNode layout verbatim ("the TLAS is just
+// another BVH", pbrt-v4). A TLAS leaf's primitivesOffset/nPrimitives index the
+// instance list instead of prims[].
+using GTLASNode = GBVHNode;
+
+// ---------------------------------------------------------------------------
 // Material
 // ---------------------------------------------------------------------------
 // Sellmeier dispersion coefficients (Sellmeier 1871, public domain).

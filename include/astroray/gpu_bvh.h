@@ -159,6 +159,124 @@ __device__ inline bool gpu_bvh_hit(
 }
 
 // ---------------------------------------------------------------------------
+// pkg114 — Two-level traversal: a TLAS (BVH over instance world-AABBs) whose
+// leaves are GInstance records, each referencing a BLAS (the per-mesh BVH this
+// file's gpu_bvh_hit traverses) plus a 4x4 object<->world transform pair.
+//
+// Source: pbrt-v4 (Apache-2.0), Pharr/Jakob/Humphreys —
+//   src/pbrt/cpu/primitive.cpp TransformedPrimitive::Intersect;
+//   src/pbrt/util/transform.h  Transform::ApplyInverse(const Ray&, Float*).
+// Source: Cycles (Apache-2.0), Blender Foundation —
+//   src/kernel/bvh/bvh.h bvh_instance_push; src/util/transform.h
+//   transform_point / transform_direction (un-normalized) /
+//   transform_direction_transposed (normal by inverse-transpose).
+// See .astroray_plan/docs/two-level-bvh-research.md.
+//
+// Invariants (load-bearing):
+//  - The world ray is transformed into BLAS-local space with the instance's
+//    objectFromWorld (Minv); the local direction is NOT renormalized, so local
+//    t == world t and the global tMax is one shared cutoff across both levels.
+//    We bypass the GRay(o,d) ctor (which renormalizes) by default-construct +
+//    field-assign — the same precedent as src/gpu/wavefront/stage_intersect.cu.
+//  - The local hit's GEOMETRIC outward normal is recovered (frontFace ? n : -n),
+//    transformed by (Minv)^T, renormalized; frontFace is RECOMPUTED in world
+//    space vs the world ray (recomputing from the already-oriented normal would
+//    always read "front" since the oriented normal always points against the
+//    ray, and it would mis-handle mirror/negative-det transforms). The world
+//    ONB is rebuilt from the world normal so the shading frame matches a
+//    flattened-world-space reference.
+//  - rec.primId is remapped BLAS-local -> global (blas.primOffset + localPrimId)
+//    so prims[rec.primId] (Cryptomatte / NEE) keeps working unchanged.
+// ---------------------------------------------------------------------------
+__device__ inline bool gpu_tlas_hit(
+    const GTLASNode*  tlas,
+    const GInstance*  instances,
+    const GBLAS*      blas,
+    const GBVHNode*   blasNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GRay&       ray,
+    float tMin, float tMax,
+    GHitRecord&       rec)
+{
+    // No TLAS uploaded -> behave exactly like the single-level path. (Lets a
+    // caller route unconditionally through gpu_tlas_hit before instances exist.)
+    if (!tlas || !instances || !blas) {
+        return gpu_bvh_hit(blasNodes, prims, tris, spheres, ray, tMin, tMax, rec);
+    }
+
+    bool  hit    = false;
+    GVec3 invDir(1.f/ray.direction.x,
+                 1.f/ray.direction.y,
+                 1.f/ray.direction.z);
+    int   dirIsNeg[3] = { invDir.x < 0, invDir.y < 0, invDir.z < 0 };
+    int   toVisit = 0, curr = 0;
+    int   stack[64];
+
+    while (true) {
+        const GTLASNode& n = tlas[curr];
+
+        if (n.bounds.hit(ray, tMin, tMax)) {        // TLAS AABB: world space, world ray
+            if (n.nPrimitives > 0) {
+                // Leaf: a list of instances.
+                for (int i = 0; i < n.nPrimitives; ++i) {
+                    const GInstance& inst = instances[n.primitivesOffset + i];
+                    const GBLAS&     b    = blas[inst.blasIndex];
+
+                    // World ray -> BLAS-local space. Bypass the GRay ctor so the
+                    // local direction stays un-normalized (tMax comparability).
+                    GRay local;
+                    local.origin    = inst.objectFromWorld.xformPoint(ray.origin);
+                    local.direction = inst.objectFromWorld.xformDir(ray.direction);
+
+                    GHitRecord lrec;
+                    lrec.primId = -1;
+                    // Shared, un-scaled tMax: lrec.t comes back in world units.
+                    bool ih = gpu_bvh_hit(blasNodes + b.nodeOffset, prims, tris, spheres,
+                                          local, tMin, tMax, lrec);
+                    if (ih && lrec.t < tMax) {
+                        hit  = true;
+                        tMax = lrec.t;              // tighten the shared cutoff
+
+                        // Recover local geometric outward normal, transform to
+                        // world by inverse-transpose, recompute frontFace.
+                        GVec3 geomOut_l = lrec.frontFace ? lrec.normal : (lrec.normal * -1.f);
+                        GVec3 geomOut_w = inst.objectFromWorld
+                                              .xformNormalByInvTranspose(geomOut_l)
+                                              .normalized();
+                        bool ff = ray.direction.dot(geomOut_w) < 0.f;
+
+                        rec            = lrec;       // t, materialId, isDelta carry over
+                        rec.t          = lrec.t;     // world units, unchanged
+                        rec.point      = inst.worldFromObject.xformPoint(lrec.point);
+                        rec.frontFace  = ff;
+                        rec.normal     = ff ? geomOut_w : (geomOut_w * -1.f);
+                        gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
+                        rec.primId     = b.primOffset + lrec.primId;
+                    }
+                }
+                if (toVisit == 0) break;
+                curr = stack[--toVisit];
+            } else {
+                // Interior: same near/far ordering as gpu_bvh_hit.
+                if (dirIsNeg[n.axis]) {
+                    stack[toVisit++] = curr + 1;
+                    curr = n.secondChildOffset;
+                } else {
+                    stack[toVisit++] = n.secondChildOffset;
+                    curr = curr + 1;
+                }
+            }
+        } else {
+            if (toVisit == 0) break;
+            curr = stack[--toVisit];
+        }
+    }
+    return hit;
+}
+
+// ---------------------------------------------------------------------------
 // Environment map sampling helpers (device-side)
 // ---------------------------------------------------------------------------
 

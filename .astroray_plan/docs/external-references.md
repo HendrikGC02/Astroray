@@ -146,6 +146,12 @@ own because a dependency for 40 lines of code is ridiculous.
   Tracing" (SIGGRAPH 1986) + Jensen photon maps (EGWR 1996); MNEE transfer-matrix
   geometry term ported from Cycles `mnee.h` (Apache-2.0). Notes:
   `pkg106-forward-lighttracing-research.md`.
+- **Two-level BVH / TLAS-over-BLAS instancing (pkg114)** — PBRT-v4
+  `TransformedPrimitive` (Apache-2.0 — v4 is Apache, *not* v3's BSD-3-Clause),
+  Cycles `bvh2.cpp` / `bvh_instance_push` (Apache-2.0), Embree (Wald 2014,
+  DOI 10.1145/2601097.2601199) + OptiX IAS/GAS. Ray→object with an
+  un-normalized direction (shared `tMax`), normals via inverse-transpose.
+  Notes: `two-level-bvh-research.md`.
 
 Astroray targets MIT (or Apache 2.0). Compatible:
 - Apache 2.0, BSD-2/3, MIT, ISC — link freely.

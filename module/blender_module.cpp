@@ -46,6 +46,7 @@
 #  include "astroray/gpu_renderer.h"
 #  include "astroray/gpu_photon_store.h"   // pkg113 Phase 1 — GPU photon store query
 #  include "astroray/gpu_photon_emit.h"    // pkg113 Phase 2 — GPU photon emission/bounce
+#  include "astroray/gpu_tlas_parity.h"    // pkg114 inc 1 — two-level BVH identity parity probe
 #  ifdef ASTRORAY_WAVEFRONT_CUDA_N3
 #    include "../src/gpu/wavefront/gpu_wavefront_snapshot.h"
 #  endif
@@ -2590,6 +2591,37 @@ PYBIND11_MODULE(astroray, m) {
           "max_neighbors"_a = 256,
           "pkg113 Phase 1: build the GPU photon hash grid and gather at each "
           "query. Returns [(irradiance(3), neighbor_indices, found_count), ...].");
+
+    // pkg114 increment 1 — two-level BVH (TLAS-over-BLAS) identity-passthrough
+    // parity probe. Builds a single identity instance (one BLAS = the whole
+    // uploaded scene, M = Minv = I, a 1-leaf TLAS) and, for every primary camera
+    // ray, dual-traces gpu_tlas_hit(identity) against the single-level
+    // gpu_bvh_hit. The identity case must reduce EXACTLY to single-level on
+    // t / primId / materialId / frontFace / point, with at most a sub-ulp normal
+    // drift (the no-op inverse-transpose renormalize). Touches no production
+    // kernel. Validated by tests/test_tlas_blas_parity.py. See
+    // .astroray_plan/docs/two-level-bvh-research.md.
+    m.def("_gpu_tlas_identity_parity",
+          [](PyRenderer& r, int width, int height) {
+              auto cam = r.getCamera();
+              if (!cam)
+                  throw std::runtime_error("Camera not set up. Call setup_camera() first.");
+              r.getRenderer().buildAcceleration();
+              auto res = astroray::twolevel::cuda_tlas_identity_parity(
+                  r.getRenderer(), *cam, width, height);
+              py::dict d;
+              d["total_rays"]       = res.totalRays;
+              d["hit_disagree"]     = res.hitDisagree;
+              d["field_mismatch"]   = res.fieldMismatch;
+              d["max_t_delta"]      = res.maxTDelta;
+              d["max_point_delta"]  = res.maxPointDelta;
+              d["max_normal_delta"] = res.maxNormalDelta;
+              return d;
+          },
+          "renderer"_a, "width"_a, "height"_a,
+          "pkg114 inc 1: two-level BVH identity-passthrough parity probe. Returns "
+          "dict(total_rays, hit_disagree, field_mismatch, max_t_delta, "
+          "max_point_delta, max_normal_delta).");
 
     // pkg113 Phase 2 — GPU photon EMISSION + BOUNCE parity binding. Forward-
     // traces a batch of collimated-sun photons through a single glass sphere

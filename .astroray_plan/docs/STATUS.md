@@ -1,6 +1,20 @@
 # Astroray Status
 
-**Last updated:** 2026-06-10 (pkg113 GPU photon-map caustics COMPLETE — phase 3 #425).
+**Last updated:** 2026-06-10 (pkg112 batched geometry upload COMPLETE — PR #427; pkg113 COMPLETE — #425).
+
+## pkg112 — batched geometry upload COMPLETE (2026-06-10, PR #427)
+
+One `add_triangles_bulk` pybind call ingests a whole mesh's triangles from contiguous
+NumPy arrays (looping in C++), replacing the per-triangle `add_triangle` round-trip that
+dominated Blender geometry-sync cost. The addon `convert_objects` fills the arrays with
+Blender's C-speed `foreach_get` (via the pure `blender_addon/_bulk_geometry.py` helper) and
+issues one bulk call per mesh; the per-tri loop stays as a fallback. Verified at four layers:
+binding pixel-identity (bit-identical CPU render), **31.7× upload speedup** on 100,352 tris
+(692.7ms→21.9ms), extraction-parity unit test (non-uniform-scale transform + inverse-transpose
+normals + multi-UV order), and a **real-Blender end-to-end bit-identical render** (headless
+Blender 5.1 reusing the build_cuda module via `--factory-startup`; `identical=True`,
+`max_abs_diff=0`). pkg114 (two-level BVH/TLAS-BLAS) is the complementary follow-up. **Next
+pickup:** pkg114 (GPU, RTX-verifiable) or pkg108 (addon residual triage).
 
 ## pkg113 — GPU photon-map caustics COMPLETE (2026-06-10, PR #425)
 

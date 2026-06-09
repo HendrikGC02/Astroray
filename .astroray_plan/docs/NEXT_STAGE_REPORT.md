@@ -1,49 +1,46 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-05-31 (Round 15 Wave 6 closeout — pkg104 CPU+cross-engine acceptance closed, pkg118 rough-glass root-cause, pkg64-gpu HW-sweep evidence, pkg117 nonmesh geometry)
-**Prepared by:** Claude (Anthropic Code) — rewritten at the Wave 6 closeout (pkg104/pkg117 complete; pkg118 filed).
-**Scope:** post-Wave-6 next stage.
+**Date:** 2026-06-10 (Round closeout — pkg118 COMPLETE, pkg113 COMPLETE, pkg112 COMPLETE)
+**Prepared by:** Claude (Anthropic Code) — rewritten at the 2026-06-10 round closeout (pkg118/pkg113/pkg112 closed).
+**Scope:** post-2026-06-10 next stage.
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C. Strategy in
 > [`ROADMAP.md`](ROADMAP.md), full status in [`STATUS.md`](STATUS.md) (the
 > Round 15 Wave 6 section is authoritative for the current state).
 
-> ⚠️ **UPDATE 2026-06-08:** pkg118 was attempted and **the multi-scatter-table
-> approach is a DEAD-END** (see STATUS.md 2026-06-08 + `pkg118-multiscatter-energy-research.md`).
-> Part A (forced-TIR pdf) landed (PR #415) but is gate-neutral; the furnace deficit is
-> NOT single-scatter masking (it is worst at LOW roughness) — it is the CPU bespoke RGB
-> `disney_sample` diverging from the energy-conserving GPU spectral closure path. pkg118
-> is OPEN, **re-scoped** to a CPU formulation fix and is **no longer a quick CPU win**.
-> The deployable set below (§2) treats pkg118 item 1 as superseded by this finding.
+> ⚠️ **UPDATE 2026-06-10:** **pkg118 SOLVED** (PR #423, 2026-06-08). The rough-glass
+> furnace deficit was the **η² albedo-LUT clamp** (the CPU twin of the #404 GPU glass-dark
+> bug): `Material::sampleSpectral` upsampled glass throughput through `RGBAlbedoSpectrum`,
+> whose Jakob-Hanika ALBEDO LUT clamps rgb>1 to 1, clipping the exit refraction's eta²=2.25
+> radiance recovery. Fix: factor the >1 magnitude out as a flat spectral scalar (mirrors
+> GPU #404), upsample only the normalized tint. CPU furnace 0.77/0.82/0.92/0.97/0.96 →
+> 0.89/0.94/1.00/1.00/1.00; `test_disney_rough_glass_furnace_energy_cpu` PASSES [0.92,1.03].
+> **pkg118 DONE.** Also closed: **pkg113** (GPU photon-map caustics, all 3 phases merged +
+> RTX-verified, PR #422/#424/#425) and **pkg112** (batched geometry upload, 31.7× speedup,
+> PR #427).
 >
-> The remaining lead pool is **pkg64-gpu gate resolution** (RTX owner adjudication) + the
-> standing GPU-gated work (pkg113 GPU photon-map, pkg116, pkg108, pkg115).
-> Clean CI-only CPU wins are largely exhausted; the next substantive work is GPU-gated
-> (do on this RTX with hardware verification) or the pkg118 CPU rough-glass rewrite.
+> The next autonomous lead pool is **pkg114** (two-level BVH, TLAS/BLAS) → **pkg55**
+> (wavefront SoA refactor) → **pkg64** (spectral caustics). All GPU-gated + RTX-verifiable.
+> Clean CI-only CPU wins are exhausted; the next substantive work is GPU-gated (do on this
+> RTX with hardware verification).
 >
-> **Owner directives (2026-06-08):** (1) **Pillar 4 (pkg45/46/48/49/50/51) is ON PAUSE**
-> until the rest is working/stable/sufficiently progressed — do not pick it up. (2) The
-> broken old-Blender benchmark scenes (Classroom/BMW27/Junkshop/UDIM_monster) were
-> **removed**; **pkg76 Classroom/BMW27/Junkshop fidelity is dropped** from the pool
-> (item 9 below is void). cornell is the only remaining Cycles-parity scene.
+> **Owner directives (2026-06-08):** (1) **Pillar 4 (pkg45/46/48/49/50/51 + pkg107) is ON
+> PAUSE** until the rest is working/stable/sufficiently progressed — do not pick it up.
+> (2) The broken old-Blender benchmark scenes (Classroom/BMW27/Junkshop/UDIM_monster) were
+> **removed**; **pkg76 Classroom/BMW27/Junkshop fidelity is dropped** from the pool.
+> cornell is the only remaining Cycles-parity scene.
 
 ---
 
 ## 1. Current state (one screen)
 
-- **pkg104 + pkg117 COMPLETE.** pkg104 (visual reference bank) closed CPU + cross-engine
-  acceptance: PR #407 added 3 tests (`test_reference_bank_smoke.py`) on the REAL
-  references (broken-render gate-fails; prism hue_spread 0.753 ≥ 0.7; Schwarzschild
-  dark_disk 0.053 ≥ 0.03); PR #410 re-rendered the disney-sweep Cycles reference via
-  Blender 5.1 with the FOV fix → SSIM 0.7611 ≥ 0.65. pkg117 (nonmesh geometry) routes
-  CURVE/SURFACE/FONT/META via `to_mesh()` + `to_mesh_clear()` (PR #411, 4 tests + 10
-  existing pass; Blender 5.1 headless check confirms 288/58/170 polys).
-- **pkg118 filed — rough-dielectric multi-scatter energy compensation.** The xfail'd
-  `test_disney_rough_glass_furnace_energy_cpu` residual is **NOT** VNDF/low-alpha — it
-  is **missing Kulla-Conty multi-scatter** (single-scatter masking loss + forced-TIR
-  delta over-count partially cancel at high roughness, diverge at low). PR #408 documented
-  the root cause + filed `packages/pkg118-rough-dielectric-multiscatter-energy.md` with
-  the fix plan (dielectric E precompute table + PBRT-v4 TIR pdf correction).
+- **pkg118 + pkg113 + pkg112 COMPLETE (2026-06-08→10).** pkg118 (rough-glass energy) SOLVED
+  (PR #423): the η² albedo-LUT clamp (CPU twin of #404 GPU glass-dark bug) — fix = factor
+  >1 magnitude out as flat spectral scalar; CPU furnace 0.77→0.89+, test PASSES [0.92,1.03].
+  pkg113 (GPU photon-map caustics) all 3 phases merged + RTX-verified (PR #422/#424/#425):
+  store, emission, gather; the phase-3 follow-up resolved (CPU exit-refraction sign bug,
+  not GPU). pkg112 (batched geometry upload) 31.7× speedup (PR #427): one
+  `add_triangles_bulk` pybind call per mesh, bit-identical render + real-Blender end-to-end.
 - **pkg64-gpu SMS gates drift documented (GPU improved, frozen gates measure vs stale
   baselines).** PR #409 confirmed on RTX: parity SSIM 0.8352 < 0.85, Phase-3 prism PSNR
   −0.59 dB < −0.5. Cause: Wave-5 glass fix (PR #404) legitimately improved GPU; the
@@ -53,69 +50,73 @@
 - **Blender 5.1 is installed on this machine.** Agents CAN now re-bless cross-engine
   Cycles references (was "owner Blender re-render"; PR #410 did it).
 - **No open PRs.** The PR queue is empty.
-- **Blocked / not-overnight:** pkg113 (GPU photon-map port), pkg64-gpu gate resolution
-  (owner adjudication), pkg55-B' CUDA sessions, pkg86-B GPU light tree — all need RTX
-  hardware-verified gates (CI has NO GPU).
+- **Next autonomous work: GPU-gated + RTX-verifiable.** pkg114 (two-level BVH TLAS/BLAS) →
+  pkg55 (wavefront SoA refactor) → pkg64 (spectral caustics). pkg108/pkg88 owner-blocked
+  (reproduction scenes / open questions). Pillar 4 (pkg45/46/48/49/50/51 + pkg107) ON PAUSE
+  per owner directive 2026-06-08.
 
 ---
 
 ## 2. Deployable set (prioritized)
 
-Ordered by value × overnight-shippability. CI is **Linux/CPU only** — pick CPU
-work whose correctness can be gated without a GPU.
+Ordered by value × overnight-shippability. **pkg118, pkg113, pkg112 are DONE** (closed
+this round). CI is **Linux/CPU only** — pick CPU work whose correctness can be gated
+without a GPU.
 
-**Top priority (CPU-shippable):**
+**Top priority (autonomous, GPU-gated — do on RTX):**
 
-1. **pkg118 — CPU rough-dielectric multi-scatter energy compensation** (M, CPU-gated).
-   The xfail'd `test_disney_rough_glass_furnace_energy_cpu` now has a root-cause
-   (PR #408 / `packages/pkg118-rough-dielectric-multiscatter-energy.md`): missing
-   Kulla-Conty multi-scatter on the rough dielectric transmission lobe. Single-scatter
-   masking loss + forced-TIR delta over-count partially cancel at high roughness (~0.96),
-   diverge at low (0.77/0.81). Fix: (A) correct the forced-TIR delta throughput (PBRT-v4
-   §9.5 TIR pdf = 1, not Fresnel×transmission), (B) precompute `E_glass(alpha, mu, eta)`
-   table (MC integration of the single-scatter rough dielectric BSDF, Heitz 2016 + Kulla-
-   Conty 2017 multi-scatter factor), apply to rough transmission like the reflection
-   lobe already does. Furnace gate wants [0.95, 1.02] for R∈{0.1,0.3,0.6,1.0}. **Cite:**
-   PBRT-v4 `DielectricBxDF`, Cycles `bsdf_microfacet.h` energy-conserving dielectric,
-   Kulla-Conty 2017, Heitz 2016. Sources already in `vndf-microfacet-dielectric-research.md`
-   UPDATE 3.
+1. **pkg114 — two-level BVH (TLAS/BLAS)** (GPU, RTX-verifiable, AUTONOMOUS). Enables
+   instancing; natural follow-up to pkg112 (batched geometry upload). Large/multi-session;
+   needs §6 research (cite Cycles `bvh2.cpp` TLAS/BLAS, PBRT-v4 ch.7 BVH construction,
+   NVIDIA OptiX Programming Guide TLAS/BLAS split). **Start with a research pass** —
+   locate canonical refs, save to `.astroray_plan/docs/pkg114-tlas-blas-research.md`,
+   then implement.
+2. **pkg55 — wavefront SoA refactor** (GPU, large, research already signed off per its
+   spec). Laine 2013 per-material shade kernels; the pkg81-measured viewport-parity
+   blocker (CUDA 104 ms vs CPU 58 ms — megakernel register pressure). Multi-session.
+3. **pkg64 — spectral caustics** (huge, ~3–4 wk). The SMS CPU spectral caustic path.
 
-**Standing CPU-shippable pool:**
+**GPU-gated pool (OWNER-BLOCKED or owner-reserved):**
 
-2. **pkg101 / pkg102 / pkg100** (S each, no research) — addon viewport vfov, HDRI/DOF
-   aperture units, .blend importer camera intrinsics. Branches exist on origin;
-   re-verify vs current main (Wave-4 check found pkg100/101/102 already landed — may be
-   no work needed). Independent — parallelizable.
-3. **pkg76 Classroom Gap 2 continuation** (M, partial) — Gap 2 landed the non-Principled
-   shader-graph walk (PR #394), but the Classroom SSIM ≥0.85 gate is GPU-gated and was
-   deferred. Land any remaining importer-side code + bpy-free unit tests on CI; defer the
-   GPU SSIM gate to the next HW sweep.
-
-**GPU-gated (NOT overnight — do on RTX):**
-
-4. **pkg64-gpu gate resolution** (owner adjudication needed). PR #409 HW-sweep evidence
-   doc `pkg64-gpu-hw-sweep-2026-05-31.md` confirms both SMS gates drifted: parity SSIM
+4. **pkg108 — addon residual triage** (owner questions: BUG-09/BUG-14 need the owner's
+   reproduction scene; only BUG-16 subsurface is a candidate autonomous fix). Blender
+   integration parity spec.
+5. **pkg88 — motion blur** (4 owner questions remain in the spec). Blender integration
+   parity spec.
+6. **pkg64-gpu SMS gate resolution** (owner-reserved). PR #409 HW-sweep evidence doc
+   `pkg64-gpu-hw-sweep-2026-05-31.md` confirms both SMS gates drifted: parity SSIM
    0.8352 < 0.85, Phase-3 prism PSNR −0.59 dB < −0.5. Root cause: Wave-5 glass fix
    (PR #404) legitimately improved GPU; the frozen SMS-GPU gates measure vs stale
-   baselines. The two gates need different fixes: (a) PSNR gate = re-bless the stored
-   high-spp reference (clean reference update); (b) SSIM parity gate = owner picks
-   xfail-as-legacy (recommended; SMS-GPU frozen, pkg113 photon-map is canonical) OR
-   recalibrate the floor. Owner action required — do NOT silently lower a floor.
-5. **pkg113 — GPU photon-map caustics + CPU/GPU parity** (L, multi-session, GPU-verifiable
-   on RTX). The GPU port of the now-CPU-complete chain (pkg109→pkg110→pkg111). Caustic
-   photon map is the canonical path on CPU+GPU; SMS-GPU (pkg64-gpu) is frozen/legacy per
-   owner decision 2026-05-30. Full CPU↔GPU-equivalence picture + caustics fork in
-   `cpu-gpu-parity-status.md`.
-6. **pkg116 — exporter cache refactor** (M, addon). Blender integration parity spec.
-7. **pkg108 — addon residual triage**. Blender integration parity spec.
+   baselines. Owner action required — do NOT silently lower a floor.
+7. **pkg116 — exporter cache refactor** (M, addon). Blender integration parity spec.
 8. **pkg115 — shader-node textures**. Blender integration parity spec.
 9. **pkg76 Classroom fidelity** — GPU investigation (SSIM ≥0.85 gate deferred from Gap 2).
+   NOTE: the broken old-Blender benchmark scenes (Classroom/BMW27/Junkshop/UDIM_monster)
+   were removed per owner directive 2026-06-08; pkg76 Classroom/BMW27/Junkshop fidelity
+   is DROPPED from the pool. cornell is the only remaining Cycles-parity scene.
 10. **pkg55-B' CUDA sessions** (wavefront port continuation), **pkg86-B GPU light tree**,
     **SPPM-progressive + VCM** (owner decision). All GPU-gated; CI has no GPU.
 
+**Pillar 4 (PAUSED per owner directive 2026-06-08):**
+
+- **pkg45/46/48/49/50/51 + pkg107** — all ON PAUSE until core rendering is
+  working/stable/sufficiently progressed. **Do NOT pick up Pillar-4 specs.**
+
+**Standing CPU-shippable pool (low priority or already verified stale):**
+
+- **pkg101 / pkg102 / pkg100** (S each, no research) — addon viewport vfov, HDRI/DOF
+  aperture units, .blend importer camera intrinsics. Branches exist on origin;
+  re-verify vs current main (Wave-4 check found pkg100/101/102 already landed — may be
+  no work needed). Independent — parallelizable.
+- **pkg76 Classroom Gap 2 continuation** (M, partial) — Gap 2 landed the non-Principled
+  shader-graph walk (PR #394), but the Classroom SSIM ≥0.85 gate is GPU-gated and was
+  deferred. Land any remaining importer-side code + bpy-free unit tests on CI; defer the
+  GPU SSIM gate to the next HW sweep. **OBSOLETED** by the 2026-06-08 owner directive
+  (Classroom scene removed).
+
 **Note on test suite:** The full local test suite has **ONE expected failure**: the
 pkg64-gpu parity SSIM gate (`test_pkg64_gpu_cpu_parity_ssim`) — this is the legitimate
-owner-reserved drift (item 4 above), NOT a regression. Do not mis-diagnose it.
+owner-reserved drift (item 6 above), NOT a regression. Do not mis-diagnose it.
 
 ---
 

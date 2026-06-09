@@ -1,6 +1,23 @@
 # Astroray Status
 
-**Last updated:** 2026-06-10 (pkg112 batched geometry upload COMPLETE — PR #427; pkg113 COMPLETE — #425).
+**Last updated:** 2026-06-10 (pkg118 COMPLETE — PR #423; pkg113 COMPLETE — PR #425; pkg112 COMPLETE — PR #427).
+
+## pkg118 — rough-dielectric energy compensation COMPLETE (2026-06-08, PR #423)
+
+**SOLVED**: the rough-glass furnace energy deficit was the **η² albedo-LUT clamp** (the CPU
+twin of the #404 GPU glass-dark bug). `raytracer.h` `Material::sampleSpectral` upsampled
+the glass throughput through `RGBAlbedoSpectrum`, whose Jakob-Hanika ALBEDO LUT clamps
+rgb>1 to 1, clipping the exit refraction's **eta²=2.25** radiance recovery at the glass→air
+exit. Fix (PR #423): factor the >1 magnitude out as a flat spectral scalar (mirrors the GPU
+#404 fix), upsample only the normalized tint. CPU furnace 0.77/0.82/0.92/0.97/0.96 →
+0.89/0.94/1.00/1.00/1.00; `test_disney_rough_glass_furnace_energy_cpu` now **PASSES**
+[0.92,1.03]; no regressions. Part A (forced-TIR pdf correction, PR #415) also landed but
+was gate-neutral. The spec's Part B (Kulla-Conty multi-scatter compensation table) was a
+**dead-end** — the deficit was NOT single-scatter masking (it was worst at LOW roughness,
+not high). Full diagnosis (5 ruled-out approaches → per-bounce ray trace):
+`.astroray_plan/docs/pkg118-multiscatter-energy-research.md`. **Next pickup:** the general
+pool (pkg114 two-level BVH, pkg55 wavefront SoA, pkg64 spectral caustics — all GPU-gated +
+autonomous).
 
 ## pkg112 — batched geometry upload COMPLETE (2026-06-10, PR #427)
 
@@ -50,16 +67,20 @@ geometry upload, GPU-gated, RTX-verifiable).
   from the uncommitted gallery stash that predated the cleanup; main had the pre-fix
   dark-glass renders. `gallery_prism_caustics.png` left as main's (the stash version is
   a broken black render).
-- **pkg118 — forced-TIR pdf fix + Kulla-Conty table REJECTED (PR #415).** Part A: the
-  forced-TIR delta-reflect pdf was `fresnel*transmission_`; corrected to `transmission_`
-  for deterministic TIR (PBRT-v4 §9.5), CPU + GPU. Correct firefly fix but **gate-neutral**.
-  **Key finding: the spec's Part B (multi-scatter compensation table) is a dead-end.**
-  The furnace deficit is worst at LOW roughness (not single-scatter masking), and
-  compensating the rough-transmission lobe AND the rough→delta fallthrough moves R=0.1
-  only 0.815→0.823. The real defect is the **CPU bespoke RGB `disney_sample` diverging
-  from the energy-conserving GPU spectral closure path** (GPU furnace R=0.1 = 0.956 vs
-  CPU 0.823). pkg118 stays OPEN, re-scoped to a CPU-RGB-vs-closure-path formulation fix;
-  `test_disney_rough_glass_furnace_energy_cpu` xfail kept. Analysis:
+- **pkg118 — forced-TIR pdf fix + root-cause diagnosis (PR #415, PR #423).** Part A
+  (PR #415): the forced-TIR delta-reflect pdf was `fresnel*transmission_`; corrected to
+  `transmission_` for deterministic TIR (PBRT-v4 §9.5), CPU + GPU. Correct firefly fix
+  but **gate-neutral**. **Key finding: the spec's Part B (multi-scatter compensation
+  table) is a dead-end.** The furnace deficit is worst at LOW roughness (not single-
+  scatter masking), and compensating the rough-transmission lobe AND the rough→delta
+  fallthrough moves R=0.1 only 0.815→0.823. The real defect was the **η² albedo-LUT
+  clamp** (the CPU twin of the #404 GPU glass-dark bug): `Material::sampleSpectral`
+  upsampled the glass throughput through `RGBAlbedoSpectrum`, whose Jakob-Hanika ALBEDO
+  LUT clamps rgb>1 to 1, clipping the exit refraction's eta²=2.25 radiance recovery. Fix
+  (PR #423): factor the >1 magnitude out as a flat spectral scalar (mirrors GPU #404),
+  upsample only the normalized tint. CPU furnace 0.77/0.82/0.92/0.97/0.96 →
+  0.89/0.94/1.00/1.00/1.00; `test_disney_rough_glass_furnace_energy_cpu` now PASSES
+  [0.92,1.03]. **pkg118 DONE.** Analysis:
   `.astroray_plan/docs/pkg118-multiscatter-energy-research.md`.
 - **Removed broken old-Blender benchmark scenes (owner directive).** The Blender
   Foundation demo scenes (Classroom, BMW27, Junkshop, UDIM_monster) ship from old

@@ -178,6 +178,32 @@ fix:
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
 
+**Round closeout (2026-06-10): pkg118 + pkg113 + pkg112 COMPLETE.**
+**pkg118 SOLVED** (PR #423, 2026-06-08) — the rough-glass furnace energy deficit was the **η²
+albedo-LUT clamp** (the CPU twin of the #404 GPU glass-dark bug): `Material::sampleSpectral`
+upsampled glass throughput through `RGBAlbedoSpectrum`, whose Jakob-Hanika ALBEDO LUT clamps
+rgb>1 to 1, clipping the exit refraction's eta²=2.25 radiance recovery. Fix: factor the >1
+magnitude out as a flat spectral scalar (mirrors GPU #404), upsample only the normalized tint.
+CPU furnace 0.77/0.82/0.92/0.97/0.96 → 0.89/0.94/1.00/1.00/1.00; `test_disney_rough_glass_furnace_energy_cpu`
+PASSES [0.92,1.03]; no regressions. The spec's Part B (Kulla-Conty multi-scatter table) was a
+dead-end (the deficit was NOT single-scatter masking). Full diagnosis:
+`.astroray_plan/docs/pkg118-multiscatter-energy-research.md`. **pkg113 DONE** (all 3 phases merged +
+RTX-verified, PR #422 store, #424 emission, #425 gather) — GPU photon-map caustics: uniform hash-grid
+store, GPU photon emission + bounce → deposit, adaptive k-NN cone gather wired into both GPU
+integrators. Phase-3 follow-up resolved: the "GPU caustic 5.6x more spread" was REAL but the diagnosis
+was INVERTED — the GPU was correct; the **CPU reference carried an exit-refraction sign bug** (both CPU
+caustic loops keyed enter/exit off the ray-ORIENTED `rec.normal`, always taking the "entering" branch;
+fix = recover geometric outward normal `ng = frontFace ? rec.normal : -rec.normal`). RTX-verified:
+glass-sphere parity ROI ratio 1.09x, SSIM 0.962, peak 0.409; pkg110 conc 32.4; 26 caustic/GPU tests
+pass, 0 regressions. Detail: `pkg113-phase3-gather-wiring-research.md` RESOLUTION section. **pkg112
+DONE** (PR #427) — batched geometry upload: one `add_triangles_bulk` pybind call per mesh (looping in
+C++), replacing the per-triangle `add_triangle` round-trip. Addon fills arrays with Blender's C-speed
+`foreach_get`; **31.7× upload speedup** on 100,352 tris (692.7ms→21.9ms). Verified at four layers:
+binding pixel-identity (bit-identical CPU render), extraction-parity unit test (non-uniform-scale +
+inverse-transpose normals + multi-UV order), and a **real-Blender end-to-end bit-identical render**
+(headless Blender 5.1). **Next pickup:** pkg114 (two-level BVH TLAS/BLAS) → pkg55 (wavefront SoA) →
+pkg64 (spectral caustics) — all GPU-gated + RTX-verifiable.
+
 **Round 15 Waves 3–5 (2026-05-29→30): forward-light-tracer prism rainbow → general caustics → GPU glass energy + showcase.**
 **pkg106 FINISHED** (PR #393) — a triangulated BK7 prism throws a clean continuous rainbow caustic
 (hue_spread 0.754 ≥0.7, bright_coverage 0.88) via a NEW forward light-tracer integrator
@@ -194,10 +220,10 @@ energy bug (delta refraction eta^2 was albedo-clamped to [0,1] by the JH upsampl
 0.705 → 0.991 flat @ ior 1.5) and lands a **Heitz-2018 VNDF microfacet-dielectric rough-transmission
 rewrite** (PBRT-v4 `DielectricBxDF`, BSD-3-Clause — GPU rough glass now energy-conserving for R≥0.1);
 **PR #405** re-authors 6 reference-bank showcase scenes (≥512², gate-green on RTX). The forward
-photon-map caustics are CPU-only by design; the GPU port is specced as **pkg113** (GPU-gated). The
-glass-energy fix legitimately moved GPU output, so **two pkg64-gpu HW gates need re-baselining with
-written justification** (parity SSIM 0.835 < 0.85; Phase-3 prism PSNR delta −0.59 < −0.5 dB) — these
-do not run on CI (no GPU); flagged for the next HW sweep.
+photon-map caustics were CPU-only by design; **pkg113** (the GPU port) is now DONE (2026-06-10, see
+closeout section above). The glass-energy fix legitimately moved GPU output, so **two pkg64-gpu HW
+gates need re-baselining with written justification** (parity SSIM 0.835 < 0.85; Phase-3 prism PSNR
+delta −0.59 < −0.5 dB) — these do not run on CI (no GPU); flagged for the next HW sweep.
 
 **Round 15 Wave 2 (2026-05-28, 3 PRs merged): pkg106 Chunks B/C/D-seed — MNEE foundation complete.**
 **pkg106 MNEE foundation COMPLETE** (PRs #389/#390/#391) — Chunks B/C/D-seed shipped: surface (u,v) partials (`manifold/surface_partials.h`), analytic Newton solver (`newton_iterate.h::solveAnalytic`), multi-vertex manifold chain (`manifold/manifold_chain.h` — block-tridiagonal Jacobian + damped Newton), mesh seed-ray + chain convergence on triangulated prism (`manifold/mesh_caustic.h`). All CPU-only header math + unit tests, validated to ~1e-11 vs finite-difference / analytic Snell. **Remaining: Chunk D-radiance** (wire multi-vertex MNEE into live integrator — transfer-matrix geometry term + finite prism faces + in-triangle validity + visibility; currently renders chromatic noise on wip/pkg106-chunk-d-radiance) + **Chunk E** (prism scene + hue_spread ≥0.7).

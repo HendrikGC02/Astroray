@@ -7,7 +7,82 @@
 #include "gpu_materials.h"  // for gpu_buildONB
 
 // ---------------------------------------------------------------------------
+// pkg88-C.0 GPU — verify on RTX. Motion-aware triangle hit: interpolate vertices
+// at ray.time before Möller-Trumbore. Per Cycles motion_triangle.h (Apache-2.0):
+// linear blend between bracketing time steps. If motionOffset < 0, falls back to static.
+// ---------------------------------------------------------------------------
+__device__ inline bool gpu_triangle_hit_motion(
+    const GTriangle& tri, const GRay& ray, float tMin, float tMax,
+    GHitRecord& rec, const GVec3* d_motionVertices)
+{
+    const float EPS = 1e-6f;
+    // Interpolate vertices at ray.time if motion data exists
+    GVec3 p0 = tri.v0, p1 = tri.v1, p2 = tri.v2;
+    if (tri.motionOffset >= 0 && tri.motionSteps > 1) {
+        float time = ray.time;  // Phase A already samples and carries time in GRay
+        int maxStep = tri.motionSteps - 1;
+        int step = min(static_cast<int>(time * maxStep), maxStep - 1);
+        float t = time * maxStep - step;
+        // Center step (step=0) uses tri.v0/v1/v2; additional steps read d_motionVertices.
+        // Buffer layout: [v0_step1, v1_step1, v2_step1, v0_step2, ...]
+        if (step == 0) {
+            // Blend between center and first motion step
+            const GVec3* nextVerts = d_motionVertices + tri.motionOffset;
+            p0 = tri.v0 * (1.0f - t) + nextVerts[0] * t;
+            p1 = tri.v1 * (1.0f - t) + nextVerts[1] * t;
+            p2 = tri.v2 * (1.0f - t) + nextVerts[2] * t;
+        } else {
+            // Blend between two motion steps
+            const GVec3* currVerts = d_motionVertices + tri.motionOffset + (step - 1) * 3;
+            const GVec3* nextVerts = d_motionVertices + tri.motionOffset + step * 3;
+            p0 = currVerts[0] * (1.0f - t) + nextVerts[0] * t;
+            p1 = currVerts[1] * (1.0f - t) + nextVerts[1] * t;
+            p2 = currVerts[2] * (1.0f - t) + nextVerts[2] * t;
+        }
+    }
+    GVec3 e1 = p1 - p0;
+    GVec3 e2 = p2 - p0;
+    GVec3 h  = ray.direction.cross(e2);
+    float a  = e1.dot(h);
+    if (fabsf(a) < EPS) return false;
+
+    float f  = 1.f / a;
+    GVec3 s  = ray.origin - p0;
+    float u  = f * s.dot(h);
+    if (u < 0.f || u > 1.f) return false;
+
+    GVec3 q = s.cross(e1);
+    float v = f * ray.direction.dot(q);
+    if (v < 0.f || u + v > 1.f) return false;
+
+    float t_hit = f * e2.dot(q);
+    if (t_hit < tMin || t_hit > tMax) return false;
+
+    rec.t     = t_hit;
+    rec.point = ray.at(t_hit);
+
+    // pkg55-followup: skip redundant interpolation for flat-shaded triangles
+    GVec3 outwardNormal;
+    if (tri.flat_shaded) {
+        outwardNormal = tri.n0;
+    } else {
+        float w = 1.f - u - v;
+        outwardNormal = (tri.n0 * w + tri.n1 * u + tri.n2 * v).normalized();
+    }
+
+    rec.frontFace = ray.direction.dot(outwardNormal) < 0.f;
+    rec.normal    = rec.frontFace ? outwardNormal : -outwardNormal;
+    gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
+
+    rec.materialId = tri.materialId;
+    rec.isDelta    = false;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // Ray-triangle intersection: Möller–Trumbore (exact port from raytracer.h)
+// STATIC VARIANT — no motion. Kept for backward compatibility and zero-overhead
+// when motion is disabled.
 // ---------------------------------------------------------------------------
 __device__ inline bool gpu_triangle_hit(
     const GTriangle& tri, const GRay& ray, float tMin, float tMax,
@@ -101,7 +176,11 @@ __device__ inline bool gpu_bvh_hit(
     const GSphere*    spheres,
     const GRay&       ray,
     float tMin, float tMax,
-    GHitRecord&       rec)
+    GHitRecord&       rec,
+    // pkg88-C.0: device motion-vertex buffer. nullptr = no deformation motion
+    // anywhere in the scene (default keeps motion-agnostic callers — photon
+    // pre-pass, TLAS parity probe, wavefront — unchanged).
+    const GVec3*     motionVerts = nullptr)
 {
     if (!nodes) return false;
 
@@ -124,7 +203,14 @@ __device__ inline bool gpu_bvh_hit(
                     GHitRecord tmpRec;
                     bool isHit = false;
                     if (p.type == GPRIM_TRIANGLE) {
-                        isHit = gpu_triangle_hit(tris[p.index], ray, tMin, tMax, tmpRec);
+                        // pkg88-C.0: motion-aware leaf dispatch (union-AABB BVH;
+                        // the node bounds already enclose all time steps).
+                        const GTriangle& tri = tris[p.index];
+                        if (motionVerts != nullptr && tri.motionOffset >= 0) {
+                            isHit = gpu_triangle_hit_motion(tri, ray, tMin, tMax, tmpRec, motionVerts);
+                        } else {
+                            isHit = gpu_triangle_hit(tri, ray, tMin, tMax, tmpRec);
+                        }
                     } else if (p.type == GPRIM_SPHERE) {
                         isHit = gpu_sphere_hit(spheres[p.index], ray, tMin, tMax, tmpRec);
                     } else {
@@ -198,12 +284,16 @@ __device__ inline bool gpu_tlas_hit(
     const GSphere*    spheres,
     const GRay&       ray,
     float tMin, float tMax,
-    GHitRecord&       rec)
+    GHitRecord&       rec,
+    // pkg88-C.0: motion verts apply to the classic single-level path only.
+    // Deformation motion on INSTANCED meshes is out of scope v1 (the BLAS
+    // walk below intentionally does not receive the buffer).
+    const GVec3*      motionVerts = nullptr)
 {
     // No TLAS uploaded -> behave exactly like the single-level path. (Lets a
     // caller route unconditionally through gpu_tlas_hit before instances exist.)
     if (!tlas || !instances || !blas) {
-        return gpu_bvh_hit(blasNodes, prims, tris, spheres, ray, tMin, tMax, rec);
+        return gpu_bvh_hit(blasNodes, prims, tris, spheres, ray, tMin, tMax, rec, motionVerts);
     }
 
     bool  hit    = false;

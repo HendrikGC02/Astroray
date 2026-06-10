@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <vector>
+#include <deque>
 #include <memory>
 #include <random>
 #include <limits>
@@ -1918,10 +1919,14 @@ public:
     Ray getRay(float s, float t, float time, std::mt19937& gen) const {
         // pkg88-A: if shutter is off, use current camera basis (pre-pkg88 path).
         // This gates acceptance criterion A3 (zero-shutter regression).
+        // pkg88-C.0: the sampled time still rides on the ray — the shutter
+        // flag gates CAMERA interpolation only. Deformation motion (geometry
+        // with motion data) blurs whenever motion steps exist, mirroring the
+        // GPU kernels; static scenes have no time consumers so A3 holds.
         if (shutter <= 0.0f) {
             Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
             Vec3 offset = u * rd.x + v * rd.y;
-            Ray ray(origin + offset, lowerLeft + horizontal * s + vertical * t - origin - offset, 0.0f, s, t);
+            Ray ray(origin + offset, lowerLeft + horizontal * s + vertical * t - origin - offset, time, s, t);
             ray.hasCameraFrame = true;
             ray.cameraOrigin = origin;
             ray.cameraU = u;
@@ -2099,6 +2104,15 @@ class Renderer {
     std::vector<std::vector<std::shared_ptr<Hittable>>> meshPrims_;  // local-space prims per mesh
     std::vector<std::shared_ptr<BVHAccel>> meshBlas_;                 // per-mesh BLAS
     std::vector<InstanceRecord> instances_;
+    // pkg88-C.0 — scene-wide motion vertex storage for deformation motion blur.
+    // Per Cycles motion_triangle.h (Apache-2.0): center step reuses static
+    // vertices; additional steps stored here. Linear blend only (K ≤ 3 typical).
+    // ONE inner vector per add_triangles_bulk_motion batch: deque growth never
+    // moves existing batches and each inner vector is immutable after append,
+    // so Triangle::motionVertexBuffer pointers stay valid for the renderer's
+    // lifetime. (pkg98 review: a prior single-vector design dangled every
+    // earlier batch's pointers when the next batch reallocated it.)
+    std::deque<std::vector<Vec3>> motionVertexBatches_;
     LightList lights;
     std::shared_ptr<EnvironmentMap> envMap;
     Vec3 backgroundColor = Vec3(-1);  // negative = use default sky gradient
@@ -2465,7 +2479,9 @@ public:
                 if (ls.pdf > 0) {
                     Vec3 wi = (ls.position - rec.point).normalized();
                     HitRecord shadow;
-                    bool hitOccluder = bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow);
+                    // pkg88-C.0: shadow rays carry the path's shutter time so
+                    // moving geometry occludes at the sampled instant.
+                    bool hitOccluder = bvh->hit(Ray(rec.point, wi, ray.time), 0.001f, ls.distance - 0.001f, shadow);
                     bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
                     if (!occluded) {
                         astroray::SampledSpectrum f_spec =
@@ -2648,7 +2664,9 @@ public:
                 if (ls.pdf > 0) {
                     Vec3 wi = (ls.position - rec.point).normalized();
                     HitRecord shadow;
-                    bool hitOccluder = bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow);
+                    // pkg88-C.0: shadow rays carry the path's shutter time so
+                    // moving geometry occludes at the sampled instant.
+                    bool hitOccluder = bvh->hit(Ray(rec.point, wi, ray.time), 0.001f, ls.distance - 0.001f, shadow);
                     bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
                     if (!occluded) {
                         astroray::SampledSpectrum f_spec =
@@ -2823,6 +2841,19 @@ public:
     const std::vector<std::shared_ptr<BVHAccel>>& getMeshBlas() const { return meshBlas_; }
     const std::vector<std::vector<std::shared_ptr<Hittable>>>& getMeshPrims() const { return meshPrims_; }
     const std::vector<InstanceRecord>& getInstances() const { return instances_; }
+
+    // pkg88-C.0 — motion blur API. Stores one BATCH of motion vertices and
+    // returns a stable pointer to its first element (valid for the renderer's
+    // lifetime — see motionVertexBatches_). Triangles index into the batch
+    // with motionVertexBuffer + tri*3 arithmetic, so contiguity holds within
+    // a batch. Layout per batch: [v0_end, v1_end, v2_end, ...] for 2 steps.
+    const Vec3* appendMotionVertices(std::vector<Vec3> motionVerts) {
+        motionVertexBatches_.push_back(std::move(motionVerts));
+        return motionVertexBatches_.back().data();
+    }
+    const std::deque<std::vector<Vec3>>& getMotionVertexBatches() const {
+        return motionVertexBatches_;
+    }
 
     // Accessors for CUDARenderer (scene_upload.cu reads these to upload scene to GPU)
     const std::vector<std::shared_ptr<Hittable>>& getScene() const { return scene; }

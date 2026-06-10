@@ -64,6 +64,24 @@ Key cross-references from that note:
 Recommended landing order: A → C.0 → C.1 (only if measured) → B
 (addon-only finish) → D.
 
+**Phase progress:**
+- **A done** (PR #284 + pkg103b addon wiring PR #372).
+- **C.0 implemented** (branch `feat/pkg88-c0-deformation-mb`, 2026-06-10 — PR
+  pending): per-triangle motion vertex buffer (`add_triangles_bulk_motion`
+  bulk binding, K=2 pre/post-shutter steps, linear blend per Cycles
+  `motion_triangle.h` Apache-2.0), time-aware `Triangle::hit` +
+  `gpu_triangle_hit_motion`, union-AABB `boundingBox`, `GRay::time` +
+  end-to-end time threading (primary/bounce/shadow rays, BOTH kernels —
+  the MW megakernel samples per-spp Halton time; its camera remains
+  non-interpolated, a known Phase-A gap), `d_motionVertices` upload.
+  `Camera::getRay`'s zero-shutter path now carries the sampled time (the
+  shutter flag gates CAMERA interpolation only; A3 holds — static scenes
+  have no time consumers, verified bit-identical). RTX-verified: no-op
+  bit-identity, CPU+GPU streak gates, union-AABB extremes, cross-backend
+  motion/static energy-shift parity. Deformation motion on INSTANCED meshes
+  (pkg114 TLAS) is out of scope v1; the wavefront/photon/SMS paths stay
+  static (documented nullptr).
+
 ---
 
 ## Non-goals

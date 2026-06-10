@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (light transport), 5 (GPU)
 **Track:** A
-**Status:** Phases 1+2+3 implemented (Phase 1: PR #362, 2026-05-24 — CPU SAOH + full Conty importance, 1.14× variance reduction. Phase 2+3: PR pending, 2026-06-10 — GPU upload + device traversal + megakernel/MW NEE wiring; RTX-verified: 10k-query pick parity ≥99.5% + pdf rel-err <1e-4, upload 0.09–0.5 ms ≤10 ms, single-light PSNR 100 dB, two-cluster SAOH routing >95% both backends; GPU variance 1.110× — the 2.0× gate stays xfail on both backends pending scene tuning, see acceptance criteria).
+**Status:** done (Phase 1: PR #362, 2026-05-24 — CPU SAOH + full Conty importance, 1.14× variance reduction. Phases 2+3: PRs #434/#436/#438, 2026-06-11 — GPU upload + device traversal + megakernel/MW NEE wiring; RTX: pick parity ≥99.5%/10k queries, pdf rel-err <1e-4, upload 0.09–0.5ms @10k lights, single-light PSNR 100dB, SAOH two-cluster routing >95% both backends; GPU variance 1.110× — 2.0× gate xfail on BOTH backends, Phase-1 scene-structure limitation; parity gate proves GPU faithfully mirrors CPU tree. Deferred: wavefront wiring→pkg55-B; dedicated lights→power-CDF fallback+warning).
 **Estimated effort:** 3 weeks (~60 h, multiple sessions) — 1 wk SAOH CPU refinement + closing the strict variance gate, 1 wk GPU upload + device-side traversal, 1 wk GPU↔CPU parity + RTX validation.
 **Depends on:**
 - pkg86 (CPU Light Tree, **done** — PR #340) — provides `LightTree::build` / `pick` / `pdf`, the vendored `external/cycles_light_tree/`, `LightSampler` virtual, and the variance harness.

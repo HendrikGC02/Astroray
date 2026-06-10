@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (Production polish)
 **Track:** A (small targeted fixes) + investigation
-**Status:** done (PR pending, 2026-06-10 — BUG-09 verified non-reproducing in live Blender 5.1; BUG-14 root cause was the GPU delta-dielectric dropping the tint (`s.f = eta²` without baseColor), fixed CPU-parity (`baseColor * eta²`); BUG-16 GPU half fixed — closure-graph diffuse + GMAT_DISNEY both now apply the Burley §5.3 HK subsurface mix; 6 regression tests incl. GPU variants + headless-Blender routing verify)
+**Status:** done (PR #432, 2026-06-10 — BUG-09 verified non-reproducing in live Blender 5.1; BUG-14 root cause was the GPU delta-dielectric dropping the tint (`s.f = eta²` without baseColor), fixed CPU-parity (`baseColor * eta²`); BUG-16 GPU half fixed — closure-graph diffuse + GMAT_DISNEY both now apply the Burley §5.3 HK subsurface mix; 6 regression tests incl. GPU variants + headless-Blender routing verify)
 **Estimated effort:** 2–4 days (one bug per ½–1 day)
 **Depends on:** none
 

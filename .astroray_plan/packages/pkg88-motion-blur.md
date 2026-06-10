@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** spec promoted from DRAFT (architect spec-promotion pass, 2026-05-14). 10 design forks resolved or surfaced to owner; see "Design decisions" + "Owner-preference questions deferred to owner" below. Ready to dispatch once the four remaining owner-preference questions are answered.
+**Status:** Phases A+C.0 done (A: PR #284, C.0: PR #437, 2026-06-11 — deformation motion blur: add_triangles_bulk_motion bulk binding, time-aware Triangle::hit + gpu_triangle_hit_motion, union-AABB BVH, GRay.time end-to-end both megakernels, Camera::getRay zero-shutter carries sampled time; RTX: no-op bit-identity, CPU+GPU streak, union-AABB extremes, cross-backend motion/static energy-shift parity). REMAINING: C.1 per-primitive split (perf-gated B/C4), Phase B addon bake (after pkg114 inc3), Phase D wavefront (after pkg55-B).
 **Estimated effort:** 5–7 weeks across 4 phases (A camera, B object,
   C deformation, D wavefront hook).
 **Depends on:** pkg55-A.1 (done — SoA infra exists, time field can be

@@ -48,7 +48,6 @@ def _grid_light_scene(n_side=8, spacing=1.0, intensity=5.0, seed=7):
     variance-scene shape) with the tree sampler active and GPU enabled."""
     r = astroray.Renderer()
     r.set_use_gpu(True)
-    r.set_light_sampler("tree")
     r.set_background_color([0.0, 0.0, 0.0])
     r.set_seed(seed)
 
@@ -67,6 +66,9 @@ def _grid_light_scene(n_side=8, spacing=1.0, intensity=5.0, seed=7):
 
     r.setup_camera([0, 2.0, 9.0], [0, 1.0, 0], [0, 1, 0], 40.0,
                    WIDTH / HEIGHT, 0.0, 9.0, WIDTH, HEIGHT)
+    # Sampler AFTER scene build — TreeLightSampler snapshots the LightList at
+    # construction (same ordering as tests/test_pkg86_light_tree.py + addon).
+    r.set_light_sampler("tree")
     r.upload_scene()
     return r
 
@@ -118,7 +120,6 @@ def test_saoh_split_routes_to_near_cluster():
     Conty importance; a centroid-blind split fails this)."""
     r = astroray.Renderer()
     r.set_use_gpu(True)
-    r.set_light_sampler("tree")
     r.set_background_color([0.0, 0.0, 0.0])
 
     floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
@@ -135,6 +136,7 @@ def test_saoh_split_routes_to_near_cluster():
 
     r.setup_camera([0, 2, 8], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 8.0,
                    WIDTH, HEIGHT)
+    r.set_light_sampler("tree")  # after scene build (snapshot semantics)
     r.upload_scene()
 
     n = 2000
@@ -164,7 +166,6 @@ def test_tree_upload_cost_10k_lights():
     """One-time tree upload <= 10 ms on a 10k-light synthetic scene."""
     r = astroray.Renderer()
     r.set_use_gpu(True)
-    r.set_light_sampler("tree")
     floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
     r.add_triangle([-200, 0, -200], [200, 0, -200], [200, 0, 200], floor)
     light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 2.0})
@@ -174,6 +175,7 @@ def test_tree_upload_cost_10k_lights():
         r.add_sphere([float(x), float(rng.uniform(2, 8)), float(z)], 0.05, light)
     r.setup_camera([0, 5, 20], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 20.0,
                    WIDTH, HEIGHT)
+    r.set_light_sampler("tree")  # after scene build (snapshot semantics)
     r.upload_scene()
 
     ms = r.get_light_tree_upload_ms()
@@ -187,13 +189,13 @@ def test_power_mode_uploads_no_tree():
     # rebuild with power sampler
     r2 = astroray.Renderer()
     r2.set_use_gpu(True)
-    r2.set_light_sampler("power")
     floor = r2.create_material("lambertian", [0.7, 0.7, 0.7], {})
     r2.add_triangle([-20, 0, -20], [20, 0, -20], [20, 0, 20], floor)
     light = r2.create_material("light", [1.0, 1.0, 1.0], {"intensity": 5.0})
     r2.add_sphere([0, 3, 0], 0.1, light)
     r2.setup_camera([0, 2, 8], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 8.0,
                     WIDTH, HEIGHT)
+    r2.set_light_sampler("power")
     r2.upload_scene()
     assert r2.get_light_tree_upload_ms() == 0.0
     with pytest.raises(RuntimeError):

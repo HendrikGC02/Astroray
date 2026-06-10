@@ -55,12 +55,17 @@ def test_texture_sample_returns_finite_vec3(tex_type, params):
 
 
 def test_checker_alternates_colors():
-    r = astroray.Renderer()
+    # pkg115 parity fix: Checker now uses floor-parity, not sine-product. Cycles
+    # svm/checker.h::svm_checker (Apache-2.0): ((xi%2==yi%2)==(zi%2)) on floor(p·scale).
     # sample_texture passes (u,v,u) as the 3D point.
-    # sin(10*0.1)^3 > 0 → even;  sin(10*0.4)^3 < 0 → odd.
-    c1 = r.sample_texture("checker", {"color1": [1.0, 0.0, 0.0], "color2": [0.0, 0.0, 1.0], "scale": 10.0}, 0.1, 0.1)
-    c2 = r.sample_texture("checker", {"color1": [1.0, 0.0, 0.0], "color2": [0.0, 0.0, 1.0], "scale": 10.0}, 0.4, 0.4)
-    assert c1 != c2, "checker: different tile regions should produce different colours"
+    r = astroray.Renderer()
+    # sample_texture feeds (u, v, u) as the 3D point, so stepping u flips BOTH
+    # the x and z parities and the floor-parity cancels — step v instead.
+    # (0.05, 0.05): p*scale=(0.5,0.5,0.5) → floor (0,0,0) → (0==0)==(0) → false → c1.
+    # (0.05, 0.15): p*scale=(0.5,1.5,0.5) → floor (0,1,0) → (0==1)==(0) → true  → c2.
+    c1 = r.sample_texture("checker", {"color1": [1.0, 0.0, 0.0], "color2": [0.0, 0.0, 1.0], "scale": 10.0}, 0.05, 0.05)
+    c2 = r.sample_texture("checker", {"color1": [1.0, 0.0, 0.0], "color2": [0.0, 0.0, 1.0], "scale": 10.0}, 0.05, 0.15)
+    assert c1 != c2, "checker: different tile regions should produce different colours (floor-parity)"
 
 
 def test_gradient_monotone():

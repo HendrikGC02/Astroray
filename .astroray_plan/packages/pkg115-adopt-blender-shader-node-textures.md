@@ -87,6 +87,60 @@ lacunarity, Voronoi distance metric, octave count) and fix divergences. Save
 
 ---
 
+## Stage 2 progress (chunk 1)
+
+Implementation of research-doc items 1-4 (coordinate/mapping wiring, Checker, Gradient, Magic):
+
+1. **Coordinate/Mapping wiring** (audit §6 item 1):
+   - [x] Addon: unconnected Vector sockets on procedural texture nodes default to GENERATED
+         (`_resolve_vector_input` now takes `default_coord_mode` param; procedural textures pass
+         "GENERATED", Image Texture passes "UV"). Blender parity per
+         `scene/shader_nodes.cpp:926-1724` `LINK_TEXTURE_GENERATED`.
+   - [x] Engine: UV mode 3D coord = (u,v,0) for 3D evaluators (was world hit position `rec.point`).
+         Parity per audit §4.
+   - [x] Engine: Normal mode = signed object-space normal `rec.objectNormal`, no remap (was
+         world-space `rec.normal·0.5+0.5`). Parity per Cycles `svm/tex_coord.h:113-121`
+         `object_inverse_normal_transform(sd->N)`. Apache-2.0.
+   - [ ] TODO (deferred to next chunk): Full-3D Mapping transform (port `svm_mapping_util.h`
+         POINT/TEXTURE/VECTOR/NORMAL types with XYZ euler). Currently 2D-only Z-rotation.
+
+2. **Checker** (audit §5.1):
+   - [x] Replaced sine-product with Blender's floor-parity formula. Cycles
+         `intern/cycles/kernel/svm/checker.h::svm_checker` (Apache-2.0): precision guard
+         `(p+1e-6)·0.999999`, then `((xi%2==yi%2)==(zi%2))` on `floor(p·scale)`.
+   - [x] Test: `test_pkg115_procedural_parity.py::test_checker_floor_parity`.
+
+3. **Gradient** (audit §5.3):
+   - [x] Fixed 4 formulas per Cycles `intern/cycles/kernel/svm/gradient.h` (Apache-2.0):
+     - Quadratic: `max(x,0)²` then saturate (was `clamp(x²,0,1)` — diverged for x<0).
+     - Spherical: `max(0.999999 − len, 0)` — decreases outward (was increasing).
+     - Quadratic sphere: `(1−len)²` (was `1−len²`).
+     - Radial: `atan2/2π + 0.5` (was `+1.0` then fmod — half-turn phase offset).
+   - [x] Tests: `test_gradient_quadratic_clamp`, `test_gradient_spherical_inverted`,
+         `test_gradient_quadratic_sphere`, `test_gradient_radial_phase`.
+
+4. **Magic** (audit §5.5):
+   - [x] Verbatim port of Cycles `intern/cycles/kernel/svm/magic.h::svm_magic` (Apache-2.0):
+     - Trig arguments: `fmod(p·scale, 2π)` then `·5` (old: `scale·π`).
+     - Distortion: per-branch `*= distortion`, final `/= (2·distortion)` (old: pre-multiply `0.25·distortion`).
+     - Depth: ≤ 10 (old: capped at 5).
+     - Output: true RGB `(0.5−x, 0.5−y, 0.5−z)` (old: scalar 2-color lerp). Factory
+       `color1/color2` kept for backward compat (apply as tint via average).
+   - [x] Tests: `test_magic_depth_10`, `test_magic_rgb_output`.
+
+**Files changed:**
+- `blender_addon/__init__.py`: `_resolve_vector_input` takes `default_coord_mode`, procedural
+  textures default to GENERATED, Image Texture defaults to UV.
+- `include/advanced_features.h`: Normal coord = object-space `rec.objectNormal`; UV coord
+  3D point = `(u,v,0)`; Checker floor-parity port; Gradient 4 formula fixes; Magic verbatim port.
+- `module/blender_module.cpp`: added `eval_texture_at_3d` debug binding for parity tests.
+- `tests/test_pkg115_procedural_parity.py`: per-evaluator unit tests against Cycles formulas.
+
+**Next chunk (items 5-9):** Hash family port (`util/hash.h`), White Noise evaluator, Perlin +
+fractal stack + Noise node, Wave, Brick, Voronoi — largest ports, require new math.
+
+---
+
 ## Acceptance criteria
 
 - [ ] Research notes saved; per-evaluator Cycles citations in code.

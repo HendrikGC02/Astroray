@@ -114,6 +114,9 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         g.roughness = mat->getRoughness();
         g.ior = mat->getIOR();
         g.transmission = mat->getTransmission();
+        // pkg108 BUG-16: the diffuse closure applies the Hanrahan-Krueger
+        // subsurface mix (gpu_lambertian_eval); carry the weight across.
+        g.subsurface = mat->getSubsurface();
         g.closureCount = static_cast<uint8_t>(
             std::min(graph.count(), G_MAX_MATERIAL_CLOSURES));
 

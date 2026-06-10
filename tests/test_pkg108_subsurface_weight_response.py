@@ -42,12 +42,14 @@ SAMPLES = 64
 MAX_DEPTH = 6
 
 
-def _render_with_subsurface(subsurface_weight, subsurface_radius=None):
+def _render_with_subsurface(subsurface_weight, subsurface_radius=None, use_gpu=False):
     """Render a thick translucent sphere with the given subsurface params."""
     r = astroray.Renderer()
     r.set_integrator("path_tracer")
     r.set_background_color([0.0, 0.0, 0.0])
     r.set_seed(31)
+    if use_gpu:
+        r.set_use_gpu(True)
 
     # Bright back-light so light has to travel through the sphere to reach the camera.
     # This is the geometry that makes subsurface scattering visible: light enters
@@ -84,11 +86,11 @@ def _render_with_subsurface(subsurface_weight, subsurface_radius=None):
     return np.asarray(r.render(SAMPLES, MAX_DEPTH, None, True), dtype=np.float32)
 
 
-def test_subsurface_weight_changes_rendered_output():
-    """subsurface_weight=0 vs 1 with non-zero radius must differ measurably."""
-    no_sss = _render_with_subsurface(subsurface_weight=0.0)
+def _assert_subsurface_responds(use_gpu):
+    no_sss = _render_with_subsurface(subsurface_weight=0.0, use_gpu=use_gpu)
     with_sss = _render_with_subsurface(
-        subsurface_weight=1.0, subsurface_radius=[0.3, 0.3, 0.3])
+        subsurface_weight=1.0, subsurface_radius=[0.3, 0.3, 0.3],
+        use_gpu=use_gpu)
 
     # Sample the sphere region (centre half of frame).
     h, w, _ = no_sss.shape
@@ -105,11 +107,29 @@ def test_subsurface_weight_changes_rendered_output():
     rel_diff = diff / (no_sss_mean + 1e-4)
 
     max_rel_diff = float(rel_diff.max())
+    backend = "GPU" if use_gpu else "CPU"
     assert max_rel_diff > 0.01, (
-        f"subsurface_weight=0 vs 1 produces identical (<1% diff) renders.\n"
+        f"[{backend}] subsurface_weight=0 vs 1 produces identical (<1% diff) renders.\n"
         f"  no_sss mean per channel:   {no_sss_mean}\n"
         f"  with_sss mean per channel: {with_sss_mean}\n"
         f"  max relative diff:         {max_rel_diff:.4f}\n"
         f"This confirms BUG-16: subsurface_weight is plumbed but ignored "
         f"by the renderer."
     )
+
+
+def test_subsurface_weight_changes_rendered_output():
+    """subsurface_weight=0 vs 1 with non-zero radius must differ measurably."""
+    _assert_subsurface_responds(use_gpu=False)
+
+
+@pytest.mark.skipif(
+    AVAILABLE and not astroray.__features__.get("cuda", False),
+    reason="CUDA feature not in this build — GPU half of BUG-16 needs the RTX box",
+)
+def test_subsurface_weight_changes_rendered_output_gpu():
+    """GPU half of BUG-16: gpu_disney_eval previously never read mat.subsurface,
+    so subsurface_weight was a silent no-op on the CUDA backend while the CPU
+    responded (CPU fix: PR #375). This is the regression gate for the GPU mirror
+    of the Burley 2012 §5.3 Hanrahan-Krueger mix."""
+    _assert_subsurface_responds(use_gpu=True)

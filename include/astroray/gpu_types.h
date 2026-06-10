@@ -189,8 +189,13 @@ HD inline GSampledSpectrum operator*(float s, const GSampledSpectrum& x) { retur
 // ---------------------------------------------------------------------------
 struct GRay {
     GVec3 origin, direction;
+    // pkg88-C.0: shutter time in [0,1]. Default 0 = shutter open; static
+    // geometry ignores it. Mirrors CPU Ray::time (raytracer.h).
+    float time = 0.f;
     HD GRay() {}
     HD GRay(const GVec3& o, const GVec3& d) : origin(o), direction(d.normalized()) {}
+    HD GRay(const GVec3& o, const GVec3& d, float t)
+        : origin(o), direction(d.normalized()), time(t) {}
     HD GVec3 at(float t) const { return origin + direction * t; }
 };
 

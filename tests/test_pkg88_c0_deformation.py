@@ -1,172 +1,205 @@
-# test_pkg88_c0_deformation.py — pkg88 Phase C.0 (deformation motion blur) validation.
-# Mirrors the spec's gate structure: zero-shutter regression, translating-triangle streak,
-# BVH union-AABB correctness. GPU tests marked skipif-no-CUDA (verified by lead on RTX).
+"""pkg88 Phase C.0 — deformation motion blur validation gates.
 
-import pytest
+Gate structure per .astroray_plan/packages/pkg88-motion-blur.md:
+- A3-style regression: motion API with end == start must render BIT-IDENTICAL
+  to the static bulk API (the renderer interpolates over [0,1] always; shutter
+  scaling is the addon's Phase-B job — it bakes shutter-scaled deltas, so
+  shutter=0 means zero deltas, i.e. exactly this no-op case).
+- B/C1 streak: a translating emissive triangle's rendered footprint extends
+  well beyond its static silhouette.
+- BVH union-AABB: a fast mover is visible at BOTH time extremes (the grown
+  AABB keeps it traversable across the whole shutter).
+- GPU parity: the CUDA path (MW megakernel) blurs like the CPU (per-channel
+  mean ratio) — exercised on the RTX box, skipped on CI.
+"""
+
+from __future__ import annotations
+
 import numpy as np
-import astroray
+import pytest
+
+from runtime_setup import configure_test_imports
+
+configure_test_imports()
+
+try:
+    import astroray  # noqa: E402
+    AVAILABLE = True
+except ImportError:
+    AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
+
+W = H = 96
+SPP = 64
+DEPTH = 3
+
+_EMPTY_UV = np.zeros((0, 0, 3, 2), dtype=np.float32)
+_EMPTY_N = np.zeros((0, 3, 3), dtype=np.float32)
 
 
-# Gate B/C3 — zero-shutter regression (CPU + GPU)
-# If shutter=0 or no motion data, renders must be bit-identical to a build without motion.
-def test_zero_shutter_regression_cpu():
-    """pkg88-C.0: CPU zero-shutter regression. Shutter=0 renders identical to static scene."""
-    import astroray
+def _make_renderer(use_gpu=False):
+    r = astroray.Renderer()
+    r.set_integrator("path_tracer")
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.set_seed(42)
+    if use_gpu:
+        r.set_use_gpu(True)
+    r.setup_camera([0.5, 0.3, 3.0], [0.5, 0.3, 0.0], [0.0, 1.0, 0.0],
+                   45.0, W / H, 0.0, 3.0, W, H)
+    return r
 
-    # Build two renderers: one with motion data (but shutter=0), one static
-    eng_motion = astroray.Engine(width=64, height=64, device="cpu")
-    eng_static = astroray.Engine(width=64, height=64, device="cpu")
 
-    # Simple scene: one triangle
-    mat_id = eng_motion.add_lambertian_material([0.7, 0.7, 0.7])
-    mat_id_s = eng_static.add_lambertian_material([0.7, 0.7, 0.7])
+def _emissive_tri(r):
+    return r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 4.0})
 
-    # Static triangle at center
-    pos_start = np.array([[[0, 0, -2], [1, 0, -2], [0.5, 1, -2]]], dtype=np.float32)
-    # Motion triangle: end position is translated +0.5 in X
-    pos_end = pos_start + np.array([0.5, 0, 0], dtype=np.float32)
 
-    mat_ids = np.array([mat_id], dtype=np.int32)
-    mat_pass = np.array([0], dtype=np.int32)
-    uvs = np.zeros((0, 1, 3, 2), dtype=np.float32)
-    normals = np.zeros((0, 3, 3), dtype=np.float32)
+def _tri_arrays(offset_x=0.0):
+    pos = np.array([[[0.0, 0.0, 0.0], [0.35, 0.0, 0.0], [0.175, 0.55, 0.0]]],
+                   dtype=np.float32)
+    pos[:, :, 0] += offset_x
+    mids = np.array([0], dtype=np.int32)   # patched by caller
+    mpass = np.array([0], dtype=np.int32)
+    return pos, mids, mpass
 
-    # Add motion triangle (shutter=0)
-    eng_motion.add_triangles_bulk_motion(pos_start, pos_end, mat_ids, mat_pass, 0, uvs, [], normals)
-    eng_motion.set_camera_motion_blur_shutter(0.0)  # zero shutter
 
-    # Add static triangle (same start position)
-    mat_ids_s = np.array([mat_id_s], dtype=np.int32)
-    eng_static.add_triangles_bulk(pos_start, mat_ids_s, mat_pass, 0, uvs, [], normals)
+def _render(r):
+    img = np.asarray(r.render(SPP, DEPTH, None, True), dtype=np.float32)
+    return img.reshape(H, W, 3) if img.ndim == 1 else img
 
-    # Build + render (fixed seed)
-    eng_motion.build_scene()
-    eng_static.build_scene()
 
-    img_motion = eng_motion.render(spp=64, seed=42)
-    img_static = eng_static.render(spp=64, seed=42)
+def _lit_columns(img, thresh=0.02):
+    return int(np.sum(np.any(np.mean(img, axis=2) > thresh, axis=0)))
 
-    # Zero-shutter → bit-identical
-    assert np.allclose(img_motion, img_static, atol=0.0), \
-        "Zero-shutter motion render should match static scene pixel-for-pixel"
+
+def test_motion_noop_is_bit_identical():
+    """end == start through the motion API must match the static bulk API
+    bit-for-bit (the interpolation collapses; no RNG stream change)."""
+    r_static = _make_renderer()
+    mat_s = _emissive_tri(r_static)
+    pos, mids, mpass = _tri_arrays()
+    mids[:] = mat_s
+    r_static.add_triangles_bulk(pos, mids, mpass, 0, _EMPTY_UV, [], _EMPTY_N)
+
+    r_motion = _make_renderer()
+    mat_m = _emissive_tri(r_motion)
+    pos2, mids2, mpass2 = _tri_arrays()
+    mids2[:] = mat_m
+    r_motion.add_triangles_bulk_motion(pos2, pos2.copy(), mids2, mpass2, 0,
+                                       _EMPTY_UV, [], _EMPTY_N)
+
+    img_s = _render(r_static)
+    img_m = _render(r_motion)
+    assert np.array_equal(img_s, img_m), (
+        "motion API with end == start must be bit-identical to the static API "
+        f"(max abs diff {np.max(np.abs(img_s - img_m)):.3g})"
+    )
 
 
 def test_translating_triangle_streak_cpu():
-    """pkg88-C.0 Gate B/C1: CPU translating-triangle streak test.
-    With motion blur on, the rendered streak should extend beyond static silhouette."""
-    import astroray
+    """Gate B/C1: a triangle translating +1.2 in X renders a footprint much
+    wider than its static silhouette."""
+    r_static = _make_renderer()
+    mat = _emissive_tri(r_static)
+    pos, mids, mpass = _tri_arrays()
+    mids[:] = mat
+    r_static.add_triangles_bulk(pos, mids, mpass, 0, _EMPTY_UV, [], _EMPTY_N)
+    static_cols = _lit_columns(_render(r_static))
 
-    eng = astroray.Engine(width=128, height=128, device="cpu")
-    mat_id = eng.add_lambertian_material([0.9, 0.9, 0.9])
+    r_motion = _make_renderer()
+    mat2 = _emissive_tri(r_motion)
+    pos2, mids2, mpass2 = _tri_arrays()
+    mids2[:] = mat2
+    pos_end = pos2.copy()
+    pos_end[:, :, 0] += 1.2
+    r_motion.add_triangles_bulk_motion(pos2, pos_end, mids2, mpass2, 0,
+                                       _EMPTY_UV, [], _EMPTY_N)
+    motion_cols = _lit_columns(_render(r_motion))
 
-    # Triangle moves from X=0 to X=1 during shutter
-    pos_start = np.array([[[0, 0, -3], [0.2, 0, -3], [0.1, 0.2, -3]]], dtype=np.float32)
-    pos_end = pos_start + np.array([1.0, 0, 0], dtype=np.float32)
-
-    mat_ids = np.array([mat_id], dtype=np.int32)
-    mat_pass = np.array([0], dtype=np.int32)
-    uvs = np.zeros((0, 1, 3, 2), dtype=np.float32)
-    normals = np.zeros((0, 3, 3), dtype=np.float32)
-
-    eng.add_triangles_bulk_motion(pos_start, pos_end, mat_ids, mat_pass, 0, uvs, [], normals)
-    eng.set_camera_motion_blur_shutter(0.5)  # half-frame shutter
-    eng.build_scene()
-
-    img = eng.render(spp=64, seed=123)
-
-    # Quantify streak: count non-black pixels in the horizontal extent
-    # Expect coverage wider than the static 0.2-unit triangle width
-    # (translate 1.0 unit at 0.5 shutter = 0.5 unit motion spread)
-    gray = np.mean(img, axis=2)
-    hit_pixels = gray > 0.01
-    hit_columns = np.any(hit_pixels, axis=0)
-    streak_width = np.sum(hit_columns)
-
-    # Static triangle would project ~10-15 px wide; with 1.0-unit translation
-    # over 0.5 shutter, expect ~50+ px streak (rough threshold)
-    assert streak_width > 20, \
-        f"Motion streak too narrow ({streak_width} px); expected >20 with motion blur"
-
-
-@pytest.mark.skipif(not astroray.__dict__.get("_cuda_available", False), reason="CUDA not available")
-def test_motion_blur_gpu_parity():
-    """pkg88-C.0 GPU — verify on RTX. GPU motion render should match CPU within per-channel mean ratio ≤1.05."""
-    import astroray
-
-    # Simple motion scene: translating cube
-    eng_cpu = astroray.Engine(width=64, height=64, device="cpu")
-    eng_gpu = astroray.Engine(width=64, height=64, device="cuda")
-
-    mat_id_c = eng_cpu.add_lambertian_material([0.7, 0.3, 0.3])
-    mat_id_g = eng_gpu.add_lambertian_material([0.7, 0.3, 0.3])
-
-    # Two triangles forming a quad, moving in X
-    pos_start = np.array([
-        [[0, 0, -2], [1, 0, -2], [0, 1, -2]],
-        [[1, 0, -2], [1, 1, -2], [0, 1, -2]]
-    ], dtype=np.float32)
-    pos_end = pos_start + np.array([0.8, 0, 0], dtype=np.float32)
-
-    mat_ids_c = np.array([mat_id_c, mat_id_c], dtype=np.int32)
-    mat_ids_g = np.array([mat_id_g, mat_id_g], dtype=np.int32)
-    mat_pass = np.array([0, 0], dtype=np.int32)
-    uvs = np.zeros((0, 2, 3, 2), dtype=np.float32)
-    normals = np.zeros((0, 3, 3), dtype=np.float32)
-
-    eng_cpu.add_triangles_bulk_motion(pos_start, pos_end, mat_ids_c, mat_pass, 0, uvs, [], normals)
-    eng_gpu.add_triangles_bulk_motion(pos_start, pos_end, mat_ids_g, mat_pass, 0, uvs, [], normals)
-
-    eng_cpu.set_camera_motion_blur_shutter(0.5)
-    eng_gpu.set_camera_motion_blur_shutter(0.5)
-
-    eng_cpu.build_scene()
-    eng_gpu.build_scene()
-
-    img_cpu = eng_cpu.render(spp=64, seed=999)
-    img_gpu = eng_gpu.render(spp=64, seed=999)
-
-    # Per-channel mean ratio (allow for MC variance)
-    mean_cpu = np.mean(img_cpu, axis=(0,1))
-    mean_gpu = np.mean(img_gpu, axis=(0,1))
-    ratio = np.maximum(mean_cpu, 1e-6) / np.maximum(mean_gpu, 1e-6)
-
-    assert np.all(ratio < 1.10) and np.all(ratio > 0.91), \
-        f"CPU/GPU motion blur parity failed: ratio={ratio}, expected ~1.0 per channel"
+    assert static_cols > 0, "static triangle not visible — scene/camera broken"
+    assert motion_cols > static_cols * 2, (
+        f"motion streak too narrow: {motion_cols} lit columns vs static "
+        f"{static_cols} (expected >2x)"
+    )
 
 
 def test_bvh_union_aabb_correctness():
-    """pkg88-C.0 BVH gate: motion triangle's union-AABB must catch ray at both t=0 and t=1 extremes."""
-    import astroray
+    """The union AABB must keep a fast mover traversable at BOTH extremes:
+    the streak must include the static (t=0) footprint AND columns near the
+    t=1 destination."""
+    r = _make_renderer()
+    mat = _emissive_tri(r)
+    pos, mids, mpass = _tri_arrays()
+    mids[:] = mat
+    pos_end = pos.copy()
+    pos_end[:, :, 0] += 1.2
+    r.add_triangles_bulk_motion(pos, pos_end, mids, mpass, 0,
+                                _EMPTY_UV, [], _EMPTY_N)
+    img = _render(r)
 
-    # Small fast-moving triangle; verify BVH union catches it at extremes
-    eng = astroray.Engine(width=128, height=128, device="cpu")
-    mat_id = eng.add_lambertian_material([1.0, 1.0, 1.0])
+    gray = np.mean(img, axis=2)
+    lit = np.any(gray > 0.02, axis=0)
+    lit_idx = np.nonzero(lit)[0]
+    assert lit_idx.size > 0, "moving triangle entirely invisible"
+    # Camera is centered at x=0.5 looking at the [0, 1.55] world span; the
+    # start silhouette lives in the left half, the end silhouette in the right.
+    assert lit_idx.min() < W // 2 - 5, (
+        f"t=0 extreme missing (leftmost lit column {lit_idx.min()})"
+    )
+    assert lit_idx.max() > W // 2 + 5, (
+        f"t=1 extreme missing (rightmost lit column {lit_idx.max()})"
+    )
 
-    # Triangle at t=0: X=0, at t=1: X=2 (fast motion)
-    pos_start = np.array([[[0, 0, -2], [0.1, 0, -2], [0.05, 0.1, -2]]], dtype=np.float32)
-    pos_end = pos_start + np.array([2.0, 0, 0], dtype=np.float32)
 
-    mat_ids = np.array([mat_id], dtype=np.int32)
-    mat_pass = np.array([0], dtype=np.int32)
-    uvs = np.zeros((0, 1, 3, 2), dtype=np.float32)
-    normals = np.zeros((0, 3, 3), dtype=np.float32)
+_NEEDS_CUDA = pytest.mark.skipif(
+    AVAILABLE and not astroray.__features__.get("cuda", False),
+    reason="CUDA feature not in this build — GPU half verified on the RTX box",
+)
 
-    eng.add_triangles_bulk_motion(pos_start, pos_end, mat_ids, mat_pass, 0, uvs, [], normals)
-    eng.set_camera_motion_blur_shutter(1.0)  # full range [0,1]
-    eng.build_scene()
 
-    # Render two crops: one at left (t=0 region), one at right (t=1 region)
-    # Both should show non-zero radiance (union AABB catches ray at both extremes)
-    img_full = eng.render(spp=128, seed=555)
+@_NEEDS_CUDA
+def test_motion_blur_gpu_streak_and_parity():
+    """GPU half: the CUDA path (MW megakernel) must blur — streak wider than
+    the GPU static silhouette — and motion must shift scene energy the SAME
+    way on both backends. The gate is a ratio-of-ratios (motion/static per
+    backend) so the pre-existing small CPU-vs-GPU pipeline energy offset
+    (independent RNG, spectral vs RGB upsampling) doesn't confound it
+    (memory: ssim-wrong-gate-for-independent-rng)."""
+    def static_scene(use_gpu):
+        r = _make_renderer(use_gpu=use_gpu)
+        m = _emissive_tri(r)
+        p, mi, mp = _tri_arrays()
+        mi[:] = m
+        r.add_triangles_bulk(p, mi, mp, 0, _EMPTY_UV, [], _EMPTY_N)
+        return _render(r)
 
-    # Extract left and right quarters
-    w = img_full.shape[1]
-    left_crop = img_full[:, :w//4, :]
-    right_crop = img_full[:, 3*w//4:, :]
+    def motion_scene(use_gpu):
+        r = _make_renderer(use_gpu=use_gpu)
+        m = _emissive_tri(r)
+        p, mi, mp = _tri_arrays()
+        mi[:] = m
+        p_end = p.copy()
+        p_end[:, :, 0] += 1.2
+        r.add_triangles_bulk_motion(p, p_end, mi, mp, 0, _EMPTY_UV, [], _EMPTY_N)
+        return _render(r)
 
-    left_mean = np.mean(left_crop)
-    right_mean = np.mean(right_crop)
+    img_gpu_static = static_scene(use_gpu=True)
+    img_gpu_motion = motion_scene(use_gpu=True)
+    img_cpu_static = static_scene(use_gpu=False)
+    img_cpu_motion = motion_scene(use_gpu=False)
 
-    # Both crops should have SOME radiance (union-AABB caught the triangle at both ends)
-    assert left_mean > 0.01, f"Left crop (t=0) too dark: {left_mean}, BVH may have missed triangle start"
-    assert right_mean > 0.01, f"Right crop (t=1) too dark: {right_mean}, BVH may have missed triangle end"
+    gpu_cols = _lit_columns(img_gpu_motion)
+    gpu_static_cols = _lit_columns(img_gpu_static)
+    assert gpu_cols > gpu_static_cols * 2, (
+        f"GPU motion streak too narrow: {gpu_cols} vs static {gpu_static_cols} "
+        "(d_motionVertices not reaching the kernel?)"
+    )
+
+    # Motion-induced energy change must match across backends.
+    gpu_shift = (img_gpu_motion.mean() + 1e-5) / (img_gpu_static.mean() + 1e-5)
+    cpu_shift = (img_cpu_motion.mean() + 1e-5) / (img_cpu_static.mean() + 1e-5)
+    rel = gpu_shift / cpu_shift
+    assert 0.93 < rel < 1.08, (
+        f"motion/static energy shift diverges across backends: GPU {gpu_shift:.4f} "
+        f"vs CPU {cpu_shift:.4f} (ratio {rel:.4f})"
+    )

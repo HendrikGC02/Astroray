@@ -1918,10 +1918,14 @@ public:
     Ray getRay(float s, float t, float time, std::mt19937& gen) const {
         // pkg88-A: if shutter is off, use current camera basis (pre-pkg88 path).
         // This gates acceptance criterion A3 (zero-shutter regression).
+        // pkg88-C.0: the sampled time still rides on the ray — the shutter
+        // flag gates CAMERA interpolation only. Deformation motion (geometry
+        // with motion data) blurs whenever motion steps exist, mirroring the
+        // GPU kernels; static scenes have no time consumers so A3 holds.
         if (shutter <= 0.0f) {
             Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
             Vec3 offset = u * rd.x + v * rd.y;
-            Ray ray(origin + offset, lowerLeft + horizontal * s + vertical * t - origin - offset, 0.0f, s, t);
+            Ray ray(origin + offset, lowerLeft + horizontal * s + vertical * t - origin - offset, time, s, t);
             ray.hasCameraFrame = true;
             ray.cameraOrigin = origin;
             ray.cameraU = u;
@@ -2469,7 +2473,9 @@ public:
                 if (ls.pdf > 0) {
                     Vec3 wi = (ls.position - rec.point).normalized();
                     HitRecord shadow;
-                    bool hitOccluder = bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow);
+                    // pkg88-C.0: shadow rays carry the path's shutter time so
+                    // moving geometry occludes at the sampled instant.
+                    bool hitOccluder = bvh->hit(Ray(rec.point, wi, ray.time), 0.001f, ls.distance - 0.001f, shadow);
                     bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
                     if (!occluded) {
                         astroray::SampledSpectrum f_spec =
@@ -2652,7 +2658,9 @@ public:
                 if (ls.pdf > 0) {
                     Vec3 wi = (ls.position - rec.point).normalized();
                     HitRecord shadow;
-                    bool hitOccluder = bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow);
+                    // pkg88-C.0: shadow rays carry the path's shutter time so
+                    // moving geometry occludes at the sampled instant.
+                    bool hitOccluder = bvh->hit(Ray(rec.point, wi, ray.time), 0.001f, ls.distance - 0.001f, shadow);
                     bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
                     if (!occluded) {
                         astroray::SampledSpectrum f_spec =

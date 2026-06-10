@@ -176,7 +176,11 @@ __device__ inline bool gpu_bvh_hit(
     const GSphere*    spheres,
     const GRay&       ray,
     float tMin, float tMax,
-    GHitRecord&       rec)
+    GHitRecord&       rec,
+    // pkg88-C.0: device motion-vertex buffer. nullptr = no deformation motion
+    // anywhere in the scene (default keeps motion-agnostic callers — photon
+    // pre-pass, TLAS parity probe, wavefront — unchanged).
+    const GVec3*     motionVerts = nullptr)
 {
     if (!nodes) return false;
 
@@ -199,7 +203,14 @@ __device__ inline bool gpu_bvh_hit(
                     GHitRecord tmpRec;
                     bool isHit = false;
                     if (p.type == GPRIM_TRIANGLE) {
-                        isHit = gpu_triangle_hit(tris[p.index], ray, tMin, tMax, tmpRec);
+                        // pkg88-C.0: motion-aware leaf dispatch (union-AABB BVH;
+                        // the node bounds already enclose all time steps).
+                        const GTriangle& tri = tris[p.index];
+                        if (motionVerts != nullptr && tri.motionOffset >= 0) {
+                            isHit = gpu_triangle_hit_motion(tri, ray, tMin, tMax, tmpRec, motionVerts);
+                        } else {
+                            isHit = gpu_triangle_hit(tri, ray, tMin, tMax, tmpRec);
+                        }
                     } else if (p.type == GPRIM_SPHERE) {
                         isHit = gpu_sphere_hit(spheres[p.index], ray, tMin, tMax, tmpRec);
                     } else {
@@ -273,12 +284,16 @@ __device__ inline bool gpu_tlas_hit(
     const GSphere*    spheres,
     const GRay&       ray,
     float tMin, float tMax,
-    GHitRecord&       rec)
+    GHitRecord&       rec,
+    // pkg88-C.0: motion verts apply to the classic single-level path only.
+    // Deformation motion on INSTANCED meshes is out of scope v1 (the BLAS
+    // walk below intentionally does not receive the buffer).
+    const GVec3*      motionVerts = nullptr)
 {
     // No TLAS uploaded -> behave exactly like the single-level path. (Lets a
     // caller route unconditionally through gpu_tlas_hit before instances exist.)
     if (!tlas || !instances || !blas) {
-        return gpu_bvh_hit(blasNodes, prims, tris, spheres, ray, tMin, tMax, rec);
+        return gpu_bvh_hit(blasNodes, prims, tris, spheres, ray, tMin, tMax, rec, motionVerts);
     }
 
     bool  hit    = false;

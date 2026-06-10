@@ -206,6 +206,8 @@ __device__ GVec3 sampleDirectGPU(
     const GLight*     lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,  // pkg86-B
     const GEnvMap&    envMap,
+    float             time,         // pkg88-C.0: path shutter time for shadow/MIS rays
+    const GVec3*      motionVerts,  // pkg88-C.0: device motion buffer (nullptr = static)
     curandState*      rng)
 {
     const GMaterial& mat = materials[rec.materialId];
@@ -230,8 +232,8 @@ __device__ GVec3 sampleDirectGPU(
         if (es.pdf > 1e-8f) {
             GHitRecord shadow;
             bool occluded = gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                                        GRay(rec.point, es.direction),
-                                        0.001f, 1e30f, shadow);
+                                        GRay(rec.point, es.direction, time),
+                                        0.001f, 1e30f, shadow, motionVerts);
             if (!occluded) {
                 GVec3 f       = gpu_material_eval(mat, const_cast<GHitRecord&>(rec), wo, es.direction);
                 float bsdfPdf = gpu_material_pdf(mat, rec, wo, es.direction);
@@ -295,7 +297,7 @@ __device__ GVec3 sampleDirectGPU(
 
                 GHitRecord shadow;
                 if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                                 GRay(rec.point, wi), 0.001f, 1e30f, shadow) ||
+                                 GRay(rec.point, wi, time), 0.001f, 1e30f, shadow, motionVerts) ||
                     shadow.materialId != spheres[lp.index].materialId)
                     goto bsdf_mis;
 
@@ -327,7 +329,7 @@ __device__ GVec3 sampleDirectGPU(
 
                 GHitRecord shadow;
                 bool occ = gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                                       GRay(rec.point, wi), 0.001f, dist - 0.001f, shadow);
+                                       GRay(rec.point, wi, time), 0.001f, dist - 0.001f, shadow, motionVerts);
                 if (occ) goto bsdf_mis;
 
                 const GMaterial& lm = materials[t.materialId];
@@ -352,7 +354,7 @@ bsdf_mis:
             GHitRecord bRec;
             bRec.primId = -1;
             if (gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                            GRay(rec.point, bs.wi), 0.001f, 1e30f, bRec)) {
+                            GRay(rec.point, bs.wi, time), 0.001f, 1e30f, bRec, motionVerts)) {
                 const GMaterial& lm = materials[bRec.materialId];
                 GVec3 Le = gpu_material_emitted(lm, bRec.frontFace);
                 if (Le != GVec3(0.f)) {
@@ -398,6 +400,7 @@ __device__ GVec3 tracePathGPU(
     GRay              primaryRay,  // pkg64-gpu Phase 2
     const astroray::photon::gpu::GPhotonGrid* photonGrid,  // pkg113 Phase 3 (null = off)
     float             photonScale,                          // pkg113 Phase 3
+    const GVec3*      motionVerts,  // pkg88-C.0 (nullptr = static scene)
     curandState*      rng,
     float*            cryptoObjectRanks = nullptr,    // pkg87b
     float*            cryptoMaterialRanks = nullptr,  // pkg87b
@@ -414,7 +417,7 @@ __device__ GVec3 tracePathGPU(
     for (int bounce = 0; bounce < maxDepth; ++bounce) {
         GHitRecord rec;
         if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                         ray, 0.001f, 1e30f, rec)) {
+                         ray, 0.001f, 1e30f, rec, motionVerts)) {
             // Miss — environment / background
             GVec3 envColor(0.f);
             if (envMap.loaded) {
@@ -453,7 +456,7 @@ __device__ GVec3 tracePathGPU(
             color += throughput * sampleDirectGPU(
                 rec, wo, tlas, instances, blas, bvhNodes, prims, tris, spheres,
                 materials, lights, numLights, totalLightPower,
-                lightTree, envMap, rng);
+                lightTree, envMap, ray.time, motionVerts, rng);
         }
 
         // pkg113 Phase 3: photon-map caustic gather at the FIRST non-emissive hit
@@ -615,7 +618,9 @@ __device__ GVec3 tracePathGPU(
         float maxS = throughputSpectral.maxValue();
         if (maxS > 10.f) throughputSpectral *= 10.f / maxS;
 
-        ray = GRay(rec.point, bs.wi);
+        // pkg88-C.0: bounce rays inherit the path's shutter time (Cycles
+        // convention — one time sample per camera path).
+        ray = GRay(rec.point, bs.wi, ray.time);
     }
     return color;
 }
@@ -652,6 +657,7 @@ __global__ void pathTraceKernel(
     GVec3 backgroundColor, bool hasBackgroundColor,
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
     float photonScale,                                                   // pkg113 Phase 3
+    const GVec3* d_motionVertices,  // pkg88-C.0 (nullptr = static scene)
     curandState* rngStates,
     float* cryptoObjectBuffer = nullptr,      // pkg87b
     float* cryptoMaterialBuffer = nullptr,    // pkg87b
@@ -717,6 +723,9 @@ __global__ void pathTraceKernel(
         GVec3 dir    = lowerLeft_cam + horizontal_cam*u + vertical_cam*v
                        - origin_cam - offset;
         GRay ray(origin_cam + offset, dir);
+        // pkg88-C.0: the Phase-A per-spp shutter time now also drives geometry
+        // (deformation motion); carried on the ray through the whole path.
+        ray.time = time;
 
         // pkg87b: compute per-pixel crypto buffer offset
         float* pixelCryptoObj = nullptr;
@@ -737,6 +746,7 @@ __global__ void pathTraceKernel(
             envMap, backgroundColor, hasBackgroundColor,
             ray,  // primaryRay for SMS
             hasPhotonGrid ? &photonGrid : nullptr, photonScale,  // pkg113 Phase 3
+            d_motionVertices,  // pkg88-C.0
             &localRng,
             pixelCryptoObj, pixelCryptoMat, cryptoDepth, cryptomatteEnabled);
 
@@ -783,6 +793,7 @@ void launchPathTraceKernel(
     GVec3 backgroundColor, bool hasBackgroundColor,
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
     float photonScale,                                                   // pkg113 Phase 3
+    const GVec3* d_motionVertices,  // pkg88-C.0
     curandState* d_rngStates,
     float* d_cryptoObjectBuffer = nullptr,      // pkg87b
     float* d_cryptoMaterialBuffer = nullptr,    // pkg87b
@@ -806,6 +817,7 @@ void launchPathTraceKernel(
             d_smsCasters, numSMSCasters,
             envMap, cam, filmExposure, backgroundColor, hasBackgroundColor,
             photonGrid, hasPhotonGrid, photonScale,  // pkg113 Phase 3
+            d_motionVertices,  // pkg88-C.0
             d_rngStates, d_cryptoObjectBuffer, d_cryptoMaterialBuffer,
             cryptoDepth, cryptomatteEnabled);
 

@@ -55,6 +55,7 @@ void launchPathTraceKernel(
     GVec3 backgroundColor, bool hasBackgroundColor,
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
     float photonScale,                                                   // pkg113 Phase 3
+    const GVec3* d_motionVertices,  // pkg88-C.0
     curandState* d_rngStates,
     float* d_cryptoObjectBuffer = nullptr,      // pkg87b
     float* d_cryptoMaterialBuffer = nullptr,    // pkg87b
@@ -106,6 +107,7 @@ void launchMultiwavelengthKernel(
     GVec3 backgroundColor, bool hasBackgroundColor,
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
     float photonScale,                                                   // pkg113 Phase 3
+    const GVec3* d_motionVertices,  // pkg88-C.0
     curandState* d_rngStates);
 
 // ---------------------------------------------------------------------------
@@ -141,6 +143,7 @@ struct CUDARenderer::Impl {
     GSphere*    d_spheres    = nullptr;
     GMaterial*  d_materials  = nullptr;
     GLight*     d_lights     = nullptr;
+    GVec3*      d_motionVertices = nullptr;  // pkg88-C.0 deformation motion buffer
     int         numLights    = 0;
     float       totalLightPower = 0.f;
 
@@ -231,6 +234,7 @@ struct CUDARenderer::Impl {
         if (d_spheres)    { cudaFree(d_spheres);     d_spheres    = nullptr; }
         if (d_materials)  { cudaFree(d_materials);   d_materials  = nullptr; }
         if (d_lights)     { cudaFree(d_lights);      d_lights     = nullptr; }
+        if (d_motionVertices) { cudaFree(d_motionVertices); d_motionVertices = nullptr; }  // pkg88-C.0
         if (d_lightTreeNodes)    { cudaFree(d_lightTreeNodes);    d_lightTreeNodes    = nullptr; }  // pkg86-B
         if (d_lightTreeEmitters) { cudaFree(d_lightTreeEmitters); d_lightTreeEmitters = nullptr; }  // pkg86-B
         if (d_lightToEmitter)    { cudaFree(d_lightToEmitter);    d_lightToEmitter    = nullptr; }  // pkg86-B
@@ -342,6 +346,7 @@ void CUDARenderer::uploadGeometry(const Renderer& cpuRenderer, const Camera& cam
     devUpload(r.prims,     &impl->d_prims);
     devUpload(r.triangles, &impl->d_triangles);
     devUpload(r.spheres,   &impl->d_spheres);
+    devUpload(r.motionVertices, &impl->d_motionVertices);  // pkg88-C.0
 
     // Camera + film + background piggyback on geometry uploads — they're
     // tiny scalars and any caller that just changed geometry almost always
@@ -530,6 +535,7 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
     devUpload(r.materials, &impl->d_materials);
     devUpload(r.lights,    &impl->d_lights);
     devUpload(r.smsCasters, &impl->d_smsCasters);  // pkg64-gpu Phase 2
+    devUpload(r.motionVertices, &impl->d_motionVertices);  // pkg88-C.0
     uploadLightTree(r);  // pkg86-B
 
     impl->numLights       = (int)r.lights.size();
@@ -849,6 +855,7 @@ void CUDARenderer::render(
         impl->filmExposure,
         impl->backgroundColor, impl->hasBackgroundColor,
         caustic.grid, caustic.ready, caustic.scale,  // pkg113 Phase 3
+        impl->d_motionVertices,  // pkg88-C.0
         impl->d_rngStates,
         impl->d_cryptoObjectBuffer, impl->d_cryptoMaterialBuffer,  // pkg87b
         impl->cryptoDepth, impl->cryptomatteEnabled);              // pkg87b
@@ -940,6 +947,7 @@ void CUDARenderer::renderMultiwavelength(
         impl->camera,
         impl->backgroundColor, impl->hasBackgroundColor,
         caustic.grid, caustic.ready, caustic.scale,  // pkg113 Phase 3
+        impl->d_motionVertices,  // pkg88-C.0
         impl->d_rngStates);
 
     astroray::photon::gpu::cuda_photon_caustic_free(caustic);  // pkg113 Phase 3

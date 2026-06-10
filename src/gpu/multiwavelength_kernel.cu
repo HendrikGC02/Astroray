@@ -467,6 +467,8 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,  // pkg86-B
+    float             time,         // pkg88-C.0: path shutter time for shadow rays
+    const GVec3*      motionVerts,  // pkg88-C.0 (nullptr = static)
     curandState*      rng)
 {
     GSampledSpectrum direct(0.f);
@@ -521,7 +523,7 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
         lightMatId  = s.materialId;
         GHitRecord sh;
         if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                         GRay(rec.point, wi), 0.001f, maxDist, sh) ||
+                         GRay(rec.point, wi, time), 0.001f, maxDist, sh, motionVerts) ||
             sh.materialId != lightMatId)
             return direct;
         lightFront = sh.frontFace;
@@ -543,7 +545,7 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
         lightFront = true;
         GHitRecord sh;
         if (gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                        GRay(rec.point, wi), 0.001f, maxDist, sh))
+                        GRay(rec.point, wi, time), 0.001f, maxDist, sh, motionVerts))
             return direct;          // occluded
     }
 
@@ -592,6 +594,7 @@ __device__ GSampledSpectrum tracePathMW(
     const GVec3&      backgroundColor,
     bool              hasBackgroundColor,
     GRay              primaryRay,  // pkg64-gpu Phase 2: needed for SMS wo_eye
+    const GVec3*      motionVerts,  // pkg88-C.0 (nullptr = static)
     curandState*      rng)
 {
     const int rrDepth = 3;
@@ -602,7 +605,7 @@ __device__ GSampledSpectrum tracePathMW(
     for (int bounce = 0; bounce < maxDepth; ++bounce) {
         GHitRecord rec;
         if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                         ray, 0.001f, 1e30f, rec)) {
+                         ray, 0.001f, 1e30f, rec, motionVerts)) {
             // Environment / background contribution.
             GSampledSpectrum envSpec(0.f);
             GVec3 dir = ray.direction.normalized();
@@ -690,7 +693,9 @@ __device__ GSampledSpectrum tracePathMW(
         if (enableNEE && !rec.isDelta && numLights > 0) {
             color += throughput * sampleDirectSpectralMW(
                 rec, wo, lambdas, tlas, instances, blas, bvhNodes, prims, tris, spheres, materials,
-                lights, numLights, totalLightPower, lightTree, rng);
+                lights, numLights, totalLightPower, lightTree,
+                ray.time, motionVerts,  // pkg88-C.0
+                rng);
         }
 
         // pkg64-gpu Phase 2: SMS caustic attempt at non-delta vertices.
@@ -842,7 +847,8 @@ __device__ GSampledSpectrum tracePathMW(
         float maxC = throughput.maxValue();
         if (maxC > 10.f) throughput *= (10.f / maxC);
 
-        ray = GRay(rec.point, bs.wi);
+        // pkg88-C.0: bounce rays inherit the path's shutter time.
+        ray = GRay(rec.point, bs.wi, ray.time);
     }
 
     return color;
@@ -851,6 +857,22 @@ __device__ GSampledSpectrum tracePathMW(
 // ---------------------------------------------------------------------------
 // Multiwavelength megakernel
 // ---------------------------------------------------------------------------
+// pkg88-C.0: base-2 radical inverse for the per-spp shutter time. Same
+// sampler as the RGB megakernel's Phase-A camera time (path_trace_kernel.cu
+// haltonBase2) — TU-local copy because both kernels keep device helpers
+// file-static.
+__device__ inline float gpu_mw_haltonBase2(int index) {
+    float result = 0.0f;
+    float f = 1.0f;
+    int i = index;
+    while (i > 0) {
+        f = f / 2.0f;
+        result += f * (i % 2);
+        i = i / 2;
+    }
+    return result;
+}
+
 __global__ void multiwavelengthKernel(
     float* framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
@@ -874,6 +896,7 @@ __global__ void multiwavelengthKernel(
     GVec3 backgroundColor, bool hasBackgroundColor,
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
     float photonScale,                                                   // pkg113 Phase 3
+    const GVec3* d_motionVertices,  // pkg88-C.0 (nullptr = static scene)
     curandState* rngStates)
 {
     int pixelIdx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -906,6 +929,12 @@ __global__ void multiwavelengthKernel(
         GVec3 dir    = cam.lowerLeft + cam.horizontal*u + cam.vertical*v
                        - cam.origin - offset;
         GRay ray(cam.origin + offset, dir);
+        // pkg88-C.0: per-spp shutter time for deformation motion (independent
+        // Halton base-2, same policy as the RGB megakernel / Phase A; spec
+        // Q-Owner-4: ONE consistent policy). NOTE: the MW kernel's camera is
+        // not shutter-interpolated (Phase-A camera MB lives in the RGB kernel
+        // only) — geometry motion works here, camera motion is a known gap.
+        ray.time = gpu_mw_haltonBase2(s + 1);
 
         GSampledWavelengths lambdas =
             gpu_sampleBandWavelengths(&localRng, lambdaMin, lambdaMax);
@@ -919,6 +948,7 @@ __global__ void multiwavelengthKernel(
             smsCasters, numSMSCasters,
             envMap, backgroundColor, hasBackgroundColor,
             ray,  // primaryRay for SMS wo_eye
+            d_motionVertices,  // pkg88-C.0
             &localRng);
 
         GVec3 sample;
@@ -940,8 +970,9 @@ __global__ void multiwavelengthKernel(
         // the Lambertian 1/π. Only meaningful for the visible-band (XYZ) output.
         if (hasPhotonGrid && !useLuminanceOutput && photonGrid.numPhotons > 0) {
             GHitRecord pr;
+            // pkg88-C.0: re-hit the primary at its shutter time (ray carries it).
             if (gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                            ray, 0.001f, 1e30f, pr)) {
+                            ray, 0.001f, 1e30f, pr, d_motionVertices)) {
                 const GMaterial& pmat = materials[pr.materialId];
                 if (pmat.emissionIntensity <= 0.0f) {
                     int found = 0;
@@ -1010,6 +1041,7 @@ void launchMultiwavelengthKernel(
     GVec3 backgroundColor, bool hasBackgroundColor,
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
     float photonScale,                                                   // pkg113 Phase 3
+    const GVec3* d_motionVertices,  // pkg88-C.0
     curandState* d_rngStates)
 {
     int totalPixels    = width * height;
@@ -1030,6 +1062,7 @@ void launchMultiwavelengthKernel(
             d_smsCasters, numSMSCasters,
             envMap, cam, backgroundColor, hasBackgroundColor,
             photonGrid, hasPhotonGrid, photonScale,  // pkg113 Phase 3
+            d_motionVertices,  // pkg88-C.0
             d_rngStates);
 
         cudaError_t err = cudaGetLastError();

@@ -547,11 +547,11 @@ plus a paired-still RTX check at the end.
 4. **Magic** — verbatim port of `svm_magic` (no dependencies); switch evaluator
    to RGB output. ✅ **DONE (chunk 1)**
 5. **Hash family port** (`util/hash.h`: `hash_uint3`, `hash_float*`,
-   `hash_int3_to_float3`) — enabler, plus **White Noise** evaluator (§3.8).
+   `hash_int3_to_float3`) — enabler, plus **White Noise** evaluator (§3.8). ✅ **DONE 2026-06-11 (chunk 2)**
 6. **Perlin + fractal stack + Noise node** — `noise.h` (BSD-3) `perlin_3d`/
    `snoise_3d`, `fractal_noise.h` five families, `noisetex.h` wrapper
    (distortion, color channels, normalize). Re-map factory `"musgrave"` with
-   the 4.1 conversion (§5.8).
+   the 4.1 conversion (§5.8). ✅ **DONE 2026-06-11 (chunk 2)** — musgrave remap deferred to Stage 3 addon wiring
 7. **Wave** — port `svm_wave` (depends on `noise_fbm` from step 6); extend
    factory params (directions, phase, dscale).
 8. **Brick** — port `svm_brick` + `brick_noise`; 3D input; new params.

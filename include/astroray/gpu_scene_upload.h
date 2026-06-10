@@ -15,6 +15,17 @@ struct SceneUploadResult {
     std::vector<GLight>     lights;
     float totalLightPower = 0.f;
 
+    // pkg114 — two-level BVH. Populated ONLY when the CPU Renderer has
+    // instances (Renderer::hasInstances()); otherwise these stay empty and the
+    // device traversal falls back to the single-level `nodes`/`prims` path.
+    // When instanced, `nodes`/`prims`/`triangles`/`spheres` hold the CONCATENATED
+    // per-mesh BLAS geometry in OBJECT-LOCAL space; `blas[i]` slices into them;
+    // `instances[j]` carries the object<->world transforms; `tlas` is the BVH
+    // (a single flat leaf for now) whose leaves index `instances`.
+    std::vector<GTLASNode>  tlas;
+    std::vector<GInstance>  instances;
+    std::vector<GBLAS>      blas;
+
     // pkg55-B' Session N+4: area lights for wavefront NEE
     std::vector<GAreaLight> areaLights;
 

@@ -20,8 +20,11 @@
 #include <memory>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
+#include <functional>
 #include <stdexcept>
 #include <unordered_map>
+#include <array>
 
 #define CUDA_CHECK(call) do {                                               \
     cudaError_t _e = (call);                                                \
@@ -196,6 +199,173 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
 }
 
 // ---------------------------------------------------------------------------
+// Convert ONE CPU Hittable (Triangle/Sphere) → GPrimitive (+ GTriangle/GSphere)
+// appended to the target arrays. Factored from the single-level prim walk so
+// the per-mesh BLAS (pkg114) reuses the identical conversion. Materials are
+// deduplicated via getOrAddMat. NOTE: does NOT do pkg64 SMS-caster gathering —
+// that stays in the single-level walk (SMS is not instancing-aware yet).
+// ---------------------------------------------------------------------------
+static void appendOnePrim(
+    const std::shared_ptr<Hittable>& hittable, SceneUploadResult& r,
+    const std::function<int(const std::shared_ptr<Material>&)>& getOrAddMat)
+{
+    GPrimitive gp;
+    if (auto* tri = dynamic_cast<Triangle*>(hittable.get())) {
+        gp.type  = GPRIM_TRIANGLE;
+        gp.index = (int)r.triangles.size();
+        GTriangle gt;
+        Vec3 v0 = tri->getV0(), v1 = tri->getV1(), v2 = tri->getV2();
+        Vec3 n = tri->getFaceNormal();
+        gt.v0 = GVec3(v0.x, v0.y, v0.z);
+        gt.v1 = GVec3(v1.x, v1.y, v1.z);
+        gt.v2 = GVec3(v2.x, v2.y, v2.z);
+        Vec3 n0, n1, n2;
+        if (tri->getVertexNormals(n0, n1, n2)) {
+            gt.n0 = GVec3(n0.x, n0.y, n0.z);
+            gt.n1 = GVec3(n1.x, n1.y, n1.z);
+            gt.n2 = GVec3(n2.x, n2.y, n2.z);
+            gt.flat_shaded = false;
+        } else {
+            gt.n0 = gt.n1 = gt.n2 = GVec3(n.x, n.y, n.z);
+            gt.flat_shaded = true;
+        }
+        gt.materialId = getOrAddMat(tri->getMaterial());
+        std::string objName = tri->getName();
+        if (objName.empty()) objName = "Unnamed_Triangle_" + std::to_string(r.triangles.size());
+        MurmurHash3_x86_32(objName.c_str(), static_cast<int>(objName.length()), 0, &gt.objectHash);
+        std::string matName = tri->getMaterial()->getName();
+        if (matName.empty()) matName = "Unnamed_Material_" + std::to_string(gt.materialId);
+        MurmurHash3_x86_32(matName.c_str(), static_cast<int>(matName.length()), 0, &gt.materialHash);
+        r.triangles.push_back(gt);
+    } else if (auto* sph = dynamic_cast<Sphere*>(hittable.get())) {
+        gp.type  = GPRIM_SPHERE;
+        gp.index = (int)r.spheres.size();
+        GSphere gs;
+        Vec3 c = sph->getCenter();
+        gs.center     = GVec3(c.x, c.y, c.z);
+        gs.radius     = sph->getRadius();
+        gs.materialId = getOrAddMat(sph->getMaterial());
+        gs.isCausticCaster = sph->isCausticCaster();
+        std::string objName = sph->getName();
+        if (objName.empty()) objName = "Unnamed_Sphere_" + std::to_string(r.spheres.size());
+        MurmurHash3_x86_32(objName.c_str(), static_cast<int>(objName.length()), 0, &gs.objectHash);
+        std::string matName = sph->getMaterial()->getName();
+        if (matName.empty()) matName = "Unnamed_Material_" + std::to_string(gs.materialId);
+        MurmurHash3_x86_32(matName.c_str(), static_cast<int>(matName.length()), 0, &gs.materialHash);
+        r.spheres.push_back(gs);
+    } else {
+        // pkg85-C: GPRIM_SKIP placeholder keeps prims index-aligned within a BLAS.
+        gp.type  = GPRIM_SKIP;
+        gp.index = -1;
+    }
+    r.prims.push_back(gp);
+}
+
+// ---------------------------------------------------------------------------
+// pkg114 — invert a row-major affine 4x4 (assumes last row [0,0,0,1]). Returns
+// false if the upper-left 3x3 is singular (|det| < 1e-12). Inverse of an affine
+// is [[R^-1, -R^-1 t]] (standard; used to map the world ray into object space).
+// ---------------------------------------------------------------------------
+static bool affineInverse4x4(const float M[16], float Minv[16]) {
+    float a=M[0], b=M[1], c=M[2];
+    float d=M[4], e=M[5], f=M[6];
+    float g=M[8], h=M[9], i=M[10];
+    float A =  (e*i - f*h);
+    float B = -(d*i - f*g);
+    float C =  (d*h - e*g);
+    float det = a*A + b*B + c*C;
+    if (std::fabs(det) < 1e-12f) return false;
+    float invDet = 1.0f / det;
+    float r00 =  A*invDet;
+    float r01 = -(b*i - c*h)*invDet;
+    float r02 =  (b*f - c*e)*invDet;
+    float r10 =  B*invDet;
+    float r11 =  (a*i - c*g)*invDet;
+    float r12 = -(a*f - c*d)*invDet;
+    float r20 =  C*invDet;
+    float r21 = -(a*h - b*g)*invDet;
+    float r22 =  (a*e - b*d)*invDet;
+    float tx=M[3], ty=M[7], tz=M[11];
+    Minv[0]=r00; Minv[1]=r01; Minv[2]=r02;  Minv[3]=-(r00*tx + r01*ty + r02*tz);
+    Minv[4]=r10; Minv[5]=r11; Minv[6]=r12;  Minv[7]=-(r10*tx + r11*ty + r12*tz);
+    Minv[8]=r20; Minv[9]=r21; Minv[10]=r22; Minv[11]=-(r20*tx + r21*ty + r22*tz);
+    Minv[12]=0;  Minv[13]=0;  Minv[14]=0;   Minv[15]=1;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// pkg114 — build the two-level (TLAS-over-BLAS) GPU arrays from the Renderer's
+// registered meshes + instances. Each unique mesh's BLAS nodes + OBJECT-LOCAL
+// prims are concatenated into the global r.nodes/r.prims/r.triangles/r.spheres
+// (each BLAS flattened independently from node 0; r.blas[m] records the offsets).
+// Instances carry M (object->world) + Minv; the TLAS is a single flat leaf over
+// all instances (a SAH TLAS is a later perf win — a flat leaf is correct).
+// ---------------------------------------------------------------------------
+static void buildTwoLevelArrays(
+    const Renderer& cpu, SceneUploadResult& r,
+    const std::function<int(const std::shared_ptr<Material>&)>& getOrAddMat)
+{
+    const auto& meshBlas  = cpu.getMeshBlas();
+    const auto& instances = cpu.getInstances();
+
+    std::vector<AABB> meshLocalBounds(meshBlas.size());
+    r.blas.resize(meshBlas.size());
+    for (size_t m = 0; m < meshBlas.size(); ++m) {
+        r.blas[m].nodeOffset = (int)r.nodes.size();
+        r.blas[m].primOffset = (int)r.prims.size();
+        const auto& blasAccel = meshBlas[m];
+        if (!blasAccel || blasAccel->getNodes().empty()) { meshLocalBounds[m] = AABB(); continue; }
+        for (const auto& n : blasAccel->getNodes()) r.nodes.push_back(convertNode(n));
+        for (const auto& hittable : blasAccel->getPrimitives()) appendOnePrim(hittable, r, getOrAddMat);
+        AABB b; blasAccel->boundingBox(b); meshLocalBounds[m] = b;
+    }
+
+    AABB tlasBounds; bool haveBounds = false;
+    r.instances.reserve(instances.size());
+    for (size_t j = 0; j < instances.size(); ++j) {
+        int meshId = instances[j].meshId;
+        if (meshId < 0 || (size_t)meshId >= meshBlas.size()) continue;
+        const float* M = instances[j].transform.data();
+        float Minv[16];
+        if (!affineInverse4x4(M, Minv)) {
+            fprintf(stderr, "[pkg114] instance %zu has a singular transform; skipped\n", j);
+            continue;
+        }
+        GInstance gi;
+        for (int k = 0; k < 16; ++k) gi.worldFromObject.m[k] = M[k];
+        for (int k = 0; k < 16; ++k) gi.objectFromWorld.m[k] = Minv[k];
+        gi.blasIndex  = meshId;
+        gi.instanceId = (int)r.instances.size();
+        r.instances.push_back(gi);
+
+        const AABB& lb = meshLocalBounds[meshId];
+        for (int cx = 0; cx < 2; ++cx)
+        for (int cy = 0; cy < 2; ++cy)
+        for (int cz = 0; cz < 2; ++cz) {
+            float x = cx ? lb.max.x : lb.min.x;
+            float y = cy ? lb.max.y : lb.min.y;
+            float z = cz ? lb.max.z : lb.min.z;
+            Vec3 w(M[0]*x + M[1]*y + M[2]*z + M[3],
+                   M[4]*x + M[5]*y + M[6]*z + M[7],
+                   M[8]*x + M[9]*y + M[10]*z + M[11]);
+            if (!haveBounds) { tlasBounds = AABB(w, w); haveBounds = true; }
+            else tlasBounds = tlasBounds.merge(AABB(w, w));
+        }
+    }
+
+    if (!r.instances.empty()) {
+        GTLASNode leaf;
+        leaf.bounds.min = GVec3(tlasBounds.min.x, tlasBounds.min.y, tlasBounds.min.z);
+        leaf.bounds.max = GVec3(tlasBounds.max.x, tlasBounds.max.y, tlasBounds.max.z);
+        leaf.primitivesOffset = 0;
+        leaf.nPrimitives = (uint16_t)r.instances.size();
+        leaf.axis = 0;
+        leaf.pad  = 0;
+        r.tlas.push_back(leaf);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point called from cuda_renderer.cu (struct defined in gpu_scene_upload.h)
 // ---------------------------------------------------------------------------
 
@@ -248,14 +418,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         r.camera.shiftY = cam->getShiftY();
     }
 
-    // --- BVH nodes ---
-    auto& cpuBvh = cpu.getBVH();
-    if (!cpuBvh) throw std::runtime_error("BVH not built — call buildAcceleration() first");
-    for (auto& n : cpuBvh->getNodes())
-        r.nodes.push_back(convertNode(n));
-
-    // --- Materials: build a unique ID per shared_ptr ---
-    // Walk ordered primitives from BVH to collect materials.
+    // --- Materials: unique ID per shared_ptr (shared by single-level + pkg114 instanced) ---
     std::unordered_map<Material*, int> matIdx;
     auto getOrAddMat = [&](const std::shared_ptr<Material>& m) -> int {
         auto it = matIdx.find(m.get());
@@ -266,91 +429,41 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         return id;
     };
 
-    // --- Primitives (ordered as BVH expects) ---
-    auto& orderedPrims = cpuBvh->getPrimitives();
-    for (auto& hittable : orderedPrims) {
-        GPrimitive gp;
-        if (auto* tri = dynamic_cast<Triangle*>(hittable.get())) {
-            gp.type  = GPRIM_TRIANGLE;
-            gp.index = (int)r.triangles.size();
-            GTriangle gt;
-            Vec3 v0 = tri->getV0(), v1 = tri->getV1(), v2 = tri->getV2();
-            Vec3 n = tri->getFaceNormal();
-            gt.v0 = GVec3(v0.x, v0.y, v0.z);
-            gt.v1 = GVec3(v1.x, v1.y, v1.z);
-            gt.v2 = GVec3(v2.x, v2.y, v2.z);
-            Vec3 n0, n1, n2;
-            if (tri->getVertexNormals(n0, n1, n2)) {
-                gt.n0 = GVec3(n0.x, n0.y, n0.z);
-                gt.n1 = GVec3(n1.x, n1.y, n1.z);
-                gt.n2 = GVec3(n2.x, n2.y, n2.z);
-                gt.flat_shaded = false;  // per-vertex normals present
-            } else {
-                gt.n0 = gt.n1 = gt.n2 = GVec3(n.x, n.y, n.z);
-                gt.flat_shaded = true;   // n0==n1==n2, shortcut eligible
-            }
-            gt.materialId = getOrAddMat(tri->getMaterial());
-            // pkg87a — Cryptomatte: hash object and material names
-            std::string objName = tri->getName();
-            if (objName.empty()) objName = "Unnamed_Triangle_" + std::to_string(r.triangles.size());
-            MurmurHash3_x86_32(objName.c_str(), static_cast<int>(objName.length()), 0, &gt.objectHash);
-            std::string matName = tri->getMaterial()->getName();
-            if (matName.empty()) matName = "Unnamed_Material_" + std::to_string(gt.materialId);
-            MurmurHash3_x86_32(matName.c_str(), static_cast<int>(matName.length()), 0, &gt.materialHash);
-            r.triangles.push_back(gt);
-        } else if (auto* sph = dynamic_cast<Sphere*>(hittable.get())) {
-            gp.type  = GPRIM_SPHERE;
-            gp.index = (int)r.spheres.size();
-            GSphere gs;
-            Vec3 c = sph->getCenter();
-            gs.center     = GVec3(c.x, c.y, c.z);
-            gs.radius     = sph->getRadius();
-            gs.materialId = getOrAddMat(sph->getMaterial());
-            // pkg64-gpu Phase 1 — mirror the CPU per-object caustic-caster
-            // opt-in (Hittable::isCausticCaster, set via
-            // Renderer::setObjectCausticCaster / the
-            // set_object_caustic_caster binding) across the GPU scene
-            // boundary so the megakernel SMS dispatch (Phase 2) gates on
-            // the same flag as the CPU path.
-            gs.isCausticCaster = sph->isCausticCaster();
-            // pkg87a — Cryptomatte: hash object and material names
-            std::string objName = sph->getName();
-            if (objName.empty()) objName = "Unnamed_Sphere_" + std::to_string(r.spheres.size());
-            MurmurHash3_x86_32(objName.c_str(), static_cast<int>(objName.length()), 0, &gs.objectHash);
-            std::string matName = sph->getMaterial()->getName();
-            if (matName.empty()) matName = "Unnamed_Material_" + std::to_string(gs.materialId);
-            MurmurHash3_x86_32(matName.c_str(), static_cast<int>(matName.length()), 0, &gs.materialHash);
-            r.spheres.push_back(gs);
-
-            // pkg64-gpu Phase 2: gather caustic-caster spheres inline.
-            // Check if this sphere is flagged + transmissive + IOR > 1.
-            if (gs.isCausticCaster) {
-                const auto& mat = sph->getMaterial();
-                if (mat && mat->isTransmissive()) {
-                    float ior = mat->getIOR();
-                    if (ior > 1.0f) {
-                        // primId is the index into r.prims that will be assigned next.
-                        int primIdx = (int)orderedPrims.size() - 1;
-                        astroray::manifold::device::GSMSCaster gc;
-                        gc.center = gs.center;
-                        gc.radius = gs.radius;
-                        gc.primId = primIdx;
-                        r.smsCasters.push_back(gc);
+    // --- Geometry: pkg114 two-level (TLAS/BLAS) when the Renderer has instances,
+    // else the existing single-level BVH. Both fill r.nodes/prims/triangles/spheres;
+    // when instanced, r.tlas/instances/blas are also populated so the device
+    // engages gpu_tlas_hit (otherwise it falls back to gpu_bvh_hit, unchanged). ---
+    auto& cpuBvh = cpu.getBVH();
+    if (cpu.hasInstances()) {
+        buildTwoLevelArrays(cpu, r, getOrAddMat);
+    } else {
+        if (!cpuBvh) throw std::runtime_error("BVH not built — call buildAcceleration() first");
+        for (auto& n : cpuBvh->getNodes())
+            r.nodes.push_back(convertNode(n));
+        const auto& orderedPrims = cpuBvh->getPrimitives();
+        for (auto& hittable : orderedPrims) {
+            appendOnePrim(hittable, r, getOrAddMat);
+            // pkg64-gpu Phase 2: gather caustic-caster spheres inline (single-level
+            // only — SMS is not instancing-aware). primIdx preserves the prior
+            // (orderedPrims.size()-1) convention to keep pkg64 acceptance stable.
+            if (auto* sph = dynamic_cast<Sphere*>(hittable.get())) {
+                const GSphere& gs = r.spheres.back();
+                if (gs.isCausticCaster) {
+                    const auto& mat = sph->getMaterial();
+                    if (mat && mat->isTransmissive()) {
+                        float ior = mat->getIOR();
+                        if (ior > 1.0f) {
+                            int primIdx = (int)orderedPrims.size() - 1;
+                            astroray::manifold::device::GSMSCaster gc;
+                            gc.center = gs.center;
+                            gc.radius = gs.radius;
+                            gc.primId = primIdx;
+                            r.smsCasters.push_back(gc);
+                        }
                     }
                 }
             }
-        } else {
-            // pkg85-C: keep r.prims index-aligned with the BVH's orderedPrims
-            // by pushing a GPRIM_SKIP placeholder for non-{Triangle,Sphere}
-            // primitives (e.g., DistantLight). Without this, BVH leaves
-            // built from a 2-prim CPU scene whose centroids collide can
-            // produce a single leaf with nPrimitives=2, and gpu_bvh_hit
-            // reads prims[1] past the end of the uploaded r.prims array,
-            // crashing the path-trace kernel with cudaErrorIllegalAddress.
-            gp.type  = GPRIM_SKIP;
-            gp.index = -1;
         }
-        r.prims.push_back(gp);
     }
 
     // --- Lights ---
@@ -358,6 +471,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     const auto& lightPtrs  = ll2.getLights();
     const auto& powerDist  = ll2.getPowerDist();
     r.totalLightPower      = ll2.getTotalPower();
+
+    // Emitter→prim search list. In the single-level case this is the BVH's
+    // ordered prims; pkg114 instanced emitters are deferred (a follow-up), so
+    // for an instanced scene we use an empty list (primIdx stays -1, GLight
+    // unwired) — the parity scene is background-lit with no area lights.
+    static const std::vector<std::shared_ptr<Hittable>> kNoPrims;
+    const auto& orderedPrims =
+        (!cpu.hasInstances() && cpuBvh) ? cpuBvh->getPrimitives() : kNoPrims;
 
     // Find each light's primitive index in r.prims
     for (size_t i = 0; i < lightPtrs.size(); ++i) {

@@ -233,8 +233,11 @@ __device__ inline bool gpu_tlas_hit(
                     GHitRecord lrec;
                     lrec.primId = -1;
                     // Shared, un-scaled tMax: lrec.t comes back in world units.
-                    bool ih = gpu_bvh_hit(blasNodes + b.nodeOffset, prims, tris, spheres,
-                                          local, tMin, tMax, lrec);
+                    // The BLAS's leaf primitivesOffset is BLAS-LOCAL, so the prims
+                    // base is offset by blas.primOffset; tris/spheres are indexed
+                    // by GPrimitive.index which is already global (no offset).
+                    bool ih = gpu_bvh_hit(blasNodes + b.nodeOffset, prims + b.primOffset,
+                                          tris, spheres, local, tMin, tMax, lrec);
                     if (ih && lrec.t < tMax) {
                         hit  = true;
                         tMax = lrec.t;              // tighten the shared cutoff

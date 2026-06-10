@@ -629,6 +629,32 @@ public:
         renderer.addObject(tri);
     }
 
+    // pkg114 — register a mesh's OBJECT-LOCAL flat-shaded triangles once; the
+    // returned mesh id is shared by every add_instance() of it. Mirrors
+    // addTriangle's material lookup + Triangle ctor. Flat-shaded (face normals)
+    // so the instanced render and a baked-world-space reference agree exactly
+    // (avoids interpolate-vs-transform normal-order drift).
+    int registerMeshTriangles(const std::vector<std::array<float, 9>>& tris, int materialId) {
+        auto mat = materials.count(materialId) ? materials[materialId]
+                                               : std::make_shared<Lambertian>(Vec3(0.5f));
+        std::vector<std::shared_ptr<Hittable>> prims;
+        prims.reserve(tris.size());
+        for (const auto& t : tris) {
+            Vec3 p0(t[0], t[1], t[2]), p1(t[3], t[4], t[5]), p2(t[6], t[7], t[8]);
+            prims.push_back(std::make_shared<Triangle>(p0, p1, p2, mat));
+        }
+        return renderer.registerMesh(prims);
+    }
+    // pkg114 — instantiate a registered mesh with a row-major 4x4 object->world
+    // transform (16 floats, same layout as update_object_transform).
+    int addInstance(int meshId, const std::vector<float>& transform) {
+        if (transform.size() != 16)
+            throw std::runtime_error("add_instance: transform must have 16 floats (row-major 4x4)");
+        std::array<float, 16> m;
+        for (int i = 0; i < 16; ++i) m[i] = transform[i];
+        return renderer.addInstance(meshId, m);
+    }
+
     void addTriangleLayers(const std::vector<float>& v0, const std::vector<float>& v1, const std::vector<float>& v2,
                            int materialId, py::dict uvLayers,
                            const std::vector<float>& n0 = {}, const std::vector<float>& n1 = {},
@@ -2061,6 +2087,13 @@ PYBIND11_MODULE(astroray, m) {
              "pkg112: bulk triangle ingest from NumPy arrays (loops in C++ to cut per-tri "
              "pybind overhead). positions (N,3,3) world; uvs (nLayers,N,3,2) active-first; "
              "normals (N,3,3) or empty. Pixel-identical to add_triangle/add_triangle_layers.")
+        .def("register_mesh_triangles", &PyRenderer::registerMeshTriangles,
+             "triangles"_a, "material_id"_a,
+             "pkg114: register a mesh's OBJECT-LOCAL flat-shaded triangles (list of "
+             "(9,) [v0,v1,v2]) once; returns mesh_id for add_instance().")
+        .def("add_instance", &PyRenderer::addInstance, "mesh_id"_a, "transform"_a,
+             "pkg114: instance a registered mesh with a row-major 4x4 object->world "
+             "transform (16 floats). Returns instance_id.")
         .def("add_mesh", &PyRenderer::addMesh, "filename"_a, "material_id"_a,
              "position"_a = std::vector<float>{0,0,0}, "scale"_a = std::vector<float>{1,1,1}, "rotation_y"_a = 0.0f,
              "smooth_normals"_a = false)

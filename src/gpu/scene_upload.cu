@@ -7,6 +7,7 @@
 #include "astroray/shapes.h"
 #include "astroray/spectral_profile.h"
 #include "raytracer.h"
+#include "astroray/light_tree.h"   // pkg86-B: LightTree flattening (needs raytracer.h's Vec3/AABB)
 #include "advanced_features.h"
 // pkg87a — Cryptomatte hash function.
 // Path is `src/util/...` (not `util/...`) because astroray_cuda's include
@@ -527,6 +528,86 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     }
 
     // (pkg64-gpu Phase 2 caster gathering moved inline during sphere loop above)
+
+    // --- pkg86-B: Light tree (Tree sampler mode only) ---
+    // Flatten the CPU LightTree into GLightTreeNode/GLightTreeEmitter arrays
+    // and precompute per-emitter bit trails (root->leaf path, bit i = level-i
+    // branch, 0 = left) for the device-side pdf walk — mirrors Cycles'
+    // bit_trail (kernel/light/tree.h, Apache-2.0, commit e52e5eb0).
+    if (ll2.samplerMode() == LightList::SamplerMode::Tree) {
+        const astroray::LightTree* tree = ll2.lightTree();
+        if (tree != nullptr && !tree->empty()) {
+            const auto& tnodes    = tree->getNodes();
+            const auto& temitters = tree->getEmitters();
+
+            // Dedicated lights have no GLight slot on the GPU yet — if the
+            // tree contains one, skip the upload and warn (the kernels fall
+            // back to power-CDF selection; spec: warn, don't error).
+            bool uploadable = true;
+            for (const auto& e : temitters) {
+                if (e.isDedicated || e.lightIndex < 0 ||
+                    e.lightIndex >= (int)r.lights.size()) {
+                    uploadable = false;
+                    break;
+                }
+            }
+            if (!uploadable) {
+                fprintf(stderr, "[CUDA] light tree not uploadable (dedicated "
+                                "lights present) - GPU NEE falls back to "
+                                "power-CDF selection\n");
+            } else {
+                r.lightTreeNodes.reserve(tnodes.size());
+                for (const auto& n : tnodes) {
+                    GLightTreeNode g;
+                    g.bboxMin   = GVec3(n.bbox.min.x, n.bbox.min.y, n.bbox.min.z);
+                    g.bboxMax   = GVec3(n.bbox.max.x, n.bbox.max.y, n.bbox.max.z);
+                    g.bconeAxis = GVec3(n.bcone.axis.x, n.bcone.axis.y, n.bcone.axis.z);
+                    g.thetaO    = n.bcone.theta_o;
+                    g.thetaE    = n.bcone.theta_e;
+                    g.energy    = n.energy;
+                    g.leftChild    = n.leftChild;
+                    g.rightChild   = n.rightChild;
+                    g.firstEmitter = n.firstEmitter;
+                    g.numEmitters  = n.numEmitters;
+                    r.lightTreeNodes.push_back(g);
+                }
+
+                // Bit trails via an explicit-stack walk (depth-capped at 32,
+                // far above the ~log2(n) depth of an SAOH build).
+                r.lightTreeEmitters.assign(temitters.size(), GLightTreeEmitter{-1, 0u});
+                struct StackEntry { int node; unsigned int trail; int depth; };
+                std::vector<StackEntry> st;
+                st.push_back({0, 0u, 0});
+                bool trailOk = true;
+                while (!st.empty()) {
+                    StackEntry se = st.back();
+                    st.pop_back();
+                    const astroray::LightTreeNode& n = tnodes[se.node];
+                    if (n.isLeaf()) {
+                        for (int k = 0; k < n.numEmitters; ++k) {
+                            r.lightTreeEmitters[n.firstEmitter + k] = GLightTreeEmitter{
+                                temitters[n.firstEmitter + k].lightIndex, se.trail};
+                        }
+                        continue;
+                    }
+                    if (se.depth >= 32) { trailOk = false; break; }
+                    st.push_back({n.leftChild,  se.trail, se.depth + 1});
+                    st.push_back({n.rightChild, se.trail | (1u << se.depth), se.depth + 1});
+                }
+
+                if (!trailOk) {
+                    fprintf(stderr, "[CUDA] light tree deeper than 32 levels - "
+                                    "GPU NEE falls back to power-CDF selection\n");
+                    r.lightTreeNodes.clear();
+                    r.lightTreeEmitters.clear();
+                } else {
+                    r.lightToEmitter.assign(r.lights.size(), -1);
+                    for (size_t ei = 0; ei < r.lightTreeEmitters.size(); ++ei)
+                        r.lightToEmitter[r.lightTreeEmitters[ei].lightIndex] = (int)ei;
+                }
+            }
+        }
+    }
 
     // --- pkg54a: Spectral profile table for the multi-wavelength kernel ---
     // Walk uploaded materials in order; assign each a profileIndex if its CPU

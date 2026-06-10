@@ -1282,6 +1282,13 @@ public:
     enum class SamplerMode { Power, Tree };
     void setSampler(SamplerMode mode);
 
+    // pkg86-B: which sampler is active, and its tree (nullptr for Power).
+    // Used by the GPU scene upload to flatten the tree onto the device.
+    // lightTree() is defined in src/light_list.cpp (LightSampler is
+    // forward-declared here).
+    SamplerMode samplerMode() const { return samplerMode_; }
+    const astroray::LightTree* lightTree() const;
+
     // Sample a light. Signature widened per pkg89 Q7: now requires lambdas + normal.
     // The normal parameter is unused by most light types but required by anisotropic
     // area lights (future extension).
@@ -1304,6 +1311,11 @@ public:
     const std::vector<std::unique_ptr<astroray::Light>>& getDedicatedLights() const { return dedicatedLights; }
     const std::vector<float>& getPowerDist() const { return powerDist; }
     float getTotalPower() const { return totalPower; }
+
+private:
+    // pkg86-B: tracks the mode set by setSampler (move ops reset to Power,
+    // matching the existing move semantics that rebuild a PowerLightSampler).
+    SamplerMode samplerMode_ = SamplerMode::Power;
 };
 
 class EnvironmentMap {

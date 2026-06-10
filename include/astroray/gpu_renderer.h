@@ -12,6 +12,7 @@
 class Renderer;
 class Camera;
 class EnvironmentMap;
+struct SceneUploadResult;  // pkg86-B: host-side upload slices (gpu_scene_upload.h)
 
 // Vec3 is needed for the render() output buffer type.
 // Include raytracer.h here (it is pure C++, no CUDA).
@@ -53,6 +54,21 @@ public:
     void uploadMaterials(const Renderer& cpuRenderer);
     void uploadLights(const Renderer& cpuRenderer);
     void uploadEnvironment(const Renderer& cpuRenderer);
+
+    // pkg86-B: wall-clock cost of the most recent light-tree upload (ms).
+    // 0 when no tree was uploaded. Spec gates <= 10 ms on 10k lights.
+    float lightTreeUploadMs() const;
+
+    // pkg86-B: batch debug probe — runs gpu_light_tree_pick for each
+    // (point, normal, u) triple on the device and writes the picked GLight
+    // index + selection pdf. Used by the CPU<->GPU parity gate
+    // (tests/test_pkg86_B_gpu_parity.py). Requires a prior uploadScene()
+    // with the Tree sampler active; returns false when no tree is resident.
+    bool debugLightTreePick(const std::vector<Vec3>& points,
+                            const std::vector<Vec3>& normals,
+                            const std::vector<float>& us,
+                            std::vector<int>& outLightIndex,
+                            std::vector<float>& outPdf);
 
     // Upload environment map (optional; call after uploadScene).
     void uploadEnvironmentMap(const EnvironmentMap& envMap);
@@ -99,4 +115,8 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl;
+
+    // pkg86-B: shared by uploadScene/uploadLights — pushes (or clears) the
+    // flattened light-tree slice and records the upload time.
+    void uploadLightTree(const SceneUploadResult& r);
 };

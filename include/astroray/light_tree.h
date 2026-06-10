@@ -124,6 +124,11 @@ public:
 
     bool empty() const { return nodes.empty(); }
 
+    // pkg86-B: read-only access to the flat arrays for GPU upload
+    // (scene_upload.cu flattens these into GLightTreeNode/GLightTreeEmitter).
+    const std::vector<LightTreeNode>&    getNodes() const { return nodes; }
+    const std::vector<LightTreeEmitter>& getEmitters() const { return emitters; }
+
 private:
     std::vector<LightTreeNode>    nodes;
     std::vector<LightTreeEmitter> emitters;

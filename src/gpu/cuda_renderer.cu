@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <cstring>
 #include <cstdio>
+#include <chrono>  // pkg86-B: light-tree upload timing
 #include <ctime>
 
 #define CUDA_CHECK(call) do {                                           \
@@ -46,6 +47,7 @@ void launchPathTraceKernel(
     const GSphere*    d_spheres,
     const GMaterial*  d_materials,
     const GLight*     d_lights, int numLights, float totalLightPower,
+    GLightTreeView lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* d_smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
     GCameraParams cam,
@@ -58,6 +60,11 @@ void launchPathTraceKernel(
     float* d_cryptoMaterialBuffer = nullptr,    // pkg87b
     int cryptoDepth = 6,                         // pkg87b
     bool cryptomatteEnabled = false);            // pkg87b
+
+// pkg86-B — batch light-tree pick probe (defined in path_trace_kernel.cu).
+void launchLightTreePick(
+    GLightTreeView view, const float* d_pts, const float* d_nrms,
+    const float* d_us, int n, int* d_outIdx, float* d_outPdf);
 
 // pkg54a — copies per-material spectral profiles into MW kernel constant memory.
 void uploadProfileTable(const float* host, int count);
@@ -92,6 +99,7 @@ void launchMultiwavelengthKernel(
     const GSphere*    d_spheres,
     const GMaterial*  d_materials,
     const GLight*     d_lights, int numLights, float totalLightPower,
+    GLightTreeView lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* d_smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
     GCameraParams cam,
@@ -135,6 +143,19 @@ struct CUDARenderer::Impl {
     GLight*     d_lights     = nullptr;
     int         numLights    = 0;
     float       totalLightPower = 0.f;
+
+    // pkg86-B: light tree device arrays (populated only in Tree sampler mode)
+    GLightTreeNode*    d_lightTreeNodes    = nullptr;
+    GLightTreeEmitter* d_lightTreeEmitters = nullptr;
+    int*               d_lightToEmitter    = nullptr;
+    int                numLightTreeNodes   = 0;
+    float              lightTreeUploadMs   = 0.f;
+
+    GLightTreeView lightTreeView() const {
+        return GLightTreeView{d_lightTreeNodes, d_lightTreeEmitters,
+                              d_lightToEmitter, numLightTreeNodes,
+                              numLightTreeNodes > 0 ? 1 : 0};
+    }
 
     // pkg64-gpu Phase 2: caustic-caster array (flagged transmissive spheres)
     astroray::manifold::device::GSMSCaster* d_smsCasters = nullptr;
@@ -210,6 +231,10 @@ struct CUDARenderer::Impl {
         if (d_spheres)    { cudaFree(d_spheres);     d_spheres    = nullptr; }
         if (d_materials)  { cudaFree(d_materials);   d_materials  = nullptr; }
         if (d_lights)     { cudaFree(d_lights);      d_lights     = nullptr; }
+        if (d_lightTreeNodes)    { cudaFree(d_lightTreeNodes);    d_lightTreeNodes    = nullptr; }  // pkg86-B
+        if (d_lightTreeEmitters) { cudaFree(d_lightTreeEmitters); d_lightTreeEmitters = nullptr; }  // pkg86-B
+        if (d_lightToEmitter)    { cudaFree(d_lightToEmitter);    d_lightToEmitter    = nullptr; }  // pkg86-B
+        numLightTreeNodes = 0;
         if (d_smsCasters) { cudaFree(d_smsCasters);  d_smsCasters = nullptr; }  // pkg64-gpu Phase 2
         freeEnv();
         if (d_framebuffer){ cudaFree(d_framebuffer); d_framebuffer= nullptr; }
@@ -379,8 +404,72 @@ void CUDARenderer::uploadLights(const Renderer& cpuRenderer) {
     impl->numLights       = (int)r.lights.size();
     impl->totalLightPower = r.totalLightPower;
 
+    uploadLightTree(r);  // pkg86-B: tree arrays track the light buffer
+
     printf("[CUDA] Lights uploaded: %d lights, total power %g\n",
            impl->numLights, impl->totalLightPower);
+}
+
+// pkg86-B: upload (or clear) the flattened light tree. Timed because the
+// spec gates one-time upload cost at <= 10 ms on a 10k-light scene.
+void CUDARenderer::uploadLightTree(const SceneUploadResult& r) {
+    auto t0 = std::chrono::steady_clock::now();
+    devUpload(r.lightTreeNodes,    &impl->d_lightTreeNodes);
+    devUpload(r.lightTreeEmitters, &impl->d_lightTreeEmitters);
+    devUpload(r.lightToEmitter,    &impl->d_lightToEmitter);
+    impl->numLightTreeNodes = (int)r.lightTreeNodes.size();
+    impl->lightTreeUploadMs = std::chrono::duration<float, std::milli>(
+        std::chrono::steady_clock::now() - t0).count();
+    if (impl->numLightTreeNodes > 0) {
+        printf("[CUDA] Light tree uploaded: %d nodes, %d emitters, %.2f ms\n",
+               impl->numLightTreeNodes, (int)r.lightTreeEmitters.size(),
+               impl->lightTreeUploadMs);
+    }
+}
+
+float CUDARenderer::lightTreeUploadMs() const { return impl->lightTreeUploadMs; }
+
+// pkg86-B: run gpu_light_tree_pick on a batch of (point, normal, u) queries.
+// Mirrors the exact device function the NEE path uses, so the parity gate
+// measures the production traversal, not a test-only re-implementation.
+bool CUDARenderer::debugLightTreePick(const std::vector<Vec3>& points,
+                                      const std::vector<Vec3>& normals,
+                                      const std::vector<float>& us,
+                                      std::vector<int>& outLightIndex,
+                                      std::vector<float>& outPdf)
+{
+    int n = (int)us.size();
+    outLightIndex.assign(n, -1);
+    outPdf.assign(n, 0.f);
+    if (!impl->available || impl->numLightTreeNodes == 0) return false;
+    if (n == 0) return true;
+
+    std::vector<float> pts(n * 3), nrms(n * 3);
+    for (int i = 0; i < n; ++i) {
+        pts[i*3+0] = points[i].x;  pts[i*3+1] = points[i].y;  pts[i*3+2] = points[i].z;
+        nrms[i*3+0] = normals[i].x; nrms[i*3+1] = normals[i].y; nrms[i*3+2] = normals[i].z;
+    }
+
+    float *d_pts = nullptr, *d_nrms = nullptr, *d_us = nullptr, *d_pdf = nullptr;
+    int *d_idx = nullptr;
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_pts),  n * 3 * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_nrms), n * 3 * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_us),   n * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_idx),  n * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_pdf),  n * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_pts,  pts.data(),  n * 3 * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_nrms, nrms.data(), n * 3 * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_us,   us.data(),   n * sizeof(float),     cudaMemcpyHostToDevice));
+
+    launchLightTreePick(impl->lightTreeView(), d_pts, d_nrms, d_us, n, d_idx, d_pdf);
+
+    CUDA_CHECK(cudaMemcpy(outLightIndex.data(), d_idx, n * sizeof(int),   cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(outPdf.data(),        d_pdf, n * sizeof(float), cudaMemcpyDeviceToHost));
+
+    cudaFree(d_pts); cudaFree(d_nrms); cudaFree(d_us);
+    cudaFree(d_idx); cudaFree(d_pdf);
+    cudaGetLastError();  // pkg85-B: swallow cleanup errors
+    return true;
 }
 
 void CUDARenderer::uploadEnvironment(const Renderer& cpuRenderer) {
@@ -441,6 +530,7 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
     devUpload(r.materials, &impl->d_materials);
     devUpload(r.lights,    &impl->d_lights);
     devUpload(r.smsCasters, &impl->d_smsCasters);  // pkg64-gpu Phase 2
+    uploadLightTree(r);  // pkg86-B
 
     impl->numLights       = (int)r.lights.size();
     impl->totalLightPower = r.totalLightPower;
@@ -752,6 +842,7 @@ void CUDARenderer::render(
         impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
         impl->d_materials,
         impl->d_lights, impl->numLights, impl->totalLightPower,
+        impl->lightTreeView(),  // pkg86-B
         impl->d_smsCasters, impl->numSMSCasters,
         impl->envMap,
         impl->camera,
@@ -843,6 +934,7 @@ void CUDARenderer::renderMultiwavelength(
         impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
         impl->d_materials,
         impl->d_lights, impl->numLights, impl->totalLightPower,
+        impl->lightTreeView(),  // pkg86-B
         impl->d_smsCasters, impl->numSMSCasters,
         impl->envMap,
         impl->camera,

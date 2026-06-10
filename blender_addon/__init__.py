@@ -26,6 +26,27 @@ if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
 from shader_blending import blend_shader_specs, add_shader_specs
 from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
 
+# pkg116: scene exporter and per-domain caches. Defensive import handles both
+# package-relative (Blender loads us as bl_ext.user_default.astroray) and
+# standalone (test harnesses load __init__.py directly).
+def _import_exporter():
+    try:
+        from . import exporter as exp
+        return exp
+    except ImportError:
+        import importlib.util as _u
+        exporter_path = os.path.join(addon_dir, "exporter.py")
+        if not os.path.isfile(exporter_path):
+            return None
+        spec = _u.spec_from_file_location("astroray_exporter", exporter_path)
+        if spec is None or spec.loader is None:
+            return None
+        mod = _u.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+exporter_module = _import_exporter()
+
 # pkg57: native Astroray shader nodes (Spectral Profile, Sellmeier Glass,
 # IR/UV Response, NRC Hint, Output). Imported defensively so a partial install
 # (missing nodes/ directory) does not break the rest of the addon.
@@ -782,24 +803,130 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # __init__ (Blender has caveats around RenderEngine constructor overrides,
     # see `bpy.types.RenderEngine` docs). Viewport state is lazily created
     # inside view_update / view_draw instead.
-    _viewport_texture = None
-    _viewport_width = 0
-    _viewport_height = 0
-    # pkg52: persistent viewport state. The renderer is reused across draws
-    # so we don't pay scene-rebuild cost on every camera nudge. The hash
-    # detects camera/region changes from view_draw (Blender does not emit
-    # a "camera changed" event in the viewport).
-    _viewport_renderer = None
-    _viewport_full_synced = False  # pkg56-C: True after first full sync
-    _viewport_camera_hash = None
-    _viewport_accum_pixels = None
-    _viewport_current_spp = 0
-    _viewport_target_spp = 0
-    _viewport_accum_key = None
-    # pkg84: CUDA kernel pre-warm state. Tracks the last device_mode we
-    # pre-warmed for. If the user changes device_mode mid-session (CPU → CUDA
-    # via the Astroray panel), we re-fire the pre-warm for the new mode.
-    _viewport_prewarmed_for_mode = None
+    # pkg116: Exporter owns viewport session state. Properties below proxy to
+    # exporter for backward compatibility with tests that read/write these attrs.
+    _exporter = None
+
+    # Proxy properties for viewport session state (owned by Exporter)
+    @property
+    def _viewport_renderer(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_renderer if exp else None
+
+    @_viewport_renderer.setter
+    def _viewport_renderer(self, value):
+        exp = self._get_exporter()
+        exp._viewport_renderer = value
+
+    @property
+    def _viewport_texture(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_texture if exp else None
+
+    @_viewport_texture.setter
+    def _viewport_texture(self, value):
+        exp = self._get_exporter()
+        exp._viewport_texture = value
+
+    @property
+    def _viewport_width(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_width if exp else 0
+
+    @_viewport_width.setter
+    def _viewport_width(self, value):
+        exp = self._get_exporter()
+        exp._viewport_width = value
+
+    @property
+    def _viewport_height(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_height if exp else 0
+
+    @_viewport_height.setter
+    def _viewport_height(self, value):
+        exp = self._get_exporter()
+        exp._viewport_height = value
+
+    @property
+    def _viewport_full_synced(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_full_synced if exp else False
+
+    @_viewport_full_synced.setter
+    def _viewport_full_synced(self, value):
+        exp = self._get_exporter()
+        exp._viewport_full_synced = value
+
+    @property
+    def _viewport_camera_hash(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_camera_hash if exp else None
+
+    @_viewport_camera_hash.setter
+    def _viewport_camera_hash(self, value):
+        exp = self._get_exporter()
+        exp._viewport_camera_hash = value
+
+    @property
+    def _viewport_camera_substantive_hash(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_camera_substantive_hash if exp else None
+
+    @_viewport_camera_substantive_hash.setter
+    def _viewport_camera_substantive_hash(self, value):
+        exp = self._get_exporter()
+        exp._viewport_camera_substantive_hash = value
+
+    @property
+    def _viewport_accum_pixels(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_accum_pixels if exp else None
+
+    @_viewport_accum_pixels.setter
+    def _viewport_accum_pixels(self, value):
+        exp = self._get_exporter()
+        exp._viewport_accum_pixels = value
+
+    @property
+    def _viewport_current_spp(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_current_spp if exp else 0
+
+    @_viewport_current_spp.setter
+    def _viewport_current_spp(self, value):
+        exp = self._get_exporter()
+        exp._viewport_current_spp = value
+
+    @property
+    def _viewport_target_spp(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_target_spp if exp else 0
+
+    @_viewport_target_spp.setter
+    def _viewport_target_spp(self, value):
+        exp = self._get_exporter()
+        exp._viewport_target_spp = value
+
+    @property
+    def _viewport_accum_key(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_accum_key if exp else None
+
+    @_viewport_accum_key.setter
+    def _viewport_accum_key(self, value):
+        exp = self._get_exporter()
+        exp._viewport_accum_key = value
+
+    @property
+    def _viewport_prewarmed_for_mode(self):
+        exp = getattr(self, '_exporter', None)
+        return exp._viewport_prewarmed_for_mode if exp else None
+
+    @_viewport_prewarmed_for_mode.setter
+    def _viewport_prewarmed_for_mode(self, value):
+        exp = self._get_exporter()
+        exp._viewport_prewarmed_for_mode = value
     _PASS_SPECS = [
         ("Diffuse Direct", "diffuse_direct", "use_pass_diffuse_direct"),
         ("Diffuse Indirect", "diffuse_indirect", "use_pass_diffuse_indirect"),
@@ -999,21 +1126,38 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # ------------------------------------------------------------------ #
 
     # ------------------------------------------------------------------ #
-    # pkg52: persistent viewport session
+    # pkg52: persistent viewport session (pkg116: delegated to Exporter)
     # ------------------------------------------------------------------ #
 
+    def _get_exporter(self):
+        """Lazy-init the Exporter. Reused across view_update and view_draw."""
+        # Access the real _exporter attribute (not the property)
+        if not hasattr(self, '__dict__') or '_exporter' not in self.__dict__ or self.__dict__['_exporter'] is None:
+            if exporter_module is None:
+                raise RuntimeError("Astroray exporter module not available")
+            # Import astroray from module globals. Try sys.modules first (test stubs),
+            # then fall back to the module-level astroray import (real Blender).
+            import sys
+            astroray_mod = sys.modules.get('astroray', None)
+            if astroray_mod is None:
+                # Fall back to module-level import
+                try:
+                    import astroray as astroray_mod
+                except ImportError:
+                    # Create a minimal stub for tests that don't provide astroray
+                    import types
+                    astroray_mod = types.ModuleType('astroray')
+                    astroray_mod.Renderer = lambda: None
+            self.__dict__['_exporter'] = exporter_module.Exporter(self, bpy, astroray_mod)
+        return self.__dict__['_exporter']
+
     def _get_viewport_renderer(self):
-        """Lazy-init the persistent viewport Renderer. Reused across
-        view_update and view_draw so we don't reconstruct on every nudge."""
-        if getattr(self, '_viewport_renderer', None) is None:
-            self._viewport_renderer = astroray.Renderer()
-        return self._viewport_renderer
+        """Delegate to Exporter. Kept on RenderEngine for backward compat."""
+        return self._get_exporter()._get_viewport_renderer()
 
     def _reset_viewport_accumulation(self):
-        self._viewport_accum_pixels = None
-        self._viewport_current_spp = 0
-        self._viewport_target_spp = 0
-        self._viewport_accum_key = None
+        """Delegate to Exporter. Kept on RenderEngine for backward compat."""
+        self._get_exporter()._reset_viewport_accumulation()
 
     @staticmethod
     def _viewport_target_samples(settings):
@@ -1051,30 +1195,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
         except AttributeError:
             pass
 
-    def _update_viewport_status(self):
+    def _update_viewport_status(self, current_spp, target_spp):
         try:
             self.update_stats(
                 "Astroray",
-                f"Viewport {self._viewport_current_spp}/{self._viewport_target_spp} spp"
+                f"Viewport {current_spp}/{target_spp} spp"
             )
         except AttributeError:
             pass
-
-    def _accumulate_viewport_pixels(self, pixels, chunk_spp):
-        chunk = np.asarray(pixels, dtype=np.float32)
-        if self._viewport_accum_pixels is None or self._viewport_current_spp <= 0:
-            self._viewport_accum_pixels = chunk.copy()
-            self._viewport_current_spp = int(chunk_spp)
-        else:
-            old_spp = int(self._viewport_current_spp)
-            new_spp = old_spp + int(chunk_spp)
-            self._viewport_accum_pixels = (
-                (self._viewport_accum_pixels * old_spp + chunk * int(chunk_spp))
-                / float(new_spp)
-            )
-            self._viewport_current_spp = new_spp
-        self._update_viewport_status()
-        return self._viewport_accum_pixels
 
     @staticmethod
     def _camera_state_hash(context, region):
@@ -1186,12 +1314,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         )
 
     # ------------------------------------------------------------------ #
-    # pkg56 Phase C — depsgraph-driven dispatch
+    # pkg56 Phase C — depsgraph-driven dispatch (pkg116: moved to Exporter)
     # ------------------------------------------------------------------ #
-    # `_apply_depsgraph_updates` reads `bpy.types.Depsgraph.updates` and
-    # routes only the matching Phase B uploaders. Mirrors Cycles
-    # `BlenderSync::sync_recalc` (intern/cycles/blender/sync.cpp,
-    # Apache-2.0): collect into typed buckets, dispatch in fixed order.
+    # The implementation lives in exporter.py. These methods are kept on
+    # RenderEngine as thin delegators for backward compatibility with tests
+    # that call eng._apply_depsgraph_updates() directly.
     # The first frame, an unrecognised update id, or an absent .updates
     # iterator all fall back to `_sync_viewport_scene` — the same
     # has_updates_=true safety net Cycles uses for its first call.
@@ -1267,105 +1394,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return None
 
     def _apply_depsgraph_updates(self, renderer, depsgraph, settings):
-        """Bucket `depsgraph.updates` into domains, dispatch only the
-        matching Phase B uploader(s). Returns one of:
-
-          - 'fallback'   : caller must run `_sync_viewport_scene`
-                           (unrecognised update id or .updates absent).
-          - 'idle'       : zero domain edits — caller skips upload AND
-                           render. This is the ≤5 ms idle-frame path.
-          - 'dispatched' : one or more uploaders ran — caller renders.
-
-        Dispatch order (env → materials → lights → geometry → transforms)
-        matches Cycles `BlenderSync::sync_data()` so the device-state
-        result is order-independent of Blender's iteration order over
-        depsgraph.updates (research note §3.2, §8 risk 5).
-        """
-        updates = getattr(depsgraph, 'updates', None)
-        if updates is None:
-            return 'fallback'
-
-        env = materials = lights = geometry = False
-        transforms = []  # list of (obj_id, mat16) for transform-only edits
-        accumulation_only = False
-        backend_config = False  # pkg96: backend-affecting Scene props
-
-        for upd in updates:
-            kind = self._classify_depsgraph_update(upd)
-            if kind is None:
-                # Unrecognised id type (skin modifier, particle system,
-                # grease pencil, …). Spec §C non-goals: fall back to
-                # full sync rather than guess. Mirrors Cycles'
-                # has_updates_=true default.
-                return 'fallback'
-            if kind.get('environment'): env = True
-            if kind.get('lights'):      lights = True
-            if kind.get('materials'):   materials = True
-            if kind.get('geometry'):    geometry = True
-            if kind.get('backend_config'): backend_config = True
-            if kind.get('accumulation_only'):
-                accumulation_only = True
-            if kind.get('transform_only') and not kind.get('geometry'):
-                obj_id = self._renderer_object_id_for(upd.id)
-                if obj_id is None:
-                    # No Blender-Object → renderer-primitive-id mapping
-                    # cached. Promote to a geometry rebuild so the BVH
-                    # picks up the new transform — same cost as
-                    # update_object_transform on the single-level BVH
-                    # we ship today (research note §4.1; the two-level
-                    # BVH refit win lands in a follow-up package).
-                    geometry = True
-                else:
-                    try:
-                        m = list(upd.id.matrix_world)
-                        if m and hasattr(m[0], '__iter__'):
-                            m = [float(x) for row in m for x in row]
-                        transforms.append((obj_id, m))
-                    except Exception:
-                        geometry = True
-
-        # backend_config only counts as a real domain when settings is present
-        # (in tests, settings=None means no real backend change is possible).
-        backend_config_real = backend_config and settings is not None
-        any_domain = env or materials or lights or geometry or bool(transforms) or backend_config_real
-        if not any_domain:
-            if accumulation_only:
-                # Frame/Scene tick — image is unchanged but the user
-                # may want a fresh accumulation. Reset and skip render.
-                self._reset_viewport_accumulation()
-            return 'idle'
-
-        # pkg96 P2: reconcile-then-upload contract. Each domain re-derives
-        # its state from Blender before pushing device buffers (BUG-04/05).
-        if backend_config_real:
-            # Backend-affecting Scene props (device_mode) — reconfigure
-            # before any render (BUG-05).
-            _configure_backend_for_context(renderer, settings, self.report)
-
-        if env:
-            # World update — re-parse the world tree before device upload
-            # (BUG-04: only setup_world re-reads the Background node;
-            # upload_environment just pushes already-parsed state).
-            # Guard: tests may pass scene=None.
-            if depsgraph.scene is not None:
-                self.setup_world(depsgraph.scene, renderer)
-            renderer.upload_environment()
-
-        if materials: renderer.upload_materials()
-        if lights:    renderer.upload_lights()
-        if geometry:  renderer.upload_geometry()
-        elif transforms:
-            for obj_id, mat16 in transforms:
-                try:
-                    renderer.update_object_transform(obj_id, mat16)
-                except (RuntimeError, AttributeError, TypeError):
-                    # Stale id (object removed) — skip; the next full
-                    # sync will pick the new state up.
-                    pass
-        # Any image-changing dispatch resets accumulation (Phase C key
-        # design 4: a single reset per frame, not per update).
-        self._reset_viewport_accumulation()
-        return 'dispatched'
+        """Delegate to Exporter.apply_depsgraph_updates. Kept on RenderEngine
+        for backward compatibility with tests that call this directly."""
+        exporter = self._get_exporter()
+        report_fn = getattr(self, 'report', None)
+        return exporter.apply_depsgraph_updates(
+            renderer, depsgraph, settings,
+            _configure_backend_for_context, report_fn)
 
     def _renderer_object_id_for(self, blender_id):
         """Resolve a Blender Object → renderer primitive insertion id.
@@ -1384,145 +1419,33 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
 
     def _sync_viewport_scene(self, renderer, depsgraph, settings):
-        """Push the depsgraph state into the renderer. Called from view_update
-        only — view_draw skips this and just re-renders with a new camera.
-
-        pkg56-A: per-stage timers feed `astroray.record_viewport_stage`
-        for the no-change-frame baseline. Pure measurement, zero behaviour
-        change — the helper is a no-op when the binding isn't present.
-        """
-        renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
-        renderer.clear()
-        renderer.set_clamp_direct(settings.clamp_direct)
-        renderer.set_clamp_indirect(settings.clamp_indirect)
-        renderer.set_filter_glossy(settings.filter_glossy)
-        renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
-        renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
-        renderer.set_light_sampler(settings.light_sampler)
-
-        t0 = time.perf_counter()
-        material_map = self.convert_materials(depsgraph, renderer)
-        _viewport_perf_record("materials", t0)
-
-        t0 = time.perf_counter()
-        self.convert_objects(depsgraph, renderer, material_map)
-        _viewport_perf_record("geometry", t0)
-
-        t0 = time.perf_counter()
-        self.convert_lights(depsgraph, renderer)
-        _viewport_perf_record("lights", t0)
-
-        t0 = time.perf_counter()
-        self.setup_world(depsgraph.scene, renderer)
-        _viewport_perf_record("environment", t0)
-
-        active_mode = _configure_backend_for_context(renderer, settings, self.report, _effective_integrator_name(settings))
-
-        # pkg84: CUDA kernel pre-warm. If this is the first time CUDA is
-        # enabled (or the user changed device_mode mid-session), fire the
-        # pre-warm on a temporary Renderer instance so it doesn't pollute the
-        # real scene. Mirrors Cycles' reserve_local_memory pattern
-        # (intern/cycles/device/cuda/device.cpp, Apache-2.0).
-        if active_mode == 'gpu' and self._viewport_prewarmed_for_mode != 'gpu':
-            try:
-                temp = astroray.Renderer()
-                temp.set_use_gpu(True)
-                temp.prewarm_cuda()
-                self._viewport_prewarmed_for_mode = 'gpu'
-            except Exception:
-                pass  # Pre-warm failure is non-fatal; first render will JIT.
-
-        # pkg56-C: mark that the renderer holds a coherent full snapshot of
-        # the scene. Subsequent view_update ticks may dispatch incrementally.
-        self._viewport_full_synced = True
+        """Delegate to Exporter.sync_viewport_scene. Kept on RenderEngine for
+        backward compatibility."""
+        exporter = self._get_exporter()
+        exporter.sync_viewport_scene(renderer, depsgraph, settings,
+                                    _configure_backend_for_context,
+                                    _viewport_perf_record,
+                                    _effective_integrator_name)
 
     def _render_viewport_frame(self, renderer, context, settings, region,
                                reset_accumulation=False):
-        """Set up the camera, run a render, update the cached GPU texture.
-
-        Honors pkg62's `viewport_display_pass` selector and `viewport_oidn`
-        toggle: registers the right AOV pass / denoiser before render, and
-        for compositor-only passes (Cycles-style direct/indirect channels)
-        fetches the per-pass buffer after render via
-        `renderer.get_render_pass_buffer(name)`.
-        """
-        width = max(1, region.width)
-        height = max(1, region.height)
-        render_key = self._viewport_render_key(context, settings, region)
-        if reset_accumulation or render_key != getattr(self, '_viewport_accum_key', None):
-            self._reset_viewport_accumulation()
-            self._viewport_accum_key = render_key
-
-        self._viewport_target_spp = self._viewport_target_samples(settings)
-        if self._viewport_current_spp >= self._viewport_target_spp:
-            return False
-
-        self._setup_viewport_camera(renderer, context, width, height)
-
-        # Wavelength + integrator policy must match the final-render path.
-        lmin, lmax = _wavelength_range_from_settings(settings)
-        renderer.set_wavelength_range(lmin, lmax)
-        is_outside_visible = (lmax > 780.0 or lmin < 380.0)
-        if is_outside_visible:
-            renderer.set_output_mode("luminance")
-        renderer.set_integrator(_effective_integrator_name(settings))
-
-        # pkg62: viewport pass selector + viewport OIDN toggle.
-        try:
-            renderer.clear_passes()
-        except AttributeError:
-            pass
-        viewport_display_pass = getattr(settings, "viewport_display_pass", "combined")
-        if viewport_display_pass == "albedo":
-            renderer.add_pass("albedo_aov")
-        elif viewport_display_pass == "normal":
-            renderer.add_pass("normal_aov")
-        elif viewport_display_pass == "depth":
-            renderer.add_pass("depth_aov")
-        has_denoise = False
-        if getattr(settings, "viewport_oidn", False) and not is_outside_visible:
-            denoise_pass = _resolve_denoiser_pass(settings)
-            if denoise_pass is not None:
-                renderer.add_pass(denoise_pass)
-                has_denoise = True
-
-        # pkg96 P5 guard: detect GPU + CPU-only features and show explicit notice
-        has_aov_passes = viewport_display_pass in {"albedo", "normal", "depth"}
-        _check_gpu_limitations_and_report(
-            renderer, settings, self.report,
-            has_passes=has_aov_passes,
-            has_denoise=has_denoise
-        )
-
-        samples = self._viewport_chunk_samples(settings, self._viewport_current_spp)
-        if samples <= 0:
-            return False
-        depth = max(2, settings.max_bounces // 2)
-        pixels = renderer.render(
-            samples, depth, None, False,
-            min(settings.diffuse_bounces, depth),
-            min(settings.glossy_bounces, depth),
-            min(settings.transmission_bounces, depth),
-            min(settings.volume_bounces, depth),
-            min(settings.transparent_bounces, depth)
-        )
-        if pixels is None:
-            return
-
-        # pkg62: for compositor-style passes (diffuse/glossy direct/indirect,
-        # emission, environment, ao, shadow), the renderer keeps Combined as
-        # its primary buffer and we have to fetch the named per-pass buffer.
-        # Albedo/Normal/Depth use the corresponding AOV plugin which writes
-        # into the primary buffer, so they reuse `pixels` directly.
-        pixels_to_display = pixels
-        if viewport_display_pass not in {"combined", "albedo", "normal", "depth"}:
-            try:
-                pixels_to_display = renderer.get_render_pass_buffer(viewport_display_pass)
-            except Exception:
-                pixels_to_display = pixels
-        pixels_to_display = self._accumulate_viewport_pixels(pixels_to_display, samples)
-        self._update_viewport_texture(pixels_to_display, width, height)
-        return True
+        """Delegate to Exporter.render_viewport_frame. Kept on RenderEngine for
+        backward compatibility."""
+        exporter = self._get_exporter()
+        engine_methods = {
+            'viewport_render_key': self._viewport_render_key,
+            'viewport_target_samples': self._viewport_target_samples,
+            'viewport_chunk_samples': self._viewport_chunk_samples,
+            'setup_viewport_camera': self._setup_viewport_camera,
+            'wavelength_range_from_settings': _wavelength_range_from_settings,
+            'effective_integrator_name': _effective_integrator_name,
+            'resolve_denoiser_pass': _resolve_denoiser_pass,
+            'check_gpu_limitations_and_report': _check_gpu_limitations_and_report,
+            'update_viewport_texture': self._update_viewport_texture,
+            'update_viewport_status': self._update_viewport_status,
+        }
+        return exporter.render_viewport_frame(renderer, context, settings, region,
+                                             reset_accumulation, engine_methods)
 
     def view_update(self, context, depsgraph):
         """Called when the scene or viewport changes. Re-syncs the scene into
@@ -1530,119 +1453,65 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         Camera-only changes (pan/zoom/orbit) are NOT routed through here by
         Blender — they don't fire a depsgraph update. view_draw owns those.
+
+        pkg116: delegates to Exporter.view_update.
         """
-        if not RAYTRACER_AVAILABLE:
-            return
-        scene = depsgraph.scene
-        settings = scene.custom_raytracer
-        region = context.region
-
-        try:
-            renderer = self._get_viewport_renderer()
-
-            # pkg56-C: depsgraph-driven dispatch. The first view_update
-            # (no full snapshot yet) and any unrecognised update fall
-            # back to the full sync path — same has_updates_=true safety
-            # net Cycles uses (sync.cpp). Subsequent ticks route only
-            # the matching Phase B uploaders.
-            if not getattr(self, '_viewport_full_synced', False):
-                dispatch = 'fallback'
-            else:
-                dispatch = self._apply_depsgraph_updates(
-                    renderer, depsgraph, settings)
-            if dispatch == 'fallback':
-                self._sync_viewport_scene(renderer, depsgraph, settings)
-                dispatch = 'dispatched'
-            if dispatch == 'idle':
-                # No domain edits this tick — skip both upload and
-                # render. This is the ≤5 ms idle-frame gate.
-                _viewport_perf_frame_complete()
-                self._viewport_camera_hash = self._camera_state_hash(context, region)
-                self._viewport_camera_substantive_hash = self._camera_substantive_state_hash(context, region)
-                return
-            t0 = time.perf_counter()
-            self._render_viewport_frame(renderer, context, settings, region,
-                                        reset_accumulation=True)
-            _viewport_perf_record("render", t0)
-            # pkg56-A: close the frame so its stage totals enter the ring
-            # buffer that astroray.viewport_perf_stats() reads.
-            _viewport_perf_frame_complete()
-            # Stamp the camera hash so view_draw doesn't re-render until the
-            # camera actually changes.
-            self._viewport_camera_hash = self._camera_state_hash(context, region)
-            self._viewport_camera_substantive_hash = self._camera_substantive_state_hash(context, region)
-            if self._viewport_current_spp < self._viewport_target_spp:
-                self._request_viewport_redraw()
-        except Exception as e:
-            print(f"Astroray viewport preview error: {e}")
-            traceback.print_exc()
+        exporter = self._get_exporter()
+        engine_methods = {
+            'viewport_render_key': self._viewport_render_key,
+            'viewport_target_samples': self._viewport_target_samples,
+            'viewport_chunk_samples': self._viewport_chunk_samples,
+            'setup_viewport_camera': self._setup_viewport_camera,
+            'wavelength_range_from_settings': _wavelength_range_from_settings,
+            'effective_integrator_name': _effective_integrator_name,
+            'resolve_denoiser_pass': _resolve_denoiser_pass,
+            'check_gpu_limitations_and_report': _check_gpu_limitations_and_report,
+            'update_viewport_texture': self._update_viewport_texture,
+            'update_viewport_status': self._update_viewport_status,
+        }
+        exporter.view_update(
+            context, depsgraph, RAYTRACER_AVAILABLE,
+            _configure_backend_for_context,
+            _viewport_perf_record,
+            _viewport_perf_frame_complete,
+            _effective_integrator_name,
+            self._camera_state_hash,
+            self._camera_substantive_state_hash,
+            self._request_viewport_redraw,
+            engine_methods
+        )
 
     def view_draw(self, context, depsgraph):
         """Called every frame inside rendered-shading mode. Detects camera
         changes (pan/zoom/orbit, including CAMERA-view zoom and offset) and
         re-renders without touching scene state. Otherwise just blits the
         cached texture.
+
+        pkg116: delegates to Exporter.view_draw.
         """
-        if not RAYTRACER_AVAILABLE:
-            return
-        try:
-            region = context.region
-            scene = depsgraph.scene
-            settings = scene.custom_raytracer
-
-            # Camera-change detection — fixes the project-owner-reported
-            # "panning/zooming the viewport doesn't update the render" bug.
-            new_hash = self._camera_state_hash(context, region)
-            target_spp = self._viewport_target_samples(settings)
-            render_key = self._viewport_render_key(context, settings, region)
-            camera_changed = (
-                new_hash is not None
-                and new_hash != getattr(self, '_viewport_camera_hash', None)
-            )
-            needs_progress = int(getattr(self, '_viewport_current_spp', 0)) < target_spp
-            settings_changed = render_key != getattr(self, '_viewport_accum_key', None)
-
-            # pkg83: distinguish substantive camera changes (focal length, DoF,
-            # lens shift) from pure transforms (pan/orbit/dolly). Only the former
-            # invalidates progressive samples. Mirrors Cycles BlenderSession::reset
-            # (intern/cycles/blender/session.cpp, Apache-2.0).
-            new_substantive_hash = self._camera_substantive_state_hash(context, region)
-            camera_substantive_changed = (
-                new_substantive_hash is not None
-                and new_substantive_hash != getattr(self, '_viewport_camera_substantive_hash', None)
-            )
-
-            if camera_changed or needs_progress or settings_changed or not getattr(self, '_viewport_texture', None):
-                renderer = self._get_viewport_renderer()
-                # If the user opened rendered-shading mode without ever
-                # firing view_update (rare), the renderer has no scene yet.
-                # Fall back to a full sync.
-                if not getattr(self, '_viewport_texture', None):
-                    self._sync_viewport_scene(renderer, depsgraph, settings)
-                self._render_viewport_frame(
-                    renderer, context, settings, region,
-                    reset_accumulation=(camera_substantive_changed or settings_changed)
-                )
-                self._viewport_camera_hash = new_hash
-                self._viewport_camera_substantive_hash = new_substantive_hash
-                if self._viewport_current_spp < self._viewport_target_spp:
-                    self._request_viewport_redraw()
-
-            if self._viewport_texture is None:
-                return
-
-            import gpu
-            from gpu_extras.presets import draw_texture_2d
-            # Cycles/Eevee wrap the draw in bind_display_space_shader so the
-            # viewport color management pipeline is applied. We do the same —
-            # the raytracer outputs linear scene-referred values and Blender
-            # applies the view/display transform here.
-            self.bind_display_space_shader(scene)
-            draw_texture_2d(self._viewport_texture, (0, 0), region.width, region.height)
-            self.unbind_display_space_shader()
-        except Exception as e:
-            print(f"Astroray view_draw error: {e}")
-            traceback.print_exc()
+        exporter = self._get_exporter()
+        engine_methods = {
+            'viewport_render_key': self._viewport_render_key,
+            'viewport_target_samples': self._viewport_target_samples,
+            'viewport_chunk_samples': self._viewport_chunk_samples,
+            'setup_viewport_camera': self._setup_viewport_camera,
+            'wavelength_range_from_settings': _wavelength_range_from_settings,
+            'effective_integrator_name': _effective_integrator_name,
+            'resolve_denoiser_pass': _resolve_denoiser_pass,
+            'check_gpu_limitations_and_report': _check_gpu_limitations_and_report,
+            'update_viewport_texture': self._update_viewport_texture,
+            'update_viewport_status': self._update_viewport_status,
+        }
+        exporter.view_draw(
+            context, depsgraph, RAYTRACER_AVAILABLE,
+            _configure_backend_for_context,
+            _viewport_perf_record,
+            _effective_integrator_name,
+            self._camera_state_hash,
+            self._camera_substantive_state_hash,
+            self._request_viewport_redraw,
+            engine_methods,
+        )
 
     @staticmethod
     def _camera_view_zoom_scale(view_camera_zoom):
@@ -1732,6 +1601,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         rgba = np.ascontiguousarray(rgba[::-1])
         flat = rgba.reshape(-1)
         buf = gpu.types.Buffer('FLOAT', flat.shape[0], flat.tolist())
+        # Update via properties (which proxy to exporter)
         self._viewport_texture = gpu.types.GPUTexture(
             (width, height), format='RGBA16F', data=buf)
         self._viewport_width = width

@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon) + 2 (materials/textures)
 **Track:** A
 **Codex-paste-ready:** no (large, staged; RTX visual verify)
-**Status:** Stage 2 chunk 1 done (PR #439, 2026-06-11 — GENERATED coord default for procedural nodes, signed Normal coord, (u,v,0) UV 3D point, Checker floor-parity, Gradient 4 formula fixes, Magic verbatim port, eval_texture_at_3d debug binding). REMAINING chunks (audit §6 order 5–10): util/hash + White Noise, Perlin + fractal stack + Noise node, Wave, Brick, Voronoi, addon translator dedup + standalone CI example + RTX visual verify vs Cycles.
+**Status:** Stage 2 chunk 3 done (2026-06-11 — Wave + Brick parity). Chunks 1-2 merged (PR #439 coord defaults, PR #441 hash+Perlin+fBM). REMAINING: Voronoi (audit §6.9), addon translator dedup + standalone CI example + RTX visual verify vs Cycles.
 **Depends on:** pkg57 (done — established the additive custom-node pattern and
 the `convert_node_material` traversal). Benefits from pkg112.
 **Estimated effort:** L (multi-week, staged)
@@ -181,8 +181,51 @@ Implementation of research-doc items 1-4 (coordinate/mapping wiring, Checker, Gr
   - `tests/test_pkg115_noise_parity.py`: 11 parity tests for hash, white noise, perlin,
     fractal stack properties.
 
-**Next chunk (items 7-9):** Wave, Brick, Voronoi — require real fBM for Wave distortion
-(now available), Brick integer hash, Voronoi cell search + fractal wrapper.
+**Chunk 3 progress (items 7-8, DONE 2026-06-11):**
+
+7. **Wave** (audit §5.4):
+   - [x] Rewrite in place: verbatim port of Cycles `intern/cycles/kernel/svm/wave.h::svm_wave`
+         (Apache-2.0). Replaces old turbulence (unsigned sin-hash) with SIGNED fBM distortion
+         via `fractal_noise::noise_fbm`.
+   - [x] Phase factor 20.0 (was π — ~6.4x denser, audit-documented bug).
+   - [x] Bands directions: X/Y/Z/Diagonal (0/1/2/3). Old had only X.
+   - [x] Rings directions: X/Y/Z/Spherical (0/1/2/3, axis-zeroing per direction). Old had only
+         spherical (full radius).
+   - [x] Profiles: Sine `0.5+0.5·sin(n−π/2)`, Saw ascending `frac(n/2π)` (was descending),
+         Triangle `abs(frac−floor(frac+0.5))·2`.
+   - [x] New params: `wave_type` (0=bands, 1=rings), `bands_direction`, `rings_direction`,
+         `phase_offset`, `detail_scale` (dscale). Lacunarity fixed at 2.0 per Cycles.
+   - [x] Plugin `wave.cpp` updated to new signature (11 params).
+   - [x] Tests: `test_pkg115_wave_brick_parity.py`: phase factor 20.0, diagonal, rings
+         spherical vs X, saw/triangle profiles, distortion via fBM, phase offset.
+
+8. **Brick** (audit §5.7):
+   - [x] Rewrite in place: port of Cycles `intern/cycles/kernel/svm/brick.h::svm_brick` +
+         `brick_noise` hash (Apache-2.0). 3D input (uses p.x, p.y; old was 2D uv-only).
+   - [x] Per-brick color variation: `tint = saturate(brick_noise((rownum<<16)+(bricknum&0xFFFF)) + bias)`
+         mixing Color1→Color2. Old had uniform brick color.
+   - [x] New params: `color1`/`color2` (was `color_brick`), `mortar_smooth` (smoothstep
+         transition), `bias`, `offset_amount`/`offset_frequency`, `squash_amount`/`squash_frequency`,
+         `row_height` (was `brick_height`). Mortar gap semantics: total gap = 2·mortar_size
+         per side (old: mortarSize/2).
+   - [x] Plugin `brick.cpp` updated to new signature (13 params).
+   - [x] Tests: cell classification, mortar_size=0 edge, bias shifts tint, per-brick variation,
+         mortar_smooth smoothstep.
+
+**License compliance:**
+  - Apache-2.0 Blender Foundation SPDX headers retained at Wave and Brick port sites.
+
+**Files changed:**
+  - `include/advanced_features.h`: WaveTexture class rewritten (lines 340-429), BrickTexture
+    class rewritten (lines 531-610).
+  - `plugins/textures/wave.cpp`: parameter list updated.
+  - `plugins/textures/brick.cpp`: parameter list updated.
+  - `tests/test_pkg115_wave_brick_parity.py`: 13 parity tests for Wave (bands/rings,
+    directions, profiles, distortion, phase) and Brick (cell classification, mortar, bias,
+    per-brick variation, smoothstep).
+
+**Next chunk (item 9):** Voronoi — largest port (metrics, features F1/F2/SmoothF1/DistToEdge/
+NSphere, fractal wrapper, normalize, multi-output mapping).
 
 ---
 

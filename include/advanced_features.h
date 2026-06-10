@@ -338,50 +338,88 @@ public:
 };
 
 // --- Wave texture ---
-// bandDir: 0=bands, 1=rings; profile: 0=sine, 1=saw, 2=triangle
+// Ported from Blender intern/cycles/kernel/svm/wave.h (Apache-2.0).
+// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
+// SPDX-License-Identifier: Apache-2.0
+//
+// pkg115 chunk 3: full parity with Blender/Cycles Wave node.
+// wave_type: 0=Bands, 1=Rings
+// bands_direction: 0=X, 1=Y, 2=Z, 3=Diagonal
+// rings_direction: 0=X, 1=Y, 2=Z, 3=Spherical
+// profile: 0=Sine, 1=Saw, 2=Triangle
 class WaveTexture : public Texture {
-    int bandDir;   // 0=bands (X), 1=rings (radial)
-    int profile;   // 0=sine, 1=saw, 2=triangle
-    float scale, distortion, detail, roughness, lacunarity;
+    int waveType;           // 0=bands, 1=rings
+    int bandsDirection;     // 0=X, 1=Y, 2=Z, 3=Diagonal
+    int ringsDirection;     // 0=X, 1=Y, 2=Z, 3=Spherical
+    int profile;            // 0=sine, 1=saw, 2=triangle
+    float scale, distortion, detail, detailScale, detailRoughness, phaseOffset;
     Vec3 colorLow, colorHigh;
 public:
-    WaveTexture(int bd = 0, int prof = 0, float sc = 5.0f, float dist = 0.0f,
-                float det = 2.0f, float rough = 0.5f, float lac = 2.0f,
+    WaveTexture(int wt = 0, int bd = 0, int rd = 0, int prof = 0,
+                float sc = 5.0f, float dist = 0.0f, float det = 2.0f,
+                float dscale = 1.0f, float drough = 0.5f, float phase = 0.0f,
                 const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
-        : bandDir(bd), profile(prof), scale(sc), distortion(dist),
-          detail(det), roughness(rough), lacunarity(lac), colorLow(c1), colorHigh(c2) {}
-
-    static float turbulence(const Vec3& p, float det, float rough, float lac) {
-        float accum = 0, w = 1.0f;
-        Vec3 pp = p;
-        int steps = std::max(1, (int)det);
-        for (int i = 0; i < steps; ++i) {
-            accum += w * NoiseTexture::noise(pp);
-            w *= rough;
-            pp = pp * lac;
-        }
-        return accum;
-    }
+        : waveType(wt), bandsDirection(bd), ringsDirection(rd), profile(prof),
+          scale(sc), distortion(dist), detail(det), detailScale(dscale),
+          detailRoughness(drough), phaseOffset(phase), colorLow(c1), colorHigh(c2) {}
 
     Vec3 value(const Vec2&, const Vec3& p) const override {
-        Vec3 sp = p * scale;
-        float d = distortion > 0.0f ? distortion * turbulence(sp, detail, roughness, lacunarity) : 0.0f;
-        float phase;
-        if (bandDir == 1) {
-            float r = std::sqrt(sp.x*sp.x + sp.y*sp.y + sp.z*sp.z);
-            phase = (r + d) * float(M_PI);
+        // Cycles intern/cycles/kernel/svm/wave.h::svm_wave (Apache-2.0).
+        // Precision guard per Cycles.
+        Vec3 pp = (p + Vec3(0.000001f)) * 0.999999f;
+        pp = pp * scale;
+
+        float n = 0.0f;
+        if (waveType == 0) {
+            // Bands
+            switch (bandsDirection) {
+                case 0: n = pp.x * 20.0f; break;  // X
+                case 1: n = pp.y * 20.0f; break;  // Y
+                case 2: n = pp.z * 20.0f; break;  // Z
+                case 3: n = (pp.x + pp.y + pp.z) * 10.0f; break;  // Diagonal
+            }
         } else {
-            phase = (sp.x + d) * float(M_PI);
+            // Rings: zero one axis then len * 20
+            Vec3 rp = pp;
+            switch (ringsDirection) {
+                case 0: rp.x = 0.0f; break;  // X
+                case 1: rp.y = 0.0f; break;  // Y
+                case 2: rp.z = 0.0f; break;  // Z
+                case 3: break;  // Spherical (no zeroing)
+            }
+            float r = std::sqrt(rp.x*rp.x + rp.y*rp.y + rp.z*rp.z);
+            n = r * 20.0f;
         }
+
+        n += phaseOffset;
+
+        if (distortion != 0.0f) {
+            // Distortion via SIGNED fBM (lacunarity fixed 2.0, normalized).
+            float distort = fractal_noise::noise_fbm(pp * detailScale, detail,
+                                                     detailRoughness, 2.0f, true);
+            n += distortion * (distort * 2.0f - 1.0f);
+        }
+
         float t;
-        if (profile == 1) { // saw
-            t = 1.0f - std::fmod(phase / float(M_PI), 1.0f);
-        } else if (profile == 2) { // triangle
-            float x = std::fmod(phase / float(M_PI), 1.0f);
-            t = x < 0.5f ? 2.0f * x : 2.0f - 2.0f * x;
-        } else { // sine
-            t = 0.5f + 0.5f * std::sin(phase);
+        const float pi = 3.14159265358979323846f;
+        const float two_pi = 2.0f * pi;
+        switch (profile) {
+            case 1: {  // Saw
+                float frac = n / two_pi;
+                t = frac - std::floor(frac);
+                break;
+            }
+            case 2: {  // Triangle
+                float frac = n / two_pi;
+                t = std::abs(frac - std::floor(frac + 0.5f)) * 2.0f;
+                break;
+            }
+            default: {  // Sine
+                t = 0.5f + 0.5f * std::sin(n - pi / 2.0f);
+                break;
+            }
         }
+
         return colorLow * (1.0f - t) + colorHigh * t;
     }
 };
@@ -529,29 +567,80 @@ public:
 };
 
 // --- Brick texture ---
+// Ported from Blender intern/cycles/kernel/svm/brick.h (Apache-2.0).
+// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
+// SPDX-License-Identifier: Apache-2.0
+//
+// pkg115 chunk 3: full parity with Blender/Cycles Brick node.
+// 3D input (p.x, p.y), mortar_smooth, bias, per-brick color variation,
+// offset_frequency, squash/squash_frequency.
 class BrickTexture : public Texture {
-    Vec3 colorBrick, colorMortar;
-    float brickWidth, brickHeight, mortarSize, offset, scale;
+    Vec3 color1, color2, colorMortar;
+    float scale, mortarSize, mortarSmooth, bias, brickWidth, rowHeight;
+    float offsetAmount, squashAmount;
+    int offsetFrequency, squashFrequency;
+
+    static inline uint32_t brick_noise(uint32_t n) {
+        // Cycles intern/cycles/kernel/svm/brick.h:14-21 (Apache-2.0).
+        // Integer hash for per-brick color variation.
+        uint32_t nn = (n + 1013u) & 0x7fffffffu;
+        nn = (nn >> 13u) ^ nn;
+        uint32_t nnn = (nn * (nn * nn * 60493u + 19990303u) + 1376312589u) & 0x7fffffffu;
+        return nnn;
+    }
+
 public:
-    BrickTexture(const Vec3& brick = Vec3(0.7f, 0.35f, 0.2f),
-                 const Vec3& mortar = Vec3(0.9f),
-                 float bw = 0.5f, float bh = 0.25f, float mort = 0.02f,
-                 float off = 0.5f, float sc = 5.0f)
-        : colorBrick(brick), colorMortar(mortar),
-          brickWidth(std::max(0.001f, bw)), brickHeight(std::max(0.001f, bh)),
-          mortarSize(mort), offset(off), scale(sc) {}
-    Vec3 value(const Vec2& uv, const Vec3&) const override {
-        float u = uv.u * scale;
-        float v = uv.v * scale;
-        int row = (int)std::floor(v / brickHeight);
-        float rowOffset = (row % 2 == 0) ? 0.0f : offset * brickWidth;
-        float uu = std::fmod(u - rowOffset, brickWidth);
-        if (uu < 0) uu += brickWidth;
-        float vv = std::fmod(v, brickHeight);
-        float half = mortarSize * 0.5f;
-        if (uu < half || uu > brickWidth - half || vv < half || vv > brickHeight - half)
-            return colorMortar;
-        return colorBrick;
+    BrickTexture(const Vec3& c1 = Vec3(0.8f),
+                 const Vec3& c2 = Vec3(0.2f),
+                 const Vec3& mortar = Vec3(0.0f),
+                 float sc = 5.0f, float mort = 0.02f, float msmooth = 0.1f,
+                 float b = 0.0f, float bw = 0.5f, float rh = 0.25f,
+                 float off = 0.5f, int offfreq = 2, float sq = 1.0f, int sqfreq = 2)
+        : color1(c1), color2(c2), colorMortar(mortar),
+          scale(sc), mortarSize(mort), mortarSmooth(msmooth), bias(b),
+          brickWidth(bw), rowHeight(rh), offsetAmount(off), squashAmount(sq),
+          offsetFrequency(offfreq), squashFrequency(sqfreq) {}
+
+    Vec3 value(const Vec2&, const Vec3& p) const override {
+        // Cycles intern/cycles/kernel/svm/brick.h::svm_brick (Apache-2.0).
+        // 3D input: uses p.x, p.y (ignores p.z per Cycles).
+        Vec3 coord = p * scale;
+
+        int rownum = static_cast<int>(std::floor(coord.y / rowHeight));
+
+        float brick_w = brickWidth;
+        float offset = 0.0f;
+        if (offsetFrequency != 0 && squashFrequency != 0) {
+            brick_w *= (rownum % squashFrequency) ? 1.0f : squashAmount;
+            offset = (rownum % offsetFrequency) ? 0.0f : brick_w * offsetAmount;
+        }
+
+        int bricknum = static_cast<int>(std::floor((coord.x + offset) / brick_w));
+
+        float x = (coord.x + offset) - brick_w * bricknum;
+        float y = coord.y - rowHeight * rownum;
+
+        // Per-brick random tint: mix color1 -> color2 by (hash + bias).
+        uint32_t hash_in = (static_cast<uint32_t>(rownum) << 16) + (static_cast<uint32_t>(bricknum) & 0xFFFFu);
+        float tint_raw = static_cast<float>(brick_noise(hash_in)) / 2147483647.0f;
+        float tint = std::clamp(tint_raw + bias, 0.0f, 1.0f);
+        Vec3 brick_color = color1 * (1.0f - tint) + color2 * tint;
+
+        // Mortar test: minimum distance to brick edge.
+        float min_dist = std::min({x, y, brick_w - x, rowHeight - y});
+        float mortar;
+        if (min_dist >= mortarSize) {
+            mortar = 0.0f;
+        } else if (mortarSmooth == 0.0f) {
+            mortar = 1.0f;
+        } else {
+            // Cycles smoothstep inversion: (1 - min_dist / mortar_size) / mortar_smooth.
+            float t = (1.0f - min_dist / mortarSize) / mortarSmooth;
+            t = std::clamp(t, 0.0f, 1.0f);
+            mortar = t * t * (3.0f - 2.0f * t);
+        }
+
+        return brick_color * (1.0f - mortar) + colorMortar * mortar;
     }
 };
 

@@ -12,8 +12,10 @@ public:
             p.getFloat("offset", 0.0f),
             p.getFloat("gain", 1.0f),
             p.getFloat("distortion", 0.0f),
-            p.getInt("noise_type", 0),
-            p.getBool("normalize", true)) {}
+            // int-like params arrive as floats through the Python dict
+            // bindings — read via getFloat like gradient.cpp's grad_type.
+            static_cast<int>(p.getFloat("noise_type", 0.0f)),
+            p.getFloat("normalize", 1.0f) != 0.0f) {}
     astroray::SampledSpectrum sampleSpectral(
             const Vec2& uv, const Vec3& p,
             const astroray::SampledWavelengths& lambdas) const override {

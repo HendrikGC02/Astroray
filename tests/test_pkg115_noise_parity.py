@@ -109,8 +109,9 @@ def test_perlin_zero_at_lattice():
         "normalize": False
     }
     val = r.eval_texture_at_3d("noise_perlin", params, 1.0, 2.0, 3.0)
-    # Fac channel (val[0]) = snoise_3d((1,2,3)*1) = snoise_3d(integer) = 0.
-    assert abs(val[0]) < 0.01, f"Perlin at lattice point should be ~0, got {val[0]}"
+    # normalize=False returns the RAW signed fbm: snoise_3d at an integer
+    # lattice point is exactly 0. (With normalize=True this would read 0.5.)
+    assert abs(val[0]) < 0.01, f"Perlin at lattice point should be ~0 (raw signed), got {val[0]}"
 
 
 def test_perlin_smoothness():
@@ -227,7 +228,7 @@ def test_noise_distortion_changes_output():
         "noise_type": 0,
         "normalize": True
     }
-    p = (0.5, 0.6, 0.7)
+    p = (0.513, 0.677, 0.731)  # non-degenerate (see multifractal test)
     val_no_dist = r.eval_texture_at_3d("noise_perlin", {**base_params, "distortion": 0.0}, *p)[0]
     val_with_dist = r.eval_texture_at_3d("noise_perlin", {**base_params, "distortion": 1.0}, *p)[0]
 
@@ -255,7 +256,7 @@ def test_noise_type_multifractal():
         "distortion": 0.0,
         "normalize": True
     }
-    p = (0.3, 0.4, 0.5)
+    p = (0.137, 0.281, 0.449)  # non-degenerate (half-integer points zero out all octaves)
     val_fbm = r.eval_texture_at_3d("noise_perlin", {**base_params, "noise_type": 0}, *p)[0]
     val_multi = r.eval_texture_at_3d("noise_perlin", {**base_params, "noise_type": 1}, *p)[0]
 
@@ -282,7 +283,7 @@ def test_noise_type_ridged():
         "distortion": 0.0,
         "normalize": True
     }
-    p = (0.5, 0.6, 0.7)
+    p = (0.513, 0.677, 0.731)  # non-degenerate (see multifractal test)
     val_fbm = r.eval_texture_at_3d("noise_perlin", {**base_params, "noise_type": 0}, *p)[0]
     val_ridged = r.eval_texture_at_3d("noise_perlin", {**base_params, "noise_type": 3}, *p)[0]
 

@@ -26,6 +26,27 @@ if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
 from shader_blending import blend_shader_specs, add_shader_specs
 from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
 
+# pkg116: scene exporter and per-domain caches. Defensive import handles both
+# package-relative (Blender loads us as bl_ext.user_default.astroray) and
+# standalone (test harnesses load __init__.py directly).
+def _import_exporter():
+    try:
+        from . import exporter as exp
+        return exp
+    except ImportError:
+        import importlib.util as _u
+        exporter_path = os.path.join(addon_dir, "exporter.py")
+        if not os.path.isfile(exporter_path):
+            return None
+        spec = _u.spec_from_file_location("astroray_exporter", exporter_path)
+        if spec is None or spec.loader is None:
+            return None
+        mod = _u.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+exporter_module = _import_exporter()
+
 # pkg57: native Astroray shader nodes (Spectral Profile, Sellmeier Glass,
 # IR/UV Response, NRC Hint, Output). Imported defensively so a partial install
 # (missing nodes/ directory) does not break the rest of the addon.
@@ -782,23 +803,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # __init__ (Blender has caveats around RenderEngine constructor overrides,
     # see `bpy.types.RenderEngine` docs). Viewport state is lazily created
     # inside view_update / view_draw instead.
+    # pkg116: _exporter coordinates view_update/view_draw flow. Viewport session
+    # state remains on RenderEngine for backward compatibility with tests.
+    _exporter = None
     _viewport_texture = None
     _viewport_width = 0
     _viewport_height = 0
-    # pkg52: persistent viewport state. The renderer is reused across draws
-    # so we don't pay scene-rebuild cost on every camera nudge. The hash
-    # detects camera/region changes from view_draw (Blender does not emit
-    # a "camera changed" event in the viewport).
     _viewport_renderer = None
-    _viewport_full_synced = False  # pkg56-C: True after first full sync
+    _viewport_full_synced = False
     _viewport_camera_hash = None
+    _viewport_camera_substantive_hash = None
     _viewport_accum_pixels = None
     _viewport_current_spp = 0
     _viewport_target_spp = 0
     _viewport_accum_key = None
-    # pkg84: CUDA kernel pre-warm state. Tracks the last device_mode we
-    # pre-warmed for. If the user changes device_mode mid-session (CPU → CUDA
-    # via the Astroray panel), we re-fire the pre-warm for the new mode.
     _viewport_prewarmed_for_mode = None
     _PASS_SPECS = [
         ("Diffuse Direct", "diffuse_direct", "use_pass_diffuse_direct"),
@@ -999,8 +1017,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # ------------------------------------------------------------------ #
 
     # ------------------------------------------------------------------ #
-    # pkg52: persistent viewport session
+    # pkg52: persistent viewport session (pkg116: delegated to Exporter)
     # ------------------------------------------------------------------ #
+
+    def _get_exporter(self):
+        """Lazy-init the Exporter coordinator. Reused across view_update and view_draw."""
+        if getattr(self, '_exporter', None) is None:
+            if exporter_module is None:
+                raise RuntimeError("Astroray exporter module not available")
+            self._exporter = exporter_module.Exporter(self)
+        return self._exporter
 
     def _get_viewport_renderer(self):
         """Lazy-init the persistent viewport Renderer. Reused across
@@ -1186,12 +1212,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         )
 
     # ------------------------------------------------------------------ #
-    # pkg56 Phase C — depsgraph-driven dispatch
+    # pkg56 Phase C — depsgraph-driven dispatch (pkg116: moved to Exporter)
     # ------------------------------------------------------------------ #
-    # `_apply_depsgraph_updates` reads `bpy.types.Depsgraph.updates` and
-    # routes only the matching Phase B uploaders. Mirrors Cycles
-    # `BlenderSync::sync_recalc` (intern/cycles/blender/sync.cpp,
-    # Apache-2.0): collect into typed buckets, dispatch in fixed order.
+    # The implementation lives in exporter.py. These methods are kept on
+    # RenderEngine as thin delegators for backward compatibility with tests
+    # that call eng._apply_depsgraph_updates() directly.
     # The first frame, an unrecognised update id, or an absent .updates
     # iterator all fall back to `_sync_viewport_scene` — the same
     # has_updates_=true safety net Cycles uses for its first call.
@@ -1530,7 +1555,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         Camera-only changes (pan/zoom/orbit) are NOT routed through here by
         Blender — they don't fire a depsgraph update. view_draw owns those.
+
+        pkg116: delegates to Exporter which coordinates the flow.
         """
+        if exporter_module is not None:
+            exporter = self._get_exporter()
+            exporter.view_update(context, depsgraph)
+        else:
+            self._view_update_impl(context, depsgraph)
+
+    def _view_update_impl(self, context, depsgraph):
+        """Implementation of view_update. Can be called directly (tests, fallback)
+        or via Exporter.view_update (normal path)."""
         if not RAYTRACER_AVAILABLE:
             return
         scene = depsgraph.scene
@@ -1582,7 +1618,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
         changes (pan/zoom/orbit, including CAMERA-view zoom and offset) and
         re-renders without touching scene state. Otherwise just blits the
         cached texture.
+
+        pkg116: delegates to Exporter which coordinates the flow.
         """
+        if exporter_module is not None:
+            exporter = self._get_exporter()
+            exporter.view_draw(context, depsgraph)
+        else:
+            self._view_draw_impl(context, depsgraph)
+
+    def _view_draw_impl(self, context, depsgraph):
+        """Implementation of view_draw. Can be called directly (tests, fallback)
+        or via Exporter.view_draw (normal path)."""
         if not RAYTRACER_AVAILABLE:
             return
         try:

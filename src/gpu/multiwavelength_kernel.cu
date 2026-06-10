@@ -456,6 +456,9 @@ __device__ inline float gpu_mw_powerHeuristic(float a, float b) {
 __device__ GSampledSpectrum sampleDirectSpectralMW(
     const GHitRecord& rec, const GVec3& wo,
     const GSampledWavelengths& lambdas,
+    const GTLASNode*  tlas,        // pkg114
+    const GInstance*  instances,   // pkg114
+    const GBLAS*      blas,        // pkg114
     const GBVHNode*  bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
@@ -503,7 +506,7 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
         maxDist     = 1e30f;       // hit-the-sphere check below bounds it
         lightMatId  = s.materialId;
         GHitRecord sh;
-        if (!gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+        if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                          GRay(rec.point, wi), 0.001f, maxDist, sh) ||
             sh.materialId != lightMatId)
             return direct;
@@ -525,7 +528,7 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
         lightMatId = t.materialId;
         lightFront = true;
         GHitRecord sh;
-        if (gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+        if (gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                         GRay(rec.point, wi), 0.001f, maxDist, sh))
             return direct;          // occluded
     }
@@ -560,6 +563,9 @@ __device__ GSampledSpectrum tracePathMW(
     bool useLuminanceOutput,
     bool enableNEE,
     bool useCaustics,  // pkg64-gpu Phase 2
+    const GTLASNode*  tlas,        // pkg114
+    const GInstance*  instances,   // pkg114
+    const GBLAS*      blas,        // pkg114
     const GBVHNode*  bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
@@ -580,7 +586,7 @@ __device__ GSampledSpectrum tracePathMW(
 
     for (int bounce = 0; bounce < maxDepth; ++bounce) {
         GHitRecord rec;
-        if (!gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+        if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                          ray, 0.001f, 1e30f, rec)) {
             // Environment / background contribution.
             GSampledSpectrum envSpec(0.f);
@@ -668,7 +674,7 @@ __device__ GSampledSpectrum tracePathMW(
         // module/blender_module.cpp).
         if (enableNEE && !rec.isDelta && numLights > 0) {
             color += throughput * sampleDirectSpectralMW(
-                rec, wo, lambdas, bvhNodes, prims, tris, spheres, materials,
+                rec, wo, lambdas, tlas, instances, blas, bvhNodes, prims, tris, spheres, materials,
                 lights, numLights, totalLightPower, rng);
         }
 
@@ -837,6 +843,9 @@ __global__ void multiwavelengthKernel(
     bool  useLuminanceOutput,
     bool  enableNEE,
     bool  useCaustics,  // pkg64-gpu Phase 2
+    const GTLASNode*  tlas,        // pkg114
+    const GInstance*  instances,   // pkg114
+    const GBLAS*      blas,        // pkg114
     const GBVHNode*  bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
@@ -887,6 +896,7 @@ __global__ void multiwavelengthKernel(
 
         GSampledSpectrum rad = tracePathMW(
             ray, maxDepth, lambdas, useLuminanceOutput, enableNEE, useCaustics,
+            tlas, instances, blas,  // pkg114
             bvhNodes, prims, tris, spheres, materials,
             lights, numLights, totalLightPower,
             smsCasters, numSMSCasters,
@@ -913,7 +923,7 @@ __global__ void multiwavelengthKernel(
         // the Lambertian 1/π. Only meaningful for the visible-band (XYZ) output.
         if (hasPhotonGrid && !useLuminanceOutput && photonGrid.numPhotons > 0) {
             GHitRecord pr;
-            if (gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+            if (gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                             ray, 0.001f, 1e30f, pr)) {
                 const GMaterial& pmat = materials[pr.materialId];
                 if (pmat.emissionIntensity <= 0.0f) {
@@ -969,6 +979,7 @@ void launchMultiwavelengthKernel(
     float lambdaMin, float lambdaMax, bool useLuminanceOutput,
     bool enableNEE,
     bool useCaustics,  // pkg64-gpu Phase 2
+    const GTLASNode*  d_tlas, const GInstance* d_instances, const GBLAS* d_blas,  // pkg114
     const GBVHNode*  d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
@@ -994,6 +1005,7 @@ void launchMultiwavelengthKernel(
         multiwavelengthKernel<<<blocks, threadsPerBlock>>>(
             d_framebuffer, width, height, samplesPerPixel, maxDepth,
             lambdaMin, lambdaMax, useLuminanceOutput, enableNEE, useCaustics,
+            d_tlas, d_instances, d_blas,  // pkg114
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, numLights, totalLightPower,
             d_smsCasters, numSMSCasters,

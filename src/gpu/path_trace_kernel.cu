@@ -184,6 +184,9 @@ __device__ inline float gpu_light_pdf(
 __device__ GVec3 sampleDirectGPU(
     const GHitRecord& rec,
     const GVec3& wo,
+    const GTLASNode*  tlas,        // pkg114
+    const GInstance*  instances,   // pkg114
+    const GBLAS*      blas,        // pkg114
     const GBVHNode*  bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
@@ -214,7 +217,7 @@ __device__ GVec3 sampleDirectGPU(
         GEnvSample es = gpu_envmap_sample(envMap, rng);
         if (es.pdf > 1e-8f) {
             GHitRecord shadow;
-            bool occluded = gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+            bool occluded = gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                                         GRay(rec.point, es.direction),
                                         0.001f, 1e30f, shadow);
             if (!occluded) {
@@ -267,7 +270,7 @@ __device__ GVec3 sampleDirectGPU(
                 lightPdf *= selPdf;
 
                 GHitRecord shadow;
-                if (!gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+                if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                                  GRay(rec.point, wi), 0.001f, 1e30f, shadow) ||
                     shadow.materialId != spheres[lp.index].materialId)
                     goto bsdf_mis;
@@ -299,7 +302,7 @@ __device__ GVec3 sampleDirectGPU(
                 lightPdf *= selPdf;
 
                 GHitRecord shadow;
-                bool occ = gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+                bool occ = gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                                        GRay(rec.point, wi), 0.001f, dist - 0.001f, shadow);
                 if (occ) goto bsdf_mis;
 
@@ -324,7 +327,7 @@ bsdf_mis:
         if (bs.pdf > 1e-8f && !bs.isDelta) {
             GHitRecord bRec;
             bRec.primId = -1;
-            if (gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+            if (gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                             GRay(rec.point, bs.wi), 0.001f, 1e30f, bRec)) {
                 const GMaterial& lm = materials[bRec.materialId];
                 GVec3 Le = gpu_material_emitted(lm, bRec.frontFace);
@@ -353,6 +356,9 @@ bsdf_mis:
 __device__ GVec3 tracePathGPU(
     GRay ray, int maxDepth,
     bool useCaustics,  // pkg64-gpu Phase 2
+    const GTLASNode*  tlas,        // pkg114
+    const GInstance*  instances,   // pkg114
+    const GBLAS*      blas,        // pkg114
     const GBVHNode*  bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
@@ -381,7 +387,7 @@ __device__ GVec3 tracePathGPU(
 
     for (int bounce = 0; bounce < maxDepth; ++bounce) {
         GHitRecord rec;
-        if (!gpu_bvh_hit(bvhNodes, prims, tris, spheres,
+        if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                          ray, 0.001f, 1e30f, rec)) {
             // Miss — environment / background
             GVec3 envColor(0.f);
@@ -419,7 +425,7 @@ __device__ GVec3 tracePathGPU(
         if (!rec.isDelta) {
             GVec3 wo = -ray.direction.normalized();
             color += throughput * sampleDirectGPU(
-                rec, wo, bvhNodes, prims, tris, spheres,
+                rec, wo, tlas, instances, blas, bvhNodes, prims, tris, spheres,
                 materials, lights, numLights, totalLightPower,
                 envMap, rng);
         }
@@ -603,6 +609,9 @@ __global__ void pathTraceKernel(
     float* framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
     bool useCaustics,  // pkg64-gpu Phase 2
+    const GTLASNode*  tlas,        // pkg114
+    const GInstance*  instances,   // pkg114
+    const GBLAS*      blas,        // pkg114
     const GBVHNode*  bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
@@ -693,6 +702,7 @@ __global__ void pathTraceKernel(
 
         GVec3 sample = tracePathGPU(
             ray, maxDepth, useCaustics,
+            tlas, instances, blas,  // pkg114
             bvhNodes, prims, tris, spheres,
             materials, lights, numLights, totalLightPower,
             smsCasters, numSMSCasters,
@@ -730,6 +740,7 @@ void launchPathTraceKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
     bool useCaustics,  // pkg64-gpu Phase 2
+    const GTLASNode*  d_tlas, const GInstance* d_instances, const GBLAS* d_blas,  // pkg114
     const GBVHNode*  d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
@@ -759,6 +770,7 @@ void launchPathTraceKernel(
             (const void*)pathTraceKernel, blocks, threadsPerBlock);
         pathTraceKernel<<<blocks, threadsPerBlock>>>(
             d_framebuffer, width, height, samplesPerPixel, maxDepth, useCaustics,
+            d_tlas, d_instances, d_blas,  // pkg114
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, numLights, totalLightPower,
             d_smsCasters, numSMSCasters,

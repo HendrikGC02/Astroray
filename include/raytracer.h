@@ -2078,6 +2078,15 @@ class Pass; // defined in astroray/pass.h, included below
 class Renderer {
     std::vector<std::shared_ptr<Hittable>> scene;
     std::shared_ptr<BVHAccel> bvh;
+    // pkg114 — two-level BVH instancing. A registered mesh keeps its prims in
+    // OBJECT-LOCAL space and is built into one BLAS (shared across instances).
+    // Instances carry a row-major 4x4 object->world transform. Empty unless a
+    // caller uses registerMesh()/addInstance(); the GPU upload only emits a
+    // TLAS when instances exist (otherwise the single-level path is unchanged).
+    struct InstanceRecord { int meshId; std::array<float, 16> transform; };
+    std::vector<std::vector<std::shared_ptr<Hittable>>> meshPrims_;  // local-space prims per mesh
+    std::vector<std::shared_ptr<BVHAccel>> meshBlas_;                 // per-mesh BLAS
+    std::vector<InstanceRecord> instances_;
     LightList lights;
     std::shared_ptr<EnvironmentMap> envMap;
     Vec3 backgroundColor = Vec3(-1);  // negative = use default sky gradient
@@ -2779,6 +2788,29 @@ public:
     }
 
     void buildAcceleration() { bvh = std::make_shared<BVHAccel>(scene); }
+
+    // pkg114 — two-level BVH instancing API.
+    // Register a mesh's OBJECT-LOCAL primitives once; returns its mesh id. The
+    // BLAS is built immediately and reused by every instance of this mesh.
+    int registerMesh(const std::vector<std::shared_ptr<Hittable>>& localPrims) {
+        int id = static_cast<int>(meshBlas_.size());
+        meshPrims_.push_back(localPrims);
+        meshBlas_.push_back(std::make_shared<BVHAccel>(localPrims));
+        return id;
+    }
+    // Add an instance of a registered mesh with a row-major 4x4 object->world
+    // transform; returns its instance id. Throws if meshId is out of range.
+    int addInstance(int meshId, const std::array<float, 16>& transform) {
+        if (meshId < 0 || static_cast<size_t>(meshId) >= meshBlas_.size())
+            throw std::runtime_error("addInstance: mesh id out of range");
+        int id = static_cast<int>(instances_.size());
+        instances_.push_back(InstanceRecord{meshId, transform});
+        return id;
+    }
+    bool hasInstances() const { return !instances_.empty(); }
+    const std::vector<std::shared_ptr<BVHAccel>>& getMeshBlas() const { return meshBlas_; }
+    const std::vector<std::vector<std::shared_ptr<Hittable>>>& getMeshPrims() const { return meshPrims_; }
+    const std::vector<InstanceRecord>& getInstances() const { return instances_; }
 
     // Accessors for CUDARenderer (scene_upload.cu reads these to upload scene to GPU)
     const std::vector<std::shared_ptr<Hittable>>& getScene() const { return scene; }

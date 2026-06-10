@@ -39,6 +39,7 @@ void launchPathTraceKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
     bool useCaustics,  // pkg64-gpu Phase 2
+    const GTLASNode*  d_tlas, const GInstance* d_instances, const GBLAS* d_blas,  // pkg114
     const GBVHNode*  d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
@@ -84,6 +85,7 @@ void launchMultiwavelengthKernel(
     float lambdaMin, float lambdaMax, bool useLuminanceOutput,
     bool enableNEE,
     bool useCaustics,  // pkg64-gpu Phase 2
+    const GTLASNode*  d_tlas, const GInstance* d_instances, const GBLAS* d_blas,  // pkg114
     const GBVHNode*  d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
@@ -121,6 +123,11 @@ static void devUpload(const std::vector<T>& src, T** d_ptr) {
 struct CUDARenderer::Impl {
     // Device scene arrays
     GBVHNode*   d_bvhNodes   = nullptr;
+    // pkg114 — two-level BVH device arrays. Non-null only for instanced scenes;
+    // when null, the megakernels' gpu_tlas_hit falls back to gpu_bvh_hit.
+    GTLASNode*  d_tlas       = nullptr;
+    GInstance*  d_instances  = nullptr;
+    GBLAS*      d_blas       = nullptr;
     GPrimitive* d_prims      = nullptr;
     GTriangle*  d_triangles  = nullptr;
     GSphere*    d_spheres    = nullptr;
@@ -195,6 +202,9 @@ struct CUDARenderer::Impl {
 
     void freeAll() {
         if (d_bvhNodes)   { cudaFree(d_bvhNodes);   d_bvhNodes   = nullptr; }
+        if (d_tlas)       { cudaFree(d_tlas);        d_tlas       = nullptr; }  // pkg114
+        if (d_instances)  { cudaFree(d_instances);   d_instances  = nullptr; }  // pkg114
+        if (d_blas)       { cudaFree(d_blas);        d_blas       = nullptr; }  // pkg114
         if (d_prims)      { cudaFree(d_prims);       d_prims      = nullptr; }
         if (d_triangles)  { cudaFree(d_triangles);   d_triangles  = nullptr; }
         if (d_spheres)    { cudaFree(d_spheres);     d_spheres    = nullptr; }
@@ -301,6 +311,9 @@ void CUDARenderer::uploadGeometry(const Renderer& cpuRenderer, const Camera& cam
     SceneUploadResult r = buildSceneArrays(cpuRenderer, &cam);
 
     devUpload(r.nodes,     &impl->d_bvhNodes);
+    devUpload(r.tlas,      &impl->d_tlas);        // pkg114 (empty unless instanced)
+    devUpload(r.instances, &impl->d_instances);   // pkg114
+    devUpload(r.blas,      &impl->d_blas);         // pkg114
     devUpload(r.prims,     &impl->d_prims);
     devUpload(r.triangles, &impl->d_triangles);
     devUpload(r.spheres,   &impl->d_spheres);
@@ -419,6 +432,9 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
 
     // Upload to device — every slice.
     devUpload(r.nodes,     &impl->d_bvhNodes);
+    devUpload(r.tlas,      &impl->d_tlas);        // pkg114 (empty unless instanced)
+    devUpload(r.instances, &impl->d_instances);   // pkg114
+    devUpload(r.blas,      &impl->d_blas);         // pkg114
     devUpload(r.prims,     &impl->d_prims);
     devUpload(r.triangles, &impl->d_triangles);
     devUpload(r.spheres,   &impl->d_spheres);
@@ -732,6 +748,7 @@ void CUDARenderer::render(
     // Launch megakernel
     launchPathTraceKernel(
         impl->d_framebuffer, width, height, samplesPerPixel, maxDepth, useCaustics,
+        impl->d_tlas, impl->d_instances, impl->d_blas,  // pkg114
         impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
         impl->d_materials,
         impl->d_lights, impl->numLights, impl->totalLightPower,
@@ -822,6 +839,7 @@ void CUDARenderer::renderMultiwavelength(
     launchMultiwavelengthKernel(
         impl->d_framebuffer, width, height, samplesPerPixel, maxDepth,
         lambdaMin, lambdaMax, useLuminanceOutput, enableNEE, useCaustics,
+        impl->d_tlas, impl->d_instances, impl->d_blas,  // pkg114
         impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
         impl->d_materials,
         impl->d_lights, impl->numLights, impl->totalLightPower,

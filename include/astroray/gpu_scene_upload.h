@@ -38,6 +38,11 @@ struct SceneUploadResult {
     // pkg64-gpu Phase 2: caustic-caster spheres (flagged + transmissive + IOR > 1)
     std::vector<astroray::manifold::device::GSMSCaster> smsCasters;
 
+    // pkg88-C.0 GPU — verify on RTX. Scene-wide motion vertex buffer for deformation
+    // motion blur. Per Cycles: center step reuses triangles[].v0/v1/v2; additional
+    // steps stored here. Each triangle's motionOffset indexes into this array.
+    std::vector<GVec3> motionVertices;
+
     // Camera
     GCameraParams camera{};
 

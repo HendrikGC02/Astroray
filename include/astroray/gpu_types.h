@@ -254,6 +254,11 @@ struct GTriangle {
     // pkg55-followup — flat-shaded flag: true when n0==n1==n2 (no per-vertex normals),
     // allows gpu_triangle_hit to skip the redundant interpolate+normalize chain.
     bool flat_shaded;
+    // pkg88-C.0 GPU — verify on RTX. Motion blur: offset into d_motionVertices device array.
+    // If motionOffset >= 0, triangle has motion; read [offset, offset+1, offset+2] for end verts.
+    // motionSteps=2 → one additional step. Linear blend per Cycles motion_triangle.h (Apache-2.0).
+    int motionOffset = -1;    // -1 = no motion (static)
+    int motionSteps = 1;      // 1 = static, 2 = pre+post shutter
 };
 
 struct GSphere {

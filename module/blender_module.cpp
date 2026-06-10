@@ -769,6 +769,92 @@ public:
         }
     }
 
+    // pkg88-C.0 — bulk motion triangle ingest. Per Cycles motion_triangle.h (Apache-2.0):
+    // positions_start (Nt,3,3) is the center step; positions_end (Nt,3,3) is the
+    // additional motion step at shutter close. motionSteps=2 → one additional step.
+    // Linear interpolation only (matches Cycles, suitable for ≤3 steps).
+    void addTrianglesBulkMotion(
+            py::array_t<float, py::array::c_style | py::array::forcecast> positions_start,
+            py::array_t<float, py::array::c_style | py::array::forcecast> positions_end,
+            py::array_t<int,   py::array::c_style | py::array::forcecast> materialIds,
+            py::array_t<int,   py::array::c_style | py::array::forcecast> materialPassIndices,
+            int objectPassIndex,
+            py::array_t<float, py::array::c_style | py::array::forcecast> uvs,
+            std::vector<std::string> uvLayerNames,
+            py::array_t<float, py::array::c_style | py::array::forcecast> normals) {
+        auto pos_start = positions_start.unchecked<3>();              // (Nt, 3, 3)
+        auto pos_end   = positions_end.unchecked<3>();                // (Nt, 3, 3)
+        const py::ssize_t nt = pos_start.shape(0);
+        if (pos_start.shape(1) != 3 || pos_start.shape(2) != 3)
+            throw std::runtime_error("add_triangles_bulk_motion: positions_start must be (N,3,3)");
+        if (pos_end.shape(0) != nt || pos_end.shape(1) != 3 || pos_end.shape(2) != 3)
+            throw std::runtime_error("add_triangles_bulk_motion: positions_end must match positions_start shape");
+        auto mid = materialIds.unchecked<1>();            // (Nt,)
+        auto mpi = materialPassIndices.unchecked<1>();    // (Nt,)
+        if (mid.shape(0) != nt || mpi.shape(0) != nt)
+            throw std::runtime_error("add_triangles_bulk_motion: material arrays must match triangle count");
+
+        const py::ssize_t nLayers = (uvs.size() > 0) ? uvs.shape(0) : 0;
+        const bool hasNormals = normals.size() > 0;
+        if (hasNormals && normals.shape(0) != nt)
+            throw std::runtime_error("add_triangles_bulk_motion: normals must be (N,3,3)");
+        std::vector<std::string> names;
+        for (py::ssize_t l = 0; l < nLayers; ++l) {
+            std::string nm = (l < (py::ssize_t)uvLayerNames.size()) ? uvLayerNames[l] : std::string();
+            names.push_back(nm.empty() ? (l == 0 ? "UVMap" : "UVMap" + std::to_string(l + 1)) : nm);
+        }
+        const float* uvPtr = (nLayers > 0) ? uvs.data() : nullptr;
+        const float* nPtr  = hasNormals ? normals.data() : nullptr;
+        auto uvAt = [&](py::ssize_t l, py::ssize_t t, int c) -> Vec2 {
+            const float* p = uvPtr + (((l * nt + t) * 3 + c) * 2);
+            return Vec2(p[0], p[1]);
+        };
+
+        // Append all motion vertices in one batch, then assign per-triangle offsets
+        std::vector<Vec3> motionBatch;
+        motionBatch.reserve(nt * 3);  // 3 verts per triangle at shutter close
+        for (py::ssize_t t = 0; t < nt; ++t) {
+            motionBatch.emplace_back(pos_end(t, 0, 0), pos_end(t, 0, 1), pos_end(t, 0, 2));
+            motionBatch.emplace_back(pos_end(t, 1, 0), pos_end(t, 1, 1), pos_end(t, 1, 2));
+            motionBatch.emplace_back(pos_end(t, 2, 0), pos_end(t, 2, 1), pos_end(t, 2, 2));
+        }
+        size_t baseOffset = renderer.appendMotionVertices(motionBatch);
+        const Vec3* motionBase = renderer.getMotionVertices().data() + baseOffset;
+
+        for (py::ssize_t t = 0; t < nt; ++t) {
+            Vec3 p0(pos_start(t, 0, 0), pos_start(t, 0, 1), pos_start(t, 0, 2));
+            Vec3 p1(pos_start(t, 1, 0), pos_start(t, 1, 1), pos_start(t, 1, 2));
+            Vec3 p2(pos_start(t, 2, 0), pos_start(t, 2, 1), pos_start(t, 2, 2));
+            int materialId = mid(t);
+            auto mat = materials.count(materialId) ? materials[materialId]
+                                                   : std::make_shared<Lambertian>(Vec3(0.5f));
+            std::shared_ptr<Triangle> tri;
+            if (nLayers == 0) {
+                tri = std::make_shared<Triangle>(p0, p1, p2, mat);
+            } else if (nLayers == 1) {
+                tri = std::make_shared<Triangle>(p0, p1, p2,
+                        uvAt(0, t, 0), uvAt(0, t, 1), uvAt(0, t, 2), mat);
+            } else {
+                std::vector<std::array<Vec2, 3>> layers;
+                layers.reserve(nLayers);
+                for (py::ssize_t l = 0; l < nLayers; ++l)
+                    layers.push_back({ uvAt(l, t, 0), uvAt(l, t, 1), uvAt(l, t, 2) });
+                tri = std::make_shared<Triangle>(p0, p1, p2, layers, names, mat);
+            }
+            if (hasNormals) {
+                const float* n = nPtr + (t * 9);
+                tri->setVertexNormals(Vec3(n[0], n[1], n[2]),
+                                      Vec3(n[3], n[4], n[5]),
+                                      Vec3(n[6], n[7], n[8]));
+            }
+            tri->setObjectPassIndex(objectPassIndex);
+            tri->setMaterialPassIndex(mpi(t));
+            // pkg88-C.0: attach motion data. motionSteps=2 means buffer has center+end.
+            tri->setMotionData(motionBase + t * 3, 2);
+            renderer.addObject(tri);
+        }
+    }
+
     void addMesh(const std::string& filename, int materialId, const std::vector<float>& position = {0,0,0},
                 const std::vector<float>& scale = {1,1,1}, float rotationY = 0, bool smoothNormals = false) {
         auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
@@ -2150,6 +2236,12 @@ PYBIND11_MODULE(astroray, m) {
              "pkg112: bulk triangle ingest from NumPy arrays (loops in C++ to cut per-tri "
              "pybind overhead). positions (N,3,3) world; uvs (nLayers,N,3,2) active-first; "
              "normals (N,3,3) or empty. Pixel-identical to add_triangle/add_triangle_layers.")
+        .def("add_triangles_bulk_motion", &PyRenderer::addTrianglesBulkMotion,
+             "positions_start"_a, "positions_end"_a, "material_ids"_a, "material_pass_indices"_a,
+             "object_pass_index"_a, "uvs"_a, "uv_layer_names"_a, "normals"_a,
+             "pkg88-C.0: bulk motion triangle ingest. positions_start (N,3,3) is center step, "
+             "positions_end (N,3,3) is shutter close. Linear interpolation per Cycles (Apache-2.0). "
+             "motionSteps=2 (pre+post). uvs/normals same as add_triangles_bulk.")
         .def("register_mesh_triangles", &PyRenderer::registerMeshTriangles,
              "triangles"_a, "material_id"_a,
              "pkg114: register a mesh's OBJECT-LOCAL flat-shaded triangles (list of "

@@ -2099,6 +2099,10 @@ class Renderer {
     std::vector<std::vector<std::shared_ptr<Hittable>>> meshPrims_;  // local-space prims per mesh
     std::vector<std::shared_ptr<BVHAccel>> meshBlas_;                 // per-mesh BLAS
     std::vector<InstanceRecord> instances_;
+    // pkg88-C.0 — scene-wide motion vertex buffer for deformation motion blur.
+    // Per Cycles motion_triangle.h (Apache-2.0): center step reuses static
+    // vertices; additional steps stored here. Linear blend only (K ≤ 3 typical).
+    std::vector<Vec3> motionVertices_;  // additional time-step vertex positions
     LightList lights;
     std::shared_ptr<EnvironmentMap> envMap;
     Vec3 backgroundColor = Vec3(-1);  // negative = use default sky gradient
@@ -2823,6 +2827,17 @@ public:
     const std::vector<std::shared_ptr<BVHAccel>>& getMeshBlas() const { return meshBlas_; }
     const std::vector<std::vector<std::shared_ptr<Hittable>>>& getMeshPrims() const { return meshPrims_; }
     const std::vector<InstanceRecord>& getInstances() const { return instances_; }
+
+    // pkg88-C.0 — motion blur API. Append motion vertices to the scene-wide buffer
+    // and return the offset. Caller then passes this offset to Triangle::setMotionData.
+    // Per Cycles: center step reuses static verts; additional steps stored here.
+    // motionVerts layout: [v0_end, v1_end, v2_end] for 2 steps, or [..., v0_step2, ...] for 3.
+    size_t appendMotionVertices(const std::vector<Vec3>& motionVerts) {
+        size_t offset = motionVertices_.size();
+        motionVertices_.insert(motionVertices_.end(), motionVerts.begin(), motionVerts.end());
+        return offset;
+    }
+    const std::vector<Vec3>& getMotionVertices() const { return motionVertices_; }
 
     // Accessors for CUDARenderer (scene_upload.cu reads these to upload scene to GPU)
     const std::vector<std::shared_ptr<Hittable>>& getScene() const { return scene; }

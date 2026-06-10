@@ -94,6 +94,12 @@ class Triangle : public Hittable {
     bool emissive;
     Vec3 vn0, vn1, vn2;
     bool hasVertexNormals = false;
+    // pkg88-C.0 — deformation motion blur. Per Cycles motion_triangle.h (Apache-2.0):
+    // motionVertexBuffer is a pointer into the Renderer's motionVertices_ array.
+    // If non-null, contains (K-1) additional time steps per vertex (center step = v0/v1/v2).
+    // motionSteps=2 → 1 extra step at shutter close. Linear interpolation only (K ≤ 3 typical).
+    const Vec3* motionVertexBuffer = nullptr;  // points to [v0_end, v1_end, v2_end, ...] for each step
+    int motionSteps = 1;  // 1 = no motion (static), 2 = pre+post shutter, 3+ = keyframes
 public:
     Triangle(const Vec3& a, const Vec3& b, const Vec3& c, std::shared_ptr<Material> m)
         : v0(a), v1(b), v2(c), material(m), uv0(0,0), uv1(1,0), uv2(0,1),
@@ -142,12 +148,37 @@ public:
 
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         const float EPS = 1e-6f;
-        Vec3 e1 = v1 - v0, e2 = v2 - v0;
+        // pkg88-C.0 — time-aware vertex interpolation. Per Cycles motion_triangle.h (Apache-2.0):
+        // bracket ray.time into [step, step+1], then linear blend: v = (1-t)*v[step] + t*v[step+1].
+        Vec3 p0 = v0, p1 = v1, p2 = v2;
+        if (motionVertexBuffer != nullptr && motionSteps > 1) {
+            float time = r.time;  // Phase A already samples and carries time in Ray
+            int maxStep = motionSteps - 1;
+            int step = std::min(static_cast<int>(time * maxStep), maxStep - 1);
+            float t = time * maxStep - step;
+            // Center step (step=0) uses v0/v1/v2; additional steps read motionVertexBuffer.
+            // Buffer layout: [v0_step1, v1_step1, v2_step1, v0_step2, v1_step2, v2_step2, ...]
+            if (step == 0) {
+                // Blend between center (v0/v1/v2) and first motion step
+                const Vec3* nextVerts = motionVertexBuffer;  // step 1 starts at offset 0
+                p0 = v0 * (1.0f - t) + nextVerts[0] * t;
+                p1 = v1 * (1.0f - t) + nextVerts[1] * t;
+                p2 = v2 * (1.0f - t) + nextVerts[2] * t;
+            } else {
+                // Blend between two motion steps
+                const Vec3* currVerts = motionVertexBuffer + (step - 1) * 3;
+                const Vec3* nextVerts = motionVertexBuffer + step * 3;
+                p0 = currVerts[0] * (1.0f - t) + nextVerts[0] * t;
+                p1 = currVerts[1] * (1.0f - t) + nextVerts[1] * t;
+                p2 = currVerts[2] * (1.0f - t) + nextVerts[2] * t;
+            }
+        }
+        Vec3 e1 = p1 - p0, e2 = p2 - p0;
         Vec3 h = r.direction.cross(e2);
         float a = e1.dot(h);
         if (std::fabs(a) < EPS) return false;
         float f = 1.0f / a;
-        Vec3 s = r.origin - v0;
+        Vec3 s = r.origin - p0;
         float u = f * s.dot(h);
         if (u < 0 || u > 1) return false;
         Vec3 q = s.cross(e1);
@@ -177,8 +208,17 @@ public:
     }
 
     bool boundingBox(AABB& box) const override {
+        // pkg88-C.0 — union-AABB static BVH. If motion exists, compute AABB union across all time steps.
         Vec3 minP = Vec3::min(Vec3::min(v0, v1), v2);
         Vec3 maxP = Vec3::max(Vec3::max(v0, v1), v2);
+        if (motionVertexBuffer != nullptr && motionSteps > 1) {
+            // Expand to include all motion steps
+            for (int step = 1; step < motionSteps; ++step) {
+                const Vec3* stepVerts = motionVertexBuffer + (step - 1) * 3;
+                minP = Vec3::min(minP, Vec3::min(Vec3::min(stepVerts[0], stepVerts[1]), stepVerts[2]));
+                maxP = Vec3::max(maxP, Vec3::max(Vec3::max(stepVerts[0], stepVerts[1]), stepVerts[2]));
+            }
+        }
         box = AABB(minP - Vec3(0.0001f), maxP + Vec3(0.0001f));
         return true;
     }
@@ -216,6 +256,16 @@ public:
         v0 = a; v1 = b; v2 = c;
         normal = (v1 - v0).cross(v2 - v0).normalized();
     }
+    // pkg88-C.0 — attach motion data to this triangle. The buffer pointer must
+    // remain valid for the triangle's lifetime (typically points into Renderer::motionVertices_).
+    // steps = 2 means buffer has 3 Vec3s [v0_end, v1_end, v2_end] for shutter close.
+    void setMotionData(const Vec3* buffer, int steps) {
+        motionVertexBuffer = buffer;
+        motionSteps = steps;
+    }
+    // pkg88-C.0 — accessor for GPU scene upload to read motion data.
+    const Vec3* getMotionVertexBuffer() const { return motionVertexBuffer; }
+    int getMotionSteps() const { return motionSteps; }
 };
 
 // ============================================================================

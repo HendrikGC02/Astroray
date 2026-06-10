@@ -3,9 +3,7 @@
 **Pillar:** 5 (addon) + 2 (materials/textures)
 **Track:** A
 **Codex-paste-ready:** no (large, staged; RTX visual verify)
-**Status:** open — proposed 2026-05-30. **Strategic/large.** Owner-endorsed:
-gut the engine-side texture redundancy on the Blender path, keep a slim
-standalone texturing API.
+**Status:** Stage 2 chunk 1 done (PR #439, 2026-06-11 — GENERATED coord default for procedural nodes, signed Normal coord, (u,v,0) UV 3D point, Checker floor-parity, Gradient 4 formula fixes, Magic verbatim port, eval_texture_at_3d debug binding). REMAINING chunks (audit §6 order 5–10): util/hash + White Noise, Perlin + fractal stack + Noise node, Wave, Brick, Voronoi, addon translator dedup + standalone CI example + RTX visual verify vs Cycles.
 **Depends on:** pkg57 (done — established the additive custom-node pattern and
 the `convert_node_material` traversal). Benefits from pkg112.
 **Estimated effort:** L (multi-week, staged)

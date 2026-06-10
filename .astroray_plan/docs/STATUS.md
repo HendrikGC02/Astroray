@@ -1,6 +1,38 @@
 # Astroray Status
 
-**Last updated:** 2026-06-10 (pkg114 GPU core landed — inc 1 PR #430, inc 2 PR #431; pkg118 COMPLETE — PR #423; pkg113 COMPLETE — PR #425; pkg112 COMPLETE — PR #427).
+**Last updated:** 2026-06-11 (Round closeout — 8 PRs: pkg108 COMPLETE #432, pkg86-B COMPLETE #434/#436/#438, pkg116 COMPLETE #435, pkg88 C.0 #437, pkg115 chunk 1 #439, plus pkg114 inc 1+2 #430/#431 by parallel Opus agent). RTX sweep on merged main 75185a6: 1214 passed / 0 failed / 23 skipped / 20 xfailed / 3 xpassed.
+
+## Round closeout 2026-06-11 — 8 PRs merged (pkg108/pkg86-B/pkg116/pkg88-C.0/pkg115 chunk 1 COMPLETE + pkg114 inc 1+2)
+
+**Five packages shipped or advanced this round.** All RTX-verified. Final sweep on merged main 75185a6: **1214 passed / 0 failed / 23 skipped / 20 xfailed / 3 xpassed**.
+
+### pkg108 — Addon residual bug triage COMPLETE (PR #432, 2026-06-10)
+
+BUG-14 was REAL on the CUDA backend only: `gpu_dielectric_sample`'s delta refraction dropped the tint (`s.f = eta²` without baseColor); fixed to CPU parity (`s.f = baseColor*eta²`); dispersive/BK7 unaffected (white baseColor). BUG-16 GPU half fixed in BOTH GPU shading paths (direct GMAT_DISNEY + the closure-graph diffuse lowering the Disney plugin actually uses) with the Burley 2012 §5.3 Hanrahan-Krueger mix, gated bit-identical at subsurface=0. BUG-09 verified non-reproducing in live headless Blender 5.1 via new `scripts/verify_pkg108_bug09_bug14_blender.py` (real AstrorayOutputNode behind a decoy Cycles output → routes to dielectric/bk7). 6 regression tests including GPU variants + headless-Blender routing verify.
+
+### pkg86-B — GPU light tree COMPLETE (PRs #434 + #436 + #438, 2026-06-11)
+
+**Phases 2+3 shipped.** Device traversal mirrors Cycles `kernel/light/tree.h` (Apache-2.0, e52e5eb0) via `src/gpu/light_tree_device.cuh`; bit-trail pdf walk; both megakernels branch on `GLightTreeView`; Power mode bit-identical. **RTX acceptance:** pick parity ≥99.5%/10k queries (pdf rel-err <1e-4), upload 0.09–0.5ms @10k lights (≤10ms gate), single-light PSNR 100 dB, SAOH two-cluster routing >95% both backends. **GPU variance 1.110×** — the 2.0× gate stays xfail on BOTH backends (Phase-1 scene-structure limitation; the parity gate proves the GPU faithfully mirrors the CPU tree). PR #436 fixed the test-scene ordering omitted from #434; #438 fixed the upload-ms zero-report flake. **Deferred:** wavefront stage wiring → pkg55-B; dedicated lights → power-CDF fallback with warning.
+
+### pkg116 — Exporter/cache refactor COMPLETE (PR #435, 2026-06-11)
+
+`blender_addon/exporter.py` owns viewport sync; six per-domain caches with `diff()`; `Change` IntFlag aggregator dispatches in the pkg56 order ('idle'/'fallback'/'dispatched' contract preserved); `RenderEngine` thin shim with property proxies. **135 addon tests green with zero existing-test edits.** Structurally clean refactor; behavior-preserving.
+
+### pkg88 Phase C.0 — Deformation motion blur COMPLETE (PR #437, 2026-06-11)
+
+`add_triangles_bulk_motion` bulk binding with stable per-batch motion storage (`deque<vector<Vec3>>`; a pkg98 review BLOCK on cross-batch dangling pointers was fixed + regression-tested); time-aware `Triangle::hit` + `gpu_triangle_hit_motion` (Cycles `motion_triangle.h`); union-AABB BVH; `GRay.time` threaded end-to-end in BOTH megakernels; `Camera::getRay` zero-shutter path now carries the sampled time (shutter gates camera interpolation only; A3 byte-identical verified). **Gates:** no-op bit-identity, CPU+GPU streak, union-AABB extremes, two-batch regression, cross-backend motion/static energy-shift parity. **REMAINING:** C.1 per-primitive split (perf-gated B/C4), Phase B addon bake (after pkg114 inc3 — same addon area), Phase D wavefront (after pkg55-B). **Known gap:** MW kernel samples geometry time but does not interpolate the camera (Phase-A camera MB lives in the RGB kernel).
+
+### pkg115 Stage 2 chunk 1 — Procedural texture parity (PR #439, 2026-06-11)
+
+Stage-1 research audit committed (`.astroray_plan/docs/blender-procedural-parity-research.md`; headline findings: the engine 'noise' texture is a sin-hash white noise, not Perlin; Wave density ~6.4× off; Generated-vs-UV coordinate default divergence) + chunk-1 implementation: GENERATED coord default for procedural nodes, signed Normal coord, (u,v,0) UV 3D point, Checker floor-parity (guard applied after scaling for exact parity), Gradient 4 formula fixes, Magic verbatim port, `eval_texture_at_3d` debug binding. **REMAINING chunks** (audit §6 order 5–10): util/hash + White Noise, Perlin + fractal stack + Noise node (musgrave alias; `noise.h` is BSD-3-Clause), Wave, Brick, Voronoi, addon translator dedup + standalone CI example + RTX visual verify vs Cycles.
+
+### pkg114 — Two-level BVH increments 1+2 (PRs #430 + #431, by parallel Opus agent)
+
+**NOT** this session's work (do NOT edit its spec — owned by parallel agent). inc 1+2 merged (#430/#431), inc 3 in flight.
+
+### Notable test-suite state change
+
+3 xpassed gates ("not ported to the spectral path_tracer — deferred": `total_max_depth` caps, `filter_glossy`, reflective-caustics flags) now **PASS** and should be promoted to live tests next round. **Expected suite state:** 0 failures / 20 xfails (legacy pkg64-gpu SMS gates + pkg86 2× variance gates + others).
 
 ## pkg114 — Two-level BVH (TLAS/BLAS) GPU core IN PROGRESS (2026-06-10, PRs #430 + #431)
 

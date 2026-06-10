@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon architecture)
 **Track:** A (Python-only; mostly CI-testable)
 **Codex-paste-ready:** no (sizable refactor; behavior-preserving)
-**Status:** implemented (branch feat/pkg116-exporter-cache, 2026-06-10 — Phase 1: architecture) — awaiting review/merge.
+**Status:** done (PR #435, 2026-06-11 — Phase 1: architecture; exporter.py owns viewport sync; six per-domain caches with diff(); Change IntFlag aggregator; RenderEngine thin shim; 135 addon tests green with zero existing-test edits).
 **Depends on:** pkg56 (done) — promotes its `_apply_depsgraph_updates` bucketing
 into structured cache objects.
 **Estimated effort:** M

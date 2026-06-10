@@ -134,8 +134,55 @@ Implementation of research-doc items 1-4 (coordinate/mapping wiring, Checker, Gr
 - `module/blender_module.cpp`: added `eval_texture_at_3d` debug binding for parity tests.
 - `tests/test_pkg115_procedural_parity.py`: per-evaluator unit tests against Cycles formulas.
 
-**Next chunk (items 5-9):** Hash family port (`util/hash.h`), White Noise evaluator, Perlin +
-fractal stack + Noise node, Wave, Brick, Voronoi — largest ports, require new math.
+**Chunk 2 progress (items 5-6, DONE 2026-06-11):**
+
+5. **Hash family** (audit §6.5):
+   - [x] Jenkins Lookup3 port from Cycles `util/hash.h` (Apache-2.0): `hash_uint/2/3/4`,
+         `hash_float*_to_float*`, `hash_int3_to_float3` (PCG3D). Bit-identical to Cycles.
+         Placed in `namespace cycles_hash` in `advanced_features.h:559+`.
+   - [x] **WhiteNoiseTexture** evaluator: 3D white noise via `hash_float3_to_float3`.
+         Plugin registration `"white_noise"`. Cite: `svm/white_noise.h` (Apache-2.0).
+   - [x] Test: `test_pkg115_noise_parity.py::test_hash_known_answer`,
+         `test_white_noise_range`.
+
+6. **Perlin + fractal + Noise node** (audit §6.6):
+   - [x] Perlin core from Cycles `svm/noise.h` (BSD-3-Clause Sony Pictures/Blender):
+         `perlin_3d`, `fade`, `grad3`, `tri_mix`, `snoise_3d`, `noise_3d`. Precision
+         guard per Cycles (fmod 100k + correction at large coords). Placed in
+         `namespace perlin_noise`.
+   - [x] Fractal stack from `svm/fractal_noise.h` (Apache-2.0): `noise_fbm` (fBM with
+         fractional octave blend + normalize), `noise_multi_fractal`, `noise_hetero_terrain`,
+         `noise_hybrid_multi_fractal`, `noise_ridged_multi_fractal`. Placed in
+         `namespace fractal_noise`.
+   - [x] **NoiseTextureCycles** evaluator: Blender "Noise Texture" node wrapper per
+         `svm/noisetex.h` (Apache-2.0). Params: scale, detail [0,15], roughness,
+         lacunarity, offset, gain, distortion, noise_type (0=fBM, 1=multifractal,
+         2=hybrid, 3=ridged, 4=hetero), normalize. Distortion = 3D domain warp via
+         `snoise_3d(p + random_offset)*distortion`. Color channels use `random_float3_offset`
+         seeds 3/4 per Cycles.
+   - [x] Plugin registration `"noise_perlin"`. Addon translator mapping for
+         ShaderNodeTexNoise deferred to Stage 3.
+   - [x] Tests: `test_perlin_zero_at_lattice`, `test_perlin_smoothness`,
+         `test_noise_detail_zero_single_octave`, `test_noise_fractional_detail_blends`,
+         `test_noise_distortion_changes_output`, `test_noise_type_multifractal`,
+         `test_noise_type_ridged`.
+
+**License compliance:**
+  - BSD-3-Clause SPDX header retained at Perlin port site (Sony Pictures Imageworks +
+    Blender Foundation + "Adapted code from Open Shading Language").
+  - Apache-2.0 Blender Foundation SPDX header retained at hash and fractal ports.
+
+**Files changed:**
+  - `include/advanced_features.h`: +~500 lines (hash namespace, perlin namespace,
+    fractal namespace, WhiteNoiseTexture class, NoiseTextureCycles class) inserted before
+    MusgraveTexture (line 559).
+  - `plugins/textures/white_noise.cpp`: new plugin registration.
+  - `plugins/textures/noise_perlin.cpp`: new plugin registration.
+  - `tests/test_pkg115_noise_parity.py`: 11 parity tests for hash, white noise, perlin,
+    fractal stack properties.
+
+**Next chunk (items 7-9):** Wave, Brick, Voronoi — require real fBM for Wave distortion
+(now available), Brick integer hash, Voronoi cell search + fractal wrapper.
 
 ---
 

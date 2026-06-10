@@ -556,6 +556,441 @@ public:
 };
 
 // --- Musgrave (fBm) texture ---
+// ============================================================================
+// HASH FAMILY (pkg115 chunk 2)
+// ============================================================================
+// Ported from Blender intern/cycles/util/hash.h (Apache-2.0).
+// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
+// SPDX-License-Identifier: Apache-2.0
+//
+// Jenkins Lookup3 hash core. Required by Perlin, Voronoi, White Noise, and
+// the Noise node's random offsets. Bit-identical to Cycles for parity.
+
+namespace cycles_hash {
+
+inline uint32_t rot(uint32_t x, int k) {
+    return (x << k) | (x >> (32 - k));
+}
+
+#define HASH_MIX(a, b, c) \
+    do { \
+        a -= c; a ^= rot(c, 4); c += b; \
+        b -= a; b ^= rot(a, 6); a += c; \
+        c -= b; c ^= rot(b, 8); b += a; \
+        a -= c; a ^= rot(c, 16); c += b; \
+        b -= a; b ^= rot(a, 19); a += c; \
+        c -= b; c ^= rot(b, 4); b += a; \
+    } while(0)
+
+#define HASH_FINAL(a, b, c) \
+    do { \
+        c ^= b; c -= rot(b, 14); \
+        a ^= c; a -= rot(c, 11); \
+        b ^= a; b -= rot(a, 25); \
+        c ^= b; c -= rot(b, 16); \
+        a ^= c; a -= rot(c, 4); \
+        b ^= a; b -= rot(a, 14); \
+        c ^= b; c -= rot(b, 24); \
+    } while(0)
+
+inline uint32_t hash_uint(uint32_t kx) {
+    uint32_t a, b, c;
+    a = b = c = 0xdeadbeefu + (1u << 2) + 13u;
+    a += kx;
+    HASH_FINAL(a, b, c);
+    return c;
+}
+
+inline uint32_t hash_uint2(uint32_t kx, uint32_t ky) {
+    uint32_t a, b, c;
+    a = b = c = 0xdeadbeefu + (2u << 2) + 13u;
+    b += ky;
+    a += kx;
+    HASH_FINAL(a, b, c);
+    return c;
+}
+
+inline uint32_t hash_uint3(uint32_t kx, uint32_t ky, uint32_t kz) {
+    uint32_t a, b, c;
+    a = b = c = 0xdeadbeefu + (3u << 2) + 13u;
+    c += kz;
+    b += ky;
+    a += kx;
+    HASH_FINAL(a, b, c);
+    return c;
+}
+
+inline uint32_t hash_uint4(uint32_t kx, uint32_t ky, uint32_t kz, uint32_t kw) {
+    uint32_t a, b, c;
+    a = b = c = 0xdeadbeefu + (4u << 2) + 13u;
+    a += kx;
+    b += ky;
+    c += kz;
+    HASH_MIX(a, b, c);
+    a += kw;
+    HASH_FINAL(a, b, c);
+    return c;
+}
+
+inline float uint_to_float_incl(uint32_t n) {
+    return (float)n * (1.0f / (float)0xFFFFFFFFu);
+}
+
+inline uint32_t float_as_uint(float f) {
+    union { float f; uint32_t u; } conv;
+    conv.f = f;
+    return conv.u;
+}
+
+inline float hash_uint_to_float(uint32_t kx) {
+    return uint_to_float_incl(hash_uint(kx));
+}
+
+inline float hash_uint2_to_float(uint32_t kx, uint32_t ky) {
+    return uint_to_float_incl(hash_uint2(kx, ky));
+}
+
+inline float hash_uint3_to_float(uint32_t kx, uint32_t ky, uint32_t kz) {
+    return uint_to_float_incl(hash_uint3(kx, ky, kz));
+}
+
+inline float hash_uint4_to_float(uint32_t kx, uint32_t ky, uint32_t kz, uint32_t kw) {
+    return uint_to_float_incl(hash_uint4(kx, ky, kz, kw));
+}
+
+inline float hash_float_to_float(float k) {
+    return hash_uint_to_float(float_as_uint(k));
+}
+
+inline float hash_float2_to_float(float kx, float ky) {
+    return hash_uint2_to_float(float_as_uint(kx), float_as_uint(ky));
+}
+
+inline float hash_float3_to_float(float kx, float ky, float kz) {
+    return hash_uint3_to_float(float_as_uint(kx), float_as_uint(ky), float_as_uint(kz));
+}
+
+inline float hash_float4_to_float(float kx, float ky, float kz, float kw) {
+    return hash_uint4_to_float(float_as_uint(kx), float_as_uint(ky), float_as_uint(kz), float_as_uint(kw));
+}
+
+// PCG3D hash for int3 -> float3 (required by Voronoi cell colors).
+// Cycles util/hash.h hash_pcg3d_i (Apache-2.0). NOTE: Cycles runs this on
+// SIGNED int3, so the >>16 is an ARITHMETIC shift — emulate it by casting
+// through int32_t for the shift only (all other arithmetic stays unsigned
+// for defined wraparound). pkg98 review: the logical-shift version diverged
+// bit-wise for negative intermediates.
+inline uint32_t pcg_xorshift_signed16(uint32_t v) {
+    return v ^ (uint32_t)(((int32_t)v) >> 16);
+}
+
+inline Vec3 hash_int3_to_float3(int ix, int iy, int iz) {
+    uint32_t vx = (uint32_t)ix;
+    uint32_t vy = (uint32_t)iy;
+    uint32_t vz = (uint32_t)iz;
+    vx = vx * 1664525u + 1013904223u;
+    vy = vy * 1664525u + 1013904223u;
+    vz = vz * 1664525u + 1013904223u;
+    vx += vy * vz;
+    vy += vz * vx;
+    vz += vx * vy;
+    vx = pcg_xorshift_signed16(vx);
+    vy = pcg_xorshift_signed16(vy);
+    vz = pcg_xorshift_signed16(vz);
+    vx += vy * vz;
+    vy += vz * vx;
+    vz += vx * vy;
+    vx = vx & 0x7FFFFFFFu;
+    vy = vy & 0x7FFFFFFFu;
+    vz = vz & 0x7FFFFFFFu;
+    return Vec3((float)vx * (1.0f / (float)0x7FFFFFFFu),
+                (float)vy * (1.0f / (float)0x7FFFFFFFu),
+                (float)vz * (1.0f / (float)0x7FFFFFFFu));
+}
+
+inline Vec3 hash_float3_to_float3(float kx, float ky, float kz) {
+    return Vec3(hash_float3_to_float(kx, ky, kz),
+                hash_float4_to_float(kx, ky, kz, 1.0f),
+                hash_float4_to_float(kx, ky, kz, 2.0f));
+}
+
+}  // namespace cycles_hash
+
+// ============================================================================
+// PERLIN NOISE CORE (pkg115 chunk 2)
+// ============================================================================
+// Ported from Blender intern/cycles/kernel/svm/noise.h (BSD-3-Clause).
+// SPDX-FileCopyrightText: 2009-2010 Sony Pictures Imageworks Inc., et al.
+// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
+// SPDX-License-Identifier: BSD-3-Clause
+// Adapted code from Open Shading Language.
+
+namespace perlin_noise {
+
+inline float floorfrac(float x, int* i) {
+    *i = (int)std::floor(x);
+    return x - (float)(*i);
+}
+
+inline float negate_if(float val, int condition) {
+    return condition ? -val : val;
+}
+
+inline float fade(float t) {
+    return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+}
+
+inline float grad3(int hash, float x, float y, float z) {
+    int h = hash & 15;
+    float u = (h < 8) ? x : y;
+    float vt = ((h == 12) || (h == 14)) ? x : z;
+    float v = (h < 4) ? y : vt;
+    return negate_if(u, h & 1) + negate_if(v, h & 2);
+}
+
+inline float tri_mix(float v0, float v1, float v2, float v3,
+                     float v4, float v5, float v6, float v7,
+                     float x, float y, float z) {
+    float x1 = 1.0f - x;
+    float y1 = 1.0f - y;
+    float z1 = 1.0f - z;
+    return z1 * (y1 * (v0 * x1 + v1 * x) + y * (v2 * x1 + v3 * x)) +
+           z * (y1 * (v4 * x1 + v5 * x) + y * (v6 * x1 + v7 * x));
+}
+
+inline float perlin_3d(float x, float y, float z) {
+    int X, Y, Z;
+    float fx = floorfrac(x, &X);
+    float fy = floorfrac(y, &Y);
+    float fz = floorfrac(z, &Z);
+    float u = fade(fx);
+    float v = fade(fy);
+    float w = fade(fz);
+    using cycles_hash::hash_uint3;
+    float r = tri_mix(
+        grad3(hash_uint3(X, Y, Z), fx, fy, fz),
+        grad3(hash_uint3(X + 1, Y, Z), fx - 1.0f, fy, fz),
+        grad3(hash_uint3(X, Y + 1, Z), fx, fy - 1.0f, fz),
+        grad3(hash_uint3(X + 1, Y + 1, Z), fx - 1.0f, fy - 1.0f, fz),
+        grad3(hash_uint3(X, Y, Z + 1), fx, fy, fz - 1.0f),
+        grad3(hash_uint3(X + 1, Y, Z + 1), fx - 1.0f, fy, fz - 1.0f),
+        grad3(hash_uint3(X, Y + 1, Z + 1), fx, fy - 1.0f, fz - 1.0f),
+        grad3(hash_uint3(X + 1, Y + 1, Z + 1), fx - 1.0f, fy - 1.0f, fz - 1.0f),
+        u, v, w);
+    return r;
+}
+
+inline float noise_scale3(float result) {
+    return 0.9820f * result;
+}
+
+inline float snoise_3d(Vec3 p) {
+    // Precision guard per Cycles noise.h:725-736.
+    const float precision_limit = 1000000.0f;
+    Vec3 correction(0.0f);
+    if (std::abs(p.x) >= precision_limit) correction.x = 0.5f;
+    if (std::abs(p.y) >= precision_limit) correction.y = 0.5f;
+    if (std::abs(p.z) >= precision_limit) correction.z = 0.5f;
+    p.x = std::fmod(p.x, 100000.0f) + correction.x;
+    p.y = std::fmod(p.y, 100000.0f) + correction.y;
+    p.z = std::fmod(p.z, 100000.0f) + correction.z;
+    return noise_scale3(perlin_3d(p.x, p.y, p.z));
+}
+
+inline float noise_3d(Vec3 p) {
+    return 0.5f * snoise_3d(p) + 0.5f;
+}
+
+}  // namespace perlin_noise
+
+// ============================================================================
+// FRACTAL NOISE STACK (pkg115 chunk 2)
+// ============================================================================
+// Ported from Blender intern/cycles/kernel/svm/fractal_noise.h (Apache-2.0).
+// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
+// SPDX-License-Identifier: Apache-2.0
+
+namespace fractal_noise {
+
+using perlin_noise::snoise_3d;
+
+inline float noise_fbm(Vec3 p, float detail, float roughness, float lacunarity, bool normalize) {
+    float fscale = 1.0f;
+    float amp = 1.0f;
+    float maxamp = 0.0f;
+    float sum = 0.0f;
+    int octaves = (int)detail;
+    for (int i = 0; i <= octaves; i++) {
+        float t = snoise_3d(p * fscale);
+        sum += t * amp;
+        maxamp += amp;
+        amp *= roughness;
+        fscale *= lacunarity;
+    }
+    float rmd = detail - std::floor(detail);
+    if (rmd != 0.0f) {
+        float t = snoise_3d(p * fscale);
+        float sum2 = sum + t * amp;
+        float result = normalize ?
+            (0.5f * sum / maxamp + 0.5f) * (1.0f - rmd) + (0.5f * sum2 / (maxamp + amp) + 0.5f) * rmd :
+            sum * (1.0f - rmd) + sum2 * rmd;
+        return result;
+    }
+    return normalize ? 0.5f * sum / maxamp + 0.5f : sum;
+}
+
+inline float noise_multi_fractal(Vec3 p, float detail, float roughness, float lacunarity) {
+    float value = 1.0f;
+    float pwr = 1.0f;
+    int octaves = (int)detail;
+    for (int i = 0; i <= octaves; i++) {
+        value *= (pwr * snoise_3d(p) + 1.0f);
+        pwr *= roughness;
+        p = p * lacunarity;
+    }
+    float rmd = detail - std::floor(detail);
+    if (rmd != 0.0f) {
+        value *= (rmd * pwr * snoise_3d(p) + 1.0f);
+    }
+    return value;
+}
+
+inline float noise_hetero_terrain(Vec3 p, float detail, float roughness, float lacunarity, float offset) {
+    float pwr = roughness;
+    float value = offset + snoise_3d(p);
+    p = p * lacunarity;
+    int octaves = (int)detail;
+    for (int i = 1; i <= octaves; i++) {
+        float increment = (snoise_3d(p) + offset) * pwr * value;
+        value += increment;
+        pwr *= roughness;
+        p = p * lacunarity;
+    }
+    float rmd = detail - std::floor(detail);
+    if (rmd != 0.0f) {
+        float increment = (snoise_3d(p) + offset) * pwr * value;
+        value += rmd * increment;
+    }
+    return value;
+}
+
+inline float noise_hybrid_multi_fractal(Vec3 p, float detail, float roughness,
+                                        float lacunarity, float offset, float gain) {
+    float pwr = 1.0f;
+    float value = 0.0f;
+    float weight = 1.0f;
+    int octaves = (int)detail;
+    for (int i = 0; (weight > 0.001f) && (i <= octaves); i++) {
+        weight = std::min(weight, 1.0f);
+        float signal = (snoise_3d(p) + offset) * pwr;
+        pwr *= roughness;
+        value += weight * signal;
+        weight *= gain * signal;
+        p = p * lacunarity;
+    }
+    float rmd = detail - std::floor(detail);
+    if ((rmd != 0.0f) && (weight > 0.001f)) {
+        weight = std::min(weight, 1.0f);
+        float signal = (snoise_3d(p) + offset) * pwr;
+        value += rmd * weight * signal;
+    }
+    return value;
+}
+
+inline float noise_ridged_multi_fractal(Vec3 p, float detail, float roughness,
+                                        float lacunarity, float offset, float gain) {
+    float pwr = roughness;
+    float signal = offset - std::abs(snoise_3d(p));
+    signal *= signal;
+    float value = signal;
+    float weight = 1.0f;
+    int octaves = (int)detail;
+    for (int i = 1; i <= octaves; i++) {
+        p = p * lacunarity;
+        weight = std::clamp(signal * gain, 0.0f, 1.0f);
+        signal = offset - std::abs(snoise_3d(p));
+        signal *= signal;
+        signal *= weight;
+        value += signal * pwr;
+        pwr *= roughness;
+    }
+    return value;
+}
+
+}  // namespace fractal_noise
+
+// ============================================================================
+// WHITE NOISE TEXTURE (pkg115 chunk 2)
+// ============================================================================
+class WhiteNoiseTexture : public Texture {
+public:
+    WhiteNoiseTexture() = default;
+    Vec3 value(const Vec2&, const Vec3& p) const override {
+        // Cycles intern/cycles/kernel/svm/white_noise.h::svm_node_tex_white_noise (Apache-2.0).
+        // 3D white noise: color = hash_float3_to_float3, value = hash_float3_to_float.
+        return cycles_hash::hash_float3_to_float3(p.x, p.y, p.z);
+    }
+};
+
+// ============================================================================
+// NOISE TEXTURE (real Perlin-based, pkg115 chunk 2)
+// ============================================================================
+// Blender "Noise Texture" node (includes Musgrave semantics since Blender 4.1).
+// Cycles intern/cycles/kernel/svm/noisetex.h (Apache-2.0).
+// Default noise_type = fBM (0), normalize = true. Musgrave types map to the
+// noise_type enum: 1=MULTIFRACTAL, 2=HYBRID_MULTIFRACTAL, 3=RIDGED_MULTIFRACTAL, 4=HETERO_TERRAIN.
+class NoiseTextureCycles : public Texture {
+    float scale, detail, roughness, lacunarity, offset, gain, distortion;
+    int noise_type;  // 0=fBM, 1=multifractal, 2=hybrid, 3=ridged, 4=hetero
+    bool normalize;
+public:
+    NoiseTextureCycles(float s = 5.0f, float det = 2.0f, float rough = 0.5f,
+                       float lac = 2.0f, float off = 0.0f, float g = 1.0f,
+                       float dist = 0.0f, int type = 0, bool norm = true)
+        : scale(s), detail(det), roughness(rough), lacunarity(lac),
+          offset(off), gain(g), distortion(dist), noise_type(type), normalize(norm) {}
+
+    static Vec3 random_float3_offset(float seed) {
+        // Cycles noisetex.h:32-37 (Apache-2.0).
+        using cycles_hash::hash_float2_to_float;
+        return Vec3(100.0f + hash_float2_to_float(seed, 0.0f) * 100.0f,
+                    100.0f + hash_float2_to_float(seed, 1.0f) * 100.0f,
+                    100.0f + hash_float2_to_float(seed, 2.0f) * 100.0f);
+    }
+
+    float noise_select(Vec3 p, float det, float rough, float lac, float off, float g, int type, bool norm) const {
+        // Cycles noisetex.h:48-78 (Apache-2.0).
+        using namespace fractal_noise;
+        switch (type) {
+            case 1: return noise_multi_fractal(p, det, rough, lac);
+            case 2: return noise_hybrid_multi_fractal(p, det, rough, lac, off, g);
+            case 3: return noise_ridged_multi_fractal(p, det, rough, lac, off, g);
+            case 4: return noise_hetero_terrain(p, det, rough, lac, off);
+            case 0:
+            default:
+                return noise_fbm(p, det, rough, lac, norm);
+        }
+    }
+
+    Vec3 value(const Vec2&, const Vec3& p) const override {
+        // Cycles noisetex.h:161-201 noise_texture_3d (Apache-2.0).
+        // Clamp detail [0,15], roughness >= 0 per svm_node_tex_noise:245+.
+        float det = std::clamp(detail, 0.0f, 15.0f);
+        float rough = std::max(roughness, 0.0f);
+        Vec3 co = p * scale;
+        Vec3 distorted = co;
+        if (distortion != 0.0f) {
+            distorted.x += perlin_noise::snoise_3d(co + random_float3_offset(0.0f)) * distortion;
+            distorted.y += perlin_noise::snoise_3d(co + random_float3_offset(1.0f)) * distortion;
+            distorted.z += perlin_noise::snoise_3d(co + random_float3_offset(2.0f)) * distortion;
+        }
+        float fac = noise_select(distorted, det, rough, lacunarity, offset, gain, noise_type, normalize);
+        float r = noise_select(distorted + random_float3_offset(3.0f), det, rough, lacunarity, offset, gain, noise_type, normalize);
+        float g = noise_select(distorted + random_float3_offset(4.0f), det, rough, lacunarity, offset, gain, noise_type, normalize);
+        return Vec3(fac, r, g);
+    }
+};
+
 class MusgraveTexture : public Texture {
     // type: 0=fBm, 1=multifractal, 2=ridged, 3=hybrid
     int musType;

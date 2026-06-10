@@ -553,8 +553,8 @@ plus a paired-still RTX check at the end.
    (distortion, color channels, normalize). Re-map factory `"musgrave"` with
    the 4.1 conversion (§5.8). ✅ **DONE 2026-06-11 (chunk 2)** — musgrave remap deferred to Stage 3 addon wiring
 7. **Wave** — port `svm_wave` (depends on `noise_fbm` from step 6); extend
-   factory params (directions, phase, dscale).
-8. **Brick** — port `svm_brick` + `brick_noise`; 3D input; new params.
+   factory params (directions, phase, dscale). ✅ **DONE 2026-06-11 (chunk 3)**
+8. **Brick** — port `svm_brick` + `brick_noise`; 3D input; new params. ✅ **DONE 2026-06-11 (chunk 3)**
 9. **Voronoi** — largest port: metrics + F1/F2/SmoothF1/DistToEdge/NSphere +
    fractal wrapper + normalize + multi-output mapping.
 10. **Addon translator + duplication removal + standalone CI example**

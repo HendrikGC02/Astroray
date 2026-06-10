@@ -130,7 +130,8 @@ void launchStageInit(
     GPUWavefrontState& state,
     const GCameraParams& cam,
     int width, int height,
-    uint64_t seed);
+    uint64_t seed,
+    int sample_index = 0);  // Session N+6: per-sample RNG keying
 
 // Session N+3 part 2: intersect stage.
 void launchStageIntersect_SessionN3(
@@ -171,6 +172,24 @@ void launchStageLightSample_SessionN4(
 // Session N+4: Russian roulette stage.
 void launchStageRussianRoulette_SessionN4(
     GPUWavefrontState& state);
+
+// Session N+6: full one-bounce advance — device twin of CPU
+// path_kernel.cpp::advance_one_bounce (intersect -> env-miss -> emissive ->
+// NEE -> RR -> BSDF -> next ray). Self-contained (does its own intersect);
+// the N+3..N+5 per-stage kernels remain as the gated diff instruments.
+void launchStageAdvance(
+    GPUWavefrontState& state,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    int               max_depth);
 
 // Session N+5: Metal shade stage.
 void launchStageShadeMetalGPU(

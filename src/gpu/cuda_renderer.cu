@@ -418,8 +418,11 @@ void CUDARenderer::uploadLightTree(const SceneUploadResult& r) {
     devUpload(r.lightTreeEmitters, &impl->d_lightTreeEmitters);
     devUpload(r.lightToEmitter,    &impl->d_lightToEmitter);
     impl->numLightTreeNodes = (int)r.lightTreeNodes.size();
-    impl->lightTreeUploadMs = std::chrono::duration<float, std::milli>(
-        std::chrono::steady_clock::now() - t0).count();
+    // 0 when nothing was uploaded — the header documents "0 = none", and the
+    // empty-path duration is clock-jitter (flaked the power-mode-no-tree gate).
+    impl->lightTreeUploadMs = r.lightTreeNodes.empty() ? 0.f
+        : std::chrono::duration<float, std::milli>(
+              std::chrono::steady_clock::now() - t0).count();
     if (impl->numLightTreeNodes > 0) {
         printf("[CUDA] Light tree uploaded: %d nodes, %d emitters, %.2f ms\n",
                impl->numLightTreeNodes, (int)r.lightTreeEmitters.size(),

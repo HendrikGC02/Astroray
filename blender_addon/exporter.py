@@ -594,7 +594,7 @@ class Exporter:
                  configure_backend_fn, viewport_perf_record_fn,
                  effective_integrator_name_fn, camera_state_hash_fn,
                  camera_substantive_state_hash_fn,  request_viewport_redraw_fn,
-                 engine_methods, gpu_module, draw_texture_2d_fn):
+                 engine_methods):
         """Called every frame inside rendered-shading mode. Detects camera changes
         and re-renders without touching scene state. Otherwise blits cached texture."""
         import traceback
@@ -646,9 +646,16 @@ class Exporter:
             if self._viewport_texture is None:
                 return
 
+            # Lazy gpu import AT THE BLIT SITE — mirrors the pre-refactor
+            # view_draw. Importing at the top of the frame would abort the
+            # whole draw (including the re-render) in environments without
+            # the gpu module (headless tests stub bpy but not gpu).
+            import gpu  # noqa: F401 — needed by draw_texture_2d's GPUTexture
+            from gpu_extras.presets import draw_texture_2d
+
             # Cycles/Eevee bind_display_space_shader pattern
             self.engine.bind_display_space_shader(scene)
-            draw_texture_2d_fn(self._viewport_texture, (0, 0), region.width, region.height)
+            draw_texture_2d(self._viewport_texture, (0, 0), region.width, region.height)
             self.engine.unbind_display_space_shader()
 
         except Exception as e:

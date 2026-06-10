@@ -1489,9 +1489,6 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         pkg116: delegates to Exporter.view_draw.
         """
-        import gpu
-        from gpu_extras.presets import draw_texture_2d
-
         exporter = self._get_exporter()
         engine_methods = {
             'viewport_render_key': self._viewport_render_key,
@@ -1514,8 +1511,6 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self._camera_substantive_state_hash,
             self._request_viewport_redraw,
             engine_methods,
-            gpu,
-            draw_texture_2d
         )
 
     @staticmethod

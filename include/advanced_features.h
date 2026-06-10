@@ -347,314 +347,9 @@ public:
 // bands_direction: 0=X, 1=Y, 2=Z, 3=Diagonal
 // rings_direction: 0=X, 1=Y, 2=Z, 3=Spherical
 // profile: 0=Sine, 1=Saw, 2=Triangle
-class WaveTexture : public Texture {
-    int waveType;           // 0=bands, 1=rings
-    int bandsDirection;     // 0=X, 1=Y, 2=Z, 3=Diagonal
-    int ringsDirection;     // 0=X, 1=Y, 2=Z, 3=Spherical
-    int profile;            // 0=sine, 1=saw, 2=triangle
-    float scale, distortion, detail, detailScale, detailRoughness, phaseOffset;
-    Vec3 colorLow, colorHigh;
-public:
-    WaveTexture(int wt = 0, int bd = 0, int rd = 0, int prof = 0,
-                float sc = 5.0f, float dist = 0.0f, float det = 2.0f,
-                float dscale = 1.0f, float drough = 0.5f, float phase = 0.0f,
-                const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
-        : waveType(wt), bandsDirection(bd), ringsDirection(rd), profile(prof),
-          scale(sc), distortion(dist), detail(det), detailScale(dscale),
-          detailRoughness(drough), phaseOffset(phase), colorLow(c1), colorHigh(c2) {}
-
-    Vec3 value(const Vec2&, const Vec3& p) const override {
-        // Cycles intern/cycles/kernel/svm/wave.h::svm_wave (Apache-2.0).
-        // Precision guard per Cycles.
-        Vec3 pp = (p + Vec3(0.000001f)) * 0.999999f;
-        pp = pp * scale;
-
-        float n = 0.0f;
-        if (waveType == 0) {
-            // Bands
-            switch (bandsDirection) {
-                case 0: n = pp.x * 20.0f; break;  // X
-                case 1: n = pp.y * 20.0f; break;  // Y
-                case 2: n = pp.z * 20.0f; break;  // Z
-                case 3: n = (pp.x + pp.y + pp.z) * 10.0f; break;  // Diagonal
-            }
-        } else {
-            // Rings: zero one axis then len * 20
-            Vec3 rp = pp;
-            switch (ringsDirection) {
-                case 0: rp.x = 0.0f; break;  // X
-                case 1: rp.y = 0.0f; break;  // Y
-                case 2: rp.z = 0.0f; break;  // Z
-                case 3: break;  // Spherical (no zeroing)
-            }
-            float r = std::sqrt(rp.x*rp.x + rp.y*rp.y + rp.z*rp.z);
-            n = r * 20.0f;
-        }
-
-        n += phaseOffset;
-
-        if (distortion != 0.0f) {
-            // Distortion via SIGNED fBM (lacunarity fixed 2.0, normalized).
-            float distort = fractal_noise::noise_fbm(pp * detailScale, detail,
-                                                     detailRoughness, 2.0f, true);
-            n += distortion * (distort * 2.0f - 1.0f);
-        }
-
-        float t;
-        const float pi = 3.14159265358979323846f;
-        const float two_pi = 2.0f * pi;
-        switch (profile) {
-            case 1: {  // Saw
-                float frac = n / two_pi;
-                t = frac - std::floor(frac);
-                break;
-            }
-            case 2: {  // Triangle
-                float frac = n / two_pi;
-                t = std::abs(frac - std::floor(frac + 0.5f)) * 2.0f;
-                break;
-            }
-            default: {  // Sine
-                t = 0.5f + 0.5f * std::sin(n - pi / 2.0f);
-                break;
-            }
-        }
-
-        return colorLow * (1.0f - t) + colorHigh * t;
-    }
-};
-
-// --- Magic texture ---
-class MagicTexture : public Texture {
-    int turbDepth;
-    float scale, distortion;
-    Vec3 color1, color2;
-public:
-    MagicTexture(int depth = 2, float sc = 5.0f, float dist = 1.0f,
-                 const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
-        : turbDepth(depth), scale(sc), distortion(dist), color1(c1), color2(c2) {}
-    Vec3 value(const Vec2&, const Vec3& p) const override {
-        // pkg115 parity fix: verbatim port of Cycles intern/cycles/kernel/svm/magic.h::svm_magic (Apache-2.0).
-        // Key differences from old engine math: fmod(p·scale, 2π) then ·5 (not scale·π),
-        // *= distortion per branch + final /= (2·distortion), depth ≤ 10 (was 5),
-        // output is true RGB (0.5-x, 0.5-y, 0.5-z), not a scalar 2-color lerp.
-        // Keep color1/color2 params for backward compat with standalone factory calls;
-        // addon passes (0,0,0)/(1,1,1) so this becomes a tint.
-        float px = std::fmod(p.x * scale, 2.0f * float(M_PI));
-        float py = std::fmod(p.y * scale, 2.0f * float(M_PI));
-        float pz = std::fmod(p.z * scale, 2.0f * float(M_PI));
-        float x = std::sin((px + py + pz) * 5.0f);
-        float y = std::cos((-px + py - pz) * 5.0f);
-        float z = -std::cos((-px - py + pz) * 5.0f);
-        int n = turbDepth;
-        float dist = distortion;
-        if (n > 0) {
-            x *= dist; y *= dist; z *= dist;
-            y = -std::cos(x - y + z);
-            y *= dist;
-            if (n > 1) {
-                x = std::cos(x - y - z);
-                x *= dist;
-                if (n > 2) {
-                    z = std::sin(-x - y - z);
-                    z *= dist;
-                    if (n > 3) {
-                        x = -std::cos(-x + y - z);
-                        x *= dist;
-                        if (n > 4) {
-                            y = -std::sin(-x + y + z);
-                            y *= dist;
-                            if (n > 5) {
-                                y = -std::cos(-x + y + z);
-                                y *= dist;
-                                if (n > 6) {
-                                    x = std::cos(x + y + z);
-                                    x *= dist;
-                                    if (n > 7) {
-                                        z = std::sin(x + y - z);
-                                        z *= dist;
-                                        if (n > 8) {
-                                            x = -std::cos(-x - y + z);
-                                            x *= dist;
-                                            if (n > 9) {
-                                                y = -std::sin(x - y + z);
-                                                y *= dist;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if (dist != 0.0f) {
-            dist *= 2.0f;
-            x /= dist;
-            y /= dist;
-            z /= dist;
-        }
-        // Blender outputs true RGB: (0.5-x, 0.5-y, 0.5-z). For standalone factory
-        // backward compat, apply color1/color2 as a lerp tint using the average.
-        Vec3 rgb(0.5f - x, 0.5f - y, 0.5f - z);
-        float fac = (rgb.x + rgb.y + rgb.z) / 3.0f;
-        return color1 * (1.0f - fac) + color2 * fac;
-    }
-};
-
-// --- Voronoi texture ---
-// distMetric: 0=Euclidean, 1=Manhattan, 2=Chebychev, 3=Minkowski(p=2.5)
-// feature: 0=F1, 1=F2, 2=F1+F2, 3=F2-F1, 4=smooth_F1
-class VoronoiTexture : public Texture {
-    float scale, randomness, smoothness;
-    int distMetric, feature;
-    Vec3 colorLow, colorHigh;
-public:
-    VoronoiTexture(float sc = 5.0f, float rand = 1.0f, int dm = 0, int feat = 0,
-                   float smooth = 1.0f, const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
-        : scale(sc), randomness(rand), smoothness(smooth), distMetric(dm), feature(feat),
-          colorLow(c1), colorHigh(c2) {}
-
-    static float hash1(float n) {
-        float x = std::sin(n) * 43758.5453f;
-        return x - std::floor(x);
-    }
-    static Vec3 hash3(Vec3 p) {
-        Vec3 q(p.dot(Vec3(127.1f, 311.7f, 74.7f)),
-               p.dot(Vec3(269.5f, 183.3f, 246.1f)),
-               p.dot(Vec3(113.5f, 271.9f, 124.6f)));
-        return Vec3(hash1(q.x), hash1(q.y), hash1(q.z));
-    }
-    float dist(const Vec3& a, const Vec3& b) const {
-        Vec3 d = a - b;
-        switch (distMetric) {
-            case 1: return std::abs(d.x) + std::abs(d.y) + std::abs(d.z);
-            case 2: return std::max({std::abs(d.x), std::abs(d.y), std::abs(d.z)});
-            case 3: { float p = 2.5f; return std::pow(std::pow(std::abs(d.x),p)+std::pow(std::abs(d.y),p)+std::pow(std::abs(d.z),p), 1.0f/p); }
-            default: return std::sqrt(d.dot(d));
-        }
-    }
-    Vec3 value(const Vec2&, const Vec3& p) const override {
-        Vec3 sp = p * scale;
-        Vec3 ip(std::floor(sp.x), std::floor(sp.y), std::floor(sp.z));
-        float f1 = 1e9f, f2 = 1e9f;
-        float smoothF1 = 0.0f;
-        for (int dz = -1; dz <= 1; ++dz)
-        for (int dy = -1; dy <= 1; ++dy)
-        for (int dx = -1; dx <= 1; ++dx) {
-            Vec3 nb(ip.x+dx, ip.y+dy, ip.z+dz);
-            Vec3 r = nb + hash3(nb) * randomness;
-            float d = dist(sp, r);
-            if (d < f1) { f2 = f1; f1 = d; }
-            else if (d < f2) { f2 = d; }
-            if (smoothness > 0.0f && smoothness < 1e9f) {
-                float h = std::max(smoothness - d, 0.0f) / smoothness;
-                smoothF1 += h * h * h;
-            }
-        }
-        float val;
-        switch (feature) {
-            case 1: val = f2; break;
-            case 2: val = (f1 + f2) * 0.5f; break;
-            case 3: val = f2 - f1; break;
-            case 4: val = smoothness > 0.0f ? -std::log(smoothF1) / 3.0f : f1; break;
-            default: val = f1; break;
-        }
-        float t = std::clamp(val, 0.0f, 1.0f);
-        return colorLow * (1.0f - t) + colorHigh * t;
-    }
-};
-
-// --- Brick texture ---
-// Ported from Blender intern/cycles/kernel/svm/brick.h (Apache-2.0).
-// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
-// SPDX-License-Identifier: Apache-2.0
-//
-// pkg115 chunk 3: full parity with Blender/Cycles Brick node.
-// 3D input (p.x, p.y), mortar_smooth, bias, per-brick color variation,
-// offset_frequency, squash/squash_frequency.
-class BrickTexture : public Texture {
-    Vec3 color1, color2, colorMortar;
-    float scale, mortarSize, mortarSmooth, bias, brickWidth, rowHeight;
-    float offsetAmount, squashAmount;
-    int offsetFrequency, squashFrequency;
-
-    static inline uint32_t brick_noise(uint32_t n) {
-        // Cycles intern/cycles/kernel/svm/brick.h:14-21 (Apache-2.0).
-        // Integer hash for per-brick color variation.
-        uint32_t nn = (n + 1013u) & 0x7fffffffu;
-        nn = (nn >> 13u) ^ nn;
-        uint32_t nnn = (nn * (nn * nn * 60493u + 19990303u) + 1376312589u) & 0x7fffffffu;
-        return nnn;
-    }
-
-public:
-    BrickTexture(const Vec3& c1 = Vec3(0.8f),
-                 const Vec3& c2 = Vec3(0.2f),
-                 const Vec3& mortar = Vec3(0.0f),
-                 float sc = 5.0f, float mort = 0.02f, float msmooth = 0.1f,
-                 float b = 0.0f, float bw = 0.5f, float rh = 0.25f,
-                 float off = 0.5f, int offfreq = 2, float sq = 1.0f, int sqfreq = 2)
-        : color1(c1), color2(c2), colorMortar(mortar),
-          scale(sc), mortarSize(mort), mortarSmooth(msmooth), bias(b),
-          brickWidth(bw), rowHeight(rh), offsetAmount(off), squashAmount(sq),
-          offsetFrequency(offfreq), squashFrequency(sqfreq) {}
-
-    Vec3 value(const Vec2&, const Vec3& p) const override {
-        // Cycles intern/cycles/kernel/svm/brick.h::svm_brick (Apache-2.0).
-        // 3D input: uses p.x, p.y (ignores p.z per Cycles).
-        Vec3 coord = p * scale;
-
-        int rownum = static_cast<int>(std::floor(coord.y / rowHeight));
-
-        float brick_w = brickWidth;
-        float offset = 0.0f;
-        if (offsetFrequency != 0 && squashFrequency != 0) {
-            brick_w *= (rownum % squashFrequency) ? 1.0f : squashAmount;
-            offset = (rownum % offsetFrequency) ? 0.0f : brick_w * offsetAmount;
-        }
-
-        int bricknum = static_cast<int>(std::floor((coord.x + offset) / brick_w));
-
-        float x = (coord.x + offset) - brick_w * bricknum;
-        float y = coord.y - rowHeight * rownum;
-
-        // Per-brick random tint: mix color1 -> color2 by (hash + bias).
-        uint32_t hash_in = (static_cast<uint32_t>(rownum) << 16) + (static_cast<uint32_t>(bricknum) & 0xFFFFu);
-        float tint_raw = static_cast<float>(brick_noise(hash_in)) / 2147483647.0f;
-        float tint = std::clamp(tint_raw + bias, 0.0f, 1.0f);
-        Vec3 brick_color = color1 * (1.0f - tint) + color2 * tint;
-
-        // Mortar test: minimum distance to brick edge.
-        float min_dist = std::min({x, y, brick_w - x, rowHeight - y});
-        float mortar;
-        if (min_dist >= mortarSize) {
-            mortar = 0.0f;
-        } else if (mortarSmooth == 0.0f) {
-            mortar = 1.0f;
-        } else {
-            // Cycles smoothstep inversion: (1 - min_dist / mortar_size) / mortar_smooth.
-            float t = (1.0f - min_dist / mortarSize) / mortarSmooth;
-            t = std::clamp(t, 0.0f, 1.0f);
-            mortar = t * t * (3.0f - 2.0f * t);
-        }
-
-        return brick_color * (1.0f - mortar) + colorMortar * mortar;
-    }
-};
-
-// --- Musgrave (fBm) texture ---
-// ============================================================================
-// HASH FAMILY (pkg115 chunk 2)
-// ============================================================================
-// Ported from Blender intern/cycles/util/hash.h (Apache-2.0).
-// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
-// SPDX-License-Identifier: Apache-2.0
-//
-// Jenkins Lookup3 hash core. Required by Perlin, Voronoi, White Noise, and
-// the Noise node's random offsets. Bit-identical to Cycles for parity.
-
+// NOTE (pkg115 chunk 3): the hash/perlin/fractal namespaces are defined
+// ABOVE WaveTexture because the Cycles Wave port consumes
+// fractal_noise::noise_fbm for its detail distortion.
 namespace cycles_hash {
 
 inline uint32_t rot(uint32_t x, int k) {
@@ -1011,6 +706,315 @@ inline float noise_ridged_multi_fractal(Vec3 p, float detail, float roughness,
 // ============================================================================
 // WHITE NOISE TEXTURE (pkg115 chunk 2)
 // ============================================================================
+
+class WaveTexture : public Texture {
+    int waveType;           // 0=bands, 1=rings
+    int bandsDirection;     // 0=X, 1=Y, 2=Z, 3=Diagonal
+    int ringsDirection;     // 0=X, 1=Y, 2=Z, 3=Spherical
+    int profile;            // 0=sine, 1=saw, 2=triangle
+    float scale, distortion, detail, detailScale, detailRoughness, phaseOffset;
+    Vec3 colorLow, colorHigh;
+public:
+    WaveTexture(int wt = 0, int bd = 0, int rd = 0, int prof = 0,
+                float sc = 5.0f, float dist = 0.0f, float det = 2.0f,
+                float dscale = 1.0f, float drough = 0.5f, float phase = 0.0f,
+                const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
+        : waveType(wt), bandsDirection(bd), ringsDirection(rd), profile(prof),
+          scale(sc), distortion(dist), detail(det), detailScale(dscale),
+          detailRoughness(drough), phaseOffset(phase), colorLow(c1), colorHigh(c2) {}
+
+    Vec3 value(const Vec2&, const Vec3& p) const override {
+        // Cycles intern/cycles/kernel/svm/wave.h::svm_wave (Apache-2.0).
+        // Precision guard per Cycles.
+        Vec3 pp = (p + Vec3(0.000001f)) * 0.999999f;
+        pp = pp * scale;
+
+        float n = 0.0f;
+        if (waveType == 0) {
+            // Bands
+            switch (bandsDirection) {
+                case 0: n = pp.x * 20.0f; break;  // X
+                case 1: n = pp.y * 20.0f; break;  // Y
+                case 2: n = pp.z * 20.0f; break;  // Z
+                case 3: n = (pp.x + pp.y + pp.z) * 10.0f; break;  // Diagonal
+            }
+        } else {
+            // Rings: zero one axis then len * 20
+            Vec3 rp = pp;
+            switch (ringsDirection) {
+                case 0: rp.x = 0.0f; break;  // X
+                case 1: rp.y = 0.0f; break;  // Y
+                case 2: rp.z = 0.0f; break;  // Z
+                case 3: break;  // Spherical (no zeroing)
+            }
+            float r = std::sqrt(rp.x*rp.x + rp.y*rp.y + rp.z*rp.z);
+            n = r * 20.0f;
+        }
+
+        n += phaseOffset;
+
+        if (distortion != 0.0f) {
+            // Distortion via SIGNED fBM (lacunarity fixed 2.0, normalized).
+            float distort = fractal_noise::noise_fbm(pp * detailScale, detail,
+                                                     detailRoughness, 2.0f, true);
+            n += distortion * (distort * 2.0f - 1.0f);
+        }
+
+        float t;
+        const float pi = 3.14159265358979323846f;
+        const float two_pi = 2.0f * pi;
+        switch (profile) {
+            case 1: {  // Saw
+                float frac = n / two_pi;
+                t = frac - std::floor(frac);
+                break;
+            }
+            case 2: {  // Triangle
+                float frac = n / two_pi;
+                t = std::abs(frac - std::floor(frac + 0.5f)) * 2.0f;
+                break;
+            }
+            default: {  // Sine
+                t = 0.5f + 0.5f * std::sin(n - pi / 2.0f);
+                break;
+            }
+        }
+
+        return colorLow * (1.0f - t) + colorHigh * t;
+    }
+};
+
+// --- Magic texture ---
+class MagicTexture : public Texture {
+    int turbDepth;
+    float scale, distortion;
+    Vec3 color1, color2;
+public:
+    MagicTexture(int depth = 2, float sc = 5.0f, float dist = 1.0f,
+                 const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
+        : turbDepth(depth), scale(sc), distortion(dist), color1(c1), color2(c2) {}
+    Vec3 value(const Vec2&, const Vec3& p) const override {
+        // pkg115 parity fix: verbatim port of Cycles intern/cycles/kernel/svm/magic.h::svm_magic (Apache-2.0).
+        // Key differences from old engine math: fmod(p·scale, 2π) then ·5 (not scale·π),
+        // *= distortion per branch + final /= (2·distortion), depth ≤ 10 (was 5),
+        // output is true RGB (0.5-x, 0.5-y, 0.5-z), not a scalar 2-color lerp.
+        // Keep color1/color2 params for backward compat with standalone factory calls;
+        // addon passes (0,0,0)/(1,1,1) so this becomes a tint.
+        float px = std::fmod(p.x * scale, 2.0f * float(M_PI));
+        float py = std::fmod(p.y * scale, 2.0f * float(M_PI));
+        float pz = std::fmod(p.z * scale, 2.0f * float(M_PI));
+        float x = std::sin((px + py + pz) * 5.0f);
+        float y = std::cos((-px + py - pz) * 5.0f);
+        float z = -std::cos((-px - py + pz) * 5.0f);
+        int n = turbDepth;
+        float dist = distortion;
+        if (n > 0) {
+            x *= dist; y *= dist; z *= dist;
+            y = -std::cos(x - y + z);
+            y *= dist;
+            if (n > 1) {
+                x = std::cos(x - y - z);
+                x *= dist;
+                if (n > 2) {
+                    z = std::sin(-x - y - z);
+                    z *= dist;
+                    if (n > 3) {
+                        x = -std::cos(-x + y - z);
+                        x *= dist;
+                        if (n > 4) {
+                            y = -std::sin(-x + y + z);
+                            y *= dist;
+                            if (n > 5) {
+                                y = -std::cos(-x + y + z);
+                                y *= dist;
+                                if (n > 6) {
+                                    x = std::cos(x + y + z);
+                                    x *= dist;
+                                    if (n > 7) {
+                                        z = std::sin(x + y - z);
+                                        z *= dist;
+                                        if (n > 8) {
+                                            x = -std::cos(-x - y + z);
+                                            x *= dist;
+                                            if (n > 9) {
+                                                y = -std::sin(x - y + z);
+                                                y *= dist;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (dist != 0.0f) {
+            dist *= 2.0f;
+            x /= dist;
+            y /= dist;
+            z /= dist;
+        }
+        // Blender outputs true RGB: (0.5-x, 0.5-y, 0.5-z). For standalone factory
+        // backward compat, apply color1/color2 as a lerp tint using the average.
+        Vec3 rgb(0.5f - x, 0.5f - y, 0.5f - z);
+        float fac = (rgb.x + rgb.y + rgb.z) / 3.0f;
+        return color1 * (1.0f - fac) + color2 * fac;
+    }
+};
+
+// --- Voronoi texture ---
+// distMetric: 0=Euclidean, 1=Manhattan, 2=Chebychev, 3=Minkowski(p=2.5)
+// feature: 0=F1, 1=F2, 2=F1+F2, 3=F2-F1, 4=smooth_F1
+class VoronoiTexture : public Texture {
+    float scale, randomness, smoothness;
+    int distMetric, feature;
+    Vec3 colorLow, colorHigh;
+public:
+    VoronoiTexture(float sc = 5.0f, float rand = 1.0f, int dm = 0, int feat = 0,
+                   float smooth = 1.0f, const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
+        : scale(sc), randomness(rand), smoothness(smooth), distMetric(dm), feature(feat),
+          colorLow(c1), colorHigh(c2) {}
+
+    static float hash1(float n) {
+        float x = std::sin(n) * 43758.5453f;
+        return x - std::floor(x);
+    }
+    static Vec3 hash3(Vec3 p) {
+        Vec3 q(p.dot(Vec3(127.1f, 311.7f, 74.7f)),
+               p.dot(Vec3(269.5f, 183.3f, 246.1f)),
+               p.dot(Vec3(113.5f, 271.9f, 124.6f)));
+        return Vec3(hash1(q.x), hash1(q.y), hash1(q.z));
+    }
+    float dist(const Vec3& a, const Vec3& b) const {
+        Vec3 d = a - b;
+        switch (distMetric) {
+            case 1: return std::abs(d.x) + std::abs(d.y) + std::abs(d.z);
+            case 2: return std::max({std::abs(d.x), std::abs(d.y), std::abs(d.z)});
+            case 3: { float p = 2.5f; return std::pow(std::pow(std::abs(d.x),p)+std::pow(std::abs(d.y),p)+std::pow(std::abs(d.z),p), 1.0f/p); }
+            default: return std::sqrt(d.dot(d));
+        }
+    }
+    Vec3 value(const Vec2&, const Vec3& p) const override {
+        Vec3 sp = p * scale;
+        Vec3 ip(std::floor(sp.x), std::floor(sp.y), std::floor(sp.z));
+        float f1 = 1e9f, f2 = 1e9f;
+        float smoothF1 = 0.0f;
+        for (int dz = -1; dz <= 1; ++dz)
+        for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx) {
+            Vec3 nb(ip.x+dx, ip.y+dy, ip.z+dz);
+            Vec3 r = nb + hash3(nb) * randomness;
+            float d = dist(sp, r);
+            if (d < f1) { f2 = f1; f1 = d; }
+            else if (d < f2) { f2 = d; }
+            if (smoothness > 0.0f && smoothness < 1e9f) {
+                float h = std::max(smoothness - d, 0.0f) / smoothness;
+                smoothF1 += h * h * h;
+            }
+        }
+        float val;
+        switch (feature) {
+            case 1: val = f2; break;
+            case 2: val = (f1 + f2) * 0.5f; break;
+            case 3: val = f2 - f1; break;
+            case 4: val = smoothness > 0.0f ? -std::log(smoothF1) / 3.0f : f1; break;
+            default: val = f1; break;
+        }
+        float t = std::clamp(val, 0.0f, 1.0f);
+        return colorLow * (1.0f - t) + colorHigh * t;
+    }
+};
+
+// --- Brick texture ---
+// Ported from Blender intern/cycles/kernel/svm/brick.h (Apache-2.0).
+// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
+// SPDX-License-Identifier: Apache-2.0
+//
+// pkg115 chunk 3: full parity with Blender/Cycles Brick node.
+// 3D input (p.x, p.y), mortar_smooth, bias, per-brick color variation,
+// offset_frequency, squash/squash_frequency.
+class BrickTexture : public Texture {
+    Vec3 color1, color2, colorMortar;
+    float scale, mortarSize, mortarSmooth, bias, brickWidth, rowHeight;
+    float offsetAmount, squashAmount;
+    int offsetFrequency, squashFrequency;
+
+    static inline uint32_t brick_noise(uint32_t n) {
+        // Cycles intern/cycles/kernel/svm/brick.h:14-21 (Apache-2.0).
+        // Integer hash for per-brick color variation.
+        uint32_t nn = (n + 1013u) & 0x7fffffffu;
+        nn = (nn >> 13u) ^ nn;
+        uint32_t nnn = (nn * (nn * nn * 60493u + 19990303u) + 1376312589u) & 0x7fffffffu;
+        return nnn;
+    }
+
+public:
+    BrickTexture(const Vec3& c1 = Vec3(0.8f),
+                 const Vec3& c2 = Vec3(0.2f),
+                 const Vec3& mortar = Vec3(0.0f),
+                 float sc = 5.0f, float mort = 0.02f, float msmooth = 0.1f,
+                 float b = 0.0f, float bw = 0.5f, float rh = 0.25f,
+                 float off = 0.5f, int offfreq = 2, float sq = 1.0f, int sqfreq = 2)
+        : color1(c1), color2(c2), colorMortar(mortar),
+          scale(sc), mortarSize(mort), mortarSmooth(msmooth), bias(b),
+          brickWidth(bw), rowHeight(rh), offsetAmount(off), squashAmount(sq),
+          offsetFrequency(offfreq), squashFrequency(sqfreq) {}
+
+    Vec3 value(const Vec2&, const Vec3& p) const override {
+        // Cycles intern/cycles/kernel/svm/brick.h::svm_brick (Apache-2.0).
+        // 3D input: uses p.x, p.y (ignores p.z per Cycles).
+        Vec3 coord = p * scale;
+
+        int rownum = static_cast<int>(std::floor(coord.y / rowHeight));
+
+        float brick_w = brickWidth;
+        float offset = 0.0f;
+        if (offsetFrequency != 0 && squashFrequency != 0) {
+            brick_w *= (rownum % squashFrequency) ? 1.0f : squashAmount;
+            offset = (rownum % offsetFrequency) ? 0.0f : brick_w * offsetAmount;
+        }
+
+        int bricknum = static_cast<int>(std::floor((coord.x + offset) / brick_w));
+
+        float x = (coord.x + offset) - brick_w * bricknum;
+        float y = coord.y - rowHeight * rownum;
+
+        // Per-brick random tint: mix color1 -> color2 by (hash + bias).
+        uint32_t hash_in = (static_cast<uint32_t>(rownum) << 16) + (static_cast<uint32_t>(bricknum) & 0xFFFFu);
+        float tint_raw = static_cast<float>(brick_noise(hash_in)) / 2147483647.0f;
+        float tint = std::clamp(tint_raw + bias, 0.0f, 1.0f);
+        Vec3 brick_color = color1 * (1.0f - tint) + color2 * tint;
+
+        // Mortar test: minimum distance to brick edge.
+        float min_dist = std::min({x, y, brick_w - x, rowHeight - y});
+        float mortar;
+        if (min_dist >= mortarSize) {
+            mortar = 0.0f;
+        } else if (mortarSmooth == 0.0f) {
+            mortar = 1.0f;
+        } else {
+            // Cycles smoothstep inversion: (1 - min_dist / mortar_size) / mortar_smooth.
+            float t = (1.0f - min_dist / mortarSize) / mortarSmooth;
+            t = std::clamp(t, 0.0f, 1.0f);
+            mortar = t * t * (3.0f - 2.0f * t);
+        }
+
+        return brick_color * (1.0f - mortar) + colorMortar * mortar;
+    }
+};
+
+// --- Musgrave (fBm) texture ---
+// ============================================================================
+// HASH FAMILY (pkg115 chunk 2)
+// ============================================================================
+// Ported from Blender intern/cycles/util/hash.h (Apache-2.0).
+// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
+// SPDX-License-Identifier: Apache-2.0
+//
+// Jenkins Lookup3 hash core. Required by Perlin, Voronoi, White Noise, and
+// the Noise node's random offsets. Bit-identical to Cycles for parity.
+
 class WhiteNoiseTexture : public Texture {
 public:
     WhiteNoiseTexture() = default;

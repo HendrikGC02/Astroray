@@ -123,10 +123,32 @@ __device__ inline GRay gpu_generateCameraRay(
 // ===========================================================================
 
 __device__ inline GVec3 gpu_lambertian_eval(
-    const GMaterial& mat, const GHitRecord& rec, const GVec3& /*wo*/, const GVec3& wi)
+    const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
     float NdotL = rec.normal.dot(wi);
     if (NdotL <= 0.f) return GVec3(0.f);
+    // pkg108 BUG-16 (closure path): Disney materials lower their diffuse lobe
+    // to GCLOSURE_DIFFUSE which shades here, so subsurface_weight was a silent
+    // no-op on the CUDA backend. Apply the Burley 2012 "Physically-Based
+    // Shading at Disney" §5.3 Hanrahan-Krueger mix, mirroring the CPU fix in
+    // plugins/materials/disney.cpp::eval (PR #375). Gated on subsurface > 0:
+    // plain Lambertian renders stay bit-identical.
+    if (mat.subsurface > 0.f) {
+        float NdotV = rec.normal.dot(wo);
+        if (NdotV > 0.f) {
+            GVec3 H = (wi + wo).normalized();
+            float LdotH = wi.dot(H);
+            float FL = powf(1.f - NdotL, 5.f);
+            float FV = powf(1.f - NdotV, 5.f);
+            float Fd90 = 0.5f + 2.f * LdotH*LdotH * mat.roughness;
+            float Fd = (1.f + (Fd90-1.f)*FL) * (1.f + (Fd90-1.f)*FV);
+            float Fss90 = LdotH*LdotH * mat.roughness;
+            float Fss = (1.f + (Fss90-1.f)*FL) * (1.f + (Fss90-1.f)*FV);
+            float ss = 1.25f * (Fss * (1.f / fmaxf(NdotL + NdotV, 1e-4f) - 0.5f) + 0.5f);
+            float FdMixed = (1.f - mat.subsurface) * Fd + mat.subsurface * ss;
+            return mat.baseColor * (1.f / M_PI_F) * FdMixed * NdotL;
+        }
+    }
     return mat.baseColor * (1.f / M_PI_F) * NdotL;
 }
 
@@ -294,7 +316,12 @@ __device__ inline GBSDFSample gpu_dielectric_sample(
         GVec3 wt_perp   = (wo - n*cosTheta) * (-eta);
         GVec3 wt_para   = n * (-sqrtf(fabsf(1.f - wt_perp.length2())));
         s.wi  = (wt_perp + wt_para).normalized();
-        s.f   = GVec3(eta * eta);
+        // pkg108 BUG-14 (GPU half): refraction carries the glass tint.
+        // Mirrors CPU DielectricPlugin::sample (dielectric.cpp: s.f =
+        // tint_ * eta^2) and the GPU disney delta branch. baseColor is the
+        // closure color when this material was lowered from a closure graph,
+        // so tinted glass was rendering clear on the CUDA backend only.
+        s.f   = mat.baseColor * (eta * eta);
         s.pdf = 1.f;
     }
     return s;
@@ -347,7 +374,8 @@ __device__ inline GBSDFSample gpu_dielectric_sample_spectral(
         GVec3 wt_perp   = (wo - n*cosTheta) * (-eta);
         GVec3 wt_para   = n * (-sqrtf(fabsf(1.f - wt_perp.length2())));
         s.wi  = (wt_perp + wt_para).normalized();
-        s.f   = GVec3(eta * eta);
+        // pkg108 BUG-14 (GPU half): tinted refraction — see gpu_dielectric_sample.
+        s.f   = mat.baseColor * (eta * eta);
         s.pdf = 1.f;
         // Dispersive refraction: only the hero wavelength follows this bend.
         // Mirror CPU dielectric.cpp:188 — terminate the secondary wavelengths.
@@ -648,7 +676,16 @@ __device__ inline GVec3 gpu_disney_eval(
     float FV  = powf(1.f - NdotV, 5.f);
     float Fd90 = 0.5f + 2.f * LdotH*LdotH * mat.roughness;
     float Fd  = (1.f + (Fd90-1.f)*FL) * (1.f + (Fd90-1.f)*FV);
-    GVec3 diffuse = (1.f / M_PI_F) * Cdlin * Fd;
+    // pkg108 BUG-16 (GPU half): Burley 2012 "Physically-Based Shading at
+    // Disney" §5.3 Hanrahan-Krueger subsurface approximation. Mirrors the
+    // CPU fix in plugins/materials/disney.cpp::eval (PR #375); without this
+    // mix mat.subsurface was uploaded but never read, so subsurface_weight
+    // was a silent no-op on the CUDA backend only.
+    float Fss90 = LdotH*LdotH * mat.roughness;
+    float Fss = (1.f + (Fss90-1.f)*FL) * (1.f + (Fss90-1.f)*FV);
+    float ss = 1.25f * (Fss * (1.f / fmaxf(NdotL + NdotV, 1e-4f) - 0.5f) + 0.5f);
+    float FdMixed = (1.f - mat.subsurface) * Fd + mat.subsurface * ss;
+    GVec3 diffuse = (1.f / M_PI_F) * Cdlin * FdMixed;
 
     // Specular — min alpha 0.0064 (roughness 0.08) to prevent numerical collapse
     float a  = fmaxf(mat.roughness*mat.roughness, 0.0064f);
@@ -855,6 +892,12 @@ __device__ inline GMaterial gpu_closure_as_material(const GMaterial& parent, con
     switch (closure.type) {
         case GCLOSURE_DIFFUSE:
             tmp.type = GMAT_LAMBERTIAN;
+            // pkg108 BUG-16 (closure path): the Disney plugin lowers its
+            // diffuse lobe to GCLOSURE_DIFFUSE, so the subsurface mix must
+            // ride along. The HK formula needs the Disney roughness, which
+            // lives on the parent (the diffuse closure's own roughness is 0).
+            tmp.subsurface = parent.subsurface;
+            tmp.roughness  = parent.roughness;
             break;
         case GCLOSURE_GGX_CONDUCTOR:
             tmp.type = GMAT_METAL;

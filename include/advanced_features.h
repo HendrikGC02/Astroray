@@ -100,9 +100,14 @@ protected:
             }
             case CoordMode::Normal: {
                 // pkg115 parity fix: Blender's Normal coordinate output is the
-                // signed object-space normal, no remap. Cycles svm/tex_coord.h:113-121,
-                // object_inverse_normal_transform(sd->N). Apache-2.0.
-                Vec3 n = rec.objectNormal;  // signed, object-space
+                // SIGNED normal, no 0.5n+0.5 remap. Cycles svm/tex_coord.h:113-121
+                // (object_inverse_normal_transform(sd->N), Apache-2.0) uses the
+                // object-space normal; the addon bakes vertices to world space,
+                // so the geometric world-space normal is exact for untransformed
+                // objects and a documented approximation for rotated ones
+                // (object-frame recovery would need per-object inverse
+                // transforms the baked pipeline no longer has).
+                Vec3 n = rec.frontFace ? rec.normal : rec.normal * -1.0f;  // geometric outward, signed
                 return {Vec2(n.x, n.y), n};
             }
             case CoordMode::Reflection: {
@@ -192,7 +197,10 @@ public:
         int yi = std::abs((int)std::floor(sp.y));
         int zi = std::abs((int)std::floor(sp.z));
         bool checker = ((xi % 2 == yi % 2) == (zi % 2));
-        return checker ? even->value(uv, p) : odd->value(uv, p);
+        // Cycles maps parity-true -> fac=1 -> Color1 (svm_checker + the node's
+        // color select); ctor order is (c1=odd, c2=even), so parity-true must
+        // return the c1/'odd' member for Blender-identical cell colors.
+        return checker ? odd->value(uv, p) : even->value(uv, p);
     }
 };
 
@@ -295,7 +303,7 @@ public:
                 t = r * r;
                 break;
             }
-            case 2: { // easing: clamp then r²(3−2r)
+            case 2: { // easing: clamp then r²(3-2r)
                 float r = std::clamp(sp.x, 0.0f, 1.0f);
                 float t2 = r * r;
                 t = 3.0f * t2 - 2.0f * t2 * r;
@@ -304,12 +312,12 @@ public:
             case 3: // diagonal: (x+y)·0.5
                 t = (sp.x + sp.y) * 0.5f;
                 break;
-            case 4: { // spherical: max(0.999999 − len, 0) — inverted from engine (was increasing)
+            case 4: { // spherical: max(0.999999 - len, 0) — inverted from engine (was increasing)
                 float len = std::sqrt(sp.x*sp.x + sp.y*sp.y + sp.z*sp.z);
                 t = std::max(0.999999f - len, 0.0f);
                 break;
             }
-            case 5: { // quadratic sphere: (max(0.999999 − len, 0))² — was 1−r²
+            case 5: { // quadratic sphere: (max(0.999999 - len, 0))² — was 1-r²
                 float len = std::sqrt(sp.x*sp.x + sp.y*sp.y + sp.z*sp.z);
                 float r = std::max(0.999999f - len, 0.0f);
                 t = r * r;
@@ -389,47 +397,47 @@ public:
         // pkg115 parity fix: verbatim port of Cycles intern/cycles/kernel/svm/magic.h::svm_magic (Apache-2.0).
         // Key differences from old engine math: fmod(p·scale, 2π) then ·5 (not scale·π),
         // *= distortion per branch + final /= (2·distortion), depth ≤ 10 (was 5),
-        // output is true RGB (0.5−x, 0.5−y, 0.5−z), not a scalar 2-color lerp.
+        // output is true RGB (0.5-x, 0.5-y, 0.5-z), not a scalar 2-color lerp.
         // Keep color1/color2 params for backward compat with standalone factory calls;
         // addon passes (0,0,0)/(1,1,1) so this becomes a tint.
         float px = std::fmod(p.x * scale, 2.0f * float(M_PI));
         float py = std::fmod(p.y * scale, 2.0f * float(M_PI));
         float pz = std::fmod(p.z * scale, 2.0f * float(M_PI));
         float x = std::sin((px + py + pz) * 5.0f);
-        float y = std::cos((−px + py − pz) * 5.0f);
-        float z = −std::cos((−px − py + pz) * 5.0f);
+        float y = std::cos((-px + py - pz) * 5.0f);
+        float z = -std::cos((-px - py + pz) * 5.0f);
         int n = turbDepth;
         float dist = distortion;
         if (n > 0) {
             x *= dist; y *= dist; z *= dist;
-            y = −std::cos(x − y + z);
+            y = -std::cos(x - y + z);
             y *= dist;
             if (n > 1) {
-                x = std::cos(x − y − z);
+                x = std::cos(x - y - z);
                 x *= dist;
                 if (n > 2) {
-                    z = std::sin(−x − y − z);
+                    z = std::sin(-x - y - z);
                     z *= dist;
                     if (n > 3) {
-                        x = −std::cos(−x + y − z);
+                        x = -std::cos(-x + y - z);
                         x *= dist;
                         if (n > 4) {
-                            y = −std::sin(−x + y + z);
+                            y = -std::sin(-x + y + z);
                             y *= dist;
                             if (n > 5) {
-                                y = −std::cos(−x + y + z);
+                                y = -std::cos(-x + y + z);
                                 y *= dist;
                                 if (n > 6) {
                                     x = std::cos(x + y + z);
                                     x *= dist;
                                     if (n > 7) {
-                                        z = std::sin(x + y − z);
+                                        z = std::sin(x + y - z);
                                         z *= dist;
                                         if (n > 8) {
-                                            x = −std::cos(−x − y + z);
+                                            x = -std::cos(-x - y + z);
                                             x *= dist;
                                             if (n > 9) {
-                                                y = −std::sin(x − y + z);
+                                                y = -std::sin(x - y + z);
                                                 y *= dist;
                                             }
                                         }
@@ -447,11 +455,11 @@ public:
             y /= dist;
             z /= dist;
         }
-        // Blender outputs true RGB: (0.5−x, 0.5−y, 0.5−z). For standalone factory
+        // Blender outputs true RGB: (0.5-x, 0.5-y, 0.5-z). For standalone factory
         // backward compat, apply color1/color2 as a lerp tint using the average.
-        Vec3 rgb(0.5f − x, 0.5f − y, 0.5f − z);
+        Vec3 rgb(0.5f - x, 0.5f - y, 0.5f - z);
         float fac = (rgb.x + rgb.y + rgb.z) / 3.0f;
-        return color1 * (1.0f − fac) + color2 * fac;
+        return color1 * (1.0f - fac) + color2 * fac;
     }
 };
 

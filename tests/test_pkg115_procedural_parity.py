@@ -21,42 +21,24 @@ def test_checker_floor_parity():
     Applied to co * scale. Default scale 5.0.
     """
     import astroray
-    r = astroray.Renderer(320, 240)
+    r = astroray.Renderer()
 
-    # Checker with scale=1: cells are 1 unit wide. At (0.5, 0.5, 0.5) all floors=0 → even.
-    # At (0.5, 0.5, 1.5) floors=(0,0,1) → odd.
-    # Color1=(0.8,0.8,0.8), Color2=(0.2,0.2,0.2) per Blender defaults.
-    val_even = r.eval_texture_at_3d("checker", {
-        "color1": [0.8, 0.8, 0.8],
-        "color2": [0.2, 0.2, 0.2],
-        "scale": 1.0
-    }, 0.5, 0.5, 0.5)
-    # Blender: checker=1 → color1 (0.8). Engine swapped: checker=True → even (color2=0.2 was odd in old code).
-    # Wait, let me re-read the code. New code: checker=True → even->value. even=c2. So checker=True → c2.
-    # At (0.5,0.5,0.5): floors (0,0,0), (0%2==0%2)==(0%2) → (T==T) → True → even=c2=(0.2,0.2,0.2).
-    assert abs(val_even[0] - 0.2) < 0.01, f"Expected ~0.2, got {val_even[0]}"
+    # C++ semantics of the Cycles formula (bool promotes to int 0/1):
+    #   parity(xi,yi,zi) = ((xi%2 == yi%2) == zi%2);  parity-true -> Color1.
+    # Truth table at scale=1 (cells 1 unit wide):
+    #   (0.5,0.5,0.5) -> floors (0,0,0): (0==0)=1, zi%2=0 -> 1==0 FALSE -> Color2
+    #   (0.5,0.5,1.5) -> floors (0,0,1): (0==0)=1, zi%2=1 -> 1==1 TRUE  -> Color1
+    #   (1.5,0.5,0.5) -> floors (1,0,0): (1==0)=0, zi%2=0 -> 0==0 TRUE  -> Color1
+    params = {"color1": [0.8, 0.8, 0.8], "color2": [0.2, 0.2, 0.2], "scale": 1.0}
 
-    val_odd = r.eval_texture_at_3d("checker", {
-        "color1": [0.8, 0.8, 0.8],
-        "color2": [0.2, 0.2, 0.2],
-        "scale": 1.0
-    }, 0.5, 0.5, 1.5)
-    # floors (0,0,1): (0%2==0%2)==(1%2) → (T==T)==T → T → even=c2. Hmm, that's still even.
-    # Wait: (0%2 == 0%2) = True; (1%2) = 1 (True); True == True → True. So still even.
-    # Let me recalculate: xi=0, yi=0, zi=1. (0%2 == 0%2) = (0 == 0) = True. (zi%2) = 1.
-    # (True == 1) — in integer logic that's (1 == 1) = True. So checker=True → even.
-    # Actually the Cycles code is: ((xi % 2 == yi % 2) == (zi % 2)). In C++, bool==int: True=1, False=0.
-    # So (0==0) = True (1 in int). (1%2)=1. (1==1) → True. Still even. Let me try a different coordinate.
+    v = r.eval_texture_at_3d("checker", params, 0.5, 0.5, 0.5)
+    assert abs(v[0] - 0.2) < 0.01, f"(0,0,0) cell must be Color2 (0.2), got {v[0]}"
 
-    val_x_flip = r.eval_texture_at_3d("checker", {
-        "color1": [0.8, 0.8, 0.8],
-        "color2": [0.2, 0.2, 0.2],
-        "scale": 1.0
-    }, 1.5, 0.5, 0.5)
-    # floors (1,0,0): (1%2==0%2) = (1==0) = False (0). (0%2)=0. (0==0) → True → even.
-    # Hmm. Let me try (1.5, 1.5, 0.5): floors (1,1,0). (1==1)==(0) → True==0 → False → odd=c1=0.8.
-    assert abs(val_x_flip[0] - 0.8) < 0.01 or abs(val_x_flip[0] - 0.2) < 0.01, \
-        "Checker should flip across cell boundaries"
+    v = r.eval_texture_at_3d("checker", params, 0.5, 0.5, 1.5)
+    assert abs(v[0] - 0.8) < 0.01, f"(0,0,1) cell must be Color1 (0.8), got {v[0]}"
+
+    v = r.eval_texture_at_3d("checker", params, 1.5, 0.5, 0.5)
+    assert abs(v[0] - 0.8) < 0.01, f"(1,0,0) cell must be Color1 (0.8), got {v[0]}"
 
 
 def test_gradient_quadratic_clamp():
@@ -66,12 +48,12 @@ def test_gradient_quadratic_clamp():
     then saturate. At x=-1 (negative), Blender gives 0; old engine gave 1.
     """
     import astroray
-    r = astroray.Renderer(320, 240)
+    r = astroray.Renderer()
 
     # Gradient type 1 (quadratic), scale=1. At x=-1, Blender: max(-1,0)=0 → 0² → 0 (c1).
     # Old engine: clamp(x²,0,1) = clamp(1,0,1) = 1 (c2).
     val = r.eval_texture_at_3d("gradient", {
-        "type": 1,  # quadratic
+        "grad_type": 1,  # quadratic
         "color1": [0.0, 0.0, 0.0],
         "color2": [1.0, 1.0, 1.0],
         "scale": 1.0
@@ -86,11 +68,11 @@ def test_gradient_spherical_inverted():
     Old engine: t = clamp(len, 0, 1) — increased outward. At origin, Blender=1; at len=1, Blender=0.
     """
     import astroray
-    r = astroray.Renderer(320, 240)
+    r = astroray.Renderer()
 
     # Gradient type 4 (spherical), scale=1. At origin (0,0,0), len=0 → 0.999999−0 ≈ 1.0 (c2).
     val_origin = r.eval_texture_at_3d("gradient", {
-        "type": 4,
+        "grad_type": 4,
         "color1": [0.0, 0.0, 0.0],
         "color2": [1.0, 1.0, 1.0],
         "scale": 1.0
@@ -99,7 +81,7 @@ def test_gradient_spherical_inverted():
 
     # At (1,0,0): len=1 → 0.999999−1 = −0.000001 → max(−0.000001,0)=0 (c1).
     val_edge = r.eval_texture_at_3d("gradient", {
-        "type": 4,
+        "grad_type": 4,
         "color1": [0.0, 0.0, 0.0],
         "color2": [1.0, 1.0, 1.0],
         "scale": 1.0
@@ -114,10 +96,10 @@ def test_gradient_quadratic_sphere():
     At len=0.5, Blender: (1−0.5)² = 0.25. Old engine: 1−0.25 = 0.75.
     """
     import astroray
-    r = astroray.Renderer(320, 240)
+    r = astroray.Renderer()
 
     val = r.eval_texture_at_3d("gradient", {
-        "type": 5,  # quadratic sphere
+        "grad_type": 5,  # quadratic sphere
         "color1": [0.0, 0.0, 0.0],
         "color2": [1.0, 1.0, 1.0],
         "scale": 1.0
@@ -133,10 +115,10 @@ def test_gradient_radial_phase():
     At (1,0), atan2(0,1)=0 → 0/2π+0.5 = 0.5.
     """
     import astroray
-    r = astroray.Renderer(320, 240)
+    r = astroray.Renderer()
 
     val = r.eval_texture_at_3d("gradient", {
-        "type": 6,  # radial
+        "grad_type": 6,  # radial
         "color1": [0.0, 0.0, 0.0],
         "color2": [1.0, 1.0, 1.0],
         "scale": 1.0
@@ -153,10 +135,10 @@ def test_magic_depth_10():
     Test that depth=10 runs without error and produces a different pattern than depth=2.
     """
     import astroray
-    r = astroray.Renderer(320, 240)
+    r = astroray.Renderer()
 
     val_d2 = r.eval_texture_at_3d("magic", {
-        "depth": 2,
+        "turb_depth": 2,
         "scale": 5.0,
         "distortion": 1.0,
         "color1": [0.0, 0.0, 0.0],
@@ -164,7 +146,7 @@ def test_magic_depth_10():
     }, 0.3, 0.4, 0.5)
 
     val_d10 = r.eval_texture_at_3d("magic", {
-        "depth": 10,
+        "turb_depth": 10,
         "scale": 5.0,
         "distortion": 1.0,
         "color1": [0.0, 0.0, 0.0],
@@ -184,14 +166,14 @@ def test_magic_rgb_output():
     or check that the r,g,b channels differ before tinting.
     """
     import astroray
-    r = astroray.Renderer(320, 240)
+    r = astroray.Renderer()
 
     # Sample at a point with non-zero xyz; the raw (0.5−x, 0.5−y, 0.5−z) should differ per channel.
     # Since the factory applies a grayscale tint, we can't directly observe RGB. But the code change
     # is verbatim from svm/magic.h, so the formula test is acceptance. Visual verification needs
     # an addon-driven Blender comparison in Stage 3.
     val = r.eval_texture_at_3d("magic", {
-        "depth": 2,
+        "turb_depth": 2,
         "scale": 5.0,
         "distortion": 1.0,
         "color1": [0.0, 0.0, 0.0],
@@ -215,32 +197,21 @@ def test_addon_procedural_default_generated(monkeypatch):
     default for the Vector input. The addon translator must pass coord_mode="GENERATED"
     when the Vector socket is unlinked.
     """
-    import sys
-    import types
-    # Minimal stub-bpy pattern (see tests/test_blender_native_nodes.py).
-    bpy_stub = types.ModuleType("bpy")
-    bpy_stub.types = types.ModuleType("types")
-    sys.modules["bpy"] = bpy_stub
-    sys.modules["bpy.types"] = bpy_stub.types
+    # Reuse the established stub-bpy loader (handles the full bpy surface the
+    # addon imports — the previous minimal stub broke on bpy.types.Panel).
+    from test_blender_native_nodes import _load_blender_addon
 
-    # Import the addon module (it uses bpy but we've stubbed it).
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "blender_addon",
-        "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/wt-pkg115/blender_addon/__init__.py"
-    )
-    addon = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(addon)
+    addon = _load_blender_addon(monkeypatch)
+    resolve = addon.CustomRaytracerRenderEngine._resolve_vector_input  # staticmethod
 
     # Unlinked Vector socket on a procedural node should default to GENERATED.
-    coord_mode, scale, offset, rotation, layer = \
-        addon.CustomRaytracerRenderEngine._resolve_vector_input(None, default_coord_mode="GENERATED")
+    coord_mode, scale, offset, rotation, layer = resolve(
+        None, default_coord_mode="GENERATED")
     assert coord_mode == "GENERATED", \
         f"Procedural texture default coord_mode should be GENERATED, got {coord_mode}"
 
     # Unlinked Vector socket on an Image Texture node should default to UV.
-    coord_mode_img, _, _, _, _ = \
-        addon.CustomRaytracerRenderEngine._resolve_vector_input(None, default_coord_mode="UV")
+    coord_mode_img, _, _, _, _ = resolve(None)
     assert coord_mode_img == "UV", \
         f"Image Texture default coord_mode should be UV, got {coord_mode_img}"
 

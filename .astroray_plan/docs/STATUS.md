@@ -1,6 +1,37 @@
 # Astroray Status
 
-**Last updated:** 2026-06-10 (pkg118 COMPLETE — PR #423; pkg113 COMPLETE — PR #425; pkg112 COMPLETE — PR #427).
+**Last updated:** 2026-06-10 (pkg114 GPU core landed — inc 1 PR #430, inc 2 PR #431; pkg118 COMPLETE — PR #423; pkg113 COMPLETE — PR #425; pkg112 COMPLETE — PR #427).
+
+## pkg114 — Two-level BVH (TLAS/BLAS) GPU core IN PROGRESS (2026-06-10, PRs #430 + #431)
+
+**The GPU instancing core is landed + RTX-verified.** A two-level acceleration
+structure: per-mesh **BLAS** (object-local BVH, built once, shared across
+instances) under a **TLAS** of `GInstance` records carrying a 4×4 object→world
+transform + its affine inverse. `gpu_tlas_hit` transforms the world ray into
+BLAS-local space (un-normalized direction → local `t` == world `t`, one shared
+`tMax`; the `GRay` ctor renormalize is bypassed by field-assign), and back-
+transforms the hit (point by `M`, normal by `(Minv)^T` + renormalize, frontFace
+recomputed in world space → correct under mirror/negative-det, ONB rebuilt).
+Both megakernels (path_trace + multiwavelength) route through it; for
+non-instanced scenes `d_tlas==nullptr` falls back to `gpu_bvh_hit` (byte-exact,
+zero behaviour change). Cited PBRT-v4 / Cycles / Embree (all Apache-2.0;
+**corrected: pbrt-v4 is Apache, not v3's BSD**) — `.astroray_plan/docs/two-level-bvh-research.md`.
+
+- **Inc 1 (#430):** structs + `gpu_tlas_hit` + device identity-passthrough probe.
+  RTX: 4096 Cornell rays byte-exact on t/primId/mat/frontFace/point, normal ≤3.2e-6.
+- **Inc 2 (#431):** `Renderer::registerMesh`/`addInstance` + bindings; two-level
+  `buildSceneArrays`; megakernel routing + `prims + blas.primOffset` BLAS-local
+  fix. RTX: 3 instances (rigid / **non-uniform scale** / **mirror**) vs baked
+  world-space — **mean ratio 1.00000, mean abs diff 8.1e-9**; BLAS sharing shown
+  (4 prims vs 12 baked). Visual `docs/renders/pkg114_instanced_tetrahedra.png`.
+  Full GPU regression sweep clean (only pre-existing xfails).
+- **Inc 3 (remaining):** Blender-addon `convert_objects` instancing
+  (register-mesh-once + `add_instance` per shared-datablock instance; needs a
+  `register_mesh_bulk` binding with UVs/normals/multi-material, object-local) +
+  the depsgraph transform-only → TLAS-only refit for the pkg56 ≤50%-baseline
+  budget. Headless-Blender-verified. Multi-instance EMISSIVE NEE deferred
+  (owner-flagged fork, non-blocking). SAH TLAS is an explicit non-goal.
+  **Next pickup:** pkg114 inc 3 (Blender path) or pkg55 wavefront continuation.
 
 ## pkg118 — rough-dielectric energy compensation COMPLETE (2026-06-08, PR #423)
 

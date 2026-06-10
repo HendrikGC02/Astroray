@@ -318,12 +318,23 @@ class Exporter:
         if updates is None:
             return 'fallback'
 
-        # Query all caches for changes
-        env = self._world_cache.diff(depsgraph)
-        materials = self._materials_cache.diff(depsgraph)
-        lights = self._lights_cache.diff(depsgraph)
+        # Query all caches; OR their results into a Change bitset (the
+        # aggregator contract from the spec — dispatch below tests flags).
+        changes = Change.NONE
+        if self._world_cache.diff(depsgraph):
+            changes |= Change.ENVIRONMENT
+        if self._materials_cache.diff(depsgraph):
+            changes |= Change.MATERIALS
+        if self._lights_cache.diff(depsgraph):
+            changes |= Change.LIGHTS
         geometry, has_transforms, transforms = self._objects_cache.diff(depsgraph)
+        if geometry:
+            changes |= Change.GEOMETRY
+        if has_transforms:
+            changes |= Change.TRANSFORMS
         backend_config, accumulation_only = self._config_cache.diff(depsgraph)
+        if accumulation_only:
+            changes |= Change.ACCUMULATION_ONLY
 
         # Check for unrecognised update types (fallback to full sync)
         for upd in updates:
@@ -345,11 +356,11 @@ class Exporter:
                     continue
 
         # backend_config only counts as a real domain when settings is present
-        backend_config_real = backend_config and settings is not None
-        any_domain = env or materials or lights or geometry or has_transforms or backend_config_real
+        if backend_config and settings is not None:
+            changes |= Change.BACKEND_CONFIG
 
-        if not any_domain:
-            if accumulation_only:
+        if not (changes & ~Change.ACCUMULATION_ONLY):
+            if changes & Change.ACCUMULATION_ONLY:
                 # Frame/Scene tick — image unchanged but user may want fresh
                 # accumulation. Reset and skip render.
                 self._reset_viewport_accumulation()
@@ -357,25 +368,25 @@ class Exporter:
 
         # pkg96 P2: reconcile-then-upload contract. Each domain re-derives
         # its state from Blender before pushing device buffers.
-        if backend_config_real:
+        if changes & Change.BACKEND_CONFIG:
             # Backend-affecting Scene props (device_mode) — reconfigure
             # before any render.
             configure_backend_fn(renderer, settings, report_fn)
 
-        if env:
+        if changes & Change.ENVIRONMENT:
             # World update — re-parse the world tree before device upload.
             # Guard: tests may pass scene=None.
             if depsgraph.scene is not None:
                 self.engine.setup_world(depsgraph.scene, renderer)
             renderer.upload_environment()
 
-        if materials:
+        if changes & Change.MATERIALS:
             renderer.upload_materials()
-        if lights:
+        if changes & Change.LIGHTS:
             renderer.upload_lights()
-        if geometry:
+        if changes & Change.GEOMETRY:
             renderer.upload_geometry()
-        elif has_transforms:
+        elif changes & Change.TRANSFORMS:
             for obj_id, mat16 in transforms:
                 try:
                     renderer.update_object_transform(obj_id, mat16)

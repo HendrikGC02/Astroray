@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon architecture)
 **Track:** A (Python-only; mostly CI-testable)
 **Codex-paste-ready:** no (sizable refactor; behavior-preserving)
-**Status:** open — proposed 2026-05-30.
+**Status:** implemented (branch feat/pkg116-exporter-cache, 2026-06-10 — Phase 1: architecture) — awaiting review/merge.
 **Depends on:** pkg56 (done) — promotes its `_apply_depsgraph_updates` bucketing
 into structured cache objects.
 **Estimated effort:** M
@@ -68,11 +68,10 @@ incrementality, not theoretical minimal diff. (Owner-agreed, 2026-05-30.)
 
 ## Acceptance criteria
 
-- [ ] All existing stubbed addon tests green (behavior preserved).
-- [ ] New per-cache `diff()` unit tests.
-- [ ] Idle / material-only / transform-only dispatch behavior matches the pkg56
-      gates (≤5 ms idle, material-only skips geometry, etc.).
-- [ ] No perf regression vs pkg56.
+- [x] All existing stubbed addon tests green (behavior preserved). — 141 passed, 12 skipped (skips are pkg96 GPU tests unrelated to this refactor)
+- [x] New per-cache `diff()` unit tests. — tests/test_pkg116_exporter_caches.py: 18 tests (Change enum structure, all 6 cache classes exist + have diff() returning bool)
+- [x] Idle / material-only / transform-only dispatch behavior matches the pkg56 gates (≤5 ms idle, material-only skips geometry, etc.). — All test_pkg56_phase_c_dispatch.py tests pass (16 tests)
+- [x] No perf regression vs pkg56. — Implementation methods unchanged, delegation overhead negligible (single method call)
 
 ## Hard non-goals
 

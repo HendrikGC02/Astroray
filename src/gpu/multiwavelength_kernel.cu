@@ -21,6 +21,7 @@
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
+#include "light_tree_device.cuh"  // pkg86-B: gpu_light_tree_pick
 #include "astroray/spectrum.h"  // jhEvalSpectrumF + JH LUT accessors (pkg54c)
 #include "astroray/manifold/sms_attempt_device.cuh"  // pkg64-gpu Phase 2
 #include "astroray/gpu_photon_store.h"  // pkg113 Phase 3: GPhotonGrid + photonGridGather
@@ -465,6 +466,7 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
     const GSphere*    spheres,
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,  // pkg86-B
     curandState*      rng)
 {
     GSampledSpectrum direct(0.f);
@@ -472,11 +474,23 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
 
     const GMaterial& mat = materials[rec.materialId];
 
-    // Power-weighted light selection via CDF (mirrors LightList::sample).
-    float u  = curand_uniform(rng) * totalLightPower;
+    // Light selection: tree-importance descent (pkg86-B, Conty 2018 via
+    // Cycles kernel/light/tree.h) when the tree is resident, else the
+    // power-weighted CDF (mirrors LightList::sample).
     int   li = 0;
-    for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { li = i; break; } li = i; }
-    float selPdf = lights[li].power / totalLightPower;
+    float selPdf;
+    if (lightTree.enabled) {
+        float treePdf = 0.f;
+        int eIdx = gpu_light_tree_pick(lightTree, rec.point, rec.normal,
+                                       curand_uniform(rng), &treePdf);
+        if (eIdx < 0 || treePdf <= 0.f) return direct;
+        li = lightTree.emitters[eIdx].lightIndex;
+        selPdf = treePdf;
+    } else {
+        float u = curand_uniform(rng) * totalLightPower;
+        for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { li = i; break; } li = i; }
+        selPdf = lights[li].power / totalLightPower;
+    }
     int primIdx  = lights[li].primitiveIndex;
     if (primIdx < 0) return direct;
 
@@ -572,6 +586,7 @@ __device__ GSampledSpectrum tracePathMW(
     const GSphere*    spheres,
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     const GEnvMap&    envMap,
     const GVec3&      backgroundColor,
@@ -675,7 +690,7 @@ __device__ GSampledSpectrum tracePathMW(
         if (enableNEE && !rec.isDelta && numLights > 0) {
             color += throughput * sampleDirectSpectralMW(
                 rec, wo, lambdas, tlas, instances, blas, bvhNodes, prims, tris, spheres, materials,
-                lights, numLights, totalLightPower, rng);
+                lights, numLights, totalLightPower, lightTree, rng);
         }
 
         // pkg64-gpu Phase 2: SMS caustic attempt at non-delta vertices.
@@ -852,6 +867,7 @@ __global__ void multiwavelengthKernel(
     const GSphere*    spheres,
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
     GCameraParams cam,
@@ -899,6 +915,7 @@ __global__ void multiwavelengthKernel(
             tlas, instances, blas,  // pkg114
             bvhNodes, prims, tris, spheres, materials,
             lights, numLights, totalLightPower,
+            lightTree,  // pkg86-B
             smsCasters, numSMSCasters,
             envMap, backgroundColor, hasBackgroundColor,
             ray,  // primaryRay for SMS wo_eye
@@ -986,6 +1003,7 @@ void launchMultiwavelengthKernel(
     const GSphere*    d_spheres,
     const GMaterial*  d_materials,
     const GLight*     d_lights, int numLights, float totalLightPower,
+    GLightTreeView lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* d_smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
     GCameraParams cam,
@@ -1008,6 +1026,7 @@ void launchMultiwavelengthKernel(
             d_tlas, d_instances, d_blas,  // pkg114
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, numLights, totalLightPower,
+            lightTree,  // pkg86-B
             d_smsCasters, numSMSCasters,
             envMap, cam, backgroundColor, hasBackgroundColor,
             photonGrid, hasPhotonGrid, photonScale,  // pkg113 Phase 3

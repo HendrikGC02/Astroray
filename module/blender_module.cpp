@@ -38,6 +38,7 @@
 #include "astroray/sampling/wavefront_rng.h"
 #include "astroray/emission_spectrum.h"
 #include "astroray/light.h"
+#include "astroray/light_tree.h"  // pkg86-B: debug pick probe
 #include "astroray/lights/point_light.h"
 #include "astroray/lights/spot_light.h"
 #include "astroray/lights/distant_light.h"
@@ -1126,6 +1127,68 @@ public:
         }
     }
 
+    // pkg86-B: CPU-side batch light-tree pick probe. points/normals are
+    // flattened xyz triples; us are the per-query traversal randoms. Returns
+    // (light_indices, pdfs); index -2 marks a dedicated-light pick.
+    std::pair<std::vector<int>, std::vector<float>> debugLightTreePick(
+            const std::vector<float>& points,
+            const std::vector<float>& normals,
+            const std::vector<float>& us) {
+        size_t n = us.size();
+        std::vector<int> idx(n, -1);
+        std::vector<float> pdf(n, 0.f);
+        const astroray::LightTree* tree = renderer.getLights().lightTree();
+        if (tree == nullptr || tree->empty()) return {idx, pdf};
+        std::mt19937 gen(0);  // unused by pick() — u drives the traversal
+        for (size_t i = 0; i < n; ++i) {
+            Vec3 P(points[i*3], points[i*3+1], points[i*3+2]);
+            Vec3 N(normals[i*3], normals[i*3+1], normals[i*3+2]);
+            astroray::LightTree::PickResult r = tree->pick(P, N, us[i], gen);
+            idx[i] = r.isDedicated ? -2 : r.lightIndex;
+            pdf[i] = r.pdf;
+        }
+        return {idx, pdf};
+    }
+
+    // pkg86-B: GPU twin of debugLightTreePick — runs the production
+    // gpu_light_tree_pick on the resident device tree. Requires
+    // set_use_gpu(True) + set_light_sampler('tree') + upload_scene().
+    std::pair<std::vector<int>, std::vector<float>> debugLightTreePickGpu(
+            const std::vector<float>& points,
+            const std::vector<float>& normals,
+            const std::vector<float>& us) {
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (!cudaRenderer)
+            throw std::runtime_error(
+                "debug_light_tree_pick_gpu: call upload_scene (with set_use_gpu) first");
+        size_t n = us.size();
+        std::vector<Vec3> P(n), N(n);
+        for (size_t i = 0; i < n; ++i) {
+            P[i] = Vec3(points[i*3], points[i*3+1], points[i*3+2]);
+            N[i] = Vec3(normals[i*3], normals[i*3+1], normals[i*3+2]);
+        }
+        std::vector<int> idx;
+        std::vector<float> pdf;
+        if (!cudaRenderer->debugLightTreePick(P, N, us, idx, pdf))
+            throw std::runtime_error(
+                "debug_light_tree_pick_gpu: no light tree resident "
+                "(set_light_sampler('tree') + upload_scene required)");
+        return {idx, pdf};
+#else
+        (void)points; (void)normals; (void)us;
+        throw std::runtime_error("CUDA not enabled in this build");
+#endif
+    }
+
+    // pkg86-B: wall-clock ms of the most recent GPU light-tree upload.
+    float getLightTreeUploadMs() const {
+#ifdef ASTRORAY_CUDA_ENABLED
+        return cudaRenderer ? cudaRenderer->lightTreeUploadMs() : 0.f;
+#else
+        return 0.f;
+#endif
+    }
+
     void setWorldMaxBounces(int maxB) {
         renderer.setWorldMaxBounces(maxB);
     }
@@ -2120,6 +2183,16 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_seed", &PyRenderer::setSeed, "seed"_a)
         .def("set_pixel_filter", &PyRenderer::setPixelFilter, "filter_type"_a, "filter_width"_a)
         .def("set_light_sampler", &PyRenderer::setLightSampler, "mode"_a)
+        .def("debug_light_tree_pick", &PyRenderer::debugLightTreePick,
+             "points"_a, "normals"_a, "us"_a,
+             "pkg86-B: batch CPU light-tree pick probe (flattened xyz points/normals "
+             "+ per-query u). Returns (light_indices, pdfs); -2 marks dedicated lights.")
+        .def("debug_light_tree_pick_gpu", &PyRenderer::debugLightTreePickGpu,
+             "points"_a, "normals"_a, "us"_a,
+             "pkg86-B: GPU twin of debug_light_tree_pick on the resident device tree. "
+             "Requires set_use_gpu(True) + set_light_sampler('tree') + upload_scene().")
+        .def("get_light_tree_upload_ms", &PyRenderer::getLightTreeUploadMs,
+             "pkg86-B: wall-clock ms of the most recent GPU light-tree upload (0 = none).")
         .def("set_world_max_bounces", &PyRenderer::setWorldMaxBounces, "max_bounces"_a)
         .def("set_world_volume", &PyRenderer::setWorldVolume,
              "density"_a, "color"_a, "anisotropy"_a = 0.0f)

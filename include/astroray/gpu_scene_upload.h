@@ -29,6 +29,12 @@ struct SceneUploadResult {
     // pkg55-B' Session N+4: area lights for wavefront NEE
     std::vector<GAreaLight> areaLights;
 
+    // pkg86-B: flattened light tree (empty unless sampler mode is Tree and
+    // every emitter has a GLight slot — see scene_upload.cu tree block).
+    std::vector<GLightTreeNode>    lightTreeNodes;
+    std::vector<GLightTreeEmitter> lightTreeEmitters;
+    std::vector<int>               lightToEmitter;  // GLight idx -> emitter idx (-1 absent)
+
     // pkg64-gpu Phase 2: caustic-caster spheres (flagged + transmissive + IOR > 1)
     std::vector<astroray::manifold::device::GSMSCaster> smsCasters;
 

@@ -489,6 +489,39 @@ struct GAreaLight {
 };
 
 // ---------------------------------------------------------------------------
+// Light tree (pkg86-B) — flat device mirror of astroray::LightTree.
+// Mirrors include/astroray/light_tree.h LightTreeNode/LightTreeEmitter;
+// traversal in src/gpu/light_tree_device.cuh (Cycles kernel/light/tree.h,
+// Apache-2.0, commit e52e5eb0).
+// ---------------------------------------------------------------------------
+struct GLightTreeNode {
+    GVec3 bboxMin, bboxMax;   // spatial bounds
+    GVec3 bconeAxis;          // orientation cone axis
+    float thetaO, thetaE;     // cone half-angles (outer / emission)
+    float energy;             // total emitted power
+    int   leftChild;          // inner node: child indices (-1 on leaf)
+    int   rightChild;
+    int   firstEmitter;       // leaf node: emitter range (-1 on inner)
+    int   numEmitters;
+};
+
+struct GLightTreeEmitter {
+    int          lightIndex;  // index into the GLight array (same order as LightList::getLights)
+    unsigned int bitTrail;    // root->leaf path: bit i = level-i branch (0 = left, 1 = right)
+};
+
+// View passed into the kernels. enabled != 0 only when the CPU sampler mode
+// is Tree AND the tree was uploadable (no dedicated lights — those have no
+// GLight slot on the GPU yet).
+struct GLightTreeView {
+    const GLightTreeNode*    nodes;
+    const GLightTreeEmitter* emitters;
+    const int*               lightToEmitter;  // GLight index -> emitter index (-1 if absent)
+    int                      numNodes;
+    int                      enabled;
+};
+
+// ---------------------------------------------------------------------------
 // Environment map (device pointers set during upload)
 // ---------------------------------------------------------------------------
 struct GEnvMap {

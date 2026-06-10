@@ -33,6 +33,7 @@ LightList& LightList::operator=(LightList&& other) noexcept {
     other.totalPower = 0;
     // Rebuild sampler bound to `this` (see ctor rationale).
     sampler_ = std::make_unique<astroray::PowerLightSampler>(this);
+    samplerMode_ = SamplerMode::Power;  // pkg86-B: keep mode in sync with the rebuilt sampler
     return *this;
 }
 
@@ -45,4 +46,11 @@ void LightList::setSampler(SamplerMode mode) {
             sampler_ = std::make_unique<astroray::TreeLightSampler>(this);
             break;
     }
+    samplerMode_ = mode;  // pkg86-B: queried by the GPU scene upload
+}
+
+// pkg86-B: defined out-of-line because raytracer.h forward-declares
+// astroray::LightSampler. Returns nullptr for the Power sampler.
+const astroray::LightTree* LightList::lightTree() const {
+    return sampler_ ? sampler_->tree() : nullptr;
 }

@@ -6,6 +6,7 @@
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
+#include "light_tree_device.cuh"  // pkg86-B: gpu_light_tree_pick / _pdf
 #include "astroray/manifold/sms_attempt_device.cuh"  // pkg64-gpu Phase 2
 #include "astroray/gpu_photon_store.h"  // pkg113 Phase 3: GPhotonGrid + photonGridGather
 #include "astroray/cryptomatte.h"  // pkg87b
@@ -139,9 +140,10 @@ __device__ inline float powerHeuristic(float a, float b) {
 // Computes combined solid-angle PDF across all lights, scaled by pArea.
 // ---------------------------------------------------------------------------
 __device__ inline float gpu_light_pdf(
-    const GVec3& origin, const GVec3& wi,
+    const GVec3& origin, const GVec3& normal, const GVec3& wi,
     const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
     const GLight* lights, int numLights, float totalLightPower,
+    GLightTreeView lightTree,  // pkg86-B: tree selection pdf when enabled
     int hitPrimId,  // primId from the BSDF-ray hit record
     float hitDist,  // distance to the hit surface
     float pArea)
@@ -150,7 +152,16 @@ __device__ inline float gpu_light_pdf(
     float pdf = 0.f;
     for (int i = 0; i < numLights; ++i) {
         const GLight& l = lights[i];
-        float selPdf = l.power / totalLightPower;
+        // pkg86-B: in Tree mode the selection pdf is the tree's traversal pdf
+        // for this light (mirrors CPU TreeLightSampler::pdfValue using
+        // LightTree::pdf); otherwise the power-CDF selection pdf.
+        float selPdf;
+        if (lightTree.enabled) {
+            int eIdx = lightTree.lightToEmitter[i];
+            selPdf = gpu_light_tree_pdf(lightTree, origin, normal, eIdx);
+        } else {
+            selPdf = l.power / totalLightPower;
+        }
         int primIdx = l.primitiveIndex;
         if (primIdx < 0) continue;
         const GPrimitive& lp = prims[primIdx];
@@ -193,6 +204,7 @@ __device__ GVec3 sampleDirectGPU(
     const GSphere*    spheres,
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,  // pkg86-B
     const GEnvMap&    envMap,
     curandState*      rng)
 {
@@ -233,14 +245,26 @@ __device__ GVec3 sampleDirectGPU(
     else if (hasLights) {
         float pArea = 1.f - pEnv;
 
-        // Power-weighted light selection via CDF
-        float u = curand_uniform(rng) * totalLightPower;
+        // Light selection: tree-importance descent (pkg86-B, Conty 2018 via
+        // Cycles kernel/light/tree.h) when the tree is resident, else the
+        // power-weighted CDF.
         int   li = 0;
-        for (int i = 0; i < numLights; ++i) {
-            if (u <= lights[i].cumulativePower) { li = i; break; }
-            li = i;
+        float selPdf;
+        if (lightTree.enabled) {
+            float treePdf = 0.f;
+            int eIdx = gpu_light_tree_pick(lightTree, rec.point, rec.normal,
+                                           curand_uniform(rng), &treePdf);
+            if (eIdx < 0 || treePdf <= 0.f) goto bsdf_mis;
+            li = lightTree.emitters[eIdx].lightIndex;
+            selPdf = treePdf;
+        } else {
+            float u = curand_uniform(rng) * totalLightPower;
+            for (int i = 0; i < numLights; ++i) {
+                if (u <= lights[i].cumulativePower) { li = i; break; }
+                li = i;
+            }
+            selPdf = lights[li].power / totalLightPower;
         }
-        float selPdf = lights[li].power / totalLightPower;
 
         // Sample a point on the chosen light primitive
         int primIdx = lights[li].primitiveIndex;
@@ -333,9 +357,10 @@ bsdf_mis:
                 GVec3 Le = gpu_material_emitted(lm, bRec.frontFace);
                 if (Le != GVec3(0.f)) {
                     float pArea   = 1.f - pEnv;
-                    float lightPdf = gpu_light_pdf(rec.point, bs.wi,
+                    float lightPdf = gpu_light_pdf(rec.point, rec.normal, bs.wi,
                                                    prims, tris, spheres,
                                                    lights, numLights, totalLightPower,
+                                                   lightTree,  // pkg86-B
                                                    bRec.primId, bRec.t, pArea);
                     direct += bs.f * Le * powerHeuristic(bs.pdf, lightPdf) / (bs.pdf + 0.001f);
                 }
@@ -365,6 +390,7 @@ __device__ GVec3 tracePathGPU(
     const GSphere*    spheres,
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     const GEnvMap&    envMap,
     const GVec3&      backgroundColor,
@@ -427,7 +453,7 @@ __device__ GVec3 tracePathGPU(
             color += throughput * sampleDirectGPU(
                 rec, wo, tlas, instances, blas, bvhNodes, prims, tris, spheres,
                 materials, lights, numLights, totalLightPower,
-                envMap, rng);
+                lightTree, envMap, rng);
         }
 
         // pkg113 Phase 3: photon-map caustic gather at the FIRST non-emissive hit
@@ -618,6 +644,7 @@ __global__ void pathTraceKernel(
     const GSphere*    spheres,
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
     GCameraParams cam,
@@ -705,6 +732,7 @@ __global__ void pathTraceKernel(
             tlas, instances, blas,  // pkg114
             bvhNodes, prims, tris, spheres,
             materials, lights, numLights, totalLightPower,
+            lightTree,  // pkg86-B
             smsCasters, numSMSCasters,
             envMap, backgroundColor, hasBackgroundColor,
             ray,  // primaryRay for SMS
@@ -747,6 +775,7 @@ void launchPathTraceKernel(
     const GSphere*    d_spheres,
     const GMaterial*  d_materials,
     const GLight*     d_lights, int numLights, float totalLightPower,
+    GLightTreeView lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* d_smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
     GCameraParams cam,
@@ -773,6 +802,7 @@ void launchPathTraceKernel(
             d_tlas, d_instances, d_blas,  // pkg114
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, numLights, totalLightPower,
+            lightTree,  // pkg86-B
             d_smsCasters, numSMSCasters,
             envMap, cam, filmExposure, backgroundColor, hasBackgroundColor,
             photonGrid, hasPhotonGrid, photonScale,  // pkg113 Phase 3
@@ -815,5 +845,44 @@ void launchInitRNG(curandState* d_states, int n, unsigned long long seed) {
                     cudaGetErrorString(syncErr));
             throw std::runtime_error(cudaGetErrorString(syncErr));
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// pkg86-B: batch pick probe for the CPU<->GPU parity gate
+// (tests/test_pkg86_B_gpu_parity.py). Runs the SAME gpu_light_tree_pick the
+// NEE path uses on a batch of (point, normal, u) queries and writes the
+// picked GLight index + traversal pdf.
+// ---------------------------------------------------------------------------
+__global__ void lightTreePickKernel(
+    GLightTreeView view, const float* pts, const float* nrms, const float* us,
+    int n, int* outIdx, float* outPdf)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    GVec3 P(pts[i*3], pts[i*3+1], pts[i*3+2]);
+    GVec3 N(nrms[i*3], nrms[i*3+1], nrms[i*3+2]);
+    float pdf = 0.f;
+    int e = gpu_light_tree_pick(view, P, N, us[i], &pdf);
+    outIdx[i] = (e >= 0) ? view.emitters[e].lightIndex : -1;
+    outPdf[i] = pdf;
+}
+
+void launchLightTreePick(
+    GLightTreeView view, const float* d_pts, const float* d_nrms,
+    const float* d_us, int n, int* d_outIdx, float* d_outPdf)
+{
+    int blocks = (n + 255) / 256;
+    lightTreePickKernel<<<blocks, 256>>>(view, d_pts, d_nrms, d_us, n,
+                                         d_outIdx, d_outPdf);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        fprintf(stderr, "lightTreePick launch error: %s\n", cudaGetErrorString(err));
+        throw std::runtime_error(cudaGetErrorString(err));
+    }
+    cudaError_t syncErr = cudaDeviceSynchronize();
+    if (syncErr != cudaSuccess) {
+        fprintf(stderr, "lightTreePick runtime error: %s\n", cudaGetErrorString(syncErr));
+        throw std::runtime_error(cudaGetErrorString(syncErr));
     }
 }

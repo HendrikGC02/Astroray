@@ -40,6 +40,10 @@ public:
 
     // Check if the sampler is empty (no lights).
     virtual bool empty() const = 0;
+
+    // pkg86-B: the underlying light tree, when this sampler has one.
+    // Non-tree samplers return nullptr; used by the GPU scene upload.
+    virtual const LightTree* tree() const { return nullptr; }
 };
 
 // ============================================================================
@@ -76,6 +80,8 @@ public:
     float pdfValue(const Vec3& point, const Vec3& dir) const override;
 
     bool empty() const override;
+
+    const LightTree* tree() const override { return tree_.get(); }
 
 private:
     const LightList* lightList_;

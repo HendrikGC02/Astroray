@@ -192,7 +192,9 @@ public:
         // p = (p + 0.000001) * 0.999999 (precision guard);
         // xi = abs((int)floor(p.x)); yi/zi same;
         // return ((xi % 2 == yi % 2) == (zi % 2)) ? 1 : 0;
-        Vec3 sp = (p + Vec3(1e-6f)) * (0.999999f * scale);
+        // Guard applied AFTER scaling, exactly like Cycles (epsilon must not
+        // scale with the cell size): floor(((co*scale) + 1e-6) * 0.999999).
+        Vec3 sp = (p * scale + Vec3(1e-6f)) * 0.999999f;
         int xi = std::abs((int)std::floor(sp.x));
         int yi = std::abs((int)std::floor(sp.y));
         int zi = std::abs((int)std::floor(sp.z));

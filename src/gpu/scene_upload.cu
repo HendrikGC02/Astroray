@@ -234,16 +234,11 @@ static void appendOnePrim(
             gt.flat_shaded = true;
         }
         gt.materialId = getOrAddMat(tri->getMaterial());
-        // pkg88-C.0 GPU — verify on RTX. Motion blur: append triangle's motion verts to buffer.
-        // tri->motionVertexBuffer is non-null iff triangle has motion data.
-        // WARNING: assumes appendOnePrim is called with triangles in the same order as
-        // Renderer::getScene() iteration (stable pointer into Renderer::motionVertices_).
-        // TODO BEFORE NEXT PICKUP: verify this pointer stability assumption holds on GPU.
+        // pkg88-C.0: defaults — the BVH primitive walk in buildSceneArrays
+        // resolves real offsets for motion triangles via motionPtrToOffset
+        // (per-batch stable pointers; see Renderer::motionVertexBatches_).
         gt.motionOffset = -1;
         gt.motionSteps = 1;
-        // NOTE: CPU Triangle::motionVertexBuffer points into Renderer::motionVertices_.
-        // We'll upload the entire motionVertices_ buffer in buildSceneArrays; here we
-        // just compute the offset. Defer actual upload until we know all triangles.
         r.triangles.push_back(gt);
         std::string objName = tri->getName();
         if (objName.empty()) objName = "Unnamed_Triangle_" + std::to_string(r.triangles.size() - 1);
@@ -455,13 +450,17 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         for (auto& n : cpuBvh->getNodes())
             r.nodes.push_back(convertNode(n));
         const auto& orderedPrims = cpuBvh->getPrimitives();
-        // pkg88-C.0: Build map of CPU Triangle* → Renderer::motionVertices_ offset
+        // pkg88-C.0: map CPU Triangle motion pointers → offsets in the
+        // CONCATENATED GPU buffer. Batches are stored separately on the CPU
+        // (stable per-batch pointers — pkg98 review fix); the GPU buffer is
+        // their concatenation in batch order, so offset = batchBase + i.
         std::unordered_map<const Vec3*, size_t> motionPtrToOffset;
-        if (!cpu.getMotionVertices().empty()) {
-            const Vec3* basePtr = cpu.getMotionVertices().data();
-            // NOTE: assumes each triangle's motionVertexBuffer points into contiguous buffer
-            for (size_t i = 0; i < cpu.getMotionVertices().size(); ++i) {
-                motionPtrToOffset[basePtr + i] = i;
+        {
+            size_t batchBase = 0;
+            for (const auto& batch : cpu.getMotionVertexBatches()) {
+                for (size_t i = 0; i < batch.size(); ++i)
+                    motionPtrToOffset[batch.data() + i] = batchBase + i;
+                batchBase += batch.size();
             }
         }
         for (auto& hittable : orderedPrims) {
@@ -681,19 +680,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         r.profileCount = (int)profIdx.size();
     }
 
-    // --- pkg88-C.0 GPU — verify on RTX. Motion vertices for deformation motion blur ---
-    // Convert the CPU Renderer's motionVertices_ buffer into GPU format. Each triangle
-    // that has motion points into this buffer via its motionOffset.
-    // NOTE: This copies the ENTIRE Renderer motion buffer. In a second pass (TODO after
-    // basic GPU verify), populate each GTriangle's motionOffset by walking the CPU
-    // Triangle's motionVertexBuffer pointer against the base of Renderer::motionVertices_.
-    const std::vector<Vec3>& cpuMotionVerts = cpu.getMotionVertices();
-    r.motionVertices.reserve(cpuMotionVerts.size());
-    for (const auto& v : cpuMotionVerts) {
-        r.motionVertices.push_back(GVec3(v.x, v.y, v.z));
+    // --- pkg88-C.0: motion vertices for deformation motion blur ---
+    // The GPU buffer is the concatenation of the CPU per-batch storage, in
+    // batch order — matching the motionPtrToOffset mapping built during the
+    // primitive walk above (each GTriangle::motionOffset indexes into this).
+    for (const auto& batch : cpu.getMotionVertexBatches()) {
+        for (const auto& v : batch)
+            r.motionVertices.push_back(GVec3(v.x, v.y, v.z));
     }
-    // TODO pkg88-C.0: populate each GTriangle::motionOffset by scanning the CPU scene
-    // and matching Triangle::motionVertexBuffer pointers. Deferred to avoid double-pass.
 
     // --- Environment map ---
     auto& em = cpu.getEnvironmentMap();

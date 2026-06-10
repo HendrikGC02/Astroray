@@ -818,8 +818,10 @@ public:
             motionBatch.emplace_back(pos_end(t, 1, 0), pos_end(t, 1, 1), pos_end(t, 1, 2));
             motionBatch.emplace_back(pos_end(t, 2, 0), pos_end(t, 2, 1), pos_end(t, 2, 2));
         }
-        size_t baseOffset = renderer.appendMotionVertices(motionBatch);
-        const Vec3* motionBase = renderer.getMotionVertices().data() + baseOffset;
+        // pkg98 review fix: appendMotionVertices stores the batch in stable
+        // per-batch storage and returns a lifetime-stable pointer (a second
+        // bulk call can no longer dangle this batch's triangle pointers).
+        const Vec3* motionBase = renderer.appendMotionVertices(std::move(motionBatch));
 
         for (py::ssize_t t = 0; t < nt; ++t) {
             Vec3 p0(pos_start(t, 0, 0), pos_start(t, 0, 1), pos_start(t, 0, 2));

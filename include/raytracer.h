@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <vector>
+#include <deque>
 #include <memory>
 #include <random>
 #include <limits>
@@ -2103,10 +2104,15 @@ class Renderer {
     std::vector<std::vector<std::shared_ptr<Hittable>>> meshPrims_;  // local-space prims per mesh
     std::vector<std::shared_ptr<BVHAccel>> meshBlas_;                 // per-mesh BLAS
     std::vector<InstanceRecord> instances_;
-    // pkg88-C.0 — scene-wide motion vertex buffer for deformation motion blur.
+    // pkg88-C.0 — scene-wide motion vertex storage for deformation motion blur.
     // Per Cycles motion_triangle.h (Apache-2.0): center step reuses static
     // vertices; additional steps stored here. Linear blend only (K ≤ 3 typical).
-    std::vector<Vec3> motionVertices_;  // additional time-step vertex positions
+    // ONE inner vector per add_triangles_bulk_motion batch: deque growth never
+    // moves existing batches and each inner vector is immutable after append,
+    // so Triangle::motionVertexBuffer pointers stay valid for the renderer's
+    // lifetime. (pkg98 review: a prior single-vector design dangled every
+    // earlier batch's pointers when the next batch reallocated it.)
+    std::deque<std::vector<Vec3>> motionVertexBatches_;
     LightList lights;
     std::shared_ptr<EnvironmentMap> envMap;
     Vec3 backgroundColor = Vec3(-1);  // negative = use default sky gradient
@@ -2836,16 +2842,18 @@ public:
     const std::vector<std::vector<std::shared_ptr<Hittable>>>& getMeshPrims() const { return meshPrims_; }
     const std::vector<InstanceRecord>& getInstances() const { return instances_; }
 
-    // pkg88-C.0 — motion blur API. Append motion vertices to the scene-wide buffer
-    // and return the offset. Caller then passes this offset to Triangle::setMotionData.
-    // Per Cycles: center step reuses static verts; additional steps stored here.
-    // motionVerts layout: [v0_end, v1_end, v2_end] for 2 steps, or [..., v0_step2, ...] for 3.
-    size_t appendMotionVertices(const std::vector<Vec3>& motionVerts) {
-        size_t offset = motionVertices_.size();
-        motionVertices_.insert(motionVertices_.end(), motionVerts.begin(), motionVerts.end());
-        return offset;
+    // pkg88-C.0 — motion blur API. Stores one BATCH of motion vertices and
+    // returns a stable pointer to its first element (valid for the renderer's
+    // lifetime — see motionVertexBatches_). Triangles index into the batch
+    // with motionVertexBuffer + tri*3 arithmetic, so contiguity holds within
+    // a batch. Layout per batch: [v0_end, v1_end, v2_end, ...] for 2 steps.
+    const Vec3* appendMotionVertices(std::vector<Vec3> motionVerts) {
+        motionVertexBatches_.push_back(std::move(motionVerts));
+        return motionVertexBatches_.back().data();
     }
-    const std::vector<Vec3>& getMotionVertices() const { return motionVertices_; }
+    const std::deque<std::vector<Vec3>>& getMotionVertexBatches() const {
+        return motionVertexBatches_;
+    }
 
     // Accessors for CUDARenderer (scene_upload.cu reads these to upload scene to GPU)
     const std::vector<std::shared_ptr<Hittable>>& getScene() const { return scene; }

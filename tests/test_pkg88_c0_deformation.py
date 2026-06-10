@@ -151,6 +151,43 @@ def test_bvh_union_aabb_correctness():
     )
 
 
+def test_two_motion_batches_no_dangling():
+    """pkg98 review regression: a SECOND add_triangles_bulk_motion call must
+    not invalidate the first batch's triangle motion pointers (the original
+    single-vector storage reallocated and dangled them — silent CPU heap
+    corruption). Two separately-batched movers must BOTH render correct
+    streaks, and the whole frame must be finite/sane."""
+    r = _make_renderer()
+    mat = _emissive_tri(r)
+
+    # Batch 1: left mover (pad with extra static-ish motion tris so a
+    # reallocation in a non-batched design would actually move memory).
+    p1, m1, mp1 = _tri_arrays(offset_x=-0.4)
+    m1[:] = mat
+    p1_end = p1.copy()
+    p1_end[:, :, 0] += 0.5
+    r.add_triangles_bulk_motion(p1, p1_end, m1, mp1, 0, _EMPTY_UV, [], _EMPTY_N)
+
+    # Batch 2: right mover — large batch to force any realloc.
+    n2 = 64
+    p2 = np.tile(_tri_arrays(offset_x=1.0)[0], (n2, 1, 1)).astype(np.float32)
+    p2[:, :, 2] -= np.linspace(0.0, 0.5, n2, dtype=np.float32)[:, None]
+    p2_end = p2.copy()
+    p2_end[:, :, 0] += 0.5
+    m2 = np.full(n2, mat, dtype=np.int32)
+    mp2 = np.zeros(n2, dtype=np.int32)
+    r.add_triangles_bulk_motion(p2, p2_end, m2, mp2, 0, _EMPTY_UV, [], _EMPTY_N)
+
+    img = _render(r)
+    assert np.all(np.isfinite(img)), "non-finite pixels — dangling motion pointers?"
+
+    gray = np.mean(img, axis=2)
+    lit = np.any(gray > 0.02, axis=0)
+    # Batch 1 streak spans the left half; batch 2 the right half.
+    assert lit[: W // 2].sum() > 5, "first batch's mover missing (dangled pointers)"
+    assert lit[W // 2 :].sum() > 5, "second batch's mover missing"
+
+
 _NEEDS_CUDA = pytest.mark.skipif(
     AVAILABLE and not astroray.__features__.get("cuda", False),
     reason="CUDA feature not in this build — GPU half verified on the RTX box",

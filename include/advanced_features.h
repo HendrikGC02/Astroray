@@ -675,7 +675,15 @@ inline float hash_float4_to_float(float kx, float ky, float kz, float kw) {
 }
 
 // PCG3D hash for int3 -> float3 (required by Voronoi cell colors).
-// Cycles util/hash.h:241-249 (Apache-2.0).
+// Cycles util/hash.h hash_pcg3d_i (Apache-2.0). NOTE: Cycles runs this on
+// SIGNED int3, so the >>16 is an ARITHMETIC shift — emulate it by casting
+// through int32_t for the shift only (all other arithmetic stays unsigned
+// for defined wraparound). pkg98 review: the logical-shift version diverged
+// bit-wise for negative intermediates.
+inline uint32_t pcg_xorshift_signed16(uint32_t v) {
+    return v ^ (uint32_t)(((int32_t)v) >> 16);
+}
+
 inline Vec3 hash_int3_to_float3(int ix, int iy, int iz) {
     uint32_t vx = (uint32_t)ix;
     uint32_t vy = (uint32_t)iy;
@@ -686,9 +694,9 @@ inline Vec3 hash_int3_to_float3(int ix, int iy, int iz) {
     vx += vy * vz;
     vy += vz * vx;
     vz += vx * vy;
-    vx = vx ^ (vx >> 16);
-    vy = vy ^ (vy >> 16);
-    vz = vz ^ (vz >> 16);
+    vx = pcg_xorshift_signed16(vx);
+    vy = pcg_xorshift_signed16(vy);
+    vz = pcg_xorshift_signed16(vz);
     vx += vy * vz;
     vy += vz * vx;
     vz += vx * vy;

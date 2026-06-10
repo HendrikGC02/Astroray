@@ -2511,7 +2511,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _resolve_vector_input(vector_socket, depth=0):
+    def _resolve_vector_input(vector_socket, depth=0, default_coord_mode="UV"):
         """Walk the Vector input on a TEX_IMAGE / procedural texture node and
         return ``(coord_mode, scale_xy, offset_xy, rotation_z, uv_layer_name)``:
 
@@ -2524,11 +2524,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
           ``Mapping`` node on the chain.
         - ``rotation_z``: float in radians, baked from a ``Mapping`` node's
           Rotation.z (Blender 2D-effective Z component). Default 0.
+        - ``default_coord_mode``: fallback when vector_socket is unlinked.
+          Per pkg115 Blender parity audit: procedural textures default to
+          "GENERATED", Image Texture defaults to "UV".
 
         Limit chain depth to avoid pathological node graphs (Mapping → Mapping
         → Mapping…).
         """
-        coord_mode = "UV"
+        coord_mode = default_coord_mode
         scale = (1.0, 1.0)
         offset = (0.0, 0.0)
         rotation = 0.0
@@ -2572,7 +2575,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # Recurse to find the upstream coord source.
             inner_socket = src.inputs.get('Vector') if hasattr(src, 'inputs') else None
             inner_coord, _inner_scale, _inner_offset, _inner_rot, inner_layer = \
-                CustomRaytracerRenderEngine._resolve_vector_input(inner_socket, depth + 1)
+                CustomRaytracerRenderEngine._resolve_vector_input(inner_socket, depth + 1, default_coord_mode)
             return inner_coord, scale, offset, rotation, inner_layer
 
         if ntype == 'TEX_COORD':
@@ -2651,7 +2654,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         """
         if bpy_image is None:
             return None
-        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input)
+        # Image Texture defaults to UV when Vector socket is unconnected.
+        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input, default_coord_mode="UV")
         cache_key = self._texture_variant_key(bpy_image.name, coord_mode, uv_scale, offset, rotation, uv_layer_name)
 
         # Deduplicate: a single (image, transform) pair is uploaded at most
@@ -2712,7 +2716,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # with different Mapping wiring gets distinct entries. A procedural
         # node only has one Vector input in practice, so the same id+vector
         # combination is always identical — the variant key is defensive.
-        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input)
+        # pkg115 parity fix: procedural textures default to GENERATED when
+        # Vector socket is unconnected (Blender standard behavior).
+        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input, default_coord_mode="GENERATED")
         cache_key = self._texture_variant_key(f"_proc_{id(node)}", coord_mode, uv_scale, offset, rotation, uv_layer_name)
         if cache_key in cache:
             return cache[cache_key]

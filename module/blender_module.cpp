@@ -358,6 +358,26 @@ public:
         return {result.x, result.y, result.z};
     }
 
+    // pkg115: debug helper for procedural-parity tests. Evaluates a texture at an
+    // explicit 3D point (not constrained to (u,v,u) like sample_texture).
+    std::vector<float> evalTextureAt3D(const std::string& type, py::dict params, float x, float y, float z) {
+        astroray::ParamDict p;
+        for (auto& item : params) {
+            auto key = item.first.cast<std::string>();
+            if (py::isinstance<py::float_>(item.second) || py::isinstance<py::int_>(item.second))
+                p.set(key, item.second.cast<float>());
+            else if (py::isinstance<py::str>(item.second))
+                p.set(key, item.second.cast<std::string>());
+            else if (py::isinstance<py::list>(item.second) || py::isinstance<py::tuple>(item.second)) {
+                auto seq = item.second.cast<std::vector<float>>();
+                if (seq.size() == 3) p.set(key, Vec3(seq[0], seq[1], seq[2]));
+            }
+        }
+        auto tex = astroray::TextureRegistry::instance().create(type, p);
+        Vec3 result = tex->value(Vec2(x, y), Vec3(x, y, z));
+        return {result.x, result.y, result.z};
+    }
+
     std::shared_ptr<Material> makeLegacyMaterial(
             const std::string& type, const Vec3& color, const py::dict& params) {
         auto getFloat = [&](const char* k, float d) { return params.contains(k) ? params[k].cast<float>() : d; };
@@ -2335,6 +2355,9 @@ PYBIND11_MODULE(astroray, m) {
         .def_property_readonly("gpu_device_name", &PyRenderer::getGPUDeviceName)
         .def("sample_texture", &PyRenderer::sampleTexture,
              "type"_a, "params"_a, "u"_a = 0.5f, "v"_a = 0.5f)
+        .def("eval_texture_at_3d", &PyRenderer::evalTextureAt3D,
+             "type"_a, "params"_a, "x"_a, "y"_a, "z"_a,
+             "pkg115 debug helper: evaluate texture at explicit (x,y,z) point")
         .def("set_integrator", &PyRenderer::setIntegrator, "name"_a)
         .def("get_integrator_stats", &PyRenderer::getIntegratorStats,
              "Return optional diagnostic counters from the active integrator.")

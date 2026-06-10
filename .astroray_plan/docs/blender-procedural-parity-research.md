@@ -534,16 +534,18 @@ Each step is independently verifiable with a per-evaluator unit test
 (engine `sample_texture()` vs values computed from the cited Cycles formulas)
 plus a paired-still RTX check at the end.
 
-1. **Coordinate/Mapping wiring** (no new math, unblocks everything):
+1. **Coordinate/Mapping wiring** (no new math, unblocks everything): ✅ **DONE (partial, chunk 1)**
    unconnected-Vector → Generated default in the addon translator; UV-mode 3D
    coord = `(u,v,0)`; Normal mode → signed object-space; full-3D Mapping
    transform applied to the resolved coordinate (port `svm_mapping`, POINT
    first). Cite `mapping_util.h`, `tex_coord.h`.
-2. **Checker** — ~10-line port of `svm_checker`. Immediate visual win.
+   **Status:** addon default fixed, UV/Normal coord fixes in place. Full-3D
+   Mapping deferred to next chunk.
+2. **Checker** — ~10-line port of `svm_checker`. Immediate visual win. ✅ **DONE (chunk 1)**
 3. **Gradient** — fix 4 formulas (quadratic clamp, spherical, quadratic
-   sphere, radial phase) per `svm_gradient`; add addon enum map.
+   sphere, radial phase) per `svm_gradient`; add addon enum map. ✅ **DONE (chunk 1)**
 4. **Magic** — verbatim port of `svm_magic` (no dependencies); switch evaluator
-   to RGB output.
+   to RGB output. ✅ **DONE (chunk 1)**
 5. **Hash family port** (`util/hash.h`: `hash_uint3`, `hash_float*`,
    `hash_int3_to_float3`) — enabler, plus **White Noise** evaluator (§3.8).
 6. **Perlin + fractal stack + Noise node** — `noise.h` (BSD-3) `perlin_3d`/

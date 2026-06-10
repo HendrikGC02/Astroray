@@ -99,7 +99,10 @@ protected:
                 return {Vec2(c.x, c.y), c};
             }
             case CoordMode::Normal: {
-                Vec3 n = rec.normal * 0.5f + Vec3(0.5f);
+                // pkg115 parity fix: Blender's Normal coordinate output is the
+                // signed object-space normal, no remap. Cycles svm/tex_coord.h:113-121,
+                // object_inverse_normal_transform(sd->N). Apache-2.0.
+                Vec3 n = rec.objectNormal;  // signed, object-space
                 return {Vec2(n.x, n.y), n};
             }
             case CoordMode::Reflection: {
@@ -111,7 +114,10 @@ protected:
                 return {rec.windowUV, Vec3(rec.windowUV.u, rec.windowUV.v, 0.0f)};
             case CoordMode::UV:
             default:
-                return {uv, rec.point};
+                // pkg115 parity fix: UV mode hands 3D evaluators (u,v,0), not the
+                // world hit position. Blender's UV/UVMap coordinate is 2D; a 3D texture
+                // node using it samples at (u,v,0) in its internal space. Audit §4.
+                return {uv, Vec3(uv.u, uv.v, 0.0f)};
         }
     }
 
@@ -176,8 +182,17 @@ public:
     CheckerTexture(const Vec3& c1, const Vec3& c2, float s = 10)
         : odd(std::make_shared<SolidColor>(c1)), even(std::make_shared<SolidColor>(c2)), scale(s) {}
     Vec3 value(const Vec2& uv, const Vec3& p) const override {
-        float sines = std::sin(scale*p.x) * std::sin(scale*p.y) * std::sin(scale*p.z);
-        return sines < 0 ? odd->value(uv, p) : even->value(uv, p);
+        // pkg115 parity fix: replace sine-product with Blender's floor-parity formula.
+        // Cycles intern/cycles/kernel/svm/checker.h::svm_checker (Apache-2.0):
+        // p = (p + 0.000001) * 0.999999 (precision guard);
+        // xi = abs((int)floor(p.x)); yi/zi same;
+        // return ((xi % 2 == yi % 2) == (zi % 2)) ? 1 : 0;
+        Vec3 sp = (p + Vec3(1e-6f)) * (0.999999f * scale);
+        int xi = std::abs((int)std::floor(sp.x));
+        int yi = std::abs((int)std::floor(sp.y));
+        int zi = std::abs((int)std::floor(sp.z));
+        bool checker = ((xi % 2 == yi % 2) == (zi % 2));
+        return checker ? even->value(uv, p) : odd->value(uv, p);
     }
 };
 
@@ -271,17 +286,43 @@ public:
     GradientTexture(int type = 0, const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1), float s = 1.0f)
         : gradType(type), color1(c1), color2(c2), scale(s) {}
     Vec3 value(const Vec2& uv, const Vec3& p) const override {
+        // pkg115 parity fixes per Cycles intern/cycles/kernel/svm/gradient.h::svm_gradient (Apache-2.0).
         Vec3 sp = p * scale;
         float t = 0;
         switch (gradType) {
-            case 1: t = std::clamp(sp.x * sp.x, 0.0f, 1.0f); break;          // quadratic
-            case 2: { float x = std::clamp(sp.x, 0.0f, 1.0f); t = x*x*(3-2*x); break; } // easing
-            case 3: t = std::clamp((sp.x + sp.y) * 0.5f, 0.0f, 1.0f); break; // diagonal
-            case 4: t = std::clamp(std::sqrt(sp.x*sp.x + sp.y*sp.y + sp.z*sp.z), 0.0f, 1.0f); break; // spherical
-            case 5: { float r = std::sqrt(sp.x*sp.x + sp.y*sp.y + sp.z*sp.z); t = 1.0f - std::clamp(r*r, 0.0f, 1.0f); break; } // quadratic sphere
-            case 6: t = std::fmod(std::atan2(sp.y, sp.x) / (2.0f * float(M_PI)) + 1.0f, 1.0f); break; // radial
-            default: t = std::clamp(sp.x, 0.0f, 1.0f); break;                // linear
+            case 1: { // quadratic: max(x,0)², then saturate
+                float r = std::max(sp.x, 0.0f);
+                t = r * r;
+                break;
+            }
+            case 2: { // easing: clamp then r²(3−2r)
+                float r = std::clamp(sp.x, 0.0f, 1.0f);
+                float t2 = r * r;
+                t = 3.0f * t2 - 2.0f * t2 * r;
+                break;
+            }
+            case 3: // diagonal: (x+y)·0.5
+                t = (sp.x + sp.y) * 0.5f;
+                break;
+            case 4: { // spherical: max(0.999999 − len, 0) — inverted from engine (was increasing)
+                float len = std::sqrt(sp.x*sp.x + sp.y*sp.y + sp.z*sp.z);
+                t = std::max(0.999999f - len, 0.0f);
+                break;
+            }
+            case 5: { // quadratic sphere: (max(0.999999 − len, 0))² — was 1−r²
+                float len = std::sqrt(sp.x*sp.x + sp.y*sp.y + sp.z*sp.z);
+                float r = std::max(0.999999f - len, 0.0f);
+                t = r * r;
+                break;
+            }
+            case 6: // radial: atan2(y,x)/2π + 0.5 — was +1.0 then fmod (half-turn phase offset)
+                t = std::atan2(sp.y, sp.x) / (2.0f * float(M_PI)) + 0.5f;
+                break;
+            default: // linear: x (saturate applied after switch)
+                t = sp.x;
+                break;
         }
+        t = std::clamp(t, 0.0f, 1.0f);  // Blender applies saturate at the end
         return color1 * (1.0f - t) + color2 * t;
     }
 };
@@ -345,23 +386,72 @@ public:
                  const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
         : turbDepth(depth), scale(sc), distortion(dist), color1(c1), color2(c2) {}
     Vec3 value(const Vec2&, const Vec3& p) const override {
-        float x = std::sin((p.x * scale + p.y * scale + p.z * scale) * float(M_PI));
-        float y = std::cos((-p.x * scale + p.y * scale - p.z * scale) * float(M_PI));
-        float z = -std::cos((-p.x * scale - p.y * scale + p.z * scale) * float(M_PI));
-        if (turbDepth > 1) {
-            float d = distortion * 0.25f;
-            x *= d; y *= d; z *= d;
-            y = -std::cos(x - y + z) * d;
-            if (turbDepth > 2) {
-                x = std::cos(x - y - z) * d;
-                if (turbDepth > 3) {
-                    z = std::sin(-x - y + z) * d;
-                    if (turbDepth > 4) y = -std::cos(x + y - z) * d;
+        // pkg115 parity fix: verbatim port of Cycles intern/cycles/kernel/svm/magic.h::svm_magic (Apache-2.0).
+        // Key differences from old engine math: fmod(p·scale, 2π) then ·5 (not scale·π),
+        // *= distortion per branch + final /= (2·distortion), depth ≤ 10 (was 5),
+        // output is true RGB (0.5−x, 0.5−y, 0.5−z), not a scalar 2-color lerp.
+        // Keep color1/color2 params for backward compat with standalone factory calls;
+        // addon passes (0,0,0)/(1,1,1) so this becomes a tint.
+        float px = std::fmod(p.x * scale, 2.0f * float(M_PI));
+        float py = std::fmod(p.y * scale, 2.0f * float(M_PI));
+        float pz = std::fmod(p.z * scale, 2.0f * float(M_PI));
+        float x = std::sin((px + py + pz) * 5.0f);
+        float y = std::cos((−px + py − pz) * 5.0f);
+        float z = −std::cos((−px − py + pz) * 5.0f);
+        int n = turbDepth;
+        float dist = distortion;
+        if (n > 0) {
+            x *= dist; y *= dist; z *= dist;
+            y = −std::cos(x − y + z);
+            y *= dist;
+            if (n > 1) {
+                x = std::cos(x − y − z);
+                x *= dist;
+                if (n > 2) {
+                    z = std::sin(−x − y − z);
+                    z *= dist;
+                    if (n > 3) {
+                        x = −std::cos(−x + y − z);
+                        x *= dist;
+                        if (n > 4) {
+                            y = −std::sin(−x + y + z);
+                            y *= dist;
+                            if (n > 5) {
+                                y = −std::cos(−x + y + z);
+                                y *= dist;
+                                if (n > 6) {
+                                    x = std::cos(x + y + z);
+                                    x *= dist;
+                                    if (n > 7) {
+                                        z = std::sin(x + y − z);
+                                        z *= dist;
+                                        if (n > 8) {
+                                            x = −std::cos(−x − y + z);
+                                            x *= dist;
+                                            if (n > 9) {
+                                                y = −std::sin(x − y + z);
+                                                y *= dist;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
-        float t = std::clamp(0.5f + 0.5f * (x + y + z) / 3.0f, 0.0f, 1.0f);
-        return color1 * (1.0f - t) + color2 * t;
+        if (dist != 0.0f) {
+            dist *= 2.0f;
+            x /= dist;
+            y /= dist;
+            z /= dist;
+        }
+        // Blender outputs true RGB: (0.5−x, 0.5−y, 0.5−z). For standalone factory
+        // backward compat, apply color1/color2 as a lerp tint using the average.
+        Vec3 rgb(0.5f − x, 0.5f − y, 0.5f − z);
+        float fac = (rgb.x + rgb.y + rgb.z) / 3.0f;
+        return color1 * (1.0f − fac) + color2 * fac;
     }
 };
 

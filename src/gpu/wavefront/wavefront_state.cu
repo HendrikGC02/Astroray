@@ -154,6 +154,7 @@ bool allocateGPUWavefrontHitBuffers(GPUWavefrontHitBuffers& hb, int capacity) {
     ALLOC_CHECK(hb.hit_bitangent_y, capacity * sizeof(float));
     ALLOC_CHECK(hb.hit_bitangent_z, capacity * sizeof(float));
     ALLOC_CHECK(hb.hit_material_id, capacity * sizeof(int));
+    ALLOC_CHECK(hb.hit_prim_id,     capacity * sizeof(int));
     ALLOC_CHECK(hb.hit_front_face,  capacity * sizeof(int));
     ALLOC_CHECK(hb.hit_is_delta,    capacity * sizeof(int));
     ALLOC_CHECK(hb.hit_valid,       capacity * sizeof(int));
@@ -178,6 +179,7 @@ void freeGPUWavefrontHitBuffers(GPUWavefrontHitBuffers& hb) {
     cudaFree(hb.hit_bitangent_y);
     cudaFree(hb.hit_bitangent_z);
     cudaFree(hb.hit_material_id);
+    cudaFree(hb.hit_prim_id);
     cudaFree(hb.hit_front_face);
     cudaFree(hb.hit_is_delta);
     cudaFree(hb.hit_valid);

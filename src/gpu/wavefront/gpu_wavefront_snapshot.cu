@@ -1017,6 +1017,14 @@ std::vector<float> cuda_wavefront_render(
             throw std::runtime_error(cudaGetErrorString(ae));
         }
 
+        // N+7 part 3: hit-record SoA for the intersect->shade handoff.
+        GPUWavefrontHitBuffers hitBufs;
+        bool hitBufsAllocated = allocateGPUWavefrontHitBuffers(hitBufs, total_paths);
+        if (!hitBufsAllocated) {
+            cudaFree(d_accum);
+            throw std::runtime_error("cuda_wavefront_render: hit buffer allocation failed");
+        }
+
         // N+7 part 2: alive-path queues (ping-pong) + device counters.
         // Compaction keeps later bounces dense as paths die (Laine 2013
         // sec. 4); the host never reads the counters (zero-sync).
@@ -1029,6 +1037,11 @@ std::vector<float> cuda_wavefront_render(
             if (d_counts) cudaFree(d_counts);
             cudaGetLastError();
         };
+        // N+7 part 3: material-bucketed shade queues (7 GMaterialType
+        // buckets, fixed stride total_paths) + per-bucket counters.
+        constexpr int kNumMatTypes = 7;  // GMAT_LAMBERTIAN..GMAT_CLOSURE_GRAPH
+        int* d_shadeQueues = nullptr;
+        int* d_shadeCounts = nullptr;
         cudaError_t qe = cudaMalloc(reinterpret_cast<void**>(&d_queueA),
                                     size_t(total_paths) * sizeof(int));
         if (qe == cudaSuccess)
@@ -1036,8 +1049,17 @@ std::vector<float> cuda_wavefront_render(
                             size_t(total_paths) * sizeof(int));
         if (qe == cudaSuccess)
             qe = cudaMalloc(reinterpret_cast<void**>(&d_counts), 2 * sizeof(int));
+        if (qe == cudaSuccess)
+            qe = cudaMalloc(reinterpret_cast<void**>(&d_shadeQueues),
+                            size_t(kNumMatTypes) * total_paths * sizeof(int));
+        if (qe == cudaSuccess)
+            qe = cudaMalloc(reinterpret_cast<void**>(&d_shadeCounts),
+                            kNumMatTypes * sizeof(int));
         if (qe != cudaSuccess) {
+            if (d_shadeQueues) cudaFree(d_shadeQueues);
+            if (d_shadeCounts) cudaFree(d_shadeCounts);
             qfree();
+            freeGPUWavefrontHitBuffers(hitBufs);
             cudaFree(d_accum);
             throw std::runtime_error(cudaGetErrorString(qe));
         }
@@ -1050,13 +1072,22 @@ std::vector<float> cuda_wavefront_render(
                 int* qout = d_queueB; int* cout = d_counts + 1;
                 for (int b = 0; b < max_depth; ++b) {
                     cudaMemsetAsync(cout, 0, sizeof(int));
-                    launchStageAdvanceQueued(state, qin, cin, qout, cout,
+                    cudaMemsetAsync(d_shadeCounts, 0, kNumMatTypes * sizeof(int));
+                    launchStageIntersectQueued(state, hitBufs, qin, cin,
+                                               d_shadeQueues, d_shadeCounts,
+                                               total_paths,
+                                               d_bvhNodes, d_prims, d_tris,
+                                               d_spheres, d_materials,
+                                               envMap, gbg, hasBg,
+                                               worldMaxBounces);
+                    launchStageShadeBucketed(state, hitBufs,
+                                             d_shadeQueues, d_shadeCounts,
+                                             total_paths, qout, cout,
                                              d_bvhNodes, d_prims, d_tris,
                                              d_spheres, d_materials, d_lights,
                                              (int)res.lights.size(),
                                              res.totalLightPower,
-                                             treeView, envMap, gbg, hasBg,
-                                             worldMaxBounces, max_depth);
+                                             treeView, max_depth);
                     int* tq = qin; qin = qout; qout = tq;
                     int* tc = cin; cin = cout; cout = tc;
                 }
@@ -1070,6 +1101,9 @@ std::vector<float> cuda_wavefront_render(
                     std::string("cuda_wavefront_render kernel error: ") +
                     cudaGetErrorString(syncErr));
         } catch (...) {
+            cudaFree(d_shadeQueues);
+            cudaFree(d_shadeCounts);
+            freeGPUWavefrontHitBuffers(hitBufs);
             qfree();
             cudaFree(d_accum);
             throw;
@@ -1079,6 +1113,9 @@ std::vector<float> cuda_wavefront_render(
         cudaError_t de = cudaMemcpy(h_accum.data(), d_accum,
                                     size_t(total_paths) * 3 * sizeof(float),
                                     cudaMemcpyDeviceToHost);
+        cudaFree(d_shadeQueues);
+        cudaFree(d_shadeCounts);
+        freeGPUWavefrontHitBuffers(hitBufs);
         qfree();
         cudaFree(d_accum);
         if (de != cudaSuccess)

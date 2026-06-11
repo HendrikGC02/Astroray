@@ -179,6 +179,7 @@ void launchStageRussianRoulette_SessionN4(
 // the N+3..N+5 per-stage kernels remain as the gated diff instruments.
 void launchStageAdvance(
     GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
@@ -196,6 +197,7 @@ void launchStageAdvance(
 // device pointers; the host never reads the counters (zero-sync driver).
 void launchStageAdvanceQueued(
     GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
     const int* d_queue_in, const int* d_count_in,
     int* d_queue_out, int* d_count_out,
     const GBVHNode*   d_bvhNodes,
@@ -212,6 +214,37 @@ void launchStageAdvanceQueued(
 
 // Fills d_queue with 0..n-1 and *d_count = n (bounce-0 population).
 void launchStageQueueIota(int* d_queue, int* d_count, int n);
+
+// Session N+7 part 3: staged intersect/shade with material-bucketed shade
+// queues (7 GMaterialType buckets, fixed stride = capacity). One shade
+// launch covers all buckets with warp-coherent material types.
+void launchStageIntersectQueued(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const int* d_queue_in, const int* d_count_in,
+    int* d_shade_queues, int* d_shade_counts, int capacity,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces);
+
+void launchStageShadeBucketed(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const int* d_shade_queues, const int* d_shade_counts, int capacity,
+    int* d_queue_out, int* d_count_out,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    int               max_depth);
 
 // Session N+7: device-side per-sample XYZ accumulation (radiance -> XYZ ->
 // firefly clamp -> += accum). accum_xyz is 3 floats per slot, zeroed by the
@@ -245,6 +278,7 @@ struct GPUWavefrontHitBuffers {
     float* hit_bitangent_y  = nullptr;
     float* hit_bitangent_z  = nullptr;
     int*   hit_material_id  = nullptr;
+    int*   hit_prim_id      = nullptr;  // N+7 part 3: GHitRecord.primId carry
     int*   hit_front_face   = nullptr;  // 0/1
     int*   hit_is_delta     = nullptr;  // 0/1
     int*   hit_valid        = nullptr;  // 0 = miss, 1 = hit

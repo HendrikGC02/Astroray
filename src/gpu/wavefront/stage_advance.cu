@@ -87,6 +87,9 @@ constexpr int kRRDepth = 3;  // mirrors CPU path_kernel.cpp kRRDepth
 
 }  // namespace
 
+// GMAT_LAMBERTIAN=0 .. GMAT_CLOSURE_GRAPH=6 (gpu_types.h GMaterialType).
+constexpr int G_WF_NUM_MAT_TYPES = 7;
+
 // ---------------------------------------------------------------------------
 // N+7 part 2: the one-bounce advance body, shared by the dense kernel
 // (stageAdvanceKernel) and the queued kernel (stageAdvanceQueuedKernel) --
@@ -94,20 +97,28 @@ constexpr int kRRDepth = 3;  // mirrors CPU path_kernel.cpp kRRDepth
 // purely a scheduling change (Laine 2013 sec. 4 compaction; Cycles X uses
 // the same dense-active-queue structure in its integrator queues).
 // Returns true when the path survives into the next bounce.
-__device__ bool advancePathSlot(
+// N+7 part 3: the advance body is split at the post-emissive boundary into
+// intersectPathSlot (intersect + env-miss + emissive; consumes NO RNG
+// dimensions, so the cut preserves the RNG stream exactly) and
+// shadePathSlot (NEE + RR + BSDF). advancePathSlot composes the two, so the
+// dense and flat-queued kernels and the staged kernels all run the SAME
+// compiled halves -- one generator (design decision #9).
+//
+// intersectPathSlot returns -1 when the path died, else the GMaterialType
+// of the hit (0..GMAT_CLOSURE_GRAPH) for shade-queue bucketing. The hit
+// record is parked in GPUWavefrontHitBuffers SoA at the slot index.
+__device__ int intersectPathSlot(
     int idx,
     GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
     const ::GMaterial* materials,
-    const ::GLight*    lights, int numLights, float totalLightPower,
-    GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
-    int               worldMaxBounces,
-    int               max_depth)
+    int               worldMaxBounces)
 {
     const int bounce = state.bounce[idx];
 
@@ -141,13 +152,10 @@ __device__ bool advancePathSlot(
     color.v[2] = state.color_2[idx];
     color.v[3] = state.color_3[idx];
 
-    WavefrontRNG rng(state.rng_pixel[idx], state.rng_sample[idx],
-                     state.rng_seed[idx]);
-    rng.setDimension(state.rng_dimension[idx]);
-
     bool wasSpecular = state.was_specular[idx] != 0;
 
     // ---- Intersect (CPU: bvh->hit; ray direction NOT renormalized).
+    // This half consumes no RNG dimensions; state.rng_dimension is untouched.
     GHitRecord rec;
     bool hit = gpu_bvh_hit(bvhNodes, prims, tris, spheres,
                            ray, 0.001f, 1e30f, rec, /*motionVerts=*/nullptr);
@@ -166,8 +174,7 @@ __device__ bool advancePathSlot(
             state.color_3[idx] = color.v[3];
         }
         state.path_alive[idx] = 0;
-        state.rng_dimension[idx] = rng.dimension();
-        return false;
+        return -1;
     }
 
     const ::GMaterial& mat = materials[rec.materialId];
@@ -183,9 +190,97 @@ __device__ bool advancePathSlot(
             state.color_3[idx] = color.v[3];
         }
         state.path_alive[idx] = 0;
-        state.rng_dimension[idx] = rng.dimension();
-        return false;
+        return -1;
     }
+
+    // ---- Park the hit record in SoA for the shade stage.
+    hitBufs.hit_t[idx]           = rec.t;
+    hitBufs.hit_point_x[idx]     = rec.point.x;
+    hitBufs.hit_point_y[idx]     = rec.point.y;
+    hitBufs.hit_point_z[idx]     = rec.point.z;
+    hitBufs.hit_normal_x[idx]    = rec.normal.x;
+    hitBufs.hit_normal_y[idx]    = rec.normal.y;
+    hitBufs.hit_normal_z[idx]    = rec.normal.z;
+    hitBufs.hit_tangent_x[idx]   = rec.tangent.x;
+    hitBufs.hit_tangent_y[idx]   = rec.tangent.y;
+    hitBufs.hit_tangent_z[idx]   = rec.tangent.z;
+    hitBufs.hit_bitangent_x[idx] = rec.bitangent.x;
+    hitBufs.hit_bitangent_y[idx] = rec.bitangent.y;
+    hitBufs.hit_bitangent_z[idx] = rec.bitangent.z;
+    hitBufs.hit_material_id[idx] = rec.materialId;
+    hitBufs.hit_prim_id[idx]     = rec.primId;
+    hitBufs.hit_front_face[idx]  = rec.frontFace ? 1 : 0;
+    hitBufs.hit_is_delta[idx]    = rec.isDelta ? 1 : 0;
+    hitBufs.hit_valid[idx]       = 1;
+    return (int)mat.type;
+}
+
+// Shade half: NEE + RR + BSDF over the parked hit record. Returns true when
+// the path survives into the next bounce.
+__device__ bool shadePathSlot(
+    int idx,
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const ::GMaterial* materials,
+    const ::GLight*    lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,
+    int               max_depth)
+{
+    const int bounce = state.bounce[idx];
+
+    GRay ray;
+    ray.direction = GVec3(state.ray_direction_x[idx], state.ray_direction_y[idx],
+                          state.ray_direction_z[idx]);
+
+    GSampledWavelengths lambdas;
+    lambdas.lambda[0] = state.lambda_0[idx];
+    lambdas.lambda[1] = state.lambda_1[idx];
+    lambdas.lambda[2] = state.lambda_2[idx];
+    lambdas.lambda[3] = state.lambda_3[idx];
+    lambdas.pdf[0] = state.lambda_pdf_0[idx];
+    lambdas.pdf[1] = state.lambda_pdf_1[idx];
+    lambdas.pdf[2] = state.lambda_pdf_2[idx];
+    lambdas.pdf[3] = state.lambda_pdf_3[idx];
+
+    GSampledSpectrum throughput;
+    throughput.v[0] = state.throughput_0[idx];
+    throughput.v[1] = state.throughput_1[idx];
+    throughput.v[2] = state.throughput_2[idx];
+    throughput.v[3] = state.throughput_3[idx];
+
+    GSampledSpectrum color;
+    color.v[0] = state.color_0[idx];
+    color.v[1] = state.color_1[idx];
+    color.v[2] = state.color_2[idx];
+    color.v[3] = state.color_3[idx];
+
+    WavefrontRNG rng(state.rng_pixel[idx], state.rng_sample[idx],
+                     state.rng_seed[idx]);
+    rng.setDimension(state.rng_dimension[idx]);
+
+    bool wasSpecular = state.was_specular[idx] != 0;
+
+    // ---- Reconstruct the hit record parked by intersectPathSlot.
+    GHitRecord rec;
+    rec.t          = hitBufs.hit_t[idx];
+    rec.point      = GVec3(hitBufs.hit_point_x[idx], hitBufs.hit_point_y[idx],
+                           hitBufs.hit_point_z[idx]);
+    rec.normal     = GVec3(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx],
+                           hitBufs.hit_normal_z[idx]);
+    rec.tangent    = GVec3(hitBufs.hit_tangent_x[idx], hitBufs.hit_tangent_y[idx],
+                           hitBufs.hit_tangent_z[idx]);
+    rec.bitangent  = GVec3(hitBufs.hit_bitangent_x[idx], hitBufs.hit_bitangent_y[idx],
+                           hitBufs.hit_bitangent_z[idx]);
+    rec.materialId = hitBufs.hit_material_id[idx];
+    rec.primId     = hitBufs.hit_prim_id[idx];
+    rec.frontFace  = hitBufs.hit_front_face[idx] != 0;
+    rec.isDelta    = hitBufs.hit_is_delta[idx] != 0;
+
+    const ::GMaterial& mat = materials[rec.materialId];
 
     GVec3 wo = (ray.direction * -1.0f).normalized();
 
@@ -290,8 +385,37 @@ __device__ bool advancePathSlot(
 // (a) the reference scheduling for the part-3 intersect/shade split's
 // equivalence checks and (b) a fallback that needs no queue allocations.
 // It currently has no in-tree caller (pkg98 N+7p2 review finding F1).
+//
+// Composition wrapper -- the flat (unstaged) scheduling. Dense and
+// flat-queued kernels run EXACTLY intersect-half + shade-half back to back.
+__device__ bool advancePathSlot(
+    int idx,
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const ::GMaterial* materials,
+    const ::GLight*    lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    int               max_depth)
+{
+    int matType = intersectPathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
+                                    spheres, materials, envMap, backgroundColor,
+                                    hasBackgroundColor, worldMaxBounces);
+    if (matType < 0) return false;
+    return shadePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres,
+                         materials, lights, numLights, totalLightPower,
+                         lightTree, max_depth);
+}
+
 __global__ void stageAdvanceKernel(
     GPUWavefrontState state,
+    GPUWavefrontHitBuffers hitBufs,
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
@@ -307,7 +431,7 @@ __global__ void stageAdvanceKernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= state.num_active) return;
     if (state.path_alive[idx] == 0) return;
-    advancePathSlot(idx, state, bvhNodes, prims, tris, spheres, materials,
+    advancePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres, materials,
                     lights, numLights, totalLightPower, lightTree, envMap,
                     backgroundColor, hasBackgroundColor, worldMaxBounces,
                     max_depth);
@@ -325,6 +449,7 @@ __global__ void stageAdvanceKernel(
 // ---------------------------------------------------------------------------
 __global__ void stageAdvanceQueuedKernel(
     GPUWavefrontState state,
+    GPUWavefrontHitBuffers hitBufs,
     const int* queue_in, const int* count_in,
     int* queue_out, int* count_out,
     const GBVHNode*   bvhNodes,
@@ -342,7 +467,7 @@ __global__ void stageAdvanceQueuedKernel(
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
     int idx = queue_in[i];
-    bool alive = advancePathSlot(idx, state, bvhNodes, prims, tris, spheres,
+    bool alive = advancePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres,
                                  materials, lights, numLights, totalLightPower,
                                  lightTree, envMap, backgroundColor,
                                  hasBackgroundColor, worldMaxBounces, max_depth);
@@ -359,6 +484,71 @@ __global__ void stageQueueIotaKernel(int* queue, int* count, int n)
     if (i >= n) return;
     queue[i] = i;
     if (i == 0) *count = n;
+}
+
+// ---------------------------------------------------------------------------
+// N+7 part 3: staged scheduling -- intersect stage buckets surviving paths
+// by material type into per-type shade queues (fixed stride `capacity` per
+// bucket), then ONE shade launch covers all buckets with warp-coherent
+// material types (thread i -> bucket i/capacity). This is the sort-by-
+// material dispatch of Laine 2013 sec. 5 / Cycles X shader sorting, realized
+// as bucketed atomic append instead of a radix sort (7 types only).
+// ---------------------------------------------------------------------------
+__global__ void stageIntersectQueuedKernel(
+    GPUWavefrontState state,
+    GPUWavefrontHitBuffers hitBufs,
+    const int* queue_in, const int* count_in,
+    int* shade_queues,     // NUM_TYPES * capacity ints, bucket m at m*capacity
+    int* shade_counts,     // NUM_TYPES ints
+    int  capacity,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const ::GMaterial* materials,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= *count_in) return;
+    int idx = queue_in[i];
+    int matType = intersectPathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
+                                    spheres, materials, envMap, backgroundColor,
+                                    hasBackgroundColor, worldMaxBounces);
+    if (matType < 0) return;
+    if (matType >= G_WF_NUM_MAT_TYPES) matType = G_WF_NUM_MAT_TYPES - 1;
+    int slot = atomicAdd(&shade_counts[matType], 1);
+    shade_queues[matType * capacity + slot] = idx;
+}
+
+__global__ void stageShadeBucketedKernel(
+    GPUWavefrontState state,
+    GPUWavefrontHitBuffers hitBufs,
+    const int* shade_queues, const int* shade_counts, int capacity,
+    int* queue_out, int* count_out,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const ::GMaterial* materials,
+    const ::GLight*    lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,
+    int               max_depth)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int bucket = i / capacity;
+    int pos    = i - bucket * capacity;
+    if (bucket >= G_WF_NUM_MAT_TYPES) return;
+    if (pos >= shade_counts[bucket]) return;
+    int idx = shade_queues[bucket * capacity + pos];
+    bool alive = shadePathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
+                               spheres, materials, lights, numLights,
+                               totalLightPower, lightTree, max_depth);
+    if (alive) {
+        int slot = atomicAdd(count_out, 1);
+        queue_out[slot] = idx;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -438,6 +628,7 @@ void launchStageAccumulateXYZ(
 
 void launchStageAdvance(
     GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
@@ -459,7 +650,7 @@ void launchStageAdvance(
             "wavefront_stage_advance_n6",
             (const void*)stageAdvanceKernel, blocks, threads);
         stageAdvanceKernel<<<blocks, threads>>>(
-            state, d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            state, hitBufs, d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, num_lights, total_light_power, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
             worldMaxBounces, max_depth);
@@ -490,6 +681,7 @@ void launchStageAdvance(
 
 void launchStageAdvanceQueued(
     GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
     const int* d_queue_in, const int* d_count_in,
     int* d_queue_out, int* d_count_out,
     const GBVHNode*   d_bvhNodes,
@@ -515,7 +707,7 @@ void launchStageAdvanceQueued(
             "wavefront_stage_advance_queued_n7",
             (const void*)stageAdvanceQueuedKernel, blocks, threads);
         stageAdvanceQueuedKernel<<<blocks, threads>>>(
-            state, d_queue_in, d_count_in, d_queue_out, d_count_out,
+            state, hitBufs, d_queue_in, d_count_in, d_queue_out, d_count_out,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, num_lights, total_light_power, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
@@ -540,6 +732,81 @@ void launchStageQueueIota(int* d_queue, int* d_count, int n)
         std::fprintf(stderr, "stage_queue_iota launch error: %s\n",
                      cudaGetErrorString(err));
         throw std::runtime_error(cudaGetErrorString(err));
+    }
+}
+
+void launchStageIntersectQueued(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const int* d_queue_in, const int* d_count_in,
+    int* d_shade_queues, int* d_shade_counts, int capacity,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces)
+{
+    if (state.num_active <= 0) return;
+    int threads = 256;
+    int blocks  = (state.num_active + threads - 1) / threads;
+    {
+        astroray::gpu_profile::ScopedTimer _t(
+            "wavefront_stage_intersect_queued_n7",
+            (const void*)stageIntersectQueuedKernel, blocks, threads);
+        stageIntersectQueuedKernel<<<blocks, threads>>>(
+            state, hitBufs, d_queue_in, d_count_in,
+            d_shade_queues, d_shade_counts, capacity,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            envMap, backgroundColor, hasBackgroundColor, worldMaxBounces);
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::fprintf(stderr, "stage_intersect_queued launch error: %s\n",
+                         cudaGetErrorString(err));
+            throw std::runtime_error(cudaGetErrorString(err));
+        }
+    }
+}
+
+void launchStageShadeBucketed(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const int* d_shade_queues, const int* d_shade_counts, int capacity,
+    int* d_queue_out, int* d_count_out,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    int               max_depth)
+{
+    if (capacity <= 0) return;
+    // One launch covers all buckets: grid = NUM_TYPES * capacity threads;
+    // capacity is a multiple of the block size in practice but the kernel
+    // handles any value. Threads past a bucket's count retire immediately;
+    // surviving warps are material-coherent within their bucket.
+    long long total = (long long)G_WF_NUM_MAT_TYPES * capacity;
+    int threads = 256;
+    int blocks  = (int)((total + threads - 1) / threads);
+    {
+        astroray::gpu_profile::ScopedTimer _t(
+            "wavefront_stage_shade_bucketed_n7",
+            (const void*)stageShadeBucketedKernel, blocks, threads);
+        stageShadeBucketedKernel<<<blocks, threads>>>(
+            state, hitBufs, d_shade_queues, d_shade_counts, capacity,
+            d_queue_out, d_count_out,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            d_lights, num_lights, total_light_power, lightTree, max_depth);
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::fprintf(stderr, "stage_shade_bucketed launch error: %s\n",
+                         cudaGetErrorString(err));
+            throw std::runtime_error(cudaGetErrorString(err));
+        }
     }
 }
 

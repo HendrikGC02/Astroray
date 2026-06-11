@@ -556,9 +556,16 @@ plus a paired-still RTX check at the end.
    factory params (directions, phase, dscale). ✅ **DONE 2026-06-11 (chunk 3)**
 8. **Brick** — port `svm_brick` + `brick_noise`; 3D input; new params. ✅ **DONE 2026-06-11 (chunk 3)**
 9. **Voronoi** — largest port: metrics + F1/F2/SmoothF1/DistToEdge/NSphere +
-   fractal wrapper + normalize + multi-output mapping.
+   fractal wrapper + normalize + multi-output mapping. ✅ **DONE 2026-06-11 (chunk 4, PR #445)**
 10. **Addon translator + duplication removal + standalone CI example**
-    (Stage 3/4 of the package spec).
+    (Stage 3/4 of the package spec). 🔶 **PARTIAL 2026-06-11 (chunk 5):** addon
+    `ShaderNodeTexVoronoi` translation updated to the new feature enum
+    (0=F1,1=SmoothF1,2=F2,3=DistToEdge,4=NSphere) + full detail/roughness/
+    lacunarity/exponent/normalize wiring; `create_procedural_texture("voronoi", …)`
+    factory extended to forward the trailing params (backward-compatible);
+    standalone CI example added. REMAINING: addon-side private texture-definition
+    duplication removal (Approach step 4) and the Blender-vs-Cycles paired-still
+    visual (RTX `/verify`).
 
 ---
 

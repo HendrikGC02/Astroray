@@ -435,3 +435,65 @@ def test_apply_texture_transform_skips_identity_with_zero_rotation(monkeypatch):
     )
     assert renderer.uv_transform_calls == []
     assert renderer.coord_mode_calls == []
+
+
+# ---------------------------------------------------------------------------
+# pkg115 item 10 — ShaderNodeTexVoronoi translation
+#
+# The C++ VoronoiTexture feature enum changed in pkg115 chunk 4 (PR #445):
+#   0=F1, 1=Smooth F1, 2=F2, 3=Distance to Edge, 4=N-Sphere Radius.
+# These tests pin the addon's feature/metric/normalize mapping and the full
+# Cycles-parity param vector so the stale-enum class of regression (which CI
+# cannot catch -- no Blender in CI) fails loudly here instead.
+# ---------------------------------------------------------------------------
+
+def _voronoi_node(feature='F1', distance='EUCLIDEAN', normalize=False):
+    return _Node('TEX_VORONOI', inputs={
+        'Vector':     _Socket(),  # unlinked -> GENERATED
+        'Scale':      _Socket(default=6.0),
+        'Detail':     _Socket(default=3.0),
+        'Roughness':  _Socket(default=0.7),
+        'Lacunarity': _Socket(default=2.5),
+        'Smoothness': _Socket(default=0.8),
+        'Exponent':   _Socket(default=1.5),
+        'Randomness': _Socket(default=0.9),
+    }, feature=feature, distance=distance, normalize=normalize)
+
+
+def test_voronoi_translation_param_vector(monkeypatch):
+    """Full 16-float Cycles-parity vector in the documented order:
+       [scale, randomness, dist_metric, feature, smoothness,
+        r1,g1,b1, r2,g2,b2, detail, roughness, lacunarity, exponent, normalize]."""
+    addon = _load_blender_addon(monkeypatch)
+    engine = addon.CustomRaytracerRenderEngine()
+    renderer = _RecordingRenderer()
+    node = _voronoi_node(feature='F2', distance='MINKOWSKI', normalize=True)
+    engine.load_procedural_texture(node, renderer, vector_input=node.inputs['Vector'])
+
+    assert len(renderer.proc_texture_calls) == 1
+    name, ttype, params = renderer.proc_texture_calls[0]
+    assert ttype == 'voronoi'
+    assert len(params) == 16, f"expected 16 params, got {len(params)}: {params}"
+    scale, rand, dm, feat, smooth = params[0:5]
+    colors = params[5:11]
+    detail, rough, lac, expo, norm = params[11:16]
+    assert (scale, rand, smooth) == (6.0, 0.9, 0.8)
+    assert dm == 3.0, "MINKOWSKI must map to metric index 3"
+    assert feat == 2.0, "F2 must map to feature index 2 (new enum), not the legacy 1"
+    assert colors == [0, 0, 0, 1, 1, 1]
+    assert (detail, rough, lac, expo) == (3.0, 0.7, 2.5, 1.5)
+    assert norm == 1.0, "normalize=True must pass 1.0"
+
+
+def test_voronoi_feature_enum_matches_cpp(monkeypatch):
+    """Every Blender feature value maps to the matching C++ VoronoiTexture index."""
+    addon = _load_blender_addon(monkeypatch)
+    engine = addon.CustomRaytracerRenderEngine()
+    expected = {'F1': 0.0, 'SMOOTH_F1': 1.0, 'F2': 2.0,
+                'DISTANCE_TO_EDGE': 3.0, 'N_SPHERE_RADIUS': 4.0}
+    for feature, idx in expected.items():
+        renderer = _RecordingRenderer()
+        node = _voronoi_node(feature=feature)
+        engine.load_procedural_texture(node, renderer, vector_input=node.inputs['Vector'])
+        _n, _t, params = renderer.proc_texture_calls[0]
+        assert params[3] == idx, f"{feature} -> {params[3]}, expected {idx}"

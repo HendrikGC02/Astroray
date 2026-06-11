@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon) + 2 (materials/textures)
 **Track:** A
 **Codex-paste-ready:** no (large, staged; RTX visual verify)
-**Status:** Stage 2 chunk 3 done (2026-06-11 — Wave + Brick parity). Chunks 1-2 merged (PR #439 coord defaults, PR #441 hash+Perlin+fBM). REMAINING: Voronoi (audit §6.9), addon translator dedup + standalone CI example + RTX visual verify vs Cycles.
+**Status:** Stage 2 chunk 4 done (2026-06-11 — full Cycles-parity Voronoi, PR #445). Chunk 5 (2026-06-11): addon `ShaderNodeTexVoronoi` translation + factory full-param wiring + standalone CI example. Chunks 1-3 merged (PR #439 coord defaults, PR #441 hash+Perlin+fBM, PR #442 Wave+Brick). REMAINING: addon-side private texture-definition duplication removal (Approach step 4) + Blender-vs-Cycles RTX visual verify.
 **Depends on:** pkg57 (done — established the additive custom-node pattern and
 the `convert_node_material` traversal). Benefits from pkg112.
 **Estimated effort:** L (multi-week, staged)

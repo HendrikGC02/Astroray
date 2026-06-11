@@ -82,3 +82,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam);
 inline SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera& cam) {
     return buildSceneArrays(cpu, &cam);
 }
+
+// pkg114 inc 3d — TLAS-only refit. Rebuilds ONLY r.tlas + r.instances from the
+// current instance transforms (no BLAS geometry walk); the caller re-pushes just
+// those two device buffers. All other SceneUploadResult fields stay empty.
+SceneUploadResult buildTlasOnly(const Renderer& cpu);

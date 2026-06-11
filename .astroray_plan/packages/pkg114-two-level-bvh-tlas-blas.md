@@ -53,9 +53,17 @@ acceleration-structure package explicitly deferred by pkg56 §4.1.
   mean-abs-diff **0.0007**, per-channel ratios ~0.9997, flat-scene objects
   **325 → 5** (4 props collapsed into one shared BLAS + 4 instances; floor stays
   flat). Multi-material + smooth normals + non-uniform scale + mirror exercised.
-- **Inc 3d (remaining):** the transform-only depsgraph refit
-  (`_renderer_object_id_map` → `update_instance_transform` → TLAS-only re-upload)
-  for the pkg56 ≤50%-baseline viewport budget.
+- **Inc 3d (TLAS-only refit landed — PR pending):** `update_instance_transform`
+  (CPU, in place) + `upload_instance_transforms` re-push ONLY `d_instances` +
+  `d_tlas` (no BLAS geometry walk; per-mesh bounds from each cached BLAS's O(1)
+  `boundingBox`), and `render(skip_upload=True)` renders from the existing device
+  state. The instance/TLAS construction is shared with the full build
+  (`buildInstancesAndTlas`) so a refit is byte-identical. RTX: refit-then-
+  skip-upload render == a from-scratch build at the new transform (mad < 0.02,
+  with a negative control proving `skip_upload` reads device state); refit upload
+  cost **19.5%** of a full `upload_geometry` (≤50% budget met). `test_tlas_refit.py`.
+  Wiring the exporter's `Change.TRANSFORMS` branch to call these for instanced
+  objects (instance-id map) is the small remaining integration.
 
   **Decisions (inc 3c):** (1) addon instancing is **GPU-only**; CPU has no
   two-level traversal (renders solely via the scene-only `bvh`), so CPU keeps
@@ -130,7 +138,10 @@ to `.astroray_plan/docs/two-level-bvh-research.md` before coding.
       *(inc 2: GPU API + `register_mesh`/`add_instance` shares one BLAS — 4 prims
       vs 12 baked, pixel-parity 8.1e-9. The Blender collection/particle path is
       inc 3.)*
-- [ ] Transform-only viewport edit ≤ **50%** of the pkg56 Phase-A baseline. *(inc 3)*
+- [x] Transform-only viewport edit ≤ **50%** of the pkg56 Phase-A baseline. *(inc 3d:
+      `update_instance_transform` + `upload_instance_transforms` (TLAS-only re-push) +
+      `render(skip_upload=True)`. Measured refit = **19.5%** of a full `upload_geometry`
+      on 3200-tri ×16-instance; gap widens with geometry. `test_tlas_refit.py`.)*
 - [x] **Pixel parity** vs single-level BVH on static scenes (RTX). *(inc 2:
       mean ratio 1.00000, mean abs diff 8.1e-9; inc 1 identity probe byte-exact)*
 - [x] CPU/GPU parity gate green. *(routing is byte-safe for non-instanced scenes;

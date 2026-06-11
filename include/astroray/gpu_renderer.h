@@ -55,6 +55,12 @@ public:
     void uploadLights(const Renderer& cpuRenderer);
     void uploadEnvironment(const Renderer& cpuRenderer);
 
+    // pkg114 inc 3d — TLAS-only refit: re-push ONLY the instance transforms + TLAS
+    // (d_instances / d_tlas) from the current CPU instance list, leaving all BLAS
+    // geometry on the device untouched. The cheap path for a transform-only
+    // viewport edit of an instanced object (pkg56 <=50%-baseline budget).
+    void uploadInstanceTransforms(const Renderer& cpuRenderer);
+
     // pkg86-B: wall-clock cost of the most recent light-tree upload (ms).
     // 0 when no tree was uploaded. Spec gates <= 10 ms on 10k lights.
     float lightTreeUploadMs() const;

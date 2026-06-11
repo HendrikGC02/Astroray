@@ -366,6 +366,18 @@ void CUDARenderer::uploadGeometry(const Renderer& cpuRenderer, const Camera& cam
            r.nodes.size(), r.prims.size(), r.triangles.size(), r.spheres.size());
 }
 
+void CUDARenderer::uploadInstanceTransforms(const Renderer& cpuRenderer) {
+    if (!impl->available) throw std::runtime_error("No CUDA GPU available");
+
+    // pkg114 inc 3d — TLAS-only refit. Rebuild ONLY the instance transforms + TLAS
+    // (no BLAS geometry walk; bounds come from each cached BLAS's O(1)
+    // boundingBox) and re-push just d_instances + d_tlas. d_blas / d_bvhNodes /
+    // d_prims / d_triangles / d_spheres on the device are intentionally untouched.
+    SceneUploadResult r = buildTlasOnly(cpuRenderer);
+    devUpload(r.tlas,      &impl->d_tlas);
+    devUpload(r.instances, &impl->d_instances);
+}
+
 void CUDARenderer::uploadMaterials(const Renderer& cpuRenderer) {
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
 

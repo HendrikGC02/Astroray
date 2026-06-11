@@ -2837,6 +2837,13 @@ public:
         instances_.push_back(InstanceRecord{meshId, transform});
         return id;
     }
+    // pkg114 inc 3d — replace an existing instance's object->world transform in
+    // place (for the transform-only TLAS refit). Geometry/BLAS are untouched.
+    void updateInstanceTransform(int instanceId, const std::array<float, 16>& transform) {
+        if (instanceId < 0 || static_cast<size_t>(instanceId) >= instances_.size())
+            throw std::runtime_error("updateInstanceTransform: instance id out of range");
+        instances_[instanceId].transform = transform;
+    }
     bool hasInstances() const { return !instances_.empty(); }
     const std::vector<std::shared_ptr<BVHAccel>>& getMeshBlas() const { return meshBlas_; }
     const std::vector<std::vector<std::shared_ptr<Hittable>>>& getMeshPrims() const { return meshPrims_; }

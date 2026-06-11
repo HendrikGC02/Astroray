@@ -1520,13 +1520,17 @@ public:
 
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true,
                               int diffuseBounces = -1, int glossyBounces = -1, int transmissionBounces = -1,
-                              int volumeBounces = -1, int transparentBounces = -1) {
+                              int volumeBounces = -1, int transparentBounces = -1,
+                              bool skipUpload = false) {
         if (!camera) throw std::runtime_error("Camera not set up");
 
 #ifdef ASTRORAY_CUDA_ENABLED
         if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
-            // GPU path: build BVH on CPU (needed for upload), then render on GPU
-            renderer.buildAcceleration();
+            // GPU path: build BVH on CPU (needed for upload), then render on GPU.
+            // pkg114 inc 3d: skipUpload renders from existing device state, so the
+            // CPU BVH rebuild is unnecessary too (geometry is unchanged).
+            if (!skipUpload)
+                renderer.buildAcceleration();
 #ifdef ASTRORAY_WAVEFRONT_CUDA_N3
             // pkg55-B' viewport fix (2026-06-12): the wavefront pipeline does
             // its OWN buildSceneArrays + upload into its persistent context —
@@ -1539,7 +1543,11 @@ public:
 #else
             const bool wavefrontRoute = false;
 #endif
-            if (!wavefrontRoute) {
+            // pkg114 inc 3d: skipUpload renders from the CURRENT device state
+            // without a full re-upload — used after a TLAS-only refit
+            // (update_instance_transform + upload_instance_transforms) so a
+            // transform-only viewport edit pays only the cheap instance/TLAS push.
+            if (!wavefrontRoute && !skipUpload) {
                 cudaRenderer->uploadScene(renderer, *camera);
                 if (envMap && envMap->loaded())
                     cudaRenderer->uploadEnvironmentMap(*envMap);
@@ -2167,6 +2175,28 @@ public:
 #endif
     }
 
+    // pkg114 inc 3d — update one instance's object->world transform on the CPU
+    // (no geometry rebuild). Call upload_instance_transforms() once after a batch
+    // of these to re-push the TLAS to the device.
+    void updateInstanceTransform(int instanceId, const std::vector<float>& transform) {
+        if (transform.size() != 16)
+            throw std::runtime_error("update_instance_transform: transform must have 16 floats");
+        std::array<float, 16> m;
+        for (int i = 0; i < 16; ++i) m[i] = transform[i];
+        renderer.updateInstanceTransform(instanceId, m);
+    }
+
+    // pkg114 inc 3d — TLAS-only re-upload: re-push d_instances + d_tlas from the
+    // current instance transforms, leaving all BLAS geometry on the device intact.
+    // The cheap path for a transform-only viewport edit of an instanced object.
+    void uploadInstanceTransforms() {
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
+            cudaRenderer->uploadInstanceTransforms(renderer);
+        }
+#endif
+    }
+
     // Push only material payloads (GMaterial flat array + spectral profile
     // table) to the GPU. Geometry / BVH / lights / env are untouched.
     // Cycles equivalent: Shader::tag_update() → ShaderManager::device_update.
@@ -2531,7 +2561,7 @@ PYBIND11_MODULE(astroray, m) {
         .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a,
              "progress_callback"_a = py::none(), "apply_gamma"_a = true,
              "diffuse_bounces"_a = -1, "glossy_bounces"_a = -1, "transmission_bounces"_a = -1,
-             "volume_bounces"_a = -1, "transparent_bounces"_a = -1)
+             "volume_bounces"_a = -1, "transparent_bounces"_a = -1, "skip_upload"_a = false)
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)
         .def("get_motion_buffer", &PyRenderer::getMotionBuffer)
@@ -2612,6 +2642,17 @@ PYBIND11_MODULE(astroray, m) {
              "cost win waits on a future two-level acceleration structure. "
              "Cycles equivalent: ObjectManager::tag_update_modified_flag, "
              "intern/cycles/blender/object.cpp:246-249.")
+        .def("update_instance_transform", &PyRenderer::updateInstanceTransform,
+             "instance_id"_a, "transform_matrix"_a,
+             "pkg114 inc 3d: replace a registered instance's object->world "
+             "transform (16 floats, row-major 4x4) in place on the CPU. No "
+             "geometry rebuild. Call upload_instance_transforms() after a batch "
+             "to re-push only the TLAS to the GPU.")
+        .def("upload_instance_transforms", &PyRenderer::uploadInstanceTransforms,
+             py::call_guard<py::gil_scoped_release>(),
+             "pkg114 inc 3d: TLAS-only re-upload — re-push d_instances + d_tlas "
+             "from the current instance transforms, leaving all BLAS geometry on "
+             "the device untouched (the cheap transform-only viewport-edit path).")
         .def("get_scene_stats", &PyRenderer::getSceneStats,
              "pkg56 Phase B: cheap CPU-side counters (objects, materials, "
              "BVH node count, lights, env_loaded) used by partial-state "

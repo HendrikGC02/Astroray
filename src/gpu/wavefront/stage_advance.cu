@@ -380,11 +380,13 @@ __device__ bool shadePathSlot(
     return true;
 }
 
-// Dense (unqueued) advance. NOTE (N+7 part 2): the render driver now uses
-// stageAdvanceQueuedKernel; this dense form is RETAINED INTENTIONALLY as
-// (a) the reference scheduling for the part-3 intersect/shade split's
-// equivalence checks and (b) a fallback that needs no queue allocations.
-// It currently has no in-tree caller (pkg98 N+7p2 review finding F1).
+// Dense (unqueued) advance. NOTE (N+7 part 3): the render driver now uses
+// the STAGED pair (stageIntersectQueuedKernel + stageShadeBucketedKernel);
+// BOTH this dense form AND the flat-queued stageAdvanceQueuedKernel below
+// are currently caller-less. They are RETAINED INTENTIONALLY as the
+// reference schedulings (all three run the same advancePathSlot halves --
+// one generator) for part-4 path-regeneration equivalence checks and as
+// fallbacks; revisit retention when part 4 lands.
 //
 // Composition wrapper -- the flat (unstaged) scheduling. Dense and
 // flat-queued kernels run EXACTLY intersect-half + shade-half back to back.

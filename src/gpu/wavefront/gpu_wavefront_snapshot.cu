@@ -1002,63 +1002,61 @@ std::vector<float> cuda_wavefront_render(
         uploadCmfTables();
         uploadJakobHanikaLut();
 
-        // Host-side per-pixel XYZ accumulator (mirrors cpu_wavefront_driver).
-        std::vector<double> accX(total_paths, 0.0), accY(total_paths, 0.0),
-                            accZ(total_paths, 0.0);
-        std::vector<float> h_c0(total_paths), h_c1(total_paths),
-                           h_c2(total_paths), h_c3(total_paths);
-        std::vector<float> h_l0(total_paths), h_l1(total_paths),
-                           h_l2(total_paths), h_l3(total_paths);
-        std::vector<float> h_p0(total_paths), h_p1(total_paths),
-                           h_p2(total_paths), h_p3(total_paths);
-
-        auto dl = [&](const float* d, std::vector<float>& h) {
-            cudaError_t e = cudaMemcpy(h.data(), d, total_paths * sizeof(float),
-                                       cudaMemcpyDeviceToHost);
-            if (e != cudaSuccess)
-                throw std::runtime_error(cudaGetErrorString(e));
-        };
-
-        for (int s = 0; s < samples; ++s) {
-            launchStageInit(state, gcam, width, height, seed, s);
-            for (int b = 0; b < max_depth; ++b) {
-                launchStageAdvance(state, d_bvhNodes, d_prims, d_tris, d_spheres,
-                                   d_materials, d_lights,
-                                   (int)res.lights.size(), res.totalLightPower,
-                                   treeView, envMap, gbg, hasBg,
-                                   worldMaxBounces, max_depth);
-            }
-            dl(state.color_0, h_c0); dl(state.color_1, h_c1);
-            dl(state.color_2, h_c2); dl(state.color_3, h_c3);
-            dl(state.lambda_0, h_l0); dl(state.lambda_1, h_l1);
-            dl(state.lambda_2, h_l2); dl(state.lambda_3, h_l3);
-            dl(state.lambda_pdf_0, h_p0); dl(state.lambda_pdf_1, h_p1);
-            dl(state.lambda_pdf_2, h_p2); dl(state.lambda_pdf_3, h_p3);
-
-            for (int i = 0; i < total_paths; ++i) {
-                SampledSpectrum rad(std::array<float, 4>{
-                    h_c0[i], h_c1[i], h_c2[i], h_c3[i]});
-                SampledWavelengths lambdas = SampledWavelengths::fromLambdas(
-                    std::array<float, 4>{h_l0[i], h_l1[i], h_l2[i], h_l3[i]},
-                    std::array<float, 4>{h_p0[i], h_p1[i], h_p2[i], h_p3[i]});
-                XYZ xyz = rad.toXYZ(lambdas);
-                // Per-sample firefly clamp on XYZ.Y (mirrors CPU driver).
-                float lum = xyz.Y;
-                if (lum > 20.0f) {
-                    xyz.X *= (20.0f / lum);
-                    xyz.Y = 20.0f;
-                    xyz.Z *= (20.0f / lum);
-                }
-                accX[i] += xyz.X; accY[i] += xyz.Y; accZ[i] += xyz.Z;
-            }
+        // N+7: device-side per-sample XYZ accumulation. The N+6 host loop
+        // (12 downloads + per-launch sync per sample round) measured at
+        // ~185 ms host overhead per 256^2 x 64spp render; replaced by one
+        // accumulate kernel per round and ONE sync + ONE download per render.
+        float* d_accum = nullptr;
+        cudaError_t ae = cudaMalloc(reinterpret_cast<void**>(&d_accum),
+                                    size_t(total_paths) * 3 * sizeof(float));
+        if (ae != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(ae));
+        ae = cudaMemset(d_accum, 0, size_t(total_paths) * 3 * sizeof(float));
+        if (ae != cudaSuccess) {
+            cudaFree(d_accum);
+            throw std::runtime_error(cudaGetErrorString(ae));
         }
+
+        try {
+            for (int s = 0; s < samples; ++s) {
+                launchStageInit(state, gcam, width, height, seed, s);
+                for (int b = 0; b < max_depth; ++b) {
+                    launchStageAdvance(state, d_bvhNodes, d_prims, d_tris,
+                                       d_spheres, d_materials, d_lights,
+                                       (int)res.lights.size(), res.totalLightPower,
+                                       treeView, envMap, gbg, hasBg,
+                                       worldMaxBounces, max_depth,
+                                       /*sync=*/false);
+                }
+                launchStageAccumulateXYZ(state, d_accum);
+            }
+            // Single sync per render: same-stream launches are serialized;
+            // any deferred kernel runtime error surfaces here.
+            cudaError_t syncErr = cudaDeviceSynchronize();
+            if (syncErr != cudaSuccess)
+                throw std::runtime_error(
+                    std::string("cuda_wavefront_render kernel error: ") +
+                    cudaGetErrorString(syncErr));
+        } catch (...) {
+            cudaFree(d_accum);
+            throw;
+        }
+
+        std::vector<float> h_accum(size_t(total_paths) * 3);
+        cudaError_t de = cudaMemcpy(h_accum.data(), d_accum,
+                                    size_t(total_paths) * 3 * sizeof(float),
+                                    cudaMemcpyDeviceToHost);
+        cudaFree(d_accum);
+        if (de != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(de));
 
         // Final conversion (mirrors cpu_wavefront_driver lines 100-113).
         std::vector<float> rgb(total_paths * 3);
         float exposure = renderer.getFilmExposure();
         for (int i = 0; i < total_paths; ++i) {
-            Vec3 colorXYZ(float(accX[i] / samples), float(accY[i] / samples),
-                          float(accZ[i] / samples));
+            Vec3 colorXYZ(h_accum[i * 3 + 0] / samples,
+                          h_accum[i * 3 + 1] / samples,
+                          h_accum[i * 3 + 2] / samples);
             colorXYZ *= exposure;
             Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
             rgb[i * 3 + 0] = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);

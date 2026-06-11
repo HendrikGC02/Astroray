@@ -277,6 +277,81 @@ __global__ void stageAdvanceKernel(
     if (next_bounce >= max_depth) state.path_alive[idx] = 0;
 }
 
+// ---------------------------------------------------------------------------
+// pkg55-B' Session N+7: device-side per-sample XYZ accumulation.
+//
+// The N+6 driver downloaded 12 SoA arrays per SAMPLE round and accumulated
+// XYZ on the host — measured at ~185 ms host overhead per 256x64spp render
+// (vs ~115 ms of kernel work). This kernel replaces all of that with one
+// device-side pass per sample round: radiance -> XYZ (same cross-TU
+// gpu_spectrum_to_xyz the RR stage uses, so the CMF integration is the one
+// generator) -> the CPU driver's lum>20 firefly clamp -> += into a float3
+// accumulator (one slot per pixel; the N+6/N+7 driver maps slot==pixel).
+// The final image is downloaded ONCE per render.
+//
+// Mirrors src/cpu/wavefront/cpu_wavefront_driver.cpp accumulation exactly
+// (float accumulation, clamp BEFORE accumulate, /samples + exposure + sRGB
+// stay host-side at the single final conversion).
+// ---------------------------------------------------------------------------
+__global__ void stageAccumulateXYZKernel(
+    GPUWavefrontState state,
+    float* accum_xyz)   // 3 floats per slot
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= state.num_active) return;
+
+    GSampledSpectrum rad;
+    rad.v[0] = state.color_0[idx];
+    rad.v[1] = state.color_1[idx];
+    rad.v[2] = state.color_2[idx];
+    rad.v[3] = state.color_3[idx];
+
+    GSampledWavelengths lambdas;
+    lambdas.lambda[0] = state.lambda_0[idx];
+    lambdas.lambda[1] = state.lambda_1[idx];
+    lambdas.lambda[2] = state.lambda_2[idx];
+    lambdas.lambda[3] = state.lambda_3[idx];
+    lambdas.pdf[0] = state.lambda_pdf_0[idx];
+    lambdas.pdf[1] = state.lambda_pdf_1[idx];
+    lambdas.pdf[2] = state.lambda_pdf_2[idx];
+    lambdas.pdf[3] = state.lambda_pdf_3[idx];
+
+    GVec3 xyz = gpu_spectrum_to_xyz(rad, lambdas);
+
+    // Per-sample firefly clamp on XYZ.Y (mirrors the CPU wavefront driver).
+    float lum = xyz.y;
+    if (lum > 20.0f) {
+        xyz.x *= (20.0f / lum);
+        xyz.y = 20.0f;
+        xyz.z *= (20.0f / lum);
+    }
+
+    accum_xyz[idx * 3 + 0] += xyz.x;
+    accum_xyz[idx * 3 + 1] += xyz.y;
+    accum_xyz[idx * 3 + 2] += xyz.z;
+}
+
+void launchStageAccumulateXYZ(
+    GPUWavefrontState& state,
+    float* d_accum_xyz)
+{
+    if (state.num_active <= 0) return;
+    int threads = 256;
+    int blocks  = (state.num_active + threads - 1) / threads;
+    {
+        astroray::gpu_profile::ScopedTimer _t(
+            "wavefront_stage_accumulate_n7",
+            (const void*)stageAccumulateXYZKernel, blocks, threads);
+        stageAccumulateXYZKernel<<<blocks, threads>>>(state, d_accum_xyz);
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::fprintf(stderr, "stage_accumulate launch error: %s\n",
+                         cudaGetErrorString(err));
+            throw std::runtime_error(cudaGetErrorString(err));
+        }
+    }
+}
+
 void launchStageAdvance(
     GPUWavefrontState& state,
     const GBVHNode*   d_bvhNodes,
@@ -289,7 +364,8 @@ void launchStageAdvance(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth)
+    int               max_depth,
+    bool              sync)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -309,11 +385,19 @@ void launchStageAdvance(
                          cudaGetErrorString(err));
             throw std::runtime_error(cudaGetErrorString(err));
         }
-        cudaError_t syncErr = cudaDeviceSynchronize();
-        if (syncErr != cudaSuccess) {
-            std::fprintf(stderr, "stage_advance runtime error: %s\n",
-                         cudaGetErrorString(syncErr));
-            throw std::runtime_error(cudaGetErrorString(syncErr));
+        // pkg55-B' N+7: the render driver passes sync=false and synchronizes
+        // ONCE per render (the N+6 per-launch sync was measured at ~185 ms of
+        // host overhead per 256^2x64spp render). Same-stream launches are
+        // serialized by CUDA, so correctness is unchanged; runtime errors
+        // surface at the driver's final sync. Snapshot-harness callers keep
+        // the default sync=true (per-stage error localization).
+        if (sync) {
+            cudaError_t syncErr = cudaDeviceSynchronize();
+            if (syncErr != cudaSuccess) {
+                std::fprintf(stderr, "stage_advance runtime error: %s\n",
+                             cudaGetErrorString(syncErr));
+                throw std::runtime_error(cudaGetErrorString(syncErr));
+            }
         }
     }
 }

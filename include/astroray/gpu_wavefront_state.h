@@ -189,7 +189,15 @@ void launchStageAdvance(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth);
+    int               max_depth,
+    bool              sync = true);  // N+7: render driver passes false, syncs once per render
+
+// Session N+7: device-side per-sample XYZ accumulation (radiance -> XYZ ->
+// firefly clamp -> += accum). accum_xyz is 3 floats per slot, zeroed by the
+// driver before the first sample round.
+void launchStageAccumulateXYZ(
+    GPUWavefrontState& state,
+    float* d_accum_xyz);
 
 // Session N+5: Metal shade stage.
 void launchStageShadeMetalGPU(

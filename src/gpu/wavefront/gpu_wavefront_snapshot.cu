@@ -1017,16 +1017,48 @@ std::vector<float> cuda_wavefront_render(
             throw std::runtime_error(cudaGetErrorString(ae));
         }
 
+        // N+7 part 2: alive-path queues (ping-pong) + device counters.
+        // Compaction keeps later bounces dense as paths die (Laine 2013
+        // sec. 4); the host never reads the counters (zero-sync).
+        int* d_queueA = nullptr;
+        int* d_queueB = nullptr;
+        int* d_counts = nullptr;  // [0] = count for A, [1] = count for B
+        auto qfree = [&]() {
+            if (d_queueA) cudaFree(d_queueA);
+            if (d_queueB) cudaFree(d_queueB);
+            if (d_counts) cudaFree(d_counts);
+            cudaGetLastError();
+        };
+        cudaError_t qe = cudaMalloc(reinterpret_cast<void**>(&d_queueA),
+                                    size_t(total_paths) * sizeof(int));
+        if (qe == cudaSuccess)
+            qe = cudaMalloc(reinterpret_cast<void**>(&d_queueB),
+                            size_t(total_paths) * sizeof(int));
+        if (qe == cudaSuccess)
+            qe = cudaMalloc(reinterpret_cast<void**>(&d_counts), 2 * sizeof(int));
+        if (qe != cudaSuccess) {
+            qfree();
+            cudaFree(d_accum);
+            throw std::runtime_error(cudaGetErrorString(qe));
+        }
+
         try {
             for (int s = 0; s < samples; ++s) {
                 launchStageInit(state, gcam, width, height, seed, s);
+                launchStageQueueIota(d_queueA, d_counts + 0, total_paths);
+                int* qin = d_queueA;  int* cin = d_counts + 0;
+                int* qout = d_queueB; int* cout = d_counts + 1;
                 for (int b = 0; b < max_depth; ++b) {
-                    launchStageAdvance(state, d_bvhNodes, d_prims, d_tris,
-                                       d_spheres, d_materials, d_lights,
-                                       (int)res.lights.size(), res.totalLightPower,
-                                       treeView, envMap, gbg, hasBg,
-                                       worldMaxBounces, max_depth,
-                                       /*sync=*/false);
+                    cudaMemsetAsync(cout, 0, sizeof(int));
+                    launchStageAdvanceQueued(state, qin, cin, qout, cout,
+                                             d_bvhNodes, d_prims, d_tris,
+                                             d_spheres, d_materials, d_lights,
+                                             (int)res.lights.size(),
+                                             res.totalLightPower,
+                                             treeView, envMap, gbg, hasBg,
+                                             worldMaxBounces, max_depth);
+                    int* tq = qin; qin = qout; qout = tq;
+                    int* tc = cin; cin = cout; cout = tc;
                 }
                 launchStageAccumulateXYZ(state, d_accum);
             }
@@ -1038,6 +1070,7 @@ std::vector<float> cuda_wavefront_render(
                     std::string("cuda_wavefront_render kernel error: ") +
                     cudaGetErrorString(syncErr));
         } catch (...) {
+            qfree();
             cudaFree(d_accum);
             throw;
         }
@@ -1046,6 +1079,7 @@ std::vector<float> cuda_wavefront_render(
         cudaError_t de = cudaMemcpy(h_accum.data(), d_accum,
                                     size_t(total_paths) * 3 * sizeof(float),
                                     cudaMemcpyDeviceToHost);
+        qfree();
         cudaFree(d_accum);
         if (de != cudaSuccess)
             throw std::runtime_error(cudaGetErrorString(de));

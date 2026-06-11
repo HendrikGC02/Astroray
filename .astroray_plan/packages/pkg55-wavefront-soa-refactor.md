@@ -2,7 +2,7 @@
 
 **Pillar:** 5  
 **Track:** A  
-**Status:** Phase B' perf goal MET (PR #457, 2026-06-11 — wavefront 1.45-1.52× vs megakernel, AT the 1.5× gate threshold; the target gate xpassed on a cool run). Package still OPEN: Phase-B' close requires cool-GPU perf re-baseline, wavefront_path_tracer plugin registration, and the pkg81 viewport-parity gate (a Phase-B acceptance criterion); Phase C (MIS audit + megakernel removal + 2× gate) remains.  
+**Status:** Phase B' COMPLETE (PR #463, 2026-06-12 — viewport-parity gate MET: wavefront steady-state pan-frame p99 = 0.84× Cycles-OPTIX, target ≤1.2×; mean 0.97×, p50 0.98×; perf gate 1.50× @ 512spp; wavefront_path_tracer registered). Package OPEN for Phase C (MIS audit + megakernel removal + 2× gate).  
 **Estimated effort:** 10–11 weeks total across three phases (Phase A: 3–4 w, Phase B: 4 w, Phase C: 3 w)  
 **Depends on:** pkg54 (megakernel reference, done), pkg54a (spectral-profile dispatch, done), pkg54b (CIE 1964 CMF parity, done). pkg54c (Jakob-Hanika GPU upsampling) may overlap Phase B — see §Research/Risk 6.
 

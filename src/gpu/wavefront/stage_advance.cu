@@ -54,56 +54,20 @@
 #include <cstdio>
 #include <stdexcept>
 
-// Cross-TU device functions from multiwavelength_kernel.cu (non-inline,
-// linked via -rdc=true — the same pattern gpu_materials.h uses for
-// gpu_sampleD65 / gpu_jhEvalSpectrum).
-__device__ GSampledSpectrum sampleDirectSpectralMW(
-    const GHitRecord& rec, const GVec3& wo,
-    const GSampledWavelengths& lambdas,
-    const GTLASNode*  tlas,
-    const GInstance*  instances,
-    const GBLAS*      blas,
-    const GBVHNode*  bvhNodes,
-    const GPrimitive* prims,
-    const GTriangle*  tris,
-    const GSphere*    spheres,
-    const ::GMaterial*  materials,
-    const ::GLight*     lights, int numLights, float totalLightPower,
-    GLightTreeView    lightTree,
-    float             rayTime,
-    const GVec3*      motionVerts,
-    curandState*      rng);
+// pkg55-B' template-RNG arc: gpu_rng_uniform overload so the templated
+// material/NEE samplers (gpu_materials.h, gpu_nee.cuh) draw directly from
+// the per-path WavefrontRNG (PCG32) stream. Defined in namespace astroray
+// so ADL finds it at template instantiation.
+namespace astroray {
+__device__ inline float gpu_rng_uniform(WavefrontRNG* rng) {
+    return rng->Uniform();
+}
+}  // namespace astroray
+using astroray::gpu_rng_uniform;
 
-// pkg55-B' shadow stage: the factored NEE thirds from
-// multiwavelength_kernel.cu (rdc-linked; blueprint
-// pkg55-nee-shadow-stage-blueprint.md). One generator of the NEE math.
-__device__ GNEESample gpu_nee_sample(
-    const GHitRecord& rec,
-    const GPrimitive* prims,
-    const GTriangle*  tris,
-    const GSphere*    spheres,
-    const ::GLight*   lights, int numLights, float totalLightPower,
-    GLightTreeView    lightTree,
-    curandState*      rng);
-
-__device__ GNEEOcclusion gpu_nee_occlude(
-    const GNEESample& s,
-    const GTLASNode*  tlas,
-    const GInstance*  instances,
-    const GBLAS*      blas,
-    const GBVHNode*  bvhNodes,
-    const GPrimitive* prims,
-    const GTriangle*  tris,
-    const GSphere*    spheres,
-    float             time,
-    const GVec3*      motionVerts);
-
-__device__ GSampledSpectrum gpu_nee_resolve(
-    const GHitRecord& rec, const GVec3& wo,
-    const GSampledWavelengths& lambdas,
-    const ::GMaterial* materials,
-    const GNEESample& s,
-    bool              lightFront);
+// pkg55-B' shadow stage: shared NEE thirds (header-inline since the
+// template-RNG arc — one compiled implementation in both TUs).
+#include "../gpu_nee.cuh"
 
 // Non-inline XYZ wrapper exported by multiwavelength_kernel.cu (Session N+6)
 // — spectrumToXYZ itself is TU-local inline over the constant CMF tables.
@@ -349,14 +313,19 @@ __device__ bool shadePathSlot(
     // identically even when all lights have zero power (pkg98 N+6 review
     // finding); only the sampling CALL is guarded on totalLightPower — the
     // CPU's lights.sample returns pdf<=0 there and contributes nothing.
+    // pkg55-B' template-RNG arc (CONVENTION AMENDMENT to spec sec. 4.2
+    // decision #2): the wavefront now draws its NEE/BSDF sampling uniforms
+    // DIRECTLY from the per-path PCG32 stream instead of seeding throwaway
+    // curandStates from drawn seeds (2x XORWOW curand_init per bounce was
+    // the last wavefront-only cost vs the megakernel's one init per path).
+    // Per-bounce dimension counts now vary by branch (CPU keeps mt19937
+    // sub-streams); the per-stage gates compare only deterministic-given-
+    // stage fields and the final-image gates remain the sampling oracle.
     if (!rec.isDelta && numLights > 0) {
-        uint32_t light_seed = rng.UniformUInt32();
         if (totalLightPower > 0.f) {
-            curandState light_state;
-            curand_init((unsigned long long)light_seed, 0, 0, &light_state);
             GNEESample s = gpu_nee_sample(rec, prims, tris, spheres,
                                           lights, numLights, totalLightPower,
-                                          lightTree, &light_state);
+                                          lightTree, &rng);
             if (s.valid) {
                 if (nee_f != nullptr) {
                     // Defer the TRACE + emission to the shadow stage; the
@@ -427,13 +396,10 @@ __device__ bool shadePathSlot(
         if (p > 0.0f) throughput *= (1.0f / p);
     }
 
-    // ---- BSDF sampling. CPU: bsdf_seed -> mt19937 -> Material::sampleSpectral.
-    // GPU twin: same drawn dimension -> local curandState -> the unmodified
-    // megakernel material dispatch (all 7 GMAT types + closure graphs).
-    uint32_t bsdf_seed = rng.UniformUInt32();
-    curandState bsdf_state;
-    curand_init((unsigned long long)bsdf_seed, 0, 0, &bsdf_state);
-    GBSDFSample bss = gpu_material_sample_spectral(mat, rec, wo, lambdas, &bsdf_state);
+    // ---- BSDF sampling via the templated megakernel material dispatch
+    // (all 7 GMAT types + closure graphs), drawing directly from the
+    // per-path PCG32 stream (template-RNG arc; see the NEE note above).
+    GBSDFSample bss = gpu_material_sample_spectral(mat, rec, wo, lambdas, &rng);
     if (bss.pdf <= 0.0f) {
         state.color_0[idx] = color.v[0];
         state.color_1[idx] = color.v[1];

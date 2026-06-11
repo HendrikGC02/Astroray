@@ -19,10 +19,13 @@ form differs — pkg108 review notes). Measured on RTX 5070 Ti 2026-06-11,
 stable across seeds and 64->256 spp (i.e. systematic, inherited — not an
 N+6 pipeline defect): per-channel ratio [1.089, 0.991, 1.045]. Tightening
 to 0.05 is the per-material GPU/CPU parity work, tracked in the spec.
-Reference point: the MEGAKERNEL itself diverges ~1.85x from CPU on this
-open-top env scene (never previously gated here) — filed as a separate
-follow-up; the wavefront at <=9% is the closest GPU/CPU agreement this
-scene has had.
+Reference point (corrected by PR #444): the N+6 "megakernel diverges
+~1.85x" finding was a measurement artifact (the megakernel probe leg used
+applyGamma=True against a linear CPU oracle); linear-vs-linear the
+megakernel sits at [1.091, 0.993, 1.050] — the same inherited-divergence
+class as the wavefront. #444 did fix a real latent worldMaxBounces env
+gate bug found during that investigation and added the open-env-scene
+megakernel gate (test_pkg55_megakernel_env_open_scene.py).
 """
 
 from __future__ import annotations

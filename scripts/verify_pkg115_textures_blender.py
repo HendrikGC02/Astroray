@@ -28,7 +28,8 @@ import bpy  # type: ignore
 
 def _bootstrap_astroray_addon():
     repo_root = Path(__file__).resolve().parents[1]
-    build_dir = repo_root / "build_cuda" / "Release"
+    build_dir = Path(os.environ.get(
+        "ASTRORAY_PYD_DIR", repo_root / "build_cuda" / "Release"))
     for entry in (str(build_dir), str(repo_root)):
         if entry not in sys.path:
             sys.path.insert(0, entry)
@@ -159,6 +160,9 @@ def main():
     p.add_argument("--spp", type=int, default=64)
     p.add_argument("--light-energy", dest="light_energy", type=float,
                    default=300.0)
+    p.add_argument("--resx", type=int, default=512)
+    p.add_argument("--device", default="gpu",
+                   help="astroray device_mode (gpu|cpu|auto)")
     args = p.parse_args(argv)
 
     _LIGHT_ENERGY[0] = args.light_energy
@@ -167,18 +171,17 @@ def main():
     if args.engine == "CUSTOM_RAYTRACER":
         _bootstrap_astroray_addon()
     scene.render.engine = args.engine
-    scene.render.resolution_x = 512
-    scene.render.resolution_y = 256
+    scene.render.resolution_x = args.resx
+    scene.render.resolution_y = args.resx // 2
     scene.render.resolution_percentage = 100
     if args.engine == "CYCLES":
         scene.cycles.samples = args.spp
         scene.cycles.use_denoising = False
     elif hasattr(scene, "custom_raytracer"):
+        scene.custom_raytracer.samples = args.spp  # the F12 property
         scene.custom_raytracer.preview_samples = args.spp
-        if hasattr(scene.custom_raytracer, "render_samples"):
-            scene.custom_raytracer.render_samples = args.spp
         if hasattr(scene.custom_raytracer, "device_mode"):
-            scene.custom_raytracer.device_mode = "gpu"
+            scene.custom_raytracer.device_mode = args.device
 
     args.out = args.out.resolve()  # Blender resolves relative paths
     args.out.mkdir(parents=True, exist_ok=True)  # against the blend dir

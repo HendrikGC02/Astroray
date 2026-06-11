@@ -466,6 +466,169 @@ __device__ inline float gpu_mw_powerHeuristic(float a, float b) {
 // the emissive-on-hit term is gated by (bounce==0 || wasSpecular) exactly
 // like the CPU, so without NEE all diffuse->emitter direct light was dropped.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// pkg55-B' shadow stage: sampleDirectSpectralMW factored into three
+// non-inline (rdc-exported) device functions per the blueprint
+// (.astroray_plan/docs/pkg55-nee-shadow-stage-blueprint.md):
+//   A gpu_nee_sample  — light selection + point sampling. ALL RNG draws,
+//                       in the original order. No material evals, no trace.
+//   B gpu_nee_occlude — the shadow trace only.
+//   C gpu_nee_resolve — material evals + MIS + contribution (the original's
+//                       lazy post-trace ordering preserved).
+// sampleDirectSpectralMW recomposes A->B->C below: identical results, with
+// one strictly-work-saving difference (the lightPdf<=0 reject now happens
+// before the trace instead of after; output unchanged). The wavefront runs
+// A in the shade stage and B->C in a dedicated lean shadow stage.
+// All sampling/eval lines are MOVED verbatim from the original function.
+// ---------------------------------------------------------------------------
+__device__ GNEESample gpu_nee_sample(
+    const GHitRecord& rec,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GLight*     lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,  // pkg86-B
+    curandState*      rng)
+{
+    GNEESample s{};
+    s.valid = 0;
+    if (rec.isDelta || numLights <= 0 || totalLightPower <= 0.f) return s;
+
+    // Light selection: tree-importance descent (pkg86-B, Conty 2018 via
+    // Cycles kernel/light/tree.h) when the tree is resident, else the
+    // power-weighted CDF (mirrors LightList::sample).
+    int   li = 0;
+    float selPdf;
+    if (lightTree.enabled) {
+        float treePdf = 0.f;
+        int eIdx = gpu_light_tree_pick(lightTree, rec.point, rec.normal,
+                                       curand_uniform(rng), &treePdf);
+        if (eIdx < 0 || treePdf <= 0.f) return s;
+        li = lightTree.emitters[eIdx].lightIndex;
+        selPdf = treePdf;
+    } else {
+        float u = curand_uniform(rng) * totalLightPower;
+        for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { li = i; break; } li = i; }
+        selPdf = lights[li].power / totalLightPower;
+    }
+    int primIdx  = lights[li].primitiveIndex;
+    if (primIdx < 0) return s;
+
+    const GPrimitive& lp = prims[primIdx];
+    if (lp.type == GPRIM_SKIP) return s;
+
+    GVec3 wi;
+    float lightPdf;     // solid-angle pdf (incl. selPdf), mirrors LightList::sample s.pdf
+    float maxDist;      // shadow-ray extent
+    int   lightMatId;
+
+    if (lp.type == GPRIM_SPHERE) {
+        const GSphere& sp = spheres[lp.index];
+        GVec3 toC    = sp.center - rec.point;
+        float distSq = toC.length2();
+        if (distSq <= sp.radius * sp.radius + 1e-8f) return s;
+        GVec3 dir   = toC.normalized();
+        float cosTM = sqrtf(fmaxf(0.f, 1.f - sp.radius * sp.radius / distSq));
+        if (cosTM >= 1.f) return s;
+        float z   = 1.f + curand_uniform(rng) * (cosTM - 1.f);
+        float phi = 2.f * M_PI_F * curand_uniform(rng);
+        GVec3 tu, tv; gpu_buildONB(dir, tu, tv);
+        float sinTh = sqrtf(fmaxf(0.f, 1.f - z * z));
+        wi          = (tu * cosf(phi) * sinTh + tv * sinf(phi) * sinTh + dir * z).normalized();
+        lightPdf    = (1.f / (2.f * M_PI_F * (1.f - cosTM))) * selPdf;
+        maxDist     = 1e30f;       // hit-the-sphere check in gpu_nee_occlude bounds it
+        lightMatId  = sp.materialId;
+        s.isSphere  = 1;
+    } else {
+        const GTriangle& t = tris[lp.index];
+        float r1 = curand_uniform(rng), r2 = curand_uniform(rng);
+        if (r1 + r2 > 1.f) { r1 = 1.f - r1; r2 = 1.f - r2; }
+        GVec3 lpos = t.v0 + (t.v1 - t.v0) * r1 + (t.v2 - t.v0) * r2;
+        GVec3 d    = lpos - rec.point;
+        float dist = d.length();
+        wi         = d * (1.f / fmaxf(dist, 1e-8f));
+        GVec3 e1   = t.v1 - t.v0, e2 = t.v2 - t.v0;
+        float area = e1.cross(e2).length() * 0.5f;
+        float NdotWi = fabsf(t.n0.dot(wi));
+        if (NdotWi < 1e-8f || area < 1e-8f) return s;
+        lightPdf   = (dist * dist) / (NdotWi * area) * selPdf;
+        maxDist    = dist - 0.001f;
+        lightMatId = t.materialId;
+        s.isSphere = 0;
+    }
+
+    // Originally checked after the trace; moved pre-trace (pure math, no
+    // draws) — identical output, strictly less work on the reject path.
+    if (lightPdf <= 0.f) return s;
+
+    s.origin     = rec.point;
+    s.wi         = wi;
+    s.maxDist    = maxDist;
+    s.lightPdf   = lightPdf;
+    s.lightMatId = lightMatId;
+    s.valid      = 1;
+    return s;
+}
+
+__device__ GNEEOcclusion gpu_nee_occlude(
+    const GNEESample& s,
+    const GTLASNode*  tlas,        // pkg114
+    const GInstance*  instances,   // pkg114
+    const GBLAS*      blas,        // pkg114
+    const GBVHNode*  bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    float             time,         // pkg88-C.0: path shutter time for shadow rays
+    const GVec3*      motionVerts)  // pkg88-C.0 (nullptr = static)
+{
+    GNEEOcclusion occ{};
+    occ.occluded = 1;
+    occ.frontFace = 1;
+    GHitRecord sh;
+    if (s.isSphere) {
+        // Sphere sources: the ray must REACH the light (hit it, with the
+        // light's own material) — miss or a different material = occluded.
+        if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
+                         GRay(s.origin, s.wi, time), 0.001f, s.maxDist, sh, motionVerts) ||
+            sh.materialId != s.lightMatId)
+            return occ;
+        occ.frontFace = sh.frontFace ? 1 : 0;
+    } else {
+        // Triangle sources: any hit inside [0.001, maxDist] occludes;
+        // lightFront is hardcoded true (original behavior asymmetry).
+        if (gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
+                        GRay(s.origin, s.wi, time), 0.001f, s.maxDist, sh, motionVerts))
+            return occ;
+    }
+    occ.occluded = 0;
+    return occ;
+}
+
+__device__ GSampledSpectrum gpu_nee_resolve(
+    const GHitRecord& rec, const GVec3& wo,
+    const GSampledWavelengths& lambdas,
+    const GMaterial*  materials,
+    const GNEESample& s,
+    bool              lightFront)
+{
+    GSampledSpectrum direct(0.f);
+    const GMaterial& mat = materials[rec.materialId];
+
+    // Spectral BSDF and emission — mirrors CPU pathTraceSpectral lines
+    // 2414-2421:  f_spec = evalSpectral ; L_spec = emission_spec (illuminant).
+    GSampledSpectrum f_spec =
+        gpu_material_eval_spectral(mat, const_cast<GHitRecord&>(rec), wo, s.wi, lambdas);
+    GSampledSpectrum L_spec =
+        gpu_material_emitted_spectral(materials[s.lightMatId], lightFront, lambdas);
+    if (f_spec.maxValue() <= 0.f || L_spec.maxValue() <= 0.f) return direct;
+
+    float bsdfPdf = gpu_material_pdf(mat, rec, wo, s.wi);
+    float wt      = gpu_mw_powerHeuristic(s.lightPdf, bsdfPdf);
+    // color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f))
+    return f_spec * L_spec * (wt / (s.lightPdf + 0.001f));
+}
+
 __device__ GSampledSpectrum sampleDirectSpectralMW(
     const GHitRecord& rec, const GVec3& wo,
     const GSampledWavelengths& lambdas,
@@ -483,98 +646,18 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
     const GVec3*      motionVerts,  // pkg88-C.0 (nullptr = static)
     curandState*      rng)
 {
+    // Recomposition of the factored halves in the original order
+    // (sample -> trace -> lazy material evals). Identical results.
     GSampledSpectrum direct(0.f);
-    if (rec.isDelta || numLights <= 0 || totalLightPower <= 0.f) return direct;
-
-    const GMaterial& mat = materials[rec.materialId];
-
-    // Light selection: tree-importance descent (pkg86-B, Conty 2018 via
-    // Cycles kernel/light/tree.h) when the tree is resident, else the
-    // power-weighted CDF (mirrors LightList::sample).
-    int   li = 0;
-    float selPdf;
-    if (lightTree.enabled) {
-        float treePdf = 0.f;
-        int eIdx = gpu_light_tree_pick(lightTree, rec.point, rec.normal,
-                                       curand_uniform(rng), &treePdf);
-        if (eIdx < 0 || treePdf <= 0.f) return direct;
-        li = lightTree.emitters[eIdx].lightIndex;
-        selPdf = treePdf;
-    } else {
-        float u = curand_uniform(rng) * totalLightPower;
-        for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { li = i; break; } li = i; }
-        selPdf = lights[li].power / totalLightPower;
-    }
-    int primIdx  = lights[li].primitiveIndex;
-    if (primIdx < 0) return direct;
-
-    const GPrimitive& lp = prims[primIdx];
-    if (lp.type == GPRIM_SKIP) return direct;
-
-    GVec3 wi;
-    float lightPdf;     // solid-angle pdf (incl. selPdf), mirrors LightList::sample s.pdf
-    float maxDist;      // shadow-ray extent
-    int   lightMatId;
-    bool  lightFront;
-
-    if (lp.type == GPRIM_SPHERE) {
-        const GSphere& s = spheres[lp.index];
-        GVec3 toC    = s.center - rec.point;
-        float distSq = toC.length2();
-        if (distSq <= s.radius * s.radius + 1e-8f) return direct;
-        GVec3 dir   = toC.normalized();
-        float cosTM = sqrtf(fmaxf(0.f, 1.f - s.radius * s.radius / distSq));
-        if (cosTM >= 1.f) return direct;
-        float z   = 1.f + curand_uniform(rng) * (cosTM - 1.f);
-        float phi = 2.f * M_PI_F * curand_uniform(rng);
-        GVec3 tu, tv; gpu_buildONB(dir, tu, tv);
-        float sinTh = sqrtf(fmaxf(0.f, 1.f - z * z));
-        wi          = (tu * cosf(phi) * sinTh + tv * sinf(phi) * sinTh + dir * z).normalized();
-        lightPdf    = (1.f / (2.f * M_PI_F * (1.f - cosTM))) * selPdf;
-        maxDist     = 1e30f;       // hit-the-sphere check below bounds it
-        lightMatId  = s.materialId;
-        GHitRecord sh;
-        if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                         GRay(rec.point, wi, time), 0.001f, maxDist, sh, motionVerts) ||
-            sh.materialId != lightMatId)
-            return direct;
-        lightFront = sh.frontFace;
-    } else {
-        const GTriangle& t = tris[lp.index];
-        float r1 = curand_uniform(rng), r2 = curand_uniform(rng);
-        if (r1 + r2 > 1.f) { r1 = 1.f - r1; r2 = 1.f - r2; }
-        GVec3 lpos = t.v0 + (t.v1 - t.v0) * r1 + (t.v2 - t.v0) * r2;
-        GVec3 d    = lpos - rec.point;
-        float dist = d.length();
-        wi         = d * (1.f / fmaxf(dist, 1e-8f));
-        GVec3 e1   = t.v1 - t.v0, e2 = t.v2 - t.v0;
-        float area = e1.cross(e2).length() * 0.5f;
-        float NdotWi = fabsf(t.n0.dot(wi));
-        if (NdotWi < 1e-8f || area < 1e-8f) return direct;
-        lightPdf   = (dist * dist) / (NdotWi * area) * selPdf;
-        maxDist    = dist - 0.001f;
-        lightMatId = t.materialId;
-        lightFront = true;
-        GHitRecord sh;
-        if (gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                        GRay(rec.point, wi, time), 0.001f, maxDist, sh, motionVerts))
-            return direct;          // occluded
-    }
-
-    if (lightPdf <= 0.f) return direct;
-
-    // Spectral BSDF and emission — mirrors CPU pathTraceSpectral lines
-    // 2414-2421:  f_spec = evalSpectral ; L_spec = emission_spec (illuminant).
-    GSampledSpectrum f_spec =
-        gpu_material_eval_spectral(mat, const_cast<GHitRecord&>(rec), wo, wi, lambdas);
-    GSampledSpectrum L_spec =
-        gpu_material_emitted_spectral(materials[lightMatId], lightFront, lambdas);
-    if (f_spec.maxValue() <= 0.f || L_spec.maxValue() <= 0.f) return direct;
-
-    float bsdfPdf = gpu_material_pdf(mat, rec, wo, wi);
-    float wt      = gpu_mw_powerHeuristic(lightPdf, bsdfPdf);
-    // color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f))
-    return f_spec * L_spec * (wt / (lightPdf + 0.001f));
+    GNEESample s = gpu_nee_sample(rec, prims, tris, spheres,
+                                  lights, numLights, totalLightPower,
+                                  lightTree, rng);
+    if (!s.valid) return direct;
+    GNEEOcclusion occ = gpu_nee_occlude(s, tlas, instances, blas, bvhNodes,
+                                        prims, tris, spheres, time, motionVerts);
+    if (occ.occluded) return direct;
+    return gpu_nee_resolve(rec, wo, lambdas, materials, s,
+                           s.isSphere ? (occ.frontFace != 0) : true);
 }
 
 // ---------------------------------------------------------------------------

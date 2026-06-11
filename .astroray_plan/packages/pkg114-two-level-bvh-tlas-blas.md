@@ -40,17 +40,22 @@ acceleration-structure package explicitly deferred by pkg56 §4.1.
   `object_name` to `register_mesh_bulk`/`register_mesh_triangles` → correct
   Cryptomatte object id on the shared BLAS. RTX: floor + 3 instanced tetrahedra
   (incl. mirror) == fully-baked; broad GPU regression sweep clean.
-- **Inc 3c (remaining):** wire the Blender addon `convert_objects` to register a
-  mesh datablock once + `add_instance(matrix_world)` per shared-datablock
-  instance. **GPU-gated** via a pure device pre-check (CPU keeps flattening — see
-  Decisions). Group `object_instances` by `(obj.data, obj.name [, eligibility])`,
-  instance groups with **count ≥ 2** (object-local via `mesh_to_bulk_arrays`
-  identity, `object_name=obj.name`), everything else flattens. Eligibility
-  EXCLUDES emissive / caustic-caster / volume / non-MESH objects (→ flatten).
-  Headless-Blender bit-identical + BLAS-sharing verification
-  (`scripts/verify_pkg112_bulk_blender.py` pattern). Then the transform-only
-  depsgraph refit (`_renderer_object_id_map` → `update_instance_transform` →
-  TLAS-only re-upload) for the pkg56 ≤50%-baseline budget.
+- **Inc 3c (addon wiring landed — PR pending):** Blender addon `convert_objects`
+  registers each shared mesh datablock once + `add_instance(matrix_world)` per
+  instance. **GPU-gated** via a pure device pre-check (`_render_will_use_gpu`;
+  CPU keeps flattening — see Decisions). Groups `object_instances` by
+  `(obj.data, obj.name)`, instances groups with **count ≥ 2** (object-local via
+  `mesh_to_bulk_arrays` identity, `object_name=obj.name`); everything else
+  flattens. `_object_instanceable` EXCLUDES emissive (mirrors the renderer's
+  `'light'`-material gate) / caustic-caster / volume / non-MESH (→ flatten).
+  Verified headless on Blender 5.1 (`scripts/verify_pkg114_instancing_blender.py`):
+  collection-instanced props + static floor — instanced vs forced-flatten
+  mean-abs-diff **0.0007**, per-channel ratios ~0.9997, flat-scene objects
+  **325 → 5** (4 props collapsed into one shared BLAS + 4 instances; floor stays
+  flat). Multi-material + smooth normals + non-uniform scale + mirror exercised.
+- **Inc 3d (remaining):** the transform-only depsgraph refit
+  (`_renderer_object_id_map` → `update_instance_transform` → TLAS-only re-upload)
+  for the pkg56 ≤50%-baseline viewport budget.
 
   **Decisions (inc 3c):** (1) addon instancing is **GPU-only**; CPU has no
   two-level traversal (renders solely via the scene-only `bvh`), so CPU keeps

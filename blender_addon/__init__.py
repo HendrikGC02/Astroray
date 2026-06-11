@@ -2741,7 +2741,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 noise_gain = _nsock('Gain', 1.0)
                 noise_dist = _nsock('Distortion', 0.0)
                 # Blender Noise Texture noise_dimensions: '3D' is the only one the engine supports (node has 1D/2D/3D/4D).
-                # noise_type: Blender enum FBM/MULTIFRACTAL/RIGID_MULTIFRACTAL/HYBRID_MULTIFRACTAL/HETERO_TERRAIN
+                # noise_type: Blender enum FBM/MULTIFRACTAL/RIDGED_MULTIFRACTAL/HYBRID_MULTIFRACTAL/HETERO_TERRAIN
                 # maps to the ENGINE ordering (advanced_features.h noise_select):
                 # 0=fBM, 1=multifractal, 2=HYBRID, 3=RIDGED, 4=hetero.
                 # (pkg98 chunk-6 review B1: an earlier draft swapped 2/3.)

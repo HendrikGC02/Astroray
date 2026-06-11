@@ -74,6 +74,37 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
     const GVec3*      motionVerts,
     curandState*      rng);
 
+// pkg55-B' shadow stage: the factored NEE thirds from
+// multiwavelength_kernel.cu (rdc-linked; blueprint
+// pkg55-nee-shadow-stage-blueprint.md). One generator of the NEE math.
+__device__ GNEESample gpu_nee_sample(
+    const GHitRecord& rec,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const ::GLight*   lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,
+    curandState*      rng);
+
+__device__ GNEEOcclusion gpu_nee_occlude(
+    const GNEESample& s,
+    const GTLASNode*  tlas,
+    const GInstance*  instances,
+    const GBLAS*      blas,
+    const GBVHNode*  bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    float             time,
+    const GVec3*      motionVerts);
+
+__device__ GSampledSpectrum gpu_nee_resolve(
+    const GHitRecord& rec, const GVec3& wo,
+    const GSampledWavelengths& lambdas,
+    const ::GMaterial* materials,
+    const GNEESample& s,
+    bool              lightFront);
+
 // Non-inline XYZ wrapper exported by multiwavelength_kernel.cu (Session N+6)
 // — spectrumToXYZ itself is TU-local inline over the constant CMF tables.
 __device__ GVec3 gpu_spectrum_to_xyz(
@@ -100,6 +131,16 @@ constexpr int kRRDepth = 3;  // mirrors CPU path_kernel.cpp kRRDepth
 
 // GMAT_LAMBERTIAN=0 .. GMAT_CLOSURE_GRAPH=6 (gpu_types.h GMaterialType).
 constexpr int G_WF_NUM_MAT_TYPES = 7;
+
+// pkg55-B' shadow stage: NEE park SoA layout (field-major: field*capacity+idx).
+// Float fields: 0-2 origin, 3-5 wi, 6 maxDist, 7-10 the pre-resolved
+// contribution throughput*f*wt/(lightPdf+eps) — everything except the
+// emission spectrum, which needs the trace result (sphere frontFace).
+// Int fields: 0 lightMatId, 1 isSphere. Mirrors Cycles' design: bsdf_eval
+// is computed in shade BEFORE queuing intersect_shadow
+// (kernel/integrator/shade_surface.h, integrate_surface_direct_light).
+constexpr int G_WF_NEE_FLOATS = 11;
+constexpr int G_WF_NEE_INTS   = 2;
 
 // ---------------------------------------------------------------------------
 // N+7 part 2: the one-bounce advance body, shared by the dense kernel
@@ -228,6 +269,10 @@ __device__ int intersectPathSlot(
 
 // Shade half: NEE + RR + BSDF over the parked hit record. Returns true when
 // the path survives into the next bounce.
+// nee_f/nee_i/shadow_queue/shadow_count non-null => DEFER the NEE shadow
+// trace + resolve to the dedicated shadow stage (park the sample + wo +
+// throughput, enqueue the slot). Null => immediate occlude+resolve inline
+// (the flat/dense schedulings keep their original single-kernel behavior).
 __device__ bool shadePathSlot(
     int idx,
     GPUWavefrontState& state,
@@ -239,7 +284,9 @@ __device__ bool shadePathSlot(
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,
-    int               max_depth)
+    int               max_depth,
+    float*            nee_f, int* nee_i,
+    int*              shadow_queue, int* shadow_count, int nee_capacity)
 {
     const int bounce = state.bounce[idx];
 
@@ -307,14 +354,58 @@ __device__ bool shadePathSlot(
         if (totalLightPower > 0.f) {
             curandState light_state;
             curand_init((unsigned long long)light_seed, 0, 0, &light_state);
-            GSampledSpectrum nee = sampleDirectSpectralMW(
-                rec, wo, lambdas,
-                /*tlas=*/nullptr, /*instances=*/nullptr, /*blas=*/nullptr,
-                bvhNodes, prims, tris, spheres, materials,
-                lights, numLights, totalLightPower, lightTree,
-                /*rayTime=*/0.0f, /*motionVerts=*/nullptr,
-                &light_state);
-            color += throughput * nee;
+            GNEESample s = gpu_nee_sample(rec, prims, tris, spheres,
+                                          lights, numLights, totalLightPower,
+                                          lightTree, &light_state);
+            if (s.valid) {
+                if (nee_f != nullptr) {
+                    // Defer the TRACE + emission to the shadow stage; the
+                    // BSDF eval/pdf/MIS happen HERE where the material code
+                    // already lives (Cycles shade_surface.h ordering). The
+                    // original lazy post-trace eval order is a pure-math
+                    // reorder: identical output, evals paid on occluded
+                    // samples in exchange for a lean ~100-reg shadow kernel
+                    // (measured tradeoff per the blueprint).
+                    GSampledSpectrum f_spec = gpu_material_eval_spectral(
+                        mat, rec, wo, s.wi, lambdas);
+                    if (f_spec.maxValue() > 0.f) {
+                        float bsdfPdf = gpu_material_pdf(mat, rec, wo, s.wi);
+                        // Power heuristic (Veach 1997) — mirrors
+                        // gpu_mw_powerHeuristic in the MW TU.
+                        float a2 = s.lightPdf * s.lightPdf;
+                        float b2 = bsdfPdf * bsdfPdf;
+                        float wt = a2 / (a2 + b2 + 1e-8f);
+                        float scale = wt / (s.lightPdf + 0.001f);
+                        nee_f[ 0 * nee_capacity + idx] = s.origin.x;
+                        nee_f[ 1 * nee_capacity + idx] = s.origin.y;
+                        nee_f[ 2 * nee_capacity + idx] = s.origin.z;
+                        nee_f[ 3 * nee_capacity + idx] = s.wi.x;
+                        nee_f[ 4 * nee_capacity + idx] = s.wi.y;
+                        nee_f[ 5 * nee_capacity + idx] = s.wi.z;
+                        nee_f[ 6 * nee_capacity + idx] = s.maxDist;
+                        nee_f[ 7 * nee_capacity + idx] = throughput.v[0] * f_spec.v[0] * scale;
+                        nee_f[ 8 * nee_capacity + idx] = throughput.v[1] * f_spec.v[1] * scale;
+                        nee_f[ 9 * nee_capacity + idx] = throughput.v[2] * f_spec.v[2] * scale;
+                        nee_f[10 * nee_capacity + idx] = throughput.v[3] * f_spec.v[3] * scale;
+                        nee_i[ 0 * nee_capacity + idx] = s.lightMatId;
+                        nee_i[ 1 * nee_capacity + idx] = s.isSphere;
+                        int qslot = atomicAdd(shadow_count, 1);
+                        shadow_queue[qslot] = idx;
+                    }
+                } else {
+                    // Immediate (flat/dense schedulings): original behavior.
+                    GNEEOcclusion occ = gpu_nee_occlude(
+                        s, /*tlas=*/nullptr, /*instances=*/nullptr,
+                        /*blas=*/nullptr, bvhNodes, prims, tris, spheres,
+                        /*time=*/0.0f, /*motionVerts=*/nullptr);
+                    if (!occ.occluded) {
+                        GSampledSpectrum nee = gpu_nee_resolve(
+                            rec, wo, lambdas, materials, s,
+                            s.isSphere ? (occ.frontFace != 0) : true);
+                        color += throughput * nee;
+                    }
+                }
+            }
         }
     }
 
@@ -423,7 +514,10 @@ __device__ bool advancePathSlot(
     if (matType < 0) return false;
     return shadePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres,
                          materials, lights, numLights, totalLightPower,
-                         lightTree, max_depth);
+                         lightTree, max_depth,
+                         /*nee_f=*/nullptr, /*nee_i=*/nullptr,
+                         /*shadow_queue=*/nullptr, /*shadow_count=*/nullptr,
+                         /*nee_capacity=*/0);
 }
 
 __global__ void stageAdvanceKernel(
@@ -490,6 +584,68 @@ __global__ void stageAdvanceQueuedKernel(
     }
 }
 
+// ---------------------------------------------------------------------------
+// pkg55-B' shadow stage: lean occlusion + resolve over the parked NEE
+// samples (Laine 2013's dedicated shadow-ray stage). No sampling RNG, no
+// BSDF-sampling dispatch — just the trace + the lazy material evals the
+// original ran post-trace. Contribution adds into color (one entry per
+// slot per pass: non-atomic).
+// ---------------------------------------------------------------------------
+__global__ void stageShadowKernel(
+    GPUWavefrontState state,
+    GPUWavefrontHitBuffers hitBufs,
+    const float* nee_f, const int* nee_i,
+    const int* shadow_queue, const int* shadow_count, int nee_capacity,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const ::GMaterial* materials)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= *shadow_count) return;
+    int idx = shadow_queue[i];
+
+    GNEESample s{};
+    s.origin     = GVec3(nee_f[0 * nee_capacity + idx],
+                         nee_f[1 * nee_capacity + idx],
+                         nee_f[2 * nee_capacity + idx]);
+    s.wi         = GVec3(nee_f[3 * nee_capacity + idx],
+                         nee_f[4 * nee_capacity + idx],
+                         nee_f[5 * nee_capacity + idx]);
+    s.maxDist    = nee_f[6 * nee_capacity + idx];
+    s.lightMatId = nee_i[0 * nee_capacity + idx];
+    s.isSphere   = nee_i[1 * nee_capacity + idx];
+    s.valid      = 1;
+
+    GNEEOcclusion occ = gpu_nee_occlude(
+        s, /*tlas=*/nullptr, /*instances=*/nullptr, /*blas=*/nullptr,
+        bvhNodes, prims, tris, spheres, /*time=*/0.0f, /*motionVerts=*/nullptr);
+    if (occ.occluded) return;
+
+    // Emission upsample only (the BSDF/MIS parts were pre-resolved in the
+    // shade stage); lambdas from the slot's live spectral state.
+    GSampledWavelengths lambdas;
+    lambdas.lambda[0] = state.lambda_0[idx];
+    lambdas.lambda[1] = state.lambda_1[idx];
+    lambdas.lambda[2] = state.lambda_2[idx];
+    lambdas.lambda[3] = state.lambda_3[idx];
+    lambdas.pdf[0] = state.lambda_pdf_0[idx];
+    lambdas.pdf[1] = state.lambda_pdf_1[idx];
+    lambdas.pdf[2] = state.lambda_pdf_2[idx];
+    lambdas.pdf[3] = state.lambda_pdf_3[idx];
+
+    bool lightFront = s.isSphere ? (occ.frontFace != 0) : true;
+    GSampledSpectrum L_spec = gpu_material_emitted_spectral(
+        materials[s.lightMatId], lightFront, lambdas);
+    if (L_spec.maxValue() <= 0.f) return;
+
+    state.color_0[idx] += nee_f[ 7 * nee_capacity + idx] * L_spec.v[0];
+    state.color_1[idx] += nee_f[ 8 * nee_capacity + idx] * L_spec.v[1];
+    state.color_2[idx] += nee_f[ 9 * nee_capacity + idx] * L_spec.v[2];
+    state.color_3[idx] += nee_f[10 * nee_capacity + idx] * L_spec.v[3];
+}
+
 // Fills queue with 0..n-1 and *count = n (bounce-0 population).
 __global__ void stageQueueIotaKernel(int* queue, int* count, int n)
 {
@@ -544,6 +700,7 @@ __global__ void stageShadeBucketedKernel(
     GPUWavefrontHitBuffers hitBufs,
     const int* shade_queues, const int* shade_counts, int capacity,
     int* queue_out, int* count_out,
+    float* nee_f, int* nee_i, int* shadow_queue, int* shadow_count,
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
@@ -561,7 +718,9 @@ __global__ void stageShadeBucketedKernel(
     int idx = shade_queues[bucket * capacity + pos];
     bool alive = shadePathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
                                spheres, materials, lights, numLights,
-                               totalLightPower, lightTree, max_depth);
+                               totalLightPower, lightTree, max_depth,
+                               nee_f, nee_i, shadow_queue, shadow_count,
+                               capacity);
     if (alive) {
         int slot = atomicAdd(count_out, 1);
         queue_out[slot] = idx;
@@ -797,6 +956,7 @@ void launchStageShadeBucketed(
     GPUWavefrontHitBuffers& hitBufs,
     const int* d_shade_queues, const int* d_shade_counts, int capacity,
     int* d_queue_out, int* d_count_out,
+    float* d_nee_f, int* d_nee_i, int* d_shadow_queue, int* d_shadow_count,
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
@@ -821,6 +981,7 @@ void launchStageShadeBucketed(
         stageShadeBucketedKernel<<<blocks, threads>>>(
             state, hitBufs, d_shade_queues, d_shade_counts, capacity,
             d_queue_out, d_count_out,
+            d_nee_f, d_nee_i, d_shadow_queue, d_shadow_count,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, num_lights, total_light_power, lightTree, max_depth);
         cudaError_t err = cudaGetLastError();
@@ -931,6 +1092,37 @@ void launchStageRegen(
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_regen launch error: %s\n",
+                         cudaGetErrorString(err));
+            throw std::runtime_error(cudaGetErrorString(err));
+        }
+    }
+}
+
+void launchStageShadow(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const float* d_nee_f, const int* d_nee_i,
+    const int* d_shadow_queue, const int* d_shadow_count, int nee_capacity,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials)
+{
+    if (state.num_active <= 0) return;
+    int threads = 256;
+    int blocks  = (state.num_active + threads - 1) / threads;
+    {
+        astroray::gpu_profile::ScopedTimer _t(
+            "wavefront_stage_shadow_n7",
+            (const void*)stageShadowKernel, blocks, threads);
+        stageShadowKernel<<<blocks, threads>>>(
+            state, hitBufs, d_nee_f, d_nee_i,
+            d_shadow_queue, d_shadow_count, nee_capacity,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_materials);
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::fprintf(stderr, "stage_shadow launch error: %s\n",
                          cudaGetErrorString(err));
             throw std::runtime_error(cudaGetErrorString(err));
         }

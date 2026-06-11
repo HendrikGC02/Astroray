@@ -1055,7 +1055,32 @@ std::vector<float> cuda_wavefront_render(
         if (qe == cudaSuccess)
             qe = cudaMalloc(reinterpret_cast<void**>(&d_shadeCounts),
                             kNumMatTypes * sizeof(int));
+        // pkg55-B' shadow stage: NEE park SoA (11 floats + 2 ints per slot,
+        // field-major) + shadow queue/counter.
+        float* d_neeF = nullptr;
+        int*   d_neeI = nullptr;
+        int*   d_shadowQueue = nullptr;
+        int*   d_shadowCount = nullptr;
+        auto sfree = [&]() {
+            if (d_neeF) cudaFree(d_neeF);
+            if (d_neeI) cudaFree(d_neeI);
+            if (d_shadowQueue) cudaFree(d_shadowQueue);
+            if (d_shadowCount) cudaFree(d_shadowCount);
+            cudaGetLastError();
+        };
+        if (qe == cudaSuccess)
+            qe = cudaMalloc(reinterpret_cast<void**>(&d_neeF),
+                            size_t(11) * total_paths * sizeof(float));
+        if (qe == cudaSuccess)
+            qe = cudaMalloc(reinterpret_cast<void**>(&d_neeI),
+                            size_t(2) * total_paths * sizeof(int));
+        if (qe == cudaSuccess)
+            qe = cudaMalloc(reinterpret_cast<void**>(&d_shadowQueue),
+                            size_t(total_paths) * sizeof(int));
+        if (qe == cudaSuccess)
+            qe = cudaMalloc(reinterpret_cast<void**>(&d_shadowCount), sizeof(int));
         if (qe != cudaSuccess) {
+            sfree();
             if (d_shadeQueues) cudaFree(d_shadeQueues);
             if (d_shadeCounts) cudaFree(d_shadeCounts);
             qfree();
@@ -1122,6 +1147,7 @@ std::vector<float> cuda_wavefront_render(
                                  total_paths, gcam, width, height, seed);
                 cudaMemsetAsync(cout, 0, sizeof(int));
                 cudaMemsetAsync(d_shadeCounts, 0, kNumMatTypes * sizeof(int));
+                cudaMemsetAsync(d_shadowCount, 0, sizeof(int));
                 launchStageIntersectQueued(state, hitBufs, d_queueA, d_counts + 0,
                                            d_shadeQueues, d_shadeCounts,
                                            total_paths,
@@ -1132,11 +1158,17 @@ std::vector<float> cuda_wavefront_render(
                 launchStageShadeBucketed(state, hitBufs,
                                          d_shadeQueues, d_shadeCounts,
                                          total_paths, d_queueB, cout,
+                                         d_neeF, d_neeI, d_shadowQueue,
+                                         d_shadowCount,
                                          d_bvhNodes, d_prims, d_tris,
                                          d_spheres, d_materials, d_lights,
                                          (int)res.lights.size(),
                                          res.totalLightPower,
                                          treeView, max_depth);
+                launchStageShadow(state, hitBufs, d_neeF, d_neeI,
+                                  d_shadowQueue, d_shadowCount, total_paths,
+                                  d_bvhNodes, d_prims, d_tris, d_spheres,
+                                  d_materials);
                 if (workExhausted) {
                     if (--drainLeft <= 0) break;
                 } else if ((pass + 1) % kCheckEvery == 0) {
@@ -1164,6 +1196,7 @@ std::vector<float> cuda_wavefront_render(
             d_work = nullptr;
         } catch (...) {
             if (d_work) cudaFree(d_work);
+            sfree();
             cudaFree(d_shadeQueues);
             cudaFree(d_shadeCounts);
             freeGPUWavefrontHitBuffers(hitBufs);
@@ -1176,6 +1209,7 @@ std::vector<float> cuda_wavefront_render(
         cudaError_t de = cudaMemcpy(h_accum.data(), d_accum,
                                     size_t(total_paths) * 3 * sizeof(float),
                                     cudaMemcpyDeviceToHost);
+        sfree();
         cudaFree(d_shadeQueues);
         cudaFree(d_shadeCounts);
         freeGPUWavefrontHitBuffers(hitBufs);

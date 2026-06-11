@@ -463,6 +463,28 @@ struct GHitRecord {
 };
 
 // ---------------------------------------------------------------------------
+// NEE sample handoff (pkg55-B' shadow stage; blueprint:
+// .astroray_plan/docs/pkg55-nee-shadow-stage-blueprint.md).
+// Produced by gpu_nee_sample (sampling only, all RNG draws), consumed by
+// gpu_nee_occlude (shadow trace) + gpu_nee_resolve (material evals +
+// contribution). The megakernel recomposes the three back-to-back.
+// ---------------------------------------------------------------------------
+struct GNEESample {
+    GVec3 origin;      // shadow ray origin (rec.point)
+    GVec3 wi;          // shadow ray direction (normalized)
+    float maxDist;     // shadow ray extent
+    float lightPdf;    // solid-angle pdf incl. selection pdf
+    int   lightMatId;  // emission material index
+    int   isSphere;    // 1 = sphere source (frontFace from the hit), 0 = triangle
+    int   valid;       // 0 => no contribution (early-out in sampling)
+};
+
+struct GNEEOcclusion {
+    int occluded;      // 1 = blocked
+    int frontFace;     // sphere sources: hit frontFace; triangles: unused
+};
+
+// ---------------------------------------------------------------------------
 // BSDF sample
 // ---------------------------------------------------------------------------
 struct GBSDFSample {

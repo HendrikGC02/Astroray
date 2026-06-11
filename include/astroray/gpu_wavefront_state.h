@@ -237,6 +237,7 @@ void launchStageShadeBucketed(
     GPUWavefrontHitBuffers& hitBufs,
     const int* d_shade_queues, const int* d_shade_counts, int capacity,
     int* d_queue_out, int* d_count_out,
+    float* d_nee_f, int* d_nee_i, int* d_shadow_queue, int* d_shadow_count,
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
@@ -245,6 +246,20 @@ void launchStageShadeBucketed(
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
     int               max_depth);
+
+// pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
+// samples parked by the deferring bucketed shade. nee_f = 11 floats/slot
+// (field-major), nee_i = 2 ints/slot; see stage_advance.cu layout consts.
+void launchStageShadow(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const float* d_nee_f, const int* d_nee_i,
+    const int* d_shadow_queue, const int* d_shadow_count, int nee_capacity,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials);
 
 // Session N+7 part 4: path regeneration -- dense pass accumulating dead
 // paths' radiance (atomic, per-pixel) then refilling slots from a global

@@ -134,20 +134,142 @@ def _set_camera_from_path(cam, look_from, look_at, vfov_deg):
     cam.data.lens = sensor_v / (2.0 * math.tan(math.radians(vfov_deg) / 2.0))
 
 
+def _make_grid_scene(target_tris: int):
+    """Mirror run.py's _build_renderer geometry: a flat quad grid of
+    ~target_tris triangles, 5 diffuse materials tiled (i+j)%5, sky-blue
+    world. One mesh per material (fast from_pydata construction)."""
+    # Clear default objects (cube/light keep the A/B unfair).
+    for obj in list(bpy.data.objects):
+        if obj.type in ("MESH", "LIGHT"):
+            bpy.data.objects.remove(obj, do_unlink=True)
+
+    palette_rgba = [
+        (0.73, 0.73, 0.73, 1.0),
+        (0.65, 0.05, 0.05, 1.0),
+        (0.05, 0.65, 0.05, 1.0),
+        (0.05, 0.05, 0.65, 1.0),
+        (0.65, 0.65, 0.05, 1.0),
+    ]
+    mats = []
+    for k, rgba in enumerate(palette_rgba):
+        m = bpy.data.materials.new(f"pkg81_grid_{k}")
+        m.use_nodes = True
+        bsdf = m.node_tree.nodes.get("Principled BSDF")
+        if bsdf is not None:
+            bsdf.inputs["Base Color"].default_value = rgba
+            bsdf.inputs["Roughness"].default_value = 1.0
+        mats.append(m)
+
+    quads = max(1, int((target_tris / 2.0) ** 0.5))
+    buckets = {k: ([], []) for k in range(len(mats))}  # verts, faces
+    for i in range(quads):
+        for j in range(quads):
+            k = (i + j) % len(mats)
+            verts, faces = buckets[k]
+            x0, x1 = i * 0.1, (i + 1) * 0.1
+            z0, z1 = j * 0.1, (j + 1) * 0.1
+            base = len(verts)
+            verts.extend([(x0, 0.0, z0), (x1, 0.0, z0),
+                          (x1, 0.0, z1), (x0, 0.0, z1)])
+            faces.append((base, base + 1, base + 2))
+            faces.append((base, base + 2, base + 3))
+    for k, (verts, faces) in buckets.items():
+        mesh = bpy.data.meshes.new(f"pkg81_grid_mesh_{k}")
+        mesh.from_pydata(verts, [], faces)
+        mesh.update()
+        obj = bpy.data.objects.new(f"pkg81_grid_obj_{k}", mesh)
+        obj.data.materials.append(mats[k])
+        bpy.context.scene.collection.objects.link(obj)
+
+    world = bpy.context.scene.world or bpy.data.worlds.new("pkg81_world")
+    bpy.context.scene.world = world
+    world.use_nodes = True
+    bg = world.node_tree.nodes.get("Background")
+    if bg is not None:
+        bg.inputs[0].default_value = (0.5, 0.7, 1.0, 1.0)
+    return 2 * quads * quads
+
+
+def _bootstrap_astroray_addon():
+    """Register the repo addon in a headless Blender (the pkg108
+    verification-script pattern: repo root on sys.path + register())."""
+    repo_root = Path(__file__).resolve().parents[2]
+    # Fresh-module guard (memory: stale_pyd_locations): Blender's Python can
+    # find an installed/stale astroray; force THIS worktree's build first
+    # and verify the import resolved to it.
+    build_dir = repo_root / "build_cuda" / "Release"
+    for entry in (str(build_dir), str(repo_root)):
+        if entry not in sys.path:
+            sys.path.insert(0, entry)
+    # Python 3.13 on Windows resolves extension-module DLL deps only via
+    # add_dll_directory, not PATH — the .pyd needs the CUDA runtime.
+    cuda_bin = Path(os.environ.get(
+        "CUDA_PATH", r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8")) / "bin"
+    for dll_dir in (build_dir, cuda_bin):
+        if dll_dir.is_dir():
+            os.add_dll_directory(str(dll_dir))
+    import astroray  # noqa: E402
+    print(f"[pkg81-driver] astroray module: {astroray.__file__}")
+    import blender_addon  # noqa: E402
+    try:
+        blender_addon.register()
+    except Exception as exc:  # already registered is fine
+        if "already registered" not in str(exc):
+            raise
+
+
+def _enable_cycles_gpu():
+    """Prefer OPTIX, fall back to CUDA, for a fair GPU-vs-GPU A/B."""
+    prefs = bpy.context.preferences.addons.get("cycles")
+    if prefs is None:
+        return "cpu (cycles addon prefs unavailable)"
+    cprefs = prefs.preferences
+    for dev_type in ("OPTIX", "CUDA"):
+        try:
+            cprefs.compute_device_type = dev_type
+        except TypeError:
+            continue
+        cprefs.get_devices()
+        n = 0
+        for d in cprefs.devices:
+            use = d.type != "CPU"
+            d.use = use
+            n += int(use)
+        if n:
+            bpy.context.scene.cycles.device = "GPU"
+            return f"{dev_type} x{n}"
+    return "cpu (no GPU device type accepted)"
+
+
 def run_offline(args) -> dict:
     scene = bpy.context.scene
+    if args.make_scene:
+        built = _make_grid_scene(args.make_scene)
+        print(f"[pkg81-driver] built grid scene: {built} tris")
+    if args.engine == "CUSTOM_RAYTRACER":
+        _bootstrap_astroray_addon()
     scene.render.engine = args.engine
     scene.render.resolution_x = args.width
     scene.render.resolution_y = args.height
     scene.render.resolution_percentage = 100
+    gpu_note = ""
     if args.engine == "CYCLES":
         scene.cycles.samples = args.chunk_spp
         scene.cycles.preview_samples = args.chunk_spp
         scene.cycles.use_denoising = bool(args.oidn)
+        gpu_note = _enable_cycles_gpu()
+        print(f"[pkg81-driver] cycles device: {gpu_note}")
     elif hasattr(scene, "custom_raytracer"):
         scene.custom_raytracer.preview_samples = args.chunk_spp
-        scene.custom_raytracer.viewport_chunk_spp = args.chunk_spp
-        scene.custom_raytracer.viewport_oidn = bool(args.oidn)
+        if hasattr(scene.custom_raytracer, "viewport_chunk_spp"):
+            scene.custom_raytracer.viewport_chunk_spp = args.chunk_spp
+        if hasattr(scene.custom_raytracer, "viewport_oidn"):
+            scene.custom_raytracer.viewport_oidn = bool(args.oidn)
+        if args.integrator and hasattr(scene.custom_raytracer, "integrator_type"):
+            scene.custom_raytracer.integrator_type = args.integrator
+            print(f"[pkg81-driver] astroray integrator: {args.integrator}")
+        if hasattr(scene.custom_raytracer, "device_mode"):
+            scene.custom_raytracer.device_mode = "gpu"
 
     cam = _get_or_make_camera(scene)
     samples_ms: list[float] = []
@@ -172,6 +294,9 @@ def run_offline(args) -> dict:
             "frames": args.frames, "width": args.width, "height": args.height,
             "chunk_spp": args.chunk_spp, "oidn": bool(args.oidn),
             "blend_file": bpy.data.filepath,
+            "make_scene_tris": args.make_scene,
+            "integrator": args.integrator,
+            "cycles_gpu": gpu_note,
         },
         "frame": _frame_summary(samples_ms),
         "raw_frame_ms": samples_ms,
@@ -202,6 +327,13 @@ def main():
     p.add_argument("--out", type=Path,
                    default=Path(__file__).resolve().parent)
     p.add_argument("--tag", type=str, default=None)
+    p.add_argument("--make-scene", dest="make_scene", type=int, default=0,
+                   help="build the pkg81 quad-grid scene with ~N tris "
+                        "in-Blender (mirrors run.py geometry; use when no "
+                        ".blend is provided)")
+    p.add_argument("--integrator", default=None,
+                   help="Astroray integrator name for the CUSTOM_RAYTRACER "
+                        "engine (e.g. wavefront_path_tracer)")
     args = p.parse_args(argv)
 
     if args.mode == "offline":

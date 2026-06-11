@@ -192,6 +192,27 @@ void launchStageAdvance(
     int               max_depth,
     bool              sync = true);  // N+7: render driver passes false, syncs once per render
 
+// Session N+7 part 2: queued advance + compaction. queue/count buffers are
+// device pointers; the host never reads the counters (zero-sync driver).
+void launchStageAdvanceQueued(
+    GPUWavefrontState& state,
+    const int* d_queue_in, const int* d_count_in,
+    int* d_queue_out, int* d_count_out,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    int               max_depth);
+
+// Fills d_queue with 0..n-1 and *d_count = n (bounce-0 population).
+void launchStageQueueIota(int* d_queue, int* d_count, int n);
+
 // Session N+7: device-side per-sample XYZ accumulation (radiance -> XYZ ->
 // firefly clamp -> += accum). accum_xyz is 3 floats per slot, zeroed by the
 // driver before the first sample round.

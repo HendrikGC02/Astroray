@@ -87,8 +87,16 @@ constexpr int kRRDepth = 3;  // mirrors CPU path_kernel.cpp kRRDepth
 
 }  // namespace
 
-__global__ void stageAdvanceKernel(
-    GPUWavefrontState state,
+// ---------------------------------------------------------------------------
+// N+7 part 2: the one-bounce advance body, shared by the dense kernel
+// (stageAdvanceKernel) and the queued kernel (stageAdvanceQueuedKernel) --
+// one generator of the per-bounce math (design decision #9); the queue is
+// purely a scheduling change (Laine 2013 sec. 4 compaction; Cycles X uses
+// the same dense-active-queue structure in its integrator queues).
+// Returns true when the path survives into the next bounce.
+__device__ bool advancePathSlot(
+    int idx,
+    GPUWavefrontState& state,
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
@@ -101,10 +109,6 @@ __global__ void stageAdvanceKernel(
     int               worldMaxBounces,
     int               max_depth)
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= state.num_active) return;
-    if (state.path_alive[idx] == 0) return;
-
     const int bounce = state.bounce[idx];
 
     // ---- Reconstruct live path state from SoA (already-normalized ray
@@ -163,7 +167,7 @@ __global__ void stageAdvanceKernel(
         }
         state.path_alive[idx] = 0;
         state.rng_dimension[idx] = rng.dimension();
-        return;
+        return false;
     }
 
     const ::GMaterial& mat = materials[rec.materialId];
@@ -180,7 +184,7 @@ __global__ void stageAdvanceKernel(
         }
         state.path_alive[idx] = 0;
         state.rng_dimension[idx] = rng.dimension();
-        return;
+        return false;
     }
 
     GVec3 wo = (ray.direction * -1.0f).normalized();
@@ -221,7 +225,7 @@ __global__ void stageAdvanceKernel(
             state.color_3[idx] = color.v[3];
             state.path_alive[idx] = 0;
             state.rng_dimension[idx] = rng.dimension();
-            return;
+            return false;
         }
         if (p > 0.0f) throughput *= (1.0f / p);
     }
@@ -240,7 +244,7 @@ __global__ void stageAdvanceKernel(
         state.color_3[idx] = color.v[3];
         state.path_alive[idx] = 0;
         state.rng_dimension[idx] = rng.dimension();
-        return;
+        return false;
     }
     wasSpecular = bss.isDelta;
     throughput *= bss.fSpectral * (1.0f / (bss.pdf + 0.001f));
@@ -274,7 +278,87 @@ __global__ void stageAdvanceKernel(
 
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;
-    if (next_bounce >= max_depth) state.path_alive[idx] = 0;
+    if (next_bounce >= max_depth) {
+        state.path_alive[idx] = 0;
+        return false;
+    }
+    return true;
+}
+
+// Dense (unqueued) advance. NOTE (N+7 part 2): the render driver now uses
+// stageAdvanceQueuedKernel; this dense form is RETAINED INTENTIONALLY as
+// (a) the reference scheduling for the part-3 intersect/shade split's
+// equivalence checks and (b) a fallback that needs no queue allocations.
+// It currently has no in-tree caller (pkg98 N+7p2 review finding F1).
+__global__ void stageAdvanceKernel(
+    GPUWavefrontState state,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const ::GMaterial* materials,
+    const ::GLight*    lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    int               max_depth)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= state.num_active) return;
+    if (state.path_alive[idx] == 0) return;
+    advancePathSlot(idx, state, bvhNodes, prims, tris, spheres, materials,
+                    lights, numLights, totalLightPower, lightTree, envMap,
+                    backgroundColor, hasBackgroundColor, worldMaxBounces,
+                    max_depth);
+}
+
+// ---------------------------------------------------------------------------
+// N+7 part 2: queued advance + compaction.
+//
+// queue_in holds the slot indices of paths alive at this bounce, densely
+// packed; *count_in is its length (device-side -- the host never reads it,
+// preserving the part-1 zero-sync driver). Survivors append their slot to
+// queue_out via atomicAdd on *count_out. Thread blocks beyond the active
+// count retire immediately, so later bounces only pay for live paths
+// (Laine 2013 sec. 4: compaction keeps warps dense as paths die).
+// ---------------------------------------------------------------------------
+__global__ void stageAdvanceQueuedKernel(
+    GPUWavefrontState state,
+    const int* queue_in, const int* count_in,
+    int* queue_out, int* count_out,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const ::GMaterial* materials,
+    const ::GLight*    lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    int               max_depth)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= *count_in) return;
+    int idx = queue_in[i];
+    bool alive = advancePathSlot(idx, state, bvhNodes, prims, tris, spheres,
+                                 materials, lights, numLights, totalLightPower,
+                                 lightTree, envMap, backgroundColor,
+                                 hasBackgroundColor, worldMaxBounces, max_depth);
+    if (alive) {
+        int slot = atomicAdd(count_out, 1);
+        queue_out[slot] = idx;
+    }
+}
+
+// Fills queue with 0..n-1 and *count = n (bounce-0 population).
+__global__ void stageQueueIotaKernel(int* queue, int* count, int n)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    queue[i] = i;
+    if (i == 0) *count = n;
 }
 
 // ---------------------------------------------------------------------------
@@ -385,12 +469,13 @@ void launchStageAdvance(
                          cudaGetErrorString(err));
             throw std::runtime_error(cudaGetErrorString(err));
         }
-        // pkg55-B' N+7: the render driver passes sync=false and synchronizes
-        // ONCE per render (the N+6 per-launch sync was measured at ~185 ms of
-        // host overhead per 256^2x64spp render). Same-stream launches are
-        // serialized by CUDA, so correctness is unchanged; runtime errors
-        // surface at the driver's final sync. Snapshot-harness callers keep
-        // the default sync=true (per-stage error localization).
+        // pkg55-B' N+7: sync=false defers the device sync to the caller
+        // (the N+6 per-launch sync was measured at ~185 ms of host overhead
+        // per 256^2x64spp render). Same-stream launches are serialized by
+        // CUDA, so correctness is unchanged; runtime errors surface at the
+        // caller's sync. As of N+7 part 2 this dense launcher has no in-tree
+        // caller (see kernel note above); the default sync=true preserves
+        // localized-error semantics for any future direct use.
         if (sync) {
             cudaError_t syncErr = cudaDeviceSynchronize();
             if (syncErr != cudaSuccess) {
@@ -399,6 +484,62 @@ void launchStageAdvance(
                 throw std::runtime_error(cudaGetErrorString(syncErr));
             }
         }
+    }
+}
+
+
+void launchStageAdvanceQueued(
+    GPUWavefrontState& state,
+    const int* d_queue_in, const int* d_count_in,
+    int* d_queue_out, int* d_count_out,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    int               max_depth)
+{
+    if (state.num_active <= 0) return;
+    // Grid covers the worst case (all paths alive); the kernel early-outs
+    // past *d_count_in, so retired blocks cost only launch overhead. The
+    // host never reads the device counters (zero-sync driver).
+    int threads = 256;
+    int blocks  = (state.num_active + threads - 1) / threads;
+    {
+        astroray::gpu_profile::ScopedTimer _t(
+            "wavefront_stage_advance_queued_n7",
+            (const void*)stageAdvanceQueuedKernel, blocks, threads);
+        stageAdvanceQueuedKernel<<<blocks, threads>>>(
+            state, d_queue_in, d_count_in, d_queue_out, d_count_out,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            d_lights, num_lights, total_light_power, lightTree,
+            envMap, backgroundColor, hasBackgroundColor,
+            worldMaxBounces, max_depth);
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::fprintf(stderr, "stage_advance_queued launch error: %s\n",
+                         cudaGetErrorString(err));
+            throw std::runtime_error(cudaGetErrorString(err));
+        }
+    }
+}
+
+void launchStageQueueIota(int* d_queue, int* d_count, int n)
+{
+    if (n <= 0) return;
+    int threads = 256;
+    int blocks  = (n + threads - 1) / threads;
+    stageQueueIotaKernel<<<blocks, threads>>>(d_queue, d_count, n);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::fprintf(stderr, "stage_queue_iota launch error: %s\n",
+                     cudaGetErrorString(err));
+        throw std::runtime_error(cudaGetErrorString(err));
     }
 }
 

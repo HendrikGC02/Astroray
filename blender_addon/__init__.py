@@ -3250,12 +3250,194 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         return renderer.create_material('disney', base_color, params)
 
+    def _render_will_use_gpu(self, settings, renderer):
+        """Pure device pre-check (no side effects), mirroring configure_backend's
+        decision. convert_objects runs BEFORE the backend is configured, so we
+        can't read renderer._use_gpu — we replicate the decision from the same
+        inputs (device_mode + integrator GPU support + renderer.gpu_available).
+        pkg114 inc 3c: instancing is GPU-only (the CPU render path has no two-level
+        traversal), so a CPU render must keep flattening."""
+        mode = getattr(settings, "device_mode", "auto")
+        if mode == "cpu":
+            return False
+        try:
+            integ = _effective_integrator_name(settings)
+            if not bool(_integrator_capabilities(integ).get("gpuSupported", False)):
+                return False
+            return bool(renderer.gpu_available)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _material_emits(mat):
+        """Shallow node scan for an NEE-relevant mesh emitter, mirroring the
+        renderer's own 'light'-material gate in _create_material_from_shader_spec:
+        an EMISSION node, or a Principled with Emission Strength >= 1 AND a
+        non-black Emission Color. (A default Principled has strength 1 but BLACK
+        emission → not an emitter → still instanceable.) Linked emission inputs are
+        treated as emitting (conservative). Excluding emitters keeps them on the
+        flatten path so their NEE/area-light contribution is not lost (instanced
+        meshes are not in the GPU NEE light list — pkg114 inc 3c deferral)."""
+        if mat is None:
+            return False
+        nt = getattr(mat, "node_tree", None)
+        if nt is None:
+            return False
+
+        def _input(node, *names):
+            for nm in names:
+                inp = node.inputs.get(nm) if hasattr(node.inputs, 'get') else None
+                if inp is not None:
+                    return inp
+            return None
+
+        def _ge1(inp):
+            if inp is None:
+                return False
+            if getattr(inp, 'is_linked', False):
+                return True
+            try:
+                return float(inp.default_value) >= 1.0
+            except (TypeError, ValueError):
+                return True
+
+        def _color_pos(inp):
+            if inp is None:
+                return False
+            if getattr(inp, 'is_linked', False):
+                return True
+            try:
+                return any(float(v) > 0.0 for v in inp.default_value[:3])
+            except (TypeError, ValueError):
+                return True
+
+        for n in nt.nodes:
+            t = getattr(n, "type", "")
+            if t == 'EMISSION':
+                return True
+            if t == 'BSDF_PRINCIPLED':
+                if _ge1(_input(n, 'Emission Strength')) and \
+                        _color_pos(_input(n, 'Emission Color', 'Emission')):
+                    return True
+        return False
+
+    def _object_instanceable(self, obj):
+        """A mesh object is eligible for the two-level instancing fast-path only
+        when it is a plain MESH with no instancing-deferred feature: no emissive
+        material (NEE), no caustic-caster flag (SMS), no volume material. Anything
+        else falls back to the flatten path (current behaviour, fully correct)."""
+        if obj is None or obj.type != 'MESH':
+            return False
+        ao = getattr(obj, "astroray_object", None)
+        if bool(getattr(ao, "is_caustic_caster", False)):
+            return False
+        vol_map = getattr(self, "_volume_material_map", {}) or {}
+        for slot in obj.material_slots:
+            mat = slot.material
+            if mat is None:
+                continue
+            # vol_map holds a None placeholder for every material; only a non-None
+            # spec means an actual volume (matches convert_objects' usage).
+            if vol_map.get(mat.name) is not None:
+                return False
+            if self._material_emits(mat):
+                return False
+        return True
+
+    def _register_instanced_groups(self, depsgraph, renderer, material_map, is_render):
+        """pkg114 inc 3c — GPU fast-path: register each shared mesh datablock ONCE
+        into a BLAS and emit one add_instance(matrix_world) per instance, instead
+        of flattening every dupli into world-space triangles. Returns the set of
+        object_instance ENUMERATION INDICES that were instanced (the caller skips
+        them in the flatten loop). Empty set ⇒ nothing instanced (caller flattens
+        everything, unchanged).
+
+        Grouping key is (mesh datablock, obj.name): duplis of one source share the
+        name → one shared BLAS + one Cryptomatte matte (matches the flatten path);
+        linked duplicates have distinct names → distinct count-1 groups → they
+        flatten (no regression). Only groups with >= 2 instances are worth it."""
+        if not (hasattr(renderer, "register_mesh_bulk") and hasattr(renderer, "add_instance")):
+            return set()
+        settings = getattr(depsgraph.scene, "custom_raytracer", None)
+        if settings is None or not self._render_will_use_gpu(settings, renderer):
+            return set()
+        if not BULK_GEOMETRY_UPLOAD:
+            return set()
+
+        # Pass A — collect eligible instances grouped by (datablock, name).
+        groups = {}      # key -> list of (enum_index, obj, matrix_world.copy())
+        for i, inst in enumerate(depsgraph.object_instances):
+            obj = inst.object
+            if obj is None:
+                continue
+            if is_render:
+                if getattr(obj, 'hide_render', False):
+                    continue
+            elif getattr(obj, 'hide_viewport', False):
+                continue
+            if not self._object_instanceable(obj):
+                continue
+            key = (obj.data, obj.name)
+            groups.setdefault(key, []).append((i, obj, inst.matrix_world.copy()))
+
+        skip = set()
+        identity4 = mathutils.Matrix.Identity(4)
+        identity3 = mathutils.Matrix.Identity(3)
+        for (data, name), entries in groups.items():
+            if len(entries) < 2:
+                continue  # nothing shared → flatten (no instancing win)
+            src_obj = entries[0][1]
+            # OBJECT-LOCAL geometry (identity transform): the per-instance world
+            # transform is supplied by add_instance(matrix_world).
+            mesh = src_obj.data
+            try:
+                mesh.calc_loop_triangles()
+            except Exception:
+                continue
+            n_tri = len(mesh.loop_triangles)
+            if n_tri == 0:
+                continue
+            slot_to_id = {}
+            for slot_idx, slot in enumerate(src_obj.material_slots):
+                m = slot.material
+                slot_to_id[slot_idx] = material_map.get(m.name, 0) if m is not None else 0
+            default_mat_id = slot_to_id.get(0, 0)
+            uv_items = []
+            active_uv = mesh.uv_layers.active if mesh.uv_layers.active else None
+            if active_uv is not None:
+                uv_items.append((getattr(active_uv, "name", "") or "UVMap", active_uv.data))
+            for layer in mesh.uv_layers:
+                if layer is active_uv:
+                    continue
+                uv_items.append((getattr(layer, "name", "") or "UVMap", layer.data))
+            positions, material_ids, mat_pass, uvs, uv_names, normals = \
+                mesh_to_bulk_arrays(mesh, identity4, identity3,
+                                    slot_to_id, default_mat_id, uv_items)
+            mesh_id = renderer.register_mesh_bulk(
+                positions, material_ids, mat_pass,
+                int(getattr(src_obj, "pass_index", 0)), uvs, uv_names, normals,
+                name)
+            for enum_i, _obj, mw in entries:
+                renderer.add_instance(mesh_id, [v for row in mw for v in row])
+                skip.add(enum_i)
+        if skip:
+            print(f"Astroray: instanced {len(skip)} objects across "
+                  f"{sum(1 for e in groups.values() if len(e) >= 2)} shared meshes (two-level BVH)")
+        return skip
+
     def convert_objects(self, depsgraph, renderer, material_map):
         tri_count = 0
         obj_count = 0
         is_render = getattr(depsgraph, 'mode', 'VIEWPORT') == 'RENDER'
         active_view_layer = getattr(depsgraph, "view_layer", None)
-        for obj_instance in depsgraph.object_instances:
+        # pkg114 inc 3c — GPU two-level instancing fast-path: register shared mesh
+        # datablocks once + add_instance per dupli, and skip those instances in the
+        # flatten loop below. No-op (empty set) on CPU / when ineligible.
+        instanced_indices = self._register_instanced_groups(
+            depsgraph, renderer, material_map, is_render)
+        for _inst_idx, obj_instance in enumerate(depsgraph.object_instances):
+            if _inst_idx in instanced_indices:
+                continue
             obj = obj_instance.object
             if obj is None:
                 continue

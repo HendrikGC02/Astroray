@@ -389,48 +389,17 @@ static void mergeWorldAABB(const float* M, const AABB& lb,
     }
 }
 
-static void buildTwoLevelArrays(
-    const Renderer& cpu, const BVHAccel* cpuBvh, SceneUploadResult& r,
-    const std::function<int(const std::shared_ptr<Material>&)>& getOrAddMat)
+// Build r.instances + r.tlas from the CPU instance list + per-mesh local bounds.
+// Shared by the full geometry build (buildTwoLevelArrays) and the pkg114 inc 3d
+// TLAS-only refit (buildTlasArraysOnly) so a transform-only re-upload produces
+// instances/TLAS byte-identical to a full rebuild. Does NOT touch nodes/prims/
+// triangles/blas — pure transform + AABB work.
+static void buildInstancesAndTlas(
+    const Renderer& cpu, const std::vector<AABB>& meshLocalBounds,
+    bool haveFlat, int flatBlasIndex, const AABB& flatBounds, SceneUploadResult& r)
 {
     const auto& meshBlas  = cpu.getMeshBlas();
     const auto& instances = cpu.getInstances();
-
-    // pkg114 inc 3b — MIXED scenes: the non-instanced "flat" scene is uploaded
-    // FIRST (node/prim offset 0) and exposed to the device as ONE extra BLAS
-    // reached through an IDENTITY-transform instance. The flat scene is then
-    // "just another instance" and the existing gpu_tlas_hit traverses it
-    // alongside the real instanced meshes (the inc-1 identity-parity test proved
-    // the identity instance path is byte-exact). This is what lets a scene with
-    // a static floor + instanced props render correctly; without it, enabling
-    // any instance dropped all non-instanced geometry from the GPU upload.
-    AABB flatBounds; bool haveFlat = false;
-    int  flatBlasIndex = -1;
-    if (cpuBvh && !cpuBvh->getPrimitives().empty()) {
-        // nodeOffset/primOffset are 0 because the flat scene is appended first.
-        appendFlatScene(cpu, cpuBvh, r, getOrAddMat);
-        cpuBvh->boundingBox(flatBounds); haveFlat = true;
-    }
-
-    // Registered-mesh BLASes follow the flat scene; their offsets advance past it.
-    std::vector<AABB> meshLocalBounds(meshBlas.size());
-    r.blas.resize(meshBlas.size());
-    for (size_t m = 0; m < meshBlas.size(); ++m) {
-        r.blas[m].nodeOffset = (int)r.nodes.size();
-        r.blas[m].primOffset = (int)r.prims.size();
-        const auto& blasAccel = meshBlas[m];
-        if (!blasAccel || blasAccel->getNodes().empty()) { meshLocalBounds[m] = AABB(); continue; }
-        for (const auto& n : blasAccel->getNodes()) r.nodes.push_back(convertNode(n));
-        for (const auto& hittable : blasAccel->getPrimitives()) appendOnePrim(hittable, r, getOrAddMat);
-        AABB b; blasAccel->boundingBox(b); meshLocalBounds[m] = b;
-    }
-    // The flat scene's BLAS record (nodeOffset/primOffset 0) goes at the END so
-    // real instance.blasIndex == meshId stays a direct index into r.blas[0..M).
-    if (haveFlat) {
-        GBLAS fb; fb.nodeOffset = 0; fb.primOffset = 0;
-        flatBlasIndex = (int)r.blas.size();
-        r.blas.push_back(fb);
-    }
 
     AABB tlasBounds; bool haveBounds = false;
     r.instances.reserve(instances.size() + 1);
@@ -474,6 +443,88 @@ static void buildTwoLevelArrays(
         leaf.pad  = 0;
         r.tlas.push_back(leaf);
     }
+}
+
+static void buildTwoLevelArrays(
+    const Renderer& cpu, const BVHAccel* cpuBvh, SceneUploadResult& r,
+    const std::function<int(const std::shared_ptr<Material>&)>& getOrAddMat)
+{
+    const auto& meshBlas  = cpu.getMeshBlas();
+
+    // pkg114 inc 3b — MIXED scenes: the non-instanced "flat" scene is uploaded
+    // FIRST (node/prim offset 0) and exposed to the device as ONE extra BLAS
+    // reached through an IDENTITY-transform instance. The flat scene is then
+    // "just another instance" and the existing gpu_tlas_hit traverses it
+    // alongside the real instanced meshes (the inc-1 identity-parity test proved
+    // the identity instance path is byte-exact). This is what lets a scene with
+    // a static floor + instanced props render correctly; without it, enabling
+    // any instance dropped all non-instanced geometry from the GPU upload.
+    AABB flatBounds; bool haveFlat = false;
+    int  flatBlasIndex = -1;
+    if (cpuBvh && !cpuBvh->getPrimitives().empty()) {
+        // nodeOffset/primOffset are 0 because the flat scene is appended first.
+        appendFlatScene(cpu, cpuBvh, r, getOrAddMat);
+        cpuBvh->boundingBox(flatBounds); haveFlat = true;
+    }
+
+    // Registered-mesh BLASes follow the flat scene; their offsets advance past it.
+    std::vector<AABB> meshLocalBounds(meshBlas.size());
+    r.blas.resize(meshBlas.size());
+    for (size_t m = 0; m < meshBlas.size(); ++m) {
+        r.blas[m].nodeOffset = (int)r.nodes.size();
+        r.blas[m].primOffset = (int)r.prims.size();
+        const auto& blasAccel = meshBlas[m];
+        if (!blasAccel || blasAccel->getNodes().empty()) { meshLocalBounds[m] = AABB(); continue; }
+        for (const auto& n : blasAccel->getNodes()) r.nodes.push_back(convertNode(n));
+        for (const auto& hittable : blasAccel->getPrimitives()) appendOnePrim(hittable, r, getOrAddMat);
+        AABB b; blasAccel->boundingBox(b); meshLocalBounds[m] = b;
+    }
+    // The flat scene's BLAS record (nodeOffset/primOffset 0) goes at the END so
+    // real instance.blasIndex == meshId stays a direct index into r.blas[0..M).
+    if (haveFlat) {
+        GBLAS fb; fb.nodeOffset = 0; fb.primOffset = 0;
+        flatBlasIndex = (int)r.blas.size();
+        r.blas.push_back(fb);
+    }
+
+    buildInstancesAndTlas(cpu, meshLocalBounds, haveFlat, flatBlasIndex, flatBounds, r);
+}
+
+// pkg114 inc 3d — TLAS-only refit: rebuild ONLY r.instances + r.tlas from the
+// current CPU instance transforms, WITHOUT re-walking any BLAS geometry. Per-mesh
+// local bounds come from each cached BLAS's O(1) boundingBox() (the geometry on
+// the device is unchanged), and the flat scene's identity-instance bounds from
+// the scene BVH. The flat BLAS index matches the full build (it is appended last,
+// at index == meshBlas.size()), so the device d_blas (untouched) still resolves.
+static void buildTlasArraysOnly(const Renderer& cpu, const BVHAccel* cpuBvh,
+                                SceneUploadResult& r)
+{
+    const auto& meshBlas = cpu.getMeshBlas();
+    std::vector<AABB> meshLocalBounds(meshBlas.size());
+    for (size_t m = 0; m < meshBlas.size(); ++m) {
+        if (meshBlas[m] && !meshBlas[m]->getNodes().empty()) {
+            AABB b; meshBlas[m]->boundingBox(b); meshLocalBounds[m] = b;
+        } else {
+            meshLocalBounds[m] = AABB();
+        }
+    }
+    AABB flatBounds; bool haveFlat = false; int flatBlasIndex = -1;
+    if (cpuBvh && !cpuBvh->getPrimitives().empty()) {
+        cpuBvh->boundingBox(flatBounds);
+        haveFlat = true;
+        flatBlasIndex = (int)meshBlas.size();   // flat BLAS is appended last
+    }
+    buildInstancesAndTlas(cpu, meshLocalBounds, haveFlat, flatBlasIndex, flatBounds, r);
+}
+
+// Public entry for the TLAS-only refit (declared in gpu_scene_upload.h). Only
+// r.tlas + r.instances are populated; the caller re-pushes just those two device
+// buffers (cuda_renderer.cu CUDARenderer::uploadInstanceTransforms).
+SceneUploadResult buildTlasOnly(const Renderer& cpu) {
+    SceneUploadResult r;
+    auto& cpuBvh = cpu.getBVH();
+    buildTlasArraysOnly(cpu, cpuBvh.get(), r);
+    return r;
 }
 
 // ---------------------------------------------------------------------------

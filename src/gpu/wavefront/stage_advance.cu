@@ -187,18 +187,25 @@ __global__ void stageAdvanceKernel(
 
     // ---- NEE (skipped on delta lobes). CPU draws light_seed -> mt19937;
     // GPU twin draws the same dimension -> local curandState (see header).
-    if (!rec.isDelta && numLights > 0 && totalLightPower > 0.f) {
+    // The light_seed draw is gated EXACTLY like the CPU (path_kernel.cpp:230,
+    // !isDelta && !lights.empty()) so the RNG dimension stream stays keyed
+    // identically even when all lights have zero power (pkg98 N+6 review
+    // finding); only the sampling CALL is guarded on totalLightPower — the
+    // CPU's lights.sample returns pdf<=0 there and contributes nothing.
+    if (!rec.isDelta && numLights > 0) {
         uint32_t light_seed = rng.UniformUInt32();
-        curandState light_state;
-        curand_init((unsigned long long)light_seed, 0, 0, &light_state);
-        GSampledSpectrum nee = sampleDirectSpectralMW(
-            rec, wo, lambdas,
-            /*tlas=*/nullptr, /*instances=*/nullptr, /*blas=*/nullptr,
-            bvhNodes, prims, tris, spheres, materials,
-            lights, numLights, totalLightPower, lightTree,
-            /*rayTime=*/0.0f, /*motionVerts=*/nullptr,
-            &light_state);
-        color += throughput * nee;
+        if (totalLightPower > 0.f) {
+            curandState light_state;
+            curand_init((unsigned long long)light_seed, 0, 0, &light_state);
+            GSampledSpectrum nee = sampleDirectSpectralMW(
+                rec, wo, lambdas,
+                /*tlas=*/nullptr, /*instances=*/nullptr, /*blas=*/nullptr,
+                bvhNodes, prims, tris, spheres, materials,
+                lights, numLights, totalLightPower, lightTree,
+                /*rayTime=*/0.0f, /*motionVerts=*/nullptr,
+                &light_state);
+            color += throughput * nee;
+        }
     }
 
     // ---- Russian roulette on luminance of throughput's XYZ (bounce > 3).

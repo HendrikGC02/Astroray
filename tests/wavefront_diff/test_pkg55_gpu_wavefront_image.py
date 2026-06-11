@@ -78,7 +78,8 @@ def _build_renderer():
 
 def test_gpu_wavefront_final_image_mean_ratio():
     """End-to-end GPU wavefront vs CPU wavefront oracle: per-channel mean
-    ratio within 5% at 64 spp (independent RNG streams; same algorithm)."""
+    ratio within 12% at 64 spp (independent RNG streams; same algorithm —
+    see module docstring for the measured-bound justification)."""
     r = _build_renderer()
 
     cpu = astroray.reference_pt_wavefront_render(r, SPP, MAX_DEPTH, SEED, False)

@@ -1,113 +1,115 @@
-"""pkg115 — verify procedural textures use GENERATED coordinates by default.
+"""pkg115 GENERATED-coordinate regression test (real bound APIs).
 
-Regression test for the AreaLightShape::hit() hitObject bug: when hitObject
-was not set, the GENERATED coordinate path fell back to UV mode, producing
-the concentric-ring artifact on spheres diagnosed in commit a523a86.
+The mesh bug: triangle hits carry no object-level hitObject, so GENERATED
+coordinate mode silently fell back to UV — a checker on a mesh rendered
+concentric UV rings instead of Blender/Cycles' 3D bbox-normalized blocks.
+The fix bakes an explicit per-object bbox onto the texture
+(set_texture_generated_bbox; see advanced_features.h CoordMode::Generated).
+
+This test exercises the EXPLICIT-bbox path end-to-end through a real
+render: a flat 2-triangle quad spanning x,z in [0,4] textured with a
+checker in GENERATED mode and a baked bbox of min=(0,-1,0), size=(4,2,4).
+With checker scale 4, the generated coords g = (p-min)/size traverse
+[0,1] across the quad, so the pattern must alternate a handful of times
+along x — and, critically, must DIFFER from the UV-mode rendering of the
+same quad (the pre-fix fallback).
+
+(The previous version of this test used invented APIs — add_mesh_sphere /
+set_material_albedo_texture / set_camera — and could never run; pkg98
+review caught it. Everything below is verified against the real
+bindings: create_procedural_texture, set_texture_coord_mode,
+set_texture_generated_bbox, create_material(params={'texture': name}),
+add_triangle, setup_camera, render.)
 """
 
-import astroray
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import numpy as np
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from runtime_setup import configure_test_imports  # noqa: E402
 
-def test_checker_uses_generated_coords_on_sphere():
-    """Unconnected-Vector Checker on a sphere produces 3D block pattern (not UV rings).
+configure_test_imports()
 
-    Renders a low-res sphere with a Checker texture in GENERATED mode, verifying
-    that the texture samples 3D object-local coordinates (normalized to the
-    sphere's bbox) instead of UV. The patterns are structurally different:
-    - GENERATED: large 3D checker blocks distributed across the sphere volume
-    - UV: fine concentric latitude rings (from spherical UV parameterization)
+try:
+    import astroray  # noqa: E402
+    AVAILABLE = True
+except ImportError:
+    AVAILABLE = False
 
-    The test asserts non-uniform distribution across the top row vs equator
-    row to catch the UV-rings artifact (which produces many alternations in a
-    scanline).
-    """
-    renderer = astroray.Renderer()
+pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
-    # Checker texture with scale 3 → ~3x3x3 blocks across unit sphere's bbox
-    renderer.create_procedural_texture("checker", "checker",
-                                       [1.0, 1.0, 1.0,  # color1 (white)
-                                        0.0, 0.0, 0.0,  # color2 (black)
-                                        3.0])           # scale
-    renderer.set_texture_coord_mode("checker", "GENERATED")
 
-    # Lambertian material using the checker texture
-    mat_id = renderer.create_material("lambertian", [0.8, 0.8, 0.8], {})
-    renderer.set_material_albedo_texture(mat_id, "checker")
+def _render_quad(coord_mode: str) -> np.ndarray:
+    r = astroray.Renderer()
 
-    # Unit sphere at origin (bbox = [-1,1]³ → GENERATED coords map to [0,1]³)
-    renderer.add_mesh_sphere([0, 0, 0], 1.0, mat_id)
+    tex = f"gen_test_checker_{coord_mode}"
+    # checker params: [r1,g1,b1, r2,g2,b2, scale]
+    r.create_procedural_texture(tex, "checker",
+                                [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 4.0])
+    if coord_mode == "GENERATED":
+        r.set_texture_coord_mode(tex, "GENERATED")
+        r.set_texture_generated_bbox(tex, [0.0, -1.0, 0.0], [4.0, 2.0, 4.0])
 
-    # White background to avoid artifacts from environment
-    renderer.set_background([1.0, 1.0, 1.0])
+    mat = r.create_material("lambertian", [1.0, 1.0, 1.0],
+                            {"texture": tex})
+    light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 4.0})
 
-    # Camera looking at sphere from +Z
-    renderer.set_camera([0, 0, 4], [0, 0, 0], [0, 1, 0], 45.0)
+    # Flat quad spanning x,z in [0,4] at y=0. UVs are whatever add_triangle
+    # assigns (the pre-fix fallback path); generated coords come from the
+    # baked bbox.
+    r.add_triangle([0, 0, 0], [4, 0, 0], [4, 0, 4], mat)
+    r.add_triangle([0, 0, 0], [4, 0, 4], [0, 0, 4], mat)
+    # Overhead light quad so the surface is lit.
+    r.add_triangle([0, 3, 0], [4, 3, 0], [4, 3, 4], light)
+    r.add_triangle([0, 3, 0], [4, 3, 4], [0, 3, 4], light)
 
-    # Low res, few samples (pattern check, not quality)
-    img = renderer.render(64, 64, 4, apply_gamma=False)
+    # Camera straight down at the quad, BELOW the light plane (y=3) so
+    # the emissive quad doesn't block the view.
+    r.setup_camera([2.0, 2.5, 2.0], [2.0, 0.0, 2.0], [0.0, 0.0, 1.0],
+                   80.0, 1.0, 0.0, 2.5, 96, 96)
+    r.set_integrator("path_tracer")
+    r.set_seed(7)
+    img = np.asarray(r.render(32, 4, None, False),
+                     dtype=np.float32).reshape(96, 96, 3)
+    return img
 
-    # Pixel access helper
-    def px(x, y):
-        """Returns (R,G,B) at pixel (x,y), clamping coords to image bounds."""
-        x = max(0, min(63, x))
-        y = max(0, min(63, y))
-        idx = (y * 64 + x) * 3
-        return (img[idx], img[idx+1], img[idx+2])
 
-    # Sample horizontal scanlines: top (y=16, near pole) vs equator (y=32)
-    top_row = [px(x, 16) for x in range(10, 54, 4)]
-    mid_row = [px(x, 32) for x in range(10, 54, 4)]
+def _flips(scanline: np.ndarray) -> int:
+    """Count dark<->bright alternations along a luminance scanline."""
+    lum = scanline.mean(axis=-1)
+    lo, hi = np.percentile(lum, 20), np.percentile(lum, 80)
+    if hi - lo < 1e-4:
+        return 0
+    binary = lum > (lo + hi) / 2.0
+    return int(np.count_nonzero(binary[1:] != binary[:-1]))
 
-    def alternations(row):
-        """Count color flips (white<->black) in a scanline."""
-        def is_white(rgb):
-            return sum(rgb) / 3.0 > 0.5
-        flips = 0
-        for i in range(len(row) - 1):
-            if is_white(row[i]) != is_white(row[i+1]):
-                flips += 1
-        return flips
 
-    top_flips = alternations(top_row)
-    mid_flips = alternations(mid_row)
+def test_generated_mode_uses_baked_bbox():
+    gen = _render_quad("GENERATED")
+    assert np.all(np.isfinite(gen))
+    assert float(gen.mean()) > 1e-3, "scene unexpectedly black"
 
-    # GENERATED mode: scale=3 → ~3 blocks → expect <=4 flips per scanline
-    # (rough: a scanline crossing 3 vertical blocks sees 2 edges, +1-2 for
-    # horizontal blocks, ~3-4 transitions).
-    # UV mode: latitude rings → MANY flips (>8) as we cross concentric bands.
-    #
-    # Assert: NOT the UV-ring artifact (each scanline has <8 flips).
-    assert top_flips < 8, (
-        f"Top scanline has {top_flips} flips (UV-ring artifact: concentric "
-        f"latitude bands). Expected <8 for GENERATED 3D blocks."
-    )
-    assert mid_flips < 8, (
-        f"Equator scanline has {mid_flips} flips (UV-ring artifact). "
-        f"Expected <8 for GENERATED mode."
-    )
-
-    # Positive control: verify SOME pattern exists (not uniform gray)
-    all_pixels = [px(x, y) for y in range(16, 48, 4) for x in range(16, 48, 4)]
-    unique_approx = len(set(tuple(int(c * 10) for c in rgb) for rgb in all_pixels))
-    assert unique_approx >= 2, (
-        f"Texture appears uniform (only {unique_approx} distinct values). "
-        f"Expected checker pattern with black+white."
+    # Center scanline must show a small number of large 3D checker blocks:
+    # checker scale 4 over generated x in [0,1] -> ~4 cells -> 3-5 flips.
+    flips = _flips(gen[48, 8:88])
+    assert 2 <= flips <= 7, (
+        f"GENERATED checker scanline flips={flips}, expected ~4 large "
+        f"blocks (3-5 flips) from the baked-bbox path"
     )
 
 
-def test_area_light_shape_sets_hitobject():
-    """AreaLightShape::hit() must set rec.hitObject for GENERATED coords to work.
-
-    Direct regression test: create an AreaLightShape, trace a ray that hits it,
-    verify the HitRecord has hitObject != nullptr. The GENERATED coordinate path
-    requires hitObject to retrieve the object's bounding box.
-    """
-    # This test would require accessing C++ internals not exposed to Python,
-    # so it's a documentation placeholder. The sphere test above is the
-    # functional verification.
-    pytest.skip("C++ internal test; covered by sphere pattern test")
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+def test_generated_differs_from_uv_fallback():
+    gen = _render_quad("GENERATED")
+    uv = _render_quad("UV")
+    # The modes must produce materially different patterns (the pre-fix bug
+    # made GENERATED silently identical to UV on meshes).
+    diff = float(np.abs(gen - uv).mean())
+    assert diff > 0.02, (
+        f"GENERATED and UV renders nearly identical (mean|diff|={diff:.4f}) "
+        f"— the baked-bbox path is not taking effect"
+    )

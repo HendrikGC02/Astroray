@@ -681,14 +681,17 @@ public:
     // addTriangle's material lookup + Triangle ctor. Flat-shaded (face normals)
     // so the instanced render and a baked-world-space reference agree exactly
     // (avoids interpolate-vs-transform normal-order drift).
-    int registerMeshTriangles(const std::vector<std::array<float, 9>>& tris, int materialId) {
+    int registerMeshTriangles(const std::vector<std::array<float, 9>>& tris, int materialId,
+                              const std::string& objectName = "") {
         auto mat = materials.count(materialId) ? materials[materialId]
                                                : std::make_shared<Lambertian>(Vec3(0.5f));
         std::vector<std::shared_ptr<Hittable>> prims;
         prims.reserve(tris.size());
         for (const auto& t : tris) {
             Vec3 p0(t[0], t[1], t[2]), p1(t[3], t[4], t[5]), p2(t[6], t[7], t[8]);
-            prims.push_back(std::make_shared<Triangle>(p0, p1, p2, mat));
+            auto tri = std::make_shared<Triangle>(p0, p1, p2, mat);
+            if (!objectName.empty()) tri->setName(objectName);
+            prims.push_back(tri);
         }
         return renderer.registerMesh(prims);
     }
@@ -829,7 +832,8 @@ public:
             int objectPassIndex,
             py::array_t<float, py::array::c_style | py::array::forcecast> uvs,
             std::vector<std::string> uvLayerNames,
-            py::array_t<float, py::array::c_style | py::array::forcecast> normals) {
+            py::array_t<float, py::array::c_style | py::array::forcecast> normals,
+            const std::string& objectName = "") {
         auto pos = positions.unchecked<3>();              // (Nt, 3, 3)
         const py::ssize_t nt = pos.shape(0);
         if (pos.shape(1) != 3 || pos.shape(2) != 3)
@@ -885,6 +889,11 @@ public:
             }
             tri->setObjectPassIndex(objectPassIndex);
             tri->setMaterialPassIndex(mpi(t));
+            // pkg114 inc 3b — name the BLAS triangles so scene_upload's
+            // appendOnePrim hashes the right Cryptomatte object id (the shared
+            // BLAS is reused by every instance; the dupli case wants one matte,
+            // distinct registrations get distinct names).
+            if (!objectName.empty()) tri->setName(objectName);
             prims.push_back(tri);
         }
         return renderer.registerMesh(prims);
@@ -2404,16 +2413,18 @@ PYBIND11_MODULE(astroray, m) {
              "positions_end (N,3,3) is shutter close. Linear interpolation per Cycles (Apache-2.0). "
              "motionSteps=2 (pre+post). uvs/normals same as add_triangles_bulk.")
         .def("register_mesh_triangles", &PyRenderer::registerMeshTriangles,
-             "triangles"_a, "material_id"_a,
+             "triangles"_a, "material_id"_a, "object_name"_a = "",
              "pkg114: register a mesh's OBJECT-LOCAL flat-shaded triangles (list of "
-             "(9,) [v0,v1,v2]) once; returns mesh_id for add_instance().")
+             "(9,) [v0,v1,v2]) once; returns mesh_id for add_instance(). object_name "
+             "(optional) sets the Cryptomatte object id baked into the shared BLAS.")
         .def("register_mesh_bulk", &PyRenderer::registerMeshBulk,
              "positions"_a, "material_ids"_a, "material_pass_indices"_a, "object_pass_index"_a,
-             "uvs"_a, "uv_layer_names"_a, "normals"_a,
+             "uvs"_a, "uv_layer_names"_a, "normals"_a, "object_name"_a = "",
              "pkg114: register a mesh's OBJECT-LOCAL geometry once (UVs/normals/multi-"
              "material) into a shared BLAS; returns mesh_id for add_instance(). Bulk twin "
              "of register_mesh_triangles. positions (N,3,3) object-space; arrays match "
-             "add_triangles_bulk.")
+             "add_triangles_bulk. object_name (optional) sets the Cryptomatte object id "
+             "baked into the shared BLAS triangles.")
         .def("add_instance", &PyRenderer::addInstance, "mesh_id"_a, "transform"_a,
              "pkg114: instance a registered mesh with a row-major 4x4 object->world "
              "transform (16 floats). Returns instance_id.")

@@ -310,13 +310,109 @@ static bool affineInverse4x4(const float M[16], float Minv[16]) {
 // Instances carry M (object->world) + Minv; the TLAS is a single flat leaf over
 // all instances (a SAH TLAS is a later perf win — a flat leaf is correct).
 // ---------------------------------------------------------------------------
+// Append the non-instanced "flat" scene (cpu.getBVH()) into r.nodes/prims with
+// pkg88 motion-offset wiring + pkg64 SMS caster gather. Shared by the single-
+// level path and the pkg114 MIXED path (where the flat scene is wrapped as an
+// identity-transform BLAS so it coexists with instanced meshes). Callers append
+// it FIRST (node/prim offset 0) so the pkg64 SMS primIdx convention and the
+// light emitter→prim search (both keyed on the ordered-prim index) stay valid.
+// Returns the number of ordered prims appended (0 if the flat scene is empty).
+static size_t appendFlatScene(
+    const Renderer& cpu, const BVHAccel* cpuBvh, SceneUploadResult& r,
+    const std::function<int(const std::shared_ptr<Material>&)>& getOrAddMat)
+{
+    if (!cpuBvh) return 0;
+    for (auto& n : cpuBvh->getNodes())
+        r.nodes.push_back(convertNode(n));
+    const auto& orderedPrims = cpuBvh->getPrimitives();
+    // pkg88-C.0: map CPU Triangle motion pointers → offsets in the concatenated
+    // GPU buffer (stable per-batch pointers; pkg98 review fix).
+    std::unordered_map<const Vec3*, size_t> motionPtrToOffset;
+    {
+        size_t batchBase = 0;
+        for (const auto& batch : cpu.getMotionVertexBatches()) {
+            for (size_t i = 0; i < batch.size(); ++i)
+                motionPtrToOffset[batch.data() + i] = batchBase + i;
+            batchBase += batch.size();
+        }
+    }
+    for (auto& hittable : orderedPrims) {
+        appendOnePrim(hittable, r, getOrAddMat);
+        if (auto* tri = dynamic_cast<Triangle*>(hittable.get())) {
+            const Vec3* motionBuf = tri->getMotionVertexBuffer();
+            if (motionBuf != nullptr) {
+                auto it = motionPtrToOffset.find(motionBuf);
+                if (it != motionPtrToOffset.end()) {
+                    r.triangles.back().motionOffset = static_cast<int>(it->second);
+                    r.triangles.back().motionSteps = tri->getMotionSteps();
+                }
+            }
+        }
+        // pkg64-gpu Phase 2: gather caustic-caster spheres inline (single-level
+        // only — SMS is not instancing-aware). primIdx preserves the prior
+        // (orderedPrims.size()-1) convention to keep pkg64 acceptance stable.
+        if (auto* sph = dynamic_cast<Sphere*>(hittable.get())) {
+            const GSphere& gs = r.spheres.back();
+            if (gs.isCausticCaster) {
+                const auto& mat = sph->getMaterial();
+                if (mat && mat->isTransmissive()) {
+                    float ior = mat->getIOR();
+                    if (ior > 1.0f) {
+                        int primIdx = (int)orderedPrims.size() - 1;
+                        astroray::manifold::device::GSMSCaster gc;
+                        gc.center = gs.center;
+                        gc.radius = gs.radius;
+                        gc.primId = primIdx;
+                        r.smsCasters.push_back(gc);
+                    }
+                }
+            }
+        }
+    }
+    return orderedPrims.size();
+}
+
+// Merge an object-space AABB transformed by a row-major 4x4 into tlasBounds.
+static void mergeWorldAABB(const float* M, const AABB& lb,
+                           AABB& tlasBounds, bool& haveBounds) {
+    for (int cx = 0; cx < 2; ++cx)
+    for (int cy = 0; cy < 2; ++cy)
+    for (int cz = 0; cz < 2; ++cz) {
+        float x = cx ? lb.max.x : lb.min.x;
+        float y = cy ? lb.max.y : lb.min.y;
+        float z = cz ? lb.max.z : lb.min.z;
+        Vec3 w(M[0]*x + M[1]*y + M[2]*z + M[3],
+               M[4]*x + M[5]*y + M[6]*z + M[7],
+               M[8]*x + M[9]*y + M[10]*z + M[11]);
+        if (!haveBounds) { tlasBounds = AABB(w, w); haveBounds = true; }
+        else tlasBounds = tlasBounds.merge(AABB(w, w));
+    }
+}
+
 static void buildTwoLevelArrays(
-    const Renderer& cpu, SceneUploadResult& r,
+    const Renderer& cpu, const BVHAccel* cpuBvh, SceneUploadResult& r,
     const std::function<int(const std::shared_ptr<Material>&)>& getOrAddMat)
 {
     const auto& meshBlas  = cpu.getMeshBlas();
     const auto& instances = cpu.getInstances();
 
+    // pkg114 inc 3b — MIXED scenes: the non-instanced "flat" scene is uploaded
+    // FIRST (node/prim offset 0) and exposed to the device as ONE extra BLAS
+    // reached through an IDENTITY-transform instance. The flat scene is then
+    // "just another instance" and the existing gpu_tlas_hit traverses it
+    // alongside the real instanced meshes (the inc-1 identity-parity test proved
+    // the identity instance path is byte-exact). This is what lets a scene with
+    // a static floor + instanced props render correctly; without it, enabling
+    // any instance dropped all non-instanced geometry from the GPU upload.
+    AABB flatBounds; bool haveFlat = false;
+    int  flatBlasIndex = -1;
+    if (cpuBvh && !cpuBvh->getPrimitives().empty()) {
+        // nodeOffset/primOffset are 0 because the flat scene is appended first.
+        appendFlatScene(cpu, cpuBvh, r, getOrAddMat);
+        cpuBvh->boundingBox(flatBounds); haveFlat = true;
+    }
+
+    // Registered-mesh BLASes follow the flat scene; their offsets advance past it.
     std::vector<AABB> meshLocalBounds(meshBlas.size());
     r.blas.resize(meshBlas.size());
     for (size_t m = 0; m < meshBlas.size(); ++m) {
@@ -328,9 +424,16 @@ static void buildTwoLevelArrays(
         for (const auto& hittable : blasAccel->getPrimitives()) appendOnePrim(hittable, r, getOrAddMat);
         AABB b; blasAccel->boundingBox(b); meshLocalBounds[m] = b;
     }
+    // The flat scene's BLAS record (nodeOffset/primOffset 0) goes at the END so
+    // real instance.blasIndex == meshId stays a direct index into r.blas[0..M).
+    if (haveFlat) {
+        GBLAS fb; fb.nodeOffset = 0; fb.primOffset = 0;
+        flatBlasIndex = (int)r.blas.size();
+        r.blas.push_back(fb);
+    }
 
     AABB tlasBounds; bool haveBounds = false;
-    r.instances.reserve(instances.size());
+    r.instances.reserve(instances.size() + 1);
     for (size_t j = 0; j < instances.size(); ++j) {
         int meshId = instances[j].meshId;
         if (meshId < 0 || (size_t)meshId >= meshBlas.size()) continue;
@@ -346,20 +449,19 @@ static void buildTwoLevelArrays(
         gi.blasIndex  = meshId;
         gi.instanceId = (int)r.instances.size();
         r.instances.push_back(gi);
+        mergeWorldAABB(M, meshLocalBounds[meshId], tlasBounds, haveBounds);
+    }
 
-        const AABB& lb = meshLocalBounds[meshId];
-        for (int cx = 0; cx < 2; ++cx)
-        for (int cy = 0; cy < 2; ++cy)
-        for (int cz = 0; cz < 2; ++cz) {
-            float x = cx ? lb.max.x : lb.min.x;
-            float y = cy ? lb.max.y : lb.min.y;
-            float z = cz ? lb.max.z : lb.min.z;
-            Vec3 w(M[0]*x + M[1]*y + M[2]*z + M[3],
-                   M[4]*x + M[5]*y + M[6]*z + M[7],
-                   M[8]*x + M[9]*y + M[10]*z + M[11]);
-            if (!haveBounds) { tlasBounds = AABB(w, w); haveBounds = true; }
-            else tlasBounds = tlasBounds.merge(AABB(w, w));
-        }
+    // The flat scene as an identity-transform instance (world == object space).
+    if (haveFlat) {
+        static const float kIdentity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+        GInstance gi;
+        gi.worldFromObject = GMat4::identity();
+        gi.objectFromWorld = GMat4::identity();
+        gi.blasIndex  = flatBlasIndex;
+        gi.instanceId = (int)r.instances.size();
+        r.instances.push_back(gi);
+        mergeWorldAABB(kIdentity, flatBounds, tlasBounds, haveBounds);
     }
 
     if (!r.instances.empty()) {
@@ -444,59 +546,11 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // engages gpu_tlas_hit (otherwise it falls back to gpu_bvh_hit, unchanged). ---
     auto& cpuBvh = cpu.getBVH();
     if (cpu.hasInstances()) {
-        buildTwoLevelArrays(cpu, r, getOrAddMat);
+        // pkg114 inc 3b — mixed: flat scene (cpuBvh) folded in as an identity BLAS.
+        buildTwoLevelArrays(cpu, cpuBvh.get(), r, getOrAddMat);
     } else {
         if (!cpuBvh) throw std::runtime_error("BVH not built — call buildAcceleration() first");
-        for (auto& n : cpuBvh->getNodes())
-            r.nodes.push_back(convertNode(n));
-        const auto& orderedPrims = cpuBvh->getPrimitives();
-        // pkg88-C.0: map CPU Triangle motion pointers → offsets in the
-        // CONCATENATED GPU buffer. Batches are stored separately on the CPU
-        // (stable per-batch pointers — pkg98 review fix); the GPU buffer is
-        // their concatenation in batch order, so offset = batchBase + i.
-        std::unordered_map<const Vec3*, size_t> motionPtrToOffset;
-        {
-            size_t batchBase = 0;
-            for (const auto& batch : cpu.getMotionVertexBatches()) {
-                for (size_t i = 0; i < batch.size(); ++i)
-                    motionPtrToOffset[batch.data() + i] = batchBase + i;
-                batchBase += batch.size();
-            }
-        }
-        for (auto& hittable : orderedPrims) {
-            appendOnePrim(hittable, r, getOrAddMat);
-            // pkg88-C.0 GPU — verify on RTX. Populate motionOffset for motion triangles.
-            if (auto* tri = dynamic_cast<Triangle*>(hittable.get())) {
-                const Vec3* motionBuf = tri->getMotionVertexBuffer();
-                if (motionBuf != nullptr) {
-                    auto it = motionPtrToOffset.find(motionBuf);
-                    if (it != motionPtrToOffset.end()) {
-                        r.triangles.back().motionOffset = static_cast<int>(it->second);
-                        r.triangles.back().motionSteps = tri->getMotionSteps();
-                    }
-                }
-            }
-            // pkg64-gpu Phase 2: gather caustic-caster spheres inline (single-level
-            // only — SMS is not instancing-aware). primIdx preserves the prior
-            // (orderedPrims.size()-1) convention to keep pkg64 acceptance stable.
-            if (auto* sph = dynamic_cast<Sphere*>(hittable.get())) {
-                const GSphere& gs = r.spheres.back();
-                if (gs.isCausticCaster) {
-                    const auto& mat = sph->getMaterial();
-                    if (mat && mat->isTransmissive()) {
-                        float ior = mat->getIOR();
-                        if (ior > 1.0f) {
-                            int primIdx = (int)orderedPrims.size() - 1;
-                            astroray::manifold::device::GSMSCaster gc;
-                            gc.center = gs.center;
-                            gc.radius = gs.radius;
-                            gc.primId = primIdx;
-                            r.smsCasters.push_back(gc);
-                        }
-                    }
-                }
-            }
-        }
+        appendFlatScene(cpu, cpuBvh.get(), r, getOrAddMat);
     }
 
     // --- Lights ---
@@ -505,13 +559,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     const auto& powerDist  = ll2.getPowerDist();
     r.totalLightPower      = ll2.getTotalPower();
 
-    // Emitter→prim search list. In the single-level case this is the BVH's
-    // ordered prims; pkg114 instanced emitters are deferred (a follow-up), so
-    // for an instanced scene we use an empty list (primIdx stays -1, GLight
-    // unwired) — the parity scene is background-lit with no area lights.
+    // Emitter→prim search list = the flat-scene ordered prims, which always
+    // occupy global prim offset 0 (single-level AND pkg114 mixed, where the flat
+    // scene is appended first). So flat-scene area lights resolve correctly even
+    // in a mixed scene. Emitters that live on an INSTANCED mesh are deferred (a
+    // follow-up): registered-mesh prims are not in this list, so their primIdx
+    // stays -1 (GLight unwired).
     static const std::vector<std::shared_ptr<Hittable>> kNoPrims;
-    const auto& orderedPrims =
-        (!cpu.hasInstances() && cpuBvh) ? cpuBvh->getPrimitives() : kNoPrims;
+    const auto& orderedPrims = cpuBvh ? cpuBvh->getPrimitives() : kNoPrims;
 
     // Find each light's primitive index in r.prims
     for (size_t i = 0; i < lightPtrs.size(); ++i) {

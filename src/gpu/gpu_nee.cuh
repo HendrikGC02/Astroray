@@ -174,8 +174,12 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
     } else {
         // Triangle sources: any hit inside [0.001, maxDist] occludes;
         // lightFront is hardcoded true (original behavior asymmetry).
-        if (gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                        GRay(s.origin, s.wi, time), 0.001f, s.maxDist, sh, motionVerts))
+        // pkg55-B' any-hit: boolean-identical to the previous closest-hit
+        // query, but the walk exits at the FIRST occluder (PBRT IntersectP /
+        // Cycles scene_intersect_shadow).
+        if (gpu_tlas_occluded(tlas, instances, blas, bvhNodes, prims, tris,
+                              spheres, GRay(s.origin, s.wi, time), 0.001f,
+                              s.maxDist, motionVerts))
             return occ;
     }
     occ.occluded = 0;

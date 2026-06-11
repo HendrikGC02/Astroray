@@ -245,6 +245,74 @@ __device__ inline bool gpu_bvh_hit(
 }
 
 // ---------------------------------------------------------------------------
+// pkg55-B' any-hit shadow traversal: boolean occlusion query — returns true
+// on the FIRST accepted primitive hit, with no closest tracking, no hit
+// record, and no tangent-frame construction. The classic shadow-ray
+// optimization: PBRT-v4 Primitive::IntersectP (src/pbrt/cpu/aggregates.cpp,
+// Apache-2.0); Cycles scene_intersect_shadow / BVH_FUNCTION any-hit walks
+// (src/kernel/bvh/, Apache-2.0). Same node walk and leaf predicates as
+// gpu_bvh_hit above so accept/reject decisions are identical; only the
+// early-exit differs.
+// ---------------------------------------------------------------------------
+__device__ inline bool gpu_bvh_occluded(
+    const GBVHNode*  nodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GRay&       ray,
+    float tMin, float tMax,
+    const GVec3*     motionVerts = nullptr)
+{
+    if (!nodes) return false;
+
+    GVec3 invDir(1.f/ray.direction.x,
+                 1.f/ray.direction.y,
+                 1.f/ray.direction.z);
+    int   dirIsNeg[3] = { invDir.x < 0, invDir.y < 0, invDir.z < 0 };
+    int   toVisit = 0, curr = 0;
+    int   stack[64];
+
+    while (true) {
+        const GBVHNode& n = nodes[curr];
+
+        if (n.bounds.hit(ray, tMin, tMax)) {
+            if (n.nPrimitives > 0) {
+                for (int i = 0; i < n.nPrimitives; ++i) {
+                    const GPrimitive& p = prims[n.primitivesOffset + i];
+                    GHitRecord tmpRec;
+                    bool isHit = false;
+                    if (p.type == GPRIM_TRIANGLE) {
+                        const GTriangle& tri = tris[p.index];
+                        if (motionVerts != nullptr && tri.motionOffset >= 0) {
+                            isHit = gpu_triangle_hit_motion(tri, ray, tMin, tMax, tmpRec, motionVerts);
+                        } else {
+                            isHit = gpu_triangle_hit(tri, ray, tMin, tMax, tmpRec);
+                        }
+                    } else if (p.type == GPRIM_SPHERE) {
+                        isHit = gpu_sphere_hit(spheres[p.index], ray, tMin, tMax, tmpRec);
+                    }
+                    if (isHit) return true;  // any hit occludes
+                }
+                if (toVisit == 0) break;
+                curr = stack[--toVisit];
+            } else {
+                if (dirIsNeg[n.axis]) {
+                    stack[toVisit++] = curr + 1;
+                    curr = n.secondChildOffset;
+                } else {
+                    stack[toVisit++] = n.secondChildOffset;
+                    curr = curr + 1;
+                }
+            }
+        } else {
+            if (toVisit == 0) break;
+            curr = stack[--toVisit];
+        }
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
 // pkg114 — Two-level traversal: a TLAS (BVH over instance world-AABBs) whose
 // leaves are GInstance records, each referencing a BLAS (the per-mesh BVH this
 // file's gpu_bvh_hit traverses) plus a 4x4 object<->world transform pair.
@@ -375,6 +443,31 @@ __device__ inline bool gpu_tlas_hit(
 
 // Binary search on a monotone device array of length n, return first index
 // where arr[i] >= target.
+// Any-hit form of gpu_tlas_hit (pkg55-B' shadow rays). No TLAS -> the lean
+// gpu_bvh_occluded walk (the wavefront path). With a TLAS, v1 delegates to
+// the closest-hit instance walk and discards the record — boolean-identical;
+// a dedicated any-hit instance walk is a follow-up optimization.
+__device__ inline bool gpu_tlas_occluded(
+    const GTLASNode*  tlas,
+    const GInstance*  instances,
+    const GBLAS*      blas,
+    const GBVHNode*   blasNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GRay&       ray,
+    float tMin, float tMax,
+    const GVec3*      motionVerts = nullptr)
+{
+    if (!tlas || !instances || !blas) {
+        return gpu_bvh_occluded(blasNodes, prims, tris, spheres,
+                                ray, tMin, tMax, motionVerts);
+    }
+    GHitRecord rec;
+    return gpu_tlas_hit(tlas, instances, blas, blasNodes, prims, tris,
+                        spheres, ray, tMin, tMax, rec, motionVerts);
+}
+
 __device__ inline int gpu_lower_bound(const float* arr, int n, float target) {
     int lo = 0, hi = n;
     while (lo < hi) {

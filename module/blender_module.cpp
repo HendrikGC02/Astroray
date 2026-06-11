@@ -235,7 +235,9 @@ public:
             Vec3 c2 = params.size() > 8 ? Vec3(params[6], params[7], params[8]) : Vec3(1);
             proceduralTextures[name] = std::make_shared<MagicTexture>(depth, sc, dist, c1, c2);
         } else if (type == "voronoi") {
-            // params: [scale, randomness, dist_metric, feature, smoothness, r1,g1,b1, r2,g2,b2]
+            // Legacy params: [scale, randomness, dist_metric, feature, smoothness, r1,g1,b1, r2,g2,b2]
+            // pkg115 chunk 4: extended Cycles-parity ctor adds detail, roughness, lacunarity,
+            // exponent, normalize. Legacy API maps to the new ctor with defaults for new params.
             float sc = params.size() > 0 ? params[0] : 5.0f;
             float rand = params.size() > 1 ? params[1] : 1.0f;
             int dm = params.size() > 2 ? (int)params[2] : 0;
@@ -243,7 +245,12 @@ public:
             float smooth = params.size() > 4 ? params[4] : 1.0f;
             Vec3 c1 = params.size() > 7 ? Vec3(params[5], params[6], params[7]) : Vec3(0);
             Vec3 c2 = params.size() > 10 ? Vec3(params[8], params[9], params[10]) : Vec3(1);
-            proceduralTextures[name] = std::make_shared<VoronoiTexture>(sc, rand, dm, feat, smooth, c1, c2);
+            // New ctor: (scale, detail, roughness, lacunarity, smoothness, exponent, randomness,
+            //            normalize, dist_metric, feature, color_low, color_high).
+            // Legacy order had randomness before dist_metric; new ctor has randomness after exponent.
+            proceduralTextures[name] = std::make_shared<VoronoiTexture>(
+                sc, /*detail=*/0.0f, /*roughness=*/0.5f, /*lacunarity=*/2.0f, smooth,
+                /*exponent=*/0.5f, rand, /*normalize=*/false, dm, feat, c1, c2);
         } else if (type == "brick") {
             // params: [brick_r,g,b, mortar_r,g,b, brick_w, brick_h, mortar_size, offset, scale]
             Vec3 brick = params.size() > 2 ? Vec3(params[0], params[1], params[2]) : Vec3(0.7f, 0.35f, 0.2f);

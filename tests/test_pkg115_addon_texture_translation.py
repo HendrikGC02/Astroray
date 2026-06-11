@@ -145,7 +145,9 @@ def test_noise_translation_param_vector(monkeypatch):
     assert len(params) == 9, f"expected 9 params, got {len(params)}: {params}"
     scale, detail, rough, lac, offset, gain, dist, nt, norm = params
     assert (scale, detail, rough, lac, offset, gain, dist) == (6.0, 3.0, 0.7, 2.5, 0.1, 1.2, 0.5)
-    assert nt == 2.0, "RIDGED_MULTIFRACTAL must map to noise_type index 2"
+    assert nt == 3.0, ("RIDGED_MULTIFRACTAL must map to noise_type index 3 "
+                       "(ENGINE ordering: advanced_features.h noise_select "
+                       "case 3 = ridged; test_pkg115_noise_parity.py:299)")
     assert norm == 0.0, "normalize=False must pass 0.0"
 
 
@@ -153,8 +155,9 @@ def test_noise_type_enum_matches_fractal_h(monkeypatch):
     """Every Blender noise_type value maps to the matching fractal_noise.h index."""
     addon = _load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
-    expected = {'FBM': 0.0, 'MULTIFRACTAL': 1.0, 'RIDGED_MULTIFRACTAL': 2.0,
-                'HYBRID_MULTIFRACTAL': 3.0, 'HETERO_TERRAIN': 4.0}
+    # ENGINE ordering (advanced_features.h noise_select): HYBRID=2, RIDGED=3.
+    expected = {'FBM': 0.0, 'MULTIFRACTAL': 1.0, 'HYBRID_MULTIFRACTAL': 2.0,
+                'RIDGED_MULTIFRACTAL': 3.0, 'HETERO_TERRAIN': 4.0}
     for noise_type, idx in expected.items():
         renderer = _RecordingRenderer()
         node = _Node('TEX_NOISE', inputs={

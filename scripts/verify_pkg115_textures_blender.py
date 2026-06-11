@@ -70,7 +70,9 @@ def _tex_nodes():
         n.inputs["Scale"].default_value = 4.0
         n.inputs["Color1"].default_value = (0.7, 0.25, 0.15, 1.0)
         n.inputs["Color2"].default_value = (0.55, 0.18, 0.10, 1.0)
-        n.inputs["Mortar"].default_value = (0.85, 0.85, 0.85, 1.0)
+        mortar = n.inputs.get("Mortar") or n.inputs.get("Color3")
+        if mortar is not None:
+            mortar.default_value = (0.85, 0.85, 0.85, 1.0)
 
     def magic(n):
         n.turbulence_depth = 2

@@ -1045,6 +1045,7 @@ public:
         rec.objectPoint = rec.point;
         rec.setFaceNormal(r, normal);
         rec.material = material;
+        rec.hitObject = this;
         Vec3 d = p - center;
         float u = d.dot(axisU);
         float v = d.dot(axisV);

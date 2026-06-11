@@ -13,7 +13,8 @@ Two gates:
   #1  Empty-hook bit-equality: GPU output with `use_caustics=False` (or no caster
       flagged) is bit-equal to the baseline on the Lambertian Cornell scene.
 
-  #2  Empty-hook walltime overhead ≤ 5%: median walltime vs baseline.
+  #2  Empty-hook walltime overhead ≤ 5%: median walltime ratio, caustics
+      toggle ON (no caster flagged) vs OFF, interleaved in the same run.
 
 Mirrors the pattern from test_pkg64_gpu_phase2_no_regression.py. Baselines are
 stored separately from Phase 2 (tests/baselines/pkg64-gpu-phase3/) because the
@@ -148,45 +149,45 @@ def test_empty_hook_bit_equality():
 def test_empty_hook_walltime_overhead():
     """Empty-hook GPU walltime overhead <= 5% on cornell parity scene (Phase 3 re-check).
 
-    Runs N>=5 rendering warm-up + measured iterations at 64 spp with
-    use_caustics=False. Records the median walltime. Compares to a pinned
-    baseline walltime. Skips if no baseline pinned.
+    Renders with the caustics toggle ON (no caster flagged → SMS guard
+    short-circuits) vs toggle OFF, interleaved in the same run, and gates
+    the median walltime ratio over N>=5 iteration pairs.
 
-    Gate: overhead <= 5% (spec Phase 2/3 acceptance gate). With OS-jitter slack
-    on small renders, allows up to 1.30× ratio (same as Phase 2 line 209).
+    Gate: overhead <= 5% (spec gates table: "Empty-hook walltime overhead
+    | ≤ 5% | CPU pkg64-3 cost gate"). Measured RELATIVE — on/off in the
+    same run — exactly like the CPU source gate
+    (test_pkg64_phase3_no_regression.py::test_no_caster_cost_gate), NOT
+    against a pinned absolute walltime: a pinned-seconds baseline conflates
+    code changes with machine state and false-failed 3x on 2026-06-11/12
+    when the RTX 5070 Ti was thermally loaded after hours of benchmarking,
+    while passing in isolation. Interleaving puts both arms in the same
+    thermal state, so load cancels out while a real regression
+    (unconditional SMS work behind the toggle) still shows. With OS-jitter
+    slack on small renders, allows up to 1.30x ratio (same as Phase 2).
     """
     probe = astroray.Renderer()
     if not probe.gpu_available:
         pytest.skip("CUDA GPU not available on this machine")
 
-    baseline_time_path = BASELINES_DIR / "cornell-walltime-baseline.npy"
-
-    # Warm GPU caches first (BVH resident, shader JIT compiled).
+    # Warm GPU caches first (BVH resident, shader JIT compiled) — both arms.
     _render(seed=11, use_caustics=False)
+    _render(seed=11, use_caustics=True)
 
-    times = []
+    off_times = []
+    on_times = []
     for s in (101, 102, 103, 104, 105):
-        _, t = _render(seed=s, use_caustics=False)
-        times.append(t)
-    measured_median = float(np.median(times))
-
-    if not baseline_time_path.exists():
-        # First run: capture the baseline walltime and skip.
-        baseline_time_path.parent.mkdir(parents=True, exist_ok=True)
-        np.save(baseline_time_path, np.array([measured_median], dtype=np.float32))
-        pytest.skip(
-            f"pkg64-gpu Phase 3 empty-hook walltime baseline not present. "
-            f"Captured baseline median walltime {measured_median:.4f} s at "
-            f"{baseline_time_path}. Re-run this test to assert the overhead gate."
-        )
-
-    baseline_median = float(np.load(baseline_time_path)[0])
-    ratio = measured_median / max(baseline_median, 1e-6)
+        _, t_off = _render(seed=s, use_caustics=False)
+        _, t_on = _render(seed=s, use_caustics=True)
+        off_times.append(t_off)
+        on_times.append(t_on)
+    off_median = float(np.median(off_times))
+    on_median = float(np.median(on_times))
+    ratio = on_median / max(off_median, 1e-6)
 
     print(
         f"\n[pkg64-gpu Phase 3 empty-hook walltime overhead] "
-        f"baseline median = {baseline_median:.4f} s, "
-        f"measured median = {measured_median:.4f} s, "
+        f"toggle-off median = {off_median:.4f} s, "
+        f"toggle-on median = {on_median:.4f} s, "
         f"ratio = {ratio:.3f}x"
     )
 
@@ -196,8 +197,8 @@ def test_empty_hook_walltime_overhead():
         f"ratio {ratio:.2f}x > 1.30x (spec gate 1.05x + jitter slack). "
         f"The empty hook (numSMSCasters == 0 → guard short-circuits before "
         f"any SMS code runs) should add near-zero overhead. A measured "
-        f"overhead > 30% is a regression — check for unconditional work in "
-        f"the path-trace loop before the useCaustics guard."
+        f"overhead > 30% is a regression — check for unconditional work "
+        f"behind the useCaustics toggle in the path-trace loop."
     )
 
     print(

@@ -4,6 +4,14 @@
 **Track:** A
 **Codex-paste-ready:** no (large, staged; RTX visual verify)
 **Status:** Stage 2 chunks 1-6 done (PR #439 coord defaults, #441 hash+Perlin+fBM, #442 Wave+Brick, #445 Voronoi, #446 addon ShaderNodeTexVoronoi wiring, chunk 6 addon dedup — 2026-06-12). REMAINING: Blender-vs-Cycles RTX visual verify. **Visual-verify status (2026-06-12 03:15, RTX): OPEN FINDING — the paired-stills harness (scripts/verify_pkg115_textures_blender.py, headless Blender 5.1 factory-startup, 8-sphere texture grid) renders correctly under CYCLES but the CUSTOM_RAYTRACER leg produces uniformly dark, untextured spheres regardless of area-light energy (300W vs 9000W identical) — an end-to-end F12 export gap (lighting and/or material-texture translation not reaching the renderer for this scene construction), DISTINCT from the dedup chunk's translation layer whose unit tests pass. The visual acceptance gate stays OPEN pending diagnosis of the addon F12 export path on factory-startup scenes.**
+
+**FULL DIAGNOSIS (2026-06-12 morning, RTX + Blender 5.1 headless) — four separated root causes:**
+1. **GPU leg dark: dedicated lights are not uploaded to the GPU** (`[CUDA] Scene uploaded: ... 0 lights`). The addon exports AREA lights as pkg89 dedicated AreaLights (`add_area_light_dedicated`), which the GPU scene upload does not carry (the pkg86-B "dedicated lights -> power-CDF fallback" deferral). Affects ANY dedicated-light scene on GPU, independent of pkg115.
+2. **CPU leg HANGS: OpenMP deadlock inside Blender** — the standard MSVC .pyd deadlocks Blender 5.1's F12 CPU render (~zero CPU use); rebuilding with `-DASTRORAY_DISABLE_OPENMP=ON` fixes it (render 0.1-18 s). This GENERALIZES the MinGW-only memory (mingw_openmp_blender_deadlock) to MSVC/vcomp: ALL addon-use builds need the flag.
+3. **Harness bug (fixed): the F12 sample count property is `samples`** (default 2) — `preview_samples` is viewport-only; early stills were 2 spp regardless of --spp.
+4. **THE REMAINING pkg115 ITEM — procedural-texture coordinate space:** at 128 spp the CPU leg renders textures cleanly but in UV space (checker = fine concentric rings on the sphere) where Cycles defaults unconnected-Vector procedural textures to GENERATED (object-local 3D) coordinates (checker = large 3D blocks). The addon/eval path must default to generated coordinates (the audit's Mapping/TexCoord item; chunk 1's CoordMode infrastructure is the hook). Also the dedicated area light contributes far less than Cycles at equal wattage on CPU (energy-scale audit needed, pkg89 follow-up).
+
+Paired stills: wt test_results/pkg115_final/ (cycles.png vs custom_raytracer.png).
 **Depends on:** pkg57 (done — established the additive custom-node pattern and
 the `convert_node_material` traversal). Benefits from pkg112.
 **Estimated effort:** L (multi-week, staged)

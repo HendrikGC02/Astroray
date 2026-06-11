@@ -815,6 +815,81 @@ public:
         }
     }
 
+    // pkg114 inc 3 — register a mesh's OBJECT-LOCAL geometry once (UVs / split
+    // normals / multi-material), returning its mesh id for add_instance(). This
+    // is the bulk twin of registerMeshTriangles: byte-for-byte the same Triangle
+    // construction as addTrianglesBulk, but the prims are collected and handed to
+    // renderer.registerMesh() (built into one shared BLAS) instead of pushed flat
+    // into the scene. Callers pass OBJECT-space corners (identity model matrix);
+    // the per-instance world transform is supplied later by add_instance().
+    int registerMeshBulk(
+            py::array_t<float, py::array::c_style | py::array::forcecast> positions,
+            py::array_t<int,   py::array::c_style | py::array::forcecast> materialIds,
+            py::array_t<int,   py::array::c_style | py::array::forcecast> materialPassIndices,
+            int objectPassIndex,
+            py::array_t<float, py::array::c_style | py::array::forcecast> uvs,
+            std::vector<std::string> uvLayerNames,
+            py::array_t<float, py::array::c_style | py::array::forcecast> normals) {
+        auto pos = positions.unchecked<3>();              // (Nt, 3, 3)
+        const py::ssize_t nt = pos.shape(0);
+        if (pos.shape(1) != 3 || pos.shape(2) != 3)
+            throw std::runtime_error("register_mesh_bulk: positions must be (N,3,3)");
+        auto mid = materialIds.unchecked<1>();            // (Nt,)
+        auto mpi = materialPassIndices.unchecked<1>();    // (Nt,)
+        if (mid.shape(0) != nt || mpi.shape(0) != nt)
+            throw std::runtime_error("register_mesh_bulk: material arrays must match triangle count");
+
+        const py::ssize_t nLayers = (uvs.size() > 0) ? uvs.shape(0) : 0;
+        const bool hasNormals = normals.size() > 0;
+        if (hasNormals && normals.shape(0) != nt)
+            throw std::runtime_error("register_mesh_bulk: normals must be (N,3,3)");
+        std::vector<std::string> names;
+        for (py::ssize_t l = 0; l < nLayers; ++l) {
+            std::string nm = (l < (py::ssize_t)uvLayerNames.size()) ? uvLayerNames[l] : std::string();
+            names.push_back(nm.empty() ? (l == 0 ? "UVMap" : "UVMap" + std::to_string(l + 1)) : nm);
+        }
+        const float* uvPtr = (nLayers > 0) ? uvs.data() : nullptr;   // (nLayers, nt, 3, 2)
+        const float* nPtr  = hasNormals ? normals.data() : nullptr;  // (nt, 3, 3)
+        auto uvAt = [&](py::ssize_t l, py::ssize_t t, int c) -> Vec2 {
+            const float* p = uvPtr + (((l * nt + t) * 3 + c) * 2);
+            return Vec2(p[0], p[1]);
+        };
+
+        std::vector<std::shared_ptr<Hittable>> prims;
+        prims.reserve(nt);
+        for (py::ssize_t t = 0; t < nt; ++t) {
+            Vec3 p0(pos(t, 0, 0), pos(t, 0, 1), pos(t, 0, 2));
+            Vec3 p1(pos(t, 1, 0), pos(t, 1, 1), pos(t, 1, 2));
+            Vec3 p2(pos(t, 2, 0), pos(t, 2, 1), pos(t, 2, 2));
+            int materialId = mid(t);
+            auto mat = materials.count(materialId) ? materials[materialId]
+                                                   : std::make_shared<Lambertian>(Vec3(0.5f));
+            std::shared_ptr<Triangle> tri;
+            if (nLayers == 0) {
+                tri = std::make_shared<Triangle>(p0, p1, p2, mat);
+            } else if (nLayers == 1) {
+                tri = std::make_shared<Triangle>(p0, p1, p2,
+                        uvAt(0, t, 0), uvAt(0, t, 1), uvAt(0, t, 2), mat);
+            } else {
+                std::vector<std::array<Vec2, 3>> layers;
+                layers.reserve(nLayers);
+                for (py::ssize_t l = 0; l < nLayers; ++l)
+                    layers.push_back({ uvAt(l, t, 0), uvAt(l, t, 1), uvAt(l, t, 2) });
+                tri = std::make_shared<Triangle>(p0, p1, p2, layers, names, mat);
+            }
+            if (hasNormals) {
+                const float* n = nPtr + (t * 9);
+                tri->setVertexNormals(Vec3(n[0], n[1], n[2]),
+                                      Vec3(n[3], n[4], n[5]),
+                                      Vec3(n[6], n[7], n[8]));
+            }
+            tri->setObjectPassIndex(objectPassIndex);
+            tri->setMaterialPassIndex(mpi(t));
+            prims.push_back(tri);
+        }
+        return renderer.registerMesh(prims);
+    }
+
     // pkg88-C.0 — bulk motion triangle ingest. Per Cycles motion_triangle.h (Apache-2.0):
     // positions_start (Nt,3,3) is the center step; positions_end (Nt,3,3) is the
     // additional motion step at shutter close. motionSteps=2 → one additional step.
@@ -2318,6 +2393,13 @@ PYBIND11_MODULE(astroray, m) {
              "triangles"_a, "material_id"_a,
              "pkg114: register a mesh's OBJECT-LOCAL flat-shaded triangles (list of "
              "(9,) [v0,v1,v2]) once; returns mesh_id for add_instance().")
+        .def("register_mesh_bulk", &PyRenderer::registerMeshBulk,
+             "positions"_a, "material_ids"_a, "material_pass_indices"_a, "object_pass_index"_a,
+             "uvs"_a, "uv_layer_names"_a, "normals"_a,
+             "pkg114: register a mesh's OBJECT-LOCAL geometry once (UVs/normals/multi-"
+             "material) into a shared BLAS; returns mesh_id for add_instance(). Bulk twin "
+             "of register_mesh_triangles. positions (N,3,3) object-space; arrays match "
+             "add_triangles_bulk.")
         .def("add_instance", &PyRenderer::addInstance, "mesh_id"_a, "transform"_a,
              "pkg114: instance a registered mesh with a row-major 4x4 object->world "
              "transform (16 floats). Returns instance_id.")

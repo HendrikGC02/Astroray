@@ -2728,9 +2728,30 @@ class CustomRaytracerRenderEngine(RenderEngine):
         tex_name = None
         try:
             if ntype == 'TEX_NOISE':
-                scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
+                # pkg115 chunk 2: ShaderNodeTexNoise → NoiseTextureCycles (Perlin + fractal).
+                # Params: [scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize]
+                def _nsock(name, fallback):
+                    s = node.inputs.get(name)
+                    return float(s.default_value) if s is not None else fallback
+                noise_scale = _nsock('Scale', 5.0)
+                noise_detail = _nsock('Detail', 2.0)
+                noise_rough = _nsock('Roughness', 0.5)
+                noise_lac = _nsock('Lacunarity', 2.0)
+                noise_offset = _nsock('Offset', 0.0)
+                noise_gain = _nsock('Gain', 1.0)
+                noise_dist = _nsock('Distortion', 0.0)
+                # Blender Noise Texture noise_dimensions: '3D' is the only one the engine supports (node has 1D/2D/3D/4D).
+                # noise_type: Blender enum FBM/MULTIFRACTAL/RIGID_MULTIFRACTAL/HYBRID_MULTIFRACTAL/HETERO_TERRAIN
+                # maps to fractal_noise.h 0=fBM, 1=multifractal, 2=ridged, 3=hybrid, 4=hetero per audit §6 item 6.
+                noise_type_map = {
+                    'FBM': 0.0, 'MULTIFRACTAL': 1.0, 'RIDGED_MULTIFRACTAL': 2.0,
+                    'HYBRID_MULTIFRACTAL': 3.0, 'HETERO_TERRAIN': 4.0
+                }
+                nt = noise_type_map.get(getattr(node, 'noise_type', 'FBM'), 0.0)
+                noise_norm = 1.0 if getattr(node, 'normalize', True) else 0.0
                 tex_name = f"_proc_noise_{node_id}"
-                renderer.create_procedural_texture(tex_name, 'noise', [scale])
+                renderer.create_procedural_texture(tex_name, 'noise_perlin',
+                    [noise_scale, noise_detail, noise_rough, noise_lac, noise_offset, noise_gain, noise_dist, nt, noise_norm])
             elif ntype == 'TEX_CHECKER':
                 scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
                 c1 = list(node.inputs['Color1'].default_value[:3]) if node.inputs.get('Color1') else [1,1,1]
@@ -2767,18 +2788,30 @@ class CustomRaytracerRenderEngine(RenderEngine):
                      0, 0, 0, 1, 1, 1,
                      detail, roughness, lacunarity, exponent, normalize])
             elif ntype == 'TEX_WAVE':
+                # pkg115 chunk 3 + chunk 6 (addon dedup): full Cycles-parity Wave.
+                # Params: [wave_type, bands_direction, rings_direction, profile, scale, distortion,
+                #          detail, detail_scale, detail_roughness, phase_offset, r1,g1,b1, r2,g2,b2]
                 scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
                 dist = float(node.inputs['Distortion'].default_value) if node.inputs.get('Distortion') else 0.0
                 detail = float(node.inputs['Detail'].default_value) if node.inputs.get('Detail') else 2.0
-                rough = float(node.inputs['Detail Roughness'].default_value or node.inputs.get('Roughness', type(0)).default_value) \
-                    if node.inputs.get('Detail Roughness') else 0.5
-                lac = float(node.inputs['Detail Scale'].default_value) if node.inputs.get('Detail Scale') else 2.0
-                bd = 1 if getattr(node, 'wave_type', 'BANDS') == 'RINGS' else 0
-                profile_map = {'SINE': 0, 'SAW': 1, 'TRIANGLE': 2}
-                prof = profile_map.get(getattr(node, 'bands_direction', 'SINE'), 0)
+                dscale = float(node.inputs['Detail Scale'].default_value) if node.inputs.get('Detail Scale') else 1.0
+                drough = float(node.inputs['Detail Roughness'].default_value) if node.inputs.get('Detail Roughness') else 0.5
+                phase = float(node.inputs['Phase Offset'].default_value) if node.inputs.get('Phase Offset') else 0.0
+                # wave_type: BANDS=0, RINGS=1
+                wt = 1 if getattr(node, 'wave_type', 'BANDS') == 'RINGS' else 0
+                # bands_direction: X=0, Y=1, Z=2, DIAGONAL=3; Blender property 'bands_direction'
+                bands_dir_map = {'X': 0, 'Y': 1, 'Z': 2, 'DIAGONAL': 3}
+                bd = bands_dir_map.get(getattr(node, 'bands_direction', 'X'), 0)
+                # rings_direction: X=0, Y=1, Z=2, SPHERICAL=3; Blender property 'rings_direction'
+                rings_dir_map = {'X': 0, 'Y': 1, 'Z': 2, 'SPHERICAL': 3}
+                rd = rings_dir_map.get(getattr(node, 'rings_direction', 'X'), 0)
+                # wave_profile: SINE=0, SAW=1, TRIANGLE=2; Blender property 'wave_profile'
+                profile_map = {'SIN': 0, 'SAW': 1, 'TRI': 2}
+                prof = profile_map.get(getattr(node, 'wave_profile', 'SIN'), 0)
                 tex_name = f"_proc_wave_{node_id}"
                 renderer.create_procedural_texture(tex_name, 'wave',
-                    [float(bd), float(prof), scale, dist, detail, rough, lac, 0,0,0, 1,1,1])
+                    [float(wt), float(bd), float(rd), float(prof), scale, dist, detail, dscale, drough, phase,
+                     0,0,0, 1,1,1])
             elif ntype == 'TEX_MAGIC':
                 depth = int(node.turbulence_depth) if hasattr(node, 'turbulence_depth') else 2
                 scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
@@ -2787,16 +2820,26 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 renderer.create_procedural_texture(tex_name, 'magic',
                     [float(depth), scale, dist, 0,0,0, 1,1,1])
             elif ntype == 'TEX_BRICK':
+                # pkg115 chunk 3 + chunk 6 (addon dedup): full Cycles-parity Brick.
+                # Params: [brick1_r,g,b, brick2_r,g,b, mortar_r,g,b, scale, mortar_size, mortar_smooth,
+                #          bias, brick_width, row_height, offset_amount, offset_freq, squash, squash_freq]
+                c1 = list(node.inputs['Color1'].default_value[:3]) if node.inputs.get('Color1') else [0.8, 0.8, 0.8]
+                c2 = list(node.inputs['Color2'].default_value[:3]) if node.inputs.get('Color2') else [0.2, 0.2, 0.2]
+                c_mortar = list(node.inputs['Color3'].default_value[:3]) if node.inputs.get('Color3') else [0.0, 0.0, 0.0]
                 scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
-                mortar = float(node.inputs['Mortar Size'].default_value) if node.inputs.get('Mortar Size') else 0.02
-                offset = float(node.inputs['Offset'].default_value) if node.inputs.get('Offset') else 0.5
-                c_brick = list(node.inputs['Color1'].default_value[:3]) if node.inputs.get('Color1') else [0.7, 0.35, 0.2]
-                c_mortar = list(node.inputs['Color3'].default_value[:3]) if node.inputs.get('Color3') else [0.9, 0.9, 0.9]
+                mort_size = float(node.inputs['Mortar Size'].default_value) if node.inputs.get('Mortar Size') else 0.02
+                mort_smooth = float(node.inputs['Mortar Smooth'].default_value) if node.inputs.get('Mortar Smooth') else 0.1
+                bias = float(node.inputs['Bias'].default_value) if node.inputs.get('Bias') else 0.0
                 bw = float(node.inputs['Brick Width'].default_value) if node.inputs.get('Brick Width') else 0.5
-                bh = float(node.inputs['Row Height'].default_value) if node.inputs.get('Row Height') else 0.25
+                rh = float(node.inputs['Row Height'].default_value) if node.inputs.get('Row Height') else 0.25
+                # Blender Brick properties: offset, offset_frequency, squash, squash_frequency
+                offamt = float(node.inputs['Offset'].default_value) if node.inputs.get('Offset') else 0.5
+                offfreq = float(getattr(node, 'offset_frequency', 2))
+                sq = float(getattr(node, 'squash', 1.0))
+                sqfreq = float(getattr(node, 'squash_frequency', 2))
                 tex_name = f"_proc_brick_{node_id}"
                 renderer.create_procedural_texture(tex_name, 'brick',
-                    c_brick + c_mortar + [bw, bh, mortar, offset, scale])
+                    c1 + c2 + c_mortar + [scale, mort_size, mort_smooth, bias, bw, rh, offamt, offfreq, sq, sqfreq])
             elif ntype == 'TEX_GRADIENT':
                 grad_map = {'LINEAR': 0, 'QUADRATIC': 1, 'EASING': 2, 'DIAGONAL': 3,
                             'SPHERICAL': 4, 'QUADRATIC_SPHERE': 5, 'RADIAL': 6}

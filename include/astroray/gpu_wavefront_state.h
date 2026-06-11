@@ -248,7 +248,7 @@ void launchStageShadeBucketed(
     int               max_depth);
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
-// samples parked by the deferring bucketed shade. nee_f = 15 floats/slot
+// samples parked by the deferring bucketed shade. nee_f = 11 floats/slot
 // (field-major), nee_i = 2 ints/slot; see stage_advance.cu layout consts.
 void launchStageShadow(
     GPUWavefrontState& state,

@@ -1055,7 +1055,7 @@ std::vector<float> cuda_wavefront_render(
         if (qe == cudaSuccess)
             qe = cudaMalloc(reinterpret_cast<void**>(&d_shadeCounts),
                             kNumMatTypes * sizeof(int));
-        // pkg55-B' shadow stage: NEE park SoA (15 floats + 2 ints per slot,
+        // pkg55-B' shadow stage: NEE park SoA (11 floats + 2 ints per slot,
         // field-major) + shadow queue/counter.
         float* d_neeF = nullptr;
         int*   d_neeI = nullptr;

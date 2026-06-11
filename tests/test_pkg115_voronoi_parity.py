@@ -189,9 +189,11 @@ def test_voronoi_smooth_f1_neighborhood():
     """Voronoi Smooth F1: 5x5x5 neighborhood polynomial smooth-min.
 
     Cycles voronoi.h:512-552 voronoi_smooth_f1 3D: loops -2..2, applies smoothstep.
-    With smoothness>0, output differs from plain F1.
-    At p=(0.3,0.3,0.3), randomness=0, smoothness=0.1 (after /2 clamping = 0.05):
-      The smooth-min blends multiple cells; output < F1 plain.
+    Smooth F1 differs from plain F1 ONLY when neighbouring cell points fall within
+    ~smoothness of the closest one. At randomness=0 the lattice cells sit a unit
+    apart (gap ~0.3 >> smoothness 0.1), so the smooth-min collapses to the plain
+    min and Smooth F1 == F1 -- correct behaviour, not a bug. To exercise the blend
+    we jitter the cells (randomness=1) and use max smoothness (UI 1.0 -> Cycles 0.5).
     """
     import astroray
     r = astroray.Renderer()
@@ -203,19 +205,19 @@ def test_voronoi_smooth_f1_neighborhood():
         "lacunarity": 2.0,
         "smoothness": 1.0,
         "exponent": 0.5,
-        "randomness": 0.0,
+        "randomness": 1.0,
         "normalize": 0,
         "dist_metric": 0,
         "feature": 0,  # F1
         "color_low": [0.0, 0.0, 0.0],
         "color_high": [1.0, 1.0, 1.0]
     }
-    val_f1 = r.eval_texture_at_3d("voronoi", params_f1, 0.3, 0.3, 0.3)
+    val_f1 = r.eval_texture_at_3d("voronoi", params_f1, 0.5, 0.5, 0.5)
 
     params_smooth = dict(params_f1)
     params_smooth["feature"] = 1  # Smooth F1
-    params_smooth["smoothness"] = 0.2  # Node UI passes 0.2; Cycles clamps to 0.1.
-    val_smooth = r.eval_texture_at_3d("voronoi", params_smooth, 0.3, 0.3, 0.3)
+    params_smooth["smoothness"] = 1.0  # Node UI 1.0 -> Cycles clamps to 0.5 (max blend).
+    val_smooth = r.eval_texture_at_3d("voronoi", params_smooth, 0.5, 0.5, 0.5)
 
     # Smooth F1 must differ from plain F1.
     assert abs(val_smooth[0] - val_f1[0]) > 0.001, f"Smooth F1 must differ from F1: F1={val_f1[0]:.4f}, SmoothF1={val_smooth[0]:.4f}"
@@ -364,9 +366,11 @@ def test_voronoi_distance_to_edge():
     Cycles voronoi.h:597+ voronoi_distance_to_edge 3D:
       First pass finds closest point, second pass finds perpendicular edge distance.
 
-    At randomness=0, cell grid is regular; edge distance at cell interior < at cell center.
-    At p=(0.5, 0.5, 0.5) (cell center), edge distance ~ 0.5 (halfway to neighbor).
-    At p=(0.25, 0.25, 0.25) (closer to (0,0,0)), edge distance < 0.5.
+    Distance-to-edge measures how far the sample is from the boundary BETWEEN Voronoi
+    cells, so it is LARGE near a cell centre (a lattice point) and ~0 on a boundary.
+    At randomness=0 the cell centres are the integer lattice points, so:
+      p=(0.1,0.1,0.1) sits near centre (0,0,0)  -> edge distance large (~0.4).
+      p=(0.5,0.5,0.5) sits where 8 cells meet   -> on the boundary, edge distance ~0.
     """
     import astroray
     r = astroray.Renderer()
@@ -385,13 +389,12 @@ def test_voronoi_distance_to_edge():
         "color_low": [0.0, 0.0, 0.0],
         "color_high": [1.0, 1.0, 1.0]
     }
-    val_center = r.eval_texture_at_3d("voronoi", params, 0.5, 0.5, 0.5)
-    val_corner = r.eval_texture_at_3d("voronoi", params, 0.25, 0.25, 0.25)
+    val_near_center = r.eval_texture_at_3d("voronoi", params, 0.1, 0.1, 0.1)
+    val_near_edge = r.eval_texture_at_3d("voronoi", params, 0.5, 0.5, 0.5)
 
-    # Edge distance at cell center should be larger than at a corner (closer to edge).
-    # At randomness=0, (0.5,0.5,0.5) is equidistant from multiple neighbors; edge distance ~ 0.5.
-    # At (0.25,0.25,0.25), closer to (0,0,0), edge distance to nearest neighbor edge is smaller.
-    assert val_center[0] > val_corner[0], f"Edge distance at center > corner: center={val_center[0]:.4f}, corner={val_corner[0]:.4f}"
+    # Near a cell centre the edge is far; on a multi-cell boundary the edge distance ~0.
+    assert val_near_center[0] > val_near_edge[0], f"Edge distance near centre > near boundary: center={val_near_center[0]:.4f}, edge={val_near_edge[0]:.4f}"
+    assert val_near_edge[0] < 0.05, f"Edge distance on cell boundary should be ~0: {val_near_edge[0]:.4f}"
 
 
 def test_voronoi_n_sphere_radius():
@@ -436,8 +439,9 @@ def test_voronoi_n_sphere_radius():
     # For N-Sphere Radius, the radius is a separate output accessible via evalFull().
     # So this test should verify that the F1 distance is returned (as for other features),
     # and the radius is non-zero.
-    # At randomness=0, p=(0.37,0.42,0.51), F1 distance ~ sqrt(0.37^2+0.42^2+0.51^2) ~ 0.76.
-    expected_f1 = math.sqrt(0.37**2 + 0.42**2 + 0.51**2)
+    # At randomness=0, p=(0.37,0.42,0.51) the closest lattice cell is (0,0,1) -- z=0.51 is
+    # nearer to z=1 (0.49) than to z=0 (0.51) -- so F1 = sqrt(0.37^2 + 0.42^2 + 0.49^2).
+    expected_f1 = math.sqrt(0.37**2 + 0.42**2 + (1.0 - 0.51)**2)
     assert abs(val[0] - expected_f1) < 0.01, f"N-Sphere Radius returns F1 distance: expected {expected_f1:.4f}, got {val[0]:.4f}"
 
 
@@ -470,12 +474,19 @@ def test_voronoi_feature_enum_order():
     expected_f1 = math.sqrt(0.3**2 + 0.3**2 + 0.3**2)
     assert abs(val_f1[0] - expected_f1) < 0.01, f"Feature 0 (F1): expected {expected_f1:.4f}, got {val_f1[0]:.4f}"
 
-    # Feature 1: Smooth F1 (must differ from F1 when smoothness>0)
+    # Feature 1: Smooth F1. Smoothing only changes the result when neighbour cells
+    # are within ~smoothness of the closest, so compare against an F1 reference at the
+    # SAME jittered (randomness=1) point rather than the randomness=0 lattice value.
+    params_f1_jit = dict(base_params)
+    params_f1_jit["feature"] = 0
+    params_f1_jit["randomness"] = 1.0
+    val_f1_jit = r.eval_texture_at_3d("voronoi", params_f1_jit, 0.5, 0.5, 0.5)
     params_smooth = dict(base_params)
     params_smooth["feature"] = 1
-    params_smooth["smoothness"] = 0.2
-    val_smooth = r.eval_texture_at_3d("voronoi", params_smooth, 0.3, 0.3, 0.3)
-    assert abs(val_smooth[0] - val_f1[0]) > 0.001, f"Feature 1 (Smooth F1) must differ from F1: {val_smooth[0]:.4f} vs {val_f1[0]:.4f}"
+    params_smooth["randomness"] = 1.0
+    params_smooth["smoothness"] = 1.0  # UI 1.0 -> Cycles 0.5 (max blend)
+    val_smooth = r.eval_texture_at_3d("voronoi", params_smooth, 0.5, 0.5, 0.5)
+    assert abs(val_smooth[0] - val_f1_jit[0]) > 0.001, f"Feature 1 (Smooth F1) must differ from F1: {val_smooth[0]:.4f} vs {val_f1_jit[0]:.4f}"
 
     # Feature 2: F2
     params_f2 = dict(base_params)

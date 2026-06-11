@@ -1024,45 +1024,51 @@ class VoronoiTexture : public Texture {
     }
 
     // Cycles voronoi.h:597+ voronoi_distance_to_edge 3D (IQ two-pass perpendicular edge distance).
+    // Both passes work in vectors RELATIVE to localPosition (vectorToPoint = pointPosition -
+    // localPosition), matching Cycles. First pass uses squared Euclidean and IGNORES the metric.
+    // Edge distance = dot((vectorToClosest + vectorToPoint)/2, normalize(perpendicularToEdge)).
     VoronoiOutput voronoi_distance_to_edge(const Vec3& coord) const {
         Vec3 cellPositionF = Vec3(std::floor(coord.x), std::floor(coord.y), std::floor(coord.z));
         Vec3 localPosition = coord - cellPositionF;
 
         float minDistance = 1e9f;
         Vec3 targetOffset(0.0f);
-        Vec3 targetPosition(0.0f);
+        Vec3 vectorToClosest(0.0f);
 
-        // First pass: find closest point.
+        // First pass: find closest point (squared Euclidean, metric ignored per Cycles).
         for (int k = -1; k <= 1; ++k) {
             for (int j = -1; j <= 1; ++j) {
                 for (int i = -1; i <= 1; ++i) {
                     Vec3 cellOffset((float)i, (float)j, (float)k);
                     Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
-                    Vec3 pointPosition = cellOffset +
-                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
-                    float d = voronoi_distance(pointPosition, localPosition);
+                    Vec3 vectorToPoint = cellOffset +
+                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness
+                        - localPosition;
+                    float d = vectorToPoint.dot(vectorToPoint);
                     if (d < minDistance) {
                         minDistance = d;
                         targetOffset = cellOffset;
-                        targetPosition = pointPosition;
+                        vectorToClosest = vectorToPoint;
                     }
                 }
             }
         }
 
-        // Second pass: distance to edge = half distance to perpendicular neighbor.
+        // Second pass: perpendicular distance to the edge between closest and neighbor.
         minDistance = 1e9f;
         for (int k = -1; k <= 1; ++k) {
             for (int j = -1; j <= 1; ++j) {
                 for (int i = -1; i <= 1; ++i) {
                     Vec3 cellOffset((float)i, (float)j, (float)k);
                     Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
-                    Vec3 pointPosition = cellOffset +
-                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
-                    Vec3 perpendicularToEdge = pointPosition - targetPosition;
-                    if (perpendicularToEdge.dot(perpendicularToEdge) > 1e-6f) {
-                        float d = (targetPosition - localPosition).dot(perpendicularToEdge) /
-                                  std::sqrt(perpendicularToEdge.dot(perpendicularToEdge));
+                    Vec3 vectorToPoint = cellOffset +
+                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness
+                        - localPosition;
+                    Vec3 perpendicularToEdge = vectorToPoint - vectorToClosest;
+                    if (perpendicularToEdge.dot(perpendicularToEdge) > 1e-4f) {
+                        Vec3 perpN = perpendicularToEdge /
+                            std::sqrt(perpendicularToEdge.dot(perpendicularToEdge));
+                        float d = ((vectorToClosest + vectorToPoint) * 0.5f).dot(perpN);
                         minDistance = std::min(minDistance, d);
                     }
                 }
@@ -1073,7 +1079,7 @@ class VoronoiTexture : public Texture {
         out.distance = minDistance;
         Vec3 targetCell = cellPositionF + targetOffset;
         out.color = cycles_hash::hash_int3_to_float3((int)targetCell.x, (int)targetCell.y, (int)targetCell.z);
-        out.position = targetPosition + cellPositionF;
+        out.position = vectorToClosest + localPosition + cellPositionF;
         out.radius = 0.0f;
         return out;
     }
@@ -1134,7 +1140,7 @@ class VoronoiTexture : public Texture {
 
     // Cycles voronoi.h:940-992 fractal_voronoi_x_fx (octave loop with normalize).
     VoronoiOutput fractal_voronoi(const Vec3& coord) const {
-        float scale = 1.0f;
+        float octaveScale = 1.0f;  // accumulated per-octave scale (member `scale` is params.scale)
         float amplitude = 1.0f;
         float maxAmplitude = 0.0f;
         VoronoiOutput sum;
@@ -1147,11 +1153,11 @@ class VoronoiTexture : public Texture {
         for (int i = 0; i <= octaves; ++i) {
             VoronoiOutput octave;
             switch (feature) {
-                case 1: octave = voronoi_smooth_f1(coord * scale); break;
-                case 2: octave = voronoi_f2(coord * scale); break;
-                case 3: octave = voronoi_distance_to_edge(coord * scale); break;
-                case 4: octave = voronoi_n_sphere_radius(coord * scale); break;
-                default: octave = voronoi_f1(coord * scale); break;
+                case 1: octave = voronoi_smooth_f1(coord * octaveScale); break;
+                case 2: octave = voronoi_f2(coord * octaveScale); break;
+                case 3: octave = voronoi_distance_to_edge(coord * octaveScale); break;
+                case 4: octave = voronoi_n_sphere_radius(coord * octaveScale); break;
+                default: octave = voronoi_f1(coord * octaveScale); break;
             }
 
             if (i <= (int)detail) {
@@ -1172,7 +1178,7 @@ class VoronoiTexture : public Texture {
                 }
             }
 
-            scale *= lacunarity;
+            octaveScale *= lacunarity;
             amplitude *= roughness;
         }
 
@@ -1180,8 +1186,9 @@ class VoronoiTexture : public Texture {
             sum.distance /= maxAmplitude * maxDistance;
             sum.color = sum.color / maxAmplitude;
         }
-        // Cycles: position /= scale (the accumulated scale from last octave).
-        sum.position = sum.position / scale;
+        // Cycles voronoi.h fractal_voronoi_x_fx: output.position = safe_divide(position, params.scale).
+        // `scale` here is the class member (= params.scale), not the per-octave accumulator.
+        sum.position = (scale != 0.0f) ? (sum.position / scale) : sum.position;
         return sum;
     }
 
@@ -1211,69 +1218,35 @@ public:
     }
 
     Vec3 value(const Vec2&, const Vec3& p) const override {
-        Vec3 coord = p * scale;
-        VoronoiOutput out;
-
-        if (detail > 0.0f) {
-            out = fractal_voronoi(coord);
-        } else {
-            switch (feature) {
-                case 1: out = voronoi_smooth_f1(coord); break;
-                case 2: out = voronoi_f2(coord); break;
-                case 3: out = voronoi_distance_to_edge(coord); break;
-                case 4: out = voronoi_n_sphere_radius(coord); break;
-                case 5: {  // Standalone-only F1+F2
-                    VoronoiOutput f1 = voronoi_f1(coord);
-                    VoronoiOutput f2 = voronoi_f2(coord);
-                    out.distance = (f1.distance + f2.distance) * 0.5f;
-                    out.color = f1.color;
-                    out.position = f1.position;
-                    out.radius = 0.0f;
-                    break;
-                }
-                case 6: {  // Standalone-only F2-F1
-                    VoronoiOutput f1 = voronoi_f1(coord);
-                    VoronoiOutput f2 = voronoi_f2(coord);
-                    out.distance = f2.distance - f1.distance;
-                    out.color = f1.color;
-                    out.position = f1.position;
-                    out.radius = 0.0f;
-                    break;
-                }
-                default: out = voronoi_f1(coord); break;
-            }
-        }
-
-        // Legacy value() returns Distance mapped to 2-color lerp.
+        // Legacy single-output: Distance mapped to a 2-color lerp.
+        VoronoiOutput out = evalFull(p);
         float t = std::clamp(out.distance, 0.0f, 1.0f);
         return colorLow * (1.0f - t) + colorHigh * t;
     }
 
-    // Full multi-output eval for plugin use.
+    // Full multi-output eval for plugin use. Features 0-4 ALWAYS route through the
+    // fractal wrapper -- Cycles svm_node_tex_voronoi calls fractal_voronoi_x_fx even at
+    // detail=0 (single octave), so `normalize` must apply at detail=0 too. Standalone-only
+    // features 5/6 (F1+F2, F2-F1) have no Cycles counterpart and bypass fractal/normalize.
     VoronoiOutput evalFull(const Vec3& p) const {
         Vec3 coord = p * scale;
-        if (detail > 0.0f) {
+        if (feature <= 4) {
             return fractal_voronoi(coord);
-        } else {
-            switch (feature) {
-                case 1: return voronoi_smooth_f1(coord);
-                case 2: return voronoi_f2(coord);
-                case 3: return voronoi_distance_to_edge(coord);
-                case 4: return voronoi_n_sphere_radius(coord);
-                case 5: {
-                    VoronoiOutput f1 = voronoi_f1(coord);
-                    VoronoiOutput f2 = voronoi_f2(coord);
-                    f1.distance = (f1.distance + f2.distance) * 0.5f;
-                    return f1;
-                }
-                case 6: {
-                    VoronoiOutput f1 = voronoi_f1(coord);
-                    VoronoiOutput f2 = voronoi_f2(coord);
-                    f1.distance = f2.distance - f1.distance;
-                    return f1;
-                }
-                default: return voronoi_f1(coord);
+        }
+        switch (feature) {
+            case 5: {  // Standalone-only F1+F2
+                VoronoiOutput f1 = voronoi_f1(coord);
+                VoronoiOutput f2 = voronoi_f2(coord);
+                f1.distance = (f1.distance + f2.distance) * 0.5f;
+                return f1;
             }
+            case 6: {  // Standalone-only F2-F1
+                VoronoiOutput f1 = voronoi_f1(coord);
+                VoronoiOutput f2 = voronoi_f2(coord);
+                f1.distance = f2.distance - f1.distance;
+                return f1;
+            }
+            default: return voronoi_f1(coord);
         }
     }
 };

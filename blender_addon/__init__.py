@@ -2739,16 +2739,33 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 renderer.create_procedural_texture(tex_name, 'checker',
                     c1 + c2 + [scale])
             elif ntype == 'TEX_VORONOI':
-                scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
-                randomness = float(node.inputs['Randomness'].default_value) if node.inputs.get('Randomness') else 1.0
-                smoothness = float(node.inputs.get('Smoothness', type(None) or type(0)).default_value) if node.inputs.get('Smoothness') else 1.0
+                def _vsock(name, fallback):
+                    s = node.inputs.get(name)
+                    return float(s.default_value) if s is not None else fallback
+                scale = _vsock('Scale', 5.0)
+                randomness = _vsock('Randomness', 1.0)
+                smoothness = _vsock('Smoothness', 1.0)
+                detail = _vsock('Detail', 0.0)
+                roughness = _vsock('Roughness', 0.5)
+                lacunarity = _vsock('Lacunarity', 2.0)
+                exponent = _vsock('Exponent', 0.5)
                 dist_map = {'EUCLIDEAN': 0, 'MANHATTAN': 1, 'CHEBYCHEV': 2, 'MINKOWSKI': 3}
-                feat_map = {'F1': 0, 'F2': 1, 'F1_F2': 2, 'SMOOTH_F1': 4, 'DISTANCE_TO_EDGE': 3}
+                # Feature enum MUST match the C++ VoronoiTexture order (pkg115 chunk 4,
+                # advanced_features.h): 0=F1, 1=Smooth F1, 2=F2, 3=Distance to Edge,
+                # 4=N-Sphere Radius. (Older Blender 'F1_F2' has no Cycles socket anymore.)
+                feat_map = {'F1': 0, 'SMOOTH_F1': 1, 'F2': 2,
+                            'DISTANCE_TO_EDGE': 3, 'N_SPHERE_RADIUS': 4}
                 dm = dist_map.get(getattr(node, 'distance', 'EUCLIDEAN'), 0)
                 feat = feat_map.get(getattr(node, 'feature', 'F1'), 0)
+                normalize = 1.0 if getattr(node, 'normalize', False) else 0.0
                 tex_name = f"_proc_voronoi_{node_id}"
+                # Full Cycles-parity param vector (see TextureManager::createProceduralTexture
+                # "voronoi" in module/blender_module.cpp): trailing detail/roughness/lacunarity/
+                # exponent/normalize drive the fractal wrapper + Minkowski exponent + normalize.
                 renderer.create_procedural_texture(tex_name, 'voronoi',
-                    [scale, randomness, float(dm), float(feat), smoothness, 0,0,0, 1,1,1])
+                    [scale, randomness, float(dm), float(feat), smoothness,
+                     0, 0, 0, 1, 1, 1,
+                     detail, roughness, lacunarity, exponent, normalize])
             elif ntype == 'TEX_WAVE':
                 scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
                 dist = float(node.inputs['Distortion'].default_value) if node.inputs.get('Distortion') else 0.0

@@ -881,6 +881,78 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
 // sequential rounds (sample_index keys the RNG per round). Queue compaction
 // and per-material sort are the N+7 perf session.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// pkg55-B' viewport-parity: persistent device context.
+//
+// The first viewport A/B (2026-06-12, 100k tris, 1-spp chunks) measured the
+// stateless driver at ~105 ms/frame vs the megakernel's ~78 ms — the gap is
+// the ~60 cudaMalloc/cudaFree pairs per call (state SoA + hit buffers +
+// queues + NEE park + scene arrays), not the kernels. The megakernel keeps
+// its per-path state alive across frames and re-uploads scene DATA only.
+// This context mirrors that: grow-only device allocations reused across
+// calls; scene data re-uploaded (memcpy into existing buffers) every call —
+// the same unconditional-upload policy the megakernel viewport uses today
+// (pkg56 Phase C depsgraph-selective upload remains the shared follow-up).
+//
+// Single render thread assumed (matches CUDARenderer's implicit contract).
+// Allocations live for the process; freed by the driver at context teardown.
+// ---------------------------------------------------------------------------
+namespace {
+
+struct WfDeviceBuf {
+    void*  ptr = nullptr;
+    size_t bytes = 0;
+};
+
+// Grow-only ensure. Returns the typed pointer.
+template <typename T>
+T* wfEnsure(WfDeviceBuf& b, size_t count) {
+    size_t need = count * sizeof(T);
+    if (need == 0) return reinterpret_cast<T*>(b.ptr);
+    if (need > b.bytes) {
+        if (b.ptr) cudaFree(b.ptr);
+        b.ptr = nullptr;
+        b.bytes = 0;
+        cudaError_t e = cudaMalloc(&b.ptr, need);
+        if (e != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(e));
+        b.bytes = need;
+    }
+    return reinterpret_cast<T*>(b.ptr);
+}
+
+template <typename T>
+T* wfUpload(WfDeviceBuf& b, const std::vector<T>& src) {
+    if (src.empty()) return nullptr;
+    T* p = wfEnsure<T>(b, src.size());
+    cudaError_t e = cudaMemcpy(p, src.data(), src.size() * sizeof(T),
+                               cudaMemcpyHostToDevice);
+    if (e != cudaSuccess)
+        throw std::runtime_error(cudaGetErrorString(e));
+    return p;
+}
+
+struct WfContext {
+    // Scene slices.
+    WfDeviceBuf nodes, prims, tris, spheres, materials, lights;
+    WfDeviceBuf treeNodes, treeEmitters, lightToEmitter;
+    WfDeviceBuf envData, envCondCdf, envCondFunc, envMargCdf, envMargFunc;
+    // Per-path state (grow-only via the existing allocators).
+    GPUWavefrontState state{};
+    GPUWavefrontHitBuffers hitBufs{};
+    int stateCapacity = 0;
+    // Driver buffers.
+    WfDeviceBuf accum, queueA, queueB, counts, shadeQueues, shadeCounts;
+    WfDeviceBuf neeF, neeI, shadowQueue, shadowCount, work;
+};
+
+WfContext& wfCtx() {
+    static WfContext ctx;
+    return ctx;
+}
+
+}  // namespace
+
 std::vector<float> cuda_wavefront_render(
     Renderer& renderer,
     const Camera& cam,
@@ -910,336 +982,196 @@ std::vector<float> cuda_wavefront_render(
     }
     gcam.focusDist = cam.getFocusDist();
 
-    // Upload the FULL scene slice set (geometry + materials + lights + light
-    // tree + env), unlike the per-stage snapshot entries which only need
-    // geometry/materials.
-    GBVHNode* d_bvhNodes = nullptr;
-    GPrimitive* d_prims = nullptr;
-    GTriangle* d_tris = nullptr;
-    GSphere* d_spheres = nullptr;
-    ::GMaterial* d_materials = nullptr;
-    ::GLight* d_lights = nullptr;
-    GLightTreeNode* d_treeNodes = nullptr;
-    GLightTreeEmitter* d_treeEmitters = nullptr;
-    int* d_lightToEmitter = nullptr;
-    float* d_envData = nullptr;
-    float* d_envCondCdf = nullptr;
-    float* d_envCondFunc = nullptr;
-    float* d_envMargCdf = nullptr;
-    float* d_envMargFunc = nullptr;
+    // Persistent context: scene DATA re-uploaded every call into grow-only
+    // device buffers (megakernel-parity policy); per-path state reused.
+    WfContext& C = wfCtx();
+    SceneUploadResult res = buildSceneArrays(renderer, &cam);
+    GBVHNode*   d_bvhNodes  = wfUpload(C.nodes, res.nodes);
+    GPrimitive* d_prims     = wfUpload(C.prims, res.prims);
+    GTriangle*  d_tris      = wfUpload(C.tris, res.triangles);
+    GSphere*    d_spheres   = wfUpload(C.spheres, res.spheres);
+    ::GMaterial* d_materials = wfUpload(C.materials, res.materials);
+    ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
+    GLightTreeNode* d_treeNodes = wfUpload(C.treeNodes, res.lightTreeNodes);
+    GLightTreeEmitter* d_treeEmitters = wfUpload(C.treeEmitters, res.lightTreeEmitters);
+    int* d_lightToEmitter = wfUpload(C.lightToEmitter, res.lightToEmitter);
 
-    auto freeAllLocal = [&]() {
-        if (d_bvhNodes) cudaFree(d_bvhNodes);
-        if (d_prims) cudaFree(d_prims);
-        if (d_tris) cudaFree(d_tris);
-        if (d_spheres) cudaFree(d_spheres);
-        if (d_materials) cudaFree(d_materials);
-        if (d_lights) cudaFree(d_lights);
-        if (d_treeNodes) cudaFree(d_treeNodes);
-        if (d_treeEmitters) cudaFree(d_treeEmitters);
-        if (d_lightToEmitter) cudaFree(d_lightToEmitter);
-        if (d_envData) cudaFree(d_envData);
-        if (d_envCondCdf) cudaFree(d_envCondCdf);
-        if (d_envCondFunc) cudaFree(d_envCondFunc);
-        if (d_envMargCdf) cudaFree(d_envMargCdf);
-        if (d_envMargFunc) cudaFree(d_envMargFunc);
-        cudaGetLastError();
-    };
+    GLightTreeView treeView{d_treeNodes, d_treeEmitters, d_lightToEmitter,
+                            (int)res.lightTreeNodes.size(),
+                            (int)res.lightTreeNodes.size() > 0 ? 1 : 0};
 
-    GPUWavefrontState state;
-    bool stateAllocated = false;
+    GEnvMap envMap{};
+    if (res.envLoaded) {
+        envMap.data            = wfUpload(C.envData, res.envData);
+        envMap.conditionalCdf  = wfUpload(C.envCondCdf, res.envCondCdf);
+        envMap.conditionalFunc = wfUpload(C.envCondFunc, res.envCondFunc);
+        envMap.marginalCdf     = wfUpload(C.envMargCdf, res.envMargCdf);
+        envMap.marginalFunc    = wfUpload(C.envMargFunc, res.envMargFunc);
+        envMap.width           = res.envWidth;
+        envMap.height          = res.envHeight;
+        envMap.strength        = res.envStrength;
+        std::memcpy(envMap.rotMat, res.envRotMat, 9 * sizeof(float));
+        std::memcpy(envMap.colorTint, res.envColorTint, 3 * sizeof(float));
+        envMap.totalPower      = res.envTotalPower;
+        envMap.loaded          = true;
+    }
 
-    try {
-        SceneUploadResult res = buildSceneArrays(renderer, &cam);
-        devUpload(res.nodes, &d_bvhNodes);
-        devUpload(res.prims, &d_prims);
-        devUpload(res.triangles, &d_tris);
-        devUpload(res.spheres, &d_spheres);
-        devUpload(res.materials, &d_materials);
-        devUpload(res.lights, &d_lights);
-        devUpload(res.lightTreeNodes, &d_treeNodes);
-        devUpload(res.lightTreeEmitters, &d_treeEmitters);
-        devUpload(res.lightToEmitter, &d_lightToEmitter);
+    Vec3 bg = renderer.getBackgroundColor();
+    bool hasBg = bg.x >= 0.f;
+    GVec3 gbg = hasBg ? GVec3(bg.x, bg.y, bg.z) : GVec3(0.f);
+    int worldMaxBounces = renderer.getWorldMaxBounces();
 
-        GLightTreeView treeView{d_treeNodes, d_treeEmitters, d_lightToEmitter,
-                                (int)res.lightTreeNodes.size(),
-                                (int)res.lightTreeNodes.size() > 0 ? 1 : 0};
-
-        GEnvMap envMap{};
-        if (res.envLoaded) {
-            devUpload(res.envData,     &d_envData);
-            devUpload(res.envCondCdf,  &d_envCondCdf);
-            devUpload(res.envCondFunc, &d_envCondFunc);
-            devUpload(res.envMargCdf,  &d_envMargCdf);
-            devUpload(res.envMargFunc, &d_envMargFunc);
-            envMap.data            = d_envData;
-            envMap.conditionalCdf  = d_envCondCdf;
-            envMap.conditionalFunc = d_envCondFunc;
-            envMap.marginalCdf     = d_envMargCdf;
-            envMap.marginalFunc    = d_envMargFunc;
-            envMap.width           = res.envWidth;
-            envMap.height          = res.envHeight;
-            envMap.strength        = res.envStrength;
-            std::memcpy(envMap.rotMat, res.envRotMat, 9 * sizeof(float));
-            std::memcpy(envMap.colorTint, res.envColorTint, 3 * sizeof(float));
-            envMap.totalPower      = res.envTotalPower;
-            envMap.loaded          = true;
+    // Per-path state: grow-only.
+    if (C.stateCapacity < total_paths) {
+        if (C.stateCapacity > 0) {
+            freeGPUWavefrontState(C.state);
+            freeGPUWavefrontHitBuffers(C.hitBufs);
         }
-
-        Vec3 bg = renderer.getBackgroundColor();
-        bool hasBg = bg.x >= 0.f;
-        GVec3 gbg = hasBg ? GVec3(bg.x, bg.y, bg.z) : GVec3(0.f);
-        int worldMaxBounces = renderer.getWorldMaxBounces();
-
-        if (!allocateGPUWavefrontState(state, total_paths)) {
+        if (!allocateGPUWavefrontState(C.state, total_paths))
             throw std::runtime_error("cuda_wavefront_render: SoA allocation failed");
+        if (!allocateGPUWavefrontHitBuffers(C.hitBufs, total_paths)) {
+            freeGPUWavefrontState(C.state);
+            C.stateCapacity = 0;
+            throw std::runtime_error("cuda_wavefront_render: hit buffer allocation failed");
         }
-        stateAllocated = true;
+        C.stateCapacity = total_paths;
+    }
+    GPUWavefrontState& state = C.state;
+    GPUWavefrontHitBuffers& hitBufs = C.hitBufs;
 
-        // Constant-memory spectral tables (JH LUT + D65 + CMF) — required by
-        // every gpu_rgbToSampledSpectrum / gpu_spectrum_to_xyz call in the
-        // advance kernel. Mirrors CUDARenderer::render's pre-launch uploads.
-        uploadCmfTables();
-        uploadJakobHanikaLut();
+    constexpr int kNumMatTypes = 7;  // GMAT_LAMBERTIAN..GMAT_CLOSURE_GRAPH
+    float* d_accum       = wfEnsure<float>(C.accum, size_t(total_paths) * 3);
+    int*   d_queueA      = wfEnsure<int>(C.queueA, total_paths);
+    int*   d_queueB      = wfEnsure<int>(C.queueB, total_paths);
+    int*   d_counts      = wfEnsure<int>(C.counts, 2);
+    int*   d_shadeQueues = wfEnsure<int>(C.shadeQueues, size_t(kNumMatTypes) * total_paths);
+    int*   d_shadeCounts = wfEnsure<int>(C.shadeCounts, kNumMatTypes);
+    float* d_neeF        = wfEnsure<float>(C.neeF, size_t(11) * total_paths);
+    int*   d_neeI        = wfEnsure<int>(C.neeI, size_t(2) * total_paths);
+    int*   d_shadowQueue = wfEnsure<int>(C.shadowQueue, total_paths);
+    int*   d_shadowCount = wfEnsure<int>(C.shadowCount, 1);
+    int*   d_work        = wfEnsure<int>(C.work, 1);
 
-        // N+7: device-side per-sample XYZ accumulation. The N+6 host loop
-        // (12 downloads + per-launch sync per sample round) measured at
-        // ~185 ms host overhead per 256^2 x 64spp render; replaced by one
-        // accumulate kernel per round and ONE sync + ONE download per render.
-        float* d_accum = nullptr;
-        cudaError_t ae = cudaMalloc(reinterpret_cast<void**>(&d_accum),
+    {
+        cudaError_t ae = cudaMemset(d_accum, 0,
                                     size_t(total_paths) * 3 * sizeof(float));
         if (ae != cudaSuccess)
             throw std::runtime_error(cudaGetErrorString(ae));
-        ae = cudaMemset(d_accum, 0, size_t(total_paths) * 3 * sizeof(float));
-        if (ae != cudaSuccess) {
-            cudaFree(d_accum);
-            throw std::runtime_error(cudaGetErrorString(ae));
-        }
+    }
 
-        // N+7 part 3: hit-record SoA for the intersect->shade handoff.
-        GPUWavefrontHitBuffers hitBufs;
-        bool hitBufsAllocated = allocateGPUWavefrontHitBuffers(hitBufs, total_paths);
-        if (!hitBufsAllocated) {
-            cudaFree(d_accum);
-            throw std::runtime_error("cuda_wavefront_render: hit buffer allocation failed");
-        }
+    // Constant-memory spectral tables (JH LUT + D65 + CMF) — required by
+    // every spectral upsample / XYZ conversion in the kernels. Cheap
+    // memcpyToSymbol, called per render like the megakernel path. (The N+6
+    // bring-up black-frame bug; reintroduced once in the persistent-context
+    // rewrite and caught by the image gate — keep these with the render.)
+    uploadCmfTables();
+    uploadJakobHanikaLut();
 
-        // N+7 part 2: alive-path queues (ping-pong) + device counters.
-        // Compaction keeps later bounces dense as paths die (Laine 2013
-        // sec. 4); the host never reads the counters (zero-sync).
-        int* d_queueA = nullptr;
-        int* d_queueB = nullptr;
-        int* d_counts = nullptr;  // [0] = count for A, [1] = count for B
-        auto qfree = [&]() {
-            if (d_queueA) cudaFree(d_queueA);
-            if (d_queueB) cudaFree(d_queueB);
-            if (d_counts) cudaFree(d_counts);
-            cudaGetLastError();
-        };
-        // N+7 part 3: material-bucketed shade queues (7 GMaterialType
-        // buckets, fixed stride total_paths) + per-bucket counters.
-        constexpr int kNumMatTypes = 7;  // GMAT_LAMBERTIAN..GMAT_CLOSURE_GRAPH
-        int* d_shadeQueues = nullptr;
-        int* d_shadeCounts = nullptr;
-        cudaError_t qe = cudaMalloc(reinterpret_cast<void**>(&d_queueA),
-                                    size_t(total_paths) * sizeof(int));
-        if (qe == cudaSuccess)
-            qe = cudaMalloc(reinterpret_cast<void**>(&d_queueB),
-                            size_t(total_paths) * sizeof(int));
-        if (qe == cudaSuccess)
-            qe = cudaMalloc(reinterpret_cast<void**>(&d_counts), 2 * sizeof(int));
-        if (qe == cudaSuccess)
-            qe = cudaMalloc(reinterpret_cast<void**>(&d_shadeQueues),
-                            size_t(kNumMatTypes) * total_paths * sizeof(int));
-        if (qe == cudaSuccess)
-            qe = cudaMalloc(reinterpret_cast<void**>(&d_shadeCounts),
-                            kNumMatTypes * sizeof(int));
-        // pkg55-B' shadow stage: NEE park SoA (11 floats + 2 ints per slot,
-        // field-major) + shadow queue/counter.
-        float* d_neeF = nullptr;
-        int*   d_neeI = nullptr;
-        int*   d_shadowQueue = nullptr;
-        int*   d_shadowCount = nullptr;
-        auto sfree = [&]() {
-            if (d_neeF) cudaFree(d_neeF);
-            if (d_neeI) cudaFree(d_neeI);
-            if (d_shadowQueue) cudaFree(d_shadowQueue);
-            if (d_shadowCount) cudaFree(d_shadowCount);
-            cudaGetLastError();
-        };
-        if (qe == cudaSuccess)
-            qe = cudaMalloc(reinterpret_cast<void**>(&d_neeF),
-                            size_t(11) * total_paths * sizeof(float));
-        if (qe == cudaSuccess)
-            qe = cudaMalloc(reinterpret_cast<void**>(&d_neeI),
-                            size_t(2) * total_paths * sizeof(int));
-        if (qe == cudaSuccess)
-            qe = cudaMalloc(reinterpret_cast<void**>(&d_shadowQueue),
-                            size_t(total_paths) * sizeof(int));
-        if (qe == cudaSuccess)
-            qe = cudaMalloc(reinterpret_cast<void**>(&d_shadowCount), sizeof(int));
-        if (qe != cudaSuccess) {
-            sfree();
-            if (d_shadeQueues) cudaFree(d_shadeQueues);
-            if (d_shadeCounts) cudaFree(d_shadeCounts);
-            qfree();
-            freeGPUWavefrontHitBuffers(hitBufs);
-            cudaFree(d_accum);
-            throw std::runtime_error(cudaGetErrorString(qe));
-        }
+    {
+        const long long total_work = (long long)total_paths * samples;
+        const long long counter_slack =
+            (long long)total_paths * (16 + max_depth + 2);
+        if (total_work + counter_slack > 0x7FFFFFFFLL)
+            throw std::runtime_error(
+                "cuda_wavefront_render: width*height*samples exceeds "
+                "the overshoot-safe 32-bit work-counter range");
+        cudaMemset(d_work, 0, sizeof(int));
+        cudaMemset(state.path_alive, 0, total_paths * sizeof(int));
+        cudaMemset(state.color_0, 0, total_paths * sizeof(float));
+        cudaMemset(state.color_1, 0, total_paths * sizeof(float));
+        cudaMemset(state.color_2, 0, total_paths * sizeof(float));
+        cudaMemset(state.color_3, 0, total_paths * sizeof(float));
+        state.num_active = total_paths;
 
-        // N+7 part 4: path-regeneration scheduling (Laine 2013 sec. 4).
-        // The pool of total_paths slots stays ~full for the whole render:
-        // each pass = regen (accumulate dead at THEIR pixel + refill from a
-        // global (pixel, sample) work counter) -> intersect (dense identity
-        // queue, dead-slot guard) -> bucketed shade. The work counter is
-        // read back every kCheckEvery passes (4 bytes; the only syncs);
-        // once all work is claimed, max_depth drain passes retire the
-        // in-flight paths and a final regen accumulates the last deaths.
-        int* d_work = nullptr;
-        cudaError_t we = cudaMalloc(reinterpret_cast<void**>(&d_work), sizeof(int));
-        if (we != cudaSuccess) {
-            cudaFree(d_shadeQueues);
-            cudaFree(d_shadeCounts);
-            freeGPUWavefrontHitBuffers(hitBufs);
-            qfree();
-            cudaFree(d_accum);
-            throw std::runtime_error(cudaGetErrorString(we));
-        }
+        launchStageQueueIota(d_queueA, d_counts + 0, total_paths);
+        int* cout = d_counts + 1;
 
-        try {
-            const long long total_work = (long long)total_paths * samples;
-            // Overshoot-safe 32-bit guard (pkg98 N+7p4 review F1): dead slots
-            // keep atomicAdd-ing after exhaustion -- up to pool-size increments
-            // per remaining pass (kCheckEvery + max_depth + 1 passes). Reserve
-            // that slack below INT_MAX so the signed counter can never wrap.
-            const long long counter_slack =
-                (long long)total_paths * (16 + max_depth + 2);
-            if (total_work + counter_slack > 0x7FFFFFFFLL)
-                throw std::runtime_error(
-                    "cuda_wavefront_render: width*height*samples exceeds "
-                    "the overshoot-safe 32-bit work-counter range");
-            cudaMemset(d_work, 0, sizeof(int));
-            // The pool starts all-dead with zero radiance so the first
-            // regen pass claims the first wave and accumulates nothing.
-            cudaMemset(state.path_alive, 0, total_paths * sizeof(int));
-            cudaMemset(state.color_0, 0, total_paths * sizeof(float));
-            cudaMemset(state.color_1, 0, total_paths * sizeof(float));
-            cudaMemset(state.color_2, 0, total_paths * sizeof(float));
-            cudaMemset(state.color_3, 0, total_paths * sizeof(float));
-            state.num_active = total_paths;
-
-            // Dense identity queue, built once (count = total_paths).
-            launchStageQueueIota(d_queueA, d_counts + 0, total_paths);
-            int* cout = d_counts + 1;  // shade survivor-out (unused under regen)
-
-            const int kCheckEvery = 16;
-            // Defensive upper bound: every pass retires at least the
-            // max_depth-expired paths; samples*max_depth passes is a hard
-            // ceiling for claim+drain, plus slack.
-            const long long kMaxPasses =
-                (long long)samples * max_depth + max_depth + 64;
-            bool workExhausted = false;
-            int drainLeft = max_depth;
-            for (long long pass = 0; pass < kMaxPasses; ++pass) {
-                launchStageRegen(state, d_accum, d_work, (int)total_work,
-                                 total_paths, gcam, width, height, seed);
-                cudaMemsetAsync(cout, 0, sizeof(int));
-                cudaMemsetAsync(d_shadeCounts, 0, kNumMatTypes * sizeof(int));
-                cudaMemsetAsync(d_shadowCount, 0, sizeof(int));
-                launchStageIntersectQueued(state, hitBufs, d_queueA, d_counts + 0,
-                                           d_shadeQueues, d_shadeCounts,
-                                           total_paths,
-                                           d_bvhNodes, d_prims, d_tris,
-                                           d_spheres, d_materials,
-                                           envMap, gbg, hasBg,
-                                           worldMaxBounces);
-                launchStageShadeBucketed(state, hitBufs,
-                                         d_shadeQueues, d_shadeCounts,
-                                         total_paths, d_queueB, cout,
-                                         d_neeF, d_neeI, d_shadowQueue,
-                                         d_shadowCount,
-                                         d_bvhNodes, d_prims, d_tris,
-                                         d_spheres, d_materials, d_lights,
-                                         (int)res.lights.size(),
-                                         res.totalLightPower,
-                                         treeView, max_depth);
-                launchStageShadow(state, hitBufs, d_neeF, d_neeI,
-                                  d_shadowQueue, d_shadowCount, total_paths,
-                                  d_bvhNodes, d_prims, d_tris, d_spheres,
-                                  d_materials);
-                if (workExhausted) {
-                    if (--drainLeft <= 0) break;
-                } else if ((pass + 1) % kCheckEvery == 0) {
-                    int scheduled = 0;
-                    cudaError_t ce = cudaMemcpy(&scheduled, d_work, sizeof(int),
-                                                cudaMemcpyDeviceToHost);
-                    if (ce != cudaSuccess)
-                        throw std::runtime_error(cudaGetErrorString(ce));
-                    if ((long long)scheduled >= total_work) workExhausted = true;
-                }
-            }
-            // Final regen accumulates paths that died in the last passes
-            // (claims nothing: the counter is exhausted).
+        // Pass-count planning. waves = how many full pools the work needs.
+        // SINGLE-WAVE renders (1-spp viewport chunks: total_work <= pool)
+        // need NO counter readbacks at all: every path is claimed by the
+        // first regen and bounce-capped within max_depth passes, so exactly
+        // max_depth passes + the final accumulating regen finish the frame
+        // (each readback is a 4-byte D2H sync = a pipeline stall per pass —
+        // measured as the dominant 1-spp overhead, 2026-06-12). Multi-wave
+        // renders keep the every-16 counter cadence.
+        const long long waves =
+            (total_work + total_paths - 1) / total_paths;
+        const int kCheckEvery = 16;
+        const long long kMaxPasses = (waves == 1)
+            ? max_depth
+            : (long long)samples * max_depth + max_depth + 64;
+        bool workExhausted = false;
+        int drainLeft = max_depth;
+        for (long long pass = 0; pass < kMaxPasses; ++pass) {
             launchStageRegen(state, d_accum, d_work, (int)total_work,
                              total_paths, gcam, width, height, seed);
-
-            // Single final sync: same-stream launches are serialized; any
-            // deferred kernel runtime error surfaces here.
-            cudaError_t syncErr = cudaDeviceSynchronize();
-            if (syncErr != cudaSuccess)
-                throw std::runtime_error(
-                    std::string("cuda_wavefront_render kernel error: ") +
-                    cudaGetErrorString(syncErr));
-            cudaFree(d_work);
-            d_work = nullptr;
-        } catch (...) {
-            if (d_work) cudaFree(d_work);
-            sfree();
-            cudaFree(d_shadeQueues);
-            cudaFree(d_shadeCounts);
-            freeGPUWavefrontHitBuffers(hitBufs);
-            qfree();
-            cudaFree(d_accum);
-            throw;
+            cudaMemsetAsync(cout, 0, sizeof(int));
+            cudaMemsetAsync(d_shadeCounts, 0, kNumMatTypes * sizeof(int));
+            cudaMemsetAsync(d_shadowCount, 0, sizeof(int));
+            launchStageIntersectQueued(state, hitBufs, d_queueA, d_counts + 0,
+                                       d_shadeQueues, d_shadeCounts,
+                                       total_paths,
+                                       d_bvhNodes, d_prims, d_tris,
+                                       d_spheres, d_materials,
+                                       envMap, gbg, hasBg,
+                                       worldMaxBounces);
+            launchStageShadeBucketed(state, hitBufs,
+                                     d_shadeQueues, d_shadeCounts,
+                                     total_paths, d_queueB, cout,
+                                     d_neeF, d_neeI, d_shadowQueue,
+                                     d_shadowCount,
+                                     d_bvhNodes, d_prims, d_tris,
+                                     d_spheres, d_materials, d_lights,
+                                     (int)res.lights.size(),
+                                     res.totalLightPower,
+                                     treeView, max_depth);
+            launchStageShadow(state, hitBufs, d_neeF, d_neeI,
+                              d_shadowQueue, d_shadowCount, total_paths,
+                              d_bvhNodes, d_prims, d_tris, d_spheres,
+                              d_materials);
+            if (waves == 1) continue;  // fixed pass count, no readbacks
+            if (workExhausted) {
+                if (--drainLeft <= 0) break;
+            } else if ((pass + 1) % kCheckEvery == 0) {
+                int scheduled = 0;
+                cudaError_t ce = cudaMemcpy(&scheduled, d_work, sizeof(int),
+                                            cudaMemcpyDeviceToHost);
+                if (ce != cudaSuccess)
+                    throw std::runtime_error(cudaGetErrorString(ce));
+                if ((long long)scheduled >= total_work) workExhausted = true;
+            }
         }
+        launchStageRegen(state, d_accum, d_work, (int)total_work,
+                         total_paths, gcam, width, height, seed);
 
-        std::vector<float> h_accum(size_t(total_paths) * 3);
-        cudaError_t de = cudaMemcpy(h_accum.data(), d_accum,
-                                    size_t(total_paths) * 3 * sizeof(float),
-                                    cudaMemcpyDeviceToHost);
-        sfree();
-        cudaFree(d_shadeQueues);
-        cudaFree(d_shadeCounts);
-        freeGPUWavefrontHitBuffers(hitBufs);
-        qfree();
-        cudaFree(d_accum);
-        if (de != cudaSuccess)
-            throw std::runtime_error(cudaGetErrorString(de));
-
-        // Final conversion (mirrors cpu_wavefront_driver lines 100-113).
-        std::vector<float> rgb(total_paths * 3);
-        float exposure = renderer.getFilmExposure();
-        for (int i = 0; i < total_paths; ++i) {
-            Vec3 colorXYZ(h_accum[i * 3 + 0] / samples,
-                          h_accum[i * 3 + 1] / samples,
-                          h_accum[i * 3 + 2] / samples);
-            colorXYZ *= exposure;
-            Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
-            rgb[i * 3 + 0] = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);
-            rgb[i * 3 + 1] = std::max(Renderer::finiteOrZero(colorSRGB.y), 0.0f);
-            rgb[i * 3 + 2] = std::max(Renderer::finiteOrZero(colorSRGB.z), 0.0f);
-        }
-
-        freeGPUWavefrontState(state);
-        freeAllLocal();
-        return rgb;
-    } catch (...) {
-        if (stateAllocated) freeGPUWavefrontState(state);
-        freeAllLocal();
-        throw;
+        cudaError_t syncErr = cudaDeviceSynchronize();
+        if (syncErr != cudaSuccess)
+            throw std::runtime_error(
+                std::string("cuda_wavefront_render kernel error: ") +
+                cudaGetErrorString(syncErr));
     }
+
+    std::vector<float> h_accum(size_t(total_paths) * 3);
+    cudaError_t de = cudaMemcpy(h_accum.data(), d_accum,
+                                size_t(total_paths) * 3 * sizeof(float),
+                                cudaMemcpyDeviceToHost);
+    if (de != cudaSuccess)
+        throw std::runtime_error(cudaGetErrorString(de));
+
+    // Final conversion (mirrors cpu_wavefront_driver lines 100-113).
+    std::vector<float> rgb(size_t(total_paths) * 3);
+    float exposure = renderer.getFilmExposure();
+    for (int i = 0; i < total_paths; ++i) {
+        Vec3 colorXYZ(h_accum[i * 3 + 0] / samples,
+                      h_accum[i * 3 + 1] / samples,
+                      h_accum[i * 3 + 2] / samples);
+        colorXYZ *= exposure;
+        Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
+        rgb[i * 3 + 0] = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);
+        rgb[i * 3 + 1] = std::max(Renderer::finiteOrZero(colorSRGB.y), 0.0f);
+        rgb[i * 3 + 2] = std::max(Renderer::finiteOrZero(colorSRGB.z), 0.0f);
+    }
+    return rgb;
 }
 
 }  // namespace astroray::wavefront

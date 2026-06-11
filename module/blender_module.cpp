@@ -1495,9 +1495,23 @@ public:
         if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
             // GPU path: build BVH on CPU (needed for upload), then render on GPU
             renderer.buildAcceleration();
-            cudaRenderer->uploadScene(renderer, *camera);
-            if (envMap && envMap->loaded())
-                cudaRenderer->uploadEnvironmentMap(*envMap);
+#ifdef ASTRORAY_WAVEFRONT_CUDA_N3
+            // pkg55-B' viewport fix (2026-06-12): the wavefront pipeline does
+            // its OWN buildSceneArrays + upload into its persistent context —
+            // running the megakernel uploadScene first made the wavefront
+            // path flatten the scene TWICE per frame (the measured ~30-40 ms
+            // viewport gap at 100k tris). Skip the megakernel upload for the
+            // wavefront integrator.
+            const bool wavefrontRoute =
+                (integratorName_ == "wavefront_path_tracer");
+#else
+            const bool wavefrontRoute = false;
+#endif
+            if (!wavefrontRoute) {
+                cudaRenderer->uploadScene(renderer, *camera);
+                if (envMap && envMap->loaded())
+                    cudaRenderer->uploadEnvironmentMap(*envMap);
+            }
             // pkg85-D: route spectral integrators to the multiwavelength kernel.
             // CPU path_tracer uses SpectralPathTracer (spectral path → XYZ → sRGB),
             // so GPU must do the same via multiwavelength_kernel.cu. The legacy RGB

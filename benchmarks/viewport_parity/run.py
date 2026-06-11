@@ -221,9 +221,9 @@ class CountingRenderer:
 # ---------------------------------------------------------------------------
 
 def _build_renderer(target_tris: int, use_gpu: bool, *, width: int = 256,
-                    height: int = 256):
+                    height: int = 256, integrator: str = "path_tracer"):
     r = astroray.Renderer()
-    r.set_integrator("path_tracer")
+    r.set_integrator(integrator)
     try:
         r.set_use_gpu(bool(use_gpu))
     except Exception:
@@ -481,7 +481,8 @@ def run(args) -> dict:
                                  f"path={path}")
                     print(f"[pkg81] {cfg_label}")
                     renderer, n_tris = _build_renderer(
-                        tris, use_gpu, width=args.width, height=args.height)
+                        tris, use_gpu, width=args.width, height=args.height,
+                        integrator=args.integrator)
                     proxy = CountingRenderer(renderer)
                     result = _drive_pan_zoom_orbit(
                         eng, proxy,
@@ -553,6 +554,9 @@ def main(argv=None) -> int:
                    help="spp per chunk (matches viewport_chunk_spp default).")
     p.add_argument("--max-depth", dest="max_depth", type=int, default=4)
     p.add_argument("--cpu-only", action="store_true")
+    p.add_argument("--integrator", default="path_tracer",
+                   help="integrator name (pkg55-B': 'wavefront_path_tracer' "
+                        "routes GPU renders through the wavefront pipeline)")
     p.add_argument("--gpu-only", action="store_true")
     p.add_argument("--no-h3", action="store_true",
                    help="Skip the OIDN A/B (H3).")

@@ -148,7 +148,8 @@ __global__ void stageInitKernel(
     GPUWavefrontState state,
     GCameraParams cam,
     int width, int height,
-    uint64_t seed)
+    uint64_t seed,
+    int sample_index)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int total = width * height;
@@ -157,8 +158,10 @@ __global__ void stageInitKernel(
     int px = idx % width;
     int py = idx / width;
 
-    // Session N+3: one sample per pixel slot (samples = 1 for stage_init).
-    int sample_idx = 0;
+    // Session N+6: the host render loop runs one init round per sample;
+    // sample_index keys the RNG so rounds draw independent streams
+    // (mirrors the CPU driver's slot = pixel*samples + s keying).
+    int sample_idx = sample_index;
 
     // Construct WavefrontRNG for this path. Dimension counter starts at 0.
     // Mirrors the CPU oracle: PathState ps(pixel_idx, sample_idx, seed);
@@ -220,7 +223,8 @@ void launchStageInit(
     GPUWavefrontState& state,
     const GCameraParams& cam,
     int width, int height,
-    uint64_t seed)
+    uint64_t seed,
+    int sample_index)
 {
     int total = width * height;
     if (total <= 0 || state.capacity < total) {
@@ -233,7 +237,7 @@ void launchStageInit(
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_init_n3",
             (const void*)stageInitKernel, blocks, threads);
-        stageInitKernel<<<blocks, threads>>>(state, cam, width, height, seed);
+        stageInitKernel<<<blocks, threads>>>(state, cam, width, height, seed, sample_index);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_init launch error: %s\n",

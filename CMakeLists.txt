@@ -484,6 +484,7 @@ if(ASTRORAY_CUDA_FOUND)
             src/gpu/wavefront/stage_intersect_session_n3.cu
             src/gpu/wavefront/stage_shade_lambertian.cu
             src/gpu/wavefront/stage_shade_metal.cu
+        src/gpu/wavefront/stage_advance.cu
             src/gpu/wavefront/stage_light_sample.cu
             src/gpu/wavefront/stage_russian_roulette.cu
             src/gpu/wavefront/gpu_wavefront_snapshot.cu

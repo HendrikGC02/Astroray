@@ -135,6 +135,17 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     int width, int height,
     uint64_t seed);
 
+// pkg55-B' Session N+6: end-to-end GPU wavefront render. Runs init +
+// max_depth advance rounds per sample and returns the linear-sRGB image
+// (height*width*3 floats), accumulated host-side exactly like the CPU
+// wavefront driver. Unlocks the final-image gate.
+std::vector<float> cuda_wavefront_render(
+    Renderer& renderer,
+    const Camera& cam,
+    int width, int height,
+    int samples, int max_depth,
+    uint64_t seed);
+
 }  // namespace wavefront
 }  // namespace astroray
 

@@ -10,9 +10,21 @@
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_scene_upload.h"
 #include "raytracer.h"
+#include "astroray/spectrum.h"  // Session N+6: SampledSpectrum/XYZ host accumulation
 #include <cuda_runtime.h>
+#include <cstring>
+#include <algorithm>
+#include <array>
 #include <stdexcept>
 #include <cstdio>
+
+// pkg55-B' Session N+6: constant-memory table uploads defined in
+// multiwavelength_kernel.cu. Every spectral upsample (ILLUMINANT/ALBEDO)
+// routes through the Jakob-Hanika LUT + D65 SPD, and the XYZ conversion
+// through the CMF tables — without these uploads the device tables are
+// zero and every spectrum evaluates to 0 (black frame).
+void uploadCmfTables();
+void uploadJakobHanikaLut();
 
 namespace astroray::wavefront {
 
@@ -851,6 +863,215 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
         if (d_spheres) cudaFree(d_spheres);
         if (d_materials) cudaFree(d_materials);
         if (d_lights) cudaFree(d_lights);
+        throw;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// pkg55-B' Session N+6 — end-to-end GPU wavefront render.
+//
+// Host driver for the stage_advance kernel: init -> advance x max_depth per
+// sample round, then host-side XYZ accumulation mirroring the CPU wavefront
+// driver (src/cpu/wavefront/cpu_wavefront_driver.cpp: per-sample toXYZ, the
+// lum > 20 firefly clamp, /samples, filmExposure, xyzToLinearSRGB,
+// finiteOrZero). This unlocks the final-image gate the per-stage harness
+// explicitly defers ("until end-to-end GPU wavefront pipeline").
+//
+// Session N+6 capacity model: one SoA slot per pixel; samples run as
+// sequential rounds (sample_index keys the RNG per round). Queue compaction
+// and per-material sort are the N+7 perf session.
+// ---------------------------------------------------------------------------
+std::vector<float> cuda_wavefront_render(
+    Renderer& renderer,
+    const Camera& cam,
+    int width, int height,
+    int samples, int max_depth,
+    uint64_t seed)
+{
+    int total_paths = width * height;
+    if (total_paths <= 0 || samples <= 0) {
+        throw std::runtime_error("cuda_wavefront_render: invalid dimensions");
+    }
+
+    // Build GCameraParams from Camera (same block as the snapshot entries).
+    GCameraParams gcam;
+    gcam.origin = GVec3(cam.getOrigin().x, cam.getOrigin().y, cam.getOrigin().z);
+    gcam.lowerLeft = GVec3(cam.getLowerLeft().x, cam.getLowerLeft().y, cam.getLowerLeft().z);
+    gcam.horizontal = GVec3(cam.getHorizontal().x, cam.getHorizontal().y, cam.getHorizontal().z);
+    gcam.vertical = GVec3(cam.getVertical().x, cam.getVertical().y, cam.getVertical().z);
+    gcam.lensRadius = cam.getLensRadius();
+    gcam.width = width;
+    gcam.height = height;
+    {
+        Vec3 u_vec = cam.getU();
+        Vec3 v_vec = cam.getV();
+        gcam.u = GVec3(u_vec.x, u_vec.y, u_vec.z);
+        gcam.v = GVec3(v_vec.x, v_vec.y, v_vec.z);
+    }
+    gcam.focusDist = cam.getFocusDist();
+
+    // Upload the FULL scene slice set (geometry + materials + lights + light
+    // tree + env), unlike the per-stage snapshot entries which only need
+    // geometry/materials.
+    GBVHNode* d_bvhNodes = nullptr;
+    GPrimitive* d_prims = nullptr;
+    GTriangle* d_tris = nullptr;
+    GSphere* d_spheres = nullptr;
+    ::GMaterial* d_materials = nullptr;
+    ::GLight* d_lights = nullptr;
+    GLightTreeNode* d_treeNodes = nullptr;
+    GLightTreeEmitter* d_treeEmitters = nullptr;
+    int* d_lightToEmitter = nullptr;
+    float* d_envData = nullptr;
+    float* d_envCondCdf = nullptr;
+    float* d_envCondFunc = nullptr;
+    float* d_envMargCdf = nullptr;
+    float* d_envMargFunc = nullptr;
+
+    auto freeAllLocal = [&]() {
+        if (d_bvhNodes) cudaFree(d_bvhNodes);
+        if (d_prims) cudaFree(d_prims);
+        if (d_tris) cudaFree(d_tris);
+        if (d_spheres) cudaFree(d_spheres);
+        if (d_materials) cudaFree(d_materials);
+        if (d_lights) cudaFree(d_lights);
+        if (d_treeNodes) cudaFree(d_treeNodes);
+        if (d_treeEmitters) cudaFree(d_treeEmitters);
+        if (d_lightToEmitter) cudaFree(d_lightToEmitter);
+        if (d_envData) cudaFree(d_envData);
+        if (d_envCondCdf) cudaFree(d_envCondCdf);
+        if (d_envCondFunc) cudaFree(d_envCondFunc);
+        if (d_envMargCdf) cudaFree(d_envMargCdf);
+        if (d_envMargFunc) cudaFree(d_envMargFunc);
+        cudaGetLastError();
+    };
+
+    GPUWavefrontState state;
+    bool stateAllocated = false;
+
+    try {
+        SceneUploadResult res = buildSceneArrays(renderer, &cam);
+        devUpload(res.nodes, &d_bvhNodes);
+        devUpload(res.prims, &d_prims);
+        devUpload(res.triangles, &d_tris);
+        devUpload(res.spheres, &d_spheres);
+        devUpload(res.materials, &d_materials);
+        devUpload(res.lights, &d_lights);
+        devUpload(res.lightTreeNodes, &d_treeNodes);
+        devUpload(res.lightTreeEmitters, &d_treeEmitters);
+        devUpload(res.lightToEmitter, &d_lightToEmitter);
+
+        GLightTreeView treeView{d_treeNodes, d_treeEmitters, d_lightToEmitter,
+                                (int)res.lightTreeNodes.size(),
+                                (int)res.lightTreeNodes.size() > 0 ? 1 : 0};
+
+        GEnvMap envMap{};
+        if (res.envLoaded) {
+            devUpload(res.envData,     &d_envData);
+            devUpload(res.envCondCdf,  &d_envCondCdf);
+            devUpload(res.envCondFunc, &d_envCondFunc);
+            devUpload(res.envMargCdf,  &d_envMargCdf);
+            devUpload(res.envMargFunc, &d_envMargFunc);
+            envMap.data            = d_envData;
+            envMap.conditionalCdf  = d_envCondCdf;
+            envMap.conditionalFunc = d_envCondFunc;
+            envMap.marginalCdf     = d_envMargCdf;
+            envMap.marginalFunc    = d_envMargFunc;
+            envMap.width           = res.envWidth;
+            envMap.height          = res.envHeight;
+            envMap.strength        = res.envStrength;
+            std::memcpy(envMap.rotMat, res.envRotMat, 9 * sizeof(float));
+            std::memcpy(envMap.colorTint, res.envColorTint, 3 * sizeof(float));
+            envMap.totalPower      = res.envTotalPower;
+            envMap.loaded          = true;
+        }
+
+        Vec3 bg = renderer.getBackgroundColor();
+        bool hasBg = bg.x >= 0.f;
+        GVec3 gbg = hasBg ? GVec3(bg.x, bg.y, bg.z) : GVec3(0.f);
+        int worldMaxBounces = renderer.getWorldMaxBounces();
+
+        if (!allocateGPUWavefrontState(state, total_paths)) {
+            throw std::runtime_error("cuda_wavefront_render: SoA allocation failed");
+        }
+        stateAllocated = true;
+
+        // Constant-memory spectral tables (JH LUT + D65 + CMF) — required by
+        // every gpu_rgbToSampledSpectrum / gpu_spectrum_to_xyz call in the
+        // advance kernel. Mirrors CUDARenderer::render's pre-launch uploads.
+        uploadCmfTables();
+        uploadJakobHanikaLut();
+
+        // Host-side per-pixel XYZ accumulator (mirrors cpu_wavefront_driver).
+        std::vector<double> accX(total_paths, 0.0), accY(total_paths, 0.0),
+                            accZ(total_paths, 0.0);
+        std::vector<float> h_c0(total_paths), h_c1(total_paths),
+                           h_c2(total_paths), h_c3(total_paths);
+        std::vector<float> h_l0(total_paths), h_l1(total_paths),
+                           h_l2(total_paths), h_l3(total_paths);
+        std::vector<float> h_p0(total_paths), h_p1(total_paths),
+                           h_p2(total_paths), h_p3(total_paths);
+
+        auto dl = [&](const float* d, std::vector<float>& h) {
+            cudaError_t e = cudaMemcpy(h.data(), d, total_paths * sizeof(float),
+                                       cudaMemcpyDeviceToHost);
+            if (e != cudaSuccess)
+                throw std::runtime_error(cudaGetErrorString(e));
+        };
+
+        for (int s = 0; s < samples; ++s) {
+            launchStageInit(state, gcam, width, height, seed, s);
+            for (int b = 0; b < max_depth; ++b) {
+                launchStageAdvance(state, d_bvhNodes, d_prims, d_tris, d_spheres,
+                                   d_materials, d_lights,
+                                   (int)res.lights.size(), res.totalLightPower,
+                                   treeView, envMap, gbg, hasBg,
+                                   worldMaxBounces, max_depth);
+            }
+            dl(state.color_0, h_c0); dl(state.color_1, h_c1);
+            dl(state.color_2, h_c2); dl(state.color_3, h_c3);
+            dl(state.lambda_0, h_l0); dl(state.lambda_1, h_l1);
+            dl(state.lambda_2, h_l2); dl(state.lambda_3, h_l3);
+            dl(state.lambda_pdf_0, h_p0); dl(state.lambda_pdf_1, h_p1);
+            dl(state.lambda_pdf_2, h_p2); dl(state.lambda_pdf_3, h_p3);
+
+            for (int i = 0; i < total_paths; ++i) {
+                SampledSpectrum rad(std::array<float, 4>{
+                    h_c0[i], h_c1[i], h_c2[i], h_c3[i]});
+                SampledWavelengths lambdas = SampledWavelengths::fromLambdas(
+                    std::array<float, 4>{h_l0[i], h_l1[i], h_l2[i], h_l3[i]},
+                    std::array<float, 4>{h_p0[i], h_p1[i], h_p2[i], h_p3[i]});
+                XYZ xyz = rad.toXYZ(lambdas);
+                // Per-sample firefly clamp on XYZ.Y (mirrors CPU driver).
+                float lum = xyz.Y;
+                if (lum > 20.0f) {
+                    xyz.X *= (20.0f / lum);
+                    xyz.Y = 20.0f;
+                    xyz.Z *= (20.0f / lum);
+                }
+                accX[i] += xyz.X; accY[i] += xyz.Y; accZ[i] += xyz.Z;
+            }
+        }
+
+        // Final conversion (mirrors cpu_wavefront_driver lines 100-113).
+        std::vector<float> rgb(total_paths * 3);
+        float exposure = renderer.getFilmExposure();
+        for (int i = 0; i < total_paths; ++i) {
+            Vec3 colorXYZ(float(accX[i] / samples), float(accY[i] / samples),
+                          float(accZ[i] / samples));
+            colorXYZ *= exposure;
+            Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
+            rgb[i * 3 + 0] = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);
+            rgb[i * 3 + 1] = std::max(Renderer::finiteOrZero(colorSRGB.y), 0.0f);
+            rgb[i * 3 + 2] = std::max(Renderer::finiteOrZero(colorSRGB.z), 0.0f);
+        }
+
+        freeGPUWavefrontState(state);
+        freeAllLocal();
+        return rgb;
+    } catch (...) {
+        if (stateAllocated) freeGPUWavefrontState(state);
+        freeAllLocal();
         throw;
     }
 }

@@ -3859,6 +3859,27 @@ PYBIND11_MODULE(astroray, m) {
           "Returns (num_paths, 16) array for CPU↔GPU diff harness. "
           "Fields: ray_origin (3), ray_direction (3), throughput (4), lambdas (4), "
           "rr_prob, rr_survived.");
+
+    m.def("cuda_wavefront_render",
+          [](PyRenderer& r, int samples, int max_depth, uint64_t seed) -> py::array_t<float> {
+              auto cam = r.getCamera();
+              if (!cam) {
+                  throw std::runtime_error("Camera not set up. Call setup_camera() first.");
+              }
+              int width = cam->width;
+              int height = cam->height;
+              auto rgb = astroray::wavefront::cuda_wavefront_render(
+                  r.getRenderer(), *cam, width, height, samples, max_depth, seed);
+              py::array_t<float> arr({height, width, 3});
+              auto buf = arr.request();
+              std::copy(rgb.begin(), rgb.end(), static_cast<float*>(buf.ptr));
+              return arr;
+          },
+          "renderer"_a, "samples"_a, "max_depth"_a, "seed"_a,
+          "pkg55-B' Session N+6: end-to-end GPU wavefront render (stage_init + "
+          "stage_advance loop, all 7 material types via the megakernel device "
+          "dispatch). Returns (height, width, 3) linear-sRGB image accumulated "
+          "exactly like the CPU wavefront driver. Final-image gate entry point.");
 #endif  // ASTRORAY_WAVEFRONT_CUDA_N3
 
     m.def("viewport_perf_reset",

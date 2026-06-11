@@ -21,33 +21,48 @@ __device__ inline void gpu_buildONB(const GVec3& n, GVec3& t, GVec3& b) {
 }
 
 // ---------------------------------------------------------------------------
+// RNG dispatch (pkg55-B' template-RNG arc): the sampling functions below are
+// templates over the RNG type so the megakernel keeps curandState (XORWOW,
+// identical codegen) while the wavefront draws directly from its per-path
+// WavefrontRNG (PCG32) stream — eliminating its 2x-per-bounce curand_init
+// cost. Additional RNG types provide an overload of gpu_rng_uniform (found
+// by ADL at instantiation; see stage_advance.cu for the WavefrontRNG one).
+// ---------------------------------------------------------------------------
+__device__ inline float gpu_rng_uniform(curandState* rng) {
+    return curand_uniform(rng);
+}
+
+// ---------------------------------------------------------------------------
 // Sampling helpers
 // ---------------------------------------------------------------------------
-__device__ inline GVec3 gpu_randomCosineDir(curandState* rng) {
-    float r1 = curand_uniform(rng);
-    float r2 = curand_uniform(rng);
+template <typename TRng>
+__device__ inline GVec3 gpu_randomCosineDir(TRng* rng) {
+    float r1 = gpu_rng_uniform(rng);
+    float r2 = gpu_rng_uniform(rng);
     float z   = sqrtf(1.f - r2);
     float phi = 2.f * M_PI_F * r1;
     return GVec3(cosf(phi)*sqrtf(r2), sinf(phi)*sqrtf(r2), z);
 }
 
-__device__ inline GVec3 gpu_randomInUnitDisk(curandState* rng) {
+template <typename TRng>
+__device__ inline GVec3 gpu_randomInUnitDisk(TRng* rng) {
     GVec3 p;
     do {
-        p.x = curand_uniform(rng)*2.f - 1.f;
-        p.y = curand_uniform(rng)*2.f - 1.f;
+        p.x = gpu_rng_uniform(rng)*2.f - 1.f;
+        p.y = gpu_rng_uniform(rng)*2.f - 1.f;
         p.z = 0.f;
     } while (p.length2() >= 1.f);
     return p;
 }
 
-__device__ inline GSampledWavelengths gpu_sampleUniformWavelengths(curandState* rng) {
+template <typename TRng>
+__device__ inline GSampledWavelengths gpu_sampleUniformWavelengths(TRng* rng) {
     // Hero layout must match CPU sampleUniform (src/spectrum.cpp:82): hero spans
     // the full band, secondaries are stratified offsets with wrap-around. The
     // prior `(u+i)/N` form confined lam[0] to the first 1/N of the band — see
     // pkg64-gpu-session2-research.md (afternoon update) and stage_init.cu:64.
     GSampledWavelengths wl;
-    float u    = curand_uniform(rng);
+    float u    = gpu_rng_uniform(rng);
     float span = G_LAMBDA_MAX - G_LAMBDA_MIN;
     float step = span / float(G_SPECTRUM_SAMPLES);
     float hero = G_LAMBDA_MIN + u * span;
@@ -105,11 +120,12 @@ __device__ inline GSampledSpectrum gpu_rgbToSampledSpectrum(
 // ---------------------------------------------------------------------------
 // Camera ray generation (with DOF)
 // ---------------------------------------------------------------------------
+template <typename TRng>
 __device__ inline GRay gpu_generateCameraRay(
-    const GCameraParams& cam, int px, int py, curandState* rng)
+    const GCameraParams& cam, int px, int py, TRng* rng)
 {
-    float u = (px + curand_uniform(rng)) / (cam.width  - 1);
-    float v = 1.f - (py + curand_uniform(rng)) / (cam.height - 1);
+    float u = (px + gpu_rng_uniform(rng)) / (cam.width  - 1);
+    float v = 1.f - (py + gpu_rng_uniform(rng)) / (cam.height - 1);
 
     GVec3 rd     = gpu_randomInUnitDisk(rng) * cam.lensRadius;
     GVec3 offset = cam.u * rd.x + cam.v * rd.y;
@@ -152,8 +168,9 @@ __device__ inline GVec3 gpu_lambertian_eval(
     return mat.baseColor * (1.f / M_PI_F) * NdotL;
 }
 
+template <typename TRng>
 __device__ inline GBSDFSample gpu_lambertian_sample(
-    const GMaterial& mat, const GHitRecord& rec, const GVec3& /*wo*/, curandState* rng)
+    const GMaterial& mat, const GHitRecord& rec, const GVec3& /*wo*/, TRng* rng)
 {
     GBSDFSample s;
     GVec3 localWi = gpu_randomCosineDir(rng);
@@ -211,8 +228,9 @@ __device__ inline GVec3 gpu_metal_eval(
     return F * D * G / (4.f * NdotV + 0.001f);
 }
 
+template <typename TRng>
 __device__ inline GBSDFSample gpu_metal_sample(
-    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, curandState* rng)
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
     GBSDFSample s;
     if (mat.roughness <= 0.1f) {
@@ -226,8 +244,8 @@ __device__ inline GBSDFSample gpu_metal_sample(
     }
 
     float a   = mat.roughness * mat.roughness;
-    float r1  = curand_uniform(rng);
-    float r2  = curand_uniform(rng);
+    float r1  = gpu_rng_uniform(rng);
+    float r2  = gpu_rng_uniform(rng);
     float phi = 2.f * M_PI_F * r1;
     float cosTheta = sqrtf((1.f - r2) / (1.f + (a*a - 1.f)*r2));
     float sinTheta = sqrtf(1.f - cosTheta*cosTheta);
@@ -283,8 +301,9 @@ __device__ inline float gpu_fresnelDielectric(float cosThetaI, float etaI, float
     return (Rparl*Rparl + Rperp*Rperp) * 0.5f;
 }
 
+template <typename TRng>
 __device__ inline GBSDFSample gpu_dielectric_sample(
-    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, curandState* rng)
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
     GBSDFSample s;
     s.isDelta = true;
@@ -307,7 +326,7 @@ __device__ inline GBSDFSample gpu_dielectric_sample(
 
     float fresnel = gpu_fresnelDielectric(cosTheta, etaI, etaT);
 
-    if (tir || curand_uniform(rng) < fresnel) {
+    if (tir || gpu_rng_uniform(rng) < fresnel) {
         // Reflect: wi = 2*(wo·n)*n - wo
         s.wi  = n * (2.f * wo.dot(n)) - wo;
         s.f   = GVec3(1.f);
@@ -338,9 +357,10 @@ __device__ inline GBSDFSample gpu_dielectric_sample(
 // DOI:10.1111/cgf.12419): at a perfectly-specular interface only the hero's pdf
 // is nonzero at the sampled direction, so the MIS weights are [1,0,0,...].
 // `lambdas` is non-const so this terminate is visible to the downstream toXYZ.
+template <typename TRng>
 __device__ inline GBSDFSample gpu_dielectric_sample_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
-    GSampledWavelengths& lambdas, curandState* rng)
+    GSampledWavelengths& lambdas, TRng* rng)
 {
     GBSDFSample s;
     s.isDelta = true;
@@ -365,7 +385,7 @@ __device__ inline GBSDFSample gpu_dielectric_sample_spectral(
 
     float fresnel = gpu_fresnelDielectric(cosTheta, etaI, etaT);
 
-    if (tir || curand_uniform(rng) < fresnel) {
+    if (tir || gpu_rng_uniform(rng) < fresnel) {
         // Reflect: wi = 2*(wo·n)*n - wo
         s.wi  = n * (2.f * wo.dot(n)) - wo;
         s.f   = GVec3(1.f);
@@ -388,7 +408,8 @@ __device__ inline GBSDFSample gpu_dielectric_sample_spectral(
 // ===  Thin glass / architectural glazing  ===================================
 // ===========================================================================
 
-__device__ inline GVec3 gpu_sampleCone(const GVec3& dir, float roughness, curandState* rng) {
+template <typename TRng>
+__device__ inline GVec3 gpu_sampleCone(const GVec3& dir, float roughness, TRng* rng) {
     GVec3 w = dir.normalized();
     if (roughness <= 0.001f) return w;
 
@@ -397,16 +418,17 @@ __device__ inline GVec3 gpu_sampleCone(const GVec3& dir, float roughness, curand
     GVec3 v = w.cross(u);
     float maxAngle = fminf(fmaxf(roughness, 0.f), 1.f) * 0.35f;
     float cosMax = cosf(maxAngle);
-    float cosTheta = 1.f - curand_uniform(rng) * (1.f - cosMax);
+    float cosTheta = 1.f - gpu_rng_uniform(rng) * (1.f - cosMax);
     float sinTheta = sqrtf(fmaxf(0.f, 1.f - cosTheta * cosTheta));
-    float phi = 2.f * M_PI_F * curand_uniform(rng);
+    float phi = 2.f * M_PI_F * gpu_rng_uniform(rng);
     return (u * (cosf(phi) * sinTheta) +
             v * (sinf(phi) * sinTheta) +
             w * cosTheta).normalized();
 }
 
+template <typename TRng>
 __device__ inline GBSDFSample gpu_thin_glass_sample(
-    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, curandState* rng)
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
     GBSDFSample s;
     s.isDelta = mat.roughness < 0.02f;
@@ -426,7 +448,7 @@ __device__ inline GBSDFSample gpu_thin_glass_sample(
 
     reflectProb /= totalProb;
     transmitProb /= totalProb;
-    if (curand_uniform(rng) < reflectProb) {
+    if (gpu_rng_uniform(rng) < reflectProb) {
         s.wi = gpu_sampleCone(rec.normal * (2.f * wo.dot(rec.normal)) - wo, mat.roughness, rng);
         s.f = GVec3(reflectProb);
         s.pdf = fmaxf(reflectProb, 1e-4f);
@@ -490,11 +512,12 @@ __device__ inline float gpu_disney_fresnelDielectric(float cosThetaI, float etaI
 
 // Heitz 2018 "Sampling the GGX Distribution of Visible Normals", JCGT 7(4).
 // Ported from PBRT-v4 TrowbridgeReitzDistribution::Sample_wm (BSD-3-Clause).
+template <typename TRng>
 __device__ inline GVec3 gpu_disney_sampleGgxVNDF(
-    const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, curandState* rng)
+    const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
     float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
-    float u1 = curand_uniform(rng), u2 = curand_uniform(rng);
+    float u1 = gpu_rng_uniform(rng), u2 = gpu_rng_uniform(rng);
 
     // Transform wo to local tangent space
     GVec3 wo_local(wo.dot(rec.tangent), wo.dot(rec.bitangent), wo.dot(rec.normal));
@@ -718,8 +741,9 @@ __device__ inline GVec3 gpu_disney_eval(
     return result;
 }
 
+template <typename TRng>
 __device__ inline GBSDFSample gpu_disney_sample(
-    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, curandState* rng)
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
     GBSDFSample s;
     s.f   = GVec3(0.f);
@@ -727,7 +751,7 @@ __device__ inline GBSDFSample gpu_disney_sample(
     s.isDelta = false;
 
     // Transmission lobe
-    if (mat.transmission > 0.f && curand_uniform(rng) < mat.transmission) {
+    if (mat.transmission > 0.f && gpu_rng_uniform(rng) < mat.transmission) {
         float etaI = rec.frontFace ? 1.f : mat.ior;
         float etaT = rec.frontFace ? mat.ior : 1.f;
         float eta  = etaI / etaT;
@@ -750,7 +774,7 @@ __device__ inline GBSDFSample gpu_disney_sample(
 
             // Sample reflection or transmission based on Fresnel
             float R = F, T = 1.f - F;
-            bool sampleReflection = cannotRef || curand_uniform(rng) < R / (R + T);
+            bool sampleReflection = cannotRef || gpu_rng_uniform(rng) < R / (R + T);
 
             if (sampleReflection) {
                 // Reflect off microfacet
@@ -776,7 +800,7 @@ __device__ inline GBSDFSample gpu_disney_sample(
             }
         }
 
-        if (cannotRef || curand_uniform(rng) < fresnel) {
+        if (cannotRef || gpu_rng_uniform(rng) < fresnel) {
             s.wi  = n * (2.f * wo.dot(n)) - wo;
             s.f   = GVec3(1.f);
             // pkg118 Part A: forced-TIR reflection is deterministic (selection prob 1),
@@ -800,15 +824,15 @@ __device__ inline GBSDFSample gpu_disney_sample(
     float specW = 1.f;
     float total = diffW + specW;
 
-    if (curand_uniform(rng) * total < diffW) {
+    if (gpu_rng_uniform(rng) * total < diffW) {
         GVec3 lw = gpu_randomCosineDir(rng);
         s.wi = rec.tangent*lw.x + rec.bitangent*lw.y + rec.normal*lw.z;
         s.f  = gpu_disney_eval(mat, rec, wo, s.wi);
         s.pdf = rec.normal.dot(s.wi) / M_PI_F * (diffW / total);
     } else {
         float a   = fmaxf(mat.roughness*mat.roughness, 0.0064f);
-        float r1  = curand_uniform(rng);
-        float r2  = curand_uniform(rng);
+        float r1  = gpu_rng_uniform(rng);
+        float r2  = gpu_rng_uniform(rng);
         float phi = 2.f * M_PI_F * r1;
         float cosT = sqrtf((1.f - r2) / (1.f + (a*a-1.f)*r2));
         float sinT = sqrtf(1.f - cosT*cosT);
@@ -983,8 +1007,9 @@ __device__ inline float gpu_closure_graph_pdf(
     return sum;
 }
 
+template <typename TRng>
 __device__ inline GBSDFSample gpu_closure_graph_sample(
-    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, curandState* rng)
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
     GBSDFSample s;
     s.wi = GVec3(0, 1, 0);
@@ -1002,7 +1027,7 @@ __device__ inline GBSDFSample gpu_closure_graph_sample(
     }
     if (totalWeight <= 0.0f) return s;
 
-    float xi = curand_uniform(rng) * totalWeight;
+    float xi = gpu_rng_uniform(rng) * totalWeight;
     int chosen = -1;
     float accum = 0.0f;
     for (int i = 0; i < count; ++i) {
@@ -1071,8 +1096,9 @@ __device__ inline GSampledSpectrum gpu_material_eval_spectral(
         gpu_material_eval(mat, rec, wo, wi), wl, mat.spectralMode);
 }
 
+template <typename TRng>
 __device__ inline GBSDFSample gpu_material_sample(
-    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, curandState* rng)
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
     switch (mat.type) {
         case GMAT_LAMBERTIAN:    return gpu_lambertian_sample(mat, rec, wo, rng);
@@ -1085,9 +1111,10 @@ __device__ inline GBSDFSample gpu_material_sample(
     }
 }
 
+template <typename TRng>
 __device__ inline GBSDFSample gpu_material_sample_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
-    GSampledWavelengths& wl, curandState* rng)
+    GSampledWavelengths& wl, TRng* rng)
 {
     // pkg64-gpu-sellmeier-upload: dispersive dielectrics need the wavelength-aware
     // sampler (it calls wl.terminateSecondary() on refraction — hero collapse).

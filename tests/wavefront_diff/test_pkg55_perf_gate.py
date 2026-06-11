@@ -7,9 +7,10 @@ RTX 5070 Ti". Reference: Laine, Karras, Aila 2013 (2x+ in material-diverse
 scenes); Cycles X Koro 2.2x.
 
 Two tiers (the repo's established aspirational-gate pattern):
-- HARD floor: speedup >= 1.15x — regression protection at the N+7 part-4
-  measured level (1.27x @ 64spp, 1.38x @ 512spp on RTX 5070 Ti,
-  2026-06-11) with headroom for machine variance.
+- HARD floor: speedup >= 1.30x — regression protection at the
+  template-RNG-arc measured level (stable 1.41-1.46x @ 512spp on RTX
+  5070 Ti, 2026-06-11 evening) with headroom for machine variance.
+  History: N+7p4 1.38x -> +shadow stage 1.39x -> +direct-PCG draws 1.46x.
 - TARGET >= 1.5x: xfail(strict=False) until the shadow-stage split lands.
   Profile (n7p5): stage_shade_bucketed dominates at 254 regs/thread --
   the inline NEE BVH shadow traversal is the register hog; the Laine
@@ -110,8 +111,8 @@ def test_wavefront_contact_sheet_floor():
     assert np.all(np.abs(ratio - 1.0) <= 0.03), (
         f"WF/MK image ratio out of bounds: {ratio}"
     )
-    assert speedup >= 1.15, (
-        f"Wavefront perf floor REGRESSED: {speedup:.2f}x < 1.15x "
+    assert speedup >= 1.30, (
+        f"Wavefront perf floor REGRESSED: {speedup:.2f}x < 1.30x "
         f"(MK {t_mk:.3f}s, WF {t_wf:.3f}s)"
     )
 

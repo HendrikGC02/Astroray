@@ -79,6 +79,17 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
 __device__ GVec3 gpu_spectrum_to_xyz(
     const GSampledSpectrum& s, const GSampledWavelengths& wl);
 
+// Per-slot init from stage_init.cu (N+7 part 4, rdc-linked) — one generator
+// of the init draws shared with stageInitKernel.
+namespace astroray { namespace wavefront {
+__device__ void initPathSlot(
+    int slot, int pixel, int sample_idx,
+    GPUWavefrontState& state,
+    const GCameraParams& cam,
+    int width, int height,
+    uint64_t seed);
+} }
+
 namespace astroray::wavefront {
 
 namespace {
@@ -515,6 +526,10 @@ __global__ void stageIntersectQueuedKernel(
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
     int idx = queue_in[i];
+    // N+7 part 4: dead-slot guard. Part-3 flat queues are guaranteed-alive
+    // (no-op there); the regeneration driver iterates a dense identity
+    // queue where exhausted slots stay dead.
+    if (state.path_alive[idx] == 0) return;
     int matType = intersectPathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
                                     spheres, materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces);
@@ -806,6 +821,111 @@ void launchStageShadeBucketed(
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_shade_bucketed launch error: %s\n",
+                         cudaGetErrorString(err));
+            throw std::runtime_error(cudaGetErrorString(err));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// N+7 part 4: path regeneration (Laine 2013 sec. 4).
+//
+// Dense pass over all slots: a DEAD slot first accumulates its radiance
+// (the same XYZ + firefly-clamp math as stageAccumulateXYZKernel -- the
+// accumulate-at-death form), zeroes its color (so an exhausted slot adds 0
+// on later passes), then claims the next unscheduled (pixel, sample) work
+// item from a global counter and re-initializes itself via initPathSlot.
+// The pool therefore stays ~full for the whole render and kernel launches
+// amortize across ALL samples instead of running depth x spp rounds over
+// emptying queues (the part-3 diagnosis).
+//
+// work item w -> pixel = w % numPixels, sample = w / numPixels, so wave k
+// schedules sample k for every pixel: coalesced and identical per-path RNG
+// keying to the per-round scheduling (streams keyed by (pixel, sample)).
+// ---------------------------------------------------------------------------
+__global__ void stageRegenKernel(
+    GPUWavefrontState state,
+    float* accum_xyz,
+    int* work_counter,
+    int total_work,
+    int numPixels,
+    GCameraParams cam,
+    int width, int height,
+    uint64_t seed)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= state.num_active) return;
+    if (state.path_alive[idx] != 0) return;
+
+    // ---- Accumulate the dead path's radiance into ITS pixel (not the
+    // slot index -- under regeneration slots host arbitrary pixels).
+    GSampledSpectrum rad;
+    rad.v[0] = state.color_0[idx];
+    rad.v[1] = state.color_1[idx];
+    rad.v[2] = state.color_2[idx];
+    rad.v[3] = state.color_3[idx];
+    bool hasRad = (rad.v[0] != 0.f) | (rad.v[1] != 0.f) |
+                  (rad.v[2] != 0.f) | (rad.v[3] != 0.f);
+    if (hasRad) {
+        GSampledWavelengths lambdas;
+        lambdas.lambda[0] = state.lambda_0[idx];
+        lambdas.lambda[1] = state.lambda_1[idx];
+        lambdas.lambda[2] = state.lambda_2[idx];
+        lambdas.lambda[3] = state.lambda_3[idx];
+        lambdas.pdf[0] = state.lambda_pdf_0[idx];
+        lambdas.pdf[1] = state.lambda_pdf_1[idx];
+        lambdas.pdf[2] = state.lambda_pdf_2[idx];
+        lambdas.pdf[3] = state.lambda_pdf_3[idx];
+        GVec3 xyz = gpu_spectrum_to_xyz(rad, lambdas);
+        float lum = xyz.y;
+        if (lum > 20.0f) {
+            xyz.x *= (20.0f / lum);
+            xyz.y = 20.0f;
+            xyz.z *= (20.0f / lum);
+        }
+        int pixel = state.pixel_index[idx];
+        // Multiple slots can die holding the same pixel (different samples)
+        // within one pass: atomic adds.
+        atomicAdd(&accum_xyz[pixel * 3 + 0], xyz.x);
+        atomicAdd(&accum_xyz[pixel * 3 + 1], xyz.y);
+        atomicAdd(&accum_xyz[pixel * 3 + 2], xyz.z);
+        state.color_0[idx] = 0.f;
+        state.color_1[idx] = 0.f;
+        state.color_2[idx] = 0.f;
+        state.color_3[idx] = 0.f;
+    }
+
+    // ---- Claim the next work item; leave the slot dead when exhausted.
+    int w = atomicAdd(work_counter, 1);
+    if (w >= total_work) return;
+    int pixel  = w % numPixels;
+    int sample = w / numPixels;
+    initPathSlot(idx, pixel, sample, state, cam, width, height, seed);
+}
+
+void launchStageRegen(
+    GPUWavefrontState& state,
+    float* d_accum_xyz,
+    int* d_work_counter,
+    int total_work,
+    int numPixels,
+    const GCameraParams& cam,
+    int width, int height,
+    uint64_t seed)
+{
+    if (state.num_active <= 0) return;
+    int threads = 256;
+    int blocks  = (state.num_active + threads - 1) / threads;
+    {
+        astroray::gpu_profile::ScopedTimer _t(
+            "wavefront_stage_regen_n7",
+            (const void*)stageRegenKernel, blocks, threads);
+        stageRegenKernel<<<blocks, threads>>>(
+            state, d_accum_xyz, d_work_counter, total_work, numPixels,
+            cam, width, height, seed);
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::fprintf(stderr, "stage_regen launch error: %s\n",
                          cudaGetErrorString(err));
             throw std::runtime_error(cudaGetErrorString(err));
         }

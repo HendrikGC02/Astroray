@@ -144,28 +144,29 @@ __device__ inline void generatePrimaryRay(
     lambdas = sampleUniformWavelength(lambda_u, G_LAMBDA_MIN, G_LAMBDA_MAX);
 }
 
-__global__ void stageInitKernel(
-    GPUWavefrontState state,
-    GCameraParams cam,
+}  // namespace (anonymous -- TU-local helpers above)
+
+// N+7 part 4: per-slot path initialization, callable from BOTH the
+// stage_init kernel (slot==pixel mapping) and the regeneration kernel
+// (arbitrary slot <- (pixel, sample) work item). NON-static: linked into
+// stage_advance.cu's regen kernel via -rdc=true. One generator of the
+// init draws (decision #9).
+__device__ void initPathSlot(
+    int slot, int pixel, int sample_idx,
+    GPUWavefrontState& state,
+    const GCameraParams& cam,
     int width, int height,
-    uint64_t seed,
-    int sample_index)
+    uint64_t seed)
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int total = width * height;
-    if (idx >= total) return;
-
-    int px = idx % width;
-    int py = idx / width;
-
-    // Session N+6: the host render loop runs one init round per sample;
-    // sample_index keys the RNG so rounds draw independent streams
-    // (mirrors the CPU driver's slot = pixel*samples + s keying).
-    int sample_idx = sample_index;
+    int idx = slot;
+    int px = pixel % width;
+    int py = pixel / width;
 
     // Construct WavefrontRNG for this path. Dimension counter starts at 0.
     // Mirrors the CPU oracle: PathState ps(pixel_idx, sample_idx, seed);
-    WavefrontRNG rng(static_cast<uint32_t>(idx), static_cast<uint32_t>(sample_idx), seed);
+    // RNG is keyed by PIXEL (not slot) so regeneration produces the exact
+    // same per-(pixel,sample) stream as the per-round scheduling did.
+    WavefrontRNG rng(static_cast<uint32_t>(pixel), static_cast<uint32_t>(sample_idx), seed);
 
     // Generate primary ray + lambda sample. RNG draw order matches CPU path_kernel.cpp::init_path().
     GVec3 ray_origin, ray_direction;
@@ -173,7 +174,7 @@ __global__ void stageInitKernel(
     generatePrimaryRay(rng, cam, px, py, width, height, ray_origin, ray_direction, lambdas);
 
     // SoA writes. Store the LIVE RNG state (dimension counter advanced by 4 draws).
-    state.pixel_index[idx]  = idx;
+    state.pixel_index[idx]  = pixel;
     state.sample_index[idx] = sample_idx;
     state.bounce[idx]       = 0;
 
@@ -217,7 +218,19 @@ __global__ void stageInitKernel(
     state.path_alive[idx]   = 1;  // true
 }
 
-}  // namespace
+__global__ void stageInitKernel(
+    GPUWavefrontState state,
+    GCameraParams cam,
+    int width, int height,
+    uint64_t seed,
+    int sample_index)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = width * height;
+    if (idx >= total) return;
+    // Legacy per-round scheduling: slot == pixel.
+    initPathSlot(idx, idx, sample_index, state, cam, width, height, seed);
+}
 
 void launchStageInit(
     GPUWavefrontState& state,

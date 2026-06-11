@@ -246,6 +246,20 @@ void launchStageShadeBucketed(
     GLightTreeView    lightTree,
     int               max_depth);
 
+// Session N+7 part 4: path regeneration -- dense pass accumulating dead
+// paths' radiance (atomic, per-pixel) then refilling slots from a global
+// (pixel, sample) work counter. Pool stays ~full; launches amortize across
+// all samples (Laine 2013 sec. 4).
+void launchStageRegen(
+    GPUWavefrontState& state,
+    float* d_accum_xyz,
+    int* d_work_counter,
+    int total_work,
+    int numPixels,
+    const GCameraParams& cam,
+    int width, int height,
+    uint64_t seed);
+
 // Session N+7: device-side per-sample XYZ accumulation (radiance -> XYZ ->
 // firefly clamp -> += accum). accum_xyz is 3 floats per slot, zeroed by the
 // driver before the first sample round.

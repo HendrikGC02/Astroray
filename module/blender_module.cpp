@@ -198,6 +198,20 @@ public:
             proceduralTextures[name] = std::make_shared<CheckerTexture>(c1, c2, scale);
         } else if (type == "noise") {
             proceduralTextures[name] = std::make_shared<NoiseTexture>(params.size() > 0 ? params[0] : 1.0f);
+        } else if (type == "noise_perlin") {
+            // pkg115 chunk 2 + chunk 6 (addon dedup): ShaderNodeTexNoise → NoiseTextureCycles.
+            // Params: [scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize]
+            float scale = params.size() > 0 ? params[0] : 5.0f;
+            float detail = params.size() > 1 ? params[1] : 2.0f;
+            float roughness = params.size() > 2 ? params[2] : 0.5f;
+            float lacunarity = params.size() > 3 ? params[3] : 2.0f;
+            float offset = params.size() > 4 ? params[4] : 0.0f;
+            float gain = params.size() > 5 ? params[5] : 1.0f;
+            float distortion = params.size() > 6 ? params[6] : 0.0f;
+            int noise_type = params.size() > 7 ? (int)params[7] : 0;
+            bool normalize = params.size() > 8 ? (params[8] != 0.0f) : true;
+            proceduralTextures[name] = std::make_shared<NoiseTextureCycles>(
+                scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize);
         } else if (type == "marble") {
             proceduralTextures[name] = std::make_shared<MarbleTexture>(params.size() > 0 ? params[0] : 1.0f);
         } else if (type == "wood") {
@@ -210,22 +224,26 @@ public:
             Vec3 c2 = params.size() > 7 ? Vec3(params[5], params[6], params[7]) : Vec3(1);
             proceduralTextures[name] = std::make_shared<GradientTexture>(gt, c1, c2, sc);
         } else if (type == "wave") {
-            // Legacy positional params: [band_dir, profile, scale, distortion,
-            // detail, roughness, lacunarity, r1,g1,b1, r2,g2,b2]. pkg115 chunk 3:
-            // mapped onto the Cycles-parity ctor (wave_type=bands; the legacy
-            // lacunarity slot is accepted but unused - the Cycles Wave node has
-            // no lacunarity socket, its fBM detail uses the svm/wave.h scheme).
-            int bd = params.size() > 0 ? (int)params[0] : 0;
-            int pf = params.size() > 1 ? (int)params[1] : 0;
-            float sc = params.size() > 2 ? params[2] : 5.0f;
-            float dist = params.size() > 3 ? params[3] : 0.0f;
-            float det = params.size() > 4 ? params[4] : 2.0f;
-            float rough = params.size() > 5 ? params[5] : 0.5f;
-            Vec3 c1 = params.size() > 9 ? Vec3(params[7], params[8], params[9]) : Vec3(0);
-            Vec3 c2 = params.size() > 12 ? Vec3(params[10], params[11], params[12]) : Vec3(1);
+            // pkg115 chunk 3 + chunk 6 (addon dedup): full Cycles-parity Wave.
+            // Params: [wave_type, bands_direction, rings_direction, profile, scale, distortion,
+            //          detail, detail_scale, detail_roughness, phase_offset, r1,g1,b1, r2,g2,b2]
+            // Legacy 13-param scripts (band_dir, profile, scale, distortion, detail, roughness,
+            // lacunarity, r,g,b, r,g,b) are handled by treating param[0] as bands_direction and
+            // defaulting wave_type=0, rings_dir=0, phase=0, dscale=1 — preserves old behavior.
+            int wt = params.size() > 0 ? (int)params[0] : 0;
+            int bd = params.size() > 1 ? (int)params[1] : 0;
+            int rd = params.size() > 2 ? (int)params[2] : 0;
+            int pf = params.size() > 3 ? (int)params[3] : 0;
+            float sc = params.size() > 4 ? params[4] : 5.0f;
+            float dist = params.size() > 5 ? params[5] : 0.0f;
+            float det = params.size() > 6 ? params[6] : 2.0f;
+            float dscale = params.size() > 7 ? params[7] : 1.0f;
+            float rough = params.size() > 8 ? params[8] : 0.5f;
+            float phase = params.size() > 9 ? params[9] : 0.0f;
+            Vec3 c1 = params.size() > 12 ? Vec3(params[10], params[11], params[12]) : Vec3(0);
+            Vec3 c2 = params.size() > 15 ? Vec3(params[13], params[14], params[15]) : Vec3(1);
             proceduralTextures[name] = std::make_shared<WaveTexture>(
-                /*wave_type=*/0, bd, /*rings_dir=*/0, pf, sc, dist, det,
-                /*detail_scale=*/1.0f, rough, /*phase=*/0.0f, c1, c2);
+                wt, bd, rd, pf, sc, dist, det, dscale, rough, phase, c1, c2);
         } else if (type == "magic") {
             // params: [depth, scale, distortion, r1,g1,b1, r2,g2,b2]
             int depth = params.size() > 0 ? (int)params[0] : 2;
@@ -260,21 +278,26 @@ public:
             proceduralTextures[name] = std::make_shared<VoronoiTexture>(
                 sc, det, rough, lac, smooth, expo, rand, norm, dm, feat, c1, c2);
         } else if (type == "brick") {
-            // params: [brick_r,g,b, mortar_r,g,b, brick_w, brick_h, mortar_size, offset, scale]
-            Vec3 brick = params.size() > 2 ? Vec3(params[0], params[1], params[2]) : Vec3(0.7f, 0.35f, 0.2f);
-            Vec3 mortar = params.size() > 5 ? Vec3(params[3], params[4], params[5]) : Vec3(0.9f);
-            float bw = params.size() > 6 ? params[6] : 0.5f;
-            float bh = params.size() > 7 ? params[7] : 0.25f;
-            float ms = params.size() > 8 ? params[8] : 0.02f;
-            float off = params.size() > 9 ? params[9] : 0.5f;
-            float sc = params.size() > 10 ? params[10] : 5.0f;
-            // pkg115 chunk 3: mapped onto the Cycles-parity ctor. The legacy
-            // API has one brick color (no color2 variation) - pass it for both
-            // so per-brick variation is a no-op, preserving legacy output intent.
+            // pkg115 chunk 3 + chunk 6 (addon dedup): full Cycles-parity Brick.
+            // Params: [brick1_r,g,b, brick2_r,g,b, mortar_r,g,b, scale, mortar_size, mortar_smooth,
+            //          bias, brick_width, row_height, offset_amount, offset_freq, squash, squash_freq]
+            // Legacy 11-param scripts (brick, mortar, bw, bh, ms, offset, scale) default color2=color1
+            // (no per-brick variation) and the Blender-default mortar_smooth/bias/offsets.
+            Vec3 c1 = params.size() > 2 ? Vec3(params[0], params[1], params[2]) : Vec3(0.8f);
+            Vec3 c2 = params.size() > 5 ? Vec3(params[3], params[4], params[5]) : c1;
+            Vec3 mortar = params.size() > 8 ? Vec3(params[6], params[7], params[8]) : Vec3(0.0f);
+            float sc = params.size() > 9 ? params[9] : 5.0f;
+            float ms = params.size() > 10 ? params[10] : 0.02f;
+            float msmooth = params.size() > 11 ? params[11] : 0.1f;
+            float bias = params.size() > 12 ? params[12] : 0.0f;
+            float bw = params.size() > 13 ? params[13] : 0.5f;
+            float rh = params.size() > 14 ? params[14] : 0.25f;
+            float offamt = params.size() > 15 ? params[15] : 0.5f;
+            int offfreq = params.size() > 16 ? (int)params[16] : 2;
+            float sq = params.size() > 17 ? params[17] : 1.0f;
+            int sqfreq = params.size() > 18 ? (int)params[18] : 2;
             proceduralTextures[name] = std::make_shared<BrickTexture>(
-                brick, brick, mortar, sc, ms, /*mortar_smooth=*/0.1f,
-                /*bias=*/0.0f, bw, bh, off, /*offset_freq=*/2,
-                /*squash=*/1.0f, /*squash_freq=*/2);
+                c1, c2, mortar, sc, ms, msmooth, bias, bw, rh, offamt, offfreq, sq, sqfreq);
         } else if (type == "musgrave") {
             // params: [musgrave_type, scale, detail, dimension, lacunarity, gain, r1,g1,b1, r2,g2,b2]
             int mt = params.size() > 0 ? (int)params[0] : 0;

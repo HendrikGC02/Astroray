@@ -11,11 +11,9 @@ Two tiers (the repo's established aspirational-gate pattern):
   template-RNG-arc measured level (stable 1.41-1.46x @ 512spp on RTX
   5070 Ti, 2026-06-11 evening) with headroom for machine variance.
   History: N+7p4 1.38x -> +shadow stage 1.39x -> +direct-PCG draws 1.46x.
-- TARGET >= 1.5x: xfail(strict=False) until the shadow-stage split lands.
-  Profile (n7p5): stage_shade_bucketed dominates at 254 regs/thread --
-  the inline NEE BVH shadow traversal is the register hog; the Laine
-  shadow-stage split (factoring sampleDirectSpectralMW into sample +
-  occlusion halves shared with the megakernel) is the named next step.
+- TARGET >= 1.5x: xfail(strict=False). Shadow-stage split + direct-PCG
+  draws landed (1.46x); the named next lever is ANY-HIT shadow traversal
+  -- equal absolute savings grow the ratio while MK > WF (see spec).
 
 Both legs render linear output (applyGamma=False) -- memory:
 render-probe-applygamma-footgun.
@@ -101,7 +99,7 @@ def _result():
 
 
 def test_wavefront_contact_sheet_floor():
-    """HARD floor: wavefront >= 1.15x faster than the megakernel, and the
+    """HARD floor: wavefront >= 1.30x faster than the megakernel, and the
     two GPU pipelines agree (same BSDFs) within 3% per channel."""
     t_mk, t_wf, mk, wf = _result()
     speedup = t_mk / t_wf
@@ -119,9 +117,8 @@ def test_wavefront_contact_sheet_floor():
 
 @pytest.mark.xfail(
     strict=False,
-    reason="Phase-B target gate: >= 1.5x needs the shadow-stage split "
-    "(stage_shade_bucketed at 254 regs/thread; the inline NEE BVH "
-    "traversal is the register hog — see spec N+7 part-4/5 plan).",
+    reason="Phase-B target gate: >= 1.5x (measured 1.41-1.46x after the "
+    "template-RNG arc; next lever is any-hit shadow traversal — see spec).",
 )
 def test_wavefront_contact_sheet_target():
     t_mk, t_wf, _, _ = _result()

@@ -587,6 +587,7 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
 // ---------------------------------------------------------------------------
 __device__ GSampledSpectrum tracePathMW(
     GRay ray, int maxDepth,
+    int worldMaxBounces,  // pkg55-B' N+6 follow-up: env gate, raytracer.h:2412
     GSampledWavelengths& lambdas,
     bool useLuminanceOutput,
     bool enableNEE,
@@ -623,6 +624,12 @@ __device__ GSampledSpectrum tracePathMW(
             // pkg55-B' Session N+6) so the wavefront stage_advance shares ONE
             // implementation; the luminance-band Rayleigh fallback stays here
             // (needs this TU's rayleighScale, no CPU-wavefront twin).
+            //
+            // Gated by worldMaxBounces (pkg55-B' N+6 follow-up): mirrors CPU
+            // pathTraceSpectral (raytracer.h:2412) and the CPU/GPU wavefront
+            // (path_kernel.cpp:192) — the path dies on miss either way; env
+            // radiance is only accumulated for bounce <= gate.
+            if (bounce > worldMaxBounces) break;
             GSampledSpectrum envSpec(0.f);
             GVec3 dir = ray.direction.normalized();
             if (useLuminanceOutput && !hasBackgroundColor && !envMap.loaded) {
@@ -843,6 +850,7 @@ __device__ inline float gpu_mw_haltonBase2(int index) {
 __global__ void multiwavelengthKernel(
     float* framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
+    int worldMaxBounces,  // pkg55-B' N+6 follow-up: env gate, raytracer.h:2412
     float lambdaMin, float lambdaMax,
     bool  useLuminanceOutput,
     bool  enableNEE,
@@ -907,7 +915,8 @@ __global__ void multiwavelengthKernel(
             gpu_sampleBandWavelengths(&localRng, lambdaMin, lambdaMax);
 
         GSampledSpectrum rad = tracePathMW(
-            ray, maxDepth, lambdas, useLuminanceOutput, enableNEE, useCaustics,
+            ray, maxDepth, worldMaxBounces,
+            lambdas, useLuminanceOutput, enableNEE, useCaustics,
             tlas, instances, blas,  // pkg114
             bvhNodes, prims, tris, spheres, materials,
             lights, numLights, totalLightPower,
@@ -991,6 +1000,7 @@ __global__ void multiwavelengthKernel(
 void launchMultiwavelengthKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
+    int worldMaxBounces,  // pkg55-B' N+6 follow-up: env gate, raytracer.h:2412
     float lambdaMin, float lambdaMax, bool useLuminanceOutput,
     bool enableNEE,
     bool useCaustics,  // pkg64-gpu Phase 2
@@ -1021,6 +1031,7 @@ void launchMultiwavelengthKernel(
             (const void*)multiwavelengthKernel, blocks, threadsPerBlock);
         multiwavelengthKernel<<<blocks, threadsPerBlock>>>(
             d_framebuffer, width, height, samplesPerPixel, maxDepth,
+            worldMaxBounces,
             lambdaMin, lambdaMax, useLuminanceOutput, enableNEE, useCaustics,
             d_tlas, d_instances, d_blas,  // pkg114
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,

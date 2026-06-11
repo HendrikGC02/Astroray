@@ -54,26 +54,6 @@
 #include <cstdio>
 #include <stdexcept>
 
-// Cross-TU device functions from multiwavelength_kernel.cu (non-inline,
-// linked via -rdc=true — the same pattern gpu_materials.h uses for
-// gpu_sampleD65 / gpu_jhEvalSpectrum).
-__device__ GSampledSpectrum sampleDirectSpectralMW(
-    const GHitRecord& rec, const GVec3& wo,
-    const GSampledWavelengths& lambdas,
-    const GTLASNode*  tlas,
-    const GInstance*  instances,
-    const GBLAS*      blas,
-    const GBVHNode*  bvhNodes,
-    const GPrimitive* prims,
-    const GTriangle*  tris,
-    const GSphere*    spheres,
-    const ::GMaterial*  materials,
-    const ::GLight*     lights, int numLights, float totalLightPower,
-    GLightTreeView    lightTree,
-    float             rayTime,
-    const GVec3*      motionVerts,
-    curandState*      rng);
-
 // pkg55-B' template-RNG arc: gpu_rng_uniform overload so the templated
 // material/NEE samplers (gpu_materials.h, gpu_nee.cuh) draw directly from
 // the per-path WavefrontRNG (PCG32) stream. Defined in namespace astroray

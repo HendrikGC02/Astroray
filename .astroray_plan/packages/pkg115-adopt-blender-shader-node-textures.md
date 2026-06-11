@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon) + 2 (materials/textures)
 **Track:** A
 **Codex-paste-ready:** no (large, staged; RTX visual verify)
-**Status:** COMPLETE (2026-06-12). Stage 2 chunks 1-6 done (PR #439 coord defaults, #441 hash+Perlin+fBM, #442 Wave+Brick, #445 Voronoi, #446 addon ShaderNodeTexVoronoi wiring, chunk 6 addon dedup), final AreaLightShape hitObject fix (commit e418349, 2026-06-12).
+**Status:** COMPLETE (2026-06-12). Stage 2 chunks 1-6 done (PR #439 coord defaults, #441 hash+Perlin+fBM, #442 Wave+Brick, #445 Voronoi, #446 addon ShaderNodeTexVoronoi wiring, chunk 6 addon dedup), final AreaLightShape hitObject fix (commit e418349, 2026-06-12). **GENERATED-coordinates MESH fix landed (2026-06-12 ~09:45, lead, on top of the implementer's AreaLightShape line): triangle meshes carry no object-level hitObject, so the texture now carries an explicit baked bbox — Texture::setGeneratedBBox + set_texture_generated_bbox binding + addon records GENERATED textures per material and bakes each user object's world bbox in convert_objects (last-writer-wins for shared materials; per-object instancing is the follow-up). 128-spp stills: checker = 3D blocks, brick = brickwork, wave = bands, voronoi patterned — semantic parity with Cycles. REMAINING small follow-ups: gradient + noise near-black on the addon path; pkg89 dedicated-light energy audit; per-object texture instancing.**
 
 **Visual-verify findings (2026-06-12, RTX + Blender 5.1 headless, a523a86 diagnosis commit):**
 1. **GPU leg dark: dedicated lights not uploaded to GPU** — pkg89/pkg86-B deferral; affects any dedicated-light GPU scene, NOT pkg115-specific.

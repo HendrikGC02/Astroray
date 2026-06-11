@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon) + 2 (materials/textures)
 **Track:** A
 **Codex-paste-ready:** no (large, staged; RTX visual verify)
-**Status:** Stage 2 chunks 1-5 done (PR #439 coord defaults, #441 hash+Perlin+fBM, #442 Wave+Brick, #445 Voronoi, #446 addon ShaderNodeTexVoronoi wiring — 2026-06-11). REMAINING: addon-side private texture-definition duplication removal (Approach step 4) + Blender-vs-Cycles RTX visual verify.
+**Status:** Stage 2 chunks 1-6 done (PR #439 coord defaults, #441 hash+Perlin+fBM, #442 Wave+Brick, #445 Voronoi, #446 addon ShaderNodeTexVoronoi wiring, chunk 6 addon dedup — 2026-06-12). REMAINING: Blender-vs-Cycles RTX visual verify. **Visual-verify status (2026-06-12 03:15, RTX): OPEN FINDING — the paired-stills harness (scripts/verify_pkg115_textures_blender.py, headless Blender 5.1 factory-startup, 8-sphere texture grid) renders correctly under CYCLES but the CUSTOM_RAYTRACER leg produces uniformly dark, untextured spheres regardless of area-light energy (300W vs 9000W identical) — an end-to-end F12 export gap (lighting and/or material-texture translation not reaching the renderer for this scene construction), DISTINCT from the dedup chunk's translation layer whose unit tests pass. The visual acceptance gate stays OPEN pending diagnosis of the addon F12 export path on factory-startup scenes.**
 **Depends on:** pkg57 (done — established the additive custom-node pattern and
 the `convert_node_material` traversal). Benefits from pkg112.
 **Estimated effort:** L (multi-week, staged)

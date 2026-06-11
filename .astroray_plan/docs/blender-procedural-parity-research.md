@@ -558,14 +558,18 @@ plus a paired-still RTX check at the end.
 9. **Voronoi** — largest port: metrics + F1/F2/SmoothF1/DistToEdge/NSphere +
    fractal wrapper + normalize + multi-output mapping. ✅ **DONE 2026-06-11 (chunk 4, PR #445)**
 10. **Addon translator + duplication removal + standalone CI example**
-    (Stage 3/4 of the package spec). 🔶 **PARTIAL 2026-06-11 (chunk 5):** addon
-    `ShaderNodeTexVoronoi` translation updated to the new feature enum
-    (0=F1,1=SmoothF1,2=F2,3=DistToEdge,4=NSphere) + full detail/roughness/
-    lacunarity/exponent/normalize wiring; `create_procedural_texture("voronoi", …)`
-    factory extended to forward the trailing params (backward-compatible);
-    standalone CI example added. REMAINING: addon-side private texture-definition
-    duplication removal (Approach step 4) and the Blender-vs-Cycles paired-still
-    visual (RTX `/verify`).
+    (Stage 3/4 of the package spec). ✅ **DONE 2026-06-12 (chunks 5-6):** addon
+    `load_procedural_texture` now routes all Blender procedural texture nodes
+    (Noise, Voronoi, Wave, Brick, Checker, Gradient, Magic, Musgrave) through
+    the engine's `create_procedural_texture` factory with Cycles-parity param
+    vectors. Duplication removed — addon carries no private texture evaluators.
+    C++ factory extended to accept full param vectors for Noise (Perlin-based,
+    chunk 2), Wave (16 params: wave_type, bands/rings directions, phase_offset,
+    detail_scale), and Brick (19 params: color1/color2 per-brick variation,
+    mortar_smooth, bias, offset/squash frequencies). Tests added in
+    `test_pkg115_addon_texture_translation.py` asserting param mappings match
+    engine expectations. REMAINING: Blender-vs-Cycles paired-still visual
+    (RTX `/verify`).
 
 ---
 

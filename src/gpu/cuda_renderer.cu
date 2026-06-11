@@ -90,6 +90,7 @@ void launchPkg64SmsProbe(
 void launchMultiwavelengthKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
+    int worldMaxBounces,  // pkg55-B' N+6 follow-up: env gate, raytracer.h:2412
     float lambdaMin, float lambdaMax, bool useLuminanceOutput,
     bool enableNEE,
     bool useCaustics,  // pkg64-gpu Phase 2
@@ -937,8 +938,16 @@ void CUDARenderer::renderMultiwavelength(
     // attempt; disable SMS when the photon grid is active (no double-count).
     if (caustic.ready) useCaustics = false;
 
+    // pkg55-B' N+6 follow-up: plumb the world/env max-bounces gate (CPU
+    // raytracer.h:2412, wavefront path_kernel.cpp:192). Previously the MW
+    // megakernel accumulated env radiance on miss at ALL bounces, diverging
+    // from the CPU whenever a scene sets world max bounces < max_depth.
+    int worldMaxBounces = impl->hostRenderer
+        ? impl->hostRenderer->getWorldMaxBounces() : 1024;
+
     launchMultiwavelengthKernel(
         impl->d_framebuffer, width, height, samplesPerPixel, maxDepth,
+        worldMaxBounces,
         lambdaMin, lambdaMax, useLuminanceOutput, enableNEE, useCaustics,
         impl->d_tlas, impl->d_instances, impl->d_blas,  // pkg114
         impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,

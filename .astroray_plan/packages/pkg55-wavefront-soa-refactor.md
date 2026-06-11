@@ -560,3 +560,54 @@ Phase C:
 - Both sides now capture the SAME logical moment: the shading point where NEE/RR occurred, not the next-bounce ray origin.
 - Empty PostRR snapshot at bounce 0 remains expected (RR depth threshold not reached on session_n1_envmap_cornell at max_depth=8, 1 spp).
 - Measured PostLightSample p99.9 = 2.211559e-06 is the gate value; threshold conservatively set at 1.5× (3.5e-06) to allow for minor numerical drift on future hardware/driver updates while catching real regressions.
+
+### Megakernel open-env "~1.85x divergence" root-caused 2026-06-11
+
+**Scope:** Follow-up to the Session N+6 MAJOR FINDING (feature branch
+`feat/pkg55-B-wavefront-shade-kernels` spec entry): "the MEGAKERNEL diverges
+~1.85x from CPU on the open-top env scene" (per-channel MK/CPU mean ratio
+[1.86, 1.81, 1.85] on `session_n1_envmap_cornell`, 64x64, 64 spp, seed
+424242, max_depth 8).
+
+**Root cause: measurement artifact, not a kernel bug.** The megakernel leg
+of the N+6 measurement was `r.render(64, 8, None, True)` — the 4th
+positional argument of `PyRenderer::render` is `applyGamma=True` (clamp to
+[0,1] + pow 1/2.2, `module/blender_module.cpp`), while the CPU oracle
+`reference_pt_wavefront_render` returns LINEAR sRGB. For a dim scene
+(channel means ~0.23-0.27 linear), v^(1/2.2)/v is a stable, seed- and
+spp-independent ~1.8-2x — exactly the textbook "stable per-channel ratio"
+deterministic-bug signature, which is why it looked like an accumulation
+bug. Measured on RTX 5070 Ti (2026-06-11):
+
+- MK applyGamma=True vs CPU linear: **[1.856, 1.813, 1.853]** (reproduces N+6)
+- MK applyGamma=False vs CPU linear: **[1.091, 0.993, 1.050]** — same
+  residual class as the GPU wavefront's [1.089, 0.991, 1.045] (inherited
+  megakernel-BSDF <-> CPU-plugin divergences; no env-specific divergence).
+
+The suspect list from the N+6 entry was checked and cleared: env is NOT
+double-counted with NEE (`sampleDirectSpectralMW` samples geometry lights
+only), and the `wasSpecular` emissive gating matches the CPU
+(`bounce == 0 || wasSpecular`).
+
+**One real latent divergence found and fixed:** `tracePathMW` ignored
+`worldMaxBounces` — CPU production (`raytracer.h:2412`), CPU wavefront
+(`path_kernel.cpp:192`) and the GPU wavefront all gate env accumulation on
+miss by `bounce <= worldMaxBounces`; the megakernel accumulated env at ALL
+bounces. A no-op at the default (1024), but real whenever a scene sets
+world max bounces below max_depth (the Blender addon wires
+`world.max_bounces` through `set_world_max_bounces`). Measured at
+`world_max_bounces=0`: MK/CPU = [1.277, 1.218, 1.364] before the fix,
+[1.085, 0.999, 1.035] after plumbing the gate through
+`renderMultiwavelength` -> `launchMultiwavelengthKernel` -> `tracePathMW`.
+
+**Regression gate added:** `tests/wavefront_diff/test_pkg55_megakernel_env_open_scene.py`
+- gates the megakernel against the CPU linear oracle on the open env scene
+  (both sides `applyGamma=False`), per-channel mean-ratio tol 0.12 (mirrors
+  the N+6 wavefront gate; measured max |ratio-1| = 0.091), and
+- gates the `world_max_bounces=0` behavior so the env gate cannot silently
+  regress. Mean-ratio, not SSIM: independent RNG streams.
+
+**Lesson:** any CPU-vs-GPU comparison must state the color encoding of both
+legs. `render()`'s positional `applyGamma` defaults to True and reads as a
+mystery boolean at call sites; comparisons against linear oracles must pass
+`False` explicitly.

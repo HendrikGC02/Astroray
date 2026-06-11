@@ -864,65 +864,417 @@ public:
 };
 
 // --- Voronoi texture ---
-// distMetric: 0=Euclidean, 1=Manhattan, 2=Chebychev, 3=Minkowski(p=2.5)
-// feature: 0=F1, 1=F2, 2=F1+F2, 3=F2-F1, 4=smooth_F1
+// Ported from Blender intern/cycles/kernel/svm/voronoi.h (Apache-2.0).
+// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
+// SPDX-License-Identifier: Apache-2.0
+//
+// SPDX-License-Identifier: MIT
+// Original code is copyright (c) 2013 Inigo Quilez.
+// Smooth Voronoi and Distance-to-Edge formulas from:
+//   https://www.iquilezles.org/www/articles/voronoilines/voronoilines.htm
+//
+// pkg115 chunk 4: full parity with Blender/Cycles Voronoi node.
+// Distance metrics: Euclidean / Manhattan / Chebychev / Minkowski(exponent param).
+// Features (Blender order): 0=F1, 1=Smooth F1, 2=F2, 3=Distance to Edge, 4=N-Sphere Radius.
+// Standalone-only legacy features: 5=F1+F2, 6=F2-F1.
+// Fractal: detail, roughness, lacunarity. Normalize divides by max_amplitude * max_distance.
+// Hash: uses cycles_hash::hash_int3_to_float3 (ported in chunk 2) for identical pattern to Cycles.
+//
+// VoronoiOutput: distance, color (cell hash RGB), position (jittered cell center).
+struct VoronoiOutput {
+    float distance;
+    Vec3 color;
+    Vec3 position;
+    float radius;  // N-Sphere Radius feature only
+};
+
 class VoronoiTexture : public Texture {
-    float scale, randomness, smoothness;
+    float scale, detail, roughness, lacunarity, smoothness, exponent, randomness;
+    float maxDistance;  // computed from randomness and feature
+    bool normalize;
     int distMetric, feature;
     Vec3 colorLow, colorHigh;
-public:
-    VoronoiTexture(float sc = 5.0f, float rand = 1.0f, int dm = 0, int feat = 0,
-                   float smooth = 1.0f, const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
-        : scale(sc), randomness(rand), smoothness(smooth), distMetric(dm), feature(feat),
-          colorLow(c1), colorHigh(c2) {}
 
-    static float hash1(float n) {
-        float x = std::sin(n) * 43758.5453f;
-        return x - std::floor(x);
-    }
-    static Vec3 hash3(Vec3 p) {
-        Vec3 q(p.dot(Vec3(127.1f, 311.7f, 74.7f)),
-               p.dot(Vec3(269.5f, 183.3f, 246.1f)),
-               p.dot(Vec3(113.5f, 271.9f, 124.6f)));
-        return Vec3(hash1(q.x), hash1(q.y), hash1(q.z));
-    }
-    float dist(const Vec3& a, const Vec3& b) const {
+    // Cycles voronoi.h:57-72 distance metrics.
+    float voronoi_distance(const Vec3& a, const Vec3& b) const {
         Vec3 d = a - b;
         switch (distMetric) {
-            case 1: return std::abs(d.x) + std::abs(d.y) + std::abs(d.z);
-            case 2: return std::max({std::abs(d.x), std::abs(d.y), std::abs(d.z)});
-            case 3: { float p = 2.5f; return std::pow(std::pow(std::abs(d.x),p)+std::pow(std::abs(d.y),p)+std::pow(std::abs(d.z),p), 1.0f/p); }
-            default: return std::sqrt(d.dot(d));
+            case 1: return std::abs(d.x) + std::abs(d.y) + std::abs(d.z);  // Manhattan
+            case 2: return std::max({std::abs(d.x), std::abs(d.y), std::abs(d.z)});  // Chebychev
+            case 3: {  // Minkowski with exponent param (default 0.5)
+                float sum = std::pow(std::abs(d.x), exponent) +
+                            std::pow(std::abs(d.y), exponent) +
+                            std::pow(std::abs(d.z), exponent);
+                return std::pow(sum, 1.0f / exponent);
+            }
+            default: return std::sqrt(d.dot(d));  // Euclidean
         }
     }
-    Vec3 value(const Vec2&, const Vec3& p) const override {
-        Vec3 sp = p * scale;
-        Vec3 ip(std::floor(sp.x), std::floor(sp.y), std::floor(sp.z));
-        float f1 = 1e9f, f2 = 1e9f;
-        float smoothF1 = 0.0f;
-        for (int dz = -1; dz <= 1; ++dz)
-        for (int dy = -1; dy <= 1; ++dy)
-        for (int dx = -1; dx <= 1; ++dx) {
-            Vec3 nb(ip.x+dx, ip.y+dy, ip.z+dz);
-            Vec3 r = nb + hash3(nb) * randomness;
-            float d = dist(sp, r);
-            if (d < f1) { f2 = f1; f1 = d; }
-            else if (d < f2) { f2 = d; }
-            if (smoothness > 0.0f && smoothness < 1e9f) {
-                float h = std::max(smoothness - d, 0.0f) / smoothness;
-                smoothF1 += h * h * h;
+
+    // Cycles voronoi.h:479-510 voronoi_f1 3D.
+    VoronoiOutput voronoi_f1(const Vec3& coord) const {
+        Vec3 cellPositionF = Vec3(std::floor(coord.x), std::floor(coord.y), std::floor(coord.z));
+        Vec3 localPosition = coord - cellPositionF;
+
+        float minDistance = 1e9f;
+        Vec3 targetOffset(0.0f);
+        Vec3 targetPosition(0.0f);
+
+        for (int k = -1; k <= 1; ++k) {
+            for (int j = -1; j <= 1; ++j) {
+                for (int i = -1; i <= 1; ++i) {
+                    Vec3 cellOffset((float)i, (float)j, (float)k);
+                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
+                    Vec3 pointPosition = cellOffset +
+                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
+                    float d = voronoi_distance(pointPosition, localPosition);
+                    if (d < minDistance) {
+                        minDistance = d;
+                        targetOffset = cellOffset;
+                        targetPosition = pointPosition;
+                    }
+                }
             }
         }
-        float val;
-        switch (feature) {
-            case 1: val = f2; break;
-            case 2: val = (f1 + f2) * 0.5f; break;
-            case 3: val = f2 - f1; break;
-            case 4: val = smoothness > 0.0f ? -std::log(smoothF1) / 3.0f : f1; break;
-            default: val = f1; break;
+
+        VoronoiOutput out;
+        out.distance = minDistance;
+        Vec3 targetCell = cellPositionF + targetOffset;
+        out.color = cycles_hash::hash_int3_to_float3((int)targetCell.x, (int)targetCell.y, (int)targetCell.z);
+        out.position = targetPosition + cellPositionF;
+        out.radius = 0.0f;
+        return out;
+    }
+
+    // Cycles voronoi.h:512-552 voronoi_smooth_f1 3D (5x5x5 neighborhood, polynomial smooth-min).
+    VoronoiOutput voronoi_smooth_f1(const Vec3& coord) const {
+        Vec3 cellPositionF = Vec3(std::floor(coord.x), std::floor(coord.y), std::floor(coord.z));
+        Vec3 localPosition = coord - cellPositionF;
+
+        float smoothDistance = 1e9f;
+        Vec3 smoothColor(0.0f);
+        Vec3 smoothPosition(0.0f);
+        float h = -1.0f;
+
+        for (int k = -2; k <= 2; ++k) {
+            for (int j = -2; j <= 2; ++j) {
+                for (int i = -2; i <= 2; ++i) {
+                    Vec3 cellOffset((float)i, (float)j, (float)k);
+                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
+                    Vec3 pointPosition = cellOffset +
+                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
+                    float d = voronoi_distance(pointPosition, localPosition);
+                    Vec3 cellColor = cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z);
+
+                    h = (h == -1.0f) ? 1.0f :
+                        std::clamp(0.5f + 0.5f * (smoothDistance - d) / smoothness, 0.0f, 1.0f);
+                    h = h * h * (3.0f - 2.0f * h);  // smoothstep
+                    float correction = smoothness * h * (1.0f - h);
+                    smoothDistance = smoothDistance * (1.0f - h) + d * h - correction;
+                    correction /= 1.0f + 3.0f * smoothness;
+                    smoothColor = smoothColor * (1.0f - h) + cellColor * h - Vec3(correction);
+                    smoothPosition = smoothPosition * (1.0f - h) + pointPosition * h - Vec3(correction);
+                }
+            }
         }
-        float t = std::clamp(val, 0.0f, 1.0f);
+
+        VoronoiOutput out;
+        out.distance = smoothDistance;
+        out.color = smoothColor;
+        out.position = smoothPosition + cellPositionF;
+        out.radius = 0.0f;
+        return out;
+    }
+
+    // Cycles voronoi.h:553-596 voronoi_f2 3D (two nearest).
+    VoronoiOutput voronoi_f2(const Vec3& coord) const {
+        Vec3 cellPositionF = Vec3(std::floor(coord.x), std::floor(coord.y), std::floor(coord.z));
+        Vec3 localPosition = coord - cellPositionF;
+
+        float dist1 = 1e9f, dist2 = 1e9f;
+        Vec3 offset1(0.0f), offset2(0.0f);
+        Vec3 position1(0.0f), position2(0.0f);
+
+        for (int k = -1; k <= 1; ++k) {
+            for (int j = -1; j <= 1; ++j) {
+                for (int i = -1; i <= 1; ++i) {
+                    Vec3 cellOffset((float)i, (float)j, (float)k);
+                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
+                    Vec3 pointPosition = cellOffset +
+                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
+                    float d = voronoi_distance(pointPosition, localPosition);
+
+                    if (d < dist1) {
+                        dist2 = dist1; offset2 = offset1; position2 = position1;
+                        dist1 = d; offset1 = cellOffset; position1 = pointPosition;
+                    } else if (d < dist2) {
+                        dist2 = d; offset2 = cellOffset; position2 = pointPosition;
+                    }
+                }
+            }
+        }
+
+        VoronoiOutput out;
+        out.distance = dist2;
+        Vec3 cell2 = cellPositionF + offset2;
+        out.color = cycles_hash::hash_int3_to_float3((int)cell2.x, (int)cell2.y, (int)cell2.z);
+        out.position = position2 + cellPositionF;
+        out.radius = 0.0f;
+        return out;
+    }
+
+    // Cycles voronoi.h:597+ voronoi_distance_to_edge 3D (IQ two-pass perpendicular edge distance).
+    VoronoiOutput voronoi_distance_to_edge(const Vec3& coord) const {
+        Vec3 cellPositionF = Vec3(std::floor(coord.x), std::floor(coord.y), std::floor(coord.z));
+        Vec3 localPosition = coord - cellPositionF;
+
+        float minDistance = 1e9f;
+        Vec3 targetOffset(0.0f);
+        Vec3 targetPosition(0.0f);
+
+        // First pass: find closest point.
+        for (int k = -1; k <= 1; ++k) {
+            for (int j = -1; j <= 1; ++j) {
+                for (int i = -1; i <= 1; ++i) {
+                    Vec3 cellOffset((float)i, (float)j, (float)k);
+                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
+                    Vec3 pointPosition = cellOffset +
+                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
+                    float d = voronoi_distance(pointPosition, localPosition);
+                    if (d < minDistance) {
+                        minDistance = d;
+                        targetOffset = cellOffset;
+                        targetPosition = pointPosition;
+                    }
+                }
+            }
+        }
+
+        // Second pass: distance to edge = half distance to perpendicular neighbor.
+        minDistance = 1e9f;
+        for (int k = -1; k <= 1; ++k) {
+            for (int j = -1; j <= 1; ++j) {
+                for (int i = -1; i <= 1; ++i) {
+                    Vec3 cellOffset((float)i, (float)j, (float)k);
+                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
+                    Vec3 pointPosition = cellOffset +
+                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
+                    Vec3 perpendicularToEdge = pointPosition - targetPosition;
+                    if (perpendicularToEdge.dot(perpendicularToEdge) > 1e-6f) {
+                        float d = (targetPosition - localPosition).dot(perpendicularToEdge) /
+                                  std::sqrt(perpendicularToEdge.dot(perpendicularToEdge));
+                        minDistance = std::min(minDistance, d);
+                    }
+                }
+            }
+        }
+
+        VoronoiOutput out;
+        out.distance = minDistance;
+        Vec3 targetCell = cellPositionF + targetOffset;
+        out.color = cycles_hash::hash_int3_to_float3((int)targetCell.x, (int)targetCell.y, (int)targetCell.z);
+        out.position = targetPosition + cellPositionF;
+        out.radius = 0.0f;
+        return out;
+    }
+
+    // Cycles voronoi.h:645+ voronoi_n_sphere_radius 3D (half distance between closest point and its closest neighbor).
+    VoronoiOutput voronoi_n_sphere_radius(const Vec3& coord) const {
+        Vec3 cellPositionF = Vec3(std::floor(coord.x), std::floor(coord.y), std::floor(coord.z));
+        Vec3 localPosition = coord - cellPositionF;
+
+        float minDistance = 1e9f;
+        Vec3 targetOffset(0.0f);
+        Vec3 targetPosition(0.0f);
+
+        // First pass: find closest point.
+        for (int k = -1; k <= 1; ++k) {
+            for (int j = -1; j <= 1; ++j) {
+                for (int i = -1; i <= 1; ++i) {
+                    Vec3 cellOffset((float)i, (float)j, (float)k);
+                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
+                    Vec3 pointPosition = cellOffset +
+                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
+                    float d = voronoi_distance(pointPosition, localPosition);
+                    if (d < minDistance) {
+                        minDistance = d;
+                        targetOffset = cellOffset;
+                        targetPosition = pointPosition;
+                    }
+                }
+            }
+        }
+
+        // Second pass: find closest neighbor to the closest point.
+        float closestNeighborDist = 1e9f;
+        for (int k = -1; k <= 1; ++k) {
+            for (int j = -1; j <= 1; ++j) {
+                for (int i = -1; i <= 1; ++i) {
+                    if (i == 0 && j == 0 && k == 0) continue;
+                    Vec3 cellOffset((float)i, (float)j, (float)k);
+                    Vec3 cellPos((int)cellPositionF.x + (int)targetOffset.x + i,
+                                 (int)cellPositionF.y + (int)targetOffset.y + j,
+                                 (int)cellPositionF.z + (int)targetOffset.z + k);
+                    Vec3 pointPosition = cellOffset +
+                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
+                    float d = voronoi_distance(Vec3(0.0f), pointPosition);
+                    closestNeighborDist = std::min(closestNeighborDist, d);
+                }
+            }
+        }
+
+        VoronoiOutput out;
+        out.distance = minDistance;
+        Vec3 targetCell = cellPositionF + targetOffset;
+        out.color = cycles_hash::hash_int3_to_float3((int)targetCell.x, (int)targetCell.y, (int)targetCell.z);
+        out.position = targetPosition + cellPositionF;
+        out.radius = closestNeighborDist / 2.0f;
+        return out;
+    }
+
+    // Cycles voronoi.h:940-992 fractal_voronoi_x_fx (octave loop with normalize).
+    VoronoiOutput fractal_voronoi(const Vec3& coord) const {
+        float scale = 1.0f;
+        float amplitude = 1.0f;
+        float maxAmplitude = 0.0f;
+        VoronoiOutput sum;
+        sum.distance = 0.0f;
+        sum.color = Vec3(0.0f);
+        sum.position = Vec3(0.0f);
+        sum.radius = 0.0f;
+
+        int octaves = (int)std::ceil(detail);
+        for (int i = 0; i <= octaves; ++i) {
+            VoronoiOutput octave;
+            switch (feature) {
+                case 1: octave = voronoi_smooth_f1(coord * scale); break;
+                case 2: octave = voronoi_f2(coord * scale); break;
+                case 3: octave = voronoi_distance_to_edge(coord * scale); break;
+                case 4: octave = voronoi_n_sphere_radius(coord * scale); break;
+                default: octave = voronoi_f1(coord * scale); break;
+            }
+
+            if (i <= (int)detail) {
+                sum.distance += octave.distance * amplitude;
+                sum.color = sum.color + octave.color * amplitude;
+                sum.position = sum.position + octave.position * amplitude;
+                sum.radius += octave.radius * amplitude;
+                maxAmplitude += amplitude;
+            } else {
+                // Fractional detail: lerp last octave.
+                float rmd = detail - std::floor(detail);
+                sum.distance = sum.distance * (1.0f - rmd) + (sum.distance + octave.distance * amplitude) * rmd;
+                sum.color = sum.color * (1.0f - rmd) + (sum.color + octave.color * amplitude) * rmd;
+                sum.position = sum.position * (1.0f - rmd) + (sum.position + octave.position * amplitude) * rmd;
+                sum.radius = sum.radius * (1.0f - rmd) + (sum.radius + octave.radius * amplitude) * rmd;
+                if (normalize) {
+                    maxAmplitude = maxAmplitude * (1.0f - rmd) + (maxAmplitude + amplitude) * rmd;
+                }
+            }
+
+            scale *= lacunarity;
+            amplitude *= roughness;
+        }
+
+        if (normalize) {
+            sum.distance /= maxAmplitude * maxDistance;
+            sum.color = sum.color / maxAmplitude;
+        }
+        // Cycles: position /= scale (the accumulated scale from last octave).
+        sum.position = sum.position / scale;
+        return sum;
+    }
+
+public:
+    VoronoiTexture(float sc = 5.0f, float det = 0.0f, float rough = 0.5f, float lac = 2.0f,
+                   float smooth = 1.0f, float exp = 0.5f, float rand = 1.0f,
+                   bool norm = false, int dm = 0, int feat = 0,
+                   const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
+        : scale(sc), detail(det), roughness(rough), lacunarity(lac),
+          smoothness(smooth), exponent(exp), randomness(rand), normalize(norm),
+          distMetric(dm), feature(feat), colorLow(c1), colorHigh(c2) {
+        // Cycles voronoi.h:1065+ svm_node_tex_voronoi conditioning.
+        detail = std::clamp(detail, 0.0f, 15.0f);
+        roughness = std::clamp(roughness, 0.0f, 1.0f);
+        randomness = std::clamp(randomness, 0.0f, 1.0f);
+        smoothness = std::clamp(smoothness / 2.0f, 0.0f, 0.5f);  // Node UI passes 0-1; Cycles uses 0-0.5.
+
+        // Compute max_distance for normalization.
+        Vec3 ones(0.5f + 0.5f * randomness);
+        if (feature == 3) {
+            // Distance to edge.
+            maxDistance = 0.5f + 0.5f * randomness;
+        } else {
+            maxDistance = voronoi_distance(Vec3(0.0f), ones);
+            if (feature == 2) maxDistance *= 2.0f;  // F2
+        }
+    }
+
+    Vec3 value(const Vec2&, const Vec3& p) const override {
+        Vec3 coord = p * scale;
+        VoronoiOutput out;
+
+        if (detail > 0.0f) {
+            out = fractal_voronoi(coord);
+        } else {
+            switch (feature) {
+                case 1: out = voronoi_smooth_f1(coord); break;
+                case 2: out = voronoi_f2(coord); break;
+                case 3: out = voronoi_distance_to_edge(coord); break;
+                case 4: out = voronoi_n_sphere_radius(coord); break;
+                case 5: {  // Standalone-only F1+F2
+                    VoronoiOutput f1 = voronoi_f1(coord);
+                    VoronoiOutput f2 = voronoi_f2(coord);
+                    out.distance = (f1.distance + f2.distance) * 0.5f;
+                    out.color = f1.color;
+                    out.position = f1.position;
+                    out.radius = 0.0f;
+                    break;
+                }
+                case 6: {  // Standalone-only F2-F1
+                    VoronoiOutput f1 = voronoi_f1(coord);
+                    VoronoiOutput f2 = voronoi_f2(coord);
+                    out.distance = f2.distance - f1.distance;
+                    out.color = f1.color;
+                    out.position = f1.position;
+                    out.radius = 0.0f;
+                    break;
+                }
+                default: out = voronoi_f1(coord); break;
+            }
+        }
+
+        // Legacy value() returns Distance mapped to 2-color lerp.
+        float t = std::clamp(out.distance, 0.0f, 1.0f);
         return colorLow * (1.0f - t) + colorHigh * t;
+    }
+
+    // Full multi-output eval for plugin use.
+    VoronoiOutput evalFull(const Vec3& p) const {
+        Vec3 coord = p * scale;
+        if (detail > 0.0f) {
+            return fractal_voronoi(coord);
+        } else {
+            switch (feature) {
+                case 1: return voronoi_smooth_f1(coord);
+                case 2: return voronoi_f2(coord);
+                case 3: return voronoi_distance_to_edge(coord);
+                case 4: return voronoi_n_sphere_radius(coord);
+                case 5: {
+                    VoronoiOutput f1 = voronoi_f1(coord);
+                    VoronoiOutput f2 = voronoi_f2(coord);
+                    f1.distance = (f1.distance + f2.distance) * 0.5f;
+                    return f1;
+                }
+                case 6: {
+                    VoronoiOutput f1 = voronoi_f1(coord);
+                    VoronoiOutput f2 = voronoi_f2(coord);
+                    f1.distance = f2.distance - f1.distance;
+                    return f1;
+                }
+                default: return voronoi_f1(coord);
+            }
+        }
     }
 };
 

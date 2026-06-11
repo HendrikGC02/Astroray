@@ -2,7 +2,7 @@
 
 **Pillar:** 5  
 **Track:** A  
-**Status:** open (research signed off — see [wavefront-gpu-research.md](../docs/wavefront-gpu-research.md))  
+**Status:** done (PR #457, 2026-06-11 — wavefront 1.45-1.52× @ 1.5× threshold; cool-GPU re-baseline + plugin registration + viewport-parity are named follow-ups)  
 **Estimated effort:** 10–11 weeks total across three phases (Phase A: 3–4 w, Phase B: 4 w, Phase C: 3 w)  
 **Depends on:** pkg54 (megakernel reference, done), pkg54a (spectral-profile dispatch, done), pkg54b (CIE 1964 CMF parity, done). pkg54c (Jakob-Hanika GPU upsampling) may overlap Phase B — see §Research/Risk 6.
 

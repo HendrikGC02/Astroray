@@ -3,9 +3,10 @@
 **Pillar:** 5 (GPU) + 3 (light transport)
 **Track:** A
 **Codex-paste-ready:** no (core CUDA + CPU; large; multi-session RTX verify)
-**Status:** IN PROGRESS — GPU core landed + RTX-verified 2026-06-10
-(inc 1 PR #430, inc 2 PR #431). Remaining: Blender-addon instancing + the
-depsgraph transform-only refit (inc 3, below). **GPU-gated.** Follow-up
+**Status:** IN PROGRESS — GPU core + bulk binding + MIXED scenes landed/in-review
+& RTX-verified (inc 1 #430, inc 2 #431, inc 3a #460, inc 3b #462 2026-06-12).
+Remaining: Blender-addon `convert_objects` instancing wiring + the depsgraph
+transform-only refit (inc 3c, below). **GPU-gated.** Follow-up
 acceleration-structure package explicitly deferred by pkg56 §4.1.
 
 ### Increment log
@@ -24,16 +25,43 @@ acceleration-structure package explicitly deferred by pkg56 §4.1.
   (rigid / non-uniform scale / mirror) vs baked world-space — mean ratio 1.00000,
   mean abs diff 8.1e-9; BLAS sharing shown (4 prims vs 12 baked). Visual:
   `docs/renders/pkg114_instanced_tetrahedra.png`.
-- **Inc 3 (remaining):** wire the Blender addon `convert_objects` to register a
+- **Inc 3a (PR #460, merged):** `register_mesh_bulk` binding — bulk twin of
+  `register_mesh_triangles` ingesting object-local UVs / smooth normals /
+  multi-material into a shared BLAS. RTX: 2 instances (smooth normals + 2 mats +
+  UV layer) vs baked match; BLAS sharing 8 prims vs 16.
+- **Inc 3b (PR #462):** **MIXED instanced + non-instanced scenes.** The two-level
+  upload was all-or-nothing — any instance dropped every non-instanced "flat"
+  object from the GPU. Fix: the flat scene (`cpu.getBVH()`) is uploaded first
+  (offset 0) and exposed as ONE identity-transform instance, so `gpu_tlas_hit`
+  traverses flat+instanced uniformly (no device change; inc-1 identity path is
+  byte-exact). Flat prims at offset 0 keep pkg64-SMS + light emitter→prim search
+  valid (flat-scene area lights now resolve in mixed scenes). Shared
+  `appendFlatScene()` for single-level + mixed. Also adds an optional
+  `object_name` to `register_mesh_bulk`/`register_mesh_triangles` → correct
+  Cryptomatte object id on the shared BLAS. RTX: floor + 3 instanced tetrahedra
+  (incl. mirror) == fully-baked; broad GPU regression sweep clean.
+- **Inc 3c (remaining):** wire the Blender addon `convert_objects` to register a
   mesh datablock once + `add_instance(matrix_world)` per shared-datablock
-  instance (collection/particle/linked-duplicate) — needs a `register_mesh_bulk`
-  binding (UVs/normals/multi-material, mirroring `add_triangles_bulk` but
-  object-local) and headless-Blender bit-identical + BLAS-sharing verification;
-  then the transform-only depsgraph refit (`_renderer_object_id_map` →
-  `update_instance_transform` → TLAS-only re-upload) for the pkg56 ≤50%-baseline
-  budget. Multi-instance EMISSIVE-light NEE stays a deferred follow-up
-  (owner-flagged fork; non-blocking). NOTE: a SAH TLAS is an explicit non-goal
-  (see Hard non-goals) — the flat-leaf TLAS is correct and sufficient.
+  instance. **GPU-gated** via a pure device pre-check (CPU keeps flattening — see
+  Decisions). Group `object_instances` by `(obj.data, obj.name [, eligibility])`,
+  instance groups with **count ≥ 2** (object-local via `mesh_to_bulk_arrays`
+  identity, `object_name=obj.name`), everything else flattens. Eligibility
+  EXCLUDES emissive / caustic-caster / volume / non-MESH objects (→ flatten).
+  Headless-Blender bit-identical + BLAS-sharing verification
+  (`scripts/verify_pkg112_bulk_blender.py` pattern). Then the transform-only
+  depsgraph refit (`_renderer_object_id_map` → `update_instance_transform` →
+  TLAS-only re-upload) for the pkg56 ≤50%-baseline budget.
+
+  **Decisions (inc 3c):** (1) addon instancing is **GPU-only**; CPU has no
+  two-level traversal (renders solely via the scene-only `bvh`), so CPU keeps
+  flattening — correct, no memory win. A CPU `InstanceHittable` decorator is a
+  possible later enhancement. (2) Per-instance Cryptomatte uses the shared-BLAS
+  `object_name` (duplis share the source name = one matte; linked duplicates
+  stay count-1 → flatten). (3) GPU Cryptomatte is currently CPU-only for the
+  `path_tracer` integrator (MW kernel has no crypto block) — orthogonal to this
+  package. Multi-instance EMISSIVE-light NEE, instanced caustic casters, and
+  deformation-motion-on-instances remain deferred. SAH TLAS stays an explicit
+  non-goal. See memory `pkg114-instancing-engine-facts`.
 **Depends on:** pkg56 (done — provides the `_renderer_object_id_map` placeholder
 and transform-only dispatch hook). Complementary to pkg112.
 **Estimated effort:** L (~3–4 weeks, multiple RTX sessions)

@@ -571,6 +571,11 @@ __global__ void stageShadeBucketedKernel(
 // ---------------------------------------------------------------------------
 // pkg55-B' Session N+7: device-side per-sample XYZ accumulation.
 //
+// NOTE (N+7 part 4): the render driver now accumulates at path death inside
+// stageRegenKernel; this per-round dense form is caller-less and RETAINED
+// as the reference accumulation for scheduling-equivalence checks (see the
+// dense/flat advance kernels' retention note).
+//
 // The N+6 driver downloaded 12 SoA arrays per SAMPLE round and accumulated
 // XYZ on the host — measured at ~185 ms host overhead per 256x64spp render
 // (vs ~115 ms of kernel work). This kernel replaces all of that with one

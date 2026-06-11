@@ -1085,10 +1085,16 @@ std::vector<float> cuda_wavefront_render(
 
         try {
             const long long total_work = (long long)total_paths * samples;
-            if (total_work > 0x7FFFFFFFLL)
+            // Overshoot-safe 32-bit guard (pkg98 N+7p4 review F1): dead slots
+            // keep atomicAdd-ing after exhaustion -- up to pool-size increments
+            // per remaining pass (kCheckEvery + max_depth + 1 passes). Reserve
+            // that slack below INT_MAX so the signed counter can never wrap.
+            const long long counter_slack =
+                (long long)total_paths * (16 + max_depth + 2);
+            if (total_work + counter_slack > 0x7FFFFFFFLL)
                 throw std::runtime_error(
                     "cuda_wavefront_render: width*height*samples exceeds "
-                    "the 32-bit work-counter range");
+                    "the overshoot-safe 32-bit work-counter range");
             cudaMemset(d_work, 0, sizeof(int));
             // The pool starts all-dead with zero radiance so the first
             // regen pass claims the first wave and accumulates nothing.

@@ -1430,8 +1430,32 @@ public:
             // env-map rendering because it converts env RGB → spectral → RGB via
             // RGBIlluminantSpectrum, which is lossy compared to the CPU's direct
             // RGBIlluminantSpectrum spectral atlas sampling.
+#ifdef ASTRORAY_WAVEFRONT_CUDA_N3
+            if (integratorName_ == "wavefront_path_tracer") {
+                // pkg55-B' plugin registration (spec sec. 6): this name
+                // selects the wavefront pipeline (path regeneration +
+                // material-bucketed shade + dedicated shadow stage) instead
+                // of the megakernel. Same light transport, same scene
+                // upload; linear-sRGB output convention matches the
+                // megakernel path. Measured 1.45-1.52x faster on the
+                // 7-material contact sheet (Phase-B gate).
+                auto rgb = astroray::wavefront::cuda_wavefront_render(
+                    renderer, *camera, camera->width, camera->height,
+                    samplesPerPixel, maxDepth, renderer.getSeed());
+                // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
+                for (size_t i = 0; i < camera->pixels.size(); ++i) {
+                    camera->pixels[i] = Vec3(rgb[i * 3 + 0],
+                                             rgb[i * 3 + 1],
+                                             rgb[i * 3 + 2]);
+                }
+            } else
+#endif
             if (integratorName_ == "path_tracer" ||
-                integratorName_ == "multiwavelength_path_tracer") {
+                integratorName_ == "multiwavelength_path_tracer" ||
+                integratorName_ == "wavefront_path_tracer") {
+                // (wavefront name reaches here only when the build lacks
+                // ASTRORAY_WAVEFRONT_CUDA_N3 — megakernel fallback, same
+                // transport.)
                 // pkg54: spectral-band megakernel. Resolve params from the
                 // same ParamDict used to construct the CPU integrator.
                 float lmin = integratorParams_.getFloat("lambda_min", 380.0f);

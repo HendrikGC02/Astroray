@@ -1064,43 +1064,106 @@ std::vector<float> cuda_wavefront_render(
             throw std::runtime_error(cudaGetErrorString(qe));
         }
 
+        // N+7 part 4: path-regeneration scheduling (Laine 2013 sec. 4).
+        // The pool of total_paths slots stays ~full for the whole render:
+        // each pass = regen (accumulate dead at THEIR pixel + refill from a
+        // global (pixel, sample) work counter) -> intersect (dense identity
+        // queue, dead-slot guard) -> bucketed shade. The work counter is
+        // read back every kCheckEvery passes (4 bytes; the only syncs);
+        // once all work is claimed, max_depth drain passes retire the
+        // in-flight paths and a final regen accumulates the last deaths.
+        int* d_work = nullptr;
+        cudaError_t we = cudaMalloc(reinterpret_cast<void**>(&d_work), sizeof(int));
+        if (we != cudaSuccess) {
+            cudaFree(d_shadeQueues);
+            cudaFree(d_shadeCounts);
+            freeGPUWavefrontHitBuffers(hitBufs);
+            qfree();
+            cudaFree(d_accum);
+            throw std::runtime_error(cudaGetErrorString(we));
+        }
+
         try {
-            for (int s = 0; s < samples; ++s) {
-                launchStageInit(state, gcam, width, height, seed, s);
-                launchStageQueueIota(d_queueA, d_counts + 0, total_paths);
-                int* qin = d_queueA;  int* cin = d_counts + 0;
-                int* qout = d_queueB; int* cout = d_counts + 1;
-                for (int b = 0; b < max_depth; ++b) {
-                    cudaMemsetAsync(cout, 0, sizeof(int));
-                    cudaMemsetAsync(d_shadeCounts, 0, kNumMatTypes * sizeof(int));
-                    launchStageIntersectQueued(state, hitBufs, qin, cin,
-                                               d_shadeQueues, d_shadeCounts,
-                                               total_paths,
-                                               d_bvhNodes, d_prims, d_tris,
-                                               d_spheres, d_materials,
-                                               envMap, gbg, hasBg,
-                                               worldMaxBounces);
-                    launchStageShadeBucketed(state, hitBufs,
-                                             d_shadeQueues, d_shadeCounts,
-                                             total_paths, qout, cout,
-                                             d_bvhNodes, d_prims, d_tris,
-                                             d_spheres, d_materials, d_lights,
-                                             (int)res.lights.size(),
-                                             res.totalLightPower,
-                                             treeView, max_depth);
-                    int* tq = qin; qin = qout; qout = tq;
-                    int* tc = cin; cin = cout; cout = tc;
+            const long long total_work = (long long)total_paths * samples;
+            // Overshoot-safe 32-bit guard (pkg98 N+7p4 review F1): dead slots
+            // keep atomicAdd-ing after exhaustion -- up to pool-size increments
+            // per remaining pass (kCheckEvery + max_depth + 1 passes). Reserve
+            // that slack below INT_MAX so the signed counter can never wrap.
+            const long long counter_slack =
+                (long long)total_paths * (16 + max_depth + 2);
+            if (total_work + counter_slack > 0x7FFFFFFFLL)
+                throw std::runtime_error(
+                    "cuda_wavefront_render: width*height*samples exceeds "
+                    "the overshoot-safe 32-bit work-counter range");
+            cudaMemset(d_work, 0, sizeof(int));
+            // The pool starts all-dead with zero radiance so the first
+            // regen pass claims the first wave and accumulates nothing.
+            cudaMemset(state.path_alive, 0, total_paths * sizeof(int));
+            cudaMemset(state.color_0, 0, total_paths * sizeof(float));
+            cudaMemset(state.color_1, 0, total_paths * sizeof(float));
+            cudaMemset(state.color_2, 0, total_paths * sizeof(float));
+            cudaMemset(state.color_3, 0, total_paths * sizeof(float));
+            state.num_active = total_paths;
+
+            // Dense identity queue, built once (count = total_paths).
+            launchStageQueueIota(d_queueA, d_counts + 0, total_paths);
+            int* cout = d_counts + 1;  // shade survivor-out (unused under regen)
+
+            const int kCheckEvery = 16;
+            // Defensive upper bound: every pass retires at least the
+            // max_depth-expired paths; samples*max_depth passes is a hard
+            // ceiling for claim+drain, plus slack.
+            const long long kMaxPasses =
+                (long long)samples * max_depth + max_depth + 64;
+            bool workExhausted = false;
+            int drainLeft = max_depth;
+            for (long long pass = 0; pass < kMaxPasses; ++pass) {
+                launchStageRegen(state, d_accum, d_work, (int)total_work,
+                                 total_paths, gcam, width, height, seed);
+                cudaMemsetAsync(cout, 0, sizeof(int));
+                cudaMemsetAsync(d_shadeCounts, 0, kNumMatTypes * sizeof(int));
+                launchStageIntersectQueued(state, hitBufs, d_queueA, d_counts + 0,
+                                           d_shadeQueues, d_shadeCounts,
+                                           total_paths,
+                                           d_bvhNodes, d_prims, d_tris,
+                                           d_spheres, d_materials,
+                                           envMap, gbg, hasBg,
+                                           worldMaxBounces);
+                launchStageShadeBucketed(state, hitBufs,
+                                         d_shadeQueues, d_shadeCounts,
+                                         total_paths, d_queueB, cout,
+                                         d_bvhNodes, d_prims, d_tris,
+                                         d_spheres, d_materials, d_lights,
+                                         (int)res.lights.size(),
+                                         res.totalLightPower,
+                                         treeView, max_depth);
+                if (workExhausted) {
+                    if (--drainLeft <= 0) break;
+                } else if ((pass + 1) % kCheckEvery == 0) {
+                    int scheduled = 0;
+                    cudaError_t ce = cudaMemcpy(&scheduled, d_work, sizeof(int),
+                                                cudaMemcpyDeviceToHost);
+                    if (ce != cudaSuccess)
+                        throw std::runtime_error(cudaGetErrorString(ce));
+                    if ((long long)scheduled >= total_work) workExhausted = true;
                 }
-                launchStageAccumulateXYZ(state, d_accum);
             }
-            // Single sync per render: same-stream launches are serialized;
-            // any deferred kernel runtime error surfaces here.
+            // Final regen accumulates paths that died in the last passes
+            // (claims nothing: the counter is exhausted).
+            launchStageRegen(state, d_accum, d_work, (int)total_work,
+                             total_paths, gcam, width, height, seed);
+
+            // Single final sync: same-stream launches are serialized; any
+            // deferred kernel runtime error surfaces here.
             cudaError_t syncErr = cudaDeviceSynchronize();
             if (syncErr != cudaSuccess)
                 throw std::runtime_error(
                     std::string("cuda_wavefront_render kernel error: ") +
                     cudaGetErrorString(syncErr));
+            cudaFree(d_work);
+            d_work = nullptr;
         } catch (...) {
+            if (d_work) cudaFree(d_work);
             cudaFree(d_shadeQueues);
             cudaFree(d_shadeCounts);
             freeGPUWavefrontHitBuffers(hitBufs);

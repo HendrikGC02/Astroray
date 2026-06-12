@@ -111,101 +111,580 @@ def _label(img: Image.Image, text: str, *, anchor: str = "tl", pad: int = 10) ->
 # Tile producers
 # ---------------------------------------------------------------------------
 
-def tile_material_contact_sheet() -> None:
-    """Re-export the existing 25-material contact sheet."""
-    src = TR / "session_close_2026-05-14b" / "contact_sheet" / "material_contact_sheet.png"
-    img = _load(src)
-    # Fit to 1280x720; the source is wider than 16:9 so we letterbox.
-    out = _fit(img, 1280, 720)
-    _save(out, "gallery_material_contact_sheet.png")
+def tile_material_contact_sheet(astroray_module) -> None:
+    """Live render of the pkg55 7-material contact sheet — by the GPU
+    wavefront path tracer (owner feedback 2026-06: the old re-export was
+    "flat and boring"; this is the perf-gate scene at hero quality)."""
+    sys.path.insert(0, str(ROOT / "tests" / "scenes"))
+    import disney_contact_sheet
+
+    r = astroray_module.Renderer()
+    disney_contact_sheet.build_scene(r)
+    W, H = 1280, 720
+    disney_contact_sheet.setup_camera(r, width=W, height=H)
+    r.set_seed(42)
+    r.set_integrator("wavefront_path_tracer")
+    r.set_use_gpu(True)
+    spp = 2048
+    print(f"  rendering contact sheet {W}x{H} @ {spp} spp (GPU wavefront)...")
+    t0 = time.perf_counter()
+    pixels = np.asarray(r.render(spp, 8, None, True), dtype=np.float32)
+    print(f"  -> {time.perf_counter() - t0:.1f}s")
+    img = Image.fromarray(np.clip(pixels * 255.0, 0, 255).astype(np.uint8))
+    img = _label(img, "7 plugin materials - GPU wavefront path tracer", anchor="bl")
+    _save(img, "gallery_material_contact_sheet.png")
 
 
-def tile_convergence_cornell() -> None:
-    """Side-by-side: convergence strip (top) + MSE plot (bottom) at 1280x720."""
-    strip = _load(TR / "session_close_2026-05-14b" / "convergence" / "convergence_strip.png")
-    mse = _load(TR / "session_close_2026-05-14b" / "convergence" / "convergence_mse.png")
-    target_w = 1280
-    # Strip gets ~60% height, MSE gets ~40%. Letterbox each.
-    top = _fit(strip, target_w, 432)
-    bot = _fit(mse, target_w, 288)
-    canvas = Image.new("RGB", (target_w, 720), (0, 0, 0))
-    canvas.paste(top, (0, 0))
-    canvas.paste(bot, (0, 432))
+def _build_convergence_cornell(r, width: int, height: int) -> None:
+    """Cornell box mirroring benchmarks/showcase/scenes/convergence_grid.py
+    (kept inline so this producer stays self-contained per pkg93 G2)."""
+    r.setup_camera([0.0, 0.15, 5.4], [0.0, -0.15, 0.0], [0.0, 1.0, 0.0],
+                   42.0, width / height, 0.0, 5.4, width, height)
+    r.set_background_color([0.0, 0.0, 0.0])
+    white = r.create_material("lambertian", [0.74, 0.74, 0.72], {})
+    red = r.create_material("lambertian", [0.72, 0.08, 0.06], {})
+    green = r.create_material("lambertian", [0.10, 0.50, 0.16], {})
+    light = r.create_material("light", [1.0, 0.96, 0.84], {"intensity": 18.0})
+    r.add_triangle([-2, -2, -2], [2, -2, -2], [2, -2, 2], white)
+    r.add_triangle([-2, -2, -2], [2, -2, 2], [-2, -2, 2], white)
+    r.add_triangle([-2, 2, -2], [-2, 2, 2], [2, 2, 2], white)
+    r.add_triangle([-2, 2, -2], [2, 2, 2], [2, 2, -2], white)
+    r.add_triangle([-2, -2, -2], [-2, 2, -2], [2, 2, -2], white)
+    r.add_triangle([-2, -2, -2], [2, 2, -2], [2, -2, -2], white)
+    r.add_triangle([-2, -2, -2], [-2, -2, 2], [-2, 2, 2], red)
+    r.add_triangle([-2, -2, -2], [-2, 2, 2], [-2, 2, -2], red)
+    r.add_triangle([2, -2, -2], [2, 2, -2], [2, 2, 2], green)
+    r.add_triangle([2, -2, -2], [2, 2, 2], [2, -2, 2], green)
+    r.add_sphere([0.0, -1.1, 0.55], 0.78, white)
+    r.add_triangle([-0.42, 1.96, -0.35], [0.42, 1.96, -0.35], [0.42, 1.96, 0.35], light)
+    r.add_triangle([-0.42, 1.96, -0.35], [0.42, 1.96, 0.35], [-0.42, 1.96, 0.35], light)
+
+
+def tile_convergence_cornell(astroray_module) -> None:
+    """Convergence strip + RMSE curve against an INDEPENDENT reference.
+
+    Owner feedback 2026-06: the old curve used the last strip image as its
+    own reference, so the final point dropped to zero artificially. Here the
+    reference is 8192 spp with a different seed, so every point on the curve
+    is an honest distance-to-truth and the slope stays smooth through the
+    last sample count.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    spp_series = [1, 4, 16, 64, 256, 1024]
+    size = 432
+    renders = {}
+    for spp in spp_series:
+        r = astroray_module.Renderer()
+        _build_convergence_cornell(r, size, size)
+        r.set_seed(42)
+        r.set_integrator("path_tracer")
+        r.set_use_gpu(True)
+        t0 = time.perf_counter()
+        renders[spp] = np.asarray(r.render(spp, 8, None, False), dtype=np.float32)
+        print(f"  cornell {spp:5d} spp -> {time.perf_counter() - t0:.2f}s")
+    # Independent reference: different seed, 8x the highest strip spp.
+    r = astroray_module.Renderer()
+    _build_convergence_cornell(r, size, size)
+    r.set_seed(1337)
+    r.set_integrator("path_tracer")
+    r.set_use_gpu(True)
+    t0 = time.perf_counter()
+    ref = np.asarray(r.render(8192, 8, None, False), dtype=np.float32)
+    print(f"  cornell reference 8192 spp (seed 1337) -> {time.perf_counter() - t0:.2f}s")
+
+    rmse = [float(np.sqrt(np.mean((renders[s] - ref) ** 2))) for s in spp_series]
+
+    # Strip: 6 gamma-corrected thumbnails across the top.
+    cell_w, cell_h = 1280 // len(spp_series), 360
+    canvas = Image.new("RGB", (1280, 720), (0, 0, 0))
+    for i, spp in enumerate(spp_series):
+        img8 = np.clip(renders[spp] ** (1.0 / 2.2) * 255.0, 0, 255).astype(np.uint8)
+        tile = _fit(Image.fromarray(img8), cell_w, cell_h)
+        tile = _label(tile, f"{spp} spp", anchor="bl")
+        canvas.paste(tile, (i * cell_w, 0))
+
+    # Curve: log-log RMSE vs spp with the -1/2 Monte Carlo guide slope.
+    fig, ax = plt.subplots(figsize=(12.8, 3.6), dpi=100)
+    ax.loglog(spp_series, rmse, "o-", color="#4fc3f7", label="RMSE vs independent 8192-spp ref")
+    slope = np.polyfit(np.log(spp_series), np.log(rmse), 1)[0]
+    guide = rmse[0] * (np.asarray(spp_series, np.float64)) ** -0.5
+    ax.loglog(spp_series, guide, "--", color="#888", label="ideal MC slope -0.5")
+    ax.set_xlabel("samples per pixel")
+    ax.set_ylabel("RMSE (linear)")
+    ax.set_title(f"Cornell convergence - measured slope {slope:.3f}")
+    ax.legend()
+    ax.grid(True, which="both", alpha=0.25)
+    fig.tight_layout()
+    import io
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    plt.close(fig)
+    buf.seek(0)
+    canvas.paste(_fit(Image.open(buf).convert("RGB"), 1280, 360), (0, 360))
     _save(canvas, "gallery_convergence_cornell.png")
 
 
-def tile_aov_stack() -> None:
-    """2x2 grid: beauty / normal / depth / albedo at 1280x720."""
-    aov_dir = TR / "session_close_2026-05-14b" / "aov"
-    tiles = {
-        "Beauty":  _load(aov_dir / "beauty.png"),
-        "Normal":  _load(aov_dir / "normal.png"),
-        "Depth":   _load(aov_dir / "depth.png"),
-        "Albedo":  _load(aov_dir / "albedo.png"),
-    }
-    cell_w, cell_h = 640, 360
+def _build_aov_scene(r) -> None:
+    """Chrome + glass + red Disney spheres on a grey stage — clean AOVs."""
+    grey = r.create_material("lambertian", [0.55, 0.55, 0.58], {})
+    back = r.create_material("lambertian", [0.35, 0.38, 0.45], {})
+    chrome = r.create_material("metal", [0.92, 0.92, 0.94], {"roughness": 0.06})
+    glass = r.create_material("dielectric", [1.0, 1.0, 1.0], {"ior": 1.5})
+    red = r.create_material("disney", [0.8, 0.18, 0.15],
+                            {"metallic": 0.1, "roughness": 0.35})
+    light = r.create_material("light", [1.0, 0.96, 0.9], {"intensity": 6.0})
+    r.add_triangle([-8, -0.8, -8], [8, -0.8, -8], [8, -0.8, 6], grey)
+    r.add_triangle([-8, -0.8, -8], [8, -0.8, 6], [-8, -0.8, 6], grey)
+    r.add_triangle([-8, -0.8, -4], [8, -0.8, -4], [8, 5, -4], back)
+    r.add_triangle([-8, -0.8, -4], [8, 5, -4], [-8, 5, -4], back)
+    r.add_sphere([-1.5, 0.0, -1.0], 0.8, chrome)
+    r.add_sphere([0.0, 0.0, 0.3], 0.8, glass)
+    r.add_sphere([1.6, 0.0, -1.2], 0.8, red)
+    r.add_triangle([-1.5, 4, -1.5], [1.5, 4, -1.5], [1.5, 4, 1.5], light)
+    r.add_triangle([-1.5, 4, -1.5], [1.5, 4, 1.5], [-1.5, 4, 1.5], light)
+    r.set_background_color([0.04, 0.05, 0.08])
+    r.setup_camera([0.0, 1.2, 4.6], [0.0, 0.0, -0.6], [0, 1, 0],
+                   42.0, 640.0 / 540.0, 0.0, 5.0, 640, 540)
+
+
+def tile_aov_stack(astroray_module) -> None:
+    """2x3 AOV grid: beauty / normal / depth / albedo / sample heatmap /
+    bounce heatmap (owner feedback 2026-06: liked the 2x2, asked for the
+    extra heatmap passes). Each pass replaces the colour output, so the
+    scene renders once per pass."""
+    passes = [
+        ("Beauty", None, 512, False),
+        ("Normal", "normal_aov", 16, False),
+        ("Depth", "depth_aov", 16, False),
+        ("Albedo", "albedo_aov", 16, False),
+        ("Sample heatmap (adaptive)", "sample_heatmap", 64, True),
+        ("Bounce heatmap", "bounce_heatmap", 64, False),
+    ]
+    cell_w, cell_h = 1280 // 3, 360
     canvas = Image.new("RGB", (1280, 720), (0, 0, 0))
-    positions = [(0, 0), (cell_w, 0), (0, cell_h), (cell_w, cell_h)]
-    for (label, img), (x, y) in zip(tiles.items(), positions):
-        fitted = _fit(img, cell_w, cell_h)
-        fitted = _label(fitted, label, anchor="tl")
-        canvas.paste(fitted, (x, y))
+    for idx, (label, pass_name, spp, adaptive) in enumerate(passes):
+        r = astroray_module.Renderer()
+        _build_aov_scene(r)
+        r.set_seed(42)
+        r.set_integrator("path_tracer")
+        if adaptive:
+            r.set_adaptive_sampling(True)
+        if pass_name:
+            r.add_pass(pass_name)
+        t0 = time.perf_counter()
+        px = np.asarray(r.render(spp, 8, None, True), dtype=np.float32)
+        print(f"  AOV {label!r} ({spp} spp) -> {time.perf_counter() - t0:.1f}s")
+        img = Image.fromarray(np.clip(px * 255.0, 0, 255).astype(np.uint8))
+        tile = _label(_fit(img, cell_w, cell_h), label, anchor="tl")
+        canvas.paste(tile, ((idx % 3) * cell_w, (idx // 3) * cell_h))
     _save(canvas, "gallery_aov_stack.png")
 
 
-def tile_oidn_before_after() -> None:
-    """Re-export the existing OIDN before/after composite."""
-    src = TR / "pkg32_oidn_check" / "oidn_before_after.png"
-    img = _load(src)
-    if img.size[0] < 1280:
-        # Source is small (test render); upscale 2x with LANCZOS still looks ok.
-        img = img.resize((img.size[0] * 2, img.size[1] * 2), Image.LANCZOS)
-    out = _fit(img, 1280, 720)
-    _save(out, "gallery_oidn_before_after.png")
+def _build_denoise_scene(r) -> None:
+    """Fairy-light field: dozens of small coloured emissive spheres floating
+    over a clutter of mixed-material objects, three probe spheres up front.
+    Busy + photogenic + denoiser-relevant (many small bright sources = heavy
+    MC noise at low spp). Owner feedback round 3: the old floating flat
+    panels at shallow angles distracted from the denoising — glowing spheres
+    read cleanly from every angle."""
+    import math as _math
+    rng = np.random.default_rng(11)
+    floor = r.create_material("lambertian", [0.42, 0.42, 0.46], {})
+    ext = 24.0
+    r.add_triangle([-ext, 0, -ext], [ext, 0, -ext], [ext, 0, ext], floor)
+    r.add_triangle([-ext, 0, -ext], [ext, 0, ext], [-ext, 0, ext], floor)
 
+    # Fairy lights: ~70 small emissive spheres scattered through the volume.
+    for _ in range(70):
+        hue = rng.uniform(0, 1)
+        col = [0.5 + 0.5 * _math.sin(6.28 * (hue + o)) for o in (0.0, 0.33, 0.67)]
+        m = r.create_material("light", col, {"intensity": float(rng.uniform(6, 14))})
+        pos = [float(rng.uniform(-9, 9)), float(rng.uniform(0.5, 6.0)),
+               float(rng.uniform(-9, 4))]
+        r.add_sphere(pos, float(rng.uniform(0.06, 0.16)), m)
 
-def tile_disney_sweep() -> None:
-    """2x3 grid of Disney roughness (top row) + glass IOR (bottom row)."""
-    sources = [
-        (TR / "mat_disney_r0.05.png", "Disney r=0.05"),
-        (TR / "mat_disney_r0.30.png", "Disney r=0.30"),
-        (TR / "mat_disney_r0.70.png", "Disney r=0.70"),
-        (TR / "mat_glass_ior1.2.png", "Glass IOR=1.2"),
-        (TR / "mat_glass_ior1.5.png", "Glass IOR=1.5"),
-        (TR / "mat_glass_ior2.0.png", "Glass IOR=2.0"),
+    # Busy mid-ground clutter: small spheres in mixed materials.
+    mats = [
+        r.create_material("lambertian", [0.75, 0.3, 0.25], {}),
+        r.create_material("lambertian", [0.3, 0.55, 0.75], {}),
+        r.create_material("metal", [0.9, 0.75, 0.45], {"roughness": 0.25}),
+        r.create_material("metal", [0.85, 0.86, 0.9], {"roughness": 0.05}),
+        r.create_material("dielectric", [1, 1, 1], {"ior": 1.5}),
+        r.create_material("disney", [0.5, 0.75, 0.5], {"metallic": 0.2, "roughness": 0.4}),
     ]
-    cell_w, cell_h = 1280 // 3, 720 // 2
-    canvas = Image.new("RGB", (1280, 720), (0, 0, 0))
-    for idx, (path, label) in enumerate(sources):
-        img = _load(path)
-        fitted = _fit(img, cell_w, cell_h)
-        fitted = _label(fitted, label, anchor="bl")
-        x = (idx % 3) * cell_w
-        y = (idx // 3) * cell_h
-        canvas.paste(fitted, (x, y))
-    _save(canvas, "gallery_disney_sweep.png")
+    for _ in range(40):
+        rad = float(rng.uniform(0.18, 0.5))
+        pos = [float(rng.uniform(-8, 8)), rad, float(rng.uniform(-8, 2.5))]
+        r.add_sphere(pos, rad, mats[int(rng.integers(0, len(mats)))])
+
+    # Probe spheres front and centre.
+    probe = r.create_material("metal", [0.9, 0.9, 0.92], {"roughness": 0.08})
+    matte = r.create_material("lambertian", [0.8, 0.78, 0.75], {})
+    glass = r.create_material("dielectric", [1, 1, 1], {"ior": 1.5})
+    r.add_sphere([-2.2, 1.0, 2.2], 1.0, probe)
+    r.add_sphere([0.0, 1.0, 1.4], 1.0, matte)
+    r.add_sphere([2.2, 1.0, 2.2], 1.0, glass)
+    r.set_background_color([0.012, 0.014, 0.024])
+    W, H = 1280, 720
+    r.setup_camera([0.0, 2.6, 10.5], [0.0, 1.3, -1.0], [0, 1, 0],
+                   42.0, W / H, 0.0, 9.0, W, H)
+
+
+def _label_xy(img: Image.Image, text: str, x: int, y: int) -> Image.Image:
+    out = img.copy()
+    draw = ImageDraw.Draw(out)
+    try:
+        font = ImageFont.truetype("arial.ttf", 18)
+    except OSError:
+        font = ImageFont.load_default()
+    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        draw.text((x + dx, y + dy), text, fill=(0, 0, 0), font=font)
+    draw.text((x, y), text, fill=(240, 240, 240), font=font)
+    return out
+
+
+def tile_oidn_before_after(astroray_module) -> None:
+    """Three-way denoiser split at 1280x720 (owner feedback round 3):
+    OIDN | 24-spp raw | OptiX — one render of the fairy-light scene,
+    denoised by each backend on the outer thirds. CPU render legs —
+    post-process passes are silently skipped on the GPU render path
+    (verified 2026-06-12, fix chip filed)."""
+    legs = {}
+    for pass_name in (None, "oidn_denoiser", "optix_denoiser"):
+        r = astroray_module.Renderer()
+        _build_denoise_scene(r)
+        r.set_seed(42)
+        r.set_integrator("path_tracer")
+        r.set_use_gpu(False)
+        if pass_name:
+            r.add_pass(pass_name)
+        t0 = time.perf_counter()
+        px = np.asarray(r.render(24, 6, None, True), dtype=np.float32)
+        print(f"  denoise leg {pass_name or 'raw'} -> {time.perf_counter() - t0:.1f}s")
+        legs[pass_name or "raw"] = Image.fromarray(
+            np.clip(px * 255.0, 0, 255).astype(np.uint8))
+    W, H = legs["raw"].size
+    t1, t2 = W // 3, 2 * W // 3
+    canvas = Image.new("RGB", (W, H))
+    canvas.paste(legs["oidn_denoiser"].crop((0, 0, t1, H)), (0, 0))
+    canvas.paste(legs["raw"].crop((t1, 0, t2, H)), (t1, 0))
+    canvas.paste(legs["optix_denoiser"].crop((t2, 0, W, H)), (t2, 0))
+    draw = ImageDraw.Draw(canvas)
+    draw.line([(t1, 0), (t1, H)], fill=(255, 255, 255), width=2)
+    draw.line([(t2, 0), (t2, H)], fill=(255, 255, 255), width=2)
+    canvas = _label_xy(canvas, "OIDN", 10, 10)
+    canvas = _label_xy(canvas, "24 spp raw", t1 + 10, 10)
+    canvas = _label_xy(canvas, "OptiX", t2 + 10, 10)
+    _save(canvas, "gallery_oidn_before_after.png")
+
+
+def tile_disney_sweep(astroray_module) -> None:
+    """Golden-hour material sweep — live render replacing the old 2x3 grid of
+    isolated test stills (owner feedback 2026-06: 'bland in comparison').
+
+    One scene, one light: a glossy dark floor under the procedural sunset
+    HDRI. Back row: gold Disney spheres sweeping roughness 0.03 -> 0.75
+    (reflections stretch from mirror-sharp to brushed). Front row: glass
+    spheres sweeping IOR 1.2 / 1.5 / 2.0, lifted off the floor so their
+    refraction and contact caustic shadow read (owner composition rule).
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        hdr_path = Path(td) / "studio.hdr"
+        _write_studio_hdri(hdr_path)
+
+        r = astroray_module.Renderer()
+        r.set_integrator("path_tracer")
+        r.set_seed(7)
+        r.set_use_gpu(True)
+        r.load_environment_map(str(hdr_path), 1.0,
+                               0.0, 0.0, 0.0, 1.0, 1.0, 1.0, False)
+
+        floor = r.create_material("disney", [0.04, 0.045, 0.055],
+                                  {"metallic": 0.85, "roughness": 0.12})
+        y = -0.5
+        r.add_triangle([-14, y, -14], [14, y, -14], [14, y, 10], floor)
+        r.add_triangle([-14, y, -14], [14, y, 10], [-14, y, 10], floor)
+
+        # Back row: gold roughness sweep.
+        for i, rough in enumerate([0.03, 0.25, 0.5, 0.75]):
+            m = r.create_material("disney", [0.95, 0.72, 0.32],
+                                  {"metallic": 1.0, "roughness": rough})
+            r.add_sphere([-2.4 + i * 1.6, 0.05, -1.6], 0.55, m)
+        # Front row: glass IOR sweep, lifted off the floor.
+        for i, ior in enumerate([1.2, 1.5, 2.0]):
+            g = r.create_material("dielectric", [1.0, 1.0, 1.0], {"ior": ior})
+            r.add_sphere([-1.6 + i * 1.6, 0.12, 0.4], 0.48, g)
+
+        W, H = 1280, 720
+        r.setup_camera([0.0, 1.05, 4.4], [0.0, -0.05, -0.6], [0.0, 1.0, 0.0],
+                       33.0, W / H, 0.018, 4.6, W, H)
+
+        spp = 1024
+        print(f"  rendering golden-hour sweep {W}x{H} @ {spp} spp (GPU)...")
+        t0 = time.perf_counter()
+        px = np.asarray(r.render(spp, 8, None, True), dtype=np.float32)
+        print(f"  -> {time.perf_counter() - t0:.1f}s")
+        img = Image.fromarray(np.clip(px * 255.0, 0, 255).astype(np.uint8))
+        img = _label(img, "Disney roughness 0.03-0.75", anchor="tl")
+        img = _label(img, "glass IOR 1.2 / 1.5 / 2.0", anchor="bl")
+        _save(img, "gallery_disney_sweep.png")
+
+
+def _write_nebula_sky(path: Path, w: int = 2048, h: int = 1024) -> None:
+    """Deterministic ethereal nebula + starfield equirect sky (PNG).
+
+    Low-frequency teal/magenta gradients (sums of smooth sinusoids), a warm
+    galactic band, and a sparse starfield — gives the black hole's lensing
+    something colourful and structured to bend.
+    """
+    rng = np.random.default_rng(40)
+    u = (np.arange(w) / w)[None, :] * np.ones((h, 1))
+    v = (np.arange(h) / h)[:, None] * np.ones((1, w))
+    tp = 2.0 * np.pi
+    # base deep indigo
+    img = np.zeros((h, w, 3), np.float32)
+    img[..., 0] = 0.010
+    img[..., 1] = 0.012
+    img[..., 2] = 0.030
+    # teal cloud
+    cloud1 = (0.5 + 0.5 * np.sin(tp * (2 * u + 0.3) + 2.2 * np.sin(tp * v)))
+    cloud1 *= (0.5 + 0.5 * np.sin(tp * (1.3 * v + 0.1)))
+    img[..., 1] += 0.16 * cloud1 ** 2
+    img[..., 2] += 0.20 * cloud1 ** 2
+    # magenta cloud, offset phase
+    cloud2 = (0.5 + 0.5 * np.sin(tp * (1.5 * u - 0.2) - 1.7 * np.sin(tp * (v + 0.25))))
+    cloud2 *= (0.5 + 0.5 * np.cos(tp * (0.9 * v - 0.05)))
+    img[..., 0] += 0.20 * cloud2 ** 2
+    img[..., 2] += 0.14 * cloud2 ** 2
+    # warm galactic band along a tilted great circle
+    band = np.exp(-((v - 0.5 + 0.12 * np.sin(tp * u)) ** 2) / (2 * 0.035 ** 2))
+    img[..., 0] += 0.55 * band
+    img[..., 1] += 0.38 * band
+    img[..., 2] += 0.22 * band
+    # starfield: sparse bright pixels, a few sizes
+    for n, lo, hi in ((2600, 0.25, 0.7), (500, 0.7, 1.0)):
+        xs = rng.integers(0, w, n)
+        ys = rng.integers(0, h, n)
+        b = rng.uniform(lo, hi, n)
+        img[ys, xs, :] = np.maximum(img[ys, xs, :], b[:, None])
+    out = (np.clip(img, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+    Image.fromarray(out).save(path)
+
+
+def tile_black_hole_lensing(astroray_module, *, spp: int = 128,
+                            preview: bool = False) -> None:
+    """NEW tile (owner request 2026-06): a bare black hole — no accretion
+    disk — bending a colourful nebula sky and a handful of emissive spheres
+    behind it into arcs around the shadow. Pure spacetime curvature
+    (Schwarzschild geodesics, pkg40/41); ethereal composition.
+
+    CPU (GR ray marching). Camera/scale follow the refbank gr-schwarzschild
+    scene (r_obs_M=20 for a large shadow).
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        sky = Path(td) / "nebula.png"
+        _write_nebula_sky(sky)
+
+        r = astroray_module.Renderer()
+        r.set_integrator("path_tracer")
+        r.set_seed(17)
+        r.set_adaptive_sampling(False)
+        r.load_environment_map(str(sky), 1.0)
+
+        # Emissive spheres behind the hole at varied offsets — lensing
+        # doubles/stretches them into arcs near the photon ring.
+        for pos, col, inten, rad in [
+            ([1.6, 0.6, -7.0], [0.55, 0.8, 1.0], 3.6, 0.45),
+            ([-2.2, -0.5, -9.0], [1.0, 0.62, 0.3], 4.2, 0.55),
+            ([0.6, -1.4, -6.0], [0.9, 0.5, 0.9], 3.2, 0.35),
+        ]:
+            m = r.create_material("light", col, {"intensity": inten})
+            r.add_sphere(pos, rad, m)
+
+        dist = 12.0
+        W, H = (640, 360) if preview else (1920, 1080)
+        # Hole off-centre (rule of thirds) — look_at shifted +x; influence
+        # radius widened so the GR/flat transition circle sits outside the
+        # interesting part of the frame.
+        r.setup_camera([0.0, 0.0, dist], [1.0, 0.05, 0.0], [0.0, 1.0, 0.0],
+                       42.0, W / H, 0.0, dist, W, H)
+        r.add_black_hole(
+            [0.0, 0.0, 0.0], 4.0e6, 8.0,
+            {"spin": 0.0, "disk_outer": 0.0, "accretion_rate": 0.0,
+             "inclination": 0.0, "enable_adaf": False, "r_obs_M": 20.0})
+
+        print(f"  rendering black-hole lensing {W}x{H} @ {spp} spp (CPU, GR)...")
+        t0 = time.perf_counter()
+        px = np.asarray(r.render(spp, 5, None, True), dtype=np.float32)
+        print(f"  -> {time.perf_counter() - t0:.1f}s")
+        img = Image.fromarray(np.clip(px * 255.0, 0, 255).astype(np.uint8))
+        _save(img, "gallery_blackhole_lensing.png")
 
 
 # ---------------------------------------------------------------------------
 # Prism caustic — hero-quality re-render (pkg29a/pkg64 scene)
 # ---------------------------------------------------------------------------
 
-def tile_prism_caustic(astroray_module, *, spp: int = 4096) -> None:
-    """Hero-quality spectral prism dispersion render.
+def tile_prism_caustic(astroray_module, *, spp: int = 512,
+                       preview: bool = False) -> None:
+    """The shipped tile (owner decision, round 5): the dark vivid spectrum.
 
-    Composition (designed for visual impact, NOT validation):
-      - Camera looks down at a scene from above-front-left
-      - BK7 triangular prism sits on a dark stage
-      - A bright collimated "sun beam" emitter on the right side aims
-        horizontally into the prism's right face
-      - A large white wall behind+left receives the dispersed rainbow
-      - Black background everywhere else for contrast
-
-    Uses caustic_path_tracer (pkg64 SMS, +8.83 dB receipt) + BK7 Sellmeier
-    (pkg29 dispersion). CPU-only — Sellmeier has no GPU implementation.
-
-    Self-contained per spec G2.
+    Renders the refbank prism scene
+    (benchmarks/reference_bank/scenes/prism-bk7-collimated/scene.py) with
+    the camera zoomed onto the floor band — a wall-to-wall red->violet
+    spectrum, the most striking image the current engine semantics allow.
+    The high-key reference-photo comp (tile_prism_caustic_highkey below)
+    replaces this once the engine follow-ups land (volumetric photon
+    scattering for in-air fans / glass-occluding shadow rays — pkg93 spec).
+    CPU-only (Sellmeier dispersion has no GPU lowering).
     """
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location(
+        "prism_scene",
+        ROOT / "benchmarks" / "reference_bank" / "scenes"
+             / "prism-bk7-collimated" / "scene.py")
+    prism_scene = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(prism_scene)
+
+    r = prism_scene.make_scene(astroray_module)
+    W, H = (640, 360) if preview else (1920, 1080)
+    r.set_integrator_param("photon_count", 30000000)
+    # Zoomed band composition at 16:9 — the spectrum fills the frame.
+    r.setup_camera([2.5, 0.1, 3.4], [2.5, -3.0, 0.0], [0.0, 1.0, 0.0],
+                   18.0, W / H, 0.0, 4.5, W, H)
+    r.set_seed(prism_scene.SEED)
+
+    print(f"  rendering prism spectrum {W}x{H} @ {spp} spp "
+          f"(CPU light_tracer_caustic, 30M photons)...")
+    t0 = time.perf_counter()
+    pixels = np.asarray(r.render(spp, prism_scene.MAX_DEPTH, None, True),
+                        dtype=np.float32)
+    print(f"  -> {time.perf_counter() - t0:.1f}s")
+    out = Image.fromarray(np.clip(pixels * 255.0, 0, 255).astype(np.uint8))
+    _save(out, "gallery_prism_caustics.png")
+
+
+def tile_prism_caustic_highkey(astroray_module, *, spp: int = 256,
+                               preview: bool = False) -> None:
+    """High-key prism shot matching the owner's reference photo (round 4).
+    NOT currently called from main() — capped by two engine gaps (no
+    volumetric photon scattering, no glass occlusion in shadow rays); the
+    candidate to re-activate once either lands.
+
+    A SOLID BK7 prism rests on a white floor in a bright environment. The
+    collimated sun comes down steeply from the upper-left, so after the two
+    refractions the dispersed fan exits nearly HORIZONTAL: each wavelength
+    grazes the floor at a slightly different angle and the spectrum
+    stretches metres to the right — a long rainbow fan, with bonus contact
+    caustics around the base from the solid-glass general photon loop
+    (pkg110). A low, close camera reads the stretched floor fan against the
+    bright backdrop the way the reference photo's air-fan reads.
+
+    All faces are real glass and caustic casters (the general loop needs a
+    closed solid with outward normals — pkg110). Dispersion per-wavelength
+    via the Sellmeier BK7 fit (pkg31); forward photon deposition gathered
+    by the path tracer's photon-map mode (pkg109/110/111). CPU-only.
+    """
+    import math as _math
+    W, H = (640, 360) if preview else (1920, 1080)
+    r = astroray_module.Renderer()
+    # Bright, soft environment — the high-key look (also the key light for
+    # the glass itself). Kept below full white so the photon-mapped fan
+    # keeps contrast: shadow rays treat dielectrics as transparent (no
+    # prism shadow — engine note in pkg93), so the fan always lands on a
+    # directly-lit floor and only wins by concentration.
+    r.set_background_color([0.42, 0.44, 0.50])
+
+    # --- Solid equilateral BK7 prism on a white display plinth. The plinth
+    #     height gives the dispersed fan THROW: wavelength separation grows
+    #     with distance, and a floor-resting prism lands its whole fan
+    #     within a unit of the base (top-down probes, 2026-06). ---
+    glass = r.create_material("dielectric", [1.0, 1.0, 1.0],
+                              {"sellmeier_preset": "bk7"})
+    py = 2.2          # plinth top
+    s = 1.3
+    apex = [0.0, py + 0.866 * s, 0.0]
+    blx, brx = -0.5 * s, 0.5 * s
+    z0, z1 = -0.85, 0.85
+    i0 = r.scene_object_count()
+    # All windings CCW seen from OUTSIDE — the general photon loop and the
+    # dielectric need outward geometric normals on a closed solid (pkg110).
+    # slanted left face (outward normal up-left)
+    r.add_triangle([blx, py, z0], [apex[0], apex[1], z1], [apex[0], apex[1], z0], glass)
+    r.add_triangle([blx, py, z0], [blx, py, z1], [apex[0], apex[1], z1], glass)
+    # slanted right face (outward normal up-right)
+    r.add_triangle([brx, py, z0], [apex[0], apex[1], z1], [brx, py, z1], glass)
+    r.add_triangle([brx, py, z0], [apex[0], apex[1], z0], [apex[0], apex[1], z1], glass)
+    # bottom (outward normal down)
+    r.add_triangle([blx, py, z0], [brx, py, z1], [blx, py, z1], glass)
+    r.add_triangle([blx, py, z0], [brx, py, z0], [brx, py, z1], glass)
+    # caps (outward normals +-z)
+    r.add_triangle([blx, py, z1], [brx, py, z1], [apex[0], apex[1], z1], glass)
+    r.add_triangle([blx, py, z0], [apex[0], apex[1], z0], [brx, py, z0], glass)
+    for k in range(i0, r.scene_object_count()):
+        r.set_object_caustic_caster(k, True)
+
+    # --- White plinth under the prism (slightly inset footprint). ---
+    pl = r.create_material("lambertian", [0.78, 0.78, 0.80], {})
+    px0, px1, pz0, pz1 = blx + 0.08, brx - 0.08, z0 + 0.1, z1 - 0.1
+    # top ring (visible sliver around the prism base)
+    r.add_triangle([px0, py, pz0], [px1, py, pz1], [px1, py, pz0], pl)
+    r.add_triangle([px0, py, pz0], [px0, py, pz1], [px1, py, pz1], pl)
+    for (qa, qb) in (([px0, pz0], [px1, pz0]), ([px1, pz0], [px1, pz1]),
+                     ([px1, pz1], [px0, pz1]), ([px0, pz1], [px0, pz0])):
+        r.add_triangle([qa[0], 0.0, qa[1]], [qb[0], py, qb[1]],
+                       [qb[0], 0.0, qb[1]], pl)
+        r.add_triangle([qa[0], 0.0, qa[1]], [qa[0], py, qa[1]],
+                       [qb[0], py, qb[1]], pl)
+
+    # --- HORIZONTAL collimated sun (the proven refbank configuration; a
+    #     steep sun enters the left face near-normal and TIRs at the right
+    #     face — the beam dumps through the base instead of fanning).
+    #     Bonus: horizontal light grazes the floor, so the floor is lit by
+    #     the env only and the full-beam-flux rainbow lands on it with real
+    #     contrast. ---
+    r.add_sun_light_dedicated([1.0, 0.0, 0.0], 0.01,
+                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 20.0)
+
+    # --- White floor (slightly below y=0 so the prism base does not
+    #     z-fight). ---
+    floor = r.create_material("lambertian", [0.85, 0.85, 0.86], {})
+    r.add_triangle([-8, -0.001, -9], [16, -0.001, -9], [16, -0.001, 7], floor)
+    r.add_triangle([-8, -0.001, -9], [16, -0.001, 7], [-8, -0.001, 7], floor)
+
+    # --- Low, close camera: prism-on-plinth left, the rainbow landing on
+    #     the floor centre-right; slight aperture for the macro feel. ---
+    r.setup_camera([-1.2, 2.3, 5.3], [2.1, 1.45, -0.45], [0.0, 1.0, 0.0],
+                   40.0, W / H, 0.04, 5.9, W, H)
+
+    r.set_integrator("path_tracer")
+    # Deep max_depth: camera rays entering the solid prism need many internal
+    # TIR bounces before exiting — shallow depth renders the glass near-black.
+    r.set_integrator_param("max_depth", 24)
+    r.set_integrator_param_str("caustics", "photon_map")
+    r.set_integrator_param("photon_knn", 24)
+    r.set_integrator_param("photon_count", 36000000)
+    r.set_seed(17)
+
+    print(f"  rendering high-key prism {W}x{H} @ {spp} spp "
+          f"(CPU photon_map, 24M photons)...")
+    t0 = time.perf_counter()
+    pixels = np.asarray(r.render(spp, 24, None, True), dtype=np.float32)
+    elapsed = time.perf_counter() - t0
+    print(f"  -> {elapsed:.1f}s ({elapsed/60:.1f} min)")
+    out = Image.fromarray(np.clip(pixels * 255.0, 0, 255).astype(np.uint8))
+    _save(out, "gallery_prism_caustics.png")
+
+
+def _legacy_tile_prism_caustic(astroray_module, *, spp: int = 2048,
+                               preview: bool = False) -> None:
+    """Previous backward-tracer comp (caustic_path_tracer + area-light beam).
+    Kept for reference; not called — see tile_prism_caustic docstring."""
     r = astroray_module.Renderer()
 
     # Classic apex-up equilateral prism with horizontal beam entering the
@@ -215,14 +694,37 @@ def tile_prism_caustic(astroray_module, *, spp: int = 4096) -> None:
     #   - White floor below grounds the scene and catches grazing dispersion.
     #   - Camera in front-right, looking at the prism + screen.
 
-    white = r.create_material("lambertian", [0.95, 0.94, 0.92], {})
+    # Owner feedback 2026-06 (pkg93 lessons): the rainbow must read brighter
+    # than the directly-lit wall. Both the rainbow and the "directly-lit
+    # wall" are reflections off the same surface, so wall albedo cannot fix
+    # the contrast — instead an aperture blocker just in front of the prism's
+    # entry face passes the full beam onto the glass while shadowing the
+    # receiver wall from the (diffuse) emitter.
+    grey = r.create_material("lambertian", [0.70, 0.69, 0.67], {})
+    dark = r.create_material("lambertian", [0.03, 0.03, 0.03], {})
 
-    # Left receiver wall — vertical Y-Z plane at x = -2.0, facing +X (right)
-    r.add_triangle([-2.0, -1.5, -2.0], [-2.0, -1.5, 2.0], [-2.0, 1.8, 2.0], white)
-    r.add_triangle([-2.0, -1.5, -2.0], [-2.0, 1.8, 2.0], [-2.0, 1.8, -2.0], white)
+    # Left receiver wall — vertical Y-Z plane at x = -2.5, facing +X (right)
+    r.add_triangle([-2.5, -1.5, -2.0], [-2.5, -1.5, 2.0], [-2.5, 1.8, 2.0], grey)
+    r.add_triangle([-2.5, -1.5, -2.0], [-2.5, 1.8, 2.0], [-2.5, 1.8, -2.0], grey)
     # Floor — horizontal X-Z plane at y = -1.5
-    r.add_triangle([-3.0, -1.5, -2.0], [3.0, -1.5, -2.0], [3.0, -1.5, 2.0], white)
-    r.add_triangle([-3.0, -1.5, -2.0], [3.0, -1.5, 2.0], [-3.0, -1.5, 2.0], white)
+    r.add_triangle([-2.5, -1.5, -2.0], [3.0, -1.5, -2.0], [3.0, -1.5, 2.0], grey)
+    r.add_triangle([-2.5, -1.5, -2.0], [3.0, -1.5, 2.0], [-2.5, -1.5, 2.0], grey)
+
+    # Aperture blocker at x = +0.95: a dark wall with a window matching the
+    # prism's entry face (y in [-0.45, 0.60], z in [-0.75, 0.75]). The beam
+    # floods the prism; the receiver wall sees almost only dispersed light.
+    bx = 0.95
+    by0, by1, bz0, bz1 = -1.5, 1.8, -2.0, 2.0
+    ay0, ay1, az0, az1 = -0.45, 0.60, -0.75, 0.75
+
+    def _panel(y0, y1, zz0, zz1):
+        r.add_triangle([bx, y0, zz0], [bx, y1, zz0], [bx, y1, zz1], dark)
+        r.add_triangle([bx, y0, zz0], [bx, y1, zz1], [bx, y0, zz1], dark)
+
+    _panel(ay1, by1, bz0, bz1)       # above the window
+    _panel(by0, ay0, bz0, bz1)       # below the window
+    _panel(ay0, ay1, bz0, az0)       # window sill (front)
+    _panel(ay0, ay1, az1, bz1)       # window sill (back)
 
     # Equilateral prism — apex up, base down. Cross-section vertices in X-Y:
     #   apex      = ( 0.0,  +0.55)
@@ -252,7 +754,7 @@ def tile_prism_caustic(astroray_module, *, spp: int = 4096) -> None:
     # Bright collimated beam at x = +2.5, aimed horizontally at -X to hit the
     # right-leaning face at an angle (~30° from normal). Y centered on prism
     # mid-height so beam enters cleanly into glass.
-    beam = r.create_material("light", [1.0, 0.97, 0.92], {"intensity": 120.0})
+    beam = r.create_material("light", [1.0, 0.97, 0.92], {"intensity": 240.0})
     bx = 2.5
     by_c = 0.0
     bz_c = 0.0
@@ -262,11 +764,12 @@ def tile_prism_caustic(astroray_module, *, spp: int = 4096) -> None:
 
     r.set_background_color([0.0, 0.0, 0.0])
 
-    # Camera: front-right, slightly above. Frame includes prism + left wall.
-    W, H = 1920, 1080
+    # Camera: front-right, slightly above, zoomed on the prism + the rainbow
+    # on the receiver wall (owner feedback: frame the important part).
+    W, H = (1920, 1080) if not preview else (640, 360)
     r.setup_camera(
-        [1.5, 0.4, 3.2], [-0.6, -0.1, 0.0], [0.0, 1.0, 0.0],
-        40.0, W / H, 0.0, 3.5, W, H)
+        [1.4, 0.45, 3.1], [-0.9, -0.3, 0.0], [0.0, 1.0, 0.0],
+        38.0, W / H, 0.0, 3.6, W, H)
 
     max_depth = 12
     r.set_integrator_param("max_depth", max_depth)
@@ -406,29 +909,45 @@ def main() -> int:
     print("pkg93 gallery — producing tiles into docs/renders/")
     print()
 
-    print("[1/6] material contact sheet")
-    tile_material_contact_sheet()
-    print("[2/6] Cornell convergence")
-    tile_convergence_cornell()
-    print("[3/6] AOV stack")
-    tile_aov_stack()
-    print("[4/6] OIDN before/after")
-    tile_oidn_before_after()
-    print("[5/6] Disney sweep")
-    tile_disney_sweep()
-    print("[6/7] HDRI world (rendered)")
-
-    # Lazy-import astroray only for the rendered tiles.
+    # All tiles except the Disney sweep are live renders now (owner feedback
+    # 2026-06) — import astroray up front.
     sys.path.insert(0, str(ROOT / "tests"))
     from runtime_setup import configure_test_imports
     configure_test_imports()
     import astroray
-    tile_hdri_world(astroray)
 
-    if "--skip-prism" in sys.argv:
-        print("[7/7] prism caustic — SKIPPED (--skip-prism)")
+    only = None
+    if "--only" in sys.argv:
+        only = sys.argv[sys.argv.index("--only") + 1].split(",")
+
+    def want(name: str) -> bool:
+        return only is None or name in only
+
+    if want("contact_sheet"):
+        print("[1/7] material contact sheet (GPU wavefront render)")
+        tile_material_contact_sheet(astroray)
+    if want("convergence"):
+        print("[2/7] Cornell convergence (independent 8192-spp reference)")
+        tile_convergence_cornell(astroray)
+    if want("aov"):
+        print("[3/7] AOV stack (2x3 incl. sample/bounce heatmaps)")
+        tile_aov_stack(astroray)
+    if want("oidn"):
+        print("[4/7] OIDN before/after (64-light scene)")
+        tile_oidn_before_after(astroray)
+    if want("disney"):
+        print("[5/8] golden-hour material sweep (GPU render)")
+        tile_disney_sweep(astroray)
+    if want("hdri"):
+        print("[6/8] HDRI world (rendered)")
+        tile_hdri_world(astroray)
+    if want("blackhole"):
+        print("[7/8] black-hole lensing (CPU GR render)")
+        tile_black_hole_lensing(astroray)
+    if "--skip-prism" in sys.argv or not want("prism"):
+        print("[8/8] prism caustic — SKIPPED")
     else:
-        print("[7/7] prism caustic (heavy render)")
+        print("[8/8] prism caustic (heavy render)")
         tile_prism_caustic(astroray)
 
     print("\nDone. Tile sizes:")

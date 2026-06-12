@@ -33,8 +33,8 @@ Adding a feature usually means dropping in one file.
 | **Materials** | Disney Principled BRDF with Kulla-Conty energy compensation tables (pkg60), Lambertian, Metal, Dielectric with Sellmeier dispersion, Subsurface, Emissive, Volumetric. CPU + GPU material capability metadata; no silent fallbacks. |
 | **GR / astrophysics** | Kerr metric (pkg40, pkg41), Schwarzschild extraction, synchrotron emission with Pandya 2016 fits and bipolar relativistic jets (pkg42), slim disk accretion model (pkg43, Abramowicz 1988 / Sadowski 2009). Spectral wavelengths transport gravitational redshift through `MinkowskiMetric` (pkg67). |
 | **Denoising** | OIDN persistent device with CUDA backend (pkg68), OptiX denoiser with HDR/AOV models (pkg70), OptiX temporal denoiser via motion vectors (pkg73). |
-| **GPU** | CUDA megakernel for path tracing and multi-wavelength rendering with measured CPU/GPU spectral parity (pkg54 chain). Wavefront SoA refactor in progress (pkg55). |
-| **Blender** | Blender 5.1 addon: viewport rendering, depsgraph-driven incremental scene sync (pkg56), persistent viewport session (pkg52), native shader nodes (pkg57), HDRI/World parity (pkg63). |
+| **GPU** | CUDA **wavefront path tracer** (pkg55) — staged intersect/shade with material-sorted buckets, path regeneration, dedicated NEE shadow stage, any-hit shadow rays — measured **1.50× faster** than the previous megakernel on the 7-material gate scene, at per-channel image parity. Two-level BVH (TLAS/BLAS) instancing with transform-only refit (pkg114), GPU light tree for many-light scenes (pkg86-B), deformation motion blur (pkg88-C.0), multi-wavelength spectral rendering with measured CPU/GPU parity (pkg54 chain). |
+| **Blender** | Blender 5.1 addon: viewport rendering at **Cycles-OPTIX parity** (in-Blender A/B: steady-state p99 0.84× Cycles, pkg81), depsgraph-driven incremental scene sync (pkg56), persistent viewport session (pkg52), native shader nodes (pkg57), **Cycles-parity procedural textures** — Noise/Voronoi/Wave/Brick/Magic/Gradient/Checker ported from Cycles SVM, bit-exact hash family (pkg115), HDRI/World parity (pkg63), automatic GPU instancing for repeated meshes (pkg114). |
 | **I/O** | Pure-Python `.blend` reader walking Blender's SDNA — no `bpy` runtime dependency (pkg76). |
 
 ---
@@ -47,6 +47,10 @@ All hardware-measured numbers are from the project workstation (NVIDIA RTX
 
 | Validation | Measurement | Source |
 |---|---|---|
+| GPU wavefront vs megakernel | **1.50× faster** on the 7-material contact sheet (256² @ 512 spp, cool-run gate); image agreement per-channel ratio 0.997 | pkg55 Phase B′, PR #459; re-measured 2026-06-12 |
+| In-Blender viewport vs Cycles | Steady-state pan-frame **p99 = 0.84× Cycles-OPTIX** (target ≤ 1.2×), p50 0.98× — 99,458-tri scene, Blender 5.1 A/B | pkg81, PR #463 |
+| Instancing TLAS refit | Transform-only edit re-uploads **19.5%** of a full geometry upload (≤ 50% gate); refit byte-identical to a full rebuild | pkg114, PR #468 |
+| GPU light tree | Pick parity **≥ 99.5%** vs CPU tree over 10k queries; 0.09–0.5 ms upload @ 10k lights | pkg86-B, PR #434 |
 | Cycles parity (Cornell, CPU) | SSIM **0.9536** vs Cycles 4.x CPU EXR reference | pkg71 |
 | Cycles parity (Cornell, GPU) | SSIM **0.9548** vs Cycles CPU EXR; **5.2× faster** than Cycles-CUDA on Cornell | pkg71 |
 | Kerr geodesic validation | **39 tests** — BPT 1972 + Chandrasekhar analytic + null circular photon residuals + Kerr a=0 vs Schwarzschild identity + shadow-contour image-plane regression | pkg41, PR #236 |
@@ -57,67 +61,74 @@ All hardware-measured numbers are from the project workstation (NVIDIA RTX
 | OptiX temporal denoise | **53.1% inter-frame variance reduction** vs ≥30% gate | pkg73, PR #249 |
 | Slim disk accretion | T(9M, ṁ=1) = **7.45×10⁶ K**; 14/14 tests vs Abramowicz 1988 / Sadowski 2009 | pkg43, PR #271 |
 | Cold-start viewport latency | First frame **83.3 ms** (was 12,079 ms before pkg84) — **145× improvement** | pkg84, PR #260 |
-| Test suite | **801 tests collected** on the Windows MSVC `build_cuda` configuration | STATUS.md, Round 8 close |
+| Test suite | **1299 passed / 0 failed** (14 skipped, 21 xfailed, 3 xpassed) on the Windows MSVC `build_cuda` configuration, RTX-verified | full local sweep, 2026-06-12 |
 
 ---
 
 ## Gallery
 
-<!-- Tile 1: spectral prism caustic. Derive from
-     test_results/pkg29a_prism_to_screen_caustic_path_tracer.png (re-render
-     1920×1080 at SMS-on, 4096 SPP, default path_tracer with
-     use_refractive_caustics=true). pkg64 receipts: +8.83 dB PSNR delta. -->
-![Spectral prism caustic — SMS dispersion through BK7 glass](docs/renders/gallery_prism_caustics.png)
+<!-- All gallery tiles are produced by scripts/diagnostics/render_readme_gallery.py
+     (live renders; see each tile function for scene + integrator details). -->
+![Spectral prism dispersion — the full visible spectrum](docs/renders/gallery_prism_caustics.png)
 
-> **Spectral prism caustic.** A collimated white beam refracts through a
-> BK7 prism. Dispersion is computed per sampled wavelength via Sellmeier
-> coefficients (pkg31); the rainbow caustic on the receiver wall is
-> resolved by Specular Manifold Sampling folded into the default path
-> tracer as a per-bounce hook gated by `use_refractive_caustics` and
-> per-object `is_caustic_caster` (pkg64, Cycles-style opt-in). Measured
-> +8.83 dB PSNR over the no-SMS baseline.
+> **Spectral prism dispersion.** A collimated sun through a BK7 prism:
+> every sampled wavelength refracts by its own Sellmeier IOR (pkg31) and
+> lands at its own spot — the camera is zoomed onto the resulting
+> red→violet band. The spectrum is real transport, not a gradient:
+> forward photon deposition (Jensen 1996, pkg109/110/111), which renders
+> flat-prism dispersion noise-free where camera-side specular connections
+> cannot. For *focusing* casters (spheres, lenses) the engine additionally
+> has Specular Manifold Sampling folded into the path tracer (pkg64,
+> +8.83 dB PSNR receipt) and MNEE (pkg106).
+
+![Black hole lensing a nebula sky](docs/renders/gallery_blackhole_lensing.png)
+
+> **Pure spacetime curvature.** A bare Schwarzschild black hole — no
+> accretion disk — bending a nebula sky, a starfield, and three emissive
+> spheres placed behind it. Camera geodesics are integrated through the
+> metric (pkg40, validated against Bardeen-Press-Teukolsky 1972, pkg41);
+> background light piles up into the photon ring around the shadow and the
+> spheres smear into the bright arcs.
 
 <table>
 <tr>
 <td align="center" width="50%">
-<!-- Derive from test_results/session_close_2026-05-14b/contact_sheet/material_contact_sheet.png
-     (re-export at 1280×720 if needed). -->
 <img src="docs/renders/gallery_material_contact_sheet.png" alt="Material contact sheet" width="100%"/>
-<sub><b>Material contact sheet</b> — Disney glass r0/r35/r70, BK7 / SF11 / diamond / ruby / emerald spectral dielectrics, blackbody 2400K / 10000K, line emitters at 460 / 532 / 635 nm. All plugins.</sub>
+<sub><b>Material contact sheet</b> — the seven wavefront material buckets (lambertian, metal, dielectric, Disney, thin glass, emitter, closure matte) on one sheet, rendered by the GPU wavefront path tracer at 2048 spp. This is the pkg55 perf-gate scene.</sub>
 </td>
 <td align="center" width="50%">
-<!-- Derive from test_results/session_close_2026-05-14b/convergence/convergence_strip.png
-     and convergence_mse.png composited at 1280×720. -->
 <img src="docs/renders/gallery_convergence_cornell.png" alt="Cornell-box convergence strip" width="100%"/>
-<sub><b>Convergence — Cornell 1→1024 spp.</b> Log-log RMSE slope measured −0.453 vs −0.5 Monte Carlo target on the implementer machine (pkg74 Phase 2).</sub>
+<sub><b>Convergence — Cornell 1→1024 spp.</b> Log-log RMSE slope measured −0.492 vs the −0.5 Monte Carlo ideal, against an independent 8192-spp reference (separate seed).</sub>
 </td>
 </tr>
 <tr>
 <td align="center" width="50%">
-<!-- Derive from test_results/session_close_2026-05-14b/aov/{beauty,normal,depth,albedo}.png
-     composited 2×2 at 1280×720. -->
-<img src="docs/renders/gallery_aov_stack.png" alt="AOV stack — beauty / normal / depth / albedo" width="100%"/>
-<sub><b>AOV stack.</b> Beauty + first-hit normal + depth + albedo, all populated by the default integrator. Drives OIDN and OptiX guide inputs (pkg69, pkg75).</sub>
+<img src="docs/renders/gallery_aov_stack.png" alt="AOV stack — beauty / normal / depth / albedo / sample heatmap / bounce heatmap" width="100%"/>
+<sub><b>AOV stack.</b> Beauty + first-hit normal + depth + albedo + adaptive-sampling heatmap + bounce heatmap, all from the default integrator. Drives OIDN and OptiX guide inputs (pkg69, pkg75).</sub>
 </td>
 <td align="center" width="50%">
-<!-- Derive from test_results/pkg32_oidn_check/oidn_before_after.png
-     (already a before/after composite, 1280×720). -->
-<img src="docs/renders/gallery_oidn_before_after.png" alt="OIDN before / after at low SPP" width="100%"/>
-<sub><b>OIDN denoise, before / after.</b> 64-spp input on the left, OIDN persistent-device output on the right (pkg68). OptiX backend is a one-flag swap; SSIM(OptiX, OIDN) = 0.9987.</sub>
+<img src="docs/renders/gallery_oidn_before_after.png" alt="Denoiser comparison — OIDN | raw | OptiX" width="100%"/>
+<sub><b>Denoisers, three ways.</b> One 24-spp render of a 70-fairy-light scene split in thirds: OIDN (pkg68) on the left, the raw Monte Carlo input in the centre, the OptiX AI denoiser (pkg70) on the right. SSIM(OptiX, OIDN) = 0.9987.</sub>
 </td>
 </tr>
 <tr>
 <td align="center" width="50%">
-<!-- New scene per pkg93: Disney metal r0.05 / r0.30 / r0.70 + glass IOR 1.2 / 1.5 / 2.0
-     composited 1280×720. Derive from test_results/mat_disney_r*.png and mat_glass_ior*.png. -->
-<img src="docs/renders/gallery_disney_sweep.png" alt="Disney BRDF roughness sweep" width="100%"/>
-<sub><b>Disney BRDF sweep.</b> Roughness 0.05 / 0.30 / 0.70, dielectric vs metallic vs clearcoat. Kulla-Conty energy compensation tables ported from Cycles (pkg60). Worst-case directional hemispherical reflectance 1.0159 over 90 furnace-test combinations.</sub>
+<img src="docs/renders/gallery_disney_sweep.png" alt="Golden-hour material sweep — Disney roughness + glass IOR" width="100%"/>
+<sub><b>Material sweep at golden hour.</b> Gold Disney spheres sweep roughness 0.03→0.75 (mirror-sharp to brushed) while glass spheres sweep IOR 1.2 / 1.5 / 2.0, under one HDRI sunset on a glossy floor. Kulla-Conty energy compensation ported from Cycles (pkg60); worst-case hemispherical reflectance 1.0159 over 90 furnace tests.</sub>
 </td>
 <td align="center" width="50%">
-<!-- Derive from a new HDRI-lit hero scene per pkg93 (no checked-in asset yet).
-     Target 1280×720, 1024 SPP. -->
 <img src="docs/renders/gallery_hdri_world.png" alt="HDRI world / environment lighting" width="100%"/>
 <sub><b>HDRI environment + MIS.</b> Importance-sampled environment with Mapping XYZ rotation, color tint, and MIS env-map (pkg63). Spectral atlas via Jakob-Hanika upsampling (pkg14).</sub>
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+<img src="docs/renders/gallery_motion_blur.png" alt="Deformation motion blur" width="100%"/>
+<sub><b>Deformation motion blur.</b> Per-vertex start/end positions with a time-aware BVH (pkg88-C.0, Cycles-style linear interpolation): three translating boxes streak while the static chrome sphere stays sharp. GPU render 15× faster than CPU on this scene.</sub>
+</td>
+<td align="center" width="50%">
+<img src="docs/renders/gallery_instancing.png" alt="GPU instancing — two-level BVH" width="100%"/>
+<sub><b>Instancing + two-level BVH.</b> 432 instances of three meshes share one BLAS each under a TLAS (pkg114) — 28 unique GPU primitives in total; transform-only edits re-upload just the TLAS (19.5% of a full upload).</sub>
 </td>
 </tr>
 </table>
@@ -188,14 +199,23 @@ instructions, including the Blender addon build.
 ```bash
 python3 -m pytest tests/ -v --tb=short
 
-# Recommended for local Windows TCNN runs:
-python scripts/dev/run_tests.py --build-dir build_tcnn -- tests -v --tb=short
+# Recommended on Windows (resolves DLL dirs + the right .pyd):
+python scripts/dev/run_tests.py --build-dir build_cuda -- tests -q --tb=short
 ```
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full developer
+workflow — the two-build story (test build vs OpenMP-free Blender addon
+build), perf-gate calibration notes, and the known Windows footguns.
 
 ### Standalone render
 
 ```bash
+# Linux/macOS
 ./build/bin/raytracer --scene 1 --width 800 --height 600 --samples 64 --output output.png
+
+# Windows (the exe needs the OIDN + CUDA runtime DLLs on PATH)
+build_cuda\bin\Release\raytracer.exe --scene 1 --width 800 --height 600 ^
+    --samples 128 --device gpu --integrator wavefront_path_tracer --output output.png
 ```
 
 ### Python API
@@ -260,9 +280,9 @@ Astroray/
 │   ├── passes/              # oidn_denoiser, optix_denoiser, depth/normal/albedo AOV
 │   ├── shapes/              # sphere, triangle, mesh, black_hole, ...
 │   └── textures/            # checker, noise, voronoi, brick, ...
-├── src/gpu/                 # CUDA megakernel + wavefront scaffolding
+├── src/gpu/                 # CUDA wavefront pipeline + megakernel
 ├── scripts/                 # Build, dev, benchmark, diagnostic helpers
-├── tests/                   # pytest suite (801 collected on build_cuda)
+├── tests/                   # pytest suite (1299 passing on build_cuda)
 ├── .astroray_plan/          # Roadmap, package specs, research notes
 └── CMakeLists.txt
 ```
@@ -272,6 +292,7 @@ Astroray/
 ## Documentation
 
 - [Quickstart](docs/QUICKSTART.md) — build, test, Blender addon
+- [Development setup](docs/DEVELOPMENT.md) — two-build story, perf-gate calibration, Windows footguns
 - [Docs index](docs/README.md)
 - [Renderer internals](docs/agent-context/renderer-internals.md) — architecture, pipeline, material conventions
 - [Roadmap](.astroray_plan/docs/ROADMAP.md) and [Status](.astroray_plan/docs/STATUS.md)

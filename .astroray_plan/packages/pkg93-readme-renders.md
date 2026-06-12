@@ -2,7 +2,54 @@
 
 **Pillar:** 5 (production polish / showcase)
 **Track:** A (renders need RTX 5070 Ti to match the validation-snapshot numbers)
-**Status:** done — landed alongside the README refresh on branch `pkg93`
+**Status:** done — landed alongside the README refresh on branch `pkg93`.
+  REFRESHED 2026-06-12 (stabilization session, two feedback rounds): contact
+  sheet re-rendered live by the GPU wavefront integrator (2048 spp),
+  convergence curve re-measured against an INDEPENDENT 8192-spp reference
+  (old curve self-referenced its last frame), AOV stack extended to 2×3 with
+  sample/bounce heatmaps, OIDN tile re-rendered at 1280×720 on a 64-light
+  scene with two-sided emissive panels and CPU legs (round 2: the GPU render
+  path silently skips post passes — chip filed — and one-sided panels showed
+  black backfaces), prism tile re-rendered via photon-map caustics in the
+  default path tracer with a NEW composition (prism on a pedestal, spectrum
+  CASCADING over a cube — round 2; the light_tracer_caustic gather is
+  floor-locked, so the cube drape required the pkg111 generalized gather),
+  Disney sweep REPLACED by a live golden-hour roughness+IOR sweep under the
+  sunset HDRI (round 2: old grid "bland"), NEW gallery_blackhole_lensing.png
+  (bare Schwarzschild hole bending a generated nebula sky + emissive spheres
+  — owner request), NEW gallery_motion_blur.png + gallery_instancing.png
+  rows (pkg88-C.0 / pkg114 session renders). Round 3: denoise tile became a
+  three-way OIDN | raw | OptiX split on a fairy-light scene (emissive
+  spheres — the flat panels showed backfaces and distracted); prism
+  re-composed again to the "window-beam + prism + spectrum board" shot.
+  Round 4 (owner reference photo: bright macro shot, prism on a white
+  surface, long in-air rainbow fan + caustics in the prism's shadow):
+  rebuilt high-key — solid BK7 prism (closed solid, outward normals, all
+  faces casters → pkg110 general photon loop) on a white plinth (the
+  plinth height IS the dispersion throw; a floor-resting prism lands its
+  whole fan within a unit of the base), horizontal sun (grazes the floor
+  → rainbow keeps contrast on an env-lit floor), separated band on the
+  floor. The two reference elements physically out of reach today: the
+  in-air fan needs VOLUMETRIC photon scattering (photon map is
+  surface-only), and caustic-in-shadow contrast needs shadow rays to
+  treat dielectrics as occluders. Either one unlocks the full reference
+  look — both recorded below.
+  Hero Kerr+jet kept as-is per owner instruction.
+  ENGINE FINDINGS while iterating (record-only): (1) the forward photon
+  pass emits ZERO photons when the dedicated sun direction has a
+  z-component (probe: horizontal sun → 2445 colored px, tilted → 0);
+  (2) the photon deposit predicate requires receiver normal.y ≳ 0.7, so a
+  vertical wall can never receive a photon caustic; (3) post-process
+  passes are silently skipped on the GPU render path (chip filed);
+  (4) shadow rays do not treat dielectrics as occluders — glass casts NO
+  shadow (probe: floor brightness identical both sides of a solid prism),
+  so surface caustics always compete with full direct light;
+  (5) a steeply-pitched beam into a floor-resting prism enters the left
+  face near-normal and TIRs at the exit face (dumps through the base) —
+  long fans need a shallow entry AND elevation.
+  Owner-approved FUTURE tiles (follow-up, not this PR): wine-glass photon
+  caustic with better composition, volumetric fog / god rays, an actual
+  Blender-viewport side-by-side screenshot.
 **Estimated effort:** 1–2 sessions (~4–8 h on RTX 5070 Ti); most cost is the
   Kerr+jet hero scene composition (no checked-in source asset yet)
 **Depends on:** pkg42 (synchrotron jet plugin) done, pkg64 (SMS caustics) done,

@@ -67,63 +67,69 @@ All hardware-measured numbers are from the project workstation (NVIDIA RTX
 
 ## Gallery
 
-<!-- Tile 1: spectral prism caustic. Derive from
-     test_results/pkg29a_prism_to_screen_caustic_path_tracer.png (re-render
-     1920×1080 at SMS-on, 4096 SPP, default path_tracer with
-     use_refractive_caustics=true). pkg64 receipts: +8.83 dB PSNR delta. -->
-![Spectral prism caustic — SMS dispersion through BK7 glass](docs/renders/gallery_prism_caustics.png)
+<!-- All gallery tiles are produced by scripts/diagnostics/render_readme_gallery.py
+     (live renders; see each tile function for scene + integrator details). -->
+![Spectral prism dispersion cascading over a cube](docs/renders/gallery_prism_caustics.png)
 
-> **Spectral prism dispersion.** A collimated sun refracts through a
-> triangulated BK7 prism. Dispersion is computed per sampled wavelength via
-> Sellmeier coefficients (pkg31); the spectrum is deposited on the floor by
-> the forward photon caustic integrator (`light_tracer_caustic` — Arvo 1986
-> backward ray tracing / Jensen 1996 photon deposition, pkg110/113), which
-> resolves flat-prism dispersion noise-free where camera-side specular
-> connections cannot. For *focusing* casters (spheres, lenses) the engine
-> additionally has Specular Manifold Sampling folded into the path tracer
-> (pkg64, +8.83 dB PSNR receipt) and MNEE (pkg106).
+> **Spectral prism dispersion.** A collimated sun enters a BK7 prism on its
+> pedestal; each sampled wavelength refracts by its own Sellmeier IOR
+> (pkg31) and the spectrum cascades over the cube — across its top, down
+> its face, and on to the floor. The caustic is resolved by forward photon
+> deposition (Jensen 1996, pkg109/110/111) gathered by the default path
+> tracer's photon-map mode on *any* receiving surface, which renders
+> flat-prism dispersion noise-free where camera-side specular connections
+> cannot. For *focusing* casters (spheres, lenses) the engine additionally
+> has Specular Manifold Sampling folded into the path tracer (pkg64,
+> +8.83 dB PSNR receipt) and MNEE (pkg106).
+
+![Black hole lensing a nebula sky](docs/renders/gallery_blackhole_lensing.png)
+
+> **Pure spacetime curvature.** A bare Schwarzschild black hole — no
+> accretion disk — bending a nebula sky, a starfield, and three emissive
+> spheres placed behind it. Camera geodesics are integrated through the
+> metric (pkg40, validated against Bardeen-Press-Teukolsky 1972, pkg41);
+> background light piles up into the photon ring around the shadow and the
+> spheres smear into the bright arcs.
 
 <table>
 <tr>
 <td align="center" width="50%">
-<!-- Derive from test_results/session_close_2026-05-14b/contact_sheet/material_contact_sheet.png
-     (re-export at 1280×720 if needed). -->
 <img src="docs/renders/gallery_material_contact_sheet.png" alt="Material contact sheet" width="100%"/>
-<sub><b>Material contact sheet</b> — Disney glass r0/r35/r70, BK7 / SF11 / diamond / ruby / emerald spectral dielectrics, blackbody 2400K / 10000K, line emitters at 460 / 532 / 635 nm. All plugins.</sub>
+<sub><b>Material contact sheet</b> — the seven wavefront material buckets (lambertian, metal, dielectric, Disney, thin glass, emitter, closure matte) on one sheet, rendered by the GPU wavefront path tracer at 2048 spp. This is the pkg55 perf-gate scene.</sub>
 </td>
 <td align="center" width="50%">
-<!-- Derive from test_results/session_close_2026-05-14b/convergence/convergence_strip.png
-     and convergence_mse.png composited at 1280×720. -->
 <img src="docs/renders/gallery_convergence_cornell.png" alt="Cornell-box convergence strip" width="100%"/>
-<sub><b>Convergence — Cornell 1→1024 spp.</b> Log-log RMSE slope measured −0.453 vs −0.5 Monte Carlo target on the implementer machine (pkg74 Phase 2).</sub>
+<sub><b>Convergence — Cornell 1→1024 spp.</b> Log-log RMSE slope measured −0.492 vs the −0.5 Monte Carlo ideal, against an independent 8192-spp reference (separate seed).</sub>
 </td>
 </tr>
 <tr>
 <td align="center" width="50%">
-<!-- Derive from test_results/session_close_2026-05-14b/aov/{beauty,normal,depth,albedo}.png
-     composited 2×2 at 1280×720. -->
-<img src="docs/renders/gallery_aov_stack.png" alt="AOV stack — beauty / normal / depth / albedo" width="100%"/>
-<sub><b>AOV stack.</b> Beauty + first-hit normal + depth + albedo, all populated by the default integrator. Drives OIDN and OptiX guide inputs (pkg69, pkg75).</sub>
+<img src="docs/renders/gallery_aov_stack.png" alt="AOV stack — beauty / normal / depth / albedo / sample heatmap / bounce heatmap" width="100%"/>
+<sub><b>AOV stack.</b> Beauty + first-hit normal + depth + albedo + adaptive-sampling heatmap + bounce heatmap, all from the default integrator. Drives OIDN and OptiX guide inputs (pkg69, pkg75).</sub>
 </td>
 <td align="center" width="50%">
-<!-- Derive from test_results/pkg32_oidn_check/oidn_before_after.png
-     (already a before/after composite, 1280×720). -->
 <img src="docs/renders/gallery_oidn_before_after.png" alt="OIDN before / after at low SPP" width="100%"/>
-<sub><b>OIDN denoise, before / after.</b> 64-spp input on the left, OIDN persistent-device output on the right (pkg68). OptiX backend is a one-flag swap; SSIM(OptiX, OIDN) = 0.9987.</sub>
+<sub><b>OIDN denoise, before / after.</b> One 24-spp render of a 64-light scene, split down the middle: raw on the left, OIDN persistent-device output on the right (pkg68). OptiX backend is a one-flag swap; SSIM(OptiX, OIDN) = 0.9987.</sub>
 </td>
 </tr>
 <tr>
 <td align="center" width="50%">
-<!-- New scene per pkg93: Disney metal r0.05 / r0.30 / r0.70 + glass IOR 1.2 / 1.5 / 2.0
-     composited 1280×720. Derive from test_results/mat_disney_r*.png and mat_glass_ior*.png. -->
-<img src="docs/renders/gallery_disney_sweep.png" alt="Disney BRDF roughness sweep" width="100%"/>
-<sub><b>Disney BRDF sweep.</b> Roughness 0.05 / 0.30 / 0.70, dielectric vs metallic vs clearcoat. Kulla-Conty energy compensation tables ported from Cycles (pkg60). Worst-case directional hemispherical reflectance 1.0159 over 90 furnace-test combinations.</sub>
+<img src="docs/renders/gallery_disney_sweep.png" alt="Golden-hour material sweep — Disney roughness + glass IOR" width="100%"/>
+<sub><b>Material sweep at golden hour.</b> Gold Disney spheres sweep roughness 0.03→0.75 (mirror-sharp to brushed) while glass spheres sweep IOR 1.2 / 1.5 / 2.0, under one HDRI sunset on a glossy floor. Kulla-Conty energy compensation ported from Cycles (pkg60); worst-case hemispherical reflectance 1.0159 over 90 furnace tests.</sub>
 </td>
 <td align="center" width="50%">
-<!-- Derive from a new HDRI-lit hero scene per pkg93 (no checked-in asset yet).
-     Target 1280×720, 1024 SPP. -->
 <img src="docs/renders/gallery_hdri_world.png" alt="HDRI world / environment lighting" width="100%"/>
 <sub><b>HDRI environment + MIS.</b> Importance-sampled environment with Mapping XYZ rotation, color tint, and MIS env-map (pkg63). Spectral atlas via Jakob-Hanika upsampling (pkg14).</sub>
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+<img src="docs/renders/gallery_motion_blur.png" alt="Deformation motion blur" width="100%"/>
+<sub><b>Deformation motion blur.</b> Per-vertex start/end positions with a time-aware BVH (pkg88-C.0, Cycles-style linear interpolation): three translating boxes streak while the static chrome sphere stays sharp. GPU render 15× faster than CPU on this scene.</sub>
+</td>
+<td align="center" width="50%">
+<img src="docs/renders/gallery_instancing.png" alt="GPU instancing — two-level BVH" width="100%"/>
+<sub><b>Instancing + two-level BVH.</b> 432 instances of three meshes share one BLAS each under a TLAS (pkg114) — 28 unique GPU primitives in total; transform-only edits re-upload just the TLAS (19.5% of a full upload).</sub>
 </td>
 </tr>
 </table>

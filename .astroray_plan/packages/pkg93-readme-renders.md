@@ -3,15 +3,23 @@
 **Pillar:** 5 (production polish / showcase)
 **Track:** A (renders need RTX 5070 Ti to match the validation-snapshot numbers)
 **Status:** done — landed alongside the README refresh on branch `pkg93`.
-  REFRESHED 2026-06-12 (stabilization session): all owner feedback applied —
-  contact sheet re-rendered live by the GPU wavefront integrator (2048 spp),
+  REFRESHED 2026-06-12 (stabilization session, two feedback rounds): contact
+  sheet re-rendered live by the GPU wavefront integrator (2048 spp),
   convergence curve re-measured against an INDEPENDENT 8192-spp reference
   (old curve self-referenced its last frame), AOV stack extended to 2×3 with
   sample/bounce heatmaps, OIDN tile re-rendered at 1280×720 on a 64-light
-  scene, prism tile re-rendered via the forward photon caustic integrator
-  (`light_tracer_caustic`, refbank "pkg104 showcase" comp — vivid spectrum,
-  replaces the dim backward-tracer comp; see tile_prism_caustic docstring).
-  Hero Kerr+jet and Disney sweep kept as-is per owner instruction.
+  scene with two-sided emissive panels and CPU legs (round 2: the GPU render
+  path silently skips post passes — chip filed — and one-sided panels showed
+  black backfaces), prism tile re-rendered via photon-map caustics in the
+  default path tracer with a NEW composition (prism on a pedestal, spectrum
+  CASCADING over a cube — round 2; the light_tracer_caustic gather is
+  floor-locked, so the cube drape required the pkg111 generalized gather),
+  Disney sweep REPLACED by a live golden-hour roughness+IOR sweep under the
+  sunset HDRI (round 2: old grid "bland"), NEW gallery_blackhole_lensing.png
+  (bare Schwarzschild hole bending a generated nebula sky + emissive spheres
+  — owner request), NEW gallery_motion_blur.png + gallery_instancing.png
+  rows (pkg88-C.0 / pkg114 session renders). Hero Kerr+jet kept as-is per
+  owner instruction.
 **Estimated effort:** 1–2 sessions (~4–8 h on RTX 5070 Ti); most cost is the
   Kerr+jet hero scene composition (no checked-in source asset yet)
 **Depends on:** pkg42 (synchrotron jet plugin) done, pkg64 (SMS caustics) done,

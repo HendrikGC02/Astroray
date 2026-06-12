@@ -6,12 +6,11 @@
 
 #include "neural_cache.h"
 
-// tcnn master on CUDA 12.8 auto-detects Blackwell (sm_120) as TCNN_MIN_GPU_ARCH.
-// Override for sm_89 (Ada) before any tcnn header sees it.
-#ifdef TCNN_MIN_GPU_ARCH
-#undef TCNN_MIN_GPU_ARCH
-#endif
-#define TCNN_MIN_GPU_ARCH 89
+// TCNN_MIN_GPU_ARCH comes from tcnn's CMake, which derives it from
+// TCNN_CUDA_ARCHITECTURES (pinned to 75;86;89 in our CMakeLists for
+// portability). A previous file-level override to 89 — needed when tcnn
+// auto-detected the host GPU (sm_120 Blackwell) — would now break the
+// sm_75/sm_86 compile passes, so the build-system define is authoritative.
 
 #include <tiny-cuda-nn/config.h>   // create_from_config, TrainableModel
 // nlohmann::json is brought in transitively by tiny-cuda-nn/config.h

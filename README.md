@@ -69,14 +69,14 @@ All hardware-measured numbers are from the project workstation (NVIDIA RTX
 
 <!-- All gallery tiles are produced by scripts/diagnostics/render_readme_gallery.py
      (live renders; see each tile function for scene + integrator details). -->
-![Spectral prism dispersion — spectrum on the board](docs/renders/gallery_prism_caustics.png)
+![Spectral prism dispersion — rainbow on the studio floor](docs/renders/gallery_prism_caustics.png)
 
-> **Spectral prism dispersion.** A collimated sunbeam enters through the
-> window on the left, strikes the BK7 prism, and every sampled wavelength
-> refracts by its own Sellmeier IOR (pkg31) — the spectrum lands on the
-> board below as a clean red→violet band. The caustic is real transport:
-> forward photon deposition (Jensen 1996, pkg109/110/111) gathered by the
-> path tracer's photon-map mode, which renders flat-prism dispersion
+> **Spectral prism dispersion.** A solid BK7 prism on its plinth in a
+> bright studio: a collimated sunbeam strikes it from the left and every
+> sampled wavelength refracts by its own Sellmeier IOR (pkg31), landing on
+> the floor as a separated red→violet band. The caustic is real transport
+> — forward photon deposition (Jensen 1996, pkg109/110/111) gathered by
+> the path tracer's photon-map mode, which renders flat-prism dispersion
 > noise-free where camera-side specular connections cannot. For *focusing*
 > casters (spheres, lenses) the engine additionally has Specular Manifold
 > Sampling folded into the path tracer (pkg64, +8.83 dB PSNR receipt) and

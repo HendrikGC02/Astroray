@@ -22,13 +22,31 @@
   three-way OIDN | raw | OptiX split on a fairy-light scene (emissive
   spheres — the flat panels showed backfaces and distracted); prism
   re-composed again to the "window-beam + prism + spectrum board" shot.
+  Round 4 (owner reference photo: bright macro shot, prism on a white
+  surface, long in-air rainbow fan + caustics in the prism's shadow):
+  rebuilt high-key — solid BK7 prism (closed solid, outward normals, all
+  faces casters → pkg110 general photon loop) on a white plinth (the
+  plinth height IS the dispersion throw; a floor-resting prism lands its
+  whole fan within a unit of the base), horizontal sun (grazes the floor
+  → rainbow keeps contrast on an env-lit floor), separated band on the
+  floor. The two reference elements physically out of reach today: the
+  in-air fan needs VOLUMETRIC photon scattering (photon map is
+  surface-only), and caustic-in-shadow contrast needs shadow rays to
+  treat dielectrics as occluders. Either one unlocks the full reference
+  look — both recorded below.
   Hero Kerr+jet kept as-is per owner instruction.
   ENGINE FINDINGS while iterating (record-only): (1) the forward photon
   pass emits ZERO photons when the dedicated sun direction has a
   z-component (probe: horizontal sun → 2445 colored px, tilted → 0);
   (2) the photon deposit predicate requires receiver normal.y ≳ 0.7, so a
   vertical wall can never receive a photon caustic; (3) post-process
-  passes are silently skipped on the GPU render path (chip filed).
+  passes are silently skipped on the GPU render path (chip filed);
+  (4) shadow rays do not treat dielectrics as occluders — glass casts NO
+  shadow (probe: floor brightness identical both sides of a solid prism),
+  so surface caustics always compete with full direct light;
+  (5) a steeply-pitched beam into a floor-resting prism enters the left
+  face near-normal and TIRs at the exit face (dumps through the base) —
+  long fans need a shallow entry AND elevation.
   Owner-approved FUTURE tiles (follow-up, not this PR): wine-glass photon
   caustic with better composition, volumetric fog / god rays, an actual
   Blender-viewport side-by-side screenshot.

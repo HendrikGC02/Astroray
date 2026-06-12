@@ -532,135 +532,107 @@ def tile_black_hole_lensing(astroray_module, *, spp: int = 128,
 
 def tile_prism_caustic(astroray_module, *, spp: int = 256,
                        preview: bool = False) -> None:
-    """The iconic prism shot, earned physically (owner feedback round 3).
+    """High-key prism shot matching the owner's reference photo (round 4).
 
-    Camera faces the prism's triangular cross-section head-on against a
-    dark backdrop wall. The collimated sun is tilted INTO the scene
-    (z-component), so after the two BK7 refractions the dispersed fan
-    drifts onto the camera-facing wall behind the prism — the spectrum is
-    painted there as a real photon-mapped caustic, lower-right of the
-    triangle. An aperture blocker keeps direct sunlight off the wall;
-    photons are dispersed per-wavelength by the Sellmeier BK7 fit (pkg31),
-    deposited by the forward photon pass and gathered by the default path
-    tracer's photon-map mode (pkg109/110/111). CPU-only (Sellmeier has no
-    GPU lowering).
+    A SOLID BK7 prism rests on a white floor in a bright environment. The
+    collimated sun comes down steeply from the upper-left, so after the two
+    refractions the dispersed fan exits nearly HORIZONTAL: each wavelength
+    grazes the floor at a slightly different angle and the spectrum
+    stretches metres to the right — a long rainbow fan, with bonus contact
+    caustics around the base from the solid-glass general photon loop
+    (pkg110). A low, close camera reads the stretched floor fan against the
+    bright backdrop the way the reference photo's air-fan reads.
 
-    Optics mirror benchmarks/reference_bank/scenes/prism-bk7-collimated
-    (same equilateral two-caster-face prism, half=30deg).
+    All faces are real glass and caustic casters (the general loop needs a
+    closed solid with outward normals — pkg110). Dispersion per-wavelength
+    via the Sellmeier BK7 fit (pkg31); forward photon deposition gathered
+    by the path tracer's photon-map mode (pkg109/110/111). CPU-only.
     """
     import math as _math
     W, H = (640, 360) if preview else (1920, 1080)
     r = astroray_module.Renderer()
-    r.set_background_color([0.008, 0.009, 0.014])
+    # Bright, soft environment — the high-key look (also the key light for
+    # the glass itself). Kept below full white so the photon-mapped fan
+    # keeps contrast: shadow rays treat dielectrics as transparent (no
+    # prism shadow — engine note in pkg93), so the fan always lands on a
+    # directly-lit floor and only wins by concentration.
+    r.set_background_color([0.42, 0.44, 0.50])
 
-    # --- BK7 dispersive prism: two caster faces (refbank geometry). ---
+    # --- Solid equilateral BK7 prism on a white display plinth. The plinth
+    #     height gives the dispersed fan THROW: wavelength separation grows
+    #     with distance, and a floor-resting prism lands its whole fan
+    #     within a unit of the base (top-down probes, 2026-06). ---
     glass = r.create_material("dielectric", [1.0, 1.0, 1.0],
                               {"sellmeier_preset": "bk7"})
-    apex_y, base_y, half_v = 0.5, -0.5, 0.7
-    half = _math.radians(30.0)
-    bx = (apex_y - base_y) * _math.tan(half)
+    py = 2.2          # plinth top
+    s = 1.3
+    apex = [0.0, py + 0.866 * s, 0.0]
+    blx, brx = -0.5 * s, 0.5 * s
+    z0, z1 = -0.85, 0.85
+    i0 = r.scene_object_count()
+    # All windings CCW seen from OUTSIDE — the general photon loop and the
+    # dielectric need outward geometric normals on a closed solid (pkg110).
+    # slanted left face (outward normal up-left)
+    r.add_triangle([blx, py, z0], [apex[0], apex[1], z1], [apex[0], apex[1], z0], glass)
+    r.add_triangle([blx, py, z0], [blx, py, z1], [apex[0], apex[1], z1], glass)
+    # slanted right face (outward normal up-right)
+    r.add_triangle([brx, py, z0], [apex[0], apex[1], z1], [brx, py, z1], glass)
+    r.add_triangle([brx, py, z0], [apex[0], apex[1], z0], [apex[0], apex[1], z1], glass)
+    # bottom (outward normal down)
+    r.add_triangle([blx, py, z0], [brx, py, z1], [blx, py, z1], glass)
+    r.add_triangle([blx, py, z0], [brx, py, z0], [brx, py, z1], glass)
+    # caps (outward normals +-z)
+    r.add_triangle([blx, py, z1], [brx, py, z1], [apex[0], apex[1], z1], glass)
+    r.add_triangle([blx, py, z0], [apex[0], apex[1], z0], [brx, py, z0], glass)
+    for k in range(i0, r.scene_object_count()):
+        r.set_object_caustic_caster(k, True)
 
-    def _norm(v):
-        n = _math.sqrt(sum(c * c for c in v))
-        return [c / n for c in v]
+    # --- White plinth under the prism (slightly inset footprint). ---
+    pl = r.create_material("lambertian", [0.78, 0.78, 0.80], {})
+    px0, px1, pz0, pz1 = blx + 0.08, brx - 0.08, z0 + 0.1, z1 - 0.1
+    # top ring (visible sliver around the prism base)
+    r.add_triangle([px0, py, pz0], [px1, py, pz1], [px1, py, pz0], pl)
+    r.add_triangle([px0, py, pz0], [px0, py, pz1], [px1, py, pz1], pl)
+    for (qa, qb) in (([px0, pz0], [px1, pz0]), ([px1, pz0], [px1, pz1]),
+                     ([px1, pz1], [px0, pz1]), ([px0, pz1], [px0, pz0])):
+        r.add_triangle([qa[0], 0.0, qa[1]], [qb[0], py, qb[1]],
+                       [qb[0], 0.0, qb[1]], pl)
+        r.add_triangle([qa[0], 0.0, qa[1]], [qa[0], py, qa[1]],
+                       [qb[0], py, qb[1]], pl)
 
-    def _quad_from_plane(p, n, hu, hv):
-        n = _norm(n)
-        up = [0.0, 1.0, 0.0] if abs(n[1]) < 0.9 else [1.0, 0.0, 0.0]
-        d = sum(up[i] * n[i] for i in range(3))
-        uax = _norm([up[i] - d * n[i] for i in range(3)])
-        vax = [n[1] * uax[2] - n[2] * uax[1], n[2] * uax[0] - n[0] * uax[2],
-               n[0] * uax[1] - n[1] * uax[0]]
-        def corner(su, sv):
-            return [p[i] + su * hu * uax[i] + sv * hv * vax[i] for i in range(3)]
-        return [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)]
-
-    casters = []
-    for p, n in [([-bx / 2, 0.0, 0.0], [-_math.cos(half), _math.sin(half), 0.0]),
-                 ([bx / 2, 0.0, 0.0], [_math.cos(half), _math.sin(half), 0.0])]:
-        i0 = r.scene_object_count()
-        a, b, c, d = _quad_from_plane(p, n, 0.62, half_v)
-        r.add_triangle(a, b, c, glass)
-        r.add_triangle(a, c, d, glass)
-        casters += [i0, i0 + 1]
-    for idx in casters:
-        r.set_object_caustic_caster(idx, True)
-
-    # Dark glassy caps + bottom so the camera-facing cross-section reads as
-    # a solid triangle with a sheen (true glass caps would scatter the
-    # tilted beam into the frame).
-    capm = r.create_material("metal", [0.05, 0.05, 0.06], {"roughness": 0.08})
-    ax_, ay_ = 0.0, apex_y
-    cxl, cxr, cy_ = -0.577, 0.577, base_y
-    for zc in (half_v, -half_v):
-        r.add_triangle([ax_, ay_, zc], [cxr, cy_, zc], [cxl, cy_, zc], capm)
-        r.add_triangle([ax_, ay_, zc], [cxl, cy_, zc], [cxr, cy_, zc], capm)
-    r.add_triangle([cxl, cy_, -half_v], [cxr, cy_, -half_v], [cxr, cy_, half_v], capm)
-    r.add_triangle([cxl, cy_, -half_v], [cxr, cy_, half_v], [cxl, cy_, half_v], capm)
-
-    # --- Collimated horizontal sun (a z-tilted sun was tried for a
-    #     wall-behind comp: the forward photon pass emits ZERO photons with
-    #     a z-component in the sun direction — engine follow-up). ---
+    # --- HORIZONTAL collimated sun (the proven refbank configuration; a
+    #     steep sun enters the left face near-normal and TIRs at the right
+    #     face — the beam dumps through the base instead of fanning).
+    #     Bonus: horizontal light grazes the floor, so the floor is lit by
+    #     the env only and the full-beam-flux rainbow lands on it with real
+    #     contrast. ---
     r.add_sun_light_dedicated([1.0, 0.0, 0.0], 0.01,
-                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 6.0)
+                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 20.0)
 
-    # --- Aperture blocker: dark wall left of the prism with a window for
-    #     the beam, so the backdrop sees only dispersed light. ---
-    dark = r.create_material("lambertian", [0.03, 0.03, 0.035], {})
-    bxp = -1.2
-    wy0, wy1, wz0, wz1 = -0.55, 0.55, -0.25, 1.2
-    ey0, ey1, ez0, ez1 = -7.0, 4.0, -3.1, 3.5
+    # --- White floor (slightly below y=0 so the prism base does not
+    #     z-fight). ---
+    floor = r.create_material("lambertian", [0.85, 0.85, 0.86], {})
+    r.add_triangle([-8, -0.001, -9], [16, -0.001, -9], [16, -0.001, 7], floor)
+    r.add_triangle([-8, -0.001, -9], [16, -0.001, 7], [-8, -0.001, 7], floor)
 
-    def _xpanel(y0, y1, z0, z1):
-        r.add_triangle([bxp, y0, z0], [bxp, y1, z0], [bxp, y1, z1], dark)
-        r.add_triangle([bxp, y0, z0], [bxp, y1, z1], [bxp, y0, z1], dark)
-
-    _xpanel(wy1, ey1, ez0, ez1)
-    _xpanel(ey0, wy0, ez0, ez1)
-    _xpanel(wy0, wy1, ez0, wz0)
-    _xpanel(wy0, wy1, wz1, ez1)
-
-    # --- Easel: a back-leaning receiving board below-right of the prism,
-    #     normal (0, 0.75, 0.66) — past the photon deposit predicate's
-    #     normal.y >= ~0.7 gate (a vertical wall can never receive), yet
-    #     facing the camera enough to read like a backdrop. The descending
-    #     fan (about 52 deg below horizontal) lands on it mid-board. ---
-    wall = r.create_material("lambertian", [0.62, 0.62, 0.64], {})
-    import numpy as _np
-    n = _np.array([0.0, 0.75, 0.66])
-    p0 = _np.array([2.0, -2.2, 0.0])
-    uax = _np.array([1.0, 0.0, 0.0])
-    vax = _np.array([0.0, 0.66, -0.75])   # in-plane, up-and-away
-    c00 = (p0 - 4.0 * uax - 2.6 * vax).tolist()
-    c10 = (p0 + 5.0 * uax - 2.6 * vax).tolist()
-    c11 = (p0 + 5.0 * uax + 3.4 * vax).tolist()
-    c01 = (p0 - 4.0 * uax + 3.4 * vax).tolist()
-    r.add_triangle(c00, c10, c11, wall)
-    r.add_triangle(c00, c11, c01, wall)
-
-    # --- Warm accent up-front so the dark caps catch a sheen. ---
-    accent = r.create_material("light", [1.0, 0.85, 0.6], {"intensity": 4.0})
-    r.add_triangle([0.8, 2.6, 5.6], [2.0, 2.6, 5.6], [2.0, 2.6, 6.8], accent)
-    r.add_triangle([0.8, 2.6, 5.6], [2.0, 2.6, 6.8], [0.8, 2.6, 6.8], accent)
-    r.add_triangle([0.8, 2.6, 5.6], [2.0, 2.6, 6.8], [2.0, 2.6, 5.6], accent)
-    r.add_triangle([0.8, 2.6, 5.6], [0.8, 2.6, 6.8], [2.0, 2.6, 6.8], accent)
-
-    # --- Framing: prism three-quarter upper-left, spectrum on the easel
-    #     crossing the lower-right two-thirds. ---
-    r.setup_camera([3.0, 0.2, 6.6], [1.75, -1.45, -0.35], [0.0, 1.0, 0.0],
-                   38.0, W / H, 0.0, 7.0, W, H)
+    # --- Low, close camera: prism-on-plinth left, the rainbow landing on
+    #     the floor centre-right; slight aperture for the macro feel. ---
+    r.setup_camera([-1.2, 2.3, 5.3], [2.1, 1.45, -0.45], [0.0, 1.0, 0.0],
+                   40.0, W / H, 0.04, 5.9, W, H)
 
     r.set_integrator("path_tracer")
-    r.set_integrator_param("max_depth", 8)
+    # Deep max_depth: camera rays entering the solid prism need many internal
+    # TIR bounces before exiting — shallow depth renders the glass near-black.
+    r.set_integrator_param("max_depth", 24)
     r.set_integrator_param_str("caustics", "photon_map")
-    r.set_integrator_param("photon_knn", 50)
-    r.set_integrator_param("photon_count", 24000000)
+    r.set_integrator_param("photon_knn", 24)
+    r.set_integrator_param("photon_count", 36000000)
     r.set_seed(17)
 
-    print(f"  rendering prism spectrum-on-wall {W}x{H} @ {spp} spp "
+    print(f"  rendering high-key prism {W}x{H} @ {spp} spp "
           f"(CPU photon_map, 24M photons)...")
     t0 = time.perf_counter()
-    pixels = np.asarray(r.render(spp, 8, None, True), dtype=np.float32)
+    pixels = np.asarray(r.render(spp, 24, None, True), dtype=np.float32)
     elapsed = time.perf_counter() - t0
     print(f"  -> {elapsed:.1f}s ({elapsed/60:.1f} min)")
     out = Image.fromarray(np.clip(pixels * 255.0, 0, 255).astype(np.uint8))

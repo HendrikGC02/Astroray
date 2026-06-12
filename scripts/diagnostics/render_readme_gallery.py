@@ -530,9 +530,51 @@ def tile_black_hole_lensing(astroray_module, *, spp: int = 128,
 # Prism caustic — hero-quality re-render (pkg29a/pkg64 scene)
 # ---------------------------------------------------------------------------
 
-def tile_prism_caustic(astroray_module, *, spp: int = 256,
+def tile_prism_caustic(astroray_module, *, spp: int = 512,
                        preview: bool = False) -> None:
+    """The shipped tile (owner decision, round 5): the dark vivid spectrum.
+
+    Renders the refbank prism scene
+    (benchmarks/reference_bank/scenes/prism-bk7-collimated/scene.py) with
+    the camera zoomed onto the floor band — a wall-to-wall red->violet
+    spectrum, the most striking image the current engine semantics allow.
+    The high-key reference-photo comp (tile_prism_caustic_highkey below)
+    replaces this once the engine follow-ups land (volumetric photon
+    scattering for in-air fans / glass-occluding shadow rays — pkg93 spec).
+    CPU-only (Sellmeier dispersion has no GPU lowering).
+    """
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location(
+        "prism_scene",
+        ROOT / "benchmarks" / "reference_bank" / "scenes"
+             / "prism-bk7-collimated" / "scene.py")
+    prism_scene = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(prism_scene)
+
+    r = prism_scene.make_scene(astroray_module)
+    W, H = (640, 360) if preview else (1920, 1080)
+    r.set_integrator_param("photon_count", 30000000)
+    # Zoomed band composition at 16:9 — the spectrum fills the frame.
+    r.setup_camera([2.5, 0.1, 3.4], [2.5, -3.0, 0.0], [0.0, 1.0, 0.0],
+                   18.0, W / H, 0.0, 4.5, W, H)
+    r.set_seed(prism_scene.SEED)
+
+    print(f"  rendering prism spectrum {W}x{H} @ {spp} spp "
+          f"(CPU light_tracer_caustic, 30M photons)...")
+    t0 = time.perf_counter()
+    pixels = np.asarray(r.render(spp, prism_scene.MAX_DEPTH, None, True),
+                        dtype=np.float32)
+    print(f"  -> {time.perf_counter() - t0:.1f}s")
+    out = Image.fromarray(np.clip(pixels * 255.0, 0, 255).astype(np.uint8))
+    _save(out, "gallery_prism_caustics.png")
+
+
+def tile_prism_caustic_highkey(astroray_module, *, spp: int = 256,
+                               preview: bool = False) -> None:
     """High-key prism shot matching the owner's reference photo (round 4).
+    NOT currently called from main() — capped by two engine gaps (no
+    volumetric photon scattering, no glass occlusion in shadow rays); the
+    candidate to re-activate once either lands.
 
     A SOLID BK7 prism rests on a white floor in a bright environment. The
     collimated sun comes down steeply from the upper-left, so after the two

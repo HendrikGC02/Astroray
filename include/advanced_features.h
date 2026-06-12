@@ -20,6 +20,9 @@ public:
 
 private:
     CoordMode coordMode = CoordMode::UV;
+    Vec3 genMin_{0, 0, 0};
+    Vec3 genSize_{0, 0, 0};
+    bool hasGenBBox_ = false;
     // pkg59 follow-up: per-texture UV transform baked in from a Blender
     // Mapping node (Location + Rotation.z + Scale). Applied AFTER coord-mode
     // resolution so it composes with Generated/Object/UV. Order matches
@@ -72,6 +75,29 @@ protected:
         Vec2 uv = selectedUV(rec);
         switch (coordMode) {
             case CoordMode::Generated: {
+                // pkg115 generated-coords mesh fix: triangle meshes carry no
+                // object-level hitObject (and a triangle's own bbox would be
+                // wrong anyway), so the exporter bakes the OBJECT bounding box
+                // onto the texture (set_texture_generated_bbox). Blender
+                // semantics: object-local position normalized to the bbox
+                // (Texture Coordinate > Generated; Cycles orco). The addon
+                // bakes world transforms into vertices, so world == object
+                // space for exported meshes. Shared-material multi-object
+                // scenes get the last writer's bbox (per-object texture
+                // instancing is the follow-up).
+                if (hasGenBBox_) {
+                    Vec3 size = genSize_;
+                    Vec3 p = rec.objectPoint;
+                    Vec3 g(
+                        size.x > 1e-6f ? (p.x - genMin_.x) / size.x : 0.0f,
+                        size.y > 1e-6f ? (p.y - genMin_.y) / size.y : 0.0f,
+                        size.z > 1e-6f ? (p.z - genMin_.z) / size.z : 0.0f
+                    );
+                    g = Vec3(std::clamp(g.x, 0.0f, 1.0f),
+                             std::clamp(g.y, 0.0f, 1.0f),
+                             std::clamp(g.z, 0.0f, 1.0f));
+                    return {Vec2(g.x, g.y), g};
+                }
                 if (rec.hitObject) {
                     AABB box;
                     if (rec.hitObject->boundingBox(box)) {
@@ -139,6 +165,13 @@ public:
         return value(Vec2(t.u + du, t.v + dv), p);
     }
     void setCoordMode(CoordMode mode) { coordMode = mode; }
+    // pkg115 generated-coords: object bbox baked by the exporter (see the
+    // CoordMode::Generated comment above).
+    void setGeneratedBBox(const Vec3& bmin, const Vec3& bsize) {
+        genMin_ = bmin;
+        genSize_ = bsize;
+        hasGenBBox_ = true;
+    }
     CoordMode getCoordMode() const { return coordMode; }
     // pkg59 follow-up: apply Mapping(Location, Rotation.z, Scale) at sample
     // time. 4-arg overload kept for backward compat (rotation defaults to 0).

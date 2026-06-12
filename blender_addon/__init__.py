@@ -1826,7 +1826,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # and always True), so we always go through the node tree conversion.
         material_map = {}
         self._volume_material_map = {}
+        # pkg115 generated-coords: textures created in GENERATED mode while
+        # converting a material are recorded per material name so
+        # convert_objects can bake each using object's bounding box onto them
+        # (Blender Texture Coordinate > Generated semantics).
+        self._generated_textures_by_material = {}
         for mat in bpy.data.materials:
+            self._current_material_name = mat.name
             mat_id = self.convert_node_material(mat, renderer)
             material_map[mat.name] = mat_id
             # pkg87c — Set material name for Cryptomatte hashing
@@ -2620,6 +2626,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         try:
             if coord_mode != "UV":
                 renderer.set_texture_coord_mode(tex_name, coord_mode)
+            if coord_mode == "GENERATED":
+                # pkg115: convert_objects bakes the user object's bbox onto
+                # this texture (set_texture_generated_bbox).
+                mat_name = getattr(self, "_current_material_name", None)
+                if mat_name is not None:
+                    self._generated_textures_by_material.setdefault(
+                        mat_name, []).append(tex_name)
             if uv_layer_name and hasattr(renderer, "set_texture_uv_layer"):
                 renderer.set_texture_uv_layer(tex_name, uv_layer_name)
             non_identity = (
@@ -3620,6 +3633,29 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 else:
                     slot_to_id[slot_idx] = 0
             default_mat_id = slot_to_id.get(0, 0)
+
+            # -------- pkg115 generated-coords bbox bake --------
+            # GENERATED coordinates = object-local position normalized to the
+            # object's bounding box (Blender Texture Coordinate > Generated;
+            # Cycles orco). The exporter bakes world transforms into vertices,
+            # so the WORLD-space bbox of this object is the right frame here.
+            # Shared-material multi-object scenes: last writer wins (per-object
+            # texture instancing is a recorded follow-up).
+            gen_by_mat = getattr(self, "_generated_textures_by_material", {})
+            if gen_by_mat and hasattr(renderer, "set_texture_generated_bbox"):
+                gen_texs = []
+                for slot in obj.material_slots:
+                    if slot.material is not None:
+                        gen_texs.extend(gen_by_mat.get(slot.material.name, ()))
+                if gen_texs:
+                    corners = [matrix @ mathutils.Vector(c)
+                               for c in obj.bound_box]
+                    bmin = [min(c[i] for c in corners) for i in range(3)]
+                    bmax = [max(c[i] for c in corners) for i in range(3)]
+                    bsize = [max(bmax[i] - bmin[i], 1e-6) for i in range(3)]
+                    for tex_name in set(gen_texs):
+                        renderer.set_texture_generated_bbox(
+                            tex_name, bmin, bsize)
 
             # -------- Normal transform --------
             # Normals transform by the INVERSE TRANSPOSE of the model matrix's

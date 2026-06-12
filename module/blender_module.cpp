@@ -319,6 +319,16 @@ public:
         auto mode = parseCoordMode(coordMode);
         if (auto tex = getTexture(name)) tex->setCoordMode(mode);
     }
+
+    void setTextureGeneratedBBox(const std::string& name,
+                                 const std::vector<float>& bmin,
+                                 const std::vector<float>& bsize) {
+        if (bmin.size() < 3 || bsize.size() < 3)
+            throw std::runtime_error("set_texture_generated_bbox: 3 floats each");
+        if (auto tex = getTexture(name))
+            tex->setGeneratedBBox(Vec3(bmin[0], bmin[1], bmin[2]),
+                                  Vec3(bsize[0], bsize[1], bsize[2]));
+    }
     // pkg59 follow-up: bake a Blender Mapping node's Location + Rotation.z +
     // Scale into a per-texture UV transform applied at sample time.
     void setTextureUVTransform(const std::string& name,
@@ -376,6 +386,11 @@ public:
     void createProceduralTexture(const std::string& name, const std::string& type, const std::vector<float>& params,
                                  const std::string& coordMode = "UV") {
         textureManager.createProceduralTexture(name, type, params, coordMode);
+    }
+    void setTextureGeneratedBBox(const std::string& name,
+                                 const std::vector<float>& bmin,
+                                 const std::vector<float>& bsize) {
+        textureManager.setTextureGeneratedBBox(name, bmin, bsize);
     }
     void setTextureCoordMode(const std::string& name, const std::string& coordMode) {
         textureManager.setTextureCoordMode(name, coordMode);
@@ -2400,6 +2415,10 @@ PYBIND11_MODULE(astroray, m) {
         .def("create_procedural_texture", &PyRenderer::createProceduralTexture,
              "name"_a, "type"_a, "params"_a, "coord_mode"_a = "UV")
         .def("set_texture_coord_mode", &PyRenderer::setTextureCoordMode, "name"_a, "coord_mode"_a)
+        .def("set_texture_generated_bbox", &PyRenderer::setTextureGeneratedBBox,
+             "name"_a, "bbox_min"_a, "bbox_size"_a,
+             "pkg115: bake the object's bounding box for GENERATED-coordinate "
+             "procedural textures (Blender Texture Coordinate > Generated).")
         .def("set_texture_uv_transform", &PyRenderer::setTextureUVTransform,
              "name"_a, "scale_x"_a, "scale_y"_a, "offset_x"_a, "offset_y"_a,
              "rotation"_a = 0.0f,

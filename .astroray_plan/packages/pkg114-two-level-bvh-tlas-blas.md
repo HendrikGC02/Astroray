@@ -3,11 +3,12 @@
 **Pillar:** 5 (GPU) + 3 (light transport)
 **Track:** A
 **Codex-paste-ready:** no (core CUDA + CPU; large; multi-session RTX verify)
-**Status:** IN PROGRESS — GPU core + bulk binding + MIXED scenes landed/in-review
-& RTX-verified (inc 1 #430, inc 2 #431, inc 3a #460, inc 3b #462 2026-06-12).
-Remaining: Blender-addon `convert_objects` instancing wiring + the depsgraph
-transform-only refit (inc 3c, below). **GPU-gated.** Follow-up
-acceleration-structure package explicitly deferred by pkg56 §4.1.
+**Status:** IN PROGRESS — GPU core + bulk binding + MIXED scenes + TLAS-only refit
+landed & RTX-verified (inc 1 #430, inc 2 #431, inc 3a #460, inc 3b #462, inc 3d
+#468 — refit upload 19.5% of full `upload_geometry`, ≤50% budget met). Remaining:
+addon `convert_objects` instancing wiring (inc 3c) + exporter `Change.TRANSFORMS`
+branch wiring to `update_instance_transform` (inc 3d integration). **GPU-gated.**
+Follow-up acceleration-structure package explicitly deferred by pkg56 §4.1.
 
 ### Increment log
 - **Inc 1 (PR #430, merged):** device structs (`GMat4`/`GBLAS`/`GInstance`/

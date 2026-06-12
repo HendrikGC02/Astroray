@@ -45,7 +45,7 @@ Ordered by value × overnight-shippability. **pkg115 is DONE** (closed this roun
 
 **Stabilization-session follow-ups (2026-06-12, record-only — small):**
 
-- **Refbank prism-bk7 gate recalibration**: `hue_spread`/`bright_coverage` thresholds date from the pre-#400 wide comp; the 512² "pkg104 showcase" recompose makes them unreachable (measured 0.33/0.47 vs ≥0.7/≥0.5) while the render is visually perfect and SSIM = 0.9953 vs the re-blessed reference. Recalibrate gates.toml to the current framing.
+- **Refbank prism-bk7 gate recalibration — RESOLVED in this PR**: the gates.toml ROIs dated from the pre-#400 384×288 frame (the #400 recompose updated the dedicated rainbow test's ROI but not gates.toml), so on the 512² frame they measured the wrong region (0.33/0.47 vs ≥0.7/≥0.5) while the render was visually perfect. ROIs recalibrated to the 512² band ROI (identical to `test_prism_caustic_rainbow._ROI`); live runner 3/3 PASS, smoke suite 13/13.
 - **Refbank stale-reference hygiene**: two references re-blessed this session (prism-bk7 was 384×288 vs the 512² scene — crashed the runner; sms-refractive-glass-sphere predated the June glass-energy arc — phash 18 vs ≤16). Consider a runner pre-flight that flags reference/scene resolution mismatches instead of crashing mid-sweep.
 - **`raytracer.exe` DLL convenience**: the standalone needs OIDN + CUDA runtime DLLs on PATH (documented in DEVELOPMENT.md); a CMake post-build copy next to the exe would remove the footgun.
 - **pkg89 dedicated lights** (re-confirmed live this session): not uploaded to GPU (pkg115 texture grid GPU leg renders dark) + CPU energy-scale uniformly dimmer than Cycles at equal wattage. Already §2 item 3.

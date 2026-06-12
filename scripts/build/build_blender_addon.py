@@ -71,7 +71,9 @@ BUILD_DIR: Path = REPO_ROOT / "build_blender_addon"  # overwritten in main()
 
 # Files that belong in the shipped addon (everything else in blender_addon/ is
 # ignored — test scenes, backups, __pycache__, ...).
-ADDON_FILES = ["__init__.py", "blender_manifest.toml", "shader_blending.py"]
+ADDON_FILES = ["__init__.py", "blender_manifest.toml", "shader_blending.py",
+               "_bulk_geometry.py",   # pkg112 batched geometry upload
+               "exporter.py"]         # pkg116 viewport-sync exporter
 
 
 # --------------------------------------------------------------------------- #

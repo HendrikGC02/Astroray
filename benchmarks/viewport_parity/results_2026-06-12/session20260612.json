@@ -1,0 +1,370 @@
+{
+  "schema": "astroray.viewport_parity.v1",
+  "package": "pkg81",
+  "phase": "1+2 (harness + diagnosis)",
+  "generated_utc": "2026-06-12T09:57:18Z",
+  "git_sha": "",
+  "binary": {
+    "gpu_available": true,
+    "gpu_device_name": "NVIDIA GeForce RTX 5070 Ti"
+  },
+  "harness_notes": [
+    "in-process; bypasses Blender GPU texture blit (gpu module unavailable headless).",
+    "transform-only depsgraph fires every camera tick \u2014 this is the H1 verifier.",
+    "Cycles A/B numbers are filled in by blender_driver.py on the same hardware."
+  ],
+  "configs": [
+    {
+      "frame": {
+        "n": 30,
+        "mean_ms": 97.82127666694578,
+        "p50_ms": 97.55609999410808,
+        "p99_ms": 102.70839999429882,
+        "max_ms": 102.70839999429882,
+        "first_ms": 95.19359999103472
+      },
+      "render": {
+        "n": 30,
+        "mean_ms": 78.23459000016253,
+        "p50_ms": 78.01769999787211,
+        "p99_ms": 83.02769999136217,
+        "max_ms": 83.02769999136217,
+        "first_ms": 76.60020000184886
+      },
+      "dispatch": {
+        "n": 30,
+        "mean_ms": 0.0,
+        "p50_ms": 0.0,
+        "p99_ms": 0.0,
+        "max_ms": 0.0,
+        "first_ms": 0.0
+      },
+      "first_minus_steady_ms": -2.718286216459717,
+      "h1_upload_geometry_calls_per_frame_max": 0,
+      "h1_upload_geometry_calls_per_frame_total": 0,
+      "h1_upload_materials_calls_per_frame_total": 0,
+      "h2_spp_trace_unique_values": [
+        1
+      ],
+      "h2_spp_resets_per_frame_estimate": 30,
+      "viewport_perf_stats": {
+        "geometry": 0.0,
+        "materials": 0.0,
+        "lights": 0.0,
+        "environment": 0.0,
+        "render": 78.23459000016253,
+        "total": 78.23459000016253,
+        "frames": 30
+      },
+      "raw_frame_ms": [
+        95.19359999103472,
+        102.70839999429882,
+        98.11880000052042,
+        99.04739999910817,
+        94.88839999539778,
+        97.0672000257764,
+        99.13750001578592,
+        97.55609999410808,
+        98.6581000033766,
+        97.04949997831136,
+        101.09559999546036,
+        98.64290000405163,
+        97.00599999632686,
+        97.32800000347197,
+        96.58359998138621,
+        99.02280001551844,
+        98.28029997879639,
+        101.18490000604652,
+        102.6146000076551,
+        98.91129998140968,
+        97.74190001189709,
+        95.10390000650659,
+        97.77870000107214,
+        94.96950000175275,
+        95.62810001079924,
+        97.61970001272857,
+        97.10849999100901,
+        96.22860001400113,
+        96.73530000145547,
+        95.6290999893099
+      ],
+      "config": {
+        "tris_target": 100000,
+        "tris_built": 99458,
+        "use_gpu": false,
+        "engine": "astroray-cpu",
+        "oidn_pass": false,
+        "width": 512,
+        "height": 512,
+        "chunk_spp": 1,
+        "max_depth": 4,
+        "n_frames": 30,
+        "path": "camera_only"
+      }
+    },
+    {
+      "frame": {
+        "n": 30,
+        "mean_ms": 265.27552666860475,
+        "p50_ms": 262.53859998541884,
+        "p99_ms": 322.3110999970231,
+        "max_ms": 322.3110999970231,
+        "first_ms": 322.3110999970231
+      },
+      "render": {
+        "n": 30,
+        "mean_ms": 230.11571666575037,
+        "p50_ms": 226.7052999814041,
+        "p99_ms": 303.8765999954194,
+        "max_ms": 303.8765999954194,
+        "first_ms": 303.8765999954194
+      },
+      "dispatch": {
+        "n": 30,
+        "mean_ms": 0.0,
+        "p50_ms": 0.0,
+        "p99_ms": 0.0,
+        "max_ms": 0.0,
+        "first_ms": 0.0
+      },
+      "first_minus_steady_ms": 59.00231723629486,
+      "h1_upload_geometry_calls_per_frame_max": 0,
+      "h1_upload_geometry_calls_per_frame_total": 0,
+      "h1_upload_materials_calls_per_frame_total": 0,
+      "h2_spp_trace_unique_values": [
+        1
+      ],
+      "h2_spp_resets_per_frame_estimate": 30,
+      "viewport_perf_stats": {
+        "geometry": 0.0,
+        "materials": 0.0,
+        "lights": 0.0,
+        "environment": 0.0,
+        "render": 230.11571666575037,
+        "total": 230.11571666575037,
+        "frames": 30
+      },
+      "raw_frame_ms": [
+        322.3110999970231,
+        268.43140000710264,
+        264.07420000759885,
+        260.3862000105437,
+        263.30660001258366,
+        270.7875000196509,
+        268.88240000698715,
+        260.5614000058267,
+        261.97289998526685,
+        266.45799999823794,
+        269.9043999891728,
+        261.63970000925474,
+        261.5180999855511,
+        262.53859998541884,
+        265.23180000367574,
+        261.4205999998376,
+        270.98750000004657,
+        262.74629999534227,
+        260.66590001573786,
+        260.59730001725256,
+        263.1792999745812,
+        260.84160001482815,
+        263.24930001283064,
+        257.8469000000041,
+        264.1306000004988,
+        265.3526000212878,
+        257.88369998917915,
+        261.26379999914207,
+        261.4891999983229,
+        258.6068999953568
+      ],
+      "config": {
+        "tris_target": 100000,
+        "tris_built": 99458,
+        "use_gpu": false,
+        "engine": "astroray-cpu",
+        "oidn_pass": true,
+        "width": 512,
+        "height": 512,
+        "chunk_spp": 1,
+        "max_depth": 4,
+        "n_frames": 30,
+        "path": "camera_only"
+      }
+    },
+    {
+      "frame": {
+        "n": 30,
+        "mean_ms": 105.1516066644884,
+        "p50_ms": 102.82659999211319,
+        "p99_ms": 170.41049999534152,
+        "max_ms": 170.41049999534152,
+        "first_ms": 170.41049999534152
+      },
+      "render": {
+        "n": 30,
+        "mean_ms": 86.64245000109076,
+        "p50_ms": 84.1939999954775,
+        "p99_ms": 152.21339999698102,
+        "max_ms": 152.21339999698102,
+        "first_ms": 152.21339999698102
+      },
+      "dispatch": {
+        "n": 30,
+        "mean_ms": 0.0,
+        "p50_ms": 0.0,
+        "p99_ms": 0.0,
+        "max_ms": 0.0,
+        "first_ms": 0.0
+      },
+      "first_minus_steady_ms": 67.50919999743427,
+      "h1_upload_geometry_calls_per_frame_max": 0,
+      "h1_upload_geometry_calls_per_frame_total": 0,
+      "h1_upload_materials_calls_per_frame_total": 0,
+      "h2_spp_trace_unique_values": [
+        1
+      ],
+      "h2_spp_resets_per_frame_estimate": 30,
+      "viewport_perf_stats": {
+        "geometry": 0.0,
+        "materials": 0.0,
+        "lights": 0.0,
+        "environment": 0.0,
+        "render": 86.64245000109076,
+        "total": 86.64245000109076,
+        "frames": 30
+      },
+      "raw_frame_ms": [
+        170.41049999534152,
+        104.03430002043024,
+        102.37409998080693,
+        102.80029999557883,
+        102.59429999860004,
+        102.46520000509918,
+        102.49190000467934,
+        107.6654999924358,
+        100.5423000024166,
+        100.82709998823702,
+        102.82659999211319,
+        103.05859998334199,
+        103.4306000219658,
+        102.87949998746626,
+        103.38469999260269,
+        108.88680000789464,
+        103.38300000876188,
+        103.01210000761785,
+        102.78009998728521,
+        100.65149998990819,
+        104.25229999236763,
+        103.4306000219658,
+        100.95620001084171,
+        102.20169997774065,
+        103.080000000773,
+        102.33909997623414,
+        104.28319999482483,
+        101.48299997672439,
+        102.82840000581928,
+        99.19470001477748
+      ],
+      "config": {
+        "tris_target": 100000,
+        "tris_built": 99458,
+        "use_gpu": true,
+        "engine": "astroray-cuda (NVIDIA GeForce RTX 5070 Ti)",
+        "oidn_pass": false,
+        "width": 512,
+        "height": 512,
+        "chunk_spp": 1,
+        "max_depth": 4,
+        "n_frames": 30,
+        "path": "camera_only"
+      }
+    },
+    {
+      "frame": {
+        "n": 30,
+        "mean_ms": 102.83098000121147,
+        "p50_ms": 103.04280000855215,
+        "p99_ms": 105.70189999998547,
+        "max_ms": 105.70189999998547,
+        "first_ms": 102.41409999434836
+      },
+      "render": {
+        "n": 30,
+        "mean_ms": 84.2753633352307,
+        "p50_ms": 84.42960001411848,
+        "p99_ms": 86.920600006124,
+        "max_ms": 86.920600006124,
+        "first_ms": 84.39930001622997
+      },
+      "dispatch": {
+        "n": 30,
+        "mean_ms": 0.0,
+        "p50_ms": 0.0,
+        "p99_ms": 0.0,
+        "max_ms": 0.0,
+        "first_ms": 0.0
+      },
+      "first_minus_steady_ms": -0.4312551795135704,
+      "h1_upload_geometry_calls_per_frame_max": 0,
+      "h1_upload_geometry_calls_per_frame_total": 0,
+      "h1_upload_materials_calls_per_frame_total": 0,
+      "h2_spp_trace_unique_values": [
+        1
+      ],
+      "h2_spp_resets_per_frame_estimate": 30,
+      "viewport_perf_stats": {
+        "geometry": 0.0,
+        "materials": 0.0,
+        "lights": 0.0,
+        "environment": 0.0,
+        "render": 84.2753633352307,
+        "total": 84.2753633352307,
+        "frames": 30
+      },
+      "raw_frame_ms": [
+        102.41409999434836,
+        105.58070000843145,
+        104.21319998567924,
+        102.90180001175031,
+        105.70189999998547,
+        101.14859999157488,
+        103.16430000239052,
+        103.36059998371638,
+        103.104700014228,
+        102.03259999980219,
+        103.57120001572184,
+        105.23190000094473,
+        103.04280000855215,
+        101.41710002790205,
+        103.8280000211671,
+        103.191699978197,
+        98.21649998775683,
+        100.60360000352375,
+        103.474700008519,
+        103.47860000911169,
+        104.10519997822121,
+        103.77629997674376,
+        101.66960000060499,
+        102.77460000361316,
+        103.23769997921772,
+        100.8021000016015,
+        102.42850001668558,
+        101.67669999646023,
+        102.71860001375899,
+        102.06150001613423
+      ],
+      "config": {
+        "tris_target": 100000,
+        "tris_built": 99458,
+        "use_gpu": true,
+        "engine": "astroray-cuda (NVIDIA GeForce RTX 5070 Ti)",
+        "oidn_pass": true,
+        "width": 512,
+        "height": 512,
+        "chunk_spp": 1,
+        "max_depth": 4,
+        "n_frames": 30,
+        "path": "camera_only"
+      }
+    }
+  ]
+}

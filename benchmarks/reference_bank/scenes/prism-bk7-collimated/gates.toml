@@ -1,9 +1,13 @@
 # prism-bk7-collimated — triangulated BK7 prism rainbow caustic (pkg106 finish).
-# Forward light-tracer (light_tracer_caustic); reference blessed 2026-05-29.
+# Forward light-tracer (light_tracer_caustic); reference blessed 2026-06-12
+# (the 2026-05-29 reference was 384x288 — stale since the #400 recompose to
+# the 512x512 showcase frame; the runner crashed on the shape mismatch and
+# the ROIs below pointed at the wrong region of the new frame. Recalibrated
+# to the band ROI of the 512x512 frame, identical to
+# tests/test_prism_caustic_rainbow.py::_ROI.)
 # Measured baselines (deterministic — baked caustic, fixed photon seed):
-#   hue_spread     (band ROI) = 0.754
-#   bright_coverage(band ROI) = 0.88   (continuity: a SOLID band, not speckle)
-# Band lands at y[107,185] x[203,251] in the 384x288 frame.
+#   hue_spread (band ROI) = 0.757 on the blessed reference; bright_coverage
+#   gated on the live render (same ROI as the dedicated rainbow test).
 
 [scene]
 description = "Triangulated equilateral BK7 prism + collimated sun + white floor. A forward light-tracer deposits per-wavelength refracted light on the floor, producing a clean continuous red->violet rainbow band (no salt-and-pepper chromatic noise)."
@@ -12,7 +16,7 @@ description = "Triangulated equilateral BK7 prism + collimated sun + white floor
 type = "hue_spread"
 threshold = 0.7
 direction = "ge"
-roi = [100, 192, 196, 258]
+roi = [150, 390, 125, 322]
 luminance_threshold = 0.1
 saturation_floor = 0.04
 description = "Rainbow-presence: full red->violet hue spread in the band ROI (pkg106 acceptance >= 0.7; measured 0.754)."
@@ -21,7 +25,7 @@ description = "Rainbow-presence: full red->violet hue spread in the band ROI (pk
 type = "bright_coverage"
 threshold = 0.5
 direction = "ge"
-roi = [100, 192, 196, 258]
+roi = [150, 390, 125, 322]
 luminance_threshold = 0.1
 description = "Band-continuity discriminator: a real continuous band fills its ROI (measured 0.88). Salt-and-pepper chromatic noise — which also scores high hue_spread — collapses this well below 0.5."
 

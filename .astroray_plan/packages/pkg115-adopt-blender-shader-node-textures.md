@@ -3,7 +3,7 @@
 **Pillar:** 5 (addon) + 2 (materials/textures)
 **Track:** A
 **Codex-paste-ready:** no (large, staged; RTX visual verify)
-**Status:** done (PR #472, 2026-06-12 — 128-spp Blender stills: checker=3D blocks, brick=brickwork, wave=bands, voronoi patterned; semantic parity with Cycles; full suite 1289/0). Stage 2 chunks 1-6 done (PR #439 coord defaults, #441 hash+Perlin+fBM, #442 Wave+Brick, #445 Voronoi, #446 addon ShaderNodeTexVoronoi wiring, #467 chunk 6 addon dedup), GENERATED-coordinates MESH fix PR #472 (Texture::setGeneratedBBox + set_texture_generated_bbox binding + addon records GENERATED textures per material and bakes each user object's world bbox in convert_objects). REMAINING small follow-ups recorded in spec: gradient + noise spheres near-black on addon path; pkg89 dedicated-light energy audit; per-object texture instancing for shared materials.
+**Status:** done (PR #472, 2026-06-12 — 128-spp Blender stills: checker=3D blocks, brick=brickwork, wave=bands, voronoi patterned; semantic parity with Cycles; full suite 1289/0). Stage 2 chunks 1-6 done (PR #439 coord defaults, #441 hash+Perlin+fBM, #442 Wave+Brick, #445 Voronoi, #446 addon ShaderNodeTexVoronoi wiring, #467 chunk 6 addon dedup), GENERATED-coordinates MESH fix PR #472 (Texture::setGeneratedBBox + set_texture_generated_bbox binding + addon records GENERATED textures per material and bakes each user object's world bbox in convert_objects). RESOLVED 2026-06-12 (residual fix): gradient/magic/noise "near-black/wrong-texture spheres on addon path" was id(node) cache aliasing in `load_procedural_texture` — see finding 6 below. REMAINING follow-ups: pkg89 dedicated-light energy audit (uniform ~3x exposure gap vs Cycles across ALL spheres); per-object texture instancing for shared materials.
 
 **Visual-verify findings (2026-06-12, RTX + Blender 5.1 headless, a523a86 diagnosis commit):**
 1. **GPU leg dark: dedicated lights not uploaded to GPU** — pkg89/pkg86-B deferral; affects any dedicated-light GPU scene, NOT pkg115-specific.
@@ -11,6 +11,22 @@
 3. **Harness bug (fixed in a523a86): F12 samples property** is `samples`, not `preview_samples`; early stills were 2 spp.
 4. **FIXED (commit e418349): procedural-texture GENERATED coordinate space** — AreaLightShape::hit() was not setting rec.hitObject, causing the GENERATED path to fall back to UV (advanced_features.h:91). This produced concentric UV-ring artifact on spheres instead of 3D blocks. Fix: add `rec.hitObject = this;` after material assignment. Test: test_pkg115_generated_coords_fix.py (checker scanline flip count < 8).
 5. **pkg89 follow-up noted:** dedicated area light dimmer than Cycles at equal wattage on CPU (energy-scale audit).
+6. **FIXED (2026-06-12 residual): black gradient/magic spheres = id(node) cache aliasing.**
+   `load_procedural_texture` keyed its dedupe cache + texture names on `id(node)`;
+   each material's `inline_shader_nodes()` tree is freed after conversion and CPython
+   reuses the addresses, so a later material's texture node could alias an earlier
+   cache entry (instrumented: magic→brick's texture, noise→checker's, wave→gradient's;
+   victims shifted run to run). Fix: key on `material_name + node.name`. Also fixed
+   MagicTexture collapsing Cycles' Color-socket float3 to its average (greyscale).
+   NOT a coordinate-convention bug: Cycles Generated = bbox→[0,1] (verified against
+   `intern/cycles/blender/util.h::mesh_texture_space` + an Emission=Generated probe;
+   matches our world-bbox bake), and a spherical gradient on a [0,1]-generated sphere
+   viewed from +z is legitimately near-black with a thin bbox-min-corner crescent —
+   the fresh 64-spp Cycles still shows the same look (the old "bright-grey" reference
+   was the 2-spp harness-bug still). Post-fix parity: gradient brightest-quadrant
+   bottom-left in both engines; magic channel-spread 0.170 (ours) vs 0.183 (Cycles).
+   Research: blender-procedural-parity-research.md §8. Tests:
+   test_procedural_cache_key_identity_independent, test_magic_rgb_output (strengthened).
 **Depends on:** pkg57 (done — established the additive custom-node pattern and
 the `convert_node_material` traversal). Benefits from pkg112.
 **Estimated effort:** L (multi-week, staged)

@@ -126,6 +126,12 @@ own because a dependency for 40 lines of code is ridiculous.
 - **Blender Python API** — viewport render needs
   `bpy.types.RenderEngine.view_draw`. Docs:
   https://docs.blender.org/api/current/
+- **Cycles SVM procedural textures + Generated/orco coordinates** —
+  https://projects.blender.org/blender/blender — Apache-2.0.
+  `intern/cycles/kernel/svm/{gradient,magic,checker,wave,brick,voronoi,noisetex}.h`,
+  `intern/cycles/blender/util.h::mesh_texture_space` (Generated = bbox→[0,1]).
+  Notes: `blender-procedural-parity-research.md` (§8 covers the 2026-06-12
+  black-sphere residual: id(node) cache aliasing + Magic Color-socket float3).
 
 ---
 

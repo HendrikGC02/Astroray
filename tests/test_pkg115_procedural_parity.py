@@ -159,19 +159,17 @@ def test_magic_depth_10():
 
 
 def test_magic_rgb_output():
-    """Magic outputs true RGB (0.5−x, 0.5−y, 0.5−z), not a scalar lerp.
+    """Magic outputs true RGB (0.5−x, 0.5−y, 0.5−z) per channel, not a scalar lerp.
 
-    When color1=(0,0,0) and color2=(1,1,1), the factory tint becomes `fac = (r+g+b)/3`,
-    so the output is still grayscale. To see true RGB, test with a non-identity tint
-    or check that the r,g,b channels differ before tinting.
+    Cycles svm_node_tex_magic (svm/magic.h, Apache-2.0): the Color socket
+    carries the raw float3 from svm_magic; Fac is average(color). With the
+    addon's identity tint (color1=black, color2=white) the engine must
+    reproduce the float3 — the pkg115 residual collapsed it to the average,
+    rendering magic greyscale (every channel = 0.535361 at this probe point).
     """
     import astroray
     r = astroray.Renderer()
 
-    # Sample at a point with non-zero xyz; the raw (0.5−x, 0.5−y, 0.5−z) should differ per channel.
-    # Since the factory applies a grayscale tint, we can't directly observe RGB. But the code change
-    # is verbatim from svm/magic.h, so the formula test is acceptance. Visual verification needs
-    # an addon-driven Blender comparison in Stage 3.
     val = r.eval_texture_at_3d("magic", {
         "turb_depth": 2,
         "scale": 5.0,
@@ -179,10 +177,14 @@ def test_magic_rgb_output():
         "color1": [0.0, 0.0, 0.0],
         "color2": [1.0, 1.0, 1.0]
     }, 0.3, 0.4, 0.5)
-    # Just check it doesn't crash and is in [0,1].
-    assert 0.0 <= val[0] <= 1.0
-    assert 0.0 <= val[1] <= 1.0
-    assert 0.0 <= val[2] <= 1.0
+    # Hand-computed from svm/magic.h at p=(0.3,0.4,0.5), scale=5, depth=2, dist=1:
+    #   px,py,pz = fmod(p*5, 2π) = (1.5, 2.0, 2.5)
+    #   x = sin(30) = -0.988032; y = cos(-10) = -0.839072; z = -cos(-5) = -0.283662
+    #   depth loop (dist=1): y = -cos(x-y+z) = -0.907873; x = cos(x-y-z) = 0.979354
+    #   final /= 2·dist → rgb = (0.5-x, 0.5-y, 0.5-z) = (0.010317, 0.953935, 0.641831)
+    expected = (0.010317, 0.953935, 0.641831)
+    for ch, (got, want) in enumerate(zip(val, expected)):
+        assert abs(got - want) < 1e-4, f"channel {ch}: got {got}, want {want}"
 
 
 # Coordinate-mode tests (items 1a, 1b, 1c from the audit) require a HitRecord or a full render setup.

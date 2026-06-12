@@ -344,3 +344,45 @@ def test_musgrave_translation_param_vector(monkeypatch):
     mt, scale, detail, dim, lac, gain = params[0:6]
     assert mt == 3.0, "HETERO_TERRAIN must map to musgrave type 3"
     assert (scale, detail, dim, lac, gain) == (6.0, 3.5, 2.5, 2.2, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# pkg115 residual — texture cache keys must not depend on id(node)
+# ---------------------------------------------------------------------------
+
+def _named_magic_node():
+    return _Node('TEX_MAGIC', inputs={
+        'Vector': _Socket(),  # unlinked -> GENERATED
+        'Scale': _Socket(default=3.0),
+        'Distortion': _Socket(default=1.5),
+    }, turbulence_depth=2, name='1_Magic Texture')
+
+
+def test_procedural_cache_key_identity_independent(monkeypatch):
+    """Texture dedupe keys come from (material, node name), not id(node).
+
+    convert_node_material works on a temporary inline_shader_nodes() tree that
+    is freed after each material; CPython reuses the freed addresses, so with
+    id(node) keys a later material's texture node could silently alias an
+    earlier material's cache entry (pkg115 visual gate: the magic sphere bound
+    the brick texture, the wave sphere the gradient one — which spheres went
+    black shifted run to run with the allocator).
+    """
+    addon = _load_blender_addon(monkeypatch)
+    engine = addon.CustomRaytracerRenderEngine()
+    renderer = _RecordingRenderer()
+    engine._generated_textures_by_material = {}
+
+    engine._current_material_name = 'pkg115_magic'
+    n1 = _named_magic_node()
+    name1 = engine.load_procedural_texture(n1, renderer, vector_input=n1.inputs['Vector'])
+    n2 = _named_magic_node()  # same logical node, different Python object identity
+    name2 = engine.load_procedural_texture(n2, renderer, vector_input=n2.inputs['Vector'])
+    assert name1 == name2, "same material + node name must dedupe to one texture"
+    assert len(renderer.proc_texture_calls) == 1, "second call must be a cache hit"
+
+    engine._current_material_name = 'pkg115_other'
+    n3 = _named_magic_node()  # same node name in a DIFFERENT material
+    name3 = engine.load_procedural_texture(n3, renderer, vector_input=n3.inputs['Vector'])
+    assert name3 != name1, "different materials must get distinct texture entries"
+    assert len(renderer.proc_texture_calls) == 2

@@ -583,3 +583,57 @@ plus a paired-still RTX check at the end.
   Astroray vs Cycles, paired stills (RTX `/verify`), per the package spec.
 - Standalone: existing `create_procedural_texture` scripts must keep working
   (factory params stay backward-compatible; new params appended).
+
+---
+
+## 8. Residual diagnosis 2026-06-12 — black gradient/magic spheres (paired-stills gate)
+
+### Question investigated
+Why did the GRADIENT (spherical) and MAGIC spheres render black on the addon
+path while checker/voronoi/wave/brick were correct, and why did the earlier
+diagnosis describe Cycles' gradient sphere as "bright-grey"?
+
+### Cycles references (Blender 5.1 / main, projects.blender.org, Apache-2.0)
+- `intern/cycles/kernel/svm/gradient.h::svm_gradient` — spherical:
+  `r = max(0.999999 - len(p), 0)`. **Identical to our port** (advanced_features.h
+  GradientTexture case 4).
+- `intern/cycles/kernel/svm/magic.h::svm_magic` + `svm_node_tex_magic` — the
+  node's **Color socket carries the raw float3** `(0.5-x, 0.5-y, 0.5-z)`;
+  **Fac is `average(color)`**. Our MagicTexture collapsed the float3 to its
+  average (greyscale) — fixed to per-channel output with color1/color2 as a
+  per-channel tint (identity for the addon's black/white params).
+- `intern/cycles/blender/util.h::mesh_texture_space` +
+  `intern/cycles/blender/mesh.cpp` ATTR_STD_GENERATED loop —
+  `generated = co * (0.5/texspace_size) - (texspace_location*(0.5/size) - 0.5)`,
+  i.e. **bbox → [0,1]**. Confirmed empirically with an emission-shader probe
+  (`Emission = TexCoord.Generated`, top-down camera): visible-cap RGB =
+  `0.5 + 0.5*n̂` exactly. **Our per-object world-bbox bake matches the Cycles
+  convention; the "[-1,1] or unnormalized" hypothesis is refuted.**
+
+### Actual root cause (addon, not convention)
+`load_procedural_texture` keyed its dedupe cache and texture names on
+`id(node)`. `convert_node_material` iterates `bpy.data.materials` and works on
+a **temporary `inline_shader_nodes()` tree freed after each material**; CPython
+reuses the freed addresses, so a later material's texture node can carry the
+same `id()` as an earlier material's (freed) node → silent cache hit → the
+material binds the *previous* material's texture. Instrumented run (logged
+`id(node)` per material): magic→bound brick's texture, noise→checker's,
+wave→gradient's; only 4 textures created for 7 nodes. Victims shift run to run
+with the allocator — explains "gradient + noise" in one session, "gradient +
+magic" in another. A bound-but-foreign texture also gets the victim object's
+bbox baked over it (`_generated_textures_by_material` records the alias), which
+cross-contaminates the donor sphere's GENERATED frame — this is what erased the
+gradient sphere's bright crescent.
+
+Note: a *correct* spherical gradient on a [0,1]-generated sphere viewed from +z
+IS mostly black with a thin bright crescent toward the bbox-min corner — the
+fresh 64-spp Cycles still confirms this. "Bright-grey" came from the earlier
+broken (2-spp) reference still.
+
+### Fix
+- Addon: cache/texture keys = `material_name + node.name` (stable, unique per
+  conversion pass), `id()` fallback only for nameless unit-test stubs.
+- Engine: MagicTexture per-channel RGB output (Cycles Color-socket semantics).
+- Tests: `test_pkg115_addon_texture_translation.py::test_procedural_cache_key_identity_independent`,
+  strengthened `test_pkg115_procedural_parity.py::test_magic_rgb_output`
+  (hand-computed svm_magic reference at p=(0.3,0.4,0.5)).

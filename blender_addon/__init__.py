@@ -2732,10 +2732,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # pkg115 parity fix: procedural textures default to GENERATED when
         # Vector socket is unconnected (Blender standard behavior).
         coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input, default_coord_mode="GENERATED")
-        cache_key = self._texture_variant_key(f"_proc_{id(node)}", coord_mode, uv_scale, offset, rotation, uv_layer_name)
+        # pkg115 residual fix (black gradient/magic spheres): id(node) is NOT a
+        # stable key — convert_node_material works on a temporary
+        # inline_shader_nodes() tree that is freed after each material, and
+        # CPython reuses the freed addresses, so a later material's texture
+        # node can alias an earlier cache entry (observed: the magic sphere
+        # silently bound the brick texture, the wave sphere the gradient one;
+        # which spheres went black shifted run to run). Key on material + node
+        # name instead — unique within a conversion pass and stable across the
+        # per-material tree lifetimes. Stub nodes in unit tests may lack
+        # .name; those fall back to id() (single-node test scope).
+        mat_name = getattr(self, "_current_material_name", "") or ""
+        node_id = f"{mat_name}.{getattr(node, 'name', '') or id(node)}"
+        cache_key = self._texture_variant_key(f"_proc_{node_id}", coord_mode, uv_scale, offset, rotation, uv_layer_name)
         if cache_key in cache:
             return cache[cache_key]
-        node_id = id(node)
 
         ntype = node.type
         tex_name = None

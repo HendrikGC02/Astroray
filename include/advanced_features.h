@@ -888,11 +888,16 @@ public:
             y /= dist;
             z /= dist;
         }
-        // Blender outputs true RGB: (0.5-x, 0.5-y, 0.5-z). For standalone factory
-        // backward compat, apply color1/color2 as a lerp tint using the average.
+        // Cycles svm_node_tex_magic: the Color socket carries the raw float3
+        // (0.5-x, 0.5-y, 0.5-z); Fac is its average. Reproduce the float3 with
+        // color1/color2 as a PER-CHANNEL lerp tint for standalone factory
+        // callers (the addon passes black/white, making this the identity).
+        // pkg115 residual fix: the previous code collapsed the float3 to its
+        // average, rendering Magic greyscale instead of Cycles' colored swirls.
         Vec3 rgb(0.5f - x, 0.5f - y, 0.5f - z);
-        float fac = (rgb.x + rgb.y + rgb.z) / 3.0f;
-        return color1 * (1.0f - fac) + color2 * fac;
+        return Vec3(color1.x + (color2.x - color1.x) * rgb.x,
+                    color1.y + (color2.y - color1.y) * rgb.y,
+                    color1.z + (color2.z - color1.z) * rgb.z);
     }
 };
 

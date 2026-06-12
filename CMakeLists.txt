@@ -837,6 +837,11 @@ if(ASTRORAY_TINY_CUDA_NN)
         # Disable benchmarks and examples so only the core library is compiled.
         set(TCNN_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
         set(TCNN_BUILD_EXAMPLES  OFF CACHE BOOL "" FORCE)
+        # Match the global arch list (line ~55): tcnn otherwise auto-detects the
+        # native GPU only, which pins its kernels to the build machine (sm_89)
+        # and breaks the .exe on Turing/Ampere cards. tcnn requires sm_70+, so
+        # 75/86/89 are all supported (TCNN_MIN_GPU_ARCH becomes 75).
+        set(TCNN_CUDA_ARCHITECTURES "75;86;89" CACHE STRING "" FORCE)
         FetchContent_MakeAvailable(tiny-cuda-nn)
 
         # pkg27 — reusable NeuralCache backend. Production targets link this
@@ -854,7 +859,7 @@ if(ASTRORAY_TINY_CUDA_NN)
             ${tiny-cuda-nn_SOURCE_DIR}/dependencies
         )
         set_target_properties(astroray_neural_cache PROPERTIES
-            CUDA_ARCHITECTURES         "89"
+            CUDA_ARCHITECTURES         "75;86;89"
             CUDA_SEPARABLE_COMPILATION ON
             CUDA_RESOLVE_DEVICE_SYMBOLS ON
             POSITION_INDEPENDENT_CODE  ON
@@ -893,7 +898,7 @@ if(ASTRORAY_TINY_CUDA_NN)
             ${tiny-cuda-nn_SOURCE_DIR}/dependencies
         )
         set_target_properties(tcnn_smoke PROPERTIES
-            CUDA_ARCHITECTURES         "89"
+            CUDA_ARCHITECTURES         "75;86;89"
             CUDA_SEPARABLE_COMPILATION ON
             RUNTIME_OUTPUT_DIRECTORY   ${CMAKE_BINARY_DIR}/bin
         )
@@ -924,7 +929,7 @@ if(ASTRORAY_TINY_CUDA_NN)
             ASTRORAY_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
         )
         set_target_properties(nrc_smoke_render PROPERTIES
-            CUDA_ARCHITECTURES         "89"
+            CUDA_ARCHITECTURES         "75;86;89"
             CUDA_SEPARABLE_COMPILATION ON
             RUNTIME_OUTPUT_DIRECTORY   ${CMAKE_BINARY_DIR}/bin
         )

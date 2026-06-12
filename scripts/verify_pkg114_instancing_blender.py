@@ -31,7 +31,9 @@ import bpy
 import mathutils
 import numpy as np
 
-ROOT = r"C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray"
+ROOT = os.environ.get(
+    "ASTRORAY_ROOT",
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 import runtime_setup
 runtime_setup.configure_test_imports()

@@ -18,8 +18,20 @@
   sunset HDRI (round 2: old grid "bland"), NEW gallery_blackhole_lensing.png
   (bare Schwarzschild hole bending a generated nebula sky + emissive spheres
   — owner request), NEW gallery_motion_blur.png + gallery_instancing.png
-  rows (pkg88-C.0 / pkg114 session renders). Hero Kerr+jet kept as-is per
-  owner instruction.
+  rows (pkg88-C.0 / pkg114 session renders). Round 3: denoise tile became a
+  three-way OIDN | raw | OptiX split on a fairy-light scene (emissive
+  spheres — the flat panels showed backfaces and distracted); prism
+  re-composed again to the "window-beam + prism + spectrum board" shot.
+  Hero Kerr+jet kept as-is per owner instruction.
+  ENGINE FINDINGS while iterating (record-only): (1) the forward photon
+  pass emits ZERO photons when the dedicated sun direction has a
+  z-component (probe: horizontal sun → 2445 colored px, tilted → 0);
+  (2) the photon deposit predicate requires receiver normal.y ≳ 0.7, so a
+  vertical wall can never receive a photon caustic; (3) post-process
+  passes are silently skipped on the GPU render path (chip filed).
+  Owner-approved FUTURE tiles (follow-up, not this PR): wine-glass photon
+  caustic with better composition, volumetric fog / god rays, an actual
+  Blender-viewport side-by-side screenshot.
 **Estimated effort:** 1–2 sessions (~4–8 h on RTX 5070 Ti); most cost is the
   Kerr+jet hero scene composition (no checked-in source asset yet)
 **Depends on:** pkg42 (synchrotron jet plugin) done, pkg64 (SMS caustics) done,

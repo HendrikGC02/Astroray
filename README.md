@@ -69,18 +69,18 @@ All hardware-measured numbers are from the project workstation (NVIDIA RTX
 
 <!-- All gallery tiles are produced by scripts/diagnostics/render_readme_gallery.py
      (live renders; see each tile function for scene + integrator details). -->
-![Spectral prism dispersion cascading over a cube](docs/renders/gallery_prism_caustics.png)
+![Spectral prism dispersion — spectrum on the board](docs/renders/gallery_prism_caustics.png)
 
-> **Spectral prism dispersion.** A collimated sun enters a BK7 prism on its
-> pedestal; each sampled wavelength refracts by its own Sellmeier IOR
-> (pkg31) and the spectrum cascades over the cube — across its top, down
-> its face, and on to the floor. The caustic is resolved by forward photon
-> deposition (Jensen 1996, pkg109/110/111) gathered by the default path
-> tracer's photon-map mode on *any* receiving surface, which renders
-> flat-prism dispersion noise-free where camera-side specular connections
-> cannot. For *focusing* casters (spheres, lenses) the engine additionally
-> has Specular Manifold Sampling folded into the path tracer (pkg64,
-> +8.83 dB PSNR receipt) and MNEE (pkg106).
+> **Spectral prism dispersion.** A collimated sunbeam enters through the
+> window on the left, strikes the BK7 prism, and every sampled wavelength
+> refracts by its own Sellmeier IOR (pkg31) — the spectrum lands on the
+> board below as a clean red→violet band. The caustic is real transport:
+> forward photon deposition (Jensen 1996, pkg109/110/111) gathered by the
+> path tracer's photon-map mode, which renders flat-prism dispersion
+> noise-free where camera-side specular connections cannot. For *focusing*
+> casters (spheres, lenses) the engine additionally has Specular Manifold
+> Sampling folded into the path tracer (pkg64, +8.83 dB PSNR receipt) and
+> MNEE (pkg106).
 
 ![Black hole lensing a nebula sky](docs/renders/gallery_blackhole_lensing.png)
 
@@ -108,8 +108,8 @@ All hardware-measured numbers are from the project workstation (NVIDIA RTX
 <sub><b>AOV stack.</b> Beauty + first-hit normal + depth + albedo + adaptive-sampling heatmap + bounce heatmap, all from the default integrator. Drives OIDN and OptiX guide inputs (pkg69, pkg75).</sub>
 </td>
 <td align="center" width="50%">
-<img src="docs/renders/gallery_oidn_before_after.png" alt="OIDN before / after at low SPP" width="100%"/>
-<sub><b>OIDN denoise, before / after.</b> One 24-spp render of a 64-light scene, split down the middle: raw on the left, OIDN persistent-device output on the right (pkg68). OptiX backend is a one-flag swap; SSIM(OptiX, OIDN) = 0.9987.</sub>
+<img src="docs/renders/gallery_oidn_before_after.png" alt="Denoiser comparison — OIDN | raw | OptiX" width="100%"/>
+<sub><b>Denoisers, three ways.</b> One 24-spp render of a 70-fairy-light scene split in thirds: OIDN (pkg68) on the left, the raw Monte Carlo input in the centre, the OptiX AI denoiser (pkg70) on the right. SSIM(OptiX, OIDN) = 0.9987.</sub>
 </td>
 </tr>
 <tr>

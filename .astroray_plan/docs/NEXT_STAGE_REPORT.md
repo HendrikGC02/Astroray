@@ -1,8 +1,10 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-06-12 morning (Round closeout — pkg115 COMPLETE + pkg114 inc 3d TLAS-only refit)
-**Prepared by:** Claude (Anthropic Code) — rewritten at the 2026-06-12 morning round closeout (4 PRs: pkg115 COMPLETE #467/#472 + pkg114 inc 3d #468 + diagnosis #471).
-**Scope:** post-2026-06-12-morning next stage.
+**Date:** 2026-06-12 evening (Stabilization + showcase + portability session)
+**Prepared by:** Claude (Anthropic Code) — updated after the 2026-06-12 stabilization session (repo cleanup; full main-checkout build; RTX sweep 1299/0; README + report deliverables; RTX-3000 portability).
+**Scope:** post-2026-06-12 next stage. **The next arc is pkg55 Phase C** (§2 item 1 — MIS audit + megakernel removal + 2× perf gate).
+
+> ⚠️ **UPDATE 2026-06-12 evening (stabilization session):** Fresh full-featured build in the MAIN checkout (CUDA 12.8 + OptiX 9.1 + OIDN + tcnn, arch 75;86;89 — now portable to RTX 3000/sm_86). Full RTX sweep on b67b50f: **1299 / 0 / 14 skipped / 21 xfailed / 3 xpassed**; pkg55 perf gate re-confirmed **1.50×** cool-run isolated. PR #474 (gradient/magic id(node) cache aliasing) **verified visually** in headless Blender — all 8 procedural textures correct on the addon CPU path. Reference bank 12/13 PASS (prism-bk7 gate calibration stale since the #400 recompose — render visually perfect, SSIM 0.9953; recalibrate as follow-up). pkg89 dedicated-light gaps re-confirmed live (GPU leg dark, CPU exposure dim vs Cycles) — unchanged priority. README showcase renders refreshed per owner feedback; `docs/reports/2026-06-feature-showcase.html` + `docs/DEVELOPMENT.md` shipped.
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C. Strategy in
 > [`ROADMAP.md`](ROADMAP.md), full status in [`STATUS.md`](STATUS.md) (the
@@ -40,6 +42,16 @@ Ordered by value × overnight-shippability. **pkg115 is DONE** (closed this roun
 4. **pkg88 C.1 — per-primitive motion blur split** (perf-gated B/C4 decision per spec). Phase C.0 DONE (PR #437); C.1 is the Cycles `prim_time` early-out split only if measured regression vs Cycles justifies the complexity. **Phase B** (addon bake) — start after pkg114 inc3c merges (same addon area). **Phase D** (wavefront SoA integration) — after pkg55 Phase C.
 5. **pkg64 — spectral caustics** (huge, ~3–4 wk). The SMS CPU spectral caustic path.
 6. **xpassed-gate promotions** (small). The 3 xpassed gates (spectral-path-tracer ported flags) now PASS — promote to live tests if they still pass on next hardware sweep. Remove xfail decorators.
+
+**Stabilization-session follow-ups (2026-06-12, record-only — small):**
+
+- **Refbank prism-bk7 gate recalibration**: `hue_spread`/`bright_coverage` thresholds date from the pre-#400 wide comp; the 512² "pkg104 showcase" recompose makes them unreachable (measured 0.33/0.47 vs ≥0.7/≥0.5) while the render is visually perfect and SSIM = 0.9953 vs the re-blessed reference. Recalibrate gates.toml to the current framing.
+- **Refbank stale-reference hygiene**: two references re-blessed this session (prism-bk7 was 384×288 vs the 512² scene — crashed the runner; sms-refractive-glass-sphere predated the June glass-energy arc — phash 18 vs ≤16). Consider a runner pre-flight that flags reference/scene resolution mismatches instead of crashing mid-sweep.
+- **`raytracer.exe` DLL convenience**: the standalone needs OIDN + CUDA runtime DLLs on PATH (documented in DEVELOPMENT.md); a CMake post-build copy next to the exe would remove the footgun.
+- **pkg89 dedicated lights** (re-confirmed live this session): not uploaded to GPU (pkg115 texture grid GPU leg renders dark) + CPU energy-scale uniformly dimmer than Cycles at equal wattage. Already §2 item 3.
+- **pkg64 walltime load-robustness** (chip filed earlier): no flakes in today's sweep, even under addon-build load — keep the chip, don't escalate.
+- **viewport_parity `--tag` quirk**: the tag *replaces* the output filename stem instead of suffixing it (a second Astroray leg overwrote the first this session). One-line fix in `blender_driver.py`.
+- **pkg74 runner**: must be invoked as `python -m benchmarks.showcase.runner` (relative imports); direct-path invocation traps the unwary.
 
 **GPU-gated pool:**
 

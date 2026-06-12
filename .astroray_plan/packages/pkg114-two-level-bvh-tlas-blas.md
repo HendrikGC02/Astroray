@@ -3,12 +3,18 @@
 **Pillar:** 5 (GPU) + 3 (light transport)
 **Track:** A
 **Codex-paste-ready:** no (core CUDA + CPU; large; multi-session RTX verify)
-**Status:** IN PROGRESS — GPU core + bulk binding + MIXED scenes + TLAS-only refit
-landed & RTX-verified (inc 1 #430, inc 2 #431, inc 3a #460, inc 3b #462, inc 3d
-#468 — refit upload 19.5% of full `upload_geometry`, ≤50% budget met). Remaining:
-addon `convert_objects` instancing wiring (inc 3c) + exporter `Change.TRANSFORMS`
-branch wiring to `update_instance_transform` (inc 3d integration). **GPU-gated.**
-Follow-up acceleration-structure package explicitly deferred by pkg56 §4.1.
+**Status:** COMPLETE (core) — all acceptance criteria met & RTX-verified
+2026-06-12 (inc 1 #430, inc 2 #431, inc 3a #460, inc 3b #462, inc 3c #465,
+inc 3d #468). GPU two-level BVH: instanced renders pixel-match flattened, share
+one BLAS (Blender test 325→5 flat objects), mixed instanced+flat scenes work, the
+addon instances collection/particle duplis, and a transform-only edit refits the
+TLAS at **19.5%** of a full geometry upload (≤50% budget). **GPU-gated.** The one
+remaining INTEGRATION (not an acceptance gate): wire the exporter
+`Change.TRANSFORMS` viewport path to call `update_instance_transform` +
+`upload_instance_transforms` + `render(skip_upload=True)` for instanced objects —
+best done alongside the in-flux viewport-interactivity work (pkg81/pkg116) rather
+than against a moving target. Follow-up acceleration-structure package explicitly
+deferred by pkg56 §4.1.
 
 ### Increment log
 - **Inc 1 (PR #430, merged):** device structs (`GMat4`/`GBLAS`/`GInstance`/

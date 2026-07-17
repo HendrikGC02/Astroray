@@ -33,7 +33,9 @@ $markerPatterns = @(
     '// \[diag\]'
 )
 
-$diff = git diff --cached 2>$null
+# Scan staged AND unstaged changes: a combined "git add ... && git commit"
+# stages the files after this hook runs, so --cached alone misses them.
+$diff = @(git diff --cached 2>$null) + @(git diff 2>$null)
 if (-not $diff) {
     exit 0
 }
@@ -47,12 +49,13 @@ foreach ($pattern in $markerPatterns) {
 }
 
 if ($offendingLines.Count -gt 0) {
-    Write-Host "BLOCKED: Diagnostic markers found in staged changes:" -ForegroundColor Red
+    # Hook protocol: only exit 2 + stderr blocks a PreToolUse call.
+    [Console]::Error.WriteLine("BLOCKED: Diagnostic markers found in staged/unstaged changes:")
     $offendingLines | Select-Object -Unique | ForEach-Object {
-        Write-Host "  $_" -ForegroundColor Yellow
+        [Console]::Error.WriteLine("  $_")
     }
-    Write-Host "Remove all [pkg##-diag] markers and 'REMOVE AFTER' comments before committing." -ForegroundColor Red
-    exit 1
+    [Console]::Error.WriteLine("Remove all [pkg##-diag] markers and 'REMOVE AFTER' comments before committing.")
+    exit 2
 }
 
 exit 0

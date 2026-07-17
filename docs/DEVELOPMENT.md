@@ -2,8 +2,9 @@
 
 How to stand up a full Astroray development environment on a Windows machine
 with an NVIDIA GPU. Written for the project's two known machines — the
-workstation (RTX 5070 Ti) and a travel laptop (RTX 3000-series, sm_86) — but
-applies to any Turing/Ampere/Ada-or-newer card (sm_75 / sm_86 / sm_89).
+workstation (RTX 5070 Ti) and a travel laptop (RTX 3000 Ada Generation,
+sm_89, 8 GB) — but applies to any Turing/Ampere/Ada-or-newer card
+(sm_75 / sm_86 / sm_89).
 [QUICKSTART.md](QUICKSTART.md) covers the short version; this page covers the
 full developer workflow and the Windows footguns.
 
@@ -12,7 +13,7 @@ full developer workflow and the Windows footguns.
 | Component | Version | Notes |
 |---|---|---|
 | Visual Studio 2022 Build Tools | MSVC v143 (14.4x) | C++ workload. The VS CMake generator finds it itself — no `vcvars` needed for `configure_and_build.bat`. |
-| CUDA Toolkit | 12.6+ (12.8 on the workstation) | `nvcc` on PATH or default install path. Targets `sm_75;86;89` (see "GPU architectures"). |
+| CUDA Toolkit | 12.6+ (12.8 workstation, 13.2 laptop) | `nvcc` on PATH or default install path. Targets `sm_75;86;89` (see "GPU architectures"). With several toolkits installed, the CMake VS integration picks the **newest** — not the one on PATH. |
 | CMake | 3.24+ | VS generator used for the canonical build. |
 | Python | 3.13 x64 | Must match Blender 5.1's bundled Python minor version for addon work. `winget install Python.Python.3.13`. `pip install -r requirements.txt`. |
 | Blender | 5.1 | Only for addon work / cross-engine benchmarks. Auto-detected at the default install path, or set `BLENDER_EXE`. |
@@ -92,6 +93,15 @@ Rules that save hours:
 
 ## Windows footguns
 
+- **CUDA 13 moved its runtime DLLs**: from CUDA 13.0, `nvrtc64_*.dll`,
+  `cudart64_*.dll`, `cublas64_*.dll` etc. live in `bin\x64\`, not `bin\`.
+  `tests/runtime_setup.py` and the addon bundler probe both layouts; any
+  hand-rolled PATH/`os.add_dll_directory` setup must include `bin\x64` or
+  imports fail with "DLL load failed" despite a healthy build.
+- **OneDrive syncs `build_cuda/` between machines**: a CMake cache and
+  `.obj` files built on the other machine are invalid here (different
+  username/toolkit paths). On arriving at a new machine, delete
+  `build_cuda/` and configure fresh before trusting any build output.
 - **OneDrive locks**: the repo lives under OneDrive on the workstation. Sync
   can hold `.git` objects and directories open — deletion fails with
   "Permission denied"/"used by another process". Retry, or pause OneDrive

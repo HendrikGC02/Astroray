@@ -19,9 +19,13 @@ if ($status) {
 Write-Host "`nOpen PRs:" -ForegroundColor Cyan
 gh pr list --state open --limit 10 2>$null
 
-# Stale .pyd check (Windows MSVC build_cuda layout)
+# Stale .pyd check — every dir the test harness can load a pyd from
+# (mirror runtime_setup.candidate_build_dirs)
 $pydCandidates = @(
+    "build_cuda\Release\astroray.cp*.pyd",
     "build_cuda\astroray.cp*.pyd",
+    "build_tcnn\Release\astroray.cp*.pyd",
+    "build_tcnn\astroray.cp*.pyd",
     "build\astroray.cp*.pyd",
     "build\Release\astroray.cp*.pyd"
 )
@@ -38,10 +42,14 @@ foreach ($pattern in $pydCandidates) {
 }
 
 if ($latestSrc) {
-    $age = (Get-Date) - $latestSrc.LastWriteTime
-    if ($age.TotalHours -gt 24) {
-        Write-Host "`nWARN: STALE .pyd DETECTED: $($latestSrc.Name) is $([int]$age.TotalHours)h old." -ForegroundColor Red
-        Write-Host "   Suggest rebuild before running tests." -ForegroundColor Red
+    # The CLAUDE.md rule: a pyd older than HEAD's commit time is stale.
+    $headEpoch = git log -1 --format=%ct HEAD 2>$null
+    if ($headEpoch) {
+        $headTime = [DateTimeOffset]::FromUnixTimeSeconds([long]$headEpoch).LocalDateTime
+        if ($latestSrc.LastWriteTime -lt $headTime) {
+            Write-Host "`nWARN: STALE .pyd DETECTED: $($latestSrc.FullName) ($($latestSrc.LastWriteTime)) predates HEAD ($headTime)." -ForegroundColor Red
+            Write-Host "   Rebuild before trusting any GPU result." -ForegroundColor Red
+        }
     }
 } else {
     Write-Host "`nNo .pyd found - CUDA build not present or not built yet." -ForegroundColor DarkYellow

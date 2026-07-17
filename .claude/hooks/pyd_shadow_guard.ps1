@@ -65,6 +65,10 @@ $legit = @(
     '\build\',
     '\build_cuda\',
     '\build_tcnn\',
+    '\build_blender_addon_tcnn\',
+    '\build_blender_addon_cuda\',
+    '\build_blender_addon_cpu\',
+    '\dist\',
     '\blender_addon\Release\'
 ) | ForEach-Object { [Regex]::Escape($_) }
 $legitPattern = '(' + ($legit -join '|') + ')'

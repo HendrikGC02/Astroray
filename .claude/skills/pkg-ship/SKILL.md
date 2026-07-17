@@ -16,7 +16,7 @@ When the owner says "implement pkg88" or "start on pkg43" or hands you a spec to
 
 Before any code:
 
-1. `cd C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray` (or the active repo path the owner referenced — never silently switch worktrees per CLAUDE.md §Build & Verification).
+1. `cd <repo-root>` (or the active repo path the owner referenced — never silently switch worktrees per CLAUDE.md §Build & Verification).
 2. `pwd && git rev-parse --show-toplevel` to confirm location.
 3. Scan for shadow `.pyd` files that could mask fresh builds:
    ```powershell
@@ -42,7 +42,7 @@ If the spec frontmatter says `Status: research signed off — not yet ready to i
 ## Step 2 — Create worktree
 
 ```powershell
-git worktree add "C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray\.claude\worktrees\<pkg-name>" -b <pkg-name> main
+git worktree add "<repo-root>\.claude\worktrees\<pkg-name>" -b <pkg-name> main
 ```
 
 Then enter it:

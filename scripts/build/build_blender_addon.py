@@ -733,6 +733,10 @@ def _bundle_cuda_runtime_dlls(module_path: Path) -> None:
     import glob as _glob
     cuda_bin_candidates += [Path(p) for p in _glob.glob(
         r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v*\bin")]
+    # CUDA 13+ on Windows moved the runtime DLLs into bin\x64 — probe both
+    # layouts for every candidate collected so far.
+    cuda_bin_candidates = [d for cand in cuda_bin_candidates
+                           for d in (cand, cand / "x64")]
     cuda_bin_candidates += [Path(r"C:\Windows\System32")]  # runtime may be here too
 
     # DLLs required by the CUDA runtime (cudart) and potentially CUBLAS/CUFFT

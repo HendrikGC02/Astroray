@@ -37,7 +37,7 @@ paper over problems, and you stop when something the spec doesn't resolve.
 **Do NOT rely on `EnterWorktree` — it's harness-level and doesn't propagate to subagent tool calls.** Create your own worktree as a SIBLING of the main checkout:
 
 ```
-cd C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray
+cd <repo-root>
 git fetch origin
 git worktree add ../Astroray-<pkg> -b <pkg> origin/main
 cd ../Astroray-<pkg>
@@ -80,7 +80,7 @@ If your changes touch any `.cu`, `.cuh`, `.cpp`, `.hpp`, `.h`, or `CMakeLists.tx
 
 1. **Run the build.** From the main checkout (NOT inside your worktree — the wrapper takes the worktree path as an argument):
    ```
-   C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray\build_cuda_worktree.bat ../Astroray-<pkg> <head-sha>
+   <repo-root>\build_cuda_worktree.bat ../Astroray-<pkg> <head-sha>
    ```
    The wrapper sources MSVC vcvars itself; you do not need a Developer PowerShell. Exit code 0 = clean build. If non-zero, you are NOT done; iterate.
 2. **Paste the last 5 lines of the build log into your final report.** Self-attestation ("I believe this builds") is not acceptance evidence. Memory: `implementer-ships-without-building`.

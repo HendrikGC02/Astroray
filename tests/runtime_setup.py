@@ -145,6 +145,10 @@ def candidate_cuda_dirs(build_dirs: list[str]) -> list[str]:
         r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin",
     ])
 
+    # CUDA 13+ on Windows moved the runtime DLLs (nvrtc, cublas, ...) from
+    # bin\ into bin\x64\ — probe both layouts for every candidate.
+    candidates = [c for cand in candidates for c in (cand, os.path.join(str(cand), "x64"))]
+
     seen: set[str] = set()
     existing: list[str] = []
     for candidate in candidates:

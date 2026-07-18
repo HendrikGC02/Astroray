@@ -675,7 +675,6 @@ def test_transmission_bounces_zero_makes_glass_darker():
     assert float(np.mean(no_transmission[center])) < float(np.mean(with_transmission[center])) * 0.75
 
 
-@pytest.mark.xfail(reason="per-closure bounce limits not ported to the spectral path_tracer — deferred", strict=False)
 def test_total_max_depth_still_caps_all_paths():
     r = create_renderer()
     create_cornell_box(r)

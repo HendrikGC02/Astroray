@@ -953,6 +953,190 @@ WfContext& wfCtx() {
 
 }  // namespace
 
+// pkg55-C2 MIS audit: run stage_init + the PRODUCTION intersect+shade (deferred
+// NEE parking) for one bounce and download the shade-time MIS pdfs the wavefront
+// used. Row format (3 floats per path):
+//   [0]: path_light_pdf  — NEE selection×solid-angle pdf (incl. light-tree pick)
+//   [1]: path_mis_pdf    — BSDF pdf at the NEE direction
+//   [2]: path_mis_weight — resulting power-heuristic weight (Veach 1997)
+// Sentinel: path_light_pdf == 0.0 means "no NEE fired at this slot" (delta lobe,
+// no lights, occlusion-independent zero-f_spec, or an env/emissive path that
+// died before shade). The gate masks those rows out.
+std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
+    Renderer& renderer,
+    const Camera& cam,
+    int width, int height,
+    uint64_t seed)
+{
+    int total_paths = width * height;
+    if (total_paths <= 0) {
+        throw std::runtime_error("cuda_wavefront_snapshot_post_nee_mis: invalid dimensions");
+    }
+
+    GCameraParams gcam;
+    gcam.origin = GVec3(cam.getOrigin().x, cam.getOrigin().y, cam.getOrigin().z);
+    gcam.lowerLeft = GVec3(cam.getLowerLeft().x, cam.getLowerLeft().y, cam.getLowerLeft().z);
+    gcam.horizontal = GVec3(cam.getHorizontal().x, cam.getHorizontal().y, cam.getHorizontal().z);
+    gcam.vertical = GVec3(cam.getVertical().x, cam.getVertical().y, cam.getVertical().z);
+    gcam.lensRadius = cam.getLensRadius();
+    gcam.width = width;
+    gcam.height = height;
+    {
+        Vec3 u_vec = cam.getU();
+        Vec3 v_vec = cam.getV();
+        gcam.u = GVec3(u_vec.x, u_vec.y, u_vec.z);
+        gcam.v = GVec3(v_vec.x, v_vec.y, v_vec.z);
+    }
+    gcam.focusDist = cam.getFocusDist();
+
+    // Scene upload (mirrors cuda_wavefront_render: GLight + light tree + env).
+    GBVHNode* d_bvhNodes = nullptr;
+    GPrimitive* d_prims = nullptr;
+    GTriangle* d_tris = nullptr;
+    GSphere* d_spheres = nullptr;
+    ::GMaterial* d_materials = nullptr;
+    ::GLight* d_lights = nullptr;
+    GLightTreeNode* d_treeNodes = nullptr;
+    GLightTreeEmitter* d_treeEmitters = nullptr;
+    int* d_lightToEmitter = nullptr;
+    float* d_envData = nullptr;
+    float* d_envCondCdf = nullptr;
+    float* d_envCondFunc = nullptr;
+    float* d_envMargCdf = nullptr;
+    float* d_envMargFunc = nullptr;
+    float* d_nee_f = nullptr;
+    int* d_nee_i = nullptr;
+    int* d_shadow_queue = nullptr;
+    int* d_shadow_count = nullptr;
+
+    GPUWavefrontState state{};
+    GPUWavefrontHitBuffers hitBufs{};
+    bool stateAllocated = false, hitAllocated = false;
+
+    auto cleanup = [&]() {
+        if (stateAllocated) freeGPUWavefrontState(state);
+        if (hitAllocated) freeGPUWavefrontHitBuffers(hitBufs);
+        cudaFree(d_bvhNodes); cudaFree(d_prims); cudaFree(d_tris);
+        cudaFree(d_spheres); cudaFree(d_materials); cudaFree(d_lights);
+        cudaFree(d_treeNodes); cudaFree(d_treeEmitters); cudaFree(d_lightToEmitter);
+        cudaFree(d_envData); cudaFree(d_envCondCdf); cudaFree(d_envCondFunc);
+        cudaFree(d_envMargCdf); cudaFree(d_envMargFunc);
+        cudaFree(d_nee_f); cudaFree(d_nee_i);
+        cudaFree(d_shadow_queue); cudaFree(d_shadow_count);
+    };
+
+    try {
+        SceneUploadResult res = buildSceneArrays(renderer, &cam);
+        devUpload(res.nodes, &d_bvhNodes);
+        devUpload(res.prims, &d_prims);
+        devUpload(res.triangles, &d_tris);
+        devUpload(res.spheres, &d_spheres);
+        devUpload(res.materials, &d_materials);
+        devUpload(res.lights, &d_lights);
+        devUpload(res.lightTreeNodes, &d_treeNodes);
+        devUpload(res.lightTreeEmitters, &d_treeEmitters);
+        devUpload(res.lightToEmitter, &d_lightToEmitter);
+
+        GLightTreeView treeView{d_treeNodes, d_treeEmitters, d_lightToEmitter,
+                                (int)res.lightTreeNodes.size(),
+                                (int)res.lightTreeNodes.size() > 0 ? 1 : 0};
+
+        GEnvMap envMap{};
+        if (res.envLoaded) {
+            devUpload(res.envData, &d_envData);
+            devUpload(res.envCondCdf, &d_envCondCdf);
+            devUpload(res.envCondFunc, &d_envCondFunc);
+            devUpload(res.envMargCdf, &d_envMargCdf);
+            devUpload(res.envMargFunc, &d_envMargFunc);
+            envMap.data            = d_envData;
+            envMap.conditionalCdf  = d_envCondCdf;
+            envMap.conditionalFunc = d_envCondFunc;
+            envMap.marginalCdf     = d_envMargCdf;
+            envMap.marginalFunc    = d_envMargFunc;
+            envMap.width           = res.envWidth;
+            envMap.height          = res.envHeight;
+            envMap.strength        = res.envStrength;
+            std::memcpy(envMap.rotMat, res.envRotMat, 9 * sizeof(float));
+            std::memcpy(envMap.colorTint, res.envColorTint, 3 * sizeof(float));
+            envMap.totalPower      = res.envTotalPower;
+            envMap.loaded          = true;
+        }
+
+        Vec3 bg = renderer.getBackgroundColor();
+        bool hasBg = bg.x >= 0.f;
+        GVec3 gbg = hasBg ? GVec3(bg.x, bg.y, bg.z) : GVec3(0.f);
+        int worldMaxBounces = renderer.getWorldMaxBounces();
+
+        if (!allocateGPUWavefrontState(state, total_paths))
+            throw std::runtime_error("cuda_wavefront_snapshot_post_nee_mis: state alloc failed");
+        stateAllocated = true;
+        if (!allocateGPUWavefrontHitBuffers(hitBufs, total_paths))
+            throw std::runtime_error("cuda_wavefront_snapshot_post_nee_mis: hit buffer alloc failed");
+        hitAllocated = true;
+
+        // Deferred-NEE parking scratch (11 floats + 2 ints per slot, per the
+        // stage_advance.cu layout constants); shadow queue is unused output.
+        auto mallocOrThrow = [](void** p, size_t bytes) {
+            if (cudaMalloc(p, bytes) != cudaSuccess)
+                throw std::runtime_error("cuda_wavefront_snapshot_post_nee_mis: scratch alloc failed");
+        };
+        mallocOrThrow((void**)&d_nee_f, size_t(11) * total_paths * sizeof(float));
+        mallocOrThrow((void**)&d_nee_i, size_t(2) * total_paths * sizeof(int));
+        mallocOrThrow((void**)&d_shadow_queue, size_t(total_paths) * sizeof(int));
+        mallocOrThrow((void**)&d_shadow_count, sizeof(int));
+        cudaMemset(d_shadow_count, 0, sizeof(int));
+
+        // Sentinel-zero the MIS instrumentation arrays: only NEE-firing slots
+        // overwrite them, so "path_light_pdf == 0" marks "no NEE at this slot".
+        cudaMemset(state.path_light_pdf,  0, total_paths * sizeof(float));
+        cudaMemset(state.path_mis_pdf,    0, total_paths * sizeof(float));
+        cudaMemset(state.path_mis_weight, 0, total_paths * sizeof(float));
+
+        // Spectral tables: gpu_material_eval_spectral gates NEE on f_spec>0, so
+        // without the JH LUT + D65 + CMF uploads every f_spec is 0 and NEE never
+        // fires (the black-frame failure mode; see cuda_wavefront_render).
+        uploadCmfTables();
+        uploadJakobHanikaLut();
+
+        launchStageInit(state, gcam, width, height, seed);
+        launchStageShadeNeeMis(state, hitBufs, d_nee_f, d_nee_i,
+                               d_shadow_queue, d_shadow_count, total_paths,
+                               d_bvhNodes, d_prims, d_tris, d_spheres,
+                               d_materials, d_lights, (int)res.lights.size(),
+                               res.totalLightPower, treeView, envMap, gbg, hasBg,
+                               worldMaxBounces, /*max_depth=*/8);
+
+        cudaError_t se = cudaDeviceSynchronize();
+        if (se != cudaSuccess)
+            throw std::runtime_error(std::string("cuda_wavefront_snapshot_post_nee_mis sync: ")
+                                     + cudaGetErrorString(se));
+
+        std::vector<float> h_light_pdf(total_paths);
+        std::vector<float> h_mis_pdf(total_paths);
+        std::vector<float> h_mis_weight(total_paths);
+        cudaError_t err;
+        #define DL(dst, src) \
+            err = cudaMemcpy((dst).data(), (src), total_paths * sizeof(float), cudaMemcpyDeviceToHost); \
+            if (err != cudaSuccess) throw std::runtime_error(std::string("cudaMemcpy failed: ") + cudaGetErrorString(err));
+        DL(h_light_pdf, state.path_light_pdf);
+        DL(h_mis_pdf, state.path_mis_pdf);
+        DL(h_mis_weight, state.path_mis_weight);
+        #undef DL
+
+        std::vector<float> snapshot(size_t(total_paths) * 3);
+        for (int i = 0; i < total_paths; ++i) {
+            snapshot[i * 3 + 0] = h_light_pdf[i];
+            snapshot[i * 3 + 1] = h_mis_pdf[i];
+            snapshot[i * 3 + 2] = h_mis_weight[i];
+        }
+        cleanup();
+        return snapshot;
+    } catch (...) {
+        cleanup();
+        throw;
+    }
+}
+
 std::vector<float> cuda_wavefront_render(
     Renderer& renderer,
     const Camera& cam,

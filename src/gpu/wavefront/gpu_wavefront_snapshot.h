@@ -135,6 +135,19 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     int width, int height,
     uint64_t seed);
 
+// pkg55-C2 MIS audit — Run stage_init + the PRODUCTION intersect+shade
+// (deferred NEE parking) for one bounce, download the shade-time MIS pdfs the
+// wavefront used. Row format (3 floats per path):
+//   [0]: path_light_pdf  — NEE selection×solid-angle pdf (incl. light-tree pick)
+//   [1]: path_mis_pdf    — BSDF pdf at the NEE direction
+//   [2]: path_mis_weight — resulting power-heuristic weight (Veach 1997)
+// Sentinel: path_light_pdf == 0.0 marks "no NEE fired at this slot".
+std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
+    Renderer& renderer,
+    const Camera& cam,
+    int width, int height,
+    uint64_t seed);
+
 // pkg55-B' Session N+6: end-to-end GPU wavefront render. Runs init +
 // max_depth advance rounds per sample and returns the linear-sRGB image
 // (height*width*3 floats), accumulated host-side exactly like the CPU

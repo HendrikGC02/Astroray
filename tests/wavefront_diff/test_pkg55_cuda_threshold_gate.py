@@ -486,6 +486,113 @@ def _compute_stage_p999(cpu_snapshots, gpu_snapshot_array, stage):
     return max(all_rel_errors)
 
 
+def _power_heuristic(a, b):
+    """Veach 1997 power heuristic with Astroray's 1e-8 div-guard.
+
+    Identical formula + epsilon to the wavefront (gpu_nee.cuh:27-29,
+    stage_advance.cu:346) and the CPU reference (path_kernel.cpp:244-245).
+    """
+    return (a * a) / (a * a + b * b + 1e-8)
+
+
+def test_post_nee_mis_gate():
+    """pkg55-C2 PostNEE_MIS gate — audit the wavefront's shade-time MIS.
+
+    Two-tier, mirroring the merged PostShade convention:
+
+      Tier 1 (exact) — CPU-wavefront <-> CPU-reference: the shade-time MIS
+        triple (nee_light_pdf, nee_bsdf_pdf_at_dir, nee_mis_weight) is
+        bit-identical by shared-kernel construction (advance_one_bounce),
+        compared field-for-field by snapshot_diff.cpp:123-128 at tolerance 0.
+
+      Tier 2 (formula parity) — the power-heuristic identity holds on BOTH
+        sides with the identical formula + 1e-8 guard:
+          |wt - power_heuristic(lightPdf, bsdfPdf)| <= power_heuristic_tol.
+        This is the deterministic-given-stage MIS invariant. Raw MIS pdf
+        VALUES are NOT compared CPU<->GPU: the template-RNG arc + the
+        multi-emitter measurement scene make CPU (mt19937 substream) and GPU
+        (direct PCG32) draw different light samples, so the pdfs differ by
+        Monte-Carlo variance, not error (same rationale the PostShade gate
+        gives for excluding bsdf_pdf). Whole-program correctness of the
+        sampled values is gated by the final-image SSIM gate.
+
+    See .astroray_plan/docs/pkg55-c2-mis-audit-research.md for the full audit.
+    """
+    import numpy as np
+    ar = _lazy_import_astroray()
+    thresholds = _load_thresholds()
+    tol = thresholds["cpu_to_gpu_thresholds"]["PostNEE_MIS"]["power_heuristic_tol"]
+
+    WIDTH, HEIGHT = 16, 16
+    SEED = 424242
+    SPP = 1
+    MAX_DEPTH = 8
+
+    r = _build_renderer(WIDTH, HEIGHT, SEED, MAX_DEPTH)
+
+    # --- Tier 1a: CPU-wavefront <-> CPU-reference exact bit-identity (incl. the
+    # MIS triple, which snapshot_diff.cpp compares at PostLightSample). ---
+    diff = ar.cpu_wavefront_snapshot_diff(r, samples=SPP, max_depth=MAX_DEPTH, seed=SEED)
+    assert diff["total_diverging_fields"] == 0 and diff["max_abs_diff"] == 0.0, (
+        "PostNEE_MIS tier-1 FAILED: CPU-wavefront and CPU-reference diverge on the "
+        f"MIS triple (or any field): {diff['total_diverging_fields']} fields, "
+        f"max |diff|={diff['max_abs_diff']}.\n{diff['report']}"
+    )
+
+    # --- Tier 1b: the CPU reference itself satisfies the power-heuristic identity. ---
+    cpu = ar.reference_pt_wavefront_render(r, SPP, MAX_DEPTH, SEED, True)
+    cpu_ls = [s for s in cpu["snapshots"]
+              if s["stage"] == 3 and s["bounce"] == 0]  # PostLightSample, bounce 0
+    assert len(cpu_ls) > 0, (
+        "PostNEE_MIS: no NEE fired on the CPU reference — the scene must exercise "
+        "NEE for this gate to be meaningful. Investigate the scene/light setup."
+    )
+    cpu_lp = np.array([s["nee_light_pdf"] for s in cpu_ls], dtype=np.float64)
+    cpu_bp = np.array([s["nee_bsdf_pdf_at_dir"] for s in cpu_ls], dtype=np.float64)
+    cpu_wt = np.array([s["nee_mis_weight"] for s in cpu_ls], dtype=np.float64)
+    cpu_resid = np.max(np.abs(cpu_wt - _power_heuristic(cpu_lp, cpu_bp)))
+    assert cpu_resid <= tol, (
+        f"PostNEE_MIS tier-1b FAILED: CPU nee_mis_weight is not the power heuristic "
+        f"of (nee_light_pdf, nee_bsdf_pdf_at_dir); max residual {cpu_resid:.3e} > {tol:.3e}."
+    )
+    assert np.all(cpu_lp > 0.0), "CPU nee_light_pdf must be > 0 wherever NEE fired."
+    assert np.all((cpu_wt >= 0.0) & (cpu_wt <= 1.0)), "CPU MIS weight out of [0,1]."
+
+    # --- Tier 2: GPU formula parity (skips without CUDA). ---
+    if not hasattr(ar, 'cuda_wavefront_snapshot_post_nee_mis'):
+        pytest.skip("CUDA wavefront not available. Build with -DASTRORAY_WAVEFRONT_CUDA_N3=ON.")
+
+    gpu = np.asarray(
+        ar.cuda_wavefront_snapshot_post_nee_mis(r, WIDTH, HEIGHT, SEED),
+        dtype=np.float64).reshape(-1, 3)
+    fired = gpu[:, 0] > 0.0  # path_light_pdf sentinel: 0 => no NEE at this slot
+    n_fired = int(fired.sum())
+    assert n_fired > 0, (
+        "PostNEE_MIS: no NEE fired on the GPU wavefront (all path_light_pdf==0). "
+        "The instrumented shade kernel did not record any MIS sample."
+    )
+    g_lp = gpu[fired, 0]
+    g_bp = gpu[fired, 1]
+    g_wt = gpu[fired, 2]
+    gpu_resid = float(np.max(np.abs(g_wt - _power_heuristic(g_lp, g_bp))))
+    assert gpu_resid <= tol, (
+        f"PostNEE_MIS tier-2 FAILED: GPU path_mis_weight is not the power heuristic "
+        f"of (path_light_pdf, path_mis_pdf); max residual {gpu_resid:.3e} > {tol:.3e}. "
+        f"The kernel is not applying Veach 1997 to the pdfs it captured."
+    )
+    assert np.all(g_lp > 0.0), "GPU path_light_pdf must be > 0 wherever NEE fired."
+    assert np.all(g_bp >= 0.0), "GPU path_mis_pdf (BSDF pdf) must be >= 0."
+    assert np.all((g_wt >= 0.0) & (g_wt <= 1.0)), "GPU MIS weight out of [0,1]."
+
+    # ASCII-safe print (cp1252 Windows consoles).
+    print(f"\n[pkg55-C2 PostNEE_MIS gate] PASS:")
+    print(f"  Tier 1  CPU-wf<->CPU-ref exact: 0 diverging fields")
+    print(f"  Tier 1b CPU power-heuristic identity: max residual {cpu_resid:.3e} "
+          f"over {len(cpu_ls)} NEE rows")
+    print(f"  Tier 2  GPU power-heuristic identity: max residual {gpu_resid:.3e} "
+          f"over {n_fired} NEE rows (tol {tol:.3e})")
+
+
 if __name__ == "__main__":
     # Standalone run for Session N+2 baseline measurement
     import astroray

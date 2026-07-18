@@ -104,6 +104,19 @@ struct GPUWavefrontState {
     float*    color_2       = nullptr;
     float*    color_3       = nullptr;
 
+    // pkg55-C2 MIS audit instrumentation (NOT a transport change — written by
+    // shadePathSlot's NEE branch where the values are already computed, and
+    // never read by accumulation, so renders stay bit-identical). Inspected by
+    // the PostNEE_MIS per-stage gate.
+    //   path_light_pdf[i]  — NEE selection×solid-angle pdf s.lightPdf
+    //                        (includes the light-tree pick pdf when resident).
+    //   path_mis_pdf[i]    — BSDF pdf gpu_material_pdf(mat, rec, wo, s.wi).
+    //   path_mis_weight[i] — resulting power-heuristic weight wt (Veach 1997).
+    // Sentinel: path_light_pdf[i] == 0.0f means "no NEE fired at this slot".
+    float*    path_light_pdf  = nullptr;
+    float*    path_mis_pdf    = nullptr;
+    float*    path_mis_weight = nullptr;
+
     // Path-continuation flags.
     int*      was_specular  = nullptr;  // 0/1
     int*      path_alive    = nullptr;  // 0 = terminated, 1 = active
@@ -288,6 +301,29 @@ void launchStageShadeMetalGPU(
     GPUWavefrontHitBuffers& hitBufs,
     const ::GMaterial* d_materials,
     int num_materials);
+
+// pkg55-C2 MIS audit: instrumented one-bounce intersect+shade over all paths
+// that runs the PRODUCTION intersectPathSlot + shadePathSlot (deferred/parking
+// NEE branch — the exact code the bucketed production pipeline uses), so the
+// power-heuristic MIS captured in state.path_light_pdf / path_mis_pdf /
+// path_mis_weight is the real production weight. Test-only (the PostNEE_MIS
+// snapshot harness); NOT used by the render driver.
+void launchStageShadeNeeMis(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    float* d_nee_f, int* d_nee_i,
+    int* d_shadow_queue, int* d_shadow_count, int nee_capacity,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    int               max_depth);
 
 // Session N+3 part 2: Hit record fields (extend GPUWavefrontState for intersect->shade flow).
 // These are passed as separate device pointers; will be folded into GPUWavefrontState

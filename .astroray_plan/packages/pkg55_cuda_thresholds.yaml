@@ -97,6 +97,27 @@ cpu_to_gpu_thresholds:
     fields: ["ray_origin", "lambdas"]
     note: "Pinned 2026-05-24 (Session N+4 part 2). Measured p99.9=0.0 (no RR rows at bounce 0 on session_n1_envmap_cornell). Conservative bound matches PostLightSample. RR-specific fields (rr_prob, rr_survived) are TODO placeholders and not compared."
 
+  # PostNEE_MIS: shade-time MIS (power heuristic). pkg55-C2 audit gate.
+  # Two tiers:
+  #   Tier 1 (exact) CPU-wavefront <-> CPU-reference: the MIS triple
+  #     (nee_light_pdf, nee_bsdf_pdf_at_dir, nee_mis_weight) is bit-identical by
+  #     shared-kernel construction, compared at snapshot_diff.cpp:123-128 (0.0).
+  #   Tier 2 (formula parity) both sides: |wt - power_heuristic(lightPdf, bsdfPdf)|
+  #     <= power_heuristic_tol, with the identical Veach-1997 formula + 1e-8 guard.
+  # Raw MIS pdf VALUES are deliberately NOT compared CPU<->GPU: the template-RNG
+  # arc (stage_advance.cu:316-323) + the multi-emitter scene (an emissive sphere +
+  # a 2-triangle area light) make CPU (mt19937 substream) and GPU (direct PCG32)
+  # sample different light points, so lightPdf/bsdfPdf/wt differ by Monte-Carlo
+  # variance, not error — the same reason the PostShade gate excludes bsdf_pdf.
+  # The final-image SSIM gate is the sampling oracle for the sampled values.
+  # power_heuristic_tol = 1e-5: the GPU computes wt in float32; recomputing from
+  # the downloaded float32 pdfs in float64 differs by ~1e-7 (float32 rounding of
+  # the divide+squares), so 1e-5 is a safe tight bound.
+  PostNEE_MIS:
+    power_heuristic_tol: 1.0e-5
+    fields: ["path_light_pdf", "path_mis_pdf", "path_mis_weight"]
+    note: "Pinned 2026-07-18 (pkg55-C2). Formula-parity gate: both CPU and GPU apply the Veach 1997 power heuristic identically to the pdfs they captured. Audit found no wavefront MIS bug; the omitted RGB two-sided bsdf_mis branch is intentional (one-sided spectral integrator). See pkg55-c2-mis-audit-research.md."
+
   # Final image: whole-image SSIM gate (unchanged from Phase B/C spec)
   final_image:
     ssim_visible: 0.985

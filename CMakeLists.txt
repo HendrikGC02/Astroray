@@ -470,6 +470,8 @@ if(ASTRORAY_CUDA_FOUND)
         src/gpu/cuda_renderer.cu
         src/gpu/path_trace_kernel.cu
         src/gpu/multiwavelength_kernel.cu
+        src/gpu/gpu_spectral_tables.cu   # pkg55-C1: shared CMF/D65/JH/profile tables
+        src/gpu/light_tree_probe.cu      # pkg55-C1: pkg86-B light-tree pick probe
         src/gpu/scene_upload.cu
         src/gpu/pkg64_sms_probe.cu
         src/gpu/photon_store.cu

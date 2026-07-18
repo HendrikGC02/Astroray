@@ -383,6 +383,8 @@ only the honesty guard.
 
 **Goal:** Wavefront achieves full parity including MIS weighting and spectral upsampling. Remove megakernel code paths. Demonstrate ≥ 2× end-to-end speedup.
 
+**Execution status:** running the 7-session plan in `.astroray_plan/docs/pkg55-phase-c-plan-2026-07.md` (delete-last ordering). **Session C1 done — PR #481, 2026-07-18** (behaviour-preserving extraction of the shared spectral-tables layer → `src/gpu/gpu_spectral_tables.{cu,h}` + the pkg86-B probe → `src/gpu/light_tree_probe.cu`, so the eventual megakernel deletion is a clean unlink; byte-identical, 55 passed / 0 failed). C2–C7 open.
+
 #### Files to delete
 
 | File | Reason |

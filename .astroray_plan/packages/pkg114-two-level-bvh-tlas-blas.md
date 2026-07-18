@@ -9,7 +9,7 @@ inc 3d #468). GPU two-level BVH: instanced renders pixel-match flattened, share
 one BLAS (Blender test 325→5 flat objects), mixed instanced+flat scenes work, the
 addon instances collection/particle duplis, and a transform-only edit refits the
 TLAS at **19.5%** of a full geometry upload (≤50% budget). **GPU-gated.** The
-remaining exporter INTEGRATION is now **done (PR #TBD, 2026-07-18)**: the viewport
+remaining exporter INTEGRATION is now **done (PR #479, 2026-07-18)**: the viewport
 `Change.TRANSFORMS` path dispatches the inc-3d fast path
 (`update_instance_transform` per dupli + `upload_instance_transforms` +
 `render(skip_upload=True)`) for a pure transform-only batch whose changed objects
@@ -70,7 +70,7 @@ acceleration-structure package explicitly deferred by pkg56 §4.1.
   skip-upload render == a from-scratch build at the new transform (mad < 0.02,
   with a negative control proving `skip_upload` reads device state); refit upload
   cost **19.5%** of a full `upload_geometry` (≤50% budget met). `test_tlas_refit.py`.
-- **Inc 3d exporter wiring (landed — PR #TBD, 2026-07-18):** `convert_objects`
+- **Inc 3d exporter wiring (landed — PR #479, 2026-07-18):** `convert_objects`
   records `_renderer_instance_id_map` {source name: [instance_id…] in dupli order}
   and `_renderer_instancer_eligible` {instancer name: bool}. The viewport
   `Change.TRANSFORMS` branch takes the TLAS-only fast path

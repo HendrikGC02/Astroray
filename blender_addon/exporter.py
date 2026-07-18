@@ -88,18 +88,27 @@ class ObjectsCache:
         self._last_ids = set()
 
     def diff(self, depsgraph):
-        """Check if objects/geometry changed. Returns (geometry_changed: bool,
-        has_transforms: bool, transforms: list[(obj_id, mat16)]).
+        """Check if objects/geometry changed. Returns
+        (geometry: bool, flat_transforms: list[(obj_id, mat16)], xform_names: list[str]).
+
+          - geometry: a real is_updated_geometry edit occurred.
+          - flat_transforms: transform-only edits resolved via the flat
+            renderer-object-id map (the update_object_transform path).
+          - xform_names: names of transform-only edits with NO flat-map entry —
+            candidates for the pkg114 inc-3d instanced-refit fast path or (if not
+            instanced) a geometry promote. That decision needs the instance maps,
+            which live on the engine, so the dispatcher classifies these.
 
         Note: is_updated_geometry subsumes is_updated_transform — rebuilding
         geometry already covers a moved object. Only transform-only edits
         route to the transform path."""
         updates = getattr(depsgraph, 'updates', None)
         if updates is None:
-            return False, False, []
+            return False, [], []
 
         geometry = False
-        transforms = []
+        flat_transforms = []
+        xform_names = []
 
         for upd in updates:
             upd_id = getattr(upd, 'id', None)
@@ -116,19 +125,23 @@ class ObjectsCache:
                 # Transform-only edit
                 obj_id = self._renderer_object_id_for_fn(upd_id)
                 if obj_id is None:
-                    # No id mapping cached — promote to geometry rebuild
-                    geometry = True
+                    # No flat-map entry — hand the name to the dispatcher, which
+                    # decides instanced-refit vs geometry-rebuild promote.
+                    nm = getattr(upd_id, 'name', None)
+                    if nm is not None:
+                        xform_names.append(nm)
+                    else:
+                        geometry = True  # can't identify → safe full rebuild
                 else:
                     try:
                         m = list(upd_id.matrix_world)
                         if m and hasattr(m[0], '__iter__'):
                             m = [float(x) for row in m for x in row]
-                        transforms.append((obj_id, m))
+                        flat_transforms.append((obj_id, m))
                     except Exception:
                         geometry = True
 
-        has_transforms = bool(transforms)
-        return geometry, has_transforms, transforms
+        return geometry, flat_transforms, xform_names
 
 
 class MaterialsCache:
@@ -266,6 +279,9 @@ class Exporter:
         self._viewport_target_spp = 0
         self._viewport_accum_key = None
         self._viewport_prewarmed_for_mode = None  # pkg84: CUDA kernel pre-warm state
+        self._viewport_skip_upload_next = False  # pkg114 inc 3d: next render is a
+        # TLAS-only refit → render(skip_upload=True); set by apply_depsgraph_updates,
+        # consumed by view_update.
 
         # Per-domain caches
         self._camera_cache = CameraCache(bpy_module)
@@ -327,10 +343,28 @@ class Exporter:
             changes |= Change.MATERIALS
         if self._lights_cache.diff(depsgraph):
             changes |= Change.LIGHTS
-        geometry, has_transforms, transforms = self._objects_cache.diff(depsgraph)
+        geometry, flat_transforms, xform_names = self._objects_cache.diff(depsgraph)
+        # pkg114 inc 3d: classify unresolved transform-only edits against the
+        # engine's instance maps (populated by convert_objects on GPU only; empty
+        # otherwise, so CPU / non-instanced scenes fall through unchanged).
+        instance_map = getattr(self.engine, '_renderer_instance_id_map', None) or {}
+        instancer_elig = getattr(self.engine, '_renderer_instancer_eligible', None) or {}
+
+        def _fast_ok(nm):
+            # Refit-able in place: an instanced source (duplis in the id map) or an
+            # eligible instancer empty (all its duplis went through the shared BLAS).
+            return (nm in instance_map) or (instancer_elig.get(nm) is True)
+
+        def _related(nm):
+            # Touches instancing at all — including a poisoned/nested instancer — so
+            # a partial update would leave the scene inconsistent (→ full sync).
+            return (nm in instance_map) or (nm in instancer_elig)
+
+        instancing_related = any(_related(nm) for nm in xform_names)
+
         if geometry:
             changes |= Change.GEOMETRY
-        if has_transforms:
+        if flat_transforms or xform_names:
             changes |= Change.TRANSFORMS
         backend_config, accumulation_only = self._config_cache.diff(depsgraph)
         if accumulation_only:
@@ -366,6 +400,21 @@ class Exporter:
                 self._reset_viewport_accumulation()
             return 'idle'
 
+        # pkg114 inc 3d — instanced transform-only dispatch decision. A PURE
+        # transform batch (no other image-changing domain) where every changed
+        # object is refit-able takes the TLAS-only fast path. A batch that touches
+        # instancing any OTHER way (mixed flat+instanced, poisoned/nested instancer,
+        # or transform + another domain) can't be kept consistent by a partial
+        # update, so it full-syncs. Non-instanced transform-only edits keep the
+        # pre-pkg114 behaviour: promote to a geometry rebuild.
+        transform_only = (changes & ~(Change.TRANSFORMS | Change.ACCUMULATION_ONLY)) == 0
+        do_refit = (transform_only and bool(xform_names) and not flat_transforms
+                    and all(_fast_ok(nm) for nm in xform_names))
+        if not do_refit and instancing_related:
+            return 'fallback'
+        if not do_refit and any(not _fast_ok(nm) for nm in xform_names):
+            changes |= Change.GEOMETRY
+
         # pkg96 P2: reconcile-then-upload contract. Each domain re-derives
         # its state from Blender before pushing device buffers.
         if changes & Change.BACKEND_CONFIG:
@@ -386,8 +435,15 @@ class Exporter:
             renderer.upload_lights()
         if changes & Change.GEOMETRY:
             renderer.upload_geometry()
+        elif do_refit:
+            # pkg114 inc 3d: TLAS-only refit — push each instance's fresh
+            # matrix_world in place, re-upload ONLY d_instances + d_tlas, then
+            # signal the caller to render(skip_upload=True) from device state.
+            self.engine.refit_instance_transforms(depsgraph, renderer)
+            renderer.upload_instance_transforms()
+            self._viewport_skip_upload_next = True
         elif changes & Change.TRANSFORMS:
-            for obj_id, mat16 in transforms:
+            for obj_id, mat16 in flat_transforms:
                 try:
                     renderer.update_object_transform(obj_id, mat16)
                 except (RuntimeError, AttributeError, TypeError):
@@ -446,8 +502,13 @@ class Exporter:
         self._viewport_full_synced = True
 
     def render_viewport_frame(self, renderer, context, settings, region,
-                             reset_accumulation, engine_methods):
-        """Set up camera, run render, update cached GPU texture."""
+                             reset_accumulation, engine_methods, skip_upload=False):
+        """Set up camera, run render, update cached GPU texture.
+
+        skip_upload (pkg114 inc 3d): render from the CURRENT device state without a
+        full geometry re-upload — used after a TLAS-only instance-transform refit
+        (update_instance_transform + upload_instance_transforms), so a transform-only
+        edit of instanced objects pays only the cheap instance/TLAS re-push."""
         width = max(1, region.width)
         height = max(1, region.height)
         render_key = engine_methods['viewport_render_key'](context, settings, region)
@@ -507,7 +568,8 @@ class Exporter:
             min(settings.glossy_bounces, depth),
             min(settings.transmission_bounces, depth),
             min(settings.volume_bounces, depth),
-            min(settings.transparent_bounces, depth)
+            min(settings.transparent_bounces, depth),
+            skip_upload
         )
         if pixels is None:
             return
@@ -583,10 +645,16 @@ class Exporter:
                 self._viewport_camera_substantive_hash = camera_substantive_state_hash_fn(context, region)
                 return
 
+            # pkg114 inc 3d: consume the refit flag apply_depsgraph_updates may have
+            # set this call — render from device state without a geometry re-upload.
+            skip_upload = self._viewport_skip_upload_next
+            self._viewport_skip_upload_next = False
+
             t0 = time.perf_counter()
             self.render_viewport_frame(renderer, context, settings, region,
                                       reset_accumulation=True,
-                                      engine_methods=engine_methods)
+                                      engine_methods=engine_methods,
+                                      skip_upload=skip_upload)
             viewport_perf_record_fn("render", t0)
             viewport_perf_frame_complete_fn()
 

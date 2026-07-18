@@ -3,9 +3,11 @@
 **Pillar:** 5 (GPU) + 3 (light transport)
 **Track:** A
 **Codex-paste-ready:** no (core CUDA + CPU; large; multi-session RTX verify)
-**Status:** COMPLETE (core) — all acceptance criteria met & RTX-verified
-2026-06-12 (inc 1 #430, inc 2 #431, inc 3a #460, inc 3b #462, inc 3c #465,
-inc 3d #468). GPU two-level BVH: instanced renders pixel-match flattened, share
+**Status:** done (PR #479, 2026-07-18 — exporter `Change.TRANSFORMS` wired to the
+inc-3d TLAS-only refit; headless Blender 5.1 refit render byte-identical to a full
+re-sync, mad 0.00000 < 0.02). All acceptance criteria met & RTX-verified (inc 1 #430,
+inc 2 #431, inc 3a #460, inc 3b #462, inc 3c #465, inc 3d #468, exporter wiring #479).
+GPU two-level BVH: instanced renders pixel-match flattened, share
 one BLAS (Blender test 325→5 flat objects), mixed instanced+flat scenes work, the
 addon instances collection/particle duplis, and a transform-only edit refits the
 TLAS at **19.5%** of a full geometry upload (≤50% budget). **GPU-gated.** The one

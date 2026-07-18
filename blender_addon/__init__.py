@@ -3424,7 +3424,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
         Grouping key is (mesh datablock, obj.name): duplis of one source share the
         name → one shared BLAS + one Cryptomatte matte (matches the flatten path);
         linked duplicates have distinct names → distinct count-1 groups → they
-        flatten (no regression). Only groups with >= 2 instances are worth it."""
+        flatten (no regression). Only groups with >= 2 instances are worth it.
+
+        pkg114 inc 3d wiring: also records `_renderer_instance_id_map`
+        {source obj.name: [instance_id, ...] in dupli-enumeration order} so a
+        later transform-only viewport edit can refit the TLAS instead of a full
+        geometry re-upload, and `_renderer_instancer_eligible` {instancer obj.name:
+        bool} so a moved instancer EMPTY can also refit. An instancer is eligible
+        only when EVERY dupli it generated went through the shared BLAS (none
+        flattened) and it is not itself nested — otherwise moving it also moves
+        flat-scene geometry the refit wouldn't touch, so it must full-sync. Both
+        maps are reset here so a full re-sync always rebuilds them (empty ⇒ nothing
+        instanced ⇒ the transform path stays on full sync)."""
+        self._renderer_instance_id_map = {}
+        self._renderer_instancer_eligible = {}
         if not (hasattr(renderer, "register_mesh_bulk") and hasattr(renderer, "add_instance")):
             return set()
         settings = getattr(depsgraph.scene, "custom_raytracer", None)
@@ -3433,8 +3446,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if not BULK_GEOMETRY_UPLOAD:
             return set()
 
-        # Pass A — collect eligible instances grouped by (datablock, name).
+        # Pass A — collect eligible instances grouped by (datablock, name), and
+        # track each instancer's generated duplis for the inc-3d empty-move guard.
         groups = {}      # key -> list of (enum_index, obj, matrix_world.copy())
+        instancer_members = {}   # instancer name -> [member source obj.name, ...]
+        instancer_nested = set()  # instancer names that generate a nested instancer
         for i, inst in enumerate(depsgraph.object_instances):
             obj = inst.object
             if obj is None:
@@ -3444,12 +3460,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     continue
             elif getattr(obj, 'hide_viewport', False):
                 continue
+            # Record which instancer produced this (visible) dupli BEFORE the
+            # instanceable filter — a flattened member still poisons its instancer.
+            if getattr(inst, 'is_instance', False):
+                parent = getattr(inst, 'parent', None)
+                pname = getattr(parent, 'name', None) if parent is not None else None
+                if pname is not None:
+                    instancer_members.setdefault(pname, []).append(obj.name)
+                    # A dupli whose source is itself an instancer ⇒ nested; refit
+                    # of the outer empty can't reason about the inner TLAS → poison.
+                    if getattr(obj, 'instance_type', 'NONE') not in ('NONE', None, ''):
+                        instancer_nested.add(pname)
             if not self._object_instanceable(obj):
                 continue
             key = (obj.data, obj.name)
             groups.setdefault(key, []).append((i, obj, inst.matrix_world.copy()))
 
         skip = set()
+        instanced_names = set()  # source names that made it into a shared BLAS
         identity4 = mathutils.Matrix.Identity(4)
         identity3 = mathutils.Matrix.Identity(3)
         for (data, name), entries in groups.items():
@@ -3487,12 +3515,67 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 int(getattr(src_obj, "pass_index", 0)), uvs, uv_names, normals,
                 name)
             for enum_i, _obj, mw in entries:
-                renderer.add_instance(mesh_id, [v for row in mw for v in row])
+                iid = renderer.add_instance(mesh_id, [v for row in mw for v in row])
                 skip.add(enum_i)
+                # pkg114 inc 3d: dupli-enumeration-ordered id list per source name,
+                # keyed so the transform-only path can look the instances up by name
+                # and refit them (matches the add_instance order used at refit time).
+                self._renderer_instance_id_map.setdefault(name, []).append(iid)
+            instanced_names.add(name)
+
+        # pkg114 inc 3d: an instancer EMPTY is refit-eligible only if it is not
+        # nested and EVERY dupli it generated went through the shared BLAS. If any
+        # member flattened (count-1 linked dupe, emissive/caustic/volume, non-MESH),
+        # moving the empty also moves flat-scene geometry a TLAS refit won't touch,
+        # so that instancer must full-sync.
+        for pname, member_names in instancer_members.items():
+            self._renderer_instancer_eligible[pname] = (
+                pname not in instancer_nested
+                and all(m in instanced_names for m in member_names))
         if skip:
             print(f"Astroray: instanced {len(skip)} objects across "
                   f"{sum(1 for e in groups.values() if len(e) >= 2)} shared meshes (two-level BVH)")
         return skip
+
+    def refit_instance_transforms(self, depsgraph, renderer):
+        """pkg114 inc 3d — TLAS-only refit for a transform-only viewport edit.
+
+        Re-walks `depsgraph.object_instances` in the SAME dupli-enumeration order
+        `_register_instanced_groups` used, and pushes each registered instance's
+        fresh `inst.matrix_world` onto its recorded instance id via
+        `update_instance_transform` (CPU, in place). The caller then does one
+        `upload_instance_transforms()` (re-push d_instances + d_tlas only) and
+        renders with `skip_upload=True`. No BLAS geometry is touched.
+
+        Every mapped instance is refreshed, not only the moved one — the whole TLAS
+        is rebuilt from current transforms on upload regardless, so refreshing all
+        is free and immune to per-object change-attribution subtleties (team-lead
+        decision, 2026-07-17). The visibility filter mirrors registration so the
+        per-name id cursor stays aligned for an unchanged topology."""
+        id_map = getattr(self, '_renderer_instance_id_map', None)
+        if not id_map:
+            return
+        is_render = getattr(depsgraph, 'mode', 'VIEWPORT') == 'RENDER'
+        cursor = {name: 0 for name in id_map}
+        for inst in depsgraph.object_instances:
+            obj = inst.object
+            if obj is None:
+                continue
+            if is_render:
+                if getattr(obj, 'hide_render', False):
+                    continue
+            elif getattr(obj, 'hide_viewport', False):
+                continue
+            ids = id_map.get(obj.name)
+            if not ids:
+                continue
+            k = cursor[obj.name]
+            if k >= len(ids):
+                continue  # topology drifted since registration — skip (full sync
+                          # would have been taken for a genuine geometry change).
+            mw = inst.matrix_world
+            renderer.update_instance_transform(ids[k], [v for row in mw for v in row])
+            cursor[obj.name] = k + 1
 
     def convert_objects(self, depsgraph, renderer, material_map):
         tri_count = 0

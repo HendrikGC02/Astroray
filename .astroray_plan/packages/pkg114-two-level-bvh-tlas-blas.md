@@ -8,13 +8,14 @@
 inc 3d #468). GPU two-level BVH: instanced renders pixel-match flattened, share
 one BLAS (Blender test 325→5 flat objects), mixed instanced+flat scenes work, the
 addon instances collection/particle duplis, and a transform-only edit refits the
-TLAS at **19.5%** of a full geometry upload (≤50% budget). **GPU-gated.** The one
-remaining INTEGRATION (not an acceptance gate): wire the exporter
-`Change.TRANSFORMS` viewport path to call `update_instance_transform` +
-`upload_instance_transforms` + `render(skip_upload=True)` for instanced objects —
-best done alongside the in-flux viewport-interactivity work (pkg81/pkg116) rather
-than against a moving target. Follow-up acceleration-structure package explicitly
-deferred by pkg56 §4.1.
+TLAS at **19.5%** of a full geometry upload (≤50% budget). **GPU-gated.** The
+remaining exporter INTEGRATION is now **done (PR #479, 2026-07-18)**: the viewport
+`Change.TRANSFORMS` path dispatches the inc-3d fast path
+(`update_instance_transform` per dupli + `upload_instance_transforms` +
+`render(skip_upload=True)`) for a pure transform-only batch whose changed objects
+are all instanced sources or eligible instancer empties — headless Blender 5.1
+refit render is **byte-identical** to a full re-sync (mad 0.00000 < 0.02). Follow-up
+acceleration-structure package explicitly deferred by pkg56 §4.1.
 
 ### Increment log
 - **Inc 1 (PR #430, merged):** device structs (`GMat4`/`GBLAS`/`GInstance`/
@@ -69,8 +70,20 @@ deferred by pkg56 §4.1.
   skip-upload render == a from-scratch build at the new transform (mad < 0.02,
   with a negative control proving `skip_upload` reads device state); refit upload
   cost **19.5%** of a full `upload_geometry` (≤50% budget met). `test_tlas_refit.py`.
-  Wiring the exporter's `Change.TRANSFORMS` branch to call these for instanced
-  objects (instance-id map) is the small remaining integration.
+- **Inc 3d exporter wiring (landed — PR #479, 2026-07-18):** `convert_objects`
+  records `_renderer_instance_id_map` {source name: [instance_id…] in dupli order}
+  and `_renderer_instancer_eligible` {instancer name: bool}. The viewport
+  `Change.TRANSFORMS` branch takes the TLAS-only fast path
+  (`refit_instance_transforms` re-walks `depsgraph.object_instances` and re-derives
+  EACH dupli's fresh `matrix_world` → `update_instance_transform` per instance →
+  `upload_instance_transforms()` → `render(skip_upload=True)`) iff the batch is
+  pure-transform and every changed object is an instanced source or an eligible
+  instancer empty. Pure-Python dispatch tests
+  (`test_pkg114_exporter_transform_dispatch.py`, 7) + headless Blender 5.1
+  (`scripts/verify_pkg114_refit_blender.py`): moving an instancer empty and
+  refitting is **byte-identical** to a full re-sync (mad 0.00000 < 0.02; moved-image
+  Δ 0.092 non-vacuous; negative control 0.092 proving `skip_upload` reads device
+  state).
 
   **Decisions (inc 3c):** (1) addon instancing is **GPU-only**; CPU has no
   two-level traversal (renders solely via the scene-only `bvh`), so CPU keeps
@@ -82,6 +95,21 @@ deferred by pkg56 §4.1.
   package. Multi-instance EMISSIVE-light NEE, instanced caustic casters, and
   deformation-motion-on-instances remain deferred. SAH TLAS stays an explicit
   non-goal. See memory `pkg114-instancing-engine-facts`.
+
+  **Decisions (inc 3d exporter wiring, 2026-07-18):** (1) The refit never writes
+  one `obj.matrix_world` onto a dupli group — since inc-3c only instances duplis
+  (≥2 per name), each with its own composed `instancer ∘ prop_local` matrix, the
+  fast path re-walks `depsgraph.object_instances` and re-derives each instance's
+  fresh transform. It refreshes ALL mapped instances (not just the changed one):
+  `upload_instance_transforms` rebuilds the whole TLAS from current transforms
+  regardless, so this is free and immune to per-object change-attribution. (2)
+  **Trigger semantics:** a moved instancer EMPTY takes the fast path when it is
+  refit-eligible — recorded at registration as "not nested AND every dupli it
+  generated went through the shared BLAS." Any poisoned instancer (a flattened
+  member: count-1 linked dupe, emissive/caustic/volume, non-MESH), a nested
+  instancer, a mixed flat+instanced transform batch, a transform batch mixed with
+  another domain, or a CPU render (instance maps empty) all fall back to the
+  existing full sync — a partial refit can't keep flat-scene geometry consistent.
 **Depends on:** pkg56 (done — provides the `_renderer_object_id_map` placeholder
 and transform-only dispatch hook). Complementary to pkg112.
 **Estimated effort:** L (~3–4 weeks, multiple RTX sessions)

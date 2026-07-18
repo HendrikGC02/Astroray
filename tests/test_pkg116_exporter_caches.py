@@ -178,12 +178,14 @@ def test_objects_cache_diff_returns_geometry_flag_on_geometry_update():
 
     cache = exp.ObjectsCache(bpy, no_id_map)
 
-    # Object.is_updated_geometry → geometry=True
+    # Object.is_updated_geometry → geometry=True. pkg114 inc 3d changed diff's
+    # return to (geometry, flat_transforms, xform_names); a pure geometry edit
+    # leaves both transform lists empty.
     dg = _stub_depsgraph([_DepsgraphUpdate(Object("O"), geometry=True)])
-    geom, has_xforms, xforms = cache.diff(dg)
-    assert geom is True
-    assert has_xforms is False
-    assert xforms == []
+    geometry, flat_transforms, xform_names = cache.diff(dg)
+    assert geometry is True
+    assert flat_transforms == []
+    assert xform_names == []
 
 
 def test_objects_cache_diff_returns_transforms_on_transform_only_with_id_map():
@@ -195,15 +197,32 @@ def test_objects_cache_diff_returns_transforms_on_transform_only_with_id_map():
 
     cache = exp.ObjectsCache(bpy, id_map)
 
-    # Object.is_updated_transform (no geometry) → transforms list
+    # Object.is_updated_transform (no geometry), flat-map resolves the id →
+    # flat_transforms carries (obj_id, mat16); xform_names stays empty (pkg114
+    # inc 3d: only unresolved transform names land in xform_names).
     obj = Object("O")
     dg = _stub_depsgraph([_DepsgraphUpdate(obj, transform=True)])
-    geom, has_xforms, xforms = cache.diff(dg)
-    assert geom is False
-    assert has_xforms is True
-    assert len(xforms) == 1
-    assert xforms[0][0] == 42  # obj_id
-    assert len(xforms[0][1]) == 16  # mat16
+    geometry, flat_transforms, xform_names = cache.diff(dg)
+    assert geometry is False
+    assert len(flat_transforms) == 1
+    assert flat_transforms[0][0] == 42  # obj_id
+    assert len(flat_transforms[0][1]) == 16  # mat16
+    assert xform_names == []
+
+
+def test_objects_cache_diff_unresolved_transform_goes_to_xform_names():
+    # pkg114 inc 3d: a transform-only edit with NO flat-map id is handed to the
+    # dispatcher by name (which classifies it as an instanced refit or a geometry
+    # promote) rather than being force-promoted to geometry inside diff.
+    exp = _load_exporter_module()
+    bpy = _stub_bpy()
+
+    cache = exp.ObjectsCache(bpy, lambda obj: None)
+    dg = _stub_depsgraph([_DepsgraphUpdate(Object("Prop"), transform=True)])
+    geometry, flat_transforms, xform_names = cache.diff(dg)
+    assert geometry is False
+    assert flat_transforms == []
+    assert xform_names == ["Prop"]
 
 
 def test_config_cache_diff_fires_on_scene():

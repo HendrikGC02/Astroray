@@ -532,7 +532,7 @@
     "feature": "BSDF_METALLIC",
     "bl_idname": "ShaderNodeBsdfMetallic",
     "socket_or_prop": "input:Base Color",
-    "classification": "APPROXIMATED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {

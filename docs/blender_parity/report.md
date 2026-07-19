@@ -11,8 +11,8 @@
 ## Summary
 
 - **SUPPORTED**: 117 features
-- **APPROXIMATED**: 23 features
-- **DROPPED-SILENT**: 384 features ⚠️
+- **APPROXIMATED**: 22 features
+- **DROPPED-SILENT**: 385 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 524 features
 
@@ -23,7 +23,6 @@ The addon's `node.inputs.get('...')` returns None at runtime, default silently w
 **Each entry is a real latent bug.**
 
 - **BRIGHTCONTRAST**: socket `Bright` (addon __init__.py line 2356)
-- **BSDF_METALLIC**: socket `Color` (addon __init__.py line 3039)
 - **HUE_SAT**: socket `Fac` (addon __init__.py line 2338)
 - **INVERT**: socket `Fac` (addon __init__.py line 2324)
 - **MIX_SHADER**: socket `Fac` (addon __init__.py line 3061, line 3183)
@@ -35,17 +34,18 @@ The addon's `node.inputs.get('...')` returns None at runtime, default silently w
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 3054)
+- **BSDF_METALLIC**: socket `Color` (addon __init__.py line 3039)
 - **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 3054)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 3054)
 - **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 3054)
 - **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 3054)
 - **MIX**: socket `Color1` (addon __init__.py line 2312)
 - **MIX**: socket `Fac` (addon __init__.py line 2312)
 - **MIX**: socket `Color2` (addon __init__.py line 2312)
-- **MIX_RGB**: socket `A` (addon __init__.py line 2312)
 - **MIX_RGB**: socket `B` (addon __init__.py line 2312)
 - **MIX_RGB**: socket `Fac` (addon __init__.py line 2312)
+- **MIX_RGB**: socket `A` (addon __init__.py line 2312)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -146,6 +146,7 @@ These features are silently ignored by the addon with no warning:
 - **BSDF_HAIR_PRINCIPLED**: `input:Secondary Reflection` — no handler in addon translation layer
 - **BSDF_HAIR_PRINCIPLED**: `prop:model` — property ENUM
 - **BSDF_HAIR_PRINCIPLED**: `prop:parametrization` — property ENUM
+- **BSDF_METALLIC**: `input:Base Color`
 - **BSDF_METALLIC**: `input:Edge Tint`
 - **BSDF_METALLIC**: `input:IOR`
 - **BSDF_METALLIC**: `input:Extinction`
@@ -596,7 +597,7 @@ These features are silently ignored by the addon with no warning:
 | BSDF_HAIR_PRINCIPLED | input:Secondary Reflection | DROPPED-SILENT | no handler in addon translation layer |
 | BSDF_HAIR_PRINCIPLED | prop:model | DROPPED-SILENT | property ENUM |
 | BSDF_HAIR_PRINCIPLED | prop:parametrization | DROPPED-SILENT | property ENUM |
-| BSDF_METALLIC | input:Base Color | APPROXIMATED |  |
+| BSDF_METALLIC | input:Base Color | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:Edge Tint | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:IOR | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:Extinction | DROPPED-SILENT |  |

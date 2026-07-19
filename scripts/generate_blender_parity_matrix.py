@@ -196,6 +196,7 @@ def scan_addon_source_for_evidence(addon_module):
             """Extract reads from stmt, respecting nested ntype conditionals and or-chain guards.
 
             - If stmt is an If node with ntype condition, only descend if active_ntype matches
+            - If stmt is an If node with socket-existence guard, mark as guarded and extract from branches
             - Otherwise, recursively walk and extract, detecting or-chain guards
             """
             if isinstance(stmt, ast.If):
@@ -209,7 +210,10 @@ def scan_addon_source_for_evidence(addon_module):
                             self._extract_from_statement(nested_stmt, active_ntype, sockets, fallback_sockets, guarded_sockets, properties)
                     # else-branch might have other ntypes, but we skip (not our concern)
                 else:
-                    # Not a ntype conditional, descend normally
+                    # Not a ntype conditional — check if it's a socket-existence guard
+                    guarded_sockets.update(self._extract_if_else_guarded_reads(stmt))
+
+                    # Descend into branches normally
                     for nested_stmt in stmt.body:
                         self._extract_from_statement(nested_stmt, active_ntype, sockets, fallback_sockets, guarded_sockets, properties)
                     for nested_stmt in stmt.orelse:
@@ -276,6 +280,49 @@ def scan_addon_source_for_evidence(addon_module):
                                 if not isinstance(sock_name, int):
                                     names.add(sock_name)
             return names
+
+        def _extract_if_else_guarded_reads(self, if_node):
+            """Extract socket names from if/else guarded reads.
+
+            Pattern: if node.inputs.get('A') is not None: read A; else: read B
+            Both A and B are guarded (cross-version compatibility fallbacks).
+            """
+            guarded = set()
+
+            # Check if test is an existence check: inputs.get('SocketName') is not None (or is None)
+            test_socket = None
+            if isinstance(if_node.test, ast.Compare):
+                # inputs.get('A') is not None OR inputs.get('A') is None
+                if isinstance(if_node.test.left, ast.Call):
+                    call = if_node.test.left
+                    if isinstance(call.func, ast.Attribute) and call.func.attr == 'get':
+                        if isinstance(call.func.value, ast.Attribute) and call.func.value.attr == 'inputs':
+                            if len(call.args) >= 1 and isinstance(call.args[0], ast.Constant):
+                                # Check if comparing to None
+                                if (len(if_node.test.ops) == 1 and
+                                    isinstance(if_node.test.ops[0], (ast.Is, ast.IsNot)) and
+                                    len(if_node.test.comparators) == 1 and
+                                    isinstance(if_node.test.comparators[0], ast.Constant) and
+                                    if_node.test.comparators[0].value is None):
+                                    test_socket = call.args[0].value
+
+            if test_socket and not isinstance(test_socket, int):
+                guarded.add(test_socket)
+
+                # Extract socket reads from both branches
+                for branch in [if_node.body, if_node.orelse]:
+                    for stmt in branch:
+                        for child in ast.walk(stmt):
+                            # Look for get_*_input calls
+                            if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
+                                method_name = child.func.attr
+                                if method_name in ('get_color_input', 'get_float_input', 'get_base_color_texture'):
+                                    if len(child.args) >= 2 and isinstance(child.args[1], ast.Constant):
+                                        sock_name = child.args[1].value
+                                        if not isinstance(sock_name, int):
+                                            guarded.add(sock_name)
+
+            return guarded
 
         def _extract_socket_reads(self, node, sockets, fallback_sockets):
             """Extract socket names from direct reads + helper methods.

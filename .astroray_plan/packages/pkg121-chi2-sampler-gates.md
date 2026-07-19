@@ -85,9 +85,54 @@ tests, not single-value spot checks.
 
 ---
 
+## Phase B — Comprehensive validation campaign + visual report (separate dispatch)
+
+**Goal:** Once the harness passes the Lambertian anchor, run the FULL validation grid across all BSDFs/distributions and produce a rich visual report for the journal submission and June showcase.
+
+**Scope:**
+
+1. **Full Disney BSDF matrix:**
+   - All lobes: diffuse, metallic, dielectric/glass, clearcoat, sheen, subsurface
+   - Roughness sweep: r ∈ {0.0, 0.1, 0.2, ..., 1.0} (11 values)
+   - Incidence angles: θ ∈ {0°, 15°, 30°, 45°, 60°, 75°, 85°} (7 values)
+   - Metallic/transmission combinations: full 2D grid
+   - ~500+ configurations total
+
+2. **Extended distribution testing:**
+   - **Light-tree emitter sampling** (via adapter analogous to Mitsuba's `EmitterAdapter`)
+   - **Spectral distribution sampling** (Jakob-Hanika upsampled spectra via `SpectrumAdapter`)
+   - **Phase functions** (Henyey-Greenstein, Rayleigh if implemented)
+
+3. **Visual report deliverable** (HTML gallery, `test_results/chi2_validation_report/`):
+   - **Per-configuration heatmaps:** side-by-side (θ,φ) color maps of sampled histogram vs integrated PDF vs difference, matching Mitsuba's `chi2_data.py` matplotlib output style
+   - **P-value grid:** 2D heatmap matrix showing p-values across (roughness, incidence angle) for each lobe — green=pass, red=fail at α=0.01
+   - **Lobe shape evolution:** polar plots or 3D hemisphere visualizations showing how lobe shape changes across roughness sweep (e.g., metallic r=0.0 → 1.0 sequence)
+   - **Chi² statistic distribution:** histogram of all test statistics with theoretical χ² overlay to verify test calibration
+   - **Summary table:** pass/fail counts per lobe, worst-case p-values, any systematic failures
+   - **Self-contained HTML:** embed matplotlib PNGs or use D3.js/Plotly for interactive exploration (owner preference: strong dataviz)
+
+4. **Data persistence:**
+   - Keep Mitsuba's `chi2_data.py` failure-dump mechanism in the port (already present)
+   - Extend to write JSON manifest of all test results for programmatic analysis
+   - Archive raw histogram/PDF arrays for any failed configuration (debugging artifact)
+
+**Effort estimate:** M-L (2-4 sessions) — mostly visualization + interpretation, harness already runs the tests.
+
+**Acceptance criteria (Phase B):**
+- [ ] Full grid executed (all Disney lobes × roughness × angles)
+- [ ] HTML report generated with heatmaps, p-value grid, polar plots
+- [ ] Report documents any systematic failures with chi² evidence
+- [ ] Light-tree and spectral samplers tested (if time permits)
+- [ ] Report packaged for journal submission supplemental material
+
+**Note:** Phase B is **not part of the initial chi² infrastructure delivery**. It's a separate later dispatch once the harness is validated and the tabulate_pdf integration bug is fixed. Specced here per owner request to ensure the implementer invests in rich dataviz (June-showcase quality).
+
+---
+
 ## Notes
 
 - **CPU-only scope:** deliberate to avoid GPU contention with the parallel pkg55-C3 agent. Any GPU extension is a future package.
 - **Binding decisions:** if existing `evalMaterial` batching is insufficient, new bindings need `debug_` prefix and owner approval at review.
 - **Test flake note:** `test_direct_and_indirect_clamp_controls` is seed-flaky on this machine; if the harness incidentally explains why, mention it to the owner.
 - **Spec landed with impl:** owner has ~50 min of API budget; spec written alongside impl to frontload reasoning, sanctioned by team lead.
+- **Phase B dataviz emphasis:** owner explicitly wants strong visualization for the validation campaign — invest in interactive/publication-quality plots, not just text tables.

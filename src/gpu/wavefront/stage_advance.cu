@@ -137,10 +137,14 @@ __device__ int intersectPathSlot(
     int idx,
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -156,6 +160,9 @@ __device__ int intersectPathSlot(
                        state.ray_origin_z[idx]);
     ray.direction = GVec3(state.ray_direction_x[idx], state.ray_direction_y[idx],
                           state.ray_direction_z[idx]);
+    // pkg55-C4: deformation-motion time (pkg88-C.0). Sampled once at init,
+    // carried through all bounces (mirrors MW kernel multiwavelength_kernel.cu:361).
+    ray.time = state.path_time[idx];
 
     GSampledWavelengths lambdas;
     lambdas.lambda[0] = state.lambda_0[idx];
@@ -183,9 +190,13 @@ __device__ int intersectPathSlot(
 
     // ---- Intersect (CPU: bvh->hit; ray direction NOT renormalized).
     // This half consumes no RNG dimensions; state.rng_dimension is untouched.
+    // pkg55-C4 / pkg114: route through gpu_tlas_hit when TLAS exists (two-level
+    // traversal for instanced scenes). Null-TLAS fallback (tlas==nullptr) routes
+    // to the single-level gpu_bvh_hit path inside gpu_tlas_hit, so static scenes
+    // stay byte-identical (pkg114 inc-1 identity test).
     GHitRecord rec;
-    bool hit = gpu_bvh_hit(bvhNodes, prims, tris, spheres,
-                           ray, 0.001f, 1e30f, rec, /*motionVerts=*/nullptr);
+    bool hit = gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
+                            ray, 0.001f, 1e30f, rec, motionVerts);
 
     if (!hit) {
         // ---- Env-map miss (CPU path_kernel: worldMaxBounces gate; the
@@ -264,10 +275,14 @@ __device__ bool shadePathSlot(
     int idx,
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,
@@ -282,6 +297,9 @@ __device__ bool shadePathSlot(
     GRay ray;
     ray.direction = GVec3(state.ray_direction_x[idx], state.ray_direction_y[idx],
                           state.ray_direction_z[idx]);
+    // pkg55-C4: deformation-motion time (pkg88-C.0). Carried from init, threaded
+    // to shadow rays (gpu_nee_occlude).
+    ray.time = state.path_time[idx];
 
     GSampledWavelengths lambdas;
     lambdas.lambda[0] = state.lambda_0[idx];
@@ -401,10 +419,11 @@ __device__ bool shadePathSlot(
                     }
                 } else {
                     // Immediate (flat/dense schedulings): original behavior.
+                    // pkg55-C4: thread TLAS + ray.time + motionVerts (null-TLAS path
+                    // routes to single-level inside gpu_nee_occlude → gpu_tlas_hit).
                     GNEEOcclusion occ = gpu_nee_occlude(
-                        s, /*tlas=*/nullptr, /*instances=*/nullptr,
-                        /*blas=*/nullptr, bvhNodes, prims, tris, spheres,
-                        /*time=*/0.0f, /*motionVerts=*/nullptr);
+                        s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+                        ray.time, motionVerts);
                     if (!occ.occluded) {
                         GSampledSpectrum nee = gpu_nee_resolve(
                             rec, wo, lambdas, materials, s,
@@ -525,10 +544,14 @@ __device__ bool advancePathSlot(
     int idx,
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,
@@ -539,12 +562,14 @@ __device__ bool advancePathSlot(
     bool              useLuminanceOutput,
     bool              enableNEE)
 {
-    int matType = intersectPathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
-                                    spheres, materials, envMap, backgroundColor,
+    int matType = intersectPathSlot(idx, state, hitBufs, tlas, instances, blas,
+                                    bvhNodes, prims, tris, spheres, motionVerts,
+                                    materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
                                     useLuminanceOutput);
     if (matType < 0) return false;
-    return shadePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres,
+    return shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
+                         bvhNodes, prims, tris, spheres, motionVerts,
                          materials, lights, numLights, totalLightPower,
                          lightTree, max_depth,
                          /*nee_f=*/nullptr, /*nee_i=*/nullptr,
@@ -634,10 +659,14 @@ __global__ void stageShadowKernel(
     GPUWavefrontHitBuffers hitBufs,
     const float* nee_f, const int* nee_i,
     const int* shadow_queue, const int* shadow_count, int nee_capacity,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -656,9 +685,11 @@ __global__ void stageShadowKernel(
     s.isSphere   = nee_i[1 * nee_capacity + idx];
     s.valid      = 1;
 
+    // pkg55-C4: thread TLAS + path time + motionVerts to shadow rays.
+    float time = state.path_time[idx];
     GNEEOcclusion occ = gpu_nee_occlude(
-        s, /*tlas=*/nullptr, /*instances=*/nullptr, /*blas=*/nullptr,
-        bvhNodes, prims, tris, spheres, /*time=*/0.0f, /*motionVerts=*/nullptr);
+        s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+        time, motionVerts);
     if (occ.occluded) return;
 
     // Emission upsample only (the BSDF/MIS parts were pre-resolved in the

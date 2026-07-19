@@ -1015,6 +1015,8 @@ T* wfUpload(WfDeviceBuf& b, const std::vector<T>& src) {
 struct WfContext {
     // Scene slices.
     WfDeviceBuf nodes, prims, tris, spheres, materials, lights;
+    WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
+    WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
     WfDeviceBuf treeNodes, treeEmitters, lightToEmitter;
     WfDeviceBuf envData, envCondCdf, envCondFunc, envMargCdf, envMargFunc;
     // Per-path state (grow-only via the existing allocators).
@@ -1259,6 +1261,13 @@ std::vector<float> cuda_wavefront_render(
     GPrimitive* d_prims     = wfUpload(C.prims, res.prims);
     GTriangle*  d_tris      = wfUpload(C.tris, res.triangles);
     GSphere*    d_spheres   = wfUpload(C.spheres, res.spheres);
+    // pkg55-C4 / pkg114: TLAS/instances/blas for instancing support (empty unless
+    // scene has instances; null-TLAS path in gpu_tlas_hit falls back to single-level).
+    GTLASNode*  d_tlas      = wfUpload(C.tlas, res.tlas);
+    GInstance*  d_instances = wfUpload(C.instances, res.instances);
+    GBLAS*      d_blas      = wfUpload(C.blas, res.blas);
+    // pkg55-C4 / pkg88-C.0: deformation-motion vertices (nullptr for static scenes).
+    GVec3*      d_motionVerts = wfUpload(C.motionVertices, res.motionVertices);
     ::GMaterial* d_materials = wfUpload(C.materials, res.materials);
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
     GLightTreeNode* d_treeNodes = wfUpload(C.treeNodes, res.lightTreeNodes);

@@ -78,6 +78,23 @@ __device__ inline GSampledWavelengths sampleUniformWavelength(float u,
     return swl;
 }
 
+// pkg55-C4: Halton base-2 sequence for deformation-motion time sampling.
+// Mirrors multiwavelength_kernel.cu:374 (MW-kernel-local helper, cited from
+// PBRT Van der Corput radix-2, Apache-2.0). Sampled once per path at init via
+// gpu_mw_haltonBase2(sample_idx + 1), carried through all bounces (MW kernel
+// convention: multiwavelength_kernel.cu:448, 361).
+__device__ inline float gpu_mw_haltonBase2(int index) {
+    float result = 0.0f;
+    float f = 1.0f;
+    int i = index;
+    while (i > 0) {
+        f = f / 2.0f;
+        result += f * (i % 2);
+        i = i / 2;
+    }
+    return result;
+}
+
 // generatePrimaryRay: camera ray generation. Mirrors the CPU path_kernel.cpp::init_path()
 // RNG draw order:
 //   1. filter u  2. filter v  3. lens seed (converted to mt19937)  4. lambda uniform.
@@ -194,6 +211,15 @@ __device__ void initPathSlot(
     state.ray_direction_x[idx] = ray_direction.x;
     state.ray_direction_y[idx] = ray_direction.y;
     state.ray_direction_z[idx] = ray_direction.z;
+
+    // pkg55-C4: deformation-motion time (pkg88-C.0). Sampled once per path via
+    // Halton base-2 (PBRT Van der Corput radix-2, cited from MW kernel). Mirrors
+    // multiwavelength_kernel.cu:448 convention: ray.time = gpu_mw_haltonBase2(s+1).
+    // Static scenes: time will be 0 (or unused when motionVerts==nullptr).
+    // CRITICAL: this is NOT an RNG draw — it's deterministic per sample_idx,
+    // so it does NOT advance rng.dimension(). Static-scene renders must stay
+    // bit-identical (no new RNG draws on the default path).
+    state.path_time[idx] = gpu_mw_haltonBase2(sample_idx + 1);
 
     // Spectral state.
     state.lambda_0[idx]     = lambdas.lambda[0];

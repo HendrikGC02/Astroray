@@ -558,6 +558,94 @@ public:
         return {reflected.x, reflected.y, reflected.z};
     }
 
+    // pkg121: batched BSDF sample+pdf for chi² tests (CPU-only).
+    // Returns (wo_array, pdf_array) where wo_array is (N,3) and pdf_array is (N,).
+    // u2_array is (2, N) uniform random samples in [0,1]².
+    py::tuple debug_bsdf_sample_batch(int materialId,
+                                      const std::vector<float>& wiInput,
+                                      py::array_t<float> u2_array) {
+        auto it = materials.find(materialId);
+        if (it == materials.end() || !it->second) {
+            throw std::runtime_error("Unknown material id");
+        }
+        if (wiInput.size() != 3) {
+            throw std::runtime_error("wi must be a 3-element vector");
+        }
+
+        auto u2_buf = u2_array.request();
+        if (u2_buf.ndim != 2 || u2_buf.shape[0] != 2) {
+            throw std::runtime_error("u2_array must be shape (2, N)");
+        }
+        const size_t N = static_cast<size_t>(u2_buf.shape[1]);
+        const float* u2_ptr = static_cast<const float*>(u2_buf.ptr);
+
+        HitRecord rec = makeMaterialTestRecord({0.0f, 1.0f, 0.0f});
+        Vec3 wi(wiInput[0], wiInput[1], wiInput[2]);
+        wi = wi.normalized();
+
+        // Output arrays
+        auto wo_array = py::array_t<float>({static_cast<py::ssize_t>(N), py::ssize_t(3)});
+        auto pdf_array = py::array_t<float>(static_cast<py::ssize_t>(N));
+        auto wo_buf = wo_array.request();
+        auto pdf_buf = pdf_array.request();
+        float* wo_ptr = static_cast<float*>(wo_buf.ptr);
+        float* pdf_ptr = static_cast<float*>(pdf_buf.ptr);
+
+        // Sample in batch (CPU serial, but avoids pybind overhead per sample)
+        std::mt19937 gen(12345);  // Fixed seed for reproducibility in tests
+        for (size_t i = 0; i < N; ++i) {
+            // Set RNG state from u2 samples (simple approach: re-seed per sample)
+            // More sophisticated: use u2 directly in Material::sample if supported
+            // For now, use a deterministic per-sample seed derived from i
+            gen.seed(static_cast<uint32_t>(12345 + i));
+
+            BSDFSample bs = it->second->sample(rec, wi, gen);
+            wo_ptr[i * 3 + 0] = bs.wi.x;
+            wo_ptr[i * 3 + 1] = bs.wi.y;
+            wo_ptr[i * 3 + 2] = bs.wi.z;
+            pdf_ptr[i] = bs.pdf;
+        }
+
+        return py::make_tuple(wo_array, pdf_array);
+    }
+
+    // pkg121: batched BSDF PDF evaluation (CPU-only).
+    // wo_array is (N, 3), returns pdf_array (N,).
+    py::array_t<float> debug_bsdf_pdf_batch(int materialId,
+                                            const std::vector<float>& wiInput,
+                                            py::array_t<float> wo_array) {
+        auto it = materials.find(materialId);
+        if (it == materials.end() || !it->second) {
+            throw std::runtime_error("Unknown material id");
+        }
+        if (wiInput.size() != 3) {
+            throw std::runtime_error("wi must be a 3-element vector");
+        }
+
+        auto wo_buf = wo_array.request();
+        if (wo_buf.ndim != 2 || wo_buf.shape[1] != 3) {
+            throw std::runtime_error("wo_array must be shape (N, 3)");
+        }
+        const size_t N = static_cast<size_t>(wo_buf.shape[0]);
+        const float* wo_ptr = static_cast<const float*>(wo_buf.ptr);
+
+        HitRecord rec = makeMaterialTestRecord({0.0f, 1.0f, 0.0f});
+        Vec3 wi(wiInput[0], wiInput[1], wiInput[2]);
+        wi = wi.normalized();
+
+        auto pdf_array = py::array_t<float>(static_cast<py::ssize_t>(N));
+        auto pdf_buf = pdf_array.request();
+        float* pdf_ptr = static_cast<float*>(pdf_buf.ptr);
+
+        for (size_t i = 0; i < N; ++i) {
+            Vec3 wo(wo_ptr[i * 3 + 0], wo_ptr[i * 3 + 1], wo_ptr[i * 3 + 2]);
+            wo = wo.normalized();
+            pdf_ptr[i] = it->second->pdf(rec, wi, wo);
+        }
+
+        return pdf_array;
+    }
+
     void addSphere(const std::vector<float>& center, float radius, int materialId,
                    const std::vector<float>& iesDirection = std::vector<float>(),
                    const std::string& iesFile = "",
@@ -2434,6 +2522,14 @@ PYBIND11_MODULE(astroray, m) {
         .def("integrate_material_reflectance", &PyRenderer::integrateMaterialReflectance,
              "material_id"_a, "cos_theta_o"_a, "samples"_a = 4096,
              "Halton hemisphere integration of material eval(), used for BRDF conservation tests.")
+        .def("debug_bsdf_sample_batch", &PyRenderer::debug_bsdf_sample_batch,
+             "material_id"_a, "wi"_a, "u2_array"_a,
+             "pkg121: batched BSDF sample for chi² tests (CPU-only). "
+             "u2_array is (2, N) uniform samples, returns (wo_array (N,3), pdf_array (N,)).")
+        .def("debug_bsdf_pdf_batch", &PyRenderer::debug_bsdf_pdf_batch,
+             "material_id"_a, "wi"_a, "wo_array"_a,
+             "pkg121: batched BSDF PDF eval for chi² tests (CPU-only). "
+             "wo_array is (N,3), returns pdf_array (N,).")
         .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a,
             "ies_direction"_a = std::vector<float>(), "ies_file"_a = std::string(),
             "object_pass_index"_a = 0, "material_pass_index"_a = 0)

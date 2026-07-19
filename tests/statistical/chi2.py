@@ -449,6 +449,54 @@ class SphericalDomain:
         return np.stack([phi, cos_theta], axis=0)
 
 
+class HemisphericalDomain:
+    """
+    Maps between the unit HEMISPHERE (upper half-sphere) and [phi, cos(theta)] parameterization.
+
+    Domain bounds: phi ∈ [-π, π], cos(theta) ∈ [0, 1] (UPPER hemisphere only).
+    Aspect ratio: 2:1.
+
+    IMPORTANT: This uses Y-up normal (Astroray's makeMaterialTestRecord default).
+    Samples must have y >= 0 to be in the upper hemisphere.
+
+    Use this for reflection-only BSDFs (Lambertian, rough conductor, etc.).
+    Use SphericalDomain for transmission/refraction BSDFs that sample the full sphere.
+    """
+    def bounds(self):
+        return np.array([[-np.pi, 0.0], [np.pi, 1.0]], dtype=np.float32)
+
+    def aspect(self):
+        return 2.0
+
+    def map_forward(self, p):
+        """
+        Map from [phi, cos(theta)] to unit hemisphere direction (x, y, z).
+
+        Uses Y-up normal: y = cos(theta), x-z plane = tangent plane.
+        """
+        phi = p[0]
+        cos_theta = p[1]
+        sin_theta = np.sqrt(np.maximum(0.0, 1.0 - cos_theta ** 2))
+        sin_phi = np.sin(phi)
+        cos_phi = np.cos(phi)
+
+        return np.stack([
+            cos_phi * sin_theta,  # x
+            cos_theta,  # y (along normal)
+            sin_phi * sin_theta  # z
+        ], axis=0)
+
+    def map_backward(self, p):
+        """
+        Map from unit hemisphere direction (x, y, z) to [phi, cos(theta)].
+
+        Uses Y-up normal: cos(theta) = y component.
+        """
+        phi = np.arctan2(p[2], p[0])  # atan2(z, x) for azimuth in x-z plane
+        cos_theta = p[1]  # y component is cos(theta) for Y-up normal
+        return np.stack([phi, cos_theta], axis=0)
+
+
 class PlanarDomain:
     """Identity map on the plane."""
     def __init__(self, bounds=None):

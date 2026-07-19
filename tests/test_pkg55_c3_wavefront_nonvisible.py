@@ -26,6 +26,17 @@ Gates:
 * Naive visible (enable_nee=False) → SSIM ≥ 0.97 vs CPU multiwavelength
 * Visible-band default (NEE) → unchanged by C3 flags (vs path_tracer, in-band)
 
+Coverage gap (follow-up chip, 2026-07-19): there is NO band-aware NEE CPU
+reference to gate the wavefront's NEE + luminance + profile-override path
+against. `path_tracer` ignores the band; `multiwavelength_path_tracer` is
+naive (no NEE); the CPU wavefront twin (`cpu_wavefront_render`) is the RGB
+Lambertian-Cornell skeleton and is NOT band-aware (C3 threaded only the GPU
+wavefront). Probing NEE-band + profile-override LIVENESS also needs an
+NIR-emissive-profile scene — this D65-lit scene is degenerate-black
+out-of-band by construction, so no NEE-NIR emission signal exists to probe.
+The naive gates above still exercise the wavefront's band sampling +
+luminance accumulation end-to-end.
+
 Skipped when no CUDA GPU + ASTRORAY_WAVEFRONT_CUDA_N3, or when profiles.bin
 is missing.
 """

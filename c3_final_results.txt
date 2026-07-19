@@ -35,6 +35,15 @@ Full sweep (via scripts/dev/run_tests.py --build-dir build_cuda):
     (xpass = test_pkg55_perf_gate::test_wavefront_contact_sheet_target,
      the >=2x gate that C7 will formally turn on; xfail marker still in place)
 
-Side finding (for round docs): the MW MEGAKERNEL is black in NIR under NEE +
-luminance (a pre-existing defect nobody gated) — strengthens the C7 deletion
-case. Not in C3 scope; recorded only.
+Side finding (for round docs — re-measured on the FRESH build, NOT the
+contaminated dossier): the "MW megakernel is black in NIR" framing was WRONG.
+Re-confirmed 48x48@256spp profiles:
+  GPU megakernel multiwavelength (naive) NIR = 4.72e-5 vs CPU multiwavelength
+    4.79e-5, SSIM 1.0000 — CORRECT, both black (band-aware).
+  GPU megakernel path_tracer (NEE) NIR = 1.8e-4 (black) vs CPU path_tracer
+    0.1331 (bright), SSIM 0.045.
+The GPU megakernel path_tracer is band-AWARE (correctly darkens NIR, like the
+wavefront); the CPU path_tracer is the one that IGNORES wavelength_range and
+renders NIR as visible RGB. So there is no megakernel "defect" here — the real
+gap is that the CPU path_tracer is not band-aware (pre-existing, CPU-side, out
+of C3 scope). GPU/wavefront black-NIR is the physically-correct behavior.

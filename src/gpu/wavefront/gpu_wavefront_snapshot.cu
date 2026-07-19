@@ -28,6 +28,59 @@ void uploadJakobHanikaLut();
 
 namespace astroray::wavefront {
 
+// Forward declarations for stage launch functions from stage_advance.cu
+// (pkg55-C3: added useLuminanceOutput, enableNEE params)
+void launchStageIntersectQueued(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const int* d_queue_in, const int* d_count_in,
+    int* d_shade_queues, int* d_shade_counts, int capacity,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    bool              useLuminanceOutput);
+
+void launchStageShadeBucketed(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const int* d_shade_queues, const int* d_shade_counts, int capacity,
+    int* d_queue_out, int* d_count_out,
+    float* d_nee_f, int* d_nee_i, int* d_shadow_queue, int* d_shadow_count,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE);
+
+void launchStageShadeNeeMis(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    float* d_nee_f, int* d_nee_i,
+    int* d_shadow_queue, int* d_shadow_count, int nee_capacity,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE);
+
 std::vector<float> cuda_wavefront_snapshot_post_init(
     const Camera& cam,
     int width, int height,
@@ -1104,7 +1157,8 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
                                d_bvhNodes, d_prims, d_tris, d_spheres,
                                d_materials, d_lights, (int)res.lights.size(),
                                res.totalLightPower, treeView, envMap, gbg, hasBg,
-                               worldMaxBounces, /*max_depth=*/8);
+                               worldMaxBounces, /*max_depth=*/8,
+                               /*useLuminanceOutput=*/false, /*enableNEE=*/true);
 
         cudaError_t se = cudaDeviceSynchronize();
         if (se != cudaSuccess)
@@ -1142,7 +1196,10 @@ std::vector<float> cuda_wavefront_render(
     const Camera& cam,
     int width, int height,
     int samples, int max_depth,
-    uint64_t seed)
+    uint64_t seed,
+    float lambdaMin, float lambdaMax,
+    bool useLuminanceOutput,
+    bool enableNEE)
 {
     int total_paths = width * height;
     if (total_paths <= 0 || samples <= 0) {
@@ -1298,7 +1355,8 @@ std::vector<float> cuda_wavefront_render(
                                        d_bvhNodes, d_prims, d_tris,
                                        d_spheres, d_materials,
                                        envMap, gbg, hasBg,
-                                       worldMaxBounces);
+                                       worldMaxBounces,
+                                       useLuminanceOutput);
             launchStageShadeBucketed(state, hitBufs,
                                      d_shadeQueues, d_shadeCounts,
                                      total_paths, d_queueB, cout,
@@ -1308,7 +1366,8 @@ std::vector<float> cuda_wavefront_render(
                                      d_spheres, d_materials, d_lights,
                                      (int)res.lights.size(),
                                      res.totalLightPower,
-                                     treeView, max_depth);
+                                     treeView, max_depth,
+                                     useLuminanceOutput, enableNEE);
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_bvhNodes, d_prims, d_tris, d_spheres,

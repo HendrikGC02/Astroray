@@ -1576,6 +1576,17 @@ public:
             // RGBIlluminantSpectrum spectral atlas sampling.
 #ifdef ASTRORAY_WAVEFRONT_CUDA_N3
             if (integratorName_ == "wavefront_path_tracer") {
+                // pkg55-C3: resolve spectral params (visible-band spectral is the
+                // default; non-visible bands require lambda_min/max + output_mode).
+                float lmin = integratorParams_.getFloat("lambda_min", 380.0f);
+                float lmax = integratorParams_.getFloat("lambda_max", 780.0f);
+                std::string mode = integratorParams_.getString("output_mode", "");
+                bool useLum;
+                if (mode.empty())
+                    useLum = !(lmin >= 379.5f && lmax <= 780.5f);
+                else
+                    useLum = (mode == "luminance");
+                bool enableNEE = true;  // wavefront_path_tracer always uses NEE
                 // pkg55-B' plugin registration (spec sec. 6): this name
                 // selects the wavefront pipeline (path regeneration +
                 // material-bucketed shade + dedicated shadow stage) instead
@@ -1585,7 +1596,8 @@ public:
                 // 7-material contact sheet (Phase-B gate).
                 auto rgb = astroray::wavefront::cuda_wavefront_render(
                     renderer, *camera, camera->width, camera->height,
-                    samplesPerPixel, maxDepth, renderer.getSeed());
+                    samplesPerPixel, maxDepth, renderer.getSeed(),
+                    lmin, lmax, useLum, enableNEE);
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -4115,7 +4127,9 @@ PYBIND11_MODULE(astroray, m) {
           "path_light_pdf==0 marks a slot where no NEE fired.");
 
     m.def("cuda_wavefront_render",
-          [](PyRenderer& r, int samples, int max_depth, uint64_t seed) -> py::array_t<float> {
+          [](PyRenderer& r, int samples, int max_depth, uint64_t seed,
+             float lambda_min = 380.0f, float lambda_max = 780.0f,
+             bool use_luminance_output = false, bool enable_nee = true) -> py::array_t<float> {
               auto cam = r.getCamera();
               if (!cam) {
                   throw std::runtime_error("Camera not set up. Call setup_camera() first.");
@@ -4123,17 +4137,21 @@ PYBIND11_MODULE(astroray, m) {
               int width = cam->width;
               int height = cam->height;
               auto rgb = astroray::wavefront::cuda_wavefront_render(
-                  r.getRenderer(), *cam, width, height, samples, max_depth, seed);
+                  r.getRenderer(), *cam, width, height, samples, max_depth, seed,
+                  lambda_min, lambda_max, use_luminance_output, enable_nee);
               py::array_t<float> arr({height, width, 3});
               auto buf = arr.request();
               std::copy(rgb.begin(), rgb.end(), static_cast<float*>(buf.ptr));
               return arr;
           },
           "renderer"_a, "samples"_a, "max_depth"_a, "seed"_a,
-          "pkg55-B' Session N+6: end-to-end GPU wavefront render (stage_init + "
-          "stage_advance loop, all 7 material types via the megakernel device "
-          "dispatch). Returns (height, width, 3) linear-sRGB image accumulated "
-          "exactly like the CPU wavefront driver. Final-image gate entry point.");
+          "lambda_min"_a = 380.0f, "lambda_max"_a = 780.0f,
+          "use_luminance_output"_a = false, "enable_nee"_a = true,
+          "pkg55-C3: end-to-end GPU wavefront render with spectral-band control. "
+          "Returns (height, width, 3) linear-sRGB image. lambda_min/max control "
+          "the spectral sampling band; use_luminance_output selects luminance-avg RR "
+          "and Rayleigh sky for non-visible bands; enable_nee gates NEE sampling "
+          "(false = naive multiwavelength mode).");
 #endif  // ASTRORAY_WAVEFRONT_CUDA_N3
 
     m.def("viewport_perf_reset",

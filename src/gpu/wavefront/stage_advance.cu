@@ -48,6 +48,7 @@
 #include "astroray/gpu_env_spectral.cuh"
 #include "astroray/sampling/wavefront_rng_device.h"
 #include "../profile.h"
+#include "../gpu_spectral_tables.h"  // pkg55-C3: gpu_profile_reflectance
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -90,6 +91,13 @@ namespace astroray::wavefront {
 namespace {
 
 constexpr int kRRDepth = 3;  // mirrors CPU path_kernel.cpp kRRDepth
+
+// pkg55-C3: Rayleigh scattering scale for non-visible-band sky fallback.
+// Mirrors multiwavelength_kernel.cu:76 (MW-kernel-local helper).
+__device__ inline float rayleighScale(float lambda_nm) {
+    float r = 550.f / lambda_nm;
+    return r * r * r * r;
+}
 
 }  // namespace
 
@@ -134,7 +142,8 @@ __device__ int intersectPathSlot(
     const ::GMaterial* materials,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
-    int               worldMaxBounces)
+    int               worldMaxBounces,
+    bool              useLuminanceOutput)
 {
     const int bounce = state.bounce[idx];
 
@@ -179,10 +188,22 @@ __device__ int intersectPathSlot(
     if (!hit) {
         // ---- Env-map miss (CPU path_kernel: worldMaxBounces gate; the
         // shared helper mirrors EnvironmentMap::evalSpectral).
+        // pkg55-C3: Rayleigh sky fallback for non-visible-band luminance-output
+        // mode (multiwavelength_kernel.cu:171-177).
         if (bounce <= worldMaxBounces) {
             GVec3 dir = ray.direction.normalized();
-            GSampledSpectrum envSpec = gpu_env_miss_spectral(
-                envMap, backgroundColor, hasBackgroundColor, dir, lambdas);
+            GSampledSpectrum envSpec(0.f);
+            if (useLuminanceOutput && !hasBackgroundColor && !envMap.loaded) {
+                // Rayleigh sky fallback for outside-visible bands.
+                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+                    float scale = rayleighScale(lambdas.lambda[i]);
+                    float horizonFade = 0.5f * (dir.y + 1.f);
+                    envSpec.v[i] = 0.08f * scale * (0.5f + horizonFade);
+                }
+            } else {
+                envSpec = gpu_env_miss_spectral(
+                    envMap, backgroundColor, hasBackgroundColor, dir, lambdas);
+            }
             color += throughput * envSpec;
             state.color_0[idx] = color.v[0];
             state.color_1[idx] = color.v[1];
@@ -250,7 +271,9 @@ __device__ bool shadePathSlot(
     GLightTreeView    lightTree,
     int               max_depth,
     float*            nee_f, int* nee_i,
-    int*              shadow_queue, int* shadow_count, int nee_capacity)
+    int*              shadow_queue, int* shadow_count, int nee_capacity,
+    bool              useLuminanceOutput,
+    bool              enableNEE)
 {
     const int bounce = state.bounce[idx];
 
@@ -321,7 +344,8 @@ __device__ bool shadePathSlot(
     // Per-bounce dimension counts now vary by branch (CPU keeps mt19937
     // sub-streams); the per-stage gates compare only deterministic-given-
     // stage fields and the final-image gates remain the sampling oracle.
-    if (!rec.isDelta && numLights > 0) {
+    // pkg55-C3: enableNEE flag gates NEE sampling (naive multiwavelength mode).
+    if (enableNEE && !rec.isDelta && numLights > 0) {
         if (totalLightPower > 0.f) {
             GNEESample s = gpu_nee_sample(rec, prims, tris, spheres,
                                           lights, numLights, totalLightPower,
@@ -387,9 +411,18 @@ __device__ bool shadePathSlot(
     }
 
     // ---- Russian roulette on luminance of throughput's XYZ (bounce > 3).
+    // pkg55-C3: for useLuminanceOutput (non-visible bands), use average of
+    // spectral samples instead of XYZ.Y (multiwavelength_kernel.cu:315-318).
     if (bounce > kRRDepth) {
-        GVec3 thrXYZ = gpu_spectrum_to_xyz(throughput, lambdas);
-        float p = fminf(0.95f, fmaxf(0.0f, thrXYZ.y));
+        float p;
+        if (useLuminanceOutput) {
+            float avg = 0.f;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) avg += throughput.v[i];
+            p = fminf(0.95f, fmaxf(0.0f, avg / float(G_SPECTRUM_SAMPLES)));
+        } else {
+            GVec3 thrXYZ = gpu_spectrum_to_xyz(throughput, lambdas);
+            p = fminf(0.95f, fmaxf(0.0f, thrXYZ.y));
+        }
         float rr_u = rng.Uniform();
         bool survived = (rr_u <= p);
         if (!survived) {
@@ -418,6 +451,22 @@ __device__ bool shadePathSlot(
         return false;
     }
     wasSpecular = bss.isDelta;
+
+    // pkg55-C3: non-visible-band profile override (multiwavelength_kernel.cu:342-351).
+    // For lambdas outside [380,780] nm, the visible-band Jakob-Hanika upsampling
+    // is undefined; use the uploaded spectral profile table instead (pkg54a).
+    if (!wasSpecular && mat.profileIndex >= 0) {
+        float cosTheta = fmaxf(0.f, rec.normal.dot(bss.wi));
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+            float lam = lambdas.lambda[i];
+            if (lam < 380.f || lam > 780.f) {
+                bss.fSpectral.v[i] =
+                    gpu_profile_reflectance(mat.profileIndex, lam)
+                    * cosTheta / M_PI_F;
+            }
+        }
+    }
+
     throughput *= bss.fSpectral * (1.0f / (bss.pdf + 0.001f));
 
     // ---- Throughput clamp (CPU: maxC > 10 -> scale to 10).
@@ -480,18 +529,22 @@ __device__ bool advancePathSlot(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth)
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE)
 {
     int matType = intersectPathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
                                     spheres, materials, envMap, backgroundColor,
-                                    hasBackgroundColor, worldMaxBounces);
+                                    hasBackgroundColor, worldMaxBounces,
+                                    useLuminanceOutput);
     if (matType < 0) return false;
     return shadePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres,
                          materials, lights, numLights, totalLightPower,
                          lightTree, max_depth,
                          /*nee_f=*/nullptr, /*nee_i=*/nullptr,
                          /*shadow_queue=*/nullptr, /*shadow_count=*/nullptr,
-                         /*nee_capacity=*/0);
+                         /*nee_capacity=*/0,
+                         useLuminanceOutput, enableNEE);
 }
 
 __global__ void stageAdvanceKernel(
@@ -507,7 +560,9 @@ __global__ void stageAdvanceKernel(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth)
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= state.num_active) return;
@@ -515,7 +570,7 @@ __global__ void stageAdvanceKernel(
     advancePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres, materials,
                     lights, numLights, totalLightPower, lightTree, envMap,
                     backgroundColor, hasBackgroundColor, worldMaxBounces,
-                    max_depth);
+                    max_depth, useLuminanceOutput, enableNEE);
 }
 
 // ---------------------------------------------------------------------------
@@ -543,7 +598,9 @@ __global__ void stageAdvanceQueuedKernel(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth)
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
@@ -551,7 +608,8 @@ __global__ void stageAdvanceQueuedKernel(
     bool alive = advancePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres,
                                  materials, lights, numLights, totalLightPower,
                                  lightTree, envMap, backgroundColor,
-                                 hasBackgroundColor, worldMaxBounces, max_depth);
+                                 hasBackgroundColor, worldMaxBounces, max_depth,
+                                 useLuminanceOutput, enableNEE);
     if (alive) {
         int slot = atomicAdd(count_out, 1);
         queue_out[slot] = idx;
@@ -651,7 +709,8 @@ __global__ void stageIntersectQueuedKernel(
     const ::GMaterial* materials,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
-    int               worldMaxBounces)
+    int               worldMaxBounces,
+    bool              useLuminanceOutput)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
@@ -662,7 +721,8 @@ __global__ void stageIntersectQueuedKernel(
     if (state.path_alive[idx] == 0) return;
     int matType = intersectPathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
                                     spheres, materials, envMap, backgroundColor,
-                                    hasBackgroundColor, worldMaxBounces);
+                                    hasBackgroundColor, worldMaxBounces,
+                                    useLuminanceOutput);
     if (matType < 0) return;
     if (matType >= G_WF_NUM_MAT_TYPES) matType = G_WF_NUM_MAT_TYPES - 1;
     int slot = atomicAdd(&shade_counts[matType], 1);
@@ -682,7 +742,9 @@ __global__ void stageShadeBucketedKernel(
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,
-    int               max_depth)
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int bucket = i / capacity;
@@ -694,7 +756,7 @@ __global__ void stageShadeBucketedKernel(
                                spheres, materials, lights, numLights,
                                totalLightPower, lightTree, max_depth,
                                nee_f, nee_i, shadow_queue, shadow_count,
-                               capacity);
+                               capacity, useLuminanceOutput, enableNEE);
     if (alive) {
         int slot = atomicAdd(count_out, 1);
         queue_out[slot] = idx;
@@ -795,6 +857,8 @@ void launchStageAdvance(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE,
     bool              sync)
 {
     if (state.num_active <= 0) return;
@@ -808,7 +872,7 @@ void launchStageAdvance(
             state, hitBufs, d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, num_lights, total_light_power, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
-            worldMaxBounces, max_depth);
+            worldMaxBounces, max_depth, useLuminanceOutput, enableNEE);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_advance launch error: %s\n",
@@ -849,7 +913,9 @@ void launchStageAdvanceQueued(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth)
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE)
 {
     if (state.num_active <= 0) return;
     // Grid covers the worst case (all paths alive); the kernel early-outs
@@ -866,7 +932,7 @@ void launchStageAdvanceQueued(
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, num_lights, total_light_power, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
-            worldMaxBounces, max_depth);
+            worldMaxBounces, max_depth, useLuminanceOutput, enableNEE);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_advance_queued launch error: %s\n",
@@ -902,7 +968,8 @@ void launchStageIntersectQueued(
     const ::GMaterial* d_materials,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
-    int               worldMaxBounces)
+    int               worldMaxBounces,
+    bool              useLuminanceOutput)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -915,7 +982,8 @@ void launchStageIntersectQueued(
             state, hitBufs, d_queue_in, d_count_in,
             d_shade_queues, d_shade_counts, capacity,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
-            envMap, backgroundColor, hasBackgroundColor, worldMaxBounces);
+            envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
+            useLuminanceOutput);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_intersect_queued launch error: %s\n",
@@ -938,7 +1006,9 @@ void launchStageShadeBucketed(
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
-    int               max_depth)
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE)
 {
     if (capacity <= 0) return;
     // One launch covers all buckets: grid = NUM_TYPES * capacity threads;
@@ -957,7 +1027,8 @@ void launchStageShadeBucketed(
             d_queue_out, d_count_out,
             d_nee_f, d_nee_i, d_shadow_queue, d_shadow_count,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
-            d_lights, num_lights, total_light_power, lightTree, max_depth);
+            d_lights, num_lights, total_light_power, lightTree, max_depth,
+            useLuminanceOutput, enableNEE);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_shade_bucketed launch error: %s\n",
@@ -1129,19 +1200,23 @@ __global__ void stageShadeNeeMisKernel(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth)
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= state.num_active) return;
     if (state.path_alive[idx] == 0) return;
     int matType = intersectPathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
                                     spheres, materials, envMap, backgroundColor,
-                                    hasBackgroundColor, worldMaxBounces);
+                                    hasBackgroundColor, worldMaxBounces,
+                                    useLuminanceOutput);
     if (matType < 0) return;  // env miss / emissive hit: path died, no NEE.
     shadePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres,
                   materials, lights, numLights, totalLightPower,
                   lightTree, max_depth,
-                  nee_f, nee_i, shadow_queue, shadow_count, nee_capacity);
+                  nee_f, nee_i, shadow_queue, shadow_count, nee_capacity,
+                  useLuminanceOutput, enableNEE);
 }
 
 void launchStageShadeNeeMis(
@@ -1159,7 +1234,9 @@ void launchStageShadeNeeMis(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth)
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1170,7 +1247,7 @@ void launchStageShadeNeeMis(
         d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
         d_lights, num_lights, total_light_power, lightTree,
         envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
-        max_depth);
+        max_depth, useLuminanceOutput, enableNEE);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         std::fprintf(stderr, "stage_shade_nee_mis launch error: %s\n",

@@ -18,7 +18,7 @@ import os
 
 # Add parent directory to path to import chi2 module
 sys.path.insert(0, os.path.dirname(__file__))
-from chi2 import ChiSquareTest, SphericalDomain
+from chi2 import ChiSquareTest, SphericalDomain, HemisphericalDomain
 
 try:
     import astroray
@@ -43,12 +43,20 @@ def make_disney_material(renderer, **params):
 
 
 def spherical_to_cartesian(theta, phi):
-    """Convert spherical coordinates (theta, phi) to unit Cartesian vector."""
+    """
+    Convert spherical coordinates (theta, phi) to unit Cartesian vector.
+
+    Uses Y-up convention to match makeMaterialTestRecord normal=[0,1,0].
+    theta: polar angle from +Y axis [0, π]
+    phi: azimuthal angle from +X axis [-π, π]
+
+    Returns: [x, y, z] where y = cos(theta), x = sin(theta)*cos(phi), z = sin(theta)*sin(phi)
+    """
     sin_theta = np.sin(theta)
     cos_theta = np.cos(theta)
     sin_phi = np.sin(phi)
     cos_phi = np.cos(phi)
-    return np.array([sin_theta * cos_phi, sin_theta * sin_phi, cos_theta])
+    return np.array([sin_theta * cos_phi, cos_theta, sin_theta * sin_phi])
 
 
 class BSDFSamplerAdapter:
@@ -75,9 +83,10 @@ class BSDFSamplerAdapter:
         Returns (wi_array, pdf_array) where wi_array is (3, N) and pdf_array is (N,).
         The chi² harness expects samples as (3, N) for SphericalDomain.map_backward.
         """
-        # Call the batched sampler
+        # Force contiguous C-order for binding
+        u2_contig = np.ascontiguousarray(u2_array, dtype=np.float32)
         wi_array, pdf_array = self.renderer.debug_bsdf_sample_batch(
-            self.material_id, self.wo, u2_array.astype(np.float32)
+            self.material_id, self.wo, u2_contig
         )
         # wi_array is (N, 3), transpose to (3, N) for chi² harness
         wi_array_t = wi_array.T
@@ -89,8 +98,8 @@ class BSDFSamplerAdapter:
 
         wi_array_3n is (3, N) from SphericalDomain.map_forward.
         """
-        # Transpose to (N, 3) for the binding
-        wi_array = wi_array_3n.T.astype(np.float32)
+        # Force contiguous C-order for binding
+        wi_array = np.ascontiguousarray(wi_array_3n.T, dtype=np.float32)
         pdf_array = self.renderer.debug_bsdf_pdf_batch(
             self.material_id, self.wo, wi_array
         )
@@ -123,8 +132,8 @@ def test_chi2_disney_metallic(theta_deg, roughness):
     # Create adapter
     adapter = BSDFSamplerAdapter(renderer, mat_id, wo.tolist())
 
-    # Run chi² test
-    domain = SphericalDomain()
+    # Run chi² test (Disney BSDF is reflection-only, so use hemisphere)
+    domain = HemisphericalDomain()
     chi2_test = ChiSquareTest(
         domain=domain,
         sample_func=adapter.sample_func,
@@ -170,15 +179,15 @@ def test_chi2_disney_diffuse(theta_deg, roughness):
         specular=0.0  # Suppress specular lobe for pure diffuse
     )
 
-    # Incident direction
+    # Viewing direction (wo = outgoing from surface to viewer)
     theta_rad = np.deg2rad(theta_deg)
-    wi = spherical_to_cartesian(theta_rad, 0.0)
+    wo = spherical_to_cartesian(theta_rad, 0.0)
 
     # Create adapter
-    adapter = BSDFSamplerAdapter(renderer, mat_id, wi.tolist())
+    adapter = BSDFSamplerAdapter(renderer, mat_id, wo.tolist())
 
-    # Run chi² test
-    domain = SphericalDomain()
+    # Run chi² test (Disney BSDF is reflection-only, so use hemisphere)
+    domain = HemisphericalDomain()
     chi2_test = ChiSquareTest(
         domain=domain,
         sample_func=adapter.sample_func,
@@ -223,15 +232,15 @@ def test_chi2_disney_glass(theta_deg, roughness):
         ior=1.5
     )
 
-    # Incident direction
+    # Viewing direction (wo = outgoing from surface to viewer)
     theta_rad = np.deg2rad(theta_deg)
-    wi = spherical_to_cartesian(theta_rad, 0.0)
+    wo = spherical_to_cartesian(theta_rad, 0.0)
 
     # Create adapter
-    adapter = BSDFSamplerAdapter(renderer, mat_id, wi.tolist())
+    adapter = BSDFSamplerAdapter(renderer, mat_id, wo.tolist())
 
-    # Run chi² test
-    domain = SphericalDomain()
+    # Run chi² test (Disney BSDF is reflection-only, so use hemisphere)
+    domain = HemisphericalDomain()
     chi2_test = ChiSquareTest(
         domain=domain,
         sample_func=adapter.sample_func,

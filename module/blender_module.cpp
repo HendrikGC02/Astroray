@@ -564,7 +564,7 @@ public:
     // u2_array is (2, N) uniform random samples in [0,1]² (currently unused, RNG advances internally).
     py::tuple debug_bsdf_sample_batch(int materialId,
                                       const std::vector<float>& woInput,
-                                      py::array_t<float> u2_array) {
+                                      py::array_t<float, py::array::c_style | py::array::forcecast> u2_array) {
         auto it = materials.find(materialId);
         if (it == materials.end() || !it->second) {
             throw std::runtime_error("Unknown material id");
@@ -613,7 +613,7 @@ public:
     // wi_array is (N, 3), returns pdf_array (N,).
     py::array_t<float> debug_bsdf_pdf_batch(int materialId,
                                             const std::vector<float>& woInput,
-                                            py::array_t<float> wi_array) {
+                                            py::array_t<float, py::array::c_style | py::array::forcecast> wi_array) {
         auto it = materials.find(materialId);
         if (it == materials.end() || !it->second) {
             throw std::runtime_error("Unknown material id");

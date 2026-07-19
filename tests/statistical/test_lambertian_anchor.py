@@ -31,15 +31,18 @@ class BSDFSamplerAdapter:
         self.wo = wo
 
     def sample_func(self, u2_array):
+        # Force contiguous C-order for binding
+        u2_contig = np.ascontiguousarray(u2_array, dtype=np.float32)
         wi_array, pdf_array = self.renderer.debug_bsdf_sample_batch(
-            self.material_id, self.wo, u2_array.astype(np.float32)
+            self.material_id, self.wo, u2_contig
         )
         # Return sampled directions WITHOUT weights — Material::sample() already
         # generates from the target distribution p(wi), so samples are unweighted
         return wi_array.T  # Just the directions, no weights
 
     def pdf_func(self, wi_array_3n):
-        wi_array = wi_array_3n.T.astype(np.float32)
+        # ONE-LINE PROOF: force contiguous C-order array
+        wi_array = np.ascontiguousarray(wi_array_3n.T, dtype=np.float32)
         pdf_array = self.renderer.debug_bsdf_pdf_batch(
             self.material_id, self.wo, wi_array
         )

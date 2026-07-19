@@ -2,11 +2,17 @@
 
 **Generated:** 5.1.2
 
+**Evidence sources:**
+- Shader nodes: AST-scanned from addon source (helper-method reads included)
+- RenderSettings/Light/Camera: static evidence, hand-verified by review, not scanner-derived
+
+**Note:** Integer-literal socket names (e.g., MATH '0'/'1'/'2' positional) excluded from counts.
+
 ## Summary
 
-- **SUPPORTED**: 122 features
-- **APPROXIMATED**: 1 features
-- **DROPPED-SILENT**: 401 features ⚠️
+- **SUPPORTED**: 131 features
+- **APPROXIMATED**: 23 features
+- **DROPPED-SILENT**: 370 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 524 features
 
@@ -16,25 +22,25 @@ These socket names appear in addon handlers but do NOT exist on the live node in
 The addon believes it supports these sockets, but `node.inputs.get('...')` returns None at runtime,
 so the default silently wins. Each entry is a real latent bug.
 
-- **BRIGHTCONTRAST**: socket `Bright` (addon __init__.py line 2168, line 2356)
-- **HUE_SAT**: socket `Fac` (addon __init__.py line 2168, line 2338)
+- **BRIGHTCONTRAST**: socket `Bright` (addon __init__.py line 2356)
+- **BSDF_GLOSSY**: socket `Anisotropic` (addon __init__.py line 3005)
+- **BSDF_METALLIC**: socket `Color` (addon __init__.py line 3039)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 3054)
+- **HUE_SAT**: socket `Fac` (addon __init__.py line 2338)
 - **INVERT**: socket `Fac` (addon __init__.py line 2324)
-- **MATH**: socket `0` (addon __init__.py line 2222)
-- **MATH**: socket `1` (addon __init__.py line 2222)
-- **MATH**: socket `2` (addon __init__.py line 2222)
-- **MIX**: socket `1` (addon __init__.py line 2312)
-- **MIX**: socket `Color1` (addon __init__.py line 2312)
-- **MIX**: socket `2` (addon __init__.py line 2312)
 - **MIX**: socket `Color2` (addon __init__.py line 2312)
 - **MIX**: socket `Fac` (addon __init__.py line 2312)
-- **MIX_RGB**: socket `1` (addon __init__.py line 2312)
+- **MIX**: socket `Color1` (addon __init__.py line 2312)
 - **MIX_RGB**: socket `A` (addon __init__.py line 2312)
-- **MIX_RGB**: socket `2` (addon __init__.py line 2312)
-- **MIX_RGB**: socket `B` (addon __init__.py line 2312)
 - **MIX_RGB**: socket `Fac` (addon __init__.py line 2312)
-- **NORMAL_MAP**: socket `Normal` (addon __init__.py line 2168, line 2499)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 2848)
+- **MIX_RGB**: socket `B` (addon __init__.py line 2312)
+- **MIX_SHADER**: socket `Fac` (addon __init__.py line 3061, line 3183)
 - **TEX_BRICK**: socket `Color3` (addon __init__.py line 2848)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 2848)
 - **VALTORGB**: socket `Fac` (addon __init__.py line 2366)
 
 ## DROPPED-SILENT Features (Failure Mode)
@@ -89,25 +95,20 @@ These features are silently ignored by the addon with no warning:
 - **AMBIENT_OCCLUSION**: `prop:only_local` — property BOOLEAN
 - **AMBIENT_OCCLUSION**: `prop:samples` — property INT
 - **ATTRIBUTE**: `prop:attribute_type` — property ENUM
-- **BACKGROUND**: `input:Weight`
+- **BACKGROUND**: `input:Color` — no handler in addon translation layer
+- **BACKGROUND**: `input:Strength` — no handler in addon translation layer
+- **BACKGROUND**: `input:Weight` — no handler in addon translation layer
 - **BEVEL**: `input:Radius` — no handler in addon translation layer
 - **BEVEL**: `input:Normal` — no handler in addon translation layer
 - **BEVEL**: `prop:samples` — property INT
 - **BRIGHTCONTRAST**: `input:Brightness`
-- **BSDF_GLOSSY**: `input:Color`
-- **BSDF_GLOSSY**: `input:Roughness`
 - **BSDF_GLOSSY**: `input:Rotation`
 - **BSDF_GLOSSY**: `input:Normal`
 - **BSDF_GLOSSY**: `input:Tangent`
 - **BSDF_GLOSSY**: `input:Weight`
 - **BSDF_GLOSSY**: `prop:distribution` — property ENUM
-- **BSDF_DIFFUSE**: `input:Color`
-- **BSDF_DIFFUSE**: `input:Roughness`
 - **BSDF_DIFFUSE**: `input:Normal`
 - **BSDF_DIFFUSE**: `input:Weight`
-- **BSDF_GLASS**: `input:Color`
-- **BSDF_GLASS**: `input:Roughness`
-- **BSDF_GLASS**: `input:IOR`
 - **BSDF_GLASS**: `input:Normal`
 - **BSDF_GLASS**: `input:Weight`
 - **BSDF_GLASS**: `input:Thin Film Thickness`
@@ -143,7 +144,6 @@ These features are silently ignored by the addon with no warning:
 - **BSDF_METALLIC**: `input:Edge Tint`
 - **BSDF_METALLIC**: `input:IOR`
 - **BSDF_METALLIC**: `input:Extinction`
-- **BSDF_METALLIC**: `input:Roughness`
 - **BSDF_METALLIC**: `input:Anisotropy`
 - **BSDF_METALLIC**: `input:Rotation`
 - **BSDF_METALLIC**: `input:Normal`
@@ -153,35 +153,22 @@ These features are silently ignored by the addon with no warning:
 - **BSDF_METALLIC**: `input:Thin Film IOR`
 - **BSDF_METALLIC**: `prop:distribution` — property ENUM
 - **BSDF_METALLIC**: `prop:fresnel_type` — property ENUM
-- **BSDF_PRINCIPLED**: `input:Base Color`
-- **BSDF_PRINCIPLED**: `input:Metallic`
-- **BSDF_PRINCIPLED**: `input:Roughness`
-- **BSDF_PRINCIPLED**: `input:IOR`
 - **BSDF_PRINCIPLED**: `input:Alpha`
-- **BSDF_PRINCIPLED**: `input:Normal`
 - **BSDF_PRINCIPLED**: `input:Weight`
 - **BSDF_PRINCIPLED**: `input:Diffuse Roughness`
-- **BSDF_PRINCIPLED**: `input:Subsurface Weight`
 - **BSDF_PRINCIPLED**: `input:Subsurface Radius`
 - **BSDF_PRINCIPLED**: `input:Subsurface Scale`
 - **BSDF_PRINCIPLED**: `input:Subsurface IOR`
 - **BSDF_PRINCIPLED**: `input:Subsurface Anisotropy`
 - **BSDF_PRINCIPLED**: `input:Specular IOR Level`
 - **BSDF_PRINCIPLED**: `input:Specular Tint`
-- **BSDF_PRINCIPLED**: `input:Anisotropic`
 - **BSDF_PRINCIPLED**: `input:Anisotropic Rotation`
 - **BSDF_PRINCIPLED**: `input:Tangent`
-- **BSDF_PRINCIPLED**: `input:Transmission Weight`
-- **BSDF_PRINCIPLED**: `input:Coat Weight`
-- **BSDF_PRINCIPLED**: `input:Coat Roughness`
 - **BSDF_PRINCIPLED**: `input:Coat IOR`
 - **BSDF_PRINCIPLED**: `input:Coat Tint`
 - **BSDF_PRINCIPLED**: `input:Coat Normal`
-- **BSDF_PRINCIPLED**: `input:Sheen Weight`
 - **BSDF_PRINCIPLED**: `input:Sheen Roughness`
 - **BSDF_PRINCIPLED**: `input:Sheen Tint`
-- **BSDF_PRINCIPLED**: `input:Emission Color`
-- **BSDF_PRINCIPLED**: `input:Emission Strength`
 - **BSDF_PRINCIPLED**: `input:Thin Film Thickness`
 - **BSDF_PRINCIPLED**: `input:Thin Film IOR`
 - **BSDF_PRINCIPLED**: `prop:distribution` — property ENUM
@@ -190,16 +177,10 @@ These features are silently ignored by the addon with no warning:
 - **BSDF_RAY_PORTAL**: `input:Position` — no handler in addon translation layer
 - **BSDF_RAY_PORTAL**: `input:Direction` — no handler in addon translation layer
 - **BSDF_RAY_PORTAL**: `input:Weight` — no handler in addon translation layer
-- **BSDF_REFRACTION**: `input:Color`
-- **BSDF_REFRACTION**: `input:Roughness`
-- **BSDF_REFRACTION**: `input:IOR`
 - **BSDF_REFRACTION**: `input:Normal`
 - **BSDF_REFRACTION**: `input:Weight`
 - **BSDF_REFRACTION**: `prop:distribution` — property ENUM
-- **BSDF_SHEEN**: `input:Color`
-- **BSDF_SHEEN**: `input:Roughness`
 - **BSDF_SHEEN**: `input:Normal`
-- **BSDF_SHEEN**: `input:Weight`
 - **BSDF_SHEEN**: `prop:distribution` — property ENUM
 - **BSDF_TOON**: `input:Color` — no handler in addon translation layer
 - **BSDF_TOON**: `input:Size` — no handler in addon translation layer
@@ -207,15 +188,18 @@ These features are silently ignored by the addon with no warning:
 - **BSDF_TOON**: `input:Normal` — no handler in addon translation layer
 - **BSDF_TOON**: `input:Weight` — no handler in addon translation layer
 - **BSDF_TOON**: `prop:component` — property ENUM
-- **BSDF_TRANSLUCENT**: `input:Color`
 - **BSDF_TRANSLUCENT**: `input:Normal`
 - **BSDF_TRANSLUCENT**: `input:Weight`
-- **BSDF_TRANSPARENT**: `input:Color`
 - **BSDF_TRANSPARENT**: `input:Weight`
-- **BUMP**: `input:Strength`
-- **BUMP**: `input:Distance`
-- **BUMP**: `input:Filter Width`
+- **BUMP**: `input:Strength` — no handler in addon translation layer
+- **BUMP**: `input:Distance` — no handler in addon translation layer
+- **BUMP**: `input:Filter Width` — no handler in addon translation layer
+- **BUMP**: `input:Height` — no handler in addon translation layer
+- **BUMP**: `input:Normal` — no handler in addon translation layer
 - **BUMP**: `prop:invert` — property BOOLEAN
+- **CLAMP**: `input:Value` — no handler in addon translation layer
+- **CLAMP**: `input:Min` — no handler in addon translation layer
+- **CLAMP**: `input:Max` — no handler in addon translation layer
 - **CLAMP**: `prop:clamp_type` — property ENUM
 - **COMBINE_COLOR**: `input:Red` — no handler in addon translation layer
 - **COMBINE_COLOR**: `input:Green` — no handler in addon translation layer
@@ -239,8 +223,6 @@ These features are silently ignored by the addon with no warning:
 - **EEVEE_SPECULAR**: `input:Clear Coat Roughness` — no handler in addon translation layer
 - **EEVEE_SPECULAR**: `input:Clear Coat Normal` — no handler in addon translation layer
 - **EEVEE_SPECULAR**: `input:Weight` — no handler in addon translation layer
-- **EMISSION**: `input:Color`
-- **EMISSION**: `input:Strength`
 - **EMISSION**: `input:Weight`
 - **CURVE_FLOAT**: `input:Factor` — no handler in addon translation layer
 - **CURVE_FLOAT**: `input:Value` — no handler in addon translation layer
@@ -253,14 +235,31 @@ These features are silently ignored by the addon with no warning:
 - **LAYER_WEIGHT**: `input:Normal` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `input:Strength` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `input:Smooth` — no handler in addon translation layer
-- **MAP_RANGE**: `input:Steps`
-- **MAP_RANGE**: `input:Vector`
-- **MAP_RANGE**: `input:Steps`
+- **MAP_RANGE**: `input:Value` — no handler in addon translation layer
+- **MAP_RANGE**: `input:From Min` — no handler in addon translation layer
+- **MAP_RANGE**: `input:From Max` — no handler in addon translation layer
+- **MAP_RANGE**: `input:To Min` — no handler in addon translation layer
+- **MAP_RANGE**: `input:To Max` — no handler in addon translation layer
+- **MAP_RANGE**: `input:Steps` — no handler in addon translation layer
+- **MAP_RANGE**: `input:Vector` — no handler in addon translation layer
+- **MAP_RANGE**: `input:From Min` — no handler in addon translation layer
+- **MAP_RANGE**: `input:From Max` — no handler in addon translation layer
+- **MAP_RANGE**: `input:To Min` — no handler in addon translation layer
+- **MAP_RANGE**: `input:To Max` — no handler in addon translation layer
+- **MAP_RANGE**: `input:Steps` — no handler in addon translation layer
+- **MAP_RANGE**: `prop:clamp` — property BOOLEAN
 - **MAP_RANGE**: `prop:data_type` — property ENUM
+- **MAP_RANGE**: `prop:interpolation_type` — property ENUM
+- **MAPPING**: `input:Vector` — no handler in addon translation layer
+- **MAPPING**: `input:Location` — no handler in addon translation layer
+- **MAPPING**: `input:Rotation` — no handler in addon translation layer
+- **MAPPING**: `input:Scale` — no handler in addon translation layer
 - **MAPPING**: `prop:vector_type` — property ENUM
-- **MATH**: `input:Value`
-- **MATH**: `input:Value`
-- **MATH**: `input:Value`
+- **MATH**: `input:Value` — no handler in addon translation layer
+- **MATH**: `input:Value` — no handler in addon translation layer
+- **MATH**: `input:Value` — no handler in addon translation layer
+- **MATH**: `prop:operation` — property ENUM
+- **MATH**: `prop:use_clamp` — property BOOLEAN
 - **MIX**: `prop:clamp_factor` — property BOOLEAN
 - **MIX**: `prop:clamp_result` — property BOOLEAN
 - **MIX**: `prop:data_type` — property ENUM
@@ -271,7 +270,8 @@ These features are silently ignored by the addon with no warning:
 - **MIX_SHADER**: `input:Shader`
 - **MIX_SHADER**: `input:Shader`
 - **NORMAL**: `input:Normal` — no handler in addon translation layer
-- **NORMAL_MAP**: `input:Strength`
+- **NORMAL_MAP**: `input:Strength` — no handler in addon translation layer
+- **NORMAL_MAP**: `input:Color` — no handler in addon translation layer
 - **NORMAL_MAP**: `prop:base` — property ENUM
 - **NORMAL_MAP**: `prop:convention` — property ENUM
 - **NORMAL_MAP**: `prop:space` — property ENUM
@@ -289,10 +289,10 @@ These features are silently ignored by the addon with no warning:
 - **OUTPUT_LINESTYLE**: `prop:target` — property ENUM
 - **OUTPUT_LINESTYLE**: `prop:use_alpha` — property BOOLEAN
 - **OUTPUT_LINESTYLE**: `prop:use_clamp` — property BOOLEAN
-- **OUTPUT_MATERIAL**: `input:Surface`
-- **OUTPUT_MATERIAL**: `input:Volume`
-- **OUTPUT_MATERIAL**: `input:Displacement`
-- **OUTPUT_MATERIAL**: `input:Thickness`
+- **OUTPUT_MATERIAL**: `input:Surface` — no handler in addon translation layer
+- **OUTPUT_MATERIAL**: `input:Volume` — no handler in addon translation layer
+- **OUTPUT_MATERIAL**: `input:Displacement` — no handler in addon translation layer
+- **OUTPUT_MATERIAL**: `input:Thickness` — no handler in addon translation layer
 - **OUTPUT_MATERIAL**: `prop:is_active_output` — property BOOLEAN
 - **OUTPUT_MATERIAL**: `prop:target` — property ENUM
 - **OUTPUT_WORLD**: `input:Surface` — no handler in addon translation layer
@@ -334,7 +334,7 @@ These features are silently ignored by the addon with no warning:
 - **TEX_BRICK**: `prop:offset` — property FLOAT
 - **TEX_CHECKER**: `input:Vector`
 - **TEX_COORD**: `prop:from_instancer` — property BOOLEAN
-- **TEX_ENVIRONMENT**: `input:Vector`
+- **TEX_ENVIRONMENT**: `input:Vector` — no handler in addon translation layer
 - **TEX_ENVIRONMENT**: `prop:interpolation` — property ENUM
 - **TEX_ENVIRONMENT**: `prop:projection` — property ENUM
 - **TEX_GABOR**: `input:Vector` — no handler in addon translation layer
@@ -348,6 +348,7 @@ These features are silently ignored by the addon with no warning:
 - **TEX_IES**: `input:Vector` — no handler in addon translation layer
 - **TEX_IES**: `input:Strength` — no handler in addon translation layer
 - **TEX_IES**: `prop:mode` — property ENUM
+- **TEX_IMAGE**: `input:Vector`
 - **TEX_IMAGE**: `prop:extension` — property ENUM
 - **TEX_IMAGE**: `prop:interpolation` — property ENUM
 - **TEX_IMAGE**: `prop:projection` — property ENUM
@@ -355,13 +356,6 @@ These features are silently ignored by the addon with no warning:
 - **TEX_MAGIC**: `input:Vector`
 - **TEX_NOISE**: `input:Vector`
 - **TEX_NOISE**: `input:W`
-- **TEX_NOISE**: `input:Scale`
-- **TEX_NOISE**: `input:Detail`
-- **TEX_NOISE**: `input:Roughness`
-- **TEX_NOISE**: `input:Lacunarity`
-- **TEX_NOISE**: `input:Offset`
-- **TEX_NOISE**: `input:Gain`
-- **TEX_NOISE**: `input:Distortion`
 - **TEX_NOISE**: `prop:noise_dimensions` — property ENUM
 - **TEX_SKY**: `input:Vector` — no handler in addon translation layer
 - **TEX_SKY**: `prop:aerosol_density` — property FLOAT
@@ -379,13 +373,6 @@ These features are silently ignored by the addon with no warning:
 - **TEX_SKY**: `prop:turbidity` — property FLOAT
 - **TEX_VORONOI**: `input:Vector`
 - **TEX_VORONOI**: `input:W`
-- **TEX_VORONOI**: `input:Scale`
-- **TEX_VORONOI**: `input:Detail`
-- **TEX_VORONOI**: `input:Roughness`
-- **TEX_VORONOI**: `input:Lacunarity`
-- **TEX_VORONOI**: `input:Smoothness`
-- **TEX_VORONOI**: `input:Exponent`
-- **TEX_VORONOI**: `input:Randomness`
 - **TEX_VORONOI**: `prop:voronoi_dimensions` — property ENUM
 - **TEX_WAVE**: `input:Vector`
 - **TEX_WHITE_NOISE**: `input:Vector` — no handler in addon translation layer
@@ -416,9 +403,7 @@ These features are silently ignored by the addon with no warning:
 - **VECT_TRANSFORM**: `prop:convert_from` — property ENUM
 - **VECT_TRANSFORM**: `prop:convert_to` — property ENUM
 - **VECT_TRANSFORM**: `prop:vector_type` — property ENUM
-- **VOLUME_ABSORPTION**: `input:Color`
-- **VOLUME_ABSORPTION**: `input:Density`
-- **VOLUME_ABSORPTION**: `input:Weight`
+- **VOLUME_ABSORPTION**: `input:Weight` — mapped to glass IOR=1.0 (volume not fully implemented)
 - **VOLUME_COEFFICIENTS**: `input:Weight` — no handler in addon translation layer
 - **VOLUME_COEFFICIENTS**: `input:Absorption Coefficients` — no handler in addon translation layer
 - **VOLUME_COEFFICIENTS**: `input:Scatter Coefficients` — no handler in addon translation layer
@@ -429,27 +414,17 @@ These features are silently ignored by the addon with no warning:
 - **VOLUME_COEFFICIENTS**: `input:Diameter` — no handler in addon translation layer
 - **VOLUME_COEFFICIENTS**: `input:Emission Coefficients` — no handler in addon translation layer
 - **VOLUME_COEFFICIENTS**: `prop:phase` — property ENUM
-- **PRINCIPLED_VOLUME**: `input:Color`
-- **PRINCIPLED_VOLUME**: `input:Color Attribute`
-- **PRINCIPLED_VOLUME**: `input:Density`
-- **PRINCIPLED_VOLUME**: `input:Density Attribute`
-- **PRINCIPLED_VOLUME**: `input:Anisotropy`
-- **PRINCIPLED_VOLUME**: `input:Absorption Color`
-- **PRINCIPLED_VOLUME**: `input:Emission Strength`
-- **PRINCIPLED_VOLUME**: `input:Emission Color`
-- **PRINCIPLED_VOLUME**: `input:Blackbody Intensity`
-- **PRINCIPLED_VOLUME**: `input:Blackbody Tint`
-- **PRINCIPLED_VOLUME**: `input:Temperature`
-- **PRINCIPLED_VOLUME**: `input:Temperature Attribute`
-- **PRINCIPLED_VOLUME**: `input:Weight`
-- **VOLUME_SCATTER**: `input:Color`
-- **VOLUME_SCATTER**: `input:Density`
-- **VOLUME_SCATTER**: `input:Anisotropy`
-- **VOLUME_SCATTER**: `input:IOR`
-- **VOLUME_SCATTER**: `input:Backscatter`
-- **VOLUME_SCATTER**: `input:Alpha`
-- **VOLUME_SCATTER**: `input:Diameter`
-- **VOLUME_SCATTER**: `input:Weight`
+- **PRINCIPLED_VOLUME**: `input:Color Attribute` — mapped to glass IOR=1.0 (volume not fully implemented)
+- **PRINCIPLED_VOLUME**: `input:Density Attribute` — mapped to glass IOR=1.0 (volume not fully implemented)
+- **PRINCIPLED_VOLUME**: `input:Absorption Color` — mapped to glass IOR=1.0 (volume not fully implemented)
+- **PRINCIPLED_VOLUME**: `input:Blackbody Tint` — mapped to glass IOR=1.0 (volume not fully implemented)
+- **PRINCIPLED_VOLUME**: `input:Temperature Attribute` — mapped to glass IOR=1.0 (volume not fully implemented)
+- **PRINCIPLED_VOLUME**: `input:Weight` — mapped to glass IOR=1.0 (volume not fully implemented)
+- **VOLUME_SCATTER**: `input:IOR` — mapped to glass IOR=1.0 (volume not fully implemented)
+- **VOLUME_SCATTER**: `input:Backscatter` — mapped to glass IOR=1.0 (volume not fully implemented)
+- **VOLUME_SCATTER**: `input:Alpha` — mapped to glass IOR=1.0 (volume not fully implemented)
+- **VOLUME_SCATTER**: `input:Diameter` — mapped to glass IOR=1.0 (volume not fully implemented)
+- **VOLUME_SCATTER**: `input:Weight` — mapped to glass IOR=1.0 (volume not fully implemented)
 - **VOLUME_SCATTER**: `prop:phase` — property ENUM
 - **WIREFRAME**: `input:Size` — no handler in addon translation layer
 - **WIREFRAME**: `prop:use_pixel_size` — property BOOLEAN
@@ -546,9 +521,9 @@ These features are silently ignored by the addon with no warning:
 | AMBIENT_OCCLUSION | prop:only_local | DROPPED-SILENT | property BOOLEAN |
 | AMBIENT_OCCLUSION | prop:samples | DROPPED-SILENT | property INT |
 | ATTRIBUTE | prop:attribute_type | DROPPED-SILENT | property ENUM |
-| BACKGROUND | input:Color | SUPPORTED |  |
-| BACKGROUND | input:Strength | SUPPORTED |  |
-| BACKGROUND | input:Weight | DROPPED-SILENT |  |
+| BACKGROUND | input:Color | DROPPED-SILENT | no handler in addon translation layer |
+| BACKGROUND | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
+| BACKGROUND | input:Weight | DROPPED-SILENT | no handler in addon translation layer |
 | BEVEL | input:Radius | DROPPED-SILENT | no handler in addon translation layer |
 | BEVEL | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
 | BEVEL | prop:samples | DROPPED-SILENT | property INT |
@@ -556,21 +531,21 @@ These features are silently ignored by the addon with no warning:
 | BRIGHTCONTRAST | input:Color | SUPPORTED |  |
 | BRIGHTCONTRAST | input:Brightness | DROPPED-SILENT |  |
 | BRIGHTCONTRAST | input:Contrast | SUPPORTED |  |
-| BSDF_GLOSSY | input:Color | DROPPED-SILENT |  |
-| BSDF_GLOSSY | input:Roughness | DROPPED-SILENT |  |
+| BSDF_GLOSSY | input:Color | SUPPORTED |  |
+| BSDF_GLOSSY | input:Roughness | SUPPORTED |  |
 | BSDF_GLOSSY | input:Anisotropy | SUPPORTED |  |
 | BSDF_GLOSSY | input:Rotation | DROPPED-SILENT |  |
 | BSDF_GLOSSY | input:Normal | DROPPED-SILENT |  |
 | BSDF_GLOSSY | input:Tangent | DROPPED-SILENT |  |
 | BSDF_GLOSSY | input:Weight | DROPPED-SILENT |  |
 | BSDF_GLOSSY | prop:distribution | DROPPED-SILENT | property ENUM |
-| BSDF_DIFFUSE | input:Color | DROPPED-SILENT |  |
-| BSDF_DIFFUSE | input:Roughness | DROPPED-SILENT |  |
+| BSDF_DIFFUSE | input:Color | APPROXIMATED |  |
+| BSDF_DIFFUSE | input:Roughness | APPROXIMATED |  |
 | BSDF_DIFFUSE | input:Normal | DROPPED-SILENT |  |
 | BSDF_DIFFUSE | input:Weight | DROPPED-SILENT |  |
-| BSDF_GLASS | input:Color | DROPPED-SILENT |  |
-| BSDF_GLASS | input:Roughness | DROPPED-SILENT |  |
-| BSDF_GLASS | input:IOR | DROPPED-SILENT |  |
+| BSDF_GLASS | input:Color | SUPPORTED |  |
+| BSDF_GLASS | input:Roughness | SUPPORTED |  |
+| BSDF_GLASS | input:IOR | SUPPORTED |  |
 | BSDF_GLASS | input:Normal | DROPPED-SILENT |  |
 | BSDF_GLASS | input:Weight | DROPPED-SILENT |  |
 | BSDF_GLASS | input:Thin Film Thickness | DROPPED-SILENT |  |
@@ -607,7 +582,7 @@ These features are silently ignored by the addon with no warning:
 | BSDF_METALLIC | input:Edge Tint | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:IOR | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:Extinction | DROPPED-SILENT |  |
-| BSDF_METALLIC | input:Roughness | DROPPED-SILENT |  |
+| BSDF_METALLIC | input:Roughness | APPROXIMATED |  |
 | BSDF_METALLIC | input:Anisotropy | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:Rotation | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:Normal | DROPPED-SILENT |  |
@@ -617,35 +592,35 @@ These features are silently ignored by the addon with no warning:
 | BSDF_METALLIC | input:Thin Film IOR | DROPPED-SILENT |  |
 | BSDF_METALLIC | prop:distribution | DROPPED-SILENT | property ENUM |
 | BSDF_METALLIC | prop:fresnel_type | DROPPED-SILENT | property ENUM |
-| BSDF_PRINCIPLED | input:Base Color | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Metallic | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Roughness | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:IOR | DROPPED-SILENT |  |
+| BSDF_PRINCIPLED | input:Base Color | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Metallic | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Roughness | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:IOR | SUPPORTED |  |
 | BSDF_PRINCIPLED | input:Alpha | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Normal | DROPPED-SILENT |  |
+| BSDF_PRINCIPLED | input:Normal | SUPPORTED |  |
 | BSDF_PRINCIPLED | input:Weight | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Diffuse Roughness | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Subsurface Weight | DROPPED-SILENT |  |
+| BSDF_PRINCIPLED | input:Subsurface Weight | SUPPORTED |  |
 | BSDF_PRINCIPLED | input:Subsurface Radius | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Subsurface Scale | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Subsurface IOR | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Subsurface Anisotropy | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Specular IOR Level | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Specular Tint | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Anisotropic | DROPPED-SILENT |  |
+| BSDF_PRINCIPLED | input:Anisotropic | SUPPORTED |  |
 | BSDF_PRINCIPLED | input:Anisotropic Rotation | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Tangent | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Transmission Weight | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Coat Weight | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Coat Roughness | DROPPED-SILENT |  |
+| BSDF_PRINCIPLED | input:Transmission Weight | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Coat Weight | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Coat Roughness | SUPPORTED |  |
 | BSDF_PRINCIPLED | input:Coat IOR | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Coat Tint | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Coat Normal | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Sheen Weight | DROPPED-SILENT |  |
+| BSDF_PRINCIPLED | input:Sheen Weight | SUPPORTED |  |
 | BSDF_PRINCIPLED | input:Sheen Roughness | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Sheen Tint | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Emission Color | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Emission Strength | DROPPED-SILENT |  |
+| BSDF_PRINCIPLED | input:Emission Color | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Emission Strength | SUPPORTED |  |
 | BSDF_PRINCIPLED | input:Thin Film Thickness | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Thin Film IOR | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | prop:distribution | DROPPED-SILENT | property ENUM |
@@ -654,16 +629,16 @@ These features are silently ignored by the addon with no warning:
 | BSDF_RAY_PORTAL | input:Position | DROPPED-SILENT | no handler in addon translation layer |
 | BSDF_RAY_PORTAL | input:Direction | DROPPED-SILENT | no handler in addon translation layer |
 | BSDF_RAY_PORTAL | input:Weight | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_REFRACTION | input:Color | DROPPED-SILENT |  |
-| BSDF_REFRACTION | input:Roughness | DROPPED-SILENT |  |
-| BSDF_REFRACTION | input:IOR | DROPPED-SILENT |  |
+| BSDF_REFRACTION | input:Color | APPROXIMATED |  |
+| BSDF_REFRACTION | input:Roughness | APPROXIMATED |  |
+| BSDF_REFRACTION | input:IOR | APPROXIMATED |  |
 | BSDF_REFRACTION | input:Normal | DROPPED-SILENT |  |
 | BSDF_REFRACTION | input:Weight | DROPPED-SILENT |  |
 | BSDF_REFRACTION | prop:distribution | DROPPED-SILENT | property ENUM |
-| BSDF_SHEEN | input:Color | DROPPED-SILENT |  |
-| BSDF_SHEEN | input:Roughness | DROPPED-SILENT |  |
+| BSDF_SHEEN | input:Color | APPROXIMATED |  |
+| BSDF_SHEEN | input:Roughness | APPROXIMATED |  |
 | BSDF_SHEEN | input:Normal | DROPPED-SILENT |  |
-| BSDF_SHEEN | input:Weight | DROPPED-SILENT |  |
+| BSDF_SHEEN | input:Weight | APPROXIMATED |  |
 | BSDF_SHEEN | prop:distribution | DROPPED-SILENT | property ENUM |
 | BSDF_TOON | input:Color | DROPPED-SILENT | no handler in addon translation layer |
 | BSDF_TOON | input:Size | DROPPED-SILENT | no handler in addon translation layer |
@@ -671,20 +646,20 @@ These features are silently ignored by the addon with no warning:
 | BSDF_TOON | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
 | BSDF_TOON | input:Weight | DROPPED-SILENT | no handler in addon translation layer |
 | BSDF_TOON | prop:component | DROPPED-SILENT | property ENUM |
-| BSDF_TRANSLUCENT | input:Color | DROPPED-SILENT |  |
+| BSDF_TRANSLUCENT | input:Color | APPROXIMATED |  |
 | BSDF_TRANSLUCENT | input:Normal | DROPPED-SILENT |  |
 | BSDF_TRANSLUCENT | input:Weight | DROPPED-SILENT |  |
-| BSDF_TRANSPARENT | input:Color | DROPPED-SILENT |  |
+| BSDF_TRANSPARENT | input:Color | SUPPORTED |  |
 | BSDF_TRANSPARENT | input:Weight | DROPPED-SILENT |  |
-| BUMP | input:Strength | DROPPED-SILENT |  |
-| BUMP | input:Distance | DROPPED-SILENT |  |
-| BUMP | input:Filter Width | DROPPED-SILENT |  |
-| BUMP | input:Height | SUPPORTED |  |
-| BUMP | input:Normal | SUPPORTED |  |
+| BUMP | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
+| BUMP | input:Distance | DROPPED-SILENT | no handler in addon translation layer |
+| BUMP | input:Filter Width | DROPPED-SILENT | no handler in addon translation layer |
+| BUMP | input:Height | DROPPED-SILENT | no handler in addon translation layer |
+| BUMP | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
 | BUMP | prop:invert | DROPPED-SILENT | property BOOLEAN |
-| CLAMP | input:Value | SUPPORTED |  |
-| CLAMP | input:Min | SUPPORTED |  |
-| CLAMP | input:Max | SUPPORTED |  |
+| CLAMP | input:Value | DROPPED-SILENT | no handler in addon translation layer |
+| CLAMP | input:Min | DROPPED-SILENT | no handler in addon translation layer |
+| CLAMP | input:Max | DROPPED-SILENT | no handler in addon translation layer |
 | CLAMP | prop:clamp_type | DROPPED-SILENT | property ENUM |
 | COMBINE_COLOR | input:Red | DROPPED-SILENT | no handler in addon translation layer |
 | COMBINE_COLOR | input:Green | DROPPED-SILENT | no handler in addon translation layer |
@@ -708,8 +683,8 @@ These features are silently ignored by the addon with no warning:
 | EEVEE_SPECULAR | input:Clear Coat Roughness | DROPPED-SILENT | no handler in addon translation layer |
 | EEVEE_SPECULAR | input:Clear Coat Normal | DROPPED-SILENT | no handler in addon translation layer |
 | EEVEE_SPECULAR | input:Weight | DROPPED-SILENT | no handler in addon translation layer |
-| EMISSION | input:Color | DROPPED-SILENT |  |
-| EMISSION | input:Strength | DROPPED-SILENT |  |
+| EMISSION | input:Color | SUPPORTED |  |
+| EMISSION | input:Strength | SUPPORTED |  |
 | EMISSION | input:Weight | DROPPED-SILENT |  |
 | CURVE_FLOAT | input:Factor | DROPPED-SILENT | no handler in addon translation layer |
 | CURVE_FLOAT | input:Value | DROPPED-SILENT | no handler in addon translation layer |
@@ -729,31 +704,31 @@ These features are silently ignored by the addon with no warning:
 | LAYER_WEIGHT | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
 | LIGHT_FALLOFF | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
 | LIGHT_FALLOFF | input:Smooth | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:Value | SUPPORTED |  |
-| MAP_RANGE | input:From Min | SUPPORTED |  |
-| MAP_RANGE | input:From Max | SUPPORTED |  |
-| MAP_RANGE | input:To Min | SUPPORTED |  |
-| MAP_RANGE | input:To Max | SUPPORTED |  |
-| MAP_RANGE | input:Steps | DROPPED-SILENT |  |
-| MAP_RANGE | input:Vector | DROPPED-SILENT |  |
-| MAP_RANGE | input:From Min | SUPPORTED |  |
-| MAP_RANGE | input:From Max | SUPPORTED |  |
-| MAP_RANGE | input:To Min | SUPPORTED |  |
-| MAP_RANGE | input:To Max | SUPPORTED |  |
-| MAP_RANGE | input:Steps | DROPPED-SILENT |  |
-| MAP_RANGE | prop:clamp | SUPPORTED |  |
+| MAP_RANGE | input:Value | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:From Min | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:From Max | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:To Min | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:To Max | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:Steps | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:From Min | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:From Max | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:To Min | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:To Max | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:Steps | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | prop:clamp | DROPPED-SILENT | property BOOLEAN |
 | MAP_RANGE | prop:data_type | DROPPED-SILENT | property ENUM |
-| MAP_RANGE | prop:interpolation_type | SUPPORTED |  |
-| MAPPING | input:Vector | SUPPORTED |  |
-| MAPPING | input:Location | SUPPORTED |  |
-| MAPPING | input:Rotation | SUPPORTED |  |
-| MAPPING | input:Scale | SUPPORTED |  |
+| MAP_RANGE | prop:interpolation_type | DROPPED-SILENT | property ENUM |
+| MAPPING | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
+| MAPPING | input:Location | DROPPED-SILENT | no handler in addon translation layer |
+| MAPPING | input:Rotation | DROPPED-SILENT | no handler in addon translation layer |
+| MAPPING | input:Scale | DROPPED-SILENT | no handler in addon translation layer |
 | MAPPING | prop:vector_type | DROPPED-SILENT | property ENUM |
-| MATH | input:Value | DROPPED-SILENT |  |
-| MATH | input:Value | DROPPED-SILENT |  |
-| MATH | input:Value | DROPPED-SILENT |  |
-| MATH | prop:operation | SUPPORTED |  |
-| MATH | prop:use_clamp | SUPPORTED |  |
+| MATH | input:Value | DROPPED-SILENT | no handler in addon translation layer |
+| MATH | input:Value | DROPPED-SILENT | no handler in addon translation layer |
+| MATH | input:Value | DROPPED-SILENT | no handler in addon translation layer |
+| MATH | prop:operation | DROPPED-SILENT | property ENUM |
+| MATH | prop:use_clamp | DROPPED-SILENT | property BOOLEAN |
 | MIX | input:Factor | SUPPORTED |  |
 | MIX | input:Factor | SUPPORTED |  |
 | MIX | input:A | SUPPORTED |  |
@@ -779,8 +754,8 @@ These features are silently ignored by the addon with no warning:
 | MIX_SHADER | input:Shader | DROPPED-SILENT |  |
 | MIX_SHADER | input:Shader | DROPPED-SILENT |  |
 | NORMAL | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
-| NORMAL_MAP | input:Strength | DROPPED-SILENT |  |
-| NORMAL_MAP | input:Color | SUPPORTED |  |
+| NORMAL_MAP | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
+| NORMAL_MAP | input:Color | DROPPED-SILENT | no handler in addon translation layer |
 | NORMAL_MAP | prop:base | DROPPED-SILENT | property ENUM |
 | NORMAL_MAP | prop:convention | DROPPED-SILENT | property ENUM |
 | NORMAL_MAP | prop:space | DROPPED-SILENT | property ENUM |
@@ -798,10 +773,10 @@ These features are silently ignored by the addon with no warning:
 | OUTPUT_LINESTYLE | prop:target | DROPPED-SILENT | property ENUM |
 | OUTPUT_LINESTYLE | prop:use_alpha | DROPPED-SILENT | property BOOLEAN |
 | OUTPUT_LINESTYLE | prop:use_clamp | DROPPED-SILENT | property BOOLEAN |
-| OUTPUT_MATERIAL | input:Surface | DROPPED-SILENT |  |
-| OUTPUT_MATERIAL | input:Volume | DROPPED-SILENT |  |
-| OUTPUT_MATERIAL | input:Displacement | DROPPED-SILENT |  |
-| OUTPUT_MATERIAL | input:Thickness | DROPPED-SILENT |  |
+| OUTPUT_MATERIAL | input:Surface | DROPPED-SILENT | no handler in addon translation layer |
+| OUTPUT_MATERIAL | input:Volume | DROPPED-SILENT | no handler in addon translation layer |
+| OUTPUT_MATERIAL | input:Displacement | DROPPED-SILENT | no handler in addon translation layer |
+| OUTPUT_MATERIAL | input:Thickness | DROPPED-SILENT | no handler in addon translation layer |
 | OUTPUT_MATERIAL | prop:is_active_output | DROPPED-SILENT | property BOOLEAN |
 | OUTPUT_MATERIAL | prop:target | DROPPED-SILENT | property ENUM |
 | OUTPUT_WORLD | input:Surface | DROPPED-SILENT | no handler in addon translation layer |
@@ -858,7 +833,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_CHECKER | input:Color2 | SUPPORTED |  |
 | TEX_CHECKER | input:Scale | SUPPORTED |  |
 | TEX_COORD | prop:from_instancer | DROPPED-SILENT | property BOOLEAN |
-| TEX_ENVIRONMENT | input:Vector | DROPPED-SILENT |  |
+| TEX_ENVIRONMENT | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | TEX_ENVIRONMENT | prop:interpolation | DROPPED-SILENT | property ENUM |
 | TEX_ENVIRONMENT | prop:projection | DROPPED-SILENT | property ENUM |
 | TEX_GABOR | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
@@ -873,7 +848,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_IES | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | TEX_IES | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
 | TEX_IES | prop:mode | DROPPED-SILENT | property ENUM |
-| TEX_IMAGE | input:Vector | SUPPORTED |  |
+| TEX_IMAGE | input:Vector | DROPPED-SILENT |  |
 | TEX_IMAGE | prop:extension | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | prop:interpolation | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | prop:projection | DROPPED-SILENT | property ENUM |
@@ -884,13 +859,13 @@ These features are silently ignored by the addon with no warning:
 | TEX_MAGIC | prop:turbulence_depth | SUPPORTED |  |
 | TEX_NOISE | input:Vector | DROPPED-SILENT |  |
 | TEX_NOISE | input:W | DROPPED-SILENT |  |
-| TEX_NOISE | input:Scale | DROPPED-SILENT |  |
-| TEX_NOISE | input:Detail | DROPPED-SILENT |  |
-| TEX_NOISE | input:Roughness | DROPPED-SILENT |  |
-| TEX_NOISE | input:Lacunarity | DROPPED-SILENT |  |
-| TEX_NOISE | input:Offset | DROPPED-SILENT |  |
-| TEX_NOISE | input:Gain | DROPPED-SILENT |  |
-| TEX_NOISE | input:Distortion | DROPPED-SILENT |  |
+| TEX_NOISE | input:Scale | SUPPORTED |  |
+| TEX_NOISE | input:Detail | SUPPORTED |  |
+| TEX_NOISE | input:Roughness | SUPPORTED |  |
+| TEX_NOISE | input:Lacunarity | SUPPORTED |  |
+| TEX_NOISE | input:Offset | SUPPORTED |  |
+| TEX_NOISE | input:Gain | SUPPORTED |  |
+| TEX_NOISE | input:Distortion | SUPPORTED |  |
 | TEX_NOISE | prop:noise_dimensions | DROPPED-SILENT | property ENUM |
 | TEX_NOISE | prop:noise_type | SUPPORTED |  |
 | TEX_NOISE | prop:normalize | SUPPORTED |  |
@@ -910,13 +885,13 @@ These features are silently ignored by the addon with no warning:
 | TEX_SKY | prop:turbidity | DROPPED-SILENT | property FLOAT |
 | TEX_VORONOI | input:Vector | DROPPED-SILENT |  |
 | TEX_VORONOI | input:W | DROPPED-SILENT |  |
-| TEX_VORONOI | input:Scale | DROPPED-SILENT |  |
-| TEX_VORONOI | input:Detail | DROPPED-SILENT |  |
-| TEX_VORONOI | input:Roughness | DROPPED-SILENT |  |
-| TEX_VORONOI | input:Lacunarity | DROPPED-SILENT |  |
-| TEX_VORONOI | input:Smoothness | DROPPED-SILENT |  |
-| TEX_VORONOI | input:Exponent | DROPPED-SILENT |  |
-| TEX_VORONOI | input:Randomness | DROPPED-SILENT |  |
+| TEX_VORONOI | input:Scale | SUPPORTED |  |
+| TEX_VORONOI | input:Detail | SUPPORTED |  |
+| TEX_VORONOI | input:Roughness | SUPPORTED |  |
+| TEX_VORONOI | input:Lacunarity | SUPPORTED |  |
+| TEX_VORONOI | input:Smoothness | SUPPORTED |  |
+| TEX_VORONOI | input:Exponent | SUPPORTED |  |
+| TEX_VORONOI | input:Randomness | SUPPORTED |  |
 | TEX_VORONOI | prop:distance | SUPPORTED |  |
 | TEX_VORONOI | prop:feature | SUPPORTED |  |
 | TEX_VORONOI | prop:normalize | SUPPORTED |  |
@@ -960,9 +935,9 @@ These features are silently ignored by the addon with no warning:
 | VECT_TRANSFORM | prop:convert_from | DROPPED-SILENT | property ENUM |
 | VECT_TRANSFORM | prop:convert_to | DROPPED-SILENT | property ENUM |
 | VECT_TRANSFORM | prop:vector_type | DROPPED-SILENT | property ENUM |
-| VOLUME_ABSORPTION | input:Color | DROPPED-SILENT |  |
-| VOLUME_ABSORPTION | input:Density | DROPPED-SILENT |  |
-| VOLUME_ABSORPTION | input:Weight | DROPPED-SILENT |  |
+| VOLUME_ABSORPTION | input:Color | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| VOLUME_ABSORPTION | input:Density | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| VOLUME_ABSORPTION | input:Weight | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
 | VOLUME_COEFFICIENTS | input:Weight | DROPPED-SILENT | no handler in addon translation layer |
 | VOLUME_COEFFICIENTS | input:Absorption Coefficients | DROPPED-SILENT | no handler in addon translation layer |
 | VOLUME_COEFFICIENTS | input:Scatter Coefficients | DROPPED-SILENT | no handler in addon translation layer |
@@ -973,27 +948,27 @@ These features are silently ignored by the addon with no warning:
 | VOLUME_COEFFICIENTS | input:Diameter | DROPPED-SILENT | no handler in addon translation layer |
 | VOLUME_COEFFICIENTS | input:Emission Coefficients | DROPPED-SILENT | no handler in addon translation layer |
 | VOLUME_COEFFICIENTS | prop:phase | DROPPED-SILENT | property ENUM |
-| PRINCIPLED_VOLUME | input:Color | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Color Attribute | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Density | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Density Attribute | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Anisotropy | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Absorption Color | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Emission Strength | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Emission Color | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Blackbody Intensity | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Blackbody Tint | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Temperature | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Temperature Attribute | DROPPED-SILENT |  |
-| PRINCIPLED_VOLUME | input:Weight | DROPPED-SILENT |  |
-| VOLUME_SCATTER | input:Color | DROPPED-SILENT |  |
-| VOLUME_SCATTER | input:Density | DROPPED-SILENT |  |
-| VOLUME_SCATTER | input:Anisotropy | DROPPED-SILENT |  |
-| VOLUME_SCATTER | input:IOR | DROPPED-SILENT |  |
-| VOLUME_SCATTER | input:Backscatter | DROPPED-SILENT |  |
-| VOLUME_SCATTER | input:Alpha | DROPPED-SILENT |  |
-| VOLUME_SCATTER | input:Diameter | DROPPED-SILENT |  |
-| VOLUME_SCATTER | input:Weight | DROPPED-SILENT |  |
+| PRINCIPLED_VOLUME | input:Color | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Color Attribute | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Density | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Density Attribute | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Anisotropy | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Absorption Color | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Emission Strength | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Emission Color | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Blackbody Intensity | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Blackbody Tint | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Temperature | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Temperature Attribute | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Weight | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| VOLUME_SCATTER | input:Color | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| VOLUME_SCATTER | input:Density | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| VOLUME_SCATTER | input:Anisotropy | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
+| VOLUME_SCATTER | input:IOR | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| VOLUME_SCATTER | input:Backscatter | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| VOLUME_SCATTER | input:Alpha | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| VOLUME_SCATTER | input:Diameter | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| VOLUME_SCATTER | input:Weight | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
 | VOLUME_SCATTER | prop:phase | DROPPED-SILENT | property ENUM |
 | WAVELENGTH | input:Wavelength | SUPPORTED |  |
 | WIREFRAME | input:Size | DROPPED-SILENT | no handler in addon translation layer |

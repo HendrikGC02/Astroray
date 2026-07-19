@@ -128,9 +128,16 @@ def scan_addon_source_for_evidence(addon_module):
 
     # Scan for node type handlers: if ntype == 'LITERAL' or if node.type == 'LITERAL'
     # Extract socket/property reads within each handler block
+    # Scope to SHADER dispatch functions (exclude object/light type dispatch)
     class NodeTypeHandlerScanner(ast.NodeVisitor):
         def __init__(self):
             self.current_function = None
+            # Shader-dispatch functions (exclude object/light handlers)
+            self.shader_dispatch_functions = {
+                '_shader_spec_from_node', '_standalone_bsdf_spec', '_principled_shader_spec',
+                '_eval_color_socket_node', 'load_procedural_texture', 'convert_shader_node',
+                '_volume_spec_from_node', 'convert_volume_node',
+            }
 
         def visit_FunctionDef(self, node):
             old_func = self.current_function
@@ -140,6 +147,12 @@ def scan_addon_source_for_evidence(addon_module):
 
         def visit_If(self, node):
             nonlocal total_ntype_literals_found
+
+            # Only collect ntype literals from SHADER-dispatch functions
+            # (exclude object/light type dispatch like MESH/CURVE/AREA/SUN)
+            if self.current_function not in self.shader_dispatch_functions:
+                self.generic_visit(node)
+                return
 
             # Extract node type literal from test
             node_types = self._extract_node_type_literals(node.test)
@@ -205,18 +218,79 @@ def scan_addon_source_for_evidence(addon_module):
             return results
 
         def _extract_socket_reads(self, node, sockets):
-            """Extract socket names from node.inputs.get('...') or node.inputs['...']"""
+            """Extract socket names from direct reads + helper methods.
+
+            Direct: node.inputs.get('...') or node.inputs['...']
+            Helpers:
+              - self.get_color_input(node, 'SocketName', ...)
+              - self.get_float_input(node, 'SocketName', ...)
+              - self._float_with_fallback(node, 'NewName', 'OldName', ...) → both names
+              - self.get_base_color_texture(node, 'SocketName', ...)
+              - self.get_normal_inputs(node) → reads 'Normal' socket
+              - Local closures: _nsock('X') / _vsock('X') → 'X'
+
+            Excludes integer literals (MATH positional sockets '0','1','2' — skip with note).
+            """
             if isinstance(node, ast.Call):
-                # node.inputs.get('SocketName')
-                if isinstance(node.func, ast.Attribute) and node.func.attr == 'get':
-                    if isinstance(node.func.value, ast.Attribute) and node.func.value.attr == 'inputs':
+                # Helper method calls: self.get_*_input(node, 'SocketName')
+                if isinstance(node.func, ast.Attribute):
+                    method_name = node.func.attr
+
+                    # get_color_input / get_float_input / get_base_color_texture
+                    if method_name in ('get_color_input', 'get_float_input', 'get_base_color_texture'):
+                        if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
+                            sock_name = node.args[1].value
+                            # Exclude integer literals (MATH positional sockets)
+                            if not isinstance(sock_name, int):
+                                sockets.add(sock_name)
+
+                    # _float_with_fallback(node, 'NewName', 'OldName') → capture BOTH
+                    elif method_name == '_float_with_fallback':
+                        if len(node.args) >= 3:
+                            if isinstance(node.args[1], ast.Constant):
+                                new_name = node.args[1].value
+                                if not isinstance(new_name, int):
+                                    sockets.add(new_name)
+                            if isinstance(node.args[2], ast.Constant):
+                                old_name = node.args[2].value
+                                if not isinstance(old_name, int):
+                                    sockets.add(old_name)
+
+                    # get_normal_inputs(node) → reads 'Normal' socket
+                    elif method_name == 'get_normal_inputs':
+                        sockets.add('Normal')
+
+                    # node.inputs.get('SocketName')
+                    elif method_name == 'get':
+                        if isinstance(node.func.value, ast.Attribute) and node.func.value.attr == 'inputs':
+                            if len(node.args) >= 1 and isinstance(node.args[0], ast.Constant):
+                                sock_name = node.args[0].value
+                                if not isinstance(sock_name, int):
+                                    sockets.add(sock_name)
+
+                    # Local closures: _nsock('X') / _vsock('X')
+                    elif method_name in ('_nsock', '_vsock'):
                         if len(node.args) >= 1 and isinstance(node.args[0], ast.Constant):
-                            sockets.add(node.args[0].value)
+                            sock_name = node.args[0].value
+                            if not isinstance(sock_name, int):
+                                sockets.add(sock_name)
+
+                # Plain function calls (local closures without self.)
+                elif isinstance(node.func, ast.Name):
+                    func_name = node.func.id
+                    if func_name in ('_nsock', '_vsock'):
+                        if len(node.args) >= 1 and isinstance(node.args[0], ast.Constant):
+                            sock_name = node.args[0].value
+                            if not isinstance(sock_name, int):
+                                sockets.add(sock_name)
+
             elif isinstance(node, ast.Subscript):
                 # node.inputs['SocketName']
                 if isinstance(node.value, ast.Attribute) and node.value.attr == 'inputs':
                     if isinstance(node.slice, ast.Constant):
-                        sockets.add(node.slice.value)
+                        sock_name = node.slice.value
+                        if not isinstance(sock_name, int):
+                            sockets.add(sock_name)
 
         def _extract_property_reads(self, node, properties):
             """Extract property names from getattr(node, 'property_name') or node.property_name"""
@@ -241,6 +315,60 @@ def scan_addon_source_for_evidence(addon_module):
     scanner = NodeTypeHandlerScanner()
     scanner.visit(tree)
 
+    # Second pass: scan dedicated handler functions that are CALLED from dispatch
+    # (_principled_shader_spec, _standalone_bsdf_spec) and extract their socket reads
+    class DedicatedHandlerScanner(ast.NodeVisitor):
+        def visit_FunctionDef(self, node):
+            # _principled_shader_spec → BSDF_PRINCIPLED
+            if node.name == '_principled_shader_spec':
+                sockets = set()
+                properties = set()
+                for stmt in ast.walk(node):
+                    scanner._extract_socket_reads(stmt, sockets)
+                    scanner._extract_property_reads(stmt, properties)
+
+                if 'BSDF_PRINCIPLED' in evidence:
+                    evidence['BSDF_PRINCIPLED']['sockets'].update(sockets)
+                    evidence['BSDF_PRINCIPLED']['properties'].update(properties)
+                else:
+                    evidence['BSDF_PRINCIPLED'] = {
+                        'sockets': sockets,
+                        'properties': properties,
+                        'classification': 'SUPPORTED',
+                        'source_lines': [node.lineno],
+                    }
+
+            # _standalone_bsdf_spec → scans for nested if ntype == '...' within it
+            elif node.name == '_standalone_bsdf_spec':
+                # Scan this function for its own ntype handlers
+                for child in ast.walk(node):
+                    if isinstance(child, ast.If):
+                        nested_types = scanner._extract_node_type_literals(child.test)
+                        if nested_types:
+                            for ntype in nested_types:
+                                sockets = set()
+                                properties = set()
+                                for stmt in child.body:
+                                    for n in ast.walk(stmt):
+                                        scanner._extract_socket_reads(n, sockets)
+                                        scanner._extract_property_reads(n, properties)
+
+                                classification = 'APPROXIMATED' if ntype in approximated_types else 'SUPPORTED'
+                                if ntype in evidence:
+                                    evidence[ntype]['sockets'].update(sockets)
+                                    evidence[ntype]['properties'].update(properties)
+                                else:
+                                    evidence[ntype] = {
+                                        'sockets': sockets,
+                                        'properties': properties,
+                                        'classification': classification,
+                                        'source_lines': [child.lineno],
+                                    }
+
+            self.generic_visit(node)
+
+    DedicatedHandlerScanner().visit(tree)
+
     # Guard: scanner must find nonzero ntype literals (refactor detection)
     if total_ntype_literals_found == 0:
         print("[pkg119] FATAL: AST scanner found ZERO ntype literals in addon source.")
@@ -248,7 +376,14 @@ def scan_addon_source_for_evidence(addon_module):
         print("         The scanner must be updated to match the new dispatch structure.")
         sys.exit(1)
 
-    print(f"[pkg119] AST scan: Found {total_ntype_literals_found} total ntype literals")
+    # Post-process: VOLUME_* nodes are translated to glass IOR=1 without warning
+    # (convert_shader_node line 3228-3229) → classify APPROXIMATED
+    for vol_type in ('VOLUME_ABSORPTION', 'VOLUME_SCATTER', 'PRINCIPLED_VOLUME'):
+        if vol_type in evidence:
+            evidence[vol_type]['classification'] = 'APPROXIMATED'
+            evidence[vol_type]['notes'] = 'mapped to glass IOR=1.0 (volume not fully implemented)'
+
+    print(f"[pkg119] AST scan: Found {total_ntype_literals_found} total ntype literals (shader-dispatch only)")
     print(f"[pkg119] AST scan: Extracted evidence for {len(evidence)} unique node types")
 
     return evidence
@@ -536,7 +671,7 @@ def classify_shader_node(node_info, evidence, stale_socket_findings) -> dict[str
         'sockets_supported': sorted(list(sockets_with_evidence)),
         'sockets_dropped': sorted(list(sockets_without_evidence)),
         'properties_supported': sorted(list(props_with_evidence)),
-        'notes': '',
+        'notes': node_evidence.get('notes', ''),
     }
 
 
@@ -601,7 +736,8 @@ def generate_matrix(evidence):
                 'notes': f"property {prop_info['type']}" if prop_classification == 'DROPPED-SILENT' else '',
             })
 
-    # Render settings (evidence hardcoded for now, AST scan would be overkill)
+    # Render settings (static evidence, hand-verified by review, not scanner-derived)
+    # Direct reads from addon code (lines 1243-1270, 4602-4630)
     RENDER_SETTINGS_EVIDENCE = {'samples', 'use_denoising', 'denoiser', 'film_transparent'}
     for prop_name in render_settings:
         classification = 'SUPPORTED' if prop_name in RENDER_SETTINGS_EVIDENCE else 'DROPPED-SILENT'
@@ -614,7 +750,8 @@ def generate_matrix(evidence):
             'notes': '',
         })
 
-    # Light properties (evidence hardcoded for now, AST scan would be overkill)
+    # Light properties (static evidence, hand-verified by review, not scanner-derived)
+    # From convert_lights (lines 3879-3990): what the handler demonstrably reads
     LIGHT_EVIDENCE = {
         'POINT': {'energy', 'color', 'use_temperature', 'temperature', 'shadow_soft_size'},
         'SUN': {'energy', 'color', 'use_temperature', 'temperature', 'angle'},
@@ -634,7 +771,8 @@ def generate_matrix(evidence):
                 'notes': '',
             })
 
-    # Camera properties (evidence hardcoded for now)
+    # Camera properties (static evidence, hand-verified by review, not scanner-derived)
+    # From camera extraction code (lines 1280-1288)
     CAMERA_EVIDENCE = {'lens', 'sensor_width', 'sensor_height', 'shift_x', 'shift_y',
                        'dof_distance', 'aperture_fstop'}
     for prop in camera_props:
@@ -683,6 +821,10 @@ def write_markdown_report(matrix_rows, stale_socket_findings, output_path: Path)
     with open(output_path, 'w') as f:
         f.write("# Blender Parity Coverage Matrix — Phase A (AST-Scanned Evidence)\n\n")
         f.write(f"**Generated:** {bpy.app.version_string}\n\n")
+        f.write("**Evidence sources:**\n")
+        f.write("- Shader nodes: AST-scanned from addon source (helper-method reads included)\n")
+        f.write("- RenderSettings/Light/Camera: static evidence, hand-verified by review, not scanner-derived\n\n")
+        f.write("**Note:** Integer-literal socket names (e.g., MATH '0'/'1'/'2' positional) excluded from counts.\n\n")
         f.write("## Summary\n\n")
         f.write(f"- **SUPPORTED**: {counts['SUPPORTED']} features\n")
         f.write(f"- **APPROXIMATED**: {counts['APPROXIMATED']} features\n")

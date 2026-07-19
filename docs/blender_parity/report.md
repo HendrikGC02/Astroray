@@ -16,32 +16,37 @@
 - **UNKNOWN**: 0 features
 - **Total**: 524 features
 
-## ⚠️ Stale Socket Name Findings (Latent Addon Bugs)
+## ⚠️ Stale Socket Reads — Latent Bugs (Unguarded, Name Not in Blender 5.1)
 
-These socket names appear in addon handlers but do NOT exist on the live node in this Blender version.
-The addon believes it supports these sockets, but `node.inputs.get('...')` returns None at runtime,
-so the default silently wins. Each entry is a real latent bug.
+These socket names appear in UNGUARDED addon reads but do NOT exist on the live node.
+The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
+**Each entry is a real latent bug.**
 
 - **BRIGHTCONTRAST**: socket `Bright` (addon __init__.py line 2356)
 - **BSDF_GLOSSY**: socket `Anisotropic` (addon __init__.py line 3005)
 - **BSDF_METALLIC**: socket `Color` (addon __init__.py line 3039)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 3054)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 3054)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 3054)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 3054)
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 3054)
 - **HUE_SAT**: socket `Fac` (addon __init__.py line 2338)
 - **INVERT**: socket `Fac` (addon __init__.py line 2324)
 - **MIX**: socket `Color2` (addon __init__.py line 2312)
 - **MIX**: socket `Fac` (addon __init__.py line 2312)
 - **MIX**: socket `Color1` (addon __init__.py line 2312)
-- **MIX_RGB**: socket `A` (addon __init__.py line 2312)
 - **MIX_RGB**: socket `Fac` (addon __init__.py line 2312)
 - **MIX_RGB**: socket `B` (addon __init__.py line 2312)
+- **MIX_RGB**: socket `A` (addon __init__.py line 2312)
 - **MIX_SHADER**: socket `Fac` (addon __init__.py line 3061, line 3183)
-- **TEX_BRICK**: socket `Color3` (addon __init__.py line 2848)
 - **TEX_BRICK**: socket `Offset` (addon __init__.py line 2848)
+- **TEX_BRICK**: socket `Color3` (addon __init__.py line 2848)
 - **VALTORGB**: socket `Fac` (addon __init__.py line 2366)
+
+## Dormant Cross-Version Fallbacks (Intentional, Informational)
+
+These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
+
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 3054)
 
 ## DROPPED-SILENT Features (Failure Mode)
 

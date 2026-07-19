@@ -163,12 +163,13 @@ def scan_addon_source_for_evidence(addon_module):
                 for node_type in node_types:
                     # Extract socket/property reads from this if-block
                     sockets = set()
+                    fallback_sockets = set()  # NEW: track fallback reads separately
                     properties = set()
 
                     # Walk the if-block body (not elif/else branches)
                     for stmt in node.body:
                         for child in ast.walk(stmt):
-                            self._extract_socket_reads(child, sockets)
+                            self._extract_socket_reads(child, sockets, fallback_sockets)
                             self._extract_property_reads(child, properties)
 
                     classification = 'APPROXIMATED' if node_type in approximated_types else 'SUPPORTED'
@@ -176,11 +177,13 @@ def scan_addon_source_for_evidence(addon_module):
                     if node_type in evidence:
                         # Merge with existing evidence (multiple handlers for same type)
                         evidence[node_type]['sockets'].update(sockets)
+                        evidence[node_type]['fallback_sockets'].update(fallback_sockets)
                         evidence[node_type]['properties'].update(properties)
                         evidence[node_type]['source_lines'].append(node.lineno)
                     else:
                         evidence[node_type] = {
                             'sockets': sockets,
+                            'fallback_sockets': fallback_sockets,  # NEW
                             'properties': properties,
                             'classification': classification,
                             'source_lines': [node.lineno],
@@ -217,19 +220,22 @@ def scan_addon_source_for_evidence(addon_module):
 
             return results
 
-        def _extract_socket_reads(self, node, sockets):
+        def _extract_socket_reads(self, node, sockets, fallback_sockets):
             """Extract socket names from direct reads + helper methods.
+
+            Separates PRIMARY reads from FALLBACK reads (intentional cross-version compatibility).
+            Fallback reads: second arg in _float_with_fallback, names in or-chains/guards.
 
             Direct: node.inputs.get('...') or node.inputs['...']
             Helpers:
               - self.get_color_input(node, 'SocketName', ...)
               - self.get_float_input(node, 'SocketName', ...)
-              - self._float_with_fallback(node, 'NewName', 'OldName', ...) → both names
+              - self._float_with_fallback(node, 'NewName', 'OldName') → New=PRIMARY, Old=FALLBACK
               - self.get_base_color_texture(node, 'SocketName', ...)
               - self.get_normal_inputs(node) → reads 'Normal' socket
               - Local closures: _nsock('X') / _vsock('X') → 'X'
 
-            Excludes integer literals (MATH positional sockets '0','1','2' — skip with note).
+            Excludes integer literals (MATH positional sockets '0','1','2').
             """
             if isinstance(node, ast.Call):
                 # Helper method calls: self.get_*_input(node, 'SocketName')
@@ -244,17 +250,17 @@ def scan_addon_source_for_evidence(addon_module):
                             if not isinstance(sock_name, int):
                                 sockets.add(sock_name)
 
-                    # _float_with_fallback(node, 'NewName', 'OldName') → capture BOTH
+                    # _float_with_fallback(node, 'NewName', 'OldName') → New=PRIMARY, Old=FALLBACK
                     elif method_name == '_float_with_fallback':
                         if len(node.args) >= 3:
                             if isinstance(node.args[1], ast.Constant):
                                 new_name = node.args[1].value
                                 if not isinstance(new_name, int):
-                                    sockets.add(new_name)
+                                    sockets.add(new_name)  # PRIMARY
                             if isinstance(node.args[2], ast.Constant):
                                 old_name = node.args[2].value
                                 if not isinstance(old_name, int):
-                                    sockets.add(old_name)
+                                    fallback_sockets.add(old_name)  # FALLBACK (intentional cross-version)
 
                     # get_normal_inputs(node) → reads 'Normal' socket
                     elif method_name == 'get_normal_inputs':
@@ -322,17 +328,20 @@ def scan_addon_source_for_evidence(addon_module):
             # _principled_shader_spec → BSDF_PRINCIPLED
             if node.name == '_principled_shader_spec':
                 sockets = set()
+                fallback_sockets = set()
                 properties = set()
                 for stmt in ast.walk(node):
-                    scanner._extract_socket_reads(stmt, sockets)
+                    scanner._extract_socket_reads(stmt, sockets, fallback_sockets)
                     scanner._extract_property_reads(stmt, properties)
 
                 if 'BSDF_PRINCIPLED' in evidence:
                     evidence['BSDF_PRINCIPLED']['sockets'].update(sockets)
+                    evidence['BSDF_PRINCIPLED']['fallback_sockets'].update(fallback_sockets)
                     evidence['BSDF_PRINCIPLED']['properties'].update(properties)
                 else:
                     evidence['BSDF_PRINCIPLED'] = {
                         'sockets': sockets,
+                        'fallback_sockets': fallback_sockets,
                         'properties': properties,
                         'classification': 'SUPPORTED',
                         'source_lines': [node.lineno],
@@ -347,19 +356,22 @@ def scan_addon_source_for_evidence(addon_module):
                         if nested_types:
                             for ntype in nested_types:
                                 sockets = set()
+                                fallback_sockets = set()
                                 properties = set()
                                 for stmt in child.body:
                                     for n in ast.walk(stmt):
-                                        scanner._extract_socket_reads(n, sockets)
+                                        scanner._extract_socket_reads(n, sockets, fallback_sockets)
                                         scanner._extract_property_reads(n, properties)
 
                                 classification = 'APPROXIMATED' if ntype in approximated_types else 'SUPPORTED'
                                 if ntype in evidence:
                                     evidence[ntype]['sockets'].update(sockets)
+                                    evidence[ntype]['fallback_sockets'].update(fallback_sockets)
                                     evidence[ntype]['properties'].update(properties)
                                 else:
                                     evidence[ntype] = {
                                         'sockets': sockets,
+                                        'fallback_sockets': fallback_sockets,
                                         'properties': properties,
                                         'classification': classification,
                                         'source_lines': [child.lineno],
@@ -656,14 +668,28 @@ def classify_shader_node(node_info, evidence, stale_socket_findings) -> dict[str
     sockets_without_evidence = all_live_input_sockets - supported_sockets_from_evidence
     props_with_evidence = all_props & supported_props
 
-    # Detect stale socket names: evidence mentions a socket that doesn't exist in live node
-    stale_socket_names = supported_sockets_from_evidence - all_live_input_sockets
-    if stale_socket_names:
-        for stale_name in stale_socket_names:
+    # Detect stale socket names: PRIMARY evidence mentions a socket that doesn't exist in live node
+    # (excludes fallback reads — those are intentional cross-version compatibility)
+    fallback_sockets_from_evidence = node_evidence.get('fallback_sockets', set())
+    primary_stale = supported_sockets_from_evidence - all_live_input_sockets
+    fallback_stale = fallback_sockets_from_evidence - all_live_input_sockets
+
+    if primary_stale:
+        for stale_name in primary_stale:
             stale_socket_findings.append({
                 'node_type': node_type,
                 'stale_socket_name': stale_name,
                 'source_lines': node_evidence['source_lines'],
+                'is_fallback': False,  # GENUINE BUG: unguarded read of nonexistent name
+            })
+
+    if fallback_stale:
+        for stale_name in fallback_stale:
+            stale_socket_findings.append({
+                'node_type': node_type,
+                'stale_socket_name': stale_name,
+                'source_lines': node_evidence['source_lines'],
+                'is_fallback': True,  # INTENTIONAL: dormant cross-version fallback
             })
 
     return {
@@ -832,13 +858,29 @@ def write_markdown_report(matrix_rows, stale_socket_findings, output_path: Path)
         f.write(f"- **UNKNOWN**: {counts['UNKNOWN']} features\n")
         f.write(f"- **Total**: {len(matrix_rows)} features\n\n")
 
-        # Stale socket findings (latent addon bugs discovered for free)
-        if stale_socket_findings:
-            f.write("## ⚠️ Stale Socket Name Findings (Latent Addon Bugs)\n\n")
-            f.write("These socket names appear in addon handlers but do NOT exist on the live node in this Blender version.\n")
-            f.write("The addon believes it supports these sockets, but `node.inputs.get('...')` returns None at runtime,\n")
-            f.write("so the default silently wins. Each entry is a real latent bug.\n\n")
-            for finding in stale_socket_findings:
+        # Split stale socket findings into genuine bugs vs intentional fallbacks
+        genuine_bugs = [f for f in stale_socket_findings if not f.get('is_fallback', False)]
+        dormant_fallbacks = [f for f in stale_socket_findings if f.get('is_fallback', False)]
+
+        if genuine_bugs:
+            f.write("## ⚠️ Stale Socket Reads — Latent Bugs (Unguarded, Name Not in Blender 5.1)\n\n")
+            f.write("These socket names appear in UNGUARDED addon reads but do NOT exist on the live node.\n")
+            f.write("The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.\n")
+            f.write("**Each entry is a real latent bug.**\n\n")
+            for finding in genuine_bugs:
+                node_type = finding['node_type']
+                stale_name = finding['stale_socket_name']
+                lines = ', '.join(f"line {ln}" for ln in finding['source_lines'])
+                f.write(f"- **{node_type}**: socket `{stale_name}` (addon __init__.py {lines})\n")
+            f.write("\n")
+
+        if dormant_fallbacks:
+            f.write("## Dormant Cross-Version Fallbacks (Intentional, Informational)\n\n")
+            f.write("These socket names appear in FALLBACK position of cross-version reads ")
+            f.write("(second arg in `_float_with_fallback(node, 'New', 'Old')`) ")
+            f.write("but do NOT exist in Blender 5.1. They are dormant — only activate if the ")
+            f.write("primary name also doesn't exist. Informational, not bugs.\n\n")
+            for finding in dormant_fallbacks:
                 node_type = finding['node_type']
                 stale_name = finding['stale_socket_name']
                 lines = ', '.join(f"line {ln}" for ln in finding['source_lines'])

@@ -335,17 +335,23 @@ void launchStageShadeNeeMis(
     GPUWavefrontHitBuffers& hitBufs,
     float* d_nee_f, int* d_nee_i,
     int* d_shadow_queue, int* d_shadow_count, int nee_capacity,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth);
+    int               max_depth,
+    bool              useLuminanceOutput,  // pkg55-C3 (was missing)
+    bool              enableNEE);          // pkg55-C3 (was missing)
 
 // Session N+3 part 2: Hit record fields (extend GPUWavefrontState for intersect->shade flow).
 // These are passed as separate device pointers; will be folded into GPUWavefrontState

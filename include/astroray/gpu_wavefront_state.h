@@ -198,10 +198,14 @@ void launchStageRussianRoulette_SessionN4(
 void launchStageAdvance(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
@@ -209,6 +213,8 @@ void launchStageAdvance(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     int               max_depth,
+    bool              useLuminanceOutput,  // pkg55-C3 (was missing)
+    bool              enableNEE,           // pkg55-C3 (was missing)
     bool              sync = true);  // N+7: render driver passes false, syncs once per render
 
 // Session N+7 part 2: queued advance + compaction. queue/count buffers are
@@ -218,17 +224,23 @@ void launchStageAdvanceQueued(
     GPUWavefrontHitBuffers& hitBufs,
     const int* d_queue_in, const int* d_count_in,
     int* d_queue_out, int* d_count_out,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth);
+    int               max_depth,
+    bool              useLuminanceOutput,  // pkg55-C3 (was missing)
+    bool              enableNEE);          // pkg55-C3 (was missing)
 
 // Fills d_queue with 0..n-1 and *d_count = n (bounce-0 population).
 void launchStageQueueIota(int* d_queue, int* d_count, int n);

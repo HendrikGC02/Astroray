@@ -903,10 +903,14 @@ void launchStageAccumulateXYZ(
 void launchStageAdvance(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
@@ -926,7 +930,8 @@ void launchStageAdvance(
             "wavefront_stage_advance_n6",
             (const void*)stageAdvanceKernel, blocks, threads);
         stageAdvanceKernel<<<blocks, threads>>>(
-            state, hitBufs, d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            state, hitBufs, d_tlas, d_instances, d_blas,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
             d_lights, num_lights, total_light_power, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
             worldMaxBounces, max_depth, useLuminanceOutput, enableNEE);
@@ -960,10 +965,14 @@ void launchStageAdvanceQueued(
     GPUWavefrontHitBuffers& hitBufs,
     const int* d_queue_in, const int* d_count_in,
     int* d_queue_out, int* d_count_out,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
@@ -986,7 +995,8 @@ void launchStageAdvanceQueued(
             (const void*)stageAdvanceQueuedKernel, blocks, threads);
         stageAdvanceQueuedKernel<<<blocks, threads>>>(
             state, hitBufs, d_queue_in, d_count_in, d_queue_out, d_count_out,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            d_tlas, d_instances, d_blas,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
             d_lights, num_lights, total_light_power, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
             worldMaxBounces, max_depth, useLuminanceOutput, enableNEE);

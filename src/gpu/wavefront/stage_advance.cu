@@ -1062,7 +1062,9 @@ __global__ void stageRegenKernel(
     int numPixels,
     GCameraParams cam,
     int width, int height,
-    uint64_t seed)
+    uint64_t seed,
+    float lambdaMin,
+    float lambdaMax)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= state.num_active) return;
@@ -1111,7 +1113,8 @@ __global__ void stageRegenKernel(
     if (w >= total_work) return;
     int pixel  = w % numPixels;
     int sample = w / numPixels;
-    initPathSlot(idx, pixel, sample, state, cam, width, height, seed);
+    initPathSlot(idx, pixel, sample, state, cam, width, height, seed,
+                 lambdaMin, lambdaMax);
 }
 
 void launchStageRegen(
@@ -1122,7 +1125,9 @@ void launchStageRegen(
     int numPixels,
     const GCameraParams& cam,
     int width, int height,
-    uint64_t seed)
+    uint64_t seed,
+    float lambdaMin,
+    float lambdaMax)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1133,7 +1138,8 @@ void launchStageRegen(
             (const void*)stageRegenKernel, blocks, threads);
         stageRegenKernel<<<blocks, threads>>>(
             state, d_accum_xyz, d_work_counter, total_work, numPixels,
-            cam, width, height, seed);
+            cam, width, height, seed,
+            lambdaMin, lambdaMax);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_regen launch error: %s\n",

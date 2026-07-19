@@ -96,7 +96,8 @@ __device__ inline void generatePrimaryRay(
     const GCameraParams& cam,
     int px, int py, int width, int height,
     GVec3& ray_origin, GVec3& ray_direction,
-    GSampledWavelengths& lambdas)
+    GSampledWavelengths& lambdas,
+    float lambdaMin, float lambdaMax)
 {
     // 1. Filter u/v (CPU draws 2× std::uniform_real_distribution<float>(0,1)).
     float u = (px + filterSample(rng)) / float(width - 1);
@@ -141,7 +142,7 @@ __device__ inline void generatePrimaryRay(
 
     // 3. Lambda uniform draw (CPU: std::uniform_real_distribution<float>(0,1)).
     float lambda_u = rng.Uniform();
-    lambdas = sampleUniformWavelength(lambda_u, G_LAMBDA_MIN, G_LAMBDA_MAX);
+    lambdas = sampleUniformWavelength(lambda_u, lambdaMin, lambdaMax);
 }
 
 }  // namespace (anonymous -- TU-local helpers above)
@@ -156,7 +157,9 @@ __device__ void initPathSlot(
     GPUWavefrontState& state,
     const GCameraParams& cam,
     int width, int height,
-    uint64_t seed)
+    uint64_t seed,
+    float lambdaMin,
+    float lambdaMax)
 {
     int idx = slot;
     int px = pixel % width;
@@ -171,7 +174,8 @@ __device__ void initPathSlot(
     // Generate primary ray + lambda sample. RNG draw order matches CPU path_kernel.cpp::init_path().
     GVec3 ray_origin, ray_direction;
     GSampledWavelengths lambdas;
-    generatePrimaryRay(rng, cam, px, py, width, height, ray_origin, ray_direction, lambdas);
+    generatePrimaryRay(rng, cam, px, py, width, height, ray_origin, ray_direction, lambdas,
+                       lambdaMin, lambdaMax);
 
     // SoA writes. Store the LIVE RNG state (dimension counter advanced by 4 draws).
     state.pixel_index[idx]  = pixel;
@@ -223,13 +227,16 @@ __global__ void stageInitKernel(
     GCameraParams cam,
     int width, int height,
     uint64_t seed,
-    int sample_index)
+    int sample_index,
+    float lambdaMin,
+    float lambdaMax)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int total = width * height;
     if (idx >= total) return;
     // Legacy per-round scheduling: slot == pixel.
-    initPathSlot(idx, idx, sample_index, state, cam, width, height, seed);
+    initPathSlot(idx, idx, sample_index, state, cam, width, height, seed,
+                 lambdaMin, lambdaMax);
 }
 
 void launchStageInit(
@@ -237,7 +244,9 @@ void launchStageInit(
     const GCameraParams& cam,
     int width, int height,
     uint64_t seed,
-    int sample_index)
+    int sample_index,
+    float lambdaMin,
+    float lambdaMax)
 {
     int total = width * height;
     if (total <= 0 || state.capacity < total) {
@@ -250,7 +259,8 @@ void launchStageInit(
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_init_n3",
             (const void*)stageInitKernel, blocks, threads);
-        stageInitKernel<<<blocks, threads>>>(state, cam, width, height, seed, sample_index);
+        stageInitKernel<<<blocks, threads>>>(state, cam, width, height, seed, sample_index,
+                                              lambdaMin, lambdaMax);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_init launch error: %s\n",

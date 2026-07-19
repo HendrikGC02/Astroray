@@ -1,0 +1,20 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-8.4.1, pluggy-1.6.0 -- C:\apps\Python313x64\python.exe
+cachedir: test_results\.pytest_cache
+rootdir: C:\Users\hcombrinck\OneDrive\Astroray\Astroray_repo\Astroray-pkg55-c3
+configfile: pytest.ini
+plugins: jaxtyping-0.3.9, anyio-4.9.0
+collecting ... collected 4 items
+
+tests/test_pkg55_c3_wavefront_nonvisible.py::test_nir_band_wavefront_cpu_parity FAILED [ 25%]
+tests/test_pkg55_c3_wavefront_nonvisible.py::test_uv_band_wavefront_cpu_parity FAILED [ 50%]
+tests/test_pkg55_c3_wavefront_nonvisible.py::test_naive_mode_wavefront_cpu_parity PASSED [ 75%]
+tests/test_pkg55_c3_wavefront_nonvisible.py::test_visible_band_default_unchanged PASSED [100%]
+
+================================== FAILURES ===================================
+C:\Users\hcombrinck\OneDrive\Astroray\Astroray_repo\Astroray-pkg55-c3\tests\test_pkg55_c3_wavefront_nonvisible.py:127: AssertionError: NIR wavefront SSIM 0.9184 < 0.97
+C:\Users\hcombrinck\OneDrive\Astroray\Astroray_repo\Astroray-pkg55-c3\tests\test_pkg55_c3_wavefront_nonvisible.py:144: AssertionError: UV wavefront SSIM 0.9184 < 0.97
+=========================== short test summary info ===========================
+FAILED tests/test_pkg55_c3_wavefront_nonvisible.py::test_nir_band_wavefront_cpu_parity
+FAILED tests/test_pkg55_c3_wavefront_nonvisible.py::test_uv_band_wavefront_cpu_parity
+========================= 2 failed, 2 passed in 6.44s =========================

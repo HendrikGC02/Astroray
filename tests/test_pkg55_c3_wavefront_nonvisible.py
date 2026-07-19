@@ -93,9 +93,9 @@ def _render_wavefront_vs_cpu(lmin, lmax, mode, *,
                       dtype=np.float32)
 
     # Wavefront GPU (via Python binding)
+    # NOTE: Do NOT set wavelength_range on wf - cuda_wavefront_render uses its
+    # lambda_min/max params, not the renderer's stored range
     wf = _build(width=width, height=height, attach_profiles=attach_profiles)
-    wf.set_wavelength_range(float(lmin), float(lmax))
-    wf.set_output_mode(mode)
     wf.set_integrator("path_tracer")
     _ = wf.render(1, 1, None, False)  # warmup: triggers BVH build
     use_lum = (mode == "luminance") or not (lmin >= 379.5 and lmax <= 780.5)

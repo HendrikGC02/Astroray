@@ -83,7 +83,9 @@ __device__ void initPathSlot(
     GPUWavefrontState& state,
     const GCameraParams& cam,
     int width, int height,
-    uint64_t seed);
+    uint64_t seed,
+    float lambdaMin,
+    float lambdaMax);
 } }
 
 namespace astroray::wavefront {

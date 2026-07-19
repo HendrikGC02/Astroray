@@ -28,6 +28,81 @@ void uploadJakobHanikaLut();
 
 namespace astroray::wavefront {
 
+// Forward declarations for stage launch functions from stage_advance.cu + stage_init.cu
+// (pkg55-C3: added useLuminanceOutput, enableNEE, lambdaMin/Max params)
+
+// From stage_init.cu
+void launchStageInit(
+    GPUWavefrontState& state,
+    const GCameraParams& cam,
+    int width, int height,
+    uint64_t seed,
+    int sample_index,
+    float lambdaMin,
+    float lambdaMax);
+
+void launchStageRegen(
+    GPUWavefrontState& state,
+    float* d_accum,
+    int* d_work, int total_work, int capacity,
+    const GCameraParams& cam,
+    int width, int height,
+    uint64_t seed,
+    float lambdaMin,
+    float lambdaMax);
+
+// From stage_advance.cu
+void launchStageIntersectQueued(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const int* d_queue_in, const int* d_count_in,
+    int* d_shade_queues, int* d_shade_counts, int capacity,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    bool              useLuminanceOutput);
+
+void launchStageShadeBucketed(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const int* d_shade_queues, const int* d_shade_counts, int capacity,
+    int* d_queue_out, int* d_count_out,
+    float* d_nee_f, int* d_nee_i, int* d_shadow_queue, int* d_shadow_count,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE);
+
+void launchStageShadeNeeMis(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    float* d_nee_f, int* d_nee_i,
+    int* d_shadow_queue, int* d_shadow_count, int nee_capacity,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    int               max_depth,
+    bool              useLuminanceOutput,
+    bool              enableNEE);
+
 std::vector<float> cuda_wavefront_snapshot_post_init(
     const Camera& cam,
     int width, int height,
@@ -65,7 +140,8 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
 
     // Launch stage_init kernel.
     try {
-        launchStageInit(state, gcam, width, height, seed);
+        launchStageInit(state, gcam, width, height, seed, 0,
+                        G_LAMBDA_MIN, G_LAMBDA_MAX);
     } catch (...) {
         freeGPUWavefrontState(state);
         throw;
@@ -246,7 +322,8 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
         }
 
         // Launch stage_init + stage_intersect.
-        launchStageInit(state, gcam, width, height, seed);
+        launchStageInit(state, gcam, width, height, seed, 0,
+                        G_LAMBDA_MIN, G_LAMBDA_MAX);
         launchStageIntersect_SessionN3(state, hitBufs, d_bvhNodes, d_prims, d_tris, d_spheres);
 
         // Download PostIntersect snapshot fields.
@@ -425,7 +502,8 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
         }
 
         // Launch stage_init + stage_intersect + stage_shade_lambertian.
-        launchStageInit(state, gcam, width, height, seed);
+        launchStageInit(state, gcam, width, height, seed, 0,
+                        G_LAMBDA_MIN, G_LAMBDA_MAX);
         launchStageIntersect_SessionN3(state, hitBufs, d_bvhNodes, d_prims, d_tris, d_spheres);
         launchStageShadeLambertian_SessionN3(state, hitBufs, d_materials, bvhRes.materials.size());
 
@@ -582,7 +660,8 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
         }
 
         // Launch stage_init + stage_intersect + stage_shade_lambertian + stage_light_sample.
-        launchStageInit(state, gcam, width, height, seed);
+        launchStageInit(state, gcam, width, height, seed, 0,
+                        G_LAMBDA_MIN, G_LAMBDA_MAX);
         launchStageIntersect_SessionN3(state, hitBufs, d_bvhNodes, d_prims, d_tris, d_spheres);
         launchStageShadeLambertian_SessionN3(state, hitBufs, d_materials, bvhRes.materials.size());
         launchStageLightSample_SessionN4(state, hitBufs, d_materials, bvhRes.materials.size(),
@@ -755,7 +834,8 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
         }
 
         // Launch stage_init + stage_intersect + stage_shade_lambertian + stage_light_sample + stage_russian_roulette.
-        launchStageInit(state, gcam, width, height, seed);
+        launchStageInit(state, gcam, width, height, seed, 0,
+                        G_LAMBDA_MIN, G_LAMBDA_MAX);
         launchStageIntersect_SessionN3(state, hitBufs, d_bvhNodes, d_prims, d_tris, d_spheres);
         launchStageShadeLambertian_SessionN3(state, hitBufs, d_materials, bvhRes.materials.size());
         launchStageLightSample_SessionN4(state, hitBufs, d_materials, bvhRes.materials.size(),
@@ -1098,13 +1178,15 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
         uploadCmfTables();
         uploadJakobHanikaLut();
 
-        launchStageInit(state, gcam, width, height, seed);
+        launchStageInit(state, gcam, width, height, seed, 0,
+                        G_LAMBDA_MIN, G_LAMBDA_MAX);
         launchStageShadeNeeMis(state, hitBufs, d_nee_f, d_nee_i,
                                d_shadow_queue, d_shadow_count, total_paths,
                                d_bvhNodes, d_prims, d_tris, d_spheres,
                                d_materials, d_lights, (int)res.lights.size(),
                                res.totalLightPower, treeView, envMap, gbg, hasBg,
-                               worldMaxBounces, /*max_depth=*/8);
+                               worldMaxBounces, /*max_depth=*/8,
+                               /*useLuminanceOutput=*/false, /*enableNEE=*/true);
 
         cudaError_t se = cudaDeviceSynchronize();
         if (se != cudaSuccess)
@@ -1142,7 +1224,10 @@ std::vector<float> cuda_wavefront_render(
     const Camera& cam,
     int width, int height,
     int samples, int max_depth,
-    uint64_t seed)
+    uint64_t seed,
+    float lambdaMin, float lambdaMax,
+    bool useLuminanceOutput,
+    bool enableNEE)
 {
     int total_paths = width * height;
     if (total_paths <= 0 || samples <= 0) {
@@ -1288,7 +1373,8 @@ std::vector<float> cuda_wavefront_render(
         int drainLeft = max_depth;
         for (long long pass = 0; pass < kMaxPasses; ++pass) {
             launchStageRegen(state, d_accum, d_work, (int)total_work,
-                             total_paths, gcam, width, height, seed);
+                             total_paths, gcam, width, height, seed,
+                             lambdaMin, lambdaMax);
             cudaMemsetAsync(cout, 0, sizeof(int));
             cudaMemsetAsync(d_shadeCounts, 0, kNumMatTypes * sizeof(int));
             cudaMemsetAsync(d_shadowCount, 0, sizeof(int));
@@ -1298,7 +1384,8 @@ std::vector<float> cuda_wavefront_render(
                                        d_bvhNodes, d_prims, d_tris,
                                        d_spheres, d_materials,
                                        envMap, gbg, hasBg,
-                                       worldMaxBounces);
+                                       worldMaxBounces,
+                                       useLuminanceOutput);
             launchStageShadeBucketed(state, hitBufs,
                                      d_shadeQueues, d_shadeCounts,
                                      total_paths, d_queueB, cout,
@@ -1308,7 +1395,8 @@ std::vector<float> cuda_wavefront_render(
                                      d_spheres, d_materials, d_lights,
                                      (int)res.lights.size(),
                                      res.totalLightPower,
-                                     treeView, max_depth);
+                                     treeView, max_depth,
+                                     useLuminanceOutput, enableNEE);
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_bvhNodes, d_prims, d_tris, d_spheres,
@@ -1326,7 +1414,8 @@ std::vector<float> cuda_wavefront_render(
             }
         }
         launchStageRegen(state, d_accum, d_work, (int)total_work,
-                         total_paths, gcam, width, height, seed);
+                         total_paths, gcam, width, height, seed,
+                         lambdaMin, lambdaMax);
 
         cudaError_t syncErr = cudaDeviceSynchronize();
         if (syncErr != cudaSuccess)

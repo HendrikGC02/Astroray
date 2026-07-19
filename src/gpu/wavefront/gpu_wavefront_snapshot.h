@@ -157,7 +157,10 @@ std::vector<float> cuda_wavefront_render(
     const Camera& cam,
     int width, int height,
     int samples, int max_depth,
-    uint64_t seed);
+    uint64_t seed,
+    float lambdaMin, float lambdaMax,
+    bool useLuminanceOutput,
+    bool enableNEE);
 
 }  // namespace wavefront
 }  // namespace astroray

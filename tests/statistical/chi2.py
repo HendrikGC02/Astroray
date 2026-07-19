@@ -144,7 +144,7 @@ class ChiSquareTest:
 
         # Sanity check: samples in bounds
         eps = (self.bounds[1] - self.bounds[0]) * 1e-4
-        in_domain = np.all((xy >= self.bounds[0] - eps) & (xy <= self.bounds[1] + eps), axis=0)
+        in_domain = np.all((xy >= (self.bounds[0] - eps)[:, None]) & (xy <= (self.bounds[1] + eps)[:, None]), axis=0)
         if not np.all(in_domain):
             self._log(f'Encountered {np.sum(~in_domain)} samples outside of the specified domain!')
             self.fail = True

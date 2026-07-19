@@ -237,13 +237,17 @@ def configure_test_imports(include_blender_addon: bool = False) -> str:
     configure_test_temp_dir()
     build_dirs = candidate_build_dirs()
 
-    for build_dir in reversed(build_dirs):
-        if build_dir not in sys.path:
-            sys.path.insert(0, build_dir)
-
+    # Insert PROJECT_ROOT first and the build dirs afterwards so the build
+    # dirs end up AHEAD of the repo root on sys.path: a stray astroray.pyd
+    # at the repo/worktree root must never shadow the fresh build output
+    # (2026-07-19 pkg55-C3 incident — a stale root shadow silently loaded).
     project_root = str(PROJECT_ROOT)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
+
+    for build_dir in reversed(build_dirs):
+        if build_dir not in sys.path:
+            sys.path.insert(0, build_dir)
 
     if include_blender_addon:
         addon_dir = str(PROJECT_ROOT / "blender_addon")

@@ -83,12 +83,20 @@ try {
 $shadows = $all | Where-Object { $_.FullName -notmatch $legitPattern }
 
 if ($shadows -and $shadows.Count -gt 0) {
-    [Console]::Error.WriteLine("[pyd-shadow-guard] WARNING: $($shadows.Count) shadow .pyd file(s) found outside build/ -- these will be loaded instead of the fresh build by tests/base_helpers.py:")
+    # Root-level shadows are the lethal case: they sat ahead of the build
+    # dirs on sys.path for every harness run (2026-07-19 pkg55-C3 incident
+    # burned hours on a stale root shadow). BLOCK those; warn on the rest.
+    $rootShadows = @($shadows | Where-Object { $_.DirectoryName -eq $repo })
+    [Console]::Error.WriteLine("[pyd-shadow-guard] WARNING: $($shadows.Count) shadow .pyd file(s) found outside build/ -- these can be loaded instead of the fresh build:")
     foreach ($s in $shadows) {
         $rel = $s.FullName.Substring($repo.Length).TrimStart('\','/')
         [Console]::Error.WriteLine("  $rel  ($([math]::Round($s.Length/1MB,2)) MB, $($s.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))")
     }
     [Console]::Error.WriteLine("[pyd-shadow-guard] Run /rebuild-pyd or delete these before trusting test output.")
+    if ($rootShadows.Count -gt 0) {
+        [Console]::Error.WriteLine("[pyd-shadow-guard] BLOCKED: shadow .pyd at the repo/worktree ROOT. Delete it (it is gitignored build debris) and rerun.")
+        exit 2
+    }
 }
 
 exit 0

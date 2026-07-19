@@ -1,6 +1,646 @@
 [
   {
     "category": "shader_node",
+    "feature": "ADD_SHADER",
+    "bl_idname": "ShaderNodeAddShader",
+    "socket_or_prop": "input:Shader",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "ADD_SHADER",
+    "bl_idname": "ShaderNodeAddShader",
+    "socket_or_prop": "input:Shader",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "AMBIENT_OCCLUSION",
+    "bl_idname": "ShaderNodeAmbientOcclusion",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "AMBIENT_OCCLUSION",
+    "bl_idname": "ShaderNodeAmbientOcclusion",
+    "socket_or_prop": "input:Distance",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "AMBIENT_OCCLUSION",
+    "bl_idname": "ShaderNodeAmbientOcclusion",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "AMBIENT_OCCLUSION",
+    "bl_idname": "ShaderNodeAmbientOcclusion",
+    "socket_or_prop": "prop:inside",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "AMBIENT_OCCLUSION",
+    "bl_idname": "ShaderNodeAmbientOcclusion",
+    "socket_or_prop": "prop:only_local",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "AMBIENT_OCCLUSION",
+    "bl_idname": "ShaderNodeAmbientOcclusion",
+    "socket_or_prop": "prop:samples",
+    "classification": "DROPPED-SILENT",
+    "notes": "property INT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "ATTRIBUTE",
+    "bl_idname": "ShaderNodeAttribute",
+    "socket_or_prop": "prop:attribute_type",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BACKGROUND",
+    "bl_idname": "ShaderNodeBackground",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BACKGROUND",
+    "bl_idname": "ShaderNodeBackground",
+    "socket_or_prop": "input:Strength",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BACKGROUND",
+    "bl_idname": "ShaderNodeBackground",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BEVEL",
+    "bl_idname": "ShaderNodeBevel",
+    "socket_or_prop": "input:Radius",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BEVEL",
+    "bl_idname": "ShaderNodeBevel",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BEVEL",
+    "bl_idname": "ShaderNodeBevel",
+    "socket_or_prop": "prop:samples",
+    "classification": "DROPPED-SILENT",
+    "notes": "property INT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BLACKBODY",
+    "bl_idname": "ShaderNodeBlackbody",
+    "socket_or_prop": "input:Temperature",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BRIGHTCONTRAST",
+    "bl_idname": "ShaderNodeBrightContrast",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BRIGHTCONTRAST",
+    "bl_idname": "ShaderNodeBrightContrast",
+    "socket_or_prop": "input:Brightness",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BRIGHTCONTRAST",
+    "bl_idname": "ShaderNodeBrightContrast",
+    "socket_or_prop": "input:Contrast",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLOSSY",
+    "bl_idname": "ShaderNodeBsdfAnisotropic",
+    "socket_or_prop": "input:Color",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLOSSY",
+    "bl_idname": "ShaderNodeBsdfAnisotropic",
+    "socket_or_prop": "input:Roughness",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLOSSY",
+    "bl_idname": "ShaderNodeBsdfAnisotropic",
+    "socket_or_prop": "input:Anisotropy",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLOSSY",
+    "bl_idname": "ShaderNodeBsdfAnisotropic",
+    "socket_or_prop": "input:Rotation",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLOSSY",
+    "bl_idname": "ShaderNodeBsdfAnisotropic",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLOSSY",
+    "bl_idname": "ShaderNodeBsdfAnisotropic",
+    "socket_or_prop": "input:Tangent",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLOSSY",
+    "bl_idname": "ShaderNodeBsdfAnisotropic",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLOSSY",
+    "bl_idname": "ShaderNodeBsdfAnisotropic",
+    "socket_or_prop": "prop:distribution",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_DIFFUSE",
+    "bl_idname": "ShaderNodeBsdfDiffuse",
+    "socket_or_prop": "input:Color",
+    "classification": "APPROXIMATED",
+    "notes": "Oren-Nayar diffuse approximated with Disney rough diffuse"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_DIFFUSE",
+    "bl_idname": "ShaderNodeBsdfDiffuse",
+    "socket_or_prop": "input:Roughness",
+    "classification": "APPROXIMATED",
+    "notes": "Oren-Nayar diffuse approximated with Disney rough diffuse"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_DIFFUSE",
+    "bl_idname": "ShaderNodeBsdfDiffuse",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "Oren-Nayar diffuse approximated with Disney rough diffuse"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_DIFFUSE",
+    "bl_idname": "ShaderNodeBsdfDiffuse",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "Oren-Nayar diffuse approximated with Disney rough diffuse"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLASS",
+    "bl_idname": "ShaderNodeBsdfGlass",
+    "socket_or_prop": "input:Color",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLASS",
+    "bl_idname": "ShaderNodeBsdfGlass",
+    "socket_or_prop": "input:Roughness",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLASS",
+    "bl_idname": "ShaderNodeBsdfGlass",
+    "socket_or_prop": "input:IOR",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLASS",
+    "bl_idname": "ShaderNodeBsdfGlass",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLASS",
+    "bl_idname": "ShaderNodeBsdfGlass",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLASS",
+    "bl_idname": "ShaderNodeBsdfGlass",
+    "socket_or_prop": "input:Thin Film Thickness",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLASS",
+    "bl_idname": "ShaderNodeBsdfGlass",
+    "socket_or_prop": "input:Thin Film IOR",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_GLASS",
+    "bl_idname": "ShaderNodeBsdfGlass",
+    "socket_or_prop": "prop:distribution",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR",
+    "bl_idname": "ShaderNodeBsdfHair",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR",
+    "bl_idname": "ShaderNodeBsdfHair",
+    "socket_or_prop": "input:Offset",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR",
+    "bl_idname": "ShaderNodeBsdfHair",
+    "socket_or_prop": "input:RoughnessU",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR",
+    "bl_idname": "ShaderNodeBsdfHair",
+    "socket_or_prop": "input:RoughnessV",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR",
+    "bl_idname": "ShaderNodeBsdfHair",
+    "socket_or_prop": "input:Tangent",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR",
+    "bl_idname": "ShaderNodeBsdfHair",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR",
+    "bl_idname": "ShaderNodeBsdfHair",
+    "socket_or_prop": "prop:component",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Melanin",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Melanin Redness",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Tint",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Absorption Coefficient",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Aspect Ratio",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Roughness",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Radial Roughness",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Coat",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:IOR",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Offset",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Random Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Random Roughness",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Random",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Reflection",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Transmission",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "input:Secondary Reflection",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "prop:model",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_HAIR_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfHairPrincipled",
+    "socket_or_prop": "prop:parametrization",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:Base Color",
+    "classification": "APPROXIMATED",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:Edge Tint",
+    "classification": "DROPPED-SILENT",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:IOR",
+    "classification": "DROPPED-SILENT",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:Extinction",
+    "classification": "DROPPED-SILENT",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:Roughness",
+    "classification": "APPROXIMATED",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:Anisotropy",
+    "classification": "DROPPED-SILENT",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:Rotation",
+    "classification": "DROPPED-SILENT",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:Tangent",
+    "classification": "DROPPED-SILENT",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:Thin Film Thickness",
+    "classification": "DROPPED-SILENT",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "input:Thin Film IOR",
+    "classification": "DROPPED-SILENT",
+    "notes": "F82 edge tint approximated with Disney metallic base color"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "prop:distribution",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_METALLIC",
+    "bl_idname": "ShaderNodeBsdfMetallic",
+    "socket_or_prop": "prop:fresnel_type",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Base Color",
@@ -265,267 +905,35 @@
   },
   {
     "category": "shader_node",
-    "feature": "BSDF_DIFFUSE",
-    "bl_idname": "ShaderNodeBsdfDiffuse",
+    "feature": "BSDF_RAY_PORTAL",
+    "bl_idname": "ShaderNodeBsdfRayPortal",
     "socket_or_prop": "input:Color",
-    "classification": "APPROXIMATED",
-    "notes": "Oren-Nayar diffuse approximated with Disney rough diffuse"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_DIFFUSE",
-    "bl_idname": "ShaderNodeBsdfDiffuse",
-    "socket_or_prop": "input:Roughness",
-    "classification": "APPROXIMATED",
-    "notes": "Oren-Nayar diffuse approximated with Disney rough diffuse"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_DIFFUSE",
-    "bl_idname": "ShaderNodeBsdfDiffuse",
-    "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "Oren-Nayar diffuse approximated with Disney rough diffuse"
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "BSDF_DIFFUSE",
-    "bl_idname": "ShaderNodeBsdfDiffuse",
+    "feature": "BSDF_RAY_PORTAL",
+    "bl_idname": "ShaderNodeBsdfRayPortal",
+    "socket_or_prop": "input:Position",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_RAY_PORTAL",
+    "bl_idname": "ShaderNodeBsdfRayPortal",
+    "socket_or_prop": "input:Direction",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_RAY_PORTAL",
+    "bl_idname": "ShaderNodeBsdfRayPortal",
     "socket_or_prop": "input:Weight",
     "classification": "DROPPED-SILENT",
-    "notes": "Oren-Nayar diffuse approximated with Disney rough diffuse"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Roughness",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Anisotropy",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Rotation",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Normal",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Tangent",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Weight",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "prop:distribution",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Roughness",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Anisotropy",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Rotation",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Normal",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Tangent",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "input:Weight",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLOSSY",
-    "bl_idname": "ShaderNodeBsdfAnisotropic",
-    "socket_or_prop": "prop:distribution",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLASS",
-    "bl_idname": "ShaderNodeBsdfGlass",
-    "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLASS",
-    "bl_idname": "ShaderNodeBsdfGlass",
-    "socket_or_prop": "input:Roughness",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLASS",
-    "bl_idname": "ShaderNodeBsdfGlass",
-    "socket_or_prop": "input:IOR",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLASS",
-    "bl_idname": "ShaderNodeBsdfGlass",
-    "socket_or_prop": "input:Normal",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLASS",
-    "bl_idname": "ShaderNodeBsdfGlass",
-    "socket_or_prop": "input:Weight",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLASS",
-    "bl_idname": "ShaderNodeBsdfGlass",
-    "socket_or_prop": "input:Thin Film Thickness",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLASS",
-    "bl_idname": "ShaderNodeBsdfGlass",
-    "socket_or_prop": "input:Thin Film IOR",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_GLASS",
-    "bl_idname": "ShaderNodeBsdfGlass",
-    "socket_or_prop": "prop:distribution",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_TRANSLUCENT",
-    "bl_idname": "ShaderNodeBsdfTranslucent",
-    "socket_or_prop": "input:Color",
-    "classification": "APPROXIMATED",
-    "notes": "true normal-flipped diffuse transmission approximated with rough transmission"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_TRANSLUCENT",
-    "bl_idname": "ShaderNodeBsdfTranslucent",
-    "socket_or_prop": "input:Normal",
-    "classification": "DROPPED-SILENT",
-    "notes": "true normal-flipped diffuse transmission approximated with rough transmission"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_TRANSLUCENT",
-    "bl_idname": "ShaderNodeBsdfTranslucent",
-    "socket_or_prop": "input:Weight",
-    "classification": "DROPPED-SILENT",
-    "notes": "true normal-flipped diffuse transmission approximated with rough transmission"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_TRANSPARENT",
-    "bl_idname": "ShaderNodeBsdfTransparent",
-    "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "BSDF_TRANSPARENT",
-    "bl_idname": "ShaderNodeBsdfTransparent",
-    "socket_or_prop": "input:Weight",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
@@ -617,6 +1025,350 @@
   },
   {
     "category": "shader_node",
+    "feature": "BSDF_TOON",
+    "bl_idname": "ShaderNodeBsdfToon",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_TOON",
+    "bl_idname": "ShaderNodeBsdfToon",
+    "socket_or_prop": "input:Size",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_TOON",
+    "bl_idname": "ShaderNodeBsdfToon",
+    "socket_or_prop": "input:Smooth",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_TOON",
+    "bl_idname": "ShaderNodeBsdfToon",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_TOON",
+    "bl_idname": "ShaderNodeBsdfToon",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_TOON",
+    "bl_idname": "ShaderNodeBsdfToon",
+    "socket_or_prop": "prop:component",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_TRANSLUCENT",
+    "bl_idname": "ShaderNodeBsdfTranslucent",
+    "socket_or_prop": "input:Color",
+    "classification": "APPROXIMATED",
+    "notes": "true normal-flipped diffuse transmission approximated with rough transmission"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_TRANSLUCENT",
+    "bl_idname": "ShaderNodeBsdfTranslucent",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "true normal-flipped diffuse transmission approximated with rough transmission"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_TRANSLUCENT",
+    "bl_idname": "ShaderNodeBsdfTranslucent",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "true normal-flipped diffuse transmission approximated with rough transmission"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_TRANSPARENT",
+    "bl_idname": "ShaderNodeBsdfTransparent",
+    "socket_or_prop": "input:Color",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_TRANSPARENT",
+    "bl_idname": "ShaderNodeBsdfTransparent",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BUMP",
+    "bl_idname": "ShaderNodeBump",
+    "socket_or_prop": "input:Strength",
+    "classification": "SUPPORTED",
+    "notes": "bump map via get_normal_inputs"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BUMP",
+    "bl_idname": "ShaderNodeBump",
+    "socket_or_prop": "input:Distance",
+    "classification": "SUPPORTED",
+    "notes": "bump map via get_normal_inputs"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BUMP",
+    "bl_idname": "ShaderNodeBump",
+    "socket_or_prop": "input:Filter Width",
+    "classification": "DROPPED-SILENT",
+    "notes": "bump map via get_normal_inputs"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BUMP",
+    "bl_idname": "ShaderNodeBump",
+    "socket_or_prop": "input:Height",
+    "classification": "SUPPORTED",
+    "notes": "bump map via get_normal_inputs"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BUMP",
+    "bl_idname": "ShaderNodeBump",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "bump map via get_normal_inputs"
+  },
+  {
+    "category": "shader_node",
+    "feature": "BUMP",
+    "bl_idname": "ShaderNodeBump",
+    "socket_or_prop": "prop:invert",
+    "classification": "SUPPORTED",
+    "notes": "property BOOLEAN \u2014 bump map via get_normal_inputs"
+  },
+  {
+    "category": "shader_node",
+    "feature": "CLAMP",
+    "bl_idname": "ShaderNodeClamp",
+    "socket_or_prop": "input:Value",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "CLAMP",
+    "bl_idname": "ShaderNodeClamp",
+    "socket_or_prop": "input:Min",
+    "classification": "DROPPED-SILENT",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "CLAMP",
+    "bl_idname": "ShaderNodeClamp",
+    "socket_or_prop": "input:Max",
+    "classification": "DROPPED-SILENT",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "CLAMP",
+    "bl_idname": "ShaderNodeClamp",
+    "socket_or_prop": "prop:clamp_type",
+    "classification": "SUPPORTED",
+    "notes": "property ENUM \u2014 converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "COMBINE_COLOR",
+    "bl_idname": "ShaderNodeCombineColor",
+    "socket_or_prop": "input:Red",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "COMBINE_COLOR",
+    "bl_idname": "ShaderNodeCombineColor",
+    "socket_or_prop": "input:Green",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "COMBINE_COLOR",
+    "bl_idname": "ShaderNodeCombineColor",
+    "socket_or_prop": "input:Blue",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "COMBINE_COLOR",
+    "bl_idname": "ShaderNodeCombineColor",
+    "socket_or_prop": "prop:mode",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "COMBXYZ",
+    "bl_idname": "ShaderNodeCombineXYZ",
+    "socket_or_prop": "input:X",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "COMBXYZ",
+    "bl_idname": "ShaderNodeCombineXYZ",
+    "socket_or_prop": "input:Y",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "COMBXYZ",
+    "bl_idname": "ShaderNodeCombineXYZ",
+    "socket_or_prop": "input:Z",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "DISPLACEMENT",
+    "bl_idname": "ShaderNodeDisplacement",
+    "socket_or_prop": "input:Height",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "DISPLACEMENT",
+    "bl_idname": "ShaderNodeDisplacement",
+    "socket_or_prop": "input:Midlevel",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "DISPLACEMENT",
+    "bl_idname": "ShaderNodeDisplacement",
+    "socket_or_prop": "input:Scale",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "DISPLACEMENT",
+    "bl_idname": "ShaderNodeDisplacement",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "DISPLACEMENT",
+    "bl_idname": "ShaderNodeDisplacement",
+    "socket_or_prop": "prop:space",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "EEVEE_SPECULAR",
+    "bl_idname": "ShaderNodeEeveeSpecular",
+    "socket_or_prop": "input:Base Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "EEVEE_SPECULAR",
+    "bl_idname": "ShaderNodeEeveeSpecular",
+    "socket_or_prop": "input:Specular",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "EEVEE_SPECULAR",
+    "bl_idname": "ShaderNodeEeveeSpecular",
+    "socket_or_prop": "input:Roughness",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "EEVEE_SPECULAR",
+    "bl_idname": "ShaderNodeEeveeSpecular",
+    "socket_or_prop": "input:Emissive Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "EEVEE_SPECULAR",
+    "bl_idname": "ShaderNodeEeveeSpecular",
+    "socket_or_prop": "input:Transparency",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "EEVEE_SPECULAR",
+    "bl_idname": "ShaderNodeEeveeSpecular",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "EEVEE_SPECULAR",
+    "bl_idname": "ShaderNodeEeveeSpecular",
+    "socket_or_prop": "input:Clear Coat",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "EEVEE_SPECULAR",
+    "bl_idname": "ShaderNodeEeveeSpecular",
+    "socket_or_prop": "input:Clear Coat Roughness",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "EEVEE_SPECULAR",
+    "bl_idname": "ShaderNodeEeveeSpecular",
+    "socket_or_prop": "input:Clear Coat Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "EEVEE_SPECULAR",
+    "bl_idname": "ShaderNodeEeveeSpecular",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
     "feature": "EMISSION",
     "bl_idname": "ShaderNodeEmission",
     "socket_or_prop": "input:Color",
@@ -641,25 +1393,49 @@
   },
   {
     "category": "shader_node",
-    "feature": "BACKGROUND",
-    "bl_idname": "ShaderNodeBackground",
+    "feature": "CURVE_FLOAT",
+    "bl_idname": "ShaderNodeFloatCurve",
+    "socket_or_prop": "input:Factor",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "CURVE_FLOAT",
+    "bl_idname": "ShaderNodeFloatCurve",
+    "socket_or_prop": "input:Value",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "FRESNEL",
+    "bl_idname": "ShaderNodeFresnel",
+    "socket_or_prop": "input:IOR",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "FRESNEL",
+    "bl_idname": "ShaderNodeFresnel",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "GAMMA",
+    "bl_idname": "ShaderNodeGamma",
     "socket_or_prop": "input:Color",
     "classification": "DROPPED-SILENT",
     "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "BACKGROUND",
-    "bl_idname": "ShaderNodeBackground",
-    "socket_or_prop": "input:Strength",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BACKGROUND",
-    "bl_idname": "ShaderNodeBackground",
-    "socket_or_prop": "input:Weight",
+    "feature": "GAMMA",
+    "bl_idname": "ShaderNodeGamma",
+    "socket_or_prop": "input:Gamma",
     "classification": "DROPPED-SILENT",
     "notes": "no handler in addon translation layer"
   },
@@ -673,203 +1449,459 @@
   },
   {
     "category": "shader_node",
-    "feature": "VOLUME_ABSORPTION",
-    "bl_idname": "ShaderNodeVolumeAbsorption",
+    "feature": "HUE_SAT",
+    "bl_idname": "ShaderNodeHueSaturation",
+    "socket_or_prop": "input:Hue",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "HUE_SAT",
+    "bl_idname": "ShaderNodeHueSaturation",
+    "socket_or_prop": "input:Saturation",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "HUE_SAT",
+    "bl_idname": "ShaderNodeHueSaturation",
+    "socket_or_prop": "input:Value",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "HUE_SAT",
+    "bl_idname": "ShaderNodeHueSaturation",
+    "socket_or_prop": "input:Factor",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "HUE_SAT",
+    "bl_idname": "ShaderNodeHueSaturation",
     "socket_or_prop": "input:Color",
     "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "VOLUME_ABSORPTION",
-    "bl_idname": "ShaderNodeVolumeAbsorption",
-    "socket_or_prop": "input:Density",
+    "feature": "INVERT",
+    "bl_idname": "ShaderNodeInvert",
+    "socket_or_prop": "input:Factor",
     "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "notes": "color converter"
   },
   {
     "category": "shader_node",
-    "feature": "VOLUME_ABSORPTION",
-    "bl_idname": "ShaderNodeVolumeAbsorption",
-    "socket_or_prop": "input:Weight",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VOLUME_SCATTER",
-    "bl_idname": "ShaderNodeVolumeScatter",
+    "feature": "INVERT",
+    "bl_idname": "ShaderNodeInvert",
     "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "classification": "SUPPORTED",
+    "notes": "color converter"
   },
   {
     "category": "shader_node",
-    "feature": "VOLUME_SCATTER",
-    "bl_idname": "ShaderNodeVolumeScatter",
-    "socket_or_prop": "input:Density",
+    "feature": "LAYER_WEIGHT",
+    "bl_idname": "ShaderNodeLayerWeight",
+    "socket_or_prop": "input:Blend",
     "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "VOLUME_SCATTER",
-    "bl_idname": "ShaderNodeVolumeScatter",
-    "socket_or_prop": "input:Anisotropy",
+    "feature": "LAYER_WEIGHT",
+    "bl_idname": "ShaderNodeLayerWeight",
+    "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "VOLUME_SCATTER",
-    "bl_idname": "ShaderNodeVolumeScatter",
-    "socket_or_prop": "input:IOR",
+    "feature": "LIGHT_FALLOFF",
+    "bl_idname": "ShaderNodeLightFalloff",
+    "socket_or_prop": "input:Strength",
     "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "VOLUME_SCATTER",
-    "bl_idname": "ShaderNodeVolumeScatter",
-    "socket_or_prop": "input:Backscatter",
+    "feature": "LIGHT_FALLOFF",
+    "bl_idname": "ShaderNodeLightFalloff",
+    "socket_or_prop": "input:Smooth",
     "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "VOLUME_SCATTER",
-    "bl_idname": "ShaderNodeVolumeScatter",
-    "socket_or_prop": "input:Alpha",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:Value",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
   },
   {
     "category": "shader_node",
-    "feature": "VOLUME_SCATTER",
-    "bl_idname": "ShaderNodeVolumeScatter",
-    "socket_or_prop": "input:Diameter",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:From Min",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
   },
   {
     "category": "shader_node",
-    "feature": "VOLUME_SCATTER",
-    "bl_idname": "ShaderNodeVolumeScatter",
-    "socket_or_prop": "input:Weight",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:From Max",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
   },
   {
     "category": "shader_node",
-    "feature": "VOLUME_SCATTER",
-    "bl_idname": "ShaderNodeVolumeScatter",
-    "socket_or_prop": "prop:phase",
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:To Min",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:To Max",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:Steps",
+    "classification": "DROPPED-SILENT",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:From Min",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:From Max",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:To Min",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:To Max",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "input:Steps",
+    "classification": "DROPPED-SILENT",
+    "notes": "converter node"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "prop:clamp",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "prop:data_type",
     "classification": "DROPPED-SILENT",
     "notes": "property ENUM"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MAP_RANGE",
+    "bl_idname": "ShaderNodeMapRange",
+    "socket_or_prop": "prop:interpolation_type",
+    "classification": "SUPPORTED",
+    "notes": "property ENUM \u2014 converter node"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Color Attribute",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MAPPING",
+    "bl_idname": "ShaderNodeMapping",
+    "socket_or_prop": "input:Vector",
+    "classification": "SUPPORTED",
+    "notes": "coordinate transform via _resolve_vector_input"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Density",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MAPPING",
+    "bl_idname": "ShaderNodeMapping",
+    "socket_or_prop": "input:Location",
+    "classification": "SUPPORTED",
+    "notes": "coordinate transform via _resolve_vector_input"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Density Attribute",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MAPPING",
+    "bl_idname": "ShaderNodeMapping",
+    "socket_or_prop": "input:Rotation",
+    "classification": "SUPPORTED",
+    "notes": "coordinate transform via _resolve_vector_input"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Anisotropy",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MAPPING",
+    "bl_idname": "ShaderNodeMapping",
+    "socket_or_prop": "input:Scale",
+    "classification": "SUPPORTED",
+    "notes": "coordinate transform via _resolve_vector_input"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Absorption Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MAPPING",
+    "bl_idname": "ShaderNodeMapping",
+    "socket_or_prop": "prop:vector_type",
+    "classification": "SUPPORTED",
+    "notes": "property ENUM \u2014 coordinate transform via _resolve_vector_input"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Emission Strength",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MATH",
+    "bl_idname": "ShaderNodeMath",
+    "socket_or_prop": "input:Value",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Emission Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MATH",
+    "bl_idname": "ShaderNodeMath",
+    "socket_or_prop": "input:Value",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Blackbody Intensity",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MATH",
+    "bl_idname": "ShaderNodeMath",
+    "socket_or_prop": "input:Value",
+    "classification": "SUPPORTED",
+    "notes": "converter node"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Blackbody Tint",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MATH",
+    "bl_idname": "ShaderNodeMath",
+    "socket_or_prop": "prop:operation",
+    "classification": "SUPPORTED",
+    "notes": "property ENUM \u2014 converter node"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Temperature",
+    "feature": "MATH",
+    "bl_idname": "ShaderNodeMath",
+    "socket_or_prop": "prop:use_clamp",
     "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "notes": "property BOOLEAN"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Temperature Attribute",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "input:Factor",
+    "classification": "SUPPORTED",
+    "notes": "color mixer"
   },
   {
     "category": "shader_node",
-    "feature": "PRINCIPLED_VOLUME",
-    "bl_idname": "ShaderNodeVolumePrincipled",
-    "socket_or_prop": "input:Weight",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "input:Factor",
+    "classification": "SUPPORTED",
+    "notes": "color mixer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "input:A",
+    "classification": "SUPPORTED",
+    "notes": "color mixer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "input:B",
+    "classification": "SUPPORTED",
+    "notes": "color mixer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "input:A",
+    "classification": "SUPPORTED",
+    "notes": "color mixer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "input:B",
+    "classification": "SUPPORTED",
+    "notes": "color mixer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "input:A",
+    "classification": "SUPPORTED",
+    "notes": "color mixer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "input:B",
+    "classification": "SUPPORTED",
+    "notes": "color mixer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "input:A",
+    "classification": "SUPPORTED",
+    "notes": "color mixer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "input:B",
+    "classification": "SUPPORTED",
+    "notes": "color mixer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "prop:blend_type",
+    "classification": "SUPPORTED",
+    "notes": "property ENUM \u2014 color mixer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "prop:clamp_factor",
     "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "prop:clamp_result",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "prop:data_type",
+    "classification": "SUPPORTED",
+    "notes": "property ENUM \u2014 color mixer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX",
+    "bl_idname": "ShaderNodeMix",
+    "socket_or_prop": "prop:factor_mode",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX_RGB",
+    "bl_idname": "ShaderNodeMixRGB",
+    "socket_or_prop": "input:Factor",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX_RGB",
+    "bl_idname": "ShaderNodeMixRGB",
+    "socket_or_prop": "input:Color1",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX_RGB",
+    "bl_idname": "ShaderNodeMixRGB",
+    "socket_or_prop": "input:Color2",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX_RGB",
+    "bl_idname": "ShaderNodeMixRGB",
+    "socket_or_prop": "prop:blend_type",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX_RGB",
+    "bl_idname": "ShaderNodeMixRGB",
+    "socket_or_prop": "prop:use_alpha",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MIX_RGB",
+    "bl_idname": "ShaderNodeMixRGB",
+    "socket_or_prop": "prop:use_clamp",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
   },
   {
     "category": "shader_node",
@@ -897,19 +1929,763 @@
   },
   {
     "category": "shader_node",
-    "feature": "ADD_SHADER",
-    "bl_idname": "ShaderNodeAddShader",
+    "feature": "NORMAL",
+    "bl_idname": "ShaderNodeNormal",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "NORMAL_MAP",
+    "bl_idname": "ShaderNodeNormalMap",
+    "socket_or_prop": "input:Strength",
+    "classification": "SUPPORTED",
+    "notes": "normal map via get_normal_inputs"
+  },
+  {
+    "category": "shader_node",
+    "feature": "NORMAL_MAP",
+    "bl_idname": "ShaderNodeNormalMap",
+    "socket_or_prop": "input:Color",
+    "classification": "SUPPORTED",
+    "notes": "normal map via get_normal_inputs"
+  },
+  {
+    "category": "shader_node",
+    "feature": "NORMAL_MAP",
+    "bl_idname": "ShaderNodeNormalMap",
+    "socket_or_prop": "prop:base",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "NORMAL_MAP",
+    "bl_idname": "ShaderNodeNormalMap",
+    "socket_or_prop": "prop:convention",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "NORMAL_MAP",
+    "bl_idname": "ShaderNodeNormalMap",
+    "socket_or_prop": "prop:space",
+    "classification": "SUPPORTED",
+    "notes": "property ENUM \u2014 normal map via get_normal_inputs"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_AOV",
+    "bl_idname": "ShaderNodeOutputAOV",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_AOV",
+    "bl_idname": "ShaderNodeOutputAOV",
+    "socket_or_prop": "input:Value",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LIGHT",
+    "bl_idname": "ShaderNodeOutputLight",
+    "socket_or_prop": "input:Surface",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LIGHT",
+    "bl_idname": "ShaderNodeOutputLight",
+    "socket_or_prop": "prop:is_active_output",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LIGHT",
+    "bl_idname": "ShaderNodeOutputLight",
+    "socket_or_prop": "prop:target",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LINESTYLE",
+    "bl_idname": "ShaderNodeOutputLineStyle",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LINESTYLE",
+    "bl_idname": "ShaderNodeOutputLineStyle",
+    "socket_or_prop": "input:Color Fac",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LINESTYLE",
+    "bl_idname": "ShaderNodeOutputLineStyle",
+    "socket_or_prop": "input:Alpha",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LINESTYLE",
+    "bl_idname": "ShaderNodeOutputLineStyle",
+    "socket_or_prop": "input:Alpha Fac",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LINESTYLE",
+    "bl_idname": "ShaderNodeOutputLineStyle",
+    "socket_or_prop": "prop:blend_type",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LINESTYLE",
+    "bl_idname": "ShaderNodeOutputLineStyle",
+    "socket_or_prop": "prop:is_active_output",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LINESTYLE",
+    "bl_idname": "ShaderNodeOutputLineStyle",
+    "socket_or_prop": "prop:target",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LINESTYLE",
+    "bl_idname": "ShaderNodeOutputLineStyle",
+    "socket_or_prop": "prop:use_alpha",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_LINESTYLE",
+    "bl_idname": "ShaderNodeOutputLineStyle",
+    "socket_or_prop": "prop:use_clamp",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_MATERIAL",
+    "bl_idname": "ShaderNodeOutputMaterial",
+    "socket_or_prop": "input:Surface",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_MATERIAL",
+    "bl_idname": "ShaderNodeOutputMaterial",
+    "socket_or_prop": "input:Volume",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_MATERIAL",
+    "bl_idname": "ShaderNodeOutputMaterial",
+    "socket_or_prop": "input:Displacement",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_MATERIAL",
+    "bl_idname": "ShaderNodeOutputMaterial",
+    "socket_or_prop": "input:Thickness",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_MATERIAL",
+    "bl_idname": "ShaderNodeOutputMaterial",
+    "socket_or_prop": "prop:is_active_output",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_MATERIAL",
+    "bl_idname": "ShaderNodeOutputMaterial",
+    "socket_or_prop": "prop:target",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_WORLD",
+    "bl_idname": "ShaderNodeOutputWorld",
+    "socket_or_prop": "input:Surface",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_WORLD",
+    "bl_idname": "ShaderNodeOutputWorld",
+    "socket_or_prop": "input:Volume",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_WORLD",
+    "bl_idname": "ShaderNodeOutputWorld",
+    "socket_or_prop": "prop:is_active_output",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "OUTPUT_WORLD",
+    "bl_idname": "ShaderNodeOutputWorld",
+    "socket_or_prop": "prop:target",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "CURVE_RGB",
+    "bl_idname": "ShaderNodeRGBCurve",
+    "socket_or_prop": "input:Factor",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "CURVE_RGB",
+    "bl_idname": "ShaderNodeRGBCurve",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "RGBTOBW",
+    "bl_idname": "ShaderNodeRGBToBW",
+    "socket_or_prop": "input:Color",
+    "classification": "SUPPORTED",
+    "notes": "color converter"
+  },
+  {
+    "category": "shader_node",
+    "feature": "ShaderNodeRadialTiling",
+    "bl_idname": "ShaderNodeRadialTiling",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "ShaderNodeRadialTiling",
+    "bl_idname": "ShaderNodeRadialTiling",
+    "socket_or_prop": "input:Sides",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "ShaderNodeRadialTiling",
+    "bl_idname": "ShaderNodeRadialTiling",
+    "socket_or_prop": "input:Roundness",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "ShaderNodeRadialTiling",
+    "bl_idname": "ShaderNodeRadialTiling",
+    "socket_or_prop": "prop:normalize",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MATERIAL_RAYCAST",
+    "bl_idname": "ShaderNodeRaycast",
+    "socket_or_prop": "input:Position",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MATERIAL_RAYCAST",
+    "bl_idname": "ShaderNodeRaycast",
+    "socket_or_prop": "input:Direction",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MATERIAL_RAYCAST",
+    "bl_idname": "ShaderNodeRaycast",
+    "socket_or_prop": "input:Length",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MATERIAL_RAYCAST",
+    "bl_idname": "ShaderNodeRaycast",
+    "socket_or_prop": "prop:only_local",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SCRIPT",
+    "bl_idname": "ShaderNodeScript",
+    "socket_or_prop": "prop:mode",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SCRIPT",
+    "bl_idname": "ShaderNodeScript",
+    "socket_or_prop": "prop:use_auto_update",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SEPARATE_COLOR",
+    "bl_idname": "ShaderNodeSeparateColor",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SEPARATE_COLOR",
+    "bl_idname": "ShaderNodeSeparateColor",
+    "socket_or_prop": "prop:mode",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SEPXYZ",
+    "bl_idname": "ShaderNodeSeparateXYZ",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SHADERTORGB",
+    "bl_idname": "ShaderNodeShaderToRGB",
     "socket_or_prop": "input:Shader",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SQUEEZE",
+    "bl_idname": "ShaderNodeSqueeze",
+    "socket_or_prop": "input:Value",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SQUEEZE",
+    "bl_idname": "ShaderNodeSqueeze",
+    "socket_or_prop": "input:Width",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SQUEEZE",
+    "bl_idname": "ShaderNodeSqueeze",
+    "socket_or_prop": "input:Center",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SUBSURFACE_SCATTERING",
+    "bl_idname": "ShaderNodeSubsurfaceScattering",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SUBSURFACE_SCATTERING",
+    "bl_idname": "ShaderNodeSubsurfaceScattering",
+    "socket_or_prop": "input:Scale",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SUBSURFACE_SCATTERING",
+    "bl_idname": "ShaderNodeSubsurfaceScattering",
+    "socket_or_prop": "input:Radius",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SUBSURFACE_SCATTERING",
+    "bl_idname": "ShaderNodeSubsurfaceScattering",
+    "socket_or_prop": "input:IOR",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SUBSURFACE_SCATTERING",
+    "bl_idname": "ShaderNodeSubsurfaceScattering",
+    "socket_or_prop": "input:Roughness",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SUBSURFACE_SCATTERING",
+    "bl_idname": "ShaderNodeSubsurfaceScattering",
+    "socket_or_prop": "input:Anisotropy",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SUBSURFACE_SCATTERING",
+    "bl_idname": "ShaderNodeSubsurfaceScattering",
+    "socket_or_prop": "input:Normal",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SUBSURFACE_SCATTERING",
+    "bl_idname": "ShaderNodeSubsurfaceScattering",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "SUBSURFACE_SCATTERING",
+    "bl_idname": "ShaderNodeSubsurfaceScattering",
+    "socket_or_prop": "prop:falloff",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TANGENT",
+    "bl_idname": "ShaderNodeTangent",
+    "socket_or_prop": "prop:axis",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TANGENT",
+    "bl_idname": "ShaderNodeTangent",
+    "socket_or_prop": "prop:direction_type",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "input:Vector",
     "classification": "SUPPORTED",
     "notes": ""
   },
   {
     "category": "shader_node",
-    "feature": "ADD_SHADER",
-    "bl_idname": "ShaderNodeAddShader",
-    "socket_or_prop": "input:Shader",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "input:Color1",
     "classification": "SUPPORTED",
     "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "input:Color2",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "input:Mortar",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "input:Scale",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "input:Mortar Size",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "input:Mortar Smooth",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "input:Bias",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "input:Brick Width",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "input:Row Height",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "prop:offset",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "prop:offset_frequency",
+    "classification": "DROPPED-SILENT",
+    "notes": "property INT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "prop:squash",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_BRICK",
+    "bl_idname": "ShaderNodeTexBrick",
+    "socket_or_prop": "prop:squash_frequency",
+    "classification": "DROPPED-SILENT",
+    "notes": "property INT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_CHECKER",
+    "bl_idname": "ShaderNodeTexChecker",
+    "socket_or_prop": "input:Vector",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_CHECKER",
+    "bl_idname": "ShaderNodeTexChecker",
+    "socket_or_prop": "input:Color1",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_CHECKER",
+    "bl_idname": "ShaderNodeTexChecker",
+    "socket_or_prop": "input:Color2",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_CHECKER",
+    "bl_idname": "ShaderNodeTexChecker",
+    "socket_or_prop": "input:Scale",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_COORD",
+    "bl_idname": "ShaderNodeTexCoord",
+    "socket_or_prop": "prop:from_instancer",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_ENVIRONMENT",
+    "bl_idname": "ShaderNodeTexEnvironment",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_ENVIRONMENT",
+    "bl_idname": "ShaderNodeTexEnvironment",
+    "socket_or_prop": "prop:interpolation",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_ENVIRONMENT",
+    "bl_idname": "ShaderNodeTexEnvironment",
+    "socket_or_prop": "prop:projection",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_GABOR",
+    "bl_idname": "ShaderNodeTexGabor",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_GABOR",
+    "bl_idname": "ShaderNodeTexGabor",
+    "socket_or_prop": "input:Scale",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_GABOR",
+    "bl_idname": "ShaderNodeTexGabor",
+    "socket_or_prop": "input:Frequency",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_GABOR",
+    "bl_idname": "ShaderNodeTexGabor",
+    "socket_or_prop": "input:Anisotropy",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_GABOR",
+    "bl_idname": "ShaderNodeTexGabor",
+    "socket_or_prop": "input:Orientation",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_GABOR",
+    "bl_idname": "ShaderNodeTexGabor",
+    "socket_or_prop": "input:Orientation",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_GABOR",
+    "bl_idname": "ShaderNodeTexGabor",
+    "socket_or_prop": "prop:gabor_type",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_GRADIENT",
+    "bl_idname": "ShaderNodeTexGradient",
+    "socket_or_prop": "input:Vector",
+    "classification": "SUPPORTED",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_GRADIENT",
+    "bl_idname": "ShaderNodeTexGradient",
+    "socket_or_prop": "prop:gradient_type",
+    "classification": "SUPPORTED",
+    "notes": "property ENUM \u2014 "
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_IES",
+    "bl_idname": "ShaderNodeTexIES",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_IES",
+    "bl_idname": "ShaderNodeTexIES",
+    "socket_or_prop": "input:Strength",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_IES",
+    "bl_idname": "ShaderNodeTexIES",
+    "socket_or_prop": "prop:mode",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
   },
   {
     "category": "shader_node",
@@ -950,78 +2726,6 @@
     "socket_or_prop": "prop:projection_blend",
     "classification": "DROPPED-SILENT",
     "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_ENVIRONMENT",
-    "bl_idname": "ShaderNodeTexEnvironment",
-    "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_ENVIRONMENT",
-    "bl_idname": "ShaderNodeTexEnvironment",
-    "socket_or_prop": "prop:interpolation",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_ENVIRONMENT",
-    "bl_idname": "ShaderNodeTexEnvironment",
-    "socket_or_prop": "prop:projection",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_CHECKER",
-    "bl_idname": "ShaderNodeTexChecker",
-    "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_CHECKER",
-    "bl_idname": "ShaderNodeTexChecker",
-    "socket_or_prop": "input:Color1",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_CHECKER",
-    "bl_idname": "ShaderNodeTexChecker",
-    "socket_or_prop": "input:Color2",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_CHECKER",
-    "bl_idname": "ShaderNodeTexChecker",
-    "socket_or_prop": "input:Scale",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_GRADIENT",
-    "bl_idname": "ShaderNodeTexGradient",
-    "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_GRADIENT",
-    "bl_idname": "ShaderNodeTexGradient",
-    "socket_or_prop": "prop:gradient_type",
-    "classification": "SUPPORTED",
-    "notes": "property ENUM \u2014 "
   },
   {
     "category": "shader_node",
@@ -1100,7 +2804,7 @@
     "feature": "TEX_NOISE",
     "bl_idname": "ShaderNodeTexNoise",
     "socket_or_prop": "input:Lacunarity",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -1108,7 +2812,7 @@
     "feature": "TEX_NOISE",
     "bl_idname": "ShaderNodeTexNoise",
     "socket_or_prop": "input:Offset",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -1116,7 +2820,7 @@
     "feature": "TEX_NOISE",
     "bl_idname": "ShaderNodeTexNoise",
     "socket_or_prop": "input:Gain",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -1140,16 +2844,128 @@
     "feature": "TEX_NOISE",
     "bl_idname": "ShaderNodeTexNoise",
     "socket_or_prop": "prop:noise_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": "property ENUM \u2014 "
   },
   {
     "category": "shader_node",
     "feature": "TEX_NOISE",
     "bl_idname": "ShaderNodeTexNoise",
     "socket_or_prop": "prop:normalize",
+    "classification": "SUPPORTED",
+    "notes": "property BOOLEAN \u2014 "
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:aerosol_density",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:air_density",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:altitude",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:ground_albedo",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:ozone_density",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:sky_type",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:sun_direction",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:sun_disc",
     "classification": "DROPPED-SILENT",
     "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:sun_elevation",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:sun_intensity",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:sun_rotation",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:sun_size",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "TEX_SKY",
+    "bl_idname": "ShaderNodeTexSky",
+    "socket_or_prop": "prop:turbidity",
+    "classification": "DROPPED-SILENT",
+    "notes": "property FLOAT"
   },
   {
     "category": "shader_node",
@@ -1345,262 +3161,6 @@
   },
   {
     "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "input:Color1",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "input:Color2",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "input:Mortar",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "input:Scale",
-    "classification": "SUPPORTED",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "input:Mortar Size",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "input:Mortar Smooth",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "input:Bias",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "input:Brick Width",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "input:Row Height",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "prop:offset",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "prop:offset_frequency",
-    "classification": "DROPPED-SILENT",
-    "notes": "property INT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "prop:squash",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_BRICK",
-    "bl_idname": "ShaderNodeTexBrick",
-    "socket_or_prop": "prop:squash_frequency",
-    "classification": "DROPPED-SILENT",
-    "notes": "property INT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_COORD",
-    "bl_idname": "ShaderNodeTexCoord",
-    "socket_or_prop": "prop:from_instancer",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:aerosol_density",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:air_density",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:altitude",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:ground_albedo",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:ozone_density",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:sky_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:sun_direction",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:sun_disc",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:sun_elevation",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:sun_intensity",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:sun_rotation",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:sun_size",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_SKY",
-    "bl_idname": "ShaderNodeTexSky",
-    "socket_or_prop": "prop:turbidity",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_IES",
-    "bl_idname": "ShaderNodeTexIES",
-    "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_IES",
-    "bl_idname": "ShaderNodeTexIES",
-    "socket_or_prop": "input:Strength",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TEX_IES",
-    "bl_idname": "ShaderNodeTexIES",
-    "socket_or_prop": "prop:mode",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
     "feature": "TEX_WHITE_NOISE",
     "bl_idname": "ShaderNodeTexWhiteNoise",
     "socket_or_prop": "input:Vector",
@@ -1625,457 +3185,169 @@
   },
   {
     "category": "shader_node",
+    "feature": "UVALONGSTROKE",
+    "bl_idname": "ShaderNodeUVAlongStroke",
+    "socket_or_prop": "prop:use_tips",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
+    "feature": "UVMAP",
+    "bl_idname": "ShaderNodeUVMap",
+    "socket_or_prop": "prop:from_instancer",
+    "classification": "DROPPED-SILENT",
+    "notes": "property BOOLEAN"
+  },
+  {
+    "category": "shader_node",
     "feature": "VALTORGB",
     "bl_idname": "ShaderNodeValToRGB",
     "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "prop:blend_type",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "notes": "color ramp"
   },
   {
     "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "prop:clamp_factor",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "prop:clamp_result",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "prop:data_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MIX",
-    "bl_idname": "ShaderNodeMix",
-    "socket_or_prop": "prop:factor_mode",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "RGBTOBW",
-    "bl_idname": "ShaderNodeRGBToBW",
-    "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "INVERT",
-    "bl_idname": "ShaderNodeInvert",
-    "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "INVERT",
-    "bl_idname": "ShaderNodeInvert",
-    "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "HUE_SAT",
-    "bl_idname": "ShaderNodeHueSaturation",
-    "socket_or_prop": "input:Hue",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "HUE_SAT",
-    "bl_idname": "ShaderNodeHueSaturation",
-    "socket_or_prop": "input:Saturation",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "HUE_SAT",
-    "bl_idname": "ShaderNodeHueSaturation",
-    "socket_or_prop": "input:Value",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "HUE_SAT",
-    "bl_idname": "ShaderNodeHueSaturation",
+    "feature": "CURVE_VEC",
+    "bl_idname": "ShaderNodeVectorCurve",
     "socket_or_prop": "input:Factor",
     "classification": "DROPPED-SILENT",
     "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "HUE_SAT",
-    "bl_idname": "ShaderNodeHueSaturation",
-    "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "GAMMA",
-    "bl_idname": "ShaderNodeGamma",
-    "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "GAMMA",
-    "bl_idname": "ShaderNodeGamma",
-    "socket_or_prop": "input:Gamma",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BRIGHTCONTRAST",
-    "bl_idname": "ShaderNodeBrightContrast",
-    "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BRIGHTCONTRAST",
-    "bl_idname": "ShaderNodeBrightContrast",
-    "socket_or_prop": "input:Brightness",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BRIGHTCONTRAST",
-    "bl_idname": "ShaderNodeBrightContrast",
-    "socket_or_prop": "input:Contrast",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "CURVE_RGB",
-    "bl_idname": "ShaderNodeRGBCurve",
-    "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "CURVE_RGB",
-    "bl_idname": "ShaderNodeRGBCurve",
-    "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAPPING",
-    "bl_idname": "ShaderNodeMapping",
+    "feature": "CURVE_VEC",
+    "bl_idname": "ShaderNodeVectorCurve",
     "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "MAPPING",
-    "bl_idname": "ShaderNodeMapping",
-    "socket_or_prop": "input:Location",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
+    "feature": "VECTOR_DISPLACEMENT",
+    "bl_idname": "ShaderNodeVectorDisplacement",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "MAPPING",
-    "bl_idname": "ShaderNodeMapping",
-    "socket_or_prop": "input:Rotation",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
+    "feature": "VECTOR_DISPLACEMENT",
+    "bl_idname": "ShaderNodeVectorDisplacement",
+    "socket_or_prop": "input:Midlevel",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "MAPPING",
-    "bl_idname": "ShaderNodeMapping",
+    "feature": "VECTOR_DISPLACEMENT",
+    "bl_idname": "ShaderNodeVectorDisplacement",
     "socket_or_prop": "input:Scale",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAPPING",
-    "bl_idname": "ShaderNodeMapping",
-    "socket_or_prop": "prop:vector_type",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "NORMAL_MAP",
-    "bl_idname": "ShaderNodeNormalMap",
-    "socket_or_prop": "input:Strength",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "NORMAL_MAP",
-    "bl_idname": "ShaderNodeNormalMap",
-    "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "NORMAL_MAP",
-    "bl_idname": "ShaderNodeNormalMap",
-    "socket_or_prop": "prop:base",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "NORMAL_MAP",
-    "bl_idname": "ShaderNodeNormalMap",
-    "socket_or_prop": "prop:convention",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "NORMAL_MAP",
-    "bl_idname": "ShaderNodeNormalMap",
+    "feature": "VECTOR_DISPLACEMENT",
+    "bl_idname": "ShaderNodeVectorDisplacement",
     "socket_or_prop": "prop:space",
     "classification": "DROPPED-SILENT",
     "notes": "property ENUM"
   },
   {
     "category": "shader_node",
-    "feature": "NORMAL",
-    "bl_idname": "ShaderNodeNormal",
-    "socket_or_prop": "input:Normal",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
+    "feature": "VECT_MATH",
+    "bl_idname": "ShaderNodeVectorMath",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "BUMP",
-    "bl_idname": "ShaderNodeBump",
-    "socket_or_prop": "input:Strength",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
+    "feature": "VECT_MATH",
+    "bl_idname": "ShaderNodeVectorMath",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "BUMP",
-    "bl_idname": "ShaderNodeBump",
-    "socket_or_prop": "input:Distance",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
+    "feature": "VECT_MATH",
+    "bl_idname": "ShaderNodeVectorMath",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "BUMP",
-    "bl_idname": "ShaderNodeBump",
-    "socket_or_prop": "input:Filter Width",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
+    "feature": "VECT_MATH",
+    "bl_idname": "ShaderNodeVectorMath",
+    "socket_or_prop": "input:Scale",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "BUMP",
-    "bl_idname": "ShaderNodeBump",
-    "socket_or_prop": "input:Height",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
+    "feature": "VECT_MATH",
+    "bl_idname": "ShaderNodeVectorMath",
+    "socket_or_prop": "prop:operation",
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
   },
   {
     "category": "shader_node",
-    "feature": "BUMP",
-    "bl_idname": "ShaderNodeBump",
-    "socket_or_prop": "input:Normal",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
+    "feature": "VECTOR_ROTATE",
+    "bl_idname": "ShaderNodeVectorRotate",
+    "socket_or_prop": "input:Vector",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "BUMP",
-    "bl_idname": "ShaderNodeBump",
+    "feature": "VECTOR_ROTATE",
+    "bl_idname": "ShaderNodeVectorRotate",
+    "socket_or_prop": "input:Center",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VECTOR_ROTATE",
+    "bl_idname": "ShaderNodeVectorRotate",
+    "socket_or_prop": "input:Axis",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VECTOR_ROTATE",
+    "bl_idname": "ShaderNodeVectorRotate",
+    "socket_or_prop": "input:Angle",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VECTOR_ROTATE",
+    "bl_idname": "ShaderNodeVectorRotate",
+    "socket_or_prop": "input:Rotation",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VECTOR_ROTATE",
+    "bl_idname": "ShaderNodeVectorRotate",
     "socket_or_prop": "prop:invert",
     "classification": "DROPPED-SILENT",
     "notes": "property BOOLEAN"
   },
   {
     "category": "shader_node",
-    "feature": "DISPLACEMENT",
-    "bl_idname": "ShaderNodeDisplacement",
-    "socket_or_prop": "input:Height",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "DISPLACEMENT",
-    "bl_idname": "ShaderNodeDisplacement",
-    "socket_or_prop": "input:Midlevel",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "DISPLACEMENT",
-    "bl_idname": "ShaderNodeDisplacement",
-    "socket_or_prop": "input:Scale",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "DISPLACEMENT",
-    "bl_idname": "ShaderNodeDisplacement",
-    "socket_or_prop": "input:Normal",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "DISPLACEMENT",
-    "bl_idname": "ShaderNodeDisplacement",
-    "socket_or_prop": "prop:space",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECTOR_DISPLACEMENT",
-    "bl_idname": "ShaderNodeVectorDisplacement",
-    "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECTOR_DISPLACEMENT",
-    "bl_idname": "ShaderNodeVectorDisplacement",
-    "socket_or_prop": "input:Midlevel",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECTOR_DISPLACEMENT",
-    "bl_idname": "ShaderNodeVectorDisplacement",
-    "socket_or_prop": "input:Scale",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECTOR_DISPLACEMENT",
-    "bl_idname": "ShaderNodeVectorDisplacement",
-    "socket_or_prop": "prop:space",
+    "feature": "VECTOR_ROTATE",
+    "bl_idname": "ShaderNodeVectorRotate",
+    "socket_or_prop": "prop:rotation_type",
     "classification": "DROPPED-SILENT",
     "notes": "property ENUM"
   },
@@ -2113,233 +3385,281 @@
   },
   {
     "category": "shader_node",
-    "feature": "VECTOR_ROTATE",
-    "bl_idname": "ShaderNodeVectorRotate",
-    "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECTOR_ROTATE",
-    "bl_idname": "ShaderNodeVectorRotate",
-    "socket_or_prop": "input:Center",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECTOR_ROTATE",
-    "bl_idname": "ShaderNodeVectorRotate",
-    "socket_or_prop": "input:Axis",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECTOR_ROTATE",
-    "bl_idname": "ShaderNodeVectorRotate",
-    "socket_or_prop": "input:Angle",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECTOR_ROTATE",
-    "bl_idname": "ShaderNodeVectorRotate",
-    "socket_or_prop": "input:Rotation",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECTOR_ROTATE",
-    "bl_idname": "ShaderNodeVectorRotate",
-    "socket_or_prop": "prop:invert",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECTOR_ROTATE",
-    "bl_idname": "ShaderNodeVectorRotate",
-    "socket_or_prop": "prop:rotation_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "CURVE_VEC",
-    "bl_idname": "ShaderNodeVectorCurve",
-    "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "CURVE_VEC",
-    "bl_idname": "ShaderNodeVectorCurve",
-    "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MATH",
-    "bl_idname": "ShaderNodeMath",
-    "socket_or_prop": "input:Value",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MATH",
-    "bl_idname": "ShaderNodeMath",
-    "socket_or_prop": "input:Value",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MATH",
-    "bl_idname": "ShaderNodeMath",
-    "socket_or_prop": "input:Value",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MATH",
-    "bl_idname": "ShaderNodeMath",
-    "socket_or_prop": "prop:operation",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MATH",
-    "bl_idname": "ShaderNodeMath",
-    "socket_or_prop": "prop:use_clamp",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECT_MATH",
-    "bl_idname": "ShaderNodeVectorMath",
-    "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECT_MATH",
-    "bl_idname": "ShaderNodeVectorMath",
-    "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECT_MATH",
-    "bl_idname": "ShaderNodeVectorMath",
-    "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECT_MATH",
-    "bl_idname": "ShaderNodeVectorMath",
-    "socket_or_prop": "input:Scale",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "VECT_MATH",
-    "bl_idname": "ShaderNodeVectorMath",
-    "socket_or_prop": "prop:operation",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "SEPXYZ",
-    "bl_idname": "ShaderNodeSeparateXYZ",
-    "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "COMBXYZ",
-    "bl_idname": "ShaderNodeCombineXYZ",
-    "socket_or_prop": "input:X",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "COMBXYZ",
-    "bl_idname": "ShaderNodeCombineXYZ",
-    "socket_or_prop": "input:Y",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "COMBXYZ",
-    "bl_idname": "ShaderNodeCombineXYZ",
-    "socket_or_prop": "input:Z",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "SEPARATE_COLOR",
-    "bl_idname": "ShaderNodeSeparateColor",
+    "feature": "VOLUME_ABSORPTION",
+    "bl_idname": "ShaderNodeVolumeAbsorption",
     "socket_or_prop": "input:Color",
     "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_ABSORPTION",
+    "bl_idname": "ShaderNodeVolumeAbsorption",
+    "socket_or_prop": "input:Density",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_ABSORPTION",
+    "bl_idname": "ShaderNodeVolumeAbsorption",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_COEFFICIENTS",
+    "bl_idname": "ShaderNodeVolumeCoefficients",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
     "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
-    "feature": "SEPARATE_COLOR",
-    "bl_idname": "ShaderNodeSeparateColor",
-    "socket_or_prop": "prop:mode",
+    "feature": "VOLUME_COEFFICIENTS",
+    "bl_idname": "ShaderNodeVolumeCoefficients",
+    "socket_or_prop": "input:Absorption Coefficients",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_COEFFICIENTS",
+    "bl_idname": "ShaderNodeVolumeCoefficients",
+    "socket_or_prop": "input:Scatter Coefficients",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_COEFFICIENTS",
+    "bl_idname": "ShaderNodeVolumeCoefficients",
+    "socket_or_prop": "input:Anisotropy",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_COEFFICIENTS",
+    "bl_idname": "ShaderNodeVolumeCoefficients",
+    "socket_or_prop": "input:IOR",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_COEFFICIENTS",
+    "bl_idname": "ShaderNodeVolumeCoefficients",
+    "socket_or_prop": "input:Backscatter",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_COEFFICIENTS",
+    "bl_idname": "ShaderNodeVolumeCoefficients",
+    "socket_or_prop": "input:Alpha",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_COEFFICIENTS",
+    "bl_idname": "ShaderNodeVolumeCoefficients",
+    "socket_or_prop": "input:Diameter",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_COEFFICIENTS",
+    "bl_idname": "ShaderNodeVolumeCoefficients",
+    "socket_or_prop": "input:Emission Coefficients",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_COEFFICIENTS",
+    "bl_idname": "ShaderNodeVolumeCoefficients",
+    "socket_or_prop": "prop:phase",
     "classification": "DROPPED-SILENT",
     "notes": "property ENUM"
   },
   {
     "category": "shader_node",
-    "feature": "COMBINE_COLOR",
-    "bl_idname": "ShaderNodeCombineColor",
-    "socket_or_prop": "input:Red",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Color",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
   },
   {
     "category": "shader_node",
-    "feature": "COMBINE_COLOR",
-    "bl_idname": "ShaderNodeCombineColor",
-    "socket_or_prop": "input:Green",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Color Attribute",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
   },
   {
     "category": "shader_node",
-    "feature": "COMBINE_COLOR",
-    "bl_idname": "ShaderNodeCombineColor",
-    "socket_or_prop": "input:Blue",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Density",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
   },
   {
     "category": "shader_node",
-    "feature": "COMBINE_COLOR",
-    "bl_idname": "ShaderNodeCombineColor",
-    "socket_or_prop": "prop:mode",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Density Attribute",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Anisotropy",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Absorption Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Emission Strength",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Emission Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Blackbody Intensity",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Blackbody Tint",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Temperature",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Temperature Attribute",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "PRINCIPLED_VOLUME",
+    "bl_idname": "ShaderNodeVolumePrincipled",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_SCATTER",
+    "bl_idname": "ShaderNodeVolumeScatter",
+    "socket_or_prop": "input:Color",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_SCATTER",
+    "bl_idname": "ShaderNodeVolumeScatter",
+    "socket_or_prop": "input:Density",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_SCATTER",
+    "bl_idname": "ShaderNodeVolumeScatter",
+    "socket_or_prop": "input:Anisotropy",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_SCATTER",
+    "bl_idname": "ShaderNodeVolumeScatter",
+    "socket_or_prop": "input:IOR",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_SCATTER",
+    "bl_idname": "ShaderNodeVolumeScatter",
+    "socket_or_prop": "input:Backscatter",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_SCATTER",
+    "bl_idname": "ShaderNodeVolumeScatter",
+    "socket_or_prop": "input:Alpha",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_SCATTER",
+    "bl_idname": "ShaderNodeVolumeScatter",
+    "socket_or_prop": "input:Diameter",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_SCATTER",
+    "bl_idname": "ShaderNodeVolumeScatter",
+    "socket_or_prop": "input:Weight",
+    "classification": "DROPPED-SILENT",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)"
+  },
+  {
+    "category": "shader_node",
+    "feature": "VOLUME_SCATTER",
+    "bl_idname": "ShaderNodeVolumeScatter",
+    "socket_or_prop": "prop:phase",
     "classification": "DROPPED-SILENT",
     "notes": "property ENUM"
   },
@@ -2349,525 +3669,21 @@
     "bl_idname": "ShaderNodeWavelength",
     "socket_or_prop": "input:Wavelength",
     "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BLACKBODY",
-    "bl_idname": "ShaderNodeBlackbody",
-    "socket_or_prop": "input:Temperature",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "CLAMP",
-    "bl_idname": "ShaderNodeClamp",
-    "socket_or_prop": "input:Value",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "CLAMP",
-    "bl_idname": "ShaderNodeClamp",
-    "socket_or_prop": "input:Min",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "CLAMP",
-    "bl_idname": "ShaderNodeClamp",
-    "socket_or_prop": "input:Max",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "CLAMP",
-    "bl_idname": "ShaderNodeClamp",
-    "socket_or_prop": "prop:clamp_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:Value",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:From Min",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:From Max",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:To Min",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:To Max",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:Steps",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:From Min",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:From Max",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:To Min",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:To Max",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "input:Steps",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "prop:clamp",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "prop:data_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "MAP_RANGE",
-    "bl_idname": "ShaderNodeMapRange",
-    "socket_or_prop": "prop:interpolation_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "CURVE_FLOAT",
-    "bl_idname": "ShaderNodeFloatCurve",
-    "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "CURVE_FLOAT",
-    "bl_idname": "ShaderNodeFloatCurve",
-    "socket_or_prop": "input:Value",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "ATTRIBUTE",
-    "bl_idname": "ShaderNodeAttribute",
-    "socket_or_prop": "prop:attribute_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "FRESNEL",
-    "bl_idname": "ShaderNodeFresnel",
-    "socket_or_prop": "input:IOR",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "FRESNEL",
-    "bl_idname": "ShaderNodeFresnel",
-    "socket_or_prop": "input:Normal",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "LAYER_WEIGHT",
-    "bl_idname": "ShaderNodeLayerWeight",
-    "socket_or_prop": "input:Blend",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "LAYER_WEIGHT",
-    "bl_idname": "ShaderNodeLayerWeight",
-    "socket_or_prop": "input:Normal",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TANGENT",
-    "bl_idname": "ShaderNodeTangent",
-    "socket_or_prop": "prop:axis",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "TANGENT",
-    "bl_idname": "ShaderNodeTangent",
-    "socket_or_prop": "prop:direction_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "UVMAP",
-    "bl_idname": "ShaderNodeUVMap",
-    "socket_or_prop": "prop:from_instancer",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
+    "notes": "spectral converter"
   },
   {
     "category": "shader_node",
     "feature": "WIREFRAME",
     "bl_idname": "ShaderNodeWireframe",
     "socket_or_prop": "input:Size",
-    "classification": "SUPPORTED",
-    "notes": "utility/input node (intermediate; processed if feeding supported BSDF)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "WIREFRAME",
     "bl_idname": "ShaderNodeWireframe",
     "socket_or_prop": "prop:use_pixel_size",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BEVEL",
-    "bl_idname": "ShaderNodeBevel",
-    "socket_or_prop": "input:Radius",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BEVEL",
-    "bl_idname": "ShaderNodeBevel",
-    "socket_or_prop": "input:Normal",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "BEVEL",
-    "bl_idname": "ShaderNodeBevel",
-    "socket_or_prop": "prop:samples",
-    "classification": "DROPPED-SILENT",
-    "notes": "property INT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "AMBIENT_OCCLUSION",
-    "bl_idname": "ShaderNodeAmbientOcclusion",
-    "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "AMBIENT_OCCLUSION",
-    "bl_idname": "ShaderNodeAmbientOcclusion",
-    "socket_or_prop": "input:Distance",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "AMBIENT_OCCLUSION",
-    "bl_idname": "ShaderNodeAmbientOcclusion",
-    "socket_or_prop": "input:Normal",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "AMBIENT_OCCLUSION",
-    "bl_idname": "ShaderNodeAmbientOcclusion",
-    "socket_or_prop": "prop:inside",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "AMBIENT_OCCLUSION",
-    "bl_idname": "ShaderNodeAmbientOcclusion",
-    "socket_or_prop": "prop:only_local",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "AMBIENT_OCCLUSION",
-    "bl_idname": "ShaderNodeAmbientOcclusion",
-    "socket_or_prop": "prop:samples",
-    "classification": "DROPPED-SILENT",
-    "notes": "property INT"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_MATERIAL",
-    "bl_idname": "ShaderNodeOutputMaterial",
-    "socket_or_prop": "input:Surface",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_MATERIAL",
-    "bl_idname": "ShaderNodeOutputMaterial",
-    "socket_or_prop": "input:Volume",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_MATERIAL",
-    "bl_idname": "ShaderNodeOutputMaterial",
-    "socket_or_prop": "input:Displacement",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_MATERIAL",
-    "bl_idname": "ShaderNodeOutputMaterial",
-    "socket_or_prop": "input:Thickness",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_MATERIAL",
-    "bl_idname": "ShaderNodeOutputMaterial",
-    "socket_or_prop": "prop:is_active_output",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_MATERIAL",
-    "bl_idname": "ShaderNodeOutputMaterial",
-    "socket_or_prop": "prop:target",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LIGHT",
-    "bl_idname": "ShaderNodeOutputLight",
-    "socket_or_prop": "input:Surface",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LIGHT",
-    "bl_idname": "ShaderNodeOutputLight",
-    "socket_or_prop": "prop:is_active_output",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LIGHT",
-    "bl_idname": "ShaderNodeOutputLight",
-    "socket_or_prop": "prop:target",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_WORLD",
-    "bl_idname": "ShaderNodeOutputWorld",
-    "socket_or_prop": "input:Surface",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_WORLD",
-    "bl_idname": "ShaderNodeOutputWorld",
-    "socket_or_prop": "input:Volume",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_WORLD",
-    "bl_idname": "ShaderNodeOutputWorld",
-    "socket_or_prop": "prop:is_active_output",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_WORLD",
-    "bl_idname": "ShaderNodeOutputWorld",
-    "socket_or_prop": "prop:target",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LINESTYLE",
-    "bl_idname": "ShaderNodeOutputLineStyle",
-    "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LINESTYLE",
-    "bl_idname": "ShaderNodeOutputLineStyle",
-    "socket_or_prop": "input:Color Fac",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LINESTYLE",
-    "bl_idname": "ShaderNodeOutputLineStyle",
-    "socket_or_prop": "input:Alpha",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LINESTYLE",
-    "bl_idname": "ShaderNodeOutputLineStyle",
-    "socket_or_prop": "input:Alpha Fac",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LINESTYLE",
-    "bl_idname": "ShaderNodeOutputLineStyle",
-    "socket_or_prop": "prop:blend_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LINESTYLE",
-    "bl_idname": "ShaderNodeOutputLineStyle",
-    "socket_or_prop": "prop:is_active_output",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LINESTYLE",
-    "bl_idname": "ShaderNodeOutputLineStyle",
-    "socket_or_prop": "prop:target",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LINESTYLE",
-    "bl_idname": "ShaderNodeOutputLineStyle",
-    "socket_or_prop": "prop:use_alpha",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "OUTPUT_LINESTYLE",
-    "bl_idname": "ShaderNodeOutputLineStyle",
-    "socket_or_prop": "prop:use_clamp",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
-  },
-  {
-    "category": "shader_node",
-    "feature": "SCRIPT",
-    "bl_idname": "ShaderNodeScript",
-    "socket_or_prop": "prop:mode",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
-  },
-  {
-    "category": "shader_node",
-    "feature": "SCRIPT",
-    "bl_idname": "ShaderNodeScript",
-    "socket_or_prop": "prop:use_auto_update",
     "classification": "DROPPED-SILENT",
     "notes": "property BOOLEAN"
   },

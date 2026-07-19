@@ -43,6 +43,16 @@ class BSDFSamplerAdapter:
         pdf_array = self.renderer.debug_bsdf_pdf_batch(
             self.material_id, self.wo, wi_array
         )
+
+        # Debug: check if PDFs match closed-form
+        if not hasattr(self, '_debug_logged'):
+            print(f"\nDEBUG pdf_func: first 5 calls")
+            for i in range(min(5, len(pdf_array))):
+                cost = wi_array[i, 1]  # Y-component
+                expected = max(0.0, cost / np.pi)
+                print(f"  wi=({wi_array[i,0]:.3f},{wi_array[i,1]:.3f},{wi_array[i,2]:.3f}), cost={cost:.3f}, pdf={pdf_array[i]:.6f}, expect={expected:.6f}")
+            self._debug_logged = True
+
         return pdf_array
 
 

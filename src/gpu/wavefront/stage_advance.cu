@@ -345,6 +345,14 @@ __device__ bool shadePathSlot(
                         float b2 = bsdfPdf * bsdfPdf;
                         float wt = a2 / (a2 + b2 + 1e-8f);
                         float scale = wt / (s.lightPdf + 0.001f);
+                        // pkg55-C2 MIS audit: capture the exact pdfs and the
+                        // resulting power-heuristic weight (Veach 1997) this NEE
+                        // sample used, for the PostNEE_MIS gate. Pure stores to
+                        // instrumentation arrays — no RNG draw, no reorder, and
+                        // never read by accumulation, so renders are unchanged.
+                        state.path_light_pdf[idx]  = s.lightPdf;
+                        state.path_mis_pdf[idx]    = bsdfPdf;
+                        state.path_mis_weight[idx] = wt;
                         nee_f[ 0 * nee_capacity + idx] = s.origin.x;
                         nee_f[ 1 * nee_capacity + idx] = s.origin.y;
                         nee_f[ 2 * nee_capacity + idx] = s.origin.z;
@@ -1092,6 +1100,82 @@ void launchStageShadow(
                          cudaGetErrorString(err));
             throw std::runtime_error(cudaGetErrorString(err));
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// pkg55-C2 MIS audit snapshot kernel. Runs the PRODUCTION intersect + shade
+// halves for one bounce over every path with the deferred (parking) NEE
+// branch enabled (nee_f != nullptr), so shadePathSlot records the real
+// power-heuristic MIS pdfs into state.path_light_pdf / path_mis_pdf /
+// path_mis_weight. This is the exact code the bucketed production pipeline
+// runs (intersectPathSlot + shadePathSlot); it is invoked ONLY by the
+// PostNEE_MIS snapshot harness, never by the render driver. The nee_f/nee_i/
+// shadow buffers are throwaway parking scratch — the shadow trace is NOT run
+// here; the audit inspects the shade-time MIS weight, not the occlusion.
+// ---------------------------------------------------------------------------
+__global__ void stageShadeNeeMisKernel(
+    GPUWavefrontState state,
+    GPUWavefrontHitBuffers hitBufs,
+    float* nee_f, int* nee_i,
+    int* shadow_queue, int* shadow_count, int nee_capacity,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const ::GMaterial* materials,
+    const ::GLight*    lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    int               max_depth)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= state.num_active) return;
+    if (state.path_alive[idx] == 0) return;
+    int matType = intersectPathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
+                                    spheres, materials, envMap, backgroundColor,
+                                    hasBackgroundColor, worldMaxBounces);
+    if (matType < 0) return;  // env miss / emissive hit: path died, no NEE.
+    shadePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres,
+                  materials, lights, numLights, totalLightPower,
+                  lightTree, max_depth,
+                  nee_f, nee_i, shadow_queue, shadow_count, nee_capacity);
+}
+
+void launchStageShadeNeeMis(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    float* d_nee_f, int* d_nee_i,
+    int* d_shadow_queue, int* d_shadow_count, int nee_capacity,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    int               max_depth)
+{
+    if (state.num_active <= 0) return;
+    int threads = 256;
+    int blocks  = (state.num_active + threads - 1) / threads;
+    stageShadeNeeMisKernel<<<blocks, threads>>>(
+        state, hitBufs, d_nee_f, d_nee_i,
+        d_shadow_queue, d_shadow_count, nee_capacity,
+        d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+        d_lights, num_lights, total_light_power, lightTree,
+        envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
+        max_depth);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::fprintf(stderr, "stage_shade_nee_mis launch error: %s\n",
+                     cudaGetErrorString(err));
+        throw std::runtime_error(cudaGetErrorString(err));
     }
 }
 

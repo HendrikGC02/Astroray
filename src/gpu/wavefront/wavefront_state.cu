@@ -73,6 +73,13 @@ bool allocateGPUWavefrontState(GPUWavefrontState& s, int capacity) {
     ALLOC_CHECK(s.color_2, capacity * sizeof(float));
     ALLOC_CHECK(s.color_3, capacity * sizeof(float));
 
+    // pkg55-C2 MIS audit instrumentation (see gpu_wavefront_state.h). Additive
+    // per-path scalars; written by shadePathSlot's NEE branch, read only by the
+    // PostNEE_MIS snapshot. Never read by accumulation -> renders bit-identical.
+    ALLOC_CHECK(s.path_light_pdf,  capacity * sizeof(float));
+    ALLOC_CHECK(s.path_mis_pdf,    capacity * sizeof(float));
+    ALLOC_CHECK(s.path_mis_weight, capacity * sizeof(float));
+
     // Path-continuation flags.
     ALLOC_CHECK(s.was_specular, capacity * sizeof(int));
     ALLOC_CHECK(s.path_alive,   capacity * sizeof(int));
@@ -118,6 +125,10 @@ void freeGPUWavefrontState(GPUWavefrontState& s) {
     cudaFree(s.color_1);
     cudaFree(s.color_2);
     cudaFree(s.color_3);
+
+    cudaFree(s.path_light_pdf);
+    cudaFree(s.path_mis_pdf);
+    cudaFree(s.path_mis_weight);
 
     cudaFree(s.was_specular);
     cudaFree(s.path_alive);

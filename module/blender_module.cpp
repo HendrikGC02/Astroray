@@ -4089,6 +4089,31 @@ PYBIND11_MODULE(astroray, m) {
           "Fields: ray_origin (3), ray_direction (3), throughput (4), lambdas (4), "
           "rr_prob, rr_survived.");
 
+    m.def("cuda_wavefront_snapshot_post_nee_mis",
+          [](PyRenderer& r, int width, int height, uint64_t seed) -> py::array_t<float> {
+              auto cam = r.getCamera();
+              if (!cam) {
+                  throw std::runtime_error("Camera not set up. Call setup_camera() first.");
+              }
+              // pkg55-C2: run stage_init + the PRODUCTION intersect+shade
+              // (deferred NEE parking) for one bounce and download the
+              // shade-time MIS pdfs (path_light_pdf, path_mis_pdf, path_mis_weight).
+              auto snapshot = astroray::wavefront::cuda_wavefront_snapshot_post_nee_mis(
+                  r.getRenderer(), *cam, width, height, seed);
+
+              int total_paths = width * height;
+              py::array_t<float> arr({total_paths, 3});
+              auto buf = arr.request();
+              float* ptr = static_cast<float*>(buf.ptr);
+              std::copy(snapshot.begin(), snapshot.end(), ptr);
+              return arr;
+          },
+          "renderer"_a, "width"_a, "height"_a, "seed"_a,
+          "pkg55-C2 MIS audit: run GPU stage_init + production intersect+shade "
+          "(deferred NEE) and download the shade-time MIS pdfs. Returns "
+          "(num_paths, 3): [path_light_pdf, path_mis_pdf, path_mis_weight]. "
+          "path_light_pdf==0 marks a slot where no NEE fired.");
+
     m.def("cuda_wavefront_render",
           [](PyRenderer& r, int samples, int max_depth, uint64_t seed) -> py::array_t<float> {
               auto cam = r.getCamera();

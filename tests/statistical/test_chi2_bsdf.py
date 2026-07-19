@@ -60,37 +60,39 @@ class BSDFSamplerAdapter:
     - pdf_func(samples_3d) -> pdf_values
 
     Where u2_array is (2, N) uniform random samples in [0, 1]².
+
+    BSDF convention: wo = outgoing to viewer (fixed), wi = incoming from light (sampled).
     """
-    def __init__(self, renderer, material_id, wi):
+    def __init__(self, renderer, material_id, wo):
         self.renderer = renderer
         self.material_id = material_id
-        self.wi = wi  # Incoming direction (from surface to viewer)
+        self.wo = wo  # Outgoing direction (from surface to viewer, fixed for test)
 
     def sample_func(self, u2_array):
         """
         Sample the BSDF given (2, N) uniform random samples.
 
-        Returns (wo_array, pdf_array) where wo_array is (3, N) and pdf_array is (N,).
+        Returns (wi_array, pdf_array) where wi_array is (3, N) and pdf_array is (N,).
         The chi² harness expects samples as (3, N) for SphericalDomain.map_backward.
         """
         # Call the batched sampler
-        wo_array, pdf_array = self.renderer.debug_bsdf_sample_batch(
-            self.material_id, self.wi, u2_array.astype(np.float32)
+        wi_array, pdf_array = self.renderer.debug_bsdf_sample_batch(
+            self.material_id, self.wo, u2_array.astype(np.float32)
         )
-        # wo_array is (N, 3), transpose to (3, N) for chi² harness
-        wo_array_t = wo_array.T
-        return (wo_array_t, pdf_array)
+        # wi_array is (N, 3), transpose to (3, N) for chi² harness
+        wi_array_t = wi_array.T
+        return (wi_array_t, pdf_array)
 
-    def pdf_func(self, wo_array_3n):
+    def pdf_func(self, wi_array_3n):
         """
-        Evaluate PDF for given (3, N) outgoing directions.
+        Evaluate PDF for given (3, N) incident directions.
 
-        wo_array_3n is (3, N) from SphericalDomain.map_forward.
+        wi_array_3n is (3, N) from SphericalDomain.map_forward.
         """
         # Transpose to (N, 3) for the binding
-        wo_array = wo_array_3n.T.astype(np.float32)
+        wi_array = wi_array_3n.T.astype(np.float32)
         pdf_array = self.renderer.debug_bsdf_pdf_batch(
-            self.material_id, self.wi, wo_array
+            self.material_id, self.wo, wi_array
         )
         return pdf_array
 
@@ -113,13 +115,13 @@ def test_chi2_disney_metallic(theta_deg, roughness):
         roughness=roughness
     )
 
-    # Incident direction (from surface to viewer)
+    # Outgoing direction (from surface to viewer)
     theta_rad = np.deg2rad(theta_deg)
     phi_rad = 0.0
-    wi = spherical_to_cartesian(theta_rad, phi_rad)
+    wo = spherical_to_cartesian(theta_rad, phi_rad)
 
     # Create adapter
-    adapter = BSDFSamplerAdapter(renderer, mat_id, wi.tolist())
+    adapter = BSDFSamplerAdapter(renderer, mat_id, wo.tolist())
 
     # Run chi² test
     domain = SphericalDomain()

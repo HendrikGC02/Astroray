@@ -4233,9 +4233,14 @@ PYBIND11_MODULE(astroray, m) {
         "optix_denoiser"_a=false,
 #endif
 #ifdef ASTRORAY_CUDA_ENABLED
-        "cuda"_a=true
+        "cuda"_a=true,
 #else
-        "cuda"_a=false
+        "cuda"_a=false,
+#endif
+#ifdef ASTRORAY_WAVEFRONT_CUDA_N3
+        "wavefront_cuda"_a=true
+#else
+        "wavefront_cuda"_a=false
 #endif
     );
 

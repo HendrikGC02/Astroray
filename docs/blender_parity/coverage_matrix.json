@@ -172,7 +172,7 @@
     "feature": "BSDF_GLOSSY",
     "bl_idname": "ShaderNodeBsdfAnisotropic",
     "socket_or_prop": "input:Anisotropy",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1740,7 +1740,7 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1748,7 +1748,7 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1756,7 +1756,7 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1764,7 +1764,7 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1772,7 +1772,7 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1780,7 +1780,7 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1788,7 +1788,7 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1796,7 +1796,7 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1804,7 +1804,7 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1812,7 +1812,7 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1860,7 +1860,7 @@
     "feature": "MIX_RGB",
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1868,7 +1868,7 @@
     "feature": "MIX_RGB",
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Color1",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {
@@ -1876,7 +1876,7 @@
     "feature": "MIX_RGB",
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Color2",
-    "classification": "SUPPORTED",
+    "classification": "DROPPED-SILENT",
     "notes": ""
   },
   {

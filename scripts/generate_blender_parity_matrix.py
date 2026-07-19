@@ -163,14 +163,13 @@ def scan_addon_source_for_evidence(addon_module):
                 for node_type in node_types:
                     # Extract socket/property reads from this if-block
                     sockets = set()
-                    fallback_sockets = set()  # NEW: track fallback reads separately
+                    fallback_sockets = set()  # track fallback reads separately
+                    guarded_sockets = set()  # NEW: or-chain guards + nested ntype conditionals
                     properties = set()
 
-                    # Walk the if-block body (not elif/else branches)
+                    # Walk the if-block body, respecting nested ntype guards
                     for stmt in node.body:
-                        for child in ast.walk(stmt):
-                            self._extract_socket_reads(child, sockets, fallback_sockets)
-                            self._extract_property_reads(child, properties)
+                        self._extract_from_statement(stmt, node_type, sockets, fallback_sockets, guarded_sockets, properties)
 
                     classification = 'APPROXIMATED' if node_type in approximated_types else 'SUPPORTED'
 
@@ -178,18 +177,62 @@ def scan_addon_source_for_evidence(addon_module):
                         # Merge with existing evidence (multiple handlers for same type)
                         evidence[node_type]['sockets'].update(sockets)
                         evidence[node_type]['fallback_sockets'].update(fallback_sockets)
+                        evidence[node_type]['guarded_sockets'].update(guarded_sockets)
                         evidence[node_type]['properties'].update(properties)
                         evidence[node_type]['source_lines'].append(node.lineno)
                     else:
                         evidence[node_type] = {
                             'sockets': sockets,
-                            'fallback_sockets': fallback_sockets,  # NEW
+                            'fallback_sockets': fallback_sockets,
+                            'guarded_sockets': guarded_sockets,  # NEW: or-chain guards + nested conditionals
                             'properties': properties,
                             'classification': classification,
                             'source_lines': [node.lineno],
                         }
 
             self.generic_visit(node)
+
+        def _extract_from_statement(self, stmt, active_ntype, sockets, fallback_sockets, guarded_sockets, properties):
+            """Extract reads from stmt, respecting nested ntype conditionals and or-chain guards.
+
+            - If stmt is an If node with ntype condition, only descend if active_ntype matches
+            - Otherwise, recursively walk and extract, detecting or-chain guards
+            """
+            if isinstance(stmt, ast.If):
+                # Check if this is a nested ntype conditional
+                nested_ntypes = self._extract_node_type_literals(stmt.test)
+
+                if nested_ntypes:
+                    # Nested ntype guard: only process if active_ntype matches
+                    if active_ntype in nested_ntypes:
+                        for nested_stmt in stmt.body:
+                            self._extract_from_statement(nested_stmt, active_ntype, sockets, fallback_sockets, guarded_sockets, properties)
+                    # else-branch might have other ntypes, but we skip (not our concern)
+                else:
+                    # Not a ntype conditional, descend normally
+                    for nested_stmt in stmt.body:
+                        self._extract_from_statement(nested_stmt, active_ntype, sockets, fallback_sockets, guarded_sockets, properties)
+                    for nested_stmt in stmt.orelse:
+                        self._extract_from_statement(nested_stmt, active_ntype, sockets, fallback_sockets, guarded_sockets, properties)
+            else:
+                # First pass: collect guarded socket names from or-chains
+                for child in ast.walk(stmt):
+                    if isinstance(child, ast.BoolOp) and isinstance(child.op, ast.Or):
+                        or_chain_names = self._extract_or_chain_socket_names(child)
+                        guarded_sockets.update(or_chain_names)
+
+                # Second pass: extract normal reads (excluding guarded names)
+                for child in ast.walk(stmt):
+                    # Skip BoolOps themselves (we already extracted their names as guarded)
+                    if isinstance(child, ast.BoolOp) and isinstance(child.op, ast.Or):
+                        continue
+                    self._extract_socket_reads(child, sockets, fallback_sockets)
+                    self._extract_property_reads(child, properties)
+
+                # Third pass: remove any names that were marked guarded from primary/fallback
+                # (in case they appeared in both contexts — guarded wins)
+                sockets -= guarded_sockets
+                fallback_sockets -= guarded_sockets
 
         def _extract_node_type_literals(self, test_node):
             """Extract ['NODE_TYPE', ...] from: ntype == 'NODE_TYPE' or ntype in ('A', 'B')"""
@@ -220,11 +263,25 @@ def scan_addon_source_for_evidence(addon_module):
 
             return results
 
+        def _extract_or_chain_socket_names(self, boolop_node):
+            """Extract socket names from: node.inputs.get('A') or node.inputs.get('B') or ..."""
+            names = set()
+            for value in boolop_node.values:
+                if isinstance(value, ast.Call):
+                    # node.inputs.get('SocketName')
+                    if isinstance(value.func, ast.Attribute) and value.func.attr == 'get':
+                        if isinstance(value.func.value, ast.Attribute) and value.func.value.attr == 'inputs':
+                            if len(value.args) >= 1 and isinstance(value.args[0], ast.Constant):
+                                sock_name = value.args[0].value
+                                if not isinstance(sock_name, int):
+                                    names.add(sock_name)
+            return names
+
         def _extract_socket_reads(self, node, sockets, fallback_sockets):
             """Extract socket names from direct reads + helper methods.
 
             Separates PRIMARY reads from FALLBACK reads (intentional cross-version compatibility).
-            Fallback reads: second arg in _float_with_fallback, names in or-chains/guards.
+            Fallback reads: second arg in _float_with_fallback.
 
             Direct: node.inputs.get('...') or node.inputs['...']
             Helpers:
@@ -329,19 +386,34 @@ def scan_addon_source_for_evidence(addon_module):
             if node.name == '_principled_shader_spec':
                 sockets = set()
                 fallback_sockets = set()
+                guarded_sockets = set()
                 properties = set()
+
+                # First pass: extract guarded or-chain names
                 for stmt in ast.walk(node):
-                    scanner._extract_socket_reads(stmt, sockets, fallback_sockets)
+                    if isinstance(stmt, ast.BoolOp) and isinstance(stmt.op, ast.Or):
+                        guarded_sockets.update(scanner._extract_or_chain_socket_names(stmt))
+
+                # Second pass: extract normal reads
+                for stmt in ast.walk(node):
+                    if not (isinstance(stmt, ast.BoolOp) and isinstance(stmt.op, ast.Or)):
+                        scanner._extract_socket_reads(stmt, sockets, fallback_sockets)
                     scanner._extract_property_reads(stmt, properties)
+
+                # Remove guarded names from primary/fallback
+                sockets -= guarded_sockets
+                fallback_sockets -= guarded_sockets
 
                 if 'BSDF_PRINCIPLED' in evidence:
                     evidence['BSDF_PRINCIPLED']['sockets'].update(sockets)
                     evidence['BSDF_PRINCIPLED']['fallback_sockets'].update(fallback_sockets)
+                    evidence['BSDF_PRINCIPLED']['guarded_sockets'].update(guarded_sockets)
                     evidence['BSDF_PRINCIPLED']['properties'].update(properties)
                 else:
                     evidence['BSDF_PRINCIPLED'] = {
                         'sockets': sockets,
                         'fallback_sockets': fallback_sockets,
+                        'guarded_sockets': guarded_sockets,
                         'properties': properties,
                         'classification': 'SUPPORTED',
                         'source_lines': [node.lineno],
@@ -357,21 +429,23 @@ def scan_addon_source_for_evidence(addon_module):
                             for ntype in nested_types:
                                 sockets = set()
                                 fallback_sockets = set()
+                                guarded_sockets = set()
                                 properties = set()
+                                # Use the new guard-aware extraction
                                 for stmt in child.body:
-                                    for n in ast.walk(stmt):
-                                        scanner._extract_socket_reads(n, sockets, fallback_sockets)
-                                        scanner._extract_property_reads(n, properties)
+                                    scanner._extract_from_statement(stmt, ntype, sockets, fallback_sockets, guarded_sockets, properties)
 
                                 classification = 'APPROXIMATED' if ntype in approximated_types else 'SUPPORTED'
                                 if ntype in evidence:
                                     evidence[ntype]['sockets'].update(sockets)
                                     evidence[ntype]['fallback_sockets'].update(fallback_sockets)
+                                    evidence[ntype]['guarded_sockets'].update(guarded_sockets)
                                     evidence[ntype]['properties'].update(properties)
                                 else:
                                     evidence[ntype] = {
                                         'sockets': sockets,
                                         'fallback_sockets': fallback_sockets,
+                                        'guarded_sockets': guarded_sockets,
                                         'properties': properties,
                                         'classification': classification,
                                         'source_lines': [child.lineno],
@@ -669,27 +743,43 @@ def classify_shader_node(node_info, evidence, stale_socket_findings) -> dict[str
     props_with_evidence = all_props & supported_props
 
     # Detect stale socket names: PRIMARY evidence mentions a socket that doesn't exist in live node
-    # (excludes fallback reads — those are intentional cross-version compatibility)
+    # GUARDED reads (or-chain guards like 'Fac' or 'Factor') and FALLBACK reads
+    # (_float_with_fallback second arg) are intentional cross-version compat, not bugs
     fallback_sockets_from_evidence = node_evidence.get('fallback_sockets', set())
+    guarded_sockets_from_evidence = node_evidence.get('guarded_sockets', set())
+
     primary_stale = supported_sockets_from_evidence - all_live_input_sockets
     fallback_stale = fallback_sockets_from_evidence - all_live_input_sockets
+    guarded_stale = guarded_sockets_from_evidence - all_live_input_sockets
 
+    # Genuine bugs: unguarded PRIMARY reads of nonexistent names
     if primary_stale:
         for stale_name in primary_stale:
             stale_socket_findings.append({
                 'node_type': node_type,
                 'stale_socket_name': stale_name,
                 'source_lines': node_evidence['source_lines'],
-                'is_fallback': False,  # GENUINE BUG: unguarded read of nonexistent name
+                'is_fallback': False,  # GENUINE BUG
             })
 
+    # Dormant cross-version fallbacks: _float_with_fallback second arg
     if fallback_stale:
         for stale_name in fallback_stale:
             stale_socket_findings.append({
                 'node_type': node_type,
                 'stale_socket_name': stale_name,
                 'source_lines': node_evidence['source_lines'],
-                'is_fallback': True,  # INTENTIONAL: dormant cross-version fallback
+                'is_fallback': True,  # INTENTIONAL
+            })
+
+    # Dormant or-chain guards: inputs.get('A') or inputs.get('B')
+    if guarded_stale:
+        for stale_name in guarded_stale:
+            stale_socket_findings.append({
+                'node_type': node_type,
+                'stale_socket_name': stale_name,
+                'source_lines': node_evidence['source_lines'],
+                'is_fallback': True,  # INTENTIONAL (guarded)
             })
 
     return {

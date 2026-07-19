@@ -10,9 +10,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 131 features
+- **SUPPORTED**: 117 features
 - **APPROXIMATED**: 23 features
-- **DROPPED-SILENT**: 370 features ⚠️
+- **DROPPED-SILENT**: 384 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 524 features
 
@@ -23,16 +23,9 @@ The addon's `node.inputs.get('...')` returns None at runtime, default silently w
 **Each entry is a real latent bug.**
 
 - **BRIGHTCONTRAST**: socket `Bright` (addon __init__.py line 2356)
-- **BSDF_GLOSSY**: socket `Anisotropic` (addon __init__.py line 3005)
 - **BSDF_METALLIC**: socket `Color` (addon __init__.py line 3039)
 - **HUE_SAT**: socket `Fac` (addon __init__.py line 2338)
 - **INVERT**: socket `Fac` (addon __init__.py line 2324)
-- **MIX**: socket `Color2` (addon __init__.py line 2312)
-- **MIX**: socket `Fac` (addon __init__.py line 2312)
-- **MIX**: socket `Color1` (addon __init__.py line 2312)
-- **MIX_RGB**: socket `Fac` (addon __init__.py line 2312)
-- **MIX_RGB**: socket `B` (addon __init__.py line 2312)
-- **MIX_RGB**: socket `A` (addon __init__.py line 2312)
 - **MIX_SHADER**: socket `Fac` (addon __init__.py line 3061, line 3183)
 - **TEX_BRICK**: socket `Offset` (addon __init__.py line 2848)
 - **TEX_BRICK**: socket `Color3` (addon __init__.py line 2848)
@@ -42,11 +35,17 @@ The addon's `node.inputs.get('...')` returns None at runtime, default silently w
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 3054)
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 3054)
 - **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 3054)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 3054)
 - **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 3054)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 3054)
+- **MIX**: socket `Color1` (addon __init__.py line 2312)
+- **MIX**: socket `Fac` (addon __init__.py line 2312)
+- **MIX**: socket `Color2` (addon __init__.py line 2312)
+- **MIX_RGB**: socket `A` (addon __init__.py line 2312)
+- **MIX_RGB**: socket `B` (addon __init__.py line 2312)
+- **MIX_RGB**: socket `Fac` (addon __init__.py line 2312)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -107,6 +106,7 @@ These features are silently ignored by the addon with no warning:
 - **BEVEL**: `input:Normal` — no handler in addon translation layer
 - **BEVEL**: `prop:samples` — property INT
 - **BRIGHTCONTRAST**: `input:Brightness`
+- **BSDF_GLOSSY**: `input:Anisotropy`
 - **BSDF_GLOSSY**: `input:Rotation`
 - **BSDF_GLOSSY**: `input:Normal`
 - **BSDF_GLOSSY**: `input:Tangent`
@@ -265,10 +265,23 @@ These features are silently ignored by the addon with no warning:
 - **MATH**: `input:Value` — no handler in addon translation layer
 - **MATH**: `prop:operation` — property ENUM
 - **MATH**: `prop:use_clamp` — property BOOLEAN
+- **MIX**: `input:Factor`
+- **MIX**: `input:Factor`
+- **MIX**: `input:A`
+- **MIX**: `input:B`
+- **MIX**: `input:A`
+- **MIX**: `input:B`
+- **MIX**: `input:A`
+- **MIX**: `input:B`
+- **MIX**: `input:A`
+- **MIX**: `input:B`
 - **MIX**: `prop:clamp_factor` — property BOOLEAN
 - **MIX**: `prop:clamp_result` — property BOOLEAN
 - **MIX**: `prop:data_type` — property ENUM
 - **MIX**: `prop:factor_mode` — property ENUM
+- **MIX_RGB**: `input:Factor`
+- **MIX_RGB**: `input:Color1`
+- **MIX_RGB**: `input:Color2`
 - **MIX_RGB**: `prop:use_alpha` — property BOOLEAN
 - **MIX_RGB**: `prop:use_clamp` — property BOOLEAN
 - **MIX_SHADER**: `input:Factor`
@@ -538,7 +551,7 @@ These features are silently ignored by the addon with no warning:
 | BRIGHTCONTRAST | input:Contrast | SUPPORTED |  |
 | BSDF_GLOSSY | input:Color | SUPPORTED |  |
 | BSDF_GLOSSY | input:Roughness | SUPPORTED |  |
-| BSDF_GLOSSY | input:Anisotropy | SUPPORTED |  |
+| BSDF_GLOSSY | input:Anisotropy | DROPPED-SILENT |  |
 | BSDF_GLOSSY | input:Rotation | DROPPED-SILENT |  |
 | BSDF_GLOSSY | input:Normal | DROPPED-SILENT |  |
 | BSDF_GLOSSY | input:Tangent | DROPPED-SILENT |  |
@@ -734,24 +747,24 @@ These features are silently ignored by the addon with no warning:
 | MATH | input:Value | DROPPED-SILENT | no handler in addon translation layer |
 | MATH | prop:operation | DROPPED-SILENT | property ENUM |
 | MATH | prop:use_clamp | DROPPED-SILENT | property BOOLEAN |
-| MIX | input:Factor | SUPPORTED |  |
-| MIX | input:Factor | SUPPORTED |  |
-| MIX | input:A | SUPPORTED |  |
-| MIX | input:B | SUPPORTED |  |
-| MIX | input:A | SUPPORTED |  |
-| MIX | input:B | SUPPORTED |  |
-| MIX | input:A | SUPPORTED |  |
-| MIX | input:B | SUPPORTED |  |
-| MIX | input:A | SUPPORTED |  |
-| MIX | input:B | SUPPORTED |  |
+| MIX | input:Factor | DROPPED-SILENT |  |
+| MIX | input:Factor | DROPPED-SILENT |  |
+| MIX | input:A | DROPPED-SILENT |  |
+| MIX | input:B | DROPPED-SILENT |  |
+| MIX | input:A | DROPPED-SILENT |  |
+| MIX | input:B | DROPPED-SILENT |  |
+| MIX | input:A | DROPPED-SILENT |  |
+| MIX | input:B | DROPPED-SILENT |  |
+| MIX | input:A | DROPPED-SILENT |  |
+| MIX | input:B | DROPPED-SILENT |  |
 | MIX | prop:blend_type | SUPPORTED |  |
 | MIX | prop:clamp_factor | DROPPED-SILENT | property BOOLEAN |
 | MIX | prop:clamp_result | DROPPED-SILENT | property BOOLEAN |
 | MIX | prop:data_type | DROPPED-SILENT | property ENUM |
 | MIX | prop:factor_mode | DROPPED-SILENT | property ENUM |
-| MIX_RGB | input:Factor | SUPPORTED |  |
-| MIX_RGB | input:Color1 | SUPPORTED |  |
-| MIX_RGB | input:Color2 | SUPPORTED |  |
+| MIX_RGB | input:Factor | DROPPED-SILENT |  |
+| MIX_RGB | input:Color1 | DROPPED-SILENT |  |
+| MIX_RGB | input:Color2 | DROPPED-SILENT |  |
 | MIX_RGB | prop:blend_type | SUPPORTED |  |
 | MIX_RGB | prop:use_alpha | DROPPED-SILENT | property BOOLEAN |
 | MIX_RGB | prop:use_clamp | DROPPED-SILENT | property BOOLEAN |

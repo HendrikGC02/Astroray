@@ -33,10 +33,16 @@ def _bootstrap_astroray_addon():
     for entry in (str(build_dir), str(repo_root)):
         if entry not in sys.path:
             sys.path.insert(0, entry)
-    cuda_bin = Path(os.environ.get(
+    cuda_root = Path(os.environ.get(
         "CUDA_PATH",
-        r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8")) / "bin"
-    for dll_dir in (build_dir, cuda_bin):
+        r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8"))
+    if not cuda_root.is_dir():
+        # CUDA_PATH unset and default absent: probe installed toolkits.
+        toolkit_root = Path(r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA")
+        versions = sorted(toolkit_root.glob("v*"), reverse=True) if toolkit_root.is_dir() else []
+        cuda_root = versions[0] if versions else cuda_root
+    # CUDA 13+ moved the Windows runtime DLLs into bin\x64 — probe both.
+    for dll_dir in (build_dir, cuda_root / "bin", cuda_root / "bin" / "x64"):
         if dll_dir.is_dir():
             os.add_dll_directory(str(dll_dir))
     import astroray  # noqa: F401

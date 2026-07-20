@@ -130,4 +130,19 @@ OrientationCone PointLight::orientationCone() const {
     return OrientationCone::fullSphere();
 }
 
+// pkg89-GPU / GAP 1 — device upload description mirroring sampleLi() radiometry.
+bool PointLight::fillDeviceParams(DeviceLightParams& out) const {
+    out.kind     = DeviceLightParams::Point;
+    out.position = position_;
+    out.radius   = radius_;
+    emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
+    // staticScale = intensity·invarea·(1/π); invarea == normalizeFactor_ (==1 for point).
+    // Matches sampleLi: emissionSpec *= intensity_ * normalizeFactor_ * kM1PiF * falloff.
+    constexpr float kM1PiF = 0.31830988618f;
+    out.staticScale = intensity_ * normalizeFactor_ * kM1PiF;
+    // NOTE: IES modulation is not mirrored on the GPU in v1; an IES PointLight
+    // renders isotropic on the device (documented follow-up). Non-IES parity exact.
+    return true;
+}
+
 } // namespace astroray

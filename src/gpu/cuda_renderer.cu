@@ -101,6 +101,7 @@ void launchMultiwavelengthKernel(
     const GSphere*    d_spheres,
     const GMaterial*  d_materials,
     const GLight*     d_lights, int numLights, float totalLightPower,
+    const GDedicatedLight* d_dedLights, int numDed,   // pkg89-GPU / GAP 1
     GLightTreeView lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* d_smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
@@ -144,8 +145,10 @@ struct CUDARenderer::Impl {
     GSphere*    d_spheres    = nullptr;
     GMaterial*  d_materials  = nullptr;
     GLight*     d_lights     = nullptr;
+    GDedicatedLight* d_dedicatedLights = nullptr;  // pkg89-GPU / GAP 1
     GVec3*      d_motionVertices = nullptr;  // pkg88-C.0 deformation motion buffer
     int         numLights    = 0;
+    int         numDedicatedLights = 0;      // pkg89-GPU / GAP 1
     float       totalLightPower = 0.f;
 
     // pkg86-B: light tree device arrays (populated only in Tree sampler mode)
@@ -235,6 +238,7 @@ struct CUDARenderer::Impl {
         if (d_spheres)    { cudaFree(d_spheres);     d_spheres    = nullptr; }
         if (d_materials)  { cudaFree(d_materials);   d_materials  = nullptr; }
         if (d_lights)     { cudaFree(d_lights);      d_lights     = nullptr; }
+        if (d_dedicatedLights) { cudaFree(d_dedicatedLights); d_dedicatedLights = nullptr; }  // pkg89-GPU
         if (d_motionVertices) { cudaFree(d_motionVertices); d_motionVertices = nullptr; }  // pkg88-C.0
         if (d_lightTreeNodes)    { cudaFree(d_lightTreeNodes);    d_lightTreeNodes    = nullptr; }  // pkg86-B
         if (d_lightTreeEmitters) { cudaFree(d_lightTreeEmitters); d_lightTreeEmitters = nullptr; }  // pkg86-B
@@ -419,7 +423,9 @@ void CUDARenderer::uploadLights(const Renderer& cpuRenderer) {
     SceneUploadResult r = buildSceneArrays(cpuRenderer, nullptr);
 
     devUpload(r.lights, &impl->d_lights);
-    impl->numLights       = (int)r.lights.size();
+    devUpload(r.dedicatedLights, &impl->d_dedicatedLights);  // pkg89-GPU / GAP 1
+    impl->numLights          = (int)r.lights.size();
+    impl->numDedicatedLights = (int)r.dedicatedLights.size();  // pkg89-GPU / GAP 1
     impl->totalLightPower = r.totalLightPower;
 
     uploadLightTree(r);  // pkg86-B: tree arrays track the light buffer
@@ -550,11 +556,13 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
     devUpload(r.spheres,   &impl->d_spheres);
     devUpload(r.materials, &impl->d_materials);
     devUpload(r.lights,    &impl->d_lights);
+    devUpload(r.dedicatedLights, &impl->d_dedicatedLights);  // pkg89-GPU / GAP 1
     devUpload(r.smsCasters, &impl->d_smsCasters);  // pkg64-gpu Phase 2
     devUpload(r.motionVertices, &impl->d_motionVertices);  // pkg88-C.0
     uploadLightTree(r);  // pkg86-B
 
-    impl->numLights       = (int)r.lights.size();
+    impl->numLights          = (int)r.lights.size();
+    impl->numDedicatedLights = (int)r.dedicatedLights.size();  // pkg89-GPU / GAP 1
     impl->totalLightPower = r.totalLightPower;
     impl->numSMSCasters   = (int)r.smsCasters.size();  // pkg64-gpu Phase 2
     impl->camera          = r.camera;
@@ -965,6 +973,7 @@ void CUDARenderer::renderMultiwavelength(
         impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
         impl->d_materials,
         impl->d_lights, impl->numLights, impl->totalLightPower,
+        impl->d_dedicatedLights, impl->numDedicatedLights,  // pkg89-GPU / GAP 1
         impl->lightTreeView(),  // pkg86-B
         impl->d_smsCasters, impl->numSMSCasters,
         impl->envMap,

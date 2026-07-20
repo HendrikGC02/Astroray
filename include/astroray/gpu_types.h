@@ -474,9 +474,15 @@ struct GNEESample {
     GVec3 wi;          // shadow ray direction (normalized)
     float maxDist;     // shadow ray extent
     float lightPdf;    // solid-angle pdf incl. selection pdf
-    int   lightMatId;  // emission material index
+    int   lightMatId;  // emission material index (geometry emitters)
     int   isSphere;    // 1 = sphere source (frontFace from the hit), 0 = triangle
     int   valid;       // 0 => no contribution (early-out in sampling)
+    // pkg89-GPU / GAP 1 — dedicated-light source (point/spot/distant/area). When
+    // set, emission comes from dedEmissionRGB·dedGeoScale (no material lookup),
+    // and occlusion uses the isSphere=0 "any occluder in [eps,maxDist]" branch.
+    int   isDedicated;    // 1 = dedicated light
+    GVec3 dedEmissionRGB; // reference color for the device RGBIlluminant upsample
+    float dedGeoScale;    // staticScale · per-sample geometric factor (λ-independent)
 };
 
 struct GNEEOcclusion {
@@ -502,6 +508,33 @@ struct GLight {
     int   primitiveIndex;   // index into d_primitives[]
     float power;            // luminance * surface area
     float cumulativePower;  // for CDF-based power-weighted selection
+};
+
+// ---------------------------------------------------------------------------
+// Dedicated light (pkg89-GPU / GAP 1) — device mirror of astroray::PointLight /
+// SpotLight / DistantLight / AreaLight. A tagged-union POD à la Cycles
+// KernelLight (intern/cycles/kernel/types.h, Apache-2.0). The device sampler
+// (src/gpu/gpu_nee.cuh gpu_dedicated_sample) reproduces the CPU
+// src/lights/*.cpp sampleLi() pdfs + emission scale so GPU NEE == CPU NEE.
+// cumulativePower continues the unified power CDF PAST the GLight entries
+// (mirrors CPU PowerLightSampler's single CDF over hittable + dedicated lights).
+// ---------------------------------------------------------------------------
+enum GDedLightKind { GDED_POINT = 0, GDED_SPOT = 1, GDED_DISTANT = 2, GDED_AREA = 3 };
+
+struct GDedicatedLight {
+    int   kind;             // GDedLightKind
+    GVec3 position;         // point/spot/area center (world space)
+    GVec3 axis;             // spot axis / distant axis (FROM light) / area normal
+    GVec3 u, v;             // area plane axes (normalized)
+    float width, height;    // area extents (width = disk radius for Disk)
+    int   areaShape;        // 0 rect, 1 disk, 2 ellipse
+    float radius;           // point/spot soft-shadow radius (0 = hard/delta)
+    float spread;           // area emission cone half-angle (radians)
+    float cosInner, cosOuter; // spot cone cosines / distant cos(halfAngle)
+    GVec3 emissionRGB;      // reference color (device RGBIlluminant upsample)
+    float staticScale;      // intensity·invarea·(1/π) baked (distant omits 1/π)
+    float power;            // this light's unified-CDF selection weight
+    float cumulativePower;  // unified CDF position (after the GLight entries)
 };
 
 // ---------------------------------------------------------------------------

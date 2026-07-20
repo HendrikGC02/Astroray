@@ -4,6 +4,8 @@
 #include "astroray/spectral_profile.h"
 #include "raytracer.h"  // for Vec3
 #include <stdexcept>
+#include <algorithm>
+#include <variant>
 
 namespace astroray {
 
@@ -68,6 +70,31 @@ EmissionSpectrum EmissionSpectrum::composeWith(const Vec3& filterRGB) const {
         filterRGB
     };
     return EmissionSpectrum(std::move(comp));
+}
+
+// pkg89-GPU / GAP 1 — reference RGB for the device RGBIlluminant upsample.
+void EmissionSpectrum::deviceReference(Vec3& outRGB, bool& exactRGB) const {
+    if (const RGB* rgb = std::get_if<RGB>(&data_)) {
+        // RGB mode: device gpu_rgbSpectrumAt(color, λ, ILLUMINANT) reproduces
+        // CPU RGBIlluminantSpectrum(color).sample() exactly (same pkg54c path).
+        outRGB   = rgb->color;
+        exactRGB = true;
+        return;
+    }
+    // Blackbody / MeasuredSPD / Composite: convert the evaluated SPD to a
+    // reference linear-sRGB triple (chroma + magnitude approximate). Sampled at
+    // the same uniform stratified wavelengths the CPU power() estimator uses.
+    SampledWavelengths wl = SampledWavelengths::sampleUniform(0.5f);
+    SampledSpectrum spec = eval(wl);
+    XYZ xyz = spec.toXYZ(wl);
+    outRGB = Vec3(
+        3.2404542f * xyz.X - 1.5371385f * xyz.Y - 0.4985314f * xyz.Z,
+        -0.9692660f * xyz.X + 1.8760108f * xyz.Y + 0.0415560f * xyz.Z,
+        0.0556434f * xyz.X - 0.2040259f * xyz.Y + 1.0572252f * xyz.Z);
+    outRGB.x = std::max(0.0f, outRGB.x);
+    outRGB.y = std::max(0.0f, outRGB.y);
+    outRGB.z = std::max(0.0f, outRGB.z);
+    exactRGB = false;
 }
 
 // Internal: evaluate Blackbody mode.

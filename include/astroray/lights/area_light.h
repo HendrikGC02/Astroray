@@ -52,6 +52,8 @@ public:
 
     OrientationCone orientationCone() const override;
 
+    bool fillDeviceParams(DeviceLightParams& out) const override;  // pkg89-GPU
+
 private:
     Vec3             position_;
     Vec3             u_, v_, normal_;  // u × v = normal

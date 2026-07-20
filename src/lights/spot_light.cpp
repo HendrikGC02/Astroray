@@ -166,4 +166,19 @@ float SpotLight::angleFalloff(float cosTheta) const {
     return t * t * (3.0f - 2.0f * t);
 }
 
+// pkg89-GPU / GAP 1 — device upload description mirroring sampleLi() radiometry.
+bool SpotLight::fillDeviceParams(DeviceLightParams& out) const {
+    out.kind     = DeviceLightParams::Spot;
+    out.position = position_;
+    out.axis     = axis_;
+    out.radius   = radius_;
+    out.cosInner = std::cos(innerAngle_);
+    out.cosOuter = std::cos(outerAngle_);
+    emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
+    constexpr float kM1PiF = 0.31830988618f;
+    out.staticScale = intensity_ * normalizeFactor_ * kM1PiF;
+    // NOTE: IES modulation not mirrored on the GPU in v1 (follow-up).
+    return true;
+}
+
 } // namespace astroray

@@ -39,6 +39,8 @@ public:
 
     OrientationCone orientationCone() const override;
 
+    bool fillDeviceParams(DeviceLightParams& out) const override;  // pkg89-GPU
+
 private:
     Vec3             axis_;
     float            angularDiameter_;

@@ -349,8 +349,12 @@ __device__ bool shadePathSlot(
     // pkg55-C3: enableNEE flag gates NEE sampling (naive multiwavelength mode).
     if (enableNEE && !rec.isDelta && numLights > 0) {
         if (totalLightPower > 0.f) {
+            // pkg89-GPU / GAP 1 — dedicated lights are not yet wired into the
+            // wavefront NEE (deferred; the megakernel path carries them). Pass
+            // (nullptr, 0) so wavefront behavior is unchanged.
             GNEESample s = gpu_nee_sample(rec, prims, tris, spheres,
                                           lights, numLights, totalLightPower,
+                                          /*dedLights=*/nullptr, /*numDed=*/0,
                                           lightTree, &rng);
             if (s.valid) {
                 if (nee_f != nullptr) {

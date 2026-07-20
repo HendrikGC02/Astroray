@@ -62,6 +62,12 @@ def _cam_down(r, h=3.0):
 
 
 def _render(r, use_gpu):
+    # path_tracer is the production route the Blender addon uses by default
+    # (_effective_integrator_name -> "path_tracer"); on GPU it dispatches to the
+    # spectral multiwavelength megakernel — the kernel wired for dedicated lights.
+    # An unset integrator falls through to the legacy RGB megakernel, which does
+    # NOT sample dedicated lights and is not the addon's production route.
+    r.set_integrator("path_tracer")
     r.set_use_gpu(use_gpu)
     r.set_seed(SEED)
     # applyGamma=False -> linear radiance, for a clean radiometric compare.
@@ -102,13 +108,18 @@ def _parity(builder, label):
     ratio = gpu_mean / max(cpu_mean, 1e-9)
     assert 0.9 <= ratio <= 1.1, \
         f"{label}: GPU/CPU mean-ratio {ratio:.3f} outside [0.9,1.1] (gpu={gpu_mean:.4f} cpu={cpu_mean:.4f})"
-    # (3) spatial correlation on the lit region (structure matches, not just mean).
-    gflat, cflat = gpu.reshape(-1), cpu.reshape(-1)
-    lit = cflat > 0.01 * cflat.max()
-    if lit.sum() > 100:
-        corr = float(np.corrcoef(gflat[lit], cflat[lit])[0, 1])
-        assert corr > 0.9, f"{label}: GPU/CPU correlation {corr:.3f} too low"
-    print(f"[{label} PASS] gpu_mean={gpu_mean:.4f} cpu_mean={cpu_mean:.4f} ratio={ratio:.3f}")
+    # (3) structural match. GPU and CPU use INDEPENDENT Monte Carlo streams, so
+    # raw per-pixel correlation is dominated by sampling noise even when the
+    # algorithms match (repo memory ssim-wrong-gate-for-independent-rng: CPU-vs-CPU
+    # is only ~0.5 at modest spp). Average 8x8 blocks to remove the high-frequency
+    # noise, then correlate the underlying illumination structure.
+    def _blur8(x):
+        h, w, _ = x.shape
+        return x[:h // 8 * 8, :w // 8 * 8].reshape(h // 8, 8, w // 8, 8, 3).mean(axis=(1, 3))
+    corr = float(np.corrcoef(_blur8(gpu).reshape(-1), _blur8(cpu).reshape(-1))[0, 1])
+    assert corr > 0.9, f"{label}: GPU/CPU 8x8-blurred structure correlation {corr:.3f} too low"
+    print(f"[{label} PASS] gpu_mean={gpu_mean:.4f} cpu_mean={cpu_mean:.4f} "
+          f"ratio={ratio:.3f} corr8x8={corr:.3f}")
 
 
 def test_gpu_dedicated_area_light_parity():

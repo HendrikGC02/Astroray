@@ -1044,6 +1044,16 @@ struct WfContext {
     // Driver buffers.
     WfDeviceBuf accum, queueA, queueB, counts, shadeQueues, shadeCounts;
     WfDeviceBuf neeF, neeI, shadowQueue, shadowCount, work;
+    // pkg55-C6b / pkg24: ReSTIR reservoir SoA, double-buffered + persistent
+    // across frames (render calls) so temporal reuse can read the previous
+    // frame. resNumPixels tracks the allocated resolution; restirFrame counts
+    // completed ReSTIR frames (reuse enabled once >= 1 prior frame exists).
+    GPUReservoirSoA resA{};
+    GPUReservoirSoA resB{};
+    int resNumPixels = 0;
+    int restirFrame  = 0;
+    bool resCurIsA   = true;   // which of resA/resB is "current" this frame
+    uint64_t restirSessionId = 0;  // pkg55-C6b: temporal-history session (reset key)
 };
 
 WfContext& wfCtx() {
@@ -1558,6 +1568,221 @@ std::vector<float> cuda_wavefront_render(
     std::vector<float> rgb(size_t(total_paths) * 3);
     float exposure = renderer.getFilmExposure();
     for (int i = 0; i < total_paths; ++i) {
+        Vec3 colorXYZ(h_accum[i * 3 + 0] / samples,
+                      h_accum[i * 3 + 1] / samples,
+                      h_accum[i * 3 + 2] / samples);
+        colorXYZ *= exposure;
+        Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
+        rgb[i * 3 + 0] = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);
+        rgb[i * 3 + 1] = std::max(Renderer::finiteOrZero(colorSRGB.y), 0.0f);
+        rgb[i * 3 + 2] = std::max(Renderer::finiteOrZero(colorSRGB.z), 0.0f);
+    }
+    return rgb;
+}
+
+// ---------------------------------------------------------------------------
+// pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront render.
+//
+// A dedicated direct-illumination driver: per frame (render call) it processes
+// `samples` primary passes, each running RIS -> [temporal] -> [spatial] ->
+// resolve at the primary/bounce-0 shading point, accumulating direct light +
+// primary env/emissive radiance. The per-pixel reservoir SoA is double-buffered
+// and PERSISTED across render calls in the singleton WfContext so temporal reuse
+// can read the previous frame (mirrors the CPU FrameState double-buffer,
+// frame_state.h). This is deliberately NOT the multi-bounce path-regeneration
+// loop of cuda_wavefront_render: ReSTIR-DI reuses per-pixel reservoirs at the
+// primary hit, which requires a race-free 1-thread-per-pixel schedule.
+//
+// Scope: direct illumination + emission + environment (ReSTIR-DI). Indirect GI
+// and dedicated lights are out of the DI-gate scope (documented in the PR).
+// ---------------------------------------------------------------------------
+std::vector<float> cuda_wavefront_render_restir(
+    Renderer& renderer,
+    const Camera& cam,
+    int width, int height,
+    int samples, int max_depth,
+    uint64_t seed,
+    int numCandidates, int mCap,
+    bool useTemporal, bool useSpatial,
+    int spatialRadius, int spatialNeighbors,
+    uint64_t sessionId)
+{
+    (void)max_depth;  // DI-only: no indirect bounces.
+    int numPixels = width * height;
+    if (numPixels <= 0 || samples <= 0)
+        throw std::runtime_error("cuda_wavefront_render_restir: invalid dimensions");
+
+    GCameraParams gcam;
+    gcam.origin     = GVec3(cam.getOrigin().x, cam.getOrigin().y, cam.getOrigin().z);
+    gcam.lowerLeft  = GVec3(cam.getLowerLeft().x, cam.getLowerLeft().y, cam.getLowerLeft().z);
+    gcam.horizontal = GVec3(cam.getHorizontal().x, cam.getHorizontal().y, cam.getHorizontal().z);
+    gcam.vertical   = GVec3(cam.getVertical().x, cam.getVertical().y, cam.getVertical().z);
+    gcam.lensRadius = cam.getLensRadius();
+    gcam.width = width;
+    gcam.height = height;
+    {
+        Vec3 u_vec = cam.getU();
+        Vec3 v_vec = cam.getV();
+        gcam.u = GVec3(u_vec.x, u_vec.y, u_vec.z);
+        gcam.v = GVec3(v_vec.x, v_vec.y, v_vec.z);
+    }
+    gcam.focusDist = cam.getFocusDist();
+
+    WfContext& C = wfCtx();
+    SceneUploadResult res = buildSceneArrays(renderer, &cam);
+    GBVHNode*   d_bvhNodes  = wfUpload(C.nodes, res.nodes);
+    GPrimitive* d_prims     = wfUpload(C.prims, res.prims);
+    GTriangle*  d_tris      = wfUpload(C.tris, res.triangles);
+    GSphere*    d_spheres   = wfUpload(C.spheres, res.spheres);
+    GTLASNode*  d_tlas      = wfUpload(C.tlas, res.tlas);
+    GInstance*  d_instances = wfUpload(C.instances, res.instances);
+    GBLAS*      d_blas      = wfUpload(C.blas, res.blas);
+    GVec3*      d_motionVerts = wfUpload(C.motionVertices, res.motionVertices);
+    ::GMaterial* d_materials = wfUpload(C.materials, res.materials);
+    ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
+    GLightTreeNode* d_treeNodes = wfUpload(C.treeNodes, res.lightTreeNodes);
+    GLightTreeEmitter* d_treeEmitters = wfUpload(C.treeEmitters, res.lightTreeEmitters);
+    int* d_lightToEmitter = wfUpload(C.lightToEmitter, res.lightToEmitter);
+
+    GLightTreeView treeView{d_treeNodes, d_treeEmitters, d_lightToEmitter,
+                            (int)res.lightTreeNodes.size(),
+                            (int)res.lightTreeNodes.size() > 0 ? 1 : 0};
+
+    GEnvMap envMap{};
+    if (res.envLoaded) {
+        envMap.data            = wfUpload(C.envData, res.envData);
+        envMap.conditionalCdf  = wfUpload(C.envCondCdf, res.envCondCdf);
+        envMap.conditionalFunc = wfUpload(C.envCondFunc, res.envCondFunc);
+        envMap.marginalCdf     = wfUpload(C.envMargCdf, res.envMargCdf);
+        envMap.marginalFunc    = wfUpload(C.envMargFunc, res.envMargFunc);
+        envMap.width           = res.envWidth;
+        envMap.height          = res.envHeight;
+        envMap.strength        = res.envStrength;
+        std::memcpy(envMap.rotMat, res.envRotMat, 9 * sizeof(float));
+        std::memcpy(envMap.colorTint, res.envColorTint, 3 * sizeof(float));
+        envMap.totalPower      = res.envTotalPower;
+        envMap.loaded          = true;
+    }
+
+    Vec3 bg = renderer.getBackgroundColor();
+    bool hasBg = bg.x >= 0.f;
+    GVec3 gbg = hasBg ? GVec3(bg.x, bg.y, bg.z) : GVec3(0.f);
+    int worldMaxBounces = renderer.getWorldMaxBounces();
+
+    // Per-path state: grow-only (1 slot per pixel; DI = single bounce).
+    if (C.stateCapacity < numPixels) {
+        if (C.stateCapacity > 0) {
+            freeGPUWavefrontState(C.state);
+            freeGPUWavefrontHitBuffers(C.hitBufs);
+        }
+        if (!allocateGPUWavefrontState(C.state, numPixels))
+            throw std::runtime_error("cuda_wavefront_render_restir: SoA allocation failed");
+        if (!allocateGPUWavefrontHitBuffers(C.hitBufs, numPixels)) {
+            freeGPUWavefrontState(C.state);
+            C.stateCapacity = 0;
+            throw std::runtime_error("cuda_wavefront_render_restir: hit buffer allocation failed");
+        }
+        C.stateCapacity = numPixels;
+    }
+    GPUWavefrontState& state = C.state;
+    GPUWavefrontHitBuffers& hitBufs = C.hitBufs;
+    state.num_active = numPixels;
+
+    // Reservoir buffers: (re)allocate on a resolution change, which also resets
+    // the temporal history (a resized/replaced scene has no valid prior frame).
+    if (C.resNumPixels != numPixels) {
+        if (C.resNumPixels > 0) {
+            freeGPUReservoirSoA(C.resA);
+            freeGPUReservoirSoA(C.resB);
+        }
+        if (!allocateGPUReservoirSoA(C.resA, numPixels) ||
+            !allocateGPUReservoirSoA(C.resB, numPixels))
+            throw std::runtime_error("cuda_wavefront_render_restir: reservoir allocation failed");
+        C.resNumPixels = numPixels;
+        C.restirFrame  = 0;
+        C.resCurIsA    = true;
+        C.restirSessionId = sessionId;
+    }
+
+    // A new integrator session (new integrator instance / renderer) resets the
+    // temporal history: the CPU restir_di owns frameState_ per-instance, so a
+    // fresh session must not read a stale previous frame from the global
+    // WfContext (the TestDeterminism isolation requirement). A persistent
+    // renderer rendering a sequence WITHOUT recreating its integrator keeps the
+    // same sessionId and thus keeps accumulating.
+    if (C.restirSessionId != sessionId) {
+        C.restirFrame     = 0;
+        C.restirSessionId = sessionId;
+    }
+
+    // Frame swap (FrameState::advanceFrame): current <-> previous, clear current.
+    C.resCurIsA = !C.resCurIsA;
+    GPUReservoirSoA& curRes  = C.resCurIsA ? C.resA : C.resB;
+    GPUReservoirSoA& prevRes = C.resCurIsA ? C.resB : C.resA;
+    clearGPUReservoirSoA(curRes);
+
+    // Reuse is enabled once a previous frame exists (mirrors the CPU
+    // frameState_.frameIndex >= 2 gate, restir_di.cpp:215).
+    bool reuseReady = (C.restirFrame >= 1);
+    int effectiveMCap = (mCap > 0) ? mCap : (20 * numCandidates);
+
+    float* d_accum = wfEnsure<float>(C.accum, size_t(numPixels) * 3);
+    cudaMemset(d_accum, 0, size_t(numPixels) * 3 * sizeof(float));
+
+    // Constant-memory spectral tables (JH LUT + D65 + CMF) required by every
+    // spectral upsample / XYZ conversion (same per-render upload as the path).
+    uploadCmfTables();
+    uploadJakobHanikaLut();
+
+    // ReSTIR-DI is visible-band spectral (matches the CPU restir_di).
+    const float lambdaMin = 380.0f, lambdaMax = 780.0f;
+    const bool useLuminanceOutput = false;
+
+    for (int s = 0; s < samples; ++s) {
+        launchStageRestirPrimary(
+            state, hitBufs, gcam, width, height, s, seed, lambdaMin, lambdaMax,
+            d_tlas, d_instances, d_blas, d_bvhNodes, d_prims, d_tris, d_spheres,
+            d_motionVerts, d_materials, envMap, gbg, hasBg, worldMaxBounces,
+            useLuminanceOutput);
+
+        launchStageRestirInitialRIS(
+            state, hitBufs, curRes, d_prims, d_tris, d_spheres, d_materials,
+            d_lights, (int)res.lights.size(), res.totalLightPower, treeView,
+            numCandidates, effectiveMCap, numPixels);
+
+        if (reuseReady && useTemporal)
+            launchStageRestirTemporalReuse(state, curRes, prevRes,
+                                           effectiveMCap, numPixels);
+
+        if (reuseReady && useSpatial && spatialNeighbors > 0)
+            launchStageRestirSpatialReuse(state, curRes, prevRes, width, height,
+                                          spatialRadius, spatialNeighbors,
+                                          effectiveMCap, numPixels);
+
+        launchStageRestirResolve(
+            state, hitBufs, curRes, d_accum, d_tlas, d_instances, d_blas,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
+            numPixels);
+    }
+
+    cudaError_t syncErr = cudaDeviceSynchronize();
+    if (syncErr != cudaSuccess)
+        throw std::runtime_error(
+            std::string("cuda_wavefront_render_restir kernel error: ") +
+            cudaGetErrorString(syncErr));
+
+    ++C.restirFrame;
+
+    std::vector<float> h_accum(size_t(numPixels) * 3);
+    cudaError_t de = cudaMemcpy(h_accum.data(), d_accum,
+                                size_t(numPixels) * 3 * sizeof(float),
+                                cudaMemcpyDeviceToHost);
+    if (de != cudaSuccess)
+        throw std::runtime_error(cudaGetErrorString(de));
+
+    std::vector<float> rgb(size_t(numPixels) * 3);
+    float exposure = renderer.getFilmExposure();
+    for (int i = 0; i < numPixels; ++i) {
         Vec3 colorXYZ(h_accum[i * 3 + 0] / samples,
                       h_accum[i * 3 + 1] / samples,
                       h_accum[i * 3 + 2] / samples);

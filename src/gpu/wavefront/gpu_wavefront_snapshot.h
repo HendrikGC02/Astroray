@@ -162,6 +162,22 @@ std::vector<float> cuda_wavefront_render(
     bool useLuminanceOutput,
     bool enableNEE);
 
+// pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront render. Direct-illumination
+// driver with double-buffered per-pixel reservoirs persisted across frames
+// (render calls) for temporal reuse. Returns the linear-sRGB image
+// (height*width*3 floats). Routed from blender_module.cpp for the "restir-di"
+// integrator on GPU. See gpu_wavefront_snapshot.cu for the design note.
+std::vector<float> cuda_wavefront_render_restir(
+    Renderer& renderer,
+    const Camera& cam,
+    int width, int height,
+    int samples, int max_depth,
+    uint64_t seed,
+    int numCandidates, int mCap,
+    bool useTemporal, bool useSpatial,
+    int spatialRadius, int spatialNeighbors,
+    uint64_t sessionId);
+
 }  // namespace wavefront
 }  // namespace astroray
 

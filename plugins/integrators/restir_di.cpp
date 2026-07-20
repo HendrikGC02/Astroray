@@ -82,7 +82,14 @@ public:
     }
 
     IntegratorCapabilities capabilities() const override {
-        return {false, "ReSTIR DI integrator stores CPU frame history and has no CUDA kernel"};
+        // pkg55-C6b: ReSTIR-DI now has a GPU wavefront kernel path
+        // (src/gpu/wavefront/stage_restir.cu, dispatched via
+        // cuda_wavefront_render_restir). The reservoir arithmetic is the shared
+        // one-generator Reservoir<T,TRng> template, and the reuse stages mirror
+        // this integrator's temporal/spatial logic. OPT-IN until the RTX
+        // temporal-variance gate is green (plan §3); the team-lead reverts this
+        // flip if the gate fails before merge.
+        return {true, ""};
     }
 
     void setMaxDepth(int depth) override {

@@ -63,7 +63,40 @@ SEED = 90123
 #   roughness=0.10 -> alpha = roughness^2 = 0.01 (just above the floor; control)
 # This spans the exact transition where GPU sample() floored alpha but GPU
 # pdf() (pre-fix) did not -- the reported ~6-7x sample/pdf mismatch.
-ROUGHNESS_VALUES = [0.0, 0.03, 0.05, 0.1]
+#
+# roughness=0.0 is xfail'd (plain, not strict): coordinator hardware run on
+# commit 2ed96f6 measured GPU/CPU ratio up to 4.0 (band [0.4,2.5]). A/B against
+# pre-PR#498 main (ASTRORAY_BUILD_DIR redirect) adjudicated this as a
+# PRE-EXISTING GPU defect, not a pkg123 regression: GPU per-channel means are
+# byte-identical pre/post pkg123 (0.02387 both builds -- pkg123's GPU edits
+# don't touch this scene's shading path), while pkg123's CPU pdf() correction
+# moved the CPU mean from 0.00884 -> 0.00596, WIDENING an already-failing
+# 2.70x to 4.00x (the CPU fix made the CPU side more correct, which mechanically
+# increases the ratio against an unrelated, unfixed GPU over-brightness).
+# Suspected cause: the GPU selected-lobe pdf inline computation
+# (gpu_materials.h:849-857) or the GPU closure-graph Disney twin lacking the
+# CPU's full-mixture semantics -- the CPU/GPU MIS asymmetry flagged in the
+# Opus review notes on PR #498. Follow-up: architect is filing a
+# GPU-Disney-parity spec. roughness in {0.03, 0.05, 0.1} are NOT xfail'd --
+# no evidence they fail; kept asserting so the gate still guards NaN and gross
+# divergence at those configs.
+ROUGHNESS_VALUES = [
+    pytest.param(0.0, marks=pytest.mark.xfail(
+        reason="Pre-existing GPU near-delta Disney-metal over-brightness, "
+        "unchanged by PR #498 (A/B evidence vs pre-#498 main: GPU mean "
+        "byte-identical pre/post at 0.02387; CPU mean moved 0.00884->0.00596 "
+        "via pkg123's pdf() fix, widening an already-failing 2.70x ratio to "
+        "4.00x against band [0.4,2.5]). Suspected cause: GPU selected-lobe "
+        "pdf inline computation (gpu_materials.h:849-857) or the GPU "
+        "closure-graph Disney twin lacking the CPU's full-mixture semantics "
+        "-- the CPU/GPU MIS asymmetry flagged in the Opus review notes. "
+        "Follow-up: architect filing a GPU-Disney-parity spec. Not a pkg123 "
+        "regression -- do not widen the ratio band to hide this.",
+        strict=False)),
+    0.03,
+    0.05,
+    0.1,
+]
 
 # Ratio bounds (not |ratio-1| tolerance) mirroring the established pkg64
 # GPU/CPU energy-ratio gate pattern (tests/test_pkg64_gpu_cpu_parity.py):

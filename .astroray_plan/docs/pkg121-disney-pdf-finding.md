@@ -463,6 +463,61 @@ and would corrupt the NEE MIS weight (pkg120) in the opposite direction.
 **Follow-up:** filed as a new package, tracked as
 `disney-dielectric-reflection-lobe` (architect to file the spec).
 
+## Round 3 — coordinator verification of 2ed96f6: chi²/furnace green, GPU-parity regression found and adjudicated as pre-existing (2026-07-20)
+
+**Status:** ADJUDICATED (final for pkg123's scope). `test_pkg123_disney_metal_gpu_cpu_parity_near_delta[0.0]`
+is `xfail` (plain, not strict), not fixed — the underlying GPU defect is
+explicitly **out of pkg123's scope** (see below).
+
+The coordinator ran the full verification suite against commit `2ed96f6`
+(the Round-2d xfail commit): the full chi² suite, `test_disney_rough_glass_furnace.py`,
+and `test_disney_energy_conservation.py` all passed (399 passed; the glass
+`xfail(strict=True)` behaved as expected — confirming the delta-vs-continuous
+defect is furnace-invisible, per the Round-2d adjudication).
+
+**New finding:** `tests/test_pkg123_disney_metal_gpu_cpu_parity.py` (the CPU↔GPU
+regression test added in Round 2a for the alpha-floor/guard GPU fix) failed at
+`roughness=0.0`: measured GPU/CPU per-channel mean ratio up to **4.0**, outside
+the test's `[0.4, 2.5]` band.
+
+**Adjudication (coordinator, A/B against pre-PR#498 `main` via `ASTRORAY_BUILD_DIR`
+redirect):** this is a **pre-existing GPU defect, not a pkg123 regression**.
+Measured:
+- **GPU per-channel mean is byte-identical pre/post PR #498**: `0.02387` in both
+  the pre-#498 `main` build and the post-fix `2ed96f6` build. None of pkg123's
+  GPU edits (alpha floor/guard, epsilon removal, `790` revert, `mixScale`,
+  Fresnel `abs()` hardening) touch the code path this scene's shading actually
+  exercises.
+- **CPU per-channel mean moved from `0.00884` (pre-#498) to `0.00596`
+  (post-#498)** — pkg123's CPU `pdf()` correction (the epsilon removal fixing
+  the angle-dependent density deflation, Round 1) legitimately made the CPU
+  side *more* correct.
+- Consequently the GPU/CPU ratio **widened** from an already-failing `2.70x`
+  (pre-#498) to `4.00x` (post-#498) — not because GPU got worse or because
+  pkg123 introduced a new defect, but because the CPU-side fix moved the CPU
+  mean further away from a GPU value that was already too bright and was never
+  touched.
+
+**Suspected root cause (not confirmed, named for the follow-up spec):** either
+the GPU selected-lobe pdf inline computation (`gpu_materials.h:849-857`, the
+`gpu_disney_sample` specular branch's pdf assignment) or the GPU closure-graph
+Disney twin (see memory `gpu-dielectric-lowers-to-closure-graph`: plain
+Disney/dielectric materials shade via `GMAT_CLOSURE_GRAPH` on GPU, a
+structurally different code path from the CPU's direct `Material::sample()`/
+`pdf()` calls) lacking the CPU's full diffuse+specular mixture semantics — this
+is the same category of CPU/GPU MIS asymmetry the Opus review flagged in its
+notes on PR #498.
+
+**Action:** `roughness=0.0` in `test_pkg123_disney_metal_gpu_cpu_parity_near_delta`
+is `xfail` (plain — `strict=False`, since MC noise could make a marginal row
+flap between pass/fail run to run) with this adjudication as the reason.
+`roughness ∈ {0.03, 0.05, 0.1}` are **not** xfail'd — no evidence they fail;
+kept asserting so the gate still guards NaN/Inf and gross divergence at those
+configs. **Follow-up:** the architect is filing a `GPU-Disney-parity` spec to
+investigate and fix the pre-existing GPU near-delta over-brightness. Per the
+coordinator's explicit instruction, the ratio band `[0.4, 2.5]` is **not**
+widened to hide this — the xfail documents a known gap instead.
+
 ## Citations
 
 - **Walter et al. 2007.** "Microfacet Models for Refraction through Rough Surfaces."
@@ -519,22 +574,29 @@ fixed. The proper fix (a rough dielectric reflection lobe in `eval()`, pbrt-v4
 `DielectricBxDF` / Walter 2007 §5.1 Eq. 20) is **out of pkg123's scope**,
 follow-up filed as `disney-dielectric-reflection-lobe`.
 
-**Final gate state (pkg123 close):**
-- `test_chi2_disney_metallic` (roughness 0.4, 0.8 across θ=0°/45°/75°) — **passing**
-  (confirmed on hardware, Round 2b).
+**Final gate state (pkg123 close, confirmed on hardware — Round 3):**
+- `test_chi2_disney_metallic` (roughness 0.4, 0.8 across θ=0°/45°/75°) —
+  **passing** (confirmed on hardware, Round 2b).
 - `test_chi2_disney_diffuse` (θ=45°, roughness 1.0) — **passing** (confirmed on
   hardware, Round 2b).
 - `test_chi2_disney_glass` (θ=45°, roughness 0.3, SphericalDomain) —
-  **`xfail(strict=True)`**, documented pre-existing engine defect, follow-up filed.
+  **`xfail(strict=True)`**, documented pre-existing engine defect, follow-up
+  filed as `disney-dielectric-reflection-lobe`. Behaves as expected — confirmed
+  on hardware, Round 3 (399 passed overall, glass xfail behaved as expected).
 - `test_chi2_disney_full_grid` (slow) — 165 configs total: 45 skipped as
   grid-limited (`roughness<=0.2`, all metallic), 3 `xfail`'d (grazing residual,
-  `roughness=0.3,θ=75°`), remaining ~117 expected to pass — **pending coordinator
-  post-push re-run** (full chi² expected 0 failed given the above, plus
-  `test_disney_rough_glass_furnace.py` / `test_disney_energy_conservation.py` to
-  confirm furnace-invisibility, plus the GPU parity test).
+  `roughness=0.3,θ=75°`), remaining ~117 passing — **confirmed on hardware,
+  Round 3**.
+- `test_disney_rough_glass_furnace.py` / `test_disney_energy_conservation.py` —
+  **passing, confirmed on hardware, Round 3** (furnace-invisibility of the
+  glass delta-vs-continuous defect verified empirically, as the Round-2d
+  adjudication predicted).
+- `test_pkg123_disney_metal_gpu_cpu_parity_near_delta` — `roughness ∈ {0.03,
+  0.05, 0.1}` **passing**; `roughness=0.0` **`xfail`** (plain, not strict),
+  pre-existing GPU near-delta over-brightness, unrelated to pkg123 (see
+  "Round 3" above), follow-up filed as `GPU-Disney-parity`.
 
-The Lambertian anchor is expected to still pass (harness not regressed). No
-production regression is *expected* — the pdf fix only affects MIS weights, not
-the unbiased estimator itself; furnace tests the latter, chi² tests the former —
-this is being confirmed by the coordinator's post-push run of
-`test_disney_rough_glass_furnace.py` and `test_disney_energy_conservation.py`.
+The Lambertian anchor passes (harness not regressed, confirmed on hardware). No
+production regression: the pdf fix only affects MIS weights, not the unbiased
+estimator itself — confirmed empirically by the Round-3 furnace/energy-
+conservation hardware run (399 passed).

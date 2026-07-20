@@ -69,7 +69,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 - Project status lives in `.astroray_plan/docs/STATUS.md`.
 - Work packages live in `.astroray_plan/packages/`.
-- Codex-specific workflow notes live in `.astroray_plan/agents/codex.md`.
+- Codex is retired (2026-07; owner no longer uses it). Specs with legacy `Codex-paste-ready`/`Track: E` tags route to `package-implementer`.
 - Shared repo invariants live in `AGENTS.md`; follow them in addition to this file.
 - Keep Claude Code on track-A/core work unless a task is explicitly scoped as a small local fix.
 

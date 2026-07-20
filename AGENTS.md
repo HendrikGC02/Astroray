@@ -19,11 +19,10 @@ Astroray/
 
 ## Agent Operating Model
 
-- `AGENTS.md` is the shared repo contract for Codex and other coding agents.
+- `AGENTS.md` is the shared repo contract for coding agents.
 - `CLAUDE.md` remains Claude Code's behavioral guide. Do not delete or replace it.
 - `.github/copilot-instructions.md` constrains GitHub Copilot coding agents.
 - `.astroray_plan/docs/STATUS.md` is the current planning source of truth.
-- `.astroray_plan/agents/codex.md` describes Codex's role in this repo.
 - Keep agent-specific notes additive. If a rule belongs to all agents, put it here.
 
 ## Build & Test Commands

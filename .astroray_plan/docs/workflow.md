@@ -73,8 +73,7 @@ if something gets stuck:
 
 ## What the loop is doing while you're not looking
 
-- **Implementer agents** ship packages in worktrees (`package-implementer`
-  for Claude-side, `codex-implementer` for Codex-paste-ready specs).
+- **Implementer agents** ship packages in worktrees (`package-implementer`).
 - **pr-reviewer** auto-merges clean PRs per the trust-boundary rules.
 - **hardware-verifier** runs gate tests + visual inspection on
   RTX-needed PRs; appends measured numbers to spec Lessons sections.

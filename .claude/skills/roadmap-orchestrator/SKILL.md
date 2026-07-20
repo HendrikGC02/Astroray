@@ -42,8 +42,9 @@ Note: `cli.py` always emits the plan JSON and performs **no** side effects itsel
 ## Step 2 — Execute side effects (live only)
 In this order, respecting caps already applied by the engine:
 
-1. **Dispatch** each pkg in `plan.dispatch` via `dispatch-next` routing (Track E →
-   `codex-implementer`; else `package-implementer` in its own fresh worktree) with the
+1. **Dispatch** each pkg in `plan.dispatch` via `dispatch-next` routing
+   (`package-implementer` in its own fresh worktree; Codex is retired, so legacy
+   Track-E / Codex-paste-ready specs route here too) with the
    NEXT_STAGE_REPORT §3 drop-in prompt verbatim. **If an isolated worktree cannot be
    created, abort that dispatch** and note it blocked — never fall back to `main`
    (memory `parallel_agent_worktree_contamination`). After spawning, re-check

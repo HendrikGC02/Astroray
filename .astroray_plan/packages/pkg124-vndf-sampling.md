@@ -92,10 +92,14 @@ changing both sides).
 - *Heitz 2018, "Sampling the GGX Distribution of Visible Normals," JCGT 7(4)* —
   already cited at `disney.cpp:95`; the canonical VNDF sampling routine.
 - **Cycles reference implementation:**
-  `intern/cycles/kernel/closure/bsdf_microfacet.h` (Apache-2.0) —
-  `bsdf_microfacet_ggx_sample` and its VNDF half-vector helper
-  (`microfacet_ggx_sample_vndf` / `microfacet_sample_stretched`); this is the
-  production mirror the task requires. Pin the commit SHA in the research note.
+  `intern/cycles/kernel/closure/bsdf_microfacet.h` (**BSD-3-Clause** — verified
+  2026-07-20 against the file's SPDX header on blender/blender main:
+  `SPDX-License-Identifier: BSD-3-Clause`, copyright Sony Pictures Imageworks +
+  Blender Foundation; the spec previously mislabeled it Apache-2.0 — both are
+  allow-listed, but cite BSD-3-Clause) — `bsdf_microfacet_ggx_sample` and its
+  VNDF half-vector helper `microfacet_ggx_sample_vndf` (~line 213, itself citing
+  Heitz 2018); this is the production mirror the task requires. Pin the commit
+  SHA in the research note.
 - *PBRT-v4 `src/pbrt/bxdfs.h` `ConductorBxDF`/`DielectricBxDF::Sample_f` +
   `TrowbridgeReitzDistribution::Sample_wm`* (Apache-2.0) — the reflected-direction
   Jacobian `1/(4·|wo·wm|)`; already the source for the in-tree `vndfPdf`.

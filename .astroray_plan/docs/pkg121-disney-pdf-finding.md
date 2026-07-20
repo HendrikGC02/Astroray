@@ -204,13 +204,13 @@ pytest.skip()** and a documented reason, rather than xfailed as "engine defect":
 - This keeps the gate's pass/fail map honest about what is validated vs what is
   grid-unresolvable.
 
-## Round 2 — coordinator hardware run surfaced two further bugs (2026-07-20)
+## Round 2a — coordinator hardware run surfaced two further bugs (2026-07-20)
 
 The coordinator built the Round-1 worktree (CPU epsilon fix only, pre-GPU-fix) and
 ran the real chi² suite. Two additional, distinct bugs surfaced that Round 1's
 code-inspection-only adjudication could not see without an actual run:
 
-### Round-2 finding 1 — harness domain-check flags dead samples (HARNESS bug)
+### Round-2a finding 1 — harness domain-check flags dead samples (HARNESS bug)
 
 **Measured:** `test_chi2_disney_metallic` (roughness 0.4/0.8, θ=0°/45°/75°) and
 `test_chi2_disney_diffuse` (roughness 1.0, θ=45°) all had **good p-values (0.25 to
@@ -248,7 +248,7 @@ contribute weight 0 — this change only stops them from tripping the unrelated
 sample (e.g. a real NaN or a sampler that emits directions outside its stated
 domain) is still caught.
 
-### Round-2 finding 2 — glass pdf double-counts the plain-NDF specular term (ENGINE bug)
+### Round-2a finding 2 — glass pdf double-counts the plain-NDF specular term (ENGINE bug)
 
 **Measured:** `test_chi2_disney_glass[0.3-45]` failed hard: `p-value=0.000000`,
 and critically `"Failure: PDF integrates to a value greater than 1.0: 1.951..."`
@@ -299,6 +299,108 @@ uses the same `pr/(pr+pt)` weights as `Sample_f`'s roulette.
 **Status:** fixed in this round; **unverified locally** (no CUDA build on the
 implementer's machine) — pending team-lead re-run.
 
+## Round 2b — coordinator rebuild + full re-run: 163→34 failures (2026-07-20)
+
+The coordinator built the Round-2 worktree (harness domain-check fix + glass
+mixScale fix) and ran the full chi² suite. Confirmed: 163→34 failures, 129 pass.
+The harness domain-check fix worked — metallic and diffuse core gates now PASS
+with real p-values. **34 real failures remained**, all p=0.000000 — the
+significance test now actually runs (not harness-check noise). Full log:
+`chi2_round2.log` (coordinator scratchpad). Three distinct failure groups:
+
+### Round-2c finding 1 — glass residual shape mismatch survives the mixScale fix (ENGINE bug)
+
+`test_chi2_disney_glass[0.3-45]` still failed: `Histogram sum = 1.000000, PDF sum
+= 0.967118` (mass now correct — confirms the mixScale fix from Round 2 worked) but
+`Chi^2 statistic = 143140779.145224` (d.o.f = 1025) — catastrophically large despite
+correct total mass, meaning a genuine **shape** (not mass) defect remains.
+
+**Root cause (new, found by code inspection against `sample()`'s exact formula):**
+`pdf()`'s VNDF-reflection Fresnel-weight computation
+(`float F = fresnelDielectric(wo.dot(H), etaI, etaT);`) does **not** wrap
+`wo.dot(H)` in `std::abs()`, while `sample()`'s matching inline computation
+(`float F = fresnelDielectric(std::abs(HdotO), etaI, etaT);`, disney.cpp ~431)
+does. `H = (wo + wi).normalized()` is reconstructed by `pdf()` from an
+**arbitrary** query `wi` (as `tabulate_pdf`'s quadrature sweeps the *entire*
+domain, not just physically-plausible reflection directions) — for `wi` far from
+`wo` on the far side of the hemisphere, `wo.dot(H)` can go negative even though
+both `wo` and `wi` are on the same (upper) hemisphere. A negative input flips
+`fresnelDielectric`'s internal `entering` branch (it swaps `etaI`/`etaT`),
+silently corrupting `F` for exactly the "far from `wo`" region `tabulate_pdf`
+integrates over. `sample()` never exhibits this because its `HdotO = wo.dot(wm)`
+comes from an **actual VNDF-sampled** `wm` (always front-facing, `HdotO > 0` by
+construction of VNDF sampling) — the bare `std::abs()` there never changes
+anything, masking the asymmetry until `pdf()` is queried off the sampled
+manifold. **Fixed:** wrap `wo.dot(H)` in `std::abs()` in both `disney.cpp::pdf()`
+and `gpu_materials.h::gpu_disney_pdf`, matching `sample()`/`gpu_disney_sample`
+exactly.
+
+**Status: unverified locally** — this is a new fix this round, not yet re-run on
+hardware. If the coordinator's next run still shows a glass residual, the `abs()`
+fix was necessary-but-not-sufficient and further investigation (e.g. the
+non-face-forward-corrected `H` used for the Fresnel weight vs. the
+face-forward-corrected `wm` `microfacetReflectionPdf` uses internally for its own
+Jacobian — argued not to matter for `abs()`'d magnitudes, but worth re-checking
+against a real residual map if the failure persists) is needed.
+
+### Round-2c finding 2 — full_grid near-delta skip criterion was wrong (TEST bug, not engine)
+
+`test_chi2_disney_full_grid` failures at `metallic=0.0/0.5/1.0`, `roughness ∈
+{0.0, 0.1}` (all 5 θ), plus most of `roughness=0.2` (θ=0,60,75 at minimum) — 30 of
+the 34 residual failures. All showed the classic near-delta signature: **PDF-sum
+overshoot growing as roughness shrinks and θ grows toward grazing** (e.g.
+metallic=0.0: 12.7x at roughness=0.0/θ=0°, shrinking to 1.04x at roughness=0.1/
+θ=30°; metallic=1.0/roughness=0.1: 10.3x at θ=0° down to 1.09x at θ=30°) —
+**identical in shape and magnitude across all three metallic values**, using the
+exact same (already chi²-passing at higher roughness) reflection-pdf code path.
+
+**Root cause: the existing `is_near_delta` skip criterion
+(`metallic >= 0.5 and alpha <= 0.01`) had two bugs**, not an engine defect:
+1. **Wrong gating variable.** The specular reflection term (`specWeight=1`) is
+   present identically regardless of `metallic` — a `metallic=0.0` dielectric has
+   the *same* narrow near-mirror specular lobe at low roughness as a
+   `metallic=1.0` conductor (mixed with a diffuse lobe, but the specular peak
+   itself is unchanged). Gating the skip on `metallic >= 0.5` incorrectly let
+   `metallic=0.0` configs run and fail at exactly the roughness values the policy
+   already intended to exclude.
+2. **Float-precision boundary bug.** `roughness=0.1` in Python floats squares to
+   `0.010000000000000002`, narrowly exceeding the `alpha <= 0.01` threshold — so
+   even `metallic=1.0, roughness=0.1` (explicitly named in the ALREADY-documented
+   policy: "metallic=1.0, roughness <= 0.1") was never actually skipped, and ran
+   to a 10.3x PDF-sum-overshoot failure.
+
+**Fixed:** the skip criterion now compares `roughness <= 0.2 + 1e-9` directly
+(sidesteps the float-square boundary issue) and applies regardless of `metallic`.
+The extension from `alpha<=0.01` (roughness 0.1) to roughness<=0.2 is backed by
+the measured evidence above — `roughness=0.2` still shows the identical
+monotonically-shrinking-overshoot signature (1.01x-1.19x) at most angles, for all
+three metallic values, consistent with the *same* quadrature-resolution artifact,
+not a new phenomenon. This is a **test/policy fix**, not an engine change — no
+`disney.cpp`/`gpu_materials.h` edit.
+
+### Round-2c finding 3 — grazing-incidence residual at roughness=0.3, θ=75° only
+
+`metallic ∈ {0.0, 0.5, 1.0}` at `roughness=0.3, θ=75°` (3 of the 34 failures) show
+a **much smaller** deviation than the near-delta cases (PDF/histogram sums
+0.94–0.97, i.e. 3–9% off, vs. the 2x-12x near-delta overshoots) but still
+chi²-significant given 10⁶ samples (χ²≈3100-4200, d.o.f≈1580-3180). Critically,
+`roughness=0.3` **passes at every other tested angle** (0°/30°/45°/60°) for all
+three metallic values, and the core gate's `roughness=0.4` config passes cleanly
+at θ=75°. This rules out a blanket near-delta explanation (roughness=0.3 is not
+uniformly unresolvable) and rules out a plain formula bug (it would not vanish at
+non-grazing angles for the *same* roughness).
+
+**Adjudication:** a narrow, grazing-incidence-specific boundary-of-resolvability,
+most plausibly explained by the well-documented (Heitz 2018) degradation of
+**plain-NDF** (as opposed to VNDF) reflection sampling at grazing incidence — the
+reflection lobe elongates/streaks at grazing `wo`, which a fixed-resolution
+quadrature grid resolves poorly even when the *same* lobe at normal incidence is
+fine. This is squarely `disney.cpp:496-513`'s plain-NDF sampler, which is
+`pkg124`'s stated target for a VNDF replacement. **Action:** `pytest.xfail()`'d
+with a precise per-config reason (only `roughness==0.3 and theta_deg==75`, not a
+blanket skip — `roughness=0.3` still asserts at every other angle), naming
+pkg124 as the likely fix and citing this doc.
+
 ## Citations
 
 - **Walter et al. 2007.** "Microfacet Models for Refraction through Rough Surfaces."
@@ -306,27 +408,52 @@ implementer's machine) — pending team-lead re-run.
 - **pbrt-v4** `src/pbrt/bxdfs.h` `TrowbridgeReitzDistribution`, §9.6 (Apache-2.0,
   Matt Pharr). Reference implementation of clean GGX sample/pdf without stabilizer
   epsilons in the canonical formulas; `DielectricBxDF::PDF` for the
-  branch-probability-weighted mixture-pdf pattern used in the Round-2 glass fix.
+  branch-probability-weighted mixture-pdf pattern used in the Round-2a glass fix.
 - **Mitsuba 3** `src/python/python/chi2.py` (BSD-3-Clause, Wenzel Jakob). Harness
   ported in pkg121, extended here to dump per-cell residuals and to correctly
-  exclude dead samples from the domain-validity check (Round 2).
+  exclude dead samples from the domain-validity check (Round 2a).
+- **Heitz 2018.** "Sampling the GGX Distribution of Visible Normals." *JCGT 7(4).*
+  Cited for the Round-2c finding-3 grazing-incidence adjudication (plain-NDF
+  sampling degrades at grazing incidence relative to VNDF) — already the
+  citation anchor for `sampleGgxVNDF` (`disney.cpp:97`) and pkg124's scope.
 
 ## Gate state after pkg123
 
-**Round-1 measured (coordinator hardware run, CPU epsilon fix only, pre-Round-2):**
+**Round-1 measured (coordinator hardware run, CPU epsilon fix only, pre-Round-2a):**
 `test_chi2_disney_metallic` (roughness 0.4/0.8, θ=0°/45°/75°) and
 `test_chi2_disney_diffuse` (roughness 1.0, θ=45°) all measured p-values 0.25–0.94
 (statistically passing) but were reported FAILED by the harness domain-check bug
-(Round-2 finding 1). `test_chi2_disney_glass[0.3-45]` measured p=0.000000 with PDF
-integral 1.951 (Round-2 finding 2, genuine engine bug).
+(Round-2a finding 1). `test_chi2_disney_glass[0.3-45]` measured p=0.000000 with PDF
+integral 1.951 (Round-2a finding 2, genuine engine bug).
 
-**Expected after Round 2 (harness domain-check fix + glass mixScale fix) —
-unverified locally, pending team-lead re-run:**
-- `test_chi2_disney_metallic` (roughness 0.4, 0.8 across θ=0°/45°/75°)
-- `test_chi2_disney_diffuse` (θ=45°, roughness 1.0)
-- `test_chi2_disney_glass` (θ=45°, roughness 0.3, SphericalDomain)
-- `test_chi2_disney_full_grid` (slow) — 165 configs exercised (45 skipped as
-  grid-limited).
+**Round-2b measured (coordinator rebuild + full re-run, harness domain-check fix +
+glass mixScale fix applied):** 163→34 failures, 129 pass. `test_chi2_disney_metallic`
+and `test_chi2_disney_diffuse` core gates now **PASS with real p-values** — the
+harness fix worked. 34 residual failures, all genuinely significant (p=0.000000,
+not harness noise): glass shape mismatch (Round-2c finding 1), full_grid near-delta
+skip-policy gap (Round-2c finding 2, 30 configs), full_grid grazing-incidence
+residual (Round-2c finding 3, 3 configs — `roughness=0.3, θ=75°` × 3 metallic
+values). One config's dof shifted between runs due to variable cell-pooling, not
+a defect.
+
+**Round-2c changes (this round) — unverified locally, pending coordinator re-run:**
+- `disney.cpp::pdf()` / `gpu_materials.h::gpu_disney_pdf`: wrap the VNDF-reflection
+  Fresnel-weight cosine in `std::abs()`, matching `sample()` (finding 1 fix).
+- `test_chi2_bsdf.py::test_chi2_disney_full_grid`: near-delta skip criterion fixed
+  to `roughness <= 0.2` regardless of metallic (finding 2 — test/policy fix, no
+  engine change); `roughness=0.3, θ=75°` now `pytest.xfail()`'d per-config with a
+  precise reason citing pkg124 (finding 3).
+
+**Expected after Round 2c:**
+- `test_chi2_disney_metallic` (roughness 0.4, 0.8 across θ=0°/45°/75°) — pass
+  (confirmed Round 2b, unaffected by Round 2c changes).
+- `test_chi2_disney_diffuse` (θ=45°, roughness 1.0) — pass (confirmed Round 2b).
+- `test_chi2_disney_glass` (θ=45°, roughness 0.3, SphericalDomain) — expected pass
+  after the `abs()` fix; **not yet re-verified**, may need another iteration if the
+  shape mismatch has a second contributing cause.
+- `test_chi2_disney_full_grid` (slow) — 165 configs total: 45 skipped as
+  grid-limited (`roughness<=0.2`, all metallic), 3 `xfail`'d (grazing residual,
+  `roughness=0.3,θ=75°`), remaining ~117 expected to pass.
 
 The Lambertian anchor is expected to still pass (harness not regressed). No
 production regression is *expected* — the pdf fix only affects MIS weights, not

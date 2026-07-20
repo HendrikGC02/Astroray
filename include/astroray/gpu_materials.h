@@ -902,7 +902,11 @@ __device__ inline float gpu_disney_pdf(
         bool entering = rec.normal.dot(wo) > 0.f;
         float etaI = entering ? 1.f : mat.ior;
         float etaT = entering ? mat.ior : 1.f;
-        float F = gpu_disney_fresnelDielectric(wo.dot(H), etaI, etaT);
+        // fabsf() matches gpu_disney_sample's inline computation and CPU pdf()
+        // (disney.cpp: fresnelDielectric(std::abs(wo.dot(H)), ...)) -- see the
+        // CPU-side comment for why the un-abs'd signed cosine corrupts F for
+        // tabulate_pdf's full-domain query points.
+        float F = gpu_disney_fresnelDielectric(fabsf(wo.dot(H)), etaI, etaT);
         p += mat.transmission * F * gpu_disney_microfacetReflectionPdf(mat, rec, wo, wi);
     }
     return p;

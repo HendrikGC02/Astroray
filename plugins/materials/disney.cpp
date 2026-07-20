@@ -557,7 +557,21 @@ public:
             bool entering = rec.normal.dot(wo) > 0.0f;
             float etaI = entering ? 1.0f : ior_;
             float etaT = entering ? ior_ : 1.0f;
-            float F = fresnelDielectric(wo.dot(H), etaI, etaT);
+            // std::abs() matches sample()'s inline computation (disney.cpp ~431:
+            // `fresnelDielectric(std::abs(HdotO), etaI, etaT)`). Without it, this
+            // diverges for wi values `tabulate_pdf`'s full-domain quadrature queries
+            // that are far from wo (H = (wo+wi).normalized() can have wo.dot(H) < 0
+            // for such non-physical-as-a-reflection pairs); a raw signed cosine
+            // flips fresnelDielectric's internal "entering" branch (it swaps
+            // etaI/etaT for negative input), silently corrupting F in exactly the
+            // region tabulate_pdf integrates over. Evidence: glass chi² (roughness
+            // 0.3, SphericalDomain) had PDF sum ~1.0 (mass correct, mixScale fix
+            // above) but chi^2=143M/dof=1025 (shape catastrophically wrong) --
+            // consistent with a localized, angle-dependent F corruption in the
+            // analytic pdf() that sample() never exhibits (sample()'s HdotO is
+            // always >0 by construction of VNDF sampling, so its bare
+            // std::abs(HdotO) never triggers the branch, masking the asymmetry).
+            float F = fresnelDielectric(std::abs(wo.dot(H)), etaI, etaT);
             p += transmission_ * F * microfacetReflectionPdf(rec, wo, wi);
         }
         return p;

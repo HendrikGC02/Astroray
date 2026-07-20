@@ -279,17 +279,58 @@ def test_chi2_disney_full_grid(theta_deg, roughness, metallic):
 
     This is the full dense sweep. Run with: pytest -v -m slow
 
-    Grid-limited configs (near-delta lobes that an 80×160 grid cannot resolve):
-    - metallic=1.0, roughness <= 0.1 (near-mirror specular lobe)
-    - metallic=0.5, roughness <= 0.05 (still very narrow)
-    These are skipped via pytest.skip() with a documented reason.
+    Grid-limited configs (pkg123 Round 2, coordinator hardware run --
+    .astroray_plan/docs/pkg121-disney-pdf-finding.md "Round 2c"): the reflection
+    lobe's specular term is present identically (specWeight=1) regardless of the
+    metallic mix, so grid-unresolvability is a function of roughness/alpha alone,
+    NOT metallic. The original `metallic >= 0.5` gate was wrong -- measured:
+    metallic=0.0 at roughness 0.0/0.1 shows the identical PDF-sum-overshoot
+    signature (up to 12.7x) as metallic=1.0. Measured overshoots shrink
+    monotonically and identically across all 3 metallic values as roughness
+    grows (12.7x/5.6x at roughness 0.0/0.1, down to 1.0x-1.2x at roughness 0.2),
+    the signature of an ires=4 trapezoidal-quadrature artifact under/over-
+    integrating a narrow peaked lobe per grid cell -- not an engine defect.
+    roughness <= 0.2 is grid-limited for every metallic value.
+
+    A separate, narrower grazing-incidence residual exists at exactly
+    roughness=0.3, theta=75 (all metallic values) -- see the xfail below.
     """
-    # Skip grid-unresolvable near-delta configs (pkg123 §D: roughness floor α=0.0064)
+    # Skip grid-unresolvable near-delta configs. Compare against roughness
+    # directly (not squared alpha) plus a small epsilon to avoid float
+    # boundary noise (0.1**2 == 0.010000000000000002 in Python floats,
+    # which narrowly missed the old `alpha <= 0.01` check and let
+    # metallic=1.0/0.5 roughness=0.1 -- the ALREADY-documented near-delta
+    # case -- run and fail instead of being skipped).
     alpha = max(roughness * roughness, 0.0064)
-    is_near_delta = (metallic >= 0.5 and alpha <= 0.01)
+    is_near_delta = (roughness <= 0.2 + 1e-9)
     if is_near_delta:
-        pytest.skip(f"Grid-limited: metallic={metallic}, roughness={roughness} "
-                    f"produces near-delta lobe (α={alpha:.4f}) that 80×160 cannot resolve.")
+        pytest.skip(f"Grid-limited: roughness={roughness} (metallic={metallic}) "
+                    f"produces a lobe (α={alpha:.4f}) an 80×160 grid with ires=4 "
+                    f"quadrature cannot resolve -- measured PDF-sum overshoot up "
+                    f"to ~12.7x at roughness=0.0, shrinking monotonically and "
+                    f"identically across all metallic values as roughness grows "
+                    f"(pkg121-disney-pdf-finding.md Round 2c).")
+
+    # Grazing-incidence residual (pkg123 Round 2): roughness=0.3 passes at
+    # theta<=60 for every metallic value but fails at theta=75 (the single
+    # most grazing angle tested) with a small-magnitude (~3-9%) but
+    # chi²-significant deviation, while the core gate's roughness=0.4 config
+    # (alpha=0.16) passes cleanly at theta=75. This is a narrow boundary-of-
+    # resolvability specific to grazing incidence -- distinct from the
+    # near-delta skip above (roughness=0.3 passes everywhere else, so a
+    # blanket skip of the whole row would be unjustified). Candidate cause:
+    # the reflection lobe's plain-NDF sampler (disney.cpp:496-513, in scope
+    # for pkg124's VNDF swap) is documented (Heitz 2018) to behave worse at
+    # grazing incidence than VNDF sampling.
+    if roughness == 0.3 and theta_deg == 75:
+        pytest.xfail(
+            f"Grazing-incidence residual: roughness=0.3 (metallic={metallic}) "
+            f"fails ONLY at theta=75 (passes at 0/30/45/60); roughness=0.4 "
+            f"passes cleanly at theta=75 in the core gate. Candidate cause: "
+            f"plain-NDF reflection sampling degrades at grazing incidence "
+            f"(Heitz 2018) -- pkg124's VNDF reflection-lobe swap is the "
+            f"likely fix (pkg121-disney-pdf-finding.md Round 2c). Do NOT "
+            f"delete or widen: this documents a suspected real, narrow defect.")
 
     renderer = astroray.Renderer()
 

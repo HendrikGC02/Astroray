@@ -508,15 +508,52 @@ structurally different code path from the CPU's direct `Material::sample()`/
 is the same category of CPU/GPU MIS asymmetry the Opus review flagged in its
 notes on PR #498.
 
-**Action:** `roughness=0.0` in `test_pkg123_disney_metal_gpu_cpu_parity_near_delta`
-is `xfail` (plain — `strict=False`, since MC noise could make a marginal row
-flap between pass/fail run to run) with this adjudication as the reason.
-`roughness ∈ {0.03, 0.05, 0.1}` are **not** xfail'd — no evidence they fail;
-kept asserting so the gate still guards NaN/Inf and gross divergence at those
-configs. **Follow-up:** the architect is filing a `GPU-Disney-parity` spec to
-investigate and fix the pre-existing GPU near-delta over-brightness. Per the
-coordinator's explicit instruction, the ratio band `[0.4, 2.5]` is **not**
-widened to hide this — the xfail documents a known gap instead.
+**Action (initial, `a677cb4`):** `roughness=0.0` in
+`test_pkg123_disney_metal_gpu_cpu_parity_near_delta` is `xfail` (plain —
+`strict=False`, since MC noise could make a marginal row flap between
+pass/fail run to run) with this adjudication as the reason.
+`roughness ∈ {0.03, 0.05, 0.1}` were initially left **not** xfail'd — no
+evidence yet that they failed. Superseded by Round 3b below.
+
+## Round 3b — coordinator re-run confirms all four near-delta rows fail; follow-up filed as pkg141 (2026-07-20)
+
+**Status:** ADJUDICATED (final for pkg123's scope, all four rows).
+
+The coordinator re-ran `test_pkg123_disney_metal_gpu_cpu_parity.py` on commit
+`a677cb4` (code unchanged from `2ed96f6`, so the pre/post logic is identical —
+this was a rerun to gather the missing per-row evidence, not a new build) and
+measured R-channel ratios for **all four rows**, all failing the `[0.4, 2.5]`
+band:
+
+| roughness | alpha | GPU mean | CPU mean | R ratio |
+|---|---|---|---|---|
+| 0.00 | 0.0064 (floored) | 0.02387 | 0.00596 | 4.0033 |
+| 0.03 | 0.0064 (floored) | 0.02387 | 0.00596 | 4.0033 |
+| 0.05 | 0.0064 (floored) | 0.02387 | 0.00596 | 4.0033 |
+| 0.10 | 0.0100 (above floor) | 0.02387 | 0.00647 | 3.6870 |
+
+`roughness=0.03` and `roughness=0.05` both floor to the exact same
+`alpha=0.0064` as `roughness=0.0` (since `alpha = max(roughness², 0.0064)` and
+`0.03² = 0.0009`, `0.05² = 0.0025`, both `< 0.0064`) — they produce
+**byte-identical renders** on both CPU and GPU, hence the identical
+measurements and identical adjudication as `roughness=0.0`.
+`roughness=0.1` sits just above the floor (`alpha=0.0100`), so it is a
+distinct, slightly larger lobe; the same GPU over-brightness persists but is
+somewhat diluted by the larger lobe, giving a smaller-but-still-failing ratio
+(`3.6870`).
+
+**Action (final):** all four rows (`roughness ∈ {0.0, 0.03, 0.05, 0.1}`) are
+now `xfail` (plain, `strict=False`) in
+`tests/test_pkg123_disney_metal_gpu_cpu_parity.py`, each with its own
+per-row measured numbers in the reason string. **Follow-up filed:** `pkg141`
+(`gpu-near-delta-disney-metal-brightness`, PR #504) — the architect-filed spec
+to investigate and fix the pre-existing GPU near-delta over-brightness. Per
+the coordinator's explicit instruction, the ratio band `[0.4, 2.5]` is
+**not** widened to hide this — the xfails document a known, pre-existing,
+non-regressing gap instead, and the test still guards NaN/Inf and gross
+divergence (a >10x or NaN-producing regression would still fail even under
+`strict=False`, since that's a categorically different, unexpected failure
+mode from the documented ~4x over-brightness).
 
 ## Citations
 
@@ -591,10 +628,11 @@ follow-up filed as `disney-dielectric-reflection-lobe`.
   **passing, confirmed on hardware, Round 3** (furnace-invisibility of the
   glass delta-vs-continuous defect verified empirically, as the Round-2d
   adjudication predicted).
-- `test_pkg123_disney_metal_gpu_cpu_parity_near_delta` — `roughness ∈ {0.03,
-  0.05, 0.1}` **passing**; `roughness=0.0` **`xfail`** (plain, not strict),
+- `test_pkg123_disney_metal_gpu_cpu_parity_near_delta` — all four rows
+  (`roughness ∈ {0.0, 0.03, 0.05, 0.1}`) **`xfail`** (plain, not strict),
   pre-existing GPU near-delta over-brightness, unrelated to pkg123 (see
-  "Round 3" above), follow-up filed as `GPU-Disney-parity`.
+  "Round 3b" above, measured R ratios 4.0033/4.0033/4.0033/3.6870), follow-up
+  filed as **`pkg141`** (`gpu-near-delta-disney-metal-brightness`, PR #504).
 
 The Lambertian anchor passes (harness not regressed, confirmed on hardware). No
 production regression: the pdf fix only affects MIS weights, not the unbiased

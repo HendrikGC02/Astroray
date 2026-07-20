@@ -58,6 +58,12 @@ class SpectralPathTracer : public Integrator {
     bool spectralNewton_;     // default ON for the prism use case
     amf::SMSConfig smsCfg_;
     std::string causticMode_; // pkg111: "none", "sms" (default), or "photon_map"
+    // pkg125: band awareness. Mirrors multiwavelength_path_tracer.cpp:22-23,45-46
+    // — read the wavelength range Renderer::setWavelengthRange wrote into
+    // integratorParams_ ("lambda_min"/"lambda_max", raytracer.h:2160-2162) so
+    // set_wavelength_range is honored instead of silently ignored.
+    float lambdaMin_;
+    float lambdaMax_;
 
     Renderer* renderer_ = nullptr;
     Camera* camera_ = nullptr;  // pkg87b: for Cryptomatte buffer access
@@ -84,7 +90,17 @@ public:
           // pkg111: caustic mode. "sms" is the default (existing SMS behavior).
           // "photon_map" builds a forward light-traced photon map + gathers at
           // diffuse hits. "none" disables caustics entirely.
-          causticMode_(p.getString("caustics", "sms")) {
+          causticMode_(p.getString("caustics", "sms")),
+          // pkg125: mirror multiwavelength_path_tracer.cpp:45-46 — read the
+          // band set_wavelength_range() wrote (module/blender_module.cpp:2160-2162).
+          // Defaults are astroray::kLambdaMin/kLambdaMax (360/830 nm,
+          // spectrum.h:26-27) — the SAME defaults sampleUniform(u) applied
+          // implicitly pre-pkg125 (this file previously called
+          // sampleUniform(dist01(gen)) with no band args). Keeping these as the
+          // getFloat() fallback preserves byte-identical output when
+          // set_wavelength_range was never called (acceptance: no regression).
+          lambdaMin_(p.getFloat("lambda_min", astroray::kLambdaMin)),
+          lambdaMax_(p.getFloat("lambda_max", astroray::kLambdaMax)) {
         smsCfg_.seeds         = p.getInt("sms_seeds", 1);
         smsCfg_.maxIterations = p.getInt("sms_max_iterations", 20);
         smsCfg_.tolerance     = p.getFloat("sms_tolerance", 1e-4f);
@@ -162,8 +178,10 @@ public:
             }
         }
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
+        // pkg125: honor set_wavelength_range (lambdaMin_/lambdaMax_), mirroring
+        // multiwavelength_path_tracer.cpp:74-75.
         astroray::SampledWavelengths lambdas =
-            astroray::SampledWavelengths::sampleUniform(dist01(gen));
+            astroray::SampledWavelengths::sampleUniform(dist01(gen), lambdaMin_, lambdaMax_);
         int bounces = 0;
         float weight = 0.0f;
 

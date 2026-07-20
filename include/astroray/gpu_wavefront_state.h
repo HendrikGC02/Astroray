@@ -80,6 +80,11 @@ struct GPUWavefrontState {
     float*    ray_direction_x = nullptr;
     float*    ray_direction_y = nullptr;
     float*    ray_direction_z = nullptr;
+    // pkg55-C4: geometry motion time (pkg88-C.0). Sampled once per path at init
+    // via gpu_mw_haltonBase2(sample_idx + 1), carried through all bounces (mirrors
+    // multiwavelength_kernel.cu:448, 361). Static scenes: time=0 by default;
+    // motion-enabled scenes thread motionVerts through intersect/occlude.
+    float*    path_time       = nullptr;
 
     // Spectral state (gpu_types.h). GSampledWavelengths = 8 floats (lambda + pdf).
     // Store as separate component arrays for coalesced access.
@@ -193,10 +198,14 @@ void launchStageRussianRoulette_SessionN4(
 void launchStageAdvance(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
@@ -204,6 +213,8 @@ void launchStageAdvance(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     int               max_depth,
+    bool              useLuminanceOutput,  // pkg55-C3 (was missing)
+    bool              enableNEE,           // pkg55-C3 (was missing)
     bool              sync = true);  // N+7: render driver passes false, syncs once per render
 
 // Session N+7 part 2: queued advance + compaction. queue/count buffers are
@@ -213,17 +224,23 @@ void launchStageAdvanceQueued(
     GPUWavefrontHitBuffers& hitBufs,
     const int* d_queue_in, const int* d_count_in,
     int* d_queue_out, int* d_count_out,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth);
+    int               max_depth,
+    bool              useLuminanceOutput,  // pkg55-C3 (was missing)
+    bool              enableNEE);          // pkg55-C3 (was missing)
 
 // Fills d_queue with 0..n-1 and *d_count = n (bounce-0 population).
 void launchStageQueueIota(int* d_queue, int* d_count, int n);
@@ -236,14 +253,19 @@ void launchStageIntersectQueued(
     GPUWavefrontHitBuffers& hitBufs,
     const int* d_queue_in, const int* d_count_in,
     int* d_shade_queues, int* d_shade_counts, int capacity,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
-    int               worldMaxBounces);
+    int               worldMaxBounces,
+    bool              useLuminanceOutput);  // pkg55-C3 (was missing)
 
 void launchStageShadeBucketed(
     GPUWavefrontState& state,
@@ -251,14 +273,20 @@ void launchStageShadeBucketed(
     const int* d_shade_queues, const int* d_shade_counts, int capacity,
     int* d_queue_out, int* d_count_out,
     float* d_nee_f, int* d_nee_i, int* d_shadow_queue, int* d_shadow_count,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
-    int               max_depth);
+    int               max_depth,
+    bool              useLuminanceOutput,  // pkg55-C3 (was missing)
+    bool              enableNEE);          // pkg55-C3 (was missing)
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f = 11 floats/slot
@@ -268,10 +296,14 @@ void launchStageShadow(
     GPUWavefrontHitBuffers& hitBufs,
     const float* d_nee_f, const int* d_nee_i,
     const int* d_shadow_queue, const int* d_shadow_count, int nee_capacity,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials);
 
 // Session N+7 part 4: path regeneration -- dense pass accumulating dead
@@ -286,7 +318,9 @@ void launchStageRegen(
     int numPixels,
     const GCameraParams& cam,
     int width, int height,
-    uint64_t seed);
+    uint64_t seed,
+    float lambdaMin,        // pkg55-C3
+    float lambdaMax);       // pkg55-C3
 
 // Session N+7: device-side per-sample XYZ accumulation (radiance -> XYZ ->
 // firefly clamp -> += accum). accum_xyz is 3 floats per slot, zeroed by the
@@ -313,17 +347,23 @@ void launchStageShadeNeeMis(
     GPUWavefrontHitBuffers& hitBufs,
     float* d_nee_f, int* d_nee_i,
     int* d_shadow_queue, int* d_shadow_count, int nee_capacity,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    int               max_depth);
+    int               max_depth,
+    bool              useLuminanceOutput,  // pkg55-C3 (was missing)
+    bool              enableNEE);          // pkg55-C3 (was missing)
 
 // Session N+3 part 2: Hit record fields (extend GPUWavefrontState for intersect->shade flow).
 // These are passed as separate device pointers; will be folded into GPUWavefrontState

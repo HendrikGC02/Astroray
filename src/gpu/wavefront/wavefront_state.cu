@@ -50,6 +50,7 @@ bool allocateGPUWavefrontState(GPUWavefrontState& s, int capacity) {
     ALLOC_CHECK(s.ray_direction_x, capacity * sizeof(float));
     ALLOC_CHECK(s.ray_direction_y, capacity * sizeof(float));
     ALLOC_CHECK(s.ray_direction_z, capacity * sizeof(float));
+    ALLOC_CHECK(s.path_time,       capacity * sizeof(float));  // pkg55-C4
 
     // Spectral state (GSampledWavelengths = 8 floats).
     ALLOC_CHECK(s.lambda_0,     capacity * sizeof(float));
@@ -106,6 +107,7 @@ void freeGPUWavefrontState(GPUWavefrontState& s) {
     cudaFree(s.ray_direction_x);
     cudaFree(s.ray_direction_y);
     cudaFree(s.ray_direction_z);
+    cudaFree(s.path_time);  // pkg55-C4
 
     cudaFree(s.lambda_0);
     cudaFree(s.lambda_1);

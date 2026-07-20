@@ -51,16 +51,20 @@ void launchStageRegen(
     float lambdaMin,
     float lambdaMax);
 
-// From stage_advance.cu
+// From stage_advance.cu (pkg55-C4: forward decls MUST match signatures exactly)
 void launchStageIntersectQueued(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
     const int* d_queue_in, const int* d_count_in,
     int* d_shade_queues, int* d_shade_counts, int capacity,
+    const GTLASNode*  d_tlas,
+    const GInstance*  d_instances,
+    const GBLAS*      d_blas,
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts,
     const ::GMaterial* d_materials,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -73,10 +77,14 @@ void launchStageShadeBucketed(
     const int* d_shade_queues, const int* d_shade_counts, int capacity,
     int* d_queue_out, int* d_count_out,
     float* d_nee_f, int* d_nee_i, int* d_shadow_queue, int* d_shadow_count,
+    const GTLASNode*  d_tlas,
+    const GInstance*  d_instances,
+    const GBLAS*      d_blas,
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts,
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
@@ -89,10 +97,14 @@ void launchStageShadeNeeMis(
     GPUWavefrontHitBuffers& hitBufs,
     float* d_nee_f, int* d_nee_i,
     int* d_shadow_queue, int* d_shadow_count, int nee_capacity,
+    const GTLASNode*  d_tlas,
+    const GInstance*  d_instances,
+    const GBLAS*      d_blas,
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts,
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
@@ -1015,6 +1027,8 @@ T* wfUpload(WfDeviceBuf& b, const std::vector<T>& src) {
 struct WfContext {
     // Scene slices.
     WfDeviceBuf nodes, prims, tris, spheres, materials, lights;
+    WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
+    WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
     WfDeviceBuf treeNodes, treeEmitters, lightToEmitter;
     WfDeviceBuf envData, envCondCdf, envCondFunc, envMargCdf, envMargFunc;
     // Per-path state (grow-only via the existing allocators).
@@ -1074,6 +1088,11 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     GPrimitive* d_prims = nullptr;
     GTriangle* d_tris = nullptr;
     GSphere* d_spheres = nullptr;
+    // pkg55-C4: TLAS/instances/blas + motionVerts
+    GTLASNode* d_tlas = nullptr;
+    GInstance* d_instances = nullptr;
+    GBLAS* d_blas = nullptr;
+    GVec3* d_motionVerts = nullptr;
     ::GMaterial* d_materials = nullptr;
     ::GLight* d_lights = nullptr;
     GLightTreeNode* d_treeNodes = nullptr;
@@ -1097,7 +1116,9 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
         if (stateAllocated) freeGPUWavefrontState(state);
         if (hitAllocated) freeGPUWavefrontHitBuffers(hitBufs);
         cudaFree(d_bvhNodes); cudaFree(d_prims); cudaFree(d_tris);
-        cudaFree(d_spheres); cudaFree(d_materials); cudaFree(d_lights);
+        cudaFree(d_spheres);
+        cudaFree(d_tlas); cudaFree(d_instances); cudaFree(d_blas); cudaFree(d_motionVerts);  // pkg55-C4
+        cudaFree(d_materials); cudaFree(d_lights);
         cudaFree(d_treeNodes); cudaFree(d_treeEmitters); cudaFree(d_lightToEmitter);
         cudaFree(d_envData); cudaFree(d_envCondCdf); cudaFree(d_envCondFunc);
         cudaFree(d_envMargCdf); cudaFree(d_envMargFunc);
@@ -1111,6 +1132,11 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
         devUpload(res.prims, &d_prims);
         devUpload(res.triangles, &d_tris);
         devUpload(res.spheres, &d_spheres);
+        // pkg55-C4: TLAS/instances/blas + motionVerts for MIS audit snapshot
+        devUpload(res.tlas, &d_tlas);
+        devUpload(res.instances, &d_instances);
+        devUpload(res.blas, &d_blas);
+        devUpload(res.motionVertices, &d_motionVerts);
         devUpload(res.materials, &d_materials);
         devUpload(res.lights, &d_lights);
         devUpload(res.lightTreeNodes, &d_treeNodes);
@@ -1182,8 +1208,10 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
                         G_LAMBDA_MIN, G_LAMBDA_MAX);
         launchStageShadeNeeMis(state, hitBufs, d_nee_f, d_nee_i,
                                d_shadow_queue, d_shadow_count, total_paths,
+                               d_tlas, d_instances, d_blas,  // pkg55-C4
                                d_bvhNodes, d_prims, d_tris, d_spheres,
-                               d_materials, d_lights, (int)res.lights.size(),
+                               d_motionVerts, d_materials,  // pkg55-C4
+                               d_lights, (int)res.lights.size(),
                                res.totalLightPower, treeView, envMap, gbg, hasBg,
                                worldMaxBounces, /*max_depth=*/8,
                                /*useLuminanceOutput=*/false, /*enableNEE=*/true);
@@ -1259,6 +1287,13 @@ std::vector<float> cuda_wavefront_render(
     GPrimitive* d_prims     = wfUpload(C.prims, res.prims);
     GTriangle*  d_tris      = wfUpload(C.tris, res.triangles);
     GSphere*    d_spheres   = wfUpload(C.spheres, res.spheres);
+    // pkg55-C4 / pkg114: TLAS/instances/blas for instancing support (empty unless
+    // scene has instances; null-TLAS path in gpu_tlas_hit falls back to single-level).
+    GTLASNode*  d_tlas      = wfUpload(C.tlas, res.tlas);
+    GInstance*  d_instances = wfUpload(C.instances, res.instances);
+    GBLAS*      d_blas      = wfUpload(C.blas, res.blas);
+    // pkg55-C4 / pkg88-C.0: deformation-motion vertices (nullptr for static scenes).
+    GVec3*      d_motionVerts = wfUpload(C.motionVertices, res.motionVertices);
     ::GMaterial* d_materials = wfUpload(C.materials, res.materials);
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
     GLightTreeNode* d_treeNodes = wfUpload(C.treeNodes, res.lightTreeNodes);
@@ -1381,8 +1416,9 @@ std::vector<float> cuda_wavefront_render(
             launchStageIntersectQueued(state, hitBufs, d_queueA, d_counts + 0,
                                        d_shadeQueues, d_shadeCounts,
                                        total_paths,
+                                       d_tlas, d_instances, d_blas,  // pkg55-C4
                                        d_bvhNodes, d_prims, d_tris,
-                                       d_spheres, d_materials,
+                                       d_spheres, d_motionVerts, d_materials,  // pkg55-C4
                                        envMap, gbg, hasBg,
                                        worldMaxBounces,
                                        useLuminanceOutput);
@@ -1391,16 +1427,19 @@ std::vector<float> cuda_wavefront_render(
                                      total_paths, d_queueB, cout,
                                      d_neeF, d_neeI, d_shadowQueue,
                                      d_shadowCount,
+                                     d_tlas, d_instances, d_blas,  // pkg55-C4
                                      d_bvhNodes, d_prims, d_tris,
-                                     d_spheres, d_materials, d_lights,
+                                     d_spheres, d_motionVerts, d_materials,  // pkg55-C4
+                                     d_lights,
                                      (int)res.lights.size(),
                                      res.totalLightPower,
                                      treeView, max_depth,
                                      useLuminanceOutput, enableNEE);
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
+                              d_tlas, d_instances, d_blas,  // pkg55-C4
                               d_bvhNodes, d_prims, d_tris, d_spheres,
-                              d_materials);
+                              d_motionVerts, d_materials);  // pkg55-C4
             if (waves == 1) continue;  // fixed pass count, no readbacks
             if (workExhausted) {
                 if (--drainLeft <= 0) break;

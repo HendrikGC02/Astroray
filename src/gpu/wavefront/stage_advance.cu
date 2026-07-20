@@ -137,10 +137,14 @@ __device__ int intersectPathSlot(
     int idx,
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -156,6 +160,9 @@ __device__ int intersectPathSlot(
                        state.ray_origin_z[idx]);
     ray.direction = GVec3(state.ray_direction_x[idx], state.ray_direction_y[idx],
                           state.ray_direction_z[idx]);
+    // pkg55-C4: deformation-motion time (pkg88-C.0). Sampled once at init,
+    // carried through all bounces (mirrors MW kernel multiwavelength_kernel.cu:361).
+    ray.time = state.path_time[idx];
 
     GSampledWavelengths lambdas;
     lambdas.lambda[0] = state.lambda_0[idx];
@@ -183,9 +190,13 @@ __device__ int intersectPathSlot(
 
     // ---- Intersect (CPU: bvh->hit; ray direction NOT renormalized).
     // This half consumes no RNG dimensions; state.rng_dimension is untouched.
+    // pkg55-C4 / pkg114: route through gpu_tlas_hit when TLAS exists (two-level
+    // traversal for instanced scenes). Null-TLAS fallback (tlas==nullptr) routes
+    // to the single-level gpu_bvh_hit path inside gpu_tlas_hit, so static scenes
+    // stay byte-identical (pkg114 inc-1 identity test).
     GHitRecord rec;
-    bool hit = gpu_bvh_hit(bvhNodes, prims, tris, spheres,
-                           ray, 0.001f, 1e30f, rec, /*motionVerts=*/nullptr);
+    bool hit = gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
+                            ray, 0.001f, 1e30f, rec, motionVerts);
 
     if (!hit) {
         // ---- Env-map miss (CPU path_kernel: worldMaxBounces gate; the
@@ -264,10 +275,14 @@ __device__ bool shadePathSlot(
     int idx,
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,
@@ -282,6 +297,9 @@ __device__ bool shadePathSlot(
     GRay ray;
     ray.direction = GVec3(state.ray_direction_x[idx], state.ray_direction_y[idx],
                           state.ray_direction_z[idx]);
+    // pkg55-C4: deformation-motion time (pkg88-C.0). Carried from init, threaded
+    // to shadow rays (gpu_nee_occlude).
+    ray.time = state.path_time[idx];
 
     GSampledWavelengths lambdas;
     lambdas.lambda[0] = state.lambda_0[idx];
@@ -401,10 +419,11 @@ __device__ bool shadePathSlot(
                     }
                 } else {
                     // Immediate (flat/dense schedulings): original behavior.
+                    // pkg55-C4: thread TLAS + ray.time + motionVerts (null-TLAS path
+                    // routes to single-level inside gpu_nee_occlude → gpu_tlas_hit).
                     GNEEOcclusion occ = gpu_nee_occlude(
-                        s, /*tlas=*/nullptr, /*instances=*/nullptr,
-                        /*blas=*/nullptr, bvhNodes, prims, tris, spheres,
-                        /*time=*/0.0f, /*motionVerts=*/nullptr);
+                        s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+                        ray.time, motionVerts);
                     if (!occ.occluded) {
                         GSampledSpectrum nee = gpu_nee_resolve(
                             rec, wo, lambdas, materials, s,
@@ -525,10 +544,14 @@ __device__ bool advancePathSlot(
     int idx,
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,
@@ -539,12 +562,14 @@ __device__ bool advancePathSlot(
     bool              useLuminanceOutput,
     bool              enableNEE)
 {
-    int matType = intersectPathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
-                                    spheres, materials, envMap, backgroundColor,
+    int matType = intersectPathSlot(idx, state, hitBufs, tlas, instances, blas,
+                                    bvhNodes, prims, tris, spheres, motionVerts,
+                                    materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
                                     useLuminanceOutput);
     if (matType < 0) return false;
-    return shadePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres,
+    return shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
+                         bvhNodes, prims, tris, spheres, motionVerts,
                          materials, lights, numLights, totalLightPower,
                          lightTree, max_depth,
                          /*nee_f=*/nullptr, /*nee_i=*/nullptr,
@@ -556,10 +581,14 @@ __device__ bool advancePathSlot(
 __global__ void stageAdvanceKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,
@@ -573,7 +602,8 @@ __global__ void stageAdvanceKernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= state.num_active) return;
     if (state.path_alive[idx] == 0) return;
-    advancePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres, materials,
+    advancePathSlot(idx, state, hitBufs, tlas, instances, blas,
+                    bvhNodes, prims, tris, spheres, motionVerts, materials,
                     lights, numLights, totalLightPower, lightTree, envMap,
                     backgroundColor, hasBackgroundColor, worldMaxBounces,
                     max_depth, useLuminanceOutput, enableNEE);
@@ -594,10 +624,14 @@ __global__ void stageAdvanceQueuedKernel(
     GPUWavefrontHitBuffers hitBufs,
     const int* queue_in, const int* count_in,
     int* queue_out, int* count_out,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,
@@ -611,7 +645,8 @@ __global__ void stageAdvanceQueuedKernel(
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
     int idx = queue_in[i];
-    bool alive = advancePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres,
+    bool alive = advancePathSlot(idx, state, hitBufs, tlas, instances, blas,
+                                 bvhNodes, prims, tris, spheres, motionVerts,
                                  materials, lights, numLights, totalLightPower,
                                  lightTree, envMap, backgroundColor,
                                  hasBackgroundColor, worldMaxBounces, max_depth,
@@ -634,10 +669,14 @@ __global__ void stageShadowKernel(
     GPUWavefrontHitBuffers hitBufs,
     const float* nee_f, const int* nee_i,
     const int* shadow_queue, const int* shadow_count, int nee_capacity,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -656,9 +695,11 @@ __global__ void stageShadowKernel(
     s.isSphere   = nee_i[1 * nee_capacity + idx];
     s.valid      = 1;
 
+    // pkg55-C4: thread TLAS + path time + motionVerts to shadow rays.
+    float time = state.path_time[idx];
     GNEEOcclusion occ = gpu_nee_occlude(
-        s, /*tlas=*/nullptr, /*instances=*/nullptr, /*blas=*/nullptr,
-        bvhNodes, prims, tris, spheres, /*time=*/0.0f, /*motionVerts=*/nullptr);
+        s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+        time, motionVerts);
     if (occ.occluded) return;
 
     // Emission upsample only (the BSDF/MIS parts were pre-resolved in the
@@ -708,10 +749,14 @@ __global__ void stageIntersectQueuedKernel(
     int* shade_queues,     // NUM_TYPES * capacity ints, bucket m at m*capacity
     int* shade_counts,     // NUM_TYPES ints
     int  capacity,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -725,8 +770,9 @@ __global__ void stageIntersectQueuedKernel(
     // (no-op there); the regeneration driver iterates a dense identity
     // queue where exhausted slots stay dead.
     if (state.path_alive[idx] == 0) return;
-    int matType = intersectPathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
-                                    spheres, materials, envMap, backgroundColor,
+    int matType = intersectPathSlot(idx, state, hitBufs, tlas, instances, blas,
+                                    bvhNodes, prims, tris, spheres, motionVerts,
+                                    materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
                                     useLuminanceOutput);
     if (matType < 0) return;
@@ -741,10 +787,14 @@ __global__ void stageShadeBucketedKernel(
     const int* shade_queues, const int* shade_counts, int capacity,
     int* queue_out, int* count_out,
     float* nee_f, int* nee_i, int* shadow_queue, int* shadow_count,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,
@@ -758,8 +808,9 @@ __global__ void stageShadeBucketedKernel(
     if (bucket >= G_WF_NUM_MAT_TYPES) return;
     if (pos >= shade_counts[bucket]) return;
     int idx = shade_queues[bucket * capacity + pos];
-    bool alive = shadePathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
-                               spheres, materials, lights, numLights,
+    bool alive = shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
+                               bvhNodes, prims, tris, spheres, motionVerts,
+                               materials, lights, numLights,
                                totalLightPower, lightTree, max_depth,
                                nee_f, nee_i, shadow_queue, shadow_count,
                                capacity, useLuminanceOutput, enableNEE);
@@ -852,10 +903,14 @@ void launchStageAccumulateXYZ(
 void launchStageAdvance(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
@@ -875,7 +930,8 @@ void launchStageAdvance(
             "wavefront_stage_advance_n6",
             (const void*)stageAdvanceKernel, blocks, threads);
         stageAdvanceKernel<<<blocks, threads>>>(
-            state, hitBufs, d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            state, hitBufs, d_tlas, d_instances, d_blas,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
             d_lights, num_lights, total_light_power, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
             worldMaxBounces, max_depth, useLuminanceOutput, enableNEE);
@@ -909,10 +965,14 @@ void launchStageAdvanceQueued(
     GPUWavefrontHitBuffers& hitBufs,
     const int* d_queue_in, const int* d_count_in,
     int* d_queue_out, int* d_count_out,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
@@ -935,7 +995,8 @@ void launchStageAdvanceQueued(
             (const void*)stageAdvanceQueuedKernel, blocks, threads);
         stageAdvanceQueuedKernel<<<blocks, threads>>>(
             state, hitBufs, d_queue_in, d_count_in, d_queue_out, d_count_out,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            d_tlas, d_instances, d_blas,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
             d_lights, num_lights, total_light_power, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
             worldMaxBounces, max_depth, useLuminanceOutput, enableNEE);
@@ -967,10 +1028,14 @@ void launchStageIntersectQueued(
     GPUWavefrontHitBuffers& hitBufs,
     const int* d_queue_in, const int* d_count_in,
     int* d_shade_queues, int* d_shade_counts, int capacity,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -987,7 +1052,8 @@ void launchStageIntersectQueued(
         stageIntersectQueuedKernel<<<blocks, threads>>>(
             state, hitBufs, d_queue_in, d_count_in,
             d_shade_queues, d_shade_counts, capacity,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            d_tlas, d_instances, d_blas,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
             envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
             useLuminanceOutput);
         cudaError_t err = cudaGetLastError();
@@ -1005,10 +1071,14 @@ void launchStageShadeBucketed(
     const int* d_shade_queues, const int* d_shade_counts, int capacity,
     int* d_queue_out, int* d_count_out,
     float* d_nee_f, int* d_nee_i, int* d_shadow_queue, int* d_shadow_count,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
@@ -1032,7 +1102,8 @@ void launchStageShadeBucketed(
             state, hitBufs, d_shade_queues, d_shade_counts, capacity,
             d_queue_out, d_count_out,
             d_nee_f, d_nee_i, d_shadow_queue, d_shadow_count,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+            d_tlas, d_instances, d_blas,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
             d_lights, num_lights, total_light_power, lightTree, max_depth,
             useLuminanceOutput, enableNEE);
         cudaError_t err = cudaGetLastError();
@@ -1160,10 +1231,14 @@ void launchStageShadow(
     GPUWavefrontHitBuffers& hitBufs,
     const float* d_nee_f, const int* d_nee_i,
     const int* d_shadow_queue, const int* d_shadow_count, int nee_capacity,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials)
 {
     if (state.num_active <= 0) return;
@@ -1176,7 +1251,8 @@ void launchStageShadow(
         stageShadowKernel<<<blocks, threads>>>(
             state, hitBufs, d_nee_f, d_nee_i,
             d_shadow_queue, d_shadow_count, nee_capacity,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_materials);
+            d_tlas, d_instances, d_blas,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_shadow launch error: %s\n",
@@ -1202,10 +1278,14 @@ __global__ void stageShadeNeeMisKernel(
     GPUWavefrontHitBuffers hitBufs,
     float* nee_f, int* nee_i,
     int* shadow_queue, int* shadow_count, int nee_capacity,
+    const GTLASNode*  tlas,        // pkg55-C4 / pkg114
+    const GInstance*  instances,   // pkg55-C4 / pkg114
+    const GBLAS*      blas,        // pkg55-C4 / pkg114
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
+    const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
     GLightTreeView    lightTree,
@@ -1219,12 +1299,14 @@ __global__ void stageShadeNeeMisKernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= state.num_active) return;
     if (state.path_alive[idx] == 0) return;
-    int matType = intersectPathSlot(idx, state, hitBufs, bvhNodes, prims, tris,
-                                    spheres, materials, envMap, backgroundColor,
+    int matType = intersectPathSlot(idx, state, hitBufs, tlas, instances, blas,
+                                    bvhNodes, prims, tris, spheres, motionVerts,
+                                    materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
                                     useLuminanceOutput);
     if (matType < 0) return;  // env miss / emissive hit: path died, no NEE.
-    shadePathSlot(idx, state, hitBufs, bvhNodes, prims, tris, spheres,
+    shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
+                  bvhNodes, prims, tris, spheres, motionVerts,
                   materials, lights, numLights, totalLightPower,
                   lightTree, max_depth,
                   nee_f, nee_i, shadow_queue, shadow_count, nee_capacity,
@@ -1236,10 +1318,14 @@ void launchStageShadeNeeMis(
     GPUWavefrontHitBuffers& hitBufs,
     float* d_nee_f, int* d_nee_i,
     int* d_shadow_queue, int* d_shadow_count, int nee_capacity,
+    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
+    const GInstance*  d_instances,   // pkg55-C4 / pkg114
+    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
     GLightTreeView    lightTree,
@@ -1256,7 +1342,8 @@ void launchStageShadeNeeMis(
     stageShadeNeeMisKernel<<<blocks, threads>>>(
         state, hitBufs, d_nee_f, d_nee_i,
         d_shadow_queue, d_shadow_count, nee_capacity,
-        d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
+        d_tlas, d_instances, d_blas,
+        d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
         d_lights, num_lights, total_light_power, lightTree,
         envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
         max_depth, useLuminanceOutput, enableNEE);

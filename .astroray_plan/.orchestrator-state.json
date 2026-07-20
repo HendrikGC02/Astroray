@@ -1,33 +1,9 @@
 {
-  "317": {
-    "head_sha": "52d4fca2b6a438034ffa55a2c0539dbe42f755c0",
-    "hw_artifact": null,
-    "hw_numbers": null,
-    "hw_result": null,
-    "last_action": "rebase_nudge",
-    "last_action_ts": "2026-05-21T00:00:00Z"
-  },
-  "323": {
-    "head_sha": "2a092b4c2e88dab70b30af5b06539f8df182b968",
-    "hw_artifact": null,
-    "hw_numbers": "MSVC/CUDA build env unavailable in remote orchestrator context (pattern #7: hw-verifier-msvc-env-blocker). Needs local RTX verify via /verify on Windows box. Unblocked by pkg90.",
-    "hw_result": null,
-    "last_action": "hw_blocked_buildenv",
-    "last_action_ts": "2026-05-20T20:40:00Z"
-  },
-  "327": {
-    "head_sha": "f37eebfe0adf08782a13b4d3ca0f9a25791c7937",
-    "hw_artifact": null,
-    "hw_numbers": "CPU-only package; no HW gate required. Three CI fixes applied: (1) Run #4 fixed bare skimage import (commit 01cd34b); (2) gate-failure-reviewer fixed render() wrong positional args SIGABRT (commit f78ad87); (3) unblocker Run #6 fixed SSIM threshold mismatch — numpy global SSIM can't clear 0.985 for independent MC RNG streams at 64 spp; dual-threshold 0.985 (skimage) / 0.80 (numpy) with bit-identity as rigorous CI gate (commit f37eebfe0). CI rerun in progress as of 2026-05-21T00:00Z.",
-    "hw_result": null,
-    "last_action": "ci_rerun_in_progress",
-    "last_action_ts": "2026-05-21T00:00:00Z"
-  },
   "impl_dispatches": {
     "pkg55-bprime-session-n1": {
       "agent_id": "accdab80d65eda639",
       "branch": "pkg55-bprime-session-n1",
-      "ci_fix": "2026-05-20T18:40:22Z — Run #4 fixed bare skimage import in test_pkg55_session_n1_ssim_parity.py (commit 01cd34b); 2026-05-20T20:35:05Z — gate-failure-reviewer fixed render() wrong positional args causing SIGABRT (commit f78ad87); 2026-05-21T00:00:00Z — unblocker Run #6 fixed SSIM threshold mismatch: numpy global SSIM unreliable at 64 spp with independent RNG streams, dual threshold 0.985/0.80, bit-identity as rigorous CI gate (commit f37eebfe0); CI rerun in progress",
+      "ci_fix": "2026-05-20T18:40:22Z \u2014 Run #4 fixed bare skimage import in test_pkg55_session_n1_ssim_parity.py (commit 01cd34b); 2026-05-20T20:35:05Z \u2014 gate-failure-reviewer fixed render() wrong positional args causing SIGABRT (commit f78ad87); 2026-05-21T00:00:00Z \u2014 unblocker Run #6 fixed SSIM threshold mismatch: numpy global SSIM unreliable at 64 spp with independent RNG streams, dual threshold 0.985/0.80, bit-identity as rigorous CI gate (commit f37eebfe0); CI rerun in progress",
       "dispatched_at": "2026-05-20T17:00:00Z",
       "pr_number": 327,
       "reason": "top-priority Round-11 work stalled 3+ days; two prior unblocker runs escalated without resolution",

@@ -142,10 +142,20 @@ def test_wavefront_motion_blur_streak():
 
 @_NEEDS_CUDA
 def test_wavefront_static_scene_byte_identical():
-    """Gate: a static scene (no instancing, no motion) via wavefront_path_tracer
-    must render bit-identical to itself across runs (RNG determinism + no new draws).
-    This proves the path_time field (sampled deterministically via Halton) doesn't
-    perturb the RNG stream."""
+    """Gate: adding the deformation-motion path_time field must not perturb the
+    RNG stream on the default static path (no new curand draws). path_time is
+    sampled from a deterministic Halton base-2 sequence, so the per-sample noise
+    realization must be unchanged across runs.
+
+    Note on tolerance: the GPU wavefront accumulates radiance with atomic float
+    adds (stage_advance.cu `atomicAdd(&accum_xyz...)`), which is non-associative,
+    so two runs of the same scene differ at the float32 atomic-reorder floor
+    (~2e-7 here, measured identical on pre-C4 main — this is architectural, not a
+    C4 change). We therefore assert a tolerance well above that floor but far
+    below any RNG-stream perturbation: an accidental extra RNG draw would shift
+    the whole sample sequence and change the noise pattern by O(1e-2), not 1e-7.
+    Tolerance mirrors the existing GPU wavefront gate convention
+    (test_pkg55_plugin_registration.py: allclose atol=1e-5)."""
     if not astroray.Renderer().gpu_available:
         pytest.skip("CUDA GPU not available")
 
@@ -162,6 +172,10 @@ def test_wavefront_static_scene_byte_identical():
 
     img1 = _render_static()
     img2 = _render_static()
-    assert np.array_equal(img1, img2), (
-        f"Static wavefront renders not bit-identical (max diff {np.max(np.abs(img1 - img2)):.3g})"
+    max_diff = float(np.max(np.abs(img1 - img2)))
+    # <1e-5: passes atomic-reorder noise, fails any RNG-stream perturbation.
+    assert max_diff < 1e-5, (
+        f"Static wavefront render diverged by {max_diff:.3g} across runs — "
+        f"exceeds the atomic-accumulation floor (~2e-7), indicating the path_time "
+        f"sampling perturbed the RNG stream (added a curand draw)."
     )

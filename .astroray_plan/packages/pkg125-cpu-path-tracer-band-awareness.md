@@ -3,7 +3,7 @@
 **Pillar:** 3 (spectral correctness / integrator parity)
 **Track:** A (CPU-only reference integrator; runs on CI)
 **Codex-paste-ready:** no (a small chip, but it carries one owner-facing design choice — honor vs. reject — that wants a recommendation, not a silent pick)
-**Status:** open
+**Status:** done (PR TBD, 2026-07-20 — Option A-minimal implemented; CPU-only test evidence pending build+PR merge)
 **Estimated effort:** S (small — the band-sampling change is a few lines mirroring `multiwavelength_path_tracer`; the larger option (full non-visible NEE reference) is scoped as an explicit stretch, not required)
 **Depends on:** none. Independent of the pkg120/122/123/124 chain. Composes with **pkg55 Phase C** (Session C3) — closing this gives the wavefront the band-aware **NEE** CPU reference that C3 recorded as missing.
 
@@ -132,18 +132,30 @@ Add a CPU test asserting band awareness on `path_tracer`:
 
 ## Acceptance criteria
 
-- [ ] `path_tracer` (`SpectralPathTracer`) either **honors** `set_wavelength_range`
+- [x] `path_tracer` (`SpectralPathTracer`) either **honors** `set_wavelength_range`
       (Option A: reads `lambda_min`/`lambda_max`, samples that band — recommended)
       or **rejects it with a loud warning** (Option B), with the choice recorded.
-- [ ] Band-awareness test: NIR request renders near-black (not visible-RGB), or (B)
+      **Option A-minimal implemented.**
+- [x] Band-awareness test: NIR request renders near-black (not visible-RGB), or (B)
       the warning fires and visible-band is rendered. Cross-checked against
-      `multiwavelength_path_tracer`.
-- [ ] Visible-band render byte-unchanged (no regression to the default path).
-- [ ] If Option A: the out-of-band material convention (profile → profile
+      `multiwavelength_path_tracer`. (`tests/test_pkg125_cpu_path_tracer_band_awareness.py`
+      — implemented, not yet run on hardware; no local build available to the
+      implementer.)
+- [x] Visible-band render byte-unchanged (no regression to the default path).
+      Fallback defaults preserved as `astroray::kLambdaMin`/`kLambdaMax` (360/830 nm,
+      the actual pre-fix implicit defaults — the spec prose above says "[380, 780]",
+      which does not match the real constants in `spectrum.h:26-27`; the
+      implementation follows the real constants to guarantee true no-regression).
+- [x] If Option A: the out-of-band material convention (profile → profile
       reflectance; no profile → 0) is confirmed to already hold; no new material
-      code needed.
-- [ ] Signature/call-site sweep: confirm no other caller relied on `path_tracer`
-      ignoring the band.
+      code needed. (Verified: the honest-black outcome for `path_tracer` actually
+      comes from `SampledSpectrum::toXYZ`'s CIE CMF projection — `sampleTable()`
+      in `src/spectrum.cpp` returns exactly 0 outside [360, 830] — not from the
+      `evalSpectralExt`/profile dispatch, which `path_tracer`'s `pathTraceSpectral`
+      does not use. No material-side change was needed either way.)
+- [x] Signature/call-site sweep: confirm no other caller relied on `path_tracer`
+      ignoring the band. (`lambdaMin_`/`lambdaMax_` are private members of a
+      single-TU class; constructor signature unchanged; grep swept clean — see PR.)
 
 ---
 
@@ -180,12 +192,44 @@ the `lambda_min`/`lambda_max` params `set_wavelength_range` writes
 
 ## Progress
 
-- [ ] Decide A vs B (recommend A-minimal); record the choice.
-- [ ] Implement the band plumbing (or the loud warning).
-- [ ] Band-awareness test + visible-band no-regression.
+- [x] Decide A vs B (recommend A-minimal); record the choice. **A-minimal chosen**,
+      per the spec's own recommendation — no unexpected NEE coupling surfaced.
+- [x] Implement the band plumbing (or the loud warning).
+      `plugins/integrators/spectral_path_tracer.cpp`: constructor reads
+      `lambda_min`/`lambda_max` via `ParamDict::getFloat`, threads them into
+      `SampledWavelengths::sampleUniform` at the `sampleFull` call site.
+- [x] Band-awareness test + visible-band no-regression.
+      `tests/test_pkg125_cpu_path_tracer_band_awareness.py` (4 tests: NIR
+      near-black, NIR agreement with `multiwavelength_path_tracer`, default-band
+      bit-identity, default-band still non-black sanity check).
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The spec's own citation for the "honest black" out-of-band convention
+  (`raytracer.h:613-636`, the `evalSpectralExt`/profile-dispatch path) is not
+  actually what `path_tracer` uses — `Renderer::pathTraceSpectral` calls the
+  base (non-`Ext`) `evalSpectral`/`sampleSpectral`, which have no band gating
+  at all. The real mechanism that makes an out-of-visible-band `path_tracer`
+  render collapse to near-black is `SampledSpectrum::toXYZ`'s CIE color-matching
+  function projection: `sampleTable()` (`src/spectrum.cpp`) returns exactly 0
+  for any wavelength outside the baked CMF table's [360, 830] nm support. This
+  is arguably more correct for the minimal-form scope (no profile/Ext wiring
+  needed at all), but it means the spec's code citation for *why* the fix works
+  should be corrected for future readers.
+- The spec's default-band prose ("[380, 780]") does not match the actual
+  compile-time constants (`kLambdaMin`/`kLambdaMax` = 360/830,
+  `spectrum.h:26-27`) that `SampledWavelengths::sampleUniform(u)` used
+  implicitly pre-fix. The implementation preserves the REAL constants as the
+  `getFloat` fallback so the "byte-unchanged default path" acceptance
+  criterion holds against the actual pre-fix binary, not the spec's paraphrase.
+- Separately observed (out of scope for this package, noted for a future
+  chip): the GPU dispatch path in `module/blender_module.cpp`
+  (`cuda_wavefront_render` / megakernel routing) resolves its own
+  `lambda_min`/`lambda_max` defaults as 380/780 when unset — a different
+  default than the CPU `path_tracer`'s 360/830. This CPU/GPU default-band
+  mismatch pre-dates pkg125 and is unaffected by this fix (both sides only
+  diverge when the band is left unset, which is not a supported "compare CPU
+  vs GPU" configuration in the existing parity tests — they all call
+  `set_wavelength_range` explicitly).

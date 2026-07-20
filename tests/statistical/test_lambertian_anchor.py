@@ -36,9 +36,12 @@ class BSDFSamplerAdapter:
         wi_array, pdf_array = self.renderer.debug_bsdf_sample_batch(
             self.material_id, self.wo, u2_contig
         )
-        # Return sampled directions WITHOUT weights — Material::sample() already
-        # generates from the target distribution p(wi), so samples are unweighted
-        return wi_array.T  # Just the directions, no weights
+        # Return (directions, weights) where weight=1 for valid samples, 0 for dead.
+        # Dead samples (pdf=0, e.g. below horizon) don't contribute to histogram bins
+        # but DO count in the sample-count denominator for normalization.
+        # This matches pbrt/Mitsuba failed-sample convention.
+        weights = (pdf_array > 0).astype(np.float32)
+        return (wi_array.T, weights)
 
     def pdf_func(self, wi_array_3n):
         # ONE-LINE PROOF: force contiguous C-order array

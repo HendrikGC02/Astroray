@@ -80,8 +80,9 @@ class BSDFSamplerAdapter:
         """
         Sample the BSDF given (2, N) uniform random samples.
 
-        Returns (wi_array, pdf_array) where wi_array is (3, N) and pdf_array is (N,).
-        The chi² harness expects samples as (3, N) for SphericalDomain.map_backward.
+        Returns (samples, weights) where samples is (3, N) directions and weights
+        is (N,) indicator (1=valid, 0=dead). Dead samples (pdf=0, e.g. below horizon)
+        don't contribute to histogram bins but count in normalization denominator.
         """
         # Force contiguous C-order for binding
         u2_contig = np.ascontiguousarray(u2_array, dtype=np.float32)
@@ -90,7 +91,8 @@ class BSDFSamplerAdapter:
         )
         # wi_array is (N, 3), transpose to (3, N) for chi² harness
         wi_array_t = wi_array.T
-        return (wi_array_t, pdf_array)
+        weights = (pdf_array > 0).astype(np.float32)
+        return (wi_array_t, weights)
 
     def pdf_func(self, wi_array_3n):
         """
@@ -106,7 +108,16 @@ class BSDFSamplerAdapter:
         return pdf_array
 
 
-@pytest.mark.xfail(strict=False, reason="disney pdf/sample mismatch under investigation (pkg123)")
+@pytest.mark.xfail(
+    strict=False,
+    reason="Disney SPEC-lobe sample/pdf shape mismatch under investigation "
+    "(pkg123). Post-harness-validation state 2026-07-20: Lambertian anchor "
+    "passes (p=0.23); diffuse-only Disney passes at normal incidence; every "
+    "metallic config fails p~=0 with angle dependence -> the mismatch lives "
+    "in the specular lobe's pdf vs its sample procedure. Invisible to "
+    "furnace/parity gates (unbiased MC absorbs it); real MIS-weight impact "
+    "via the one-sided integrator (see pkg120). Do NOT delete or soften: "
+    "this gate documents a suspected real defect.")
 @pytest.mark.parametrize("theta_deg", [0, 45, 75])
 @pytest.mark.parametrize("roughness", [0.1, 0.4, 0.8])
 def test_chi2_disney_metallic(theta_deg, roughness):
@@ -161,7 +172,12 @@ def test_chi2_disney_metallic(theta_deg, roughness):
     )
 
 
-@pytest.mark.xfail(strict=False, reason="disney pdf/sample mismatch under investigation (pkg123)")
+@pytest.mark.xfail(
+    strict=False,
+    reason="Fails at oblique incidence (theta=45) while normal incidence "
+    "passes — consistent with the pkg123 spec-lobe mismatch leaking through "
+    "the residual specular mixture weight even at specular=0. See the "
+    "metallic gate's xfail note.")
 @pytest.mark.parametrize("theta_deg", [45])
 @pytest.mark.parametrize("roughness", [1.0])
 def test_chi2_disney_diffuse(theta_deg, roughness):

@@ -18,21 +18,29 @@
 #include "astroray/gpu_types.h"
 #include "astroray/restir/reservoir.h"
 #include "astroray/restir/light_sample.h"
+#include "astroray/sampling/wavefront_rng_device.h"  // astroray::WavefrontRNG
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 
 // Device-side WavefrontRNG uniform draw (ADL dispatch for the templated
-// Reservoir). The CPU side has rng_uniform(std::mt19937&) in the header;
-// this is the GPU twin. Mirrors stage_advance.cu:60-62 (PCG32 draw).
-__device__ inline float rng_uniform(astroray::wavefront::WavefrontRNG& rng) {
-    return rng.uniformFloat();  // WavefrontRNG::uniformFloat defined elsewhere
+// Reservoir). The CPU side has rng_uniform(std::mt19937&) in reservoir.h;
+// this is the GPU twin. WavefrontRNG lives in the ::astroray namespace (NOT
+// astroray::wavefront — see wavefront_rng_device.h), so this overload must
+// also be found via ADL from that namespace. Mirrors stage_advance.cu:64
+// (gpu_rng_uniform(WavefrontRNG*) — this is the by-reference twin for the
+// Reservoir template, a distinct name so it does not collide with the
+// existing gpu_rng_uniform overload set used by the material samplers).
+__device__ inline float rng_uniform(astroray::WavefrontRNG& rng) {
+    return rng.Uniform();
 }
 
 namespace astroray::wavefront {
 
-// Forward decl of WavefrontRNG (defined in the GPU wavefront headers, not
-// duplicated here to avoid include-order issues).
-struct WavefrontRNG;
+// WavefrontRNG is astroray::WavefrontRNG (sampling/wavefront_rng_device.h),
+// not a member of this namespace. Pull it in via a using-declaration instead
+// of a (wrong) forward decl, so unqualified `WavefrontRNG` below resolves to
+// the real type instead of shadowing it with an incomplete stub.
+using ::astroray::WavefrontRNG;
 
 // Device-side ReSTIRCandidate helper (mirrors light_sample.h but device-callable).
 // The CPU side uses Vec3 (not device-callable); this uses GVec3.
@@ -96,11 +104,14 @@ __global__ void stageRestirInitialRISKernel(
     // Reconstruct per-pixel RNG from the path slot (assuming slot = pixelIdx at
     // bounce 0; this is a simplification — the driver passes the mapping).
     // TODO C6b: thread the correct pixel→slot mapping from the driver.
-    WavefrontRNG rng;
-    rng.pixel     = state.rng_pixel[pixelIdx];
-    rng.sample    = state.rng_sample[pixelIdx];
-    rng.dimension = state.rng_dimension[pixelIdx];
-    rng.seed      = state.rng_seed[pixelIdx];
+    // WavefrontRNG has no default constructor (wavefront_rng_device.h:72) and
+    // pixel_/sample_/seed_ are private with no setters — resume via the
+    // (pixel, sample, seed) constructor + setDimension() (the one mutable
+    // field), mirroring the carried-live-RNG convention used elsewhere in the
+    // wavefront (e.g. stage_advance.cu).
+    WavefrontRNG rng(state.rng_pixel[pixelIdx], state.rng_sample[pixelIdx],
+                      state.rng_seed[pixelIdx]);
+    rng.setDimension(state.rng_dimension[pixelIdx]);
 
     // --- Initial sampling (Algorithm 1) ---
     // For C6a: stub loop (no lights sampled). C6b wires light_tree or light list.
@@ -134,7 +145,7 @@ __global__ void stageRestirInitialRISKernel(
     state.res_W[pixelIdx]            = res.W;
 
     // Write back RNG state (dimension counter advanced by uniform draws).
-    state.rng_dimension[pixelIdx] = rng.dimension;
+    state.rng_dimension[pixelIdx] = rng.dimension();
 }
 
 void launchStageRestirInitialRIS(

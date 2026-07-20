@@ -55,9 +55,27 @@ void DistantLight::sampleLi(LiSample& sample,
     sample.normal = -dir;
     sample.distance = std::numeric_limits<float>::max();
 
-    // Evaluate spectral emission.
+    // pkg122 (Distant): Blender sun "Strength" is IRRADIANCE S (W/m²) delivered
+    // to a normal surface; the reflected radiance is f_r·cosθ·S, independent of
+    // angular size. The prior code returned emission = eval·intensity with a
+    // solid-angle pdf 1/Ω, so the L/pdf divide multiplied by Ω (≈6.6e-5 for the
+    // sun) → effectively black. Carry the sun RADIANCE L = S/Ω in emission so
+    // the L/pdf divide reconstructs the delivered irradiance S.
+    // Reference: Cycles scene/light.cpp sun path (sun.eval_fac = 1/area,
+    //   area = π·sin²(θ_half) = disk solid angle) (Apache-2.0).
+    float halfAngle = angularDiameter_ / 2.0f;
+    float solidAngle = 2.0f * static_cast<float>(M_PI) * (1.0f - std::cos(halfAngle));
+
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
-    emissionSpec *= (intensity_ * normalizeFactor_);
+    if (solidAngle > 0.0f) {
+        emissionSpec *= (intensity_ * normalizeFactor_ / solidAngle);  // radiance = S/Ω
+        sample.pdf = 1.0f / solidAngle;                                 // solid-angle pdf
+    } else {
+        // Delta sun (angular diameter 0): a single direction; deliver irradiance
+        // directly with a delta pdf (pdf = 1), no area sampling.
+        emissionSpec *= (intensity_ * normalizeFactor_);
+        sample.pdf = 1.0f;
+    }
 
     sample.emission_spec = emissionSpec;
 
@@ -68,17 +86,13 @@ void DistantLight::sampleLi(LiSample& sample,
         -0.9692660f * xyz.X + 1.8760108f * xyz.Y + 0.0415560f * xyz.Z,
         0.0556434f * xyz.X - 0.2040259f * xyz.Y + 1.0572252f * xyz.Z
     );
-
-    // PDF: 1 / solid angle of the disk.
-    float halfAngle = angularDiameter_ / 2.0f;
-    float solidAngle = 2.0f * static_cast<float>(M_PI) * (1.0f - std::cos(halfAngle));
-    sample.pdf = 1.0f / solidAngle;
 }
 
 float DistantLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {
     float halfAngle = angularDiameter_ / 2.0f;
     float solidAngle = 2.0f * static_cast<float>(M_PI) * (1.0f - std::cos(halfAngle));
-    return 1.0f / solidAngle;
+    // pkg122: delta sun (Ω=0) → 0 ("not useful for MIS"), matching sampleLi.
+    return (solidAngle > 0.0f) ? (1.0f / solidAngle) : 0.0f;
 }
 
 float DistantLight::power() const {

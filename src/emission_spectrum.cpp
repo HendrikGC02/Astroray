@@ -1,13 +1,56 @@
 #include "astroray/emission_spectrum.h"
 #include "astroray/spectral.h"  // for planck()
-#include "astroray/spectrum.h"  // for RGBAlbedoSpectrum, RGBIlluminantSpectrum
+#include "astroray/spectrum.h"  // for RGBAlbedoSpectrum, RGBIlluminantSpectrum, cieCmf1964_10deg
 #include "astroray/spectral_profile.h"
 #include "raytracer.h"  // for Vec3
 #include <stdexcept>
 #include <algorithm>
 #include <variant>
+#include <cmath>
+#include <unordered_map>
 
 namespace astroray {
+
+namespace {
+
+// pkg122 (Defect 3) — photopic-luminance normalization for a Planck SPD.
+//
+// The pkg89 Q11 resolution (owner-confirmed) requires a `normalize = true`
+// blackbody to divide by its integrated photopic luminance so the artist's
+// intensity slider is perceptually stable across temperature and comparable to
+// an equal-intensity RGB illuminant. Cycles does the same in
+// scene/light.cpp::light_normalize_factor (divide emission by its luminance)
+// and precomputes the normalized XYZ in kernel/svm/svm_blackbody.h (Apache-2.0).
+//
+// Returned factor = 1 / ∫ planck(λ,T)·1e9·ȳ(λ) dλ, integrated over the CIE-1964
+// 10° ȳ support (360–830 nm, 1 nm) using the SAME cieCmf1964_10deg() that
+// SampledSpectrum::toXYZ() uses. This is self-consistent: the evaluated,
+// normalized SPD has E[toXYZ().Y] = 1 for any T, independent of planck()'s
+// absolute scale and of the render's wavelength-sampling pdf (the Monte-Carlo
+// toXYZ estimator is unbiased for ∫Sȳdλ). Chromaticity is preserved (scalar
+// divide), so 6500 K stays near-neutral.
+//
+// thread_local memo keyed on rounded temperature — a light has one temperature,
+// so this is O(1) after warmup and avoids a mutex on the render hot path.
+float blackbodyLuminanceNorm(double temperature_K) {
+    if (!(temperature_K > 0.0)) return 0.0f;
+    static thread_local std::unordered_map<int, float> cache;
+    int key = static_cast<int>(std::lround(temperature_K));
+    auto it = cache.find(key);
+    if (it != cache.end()) return it->second;
+
+    double lumIntegral = 0.0;  // ∫ planck·1e9·ȳ dλ  (dλ = 1 nm)
+    for (int lambda = 360; lambda <= 830; ++lambda) {
+        double bb = planck(static_cast<double>(lambda), temperature_K) * 1e9;
+        float ybar = cieCmf1964_10deg(static_cast<float>(lambda)).Y;
+        lumIntegral += bb * static_cast<double>(ybar);  // ·1 nm
+    }
+    float norm = (lumIntegral > 0.0) ? static_cast<float>(1.0 / lumIntegral) : 0.0f;
+    cache.emplace(key, norm);
+    return norm;
+}
+
+}  // namespace
 
 // Copy constructor (handles unique_ptr in Composite).
 EmissionSpectrum::EmissionSpectrum(const EmissionSpectrum& other)
@@ -107,15 +150,21 @@ SampledSpectrum EmissionSpectrum::evalBlackbody(const Blackbody& bb,
                         std::abs(bb.tint_rgb.y - 1.0f) < 1e-6f &&
                         std::abs(bb.tint_rgb.z - 1.0f) < 1e-6f);
 
+    // pkg122 (Defect 3): photopic-luminance normalization (pkg89 Q11). Applied
+    // on BOTH the white-tint and tinted branches — the previous white-tint
+    // short-circuit skipped normalization entirely, which is why the bare-Planck
+    // case was ~14× over-bright. Chromaticity is preserved (scalar factor).
+    float bbNorm = blackbodyLuminanceNorm(static_cast<double>(bb.temperature_K));
+
     for (int i = 0; i < kSpectrumSamples; ++i) {
         float lambda = wl.lambda(i);
         // Planck blackbody (W/(m²·sr·nm)) — note: spectral.h planck() returns
         // W/(m²·sr·m), so multiply by 1e9 to get per-nm.
         double bbValue = planck(static_cast<double>(lambda), static_cast<double>(bb.temperature_K));
-        float bbFloat = static_cast<float>(bbValue * 1e9);  // W/(m²·sr·m) → W/(m²·sr·nm)
+        float bbFloat = static_cast<float>(bbValue * 1e9) * bbNorm;  // normalized to unit luminance
 
         if (isWhiteTint) {
-            // No tint: pure blackbody emission.
+            // No tint: pure (normalized) blackbody emission.
             result[i] = bbFloat;
         } else {
             // Apply RGB tint as a multiplicative filter via Jakob-Hanika upsample.

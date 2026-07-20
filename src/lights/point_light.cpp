@@ -73,10 +73,16 @@ void PointLight::sampleLi(LiSample& sample,
     }
 
     // Evaluate spectral emission.
-    // Reference: Cycles intern/cycles/scene/light.cpp:127-131 (eval_fac = invarea * M_1_PI_F, Apache-2.0).
-    constexpr float kM1PiF = 0.31830988618f;  // M_1_PI_F = 1/π
+    // pkg122 (Defect 2): an isotropic point light of power P has radiant
+    // intensity I = P/(4π) (P watts over 4π sr), giving irradiance E = I/d².
+    // The prior factor normalizeFactor_(=1)·kM1PiF(=1/π) = 1/π was 4× too large
+    // (the pkg89 audit's 3.59× ≈ 4×). Use I = intensity·(1/(4π)).
+    // Reference: Cycles scene/light.cpp point path (area = 4π·radius²,
+    //   invarea = 1/area, eval_fac = invarea·M_1_PI_F) → intensity P/(4π);
+    //   kernel/light/point.h::point_light_sample (Apache-2.0).
+    constexpr float kInvFourPiF = 0.07957747155f;  // 1/(4π)
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
-    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF * falloff * iesModulation);
+    emissionSpec *= (intensity_ * kInvFourPiF * falloff * iesModulation);
 
     sample.emission_spec = emissionSpec;
 
@@ -136,10 +142,10 @@ bool PointLight::fillDeviceParams(DeviceLightParams& out) const {
     out.position = position_;
     out.radius   = radius_;
     emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
-    // staticScale = intensity·invarea·(1/π); invarea == normalizeFactor_ (==1 for point).
-    // Matches sampleLi: emissionSpec *= intensity_ * normalizeFactor_ * kM1PiF * falloff.
-    constexpr float kM1PiF = 0.31830988618f;
-    out.staticScale = intensity_ * normalizeFactor_ * kM1PiF;
+    // pkg122 (Defect 2): staticScale = intensity·(1/(4π)) = radiant intensity
+    // I = P/(4π). Matches sampleLi: emissionSpec *= intensity_ * kInvFourPiF * falloff.
+    constexpr float kInvFourPiF = 0.07957747155f;  // 1/(4π)
+    out.staticScale = intensity_ * kInvFourPiF;
     // NOTE: IES modulation is not mirrored on the GPU in v1; an IES PointLight
     // renders isotropic on the device (documented follow-up). Non-IES parity exact.
     return true;

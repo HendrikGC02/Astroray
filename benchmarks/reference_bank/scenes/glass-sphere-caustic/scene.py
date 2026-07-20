@@ -54,8 +54,24 @@ def make_scene(astroray):
 
     # Distant collimated sun, angled down and +x so the focused caustic lands on
     # the floor at ~x=+0.7 (offset from the sphere at the origin).
-    r.add_sun_light_dedicated(_norm([0.45, -1.0, 0.0]), 0.01,
-                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 6.0)
+    #
+    # pkg122: the DISTANT light was re-derived to deliver its "Strength" as
+    # IRRADIANCE S directly (Cycles convention); the old broken units delivered
+    # S*Omega (~6.6e-5x for a small sun — the near-black bug). This scene was
+    # authored against the broken units with intensity 6.0, whose EFFECTIVE
+    # delivered irradiance was 6.0*Omega. With the corrected light,
+    # intensity == delivered irradiance, so pass that same effective value to keep
+    # the intended dim-direct-floor / bright-focused-caustic balance (the caustic
+    # magnitude is set by caustic_boost, decoupled from sun intensity in this
+    # forward photon integrator, so the sun only sets the direct-floor level).
+    # intensity_new = intensity_old * Omega makes the direct NEE byte-identical to
+    # pre-pkg122; a physically-dim collimated beam whose lens caustic dominates.
+    _sun_dir = [0.45, -1.0, 0.0]
+    _sun_ang = 0.01
+    _sun_omega = 2.0 * math.pi * (1.0 - math.cos(_sun_ang * 0.5))  # disk solid angle
+    _sun_irradiance = 6.0 * _sun_omega  # ~4.71e-4; preserves the pre-pkg122 balance
+    r.add_sun_light_dedicated(_norm(_sun_dir), _sun_ang,
+                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, _sun_irradiance)
 
     # White diffuse floor at the ball-lens FOCAL plane. A clear ior-1.5 sphere of
     # radius 0.6 has paraxial focal distance f = nR/(2(n-1)) = 0.9 from its centre,

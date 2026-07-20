@@ -1234,20 +1234,31 @@ __global__ void stageRegenKernel(
         atomicAdd(&accum_xyz[pixel * 3 + 0], xyz.x);
         atomicAdd(&accum_xyz[pixel * 3 + 1], xyz.y);
         atomicAdd(&accum_xyz[pixel * 3 + 2], xyz.z);
-        // pkg55-C5 / pkg113: add photon caustic XYZ contrib (if any) to accum.
-        // Matches MW kernel's per-sample XYZ accumulation model (line 502 adds to sample).
-        float photon_x = state.photon_xyz_x[idx];
-        float photon_y = state.photon_xyz_y[idx];
-        float photon_z = state.photon_xyz_z[idx];
-        if (photon_x != 0.f || photon_y != 0.f || photon_z != 0.f) {
-            atomicAdd(&accum_xyz[pixel * 3 + 0], photon_x);
-            atomicAdd(&accum_xyz[pixel * 3 + 1], photon_y);
-            atomicAdd(&accum_xyz[pixel * 3 + 2], photon_z);
-        }
         state.color_0[idx] = 0.f;
         state.color_1[idx] = 0.f;
         state.color_2[idx] = 0.f;
         state.color_3[idx] = 0.f;
+    }
+    // pkg55-C5 / pkg113: flush the photon caustic XYZ contrib (if any) to the
+    // dead path's pixel. INDEPENDENT of hasRad -- a path can carry photon
+    // energy with zero spectral radiance (e.g. no NEE-visible lights), and the
+    // MW kernel adds photonXYZ to the sample unconditionally
+    // (multiwavelength_kernel.cu:502). Zero after adding: a dead slot that is
+    // NOT reclaimed below stays dead and re-enters this block next pass -- the
+    // zeroing (like color_* above) is the double-add guard.
+    {
+        float photon_x = state.photon_xyz_x[idx];
+        float photon_y = state.photon_xyz_y[idx];
+        float photon_z = state.photon_xyz_z[idx];
+        if (photon_x != 0.f || photon_y != 0.f || photon_z != 0.f) {
+            int pixel = state.pixel_index[idx];
+            atomicAdd(&accum_xyz[pixel * 3 + 0], photon_x);
+            atomicAdd(&accum_xyz[pixel * 3 + 1], photon_y);
+            atomicAdd(&accum_xyz[pixel * 3 + 2], photon_z);
+            state.photon_xyz_x[idx] = 0.f;
+            state.photon_xyz_y[idx] = 0.f;
+            state.photon_xyz_z[idx] = 0.f;
+        }
     }
 
     // ---- Claim the next work item; leave the slot dead when exhausted.

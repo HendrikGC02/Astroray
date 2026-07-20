@@ -144,6 +144,23 @@ private:
     }
 };
 
+// pkg55-C6: ADL-visible uniform-draw overload for astroray::restir::Reservoir
+// <T, TRng> (restir/reservoir.h). Reservoir::update()/merge() call the
+// dependent, unqualified name `rng_uniform(gen)`; under strict two-phase
+// lookup (GCC/nvcc, enforced by CI's cuda-syntax-check) a dependent call in a
+// template is resolved at instantiation ONLY via ADL on the argument's
+// associated namespaces — for `WavefrontRNG` that is exactly this namespace,
+// `astroray`, and nothing else (NOT the global namespace, regardless of
+// where a same-signature overload happens to be declared there). This
+// overload must therefore live here, next to the type, not in a consuming
+// .cu file. (MSVC's non-conformant, lenient template lookup re-resolves
+// unqualified names at instantiation almost as if ADL searched everywhere,
+// which is why a global-namespace overload in a .cu file compiled locally
+// but failed nvcc/GCC's CI syntax check — see PR #497.)
+WF_RNG_HD inline float rng_uniform(WavefrontRNG& rng) {
+    return rng.Uniform();
+}
+
 }  // namespace astroray
 
 #endif  // ASTRORAY_SAMPLING_WAVEFRONT_RNG_DEVICE_H

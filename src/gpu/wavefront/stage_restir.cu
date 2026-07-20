@@ -19,20 +19,20 @@
 #include "astroray/restir/reservoir.h"
 #include "astroray/restir/light_sample.h"
 #include "astroray/sampling/wavefront_rng_device.h"  // astroray::WavefrontRNG
+                                                       // + ADL rng_uniform() overload
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 
-// Device-side WavefrontRNG uniform draw (ADL dispatch for the templated
-// Reservoir). The CPU side has rng_uniform(std::mt19937&) in reservoir.h;
-// this is the GPU twin. WavefrontRNG lives in the ::astroray namespace (NOT
-// astroray::wavefront — see wavefront_rng_device.h), so this overload must
-// also be found via ADL from that namespace. Mirrors stage_advance.cu:64
-// (gpu_rng_uniform(WavefrontRNG*) — this is the by-reference twin for the
-// Reservoir template, a distinct name so it does not collide with the
-// existing gpu_rng_uniform overload set used by the material samplers).
-__device__ inline float rng_uniform(astroray::WavefrontRNG& rng) {
-    return rng.Uniform();
-}
+// NOTE: the WavefrontRNG uniform-draw overload consumed by
+// astroray::restir::Reservoir<T, WavefrontRNG>::update()/merge() (the
+// dependent, ADL-only name `rng_uniform(gen)` in reservoir.h) is declared in
+// `astroray/sampling/wavefront_rng_device.h`, inside `namespace astroray` —
+// NOT here. Strict two-phase lookup (GCC/nvcc, enforced by CI's
+// cuda-syntax-check) resolves that dependent call via ADL on the argument's
+// associated namespaces only, which for `astroray::WavefrontRNG` is exactly
+// `astroray`. A global-namespace overload declared in THIS .cu file compiled
+// under MSVC's lenient template lookup but is invisible to ADL under GCC —
+// see PR #497 for the failure + fix.
 
 namespace astroray::wavefront {
 

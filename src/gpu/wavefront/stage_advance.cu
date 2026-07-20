@@ -910,6 +910,18 @@ __global__ void stageAccumulateXYZKernel(
     accum_xyz[idx * 3 + 0] += xyz.x;
     accum_xyz[idx * 3 + 1] += xyz.y;
     accum_xyz[idx * 3 + 2] += xyz.z;
+
+    // pkg55-C5 / pkg113: add photon XYZ (if any). This kernel is UNUSED (caller-less,
+    // retained as reference per N+7 note); the live accumulation is in stageRegenKernel.
+    // Added here for completeness in case it's ever re-enabled.
+    float photon_x = state.photon_xyz_x[idx];
+    float photon_y = state.photon_xyz_y[idx];
+    float photon_z = state.photon_xyz_z[idx];
+    if (photon_x != 0.f || photon_y != 0.f || photon_z != 0.f) {
+        accum_xyz[idx * 3 + 0] += photon_x;
+        accum_xyz[idx * 3 + 1] += photon_y;
+        accum_xyz[idx * 3 + 2] += photon_z;
+    }
 }
 
 void launchStageAccumulateXYZ(

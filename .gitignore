@@ -124,3 +124,4 @@ benchmarks/wavefront/_per_scene/
 
 # pkg92: Third-party test tools (PractRand, TestU01) — downloaded at build time
 third_party/
+chi2_data.py

@@ -442,15 +442,11 @@ __device__ bool shadePathSlot(
     // (bounce==0). Mirrors multiwavelength_kernel.cu:490-507 (MW megakernel gather).
     // Gated on hasPhotonGrid + non-emissive + !useLuminanceOutput (the MW conditions).
     //
-    // IMPLEMENTATION NOTE (C5 minimal scope hack): the MW kernel accumulates in XYZ
-    // space (line 481 converts spectral rad→XYZ sample, line 502 adds photon XYZ to
-    // sample). The wavefront accumulates in spectral space (color SoA) and converts to
-    // XYZ at the regen stage (stageRegenKernel:1210). To add photon XYZ without adding
-    // photon_xyz SoA fields (out of C5 scope), we HACK: add photon XYZ directly to the
-    // first 3 spectral samples (color.v[0..2]) as if they were spectral radiance. The
-    // regen stage will mis-convert this (treating XYZ as spectral), but the error might
-    // be small enough for SSIM≥0.80. A proper fix (separate photon_xyz SoA or XYZ-based
-    // accumulation) is a post-C5 cleanup.
+    // The MW kernel accumulates in XYZ space (line 481 converts spectral rad→XYZ sample,
+    // line 502 adds photon XYZ to sample). The wavefront accumulates in spectral space
+    // (color SoA) and converts to XYZ at the regen stage. To match MW behavior, we store
+    // photon XYZ contrib in separate photon_xyz_* SoA fields and add it to accum_xyz
+    // during regen (after spectral color→XYZ conversion), preserving the XYZ+XYZ math.
     if (bounce == 0 && hasPhotonGrid && !useLuminanceOutput && photonGrid.numPhotons > 0) {
         // rec is already the primary hit from intersectPathSlot; check non-emissive.
         if (mat.emissionIntensity <= 0.0f) {
@@ -461,11 +457,10 @@ __device__ bool shadePathSlot(
                 GVec3 alb = mat.baseColor;
                 GVec3 photonContrib = GVec3(alb.x * E.x, alb.y * E.y, alb.z * E.z)
                                       * photonScale;
-                // HACK: add XYZ to spectral color as if it were spectral (wrong but simple).
-                color.v[0] += photonContrib.x;
-                color.v[1] += photonContrib.y;
-                color.v[2] += photonContrib.z;
-                // color.v[3] unchanged (fourth spectral sample, no photon contrib).
+                // Store in photon_xyz SoA; will be added to accum_xyz during regen.
+                state.photon_xyz_x[idx] = photonContrib.x;
+                state.photon_xyz_y[idx] = photonContrib.y;
+                state.photon_xyz_z[idx] = photonContrib.z;
             }
         }
     }
@@ -1220,6 +1215,16 @@ __global__ void stageRegenKernel(
         atomicAdd(&accum_xyz[pixel * 3 + 0], xyz.x);
         atomicAdd(&accum_xyz[pixel * 3 + 1], xyz.y);
         atomicAdd(&accum_xyz[pixel * 3 + 2], xyz.z);
+        // pkg55-C5 / pkg113: add photon caustic XYZ contrib (if any) to accum.
+        // Matches MW kernel's per-sample XYZ accumulation model (line 502 adds to sample).
+        float photon_x = state.photon_xyz_x[idx];
+        float photon_y = state.photon_xyz_y[idx];
+        float photon_z = state.photon_xyz_z[idx];
+        if (photon_x != 0.f || photon_y != 0.f || photon_z != 0.f) {
+            atomicAdd(&accum_xyz[pixel * 3 + 0], photon_x);
+            atomicAdd(&accum_xyz[pixel * 3 + 1], photon_y);
+            atomicAdd(&accum_xyz[pixel * 3 + 2], photon_z);
+        }
         state.color_0[idx] = 0.f;
         state.color_1[idx] = 0.f;
         state.color_2[idx] = 0.f;

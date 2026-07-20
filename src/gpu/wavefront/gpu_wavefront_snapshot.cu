@@ -1459,6 +1459,10 @@ std::vector<float> cuda_wavefront_render(
         cudaMemset(state.color_1, 0, total_paths * sizeof(float));
         cudaMemset(state.color_2, 0, total_paths * sizeof(float));
         cudaMemset(state.color_3, 0, total_paths * sizeof(float));
+        // pkg55-C5 / pkg113: zero photon XYZ accumulators.
+        cudaMemset(state.photon_xyz_x, 0, total_paths * sizeof(float));
+        cudaMemset(state.photon_xyz_y, 0, total_paths * sizeof(float));
+        cudaMemset(state.photon_xyz_z, 0, total_paths * sizeof(float));
         state.num_active = total_paths;
 
         launchStageQueueIota(d_queueA, d_counts + 0, total_paths);

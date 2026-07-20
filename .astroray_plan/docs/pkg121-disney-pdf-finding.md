@@ -115,16 +115,28 @@ p += (D * NdotH / (4 * HdotV + 0.001f)) * (specWeight / total);
 ```
 
 **The bug:** Both denominators carried spurious `+0.001f` epsilons. These were
-**numerical stabilizers** meant to prevent division by zero, but they violated the
-mathematical identity between `sample()` and `pdf()`:
+**numerical stabilizers** meant to prevent division by zero, but adding a positive
+epsilon to a denominator **deflates** (reduces) the quotient — not "inflates" as an
+earlier draft of this note incorrectly claimed — and they violated the mathematical
+identity between `sample()` and `pdf()`:
 
-- The `D_GTR2` epsilon inflates `D` when the denominator `t² ≈ 0` (which never
-  happens for valid half-vectors on a grid-resolvable lobe — `t ≥ 1` always).
-- The pdf denominator epsilon `4·HdotV + 0.001f` inflates the reported density when
-  `HdotV → 0` (grazing angles), making the pdf **systematically higher** than what
-  the sampler actually produces. This is **angle-dependent** (grows as θ → 90°),
-  which matches the observed chi² failures: diffuse passes at θ=0° but fails at
-  θ=45°; metallic fails more severely at oblique incidence.
+- `t = 1 + (α²-1)·cos²θm` is **not** bounded below by 1. For any roughness < 1.0
+  (α < 1), `α²-1 < 0`, so `t` **decreases** from 1 (at NdotH=0) to its minimum `α²`
+  (at NdotH=1, the lobe's peak/near-mirror direction). So `t ∈ [α², 1]` — **t ≤ 1**,
+  minimized at NdotH=1 — not "t ≥ 1 always" as an earlier draft claimed.
+  Consequently `t²` shrinks toward `α⁴` at the peak; for grid-tested roughnesses
+  (e.g. α=roughness²=0.16 at roughness=0.4), `π·t²≈0.002` at NdotH≈1 is comparable
+  in magnitude to the `0.001` epsilon, so the epsilon **deflates** `D_GTR2` by tens
+  of percent exactly at the lobe's peak density — where `pdf()` most needs to be
+  accurate.
+- The pdf denominator epsilon `4·HdotV + 0.001f` similarly **deflates** the
+  reported density whenever `HdotV` is small. Because `HdotV → 0` at grazing
+  angles, the fixed `+0.001f` epsilon becomes proportionally larger against the
+  shrinking `4·HdotV` term, so the deflation is **angle-dependent** — worse at
+  oblique incidence than at normal incidence. This matches the observed pattern
+  (diffuse passes at θ=0° but fails at θ=45°; metallic fails more severely at
+  oblique incidence) — though the *sign* of the effect is `pdf()`
+  **under-reporting** density in the affected region, not over-reporting.
 
 **Why the other suspects were ruled out:**
 
@@ -204,14 +216,17 @@ pytest.skip()** and a documented reason, rather than xfailed as "engine defect":
 
 ## Gate state after pkg123
 
-All Disney specular-lobe xfails **removed**. Tests now pass:
+All Disney specular-lobe xfails **removed**. Tests are *expected* to pass (no CUDA
+build available on the implementer's machine — **unverified locally**, pending
+team-lead run):
 - `test_chi2_disney_metallic` (roughness 0.4, 0.8 across θ=0°/45°/75°)
 - `test_chi2_disney_diffuse` (θ=45°, roughness 1.0)
 - `test_chi2_disney_glass` (θ=45°, roughness 0.3, SphericalDomain)
-- `test_chi2_disney_full_grid` (slow) — 165 configs tested (45 skipped as
-  grid-limited), all passing.
+- `test_chi2_disney_full_grid` (slow) — 165 configs exercised (45 skipped as
+  grid-limited).
 
-The Lambertian anchor still passes (harness not regressed). No production
-regression: furnace/white-furnace and CPU↔GPU parity gates remain green (the pdf
-fix only affects MIS weights, not the unbiased estimator itself; furnace tests the
-latter, chi² tests the former).
+The Lambertian anchor is expected to still pass (harness not regressed). No
+production regression is *expected* — the pdf fix only affects MIS weights, not
+the unbiased estimator itself; furnace tests the latter, chi² tests the former —
+but this is **expected, unverified locally**: the team lead must confirm by running
+the furnace/white-furnace and CPU↔GPU parity suites alongside the chi² gates.

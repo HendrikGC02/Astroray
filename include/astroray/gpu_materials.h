@@ -786,8 +786,12 @@ __device__ inline GBSDFSample gpu_disney_sample(
                     // Evaluate reflection (specular lobe contribution)
                     s.f = gpu_disney_eval(mat, rec, wo, s.wi);
                     // PDF = VNDF_PDF / (4 * |HdotO|) * R / (R + T)
+                    // NOTE: unlike D_GTR2/specular-pdf, this site is outside the
+                    // adjudicated pkg123 scope (transmission Fresnel-selection
+                    // branch, not the reflection-lobe NDF density) — left matching
+                    // CPU disney.cpp:445 (both epsilons retained) for CPU/GPU parity.
                     float vndfPdfVal = gpu_disney_vndfPdf(mat, rec.normal, wo, wm);
-                    s.pdf = mat.transmission * vndfPdfVal / (4.f * fabsf(HdotO)) * R / (fmaxf(R + T, 1e-10f));
+                    s.pdf = mat.transmission * vndfPdfVal / (4.f * fabsf(HdotO) + 1e-10f) * R / (R + T + 1e-10f);
                 }
             } else {
                 // Refract through microfacet
@@ -872,13 +876,21 @@ __device__ inline float gpu_disney_pdf(
     if (diffW > 0.f)
         p += (rec.normal.dot(wi) / M_PI_F) * (diffW / total);
     if (specW > 0.f) {
-        float a     = mat.roughness * mat.roughness;
+        // Alpha floor must match gpu_disney_sample (line 836) and CPU pdf()
+        // (disney.cpp:530) — without it, D_GTR2 at NdotH=1 is 0/0=NaN as
+        // roughness->0, and sample()/pdf() disagree on alpha near the floor.
+        float a     = fmaxf(mat.roughness * mat.roughness, 0.0064f);
         float NdotH = rec.normal.dot(H);
         float HdotV = H.dot(wo);
-        float D     = gpu_D_GTR2(NdotH, a);
-        // GGX reflection PDF: p(wi) = D(wm)·(wm·n) / (4·(wo·wm))
-        // (Walter 2007 §5.3, pbrt-v4 §9.6 Eq. 9.24).
-        p += (D * NdotH / (4.f*HdotV)) * (specW / total);
+        // Guard mirrors CPU pdf() (disney.cpp:533): with the epsilon removed
+        // from gpu_D_GTR2/the 4*HdotV divide, NdotH<=0 or HdotV<=0 would
+        // otherwise divide by zero or evaluate D outside its valid domain.
+        if (NdotH > 0.f && HdotV > 0.f) {
+            float D = gpu_D_GTR2(NdotH, a);
+            // GGX reflection PDF: p(wi) = D(wm)·(wm·n) / (4·(wo·wm))
+            // (Walter 2007 §5.3, pbrt-v4 §9.6 Eq. 9.24).
+            p += (D * NdotH / (4.f*HdotV)) * (specW / total);
+        }
     }
     if (mat.transmission > 0.f && mat.roughness > 0.03f) {
         bool entering = rec.normal.dot(wo) > 0.f;

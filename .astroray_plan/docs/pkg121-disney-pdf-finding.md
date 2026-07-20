@@ -204,21 +204,124 @@ pytest.skip()** and a documented reason, rather than xfailed as "engine defect":
 - This keeps the gate's pass/fail map honest about what is validated vs what is
   grid-unresolvable.
 
+## Round 2 — coordinator hardware run surfaced two further bugs (2026-07-20)
+
+The coordinator built the Round-1 worktree (CPU epsilon fix only, pre-GPU-fix) and
+ran the real chi² suite. Two additional, distinct bugs surfaced that Round 1's
+code-inspection-only adjudication could not see without an actual run:
+
+### Round-2 finding 1 — harness domain-check flags dead samples (HARNESS bug)
+
+**Measured:** `test_chi2_disney_metallic` (roughness 0.4/0.8, θ=0°/45°/75°) and
+`test_chi2_disney_diffuse` (roughness 1.0, θ=45°) all had **good p-values (0.25 to
+0.94)** — the CPU pdf fix from Round 1 works statistically — but pytest still
+reported FAILED, because `ChiSquareTest.run()` printed `"Not running the test for
+reasons listed above"` and returned `False` regardless of the p-value. The
+preceding log line was `"Encountered N samples outside of the specified domain!"`.
+
+**Root cause:** `chi2.py::tabulate_histogram()`'s domain-validity check inspected
+**every** sampled direction, including **dead** samples (weight=0; the
+pkg121-established failed-sample convention — an NDF-sampled specular reflection
+that lands below the horizon still returns the geometrically-computed `wi`, just
+with `pdf=0`). For `HemisphericalDomain` (`bounds()` restricts `cos_theta ∈
+[0,1]`), a dead sample's `wi` legitimately has `cos_theta < 0` (it's a
+lower-hemisphere direction by construction of the convention) — this is **not** a
+bug, it's the convention working as designed, but the domain check flagged it
+as "outside the domain" and set `self.fail = True` anyway, short-circuiting the
+test before the p-value gate could execute. This is a harness bug the pkg121
+"validity weights" fix (commit 06ad4c9, histogram binning) didn't fully close —
+it fixed weighting the *histogram*, but not this separate *domain-validity* check.
+
+**Fix (`tests/statistical/chi2.py::tabulate_histogram`):** restrict the
+domain-validity check to **live** (`weight > 0`) samples only:
+
+```python
+live = weights_out > 0
+if not np.all(in_domain[live]):
+    self._log(f'Encountered {np.sum(~in_domain[live])} live samples outside of the specified domain!')
+    self.fail = True
+```
+
+Dead samples still get clamped into a bin by the existing `np.clip(...)` and
+contribute weight 0 — this change only stops them from tripping the unrelated
+`self.fail` short-circuit. A genuine bug that produces a **live** out-of-domain
+sample (e.g. a real NaN or a sampler that emits directions outside its stated
+domain) is still caught.
+
+### Round-2 finding 2 — glass pdf double-counts the plain-NDF specular term (ENGINE bug)
+
+**Measured:** `test_chi2_disney_glass[0.3-45]` failed hard: `p-value=0.000000`,
+and critically `"Failure: PDF integrates to a value greater than 1.0: 1.951..."`
+— roughly **2x** over unity.
+
+**Root cause:** In `sample()`, the top-level transmission roulette
+(`if (transmission_ > 0 && dist(gen) < transmission_) { ...glass branch...; return
+s; }`) means that for `transmission_ = 1.0` (pure glass), `dist(gen) < 1.0` is
+**always true** — the plain-NDF specular branch further down (the
+`diffWeight`/`specWeight` mixture used by metals, reached only when the
+transmission roulette does **not** fire) is **provably unreachable**. But `pdf()`
+computed `specWeight`/`diffWeight` **without any transmission-branch gating** —
+it unconditionally added the plain-NDF specular pdf term
+(`D*NdotH/(4*HdotV) * specWeight/total`) on top of the already-correct VNDF
+reflection term (`transmission_ * F * microfacetReflectionPdf(...)`), which is
+the term that actually matches `sample()`'s glass-branch reflection sub-case.
+Two density models were being summed for the same reflection event —
+double-counting, consistent with the measured ~2x integral.
+
+Since `sample()`'s diffuse/specular branch is only entered with probability
+`(1 - transmission_)` (the complement of the top-level roulette), `pdf()` must
+gate that whole block by the same `(1 - transmission_)` factor. Note `sample()`
+never computes its own pdf inline — every branch calls `pdf(rec, wo, s.wi)` — so
+`sample()` needed **no change**; fixing `pdf()` alone restores consistency.
+
+**Fix (`disney.cpp::pdf()`, mirrored in `gpu_materials.h::gpu_disney_pdf`):**
+
+```cpp
+float mixScale = 1.0f - transmission_;
+if (diffWeight > 0) p += (... ) * (diffWeight / total) * mixScale;
+if (specWeight > 0) { ... p += (...) * (specWeight / total) * mixScale; }
+```
+
+For `transmission_ = 0` (metals, already-passing gates) `mixScale = 1` — no
+change, no regression risk. For `transmission_ = 1` (pure glass) `mixScale = 0` —
+the plain-NDF specular term is fully and correctly excluded, leaving only the
+VNDF reflection term (matches `sample()`) plus `roughTransmissionPdf` (matches
+`sample()`'s refraction sub-case, unaffected by this change — it's an early
+return at the top of `pdf()`).
+
+**Cite:** general mixture-pdf consistency principle — each additive term in a
+multi-lobe `BxDF::PDF` must be weighted by its own branch's actual selection
+probability in `Sample_f`, matching pbrt-v4's pattern for mixed
+reflection/transmission BxDFs (e.g. `DielectricBxDF::PDF`,
+`src/pbrt/bxdfs.h`, Apache-2.0) where the reflection-vs-transmission split
+uses the same `pr/(pr+pt)` weights as `Sample_f`'s roulette.
+
+**Status:** fixed in this round; **unverified locally** (no CUDA build on the
+implementer's machine) — pending team-lead re-run.
+
 ## Citations
 
 - **Walter et al. 2007.** "Microfacet Models for Refraction through Rough Surfaces."
   *EGSR 2007.* (Eq. 33 GGX NDF, §5.3 half-vector Jacobian).
 - **pbrt-v4** `src/pbrt/bxdfs.h` `TrowbridgeReitzDistribution`, §9.6 (Apache-2.0,
   Matt Pharr). Reference implementation of clean GGX sample/pdf without stabilizer
-  epsilons in the canonical formulas.
+  epsilons in the canonical formulas; `DielectricBxDF::PDF` for the
+  branch-probability-weighted mixture-pdf pattern used in the Round-2 glass fix.
 - **Mitsuba 3** `src/python/python/chi2.py` (BSD-3-Clause, Wenzel Jakob). Harness
-  ported in pkg121, extended here to dump per-cell residuals.
+  ported in pkg121, extended here to dump per-cell residuals and to correctly
+  exclude dead samples from the domain-validity check (Round 2).
 
 ## Gate state after pkg123
 
-All Disney specular-lobe xfails **removed**. Tests are *expected* to pass (no CUDA
-build available on the implementer's machine — **unverified locally**, pending
-team-lead run):
+**Round-1 measured (coordinator hardware run, CPU epsilon fix only, pre-Round-2):**
+`test_chi2_disney_metallic` (roughness 0.4/0.8, θ=0°/45°/75°) and
+`test_chi2_disney_diffuse` (roughness 1.0, θ=45°) all measured p-values 0.25–0.94
+(statistically passing) but were reported FAILED by the harness domain-check bug
+(Round-2 finding 1). `test_chi2_disney_glass[0.3-45]` measured p=0.000000 with PDF
+integral 1.951 (Round-2 finding 2, genuine engine bug).
+
+**Expected after Round 2 (harness domain-check fix + glass mixScale fix) —
+unverified locally, pending team-lead re-run:**
 - `test_chi2_disney_metallic` (roughness 0.4, 0.8 across θ=0°/45°/75°)
 - `test_chi2_disney_diffuse` (θ=45°, roughness 1.0)
 - `test_chi2_disney_glass` (θ=45°, roughness 0.3, SphericalDomain)

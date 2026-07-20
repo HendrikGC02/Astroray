@@ -142,11 +142,23 @@ class ChiSquareTest:
         # Map samples into the parameter domain
         xy = self.domain.map_backward(samples_out)
 
-        # Sanity check: samples in bounds
+        # Sanity check: samples in bounds. Restricted to LIVE (weight>0) samples:
+        # Astroray's failed-sample convention (pkg121 finding, "not a bug") returns
+        # the geometrically-computed-but-rejected direction for a dead sample (e.g.
+        # an NDF-sampled specular reflection that lands below the horizon) with
+        # weight=0 rather than omitting it. For HemisphericalDomain those directions
+        # legitimately have cos_theta<0 (lower hemisphere) and fall outside
+        # bounds()'s cos_theta in [0,1] by construction — that is the convention
+        # working as intended, not a sampler defect. Dead samples already contribute
+        # 0 to the histogram (see weights_out below); they must also be excluded
+        # from this validity check, or a statistically-passing config (matched
+        # sample()/pdf(), pkg123 root-cause fix) still gets flagged self.fail=True
+        # by this unrelated check and never reaches the p-value gate.
         eps = (self.bounds[1] - self.bounds[0]) * 1e-4
         in_domain = np.all((xy >= (self.bounds[0] - eps)[:, None]) & (xy <= (self.bounds[1] + eps)[:, None]), axis=0)
-        if not np.all(in_domain):
-            self._log(f'Encountered {np.sum(~in_domain)} samples outside of the specified domain!')
+        live = weights_out > 0
+        if not np.all(in_domain[live]):
+            self._log(f'Encountered {np.sum(~in_domain[live])} live samples outside of the specified domain!')
             self.fail = True
 
         # Normalize to grid coordinates

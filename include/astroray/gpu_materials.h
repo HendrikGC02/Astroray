@@ -872,9 +872,15 @@ __device__ inline float gpu_disney_pdf(
     float diffW = (1.f - mat.metallic) * (1.f - mat.transmission);
     float specW = 1.f;
     float total = diffW + specW;
+    // Mirrors CPU pdf() (disney.cpp ~527): the diffuse+plain-NDF-specular block
+    // is only reached by gpu_disney_sample when the top-level transmission
+    // roulette selects the NON-transmissive branch (probability
+    // 1-mat.transmission); must gate by that factor or double-count against
+    // the VNDF reflection term below for mat.transmission > 0 (glass).
+    float mixScale = 1.f - mat.transmission;
     float p = 0.f;
     if (diffW > 0.f)
-        p += (rec.normal.dot(wi) / M_PI_F) * (diffW / total);
+        p += (rec.normal.dot(wi) / M_PI_F) * (diffW / total) * mixScale;
     if (specW > 0.f) {
         // Alpha floor must match gpu_disney_sample (line 836) and CPU pdf()
         // (disney.cpp:530) — without it, D_GTR2 at NdotH=1 is 0/0=NaN as
@@ -889,7 +895,7 @@ __device__ inline float gpu_disney_pdf(
             float D = gpu_D_GTR2(NdotH, a);
             // GGX reflection PDF: p(wi) = D(wm)·(wm·n) / (4·(wo·wm))
             // (Walter 2007 §5.3, pbrt-v4 §9.6 Eq. 9.24).
-            p += (D * NdotH / (4.f*HdotV)) * (specW / total);
+            p += (D * NdotH / (4.f*HdotV)) * (specW / total) * mixScale;
         }
     }
     if (mat.transmission > 0.f && mat.roughness > 0.03f) {

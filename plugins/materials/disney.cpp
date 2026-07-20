@@ -527,8 +527,21 @@ public:
         float diffWeight = (1 - metallic_) * (1 - transmission_);
         float specWeight = 1;
         float total = diffWeight + specWeight;
+        // The diffuse+plain-NDF-specular block below is only reached by sample()
+        // when the top-level transmission roulette (line ~412:
+        // `dist(gen) < transmission_`) selects the NON-transmissive branch —
+        // probability (1 - transmission_). pdf() must gate this whole block by
+        // that same factor, or it reports density for an event class sample()
+        // has already excluded via the transmission branch. For transmission_=1.0
+        // (pure glass) the plain-NDF specular branch is provably unreachable
+        // (`dist(gen) < 1.0` is always true), yet the unscaled formula
+        // unconditionally added its full pdf — a double-count against the VNDF
+        // reflection term added below. Evidence: glass chi² (roughness=0.3)
+        // measured PDF integral 1.951 (~2x over unity, exactly consistent with
+        // one fully-duplicated reflection term).
+        float mixScale = 1.0f - transmission_;
         float p = 0;
-        if (diffWeight > 0) p += (rec.normal.dot(wi) / float(M_PI)) * (diffWeight / total);
+        if (diffWeight > 0) p += (rec.normal.dot(wi) / float(M_PI)) * (diffWeight / total) * mixScale;
         if (specWeight > 0) {
             float a = std::max(roughness_ * roughness_, 0.0064f);
             float NdotH = rec.normal.dot(H);
@@ -537,7 +550,7 @@ public:
                 float D = D_GTR2(NdotH, a);
                 // GGX reflection PDF: p(wi) = D(wm)·(wm·n) / (4·(wo·wm))
                 // (Walter 2007 §5.3, pbrt-v4 §9.6 Eq. 9.24).
-                p += (D * NdotH / (4.0f * HdotV)) * (specWeight / total);
+                p += (D * NdotH / (4.0f * HdotV)) * (specWeight / total) * mixScale;
             }
         }
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {

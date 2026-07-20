@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Strategic dialogue agent. Sets direction, researches options, files new specs, surfaces unsolicited findings. Three modes: goal-capture (/architect), state+refine (/strategy-review), unsolicited-surfacing (weekly idle scan). Use the latest Opus model.
-model: claude-opus-4-7
+model: claude-opus-4-8
 tools:
   - Read
   - Write

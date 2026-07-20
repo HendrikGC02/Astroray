@@ -2,7 +2,7 @@
 name: cpp-abi-guard
 description: Use before merging any C++/CUDA change touching headers, struct layouts, function signatures crossing translation units, OpenMP directives, or code reachable from the Blender addon target. Catches the MinGW + CUDA + pybind11 ABI footguns that have already bitten this codebase.
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: claude-opus-4-8
 ---
 
 # cpp-abi-guard

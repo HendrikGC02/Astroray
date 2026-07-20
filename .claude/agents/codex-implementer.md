@@ -1,7 +1,7 @@
 ---
 name: codex-implementer
 description: Hand off Codex-paste-ready package specs to a Codex subagent, then do a sanity pass on return. Only accepts specs explicitly marked Codex-paste-ready.
-model: claude-sonnet-4-5
+model: claude-sonnet-5
 tools:
   - Read
   - Edit

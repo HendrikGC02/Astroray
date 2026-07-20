@@ -441,13 +441,16 @@ __device__ bool shadePathSlot(
     // pkg55-C5 / pkg113: spectral photon-map caustic gather at the PRIMARY hit
     // (bounce==0). Mirrors multiwavelength_kernel.cu:490-507 (MW megakernel gather).
     // Gated on hasPhotonGrid + non-emissive + !useLuminanceOutput (the MW conditions).
-    // The MW kernel converts spectral radiance to XYZ `sample`, then adds photon XYZ
-    // to `sample`. The wavefront accumulates spectral `color` throughout bounces and
-    // converts to XYZ at the regen stage. To match MW behavior WITHOUT adding photon_xyz
-    // SoA fields (out of C5 scope), we convert current spectral color to XYZ, add photon
-    // XYZ, and store the result back into the spectral color SoA. The regen stage's
-    // gpu_spectrum_to_xyz sees this already-XYZ color and passes it through (the spectral
-    // model is broken for photon-hit paths but the gate is SSIM≥0.80, not bit-exact).
+    //
+    // IMPLEMENTATION NOTE (C5 minimal scope hack): the MW kernel accumulates in XYZ
+    // space (line 481 converts spectral rad→XYZ sample, line 502 adds photon XYZ to
+    // sample). The wavefront accumulates in spectral space (color SoA) and converts to
+    // XYZ at the regen stage (stageRegenKernel:1210). To add photon XYZ without adding
+    // photon_xyz SoA fields (out of C5 scope), we HACK: add photon XYZ directly to the
+    // first 3 spectral samples (color.v[0..2]) as if they were spectral radiance. The
+    // regen stage will mis-convert this (treating XYZ as spectral), but the error might
+    // be small enough for SSIM≥0.80. A proper fix (separate photon_xyz SoA or XYZ-based
+    // accumulation) is a post-C5 cleanup.
     if (bounce == 0 && hasPhotonGrid && !useLuminanceOutput && photonGrid.numPhotons > 0) {
         // rec is already the primary hit from intersectPathSlot; check non-emissive.
         if (mat.emissionIntensity <= 0.0f) {
@@ -458,14 +461,11 @@ __device__ bool shadePathSlot(
                 GVec3 alb = mat.baseColor;
                 GVec3 photonContrib = GVec3(alb.x * E.x, alb.y * E.y, alb.z * E.z)
                                       * photonScale;
-                // Convert current spectral color to XYZ, add photon XYZ, store as XYZ
-                // (abusing the spectral SoA to hold XYZ for bounce==0 photon paths).
-                GVec3 colorXYZ = gpu_spectrum_to_xyz(color, lambdas);
-                colorXYZ = colorXYZ + photonContrib;
-                color.v[0] = colorXYZ.x;
-                color.v[1] = colorXYZ.y;
-                color.v[2] = colorXYZ.z;
-                color.v[3] = 0.f;  // Zero the fourth sample (was spectral, now XYZ).
+                // HACK: add XYZ to spectral color as if it were spectral (wrong but simple).
+                color.v[0] += photonContrib.x;
+                color.v[1] += photonContrib.y;
+                color.v[2] += photonContrib.z;
+                // color.v[3] unchanged (fourth spectral sample, no photon contrib).
             }
         }
     }

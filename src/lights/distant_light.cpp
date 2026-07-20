@@ -103,4 +103,15 @@ OrientationCone DistantLight::orientationCone() const {
     return OrientationCone::fromAxisAngle(-axis_, halfAngle);
 }
 
+// pkg89-GPU / GAP 1 — device upload description mirroring sampleLi() radiometry.
+bool DistantLight::fillDeviceParams(DeviceLightParams& out) const {
+    out.kind     = DeviceLightParams::Distant;
+    out.axis     = axis_;   // points FROM the light; device uses -axis as dir to light
+    out.cosOuter = std::cos(angularDiameter_ * 0.5f);  // cos(halfAngle) for disk pdf
+    emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
+    // Distant light omits the 1/π factor (matches distant_light.cpp sampleLi).
+    out.staticScale = intensity_ * normalizeFactor_;
+    return true;
+}
+
 } // namespace astroray

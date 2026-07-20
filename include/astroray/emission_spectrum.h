@@ -97,6 +97,16 @@ public:
     // Used when the user applies a colored gel to an existing emission source.
     EmissionSpectrum composeWith(const Vec3& filterRGB) const;
 
+    // pkg89-GPU / GAP 1 — reference RGB color for the device RGBIlluminant
+    // upsample. For RGB mode this is exactly `color` (device gpu_rgbSpectrumAt
+    // reproduces CPU RGBIlluminantSpectrum(color) sample-for-sample → exact
+    // GPU==CPU parity). For blackbody / measured / composite modes it is the
+    // XYZ→linear-sRGB of the evaluated SPD (chroma + magnitude approximate;
+    // exact spectral parity for those modes is a documented follow-up, and is
+    // moot until the pkg89 CPU blackbody normalization is fixed — see GAP 2).
+    // `exactRGB` is true only for RGB mode.
+    void deviceReference(Vec3& outRGB, bool& exactRGB) const;
+
     // Accessors for the underlying variant (for UI / serialization).
     const Variant& variant() const { return data_; }
     Variant&       variant()       { return data_; }

@@ -38,6 +38,36 @@ namespace astroray {
 class EmissionSpectrum;
 
 // --------------------------------------------------------------------------
+// DeviceLightParams — neutral (no CUDA types) upload description for a
+// dedicated light (pkg89-GPU / GAP 1). Each Light subclass fills this
+// mirroring its own sampleLi() radiometry, so scene_upload.cu can convert it
+// to a GDedicatedLight and the device NEE samples with pdfs + emission scale
+// IDENTICAL to the CPU PowerLightSampler dedicated path. Keeping GPU types out
+// of this CPU header avoids dragging <cuda_runtime.h> into the addon TU.
+// Reference: mirrors src/lights/{point,spot,distant,area}_light.cpp (which in
+// turn cite Cycles kernel/light/{point,spot,distant,area}.h, Apache-2.0).
+// --------------------------------------------------------------------------
+struct DeviceLightParams {
+    enum Kind { Point = 0, Spot = 1, Distant = 2, Area = 3 };
+    int   kind      = Point;
+    Vec3  position;               // point/spot/area center (world space)
+    Vec3  axis;                   // spot axis; distant axis_ (points FROM light); area normal_
+    Vec3  u, v;                   // area plane axes (normalized); u × v = normal
+    float width     = 0.0f;       // area width (or disk radius in width)
+    float height    = 0.0f;       // area height
+    int   areaShape = 0;          // 0 rectangle, 1 disk, 2 ellipse
+    float radius    = 0.0f;       // point/spot soft-shadow radius (0 = hard/delta)
+    float spread    = 0.0f;       // area emission cone half-angle (radians)
+    float cosInner  = 1.0f;       // spot inner-cone cosine (full intensity)
+    float cosOuter  = -1.0f;      // spot outer-cone cosine / distant cos(halfAngle)
+    Vec3  emissionRGB = Vec3(1.0f); // reference color for the device RGBIlluminant upsample
+    bool  exactIlluminant = true; // true when RGB mode (device parity is exact);
+                                  // false for blackbody/measured (chroma-approx, energy follow-up)
+    float staticScale = 1.0f;     // intensity·normalizeFactor·(1/π) baked per type
+                                  // (distant omits the 1/π, matching distant_light.cpp)
+};
+
+// --------------------------------------------------------------------------
 // OrientationCone — bounding cone for light's emission direction distribution.
 // Used by pkg86 Light Tree's Conty 2018 importance metric.
 // --------------------------------------------------------------------------
@@ -107,6 +137,11 @@ public:
     // Orientation cone (for pkg86 Light Tree). Isotropic lights return full-sphere.
     // Reference: Conty 2018 §4.1 "Orientation Cone".
     virtual OrientationCone orientationCone() const = 0;
+
+    // pkg89-GPU / GAP 1 — fill the neutral device-upload description. Returns
+    // false if this light type has no device mirror yet (scene_upload.cu then
+    // skips it, leaving the conservative power-CDF fallback). Default: unsupported.
+    virtual bool fillDeviceParams(DeviceLightParams& /*out*/) const { return false; }
 
     // Per-light flags (Cycles parity, pkg89 research §1.2).
     bool castShadow  = true;   // light casts shadows (occlusion test in NEE)

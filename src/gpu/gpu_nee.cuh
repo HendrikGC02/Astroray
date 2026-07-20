@@ -57,6 +57,122 @@ __device__ inline float gpu_mw_powerHeuristic(float a, float b) {
 // A in the shade stage and B->C in a dedicated lean shadow stage.
 // All sampling/eval lines are MOVED verbatim from the original function.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// pkg89-GPU / GAP 1 — device sampleLi for a dedicated light (point/spot/
+// distant/area). Mirrors the CPU src/lights/{point,spot,distant,area}_light.cpp
+// sampleLi() EXACTLY (same geometric sampling, same pdfs, same emission scale)
+// so GPU NEE == CPU NEE (parity gate). `selPdf` is the light-selection
+// probability; the returned lightPdf folds it in, matching LightList::sample's
+// `ls.pdf = liSample.pdf * selPdf`. The emission is carried as a reference RGB
+// + a wavelength-independent scale (dedGeoScale); gpu_nee_resolve upsamples it
+// via the same RGBIlluminant path the CPU uses. Cite: Cycles kernel/light/
+// {point,spot,distant,area}.h (Apache-2.0), via the CPU mirrors.
+// ---------------------------------------------------------------------------
+template <typename TRng>
+__device__ inline GNEESample gpu_dedicated_sample(
+    const GDedicatedLight& d, const GVec3& shadingPoint, float selPdf, TRng* rng)
+{
+    GNEESample s{};
+    s.valid       = 0;
+    s.isDedicated = 1;
+    s.isSphere    = 0;   // occlusion via the "any occluder in [eps,maxDist]" branch
+    s.origin      = shadingPoint;
+    s.dedEmissionRGB = d.emissionRGB;
+
+    if (d.kind == GDED_POINT || d.kind == GDED_SPOT) {
+        GVec3 sampledPos = d.position;
+        if (d.radius > 0.f) {
+            float u1 = gpu_rng_uniform(rng), u2 = gpu_rng_uniform(rng);
+            float z  = 1.f - 2.f * u1;
+            float rr = sqrtf(fmaxf(0.f, 1.f - z * z));
+            float phi = 2.f * M_PI_F * u2;
+            sampledPos = d.position + GVec3(rr * cosf(phi), rr * sinf(phi), z) * d.radius;
+        }
+        GVec3 lts  = shadingPoint - sampledPos;
+        float dist = lts.length();
+        if (dist < 1e-6f) return s;
+        GVec3 lightDir = lts * (1.f / dist);         // from light toward shading (CPU lightDir)
+        float geo = 1.f / (dist * dist);             // 1/r² falloff
+        if (d.kind == GDED_SPOT) {
+            float cosTheta = lightDir.dot(d.axis);
+            if (cosTheta <= d.cosOuter) return s;    // outside outer cone
+            float att;
+            if (cosTheta >= d.cosInner) att = 1.f;
+            else { float t = (cosTheta - d.cosOuter) / (d.cosInner - d.cosOuter);
+                   att = t * t * (3.f - 2.f * t); }  // Cycles cubic Hermite smoothstep
+            geo *= att;
+        }
+        float pdf;
+        if (d.kind == GDED_SPOT) {
+            float coneSA = 2.f * M_PI_F * (1.f - d.cosOuter);
+            pdf = (d.radius > 0.f) ? (1.f / (coneSA * d.radius * d.radius)) : (1.f / coneSA);
+        } else {
+            pdf = (d.radius > 0.f) ? (1.f / (4.f * M_PI_F * d.radius * d.radius)) : 1.f;
+        }
+        s.wi          = (sampledPos - shadingPoint) * (1.f / dist);
+        s.maxDist     = dist - 0.001f;
+        s.lightPdf    = pdf * selPdf;
+        s.dedGeoScale = d.staticScale * geo;
+        s.valid       = 1;
+        return s;
+    }
+
+    if (d.kind == GDED_AREA) {
+        float u1 = gpu_rng_uniform(rng), u2 = gpu_rng_uniform(rng);
+        GVec3 sampledPos;
+        float area;
+        if (d.areaShape == 1) {          // disk (width = radius)
+            float rr = sqrtf(u1) * d.width; float phi = 2.f * M_PI_F * u2;
+            sampledPos = d.position + d.u * (rr * cosf(phi)) + d.v * (rr * sinf(phi));
+            area = M_PI_F * d.width * d.width;
+        } else if (d.areaShape == 2) {   // ellipse
+            float rr = sqrtf(u1); float phi = 2.f * M_PI_F * u2;
+            sampledPos = d.position + d.u * (rr * d.width * cosf(phi))
+                                    + d.v * (rr * d.height * sinf(phi));
+            area = M_PI_F * d.width * d.height;
+        } else {                          // rectangle
+            float su = (u1 - 0.5f) * d.width, sv = (u2 - 0.5f) * d.height;
+            sampledPos = d.position + d.u * su + d.v * sv;
+            area = d.width * d.height;
+        }
+        GVec3 lts  = shadingPoint - sampledPos;
+        float dist = lts.length();
+        if (dist < 1e-6f || area < 1e-8f) return s;
+        GVec3 dir = lts * (1.f / dist);              // from light toward shading (CPU dir)
+        float cosTheta = dir.dot(d.axis);
+        // withinSpread: acos(cosTheta) <= spread  <=>  cosTheta >= cos(spread);
+        // plus the back-face reject (cosTheta <= 0) from area_light.cpp sampleLi.
+        if (cosTheta <= 0.f || cosTheta < cosf(d.spread)) return s;
+        s.wi          = (sampledPos - shadingPoint) * (1.f / dist);
+        s.maxDist     = dist - 0.001f;
+        s.lightPdf    = (1.f / area) * selPdf;
+        s.dedGeoScale = d.staticScale * (cosTheta / (dist * dist));
+        s.valid       = 1;
+        return s;
+    }
+
+    if (d.kind == GDED_DISTANT) {
+        GVec3 w   = d.axis * -1.f;                    // direction TO light (CPU: -axis_)
+        GVec3 dir = w;
+        if (d.cosOuter < 1.f) {                       // finite angular diameter
+            float u1 = gpu_rng_uniform(rng), u2 = gpu_rng_uniform(rng);
+            float sinH = sqrtf(fmaxf(0.f, 1.f - d.cosOuter * d.cosOuter));
+            float rr = sqrtf(u1) * sinH; float phi = 2.f * M_PI_F * u2;
+            GVec3 tu, tv; gpu_buildONB(w, tu, tv);
+            dir = (w + tu * (rr * cosf(phi)) + tv * (rr * sinf(phi))).normalized();
+        }
+        float solidAngle = 2.f * M_PI_F * (1.f - d.cosOuter);
+        s.wi          = dir;
+        s.maxDist     = 1e30f;
+        s.lightPdf    = ((solidAngle > 1e-8f) ? (1.f / solidAngle) : 1e30f) * selPdf;
+        s.dedGeoScale = d.staticScale;
+        s.valid       = 1;
+        return s;
+    }
+
+    return s;  // kind == -1 (unsupported): no contribution
+}
+
 template <typename TRng>
 __device__ inline GNEESample gpu_nee_sample(
     const GHitRecord& rec,
@@ -64,12 +180,13 @@ __device__ inline GNEESample gpu_nee_sample(
     const GTriangle*  tris,
     const GSphere*    spheres,
     const GLight*     lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,   // pkg89-GPU / GAP 1
     GLightTreeView    lightTree,  // pkg86-B
     TRng*             rng)
 {
     GNEESample s{};
     s.valid = 0;
-    if (rec.isDelta || numLights <= 0 || totalLightPower <= 0.f) return s;
+    if (rec.isDelta || (numLights + numDed) <= 0 || totalLightPower <= 0.f) return s;
 
     // Light selection: tree-importance descent (pkg86-B, Conty 2018 via
     // Cycles kernel/light/tree.h) when the tree is resident, else the
@@ -77,6 +194,8 @@ __device__ inline GNEESample gpu_nee_sample(
     int   li = 0;
     float selPdf;
     if (lightTree.enabled) {
+        // Tree mode is enabled only when there are NO dedicated lights (see
+        // scene_upload.cu), so this path selects hittable emitters only.
         float treePdf = 0.f;
         int eIdx = gpu_light_tree_pick(lightTree, rec.point, rec.normal,
                                        gpu_rng_uniform(rng), &treePdf);
@@ -84,8 +203,21 @@ __device__ inline GNEESample gpu_nee_sample(
         li = lightTree.emitters[eIdx].lightIndex;
         selPdf = treePdf;
     } else {
+        // Unified power CDF over hittable emitters THEN dedicated lights
+        // (mirrors CPU PowerLightSampler's single CDF; dedicated cumulativePower
+        // continues past the last GLight entry). This is what lets a dedicated-
+        // light-only scene sample on the GPU instead of rendering black.
         float u = gpu_rng_uniform(rng) * totalLightPower;
-        for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { li = i; break; } li = i; }
+        int hit = -1;
+        for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { hit = i; break; } }
+        if (hit < 0 && numDed > 0) {
+            int dj = numDed - 1;
+            for (int j = 0; j < numDed; ++j) { if (u <= dedLights[j].cumulativePower) { dj = j; break; } }
+            float dselPdf = dedLights[dj].power / totalLightPower;
+            return gpu_dedicated_sample(dedLights[dj], rec.point, dselPdf, rng);
+        }
+        if (hit < 0) hit = numLights - 1;   // fp fallback within hittable range
+        li = hit;
         selPdf = lights[li].power / totalLightPower;
     }
     int primIdx  = lights[li].primitiveIndex;
@@ -200,8 +332,19 @@ __device__ inline GSampledSpectrum gpu_nee_resolve(
     // 2414-2421:  f_spec = evalSpectral ; L_spec = emission_spec (illuminant).
     GSampledSpectrum f_spec =
         gpu_material_eval_spectral(mat, const_cast<GHitRecord&>(rec), wo, s.wi, lambdas);
-    GSampledSpectrum L_spec =
-        gpu_material_emitted_spectral(materials[s.lightMatId], lightFront, lambdas);
+    // pkg89-GPU / GAP 1 — dedicated lights carry their emission intrinsically
+    // (no light material). The reference RGB is upsampled through the SAME
+    // RGBIlluminant path the CPU uses (gpu_rgbSpectrumAt == CPU
+    // RGBIlluminantSpectrum::sample), scaled by the wavelength-independent
+    // dedGeoScale (staticScale · per-sample geometric factor).
+    GSampledSpectrum L_spec;
+    if (s.isDedicated) {
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+            L_spec[i] = gpu_rgbSpectrumAt(s.dedEmissionRGB, lambdas.lambda[i],
+                                          GSPEC_RGB_ILLUMINANT) * s.dedGeoScale;
+    } else {
+        L_spec = gpu_material_emitted_spectral(materials[s.lightMatId], lightFront, lambdas);
+    }
     if (f_spec.maxValue() <= 0.f || L_spec.maxValue() <= 0.f) return direct;
 
     float bsdfPdf = gpu_material_pdf(mat, rec, wo, s.wi);

@@ -94,6 +94,7 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
     const GSphere*    spheres,
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,   // pkg89-GPU / GAP 1
     GLightTreeView    lightTree,  // pkg86-B
     float             time,         // pkg88-C.0: path shutter time for shadow rays
     const GVec3*      motionVerts,  // pkg88-C.0 (nullptr = static)
@@ -104,6 +105,7 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
     GSampledSpectrum direct(0.f);
     GNEESample s = gpu_nee_sample(rec, prims, tris, spheres,
                                   lights, numLights, totalLightPower,
+                                  dedLights, numDed,   // pkg89-GPU / GAP 1
                                   lightTree, rng);
     if (!s.valid) return direct;
     GNEEOcclusion occ = gpu_nee_occlude(s, tlas, instances, blas, bvhNodes,
@@ -137,6 +139,7 @@ __device__ GSampledSpectrum tracePathMW(
     const GSphere*    spheres,
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,   // pkg89-GPU / GAP 1
     GLightTreeView    lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     const GEnvMap&    envMap,
@@ -200,10 +203,12 @@ __device__ GSampledSpectrum tracePathMW(
         // enableNEE is false when the kernel mirrors the naive no-NEE
         // MultiwavelengthPathTracer (gated by integrator name in
         // module/blender_module.cpp).
-        if (enableNEE && !rec.isDelta && numLights > 0) {
+        if (enableNEE && !rec.isDelta && (numLights + numDed) > 0) {
             color += throughput * sampleDirectSpectralMW(
                 rec, wo, lambdas, tlas, instances, blas, bvhNodes, prims, tris, spheres, materials,
-                lights, numLights, totalLightPower, lightTree,
+                lights, numLights, totalLightPower,
+                dedLights, numDed,   // pkg89-GPU / GAP 1
+                lightTree,
                 ray.time, motionVerts,  // pkg88-C.0
                 rng);
         }
@@ -400,6 +405,7 @@ __global__ void multiwavelengthKernel(
     const GSphere*    spheres,
     const GMaterial*  materials,
     const GLight*     lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,   // pkg89-GPU / GAP 1
     GLightTreeView    lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
@@ -456,6 +462,7 @@ __global__ void multiwavelengthKernel(
             tlas, instances, blas,  // pkg114
             bvhNodes, prims, tris, spheres, materials,
             lights, numLights, totalLightPower,
+            dedLights, numDed,   // pkg89-GPU / GAP 1
             lightTree,  // pkg86-B
             smsCasters, numSMSCasters,
             envMap, backgroundColor, hasBackgroundColor,
@@ -547,6 +554,7 @@ void launchMultiwavelengthKernel(
     const GSphere*    d_spheres,
     const GMaterial*  d_materials,
     const GLight*     d_lights, int numLights, float totalLightPower,
+    const GDedicatedLight* d_dedLights, int numDed,   // pkg89-GPU / GAP 1
     GLightTreeView lightTree,  // pkg86-B
     const astroray::manifold::device::GSMSCaster* d_smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
     GEnvMap envMap,
@@ -572,6 +580,7 @@ void launchMultiwavelengthKernel(
             d_tlas, d_instances, d_blas,  // pkg114
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, numLights, totalLightPower,
+            d_dedLights, numDed,   // pkg89-GPU / GAP 1
             lightTree,  // pkg86-B
             d_smsCasters, numSMSCasters,
             envMap, cam, backgroundColor, hasBackgroundColor,

@@ -13,6 +13,10 @@ struct SceneUploadResult {
     std::vector<GSphere>    spheres;
     std::vector<GMaterial>  materials;
     std::vector<GLight>     lights;
+    // pkg89-GPU / GAP 1 — dedicated lights (Blender POINT/SPOT/SUN/AREA lamps
+    // routed through astroray::Light). Their cumulativePower continues the
+    // unified power CDF past `lights`; totalLightPower spans both kinds.
+    std::vector<GDedicatedLight> dedicatedLights;
     float totalLightPower = 0.f;
 
     // pkg114 — two-level BVH. Populated ONLY when the CPU Renderer has

@@ -151,6 +151,25 @@ OrientationCone AreaLight::orientationCone() const {
     return OrientationCone::fromAxisAngle(normal_, spread_);
 }
 
+// pkg89-GPU / GAP 1 — device upload description mirroring sampleLi() radiometry.
+bool AreaLight::fillDeviceParams(DeviceLightParams& out) const {
+    out.kind      = DeviceLightParams::Area;
+    out.position  = position_;
+    out.axis      = normal_;          // emission normal
+    out.u         = u_;
+    out.v         = v_;
+    out.width     = width_;
+    out.height    = height_;
+    out.areaShape = static_cast<int>(shape_);  // Rectangle=0, Disk=1, Ellipse=2
+    out.spread    = spread_;
+    emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
+    // staticScale = intensity·(1/area)·(1/π); normalizeFactor_ == 1/area.
+    // The device recomputes area from shape+width+height for the 1/area pdf.
+    constexpr float kM1PiF = 0.31830988618f;
+    out.staticScale = intensity_ * normalizeFactor_ * kM1PiF;
+    return true;
+}
+
 // Helper: sample a point on the shape (uniform area sampling).
 Vec3 AreaLight::sampleSurface(std::mt19937& gen) const {
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);

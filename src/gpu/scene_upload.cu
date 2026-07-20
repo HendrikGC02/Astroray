@@ -662,6 +662,49 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         }
     }
 
+    // --- pkg89-GPU / GAP 1: dedicated lights (point/spot/distant/area) ---
+    // Mirror the CPU PowerLightSampler unified CDF: dedicated lights occupy the
+    // CDF slots AFTER the hittable emitters (powerDist spans both — see
+    // light_sampler.cpp PowerLightSampler::pdfValue). Their cumulativePower
+    // continues from the last hittable entry so the device NEE selects across
+    // both arrays with the same probabilities as the CPU sampler. This is what
+    // makes a dedicated-light-only scene (Blender lamp, no emissive geometry)
+    // render on the GPU instead of black (pkg86-B deferred this).
+    {
+        const auto& dedLightPtrs = ll2.getDedicatedLights();
+        const size_t numHittable = lightPtrs.size();
+        for (size_t j = 0; j < dedLightPtrs.size(); ++j) {
+            const astroray::Light* L = dedLightPtrs[j].get();
+            size_t k = numHittable + j;  // index into the unified powerDist CDF
+            float prev = (k == 0) ? 0.f : powerDist[k - 1];
+            GDedicatedLight gd{};
+            gd.power           = powerDist[k] - prev;
+            gd.cumulativePower = powerDist[k];
+            astroray::DeviceLightParams p;
+            if (L && L->fillDeviceParams(p)) {
+                gd.kind        = p.kind;
+                gd.position    = GVec3(p.position.x, p.position.y, p.position.z);
+                gd.axis        = GVec3(p.axis.x, p.axis.y, p.axis.z);
+                gd.u           = GVec3(p.u.x, p.u.y, p.u.z);
+                gd.v           = GVec3(p.v.x, p.v.y, p.v.z);
+                gd.width       = p.width;
+                gd.height      = p.height;
+                gd.areaShape   = p.areaShape;
+                gd.radius      = p.radius;
+                gd.spread      = p.spread;
+                gd.cosInner    = p.cosInner;
+                gd.cosOuter    = p.cosOuter;
+                gd.emissionRGB = GVec3(p.emissionRGB.x, p.emissionRGB.y, p.emissionRGB.z);
+                gd.staticScale = p.staticScale;
+            } else {
+                // Unsupported type (e.g. Background): keep the CDF slot aligned
+                // but flag invalid so the device sampler yields no contribution.
+                gd.kind = -1;
+            }
+            r.dedicatedLights.push_back(gd);
+        }
+    }
+
     // (pkg64-gpu Phase 2 caster gathering moved inline during sphere loop above)
 
     // --- pkg86-B: Light tree (Tree sampler mode only) ---

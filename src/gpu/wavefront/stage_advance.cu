@@ -590,7 +590,9 @@ __device__ bool advancePathSlot(
     int               worldMaxBounces,
     int               max_depth,
     bool              useLuminanceOutput,
-    bool              enableNEE)
+    bool              enableNEE,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
+    float             photonScale)
 {
     int matType = intersectPathSlot(idx, state, hitBufs, tlas, instances, blas,
                                     bvhNodes, prims, tris, spheres, motionVerts,
@@ -605,7 +607,8 @@ __device__ bool advancePathSlot(
                          /*nee_f=*/nullptr, /*nee_i=*/nullptr,
                          /*shadow_queue=*/nullptr, /*shadow_count=*/nullptr,
                          /*nee_capacity=*/0,
-                         useLuminanceOutput, enableNEE);
+                         useLuminanceOutput, enableNEE,
+                         photonGrid, hasPhotonGrid, photonScale);
 }
 
 __global__ void stageAdvanceKernel(
@@ -632,11 +635,14 @@ __global__ void stageAdvanceKernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= state.num_active) return;
     if (state.path_alive[idx] == 0) return;
+    // Photon caustics run only on the bucketed production scheduling (C5);
+    // the legacy dense path passes no grid (gather gated off).
     advancePathSlot(idx, state, hitBufs, tlas, instances, blas,
                     bvhNodes, prims, tris, spheres, motionVerts, materials,
                     lights, numLights, totalLightPower, lightTree, envMap,
                     backgroundColor, hasBackgroundColor, worldMaxBounces,
-                    max_depth, useLuminanceOutput, enableNEE);
+                    max_depth, useLuminanceOutput, enableNEE,
+                    astroray::photon::gpu::GPhotonGrid{}, false, 0.0f);
 }
 
 // ---------------------------------------------------------------------------
@@ -680,7 +686,8 @@ __global__ void stageAdvanceQueuedKernel(
                                  materials, lights, numLights, totalLightPower,
                                  lightTree, envMap, backgroundColor,
                                  hasBackgroundColor, worldMaxBounces, max_depth,
-                                 useLuminanceOutput, enableNEE);
+                                 useLuminanceOutput, enableNEE,
+                                 astroray::photon::gpu::GPhotonGrid{}, false, 0.0f);
     if (alive) {
         int slot = atomicAdd(count_out, 1);
         queue_out[slot] = idx;
@@ -1368,7 +1375,8 @@ __global__ void stageShadeNeeMisKernel(
                   materials, lights, numLights, totalLightPower,
                   lightTree, max_depth,
                   nee_f, nee_i, shadow_queue, shadow_count, nee_capacity,
-                  useLuminanceOutput, enableNEE);
+                  useLuminanceOutput, enableNEE,
+                  astroray::photon::gpu::GPhotonGrid{}, false, 0.0f);
 }
 
 void launchStageShadeNeeMis(

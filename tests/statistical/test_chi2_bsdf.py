@@ -214,6 +214,26 @@ def test_chi2_disney_diffuse(theta_deg, roughness):
     )
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Disney glass reflection is sampled as a smooth DELTA (mirror, "
+    "pdf=fresnel*T, isDelta=true -- disney.cpp:465-474) because the "
+    "rough-reflection candidate is rejected at disney.cpp:455 (eval() "
+    "reflection lobe ~0 for transmission=1/metallic=0 via Cspec0, "
+    "disney.cpp:325), while pdf() adds a continuous VNDF reflection term "
+    "(disney.cpp:543). Delta-vs-continuous sample/pdf type mismatch; "
+    "furnace-invisible; real MIS-shape defect, pre-existing (not introduced "
+    "by pkg123 -- pkg123 fixed the mixScale double-count and confirmed this "
+    "residual is a separate root cause). Opus re-review measurements "
+    "(2026-07-20): angle-from-mirror max=0.0 (every sampled reflection wi is "
+    "the exact smooth-mirror direction, none from the rough VNDF branch), "
+    "constant pdf 0.04213 = F(45 deg, ior=1.5)*T (the delta branch's "
+    "analytic formula), sample/eval energy ratio 0.060. Fix = a proper rough "
+    "dielectric reflection lobe in eval() (pbrt-v4 DielectricBxDF, Walter "
+    "2007 Section 5.1 Eq. 20). Do NOT patch pdf() to suppress the continuous "
+    "term -- that breaks MIS. Follow-up: architect-filed spec tracked as "
+    "'disney-dielectric-reflection-lobe'. See "
+    ".astroray_plan/docs/pkg121-disney-pdf-finding.md Round 2d.")
 @pytest.mark.parametrize("theta_deg", [45])
 @pytest.mark.parametrize("roughness", [0.3])  # Skip 0.0: delta transmission is grid-unresolvable
 def test_chi2_disney_glass(theta_deg, roughness):

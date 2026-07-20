@@ -308,40 +308,33 @@ with real p-values. **34 real failures remained**, all p=0.000000 — the
 significance test now actually runs (not harness-check noise). Full log:
 `chi2_round2.log` (coordinator scratchpad). Three distinct failure groups:
 
-### Round-2c finding 1 — glass residual shape mismatch survives the mixScale fix (ENGINE bug)
+### Round-2c finding 1 — glass residual shape mismatch survives the mixScale fix (defensive hardening, NOT the root cause)
 
 `test_chi2_disney_glass[0.3-45]` still failed: `Histogram sum = 1.000000, PDF sum
-= 0.967118` (mass now correct — confirms the mixScale fix from Round 2 worked) but
+= 0.967118` (mass now correct — confirms the mixScale fix from Round 2a worked) but
 `Chi^2 statistic = 143140779.145224` (d.o.f = 1025) — catastrophically large despite
 correct total mass, meaning a genuine **shape** (not mass) defect remains.
 
-**Root cause (new, found by code inspection against `sample()`'s exact formula):**
-`pdf()`'s VNDF-reflection Fresnel-weight computation
-(`float F = fresnelDielectric(wo.dot(H), etaI, etaT);`) does **not** wrap
-`wo.dot(H)` in `std::abs()`, while `sample()`'s matching inline computation
-(`float F = fresnelDielectric(std::abs(HdotO), etaI, etaT);`, disney.cpp ~431)
-does. `H = (wo + wi).normalized()` is reconstructed by `pdf()` from an
-**arbitrary** query `wi` (as `tabulate_pdf`'s quadrature sweeps the *entire*
-domain, not just physically-plausible reflection directions) — for `wi` far from
-`wo` on the far side of the hemisphere, `wo.dot(H)` can go negative even though
-both `wo` and `wi` are on the same (upper) hemisphere. A negative input flips
-`fresnelDielectric`'s internal `entering` branch (it swaps `etaI`/`etaT`),
-silently corrupting `F` for exactly the "far from `wo`" region `tabulate_pdf`
-integrates over. `sample()` never exhibits this because its `HdotO = wo.dot(wm)`
-comes from an **actual VNDF-sampled** `wm` (always front-facing, `HdotO > 0` by
-construction of VNDF sampling) — the bare `std::abs()` there never changes
-anything, masking the asymmetry until `pdf()` is queried off the sampled
-manifold. **Fixed:** wrap `wo.dot(H)` in `std::abs()` in both `disney.cpp::pdf()`
-and `gpu_materials.h::gpu_disney_pdf`, matching `sample()`/`gpu_disney_sample`
-exactly.
+**Candidate cause proposed this round (found by code inspection against
+`sample()`'s exact formula, before an actual re-run):** `pdf()`'s VNDF-reflection
+Fresnel-weight computation (`float F = fresnelDielectric(wo.dot(H), etaI, etaT);`)
+did not wrap `wo.dot(H)` in `std::abs()`, while `sample()`'s matching inline
+computation (`std::abs(HdotO)`) does. The theorized mechanism: `tabulate_pdf`'s
+quadrature queries `wi` values far from `wo`, where the reconstructed
+`H=(wo+wi).normalized()` could have `wo.dot(H) < 0`, flipping
+`fresnelDielectric`'s internal `entering` branch.
 
-**Status: unverified locally** — this is a new fix this round, not yet re-run on
-hardware. If the coordinator's next run still shows a glass residual, the `abs()`
-fix was necessary-but-not-sufficient and further investigation (e.g. the
-non-face-forward-corrected `H` used for the Fresnel weight vs. the
-face-forward-corrected `wm` `microfacetReflectionPdf` uses internally for its own
-Jacobian — argued not to matter for `abs()`'d magnitudes, but worth re-checking
-against a real residual map if the failure persists) is needed.
+**Correction (Opus re-review, 2026-07-20, measured on hardware):** this
+hypothesis was **not the root cause**. The `abs()` change is harmless — it
+matches `sample()`'s convention and is kept as defensive hardening against a
+real (if not dominant) edge case — but the reviewer's empirical measurement
+(instrumented run, not code inspection) established the *actual* mechanism is a
+**delta-vs-continuous sample/pdf type mismatch**, unrelated to the sign of
+`wo.dot(H)`. See Round 2d below for the adjudicated mechanism and measurements.
+The earlier framing above (this section, as originally written) incorrectly
+presented the `abs()` fix as *the* fix for the 143M chi² statistic; it is not —
+the glass gate remains a genuine, pre-existing engine defect, now `xfail`'d
+(strict=True) rather than claimed fixed.
 
 ### Round-2c finding 2 — full_grid near-delta skip criterion was wrong (TEST bug, not engine)
 
@@ -401,6 +394,75 @@ with a precise per-config reason (only `roughness==0.3 and theta_deg==75`, not a
 blanket skip — `roughness=0.3` still asserts at every other angle), naming
 pkg124 as the likely fix and citing this doc.
 
+## Round 2d — Opus re-review: the glass root cause is a delta-vs-continuous sample/pdf type mismatch (2026-07-20)
+
+**Status:** ADJUDICATED (final for pkg123's scope). `test_chi2_disney_glass[0.3-45]`
+is `xfail(strict=True)`, not fixed — the fix is out of pkg123's scope (see below).
+
+Independent re-review (Opus, measured on hardware, not code inspection) traced
+the residual 143M chi² statistic to its actual mechanism, correcting the Round-2c
+finding-1 `abs()` hypothesis (which the reviewer confirmed is harmless defensive
+hardening — matches `sample()`'s convention — but empirically **not** the cause
+of the shape mismatch).
+
+**Mechanism:** Disney glass reflection is sampled as a smooth **DELTA** (perfect
+mirror, `pdf = fresnel * transmission_`, `isDelta = true` —
+`disney.cpp:465-474`) because the rough-reflection candidate is **rejected** at
+`disney.cpp:455` (`if (s.pdf > 0.0f && s.f.length2() > 0.0f)`): `eval()`'s
+reflection lobe evaluates to ~0 for `transmission_=1.0, metallic_=0.0` via the
+`Cspec0`/`F0` specular-tint formulation (`disney.cpp:325`) rather than the
+dielectric's actual Fresnel reflectance. Meanwhile `pdf()` **still adds** a
+continuous VNDF reflection density term (`disney.cpp:543`,
+`transmission_ * F * microfacetReflectionPdf(...)`) — a density for an event
+class `sample()` never actually produces for this material (100% of its
+reflection draws are the smooth delta event, not the continuous VNDF one). This
+is a **delta-vs-continuous type mismatch**: `pdf()` reports a continuous density
+where `sample()` only ever emits a point mass, which a binned chi² histogram
+cannot represent consistently (a point mass smeared across nearby continuous
+bins vs. an integrated continuous density predicting smooth structure there).
+
+**Measurements (Opus re-review, instrumented run):**
+- **Angle-from-mirror max = 0.0** — every sampled reflection `wi` is *exactly*
+  the ideal specular-mirror direction; none come from the rough VNDF branch.
+  Direct proof of 100% delta-branch selection.
+- **Constant pdf = 0.04213 = F(45°, ior=1.5) × transmission_** — matches the
+  delta branch's analytic formula (`disney.cpp:474`,
+  `s.pdf = fresnel * transmission_`) exactly, confirming the reported pdf is the
+  *delta* event's point-mass value wherever the sample lands, not a continuous
+  density.
+- **sample/eval energy ratio = 0.060** — the `eval()` reflection lobe (Cspec0-based,
+  `disney.cpp:325`) and the delta event's actual throughput diverge by ~16.7x,
+  consistent with `eval()` using the wrong (non-Fresnel) specular model for a
+  dielectric's reflection component.
+
+**Why this is furnace-invisible:** the estimator (sample-then-weight-by-f/pdf)
+stays formally unbiased regardless of whether the underlying event is delta or
+continuous — furnace/white-furnace tests integrate total reflected energy, which
+doesn't distinguish *how* that energy arrived (one delta spike vs. a spread
+continuous lobe). Only a shape-sensitive test (chi²) can see this — exactly the
+reason pkg121/pkg123 built this harness.
+
+**Why this is real and pre-existing, not a pkg123 regression:** the delta
+fallback and the continuous VNDF `pdf()` term both predate pkg123 (pkg123 fixed
+the *mixScale* double-count on top of this — the mass-normalization bug — but
+the underlying delta-vs-continuous shape defect was already present and is
+orthogonal to mixScale).
+
+**Fix (explicitly out of pkg123's scope, NOT applied here):** give the rough
+dielectric a proper reflection lobe in `eval()` — the actual Fresnel-weighted
+GGX reflection term for a dielectric interface, not the metal-style
+`Cspec0`/Schlick-F0 approximation — so `sample()`'s rough-VNDF-reflection
+candidate is actually accepted instead of always falling through to the delta
+event. **Cite:** pbrt-v4 `DielectricBxDF` (reflection-branch `f()`), Walter 2007
+"Microfacet Models for Refraction through Rough Surfaces" §5.1 Eq. 20 (rough
+dielectric reflection BRDF). **Do NOT patch `pdf()` to suppress the continuous
+term instead** — that would make `pdf()` match `sample()`'s current (broken)
+delta-only behavior, silently discarding the physically-correct rough-reflection
+energy the VNDF branch is meant to eventually contribute once `eval()` is fixed,
+and would corrupt the NEE MIS weight (pkg120) in the opposite direction.
+**Follow-up:** filed as a new package, tracked as
+`disney-dielectric-reflection-lobe` (architect to file the spec).
+
 ## Citations
 
 - **Walter et al. 2007.** "Microfacet Models for Refraction through Rough Surfaces."
@@ -436,27 +498,43 @@ residual (Round-2c finding 3, 3 configs — `roughness=0.3, θ=75°` × 3 metall
 values). One config's dof shifted between runs due to variable cell-pooling, not
 a defect.
 
-**Round-2c changes (this round) — unverified locally, pending coordinator re-run:**
+**Round-2c changes:**
 - `disney.cpp::pdf()` / `gpu_materials.h::gpu_disney_pdf`: wrap the VNDF-reflection
-  Fresnel-weight cosine in `std::abs()`, matching `sample()` (finding 1 fix).
+  Fresnel-weight cosine in `std::abs()`, matching `sample()`. Kept as **defensive
+  hardening** — Round 2d's Opus re-review established this was not the glass
+  root cause (see below).
 - `test_chi2_bsdf.py::test_chi2_disney_full_grid`: near-delta skip criterion fixed
   to `roughness <= 0.2` regardless of metallic (finding 2 — test/policy fix, no
   engine change); `roughness=0.3, θ=75°` now `pytest.xfail()`'d per-config with a
   precise reason citing pkg124 (finding 3).
 
-**Expected after Round 2c:**
-- `test_chi2_disney_metallic` (roughness 0.4, 0.8 across θ=0°/45°/75°) — pass
-  (confirmed Round 2b, unaffected by Round 2c changes).
-- `test_chi2_disney_diffuse` (θ=45°, roughness 1.0) — pass (confirmed Round 2b).
-- `test_chi2_disney_glass` (θ=45°, roughness 0.3, SphericalDomain) — expected pass
-  after the `abs()` fix; **not yet re-verified**, may need another iteration if the
-  shape mismatch has a second contributing cause.
+**Round-2d (Opus re-review, sign-off with required xfail):** the glass residual is
+a real, pre-existing, delta-vs-continuous sample/pdf type mismatch (see "Round 2d"
+above) — the smooth-mirror delta fallback is always taken for rough dielectric
+reflection because `eval()`'s Cspec0-based specular term is ~0 for
+`transmission_=1.0`, while `pdf()` correctly reports the continuous VNDF density
+for an event `sample()` never produces. `test_chi2_disney_glass[0.3-45]` is now
+`xfail(strict=True)` with this mechanism as the documented reason — not claimed
+fixed. The proper fix (a rough dielectric reflection lobe in `eval()`, pbrt-v4
+`DielectricBxDF` / Walter 2007 §5.1 Eq. 20) is **out of pkg123's scope**,
+follow-up filed as `disney-dielectric-reflection-lobe`.
+
+**Final gate state (pkg123 close):**
+- `test_chi2_disney_metallic` (roughness 0.4, 0.8 across θ=0°/45°/75°) — **passing**
+  (confirmed on hardware, Round 2b).
+- `test_chi2_disney_diffuse` (θ=45°, roughness 1.0) — **passing** (confirmed on
+  hardware, Round 2b).
+- `test_chi2_disney_glass` (θ=45°, roughness 0.3, SphericalDomain) —
+  **`xfail(strict=True)`**, documented pre-existing engine defect, follow-up filed.
 - `test_chi2_disney_full_grid` (slow) — 165 configs total: 45 skipped as
   grid-limited (`roughness<=0.2`, all metallic), 3 `xfail`'d (grazing residual,
-  `roughness=0.3,θ=75°`), remaining ~117 expected to pass.
+  `roughness=0.3,θ=75°`), remaining ~117 expected to pass — **pending coordinator
+  post-push re-run** (full chi² expected 0 failed given the above, plus
+  `test_disney_rough_glass_furnace.py` / `test_disney_energy_conservation.py` to
+  confirm furnace-invisibility, plus the GPU parity test).
 
 The Lambertian anchor is expected to still pass (harness not regressed). No
 production regression is *expected* — the pdf fix only affects MIS weights, not
 the unbiased estimator itself; furnace tests the latter, chi² tests the former —
-but this is **expected, unverified locally**: the team lead must confirm by running
-the furnace/white-furnace and CPU↔GPU parity suites alongside the chi² gates.
+this is being confirmed by the coordinator's post-push run of
+`test_disney_rough_glass_furnace.py` and `test_disney_energy_conservation.py`.

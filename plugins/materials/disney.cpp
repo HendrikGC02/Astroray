@@ -558,19 +558,16 @@ public:
             float etaI = entering ? 1.0f : ior_;
             float etaT = entering ? ior_ : 1.0f;
             // std::abs() matches sample()'s inline computation (disney.cpp ~431:
-            // `fresnelDielectric(std::abs(HdotO), etaI, etaT)`). Without it, this
-            // diverges for wi values `tabulate_pdf`'s full-domain quadrature queries
-            // that are far from wo (H = (wo+wi).normalized() can have wo.dot(H) < 0
-            // for such non-physical-as-a-reflection pairs); a raw signed cosine
-            // flips fresnelDielectric's internal "entering" branch (it swaps
-            // etaI/etaT for negative input), silently corrupting F in exactly the
-            // region tabulate_pdf integrates over. Evidence: glass chi² (roughness
-            // 0.3, SphericalDomain) had PDF sum ~1.0 (mass correct, mixScale fix
-            // above) but chi^2=143M/dof=1025 (shape catastrophically wrong) --
-            // consistent with a localized, angle-dependent F corruption in the
-            // analytic pdf() that sample() never exhibits (sample()'s HdotO is
-            // always >0 by construction of VNDF sampling, so its bare
-            // std::abs(HdotO) never triggers the branch, masking the asymmetry).
+            // `fresnelDielectric(std::abs(HdotO), etaI, etaT)`) and is defensive
+            // hardening against out-of-domain `wo.dot(H)` signs when `H` is
+            // reconstructed from an arbitrary query wi (tabulate_pdf's quadrature
+            // sweeps the full domain, not just plausible reflections). NOTE
+            // (Opus re-review, 2026-07-20, measured on hardware): this is NOT the
+            // root cause of the glass chi² residual (chi^2=143M/dof=1025 with the
+            // fix present). The actual mechanism is a delta-vs-continuous
+            // sample/pdf type mismatch -- see pkg121-disney-pdf-finding.md
+            // "Round 2d" and the xfail reason on test_chi2_disney_glass. Kept as
+            // harmless hardening, not claimed as a fix.
             float F = fresnelDielectric(std::abs(wo.dot(H)), etaI, etaT);
             p += transmission_ * F * microfacetReflectionPdf(rec, wo, wi);
         }

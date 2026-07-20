@@ -903,9 +903,10 @@ __device__ inline float gpu_disney_pdf(
         float etaI = entering ? 1.f : mat.ior;
         float etaT = entering ? mat.ior : 1.f;
         // fabsf() matches gpu_disney_sample's inline computation and CPU pdf()
-        // (disney.cpp: fresnelDielectric(std::abs(wo.dot(H)), ...)) -- see the
-        // CPU-side comment for why the un-abs'd signed cosine corrupts F for
-        // tabulate_pdf's full-domain query points.
+        // (disney.cpp: fresnelDielectric(std::abs(wo.dot(H)), ...)) -- defensive
+        // hardening, NOT the root cause of the glass chi² residual (Opus
+        // re-review, 2026-07-20: the actual mechanism is a delta-vs-continuous
+        // sample/pdf type mismatch, see pkg121-disney-pdf-finding.md "Round 2d").
         float F = gpu_disney_fresnelDielectric(fabsf(wo.dot(H)), etaI, etaT);
         p += mat.transmission * F * gpu_disney_microfacetReflectionPdf(mat, rec, wo, wi);
     }

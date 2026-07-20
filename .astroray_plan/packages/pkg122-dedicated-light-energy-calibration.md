@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / emitter energy correctness)
 **Track:** A (CPU-first re-derivation with a live headless-Cycles A/B oracle; GPU dedicated-light path verified on RTX once pkg89 GAP-1 lands)
 **Codex-paste-ready:** no (multi-type physical re-derivation against a live external oracle, one cross-cutting convention adjudication, and an owner-reserved reference-bank re-bless list — needs judgment at each step, not a mechanical patch)
-**Status:** open — **blocked on pkg89 GAP-1 (dedicated-light GPU upload) landing first**
+**Status:** open — **UNBLOCKED 2026-07-20: pkg89 GAP-1 landed (PR #489, dedicated lights uploaded to GPU, AREA 0.998 / POINT 0.997 parity)** — dispatchable now
 **Estimated effort:** M–L (four coupled energy defects across `AreaLight`/`PointLight`/blackbody + one convention decision that cross-cuts materials/env/reference-bank; each fix is small but each must be re-derived and validated against a live Cycles render, not guessed)
 **Depends on:** **pkg89 GAP-1** — the dedicated-light GPU-upload PR (branch `feat/pkg89-dedicated-light-gpu`). Until dedicated lights are actually resident on the GPU, the wavefront leg has nothing to calibrate; GAP-1 must land so the GPU path evaluates the same `EmissionSpectrum` / `sampleLi` energy that this package fixes on the CPU. Land order: GAP-1 → pkg122.
 

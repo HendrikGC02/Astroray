@@ -243,6 +243,11 @@ __device__ void initPathSlot(
     state.color_2[idx] = 0.0f;
     state.color_3[idx] = 0.0f;
 
+    // pkg55-C5 / pkg113: photon XYZ contrib = (0, 0, 0) for new paths.
+    state.photon_xyz_x[idx] = 0.0f;
+    state.photon_xyz_y[idx] = 0.0f;
+    state.photon_xyz_z[idx] = 0.0f;
+
     // Path flags.
     state.was_specular[idx] = 1;  // true
     state.path_alive[idx]   = 1;  // true

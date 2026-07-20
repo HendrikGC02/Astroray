@@ -26,6 +26,10 @@
 void uploadCmfTables();
 void uploadJakobHanikaLut();
 
+// pkg55-C5 / pkg113: photon caustic grid structures.
+#include "astroray/gpu_photon_caustic.h"
+#include "astroray/gpu_photon_store.h"
+
 namespace astroray::wavefront {
 
 // Forward declarations for stage launch functions from stage_advance.cu + stage_init.cu
@@ -90,7 +94,9 @@ void launchStageShadeBucketed(
     GLightTreeView    lightTree,
     int               max_depth,
     bool              useLuminanceOutput,
-    bool              enableNEE);
+    bool              enableNEE,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
+    float             photonScale);
 
 void launchStageShadeNeeMis(
     GPUWavefrontState& state,
@@ -1247,6 +1253,52 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     }
 }
 
+// pkg55-C5 / pkg113: build photon caustic aim from the scene (mirrors
+// cuda_renderer.cu:662 `buildCausticAim`).
+static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
+    const Renderer& scene, int maxDepth) {
+    astroray::photon::gpu::PhotonCausticAim aim{};
+    aim.valid = false;
+    aim.lambdaMin = 380.0f;
+    aim.lambdaMax = 720.0f;
+    aim.maxDepth  = maxDepth;
+    aim.boost     = 1.2f;   // CPU caustic_boost default (spectral_path_tracer.cpp:499)
+    aim.photonCount = 4000000;  // forward photons (≈2000² lattice); CPU traces 3e6
+
+    // Union AABB of all flagged caustic-caster objects.
+    AABB casterBounds; bool any = false;
+    for (const auto& obj : scene.getScene()) {
+        if (!obj || !obj->isCausticCaster()) continue;
+        AABB ob;
+        if (!obj->boundingBox(ob)) continue;
+        casterBounds = any ? casterBounds.merge(ob) : ob;
+        any = true;
+    }
+    if (!any) return aim;
+
+    const Vec3 casterC = casterBounds.centroid();
+    const float crad = (casterBounds.max - casterBounds.min).length() * 0.55f + 1e-3f;
+
+    const auto& lights = scene.getLights();
+    if (lights.empty()) return aim;
+
+    // Probe one light sample toward the caster centroid to get the sun direction
+    // (CPU :356-362). A fixed seed keeps the aim deterministic frame-to-frame.
+    std::mt19937 gen(12345u);
+    astroray::SampledWavelengths probe = astroray::SampledWavelengths::sampleUniform(0.5f);
+    LightSample ls;
+    lights.sample(ls, casterC, Vec3(0, 1, 0), probe, gen);
+    Vec3 sunDir = (casterC - ls.position).normalized();
+    if (sunDir.length2() < 1e-6f) return aim;
+
+    Vec3 origin0 = casterC - sunDir * (crad + 2.0f);
+    aim.sunDir         = GVec3(sunDir.x, sunDir.y, sunDir.z);
+    aim.apertureOrigin = GVec3(origin0.x, origin0.y, origin0.z);
+    aim.apertureRadius = crad;
+    aim.valid = true;
+    return aim;
+}
+
 std::vector<float> cuda_wavefront_render(
     Renderer& renderer,
     const Camera& cam,
@@ -1325,6 +1377,28 @@ std::vector<float> cuda_wavefront_render(
     GVec3 gbg = hasBg ? GVec3(bg.x, bg.y, bg.z) : GVec3(0.f);
     int worldMaxBounces = renderer.getWorldMaxBounces();
 
+    // pkg55-C5 / pkg113: scene-driven photon-map caustic pre-pass. Mirrors the MW
+    // megakernel path (multiwavelength_kernel.cu:936-962, cuda_renderer.cu:848-862).
+    // When the scene has flagged caustic-caster glass and the renderer enables photon
+    // caustics, forward-trace photons through the glass, build a resident hash grid,
+    // and hand the grid + calibrated brightness scale to the shade stage (it gathers
+    // at primary receiver hits). Gated on the OPT-IN usePhotonCaustics flag (pkg113
+    // Phase-3 transition-clean policy).
+    astroray::photon::gpu::GPhotonCausticResult caustic{};
+    caustic.ready = false;
+    if (renderer.getUsePhotonCaustics()) {
+        astroray::photon::gpu::PhotonCausticAim aim =
+            buildCausticAim(renderer, max_depth);
+        if (aim.valid) {
+            caustic = astroray::photon::gpu::cuda_photon_caustic_build(
+                d_bvhNodes, d_prims, d_tris, d_spheres, d_materials, aim);
+            if (caustic.ready) {
+                printf("[CUDA wavefront] pkg113 photon caustic: %d photons, scale %g\n",
+                       caustic.numPhotons, caustic.scale);
+            }
+        }
+    }
+
     // Per-path state: grow-only.
     if (C.stateCapacity < total_paths) {
         if (C.stateCapacity > 0) {
@@ -1385,6 +1459,10 @@ std::vector<float> cuda_wavefront_render(
         cudaMemset(state.color_1, 0, total_paths * sizeof(float));
         cudaMemset(state.color_2, 0, total_paths * sizeof(float));
         cudaMemset(state.color_3, 0, total_paths * sizeof(float));
+        // pkg55-C5 / pkg113: zero photon XYZ accumulators.
+        cudaMemset(state.photon_xyz_x, 0, total_paths * sizeof(float));
+        cudaMemset(state.photon_xyz_y, 0, total_paths * sizeof(float));
+        cudaMemset(state.photon_xyz_z, 0, total_paths * sizeof(float));
         state.num_active = total_paths;
 
         launchStageQueueIota(d_queueA, d_counts + 0, total_paths);
@@ -1434,7 +1512,9 @@ std::vector<float> cuda_wavefront_render(
                                      (int)res.lights.size(),
                                      res.totalLightPower,
                                      treeView, max_depth,
-                                     useLuminanceOutput, enableNEE);
+                                     useLuminanceOutput, enableNEE,
+                                     caustic.grid, caustic.ready,  // pkg55-C5 / pkg113
+                                     caustic.scale);
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4
@@ -1469,6 +1549,10 @@ std::vector<float> cuda_wavefront_render(
                                 cudaMemcpyDeviceToHost);
     if (de != cudaSuccess)
         throw std::runtime_error(cudaGetErrorString(de));
+
+    // pkg55-C5 / pkg113: release the resident photon grid after the render
+    // (mirrors cuda_renderer.cu:888).
+    astroray::photon::gpu::cuda_photon_caustic_free(caustic);
 
     // Final conversion (mirrors cpu_wavefront_driver lines 100-113).
     std::vector<float> rgb(size_t(total_paths) * 3);

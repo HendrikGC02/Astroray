@@ -122,6 +122,14 @@ struct GPUWavefrontState {
     float*    path_mis_pdf    = nullptr;
     float*    path_mis_weight = nullptr;
 
+    // pkg55-C5 / pkg113: photon caustic contribution (XYZ) accumulated at primary
+    // hit (bounce==0) from photonGridGatherKnn. Added to accum_xyz during regen
+    // (after spectral color→XYZ conversion), matching MW kernel's per-sample XYZ
+    // accumulation model. Zero for paths that don't hit photons.
+    float*    photon_xyz_x    = nullptr;
+    float*    photon_xyz_y    = nullptr;
+    float*    photon_xyz_z    = nullptr;
+
     // Path-continuation flags.
     int*      was_specular  = nullptr;  // 0/1
     int*      path_alive    = nullptr;  // 0 = terminated, 1 = active

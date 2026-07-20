@@ -81,6 +81,13 @@ bool allocateGPUWavefrontState(GPUWavefrontState& s, int capacity) {
     ALLOC_CHECK(s.path_mis_pdf,    capacity * sizeof(float));
     ALLOC_CHECK(s.path_mis_weight, capacity * sizeof(float));
 
+    // pkg55-C5 / pkg113: photon caustic XYZ contribution (see gpu_wavefront_state.h).
+    // Written by shadePathSlot at bounce==0 when hasPhotonGrid, read by stageRegenKernel
+    // to add to accum_xyz. Zero for paths that don't hit photons.
+    ALLOC_CHECK(s.photon_xyz_x, capacity * sizeof(float));
+    ALLOC_CHECK(s.photon_xyz_y, capacity * sizeof(float));
+    ALLOC_CHECK(s.photon_xyz_z, capacity * sizeof(float));
+
     // Path-continuation flags.
     ALLOC_CHECK(s.was_specular, capacity * sizeof(int));
     ALLOC_CHECK(s.path_alive,   capacity * sizeof(int));
@@ -131,6 +138,10 @@ void freeGPUWavefrontState(GPUWavefrontState& s) {
     cudaFree(s.path_light_pdf);
     cudaFree(s.path_mis_pdf);
     cudaFree(s.path_mis_weight);
+
+    cudaFree(s.photon_xyz_x);  // pkg55-C5
+    cudaFree(s.photon_xyz_y);
+    cudaFree(s.photon_xyz_z);
 
     cudaFree(s.was_specular);
     cudaFree(s.path_alive);

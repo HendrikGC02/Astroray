@@ -1,4 +1,44 @@
 {
+  "497": {
+    "head_sha": "b76465c42e33a89ede8c12c8353b604686fd185e",
+    "hw_artifact": "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg55-c6/test_results/verifier_pr497_run1.txt",
+    "hw_numbers": "re-verified at ADL-fix head: 64 passed/2 skipped(pre-existing)/4 xfailed(pre-existing+C6b-expected) across full wavefront+RNG+ReSTIR gate suite incl. helpers; prior run1 details in verifier_pr497_run1.txt",
+    "hw_result": "PASS",
+    "last_action": "hw_recorded",
+    "last_action_ts": "2026-07-20T13:15:09Z"
+  },
+  "498": {
+    "head_sha": "54a616241d44126cfda7bbaee9b6f1bcaa742562",
+    "hw_artifact": "C:/Users/hgcom/AppData/Local/Temp/claude/C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray/895b1471-f1d3-4aa2-aa80-a65923dc3898/scratchpad/chi2_round3.log",
+    "hw_numbers": "final: 124 passed/0 failed/45 skipped(documented near-delta grid)/8 xfailed(adjudicated: glass delta-mismatch\u2192pkg138, grazing\u2192pkg124, 4 GPU near-delta rows\u2192pkg141); chi2 163\u21920 real failures across 4 fix rounds; furnace+energy green; Opus re-review verdict SIGN-OFF-with-required-xfail, conditions met",
+    "hw_result": "PASS",
+    "last_action": "parked:ci_render_regression",
+    "last_action_ts": "2026-07-20T22:36:35Z"
+  },
+  "499": {
+    "head_sha": "b648912d37f8e21c00adae0183cdc8b7b0b77a21",
+    "hw_artifact": "scratchpad pkg125_tests.log",
+    "hw_numbers": "CPU: 24/24 pass (4 new band-awareness + test_multiwavelength). GPU spot-check: 9 passed 1 xfailed (pkg64 phase3 + gpu_multiwavelength) \u2014 no parity regression from CPU band fix",
+    "hw_result": "PASS",
+    "last_action": "indep_review:SIGN-OFF",
+    "last_action_ts": "2026-07-20T13:13:34Z"
+  },
+  "500": {
+    "head_sha": "c32eda8d925278200a8cb4b8c9ee9cefa7d95c0f",
+    "hw_artifact": "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg122/test_results/pkg122_cycles_oracle/",
+    "hw_numbers": "engine code identical to HW-verified 75234d3 (diff = 2 caustic test-scene recalibrations to correct units); caustic regression fixed: 12 passed incl test_glass_sphere_focused_caustic; prior verification: GPU==CPU 0.997-0.998, Cycles oracle 1.07-1.16x gross factors eliminated (Defect-4 residual owner-reserved)",
+    "hw_result": "PASS",
+    "last_action": "hw_recorded",
+    "last_action_ts": "2026-07-20T22:12:25Z"
+  },
+  "503": {
+    "head_sha": "9102b682912e0b326500d9e6ef43f04d7cfbe0b5",
+    "hw_artifact": "run log in session transcript",
+    "hw_numbers": "CORE GATE FAILS: test_temporal_reduces_variance no-reuse stddev=0.0719 vs temporal stddev=0.0724 (no variance reduction \u2014 temporal reuse ineffective). Masked by leftover xfail marker (implementer never un-xfailed the gate test; only visible via --runxfail). Bias tests pass (2p), capabilities 3p, build clean. Suspiciously fast runtime (0.5s) \u2014 verify the test even reaches the GPU DI driver. gpuSupported=True flip must be reverted or the reuse path fixed before merge per plan \u00a73.",
+    "hw_result": "FAIL",
+    "last_action": "gate_review_dispatched",
+    "last_action_ts": "2026-07-20T22:15:04Z"
+  },
   "impl_dispatches": {
     "pkg55-bprime-session-n1": {
       "agent_id": "accdab80d65eda639",

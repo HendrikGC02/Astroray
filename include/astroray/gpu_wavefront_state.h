@@ -130,6 +130,35 @@ struct GPUWavefrontState {
     float*    photon_xyz_y    = nullptr;
     float*    photon_xyz_z    = nullptr;
 
+    // pkg55-C6 / pkg24: ReSTIR reservoir SoA (double-buffered via persistent
+    // WfContext, swapped per frame). Layout mirrors Reservoir<ReSTIRCandidate>
+    // + PixelHistory per plan §5. Each array has length `numPixels` (NOT
+    // capacity — these are per-pixel, not per-path-slot). The driver allocates
+    // two copies (current + previous) and swaps device pointers per frame.
+    //
+    // Selected candidate y (ReSTIRCandidate, from light_sample.h):
+    float*    res_y_pos_x       = nullptr;  // candidate.position
+    float*    res_y_pos_y       = nullptr;
+    float*    res_y_pos_z       = nullptr;
+    float*    res_y_normal_x    = nullptr;  // candidate.normal
+    float*    res_y_normal_y    = nullptr;
+    float*    res_y_normal_z    = nullptr;
+    float*    res_y_emission_x  = nullptr;  // candidate.emission (RGB)
+    float*    res_y_emission_y  = nullptr;
+    float*    res_y_emission_z  = nullptr;
+    float*    res_y_pdf         = nullptr;  // candidate.pdf
+    float*    res_y_distance    = nullptr;  // candidate.distance
+    // Reservoir bookkeeping (Bitterli 2020):
+    float*    res_w_sum         = nullptr;  // Reservoir.w_sum
+    int*      res_M             = nullptr;  // Reservoir.M
+    float*    res_W             = nullptr;  // Reservoir.W (final RIS weight)
+    // PixelHistory (temporal-validity gate, frame_state.h):
+    float*    meta_normal_x     = nullptr;  // PixelHistory.normal
+    float*    meta_normal_y     = nullptr;
+    float*    meta_normal_z     = nullptr;
+    float*    meta_depth        = nullptr;  // PixelHistory.depth
+    int*      meta_valid        = nullptr;  // PixelHistory.valid (0/1)
+
     // Path-continuation flags.
     int*      was_specular  = nullptr;  // 0/1
     int*      path_alive    = nullptr;  // 0 = terminated, 1 = active

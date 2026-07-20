@@ -40,8 +40,11 @@ struct PixelHistory {
 
 // Flat, pixel-indexed buffer of reservoirs plus per-pixel history metadata.
 // Indexing: pixel (x, y) maps to index y * width + x.
+//
+// pkg55-C6: Use the explicit std::mt19937-specialized reservoir type (the
+// type alias is backward compat so this struct doesn't need to change).
 struct ReservoirBuffer {
-    std::vector<Reservoir<ReSTIRCandidate>> reservoirs;
+    std::vector<Reservoir<ReSTIRCandidate, std::mt19937>> reservoirs;
     std::vector<PixelHistory>               history;
     int width  = 0;
     int height = 0;
@@ -49,12 +52,12 @@ struct ReservoirBuffer {
     void resize(int w, int h) {
         width  = w;
         height = h;
-        reservoirs.assign(static_cast<size_t>(w * h), Reservoir<ReSTIRCandidate>{});
+        reservoirs.assign(static_cast<size_t>(w * h), Reservoir<ReSTIRCandidate, std::mt19937>{});
         history.assign(static_cast<size_t>(w * h), PixelHistory{});
     }
 
-    Reservoir<ReSTIRCandidate>&       at(int x, int y)       { return reservoirs[y * width + x]; }
-    const Reservoir<ReSTIRCandidate>& at(int x, int y) const { return reservoirs[y * width + x]; }
+    Reservoir<ReSTIRCandidate, std::mt19937>&       at(int x, int y)       { return reservoirs[y * width + x]; }
+    const Reservoir<ReSTIRCandidate, std::mt19937>& at(int x, int y) const { return reservoirs[y * width + x]; }
 
     PixelHistory&       meta(int x, int y)       { return history[y * width + x]; }
     const PixelHistory& meta(int x, int y) const { return history[y * width + x]; }
@@ -64,7 +67,7 @@ struct ReservoirBuffer {
     }
 
     void clear() {
-        std::fill(reservoirs.begin(), reservoirs.end(), Reservoir<ReSTIRCandidate>{});
+        std::fill(reservoirs.begin(), reservoirs.end(), Reservoir<ReSTIRCandidate, std::mt19937>{});
         std::fill(history.begin(),    history.end(),    PixelHistory{});
     }
 };

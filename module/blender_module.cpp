@@ -3686,7 +3686,7 @@ PYBIND11_MODULE(astroray, m) {
     // Exposed only for unit testing; not part of the production API.
     // -----------------------------------------------------------------------
     struct FloatReservoir {
-        astroray::restir::Reservoir<float> res;
+        astroray::restir::Reservoir<float, std::mt19937> res;
         std::mt19937 rng;
         explicit FloatReservoir(uint32_t seed = 42) : rng(seed) {}
         void   update(float x, float w)                           { res.update(x, w, rng); }

@@ -191,7 +191,7 @@ public:
 
             // Direct lighting: RIS initial sampling + optional temporal/spatial reuse.
             if (!rec.isDelta && !lights.empty()) {
-                Reservoir<ReSTIRCandidate> res;
+                Reservoir<ReSTIRCandidate, std::mt19937> res;
 
                 // --- Initial sampling (Algorithm 1) ---
                 // Use RGB luminance (wavelength-independent) so W values are
@@ -223,7 +223,7 @@ public:
                     if (useTemporal_) {
                         if (isTemporallyValid(frameState_.previous, px, py,
                                               rec.normal, rec.t)) {
-                            const Reservoir<ReSTIRCandidate>& prev =
+                            const Reservoir<ReSTIRCandidate, std::mt19937>& prev =
                                 frameState_.previous.at(px, py);
                             float pHatPrev = prev.y.targetLuminanceRGB();
                             res.merge(prev, pHatPrev, gen);
@@ -243,7 +243,7 @@ public:
                             if (!isTemporallyValid(frameState_.previous, nx, ny,
                                                    rec.normal, rec.t))
                                 continue;
-                            const Reservoir<ReSTIRCandidate>& nbr =
+                            const Reservoir<ReSTIRCandidate, std::mt19937>& nbr =
                                 frameState_.previous.at(nx, ny);
                             float pHatNbr = nbr.y.targetLuminanceRGB();
                             res.merge(nbr, pHatNbr, gen);

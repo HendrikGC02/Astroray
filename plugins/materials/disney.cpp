@@ -11,10 +11,12 @@ class DisneyPlugin : public Material {
     float transmission_, ior_;
     static constexpr float kDeltaTransmissionRoughness = 0.03f;
 
+    // GGX/Trowbridge-Reitz NDF (Walter 2007 Eq. 33, pbrt-v4 §9.6).
+    // D(wm) = α² / (π (1 + (α²-1)·cos²θm)²)
     float D_GTR2(float NdotH, float a) const {
         float a2 = a * a;
         float t = 1 + (a2 - 1) * NdotH * NdotH;
-        return a2 / (float(M_PI) * t * t + 0.001f);
+        return a2 / (float(M_PI) * t * t);
     }
 
     float smithG_GGX(float NdotV, float alphaG) const {
@@ -153,7 +155,8 @@ class DisneyPlugin : public Material {
         if (HdotO <= 1e-10f) return 0.0f;
 
         // PBRT-v4: reflection PDF = VNDF_PDF / (4 * |HdotO|)
-        return vndfPdf(rec.normal, wo, wm) / (4.0f * HdotO + 1e-10f);
+        // (pbrt-v4 DielectricBxDF, Walter 2007 §5.3 Jacobian).
+        return vndfPdf(rec.normal, wo, wm) / (4.0f * HdotO);
     }
 
     // PBRT-v4 DielectricBxDF::f transmission (BSD-3-Clause).
@@ -532,7 +535,9 @@ public:
             float HdotV = H.dot(wo);
             if (NdotH > 0.0f && HdotV > 0.0f) {
                 float D = D_GTR2(NdotH, a);
-                p += (D * NdotH / (4 * HdotV + 0.001f)) * (specWeight / total);
+                // GGX reflection PDF: p(wi) = D(wm)·(wm·n) / (4·(wo·wm))
+                // (Walter 2007 §5.3, pbrt-v4 §9.6 Eq. 9.24).
+                p += (D * NdotH / (4.0f * HdotV)) * (specWeight / total);
             }
         }
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {

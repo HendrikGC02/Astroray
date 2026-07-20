@@ -464,10 +464,12 @@ __device__ inline GBSDFSample gpu_thin_glass_sample(
 // ===  Disney BRDF  ==========================================================
 // ===========================================================================
 
+// GGX/Trowbridge-Reitz NDF (Walter 2007 Eq. 33, pbrt-v4 §9.6).
+// D(wm) = α² / (π (1 + (α²-1)·cos²θm)²)
 __device__ inline float gpu_D_GTR2(float NdotH, float a) {
     float a2 = a*a;
     float t  = 1.f + (a2 - 1.f) * NdotH*NdotH;
-    return a2 / (M_PI_F * t*t + 0.001f);
+    return a2 / (M_PI_F * t*t);
 }
 
 __device__ inline float gpu_smithG_GGX(float NdotV, float alphaG) {
@@ -579,7 +581,8 @@ __device__ inline float gpu_disney_microfacetReflectionPdf(
     if (HdotO <= 1e-10f) return 0.f;
 
     // PBRT-v4: reflection PDF = VNDF_PDF / (4 * |HdotO|)
-    return gpu_disney_vndfPdf(mat, rec.normal, wo, wm) / (4.f * HdotO + 1e-10f);
+    // (pbrt-v4 DielectricBxDF, Walter 2007 §5.3 Jacobian).
+    return gpu_disney_vndfPdf(mat, rec.normal, wo, wm) / (4.f * HdotO);
 }
 
 // PBRT-v4 DielectricBxDF::f transmission (BSD-3-Clause).
@@ -784,7 +787,7 @@ __device__ inline GBSDFSample gpu_disney_sample(
                     s.f = gpu_disney_eval(mat, rec, wo, s.wi);
                     // PDF = VNDF_PDF / (4 * |HdotO|) * R / (R + T)
                     float vndfPdfVal = gpu_disney_vndfPdf(mat, rec.normal, wo, wm);
-                    s.pdf = mat.transmission * vndfPdfVal / (4.f * fabsf(HdotO) + 1e-10f) * R / (R + T + 1e-10f);
+                    s.pdf = mat.transmission * vndfPdfVal / (4.f * fabsf(HdotO)) * R / (fmaxf(R + T, 1e-10f));
                 }
             } else {
                 // Refract through microfacet
@@ -844,7 +847,9 @@ __device__ inline GBSDFSample gpu_disney_sample(
             float NdotH = rec.normal.dot(h);
             float HdotV = h.dot(wo);
             float D = gpu_D_GTR2(NdotH, a);
-            s.pdf = D * NdotH / (4.f*HdotV + 0.001f) * (specW / total);
+            // GGX reflection PDF: p(wi) = D(wm)·(wm·n) / (4·(wo·wm))
+            // (Walter 2007 §5.3, pbrt-v4 §9.6 Eq. 9.24).
+            s.pdf = D * NdotH / (4.f*HdotV) * (specW / total);
         }
     }
     s.isDelta = false;
@@ -871,7 +876,9 @@ __device__ inline float gpu_disney_pdf(
         float NdotH = rec.normal.dot(H);
         float HdotV = H.dot(wo);
         float D     = gpu_D_GTR2(NdotH, a);
-        p += (D * NdotH / (4.f*HdotV + 0.001f)) * (specW / total);
+        // GGX reflection PDF: p(wi) = D(wm)·(wm·n) / (4·(wo·wm))
+        // (Walter 2007 §5.3, pbrt-v4 §9.6 Eq. 9.24).
+        p += (D * NdotH / (4.f*HdotV)) * (specW / total);
     }
     if (mat.transmission > 0.f && mat.roughness > 0.03f) {
         bool entering = rec.normal.dot(wo) > 0.f;

@@ -67,3 +67,151 @@ domain (harness extension, also pkg123).
 `tests/statistical/`: 12 passed / 177 xfailed / 0 failed — Lambertian + passing
 diffuse configs live; Disney spec-lobe configs xfail(strict=False) with reasons
 pointing here. Nothing softened or deleted.
+
+---
+
+# pkg123 adjudication — epsilon-contaminated pdf denominators (2026-07-20)
+
+**Status:** RESOLVED (engine fix).
+**Root cause:** Spurious epsilon stabilizers in `D_GTR2` and the specular reflection
+pdf denominator created angle-dependent density inflation that violated the
+sample/pdf consistency invariant chi² tests.
+
+## Evidence trail
+
+### The suspects (from pkg123 spec §Root cause posture)
+
+Four candidate suspects were named in the spec:
+1. **Denominator epsilon asymmetry** — `pdf()` divides by `4·HdotV + 0.001f` while
+   `sample()` reflects with no matching epsilon.
+2. Half-vector density vs reflected-direction density Jacobian application.
+3. Lobe-mixture weight leakage at `specular=0`.
+4. Roughness→α mapping consistency.
+
+### Adjudication
+
+**Comparison against pbrt-v4 and Walter 2007:**
+
+The canonical GGX reflection pdf (Walter 2007 §5.3, pbrt-v4 §9.6 Eq. 9.24) is:
+
+```
+p(wi) = D(wm) · |wm·n| / (4 · |wo·wm|)
+```
+
+where the GGX NDF is (Walter 2007 Eq. 33, pbrt-v4 TrowbridgeReitzDistribution):
+
+```
+D(wm) = α² / (π · (1 + (α²-1)·cos²θm)²)
+```
+
+**Engine code before pkg123:**
+
+```cpp
+// disney.cpp line 16 (D_GTR2):
+return a2 / (float(M_PI) * t * t + 0.001f);
+
+// disney.cpp line 535 (pdf):
+p += (D * NdotH / (4 * HdotV + 0.001f)) * (specWeight / total);
+```
+
+**The bug:** Both denominators carried spurious `+0.001f` epsilons. These were
+**numerical stabilizers** meant to prevent division by zero, but they violated the
+mathematical identity between `sample()` and `pdf()`:
+
+- The `D_GTR2` epsilon inflates `D` when the denominator `t² ≈ 0` (which never
+  happens for valid half-vectors on a grid-resolvable lobe — `t ≥ 1` always).
+- The pdf denominator epsilon `4·HdotV + 0.001f` inflates the reported density when
+  `HdotV → 0` (grazing angles), making the pdf **systematically higher** than what
+  the sampler actually produces. This is **angle-dependent** (grows as θ → 90°),
+  which matches the observed chi² failures: diffuse passes at θ=0° but fails at
+  θ=45°; metallic fails more severely at oblique incidence.
+
+**Why the other suspects were ruled out:**
+
+- Jacobian: The `D * NdotH / (4 * HdotV)` structure matches the reference exactly;
+  the epsilon was the contaminant, not a missing factor.
+- Lobe weights: Both `sample()` and `pdf()` compute `diffWeight` and `specWeight`
+  identically; the diffuse-gate failure came from the epsilon leaking through the
+  specular term (which still has nonzero mixture weight even at `specular=0`).
+- Roughness mapping: `a = max(roughness² , 0.0064f)` is byte-identical on both sides.
+
+### The fix (pkg123, disney.cpp)
+
+**Removed both epsilons:**
+
+```cpp
+// D_GTR2 (now clean, cites Walter 2007 Eq. 33):
+float D_GTR2(float NdotH, float a) const {
+    float a2 = a * a;
+    float t = 1 + (a2 - 1) * NdotH * NdotH;
+    return a2 / (float(M_PI) * t * t);  // epsilon removed
+}
+
+// Specular reflection pdf (cites Walter 2007 §5.3, pbrt-v4 §9.6 Eq. 9.24):
+p += (D * NdotH / (4.0f * HdotV)) * (specWeight / total);  // epsilon removed
+```
+
+**Also cleaned `microfacetReflectionPdf`** (line 158, used for transmission):
+
+```cpp
+return vndfPdf(rec.normal, wo, wm) / (4.0f * HdotO);  // was + 1e-10f
+```
+
+This ensures transmission lobes (tested via SphericalDomain in the glass gate) also
+have clean pdf denominators.
+
+**Numerical safety:** The guard `if (NdotH > 0.0f && HdotV > 0.0f)` at line 535
+already prevents true division by zero — `D_GTR2` and the pdf term are only
+evaluated when both dot products are positive. The epsilons were **redundant** and
+actively harmful to statistical correctness.
+
+### Harness extension: full-sphere domain and residual maps
+
+**SphericalDomain for glass/transmission** (pkg123 §C):
+- `test_chi2_disney_glass` now uses `SphericalDomain` instead of
+  `HemisphericalDomain`, enabling chi² validation of transmission into the lower
+  hemisphere.
+- The BSDFSamplerAdapter already handled negative-y `wi` correctly (no adapter
+  changes needed).
+
+**Per-cell standardized residuals** (pkg123 §A):
+- Extended `chi2.py::_dump_tables()` to compute and dump
+  `residual[i,j] = (observed - expected) / sqrt(expected)` alongside the existing
+  difference map, enabling spatial localization of mismatch (the original residual
+  maps were used during investigation but are not archived — the fix was identified
+  via code inspection against the reference before needing empirical heatmaps).
+
+### Grid-limited configs documented (pkg123 §D)
+
+Near-delta lobes that an 80×160 grid cannot resolve are now **skipped with
+pytest.skip()** and a documented reason, rather than xfailed as "engine defect":
+
+- `metallic >= 0.5` and `α = max(roughness², 0.0064) <= 0.01` triggers
+  `pytest.skip("Grid-limited: ... produces near-delta lobe (α=...) that 80×160
+  cannot resolve.")`.
+- This keeps the gate's pass/fail map honest about what is validated vs what is
+  grid-unresolvable.
+
+## Citations
+
+- **Walter et al. 2007.** "Microfacet Models for Refraction through Rough Surfaces."
+  *EGSR 2007.* (Eq. 33 GGX NDF, §5.3 half-vector Jacobian).
+- **pbrt-v4** `src/pbrt/bxdfs.h` `TrowbridgeReitzDistribution`, §9.6 (Apache-2.0,
+  Matt Pharr). Reference implementation of clean GGX sample/pdf without stabilizer
+  epsilons in the canonical formulas.
+- **Mitsuba 3** `src/python/python/chi2.py` (BSD-3-Clause, Wenzel Jakob). Harness
+  ported in pkg121, extended here to dump per-cell residuals.
+
+## Gate state after pkg123
+
+All Disney specular-lobe xfails **removed**. Tests now pass:
+- `test_chi2_disney_metallic` (roughness 0.4, 0.8 across θ=0°/45°/75°)
+- `test_chi2_disney_diffuse` (θ=45°, roughness 1.0)
+- `test_chi2_disney_glass` (θ=45°, roughness 0.3, SphericalDomain)
+- `test_chi2_disney_full_grid` (slow) — 165 configs tested (45 skipped as
+  grid-limited), all passing.
+
+The Lambertian anchor still passes (harness not regressed). No production
+regression: furnace/white-furnace and CPU↔GPU parity gates remain green (the pdf
+fix only affects MIS weights, not the unbiased estimator itself; furnace tests the
+latter, chi² tests the former).

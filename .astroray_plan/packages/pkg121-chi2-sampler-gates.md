@@ -3,7 +3,7 @@
 **Pillar:** 3 (correctness / testing infrastructure)
 **Track:** A
 **Codex-paste-ready:** no (CPU-side test infra, BSDF binding decisions need owner review)
-**Status:** in progress (spec+impl landed together for owner-window speed, sanctioned by team lead)
+**Status:** Phase A done (PR #485, 2026-07-19 — Mitsuba 3 chi² harness ported BSD-3-Clause + `debug_bsdf_*_batch` CPU bindings; Lambertian anchor PASSES p=0.23; Disney spec-lobe failures xfail'd and escalated to pkg123; finding doc rewritten post-merge b7895ac). Phase B (validation campaign + visual gallery) open — first gallery already rendered at `test_results/chi2_visuals_2026-07/` (3 figures incl. the pkg123 residual-map).
 
 **Estimated effort:** M (1–2 sessions)
 

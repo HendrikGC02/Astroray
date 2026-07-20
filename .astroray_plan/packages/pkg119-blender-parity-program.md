@@ -3,7 +3,7 @@
 **Pillar:** 5 (Blender addon / integration)
 **Track:** A (addon/Python-heavy; headless-Blender introspection is CPU; render legs need RTX — serialize GPU with other work per repo rule)
 **Codex-paste-ready:** no (large, staged; headless-Blender API introspection + Cycles-oracle render legs + UI/log surface)
-**Status:** Phase A done (PR #487, 2026-07-19 — 163 SUPPORTED, 9 APPROXIMATED, 250 DROPPED-SILENT, 0 UNKNOWN-CRASH; 422 total features); Phases B+C open
+**Status:** Phase A done (PR #487, 2026-07-19 — v4 Final AST-scanned coverage matrix, helper-method reads included: 131 SUPPORTED / 23 APPROXIMATED / 370 DROPPED-SILENT / 0 UNKNOWN / 20 stale sockets of 524 socket-level features; reworked four times under adversarial review to kill fake-SUPPORTED / anti-flattering swings); Phases B+C open
 **Estimated effort:** M–L, phased (A: coverage matrix generator; B: differential harness; C: graceful-degradation policy)
 **Depends on:** none hard — this package *builds the measurement system*, it does not fix the red cells it finds.
 **Builds on / relates to:** pkg115 (adopted Blender shader-node textures — the translation layer this matrix audits), pkg57 (additive custom-node pattern + `convert_shader_node` dispatch), pkg89 (dedicated lights; its known GPU gaps are pre-classified red cells — see Context), pkg71 (Cycles-parity benchmark: paired Cycles/Astroray render legs + SSIM), pkg104 (`benchmarks/reference_bank/` — Cycles-as-oracle blessing + SSIM/ΔE metrics reused by Phase B).

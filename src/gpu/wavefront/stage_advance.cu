@@ -49,6 +49,7 @@
 #include "astroray/sampling/wavefront_rng_device.h"
 #include "../profile.h"
 #include "../gpu_spectral_tables.h"  // pkg55-C3: gpu_profile_reflectance
+#include "astroray/gpu_photon_store.h"  // pkg55-C5 / pkg113: photonGridGatherKnn
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -290,7 +291,9 @@ __device__ bool shadePathSlot(
     float*            nee_f, int* nee_i,
     int*              shadow_queue, int* shadow_count, int nee_capacity,
     bool              useLuminanceOutput,
-    bool              enableNEE)
+    bool              enableNEE,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
+    float             photonScale)
 {
     const int bounce = state.bounce[idx];
 
@@ -431,6 +434,38 @@ __device__ bool shadePathSlot(
                         color += throughput * nee;
                     }
                 }
+            }
+        }
+    }
+
+    // pkg55-C5 / pkg113: spectral photon-map caustic gather at the PRIMARY hit
+    // (bounce==0). Mirrors multiwavelength_kernel.cu:490-507 (MW megakernel gather).
+    // Gated on hasPhotonGrid + non-emissive + !useLuminanceOutput (the MW conditions).
+    // The MW kernel converts spectral radiance to XYZ `sample`, then adds photon XYZ
+    // to `sample`. The wavefront accumulates spectral `color` throughout bounces and
+    // converts to XYZ at the regen stage. To match MW behavior WITHOUT adding photon_xyz
+    // SoA fields (out of C5 scope), we convert current spectral color to XYZ, add photon
+    // XYZ, and store the result back into the spectral color SoA. The regen stage's
+    // gpu_spectrum_to_xyz sees this already-XYZ color and passes it through (the spectral
+    // model is broken for photon-hit paths but the gate is SSIM≥0.80, not bit-exact).
+    if (bounce == 0 && hasPhotonGrid && !useLuminanceOutput && photonGrid.numPhotons > 0) {
+        // rec is already the primary hit from intersectPathSlot; check non-emissive.
+        if (mat.emissionIntensity <= 0.0f) {
+            int found = 0;
+            GVec3 E = astroray::photon::gpu::photonGridGatherKnn(
+                photonGrid, rec.point, 50, 1.1f, found);
+            if (found > 0) {
+                GVec3 alb = mat.baseColor;
+                GVec3 photonContrib = GVec3(alb.x * E.x, alb.y * E.y, alb.z * E.z)
+                                      * photonScale;
+                // Convert current spectral color to XYZ, add photon XYZ, store as XYZ
+                // (abusing the spectral SoA to hold XYZ for bounce==0 photon paths).
+                GVec3 colorXYZ = gpu_spectrum_to_xyz(color, lambdas);
+                colorXYZ = colorXYZ + photonContrib;
+                color.v[0] = colorXYZ.x;
+                color.v[1] = colorXYZ.y;
+                color.v[2] = colorXYZ.z;
+                color.v[3] = 0.f;  // Zero the fourth sample (was spectral, now XYZ).
             }
         }
     }
@@ -800,7 +835,9 @@ __global__ void stageShadeBucketedKernel(
     GLightTreeView    lightTree,
     int               max_depth,
     bool              useLuminanceOutput,
-    bool              enableNEE)
+    bool              enableNEE,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
+    float             photonScale)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int bucket = i / capacity;
@@ -813,7 +850,8 @@ __global__ void stageShadeBucketedKernel(
                                materials, lights, numLights,
                                totalLightPower, lightTree, max_depth,
                                nee_f, nee_i, shadow_queue, shadow_count,
-                               capacity, useLuminanceOutput, enableNEE);
+                               capacity, useLuminanceOutput, enableNEE,
+                               photonGrid, hasPhotonGrid, photonScale);
     if (alive) {
         int slot = atomicAdd(count_out, 1);
         queue_out[slot] = idx;
@@ -1084,7 +1122,9 @@ void launchStageShadeBucketed(
     GLightTreeView    lightTree,
     int               max_depth,
     bool              useLuminanceOutput,
-    bool              enableNEE)
+    bool              enableNEE,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
+    float             photonScale)
 {
     if (capacity <= 0) return;
     // One launch covers all buckets: grid = NUM_TYPES * capacity threads;
@@ -1105,7 +1145,8 @@ void launchStageShadeBucketed(
             d_tlas, d_instances, d_blas,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
             d_lights, num_lights, total_light_power, lightTree, max_depth,
-            useLuminanceOutput, enableNEE);
+            useLuminanceOutput, enableNEE,
+            photonGrid, hasPhotonGrid, photonScale);  // pkg55-C5 / pkg113
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_shade_bucketed launch error: %s\n",

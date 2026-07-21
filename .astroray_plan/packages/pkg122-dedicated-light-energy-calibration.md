@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / emitter energy correctness)
 **Track:** A (CPU-first re-derivation with a live headless-Cycles A/B oracle; GPU dedicated-light path verified on RTX once pkg89 GAP-1 lands)
 **Codex-paste-ready:** no (multi-type physical re-derivation against a live external oracle, one cross-cutting convention adjudication, and an owner-reserved reference-bank re-bless list — needs judgment at each step, not a mechanical patch)
-**Status:** open — **UNBLOCKED 2026-07-20: pkg89 GAP-1 landed (PR #489, dedicated lights uploaded to GPU, AREA 0.998 / POINT 0.997 parity)** — dispatchable now
+**Status:** in review — **implementation on branch `pkg122-light-energy-calibration` (PR pending)**. Defects 1–3 (AREA solid-angle-pdf measure, POINT/SPOT `1/(4π)` intensity, BLACKBODY photopic normalization) + DISTANT irradiance fix re-derived against Cycles `kernel/light/{area,point,spot,distant}.h` + `scene/light.cpp` (research note: `.astroray_plan/docs/pkg122-light-energy-calibration-research.md`); GPU `gpu_nee.cuh` mirrored for parity; regression gates in `tests/test_pkg122_light_energy_calibration.py`. **Defect 4 (RGBIlluminant vs RGBUnbounded) deliberately DEFERRED** — needs a live-Cycles A/B build (implementer has no MSVC vcvars) and is owner-reserved (moves the reference bank). Team-lead builds, runs the gates, RTX-verifies GPU==CPU, and produces the re-bless deltas.
 **Estimated effort:** M–L (four coupled energy defects across `AreaLight`/`PointLight`/blackbody + one convention decision that cross-cuts materials/env/reference-bank; each fix is small but each must be re-derived and validated against a live Cycles render, not guessed)
 **Depends on:** **pkg89 GAP-1** — the dedicated-light GPU-upload PR (branch `feat/pkg89-dedicated-light-gpu`). Until dedicated lights are actually resident on the GPU, the wavefront leg has nothing to calibrate; GAP-1 must land so the GPU path evaluates the same `EmissionSpectrum` / `sampleLi` energy that this package fixes on the CPU. Land order: GAP-1 → pkg122.
 
@@ -282,12 +282,23 @@ complaint (pkg115 texture-grid finding, re-confirmed 2026-06-12, root-caused
 
 ## Progress
 
-- [ ] A — AreaLight measure re-derivation (`area.h`); size-independence verified.
-- [ ] B — PointLight re-derivation (`point.h`); SpotLight/DistantLight confirmed.
-- [ ] C — Blackbody photopic normalization (Q11), white-tint path included.
-- [ ] D — Emission-spectrum convention adjudicated once; applied uniformly.
-- [ ] E — Live-Cycles A/B harness + per-type gates; GPU leg RTX-verified post-GAP-1.
-- [ ] Owner re-bless list delivered with measured deltas.
+- [x] A — AreaLight measure re-derivation (`area.h`): plain-radiance emission +
+      solid-angle pdf `dist²/(area·cosθ)` (was area-measure `1/area`, breaking MIS).
+      Size-independence gated in `test_area_light_size_independence`; live-Cycles
+      ratio pending team-lead build.
+- [x] B — PointLight re-derivation (`point.h`): intensity `I = P/(4π)` (was `P/π`,
+      the 4× ≈ audit's 3.59×). SpotLight re-derived (same `1/(4π)`, delta pdf; was
+      `1/π`+`1/coneSA`). DistantLight re-derived (carry radiance `S/Ω`; was `Ω×` too
+      dim ≈ black sun).
+- [x] C — Blackbody photopic normalization (Q11): divide by integrated luminance;
+      applied on the white-tint path too. `test_blackbody_temperature_stability`.
+- [ ] D — Emission-spectrum convention: **DEFERRED** (needs live-Cycles build +
+      owner re-bless). Analysis in the research note; `evalRGB` left as `RGBIlluminant`.
+- [~] E — Per-type CPU gates land (`tests/test_pkg122_light_energy_calibration.py`).
+      GPU `gpu_nee.cuh` mirrored; RTX GPU==CPU verify + live-Cycles A/B are the
+      team-lead's post-build step (implementer cannot build the `.pyd`/CUDA).
+- [ ] Owner re-bless list — enumerated qualitatively in the research note; measured
+      deltas require the build (implementer does NOT re-bless).
 
 ---
 

@@ -40,7 +40,6 @@ Ephemerals (spawned per tick by the orchestrator, NOT persistent):
 - `package-implementer` per dispatched package, each in its own isolated worktree.
 - `hardware-verifier` per HW gate, **serialized by the GPU lock** (see below).
 - `gate-failure-reviewer` per failure.
-- `codex-implementer` for Track-E codex-paste-ready specs.
 
 ## Hardware mutex (non-negotiable)
 

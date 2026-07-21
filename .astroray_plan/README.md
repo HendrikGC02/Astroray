@@ -10,7 +10,7 @@ engine is in this folder. Drop it into the repo root as `.astroray_plan/`.
    five pillars, 12-week view. Read first.
 2. **[`docs/STATUS.md`](docs/STATUS.md)** — current state. Updated weekly.
 3. **[`docs/NEXT_STAGE_REPORT.md`](docs/NEXT_STAGE_REPORT.md)** — current
-   Codex orientation report and recommended next work.
+   orientation report and recommended next work.
 4. Pick a package from **[`packages/`](packages/)** and go.
 
 ## Structure
@@ -21,7 +21,7 @@ engine is in this folder. Drop it into the repo root as `.astroray_plan/`.
 ├── docs/                          ← design documentation
 │   ├── ROADMAP.md                ← start here
 │   ├── STATUS.md                 ← current state
-│   ├── NEXT_STAGE_REPORT.md      ← Codex orientation + next-stage report
+│   ├── NEXT_STAGE_REPORT.md      ← orientation + next-stage report
 │   ├── local-agent-integration.md← local model integration plan
 │   ├── plugin-architecture.md    ← Pillar 1 design
 │   ├── spectral-core.md          ← Pillar 2 design
@@ -31,7 +31,6 @@ engine is in this folder. Drop it into the repo root as `.astroray_plan/`.
 │   └── external-references.md    ← libraries, data, papers
 ├── agents/                        ← per-agent handbooks
 │   ├── claude-code.md            ← track A
-│   ├── codex.md                  ← Codex repo/GitHub/coordination workflow
 │   ├── copilot-cloud.md          ← track B
 │   ├── copilot-instructions.md   ← copy to .github/copilot-instructions.md
 │   ├── copilot-setup-steps.yml   ← copy to .github/workflows/
@@ -63,7 +62,7 @@ engine is in this folder. Drop it into the repo root as `.astroray_plan/`.
 | **B. Copilot cloud** | Self-contained features | New plugins matching an existing pattern | Education Premium |
 | **C. Cline + local model** | Prototype and experimentation | "Does X even work?" exploration | Free (your RTX 5070 Ti) |
 | **D. Ralph loop** | Background grind (tests, docs) | Small, mechanical, verifiable tasks | Free (your GPU, idle time) |
-| **E. Codex** | Repo setup, PR/issue orchestration, targeted fixes, reviews | Handoffs, CI/debug, scoped implementation, next-step reports | ChatGPT/Codex plan or local mode |
+| **E. Codex** | Retired 2026-07 (owner no longer uses Codex) | Legacy `Track: E` specs route to Claude Code (`package-implementer`) | — |
 
 ## Weekly rhythm
 

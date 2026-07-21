@@ -213,3 +213,5 @@ Specs filed have enough detail (literature citations, file paths,
 acceptance criteria) that the next implementer can pick up cold.
 
 — Claude, signing off.
+
+<!-- finalized -->

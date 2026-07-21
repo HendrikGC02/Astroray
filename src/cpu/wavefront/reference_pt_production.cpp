@@ -144,7 +144,9 @@ SampledSpectrum tracePathSpectral(
                     SampledSpectrum L_spec = ls.emission_spec;
                     float bsdfPdf = rec.material->pdf(rec, wo, wi);
                     float a = ls.pdf, b = bsdfPdf;
-                    float wt = (a * a) / (a * a + b * b + 1e-8f);
+                    // pkg140: see raytracer.h pathTraceSpectral's identical comment
+                    // -- delta-light NEE samples always get full MIS weight.
+                    float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                     SampledSpectrum nee_contribution = f_spec * L_spec * (wt / (ls.pdf + 0.001f));
                     color += throughput * nee_contribution;
 

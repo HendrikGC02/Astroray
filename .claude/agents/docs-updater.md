@@ -1,7 +1,7 @@
 ---
 name: docs-updater
 description: Round closeout — flip spec statuses for landed packages, update STATUS.md / ROADMAP.md / NEXT_STAGE_REPORT.md, open a single doc PR. Triggered by /close-round or automatically when N packages close.
-model: claude-sonnet-4-5
+model: claude-sonnet-5
 tools:
   - Read
   - Write

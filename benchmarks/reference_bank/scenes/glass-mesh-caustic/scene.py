@@ -77,8 +77,20 @@ def make_scene(astroray):
     # focused caustic streak landing on the floor to the left of the crystal.
     # Strong so the crystal casts a clear shadow (vs the dimmed ambient) for the
     # caustic to land inside.
-    r.add_sun_light_dedicated(_norm([-0.92, -0.33, 0.04]), 0.02,
-                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 16.0)
+    #
+    # pkg122: the DISTANT light now delivers its "Strength" as IRRADIANCE S
+    # directly (Cycles convention); the old units delivered S*Omega (near-black
+    # for a small sun). This scene's intensity 16.0 was calibrated to the broken
+    # units, whose effective irradiance was 16.0*Omega. Pass that same effective
+    # value so the direct-floor level (and the shadow contrast against the
+    # caustic) is byte-identical to pre-pkg122. See glass-sphere-caustic for the
+    # full rationale. (Local showcase; CI does not render this scene.)
+    _sun_dir = [-0.92, -0.33, 0.04]
+    _sun_ang = 0.02
+    _sun_omega = 2.0 * math.pi * (1.0 - math.cos(_sun_ang * 0.5))  # disk solid angle
+    _sun_irradiance = 16.0 * _sun_omega  # ~5.03e-3; preserves the pre-pkg122 balance
+    r.add_sun_light_dedicated(_norm(_sun_dir), _sun_ang,
+                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, _sun_irradiance)
 
     # Mid-grey studio floor catches the caustic and lets it pop.
     floor = r.create_material("lambertian", [0.62, 0.63, 0.66], {})

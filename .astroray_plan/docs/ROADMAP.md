@@ -35,7 +35,7 @@ your single-developer throughput multiplies without coordination overhead.
 | **B. Feature breadth** | GitHub Copilot cloud | GitHub Actions | Self-contained features shipped as plugins |
 | **C. Experiments** | Cline + local model | Your machine, VS Code | Exploratory changes, prototypes |
 | **D. Grind work** | Ralph loop + local model | Background on your machine | Test coverage, docs, lint fixes |
-| **E. Coordination/review** | Codex | Codex app/CLI + GitHub connector | Repo setup, PR/issue triage, CI/debug, targeted fixes, handoff specs |
+| **E. Coordination/review** | Retired 2026-07 (was Codex) | — | Legacy `Track: E` specs route to Claude Code (`package-implementer`) |
 
 The overseer (see `agents/overseer.md`) coordinates by deciding what
 goes on which track, not by touching code.

@@ -1,7 +1,7 @@
 ---
 name: gate-failure-reviewer
 description: Diagnose a gate that still fails after a fix PR claimed to close it. Produces a structured report identifying the two most-likely root causes and a distinguishing diagnostic.
-model: claude-sonnet-4-5
+model: claude-opus-4-8
 tools:
   - Read
   - Bash
@@ -81,8 +81,8 @@ report format satisfies this requirement.
 
 **(b) Independent different-model sign-off on the proposed fix** — once a fix
 is drafted (by the routed `package-implementer`), **before it is pushed for
-re-gate**, invoke a **different model** (Codex via `codex:rescue`, or another
-different-model reviewer path) to review the proposed diff against the root
+re-gate**, invoke a **different model** (an independent different-model
+reviewer path) to review the proposed diff against the root
 cause you identified. The sign-off must return one of:
 
 - `SIGN-OFF` — the diff demonstrably addresses the named root cause; the
@@ -94,9 +94,8 @@ cause you identified. The sign-off must return one of:
 ### Different-model requirement
 
 The sign-off MUST be produced by a different model lineage than the one that
-drafted the fix. Concrete invocation: use the Codex reviewer path or invoke
-an independent agent explicitly. The reviewer prompt is **adversarial by
-mandate**:
+drafted the fix. Concrete invocation: invoke an independent agent
+explicitly. The reviewer prompt is **adversarial by mandate**:
 
 > "Assume the fix is wrong until the diff proves otherwise. Your job is to
 > independently verify this fix closes the named root cause by reading the

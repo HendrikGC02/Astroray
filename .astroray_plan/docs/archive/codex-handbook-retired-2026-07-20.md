@@ -1,4 +1,8 @@
-# Codex Handbook
+# Codex Handbook (RETIRED 2026-07-20)
+
+> **Retired.** The owner no longer uses Codex. Kept for historical context only
+> (moved from `.astroray_plan/agents/codex.md`). Specs with legacy
+> `Codex-paste-ready` / `Track: E` tags now route to `package-implementer`.
 
 **Role:** repo-integrated engineering agent. Codex is best used for fast local
 orientation, scoped implementation, GitHub issue/PR triage, CI/debug follow-up,

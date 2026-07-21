@@ -102,13 +102,11 @@ __device__ inline GNEESample gpu_dedicated_sample(
                    att = t * t * (3.f - 2.f * t); }  // Cycles cubic Hermite smoothstep
             geo *= att;
         }
-        float pdf;
-        if (d.kind == GDED_SPOT) {
-            float coneSA = 2.f * M_PI_F * (1.f - d.cosOuter);
-            pdf = (d.radius > 0.f) ? (1.f / (coneSA * d.radius * d.radius)) : (1.f / coneSA);
-        } else {
-            pdf = (d.radius > 0.f) ? (1.f / (4.f * M_PI_F * d.radius * d.radius)) : 1.f;
-        }
+        // pkg122: point AND spot use the same measure — radius-0 is a delta
+        // light (pdf = 1; the 1/d² and, for spot, the cone attenuation are baked
+        // into dedGeoScale via staticScale = intensity·1/(4π)); radius>0 uses the
+        // sphere-surface pdf 1/(4π·r²). Mirrors the CPU {point,spot}_light.cpp.
+        float pdf = (d.radius > 0.f) ? (1.f / (4.f * M_PI_F * d.radius * d.radius)) : 1.f;
         s.wi          = (sampledPos - shadingPoint) * (1.f / dist);
         s.maxDist     = dist - 0.001f;
         s.lightPdf    = pdf * selPdf;
@@ -145,8 +143,11 @@ __device__ inline GNEESample gpu_dedicated_sample(
         if (cosTheta <= 0.f || cosTheta < cosf(d.spread)) return s;
         s.wi          = (sampledPos - shadingPoint) * (1.f / dist);
         s.maxDist     = dist - 0.001f;
-        s.lightPdf    = (1.f / area) * selPdf;
-        s.dedGeoScale = d.staticScale * (cosTheta / (dist * dist));
+        // pkg122 (Defect 1): plain-radiance emission (staticScale) + SOLID-ANGLE
+        // pdf (pdf_A·dist²/cosθ) so the integrator's MIS is measure-consistent.
+        // Mirrors the CPU area_light.cpp::sampleLi fix.
+        s.lightPdf    = ((dist * dist) / (area * cosTheta)) * selPdf;
+        s.dedGeoScale = d.staticScale;
         s.valid       = 1;
         return s;
     }
@@ -161,11 +162,28 @@ __device__ inline GNEESample gpu_dedicated_sample(
             GVec3 tu, tv; gpu_buildONB(w, tu, tv);
             dir = (w + tu * (rr * cosf(phi)) + tv * (rr * sinf(phi))).normalized();
         }
-        float solidAngle = 2.f * M_PI_F * (1.f - d.cosOuter);
+        // pkg122 (Distant): Blender sun strength is IRRADIANCE S; carry radiance
+        // L = S/Ω in dedGeoScale so the L/pdf divide reconstructs S. Delta sun
+        // (Ω→0) delivers S directly with pdf = 1. Mirrors CPU distant_light.cpp.
+        // pkg140: d.spread carries the host-precomputed solid angle (2*sin^2(h/2)
+        // identity, distant_light.cpp distantSolidAngle(), uploaded in
+        // fillDeviceParams) instead of recomputing 2*pi*(1-cosOuter) here, which
+        // would suffer the same cancellation the CPU fix addresses -- cosOuter
+        // itself already lost the small-angle precision once rounded to float32,
+        // so recomputing on-device can't recover it.
+        float solidAngle = d.spread;
         s.wi          = dir;
         s.maxDist     = 1e30f;
-        s.lightPdf    = ((solidAngle > 1e-8f) ? (1.f / solidAngle) : 1e30f) * selPdf;
-        s.dedGeoScale = d.staticScale;
+        if (solidAngle > 0.f) {
+            s.lightPdf    = (1.f / solidAngle) * selPdf;
+            s.dedGeoScale = d.staticScale / solidAngle;
+        } else {
+            // True delta sun: mirrors CPU sampleLi's isDelta branch -- forces
+            // gpu_nee_resolve to use MIS weight 1 (pkg140).
+            s.lightPdf     = 1.f * selPdf;
+            s.dedGeoScale  = d.staticScale;
+            s.isDeltaLight = 1;
+        }
         s.valid       = 1;
         return s;
     }
@@ -348,7 +366,12 @@ __device__ inline GSampledSpectrum gpu_nee_resolve(
     if (f_spec.maxValue() <= 0.f || L_spec.maxValue() <= 0.f) return direct;
 
     float bsdfPdf = gpu_material_pdf(mat, rec, wo, s.wi);
-    float wt      = gpu_mw_powerHeuristic(s.lightPdf, bsdfPdf);
+    // pkg140: delta-light samples (e.g. GDED_DISTANT angular_diameter == 0)
+    // always get full MIS weight -- mirrors CPU pathTraceSpectral's
+    // ls.isDelta check (raytracer.h). A BSDF-sampled ray has probability 0
+    // of reproducing a delta direction, so power-heuristic-combining against
+    // bsdfPdf would incorrectly discount it.
+    float wt = s.isDeltaLight ? 1.0f : gpu_mw_powerHeuristic(s.lightPdf, bsdfPdf);
     // color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f))
     return f_spec * L_spec * (wt / (s.lightPdf + 0.001f));
 }

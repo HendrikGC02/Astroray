@@ -12,11 +12,10 @@ already have an open PR or an active worktree.
 
 ## Routing rules
 
-1. Check the package spec frontmatter in `.astroray_plan/packages/`:
-   - If `Track: E` AND the spec or NEXT_STAGE_REPORT.md entry says
-     "Codex-paste-ready": spawn `codex-implementer`
-   - Otherwise: spawn `package-implementer` in a fresh worktree
-     (use `EnterWorktree` or `superpowers:using-git-worktrees`)
+1. Spawn `package-implementer` in a fresh worktree
+   (use `EnterWorktree` or `superpowers:using-git-worktrees`).
+   Codex is retired — legacy `Track: E` / `Codex-paste-ready` tags in spec
+   frontmatter are inert and route here too.
 
 2. Pass to the spawned agent:
    - The drop-in prompt from NEXT_STAGE_REPORT.md §3 for that package

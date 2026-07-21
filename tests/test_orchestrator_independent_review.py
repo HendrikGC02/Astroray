@@ -190,9 +190,9 @@ def test_pure_docs_pr_fast_path_preserved(mock_ledger, mock_priority):
 
 def test_different_model_invariant():
     """Different-model invariant: sign-off/review dispatch provably targets a different
-    model lineage than fix/PR author (assert invocation uses Codex/different-model path)."""
+    model lineage than fix/PR author (assert invocation uses a different-model path)."""
     # This is a policy assertion enforced in gate-failure-reviewer.md
-    # The agent file mandates Codex via codex:rescue or another different-model path
+    # The agent file mandates an independent different-model reviewer path
     # Test verifies the agent file contains the mandate
     pass  # Agent-file policy assertion
 

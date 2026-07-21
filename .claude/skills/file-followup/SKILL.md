@@ -23,7 +23,7 @@ Pass the architect:
 
 The architect should produce:
 - A new spec file at `.astroray_plan/packages/<pkgNN>-<slug>.md`
-- Auto-tagged with `Track:` and `Codex-paste-ready:`
+- Auto-tagged with `Track:`
 - A one-PR doc update (spec file only; STATUS.md gets updated at round close)
 
 ## Templates

@@ -1,7 +1,7 @@
 ---
 name: package-implementer
-description: Implement one Astroray package spec end-to-end in an isolated worktree. Use for any package with Track A or Track B routing that is NOT marked Codex-paste-ready.
-model: claude-sonnet-4-5
+description: Implement one Astroray package spec end-to-end in an isolated worktree. Use for any package with Track A or Track B routing; legacy Track-E/Codex-paste-ready specs route here too (Codex retired).
+model: claude-sonnet-5
 tools:
   - Read
   - Write

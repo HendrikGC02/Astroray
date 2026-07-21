@@ -3,7 +3,7 @@
 **Pillar:** 2 (Blender integration correctness)
 **Track:** A (addon/CPU lane; parity-tested against headless Cycles — Blender 5.1 installed locally)
 **Codex-paste-ready:** no (a sign/convention fix, but it must be validated against a live Cycles A/B render, not unit-tested in isolation)
-**Status:** open — dispatchable now (independent of the pkg122 energy calibration in flight; do NOT conflate — see Non-goals)
+**Status:** in review (PR #505, 2026-07-21 — AREA basis flip verified convention-correct at identity+rotated+non-square via mocked-bpy/real-vector-math unit tests; strength-0 background fix verified; live headless-Blender-vs-Cycles pixel A/B still pending hardware-verifier, no `.pyd` build access for this implementer). Independent of the pkg122 energy calibration in flight; do NOT conflate — see Non-goals.
 **Estimated effort:** S (one-line basis flip + a small world-background guard fix + a parity test)
 **Depends on:** none. Composes with pkg122 (energy) and pkg119-B (parity harness) but blocks on neither.
 
@@ -104,10 +104,13 @@ checkout: `blender_addon/__init__.py:3947-3968` (AREA basis), `:3941`/`:3971`
 
 ## Progress
 
-- [ ] AREA basis flip (normal → local −Z) + non-square axis check.
-- [ ] Strength-0 world background fix.
-- [ ] Cycles A/B parity gates (identity + rotated + non-square).
+- [x] AREA basis flip (normal → local −Z) + non-square axis check (PR #505).
+- [x] Strength-0 world background fix (PR #505).
+- [ ] Cycles A/B parity gates (identity + rotated + non-square) — convention
+      verified mathematically via unit tests in PR #505 (no `.pyd` access for
+      the implementer); live headless-Blender-vs-Cycles pixel measurement
+      still owned by the hardware-verifier.
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+*(Fill in after the package is done — pending hardware-verifier close-out.)*

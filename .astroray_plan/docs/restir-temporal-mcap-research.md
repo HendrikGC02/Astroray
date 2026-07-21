@@ -60,15 +60,41 @@ the shared `Reservoir::merge` template is untouched:
     pr.M = min(pr.M, mCap);        // Bitterli 2020 §5.2: cap PREV M
     res.merge(pr, pHatPrev, rng);  // combined M = cur.M + capped prev.M (kept)
 
-## CPU note (latent, not exercised)
+## Why the GPU diverges but the CPU does not (discriminating experiment)
 
-`plugins/integrators/restir_di.cpp:237,257` has the same clamp-after-merge
-pattern. It does not manifest in the CPU tests because CPU temporal reuse is a
-no-op there (frameState history does not accumulate across the harness's
-separate `render()` calls — verified: CPU temporal frame means are flat at
-~0.40 for 40 frames, identical to no-reuse). Flagged for a parity follow-up so
-the "mirror CPU term-for-term" claim stays honest; not fixed here to keep the
-GPU-scoped PR surgical.
+The divergence is driven by the combined-M **cap binding**. Forcing `m_cap`
+and measuring the post-saturation mean slope on the RTX:
+
+| `m_cap` | saturates at frame | GPU mean slope/frame | CPU mean slope/frame |
+|---------|--------------------|----------------------|----------------------|
+| 2   | ~1  | +0.00485 | +0.00003 |
+| 8   | ~2  | +0.00485 | +0.00018 |
+| 80  | ~20 | +0.00407 | -0.00005 |
+| 1e5 | never (in a 50-frame window) | ~0 (flat) | - |
+
+GPU: as soon as the cap binds, the mean climbs; with the cap effectively
+disabled (1e5) it is flat. That is the clamp-after-merge signature.
+
+CPU: essentially flat at **every** cap, including `m_cap=2`. So the CPU
+reservoir accumulates almost no temporal confidence — the cap never binds, and
+the clamp-after-merge bug is **latent** (never triggered). CPU temporal reuse
+*does* engage (per-pixel output differs from no-reuse from frame 1), but it is
+**weak**: it neither reduces variance meaningfully (~0.3%) nor diverges. The
+reason the CPU accumulates so little (most likely the `isTemporallyValid`
+reprojection gate rejecting under per-frame AA jitter — vs the GPU's exact
+1-thread-per-pixel, no-reprojection accumulation) is **UNVERIFIED** and flagged
+for the Phase-C C7 closeout to fix-or-accept.
+
+## CPU parity fix
+
+`plugins/integrators/restir_di.cpp:237,257` carries the same clamp-after-merge
+pattern. Corrected symmetrically (cap the source reservoir's M before the merge,
+drop the post-merge combined-M clamp) so the primary generator is correct under
+the one-generator rule and the GPU mirror is faithful. Because CPU temporal
+history barely accumulates, this change is behaviourally near-inert for the
+current CPU tests (which exercise temporal reuse only through single-frame
+renders — no persisted multi-frame temporal accumulation on CPU); the team-lead
+rebuild + CPU restir suite re-run confirms no regression.
 
 ## References
 - Bitterli et al. 2020, "Spatiotemporal reservoir resampling…", DOI

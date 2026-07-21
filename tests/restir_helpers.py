@@ -98,10 +98,12 @@ def render_sequence(astroray_module, scene_fn, integrator, n_frames,
     accumulating a list of per-frame images. Used to measure temporal reuse.
 
     use_gpu=True selects the GPU ReSTIR wavefront driver
-    (cuda_wavefront_render_restir). This is required to exercise the GPU
-    temporal/spatial reuse stages: with useGPU off, restir-di runs the CPU
-    integrator whose per-instance frame history does not persist across these
-    separate render() calls, so temporal reuse would be a silent no-op.
+    (cuda_wavefront_render_restir) — the code under test. It is required to
+    exercise the GPU temporal/spatial reuse stages: with useGPU off, restir-di
+    runs the CPU integrator, whose temporal reuse accumulates almost no history
+    across frames (weak reuse, ~0.3% variance change) and so cannot demonstrate
+    the variance reduction this gate checks. See
+    .astroray_plan/docs/restir-temporal-mcap-research.md.
     """
     r = make_renderer(astroray_module, width=width, height=height)
     scene_fn(r)

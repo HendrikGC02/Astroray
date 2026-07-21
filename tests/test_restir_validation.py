@@ -122,10 +122,10 @@ class TestTemporalVariance:
 
     def _stddev(self, astroray_module, use_temporal):
         # use_gpu=True: the GPU ReSTIR driver (cuda_wavefront_render_restir) is
-        # the code under test. Its per-pixel reservoirs persist across frames in
-        # the wavefront WfContext, so temporal history actually accumulates here
-        # (the CPU integrator's history does not persist across these separate
-        # render() calls — it would measure a no-op).
+        # the code under test. Its per-pixel reservoirs accumulate across frames
+        # in the wavefront WfContext, so temporal history builds up here. The CPU
+        # integrator's temporal reuse accumulates almost no history (weak reuse),
+        # so it cannot demonstrate the variance reduction this gate asserts.
         frames = render_sequence(
             astroray_module,
             lambda r: build_cornell_box(r),

@@ -179,9 +179,10 @@ public:
                     rad = rad + sms;
                 } else if (!casters_.empty()) {
                     Vec3 sms = sampleSMSRGB(rec, ray, lambdas, gen);
-                    // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
-                    rad = rad + astroray::RGBUnboundedSpectrum(
-                        {sms.x, sms.y, sms.z}).sample(lambdas);
+                    // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift, with
+                    // the photometric anchor (pkg142 hardware-verifier fix).
+                    rad = rad + astroray::sampleUnboundedEmission(
+                        {sms.x, sms.y, sms.z}, lambdas);
                 }
             }
         }
@@ -281,9 +282,10 @@ private:
 
             // Project RGB emission to the hero wavelength via Jakob-Hanika
             // upsampling — the per-λ Le evaluation needed for the prism
-            // rainbow. pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
-            float LeHero = astroray::RGBUnboundedSpectrum(
-                {Le.x, Le.y, Le.z}).sample(lambdas)[0];
+            // rainbow. pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift,
+            // with the photometric anchor (pkg142 hardware-verifier fix).
+            float LeHero = astroray::sampleUnboundedEmission(
+                {Le.x, Le.y, Le.z}, lambdas)[0];
 
             float fHero  = fSpec[0];
             float sampleHero = fHero * LeHero * Tr * w;

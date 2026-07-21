@@ -110,13 +110,14 @@ class NeuralCacheIntegrator : public Integrator {
             return envMap->evalSpectral(ray.direction.normalized(), lambdas);
         }
         if (bgColor.x >= 0.0f) {
-            // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
-            return astroray::RGBUnboundedSpectrum(
-                {bgColor.x, bgColor.y, bgColor.z}).sample(lambdas);
+            // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift, with the
+            // photometric anchor (pkg142 hardware-verifier fix).
+            return astroray::sampleUnboundedEmission(
+                {bgColor.x, bgColor.y, bgColor.z}, lambdas);
         }
         float t = 0.5f * (ray.direction.normalized().y + 1.0f);
         Vec3 bg = (Vec3(1.0f) * (1.0f - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
-        return astroray::RGBUnboundedSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
+        return astroray::sampleUnboundedEmission({bg.x, bg.y, bg.z}, lambdas);
     }
 
     astroray::SampledSpectrum directLighting(
@@ -147,10 +148,11 @@ class NeuralCacheIntegrator : public Integrator {
 
         astroray::SampledSpectrum f =
             rec.material->evalSpectral(rec, wo, wi, lambdas);
-        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift, with the
+        // photometric anchor (pkg142 hardware-verifier fix).
         astroray::SampledSpectrum L =
-            astroray::RGBUnboundedSpectrum(
-                {ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas);
+            astroray::sampleUnboundedEmission(
+                {ls.emission.x, ls.emission.y, ls.emission.z}, lambdas);
         float bsdfPdf = rec.material->pdf(rec, wo, wi);
         float a = ls.pdf;
         float b = bsdfPdf;
@@ -447,7 +449,10 @@ public:
             Vec3 rgb = queryCacheRGB(feat);
             // pkg142 (Defect 4): UNBOUNDED (no-D65) lift, consistent with the
             // rest of the radiance pipeline this cached RGB estimate feeds into.
-            color += astroray::RGBUnboundedSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+            // Photometric anchor applied (pkg142 hardware-verifier fix) -- the
+            // cached value is trained from real spectral radiance (see
+            // enqueueTrainingSample above), so it carries physical units too.
+            color += astroray::sampleUnboundedEmission({rgb.x, rgb.y, rgb.z}, lambdas);
         }
 
         astroray::XYZ xyz = color.toXYZ(lambdas);

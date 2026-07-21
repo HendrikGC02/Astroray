@@ -67,10 +67,12 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
             out.distance = rec.t;
             out.pdf = lights[idx]->pdfValue(point, dir) * selPdf;
 
-            // Spectral emission: upsample RGB via RGBUnboundedSpectrum (pkg142
-            // Defect 4 -- no-D65 lift, matches Material::emittedSpectral() /
-            // EmissionSpectrum::evalRGB for the same light).
-            out.emission_spec = RGBUnboundedSpectrum({out.emission.x, out.emission.y, out.emission.z}).sample(lambdas);
+            // Spectral emission: upsample RGB via sampleUnboundedEmission()
+            // (pkg142 Defect 4 -- no-D65 lift + photometric anchor, matches
+            // Material::emittedSpectral() / EmissionSpectrum::evalRGB for the
+            // same light).
+            out.emission_spec = sampleUnboundedEmission(
+                {out.emission.x, out.emission.y, out.emission.z}, lambdas);
         }
     } else {
         // Dedicated Light path (pkg89 Phase A).
@@ -174,10 +176,12 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
             out.distance = rec.t;
             out.pdf = lights[pick.lightIndex]->pdfValue(point, dir) * treePdf;
 
-            // Spectral emission: upsample RGB via RGBUnboundedSpectrum (pkg142
-            // Defect 4 -- no-D65 lift, matches Material::emittedSpectral() /
-            // EmissionSpectrum::evalRGB for the same light).
-            out.emission_spec = RGBUnboundedSpectrum({out.emission.x, out.emission.y, out.emission.z}).sample(lambdas);
+            // Spectral emission: upsample RGB via sampleUnboundedEmission()
+            // (pkg142 Defect 4 -- no-D65 lift + photometric anchor, matches
+            // Material::emittedSpectral() / EmissionSpectrum::evalRGB for the
+            // same light).
+            out.emission_spec = sampleUnboundedEmission(
+                {out.emission.x, out.emission.y, out.emission.z}, lambdas);
         }
     } else {
         // Dedicated Light path.

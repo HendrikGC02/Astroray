@@ -146,8 +146,9 @@ __device__ GLightSample sampleAreaLight(
     result.pdf = (area > 0.0f) ? (1.0f / (area * num_lights)) : 0.0f;
 
     // Emitted radiance: convert light RGB emission to spectral.
-    // Mirrors CPU LightSample::emission_spec = RGBUnboundedSpectrum(emission).sample(lambdas)
-    // (pkg142 Defect 4: no-D65 lift, matches Cycles' RGB-native light scaling).
+    // Mirrors CPU LightSample::emission_spec = sampleUnboundedEmission(emission,
+    // lambdas) (pkg142 Defect 4: no-D65 lift, matches Cycles' RGB-native light
+    // scaling; includes the pkg142 hardware-verifier photometric anchor).
     result.emission = gpu_rgbToSampledSpectrum(light.emission, lambdas, GSPEC_RGB_UNBOUNDED);
 
     return result;

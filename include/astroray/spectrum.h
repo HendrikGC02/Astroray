@@ -37,6 +37,12 @@ XYZ cieCmf1964_10deg(float lambda);
 // gives Y = 1.0 (relative colorimetry for a perfect reflector).
 float sampleD65(float lambda);
 
+// ∫ (bare 1964 10° CMF Y-bar) dλ over the table grid (360-830 nm), no
+// illuminant weighting. This is the photometric anchor RGBUnboundedSpectrum
+// needs when used for EMISSION -- see sampleUnboundedEmission() below and
+// the pkg142 hardware-verifier regression note in src/spectrum.cpp.
+float cieYIntegral();
+
 // Filesystem path of the shipped Jakob-Hanika sRGB LUT. Resolved lazily on
 // first call; see src/spectrum.cpp for the search order.
 std::string spectrumLutPath();
@@ -244,6 +250,18 @@ private:
     float scale_ = 0.0f;
     RGBAlbedoSpectrum rsp_{};
 };
+
+// RGBUnbounded emission upsample WITH the photometric anchor applied
+// (RGBUnboundedSpectrum(rgb).sample(wl) * (1/cieYIntegral())). Use this at
+// every production EMISSION call site (light Le, mesh emitter, env
+// background/HDRI); do NOT call RGBUnboundedSpectrum(...).sample(...)
+// directly for emission -- see cieYIntegral() above and the pkg142
+// hardware-verifier regression note in src/spectrum.cpp. Non-emission
+// RGBUnbounded uses (env color-tint spectral multiply in raytracer.h,
+// Phong specular_spec_ in plugins/materials/phong.cpp) stay on the bare
+// class and must NOT go through this helper.
+SampledSpectrum sampleUnboundedEmission(const std::array<float, 3>& rgb,
+                                         const SampledWavelengths& wl);
 
 class RGBIlluminantSpectrum {
 public:

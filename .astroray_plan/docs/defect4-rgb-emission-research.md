@@ -154,6 +154,22 @@ RGBIlluminant but add pbrt's photometric self-normalization
 correction. Primary recommendation remains RGBUnbounded; the fallback is scoped in
 the spec so the implementer can pivot without re-adjudicating.
 
+**Correction (2026-07-21, post hardware-verifier + gate-failure-reviewer):**
+this analysis's "+7–16%" framing was itself a **mis-model** — it implicitly
+assumed `RGBIlluminantSpectrum` and `RGBUnboundedSpectrum` differ *only* by
+the D65 chromaticity tilt. They do not: `sampleD65(λ)` is normalized so
+`∫sampleD65·ȳdλ = 1` (unit luminance), which means `* sampleD65(λ)` folds
+in BOTH the chromaticity tilt AND a photometric anchor. `RGBUnboundedSpectrum`
+has neither. PR #511's first hardware pass measured a ~116x uniform
+brightness blow-up (all renders saturated white), traced to this missing
+anchor, not a mistuned tilt. Fix: `astroray::cieYIntegral()` /
+`sampleUnboundedEmission()` (src/spectrum.cpp) and `gpu_cieYNormFactor()`
+(GPU mirror) restore the anchor while keeping RGBUnbounded's flat (no-D65)
+chromaticity. With the anchor restored, the expected oracle effect reduces
+to the chromaticity tilt alone (CPU diagnostic: pre-fix bare ratio ≈121,
+post-fix fixed/RGBIlluminant ratio ≈1.04 for neutral gray) — smaller than
+the original 1.07–1.16x estimate, which conflated both effects.
+
 ---
 
 ## 6. Sources

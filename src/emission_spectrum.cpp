@@ -118,8 +118,10 @@ EmissionSpectrum EmissionSpectrum::composeWith(const Vec3& filterRGB) const {
 // pkg89-GPU / GAP 1 — reference RGB for the device RGB upsample.
 // pkg142: the caller (scene_upload.cu) selects the device spectral mode for
 // this RGB; as of pkg142 that is GSPEC_RGB_UNBOUNDED for emission, so device
-// gpu_rgbSpectrumAt(color, λ, UNBOUNDED) reproduces CPU
-// RGBUnboundedSpectrum(color).sample() exactly (same pkg54c mirror pattern).
+// gpu_rgbSpectrumAt(color, λ, UNBOUNDED) (scale*JH*gpu_cieYNormFactor())
+// reproduces CPU sampleUnboundedEmission(color, ...) exactly (same pkg54c
+// mirror pattern; both apply the pkg142 hardware-verifier photometric
+// anchor).
 void EmissionSpectrum::deviceReference(Vec3& outRGB, bool& exactRGB) const {
     if (const RGB* rgb = std::get_if<RGB>(&data_)) {
         outRGB   = rgb->color;
@@ -189,22 +191,29 @@ SampledSpectrum EmissionSpectrum::evalBlackbody(const Blackbody& bb,
 // src/pbrt/lights.cpp) and Mitsuba 3 (srgb_d65) both imprint a D65 illuminant
 // chromaticity on RGB lights. Cycles is RGB-native: light `strength` is stored
 // as a linear-RGB float3 and radiance = strength * eval_fac, with no spectral
-// upsampling and no D65 (src/scene/light.cpp, src/kernel/light/area.h). With
-// the pkg122 (PR #500) per-type radiometry fixed, the live headless-Cycles
-// oracle measured all four dedicated-light types 1.07-1.16x brighter than
-// Cycles -- a residual traced to the D65 tilt on RGBIlluminant clashing with
-// the plain Jakob-Hanika RGBAlbedoSpectrum family used for surface albedo:
-// two same-family JH spectra multiply/integrate back to the RGB product with
-// minimal crosstalk (Cycles' albedo (dot) light multiply); a D65-tilted
-// emission spectrum does not. RGBUnboundedSpectrum = scale*sigmoid(rgb/scale)
-// is that same reflectance-sigmoid family with no illuminant, closing the gap.
+// upsampling and no D65 (src/scene/light.cpp, src/kernel/light/area.h).
+//
+// The chromaticity tilt vs. photometric units are TWO SEPARATE things, not
+// one (2026-07-2x hardware-verifier correction to the framing below):
+// RGBIlluminantSpectrum's `* sampleD65(lambda)` factor carried BOTH the D65
+// chromaticity tilt AND an implicit photometric anchor (sampleD65 is
+// normalized so unit-white integrates to Y=1). Dropping the whole factor to
+// switch to RGBUnboundedSpectrum removed BOTH -- RGBUnboundedSpectrum::sample()
+// has no illuminant and no luminance normalization at all, so bare emission
+// came out ~116x too bright (this build's 1964 10° CMF-Y table integral),
+// not merely mis-tilted. sampleUnboundedEmission() (src/spectrum.cpp)
+// restores just the photometric anchor (1/cieYIntegral()) while keeping
+// RGBUnbounded's flat (no-D65) chromaticity -- see cieYIntegral()'s doc
+// comment there. With the anchor restored, the expected oracle effect is the
+// chromaticity tilt alone (previously modeled as 1.07-1.16x; the "+7-16%"
+// framing conflated the tilt with the units bug -- see PR history).
+//
 // RGBUnboundedSpectrum is pbrt-v4's class (src/pbrt/util/spectrum.h,
-// Apache-2.0), already in-tree (src/spectrum.cpp) -- this only re-points the
-// emission call site, no new algorithm (CLAUDE.md SS6).
+// Apache-2.0), already in-tree (src/spectrum.cpp) -- this re-points the
+// emission call site at it (plus the anchor), no new algorithm (CLAUDE.md SS6).
 SampledSpectrum EmissionSpectrum::evalRGB(const RGB& rgb,
                                            const SampledWavelengths& wl) const {
-    RGBUnboundedSpectrum rgbSpectrum({rgb.color.x, rgb.color.y, rgb.color.z});
-    return rgbSpectrum.sample(wl);
+    return sampleUnboundedEmission({rgb.color.x, rgb.color.y, rgb.color.z}, wl);
 }
 
 // Internal: evaluate MeasuredSPD mode.

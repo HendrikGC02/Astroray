@@ -1518,7 +1518,13 @@ public:
 
         astroray::SampledSpectrum s0 = s00 * (1.0f - uFract) + s10 * uFract;
         astroray::SampledSpectrum s1 = s01 * (1.0f - uFract) + s11 * uFract;
-        astroray::SampledSpectrum out = (s0 * (1.0f - vFract) + s1 * vFract) * strength;
+        // pkg142 hardware-verifier fix: spectralAtlas_ elements are bare
+        // RGBUnboundedSpectrum (no photometric anchor) -- apply
+        // astroray::cieYIntegral()'s reciprocal here (mirrors
+        // sampleUnboundedEmission(); can't use that helper directly since the
+        // atlas stores pre-constructed objects, not raw RGB).
+        astroray::SampledSpectrum out = (s0 * (1.0f - vFract) + s1 * vFract)
+            * strength * (1.0f / astroray::cieYIntegral());
         // pkg63: apply RGB color tint as a reflectance-style (no D65 weighting)
         // multiplicative filter on the env-map spectrum. RGBUnboundedSpectrum
         // collapses to a flat scalar for grayscale tints (e.g. (0.5,0.5,0.5)
@@ -2429,13 +2435,14 @@ public:
                     if (envMap && envMap->loaded()) {
                         envSpec = envMap->evalSpectral(ray.direction.normalized(), lambdas);
                     } else if (backgroundColor.x >= 0) {
-                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
-                        envSpec = astroray::RGBUnboundedSpectrum(
-                            {backgroundColor.x, backgroundColor.y, backgroundColor.z}).sample(lambdas);
+                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift,
+                        // with the photometric anchor (pkg142 hw-verifier fix).
+                        envSpec = astroray::sampleUnboundedEmission(
+                            {backgroundColor.x, backgroundColor.y, backgroundColor.z}, lambdas);
                     } else {
                         float t = 0.5f * (ray.direction.normalized().y + 1.0f);
                         Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
-                        envSpec = astroray::RGBUnboundedSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
+                        envSpec = astroray::sampleUnboundedEmission({bg.x, bg.y, bg.z}, lambdas);
                     }
                     color += throughput * envSpec;
                 }
@@ -2635,13 +2642,14 @@ public:
                     if (envMap && envMap->loaded()) {
                         envSpec = envMap->evalSpectral(ray.direction.normalized(), lambdas);
                     } else if (backgroundColor.x >= 0) {
-                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
-                        envSpec = astroray::RGBUnboundedSpectrum(
-                            {backgroundColor.x, backgroundColor.y, backgroundColor.z}).sample(lambdas);
+                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift,
+                        // with the photometric anchor (pkg142 hw-verifier fix).
+                        envSpec = astroray::sampleUnboundedEmission(
+                            {backgroundColor.x, backgroundColor.y, backgroundColor.z}, lambdas);
                     } else {
                         float t = 0.5f * (ray.direction.normalized().y + 1.0f);
                         Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
-                        envSpec = astroray::RGBUnboundedSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
+                        envSpec = astroray::sampleUnboundedEmission({bg.x, bg.y, bg.z}, lambdas);
                     }
                     color += throughput * envSpec;
                 }
@@ -2782,9 +2790,12 @@ public:
                             astroray::SampledSpectrum f_spec =
                                 wrec.material->evalSpectral(wrec, wwo, wiToLight, walkLambdas);
                             if (!f_spec.isZero()) {
-                                // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+                                // pkg142 (Defect 4): UNBOUNDED (no-D65) emission
+                                // lift, with the photometric anchor (pkg142
+                                // hardware-verifier fix).
                                 astroray::SampledSpectrum Li =
-                                    astroray::RGBUnboundedSpectrum({ls.emission.x, ls.emission.y, ls.emission.z}).sample(walkLambdas);
+                                    astroray::sampleUnboundedEmission(
+                                        {ls.emission.x, ls.emission.y, ls.emission.z}, walkLambdas);
                                 float geom = std::max(0.0f, std::abs(ls.normal.dot(-wiToLight))) /
                                              std::max(dist2, 1e-4f);
                                 astroray::SampledSpectrum contribution =

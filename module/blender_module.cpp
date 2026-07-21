@@ -1421,10 +1421,11 @@ public:
         return {s[0], s[1], s[2], s[3]};
     }
 
-    // Reference fallback: RGB lookup then RGBUnboundedSpectrum upsample
-    // (pkg142 Defect 4 — must track whatever convention the atlas/evalSpectral
-    // path uses; test_eval_spectral_atlas_matches_upsample_fallback asserts
-    // these two paths agree). Mirrors the pkg11-style path that evalSpectral
+    // Reference fallback: RGB lookup then sampleUnboundedEmission() upsample
+    // (pkg142 Defect 4 -- must track whatever convention the atlas/evalSpectral
+    // path uses, including the photometric anchor (pkg142 hardware-verifier
+    // fix); test_eval_spectral_atlas_matches_upsample_fallback asserts these
+    // two paths agree). Mirrors the pkg11-style path that evalSpectral
     // replaces.
     std::vector<float> evalEnvRGBUpsample(const std::vector<float>& dir, float u) const {
         if (!envMap || !envMap->loaded()) return {0,0,0,0};
@@ -1432,7 +1433,7 @@ public:
         Vec3 c = envMap->lookup(d);
         astroray::SampledWavelengths wls = astroray::SampledWavelengths::sampleUniform(u);
         astroray::SampledSpectrum s =
-            astroray::RGBUnboundedSpectrum({c.x, c.y, c.z}).sample(wls);
+            astroray::sampleUnboundedEmission({c.x, c.y, c.z}, wls);
         return {s[0], s[1], s[2], s[3]};
     }
 

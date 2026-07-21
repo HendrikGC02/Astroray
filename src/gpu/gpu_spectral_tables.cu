@@ -112,6 +112,14 @@ namespace d65_baked {
 __constant__ float g_d65SPD[G_CMF_COUNT];
 __constant__ float g_d65NormFactor;
 
+// pkg142 hardware-verifier regression (2026-07-2x): photometric anchor for
+// RGBUnbounded EMISSION use only. k = 1 / ∫cmfY dλ over [360,830] (bare,
+// no D65 weighting) -- mirrors src/spectrum.cpp::cieYIntegral()/
+// sampleUnboundedEmission(). Without this, GSPEC_RGB_UNBOUNDED emission came
+// out ~116x too bright (unlike GSPEC_RGB_ILLUMINANT, whose gpu_sampleD65
+// factor folds this same anchor in together with the D65 chromaticity tilt).
+__constant__ float g_cieYNormFactor;
+
 void uploadCmfTables() {
     static bool uploaded = false;
     if (uploaded) return;
@@ -148,6 +156,23 @@ void uploadCmfTables() {
     if (eN != cudaSuccess) {
         fprintf(stderr, "D65 norm upload failed: %s\n", cudaGetErrorString(eN));
         throw std::runtime_error("D65 norm upload failed");
+    }
+
+    // pkg142 hardware-verifier regression: compute + upload the bare CIE-Y
+    // photometric anchor (mirrors src/spectrum.cpp::computeCieYIntegral(),
+    // same trapezoid integration, no D65 weighting).
+    double cieYInt = 0.0;
+    for (int i = 0; i + 1 < cmf_baked::kCieCmfCount; ++i) {
+        double dLam = static_cast<double>(cmf_baked::kCieCmfLambdaStep);
+        double a = cmf_baked::kCieCmfY[i];
+        double b = cmf_baked::kCieCmfY[i + 1];
+        cieYInt += 0.5 * dLam * (a + b);
+    }
+    float cieYNormF = 1.0f / static_cast<float>(cieYInt);
+    cudaError_t eY = cudaMemcpyToSymbol(g_cieYNormFactor, &cieYNormF, sizeof(float));
+    if (eY != cudaSuccess) {
+        fprintf(stderr, "CIE-Y norm upload failed: %s\n", cudaGetErrorString(eY));
+        throw std::runtime_error("CIE-Y norm upload failed");
     }
     uploaded = true;
 }
@@ -312,6 +337,13 @@ __device__ float gpu_sampleD65(float lambda) {
     float t = idx - (float)i;
     float v = g_d65SPD[i] * (1.f - t) + g_d65SPD[i + 1] * t;
     return v * g_d65NormFactor;
+}
+
+// pkg142 hardware-verifier regression: photometric anchor for RGBUnbounded
+// EMISSION use (GSPEC_RGB_UNBOUNDED branch in gpu_materials.h), mirroring
+// CPU astroray::cieYIntegral(). See g_cieYNormFactor's doc comment above.
+__device__ float gpu_cieYNormFactor() {
+    return g_cieYNormFactor;
 }
 
 // pkg55-B' Session N+6: non-inline export of spectrumToXYZ for the wavefront

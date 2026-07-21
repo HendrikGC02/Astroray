@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / emitter energy correctness)
 **Track:** A (single cross-cutting convention change with a live headless-Cycles oracle gate + reference-bank re-bless; needs a build + RTX + Blender-5.1, not a mechanical patch)
 **Codex-paste-ready:** no (one adjudicated convention flip that cross-cuts CPU/GPU/env/materials and moves the Cycles-parity reference bank; empirical sign/magnitude must be confirmed against a live Cycles A/B, and a fallback branch may be taken — judgment at the gate, not a blind edit)
-**Status:** implemented, unverified — PR #511 (2026-07-21) — RGBUnbounded landed repo-wide (CPU `EmissionSpectrum::evalRGB`, GPU `GSPEC_RGB_UNBOUNDED` device mirror, env/world, plus ~20 duplicate CPU emission call sites the spec's grep missed — see PR scope note). Primary/secondary/tertiary gates and reference-bank re-bless NOT run (implementer had no build access) — awaiting team-lead RTX + Blender-5.1 verification.
+**Status:** implemented, unverified — PR #511 (2026-07-21) — RGBUnbounded landed repo-wide (CPU `EmissionSpectrum::evalRGB`, GPU `GSPEC_RGB_UNBOUNDED` device mirror, env/world, plus ~20 duplicate CPU emission call sites the spec's grep missed — see PR scope note). **Correction (2026-07-21, post hardware-verifier + gate-failure-reviewer):** the initial PR shipped a units bug — `RGBIlluminantSpectrum`'s `sampleD65(λ)` factor carried BOTH the D65 chromaticity tilt AND an implicit photometric anchor (∫sampleD65·ȳdλ=1); `RGBUnboundedSpectrum` has neither, so bare emission came out ~116x too bright (measured on RTX: ~116x uniform blow-up, all renders saturated white, 68 suite failures), not the originally-modeled 1.07–1.16x. Fixed by adding `cieYIntegral()` / `sampleUnboundedEmission()` (src/spectrum.cpp) and `gpu_cieYNormFactor()` (GPU mirror), applied at every emission call site. The "+7–16%" framing in this spec is a **mis-model**: chromaticity tilt and photometric units are two separate effects that were conflated. CPU diagnostic (rgb=(0.5,0.5,0.5)): pre-fix bare-UNBOUNDED/ILLUMINANT ratio ≈121.3 (expected ≈116.66, the table's ∫ȳdλ); post-fix fixed-emission/ILLUMINANT ratio ≈1.040 (residual ≈4% is the intended chromaticity-tilt removal). Expected oracle effect is now the tilt alone, not the previously-modeled 1.07–1.16x. Primary/secondary/tertiary gates and reference-bank re-bless still NOT run by this implementer (no build access) — awaiting team-lead RTX + Blender-5.1 re-verification of the corrected code.
 **Estimated effort:** M (the code change is small and localized; the cost is the build + live-Cycles oracle re-run + RTX GPU==CPU parity + evidence-first reference-bank re-bless)
 **Depends on:** pkg122 (PR #500, **merged**) — Defects 1–3 must be in `main` so the residual measured by the oracle is the *clean* emission-lift offset, not confounded by the per-type radiometry bugs. Satisfied.
 
@@ -189,8 +189,20 @@ routine (memory `blender-5-1-installed-locally`).
 
 ## Expected numeric effect
 
+**Correction (2026-07-21):** the figures below were the pre-fix (buggy) model,
+which conflated the D65 chromaticity tilt with a photometric-units bug. With
+the units bug fixed (`cieYIntegral()` / `sampleUnboundedEmission()` /
+`gpu_cieYNormFactor()`), the expected oracle effect is the **chromaticity
+tilt alone** — the original 1.07–1.16x measurement already included both
+effects, so post-fix the residual should be smaller than 1.07–1.16x (closer
+to the CPU diagnostic's isolated ≈1.04 for a neutral gray; colored lights
+will show a somewhat larger tilt-only residual). The live-Cycles oracle
+re-run determines the actual number; do not assume 1.07–1.16x is still the
+pre-fix baseline for this corrected code.
+
 - Dedicated lights (POINT/AREA/SPOT/SUN), equal wattage, gray floor:
-  **1.07–1.16× → within [0.97, 1.03]** vs live Cycles (per-channel).
+  chromaticity-tilt-only residual → target within [0.97, 1.03] vs live Cycles
+  (per-channel).
 - Pure-Lambertian analytic decoupled check: stays ~0.99× (unaffected — reflectance
   path unchanged).
 - Reference bank: 12/13 → re-blessed to reflect the closed offset (target: all

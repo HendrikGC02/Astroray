@@ -49,8 +49,8 @@ void BackgroundLight::sampleLi(LiSample& sample,
     // GPU==CPU, env emission uses the same no-D65 RGBUnbounded lift (matches
     // Cycles' RGB-native light scaling). See
     // pkg142-rgb-emission-convention.md §"Scope decision — environment".
-    RGBUnboundedSpectrum rgbSpectrum({emissionRGB.x, emissionRGB.y, emissionRGB.z});
-    sample.emission_spec = rgbSpectrum.sample(lambdas);
+    sample.emission_spec = sampleUnboundedEmission(
+        {emissionRGB.x, emissionRGB.y, emissionRGB.z}, lambdas);
     sample.emission_rgb = emissionRGB;
 
     // PDF: 1 / (4π) for uniform sphere sampling.

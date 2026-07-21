@@ -26,7 +26,11 @@ public:
     astroray::SampledSpectrum emittedSpectral(
             const HitRecord& rec,
             const astroray::SampledWavelengths& lambdas) const override {
-        return emission_spec_.sample(lambdas);  // no front-face gate
+        // pkg142 hardware-verifier fix: RGBUnboundedSpectrum::sample() has no
+        // photometric anchor -- apply astroray::cieYIntegral()'s reciprocal
+        // here (mirrors sampleUnboundedEmission(); can't use that helper
+        // directly since emission_spec_ is a stored, pre-constructed object).
+        return emission_spec_.sample(lambdas) * (1.0f / astroray::cieYIntegral());  // no front-face gate
     }
 
     astroray::SampledSpectrum evalSpectral(

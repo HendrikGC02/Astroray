@@ -164,9 +164,10 @@ private:
                 Vec3 dir = ray.direction.normalized();
                 if (bgColor.x >= 0) {
                     // Explicit background color always takes precedence (including black).
-                    // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
-                    envSpec = astroray::RGBUnboundedSpectrum(
-                        {bgColor.x, bgColor.y, bgColor.z}).sample(lambdas);
+                    // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift, with
+                    // the photometric anchor (pkg142 hardware-verifier fix).
+                    envSpec = astroray::sampleUnboundedEmission(
+                        {bgColor.x, bgColor.y, bgColor.z}, lambdas);
                 } else if (envMap && envMap->loaded()) {
                     envSpec = envMap->evalSpectral(dir, lambdas);
                 } else if (useLuminanceOutput_) {
@@ -179,7 +180,7 @@ private:
                 } else {
                     float t = 0.5f * (dir.y + 1.0f);
                     Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
-                    envSpec = astroray::RGBUnboundedSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
+                    envSpec = astroray::sampleUnboundedEmission({bg.x, bg.y, bg.z}, lambdas);
                 }
                 color += throughput * envSpec;
                 break;

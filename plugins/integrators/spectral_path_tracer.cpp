@@ -293,9 +293,10 @@ private:
                                     C, eta, casterPickPdf, ls, smsCfg_,
                                     fSpec, w, Le, Tr, wi))
                 continue;
-            // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
-            float LeHero = astroray::RGBUnboundedSpectrum(
-                {Le.x, Le.y, Le.z}).sample(lambdas)[0];
+            // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift, with the
+            // photometric anchor (pkg142 hardware-verifier fix).
+            float LeHero = astroray::sampleUnboundedEmission(
+                {Le.x, Le.y, Le.z}, lambdas)[0];
             float fHero  = fSpec[0];
             float sampleHero = fHero * LeHero * Tr * w;
             if (sampleHero > smsCfg_.contribClamp) sampleHero = smsCfg_.contribClamp;
@@ -349,9 +350,10 @@ private:
             smsConverged_ += 1.0f;
             smsEnergy_ += maxC;
         }
-        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
-        return astroray::RGBUnboundedSpectrum(
-            {contribRGB.x, contribRGB.y, contribRGB.z}).sample(lambdas);
+        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift, with the
+        // photometric anchor (pkg142 hardware-verifier fix).
+        return astroray::sampleUnboundedEmission(
+            {contribRGB.x, contribRGB.y, contribRGB.z}, lambdas);
     }
 
     // pkg111: Build the photon map (forward light-tracing from caustic casters).

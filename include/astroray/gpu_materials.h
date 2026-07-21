@@ -81,6 +81,12 @@ __device__ inline GSampledWavelengths gpu_sampleUniformWavelengths(TRng* rng) {
 // table, normalized so unit white emission integrates to Y = 1.
 __device__ float gpu_sampleD65(float lambda);
 
+// Forward declaration — defined in src/gpu/gpu_spectral_tables.cu. Mirrors
+// astroray::cieYIntegral()'s reciprocal (src/spectrum.cpp); the photometric
+// anchor RGBUnbounded EMISSION needs (pkg142 hardware-verifier regression —
+// see GSPEC_RGB_UNBOUNDED branch below).
+__device__ float gpu_cieYNormFactor();
+
 // Forward declaration — defined in src/gpu/multiwavelength_kernel.cu (pkg54c).
 // Jakob & Hanika 2019 sigmoid-coefficient lookup; mirrors CPU
 // RGBAlbedoSpectrum::sample() at single wavelength so visible-band SSIM
@@ -104,17 +110,22 @@ __device__ inline float gpu_rgbSpectrumAt(const GVec3& rgb, float lambda, GSpect
         return fmaxf(scale * gpu_jhEvalSpectrum(normalized, lambda)
                            * gpu_sampleD65(lambda), 0.f);
     }
-    // pkg142 (Defect 4): UNBOUNDED mirrors CPU RGBUnboundedSpectrum
+    // pkg142 (Defect 4): UNBOUNDED mirrors CPU sampleUnboundedEmission()
     // (src/spectrum.cpp) exactly — identical to the ILLUMINANT branch above
-    // minus the `* gpu_sampleD65(lambda)` factor (no D65 illuminant lift).
-    // Used for RGB emission so the spectral render round-trips Cycles' plain
-    // RGB-native light scaling. See pkg142-rgb-emission-convention.md.
+    // minus the `* gpu_sampleD65(lambda)` factor (no D65 chromaticity tilt),
+    // but WITH the `* gpu_cieYNormFactor()` photometric anchor that
+    // gpu_sampleD65 carried implicitly (2026-07-2x hardware-verifier fix —
+    // without this the bare JH upsample came out ~116x too bright; see
+    // gpu_cieYNormFactor()'s doc comment). Used for RGB emission so the
+    // spectral render round-trips Cycles' plain RGB-native light scaling.
+    // See pkg142-rgb-emission-convention.md.
     if (mode == GSPEC_RGB_UNBOUNDED) {
         float m = fmaxf(fmaxf(rgb.x, rgb.y), rgb.z);
         if (m <= 0.f) return 0.f;
         float scale = 2.f * m;
         GVec3 normalized{ rgb.x / scale, rgb.y / scale, rgb.z / scale };
-        return fmaxf(scale * gpu_jhEvalSpectrum(normalized, lambda), 0.f);
+        return fmaxf(scale * gpu_jhEvalSpectrum(normalized, lambda)
+                           * gpu_cieYNormFactor(), 0.f);
     }
     // ALBEDO: gpu_jhLookupCoeffs already clamps rgb to [0,1].
     return fmaxf(gpu_jhEvalSpectrum(rgb, lambda), 0.f);

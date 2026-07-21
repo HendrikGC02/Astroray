@@ -64,6 +64,32 @@ float d65NormFactor() {
     return k;
 }
 
+// pkg142 hardware-verifier regression (2026-07-2x): ∫ bare kCieCmfY dλ over
+// the table grid, i.e. computeD65Normalization() WITHOUT the D65 weighting.
+// RGBIlluminantSpectrum's `* sampleD65(lambda)` factor folded TWO things into
+// one multiply -- the D65 chromaticity tilt (the ~7-16% pkg142 set out to
+// remove) AND a photometric anchor (sampleD65 is normalized so
+// ∫sampleD65·ȳdλ = 1, i.e. unit luminance for unit-white input). Switching
+// emission to RGBUnboundedSpectrum removed BOTH, not just the tilt: bare
+// RGBUnboundedSpectrum::sample() has no illuminant and no luminance
+// normalization at all, so its integrated Y came out ~116x too bright (this
+// build's 1964 10° CMF-Y table integral -- NOT the 2° observer's ~106.857;
+// always derive from the table, never hardcode). cieYIntegral() restores
+// just the anchor while keeping RGBUnbounded's flat (no-D65) chromaticity.
+// See cieYIntegral()'s callers: emission_spectrum.cpp::evalRGB and
+// gpu_materials.h's GSPEC_RGB_UNBOUNDED branch must both apply this factor,
+// byte-equivalent.
+float computeCieYIntegral() {
+    double yInt = 0.0;
+    for (int i = 0; i + 1 < baked::kCieCmfCount; ++i) {
+        double dLam = static_cast<double>(baked::kCieCmfLambdaStep);
+        double a = baked::kCieCmfY[i];
+        double b = baked::kCieCmfY[i + 1];
+        yInt += 0.5 * dLam * (a + b);
+    }
+    return static_cast<float>(yInt);
+}
+
 }  // namespace
 
 XYZ cieCmf1964_10deg(float lambda) {
@@ -74,6 +100,23 @@ XYZ cieCmf1964_10deg(float lambda) {
 
 float sampleD65(float lambda) {
     return sampleTable(baked::kD65Spd, lambda) * d65NormFactor();
+}
+
+float cieYIntegral() {
+    static const float k = computeCieYIntegral();
+    return k;
+}
+
+// Every production EMISSION call site (light Le, mesh emitter, env
+// background/HDRI) must upsample RGB emission through this helper, not
+// RGBUnboundedSpectrum(rgb).sample(wl) directly -- see cieYIntegral() above
+// for why the anchor is required. Non-emission RGBUnbounded uses (env
+// color-tint spectral multiply in raytracer.h, Phong specular_spec_ in
+// plugins/materials/phong.cpp) are dimensionless reflectance-style lifts and
+// must NOT receive this anchor; they are unchanged by this function.
+SampledSpectrum sampleUnboundedEmission(const std::array<float, 3>& rgb,
+                                         const SampledWavelengths& wl) {
+    return RGBUnboundedSpectrum(rgb).sample(wl) * (1.0f / cieYIntegral());
 }
 
 // ---------------------------------------------------------------------------

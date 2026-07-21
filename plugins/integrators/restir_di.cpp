@@ -135,14 +135,15 @@ public:
                     if (envMap && envMap->loaded()) {
                         envSpec = envMap->evalSpectral(pathRay.direction.normalized(), lambdas);
                     } else if (bgColor.x >= 0) {
-                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
-                        envSpec = astroray::RGBUnboundedSpectrum(
-                            {bgColor.x, bgColor.y, bgColor.z}).sample(lambdas);
+                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift,
+                        // with the photometric anchor (pkg142 hw-verifier fix).
+                        envSpec = astroray::sampleUnboundedEmission(
+                            {bgColor.x, bgColor.y, bgColor.z}, lambdas);
                     } else {
                         float t = 0.5f * (pathRay.direction.normalized().y + 1.0f);
                         Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
-                        envSpec = astroray::RGBUnboundedSpectrum(
-                            {bg.x, bg.y, bg.z}).sample(lambdas);
+                        envSpec = astroray::sampleUnboundedEmission(
+                            {bg.x, bg.y, bg.z}, lambdas);
                     }
                     color += throughput * envSpec;
                 }
@@ -284,11 +285,12 @@ public:
                     if (!occluded) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
-                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift,
+                        // with the photometric anchor (pkg142 hw-verifier fix).
                         astroray::SampledSpectrum L_spec =
-                            astroray::RGBUnboundedSpectrum(
-                                {res.y.emission.x, res.y.emission.y, res.y.emission.z}
-                            ).sample(lambdas);
+                            astroray::sampleUnboundedEmission(
+                                {res.y.emission.x, res.y.emission.y, res.y.emission.z},
+                                lambdas);
 
                         // pkg87b: Cryptomatte accumulation at ReSTIR resolved shade point.
                         // Weight = average(throughput · f_spec · L_spec · res.W), per Cycles.

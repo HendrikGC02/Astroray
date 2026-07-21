@@ -3,7 +3,7 @@
 **Pillar:** 3 (correctness / statistical BSDF validation)
 **Track:** A (CPU-only chi² harness + CPU BSDF path; runs on CI, no GPU)
 **Codex-paste-ready:** no (an open statistical adjudication — the residual root cause is *not yet known*; needs per-cell evidence and an engine-vs-harness judgement call, not a mechanical patch)
-**Status:** done (PR #498, 2026-07-20 — epsilon-contaminated pdf denominators adjudicated and fixed; all Disney specular-lobe chi² gates un-xfailed; pending team-lead test verification)
+**Status:** done pending verification (PR #498; 2026-07-20 epsilon-contaminated pdf denominators adjudicated + all Disney specular-lobe chi² gates un-xfailed; 2026-07-21 commit 5e2080c fixed the CI render regressions — a dormant `eval()` firefly cap (clampColor 4.0 / GPU fminf 10.0) that the D-epsilon removal woke, collapsing near-delta metal reflection; 3 specular render gates restored. 1 clearcoat energy config (`[0.9-1.0-0.0-0.0-0.3]`, GCC-only 1.0206>1.02) adjudicated out-of-scope → focused pkg60 clearcoat-recalibration follow-up. Pending team-lead render-level hardware sweep.)
 **Estimated effort:** M (1–2 sessions — residual localization via per-cell chi² maps, one engine-or-harness fix with evidence, harness full-sphere extension, un-xfail + full-grid re-run)
 **Depends on:** **pkg121 (landed, PR #485, merged 75ba67a)** — the chi² harness, the `debug_bsdf_sample_batch`/`debug_bsdf_pdf_batch` bindings, and the xfail(strict=False) Disney gates all exist and point here. No other package blocks this. **Related (not blocking):** **pkg120** — the one-sided spectral integrator is *why* a wrong `Material::pdf` has production impact (see Context); **pkg124** builds on this package's adjudication (its VNDF change must not reopen the mismatch).
 

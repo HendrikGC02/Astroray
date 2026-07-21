@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport correctness)
 **Track:** A (CPU light code + GPU mirror; CPU-gated tests on CI, GPU leg RTX-verified)
 **Codex-paste-ready:** no (delta-light semantics touch sampling, pdf, power-CDF selection, and the light-tree orientation cone together — the pieces must stay consistent)
-**Status:** open — dispatchable now (small, engine lane, independent of everything in flight)
+**Status:** in review (PR #507, 2026-07-21) — 2sin²(h/2) identity + power() floor + isDelta MIS-weight fix implemented and pushed; CPU tests written (tests/test_pkg140_distant_light_zero_angle.py) but NOT run (implementer has no build); GPU RTX leg and full build unverified — awaiting team-lead build + hardware verification
 **Estimated effort:** S–M (a delta branch mirroring pbrt-v4 + a two-character numerical identity in four sites + the GPU mirror; the care is in keeping sampleLi/pdfLi/power/cone consistent)
 **Depends on:** none. Do NOT conflate with pkg122 (energy calibration, in flight) — this is a zero-measure/degenerate-geometry bug, not a scaling bug.
 
@@ -123,11 +123,17 @@ GPU mirror at `:106-112` (`cosOuter`).
 
 ## Progress
 
-- [ ] A — `2sin²(h/2)` identity in all CPU sites + GPU mirror.
-- [ ] B — delta branch (sampleLi pdf=1, pdfLi=0, nonzero delta power,
-      cone/flag audit) with pbrt-v4 citations.
-- [ ] Sweep + continuity + selection gates (CPU CI + RTX GPU leg).
+- [x] A — `2sin²(h/2)` identity in all CPU sites + GPU mirror (PR #507).
+- [x] B — delta branch: sampleLi pdf=1 / pdfLi=0 landed in pkg122 already;
+      this PR adds the power() floor (nonzero delta-CDF weight) + an
+      `isDelta` MIS-flag audit across 5 additional NEE call sites found by
+      the pre-push sweep (neural_cache.cpp, path_kernel.cpp,
+      reference_pt_production.cpp, gpu_nee.cuh), with pbrt-v4 citations.
+- [ ] Sweep + continuity + selection gates — CPU tests committed
+      (tests/test_pkg140_distant_light_zero_angle.py) but not run
+      (implementer has no build); RTX GPU leg not run. Team-lead to verify.
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+*(Fill in after the package is done — team-lead to append after build +
+hardware verification.)*

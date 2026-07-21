@@ -165,15 +165,24 @@ __device__ inline GNEESample gpu_dedicated_sample(
         // pkg122 (Distant): Blender sun strength is IRRADIANCE S; carry radiance
         // L = S/Ω in dedGeoScale so the L/pdf divide reconstructs S. Delta sun
         // (Ω→0) delivers S directly with pdf = 1. Mirrors CPU distant_light.cpp.
-        float solidAngle = 2.f * M_PI_F * (1.f - d.cosOuter);
+        // pkg140: d.spread carries the host-precomputed solid angle (2*sin^2(h/2)
+        // identity, distant_light.cpp distantSolidAngle(), uploaded in
+        // fillDeviceParams) instead of recomputing 2*pi*(1-cosOuter) here, which
+        // would suffer the same cancellation the CPU fix addresses -- cosOuter
+        // itself already lost the small-angle precision once rounded to float32,
+        // so recomputing on-device can't recover it.
+        float solidAngle = d.spread;
         s.wi          = dir;
         s.maxDist     = 1e30f;
-        if (solidAngle > 1e-8f) {
+        if (solidAngle > 0.f) {
             s.lightPdf    = (1.f / solidAngle) * selPdf;
             s.dedGeoScale = d.staticScale / solidAngle;
         } else {
-            s.lightPdf    = 1.f * selPdf;
-            s.dedGeoScale = d.staticScale;
+            // True delta sun: mirrors CPU sampleLi's isDelta branch -- forces
+            // gpu_nee_resolve to use MIS weight 1 (pkg140).
+            s.lightPdf     = 1.f * selPdf;
+            s.dedGeoScale  = d.staticScale;
+            s.isDeltaLight = 1;
         }
         s.valid       = 1;
         return s;
@@ -357,7 +366,12 @@ __device__ inline GSampledSpectrum gpu_nee_resolve(
     if (f_spec.maxValue() <= 0.f || L_spec.maxValue() <= 0.f) return direct;
 
     float bsdfPdf = gpu_material_pdf(mat, rec, wo, s.wi);
-    float wt      = gpu_mw_powerHeuristic(s.lightPdf, bsdfPdf);
+    // pkg140: delta-light samples (e.g. GDED_DISTANT angular_diameter == 0)
+    // always get full MIS weight -- mirrors CPU pathTraceSpectral's
+    // ls.isDelta check (raytracer.h). A BSDF-sampled ray has probability 0
+    // of reproducing a delta direction, so power-heuristic-combining against
+    // bsdfPdf would incorrectly discount it.
+    float wt = s.isDeltaLight ? 1.0f : gpu_mw_powerHeuristic(s.lightPdf, bsdfPdf);
     // color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f))
     return f_spec * L_spec * (wt / (s.lightPdf + 0.001f));
 }

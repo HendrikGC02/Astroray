@@ -24,6 +24,7 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
     out.emission_spec = SampledSpectrum(0.0f);
     out.pdf = 0;
     out.distance = 0;
+    out.isDelta = false;  // pkg140
 
     const auto& lights = lightList_->getLights();
     const auto& dedicatedLights = lightList_->getDedicatedLights();
@@ -83,6 +84,7 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
         out.emission_spec = liSample.emission_spec;
         out.distance = liSample.distance;
         out.pdf = liSample.pdf * selPdf;
+        out.isDelta = liSample.isDelta;  // pkg140
     }
 }
 
@@ -137,6 +139,7 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
     out.emission_spec = SampledSpectrum(0.0f);
     out.pdf = 0;
     out.distance = 0;
+    out.isDelta = false;  // pkg140
 
     if (tree_->empty()) {
         return;
@@ -186,6 +189,7 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
         out.emission_spec = liSample.emission_spec;
         out.distance = liSample.distance;
         out.pdf = liSample.pdf * treePdf;
+        out.isDelta = liSample.isDelta;  // pkg140
     }
 }
 

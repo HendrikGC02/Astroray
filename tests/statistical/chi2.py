@@ -142,11 +142,23 @@ class ChiSquareTest:
         # Map samples into the parameter domain
         xy = self.domain.map_backward(samples_out)
 
-        # Sanity check: samples in bounds
+        # Sanity check: samples in bounds. Restricted to LIVE (weight>0) samples:
+        # Astroray's failed-sample convention (pkg121 finding, "not a bug") returns
+        # the geometrically-computed-but-rejected direction for a dead sample (e.g.
+        # an NDF-sampled specular reflection that lands below the horizon) with
+        # weight=0 rather than omitting it. For HemisphericalDomain those directions
+        # legitimately have cos_theta<0 (lower hemisphere) and fall outside
+        # bounds()'s cos_theta in [0,1] by construction — that is the convention
+        # working as intended, not a sampler defect. Dead samples already contribute
+        # 0 to the histogram (see weights_out below); they must also be excluded
+        # from this validity check, or a statistically-passing config (matched
+        # sample()/pdf(), pkg123 root-cause fix) still gets flagged self.fail=True
+        # by this unrelated check and never reaches the p-value gate.
         eps = (self.bounds[1] - self.bounds[0]) * 1e-4
         in_domain = np.all((xy >= (self.bounds[0] - eps)[:, None]) & (xy <= (self.bounds[1] + eps)[:, None]), axis=0)
-        if not np.all(in_domain):
-            self._log(f'Encountered {np.sum(~in_domain)} samples outside of the specified domain!')
+        live = weights_out > 0
+        if not np.all(in_domain[live]):
+            self._log(f'Encountered {np.sum(~in_domain[live])} live samples outside of the specified domain!')
             self.fail = True
 
         # Normalize to grid coordinates
@@ -362,28 +374,40 @@ class ChiSquareTest:
             histogram_2d = [[float(self.histogram[x + y * self.res[0]])
                              for x in range(self.res[0])]
                             for y in range(self.res[1])]
+            # Compute per-cell standardized residuals: (O - E) / sqrt(E)
+            residual_2d = [[(float(self.histogram[x + y * self.res[0]]) -
+                             float(self.pdf[x + y * self.res[0]])) /
+                            (np.sqrt(max(float(self.pdf[x + y * self.res[0]]), 1e-10)))
+                            for x in range(self.res[0])]
+                           for y in range(self.res[1])]
 
             f.write(f"pdf={pdf_2d}\n")
-            f.write(f"histogram={histogram_2d}\n\n")
+            f.write(f"histogram={histogram_2d}\n")
+            f.write(f"residual={residual_2d}\n\n")
             f.write('if __name__ == "__main__":\n')
             f.write('    import matplotlib.pyplot as plt\n')
             f.write('    import numpy as np\n\n')
-            f.write('    fig, axs = plt.subplots(1, 3, figsize=(15, 5))\n')
+            f.write('    fig, axs = plt.subplots(2, 2, figsize=(12, 10))\n')
             f.write('    pdf = np.array(pdf)\n')
             f.write('    histogram = np.array(histogram)\n')
+            f.write('    residual = np.array(residual)\n')
             f.write('    diff = histogram - pdf\n')
             f.write('    absdiff = np.abs(diff).max()\n')
+            f.write('    absres = np.abs(residual).max()\n')
             f.write('    a = pdf.shape[1] / pdf.shape[0]\n')
-            f.write('    pdf_plot = axs[0].imshow(pdf, vmin=0, aspect=a, interpolation="nearest")\n')
-            f.write('    hist_plot = axs[1].imshow(histogram, vmin=0, aspect=a, interpolation="nearest")\n')
-            f.write('    diff_plot = axs[2].imshow(diff, aspect=a, vmin=-absdiff, vmax=absdiff, interpolation="nearest", cmap="coolwarm")\n')
-            f.write('    axs[0].set_title("PDF")\n')
-            f.write('    axs[1].set_title("Histogram")\n')
-            f.write('    axs[2].set_title("Difference")\n')
+            f.write('    pdf_plot = axs[0, 0].imshow(pdf, vmin=0, aspect=a, interpolation="nearest")\n')
+            f.write('    hist_plot = axs[0, 1].imshow(histogram, vmin=0, aspect=a, interpolation="nearest")\n')
+            f.write('    diff_plot = axs[1, 0].imshow(diff, aspect=a, vmin=-absdiff, vmax=absdiff, interpolation="nearest", cmap="coolwarm")\n')
+            f.write('    res_plot = axs[1, 1].imshow(residual, aspect=a, vmin=-absres, vmax=absres, interpolation="nearest", cmap="coolwarm")\n')
+            f.write('    axs[0, 0].set_title("PDF (Expected)")\n')
+            f.write('    axs[0, 1].set_title("Histogram (Observed)")\n')
+            f.write('    axs[1, 0].set_title("Difference (O - E)")\n')
+            f.write('    axs[1, 1].set_title("Standardized Residual (O-E)/sqrt(E)")\n')
             f.write('    props = dict(fraction=0.046, pad=0.04)\n')
-            f.write('    fig.colorbar(pdf_plot, ax=axs[0], **props)\n')
-            f.write('    fig.colorbar(hist_plot, ax=axs[1], **props)\n')
-            f.write('    fig.colorbar(diff_plot, ax=axs[2], **props)\n')
+            f.write('    fig.colorbar(pdf_plot, ax=axs[0, 0], **props)\n')
+            f.write('    fig.colorbar(hist_plot, ax=axs[0, 1], **props)\n')
+            f.write('    fig.colorbar(diff_plot, ax=axs[1, 0], **props)\n')
+            f.write('    fig.colorbar(res_plot, ax=axs[1, 1], **props)\n')
             f.write('    plt.tight_layout()\n')
             f.write('    plt.show()\n')
 

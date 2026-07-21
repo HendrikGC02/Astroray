@@ -542,19 +542,33 @@ public:
         const float sinThetaO = std::sqrt(std::max(0.0f, 1.0f - cosThetaO * cosThetaO));
         const Vec3 wo = (rec.tangent * sinThetaO + rec.normal * cosThetaO).normalized();
 
+        // Hemispherical-directional reflectance via BSDF importance sampling
+        // (pbrt-v4 §14.1.6, BxDF::rho hemispherical-directional variant):
+        //     rho_hd(wo) = integral_hemisphere f(wo,wi) |cos_i| dwi
+        //               ~= (1/N) sum_k  s.f_k / s.pdf_k ,  wi_k ~ Material::sample()
+        // Material::sample()'s s.f already carries the |cos_i| factor (eval() returns
+        // BRDF * NdotL), so no extra cosine is applied — matching pbrt's Sample_f*cos/pdf
+        // when f is defined with the cosine folded in. Reflection only: lower-hemisphere
+        // (transmission) draws contribute 0 but still count in N, so a BTDF material's
+        // rho stays a true reflectance.
+        //
+        // pkg123: replaces the previous UNIFORM-hemisphere integration of eval(). Uniform
+        // sampling is high-variance and DIVERGES for near-delta GGX lobes once the eval()
+        // firefly cap is removed (5e2080c): a lone Halton sample on an uncapped D~1e3-1e4
+        // peak inflates the estimate (metallic r=0.1 read 1.31 vs the true ~1.00 verified
+        // by furnace render + N->1e6 convergence), while sharp grazing peaks are
+        // under-sampled and their real energy violation hidden. Importance sampling draws
+        // from the lobe the sampler actually uses, so the estimate is low-variance and
+        // does not depend on the D magnitude.
+        std::mt19937 gen(0x9e3779b9u);
         Vec3 sum(0.0f);
         for (int i = 0; i < samples; ++i) {
-            const float u1 = halton(i + 1, 2);
-            const float u2 = halton(i + 1, 3);
-            const float cosThetaI = u1;
-            const float sinThetaI = std::sqrt(std::max(0.0f, 1.0f - cosThetaI * cosThetaI));
-            const float phi = 2.0f * float(M_PI) * u2;
-            const Vec3 wi = (rec.tangent * (std::cos(phi) * sinThetaI) +
-                             rec.bitangent * (std::sin(phi) * sinThetaI) +
-                             rec.normal * cosThetaI).normalized();
-            sum += it->second->eval(rec, wo, wi);
+            BSDFSample s = it->second->sample(rec, wo, gen);
+            if (s.pdf > 0.0f && rec.normal.dot(s.wi) > 0.0f) {
+                sum += s.f / s.pdf;
+            }
         }
-        const Vec3 reflected = sum * (2.0f * float(M_PI) / float(samples));
+        const Vec3 reflected = sum / float(samples);
         return {reflected.x, reflected.y, reflected.z};
     }
 

@@ -11,10 +11,12 @@ class DisneyPlugin : public Material {
     float transmission_, ior_;
     static constexpr float kDeltaTransmissionRoughness = 0.03f;
 
+    // GGX/Trowbridge-Reitz NDF (Walter 2007 Eq. 33, pbrt-v4 §9.6).
+    // D(wm) = α² / (π (1 + (α²-1)·cos²θm)²)
     float D_GTR2(float NdotH, float a) const {
         float a2 = a * a;
         float t = 1 + (a2 - 1) * NdotH * NdotH;
-        return a2 / (float(M_PI) * t * t + 0.001f);
+        return a2 / (float(M_PI) * t * t);
     }
 
     float smithG_GGX(float NdotV, float alphaG) const {
@@ -60,10 +62,22 @@ class DisneyPlugin : public Material {
         return weight * (Vec3(1.0f) - Vec3::min(albedo, Vec3(0.999f)));
     }
 
-    Vec3 clampColor(const Vec3& c, float hi = 4.0f) const {
-        return Vec3(std::clamp(c.x, 0.0f, hi),
-                    std::clamp(c.y, 0.0f, hi),
-                    std::clamp(c.z, 0.0f, hi));
+    // pkg123: floor at 0 only — NO upper cap. A finite cap clips the near-delta
+    // GGX specular peak: once the chi²-required spurious `+0.001f` epsilon is
+    // removed from D_GTR2, the specular D reaches ~1e3-1e4 at the alpha floor
+    // (roughness<=0.08), so eval()'s spec `f` gets capped while pdf() carries
+    // the uncapped D — the importance-sampled f/pdf ratio then no longer cancels
+    // D and metal reflection collapses to black (test_disney_metal_reflection_
+    // not_black: 0.215 vs 0.604, ~2.8x too dark). On the pre-pkg123 engine the
+    // epsilon deflated D to <=~0.32 at every roughness, so this 4.0 cap never
+    // fired and f/pdf cancelled cleanly; removing the cap restores that render
+    // behaviour while keeping the epsilon-free pdf the chi² gates require.
+    // Firefly control belongs at the integrator (raytracer.h clampDirect/
+    // clampIndirect + the sLum>20 per-sample guard), mirroring Cycles'
+    // kernel_accum_clamp (clamp_direct/clamp_indirect) — never a closure-level
+    // cap on the BRDF value (Cycles bsdf_microfacet.h returns the true D).
+    Vec3 clampColor(const Vec3& c) const {
+        return Vec3::max(c, Vec3(0.0f));
     }
 
     float diffuseFurnaceScale(float roughness, float mu) const {
@@ -153,7 +167,8 @@ class DisneyPlugin : public Material {
         if (HdotO <= 1e-10f) return 0.0f;
 
         // PBRT-v4: reflection PDF = VNDF_PDF / (4 * |HdotO|)
-        return vndfPdf(rec.normal, wo, wm) / (4.0f * HdotO + 1e-10f);
+        // (pbrt-v4 DielectricBxDF, Walter 2007 §5.3 Jacobian).
+        return vndfPdf(rec.normal, wo, wm) / (4.0f * HdotO);
     }
 
     // PBRT-v4 DielectricBxDF::f transmission (BSD-3-Clause).
@@ -524,22 +539,48 @@ public:
         float diffWeight = (1 - metallic_) * (1 - transmission_);
         float specWeight = 1;
         float total = diffWeight + specWeight;
+        // The diffuse+plain-NDF-specular block below is only reached by sample()
+        // when the top-level transmission roulette (line ~412:
+        // `dist(gen) < transmission_`) selects the NON-transmissive branch —
+        // probability (1 - transmission_). pdf() must gate this whole block by
+        // that same factor, or it reports density for an event class sample()
+        // has already excluded via the transmission branch. For transmission_=1.0
+        // (pure glass) the plain-NDF specular branch is provably unreachable
+        // (`dist(gen) < 1.0` is always true), yet the unscaled formula
+        // unconditionally added its full pdf — a double-count against the VNDF
+        // reflection term added below. Evidence: glass chi² (roughness=0.3)
+        // measured PDF integral 1.951 (~2x over unity, exactly consistent with
+        // one fully-duplicated reflection term).
+        float mixScale = 1.0f - transmission_;
         float p = 0;
-        if (diffWeight > 0) p += (rec.normal.dot(wi) / float(M_PI)) * (diffWeight / total);
+        if (diffWeight > 0) p += (rec.normal.dot(wi) / float(M_PI)) * (diffWeight / total) * mixScale;
         if (specWeight > 0) {
             float a = std::max(roughness_ * roughness_, 0.0064f);
             float NdotH = rec.normal.dot(H);
             float HdotV = H.dot(wo);
             if (NdotH > 0.0f && HdotV > 0.0f) {
                 float D = D_GTR2(NdotH, a);
-                p += (D * NdotH / (4 * HdotV + 0.001f)) * (specWeight / total);
+                // GGX reflection PDF: p(wi) = D(wm)·(wm·n) / (4·(wo·wm))
+                // (Walter 2007 §5.3, pbrt-v4 §9.6 Eq. 9.24).
+                p += (D * NdotH / (4.0f * HdotV)) * (specWeight / total) * mixScale;
             }
         }
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
             bool entering = rec.normal.dot(wo) > 0.0f;
             float etaI = entering ? 1.0f : ior_;
             float etaT = entering ? ior_ : 1.0f;
-            float F = fresnelDielectric(wo.dot(H), etaI, etaT);
+            // std::abs() matches sample()'s inline computation (disney.cpp ~431:
+            // `fresnelDielectric(std::abs(HdotO), etaI, etaT)`) and is defensive
+            // hardening against out-of-domain `wo.dot(H)` signs when `H` is
+            // reconstructed from an arbitrary query wi (tabulate_pdf's quadrature
+            // sweeps the full domain, not just plausible reflections). NOTE
+            // (Opus re-review, 2026-07-20, measured on hardware): this is NOT the
+            // root cause of the glass chi² residual (chi^2=143M/dof=1025 with the
+            // fix present). The actual mechanism is a delta-vs-continuous
+            // sample/pdf type mismatch -- see pkg121-disney-pdf-finding.md
+            // "Round 2d" and the xfail reason on test_chi2_disney_glass. Kept as
+            // harmless hardening, not claimed as a fix.
+            float F = fresnelDielectric(std::abs(wo.dot(H)), etaI, etaT);
             p += transmission_ * F * microfacetReflectionPdf(rec, wo, wi);
         }
         return p;

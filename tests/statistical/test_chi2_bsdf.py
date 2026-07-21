@@ -108,18 +108,8 @@ class BSDFSamplerAdapter:
         return pdf_array
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="Disney SPEC-lobe sample/pdf shape mismatch under investigation "
-    "(pkg123). Post-harness-validation state 2026-07-20: Lambertian anchor "
-    "passes (p=0.23); diffuse-only Disney passes at normal incidence; every "
-    "metallic config fails p~=0 with angle dependence -> the mismatch lives "
-    "in the specular lobe's pdf vs its sample procedure. Invisible to "
-    "furnace/parity gates (unbiased MC absorbs it); real MIS-weight impact "
-    "via the one-sided integrator (see pkg120). Do NOT delete or soften: "
-    "this gate documents a suspected real defect.")
 @pytest.mark.parametrize("theta_deg", [0, 45, 75])
-@pytest.mark.parametrize("roughness", [0.1, 0.4, 0.8])
+@pytest.mark.parametrize("roughness", [0.4, 0.8])  # Skip 0.1: near-delta, grid-unresolvable
 def test_chi2_disney_metallic(theta_deg, roughness):
     """
     Chi² test for Disney BSDF metallic lobe.
@@ -172,12 +162,6 @@ def test_chi2_disney_metallic(theta_deg, roughness):
     )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="Fails at oblique incidence (theta=45) while normal incidence "
-    "passes — consistent with the pkg123 spec-lobe mismatch leaking through "
-    "the residual specular mixture weight even at specular=0. See the "
-    "metallic gate's xfail note.")
 @pytest.mark.parametrize("theta_deg", [45])
 @pytest.mark.parametrize("roughness", [1.0])
 def test_chi2_disney_diffuse(theta_deg, roughness):
@@ -230,14 +214,34 @@ def test_chi2_disney_diffuse(theta_deg, roughness):
     )
 
 
-@pytest.mark.xfail(strict=False, reason="disney transmission needs full-sphere domain + pdf/sample investigation (pkg123)")
+@pytest.mark.xfail(
+    strict=True,
+    reason="Disney glass reflection is sampled as a smooth DELTA (mirror, "
+    "pdf=fresnel*T, isDelta=true -- disney.cpp:465-474) because the "
+    "rough-reflection candidate is rejected at disney.cpp:455 (eval() "
+    "reflection lobe ~0 for transmission=1/metallic=0 via Cspec0, "
+    "disney.cpp:325), while pdf() adds a continuous VNDF reflection term "
+    "(disney.cpp:543). Delta-vs-continuous sample/pdf type mismatch; "
+    "furnace-invisible; real MIS-shape defect, pre-existing (not introduced "
+    "by pkg123 -- pkg123 fixed the mixScale double-count and confirmed this "
+    "residual is a separate root cause). Opus re-review measurements "
+    "(2026-07-20): angle-from-mirror max=0.0 (every sampled reflection wi is "
+    "the exact smooth-mirror direction, none from the rough VNDF branch), "
+    "constant pdf 0.04213 = F(45 deg, ior=1.5)*T (the delta branch's "
+    "analytic formula), sample/eval energy ratio 0.060. Fix = a proper rough "
+    "dielectric reflection lobe in eval() (pbrt-v4 DielectricBxDF, Walter "
+    "2007 Section 5.1 Eq. 20). Do NOT patch pdf() to suppress the continuous "
+    "term -- that breaks MIS. Follow-up: architect-filed spec tracked as "
+    "'disney-dielectric-reflection-lobe'. See "
+    ".astroray_plan/docs/pkg121-disney-pdf-finding.md Round 2d.")
 @pytest.mark.parametrize("theta_deg", [45])
-@pytest.mark.parametrize("roughness", [0.0, 0.3])
+@pytest.mark.parametrize("roughness", [0.3])  # Skip 0.0: delta transmission is grid-unresolvable
 def test_chi2_disney_glass(theta_deg, roughness):
     """
     Chi² test for Disney BSDF glass/dielectric lobe.
 
     Tests transmission=1.0 (glass) at varying roughness.
+    Now uses SphericalDomain to cover both reflection and transmission (pkg123).
     """
     renderer = astroray.Renderer()
 
@@ -258,8 +262,8 @@ def test_chi2_disney_glass(theta_deg, roughness):
     # Create adapter
     adapter = BSDFSamplerAdapter(renderer, mat_id, wo.tolist())
 
-    # Run chi² test (Disney BSDF is reflection-only, so use hemisphere)
-    domain = HemisphericalDomain()
+    # Use SphericalDomain to cover both upper (reflection) and lower (transmission) hemispheres
+    domain = SphericalDomain()
     chi2_test = ChiSquareTest(
         domain=domain,
         sample_func=adapter.sample_func,
@@ -285,7 +289,6 @@ def test_chi2_disney_glass(theta_deg, roughness):
 
 
 # Full grid (marked slow) - comprehensive test across parameter space
-@pytest.mark.xfail(strict=False, reason="disney pdf/sample mismatch under investigation (pkg123)")
 @pytest.mark.slow
 @pytest.mark.parametrize("theta_deg", [0, 30, 45, 60, 75])
 @pytest.mark.parametrize("roughness", [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
@@ -295,7 +298,60 @@ def test_chi2_disney_full_grid(theta_deg, roughness, metallic):
     Comprehensive chi² test across full Disney BSDF parameter grid.
 
     This is the full dense sweep. Run with: pytest -v -m slow
+
+    Grid-limited configs (pkg123 Round 2, coordinator hardware run --
+    .astroray_plan/docs/pkg121-disney-pdf-finding.md "Round 2c"): the reflection
+    lobe's specular term is present identically (specWeight=1) regardless of the
+    metallic mix, so grid-unresolvability is a function of roughness/alpha alone,
+    NOT metallic. The original `metallic >= 0.5` gate was wrong -- measured:
+    metallic=0.0 at roughness 0.0/0.1 shows the identical PDF-sum-overshoot
+    signature (up to 12.7x) as metallic=1.0. Measured overshoots shrink
+    monotonically and identically across all 3 metallic values as roughness
+    grows (12.7x/5.6x at roughness 0.0/0.1, down to 1.0x-1.2x at roughness 0.2),
+    the signature of an ires=4 trapezoidal-quadrature artifact under/over-
+    integrating a narrow peaked lobe per grid cell -- not an engine defect.
+    roughness <= 0.2 is grid-limited for every metallic value.
+
+    A separate, narrower grazing-incidence residual exists at exactly
+    roughness=0.3, theta=75 (all metallic values) -- see the xfail below.
     """
+    # Skip grid-unresolvable near-delta configs. Compare against roughness
+    # directly (not squared alpha) plus a small epsilon to avoid float
+    # boundary noise (0.1**2 == 0.010000000000000002 in Python floats,
+    # which narrowly missed the old `alpha <= 0.01` check and let
+    # metallic=1.0/0.5 roughness=0.1 -- the ALREADY-documented near-delta
+    # case -- run and fail instead of being skipped).
+    alpha = max(roughness * roughness, 0.0064)
+    is_near_delta = (roughness <= 0.2 + 1e-9)
+    if is_near_delta:
+        pytest.skip(f"Grid-limited: roughness={roughness} (metallic={metallic}) "
+                    f"produces a lobe (α={alpha:.4f}) an 80×160 grid with ires=4 "
+                    f"quadrature cannot resolve -- measured PDF-sum overshoot up "
+                    f"to ~12.7x at roughness=0.0, shrinking monotonically and "
+                    f"identically across all metallic values as roughness grows "
+                    f"(pkg121-disney-pdf-finding.md Round 2c).")
+
+    # Grazing-incidence residual (pkg123 Round 2): roughness=0.3 passes at
+    # theta<=60 for every metallic value but fails at theta=75 (the single
+    # most grazing angle tested) with a small-magnitude (~3-9%) but
+    # chi²-significant deviation, while the core gate's roughness=0.4 config
+    # (alpha=0.16) passes cleanly at theta=75. This is a narrow boundary-of-
+    # resolvability specific to grazing incidence -- distinct from the
+    # near-delta skip above (roughness=0.3 passes everywhere else, so a
+    # blanket skip of the whole row would be unjustified). Candidate cause:
+    # the reflection lobe's plain-NDF sampler (disney.cpp:496-513, in scope
+    # for pkg124's VNDF swap) is documented (Heitz 2018) to behave worse at
+    # grazing incidence than VNDF sampling.
+    if roughness == 0.3 and theta_deg == 75:
+        pytest.xfail(
+            f"Grazing-incidence residual: roughness=0.3 (metallic={metallic}) "
+            f"fails ONLY at theta=75 (passes at 0/30/45/60); roughness=0.4 "
+            f"passes cleanly at theta=75 in the core gate. Candidate cause: "
+            f"plain-NDF reflection sampling degrades at grazing incidence "
+            f"(Heitz 2018) -- pkg124's VNDF reflection-lobe swap is the "
+            f"likely fix (pkg121-disney-pdf-finding.md Round 2c). Do NOT "
+            f"delete or widen: this documents a suspected real, narrow defect.")
+
     renderer = astroray.Renderer()
 
     mat_id = make_disney_material(
@@ -310,7 +366,7 @@ def test_chi2_disney_full_grid(theta_deg, roughness, metallic):
 
     adapter = BSDFSamplerAdapter(renderer, mat_id, wi.tolist())
 
-    domain = SphericalDomain()
+    domain = HemisphericalDomain()  # Reflection-only (no transmission in this grid)
     chi2_test = ChiSquareTest(
         domain=domain,
         sample_func=adapter.sample_func,

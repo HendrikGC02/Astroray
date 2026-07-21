@@ -3,12 +3,52 @@
 **Author:** architect (arch/pkg142-defect4)
 **Date:** 2026-07-21
 **Owner directive (verbatim):** "What ever is best and used by other renderers, your call."
-**Decision:** switch the RGB **emission** lift (`EmissionSpectrum::evalRGB` + the GPU
-mirror) from an **RGBIlluminant** (D65-weighted) lift to an **RGBUnbounded**
-(no-illuminant) lift **+ an explicit `1/CIE_Y_integral` photometric anchor** (see
-Correction), to reproduce Cycles' RGB-native light scaling and close the residual
-+7–16% equal-wattage brightness offset. Full implementation contract in
-`.astroray_plan/packages/pkg142-rgb-emission-convention.md`.
+**FINAL DECISION (2026-07-21, supersedes all below): KEEP `RGBIlluminant` (D65).**
+The D65-weighted illuminant lift is **required and correct** for Astroray's
+D65-referred spectral pipeline; the "switch to RGBUnbounded" premise was a
+misattribution. Revert PR #511; net code change NONE. The residual offset is
+re-attributed to a new investigation (pkg146). Details in the pkg142 spec's
+✅ FINAL ADJUDICATION; the arc is summarized in the Final Adjudication section
+immediately below.
+
+*(Historical decision, now superseded: "switch RGBIlluminant → RGBUnbounded +
+`1/CIE_Y_integral` anchor.")*
+
+---
+
+## Final Adjudication (2026-07-21, post-regate `790eb9e`) — the D65 factor's THREE roles
+
+The regate (RGBUnbounded + explicit anchor) **fixed the units** (suite 68→6) but
+exposed a **new ~30% R-channel excess / pink renders** vs neutral Cycles (R 1.29–1.37,
+G 1.028–1.097, B 0.996–1.071). Root cause: the `· sampleD65(λ)` factor carried **three**
+roles, not two:
+
+1. **Units anchor** `1/CIE_Y_integral` (the ~116×, fixed by the explicit anchor).
+2. **White-point adaptation E→D65** (the ~30% R-excess). The unweighted JH sigmoid for
+   white is near-flat = **illuminant E** (≈(0.333,0.333)); the spectral→RGB path is
+   **D65-referred** (standard sRGB matrix + `data/spectra/rgb_to_spectrum_srgb.coeff`).
+   E-white through a D65 matrix is pink: `XYZ(1,1,1) → sRGB (1.205, 0.948, 0.909)`,
+   **R/G ≈ 1.27** — matching the measurement. The D65 lift makes white emit **D65-white**
+   → neutral, like Cycles.
+3. A small residual tilt, subsumed by (2).
+
+`RGBUnbounded` is a **reflectance/HDR-value** upsampler (dimensionless, E-white). A
+**spectral** renderer's **emission** needs an **illuminant-referred** lift for roles 1+2.
+**pbrt-v4 (`SpectrumType::Illuminant`) and Mitsuba 3 (`srgb_d65`) both do exactly this,
+for white preservation** — it is the standard construction, not a pbrt-vs-Cycles dispute
+(Cycles sidesteps it only by being RGB-native). Option (b) (explicit E→D65 adaptation on
+a flat sigmoid) = multiply by `D65/E ≈ D65` = `RGBIlluminant` again. So **keep
+`RGBIlluminant`**.
+
+The original "+7–16% offset" premise was a misattribution: `RGBIlluminant` renders
+neutral + anchored, and the **pkg139 oracle rows are 0.96–1.01 without pkg142** → the
+offset is scene/type-dependent, not the lift. Re-attributed to **pkg146** (lead: the
+pkg139-vs-pkg122 oracle discrepancy).
+
+**Postmortem:** one symbol did three jobs; each fix peeled one layer and exposed the next
+(units → white point). Lesson: emission needs an illuminant-referred lift; a reflectance
+upsampler is the wrong category for a light; and validate a convention change against a
+**neutral-white render**, not a scalar brightness ratio.
 
 ---
 

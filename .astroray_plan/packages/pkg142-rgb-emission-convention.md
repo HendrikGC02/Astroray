@@ -1,15 +1,104 @@
-# pkg142 — RGB emission convention: RGBIlluminant → RGBUnbounded **+ photometric anchor** (Defect 4 adjudication)
+# pkg142 — RGB emission convention (Defect 4 adjudication) — **RESOLVED: keep RGBIlluminant (D65)**
 
 **Pillar:** 3 (light transport / emitter energy correctness)
 **Track:** A (single cross-cutting convention change with a live headless-Cycles oracle gate + reference-bank re-bless; needs a build + RTX + Blender-5.1, not a mechanical patch)
 **Codex-paste-ready:** no (one adjudicated convention flip that cross-cuts CPU/GPU/env/materials and moves the Cycles-parity reference bank; empirical sign/magnitude must be confirmed against a live Cycles A/B, and a fallback branch may be taken — judgment at the gate, not a blind edit)
-**Status:** open — dispatchable
+**Status:** **ADJUDICATED — keep `RGBIlluminant` (D65). Net code change: NONE; revert PR #511.** The residual equal-wattage offset is re-attributed to a new investigation (**pkg146**). See ✅ FINAL ADJUDICATION.
 **Estimated effort:** M (the code change is small and localized; the cost is the build + live-Cycles oracle re-run + RTX GPU==CPU parity + evidence-first reference-bank re-bless)
 **Depends on:** pkg122 (PR #500, **merged**) — Defects 1–3 must be in `main` so the residual measured by the oracle is the *clean* emission-lift offset, not confounded by the per-type radiometry bugs. Satisfied.
 
 **Adjudication authority:** owner delegated to the team on 2026-07-21, verbatim:
 *"What ever is best and used by other renderers, your call."* Research + adjudication:
 `.astroray_plan/docs/defect4-rgb-emission-research.md`.
+
+---
+
+## ✅ FINAL ADJUDICATION (2026-07-21, post-regate at `790eb9e`) — keep RGBIlluminant (D65)
+
+**This supersedes both the original decision and the ⚠ CORRECTION below.** The
+D65-weighted illuminant lift was **right all along**; the whole "switch to
+RGBUnbounded" premise was a misattribution. Verdict: **option (a) — revert PR #511,
+keep `RGBIlluminant` on CPU + `GSPEC_RGB_ILLUMINANT` on GPU, net code change NONE.**
+
+### What the regate showed (evidence)
+
+`790eb9e` (RGBUnbounded + explicit `1/cieYIntegral()` anchor) **fixed the units**
+(suite 68→6 failures, G8 0.19%, calibration gates green, render structure restored)
+— but exposed a **new residual: R-channel 1.29–1.37× excess across all four light
+types, visually pink renders vs neutral Cycles** (G 1.028–1.097, B 0.996–1.071;
+`Astroray-pkg142/test_results/pkg142_oracle_v2/`).
+
+### Root cause — the D65 factor had THREE roles, not two (verified)
+
+The `· sampleD65(λ)` factor in `RGBIlluminantSpectrum` did **three** jobs:
+
+1. **Units anchor** (`1/CIE_Y_integral`) — the ~116× (⚠ CORRECTION).
+2. **White-point adaptation (E→D65)** — the ~30% R-excess **just exposed**. The
+   unweighted JH sigmoid for gray/white is near-flat = **illuminant E** (chromaticity
+   ≈ (0.333, 0.333)). Astroray's spectral→XYZ→RGB uses the **D65-referred** sRGB
+   matrix (verified: `data/spectra/rgb_to_spectrum_srgb.coeff`, standard D65 LUT;
+   matrix in `deviceReference`). An E-white spectrum through that matrix renders
+   **pink**. Quantitatively: `XYZ(1,1,1) → sRGB = (1.205, 0.948, 0.909)`, i.e.
+   **R/G ≈ 1.27, B/G ≈ 0.96** — a near-exact match to the measured R 1.29–1.37,
+   B 0.996–1.071. **The pink is the E→D65 white-point error.** The D65 lift makes a
+   white RGB emit a **D65-white** spectrum → sRGB (1,1,1) **neutral**, matching
+   Cycles' neutral white by construction.
+3. **A small residual tilt** — subsumed by (2); negligible.
+
+`RGBUnbounded` is pbrt's **reflectance / HDR-value** upsampler — dimensionless **and**
+E-white. Using it for **emission** drops roles 1 **and** 2, both of which a
+**D65-referred spectral pipeline requires** to produce anchored, neutral-white light.
+
+### Why (a), and why (b)/(c) collapse to it
+
+- **The references already do (a) for exactly this reason.** pbrt-v4 uses
+  `SpectrumType::Illuminant → RGBIlluminantSpectrum` (D65) for lights; Mitsuba 3 uses
+  `srgb_d65`. Mitsuba's docs state a flat-spectrum emitter renders **purple-ish** and
+  you **must** use D65 — i.e. the D65-weighted lift **is** the standard white-preservation
+  construction for spectral emitters. This was **never** a pbrt-vs-Cycles "disagreement"
+  to resolve in Cycles' favor: Cycles avoids it **only** by being RGB-native (no spectral
+  round-trip). Astroray is spectral, so it **must** use an illuminant-referred lift.
+- **(b) reduces to (a).** An explicit E→D65 chromatic adaptation applied to a flat-E
+  sigmoid is multiplication by `(D65/E) ≈ D65` — i.e. **`RGBIlluminant` again**, just a
+  more complicated spelling. No benefit, more surface area.
+- **(c)** — the references offer no better-known construction; `RGBIlluminant` is the
+  standard. Nothing to adopt.
+
+### The original premise was a misattribution
+
+The delegation was to close a "+7–16% uniform equal-wattage offset." But `RGBIlluminant`
+renders **neutral, anchored** white — it was never the chromaticity culprit. The
+**pkg139 oracle rows land at 0.96–1.01 WITHOUT any pkg142 change**, which means the
+offset is **scene/type-dependent, not a universal emission-lift bug**. The pkg122 oracle
+(1.07–1.16) vs pkg139 (0.96–1.01) discrepancy is the real lead. Re-attributed to
+**pkg146** (`.astroray_plan/packages/pkg146-...`).
+
+### Action
+
+- **Revert PR #511** (both the `RGBUnbounded` swap and the explicit `1/cieYIntegral()`
+  anchor — the anchor exists **only** to compensate for the swap; `RGBIlluminant`
+  carries it inside `sampleD65`. Re-adding it on top of `RGBIlluminant` would
+  **double-anchor** → ~116× too dim). Net emission-lift code returns to `main`'s
+  `RGBIlluminant` / `GSPEC_RGB_ILLUMINANT`.
+- **Keep the pkg142 investigation value**: this package is the adjudication record that
+  the D65 illuminant lift is **required and correct** (with references + quantitative
+  E→D65 confirmation), preventing a future re-litigation. Zero code change.
+- **File pkg146** for the misattributed offset (lead: the pkg139-vs-pkg122 oracle
+  discrepancy; check the oracle harness, per-type/scene dependence, exposure/tonemap).
+
+### Three-role postmortem (the whole arc)
+
+One symbol (`· sampleD65`) did **three** jobs; each "fix" peeled one layer and exposed
+the next: switch-to-Unbounded (dropped units **+** white point) → +116× → add anchor
+(fixed units, **exposed** white point) → +30% R pink → **keep Illuminant** (all three
+handled by construction). The durable lesson: **emission in a spectral renderer needs an
+illuminant-referred lift; a reflectance upsampler (`Albedo`/`Unbounded`) is the wrong
+category for a light.** The class names encode this (reflectance vs illuminant) — respect
+them. And **validate a convention change against a neutral-white render, not just a
+brightness ratio** — a scalar gate can't see a white-point error.
+
+Everything below (original decision + ⚠ CORRECTION) is retained for the journal trail
+and is **superseded** by this section.
 
 ---
 

@@ -57,7 +57,12 @@ struct DeviceLightParams {
     float height    = 0.0f;       // area height
     int   areaShape = 0;          // 0 rectangle, 1 disk, 2 ellipse
     float radius    = 0.0f;       // point/spot soft-shadow radius (0 = hard/delta)
-    float spread    = 0.0f;       // area emission cone half-angle (radians)
+    float spread    = 0.0f;       // area emission cone half-angle (radians) /
+                                   // distant: precomputed solid angle in sr
+                                   // (pkg140 distantSolidAngle(), 2*sin^2(h/2)
+                                   // identity -- avoids the device recomputing
+                                   // 2*pi*(1-cosOuter), which loses the same
+                                   // small-angle precision cosOuter already did)
     float cosInner  = 1.0f;       // spot inner-cone cosine (full intensity)
     float cosOuter  = -1.0f;      // spot outer-cone cosine / distant cos(halfAngle)
     Vec3  emissionRGB = Vec3(1.0f); // reference color for the device RGBIlluminant upsample
@@ -115,6 +120,14 @@ public:
         Vec3              emission_rgb;   // RGB emission (for ReSTIR compat)
         float             pdf;            // probability density (1/sr or 1/m²)
         float             distance;       // distance to shading point
+        // pkg140: true when this sample came from a delta (zero-measure)
+        // direction/position distribution (e.g. DistantLight with
+        // angular_diameter == 0). A BSDF-sampled ray has probability 0 of
+        // ever reproducing a delta sample, so the NEE/BSDF MIS combine must
+        // use weight 1 (not a power-heuristic against bsdfPdf) for these
+        // samples. Reference: pbrt-v4 delta-light handling (Light::Type() ==
+        // LightType::DeltaDirection skips MIS; src/pbrt/lights.h, Apache-2.0).
+        bool              isDelta = false;
     };
 
     virtual void sampleLi(LiSample& result,

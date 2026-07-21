@@ -483,6 +483,11 @@ struct LightSample {
     Vec3 position, normal, emission;
     astroray::SampledSpectrum emission_spec;  // pkg89 Q6: extend (not replace) RGB
     float pdf, distance;
+    // pkg140: propagated from astroray::Light::LiSample::isDelta (dedicated
+    // lights only; legacy Hittable emitters are never delta). Forces the NEE
+    // MIS weight to 1 instead of a power heuristic against bsdfPdf -- see
+    // pathTraceSpectral / pathTraceSpectralCaustic.
+    bool isDelta = false;
 };
 struct BSDFSample { Vec3 wi, f; float pdf; bool isDelta; };
 struct BSDFSampleSpectral { Vec3 wi; astroray::SampledSpectrum f_spectral; float pdf; bool isDelta; };
@@ -2491,7 +2496,15 @@ public:
                         astroray::SampledSpectrum L_spec = ls.emission_spec;
                         float bsdfPdf = rec.material->pdf(rec, wo, wi);
                         float a = ls.pdf, b = bsdfPdf;
-                        float wt = (a * a) / (a * a + b * b + 1e-8f);
+                        // pkg140: a delta light sample (e.g. DistantLight with
+                        // angular_diameter == 0) can never be reproduced by
+                        // BSDF sampling (probability 0), so it always gets
+                        // full MIS weight rather than a power heuristic
+                        // against bsdfPdf. Without this, ls.pdf drops
+                        // discontinuously from ~1/solidAngle (huge, wt->1 in
+                        // the finite-angle limit) to selPdf (O(1)) right at
+                        // angle == 0, undercounting the delta sun's energy.
+                        float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                         color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f));
                     }
                 }
@@ -2676,7 +2689,9 @@ public:
                         astroray::SampledSpectrum L_spec = ls.emission_spec;
                         float bsdfPdf = rec.material->pdf(rec, wo, wi);
                         float a = ls.pdf, b = bsdfPdf;
-                        float wt = (a * a) / (a * a + b * b + 1e-8f);
+                        // pkg140: see pathTraceSpectral's identical comment --
+                        // delta-light NEE samples always get full MIS weight.
+                        float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                         color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f));
                     }
                 }

@@ -483,6 +483,13 @@ struct GNEESample {
     int   isDedicated;    // 1 = dedicated light
     GVec3 dedEmissionRGB; // reference color for the device RGBIlluminant upsample
     float dedGeoScale;    // staticScale · per-sample geometric factor (λ-independent)
+    // pkg140: 1 = this sample came from a delta (zero-measure) light
+    // distribution (e.g. GDED_DISTANT with angular_diameter == 0). Forces
+    // gpu_nee_resolve's MIS weight to 1 instead of a power heuristic against
+    // bsdfPdf, mirroring CPU LightSample::isDelta. Zero-initialized by every
+    // `GNEESample s{};` call site, so non-distant / non-delta samples are
+    // unaffected.
+    int   isDeltaLight;
 };
 
 struct GNEEOcclusion {

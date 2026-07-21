@@ -357,10 +357,18 @@ __global__ void stageRestirTemporalReuseKernel(
 
     // merge(prev, p_hat(prev.y)) — Algorithm 2. prev carries its fully-finalized
     // W from last frame's resolve, so the merge weight is prev.W·p_hat·prev.M
-    // (reservoir.h:92-96, restir_di.cpp:228-229).
+    // (reservoir.h:92-96).
+    //
+    // M-cap (Bitterli 2020 §5.2): clamp the PREVIOUS reservoir's M to ≤ mCap
+    // (=20·numCandidates) BEFORE the merge — capping the source's confidence,
+    // not the combined M. The combined M (= cur.M + capped prev.M) is then left
+    // as-is. Clamping the combined M after the merge (the earlier code) froze M
+    // at the cap while w_sum kept accumulating, inflating W unboundedly across
+    // frames (runaway brightening + rising variance). `pr` is a local copy so
+    // mutating its M is safe and the shared merge template is untouched.
     float pHatPrev = pr.y.targetLuminanceRGB();
+    pr.M = min(pr.M, mCap);
     res.merge(pr, pHatPrev, rng);
-    res.M = min(res.M, mCap);  // restir_di.cpp:230
 
     storeReservoir(cur, p, res);
     state.rng_dimension[p] = rng.dimension();
@@ -405,9 +413,12 @@ __global__ void stageRestirSpatialReuseKernel(
 
         ResType nbr = loadReservoir(prev, nIdx);
         if (nbr.M <= 0) continue;
+        // M-cap (Bitterli 2020 §5.2): cap each neighbour's source M before the
+        // merge (see the temporal stage). Combined M accumulates across
+        // neighbours; do NOT re-clamp it (that inflated W — the temporal bug).
         float pHatNbr = nbr.y.targetLuminanceRGB();
+        nbr.M = min(nbr.M, mCap);
         res.merge(nbr, pHatNbr, rng);
-        res.M = min(res.M, mCap);  // restir_di.cpp:250
     }
 
     storeReservoir(cur, p, res);

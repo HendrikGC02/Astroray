@@ -92,13 +92,21 @@ def render(r, integrator, samples=16, seed=42, max_depth=8,
 
 def render_sequence(astroray_module, scene_fn, integrator, n_frames,
                     width=32, height=32, samples_per_frame=1, seed=42,
-                    use_temporal=False, use_spatial=False):
+                    use_temporal=False, use_spatial=False, use_gpu=False):
     """
     Render the same static scene n_frames times with a persistent renderer,
     accumulating a list of per-frame images. Used to measure temporal reuse.
+
+    use_gpu=True selects the GPU ReSTIR wavefront driver
+    (cuda_wavefront_render_restir). This is required to exercise the GPU
+    temporal/spatial reuse stages: with useGPU off, restir-di runs the CPU
+    integrator whose per-instance frame history does not persist across these
+    separate render() calls, so temporal reuse would be a silent no-op.
     """
     r = make_renderer(astroray_module, width=width, height=height)
     scene_fn(r)
+    if use_gpu:
+        r.set_use_gpu(True)
     # Params must be set before set_integrator so the integrator is created with them.
     r.set_integrator_param("use_temporal", 1 if use_temporal else 0)
     r.set_integrator_param("use_spatial",  1 if use_spatial  else 0)

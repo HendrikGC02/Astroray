@@ -18,7 +18,6 @@ from pkg22 behaviour.
 import sys
 import os
 import numpy as np
-import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from restir_helpers import (
@@ -122,6 +121,11 @@ class TestTemporalVariance:
     HEIGHT    = 24
 
     def _stddev(self, astroray_module, use_temporal):
+        # use_gpu=True: the GPU ReSTIR driver (cuda_wavefront_render_restir) is
+        # the code under test. Its per-pixel reservoirs persist across frames in
+        # the wavefront WfContext, so temporal history actually accumulates here
+        # (the CPU integrator's history does not persist across these separate
+        # render() calls — it would measure a no-op).
         frames = render_sequence(
             astroray_module,
             lambda r: build_cornell_box(r),
@@ -131,6 +135,7 @@ class TestTemporalVariance:
             samples_per_frame=1,
             seed=100,
             use_temporal=use_temporal,
+            use_gpu=True,
         )
         return pixel_stddev(frames)
 
@@ -138,13 +143,11 @@ class TestTemporalVariance:
         stddev_no_reuse  = self._stddev(astroray_module, False)
         stddev_temporal  = self._stddev(astroray_module, True)
         assert stddev_no_reuse > 0, "No-reuse render is degenerate (zero variance)"
-        if stddev_temporal >= stddev_no_reuse:
-            relative_delta = (stddev_temporal - stddev_no_reuse) / stddev_no_reuse
-            if relative_delta < 0.02:
-                pytest.xfail(
-                    "Known ReSTIR temporal variance baseline flake: tiny deterministic "
-                    f"inversion ({stddev_temporal:.4f} vs {stddev_no_reuse:.4f})"
-                )
+        # Correct Bitterli 2020 §5.2 M-capping (source M capped before merge)
+        # makes temporal reuse accumulate ~20x more effective samples, so the
+        # per-frame variance drops substantially. The prior xfail escape hatch
+        # (tiny-inversion baseline flake) papered over the M-cap divergence bug
+        # and is removed now that the feature works — this is a hard gate.
         assert stddev_temporal < stddev_no_reuse, (
             f"Temporal reuse did not reduce variance: "
             f"no-reuse stddev={stddev_no_reuse:.4f}, "

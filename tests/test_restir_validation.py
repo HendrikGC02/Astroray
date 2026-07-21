@@ -18,6 +18,7 @@ from pkg22 behaviour.
 import sys
 import os
 import numpy as np
+import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from restir_helpers import (
@@ -25,6 +26,18 @@ from restir_helpers import (
     render, render_sequence, render_warmed,
     mean_luminance, pixel_stddev, mse, relative_mean_diff,
 )
+
+# CUDA-availability guard for the GPU-only gate below. conftest.py has already
+# run configure_test_imports() at import time, so `astroray` is on sys.path here.
+# Mirrors the repo's standard pattern (test_gpu_multiwavelength._has_cuda_gpu):
+# __features__["cuda"] is False on a CPU-only build, so set_use_gpu(True) would
+# raise "CUDA support not compiled" — skip on those machines (e.g. Linux CI) and
+# keep the assertion hard on the RTX box.
+try:
+    import astroray as _astroray
+    _HAS_CUDA = bool(_astroray.__features__.get("cuda", False))
+except Exception:
+    _HAS_CUDA = False
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +152,12 @@ class TestTemporalVariance:
         )
         return pixel_stddev(frames)
 
+    @pytest.mark.skipif(
+        not _HAS_CUDA,
+        reason="GPU ReSTIR temporal-variance gate requires CUDA "
+               "(set_use_gpu raises 'CUDA support not compiled' on CPU builds); "
+               "runs on the RTX box.",
+    )
     def test_temporal_reduces_variance(self, astroray_module):
         stddev_no_reuse  = self._stddev(astroray_module, False)
         stddev_temporal  = self._stddev(astroray_module, True)

@@ -18,7 +18,7 @@
 #include <cmath>
 
 #include "raytracer.h"           // Vec3, LightSample
-#include "astroray/spectrum.h"   // SampledWavelengths, SampledSpectrum, RGBIlluminantSpectrum
+#include "astroray/spectrum.h"   // SampledWavelengths, SampledSpectrum, RGBUnboundedSpectrum
 
 namespace astroray::restir {
 
@@ -49,12 +49,13 @@ struct ReSTIRCandidate {
     }
 
     // RIS target weight p_hat(y): spectral luminance of the emission.
-    // Upsamples RGB emission via RGBIlluminantSpectrum and returns Y channel.
-    // Returns 0.0 for invalid candidates or black emitters.
+    // Upsamples RGB emission via RGBUnboundedSpectrum (pkg142 Defect 4 --
+    // no-D65 lift, matches Cycles' RGB-native light scaling) and returns the
+    // Y channel. Returns 0.0 for invalid candidates or black emitters.
     float targetLuminance(const SampledWavelengths& lambdas) const {
         if (!isValid()) return 0.0f;
         SampledSpectrum spec =
-            RGBIlluminantSpectrum({emission.x, emission.y, emission.z}).sample(lambdas);
+            RGBUnboundedSpectrum({emission.x, emission.y, emission.z}).sample(lambdas);
         float Y = spec.toXYZ(lambdas).Y;
         return Y > 0.0f ? Y : 0.0f;
     }

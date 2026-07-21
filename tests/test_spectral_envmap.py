@@ -58,7 +58,8 @@ def _sphere_directions(n: int):
 
 @pytest.mark.skipif(not HAS_ENV, reason="test_env.hdr not found")
 def test_eval_spectral_atlas_matches_upsample_fallback():
-    """evalSpectral via atlas matches RGBIlluminantSpectrum fallback to 1e-3."""
+    """evalSpectral via atlas matches RGBUnboundedSpectrum fallback to 1e-3
+    (pkg142 Defect 4 -- both paths use the no-D65 lift)."""
     r = astroray.Renderer()
     assert r.load_environment_map(ENV_HDR), "failed to load env map"
 

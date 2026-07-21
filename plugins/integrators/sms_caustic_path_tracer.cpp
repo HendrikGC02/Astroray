@@ -24,7 +24,7 @@
 //
 // Phase 1 scope (default, `spectral_newton=false`): RGB only, scalar IOR.
 //   Spherical refractive casters; one Newton solve per ray, one specular
-//   vertex; contribution upsampled via RGBIlluminantSpectrum.
+//   vertex; contribution upsampled via RGBUnboundedSpectrum (pkg142 Defect 4).
 //
 // Phase 2 scope (`spectral_newton=true`): the Newton residual, refraction
 //   direction, and Schlick Fresnel are evaluated at the hero wavelength
@@ -179,7 +179,8 @@ public:
                     rad = rad + sms;
                 } else if (!casters_.empty()) {
                     Vec3 sms = sampleSMSRGB(rec, ray, lambdas, gen);
-                    rad = rad + astroray::RGBIlluminantSpectrum(
+                    // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+                    rad = rad + astroray::RGBUnboundedSpectrum(
                         {sms.x, sms.y, sms.z}).sample(lambdas);
                 }
             }
@@ -280,8 +281,8 @@ private:
 
             // Project RGB emission to the hero wavelength via Jakob-Hanika
             // upsampling — the per-λ Le evaluation needed for the prism
-            // rainbow.
-            float LeHero = astroray::RGBIlluminantSpectrum(
+            // rainbow. pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+            float LeHero = astroray::RGBUnboundedSpectrum(
                 {Le.x, Le.y, Le.z}).sample(lambdas)[0];
 
             float fHero  = fSpec[0];

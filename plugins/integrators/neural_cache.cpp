@@ -110,12 +110,13 @@ class NeuralCacheIntegrator : public Integrator {
             return envMap->evalSpectral(ray.direction.normalized(), lambdas);
         }
         if (bgColor.x >= 0.0f) {
-            return astroray::RGBIlluminantSpectrum(
+            // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+            return astroray::RGBUnboundedSpectrum(
                 {bgColor.x, bgColor.y, bgColor.z}).sample(lambdas);
         }
         float t = 0.5f * (ray.direction.normalized().y + 1.0f);
         Vec3 bg = (Vec3(1.0f) * (1.0f - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
-        return astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
+        return astroray::RGBUnboundedSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
     }
 
     astroray::SampledSpectrum directLighting(
@@ -146,8 +147,9 @@ class NeuralCacheIntegrator : public Integrator {
 
         astroray::SampledSpectrum f =
             rec.material->evalSpectral(rec, wo, wi, lambdas);
+        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
         astroray::SampledSpectrum L =
-            astroray::RGBIlluminantSpectrum(
+            astroray::RGBUnboundedSpectrum(
                 {ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas);
         float bsdfPdf = rec.material->pdf(rec, wo, wi);
         float a = ls.pdf;
@@ -443,7 +445,9 @@ public:
             color += indirect;
         } else {
             Vec3 rgb = queryCacheRGB(feat);
-            color += astroray::RGBIlluminantSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+            // pkg142 (Defect 4): UNBOUNDED (no-D65) lift, consistent with the
+            // rest of the radiance pipeline this cached RGB estimate feeds into.
+            color += astroray::RGBUnboundedSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
         }
 
         astroray::XYZ xyz = color.toXYZ(lambdas);

@@ -1421,15 +1421,18 @@ public:
         return {s[0], s[1], s[2], s[3]};
     }
 
-    // Reference fallback: RGB lookup then RGBIlluminantSpectrum upsample.
-    // Mirrors the pkg11-style path that evalSpectral replaces.
+    // Reference fallback: RGB lookup then RGBUnboundedSpectrum upsample
+    // (pkg142 Defect 4 — must track whatever convention the atlas/evalSpectral
+    // path uses; test_eval_spectral_atlas_matches_upsample_fallback asserts
+    // these two paths agree). Mirrors the pkg11-style path that evalSpectral
+    // replaces.
     std::vector<float> evalEnvRGBUpsample(const std::vector<float>& dir, float u) const {
         if (!envMap || !envMap->loaded()) return {0,0,0,0};
         Vec3 d(dir[0], dir[1], dir[2]);
         Vec3 c = envMap->lookup(d);
         astroray::SampledWavelengths wls = astroray::SampledWavelengths::sampleUniform(u);
         astroray::SampledSpectrum s =
-            astroray::RGBIlluminantSpectrum({c.x, c.y, c.z}).sample(wls);
+            astroray::RGBUnboundedSpectrum({c.x, c.y, c.z}).sample(wls);
         return {s[0], s[1], s[2], s[3]};
     }
 
@@ -1660,8 +1663,8 @@ public:
             // so GPU must do the same via multiwavelength_kernel.cu. The legacy RGB
             // path_trace_kernel.cu (used pre-pkg14) is no longer accurate for HDRI
             // env-map rendering because it converts env RGB → spectral → RGB via
-            // RGBIlluminantSpectrum, which is lossy compared to the CPU's direct
-            // RGBIlluminantSpectrum spectral atlas sampling.
+            // RGBUnboundedSpectrum (pkg142 Defect 4), which is lossy compared to the
+            // CPU's direct RGBUnboundedSpectrum spectral atlas sampling.
 #ifdef ASTRORAY_WAVEFRONT_CUDA_N3
             if (integratorName_ == "wavefront_path_tracer") {
                 // pkg55-C3: resolve spectral params (visible-band spectral is the

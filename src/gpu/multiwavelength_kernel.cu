@@ -298,8 +298,9 @@ __device__ GSampledSpectrum tracePathMW(
                             ls, cfg, fSpec, w, Le, Tr, wi)) {
                         // Clamp and accumulate hero-channel contribution
                         float fHero = fSpec.v[0];
-                        // Convert Le (linear sRGB) to spectral
-                        GSampledSpectrum LeSpec = gpu_rgbToSampledSpectrum(Le, lambdas, GSPEC_RGB_ILLUMINANT);
+                        // Convert Le (linear sRGB) to spectral.
+                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+                        GSampledSpectrum LeSpec = gpu_rgbToSampledSpectrum(Le, lambdas, GSPEC_RGB_UNBOUNDED);
                         float LeHero = LeSpec.v[0];
                         float sampleHero = fHero * LeHero * Tr * w;
                         if (sampleHero > cfg.contribClamp) sampleHero = cfg.contribClamp;

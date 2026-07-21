@@ -1,6 +1,6 @@
 #include "astroray/emission_spectrum.h"
 #include "astroray/spectral.h"  // for planck()
-#include "astroray/spectrum.h"  // for RGBAlbedoSpectrum, RGBIlluminantSpectrum, cieCmf1964_10deg
+#include "astroray/spectrum.h"  // for RGBAlbedoSpectrum, RGBUnboundedSpectrum, cieCmf1964_10deg
 #include "astroray/spectral_profile.h"
 #include "raytracer.h"  // for Vec3
 #include <stdexcept>
@@ -115,11 +115,13 @@ EmissionSpectrum EmissionSpectrum::composeWith(const Vec3& filterRGB) const {
     return EmissionSpectrum(std::move(comp));
 }
 
-// pkg89-GPU / GAP 1 — reference RGB for the device RGBIlluminant upsample.
+// pkg89-GPU / GAP 1 — reference RGB for the device RGB upsample.
+// pkg142: the caller (scene_upload.cu) selects the device spectral mode for
+// this RGB; as of pkg142 that is GSPEC_RGB_UNBOUNDED for emission, so device
+// gpu_rgbSpectrumAt(color, λ, UNBOUNDED) reproduces CPU
+// RGBUnboundedSpectrum(color).sample() exactly (same pkg54c mirror pattern).
 void EmissionSpectrum::deviceReference(Vec3& outRGB, bool& exactRGB) const {
     if (const RGB* rgb = std::get_if<RGB>(&data_)) {
-        // RGB mode: device gpu_rgbSpectrumAt(color, λ, ILLUMINANT) reproduces
-        // CPU RGBIlluminantSpectrum(color).sample() exactly (same pkg54c path).
         outRGB   = rgb->color;
         exactRGB = true;
         return;
@@ -177,16 +179,31 @@ SampledSpectrum EmissionSpectrum::evalBlackbody(const Blackbody& bb,
 }
 
 // Internal: evaluate RGB mode.
-// Uses RGBIlluminantSpectrum (D65-weighted) to match the existing engine
-// convention for rgb-mode emission intensities. The parity-report change to
-// RGBUnboundedSpectrum was over-broad: it would drop point/background/spot-rgb
-// illuminance ~3×, breaking G5 (point hard shadow) and G4 (spot RGB center).
-// G2's AreaLight D65 chromaticity is addressed by the geometric normalize +
-// white-tint short-circuit in evalBlackbody; this evalRGB path stays Illuminant
-// so existing scene intensities continue to work.
+// pkg142 (Defect 4): RGB emission uses the RGBUnbounded (no-D65) lift to match
+// Cycles' RGB-native light scaling -- Astroray's parity target -- rather than
+// the pbrt-v4/Mitsuba RGBIlluminant D65 convention. See
+// .astroray_plan/packages/pkg142-rgb-emission-convention.md and
+// .astroray_plan/docs/defect4-rgb-emission-research.md.
+//
+// pbrt-v4 (`SpectrumType::Illuminant` -> RGBIlluminantSpectrum,
+// src/pbrt/lights.cpp) and Mitsuba 3 (srgb_d65) both imprint a D65 illuminant
+// chromaticity on RGB lights. Cycles is RGB-native: light `strength` is stored
+// as a linear-RGB float3 and radiance = strength * eval_fac, with no spectral
+// upsampling and no D65 (src/scene/light.cpp, src/kernel/light/area.h). With
+// the pkg122 (PR #500) per-type radiometry fixed, the live headless-Cycles
+// oracle measured all four dedicated-light types 1.07-1.16x brighter than
+// Cycles -- a residual traced to the D65 tilt on RGBIlluminant clashing with
+// the plain Jakob-Hanika RGBAlbedoSpectrum family used for surface albedo:
+// two same-family JH spectra multiply/integrate back to the RGB product with
+// minimal crosstalk (Cycles' albedo (dot) light multiply); a D65-tilted
+// emission spectrum does not. RGBUnboundedSpectrum = scale*sigmoid(rgb/scale)
+// is that same reflectance-sigmoid family with no illuminant, closing the gap.
+// RGBUnboundedSpectrum is pbrt-v4's class (src/pbrt/util/spectrum.h,
+// Apache-2.0), already in-tree (src/spectrum.cpp) -- this only re-points the
+// emission call site, no new algorithm (CLAUDE.md SS6).
 SampledSpectrum EmissionSpectrum::evalRGB(const RGB& rgb,
                                            const SampledWavelengths& wl) const {
-    RGBIlluminantSpectrum rgbSpectrum({rgb.color.x, rgb.color.y, rgb.color.z});
+    RGBUnboundedSpectrum rgbSpectrum({rgb.color.x, rgb.color.y, rgb.color.z});
     return rgbSpectrum.sample(wl);
 }
 

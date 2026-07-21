@@ -723,11 +723,12 @@ void CUDARenderer::render(
     int totalPixels = width * height;
 
     // path_trace_kernel.cu uses gpu_rgbToSampledSpectrum(...) with
-    // GSPEC_RGB_ILLUMINANT for environment colour, which now reads the
-    // D65 SPD baked into MW kernel constant memory — make sure it's
-    // uploaded before the kernel runs. pkg54c additionally requires the
-    // Jakob-Hanika sigmoid LUT in device global memory because
-    // gpu_rgbSpectrumAt now upsamples via gpu_jhEvalSpectrum.
+    // GSPEC_RGB_UNBOUNDED for environment colour (pkg142 Defect 4 — no-D65
+    // lift), which upsamples via the Jakob-Hanika sigmoid LUT baked into MW
+    // kernel constant/global memory — make sure it's uploaded before the
+    // kernel runs. pkg54c additionally requires the Jakob-Hanika sigmoid LUT
+    // in device global memory because gpu_rgbSpectrumAt now upsamples via
+    // gpu_jhEvalSpectrum.
     uploadCmfTables();
     uploadJakobHanikaLut();
 

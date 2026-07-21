@@ -136,7 +136,8 @@ inline float runMeshSMSAttempt(const Renderer& renderer,
     // Receiver BSDF (hero channel) + light emission (hero channel).
     const Vec3 wo_eye = -primary.direction.normalized();
     const float fHero = x0Rec.material->evalSpectral(x0Rec, wo_eye, wi_x0, lambdas)[0];
-    const float LeHero = astroray::RGBIlluminantSpectrum(
+    // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+    const float LeHero = astroray::RGBUnboundedSpectrum(
         {ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas)[0];
 
     // Generalized geometry term (Cycles mnee_path_contribution l.836-841):

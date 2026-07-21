@@ -293,7 +293,8 @@ private:
                                     C, eta, casterPickPdf, ls, smsCfg_,
                                     fSpec, w, Le, Tr, wi))
                 continue;
-            float LeHero = astroray::RGBIlluminantSpectrum(
+            // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+            float LeHero = astroray::RGBUnboundedSpectrum(
                 {Le.x, Le.y, Le.z}).sample(lambdas)[0];
             float fHero  = fSpec[0];
             float sampleHero = fHero * LeHero * Tr * w;
@@ -348,7 +349,8 @@ private:
             smsConverged_ += 1.0f;
             smsEnergy_ += maxC;
         }
-        return astroray::RGBIlluminantSpectrum(
+        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+        return astroray::RGBUnboundedSpectrum(
             {contribRGB.x, contribRGB.y, contribRGB.z}).sample(lambdas);
     }
 

@@ -18,8 +18,9 @@
 #include "gpu_bvh.h"        // gpu_envmap_apply_rot
 
 // Environment radiance for a missed ray: backgroundColor > env map > default
-// sky gradient. Spectral upsampling matches the CPU pipeline (ILLUMINANT for
-// emission-like sources, ALBEDO for the env tint — pkg85-D parity fix).
+// sky gradient. Spectral upsampling matches the CPU pipeline (UNBOUNDED for
+// emission-like sources -- pkg142 Defect 4, no-D65 lift, matches Cycles'
+// RGB-native light scaling; ALBEDO for the env tint — pkg85-D parity fix).
 __device__ inline GSampledSpectrum gpu_env_miss_spectral(
     const GEnvMap& envMap,
     const GVec3& backgroundColor, bool hasBackgroundColor,
@@ -28,7 +29,7 @@ __device__ inline GSampledSpectrum gpu_env_miss_spectral(
     GSampledSpectrum envSpec(0.f);
     if (hasBackgroundColor) {
         envSpec = gpu_rgbToSampledSpectrum(backgroundColor, lambdas,
-                                           GSPEC_RGB_ILLUMINANT);
+                                           GSPEC_RGB_UNBOUNDED);
     } else if (envMap.loaded) {
         // pkg85-D: mirror CPU EnvironmentMap::evalSpectral spectral tint path.
         // gpu_envmap_lookup applies colorTint as RGB multiply, but the CPU
@@ -56,7 +57,7 @@ __device__ inline GSampledSpectrum gpu_env_miss_spectral(
         auto fetchSpec = [&](int x, int y) {
             int i = (y*envMap.width + x) * 3;
             GVec3 rgb(envMap.data[i], envMap.data[i+1], envMap.data[i+2]);
-            return gpu_rgbToSampledSpectrum(rgb, lambdas, GSPEC_RGB_ILLUMINANT);
+            return gpu_rgbToSampledSpectrum(rgb, lambdas, GSPEC_RGB_UNBOUNDED);
         };
         GSampledSpectrum s00 = fetchSpec(x0, y0);
         GSampledSpectrum s10 = fetchSpec(x1, y0);
@@ -77,7 +78,7 @@ __device__ inline GSampledSpectrum gpu_env_miss_spectral(
     } else {
         float t = 0.5f * (dir.y + 1.f);
         GVec3 bg = (GVec3(1.f) * (1.f - t) + GVec3(0.5f, 0.7f, 1.f) * t) * 0.2f;
-        envSpec = gpu_rgbToSampledSpectrum(bg, lambdas, GSPEC_RGB_ILLUMINANT);
+        envSpec = gpu_rgbToSampledSpectrum(bg, lambdas, GSPEC_RGB_UNBOUNDED);
     }
     return envSpec;
 }

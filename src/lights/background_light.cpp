@@ -44,9 +44,12 @@ void BackgroundLight::sampleLi(LiSample& sample,
     // upsampling is a temporary workaround until EnvironmentMap is extended.
     Vec3 emissionRGB = envMap_->lookup(dir);
 
-    // Upsample RGB to spectral via RGBIlluminantSpectrum (D65-weighted),
-    // matching the existing engine convention for env-map rgb emission.
-    RGBIlluminantSpectrum rgbSpectrum({emissionRGB.x, emissionRGB.y, emissionRGB.z});
+    // pkg142 (Defect 4): the world/background is itself an emitter, so for
+    // internal consistency with EmissionSpectrum::evalRGB and to keep
+    // GPU==CPU, env emission uses the same no-D65 RGBUnbounded lift (matches
+    // Cycles' RGB-native light scaling). See
+    // pkg142-rgb-emission-convention.md §"Scope decision — environment".
+    RGBUnboundedSpectrum rgbSpectrum({emissionRGB.x, emissionRGB.y, emissionRGB.z});
     sample.emission_spec = rgbSpectrum.sample(lambdas);
     sample.emission_rgb = emissionRGB;
 

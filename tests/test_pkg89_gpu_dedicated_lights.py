@@ -9,10 +9,11 @@ entirely (pkg86-B deferred the dedicated-light GPU port). This test is the
 acceptance gate: for a gray floor lit by a dedicated light, the GPU image must go
 from BLACK to PARITY with the CPU image (mean-ratio ~1, high correlation).
 
-The emission is exact for RGB-mode lights (the device RGBIlluminant upsample
-reproduces the CPU RGBIlluminantSpectrum sample-for-sample). We gate on RGB-mode
-lights for that reason; blackbody-mode spectral parity is a documented follow-up
-(and is entangled with the separate pkg89 CPU energy-scale audit, GAP 2).
+The emission is exact for RGB-mode lights (the device RGBUnbounded upsample --
+pkg142 Defect 4, no-D65 lift -- reproduces the CPU RGBUnboundedSpectrum
+sample-for-sample). We gate on RGB-mode lights for that reason; blackbody-mode
+spectral parity is a documented follow-up (and is entangled with the separate
+pkg89 CPU energy-scale audit, GAP 2).
 
 GPU-gated: skips when CUDA is absent (CI has no GPU); /verify runs on RTX.
 """

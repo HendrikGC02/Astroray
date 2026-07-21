@@ -4,7 +4,10 @@
 class DiffuseLightPlugin : public Material {
     Vec3 color_;
     float intensity_;
-    astroray::RGBIlluminantSpectrum emission_spec_;
+    // pkg142 (Defect 4): RGBUnbounded (no-D65) lift, matching Cycles' RGB-native
+    // light scaling and astroray::EmissionSpectrum::evalRGB. See
+    // .astroray_plan/packages/pkg142-rgb-emission-convention.md.
+    astroray::RGBUnboundedSpectrum emission_spec_;
 
 public:
     explicit DiffuseLightPlugin(const astroray::ParamDict& p)

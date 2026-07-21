@@ -352,14 +352,15 @@ __device__ inline GSampledSpectrum gpu_nee_resolve(
         gpu_material_eval_spectral(mat, const_cast<GHitRecord&>(rec), wo, s.wi, lambdas);
     // pkg89-GPU / GAP 1 — dedicated lights carry their emission intrinsically
     // (no light material). The reference RGB is upsampled through the SAME
-    // RGBIlluminant path the CPU uses (gpu_rgbSpectrumAt == CPU
-    // RGBIlluminantSpectrum::sample), scaled by the wavelength-independent
-    // dedGeoScale (staticScale · per-sample geometric factor).
+    // path the CPU uses (gpu_rgbSpectrumAt == CPU RGBUnboundedSpectrum::sample,
+    // pkg142 Defect 4 — no-D65 lift, matches Cycles' RGB-native light
+    // scaling), scaled by the wavelength-independent dedGeoScale (staticScale
+    // · per-sample geometric factor).
     GSampledSpectrum L_spec;
     if (s.isDedicated) {
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
             L_spec[i] = gpu_rgbSpectrumAt(s.dedEmissionRGB, lambdas.lambda[i],
-                                          GSPEC_RGB_ILLUMINANT) * s.dedGeoScale;
+                                          GSPEC_RGB_UNBOUNDED) * s.dedGeoScale;
     } else {
         L_spec = gpu_material_emitted_spectral(materials[s.lightMatId], lightFront, lambdas);
     }

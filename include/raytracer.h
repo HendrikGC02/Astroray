@@ -783,6 +783,12 @@ public:
         GRResult rgb = traceGR(r, gen);
         astroray::SampledSpectrum emission(0.0f);
         if (rgb.hasEmission) {
+            // NOTE (pkg142 Defect 4 scope): GR/accretion-disk emission is left on
+            // RGBIlluminantSpectrum (D65) deliberately -- it is a distinct pillar
+            // (GR/black-hole rendering, own calibration) with no live-Cycles
+            // oracle coverage, and pkg142's contract does not name it. Standard
+            // light/mesh/env emission moved to RGBUnboundedSpectrum; see
+            // pkg142-rgb-emission-convention.md.
             emission = astroray::RGBIlluminantSpectrum(
                 {rgb.color.x, rgb.color.y, rgb.color.z}).sample(lambdas);
         }
@@ -1341,7 +1347,10 @@ class EnvironmentMap {
     std::vector<float> marginalCdf;     // size: height
     std::vector<float> marginalFunc;    // size: height (row totals)
     float totalPower = 0.0f;
-    std::vector<astroray::RGBIlluminantSpectrum> spectralAtlas_; // width*height, pre-strength
+    // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift for the env/HDRI
+    // texel atlas, matching Cycles' RGB-native light scaling. See
+    // .astroray_plan/packages/pkg142-rgb-emission-convention.md.
+    std::vector<astroray::RGBUnboundedSpectrum> spectralAtlas_; // width*height, pre-strength
 
     // Compute and store the baked rotation matrix.
     // Cycles cycles/blender/shader.cpp: XYZ extrinsic Euler order (Apache-2.0).
@@ -2420,12 +2429,13 @@ public:
                     if (envMap && envMap->loaded()) {
                         envSpec = envMap->evalSpectral(ray.direction.normalized(), lambdas);
                     } else if (backgroundColor.x >= 0) {
-                        envSpec = astroray::RGBIlluminantSpectrum(
+                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+                        envSpec = astroray::RGBUnboundedSpectrum(
                             {backgroundColor.x, backgroundColor.y, backgroundColor.z}).sample(lambdas);
                     } else {
                         float t = 0.5f * (ray.direction.normalized().y + 1.0f);
                         Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
-                        envSpec = astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
+                        envSpec = astroray::RGBUnboundedSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
                     }
                     color += throughput * envSpec;
                 }
@@ -2625,12 +2635,13 @@ public:
                     if (envMap && envMap->loaded()) {
                         envSpec = envMap->evalSpectral(ray.direction.normalized(), lambdas);
                     } else if (backgroundColor.x >= 0) {
-                        envSpec = astroray::RGBIlluminantSpectrum(
+                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+                        envSpec = astroray::RGBUnboundedSpectrum(
                             {backgroundColor.x, backgroundColor.y, backgroundColor.z}).sample(lambdas);
                     } else {
                         float t = 0.5f * (ray.direction.normalized().y + 1.0f);
                         Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
-                        envSpec = astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
+                        envSpec = astroray::RGBUnboundedSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
                     }
                     color += throughput * envSpec;
                 }
@@ -2771,8 +2782,9 @@ public:
                             astroray::SampledSpectrum f_spec =
                                 wrec.material->evalSpectral(wrec, wwo, wiToLight, walkLambdas);
                             if (!f_spec.isZero()) {
+                                // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
                                 astroray::SampledSpectrum Li =
-                                    astroray::RGBIlluminantSpectrum({ls.emission.x, ls.emission.y, ls.emission.z}).sample(walkLambdas);
+                                    astroray::RGBUnboundedSpectrum({ls.emission.x, ls.emission.y, ls.emission.z}).sample(walkLambdas);
                                 float geom = std::max(0.0f, std::abs(ls.normal.dot(-wiToLight))) /
                                              std::max(dist2, 1e-4f);
                                 astroray::SampledSpectrum contribution =

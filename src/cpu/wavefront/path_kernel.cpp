@@ -196,13 +196,14 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
             if (envMap && envMap->loaded()) {
                 envSpec = envMap->evalSpectral(ps.ray_direction, ps.lambdas);
             } else if (backgroundColor.x >= 0) {
-                envSpec = RGBIlluminantSpectrum(
+                // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+                envSpec = RGBUnboundedSpectrum(
                     {backgroundColor.x, backgroundColor.y, backgroundColor.z}).sample(ps.lambdas);
             } else {
                 // Default sky gradient (matches production line 2350-2352).
                 float t = 0.5f * (ps.ray_direction.y + 1.0f);
                 Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
-                envSpec = RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(ps.lambdas);
+                envSpec = RGBUnboundedSpectrum({bg.x, bg.y, bg.z}).sample(ps.lambdas);
             }
             ps.color += ps.throughput * envSpec;
         }

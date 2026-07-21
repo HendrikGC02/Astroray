@@ -135,12 +135,13 @@ public:
                     if (envMap && envMap->loaded()) {
                         envSpec = envMap->evalSpectral(pathRay.direction.normalized(), lambdas);
                     } else if (bgColor.x >= 0) {
-                        envSpec = astroray::RGBIlluminantSpectrum(
+                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
+                        envSpec = astroray::RGBUnboundedSpectrum(
                             {bgColor.x, bgColor.y, bgColor.z}).sample(lambdas);
                     } else {
                         float t = 0.5f * (pathRay.direction.normalized().y + 1.0f);
                         Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
-                        envSpec = astroray::RGBIlluminantSpectrum(
+                        envSpec = astroray::RGBUnboundedSpectrum(
                             {bg.x, bg.y, bg.z}).sample(lambdas);
                     }
                     color += throughput * envSpec;
@@ -283,8 +284,9 @@ public:
                     if (!occluded) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
+                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
                         astroray::SampledSpectrum L_spec =
-                            astroray::RGBIlluminantSpectrum(
+                            astroray::RGBUnboundedSpectrum(
                                 {res.y.emission.x, res.y.emission.y, res.y.emission.z}
                             ).sample(lambdas);
 

@@ -146,9 +146,9 @@ __device__ GLightSample sampleAreaLight(
     result.pdf = (area > 0.0f) ? (1.0f / (area * num_lights)) : 0.0f;
 
     // Emitted radiance: convert light RGB emission to spectral.
-    // Mirrors CPU LightSample::emission_spec = RGBIlluminantSpectrum(emission).sample(lambdas).
-    // Session N+4: default illuminant spectral mode for area lights (no per-light spectralMode yet).
-    result.emission = gpu_rgbToSampledSpectrum(light.emission, lambdas, GSPEC_RGB_ILLUMINANT);
+    // Mirrors CPU LightSample::emission_spec = RGBUnboundedSpectrum(emission).sample(lambdas)
+    // (pkg142 Defect 4: no-D65 lift, matches Cycles' RGB-native light scaling).
+    result.emission = gpu_rgbToSampledSpectrum(light.emission, lambdas, GSPEC_RGB_UNBOUNDED);
 
     return result;
 }

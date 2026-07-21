@@ -104,6 +104,18 @@ __device__ inline float gpu_rgbSpectrumAt(const GVec3& rgb, float lambda, GSpect
         return fmaxf(scale * gpu_jhEvalSpectrum(normalized, lambda)
                            * gpu_sampleD65(lambda), 0.f);
     }
+    // pkg142 (Defect 4): UNBOUNDED mirrors CPU RGBUnboundedSpectrum
+    // (src/spectrum.cpp) exactly — identical to the ILLUMINANT branch above
+    // minus the `* gpu_sampleD65(lambda)` factor (no D65 illuminant lift).
+    // Used for RGB emission so the spectral render round-trips Cycles' plain
+    // RGB-native light scaling. See pkg142-rgb-emission-convention.md.
+    if (mode == GSPEC_RGB_UNBOUNDED) {
+        float m = fmaxf(fmaxf(rgb.x, rgb.y), rgb.z);
+        if (m <= 0.f) return 0.f;
+        float scale = 2.f * m;
+        GVec3 normalized{ rgb.x / scale, rgb.y / scale, rgb.z / scale };
+        return fmaxf(scale * gpu_jhEvalSpectrum(normalized, lambda), 0.f);
+    }
     // ALBEDO: gpu_jhLookupCoeffs already clamps rgb to [0,1].
     return fmaxf(gpu_jhEvalSpectrum(rgb, lambda), 0.f);
 }

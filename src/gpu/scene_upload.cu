@@ -191,7 +191,10 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         g.baseColor = GVec3(a.x, a.y, a.z);
     } else if (gpuType == "diffuse_light") {
         g.type = GMAT_DIFFUSE_LIGHT;
-        g.spectralMode = GSPEC_RGB_ILLUMINANT;
+        // pkg142 (Defect 4): emission uses the no-D65 RGBUnbounded lift, to
+        // match Cycles' RGB-native light scaling. See
+        // pkg142-rgb-emission-convention.md.
+        g.spectralMode = GSPEC_RGB_UNBOUNDED;
         Vec3 em = mat->getEmission();
         // Store color and intensity separately: emissionIntensity=1, baseColor=full emission
         g.baseColor = GVec3(em.x, em.y, em.z);

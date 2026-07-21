@@ -374,7 +374,11 @@ enum GMaterialType : uint8_t {
 enum GSpectralMode : uint8_t {
     GSPEC_NONE = 0,
     GSPEC_RGB_ALBEDO = 1,
-    GSPEC_RGB_ILLUMINANT = 2
+    GSPEC_RGB_ILLUMINANT = 2,
+    // pkg142 (Defect 4): RGBUnbounded (no-D65) lift for emission — mirrors
+    // CPU RGBUnboundedSpectrum, matching Cycles' RGB-native light scaling.
+    // See pkg142-rgb-emission-convention.md.
+    GSPEC_RGB_UNBOUNDED = 3
 };
 
 enum GClosureType : uint8_t {

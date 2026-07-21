@@ -433,8 +433,9 @@ __device__ GVec3 tracePathGPU(
             if (bounce == 0 || wasSpecular)
                 color += throughput * envColor;
             if (bounce == 0 || wasSpecular)
+                // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
                 colorSpectral += throughputSpectral *
-                    gpu_rgbToSampledSpectrum(envColor, lambdas, GSPEC_RGB_ILLUMINANT);
+                    gpu_rgbToSampledSpectrum(envColor, lambdas, GSPEC_RGB_UNBOUNDED);
             break;
         }
 
@@ -479,7 +480,8 @@ __device__ GVec3 tracePathGPU(
 
         // pkg64-gpu Phase 2: SMS caustic attempt (RGB path mirrors spectral MW path).
         // The SMS attempt writes hero-channel contribution; the CPU hook converts to RGB via XYZ.
-        // Here, we mirror that: get SMS hero contrib, convert via RGBIlluminantSpectrum→XYZ→sRGB.
+        // Here, we mirror that: get SMS hero contrib, convert via RGBUnboundedSpectrum
+        // (pkg142 Defect 4)→XYZ→sRGB.
         if (useCaustics && !rec.isDelta && numSMSCasters > 0 && numLights > 0) {
             int cIdx = (int)(curand_uniform(rng) * numSMSCasters);
             if (cIdx >= numSMSCasters) cIdx = numSMSCasters - 1;
@@ -545,8 +547,9 @@ __device__ GVec3 tracePathGPU(
                             rec, primaryRay, lambdas, r1, r2, C, eta, casterPickPdf,
                             ls, cfg, fSpec, w, Le, Tr, wi)) {
                         // Convert hero contribution to RGB via XYZ (mirrors CPU hook).
+                        // pkg142 (Defect 4): UNBOUNDED (no-D65) emission lift.
                         float fHero = fSpec.v[0];
-                        GSampledSpectrum LeSpec = gpu_rgbToSampledSpectrum(Le, lambdas, GSPEC_RGB_ILLUMINANT);
+                        GSampledSpectrum LeSpec = gpu_rgbToSampledSpectrum(Le, lambdas, GSPEC_RGB_UNBOUNDED);
                         float LeHero = LeSpec.v[0];
                         float sampleHero = fHero * LeHero * Tr * w;
                         if (sampleHero > cfg.contribClamp) sampleHero = cfg.contribClamp;

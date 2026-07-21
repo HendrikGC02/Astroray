@@ -24,7 +24,7 @@ markers for pkg55-C6/pkg123 at tick time — reconciled below).
 
 ## HW verifications
 
-- **#497 (pkg55-C6a)** — verified twice on RTX 3000 Ada: `ed31cb1` then `b76465c` (post-fix). Full wavefront + RNG + ReSTIR regression suite, zero CUDA errors, 10 PNGs visually clean.
+- **#497 (pkg55-C6a)** — verified twice on the RTX 5070 Ti workstation (owner-corrected 2026-07-21; this run was NOT on the travel laptop): `ed31cb1` then `b76465c` (post-fix). Full wavefront + RNG + ReSTIR regression suite, zero CUDA errors, 10 PNGs visually clean.
 - **#500 (pkg122, HELD — see below)** — GPU==CPU 0.997–0.998 across all light types; live-Cycles oracle gross factors (0.13×/3.6×/14×/near-black) ELIMINATED. CI pass, caustic regression fixed. Residual ~10% vs Cycles is owner-reserved Defect-4 (see action items).
 - **#498 (pkg123, PARKED — see below)** — chi² consistency green (163 → 0 real failures over four fix rounds), but CI caught render-level regressions reproduced locally.
 - **#503 (pkg55-C6b, PARKED — see below)** — HW gate FAIL: temporal reuse produces no variance reduction.

@@ -8,12 +8,12 @@
     "last_action_ts": "2026-07-20T13:15:09Z"
   },
   "498": {
-    "head_sha": "54a616241d44126cfda7bbaee9b6f1bcaa742562",
-    "hw_artifact": "C:/Users/hgcom/AppData/Local/Temp/claude/C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray/895b1471-f1d3-4aa2-aa80-a65923dc3898/scratchpad/chi2_round3.log",
-    "hw_numbers": "final: 124 passed/0 failed/45 skipped(documented near-delta grid)/8 xfailed(adjudicated: glass delta-mismatch\u2192pkg138, grazing\u2192pkg124, 4 GPU near-delta rows\u2192pkg141); chi2 163\u21920 real failures across 4 fix rounds; furnace+energy green; Opus re-review verdict SIGN-OFF-with-required-xfail, conditions met",
+    "head_sha": "d462e4d",
+    "hw_artifact": "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg123/.astroray_plan/docs/pkg121-disney-pdf-finding.md",
+    "hw_numbers": "final independent sweep: 421 passed/0 failed/45 skipped/6 xfailed(adjudicated: glass->pkg138, grazing+GPU-near-delta->pkg141/124, highlights->pkg144)/4 xpassed across energy(270-grid, rho() importance-sampled oracle)+chi2+reflection+material+furnace+GPU-parity; real 15-config grazing set quarantined per-config at measured+0.03 for pkg145; metallic artifact resolved (1.31->1.003)",
     "hw_result": "PASS",
-    "last_action": "parked:ci_render_regression",
-    "last_action_ts": "2026-07-20T22:36:35Z"
+    "last_action": "hw_recorded",
+    "last_action_ts": "2026-07-21T09:39:54Z"
   },
   "499": {
     "head_sha": "b648912d37f8e21c00adae0183cdc8b7b0b77a21",
@@ -32,12 +32,36 @@
     "last_action_ts": "2026-07-20T22:12:25Z"
   },
   "503": {
-    "head_sha": "9102b682912e0b326500d9e6ef43f04d7cfbe0b5",
-    "hw_artifact": "run log in session transcript",
-    "hw_numbers": "CORE GATE FAILS: test_temporal_reduces_variance no-reuse stddev=0.0719 vs temporal stddev=0.0724 (no variance reduction \u2014 temporal reuse ineffective). Masked by leftover xfail marker (implementer never un-xfailed the gate test; only visible via --runxfail). Bias tests pass (2p), capabilities 3p, build clean. Suspiciously fast runtime (0.5s) \u2014 verify the test even reaches the GPU DI driver. gpuSupported=True flip must be reverted or the reuse path fixed before merge per plan \u00a73.",
+    "head_sha": "a0568d6",
+    "hw_artifact": "session transcript",
+    "hw_numbers": "regate at merge commit (main merged in, conflicts resolved branch-side): 43/43 incl. ReSTIR suites + temporal hard gate + pkg89 GPU dedicated lights + pkg140 zero-angle gates \u2014 no interaction regressions with pkg140 isDelta MIS changes",
+    "hw_result": "PASS",
+    "last_action": "hw_recorded",
+    "last_action_ts": "2026-07-21T09:43:05Z"
+  },
+  "505": {
+    "head_sha": "718728b72176829a9f61b321e552153c6014bec9",
+    "hw_artifact": "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg139/test_results/pkg139_oracle/",
+    "hw_numbers": "live headless-Blender A/B on RTX 5070 Ti: AREA identity 0.965-0.987, rotated45 0.962-0.981, non-square 0.990-1.012 with X>Y probes confirming no mirror; world strength-0 exact black; 0 NaN all renders; recovered from pre-fix 0.089-0.116x; addon provenance proven (PR worktree addon + main .pyd, py-only branch)",
+    "hw_result": "PASS",
+    "last_action": "hw_recorded",
+    "last_action_ts": "2026-07-21T07:58:00Z"
+  },
+  "507": {
+    "head_sha": "0e7d49a7c33b410e9218e6ab2e70562e2051f3da",
+    "hw_artifact": "scratchpad pkg140_tests.log",
+    "hw_numbers": "CPU sweep 311 passed incl full render suites (MIS changes regress nothing) + 6 new zero-angle gates after test-scene rebalance; GPU leg 8/8 (zero-angle gates + pkg89 GPU dedicated-light parity) under gpu.lock; root-cause of gate-5 failure was test calibration (delta-sun power 7-8 orders below area CDF share), documented on PR",
+    "hw_result": "PASS",
+    "last_action": "hw_recorded",
+    "last_action_ts": "2026-07-21T08:45:45Z"
+  },
+  "511": {
+    "head_sha": "790eb9e",
+    "hw_artifact": "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg142/test_results/pkg142_oracle_v2/",
+    "hw_numbers": "units anchor CONFIRMED FIXED (suite 68->6 failures, G8 0.19%, calibration 13/14 green, falloff/structure restored) BUT R-channel 1.29-1.37x excess all light types, visibly pink renders vs neutral Cycles; G/B 0.996-1.097. Hypothesis: illuminant-E white point from unweighted JH lift vs D65-referred sRGB pipeline. Convention needs final adjudication.",
     "hw_result": "FAIL",
     "last_action": "gate_review_dispatched",
-    "last_action_ts": "2026-07-20T22:15:04Z"
+    "last_action_ts": "2026-07-21T10:29:16Z"
   },
   "impl_dispatches": {
     "pkg55-bprime-session-n1": {

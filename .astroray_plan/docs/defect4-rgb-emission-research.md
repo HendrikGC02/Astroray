@@ -5,9 +5,50 @@
 **Owner directive (verbatim):** "What ever is best and used by other renderers, your call."
 **Decision:** switch the RGB **emission** lift (`EmissionSpectrum::evalRGB` + the GPU
 mirror) from an **RGBIlluminant** (D65-weighted) lift to an **RGBUnbounded**
-(identity-round-trip, no-illuminant) lift, to reproduce Cycles' RGB-native light
-scaling and close the residual +7–16% equal-wattage brightness offset. Full
-implementation contract in `.astroray_plan/packages/pkg142-rgb-emission-convention.md`.
+(no-illuminant) lift **+ an explicit `1/CIE_Y_integral` photometric anchor** (see
+Correction), to reproduce Cycles' RGB-native light scaling and close the residual
++7–16% equal-wattage brightness offset. Full implementation contract in
+`.astroray_plan/packages/pkg142-rgb-emission-convention.md`.
+
+---
+
+## Correction (2026-07-21, post-hardware-failure) — units vs shape
+
+The first version of this note (and pkg142) said "switch to `RGBUnbounded`" full
+stop. That carried a **category error**: it treated the `· sampleD65(λ)` factor as
+**only** a chromaticity tilt, when it was doing **two** jobs.
+
+**Two-role decomposition of `· sampleD65(λ)` in `RGBIlluminantSpectrum::sample`:**
+
+1. **Shape (chromaticity):** the D65 spectral *tilt* — the ~10% daylight-white
+   imprint that diverges from Cycles' RGB-native scaling. **Removing this is
+   correct** (the Cycles-parity argument in §3–§4 stands).
+2. **Magnitude (units):** a scalar **photometric anchor ≈ `1/CIE_Y_integral =
+   1/116.66`** (1964 10° observer). Astroray's `sampleD65` is normalized so
+   `∫ sampleD65·ȳ dλ = 1` (`src/spectrum.cpp:49-77`), so the multiply also *scales*
+   the emission onto the toXYZ/luminance units. `RGBUnbounded` is pbrt's
+   **reflectance** upsampler — **dimensionless, no photometric anchor** — so
+   swapping the class dropped **both** roles.
+
+**Consequence (measured):** PR #511 HW-verified at **~116× uniform brightness**
+(not the ~10% tilt predicted). `116 ≈ CIE_Y_integral` — the missing anchor is the
+smoking gun. A flat unit reflectance integrates in luminance to `∫ȳ dλ ≈ 116.66`
+instead of `1`.
+
+**Corrected fix:** `RGBUnbounded` **chromaticity + `× 1/cieYIntegral()`** on CPU and
+GPU — exactly pbrt-v4's `SpectrumToPhotometric` reduced to a constant for a white
+emission. Direction (drop the tilt) unchanged; class choice corrected (add the
+anchor). Revised expected effect: **tilt-only**; the live-Cycles oracle
+`[0.97,1.03]` is still the gate.
+
+**Lesson:** when a change removes/replaces a spectral factor, decompose it into
+**shape × magnitude** and account for both — a units constant can hide inside a
+factor named for its shape (`Illuminant`/`Unbounded`/`Albedo`). A uniform,
+large, integer-ish blow-up is a units/normalization bug (here literally
+`CIE_Y_integral`), never a chromaticity tilt. And a fallback clause must model the
+*mechanism* and *magnitude* it guards against: this note's §5 fallback named the
+right remedy (`SpectrumToPhotometric`) but anticipated a −3% undershoot when the
+real trigger was +11,600%.
 
 ---
 
@@ -41,7 +82,9 @@ The **only** structural difference between `RGBIlluminantSpectrum` and
 floor **albedo** already uses (`RGBAlbedoSpectrum`), just with the magnitude
 factored back in. So the fork is precisely: **does emission carry a D65 illuminant
 chromaticity, or is it a plain reflectance-style lift symmetric with the albedo
-path?**
+path?** *(Correction: the `sampleD65` factor is not **only** chromaticity — it also
+carries the `1/CIE_Y_integral` photometric anchor; the fork below decides the
+chromaticity, and the anchor must be re-added explicitly. See Correction above.)*
 
 ---
 
@@ -147,12 +190,17 @@ Apache-2.0) and already exists in Astroray (`RGBUnboundedSpectrum`,
 The +7–16% → [0.97,1.03] closure is **argued analytically, not yet measured** (the
 architect cannot build the `.pyd`). The metameric offset's *sign* and exact
 magnitude depend on the shipped Jakob-Hanika sRGB LUT and the D65 table, so the
-**gate is the live-Cycles oracle re-run**, not the reasoning. If RGBUnbounded
-**overshoots to < 0.97** (too dim), the documented fallback is to keep
-RGBIlluminant but add pbrt's photometric self-normalization
-(`scale /= SpectrumToPhotometric(emit)`) — a smaller, chromaticity-only
-correction. Primary recommendation remains RGBUnbounded; the fallback is scoped in
-the spec so the implementer can pivot without re-adjudicating.
+**gate is the live-Cycles oracle re-run**, not the reasoning.
+
+**[CORRECTED]** This section under-scoped the risk: it named the right remedy
+(pbrt's `SpectrumToPhotometric`) but as a *fallback* for a hypothetical **−3%
+undershoot**. The actual PR #511 trigger was a **+11,600% units blow-up** because
+`RGBUnbounded` (a dimensionless reflectance upsampler) dropped the
+`1/CIE_Y_integral` photometric anchor the D65 factor carried — see Correction.
+So `SpectrumToPhotometric` (as the constant `1/cieYIntegral()`) is **mandatory and
+primary**, not a fallback. With it in place, the *residual* risk this section
+describes (a small chromaticity/crosstalk offset resolved by the live oracle)
+applies as written.
 
 ---
 

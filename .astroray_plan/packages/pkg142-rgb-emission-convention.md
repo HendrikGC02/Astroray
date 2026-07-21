@@ -1,4 +1,4 @@
-# pkg142 — RGB emission convention: RGBIlluminant → RGBUnbounded (Defect 4 adjudication)
+# pkg142 — RGB emission convention: RGBIlluminant → RGBUnbounded **+ photometric anchor** (Defect 4 adjudication)
 
 **Pillar:** 3 (light transport / emitter energy correctness)
 **Track:** A (single cross-cutting convention change with a live headless-Cycles oracle gate + reference-bank re-bless; needs a build + RTX + Blender-5.1, not a mechanical patch)
@@ -10,6 +10,60 @@
 **Adjudication authority:** owner delegated to the team on 2026-07-21, verbatim:
 *"What ever is best and used by other renderers, your call."* Research + adjudication:
 `.astroray_plan/docs/defect4-rgb-emission-research.md`.
+
+---
+
+## ⚠ CORRECTION (2026-07-21, post-hardware-failure) — a category error in the original adjudication
+
+**Trigger.** The implementation (PR #511) HW-verified with a **~116× uniform
+brightness blow-up** (not the ~10% tilt this spec predicted). The Opus
+gate-failure review confirmed a **category error** in the original adjudication
+below (and in the dispatch): it modeled a **units** factor as a **chromaticity
+tilt**.
+
+**Two-role decomposition of the `· sampleD65(λ)` factor** (the whole crux). In
+`RGBIlluminantSpectrum::sample` the D65 multiply carried **two separable roles**:
+
+1. **Chromaticity / shape** — the D65 spectral *tilt* (its relative distribution),
+   the ~10% daylight-chromaticity imprint. **Removing this is still correct** per
+   the Cycles-parity argument below (Cycles is RGB-native, no tilt).
+2. **Photometric / units** — a scalar **units anchor ≈ `1/CIE_Y_integral`
+   (`1/116.66` on the 1964 10° table)**. Astroray's `sampleD65` is pre-normalized
+   so `∫ sampleD65·ȳ dλ = 1` (`src/spectrum.cpp:49-77`, `d65NormFactor =
+   1/∫D65·ȳ`), i.e. it *carries* that `~1/116.66` magnitude scale. It converts the
+   dimensionless RGB into radiance on the toXYZ/luminance scale.
+
+`RGBUnboundedSpectrum` is pbrt's **reflectance** unbounded upsampler —
+**dimensionless, with no photometric anchor**. Swapping `RGBIlluminant →
+RGBUnbounded` dropped **both** roles. A flat unit "reflectance" then integrates in
+luminance to `∫ȳ dλ = CIE_Y_integral ≈ 116.66` instead of `1` → the **~116×**
+blow-up. That factor *is* the smoking gun: `116 ≈ CIE_Y_integral`.
+
+**Corrected decision.** Keep the intended change (drop the D65 **tilt**, use the
+`RGBUnbounded` **chromaticity**) **and add back the photometric anchor
+explicitly**: multiply the emission lift by **`1/cieYIntegral()`** on **both CPU
+and GPU** (a constant ≈ `1/116.66`). This is exactly pbrt-v4's
+`SpectrumToPhotometric` normalization reduced to a constant for the white-emission
+case — i.e. the remedy this spec's own *Fallback* clause named, but the fallback
+mis-anticipated the **trigger** (it expected a ~−3% tilt undershoot; the real
+trigger was a **+11,600% units** blow-up).
+
+**Revised expected effect.** With the anchor in place, only the **chromaticity
+tilt** changes (RGBUnbounded flat vs RGBIlluminant D65-tilted) → the intended
+**tilt-only** effect. The `+7–16% → [0.97,1.03]` closure argument **stands** (it
+was always a chromaticity/crosstalk effect, never a units effect). The live-Cycles
+oracle `[0.97,1.03]` per-channel is **still the gate**.
+
+**Lesson (postmortem pattern).** The adjudication reasoned about the factor's
+**shape** (chromaticity) while **ignoring its units** — a normalization constant
+(`1/CIE_Y_integral`) was hiding inside a factor labeled "chromaticity/illuminant."
+When a proposed change *removes or replaces a spectral factor*, decompose it into
+**shape × magnitude** and account for **both**; a class named for its *shape*
+(`Illuminant`/`Unbounded`/`Albedo`) may also encode a *units* convention. See the
+research note's Lessons section.
+
+Everything below is preserved for the journal trail; the sections marked
+**[CORRECTED — see above]** are superseded on the specific point noted.
 
 ---
 
@@ -34,6 +88,12 @@ The tight Cycles band **[0.97, 1.03] is unreachable until this is resolved.**
 
 ## Decision (adjudicated)
 
+> **[CORRECTED — see ⚠ CORRECTION above]** The correct decision is `RGBUnbounded`
+> **chromaticity + an explicit `1/cieYIntegral()` photometric anchor** on CPU+GPU.
+> `RGBUnbounded` alone (below) is dimensionless and drops the units anchor → ~116×
+> blow-up. Read the decision below as "drop the D65 **tilt**," with the anchor
+> re-added per the correction.
+
 **Switch the RGB emission lift from `RGBIlluminantSpectrum` (D65-weighted) to
 `RGBUnboundedSpectrum` (identity round-trip, no illuminant), on both the CPU
 `evalRGB` path and its GPU device mirror.**
@@ -54,7 +114,12 @@ The tight Cycles band **[0.97, 1.03] is unreachable until this is resolved.**
   is the **same Jakob-Hanika reflectance-sigmoid family** the floor albedo already
   uses; two same-family spectra multiplied and integrated round-trip to the RGB
   product with minimal crosstalk, reproducing Cycles' `albedo ⊙ light` multiply.
-  The D65 tilt on `RGBIlluminant` is exactly the source of the +7–16% offset.
+  The D65 **tilt** on `RGBIlluminant` is exactly the source of the +7–16% offset.
+  **[CORRECTED]** This round-trip argument is about *chromaticity* only; the same
+  reflectance family is also **dimensionless**, so it drops the `1/CIE_Y_integral`
+  photometric anchor the D65 factor silently carried — which must be re-added
+  explicitly (see ⚠ CORRECTION). The offset closed here is the tilt; the units are
+  restored by the anchor, not by the class.
 - **Not invented (CLAUDE.md §6).** `RGBUnbounded` is a real pbrt-v4 class
   (`src/pbrt/util/spectrum.h`, Apache-2.0) and **already exists in Astroray**
   (`RGBUnboundedSpectrum`, `src/spectrum.cpp:451-473`). This package re-points the
@@ -77,9 +142,10 @@ pkg142 / defect4-rgb-emission-research.md."*
 
 | Concern | File / function | License |
 |---|---|---|
-| Lift we adopt | pbrt-v4 `RGBUnboundedSpectrum::Sample` (`src/pbrt/util/spectrum.h`) — `scale·rsp(λ)`, no illuminant | Apache-2.0 (verified) |
+| Chromaticity lift | pbrt-v4 `RGBUnboundedSpectrum::Sample` (`src/pbrt/util/spectrum.h`) — `scale·rsp(λ)`, no illuminant. **Note: this is a *reflectance* (dimensionless) upsampler — no photometric anchor.** | Apache-2.0 (verified) |
+| Photometric anchor | pbrt-v4 `SpectrumToPhotometric` (`src/pbrt/lights.cpp`) — for a white emission this reduces to the constant `1/CIE_Y_integral`; apply as `× 1/cieYIntegral()` (≈`1/116.66`, 1964 10°). | Apache-2.0 (verified) |
 | Parity target | Cycles `src/scene/light.cpp` (`copy_v3_v3(klight->strength, strength)`), `src/kernel/light/area.h` (`eval_fac = M_1_PI_F·invarea`) — RGB-native, no upsample | Apache-2.0 (verified) |
-| In-tree class reused | `astroray::RGBUnboundedSpectrum` (`src/spectrum.cpp:451-473`, `include/astroray/spectrum.h:230`) | project |
+| In-tree class reused | `astroray::RGBUnboundedSpectrum` (`src/spectrum.cpp:451-473`, `include/astroray/spectrum.h:230`); D65 normalization / `∫D65·ȳ` in `src/spectrum.cpp:49-77` shows the `1/116.66` anchor the tilt carried | project |
 
 License compatibility: both references Apache-2.0, both already relied upon
 elsewhere in the tree. No new dependency.
@@ -90,9 +156,13 @@ elsewhere in the tree. No new dependency.
 
 ### CPU
 1. `src/emission_spectrum.cpp` `EmissionSpectrum::evalRGB` (lines 187-191): replace
-   `RGBIlluminantSpectrum rgbSpectrum(...)` with `RGBUnboundedSpectrum rgbSpectrum(...)`.
-   Update the stale block comment (lines 179-186, which argues *for* Illuminant) to
-   the divergence note above.
+   `RGBIlluminantSpectrum rgbSpectrum(...)` with `RGBUnboundedSpectrum rgbSpectrum(...)`
+   **and multiply the sampled result by the photometric anchor `1/cieYIntegral()`**
+   (a constant ≈ `1/116.66`; add a `cieYIntegral()` helper = `∫ȳ dλ` over the 1964
+   10° table if one does not exist, alongside `computeD65Normalization` in
+   `src/spectrum.cpp`). **Without the anchor the emission is ~116× too bright**
+   (⚠ CORRECTION). Update the stale block comment (lines 179-186, which argues *for*
+   Illuminant) to the divergence note + the two-role decomposition.
 2. **Do not** change `RGBAlbedoSpectrum` (surface reflectance) or the blackbody /
    MeasuredSPD / Composite paths — this is emission-RGB only.
 
@@ -101,9 +171,13 @@ The device lift is `gpu_rgbSpectrumAt` (`include/astroray/gpu_materials.h:90-109
 selected by a `GSpectralMode`. Today it has `GSPEC_RGB_ILLUMINANT` (scale·JH·D65)
 and `GSPEC_RGB_ALBEDO` (JH clamped) but **no UNBOUNDED case**.
 3. Add a `GSPEC_RGB_UNBOUNDED` branch to `gpu_rgbSpectrumAt`:
-   `scale·gpu_jhEvalSpectrum(normalized, λ)` — identical to the ILLUMINANT branch
-   **minus** the `* gpu_sampleD65(λ)` factor. (Add the enum value wherever
-   `GSpectralMode` is defined.)
+   `scale·gpu_jhEvalSpectrum(normalized, λ) · (1/CIE_Y_integral)` — identical to the
+   ILLUMINANT branch **minus** the `* gpu_sampleD65(λ)` tilt **but keeping the
+   `1/116.66` photometric anchor** (a device constant mirroring the CPU
+   `1/cieYIntegral()`; `gpu_sampleD65` folded that anchor in, so dropping it
+   entirely is the ~116× device blow-up). (Add the enum value wherever
+   `GSpectralMode` is defined.) The CPU and GPU anchor constant **must be bit-equal**
+   for GPU==CPU parity.
 4. Re-point the **emission** call sites from `GSPEC_RGB_ILLUMINANT` to
    `GSPEC_RGB_UNBOUNDED`. Emission sites (grep-confirmed):
    - `src/gpu/gpu_nee.cuh:352-353` (dedicated-light NEE)
@@ -158,11 +232,15 @@ Do not run concurrently with another CUDA-heavy verifier (memory
 **Tertiary gate — no radiometry regression.** `tests/test_pkg122_light_energy_calibration.py`
 must stay green (this change is chromaticity/level, not per-type geometry).
 
-**Fallback (if the primary gate overshoots to < 0.97, i.e. RGBUnbounded is too dim).**
-Do **not** silently retune. Revert `evalRGB` to `RGBIlluminant` and instead add
-pbrt's photometric self-normalization `scale /= SpectrumToPhotometric(emit)`
-(`src/pbrt/lights.cpp`) — a smaller chromaticity-only correction — and re-run the
-oracle. Report which branch landed. (Rationale in research note §5.)
+**[CORRECTED] Photometric anchor is now the PRIMARY remedy, not a fallback.** The
+original fallback below named the right repair (pbrt's `SpectrumToPhotometric`) but
+tied it to the wrong trigger (a small tilt undershoot). In fact the anchor is
+**mandatory** — `RGBUnbounded` without it is ~116× too bright. Ship `RGBUnbounded`
+chromaticity **+ `1/cieYIntegral()`** together (contract steps 1/3). *Residual*
+fallback: if, **with the anchor in place**, the oracle still lands outside
+`[0.97,1.03]`, that residual is a genuine chromaticity/crosstalk effect — do not
+silently retune; report the per-channel numbers and re-evaluate the tilt argument
+against the live oracle. (Rationale in research note §5 + Lessons.)
 
 ---
 
@@ -189,17 +267,44 @@ routine (memory `blender-5-1-installed-locally`).
 
 ## Expected numeric effect
 
+**[CORRECTED — tilt-only.]** With the `1/cieYIntegral()` anchor in place the change
+is **chromaticity-only**; there is **no** units change (the ~116× seen on PR #511
+was the missing anchor, now restored — it is *not* an expected effect).
+
 - Dedicated lights (POINT/AREA/SPOT/SUN), equal wattage, gray floor:
-  **1.07–1.16× → within [0.97, 1.03]** vs live Cycles (per-channel).
+  **1.07–1.16× → within [0.97, 1.03]** vs live Cycles (per-channel), from the
+  removed D65 **tilt** alone.
 - Pure-Lambertian analytic decoupled check: stays ~0.99× (unaffected — reflectance
   path unchanged).
 - Reference bank: 12/13 → re-blessed to reflect the closed offset (target: all
   RGB-emitter parity scenes within band).
+- **Sanity check before the oracle:** a white (1,1,1) emission must still integrate
+  to luminance ≈ 1 (same as `RGBIlluminant` white today). If it reads ~116, the
+  anchor is missing.
+
+---
+
+## Lessons
+
+- **Decompose a spectral factor into shape × magnitude before removing it.** The
+  `· sampleD65(λ)` factor was one symbol doing two jobs — a chromaticity **tilt**
+  and a `1/CIE_Y_integral` **units anchor**. The adjudication reasoned about the
+  shape and silently discarded the units. Class names describe *shape*
+  (`Albedo`/`Unbounded`/`Illuminant`); they can also encode a *units* convention
+  (reflectance = dimensionless; illuminant = photometrically anchored).
+- **A uniform, large, integer-ish blow-up (~116×) is a units/normalization bug, not
+  a tilt or RNG effect** — and `116.66 = CIE_Y_integral` (1964 10°) named it exactly.
+  Cross-reference `mc-noise-vs-deterministic` (stable ratios ⇒ units/matrix bug).
+- **A fallback clause is only as good as its trigger model.** This spec's fallback
+  named the correct remedy (photometric self-normalization) but anticipated a −3%
+  undershoot; the real trigger was +11,600%. When you write a fallback, state the
+  *mechanism* it guards against, and sanity-check the magnitude the mechanism can
+  produce.
 
 ---
 
 ## Definition of done
-- [ ] `evalRGB` + GPU emission mirror on `RGBUnbounded`; stale pro-Illuminant comment replaced with the divergence note + pkg142 cite.
+- [ ] `evalRGB` + GPU emission mirror on `RGBUnbounded` **chromaticity + `1/cieYIntegral()` photometric anchor** (CPU + GPU constant bit-equal); white (1,1,1) emission integrates to luminance ≈ 1, not ~116. Stale pro-Illuminant comment replaced with the divergence note + two-role decomposition + pkg142 cite.
 - [ ] `scripts/verify_pkg122_cycles_oracle.py` copied into the repo and committed.
 - [ ] Live-Cycles oracle: all four types per-channel ∈ [0.97, 1.03], before/after recorded.
 - [ ] GPU==CPU dedicated-light parity re-verified on RTX.

@@ -188,6 +188,103 @@ bool allocateGPUWavefrontHitBuffers(GPUWavefrontHitBuffers& hb, int capacity) {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// pkg55-C6b / pkg24: ReSTIR reservoir SoA (per-pixel, double-buffered).
+// ---------------------------------------------------------------------------
+bool allocateGPUReservoirSoA(GPUReservoirSoA& r, int numPixels) {
+    if (numPixels <= 0) {
+        std::fprintf(stderr, "allocateGPUReservoirSoA: numPixels %d invalid\n", numPixels);
+        return false;
+    }
+    r.numPixels = numPixels;
+
+    #define ALLOC_CHECK(ptr, size) \
+        if (cudaMalloc(&(ptr), (size)) != cudaSuccess) { \
+            std::fprintf(stderr, "allocateGPUReservoirSoA: cudaMalloc failed for " #ptr "\n"); \
+            freeGPUReservoirSoA(r); \
+            return false; \
+        }
+
+    const size_t nf = size_t(numPixels) * sizeof(float);
+    const size_t ni = size_t(numPixels) * sizeof(int);
+
+    ALLOC_CHECK(r.res_y_pos_x,      nf);
+    ALLOC_CHECK(r.res_y_pos_y,      nf);
+    ALLOC_CHECK(r.res_y_pos_z,      nf);
+    ALLOC_CHECK(r.res_y_normal_x,   nf);
+    ALLOC_CHECK(r.res_y_normal_y,   nf);
+    ALLOC_CHECK(r.res_y_normal_z,   nf);
+    ALLOC_CHECK(r.res_y_emission_x, nf);
+    ALLOC_CHECK(r.res_y_emission_y, nf);
+    ALLOC_CHECK(r.res_y_emission_z, nf);
+    ALLOC_CHECK(r.res_y_pdf,        nf);
+    ALLOC_CHECK(r.res_y_distance,   nf);
+    ALLOC_CHECK(r.res_w_sum,        nf);
+    ALLOC_CHECK(r.res_M,            ni);
+    ALLOC_CHECK(r.res_W,            nf);
+    ALLOC_CHECK(r.meta_normal_x,    nf);
+    ALLOC_CHECK(r.meta_normal_y,    nf);
+    ALLOC_CHECK(r.meta_normal_z,    nf);
+    ALLOC_CHECK(r.meta_depth,       nf);
+    ALLOC_CHECK(r.meta_valid,       ni);
+
+    #undef ALLOC_CHECK
+
+    clearGPUReservoirSoA(r);
+    return true;
+}
+
+void clearGPUReservoirSoA(GPUReservoirSoA& r) {
+    if (r.numPixels <= 0) return;
+    const size_t nf = size_t(r.numPixels) * sizeof(float);
+    const size_t ni = size_t(r.numPixels) * sizeof(int);
+    // Zero == the CPU Reservoir{}/PixelHistory{} default (y=0, w_sum=0, M=0,
+    // W=0; meta_valid=0). meta_normal default (0,0,1) is not reproduced by a
+    // memset, but a pixel with meta_valid=0 is never read by isTemporallyValid.
+    cudaMemset(r.res_y_pos_x,      0, nf);
+    cudaMemset(r.res_y_pos_y,      0, nf);
+    cudaMemset(r.res_y_pos_z,      0, nf);
+    cudaMemset(r.res_y_normal_x,   0, nf);
+    cudaMemset(r.res_y_normal_y,   0, nf);
+    cudaMemset(r.res_y_normal_z,   0, nf);
+    cudaMemset(r.res_y_emission_x, 0, nf);
+    cudaMemset(r.res_y_emission_y, 0, nf);
+    cudaMemset(r.res_y_emission_z, 0, nf);
+    cudaMemset(r.res_y_pdf,        0, nf);
+    cudaMemset(r.res_y_distance,   0, nf);
+    cudaMemset(r.res_w_sum,        0, nf);
+    cudaMemset(r.res_M,            0, ni);
+    cudaMemset(r.res_W,            0, nf);
+    cudaMemset(r.meta_normal_x,    0, nf);
+    cudaMemset(r.meta_normal_y,    0, nf);
+    cudaMemset(r.meta_normal_z,    0, nf);
+    cudaMemset(r.meta_depth,       0, nf);
+    cudaMemset(r.meta_valid,       0, ni);
+}
+
+void freeGPUReservoirSoA(GPUReservoirSoA& r) {
+    cudaFree(r.res_y_pos_x);
+    cudaFree(r.res_y_pos_y);
+    cudaFree(r.res_y_pos_z);
+    cudaFree(r.res_y_normal_x);
+    cudaFree(r.res_y_normal_y);
+    cudaFree(r.res_y_normal_z);
+    cudaFree(r.res_y_emission_x);
+    cudaFree(r.res_y_emission_y);
+    cudaFree(r.res_y_emission_z);
+    cudaFree(r.res_y_pdf);
+    cudaFree(r.res_y_distance);
+    cudaFree(r.res_w_sum);
+    cudaFree(r.res_M);
+    cudaFree(r.res_W);
+    cudaFree(r.meta_normal_x);
+    cudaFree(r.meta_normal_y);
+    cudaFree(r.meta_normal_z);
+    cudaFree(r.meta_depth);
+    cudaFree(r.meta_valid);
+    r = GPUReservoirSoA{};
+}
+
 void freeGPUWavefrontHitBuffers(GPUWavefrontHitBuffers& hb) {
     cudaFree(hb.hit_t);
     cudaFree(hb.hit_point_x);

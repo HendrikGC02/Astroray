@@ -82,7 +82,14 @@ public:
     }
 
     IntegratorCapabilities capabilities() const override {
-        return {false, "ReSTIR DI integrator stores CPU frame history and has no CUDA kernel"};
+        // pkg55-C6b: ReSTIR-DI now has a GPU wavefront kernel path
+        // (src/gpu/wavefront/stage_restir.cu, dispatched via
+        // cuda_wavefront_render_restir). The reservoir arithmetic is the shared
+        // one-generator Reservoir<T,TRng> template, and the reuse stages mirror
+        // this integrator's temporal/spatial logic. OPT-IN until the RTX
+        // temporal-variance gate is green (plan §3); the team-lead reverts this
+        // flip if the gate fails before merge.
+        return {true, ""};
     }
 
     void setMaxDepth(int depth) override {
@@ -223,11 +230,19 @@ public:
                     if (useTemporal_) {
                         if (isTemporallyValid(frameState_.previous, px, py,
                                               rec.normal, rec.t)) {
-                            const Reservoir<ReSTIRCandidate, std::mt19937>& prev =
+                            // M-cap (Bitterli 2020 §5.2): clamp the PREVIOUS
+                            // reservoir's M to <= effectiveMCap (=20*numCandidates)
+                            // BEFORE the merge, then let the combined M
+                            // (= res.M + capped prev.M) accumulate. Clamping the
+                            // COMBINED M after the merge froze M at the cap while
+                            // w_sum kept accumulating, inflating W unboundedly
+                            // across persisted frames (runaway brightening). Copy
+                            // so the stored previous reservoir stays intact.
+                            Reservoir<ReSTIRCandidate, std::mt19937> prev =
                                 frameState_.previous.at(px, py);
+                            prev.M = std::min(prev.M, effectiveMCap);
                             float pHatPrev = prev.y.targetLuminanceRGB();
                             res.merge(prev, pHatPrev, gen);
-                            res.M = std::min(res.M, effectiveMCap);
                         }
                     }
 
@@ -243,11 +258,15 @@ public:
                             if (!isTemporallyValid(frameState_.previous, nx, ny,
                                                    rec.normal, rec.t))
                                 continue;
-                            const Reservoir<ReSTIRCandidate, std::mt19937>& nbr =
+                            // M-cap (Bitterli 2020 §5.2): cap each neighbour's
+                            // source M before the merge (see the temporal stage);
+                            // the combined M accumulates across neighbours and is
+                            // NOT re-clamped. Copy so previous stays intact.
+                            Reservoir<ReSTIRCandidate, std::mt19937> nbr =
                                 frameState_.previous.at(nx, ny);
+                            nbr.M = std::min(nbr.M, effectiveMCap);
                             float pHatNbr = nbr.y.targetLuminanceRGB();
                             res.merge(nbr, pHatNbr, gen);
-                            res.M = std::min(res.M, effectiveMCap);
                         }
                     }
                 }

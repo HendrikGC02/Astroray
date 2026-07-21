@@ -359,6 +359,15 @@ class PyRenderer {
     bool useGPU = false;
     astroray::ParamDict integratorParams_;
     std::string integratorName_;
+    // pkg55-C6b: globally-unique id assigned at each set_integrator call. The
+    // GPU ReSTIR driver keys its persistent (double-buffered) reservoir history
+    // on this id and RESETS the temporal history when it changes — so a fresh
+    // integrator instance (e.g. a new renderer) starts with no prior frame,
+    // while a persistent renderer that renders a sequence WITHOUT recreating its
+    // integrator keeps accumulating. This mirrors the CPU restir_di frameState_
+    // per-instance ownership (frame_state.h), defeating global-WfContext bleed
+    // across independent renders (the TestDeterminism isolation requirement).
+    uint64_t restirSessionId_ = 0;
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -1656,7 +1665,8 @@ public:
             // viewport gap at 100k tris). Skip the megakernel upload for the
             // wavefront integrator.
             const bool wavefrontRoute =
-                (integratorName_ == "wavefront_path_tracer");
+                (integratorName_ == "wavefront_path_tracer") ||
+                (integratorName_ == "restir-di");  // pkg55-C6b: GPU ReSTIR wavefront
 #else
             const bool wavefrontRoute = false;
 #endif
@@ -1701,6 +1711,30 @@ public:
                     samplesPerPixel, maxDepth, renderer.getSeed(),
                     lmin, lmax, useLum, enableNEE);
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
+                for (size_t i = 0; i < camera->pixels.size(); ++i) {
+                    camera->pixels[i] = Vec3(rgb[i * 3 + 0],
+                                             rgb[i * 3 + 1],
+                                             rgb[i * 3 + 2]);
+                }
+            } else
+            // pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront. The reservoir stages
+            // (RIS -> temporal -> spatial -> resolve) run at the primary hit; the
+            // per-pixel reservoirs are double-buffered + persisted across frames
+            // in the wavefront's WfContext so temporal reuse reads the previous
+            // frame. use_temporal/use_spatial/spatial_* come from the same
+            // ParamDict the CPU restir_di integrator reads.
+            if (integratorName_ == "restir-di") {
+                int  numCandidates    = integratorParams_.getInt("num_candidates",   4);
+                int  mCap             = integratorParams_.getInt("m_cap",             0);
+                bool useTemporal      = integratorParams_.getInt("use_temporal",      0) != 0;
+                bool useSpatial       = integratorParams_.getInt("use_spatial",       0) != 0;
+                int  spatialRadius    = integratorParams_.getInt("spatial_radius",    5);
+                int  spatialNeighbors = integratorParams_.getInt("spatial_neighbors", 5);
+                auto rgb = astroray::wavefront::cuda_wavefront_render_restir(
+                    renderer, *camera, camera->width, camera->height,
+                    samplesPerPixel, maxDepth, renderer.getSeed(),
+                    numCandidates, mCap, useTemporal, useSpatial,
+                    spatialRadius, spatialNeighbors, restirSessionId_);
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
                                              rgb[i * 3 + 1],
@@ -2202,6 +2236,11 @@ public:
         auto integrator = astroray::IntegratorRegistry::instance().create(name, integratorParams_);
         renderer.setIntegrator(integrator);
         integratorName_ = name;
+        // pkg55-C6b: a new integrator instance == a new ReSTIR temporal session.
+        // Monotonic + globally unique (static counter) so it never collides with
+        // a freed-then-realloc'd renderer address.
+        static uint64_t g_restirSessionCounter = 0;
+        restirSessionId_ = ++g_restirSessionCounter;
     }
 
     py::dict getIntegratorStats() const {

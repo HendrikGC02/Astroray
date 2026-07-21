@@ -130,34 +130,12 @@ struct GPUWavefrontState {
     float*    photon_xyz_y    = nullptr;
     float*    photon_xyz_z    = nullptr;
 
-    // pkg55-C6 / pkg24: ReSTIR reservoir SoA (double-buffered via persistent
-    // WfContext, swapped per frame). Layout mirrors Reservoir<ReSTIRCandidate>
-    // + PixelHistory per plan §5. Each array has length `numPixels` (NOT
-    // capacity — these are per-pixel, not per-path-slot). The driver allocates
-    // two copies (current + previous) and swaps device pointers per frame.
-    //
-    // Selected candidate y (ReSTIRCandidate, from light_sample.h):
-    float*    res_y_pos_x       = nullptr;  // candidate.position
-    float*    res_y_pos_y       = nullptr;
-    float*    res_y_pos_z       = nullptr;
-    float*    res_y_normal_x    = nullptr;  // candidate.normal
-    float*    res_y_normal_y    = nullptr;
-    float*    res_y_normal_z    = nullptr;
-    float*    res_y_emission_x  = nullptr;  // candidate.emission (RGB)
-    float*    res_y_emission_y  = nullptr;
-    float*    res_y_emission_z  = nullptr;
-    float*    res_y_pdf         = nullptr;  // candidate.pdf
-    float*    res_y_distance    = nullptr;  // candidate.distance
-    // Reservoir bookkeeping (Bitterli 2020):
-    float*    res_w_sum         = nullptr;  // Reservoir.w_sum
-    int*      res_M             = nullptr;  // Reservoir.M
-    float*    res_W             = nullptr;  // Reservoir.W (final RIS weight)
-    // PixelHistory (temporal-validity gate, frame_state.h):
-    float*    meta_normal_x     = nullptr;  // PixelHistory.normal
-    float*    meta_normal_y     = nullptr;
-    float*    meta_normal_z     = nullptr;
-    float*    meta_depth        = nullptr;  // PixelHistory.depth
-    int*      meta_valid        = nullptr;  // PixelHistory.valid (0/1)
+    // pkg55-C6b / pkg24: the ReSTIR reservoir SoA has moved out of this
+    // per-path-slot struct into a dedicated per-pixel struct GPUReservoirSoA
+    // (below). The reservoir arrays are per-PIXEL (length numPixels) and
+    // double-buffered (current/previous), so they cannot share this struct's
+    // per-slot `capacity` sizing. (C6a placed the field decls here as a
+    // placeholder; they were never allocated. C6b relocates them.)
 
     // Path-continuation flags.
     int*      was_specular  = nullptr;  // 0/1
@@ -173,6 +151,49 @@ struct GPUWavefrontState {
 // Returns true on success.
 bool  allocateGPUWavefrontState(GPUWavefrontState& s, int capacity);
 void  freeGPUWavefrontState(GPUWavefrontState& s);
+
+// ---------------------------------------------------------------------------
+// pkg55-C6b / pkg24: ReSTIR reservoir SoA (per-pixel, double-buffered).
+//
+// A flat, per-pixel mirror of the CPU `Reservoir<ReSTIRCandidate>` (reservoir.h)
+// + `PixelHistory` (frame_state.h) — component arrays of length `numPixels`.
+// The driver holds TWO instances in its persistent WfContext (current +
+// previous) and swaps them per frame (device-pointer swap = the CPU
+// FrameState::advanceFrame policy, frame_state.h:160). Reuse stages read the
+// PREVIOUS buffer and write the CURRENT one, so the reuse is race-free exactly
+// like the CPU (restir_di.cpp:20-31). Plan §5 layout.
+struct GPUReservoirSoA {
+    // Selected candidate y (ReSTIRCandidate, light_sample.h):
+    float* res_y_pos_x      = nullptr;   // candidate.position
+    float* res_y_pos_y      = nullptr;
+    float* res_y_pos_z      = nullptr;
+    float* res_y_normal_x   = nullptr;   // candidate.normal
+    float* res_y_normal_y   = nullptr;
+    float* res_y_normal_z   = nullptr;
+    float* res_y_emission_x = nullptr;   // candidate.emission (RGB)
+    float* res_y_emission_y = nullptr;
+    float* res_y_emission_z = nullptr;
+    float* res_y_pdf        = nullptr;   // candidate.pdf
+    float* res_y_distance   = nullptr;   // candidate.distance
+    // Reservoir bookkeeping (Bitterli 2020):
+    float* res_w_sum        = nullptr;   // Reservoir.w_sum
+    int*   res_M            = nullptr;   // Reservoir.M
+    float* res_W            = nullptr;   // Reservoir.W (final RIS weight)
+    // PixelHistory (temporal-validity gate, frame_state.h):
+    float* meta_normal_x    = nullptr;   // PixelHistory.normal
+    float* meta_normal_y    = nullptr;
+    float* meta_normal_z    = nullptr;
+    float* meta_depth       = nullptr;   // PixelHistory.depth
+    int*   meta_valid       = nullptr;   // PixelHistory.valid (0/1)
+    int    numPixels        = 0;
+};
+
+// Allocate/free the per-pixel reservoir SoA (wavefront_state.cu).
+bool  allocateGPUReservoirSoA(GPUReservoirSoA& r, int numPixels);
+void  freeGPUReservoirSoA(GPUReservoirSoA& r);
+// Zero a reservoir SoA in place (cudaMemset all arrays) — the frame-start
+// "clear current" step (mirrors ReservoirBuffer::clear, frame_state.h:69).
+void  clearGPUReservoirSoA(GPUReservoirSoA& r);
 
 // Session N+3 launchers. Defined in src/gpu/wavefront/stage_*.cu.
 struct GPUWavefrontHitBuffers;  // forward decl; full definition below
@@ -429,6 +450,87 @@ struct GPUWavefrontHitBuffers {
 // Allocation helper for hit buffers. Returns true on success.
 bool allocateGPUWavefrontHitBuffers(GPUWavefrontHitBuffers& hb, int capacity);
 void freeGPUWavefrontHitBuffers(GPUWavefrontHitBuffers& hb);
+
+// ---------------------------------------------------------------------------
+// pkg55-C6b / pkg24: ReSTIR-DI wavefront stage launchers (stage_restir.cu).
+//
+// These run once per primary/bounce-0 shade over `numPixels` pixels (1 thread
+// per pixel — no atomics into the reservoir, so the reservoir arithmetic is
+// race-free and deterministic). Stage order mirrors the CPU restir_di.cpp
+// sampleFull direct-lighting block: RIS -> [temporal] -> [spatial] -> resolve.
+// The driver (cuda_wavefront_render_restir) drives one primary pass per sample.
+// ---------------------------------------------------------------------------
+
+// Primary pass: init the bounce-0 ray + intersect for every pixel (slot=pixel).
+// Writes env/emissive radiance into state.color and parks the shading hit in
+// hitBufs (hit_valid=1) for RIS. Reuses the shared initPathSlot/intersectPathSlot.
+void launchStageRestirPrimary(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const GCameraParams& cam,
+    int width, int height, int sample_index, uint64_t seed,
+    float lambdaMin, float lambdaMax,
+    const GTLASNode*  d_tlas,
+    const GInstance*  d_instances,
+    const GBLAS*      d_blas,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts,
+    const ::GMaterial* d_materials,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    bool              useLuminanceOutput);
+
+// Initial RIS (Bitterli 2020, Algorithm 1) over the parked primary hits.
+void launchStageRestirInitialRIS(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    GPUReservoirSoA& cur,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const ::GMaterial* d_materials,
+    const ::GLight*    d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree,
+    int numCandidates, int mCap, int numPixels);
+
+// Temporal reuse (Algorithm 2) — merge previous frame's reservoir at the same
+// pixel, gated by isTemporallyValid.
+void launchStageRestirTemporalReuse(
+    GPUWavefrontState& state,
+    GPUReservoirSoA& cur,
+    const GPUReservoirSoA& prev,
+    int mCap, int numPixels);
+
+// Spatial reuse (Algorithm 3) — merge validity-gated random neighbours from the
+// previous frame's buffer (device twin of selectSpatialNeighbors).
+void launchStageRestirSpatialReuse(
+    GPUWavefrontState& state,
+    GPUReservoirSoA& cur,
+    const GPUReservoirSoA& prev,
+    int width, int height,
+    int spatialRadius, int spatialNeighbors, int mCap, int numPixels);
+
+// Resolve — finalize weight, shadow ray (gpu_tlas_occluded), BSDF eval,
+// accumulate throughput·f·L·W + primary env/emission into accum_xyz.
+void launchStageRestirResolve(
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    GPUReservoirSoA& cur,
+    float* d_accum_xyz,
+    const GTLASNode*  d_tlas,
+    const GInstance*  d_instances,
+    const GBLAS*      d_blas,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts,
+    const ::GMaterial* d_materials,
+    int numPixels);
 
 }  // namespace astroray::wavefront
 

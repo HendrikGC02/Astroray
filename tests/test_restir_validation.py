@@ -27,6 +27,18 @@ from restir_helpers import (
     mean_luminance, pixel_stddev, mse, relative_mean_diff,
 )
 
+# CUDA-availability guard for the GPU-only gate below. conftest.py has already
+# run configure_test_imports() at import time, so `astroray` is on sys.path here.
+# Mirrors the repo's standard pattern (test_gpu_multiwavelength._has_cuda_gpu):
+# __features__["cuda"] is False on a CPU-only build, so set_use_gpu(True) would
+# raise "CUDA support not compiled" — skip on those machines (e.g. Linux CI) and
+# keep the assertion hard on the RTX box.
+try:
+    import astroray as _astroray
+    _HAS_CUDA = bool(_astroray.__features__.get("cuda", False))
+except Exception:
+    _HAS_CUDA = False
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -122,6 +134,11 @@ class TestTemporalVariance:
     HEIGHT    = 24
 
     def _stddev(self, astroray_module, use_temporal):
+        # use_gpu=True: the GPU ReSTIR driver (cuda_wavefront_render_restir) is
+        # the code under test. Its per-pixel reservoirs accumulate across frames
+        # in the wavefront WfContext, so temporal history builds up here. The CPU
+        # integrator's temporal reuse accumulates almost no history (weak reuse),
+        # so it cannot demonstrate the variance reduction this gate asserts.
         frames = render_sequence(
             astroray_module,
             lambda r: build_cornell_box(r),
@@ -131,20 +148,25 @@ class TestTemporalVariance:
             samples_per_frame=1,
             seed=100,
             use_temporal=use_temporal,
+            use_gpu=True,
         )
         return pixel_stddev(frames)
 
+    @pytest.mark.skipif(
+        not _HAS_CUDA,
+        reason="GPU ReSTIR temporal-variance gate requires CUDA "
+               "(set_use_gpu raises 'CUDA support not compiled' on CPU builds); "
+               "runs on the RTX box.",
+    )
     def test_temporal_reduces_variance(self, astroray_module):
         stddev_no_reuse  = self._stddev(astroray_module, False)
         stddev_temporal  = self._stddev(astroray_module, True)
         assert stddev_no_reuse > 0, "No-reuse render is degenerate (zero variance)"
-        if stddev_temporal >= stddev_no_reuse:
-            relative_delta = (stddev_temporal - stddev_no_reuse) / stddev_no_reuse
-            if relative_delta < 0.02:
-                pytest.xfail(
-                    "Known ReSTIR temporal variance baseline flake: tiny deterministic "
-                    f"inversion ({stddev_temporal:.4f} vs {stddev_no_reuse:.4f})"
-                )
+        # Correct Bitterli 2020 §5.2 M-capping (source M capped before merge)
+        # makes temporal reuse accumulate ~20x more effective samples, so the
+        # per-frame variance drops substantially. The prior xfail escape hatch
+        # (tiny-inversion baseline flake) papered over the M-cap divergence bug
+        # and is removed now that the feature works — this is a hard gate.
         assert stddev_temporal < stddev_no_reuse, (
             f"Temporal reuse did not reduce variance: "
             f"no-reuse stddev={stddev_no_reuse:.4f}, "

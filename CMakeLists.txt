@@ -489,6 +489,7 @@ if(ASTRORAY_CUDA_FOUND)
         src/gpu/wavefront/stage_advance.cu
             src/gpu/wavefront/stage_light_sample.cu
             src/gpu/wavefront/stage_russian_roulette.cu
+            src/gpu/wavefront/stage_restir.cu
             src/gpu/wavefront/gpu_wavefront_snapshot.cu
         )
         message(STATUS "pkg55-B' Session N+3+N+4+N+5: CUDA wavefront stage_init + intersect + shade (Lambertian + metal) + light_sample + RR (spectral + PCG32)")

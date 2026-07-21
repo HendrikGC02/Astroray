@@ -31,11 +31,16 @@ def test_every_registered_integrator_reports_gpu_capabilities():
 def test_integrator_gpu_support_matrix_matches_current_cuda_kernels():
     names = set(astroray.integrator_registry_names())
     # pkg54: multiwavelength_path_tracer flipped to gpuSupported=True.
-    expected_supported = {"path_tracer", "ambient_occlusion", "multiwavelength_path_tracer"}
+    # pkg55-C6b: restir-di flipped to gpuSupported=True — it now has a GPU
+    # wavefront kernel (src/gpu/wavefront/stage_restir.cu, dispatched via
+    # cuda_wavefront_render_restir). The original assertion (restir-di CPU-only,
+    # "stores CPU frame history and has no CUDA kernel") is superseded by the
+    # C6 ReSTIR SoA port; the CPU frame history now lives in device SoA.
+    expected_supported = {"path_tracer", "ambient_occlusion",
+                          "multiwavelength_path_tracer", "restir-di"}
     expected_unsupported = {
         "caustic_path_tracer",
         "neural-cache",
-        "restir-di",
     }
 
     assert expected_supported <= names

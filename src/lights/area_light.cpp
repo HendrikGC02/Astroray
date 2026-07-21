@@ -76,18 +76,23 @@ void AreaLight::sampleLi(LiSample& sample,
         return;
     }
 
-    // Lambertian cosine falloff.
-    float cosFalloff = cosTheta;
-
-    // Geometric term: convert area measure to solid angle.
+    // pkg122 (Defect 1): emission is PLAIN RADIANCE and the pdf is returned in
+    // SOLID-ANGLE measure — matching Cycles area_light_sample and the geometry-
+    // emitter path (light_sampler.cpp:64-70). The previous code folded the
+    // geometric factor cosθ/dist² into the emission while returning an area-
+    // measure pdf 1/area; the L/pdf divide was numerically correct but the pdf
+    // being area-measure made the integrator's MIS weight (which combines
+    // ls.pdf with a SOLID-ANGLE bsdfPdf) size-dependent — the 0.13×/1.40× bias
+    // the pkg89 audit measured. See pkg122 research note.
+    // Reference: Cycles kernel/light/area.h::area_light_sample
+    //   (eval_fac = M_1_PI_F * invarea = plain radiance;
+    //    ls->pdf *= light_pdf_area_to_solid_angle(Ng, -D, t)) (Apache-2.0).
     float distSq = distance * distance;
-    float geometricFactor = cosFalloff / distSq;
 
-    // Evaluate spectral emission.
-    // Reference: Cycles intern/cycles/scene/light.cpp:127-131 (eval_fac = invarea * M_1_PI_F, Apache-2.0).
+    // Evaluate spectral emission — plain Lambertian radiance L_e = P/(π·A).
     constexpr float kM1PiF = 0.31830988618f;  // M_1_PI_F = 1/π
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
-    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF * geometricFactor);
+    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF);
 
     sample.emission_spec = emissionSpec;
 
@@ -99,8 +104,10 @@ void AreaLight::sampleLi(LiSample& sample,
         0.0556434f * xyz.X - 0.2040259f * xyz.Y + 1.0572252f * xyz.Z
     );
 
-    // PDF: 1 / area (uniform area sampling).
-    sample.pdf = 1.0f / area_;
+    // PDF in SOLID-ANGLE measure: pdf_ω = pdf_A · dist²/cosθ_light,
+    // with pdf_A = 1/area (uniform area sampling). cosTheta > 0 here (rejected
+    // above), so the divide is safe.
+    sample.pdf = distSq / (area_ * cosTheta);
 }
 
 float AreaLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {
@@ -163,8 +170,10 @@ bool AreaLight::fillDeviceParams(DeviceLightParams& out) const {
     out.areaShape = static_cast<int>(shape_);  // Rectangle=0, Disk=1, Ellipse=2
     out.spread    = spread_;
     emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
-    // staticScale = intensity·(1/area)·(1/π); normalizeFactor_ == 1/area.
-    // The device recomputes area from shape+width+height for the 1/area pdf.
+    // staticScale = intensity·(1/area)·(1/π) = plain Lambertian radiance L_e =
+    // P/(π·A); normalizeFactor_ == 1/area. pkg122: the device carries L_e directly
+    // and recomputes area from shape+width+height for the SOLID-ANGLE pdf
+    // (dist²/(area·cosθ)); the old cosθ/dist² fold + area-measure pdf is gone.
     constexpr float kM1PiF = 0.31830988618f;
     out.staticScale = intensity_ * normalizeFactor_ * kM1PiF;
     return true;

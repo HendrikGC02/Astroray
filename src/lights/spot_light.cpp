@@ -88,10 +88,13 @@ void SpotLight::sampleLi(LiSample& sample,
     }
 
     // Evaluate spectral emission.
-    // Reference: Cycles intern/cycles/scene/light.cpp:127-131 (eval_fac = invarea * M_1_PI_F, Apache-2.0).
-    constexpr float kM1PiF = 0.31830988618f;  // M_1_PI_F = 1/π
+    // pkg122: a Blender spot light is a point light of power P masked by the
+    // cone, so it carries the same radiant intensity I = P/(4π) as the point
+    // light (Cycles kernel/light/spot.h inherits spot.eval_fac from the point
+    // path). The prior 1/π was 4× too large. Apache-2.0.
+    constexpr float kInvFourPiF = 0.07957747155f;  // 1/(4π)
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
-    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF * falloff * angleFalloffFactor * iesModulation);
+    emissionSpec *= (intensity_ * kInvFourPiF * falloff * angleFalloffFactor * iesModulation);
 
     sample.emission_spec = emissionSpec;
 
@@ -103,12 +106,16 @@ void SpotLight::sampleLi(LiSample& sample,
         0.0556434f * xyz.X - 0.2040259f * xyz.Y + 1.0572252f * xyz.Z
     );
 
-    // PDF: cone solid angle times surface area (if radius > 0).
-    float coneSolidAngle = 2.0f * static_cast<float>(M_PI) * (1.0f - std::cos(outerAngle_));
+    // pkg122: a radius-0 spot is a DELTA light (single direction to the source),
+    // so pdf = 1 like the point light — the 1/d² falloff and cone attenuation are
+    // already baked into emission. The prior 1/coneSolidAngle made the L/pdf
+    // divide multiply brightness by the cone solid angle (cone-angle-dependent
+    // over-bright). For radius>0 the sphere emitter uses uniform-surface pdf
+    // 1/(4π·r²), matching the point sphere light (Cycles spot inherits point).
     if (radius_ > 0.0f) {
-        sample.pdf = 1.0f / (coneSolidAngle * radius_ * radius_);
+        sample.pdf = 1.0f / (4.0f * static_cast<float>(M_PI) * radius_ * radius_);
     } else {
-        sample.pdf = 1.0f / coneSolidAngle;
+        sample.pdf = 1.0f;
     }
 }
 
@@ -119,11 +126,12 @@ float SpotLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {
         return 0.0f;
     }
 
-    float coneSolidAngle = 2.0f * static_cast<float>(M_PI) * (1.0f - std::cos(outerAngle_));
+    // pkg122: mirror sampleLi's measure — radius-0 is a delta light (return 0,
+    // "not useful for MIS", like PointLight::pdfLi); radius>0 uses 1/(4π·r²).
     if (radius_ > 0.0f) {
-        return 1.0f / (coneSolidAngle * radius_ * radius_);
+        return 1.0f / (4.0f * static_cast<float>(M_PI) * radius_ * radius_);
     } else {
-        return 1.0f / coneSolidAngle;
+        return 0.0f;
     }
 }
 
@@ -175,8 +183,9 @@ bool SpotLight::fillDeviceParams(DeviceLightParams& out) const {
     out.cosInner = std::cos(innerAngle_);
     out.cosOuter = std::cos(outerAngle_);
     emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
-    constexpr float kM1PiF = 0.31830988618f;
-    out.staticScale = intensity_ * normalizeFactor_ * kM1PiF;
+    // pkg122: staticScale = intensity·(1/(4π)) = I = P/(4π), matching sampleLi.
+    constexpr float kInvFourPiF = 0.07957747155f;  // 1/(4π)
+    out.staticScale = intensity_ * kInvFourPiF;
     // NOTE: IES modulation not mirrored on the GPU in v1 (follow-up).
     return true;
 }

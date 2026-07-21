@@ -226,10 +226,15 @@ def test_g4_spot_cone_falloff(astroray_module):
     emission_spot = {'mode': 'rgb', 'color': [1, 1, 1]}
     inner_angle = 0.2  # ~11.5 degrees half-angle
     outer_angle = 0.4  # ~23 degrees half-angle
-    # pkg89 (2026-05-22): intensity scaled by π (100 → 320) to compensate for
-    # the Cycles-parity kM1PiF (1/π) factor added in sampleLi. Original 100.0
-    # was tuned against the buggy pre-fix code that omitted the kM1PiF factor;
-    # restoring physical correctness requires re-tuning the scene constant.
+    # pkg122 (2026-07-20): the spot wattage->radiance was re-derived against
+    # Cycles kernel/light/spot.h — a Blender spot is a point light of power P
+    # masked by the cone, radiant intensity I = P/(4π), delta pdf (was 1/π with a
+    # 1/coneSolidAngle pdf that multiplied brightness by the cone solid angle).
+    # The old scene cranked intensity 100->320 to fight those two compensating
+    # bugs; with the physical fix the ABSOLUTE center level changes, so this gate
+    # now asserts the cone STRUCTURE (center >> corner, corner ~ 0) plus a loose
+    # brightness floor. The exact center magnitude is verified against live Cycles
+    # by the team-lead post-build (this implementer cannot build the .pyd).
     r.add_spot_light_dedicated(
         center=[0, 5, 0],
         direction=[0, -1, 0],
@@ -243,16 +248,14 @@ def test_g4_spot_cone_falloff(astroray_module):
     pixels = r.render(256, 1)
 
     # Check center (should be bright, within inner cone) and corner (dark, outside outer cone).
-    # Absolute photometric threshold relaxed from >1.0 to >0.3: with intensity=320
-    # (= 100·π) the dedicated-light pipeline measures ~0.45 at the center, ~3×
-    # below naïve theory. Same spectrum-pipeline calibration shortfall as G2's
-    # D65 chromaticity (RGB→Jakob-Hanika→SampledSpectrum→XYZ→sRGB chain).
-    # TODO(spectrum): calibrate against Cycles reference once a precomputed-XYZ
-    # blackbody / illuminant fast-path lands (mirrors G2 TODO). Until then the
-    # structural assertion (center ≫ corner, corner ≈ 0) is what gates the cone.
+    # pkg122: absolute center threshold lowered 0.3 -> 0.1 because the spot energy
+    # was re-derived (I = P/(4π), delta pdf) — the absolute level shifted and its
+    # exact value is verified against live Cycles by the team-lead. The gate now
+    # rests on the cone STRUCTURE (center >> corner, corner ~ 0), which is what
+    # G4 is actually testing.
     center_lum = np.mean(pixels[32-2:32+2, 32-2:32+2])
     corner_lum = np.mean(pixels[0:4, 0:4])
-    assert center_lum > 0.3, f"G4 FAIL: center too dark ({center_lum}), inner cone not working"
+    assert center_lum > 0.1, f"G4 FAIL: center too dark ({center_lum}), inner cone not working"
     assert corner_lum < 0.01, f"G4 FAIL: corner too bright ({corner_lum}), outer cone not working"
     assert center_lum > 30 * max(corner_lum, 1e-6), \
         f"G4 FAIL: center/corner ratio too low ({center_lum / max(corner_lum, 1e-6):.1f})"
@@ -294,11 +297,15 @@ def test_g5_point_light_isotropy_hard_shadows(astroray_module):
     r.add_sphere([0, 0.5, 0], 0.5, mat_sphere)
 
     # POINT light with radius=0 (hard shadows)
+    # pkg122: intensity 50 -> 200 to offset the corrected point calibration
+    # (I = P/(4π), 4x dimmer than the old P/π). G5 gates shadow SHARPNESS
+    # (radius=0 hard shadow), not absolute brightness, so restoring the signal
+    # level with the scene knob keeps the gradient assertion's sensitivity intact.
     emission_point = {'mode': 'rgb', 'color': [1, 1, 1]}
     r.add_point_light(
         position=[2, 3, 2],
         emission=emission_point,
-        intensity=50.0,
+        intensity=200.0,
         radius=0.0  # Hard shadows (singularity at center)
     )
 

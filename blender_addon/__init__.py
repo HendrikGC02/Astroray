@@ -3946,9 +3946,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 )
             elif light.type == 'AREA':
                 # pkg89 Phase B: use dedicated AreaLight with EmissionSpectrum.
+                # pkg139: AreaLight emits along u x v (area_light.h:59). Cycles area
+                # lights emit along local -Z (intern/cycles/blender/light.cpp
+                # BlenderSync::sync_light: axisu=local X, axisv=local Y, direction=-Z
+                # of the light transform) -- the same convention already used here
+                # for SUN (:3941) and SPOT (:3971 below). Using +Y for axis_v made
+                # u x v = +Z, pointing the light away from the scene at identity
+                # rotation (measured 0.089-0.116x vs Cycles). Flipping axis_v to -Y
+                # gives u x v = X x (-Y) = -Z, matching Cycles (measured 1.07-1.09x
+                # at the same rotation). size_x/size_y still map to u/v respectively;
+                # this flip only mirrors v about u, which is a no-op for the centered
+                # RECTANGLE/ELLIPSE/DISK shapes we support (symmetric about center).
                 basis = matrix.to_3x3()
                 axis_u = list((basis @ mathutils.Vector((1, 0, 0))).normalized())
-                axis_v = list((basis @ mathutils.Vector((0, 1, 0))).normalized())
+                axis_v = list((basis @ mathutils.Vector((0, -1, 0))).normalized())
                 shape = getattr(light, 'shape', 'SQUARE')
                 spread = float(getattr(light, 'spread', 1.0))
                 size_x = float(light.size)
@@ -4079,8 +4090,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
             else:
                 print(f"Failed to load HDRI: {hdri_path}")
 
-        # Fallback: solid background color
-        if bg_color and strength > 0.01:
+        # Fallback: solid background color.
+        # pkg139: strength == 0.0 is artist intent for a black background, not
+        # "no background set" -- previously the `strength > 0.01` guard skipped
+        # set_background_color entirely at strength 0, leaving the engine's
+        # built-in default background visible instead of black. Always call
+        # set_background_color when bg_color is present; strength 0 scales it
+        # to explicit black.
+        if bg_color is not None:
             scaled_color = [c * strength for c in bg_color]
             renderer.set_background_color(scaled_color)
             print(f"Set background color: {scaled_color}")

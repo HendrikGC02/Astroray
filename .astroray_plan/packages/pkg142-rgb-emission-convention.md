@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / emitter energy correctness)
 **Track:** A (single cross-cutting convention change with a live headless-Cycles oracle gate + reference-bank re-bless; needs a build + RTX + Blender-5.1, not a mechanical patch)
 **Codex-paste-ready:** no (one adjudicated convention flip that cross-cuts CPU/GPU/env/materials and moves the Cycles-parity reference bank; empirical sign/magnitude must be confirmed against a live Cycles A/B, and a fallback branch may be taken — judgment at the gate, not a blind edit)
-**Status:** open — dispatchable
+**Status:** implemented, unverified — PR #511 (2026-07-21) — RGBUnbounded landed repo-wide (CPU `EmissionSpectrum::evalRGB`, GPU `GSPEC_RGB_UNBOUNDED` device mirror, env/world, plus ~20 duplicate CPU emission call sites the spec's grep missed — see PR scope note). Primary/secondary/tertiary gates and reference-bank re-bless NOT run (implementer had no build access) — awaiting team-lead RTX + Blender-5.1 verification.
 **Estimated effort:** M (the code change is small and localized; the cost is the build + live-Cycles oracle re-run + RTX GPU==CPU parity + evidence-first reference-bank re-bless)
 **Depends on:** pkg122 (PR #500, **merged**) — Defects 1–3 must be in `main` so the residual measured by the oracle is the *clean* emission-lift offset, not confounded by the per-type radiometry bugs. Satisfied.
 

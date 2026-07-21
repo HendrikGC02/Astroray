@@ -1,0 +1,175 @@
+# Defect 4 — RGB emission-convention adjudication: reference research + citations
+
+**Author:** architect (arch/pkg142-defect4)
+**Date:** 2026-07-21
+**Owner directive (verbatim):** "What ever is best and used by other renderers, your call."
+**Decision:** switch the RGB **emission** lift (`EmissionSpectrum::evalRGB` + the GPU
+mirror) from an **RGBIlluminant** (D65-weighted) lift to an **RGBUnbounded**
+(identity-round-trip, no-illuminant) lift, to reproduce Cycles' RGB-native light
+scaling and close the residual +7–16% equal-wattage brightness offset. Full
+implementation contract in `.astroray_plan/packages/pkg142-rgb-emission-convention.md`.
+
+---
+
+## 1. The question
+
+After pkg122 (PR #500) fixed the per-type radiometry (Defects 1–3: area
+mixed-measure pdf, point `1/π`→`1/(4π)`, blackbody photopic normalization), the
+live headless-Cycles oracle still measures **all four dedicated-light types
+1.07–1.16× brighter than Cycles at equal wattage** on a gray Lambertian floor.
+Decoupled pure-Lambertian analytic checks are 0.99×, so the residual is **not**
+radiometry — it is specifically how an RGB emission color is *lifted to a
+spectrum* in the spectral integrator. Astroray's RGB emission path is:
+
+`EmissionSpectrum::evalRGB` → `RGBIlluminantSpectrum(rgb).sample(wl)`
+(`src/emission_spectrum.cpp:187-191`, `src/spectrum.cpp:475-498`).
+
+`RGBIlluminantSpectrum::sample` computes, per wavelength:
+
+```
+s[i] = scale_ * sigmoid(rsp_, λ_i) * sampleD65(λ_i)      // scale_ = 2·max(rgb)
+```
+
+where `sampleD65(λ) = rawD65(λ) / ∫ rawD65·ȳ dλ` — the D65 SPD **normalized to
+unit photopic luminance** (`src/spectrum.cpp:49-77`). This is a faithful mirror of
+pbrt-v4's `RGBIlluminantSpectrum`.
+
+The **only** structural difference between `RGBIlluminantSpectrum` and
+`RGBUnboundedSpectrum` in Astroray is the `* sampleD65(λ)` factor
+(`src/spectrum.cpp:451-473` vs `475-498`). `RGBUnbounded` is
+`scale_ · sigmoid(rgb/scale_)` — the same Jakob-Hanika reflectance lift the gray
+floor **albedo** already uses (`RGBAlbedoSpectrum`), just with the magnitude
+factored back in. So the fork is precisely: **does emission carry a D65 illuminant
+chromaticity, or is it a plain reflectance-style lift symmetric with the albedo
+path?**
+
+---
+
+## 2. What the reference renderers actually do
+
+### pbrt-v4 (spectral) — RGBIlluminant, D65-weighted. **License: Apache-2.0** (verified `LICENSE.txt`).
+
+- `RGBIlluminantSpectrum::Sample` = `scale * rsp(λ) * illuminant->Sample(λ)`,
+  `illuminant = &cs.illuminant` (= D65 for the sRGB color space).
+  Source: `src/pbrt/util/spectrum.h`.
+- `DiffuseAreaLight::Create` parses emission as
+  `GetOneSpectrum("L", …, SpectrumType::Illuminant, …)` → **`RGBIlluminantSpectrum`**,
+  and additionally does `scale /= SpectrumToPhotometric(L)` (a photometric
+  self-normalization). Source: `src/pbrt/lights.cpp`.
+- `RGBUnboundedSpectrum::Sample` = `scale * rsp(λ)` (**no illuminant**). pbrt uses
+  it for unbounded/HDR *values* where an illuminant assumption is not wanted.
+  Source: `src/pbrt/util/spectrum.h`.
+
+So pbrt's **light emission convention is RGBIlluminant** (D65). Astroray currently
+matches pbrt here. The audit's earlier note that RGBUnbounded is "PBRT-v4
+DiffuseAreaLight" is **incorrect** — pbrt lights use `SpectrumType::Illuminant`.
+
+### Mitsuba 3 (spectral) — D65 illuminant for emitters. **License: BSD-3-Clause** (compatible).
+
+Mitsuba's docs state D65 is "the default emission spectrum used for light sources
+in all spectral rendering modes," and that a flat spectrum value of 1.0 as
+emitter radiance renders purple-ish (because sRGB has a D65 whitepoint), whereas
+the same spectrum as a BSDF reflectance renders white — i.e. Mitsuba's
+`srgb_d65` emitter lift is **D65-weighted**, exactly like pbrt/RGBIlluminant.
+
+### Cycles (RGB-native) — identity linear-RGB scaling, **no** spectral upsampling, **no** D65. **License: Apache-2.0** (verified `LICENSE`).
+
+- `src/kernel/light/area.h::area_light_eval`: `ls->eval_fac = M_1_PI_F * invarea`
+  — a **dimensionless geometric factor**, no color.
+- `src/scene/light.cpp`: `copy_v3_v3(klight->strength, strength);` — the light
+  `strength` (color × power) is stored **directly as a linear-RGB `float3`** and
+  the emitted radiance is `strength × eval_fac`. There is no spectrum, no
+  Jakob-Hanika lift, no D65 anywhere in the light path.
+
+So Cycles' "emission convention" is **the identity**: the RGB you type *is* the
+radiance, in linear Rec.709/sRGB primaries.
+
+---
+
+## 3. Why RGBIlluminant is +7–16% vs Cycles, and why RGBUnbounded fixes it
+
+For a **pure white** light both conventions give unit luminance in isolation
+(`RGBIlluminant` white → `sampleD65` integrates to Y=1 by construction;
+`RGBUnbounded` white → flat sigmoid at ~0.5 × scale 2 ≈ flat 1.0, also Y=1). The
+offset does **not** appear in the emitter alone — it appears in the **reflected
+product** off the gray floor:
+
+- **Cycles (RGB):** `out = albedo_RGB ⊙ light_RGB` — an exact per-channel product
+  (white × 0.5-gray = 0.5).
+- **Astroray spectral:** `out_RGB = M_xyz→rgb · ∫ S_albedo(λ)·S_emit(λ)·CMF(λ) dλ`.
+
+When `S_emit` carries the **D65 tilt** (RGBIlluminant) but `S_albedo` is a plain
+Jakob-Hanika reflectance sigmoid, the two spectra are from **different families**;
+their product integrated against the CMF does **not** round-trip to the RGB
+product — the D65-vs-reflectance spectral mismatch injects a systematic
+metameric offset (measured +7–16%, uniform across all four light types because it
+is a property of the shared `evalRGB`/albedo pipeline, not per-type geometry).
+
+Switching emission to **RGBUnbounded** makes `S_emit = scale · sigmoid(rgb/scale)`
+— the **same reflectance-sigmoid family** as `S_albedo`. Two same-family
+Jakob-Hanika spectra multiplied and integrated round-trip back to the RGB product
+with minimal crosstalk (this is exactly the property Jakob-Hanika 2019 fits for),
+so the spectral render reproduces Cycles' RGB multiply. This is the standard
+technique for making a spectral engine match RGB-native input.
+
+**Vindication of pkg89 phase-b.** The 2026-05-21 cycles-parity review (Defect 2a)
+already recommended `RGBUnboundedSpectrum` for emission. The pkg122 implementer
+over-rode it citing a "~3× too dim" measurement — but that measurement was taken
+with Defects 1–3 (the `1/π` point error, the mixed-measure area pdf) still
+present, which confounded the emission convention with the radiometry. With those
+fixed in PR #500, the clean residual is +7–16% and phase-b's recommendation is the
+correct one.
+
+---
+
+## 4. pbrt vs Cycles genuinely disagree — which to match
+
+They disagree by the **spectral-vs-RGB metamerism gap**. pbrt/Mitsuba deliberately
+imprint a D65 illuminant chromaticity on RGB lights (physically: "this light
+behaves like a real daylight-ish source"). Cycles works in RGB and has no such
+imprint. There is no single "physically correct" answer — it is a **modeling
+convention**, and the two well-known families sit on opposite sides.
+
+**Astroray's entire quality program is Cycles parity**: the reference bank is
+Cycles-calibrated (12/13 passing), every energy gate is keyed on live-Cycles
+numbers, and the pkg122 oracle *is* a headless-Cycles A/B. Given the owner
+directive ("best and used by other renderers, your call") and that the practical
+north star is Cycles, the project should **match Cycles** for the emission lift
+and **document the divergence from pbrt/Mitsuba**. We are not inventing a
+convention — `RGBUnbounded` is a real pbrt-v4 class (`src/pbrt/util/spectrum.h`,
+Apache-2.0) and already exists in Astroray (`RGBUnboundedSpectrum`,
+`src/spectrum.cpp:451-473`); we are re-pointing the emission path at it.
+
+---
+
+## 5. Residual-risk / empirical honesty (CLAUDE.md §1)
+
+The +7–16% → [0.97,1.03] closure is **argued analytically, not yet measured** (the
+architect cannot build the `.pyd`). The metameric offset's *sign* and exact
+magnitude depend on the shipped Jakob-Hanika sRGB LUT and the D65 table, so the
+**gate is the live-Cycles oracle re-run**, not the reasoning. If RGBUnbounded
+**overshoots to < 0.97** (too dim), the documented fallback is to keep
+RGBIlluminant but add pbrt's photometric self-normalization
+(`scale /= SpectrumToPhotometric(emit)`) — a smaller, chromaticity-only
+correction. Primary recommendation remains RGBUnbounded; the fallback is scoped in
+the spec so the implementer can pivot without re-adjudicating.
+
+---
+
+## 6. Sources
+
+- pbrt-v4 `src/pbrt/util/spectrum.h` (RGBAlbedo/Unbounded/Illuminant classes),
+  `src/pbrt/lights.cpp` (DiffuseAreaLight → `SpectrumType::Illuminant`,
+  `scale /= SpectrumToPhotometric`), `LICENSE.txt` — Apache-2.0.
+  https://github.com/mmp/pbrt-v4
+- Cycles `src/kernel/light/area.h` (`eval_fac = M_1_PI_F*invarea`),
+  `src/scene/light.cpp` (`copy_v3_v3(klight->strength, strength)`), `LICENSE` —
+  Apache-2.0. https://github.com/blender/cycles
+- Mitsuba 3 emitter/spectra docs (D65 default emission; reflectance-vs-emission
+  upsampling asymmetry). https://mitsuba.readthedocs.io/en/stable/src/generated/plugins_emitters.html
+  and .../plugins_spectra.html — BSD-3-Clause.
+- Jakob & Hanika 2019, "A Low-Dimensional Function Space for Efficient Spectral
+  Upsampling," Computer Graphics Forum (Eurographics) — the sigmoid RGB→spectrum
+  fit both `RGBAlbedo` and `RGBUnbounded` use.
+- "Spectral rendering, part 3: Spectral vs. RGB," momentsingraphics.de — the
+  E-vs-D65 upsampling-illuminant subtlety.

@@ -737,10 +737,18 @@ __device__ inline GVec3 gpu_disney_eval(
                    + (1.f-mat.metallic)*Fsheen
                    + ccTerm) * NdotL;
 
-    // Clamp per-sample firefly guard
-    result.x = fminf(result.x, 10.f);
-    result.y = fminf(result.y, 10.f);
-    result.z = fminf(result.z, 10.f);
+    // pkg123: floor at 0 only — NO upper cap (byte-mirrors CPU clampColor,
+    // plugins/materials/disney.cpp). A finite cap clips the near-delta GGX
+    // specular peak while gpu_disney_pdf carries the uncapped gpu_D_GTR2 (now
+    // epsilon-free), so the importance-sampled f/pdf ratio stops cancelling D
+    // and metal collapses to black. The previous asymmetric caps (CPU 4.0 vs
+    // GPU 10.0) never fired pre-pkg123 because the D_GTR2 `+0.001f` epsilon
+    // deflated D to <=~0.32; with the epsilon gone the cap must go too. Firefly
+    // control is the integrator's job, mirroring Cycles kernel_accum_clamp
+    // (clamp_direct/clamp_indirect), not the closure.
+    result.x = fmaxf(result.x, 0.f);
+    result.y = fmaxf(result.y, 0.f);
+    result.z = fmaxf(result.z, 0.f);
     return result;
 }
 

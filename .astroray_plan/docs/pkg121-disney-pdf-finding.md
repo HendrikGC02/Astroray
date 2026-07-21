@@ -555,6 +555,108 @@ divergence (a >10x or NaN-producing regression would still fail even under
 `strict=False`, since that's a categorically different, unexpected failure
 mode from the documented ~4x over-brightness).
 
+## Round 4 — CI-caught render regressions: dormant `clampColor` woken by the D fix (2026-07-21)
+
+**Status:** RESOLVED for the 3 deterministic specular regressions (engine fix,
+render-level). The 4th (clearcoat energy) is adjudicated as an out-of-scope
+collateral (see below).
+
+The team-lead parked PR #498 at wrap-up: CI `build-and-test` surfaced four
+material-correctness regressions the PR-named suites (chi²/furnace/energy/parity)
+had not exercised. Three reproduced locally on MSVC; the fourth was CI-only.
+
+### Root cause of the 3 specular regressions (metal-too-dark, metallic-tint, roughness-gloss)
+
+Not the NEE/MIS mechanism the parking note hypothesized. The mechanism is a
+**previously-dormant firefly cap in `eval()` woken by the epsilon removal**:
+
+- `plugins/materials/disney.cpp::eval()` ended with `return clampColor(result)`,
+  which clamped each channel to `[0, 4]`. `gpu_materials.h::gpu_disney_eval` had
+  the asymmetric twin `fminf(result, 10.f)`.
+- The `+0.001f` in `D_GTR2` (added in **pkg03 / PR #91**, before pkg60's energy
+  calibration) **deflated** D to `≤ ~0.32` at *every* roughness (`D_peak = a²/(π·t²+ε)`
+  is maximized at the alpha floor but the `+ε` denominator caps it near `a²/ε`;
+  for the floored `a=0.0064`, `a²/ε ≈ 0.04`). So on `main` the specular
+  `eval()` value never approached 4.0 and **`clampColor` never fired** — the
+  deflated D cancelled cleanly in the importance-sampled `f/pdf` ratio, giving a
+  correct render.
+- pkg123 removed the epsilon (correctly — required for sample()/pdf() chi²
+  consistency). The specular D now reaches **~10³–10⁴** at the alpha floor
+  (`D_peak = 1/(π·a²) ≈ 7772` at `a=0.0064`). `eval()`'s spec term
+  (`D·F·Gs·NdotL`) now hugely exceeds 4.0 and gets **capped**, while `pdf()`
+  carries the **uncapped** D. The `f/pdf` ratio therefore no longer cancels D:
+  `throughput = 4.0 / (D·NdotH/(4·HdotV)) → 0`, so Disney metal reflection
+  collapsed toward black (`test_disney_metal_reflection_not_black`: 0.215 vs the
+  `metal` material's 0.604 at roughness 0.05; the low-roughness specular
+  highlight in `test_disney_metallic_tints_specular_highlight` /
+  `test_disney_roughness_changes_glossiness` dimmed the same way, erasing the
+  render deltas those tests assert).
+
+**Why chi²/furnace/parity all stayed green:** chi² only exercises
+`sample()`/`pdf()` (never `eval()`); the furnace/energy suites integrate total
+energy (the clamp's darkening is invisible to a scalar albedo when it doesn't
+fire, and it *does* fire only for the near-mirror lobe an unbiased furnace
+absorbs as variance); CPU↔GPU parity shares the defect. Only a
+sampled-reflection *render* against a reference exposes it.
+
+### The fix (engine, render-level)
+
+Remove the closure-level upper cap on both sides, floor at 0 only:
+
+- `disney.cpp::clampColor` → `Vec3::max(c, Vec3(0.0f))` (no `hi`).
+- `gpu_materials.h::gpu_disney_eval` → `fmaxf(result, 0.f)` (was `fminf(·,10)`).
+
+This is a **no-op relative to `main`'s actual render behaviour** (the cap was
+dormant there) and restores the exact `f/pdf` cancellation for the now
+correctly-normalized GGX lobe, while leaving the epsilon-free `pdf()` the chi²
+gates require untouched. It also *removes* a pre-existing CPU(4.0)/GPU(10.0)
+parity divergence.
+
+**Cite:** Cycles `src/kernel/film/accumulate.h` / `kernel_accum_clamp`
+(`clamp_direct`/`clamp_indirect`) — firefly control is applied to the
+**path/sample radiance at the integrator**, never as a cap on the BRDF closure
+value (`bsdf_microfacet.h` returns the true `D`). Astroray already has the
+integrator-level equivalents: `raytracer.h` `clampDirect`/`clampIndirect` plus
+the always-on `sLum > 20` per-sample suppression (`raytracer.h:3005`) and
+`finiteVecOrZero` NaN guard (`raytracer.h:3002`) — so the closure cap was
+redundant as well as harmful.
+
+### The 4th failure (clearcoat energy) — out-of-scope collateral, adjudicated
+
+`test_disney_directional_hemispherical_reflectance_is_conserved[0.9-1.0-0.0-0.0-0.3]`
+(cos_theta_o=0.9, clearcoat=1.0, sheen=0, metallic=0, roughness=0.3,
+clearcoat_gloss=0.25) measured **1.0206**, just over the pkg60 hard gate 1.02
+(the loose "bug" gate 1.05 still passes). Distinct mechanism, **not** fixed by
+the clamp removal (the clamp does not fire for this config — peak `eval()`≈0.93):
+
+- The clearcoat lobe (`disney.cpp:369`) shares `D_GTR2`. Removing the epsilon
+  **normalized** the clearcoat NDF, restoring energy the deflated D had been
+  silently discarding. pkg60's clearcoat energy compensation
+  (`clearcoatE`/`min(1/clearE,1.25)` boost + `layeringWeightAfter` base debit)
+  was **numerically calibrated against the epsilon-deflated engine** — pkg60's
+  own recorded worst case was **1.015891** *with* the epsilon present
+  (`disney-energy-compensation-research.md:300-302`). With the corrected D the
+  Astroray-specific clearcoat compensation (Cycles has **no** clearcoat_E table;
+  it uses the GGX-E path — `disney-energy-compensation-research.md:188-201`)
+  slightly over-produces for this one config.
+- **Marginal / platform-sensitive:** it failed only on the Linux/GCC CI leg; it
+  did **not** reproduce on the owner's MSVC local build (float-ordering of the
+  4096-sample uniform-Halton `integrateMaterialReflectance` of a now-correctly-
+  sharp lobe straddles the 1.02 boundary by ~6e-4 across compilers).
+
+**Adjudication:** this is a **pkg60 clearcoat energy-compensation
+recalibration**, explicitly a pkg123 **non-goal** (spec §Non-goals: "Not new
+BSDF lobes… clearcoat… is not this package"). It cannot be closed inside pkg123
+without either (a) re-adding a bare `+0.001f` epsilon to the clearcoat D — the
+exact anti-pattern this package removed, forbidden — or (b) re-deriving the
+clearcoat multi-scatter compensation / layering debit against the correct D,
+which requires an empirical build-and-measure loop (the tables were fit
+numerically). Neither is a blind edit. **Recommended follow-up:** a focused
+`disney-clearcoat-energy-recalibration` package that re-fits the clearcoat
+compensation against the epsilon-free D (or, per the research doc, moves
+clearcoat onto the Cycles GGX-E path and drops the Astroray clearcoat_E table).
+The test is **not** weakened here.
+
 ## Citations
 
 - **Walter et al. 2007.** "Microfacet Models for Refraction through Rough Surfaces."

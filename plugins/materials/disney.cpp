@@ -62,10 +62,22 @@ class DisneyPlugin : public Material {
         return weight * (Vec3(1.0f) - Vec3::min(albedo, Vec3(0.999f)));
     }
 
-    Vec3 clampColor(const Vec3& c, float hi = 4.0f) const {
-        return Vec3(std::clamp(c.x, 0.0f, hi),
-                    std::clamp(c.y, 0.0f, hi),
-                    std::clamp(c.z, 0.0f, hi));
+    // pkg123: floor at 0 only — NO upper cap. A finite cap clips the near-delta
+    // GGX specular peak: once the chi²-required spurious `+0.001f` epsilon is
+    // removed from D_GTR2, the specular D reaches ~1e3-1e4 at the alpha floor
+    // (roughness<=0.08), so eval()'s spec `f` gets capped while pdf() carries
+    // the uncapped D — the importance-sampled f/pdf ratio then no longer cancels
+    // D and metal reflection collapses to black (test_disney_metal_reflection_
+    // not_black: 0.215 vs 0.604, ~2.8x too dark). On the pre-pkg123 engine the
+    // epsilon deflated D to <=~0.32 at every roughness, so this 4.0 cap never
+    // fired and f/pdf cancelled cleanly; removing the cap restores that render
+    // behaviour while keeping the epsilon-free pdf the chi² gates require.
+    // Firefly control belongs at the integrator (raytracer.h clampDirect/
+    // clampIndirect + the sLum>20 per-sample guard), mirroring Cycles'
+    // kernel_accum_clamp (clamp_direct/clamp_indirect) — never a closure-level
+    // cap on the BRDF value (Cycles bsdf_microfacet.h returns the true D).
+    Vec3 clampColor(const Vec3& c) const {
+        return Vec3::max(c, Vec3(0.0f));
     }
 
     float diffuseFurnaceScale(float roughness, float mu) const {

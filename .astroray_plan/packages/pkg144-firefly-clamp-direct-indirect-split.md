@@ -1,0 +1,173 @@
+# pkg144 — Firefly clamp biases delta/direct NEE: wire the Cycles direct/indirect clamp split
+
+**Pillar:** 3 (light transport / integrator correctness)
+**Track:** A (integrator clamp restructuring against the Cycles reference + an energy-linearity gate; needs a build + evidence-first default tuning)
+**Codex-paste-ready:** no (an adjudicated integrator change that moves firefly control from an always-on top-level cap to a per-contribution bounce-split, with a default that must be tuned against the existing firefly/caustic tests — judgment at the gate)
+**Status:** open — dispatchable
+**Estimated effort:** M (primary clamp-split); secondary light-selection section is a separable S–M follow-up
+**Depends on:** none (pkg140 landed the delta-sun MIS/`power()` fixes in `060cfd0`; this is the pre-existing clamp that masks them)
+
+**Origin:** pkg140 debug round, PR #507 owner comment. The gate-5 `with_sun == without_sun`
+failure was root-caused to a **test-only** power-balance issue (fixed in the test), but
+the investigation surfaced a **production** bias in the firefly clamp that is filed here.
+
+---
+
+## Primary finding — the always-on per-sample luminance clamp biases delta/direct NEE
+
+`include/raytracer.h:3003-3005`, in the per-pixel sample-accumulation loop:
+
+```cpp
+// Per-sample firefly suppression: sCol is XYZ, Y is photometric luminance.
+float sLum = sCol.y;
+if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
+```
+
+This clamp is applied to `sCol`, the **whole path's** contribution to the pixel
+(direct + indirect already summed), and it is **unconditional and always on**. Two
+problems, both breaking energy conservation for bright/low-probability lights:
+
+1. **It clamps direct light, including delta-light NEE.** A delta light's NEE
+   estimator is **deterministic** — `sampleLi` returns emission with `pdf = 1`
+   (delta) and the per-fire value is `throughput · f_r · L / (selPdf)`. There is
+   **no variance to suppress**, so capping it is **pure downward bias**, not noise
+   control. For a bright delta sun the per-sample luminance grows ∝ S but is capped
+   at 20, so the measured brightness **asymptotes at ~14–20 across S = 1e6…1e9**
+   instead of growing linearly (measured, PR #507). This is a silent energy loss
+   for any bright delta light, and — via the `S/selPdf` convergence in the power-CDF
+   (see secondary finding) — for any high-power delta light with low selection
+   probability.
+
+2. **It cannot honor a direct/indirect distinction** because it fires on the
+   already-summed sample color, after direct and indirect are inseparable.
+
+### What Cycles does (the reference)
+
+`src/kernel/film/light_passes.h::film_clamp_light`:
+
+```c
+const float limit = (bounce > 0) ? kernel_data.integrator.sample_clamp_indirect
+                                 : kernel_data.integrator.sample_clamp_direct;
+```
+
+Cycles selects the clamp **per contribution** by bounce depth (`bounce == 0` →
+`sample_clamp_direct`, `bounce > 0` → `sample_clamp_indirect`), and **both default
+to 0 (disabled)**. The documented guidance is to **leave direct light unclamped** —
+"clamping direct light paths can have a too extreme effect" — because fireflies are
+overwhelmingly an indirect-path phenomenon. Cycles has **no** always-on hardcoded
+luminance cap; firefly control is entirely opt-in and split direct/indirect.
+
+### Astroray already has the split — but it is dead
+
+`include/raytracer.h:2123-2124` declares `clampDirect = 0` / `clampIndirect = 0`
+with setters (`:2179-2180`), reset (`:2244-2245`), and Python bindings
+(`module/blender_module.cpp:1444-1449`, `set_clamp_direct`/`set_clamp_indirect`).
+**These fields are never read/applied anywhere in the integrator** (repo-wide grep:
+only declaration/setter/reset/binding sites). So Astroray ships the Cycles
+direct/indirect API surface **unwired**, and the only clamp actually in effect is
+the hardcoded, always-on, direct+indirect-combined `sLum > 20`.
+
+---
+
+## Adjudication + fix contract (primary)
+
+**Replace the hardcoded always-on top-level clamp with the Cycles-style
+per-contribution direct/indirect split that is already stubbed, and never bias
+direct/delta NEE energy.**
+
+1. **Remove** the unconditional `sLum > 20` cap at `raytracer.h:3005`.
+2. **Wire `clampDirect`/`clampIndirect`** into the path integrator, applied
+   **per contribution by bounce depth**, mirroring `film_clamp_light`:
+   - `bounce == 0` (camera-visible emission + first-hit direct NEE, **including
+     delta-light NEE**) → clamp by `clampDirect`.
+   - `bounce > 0` (indirect) → clamp by `clampIndirect`.
+   - A limit of `0` means **disabled** (Cycles semantics). This requires
+     accumulating direct vs indirect luminance separately inside `sampleFull` and
+     clamping each before summing, rather than clamping the combined `sCol`.
+3. **Default policy — the adjudicated tradeoff.** Cycles defaults both to 0 (off).
+   But Astroray's existing firefly/caustic **tests currently rely on the always-on
+   20 cap** to stay green, so removing it wholesale risks regressing them. Resolve
+   evidence-first:
+   - **`clampDirect` default = 0 (off), non-negotiable** — direct/delta NEE must
+     never be silently biased. This is the whole point of the package.
+   - **`clampIndirect` default** = the smallest value that keeps the existing
+     firefly/caustic tests green (candidate: the legacy 20, but confirm — it may be
+     unnecessary, or a different value may be cleaner). Choose it by running those
+     tests, not by assumption. If the tests pass with `clampIndirect = 0` too,
+     prefer full Cycles parity (both off).
+   - Document the chosen defaults and cite `film_clamp_light` + the bounce-split.
+
+This is **not an invented algorithm** (CLAUDE.md §6): it is a direct port of Cycles
+`film_clamp_light`'s bounce-indexed clamp selection into the existing (stubbed)
+`clampDirect`/`clampIndirect` fields. Apache-2.0, already a project reference.
+
+### Gates (primary)
+
+- **NEW — bright-sun energy linearity.** A delta sun on a gray floor: measured
+  brightness **grows ∝ S** across at least three decades (e.g. S = 1e6, 1e7, 1e8),
+  matching the analytic `albedo · S / π` within noise (PR #507 measured the
+  sun-alone analytic at 0.63603 vs 0.63662). The current code asymptotes ~14–20;
+  post-fix the ratio to analytic stays ~1 at every S. Metric: per-channel
+  mean-ratio to analytic (NOT SSIM). This test is the package's reason to exist —
+  add it.
+- **Existing firefly/caustic tests unchanged** — the mixed-metallic gray-furnace
+  glow test (`test_disney_energy_conservation.py:69`), any caustic/prism firefly
+  gates, and the general render suite stay green. This is what pins the
+  `clampIndirect` default.
+- **Furnace/white-furnace unchanged** — the clamp restructuring must be a no-op on
+  energy-conserving scenes below the clamp threshold.
+- **GPU parity if applicable.** If the GPU/wavefront integrator has its own
+  hardcoded firefly cap (grep for a `20.0f`/`fminf` luminance cap in the kernels),
+  apply the same split so GPU==CPU; else note N/A. Do not run two CUDA verifiers
+  concurrently (memory `cuda_verifier_concurrency`).
+- **Build evidence** (CLAUDE.md): `.pyd` mtime vs `git log -1 HEAD`,
+  `astroray.__file__ = build_cuda/Release/` before the gates.
+
+---
+
+## Secondary finding (lower priority; separable) — DistantLight vs AreaLight power() unit-scale mismatch
+
+The power-CDF light selector (`src/light_sampler.cpp:52`,
+`selPdf = power_i / totalPower`) assumes every light's `power()` is a comparable
+radiant-flux proxy. It is not:
+
+- `AreaLight::power()` = `luminance · intensity · normalizeFactor · area · π`
+  (`src/lights/area_light.cpp:119-127`) — a flux-like quantity, **O(10²–10³)** at
+  intensity 300.
+- `DistantLight::power()` = `luminance · intensity · normalizeFactor · solidAngle`
+  (`src/lights/distant_light.cpp:98-107`) — scaled by the sun's tiny solid angle
+  (Ω ≈ 6e-5 for a 0.5° sun), so **O(1e-5)** at intensity ~4.
+
+At comparable *visual* brightness these differ by **~7–8 orders of magnitude**, so
+in a mixed sun+area scene the power-CDF selects the sun with vanishingly small
+probability → very high NEE variance for the sun (and, compounded with the primary
+clamp bug, silent energy loss). This is a **light-selection-heuristic** question,
+not a radiometry bug: a distant light delivers irradiance S to every surface
+**independent of its angular size**, so its scene importance is comparable to an
+area light of similar illuminance — the `× solidAngle` factor **understates** it.
+
+**Contract (secondary — research-first, may split to its own package):**
+- Do **not** hand-tune a fudge factor. Research Cycles' light-importance metric —
+  `src/scene/light.cpp` `LightManager` importance and the light-tree measure
+  (Estevez & Kulla 2018, "Importance Sampling of Many Lights") — for how a
+  sun/distant light's selection importance is put on a common scale with area
+  lights (importance ∝ emitted radiance/irradiance, not raw flux × angular size).
+  Cite the source (CLAUDE.md §6).
+- Change `DistantLight::power()` (or introduce a separate `selectionImportance()`
+  that the CDF uses instead of `power()`) so distant and area lights sit on a
+  comparable importance scale. Keep `power()`'s radiometric meaning intact if it is
+  used elsewhere — check call sites before repurposing it.
+- **Gate:** a mixed sun+area scene shows both lights selected with sane
+  probabilities and the sun's NEE converges at a feasible sample budget; existing
+  single-light energy tests unchanged. Lower priority than the primary clamp fix;
+  the coordinator flagged it as "same spec or a note."
+
+---
+
+## Definition of done
+- [ ] Hardcoded `sLum > 20` cap removed; `clampDirect`/`clampIndirect` wired per-bounce (bounce==0→direct, bounce>0→indirect), 0=disabled, mirroring `film_clamp_light`.
+- [ ] `clampDirect` default 0 (off); `clampIndirect` default chosen evidence-first to keep firefly/caustic tests green, and documented.
+- [ ] NEW bright-sun energy-linearity gate added and green (with_sun ∝ S across ≥3 decades, ratio-to-analytic ~1).
+- [ ] Existing firefly/caustic + furnace + render suites unchanged; build evidence shown.
+- [ ] GPU firefly-cap parity handled or noted N/A.
+- [ ] Secondary: distant-vs-area selection-importance either fixed (with a cited Cycles/Estevez-Kulla importance metric + a mixed-scene gate) or explicitly deferred to a follow-up package, decision recorded in the PR.

@@ -107,8 +107,10 @@ def test_explicit_path_tracer_renders_cornell():
     """set_integrator('path_tracer') must produce a valid non-black Cornell render.
 
     Since pkg14, 'path_tracer' is the canonical (and only) full-spectrum
-    integrator.  A Renderer with no set_integrator() produces all-black output;
-    callers must set it explicitly (or use base_helpers.create_renderer()).
+    integrator. This test still sets it explicitly for clarity, but a
+    Renderer with no set_integrator() call also defaults to 'path_tracer'
+    (see tests/test_pkg148_default_integrator.py) — pkg148 fixed the prior
+    empty-name default that silently broke GPU dedicated-light NEE.
     """
     r = astroray.Renderer()
     create_cornell_box(r)

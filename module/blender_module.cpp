@@ -358,7 +358,15 @@ class PyRenderer {
     std::shared_ptr<EnvironmentMap> envMap;
     bool useGPU = false;
     astroray::ParamDict integratorParams_;
-    std::string integratorName_;
+    // pkg148: default-construct to "path_tracer" instead of empty. This mirrors
+    // Renderer::ensureDefaultIntegrator()'s lazy CPU default (src/default_integrator.cpp),
+    // which silently patches a null CPU integrator_ to "path_tracer" inside
+    // Renderer::render() — a fallback the GPU dispatch below has no equivalent
+    // of. The GPU branch keys directly off integratorName_ (":1745-1766"), so an
+    // empty name fell through to the legacy no-NEE megakernel and rendered
+    // dedicated-light scenes solid black on a fresh Renderer. See
+    // .astroray_plan/packages/pkg148-default-integrator-empty-string.md.
+    std::string integratorName_ = "path_tracer";
     // pkg55-C6b: globally-unique id assigned at each set_integrator call. The
     // GPU ReSTIR driver keys its persistent (double-buffered) reservoir history
     // on this id and RESETS the temporal history when it changes — so a fresh
@@ -2229,8 +2237,16 @@ public:
 
     void setIntegrator(const std::string& name) {
         if (name == "auto" || name == "default" || name.empty()) {
-            renderer.setIntegrator(nullptr);
-            integratorName_.clear();
+            // pkg148: reset to the "path_tracer" default rather than empty —
+            // an empty integratorName_ only fell back correctly on CPU (via
+            // Renderer::ensureDefaultIntegrator()'s lazy default); the GPU
+            // dispatch has no such fallback and silently dropped dedicated-light
+            // NEE. This is itself one of the reset sites the footgun could
+            // reappear through, so it gets the same default as construction.
+            auto integrator = astroray::IntegratorRegistry::instance().create(
+                "path_tracer", integratorParams_);
+            renderer.setIntegrator(integrator);
+            integratorName_ = "path_tracer";
             return;
         }
         auto integrator = astroray::IntegratorRegistry::instance().create(name, integratorParams_);
@@ -2241,6 +2257,13 @@ public:
         // a freed-then-realloc'd renderer address.
         static uint64_t g_restirSessionCounter = 0;
         restirSessionId_ = ++g_restirSessionCounter;
+    }
+
+    // pkg148: expose the currently-selected integrator name so the default
+    // (now "path_tracer" rather than empty) can be pinned by a binding-level
+    // test — see test_pkg148_default_integrator.py.
+    std::string getIntegrator() const {
+        return integratorName_;
     }
 
     py::dict getIntegratorStats() const {
@@ -2496,7 +2519,9 @@ public:
         textureManager = TextureManager();
         envMap.reset();
         useGPU = false;
-        integratorName_.clear();
+        // pkg148: reset to the "path_tracer" default, not empty — see the
+        // construction-site comment above integratorName_'s declaration.
+        integratorName_ = "path_tracer";
         integratorParams_ = astroray::ParamDict();
 #ifdef ASTRORAY_CUDA_ENABLED
         cudaRenderer.reset();
@@ -2856,6 +2881,11 @@ PYBIND11_MODULE(astroray, m) {
              "type"_a, "params"_a, "x"_a, "y"_a, "z"_a,
              "pkg115 debug helper: evaluate texture at explicit (x,y,z) point")
         .def("set_integrator", &PyRenderer::setIntegrator, "name"_a)
+        .def("get_integrator", &PyRenderer::getIntegrator,
+             "pkg148: return the currently-selected integrator name. Defaults "
+             "to 'path_tracer' on a fresh Renderer (and after clear() / "
+             "set_integrator('auto'|'default'|'')) rather than an empty "
+             "string, so the GPU dedicated-light NEE branch is always engaged.")
         .def("get_integrator_stats", &PyRenderer::getIntegratorStats,
              "Return optional diagnostic counters from the active integrator.")
         .def("set_integrator_param", &PyRenderer::setIntegratorParam,

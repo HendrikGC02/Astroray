@@ -3,15 +3,15 @@
 **Pillar:** 2 (BSDF / material energy conservation)
 **Track:** A (converge Astroray's Disney energy compensation to the Cycles-faithful path against the true D; regenerate the Astroray-specific tuned pieces; two-toolchain grid gate)
 **Codex-paste-ready:** no (a numerical recalibration whose target is the full directional-hemispherical reflectance grid across both toolchains, replacing hand-tuned deflated-D corrections with the Cycles-faithful compensation — judgment at the gate, evidence-first)
-**Status:** implemented, PR pending merge (2026-07-23) — diffuse-under-specular
-Cycles `closure_layering_weight`/OpenPBR coupling added to
+**Status:** implemented, PR #513 pending merge (2026-07-23) — diffuse-under-
+specular Cycles `closure_layering_weight`/OpenPBR coupling added to
 `plugins/materials/disney.cpp::eval()`; full 90-config x 3-angle energy grid
 1.2048 -> 1.004 (N=65536); pkg143/clearcoat fork resolved by measurement
 (kept the original pkg60 clearcoat mechanism, unchanged — the "preferred"
 table_ggx_E route regressed on the Dr/Gr fixed-alpha mismatch); quarantine
 in `test_disney_energy_conservation.py` retired. GPU parity N/A (`gpu_disney_
-eval` carries no CPU compensation twin at all, pre-existing). See PR for the
-head SHA and full before/after numbers; HW visual gate still pending.
+eval` carries no CPU compensation twin at all, pre-existing). Head SHA
+d4eecbe04a348a7107aac5a7e519ff3ae5fe2085; HW visual gate still pending.
 **Estimated effort:** M–L (localized code, but a real calibration loop: regenerate tables + retune/remove ad-hoc terms + full grid green on GCC **and** MSVC + furnace + chi² unchanged)
 **Supersedes:** **pkg143** (clearcoat-only refit, PR #508). The pkg89/#498 Round-4 sweep at `5e2080c` proved the clearcoat failure is a **subset** of a whole-specular-lobe problem: with the true D in `eval()`, the deflated-D-fitted compensation over-conserves across grazing and low-roughness rows, not just the one clearcoat config. pkg143's clearcoat contract is fully absorbed below. Close PR #508 as superseded.
 

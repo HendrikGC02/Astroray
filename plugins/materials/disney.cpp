@@ -217,6 +217,45 @@ class DisneyPlugin : public Material {
         return vndfPdf(rec.normal, wo, wm) / (4.0f * HdotO);
     }
 
+    // pkg138: rough dielectric reflection BRDF (PBRT-v4 DielectricBxDF::f
+    // reflection branch, BSD-3-Clause; Walter, Marschner, Li, Torrance 2007
+    // "Microfacet Models for Refraction through Rough Surfaces" (EGSR) §5.1
+    // Eq. 20):
+    //   f_r(wo,wi) = D(wm)*G(wo,wi)*F_dielectric(wo.wm,eta) / (4*cosThetaO*cosThetaI)
+    // Mirrors roughTransmissionEval's structure and reuses D_GTR2, the TRUE
+    // Smith G1 (smithG1_GGX -- Eq.20's explicit 1/(4 cosO cosI) needs
+    // G(wo,wi)=G1(wo)*G1(wi), not the combined-visibility form baked into the
+    // opaque Schlick `spec` lobe in eval() below) and fresnelDielectric.
+    // Untinted (no baseColor/Cspec0 tint): a dielectric surface reflection is
+    // the bare Fresnel reflectance, matching pbrt-v4's plain DielectricBxDF
+    // (no separate reflectance albedo/spectrum). This is the pkg138 fix: the
+    // Schlick-F0/Cspec0 collapsed reflection color previously made eval()'s
+    // reflection lobe near-zero for a transmissive (glass) material, causing
+    // sample()'s VNDF reflection candidate to be rejected in favor of a
+    // smooth-mirror delta while pdf() kept reporting a continuous VNDF
+    // density for the same directions (chi²=143M at glass[0.3-45]).
+    Vec3 roughReflectionEval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        float cosO = rec.normal.dot(wo);
+        float cosI = rec.normal.dot(wi);
+        if (cosO <= 0.0f || cosI <= 0.0f) return Vec3(0);
+
+        Vec3 wm = (wo + wi).normalized();
+        if (wm.length2() <= 1e-10f) return Vec3(0);
+        if (wm.dot(rec.normal) < 0.0f) wm = -wm;
+
+        float HdotO = wo.dot(wm);
+        if (HdotO <= 1e-10f) return Vec3(0);
+
+        float alpha = std::max(roughness_ * roughness_, 0.0064f);
+        float NdotH = wm.dot(rec.normal);
+        float D = D_GTR2(NdotH, alpha);
+        float G = smithG1_GGX(cosO, alpha) * smithG1_GGX(cosI, alpha);
+        float F = fresnelDielectric(HdotO, 1.0f, ior_);
+
+        float fr = D * G * F / (4.0f * cosO * cosI + 1e-8f);
+        return Vec3(fr);
+    }
+
     // PBRT-v4 DielectricBxDF::f transmission (BSD-3-Clause).
     // Walter 2007 "Microfacet Models for Refraction through Rough Surfaces" Eq. 21.
     Vec3 roughTransmissionEval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
@@ -423,6 +462,25 @@ public:
         float Gs = smithG_GGX(NdotL, a) * smithG_GGX(NdotV, a);
         Vec3 spec = Ds * F * Gs;
 
+        // pkg138: blend in the rough dielectric reflection lobe. sample()'s
+        // dielectric branch (roughness_ > kDeltaTransmissionRoughness) picks
+        // this reflection direction with probability transmission_ (VNDF +
+        // Fresnel-roulette reflect), and the complementary opaque plain-NDF
+        // branch below with probability (1-transmission_) -- pdf() already
+        // mixes its density by these exact weights (mixScale below,
+        // transmission_*F*microfacetReflectionPdf). eval() must report the
+        // same mixture, or the VNDF reflection candidate in sample() is
+        // vetoed by the collapsed Cspec0 Schlick term instead of matching
+        // pdf()'s continuous VNDF density. The (1-metallic_) factor mirrors
+        // roughTransmissionEval's own scale (metallic materials don't
+        // transmit). Smooth glass (roughness_<=kDeltaTransmissionRoughness)
+        // is unaffected -- boundary preserved per spec.
+        if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
+            float dielectricWeight = (1.0f - metallic_) * transmission_;
+            spec = spec * (1.0f - dielectricWeight) +
+                   dielectricWeight * roughReflectionEval(rec, wo, wi);
+        }
+
         Vec3 Csheen = Vec3(1) * (1 - sheenTint_) + Ctint * sheenTint_;
         Vec3 Fsheen = sheen_ * Csheen * std::pow(1 - LdotH, 5) * 0.5f;
         Vec3 lowerLayerWeight(1.0f);
@@ -589,6 +647,19 @@ public:
                 // Extremely grazing sampled microfacets can fail both reflection
                 // and refraction. Fall through to the smooth event instead of
                 // treating that as absorption.
+                //
+                // pkg138 investigation note: a PBRT-v4-faithful "return a dead
+                // (pdf=0) sample instead of this delta fallback" was tried and
+                // MEASURED to regress energy conservation severely (white-furnace
+                // collapsed from ~0.9-1.0 to ~0.0 at roughness in {0.1,0.3,0.6}
+                // both CPU and GPU) -- the masked-VNDF-reflection dead-sample rate
+                // measured here (100% at moderate roughness/incidence, not a rare
+                // tail -- see the pkg138 research note) is NOT balanced by a
+                // corresponding discount in this file's pdf()/microfacetReflectionPdf
+                // (a full Smith joint-masking term or Turquin-style multiscatter
+                // compensation would be needed first). Reverted; kept as the
+                // pre-existing (if imperfect) energy-conserving behavior. See
+                // .astroray_plan/docs/pkg138-disney-dielectric-rough-reflection-research.md.
             }
 
             if (cannotRefract || dist(gen) < fresnel) {

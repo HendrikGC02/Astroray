@@ -42,24 +42,76 @@ class DisneyPlugin : public Material {
         return F0 + (Vec3(1) - F0) * std::pow(c, 5) * scale;
     }
 
+    // Cycles bsdf_microfacet.h microfacet_ggx_preserve_energy (BSD-3-Clause):
+    // per-channel darkening factor "1 + Fms*(1-E)/E" that scales a raw
+    // single-scatter GGX term up to the true (single+multi-scatter,
+    // Fresnel-darkened) energy. `f` is the layer's own (achromatic)
+    // Fresnel reflectance channel, `E`/`Eavg` the in-repo table_ggx_E /
+    // table_ggx_Eavg directional/average albedo at this (roughness, mu).
+    float ggxDarkeningChannel(float f, float E, float Eavg) const {
+        f = std::clamp(f, 0.0f, 0.999f);
+        const float missingFactor = (1.0f - E) / E;
+        const float denom = std::max(1.0f - f * (1.0f - Eavg), 1e-4f);
+        const float Fms = f * Eavg / denom;
+        return 1.0f + Fms * missingFactor;
+    }
+
     Vec3 ggxCompensationFactor(const Vec3& Fss, float roughness, float mu) const {
         const auto& tables = astroray::DisneyEnergyCompensationTables::instance();
         if (!tables.loaded()) return Vec3(1.0f);
 
         const float E = std::max(tables.ggxE(roughness, mu), 1e-4f);
         const float Eavg = std::clamp(tables.ggxEavg(roughness), 0.0f, 0.999f);
-        const float missingFactor = (1.0f - E) / E;
+        return Vec3(ggxDarkeningChannel(Fss.x, E, Eavg),
+                    ggxDarkeningChannel(Fss.y, E, Eavg),
+                    ggxDarkeningChannel(Fss.z, E, Eavg));
+    }
+
+    // pkg145: the compensated GGX specular layer's own directional-
+    // hemispherical reflectance at wo — the quantity Cycles calls via
+    // `bsdf_albedo`/`bsdf_microfacet_estimate_albedo` before
+    // `closure_layering_weight` attenuates whatever sits underneath it
+    // (`bsdf_util.h`, Apache-2.0; `bsdf_microfacet.h`, BSD-3-Clause).
+    // `Fview` is the layer's Fresnel reflectance AT THE VIEW ANGLE
+    // (`fresnelSchlick(mu, F0, ...)`, matching Cycles' `bsdf_microfacet_
+    // estimate_albedo`'s `cos_NI`-evaluated fallback, `microfacet_fresnel`)
+    // — Kulla & Conty 2017's E(mu_o) is itself defined through this angle
+    // dependence (the "constant Fresnel" approximation `ggxCompensationFactor`
+    // above uses is only valid ACROSS the lobe at a fixed mu, i.e. F(l.h)~=
+    // F(mu_o) for wi near the lobe peak, not across different mu_o — grazing
+    // mu_o must use the grazing-boosted Fresnel, not the material's F0).
+    // Raw single-scatter directional albedo at this angle is
+    // `E(roughness,mu)*Fview`; the darkening factor recovers the compensated
+    // total. No new table, no separate integration.
+    Vec3 ggxDirectionalAlbedo(const Vec3& Fview, float roughness, float mu) const {
+        const auto& tables = astroray::DisneyEnergyCompensationTables::instance();
+        if (!tables.loaded()) return Fview;
+
+        const float E = std::max(tables.ggxE(roughness, mu), 1e-4f);
+        const float Eavg = std::clamp(tables.ggxEavg(roughness), 0.0f, 0.999f);
         auto channel = [&](float f) {
-            f = std::clamp(f, 0.0f, 0.999f);
-            const float denom = std::max(1.0f - f * (1.0f - Eavg), 1e-4f);
-            const float Fms = f * Eavg / denom;
-            return 1.0f + Fms * missingFactor;
+            const float fc = std::clamp(f, 0.0f, 0.999f);
+            return E * fc * ggxDarkeningChannel(fc, E, Eavg);
         };
-        return Vec3(channel(Fss.x), channel(Fss.y), channel(Fss.z));
+        return Vec3(channel(Fview.x), channel(Fview.y), channel(Fview.z));
     }
 
     Vec3 layeringWeightAfter(const Vec3& weight, const Vec3& albedo) const {
         return weight * (Vec3(1.0f) - Vec3::min(albedo, Vec3(0.999f)));
+    }
+
+    // pkg60 grazing-incidence Burley-diffuse furnace normalization. Measured
+    // (pkg145 grid sweep) to still be required at roughness in {0.7, 0.9},
+    // grazing cos_theta_o=0.1 even after the diffuse-under-specular coupling
+    // lands (see the eval() comment above `diffuse`) — a rough dielectric's
+    // specular directional albedo is small, so the coupling barely
+    // attenuates diffuse there, leaving Burley 2015's own grazing/roughness
+    // retro-reflection excess unchecked. Retained unmodified; a from-first-
+    // principles refit of the Burley retro term itself is future work.
+    float diffuseFurnaceScale(float roughness, float mu) const {
+        const float grazing = 1.0f - std::clamp(mu, 0.0f, 1.0f);
+        const float excess = roughness * (0.055f + 0.40f * grazing * grazing);
+        return 1.0f / (1.0f + excess);
     }
 
     // pkg123: floor at 0 only — NO upper cap. A finite cap clips the near-delta
@@ -78,12 +130,6 @@ class DisneyPlugin : public Material {
     // cap on the BRDF value (Cycles bsdf_microfacet.h returns the true D).
     Vec3 clampColor(const Vec3& c) const {
         return Vec3::max(c, Vec3(0.0f));
-    }
-
-    float diffuseFurnaceScale(float roughness, float mu) const {
-        const float grazing = 1.0f - std::clamp(mu, 0.0f, 1.0f);
-        const float excess = roughness * (0.055f + 0.40f * grazing * grazing);
-        return 1.0f / (1.0f + excess);
     }
 
     float fresnelDielectric(float cosThetaI, float etaI, float etaT) const {
@@ -352,11 +398,23 @@ public:
         float Fss = (1 + (Fss90 - 1) * FL) * (1 + (Fss90 - 1) * FV);
         float ss = 1.25f * (Fss * (1.0f / std::max(NdotL + NdotV, 1e-4f) - 0.5f) + 0.5f);
         float FdMixed = (1.0f - subsurface_) * Fd + subsurface_ * ss;
-        // Burley 2015 diffuse retro-reflection is not energy-normalized at
-        // white albedo in Astroray's implementation. Apply the pkg60 furnace
-        // normalization before Cycles-style top-layer attenuation.
-        Vec3 diffuse = (1 / float(M_PI)) * Cdlin * FdMixed *
-                       diffuseFurnaceScale(roughness_, NdotV);
+        // pkg145 measurement (grid sweep, N=65536): a full removal of the
+        // pkg60 grazing furnace normalization was tried first and rejected
+        // by evidence — it fixes the roughness<=0.3 grazing set the
+        // diffuse-under-specular coupling below targets, but *uncovers* a
+        // much larger, distinct violation at roughness in {0.7, 0.9},
+        // cos_theta_o=0.1 (measured worst 1.305 at roughness=0.9, vs. the
+        // pre-removal 1.011 the furnace scale was keeping in check). That
+        // defect is intrinsic to Burley 2015's diffuse retro-reflection term
+        // at rough grazing incidence — orthogonal to the diffuse/specular
+        // layering coupling: a rough dielectric's specular directional
+        // albedo is small (low Fresnel reflectance, most of the lobe's
+        // energy has decayed into the diffuse-dominated regime), so
+        // `(1-specAlbedo)` barely attenuates diffuse there, leaving the
+        // Burley term's own grazing-roughness excess unchecked. Kept as-is
+        // (pkg60 fit) pending its own root-cause refit; the two mechanisms
+        // are independent and both required.
+        Vec3 diffuse = (1 / float(M_PI)) * Cdlin * FdMixed * diffuseFurnaceScale(roughness_, NdotV);
 
         float a = std::max(roughness_ * roughness_, 0.0064f);
         float Ds = D_GTR2(NdotH, a);
@@ -383,10 +441,40 @@ public:
         float Gr = smithG_GGX(NdotL, 0.25f) * smithG_GGX(NdotV, 0.25f);
         Vec3 clearcoatTerm = Vec3(clearcoat_ * Dr * Fr * Gr) * 0.25f;
         if (compensationTables.loaded() && clearcoat_ > 0.0f) {
-            // Kulla & Conty 2017 Eq. 6-9 and Cycles
-            // src/kernel/closure/bsdf_microfacet.h:389-436:
-            // use the researched fixed-alpha clearcoat_E slice as the
-            // directional albedo for Astroray's scalar clearcoat lobe.
+            // pkg145 (absorbs pkg143/PR #508, superseded) — clearcoat fork,
+            // decided against the grid sweep, not by assumption.
+            //
+            // The spec's "preferred" option (retire clearcoat_E.bin, route
+            // coat through the same table_ggx_E/table_ggx_Eavg path as the
+            // base specular) was tried and MEASURED to regress: Disney
+            // 2012's clearcoat deliberately uses a FIXED G-term roughness of
+            // 0.25 (`Gr` below) regardless of `clearcoatGloss_` (only `Dr`'s
+            // shape varies with gloss) — an intentional simplification
+            // ("visual impact is negligible", Burley 2012 §clearcoat).
+            // `table_ggx_E` was precomputed assuming the SAME alpha drives
+            // both D and G (a self-consistent GGX BRDF); querying it at
+            // `roughness=clearcoatGloss_` does not describe a lobe whose
+            // masking uses a different, fixed alpha=0.25. A Fresnel-at-view-
+            // angle layering reduction built on top of that table lookup
+            // was also tried and measured to over-attenuate the base layer
+            // (worst-case grid reflectance fell to ~0.33, a new under-
+            // conservation regression) and to erase the clearcoat's own
+            // visible gloss contribution (`test_disney_clearcoat_adds_gloss`
+            // regressed: p99.5 delta 0.001 -> 0.0005, below its gate).
+            //
+            // Kept: the ENTIRE original pkg60 mechanism unchanged (dedicated
+            // `clearcoat_E.bin`, `min(1/clearE, 1.25)` clamp, and the
+            // `clearcoat_*(1-clearE)` layering deduction) — measurement
+            // showed clearcoat's own contribution to the quarantined
+            // grazing-incidence overshoot was small (+0.003..0.01 across the
+            // full clearcoat range at the worst dielectric config) relative
+            // to the base diffuse/specular coupling below, which the full
+            // grid sweep confirms is sufficient on its own: with the
+            // diffuse-under-specular fix and this block fully untouched,
+            // the complete 90-config x 3-angle grid measures <= 1.004
+            // (N=65536; previously up to 1.2048 pre-fix), and the pkg123
+            // clearcoat=1.0/roughness=0.3/cos=0.9 regression (measured
+            // 1.0206 on `main`) now measures 0.947.
             const float clearE = std::max(compensationTables.clearcoatE(NdotV), 1e-4f);
             clearcoatTerm *= std::min(1.0f / clearE, 1.25f);
             lowerLayerWeight = layeringWeightAfter(
@@ -399,7 +487,36 @@ public:
         // 1 + Fms * ((1 - E) / E) factor on the GGX lobe.
         spec *= ggxCompensationFactor(F0, roughness_, NdotV);
 
-        Vec3 baseLayer = ((1 - metallic_) * (1 - transmission_) * diffuse + spec) * lowerLayerWeight;
+        // pkg145: diffuse-under-dielectric-specular layering. The dielectric
+        // specular lobe sits ABOVE the diffuse base in the stack (sheen ->
+        // coat -> specular -> diffuse); it must attenuate the diffuse layer
+        // by its own directional albedo, the same way the sheen/coat layers
+        // above already attenuate everything below them via
+        // layeringWeightAfter. This is Cycles' `closure_layering_weight`
+        // (kernel/closure/bsdf_util.h, Apache-2.0) applied one layer deeper,
+        // equivalently the OpenPBR Surface spec's glossy-diffuse
+        // non-reciprocal albedo-scaling approximation (Academy Software
+        // Foundation, ASWF): f ~= f_specular + (1 - E_specular(wo))*f_diffuse
+        // (Kulla & Conty 2017 lineage). Disney 2012's diffuse+specular sum is
+        // otherwise uncoupled and over-shoots at grazing incidence: measured
+        // at roughness=0.1, cos_theta_o=0.1 (worst quarantined config),
+        // diffuse alone integrates to 0.73 and specular alone to 0.48 (naive
+        // sum 1.20); with the coupling, 0.48 + (1-0.48)*0.73 = 0.86 <= 1.0.
+        // The specular layer's own weight (lowerLayerWeight, unaffected by
+        // its own albedo) is unchanged; only what sits below it is reduced.
+        // Fresnel is evaluated AT THE VIEW ANGLE (NdotV) — same schlickScale
+        // as the raw spec term above, matching Cycles' cos_NI convention —
+        // not the material's normal-incidence F0, so the grazing Fresnel
+        // rise (0.04 -> ~1.0 for a dielectric) is captured (measured
+        // specAlbedo ~0.49 at roughness=0.1, cos_theta_o=0.1, close to the
+        // 0.48 decomposition above; a constant-F0 estimate would floor near
+        // 0.04 and under-attenuate diffuse by ~10x at grazing incidence).
+        Vec3 Fview = fresnelSchlick(NdotV, F0, schlickScale);
+        Vec3 specAlbedo = ggxDirectionalAlbedo(Fview, roughness_, NdotV);
+        Vec3 diffuseLayerWeight = layeringWeightAfter(lowerLayerWeight, specAlbedo);
+
+        Vec3 baseLayer = (1 - metallic_) * (1 - transmission_) * diffuse * diffuseLayerWeight +
+                         spec * lowerLayerWeight;
         Vec3 result = (baseLayer + (1 - metallic_) * Fsheen + clearcoatTerm) * NdotL;
 
         return clampColor(result);

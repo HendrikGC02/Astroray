@@ -933,7 +933,6 @@ def test_adaptive_sampling_flag():
     assert_valid_image(px_fixed, H, W, min_mean=0.02, label='fixed')
 
 
-@pytest.mark.xfail(reason="direct/indirect clamp not ported to the spectral path_tracer — deferred", strict=False)
 def test_direct_and_indirect_clamp_controls():
     """Direct/indirect clamp settings should reduce bright outliers when enabled."""
     def luminance_map(pixels: np.ndarray) -> np.ndarray:

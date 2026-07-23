@@ -585,6 +585,39 @@ __device__ inline float gpu_disney_microfacetReflectionPdf(
     return gpu_disney_vndfPdf(mat, rec.normal, wo, wm) / (4.f * HdotO);
 }
 
+// pkg138: rough dielectric reflection BRDF (PBRT-v4 DielectricBxDF::f
+// reflection branch, BSD-3-Clause; Walter et al. 2007 EGSR "Microfacet
+// Models for Refraction through Rough Surfaces" §5.1 Eq. 20). CPU twin:
+// plugins/materials/disney.cpp::roughReflectionEval -- see that comment for
+// the full rationale (Cspec0-collapsed reflection lobe vs pdf()'s continuous
+// VNDF term, chi²=143M at glass[0.3-45]). This closure is reached via the
+// GCLOSURE_DIELECTRIC_TRANSMISSION -> GMAT_DISNEY lowering in
+// gpu_closure_as_material (roughness > 0.03f), so the GPU has its own copy
+// of the same bug and needs its own copy of the fix.
+__device__ inline GVec3 gpu_disney_roughReflectionEval(
+    const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
+{
+    float cosO = rec.normal.dot(wo);
+    float cosI = rec.normal.dot(wi);
+    if (cosO <= 0.f || cosI <= 0.f) return GVec3(0.f);
+
+    GVec3 wm = (wo + wi).normalized();
+    if (wm.length2() <= 1e-10f) return GVec3(0.f);
+    if (wm.dot(rec.normal) < 0.f) wm = -wm;
+
+    float HdotO = wo.dot(wm);
+    if (HdotO <= 1e-10f) return GVec3(0.f);
+
+    float a = fmaxf(mat.roughness*mat.roughness, 0.0064f);
+    float NdotH = wm.dot(rec.normal);
+    float D = gpu_D_GTR2(NdotH, a);
+    float G = gpu_smithG1_GGX(cosO, a) * gpu_smithG1_GGX(cosI, a);
+    float F = gpu_disney_fresnelDielectric(HdotO, 1.f, mat.ior);
+
+    float fr = D * G * F / (4.f * cosO * cosI + 1e-8f);
+    return GVec3(fr);
+}
+
 // PBRT-v4 DielectricBxDF::f transmission (BSD-3-Clause).
 // Walter 2007 "Microfacet Models for Refraction through Rough Surfaces" Eq. 21.
 __device__ inline GVec3 gpu_disney_roughTransmissionEval(
@@ -721,6 +754,20 @@ __device__ inline GVec3 gpu_disney_eval(
     float Gs = gpu_smithG_GGX(NdotL, a) * gpu_smithG_GGX(NdotV, a);
     GVec3 spec = Ds * F * Gs / (4.f * NdotL * NdotV + 0.001f);
 
+    // pkg138: blend in the rough dielectric reflection lobe -- mirrors CPU
+    // disney.cpp eval() (see the pkg138 comment there for the mixture-
+    // probability rationale: sample()'s dielectric branch picks this
+    // reflection direction with probability mat.transmission, matching
+    // gpu_disney_pdf's mat.transmission*F*gpu_disney_microfacetReflectionPdf
+    // term). Gated by the same mat.roughness > 0.03f threshold as
+    // gpu_disney_sample's/gpu_disney_pdf's VNDF reflection branch; smooth
+    // glass is unaffected.
+    if (mat.transmission > 0.f && mat.roughness > 0.03f) {
+        float dielectricWeight = (1.f - mat.metallic) * mat.transmission;
+        spec = spec * (1.f - dielectricWeight) +
+               dielectricWeight * gpu_disney_roughReflectionEval(mat, rec, wo, wi);
+    }
+
     // Sheen (reduced by 0.5)
     GVec3 Csheen = GVec3(1.f)*(1.f-mat.sheenTint) + Ctint*mat.sheenTint;
     GVec3 Fsheen = mat.sheen * Csheen * powf(1.f - LdotH, 5.f) * 0.5f;
@@ -813,6 +860,12 @@ __device__ inline GBSDFSample gpu_disney_sample(
                 rec.isDelta = false;
                 return s;
             }
+            // pkg138 investigation note: a PBRT-v4-faithful "return a dead
+            // (pdf=0) sample instead of falling through to the smooth delta
+            // below" was tried and MEASURED to regress energy conservation
+            // severely (white-furnace collapsed to ~0.0). CPU twin: plugins/
+            // materials/disney.cpp::sample -- see that comment for the full
+            // rationale. Reverted; kept as the pre-existing behavior.
         }
 
         if (cannotRef || gpu_rng_uniform(rng) < fresnel) {

@@ -16,6 +16,26 @@
 > **Merge conditions:** (i) HW non-regression PASS; (ii) the chi² xfail reason strings in the test name pkg149/pkg150; (iii) the research note (`pkg138-disney-dielectric-rough-reflection-research.md`) and the spec lessons land with the PR.
 
 *(Pre-#517 status for the record: open — dispatchable, UNBLOCKED 2026-07-23 after pkg123/#498 merged as `587b554`; serialized behind pkg145.)*
+
+*(Implementer's own PARTIAL-status write-up, 2026-07-23, superseded by the
+architect adjudication above but kept for detail: the spec's diagnosed
+defect — Cspec0 collapse in `eval()`'s dielectric reflection lobe — is fixed
+and verified (rough dielectric reflection lobe, Walter 2007 EGSR §5.1 Eq. 20
+/ pbrt-v4 `DielectricBxDF::f`, mirrored CPU + GPU). The acceptance gate
+[`test_chi2_disney_glass[0.3-45]`] is still xfail — chi²=143,140,779,
+bit-identical before/after this fix, because the config is dominated by two
+FURTHER, newly-measured defects out of this spec's stated scope: (2) at this
+specific (roughness, theta), `sample()`'s VNDF reflection candidate is masked
+(same-hemisphere check fails) 100% of the time regardless of the eval() fix —
+a PBRT-v4-faithful "dead sample" correction was tried and reverted after it
+regressed white-furnace energy conservation to ~0.0; (3) the rough
+TRANSMISSION lobe (`roughTransmissionEval`/`Pdf`, this spec's explicit
+Non-goal) has its own ~16-18° sample/pdf peak-location mismatch, independently
+measured, and dominates this test's chi² given transmission carries ~92-96%
+of the sampled weight. Full measurements: `.astroray_plan/docs/pkg138-disney-
+dielectric-rough-reflection-research.md`. Follow-up specs filed: **pkg149**
+(transmission sample/pdf re-derivation, owns the un-xfail) and **pkg150**
+(VNDF hemisphere masking).)*
 **Estimated effort:** M (the eval change is localized, but it changes measured glass energy shape: chi² re-pass + rough-glass furnace + CPU/GPU parity all must be re-validated together)
 **Depends on:** **pkg123 (PR #498)** — land order: pkg123 → pkg138. **Coordinate with pkg124** (VNDF for the OPAQUE reflection lobe): disjoint lobes, but both edit `disney.cpp` sample/pdf regions — sequence the merges or rebase carefully; do not let either reopen the other's chi² gates.
 
@@ -103,24 +123,41 @@ candidate exists but is being vetoed by the collapsed reflection color.
 
 ## Acceptance criteria
 
-- [ ] Dielectric reflection lobe is rough in `eval()` (Walter Eq. 20 with
-      dielectric Fresnel); the `sample()` VNDF reflection candidate at
-      `disney.cpp:455` (post-#498 anchor) is accepted in the rough regime; the
-      smooth delta remains only for TIR / below the delta-roughness threshold.
-- [ ] **Un-xfail `test_chi2_disney_glass[0.3-45]`** and the full slow-grid glass
-      rows; they pass (the χ²=143M mismatch and the constant 0.060 density ratio
-      are gone).
-- [ ] **Rough-glass furnace stays green** — the eval change alters measured
-      energy shape, so re-run the white-furnace / rough-glass energy gates
-      (watch the eta²/albedo-LUT class of bug; memory:
-      `rough-glass-residual-is-multiscatter`).
-- [ ] **CPU/GPU parity** — the GPU dielectric shades via the closure graph
-      (memory: `gpu-dielectric-lowers-to-closure-graph`); verify the GPU leg
-      agrees with the fixed CPU eval (wavefront-diff / GPU parity gates at the
-      1e-5 Monte-Carlo convention) and mirror the eval change if the GPU has its
-      own copy of the collapsed-Cspec0 reflection.
-- [ ] Line anchors re-verified against merged main (all anchors above are
-      against `origin/pkg123-disney-chi2`).
+- [x] Dielectric reflection lobe is rough in `eval()` (Walter Eq. 20 with
+      dielectric Fresnel) — `roughReflectionEval`/`gpu_disney_roughReflectionEval`,
+      blended into `spec` by the same `(1-transmission_)`/`transmission_`
+      mixture weights `pdf()` already uses. Verified directly: `eval()` now
+      returns physically correct nonzero values (matching `pdf()` to <0.3%)
+      at plausible reflection directions, instead of the Cspec0-collapsed
+      near-zero. **NOT achieved:** "the `sample()` VNDF reflection candidate
+      ... is accepted in the rough regime" — at `glass[0.3-45]` specifically,
+      the candidate is STILL rejected 100% of the time, but now by the
+      same-hemisphere masking check (root cause #2), not by `eval()`
+      collapsing to zero. See research note.
+- [ ] **Un-xfail `test_chi2_disney_glass[0.3-45]`** — **NOT ACHIEVED**. chi²
+      is bit-identical (143,140,779) before/after this fix; re-xfailed with
+      an updated reason documenting root causes #2 and #3 (both newly
+      measured, both outside this spec's stated scope). "The full slow-grid
+      glass rows" — no such parametrized row set exists in
+      `test_chi2_bsdf.py` today (only the single `[0.3-45]` config); not
+      added (would be scope creation beyond what was asked).
+- [x] **Rough-glass furnace stays green** — verified unchanged (CPU/GPU both
+      pass `test_disney_rough_glass_furnace_energy_{cpu,gpu}`,
+      `test_dielectric_glass_furnace_{cpu,gpu}`, `test_disney_energy_conservation.py`).
+      A candidate companion fix for root cause #2 (return a dead sample
+      instead of the smooth-delta fallback, matching pbrt-v4's own
+      convention) was tried and REVERTED after it collapsed furnace values
+      to ~0.0 — see research note.
+- [x] **CPU/GPU parity** — the GPU dielectric-transmission closure
+      (roughness>0.03) lowers to `GMAT_DISNEY` via `gpu_closure_as_material`
+      (confirmed by reading `scene_upload.cu`/`gpu_materials.h`), so it does
+      have its own copy of the collapsed-Cspec0 bug; mirrored the identical
+      fix (`gpu_disney_roughReflectionEval`, same blend in `gpu_disney_eval`).
+      GPU furnace/energy-conservation tests pass unchanged (see above). Full
+      GPU hardware chi²/render sweep is the orchestrator's dedicated
+      verifier's job (HW gate pending, not run here per dispatch instructions).
+- [x] Line anchors re-verified against merged `main` (HEAD `1af7eca`, includes
+      pkg123 `587b554` and pkg145 `531f512`).
 - [ ] Research/citation note in `.astroray_plan/docs/` (pbrt-v4 file+function,
       Walter Eq. 20, before/after chi² numbers), citations in the code at the
       change site.
@@ -172,16 +209,52 @@ adjudication, recorded here verbatim as the implementation contract.
 
 ## Progress
 
-- [ ] Rough dielectric reflection lobe in `eval()` (pbrt-v4 mirror; reuse
-      in-tree D/G/Fresnel helpers).
-- [ ] `sample()` VNDF reflection candidate accepted in the rough regime;
-      delta fallback boundary preserved (TIR / delta-roughness only).
-- [ ] chi² glass rows un-xfailed + green; rough-glass furnace green;
-      CPU/GPU parity green.
-- [ ] Citation note + code citations.
+- [x] Rough dielectric reflection lobe in `eval()` (pbrt-v4 mirror; reuse
+      in-tree D/G/Fresnel helpers). Shipped, verified, CPU+GPU.
+- [ ] `sample()` VNDF reflection candidate accepted in the rough regime —
+      NOT achieved at `glass[0.3-45]` (masked 100% of the time by a
+      same-hemisphere check, independent of the eval() fix; see root cause
+      #2 in the research note). Delta fallback boundary UNCHANGED (kept as
+      the pre-existing behavior after a PBRT-faithful alternative regressed
+      furnace energy to ~0.0).
+- [ ] chi² glass rows un-xfailed + green — NOT achieved (bit-identical
+      chi²=143,140,779 before/after); rough-glass furnace green (achieved,
+      unchanged); CPU/GPU parity green (achieved for the shipped fix; full
+      HW sweep is the orchestrator's job).
+- [x] Citation note + code citations
+      (`.astroray_plan/docs/pkg138-disney-dielectric-rough-reflection-research.md`,
+      inline comments in `disney.cpp`/`gpu_materials.h`).
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+1. **A xfail's diagnosed root cause can be real but non-dominant.** The
+   pkg123 review's diagnosis (Cspec0 collapse rejecting the VNDF candidate)
+   was correct and the fix is real — but at the exact acceptance-criterion
+   config (`glass[0.3-45]`), a *different* rejection mechanism (same-
+   hemisphere masking, selected-for by the Fresnel roulette) already vetoes
+   every candidate before `eval()`'s value ever matters. Fixing the diagnosed
+   cause moved the chi² statistic by exactly 0.00% at this config. Always
+   re-measure the SPECIFIC failing config after a "fix", not just the
+   general mechanism — a real, cited fix can still be inert for the config
+   the gate actually tests.
+2. **A pbrt-v4-faithful change is not automatically safe to port piecewise.**
+   `DielectricBxDF::Sample_f`'s "return no sample on SameHemisphere/Refract
+   failure" convention is correct *in pbrt*, where it's paired with pbrt's
+   own (presumably masking-aware) pdf and — per Kulla&Conty/Turquin-style
+   engines — often a multiscatter compensation layer. Porting just the
+   "discard" half without its energy-accounting half is not a partial win;
+   it's a silent, severe energy-conservation regression (measured: furnace
+   ~0.0). Any port of a masking-shadowing discard rule needs to also verify
+   the DOWNSTREAM density accounts for the discarded mass, not just check
+   chi² for the sampling side.
+3. **The transmission lobe was never checked for POSITIONAL sample/pdf
+   agreement**, only magnitude/energy (furnace tests). A ~16-18° peak-
+   location mismatch between `roughTransmissionPdf`'s analytic peak and
+   `sample()`'s actual VNDF-then-refract output survived every prior
+   furnace/energy pass because the *total* integrated energy can still look
+   conserved even when the *shape* is wrong — chi² is the only gate that
+   catches this, and nobody had run a full-sphere (not hemisphere-only) chi²
+   sweep against the transmission lobe specifically until this
+   investigation.

@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / integrator correctness)
 **Track:** A (integrator clamp restructuring against the Cycles reference + an energy-linearity gate; needs a build + evidence-first default tuning)
 **Codex-paste-ready:** no (an adjudicated integrator change that moves firefly control from an always-on top-level cap to a per-contribution bounce-split, with a default that must be tuned against the existing firefly/caustic tests — judgment at the gate)
-**Status:** done (PR #TBD, 2026-07-23 — clamp split wired CPU+GPU megakernels, both defaults 0/off per measured evidence, bright-sun linearity ratio ~0.9995 across 3 decades; secondary light-selection-importance deferred; 2 of 3 pkg144-adjacent xfails resolved, 2 Disney-highlight tests reassigned to pkg145's remit with measured evidence — see PR body)
+**Status:** done (PR #515, 2026-07-23 — clamp split wired CPU+GPU megakernels, both defaults 0/off per measured evidence, bright-sun linearity ratio ~0.9995 across 3 decades; secondary light-selection-importance deferred; 2 of 3 pkg144-adjacent xfails resolved, 2 Disney-highlight tests reassigned to pkg145's remit with measured evidence — see PR body)
 **Estimated effort:** M (primary clamp-split); secondary light-selection section is a separable S–M follow-up
 **Depends on:** none (pkg140 landed the delta-sun MIS/`power()` fixes in `060cfd0`; this is the pre-existing clamp that masks them)
 

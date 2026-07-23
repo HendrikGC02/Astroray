@@ -2157,6 +2157,32 @@ class Renderer {
         return c;
     }
 
+    // pkg144 — Cycles-style per-contribution firefly clamp, selected by bounce
+    // depth. Ports `film_clamp_light` (src/kernel/film/light_passes.h, Cycles,
+    // Apache-2.0):
+    //   const float limit = (bounce > 0) ? sample_clamp_indirect : sample_clamp_direct;
+    //   const float sum = reduce_add(fabs(*L));
+    //   if (sum > limit) *L *= limit / sum;
+    // Cycles compares against sum(|RGB|); Astroray's existing brightness metric
+    // (the pre-pkg144 always-on `sLum > 20` cap this replaces) is XYZ photometric
+    // luminance (Y), so this clamps on toXYZ(lambdas).Y instead — same bounce-
+    // indexed limit selection and 0-disables semantics, different (but
+    // already-established in this codebase) brightness metric. Applied to each
+    // contribution BEFORE it is summed into the path color, so direct (bounce==0,
+    // including delta-light NEE) and indirect (bounce>0) contributions are
+    // clamped independently rather than the old top-level clamp on the whole
+    // summed path.
+    astroray::SampledSpectrum clampContribSpectral(const astroray::SampledSpectrum& contrib,
+                                                    const astroray::SampledWavelengths& lambdas,
+                                                    int bounce) const {
+        float limit = (bounce > 0) ? clampIndirect : clampDirect;
+        if (limit <= 0.0f) return contrib;
+        astroray::XYZ xyz = contrib.toXYZ(lambdas);
+        float lum = xyz.Y;
+        if (lum > limit && lum > 0.0f) return contrib * (limit / lum);
+        return contrib;
+    }
+
     Vec3 worldTransmittance(float distance) const {
         if (!hasWorldVolume || worldVolumeDensity <= 0.0f || distance <= 0.0f) return Vec3(1.0f);
         float d = std::max(0.0f, distance);
@@ -2183,6 +2209,8 @@ public:
     void setTransparentGlass(bool use) { transparentGlass = use; }
     void setClampDirect(float value) { clampDirect = std::max(0.0f, value); }
     void setClampIndirect(float value) { clampIndirect = std::max(0.0f, value); }
+    float getClampDirect() const { return clampDirect; }
+    float getClampIndirect() const { return clampIndirect; }
     void setFilterGlossy(float value) { filterGlossy = std::max(0.0f, value); }
     void setUseReflectiveCaustics(bool use) { useReflectiveCaustics = use; }
     void setUseRefractiveCaustics(bool use) { useRefractiveCaustics = use; }
@@ -2427,7 +2455,7 @@ public:
                         Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
                         envSpec = astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
                     }
-                    color += throughput * envSpec;
+                    color += clampContribSpectral(throughput * envSpec, lambdas, bounce);
                 }
                 break;
             }
@@ -2440,7 +2468,7 @@ public:
                         grEmission[i] = finiteClamped(grResult.emission[i], 0.0f, 20.0f);
                     }
                     if (!grEmission.isZero()) {
-                        color += throughput * grEmission;
+                        color += clampContribSpectral(throughput * grEmission, lambdas, bounce);
                     }
                 }
                 if (grResult.captured) {
@@ -2471,7 +2499,7 @@ public:
                 rec.material->emittedSpectral(rec, lambdas);
             if (!Le_spec.isZero()) {
                 if (bounce == 0 || wasSpecular) {
-                    color += throughput * Le_spec;
+                    color += clampContribSpectral(throughput * Le_spec, lambdas, bounce);
                 }
                 break;
             }
@@ -2479,6 +2507,11 @@ public:
             Vec3 wo = -ray.direction.normalized();
 
             // Area-light NEE (MIS via power heuristic). Skipped on delta lobes.
+            // pkg144: NEE fires at the CURRENT vertex's bounce depth, so a
+            // bounce==0 NEE sample (first-hit direct lighting, including
+            // delta-light NEE) is clamped by clampDirect (default 0/off) — this
+            // is the fix for the delta-sun energy-linearity bug this package
+            // exists to close (never silently cap deterministic delta-light NEE).
             if (!rec.isDelta && !lights.empty()) {
                 LightSample ls;
                 lights.sample(ls, rec.point, rec.normal, lambdas, gen);
@@ -2505,7 +2538,9 @@ public:
                         // the finite-angle limit) to selPdf (O(1)) right at
                         // angle == 0, undercounting the delta sun's energy.
                         float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
-                        color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f));
+                        astroray::SampledSpectrum neeContrib =
+                            throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f));
+                        color += clampContribSpectral(neeContrib, lambdas, bounce);
                     }
                 }
             }
@@ -2522,7 +2557,7 @@ public:
                 astroray::SampledSpectrum smsContribution =
                     smsHook(rec, wo, throughput, lambdas, gen);
                 if (!smsContribution.isZero()) {
-                    color += throughput * smsContribution;
+                    color += clampContribSpectral(throughput * smsContribution, lambdas, bounce);
                 }
             }
 
@@ -2632,7 +2667,7 @@ public:
                         Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
                         envSpec = astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
                     }
-                    color += throughput * envSpec;
+                    color += clampContribSpectral(throughput * envSpec, lambdas, bounce);
                 }
                 break;
             }
@@ -2643,7 +2678,7 @@ public:
                     for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
                         grEmission[i] = finiteClamped(grResult.emission[i], 0.0f, 20.0f);
                     }
-                    color += throughput * grEmission;
+                    color += clampContribSpectral(throughput * grEmission, lambdas, bounce);
                 }
                 if (grResult.captured) break;
                 Vec3 exitDir = grResult.exitDirection;
@@ -2666,7 +2701,8 @@ public:
 
             astroray::SampledSpectrum Le_spec = rec.material->emittedSpectral(rec, lambdas);
             if (!Le_spec.isZero()) {
-                if (bounce == 0 || wasSpecular) color += throughput * Le_spec;
+                if (bounce == 0 || wasSpecular)
+                    color += clampContribSpectral(throughput * Le_spec, lambdas, bounce);
                 break;
             }
 
@@ -2692,7 +2728,9 @@ public:
                         // pkg140: see pathTraceSpectral's identical comment --
                         // delta-light NEE samples always get full MIS weight.
                         float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
-                        color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f));
+                        astroray::SampledSpectrum neeContrib =
+                            throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f));
+                        color += clampContribSpectral(neeContrib, lambdas, bounce);
                     }
                 }
             }
@@ -2753,9 +2791,13 @@ public:
                         astroray::SampledSpectrum Le = wrec.material->emittedSpectral(wrec, walkLambdas);
                         if (!Le.isZero()) {
                             astroray::SampledSpectrum contribution = walkThroughput * Le;
-                            color += contribution;
                             causticConnections += 1;
                             causticEnergy += contribution.maxValue();
+                            // pkg144: this specular-chain vertex is always at least
+                            // one bounce past the primary hit (only entered after a
+                            // delta BSDF sample), so it is always "indirect" for the
+                            // clamp split regardless of the outer `bounce` value.
+                            color += clampContribSpectral(contribution, walkLambdas, bounce + 1);
                             break;
                         }
 
@@ -2777,9 +2819,11 @@ public:
                                              std::max(dist2, 1e-4f);
                                 astroray::SampledSpectrum contribution =
                                     walkThroughput * f_spec * Li * (geom / (ls.pdf + 0.001f));
-                                color += contribution;
                                 causticConnections += 1;
                                 causticEnergy += contribution.maxValue();
+                                // pkg144: same indirect classification as the emissive
+                                // walk-vertex case above.
+                                color += clampContribSpectral(contribution, walkLambdas, bounce + 1);
                                 break;
                             }
                         }
@@ -3015,9 +3059,14 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 sPass = ir.passes;
                             }
                             sCol = finiteVecOrZero(sCol);
-                            // Per-sample firefly suppression: sCol is XYZ, Y is photometric luminance.
-                            float sLum = sCol.y;
-                            if (sLum > 20.0f) sCol = sCol * (20.0f / sLum);
+                            // pkg144: the always-on, direct+indirect-combined `sLum > 20`
+                            // top-level clamp that used to live here has been REMOVED. It
+                            // biased delta-light NEE (deterministic, zero-variance contributions
+                            // have no fireflies to suppress) and could not distinguish direct
+                            // from indirect contributions. Firefly control is now applied
+                            // per-contribution, by bounce depth, inside the integrator itself
+                            // (Renderer::clampContribSpectral, wired into pathTraceSpectral /
+                            // pathTraceSpectralCaustic) — see clampDirect/clampIndirect.
                             color += sCol;
                             for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
                                 passColor[passIndex] += sPass[passIndex];

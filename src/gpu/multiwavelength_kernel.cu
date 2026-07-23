@@ -116,6 +116,34 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
 }
 
 // ---------------------------------------------------------------------------
+// pkg144 — GPU twin (multiwavelength) of Renderer::clampContribSpectral.
+// Ports Cycles `film_clamp_light`'s bounce-indexed clamp selection
+// (src/kernel/film/light_passes.h, Apache-2.0; see path_trace_kernel.cu's
+// gpu_clampContrib for the full citation/rationale). The MW kernel's
+// brightness metric mirrors its own final per-sample conversion
+// (multiwavelengthKernel below, and the CPU MW integrator it mirrors): mean of
+// the spectral samples when useLuminanceOutput (non-visible bands carry no
+// CIE CMF signal, so XYZ.Y would be ~0 and never clamp), else XYZ.Y via
+// spectrumToXYZ.
+// ---------------------------------------------------------------------------
+__device__ inline GSampledSpectrum gpu_clampContribMW(
+        const GSampledSpectrum& contrib, const GSampledWavelengths& lambdas,
+        int bounce, float clampDirect, float clampIndirect, bool useLuminanceOutput) {
+    float limit = (bounce > 0) ? clampIndirect : clampDirect;
+    if (limit <= 0.f) return contrib;
+    float lum;
+    if (useLuminanceOutput) {
+        float avg = 0.f;
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) avg += contrib.v[i];
+        lum = avg / float(G_SPECTRUM_SAMPLES);
+    } else {
+        lum = spectrumToXYZ(contrib, lambdas).y;
+    }
+    if (lum > limit && lum > 0.f) return contrib * (limit / lum);
+    return contrib;
+}
+
+// ---------------------------------------------------------------------------
 // Spectral path trace — area-light NEE + MIS, mirroring the CPU
 // Renderer::pathTraceSpectral integrator (the CPU `path_tracer` selects this;
 // see plugins/integrators/spectral_path_tracer.cpp). The emissive-on-hit term
@@ -126,6 +154,7 @@ __device__ GSampledSpectrum sampleDirectSpectralMW(
 __device__ GSampledSpectrum tracePathMW(
     GRay ray, int maxDepth,
     int worldMaxBounces,  // pkg55-B' N+6 follow-up: env gate, raytracer.h:2412
+    float clampDirect, float clampIndirect,  // pkg144
     GSampledWavelengths& lambdas,
     bool useLuminanceOutput,
     bool enableNEE,
@@ -182,7 +211,8 @@ __device__ GSampledSpectrum tracePathMW(
                 envSpec = gpu_env_miss_spectral(
                     envMap, backgroundColor, hasBackgroundColor, dir, lambdas);
             }
-            color += throughput * envSpec;
+            color += gpu_clampContribMW(throughput * envSpec, lambdas, bounce,
+                                        clampDirect, clampIndirect, useLuminanceOutput);
             break;
         }
 
@@ -192,7 +222,8 @@ __device__ GSampledSpectrum tracePathMW(
         GSampledSpectrum Le = gpu_material_emitted_spectral(mat, rec.frontFace, lambdas);
         if (Le.maxValue() > 0.f) {
             if (bounce == 0 || wasSpecular)
-                color += throughput * Le;
+                color += gpu_clampContribMW(throughput * Le, lambdas, bounce,
+                                            clampDirect, clampIndirect, useLuminanceOutput);
             break;
         }
 
@@ -204,13 +235,15 @@ __device__ GSampledSpectrum tracePathMW(
         // MultiwavelengthPathTracer (gated by integrator name in
         // module/blender_module.cpp).
         if (enableNEE && !rec.isDelta && (numLights + numDed) > 0) {
-            color += throughput * sampleDirectSpectralMW(
+            GSampledSpectrum neeContrib = throughput * sampleDirectSpectralMW(
                 rec, wo, lambdas, tlas, instances, blas, bvhNodes, prims, tris, spheres, materials,
                 lights, numLights, totalLightPower,
                 dedLights, numDed,   // pkg89-GPU / GAP 1
                 lightTree,
                 ray.time, motionVerts,  // pkg88-C.0
                 rng);
+            color += gpu_clampContribMW(neeContrib, lambdas, bounce,
+                                        clampDirect, clampIndirect, useLuminanceOutput);
         }
 
         // pkg64-gpu Phase 2: SMS caustic attempt at non-delta vertices.
@@ -308,7 +341,8 @@ __device__ GSampledSpectrum tracePathMW(
                         // Additive MIS: write contribution to hero channel only (matches CPU hook).
                         GSampledSpectrum smsContrib(0.0f);
                         smsContrib.v[0] = sampleHero;
-                        color += throughput * smsContrib;
+                        color += gpu_clampContribMW(throughput * smsContrib, lambdas, bounce,
+                                                    clampDirect, clampIndirect, useLuminanceOutput);
                     }
                 }
             }
@@ -392,6 +426,7 @@ __global__ void multiwavelengthKernel(
     float* framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
     int worldMaxBounces,  // pkg55-B' N+6 follow-up: env gate, raytracer.h:2412
+    float clampDirect, float clampIndirect,  // pkg144
     float lambdaMin, float lambdaMax,
     bool  useLuminanceOutput,
     bool  enableNEE,
@@ -458,6 +493,7 @@ __global__ void multiwavelengthKernel(
 
         GSampledSpectrum rad = tracePathMW(
             ray, maxDepth, worldMaxBounces,
+            clampDirect, clampIndirect,  // pkg144
             lambdas, useLuminanceOutput, enableNEE, useCaustics,
             tlas, instances, blas,  // pkg114
             bvhNodes, prims, tris, spheres, materials,
@@ -511,12 +547,10 @@ __global__ void multiwavelengthKernel(
         sample.y = isfinite(sample.y) ? sample.y : 0.f;
         sample.z = isfinite(sample.z) ? sample.z : 0.f;
 
-        // Per-sample firefly clamp on XYZ.Y (photometric luminance, matches CPU
-        // raytracer.h:2550). For useLuminanceOutput the triplet is (L,L,L) so
-        // .y == L; same clamp applies.
-        float sLum = sample.y;
-        if (sLum > 20.f) sample *= (20.f / sLum);
-
+        // pkg144: the always-on, whole-path `sLum > 20` clamp that used to live
+        // here has been REMOVED — see gpu_clampContribMW / tracePathMW, which
+        // now clamps direct vs indirect contributions independently, per
+        // bounce, mirroring the CPU fix (include/raytracer.h clampContribSpectral).
         colorAccum += sample;
     }
 
@@ -544,6 +578,7 @@ void launchMultiwavelengthKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
     int worldMaxBounces,  // pkg55-B' N+6 follow-up: env gate, raytracer.h:2412
+    float clampDirect, float clampIndirect,  // pkg144
     float lambdaMin, float lambdaMax, bool useLuminanceOutput,
     bool enableNEE,
     bool useCaustics,  // pkg64-gpu Phase 2
@@ -576,6 +611,7 @@ void launchMultiwavelengthKernel(
         multiwavelengthKernel<<<blocks, threadsPerBlock>>>(
             d_framebuffer, width, height, samplesPerPixel, maxDepth,
             worldMaxBounces,
+            clampDirect, clampIndirect,  // pkg144
             lambdaMin, lambdaMax, useLuminanceOutput, enableNEE, useCaustics,
             d_tlas, d_instances, d_blas,  // pkg114
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,

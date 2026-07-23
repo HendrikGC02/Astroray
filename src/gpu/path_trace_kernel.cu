@@ -378,11 +378,31 @@ bsdf_mis:
 }
 
 // ---------------------------------------------------------------------------
+// pkg144 — GPU twin of Renderer::clampContribSpectral (include/raytracer.h).
+// Ports Cycles `film_clamp_light` (src/kernel/film/light_passes.h, Apache-2.0):
+// per-contribution clamp selected by bounce depth (bounce==0 -> clampDirect,
+// bounce>0 -> clampIndirect; limit<=0 disables, Cycles semantics). Compares
+// against the RGB luminance() already defined in gpu_types.h (Rec.709),
+// matching this megakernel's RGB-space `color` accumulator — the GPU-side
+// counterpart of the CPU's XYZ.Y metric substitution (see the CPU helper's
+// comment for why the metric differs from Cycles' sum(|RGB|)).
+// ---------------------------------------------------------------------------
+__device__ inline GVec3 gpu_clampContrib(const GVec3& contrib, int bounce,
+                                          float clampDirect, float clampIndirect) {
+    float limit = (bounce > 0) ? clampIndirect : clampDirect;
+    if (limit <= 0.f) return contrib;
+    float lum = luminance(contrib);
+    if (lum > limit && lum > 0.f) return contrib * (limit / lum);
+    return contrib;
+}
+
+// ---------------------------------------------------------------------------
 // tracePathGPU — port of Renderer::pathTrace()
 // ---------------------------------------------------------------------------
 __device__ GVec3 tracePathGPU(
     GRay ray, int maxDepth,
     bool useCaustics,  // pkg64-gpu Phase 2
+    float clampDirect, float clampIndirect,  // pkg144
     const GTLASNode*  tlas,        // pkg114
     const GInstance*  instances,   // pkg114
     const GBLAS*      blas,        // pkg114
@@ -431,7 +451,7 @@ __device__ GVec3 tracePathGPU(
                 envColor *= 0.2f;
             }
             if (bounce == 0 || wasSpecular)
-                color += throughput * envColor;
+                color += gpu_clampContrib(throughput * envColor, bounce, clampDirect, clampIndirect);
             if (bounce == 0 || wasSpecular)
                 colorSpectral += throughputSpectral *
                     gpu_rgbToSampledSpectrum(envColor, lambdas, GSPEC_RGB_ILLUMINANT);
@@ -444,7 +464,7 @@ __device__ GVec3 tracePathGPU(
         GSampledSpectrum emittedSpectral = gpu_material_emitted_spectral(mat, rec.frontFace, lambdas);
         if (emitted != GVec3(0.f)) {
             if (bounce == 0 || wasSpecular) {
-                color += throughput * emitted;
+                color += gpu_clampContrib(throughput * emitted, bounce, clampDirect, clampIndirect);
                 colorSpectral += throughputSpectral * emittedSpectral;
             }
             break;
@@ -453,10 +473,11 @@ __device__ GVec3 tracePathGPU(
         // NEE direct lighting
         if (!rec.isDelta) {
             GVec3 wo = -ray.direction.normalized();
-            color += throughput * sampleDirectGPU(
+            GVec3 neeContrib = throughput * sampleDirectGPU(
                 rec, wo, tlas, instances, blas, bvhNodes, prims, tris, spheres,
                 materials, lights, numLights, totalLightPower,
                 lightTree, envMap, ray.time, motionVerts, rng);
+            color += gpu_clampContrib(neeContrib, bounce, clampDirect, clampIndirect);
         }
 
         // pkg113 Phase 3: photon-map caustic gather at the FIRST non-emissive hit
@@ -560,7 +581,7 @@ __device__ GVec3 tracePathGPU(
                         float g_ = -0.9689f * xyz.x + 1.8758f * xyz.y + 0.0415f * xyz.z;
                         float b_ =  0.0557f * xyz.x - 0.2040f * xyz.y + 1.0570f * xyz.z;
                         GVec3 smsRGB(r_, g_, b_);
-                        color += throughput * smsRGB;
+                        color += gpu_clampContrib(throughput * smsRGB, bounce, clampDirect, clampIndirect);
                     }
                 }
             }
@@ -640,6 +661,7 @@ __global__ void pathTraceKernel(
     float* framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
     bool useCaustics,  // pkg64-gpu Phase 2
+    float clampDirect, float clampIndirect,  // pkg144
     const GTLASNode*  tlas,        // pkg114
     const GInstance*  instances,   // pkg114
     const GBLAS*      blas,        // pkg114
@@ -738,6 +760,7 @@ __global__ void pathTraceKernel(
 
         GVec3 sample = tracePathGPU(
             ray, maxDepth, useCaustics,
+            clampDirect, clampIndirect,  // pkg144
             tlas, instances, blas,  // pkg114
             bvhNodes, prims, tris, spheres,
             materials, lights, numLights, totalLightPower,
@@ -750,10 +773,10 @@ __global__ void pathTraceKernel(
             &localRng,
             pixelCryptoObj, pixelCryptoMat, cryptoDepth, cryptomatteEnabled);
 
-        // Per-sample firefly clamp (matches CPU: lum > 20 → scale down)
-        float lum = luminance(sample);
-        if (lum > 20.f) sample *= (20.f / lum);
-
+        // pkg144: the always-on, whole-path `lum > 20` clamp that used to live
+        // here has been REMOVED — see gpu_clampContrib / tracePathGPU, which
+        // now clamps direct vs indirect contributions independently, per
+        // bounce, mirroring the CPU fix (include/raytracer.h clampContribSpectral).
         color += sample;
     }
 
@@ -778,6 +801,7 @@ void launchPathTraceKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
     bool useCaustics,  // pkg64-gpu Phase 2
+    float clampDirect, float clampIndirect,  // pkg144
     const GTLASNode*  d_tlas, const GInstance* d_instances, const GBLAS* d_blas,  // pkg114
     const GBVHNode*  d_bvhNodes,
     const GPrimitive* d_prims,
@@ -810,6 +834,7 @@ void launchPathTraceKernel(
             (const void*)pathTraceKernel, blocks, threadsPerBlock);
         pathTraceKernel<<<blocks, threadsPerBlock>>>(
             d_framebuffer, width, height, samplesPerPixel, maxDepth, useCaustics,
+            clampDirect, clampIndirect,  // pkg144
             d_tlas, d_instances, d_blas,  // pkg114
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             d_lights, numLights, totalLightPower,

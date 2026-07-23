@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / integrator correctness)
 **Track:** A (integrator clamp restructuring against the Cycles reference + an energy-linearity gate; needs a build + evidence-first default tuning)
 **Codex-paste-ready:** no (an adjudicated integrator change that moves firefly control from an always-on top-level cap to a per-contribution bounce-split, with a default that must be tuned against the existing firefly/caustic tests — judgment at the gate)
-**Status:** open — dispatchable
+**Status:** done (PR #TBD, 2026-07-23 — clamp split wired CPU+GPU megakernels, both defaults 0/off per measured evidence, bright-sun linearity ratio ~0.9995 across 3 decades; secondary light-selection-importance deferred; 2 of 3 pkg144-adjacent xfails resolved, 2 Disney-highlight tests reassigned to pkg145's remit with measured evidence — see PR body)
 **Estimated effort:** M (primary clamp-split); secondary light-selection section is a separable S–M follow-up
 **Depends on:** none (pkg140 landed the delta-sun MIS/`power()` fixes in `060cfd0`; this is the pre-existing clamp that masks them)
 
@@ -165,9 +165,10 @@ area light of similar illuminance — the `× solidAngle` factor **understates**
 ---
 
 ## Definition of done
-- [ ] Hardcoded `sLum > 20` cap removed; `clampDirect`/`clampIndirect` wired per-bounce (bounce==0→direct, bounce>0→indirect), 0=disabled, mirroring `film_clamp_light`.
-- [ ] `clampDirect` default 0 (off); `clampIndirect` default chosen evidence-first to keep firefly/caustic tests green, and documented.
-- [ ] NEW bright-sun energy-linearity gate added and green (with_sun ∝ S across ≥3 decades, ratio-to-analytic ~1).
-- [ ] Existing firefly/caustic + furnace + render suites unchanged; build evidence shown.
-- [ ] GPU firefly-cap parity handled or noted N/A.
-- [ ] Secondary: distant-vs-area selection-importance either fixed (with a cited Cycles/Estevez-Kulla importance metric + a mixed-scene gate) or explicitly deferred to a follow-up package, decision recorded in the PR.
+- [x] Hardcoded `sLum > 20` cap removed; `clampDirect`/`clampIndirect` wired per-bounce (bounce==0→direct, bounce>0→indirect), 0=disabled, mirroring `film_clamp_light`.
+- [x] `clampDirect` default 0 (off); `clampIndirect` default chosen evidence-first (measured 0 keeps the full firefly/caustic/furnace suite green — full Cycles parity, both off), documented in `.astroray_plan/docs/pkg144-firefly-clamp-research.md`.
+- [x] NEW bright-sun energy-linearity gate added and green (with_sun ∝ S across 3 decades — 1e6/1e7/1e8 — ratio-to-analytic ~0.9995).
+- [x] Existing firefly/caustic + furnace + render suites unchanged; build evidence shown (see PR).
+- [x] GPU firefly-cap parity handled: the two PRODUCTION GPU megakernels (`path_trace_kernel.cu` tracePathGPU, `multiwavelength_kernel.cu` tracePathMW — the latter is what the default `path_tracer` integrator actually dispatches to on GPU) got the same bounce-indexed split. The pkg55 wavefront SoA dev-harness kernels (`stage_advance.cu`/`stage_restir.cu`, not in the production dispatch path) still carry the old whole-path clamp — explicitly deferred, see research doc.
+- [ ] Secondary: distant-vs-area selection-importance — DEFERRED, not attempted this round (time-boxed to the primary clamp-split fix). Still open.
+- **Un-xfail note:** `test_direct_and_indirect_clamp_controls` (test_python_bindings.py) un-xfailed — genuinely fixed by this package. The two Disney-highlight tests named in the dispatch (`test_disney_metallic_tints_specular_highlight`, `test_disney_roughness_changes_glossiness`) were investigated in depth and found NOT to be caused by the firefly clamp (converged, stable R/B and mean gaps of ~0.03-0.06 and ~0.0087 respectively, well under their 0.10/0.015 gates, unchanged across clamp settings 0/20/1e6 and across 64-2048 spp) — root cause is a Pillar-2 Disney specular-magnitude question adjacent to pkg145 (Disney specular energy compensation refit), not pkg144's integrator clamp. Their xfail reasons were updated with the measured evidence and left in place; see PR body.

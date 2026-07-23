@@ -363,15 +363,25 @@ def test_glass_less_opaque_than_black():
 # ===========================================================================
 
 @pytest.mark.xfail(
-    reason="pkg144: the always-on sLum>20 direct-light firefly clamp "
-    "(raytracer.h:3005) masks the metallic gold-highlight tint at the test's "
-    "light intensity (25). Runtime intensity-proxy (engage/disengage the clamp "
-    "by scaling the light): rb_metal-rb_diel = 0.211 at intensity 8 (clamp "
-    "inactive -> PASSES) collapses to 0.048 at intensity 25 (clamp active -> "
-    "FAILS). The material tint is correct; pkg123's chi2-correct (dimmer) pdf no "
-    "longer over-brightens the highlight enough to overcome the clamp the way "
-    "main's pdf-inflated highlight did. Fix: pkg144 (Cycles direct/indirect clamp "
-    "split, both default off). Literal patch-rebuild A/B deferred to pkg144.",
+    reason="pkg144 UPDATE (2026-07-23, measured against the built clamp-split "
+    "fix): the always-on sLum>20 clamp this package removed was NOT the actual "
+    "gate here. Empirically (raytracer.h clampContribSpectral wired, "
+    "clampDirect=clampIndirect=0/fully off by default -- the fix this test's "
+    "old xfail reason asked for): rb_metal-rb_diel converges to ~0.03-0.05 "
+    "(seed-stable across 4 reruns and across clamp settings 0/20/1e6 alike, "
+    "and stable from 96 to 2048 spp -- i.e. NOT clamp-driven and NOT MC noise), "
+    "still well under the 0.10 gate. The pkg144 clamp-split fix is real and "
+    "verified working (aggressive clampDirect values visibly dim the render; "
+    "see test_pkg144_firefly_clamp_direct_indirect_split.py), but it is not "
+    "sufficient by itself: pkg123's chi2-correct (dimmer, true-D) Disney "
+    "specular pdf/eval genuinely produces a smaller metallic-vs-dielectric R/B "
+    "gap than this test's threshold assumes -- the same class of post-pkg123 "
+    "Disney specular-magnitude recalibration pkg145 (Disney specular energy "
+    "compensation refit) already exists to address. Un-xfailing this test is "
+    "therefore a Pillar-2 Disney-specular-calibration decision (recalibrate "
+    "the 0.10 threshold with measured evidence, or find/fix a genuine "
+    "metallic-tint-magnitude bug), not a pkg144 (Pillar-3 integrator clamp) "
+    "one -- see pkg144 PR body for the full measurement.",
     strict=False,
 )
 def test_disney_metallic_tints_specular_highlight():
@@ -424,17 +434,22 @@ def test_disney_metallic_tints_specular_highlight():
 
 
 @pytest.mark.xfail(
-    reason="pkg144: the always-on sLum>20 direct-light firefly clamp "
-    "(raytracer.h:3005) masks the roughness gloss response at the test's light "
-    "intensity (15). Runtime intensity-proxy: smooth(r=0.05)/rough(r=0.7) center "
-    "mean ratio = 1.169 at intensity 1 (clamp inactive -> smooth correctly "
-    "glossier/brighter) collapses to 1.068 at intensity 15 (test) and inverts to "
-    "0.990 at 30 (clamp active). The concentrated smooth highlight is exactly what "
-    "the sLum cap suppresses. The material's roughness response is correct; "
-    "pkg123's chi2-correct (dimmer) pdf no longer over-brightens the smooth "
-    "highlight enough to clear the 0.015 mean-gap under the clamp the way main's "
-    "pdf-inflated highlight did. Fix: pkg144 (Cycles direct/indirect clamp split, "
-    "both default off). Literal patch-rebuild A/B deferred to pkg144.",
+    reason="pkg144 UPDATE (2026-07-23, measured against the built clamp-split "
+    "fix): the always-on sLum>20 clamp this package removed was NOT the actual "
+    "gate here. Empirically (clampDirect=clampIndirect=0/fully off by default), "
+    "smooth(r=0.05)/rough(r=0.7) center-mean gap converges to ~0.0087 (stable "
+    "from 64 to 2048 spp -- i.e. a real, converged physical result, not MC "
+    "noise the clamp was suppressing), still under the 0.015 gate. The pkg144 "
+    "clamp-split fix is real and verified working (see "
+    "test_pkg144_firefly_clamp_direct_indirect_split.py), but it is not "
+    "sufficient here: pkg123's chi2-correct (dimmer, true-D) Disney specular "
+    "pdf/eval genuinely produces a smaller smooth-vs-rough gloss gap than this "
+    "test's threshold assumes -- the same class of post-pkg123 Disney "
+    "specular-magnitude recalibration pkg145 (Disney specular energy "
+    "compensation refit) already exists to address. Un-xfailing this test is "
+    "therefore a Pillar-2 Disney-specular-calibration decision, not a pkg144 "
+    "(Pillar-3 integrator clamp) one -- see pkg144 PR body for the full "
+    "measurement.",
     strict=False,
 )
 def test_disney_roughness_changes_glossiness():

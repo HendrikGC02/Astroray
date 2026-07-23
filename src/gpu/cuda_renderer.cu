@@ -40,6 +40,7 @@ void launchPathTraceKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
     bool useCaustics,  // pkg64-gpu Phase 2
+    float clampDirect, float clampIndirect,  // pkg144
     const GTLASNode*  d_tlas, const GInstance* d_instances, const GBLAS* d_blas,  // pkg114
     const GBVHNode*  d_bvhNodes,
     const GPrimitive* d_prims,
@@ -91,6 +92,7 @@ void launchMultiwavelengthKernel(
     float* d_framebuffer, int width, int height,
     int samplesPerPixel, int maxDepth,
     int worldMaxBounces,  // pkg55-B' N+6 follow-up: env gate, raytracer.h:2412
+    float clampDirect, float clampIndirect,  // pkg144
     float lambdaMin, float lambdaMax, bool useLuminanceOutput,
     bool enableNEE,
     bool useCaustics,  // pkg64-gpu Phase 2
@@ -865,9 +867,16 @@ void CUDARenderer::render(
     // disable the legacy SMS attempt so the caustic is not double-counted.
     if (caustic.ready) useCaustics = false;
 
+    // pkg144: clampDirect/clampIndirect wired from the host Renderer (mirrors
+    // the getWorldMaxBounces() pattern below). Defaults 0/off unless the host
+    // set them via set_clamp_direct/set_clamp_indirect.
+    float clampDirect = impl->hostRenderer ? impl->hostRenderer->getClampDirect() : 0.0f;
+    float clampIndirect = impl->hostRenderer ? impl->hostRenderer->getClampIndirect() : 0.0f;
+
     // Launch megakernel
     launchPathTraceKernel(
         impl->d_framebuffer, width, height, samplesPerPixel, maxDepth, useCaustics,
+        clampDirect, clampIndirect,  // pkg144
         impl->d_tlas, impl->d_instances, impl->d_blas,  // pkg114
         impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
         impl->d_materials,
@@ -964,10 +973,14 @@ void CUDARenderer::renderMultiwavelength(
     // from the CPU whenever a scene sets world max bounces < max_depth.
     int worldMaxBounces = impl->hostRenderer
         ? impl->hostRenderer->getWorldMaxBounces() : 1024;
+    // pkg144: clampDirect/clampIndirect wired from the host Renderer.
+    float clampDirect = impl->hostRenderer ? impl->hostRenderer->getClampDirect() : 0.0f;
+    float clampIndirect = impl->hostRenderer ? impl->hostRenderer->getClampIndirect() : 0.0f;
 
     launchMultiwavelengthKernel(
         impl->d_framebuffer, width, height, samplesPerPixel, maxDepth,
         worldMaxBounces,
+        clampDirect, clampIndirect,  // pkg144
         lambdaMin, lambdaMax, useLuminanceOutput, enableNEE, useCaustics,
         impl->d_tlas, impl->d_instances, impl->d_blas,  // pkg114
         impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,

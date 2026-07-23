@@ -540,8 +540,14 @@ __device__ inline GVec3 gpu_disney_sampleGgxVNDF(
     float py = r * sinf(phi);
 
     // Warp hemispherical projection for visible normal sampling
+    // pkg149: mirrors the CPU fix in plugins/materials/disney.cpp
+    // sampleGgxVNDF -- pbrt-v4's `p.y = Lerp((1+wh.z)/2, h, p.y)` (Lerp(t,a,b)
+    // = (1-t)*a + t*b) had `h` and `py` swapped here, biasing the sampled
+    // half-vector azimuth to the side opposite wo and causing the measured
+    // ~16-18 deg transmission sample/pdf peak offset (glass[0.3-45]).
     float h = sqrtf(fmaxf(0.f, 1.f - px*px));
-    py = ((1.f + wh.z) / 2.f) * h + (1.f - (1.f + wh.z) / 2.f) * py;
+    float t = (1.f + wh.z) / 2.f;
+    py = (1.f - t) * h + t * py;
 
     // Reproject to hemisphere and transform normal to ellipsoid configuration
     float pz = sqrtf(fmaxf(0.f, 1.f - px*px - py*py));

@@ -213,8 +213,23 @@ class DisneyPlugin : public Material {
         float py = r * std::sin(phi);
 
         // Warp hemispherical projection for visible normal sampling
+        // pkg149: pbrt-v4 computes `p.y = Lerp((1+wh.z)/2, h, p.y)` where
+        // Lerp(t,a,b) = (1-t)*a + t*b (pbrt-v4 src/pbrt/util/math.h), i.e.
+        // p.y = (1-t)*h + t*p.y. This line had `h` and `py` swapped (t*h +
+        // (1-t)*py) -- an argument-order transcription bug, not a sign or
+        // Jacobian error. Root-caused via a standalone half-vector-space
+        // sweep (wo at 45 deg, roughness 0.3): the buggy formula drew visible
+        // normals concentrated on the AZIMUTH OPPOSITE wo (phi in [-180,-150]
+        // union [150,180], zero density near phi=0, the side VNDF sampling
+        // should concentrate on), which after refraction produced the
+        // measured ~16-18 deg transmission sample/pdf peak offset (152 deg
+        // pdf peak vs 168-170 deg sample peak, glass[0.3-45]). Fixing the
+        // argument order realigns the sampled half-vector azimuth with wo and
+        // collapses the peak offset to <1 deg (see
+        // .astroray_plan/docs/pkg149-disney-rough-transmission-research.md).
         float h = std::sqrt(std::max(0.0f, 1.0f - px * px));
-        py = ((1.0f + wh.z) / 2.0f) * h + (1.0f - (1.0f + wh.z) / 2.0f) * py;
+        float t = (1.0f + wh.z) / 2.0f;
+        py = (1.0f - t) * h + t * py;
 
         // Reproject to hemisphere and transform normal to ellipsoid configuration
         float pz = std::sqrt(std::max(0.0f, 1.0f - px * px - py * py));

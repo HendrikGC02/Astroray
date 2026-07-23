@@ -3,7 +3,7 @@
 **Pillar:** 3 (GPU/CPU parity / MIS-pdf consistency)
 **Track:** A (GPU lane; RTX-gated — CI is blind to it)
 **Codex-paste-ready:** no (diagnostic-first: two candidate mechanisms must be distinguished by instrumentation before the fix is chosen; the fix then needs parity + wavefront-diff re-validation)
-**Status:** open — **blocked on pkg123 (PR #498) merging first** (the CPU is the canonical baseline only post-#498; the evidence xfail rows live on that branch)
+**Status:** open — dispatchable (**UNBLOCKED 2026-07-23**: pkg123/PR #498 merged 2026-07-21 as `587b554`; the CPU baseline is canonical on `main` now — re-anchor any branch-pinned evidence rows to `main`)
 **Estimated effort:** M (instrumentation + one localized fix + un-xfail; the risk is the fix touching the shared GPU sampling path used by both megakernel and wavefront)
 **Depends on:** **pkg123 (PR #498)**. Related but distinct from **pkg124** (CPU VNDF swap for the opaque lobe — do not entangle; land order between pkg141 and pkg124 is free, but each must leave the other's gates green) and **pkg138** (dielectric eval — different lobe). This package OWNS the CPU/GPU mixture-pdf asymmetry that pkg138's Notes flagged as out-of-scope.
 

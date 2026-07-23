@@ -3,7 +3,7 @@
 **Pillar:** 2 (BSDF / material energy conservation)
 **Track:** A (refit an Astroray-specific compensation table against the corrected D, evidence-first; two-toolchain gate — needs a build, not a mechanical patch)
 **Codex-paste-ready:** no (a numerical recalibration whose target is a directional-hemispherical reflectance sweep; the fix is a regenerated table + possibly a re-tuned clamp, validated on both GCC and MSVC — judgment at the gate)
-**Status:** open — **blocked on pkg123 (PR #498) merging** (do not dispatch until #498 lands on `main`)
+**Status:** SUPERSEDED by pkg145 (2026-07-21, PR #510 — the clearcoat failure is a subset of the whole-specular-lobe refit; pkg143's contract is fully absorbed by `pkg145-disney-specular-energy-compensation-refit.md`). Do NOT dispatch.
 **Estimated effort:** S–M (localized to the clearcoat compensation + its `.bin` table; cost is the calibration sweep + two-toolchain green + furnace re-check)
 **Depends on:** pkg123 (PR #498) — this package refits *against the epsilon-free D_GTR2* that #498 establishes. Refitting before #498 lands would calibrate against the wrong (deflated) D again. Land order: #498 → pkg143.
 

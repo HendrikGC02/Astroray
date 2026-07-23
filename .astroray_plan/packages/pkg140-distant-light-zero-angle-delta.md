@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport correctness)
 **Track:** A (CPU light code + GPU mirror; CPU-gated tests on CI, GPU leg RTX-verified)
 **Codex-paste-ready:** no (delta-light semantics touch sampling, pdf, power-CDF selection, and the light-tree orientation cone together — the pieces must stay consistent)
-**Status:** in review (PR #507, 2026-07-21) — 2sin²(h/2) identity + power() floor + isDelta MIS-weight fix implemented and pushed; CPU tests written (tests/test_pkg140_distant_light_zero_angle.py) but NOT run (implementer has no build); GPU RTX leg and full build unverified — awaiting team-lead build + hardware verification
+**Status:** done (PR #507 merged 2026-07-21 as `a4045bb` — 2sin²(h/2) identity + power() floor + `isDelta` MIS threading; the call-site sweep found and fixed 3 additional sites. The always-on firefly-clamp bias surfaced by the debug round is filed as **pkg144**; the sun/area power()-scale mismatch is pkg144's secondary finding.)
 **Estimated effort:** S–M (a delta branch mirroring pbrt-v4 + a two-character numerical identity in four sites + the GPU mirror; the care is in keeping sampleLi/pdfLi/power/cone consistent)
 **Depends on:** none. Do NOT conflate with pkg122 (energy calibration, in flight) — this is a zero-measure/degenerate-geometry bug, not a scaling bug.
 

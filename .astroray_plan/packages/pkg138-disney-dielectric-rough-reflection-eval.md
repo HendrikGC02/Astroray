@@ -3,7 +3,7 @@
 **Pillar:** 3 (BSDF correctness / MIS density consistency)
 **Track:** A (CPU BSDF first, chi²-gated on CI; GPU mirror verified on RTX — the GPU dielectric lowers via the closure graph, so check both legs)
 **Codex-paste-ready:** no (an `eval()` energy-shape change on the glass path — needs furnace + CPU/GPU parity validation and judgment about the delta-fallback boundary, not a mechanical patch)
-**Status:** open — **blocked on pkg123 (PR #498) merging first** (this defect was found and adjudicated by the #498 Opus re-review; the xfail'd gate this package un-xfails lives on that branch, and all `disney.cpp` line anchors below are against `origin/pkg123-disney-chi2` — re-anchor after merge)
+**Status:** open — dispatchable (**UNBLOCKED 2026-07-23**: pkg123/PR #498 merged 2026-07-21 as `587b554`; the xfail'd gate this package un-xfails is now on `main`. **Re-anchor all `disney.cpp` line refs below against `main`**, not `origin/pkg123-disney-chi2`. Serialize with pkg145 — both edit `plugins/materials/disney.cpp`; land pkg145 first)
 **Estimated effort:** M (the eval change is localized, but it changes measured glass energy shape: chi² re-pass + rough-glass furnace + CPU/GPU parity all must be re-validated together)
 **Depends on:** **pkg123 (PR #498)** — land order: pkg123 → pkg138. **Coordinate with pkg124** (VNDF for the OPAQUE reflection lobe): disjoint lobes, but both edit `disney.cpp` sample/pdf regions — sequence the merges or rebase carefully; do not let either reopen the other's chi² gates.
 

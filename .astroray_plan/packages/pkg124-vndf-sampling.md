@@ -3,7 +3,7 @@
 **Pillar:** 3 (sampling efficiency / BSDF correctness)
 **Track:** A (CPU BSDF path first, chi²-gated on CI; the change is shared math so the GPU spec lobe mirrors it — RTX-verify the GPU leg)
 **Codex-paste-ready:** no (a sampler replacement whose sample() and pdf() must change **together** to stay chi²-consistent; needs the pkg123 adjudication as its correctness baseline and an equal-time noise measurement to justify)
-**Status:** open — **blocked on pkg123** (the specular-lobe sample/pdf shape must be adjudicated and the gates un-xfailed *before* the sampler is swapped, so the swap is measured against a green baseline)
+**Status:** open — dispatchable (**UNBLOCKED 2026-07-23**: pkg123/PR #498 merged 2026-07-21 as `587b554` with the chi² gates un-xfailed — the swap now measures against a green baseline. Coordinate with pkg138/pkg145: all three edit `disney.cpp` sample/pdf regions; sequence merges)
 **Estimated effort:** M (swap the reflection lobe to VNDF sample + matching VNDF pdf — most machinery already exists in-tree; re-pass chi², measure dead-sample rate before/after, equal-time noise A/B)
 **Depends on:** **pkg123** — the Disney spec-lobe chi² gates must be **passing (un-xfailed)** first. pkg124 changes the sampler and *must not reopen* the mismatch; that is only checkable against a green chi² grid. Land order: pkg123 → pkg124.
 

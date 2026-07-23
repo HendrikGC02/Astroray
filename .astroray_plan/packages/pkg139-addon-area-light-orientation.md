@@ -3,7 +3,7 @@
 **Pillar:** 2 (Blender integration correctness)
 **Track:** A (addon/CPU lane; parity-tested against headless Cycles — Blender 5.1 installed locally)
 **Codex-paste-ready:** no (a sign/convention fix, but it must be validated against a live Cycles A/B render, not unit-tested in isolation)
-**Status:** in review (PR #505, 2026-07-21 — AREA basis flip verified convention-correct at identity+rotated+non-square via mocked-bpy/real-vector-math unit tests; strength-0 background fix verified; live headless-Blender-vs-Cycles pixel A/B still pending hardware-verifier, no `.pyd` build access for this implementer). Independent of the pkg122 energy calibration in flight; do NOT conflate — see Non-goals.
+**Status:** done (PR #505 merged 2026-07-21 as `ab959c5` — AREA -Z basis flip + world strength-0 black background; live-Cycles oracle rows 0.96–1.01 vs the pre-fix 0.089. The pkg139 oracle dataset is one leg of the pkg146 discrepancy investigation — keep `scripts/verify_pkg139_area_orientation_oracle.py` intact.)
 **Estimated effort:** S (one-line basis flip + a small world-background guard fix + a parity test)
 **Depends on:** none. Composes with pkg122 (energy) and pkg119-B (parity harness) but blocks on neither.
 

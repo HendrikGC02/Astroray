@@ -3,7 +3,19 @@
 **Pillar:** 3 (BSDF correctness / MIS density consistency)
 **Track:** A (CPU BSDF first, chi²-gated on CI; GPU mirror verified on RTX — the GPU dielectric lowers via the closure graph, so check both legs)
 **Codex-paste-ready:** no (an `eval()` energy-shape change on the glass path — needs furnace + CPU/GPU parity validation and judgment about the delta-fallback boundary, not a mechanical patch)
-**Status:** open — dispatchable (**UNBLOCKED 2026-07-23**: pkg123/PR #498 merged 2026-07-21 as `587b554`; the xfail'd gate this package un-xfails is now on `main`. **Re-anchor all `disney.cpp` line refs below against `main`**, not `origin/pkg123-disney-chi2`. Serialize with pkg145 — both edit `plugins/materials/disney.cpp`; land pkg145 first)
+**Status:** in review (PR #517) — **ADJUDICATED 2026-07-23: MERGEABLE as a partial-scope correctness improvement** (architect verdict, design authority for the overnight run; see block below; HW non-regression check in parallel; final merge via pr-merger checklist).
+
+> **✅ ADJUDICATION (2026-07-23, architect) — PR #517 ships; the chi² glass[0.3-45] gate transfers to pkg149/pkg150.**
+>
+> **Verdict: MERGEABLE.** Reasoning:
+> 1. **The in-scope fix is real, cited, and verified by its own direct evidence.** The diagnosed defect (eval() reflection-lobe Cspec0 collapse) is fixed per the spec's canonical form (Walter 2007 EGSR §5.1 / pbrt-v4 `DielectricBxDF::f` reflection branch), with the GPU twin mirrored, and **eval/pdf now agree <0.3%** — that agreement, not the aggregate chi² statistic, is the direct measurement of this package's defect.
+> 2. **The unchanged chi² number (bit-identical 143,140,779) is honestly explained and re-attributed, not hidden.** Two newly-measured defects outside this spec's scope dominate the statistic: (a) at glass[0.3-45] the VNDF reflection candidate is **100% masked by the same-hemisphere check** (N≥100k) — so the fixed eval() shape is never exercised by sampling at that config; (b) the rough **transmission** lobe (an explicit Non-goal here) carries **~92–96% of sampled weight** with a ~16–18° sample/pdf peak mismatch. A gate whose statistic is >92% out-of-scope lobe was **mis-assigned at spec time**; keeping #517 hostage to it would gate this fix on work the spec explicitly excluded.
+> 3. **The xfail discipline is respected, not violated.** The memory rule (`xfail-gated-features-must-unxfail`) forbids accepting XFAIL as evidence *for the gated feature*; here the re-xfail carries documented reasons naming the two out-of-scope defects, and the gate obligation **transfers explicitly**: un-xfail of glass[0.3-45] is owned by **pkg149** (transmission re-derivation — the dominant term) with **pkg150** (reflection-candidate masking) as the secondary contributor. Neither may close while the gate is xfail.
+> 4. **Non-regression:** the attempted pbrt-faithful dead-sample fix that regressed furnace 0.9→0.0 was correctly **reverted** rather than shipped; the furnace-trap constraint is recorded in pkg150. HW verifier is confirming render-level non-regression in parallel — a MERGE condition, per the checklist.
+>
+> **Merge conditions:** (i) HW non-regression PASS; (ii) the chi² xfail reason strings in the test name pkg149/pkg150; (iii) the research note (`pkg138-disney-dielectric-rough-reflection-research.md`) and the spec lessons land with the PR.
+
+*(Pre-#517 status for the record: open — dispatchable, UNBLOCKED 2026-07-23 after pkg123/#498 merged as `587b554`; serialized behind pkg145.)*
 **Estimated effort:** M (the eval change is localized, but it changes measured glass energy shape: chi² re-pass + rough-glass furnace + CPU/GPU parity all must be re-validated together)
 **Depends on:** **pkg123 (PR #498)** — land order: pkg123 → pkg138. **Coordinate with pkg124** (VNDF for the OPAQUE reflection lobe): disjoint lobes, but both edit `disney.cpp` sample/pdf regions — sequence the merges or rebase carefully; do not let either reopen the other's chi² gates.
 

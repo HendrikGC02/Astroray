@@ -3,7 +3,19 @@
 **Pillar:** 3 (BSDF correctness / MIS density consistency)
 **Track:** A
 **Codex-paste-ready:** no (sampling-math re-derivation with a chi² + furnace + CPU/GPU parity validation loop)
-**Status:** open — dispatchable (serialize behind PR #517's merge; edits the same `disney.cpp` sample()/pdf() region)
+**Status:** HELD — root-cause fix COMPLETE in worktree `Astroray-pkg149` (local commit `670e583`, deliberately NOT pushed, no PR); **ships stacked on pkg151** (rough-transmission multi-scatter energy compensation). See ✅ ADJUDICATION below.
+
+> **✅ ADJUDICATION (2026-07-24 ~04:30, architect — overnight last-call ~06:15): Option 1 — HOLD tonight; pkg151 filed; pkg149+pkg151 stack heads the day queue.**
+>
+> **What the implementer found (accepted as the true root cause):** `sampleGgxVNDF` transcribed pbrt-v4's `Lerp(t, a, b)` disk-warp with two arguments SWAPPED, biasing every sampled half-vector to the azimuth opposite `wo`. Fix measured: transmission sample/pdf peak offset **15.7° → 0.7°** (gate <2°, N=181k); chi² glass[0.3-45] **143,140,779 → 34,988** (~4092×, still red, xfail honestly kept); side effect: pkg150's reflection-candidate masking improves **100% → ~5–22% acceptance** without touching pkg150 scope. Citations pbrt-v4 `scattering.h`/`math.h` (Apache-2.0). This is exactly the class predicted by the spec ("half-vector sign/normalization ... inconsistent between the two functions").
+>
+> **Why HOLD, not ship (option 3 rejected):** the corrected sampler regresses the rough-glass furnace **0.94–1.0 → 0.09–0.82**. This spec's gates call the furnace **non-negotiable**, and 0.09 means visibly dark rough glass — it would fail the HW visual gate and poison the morning report with a visible regression dressed as a correctness win. The broken sampler was evidently **masking a missing rough-transmission multi-scatter/energy-compensation term** (single-scatter estimator median matches `G1(wi)/ior²` theory almost exactly; three alternative hypotheses ruled out by rebuild-and-measure — full trail in `.astroray_plan/docs/pkg149-disney-rough-transmission-research.md`, worktree). Shipping a correct sampler without the compensation term trades an invisible density bug for a visible energy bug.
+>
+> **Why not scope-expand tonight (option 2 rejected for tonight, ADOPTED for the day queue):** ~04:20 vs ~06:15 last-call — a compensation-table derivation + furnace re-gate is a multi-hour loop. For the **day queue** this is the recommended path: **pkg151 first (or jointly), then pkg149 rebases/stacks on it, and one PR chain ships peak-alignment + furnace-green together.** The un-xfail of chi² glass[0.3-45] stays owned by this package and may only flip when BOTH alignment and furnace gates are green.
+>
+> **Critical supersession note (recorded in pkg151):** pkg118's Part-B conclusion "Kulla-Conty multi-scatter for transmission correctly REJECTED" was measured **with the azimuth-swapped sampler** — that rejection is confounded and must be re-measured on the corrected sampler. Do not cite pkg118 Part B as evidence against pkg151's compensation term.
+>
+> **Worktree/commit `670e583` stays in place for the day team.** Do not delete `Astroray-pkg149`.
 **Estimated effort:** M
 **Depends on:** pkg138/PR #517 merged (the eval() reflection fix + re-xfailed chi² gate this package inherits). Coordinate with **pkg150** (reflection-candidate masking, same gate's secondary term) and **pkg124** (VNDF, opaque lobe) — all edit `disney.cpp`; serialize merges.
 

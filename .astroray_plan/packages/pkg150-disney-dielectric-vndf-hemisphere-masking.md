@@ -14,6 +14,19 @@ correct in `eval()`/`pdf()` is **never sampled** at grazing configs, so MIS
 weights and the chi² statistic still see a sampler that cannot produce
 reflection directions the pdf assigns density to.
 
+> **BASELINE UPDATE (2026-07-24, pkg149 root-cause session):** the pkg149
+> `sampleGgxVNDF` azimuth fix (pbrt-v4 `Lerp` args were transposed; worktree
+> `Astroray-pkg149`, local commit `670e583`, HELD — ships stacked on pkg151)
+> improves this package's masking from **100% rejected → ~5–22% acceptance**
+> without touching pkg150 scope: most of the "masking" was the swapped-azimuth
+> half-vectors reflecting below the horizon. **Re-measure the rejected-candidate
+> fraction on the corrected sampler (post pkg151+pkg149 landing) before doing
+> anything here** — the residual ~78–95% rejection at grazing is this package's
+> real target, and it may shrink the fix from a coverage redesign to a
+> pdf-side truncation of a small set. Fix-contract item 1 (measure first) now
+> explicitly means: baseline on the stacked pkg151+pkg149 main, not on the
+> pre-670e583 sampler.
+
 ---
 
 ## Defect

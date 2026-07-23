@@ -78,3 +78,5 @@ session).
 - `.astroray_plan/docs/pkg55-phase-c-plan-2026-07.md` — Session C6 status
   line added: **C6a done (PR #497, 2026-07-20, e6220c6)**; Phase C is 6/7
   sessions merged; C6b (#503) is the next pickup.
+
+<!-- finalized -->

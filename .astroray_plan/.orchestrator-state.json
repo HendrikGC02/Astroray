@@ -1,67 +1,11 @@
 {
-  "497": {
-    "head_sha": "b76465c42e33a89ede8c12c8353b604686fd185e",
-    "hw_artifact": "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg55-c6/test_results/verifier_pr497_run1.txt",
-    "hw_numbers": "re-verified at ADL-fix head: 64 passed/2 skipped(pre-existing)/4 xfailed(pre-existing+C6b-expected) across full wavefront+RNG+ReSTIR gate suite incl. helpers; prior run1 details in verifier_pr497_run1.txt",
+  "516": {
+    "head_sha": "56ebbc91c334df89bc87cbc24c2c7051c46fb3d5",
+    "hw_artifact": "test_results/overnight_report_2026-07-23/pkg148_hw_numbers.json",
+    "hw_numbers": "default-ctor GPU dedicated light non-black: gpu_mean 1.125, cpu/gpu ratio 0.998; pkg89 AREA/POINT parity 0.998/0.997; suite failures all pre-existing",
     "hw_result": "PASS",
     "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-20T13:15:09Z"
-  },
-  "498": {
-    "head_sha": "d462e4d",
-    "hw_artifact": "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg123/.astroray_plan/docs/pkg121-disney-pdf-finding.md",
-    "hw_numbers": "final independent sweep: 421 passed/0 failed/45 skipped/6 xfailed(adjudicated: glass->pkg138, grazing+GPU-near-delta->pkg141/124, highlights->pkg144)/4 xpassed across energy(270-grid, rho() importance-sampled oracle)+chi2+reflection+material+furnace+GPU-parity; real 15-config grazing set quarantined per-config at measured+0.03 for pkg145; metallic artifact resolved (1.31->1.003)",
-    "hw_result": "PASS",
-    "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-21T09:39:54Z"
-  },
-  "499": {
-    "head_sha": "b648912d37f8e21c00adae0183cdc8b7b0b77a21",
-    "hw_artifact": "scratchpad pkg125_tests.log",
-    "hw_numbers": "CPU: 24/24 pass (4 new band-awareness + test_multiwavelength). GPU spot-check: 9 passed 1 xfailed (pkg64 phase3 + gpu_multiwavelength) \u2014 no parity regression from CPU band fix",
-    "hw_result": "PASS",
-    "last_action": "indep_review:SIGN-OFF",
-    "last_action_ts": "2026-07-20T13:13:34Z"
-  },
-  "500": {
-    "head_sha": "c32eda8d925278200a8cb4b8c9ee9cefa7d95c0f",
-    "hw_artifact": "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg122/test_results/pkg122_cycles_oracle/",
-    "hw_numbers": "engine code identical to HW-verified 75234d3 (diff = 2 caustic test-scene recalibrations to correct units); caustic regression fixed: 12 passed incl test_glass_sphere_focused_caustic; prior verification: GPU==CPU 0.997-0.998, Cycles oracle 1.07-1.16x gross factors eliminated (Defect-4 residual owner-reserved)",
-    "hw_result": "PASS",
-    "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-20T22:12:25Z"
-  },
-  "503": {
-    "head_sha": "a0568d6",
-    "hw_artifact": "session transcript",
-    "hw_numbers": "regate at merge commit (main merged in, conflicts resolved branch-side): 43/43 incl. ReSTIR suites + temporal hard gate + pkg89 GPU dedicated lights + pkg140 zero-angle gates \u2014 no interaction regressions with pkg140 isDelta MIS changes",
-    "hw_result": "PASS",
-    "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-21T09:43:05Z"
-  },
-  "505": {
-    "head_sha": "718728b72176829a9f61b321e552153c6014bec9",
-    "hw_artifact": "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg139/test_results/pkg139_oracle/",
-    "hw_numbers": "live headless-Blender A/B on RTX 5070 Ti: AREA identity 0.965-0.987, rotated45 0.962-0.981, non-square 0.990-1.012 with X>Y probes confirming no mirror; world strength-0 exact black; 0 NaN all renders; recovered from pre-fix 0.089-0.116x; addon provenance proven (PR worktree addon + main .pyd, py-only branch)",
-    "hw_result": "PASS",
-    "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-21T07:58:00Z"
-  },
-  "507": {
-    "head_sha": "0e7d49a7c33b410e9218e6ab2e70562e2051f3da",
-    "hw_artifact": "scratchpad pkg140_tests.log",
-    "hw_numbers": "CPU sweep 311 passed incl full render suites (MIS changes regress nothing) + 6 new zero-angle gates after test-scene rebalance; GPU leg 8/8 (zero-angle gates + pkg89 GPU dedicated-light parity) under gpu.lock; root-cause of gate-5 failure was test calibration (delta-sun power 7-8 orders below area CDF share), documented on PR",
-    "hw_result": "PASS",
-    "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-21T08:45:45Z"
-  },
-  "511": {
-    "head_sha": "790eb9e",
-    "hw_artifact": "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg142/test_results/pkg142_oracle_v2/",
-    "hw_numbers": "units anchor CONFIRMED FIXED (suite 68->6 failures, G8 0.19%, calibration 13/14 green, falloff/structure restored) BUT R-channel 1.29-1.37x excess all light types, visibly pink renders vs neutral Cycles; G/B 0.996-1.097. Hypothesis: illuminant-E white point from unweighted JH lift vs D65-referred sRGB pipeline. Convention needs final adjudication.",
-    "hw_result": "FAIL",
-    "last_action": "gate_review_dispatched",
-    "last_action_ts": "2026-07-21T10:29:16Z"
+    "last_action_ts": "2026-07-23T14:34:57Z"
   },
   "impl_dispatches": {
     "pkg55-bprime-session-n1": {

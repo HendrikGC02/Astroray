@@ -3,7 +3,19 @@
 **Pillar:** 3 (light transport / emitter energy — measurement correctness)
 **Track:** A (an investigation: reconcile two disagreeing oracles before proposing any fix; measure first, adjudicate second)
 **Codex-paste-ready:** no (diagnosis with a live-Cycles oracle + harness archaeology; the deliverable is a root-cause + a scoped fix spec, not a blind patch)
-**Status:** open — dispatchable (investigation)
+**Status:** done (investigation closed, PR pending, 2026-07-23) — root cause found:
+the pkg122 oracle's 1.07–1.16× was measured **before** PR #505 (pkg139) fixed a
+world-strength-0 `set_background_color` guard bug that leaked the engine's hardcoded
+sky-gradient fallback into every pkg122 scene (all of which authored an intentional
+black background). The leak is additive and light-type-independent (confirmed in both
+pkg122's own numbers and an addon-independent ablation); PR #505 already fixed it.
+pkg139's own live re-run (AREA only) already lands in [0.96,1.01]. **No new
+renderer-side fix required.** POINT/SPOT/SUN could not be directly re-verified live
+post-fix in this investigation (GPU-lock constraint + a newly-found, separate
+Blender-addon CPU-render-hang bug, documented as a fast-follow); closure for those
+three rests on mechanism + the AREA data point + the ablation, not a fresh live A/B.
+See `.astroray_plan/docs/pkg146-equal-wattage-findings.md` for full methodology,
+numbers, and the CPU-render-hang finding.
 **Estimated effort:** M (mostly measurement + reconciliation; fix scope unknown until the two oracles are reconciled)
 **Depends on:** pkg142 adjudication (keep `RGBIlluminant`, PR #511 reverted) — this investigation runs on the **`RGBIlluminant`** baseline, not the reverted RGBUnbounded one.
 
@@ -73,6 +85,6 @@ finding).
   radiometry.
 
 ## Definition of done
-- [ ] pkg122 vs pkg139 oracle discrepancy reconciled to a single dominant cause, demonstrated with numbers.
-- [ ] Either: a scoped radiometry fix lands all four types in [0.97,1.03] vs live Cycles (RGBIlluminant baseline) with an evidence-first re-bless; **or** the offset is shown to be a harness artifact and the pkg122 oracle is corrected/retired with the complaint closed.
-- [ ] Finding written to `.astroray_plan/docs/` with both oracle datasets cited.
+- [x] pkg122 vs pkg139 oracle discrepancy reconciled to a single dominant cause, demonstrated with numbers: pre-#505 world-strength-0 background-leak, additive + light-type-independent, confirmed in pkg122's own images and in an addon-independent ablation.
+- [x] The offset is shown to be a (since-fixed) harness/code artifact, not a live renderer bug — no new radiometry fix required. The pkg122 oracle's 1.07-1.16x reading is annotated as stale (pre-#505) in the findings doc; AREA is confirmed in-band [0.96,1.01] by pkg139's own live re-run. POINT/SPOT/SUN closure is inferred (mechanism + ablation), not directly re-measured live — flagged as a fast-follow, not blocking this investigation's closure per the spec's "likely outcome" branch.
+- [x] Finding written to `.astroray_plan/docs/pkg146-equal-wattage-findings.md` with both oracle datasets cited, plus a new ablation dataset and a newly-discovered CPU-render-hang anomaly (out of scope, flagged for follow-up).

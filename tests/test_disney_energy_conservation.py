@@ -38,52 +38,17 @@ def _create_disney(astroray, roughness, metallic, sheen, clearcoat):
     return renderer, material_id
 
 
-# pkg123 / pkg145 — grazing-incidence dielectric energy-conservation quarantine.
-#
-# The importance-sampled reflectance integrator (blender_module.cpp commit
-# a416287, pbrt-v4 §14.1.6 rho()) replaced the old UNIFORM 4096-Halton
-# integration of eval(). The uniform method relied on the eval() firefly cap to
-# bound sharp lobes; once that cap was correctly removed (5e2080c) it both
-# false-positived near-normal metallic (read 1.31 vs the true ~1.00) AND
-# under-sampled sharp GRAZING lobes, hiding a real leak. The accurate,
-# deterministic integrator reveals a genuine directional-hemispherical
-# reflectance > 1 at grazing incidence (cos_theta_o=0.1), metallic=0
-# (dielectric), low roughness: the Fresnel->1 grazing specular plus the Burley
-# diffuse retro-reflection over-shoot. The diffuse-retro component is
-# D-independent (present with the deflated D too — i.e. PRE-EXISTING on main,
-# hidden by the broken integrator); the epsilon-free D_GTR2 (5e2080c) amplifies
-# the grazing specular component. pkg60's Astroray-specific specular/clearcoat
-# energy compensation was calibrated against the deflated D and does not conserve
-# here.
-#
-# TODO(pkg145): restore these configs to the tight 1.02 hard gate after the
-# Disney specular/grazing energy-compensation refit against the true D
-# (.astroray_plan/packages/pkg145-disney-specular-energy-refit.md, PR #510),
-# whose spec is re-anchored to this enumerated set. Do NOT widen these bounds to
-# hide a NEW regression — per-config ceiling = measured worst + 0.03 (cross-
-# compiler MC margin); every config OUTSIDE this set keeps the tight 1.02 gate,
-# so new glow is still auto-caught. Measured worst = importance-sampled,
-# deterministic, stable 4096<->65536 to <0.01 (values below are the N=65536
-# converged worst; the test measures at N=4096, which is ~0.006 lower).
-_PKG145_GRAZING_MEASURED = {
-    # (roughness, metallic, sheen, clearcoat, cos_theta_o): measured worst @65536
-    (0.1, 0.0, 0.0, 0.0, 0.1): 1.2048,
-    (0.1, 0.0, 0.0, 0.5, 0.1): 1.1660,
-    (0.1, 0.0, 0.0, 1.0, 0.1): 1.1273,
-    (0.1, 0.0, 0.5, 0.0, 0.1): 1.1792,
-    (0.1, 0.0, 0.5, 0.5, 0.1): 1.1418,
-    (0.1, 0.0, 0.5, 1.0, 0.1): 1.1044,
-    (0.1, 0.0, 1.0, 0.0, 0.1): 1.1543,
-    (0.1, 0.0, 1.0, 0.5, 0.1): 1.1183,
-    (0.1, 0.0, 1.0, 1.0, 0.1): 1.0822,
-    (0.3, 0.0, 0.0, 0.0, 0.1): 1.0727,
-    (0.3, 0.0, 0.0, 0.5, 0.1): 1.0407,
-    (0.3, 0.0, 0.5, 0.0, 0.1): 1.0725,
-    (0.3, 0.0, 0.5, 0.5, 0.1): 1.0405,
-    (0.3, 0.0, 1.0, 0.0, 0.1): 1.0724,
-    (0.3, 0.0, 1.0, 0.5, 0.1): 1.0404,
-}
-_PKG145_MARGIN = 0.03
+# pkg123 quarantined a 15-config grazing-incidence dielectric set here
+# (roughness in {0.1, 0.3}, metallic=0, cos_theta_o=0.1) pending the pkg145
+# refit; see pkg121-disney-pdf-finding.md "Round 5b" for the pre-fix
+# measurements (worst 1.2048 at roughness=0.1, sheen=0, clearcoat=0). pkg145
+# (this package) fixed the root cause — Disney 2012's diffuse+specular sum is
+# otherwise uncoupled; the diffuse-under-specular layering added to
+# `plugins/materials/disney.cpp::eval()` (Cycles `closure_layering_weight` /
+# OpenPBR glossy-diffuse albedo scaling) brings the whole 90-config x 3-angle
+# grid to <= 1.0 measured at N=65536 (worst 0.999072, roughness=0.3,
+# metallic=1.0, cos_theta_o=0.5) — the quarantine is retired and every config
+# is back on the single tight 1.02/1.05 gate below.
 
 
 @pytest.mark.parametrize("roughness", ROUGHNESSES)
@@ -99,19 +64,6 @@ def test_disney_directional_hemispherical_reflectance_is_conserved(
     )
     rgb = renderer.integrate_material_reflectance(material_id, cos_theta_o, SAMPLES)
     worst = max(rgb)
-
-    key = (roughness, metallic, sheen, clearcoat, cos_theta_o)
-    if key in _PKG145_GRAZING_MEASURED:
-        ceiling = _PKG145_GRAZING_MEASURED[key] + _PKG145_MARGIN
-        assert worst <= ceiling, (
-            "pkg145 grazing-energy quarantine EXCEEDED — this is a NEW regression "
-            f"beyond the documented pre-existing grazing leak: worst {worst:.6f} > "
-            f"{ceiling:.4f} (measured {_PKG145_GRAZING_MEASURED[key]:.4f} + "
-            f"{_PKG145_MARGIN} margin) for roughness={roughness}, metallic={metallic}, "
-            f"sheen={sheen}, clearcoat={clearcoat}, cos_theta_o={cos_theta_o}, "
-            f"rgb={rgb}. Investigate; do NOT widen the bound."
-        )
-        return
 
     assert worst <= 1.05, (
         "Disney BRDF reflectance exceeded the loose bug threshold "

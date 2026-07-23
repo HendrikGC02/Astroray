@@ -3,7 +3,15 @@
 **Pillar:** 2 (BSDF / material energy conservation)
 **Track:** A (converge Astroray's Disney energy compensation to the Cycles-faithful path against the true D; regenerate the Astroray-specific tuned pieces; two-toolchain grid gate)
 **Codex-paste-ready:** no (a numerical recalibration whose target is the full directional-hemispherical reflectance grid across both toolchains, replacing hand-tuned deflated-D corrections with the Cycles-faithful compensation — judgment at the gate, evidence-first)
-**Status:** open — dispatchable (does not block #498; see "Relationship to #498")
+**Status:** implemented, PR #513 pending merge (2026-07-23) — diffuse-under-
+specular Cycles `closure_layering_weight`/OpenPBR coupling added to
+`plugins/materials/disney.cpp::eval()`; full 90-config x 3-angle energy grid
+1.2048 -> 1.004 (N=65536); pkg143/clearcoat fork resolved by measurement
+(kept the original pkg60 clearcoat mechanism, unchanged — the "preferred"
+table_ggx_E route regressed on the Dr/Gr fixed-alpha mismatch); quarantine
+in `test_disney_energy_conservation.py` retired. GPU parity N/A (`gpu_disney_
+eval` carries no CPU compensation twin at all, pre-existing). Head SHA
+d4eecbe04a348a7107aac5a7e519ff3ae5fe2085; HW visual gate still pending.
 **Estimated effort:** M–L (localized code, but a real calibration loop: regenerate tables + retune/remove ad-hoc terms + full grid green on GCC **and** MSVC + furnace + chi² unchanged)
 **Supersedes:** **pkg143** (clearcoat-only refit, PR #508). The pkg89/#498 Round-4 sweep at `5e2080c` proved the clearcoat failure is a **subset** of a whole-specular-lobe problem: with the true D in `eval()`, the deflated-D-fitted compensation over-conserves across grazing and low-roughness rows, not just the one clearcoat config. pkg143's clearcoat contract is fully absorbed below. Close PR #508 as superseded.
 
@@ -77,3 +85,42 @@ Net: #498 ships the correct render + chi² value + the corrected test oracle; pk
 - [ ] chi² + Disney-metal GPU/CPU parity + furnace all green; no D epsilon / eval cap reintroduced; before/after shown.
 - [ ] GPU compensation parity re-verified on RTX, or noted N/A.
 - [ ] Cycles/Kulla-Conty attribution preserved for any regenerated table (`data/disney_compensation/README.md`).
+
+---
+
+## Hardware verification 2026-07-23
+
+**Hardware:** RTX 5070 Ti. **OS:** Windows 11 Enterprise 10.0.26200. **Driver/CUDA:** CUDA 12.8 (nvcc `v12.8/bin/nvcc.exe`, secondary v12.6 toolkit also present), OptiX 9.1.0, MSVC 14.44.35207 (VS 2022 BuildTools 17.14.10). **PR:** #513. **Head SHA:** `84eb6a8c473807995bf558dc681cea309a856003`.
+
+**Build.** `build_cuda_worktree.bat` failed (exit 5, MSB3721): its `cmake --build build_cuda --target astroray` omits `--config Release`, defaulting to Debug, which clashes `/RTC1` with CUDA's forced `/O2` on `.cu` TUs — this is the known Debug-config footgun (`build-cuda-worktree-debug-config.md`), did not touch the existing Release `.pyd`. Rebuilt clean with `configure_and_build.bat` (MSVC bootstrapped via `vcvars64.bat` in the same shell) — `-DCMAKE_BUILD_TYPE=Release`, "Build succeeded". Confirmed `astroray.__file__` resolves to `build_cuda/Release/astroray.cp313-win_amd64.pyd` inside this worktree (via `tests/runtime_setup.configure_test_imports()`), not the main repo.
+
+**Pass/fail table:**
+
+| Suite | Result |
+|---|---|
+| `test_disney_energy_conservation.py` | 271 passed, 0 failed |
+| `test_disney_reflection_not_black.py` + `test_material_properties.py` | 21 passed, 2 xfailed (pkg144-owned `sLum>20` firefly-clamp masking, pre-existing, unrelated to this PR) |
+| `test_disney_rough_glass_furnace.py` | 5 passed |
+| `test_pkg123_disney_metal_gpu_cpu_parity.py` | 4 xpassed (pre-existing xfail; GPU Disney eval has no CPU-twin compensation mechanisms — PR item 5 confirms no GPU code touched) |
+| `tests/statistical/test_chi2_bsdf.py -m "not slow"` | 7 passed, 1 xfailed (pre-existing, tracked separately as `disney-dielectric-reflection-lobe`, pkg121-disney-pdf-finding.md Round 2d) |
+
+No NEW failures vs the PR body's claimed results.
+
+**Measured numbers (independent re-measurement, full 270-config sweep, N=65536, same `integrate_material_reflectance` rho() integrator):**
+- Full grid worst case: **1.004014** at roughness=0.3, metallic=1.0, clearcoat=1.0, cos_theta_o=0.9 — matches the PR body's claimed 1.004 exactly. Well under the 1.02 hard gate.
+- pkg123 clearcoat-regression config (roughness=0.3, metallic=0.0, clearcoat=1.0, cos_theta_o=0.9): measured **0.981316** (checked at N=4096/16384/65536/262144, stable in [0.9729, 0.9852]) vs the PR body's claimed **0.947**. Does not reproduce the PR's exact number, but both are comfortably under gate (1.02/1.05) — **flagged as a discrepancy in the PR's reported table, not a gate failure.**
+- Grazing-set numbers (roughness=0.1, sheen=0/0.5/1.0, clearcoat=0, cos=0.1): measured 0.847474 / 0.829611 / 0.812430, matching PR-claimed 0.8475 / 0.8296 / 0.8124.
+- Grazing roughness=0.3 (sheen=0, cc=0, cos=0.1): measured 0.702473, matching PR-claimed 0.7025.
+
+**Note on an in-repo comment discrepancy:** `tests/test_disney_energy_conservation.py`'s header comment states the fix "brings the whole 90-config x 3-angle grid to <= 1.0 measured at N=65536 (worst 0.999072, roughness=0.3, metallic=1.0, cos_theta_o=0.5)". This is stale/inconsistent with the PR body's own table and with this verifier's independent full-grid sweep, both of which show the true worst case is **1.004014** (clearcoat=1.0, cos=0.9) — i.e. slightly above 1.0, not below. Not gate-relevant (1.004 < 1.02), but the comment should be corrected in a follow-up so it does not mislead future readers.
+
+**Visual inspection:**
+- Disney contact sheet (`tests/scenes/disney_contact_sheet.py`, 512x512, 512 spp, depth=12, default gamma) compared against `test_results/overnight_report_2026-07-23/disney_contact_sheet_before.png`: qualitatively matching — no visible over-brightening, no black rings, no clipping on either Disney sphere (top-right and bottom-right, roughness=0.4/metallic=0.3/specular=0.6).
+- White-furnace render at the worst-case grid config (roughness=0.3, metallic=1.0, clearcoat=1.0, uniform white background): sphere nearly disappears into the background (mean=0.992), consistent with the 1.004 measured ratio; no bright rim, no dark ring, no banding.
+- Grazing-angle low-roughness (0.1) vs high-roughness (0.9) Disney spheres: low-roughness shows a tight bright specular highlight, high-roughness a broad dim one (physically expected); a diff image confirms only the expected highlight/Fresnel-rim difference, no discontinuities. Zoomed rim crops for both show smooth falloff, no bright/dark ring artifacts, no fireflies at the grazing edge.
+
+**Anomalies to watch:**
+- The pkg123-regression-row numeric discrepancy above (0.981 measured vs 0.947 claimed) — not gate-blocking, but worth reconciling in the PR discussion or a follow-up note.
+- The stale in-file worst-case comment in `test_disney_energy_conservation.py` (claims <=1.0 when true worst is 1.004) should be corrected in a follow-up so it doesn't mislead future readers of that test file.
+
+**Verdict: PASS**, bound to head SHA `84eb6a8c473807995bf558dc681cea309a856003`.

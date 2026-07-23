@@ -1,5 +1,13 @@
 # Astroray Status
 
+**In progress — overnight 2026-07-23 (running, not yet closed out):** see
+`.astroray_plan/docs/standup/2026-07-23-overnight.md` for live status.
+Landed so far: pkg145 diffuse-under-specular energy coupling (PR #513,
+energy-grid worst case 1.20 → 1.004, HW PASS), pkg146 equal-wattage oracle
+reconciliation (PR #514, doc-only — no renderer change needed), pkg144
+direct/indirect firefly clamp split (PR #515, HW PASS). pkg138 + pkg148
+in flight. Full round closeout pending.
+
 **Last updated:** 2026-07-20 (Overnight autonomous run on the travel laptop — RTX 3000 Ada sm_89, CUDA 13.2, no OptiX SDK. **pkg55 Phase C Sessions C3+C4 landed** (PR #486 non-visible-band + naive-MW wavefront; PR #490 TLAS/instancing + deformation-motion in the wavefront) and **C5 is open-verified** (PR #494 photon caustics, 2/2 gates + 40-test regression green on RTX, not yet merged) — Phase C is now 5 of 7 sessions done/verified. **pkg89 GAP-1 landed** (PR #489 — dedicated lights uploaded to GPU, Blender-lamp scenes stop rendering DARK on GPU: AREA 0.998 / POINT 0.997 parity) with **GAP-2 energy audit** escalated to pkg122. **pkg121 Phase A** chi² sampler harness (PR #485 — Mitsuba BSD-3 port; Lambertian anchor passes p=0.23; Disney spec-lobe failures xfail'd → pkg123). **pkg119-A** Blender parity coverage matrix (PR #487 — v4 AST-scanned: 131 SUPPORTED / 23 APPROXIMATED / 370 DROPPED-SILENT / 20 stale sockets of 524). 15 new specs filed (pkg123-137) covering correctness/sampling + eight platform techniques + material candidates. Direct-to-main: root-shadow-pyd trap killed (94ae956), permissions allowlist (1efe9bc), pkg115-harness CUDA-13 fix (3778f37), other-engines research sweep (7a4c970).).
 
 ## Round closeout 2026-07-19 → 2026-07-20 — pkg55 Phase C C3+C4 landed (C5 open-verified) + pkg89 GPU dedicated lights + pkg121/pkg119 parity infra + 15 specs

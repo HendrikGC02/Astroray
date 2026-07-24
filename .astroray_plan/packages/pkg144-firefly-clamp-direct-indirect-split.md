@@ -172,3 +172,113 @@ area light of similar illuminance — the `× solidAngle` factor **understates**
 - [x] GPU firefly-cap parity handled: the two PRODUCTION GPU megakernels (`path_trace_kernel.cu` tracePathGPU, `multiwavelength_kernel.cu` tracePathMW — the latter is what the default `path_tracer` integrator actually dispatches to on GPU) got the same bounce-indexed split. The pkg55 wavefront SoA dev-harness kernels (`stage_advance.cu`/`stage_restir.cu`, not in the production dispatch path) still carry the old whole-path clamp — explicitly deferred, see research doc.
 - [ ] Secondary: distant-vs-area selection-importance — DEFERRED, not attempted this round (time-boxed to the primary clamp-split fix). Still open.
 - **Un-xfail note:** `test_direct_and_indirect_clamp_controls` (test_python_bindings.py) un-xfailed — genuinely fixed by this package. The two Disney-highlight tests named in the dispatch (`test_disney_metallic_tints_specular_highlight`, `test_disney_roughness_changes_glossiness`) were investigated in depth and found NOT to be caused by the firefly clamp (converged, stable R/B and mean gaps of ~0.03-0.06 and ~0.0087 respectively, well under their 0.10/0.015 gates, unchanged across clamp settings 0/20/1e6 and across 64-2048 spp) — root cause is a Pillar-2 Disney specular-magnitude question adjacent to pkg145 (Disney specular energy compensation refit), not pkg144's integrator clamp. Their xfail reasons were updated with the measured evidence and left in place; see PR body.
+
+---
+
+## Hardware verification 2026-07-23
+
+**Hardware:** NVIDIA GeForce RTX 5070 Ti. **OS:** Windows 11 Enterprise 10.0.26200.
+**CUDA:** v12.8 (`nvcc.exe`). **OptiX:** 9.1.0. **OIDN:** 2.4.1.
+Worktree: `Astroray-pkg144` (branch `pkg144-firefly-clamp-split`), bound to HEAD
+`089bf720e17a1b4e18c82e5d20c423f49ddc549f`. `.pyd` rebuilt clean via
+`configure_and_build.bat` (`cmd.exe //c`, absolute path invocation required —
+`cmd /c` alone under this Bash tool opens an interactive shell instead of
+executing; `//c` or the fully-qualified path avoids it). Confirmed
+`astroray.__file__` resolves to the worktree's own `build_cuda/Release/`.
+
+### Pass/fail table
+
+| Test | Command | Result |
+|---|---|---|
+| Bright-sun energy-linearity (new gate) | `pytest tests/test_pkg144_firefly_clamp_direct_indirect_split.py -q -v` | **8 passed** |
+| Material/binding + clamp controls | `pytest tests/test_material_properties.py tests/test_python_bindings.py -q` | **92 passed, 15 xfailed, 2 xpassed** in 75.11s |
+| `test_direct_and_indirect_clamp_controls` | `pytest tests/test_python_bindings.py -k clamp -v` | **1 passed** (confirmed genuinely un-xfailed) |
+| Furnace/firefly/caustic regression (6 files) | `pytest tests/test_disney_energy_conservation.py tests/test_dielectric_glass_furnace.py tests/test_disney_rough_glass_furnace.py tests/test_disney_reflection_not_black.py tests/test_caustic_validation.py tests/test_pkg140_distant_light_zero_angle.py -q` | **290 passed** in 7.99s |
+| GPU caustic parity | `pytest tests/test_gpu_caustic_parity.py -q` | **1 passed, 1 xfailed** in 2.27s |
+| Pre-existing-failure check (worktree) | `pytest tests/test_pkg55_c5_photon_wavefront.py::test_wavefront_photon_caustic_parity -v` | **FAILED** — `SSIM=-0.0000 < 0.80 (peak WF=1.208 MW=1.591)` |
+| Pre-existing-failure check (unmodified main, SHA 833ac60, read-only, no git changes) | same test, run against main's own `.pyd` | **FAILED** — byte-identical: `SSIM=-0.0000, peak WF=1.208 MW=1.591` |
+
+Verdict on the "1 failed" claim: **confirmed genuinely pre-existing**, unrelated
+to pkg144 (pkg55 wavefront/MW photon-caustic parity gap, tracked separately).
+
+### GPU dispatch nuance found during verification (not a pkg144 regression)
+
+`Renderer::integratorName_` default-constructs to an **empty string**, not
+`"path_tracer"`. On GPU this matters: `blender_module.cpp`'s
+`integratorName_ == "path_tracer" -> renderMultiwavelength` dispatch only
+fires when `set_integrator("path_tracer")` is called explicitly — with no
+integrator set, GPU dedicated-light scenes render solid black (CPU's
+`pathTraceSpectral` has no such gate and renders correctly either way). Every
+GPU render in this verification pass explicitly called
+`set_integrator("path_tracer")` after `set_use_gpu(True)` to route through the
+production MW megakernel per the PR's own dispatch note. Confirmed pre-existing
+binding behavior, orthogonal to the clamp-split change.
+
+### Measured numbers — bright-sun energy linearity (the gate this package exists for)
+
+CPU (via the test's own scene, S = 1e6/1e7/1e8, `angular_diameter` ∈ {0.0 (delta), 0.00918}):
+
+```
+ad=0.0:    ratios_rgb = [0.9981, 1.0006, 0.9668]   (stable across all 3 decades)
+ad=0.00918: ratios_rgb = [0.9974, 1.0022, 0.9680]  (stable across all 3 decades)
+```
+
+GPU (`set_use_gpu(True)` + `set_integrator("path_tracer")`, same scene/seed):
+
+```
+ad=0.0:     ratios_rgb = [0.9922, 0.9993, 0.9876]  (stable across all 3 decades)
+ad=0.00918: ratios_rgb = [0.9995, 0.9975, 0.9775]  (stable across all 3 decades)
+```
+
+No collapse toward 0 at any S on either backend — the pre-fix bug (asymptote at
+~14-20 regardless of S) is gone. Full per-case numeric dump:
+`test_results/overnight_report_2026-07-23/pkg144_hw_numbers.json` and
+`pkg144_linearity_ratios.json` (worktree `test_results/`).
+
+### Visual inspection summary
+
+- **Disney contact sheet** (`tests/scenes/disney_contact_sheet.py`, 512×512,
+  512spp) at defaults (both clamps off) vs the saved main-before reference
+  (`disney_contact_sheet_before.png`, SHA 476581f, the commit immediately
+  preceding pkg144's code): **visually near-identical**, no banding, no NaN
+  (magenta/black) pixels, no mode regression. Mean display RGB within
+  <0.02% of the before render. The multicolored speckle cluster on the metal
+  sphere's lower-left is present **identically** in before/defaults/clamped —
+  pre-existing dispersion/caustic noise, not introduced by this PR.
+- **Firefly quantification** (linear/unclamped renders, pixel-luminance vs
+  5×5 local-median outlier ratio): defaults shows a **modest increase** in
+  outlier pixel counts vs main-before — 3×: 153→171 (+12%), 5×: 61→74 (+21%),
+  10×: 12→16 (+33%), 20×: 3→1 (down); max spike ratio roughly doubles
+  (2274→4645). This is the expected clamp-removal bias/variance tradeoff
+  (this particular scene has no delta sun, so the old cap rarely triggered —
+  the effect is small). Mean linear luminance unchanged (<0.02%) across
+  before/defaults/clampIndirect=10 — **no energy loss**.
+- **`clampIndirect=10` demonstration**: on the same contact sheet, firefly
+  outlier counts drop **below the main-before baseline at every threshold**
+  (3×: 154, 5×: 53, 10×: 9, 20×: 0) while mean brightness stays within 0.02%
+  of the unclamped default — the new control suppresses fireflies without
+  visible energy loss, exactly as designed.
+- **Bright-sun scene** (S=1e7, fixed-exposure tonemap referenced to the
+  analytic floor value): defaults (`clampDirect` off) renders a uniform
+  correctly-exposed mid-grey floor (ratio-to-analytic ~0.99-1.00, highlights
+  no longer capped). A control render with `clampDirect=20` (simulating the
+  removed always-on `sLum>20` cap) renders **solid black at the same fixed
+  exposure** — floor pinned at ~20 regardless of S=1e7, a ~5-order-of-
+  magnitude underexposure. This is the exact bug the PR fixes, reproduced
+  and visually confirmed on this hardware.
+
+PNGs (worktree `test_results/`, copied to
+`test_results/overnight_report_2026-07-23/` with `pkg144_` prefix):
+`pkg144_contact_sheet_defaults.png`, `pkg144_contact_sheet_clamped.png`,
+`pkg144_bright_sun.png`, `pkg144_bright_sun_oldcap_sim.png`.
+
+### Anomalies to watch
+
+- GPU integrator-dispatch empty-string default (above) is a latent footgun
+  for any future GPU test/scene author who forgets `set_integrator("path_tracer")`
+  — silently renders black rather than erroring. Worth a follow-up ticket,
+  out of scope for pkg144.
+- The pkg55 wavefront/MW photon-caustic SSIM=-0.0000 failure remains open
+  and unrelated; do not re-attribute it to future clamp-split work.
+
+**Verdict: PASS**, bound to `089bf720e17a1b4e18c82e5d20c423f49ddc549f`.

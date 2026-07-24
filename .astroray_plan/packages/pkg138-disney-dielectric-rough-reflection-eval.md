@@ -258,3 +258,37 @@ adjudication, recorded here verbatim as the implementation contract.
    catches this, and nobody had run a full-sphere (not hemisphere-only) chi²
    sweep against the transmission lobe specifically until this
    investigation.
+
+---
+
+## Hardware verification 2026-07-24
+
+Hardware: RTX 5070 Ti. OS: Windows 11 Enterprise 10.0.26200. CUDA: 12.8 (nvcc). OptiX: 9.1.0. OIDN: 2.4.1.
+
+Assigned head SHA: c2a3f28d9f136cc0175bbf0d1efc3f4469e9b8d9. CRITICAL FINDING -- worktree contamination, THREE mutations mid-session: this branch HEAD moved out from under this verifier repeatedly while verification was in progress:
+1. c2a3f28 (assigned) -- the architect committed d21006e (ADJUDICATE PR 517 mergeable partial-scope) directly to origin/main at 2026-07-24 01:35:54 +1000, after this verifier build completed at 01:34 and before its visual-inspection renders ran.
+2. The branch was then rebased onto that new main, replaying the assigned commit as 20ea0726... (c2a3f28 no longer reachable on the branch).
+3. A further docs-only commit 483ef7f (name pkg149/pkg150 in the chi2 xfail reason string) landed on top of 20ea0726 -- observed only when polling gh pr view 517 for the live PR head, AFTER this verifier had already produced results bound to 20ea0726.
+
+Content diff-check across all three states confirms include/astroray/gpu_materials.h and plugins/materials/disney.cpp are byte-identical from c2a3f28 through 483ef7f (only doc/spec files, plus a cosmetic reason-string edit in tests/statistical/test_chi2_bsdf.py xfail marker, differ). The numeric/visual results below therefore remain valid measurements of the shipped code across all three SHAs, but the final live PR head at the time of this report is 483ef7f4f5db082e234452f328304a096d018dff, not the originally assigned SHA.
+
+FLAGGED FOR ORCHESTRATOR/ARCHITECT: this branch received three separate out-of-band writes while a dedicated hardware verifier held it, including a merge-adjudication commit whose own text records HW non-regression PASS as a satisfied merge condition before this verifier had produced that result. Isolation between an in-flight HW-verify session and concurrent architect/orchestrator writes to the same branch was not maintained. This is a process/governance finding, not a gate result -- it is reported, not adjudicated, by this verifier.
+
+Build: configure_and_build.bat -- succeeded (incremental; source last modified 01:09:19, .pyd already built 01:13:02 from identical content, both predating the assigned commit git-commit timestamp of 01:30:35 -- verified by byte-diff, not assumed). astroray.__file__ confirmed at the worktree canonical build_cuda/Release/astroray.cp313-win_amd64.pyd.
+
+Pass/fail table:
+
+| Gate | Command | Result |
+|---|---|---|
+| Furnace/energy conservation | pytest tests/test_disney_energy_conservation.py tests/test_disney_rough_glass_furnace.py tests/test_dielectric_glass_furnace.py -q | 278 passed in 4.82s |
+| chi2 BSDF (not slow) | pytest tests/statistical/test_chi2_bsdf.py -m not-slow -v -s | 7 passed, 1 xfailed (test_chi2_disney_glass[0.3-45]: chi2=143140779.145224, dof=1025, p=0.000000, matches the PR-quoted bit-identical figure; xfail reason present, strict=True, documents both out-of-scope root causes, not deleted or widened, ran against the 20ea0726 text; the 483ef7f edit to this same reason string is cosmetic only, see contamination note above) |
+| GPU/CPU parity | pytest tests/test_pkg123_disney_metal_gpu_cpu_parity.py tests/test_gpu_caustic_parity.py -v -s | 1 passed, 1 xfailed, 4 xpassed (the 4 XPASS are pre-existing non-strict xfails on Disney-metal near-delta parity, unrelated to this PR; test_gpu_glass_sphere_caustic_parity PASSED: GPU=22181.7109 CPU=22191.7637 ratio=1.000x SSIM=0.9794) |
+| Material properties + reflection-not-black | pytest tests/test_material_properties.py tests/test_disney_reflection_not_black.py -q | 21 passed, 2 xfailed (both xfails pre-existing, strict=False, unrelated to this PR) |
+
+Visual inspection:
+- Disney contact sheet (512x512, 512spp, seed 12) vs disney_contact_sheet_before.png: qualitatively indistinguishable; mean abs diff 4.21/255, per-channel mean ratio after/before ~0.99-1.00 (R 0.9906, G 0.9979, B 0.9970), saturated-pixel counts nearly identical (40555 before vs 40296 after), no NaN/Inf. Diff heatmap shows uniform low-magnitude noise across the whole frame, not localized to the dielectric sphere, consistent with an RNG-stream shift from changed per-bounce throughput/Russian-roulette outcomes, not a systematic bug. No fireflies, no banding, no black/magenta NaN pixels, no mode regression.
+- Rough-glass sphere (roughness=0.3, transmission=1.0, ior=1.5, the exact chi2[0.3-45] config), GPU vs CPU, fixed seed 7, 256spp: qualitatively identical soft rectangular highlight, correct transmitted backdrop color, no black ring, no darkened highlight (GPU mean 0.4534, CPU mean 0.4556, center-patch 0.5337 and 0.5309). Compared against main pre-fix .pyd at the same config: qualitatively indistinguishable, expected, since sample() VNDF-reflection candidate is still masked to the smooth-mirror delta fallback at this exact config (documented out-of-scope defect #2), so the eval() fix effect here is via NEE/MIS light-sampling contributions rather than a gross highlight-shape change.
+
+Anomalies worth watching: none beyond the pre-existing, already-documented items (pre-existing non-strict Disney-metal near-delta parity XPASS; pre-existing strict=False material-property xfails). The chi2[0.3-45] xfail is unchanged and expected per the partial-scope framing. The repeated out-of-band branch mutation during this session is the primary anomaly and should inform process changes, such as freezing writes to a PR branch while its dedicated HW verifier is active.
+
+Verdict: PASS, bound to 483ef7f4f5db082e234452f328304a096d018dff (content-identical to the originally assigned c2a3f28d9f136cc0175bbf0d1efc3f4469e9b8d9 for every source and test file this PR touches; only doc/spec files and one cosmetic xfail-reason string differ). The shipped eval() fix is real and non-regressing on RTX 5070 Ti hardware, GPU/CPU parity is intact, and the partial-scope framing is accurate (chi2 gate correctly re-xfailed with documented, non-deleted reasons). This verdict reports measurements only; it does not ratify or override the worktree-contamination finding above, which is a process issue for the orchestrator and architect to resolve.

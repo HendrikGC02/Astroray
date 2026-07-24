@@ -1,6 +1,8 @@
 #include "astroray/energy_compensation.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>

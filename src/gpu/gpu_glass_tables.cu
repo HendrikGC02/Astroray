@@ -11,6 +11,7 @@
 #include "astroray/energy_compensation.h"
 
 #include <cuda_runtime.h>
+#include <cstddef>
 #include <cstdio>
 #include <stdexcept>
 

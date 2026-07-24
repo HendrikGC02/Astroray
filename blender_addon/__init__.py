@@ -1049,7 +1049,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             integrator_name = _effective_integrator_name(settings)
             try:
                 active_device = _configure_backend_for_context(renderer, settings, self.report, integrator_name)
-            except RuntimeError:
+            except RuntimeError as exc:
+                self.report({'ERROR'}, str(exc))
                 return
             if active_device == "gpu":
                 try:

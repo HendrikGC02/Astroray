@@ -386,7 +386,10 @@ void launchStageRegen(
     int width, int height,
     uint64_t seed,
     float lambdaMin,        // pkg55-C3
-    float lambdaMax);       // pkg55-C3
+    float lambdaMax,        // pkg55-C3
+    int* d_count_out,       // pkg55-C7: fused per-pass counter zeroing
+    int* d_shade_counts,    //   (replaces 3 cudaMemsetAsync per pass;
+    int* d_shadow_count);   //   nullptr = skip)
 
 // Session N+7: device-side per-sample XYZ accumulation (radiance -> XYZ ->
 // firefly clamp -> += accum). accum_xyz is 3 floats per slot, zeroed by the

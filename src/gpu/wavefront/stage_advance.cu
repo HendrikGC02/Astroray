@@ -1257,9 +1257,22 @@ __global__ void stageRegenKernel(
     int width, int height,
     uint64_t seed,
     float lambdaMin,
-    float lambdaMax)
+    float lambdaMax,
+    int* count_out,      // pkg55-C7 perf: fused per-pass counter zeroing —
+    int* shade_counts,   // replaces 3 cudaMemsetAsync launches per pass
+    int* shadow_count)   // (~3.6k extra launches per 512-spp render).
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    // Thread 0 zeroes the per-pass queue counters BEFORE the early-outs
+    // (its own slot may be alive). Same-stream ordering makes this visible
+    // to the intersect/shade/shadow launches that follow, exactly like the
+    // memsets it replaces.
+    if (idx == 0 && count_out != nullptr) {
+        *count_out    = 0;
+        *shadow_count = 0;
+        #pragma unroll
+        for (int m = 0; m < G_WF_NUM_MAT_TYPES; ++m) shade_counts[m] = 0;
+    }
     if (idx >= state.num_active) return;
     if (state.path_alive[idx] != 0) return;
 
@@ -1341,7 +1354,10 @@ void launchStageRegen(
     int width, int height,
     uint64_t seed,
     float lambdaMin,
-    float lambdaMax)
+    float lambdaMax,
+    int* d_count_out,      // pkg55-C7: fused counter zeroing (nullptr = skip)
+    int* d_shade_counts,
+    int* d_shadow_count)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1353,7 +1369,8 @@ void launchStageRegen(
         stageRegenKernel<<<blocks, threads>>>(
             state, d_accum_xyz, d_work_counter, total_work, numPixels,
             cam, width, height, seed,
-            lambdaMin, lambdaMax);
+            lambdaMin, lambdaMax,
+            d_count_out, d_shade_counts, d_shadow_count);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_regen launch error: %s\n",

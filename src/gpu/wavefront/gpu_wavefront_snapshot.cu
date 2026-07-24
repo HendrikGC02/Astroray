@@ -53,7 +53,10 @@ void launchStageRegen(
     int width, int height,
     uint64_t seed,
     float lambdaMin,
-    float lambdaMax);
+    float lambdaMax,
+    int* d_count_out,       // pkg55-C7: fused per-pass counter zeroing
+    int* d_shade_counts,
+    int* d_shadow_count);
 
 // From stage_advance.cu (pkg55-C4: forward decls MUST match signatures exactly)
 void launchStageIntersectQueued(
@@ -1507,12 +1510,14 @@ std::vector<float> cuda_wavefront_render(
         bool workExhausted = false;
         int drainLeft = max_depth;
         for (long long pass = 0; pass < kMaxPasses; ++pass) {
+            // pkg55-C7 perf: the per-pass counter zeroing (cout/shadeCounts/
+            // shadowCount) is fused into stageRegenKernel thread 0 — same
+            // same-stream ordering as the 3 cudaMemsetAsync launches it
+            // replaces (~3.6k launches saved per 512-spp render).
             launchStageRegen(state, d_accum, d_work, (int)total_work,
                              total_paths, gcam, width, height, seed,
-                             lambdaMin, lambdaMax);
-            cudaMemsetAsync(cout, 0, sizeof(int));
-            cudaMemsetAsync(d_shadeCounts, 0, kNumMatTypes * sizeof(int));
-            cudaMemsetAsync(d_shadowCount, 0, sizeof(int));
+                             lambdaMin, lambdaMax,
+                             cout, d_shadeCounts, d_shadowCount);
             launchStageIntersectQueued(state, hitBufs, d_queueA, d_counts + 0,
                                        d_shadeQueues, d_shadeCounts,
                                        total_paths,
@@ -1558,7 +1563,8 @@ std::vector<float> cuda_wavefront_render(
         }
         launchStageRegen(state, d_accum, d_work, (int)total_work,
                          total_paths, gcam, width, height, seed,
-                         lambdaMin, lambdaMax);
+                         lambdaMin, lambdaMax,
+                         /*d_count_out=*/nullptr, nullptr, nullptr);
 
         cudaError_t syncErr = cudaDeviceSynchronize();
         if (syncErr != cudaSuccess)

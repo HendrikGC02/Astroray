@@ -4419,9 +4419,18 @@ PYBIND11_MODULE(astroray, m) {
         "cuda"_a=false,
 #endif
 #ifdef ASTRORAY_WAVEFRONT_CUDA_N3
-        "wavefront_cuda"_a=true
+        "wavefront_cuda"_a=true,
 #else
-        "wavefront_cuda"_a=false
+        "wavefront_cuda"_a=false,
+#endif
+        // pkg147: whether this .pyd was compiled with OpenMP linked in.
+        // blender_addon's _check_build_integrity() refuses to register when
+        // true — see CMakeLists.txt's ASTRORAY_OPENMP_ENABLED comment for the
+        // GIL-deadlock mechanism this guards against.
+#ifdef ASTRORAY_OPENMP_ENABLED
+        "openmp"_a=true
+#else
+        "openmp"_a=false
 #endif
     );
 

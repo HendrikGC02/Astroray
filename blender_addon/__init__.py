@@ -504,6 +504,11 @@ def configure_backend(renderer, settings, reporter=None, integrator_name=None) -
     """
     mode = getattr(settings, "device_mode", "auto")
     if mode == "cpu":
+        # pkg147: an OpenMP-enabled .pyd deadlocks CPU renders >16px; refuse
+        # right at the point CPU mode is actually selected (not at register()
+        # time, which would also block legitimate GPU-only use of the same
+        # ad-hoc build).
+        _check_openmp_disabled()
         return "cpu"
 
     selected_integrator = integrator_name or _effective_integrator_name(settings)
@@ -518,6 +523,7 @@ def configure_backend(renderer, settings, reporter=None, integrator_name=None) -
             _report_backend(reporter, 'ERROR', message)
             raise RuntimeError(message)
         _report_backend(reporter, 'INFO', message + "; using CPU")
+        _check_openmp_disabled()  # pkg147
         return "cpu"
 
     try:
@@ -540,6 +546,7 @@ def configure_backend(renderer, settings, reporter=None, integrator_name=None) -
                 _report_backend(reporter, 'ERROR', message)
                 raise RuntimeError(message) from exc
             _report_backend(reporter, 'INFO', f"Astroray: GPU initialization failed ({exc}); using CPU")
+    _check_openmp_disabled()  # pkg147
     return "cpu"
 
 
@@ -1042,7 +1049,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             integrator_name = _effective_integrator_name(settings)
             try:
                 active_device = _configure_backend_for_context(renderer, settings, self.report, integrator_name)
-            except RuntimeError:
+            except RuntimeError as exc:
+                self.report({'ERROR'}, str(exc))
                 return
             if active_device == "gpu":
                 try:
@@ -5097,6 +5105,49 @@ def _check_build_integrity():
             f"  Loaded module build-ID:    {loaded_build_id}\n"
             f"  Installed manifest build-ID: {manifest_build_id}\n\n"
             f"Quit Blender completely, then restart it to pick up the new module.\n"
+            f"{'='*70}\n"
+        )
+
+
+def _check_openmp_disabled():
+    """pkg147: refuse to render CPU with an OpenMP-enabled .pyd.
+
+    render()'s progress callback is invoked from whichever OpenMP worker
+    thread finishes a tile (raytracer.h's `#pragma omp parallel for` render
+    loop), and PyRenderer::render() (module/blender_module.cpp) holds the GIL
+    for the whole call. A worker thread's gil_scoped_acquire deadlocks
+    against the calling thread, which is blocked in the implicit end-of-
+    parallel-region barrier while still holding the GIL — this hangs any CPU
+    addon render with 2+ tiles (device_mode='cpu' at >16px, tileSize=16).
+
+    Called from configure_backend() at every point CPU mode is actually
+    selected (explicit device_mode='cpu', or an auto/gpu fallback to CPU) —
+    NOT from register(), so an OpenMP-enabled dev build can still register
+    and render on GPU without being blocked; only the CPU path it would
+    actually deadlock is refused.
+
+    build_blender_addon.py always passes -DASTRORAY_DISABLE_OPENMP=ON, so a
+    properly-packaged addon build never hits this. This guard catches ad-hoc
+    dev builds (e.g. a raw `cmake --build` or configure_and_build.bat run)
+    that get dropped into the addon directory without going through the
+    packaging script.
+    """
+    if not RAYTRACER_AVAILABLE:
+        return
+    if bool(astroray.__features__.get("openmp", False)):
+        raise RuntimeError(
+            f"\n{'='*70}\n"
+            f"ASTRORAY REFUSING CPU RENDER — OpenMP-enabled build\n"
+            f"{'='*70}\n"
+            f"This astroray.pyd was compiled WITH OpenMP linked in. Rendering\n"
+            f"with device_mode='cpu' at more than one tile (>16px) will hang\n"
+            f"indefinitely: the render() progress callback is invoked from an\n"
+            f"OpenMP worker thread and deadlocks against the GIL held by the\n"
+            f"calling thread for the duration of the call.\n\n"
+            f"Rebuild via scripts/build/build_blender_addon.py, which always\n"
+            f"passes -DASTRORAY_DISABLE_OPENMP=ON for addon builds. Do not\n"
+            f"install a .pyd built via a raw cmake/configure_and_build.bat\n"
+            f"invocation into the Blender addon directory.\n"
             f"{'='*70}\n"
         )
 

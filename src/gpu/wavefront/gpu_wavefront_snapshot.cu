@@ -91,6 +91,7 @@ void launchStageShadeBucketed(
     const GVec3*      d_motionVerts,
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     int               max_depth,
     bool              useLuminanceOutput,
@@ -113,6 +114,7 @@ void launchStageShadeNeeMis(
     const GVec3*      d_motionVerts,
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -1033,6 +1035,7 @@ T* wfUpload(WfDeviceBuf& b, const std::vector<T>& src) {
 struct WfContext {
     // Scene slices.
     WfDeviceBuf nodes, prims, tris, spheres, materials, lights;
+    WfDeviceBuf dedLights;                    // pkg89-wavefront (C7)
     WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
     WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
     WfDeviceBuf treeNodes, treeEmitters, lightToEmitter;
@@ -1111,6 +1114,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     GVec3* d_motionVerts = nullptr;
     ::GMaterial* d_materials = nullptr;
     ::GLight* d_lights = nullptr;
+    GDedicatedLight* d_dedLights = nullptr;  // pkg89-wavefront (C7)
     GLightTreeNode* d_treeNodes = nullptr;
     GLightTreeEmitter* d_treeEmitters = nullptr;
     int* d_lightToEmitter = nullptr;
@@ -1135,6 +1139,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
         cudaFree(d_spheres);
         cudaFree(d_tlas); cudaFree(d_instances); cudaFree(d_blas); cudaFree(d_motionVerts);  // pkg55-C4
         cudaFree(d_materials); cudaFree(d_lights);
+        cudaFree(d_dedLights);  // pkg89-wavefront (C7)
         cudaFree(d_treeNodes); cudaFree(d_treeEmitters); cudaFree(d_lightToEmitter);
         cudaFree(d_envData); cudaFree(d_envCondCdf); cudaFree(d_envCondFunc);
         cudaFree(d_envMargCdf); cudaFree(d_envMargFunc);
@@ -1155,6 +1160,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
         devUpload(res.motionVertices, &d_motionVerts);
         devUpload(res.materials, &d_materials);
         devUpload(res.lights, &d_lights);
+        devUpload(res.dedicatedLights, &d_dedLights);  // pkg89-wavefront (C7)
         devUpload(res.lightTreeNodes, &d_treeNodes);
         devUpload(res.lightTreeEmitters, &d_treeEmitters);
         devUpload(res.lightToEmitter, &d_lightToEmitter);
@@ -1196,14 +1202,15 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
             throw std::runtime_error("cuda_wavefront_snapshot_post_nee_mis: hit buffer alloc failed");
         hitAllocated = true;
 
-        // Deferred-NEE parking scratch (11 floats + 2 ints per slot, per the
-        // stage_advance.cu layout constants); shadow queue is unused output.
+        // Deferred-NEE parking scratch (G_WF_NEE_F_LANES floats +
+        // G_WF_NEE_I_LANES ints per slot, per the stage_advance.cu parking
+        // layout); shadow queue is unused output.
         auto mallocOrThrow = [](void** p, size_t bytes) {
             if (cudaMalloc(p, bytes) != cudaSuccess)
                 throw std::runtime_error("cuda_wavefront_snapshot_post_nee_mis: scratch alloc failed");
         };
-        mallocOrThrow((void**)&d_nee_f, size_t(11) * total_paths * sizeof(float));
-        mallocOrThrow((void**)&d_nee_i, size_t(2) * total_paths * sizeof(int));
+        mallocOrThrow((void**)&d_nee_f, size_t(G_WF_NEE_F_LANES) * total_paths * sizeof(float));
+        mallocOrThrow((void**)&d_nee_i, size_t(G_WF_NEE_I_LANES) * total_paths * sizeof(int));
         mallocOrThrow((void**)&d_shadow_queue, size_t(total_paths) * sizeof(int));
         mallocOrThrow((void**)&d_shadow_count, sizeof(int));
         cudaMemset(d_shadow_count, 0, sizeof(int));
@@ -1228,7 +1235,9 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
                                d_bvhNodes, d_prims, d_tris, d_spheres,
                                d_motionVerts, d_materials,  // pkg55-C4
                                d_lights, (int)res.lights.size(),
-                               res.totalLightPower, treeView, envMap, gbg, hasBg,
+                               res.totalLightPower,
+                               d_dedLights, (int)res.dedicatedLights.size(),  // pkg89-wavefront
+                               treeView, envMap, gbg, hasBg,
                                worldMaxBounces, /*max_depth=*/8,
                                /*useLuminanceOutput=*/false, /*enableNEE=*/true);
 
@@ -1358,6 +1367,9 @@ std::vector<float> cuda_wavefront_render(
     GVec3*      d_motionVerts = wfUpload(C.motionVertices, res.motionVertices);
     ::GMaterial* d_materials = wfUpload(C.materials, res.materials);
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
+    // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
+    // power CDF continues past the GLight entries; see gpu_nee.cuh).
+    GDedicatedLight* d_dedLights = wfUpload(C.dedLights, res.dedicatedLights);
     GLightTreeNode* d_treeNodes = wfUpload(C.treeNodes, res.lightTreeNodes);
     GLightTreeEmitter* d_treeEmitters = wfUpload(C.treeEmitters, res.lightTreeEmitters);
     int* d_lightToEmitter = wfUpload(C.lightToEmitter, res.lightToEmitter);
@@ -1434,8 +1446,8 @@ std::vector<float> cuda_wavefront_render(
     int*   d_counts      = wfEnsure<int>(C.counts, 2);
     int*   d_shadeQueues = wfEnsure<int>(C.shadeQueues, size_t(kNumMatTypes) * total_paths);
     int*   d_shadeCounts = wfEnsure<int>(C.shadeCounts, kNumMatTypes);
-    float* d_neeF        = wfEnsure<float>(C.neeF, size_t(11) * total_paths);
-    int*   d_neeI        = wfEnsure<int>(C.neeI, size_t(2) * total_paths);
+    float* d_neeF        = wfEnsure<float>(C.neeF, size_t(G_WF_NEE_F_LANES) * total_paths);
+    int*   d_neeI        = wfEnsure<int>(C.neeI, size_t(G_WF_NEE_I_LANES) * total_paths);
     int*   d_shadowQueue = wfEnsure<int>(C.shadowQueue, total_paths);
     int*   d_shadowCount = wfEnsure<int>(C.shadowCount, 1);
     int*   d_work        = wfEnsure<int>(C.work, 1);
@@ -1521,6 +1533,8 @@ std::vector<float> cuda_wavefront_render(
                                      d_lights,
                                      (int)res.lights.size(),
                                      res.totalLightPower,
+                                     d_dedLights,  // pkg89-wavefront (C7)
+                                     (int)res.dedicatedLights.size(),
                                      treeView, max_depth,
                                      useLuminanceOutput, enableNEE,
                                      caustic.grid, caustic.ready,  // pkg55-C5 / pkg113

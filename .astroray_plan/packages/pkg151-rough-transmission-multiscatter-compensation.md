@@ -3,7 +3,9 @@
 **Pillar:** 2 (materials / BSDF energy conservation)
 **Track:** A
 **Codex-paste-ready:** no (an energy-compensation port with an ior-dimensioned table and a furnace calibration loop)
-**Status:** open — dispatchable (**HEADS Lane A of the 2026-07-24 overnight run** as a stack with pkg149 — pkg149's corrected sampler is HELD unpushed until this lands; ship as one PR chain: pkg151 → pkg149 rebased on it, furnace + peak-alignment green together. **Research pointers are now implementation-ready:** the Cycles table symbols/dimensions/ior-parameterization were confirmed against live source 2026-07-24 — see `.astroray_plan/docs/pkg151-cycles-glass-tables-research.md`; no re-research needed at port time)
+**Status:** implemented, PR #519 — **✅ ADJUDICATED 2026-07-25 (architect): MERGEABLE STANDALONE as groundwork**, conditional on (a) CI green on the final head, and (b) HW verification covering the three items in the adjudication block below. **The furnace-restoration gate is REMOVED from this package's scope — the stack premise is FALSIFIED** (the honestly pre-registered magnitude probe `.astroray_plan/docs/pkg151-glass-multiscatter-magnitude-notes.md` shows the Cycles glass compensation ceiling is ~1.03× at ior=1.5 vs the 1.2×–11× the deficit requires; with `670e583` stacked the furnace is statistically unchanged at 0.11–0.82). The deficit's true root cause is now owned by **pkg154** (investigation-first); the chi² glass[0.3-45] un-xfail stays with pkg149, which stays HELD behind pkg154. What this package still delivers: the faithful cited port (CPU `roughTransmissionEval` + GPU twin), the glass LUT extraction, the GPU table-upload infrastructure, and the 9/9-tested trilinear sampler — all needed regardless of the root cause, all additive, main-sampler furnace unchanged-green (0.937–1.0). (Research confirmation record: `.astroray_plan/docs/pkg151-cycles-glass-tables-research.md`.)
+
+> **✅ ADJUDICATION (2026-07-25, architect — PR #519):** Merge standalone as groundwork, **conditional on**: (1) CI green; (2) HW verification confirming — (i) the new GPU table-upload path actually loads the glass LUTs on RTX (new infra, never HW-exercised), (ii) CPU==GPU per-channel mean-ratio parity on a rough-transmission scene, (iii) main-sampler rough-glass furnace unchanged in its 0.937–1.0 band; wavefront_diff/perf failures during that run are dispositioned per the pkg153 interim attribution protocol, not against this PR; (3) the gate transfer to pkg154 recorded (this commit). Rationale: the port is faithful and cited, everything is additive with green suites, and the negative result was flagged BEFORE measurement — exactly the pkg146 discipline; holding correct groundwork hostage to a falsified premise would waste it. **Merge-conflict note:** the PR branch also edits this Status line — main's version (this one) wins; union the docs.
 **Estimated effort:** M
 **Depends on:** pkg149's worktree fix (`Astroray-pkg149`, local commit `670e583` — the corrected `sampleGgxVNDF`). Distinct from **pkg129** (Turquin *reflection* LUTs for metals + the GPU placeholder) — same technique family, different lobe, different table dimensionality (transmission needs an **ior axis**); do NOT fold them: pkg129 is coupled to the metal/GPU-placeholder work and would drag pkg149's ship date.
 
@@ -76,9 +78,13 @@ matching what production engines ship:
 
 ## Gates
 
-- **Rough-glass furnace restored:** [0.92, 1.03] (the pkg118 gate band) across
+- ~~**Rough-glass furnace restored:** [0.92, 1.03] (the pkg118 gate band) across
   R ∈ {0.05, 0.1, 0.3, 0.6, 1.0} **on the corrected sampler** (`670e583`
-  stacked) — the 0.09–0.82 regression is the package's reason to exist.
+  stacked) — the 0.09–0.82 regression is the package's reason to exist.~~
+  **TRANSFERRED to pkg154 (2026-07-25 adjudication):** measured unreachable
+  from this package — the compensation ceiling is ~1.03× (see magnitude-notes
+  doc). This package's furnace obligation reduces to: main-sampler furnace
+  UNCHANGED (0.937–1.0 band).
 - **pkg149's peak-alignment stays green** (<2°, N≥100k) — compensation scales
   throughput magnitude, it must not touch sampled direction shape.
 - chi² glass[0.3-45]: report the number on the stacked pair; the un-xfail is

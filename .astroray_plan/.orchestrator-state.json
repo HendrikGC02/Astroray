@@ -1,11 +1,11 @@
 {
-  "516": {
-    "head_sha": "56ebbc91c334df89bc87cbc24c2c7051c46fb3d5",
-    "hw_artifact": "test_results/overnight_report_2026-07-23/pkg148_hw_numbers.json",
-    "hw_numbers": "default-ctor GPU dedicated light non-black: gpu_mean 1.125, cpu/gpu ratio 0.998; pkg89 AREA/POINT parity 0.998/0.997; suite failures all pre-existing",
-    "hw_result": "PASS",
-    "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-23T14:34:57Z"
+  "518": {
+    "head_sha": "f1fd7b89447fdb8dce992fdbe81ee2c014470654",
+    "hw_artifact": "test_results/overnight_report_2026-07-24/pkg141_hw_numbers.json",
+    "hw_numbers": "PR-own gates all green (parity 2.7-4.0x -> in-band, furnace/energy clean); FAIL driven by wavefront_diff 4 gates + perf 0.90x<1.30x, VERIFIED pre-existing on main 8c49bbb",
+    "hw_result": "FAIL",
+    "last_action": "gate_review_dispatched",
+    "last_action_ts": "2026-07-24T14:49:11Z"
   },
   "impl_dispatches": {
     "pkg55-bprime-session-n1": {

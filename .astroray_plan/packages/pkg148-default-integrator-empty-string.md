@@ -3,7 +3,13 @@
 **Pillar:** 3 (light transport plumbing / API footgun)
 **Track:** A
 **Codex-paste-ready:** no (small, but the fix choice is a convention decision + needs an RTX-verified render gate)
-**Status:** open — dispatchable (small; may run in the 2026-07-23 overnight if a slot frees — serialize the RTX leg behind the GPU lock)
+**Status:** done (PR #516, 2026-07-24 — Option A: `integratorName_` defaults to
+`"path_tracer"` at construction and at both reset sites (`clear()`,
+`set_integrator("auto"|"default"|"")`); binding-level `get_integrator()`
+added; GPU dedicated-light non-black gate measured locally on RTX 5070 Ti
+(gpu_mean > 0.05, CPU/GPU ratio in [0.9, 1.1]) — official `/verify` RTX sweep
+still pending per protocol, this was opportunistic since the dev box has a
+CUDA build)
 **Estimated effort:** S
 **Depends on:** none
 

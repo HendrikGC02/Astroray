@@ -65,8 +65,10 @@ def _render(r, use_gpu):
     # path_tracer is the production route the Blender addon uses by default
     # (_effective_integrator_name -> "path_tracer"); on GPU it dispatches to the
     # spectral multiwavelength megakernel — the kernel wired for dedicated lights.
-    # An unset integrator falls through to the legacy RGB megakernel, which does
-    # NOT sample dedicated lights and is not the addon's production route.
+    # Set explicitly here for clarity; pkg148 made an unset integrator default
+    # to "path_tracer" too (previously it fell through to the legacy no-NEE
+    # megakernel and rendered dedicated-light scenes black — see
+    # test_pkg148_default_integrator.py).
     r.set_integrator("path_tracer")
     r.set_use_gpu(use_gpu)
     r.set_seed(SEED)

@@ -2,7 +2,7 @@
 
 **Pillar:** 4
 **Track:** B (post-process pass, self-contained)
-**Status:** open
+**Status:** paused (owner directive 2026-06-08 — resume when core rendering stable)
 **Estimated effort:** 1–2 sessions (~4 h)
 **Depends on:** pkg06 (pass registry), pkg47 (FITS loader, for PSF cubes)
 

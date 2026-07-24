@@ -1,12 +1,22 @@
 # Astroray Status
 
-**In progress — overnight 2026-07-23 (running, not yet closed out):** see
-`.astroray_plan/docs/standup/2026-07-23-overnight.md` for live status.
-Landed so far: pkg145 diffuse-under-specular energy coupling (PR #513,
-energy-grid worst case 1.20 → 1.004, HW PASS), pkg146 equal-wattage oracle
-reconciliation (PR #514, doc-only — no renderer change needed), pkg144
-direct/indirect firefly clamp split (PR #515, HW PASS). pkg138 + pkg148
-in flight. Full round closeout pending.
+**In progress — overnight 2026-07-24 (running, not yet closed out):** see
+`.astroray_plan/docs/standup/2026-07-24-overnight.md` for live status.
+Overnight 2026-07-23 closed with 5 PRs landed: pkg145 diffuse-under-specular
+energy coupling (PR #513, energy-grid worst case 1.20 → 1.004, HW PASS),
+pkg146 equal-wattage oracle reconciliation (PR #514, doc-only), pkg144
+direct/indirect firefly clamp split (PR #515, HW PASS), pkg138 rough
+dielectric reflection lobe in Disney `eval()` (PR #517, partial-scope
+adjudicated, HW PASS), pkg148 default-integrator empty-string fix (PR #516,
+HW PASS). Worktrees for all five (`Astroray-pkg145/144/138/146/148`) GC'd;
+`Astroray-pkg122` kept for oracle evidence, `Astroray-pkg149` kept (holds
+unpushed commit `670e583`). The 2026-07-25 tracker-drift audit (`07ac576`)
+normalized 30 spec Status labels and identified pkg55-C7 as the next
+supervised-day-session item. Overnight 2026-07-24 landed pkg141 GPU
+Disney-metal closure routing fix (PR #518, HW nominal-FAIL/adjudicated —
+failing gates are pre-existing main regressions now owned by pkg153);
+pkg151/pkg147 open, HELD by pr-merger for owner approval on CMakeLists
+touches. Full round closeout pending.
 
 **Last updated:** 2026-07-20 (Overnight autonomous run on the travel laptop — RTX 3000 Ada sm_89, CUDA 13.2, no OptiX SDK. **pkg55 Phase C Sessions C3+C4 landed** (PR #486 non-visible-band + naive-MW wavefront; PR #490 TLAS/instancing + deformation-motion in the wavefront) and **C5 is open-verified** (PR #494 photon caustics, 2/2 gates + 40-test regression green on RTX, not yet merged) — Phase C is now 5 of 7 sessions done/verified. **pkg89 GAP-1 landed** (PR #489 — dedicated lights uploaded to GPU, Blender-lamp scenes stop rendering DARK on GPU: AREA 0.998 / POINT 0.997 parity) with **GAP-2 energy audit** escalated to pkg122. **pkg121 Phase A** chi² sampler harness (PR #485 — Mitsuba BSD-3 port; Lambertian anchor passes p=0.23; Disney spec-lobe failures xfail'd → pkg123). **pkg119-A** Blender parity coverage matrix (PR #487 — v4 AST-scanned: 131 SUPPORTED / 23 APPROXIMATED / 370 DROPPED-SILENT / 20 stale sockets of 524). 15 new specs filed (pkg123-137) covering correctness/sampling + eight platform techniques + material candidates. Direct-to-main: root-shadow-pyd trap killed (94ae956), permissions allowlist (1efe9bc), pkg115-harness CUDA-13 fix (3778f37), other-engines research sweep (7a4c970).).
 

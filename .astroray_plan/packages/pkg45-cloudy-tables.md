@@ -2,7 +2,7 @@
 
 **Pillar:** 4  
 **Track:** B (Python-only, no C++ changes)  
-**Status:** open  
+**Status:** paused (owner directive 2026-06-08 — resume when core rendering stable)  
 **Estimated effort:** 1 session (~3 h)  
 **Depends on:** none (independent Python preprocessing)
 

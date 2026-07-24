@@ -2,7 +2,7 @@
 
 **Pillar:** 4  
 **Track:** B (self-contained utility)  
-**Status:** open  
+**Status:** paused (owner directive 2026-06-08 — resume when core rendering stable)  
 **Estimated effort:** 1 session (~3 h)  
 **Depends on:** pkg48 (SimulationVolume plugin, DensityGrid type)
 

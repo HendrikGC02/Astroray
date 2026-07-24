@@ -2,7 +2,7 @@
 
 **Pillar:** 4
 **Track:** B (plugin, self-contained)
-**Status:** open
+**Status:** paused (owner directive 2026-06-08 — resume when core rendering stable)
 **Estimated effort:** 2 sessions (~5 h)
 **Depends on:** pkg42 (VolumetricEmission interface), pkg45 (CLOUDY tables)
 

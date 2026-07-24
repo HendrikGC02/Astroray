@@ -2,7 +2,7 @@
 
 **Pillar:** 4  
 **Track:** B (self-contained I/O plugin)  
-**Status:** open  
+**Status:** paused (owner directive 2026-06-08 — resume when core rendering stable)  
 **Estimated effort:** 1–2 sessions (~4 h)  
 **Depends on:** pkg04 (plugin system), pkg47 (establishes data loader pattern)
 

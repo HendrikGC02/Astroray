@@ -2,7 +2,7 @@
 
 **Pillar:** 4 (Astrophysics)
 **Track:** A (small C++ + Python binding change)
-**Status:** open
+**Status:** paused (owner directive 2026-06-08 — resume when core rendering stable)
 **Estimated effort:** ½ day (~3 h)
 **Depends on:** nothing
 

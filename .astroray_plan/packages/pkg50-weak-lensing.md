@@ -2,7 +2,7 @@
 
 **Pillar:** 4
 **Track:** A (uses GR machinery)
-**Status:** open
+**Status:** paused (owner directive 2026-06-08 — resume when core rendering stable)
 **Estimated effort:** 1 session (~3 h)
 **Depends on:** pkg40 (Kerr metric), pkg06 (pass registry)
 

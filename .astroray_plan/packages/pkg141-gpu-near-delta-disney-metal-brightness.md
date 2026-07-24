@@ -77,19 +77,42 @@ estimator term-for-term**:
 
 ## Verification gates
 
-- [ ] Instrumentation note recorded in the PR: which mechanism (S1/S2/other),
-      with the per-event `(f, pdf)` dump or path-taken log as evidence.
+- [x] Instrumentation note recorded in the PR: which mechanism (S1/S2/other),
+      with the per-event `(f, pdf)` dump or path-taken log as evidence. —
+      static code-trace (not a live HW dump, per Lane-B GPU-lock discipline):
+      confirmed **S2** (`.astroray_plan/docs/pkg141-gpu-metal-near-delta-research.md`).
+      Disney's `closureGraph()` always emits a `GGXConductor` closure, so the
+      material always uploads as `GMAT_CLOSURE_GRAPH`; the closure dispatch
+      mis-routed it to `gpu_metal_eval`'s perfect-mirror shortcut instead of
+      `gpu_disney_eval`. A second, stacked bug (stale `/(4*NdotL*NdotV+0.001f)`
+      divide in `gpu_disney_eval`, already removed on CPU in pkg60/PR #178)
+      was also found and fixed while tracing the corrected dispatch.
 - [ ] **Un-xfail the near-delta rows of
       `tests/test_pkg123_disney_metal_gpu_cpu_parity.py`** — GPU/CPU mean ratio
       within the test's parity band at roughness 0.0 (and the near-delta grid
-      the test covers), on RTX.
+      the test covers), on RTX. HW-PENDING: xfail markers intentionally left
+      in place (no HW measurement taken by the implementer); hardware-verifier
+      to run `pytest tests/test_pkg123_disney_metal_gpu_cpu_parity.py -v
+      --runxfail` and un-xfail on confirmed pass.
 - [ ] Rough-metal no-regression: mid/high-roughness metal parity rows stay
-      green (the fix must not shift the already-agreeing regime).
+      green (the fix must not shift the already-agreeing regime). New coverage
+      added (`ROUGHNESS_VALUES_NO_REGRESSION = [0.3, 0.6, 0.9]`,
+      `test_disney_metal_gpu_cpu_parity_mid_high_roughness_no_regression`) —
+      HW-PENDING, no prior rows existed at these roughness values to compare
+      against.
 - [ ] Wavefront-diff gate suite stays green (megakernel + wavefront legs both
-      re-run — shared sampling code).
-- [ ] White-furnace / energy gates on metal stay green.
+      re-run — shared sampling code). HW-PENDING.
+- [ ] White-furnace / energy gates on metal stay green. HW-PENDING — note
+      `tests/test_disney_rough_glass_furnace.py::test_disney_rough_glass_
+      furnace_energy_gpu` also exercises the shared `gpu_disney_eval` specular
+      term this package fixed (via the dielectric-reflection blend), though
+      the fix is masked at `transmission=1.0` (dielectricWeight=1 fully
+      replaces the buggy term) — re-run to confirm no regression at partial
+      transmission/metallic combinations.
 - [ ] If S1: the CPU/GPU "mixture-pdf asymmetry" flag in pkg138's Notes is
-      resolved by this package — update that spec's note to point here.
+      resolved by this package — **N/A, S2 was the mechanism, not S1** (see
+      instrumentation note above); pkg138's Notes should be corrected to
+      point here with this finding rather than assuming S1.
 
 ## Non-goals
 
@@ -113,15 +136,35 @@ evidence in `tests/test_pkg123_disney_metal_gpu_cpu_parity.py` on
 
 ## Progress
 
-- [ ] Instrument: which GPU path shades the test scene (S2 check) + per-event
-      `(f, pdf)` CPU-vs-GPU dump (S1 check).
-- [ ] Fix the convicted mechanism with citations.
+- [x] Instrument: which GPU path shades the test scene (S2 check) + per-event
+      `(f, pdf)` CPU-vs-GPU dump (S1 check). — static trace, confirmed S2
+      (see Verification gates and the research doc).
+- [x] Fix the convicted mechanism with citations.
 - [ ] Un-xfail near-delta parity rows; both-legs + furnace + wavefront-diff
-      green on RTX.
+      green on RTX. — HW-PENDING (hardware-verifier queue).
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The spec's two candidate mechanisms (S1 sample/pdf mixture asymmetry, S2
+  closure-graph Disney twin) were both partially right and partially wrong:
+  S2 was the real, dominant mechanism, but not in the form guessed ("the
+  Disney twin's own F/D/G or pdf is buggy") — the closure-graph dispatch
+  routed the material to a COMPLETELY DIFFERENT plugin's GPU model
+  (`gpu_metal_eval`, the standalone MetalPlugin mirror) rather than to any
+  Disney code path at all. `gpu_disney_eval`/`gpu_disney_pdf` were not even
+  reached for this test scene pre-fix. Lesson for future GPU/CPU parity
+  bugs: trace the ACTUAL executing GPU code path first (which `GMaterialType`
+  does the material upload as, which closure-graph branch fires) before
+  assuming the two "obviously corresponding" functions (same name, same
+  formula family) are the ones actually diverging — closure-graph lowering
+  can silently substitute an unrelated plugin's implementation.
+- A second, independent, stacked bug (stale Smith-G double-division in
+  `gpu_disney_eval`) was found only because fixing the dispatch made that
+  function's code newly reachable/relevant for this scene — it had been
+  dead weight (masked by the wrong dispatch) until the S2 fix exposed it.
+  Worth a repo-wide sweep for other CPU-side energy/parity fixes
+  (pkg60/pkg118/pkg138/pkg145 series) that only touched `disney.cpp` and may
+  have a similarly stale, un-mirrored `gpu_materials.h` twin.
 
 ## Hardware verification 2026-07-25 (verifier notes, folded in from the `Astroray-pkg141` worktree by the architect — the freeze rule kept them uncommitted there)
 

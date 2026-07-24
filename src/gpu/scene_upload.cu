@@ -118,6 +118,15 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         // pkg108 BUG-16: the diffuse closure applies the Hanrahan-Krueger
         // subsurface mix (gpu_lambertian_eval); carry the weight across.
         g.subsurface = mat->getSubsurface();
+        // pkg141: stamp the native plugin type so gpu_closure_as_material's
+        // GCLOSURE_GGX_CONDUCTOR case (gpu_materials.h) can tell a
+        // DisneyPlugin-originated conductor lobe (continuous alpha-floored
+        // GGX, no near-delta shortcut) apart from a MetalPlugin-originated
+        // one (legitimate near-delta perfect-mirror shortcut) -- see the
+        // GMaterial::disneyMetalConductor comment in gpu_types.h. Reads the
+        // already-public Material::getGPUTypeName(); does not touch
+        // plugins/materials/disney.cpp.
+        g.disneyMetalConductor = (mat->getGPUTypeName() == "disney");
         g.closureCount = static_cast<uint8_t>(
             std::min(graph.count(), G_MAX_MATERIAL_CLOSURES));
 

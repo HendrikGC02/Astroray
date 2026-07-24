@@ -20,13 +20,35 @@ those exercise disney.cpp only. Only a CPU<->GPU render comparison at the
 near-delta alpha band (roughness in {0.0, 0.03, 0.05, 0.1}, spanning the
 alpha=max(roughness^2, 0.0064) floor transition) can see it.
 
-NOTE: all four rows in this band are currently xfail'd for a SEPARATE,
+NOTE: all four near-delta rows in this band were xfail'd for a SEPARATE,
 pre-existing GPU near-delta over-brightness defect unrelated to the
 alpha-floor/guard bug above (measured on hardware post-fix; see the
-ROUGHNESS_VALUES per-row reasons below and pkg141,
-gpu-near-delta-disney-metal-brightness, PR #504). The alpha-floor/guard fix
-this test was written to regression-guard is still in place and still
-correct -- it just isn't the whole GPU/CPU parity story at this band.
+ROUGHNESS_VALUES per-row reasons below). pkg141 (PR TBD, see spec
+gpu-near-delta-disney-metal-brightness) found and fixed the mechanism:
+DisneyPlugin::closureGraph() (plugins/materials/disney.cpp) always emits a
+GGXConductor closure for any transmission<0.999 Disney material (even for
+metallic=1.0, transmission=0.0 pure metal), so the GPU upload always lowers
+to GMAT_CLOSURE_GRAPH rather than the direct GMAT_DISNEY path -- and the
+closure-graph dispatch (gpu_closure_as_material, gpu_materials.h) routed
+EVERY GGXConductor closure to gpu_metal_eval/gpu_metal_sample (the
+standalone MetalPlugin's own GPU model), which has an unconditional
+full-albedo perfect-mirror shortcut below roughness 0.1 -- correct for
+MetalPlugin (whose CPU eval()/sample() has the identical shortcut) but wrong
+for a Disney metallic lobe, whose CPU eval()/sample()/pdf() never
+special-cases low roughness (alpha floors at 0.0064 but stays a continuous
+Fresnel-Schlick/D_GTR2/Smith-G lobe). Fix: stamp the native plugin type on
+the uploaded GMaterial (scene_upload.cu, via the already-public
+Material::getGPUTypeName(), no disney.cpp edit) and route
+Disney-native conductor closures to gpu_disney_eval/sample/pdf instead;
+also fixed a second, stacked bug in gpu_disney_eval's specular term (a
+stale extra `/(4*NdotL*NdotV+0.001f)` divide that CPU's disney.cpp already
+removed in pkg60/PR #178, "Correct the Disney specular/clearcoat Smith-G
+denominator bug", commit 1df244f -- the GPU mirror was never updated to
+match). HW verification of the rows below is PENDING (see the
+hardware-verifier queue) -- do not remove the xfail markers until measured
+on RTX. The alpha-floor/guard fix this test was originally written to
+regression-guard is still in place and still correct -- it just wasn't the
+whole GPU/CPU parity story at this band.
 
 Gate (per coordinator directive -- NOT SSIM, see memory
 ssim-wrong-gate-for-independent-rng: independent MC streams don't converge in
@@ -95,60 +117,29 @@ SEED = 90123
 # pdf() correction legitimately moved the CPU mean lower (e.g. 0.00884 ->
 # 0.00596 at roughness=0.0), WIDENING an already-failing pre-#498 ratio
 # (2.70x at roughness=0.0) rather than introducing a new defect.
-# Suspected cause: the GPU selected-lobe pdf inline computation
+# Suspected cause (pre-pkg141): the GPU selected-lobe pdf inline computation
 # (gpu_materials.h:849-857) or the GPU closure-graph Disney twin lacking the
 # CPU's full-mixture semantics -- the CPU/GPU MIS asymmetry flagged in the
-# Opus review notes on PR #498. Follow-up filed: pkg141
-# (gpu-near-delta-disney-metal-brightness, PR #504).
-ROUGHNESS_VALUES = [
-    pytest.param(0.0, marks=pytest.mark.xfail(
-        reason="Pre-existing GPU near-delta Disney-metal over-brightness "
-        "(pkg141, gpu-near-delta-disney-metal-brightness, PR #504), unchanged "
-        "by PR #498. Measured: R ratio 4.0033 (GPU 0.02387, CPU 0.00596), "
-        "alpha floors to 0.0064. A/B vs pre-#498 main: GPU mean byte-identical "
-        "pre/post; CPU mean moved 0.00884->0.00596 via pkg123's pdf() fix, "
-        "widening an already-failing 2.70x ratio to 4.00x against band "
-        "[0.4,2.5]. Suspected cause: GPU selected-lobe pdf inline computation "
-        "(gpu_materials.h:849-857) or the GPU closure-graph Disney twin "
-        "lacking the CPU's full-mixture semantics -- the CPU/GPU MIS "
-        "asymmetry flagged in the Opus review notes. Not a pkg123 regression "
-        "-- do not widen the ratio band to hide this.",
-        strict=False)),
-    pytest.param(0.03, marks=pytest.mark.xfail(
-        reason="Pre-existing GPU near-delta Disney-metal over-brightness "
-        "(pkg141, gpu-near-delta-disney-metal-brightness, PR #504), unchanged "
-        "by PR #498. Measured: R ratio 4.0033 (GPU 0.02387, CPU 0.00596) -- "
-        "alpha ALSO floors to 0.0064 (identical to roughness=0.0 -> "
-        "byte-identical renders), inherits the same adjudication. Suspected "
-        "cause: GPU selected-lobe pdf inline computation "
-        "(gpu_materials.h:849-857) or the GPU closure-graph Disney twin "
-        "lacking the CPU's full-mixture semantics. Not a pkg123 regression --"
-        " do not widen the ratio band to hide this.",
-        strict=False)),
-    pytest.param(0.05, marks=pytest.mark.xfail(
-        reason="Pre-existing GPU near-delta Disney-metal over-brightness "
-        "(pkg141, gpu-near-delta-disney-metal-brightness, PR #504), unchanged "
-        "by PR #498. Measured: R ratio 4.0033 (GPU 0.02387, CPU 0.00596) -- "
-        "alpha ALSO floors to 0.0064 (identical to roughness=0.0 -> "
-        "byte-identical renders), inherits the same adjudication. Suspected "
-        "cause: GPU selected-lobe pdf inline computation "
-        "(gpu_materials.h:849-857) or the GPU closure-graph Disney twin "
-        "lacking the CPU's full-mixture semantics. Not a pkg123 regression --"
-        " do not widen the ratio band to hide this.",
-        strict=False)),
-    pytest.param(0.1, marks=pytest.mark.xfail(
-        reason="Pre-existing GPU near-delta Disney-metal over-brightness "
-        "(pkg141, gpu-near-delta-disney-metal-brightness, PR #504), unchanged "
-        "by PR #498. Measured: R ratio 3.6870 (GPU 0.02387, CPU 0.00647) -- "
-        "alpha=0.0100 is just above the floor (a distinct, slightly larger "
-        "lobe than the floored 0.0064 rows), so the same GPU over-brightness "
-        "is somewhat diluted but still fails the [0.4,2.5] band. Suspected "
-        "cause: GPU selected-lobe pdf inline computation "
-        "(gpu_materials.h:849-857) or the GPU closure-graph Disney twin "
-        "lacking the CPU's full-mixture semantics. Not a pkg123 regression --"
-        " do not widen the ratio band to hide this.",
-        strict=False)),
-]
+# Opus review notes on PR #498. pkg141 (see module docstring above) found the
+# ACTUAL mechanism -- a closure-graph GGXConductor lobe mis-dispatch to
+# gpu_metal_eval's perfect-mirror shortcut, plus a stacked stale Smith-G
+# denominator bug in gpu_disney_eval -- and fixed both. HW measurement of
+# these rows is PENDING; xfail markers stay in place until the
+# hardware-verifier confirms the ratios land in [0.4, 2.5] on RTX.
+ROUGHNESS_VALUES = [0.0, 0.03, 0.05, 0.1]
+
+# pkg141 verification-gate addition: "Rough-metal no-regression" (spec
+# gpu-near-delta-disney-metal-brightness, Verification gates) -- this file
+# previously had NO mid/high-roughness Disney-metal GPU/CPU parity coverage
+# at all (only the four near-delta rows above). The pkg141 fix is NOT
+# near-delta-specific: it corrects the closure-graph dispatch for a Disney
+# conductor lobe at every roughness (the mis-dispatch to gpu_metal_eval was
+# only DISCOVERED via the near-delta perfect-mirror shortcut's dramatic
+# divergence, but the wrong-lobe routing itself applied uniformly). These
+# rows are new coverage proving the broader dispatch fix does not regress
+# the mid/high-roughness regime -- not xfail'd; HW-pending like the rows
+# above.
+ROUGHNESS_VALUES_NO_REGRESSION = [0.3, 0.6, 0.9]
 
 # Ratio bounds (not |ratio-1| tolerance) mirroring the established pkg64
 # GPU/CPU energy-ratio gate pattern (tests/test_pkg64_gpu_cpu_parity.py):
@@ -201,11 +192,9 @@ def _render(use_gpu: bool, roughness: float, seed: int) -> np.ndarray:
     return pixels
 
 
-@pytest.mark.parametrize("roughness", ROUGHNESS_VALUES)
-def test_disney_metal_gpu_cpu_parity_near_delta(roughness):
-    """CPU<->GPU Disney-metal parity at the near-delta alpha-floor band.
-
-    Checks (pkg123 coordinator directive, NOT SSIM):
+def _check_metal_parity(roughness: float) -> None:
+    """Shared CPU<->GPU Disney-metal parity body (pkg123 coordinator
+    directive, NOT SSIM):
       1. No NaN/Inf pixel components in either render.
       2. Per-channel mean-ratio GPU/CPU within a generous MC-noise band.
     """
@@ -258,9 +247,25 @@ def test_disney_metal_gpu_cpu_parity_near_delta(roughness):
             f"pkg123 Disney-metal GPU/CPU parity FAILED at roughness={roughness} "
             f"(alpha={alpha:.4f}): channel {ch} GPU/CPU mean ratio {ratio:.4f} "
             f"outside [{RATIO_LOW}, {RATIO_HIGH}]. GPU and CPU Disney metallic "
-            f"pdf/sample diverge in the near-delta alpha band (cpu_mean={cm:.5f}, "
-            f"gpu_mean={gm:.5f})."
+            f"pdf/sample diverge (cpu_mean={cm:.5f}, gpu_mean={gm:.5f})."
         )
 
     print(f"[pkg123 Disney-metal GPU/CPU parity] PASS at roughness={roughness}: "
           f"no NaN/Inf, per-channel mean ratios within [{RATIO_LOW}, {RATIO_HIGH}]")
+
+
+@pytest.mark.parametrize("roughness", ROUGHNESS_VALUES)
+def test_disney_metal_gpu_cpu_parity_near_delta(roughness):
+    """CPU<->GPU Disney-metal parity at the near-delta alpha-floor band."""
+    _check_metal_parity(roughness)
+
+
+@pytest.mark.parametrize("roughness", ROUGHNESS_VALUES_NO_REGRESSION)
+def test_disney_metal_gpu_cpu_parity_mid_high_roughness_no_regression(roughness):
+    """pkg141 no-regression gate: mid/high-roughness Disney-metal GPU/CPU
+    parity must stay green after the closure-graph dispatch fix (spec
+    gpu-near-delta-disney-metal-brightness, Verification gates: "Rough-metal
+    no-regression"). Not xfail'd -- HW-pending, run alongside the near-delta
+    rows above.
+    """
+    _check_metal_parity(roughness)

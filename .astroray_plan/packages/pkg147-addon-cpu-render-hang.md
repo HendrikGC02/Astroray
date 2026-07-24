@@ -3,7 +3,7 @@
 **Pillar:** 5 (Blender addon reliability)
 **Track:** A
 **Codex-paste-ready:** no (Blender-in-the-loop debugging; needs headless Blender 5.1 + build access)
-**Status:** done (PR #TBD, 2026-07-25 — root cause confirmed as the suspected OpenMP/GIL precedent; structural guard added; 32px and 256px CPU addon renders both 0.01-0.05s on the currently-deployed build, which was already unaffected). See "Findings (2026-07-25)" below.
+**Status:** done (PR #520, merged 2026-07-25 squash 0c3b1a3 — root cause confirmed as the suspected OpenMP/GIL precedent; structural guard added; 32px and 256px CPU addon renders both 0.01-0.05s on the currently-deployed build, which was already unaffected). See "Findings (2026-07-25)" below.
 
 <details><summary>Original 2026-07-24 dispatch note</summary>
 

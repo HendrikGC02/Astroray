@@ -631,6 +631,27 @@ if(BUILD_PYTHON_MODULE)
         target_link_libraries(astroray PRIVATE OpenMP::OpenMP_CXX)
     endif()
 
+    # pkg147: surface OpenMP-enabled status to Python via __features__ so
+    # blender_addon's _check_build_integrity() can refuse to register an
+    # OpenMP-enabled .pyd — Renderer::render()'s progress callback (called
+    # from whichever OpenMP worker thread finishes a tile, raytracer.h's
+    # `#pragma omp parallel for` render loop) deadlocks against the GIL held
+    # by the calling thread for the whole render() call (no
+    # gil_scoped_release on PyRenderer::render in module/blender_module.cpp).
+    # Gated on ASTRORAY_DISABLE_OPENMP directly (not OpenMP_CXX_FOUND): that
+    # variable is only ever set via find_package(OpenMP) in the GNU/Clang
+    # branch above — the MSVC branch adds /openmp without touching it, so
+    # OpenMP_CXX_FOUND is always false for MSVC even when /openmp (and
+    # VCOMP140.DLL) are actually linked in. ASTRORAY_DISABLE_OPENMP is the
+    # single option both compiler branches gate their real /openmp / -fopenmp
+    # application on, so it's the correct compiler-agnostic predicate here.
+    # build_blender_addon.py always passes -DASTRORAY_DISABLE_OPENMP=ON so the
+    # shipped addon never hits this; this guards ad-hoc/dev builds (e.g. a raw
+    # cmake configure or configure_and_build.bat run) that bypass that script.
+    if(NOT ASTRORAY_DISABLE_OPENMP)
+        target_compile_definitions(astroray PRIVATE ASTRORAY_OPENMP_ENABLED)
+    endif()
+
     if(ASTRORAY_OIDN_FOUND)
         target_link_libraries(astroray PRIVATE ${ASTRORAY_OIDN_TARGET})
         target_compile_definitions(astroray PRIVATE ASTRORAY_OIDN_ENABLED)

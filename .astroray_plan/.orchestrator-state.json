@@ -7,6 +7,22 @@
     "last_action": "gate_review_dispatched",
     "last_action_ts": "2026-07-24T14:49:11Z"
   },
+  "519": {
+    "head_sha": "e2c4d5cd33d0b05d79521bc928add04f849ae3ae",
+    "hw_artifact": "test_results/overnight_report_2026-07-24/pkg151_hw_numbers.json",
+    "hw_numbers": "GPU LUT upload clean (probe mean 0.994); parity G/B 0.99, R 0.978 pre-existing unmoved (pkg153 corroboration); furnace 5/5 unchanged; 3 suite failures byte-identical on main",
+    "hw_result": "PASS",
+    "last_action": "hw_recorded",
+    "last_action_ts": "2026-07-24T15:28:28Z"
+  },
+  "522": {
+    "head_sha": "e0fe9d816f50b8c03feb881dfbf71b868bedc552",
+    "hw_artifact": "test_results/overnight_report_2026-07-24/pkg149_hw_numbers.json",
+    "hw_numbers": "GPU furnace partial recovery: R=0.6 0.571->0.896 (0.004 short), R=1.0 in-band; R=0.1/0.3 UNCHANGED (0.130/0.283) \u2014 second low-roughness-dominant GPU defect remains (pkg152-adjacent); CPU fully green; metal parity 7/7 held",
+    "hw_result": "FAIL",
+    "last_action": "hw_recorded",
+    "last_action_ts": "2026-07-24T18:10:41Z"
+  },
   "impl_dispatches": {
     "pkg55-bprime-session-n1": {
       "agent_id": "accdab80d65eda639",

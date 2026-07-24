@@ -58,7 +58,11 @@ _SMOOTH = [0.0, 0.03]
 # #404 CPU twin — see test_..._energy_cpu below). Both CPU and GPU now conserve to ~1.00
 # for R>=0.3; a small residual remains only at the LOW-ALPHA boundary (R=0.05-0.1, just
 # above the smooth threshold) on BOTH paths (CPU 0.94 / GPU 0.956 at R=0.1).
-_ROUGH = [0.1, 0.3, 0.6, 1.0]
+# pkg151 adds R=0.05 to match the spec's exact gate grid
+# ({0.05, 0.1, 0.3, 0.6, 1.0}) — this is the closest rough point to the
+# kDeltaTransmissionRoughness=0.03 delta/rough boundary and was not previously
+# covered by this sweep.
+_ROUGH = [0.05, 0.1, 0.3, 0.6, 1.0]
 
 
 def test_disney_smooth_glass_furnace_cpu():

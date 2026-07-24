@@ -56,6 +56,43 @@ class DisneyPlugin : public Material {
         return 1.0f + Fms * missingFactor;
     }
 
+    // pkg151: Kulla & Conty 2017 "Revisiting Physically Based Shading at
+    // Imageworks" hemispherical-average Fresnel reflectance fit for a
+    // dielectric interface, ported from Cycles `bsdf_util.h`
+    // `fresnel_dielectric_Fss` (BSD-3-Clause). Used (not the per-direction
+    // Schlick approximation) because the glass multi-scatter tables below are
+    // baked assuming this exact closed-form average, matching how Cycles'
+    // `bsdf_microfacet_setup_fresnel_dielectric` derives the `Fss` argument to
+    // `microfacet_ggx_preserve_energy` for `CLOSURE_BSDF_MICROFACET_GGX_GLASS_ID`.
+    float fresnelDielectricFss(float eta) const {
+        if (eta < 1.0f) {
+            return 0.997118f + eta * (0.1014f - eta * (0.965241f + eta * 0.130607f));
+        }
+        return (eta - 1.0f) / (4.08567f + 1.00071f * eta);
+    }
+
+    // pkg151: rough-transmission multi-scatter energy compensation, the
+    // transmission-lobe counterpart to ggxCompensationFactor below. Cycles
+    // bakes ONE compensation for its combined glass closure (reflection +
+    // transmission); Astroray splits the two lobes at eval() time, so this is
+    // applied to roughTransmissionEval's own return value only (Caveat 1,
+    // .astroray_plan/docs/pkg151-cycles-glass-tables-research.md) — it must
+    // not touch roughTransmissionPdf or the VNDF sampler (throughput magnitude
+    // only, not sampled-direction shape, per the spec's peak-alignment gate).
+    // `etap` is the same entering/exiting-relative ior roughTransmissionEval
+    // already computes (ior_ when entering, 1/ior_ when exiting); `muAbs` is
+    // the outgoing-direction cosine to the macro normal, matching Cycles'
+    // `mu = dot(wi, bsdf->N)` (wi there = the view/outgoing direction).
+    float ggxGlassCompensationFactor(float etap, float muAbs) const {
+        const auto& tables = astroray::DisneyEnergyCompensationTables::instance();
+        if (!tables.loaded()) return 1.0f;
+
+        const float E = std::max(tables.ggxGlassE(roughness_, muAbs, etap), 1e-4f);
+        const float Eavg = std::clamp(tables.ggxGlassEavg(roughness_, etap), 0.0f, 0.999f);
+        const float Fss = std::clamp(fresnelDielectricFss(etap), 0.0f, 0.999f);
+        return ggxDarkeningChannel(Fss, E, Eavg);
+    }
+
     Vec3 ggxCompensationFactor(const Vec3& Fss, float roughness, float mu) const {
         const auto& tables = astroray::DisneyEnergyCompensationTables::instance();
         if (!tables.loaded()) return Vec3(1.0f);
@@ -291,6 +328,12 @@ class DisneyPlugin : public Material {
 
         float scale = (1.0f - metallic_) * transmission_ * ft;
         Vec3 result = baseColor_ * scale;
+
+        // pkg151: rough-transmission multi-scatter compensation (Cycles glass
+        // tables, see ggxGlassCompensationFactor above). Scales throughput
+        // magnitude only; roughTransmissionPdf/sampleGgxVNDF are untouched.
+        result *= ggxGlassCompensationFactor(etap, std::abs(cosO));
+
         result.x = std::clamp(result.x, 0.0f, 4.0f);
         result.y = std::clamp(result.y, 0.0f, 4.0f);
         result.z = std::clamp(result.z, 0.0f, 4.0f);

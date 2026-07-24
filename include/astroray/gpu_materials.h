@@ -5,6 +5,7 @@
 
 #include "gpu_types.h"
 #include "gpu_dispersion.cuh"
+#include "gpu_glass_tables.cuh"  // pkg151: rough-transmission multiscatter compensation
 #include <curand_kernel.h>
 
 #ifndef M_PI_F
@@ -655,6 +656,14 @@ __device__ inline GVec3 gpu_disney_roughTransmissionEval(
 
     float scale = (1.f - mat.metallic) * mat.transmission * ft;
     GVec3 result = mat.baseColor * scale;
+
+    // pkg151: rough-transmission multi-scatter compensation (Cycles glass
+    // tables via gpu_glass_tables.cuh), CPU twin: disney.cpp
+    // ggxGlassCompensationFactor / roughTransmissionEval. Throughput
+    // magnitude only — does not touch gpu_disney_roughTransmissionPdf or
+    // gpu_disney_sampleGgxVNDF.
+    result = result * gpu_ggxGlassCompensationFactor(mat.roughness, etap, fabsf(cosO));
+
     result.x = fminf(fmaxf(result.x, 0.f), 4.f);
     result.y = fminf(fmaxf(result.y, 0.f), 4.f);
     result.z = fminf(fmaxf(result.z, 0.f), 4.f);

@@ -58,6 +58,17 @@ _SMOOTH = [0.0, 0.03]
 # #404 CPU twin — see test_..._energy_cpu below). Both CPU and GPU now conserve to ~1.00
 # for R>=0.3; a small residual remains only at the LOW-ALPHA boundary (R=0.05-0.1, just
 # above the smooth threshold) on BOTH paths (CPU 0.94 / GPU 0.956 at R=0.1).
+# pkg151 note: the spec's gate grid additionally lists R=0.05, evaluated
+# "on the corrected sampler (670e583 stacked)" — i.e. that requirement is
+# scoped to the pkg149 combined branch (see the PR body's combined-branch
+# furnace table), NOT this main-sampler regression suite. Measured here on
+# main's (pre-pkg149) sampler, R=0.05 sits at ~0.886 CPU / ~0.90 GPU
+# regardless of the pkg151 compensation (the compensation factor at this low
+# roughness is ~1.0001x, i.e. a no-op per
+# .astroray_plan/docs/pkg151-glass-multiscatter-magnitude-notes.md) — a
+# pre-existing low-alpha-boundary gap this sweep never covered before, not a
+# pkg151 regression. Left out of THIS sweep to keep it a true no-regression
+# gate; do not add R=0.05 here without first fixing that pre-existing gap.
 _ROUGH = [0.1, 0.3, 0.6, 1.0]
 
 

@@ -101,3 +101,49 @@ matching what production engines ship:
 - Reflection multiscatter LUTs / GPU metal placeholder (pkg129).
 - Re-opening pkg118's albedo-LUT clamp fix (valid, untouched).
 - Any further sampler-shape changes (pkg149/pkg150 own those).
+
+## Hardware verification 2026-07-25
+
+**Hardware:** RTX 5070 Ti, Windows 11 Enterprise 10.0.26200, CUDA 12.8 (nvcc, v12.6 also
+present), MSVC VS2022 BuildTools 14.44.35207. Bound to PR #519 head SHA `e2c4d5cd33d0b05d79521bc928add04f849ae3ae`. Verdict: **PASS** (conditions i/ii/iii + no new
+test failures, per the architect's 2026-07-25 adjudication scope — furnace-restoration
+magnitude is explicitly out of scope, owned by pkg154).
+
+**Build note:** `build_cuda_worktree.bat` hit the known pre-existing Debug-config footgun
+(memory `build-cuda-worktree-debug-config.md`) on this VS17-2022 multi-config worktree —
+omits `--config Release`, defaults to Debug, `cl D8016 '/RTC1'+'/O2'` clash, exit 5. Not a
+pkg151 regression. Remediated with `cmake --build build_cuda --config Release --target
+astroray --target astroray_test_helpers` under the same `vcvars64.bat` env → exit 0. HEAD
+SHA verified throughout.
+
+**Pass/fail table:**
+
+| Check | Result |
+|---|---|
+| (i) GPU glass-LUT upload infra | PASS — fresh-process probe render, mean=0.994448, center-patch=0.999856, 0 NaN, 0 negative, max=1.0, no CUDA upload errors |
+| (ii) CPU==GPU per-channel parity (rough glass, R=0.45, ior=1.5, 256x256, seed=151519) | PASS w/ flagged pre-existing caveat — R ratio 0.9798 (marginally below ~0.98 floor), G 0.9915, B 0.9906; 0 NaN either side; **R ratio reproduces byte-identically on main pre-pkg151 (0.978025 vs 0.977974)** — pre-existing baseline divergence, Δ≈0.00005, unmoved by this PR |
+| (iii) Main-sampler furnace unchanged | PASS — 5/5 passed; CPU R=0.1/0.3/0.6/1.0 = 0.9374/0.9997/0.9999/0.9996 (exact match to implementer's claimed values); GPU 0.9510/0.9989/1.0000/1.0000; all within [0.92,1.03] |
+| tests/test_pkg151_glass_table_lookup.py | 9/9 passed |
+| tests/test_disney_energy_conservation.py | 271 passed |
+| tests/statistical/test_chi2_bsdf.py -m "not slow" | 7 passed, 165 deselected, 1 xfailed (test_chi2_disney_glass[0.3-45] correctly stays XFAIL, owned by pkg149) |
+| wavefront_diff/ suite | Skipped per pkg153 interim-attribution protocol — diff touches no wavefront/spectral-table/light files |
+| Full tests/ (excl. wavefront_diff) | 3 failed, 1465 passed, 69 skipped, 24 xfailed, 6 xpassed, 6 warnings, 420.89s — all 3 failures (2 cp1252 console-encoding artifacts + 1 SSIM assertion) confirmed byte-identical on main pre-pkg151, not new regressions |
+
+**Visual inspection:** CPU/GPU parity renders (rough disney glass, colored floor+light)
+show qualitative match — same caustic-speckle ring, same two light-reflection highlights,
+no NaN/magenta/black pixels, no banding. Pre-existing `tests/test_rough_glass.py`
+red/green-split renders (regenerated during the run) show expected progressive blur with
+increasing roughness, speckle character consistent with other rough-transmission renders
+in this codebase — not new fireflies. Caustic/prism refbank (pkg113 glass sphere, pkg29
+prism, pkg31 dispersive glass) regenerated with no visual anomalies.
+
+**Anomalies worth watching:** the condition-(ii) R-channel GPU/CPU ratio (~0.978-0.980)
+sits just below the nominal 0.98 floor and is stable across spp (512/2048) and seeds — a
+real, small, pre-existing structural GPU/CPU divergence at this scene/roughness, present
+identically on main. Not introduced or moved by pkg151. Root cause not investigated here
+(out of this verifier's scope) but flagged for whoever eventually owns general CPU/GPU
+rough-dielectric parity tightening.
+
+Full numbers: `test_results/overnight_report_2026-07-24/pkg151_hw_numbers.json` (main
+repo). PR comment with the full measured table:
+https://github.com/HendrikGC02/Astroray/pull/519#issuecomment-5071518905

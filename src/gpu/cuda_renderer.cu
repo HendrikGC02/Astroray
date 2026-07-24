@@ -76,6 +76,10 @@ void uploadCmfTables();
 // global memory; required by gpu_jhEvalSpectrum (the new upsampling path).
 void uploadJakobHanikaLut();
 float launchProfileLookup(int profileIndex, float lambda);
+// pkg151 — one-time copy of the Cycles glass multi-scatter compensation
+// tables into device global memory; required by gpu_ggxGlassCompensationFactor
+// (gpu_disney_roughTransmissionEval).
+void uploadGgxGlassTables();
 
 // pkg64-gpu Phase 1 probe harness (defined in pkg64_sms_probe.cu).
 void launchPkg64SmsProbe(
@@ -732,6 +736,7 @@ void CUDARenderer::render(
     // gpu_rgbSpectrumAt now upsamples via gpu_jhEvalSpectrum.
     uploadCmfTables();
     uploadJakobHanikaLut();
+    uploadGgxGlassTables();  // pkg151
 
     unsigned long long rngSeed = (seed == 0)
         ? (unsigned long long)time(nullptr)
@@ -931,6 +936,7 @@ void CUDARenderer::renderMultiwavelength(
     // pkg54c: ensure the Jakob-Hanika sRGB sigmoid LUT is in device global
     // memory before any gpu_jhEvalSpectrum call.
     uploadJakobHanikaLut();
+    uploadGgxGlassTables();  // pkg151
 
     unsigned long long rngSeed = (seed == 0)
         ? (unsigned long long)time(nullptr)

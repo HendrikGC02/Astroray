@@ -472,6 +472,7 @@ if(ASTRORAY_CUDA_FOUND)
         src/gpu/multiwavelength_kernel.cu
         src/gpu/gpu_spectral_tables.cu   # pkg55-C1: shared CMF/D65/JH/profile tables
         src/gpu/gpu_glass_tables.cu      # pkg151: rough-transmission glass multiscatter tables
+        src/gpu/gpu_ggx_tables.cu        # pkg152: reflection-lobe multiscatter/layering compensation tables
         src/gpu/light_tree_probe.cu      # pkg55-C1: pkg86-B light-tree pick probe
         src/gpu/scene_upload.cu
         src/gpu/pkg64_sms_probe.cu

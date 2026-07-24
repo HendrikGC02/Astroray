@@ -6,6 +6,7 @@
 #include "gpu_types.h"
 #include "gpu_dispersion.cuh"
 #include "gpu_glass_tables.cuh"  // pkg151: rough-transmission multiscatter compensation
+#include "gpu_ggx_tables.cuh"    // pkg152: reflection-lobe multiscatter/layering compensation
 #include <curand_kernel.h>
 
 #ifndef M_PI_F
@@ -753,7 +754,13 @@ __device__ inline GVec3 gpu_disney_eval(
     float Fss = (1.f + (Fss90-1.f)*FL) * (1.f + (Fss90-1.f)*FV);
     float ss = 1.25f * (Fss * (1.f / fmaxf(NdotL + NdotV, 1e-4f) - 0.5f) + 0.5f);
     float FdMixed = (1.f - mat.subsurface) * Fd + mat.subsurface * ss;
-    GVec3 diffuse = (1.f / M_PI_F) * Cdlin * FdMixed;
+    // pkg152: pkg60 grazing-incidence Burley-diffuse furnace normalization --
+    // mirrors CPU disney.cpp::diffuseFurnaceScale (see energy_compensation
+    // citation trail there: Kulla & Conty 2017 layering measurement, pkg145
+    // grid sweep). gpu_disney_eval never applied this; confirmed absent by
+    // grep prior to this package (.astroray_plan/packages/
+    // pkg152-gpu-disney-metal-residual-dimness.md).
+    GVec3 diffuse = (1.f / M_PI_F) * Cdlin * FdMixed * gpu_diffuseFurnaceScale(mat.roughness, NdotV);
 
     // Specular — min alpha 0.0064 (roughness 0.08) to prevent numerical collapse
     float a  = fmaxf(mat.roughness*mat.roughness, 0.0064f);
@@ -798,15 +805,62 @@ __device__ inline GVec3 gpu_disney_eval(
     GVec3 Csheen = GVec3(1.f)*(1.f-mat.sheenTint) + Ctint*mat.sheenTint;
     GVec3 Fsheen = mat.sheen * Csheen * powf(1.f - LdotH, 5.f) * 0.5f;
 
-    // Clearcoat (reduced by 0.5)
+    // pkg152: layering stack (Kulla & Conty 2017 Eq. 6-9; Cycles
+    // src/kernel/svm/closure.h:208-211 and bsdf_sheen.h:40-51,
+    // closure_layering_weight in bsdf_util.h, Apache-2.0). Mirrors CPU
+    // disney.cpp::eval() exactly -- gpu_disney_eval previously had NONE of
+    // this stack (sheen/clearcoat never attenuated anything below them, the
+    // GGX specular layer never attenuated diffuse). See
+    // .astroray_plan/packages/pkg152-gpu-disney-metal-residual-dimness.md.
+    GVec3 lowerLayerWeight(1.f, 1.f, 1.f);
+    if (g_sheenE && mat.sheen > 0.f) {
+        float sheenAlbedo = gpu_sheenAlbedo(mat.roughness, NdotV) * mat.sheen;
+        Fsheen = Fsheen * sheenAlbedo;
+        lowerLayerWeight = gpu_layeringWeightAfter(lowerLayerWeight, Csheen * sheenAlbedo);
+    }
+
+    // Clearcoat (reduced by 0.5 -- CPU disney.cpp: `* 0.25f`, no divide).
+    // pkg152: this GPU twin previously carried a stale extra
+    // `/(4*NdotL*NdotV+0.001f)` divide AND a wrong 0.5 (should be 0.25)
+    // constant -- the same double-divide bug class pkg141 already fixed for
+    // the `spec` term a few lines above (Gs, the combined-visibility Smith-G
+    // form, already folds in the 1/(4*cosO*cosI) factor; Gr uses the
+    // identical gpu_smithG_GGX combined form, so no second divide is needed).
+    // Harmless in isolation for mat.clearcoat==0 (the pkg123 metal-parity
+    // scene's default), found via the pkg152 spec's hypothesis-3 sweep for
+    // "any OTHER stale denominator/epsilon" in this newly-reachable
+    // function; fixed here to restore CPU/GPU term-for-term parity.
     float Dr  = gpu_D_GTR2(NdotH, mat.clearcoatGloss * mat.clearcoatGloss);
     float Fr  = 0.04f + (1.f - 0.04f) * powf(1.f - LdotH, 5.f);
     float Gr  = gpu_smithG_GGX(NdotL, 0.25f) * gpu_smithG_GGX(NdotV, 0.25f);
-    GVec3 ccTerm = GVec3(mat.clearcoat * Dr * Fr * Gr
-                         / (4.f*NdotL*NdotV + 0.001f)) * 0.5f;
+    GVec3 ccTerm = GVec3(mat.clearcoat * Dr * Fr * Gr) * 0.25f;
+    if (g_clearcoatE && mat.clearcoat > 0.f) {
+        float clearE = fmaxf(gpu_clearcoatE(NdotV), 1e-4f);
+        ccTerm = ccTerm * fminf(1.f / clearE, 1.25f);
+        lowerLayerWeight = gpu_layeringWeightAfter(
+            lowerLayerWeight, GVec3(mat.clearcoat * (1.f - clearE)));
+    }
 
-    GVec3 result = ((1.f-mat.metallic)*(1.f-mat.transmission)*diffuse
-                   + spec
+    // Kulla & Conty 2017 Eq. 6-9 / Cycles microfacet_ggx_preserve_energy:
+    // net "1 + Fms*(1-E)/E" compensation on the GGX specular lobe (metal AND
+    // the blended dielectric-reflection lobe above). This is the term the
+    // pkg141 adjudication's Lessons flagged as never mirrored to the GPU --
+    // its absence predicts exactly the observed GPU-dim (not GPU-bright)
+    // residual (a missing >=1 multiplier).
+    spec = spec * gpu_ggxCompensationFactor(F0, mat.roughness, NdotV);
+
+    // pkg145: diffuse-under-dielectric-specular layering -- the specular
+    // lobe's own directional albedo AT THE VIEW ANGLE attenuates whatever
+    // sits below it (diffuse). Fview uses schlickScale like the raw `F`
+    // above, matching Cycles' cos_NI convention (not the material's
+    // normal-incidence F0).
+    GVec3 Fview = gpu_disney_fresnelSchlick(NdotV, F0, schlickScale);
+    GVec3 specAlbedo = gpu_ggxDirectionalAlbedo(Fview, mat.roughness, NdotV);
+    GVec3 diffuseLayerWeight = gpu_layeringWeightAfter(lowerLayerWeight, specAlbedo);
+
+    GVec3 baseLayer = (1.f-mat.metallic)*(1.f-mat.transmission)*diffuse*diffuseLayerWeight
+                     + spec * lowerLayerWeight;
+    GVec3 result = (baseLayer
                    + (1.f-mat.metallic)*Fsheen
                    + ccTerm) * NdotL;
 

@@ -751,8 +751,25 @@ __device__ inline GVec3 gpu_disney_eval(
     float Ds = gpu_D_GTR2(NdotH, a);
     float schlickScale = 0.8f + 0.2f * mat.metallic;
     GVec3 F  = gpu_disney_fresnelSchlick(LdotH, F0, schlickScale);
+    // gpu_smithG_GGX is the COMBINED visibility form G1/(2*NdotV) (see its
+    // comment above): Gs = smithG_GGX(NdotL,a)*smithG_GGX(NdotV,a) already
+    // equals G/(4*NdotL*NdotV) (Walter 2007 Eq.34 masking-shadowing G folded
+    // into the Cook-Torrance 1/(4*cosO*cosI) denominator, matching Kulla &
+    // Conty 2017's "Vis" term / Cycles bsdf_microfacet.h). pkg141: an extra
+    // `/(4*NdotL*NdotV+0.001f)` divide here double-counted that factor
+    // (spec = D*F*G/(4NdotLNdotV)^2 instead of D*F*G/(4NdotLNdotV)),
+    // amplifying the specular term by 1/(4*NdotL*NdotV) at any NdotL*NdotV <
+    // 0.25 (grazing/off-normal hits) -- part of the mechanism behind the
+    // measured 2.7-4.0x GPU/CPU metal over-brightness (pkg123 parity xfails).
+    // CPU disney.cpp removed the identical stale divide in pkg60/PR #178
+    // ("Correct the Disney specular/clearcoat Smith-G denominator bug found
+    // by the furnace grid", commit 1df244f) -- disney.cpp:463 has been
+    // `spec = Ds * F * Gs;` (no divide) ever since; this GPU mirror
+    // (gpu_materials.h) was never updated to match. Fixed here to restore
+    // CPU/GPU term-for-term parity (disney.cpp is Lane A's exclusive file
+    // and is not touched by this change).
     float Gs = gpu_smithG_GGX(NdotL, a) * gpu_smithG_GGX(NdotV, a);
-    GVec3 spec = Ds * F * Gs / (4.f * NdotL * NdotV + 0.001f);
+    GVec3 spec = Ds * F * Gs;
 
     // pkg138: blend in the rough dielectric reflection lobe -- mirrors CPU
     // disney.cpp eval() (see the pkg138 comment there for the mixture-
@@ -1015,8 +1032,42 @@ __device__ inline GMaterial gpu_closure_as_material(const GMaterial& parent, con
             tmp.roughness  = parent.roughness;
             break;
         case GCLOSURE_GGX_CONDUCTOR:
-            tmp.type = GMAT_METAL;
-            tmp.metallic = 1.0f;
+            // pkg141: DisneyPlugin::closureGraph() (plugins/materials/disney.cpp,
+            // Lane A's exclusive file -- not edited here) emits the SAME
+            // GGXConductor closure shape as the standalone MetalPlugin, but the
+            // two plugins need DIFFERENT GPU models. gpu_metal_eval/sample below
+            // 0.1 roughness returns an unconditional full-albedo mirror
+            // (s.f = baseColor, no Fresnel/D/G shaping) -- correct for
+            // MetalPlugin (its own CPU eval()/sample() has the identical
+            // shortcut, metal.cpp:33,94), but wrong for a Disney metallic
+            // lobe: DisneyPlugin's CPU eval()/sample()/pdf() never special-
+            // cases low roughness (alpha floors at max(roughness^2, 0.0064)
+            // and stays a continuous Fresnel-Schlick/D_GTR2/Smith-G lobe, see
+            // disney.cpp sample()'s specular branch calling eval()/pdf()
+            // unconditionally). Routing Disney's conductor closure through
+            // gpu_metal_eval instead of gpu_disney_eval measured GPU/CPU
+            // metal-at-roughness->0 brightness ratios of 2.7-4.0x (pkg123
+            // parity xfails, tests/test_pkg123_disney_metal_gpu_cpu_parity.py).
+            // parent.disneyMetalConductor is stamped by scene_upload.cu from
+            // Material::getGPUTypeName() at closure-graph upload time.
+            if (parent.disneyMetalConductor) {
+                tmp.type = GMAT_DISNEY;
+                tmp.metallic = 1.0f;
+                tmp.transmission = 0.0f;
+                // Disney's closure-graph lowering does not carry clearcoat/
+                // sheen through the closure system at all (DisneyPlugin::
+                // closureGraph() only ever emits Diffuse/GGXConductor/
+                // DielectricTransmission closures -- a pre-existing, documented
+                // approximation, see disney.cpp backendCapabilities() notes).
+                // The specular/specularTint/sheen/clearcoat defaults set above
+                // (0.5/0/0/0) already match DisneyPlugin's own eval() defaults
+                // for a plain metallic lobe (F0 = baseColor when metallic=1,
+                // Cspec0's specular/specularTint terms are scaled by
+                // (1-metallic) = 0 and drop out).
+            } else {
+                tmp.type = GMAT_METAL;
+                tmp.metallic = 1.0f;
+            }
             break;
         case GCLOSURE_DIELECTRIC_TRANSMISSION:
             tmp.type = closure.roughness > 0.03f ? GMAT_DISNEY : GMAT_DIELECTRIC;

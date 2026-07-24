@@ -444,6 +444,27 @@ struct alignas(64) GMaterial {
     GDispersion dispersion;
     bool        isDispersive;
 
+    // pkg141: DisneyPlugin::closureGraph() always emits a GGXConductor closure
+    // for any non-fully-transmissive Disney material (see
+    // plugins/materials/disney.cpp closureGraph(), which this header must not
+    // edit — Lane A's exclusive file). MetalPlugin's standalone "metal"
+    // material emits the IDENTICAL closure type/shape for its own lobe. The
+    // closure itself carries no information distinguishing the two origins,
+    // but they need DIFFERENT GPU BRDF models: MetalPlugin's near-delta
+    // perfect-mirror shortcut (gpu_metal_eval, roughness<=0.1) is correct only
+    // for MetalPlugin (CPU MetalPlugin::eval/sample has the identical
+    // shortcut); DisneyPlugin's CPU eval()/sample()/pdf() never special-cases
+    // low roughness (alpha floors at 0.0064 but stays a continuous GGX lobe).
+    // Routing a Disney-native conductor closure through gpu_metal_eval
+    // therefore replaced Disney's Fresnel/GGX-shaped near-delta lobe with an
+    // unconditional full-albedo mirror reflection, measured 2.7-4.0x brighter
+    // than the CPU (see gpu_closure_as_material's GCLOSURE_GGX_CONDUCTOR case
+    // below). This flag is stamped by scene_upload.cu's closure-graph upload
+    // path (a call to the already-public Material::getGPUTypeName(), not a
+    // disney.cpp edit) so gpu_closure_as_material can route the conductor
+    // lobe to the correct model per origin.
+    bool        disneyMetalConductor;
+
     GMaterialClosure closures[G_MAX_MATERIAL_CLOSURES];
 };
 

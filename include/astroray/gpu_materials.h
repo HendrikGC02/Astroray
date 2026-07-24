@@ -602,6 +602,38 @@ __device__ inline float gpu_disney_microfacetReflectionPdf(
 // GCLOSURE_DIELECTRIC_TRANSMISSION -> GMAT_DISNEY lowering in
 // gpu_closure_as_material (roughness > 0.03f), so the GPU has its own copy
 // of the same bug and needs its own copy of the fix.
+//
+// HW-verifier finding on PR #522 (2026-07-25): the Fresnel here was hardcoded
+// to the air-entering convention (etaI=1, etaT=mat.ior) regardless of
+// rec.frontFace, misweighting TRUE INTERNAL reflection events at a solid
+// sphere's second (interior) surface. Physically: for an internal-reflection
+// event, `HdotO = wo.dot(wm)` is always >0 here (the early-return above
+// already guarantees it) and rec.normal is always the front-facing
+// (ray-oriented) normal -- so gpu_disney_fresnelDielectric's own sign-based
+// entering/exiting auto-swap NEVER fires, and the passed-in etaI=1/etaT=ior
+// is used as-is even for an internal event. That is backwards: for light
+// already inside the glass hitting the interior surface, Snell's law must be
+// evaluated as etaI=ior (the medium the ray is currently in), etaT=1 (the
+// medium beyond) -- with the WRONG (entering) convention,
+// `sinThetaT = sinThetaI/ior` NEVER exceeds 1, so total internal reflection
+// (F=1) can never trigger for this formula, no matter how far past the
+// critical angle. Low roughness concentrates internal-reflection probability
+// mass beyond the critical angle (a smooth surface's reflected lobe is
+// narrow/peaked there), so under-computing F there disproportionately
+// darkens LOW-roughness internal reflections -- matching the measured GPU
+// furnace shape (worst at R=0.1, improving toward R=1.0). Same bug class as
+// pkg154's frontFace fix for roughTransmissionEval/Pdf (entering must come
+// from rec.frontFace, not a cosine/dot-product sign that this front-facing
+// normal convention forces to be one-sided always); this is the reflection
+// lobe's own copy, never previously fixed on either CPU or GPU.
+//
+// GPU-ONLY fix (do not port to CPU roughReflectionEval without independent
+// sign-off, per the HW-verifier's re-gate process, memory
+// hw-verify-branch-freeze / pkg98 adjudication discipline) -- CPU's
+// disney.cpp::roughReflectionEval keeps its identical hardcoded convention
+// unchanged; CPU's furnace test passes at 0.997-0.999 with it in place, so
+// whether the same fix is warranted there is an open question for a
+// follow-up investigation, not assumed here.
 __device__ inline GVec3 gpu_disney_roughReflectionEval(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
@@ -620,7 +652,9 @@ __device__ inline GVec3 gpu_disney_roughReflectionEval(
     float NdotH = wm.dot(rec.normal);
     float D = gpu_D_GTR2(NdotH, a);
     float G = gpu_smithG1_GGX(cosO, a) * gpu_smithG1_GGX(cosI, a);
-    float F = gpu_disney_fresnelDielectric(HdotO, 1.f, mat.ior);
+    float etaI = rec.frontFace ? 1.f : mat.ior;
+    float etaT = rec.frontFace ? mat.ior : 1.f;
+    float F = gpu_disney_fresnelDielectric(HdotO, etaI, etaT);
 
     float fr = D * G * F / (4.f * cosO * cosI + 1e-8f);
     return GVec3(fr);

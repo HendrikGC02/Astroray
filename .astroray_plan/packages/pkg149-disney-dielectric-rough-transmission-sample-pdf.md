@@ -3,7 +3,7 @@
 **Pillar:** 3 (BSDF correctness / MIS density consistency)
 **Track:** A
 **Codex-paste-ready:** no (sampling-math re-derivation with a chi² + furnace + CPU/GPU parity validation loop)
-**Status:** HELD — root-cause fix COMPLETE in worktree `Astroray-pkg149` (local commit `670e583`, deliberately NOT pushed, no PR). **RE-ADJUDICATED 2026-07-25: the pkg151 stack premise is FALSIFIED** — pkg151's compensation ceiling is ~1.03× and the furnace under `670e583`+pkg151 is statistically unchanged (0.11–0.82; magnitude probe `.astroray_plan/docs/pkg151-glass-multiscatter-magnitude-notes.md`), so the 2026-07-24 "Lane A slot 2" scheduling is CANCELED. **New ship condition: HELD behind pkg154** (rough-transmission furnace-deficit root cause, investigation-first — leading hypothesis is a non-cancelling exit eta² radiance-compression factor, a bug class the corrected sampler may share exposure with). Once pkg154's convicted fix lands: rebase/stack `670e583`, re-measure furnace + peak-alignment on the full stack, and the original ADJUDICATION's gates apply unchanged — chi² glass[0.3-45] un-xfail flips only with BOTH green (`--runxfail`-verified). Worktree `Astroray-pkg149` must still be KEPT (the commit is on no pushed branch). Do NOT rebase or push while a hardware-verifier is mid-run (memory `hw-verify-branch-freeze`). Note for pkg154: the research claim below that the single-scatter median "matches `G1(wi)/ior²` theory" is now itself under re-examination — a white furnace must conserve over closed paths, so verify WHICH theory value that median should equal before treating it as confirmation.
+**Status:** draft PR #522 OPEN — **CPU contract FULLY MET; merge BLOCKED on a low-roughness GPU-only furnace defect** (2026-07-25 last-call state). On the #522 stack (post-pkg154/#521): CPU rough-glass furnace **0.997–0.999** across the grid, transmission peak alignment **0.45°** (gate <2°), the azimuth-swap root cause is closed — everything this spec's CPU-side contract demands. The GPU leg is red at low roughness: HW re-verify @ `e0fe9d8` measured GPU furnace R=0.1 → **0.130** (byte-unchanged by the signed-off frontFace/TIR fix), R=0.3 → **0.283**, R=0.6 → 0.896 (recovered +0.325, 0.0037 short of the floor), R=1.0 → 1.0, vs gate band [0.90, 1.06] — a second, low-roughness-dominant GPU-only defect remains (see "Hardware re-verification 2026-07-25" below). **That defect is now owned by pkg152** (GPU Disney twin divergence — promoted to head the next run's queue); #522 stays a draft until pkg152's conviction lands and the GPU furnace gate is re-measured — no future HW result is asserted here. The chi² glass[0.3-45] un-xfail ownership is unchanged: flips only when alignment AND furnace (CPU+GPU) are green together, `--runxfail`-verified. The `670e583` lineage is on the pushed #522 branch now; keep worktree `Astroray-pkg149` until #522 merges. Do NOT rebase/push the branch while a hardware-verifier is mid-run (memory `hw-verify-branch-freeze`).
 
 > **✅ ADJUDICATION (2026-07-24 ~04:30, architect — overnight last-call ~06:15): Option 1 — HOLD tonight; pkg151 filed; pkg149+pkg151 stack heads the day queue.**
 >
@@ -90,3 +90,48 @@ pkg138's delta-vs-continuous mismatch, on the other lobe.
 
 - Reflection-candidate masking compensation (pkg150).
 - VNDF swap for the opaque specular lobe (pkg124).
+
+## Hardware re-verification 2026-07-25 (verifier notes, folded in from the `Astroray-pkg149` worktree by the architect at last-call; the prior `19d4e9f` verification section it references is committed on the PR #522 branch and arrives at merge — pr-merger: union/dedupe the two HW sections, main's Status wins)
+
+**Scope:** focused re-check bound to `e0fe9d816f50b8c03feb881dfbf71b868bedc552`
+(PR #522 draft stack), after a signed-off GPU-twin fix targeting the `19d4e9f`
+FAIL — frontFace-aware Fresnel in `gpu_disney_roughReflectionEval` (TIR was
+unreachable for internal/glass→air reflection events) + restoration of #518's
+merged GPU fixes that the stale base had reverted. Only GPU-side code changed;
+focused protocol (furnace gate + two regression guards), sole CUDA job under
+the orchestrator GPU lock. RTX 5070 Ti; `.pyd` mtime confirmed at the fix
+commit; `astroray.__file__` at the worktree's `build_cuda/Release/`.
+
+**Verdict: FAIL — gate still red, but materially and unevenly recovered.**
+
+| Gate | Result |
+|---|---|
+| `test_disney_smooth_glass_furnace_cpu` / `_gpu` | PASS / PASS |
+| `test_disney_rough_glass_furnace_converges` | PASS |
+| `test_disney_rough_glass_furnace_energy_cpu` | PASS |
+| **`test_disney_rough_glass_furnace_energy_gpu`** | **FAIL (hard gate)** — see table |
+| `test_pkg123_disney_metal_gpu_cpu_parity.py` | PASS 7/7 (no regression from the fix) |
+| `test_gpu_caustic_parity.py` | PASS (1 passed, 1 xfailed — pre-existing flat-prism limitation) |
+
+GPU furnace before/after the frontFace/TIR fix (gate band [0.90, 1.06]):
+
+| Roughness | `19d4e9f` | `e0fe9d8` | Δ | In band? |
+|---|---|---|---|---|
+| R=0.1 | 0.1295251101 | 0.1295252442 | ~0.0000 | No — byte-unchanged, still deeply broken |
+| R=0.3 | 0.2690328062 | 0.2832989395 | +0.014 | No |
+| R=0.6 | 0.5711650848 | 0.8962805271 | +0.325 | No — 0.0037 short of the floor |
+| R=1.0 | 0.9705997109 | 1.0 | +0.029 | Yes |
+
+The fixed sub-lobe (internal/TIR-adjacent reflection events) is sampled more
+often as roughness grows, so its recovery scales with roughness; a separate,
+still-unfixed, low-roughness-dominant GPU-only bug remains → **pkg152**.
+Visuals: R=0.1/0.3 GPU discs still dark/speckled grey against the white
+furnace (unchanged severity by eye), R=0.6 mostly blends (consistent with the
+0.896 near-miss); CPU legs correct at all roughness; no NaN/fireflies/mode
+regressions. **Parity-render caveat:** the original `19d4e9f` parity-render
+script was not preserved; an independent scene reconstruction produced a
+different R=0.6 trend and is recorded as a secondary, uncontrolled data point
+only — the furnace pytest gate is the authoritative measurement. Full
+numbers: `test_results/overnight_report_2026-07-24/pkg149_hw_numbers.json`
+key `reverify_e0fe9d8` + `pkg149_furnace_R{0.1,0.3,0.6}_{gpu,cpu}_e0fe9d8.png`.
+Verdict comment: https://github.com/HendrikGC02/Astroray/pull/522#issuecomment-5073008663

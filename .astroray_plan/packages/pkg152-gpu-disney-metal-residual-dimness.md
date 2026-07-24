@@ -1,15 +1,44 @@
-# pkg152 — GPU Disney-metal residual dimness (stable 0.60–0.77 GPU/CPU after the pkg141 dispatch fix)
+# pkg152 — GPU Disney twin divergence: metal residual dimness + the low-roughness rough-transmission furnace deficit (blocks PR #522)
 
 **Pillar:** 3 (GPU/CPU parity)
 **Track:** A (GPU lane; RTX-gated — CI is blind to it)
 **Codex-paste-ready:** no (measure-first parity investigation; the fix is chosen by instrumentation, not in advance)
-**Status:** open — dispatchable AFTER PR #518 (pkg141) merges; NOT for the 2026-07-24/25 overnight run (same GPU region Lane B just changed — let the pkg141 state settle and re-anchor on merged main)
+**Status:** open — dispatchable. **PROMOTED 2026-07-25 (last-call): HEADS the next run's queue.** #518 is merged, so the original wait condition is satisfied; and this package's scope is **WIDENED** (architect decomposition call) to absorb the **pkg149-GPU remainder** — the low-roughness GPU-only rough-transmission furnace deficit that blocks draft PR #522 (see "2026-07-25 evidence" below). Rationale for one package, not two: both symptoms are stable, deterministic, GPU-dim divergences of the same `gpu_materials.h` Disney twin; one CPU-vs-GPU per-event instrumentation harness convicts both; the candidate mechanism list overlaps (missing CPU-side compensation terms never mirrored to the GPU). **Split-clause:** if instrumentation proves the two symptoms have unrelated mechanisms, fix the #522 blocker here and split the metal remainder back out as its own package — do not let either finding stall the other's fix.
 **Estimated effort:** S–M (the pkg141 instrumentation pattern is reusable; likely one or a few missing terms to mirror)
 **Depends on:** pkg141/PR #518 merged (this package's baseline IS that PR's post-fix state). Related: pkg129 (Turquin reflection multiscatter LUTs) may be the fix vehicle if the missing term turns out to be the CPU-side reflection compensation — do not implement pkg129 from here; hand over if convicted.
 
 **Origin:** pkg141 hardware verification (2026-07-25, PR #518, RTX 5070 Ti). After the closure-dispatch fix, GPU/CPU per-channel mean ratios are a stable, bit-deterministic 0.60–0.77 at near-delta (roughness ≤ 0.1), 0.86–0.94 at mid roughness, and 0.64–0.89 at roughness 0.9 — inside pkg141's deliberately wide [0.4, 2.5] acceptance band (the package closed on its contract), but structurally dim, channel-ordered R < G < B, and the opposite sign of the original 2.7–4.0× defect.
 
 ---
+
+## 2026-07-25 evidence — the #522 low-roughness GPU furnace deficit (this package's second symptom, and the merge blocker)
+
+HW re-verify of PR #522 @ `e0fe9d8` (verdict comment
+https://github.com/HendrikGC02/Astroray/pull/522#issuecomment-5073008663;
+numbers `test_results/overnight_report_2026-07-24/pkg149_hw_numbers.json` key
+`reverify_e0fe9d8`): on the #522 stack the **CPU** rough-glass furnace is
+0.997–0.999 (contract met), but the **GPU** furnace reads, vs gate band
+[0.90, 1.06]:
+
+| Roughness | pre-fix `19d4e9f` | post-frontFace/TIR-fix `e0fe9d8` |
+|---|---|---|
+| 0.1 | 0.12953 | **0.12953 (byte-unchanged)** |
+| 0.3 | 0.26903 | 0.28330 |
+| 0.6 | 0.57117 | 0.89628 |
+| 1.0 | 0.97060 | 1.0 |
+
+The signed-off frontFace/TIR fix (`gpu_disney_roughReflectionEval`) recovered
+the high-roughness regime and left R=0.1 bit-identical — the reviewer's
+**compounding-masking analysis** holds: the fixed sub-lobe
+(internal/TIR-adjacent reflection) is sampled in proportion to roughness, so
+its recovery scales with roughness, and a SECOND, low-roughness-dominant,
+GPU-only term dominates R≤0.3. That residual is quite possibly exactly the
+missing `gpu_disney_eval` compensation terms hypothesis 1 below tracks (the
+CPU-side pkg60/118/145/154 energy terms have no GPU mirror), or another
+un-audited twin divergence in the same region. Both this deficit and the
+metal dimness below are stable deterministic GPU-dim ratios in the same twin
+— the shared instrumentation harness should dump both material configs in one
+pass.
 
 ## Defect
 
@@ -29,6 +58,10 @@ GPU renders Disney metal consistently dimmer than the canonical CPU (pkg123-adju
 
 ## Gates
 
+- **The #522 blocker:** `test_disney_rough_glass_furnace_energy_gpu` measured
+  on the PR #522 stack after this package's convicted fix — the R=0.1/0.3
+  rows are the target (band [0.90, 1.06]); report the measured values, do not
+  pre-assert them. #522's merge decision then re-runs its own checklist.
 - GPU/CPU per-channel mean ratio within [0.90, 1.10] across the pkg123 parity grid (near-delta AND mid/high roughness rows — tighten from pkg141's [0.4, 2.5] band; propose the tightened band in the PR for architect sign-off).
 - pkg141's promoted (un-xfail'd) rows stay green; furnace/energy suites green; wavefront-diff attribution per the pkg153 protocol while that package is open.
 - Build evidence per CLAUDE.md; RTX verification serialized (memory `cuda_verifier_concurrency`).

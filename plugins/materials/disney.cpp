@@ -315,7 +315,30 @@ class DisneyPlugin : public Material {
         float cosI = rec.normal.dot(wi);
         if (cosO == 0.0f || cosI == 0.0f || cosO * cosI >= 0.0f) return Vec3(0);
 
-        bool entering = cosO > 0.0f;
+        // pkg154: entering/exiting MUST come from rec.frontFace, not the sign
+        // of cosO = rec.normal.dot(wo). rec.normal is the front-facing
+        // (HitRecord::setFaceNormal'd) shading normal, so it is ALWAYS
+        // reoriented to satisfy wo.dot(rec.normal) >= 0 regardless of which
+        // side of the interface the ray is actually crossing -- `cosO > 0.0f`
+        // is therefore true on effectively 100% of calls (measured on the
+        // pkg149 corrected-sampler branch: 274,809/274,809 at roughness=0.1,
+        // including the 61% of those calls where rec.frontFace was false,
+        // i.e. a true glass->air exit event). Both the entering AND exiting
+        // refraction events were computing etap = ior_ (never 1/ior_), so the
+        // radiance-compression factor 1/etap^2 applied at BOTH transmission
+        // events instead of cancelling over the round trip: (1/ior^2)^2 =
+        // (1/2.25)^2 = 0.1975 at ior=1.5. Same bug class already found and
+        // fixed in the smooth dielectric (plugins/materials/dielectric.cpp:
+        // "Enter/exit MUST come from rec.frontFace, not the sign of
+        // wo.rec.normal") and in photon_caustic.cu (memory:
+        // photon-caustic-exit-refraction-oriented-normal); never ported to
+        // the Disney rough-transmission eval()/pdf() pair. sample()'s own eta
+        // computation (`rec.frontFace ? 1.0f : ior_`, a few lines above this
+        // function's call sites) was already correct -- it just wasn't
+        // consulted here, so the refracted direction was right but this
+        // function recomputed a different (wrong) eta orientation for the
+        // same event. See .astroray_plan/docs/pkg154-furnace-deficit-findings.md.
+        bool entering = rec.frontFace;
         float etaI = entering ? 1.0f : ior_;
         float etaT = entering ? ior_ : 1.0f;
         float etap = entering ? ior_ : (1.0f / ior_);  // etaT/etaI
@@ -349,9 +372,30 @@ class DisneyPlugin : public Material {
         // magnitude only; roughTransmissionPdf/sampleGgxVNDF are untouched.
         result *= ggxGlassCompensationFactor(etap, std::abs(cosO));
 
-        result.x = std::clamp(result.x, 0.0f, 4.0f);
-        result.y = std::clamp(result.y, 0.0f, 4.0f);
-        result.z = std::clamp(result.z, 0.0f, 4.0f);
+        // pkg154: removed the closure-level `clamp(0,4)` this function used to
+        // apply here. GGX D(wm) grows without bound as alpha -> 0 for
+        // near-perfectly-aligned half-vectors, so at LOW roughness the
+        // legitimate (unbiased) MC estimator has a heavy right tail -- rare
+        // high-value samples that a hard magnitude cap silently discards,
+        // which is exactly what an unbiased Monte Carlo estimator must not do
+        // (the mean of a truncated distribution is not the mean of the true
+        // one). Measured: on the pkg149 corrected sampler + the frontFace fix
+        // above, the cap alone held the furnace at 0.18/0.37/0.85/0.98
+        // (roughness 0.1/0.3/0.6/1.0) -- rising toward 1.0 with roughness
+        // exactly as the D(wm) tail flattens out; removing it restores
+        // 0.999/0.999/0.999/0.997 (uncapped) across the same grid, plus
+        // 0.999 at roughness=0.05. This is the same bug class already found
+        // and fixed for the metal REFLECTION lobe (pkg123, see the
+        // `clampColor` comment a few lines above `fresnelDielectric`: "a
+        // closure-level cap ... never fires and f/pdf cancelled cleanly;
+        // removing the cap restores that render behaviour" -- Cycles
+        // bsdf_microfacet.h returns the true D with no closure-level cap;
+        // firefly control belongs at the integrator, raytracer.h
+        // clampDirect/clampIndirect). roughReflectionEval (this file, a few
+        // functions above) was never given this cap; only the transmission
+        // twin was, inconsistently. See
+        // .astroray_plan/docs/pkg154-furnace-deficit-findings.md.
+        result = clampColor(result);
         return result;
     }
 
@@ -375,7 +419,11 @@ class DisneyPlugin : public Material {
         float cosI = rec.normal.dot(wi);
         if (cosO == 0.0f || cosI == 0.0f || cosO * cosI >= 0.0f) return 0.0f;
 
-        bool entering = cosO > 0.0f;
+        // pkg154: mirrors roughTransmissionEval's fix -- entering/exiting MUST
+        // come from rec.frontFace, not the sign of cosO (see the comment
+        // there). Keeps the half-vector reconstruction (wm = wi*etap + wo)
+        // and Fresnel/Jacobian terms consistent with the same event's eval().
+        bool entering = rec.frontFace;
         float etap = entering ? ior_ : (1.0f / ior_);
         Vec3 wm = (wi * etap + wo).normalized();
         if (wm.length2() <= 1e-10f) return 0.0f;

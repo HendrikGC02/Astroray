@@ -635,7 +635,17 @@ __device__ inline GVec3 gpu_disney_roughTransmissionEval(
     float cosI = rec.normal.dot(wi);
     if (cosO == 0.f || cosI == 0.f || cosO*cosI >= 0.f) return GVec3(0.f);
 
-    bool entering = cosO > 0.f;
+    // pkg154: entering/exiting MUST come from rec.frontFace, not sign(cosO) --
+    // rec.normal is the front-facing normal (gpu_bvh.h sets rec.normal =
+    // frontFace?out:-out, mirroring the CPU HitRecord::setFaceNormal
+    // convention), so cosO = rec.normal.dot(wo) is always >= 0 regardless of
+    // enter/exit. Both transmission events computed etap = mat.ior (never
+    // 1/mat.ior), so the radiance-compression factor 1/etap^2 never cancelled
+    // over a round trip -- (1/ior^2)^2 = 0.1975 at ior=1.5, matching the
+    // measured CPU furnace floor. Same fix already applied to the smooth GPU
+    // dielectric path (gpu_dielectric_sample) and disney.cpp's CPU twin. See
+    // .astroray_plan/docs/pkg154-furnace-deficit-findings.md.
+    bool entering = rec.frontFace;
     float etaI = entering ? 1.f : mat.ior;
     float etaT = entering ? mat.ior : 1.f;
     float etap = entering ? mat.ior : (1.f / mat.ior);  // etaT/etaI
@@ -671,9 +681,12 @@ __device__ inline GVec3 gpu_disney_roughTransmissionEval(
     // gpu_disney_sampleGgxVNDF.
     result = result * gpu_ggxGlassCompensationFactor(mat.roughness, etap, fabsf(cosO));
 
-    result.x = fminf(fmaxf(result.x, 0.f), 4.f);
-    result.y = fminf(fmaxf(result.y, 0.f), 4.f);
-    result.z = fminf(fmaxf(result.z, 0.f), 4.f);
+    // pkg154: removed the closure-level clamp(0,4) -- CPU twin: disney.cpp
+    // roughTransmissionEval (see the comment there for the measured furnace
+    // numbers and the pkg123 metal-reflection precedent this mirrors).
+    result.x = fmaxf(result.x, 0.f);
+    result.y = fmaxf(result.y, 0.f);
+    result.z = fmaxf(result.z, 0.f);
     return result;
 }
 
@@ -701,7 +714,8 @@ __device__ inline float gpu_disney_roughTransmissionPdf(
     float cosI = rec.normal.dot(wi);
     if (cosO == 0.f || cosI == 0.f || cosO*cosI >= 0.f) return 0.f;
 
-    bool entering = cosO > 0.f;
+    // pkg154: mirrors gpu_disney_roughTransmissionEval's fix (see comment there).
+    bool entering = rec.frontFace;
     float etap = entering ? mat.ior : (1.f / mat.ior);
     GVec3 wm = (wi*etap + wo).normalized();
     if (wm.length2() <= 1e-10f) return 0.f;

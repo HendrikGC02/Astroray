@@ -126,41 +126,7 @@ SEED = 90123
 # denominator bug in gpu_disney_eval -- and fixed both. HW measurement of
 # these rows is PENDING; xfail markers stay in place until the
 # hardware-verifier confirms the ratios land in [0.4, 2.5] on RTX.
-ROUGHNESS_VALUES = [
-    pytest.param(0.0, marks=pytest.mark.xfail(
-        reason="Pre-#498-baseline GPU near-delta Disney-metal over-brightness "
-        "(measured R ratio 4.0033, GPU 0.02387, CPU 0.00596, alpha floors to "
-        "0.0064). pkg141 found + fixed the mechanism (closure-graph "
-        "GGXConductor->gpu_metal_eval perfect-mirror mis-dispatch + a stacked "
-        "stale Smith-G divide in gpu_disney_eval, see module docstring) but "
-        "HW re-measurement is PENDING -- do not remove this xfail until the "
-        "hardware-verifier confirms the ratio lands in [0.4, 2.5] on RTX.",
-        strict=False)),
-    pytest.param(0.03, marks=pytest.mark.xfail(
-        reason="Pre-#498-baseline GPU near-delta Disney-metal over-brightness "
-        "(measured R ratio 4.0033, GPU 0.02387, CPU 0.00596 -- alpha ALSO "
-        "floors to 0.0064, byte-identical to roughness=0.0). pkg141 found + "
-        "fixed the mechanism (see module docstring); HW re-measurement "
-        "PENDING -- do not remove this xfail until the hardware-verifier "
-        "confirms the ratio lands in [0.4, 2.5] on RTX.",
-        strict=False)),
-    pytest.param(0.05, marks=pytest.mark.xfail(
-        reason="Pre-#498-baseline GPU near-delta Disney-metal over-brightness "
-        "(measured R ratio 4.0033, GPU 0.02387, CPU 0.00596 -- alpha ALSO "
-        "floors to 0.0064, byte-identical to roughness=0.0). pkg141 found + "
-        "fixed the mechanism (see module docstring); HW re-measurement "
-        "PENDING -- do not remove this xfail until the hardware-verifier "
-        "confirms the ratio lands in [0.4, 2.5] on RTX.",
-        strict=False)),
-    pytest.param(0.1, marks=pytest.mark.xfail(
-        reason="Pre-#498-baseline GPU near-delta Disney-metal over-brightness "
-        "(measured R ratio 3.6870, GPU 0.02387, CPU 0.00647 -- alpha=0.0100 "
-        "just above the floor). pkg141 found + fixed the mechanism (see "
-        "module docstring); HW re-measurement PENDING -- do not remove this "
-        "xfail until the hardware-verifier confirms the ratio lands in "
-        "[0.4, 2.5] on RTX.",
-        strict=False)),
-]
+ROUGHNESS_VALUES = [0.0, 0.03, 0.05, 0.1]
 
 # pkg141 verification-gate addition: "Rough-metal no-regression" (spec
 # gpu-near-delta-disney-metal-brightness, Verification gates) -- this file

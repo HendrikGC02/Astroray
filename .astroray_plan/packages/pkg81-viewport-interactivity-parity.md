@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** Phase 1+2 done (harness + diagnosis); Phase 3 routes to pkg55 Phase B
+**Status:** done (Phases 1+2: harness + diagnosis; Phase 3 delivered via pkg55 Phase B′ — PR #463, 2026-06-12: viewport-parity gate MET, pan-frame p99 0.84× Cycles-OPTIX vs ≤1.2× target)
 **Estimated effort:** 1–2 weeks (~30 h, multiple sessions)
 **Depends on:** pkg52 (persistent viewport), pkg56 Phases A+B+C (incremental sync), pkg68 (OIDN persistent), pkg73 fix, pkg55 Phase A (baseline numbers exist)
 

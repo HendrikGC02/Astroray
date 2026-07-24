@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (light transport) and 5
 **Track:** A (research-grade — research note signed off 2026-05-09)
-**Status:** research signed off — **ready to implement when capacity allows**. See [`caustics-research.md`](../docs/caustics-research.md) for the licensing analysis and the four owner answers.
+**Status:** done (CPU SMS shipped — Phases 1–3, final PR #230 merged 2026-05-10: SMS folded into the default `path_tracer` with per-object `caustic_caster` opt-in + MIS combine). Superseded as the canonical caustics path by the photon-map arc (pkg106/109/110/111, owner decision 2026-05-30); SMS retained as legacy. See [`caustics-research.md`](../docs/caustics-research.md) for the licensing analysis and the four owner answers.
 **Estimated effort:** 3-4 weeks (~80 h, multiple sessions).
 **Depends on:** pkg29 (prism validation, done), pkg29a (caustic test scenes, done)
 

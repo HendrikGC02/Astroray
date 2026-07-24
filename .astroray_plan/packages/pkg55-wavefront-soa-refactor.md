@@ -2,7 +2,7 @@
 
 **Pillar:** 5  
 **Track:** A  
-**Status:** Phase B' COMPLETE (PR #463, 2026-06-12 — viewport-parity gate MET: wavefront steady-state pan-frame p99 = 0.84× Cycles-OPTIX, target ≤1.2×; mean 0.97×, p50 0.98×; perf gate 1.50× @ 512spp; wavefront_path_tracer registered). Package OPEN for Phase C (MIS audit + megakernel removal + 2× gate).  
+**Status:** Phase B' COMPLETE (PR #463, 2026-06-12 — viewport-parity gate MET: wavefront steady-state pan-frame p99 = 0.84× Cycles-OPTIX, target ≤1.2×; mean 0.97×, p50 0.98×; perf gate 1.50× @ 512spp; wavefront_path_tracer registered). Package OPEN for Phase C — **only Session C7 remains** (megakernel removal + repoint + 2× gate; C1–C6b merged, see execution status §Phase C).  
 **Estimated effort:** 10–11 weeks total across three phases (Phase A: 3–4 w, Phase B: 4 w, Phase C: 3 w)  
 **Depends on:** pkg54 (megakernel reference, done), pkg54a (spectral-profile dispatch, done), pkg54b (CIE 1964 CMF parity, done). pkg54c (Jakob-Hanika GPU upsampling) may overlap Phase B — see §Research/Risk 6.
 
@@ -383,7 +383,7 @@ only the honesty guard.
 
 **Goal:** Wavefront achieves full parity including MIS weighting and spectral upsampling. Remove megakernel code paths. Demonstrate ≥ 2× end-to-end speedup.
 
-**Execution status:** running the 7-session plan in `.astroray_plan/docs/pkg55-phase-c-plan-2026-07.md` (delete-last ordering). **Session C1 done — PR #481, 2026-07-18** (behaviour-preserving extraction of the shared spectral-tables layer → `src/gpu/gpu_spectral_tables.{cu,h}` + the pkg86-B probe → `src/gpu/light_tree_probe.cu`, so the eventual megakernel deletion is a clean unlink; byte-identical, 55 passed / 0 failed). C2–C7 open.
+**Execution status:** running the 7-session plan in `.astroray_plan/docs/pkg55-phase-c-plan-2026-07.md` (delete-last ordering). **Session C1 done — PR #481, 2026-07-18** (behaviour-preserving extraction of the shared spectral-tables layer → `src/gpu/gpu_spectral_tables.{cu,h}` + the pkg86-B probe → `src/gpu/light_tree_probe.cu`, so the eventual megakernel deletion is a clean unlink; byte-identical, 55 passed / 0 failed). C2 done (PR #484), C3 done (PR #486), C4 done (PR #490), C5 done (PR #494), C6a done (PR #497), C6b done (PR #503). **Only C7 remains** (repoint `path_tracer`/`render()` at the wavefront, port non-visible-band + naive-MW mode, delete both megakernel `.cu` files, 2× perf gate) — run as a supervised day session with a full RTX hardware sweep at closeout, not overnight.
 
 #### Files to delete
 

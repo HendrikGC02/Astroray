@@ -2,7 +2,7 @@
 
 **Pillar:** 2 follow-up  
 **Track:** A  
-**Status:** implemented
+**Status:** done (normalized from "implemented" — 2026-07-25 tracker audit; merged to main, see git history)
 **Estimated effort:** 1 session (~3 h)  
 **Depends on:** pkg13 (done)  
 **Blocks:** pkg31, pkg29

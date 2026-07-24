@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** C
-**Status:** implemented
+**Status:** done (normalized from "implemented" — 2026-07-25 tracker audit; merged to main, see git history)
 **Estimated effort:** 2–3 sessions (~9 h)
 **Depends on:** pkg25
 

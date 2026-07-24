@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / emitter energy — measurement correctness)
 **Track:** A (an investigation: reconcile two disagreeing oracles before proposing any fix; measure first, adjudicate second)
 **Codex-paste-ready:** no (diagnosis with a live-Cycles oracle + harness archaeology; the deliverable is a root-cause + a scoped fix spec, not a blind patch)
-**Status:** done (investigation closed, PR pending, 2026-07-23) — root cause found:
+**Status:** done (investigation closed; PR #514 merged 2026-07-23) — root cause found:
 the pkg122 oracle's 1.07–1.16× was measured **before** PR #505 (pkg139) fixed a
 world-strength-0 `set_background_color` guard bug that leaked the engine's hardcoded
 sky-gradient fallback into every pkg122 scene (all of which authored an intentional

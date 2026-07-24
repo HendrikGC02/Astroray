@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (light transport) and 5 (GPU)
 **Track:** A
-**Status:** Phase 2 done (PR #348, 2026-05-22); Phase 3 done (PR #350, 2026-05-23 — test infrastructure + caustics toggle wiring; hardware baseline-pinning + Sellmeier GPU upload blocked on pkg64-gpu-sellmeier-upload)
+**Status:** superseded — frozen/legacy (owner decision 2026-05-30: the photon map is the canonical caustic path on CPU+GPU). Shipped scope stays merged: Phase 1 PR #323, Phase 2 PR #348, Phase 3 PR #350, Sellmeier upload PR #354, multi-IOR Session 2 PR #385. Do NOT add further SMS-GPU surface area; the wavefront port is PORT-later/xfail per the pkg55 Phase-C plan §1c.
 **Estimated effort:** 2-3 weeks (~50 h, multiple sessions)
 **Depends on:** pkg64 (CPU SMS, done — PR #230), pkg54/54a/54b (megakernel mirror of `multiwavelength_path_tracer`, done), pkg31 (Sellmeier dispersion, done)
 

@@ -3,7 +3,7 @@
 **Pillar:** 3 (BSDF correctness / MIS density consistency)
 **Track:** A (CPU BSDF first, chi²-gated on CI; GPU mirror verified on RTX — the GPU dielectric lowers via the closure graph, so check both legs)
 **Codex-paste-ready:** no (an `eval()` energy-shape change on the glass path — needs furnace + CPU/GPU parity validation and judgment about the delta-fallback boundary, not a mechanical patch)
-**Status:** in review (PR #517) — **ADJUDICATED 2026-07-23: MERGEABLE as a partial-scope correctness improvement** (architect verdict, design authority for the overnight run; see block below; HW non-regression check in parallel; final merge via pr-merger checklist).
+**Status:** done (PR #517 merged 2026-07-23 — partial-scope correctness improvement per the architect adjudication below; the transferred chi² gate remainder ships via the pkg151 → pkg149 → pkg150 lane).
 
 > **✅ ADJUDICATION (2026-07-23, architect) — PR #517 ships; the chi² glass[0.3-45] gate transfers to pkg149/pkg150.**
 >

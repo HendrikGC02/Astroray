@@ -2,7 +2,7 @@
 
 **Pillar:** 2 / 3 bridge follow-up  
 **Track:** A  
-**Status:** implemented
+**Status:** done (normalized from "implemented" — 2026-07-25 tracker audit; merged to main, see git history)
 **Estimated effort:** 2-4 sessions  
 **Depends on:** pkg29, pkg31, issue #142, issue #146  
 **GitHub:** #145

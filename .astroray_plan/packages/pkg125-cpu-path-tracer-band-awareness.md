@@ -3,7 +3,7 @@
 **Pillar:** 3 (spectral correctness / integrator parity)
 **Track:** A (CPU-only reference integrator; runs on CI)
 **Codex-paste-ready:** no (a small chip, but it carries one owner-facing design choice — honor vs. reject — that wants a recommendation, not a silent pick)
-**Status:** done (PR #499, 2026-07-20 — Option A-minimal implemented; CPU-only test evidence pending build+PR review)
+**Status:** done (PR #499 merged 2026-07-20 — Option A-minimal; CPU `path_tracer` honors `set_wavelength_range`)
 **Estimated effort:** S (small — the band-sampling change is a few lines mirroring `multiwavelength_path_tracer`; the larger option (full non-visible NEE reference) is scoped as an explicit stretch, not required)
 **Depends on:** none. Independent of the pkg120/122/123/124 chain. Composes with **pkg55 Phase C** (Session C3) — closing this gives the wavefront the band-aware **NEE** CPU reference that C3 recorded as missing.
 

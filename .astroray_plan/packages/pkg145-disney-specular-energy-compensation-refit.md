@@ -3,7 +3,7 @@
 **Pillar:** 2 (BSDF / material energy conservation)
 **Track:** A (converge Astroray's Disney energy compensation to the Cycles-faithful path against the true D; regenerate the Astroray-specific tuned pieces; two-toolchain grid gate)
 **Codex-paste-ready:** no (a numerical recalibration whose target is the full directional-hemispherical reflectance grid across both toolchains, replacing hand-tuned deflated-D corrections with the Cycles-faithful compensation — judgment at the gate, evidence-first)
-**Status:** implemented, PR #513 pending merge (2026-07-23) — diffuse-under-
+**Status:** done (PR #513 merged 2026-07-23) — diffuse-under-
 specular Cycles `closure_layering_weight`/OpenPBR coupling added to
 `plugins/materials/disney.cpp::eval()`; full 90-config x 3-angle energy grid
 1.2048 -> 1.004 (N=65536); pkg143/clearcoat fork resolved by measurement

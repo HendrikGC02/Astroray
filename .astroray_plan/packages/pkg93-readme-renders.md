@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (production polish / showcase)
 **Track:** A (renders need RTX 5070 Ti to match the validation-snapshot numbers)
-**Status:** done — landed alongside the README refresh on branch `pkg93`.
+**Status:** done (PR #289 merged 2026-05-14 — README hero + gallery renders).
   REFRESHED 2026-06-12 (stabilization session, two feedback rounds): contact
   sheet re-rendered live by the GPU wavefront integrator (2048 spp),
   convergence curve re-measured against an INDEPENDENT 8192-spp reference

@@ -2,7 +2,7 @@
 
 **Pillar:** 4
 **Track:** A (research-grade — must do WebSearch + WebFetch literature pass first)
-**Status:** done (Option α — pending PR; 2026-05-14) — MinkowskiMetric + `SampledWavelengths::redshift` + `GRSpectralResult::frequencyShift` exposure. See "Realized architecture" below for why the spec's literal wording was not implemented verbatim.
+**Status:** done (PR #262 merged 2026-05-14 — Option α) — MinkowskiMetric + `SampledWavelengths::redshift` + `GRSpectralResult::frequencyShift` exposure. See "Realized architecture" below for why the spec's literal wording was not implemented verbatim.
 **Estimated effort:** 1 month (~120 h, multiple sessions)
 **Depends on:** pkg40 (Kerr metric, open — can run in parallel after Kerr's interface lands)
 

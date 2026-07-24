@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / emitter energy correctness)
 **Track:** A (single cross-cutting convention change with a live headless-Cycles oracle gate + reference-bank re-bless; needs a build + RTX + Blender-5.1, not a mechanical patch)
 **Codex-paste-ready:** no (one adjudicated convention flip that cross-cuts CPU/GPU/env/materials and moves the Cycles-parity reference bank; empirical sign/magnitude must be confirmed against a live Cycles A/B, and a fallback branch may be taken — judgment at the gate, not a blind edit)
-**Status:** **ADJUDICATED — keep `RGBIlluminant` (D65). Net code change: NONE; revert PR #511.** The residual equal-wattage offset is re-attributed to a new investigation (**pkg146**). See ✅ FINAL ADJUDICATION.
+**Status:** done (adjudicated 2026-07-21, PR #512 — keep `RGBIlluminant` (D65); net code change NONE; PR #511 closed unmerged). The residual equal-wattage offset was re-attributed to **pkg146** (since closed — PR #514). See ✅ FINAL ADJUDICATION.
 **Estimated effort:** M (the code change is small and localized; the cost is the build + live-Cycles oracle re-run + RTX GPU==CPU parity + evidence-first reference-bank re-bless)
 **Depends on:** pkg122 (PR #500, **merged**) — Defects 1–3 must be in `main` so the residual measured by the oracle is the *clean* emission-lift offset, not confounded by the per-type radiometry bugs. Satisfied.
 

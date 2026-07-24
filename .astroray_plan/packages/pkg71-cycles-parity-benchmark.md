@@ -3,7 +3,7 @@
 **Pillar:** 5
 **Track:** A (move to Codex once §6 acceptance, §7 metrics, and the
 scene-fetch script are concrete enough to scope as a port).
-**Status:** implemented
+**Status:** done (normalized from "implemented" — 2026-07-25 tracker audit; merged to main, see git history)
 **Estimated effort:** 1 week (~25 h, multi-session)
 **Depends on:** nothing hard — could run today against current `main`.
 - pkg63 (HDRI/world parity) landing first makes the BMW and Pabellon

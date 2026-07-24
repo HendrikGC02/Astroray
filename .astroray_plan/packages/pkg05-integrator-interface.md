@@ -2,7 +2,7 @@
 
 **Pillar:** 1  
 **Track:** A  
-**Status:** complete  
+**Status:** done (normalized from "complete" — 2026-07-25 tracker audit; PR #94)
 **Estimated effort:** 1 week (~4 sessions)  
 **Depends on:** pkg04
 

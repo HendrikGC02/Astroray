@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (with eyes on Pillar 4)
 **Track:** A
-**Status:** done — kernel + dispatch wiring landed; pkg54a (spectral-profile dispatch) and pkg54b (CIE 1964 10° CMF table parity) both done and verified on hardware. pkg54c (Jakob-Hanika spectral upsampling on GPU) and pkg54d (direct gpu_profile_reflectance binding) remain as scoped follow-ups for tighter parity / unconfounded liveness gating.
+**Status:** done — kernel + dispatch wiring landed; pkg54a (spectral-profile dispatch) and pkg54b (CIE 1964 10° CMF table parity) both done and verified on hardware. pkg54c (Jakob-Hanika spectral upsampling on GPU) and pkg54d (direct gpu_profile_reflectance binding) have both since shipped — see their specs (done).
 **Estimated effort:** 1 week (~25 h, several sessions)
 **Depends on:** pkg53 (capability metadata), pkg35 (spectral GPU material payloads, done)
 

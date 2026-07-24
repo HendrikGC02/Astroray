@@ -6,6 +6,22 @@ invocation: /close-round
 
 # /close-round
 
+## Step 0 — Spec-status drift gate (added 2026-07-25 after the tracker audit)
+
+Before anything else, grep every spec for unflipped statuses:
+
+```
+grep -rE '^\*\*?Status:?\*?\*?.*(pending|in review|PR #[0-9]+)' .astroray_plan/packages/
+```
+
+For each hit naming a PR, check `gh pr view <N> --json state`. If the PR is
+MERGED or CLOSED and the spec still reads pending/in-review, **the closeout
+fails until the spec is flipped** to `done (PR #N, date — headline numbers)`
+(or superseded/held as appropriate). This gate exists because the spec-flip
+step was skipped in two consecutive rounds (2026-07-23/24), causing 30 specs
+of drift on the owner's tracker (fixed in `07ac576`). The pr-merger also
+flips specs at merge time; this gate is the backstop.
+
 ## Step 1 — Spawn docs-updater
 
 Spawn the `docs-updater` agent. Pass it the list of PRs merged since the

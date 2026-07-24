@@ -3,7 +3,7 @@
 **Pillar:** 3 (BSDF correctness / MIS density consistency)
 **Track:** A
 **Codex-paste-ready:** no (sampling-math re-derivation with a chi² + furnace + CPU/GPU parity validation loop)
-**Status:** HELD — root-cause fix COMPLETE in worktree `Astroray-pkg149` (local commit `670e583`, deliberately NOT pushed, no PR); **ships stacked on pkg151** (rough-transmission multi-scatter energy compensation). See ✅ ADJUDICATION below.
+**Status:** HELD — root-cause fix COMPLETE in worktree `Astroray-pkg149` (local commit `670e583`, deliberately NOT pushed, no PR); **ships stacked on pkg151** (rough-transmission multi-scatter energy compensation). See ✅ ADJUDICATION below. **SCHEDULED: Lane A of the 2026-07-24 overnight run, slot 2** — once pkg151's compensation is green, rebase/stack `670e583` on it and ship the pair as one PR chain (one implementer owns both; the stacking note here substitutes for "open — dispatchable"). Do NOT rebase or push the branch while a hardware-verifier is mid-run on it (memory `hw-verify-branch-freeze`).
 
 > **✅ ADJUDICATION (2026-07-24 ~04:30, architect — overnight last-call ~06:15): Option 1 — HOLD tonight; pkg151 filed; pkg149+pkg151 stack heads the day queue.**
 >

@@ -3,7 +3,7 @@
 **Pillar:** 3 (BSDF correctness / sampling coverage)
 **Track:** A
 **Codex-paste-ready:** no (a sampling-coverage fix with a documented furnace-regression trap — measurement-first, judgment at the gate)
-**Status:** open — dispatchable (serialize behind PR #517 and behind/with pkg149; same `disney.cpp` sample() region)
+**Status:** open — dispatchable (serialize behind PR #517 and behind/with pkg149; same `disney.cpp` sample() region). **2026-07-24 overnight: Lane A slot 3, CONDITIONAL** — start only after the pkg151→pkg149 chain has merged AND its HW verification passed, with ≥2 h of run budget left; first action is the re-baseline (measure the rejected-candidate fraction on the stacked main per the BASELINE UPDATE below). If the chain stalls, this package does not start (its baseline doesn't exist without the chain).
 **Estimated effort:** S–M (localized, but the naive fix is a proven trap — see Constraint)
 **Depends on:** pkg138/PR #517 merged. Secondary contributor to the glass[0.3-45] chi² gate **owned by pkg149** — this package may not close the gate alone, and neither package closes while it is xfail (memory `xfail-gated-features-must-unxfail`).
 

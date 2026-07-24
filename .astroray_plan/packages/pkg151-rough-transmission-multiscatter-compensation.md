@@ -3,7 +3,7 @@
 **Pillar:** 2 (materials / BSDF energy conservation)
 **Track:** A
 **Codex-paste-ready:** no (an energy-compensation port with an ior-dimensioned table and a furnace calibration loop)
-**Status:** open — dispatchable (**day queue, heads it as a stack with pkg149** — pkg149's corrected sampler is HELD unpushed until this lands; ship as one PR chain: pkg151 → pkg149 rebased on it, furnace + peak-alignment green together)
+**Status:** open — dispatchable (**HEADS Lane A of the 2026-07-24 overnight run** as a stack with pkg149 — pkg149's corrected sampler is HELD unpushed until this lands; ship as one PR chain: pkg151 → pkg149 rebased on it, furnace + peak-alignment green together. **Research pointers are now implementation-ready:** the Cycles table symbols/dimensions/ior-parameterization were confirmed against live source 2026-07-24 — see `.astroray_plan/docs/pkg151-cycles-glass-tables-research.md`; no re-research needed at port time)
 **Estimated effort:** M
 **Depends on:** pkg149's worktree fix (`Astroray-pkg149`, local commit `670e583` — the corrected `sampleGgxVNDF`). Distinct from **pkg129** (Turquin *reflection* LUTs for metals + the GPU placeholder) — same technique family, different lobe, different table dimensionality (transmission needs an **ior axis**); do NOT fold them: pkg129 is coupled to the metal/GPU-placeholder work and would drag pkg149's ship date.
 
@@ -44,12 +44,23 @@ matching what production engines ship:
      eta and 1/eta directions are needed.
    - **Cycles** `intern/cycles/kernel/closure/bsdf_microfacet.h`
      `microfacet_ggx_preserve_energy` + the **glass** E/Eavg albedo tables it
-     consumes for `CLOSURE_BSDF_MICROFACET_GGX_GLASS` (Apache-2.0; Blender
-     replaced stochastic multiscatter-GGX with exactly this in commit
-     `888bdc1` / PR blender/blender#107958). **Confirm the exact table
-     symbols/dimensions against the live source at port time** — prefer
-     porting Cycles' pre-baked glass tables outright (D-independent, proven)
-     over re-deriving.
+     consumes for `CLOSURE_BSDF_MICROFACET_GGX_GLASS` (**BSD-3-Clause** for
+     `bsdf_microfacet.h`, **Apache-2.0** for the `shader.tables` data — both
+     allow-listed; Blender replaced stochastic multiscatter-GGX with exactly
+     this in commit `888bdc1` / PR blender/blender#107958).
+     **✅ CONFIRMED against live source 2026-07-24** (architect pre-dispatch;
+     full record `.astroray_plan/docs/pkg151-cycles-glass-tables-research.md`):
+     tables `table_ggx_glass_E[4096]` (16×16×16 rough×mu×z),
+     `table_ggx_glass_Eavg[256]` (16×16), plus `_inv_` variants used when
+     `ior < 1`; ior axis `z = sqrtf(fabsf((ior - 1)/(ior + 1)))`; lookups
+     `lookup_table_read_3D(kg, rough, mu, z, ofs, 16, 16, 16)` /
+     `lookup_table_read_2D(kg, rough, z, avg_ofs, 16, 16)`; commits pinned in
+     the research note. Port Cycles' pre-baked glass tables outright into
+     `data/disney_compensation/` beside the existing `ggx_E.bin`/`ggx_Eavg.bin`
+     (which are already the Cycles reflection tables — pkg60/pkg145 precedent);
+     extend `DisneyEnergyCompensationTables` with a trilinear `sample3D` +
+     the `z(ior)` remap + the `inv` swap (the glass tables are 16-res, not
+     kGgxSize=32).
    - **adobe/openpbr-bsdf** (Apache-2.0) — carries 7 CUDA-ready multiscatter
      energy LUTs incl. dielectric transmission (verified in
      `2026-07-pbr-advances-research-pass2.md`); a second license-clean table

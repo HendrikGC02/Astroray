@@ -3,7 +3,7 @@
 **Pillar:** 5 (Blender addon reliability)
 **Track:** A
 **Codex-paste-ready:** no (Blender-in-the-loop debugging; needs headless Blender 5.1 + build access)
-**Status:** open — dispatchable, but **NOT for the 2026-07-23 overnight run** (needs interactive Blender-in-the-loop debugging, not a fire-and-forget gate)
+**Status:** open — dispatchable. **2026-07-24 re-assessment (architect): overnight-SAFE with guardrails — scheduled as Lane C of the 2026-07-24 overnight run.** The 2026-07-23 "not overnight" call assumed interactive debugging; in practice headless Blender 5.1 is local (memory `blender-5-1-installed-locally`) and the hang IS the observable — every diagnostic is a scriptable pass/timeout. **Mandatory guardrails:** (1) every Blender invocation runs as a subprocess with a hard external timeout (≤120 s per render attempt) and is killed on expiry — never render in the agent's own process, never wait on a hung Blender; (2) first diagnostic is the cheap one: which `.pyd` did the failing repro load (`astroray.__file__`) and was it OpenMP-enabled (the `mingw_openmp_blender_deadlock` / pkg115-generalized MSVC-vcomp precedent — **any addon-use build needs `-DASTRORAY_DISABLE_OPENMP=ON`**); (3) if the OpenMP-free addon build still hangs, bisect the glue per the Suspected-layer list, each probe timeout-bounded; (4) time-box the package to ~3 h — if no root cause by then, write up the bisection state and stop. Files are fully disjoint from Lanes A/B (`blender_addon/`, build scripts/flags).
 **Estimated effort:** S–M (diagnosis-first; the fix is likely a build/threading flag or a glue-loop bug, not new features)
 **Depends on:** none
 

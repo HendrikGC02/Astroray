@@ -1336,8 +1336,32 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     // white furnace lost energy scaling with IOR (GPU 0.705 @ ior 1.5 vs CPU 0.985).
     // Factor the >1 magnitude out as a flat spectral scalar and upsample only the
     // normalized tint, mirroring CPU dielectric.cpp:72 (tintSpec * eta^2).
+    //
+    // pkg152: this guard was DELTA-ONLY (`s.isDelta && m > 1.0f`) -- CPU's
+    // Material::sampleSpectral (raytracer.h) applies the identical factoring
+    // to the NON-DELTA (rough) branch too, with the explicit comment "Same
+    // eta^2-clamp guard for the rough (non-delta) glass lobe: the rough
+    // transmission eval also exceeds 1 on exit, and the albedo LUT would
+    // clip it." (pkg118/#404 lineage). Without it, a rough Disney-glass
+    // transmission exit event's legitimate >1 exit-eta^2 magnitude (up to
+    // eta^2=2.25 at ior=1.5, e.g. once pkg154's closure-level-clamp removal
+    // makes it reachable) is silently clipped back to 1.0 by the ALBEDO
+    // Jakob-Hanika LUT (gpu_jhLookupCoeffs clamps rgb to [0,1]) on every
+    // ROUGH transmission exit event -- convicted as the pkg152 spec's #522
+    // GPU-only, low-roughness-dominant furnace deficit (measured on the
+    // #522 stack: R=0.1 -> 0.130, R=0.3 -> 0.283 pre-fix; the eval()/pdf()/
+    // sample() functions themselves are already byte-identical to CPU
+    // there, confirmed by direct comparison, so this multi-wavelength
+    // upsampling wrapper was the only remaining divergence -- see
+    // .astroray_plan/packages/pkg152-gpu-disney-metal-residual-dimness.md).
+    // Mirrors CPU's non-delta branch exactly (same maxc computation, same
+    // threshold, same tint-then-rescale structure); CPU additionally
+    // re-evaluates via evalSpectral() in the maxc<=1 case where GPU reuses
+    // the already-computed `s.f` -- numerically equivalent (same underlying
+    // eval dispatch for the same (wo,wi)) and avoids a redundant device-side
+    // re-eval.
     float m = fmaxf(fmaxf(s.f.x, s.f.y), s.f.z);
-    if (s.isDelta && m > 1.0f) {
+    if (m > 1.0f) {
         s.fSpectral = gpu_rgbToSampledSpectrum(s.f * (1.0f / m), wl, mat.spectralMode) * m;
     } else {
         s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);

@@ -194,6 +194,87 @@ win isn't misread as also fixing the tail.
   manifest), and first-hit-only semantics per the CPU oracle. Cites Friedman &
   Jones 2015 (Psyop) and Cycles `cryptomatte_passes.h`.
 
+## PR #526 (pkg157) — code verified working on hardware; two of its own tests are wrong
+
+Built the branch at `0cd285f` (fresh `.pyd` 01:10, `astroray.__file__` confirmed in the
+worktree's `build_cuda/Release`, no shadow) and ran the gate on the RTX 5070 Ti.
+**7 passed, 2 failed — and both failures are test defects, not code defects.**
+
+**The clamps demonstrably work.** Sweep on `diffuse_light_cornell`, 120², 64 spp,
+seed 424242, linear:
+
+| config | max | p99.5 | mean | max |Δ| vs base |
+|---|---|---|---|---|
+| clamps off | 1.7580 | 0.5914 | 0.20141 | 0.00000 |
+| **clampIndirect=10** | 1.7580 | 0.5914 | 0.20141 | **0.00000** |
+| clampIndirect=1 | 1.7580 | 0.5909 | 0.20061 | 0.14764 |
+| clampIndirect=0.1 | 1.7387 | 0.5751 | 0.18768 | 0.20867 |
+| clampDirect=1 | 1.5044 | 0.5882 | 0.20120 | 0.30666 |
+| clampDirect=0.1 | 0.5879 | 0.3602 | 0.15186 | 1.43117 |
+
+Failure 1 (`clamp_direct_and_indirect_controls`) used `clampIndirect=10` — but **the
+scene's maximum radiance is 1.758, so a clamp at 10 cannot bind.** It is a
+mathematical no-op regardless of whether the port works. The test inherited #515's
+headline number, which was measured on a bright-sun scene with a far larger dynamic
+range. At 1 and 0.1 both clamps bite cleanly and monotonically.
+
+**Failure 2 (`clamp_zero_is_noop`) asserts something unachievable.** It demands
+byte-identity between explicit `set_clamp_*(0)` and the unset default. I tested the
+premise: same seed, same config, no clamp calls, three consecutive wavefront renders
+→ **not bit-identical to itself**, 29/27648 elements differing at 1.19e-07. Atomic
+accumulation ordering varies between launches, so byte-identity can never hold on
+this path, with or without pkg157.
+
+**This means the pkg157 spec's own contract item 2 is unachievable as written** — it
+says clamps-off must render "BYTE-IDENTICAL". That wording needs amending to the
+project's 1e-5 wavefront MC convention. Flagged for the owner rather than quietly
+weakened.
+
+**Gate 3 verified properly, cross-binary** — the test the implementer could not run,
+because it needs two compiled binaries. Rendered the same scene with the **pre**-pkg157
+binary (main checkout, built 21:28 @ `9fa91c8`) and the **post** binary, in separate
+processes:
+
+- image sums **identical to 6 dp** (22315.917969 both)
+- max abs diff 4.77e-07, **2.48e-07 relative to peak — ~40× tighter than the 1e-5
+  convention**, and consistent with the measured noise floor
+
+**Verdict: the clamps-off no-op guarantee holds. PR HELD, not merged**, pending the
+two test fixes. Numbers: `test_results/overnight_report_2026-07-25/pkg157_hw_numbers.json`.
+
+## PR #525 (pkg88-B) — BLOCKED by independent review, and rightly so
+
+The different-model pre-merge review rail earned its keep tonight. A Sonnet 5
+reviewer (deliberately a different model from the Opus 5 implementer) found a
+real correctness bug that **all 13 of the PR's own tests passed straight
+through**. I verified it independently from the diff before acting.
+
+**The bug:** `convert_scene` computes `t_start` and `t_end` correctly
+(`blender_addon/__init__.py:1663-1671`), but only `t_end` is ever snapshotted
+(`:1712`). `convert_objects` then feeds the object's *current* pose
+(`obj_instance.matrix_world`, `:3778`) as `positions_start`. The renderer treats
+those two arrays as endpoints of a linear blend over the ray's `time ∈ [0,1]`
+(`shapes.h:154-174` against `raytracer.h:1922-1949`), so `positions_start` must
+be the pose at `t_start`.
+
+| shutter position | effect |
+|---|---|
+| **CENTER** (the default) | object sweeps only the back half of the shutter arc — measured 34 lit columns `[29,62]` vs 55 `[7,61]` for the correct arc, 61.8% width and asymmetric |
+| **END** | `t_end == frame`, so the snapshot is bit-identical to the current pose, `_matrices_differ` is always False, and **object motion blur is silently disabled entirely** |
+| START | correct, but only coincidentally (`t_start == frame`) |
+
+**Why the tests missed it** — worth internalising, because this is a test-design
+failure more than a coding one: one test stubs out `convert_objects` entirely so
+it never sees `positions_start`; the other hand-constructs
+`matrix_start = identity()` / `matrix_end = translate(1.2)` and so bypasses the
+real `t_start` arithmetic it was supposed to be checking. Both tests would pass
+against a completely broken implementation. The fix request requires a test that
+drives the real `convert_scene → convert_objects` path and is parameterised over
+all three shutter positions, since a CENTER-only test would still let the END
+no-op ship.
+
+Implementer is fixing; PR held, not merged.
+
 ## Latent landmine found by pkg157's CI failure: a phantom overload in the wavefront header
 
 PR #526's `cuda-syntax-check` failed with *"no instance of overloaded function
@@ -229,10 +310,28 @@ two places instead of three. Flagged in the PR as a deliberate call, not scope
 creep, and the implementer is re-sweeping for the same pattern on the other
 changed launchers.
 
-**Process note:** CI caught this and the implementer could not have, because
-subagents on this machine cannot build CUDA. That division of labour worked
-exactly as intended tonight — but it means "implementer says clean" is never
-evidence of compilability here.
+The re-sweep I asked for then found **two more** stale private re-declarations
+in the same file (`launchStageIntersectQueued` at `:74`,
+`launchStageShadeNeeMis` at `:117`) which would have failed at *link* time
+rather than compile time. All three are now deleted and the header is the single
+source of truth. Of 12 symbols carrying the duplicate-declaration pattern, 8
+pkg157-touched launchers now agree and 2 apparent mismatches were false
+positives (a default argument and parameter naming).
+
+**One real mismatch remains and was deliberately NOT fixed:** `launchStageInit`
+has the identical defect — the header declares 6 parameters
+(`…, uint64_t seed, int sample_index = 0`) while the definition in
+`stage_init.cu` takes 8 (`+ lambdaMin, lambdaMax`), and all 6 call sites pass 8.
+Its private re-declaration is therefore **load-bearing**; deleting it breaks the
+build. It has been left in place with an inline comment saying exactly that.
+Correcting the header there means removing or relocating a default argument,
+which is behaviour-affecting — correctly deferred rather than done blind at
+02:00. **This wants a follow-up ticket** (see Action items).
+
+**Process note:** CI caught the original failure and the implementer could not
+have, because subagents on this machine cannot build CUDA. That division of
+labour worked exactly as intended tonight — but it means "implementer says the
+sweep is clean" is never evidence of compilability here.
 
 ## Structural constraint discovered (drove tonight's lane plan)
 

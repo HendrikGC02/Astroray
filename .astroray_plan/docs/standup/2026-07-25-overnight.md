@@ -447,22 +447,56 @@ tonight-only fact.
 
 ## Action items for owner
 
-1. **Read the metal finding first** — a 3.5× GPU energy deficit on plain
-   `metal`, unguarded by any test, on the only GPU path we ship. It is my
-   strongest candidate for the next implementer slot ahead of pkg150.
-2. **Approve tightening the GPU/CPU parity bands.** Bands that admit a 25% error
-   are not gates. Tightening will turn several currently-green tests red — that
-   is the point, and it needs your sign-off rather than a silent re-pin.
-3. **`build_cuda_worktree.bat` pins CUDA v12.6 while `CUDA_PATH`/`PATH` resolve
-   to v12.8.** Worktree builds and main-checkout builds therefore use different
-   compilers, and register allocation is compiler-version sensitive. I did NOT
-   change this tonight on purpose — swapping toolkits mid-investigation would
-   forge phantom register jumps in exactly the pkg155 numbers above. Needs your
-   decision as a standalone change.
-4. **Orphaned worktree directories.** Seven merged worktrees were unregistered
-   from git cleanly (`git worktree list` shows only `main`), but their
-   directories could not be deleted — OneDrive holds file locks, and recursive
-   force-delete is blocked in this session. They are dead weight on disk only.
-5. **Task Scheduler orchestrator task** left **Disabled**, as instructed.
-6. **Morning HTML report:**
+**Decisions I need from you (ranked):**
+
+1. **Read the metal finding first (pkg160).** A 3.5×-mean / 7×-median GPU energy
+   deficit on every rough plain `metal`, on the only GPU path we ship, invisible
+   to every existing gate because plain `metal` has no parity gate at all. The
+   mechanism is convicted in code and the fix is a verbatim mirror of a term the
+   CPU already has. Implementation was dispatched overnight.
+2. **Approve tightening the GPU/CPU parity bands.** Current bands are `[0.4, 2.5]`,
+   `[0.5, 2.0]`, `[0.5, 1.5]`, `[0.7, 1.1]`. Bands that admit a 25% error are not
+   gates. Tightening will turn several currently-green tests red — that is the
+   point, and it needs your sign-off rather than a silent re-pin.
+3. **pkg157 spec: two contract clauses are unsatisfiable and need amending.**
+   - Item 2 demands clamps-off be **"BYTE-IDENTICAL"**. The wavefront is not
+     bit-identical to *itself* (atomic accumulation ordering), so this can never
+     hold. Should read: agreement within the 1e-5 wavefront MC convention. The
+     PR measures 2.48e-07, ~40× inside that.
+   - Item 3 demands `clampIndirect=10 → <0.02% delta`. **No scene in the library
+     has a firefly tail** (peak/p99.9 = 1.04–1.82× across five scenes), so this is
+     not demonstrable anywhere. pkg161 is filed to build a scene that makes it
+     testable; until then the clause should be scene-relative or deferred.
+4. **`build_cuda_worktree.bat` pins CUDA v12.6 while `CUDA_PATH`/`PATH` resolve to
+   v12.8.** Worktree and main-checkout builds therefore use different compilers,
+   and register allocation is compiler-version sensitive. I deliberately did NOT
+   change this — swapping toolkits mid-investigation would forge phantom register
+   jumps in exactly the pkg155 numbers above. Needs a standalone decision.
+
+**Bugs found that nobody owned:**
+
+5. **Blender motion blur is broken and has been since pkg88-A shipped.**
+   `convert_scene` runs `clear()` → `set_camera_motion_blur()` → `setup_camera()`,
+   and `clear()` wipes the camera, so enabling motion blur raises
+   `RuntimeError: Camera not set up` and the render fails. Pre-existing on `main`.
+   Fix routed into PR #525 because pkg88-B's feature is unreachable without it.
+   **This is the strongest argument for real-host integration tests I can offer:**
+   every motion-blur suite mocks `bpy` and stubs `setup_camera`, so none of them
+   could ever have caught it.
+6. **A phantom overload in `gpu_wavefront_state.h`**, also pre-existing: the header
+   declared a `launchStageShadeBucketed` signature no definition matched, masked by
+   a private duplicate declaration. Fixed in #526, along with two more of the same
+   pattern. **One remains and is load-bearing** — `launchStageInit`'s header
+   declares 6 params against a definition taking 8. Correcting it requires
+   removing or relocating a default argument, which is behaviour-affecting; left
+   alone with an inline comment. **Wants its own ticket.**
+
+**Informational:**
+
+7. **Orphaned worktree directories.** Seven merged worktrees were unregistered from
+   git cleanly (`git worktree list` shows only `main`), but their directories could
+   not be deleted — OneDrive holds file locks and recursive force-delete is blocked
+   in this session. Dead weight on disk only, no correctness impact.
+8. **Task Scheduler orchestrator task** left **Disabled**, as instructed.
+9. **Morning HTML report:**
    `test_results/overnight_report_2026-07-25/overnight_report_2026-07-26.html`.

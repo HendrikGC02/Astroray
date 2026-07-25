@@ -8,6 +8,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include "raytracer.h"  // pkg160: GGXEnergyCompensationLUT (runtime-MC table)
 #include "astroray/sampling/wavefront_rng.h"
 #include "astroray/energy_compensation.h"
 
@@ -45,4 +46,49 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
     m.def("disney_compensation_tables_loaded", []() {
         return astroray::DisneyEnergyCompensationTables::instance().loaded();
     }, "Whether data/disney_compensation/*.bin loaded successfully.");
+
+    // pkg160 — this repo has TWO independent GGX energy-compensation table
+    // systems, and until now only one of them was reachable from Python, which
+    // is why their disagreement went unmeasured. Both are exposed here so
+    // tests/test_pkg160_ggx_table_systems.py can compare them directly:
+    //
+    //   (1) raytracer.h GGXEnergyCompensationLUT — computed at runtime by MC
+    //       integration in its constructor (256 uniform-hemisphere samples per
+    //       cell, 32x32). Stored E[roughness*RES + mu], read as
+    //       lookupE(mu, roughness). This is what CPU
+    //       ggxMultiScatterCompensation() — and therefore MetalPlugin::eval /
+    //       evalSpectral — actually uses.
+    //   (2) DisneyEnergyCompensationTables — loaded from the shipped Cycles
+    //       data/disney_compensation/ggx_E.bin, read as ggxE(roughness, mu),
+    //       i.e. the OPPOSITE argument order. This is the only one uploaded to
+    //       the GPU (gpu_ggx_tables.cu -> g_ggxE, gpu_ggxE(roughness, mu)).
+    //
+    // Each system is internally consistent — the mirrored argument orders are
+    // NOT a transposition bug. The argument orders below deliberately preserve
+    // each system's own convention rather than normalizing them, so callers
+    // cannot accidentally compare the wrong axes.
+    m.def("ggx_runtime_e", [](float mu, float roughness) {
+        return ggxEnergyCompensationLUT().lookupE(mu, roughness);
+    }, "mu"_a, "roughness"_a,
+       "raytracer.h GGXEnergyCompensationLUT::lookupE — runtime-MC directional "
+       "albedo. Argument order (mu, roughness) is this table's own convention.");
+    m.def("ggx_runtime_eavg", [](float roughness) {
+        return ggxEnergyCompensationLUT().lookupEavg(roughness);
+    }, "roughness"_a,
+       "raytracer.h GGXEnergyCompensationLUT::lookupEavg — runtime-MC "
+       "cosine-weighted average albedo.");
+    m.def("ggx_multiscatter_compensation", [](float ndotv, float ndotl, float roughness) {
+        return ggxMultiScatterCompensation(ndotv, ndotl, roughness);
+    }, "ndotv"_a, "ndotl"_a, "roughness"_a,
+       "raytracer.h ggxMultiScatterCompensation — the exact Fms that "
+       "MetalPlugin::eval/evalSpectral multiply into their multiscatter term "
+       "(Kulla & Conty 2017). Any GPU mirror must reproduce THIS.");
+    m.def("disney_ggx_e", [](float roughness, float mu) {
+        return astroray::DisneyEnergyCompensationTables::instance().ggxE(roughness, mu);
+    }, "roughness"_a, "mu"_a,
+       "Shipped Cycles ggx_E.bin lookup — the table the GPU has (gpu_ggxE). "
+       "Argument order (roughness, mu) is this table's own convention.");
+    m.def("disney_ggx_eavg", [](float roughness) {
+        return astroray::DisneyEnergyCompensationTables::instance().ggxEavg(roughness);
+    }, "roughness"_a, "Shipped Cycles ggx_Eavg.bin lookup (gpu_ggxEavg).");
 }

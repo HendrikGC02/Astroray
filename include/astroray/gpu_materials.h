@@ -226,7 +226,35 @@ __device__ inline GVec3 gpu_metal_eval(
     GVec3 F    = gpu_fresnelSchlick3(wo.dot(h), mat.baseColor);
     float k    = (mat.roughness + 1.f) * (mat.roughness + 1.f) / 8.f;
     float G    = (NdotL / (NdotL*(1.f-k)+k)) * (NdotV / (NdotV*(1.f-k)+k));
-    // NOTE: eval() returns brdf * NdotL (cosine-weighted), matches CPU
+    // eval() returns brdf * NdotL (cosine-weighted), as on the CPU.
+    //
+    // pkg160 KNOWN DIVERGENCE (do not read this as "matches CPU" -- the
+    // comment that used to sit here said exactly that, and it was false for
+    // this branch). MetalPlugin::eval/evalSpectral (plugins/materials/
+    // metal.cpp:54-58, :86-89) return singleScatter + multiScatter, where
+    //     Fms          = ggxMultiScatterCompensation(NdotV, NdotL, roughness)
+    //     msWeight     = roughness * (2 - roughness)
+    //     multiScatter = albedo * (Fms * msWeight * 1.3f)
+    // (Kulla & Conty 2017, "Revisiting Physically Based Shading at
+    // Imageworks" -- the GGX multiscatter energy-compensation term the CPU
+    // LUT cites). This function returns singleScatter ONLY. Measured
+    // consequence on the disney_contact_sheet plain-metal patch (roughness
+    // 0.15): GPU/CPU per-channel mean ratio 0.279/0.286/0.316, median 0.141.
+    //
+    // The mirror is BLOCKED, not forgotten: CPU ggxMultiScatterCompensation
+    // reads raytracer.h's runtime-MC-computed GGXEnergyCompensationLUT, which
+    // is a numerically DIFFERENT table from the shipped Cycles ggx_E.bin that
+    // gpu_ggxE() (gpu_ggx_tables.cuh) serves -- measured 1030x apart in Fms at
+    // roughness 0.15, NdotV=NdotL=0.5 (up to ~6000x at other angle pairs).
+    // Substituting gpu_ggxE() here would NOT reach parity. See
+    // tests/test_pkg160_ggx_table_systems.py and
+    // .astroray_plan/packages/pkg160-gpu-plain-metal-multiscatter-omission.md
+    // ("Implementation hazard -- WHICH E table?").
+    //
+    // NOTE for whoever lands the mirror: the term is ADDITIVE, so its
+    // correct null-table fallback is 0.0 (degrade to today's single-scatter),
+    // NOT the 1.0 identity used by the multiplicative
+    // gpu_ggxCompensationFactor/gpu_ggxDirectionalAlbedo helpers.
     return F * D * G / (4.f * NdotV + 0.001f);
 }
 

@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU/CPU parity — the only GPU path we now ship)
 **Track:** A (RTX-gated; CI is blind — see why nothing caught it)
-**Status:** open — dispatchable. NEW, narrow, convicted finding (team-lead scene-controlled GPU scan, 2026-07-26, main @ `727a211`). Mechanism grounded in code below; the fix is a verbatim CPU-term mirror.
+**Status:** **BLOCKED on a team-lead/owner decision** (2026-07-26) — Step 0 was executed and the two E-table systems **disagree catastrophically** (24.6× in `E`, **1030× in the downstream `Fms`** at the roughness the defect was actually measured at). Per this spec's own "Implementation hazard" instruction, the implementer stopped before choosing between the two fixes. **Landed:** Step-0 instrumentation, the pin test, the corrected `gpu_materials.h:230` comment. **NOT landed:** the mirror itself and the plain-metal parity gate (the spec requires them in one PR). See "Step 0 RESULT" at the end of this file. Original conviction (team-lead scene-controlled GPU scan, main @ `727a211`) stands and is unchallenged.
 **Estimated effort:** S–M (the missing term already exists on the CPU; mirror it into `gpu_metal_eval` + add the parity gate that never existed).
 **Depends on:** none. **Sibling, NOT parent:** pkg158/pkg152 (Disney metal, `gpu_disney_eval`) — a DIFFERENT function; see §Novelty for why this is filed separately and how to co-verify without conflating them.
 
@@ -262,3 +262,90 @@ reachable from Python today (`astroray_test_helpers` exposes only
 small addition to the test-helpers module, which is the natural first commit of this
 package. Note that a new *public* binding needs owner approval, but a `test_helpers`
 addition does not — that module exists precisely for internal introspection like this.
+
+---
+
+## Step 0 RESULT (implementer, 2026-07-26, main @ `3800759`) — THEY DISAGREE. STOPPED.
+
+**Method.** Both table systems were compiled from the *real repo code* (no
+transcription) with MinGW `g++ -O2 -static`, linking `src/energy_compensation.cpp` and
+including `raytracer.h`, and dumped over a common grid. The shipped-table side was then
+independently re-derived in NumPy straight from `data/disney_compensation/ggx_E.bin`;
+the two agree to 5e-7, so the numbers below are not a lookup-convention mistake.
+`disney_compensation_tables_loaded() == True` (not the all-ones fallback).
+
+**`E` at mu = 0.5.** `runtime` = `lut.lookupE(0.5, r)`; `shipped` = `tab.ggxE(r, 0.5)`:
+
+| roughness | runtime LUT `E` | shipped `ggx_E.bin` | shipped/runtime |
+|---|---|---|---|
+| 0.05 | 0.001399 | 0.999975 | **715×** |
+| **0.15** (contact-sheet metal) | **0.040669** | **0.998543** | **24.6×** |
+| 0.30 | 0.353788 | 0.974699 | 2.76× |
+| 0.60 | 0.549046 | 0.782171 | 1.42× |
+| 0.90 | 0.457155 | 0.535442 | 1.17× |
+
+**Downstream `Fms` (what the metal term actually multiplies), NdotV = NdotL = 0.5:**
+
+| roughness | `Fms` runtime (= CPU) | `Fms` from shipped tables | runtime/shipped |
+|---|---|---|---|
+| **0.15** | **0.307206** | **2.98e-4** | **1030×** |
+| 0.90 | 0.168839 | 0.138047 | 1.22× |
+
+**Consequence — Option B is dead.** Cosine-weighted-hemisphere integration of the full
+green-channel eval at the contact-sheet metal config (albedo `[0.92,0.78,0.35]`,
+roughness 0.15) gives a GPU/CPU single-bounce eval ratio of **0.0291 today** and
+**0.0328** if `gpu_metal_eval` were mirrored using `gpu_ggxE`. Writing
+`gpu_ggxE(roughness, mu)` in place of `lut.lookupE(mu, roughness)` **closes ~1% of the
+gap** at the roughness the defect was measured at, and cannot reach the spec's proposed
+`[0.95, 1.05]` band. It only converges near roughness 0.9 (0.26 → 0.98).
+
+**Root cause of the divergence, and an uncomfortable finding the decision must weigh.**
+`GGXEnergyCompensationLUT`'s constructor estimates `E` with 256 *uniform-hemisphere*
+samples per cell (`raytracer.h:306-331`). That cannot resolve a narrow GGX lobe, so
+`E → 0` as roughness → 0 — the opposite of the truth (a smooth conductor's directional
+albedo → 1, which is what the converged Cycles table correctly reports). Because
+`Fms = (1-Ewo)(1-Ewi) / (π·max(1-Eavg, 1e-4))`, `E → 0` drives `Fms → 1/π = 0.3183`, its
+**maximum**, exactly where multiple scattering should vanish. Measured `Fms` at
+roughness 0.15 is 0.3072 = **96.5% of the ceiling**.
+
+So at roughness 0.15 the CPU is adding `albedo × 0.3072 × 0.2775 × 1.3 = 0.111 × albedo`
+— a large, nearly view-independent, **cosine-free** ambient floor (note it carries no
+`NdotL`, unlike everything else `eval()` returns per `AGENTS.md`). That floor is the
+bulk of the CPU's metal radiance at this roughness, which is exactly why the median
+GPU/CPU ratio is 0.141 rather than something near 1.
+
+**This does not overturn the package's conviction** — `gpu_metal_eval` really does omit a
+term `MetalPlugin` really does add, and the two really are 3.5×/7× apart. It changes
+*which side is physically wrong at low roughness*: at roughness 0.15 the GPU's
+single-scatter-only answer is closer to physically correct, and the CPU is bright because
+of a table artifact. "Mirror the CPU verbatim" therefore means **canonicalising a bug for
+the sake of parity**. That may still be the right call (parity now, correctness via
+pkg129 later) but it must be made knowingly, and it is not the implementer's call.
+
+**The two fixes, with blast radius:**
+
+- **Option A — upload the runtime LUT to the GPU (exact parity by construction).**
+  Add a second, separate pair of device globals mirroring `GGXEnergyCompensationLUT.E/Eavg`
+  and a `gpu_ggxMultiScatterCompensation` that reproduces `raytracer.h:372-379` with the
+  CPU's `(mu, roughness)` index convention. Does **not** touch `g_ggxE`, so pkg152/#523's
+  Disney compensation is untouched. **But it needs files outside the assigned scope:**
+  `include/astroray/gpu_ggx_tables.cuh` and `src/gpu/gpu_ggx_tables.cu` (the upload can
+  be folded into the existing `uploadGgxTables()` body, so the call sites in
+  `src/gpu/wavefront/gpu_wavefront_snapshot.cu:1489,1779` need **no** edit — important,
+  that file is another implementer's tonight). `gpu_ggx_tables.cu` would need to reach
+  `raytracer.h`'s LUT; five `.cu` files already include `raytracer.h`
+  (`cuda_renderer.cu`, `scene_upload.cu`, `tlas_parity.cu`, `pkg64_sms_probe.cu`,
+  `gpu_wavefront_snapshot.cu`) so it is feasible, but it is a new heavyweight include in
+  a currently-light `.cu`, **and the implementer cannot build CUDA to verify it.**
+- **Option B — mirror using the existing `gpu_ggxE`.** Zero new plumbing, stays inside
+  `gpu_materials.h`, physically more defensible. **Measured to close ~1% of the gap at
+  roughness 0.15 and fail the spec's own acceptance band.** Not a fix.
+- (Option C — fix the runtime LUT itself — is `metal.cpp`/`raytracer.h` territory, i.e.
+  explicitly a non-goal here and arguably pkg129's.)
+
+**Why the existing "metal parity" test never saw this.**
+`tests/wavefront_diff/test_cpu_wavefront_metal_bit_identity.py` compares the **CPU
+wavefront** against the **CPU reference path tracer** — both call `MetalPlugin`, so it is
+bit-identical *by construction* and structurally blind to `gpu_metal_eval`. The gate this
+package still owes must be **GPU wavefront vs CPU**, and must sweep roughness on both
+sides of the 0.1 threshold: sampling only 0.9 would have shown the tables "agreeing".

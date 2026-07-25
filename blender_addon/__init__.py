@@ -25,6 +25,21 @@ if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
 
 from shader_blending import blend_shader_specs, add_shader_specs
 from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
+from _bulk_geometry import mesh_world_positions  # pkg88-B object motion blur bake
+
+
+def _matrices_differ(m1, m2, eps=1e-6):
+    """True if two 4x4 mathutils.Matrix (or any [row][col]-indexable 4x4)
+    differ by more than `eps` in any element. Used by pkg88-B to decide
+    whether an object actually moved between the current frame and shutter
+    close -- genuinely static objects must keep using the pre-pkg88-B
+    add_triangles_bulk path unchanged (no motion upload, no behaviour
+    change)."""
+    for r in range(4):
+        for c in range(4):
+            if abs(m1[r][c] - m2[r][c]) > eps:
+                return True
+    return False
 
 # pkg116: scene exporter and per-domain caches. Defensive import handles both
 # package-relative (Blender loads us as bl_ext.user_default.astroray) and
@@ -1636,23 +1651,27 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         # pkg103b: Camera motion blur wiring (requires pkg88-A renderer support)
         # Cycles reference: intern/cycles/blender/camera.cpp::BlenderSync::sync_camera_motion (Apache-2.0)
+        # pkg88-B (object motion blur, addon-only bake) hangs off the SAME
+        # shutter/shutter_position resolution below so object and camera blur
+        # agree, per the pkg88 spec's Phase-B requirement.
+        motion_end_matrices = {}
         if render_settings and getattr(render_settings, 'use_motion_blur', False):
+            shutter = float(getattr(render_settings, 'motion_blur_shutter', 0.5))
+            position = getattr(render_settings, 'motion_blur_position', 'CENTER')
+            frame = float(scene.frame_current)
+
+            # Compute shutter start/end times (Blender convention)
+            if position == 'START':
+                t_start, t_end = frame, frame + shutter
+            elif position == 'CENTER':
+                t_start, t_end = frame - shutter / 2.0, frame + shutter / 2.0
+            elif position == 'END':
+                t_start, t_end = frame - shutter, frame
+            else:
+                t_start, t_end = frame, frame + shutter  # fallback to START
+
             cam_obj = scene.camera
             if cam_obj is not None:
-                shutter = float(getattr(render_settings, 'motion_blur_shutter', 0.5))
-                position = getattr(render_settings, 'motion_blur_position', 'CENTER')
-                frame = float(scene.frame_current)
-
-                # Compute shutter start/end times (Blender convention)
-                if position == 'START':
-                    t_start, t_end = frame, frame + shutter
-                elif position == 'CENTER':
-                    t_start, t_end = frame - shutter / 2.0, frame + shutter / 2.0
-                elif position == 'END':
-                    t_start, t_end = frame - shutter, frame
-                else:
-                    t_start, t_end = frame, frame + shutter  # fallback to START
-
                 # Evaluate camera transform at shutter boundaries
                 T_start = self._get_camera_transform_at_time(scene, depsgraph, cam_obj, t_start)
                 T_end = self._get_camera_transform_at_time(scene, depsgraph, cam_obj, t_end)
@@ -1676,6 +1695,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 renderer.set_camera_motion_blur(start_t, start_r, start_s, end_t, end_r, end_s,
                                                 shutter, shutter_position)
 
+            # pkg88-B: snapshot every real (non-dupli) mesh-able object's
+            # matrix_world at shutter CLOSE (t_end) in ONE extra depsgraph
+            # evaluation. convert_objects compares each object's CURRENT
+            # matrix_world against this to decide motion vs static per-object
+            # (Q2: bake rigid transforms into per-vertex motion at the addon
+            # boundary -- Astroray has no first-class instance/animated-
+            # transform system). Dupli/particle/geometry-node instances are
+            # excluded here (depsgraph.objects yields real objects only); see
+            # convert_objects' docstring for the pkg114-instancing interaction.
+            candidate_names = {
+                obj.name for obj in (getattr(depsgraph, 'objects', None) or [])
+                if getattr(obj, 'type', None) in {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META'}
+            }
+            if candidate_names:
+                motion_end_matrices = self._get_object_matrices_at_time(
+                    scene, depsgraph, candidate_names, t_end)
+
         seed = int(getattr(cycles, 'seed', 0)) if cycles else 0
         use_animated_seed = bool(getattr(cycles, 'use_animated_seed', False)) if cycles else False
         if use_animated_seed:
@@ -1688,7 +1724,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.set_pixel_filter(filter_type, filter_width)
         self.setup_camera(scene, renderer, width, height)
         material_map = self.convert_materials(depsgraph, renderer)
-        self.convert_objects(depsgraph, renderer, material_map)
+        self.convert_objects(depsgraph, renderer, material_map, motion_end_matrices)
         self.convert_lights(depsgraph, renderer)
         self.setup_world(scene, renderer)
 
@@ -1717,6 +1753,28 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return matrix
         finally:
             # Restore original frame state
+            scene.frame_set(int(original_frame), subframe=original_subframe)
+            depsgraph.update()
+
+    def _get_object_matrices_at_time(self, scene, depsgraph, obj_names, frame):
+        """pkg88-B: evaluate depsgraph at `frame` and return {obj.name:
+        matrix_world} for every name in `obj_names`, in ONE frame_set/
+        depsgraph.update() round trip (unlike `_get_camera_transform_at_time`,
+        which is called per-object by design for the single camera -- doing
+        that per OBJECT here would mean one full depsgraph re-cook per
+        animated mesh). Same restore-the-original-frame contract.
+        """
+        original_frame = scene.frame_current
+        original_subframe = scene.frame_subframe
+        try:
+            scene.frame_set(int(frame), subframe=frame - int(frame))
+            depsgraph.update()
+            result = {}
+            for obj in depsgraph.objects:
+                if obj.name in obj_names:
+                    result[obj.name] = obj.matrix_world.copy()
+            return result
+        finally:
             scene.frame_set(int(original_frame), subframe=original_subframe)
             depsgraph.update()
 
@@ -3585,7 +3643,32 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.update_instance_transform(ids[k], [v for row in mw for v in row])
             cursor[obj.name] = k + 1
 
-    def convert_objects(self, depsgraph, renderer, material_map):
+    def convert_objects(self, depsgraph, renderer, material_map, motion_end_matrices=None):
+        """`motion_end_matrices` (pkg88-B, optional): {obj.name: matrix_world at
+        shutter close}, computed once by convert_scene (empty/None when motion
+        blur is off, or when called directly like the viewport-sync path in
+        exporter.py, which doesn't bake object motion).
+
+        Instancing interaction (pkg114 two-level BVH/TLAS): `_register_instanced_groups`
+        below runs FIRST and is entirely unaware of motion -- it always builds its
+        shared BLAS from the CURRENT (un-shifted) geometry. An object that both (a)
+        qualifies for GPU instancing (>=2 duplis sharing the same (mesh data, name),
+        the pkg114 grouping key) AND (b) is independently rigid-transform-animated
+        stays on the EXISTING static instancing path and gets NO motion blur -- it
+        renders at its current-frame pose for every instance, same as pre-pkg88-B.
+        This is a pre-existing pkg114 limitation ("Deformation motion on INSTANCED
+        meshes is out of scope v1", pkg88-C.0 status note); Phase B does not change
+        it. Only REAL (non-dupli) objects are considered for motion baking below
+        (`getattr(obj_instance, 'is_instance', False)`); dupli/particle/geometry-node
+        instance motion (per-dupli transforms from a particle system etc.) is out of
+        scope for v1 -- reliably re-evaluating per-dupli identity at a different
+        frame is a materially harder problem than a single object's matrix_world and
+        isn't attempted here. Because instanced entries are skipped via
+        `instanced_indices` BEFORE this loop runs, the instanced and motion-baked
+        code paths are mutually exclusive by construction -- no mixed/corrupted
+        state is possible either way.
+        """
+        motion_end_matrices = motion_end_matrices or {}
         tri_count = 0
         obj_count = 0
         is_render = getattr(depsgraph, 'mode', 'VIEWPORT') == 'RENDER'
@@ -3694,6 +3777,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 continue
             matrix = obj_instance.matrix_world
             obj_count += 1
+
+            # pkg88-B: object motion blur candidate. Only real (non-dupli)
+            # objects with an actual matrix_world change by shutter close are
+            # eligible (see the instancing-interaction note in this method's
+            # docstring); everything else keeps the static add_triangles_bulk
+            # path below untouched.
+            motion_end_matrix = None
+            if motion_end_matrices and not getattr(obj_instance, 'is_instance', False):
+                _end_mw = motion_end_matrices.get(obj.name)
+                if _end_mw is not None and _matrices_differ(matrix, _end_mw):
+                    motion_end_matrix = _end_mw
 
             volume_spec = None
             for slot in obj.material_slots:
@@ -3804,9 +3898,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 positions, material_ids, mat_pass, uvs, uv_names, normals = \
                     mesh_to_bulk_arrays(mesh, matrix, normal_matrix,
                                         slot_to_id, default_mat_id, uv_layer_items)
-                renderer.add_triangles_bulk(
-                    positions, material_ids, mat_pass,
-                    int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
+                # pkg88-B: motion candidates go through add_triangles_bulk_motion
+                # (positions = shutter-center step, positions_end = shutter-close
+                # step; Cycles motion_triangle.h Apache-2.0 linear blend, see
+                # Renderer.add_triangles_bulk_motion docstring). Only the bulk path
+                # supports motion -- the no-bulk fallback below has no motion twin,
+                # so a moving object without bulk support silently stays static.
+                if motion_end_matrix is not None and hasattr(renderer, "add_triangles_bulk_motion"):
+                    positions_end = mesh_world_positions(mesh, motion_end_matrix)
+                    renderer.add_triangles_bulk_motion(
+                        positions, positions_end, material_ids, mat_pass,
+                        int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
+                else:
+                    renderer.add_triangles_bulk(
+                        positions, material_ids, mat_pass,
+                        int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
                 tri_count += n_tri
             else:
                 for tri in mesh.loop_triangles:

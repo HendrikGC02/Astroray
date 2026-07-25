@@ -126,8 +126,8 @@ The pkg160 spec required dumping both GGX energy-compensation table systems and
 comparing them *before* mirroring anything, because the CPU metal term uses
 `raytracer.h`'s runtime-computed LUT while the GPU only has the shipped
 Cycles-derived tables. The implementer did that and **stopped**, correctly, rather
-than choosing between two fixes. Branch `pkg160-gpu-metal-multiscatter`, commit
-`c375540` — no PR yet, deliberately.
+than choosing between two fixes. **PR #527**, branch
+`pkg160-gpu-metal-multiscatter` — open but deliberately incomplete.
 
 **They disagree catastrophically.** Both sides compiled from the real repo code
 (no transcription), and the shipped side independently re-derived in NumPy straight

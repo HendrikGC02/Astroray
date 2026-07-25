@@ -158,6 +158,68 @@ Modified files: `gpu_types.h` (add `objectHash`/`materialHash`), `raytracer.h` (
 
 ---
 
+---
+
+## Wavefront port — atomic concurrency (pkg159, 2026-07-25)
+
+**Context.** PR #524 (pkg55-C7) deleted both megakernels; the wavefront is the
+only GPU path and carries NO crypto wiring. GPU crypto lived only in the deleted
+`path_trace_kernel.cu` (pkg87b). pkg159 restores it in the wavefront. Recover the
+exact deleted call sites from `git show 9fa91c8^:src/gpu/path_trace_kernel.cu`
+(crypto block ~lines 602-629).
+
+**Why the old wiring cannot be copy-pasted.** The megakernel used one thread per
+pixel (each thread looped all spp locally), so the per-pixel rank
+read-modify-write was race-free. The wavefront keeps many concurrent path slots
+mapping to the same pixel (samples in flight + slot regen), so a non-atomic
+`crypto_insert` into a shared per-pixel array is a data race. Cycles solves this
+with an atomic slot write; we mirror it.
+
+### Cycles atomic write path (Apache-2.0)
+
+`intern/cycles/kernel/film/cryptomatte_passes.h`:
+
+```
+ccl_device_inline void film_write_cryptomatte_slots(ccl_global float *buffer,
+                                                    const int num_slots,
+                                                    const float id,
+                                                    const float weight)
+```
+
+Guarded by `__ATOMIC_PASS_WRITE__`. For each slot the atomic path uses:
+- `atomic_compare_and_swap_float(buffer + slot*2, ID_NONE, id)` — atomically
+  claims an empty id slot (or detects a matching id already present),
+- `atomic_add_and_fetch_float(buffer + slot*2 + 1, weight)` — atomically
+  accumulates the weight into the paired element.
+
+Last-slot overflow bucket as in the serial path. Post-render,
+`film_sort_cryptomatte_slots` sorts slots weight-descending (called once, after
+accumulation, via `film_cryptomatte_post`). On CUDA, `atomic_compare_and_swap_float`
+is the standard `int`-reinterpret CAS loop over `atomicCAS(unsigned int*, …)`;
+`atomic_add_and_fetch_float` is `atomicAdd(float*, …)`.
+
+### Astroray mapping (pkg159)
+
+- Add a `__device__` atomic variant beside the existing serial `crypto_insert`
+  (`include/astroray/cryptomatte.h`); leave the CPU serial path untouched.
+- Accumulate in `shadePathSlot` (`src/gpu/wavefront/stage_advance.cu`) at
+  `bounce == 0` only (match the CPU oracle `raytracer.h:2581`, which records
+  first-hit only — the deleted MK's every-bounce accumulation was a divergence).
+- Weight math mirrors CPU `raytracer.h:2582-2589` exactly.
+- **ID encoding fix.** Apply `hash_to_float()` to the uploaded `uint32_t`
+  `GTriangle/GSphere.objectHash` — the deleted MK did an implicit `float =
+  uint32_t` numeric conversion, producing IDs inconsistent with the CPU oracle
+  and the `uint32_to_float32` manifest encoding. `hash_to_float` needs a
+  `__host__ __device__` guard added (currently plain `inline`), or pre-encode
+  the float host-side in `scene_upload.cu`.
+
+### License
+
+Cycles atomic path Apache-2.0 (compatible). Psyop spec BSD-3-Clause. No new
+external code beyond the Cycles atomic-write mirror.
+
+---
+
 ## Sources
 
 - [GitHub - Psyop/Cryptomatte](https://github.com/Psyop/Cryptomatte)

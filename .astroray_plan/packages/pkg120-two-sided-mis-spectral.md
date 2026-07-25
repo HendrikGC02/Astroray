@@ -3,9 +3,9 @@
 **Pillar:** 3 (light transport / NEE + MIS correctness)
 **Track:** A (CPU-gated furnace/ground-truth test runs on CI; wavefront leg needs RTX verify)
 **Codex-paste-ready:** no (transport-correctness change with a ground-truth gate; CPU + wavefront mirror)
-**Status:** open — **blocked on pkg55 Phase C completion** (see Depends on)
+**Status:** open — **dispatchable**. pkg55 Phase C completed via PR #524 (2026-07-25): both megakernels are deleted and the wavefront is now the only GPU path, so the two-sided term lands in exactly the two places this spec targets (CPU `pathTraceSpectral` + the wavefront `stage_advance.cu` emissive-hit block), not four — the blocker the old Status recorded has dissolved.
 **Estimated effort:** M (add one MIS term in two mirrored places + a ground-truth gate proving direction and magnitude)
-**Depends on:** **pkg55 Phase C** (megakernel removal — single spectral pipeline first). Implementing before Phase C would require patching the doomed `multiwavelength_kernel.cu` in addition to CPU + wavefront; after Phase C there is exactly one CPU path (`pathTraceSpectral`) and one GPU path (the wavefront), so the change lands in two places, not four.
+**Depends on:** ~~pkg55 Phase C (megakernel removal — single spectral pipeline first)~~ **SATISFIED by PR #524 (2026-07-25)**. There is now exactly one CPU path (`pathTraceSpectral`) and one GPU path (the wavefront), so the change lands in two places, not four; the RGB `bsdf_mis` branch and `multiwavelength_kernel.cu` referenced below no longer exist.
 
 ---
 

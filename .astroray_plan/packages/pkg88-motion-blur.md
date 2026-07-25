@@ -2,7 +2,10 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** Phases A+C.0 done (A: PR #284, C.0: PR #437, 2026-06-11 — deformation motion blur: add_triangles_bulk_motion bulk binding, time-aware Triangle::hit + gpu_triangle_hit_motion, union-AABB BVH, GRay.time end-to-end both megakernels, Camera::getRay zero-shutter carries sampled time; RTX: no-op bit-identity, CPU+GPU streak, union-AABB extremes, cross-backend motion/static energy-shift parity). REMAINING: C.1 per-primitive split (perf-gated B/C4), Phase B addon bake (after pkg114 inc3), Phase D wavefront (after pkg55-B).
+**Status:** Phases A+C.0 done (A: PR #284, C.0: PR #437, 2026-06-11 — deformation motion blur: add_triangles_bulk_motion bulk binding, time-aware Triangle::hit + gpu_triangle_hit_motion, union-AABB BVH, GRay.time end-to-end both megakernels, Camera::getRay zero-shutter carries sampled time; RTX: no-op bit-identity, CPU+GPU streak, union-AABB extremes, cross-backend motion/static energy-shift parity). REMAINING (all blocking preconditions now met, 2026-07-25):
+- **Phase B — addon bake: DISPATCHABLE** (pkg114 TLAS/instancing landed; addon-only change in `blender_addon/__init__.py` `convert_scene`, no renderer surface).
+- **Phase D — wavefront motion: DISPATCHABLE** (pkg55 completed via PR #524; megakernels deleted). The Phase-D scope below is superseded by the "Phase D — wavefront-only reword (post-#524)" addendum — READ IT FIRST: `path_time` and `d_motionVerts` threading already landed in the wavefront under pkg55-C4/C.0, so a large part of Phase D may already be satisfied; the remaining work is init-time shutter-time sampling + parity re-baselining, and D1's "vs megakernel" oracle no longer exists.
+- **Phase C.1 — per-primitive split: perf-gated** (ships only if C.0 measures > 1.5× slower than Cycles on the B/C4 scene; not otherwise dispatchable).
 **Estimated effort:** 5–7 weeks across 4 phases (A camera, B object,
   C deformation, D wavefront hook).
 **Depends on:** pkg55-A.1 (done — SoA infra exists, time field can be
@@ -454,6 +457,45 @@ additions from the architect spec-promotion pass:
 | `include/astroray/integrator_state_soa.h` | Add `float* time` to `IntegratorStateSoA`. |
 | `src/gpu/wavefront/stage_init.cu` | Sample time from same Halton stream as pixel/lens; write to `state.time[i]`. |
 | `src/gpu/wavefront/stage_intersect.cu` | Read `state.time[i]`; dispatch `gpu_bvh_hit` or `gpu_bvh_hit_motion` on a single `has_motion_blur` flag. |
+
+### Phase D — wavefront-only reword (post-#524, 2026-07-25)
+
+PR #524 (pkg55-C7) deleted BOTH megakernels; the wavefront is the only GPU
+path. Every "megakernel" reference in Q8, the Phase-D row above, and gates
+D1/D2 below is stale. Corrected scope:
+
+- **The SoA time field already exists.** `GPUWavefrontState::path_time`
+  (`include/astroray/gpu_wavefront_state.h`) was added under pkg55-C4/pkg88-C.0
+  — NOT `IntegratorStateSoA::time` as the table says (that struct was the
+  Phase-A.1 layout, since replaced). Sampled once per path at init via
+  `gpu_mw_haltonBase2(sample_idx + 1)` and carried through all bounces.
+- **Motion traversal is already threaded.** `d_motionVerts` (`const GVec3*`)
+  is a parameter of `launchStageAdvance` / `launchStageAdvanceQueued` /
+  `launchStageIntersectQueued` and flows into the wavefront intersect, so the
+  "add time[i] + dispatch motion-aware traversal" core of Phase D is largely
+  DONE. **First implementer action: verify what is already live** (does the
+  wavefront actually interpolate motion vertices at `path_time`, and is the
+  init-time shutter sampling correct?) before writing anything new.
+- **Remaining Phase-D work (if any):** (1) confirm `stage_init.cu` samples the
+  shutter time on the SAME Halton stream/dimension the CPU uses (owner mandated
+  ONE consistent stratification policy, Q-Owner-4; the wavefront is now the
+  surviving path); (2) camera-basis interpolation over the shutter in the
+  wavefront primary-ray init — the C.0 note flags the MW camera as
+  non-interpolated, and that gap must not survive into the wavefront;
+  (3) parity re-baseline (below).
+- **Q8 is historical.** "ship A/B/C against megakernel; Phase D follows
+  pkg55-B/C" is done; the megakernel reference path is gone.
+
+### Phase D gates — reworked (megakernel oracle removed)
+
+- **D1 (reworked) — wavefront motion correctness.** The old "wavefront vs
+  megakernel SSIM ≥ 0.985" is void (no megakernel). Replace with: wavefront
+  translating-cube / pan-camera streaks match the **CPU** motion result
+  (per-channel mean-ratio band) AND the analytical streak extent (reuse the
+  A1/B-C1 analytical arc); SSIM vs a 2048-spp wavefront reference ≥ 0.97.
+- **D2 (unchanged in intent) — time-field zero cost when off.**
+  `has_motion_blur=false` must not regress the wavefront > 0.5% vs the
+  pkg88-reverted wavefront baseline.
 
 ---
 

@@ -75,3 +75,5 @@ C7 disposition of the gates themselves: the two megakernel-named env gates are
 retargeted at the wavefront (plan §6-R10) with thresholds unchanged and remain
 red-and-quarantined under this spec; `test_gpu_wavefront_final_image_mean_ratio`
 likewise stays red and pkg153-owned.
+
+**Post-#523 data point (C7 rebase, 2026-07-25):** after PR #523 (pkg152 gpu_disney_eval compensation-table mirror) the wavefront final-image R ratio moved [1.153, 1.007, 1.068] -> **[1.191, 1.007, 1.072]** on the same scene/seed (CPU oracle unchanged). A materials-eval PR moving the R residual by +3.8pp is direct evidence the drift lives in the GPU material/spectral eval arc (suspect 1B class) at least in part — useful bisect anchor. Quarantine unchanged.

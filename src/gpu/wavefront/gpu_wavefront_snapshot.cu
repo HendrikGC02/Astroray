@@ -32,6 +32,10 @@ void uploadJakobHanikaLut();
 // (pkg54a per-material spectral profiles).
 void uploadGgxGlassTables();
 void uploadProfileTable(const float* host, int count);
+// pkg152 (#523, rebased into C7): reflection-lobe multi-scatter/layering
+// compensation tables (gpu_ggx_tables.cu) — required by gpu_disney_eval's
+// gpu_ggxCompensationFactor/DirectionalAlbedo/sheen/clearcoat lookups.
+void uploadGgxTables();
 
 // pkg55-C5 / pkg113: photon caustic grid structures.
 #include "astroray/gpu_photon_caustic.h"
@@ -1482,6 +1486,7 @@ std::vector<float> cuda_wavefront_render(
     // megakernel render preceded it in-process (pkg151 glass compensation
     // silently off; pkg54a NIR/UV profile override broken).
     uploadGgxGlassTables();
+    uploadGgxTables();  // pkg152 (#523) — re-homed from the deleted render()
     if (res.profileCount > 0)
         uploadProfileTable(res.profileTable.data(), res.profileCount);
 
@@ -1771,6 +1776,7 @@ std::vector<float> cuda_wavefront_render_restir(
     uploadCmfTables();
     uploadJakobHanikaLut();
     uploadGgxGlassTables();  // pkg55-C7: see cuda_wavefront_render note
+    uploadGgxTables();       // pkg152 (#523)
 
     // ReSTIR-DI is visible-band spectral (matches the CPU restir_di).
     const float lambdaMin = 380.0f, lambdaMax = 780.0f;

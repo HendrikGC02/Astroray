@@ -172,7 +172,7 @@ area light of similar illuminance — the `× solidAngle` factor **understates**
 - [x] GPU firefly-cap parity handled: the two PRODUCTION GPU megakernels (`path_trace_kernel.cu` tracePathGPU, `multiwavelength_kernel.cu` tracePathMW — the latter is what the default `path_tracer` integrator actually dispatches to on GPU) got the same bounce-indexed split. The pkg55 wavefront SoA dev-harness kernels (`stage_advance.cu`/`stage_restir.cu`, not in the production dispatch path) still carry the old whole-path clamp — explicitly deferred, see research doc.
 - [ ] Secondary: distant-vs-area selection-importance — DEFERRED, not attempted this round (time-boxed to the primary clamp-split fix). Still open.
 
-**Wavefront wiring: pkg157** (2026-07-26, PR TBD). pkg55-C7 (PR #524) deleted
+**Wavefront wiring: pkg157** (2026-07-26, PR #526). pkg55-C7 (PR #524) deleted
 both GPU megakernels this package wired above, taking their clamp-split with
 them — the wavefront that replaced them (now the ONLY GPU render path) never
 had it, and still carried the OLD always-on whole-path `lum > 20` cap the

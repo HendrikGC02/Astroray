@@ -3,7 +3,7 @@
 **Pillar:** 3 (GPU feature parity)
 **Track:** A (RTX-gated)
 **Codex-paste-ready:** no (small but placement-sensitive: clamp semantics must land at the exact accumulation sites or they bias energy)
-**Status:** open — **TOP-OF-QUEUE FAST-FOLLOW** for the round after PR #524 merges (architect adjudication V3 in the pkg55 spec, 2026-07-25), CONDITIONAL on the owner accepting the gap window (owner item 2 there). If the owner instead demands a pre-merge port, this package's contract executes on the #524 branch before merge (and the HW verification restarts).
+**Status:** implemented, **HW-VERIFY PENDING** (PR #526, 2026-07-26 — clamp split re-ported to the wavefront at 4 accumulation sites + ReSTIR-DI; both stale whole-path `lum>20` caps removed; `G_WF_NEE_I_LANES` 3→4 to park the NEE sample's bounce depth for the deferred shadow-resolve; call-site + behavioral sweeps clean). **NOT built and NOT run** — the implementer had no CUDA build or GPU access; CI has no GPU, so CI green is not evidence. Flip to `done` only after the RTX verifier reports: build log, byte-identical 0/0 no-op vs pre-change wavefront, CPU-oracle mean-ratio agreement, and the revived #515 gate GREEN (not xfail/skip).
 **Estimated effort:** S (device helpers exist; two insertion sites + one revived gate)
 **Depends on:** pkg55-C7/PR #524. Reference implementation: pkg144/PR #515 (CPU + the deleted megakernels' `gpu_clampContrib`/`gpu_clampContribMW` wiring — recover the deleted call sites from git history at `9bb058fc`/#515 for the exact semantics).
 

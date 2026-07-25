@@ -80,6 +80,11 @@ float launchProfileLookup(int profileIndex, float lambda);
 // tables into device global memory; required by gpu_ggxGlassCompensationFactor
 // (gpu_disney_roughTransmissionEval).
 void uploadGgxGlassTables();
+// pkg152 — one-time copy of the Cycles reflection-lobe (metal/dielectric-
+// specular/sheen/clearcoat) multi-scatter/layering compensation tables into
+// device global memory; required by gpu_ggxCompensationFactor/
+// gpu_ggxDirectionalAlbedo/gpu_sheenAlbedo/gpu_clearcoatE (gpu_disney_eval).
+void uploadGgxTables();
 
 // pkg64-gpu Phase 1 probe harness (defined in pkg64_sms_probe.cu).
 void launchPkg64SmsProbe(
@@ -737,6 +742,7 @@ void CUDARenderer::render(
     uploadCmfTables();
     uploadJakobHanikaLut();
     uploadGgxGlassTables();  // pkg151
+    uploadGgxTables();  // pkg152
 
     unsigned long long rngSeed = (seed == 0)
         ? (unsigned long long)time(nullptr)
@@ -937,6 +943,7 @@ void CUDARenderer::renderMultiwavelength(
     // memory before any gpu_jhEvalSpectrum call.
     uploadJakobHanikaLut();
     uploadGgxGlassTables();  // pkg151
+    uploadGgxTables();  // pkg152
 
     unsigned long long rngSeed = (seed == 0)
         ? (unsigned long long)time(nullptr)

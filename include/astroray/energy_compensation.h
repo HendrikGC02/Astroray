@@ -43,6 +43,18 @@ public:
     const float* ggxGlassInvEData() const { return ggxGlassInvE_.data(); }
     const float* ggxGlassInvEavgData() const { return ggxGlassInvEavg_.data(); }
 
+    // pkg152: GPU upload accessors for the reflection-lobe (metal/dielectric-
+    // specular) multi-scatter tables, mirroring the pkg151 glass-table
+    // accessors above. Back the CPU ggxCompensationFactor/ggxDirectionalAlbedo
+    // (spec), sheenAlbedo (sheen), and clearcoatE (clearcoat) lookups used by
+    // disney.cpp::eval() -- gpu_disney_eval never applied any of these terms
+    // before this package (confirmed absent by grep of gpu_materials.h prior
+    // to this change).
+    const float* ggxEData() const { return ggxE_.data(); }
+    const float* ggxEavgData() const { return ggxEavg_.data(); }
+    const float* sheenEData() const { return sheenE_.data(); }
+    const float* clearcoatEData() const { return clearcoatE_.data(); }
+
 private:
     DisneyEnergyCompensationTables();
 

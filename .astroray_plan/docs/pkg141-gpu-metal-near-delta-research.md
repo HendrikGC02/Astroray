@@ -1,5 +1,13 @@
 # pkg141 — GPU near-delta Disney-metal over-brightness: root-cause research
 
+> **⚠️ SUPERSESSION NOTE (2026-07-25, architect):** the post-#518 residual
+> ratios recorded in this doc (near-delta GPU/CPU 0.60–0.77) are **no longer
+> citable as the current state**: after PR #523 (pkg152 compensation-table
+> mirror + clearcoat fix) the verifier measured ~1.0 near-delta in a different
+> setup. The two measurements are reconciled by **pkg158** (Step 0,
+> scene-controlled re-measure with `applyGamma` stated on both legs) — read
+> its outcome before citing either number.
+
 **Package:** pkg141-gpu-near-delta-disney-metal-brightness
 **Constraint:** Lane B, parallel with a `plugins/materials/disney.cpp` chain
 (Lane A). This package does not edit `disney.cpp` at all; every fix below is

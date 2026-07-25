@@ -615,3 +615,94 @@ world max bounces below max_depth (the Blender addon wires
 legs. `render()`'s positional `applyGamma` defaults to True and reads as a
 mystery boolean at call sites; comparisons against linear oracles must pass
 `False` explicitly.
+
+---
+
+## ✅ Session C7 merge adjudication (2026-07-25, architect — PR #524; written on main while the independent HW verification runs; no HW result is pre-asserted. pr-merger: the #524 branch edits this spec's Status/execution/acceptance regions — union those with this appended section, no overlap expected)
+
+Adjudicating the four judgment calls the implementer flagged (evidence:
+`.astroray_plan/docs/pkg55-c7-day-arc-2026-07-25.md`). #524's merge remains
+conditional on the independent HW verification's verdict and the owner items
+below.
+
+**V1 — visible-naive SSIM re-pin 0.998→0.995: APPROVED as a legitimate,
+measurement-backed re-pin — NOT a block-level relaxation — conditional on
+pkg156 owning the residual (filed this commit).** The never-lower-a-gate rule
+is about unmeasured relaxation; here the dossier quantifies a deterministic
+~1–1.5% brightness residual (onset exactly bounce 2, spp-independent, present
+vs BOTH the CPU naive reference and the pre-deletion megakernel — so not
+introduced by the deletion), recorded in the test docstring. The gate stays
+tight enough to catch gross regressions; the residual gets a named owner
+instead of a silent tolerance. Precedent: the C4 exact-equality→1e-5
+adjudication. The `ssim-wrong-gate` memory does not apply — that concerns
+independent-RNG noise; this residual is deterministic and SSIM remains the
+right instrument. Condition: pkg156 exists (done) and the docstring cites it.
+
+**V2 — pkg64 phase-3 receiver-energy gate xfail: ACCEPTED as capability
+retirement per the frozen-SMS precedent, with an owner-ratification item (not
+a merge blocker).** The deleted MW kernel held the only GPU SMS; the caustic
+capability is preserved and live-green on the wavefront via
+`test_gpu_caustic_parity` (energy-ratio + peak vs CPU); the debt stays visible
+as an honest xfail marked PORT-later rather than a deleted test. This is a
+deliberate retirement recorded in the C7 drop list — the
+`xfail-gated-features-must-unxfail` rule governs features being implemented,
+not capabilities being formally frozen. Doc duty for close-round: pkg64's spec
+gets a "GPU SMS frozen 2026-07-25 (C7), PORT-later, receiver-energy gate
+xfail" note.
+
+**V3 — pkg144 clampDirect/clampIndirect not ported to the wavefront:
+FAST-FOLLOW (pkg157, filed this commit, top of the next queue), with pre-merge
+port as the fallback if the owner declines the gap.** Reasons for fast-follow
+over pre-merge: (a) a pre-merge feature commit would violate the
+branch-freeze rule against the running HW verification and restart it; (b) the
+defaults are 0/0 = clamping off (the megakernel's `gpu_clampContribMW` was a
+no-op at defaults), so no default render changes behavior — only users who
+explicitly set clamps lose the effect, and the symptom (fireflies return) is
+visible, not silent data corruption; (c) the port is genuinely small and needs
+its own HW pass regardless. This is still a 2-day-old shipped GPU feature
+(#515) regressing to CPU-only, so it is an OWNER acceptance, not an architect
+one — see owner items. pkg157 scoping is in its spec: mirror
+`gpu_clampContrib` semantics at the wavefront NEE/shadow-resolve (direct) and
+bounce≥2 accumulate (indirect); the #515 GPU clamp gate must come back green
+LIVE — its absence is never acceptable evidence.
+
+**V4 — R-drift 1.153→1.191 after #523: folded as pkg153 bisect intel
+(suspect-1B anchor; the branch's pkg153 appendix lands with #524), and YES —
+#523 enters the bisect suspect set, but as a COMPOUNDING contributor /
+discriminating anchor, not a candidate origin:** the drift pre-exists #523
+(1.148–1.153 measured on `8c49bbb` and `e0185c8`). Two protocol requirements
+added: (1) **control for the C7-discovered table-upload coupling** — pre-C7,
+`uploadGgxGlassTables`/`uploadProfileTable` ran only in megakernel render
+entries, so a wavefront-only bisect build at older commits can read ZEROED
+tables and mis-measure; every bisect point must log a tables-loaded
+checksum/flag before measuring. (2) The +3.8pp post-#523 data point was taken
+AFTER the C7 re-homing of the uploads — part of that move may be "tables now
+actually loaded" rather than #523's table values; re-measure #523's isolated
+contribution with the upload path held constant before attributing the 3.8pp.
+
+**pkg155 sanity check: APPROVED as filed.** Measured finding with pinned
+baselines and factors, explicit suspect window, profile-first contract with
+attribution-table deliverable, no-gate-changes constraint, HW-evidence
+requirement, provenance. Nice-to-haves for the close-round pass (non-blocking):
+an acceptance line ("attribution table + recovery plan reviewed by architect")
+and a Non-goals line ("does not touch pkg153 thresholds"); the day-arc stage
+profile (shade 182 regs / 45%) is its natural first probe target.
+
+**pkg152 near-delta anomaly (verifier ~1.0 vs research-doc 0.60–0.77):
+reconciliation is now concretely owned by pkg158** (filed this commit — the
+split-out follow-up pkg152's fired split-clause requires). Its Step 0 is a
+scene-controlled re-measure of BOTH measurement setups on post-#523 main;
+candidate explanations enumerated there (clearcoat double-divide reach, eta²
+guard widening, scene/`applyGamma` differences per the gamma-vs-linear lesson
+above, or a genuine fix). Until pkg158 Step 0 reports, neither number is
+citable as the current near-delta state.
+
+### Owner decision items (crisply separated from the verdicts above)
+
+1. **Ratify the GPU-SMS freeze** (V2). Reversal path = a filed port package,
+   not a C7 revert.
+2. **Accept the pkg144 GPU-clamp gap window** (V3): merge #524 now + pkg157
+   fast-follow next round (architect recommendation), OR demand a pre-merge
+   port, which restarts the HW verification. Recommendation: accept.
+3. #524 merge itself: conditional on the independent HW verification verdict
+   and the pr-merger checklist — nothing here pre-approves that.

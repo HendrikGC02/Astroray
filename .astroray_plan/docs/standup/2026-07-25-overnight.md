@@ -111,6 +111,96 @@ records that this term's null-table fallback must be **0.0**, not the 1.0 used b
 the existing *multiplicative* helpers — the term is additive, so an identity
 fallback would inject a full-strength albedo term whenever tables fail to load.
 
+## pkg160 Step 0 — the fix is BLOCKED, and the reason is worse than the bug
+
+The pkg160 spec required dumping both GGX energy-compensation table systems and
+comparing them *before* mirroring anything, because the CPU metal term uses
+`raytracer.h`'s runtime-computed LUT while the GPU only has the shipped
+Cycles-derived tables. The implementer did that and **stopped**, correctly, rather
+than choosing between two fixes. Branch `pkg160-gpu-metal-multiscatter`, commit
+`c375540` — no PR yet, deliberately.
+
+**They disagree catastrophically.** Both sides compiled from the real repo code
+(no transcription), and the shipped side independently re-derived in NumPy straight
+from `ggx_E.bin` (agrees to 5e-7, so this is not a lookup-convention mistake):
+
+| roughness | runtime LUT `E` | shipped `ggx_E.bin` | ratio |
+|---|---|---|---|
+| 0.05 | 0.001399 | 0.999975 | **715×** |
+| **0.15** (the contact-sheet metal) | **0.040669** | **0.998543** | **24.6×** |
+| 0.30 | 0.353788 | 0.974699 | 2.76× |
+| 0.90 | 0.457155 | 0.535442 | 1.17× |
+
+Downstream, in the `Fms` the metal term actually multiplies, that becomes **1030×**
+at roughness 0.15 (0.307206 vs 2.98e-4).
+
+**The CPU LUT is the wrong one.** `GGXEnergyCompensationLUT`'s constructor
+(`raytracer.h:306-331`) estimates `E` with 256 **uniform-hemisphere** samples per
+cell. That cannot resolve a narrow GGX lobe, so `E → 0` as roughness → 0 — the
+exact opposite of the truth, since a smooth conductor's directional albedo → 1
+(which is what the converged Cycles table correctly reports: 0.999975 at
+roughness 0.05). And because `Fms = (1-Ewo)(1-Ewi) / (π·max(1-Eavg, 1e-4))`,
+driving `E → 0` pushes `Fms → 1/π = 0.3183`, its **ceiling**, precisely where
+multiple scattering should vanish. Measured `Fms` at roughness 0.15 is 0.3072 —
+**96.5% of the maximum.**
+
+**So the CPU has been adding a large spurious ambient floor to every rough metal:**
+`albedo × 0.3072 × 0.2775 × 1.3 = 0.111 × albedo` at roughness 0.15,
+nearly view-independent and **cosine-free** (it carries no `NdotL`, unlike
+everything else `eval()` returns). That floor is the bulk of the CPU's metal
+radiance at this roughness — which is exactly why the measured median GPU/CPU
+ratio was 0.141.
+
+**This reframes the whole package.** The conviction stands — `gpu_metal_eval`
+really does omit a term `MetalPlugin` really does add, and they really are
+3.5×/7× apart. What changes is *which side is wrong*. Mirroring the CPU term
+using the GPU's (correct) tables closes only ~1% of the gap at roughness 0.15
+(0.0291 → 0.0328 single-bounce eval ratio) and cannot reach the proposed
+`[0.95, 1.05]` band; it only converges near roughness 0.9. **Making the GPU match
+today's CPU would mean propagating a physically wrong ambient floor onto the GPU.**
+
+**The two options, measured rather than argued:**
+
+- **Option B — mirror using the GPU's existing (correct) tables.** Measured dead:
+  cosine-weighted-hemisphere integration of the full eval at the contact-sheet
+  config gives a GPU/CPU ratio of **0.0291 today → 0.0328 mirrored**. It closes
+  ~1% of the gap and only converges near roughness 0.9.
+- **Option A — upload the runtime LUT to the GPU.** Exact by construction, because
+  it makes the GPU use the same table the CPU does. But it needs
+  `gpu_ggx_tables.cuh`/`.cu` plus a `raytracer.h` include in a `.cu`, and **it
+  canonicalises the artifact** — it would propagate the spurious ambient floor onto
+  the GPU in the name of parity. Defensible as "parity now, physics later via
+  pkg129", but not a call to make silently. (Folding it into the existing
+  `uploadGgxTables()` body keeps it clear of the other wavefront lane.)
+
+**Two spec corrections the implementer pushed back on, both of which I accept:**
+
+1. **`gpu_materials.h:1155` is NOT falsified**, contrary to what the pkg160 spec
+   claimed. Its "correct for MetalPlugin" assertion is explicitly scoped to the
+   `roughness <= 0.1` shortcut, and for that branch it is true. Only `:230` was
+   wrong, and only that one was corrected. (That claim originated in my own
+   hand-off note; the implementer was right to check rather than inherit it.)
+2. **Why nothing caught this:**
+   `tests/wavefront_diff/test_cpu_wavefront_metal_bit_identity.py` compares **CPU
+   wavefront against CPU reference** — both call `MetalPlugin`, so they are
+   bit-identical *by construction* and structurally blind to `gpu_metal_eval`.
+   Any real gate here has to be GPU-vs-CPU.
+
+Also established: `gpu_metal_sample` inherits the fix free (it calls
+`gpu_metal_eval`), and `gpu_metal_pdf` must **not** gain the term — neither side
+folds multiscatter into the pdf, so adding it to the GPU pdf would break the very
+parity this package exists to create.
+
+**Landed in PR #527** (open, deliberately incomplete): Step-0 instrumentation, the
+pin test `tests/test_pkg160_ggx_table_systems.py`, and the corrected `:230`
+comment. **Deliberately NOT landed:** the mirror and the plain-metal parity gate —
+landing the gate alone would make the suite knowingly red on a defect nobody is
+cleared to fix. **Unverified:** no GPU touched, no PASS asserted, and the new
+`test_helpers_module.cpp` dumper was only `-fsyntax-only`'d, never MSVC-linked. I
+started that build at finalize time; result in the report if it completed.
+
+**This needs an owner decision — see Action items.**
+
 ## pkg155 — Phase 1 complete: ~5× confirmed, shade stage convicted
 
 Commits `b5d9e57` + `7af0e25`. Full write-up:
@@ -465,11 +555,25 @@ tonight-only fact.
 
 **Decisions I need from you (ranked):**
 
-1. **Read the metal finding first (pkg160).** A 3.5×-mean / 7×-median GPU energy
-   deficit on every rough plain `metal`, on the only GPU path we ship, invisible
-   to every existing gate because plain `metal` has no parity gate at all. The
-   mechanism is convicted in code and the fix is a verbatim mirror of a term the
-   CPU already has. Implementation was dispatched overnight.
+1. **pkg160 / PR #527 — the decision I most need, and it is not the one I expected
+   to be asking.** The GPU metal deficit is real (3.5× mean / 7× median, on the
+   only GPU path we ship, ungated). But Step 0 found that **the CPU side is the
+   physically wrong one at low roughness**: `GGXEnergyCompensationLUT` estimates
+   `E` with 256 uniform-hemisphere samples, cannot resolve a narrow GGX lobe, and
+   so drives `Fms` to 96.5% of its mathematical ceiling exactly where multiple
+   scattering should vanish — adding a cosine-free `albedo × 0.111` ambient floor
+   to every rough metal. Three ways forward:
+   - **Option A** (upload the runtime LUT to the GPU): exact parity by
+     construction, but propagates the artifact onto the GPU.
+   - **Option B** (mirror using the GPU's correct Cycles tables): measured to close
+     only ~1% of the gap; effectively dead.
+   - **Option C** (fix the CPU LUT): makes the CPU *dimmer* on every rough metal,
+     changing the canonical reference and every image that depends on it.
+
+   I did not pick. Parity and physics point in opposite directions here, and which
+   one you want is a project-direction call, not an implementation detail.
+   **PR #527 is open with the measurement and the pin test only** — no mirror, no
+   gate, nothing that presumes an answer.
 2. **Approve tightening the GPU/CPU parity bands.** Current bands are `[0.4, 2.5]`,
    `[0.5, 2.0]`, `[0.5, 1.5]`, `[0.7, 1.1]`. Bands that admit a 25% error are not
    gates. Tightening will turn several currently-green tests red — that is the

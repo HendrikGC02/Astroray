@@ -42,3 +42,38 @@ Every HW verdict that hits these gates: re-run the failing gate on unmodified ma
 ## Provenance
 
 Filed by the architect during the PR #518 adjudication (2026-07-25). Full verifier evidence: pkg141 spec "Hardware verification 2026-07-25" section; verdict comment https://github.com/HendrikGC02/Astroray/pull/518#issuecomment-5071150211.
+
+## pkg55-C7 day-arc findings (2026-07-25, RTX 5070 Ti, main @ e0185c8) — partial disposition
+
+**Failure 4 (perf floor 0.90×): CONVICTED as measurement artifact — CLOSED.**
+Median-of-5 isolated timing (GPU lock held, cool GPU, 48 C start): 1.528× @512spp
+(spread 1.522–1.545), 1.539× @1024spp (spread ≤0.007 s both legs); the pytest
+gate in isolation passes at 1.52× and XPASSES the 1.5× target; the full
+`wavefront_diff` sweep in one process ALSO passes (xpass). The overnight 0.90×
+(WF 0.647 s vs 0.356 s today; MK leg normal) was observed exactly once by the
+single-sample harness during the contended overnight window, and the "rerun on
+unmodified main" evidence file contains only the 3 ratio gates — the perf gate
+was never re-run on main. Today's ratio is the all-time high of the recorded
+history (1.38→1.46→1.50→1.53), so there is no regression to bisect. Fix shipped
+with C7: the perf harness is median-of-N and the megakernel comparator is pinned
+(`benchmarks/wavefront/megakernel_final_2026-07-25.json`) before deletion.
+Note: the "wavefront accreted feature cost" hypothesis (2A) is real but applies
+to BOTH pipelines — see pkg155 (GPU absolute ~5× slowdown since 2026-05); it
+does not move the WF/MK ratio.
+
+**Failures 1–3 (R-channel ratio drift): still OPEN, quarantined per the interim
+protocol. New discriminator evidence:** re-rendering the open-env scene with
+the emitters replaced by matte surfaces (env-only illumination), the MK/CPU
+ratio moves [1.148, 1.007, 1.070] → [1.102, 0.996, 1.049]. ~4.6 pp of the
+~5.7 pp R drift is therefore emitter-linked (the scene's warm [1.0, 0.8, 0.5]
+emissive sphere) — this tilts toward the #489/#500 light-energy arc (suspect
+1A) — but no June env-only pin exists, so #481 (spectral tables, suspect 1B) is
+not excluded for the residual; the a7f09d1^/41101a5^ bisect remains the
+decisive step. Reproduced today's failing ratios exactly on e0185c8 before any
+C7 change ([1.148, 1.007, 1.069] open-env; [1.133, 1.008, 1.046] wmb=0).
+C7 disposition of the gates themselves: the two megakernel-named env gates are
+retargeted at the wavefront (plan §6-R10) with thresholds unchanged and remain
+red-and-quarantined under this spec; `test_gpu_wavefront_final_image_mean_ratio`
+likewise stays red and pkg153-owned.
+
+**Post-#523 data point (C7 rebase, 2026-07-25):** after PR #523 (pkg152 gpu_disney_eval compensation-table mirror) the wavefront final-image R ratio moved [1.153, 1.007, 1.068] -> **[1.191, 1.007, 1.072]** on the same scene/seed (CPU oracle unchanged). A materials-eval PR moving the R residual by +3.8pp is direct evidence the drift lives in the GPU material/spectral eval arc (suspect 1B class) at least in part — useful bisect anchor. Quarantine unchanged.

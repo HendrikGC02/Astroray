@@ -1,4 +1,14 @@
-"""pkg55-B' Session N+6 follow-up — megakernel open-env-scene mean-ratio gate.
+"""pkg55-B' Session N+6 follow-up — open-env-scene mean-ratio gate.
+
+pkg55-C7 RETARGET (2026-07-25): the MW megakernel was deleted; the
+`path_tracer` GPU route these tests render is now the WAVEFRONT (plan
+§6-R10 conscious retarget). Test/function names are kept for pkg153
+quarantine continuity — both gates are RED on main (R-channel drift
+[~1.15, 1.01, 1.07] vs tol 0.12, identical on both former GPU pipelines)
+and OWNED BY pkg153; thresholds unchanged (never relax to green). See
+.astroray_plan/packages/pkg153-wavefront-diff-env-gates-disposition.md.
+
+Original (historical) docstring follows.
 
 Session N+6 reported the spectral megakernel ~1.85x BRIGHTER than the CPU
 oracle on the open-top env Cornell scene (per-channel mean ratio

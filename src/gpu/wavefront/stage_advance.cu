@@ -286,6 +286,7 @@ __device__ bool shadePathSlot(
     const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     int               max_depth,
     float*            nee_f, int* nee_i,
@@ -293,7 +294,13 @@ __device__ bool shadePathSlot(
     bool              useLuminanceOutput,
     bool              enableNEE,
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
-    float             photonScale)
+    float             photonScale,
+    bool              captureMis = false)  // pkg55-C7: MIS instrumentation
+                                           // stores only for the PostNEE_MIS
+                                           // snapshot harness (perf: the #484
+                                           // always-on stores were 3 global
+                                           // writes per NEE shade in the
+                                           // production hot path)
 {
     const int bounce = state.bounce[idx];
 
@@ -368,14 +375,18 @@ __device__ bool shadePathSlot(
     // sub-streams); the per-stage gates compare only deterministic-given-
     // stage fields and the final-image gates remain the sampling oracle.
     // pkg55-C3: enableNEE flag gates NEE sampling (naive multiwavelength mode).
-    if (enableNEE && !rec.isDelta && numLights > 0) {
+    // pkg89-wavefront (C7): dedicated lights (point/spot/distant/area lamps)
+    // join the wavefront NEE via the SAME unified power-CDF + device sampleLi
+    // the MW megakernel uses (gpu_nee.cuh::gpu_dedicated_sample, #489/#500;
+    // Cycles kernel/light/{point,spot,distant,area}.h via the CPU mirrors).
+    // The (numLights + numDed) gate mirrors both the CPU light_seed gate
+    // (path_kernel.cpp:230 !lights.empty() — the CPU LightList spans both
+    // kinds) and gpu_nee_sample's own emptiness check.
+    if (enableNEE && !rec.isDelta && (numLights + numDed) > 0) {
         if (totalLightPower > 0.f) {
-            // pkg89-GPU / GAP 1 — dedicated lights are not yet wired into the
-            // wavefront NEE (deferred; the megakernel path carries them). Pass
-            // (nullptr, 0) so wavefront behavior is unchanged.
             GNEESample s = gpu_nee_sample(rec, prims, tris, spheres,
                                           lights, numLights, totalLightPower,
-                                          /*dedLights=*/nullptr, /*numDed=*/0,
+                                          dedLights, numDed,
                                           lightTree, &rng);
             if (s.valid) {
                 if (nee_f != nullptr) {
@@ -391,19 +402,34 @@ __device__ bool shadePathSlot(
                     if (f_spec.maxValue() > 0.f) {
                         float bsdfPdf = gpu_material_pdf(mat, rec, wo, s.wi);
                         // Power heuristic (Veach 1997) — mirrors
-                        // gpu_mw_powerHeuristic in the MW TU.
+                        // gpu_mw_powerHeuristic in the MW TU. Delta lights
+                        // (pkg140, e.g. zero-diameter sun) force wt = 1
+                        // exactly like gpu_nee_resolve: a BSDF ray has zero
+                        // probability of hitting a delta direction.
                         float a2 = s.lightPdf * s.lightPdf;
                         float b2 = bsdfPdf * bsdfPdf;
-                        float wt = a2 / (a2 + b2 + 1e-8f);
+                        float wt = s.isDeltaLight ? 1.0f
+                                                  : a2 / (a2 + b2 + 1e-8f);
                         float scale = wt / (s.lightPdf + 0.001f);
+                        // pkg89-wavefront: dedicated emission is
+                        // rgbAt(dedEmissionRGB, λ)·dedGeoScale (gpu_nee_resolve);
+                        // dedGeoScale is λ-independent, so fold it into the
+                        // parked scale and park only the RGB for the shadow
+                        // stage's per-λ upsample.
+                        if (s.isDedicated) scale *= s.dedGeoScale;
                         // pkg55-C2 MIS audit: capture the exact pdfs and the
                         // resulting power-heuristic weight (Veach 1997) this NEE
                         // sample used, for the PostNEE_MIS gate. Pure stores to
                         // instrumentation arrays — no RNG draw, no reorder, and
                         // never read by accumulation, so renders are unchanged.
-                        state.path_light_pdf[idx]  = s.lightPdf;
-                        state.path_mis_pdf[idx]    = bsdfPdf;
-                        state.path_mis_weight[idx] = wt;
+                        // pkg55-C7 perf: gated on captureMis (true only in the
+                        // stageShadeNeeMisKernel snapshot path; the production
+                        // bucketed pipeline skips the 3 global writes).
+                        if (captureMis) {
+                            state.path_light_pdf[idx]  = s.lightPdf;
+                            state.path_mis_pdf[idx]    = bsdfPdf;
+                            state.path_mis_weight[idx] = wt;
+                        }
                         nee_f[ 0 * nee_capacity + idx] = s.origin.x;
                         nee_f[ 1 * nee_capacity + idx] = s.origin.y;
                         nee_f[ 2 * nee_capacity + idx] = s.origin.z;
@@ -415,8 +441,13 @@ __device__ bool shadePathSlot(
                         nee_f[ 8 * nee_capacity + idx] = throughput.v[1] * f_spec.v[1] * scale;
                         nee_f[ 9 * nee_capacity + idx] = throughput.v[2] * f_spec.v[2] * scale;
                         nee_f[10 * nee_capacity + idx] = throughput.v[3] * f_spec.v[3] * scale;
+                        // pkg89-wavefront: dedicated-light payload lanes.
+                        nee_f[11 * nee_capacity + idx] = s.dedEmissionRGB.x;
+                        nee_f[12 * nee_capacity + idx] = s.dedEmissionRGB.y;
+                        nee_f[13 * nee_capacity + idx] = s.dedEmissionRGB.z;
                         nee_i[ 0 * nee_capacity + idx] = s.lightMatId;
                         nee_i[ 1 * nee_capacity + idx] = s.isSphere;
+                        nee_i[ 2 * nee_capacity + idx] = s.isDedicated;  // pkg89-wavefront
                         int qslot = atomicAdd(shadow_count, 1);
                         shadow_queue[qslot] = idx;
                     }
@@ -507,17 +538,26 @@ __device__ bool shadePathSlot(
     }
     wasSpecular = bss.isDelta;
 
-    // pkg55-C3: non-visible-band profile override (multiwavelength_kernel.cu:342-351).
-    // For lambdas outside [380,780] nm, the visible-band Jakob-Hanika upsampling
-    // is undefined; use the uploaded spectral profile table instead (pkg54a).
-    if (!wasSpecular && mat.profileIndex >= 0) {
+    // pkg55-C3/C7: non-visible-band profile override — mirrors the deleted
+    // MW megakernel block (multiwavelength_kernel.cu:376-390) and CPU
+    // Material::evalSpectralExt EXACTLY:
+    //   * visible λ → keep the RGB-upsampled bss.fSpectral,
+    //   * non-visible λ + profile → reflectance(λ) · cosθ / π,
+    //   * non-visible λ + NO profile → 0 (RGB albedo is undefined outside
+    //     the visible band — the else-zero was dropped in the C3 port and
+    //     restored in C7).
+    if (!wasSpecular) {
         float cosTheta = fmaxf(0.f, rec.normal.dot(bss.wi));
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
             float lam = lambdas.lambda[i];
             if (lam < 380.f || lam > 780.f) {
-                bss.fSpectral.v[i] =
-                    gpu_profile_reflectance(mat.profileIndex, lam)
-                    * cosTheta / M_PI_F;
+                if (mat.profileIndex >= 0) {
+                    bss.fSpectral.v[i] =
+                        gpu_profile_reflectance(mat.profileIndex, lam)
+                        * cosTheta / M_PI_F;
+                } else {
+                    bss.fSpectral.v[i] = 0.f;
+                }
             }
         }
     }
@@ -584,6 +624,7 @@ __device__ bool advancePathSlot(
     const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -603,7 +644,7 @@ __device__ bool advancePathSlot(
     return shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
                          bvhNodes, prims, tris, spheres, motionVerts,
                          materials, lights, numLights, totalLightPower,
-                         lightTree, max_depth,
+                         dedLights, numDed, lightTree, max_depth,
                          /*nee_f=*/nullptr, /*nee_i=*/nullptr,
                          /*shadow_queue=*/nullptr, /*shadow_count=*/nullptr,
                          /*nee_capacity=*/0,
@@ -624,6 +665,7 @@ __global__ void stageAdvanceKernel(
     const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -639,7 +681,8 @@ __global__ void stageAdvanceKernel(
     // the legacy dense path passes no grid (gather gated off).
     advancePathSlot(idx, state, hitBufs, tlas, instances, blas,
                     bvhNodes, prims, tris, spheres, motionVerts, materials,
-                    lights, numLights, totalLightPower, lightTree, envMap,
+                    lights, numLights, totalLightPower, dedLights, numDed,
+                    lightTree, envMap,
                     backgroundColor, hasBackgroundColor, worldMaxBounces,
                     max_depth, useLuminanceOutput, enableNEE,
                     astroray::photon::gpu::GPhotonGrid{}, false, 0.0f);
@@ -670,6 +713,7 @@ __global__ void stageAdvanceQueuedKernel(
     const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -684,6 +728,7 @@ __global__ void stageAdvanceQueuedKernel(
     bool alive = advancePathSlot(idx, state, hitBufs, tlas, instances, blas,
                                  bvhNodes, prims, tris, spheres, motionVerts,
                                  materials, lights, numLights, totalLightPower,
+                                 dedLights, numDed,
                                  lightTree, envMap, backgroundColor,
                                  hasBackgroundColor, worldMaxBounces, max_depth,
                                  useLuminanceOutput, enableNEE,
@@ -730,6 +775,13 @@ __global__ void stageShadowKernel(
     s.maxDist    = nee_f[6 * nee_capacity + idx];
     s.lightMatId = nee_i[0 * nee_capacity + idx];
     s.isSphere   = nee_i[1 * nee_capacity + idx];
+    // pkg89-wavefront: dedicated-light payload (dedGeoScale was folded into
+    // the parked throughput·f·scale lanes at shade time; only the reference
+    // RGB is needed here for the per-λ illuminant upsample).
+    s.isDedicated    = nee_i[2 * nee_capacity + idx];
+    s.dedEmissionRGB = GVec3(nee_f[11 * nee_capacity + idx],
+                             nee_f[12 * nee_capacity + idx],
+                             nee_f[13 * nee_capacity + idx]);
     s.valid      = 1;
 
     // pkg55-C4: thread TLAS + path time + motionVerts to shadow rays.
@@ -751,9 +803,19 @@ __global__ void stageShadowKernel(
     lambdas.pdf[2] = state.lambda_pdf_2[idx];
     lambdas.pdf[3] = state.lambda_pdf_3[idx];
 
-    bool lightFront = s.isSphere ? (occ.frontFace != 0) : true;
-    GSampledSpectrum L_spec = gpu_material_emitted_spectral(
-        materials[s.lightMatId], lightFront, lambdas);
+    GSampledSpectrum L_spec;
+    if (s.isDedicated) {
+        // pkg89-wavefront: dedicated lights carry emission intrinsically —
+        // same RGBIlluminant upsample gpu_nee_resolve uses (dedGeoScale
+        // already folded into the parked lanes at shade time).
+        for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k)
+            L_spec[k] = gpu_rgbSpectrumAt(s.dedEmissionRGB, lambdas.lambda[k],
+                                          GSPEC_RGB_ILLUMINANT);
+    } else {
+        bool lightFront = s.isSphere ? (occ.frontFace != 0) : true;
+        L_spec = gpu_material_emitted_spectral(
+            materials[s.lightMatId], lightFront, lambdas);
+    }
     if (L_spec.maxValue() <= 0.f) return;
 
     state.color_0[idx] += nee_f[ 7 * nee_capacity + idx] * L_spec.v[0];
@@ -834,6 +896,7 @@ __global__ void stageShadeBucketedKernel(
     const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     int               max_depth,
     bool              useLuminanceOutput,
@@ -850,7 +913,8 @@ __global__ void stageShadeBucketedKernel(
     bool alive = shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
-                               totalLightPower, lightTree, max_depth,
+                               totalLightPower, dedLights, numDed,
+                               lightTree, max_depth,
                                nee_f, nee_i, shadow_queue, shadow_count,
                                capacity, useLuminanceOutput, enableNEE,
                                photonGrid, hasPhotonGrid, photonScale);
@@ -965,6 +1029,7 @@ void launchStageAdvance(
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -984,7 +1049,8 @@ void launchStageAdvance(
         stageAdvanceKernel<<<blocks, threads>>>(
             state, hitBufs, d_tlas, d_instances, d_blas,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            d_lights, num_lights, total_light_power, lightTree,
+            d_lights, num_lights, total_light_power,
+            d_dedLights, num_ded, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
             worldMaxBounces, max_depth, useLuminanceOutput, enableNEE);
         cudaError_t err = cudaGetLastError();
@@ -1027,6 +1093,7 @@ void launchStageAdvanceQueued(
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -1049,7 +1116,8 @@ void launchStageAdvanceQueued(
             state, hitBufs, d_queue_in, d_count_in, d_queue_out, d_count_out,
             d_tlas, d_instances, d_blas,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            d_lights, num_lights, total_light_power, lightTree,
+            d_lights, num_lights, total_light_power,
+            d_dedLights, num_ded, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
             worldMaxBounces, max_depth, useLuminanceOutput, enableNEE);
         cudaError_t err = cudaGetLastError();
@@ -1133,6 +1201,7 @@ void launchStageShadeBucketed(
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     int               max_depth,
     bool              useLuminanceOutput,
@@ -1158,7 +1227,8 @@ void launchStageShadeBucketed(
             d_nee_f, d_nee_i, d_shadow_queue, d_shadow_count,
             d_tlas, d_instances, d_blas,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            d_lights, num_lights, total_light_power, lightTree, max_depth,
+            d_lights, num_lights, total_light_power,
+            d_dedLights, num_ded, lightTree, max_depth,
             useLuminanceOutput, enableNEE,
             photonGrid, hasPhotonGrid, photonScale);  // pkg55-C5 / pkg113
         cudaError_t err = cudaGetLastError();
@@ -1196,9 +1266,28 @@ __global__ void stageRegenKernel(
     int width, int height,
     uint64_t seed,
     float lambdaMin,
-    float lambdaMax)
+    float lambdaMax,
+    int* count_out,      // pkg55-C7 perf: fused per-pass counter zeroing —
+    int* shade_counts,   // replaces 3 cudaMemsetAsync launches per pass
+    int* shadow_count,   // (~3.6k extra launches per 512-spp render).
+    bool useLuminanceOutput)  // pkg55-C7: non-visible-band accumulation —
+                              // grey band-mean radiance instead of the CMF
+                              // XYZ projection (which is ~0 outside 380-780,
+                              // silently zeroing all non-visible energy).
+                              // Mirrors the deleted MW megakernel
+                              // (multiwavelength_kernel.cu:510-518).
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    // Thread 0 zeroes the per-pass queue counters BEFORE the early-outs
+    // (its own slot may be alive). Same-stream ordering makes this visible
+    // to the intersect/shade/shadow launches that follow, exactly like the
+    // memsets it replaces.
+    if (idx == 0 && count_out != nullptr) {
+        *count_out    = 0;
+        *shadow_count = 0;
+        #pragma unroll
+        for (int m = 0; m < G_WF_NUM_MAT_TYPES; ++m) shade_counts[m] = 0;
+    }
     if (idx >= state.num_active) return;
     if (state.path_alive[idx] != 0) return;
 
@@ -1212,21 +1301,34 @@ __global__ void stageRegenKernel(
     bool hasRad = (rad.v[0] != 0.f) | (rad.v[1] != 0.f) |
                   (rad.v[2] != 0.f) | (rad.v[3] != 0.f);
     if (hasRad) {
-        GSampledWavelengths lambdas;
-        lambdas.lambda[0] = state.lambda_0[idx];
-        lambdas.lambda[1] = state.lambda_1[idx];
-        lambdas.lambda[2] = state.lambda_2[idx];
-        lambdas.lambda[3] = state.lambda_3[idx];
-        lambdas.pdf[0] = state.lambda_pdf_0[idx];
-        lambdas.pdf[1] = state.lambda_pdf_1[idx];
-        lambdas.pdf[2] = state.lambda_pdf_2[idx];
-        lambdas.pdf[3] = state.lambda_pdf_3[idx];
-        GVec3 xyz = gpu_spectrum_to_xyz(rad, lambdas);
-        float lum = xyz.y;
-        if (lum > 20.0f) {
-            xyz.x *= (20.0f / lum);
-            xyz.y = 20.0f;
-            xyz.z *= (20.0f / lum);
+        GVec3 xyz;
+        if (useLuminanceOutput) {
+            // pkg55-C7: band-mean radiance as neutral grey (the MW megakernel
+            // luminance convention). No CMF projection — the CMFs are ~0
+            // outside the visible band. No lum>20 clamp here either: the MW
+            // kernel applied none in luminance mode, and the CPU naive
+            // multiwavelength reference is the parity target.
+            float L = 0.f;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) L += rad.v[i];
+            L = fmaxf(0.f, L / float(G_SPECTRUM_SAMPLES));
+            xyz = GVec3(L, L, L);
+        } else {
+            GSampledWavelengths lambdas;
+            lambdas.lambda[0] = state.lambda_0[idx];
+            lambdas.lambda[1] = state.lambda_1[idx];
+            lambdas.lambda[2] = state.lambda_2[idx];
+            lambdas.lambda[3] = state.lambda_3[idx];
+            lambdas.pdf[0] = state.lambda_pdf_0[idx];
+            lambdas.pdf[1] = state.lambda_pdf_1[idx];
+            lambdas.pdf[2] = state.lambda_pdf_2[idx];
+            lambdas.pdf[3] = state.lambda_pdf_3[idx];
+            xyz = gpu_spectrum_to_xyz(rad, lambdas);
+            float lum = xyz.y;
+            if (lum > 20.0f) {
+                xyz.x *= (20.0f / lum);
+                xyz.y = 20.0f;
+                xyz.z *= (20.0f / lum);
+            }
         }
         int pixel = state.pixel_index[idx];
         // Multiple slots can die holding the same pixel (different samples)
@@ -1280,7 +1382,11 @@ void launchStageRegen(
     int width, int height,
     uint64_t seed,
     float lambdaMin,
-    float lambdaMax)
+    float lambdaMax,
+    int* d_count_out,      // pkg55-C7: fused counter zeroing (nullptr = skip)
+    int* d_shade_counts,
+    int* d_shadow_count,
+    bool useLuminanceOutput)  // pkg55-C7: non-visible-band accumulation
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1292,7 +1398,9 @@ void launchStageRegen(
         stageRegenKernel<<<blocks, threads>>>(
             state, d_accum_xyz, d_work_counter, total_work, numPixels,
             cam, width, height, seed,
-            lambdaMin, lambdaMax);
+            lambdaMin, lambdaMax,
+            d_count_out, d_shade_counts, d_shadow_count,
+            useLuminanceOutput);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_regen launch error: %s\n",
@@ -1364,6 +1472,7 @@ __global__ void stageShadeNeeMisKernel(
     const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     const ::GLight*    lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -1384,10 +1493,11 @@ __global__ void stageShadeNeeMisKernel(
     shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
                   bvhNodes, prims, tris, spheres, motionVerts,
                   materials, lights, numLights, totalLightPower,
-                  lightTree, max_depth,
+                  dedLights, numDed, lightTree, max_depth,
                   nee_f, nee_i, shadow_queue, shadow_count, nee_capacity,
                   useLuminanceOutput, enableNEE,
-                  astroray::photon::gpu::GPhotonGrid{}, false, 0.0f);
+                  astroray::photon::gpu::GPhotonGrid{}, false, 0.0f,
+                  /*captureMis=*/true);  // pkg55-C7: snapshot harness captures
 }
 
 void launchStageShadeNeeMis(
@@ -1405,6 +1515,7 @@ void launchStageShadeNeeMis(
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -1421,7 +1532,8 @@ void launchStageShadeNeeMis(
         d_shadow_queue, d_shadow_count, nee_capacity,
         d_tlas, d_instances, d_blas,
         d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-        d_lights, num_lights, total_light_power, lightTree,
+        d_lights, num_lights, total_light_power,
+        d_dedLights, num_ded, lightTree,
         envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
         max_depth, useLuminanceOutput, enableNEE);
     cudaError_t err = cudaGetLastError();

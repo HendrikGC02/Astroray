@@ -79,30 +79,17 @@ public:
     // Upload environment map (optional; call after uploadScene).
     void uploadEnvironmentMap(const EnvironmentMap& envMap);
 
-    // Render into a pre-sized pixel buffer (host memory, HxWx3 float, linear).
-    // pkg64-gpu Phase 3: use_refractive_caustics/use_reflective_caustics gate
-    // the SMS attempt inside the megakernel (both must be true to enable).
-    void render(std::vector<Vec3>& pixels,
-                int width, int height, int seed,
-                int samplesPerPixel, int maxDepth,
-                bool use_refractive_caustics = true,
-                bool use_reflective_caustics = true);
+    // pkg55-C7: the megakernel render entries (render / renderMultiwavelength)
+    // and the pkg87b GPU-cryptomatte surface were deleted with the megakernels
+    // (src/gpu/path_trace_kernel.cu + multiwavelength_kernel.cu). The
+    // production GPU render path is the wavefront:
+    // astroray::wavefront::cuda_wavefront_render (gpu_wavefront_snapshot.h).
+    // CUDARenderer remains the owner of the uploaded-device-state surfaces
+    // (probes, refit, profile lookup).
 
-    // pkg54: GPU port of the multi-wavelength path tracer. Same scene state as
-    // render(); accepts a configurable wavelength band and luminance/visible
-    // output mode. lambdaMin/lambdaMax are nm; when useLuminanceOutput is true
-    // the kernel stores the per-band mean radiance as neutral grey RGB,
-    // otherwise it projects the spectrum to linear sRGB via Wyman 2013 CMFs.
-    // pkg64-gpu Phase 3: use_refractive_caustics/use_reflective_caustics gate
-    // the SMS attempt inside the megakernel (both must be true to enable).
-    void renderMultiwavelength(std::vector<Vec3>& pixels,
-                               int width, int height, int seed,
-                               int samplesPerPixel, int maxDepth,
-                               float lambdaMin, float lambdaMax,
-                               bool useLuminanceOutput,
-                               bool enableNEE = true,
-                               bool use_refractive_caustics = true,
-                               bool use_reflective_caustics = true);
+    // pkg64-gpu Phase 1 probe (moved from the deleted render()): run the SMS
+    // device-attempt probe against the uploaded scene. Requires uploadScene().
+    void runSmsProbe();
 
     // pkg54d: test hook for the profile table uploaded by the latest
     // uploadScene() call.
@@ -110,13 +97,6 @@ public:
 
     // [0, 1] progress estimate (reserved for async use in Phase 3).
     float getProgress() const;
-
-    // pkg87b: Cryptomatte control + retrieval
-    void setCryptomatteEnabled(bool enabled);
-    bool getCryptomatteEnabled() const;
-    void copyCryptoBuffersToHost(std::vector<float>& objectBuffer,
-                                  std::vector<float>& materialBuffer,
-                                  int width, int height, int depth);
 
 private:
     struct Impl;

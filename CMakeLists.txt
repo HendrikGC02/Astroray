@@ -466,10 +466,11 @@ option(ASTRORAY_WAVEFRONT_CUDA_N3
     ON)
 
 if(ASTRORAY_CUDA_FOUND)
+    # pkg55-C7: the megakernels (path_trace_kernel.cu, multiwavelength_kernel.cu)
+    # are DELETED — the wavefront is the only GPU render path. A CUDA build
+    # without ASTRORAY_WAVEFRONT_CUDA_N3 compiles but GPU rendering throws.
     set(ASTRORAY_CUDA_SOURCES
         src/gpu/cuda_renderer.cu
-        src/gpu/path_trace_kernel.cu
-        src/gpu/multiwavelength_kernel.cu
         src/gpu/gpu_spectral_tables.cu   # pkg55-C1: shared CMF/D65/JH/profile tables
         src/gpu/gpu_glass_tables.cu      # pkg151: rough-transmission glass multiscatter tables
         src/gpu/gpu_ggx_tables.cu        # pkg152: reflection-lobe multiscatter/layering compensation tables
@@ -522,26 +523,9 @@ if(ASTRORAY_CUDA_FOUND)
         set_property(TARGET astroray_cuda PROPERTY CUDA_FLAGS
             "--extended-lambda --expt-relaxed-constexpr -O3")
     endif()
-    # pkg55-B' Session N+3: PCG32 RNG (no cuRAND needed for wavefront).
-    # The megakernel still uses cuRAND; only link it when building megakernel.
-    if(NOT ASTRORAY_WAVEFRONT_CUDA_N3)
-        if(TARGET CUDA::curand)
-            target_link_libraries(astroray_cuda PRIVATE CUDA::curand)
-        elseif(TARGET CUDA::curand_static)
-            target_link_libraries(astroray_cuda PRIVATE CUDA::curand_static)
-        else()
-            find_library(CURAND_LIB curand
-                HINTS
-                    "${CUDAToolkit_LIBRARY_DIR}"
-                    "${CUDAToolkit_LIBRARY_ROOT}/lib"
-                    "${CUDAToolkit_LIBRARY_ROOT}/lib64"
-            )
-            if(NOT CURAND_LIB)
-                message(FATAL_ERROR "CUDA Toolkit found, but cuRAND is missing (no CUDA::curand and curand not found in library path).")
-            endif()
-            target_link_libraries(astroray_cuda PRIVATE "${CURAND_LIB}")
-        endif()
-    endif()
+    # pkg55-C7: the cuRAND host-link block was removed with the megakernels —
+    # the wavefront uses PCG32 (WavefrontRNG); curand_kernel.h remains a
+    # header-only device include with no host library dependency.
 endif()
 
 # Standalone executable (always console subsystem)

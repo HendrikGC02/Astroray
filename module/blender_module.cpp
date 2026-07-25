@@ -1666,64 +1666,29 @@ public:
             if (!skipUpload)
                 renderer.buildAcceleration();
 #ifdef ASTRORAY_WAVEFRONT_CUDA_N3
-            // pkg55-B' viewport fix (2026-06-12): the wavefront pipeline does
-            // its OWN buildSceneArrays + upload into its persistent context —
-            // running the megakernel uploadScene first made the wavefront
-            // path flatten the scene TWICE per frame (the measured ~30-40 ms
-            // viewport gap at 100k tris). Skip the megakernel upload for the
-            // wavefront integrator.
-            const bool wavefrontRoute =
-                (integratorName_ == "wavefront_path_tracer") ||
-                (integratorName_ == "restir-di");  // pkg55-C6b: GPU ReSTIR wavefront
-#else
-            const bool wavefrontRoute = false;
-#endif
-            // pkg114 inc 3d: skipUpload renders from the CURRENT device state
-            // without a full re-upload — used after a TLAS-only refit
-            // (update_instance_transform + upload_instance_transforms) so a
-            // transform-only viewport edit pays only the cheap instance/TLAS push.
-            if (!wavefrontRoute && !skipUpload) {
-                cudaRenderer->uploadScene(renderer, *camera);
-                if (envMap && envMap->loaded())
-                    cudaRenderer->uploadEnvironmentMap(*envMap);
-            }
-            // pkg85-D: route spectral integrators to the multiwavelength kernel.
-            // CPU path_tracer uses SpectralPathTracer (spectral path → XYZ → sRGB),
-            // so GPU must do the same via multiwavelength_kernel.cu. The legacy RGB
-            // path_trace_kernel.cu (used pre-pkg14) is no longer accurate for HDRI
-            // env-map rendering because it converts env RGB → spectral → RGB via
-            // RGBIlluminantSpectrum, which is lossy compared to the CPU's direct
-            // RGBIlluminantSpectrum spectral atlas sampling.
-#ifdef ASTRORAY_WAVEFRONT_CUDA_N3
-            if (integratorName_ == "wavefront_path_tracer") {
-                // pkg55-C3: resolve spectral params (visible-band spectral is the
-                // default; non-visible bands require lambda_min/max + output_mode).
-                float lmin = integratorParams_.getFloat("lambda_min", 380.0f);
-                float lmax = integratorParams_.getFloat("lambda_max", 780.0f);
-                std::string mode = integratorParams_.getString("output_mode", "");
-                bool useLum;
-                if (mode.empty())
-                    useLum = !(lmin >= 379.5f && lmax <= 780.5f);
-                else
-                    useLum = (mode == "luminance");
-                bool enableNEE = true;  // wavefront_path_tracer always uses NEE
-                // pkg55-B' plugin registration (spec sec. 6): this name
-                // selects the wavefront pipeline (path regeneration +
-                // material-bucketed shade + dedicated shadow stage) instead
-                // of the megakernel. Same light transport, same scene
-                // upload; linear-sRGB output convention matches the
-                // megakernel path. Measured 1.45-1.52x faster on the
-                // 7-material contact sheet (Phase-B gate).
-                auto rgb = astroray::wavefront::cuda_wavefront_render(
-                    renderer, *camera, camera->width, camera->height,
-                    samplesPerPixel, maxDepth, renderer.getSeed(),
-                    lmin, lmax, useLum, enableNEE);
-                // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
-                for (size_t i = 0; i < camera->pixels.size(); ++i) {
-                    camera->pixels[i] = Vec3(rgb[i * 3 + 0],
-                                             rgb[i * 3 + 1],
-                                             rgb[i * 3 + 2]);
+            // pkg55-C7 (megakernel removal): EVERY GPU integrator routes to
+            // the wavefront pipeline (path regeneration + material-bucketed
+            // shade + dedicated shadow stage, Laine 2013 / Cycles X). The
+            // wavefront does its OWN buildSceneArrays + upload into its
+            // persistent context; the megakernel uploadScene is no longer
+            // part of the render path (upload_scene stays available for the
+            // probe/refit surfaces).
+            //
+            // pkg64-gpu Phase 1 probe hook (moved here from the deleted
+            // CUDARenderer::render): when ASTRORAY_PKG64_GPU_SMS_PROBE is
+            // set, run the SMS device probe instead of rendering.
+            bool smsProbeRan = false;
+            {
+                const char* probe_env = std::getenv("ASTRORAY_PKG64_GPU_SMS_PROBE");
+                if (probe_env && probe_env[0] && std::strcmp(probe_env, "0") != 0) {
+                    cudaRenderer->uploadScene(renderer, *camera);
+                    cudaRenderer->runSmsProbe();
+                    smsProbeRan = true;  // probe replaced the render; the test
+                                         // parses stderr, the image is unused
                 }
+            }
+            if (smsProbeRan) {
+                // fall through to pixel packaging with untouched pixels.
             } else
             // pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront. The reservoir stages
             // (RIS -> temporal -> spatial -> resolve) run at the primary hit; the
@@ -1748,16 +1713,19 @@ public:
                                              rgb[i * 3 + 1],
                                              rgb[i * 3 + 2]);
                 }
-            } else
-#endif
-            if (integratorName_ == "path_tracer" ||
-                integratorName_ == "multiwavelength_path_tracer" ||
-                integratorName_ == "wavefront_path_tracer") {
-                // (wavefront name reaches here only when the build lacks
-                // ASTRORAY_WAVEFRONT_CUDA_N3 — megakernel fallback, same
-                // transport.)
-                // pkg54: spectral-band megakernel. Resolve params from the
-                // same ParamDict used to construct the CPU integrator.
+            } else {
+                // pkg55-C7: unified wavefront route for every other GPU
+                // integrator name. `path_tracer` mirrors the CPU
+                // pathTraceSpectral (NEE + MIS); `multiwavelength_path_tracer`
+                // mirrors the naive no-NEE MultiwavelengthPathTracer;
+                // `wavefront_path_tracer` keeps its pkg55-B' semantics
+                // (identical to path_tracer). Any legacy name that used to
+                // hit the RGB megakernel gets the same spectral transport
+                // (the RGB kernel was deleted in C7; its lossy RGB env
+                // sampling was already superseded per pkg85-D).
+                // pkg55-C3: resolve spectral params (visible-band spectral is
+                // the default; non-visible bands need lambda_min/max +
+                // output_mode).
                 float lmin = integratorParams_.getFloat("lambda_min", 380.0f);
                 float lmax = integratorParams_.getFloat("lambda_max", 780.0f);
                 std::string mode = integratorParams_.getString("output_mode", "");
@@ -1766,28 +1734,25 @@ public:
                     useLum = !(lmin >= 379.5f && lmax <= 780.5f);
                 else
                     useLum = (mode == "luminance");
-                // The GPU megakernel mirrors whichever CPU integrator the
-                // name selects: `path_tracer` -> Renderer::pathTraceSpectral
-                // (area-light NEE + MIS); `multiwavelength_path_tracer` ->
-                // the naive no-NEE MultiwavelengthPathTracer. The two share
-                // the kernel, so NEE must be gated by integrator identity.
-                bool enableNEE = (integratorName_ == "path_tracer");
-                // pkg64-gpu Phase 3: plumb caustics flags from CPU Renderer.
-                cudaRenderer->renderMultiwavelength(
-                    camera->pixels,
-                    camera->width, camera->height, renderer.getSeed(),
-                    samplesPerPixel, maxDepth,
-                    lmin, lmax, useLum, enableNEE,
-                    renderer.getUseRefractiveCaustics(),
-                    renderer.getUseReflectiveCaustics());
-            } else {
-                // pkg64-gpu Phase 3: plumb caustics flags from CPU Renderer.
-                cudaRenderer->render(camera->pixels,
-                                     camera->width, camera->height, renderer.getSeed(),
-                                     samplesPerPixel, maxDepth,
-                                     renderer.getUseRefractiveCaustics(),
-                                     renderer.getUseReflectiveCaustics());
+                bool enableNEE = (integratorName_ != "multiwavelength_path_tracer");
+                auto rgb = astroray::wavefront::cuda_wavefront_render(
+                    renderer, *camera, camera->width, camera->height,
+                    samplesPerPixel, maxDepth, renderer.getSeed(),
+                    lmin, lmax, useLum, enableNEE);
+                // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
+                for (size_t i = 0; i < camera->pixels.size(); ++i) {
+                    camera->pixels[i] = Vec3(rgb[i * 3 + 0],
+                                             rgb[i * 3 + 1],
+                                             rgb[i * 3 + 2]);
+                }
             }
+#else
+            // pkg55-C7: the megakernels are deleted; a CUDA build without the
+            // wavefront has no GPU render path.
+            throw std::runtime_error(
+                "GPU rendering requires the wavefront build "
+                "(ASTRORAY_WAVEFRONT_CUDA_N3=ON)");
+#endif
         } else
 #endif
         {
@@ -2294,12 +2259,13 @@ public:
             return;
         }
 
-        // Use a fully isolated temporary renderer and CUDA context to avoid
-        // leaving dangling GPU pointers. This ensures the main renderer's state
-        // (this->renderer, this->cudaRenderer) is never polluted with throwaway
-        // geometry that gets cleared before the GPU pointers are freed.
+        // Use a fully isolated temporary renderer to avoid leaving dangling
+        // GPU pointers. This ensures the main renderer's state
+        // (this->renderer) is never polluted with throwaway geometry that
+        // gets cleared before the GPU pointers are freed. (pkg55-C7: the
+        // temporary CUDARenderer went with the megakernels; the wavefront
+        // warm below owns its context/state.)
         Renderer tempRenderer;
-        auto tempCudaRenderer = std::make_unique<CUDARenderer>();
 
         // Trivial scene: single grey triangle at origin + camera looking at it.
         // Minimal cost to build but still enough to force full kernel JIT.
@@ -2317,15 +2283,22 @@ public:
         );
 
         tempRenderer.buildAcceleration();
-        tempCudaRenderer->uploadScene(tempRenderer, *cam);
 
-        // Launch the kernel. This is where the 12s JIT + context init happens.
-        // The JIT cache is process-wide, so triggering it here warms the cache
-        // for this->cudaRenderer as well.
-        tempCudaRenderer->render(cam->pixels, 1, 1, tempRenderer.getSeed(), 1, 1);
+        // Launch the production (wavefront) kernels. This is where the JIT +
+        // context init happens. The JIT cache is process-wide, so triggering
+        // it here warms the cache for the real renders as well.
+        // pkg55-C7: the megakernels are deleted; warm the wavefront pipeline
+        // (the only GPU render path). uploadScene is not needed — the
+        // wavefront does its own scene flatten/upload.
+#ifdef ASTRORAY_WAVEFRONT_CUDA_N3
+        (void)astroray::wavefront::cuda_wavefront_render(
+            tempRenderer, *cam, 1, 1, /*samples=*/1, /*max_depth=*/1,
+            /*seed=*/1, 380.0f, 780.0f, /*useLuminanceOutput=*/false,
+            /*enableNEE=*/true);
+#endif
 
-        // tempRenderer and tempCudaRenderer are automatically destroyed at scope
-        // exit via RAII, freeing all GPU resources cleanly. No dangling pointers.
+        // tempRenderer is automatically destroyed at scope exit via RAII,
+        // freeing all GPU resources cleanly. No dangling pointers.
 #endif
         // CPU path: no pre-warm needed.
     }

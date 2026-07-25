@@ -75,6 +75,8 @@ void uploadCmfTables();
 void uploadJakobHanikaLut();
 // pkg54a — copies per-material spectral profiles into constant memory.
 void uploadProfileTable(const float* host, int count);
+// pkg55-C7: number of profiles currently resident on the device (0 = none).
+int uploadedProfileCount();
 // pkg54d — single-lookup probe binding (tests/test_gpu_profile_lookup.py).
 float launchProfileLookup(int profileIndex, float lambda);
 

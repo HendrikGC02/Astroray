@@ -1,5 +1,24 @@
 # Astroray Status
 
+**2026-07-25 (supervised day session): pkg55 COMPLETE — Session C7 landed.**
+Both megakernels (`src/gpu/path_trace_kernel.cu`,
+`src/gpu/multiwavelength_kernel.cu`) are DELETED; the wavefront is the only
+GPU render path (every GPU integrator name routes to
+`cuda_wavefront_render`; restir-di keeps its dedicated wavefront driver).
+Dedicated lights joined wavefront NEE (pkg89 follow-up — dedicated-only
+scenes rendered BLACK on the wavefront before; now WF/CPU 0.997). GPU
+cryptomatte accumulation is an intentional Phase-C drop (CPU cryptomatte is
+the supported path); camera-MB GPU (pkg88-A) and SMS-GPU spectral (pkg64,
+xfail) are PORT-later follow-ups. Perf: the spec's "≥2× vs Phase-A baseline"
+was rescoped by the owner — the Phase-A comparator is dead (the megakernel
+itself got ~5.7×/launch slower 2026-05→07, regs 125→188; investigation =
+pkg155) — final live record 1.48–1.54× (median-of-5, pinned in
+`benchmarks/wavefront/megakernel_final_2026-07-25.json`), rescoped floor
+≥1.40× MET. The overnight 0.90× perf reading was convicted as a
+single-sample-harness artifact (pkg153 partial disposition); the three
+R-drift ratio gates remain red and pkg153-owned (quarantine). Evidence:
+`.astroray_plan/docs/pkg55-c7-day-arc-2026-07-25.md`.
+
 **In progress — overnight 2026-07-24 (running, not yet closed out):** see
 `.astroray_plan/docs/standup/2026-07-24-overnight.md` for live status.
 Overnight 2026-07-23 closed with 5 PRs landed: pkg145 diffuse-under-specular

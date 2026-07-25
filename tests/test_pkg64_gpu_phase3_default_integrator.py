@@ -134,6 +134,16 @@ def _receiver_energy(pixels: np.ndarray) -> float:
     return float(np.sum(lum[receiver]))
 
 
+@pytest.mark.xfail(
+    strict=False,
+    reason="pkg55-C7 (2026-07-25): the only GPU SMS implementation lived in the "
+    "deleted MW megakernel (tracePathMW SMS attempt); the wavefront -- now the "
+    "only GPU render path -- has no SMS (plan sec.1c disposition: PORT-later, "
+    "gate-behind-flag). SMS-GPU has been FROZEN since 2026-06-08 (see the PSNR "
+    "gate's xfail below); the CANONICAL GPU caustic path is the pkg113 photon "
+    "map, live-gated green by tests/test_gpu_caustic_parity.py on the wavefront "
+    "route. Un-xfail when/if SMS is ported to the wavefront (pkg64-gpu spec "
+    "follow-ups).")
 def test_pkg64_gpu_phase3_prism_receiver_energy(test_results_dir):
     """Receiver-energy ratio (SMS on vs off) ≥ 1.10× (gate from CPU pkg64-3).
 

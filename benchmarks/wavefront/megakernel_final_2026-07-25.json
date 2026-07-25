@@ -1,0 +1,56 @@
+{
+  "schema": "astroray.wavefront.megakernel_final.v1",
+  "package": "pkg55 Phase C Session C7",
+  "purpose": "Final performance record of the MW megakernel before its deletion (C7). After C7 the megakernel cannot be re-measured; this file is the pinned comparator for the wavefront perf gate and for any future archaeology.",
+  "generated": "2026-07-25",
+  "git_sha_measured": "e0185c8",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 5070 Ti (16 GB)",
+    "os": "Windows 11 Enterprise 10.0.26200",
+    "cuda": "12.8",
+    "notes": "cool GPU (48 C at session start), GPU lock held, isolated process, median-of-5"
+  },
+  "protocol": {
+    "harness": "median-of-5 interleaved MK/WF timed pairs after 64spp warm of both legs, single process, perf_counter end-to-end around each render call, linear output (applyGamma=False)",
+    "scene": "tests/scenes/disney_contact_sheet (7 Disney materials)",
+    "resolution": [256, 256],
+    "max_depth": 8,
+    "seed": 424242
+  },
+  "measurements": {
+    "contact_sheet_512spp": {
+      "mk_median_s": 0.526,
+      "mk_spread_s": [0.523, 0.545],
+      "wf_median_s": 0.355,
+      "wf_spread_s": [0.343, 0.364],
+      "wf_over_mk_speedup": 1.482,
+      "second_run_same_session": {
+        "mk_median_s": 0.543,
+        "wf_median_s": 0.356,
+        "wf_over_mk_speedup": 1.528
+      }
+    },
+    "contact_sheet_1024spp": {
+      "mk_median_s": 1.084,
+      "mk_spread_s": [1.083, 1.087],
+      "wf_median_s": 0.705,
+      "wf_spread_s": [0.704, 0.711],
+      "wf_over_mk_speedup": 1.539
+    },
+    "image_agreement_wf_over_mk_per_channel": [0.9976, 0.9978, 0.9971],
+    "cornell_kernel_profile_64spp": {
+      "note": "ASTRORAY_PROFILE=1 per-launch CUDA-event kernel times, same harness as the Phase-A pin (benchmarks/wavefront_baseline.py); compare against the Phase-A baseline.json (pinned 2026-05-17, sha 1a3c159).",
+      "cornell_diffuse_multiwavelength_megakernel_mean_ms": 113.032,
+      "cornell_glass_multiwavelength_megakernel_mean_ms": 134.604,
+      "regs_per_thread": 188,
+      "phase_a_pin_cornell_diffuse_mean_ms": 19.923,
+      "phase_a_pin_cornell_glass_mean_ms": 21.509,
+      "phase_a_pin_regs_per_thread": 125,
+      "interpretation": "The megakernel is ~5.7x slower per launch than its Phase-A self (feature cost accreted 2026-05..07: #481 spectral tables, #489/#500 light energy, #490 TLAS, #494 photon hooks, #515 firefly clamp, #519 glass multiscatter LUTs; regs 125->188, past the 158-reg occupancy cliff documented in Phase A). Any 'vs Phase-A baseline' ratio comparison is therefore not meaningful for the C7 gate; the meaningful metric is live WF-vs-MK above."
+    }
+  },
+  "context": {
+    "overnight_0p90x_reading": "pkg153 evidence (2026-07-24 overnight): [perf-gate] MK 0.585s WF 0.647s 0.90x — single-sample harness, observed once, never re-run on unmodified main, unreproducible today across 7 isolated measurements (1.48-1.54x). Convicted as harness/contention artifact (pkg153 Suspect 2B).",
+    "history": "WF/MK ratio record: 1.38x (N+7p4) -> 1.39x (+shadow stage) -> 1.46x (+direct-PCG) -> 1.50x (Phase B' close) -> 1.48-1.54x (this session)."
+  }
+}

@@ -266,6 +266,7 @@ void launchStageAdvance(
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -292,6 +293,7 @@ void launchStageAdvanceQueued(
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
@@ -341,14 +343,20 @@ void launchStageShadeBucketed(
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     int               max_depth,
     bool              useLuminanceOutput,  // pkg55-C3 (was missing)
     bool              enableNEE);          // pkg55-C3 (was missing)
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
-// samples parked by the deferring bucketed shade. nee_f = 11 floats/slot
-// (field-major), nee_i = 2 ints/slot; see stage_advance.cu layout consts.
+// samples parked by the deferring bucketed shade. nee_f/nee_i lane counts
+// are G_WF_NEE_F_LANES / G_WF_NEE_I_LANES (field-major); see the
+// stage_advance.cu parking layout.
+// pkg89-wavefront (C7): lanes 11-13 = dedEmissionRGB, int lane 2 =
+// isDedicated (dedGeoScale is folded into the parked scale at shade time).
+constexpr int G_WF_NEE_F_LANES = 14;
+constexpr int G_WF_NEE_I_LANES = 3;
 void launchStageShadow(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
@@ -378,7 +386,12 @@ void launchStageRegen(
     int width, int height,
     uint64_t seed,
     float lambdaMin,        // pkg55-C3
-    float lambdaMax);       // pkg55-C3
+    float lambdaMax,        // pkg55-C3
+    int* d_count_out,       // pkg55-C7: fused per-pass counter zeroing
+    int* d_shade_counts,    //   (replaces 3 cudaMemsetAsync per pass;
+    int* d_shadow_count,    //   nullptr = skip)
+    bool useLuminanceOutput);  // pkg55-C7: grey band-mean accumulation for
+                               // non-visible bands (CMF XYZ is ~0 there)
 
 // Session N+7: device-side per-sample XYZ accumulation (radiance -> XYZ ->
 // firefly clamp -> += accum). accum_xyz is 3 floats per slot, zeroed by the
@@ -415,6 +428,7 @@ void launchStageShadeNeeMis(
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
     GLightTreeView    lightTree,
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,

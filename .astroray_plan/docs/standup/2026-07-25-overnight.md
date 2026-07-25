@@ -204,9 +204,17 @@ parity this package exists to create.
 pin test `tests/test_pkg160_ggx_table_systems.py`, and the corrected `:230`
 comment. **Deliberately NOT landed:** the mirror and the plain-metal parity gate —
 landing the gate alone would make the suite knowingly red on a defect nobody is
-cleared to fix. **Unverified:** no GPU touched, no PASS asserted, and the new
-`test_helpers_module.cpp` dumper was only `-fsyntax-only`'d, never MSVC-linked. I
-started that build at finalize time; result in the report if it completed.
+cleared to fix. **Two of the implementer's caveats are now retired — I built and ran it.** Full
+Release+CUDA build of the pkg160 worktree **succeeded** (fresh
+`astroray.cp313-win_amd64.pyd` plus `astroray_test_helpers` at 202,240 B vs
+178,176 B on main, i.e. the new dumper really is linked in), so the
+`test_helpers_module.cpp` addition compiles and links under MSVC — it had only
+been `-fsyntax-only`'d. And its **9 pin tests pass** against that real binary
+(`9 passed in 0.28s`), which the implementer could not run. The pinned table
+numbers are therefore empirically confirmed, not just reasoned.
+
+**Still unverified and correctly not asserted:** no GPU was touched and no render
+was made, so there is no HW PASS on this branch — and none is claimed.
 
 **This needs an owner decision — see Action items.**
 
@@ -629,3 +637,5 @@ tonight-only fact.
 8. **Task Scheduler orchestrator task** left **Disabled**, as instructed.
 9. **Morning HTML report:**
    `test_results/overnight_report_2026-07-25/overnight_report_2026-07-26.html`.
+
+<!-- finalized 2026-07-26 -->

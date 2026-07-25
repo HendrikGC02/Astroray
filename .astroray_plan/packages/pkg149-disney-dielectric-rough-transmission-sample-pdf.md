@@ -3,7 +3,7 @@
 **Pillar:** 3 (BSDF correctness / MIS density consistency)
 **Track:** A
 **Codex-paste-ready:** no (sampling-math re-derivation with a chi² + furnace + CPU/GPU parity validation loop)
-**Status:** PR #522 rebased onto `main` post-pkg152/#523 (2026-07-25) — pkg152's `gpu_material_sample_spectral` eta² guard widening (the actual remaining GPU furnace fix, complementary to this package's `gpu_disney_roughReflectionEval` frontFace fix) has landed on `main`. This branch now carries only its own remaining deltas on top of main: the `670e583` azimuth-sampler fix, the `bfd500d` pkg154 frontFace/clamp hand-port (CPU+GPU, since pkg154 shipped as a patch file only), the chi² xfail re-attribution, and the `e0fe9d8` `roughReflectionEval` frontFace fix — pkg151's own carried commits and the pkg141 restoration were dropped as redundant with `main`'s merged copies. Full CPU+GPU re-verification pending as the next step in this round; see "Hardware verification" sections below for the two prior HW rounds (both bound to pre-rebase SHAs) and CLAUDE.md gate evidence once measured on this rebased head.
+**Status:** done (PR #522, 2026-07-25 — rebased onto `main` post-pkg152/#523, base `main` not stacked). **ALL GATES GREEN.** pkg152's `gpu_material_sample_spectral` eta² guard widening (landed on `main` via #523) was the actual remaining GPU furnace fix, complementary to this package's `gpu_disney_roughReflectionEval` frontFace fix (`e0fe9d8`) — the two together close the GPU furnace gate this spec's Fix Contract requires. Rebased branch carries only its own remaining deltas on top of main: the `670e583`-lineage azimuth-sampler fix, the pkg154 frontFace/clamp hand-port (CPU+GPU, since pkg154 shipped as a patch file only), the chi² xfail re-attribution, and the `roughReflectionEval` frontFace fix — pkg151's own carried commits and the pkg141 restoration were dropped as redundant with `main`'s merged copies. **Measured on the rebased head (`e62b27d`):** CPU furnace 0.9986/0.9986/0.9987/0.9985/0.9970 at roughness {0.05,0.1,0.3,0.6,1.0} (gate [0.92,1.03]); GPU furnace 0.998741/0.999264/1.000000/1.000000 at roughness {0.1,0.3,0.6,1.0} (gate [0.90,1.06]) — `test_disney_rough_glass_furnace.py` **5/5 PASS** (under the shared GPU lock, holder `pkg149-final-gate`, released immediately after); peak alignment 0.45° (gate <2°, N=180,977). Chi² glass[0.3-45] `--runxfail` = 34,987.970271 — still red as expected (self-consistency test, unaffected by furnace-magnitude fixes); xfail **kept**, attributed to pkg150 alone. See "Hardware verification" sections below for the two prior HW FAIL rounds (both bound to pre-rebase SHAs, preserved for provenance) that led to pkg152 being filed and landing the final fix.
 
 > **✅ ADJUDICATION (2026-07-24 ~04:30, architect — overnight last-call ~06:15): Option 1 — HOLD tonight; pkg151 filed; pkg149+pkg151 stack heads the day queue.**
 >
@@ -194,3 +194,60 @@ only — the furnace pytest gate is the authoritative measurement. Full
 numbers: `test_results/overnight_report_2026-07-24/pkg149_hw_numbers.json`
 key `reverify_e0fe9d8` + `pkg149_furnace_R{0.1,0.3,0.6}_{gpu,cpu}_e0fe9d8.png`.
 Verdict comment: https://github.com/HendrikGC02/Astroray/pull/522#issuecomment-5073008663
+
+## Hardware verification 2026-07-25 (round 3 — GREEN, bound to `e62b27d70407e3ef5f51f214c87017c9ace81eee`, rebased onto `main` post-pkg152/#523)
+
+**Scope:** full CPU + decisive GPU re-verification after (a) rebasing this
+branch onto `main` (which now includes pkg151/#519, pkg141/#518, and
+pkg152/#523's `gpu_material_sample_spectral` eta² guard widening — the
+actual remaining GPU furnace fix) and (b) confirming this package's own
+`gpu_disney_roughReflectionEval` frontFace fix (`e0fe9d8`) still applies
+cleanly on top.
+
+**Build:** `configure_and_build.bat`, Release, foreground — "Build succeeded".
+`.pyd` mtime (2026-07-25 20:08) postdates HEAD commit timestamp (20:02).
+
+**CPU gates (foreground, no lock needed):**
+
+| Gate | Result | Threshold |
+|---|---|---|
+| Furnace R=0.05/0.1/0.3/0.6/1.0 | 0.9986/0.9986/0.9987/0.9985/0.9970 | [0.92, 1.03] |
+| Peak alignment (glass[0.3-45], N=180,977) | 0.45° | <2° |
+| Chi² glass[0.3-45] (`--runxfail`) | 34,987.970271 (still red) | xfail KEPT, pkg150-attributed |
+| Targeted CPU suite (furnace/energy/chi2/material/disney/statistical, `-k "not gpu"`) | 484 passed, 0 failed, 45 skipped, 6 xfailed | |
+
+**GPU gate — the decisive gate this whole round exists to close:** shared GPU
+lock acquired (`.astroray_plan/.orchestrator.gpu.lock`, holder
+`pkg149-final-gate`), sole CUDA job, released immediately after.
+
+```
+tests/test_disney_rough_glass_furnace.py::test_disney_smooth_glass_furnace_cpu PASSED
+tests/test_disney_rough_glass_furnace.py::test_disney_rough_glass_furnace_converges PASSED
+tests/test_disney_rough_glass_furnace.py::test_disney_rough_glass_furnace_energy_gpu PASSED
+tests/test_disney_rough_glass_furnace.py::test_disney_rough_glass_furnace_energy_cpu PASSED
+tests/test_disney_rough_glass_furnace.py::test_disney_smooth_glass_furnace_gpu PASSED
+5 passed in 27.28s
+```
+
+GPU furnace values (gate band [0.90, 1.06], measured directly, matching
+pkg152's own PR #523 measurement table exactly):
+
+| Roughness | GPU furnace | Prior FAIL (`19d4e9f`) | Prior partial-fix (`e0fe9d8`, pre-rebase) |
+|---|---|---|---|
+| 0.1 | **0.998741** | 0.1295 | 0.1295 (byte-unchanged — pkg152's fix, not this package's, closes this row) |
+| 0.3 | **0.999264** | 0.2690 | 0.2833 |
+| 0.6 | **1.000000** | 0.5712 | 0.8963 |
+| 1.0 | **1.000000** | 0.9706 | 1.0000 |
+
+**Verdict: PASS — full gate table green, CPU and GPU.** The journey: round 1
+(`19d4e9f`) FAIL exposed the GPU-only roughReflectionEval Fresnel-convention
+bug; round 2 (`e0fe9d8`, this package's own fix) recovered R=0.6/1.0 but left
+R=0.1/0.3 unchanged, correctly attributing the residual to a separate,
+still-unidentified bug and filing/promoting pkg152; pkg152 convicted a THIRD,
+independent mechanism (the spectral eta² magnitude-factoring guard in
+`gpu_material_sample_spectral` was delta-only, silently clipping legitimate
+rough-transmission exit-eta² throughput >1.0) and widened it to the non-delta
+branch, closing the remaining rows. Both this package's `roughReflectionEval`
+fix and pkg152's guard-widening fix are independently necessary and jointly
+sufficient (pkg152's own PR #523 commit message documents measuring this
+package's exact branch on top of their fix to confirm the combination).

@@ -11,7 +11,16 @@ Lane B = pkg88-B (addon `blender_addon/` domain). Team-lead held the GPU lane
 itself, since subagents on this machine cannot initialise vcvars and therefore
 cannot build CUDA.
 
-<!-- STATUS: running — finalize before shutdown -->
+## Shipped
+
+| PR | What | Gate |
+|---|---|---|
+| **#526** | `feat(pkg157)`: firefly clamps ported into the wavefront — merged as `b6c3ffb` | CI all-pass + HW PASS bound to head `0651007` |
+
+**Open at hand-off:** **#525** (pkg88-B addon motion bake) — two independent
+different-model sign-offs plus my own real-Blender PASS, CI still running at
+hand-off; merge it if green. **#527** (pkg160) — deliberately incomplete and
+**blocked on an owner decision**, see below; do not merge as-is.
 
 ## Headline: two investigations closed, one new defect found, two pre-existing bugs surfaced
 

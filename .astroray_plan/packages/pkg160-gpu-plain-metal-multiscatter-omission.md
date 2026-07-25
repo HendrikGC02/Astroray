@@ -194,3 +194,53 @@ per-material patch isolation + a mean/median/p99/max robustness check across
 `gpu_metal_eval` (`include/astroray/gpu_materials.h:206-231`) against
 `MetalPlugin::eval`/`evalSpectral` (`plugins/materials/metal.cpp:32-90`). Fix
 mirrors the existing CPU term (Kulla & Conty 2017); CPU stays canonical.
+
+---
+
+## Implementation hazard — WHICH E table? (team-lead, verified 2026-07-26)
+
+The mirror is not quite a copy-paste, because **there are two independent GGX
+energy-compensation table systems in this repo and the CPU metal path uses the
+one the GPU does not have.**
+
+1. **`GGXEnergyCompensationLUT`** — `include/raytracer.h:340-379`. Computed at
+   runtime by MC integration in its constructor. Stored `E[r * RES + m]`
+   (roughness major, mu minor) and read by `lookupE(mu, roughness)`, which sets
+   `x = mu`, `y = roughness`. Internally consistent. **This is what the CPU
+   `ggxMultiScatterCompensation` — and therefore `MetalPlugin::eval` — actually
+   uses.**
+2. **`DisneyEnergyCompensationTables`** — `include/astroray/energy_compensation.h`
+   + `src/energy_compensation.cpp`, loaded from `data/disney_compensation/*.bin`
+   (present and git-tracked; `ggx_E.bin` is 4096 B = 32×32 float32). Read by
+   `sample2D(table, size, roughness, mu)`, which sets `x = roughness`, `y = mu`
+   — **the opposite index convention to (1)**, and internally consistent with how
+   the `.bin` is stored. **This is the only one uploaded to the GPU**
+   (`src/gpu/gpu_ggx_tables.cu:67` → `g_ggxE`), and `gpu_ggx_sample2D`
+   (`include/astroray/gpu_ggx_tables.cuh:54`) mirrors `sample2D`'s convention
+   exactly. Verified line by line — **there is no transposition bug here**; the
+   two conventions belong to two different tables, each self-consistent.
+
+So the implementer must not blindly write `gpu_ggxE(roughness, NdotV)` in place
+of `lut.lookupE(NdotV, roughness)` and assume parity. The index conventions are
+mirror images *and* the underlying data has different provenance (runtime MC vs
+shipped `.bin`).
+
+**Required first step, before writing the mirror:** dump both tables over the
+same (roughness, mu) grid and compare. Two outcomes:
+
+- **They agree numerically** → mirror using `gpu_ggxE`/`gpu_ggxEavg` with the
+  argument order the GPU helper expects, and add an assertion/test pinning the
+  agreement so it cannot silently drift.
+- **They disagree** → say so and stop before choosing. Making the GPU match the
+  CPU's *runtime* LUT and making it match the *shipped* tables are different
+  fixes with different blast radius, and picking one silently would bury a
+  second discrepancy under this one. Escalate for a decision.
+
+Also note `gpu_ggxCompensationFactor` / `gpu_ggxDirectionalAlbedo`
+(`gpu_ggx_tables.cuh:119/134`) already exist and both early-out to identity when
+`g_ggxE`/`g_ggxEavg` are null. Whatever helper you add must have the same
+null-table guard — but choose its fallback deliberately: returning identity
+(1.0) is right for a *multiplicative* compensation factor, whereas this metal
+term is **additive**, so its correct no-table fallback is **0.0** (i.e. degrade
+to today's single-scatter-only behaviour), not 1.0. Getting that backwards would
+add a full-strength albedo term whenever the tables fail to load.

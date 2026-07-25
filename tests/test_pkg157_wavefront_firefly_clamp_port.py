@@ -30,11 +30,26 @@ and tests/test_python_bindings.py::test_direct_and_indirect_clamp_controls
 (spec item 5, "revive the #515 GPU gate live"). GPU-gated: skips when CUDA is
 absent (CI has no GPU); the RTX hardware-verifier runs this for real.
 
-IMPLEMENTER NOTE (no build/GPU access on this machine -- see CLAUDE.md /
-package-implementer hard constraints): these tests were written against the
-real Python bindings and cross-checked against the existing CPU pkg144 gate's
-scene/threshold design, but were NOT executed here. HW verification is
-PENDING -- do not treat a green CI (which has no GPU) as evidence these pass.
+HARDWARE-CALIBRATED 2026-07-26 (RTX 5070 Ti, commit 0cd285f). First HW run
+was 7 passed / 2 failed. BOTH failures were defects in THESE TESTS, not in
+the port -- the clamp wiring measured correct throughout (a clamp sweep
+showed clean monotonic response at limits that actually bind). Fixed here:
+
+  * Clamp limits are no longer hard-coded constants copied from #515. They
+    are DERIVED from each scene's own measured peak radiance, because a
+    limit above the scene's peak cannot bind and makes the test vacuous.
+    #515's headline "10" was measured on a bright-sun scene; on a Cornell
+    scene (peak ~1.76) it is a mathematical no-op. Every clamp test now
+    asserts the limit can bind BEFORE asserting what the clamp did.
+  * The indirect-clamp assertion moved off p99.5 (the top percentile is
+    direct-lit and an indirect clamp barely touches it) onto mean/max.
+  * The 0/0 no-op gate is a 1e-5 tolerance check, NOT byte-identity. The
+    wavefront is not bit-identical even to itself across launches
+    (atomic accumulation ordering; measured floor ~1.2e-07), so the spec's
+    "BYTE-IDENTICAL" contract item 2 is unsatisfiable by construction. This
+    is flagged in PR #526 for the owner to amend, not silently worked around.
+
+Full measured numbers: test_results/overnight_report_2026-07-25/pkg157_hw_numbers.json
 """
 
 from __future__ import annotations
@@ -154,9 +169,44 @@ def test_gpu_wavefront_bright_sun_energy_linearity(S, angular_diameter):
 def test_gpu_wavefront_clamp_direct_and_indirect_controls():
     """GPU-wavefront successor to tests/test_python_bindings.py::
     test_direct_and_indirect_clamp_controls (spec item 5: 'revive the #515
-    GPU gate live'). Direct/indirect clamp settings should reduce bright
-    outliers when enabled, exactly mirroring the CPU gate's percentile check,
-    routed through the GPU wavefront path_tracer integrator."""
+    GPU gate live'). Direct/indirect clamp settings must measurably reduce
+    radiance when enabled, routed through the GPU wavefront path_tracer.
+
+    HW-CALIBRATED 2026-07-26 (RTX 5070 Ti, commit 0cd285f). The first draft of
+    this test copied the CPU gate verbatim -- fixed clamp constants plus a
+    p99.5 percentile comparison -- and FAILED on hardware for two independent
+    reasons, both TEST defects (the port itself measured correct):
+
+      1. FIXED CLAMP CONSTANTS DO NOT TRANSFER BETWEEN SCENES. A clamp does
+         nothing unless its limit sits BELOW the scene's peak radiance. On a
+         Cornell-scale scene (measured peak ~1.76 linear) a limit of 10 is a
+         mathematical no-op no matter how correct the wiring is. Measured
+         sweep, `diffuse_light_cornell` 120^2 64spp: clampIndirect=10 ->
+         max|delta| 0.00000 (never binds); =1 -> 0.14764; =0.1 -> 0.20867.
+         The limit is now DERIVED from each scene's own measured peak, and
+         the test asserts up front that the limit really can bind -- so it
+         can never again pass or fail for reasons of scene scale.
+
+      2. p99.5 IS THE WRONG STATISTIC FOR AN *INDIRECT* CLAMP. The brightest
+         pixels in these scenes are DIRECT-lit, so clamping indirect paths
+         barely moves the top percentile; the original assertion failed on
+         exactly-equal values (5.0587068 < 5.0587068). Measured: an indirect
+         clamp moves `mean` and `max` while p99.5 stays put. The indirect leg
+         now asserts on those.
+
+    Assertions are direction-of-effect (a clamp removes energy, never adds),
+    which is what the port must guarantee -- deliberately NOT a magnitude,
+    which would re-introduce exactly the scene-specific tuning that broke
+    the first draft."""
+    # Fraction of the measured unclamped peak used as the clamp limit. Well
+    # inside the scene's range so the clamp is guaranteed to bind (the sweep
+    # above shows ~0.57x peak already binds), while leaving headroom so the
+    # test is not sensitive to the exact peak.
+    LIMIT_FRAC = 0.25
+    # The wavefront is not bit-identical to itself across launches (atomic
+    # accumulation ordering; measured self-variation ~1.2e-07). Any real
+    # clamp effect must clear that floor by orders of magnitude.
+    NOISE_FLOOR = 1e-5
     def render_direct(clamp_direct: float) -> np.ndarray:
         r = _gpu_renderer()
         diffuse = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
@@ -183,22 +233,82 @@ def test_gpu_wavefront_clamp_direct_and_indirect_controls():
         r.set_clamp_indirect(clamp_indirect)
         return np.asarray(r.render(24, 10, None, False))
 
+    # ---- DIRECT leg -------------------------------------------------------
     direct_unclamped = _luminance_map(render_direct(0.0))
-    direct_clamped = _luminance_map(render_direct(1.0))
-    assert np.percentile(direct_clamped, 99.5) < np.percentile(direct_unclamped, 99.5), \
-        "GPU wavefront: clamp_direct=1.0 should reduce bright direct-light outliers"
+    direct_peak = float(direct_unclamped.max())
+    direct_limit = direct_peak * LIMIT_FRAC
+    assert direct_limit > 0.0 and direct_limit < direct_peak, (
+        f"direct scene peak={direct_peak:.6g} gives limit={direct_limit:.6g}; "
+        f"the limit must sit strictly inside the scene's range or the clamp "
+        f"cannot bind and this test would pass vacuously"
+    )
+    direct_clamped = _luminance_map(render_direct(direct_limit))
 
+    d_delta = float(np.max(np.abs(direct_clamped - direct_unclamped)))
+    assert d_delta > NOISE_FLOOR, (
+        f"clamp_direct={direct_limit:.6g} changed NOTHING (max|delta|="
+        f"{d_delta:.3g} <= noise floor {NOISE_FLOOR:.0e}) on a scene whose "
+        f"peak is {direct_peak:.6g} -- the direct clamp is not reaching the "
+        f"wavefront's direct accumulation sites"
+    )
+    assert float(direct_clamped.max()) < direct_peak, (
+        f"clamp_direct={direct_limit:.6g} did not lower the peak "
+        f"({direct_clamped.max():.6g} vs unclamped {direct_peak:.6g})"
+    )
+    assert float(direct_clamped.mean()) < float(direct_unclamped.mean()), (
+        "clamp_direct removed no energy overall; a binding clamp can only "
+        "reduce radiance, never increase or preserve it exactly"
+    )
+
+    # ---- INDIRECT leg -----------------------------------------------------
     indirect_unclamped = _luminance_map(render_indirect(0.0))
-    indirect_clamped = _luminance_map(render_indirect(0.5))
-    assert np.percentile(indirect_clamped, 99.5) < np.percentile(indirect_unclamped, 99.5), \
-        "GPU wavefront: clamp_indirect should reduce bright indirect-light outliers"
+    indirect_peak = float(indirect_unclamped.max())
+    indirect_limit = indirect_peak * LIMIT_FRAC
+    assert indirect_limit > 0.0 and indirect_limit < indirect_peak, (
+        f"indirect scene peak={indirect_peak:.6g} gives limit="
+        f"{indirect_limit:.6g}; the limit must sit strictly inside the "
+        f"scene's range or the clamp cannot bind"
+    )
+    indirect_clamped = _luminance_map(render_indirect(indirect_limit))
+
+    i_delta = float(np.max(np.abs(indirect_clamped - indirect_unclamped)))
+    assert i_delta > NOISE_FLOOR, (
+        f"clamp_indirect={indirect_limit:.6g} changed NOTHING (max|delta|="
+        f"{i_delta:.3g} <= noise floor {NOISE_FLOOR:.0e}) on a scene whose "
+        f"peak is {indirect_peak:.6g} -- the indirect clamp is not reaching "
+        f"the wavefront's bounce>0 accumulation sites"
+    )
+    # mean/max, NOT p99.5: the top percentile here is direct-lit and an
+    # indirect clamp leaves it essentially untouched (see docstring item 2).
+    assert float(indirect_clamped.mean()) < float(indirect_unclamped.mean()), (
+        f"clamp_indirect={indirect_limit:.6g} did not reduce mean radiance "
+        f"({indirect_clamped.mean():.8g} vs unclamped "
+        f"{indirect_unclamped.mean():.8g})"
+    )
+    assert float(indirect_clamped.max()) <= indirect_peak + NOISE_FLOOR, (
+        "clamp_indirect INCREASED peak radiance; a clamp must never add energy"
+    )
 
 
 def test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss():
-    """Spec item 3's explicit headline: clampIndirect=10 suppresses fireflies
-    at <0.02% mean-brightness delta (no visible energy loss from the clamp on
-    a scene where it rarely triggers -- the pkg144 tradeoff demonstration,
-    reproduced against the wavefront)."""
+    """Spec item 3's headline: an indirect clamp suppresses the brightest
+    indirect contributions WITHOUT meaningful energy loss (the pkg144
+    bias/variance tradeoff, reproduced against the wavefront).
+
+    HW-CALIBRATED 2026-07-26 (RTX 5070 Ti, commit 0cd285f). This test PASSED
+    on hardware in its first form, but it passed VACUOUSLY and is fixed here
+    anyway. It used #515's headline constant clampIndirect=10; the verifier's
+    sweep proved that on a Cornell-scale scene (peak ~1.76 linear) a limit of
+    10 never binds -- max|delta| was exactly 0.00000. So the old assertion
+    "mean brightness moved < 2%" was satisfied by the clamp doing literally
+    nothing, and would have kept passing even if the port were entirely
+    unwired. #515's 10 was measured on a bright-sun scene with a far larger
+    dynamic range, not on this one.
+
+    Now the limit is derived from the scene's own measured peak, and the test
+    asserts BOTH halves of the claim: that the clamp actually binds, and that
+    it nonetheless preserves total energy. A vacuous pass is now impossible --
+    the binding assertion fails first."""
     def render(clamp_indirect: float) -> np.ndarray:
         r = _gpu_renderer()
         create_cornell_box(r)
@@ -211,29 +321,87 @@ def test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss()
         r.set_clamp_indirect(clamp_indirect)
         return np.asarray(r.render(64, 8, None, False))
 
+    # Milder than the controls test's 0.25: high enough that only the
+    # brightest indirect contributions are capped, so total energy stays
+    # essentially intact. Measured reference: a limit at ~0.57x peak moved
+    # mean by 0.4% while producing max|delta| 0.148 (i.e. it clearly bound).
+    LIMIT_FRAC = 0.5
+    NOISE_FLOOR = 1e-5
+
     unclamped = render(0.0)
-    clamped = render(10.0)
-    mean_unclamped = float(_luminance_map(unclamped).mean())
-    mean_clamped = float(_luminance_map(clamped).mean())
-    delta = abs(mean_clamped - mean_unclamped) / max(mean_unclamped, 1e-8)
-    assert delta < 2e-2, (
-        f"GPU wavefront: clampIndirect=10 moved mean brightness by "
-        f"{delta * 100:.3f}% (expected < 2%, spec headline is <0.02% on the "
-        f"reference contact-sheet scene; this scene's own noise floor may be "
-        f"looser -- see PR body for the measured number)"
+    lum_unclamped = _luminance_map(unclamped)
+    peak = float(lum_unclamped.max())
+    limit = peak * LIMIT_FRAC
+    assert limit > 0.0 and limit < peak, (
+        f"scene peak={peak:.6g} gives limit={limit:.6g}; the limit must sit "
+        f"strictly inside the scene's range or the clamp cannot bind"
+    )
+
+    clamped = render(limit)
+    lum_clamped = _luminance_map(clamped)
+
+    # Half 1 -- it must actually BIND. This is the assertion whose absence
+    # made the original version vacuous.
+    delta_max = float(np.max(np.abs(lum_clamped - lum_unclamped)))
+    assert delta_max > NOISE_FLOOR, (
+        f"clampIndirect={limit:.6g} changed NOTHING (max|delta|="
+        f"{delta_max:.3g} <= noise floor {NOISE_FLOOR:.0e}) on a scene whose "
+        f"peak is {peak:.6g} -- no firefly suppression happened, so the "
+        f"energy-preservation half below would be meaningless"
+    )
+
+    # Half 2 -- having bound, it must not cost meaningful total energy.
+    mean_unclamped = float(lum_unclamped.mean())
+    mean_clamped = float(lum_clamped.mean())
+    rel = abs(mean_clamped - mean_unclamped) / max(mean_unclamped, 1e-8)
+    assert rel < 2e-2, (
+        f"clampIndirect={limit:.6g} bound (max|delta|={delta_max:.4g}) but "
+        f"moved mean brightness by {rel * 100:.3f}% (expected < 2%) -- the "
+        f"clamp is removing real energy, not just firefly outliers"
+    )
+    # Direction check: clamping can only remove energy.
+    assert mean_clamped <= mean_unclamped + NOISE_FLOOR, (
+        "clampIndirect INCREASED mean radiance; a clamp must never add energy"
     )
 
 
 def test_gpu_wavefront_clamp_zero_is_noop():
     """0/0 (the default) must be a true no-op: explicitly calling
-    set_clamp_direct(0)/set_clamp_indirect(0) must reproduce the SAME
-    per-pixel image as never calling them at all, same seed/scene. This is
-    a same-process sanity check that 0 truly disables the clamp on the GPU
-    wavefront (Cycles semantics) -- it is NOT the cross-commit before/after
-    diff the spec's no-op-guarantee acceptance criterion asks for (that
-    needs the pre-pkg157 wavefront binary, which this implementer cannot
-    build/run here; the RTX hardware-verifier owns that comparison, see PR
-    body)."""
+    set_clamp_direct(0)/set_clamp_indirect(0) must reproduce the same image
+    as never calling them at all, same seed/scene -- i.e. 0 really disables
+    the clamp (Cycles semantics).
+
+    HW-CALIBRATED 2026-07-26 (RTX 5070 Ti, commit 0cd285f). This test
+    originally asserted BYTE-IDENTICAL output via assert_array_equal and
+    FAILED: 53/20736 elements differed, max|delta| 4.77e-07.
+
+    That premise is UNACHIEVABLE BY CONSTRUCTION, and the failure is not a
+    pkg157 defect. The verifier measured the wavefront against ITSELF -- same
+    seed, same config, no clamp calls at all, three consecutive renders:
+
+        run1 vs run2: NOT bit-identical, max|delta| 1.19e-07 (29/27648 elems)
+        run1 vs run3: NOT bit-identical, max|delta| 8.94e-08
+
+    The wavefront accumulates via atomicAdd into per-pixel accumulators
+    (stage_advance.cu stageRegenKernel); float addition is not associative,
+    and the order in which dead paths land varies between launches. So the
+    path is non-deterministic at the float32 epsilon level with or without
+    this package. The 4.77e-07 observed above IS that same floor, and it is
+    ~20x TIGHTER than the project's stated 1e-5 MC convention for the
+    wavefront.
+
+    The gate is therefore restated as agreement within that 1e-5 convention.
+    This is a DELIBERATE WEAKENING of the assertion and is called out as such
+    in PR #526: the pkg157 spec's contract item 2 demands clamps-off output be
+    "BYTE-IDENTICAL", which no wavefront render can satisfy against any
+    reference including itself. The spec needs amending -- flagged to the
+    owner rather than quietly worked around.
+
+    DO NOT re-tighten toward byte-identical (it will flake, then get marked
+    xfail, and the real signal will be lost). 1e-5 is four orders of magnitude
+    above the measured self-variation floor, so a genuine clamp leak -- which
+    would change radiance by O(0.1) -- still fails this loudly.
+    """
     def render(set_clamps: bool) -> np.ndarray:
         r = _gpu_renderer()
         diffuse = r.create_material('lambertian', [0.7, 0.7, 0.7], {})
@@ -249,11 +417,22 @@ def test_gpu_wavefront_clamp_zero_is_noop():
             r.set_clamp_indirect(0.0)
         return np.asarray(r.render(32, 6, None, False))
 
+    # The wavefront's own launch-to-launch self-variation is ~1.2e-07
+    # (measured, see docstring). 1e-5 is the project's MC convention for this
+    # path and sits four orders of magnitude above that floor.
+    MC_TOLERANCE = 1e-5
+
     default_off = render(set_clamps=False)
     explicit_zero = render(set_clamps=True)
-    np.testing.assert_array_equal(
-        default_off, explicit_zero,
-        err_msg="GPU wavefront: set_clamp_direct(0)/set_clamp_indirect(0) "
-                "must be byte-identical to the un-set default (0 must be a "
-                "true no-op, Cycles semantics)"
+
+    delta = float(np.max(np.abs(
+        default_off.astype(np.float64) - explicit_zero.astype(np.float64))))
+    assert delta < MC_TOLERANCE, (
+        f"GPU wavefront: set_clamp_direct(0)/set_clamp_indirect(0) diverged "
+        f"from the un-set default by max|delta|={delta:.3g}, above the "
+        f"{MC_TOLERANCE:.0e} MC convention -- 0 is NOT behaving as 'clamp "
+        f"disabled' (Cycles semantics). Note this is a tolerance gate, not a "
+        f"byte-identity gate: the wavefront is not bit-identical even to "
+        f"itself (atomic accumulation ordering, measured floor ~1.2e-07), so "
+        f"a divergence this large is a real clamp leak, not float noise."
     )

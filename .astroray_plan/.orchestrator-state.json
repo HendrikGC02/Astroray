@@ -16,12 +16,28 @@
     "last_action_ts": "2026-07-24T15:28:28Z"
   },
   "522": {
-    "head_sha": "e0fe9d816f50b8c03feb881dfbf71b868bedc552",
+    "head_sha": "538eb195400ad41c96b49f6cf31b5879ab50148b",
     "hw_artifact": "test_results/overnight_report_2026-07-24/pkg149_hw_numbers.json",
-    "hw_numbers": "GPU furnace partial recovery: R=0.6 0.571->0.896 (0.004 short), R=1.0 in-band; R=0.1/0.3 UNCHANGED (0.130/0.283) \u2014 second low-roughness-dominant GPU defect remains (pkg152-adjacent); CPU fully green; metal parity 7/7 held",
-    "hw_result": "FAIL",
+    "hw_numbers": "final head: GPU furnace 0.9987-1.0000 measured under lock; decisive gate independently verified twice on equivalent content (pkg152 verifier exact-match + implementer final); CPU 484 pass",
+    "hw_result": "PASS",
     "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-24T18:10:41Z"
+    "last_action_ts": "2026-07-25T11:04:28Z"
+  },
+  "523": {
+    "head_sha": "6dc83d401fa714900b0f69c013451c6697943169",
+    "hw_artifact": "test_results/overnight_report_2026-07-24/pkg152_hw_numbers.json",
+    "hw_numbers": "decisive stack furnace 0.9987-1.0000 all-in-band (exact match to claim); no main-based regressions 296 pass; clearcoat fixed; near-delta metal measured ~1.0 (better than claimed, flagged)",
+    "hw_result": "PASS",
+    "last_action": "hw_recorded",
+    "last_action_ts": "2026-07-25T00:30:04Z"
+  },
+  "524": {
+    "head_sha": "05a1fbec953866a84a6e29a6e79f4930f9769545",
+    "hw_artifact": "test_results/overnight_report_2026-07-24/pkg55c7_hw_numbers.json",
+    "hw_numbers": "clean-rebuild full suite 1506 pass, only declared exceptions red; perf 1.556x vs pinned MK (floor 1.40); NEE/caustic/SSIM reproduced; clamp = silent no-op on wavefront (owner decision)",
+    "hw_result": "PASS",
+    "last_action": "hw_recorded",
+    "last_action_ts": "2026-07-25T11:04:28Z"
   },
   "impl_dispatches": {
     "pkg55-bprime-session-n1": {

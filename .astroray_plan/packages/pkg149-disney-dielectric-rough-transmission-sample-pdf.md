@@ -3,7 +3,7 @@
 **Pillar:** 3 (BSDF correctness / MIS density consistency)
 **Track:** A
 **Codex-paste-ready:** no (sampling-math re-derivation with a chi² + furnace + CPU/GPU parity validation loop)
-**Status:** draft PR #522 OPEN — **CPU contract FULLY MET; merge BLOCKED on a low-roughness GPU-only furnace defect** (2026-07-25 last-call state). On the #522 stack (post-pkg154/#521): CPU rough-glass furnace **0.997–0.999** across the grid, transmission peak alignment **0.45°** (gate <2°), the azimuth-swap root cause is closed — everything this spec's CPU-side contract demands. The GPU leg is red at low roughness: HW re-verify @ `e0fe9d8` measured GPU furnace R=0.1 → **0.130** (byte-unchanged by the signed-off frontFace/TIR fix), R=0.3 → **0.283**, R=0.6 → 0.896 (recovered +0.325, 0.0037 short of the floor), R=1.0 → 1.0, vs gate band [0.90, 1.06] — a second, low-roughness-dominant GPU-only defect remains (see "Hardware re-verification 2026-07-25" below). **That defect is now owned by pkg152** (GPU Disney twin divergence — promoted to head the next run's queue); #522 stays a draft until pkg152's conviction lands and the GPU furnace gate is re-measured — no future HW result is asserted here. The chi² glass[0.3-45] un-xfail ownership is unchanged: flips only when alignment AND furnace (CPU+GPU) are green together, `--runxfail`-verified. The `670e583` lineage is on the pushed #522 branch now; keep worktree `Astroray-pkg149` until #522 merges. Do NOT rebase/push the branch while a hardware-verifier is mid-run (memory `hw-verify-branch-freeze`).
+**Status:** done (PR #522, 2026-07-25 — rebased onto `main` post-pkg152/#523, base `main` not stacked). **ALL GATES GREEN.** pkg152's `gpu_material_sample_spectral` eta² guard widening (landed on `main` via #523) was the actual remaining GPU furnace fix, complementary to this package's `gpu_disney_roughReflectionEval` frontFace fix (`e0fe9d8`) — the two together close the GPU furnace gate this spec's Fix Contract requires. Rebased branch carries only its own remaining deltas on top of main: the `670e583`-lineage azimuth-sampler fix, the pkg154 frontFace/clamp hand-port (CPU+GPU, since pkg154 shipped as a patch file only), the chi² xfail re-attribution, and the `roughReflectionEval` frontFace fix — pkg151's own carried commits and the pkg141 restoration were dropped as redundant with `main`'s merged copies. **Measured on the rebased head (`e62b27d`):** CPU furnace 0.9986/0.9986/0.9987/0.9985/0.9970 at roughness {0.05,0.1,0.3,0.6,1.0} (gate [0.92,1.03]); GPU furnace 0.998741/0.999264/1.000000/1.000000 at roughness {0.1,0.3,0.6,1.0} (gate [0.90,1.06]) — `test_disney_rough_glass_furnace.py` **5/5 PASS** (under the shared GPU lock, holder `pkg149-final-gate`, released immediately after); peak alignment 0.45° (gate <2°, N=180,977). Chi² glass[0.3-45] `--runxfail` = 34,987.970271 — still red as expected (self-consistency test, unaffected by furnace-magnitude fixes); xfail **kept**, attributed to pkg150 alone. See "Hardware verification" sections below for the two prior HW FAIL rounds (both bound to pre-rebase SHAs, preserved for provenance) that led to pkg152 being filed and landing the final fix.
 
 > **✅ ADJUDICATION (2026-07-24 ~04:30, architect — overnight last-call ~06:15): Option 1 — HOLD tonight; pkg151 filed; pkg149+pkg151 stack heads the day queue.**
 >
@@ -91,7 +91,66 @@ pkg138's delta-vs-continuous mismatch, on the other lobe.
 - Reflection-candidate masking compensation (pkg150).
 - VNDF swap for the opaque specular lobe (pkg124).
 
-## Hardware re-verification 2026-07-25 (verifier notes, folded in from the `Astroray-pkg149` worktree by the architect at last-call; the prior `19d4e9f` verification section it references is committed on the PR #522 branch and arrives at merge — pr-merger: union/dedupe the two HW sections, main's Status wins)
+## Hardware verification 2026-07-25 (round 1 — bound to `19d4e9f9cd41eac36cba39ae72b269b27aaaf885`)
+
+**Hardware/OS/driver:** RTX 5070 Ti, Windows 11 Enterprise 10.0.26200, CUDA
+Toolkit v12.8 (nvcc; v12.6 also present), MSVC 2022 BuildTools 14.44.35207,
+OptiX 9.1.0. PR #522 (draft), stacked on #519 (pkg151).
+
+**Build:** worktree `Astroray-pkg149`, HEAD `19d4e9f9cd41eac36cba39ae72b269b27aaaf885`.
+`.pyd` mtime (02:29 +1000) predated the HEAD commit timestamp (02:52 +1000);
+rebuilt foreground via `configure_and_build.bat` (vcvars64-bootstrapped,
+`--config Release`, SHA-guarded) to remove ambiguity — worktree was git-clean
+and the rebuild found nothing to relink, confirming the pre-existing `.pyd`
+already matched HEAD content. Main checkout's `.pyd` was independently
+rebuilt (HEAD `fbae6054006c401a79b9cc8c2866f83337645552`) to serve as a
+same-machine, same-driver comparison baseline.
+
+**Verdict: FAIL** (bound to `19d4e9f9cd41eac36cba39ae72b269b27aaaf885`).
+
+### Pass/fail table
+
+| Gate | Result | Detail |
+|---|---|---|
+| `test_disney_transmission_peak_alignment` (CPU) | PASS | glass[0.3-45] sample peak=152.25°, pdf peak=151.80°, offset=0.45° |
+| `test_disney_smooth_glass_furnace_cpu` | PASS | |
+| `test_disney_rough_glass_furnace_converges` | PASS | |
+| `test_disney_rough_glass_furnace_energy_cpu` | PASS | |
+| `test_disney_smooth_glass_furnace_gpu` | PASS | |
+| `test_dielectric_glass_furnace_cpu` / `_gpu` | PASS | |
+| `test_disney_energy_conservation` (all parametrizations) | PASS | part of 277 passed |
+| **`test_disney_rough_glass_furnace_energy_gpu`** | **FAIL (hard gate)** | roughness→furnace value: R=0.1→0.1295, R=0.3→0.2690, R=0.6→0.5712, R=1.0→0.9706 (gate band [0.90,1.06]). Reproduced identically across 2 independent runs (deterministic seed=7). |
+| GPU/CPU rough-glass mean-ratio parity (custom scene, disney transmission=1.0 ior=1.5, 256×256, 1024spp) | FAIL | Stack: R=0.1 ratio≈0.622-0.626, R=0.3≈0.735-0.741, R=0.6≈0.919-0.925 (per-channel). **Main** (same machine, same scene): R=0.1≈0.9993, R=0.3≈0.997, R=0.6≈0.997 — i.e. this is a NEW regression, not pre-existing. |
+| GPU caustic visual gate (`test_gpu_caustic_parity.py`, smooth dielectric, unaffected code path) | PASS | caustic-ROI ratio 1.000x, SSIM 0.9794, peak luminance 1.603 — confirms bug is isolated to rough transmission, not glass/refraction broadly |
+| Visual inspection, rough glass R=0.1 GPU (stack) | **SEVERE VISUAL REGRESSION** | Sphere renders nearly opaque black; CPU render of the identical stack scene is correctly bright/transmissive. Not subtle — obviously wrong to the eye. |
+
+### Attribution / diagnostic lead (NOT a fix — for architect/gate-failure-reviewer triage)
+
+`a5e0036`'s own commit message documents this exact furnace collapse as a
+known "BLOCKING" issue pending an explicit decision (hold / expand scope /
+re-gate) before proceeding; the branch nonetheless proceeded and `bfd500d`
+("apply pkg154 frontFace-eta + clamp-removal fixes") appears to have fixed
+the **CPU** side and the GPU **transmission eval/pdf**
+(`gpu_disney_roughTransmissionEval`/`Pdf`, `include/astroray/gpu_materials.h`
+~L630-725, now `rec.frontFace`-aware) but not the GPU **reflection sub-lobe**
+of the same rough-transmissive material: `gpu_disney_roughReflectionEval`
+(~L604-626) calls
+`gpu_disney_fresnelDielectric(HdotO, 1.f, mat.ior)` with a hardcoded
+etaI=1/etaT=mat.ior (air→glass) regardless of `rec.frontFace`, which is wrong
+for internal (glass→air) reflection events at a solid sphere's second
+surface. `gpu_disney_pdf`'s stray `bool entering = rec.normal.dot(wo) > 0.f;`
+(~L992) is also unaudited, though it only feeds the NEE/MIS term and the
+furnace scene has no explicit lights, so it's unlikely to explain this
+particular failure. Not verified by a targeted repro — offered as a lead only.
+
+### Full measured numbers
+
+See `test_results/overnight_report_2026-07-24/pkg149_hw_numbers.json` and
+PNGs prefixed `pkg149_*` in that directory (stack GPU/CPU renders at R=0.1/
+0.3/0.6, main-reference renders at the same configs, and the caustic gate
+PNGs).
+
+## Hardware re-verification 2026-07-25 (round 2 — bound to `e0fe9d816f50b8c03feb881dfbf71b868bedc552`, verifier notes folded in from the `Astroray-pkg149` worktree by the architect at last-call)
 
 **Scope:** focused re-check bound to `e0fe9d816f50b8c03feb881dfbf71b868bedc552`
 (PR #522 draft stack), after a signed-off GPU-twin fix targeting the `19d4e9f`
@@ -135,3 +194,60 @@ only — the furnace pytest gate is the authoritative measurement. Full
 numbers: `test_results/overnight_report_2026-07-24/pkg149_hw_numbers.json`
 key `reverify_e0fe9d8` + `pkg149_furnace_R{0.1,0.3,0.6}_{gpu,cpu}_e0fe9d8.png`.
 Verdict comment: https://github.com/HendrikGC02/Astroray/pull/522#issuecomment-5073008663
+
+## Hardware verification 2026-07-25 (round 3 — GREEN, bound to `e62b27d70407e3ef5f51f214c87017c9ace81eee`, rebased onto `main` post-pkg152/#523)
+
+**Scope:** full CPU + decisive GPU re-verification after (a) rebasing this
+branch onto `main` (which now includes pkg151/#519, pkg141/#518, and
+pkg152/#523's `gpu_material_sample_spectral` eta² guard widening — the
+actual remaining GPU furnace fix) and (b) confirming this package's own
+`gpu_disney_roughReflectionEval` frontFace fix (`e0fe9d8`) still applies
+cleanly on top.
+
+**Build:** `configure_and_build.bat`, Release, foreground — "Build succeeded".
+`.pyd` mtime (2026-07-25 20:08) postdates HEAD commit timestamp (20:02).
+
+**CPU gates (foreground, no lock needed):**
+
+| Gate | Result | Threshold |
+|---|---|---|
+| Furnace R=0.05/0.1/0.3/0.6/1.0 | 0.9986/0.9986/0.9987/0.9985/0.9970 | [0.92, 1.03] |
+| Peak alignment (glass[0.3-45], N=180,977) | 0.45° | <2° |
+| Chi² glass[0.3-45] (`--runxfail`) | 34,987.970271 (still red) | xfail KEPT, pkg150-attributed |
+| Targeted CPU suite (furnace/energy/chi2/material/disney/statistical, `-k "not gpu"`) | 484 passed, 0 failed, 45 skipped, 6 xfailed | |
+
+**GPU gate — the decisive gate this whole round exists to close:** shared GPU
+lock acquired (`.astroray_plan/.orchestrator.gpu.lock`, holder
+`pkg149-final-gate`), sole CUDA job, released immediately after.
+
+```
+tests/test_disney_rough_glass_furnace.py::test_disney_smooth_glass_furnace_cpu PASSED
+tests/test_disney_rough_glass_furnace.py::test_disney_rough_glass_furnace_converges PASSED
+tests/test_disney_rough_glass_furnace.py::test_disney_rough_glass_furnace_energy_gpu PASSED
+tests/test_disney_rough_glass_furnace.py::test_disney_rough_glass_furnace_energy_cpu PASSED
+tests/test_disney_rough_glass_furnace.py::test_disney_smooth_glass_furnace_gpu PASSED
+5 passed in 27.28s
+```
+
+GPU furnace values (gate band [0.90, 1.06], measured directly, matching
+pkg152's own PR #523 measurement table exactly):
+
+| Roughness | GPU furnace | Prior FAIL (`19d4e9f`) | Prior partial-fix (`e0fe9d8`, pre-rebase) |
+|---|---|---|---|
+| 0.1 | **0.998741** | 0.1295 | 0.1295 (byte-unchanged — pkg152's fix, not this package's, closes this row) |
+| 0.3 | **0.999264** | 0.2690 | 0.2833 |
+| 0.6 | **1.000000** | 0.5712 | 0.8963 |
+| 1.0 | **1.000000** | 0.9706 | 1.0000 |
+
+**Verdict: PASS — full gate table green, CPU and GPU.** The journey: round 1
+(`19d4e9f`) FAIL exposed the GPU-only roughReflectionEval Fresnel-convention
+bug; round 2 (`e0fe9d8`, this package's own fix) recovered R=0.6/1.0 but left
+R=0.1/0.3 unchanged, correctly attributing the residual to a separate,
+still-unidentified bug and filing/promoting pkg152; pkg152 convicted a THIRD,
+independent mechanism (the spectral eta² magnitude-factoring guard in
+`gpu_material_sample_spectral` was delta-only, silently clipping legitimate
+rough-transmission exit-eta² throughput >1.0) and widened it to the non-delta
+branch, closing the remaining rows. Both this package's `roughReflectionEval`
+fix and pkg152's guard-widening fix are independently necessary and jointly
+sufficient (pkg152's own PR #523 commit message documents measuring this
+package's exact branch on top of their fix to confirm the combination).

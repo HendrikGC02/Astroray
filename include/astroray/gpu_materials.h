@@ -540,8 +540,14 @@ __device__ inline GVec3 gpu_disney_sampleGgxVNDF(
     float py = r * sinf(phi);
 
     // Warp hemispherical projection for visible normal sampling
+    // pkg149: mirrors the CPU fix in plugins/materials/disney.cpp
+    // sampleGgxVNDF -- pbrt-v4's `p.y = Lerp((1+wh.z)/2, h, p.y)` (Lerp(t,a,b)
+    // = (1-t)*a + t*b) had `h` and `py` swapped here, biasing the sampled
+    // half-vector azimuth to the side opposite wo and causing the measured
+    // ~16-18 deg transmission sample/pdf peak offset (glass[0.3-45]).
     float h = sqrtf(fmaxf(0.f, 1.f - px*px));
-    py = ((1.f + wh.z) / 2.f) * h + (1.f - (1.f + wh.z) / 2.f) * py;
+    float t = (1.f + wh.z) / 2.f;
+    py = (1.f - t) * h + t * py;
 
     // Reproject to hemisphere and transform normal to ellipsoid configuration
     float pz = sqrtf(fmaxf(0.f, 1.f - px*px - py*py));
@@ -596,6 +602,38 @@ __device__ inline float gpu_disney_microfacetReflectionPdf(
 // GCLOSURE_DIELECTRIC_TRANSMISSION -> GMAT_DISNEY lowering in
 // gpu_closure_as_material (roughness > 0.03f), so the GPU has its own copy
 // of the same bug and needs its own copy of the fix.
+//
+// HW-verifier finding on PR #522 (2026-07-25): the Fresnel here was hardcoded
+// to the air-entering convention (etaI=1, etaT=mat.ior) regardless of
+// rec.frontFace, misweighting TRUE INTERNAL reflection events at a solid
+// sphere's second (interior) surface. Physically: for an internal-reflection
+// event, `HdotO = wo.dot(wm)` is always >0 here (the early-return above
+// already guarantees it) and rec.normal is always the front-facing
+// (ray-oriented) normal -- so gpu_disney_fresnelDielectric's own sign-based
+// entering/exiting auto-swap NEVER fires, and the passed-in etaI=1/etaT=ior
+// is used as-is even for an internal event. That is backwards: for light
+// already inside the glass hitting the interior surface, Snell's law must be
+// evaluated as etaI=ior (the medium the ray is currently in), etaT=1 (the
+// medium beyond) -- with the WRONG (entering) convention,
+// `sinThetaT = sinThetaI/ior` NEVER exceeds 1, so total internal reflection
+// (F=1) can never trigger for this formula, no matter how far past the
+// critical angle. Low roughness concentrates internal-reflection probability
+// mass beyond the critical angle (a smooth surface's reflected lobe is
+// narrow/peaked there), so under-computing F there disproportionately
+// darkens LOW-roughness internal reflections -- matching the measured GPU
+// furnace shape (worst at R=0.1, improving toward R=1.0). Same bug class as
+// pkg154's frontFace fix for roughTransmissionEval/Pdf (entering must come
+// from rec.frontFace, not a cosine/dot-product sign that this front-facing
+// normal convention forces to be one-sided always); this is the reflection
+// lobe's own copy, never previously fixed on either CPU or GPU.
+//
+// GPU-ONLY fix (do not port to CPU roughReflectionEval without independent
+// sign-off, per the HW-verifier's re-gate process, memory
+// hw-verify-branch-freeze / pkg98 adjudication discipline) -- CPU's
+// disney.cpp::roughReflectionEval keeps its identical hardcoded convention
+// unchanged; CPU's furnace test passes at 0.997-0.999 with it in place, so
+// whether the same fix is warranted there is an open question for a
+// follow-up investigation, not assumed here.
 __device__ inline GVec3 gpu_disney_roughReflectionEval(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
@@ -614,7 +652,9 @@ __device__ inline GVec3 gpu_disney_roughReflectionEval(
     float NdotH = wm.dot(rec.normal);
     float D = gpu_D_GTR2(NdotH, a);
     float G = gpu_smithG1_GGX(cosO, a) * gpu_smithG1_GGX(cosI, a);
-    float F = gpu_disney_fresnelDielectric(HdotO, 1.f, mat.ior);
+    float etaI = rec.frontFace ? 1.f : mat.ior;
+    float etaT = rec.frontFace ? mat.ior : 1.f;
+    float F = gpu_disney_fresnelDielectric(HdotO, etaI, etaT);
 
     float fr = D * G * F / (4.f * cosO * cosI + 1e-8f);
     return GVec3(fr);
@@ -629,7 +669,17 @@ __device__ inline GVec3 gpu_disney_roughTransmissionEval(
     float cosI = rec.normal.dot(wi);
     if (cosO == 0.f || cosI == 0.f || cosO*cosI >= 0.f) return GVec3(0.f);
 
-    bool entering = cosO > 0.f;
+    // pkg154: entering/exiting MUST come from rec.frontFace, not sign(cosO) --
+    // rec.normal is the front-facing normal (gpu_bvh.h sets rec.normal =
+    // frontFace?out:-out, mirroring the CPU HitRecord::setFaceNormal
+    // convention), so cosO = rec.normal.dot(wo) is always >= 0 regardless of
+    // enter/exit. Both transmission events computed etap = mat.ior (never
+    // 1/mat.ior), so the radiance-compression factor 1/etap^2 never cancelled
+    // over a round trip -- (1/ior^2)^2 = 0.1975 at ior=1.5, matching the
+    // measured CPU furnace floor. Same fix already applied to the smooth GPU
+    // dielectric path (gpu_dielectric_sample) and disney.cpp's CPU twin. See
+    // .astroray_plan/docs/pkg154-furnace-deficit-findings.md.
+    bool entering = rec.frontFace;
     float etaI = entering ? 1.f : mat.ior;
     float etaT = entering ? mat.ior : 1.f;
     float etap = entering ? mat.ior : (1.f / mat.ior);  // etaT/etaI
@@ -665,9 +715,12 @@ __device__ inline GVec3 gpu_disney_roughTransmissionEval(
     // gpu_disney_sampleGgxVNDF.
     result = result * gpu_ggxGlassCompensationFactor(mat.roughness, etap, fabsf(cosO));
 
-    result.x = fminf(fmaxf(result.x, 0.f), 4.f);
-    result.y = fminf(fmaxf(result.y, 0.f), 4.f);
-    result.z = fminf(fmaxf(result.z, 0.f), 4.f);
+    // pkg154: removed the closure-level clamp(0,4) -- CPU twin: disney.cpp
+    // roughTransmissionEval (see the comment there for the measured furnace
+    // numbers and the pkg123 metal-reflection precedent this mirrors).
+    result.x = fmaxf(result.x, 0.f);
+    result.y = fmaxf(result.y, 0.f);
+    result.z = fmaxf(result.z, 0.f);
     return result;
 }
 
@@ -695,7 +748,8 @@ __device__ inline float gpu_disney_roughTransmissionPdf(
     float cosI = rec.normal.dot(wi);
     if (cosO == 0.f || cosI == 0.f || cosO*cosI >= 0.f) return 0.f;
 
-    bool entering = cosO > 0.f;
+    // pkg154: mirrors gpu_disney_roughTransmissionEval's fix (see comment there).
+    bool entering = rec.frontFace;
     float etap = entering ? mat.ior : (1.f / mat.ior);
     GVec3 wm = (wi*etap + wo).normalized();
     if (wm.length2() <= 1e-10f) return 0.f;

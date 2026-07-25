@@ -33,6 +33,31 @@ correction changes the instrument, not the conclusion.
 | cornell_diffuse | 20.29 ms/render | 98.25 ms/render | **4.84×** |
 | cornell_glass   | 21.87 ms/render | 122.69 ms/render | **5.61×** |
 
+### 1a. Cross-validation against the pinned final-megakernel record
+
+`benchmarks/wavefront/megakernel_final_2026-07-25.json` (measured @ `e0185c8`, hours
+before the megakernel was deleted, same harness and same scenes) recorded the megakernel's
+**final** state at 113.03 ms/render (cornell_diffuse) and 134.60 ms/render (cornell_glass),
+regs 188.
+
+Placing all three points on the same instrument:
+
+| | cornell_diffuse | cornell_glass | regs |
+|---|---|---|---|
+| Phase-A megakernel, 2026-05-17 `1a3c159` | 20.29 | 21.87 | 125 |
+| Final megakernel, 2026-07-25 `e0185c8` | 113.03 | 134.60 | 188 |
+| Wavefront, 2026-07-25 `473c25b` (this run) | **98.25** | **122.69** | 221 (shade) |
+
+The wavefront lands just *below* the final megakernel on both scenes, which is the
+expected sign and magnitude and confirms the measurement is sound. It also confirms the
+regression is **not** an artifact of the wavefront switch: the megakernel had already
+regressed to 113 ms before it was deleted. Both pipelines carry the same accreted
+per-λ feature cost, exactly as the spec says.
+
+(The pinned record's 1.48–1.54× WF/MK speedup is a *different* measurement — end-to-end
+wall clock on `disney_contact_sheet` at 512/1024 spp — and is not comparable to summed
+kernel time on cornell at 64 spp. Do not mix the two.)
+
 ## 2. Attribution: the shade stage is the dominant term
 
 | Stage | cornell_diffuse | cornell_glass | regs/thread | blocks/SM |

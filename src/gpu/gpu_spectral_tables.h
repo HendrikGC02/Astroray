@@ -141,6 +141,37 @@ __device__ inline GVec3 spectrumToXYZ(
     return GVec3(X * norm, Y * norm, Z * norm);
 }
 
+// ---------------------------------------------------------------------------
+// pkg157 — wavefront port of the deleted MW megakernel's gpu_clampContribMW
+// (multiwavelength_kernel.cu, removed by pkg55-C7 commit 1af7eca / PR #524).
+// Ports Cycles `film_clamp_light`'s bounce-indexed clamp selection
+// (src/kernel/film/light_passes.h, Apache-2.0): bounce==0 (direct, including
+// delta-light NEE) -> clampDirect, bounce>0 (indirect) -> clampIndirect;
+// limit<=0 disables (Cycles semantics). Mirrors CPU Renderer::clampContribSpectral
+// (include/raytracer.h) and the same-named helper the RGB megakernel carried
+// (path_trace_kernel.cu::gpu_clampContrib) before both were deleted in C7.
+// The brightness metric mirrors the wavefront's own final accumulation
+// (stageRegenKernel): mean of the spectral samples when useLuminanceOutput
+// (non-visible bands carry no CIE CMF signal, so XYZ.Y would be ~0 and never
+// clamp), else XYZ.Y via spectrumToXYZ above.
+// ---------------------------------------------------------------------------
+__device__ inline GSampledSpectrum gpu_clampContribMW(
+        const GSampledSpectrum& contrib, const GSampledWavelengths& lambdas,
+        int bounce, float clampDirect, float clampIndirect, bool useLuminanceOutput) {
+    float limit = (bounce > 0) ? clampIndirect : clampDirect;
+    if (limit <= 0.f) return contrib;
+    float lum;
+    if (useLuminanceOutput) {
+        float avg = 0.f;
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) avg += contrib.v[i];
+        lum = avg / float(G_SPECTRUM_SAMPLES);
+    } else {
+        lum = spectrumToXYZ(contrib, lambdas).y;
+    }
+    if (lum > limit && lum > 0.f) return contrib * (limit / lum);
+    return contrib;
+}
+
 // CIE XYZ (D65) → linear sRGB. Mirrors include/astroray/spectral.h.
 __device__ inline GVec3 xyzToLinearSRGB_dev(const GVec3& xyz) {
     float r =  3.2406f * xyz.x - 1.5372f * xyz.y - 0.4986f * xyz.z;

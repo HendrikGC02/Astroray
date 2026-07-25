@@ -1254,7 +1254,8 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
                                d_dedLights, (int)res.dedicatedLights.size(),  // pkg89-wavefront
                                treeView, envMap, gbg, hasBg,
                                worldMaxBounces, /*max_depth=*/8,
-                               /*useLuminanceOutput=*/false, /*enableNEE=*/true);
+                               /*useLuminanceOutput=*/false, /*enableNEE=*/true,
+                               renderer.getClampDirect(), renderer.getClampIndirect());  // pkg157
 
         cudaError_t se = cudaDeviceSynchronize();
         if (se != cudaSuccess)
@@ -1413,6 +1414,11 @@ std::vector<float> cuda_wavefront_render(
     bool hasBg = bg.x >= 0.f;
     GVec3 gbg = hasBg ? GVec3(bg.x, bg.y, bg.z) : GVec3(0.f);
     int worldMaxBounces = renderer.getWorldMaxBounces();
+    // pkg157: wavefront twin of the deleted megakernels' clampDirect/
+    // clampIndirect wiring (cuda_renderer.cu, pre-C7). Defaults 0/off unless
+    // the host set them via set_clamp_direct/set_clamp_indirect.
+    float clampDirect = renderer.getClampDirect();
+    float clampIndirect = renderer.getClampIndirect();
 
     // pkg55-C5 / pkg113: scene-driven photon-map caustic pre-pass. Mirrors the MW
     // megakernel path (multiwavelength_kernel.cu:936-962, cuda_renderer.cu:848-862).
@@ -1547,7 +1553,8 @@ std::vector<float> cuda_wavefront_render(
                                        d_spheres, d_motionVerts, d_materials,  // pkg55-C4
                                        envMap, gbg, hasBg,
                                        worldMaxBounces,
-                                       useLuminanceOutput);
+                                       useLuminanceOutput,
+                                       clampDirect, clampIndirect);  // pkg157
             launchStageShadeBucketed(state, hitBufs,
                                      d_shadeQueues, d_shadeCounts,
                                      total_paths, d_queueB, cout,
@@ -1563,13 +1570,16 @@ std::vector<float> cuda_wavefront_render(
                                      (int)res.dedicatedLights.size(),
                                      treeView, max_depth,
                                      useLuminanceOutput, enableNEE,
+                                     clampDirect, clampIndirect,  // pkg157
                                      caustic.grid, caustic.ready,  // pkg55-C5 / pkg113
                                      caustic.scale);
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4
                               d_bvhNodes, d_prims, d_tris, d_spheres,
-                              d_motionVerts, d_materials);  // pkg55-C4
+                              d_motionVerts, d_materials,  // pkg55-C4
+                              useLuminanceOutput,
+                              clampDirect, clampIndirect);  // pkg157
             if (waves == 1) continue;  // fixed pass count, no readbacks
             if (workExhausted) {
                 if (--drainLeft <= 0) break;
@@ -1710,6 +1720,9 @@ std::vector<float> cuda_wavefront_render_restir(
     bool hasBg = bg.x >= 0.f;
     GVec3 gbg = hasBg ? GVec3(bg.x, bg.y, bg.z) : GVec3(0.f);
     int worldMaxBounces = renderer.getWorldMaxBounces();
+    // pkg157: see cuda_wavefront_render's identical note.
+    float clampDirect = renderer.getClampDirect();
+    float clampIndirect = renderer.getClampIndirect();
 
     // Per-path state: grow-only (1 slot per pixel; DI = single bounce).
     if (C.stateCapacity < numPixels) {
@@ -1787,7 +1800,7 @@ std::vector<float> cuda_wavefront_render_restir(
             state, hitBufs, gcam, width, height, s, seed, lambdaMin, lambdaMax,
             d_tlas, d_instances, d_blas, d_bvhNodes, d_prims, d_tris, d_spheres,
             d_motionVerts, d_materials, envMap, gbg, hasBg, worldMaxBounces,
-            useLuminanceOutput);
+            useLuminanceOutput, clampDirect, clampIndirect);  // pkg157
 
         launchStageRestirInitialRIS(
             state, hitBufs, curRes, d_prims, d_tris, d_spheres, d_materials,
@@ -1806,7 +1819,7 @@ std::vector<float> cuda_wavefront_render_restir(
         launchStageRestirResolve(
             state, hitBufs, curRes, d_accum, d_tlas, d_instances, d_blas,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            numPixels);
+            numPixels, useLuminanceOutput, clampDirect, clampIndirect);  // pkg157
     }
 
     cudaError_t syncErr = cudaDeviceSynchronize();

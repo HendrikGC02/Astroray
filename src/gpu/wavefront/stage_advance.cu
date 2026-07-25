@@ -150,7 +150,8 @@ __device__ int intersectPathSlot(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    bool              useLuminanceOutput)
+    bool              useLuminanceOutput,
+    float             clampDirect, float clampIndirect)  // pkg157
 {
     const int bounce = state.bounce[idx];
 
@@ -218,7 +219,10 @@ __device__ int intersectPathSlot(
                 envSpec = gpu_env_miss_spectral(
                     envMap, backgroundColor, hasBackgroundColor, dir, lambdas);
             }
-            color += throughput * envSpec;
+            // pkg157: clamp by bounce depth (Cycles film_clamp_light split);
+            // see gpu_clampContribMW (gpu_spectral_tables.h).
+            color += gpu_clampContribMW(throughput * envSpec, lambdas, bounce,
+                                        clampDirect, clampIndirect, useLuminanceOutput);
             state.color_0[idx] = color.v[0];
             state.color_1[idx] = color.v[1];
             state.color_2[idx] = color.v[2];
@@ -234,7 +238,9 @@ __device__ int intersectPathSlot(
     GSampledSpectrum Le = gpu_material_emitted_spectral(mat, rec.frontFace, lambdas);
     if (Le.maxValue() > 0.f) {
         if (bounce == 0 || wasSpecular) {
-            color += throughput * Le;
+            // pkg157: emissive-hit direct term, same clamp split as above.
+            color += gpu_clampContribMW(throughput * Le, lambdas, bounce,
+                                        clampDirect, clampIndirect, useLuminanceOutput);
             state.color_0[idx] = color.v[0];
             state.color_1[idx] = color.v[1];
             state.color_2[idx] = color.v[2];
@@ -293,6 +299,7 @@ __device__ bool shadePathSlot(
     int*              shadow_queue, int* shadow_count, int nee_capacity,
     bool              useLuminanceOutput,
     bool              enableNEE,
+    float             clampDirect, float clampIndirect,  // pkg157
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
     float             photonScale,
     bool              captureMis = false)  // pkg55-C7: MIS instrumentation
@@ -448,6 +455,11 @@ __device__ bool shadePathSlot(
                         nee_i[ 0 * nee_capacity + idx] = s.lightMatId;
                         nee_i[ 1 * nee_capacity + idx] = s.isSphere;
                         nee_i[ 2 * nee_capacity + idx] = s.isDedicated;  // pkg89-wavefront
+                        // pkg157: park the bounce depth this NEE sample was taken
+                        // at -- the shadow-resolve kernel runs in a later launch,
+                        // after state.bounce[idx] may already have advanced (see
+                        // the G_WF_NEE_I_LANES comment, gpu_wavefront_state.h).
+                        nee_i[ 3 * nee_capacity + idx] = bounce;
                         int qslot = atomicAdd(shadow_count, 1);
                         shadow_queue[qslot] = idx;
                     }
@@ -462,7 +474,11 @@ __device__ bool shadePathSlot(
                         GSampledSpectrum nee = gpu_nee_resolve(
                             rec, wo, lambdas, materials, s,
                             s.isSphere ? (occ.frontFace != 0) : true);
-                        color += throughput * nee;
+                        // pkg157: direct/indirect clamp split (bounce is the
+                        // shading vertex's own depth here, no park needed).
+                        color += gpu_clampContribMW(throughput * nee, lambdas, bounce,
+                                                    clampDirect, clampIndirect,
+                                                    useLuminanceOutput);
                     }
                 }
             }
@@ -632,6 +648,7 @@ __device__ bool advancePathSlot(
     int               max_depth,
     bool              useLuminanceOutput,
     bool              enableNEE,
+    float             clampDirect, float clampIndirect,  // pkg157
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
     float             photonScale)
 {
@@ -639,7 +656,7 @@ __device__ bool advancePathSlot(
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
-                                    useLuminanceOutput);
+                                    useLuminanceOutput, clampDirect, clampIndirect);
     if (matType < 0) return false;
     return shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
                          bvhNodes, prims, tris, spheres, motionVerts,
@@ -649,6 +666,7 @@ __device__ bool advancePathSlot(
                          /*shadow_queue=*/nullptr, /*shadow_count=*/nullptr,
                          /*nee_capacity=*/0,
                          useLuminanceOutput, enableNEE,
+                         clampDirect, clampIndirect,
                          photonGrid, hasPhotonGrid, photonScale);
 }
 
@@ -672,7 +690,8 @@ __global__ void stageAdvanceKernel(
     int               worldMaxBounces,
     int               max_depth,
     bool              useLuminanceOutput,
-    bool              enableNEE)
+    bool              enableNEE,
+    float             clampDirect, float clampIndirect)  // pkg157
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= state.num_active) return;
@@ -685,6 +704,7 @@ __global__ void stageAdvanceKernel(
                     lightTree, envMap,
                     backgroundColor, hasBackgroundColor, worldMaxBounces,
                     max_depth, useLuminanceOutput, enableNEE,
+                    clampDirect, clampIndirect,
                     astroray::photon::gpu::GPhotonGrid{}, false, 0.0f);
 }
 
@@ -720,7 +740,8 @@ __global__ void stageAdvanceQueuedKernel(
     int               worldMaxBounces,
     int               max_depth,
     bool              useLuminanceOutput,
-    bool              enableNEE)
+    bool              enableNEE,
+    float             clampDirect, float clampIndirect)  // pkg157
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
@@ -732,6 +753,7 @@ __global__ void stageAdvanceQueuedKernel(
                                  lightTree, envMap, backgroundColor,
                                  hasBackgroundColor, worldMaxBounces, max_depth,
                                  useLuminanceOutput, enableNEE,
+                                 clampDirect, clampIndirect,
                                  astroray::photon::gpu::GPhotonGrid{}, false, 0.0f);
     if (alive) {
         int slot = atomicAdd(count_out, 1);
@@ -759,7 +781,9 @@ __global__ void stageShadowKernel(
     const GTriangle*  tris,
     const GSphere*    spheres,
     const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
-    const ::GMaterial* materials)
+    const ::GMaterial* materials,
+    bool              useLuminanceOutput,   // pkg157
+    float             clampDirect, float clampIndirect)  // pkg157
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *shadow_count) return;
@@ -818,10 +842,21 @@ __global__ void stageShadowKernel(
     }
     if (L_spec.maxValue() <= 0.f) return;
 
-    state.color_0[idx] += nee_f[ 7 * nee_capacity + idx] * L_spec.v[0];
-    state.color_1[idx] += nee_f[ 8 * nee_capacity + idx] * L_spec.v[1];
-    state.color_2[idx] += nee_f[ 9 * nee_capacity + idx] * L_spec.v[2];
-    state.color_3[idx] += nee_f[10 * nee_capacity + idx] * L_spec.v[3];
+    GSampledSpectrum contrib;
+    contrib.v[0] = nee_f[ 7 * nee_capacity + idx] * L_spec.v[0];
+    contrib.v[1] = nee_f[ 8 * nee_capacity + idx] * L_spec.v[1];
+    contrib.v[2] = nee_f[ 9 * nee_capacity + idx] * L_spec.v[2];
+    contrib.v[3] = nee_f[10 * nee_capacity + idx] * L_spec.v[3];
+    // pkg157: direct/indirect clamp split. bounce is the PARKED depth (lane
+    // 3, see G_WF_NEE_I_LANES) the NEE sample was taken at, not state.bounce
+    // (already advanced by the time this later-launched kernel runs).
+    int bounce = nee_i[3 * nee_capacity + idx];
+    contrib = gpu_clampContribMW(contrib, lambdas, bounce,
+                                 clampDirect, clampIndirect, useLuminanceOutput);
+    state.color_0[idx] += contrib.v[0];
+    state.color_1[idx] += contrib.v[1];
+    state.color_2[idx] += contrib.v[2];
+    state.color_3[idx] += contrib.v[3];
 }
 
 // Fills queue with 0..n-1 and *count = n (bounce-0 population).
@@ -860,7 +895,8 @@ __global__ void stageIntersectQueuedKernel(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    bool              useLuminanceOutput)
+    bool              useLuminanceOutput,
+    float             clampDirect, float clampIndirect)  // pkg157
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
@@ -873,7 +909,7 @@ __global__ void stageIntersectQueuedKernel(
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
-                                    useLuminanceOutput);
+                                    useLuminanceOutput, clampDirect, clampIndirect);
     if (matType < 0) return;
     if (matType >= G_WF_NUM_MAT_TYPES) matType = G_WF_NUM_MAT_TYPES - 1;
     int slot = atomicAdd(&shade_counts[matType], 1);
@@ -901,6 +937,7 @@ __global__ void stageShadeBucketedKernel(
     int               max_depth,
     bool              useLuminanceOutput,
     bool              enableNEE,
+    float             clampDirect, float clampIndirect,  // pkg157
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
     float             photonScale)
 {
@@ -917,6 +954,7 @@ __global__ void stageShadeBucketedKernel(
                                lightTree, max_depth,
                                nee_f, nee_i, shadow_queue, shadow_count,
                                capacity, useLuminanceOutput, enableNEE,
+                               clampDirect, clampIndirect,
                                photonGrid, hasPhotonGrid, photonScale);
     if (alive) {
         int slot = atomicAdd(count_out, 1);
@@ -1037,6 +1075,7 @@ void launchStageAdvance(
     int               max_depth,
     bool              useLuminanceOutput,
     bool              enableNEE,
+    float             clampDirect, float clampIndirect,  // pkg157
     bool              sync)
 {
     if (state.num_active <= 0) return;
@@ -1052,7 +1091,8 @@ void launchStageAdvance(
             d_lights, num_lights, total_light_power,
             d_dedLights, num_ded, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
-            worldMaxBounces, max_depth, useLuminanceOutput, enableNEE);
+            worldMaxBounces, max_depth, useLuminanceOutput, enableNEE,
+            clampDirect, clampIndirect);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_advance launch error: %s\n",
@@ -1100,7 +1140,8 @@ void launchStageAdvanceQueued(
     int               worldMaxBounces,
     int               max_depth,
     bool              useLuminanceOutput,
-    bool              enableNEE)
+    bool              enableNEE,
+    float             clampDirect, float clampIndirect)  // pkg157
 {
     if (state.num_active <= 0) return;
     // Grid covers the worst case (all paths alive); the kernel early-outs
@@ -1119,7 +1160,8 @@ void launchStageAdvanceQueued(
             d_lights, num_lights, total_light_power,
             d_dedLights, num_ded, lightTree,
             envMap, backgroundColor, hasBackgroundColor,
-            worldMaxBounces, max_depth, useLuminanceOutput, enableNEE);
+            worldMaxBounces, max_depth, useLuminanceOutput, enableNEE,
+            clampDirect, clampIndirect);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_advance_queued launch error: %s\n",
@@ -1160,7 +1202,8 @@ void launchStageIntersectQueued(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    bool              useLuminanceOutput)
+    bool              useLuminanceOutput,
+    float             clampDirect, float clampIndirect)  // pkg157
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1175,7 +1218,7 @@ void launchStageIntersectQueued(
             d_tlas, d_instances, d_blas,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
             envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
-            useLuminanceOutput);
+            useLuminanceOutput, clampDirect, clampIndirect);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_intersect_queued launch error: %s\n",
@@ -1206,6 +1249,7 @@ void launchStageShadeBucketed(
     int               max_depth,
     bool              useLuminanceOutput,
     bool              enableNEE,
+    float             clampDirect, float clampIndirect,  // pkg157
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
     float             photonScale)
 {
@@ -1230,6 +1274,7 @@ void launchStageShadeBucketed(
             d_lights, num_lights, total_light_power,
             d_dedLights, num_ded, lightTree, max_depth,
             useLuminanceOutput, enableNEE,
+            clampDirect, clampIndirect,
             photonGrid, hasPhotonGrid, photonScale);  // pkg55-C5 / pkg113
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
@@ -1244,9 +1289,11 @@ void launchStageShadeBucketed(
 // N+7 part 4: path regeneration (Laine 2013 sec. 4).
 //
 // Dense pass over all slots: a DEAD slot first accumulates its radiance
-// (the same XYZ + firefly-clamp math as stageAccumulateXYZKernel -- the
-// accumulate-at-death form), zeroes its color (so an exhausted slot adds 0
-// on later passes), then claims the next unscheduled (pixel, sample) work
+// (the same XYZ conversion math as stageAccumulateXYZKernel -- the
+// accumulate-at-death form; pkg157 moved the firefly clamp upstream to the
+// per-contribution sites, see gpu_clampContribMW), zeroes its color (so an
+// exhausted slot adds 0 on later passes), then claims the next unscheduled
+// (pixel, sample) work
 // item from a global counter and re-initializes itself via initPathSlot.
 // The pool therefore stays ~full for the whole render and kernel launches
 // amortize across ALL samples instead of running depth x spp rounds over
@@ -1322,13 +1369,14 @@ __global__ void stageRegenKernel(
             lambdas.pdf[1] = state.lambda_pdf_1[idx];
             lambdas.pdf[2] = state.lambda_pdf_2[idx];
             lambdas.pdf[3] = state.lambda_pdf_3[idx];
+            // pkg157: the always-on, whole-path `lum > 20` clamp that used to
+            // live here has been REMOVED -- see gpu_clampContribMW calls in
+            // intersectPathSlot / shadePathSlot / stageShadowKernel, which now
+            // clamp direct vs indirect contributions independently, per
+            // bounce, mirroring the CPU fix (Renderer::clampContribSpectral)
+            // and the deleted MW megakernel's identical removal (PR #515,
+            // commit 1af7eca).
             xyz = gpu_spectrum_to_xyz(rad, lambdas);
-            float lum = xyz.y;
-            if (lum > 20.0f) {
-                xyz.x *= (20.0f / lum);
-                xyz.y = 20.0f;
-                xyz.z *= (20.0f / lum);
-            }
         }
         int pixel = state.pixel_index[idx];
         // Multiple slots can die holding the same pixel (different samples)
@@ -1423,7 +1471,9 @@ void launchStageShadow(
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
-    const ::GMaterial* d_materials)
+    const ::GMaterial* d_materials,
+    bool              useLuminanceOutput,   // pkg157
+    float             clampDirect, float clampIndirect)  // pkg157
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1436,7 +1486,8 @@ void launchStageShadow(
             state, hitBufs, d_nee_f, d_nee_i,
             d_shadow_queue, d_shadow_count, nee_capacity,
             d_tlas, d_instances, d_blas,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials);
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
+            useLuminanceOutput, clampDirect, clampIndirect);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_shadow launch error: %s\n",
@@ -1479,7 +1530,8 @@ __global__ void stageShadeNeeMisKernel(
     int               worldMaxBounces,
     int               max_depth,
     bool              useLuminanceOutput,
-    bool              enableNEE)
+    bool              enableNEE,
+    float             clampDirect, float clampIndirect)  // pkg157
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= state.num_active) return;
@@ -1488,7 +1540,7 @@ __global__ void stageShadeNeeMisKernel(
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
-                                    useLuminanceOutput);
+                                    useLuminanceOutput, clampDirect, clampIndirect);
     if (matType < 0) return;  // env miss / emissive hit: path died, no NEE.
     shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
                   bvhNodes, prims, tris, spheres, motionVerts,
@@ -1496,6 +1548,7 @@ __global__ void stageShadeNeeMisKernel(
                   dedLights, numDed, lightTree, max_depth,
                   nee_f, nee_i, shadow_queue, shadow_count, nee_capacity,
                   useLuminanceOutput, enableNEE,
+                  clampDirect, clampIndirect,
                   astroray::photon::gpu::GPhotonGrid{}, false, 0.0f,
                   /*captureMis=*/true);  // pkg55-C7: snapshot harness captures
 }
@@ -1522,7 +1575,8 @@ void launchStageShadeNeeMis(
     int               worldMaxBounces,
     int               max_depth,
     bool              useLuminanceOutput,
-    bool              enableNEE)
+    bool              enableNEE,
+    float             clampDirect, float clampIndirect)  // pkg157
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1535,7 +1589,8 @@ void launchStageShadeNeeMis(
         d_lights, num_lights, total_light_power,
         d_dedLights, num_ded, lightTree,
         envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
-        max_depth, useLuminanceOutput, enableNEE);
+        max_depth, useLuminanceOutput, enableNEE,
+        clampDirect, clampIndirect);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         std::fprintf(stderr, "stage_shade_nee_mis launch error: %s\n",

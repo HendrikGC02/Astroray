@@ -24,6 +24,11 @@
 #include <cstddef>
 #include <cstdint>
 #include "astroray/gpu_types.h"  // GVec3, GSampledWavelengths, GSampledSpectrum
+// pkg157: GPhotonGrid, needed by launchStageShadeBucketed's declaration below.
+// Safe from any TU: gpu_photon_store.h is explicitly written to compile under
+// both nvcc and pure C++ (its device-only helpers sit behind __CUDACC__), and
+// it pulls in nothing beyond gpu_types.h + <cstdint>/<vector>.
+#include "astroray/gpu_photon_store.h"
 
 namespace astroray::wavefront {
 
@@ -351,7 +356,16 @@ void launchStageShadeBucketed(
     int               max_depth,
     bool              useLuminanceOutput,  // pkg55-C3 (was missing)
     bool              enableNEE,           // pkg55-C3 (was missing)
-    float             clampDirect, float clampIndirect);  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    // pkg157 FIX (pre-existing defect, exposed by this package): these three
+    // photon params have been on the DEFINITION (stage_advance.cu) since
+    // pkg55-C5/pkg113 but were never added here, so this declaration was a
+    // PHANTOM overload that no definition matched. It compiled only because
+    // gpu_wavefront_snapshot.cu carried a private re-declaration that shadowed
+    // it. That duplicate is now deleted; this declaration is the single source
+    // of truth and must be kept in sync with stage_advance.cu.
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
+    float             photonScale);
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts

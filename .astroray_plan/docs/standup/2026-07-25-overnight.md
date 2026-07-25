@@ -13,11 +13,27 @@ cannot build CUDA.
 
 <!-- STATUS: running — finalize before shutdown -->
 
-## Headline: two investigations closed with hard numbers, one new defect found
+## Headline: two investigations closed, one new defect found, two pre-existing bugs surfaced
 
-Nothing shipped as a *fix* tonight in the GPU lane — by design. pkg155 and the
-new metal finding are both measurement results, and the owner's standing rule is
-that honest FAILs and measured attributions beat forced merges.
+pkg155 and the metal finding are both measurement results, not fixes — by design;
+the standing rule is that honest FAILs and measured attributions beat forced
+merges. What was not planned is that **three separate bugs surfaced from tests
+that were passing**, and every one of them was caught by a gate that introduced
+some kind of *independence*:
+
+- **a different model** — the Sonnet 5 reviewer found pkg88-B's wrong-pose bug
+  that all 13 of the PR's own tests passed through;
+- **a real host** — headless Blender found that enabling motion blur has been
+  failing outright since pkg88-A shipped, invisible to every suite that mocks
+  `bpy`;
+- **two compiled binaries** — the cross-binary no-op gate is the only way to test
+  pkg157's contract, and CI's actual compiler exposed a phantom overload that had
+  been sitting in the wavefront header unnoticed.
+
+A fourth was self-inflicted and caught the same way: pkg157 had a test passing
+*vacuously* because its clamp threshold could never bind. The lesson worth
+carrying: on this project a green suite is weak evidence unless something in the
+loop is independent of whoever wrote the code.
 
 ## Major finding (NEW, unowned before tonight): plain `metal` is ~3.5× too dark on the GPU
 
@@ -194,7 +210,7 @@ win isn't misread as also fixing the tail.
   manifest), and first-hit-only semantics per the CPU oracle. Cites Friedman &
   Jones 2015 (Psyop) and Cycles `cryptomatte_passes.h`.
 
-## PR #526 (pkg157) — code verified working on hardware; two of its own tests are wrong
+## PR #526 (pkg157) — HW PASS; the code was right, three of its own tests were not
 
 Built the branch at `0cd285f` (fresh `.pyd` 01:10, `astroray.__file__` confirmed in the
 worktree's `build_cuda/Release`, no shadow) and ran the gate on the RTX 5070 Ti.

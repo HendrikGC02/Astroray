@@ -63,7 +63,8 @@ void launchStageRegen(
     float lambdaMax,
     int* d_count_out,       // pkg55-C7: fused per-pass counter zeroing
     int* d_shade_counts,
-    int* d_shadow_count);
+    int* d_shadow_count,
+    bool useLuminanceOutput);  // pkg55-C7: grey band-mean accumulation
 
 // From stage_advance.cu (pkg55-C4: forward decls MUST match signatures exactly)
 void launchStageIntersectQueued(
@@ -1531,7 +1532,8 @@ std::vector<float> cuda_wavefront_render(
             launchStageRegen(state, d_accum, d_work, (int)total_work,
                              total_paths, gcam, width, height, seed,
                              lambdaMin, lambdaMax,
-                             cout, d_shadeCounts, d_shadowCount);
+                             cout, d_shadeCounts, d_shadowCount,
+                             useLuminanceOutput);
             launchStageIntersectQueued(state, hitBufs, d_queueA, d_counts + 0,
                                        d_shadeQueues, d_shadeCounts,
                                        total_paths,
@@ -1578,7 +1580,8 @@ std::vector<float> cuda_wavefront_render(
         launchStageRegen(state, d_accum, d_work, (int)total_work,
                          total_paths, gcam, width, height, seed,
                          lambdaMin, lambdaMax,
-                         /*d_count_out=*/nullptr, nullptr, nullptr);
+                         /*d_count_out=*/nullptr, nullptr, nullptr,
+                         useLuminanceOutput);
 
         cudaError_t syncErr = cudaDeviceSynchronize();
         if (syncErr != cudaSuccess)

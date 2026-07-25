@@ -65,7 +65,15 @@ float launchProfileLookup(int profileIndex, float lambda) {
 }
 
 // Host-callable upload entry; copies up to G_MAX_PROFILES profiles into
-// constant memory. Called from cuda_renderer.cu after buildSceneArrays().
+// constant memory. Called from cuda_renderer.cu (uploadScene/uploadMaterials)
+// and, since pkg55-C7, from the wavefront driver (the production render path).
+// pkg55-C7: the TU that owns the table also owns the resident-count record —
+// the lookupProfileReflectance guard reads it via uploadedProfileCount(), so
+// the probe works regardless of WHICH path uploaded the table.
+static int s_uploadedProfileCount = 0;
+
+int uploadedProfileCount() { return s_uploadedProfileCount; }
+
 void uploadProfileTable(const float* host, int count) {
     if (!host || count <= 0) return;
     int n = count > G_MAX_PROFILES ? G_MAX_PROFILES : count;
@@ -76,6 +84,7 @@ void uploadProfileTable(const float* host, int count) {
         fprintf(stderr, "uploadProfileTable failed: %s\n", cudaGetErrorString(err));
         throw std::runtime_error(cudaGetErrorString(err));
     }
+    s_uploadedProfileCount = n;
 }
 
 // ---------------------------------------------------------------------------

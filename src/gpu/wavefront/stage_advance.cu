@@ -538,17 +538,26 @@ __device__ bool shadePathSlot(
     }
     wasSpecular = bss.isDelta;
 
-    // pkg55-C3: non-visible-band profile override (multiwavelength_kernel.cu:342-351).
-    // For lambdas outside [380,780] nm, the visible-band Jakob-Hanika upsampling
-    // is undefined; use the uploaded spectral profile table instead (pkg54a).
-    if (!wasSpecular && mat.profileIndex >= 0) {
+    // pkg55-C3/C7: non-visible-band profile override — mirrors the deleted
+    // MW megakernel block (multiwavelength_kernel.cu:376-390) and CPU
+    // Material::evalSpectralExt EXACTLY:
+    //   * visible λ → keep the RGB-upsampled bss.fSpectral,
+    //   * non-visible λ + profile → reflectance(λ) · cosθ / π,
+    //   * non-visible λ + NO profile → 0 (RGB albedo is undefined outside
+    //     the visible band — the else-zero was dropped in the C3 port and
+    //     restored in C7).
+    if (!wasSpecular) {
         float cosTheta = fmaxf(0.f, rec.normal.dot(bss.wi));
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
             float lam = lambdas.lambda[i];
             if (lam < 380.f || lam > 780.f) {
-                bss.fSpectral.v[i] =
-                    gpu_profile_reflectance(mat.profileIndex, lam)
-                    * cosTheta / M_PI_F;
+                if (mat.profileIndex >= 0) {
+                    bss.fSpectral.v[i] =
+                        gpu_profile_reflectance(mat.profileIndex, lam)
+                        * cosTheta / M_PI_F;
+                } else {
+                    bss.fSpectral.v[i] = 0.f;
+                }
             }
         }
     }
@@ -1260,7 +1269,13 @@ __global__ void stageRegenKernel(
     float lambdaMax,
     int* count_out,      // pkg55-C7 perf: fused per-pass counter zeroing —
     int* shade_counts,   // replaces 3 cudaMemsetAsync launches per pass
-    int* shadow_count)   // (~3.6k extra launches per 512-spp render).
+    int* shadow_count,   // (~3.6k extra launches per 512-spp render).
+    bool useLuminanceOutput)  // pkg55-C7: non-visible-band accumulation —
+                              // grey band-mean radiance instead of the CMF
+                              // XYZ projection (which is ~0 outside 380-780,
+                              // silently zeroing all non-visible energy).
+                              // Mirrors the deleted MW megakernel
+                              // (multiwavelength_kernel.cu:510-518).
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     // Thread 0 zeroes the per-pass queue counters BEFORE the early-outs
@@ -1286,21 +1301,34 @@ __global__ void stageRegenKernel(
     bool hasRad = (rad.v[0] != 0.f) | (rad.v[1] != 0.f) |
                   (rad.v[2] != 0.f) | (rad.v[3] != 0.f);
     if (hasRad) {
-        GSampledWavelengths lambdas;
-        lambdas.lambda[0] = state.lambda_0[idx];
-        lambdas.lambda[1] = state.lambda_1[idx];
-        lambdas.lambda[2] = state.lambda_2[idx];
-        lambdas.lambda[3] = state.lambda_3[idx];
-        lambdas.pdf[0] = state.lambda_pdf_0[idx];
-        lambdas.pdf[1] = state.lambda_pdf_1[idx];
-        lambdas.pdf[2] = state.lambda_pdf_2[idx];
-        lambdas.pdf[3] = state.lambda_pdf_3[idx];
-        GVec3 xyz = gpu_spectrum_to_xyz(rad, lambdas);
-        float lum = xyz.y;
-        if (lum > 20.0f) {
-            xyz.x *= (20.0f / lum);
-            xyz.y = 20.0f;
-            xyz.z *= (20.0f / lum);
+        GVec3 xyz;
+        if (useLuminanceOutput) {
+            // pkg55-C7: band-mean radiance as neutral grey (the MW megakernel
+            // luminance convention). No CMF projection — the CMFs are ~0
+            // outside the visible band. No lum>20 clamp here either: the MW
+            // kernel applied none in luminance mode, and the CPU naive
+            // multiwavelength reference is the parity target.
+            float L = 0.f;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) L += rad.v[i];
+            L = fmaxf(0.f, L / float(G_SPECTRUM_SAMPLES));
+            xyz = GVec3(L, L, L);
+        } else {
+            GSampledWavelengths lambdas;
+            lambdas.lambda[0] = state.lambda_0[idx];
+            lambdas.lambda[1] = state.lambda_1[idx];
+            lambdas.lambda[2] = state.lambda_2[idx];
+            lambdas.lambda[3] = state.lambda_3[idx];
+            lambdas.pdf[0] = state.lambda_pdf_0[idx];
+            lambdas.pdf[1] = state.lambda_pdf_1[idx];
+            lambdas.pdf[2] = state.lambda_pdf_2[idx];
+            lambdas.pdf[3] = state.lambda_pdf_3[idx];
+            xyz = gpu_spectrum_to_xyz(rad, lambdas);
+            float lum = xyz.y;
+            if (lum > 20.0f) {
+                xyz.x *= (20.0f / lum);
+                xyz.y = 20.0f;
+                xyz.z *= (20.0f / lum);
+            }
         }
         int pixel = state.pixel_index[idx];
         // Multiple slots can die holding the same pixel (different samples)
@@ -1357,7 +1385,8 @@ void launchStageRegen(
     float lambdaMax,
     int* d_count_out,      // pkg55-C7: fused counter zeroing (nullptr = skip)
     int* d_shade_counts,
-    int* d_shadow_count)
+    int* d_shadow_count,
+    bool useLuminanceOutput)  // pkg55-C7: non-visible-band accumulation
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1370,7 +1399,8 @@ void launchStageRegen(
             state, d_accum_xyz, d_work_counter, total_work, numPixels,
             cam, width, height, seed,
             lambdaMin, lambdaMax,
-            d_count_out, d_shade_counts, d_shadow_count);
+            d_count_out, d_shade_counts, d_shadow_count,
+            useLuminanceOutput);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_regen launch error: %s\n",

@@ -48,6 +48,8 @@ void launchLightTreePick(
 
 // pkg54a — copies per-material spectral profiles into MW kernel constant memory.
 void uploadProfileTable(const float* host, int count);
+// pkg55-C7 — device-resident profile count (owned by gpu_spectral_tables.cu).
+int uploadedProfileCount();
 // pkg54b — one-time copy of CIE 1964 10° CMF tables into MW kernel constant memory.
 void uploadCmfTables();
 // pkg54c — one-time copy of the Jakob-Hanika sRGB sigmoid LUT into MW kernel
@@ -526,7 +528,13 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
 
 float CUDARenderer::lookupProfileReflectance(int profileIndex, float lambda) const {
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
-    if (profileIndex < 0 || profileIndex >= impl->profileCount) {
+    // pkg55-C7: the profile table is uploaded by whichever render path ran
+    // last — the wavefront driver (production) or uploadScene/uploadMaterials.
+    // Guard against the device-resident count owned by the table TU, not this
+    // renderer's own upload bookkeeping (which a wavefront render bypasses).
+    int resident = uploadedProfileCount();
+    if (impl->profileCount > resident) resident = impl->profileCount;
+    if (profileIndex < 0 || profileIndex >= resident) {
         throw std::runtime_error("Profile index was not uploaded in the current CUDA scene");
     }
     return launchProfileLookup(profileIndex, lambda);

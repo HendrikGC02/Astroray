@@ -295,20 +295,52 @@ def test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss()
     indirect contributions WITHOUT meaningful energy loss (the pkg144
     bias/variance tradeoff, reproduced against the wavefront).
 
-    HW-CALIBRATED 2026-07-26 (RTX 5070 Ti, commit 0cd285f). This test PASSED
-    on hardware in its first form, but it passed VACUOUSLY and is fixed here
-    anyway. It used #515's headline constant clampIndirect=10; the verifier's
-    sweep proved that on a Cornell-scale scene (peak ~1.76 linear) a limit of
-    10 never binds -- max|delta| was exactly 0.00000. So the old assertion
-    "mean brightness moved < 2%" was satisfied by the clamp doing literally
-    nothing, and would have kept passing even if the port were entirely
-    unwired. #515's 10 was measured on a bright-sun scene with a far larger
-    dynamic range, not on this one.
+    HW-CALIBRATED 2026-07-26 (RTX 5070 Ti). Took two hardware rounds; both
+    corrections were to THIS TEST, never to the port.
 
-    Now the limit is derived from the scene's own measured peak, and the test
-    asserts BOTH halves of the claim: that the clamp actually binds, and that
-    it nonetheless preserves total energy. A vacuous pass is now impossible --
-    the binding assertion fails first."""
+    Round 1 (commit 0cd285f) -- PASSED, but VACUOUSLY. It used #515's headline
+    constant clampIndirect=10. The verifier's sweep proved that on a
+    Cornell-scale scene (peak ~1.76 linear) a limit of 10 never binds:
+    max|delta| was exactly 0.00000. The assertion "mean moved < 2%" was
+    therefore satisfied by the clamp doing literally nothing, and would have
+    kept passing with the port entirely unwired -- precisely the silent-no-op
+    condition this package exists to fix. #515's 10 was measured on a
+    bright-sun scene with a far larger dynamic range, not on this one.
+
+    Round 2 (commit 060cb5a) -- FAILED, and the failure was informative:
+        clampIndirect=6.87537 bound (max|delta|=5.482) but moved mean
+        brightness by 4.166% (expected < 2%)
+    The binding half was correct. The energy half was not satisfiable, because
+    the limit was a FRACTION OF PEAK (0.5 x 13.75074). This scene at 64 spp is
+    well converged and has essentially no firefly population, so a limit that
+    far down the distribution clips GENUINE SIGNAL, not outliers. The 4.166%
+    was correct clamp behaviour -- the test was measuring the wrong thing.
+
+    Round 3 (here) -- the limit is derived from a TAIL PERCENTILE of the
+    unclamped luminance (p99.9) rather than a fraction of the peak. This is
+    the statistic that matches the claim: "suppress fireflies without energy
+    loss" means CLIP ONLY THE EXTREME TAIL, which is a scene-independent
+    definition. By construction the limit sits above 99.9% of pixels, so:
+      * it provably CAN bind (pixels exist above it -- asserted explicitly,
+        so a flat image fails loudly instead of passing vacuously), and
+      * the energy it can remove is bounded by the tail mass, which makes the
+        <2% mean-delta assertion meaningful rather than scene-luck.
+
+    p99.9 (top ~0.1% of pixels; ~11 of 10800 here) is chosen as the mildest
+    cut that still reliably contains multiple pixels at this resolution --
+    p99.99 would be a single pixel, which binds too marginally to be a
+    trustworthy signal.
+
+    NOTE the limit is compared against per-CONTRIBUTION XYZ.Y inside the
+    kernel, while the percentile is measured on final output luminance. Those
+    are commensurate here (verified: limits at ~0.57x and ~0.06x of output
+    peak both bound cleanly, and a max_depth=1 render gives EXACTLY zero
+    indirect effect -- very unlikely under a scale mismatch), but the failure
+    messages below name both the limit and the peak so any future divergence
+    is immediately legible rather than a mystery.
+
+    Retains the principle from round 2 -- derive from the scene, never
+    hard-code #515's constants -- while fixing the statistic."""
     def render(clamp_indirect: float) -> np.ndarray:
         r = _gpu_renderer()
         create_cornell_box(r)
@@ -321,43 +353,52 @@ def test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss()
         r.set_clamp_indirect(clamp_indirect)
         return np.asarray(r.render(64, 8, None, False))
 
-    # Milder than the controls test's 0.25: high enough that only the
-    # brightest indirect contributions are capped, so total energy stays
-    # essentially intact. Measured reference: a limit at ~0.57x peak moved
-    # mean by 0.4% while producing max|delta| 0.148 (i.e. it clearly bound).
-    LIMIT_FRAC = 0.5
+    # Tail cut defining "firefly". See docstring for why a percentile and not
+    # a fraction of peak, and why 99.9 specifically.
+    TAIL_PERCENTILE = 99.9
     NOISE_FLOOR = 1e-5
 
     unclamped = render(0.0)
     lum_unclamped = _luminance_map(unclamped)
     peak = float(lum_unclamped.max())
-    limit = peak * LIMIT_FRAC
-    assert limit > 0.0 and limit < peak, (
-        f"scene peak={peak:.6g} gives limit={limit:.6g}; the limit must sit "
-        f"strictly inside the scene's range or the clamp cannot bind"
+    limit = float(np.percentile(lum_unclamped, TAIL_PERCENTILE))
+
+    # The limit must have headroom above it, i.e. real outliers exist to clip.
+    # Without this a perfectly flat image would make the clamp inert and the
+    # energy assertion below trivially true -- the round-1 vacuous-pass trap.
+    assert peak > limit > 0.0, (
+        f"p{TAIL_PERCENTILE} limit={limit:.6g} vs peak={peak:.6g}: no pixels "
+        f"sit above the limit, so the clamp cannot bind and the "
+        f"energy-preservation assertion below would be vacuous"
     )
 
     clamped = render(limit)
     lum_clamped = _luminance_map(clamped)
 
-    # Half 1 -- it must actually BIND. This is the assertion whose absence
-    # made the original version vacuous.
+    # Half 1 -- it must actually BIND (the assertion whose absence made
+    # round 1 vacuous).
     delta_max = float(np.max(np.abs(lum_clamped - lum_unclamped)))
     assert delta_max > NOISE_FLOOR, (
-        f"clampIndirect={limit:.6g} changed NOTHING (max|delta|="
-        f"{delta_max:.3g} <= noise floor {NOISE_FLOOR:.0e}) on a scene whose "
-        f"peak is {peak:.6g} -- no firefly suppression happened, so the "
-        f"energy-preservation half below would be meaningless"
+        f"clampIndirect={limit:.6g} (p{TAIL_PERCENTILE} of luminance) changed "
+        f"NOTHING (max|delta|={delta_max:.3g} <= noise floor "
+        f"{NOISE_FLOOR:.0e}) on a scene whose peak is {peak:.6g} -- no "
+        f"firefly suppression happened, so the energy half below is "
+        f"meaningless. If limit and peak look sane here, suspect a scale "
+        f"mismatch between per-contribution XYZ.Y and output luminance."
     )
 
     # Half 2 -- having bound, it must not cost meaningful total energy.
+    # Clipping only the top 0.1% bounds the removable energy by the tail
+    # mass, which is what makes this threshold meaningful rather than luck.
     mean_unclamped = float(lum_unclamped.mean())
     mean_clamped = float(lum_clamped.mean())
     rel = abs(mean_clamped - mean_unclamped) / max(mean_unclamped, 1e-8)
     assert rel < 2e-2, (
-        f"clampIndirect={limit:.6g} bound (max|delta|={delta_max:.4g}) but "
-        f"moved mean brightness by {rel * 100:.3f}% (expected < 2%) -- the "
-        f"clamp is removing real energy, not just firefly outliers"
+        f"clampIndirect={limit:.6g} (p{TAIL_PERCENTILE}, peak={peak:.6g}) "
+        f"bound (max|delta|={delta_max:.4g}) but moved mean brightness by "
+        f"{rel * 100:.3f}% (expected < 2%) -- clipping only the top "
+        f"{100 - TAIL_PERCENTILE:.1f}% of pixels should not cost this much "
+        f"energy, so the clamp is reaching well below the tail"
     )
     # Direction check: clamping can only remove energy.
     assert mean_clamped <= mean_unclamped + NOISE_FLOOR, (

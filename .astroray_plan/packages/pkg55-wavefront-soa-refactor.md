@@ -2,7 +2,7 @@
 
 **Pillar:** 5  
 **Track:** A  
-**Status:** done (PR #TBD, 2026-07-25 — Session C7 landed: both megakernels DELETED, wavefront is the only GPU render path; dedicated lights in wavefront NEE WF/CPU 0.997; final WF/MK ratio 1.48–1.54× median-of-5 pinned in benchmarks/wavefront/megakernel_final_2026-07-25.json; owner-rescoped perf floor ≥1.40× MET — the original ≥2×-vs-Phase-A comparator is dead, see pkg155; 3 env ratio gates remain red under pkg153 quarantine). Phase B' completed PR #463; C1–C6b PRs #481/#484/#486/#490/#494/#497/#503.  
+**Status:** done (PR #524, 2026-07-25 — Session C7 landed: both megakernels DELETED, wavefront is the only GPU render path; dedicated lights in wavefront NEE WF/CPU 0.997; final WF/MK ratio 1.48–1.54× median-of-5 pinned in benchmarks/wavefront/megakernel_final_2026-07-25.json; owner-rescoped perf floor ≥1.40× MET — the original ≥2×-vs-Phase-A comparator is dead, see pkg155; 3 env ratio gates remain red under pkg153 quarantine). Phase B' completed PR #463; C1–C6b PRs #481/#484/#486/#490/#494/#497/#503.  
 **Estimated effort:** 10–11 weeks total across three phases (Phase A: 3–4 w, Phase B: 4 w, Phase C: 3 w)  
 **Depends on:** pkg54 (megakernel reference, done), pkg54a (spectral-profile dispatch, done), pkg54b (CIE 1964 CMF parity, done). pkg54c (Jakob-Hanika GPU upsampling) may overlap Phase B — see §Research/Risk 6.
 

@@ -3,7 +3,7 @@
 **Pillar:** 5
 **Track:** A
 **Status:** Phases A+C.0 done (A: PR #284, C.0: PR #437, 2026-06-11 — deformation motion blur: add_triangles_bulk_motion bulk binding, time-aware Triangle::hit + gpu_triangle_hit_motion, union-AABB BVH, GRay.time end-to-end both megakernels, Camera::getRay zero-shutter carries sampled time; RTX: no-op bit-identity, CPU+GPU streak, union-AABB extremes, cross-backend motion/static energy-shift parity). REMAINING (all blocking preconditions now met, 2026-07-25):
-- **Phase B — addon bake: DISPATCHABLE** (pkg114 TLAS/instancing landed; addon-only change in `blender_addon/__init__.py` `convert_scene`, no renderer surface).
+- **Phase B — addon bake: done (PR #525, 2026-07-26 — addon-only object motion bake; RENDERER-SIDE HW VERIFY PENDING).** `convert_scene` hoists the shutter/`shutter_position` resolution out of the camera-only branch so object motion reuses the SAME `t_end` as pkg88-A (camera and object blur agree by construction); new `_get_object_matrices_at_time` snapshots every mesh-able object's `matrix_world` at shutter close in ONE `frame_set`+`depsgraph.update()` round trip with frame-state restore; `convert_objects` gained an optional `motion_end_matrices` param (defaults `None`→`{}`, so `exporter.py`'s viewport-sync call site is untouched) and routes to `add_triangles_bulk_motion` only when the object is NOT a dupli AND its matrix actually differs by shutter close (`_matrices_differ`, eps 1e-6) — static objects keep `add_triangles_bulk` with zero behavioural change. New `_bulk_geometry.mesh_world_positions` computes `positions_end` with the same vertex→loop-triangle indexing as `mesh_to_bulk_arrays` (rigid bake ⇒ material/UV/normal data identical between shutter samples, not re-derived). No renderer/binding surface added; the shipped 2-step binding (center + shutter-close) was sufficient. **Instancing:** an animated INSTANCED object keeps the static pkg114 instancing path and gets NO motion blur — `_register_instanced_groups` runs first and removes those entries via `instanced_indices` before the motion check, so the two paths are mutually exclusive by construction. Tests: 13 new/extended (6 mocked-bpy wiring, 2 real-renderer integration incl. bit-identical no-op + >2× streak, 2 pure-numpy helper); 42-test post-rebase regression sweep over addon/motion/instancing neighbours green; full suite 1354 passed / 1 env-flake (`test_blender_parity_matrix` OneDrive rmtree PermissionError).
 - **Phase D — wavefront motion: DISPATCHABLE** (pkg55 completed via PR #524; megakernels deleted). The Phase-D scope below is superseded by the "Phase D — wavefront-only reword (post-#524)" addendum — READ IT FIRST: `path_time` and `d_motionVerts` threading already landed in the wavefront under pkg55-C4/C.0, so a large part of Phase D may already be satisfied; the remaining work is init-time shutter-time sampling + parity re-baselining, and D1's "vs megakernel" oracle no longer exists.
 - **Phase C.1 — per-primitive split: perf-gated** (ships only if C.0 measures > 1.5× slower than Cycles on the B/C4 scene; not otherwise dispatchable).
 **Estimated effort:** 5–7 weeks across 4 phases (A camera, B object,
@@ -429,6 +429,19 @@ additions from the architect spec-promotion pass:
 | File | Change |
 |---|---|
 | `blender_addon/__init__.py` (`convert_scene`) | For each animated `bpy.types.Object`, capture `obj.matrix_world @ vertex` at K shutter sub-times; emit as per-vertex motion buffer (consumed by Phase C). |
+
+**As-built correction (PR #525):** the prose above says "K shutter sub-times",
+but the shipped Phase-C.0 binding
+(`Renderer.add_triangles_bulk_motion(positions_start, positions_end, ...)`)
+supports exactly **2** steps — `positions_start` = center, `positions_end` =
+shutter close, `motionSteps=2`. That is sufficient for Phase B because Q2
+resolves object motion to a **rigid** transform bake, which is exactly a 2-key
+problem, and Q-Owner-2 fixed v1 at scene-wide steps. Arbitrary K would only
+matter for non-linear motion (rotating wheels) and is the deferred
+`pkg88-per-object-steps` follow-up. No renderer surface was widened.
+Implementation also touched `blender_addon/_bulk_geometry.py` (new
+`mesh_world_positions`) — no new addon *module*, so `ADDON_FILES` in
+`scripts/build/build_blender_addon.py` was correctly left alone.
 
 ### Phase C.0 — Deformation motion blur (union-AABB static BVH)
 

@@ -1649,6 +1649,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.set_use_transparent_film(use_transparent_film)
         renderer.set_transparent_glass(transparent_glass)
 
+        # ORDER IS LOAD-BEARING (fixed in PR #525) — setup_camera MUST run before
+        # the motion-blur block below, and must NOT be moved back after it:
+        #   1. `renderer.clear()` above does `camera.reset()`, so without this the
+        #      very next `set_camera_motion_blur` raises "Camera not set up" and
+        #      the render dies the moment a user ticks Motion Blur on.
+        #   2. `Renderer::setupCamera` CONSTRUCTS A NEW Camera, carrying over only
+        #      pkg72's prev-frame snapshot -- NOT the shutter fields. So a
+        #      setup_camera placed AFTER set_camera_motion_blur would silently
+        #      reset shutter to its 0.0f default (= blur off) rather than crash,
+        #      which is strictly worse than the crash.
+        # Nothing between here and the old call site touches camera state
+        # (set_seed / set_pixel_filter / clamps / exposure all live on Renderer),
+        # so hoisting it is side-effect-free.
+        self.setup_camera(scene, renderer, width, height)
+
         # pkg103b: Camera motion blur wiring (requires pkg88-A renderer support)
         # Cycles reference: intern/cycles/blender/camera.cpp::BlenderSync::sync_camera_motion (Apache-2.0)
         # pkg88-B (object motion blur, addon-only bake) hangs off the SAME
@@ -1732,7 +1747,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         filter_type = filter_type_map.get(filter_type_str, 1)
         filter_width = float(getattr(cycles, 'filter_width', 1.5)) if cycles else 1.5
         renderer.set_pixel_filter(filter_type, filter_width)
-        self.setup_camera(scene, renderer, width, height)
+        # setup_camera was hoisted above the motion-blur block -- see the
+        # ORDER IS LOAD-BEARING note there before reinstating a call here.
         material_map = self.convert_materials(depsgraph, renderer)
         self.convert_objects(depsgraph, renderer, material_map,
                              motion_start_matrices, motion_end_matrices)

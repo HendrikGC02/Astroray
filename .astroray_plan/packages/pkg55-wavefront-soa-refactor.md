@@ -706,3 +706,93 @@ citable as the current near-delta state.
    port, which restarts the HW verification. Recommendation: accept.
 3. #524 merge itself: conditional on the independent HW verification verdict
    and the pr-merger checklist — nothing here pre-approves that.
+
+
+### Hardware verification 2026-07-25 (independent verifier, PR #524, HEAD 05a1fbe)
+
+**Scope:** Independent reproduction of the Session C7 finale (both megakernels
+deleted) on the RTX 5070 Ti, separate agent session from the implementer.
+Fresh full rebuild from a deleted `build_cuda` (`configure_and_build.bat`,
+0 build errors), `astroray.__file__` confirmed at the worktree's
+`build_cuda/Release/astroray.cp313-win_amd64.pyd` (not stale/shadowed).
+
+**Full suite** (`pytest tests/ -q`, 345.97s): **4 failed, 1506 passed, 68
+skipped, 25 xfailed, 2 xpassed** — the 4 failures are exactly the declared
+exceptions (`test_blender_parity_matrix_generation` + the 3 pkg153-quarantined
+env-scene ratio gates). One build-wrapper gap found: `configure_and_build.bat`
+only builds `--target astroray`; the separate `astroray_test_helpers` CMake
+target (consumed by `tests/test_pkg92_wavefront_rng.py` +
+`test_pkg92_practrand_gate.py`) must be built too or those 6 tests spuriously
+fail with `ModuleNotFoundError`. Not a C7 code defect.
+
+**`test_blender_parity_matrix_generation`:** confirmed environment flake, not
+a regression. Reproduced two DIFFERENT failure modes standalone — (1)
+`PermissionError` on `shutil.rmtree(test_results/blender_parity)` (OneDrive
+folder-lock), (2) `UnicodeEncodeError`/`UnicodeDecodeError` on cp1252 console
+encoding of a checkmark character / Blender subprocess stdout — both
+unrelated to CUDA/wavefront code. After clearing the OneDrive-locked
+directory, the same test **passed** on both the pkg55-c7 worktree and a
+clean detached `main` worktree (sha `2359f7ad`). Confirms the PR's
+"pre-existing, not C7" claim.
+
+**Perf gate:** ceiling test PASS (WF 1024spp median-of-3 = 0.703s, ceiling
+1.0s). Independent median-of-5 @1024spp = **0.6966s** (runs 0.6935-0.7154s)
+vs the pinned megakernel record (`benchmarks/wavefront/megakernel_final_2026-07-25.json`,
+mk_median_s=1.084) = **1.556x**, above the rescoped ≥1.40x floor and
+consistent with the claimed 1.48-1.54x range.
+
+**Dedicated-light NEE:** 3/3 gates PASS, WF/CPU ratios reproduced exactly
+([0.9965-0.9973] across point/area/mixed). Visual GPU renders of all three
+dedicated-light-only scenes confirmed LIT (non-black), physically plausible
+falloff and light color.
+
+**Caustic/photon path:** 11 passed, 1 xfailed (`test_gpu_prism_rainbow_parity`,
+pre-existing xfail). Glass-sphere caustic parity GPU/CPU ratio=0.999x,
+SSIM=0.9713; log-confirmed the wavefront/photon-map route
+(`[CUDA wavefront] pkg113 photon caustic`). Visual: clean focused caustic,
+no salt-and-pepper noise, GPU/CPU consistent.
+
+**SSIM re-pin (0.998→0.995):** independently measured **SSIM=0.99549**,
+per-channel mean ratio GPU/CPU **[1.0143, 1.0066, 1.0142]** — matches the
+PR's dossier ([0.9956, [1.015,1.007,1.014]]) within noise. Visual
+inspection of the CPU/GPU naive-mode pair + abs-difference image: no
+banding, no dominant firefly spike, only fine-grained sub-visual MC-noise-
+floor speckle — consistent with the documented ~1% structural residual
+being invisible at normal viewing.
+
+**pkg144 clampDirect/clampIndirect — behavioral finding (empirical, not just
+code-read):** bindings exist and are CPU-functional (verified: bright
+point-light scene, CPU path_tracer, clamp 0.0→0.5→0.05→0.001 monotonically
+suppresses peak brightness 2.884→1.370→0.240→0.006). On the GPU wavefront
+path the SAME scene with the SAME clamp sweep produces a **bit-identical
+image to 8 decimal places at every clamp value including the most
+aggressive** (mean=0.17670262, max=2.32652783, unchanged across the full
+sweep) — confirming a true silent no-op: no exception, no warning, no
+partial/different clamping, the wavefront kernels never read
+`getClampDirect()`/`getClampIndirect()` (zero references in `src/gpu`). A
+separate hardcoded firefly clamp exists in `stage_advance.cu` (`maxC>10`
+throughput clamp, `lum>20` XYZ.Y clamp) but is not wired to the user-settable
+API. **User impact:** GPU callers of `set_clamp_direct`/`set_clamp_indirect`
+get zero effect with no diagnostic.
+
+**Worktree anomaly (benign):** at session start, `git status` reported an
+in-progress rebase despite a stable, clean HEAD at the expected SHA. Root-
+caused to an empty, stale `rebase-merge` directory (all state files already
+gone) left over from an earlier, already-completed rebase — most likely an
+incomplete `rmdir` under OneDrive file-locking. HEAD verified stable across
+repeated checks; not treated as contamination.
+
+**Verdict:** PASS, bound to HEAD `05a1fbec953866a84a6e29a6e79f4930f9769545`.
+All numerical gates reproduce independently; the only unexplained-at-first
+failures (pkg92 RNG suite) traced to an incomplete build-target list on the
+verifier's side, not the PR. Full measured table + PNGs in
+`test_results/overnight_report_2026-07-24/pkg55c7_*` (main checkout) and
+`pkg55c7_hw_numbers.json`. Judgment calls (SSIM re-pin, pkg153 quarantine,
+pkg144 drop) are the architect/owner's to adjudicate, not the verifier's —
+reported as measured facts only.
+
+### Owner ratifications 2026-07-25 (post-merge, PR #524 squash 9fa91c8)
+
+- **GPU-SMS freeze RATIFIED** by owner: photon map is the canonical GPU caustic path; pkg64 receiver-energy gate stays PORT-later xfail; reversal = a filed port package, never a C7 revert.
+- **pkg144 GPU-clamp gap window ACCEPTED** by owner: clamps are a verified silent no-op on the wavefront (defaults off, no default-render change); pkg157 (clamp port, #515 GPU gate must return green) leads the next-run queue.
+- pkg55 arc COMPLETE: C1-C7 all merged.

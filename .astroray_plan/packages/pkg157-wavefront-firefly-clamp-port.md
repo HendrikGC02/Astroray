@@ -38,17 +38,26 @@ leak still fails loudly). Implemented that way in
 which documents the floor and warns against re-tightening.
 
 **Item 3, "clampIndirect=10 suppresses fireflies at <0.02% brightness delta" —
-scene-dependent, vacuous on the gate scene.** A clamp does nothing unless its
-limit is below the scene's peak radiance. On a Cornell-scale scene (measured
-peak ~1.76 linear) `clampIndirect=10` produces `max|Δ| = 0.00000` — it never
-binds, so the "<0.02% delta" is trivially met by the clamp doing nothing, and
-would still be met if the port were entirely unwired. #515 measured `10` on a
-bright-sun scene with a far larger dynamic range. Measured on the gate scene:
-`=1 → max|Δ| 0.14764`, `=0.1 → 0.20867` (both bind, monotonic). **Proposed
-amendment:** state the limit as a fraction of the scene's measured peak, and
-require the gate to assert the limit *can* bind before asserting its effect.
-Implemented that way; the binding assertion runs first so a vacuous pass is
-impossible.
+NOT DEMONSTRABLE ON ANY EXISTING SCENE.** Initially read as a scene-scaling
+problem (a limit of 10 never binds on a Cornell-scale scene, peak ~1.76, so
+`max|Δ| = 0.00000` and the criterion is met by the clamp doing nothing — it
+would pass with the port entirely unwired). Three hardware rounds of
+recalibration proved the cause is deeper: **the scene library contains no
+firefly population at all.** Measured tail-heaviness (`peak / p99.9`) at
+16/64 spp — diffuse_light_cornell 1.82×/1.53×, thin_glass_cornell 1.66×/1.52×,
+disney_cornell 1.66×/1.52×, dielectric_cornell 1.40×/1.13×, metal_cornell
+1.07×/1.04×; a genuine firefly tail is tens to hundreds. With a tail that flat
+the two halves of the claim are mutually exclusive: a limit high enough to clip
+only outliers clips nothing (p99.9 is 99.5% of peak; `max|Δ| = 4.77e-07`), one
+low enough to bite removes real signal (0.5× peak → mean moved 4.166%).
+**Resolution:** pkg157's gate is `pytest.mark.skip`-ped citing this measurement
+(deliberately not xfail — the code is not expected to fail, and an xfail is
+never acceptable evidence for a gated feature). Building a firefly-bearing
+scene is filed as **pkg161**, which owns un-skipping that gate and restating
+item 3 in scene-relative terms. **Item 3 cannot be satisfied by pkg157 and
+should not block it** — the clamp's correctness rests on the max_depth=1
+bounce-classification result, the clamp sweep, and the cross-binary no-op gate,
+all green on hardware.
 
 ## Non-goals
 

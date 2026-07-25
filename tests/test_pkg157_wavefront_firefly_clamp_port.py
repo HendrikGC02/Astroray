@@ -290,13 +290,44 @@ def test_gpu_wavefront_clamp_direct_and_indirect_controls():
     )
 
 
+@pytest.mark.skip(
+    reason=(
+        "UNMET PRECONDITION, not a code defect: no scene in the current test "
+        "library has a firefly population, so 'suppresses fireflies without "
+        "energy loss' is not demonstrable anywhere. Measured on RTX 5070 Ti "
+        "2026-07-26 -- tail-heaviness (peak/p99.9) across the scene suite at "
+        "16/64 spp: diffuse_light_cornell 1.82x/1.53x, thin_glass_cornell "
+        "1.66x/1.52x, disney_cornell 1.66x/1.52x, dielectric_cornell "
+        "1.40x/1.13x, metal_cornell 1.07x/1.04x. A real firefly tail is tens "
+        "to hundreds. With a tail that flat no clamp limit can satisfy both "
+        "halves of the claim: high enough to clip only outliers clips NOTHING "
+        "(p99.9 is 99.5% of peak here -- measured max|delta| 4.77e-07); low "
+        "enough to bite removes genuine signal (0.5x peak -> mean moved "
+        "4.166%). pkg144 contract item 3 ('clampIndirect=10 -> <0.02% "
+        "delta') is therefore not demonstrable on any existing gate scene. "
+        "Un-skip once a purpose-built firefly scene exists -- filed as "
+        "pkg161. NOT xfail: the code is NOT expected to fail, and an xfail is "
+        "never acceptable evidence for a gated feature (memory "
+        "xfail-gated-features-must-unxfail). The clamp's correctness is "
+        "established by the other gates in this file plus the verifier's "
+        "max_depth=1 bounce-classification result."
+    )
+)
 def test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss():
     """Spec item 3's headline: an indirect clamp suppresses the brightest
     indirect contributions WITHOUT meaningful energy loss (the pkg144
     bias/variance tradeoff, reproduced against the wavefront).
 
-    HW-CALIBRATED 2026-07-26 (RTX 5070 Ti). Took two hardware rounds; both
-    corrections were to THIS TEST, never to the port.
+    SKIPPED -- see the skip reason above. Kept (not deleted) because the body
+    is correct and becomes a live gate the moment a firefly-bearing scene
+    exists; pkg161 covers building one. Three hardware rounds went into
+    calibrating this, and the conclusion was that the obstacle is a hole in
+    the SCENE LIBRARY, not a threshold that needs tuning. Do not re-tune it.
+
+    CALIBRATION HISTORY (RTX 5070 Ti, 2026-07-26). Three hardware rounds. No
+    round ever implicated the port -- every correction was to this test, and
+    the final answer was that the test is not satisfiable at all on today's
+    scenes.
 
     Round 1 (commit 0cd285f) -- PASSED, but VACUOUSLY. It used #515's headline
     constant clampIndirect=10. The verifier's sweep proved that on a
@@ -316,31 +347,30 @@ def test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss()
     far down the distribution clips GENUINE SIGNAL, not outliers. The 4.166%
     was correct clamp behaviour -- the test was measuring the wrong thing.
 
-    Round 3 (here) -- the limit is derived from a TAIL PERCENTILE of the
-    unclamped luminance (p99.9) rather than a fraction of the peak. This is
-    the statistic that matches the claim: "suppress fireflies without energy
-    loss" means CLIP ONLY THE EXTREME TAIL, which is a scene-independent
-    definition. By construction the limit sits above 99.9% of pixels, so:
-      * it provably CAN bind (pixels exist above it -- asserted explicitly,
-        so a flat image fails loudly instead of passing vacuously), and
-      * the energy it can remove is bounded by the tail mass, which makes the
-        <2% mean-delta assertion meaningful rather than scene-luck.
+    Round 3 (commit 112ffaf) -- switched the limit to a TAIL PERCENTILE
+    (p99.9) of unclamped luminance, on the theory that "clip only the extreme
+    tail" is a scene-independent definition of firefly suppression. FAILED
+    the opposite way from round 2:
+        clampIndirect=13.6773 (p99.9 of luminance) changed NOTHING
+        (max|delta|=4.77e-07 <= noise floor 1e-05) on a scene whose peak is
+        13.7507
+    p99.9 turned out to be 99.5% of the peak -- there is no tail to clip.
 
-    p99.9 (top ~0.1% of pixels; ~11 of 10800 here) is chosen as the mildest
-    cut that still reliably contains multiple pixels at this resolution --
-    p99.99 would be a single pixel, which binds too marginally to be a
-    trustworthy signal.
+    ROOT CAUSE (measured, and the reason this is now skipped rather than
+    re-tuned a fourth time): the scene library contains no fireflies at all.
+    Tail-heaviness (peak/p99.9) across the suite at 16/64 spp --
+    diffuse_light_cornell 1.82x/1.53x, thin_glass_cornell 1.66x/1.52x,
+    disney_cornell 1.66x/1.52x, dielectric_cornell 1.40x/1.13x, metal_cornell
+    1.07x/1.04x. A genuine firefly population is tens to hundreds. With a
+    tail this flat the two halves of the claim are mutually exclusive: a limit
+    high enough to clip only outliers clips nothing, and one low enough to
+    bite removes real signal. That is a hole in the SCENE LIBRARY, not a
+    threshold problem, so no further tuning can fix it.
 
-    NOTE the limit is compared against per-CONTRIBUTION XYZ.Y inside the
-    kernel, while the percentile is measured on final output luminance. Those
-    are commensurate here (verified: limits at ~0.57x and ~0.06x of output
-    peak both bound cleanly, and a max_depth=1 render gives EXACTLY zero
-    indirect effect -- very unlikely under a scale mismatch), but the failure
-    messages below name both the limit and the peak so any future divergence
-    is immediately legible rather than a mystery.
-
-    Retains the principle from round 2 -- derive from the scene, never
-    hard-code #515's constants -- while fixing the statistic."""
+    The scale question raised in round 2 was retired independently: a
+    max_depth=1 render gives EXACTLY 0.000000 indirect clamp effect, which
+    would be very unlikely if per-contribution XYZ.Y and output luminance
+    were not commensurate."""
     def render(clamp_indirect: float) -> np.ndarray:
         r = _gpu_renderer()
         create_cornell_box(r)

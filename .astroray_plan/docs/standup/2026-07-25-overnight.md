@@ -273,7 +273,39 @@ drives the real `convert_scene → convert_objects` path and is parameterised ov
 all three shutter positions, since a CENTER-only test would still let the END
 no-op ship.
 
-Implementer is fixing; PR held, not merged.
+**Fixed at `9f233fe`, and the fix came with unusually good evidence.** The implementer
+snapshots `t_start` as well and feeds it as `positions_start`, mirroring the camera
+path's two `_get_camera_transform_at_time` calls; `_matrices_differ` now compares the
+two boundary poses. Measured streak width, lit columns:
+
+| shutter position | correct | pre-fix | |
+|---|---|---|---|
+| START | 49 | 49 | correct only coincidentally |
+| CENTER | 49 | **30** | half arc |
+| END | 49 | **13** | 13 **is** the static silhouette — total silent no-op, confirmed |
+
+Two things it did that are worth repeating as practice: it **reintroduced the bug into
+a copy of the source and re-ran the new tests** to prove they actually catch it (4
+failed, reporting the exact 30- and 13-column values) — and that exercise immediately
+exposed that its own `width > 30` threshold cleared the buggy CENTER value by *one
+column*, so it retuned to `> 40` on measured evidence. A regression test that has never
+failed is not evidence.
+
+New `test_end_to_end_shutter_position_streaks` drives the real
+`convert_scene → convert_objects` pipeline against the compiled renderer, parameterised
+over all three positions, and pins centres at END 48.0 < CENTER 68.0 < START 89.0 with
+zero width spread. 19 own tests + 74 neighbours green, foreground.
+
+**Open judgment call, decided:** shading normals still derive from the current-frame
+matrix. The renderer stores one non-interpolated normal set per triangle, so there is no
+fully correct option — and for CENTER (the default) `frame` *is* the shutter midpoint,
+making current-frame the best available single sample. Left as-is deliberately; the
+tradeoff is being recorded in the pkg88 spec so it isn't re-derived later. Interpolating
+normals would need a renderer-side second normal set, out of Phase B scope.
+
+**Still PENDING:** in-Blender hardware verification. The end-to-end test still mocks
+`bpy`, so a real depsgraph re-cook under `frame_set` is untested. Re-review of the fix
+was running at finalize time; PR held, not merged.
 
 ## Latent landmine found by pkg157's CI failure: a phantom overload in the wavefront header
 

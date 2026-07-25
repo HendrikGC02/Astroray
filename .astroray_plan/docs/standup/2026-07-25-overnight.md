@@ -239,8 +239,38 @@ processes:
 - max abs diff 4.77e-07, **2.48e-07 relative to peak — ~40× tighter than the 1e-5
   convention**, and consistent with the measured noise floor
 
-**Verdict: the clamps-off no-op guarantee holds. PR HELD, not merged**, pending the
-two test fixes. Numbers: `test_results/overnight_report_2026-07-25/pkg157_hw_numbers.json`.
+**Final gate at `0651007`: 8 passed, 1 skipped — HW PASS.**
+
+The one skip took three rounds and is worth recording, because the answer turned out to
+be a property of the *scene library*, not of the code. The test asserts pkg144 contract
+item 3 — "clampIndirect suppresses fireflies without energy loss". Round 1 used #515's
+literal `clampIndirect=10` (cannot bind, peak is 1.758). Round 2 used 0.5× peak (clips
+real signal: 4.166% mean shift). Round 3 used p99.9 (clips nothing: `max|Δ|` 4.77e-07 on
+a p99.9 of 13.68 against a peak of 13.75). Rather than let a fourth round happen I
+measured the tail-heaviness of the whole scene library:
+
+| scene | peak/p99.9 @ 16 spp | @ 64 spp |
+|---|---|---|
+| diffuse_light_cornell | 1.82× | 1.53× |
+| thin_glass_cornell | 1.66× | 1.52× |
+| disney_cornell | 1.66× | 1.52× |
+| dielectric_cornell | 1.40× | 1.13× |
+| metal_cornell | 1.07× | 1.04× |
+
+**Not one scene in the suite has a firefly tail** — a real firefly population would show
+a ratio in the tens or hundreds. There is nothing to suppress, so no threshold can
+satisfy both halves of the claim: high enough to clip only outliers ⇒ clips nothing; low
+enough to bite ⇒ removes real signal. The test is now `pytest.mark.skip` with that table
+as its reason — **skip, not xfail**, because the code is not expected to fail and an
+xfail would imply otherwise. **pkg161 filed** to build a firefly-bearing gate scene,
+validated by measurement (`peak/p99.9 ≳ 10×`) rather than by eye, with un-skipping this
+gate in its definition of done. That gap is wider than pkg157: pkg144 item 3 is
+undemonstrable for the same reason, and future clamping / denoising / adaptive-sampling /
+RR work has no scene to show an effect on.
+
+**Verdict: HW PASS.** No-op guarantee and bounce classification both verified on
+hardware; the residual is a missing test scene, not a defect.
+Numbers: `test_results/overnight_report_2026-07-25/pkg157_hw_numbers.json`.
 
 ## PR #525 (pkg88-B) — BLOCKED by independent review, and rightly so
 
@@ -303,9 +333,51 @@ making current-frame the best available single sample. Left as-is deliberately; 
 tradeoff is being recorded in the pkg88 spec so it isn't re-derived later. Interpolating
 normals would need a renderer-side second normal set, out of Phase B scope.
 
-**Still PENDING:** in-Blender hardware verification. The end-to-end test still mocks
-`bpy`, so a real depsgraph re-cook under `frame_set` is untested. Re-review of the fix
-was running at finalize time; PR held, not merged.
+**Independent re-review: SIGN-OFF**, with the strongest evidence of the night. The
+reviewer ran the *new* tests against the *old* pre-fix code in a scratch tree and got
+`10 failed, 9 passed`, reproducing the exact `CENTER: streak only 30 columns wide` and
+`END: streak only 13 columns wide` failures independently — proving the new tests are
+genuine regression guards rather than merely different. Post-fix all three positions
+measure `width=49` with correctly ordered, evenly spaced centres (END 48.0 < CENTER 68.0
+< START 89.0). All `convert_objects` call sites re-checked after the second signature
+change; instancing, frame restoration, `id()` caching and `ADDON_FILES` all still clean.
+
+## And then the real-Blender check found a blocker nobody had hit
+
+Both the implementer and the reviewer named the same residual gap: their end-to-end test
+mocks `bpy`, so a real depsgraph re-cook under `frame_set` was never exercised. Memory
+says Blender 5.1 is installed locally and these checks are mine to run, so I wrote a
+headless harness and ran it.
+
+**It fails immediately, on every shutter position, with
+`RuntimeError: Camera not set up`.**
+
+`convert_scene` executes in this order: `renderer.clear()` → `set_camera_motion_blur(…)`
+→ `setup_camera(…)`. And I confirmed on the real engine that **`clear()` wipes the
+camera**:
+
+```
+setup_camera(...)   -> set_camera_motion_blur OK
+clear()             -> set_camera_motion_blur RAISED "Camera not set up"
+```
+
+So with `use_motion_blur = True`, `convert_scene` raises before it ever reaches
+`setup_camera`. **Enabling motion blur in the Blender addon fails the render outright.**
+
+**This is pre-existing and is NOT pkg88-B's doing.** The same ordering is on `origin/main`
+(`clear()` 1620, `set_camera_motion_blur` 1676, `setup_camera` 1689) — meaning **pkg88-A's
+camera motion blur has been broken in real Blender since it shipped.** No test caught it
+because every motion-blur suite mocks `bpy` and stubs `setup_camera`, so none of them
+model `clear()`'s side effect on camera state.
+
+I have asked the implementer to fix it inside #525 anyway, because object motion blur
+cannot be switched on without `use_motion_blur = True`, so merging as-is would ship a
+feature that fails on first use — fixing it is what makes the deliverable reachable, not
+scope creep. The harness is to be promoted into `scripts/verify_pkg88b_blender.py`
+alongside the existing `verify_pkg114_*_blender.py` scripts; a real-Blender check living
+only in a scratchpad protects nobody.
+
+**PR held, not merged.**
 
 ## Latent landmine found by pkg157's CI failure: a phantom overload in the wavefront header
 

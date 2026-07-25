@@ -2,7 +2,7 @@
 
 **Pillar:** 5  
 **Track:** A  
-**Status:** Phase B' COMPLETE (PR #463, 2026-06-12 — viewport-parity gate MET: wavefront steady-state pan-frame p99 = 0.84× Cycles-OPTIX, target ≤1.2×; mean 0.97×, p50 0.98×; perf gate 1.50× @ 512spp; wavefront_path_tracer registered). Package OPEN for Phase C — **only Session C7 remains** (megakernel removal + repoint + 2× gate; C1–C6b merged, see execution status §Phase C).  
+**Status:** done (PR #TBD, 2026-07-25 — Session C7 landed: both megakernels DELETED, wavefront is the only GPU render path; dedicated lights in wavefront NEE WF/CPU 0.997; final WF/MK ratio 1.48–1.54× median-of-5 pinned in benchmarks/wavefront/megakernel_final_2026-07-25.json; owner-rescoped perf floor ≥1.40× MET — the original ≥2×-vs-Phase-A comparator is dead, see pkg155; 3 env ratio gates remain red under pkg153 quarantine). Phase B' completed PR #463; C1–C6b PRs #481/#484/#486/#490/#494/#497/#503.  
 **Estimated effort:** 10–11 weeks total across three phases (Phase A: 3–4 w, Phase B: 4 w, Phase C: 3 w)  
 **Depends on:** pkg54 (megakernel reference, done), pkg54a (spectral-profile dispatch, done), pkg54b (CIE 1964 CMF parity, done). pkg54c (Jakob-Hanika GPU upsampling) may overlap Phase B — see §Research/Risk 6.
 
@@ -383,7 +383,7 @@ only the honesty guard.
 
 **Goal:** Wavefront achieves full parity including MIS weighting and spectral upsampling. Remove megakernel code paths. Demonstrate ≥ 2× end-to-end speedup.
 
-**Execution status:** running the 7-session plan in `.astroray_plan/docs/pkg55-phase-c-plan-2026-07.md` (delete-last ordering). **Session C1 done — PR #481, 2026-07-18** (behaviour-preserving extraction of the shared spectral-tables layer → `src/gpu/gpu_spectral_tables.{cu,h}` + the pkg86-B probe → `src/gpu/light_tree_probe.cu`, so the eventual megakernel deletion is a clean unlink; byte-identical, 55 passed / 0 failed). C2 done (PR #484), C3 done (PR #486), C4 done (PR #490), C5 done (PR #494), C6a done (PR #497), C6b done (PR #503). **Only C7 remains** (repoint `path_tracer`/`render()` at the wavefront, port non-visible-band + naive-MW mode, delete both megakernel `.cu` files, 2× perf gate) — run as a supervised day session with a full RTX hardware sweep at closeout, not overnight.
+**Execution status:** running the 7-session plan in `.astroray_plan/docs/pkg55-phase-c-plan-2026-07.md` (delete-last ordering). **Session C1 done — PR #481, 2026-07-18** (behaviour-preserving extraction of the shared spectral-tables layer → `src/gpu/gpu_spectral_tables.{cu,h}` + the pkg86-B probe → `src/gpu/light_tree_probe.cu`, so the eventual megakernel deletion is a clean unlink; byte-identical, 55 passed / 0 failed). C2 done (PR #484), C3 done (PR #486), C4 done (PR #490), C5 done (PR #494), C6a done (PR #497), C6b done (PR #503). **C7 DONE — 2026-07-25 supervised day session** (branch `pkg55-c7-wavefront-finale`): dedicated lights into wavefront NEE (pkg89 follow-up; dedicated-only scenes were BLACK on the wavefront — now WF/CPU mean-ratio 0.9965–0.9973 on point/area/mixed, gated by `tests/wavefront_diff/test_pkg89_wavefront_dedicated_nee.py`); perf-push (MIS-store gating + fused counter zeroing; any-hit + null-TLAS fast path verified already present) achieving 1.494× @512 / 1.500× @1024 median-of-5 (session spread 1.476–1.539×); repoint of every GPU integrator name at `cuda_wavefront_render`; BOTH megakernels deleted with a repo-wide stale-call-site sweep (all remaining references are comments). **Perf-gate rescope (owner-approved 2026-07-25):** the "≥2× vs the Phase-A megakernel baseline" criterion is unattainable-as-written — the Phase-A comparator itself regressed ~5.7×/launch (feature cost 2026-05→07, regs 125→188 past the 158 cliff; investigation = pkg155) — so C7's acceptance is the measured live ratio ≥1.40× (MET at 1.48–1.54×), pinned with the full protocol in `benchmarks/wavefront/megakernel_final_2026-07-25.json`; the ongoing suite gate is a wavefront absolute-time ceiling (1.0 s @1024spp contact sheet, RTX 5070 Ti pin). Hidden couplings fixed pre-deletion: `uploadGgxGlassTables` (pkg151) + `uploadProfileTable` (pkg54a) moved into the wavefront driver (previously megakernel-render-only uploads). Intentional Phase-C drops recorded: GPU cryptomatte accumulation (pkg87b; CPU is the supported path), camera-MB GPU (pkg88-A, PORT-later), SMS-GPU spectral (pkg64, xfail, PORT-later). The 3 env-scene ratio gates (R-drift) remain red under the pkg153 quarantine — retargeted at the wavefront per plan R10 with thresholds unchanged. Full evidence: `.astroray_plan/docs/pkg55-c7-day-arc-2026-07-25.md`.
 
 #### Files to delete
 
@@ -411,12 +411,12 @@ only the honesty guard.
 
 #### Phase C acceptance criteria
 
-- [ ] All pkg54 / pkg54a / pkg54b SSIM gates pass with wavefront (megakernel is deleted; tests must still pass).
-- [ ] `multiwavelength_path_tracer` (wavefront) SSIM ≥ 0.985 vs CPU at 64 spp (visible band).
-- [ ] `restir_di` (wavefront) temporal-variance test passes (existing pkg24 gate).
-- [ ] **Performance gate:** ≥ 2× end-to-end frame time improvement on the Disney contact-sheet scene (7 material types, 1024 SPP) compared to the Phase A megakernel baseline, measured on RTX 5070 Ti.
-- [ ] `pytest -q` — all 435+ collected tests pass (or known xfails unchanged).
-- [ ] `STATUS.md` updated; pkg55 marked done.
+- [x] All pkg54 / pkg54a / pkg54b SSIM gates pass with wavefront (megakernel is deleted; tests must still pass) — C7 sweep 2026-07-25.
+- [x] `multiwavelength_path_tracer` (wavefront) SSIM ≥ 0.985 vs CPU at 64 spp (visible band) — C3 gates re-verified on the C7 build.
+- [x] `restir_di` (wavefront) temporal-variance test passes (existing pkg24 gate) — C6b, re-verified on the C7 build.
+- [x] **Performance gate (RESCOPED, owner 2026-07-25):** measured live WF/MK 1.48–1.54× (median-of-5, 1024 SPP contact sheet, RTX 5070 Ti) ≥ the rescoped 1.40× floor; the original ≥2×-vs-Phase-A criterion is void (dead comparator — the megakernel itself slowed ~5.7×/launch since the pin; see pkg155). Final record pinned in `benchmarks/wavefront/megakernel_final_2026-07-25.json`.
+- [x] `pytest` sweep — green except the 3 pkg153-quarantined env ratio gates (pre-existing on main, owner-ruled proceed-under-quarantine) and unchanged known xfails.
+- [x] `STATUS.md` updated; pkg55 marked done.
 
 ---
 
@@ -428,7 +428,7 @@ only the honesty guard.
 | A.1 | Intersect parity test bit-exact; megakernel output unchanged; SoA reg pressure < 158 cliff | **done — 0/576 mismatches; 40–56 regs/thread vs 158** |
 | B | Wavefront SSIM ≥ 0.985 (visible) / ≥ 0.97 (NIR); ≥ 1.5× speedup on 7-material scene | held — superseded by B' execution plan (2026-05-14) |
 | B' | CPU reference-oracle bit-identity, per-stage diff harness, CPU-first then CUDA port; closes B's gates | open (Session 1 done; Session 2a foundation in-progress pending PR; 2b/2c open) |
-| C | All pkg54 SSIM gates pass with megakernel deleted; ≥ 2× speedup on 7-material scene | open |
+| C | All pkg54 SSIM gates pass with megakernel deleted; perf gate rescoped to ≥1.40× live ratio (2× void — dead comparator, pkg155) | **done (C7, 2026-07-25 — 1.48–1.54×)** |
 
 ---
 
@@ -470,11 +470,11 @@ Phase B:
 - [ ] 1.5× performance gate passing
 
 Phase C:
-- [ ] MIS/NEE port
-- [ ] ReSTIR reservoir SoA migration
-- [ ] Megakernel files deleted
-- [ ] 2× performance gate passing
-- [ ] Full test suite clean
+- [x] MIS/NEE port (C2 audit: wavefront already MIS-correct; C7 added dedicated-light NEE)
+- [x] ReSTIR reservoir SoA migration (C6a/C6b)
+- [x] Megakernel files deleted (C7, 2026-07-25)
+- [x] Performance gate passing (rescoped ≥1.40× — measured 1.48–1.54×; ≥2×-vs-Phase-A void, see pkg155)
+- [x] Full test suite clean (except pkg153-quarantined env ratio gates)
 
 ---
 

@@ -1,22 +1,29 @@
-"""pkg55 Phase-B performance gate — wavefront vs megakernel on the
-balanced 7-material Disney contact sheet (tests/scenes/disney_contact_sheet).
+"""pkg55 Phase-C7 performance gate — wavefront absolute-time regression guard
+on the balanced 7-material Disney contact sheet (tests/scenes/disney_contact_sheet).
 
-Spec: pkg55-wavefront-soa-refactor.md Phase B acceptance — ">= 1.5x faster
-than the megakernel ... 7 material types, 512 SPP, end-to-end frame time on
-RTX 5070 Ti". Reference: Laine, Karras, Aila 2013 (2x+ in material-diverse
-scenes); Cycles X Koro 2.2x.
+HISTORY (the live WF-vs-megakernel ratio gates retired 2026-07-25 with the
+megakernel deletion — C7):
+- Phase-B floor >= 1.30x / target 1.5x, measured vs the LIVE MW megakernel.
+- Final pre-deletion record (RTX 5070 Ti, GPU lock held, median-of-5,
+  2026-07-25, C7 acceptance): 1.494x @512spp, 1.500x @1024spp on a cool GPU
+  (43 C); session spread across clock states 1.476-1.539x. Absolute times and
+  the full protocol are pinned in
+  benchmarks/wavefront/megakernel_final_2026-07-25.json.
+- The spec's original ">= 2x vs the Phase-A baseline" was RESCOPED by the
+  owner (2026-07-25): the Phase-A pin is dead as a comparator — the megakernel
+  itself regressed ~5.7x per launch between 2026-05 and 2026-07 (feature cost,
+  regs 125->188; see pkg155) — and the meaningful live ratio stabilized at
+  1.48-1.54x. C7 acceptance floor >= 1.40x: MET (see spec execution status).
 
-Two tiers (the repo's established aspirational-gate pattern):
-- HARD floor: speedup >= 1.30x — regression protection at the
-  template-RNG-arc measured level (stable 1.41-1.46x @ 512spp on RTX
-  5070 Ti, 2026-06-11 evening) with headroom for machine variance.
-  History: N+7p4 1.38x -> +shadow stage 1.39x -> +direct-PCG draws 1.46x.
-- TARGET >= 1.5x: xfail(strict=False). Shadow-stage split + direct-PCG
-  draws landed (1.46x); the named next lever is ANY-HIT shadow traversal
-  -- equal absolute savings grow the ratio while MK > WF (see spec).
+WHAT THIS FILE NOW GATES: with the megakernel gone, a live ratio cannot be
+measured, so this is a wavefront-only absolute wall-time ceiling — a
+gross-regression tripwire (catches >~40% slowdowns; finer perf tracking is
+pkg155's scope). Machine-pinned to the RTX 5070 Ti workstation like the other
+wavefront_diff gates. Measured 2026-07-25: WF 1024spp median 0.570-0.711 s
+across cool/warm clock states; ceiling 1.0 s keeps ~40% headroom above the
+worst observed state.
 
-Both legs render linear output (applyGamma=False) -- memory:
-render-probe-applygamma-footgun.
+Linear output (applyGamma=False) — memory: render-probe-applygamma-footgun.
 """
 
 from __future__ import annotations
@@ -49,12 +56,13 @@ if AVAILABLE and not hasattr(astroray, "cuda_wavefront_render"):
     )
 
 WIDTH = HEIGHT = 256
-SPP = 512
+SPP = 1024
 MAX_DEPTH = 8
 SEED = 424242
+CEILING_S = 1.0  # RTX 5070 Ti pin, 2026-07-25 (see module docstring)
 
 
-def _build(gpu: bool):
+def _build():
     scenes_dir = Path(__file__).resolve().parent.parent / "scenes"
     sys.path.insert(0, str(scenes_dir))
     import disney_contact_sheet as scene_mod  # noqa: E402
@@ -65,61 +73,31 @@ def _build(gpu: bool):
     r.set_seed(SEED)
     r.set_integrator_param("max_depth", MAX_DEPTH)
     r.set_integrator("path_tracer")
-    if gpu:
-        r.set_use_gpu(True)
     _ = r.render(1, 1, None, False)  # warmup / BVH build
     return r
 
 
-def _measure():
-    r_mk = _build(gpu=True)
-    _ = r_mk.render(64, MAX_DEPTH, None, False)  # warm
-    t0 = time.perf_counter()
-    mk = np.asarray(r_mk.render(SPP, MAX_DEPTH, None, False),
-                    dtype=np.float32).reshape(HEIGHT, WIDTH, 3)
-    t_mk = time.perf_counter() - t0
-
-    r_wf = _build(gpu=False)
-    _ = astroray.cuda_wavefront_render(r_wf, 64, MAX_DEPTH, SEED)  # warm
-    t0 = time.perf_counter()
-    wf = np.asarray(astroray.cuda_wavefront_render(r_wf, SPP, MAX_DEPTH, SEED),
-                    dtype=np.float32).reshape(HEIGHT, WIDTH, 3)
-    t_wf = time.perf_counter() - t0
-    return t_mk, t_wf, mk, wf
-
-
-_RESULT = None
-
-
-def _result():
-    global _RESULT
-    if _RESULT is None:
-        _RESULT = _measure()
-    return _RESULT
-
-
-def test_wavefront_contact_sheet_floor():
-    """HARD floor: wavefront >= 1.30x faster than the megakernel, and the
-    two GPU pipelines agree (same BSDFs) within 3% per channel."""
-    t_mk, t_wf, mk, wf = _result()
-    speedup = t_mk / t_wf
-    ratio = wf.mean(axis=(0, 1)) / np.maximum(mk.mean(axis=(0, 1)), 1e-6)
-    print(f"[perf-gate] MK {t_mk:.3f}s WF {t_wf:.3f}s speedup {speedup:.2f}x "
-          f"ratio {np.round(ratio, 4)}")
-    assert np.all(np.abs(ratio - 1.0) <= 0.03), (
-        f"WF/MK image ratio out of bounds: {ratio}"
+def test_wavefront_contact_sheet_ceiling():
+    """Wavefront 1024spp contact sheet: median-of-3 wall time under the pinned
+    ceiling, and the image is non-black (route sanity)."""
+    if not astroray.Renderer().gpu_available:
+        pytest.skip("No CUDA GPU available")
+    r = _build()
+    _ = astroray.cuda_wavefront_render(r, 64, MAX_DEPTH, SEED)  # warm / JIT
+    times = []
+    img = None
+    for _i in range(3):
+        t0 = time.perf_counter()
+        img = np.asarray(astroray.cuda_wavefront_render(r, SPP, MAX_DEPTH, SEED),
+                         dtype=np.float32).reshape(HEIGHT, WIDTH, 3)
+        times.append(time.perf_counter() - t0)
+    med = float(np.median(times))
+    print(f"[perf-gate] WF {SPP}spp median-of-3 {med:.3f}s "
+          f"(runs {[round(t, 3) for t in times]}; ceiling {CEILING_S}s)")
+    assert img is not None and float(img.mean()) > 1e-4, (
+        "wavefront render came back (near-)black — route/upload regression")
+    assert med <= CEILING_S, (
+        f"Wavefront perf REGRESSED: median {med:.3f}s > {CEILING_S}s ceiling "
+        f"(2026-07-25 pin: 0.570-0.711s across clock states; see "
+        f"benchmarks/wavefront/megakernel_final_2026-07-25.json)"
     )
-    assert speedup >= 1.30, (
-        f"Wavefront perf floor REGRESSED: {speedup:.2f}x < 1.30x "
-        f"(MK {t_mk:.3f}s, WF {t_wf:.3f}s)"
-    )
-
-
-@pytest.mark.xfail(
-    strict=False,
-    reason="Phase-B target gate: >= 1.5x (measured 1.41-1.46x after the "
-    "template-RNG arc; next lever is any-hit shadow traversal — see spec).",
-)
-def test_wavefront_contact_sheet_target():
-    t_mk, t_wf, _, _ = _result()
-    assert t_mk / t_wf >= 1.5

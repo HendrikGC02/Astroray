@@ -25,6 +25,13 @@
 // zero and every spectrum evaluates to 0 (black frame).
 void uploadCmfTables();
 void uploadJakobHanikaLut();
+// pkg55-C7 (megakernel removal): these uploads previously happened only in
+// the megakernel render entries (cuda_renderer.cu); the wavefront is now the
+// production route and must own them. Defined in gpu_glass_tables.cu (pkg151
+// rough-transmission multiscatter compensation) / gpu_spectral_tables.cu
+// (pkg54a per-material spectral profiles).
+void uploadGgxGlassTables();
+void uploadProfileTable(const float* host, int count);
 
 // pkg55-C5 / pkg113: photon caustic grid structures.
 #include "astroray/gpu_photon_caustic.h"
@@ -1469,6 +1476,13 @@ std::vector<float> cuda_wavefront_render(
     // rewrite and caught by the image gate — keep these with the render.)
     uploadCmfTables();
     uploadJakobHanikaLut();
+    // pkg55-C7: table uploads the deleted megakernel entries used to own.
+    // Without these the wavefront read zeroed device tables whenever no
+    // megakernel render preceded it in-process (pkg151 glass compensation
+    // silently off; pkg54a NIR/UV profile override broken).
+    uploadGgxGlassTables();
+    if (res.profileCount > 0)
+        uploadProfileTable(res.profileTable.data(), res.profileCount);
 
     {
         const long long total_work = (long long)total_paths * samples;
@@ -1753,6 +1767,7 @@ std::vector<float> cuda_wavefront_render_restir(
     // spectral upsample / XYZ conversion (same per-render upload as the path).
     uploadCmfTables();
     uploadJakobHanikaLut();
+    uploadGgxGlassTables();  // pkg55-C7: see cuda_wavefront_render note
 
     // ReSTIR-DI is visible-band spectral (matches the CPU restir_di).
     const float lambdaMin = 380.0f, lambdaMax = 780.0f;

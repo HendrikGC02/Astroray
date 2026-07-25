@@ -15,6 +15,15 @@ Two gates:
     (upload_instance_transforms) must cost < 50% of a full geometry upload
     (upload_geometry) — in practice it is a tiny fraction.
 
+pkg55-C7 NOTE (2026-07-25, megakernel deletion): render(skip_upload=True) on
+the GPU route now renders via the WAVEFRONT, which re-flattens the CURRENT CPU
+scene state every render — skip_upload only skips the CPU BVH rebuild, not a
+device-state reuse. The CORRECTNESS gate's assertions still hold (the CPU
+transform is B after the refit, A in the negative control), but the
+device-state-reuse semantics they originally probed belong to the megakernel
+era; the refit's device push is still exercised by the BUDGET gate +
+upload_instance_transforms itself (device arrays owned by CUDARenderer).
+
 Skipped when the astroray module lacks CUDA or no GPU is present.
 """
 from __future__ import annotations

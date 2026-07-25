@@ -1,17 +1,26 @@
-"""pkg55-C5 gates: spectral photon-map caustics in the GPU wavefront.
+"""pkg55-C5 gate: spectral photon-map caustics in the GPU wavefront.
 
-1. Photons OFF: the wavefront default path is untouched by the C5 code
-   (run-to-run max_abs_diff <= 1e-5, the GPU atomic-accumulation convention
-   adjudicated in PR #490).
-2. Photons ON: wavefront (cuda_wavefront_render route) vs the MW megakernel
-   photon-caustic baseline on the pkg113 glass-sphere scene, SSIM >= 0.80
-   (pkg113 Phase-3 parity threshold class).
+Photons OFF: the wavefront default path is untouched by the C5 code
+(run-to-run max_abs_diff <= 1e-5, the GPU atomic-accumulation convention
+adjudicated in PR #490).
+
+pkg55-C7 RETIREMENT (2026-07-25): the former second gate here
+(`test_wavefront_photon_caustic_parity`, wavefront vs MW-megakernel SSIM)
+was RETIRED with the megakernel deletion — after C7 both legs route to the
+wavefront, making the comparison a self-comparison. The live photon-caustic
+gate is tests/test_gpu_caustic_parity.py (GPU-vs-CPU energy-ratio + peak,
+which now exercises the wavefront route). That retirement also disposes of
+pkg153 failure class 3 (the SSIM=-0.0 flake was this WF-vs-MW comparison —
+windowed SSIM on independent-RNG noisy caustics, memory
+ssim-wrong-gate-for-independent-rng); the separate ~24% WF-vs-MW peak
+deficit observation is recorded in the pkg153 spec for follow-up against
+the CPU reference.
 
 Scene/builders are REUSED from tests/test_gpu_caustic_parity.py — the proven
 pkg113 harness — rather than re-declared (the invented-API test failure mode,
 see pkg115/pkg55-C3 history).
 
-Spec: .astroray_plan/docs/pkg55-phase-c-plan-2026-07.md Session C5.
+Spec: .astroray_plan/docs/pkg55-phase-c-plan-2026-07.md Sessions C5 + C7.
 """
 
 import numpy as np
@@ -23,7 +32,7 @@ configure_test_imports()
 import astroray  # noqa: E402
 
 from test_gpu_caustic_parity import (  # noqa: E402  (proven pkg113 builders)
-    _build_glass_sphere, _render, _ssim, _luminance,
+    _build_glass_sphere, _render,
 )
 
 
@@ -63,39 +72,6 @@ def test_wavefront_photons_off_identity():
         f"(C5 must leave the default path untouched)")
 
 
-def test_wavefront_photon_caustic_parity(test_results_dir):
-    """C5 primary gate: wavefront photon gather vs MW-kernel baseline.
-
-    Both legs render the pkg113 glass-sphere caustic scene on the GPU with the
-    photon pre-pass opted in; only the integrator route differs (wavefront vs
-    MW megakernel). SSIM >= 0.80 per the pkg113 Phase-3 threshold class.
-    """
-    # MW megakernel baseline (the exact pkg113 GPU wiring)
-    r_mw = _build_glass_sphere(use_gpu=True)
-    img_mw = _render(r_mw, samples=64, seed=42)
-
-    # Wavefront route, same scene + photon opt-in
-    r_wf = _build_glass_sphere(use_gpu=True)
-    _to_wavefront(r_wf)
-    img_wf = _render(r_wf, samples=64, seed=42)
-
-    ssim = _ssim(img_wf, img_mw)
-    peak_wf = float(_luminance(img_wf).max())
-    peak_mw = float(_luminance(img_mw).max())
-
-    if test_results_dir:
-        import os
-        from PIL import Image
-
-        def save_png(img, path):
-            clipped = np.clip(img ** (1 / 2.2), 0, 1)
-            Image.fromarray((clipped * 255).astype(np.uint8)).save(path)
-
-        save_png(img_wf, os.path.join(test_results_dir, "pkg55_c5_wavefront_photons.png"))
-        save_png(img_mw, os.path.join(test_results_dir, "pkg55_c5_mw_baseline_photons.png"))
-        print(f"\n[pkg55-C5] SSIM={ssim:.4f} (gate >=0.80)  "
-              f"peak WF={peak_wf:.3f} MW={peak_mw:.3f}")
-
-    assert ssim >= 0.80, (
-        f"Photon caustic parity failed: SSIM={ssim:.4f} < 0.80 "
-        f"(peak WF={peak_wf:.3f} MW={peak_mw:.3f})")
+# pkg55-C7: test_wavefront_photon_caustic_parity (WF vs MW megakernel) was
+# retired here — see the module docstring. The live gate is
+# tests/test_gpu_caustic_parity.py on the wavefront route.

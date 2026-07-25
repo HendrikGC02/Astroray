@@ -34,36 +34,14 @@
     }                                                                   \
 } while(0)
 
-// Forward declarations of kernel launcher functions defined in path_trace_kernel.cu
-void launchInitRNG(curandState* d_states, int n, unsigned long long seed);
-void launchPathTraceKernel(
-    float* d_framebuffer, int width, int height,
-    int samplesPerPixel, int maxDepth,
-    bool useCaustics,  // pkg64-gpu Phase 2
-    float clampDirect, float clampIndirect,  // pkg144
-    const GTLASNode*  d_tlas, const GInstance* d_instances, const GBLAS* d_blas,  // pkg114
-    const GBVHNode*  d_bvhNodes,
-    const GPrimitive* d_prims,
-    const GTriangle*  d_tris,
-    const GSphere*    d_spheres,
-    const GMaterial*  d_materials,
-    const GLight*     d_lights, int numLights, float totalLightPower,
-    GLightTreeView lightTree,  // pkg86-B
-    const astroray::manifold::device::GSMSCaster* d_smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
-    GEnvMap envMap,
-    GCameraParams cam,
-    float filmExposure,
-    GVec3 backgroundColor, bool hasBackgroundColor,
-    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
-    float photonScale,                                                   // pkg113 Phase 3
-    const GVec3* d_motionVertices,  // pkg88-C.0
-    curandState* d_rngStates,
-    float* d_cryptoObjectBuffer = nullptr,      // pkg87b
-    float* d_cryptoMaterialBuffer = nullptr,    // pkg87b
-    int cryptoDepth = 6,                         // pkg87b
-    bool cryptomatteEnabled = false);            // pkg87b
+// pkg55-C7: the megakernel launcher decls (launchInitRNG /
+// launchPathTraceKernel / launchMultiwavelengthKernel) were deleted with
+// src/gpu/path_trace_kernel.cu + src/gpu/multiwavelength_kernel.cu; the
+// production GPU render path is the wavefront
+// (src/gpu/wavefront/gpu_wavefront_snapshot.cu::cuda_wavefront_render).
 
-// pkg86-B — batch light-tree pick probe (defined in path_trace_kernel.cu).
+// pkg86-B — batch light-tree pick probe (defined in light_tree_probe.cu
+// since pkg55-C1).
 void launchLightTreePick(
     GLightTreeView view, const float* d_pts, const float* d_nrms,
     const float* d_us, int n, int* d_outIdx, float* d_outPdf);
@@ -96,32 +74,6 @@ void launchPkg64SmsProbe(
     const GMaterial*  d_materials,
     const GLight*     d_lights,
     int numLights);
-
-void launchMultiwavelengthKernel(
-    float* d_framebuffer, int width, int height,
-    int samplesPerPixel, int maxDepth,
-    int worldMaxBounces,  // pkg55-B' N+6 follow-up: env gate, raytracer.h:2412
-    float clampDirect, float clampIndirect,  // pkg144
-    float lambdaMin, float lambdaMax, bool useLuminanceOutput,
-    bool enableNEE,
-    bool useCaustics,  // pkg64-gpu Phase 2
-    const GTLASNode*  d_tlas, const GInstance* d_instances, const GBLAS* d_blas,  // pkg114
-    const GBVHNode*  d_bvhNodes,
-    const GPrimitive* d_prims,
-    const GTriangle*  d_tris,
-    const GSphere*    d_spheres,
-    const GMaterial*  d_materials,
-    const GLight*     d_lights, int numLights, float totalLightPower,
-    const GDedicatedLight* d_dedLights, int numDed,   // pkg89-GPU / GAP 1
-    GLightTreeView lightTree,  // pkg86-B
-    const astroray::manifold::device::GSMSCaster* d_smsCasters, int numSMSCasters,  // pkg64-gpu Phase 2
-    GEnvMap envMap,
-    GCameraParams cam,
-    GVec3 backgroundColor, bool hasBackgroundColor,
-    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,  // pkg113 Phase 3
-    float photonScale,                                                   // pkg113 Phase 3
-    const GVec3* d_motionVertices,  // pkg88-C.0
-    curandState* d_rngStates);
 
 // ---------------------------------------------------------------------------
 // Helper: upload host vector → device array
@@ -193,17 +145,11 @@ struct CUDARenderer::Impl {
     bool  hasBackgroundColor = false;
     float filmExposure    = 1.0f;
 
-    // Output / RNG
-    float*       d_framebuffer = nullptr;
-    curandState* d_rngStates   = nullptr;
-    int          fbWidth = 0, fbHeight = 0;
+    // pkg55-C7: the megakernel framebuffer / curand RNG states / pkg87b GPU
+    // cryptomatte buffers were removed with the megakernels (GPU cryptomatte
+    // accumulation is an intentional Phase-C drop; CPU cryptomatte is the
+    // supported path).
     int          profileCount = 0;
-
-    // pkg87b: Cryptomatte device buffers + state
-    float*       d_cryptoObjectBuffer = nullptr;
-    float*       d_cryptoMaterialBuffer = nullptr;
-    bool         cryptomatteEnabled = false;
-    int          cryptoDepth = 6;
 
     // pkg64-gpu Phase 1 probe: stashed host Renderer for CPU reference.
     const Renderer* hostRenderer = nullptr;
@@ -257,10 +203,6 @@ struct CUDARenderer::Impl {
         numLightTreeNodes = 0;
         if (d_smsCasters) { cudaFree(d_smsCasters);  d_smsCasters = nullptr; }  // pkg64-gpu Phase 2
         freeEnv();
-        if (d_framebuffer){ cudaFree(d_framebuffer); d_framebuffer= nullptr; }
-        if (d_rngStates)  { cudaFree(d_rngStates);  d_rngStates  = nullptr; }
-        if (d_cryptoObjectBuffer){ cudaFree(d_cryptoObjectBuffer); d_cryptoObjectBuffer= nullptr; }  // pkg87b
-        if (d_cryptoMaterialBuffer){ cudaFree(d_cryptoMaterialBuffer); d_cryptoMaterialBuffer= nullptr; }  // pkg87b
         // pkg85-B: swallow any latent error from cudaFree (or from a prior
         // kernel launch that surfaced only here). freeAll() runs from both
         // the destructor (noexcept) and production cleanup paths; throwing
@@ -279,29 +221,6 @@ struct CUDARenderer::Impl {
         cudaGetLastError();
     }
 
-    void ensureFramebuffer(int w, int h, int cryptoDepth = 0, bool needCrypto = false) {
-        bool resize = (w != fbWidth || h != fbHeight);
-        if (!resize && d_framebuffer && (!needCrypto || d_cryptoObjectBuffer)) return;
-        if (d_framebuffer) { cudaFree(d_framebuffer); d_framebuffer = nullptr; }
-        if (d_rngStates)   { cudaFree(d_rngStates);   d_rngStates   = nullptr; }
-        if (d_cryptoObjectBuffer) { cudaFree(d_cryptoObjectBuffer); d_cryptoObjectBuffer = nullptr; }  // pkg87b
-        if (d_cryptoMaterialBuffer) { cudaFree(d_cryptoMaterialBuffer); d_cryptoMaterialBuffer = nullptr; }  // pkg87b
-        // pkg85-B: free errors above must not contaminate the cudaMalloc below.
-        cudaGetLastError();
-        fbWidth = w; fbHeight = h;
-        int n = w * h;
-        CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_framebuffer), n * 3 * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_rngStates),   n * sizeof(curandState)));
-        // pkg87b: allocate crypto buffers when needed
-        if (needCrypto && cryptoDepth > 0) {
-            size_t cryptoSize = n * cryptoDepth * 2 * sizeof(float);
-            CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_cryptoObjectBuffer), cryptoSize));
-            CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_cryptoMaterialBuffer), cryptoSize));
-            CUDA_CHECK(cudaMemset(d_cryptoObjectBuffer, 0, cryptoSize));
-            CUDA_CHECK(cudaMemset(d_cryptoMaterialBuffer, 0, cryptoSize));
-        }
-        // Seed RNG once; re-seed will be called from render()
-    }
 };
 
 // ---------------------------------------------------------------------------
@@ -313,26 +232,6 @@ CUDARenderer::~CUDARenderer() = default;
 bool CUDARenderer::isAvailable() const { return impl->available; }
 std::string CUDARenderer::deviceName() const { return impl->devName; }
 float CUDARenderer::getProgress() const { return 0.f; }
-
-// pkg87b
-void CUDARenderer::setCryptomatteEnabled(bool enabled) { impl->cryptomatteEnabled = enabled; }
-bool CUDARenderer::getCryptomatteEnabled() const { return impl->cryptomatteEnabled; }
-void CUDARenderer::copyCryptoBuffersToHost(std::vector<float>& objectBuffer,
-                                             std::vector<float>& materialBuffer,
-                                             int width, int height, int depth) {
-    if (!impl->d_cryptoObjectBuffer || !impl->d_cryptoMaterialBuffer) {
-        objectBuffer.clear();
-        materialBuffer.clear();
-        return;
-    }
-    size_t size = width * height * depth * 2;
-    objectBuffer.resize(size);
-    materialBuffer.resize(size);
-    CUDA_CHECK(cudaMemcpy(objectBuffer.data(), impl->d_cryptoObjectBuffer,
-                          size * sizeof(float), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(materialBuffer.data(), impl->d_cryptoMaterialBuffer,
-                          size * sizeof(float), cudaMemcpyDeviceToHost));
-}
 
 // pkg56 Phase B — per-domain incremental uploaders.
 //
@@ -665,362 +564,24 @@ void CUDARenderer::uploadEnvironmentMap(const EnvironmentMap& envMap) {
     impl->envMap.loaded          = true;
 }
 
-// pkg113 Phase 3 — build the forward-photon aperture aim from the CPU Renderer,
-// mirroring the host setup in spectral_path_tracer.cpp::buildPhotonMap (l.346-368):
-// union AABB of flagged caustic casters → centroid + radius; collimated sun
-// direction → an aperture disc upstream of the casters. Returns aim.valid=false
-// when there are no casters or no lights (the pre-pass is then skipped).
-static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
-    const Renderer& scene, int maxDepth) {
-    astroray::photon::gpu::PhotonCausticAim aim{};
-    aim.valid = false;
-    aim.lambdaMin = 380.0f;
-    aim.lambdaMax = 720.0f;
-    aim.maxDepth  = maxDepth;
-    aim.boost     = 1.2f;   // CPU caustic_boost default (spectral_path_tracer.cpp:499)
-    aim.photonCount = 4000000;  // forward photons (≈2000² lattice); CPU traces 3e6
-
-    // Union AABB of all flagged caustic-caster objects.
-    AABB casterBounds; bool any = false;
-    for (const auto& obj : scene.getScene()) {
-        if (!obj || !obj->isCausticCaster()) continue;
-        AABB ob;
-        if (!obj->boundingBox(ob)) continue;
-        casterBounds = any ? casterBounds.merge(ob) : ob;
-        any = true;
-    }
-    if (!any) return aim;
-
-    const Vec3 casterC = casterBounds.centroid();
-    const float crad = (casterBounds.max - casterBounds.min).length() * 0.55f + 1e-3f;
-
-    const auto& lights = scene.getLights();
-    if (lights.empty()) return aim;
-
-    // Probe one light sample toward the caster centroid to get the sun direction
-    // (CPU :356-362). A fixed seed keeps the aim deterministic frame-to-frame.
-    std::mt19937 gen(12345u);
-    astroray::SampledWavelengths probe = astroray::SampledWavelengths::sampleUniform(0.5f);
-    LightSample ls;
-    lights.sample(ls, casterC, Vec3(0, 1, 0), probe, gen);
-    Vec3 sunDir = (casterC - ls.position).normalized();
-    if (sunDir.length2() < 1e-6f) return aim;
-
-    Vec3 origin0 = casterC - sunDir * (crad + 2.0f);
-    aim.sunDir         = GVec3(sunDir.x, sunDir.y, sunDir.z);
-    aim.apertureOrigin = GVec3(origin0.x, origin0.y, origin0.z);
-    aim.apertureRadius = crad;
-    aim.valid = true;
-    return aim;
-}
-
-void CUDARenderer::render(
-    std::vector<Vec3>& pixels, int width, int height,
-    int seed, int samplesPerPixel, int maxDepth,
-    bool use_refractive_caustics,
-    bool use_reflective_caustics)
-{
+// ---------------------------------------------------------------------------
+// pkg64-gpu Phase 1 probe (pkg55-C7: moved out of the deleted
+// CUDARenderer::render). Driven by the ASTRORAY_PKG64_GPU_SMS_PROBE env-var
+// hook from the module dispatch; emits a single stderr line the
+// test_pkg64_gpu_sms_attempt_unit.py subprocess harness parses. Requires
+// uploadScene() to have populated the device arrays + hostRenderer stash.
+// ---------------------------------------------------------------------------
+void CUDARenderer::runSmsProbe() {
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
-    // pkg85-C: allow world-only renders. The path-trace kernel's
-    // gpu_bvh_hit() already returns false when d_bvhNodes is null, so a
-    // scene with an environment map but no geometry should produce a
-    // pure-env image rather than throwing here. Only fail if neither a
-    // scene nor an environment map has been uploaded.
-    if (!impl->d_bvhNodes && !impl->envMap.loaded)
-        throw std::runtime_error("Scene not uploaded — call uploadScene() first");
-
-    astroray::gpu_profile::NvtxRange _nvtx_render("CUDARenderer::render");
-    impl->ensureFramebuffer(width, height, impl->cryptoDepth, impl->cryptomatteEnabled);  // pkg87b
-    int totalPixels = width * height;
-
-    // path_trace_kernel.cu uses gpu_rgbToSampledSpectrum(...) with
-    // GSPEC_RGB_ILLUMINANT for environment colour, which now reads the
-    // D65 SPD baked into MW kernel constant memory — make sure it's
-    // uploaded before the kernel runs. pkg54c additionally requires the
-    // Jakob-Hanika sigmoid LUT in device global memory because
-    // gpu_rgbSpectrumAt now upsamples via gpu_jhEvalSpectrum.
-    uploadCmfTables();
-    uploadJakobHanikaLut();
-    uploadGgxGlassTables();  // pkg151
-    uploadGgxTables();  // pkg152
-
-    unsigned long long rngSeed = (seed == 0)
-        ? (unsigned long long)time(nullptr)
-        : (unsigned long long)seed;
-    launchInitRNG(impl->d_rngStates, totalPixels, rngSeed);
-
-    // pkg64-gpu Phase 1 probe hook — when ASTRORAY_PKG64_GPU_SMS_PROBE env
-    // var is set, run the SMS probe harness (pkg64_sms_probe.cu) instead of
-    // the normal render. The probe emits a single stderr line for
-    // test_pkg64_gpu_sms_attempt_unit.py to parse.
-    {
-        const char* probe_env = std::getenv("ASTRORAY_PKG64_GPU_SMS_PROBE");
-        bool probe_on = probe_env && probe_env[0] && std::strcmp(probe_env, "0") != 0;
-        if (probe_on) {
-            if (!impl->hostRenderer) {
-                std::fprintf(stderr,
-                    "[pkg64-gpu] sms attempt probe: no host Renderer stashed "
-                    "(uploadScene not called before render)\n");
-                return;
-            }
-            launchPkg64SmsProbe(
-                *impl->hostRenderer,
-                impl->d_bvhNodes, impl->d_prims, impl->d_triangles,
-                impl->d_spheres, impl->d_materials,
-                impl->d_lights, impl->numLights);
-            // Return early without rendering — the probe ran instead.
-            return;
-        }
+    if (!impl->hostRenderer) {
+        std::fprintf(stderr,
+            "[pkg64-gpu] sms attempt probe: no host Renderer stashed "
+            "(uploadScene not called before render)\n");
+        return;
     }
-
-#ifdef ASTRORAY_WAVEFRONT_INTERSECT
-    // pkg55-A.1 dual-trace parity hook. Only fires when the env var is
-    // set; even then, the AoS megakernel runs unchanged because we
-    // restore d_rngStates from a snapshot before launchPathTraceKernel().
-    //
-    // Reference pattern: Cycles' debug-cuda-kernel-paranoia mode
-    // (intern/cycles/device/cuda/queue.cpp) — runs a reference trace
-    // alongside the production launch and traps on mismatch.
-    {
-        const char* parity_env = std::getenv("ASTRORAY_WAVEFRONT_INTERSECT_PARITY");
-        bool parity_on = parity_env && parity_env[0] && std::strcmp(parity_env, "0") != 0;
-        if (parity_on) {
-            astroray::gpu_profile::NvtxRange _nvtx_w("wavefront_intersect_parity_dual_trace");
-            using astroray::wavefront::IntegratorStateSoA;
-            using astroray::wavefront::allocateSoAState;
-            using astroray::wavefront::freeSoAState;
-            using astroray::wavefront::launchStageInit;
-            using astroray::wavefront::launchStageIntersect;
-            using astroray::wavefront::launchIntersectParity;
-
-            IntegratorStateSoA soa;
-            if (!allocateSoAState(soa, totalPixels)) {
-                throw std::runtime_error(
-                    "[pkg55-A.1] allocateSoAState failed (totalPixels=" +
-                    std::to_string(totalPixels) + ")");
-            }
-
-            // Snapshot freshly-init RNG so parity verifier can re-run the
-            // same primary-ray sequence, and so we can restore d_rngStates
-            // before the megakernel launches (preserving AoS parity).
-            curandState* rng_snapshot = nullptr;
-            CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&rng_snapshot),
-                                  totalPixels * sizeof(curandState)));
-            CUDA_CHECK(cudaMemcpy(rng_snapshot, impl->d_rngStates,
-                                  totalPixels * sizeof(curandState),
-                                  cudaMemcpyDeviceToDevice));
-            // SoA path uses a private rng buffer (not d_rngStates) so the
-            // megakernel's RNG state is unaffected by the dual-trace.
-            CUDA_CHECK(cudaMemcpy(soa.rng_state, rng_snapshot,
-                                  totalPixels * sizeof(curandState),
-                                  cudaMemcpyDeviceToDevice));
-
-            launchStageInit(soa, impl->camera, width, height);
-            launchStageIntersect(soa,
-                impl->d_bvhNodes, impl->d_prims,
-                impl->d_triangles, impl->d_spheres);
-            int mismatches = launchIntersectParity(
-                soa, rng_snapshot, impl->camera, width, height,
-                impl->d_bvhNodes, impl->d_prims,
-                impl->d_triangles, impl->d_spheres);
-            std::fprintf(stderr,
-                "[pkg55-A.1] wavefront intersect parity: %d / %d rays mismatched\n",
-                mismatches, totalPixels);
-            if (mismatches != 0) {
-                cudaFree(rng_snapshot);
-                freeSoAState(soa);
-                cudaGetLastError();  // pkg85-B: swallow cleanup errors before throw
-                throw std::runtime_error(
-                    "[pkg55-A.1] wavefront intersect parity check found mismatches");
-            }
-            CUDA_CHECK(cudaFree(rng_snapshot));
-            freeSoAState(soa);
-            // d_rngStates was never advanced (SoA path used its own buffer);
-            // megakernel below sees exactly the post-launchInitRNG state,
-            // i.e. bit-identical to the no-parity build.
-        }
-    }
-#endif  // ASTRORAY_WAVEFRONT_INTERSECT
-
-    // pkg64-gpu Phase 3: enable caustics only if casters exist and flags are set.
-    // SMS requires BOTH refractive AND reflective flags to be true (matching
-    // the CPU integrator convention — per-vertex SMS attempt checks both).
-    bool useCaustics = use_refractive_caustics && use_reflective_caustics;
-
-    // pkg113 Phase 3: scene-driven photon-map caustic pre-pass. When refractive
-    // caustics are on and the uploaded scene has flagged caster glass, forward-
-    // trace photons through it, build a resident hash grid, and hand the grid +
-    // calibrated brightness scale to the megakernel (it gathers at receiver hits).
-    // Mirrors the CPU pkg111 beginFrame pre-pass + sampleFull gather. Gated on the OPT-IN
-    // usePhotonCaustics flag (pkg113 Phase-3): the photon map is the canonical GPU caustic
-    // path (parity doc Decisions §1), but during the SMS->photon-map transition it is opt-in
-    // so legacy SMS-GPU scenes (use_refractive_caustics alone) keep the SMS path unchanged
-    // (otherwise the pre-pass disables SMS and regresses the pkg64-gpu receiver-energy gate).
-    astroray::photon::gpu::GPhotonCausticResult caustic{};
-    caustic.ready = false;
-    if (use_refractive_caustics && impl->hostRenderer &&
-        impl->hostRenderer->getUsePhotonCaustics()) {
-        astroray::photon::gpu::PhotonCausticAim aim =
-            buildCausticAim(*impl->hostRenderer, maxDepth);
-        if (aim.valid) {
-            astroray::gpu_profile::NvtxRange _nvtx_pm("pkg113 photon caustic pre-pass");
-            caustic = astroray::photon::gpu::cuda_photon_caustic_build(
-                impl->d_bvhNodes, impl->d_prims, impl->d_triangles,
-                impl->d_spheres, impl->d_materials, aim);
-            if (caustic.ready) {
-                printf("[CUDA] pkg113 photon caustic: %d photons, scale %g\n",
-                       caustic.numPhotons, caustic.scale);
-            }
-        }
-    }
-    // pkg113 / parity doc Decisions §1: the photon map is the canonical GPU
-    // caustic path; SMS-GPU is legacy. When the photon caustic grid is active,
-    // disable the legacy SMS attempt so the caustic is not double-counted.
-    if (caustic.ready) useCaustics = false;
-
-    // pkg144: clampDirect/clampIndirect wired from the host Renderer (mirrors
-    // the getWorldMaxBounces() pattern below). Defaults 0/off unless the host
-    // set them via set_clamp_direct/set_clamp_indirect.
-    float clampDirect = impl->hostRenderer ? impl->hostRenderer->getClampDirect() : 0.0f;
-    float clampIndirect = impl->hostRenderer ? impl->hostRenderer->getClampIndirect() : 0.0f;
-
-    // Launch megakernel
-    launchPathTraceKernel(
-        impl->d_framebuffer, width, height, samplesPerPixel, maxDepth, useCaustics,
-        clampDirect, clampIndirect,  // pkg144
-        impl->d_tlas, impl->d_instances, impl->d_blas,  // pkg114
-        impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
-        impl->d_materials,
-        impl->d_lights, impl->numLights, impl->totalLightPower,
-        impl->lightTreeView(),  // pkg86-B
-        impl->d_smsCasters, impl->numSMSCasters,
-        impl->envMap,
-        impl->camera,
-        impl->filmExposure,
-        impl->backgroundColor, impl->hasBackgroundColor,
-        caustic.grid, caustic.ready, caustic.scale,  // pkg113 Phase 3
-        impl->d_motionVertices,  // pkg88-C.0
-        impl->d_rngStates,
-        impl->d_cryptoObjectBuffer, impl->d_cryptoMaterialBuffer,  // pkg87b
-        impl->cryptoDepth, impl->cryptomatteEnabled);              // pkg87b
-
-    // pkg113 Phase 3: release the resident photon grid after the render.
-    astroray::photon::gpu::cuda_photon_caustic_free(caustic);
-
-    // Copy result back to host
-    std::vector<float> hostFb(totalPixels * 3);
-    CUDA_CHECK(cudaMemcpy(hostFb.data(), impl->d_framebuffer,
-                          totalPixels * 3 * sizeof(float),
-                          cudaMemcpyDeviceToHost));
-
-    pixels.resize(totalPixels);
-    for (int i = 0; i < totalPixels; ++i)
-        pixels[i] = Vec3(hostFb[i*3], hostFb[i*3+1], hostFb[i*3+2]);
-
-    printf("[CUDA] Render complete: %dx%d, %d spp\n", width, height, samplesPerPixel);
-}
-
-void CUDARenderer::renderMultiwavelength(
-    std::vector<Vec3>& pixels, int width, int height,
-    int seed, int samplesPerPixel, int maxDepth,
-    float lambdaMin, float lambdaMax, bool useLuminanceOutput,
-    bool enableNEE,
-    bool use_refractive_caustics,
-    bool use_reflective_caustics)
-{
-    if (!impl->available) throw std::runtime_error("No CUDA GPU available");
-    // pkg85-C: see CUDARenderer::render() — world-only renders are valid.
-    if (!impl->d_bvhNodes && !impl->envMap.loaded)
-        throw std::runtime_error("Scene not uploaded — call uploadScene() first");
-
-    astroray::gpu_profile::NvtxRange _nvtx_mw("CUDARenderer::renderMultiwavelength");
-    impl->ensureFramebuffer(width, height);
-    int totalPixels = width * height;
-
-    // pkg54b: ensure CMF tables are present in MW kernel constant memory.
-    uploadCmfTables();
-    // pkg54c: ensure the Jakob-Hanika sRGB sigmoid LUT is in device global
-    // memory before any gpu_jhEvalSpectrum call.
-    uploadJakobHanikaLut();
-    uploadGgxGlassTables();  // pkg151
-    uploadGgxTables();  // pkg152
-
-    unsigned long long rngSeed = (seed == 0)
-        ? (unsigned long long)time(nullptr)
-        : (unsigned long long)seed;
-    launchInitRNG(impl->d_rngStates, totalPixels, rngSeed);
-
-    // pkg64-gpu Phase 3: enable caustics only if casters exist and flags are set.
-    // SMS requires BOTH refractive AND reflective flags to be true (matching
-    // the CPU integrator convention — per-vertex SMS attempt checks both).
-    bool useCaustics = use_refractive_caustics && use_reflective_caustics;
-
-    // pkg113 Phase 3: scene-driven photon-map caustic pre-pass (see render()).
-    // The spectral `path_tracer` routes here, so this is the canonical caustic
-    // path for the dispersive acceptance scenes. Gated on the OPT-IN usePhotonCaustics
-    // flag (transition-clean; legacy SMS scenes keep SMS — see render()).
-    astroray::photon::gpu::GPhotonCausticResult caustic{};
-    caustic.ready = false;
-    if (use_refractive_caustics && impl->hostRenderer &&
-        impl->hostRenderer->getUsePhotonCaustics()) {
-        astroray::photon::gpu::PhotonCausticAim aim =
-            buildCausticAim(*impl->hostRenderer, maxDepth);
-        if (aim.valid) {
-            astroray::gpu_profile::NvtxRange _nvtx_pm("pkg113 photon caustic pre-pass (MW)");
-            caustic = astroray::photon::gpu::cuda_photon_caustic_build(
-                impl->d_bvhNodes, impl->d_prims, impl->d_triangles,
-                impl->d_spheres, impl->d_materials, aim);
-            if (caustic.ready) {
-                printf("[CUDA] pkg113 photon caustic (MW): %d photons, scale %g\n",
-                       caustic.numPhotons, caustic.scale);
-            }
-        }
-    }
-    // pkg113 / parity doc Decisions §1: photon map supersedes the legacy SMS
-    // attempt; disable SMS when the photon grid is active (no double-count).
-    if (caustic.ready) useCaustics = false;
-
-    // pkg55-B' N+6 follow-up: plumb the world/env max-bounces gate (CPU
-    // raytracer.h:2412, wavefront path_kernel.cpp:192). Previously the MW
-    // megakernel accumulated env radiance on miss at ALL bounces, diverging
-    // from the CPU whenever a scene sets world max bounces < max_depth.
-    int worldMaxBounces = impl->hostRenderer
-        ? impl->hostRenderer->getWorldMaxBounces() : 1024;
-    // pkg144: clampDirect/clampIndirect wired from the host Renderer.
-    float clampDirect = impl->hostRenderer ? impl->hostRenderer->getClampDirect() : 0.0f;
-    float clampIndirect = impl->hostRenderer ? impl->hostRenderer->getClampIndirect() : 0.0f;
-
-    launchMultiwavelengthKernel(
-        impl->d_framebuffer, width, height, samplesPerPixel, maxDepth,
-        worldMaxBounces,
-        clampDirect, clampIndirect,  // pkg144
-        lambdaMin, lambdaMax, useLuminanceOutput, enableNEE, useCaustics,
-        impl->d_tlas, impl->d_instances, impl->d_blas,  // pkg114
-        impl->d_bvhNodes, impl->d_prims, impl->d_triangles, impl->d_spheres,
-        impl->d_materials,
-        impl->d_lights, impl->numLights, impl->totalLightPower,
-        impl->d_dedicatedLights, impl->numDedicatedLights,  // pkg89-GPU / GAP 1
-        impl->lightTreeView(),  // pkg86-B
-        impl->d_smsCasters, impl->numSMSCasters,
-        impl->envMap,
-        impl->camera,
-        impl->backgroundColor, impl->hasBackgroundColor,
-        caustic.grid, caustic.ready, caustic.scale,  // pkg113 Phase 3
-        impl->d_motionVertices,  // pkg88-C.0
-        impl->d_rngStates);
-
-    astroray::photon::gpu::cuda_photon_caustic_free(caustic);  // pkg113 Phase 3
-
-    std::vector<float> hostFb(totalPixels * 3);
-    CUDA_CHECK(cudaMemcpy(hostFb.data(), impl->d_framebuffer,
-                          totalPixels * 3 * sizeof(float),
-                          cudaMemcpyDeviceToHost));
-
-    pixels.resize(totalPixels);
-    for (int i = 0; i < totalPixels; ++i)
-        pixels[i] = Vec3(hostFb[i*3], hostFb[i*3+1], hostFb[i*3+2]);
-
-    printf("[CUDA] MW render complete: %dx%d, %d spp, [%.0f, %.0f] nm, %s\n",
-           width, height, samplesPerPixel, lambdaMin, lambdaMax,
-           useLuminanceOutput ? "luminance" : "visible");
+    launchPkg64SmsProbe(
+        *impl->hostRenderer,
+        impl->d_bvhNodes, impl->d_prims, impl->d_triangles,
+        impl->d_spheres, impl->d_materials,
+        impl->d_lights, impl->numLights);
 }

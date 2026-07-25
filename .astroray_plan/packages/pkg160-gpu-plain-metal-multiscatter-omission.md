@@ -244,3 +244,21 @@ null-table guard — but choose its fallback deliberately: returning identity
 term is **additive**, so its correct no-table fallback is **0.0** (i.e. degrade
 to today's single-scatter-only behaviour), not 1.0. Getting that backwards would
 add a full-strength albedo term whenever the tables fail to load.
+
+### Sub-question already resolved (team-lead, 2026-07-26)
+
+The shipped tables **do** load with real data on this machine, so the fix will have
+populated tables to work with and the null-table path is not the common case:
+
+- `astroray_test_helpers.disney_compensation_tables_loaded()` → `True`
+- `data/disney_compensation/ggx_E.bin` — 1024 float32 = 32×32, range `[0.3069, 1.0000]`,
+  mean `0.8298`; **not** the all-ones unloaded fallback
+- `data/disney_compensation/ggx_Eavg.bin` — 32 float32, range `[0.4091, 1.0000]`
+
+What remains open is the comparison against `raytracer.h`'s *runtime-computed*
+`GGXEnergyCompensationLUT` — the table the CPU metal path actually uses. That one is not
+reachable from Python today (`astroray_test_helpers` exposes only
+`disney_ggx_glass_e`/`disney_ggx_glass_eavg`, i.e. the glass tables). Dumping it needs a
+small addition to the test-helpers module, which is the natural first commit of this
+package. Note that a new *public* binding needs owner approval, but a `test_helpers`
+addition does not — that module exists precisely for internal introspection like this.

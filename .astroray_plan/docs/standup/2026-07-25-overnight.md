@@ -16,11 +16,14 @@ cannot build CUDA.
 | PR | What | Gate |
 |---|---|---|
 | **#526** | `feat(pkg157)`: firefly clamps ported into the wavefront — merged as `b6c3ffb` | CI all-pass + HW PASS bound to head `0651007` |
+| **#525** | `feat(pkg88-B)`: object motion blur addon bake — merged as `c41d7fb` | CI all-pass + **two** independent different-model sign-offs + real-Blender PASS, all bound to head `d9a2ce3` |
 
-**Open at hand-off:** **#525** (pkg88-B addon motion bake) — two independent
-different-model sign-offs plus my own real-Blender PASS, CI still running at
-hand-off; merge it if green. **#527** (pkg160) — deliberately incomplete and
-**blocked on an owner decision**, see below; do not merge as-is.
+#525 also carries the fix for the pre-existing Blender motion-blur blocker
+(below) and promotes `scripts/verify_pkg88b_blender.py` into the repo as a
+real-host regression guard.
+
+**Open at hand-off:** **#527** (pkg160) — deliberately incomplete and **blocked
+on an owner decision**, see below. Do not merge as-is.
 
 ## Headline: two investigations closed, one new defect found, two pre-existing bugs surfaced
 

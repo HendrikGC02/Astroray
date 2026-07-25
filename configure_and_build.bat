@@ -18,4 +18,11 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
+echo Building astroray_test_helpers target...
+cmake --build build_cuda --config Release --target astroray_test_helpers
+if %ERRORLEVEL% neq 0 (
+    echo Test-helpers build failed
+    exit /b 1
+)
+
 echo Build succeeded

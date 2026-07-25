@@ -76,3 +76,65 @@ GPU renders Disney metal consistently dimmer than the canonical CPU (pkg123-adju
 ## Provenance
 
 Filed by the architect from the PR #518 adjudication (2026-07-25) — measured ratios in the pkg141 spec's "Hardware verification 2026-07-25" section; the un-mirrored-twin hypothesis is the pkg141 implementer's own Lessons entry.
+
+---
+
+## Hardware verification 2026-07-25 (PR #523, RTX 5070 Ti)
+
+**Hardware:** NVIDIA GeForce RTX 5070 Ti, driver 610.47, CUDA 12.8.61 (nvcc build cuda_12.8.r12.8/compiler.35404655_0), Windows 11 Enterprise 10.0.26200, Python 3.13.12. Bound to commit 6dc83d401fa714900b0f69c013451c6697943169 (verified via `git rev-parse HEAD` before build).
+
+**Verdict: PASS.**
+
+### Claim 1 -- the decisive #522-stack furnace gate (reconstructed measurement branch)
+
+Reconstructed the implementer's local throwaway measurement branch exactly as described: a fresh worktree at this package's HEAD (6dc83d4) with `git diff origin/main origin/pkg149-rough-transmission-sample-pdf -- plugins/materials/disney.cpp include/astroray/gpu_materials.h` applied cleanly on top, rebuilt Release+CUDA from a clean configure, never pushed, and never touching the actual PR worktree. Measured:
+
+| roughness | GPU (measured) | GPU (claimed) | CPU (measured) | CPU (claimed) | gate [0.90,1.06] |
+|---|---|---|---|---|---|
+| 0.05 | 0.998757 | 0.998757 | 0.998624 | 0.998624 | PASS |
+| 0.10 | 0.998741 | 0.998741 | 0.998593 | 0.998593 | PASS |
+| 0.30 | 0.999264 | 0.999264 | 0.998739 | 0.998739 | PASS |
+| 0.60 | 1.000000 | 1.000000 | 0.998513 | 0.998513 | PASS |
+| 1.00 | 1.000000 | 1.000000 | 0.996989 | 0.996989 | PASS |
+
+Exact reproduction at all six decimal places. `test_disney_rough_glass_furnace.py` 5/5 passed, `test_pkg123_disney_metal_gpu_cpu_parity.py` 7/7 passed, `test_gpu_caustic_parity.py` 1 passed + 1 xfailed (pre-existing prism-rainbow xfail) -- 13 passed, 1 xfailed total, matching the implementer's claimed numbers exactly.
+
+### Claim 2 -- this PR alone (main-based, no #522 stack): no regressions
+
+Ran on the unmodified PR worktree (main + this PR only): furnace suites (`test_disney_rough_glass_furnace.py` 5/5, `test_dielectric_glass_furnace.py` 2/2), energy conservation (`test_disney_energy_conservation.py`, plus the clearcoat-parametrized cases in `test_material_plugins.py`/`test_material_properties.py`), chi2 not-slow (`tests/statistical/test_chi2_bsdf.py -m "not slow"`, all disney metallic/diffuse cases passed, one pre-existing `test_chi2_disney_glass[0.3-45]` xfail unrelated to this PR's GPU-only diff), Disney metal GPU/CPU parity (`test_pkg123_disney_metal_gpu_cpu_parity.py`, all 7 rows), caustic parity (`test_gpu_caustic_parity.py`, 1 passed + 1 pre-existing xfail), and clearcoat (`test_disney_clearcoat_adds_gloss`). Combined single pytest invocation: **296 passed, 165 deselected, 2 xfailed, 1 warning in 17.31s.**
+
+Disney metal GPU/CPU parity numbers (gate [0.4,2.5]):
+
+| roughness | R ratio | G ratio | B ratio |
+|---|---|---|---|
+| 0.00 | 1.0112 | 0.9969 | 0.9969 |
+| 0.03 | 1.0112 | 0.9969 | 0.9969 |
+| 0.05 | 1.0112 | 0.9969 | 0.9969 |
+| 0.10 | 1.0063 | 0.9974 | 0.9930 |
+| 0.30 | 0.9981 | 1.0033 | 0.9977 |
+| 0.60 | 0.9990 | 0.9966 | 0.9907 |
+| 0.90 | 1.0025 | 1.0008 | 0.9985 |
+
+**Anomaly worth flagging:** this package's own research doc claims near-delta (roughness <= 0.10) is "UNCHANGED/unresolved" at ratio 0.60-0.77 on this exact test file and scene. The hardware measurement above shows near-delta ratios of 0.9930-1.0112 -- effectively 1.0, i.e. RESOLVED, not unresolved. Reproduced twice (full-suite run and an isolated `-p no:cacheprovider` rerun), byte-identical both times. This does not change the PASS verdict (the gate band [0.4,2.5] accepts both the claimed and the measured numbers), but the spec's own split-clause status ("symptom (a) partially fixed, near-delta unresolved, split out as follow-up") appears stale relative to the shipped code on this hardware. Flagged for architect review; not adjudicated here per the verifier's charter.
+
+wavefront_diff: skipped -- this PR's diff (`gpu_ggx_tables.cuh/.cu`, `gpu_materials.h`, `energy_compensation.h`, `cuda_renderer.cu`, `CMakeLists.txt`) touches no wavefront kernel files, per the pkg153 quarantine protocol.
+
+### Claim 3 -- new GPU table infra (`gpu_ggx_tables.cuh`/`.cu`)
+
+Probe render (metallic Disney sphere, roughness=0.4, clearcoat=0.5, GPU) exercised the new table upload/lookup path: no CUDA errors, `astroray.__features__["cuda"]` True, `gpu_available` True, output fully finite, mean 0.6435.
+
+### Claim 4 -- clearcoat
+
+`test_disney_clearcoat_adds_gloss` PASSED -- direct regression coverage for the claimed stale double-divide + wrong-constant fix (`0.5` -> `0.25`, removed spurious `/(4*NdotL*NdotV+0.001f)`). Visual p99.5 luminance 0.21 (no coat) vs 0.22 (coat) -- present, physically modest, not overblown. `test_no_material_is_overexposed`'s `disney_clearcoat` case and `test_material_plugins.py::test_disney_energy_conservation`'s `clearcoat=1.0` case both PASSED.
+
+### Claim 5 -- visual: rough-glass GPU render at R=0.1
+
+Rendered on the reconstructed measurement branch (200x200, 128spp). Full-frame mean 0.9961, sphere-center-patch mean 0.9988 (matches the decisive-gate numeric R=0.10 GPU=0.998741). Read the PNG directly: the sphere now blends almost invisibly into the white furnace background -- consistent with the "previously-black, now near-invisible" claim. No fireflies, no magenta/black NaN pixels, no banding observed. Also inspected: `pkg113_gpu_glass_sphere.png`/`pkg113_cpu_glass_sphere.png` (clean focused caustic on the floor, GPU/CPU visually identical, no salt-and-pepper chromatic noise), `mat_disney_clearcoat.png` (subtle but present gloss increase, no artifacts), `mat_overexposure_disney_{glass,metallic,plastic,clearcoat}.png` (normal MC noise on glass, no NaN/degenerate patches), `pkg152_gpu_table_probe.png` (normal noisy metallic-clearcoat render, no anomalies).
+
+### Anomalies worth watching
+
+1. **Git-Bash `cmd /c` MSYS path-mangling**: `/c` gets silently expanded to a drive-letter path by MSYS's automatic path conversion, causing `cmd /c <script>` to launch an interactive nested shell instead of running the target (banner-only output, false-positive exit 0). Workaround: `MSYS_NO_PATHCONV=1 cmd.exe /c ...`. Worth fixing at the tooling level so future verifier runs don't silently no-op.
+2. **`build_cuda_worktree.bat` Debug-config footgun reproduced again** on this VS-generator `build_cuda` tree (matches existing memory `build-cuda-worktree-debug-config`): the wrapper's `cmake --build build_cuda --target astroray` (no `--config`) resolved to Debug, `/RTC1`+`/O2` clash, D8016, exit 5. Worked around manually with `--config Release`; recommend fixing the wrapper script itself.
+3. Near-delta Disney-metal dimness anomaly above (measured resolved, documented as unresolved) -- flag for architect, not a gate failure.
+
+Full test logs: `test_results/verifier_run_pkg152_stepA.txt` (PR-alone), and the reconstructed-branch run in `Astroray-pkg152-measure/test_results/verifier_run_pkg152_measure_branch.txt`. Numbers JSON and PNGs copied to `test_results/overnight_report_2026-07-24/` with `pkg152_` prefix in the main repo.

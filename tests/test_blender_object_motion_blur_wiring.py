@@ -17,6 +17,7 @@ import types
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 
 IDENTITY_ROWS = [[1.0, 0.0, 0.0, 0.0],
@@ -207,15 +208,21 @@ _STATIC_ARRAYS = (
     [],                                      # uv_names
     np.zeros((0,), dtype=np.float32),        # normals
 )
-_END_POSITIONS = np.full((1, 3, 3), 9.0, dtype=np.float32)  # distinguishable marker
+# Distinguishable per-matrix markers, so a test can prove WHICH pose each
+# emitted array was built from (the pkg88-B regression was positions_start
+# silently being the current-frame pose instead of the shutter-open pose).
+_START_POSE_POSITIONS = np.full((1, 3, 3), 7.0, dtype=np.float32)
+_END_POSE_POSITIONS = np.full((1, 3, 3), 9.0, dtype=np.float32)
 
 
 def _patch_geometry_stubs(addon, monkeypatch, motion_should_be_called):
     monkeypatch.setattr(addon, 'mesh_to_bulk_arrays', lambda *a, **k: _STATIC_ARRAYS)
 
-    def _mesh_world_positions(*a, **k):
-        assert motion_should_be_called, "mesh_world_positions (shutter-close positions) must not run for a static/skip object"
-        return _END_POSITIONS
+    def _mesh_world_positions(mesh, matrix, *a, **k):
+        assert motion_should_be_called, "mesh_world_positions must not run for a static/skip object"
+        # Key off the matrix's x-translation so the caller can assert that
+        # positions_start came from the START matrix, not the current pose.
+        return _END_POSE_POSITIONS if matrix[0][3] > 0.5 else _START_POSE_POSITIONS
     monkeypatch.setattr(addon, 'mesh_world_positions', _mesh_world_positions)
 
 
@@ -235,10 +242,11 @@ def test_convert_objects_static_object_uses_bulk_not_motion(monkeypatch):
     inst = _FakeInstance(obj, MockMatrix4(IDENTITY_ROWS), is_instance=False)
     depsgraph = types.SimpleNamespace(object_instances=[inst])
 
-    # Same matrix at shutter close -> no motion (Requirement 2: zero
-    # behavioural change for static objects).
+    # Identical pose at both shutter boundaries -> no motion (Requirement 2:
+    # zero behavioural change for static objects).
+    start_matrices = {'Cube': MockMatrix4(IDENTITY_ROWS)}
     end_matrices = {'Cube': MockMatrix4(IDENTITY_ROWS)}
-    engine.convert_objects(depsgraph, RendererCls(), {}, end_matrices)
+    engine.convert_objects(depsgraph, RendererCls(), {}, start_matrices, end_matrices)
 
     assert [c[0] for c in calls] == ['static'], (
         f"static object must use add_triangles_bulk only, got {[c[0] for c in calls]}"
@@ -246,8 +254,8 @@ def test_convert_objects_static_object_uses_bulk_not_motion(monkeypatch):
 
 
 def test_convert_objects_no_motion_dict_uses_bulk_not_motion(monkeypatch):
-    """motion_end_matrices=None/{} (motion blur off, or the exporter.py
-    viewport-sync call site which never passes it) must reproduce the
+    """motion_*_matrices=None/{} (motion blur off, or the exporter.py
+    viewport-sync call site which never passes them) must reproduce the
     exact pre-pkg88-B call, regardless of object animation."""
     calls = []
     RendererCls = _make_renderer_cls(calls)
@@ -260,7 +268,7 @@ def test_convert_objects_no_motion_dict_uses_bulk_not_motion(monkeypatch):
     inst = _FakeInstance(obj, MockMatrix4(IDENTITY_ROWS), is_instance=False)
     depsgraph = types.SimpleNamespace(object_instances=[inst])
 
-    engine.convert_objects(depsgraph, RendererCls(), {})  # default motion_end_matrices
+    engine.convert_objects(depsgraph, RendererCls(), {})  # defaulted motion dicts
 
     assert [c[0] for c in calls] == ['static']
 
@@ -277,16 +285,24 @@ def test_convert_objects_moving_object_uses_bulk_motion(monkeypatch):
     inst = _FakeInstance(obj, MockMatrix4(IDENTITY_ROWS), is_instance=False)
     depsgraph = types.SimpleNamespace(object_instances=[inst])
 
+    # Shutter-open pose is NOT the current pose (identity) -- it is its own
+    # sampled matrix. This is the regression guard: the first implementation
+    # passed mesh_to_bulk_arrays' current-frame `positions` as positions_start.
+    start_matrices = {'Cube': MockMatrix4(_translated_rows(dx=-0.6))}
     end_matrices = {'Cube': MockMatrix4(_translated_rows(dx=1.2))}
-    engine.convert_objects(depsgraph, RendererCls(), {}, end_matrices)
+    engine.convert_objects(depsgraph, RendererCls(), {}, start_matrices, end_matrices)
 
     assert [c[0] for c in calls] == ['motion'], (
         f"moving object must use add_triangles_bulk_motion, got {[c[0] for c in calls]}"
     )
     _, args = calls[0]
-    positions, positions_end = args[0], args[1]
-    np.testing.assert_array_equal(positions, _STATIC_ARRAYS[0])
-    np.testing.assert_array_equal(positions_end, _END_POSITIONS)
+    positions_start, positions_end = args[0], args[1]
+    np.testing.assert_array_equal(positions_start, _START_POSE_POSITIONS)
+    np.testing.assert_array_equal(positions_end, _END_POSE_POSITIONS)
+    assert not np.array_equal(positions_start, _STATIC_ARRAYS[0]), (
+        "positions_start must be built from the SHUTTER-OPEN matrix, not from "
+        "mesh_to_bulk_arrays' current-frame positions"
+    )
 
 
 def test_convert_objects_dupli_instance_not_motion_baked(monkeypatch):
@@ -306,10 +322,11 @@ def test_convert_objects_dupli_instance_not_motion_baked(monkeypatch):
     inst = _FakeInstance(obj, MockMatrix4(IDENTITY_ROWS), is_instance=True)
     depsgraph = types.SimpleNamespace(object_instances=[inst])
 
-    # Even though 'Particle' has a differing end matrix, is_instance=True
+    # Even though 'Particle' has differing shutter poses, is_instance=True
     # must short-circuit before the lookup.
+    start_matrices = {'Particle': MockMatrix4(IDENTITY_ROWS)}
     end_matrices = {'Particle': MockMatrix4(_translated_rows(dx=5.0))}
-    engine.convert_objects(depsgraph, RendererCls(), {}, end_matrices)
+    engine.convert_objects(depsgraph, RendererCls(), {}, start_matrices, end_matrices)
 
     assert [c[0] for c in calls] == ['static'], (
         f"dupli instance must never be motion-baked by pkg88-B, got {[c[0] for c in calls]}"
@@ -399,28 +416,52 @@ def test_convert_scene_no_motion_blur_yields_empty_motion_matrices(monkeypatch):
     engine.convert_scene(depsgraph, _make_renderer_cls([])(), 16, 16)
 
     assert len(calls) == 1
-    motion_end_matrices = calls[0][3]
-    assert not motion_end_matrices, "use_motion_blur=False must not populate any motion matrices"
+    motion_start_matrices, motion_end_matrices = calls[0][3], calls[0][4]
+    assert not motion_start_matrices, "use_motion_blur=False must not populate start matrices"
+    assert not motion_end_matrices, "use_motion_blur=False must not populate end matrices"
 
 
-def test_convert_scene_captures_object_matrix_at_shutter_close(monkeypatch):
-    """CENTER shutter position at frame 10, shutter=0.5 -> t_end = 10.25.
-    The stubbed _MovingSceneObj bakes its x-translation from
-    scene.frame_current, so motion_end_matrices['Cube'] must reflect
-    frame_current == 10.25 at the moment it was captured, and the scene's
-    frame must be restored to 10 afterwards."""
+@pytest.mark.parametrize("position,expected_start,expected_end", [
+    ('START',  10.0,  10.5),
+    ('CENTER',  9.75, 10.25),
+    ('END',     9.5,  10.0),
+])
+def test_convert_scene_captures_both_shutter_boundaries(monkeypatch, position,
+                                                        expected_start, expected_end):
+    """BOTH shutter boundaries must be sampled at their own sub-frame time,
+    for every shutter position. The stubbed _MovingSceneObj bakes its
+    x-translation from frame_current + frame_subframe, so each captured
+    matrix reveals exactly which instant it was sampled at.
+
+    Regression guard: the first implementation sampled only t_end and reused
+    the CURRENT pose as the shutter-open pose. That is wrong for CENTER
+    (t_start = frame - shutter/2, not frame) and catastrophic for END, where
+    t_end == frame makes the sampled matrix identical to the current pose so
+    nothing ever registers as moving."""
     engine, depsgraph, scene, calls = _make_convert_scene_stub_engine(
-        monkeypatch, use_motion_blur=True, motion_blur_position='CENTER',
+        monkeypatch, use_motion_blur=True, motion_blur_position=position,
         motion_blur_shutter=0.5, frame_current=10)
 
     engine.convert_scene(depsgraph, _make_renderer_cls([])(), 16, 16)
 
     assert len(calls) == 1
-    motion_end_matrices = calls[0][3]
-    assert 'Cube' in motion_end_matrices
-    end_matrix = motion_end_matrices['Cube']
-    assert end_matrix[0][3] == 10.25, (
-        f"expected shutter-close (t_end=frame+shutter/2=10.25) bake, got x={end_matrix[0][3]}"
+    motion_start_matrices, motion_end_matrices = calls[0][3], calls[0][4]
+    assert 'Cube' in motion_start_matrices and 'Cube' in motion_end_matrices
+    got_start = motion_start_matrices['Cube'][0][3]
+    got_end = motion_end_matrices['Cube'][0][3]
+    assert got_start == expected_start, (
+        f"{position}: shutter-OPEN pose must be sampled at t_start="
+        f"{expected_start}, got {got_start}"
+    )
+    assert got_end == expected_end, (
+        f"{position}: shutter-CLOSE pose must be sampled at t_end="
+        f"{expected_end}, got {got_end}"
+    )
+    # The two boundary poses must differ, otherwise the object would never
+    # register as moving (this is precisely how END silently no-op'd).
+    assert got_start != got_end, (
+        f"{position}: the two shutter poses are identical -- motion blur "
+        "would be a silent no-op"
     )
     # Frame state must be restored (matches _get_camera_transform_at_time's
     # existing restore contract).

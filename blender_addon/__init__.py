@@ -1654,6 +1654,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # pkg88-B (object motion blur, addon-only bake) hangs off the SAME
         # shutter/shutter_position resolution below so object and camera blur
         # agree, per the pkg88 spec's Phase-B requirement.
+        motion_start_matrices = {}
         motion_end_matrices = {}
         if render_settings and getattr(render_settings, 'use_motion_blur', False):
             shutter = float(getattr(render_settings, 'motion_blur_shutter', 0.5))
@@ -1696,19 +1697,28 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                                 shutter, shutter_position)
 
             # pkg88-B: snapshot every real (non-dupli) mesh-able object's
-            # matrix_world at shutter CLOSE (t_end) in ONE extra depsgraph
-            # evaluation. convert_objects compares each object's CURRENT
-            # matrix_world against this to decide motion vs static per-object
-            # (Q2: bake rigid transforms into per-vertex motion at the addon
-            # boundary -- Astroray has no first-class instance/animated-
-            # transform system). Dupli/particle/geometry-node instances are
-            # excluded here (depsgraph.objects yields real objects only); see
-            # convert_objects' docstring for the pkg114-instancing interaction.
+            # matrix_world at BOTH shutter boundaries, one depsgraph evaluation
+            # per time value -- exactly mirroring the camera path above, which
+            # calls _get_camera_transform_at_time once for t_start and once for
+            # t_end. Both endpoints are required: the renderer blends
+            # positions_start at ray time=0 and positions_end at time=1
+            # (Triangle::hit, include/astroray/shapes.h), and Camera::getRay maps
+            # that same time across t_start -> t_end. Feeding the CURRENT
+            # (frame) pose as positions_start would desync object motion from
+            # camera motion for CENTER, and would make END a silent no-op
+            # (t_end == frame, so the object would never register as moving).
+            # Q2: bake rigid transforms into per-vertex motion at the addon
+            # boundary -- Astroray has no first-class instance/animated-transform
+            # system. Dupli/particle/geometry-node instances are excluded here
+            # (depsgraph.objects yields real objects only); see convert_objects'
+            # docstring for the pkg114-instancing interaction.
             candidate_names = {
                 obj.name for obj in (getattr(depsgraph, 'objects', None) or [])
                 if getattr(obj, 'type', None) in {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META'}
             }
             if candidate_names:
+                motion_start_matrices = self._get_object_matrices_at_time(
+                    scene, depsgraph, candidate_names, t_start)
                 motion_end_matrices = self._get_object_matrices_at_time(
                     scene, depsgraph, candidate_names, t_end)
 
@@ -1724,7 +1734,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.set_pixel_filter(filter_type, filter_width)
         self.setup_camera(scene, renderer, width, height)
         material_map = self.convert_materials(depsgraph, renderer)
-        self.convert_objects(depsgraph, renderer, material_map, motion_end_matrices)
+        self.convert_objects(depsgraph, renderer, material_map,
+                             motion_start_matrices, motion_end_matrices)
         self.convert_lights(depsgraph, renderer)
         self.setup_world(scene, renderer)
 
@@ -3643,11 +3654,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.update_instance_transform(ids[k], [v for row in mw for v in row])
             cursor[obj.name] = k + 1
 
-    def convert_objects(self, depsgraph, renderer, material_map, motion_end_matrices=None):
-        """`motion_end_matrices` (pkg88-B, optional): {obj.name: matrix_world at
-        shutter close}, computed once by convert_scene (empty/None when motion
-        blur is off, or when called directly like the viewport-sync path in
-        exporter.py, which doesn't bake object motion).
+    def convert_objects(self, depsgraph, renderer, material_map,
+                        motion_start_matrices=None, motion_end_matrices=None):
+        """`motion_start_matrices` / `motion_end_matrices` (pkg88-B, optional):
+        {obj.name: matrix_world at shutter open / shutter close}, computed once
+        each by convert_scene (empty/None when motion blur is off, or when
+        called directly like the viewport-sync path in exporter.py, which
+        doesn't bake object motion).
+
+        BOTH endpoints are needed and neither is the object's current pose. The
+        renderer blends positions_start at ray time=0 and positions_end at
+        time=1 (`Triangle::hit`, include/astroray/shapes.h), and `Camera::getRay`
+        maps that same time across t_start -> t_end, so positions_start must be
+        the t_start pose for object blur to line up with camera blur. Using the
+        current (frame) pose instead silently halves the CENTER arc and disables
+        END entirely (t_end == frame there, so nothing ever reads as moving).
 
         Instancing interaction (pkg114 two-level BVH/TLAS): `_register_instanced_groups`
         below runs FIRST and is entirely unaware of motion -- it always builds its
@@ -3668,6 +3689,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         code paths are mutually exclusive by construction -- no mixed/corrupted
         state is possible either way.
         """
+        motion_start_matrices = motion_start_matrices or {}
         motion_end_matrices = motion_end_matrices or {}
         tri_count = 0
         obj_count = 0
@@ -3779,15 +3801,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
             obj_count += 1
 
             # pkg88-B: object motion blur candidate. Only real (non-dupli)
-            # objects with an actual matrix_world change by shutter close are
-            # eligible (see the instancing-interaction note in this method's
-            # docstring); everything else keeps the static add_triangles_bulk
-            # path below untouched.
-            motion_end_matrix = None
+            # objects whose pose actually changes ACROSS THE SHUTTER (t_start vs
+            # t_end -- NOT vs the current frame pose, which is a different
+            # instant for CENTER/END) are eligible; see the instancing-
+            # interaction note in this method's docstring. Everything else keeps
+            # the static add_triangles_bulk path below untouched.
+            motion_start_matrix = motion_end_matrix = None
             if motion_end_matrices and not getattr(obj_instance, 'is_instance', False):
+                _start_mw = motion_start_matrices.get(obj.name)
                 _end_mw = motion_end_matrices.get(obj.name)
-                if _end_mw is not None and _matrices_differ(matrix, _end_mw):
-                    motion_end_matrix = _end_mw
+                if (_start_mw is not None and _end_mw is not None
+                        and _matrices_differ(_start_mw, _end_mw)):
+                    motion_start_matrix, motion_end_matrix = _start_mw, _end_mw
 
             volume_spec = None
             for slot in obj.material_slots:
@@ -3899,15 +3924,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     mesh_to_bulk_arrays(mesh, matrix, normal_matrix,
                                         slot_to_id, default_mat_id, uv_layer_items)
                 # pkg88-B: motion candidates go through add_triangles_bulk_motion
-                # (positions = shutter-center step, positions_end = shutter-close
-                # step; Cycles motion_triangle.h Apache-2.0 linear blend, see
-                # Renderer.add_triangles_bulk_motion docstring). Only the bulk path
-                # supports motion -- the no-bulk fallback below has no motion twin,
-                # so a moving object without bulk support silently stays static.
+                # with the SHUTTER-OPEN pose as positions_start (NOT `positions`,
+                # which mesh_to_bulk_arrays built from the current-frame matrix --
+                # a different instant for CENTER/END) and the shutter-close pose
+                # as positions_end. Cycles motion_triangle.h (Apache-2.0) linear
+                # blend; the renderer reads positions_start at ray time=0 and
+                # positions_end at time=1. Only the bulk path supports motion --
+                # the no-bulk fallback below has no motion twin, so a moving
+                # object without bulk support silently stays static.
+                # UVs/normals/material arrays are pose-independent, so `positions`
+                # is the only piece of mesh_to_bulk_arrays' output replaced here.
                 if motion_end_matrix is not None and hasattr(renderer, "add_triangles_bulk_motion"):
+                    positions_start = mesh_world_positions(mesh, motion_start_matrix)
                     positions_end = mesh_world_positions(mesh, motion_end_matrix)
                     renderer.add_triangles_bulk_motion(
-                        positions, positions_end, material_ids, mat_pass,
+                        positions_start, positions_end, material_ids, mat_pass,
                         int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
                 else:
                     renderer.add_triangles_bulk(

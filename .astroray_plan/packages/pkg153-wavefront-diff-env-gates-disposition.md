@@ -30,6 +30,16 @@ All bit-deterministic (fixed seed) and reproduced near-identically on the PR bra
 
 ## Disposition contract
 
+**Bisect vehicle (2026-07-25): the combined pkg153+pkg155 protocol** —
+`.astroray_plan/docs/pkg153-pkg155-combined-bisect-protocol-2026-07-25.md`. The
+R-channel env-gate bisect shares ONE rebuild per point with pkg155's shade-reg
+bisect (same #481→#524 window, same GPU). This spec owns signals 3 (R-channel
+mean ratio + emitters→matte discriminator) and 4 (tables-loaded checksum) in that
+protocol. Anchors carried over unchanged: #489/#500 (emitter-linked, suspect 1A),
+#481 (spectral eval, suspect 1B), the a7f09d1^/41101a5^ decisive step, and #523
+as a **compounding anchor only, never an origin candidate**. The photon-caustic
+negative-SSIM flake is a distinct cause and is NOT part of this window bisect.
+
 1. Consume the gate-failure-reviewer's report; convict ONE cause per gate (they need not share one).
 2. If stale pins: one re-pin PR with fresh workstation measurements and the pinning provenance recorded in the test file; never widen a tolerance without a measured justification.
 3. If a real regression: bisect to the merge, file a targeted fix spec, and leave the gate red and owned by that spec (never relax to green).

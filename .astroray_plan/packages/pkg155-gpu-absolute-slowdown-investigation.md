@@ -2,11 +2,17 @@
 
 **Pillar:** 3 (GPU pipeline health)
 **Track:** A (RTX-gated — CI has no GPU; only hardware timing can drive this)
-**Status:** open — filed 2026-07-25 by the pkg55-C7 day arc (owner-approved as doc-only alongside the C7 PR; no implementation today)
+**Status:** open — **Phase 1 COMPLETE** (team-lead, 2026-07-25, RTX 5070 Ti @ `473c25b`, GPU lock; findings: `.astroray_plan/docs/pkg155-phase1-profile-findings.md`). The ~5× is confirmed on the corrected metric (total GPU kernel-ms/render, since the spec's `ms/launch` headline is dead post-#524): cornell_diffuse 4.84×, cornell_glass 5.61×. **Shade stage convicted** — `wavefront_stage_shade_bucketed_n7` is 44–52% of GPU time at **221 regs/thread**, the only stage below 2 blocks/SM; recovery target **≤128 regs/thread**. **Phase 2 = the combined pkg153+pkg155 bisect: `.astroray_plan/docs/pkg153-pkg155-combined-bisect-protocol-2026-07-25.md`** (bisect on shade regs/thread, one build serves both dispositions). Dispatchable; RTX-gated, serialize on the GPU lock.
 **Estimated effort:** M (profiling + attribution) + unknown (recovery)
 **Depends on:** none. Related: pkg153 (gate-integrity disposition), pkg55-C7 (perf-gate rescope — the C7 gate measures the WF/MK *ratio*, which this absolute regression does not move because both pipelines carry the same feature cost).
 
 ## Finding (measured 2026-07-25, RTX 5070 Ti, main @ e0185c8)
+
+> **SUPERSEDED by Phase 1 (see Status + `pkg155-phase1-profile-findings.md`).** The
+> `ms/launch` numbers below cannot be reproduced (#524 deleted the megakernel) and
+> are not comparable across the 1-launch megakernel vs the ~344-launch wavefront.
+> The confirmed metric is **total GPU kernel-ms/render**; the ~5× survives it. Kept
+> below as the as-filed record only.
 
 Re-running the exact Phase-A kernel-profile harness (`benchmarks/wavefront_baseline.py`,
 `ASTRORAY_PROFILE=1`, cornell scenes, 256², 64 spp, md 8) against the pinned
@@ -36,9 +42,12 @@ etc.). The 125→188 reg growth is the aggregate of these; the occupancy loss
 
 ## Contract
 
-1. Profile-first (Nsight or `ASTRORAY_PROFILE=1` bisect): attribute the ms and
-   the register growth per merge arc — build 4-6 commits across the window and
-   record ms/launch + regs/thread for each (cornell_diffuse is the cheap probe).
+1. Profile-first — DONE (Phase 1). Phase 2 executes the combined bisect protocol
+   (`.astroray_plan/docs/pkg153-pkg155-combined-bisect-protocol-2026-07-25.md`):
+   bisect on **shade-stage regs/thread** (compile-time, deterministic) across
+   4–6 commits in the window, then capture total GPU **ms/render** (NOT ms/launch
+   — dead post-#524) + the pkg153 R-ratio + tables-loaded checksum from the same
+   build; record nvcc toolkit version per point (the v12.6/v12.8 confound).
 2. Distinguish "physically necessary cost" (correct light energy, spectral
    accuracy) from "recoverable cost" (register spills, dead per-thread state,
    always-on feature branches that could be compile-time or scene-gated).

@@ -11,6 +11,17 @@
 
 ---
 
+## Scope fence (2026-07-26) — this package is DISNEY metal (`gpu_disney_eval`) ONLY
+
+A separate, larger, plain-`metal` defect was convicted 2026-07-26 and filed as
+**pkg160** (`gpu_metal_eval` omits the CPU MetalPlugin multiscatter term; ~3.5×
+mean / ~7× median GPU-dim, scene-controlled). That is a DIFFERENT GPU function
+and a DIFFERENT CPU plugin — do NOT absorb it into this reconciliation or its
+0.279 number will corrupt the Disney near-delta reconcile below. **Co-verify
+efficiency:** run pkg160's plain-metal dump and this package's Disney-metal dump
+in the SAME GPU-lock session with the shared pkg141/pkg152 per-event harness;
+cross-referenced, neither absorbs the other.
+
 ## Step 0 — reconcile (blocking, do first)
 
 Re-measure BOTH setups on the SAME post-#523 main build, same session:

@@ -64,6 +64,10 @@ using astroray::gpu_rng_uniform;
 // gives us CPU-faithful light selection (tree/power-CDF) + point sampling.
 #include "../gpu_nee.cuh"
 
+// pkg157: gpu_clampContribMW (direct/indirect firefly clamp split) + the
+// inline spectrumToXYZ it uses. See gpu_spectral_tables.h for the citation.
+#include "../gpu_spectral_tables.h"
+
 // Non-inline XYZ wrapper (defined in stage_advance.cu / the spectral-tables TU,
 // rdc-linked) — the same CMF integration the RR/accumulate stages use.
 __device__ GVec3 gpu_spectrum_to_xyz(
@@ -100,7 +104,8 @@ __device__ int intersectPathSlot(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    bool              useLuminanceOutput);
+    bool              useLuminanceOutput,
+    float             clampDirect, float clampIndirect);  // pkg157
 
 using ::astroray::WavefrontRNG;
 
@@ -251,7 +256,8 @@ __global__ void stageRestirPrimaryKernel(
     const GTriangle*  tris, const GSphere* spheres, const GVec3* motionVerts,
     const ::GMaterial* materials,
     GEnvMap envMap, GVec3 backgroundColor, bool hasBackgroundColor,
-    int worldMaxBounces, bool useLuminanceOutput, int numPixels)
+    int worldMaxBounces, bool useLuminanceOutput, int numPixels,
+    float clampDirect, float clampIndirect)  // pkg157
 {
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     if (p >= numPixels) return;
@@ -264,10 +270,13 @@ __global__ void stageRestirPrimaryKernel(
 
     initPathSlot(/*slot=*/p, /*pixel=*/p, sample_index, state, cam,
                  width, height, seed, lambdaMin, lambdaMax);
+    // pkg157: bounce is always 0 here (ReSTIR-DI is direct-illumination-only,
+    // a fresh single-bounce path per sample) -> intersectPathSlot's internal
+    // clamp uses clampDirect for this primary env/emissive term.
     intersectPathSlot(p, state, hitBufs, tlas, instances, blas, bvhNodes,
                       prims, tris, spheres, motionVerts, materials, envMap,
                       backgroundColor, hasBackgroundColor, worldMaxBounces,
-                      useLuminanceOutput);
+                      useLuminanceOutput, clampDirect, clampIndirect);
 }
 
 // ===========================================================================
@@ -440,10 +449,18 @@ __global__ void stageRestirResolveKernel(
     const GBVHNode*   bvhNodes, const GPrimitive* prims,
     const GTriangle*  tris, const GSphere* spheres, const GVec3* motionVerts,
     const ::GMaterial* materials,
-    int numPixels)
+    int numPixels,
+    bool              useLuminanceOutput,   // pkg157
+    float             clampDirect, float clampIndirect)  // pkg157
 {
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     if (p >= numPixels) return;
+
+    // ReSTIR-DI never advances past the primary hit (DI-only), so bounce is
+    // always 0 here -- both the primary env/emissive term already clamped by
+    // intersectPathSlot and the resolve term below are "direct" per pkg144's
+    // bounce==0 split.
+    const int bounce = state.bounce[p];
 
     GSampledWavelengths lambdas;
     lambdas.lambda[0] = state.lambda_0[p];
@@ -506,20 +523,22 @@ __global__ void stageRestirResolveKernel(
                 GSampledSpectrum L_spec = gpu_rgbToSampledSpectrum(
                     res.y.emission, lambdas, GSPEC_RGB_ILLUMINANT);
                 // color += throughput · f_spec · L_spec · W (restir_di.cpp:312).
-                total += throughput * f_spec * L_spec * res.W;
+                // pkg157: clamp this NEE-like resolve term independently
+                // (same split as the megakernel's NEE clamp site) before
+                // adding it to the already-clamped primary term.
+                GSampledSpectrum resolveContrib = throughput * f_spec * L_spec * res.W;
+                total += gpu_clampContribMW(resolveContrib, lambdas, bounce,
+                                            clampDirect, clampIndirect,
+                                            useLuminanceOutput);
             }
         }
     }
 
-    // Convert to XYZ + firefly clamp (mirrors the regen accumulate,
-    // stage_advance.cu:1224-1236), then add to the per-pixel accumulator.
+    // pkg157: the always-on, whole-total `lum > 20` clamp that used to live
+    // here has been REMOVED -- the primary term (intersectPathSlot) and the
+    // resolve term (above) are now each clamped independently by bounce
+    // depth before being summed, mirroring the CPU/megakernel fix.
     GVec3 xyz = gpu_spectrum_to_xyz(total, lambdas);
-    float lum = xyz.y;
-    if (lum > 20.0f) {
-        xyz.x *= (20.0f / lum);
-        xyz.y = 20.0f;
-        xyz.z *= (20.0f / lum);
-    }
     accum_xyz[p * 3 + 0] += xyz.x;
     accum_xyz[p * 3 + 1] += xyz.y;
     accum_xyz[p * 3 + 2] += xyz.z;
@@ -539,7 +558,8 @@ void launchStageRestirPrimary(
     const GTriangle* d_tris, const GSphere* d_spheres, const GVec3* d_motionVerts,
     const ::GMaterial* d_materials, GEnvMap envMap,
     GVec3 backgroundColor, bool hasBackgroundColor,
-    int worldMaxBounces, bool useLuminanceOutput)
+    int worldMaxBounces, bool useLuminanceOutput,
+    float clampDirect, float clampIndirect)  // pkg157
 {
     int numPixels = width * height;
     int tpb = 256;
@@ -547,7 +567,8 @@ void launchStageRestirPrimary(
         state, hitBufs, cam, width, height, sample_index, seed, lambdaMin, lambdaMax,
         d_tlas, d_instances, d_blas, d_bvhNodes, d_prims, d_tris, d_spheres,
         d_motionVerts, d_materials, envMap, backgroundColor, hasBackgroundColor,
-        worldMaxBounces, useLuminanceOutput, numPixels);
+        worldMaxBounces, useLuminanceOutput, numPixels,
+        clampDirect, clampIndirect);
 }
 
 void launchStageRestirInitialRIS(
@@ -590,12 +611,15 @@ void launchStageRestirResolve(
     const GTLASNode* d_tlas, const GInstance* d_instances, const GBLAS* d_blas,
     const GBVHNode* d_bvhNodes, const GPrimitive* d_prims,
     const GTriangle* d_tris, const GSphere* d_spheres, const GVec3* d_motionVerts,
-    const ::GMaterial* d_materials, int numPixels)
+    const ::GMaterial* d_materials, int numPixels,
+    bool useLuminanceOutput,             // pkg157
+    float clampDirect, float clampIndirect)  // pkg157
 {
     int tpb = 256;
     stageRestirResolveKernel<<<gGrid(numPixels, tpb), tpb>>>(
         state, hitBufs, cur, d_accum_xyz, d_tlas, d_instances, d_blas,
-        d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials, numPixels);
+        d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials, numPixels,
+        useLuminanceOutput, clampDirect, clampIndirect);
 }
 
 }  // namespace astroray::wavefront

@@ -47,6 +47,18 @@ namespace astroray::wavefront {
 // (pkg55-C3: added useLuminanceOutput, enableNEE, lambdaMin/Max params)
 
 // From stage_init.cu
+// pkg157 NOTE — DO NOT DELETE this one (unlike the three removed below).
+// It is LOAD-BEARING: `gpu_wavefront_state.h` declares launchStageInit with
+// only 6 params (`..., uint64_t seed, int sample_index = 0`), but the
+// DEFINITION in stage_init.cu takes 8 (`..., int sample_index, float
+// lambdaMin, float lambdaMax`). The header's version is therefore a phantom
+// overload no definition matches — the same pre-existing defect pkg157 found
+// and fixed for launchStageShadeBucketed. All 6 call sites in this file pass
+// 8 arguments and resolve against THIS declaration; deleting it breaks the
+// build. Left in place deliberately: correcting the header decl means
+// removing/relocating its `= 0` default (a default arg cannot precede
+// non-defaulted params), which is a behaviour-affecting change outside
+// pkg157's scope and unverifiable without a build. Filed for follow-up.
 void launchStageInit(
     GPUWavefrontState& state,
     const GCameraParams& cam,
@@ -70,73 +82,17 @@ void launchStageRegen(
     int* d_shadow_count,
     bool useLuminanceOutput);  // pkg55-C7: grey band-mean accumulation
 
-// From stage_advance.cu (pkg55-C4: forward decls MUST match signatures exactly)
-void launchStageIntersectQueued(
-    GPUWavefrontState& state,
-    GPUWavefrontHitBuffers& hitBufs,
-    const int* d_queue_in, const int* d_count_in,
-    int* d_shade_queues, int* d_shade_counts, int capacity,
-    const GTLASNode*  d_tlas,
-    const GInstance*  d_instances,
-    const GBLAS*      d_blas,
-    const GBVHNode*   d_bvhNodes,
-    const GPrimitive* d_prims,
-    const GTriangle*  d_tris,
-    const GSphere*    d_spheres,
-    const GVec3*      d_motionVerts,
-    const ::GMaterial* d_materials,
-    GEnvMap           envMap,
-    GVec3             backgroundColor, bool hasBackgroundColor,
-    int               worldMaxBounces,
-    bool              useLuminanceOutput);
-
-void launchStageShadeBucketed(
-    GPUWavefrontState& state,
-    GPUWavefrontHitBuffers& hitBufs,
-    const int* d_shade_queues, const int* d_shade_counts, int capacity,
-    int* d_queue_out, int* d_count_out,
-    float* d_nee_f, int* d_nee_i, int* d_shadow_queue, int* d_shadow_count,
-    const GTLASNode*  d_tlas,
-    const GInstance*  d_instances,
-    const GBLAS*      d_blas,
-    const GBVHNode*   d_bvhNodes,
-    const GPrimitive* d_prims,
-    const GTriangle*  d_tris,
-    const GSphere*    d_spheres,
-    const GVec3*      d_motionVerts,
-    const ::GMaterial* d_materials,
-    const ::GLight*    d_lights, int num_lights, float total_light_power,
-    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
-    GLightTreeView    lightTree,
-    int               max_depth,
-    bool              useLuminanceOutput,
-    bool              enableNEE,
-    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
-    float             photonScale);
-
-void launchStageShadeNeeMis(
-    GPUWavefrontState& state,
-    GPUWavefrontHitBuffers& hitBufs,
-    float* d_nee_f, int* d_nee_i,
-    int* d_shadow_queue, int* d_shadow_count, int nee_capacity,
-    const GTLASNode*  d_tlas,
-    const GInstance*  d_instances,
-    const GBLAS*      d_blas,
-    const GBVHNode*   d_bvhNodes,
-    const GPrimitive* d_prims,
-    const GTriangle*  d_tris,
-    const GSphere*    d_spheres,
-    const GVec3*      d_motionVerts,
-    const ::GMaterial* d_materials,
-    const ::GLight*    d_lights, int num_lights, float total_light_power,
-    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
-    GLightTreeView    lightTree,
-    GEnvMap           envMap,
-    GVec3             backgroundColor, bool hasBackgroundColor,
-    int               worldMaxBounces,
-    int               max_depth,
-    bool              useLuminanceOutput,
-    bool              enableNEE);
+// pkg157: the private re-declarations of launchStageIntersectQueued,
+// launchStageShadeBucketed and launchStageShadeNeeMis that used to live here
+// are DELETED. They duplicated declarations this TU already gets from
+// "astroray/gpu_wavefront_state.h" (included above), and duplication is what
+// broke the pkg157 build: the ShadeBucketed copy here was the only one that
+// matched the definition (the header's was missing the photon params), so
+// adding the clamp params to the header + definition left the call below
+// matching NEITHER overload. The header now matches the definition exactly,
+// so these copies are redundant AND dangerous — a stale copy silently
+// declares a phantom overload that fails at link time rather than compile
+// time. Keep the header as the single source of truth.
 
 std::vector<float> cuda_wavefront_snapshot_post_init(
     const Camera& cam,
@@ -1254,7 +1210,8 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
                                d_dedLights, (int)res.dedicatedLights.size(),  // pkg89-wavefront
                                treeView, envMap, gbg, hasBg,
                                worldMaxBounces, /*max_depth=*/8,
-                               /*useLuminanceOutput=*/false, /*enableNEE=*/true);
+                               /*useLuminanceOutput=*/false, /*enableNEE=*/true,
+                               renderer.getClampDirect(), renderer.getClampIndirect());  // pkg157
 
         cudaError_t se = cudaDeviceSynchronize();
         if (se != cudaSuccess)
@@ -1413,6 +1370,11 @@ std::vector<float> cuda_wavefront_render(
     bool hasBg = bg.x >= 0.f;
     GVec3 gbg = hasBg ? GVec3(bg.x, bg.y, bg.z) : GVec3(0.f);
     int worldMaxBounces = renderer.getWorldMaxBounces();
+    // pkg157: wavefront twin of the deleted megakernels' clampDirect/
+    // clampIndirect wiring (cuda_renderer.cu, pre-C7). Defaults 0/off unless
+    // the host set them via set_clamp_direct/set_clamp_indirect.
+    float clampDirect = renderer.getClampDirect();
+    float clampIndirect = renderer.getClampIndirect();
 
     // pkg55-C5 / pkg113: scene-driven photon-map caustic pre-pass. Mirrors the MW
     // megakernel path (multiwavelength_kernel.cu:936-962, cuda_renderer.cu:848-862).
@@ -1547,7 +1509,8 @@ std::vector<float> cuda_wavefront_render(
                                        d_spheres, d_motionVerts, d_materials,  // pkg55-C4
                                        envMap, gbg, hasBg,
                                        worldMaxBounces,
-                                       useLuminanceOutput);
+                                       useLuminanceOutput,
+                                       clampDirect, clampIndirect);  // pkg157
             launchStageShadeBucketed(state, hitBufs,
                                      d_shadeQueues, d_shadeCounts,
                                      total_paths, d_queueB, cout,
@@ -1563,13 +1526,16 @@ std::vector<float> cuda_wavefront_render(
                                      (int)res.dedicatedLights.size(),
                                      treeView, max_depth,
                                      useLuminanceOutput, enableNEE,
+                                     clampDirect, clampIndirect,  // pkg157
                                      caustic.grid, caustic.ready,  // pkg55-C5 / pkg113
                                      caustic.scale);
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4
                               d_bvhNodes, d_prims, d_tris, d_spheres,
-                              d_motionVerts, d_materials);  // pkg55-C4
+                              d_motionVerts, d_materials,  // pkg55-C4
+                              useLuminanceOutput,
+                              clampDirect, clampIndirect);  // pkg157
             if (waves == 1) continue;  // fixed pass count, no readbacks
             if (workExhausted) {
                 if (--drainLeft <= 0) break;
@@ -1710,6 +1676,9 @@ std::vector<float> cuda_wavefront_render_restir(
     bool hasBg = bg.x >= 0.f;
     GVec3 gbg = hasBg ? GVec3(bg.x, bg.y, bg.z) : GVec3(0.f);
     int worldMaxBounces = renderer.getWorldMaxBounces();
+    // pkg157: see cuda_wavefront_render's identical note.
+    float clampDirect = renderer.getClampDirect();
+    float clampIndirect = renderer.getClampIndirect();
 
     // Per-path state: grow-only (1 slot per pixel; DI = single bounce).
     if (C.stateCapacity < numPixels) {
@@ -1787,7 +1756,7 @@ std::vector<float> cuda_wavefront_render_restir(
             state, hitBufs, gcam, width, height, s, seed, lambdaMin, lambdaMax,
             d_tlas, d_instances, d_blas, d_bvhNodes, d_prims, d_tris, d_spheres,
             d_motionVerts, d_materials, envMap, gbg, hasBg, worldMaxBounces,
-            useLuminanceOutput);
+            useLuminanceOutput, clampDirect, clampIndirect);  // pkg157
 
         launchStageRestirInitialRIS(
             state, hitBufs, curRes, d_prims, d_tris, d_spheres, d_materials,
@@ -1806,7 +1775,7 @@ std::vector<float> cuda_wavefront_render_restir(
         launchStageRestirResolve(
             state, hitBufs, curRes, d_accum, d_tlas, d_instances, d_blas,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            numPixels);
+            numPixels, useLuminanceOutput, clampDirect, clampIndirect);  // pkg157
     }
 
     cudaError_t syncErr = cudaDeviceSynchronize();

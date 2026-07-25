@@ -24,6 +24,11 @@
 #include <cstddef>
 #include <cstdint>
 #include "astroray/gpu_types.h"  // GVec3, GSampledWavelengths, GSampledSpectrum
+// pkg157: GPhotonGrid, needed by launchStageShadeBucketed's declaration below.
+// Safe from any TU: gpu_photon_store.h is explicitly written to compile under
+// both nvcc and pure C++ (its device-only helpers sit behind __CUDACC__), and
+// it pulls in nothing beyond gpu_types.h + <cstdint>/<vector>.
+#include "astroray/gpu_photon_store.h"
 
 namespace astroray::wavefront {
 
@@ -274,6 +279,7 @@ void launchStageAdvance(
     int               max_depth,
     bool              useLuminanceOutput,  // pkg55-C3 (was missing)
     bool              enableNEE,           // pkg55-C3 (was missing)
+    float             clampDirect, float clampIndirect,  // pkg157
     bool              sync = true);  // N+7: render driver passes false, syncs once per render
 
 // Session N+7 part 2: queued advance + compaction. queue/count buffers are
@@ -300,7 +306,8 @@ void launchStageAdvanceQueued(
     int               worldMaxBounces,
     int               max_depth,
     bool              useLuminanceOutput,  // pkg55-C3 (was missing)
-    bool              enableNEE);          // pkg55-C3 (was missing)
+    bool              enableNEE,           // pkg55-C3 (was missing)
+    float             clampDirect, float clampIndirect);  // pkg157
 
 // Fills d_queue with 0..n-1 and *d_count = n (bounce-0 population).
 void launchStageQueueIota(int* d_queue, int* d_count, int n);
@@ -325,7 +332,8 @@ void launchStageIntersectQueued(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    bool              useLuminanceOutput);  // pkg55-C3 (was missing)
+    bool              useLuminanceOutput,  // pkg55-C3 (was missing)
+    float             clampDirect, float clampIndirect);  // pkg157
 
 void launchStageShadeBucketed(
     GPUWavefrontState& state,
@@ -347,7 +355,17 @@ void launchStageShadeBucketed(
     GLightTreeView    lightTree,
     int               max_depth,
     bool              useLuminanceOutput,  // pkg55-C3 (was missing)
-    bool              enableNEE);          // pkg55-C3 (was missing)
+    bool              enableNEE,           // pkg55-C3 (was missing)
+    float             clampDirect, float clampIndirect,  // pkg157
+    // pkg157 FIX (pre-existing defect, exposed by this package): these three
+    // photon params have been on the DEFINITION (stage_advance.cu) since
+    // pkg55-C5/pkg113 but were never added here, so this declaration was a
+    // PHANTOM overload that no definition matched. It compiled only because
+    // gpu_wavefront_snapshot.cu carried a private re-declaration that shadowed
+    // it. That duplicate is now deleted; this declaration is the single source
+    // of truth and must be kept in sync with stage_advance.cu.
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
+    float             photonScale);
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts
@@ -355,8 +373,14 @@ void launchStageShadeBucketed(
 // stage_advance.cu parking layout.
 // pkg89-wavefront (C7): lanes 11-13 = dedEmissionRGB, int lane 2 =
 // isDedicated (dedGeoScale is folded into the parked scale at shade time).
+// pkg157: int lane 3 = the bounce depth the NEE sample was taken at. The
+// deferred shadow-resolve kernel runs in a LATER launch after shadePathSlot
+// may already have advanced state.bounce[idx] to bounce+1 (or left it
+// unchanged if RR/BSDF-pdf killed the path first, ambiguously) -- so the
+// bounce needed for the pkg144 direct/indirect clamp split must be parked
+// here rather than re-read from state at resolve time.
 constexpr int G_WF_NEE_F_LANES = 14;
-constexpr int G_WF_NEE_I_LANES = 3;
+constexpr int G_WF_NEE_I_LANES = 4;
 void launchStageShadow(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
@@ -370,7 +394,9 @@ void launchStageShadow(
     const GTriangle*  d_tris,
     const GSphere*    d_spheres,
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
-    const ::GMaterial* d_materials);
+    const ::GMaterial* d_materials,
+    bool              useLuminanceOutput,   // pkg157
+    float             clampDirect, float clampIndirect);  // pkg157
 
 // Session N+7 part 4: path regeneration -- dense pass accumulating dead
 // paths' radiance (atomic, per-pixel) then refilling slots from a global
@@ -435,7 +461,8 @@ void launchStageShadeNeeMis(
     int               worldMaxBounces,
     int               max_depth,
     bool              useLuminanceOutput,  // pkg55-C3 (was missing)
-    bool              enableNEE);          // pkg55-C3 (was missing)
+    bool              enableNEE,           // pkg55-C3 (was missing)
+    float             clampDirect, float clampIndirect);  // pkg157
 
 // Session N+3 part 2: Hit record fields (extend GPUWavefrontState for intersect->shade flow).
 // These are passed as separate device pointers; will be folded into GPUWavefrontState
@@ -496,7 +523,8 @@ void launchStageRestirPrimary(
     GEnvMap           envMap,
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
-    bool              useLuminanceOutput);
+    bool              useLuminanceOutput,
+    float             clampDirect, float clampIndirect);  // pkg157
 
 // Initial RIS (Bitterli 2020, Algorithm 1) over the parked primary hits.
 void launchStageRestirInitialRIS(
@@ -544,7 +572,9 @@ void launchStageRestirResolve(
     const GSphere*    d_spheres,
     const GVec3*      d_motionVerts,
     const ::GMaterial* d_materials,
-    int numPixels);
+    int numPixels,
+    bool              useLuminanceOutput,   // pkg157
+    float             clampDirect, float clampIndirect);  // pkg157
 
 }  // namespace astroray::wavefront
 

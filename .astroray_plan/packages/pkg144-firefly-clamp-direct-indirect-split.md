@@ -171,6 +171,23 @@ area light of similar illuminance — the `× solidAngle` factor **understates**
 - [x] Existing firefly/caustic + furnace + render suites unchanged; build evidence shown (see PR).
 - [x] GPU firefly-cap parity handled: the two PRODUCTION GPU megakernels (`path_trace_kernel.cu` tracePathGPU, `multiwavelength_kernel.cu` tracePathMW — the latter is what the default `path_tracer` integrator actually dispatches to on GPU) got the same bounce-indexed split. The pkg55 wavefront SoA dev-harness kernels (`stage_advance.cu`/`stage_restir.cu`, not in the production dispatch path) still carry the old whole-path clamp — explicitly deferred, see research doc.
 - [ ] Secondary: distant-vs-area selection-importance — DEFERRED, not attempted this round (time-boxed to the primary clamp-split fix). Still open.
+
+**Wavefront wiring: pkg157** (2026-07-26, PR #526). pkg55-C7 (PR #524) deleted
+both GPU megakernels this package wired above, taking their clamp-split with
+them — the wavefront that replaced them (now the ONLY GPU render path) never
+had it, and still carried the OLD always-on whole-path `lum > 20` cap the
+megakernel fix removed (`stageRegenKernel` in `stage_advance.cu`,
+`stageRestirResolveKernel` in `stage_restir.cu`). pkg157 re-ports the bounce-
+indexed `clampDirect`/`clampIndirect` split into the wavefront's four
+accumulation sites (env/background miss + emissive-hit in `intersectPathSlot`,
+NEE/shadow-resolve in `shadePathSlot`/`stageShadowKernel`, and ReSTIR-DI's
+primary+resolve terms in `stage_restir.cu`) via a new shared device helper
+`gpu_clampContribMW` (`src/gpu/gpu_spectral_tables.h`) — the direct wavefront
+port of this package's own deleted `multiwavelength_kernel.cu::gpu_clampContribMW`
+(commit `1af7eca`). No SMS-caustic-equivalent site exists in the wavefront (its
+caustic mechanism is the structurally different pkg55-C5 photon-map gather, not
+a per-bounce specular-manifold chain) — that accumulation path is unclamped by
+design, same as before. HW verification pending; see pkg157 PR body.
 - **Un-xfail note:** `test_direct_and_indirect_clamp_controls` (test_python_bindings.py) un-xfailed — genuinely fixed by this package. The two Disney-highlight tests named in the dispatch (`test_disney_metallic_tints_specular_highlight`, `test_disney_roughness_changes_glossiness`) were investigated in depth and found NOT to be caused by the firefly clamp (converged, stable R/B and mean gaps of ~0.03-0.06 and ~0.0087 respectively, well under their 0.10/0.015 gates, unchanged across clamp settings 0/20/1e6 and across 64-2048 spp) — root cause is a Pillar-2 Disney specular-magnitude question adjacent to pkg145 (Disney specular energy compensation refit), not pkg144's integrator clamp. Their xfail reasons were updated with the measured evidence and left in place; see PR body.
 
 ---

@@ -133,3 +133,36 @@ def test_helper_no_uv_empty_arrays():
         _bulk_geometry.mesh_to_bulk_arrays(mesh, M, NM, {}, 0, [])
     assert uvs.size == 0 and uv_names == []
     assert material_ids.tolist() == [0, 0]   # empty slot_to_id -> default_mat_id
+
+
+# --- pkg88-B: mesh_world_positions (object motion blur shutter-close bake) ---
+
+def test_mesh_world_positions_matches_mesh_to_bulk_arrays_positions():
+    """Same matrix -> mesh_world_positions must reproduce EXACTLY the
+    `positions` array mesh_to_bulk_arrays computes (both derive world-space
+    triangle corners the same way; pkg88-B reuses this for the shutter-close
+    sample instead of re-deriving material/UV/normal data)."""
+    mesh, *_ = _make_mesh()
+    M, NM = _transform()
+    positions, *_rest = _bulk_geometry.mesh_to_bulk_arrays(
+        mesh, M, NM, {0: 10, 1: 20}, 10, [])
+    world_positions = _bulk_geometry.mesh_world_positions(mesh, M)
+    np.testing.assert_allclose(world_positions, positions, rtol=0, atol=1e-6)
+
+
+def test_mesh_world_positions_reflects_different_matrix():
+    """A translated matrix must shift every corner by exactly the
+    translation delta -- the shutter-close sample pkg88-B feeds as
+    add_triangles_bulk_motion's positions_end."""
+    mesh, *_ = _make_mesh()
+    M, _NM = _transform()
+    M_end = M.copy()
+    M_end[:3, 3] += np.array([1.2, 0.0, 0.0], dtype=np.float32)
+
+    start = _bulk_geometry.mesh_world_positions(mesh, M)
+    end = _bulk_geometry.mesh_world_positions(mesh, M_end)
+
+    assert start.shape == end.shape == (2, 3, 3)
+    np.testing.assert_allclose(end - start,
+                               np.full((2, 3, 3), [1.2, 0.0, 0.0], dtype=np.float32),
+                               rtol=0, atol=1e-5)

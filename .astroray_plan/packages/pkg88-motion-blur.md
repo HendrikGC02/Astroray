@@ -2,8 +2,10 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** Phases A+C.0 done (A: PR #284, C.0: PR #437, 2026-06-11 — deformation motion blur: add_triangles_bulk_motion bulk binding, time-aware Triangle::hit + gpu_triangle_hit_motion, union-AABB BVH, GRay.time end-to-end both megakernels, Camera::getRay zero-shutter carries sampled time; RTX: no-op bit-identity, CPU+GPU streak, union-AABB extremes, cross-backend motion/static energy-shift parity). REMAINING (all blocking preconditions now met, 2026-07-25):
-- **Phase B — addon bake: DISPATCHABLE** (pkg114 TLAS/instancing landed; addon-only change in `blender_addon/__init__.py` `convert_scene`, no renderer surface).
+**Status:** Phases A+C.0 done (A: PR #284 — but camera motion blur was UNREACHABLE in real Blender until the `convert_scene` ordering fix in PR #525, see the Phase B entry; C.0: PR #437, 2026-06-11 — deformation motion blur: add_triangles_bulk_motion bulk binding, time-aware Triangle::hit + gpu_triangle_hit_motion, union-AABB BVH, GRay.time end-to-end both megakernels, Camera::getRay zero-shutter carries sampled time; RTX: no-op bit-identity, CPU+GPU streak, union-AABB extremes, cross-backend motion/static energy-shift parity). REMAINING (all blocking preconditions now met, 2026-07-25):
+- **Phase B — addon bake: done (PR #525, 2026-07-26 — addon-only object motion bake; RENDERER-SIDE HW VERIFY PENDING).** `convert_scene` hoists the shutter/`shutter_position` resolution out of the camera-only branch so object motion reuses the SAME `t_start`/`t_end` as pkg88-A (camera and object blur agree by construction); new `_get_object_matrices_at_time` snapshots every mesh-able object's `matrix_world` at BOTH shutter boundaries, one `frame_set`+`depsgraph.update()` round trip per boundary, with frame-state restore; `convert_objects` gained optional `motion_start_matrices`/`motion_end_matrices` params (default `None`→`{}`, so `exporter.py`'s viewport-sync call site is untouched) and routes to `add_triangles_bulk_motion` only when the object is NOT a dupli AND its pose differs BETWEEN THE TWO SHUTTER BOUNDARIES (`_matrices_differ`, eps 1e-6) — static objects keep `add_triangles_bulk` with zero behavioural change. New `_bulk_geometry.mesh_world_positions` computes both endpoint position arrays with the same vertex→loop-triangle indexing as `mesh_to_bulk_arrays` (rigid bake ⇒ material/UV/normal data identical between shutter samples, not re-derived). **Both boundary poses are mandatory:** `Triangle::hit` blends `positions_start` at ray time=0 and `positions_end` at time=1, and `Camera::getRay` maps that same time across `t_start`→`t_end`. A first cut sampled only `t_end` and reused the current-frame pose as `positions_start`; caught in PR #525 review and fixed before merge. That bug halved the CENTER arc (49→30 lit columns) and made END a total silent no-op (13 columns = the static silhouette, because `t_end == frame` there so `_matrices_differ` was always False). Shading normals still derive from the current-frame matrix by design — the renderer stores one non-interpolated normal set per triangle, and for the default CENTER shutter `frame` is exactly the shutter midpoint (full rationale, and the warning against "fixing" it, in the Phase B specification section; also listed under Non-goals). No renderer/binding surface added; the shipped 2-step binding (center + shutter-close) was sufficient. **Instancing:** an animated INSTANCED object keeps the static pkg114 instancing path and gets NO motion blur — `_register_instanced_groups` runs first and removes those entries via `instanced_indices` before the motion check, so the two paths are mutually exclusive by construction. Tests: 19 new/extended — 8 mocked-bpy wiring (incl. shutter-boundary capture parameterised over START/CENTER/END asserting the exact sampled sub-frame instants 10.0/10.5, 9.75/10.25, 9.5/10.0), 6 real-compiled-renderer integration (bit-identical no-op; >2× streak; **end-to-end real `convert_scene`→`convert_objects` streak for all three shutter positions**, measured 49 lit columns each with centres ordered END 48.0 < CENTER 68.0 < START 89.0), 5 pure-numpy helper. Every regression assertion was verified to FAIL against a deliberately re-introduced copy of the bug. 74-test sweep over addon/motion/instancing neighbours green; full suite 1354 passed / 1 env-flake (`test_blender_parity_matrix` OneDrive rmtree PermissionError).
+
+  **PR #525 also fixed a PRE-EXISTING pkg88-A defect that made ALL motion blur unreachable in real Blender** (present on `origin/main` since pkg88-A shipped; NOT introduced by Phase B). `convert_scene` called `renderer.clear()` — which does `camera.reset()` — and then `set_camera_motion_blur()` ~60 lines BEFORE `setup_camera()`, so ticking Motion Blur on failed the whole render with `RuntimeError: Camera not set up`. Every mocked-`bpy` suite missed it: they stub `setup_camera` and don't model `clear()`'s effect on camera state. Suppressing the throw would have been worse, not better — `Renderer::setupCamera` (`module/blender_module.cpp:1282`) constructs a NEW `Camera` carrying over only pkg72's prev-frame snapshot, NOT the shutter fields, so a `setup_camera` left after the upload would silently reset `Camera::shutter` to its `0.0f` default (`include/raytracer.h:1881`) = blur quietly OFF. Hoisting `setup_camera` above the motion-blur block is the only correct ordering; the code carries an "ORDER IS LOAD-BEARING" comment so it isn't moved back. Verified in real Blender 5.1 headless via the promoted harness `scripts/verify_pkg88b_blender.py` (pattern-matched to `verify_pkg114_*_blender.py`), both directions: **with fix PASS** — static 15 | START 22 | CENTER 22 | END 22 | camera 23 lit columns, object ranges shifting monotonically END (38,59) < CENTER (48,69) < START (58,79); **without fix FAIL** exit 1, `RuntimeError: Camera not set up`. That harness also guards pkg88-A camera blur, and wraps `main()` because Blender's `--python` swallows tracebacks and still exits 0 — gate on the string `PKG88B_BLENDER_RESULT PASS`, not the exit code.
 - **Phase D — wavefront motion: DISPATCHABLE** (pkg55 completed via PR #524; megakernels deleted). The Phase-D scope below is superseded by the "Phase D — wavefront-only reword (post-#524)" addendum — READ IT FIRST: `path_time` and `d_motionVerts` threading already landed in the wavefront under pkg55-C4/C.0, so a large part of Phase D may already be satisfied; the remaining work is init-time shutter-time sampling + parity re-baselining, and D1's "vs megakernel" oracle no longer exists.
 - **Phase C.1 — per-primitive split: perf-gated** (ships only if C.0 measures > 1.5× slower than Cycles on the B/C4 scene; not otherwise dispatchable).
 **Estimated effort:** 5–7 weeks across 4 phases (A camera, B object,
@@ -104,6 +106,12 @@ Each is a hard stop; escalate before expanding scope.
   Linear blend only, matching Cycles, Mitsuba 0.6, RenderMan. Adequate
   for ≤ 3 motion steps. Cycles' `motion_triangle.h` is the canonical
   implementation we mirror.
+- **Shading-normal interpolation over the shutter.** Normals are
+  sampled ONCE, at the current frame; only positions vary with time.
+  Requires a renderer-side change (a second normal set per triangle),
+  so it is out of Phase B's addon-only scope. Full rationale in the
+  "Phase B — Object motion blur" specification section below; read it
+  before re-opening this.
 - **STBVH per-node spatiotemporal bounds (Woop et al., HPG 2017).**
   See "Architect addendum" below. Real measurable benefit at high
   motion-step counts (4+), but requires growing `LinearBVHNode` from
@@ -429,6 +437,37 @@ additions from the architect spec-promotion pass:
 | File | Change |
 |---|---|
 | `blender_addon/__init__.py` (`convert_scene`) | For each animated `bpy.types.Object`, capture `obj.matrix_world @ vertex` at K shutter sub-times; emit as per-vertex motion buffer (consumed by Phase C). |
+
+**As-built correction (PR #525):** the prose above says "K shutter sub-times",
+but the shipped Phase-C.0 binding
+(`Renderer.add_triangles_bulk_motion(positions_start, positions_end, ...)`)
+supports exactly **2** steps — `positions_start` = center, `positions_end` =
+shutter close, `motionSteps=2`. That is sufficient for Phase B because Q2
+resolves object motion to a **rigid** transform bake, which is exactly a 2-key
+problem, and Q-Owner-2 fixed v1 at scene-wide steps. Arbitrary K would only
+matter for non-linear motion (rotating wheels) and is the deferred
+`pkg88-per-object-steps` follow-up. No renderer surface was widened.
+Implementation also touched `blender_addon/_bulk_geometry.py` (new
+`mesh_world_positions`) — no new addon *module*, so `ADDON_FILES` in
+`scripts/build/build_blender_addon.py` was correctly left alone.
+
+**Shading normals are sampled once, at the current frame (decided PR #525;
+do not "fix" this without reading the following).** Only vertex POSITIONS
+vary across the shutter. The renderer stores exactly ONE non-interpolated
+normal set per triangle (`Triangle::setVertexNormals`), so there is no fully
+correct option here — only a choice of which single instant to sample. The
+addon samples the current frame, which is **exact for `CENTER`** (the
+owner-mandated default per Q-Owner-3: `frame` *is* the shutter midpoint) and
+an approximation for `START` / `END`, where it sits at one end of the arc
+rather than its middle. Sampling at `t_start` instead — the intuitive
+"match `positions_start`" move — would not be more correct, merely
+differently wrong, and would bias the DEFAULT case toward the shutter-open
+pose; it would also perturb static-scene output and so put the proven no-op
+guarantee at risk. Making normals genuinely time-varying requires a
+renderer-side change (a second normal set + interpolation in `Triangle::hit`
+and the GPU twin), which is outside Phase B's addon-only scope; file it as a
+follow-up if production footage ever shows normal-swim on a fast-rotating
+object under a non-`CENTER` shutter.
 
 ### Phase C.0 — Deformation motion blur (union-AABB static BVH)
 

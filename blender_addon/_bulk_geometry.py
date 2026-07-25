@@ -93,3 +93,28 @@ def mesh_to_bulk_arrays(mesh, matrix, normal_matrix, slot_to_id, default_mat_id,
         normals = np.zeros((0,), dtype=np.float32)
 
     return positions, material_ids, mat_pass, uvs, uv_names, normals
+
+
+def mesh_world_positions(mesh, matrix):
+    """Return (Nt,3,3) world-space triangle-corner positions for `mesh` under
+    `matrix`, using the SAME vertex->loop-triangle indexing as
+    ``mesh_to_bulk_arrays``. pkg88-B: lets the addon compute a second
+    ("shutter close") position array from a different, already-evaluated
+    world matrix, for ``Renderer.add_triangles_bulk_motion``'s
+    ``positions_end`` argument -- material/UV/normal data are identical
+    between the two shutter samples (pkg88-B bakes a RIGID transform, not a
+    deforming mesh, so only positions differ).
+    """
+    n_tri = len(mesh.loop_triangles)
+    n_vert = len(mesh.vertices)
+
+    co = np.empty(n_vert * 3, dtype=np.float32)
+    mesh.vertices.foreach_get("co", co)
+    co = co.reshape(n_vert, 3)
+    M = np.asarray(matrix, dtype=np.float32)
+    world = co @ M[:3, :3].T + M[:3, 3]
+
+    vidx = np.empty(n_tri * 3, dtype=np.int32)
+    mesh.loop_triangles.foreach_get("vertices", vidx)
+    vidx = vidx.reshape(n_tri, 3)
+    return np.ascontiguousarray(world[vidx], dtype=np.float32)

@@ -259,3 +259,32 @@ flipped later. Memory: `gamma-furnace-cannot-detect-energy-gain`.
 No code was copied from any of these. The scene is an original arrangement of
 this repository's own primitives, built to satisfy a definition taken from the
 literature.
+
+
+---
+
+## HARDWARE MEASUREMENT (team-lead, 2026-07-26, RTX 5070 Ti)
+
+The thresholds in this package were *design targets* — the implementer had no GPU
+and no CUDA build by policy. These are the measured values, taken **linear**
+(`applyGamma=False`; a gamma-clamped tail measurement destroys exactly the
+outliers being measured — memory `gamma-furnace-cannot-detect-energy-gain`).
+
+Engine: `build_cuda/Release/astroray.cp313-win_amd64.pyd` built 21:15 from `c27daad`
+(i.e. post-pkg160).
+
+| scene | config | peak | p99.9 | **peak / p99.9** |
+|---|---|---|---|---|
+| **firefly_window** | GPU 480×360, 64 spp | 29.7104 | 1.300438 | **22.85×** |
+| metal_cornell (negative control) | GPU 240×180, 32 spp | 0.4626 | 0.433527 | **1.07×** |
+
+**Both targets met with margin.** The firefly gate wanted ≥ 10× and measured 22.85×
+— 2.3× headroom, and **12.6× heavier than the best pre-existing scene**
+(diffuse_light_cornell at 1.82×). The negative control wanted ≤ 3.0× and measured
+1.07×, so the tail assertion demonstrably discriminates rather than passing on
+everything.
+
+**Gate run:** `test_pkg161_firefly_scene_tail.py` + `test_pkg157_wavefront_firefly_clamp_port.py`
+→ **12 passed**, including `test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss`,
+which had been `pytest.mark.skip`ped since PR #526 because no scene in the library
+could satisfy it. The design targets needed no recalibration.

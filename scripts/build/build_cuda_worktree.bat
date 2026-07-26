@@ -47,8 +47,19 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6
+REM Prefer the environment's CUDA_PATH so worktree builds use the SAME toolkit as
+REM main-checkout builds (configure_and_build.bat inherits it). This script used
+REM to hardcode v12.6 while CUDA_PATH/PATH resolve to v12.8, so the two build
+REM routes silently used different compilers -- and register allocation is
+REM compiler-version sensitive, which is a live confound for pkg155's
+REM register-count bisect. Fall back to an explicit v12.8 only if unset.
+if not defined CUDA_PATH set CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8
 set NVCC=%CUDA_PATH%\bin\nvcc.exe
+echo [build_cuda_worktree] CUDA_PATH: %CUDA_PATH%
+if not exist "%NVCC%" (
+    echo ERROR: nvcc not found at %NVCC%
+    exit /b 1
+)
 
 REM Create build directory
 mkdir build_cuda 2>nul

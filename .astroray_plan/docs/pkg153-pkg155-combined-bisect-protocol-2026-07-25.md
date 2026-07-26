@@ -8,6 +8,20 @@ protocol. Neither runs a separate bisect.
 **Status of this doc:** ready to execute under the serialized GPU lock. Docs-only
 tonight; no build, no render, no code was run to produce it.
 
+> **CORRECTION 2026-07-26 (architect; supersedes §0/§1/§4 as originally filed).**
+> The original protocol claimed the register bisect was compile-only and could
+> run off-lock. **That claim is dead** — it was the architect's design premise,
+> and the team-lead refuted it by measurement
+> (`.astroray_plan/docs/pkg155-sm120-negative-result.md`): under `-rdc=true`,
+> pre-link `-Xptxas -v` register counts are off by up to **5×** (shade kernel:
+> 127 reported vs **221** actual @ sm_89; 40 vs **229** @ sm_120), and on this
+> sm_120 GPU execution is driver-**JIT from compute_89 PTX**, so even post-link
+> static SASS counts are not the executing allocation. **The register signal is
+> runtime-profile-only. Every bisect point needs the GPU and the lock. This
+> bisect is NOT GPU-free and cannot run concurrently with hardware
+> verification.** Sections below are edited accordingly; §4a has the corrected
+> cost/scheduling model.
+
 ---
 
 ## 0. Why combine
@@ -19,16 +33,19 @@ the register/occupancy growth (pkg155) both live in the **shared spectral device
 shading path** that the megakernel and the wavefront shade stage each `#include`.
 This protocol captures **all four signals from ONE build per bisect point.**
 
-Phase 1 makes the combination far cheaper than the architect's first estimate:
-the **primary bisect signal is now a compile-time register count**, not a timed
-render — deterministic, zero timing noise, and readable from a build without a
-GPU render.
+Phase 1 still improves the instrument, just less than first claimed: the
+**primary bisect signal is the runtime-profiled register count** — deterministic
+and timing-noise-free (a profiled launch reports the same regs regardless of
+thermal state), but **NOT readable at compile time** (see the 2026-07-26
+correction above). The efficiency win that survives is the *combination* itself:
+one rebuild + ONE profiled GPU session per point captures all four signals for
+both packages.
 
 ## 1. The four signals, captured from ONE build per point
 
 | # | Signal | Owner | How | Needs a render? |
 |---|---|---|---|---|
-| 1 | **Shade-path regs/thread** (PRIMARY bisect signal) | pkg155 | `ptxas -v` at compile / `cuobjdump --dump-resource-usage` on the built module | **No** — compile-time |
+| 1 | **Shade-path regs/thread** (PRIMARY bisect signal) | pkg155 | **runtime profile only** — `ASTRORAY_PROFILE=1` harness regs/thread per stage (the instrument Phase 1 used). Static `-Xptxas -v` / pre-link counts are INVALID under `-rdc=true` (off by up to 5×), and driver-JIT on sm_120 makes even post-link static SASS non-authoritative — see the 2026-07-26 correction | **Yes** — GPU + lock (launch required; thermal-insensitive) |
 | 2 | Total GPU kernel-ms/render | pkg155 | `benchmarks/wavefront_baseline.py --spp 64 --max-depth 8`, cornell_diffuse+glass, 256², 1 warmup + 5 measured, `sum_ms ÷ renders` (Phase 1 §0 corrected metric) | Yes |
 | 3 | R-channel env-scene GPU/CPU mean ratio | pkg153 | the three failing gates' open-env scene (warm emissive sphere), per-channel mean ratio; plus the emitters→matte env-only discriminator (pkg153 C7 finding) | Yes |
 | 4 | tables-loaded checksum | pkg153 | verify the spectral/glass LUTs actually resident at this commit (a build can silently ship without them) | build probe |
@@ -67,16 +84,28 @@ cause.
    ratio change with tables absent is a load bug, not a transport regression.
 3. **Build config = Release**, seed, spp=64, max-depth=8, scene set, resolution
    256² — pinned identical to Phase 1.
-4. **GPU thermal/lock state** for the ms leg only (signal 2): median-of-5, cool
+4. **`CMAKE_CUDA_ARCHITECTURES` pinned at `75;86;89` — do NOT add sm_120.**
+   Measured 2026-07-26 (`pkg155-sm120-negative-result.md`): native sm_120 AOT is
+   **1.68–1.80× SLOWER** (shade stage 2.52× slower @ 229 regs) than the current
+   JIT-from-compute_89 path. An arch-list change mid-bisect would move both regs
+   and ms materially and forge a phantom jump. The lever itself is ruled out
+   (see pkg155 spec §Ruled out).
+5. **GPU thermal/lock state** for the ms leg only (signal 2): median-of-5, cool
    start, GPU lock held — per the pkg155/pkg55-C7 timing discipline. Signals 1,
-   3, 4 are noise-free and do not need thermal control.
+   3, 4 are timing-noise-free and do not need thermal control (but signal 1 DOES
+   need a profiled launch — all four signals require the GPU; see the
+   2026-07-26 correction).
 
 ## 3. Window and points
 
-Window: **#481 → #524**. 4–6 points. Bisect **on signal 1 (regs) first** — it is
-compile-only and deterministic, so you can localize the occupancy cliff cheaply,
-then spend GPU render time only at the candidate origin commits to capture
-signals 2–4.
+Window: **#481 → #524**. 4–6 points. The original "localize the cliff via cheap
+off-lock compiles, then render only at candidates" split is DEAD (2026-07-26
+correction) — there is no cheap/expensive signal split anymore. Instead:
+**capture ALL FOUR signals at every point in one profiled GPU session** (once
+you hold the lock with a built binary, the marginal cost of the extra renders is
+minutes). Regs remain the PRIMARY discriminator for choosing the next bisect
+point — still deterministic and timing-noise-free, just no longer free of the
+GPU.
 
 Suspect anchors (union of both specs' lists):
 
@@ -98,11 +127,14 @@ Suspect anchors (union of both specs' lists):
 
 ## 4. Discipline
 
-1. **Bisect on regs first** (signal 1, compile-only) to localize the occupancy
-   cliff — sharpest, cheapest, no GPU render, no timing noise.
-2. At each candidate origin commit, **then** capture signals 2–4 (one render pass
-   per point) to confirm the reg jump tracks the ms jump (pkg155) and to place the
-   R-ratio jump (pkg153).
+1. **One profiled GPU session per point, all four signals** (2026-07-26
+   corrected discipline). Use the reg track as the primary discriminator when
+   choosing the next point; confirm the reg jump tracks the ms jump (pkg155) and
+   place the R-ratio jump (pkg153) from the same session.
+2. **Pipeline the builds off-lock.** The clean CUDA rebuild is the dominant
+   per-point cost and needs no GPU — build the next point's binary while the
+   current point's profiled session (or an unrelated HW verification) holds the
+   lock. The lock windows themselves are short (see §4a).
 3. **Do not assume one shared cause.** pkg155 and pkg153 may converge on the same
    spectral-eval-arc origin commit or split; record a per-signal verdict. The
    photon-caustic negative-SSIM flake is a distinct cause (pkg153) and is out of
@@ -110,6 +142,35 @@ Suspect anchors (union of both specs' lists):
 4. **#523 stays a compounding anchor, never an origin** (pkg153 rule).
 5. Every claim needs hardware evidence for signals 2–3; CI is blind (memory
    `ci_has_no_gpu_runtime_blindspot`).
+
+## 4a. Cost & scheduling (corrected 2026-07-26) — is it still worth running?
+
+**Yes — but under a different model.** Honest per-point accounting:
+
+- **Off-lock (CPU):** clean CUDA rebuild — the dominant cost by far. Needs no
+  GPU; pipelines against whatever holds the lock.
+- **On-lock (GPU):** one profiled session = the Phase-1 harness (1 warmup + 5
+  measured renders, ~0.1–0.2 s GPU each at current speeds) + the pkg153 env-scene
+  GPU leg + its CPU-oracle leg. Realistically **~10–20 min wall per point**,
+  mostly the CPU oracle.
+- Total: 4–6 lock windows ≈ **1–1.5 GPU-hours spread across the run**, plus
+  pipelined builds.
+
+Scheduling rules:
+1. **HW gates for active PRs outrank bisect windows.** A blocked merge costs the
+   run more than a delayed diagnosis. The bisect takes lock gaps; it never makes
+   a verifier wait.
+2. Each point is **self-contained** (all four signals + confounds recorded), so
+   the arc can be interrupted and resumed across nights without loss — run it
+   opportunistically, not as a contiguous block.
+3. Never overlap a bisect session with a running verifier (memory
+   `cuda_verifier_concurrency`), and never rebuild a PR branch mid-verify
+   (memory `hw-verify-branch-freeze`).
+
+**Verdict:** the combined bisect remains viable alongside active implementation
+lanes — it degrades from "free background localization + 1–2 GPU visits" to
+"4–6 short scheduled GPU visits with pipelined builds." If a night's HW queue is
+saturated, the bisect yields entirely and loses nothing but calendar time.
 
 ## 5. Outputs
 
@@ -137,6 +198,8 @@ standalone change to land AFTER the bisect completes.
 ## References
 
 - pkg155 Phase 1: `.astroray_plan/docs/pkg155-phase1-profile-findings.md`
+- sm_120 negative result + rdc register-count invalidation (the 2026-07-26
+  correction's evidence): `.astroray_plan/docs/pkg155-sm120-negative-result.md`
 - pkg155 spec: `.astroray_plan/packages/pkg155-gpu-absolute-slowdown-investigation.md`
 - pkg153 spec: `.astroray_plan/packages/pkg153-wavefront-diff-env-gates-disposition.md`
 - Baseline of record: `benchmarks/wavefront/baseline.json` (2026-05-17 @ `1a3c159`)

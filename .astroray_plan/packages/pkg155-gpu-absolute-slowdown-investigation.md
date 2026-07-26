@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU pipeline health)
 **Track:** A (RTX-gated — CI has no GPU; only hardware timing can drive this)
-**Status:** open — **Phase 1 COMPLETE** (team-lead, 2026-07-25, RTX 5070 Ti @ `473c25b`, GPU lock; findings: `.astroray_plan/docs/pkg155-phase1-profile-findings.md`). The ~5× is confirmed on the corrected metric (total GPU kernel-ms/render, since the spec's `ms/launch` headline is dead post-#524): cornell_diffuse 4.84×, cornell_glass 5.61×. **Shade stage convicted** — `wavefront_stage_shade_bucketed_n7` is 44–52% of GPU time at **221 regs/thread**, the only stage below 2 blocks/SM; recovery target **≤128 regs/thread**. **Phase 2 = the combined pkg153+pkg155 bisect: `.astroray_plan/docs/pkg153-pkg155-combined-bisect-protocol-2026-07-25.md`** (bisect on shade regs/thread, one build serves both dispositions). Dispatchable; RTX-gated, serialize on the GPU lock.
+**Status:** open — **Phase 1 COMPLETE** (team-lead, 2026-07-25, RTX 5070 Ti @ `473c25b`, GPU lock; findings: `.astroray_plan/docs/pkg155-phase1-profile-findings.md`). The ~5× is confirmed on the corrected metric (total GPU kernel-ms/render, since the spec's `ms/launch` headline is dead post-#524): cornell_diffuse 4.84×, cornell_glass 5.61×. **Shade stage convicted** — `wavefront_stage_shade_bucketed_n7` is 44–52% of GPU time at **221 regs/thread**, the only stage below 2 blocks/SM; recovery target **≤128 regs/thread**. **Phase 2 = the combined pkg153+pkg155 bisect: `.astroray_plan/docs/pkg153-pkg155-combined-bisect-protocol-2026-07-25.md`** (one build + ONE profiled GPU session per point serves both dispositions; **NOT GPU-free** — the register signal is runtime-profile-only, see the protocol's 2026-07-26 correction). **2026-07-26: the build-configuration lever is RULED OUT by measurement** — native sm_120 AOT is 1.68–1.80× SLOWER at 229 regs, so the 221-register problem is intrinsic to the kernel (§Ruled out below; `.astroray_plan/docs/pkg155-sm120-negative-result.md`). Dispatchable; RTX-gated, serialize on the GPU lock.
 **Estimated effort:** M (profiling + attribution) + unknown (recovery)
 **Depends on:** none. Related: pkg153 (gate-integrity disposition), pkg55-C7 (perf-gate rescope — the C7 gate measures the WF/MK *ratio*, which this absolute regression does not move because both pipelines carry the same feature cost).
 
@@ -40,14 +40,50 @@ LUTs), plus material-eval growth (Disney closure-graph routing #518, Sellmeier,
 etc.). The 125→188 reg growth is the aggregate of these; the occupancy loss
 (Phase-A: 2 blocks/SM at 125 regs) likely amplifies the raw instruction cost.
 
+## Ruled out — the build-configuration lever (measured 2026-07-26; do not re-propose)
+
+The obvious-looking fix — "the build targets `75;86;89` while the GPU is compute
+capability 12.0, so add sm_120" — **is wrong, by controlled measurement**
+(team-lead, identical source @ `60306a9`, only `CMAKE_CUDA_ARCHITECTURES`
+differing; full write-up `.astroray_plan/docs/pkg155-sm120-negative-result.md`).
+The premise is real (the module ships sm_75/86/89 SASS + compute_89 PTX, nothing
+for sm_120, so every kernel runs via driver JIT; the `CMakeLists.txt:54` comment
+citing CUDA 12.6 is stale). The inference is refuted:
+
+| scene | sm_89 (JIT) | +sm_120 (native AOT) |
+|---|---|---|
+| cornell_diffuse | 97.84 ms/render | **175.62 (1.80× SLOWER)** |
+| cornell_glass | 123.03 | **206.10 (1.68× SLOWER)** |
+| `shade_bucketed` stage | 239.33 ms @ 221 regs | **603.89 ms (2.52×) @ 229 regs** |
+
+Consequences, both binding on Phase 2:
+
+1. **The 221-register problem is intrinsic to the kernel, not a build artifact**
+   — native AOT gives 229, essentially identical and still 1 block/SM. Phase 1's
+   recovery direction stands, now better supported: split the bucketed shade
+   kernel per material class, `__launch_bounds__`, audit long-lived per-thread
+   state. Compilation strategy is off the lever list.
+2. **The arch list `75;86;89` is currently optimal on this hardware — leave it
+   alone.** The driver's JIT from compute_89 PTX produces materially better
+   Blackwell code than CUDA 12.8's offline `ptxas` targeting sm_120. Anyone
+   re-proposing the arch bump must first beat the table above.
+
+This hypothesis was formed AND refuted by the team-lead in the same session —
+recorded here as a dead end precisely so it is not quietly re-derived; the
+negative-result doc also records the two methodological corrections (pre-link
+`-Xptxas -v` counts invalid under rdc; `cuobjdump` needs `-all`).
+
 ## Contract
 
 1. Profile-first — DONE (Phase 1). Phase 2 executes the combined bisect protocol
    (`.astroray_plan/docs/pkg153-pkg155-combined-bisect-protocol-2026-07-25.md`):
-   bisect on **shade-stage regs/thread** (compile-time, deterministic) across
-   4–6 commits in the window, then capture total GPU **ms/render** (NOT ms/launch
-   — dead post-#524) + the pkg153 R-ratio + tables-loaded checksum from the same
-   build; record nvcc toolkit version per point (the v12.6/v12.8 confound).
+   bisect on **shade-stage regs/thread from the RUNTIME profile** (deterministic
+   and timing-noise-free, but GPU-required — static `-Xptxas -v` counts are
+   INVALID under `-rdc=true`, off by up to 5×: 127 reported vs 221 actual) across
+   4–6 commits in the window, capturing total GPU **ms/render** (NOT ms/launch —
+   dead post-#524) + the pkg153 R-ratio + tables-loaded checksum in the SAME
+   profiled session; record nvcc toolkit version per point (the v12.6/v12.8
+   confound) and keep `CMAKE_CUDA_ARCHITECTURES=75;86;89` fixed (§Ruled out).
 2. Distinguish "physically necessary cost" (correct light energy, spectral
    accuracy) from "recoverable cost" (register spills, dead per-thread state,
    always-on feature branches that could be compile-time or scene-gated).

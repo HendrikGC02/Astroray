@@ -40,9 +40,18 @@ SAMPLES_MED  = 64
 SAMPLES_HIGH = 256
 MIN_VISIBLE_PIXELS = 20
 CENTER_SLICE_RADIUS = 12
-# pkg60 makes Principled metallic energy-conserving while the legacy metal
-# plugin still carries the older additive multi-scatter boost. Keep this as a
-# broad same-family regression check rather than exact BRDF parity.
+# pkg60 made Principled metallic energy-conserving while the legacy metal
+# plugin still carried the older additive multi-scatter boost, so this was kept
+# as a broad same-family regression check rather than exact BRDF parity.
+#
+# pkg160 removed that additive boost: MetalPlugin now applies the SAME
+# multiplicative Kulla & Conty compensation, off the SAME shipped ggx_E tables,
+# that disney.cpp uses (astroray::ggxDarkeningChannel). Measured on this scene,
+# center-crop MSE fell 0.02474 -> 0.00353 (7x closer). The 0.04 bound is
+# deliberately NOT re-pinned to the new value: it remains a valid upper bound,
+# the two plugins are still genuinely different BRDFs (Disney's alpha floor,
+# schlickScale 0.8 and layering stack have no metal equivalent), and tightening
+# it is a separate decision from pkg160's fix.
 MAX_GLOSSY_PARITY_MSE = 0.04
 MAX_GLASS_PARITY_MEAN_DIFF = 0.25
 MAX_GLASS_PARITY_P95_DIFF = 0.25

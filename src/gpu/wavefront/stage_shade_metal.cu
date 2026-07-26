@@ -108,15 +108,23 @@ __device__ inline float ggxG(float NdotL, float NdotV, float k) {
            (NdotV / (NdotV * (1.0f - k) + k));
 }
 
-// GGX multi-scatter compensation (Fdez-Agüera 2021 approximation).
-// Mirrors metal.cpp ggxMultiScatterCompensation (defined in raytracer.h).
-// For the GPU port, we inline a simplified version.
-__device__ inline float ggxMultiScatterCompensation(float NdotV, float NdotL, float roughness) {
-    // Simplified placeholder: return 0 for now.
-    // Full implementation would mirror the CPU Fdez-Agüera fit.
-    // This is informational; the single-scatter term dominates for moderate roughness.
-    return 0.0f;
-}
+// pkg160: this file used to carry a THIRD private copy of the multi-scatter
+// helper -- `__device__ float ggxMultiScatterCompensation(...) { return 0.0f; }`,
+// a placeholder that made the `multiScatter` term below identically zero while
+// its comment claimed it mirrored metal.cpp. Both the placeholder and the dead
+// term are gone; the kernel now applies the same shipped-table Kulla & Conty
+// compensation as gpu_metal_eval (gpu_materials.h) and MetalPlugin
+// (plugins/materials/metal.cpp), via the single device definition
+// gpu_ggxDarkeningChannel (gpu_ggx_tables.cuh).
+//
+// STATE OF THIS FILE (pkg160 audit, verified by grep): `launchStageShadeMetalGPU`
+// has NO call site anywhere in the repo -- only its declaration
+// (include/astroray/gpu_wavefront_state.h:430) and its definition below. The
+// live wavefront metal route is stage_advance.cu -> gpu_material_sample_spectral
+// -> gpu_metal_sample/gpu_metal_eval. This kernel is compiled but unreachable;
+// pkg55's spec keeps it as the per-material-kernel template for the sort/dispatch
+// session. It is fixed here rather than left wrong so that whoever wires it up
+// does not silently reintroduce the pkg160 defect.
 
 // Tangent-space to world-space transform.
 // Mirrors stage_shade_lambertian.cu tangentToWorld.
@@ -208,12 +216,22 @@ __device__ inline MetalSampleResult sampleMetalBSDF(
         // Single-scatter BSDF term.
         GSampledSpectrum singleScatter = F * (D * G / (4.0f * NdotV + 0.001f));
 
-        // Multi-scatter compensation (currently placeholder).
-        float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness);
-        float msWeight = roughness * (2.0f - roughness);
-        GSampledSpectrum multiScatter = albedo_spec * (Fms * msWeight * 1.3f);
-
-        result.f_spectral = singleScatter + multiScatter;
+        // pkg160: multiplicative GGX multi-scatter energy compensation, per
+        // wavelength (Kulla & Conty 2017 Eq. 6-9; Cycles
+        // bsdf_microfacet.h:389-436 microfacet_ggx_preserve_energy,
+        // BSD-3-Clause). Mirrors MetalPlugin::evalSpectral exactly: Fss is the
+        // conductor's reflectance F0 = albedo_spec at these lambdas, E/Eavg
+        // are achromatic and stay scalar. gpu_ggxCompensationFactor is the RGB
+        // form used by gpu_metal_eval; this is the spectral form of the same
+        // net "1 + Fms*(1-E)/E" factor off the same g_ggxE/g_ggxEavg tables.
+        result.f_spectral = singleScatter;
+        if (g_ggxE && g_ggxEavg) {
+            float E = fmaxf(gpu_ggxE(roughness, NdotV), 1e-4f);
+            float Eavg = fminf(fmaxf(gpu_ggxEavg(roughness), 0.f), 0.999f);
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                result.f_spectral.v[i] *=
+                    gpu_ggxDarkeningChannel(albedo_spec.v[i], E, Eavg);
+        }
 
         // PDF: D(h) * cos(θh) / (4 * wo·h)
         // Mirrors metal.cpp pdf() lines 126-134 and sample() line 119.

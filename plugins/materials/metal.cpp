@@ -1,4 +1,5 @@
 ﻿#include "astroray/register.h"
+#include "astroray/energy_compensation.h"
 #include "raytracer.h"
 
 class MetalPlugin : public Material {
@@ -10,6 +11,41 @@ class MetalPlugin : public Material {
     Vec3 fresnelSchlick(float cosTheta, const Vec3& F0) const {
         float c = std::clamp(cosTheta, 0.0f, 1.0f);
         return F0 + (Vec3(1) - F0) * std::pow(1 - c, 5);
+    }
+
+    // pkg160: GGX multiple-scattering energy compensation for the conductor
+    // lobe. Kulla & Conty 2017 Eq. 6-9 / Cycles
+    // bsdf_microfacet.h:389-436 `microfacet_ggx_preserve_energy`
+    // (BSD-3-Clause), net factor "1 + Fms*(1-E)/E" — see
+    // astroray::ggxDarkeningChannel. Identical in form and in table source to
+    // disney.cpp::ggxCompensationFactor (`spec *= ggxCompensationFactor(F0,
+    // roughness_, NdotV)`, disney.cpp:653), which is the shipped, verified
+    // in-repo implementation this borrows rather than re-deriving.
+    //
+    // `Fss` = albedo_. For a conductor the Schlick F0 IS the reflectance
+    // colour (fresnelSchlick above passes albedo_ as F0), and Disney at
+    // metallic=1 collapses to exactly the same thing (F0 = Cspec0*(1-metallic)
+    // + Cdlin*metallic = base colour, disney.cpp:530), so passing albedo_ here
+    // keeps plain `metal` and Disney-metal on ONE compensation — the pkg158
+    // reconciliation would be re-split if they disagreed. Cycles' own
+    // generalized-Schlick branch is slightly different (`Fss = mix(f0, f90,
+    // 1/21)`, the hemispherical average of the Schlick lobe, ~0.4% above F0
+    // at albedo 0.92 and ~9% at 0.35); adopting it would have to be done for
+    // BOTH plugins at once and is deliberately out of scope here.
+    //
+    // Fallback when the shipped tables are missing is 1.0 (identity) — this
+    // factor is MULTIPLICATIVE, so identity degrades to the uncompensated
+    // single-scatter lobe. (The term this replaced was additive, where the
+    // safe fallback would have been 0.0.)
+    Vec3 ggxCompensationFactor(float mu) const {
+        const auto& tables = astroray::DisneyEnergyCompensationTables::instance();
+        if (!tables.loaded()) return Vec3(1.0f);
+
+        const float E = std::max(tables.ggxE(roughness_, mu), 1e-4f);
+        const float Eavg = std::clamp(tables.ggxEavg(roughness_), 0.0f, 0.999f);
+        return Vec3(astroray::ggxDarkeningChannel(albedo_.x, E, Eavg),
+                    astroray::ggxDarkeningChannel(albedo_.y, E, Eavg),
+                    astroray::ggxDarkeningChannel(albedo_.z, E, Eavg));
     }
 
 public:
@@ -52,10 +88,19 @@ public:
         float k = (roughness_ + 1) * (roughness_ + 1) / 8;
         float G = (NdotL / (NdotL * (1 - k) + k)) * (NdotV / (NdotV * (1 - k) + k));
         Vec3 singleScatter = F * D * G / (4 * NdotV + 0.001f);
-        float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness_);
-        float msWeight = roughness_ * (2.0f - roughness_);
-        Vec3 multiScatter = albedo_ * (Fms * msWeight * 1.3f);
-        return singleScatter + multiScatter;
+        // pkg160: multiplicative Kulla & Conty compensation, replacing an
+        // additive `albedo_ * (Fms * roughness*(2-roughness) * 1.3f)` term
+        // that (a) read a runtime-MC LUT whose 256 uniform-hemisphere samples
+        // could not resolve a narrow GGX lobe (E -> 0 as roughness -> 0, which
+        // pinned Fms near its 1/pi ceiling exactly where multiple scattering
+        // should vanish), (b) carried NO NdotL and so violated the eval()
+        // brdf*NdotL contract (AGENTS.md:87), and (c) used a hand-tuned
+        // `roughness*(2-roughness)` weight and `1.3f` found in no publication.
+        // Measured consequence at roughness 0.15: the old term contributed
+        // 0.111*albedo of near-view-independent ambient floor, ~7x the typical
+        // pixel's true radiance. See
+        // .astroray_plan/packages/pkg160-gpu-plain-metal-multiscatter-omission.md.
+        return singleScatter * ggxCompensationFactor(NdotV);
     }
 
     astroray::SampledSpectrum evalSpectral(
@@ -83,10 +128,21 @@ public:
         float k = (roughness_ + 1) * (roughness_ + 1) / 8;
         float G = (NdotL / (NdotL * (1 - k) + k)) * (NdotV / (NdotV * (1 - k) + k));
         astroray::SampledSpectrum singleScatter = F * (D * G / (4 * NdotV + 0.001f));
-        float Fms = ggxMultiScatterCompensation(NdotV, NdotL, roughness_);
-        float msWeight = roughness_ * (2.0f - roughness_);
-        astroray::SampledSpectrum multiScatter = albedo_spec_.sample(lambdas) * (Fms * msWeight * 1.3f);
-        return singleScatter + multiScatter;
+        // pkg160: same multiplicative Kulla & Conty compensation as eval(),
+        // applied PER WAVELENGTH. `Fss` is the conductor's reflectance, which
+        // in the spectral path is F0 (= albedo_spec_ at these lambdas), so the
+        // darkening factor is evaluated per sampled wavelength exactly the way
+        // the Fresnel term above already is; E/Eavg are achromatic geometry
+        // and stay scalar. See the ggxCompensationFactor comment for the
+        // citation and for why the additive term it replaces was wrong.
+        const auto& tables = astroray::DisneyEnergyCompensationTables::instance();
+        if (!tables.loaded()) return singleScatter;
+        const float E = std::max(tables.ggxE(roughness_, NdotV), 1e-4f);
+        const float Eavg = std::clamp(tables.ggxEavg(roughness_), 0.0f, 0.999f);
+        astroray::SampledSpectrum result = singleScatter;
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+            result[i] *= astroray::ggxDarkeningChannel(F0[i], E, Eavg);
+        return result;
     }
 
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {

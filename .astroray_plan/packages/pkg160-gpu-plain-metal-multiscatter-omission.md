@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU/CPU parity — the only GPU path we now ship)
 **Track:** A (RTX-gated; CI is blind — see why nothing caught it)
-**Status:** **BLOCKED on a team-lead/owner decision** (PR #527, 2026-07-26) — Step 0 was executed and the two E-table systems **disagree catastrophically** (24.6× in `E`, **1030× in the downstream `Fms`** at the roughness the defect was actually measured at). Per this spec's own "Implementation hazard" instruction, the implementer stopped before choosing between the two fixes. **Landed:** Step-0 instrumentation, the pin test, the corrected `gpu_materials.h:230` comment. **NOT landed:** the mirror itself and the plain-metal parity gate (the spec requires them in one PR). See "Step 0 RESULT" at the end of this file. Original conviction (team-lead scene-controlled GPU scan, main @ `727a211`) stands and is unchallenged.
+**Status:** implemented, awaiting HW verification (PR #527, 2026-07-26) — **direction reversed by owner decision after Step 0: the CPU was fixed, not the GPU.** Step 0 proved the two E-table systems disagree 24.6× in `E` / 1030× in `Fms` and that the CPU held the wrong one. `MetalPlugin` now applies the same multiplicative Kulla & Conty compensation, off the same shipped Cycles tables, that `disney.cpp` has shipped since pkg60; `gpu_metal_eval` applies its exact GPU twin. Measured on CPU: the pre-fix conductor **created energy** (white furnace 1.25–1.77× in linear space); post-fix 0.81–0.88. The runtime-MC `GGXEnergyCompensationLUT` + `ggxMultiScatterCompensation` are **deleted**. The plain-metal GPU/CPU parity gate landed in the same PR (`tests/test_pkg160_plain_metal_gpu_cpu_parity.py`, mean AND median, `[0.95, 1.05]`) — **not yet run on hardware**; the implementer has no GPU and cannot build CUDA. See "pkg160 REWORK" at the end of this file. Original conviction (team-lead scene-controlled GPU scan, main @ `727a211`) stands.
 **Estimated effort:** S–M (the missing term already exists on the CPU; mirror it into `gpu_metal_eval` + add the parity gate that never existed).
 **Depends on:** none. **Sibling, NOT parent:** pkg158/pkg152 (Disney metal, `gpu_disney_eval`) — a DIFFERENT function; see §Novelty for why this is filed separately and how to co-verify without conflating them.
 
@@ -349,3 +349,124 @@ wavefront** against the **CPU reference path tracer** — both call `MetalPlugin
 bit-identical *by construction* and structurally blind to `gpu_metal_eval`. The gate this
 package still owes must be **GPU wavefront vs CPU**, and must sweep roughness on both
 sides of the 0.1 threshold: sampling only 0.9 would have shown the tables "agreeing".
+
+---
+
+## pkg160 REWORK (implementer, 2026-07-26, PR #527) — CPU FIXED, not GPU. Supersedes the fix contract above.
+
+**Owner decision after reading Step 0:** fix the CPU. The "Fix contract" and
+"Non-goals" sections above are therefore superseded — `plugins/materials/metal.cpp`
+was the defect, not `gpu_metal_eval`, and "CPU stays canonical (do not touch
+metal.cpp)" no longer holds.
+
+### Three defects, not one
+
+Step 0 found the wrong table. Two more were found on top of it:
+
+1. **Wrong table** (Step 0, unchanged above): the runtime-MC
+   `GGXEnergyCompensationLUT` drove `Fms` to its `1/pi` ceiling at low roughness.
+2. **Missing cosine.** `AGENTS.md:87` — `Material::eval()` returns `brdf * NdotL`.
+   `singleScatter` bakes the cosine in (the `NdotL` cancels against the
+   Cook-Torrance denominator); `multiScatter = albedo_ * (Fms * msWeight * 1.3f)`
+   had **no `NdotL` at all**.
+3. **Invented weight.** `msWeight = roughness*(2-roughness)` and `* 1.3f` are not
+   Kulla & Conty and are in no publication — CLAUDE.md §6.
+
+The compound effect is stronger than a colour error: **the pre-fix CPU conductor
+created energy.** White furnace (albedo 1, environment 1, convex sphere filling
+the frame, `applyGamma=False`), green channel:
+
+| roughness | before | after |
+|---|---|---|
+| 0.05 | 1.0007 | 1.0007 (near-delta path, byte-identical) |
+| 0.15 | **1.6434** | 0.8823 |
+| 0.30 | **1.2530** | 0.8511 |
+| 0.60 | **1.4069** | 0.8092 |
+| 0.90 | **1.7690** | 0.8802 |
+
+### The fix — borrowed, not derived
+
+`singleScatter * ggxCompensationFactor(NdotV)`, the exact shape of
+`disney.cpp:653` (`spec *= ggxCompensationFactor(F0, roughness_, NdotV)`).
+Multiplicative on the single-scatter result fixes all three defects at once.
+Citations and the `Fss` reasoning: `.astroray_plan/docs/pkg160-metal-multiscatter-research.md`.
+
+- `astroray::ggxDarkeningChannel` (`include/astroray/energy_compensation.h`) is
+  now the **single host definition**; `disney.cpp`'s private member forwards to
+  it, `metal.cpp` calls it. Device twin `gpu_ggxDarkeningChannel` unchanged.
+- **`Fss = albedo_`** (the conductor's F0), matching how Disney passes `F0`.
+  Cycles' generalized-Schlick branch would use `mix(f0, f90, 1/21)`; that is a
+  +0.4%..+9% second-order refinement that would have to be adopted for
+  `disney.cpp` simultaneously, so it is deliberately out of scope and recorded
+  in the research doc.
+
+### Deleted
+
+`GGXEnergyCompensationLUT`, `ggxEnergyCompensationLUT()` and
+`ggxMultiScatterCompensation()` (`include/raytracer.h`) — grep-confirmed to have
+had **no caller** but `metal.cpp` (plus the Step-0 test-helper bindings, also
+removed). The broken table system is gone, not left loaded.
+
+### GPU — which of the two copies is live (evidence, not guess)
+
+- **`gpu_metal_eval` (`include/astroray/gpu_materials.h`) is LIVE.** `metal`
+  uploads as `GMAT_CLOSURE_GRAPH` (`scene_upload.cu:108`, `MetalPlugin::closureGraph()`
+  emits a GGXConductor closure) and `gpu_closure_as_material` routes it to
+  `GMAT_METAL` because `disneyMetalConductor` is false; the wavefront reaches it
+  via `stage_advance.cu:545` -> `gpu_material_sample_spectral` -> `gpu_metal_sample`
+  -> `gpu_metal_eval`. It now carries
+  `* gpu_ggxCompensationFactor(mat.baseColor, mat.roughness, NdotV)`.
+- **`src/gpu/wavefront/stage_shade_metal.cu` is DEAD.** `launchStageShadeMetalGPU`
+  has exactly two occurrences in the repo: its declaration
+  (`include/astroray/gpu_wavefront_state.h:430`) and its definition
+  (`stage_shade_metal.cu:357`). **No call site.** This matches pkg55's own note
+  ("the kernel shipped with NO call site … retained as the per-material-kernel
+  template for the N+7 sort/dispatch session"). Its private third copy of
+  `ggxMultiScatterCompensation` — a placeholder returning `0.0f`, making the
+  `multiScatter` term a mathematical no-op while its comment claimed it mirrored
+  metal.cpp — was **deleted**, and the kernel now applies the same shipped-table
+  compensation per wavelength via `gpu_ggxDarkeningChannel`. The file itself was
+  NOT deleted (pkg128/pkg129/pkg55 all point at it as the template); that call is
+  left to the owner.
+
+### Gate
+
+`tests/test_pkg160_plain_metal_gpu_cpu_parity.py` — GPU wavefront vs CPU, plain
+`metal`, roughness `{0.05, 0.15, 0.3, 0.6, 0.9}` (0.1 excluded: it sits exactly
+on `kNearDeltaThreshold`), per-channel **mean AND median** ratio in
+`[0.95, 1.05]`. Scene: an albedo-`[0.92,0.78,0.35]` sphere filling 100% of the
+frame in a uniform environment — no mask, no background pixels diluting the
+statistics, and lit at every roughness including the near-delta row. Uses
+**ratio-of-medians**, not median-of-per-pixel-ratios, because the two backends
+draw independent MC streams (memory `ssim-wrong-gate-for-independent-rng`).
+**Never run on hardware by the implementer** (no GPU, cannot build CUDA).
+
+`tests/test_pkg160_metal_energy_compensation.py` replaces the Step-0 pin test:
+it pins that `ggxDarkeningChannel` matches the published closed form, that
+metal's compensation derives from the shipped table the GPU is served, and — via
+the white furnace — that `metal.cpp` itself changed. Fails on pre-fix code
+(measured 1.25–1.77 vs the `<= 1.02` ceiling).
+
+### Existing gates that move
+
+| gate | before | after | threshold | verdict |
+|---|---|---|---|---|
+| `test_python_bindings::test_white_metal_roughness_one_not_dark` | 0.9976 | 0.9397 | `> 0.85` | GREEN |
+| `test_python_bindings::test_metal_furnace_energy_above_threshold_all_roughness` r=0.1 | 0.9844 | 0.9850 | `> 0.78` | GREEN (near-delta, unchanged) |
+| …r=0.3 / 0.6 / 1.0 | 0.9995 / 0.9988 / 0.9978 | 0.9749 / 0.9435 / 0.9391 | `> 0.78` | GREEN |
+| `test_python_bindings::test_glossy_matches_principled_metallic_roughness` (MSE) | 0.02474 | 0.00353 | `< 0.04` | GREEN, **7× better** |
+| `tests/wavefront_diff/test_cpu_wavefront_metal_bit_identity.py` | pass | pass | — | GREEN (both sides call `MetalPlugin`) |
+| `benchmarks/reference_bank/scenes/sms-reflective-metal-sphere` | — | — | — | **unaffected**: roughness 0.03, near-delta path |
+
+**Why the existing furnace guards never saw a 1.77× energy gain:**
+`tests/base_helpers.py::render_image` defaults to `apply_gamma=True` and the
+gamma path clamps to `[0,1]`, so linear 1.77 read back as 0.998. That is why
+the pkg160 furnace test renders linear.
+
+**Renders that will visibly change (no gate, reported not re-blessed):** every
+rough-metal showcase — `scripts/benchmarks/benchmark_showcase.py:105` (copper,
+roughness 0.15), `scripts/diagnostics/render_readme_gallery.py:313` (0.25),
+`scripts/diagnostics/showcase_session_renders.py:152` (gold, 0.2), and the
+`metal` sphere at roughness 0.15 in every `tests/scenes/*_cornell.py` and
+`disney_contact_sheet.py`. All get **dimmer and more albedo-tinted**. Nothing
+was re-blessed.

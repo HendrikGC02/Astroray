@@ -278,105 +278,19 @@ public:
     }
 };
 
-struct GGXEnergyCompensationLUT {
-    static constexpr int RES = 32;
-    std::array<float, RES * RES> E{};
-    std::array<float, RES> Eavg{};
-
-    static float radicalInverseVdC(uint32_t bits) {
-        bits = (bits << 16u) | (bits >> 16u);
-        bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
-        bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
-        bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
-        bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
-        return float(bits) * 2.3283064365386963e-10f;
-    }
-
-    static float singleScatterEval(float NdotV, float NdotL, float NdotH, float roughness) {
-        if (NdotL <= 0.0f || NdotV <= 0.0f) return 0.0f;
-        const float a = roughness * roughness;
-        const float a2 = a * a;
-        const float denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
-        const float D = a2 / (M_PI * denom * denom + 0.001f);
-        const float k = (roughness + 1.0f) * (roughness + 1.0f) / 8.0f;
-        const float G = (NdotL / (NdotL * (1.0f - k) + k)) * (NdotV / (NdotV * (1.0f - k) + k));
-        return D * G / (4.0f * NdotV + 0.001f);
-    }
-
-    GGXEnergyCompensationLUT() {
-        constexpr int samples = 256;
-        constexpr float invHemispherePdf = 2.0f * M_PI;
-
-        for (int r = 0; r < RES; ++r) {
-            float roughness = std::max(0.001f, (r + 0.5f) / float(RES));
-            for (int m = 0; m < RES; ++m) {
-                float mu = (m + 0.5f) / float(RES);
-                float sinTheta = std::sqrt(std::max(0.0f, 1.0f - mu * mu));
-                Vec3 wo(sinTheta, 0.0f, mu);
-                float sum = 0.0f;
-
-                for (int i = 0; i < samples; ++i) {
-                    float u1 = (i + 0.5f) / float(samples);
-                    float u2 = radicalInverseVdC(uint32_t(i));
-                    float z = u1;
-                    float phi = 2.0f * M_PI * u2;
-                    float xy = std::sqrt(std::max(0.0f, 1.0f - z * z));
-                    Vec3 wi(std::cos(phi) * xy, std::sin(phi) * xy, z);
-                    Vec3 h = (wo + wi).normalized();
-                    float NdotH = std::max(h.z, 0.001f);
-                    float f = singleScatterEval(mu, z, NdotH, roughness);
-                    sum += f * invHemispherePdf;
-                }
-
-                E[r * RES + m] = std::clamp(sum / float(samples), 0.0f, 1.0f);
-            }
-
-            float weightedSum = 0.0f;
-            float weightNorm = 0.0f;
-            for (int m = 0; m < RES; ++m) {
-                float mu = (m + 0.5f) / float(RES);
-                float w = 2.0f * mu;
-                weightedSum += E[r * RES + m] * w;
-                weightNorm += w;
-            }
-            Eavg[r] = std::clamp(weightedSum / std::max(weightNorm, 1e-6f), 0.0f, 1.0f);
-        }
-    }
-
-    float lookupE(float mu, float roughness) const {
-        float x = std::clamp(mu, 0.0f, 1.0f) * (RES - 1);
-        float y = std::clamp(roughness, 0.0f, 1.0f) * (RES - 1);
-        int x0 = int(x), y0 = int(y);
-        int x1 = std::min(x0 + 1, RES - 1), y1 = std::min(y0 + 1, RES - 1);
-        float tx = x - x0, ty = y - y0;
-        float e00 = E[y0 * RES + x0], e10 = E[y0 * RES + x1];
-        float e01 = E[y1 * RES + x0], e11 = E[y1 * RES + x1];
-        float ex0 = e00 * (1 - tx) + e10 * tx;
-        float ex1 = e01 * (1 - tx) + e11 * tx;
-        return ex0 * (1 - ty) + ex1 * ty;
-    }
-
-    float lookupEavg(float roughness) const {
-        float y = std::clamp(roughness, 0.0f, 1.0f) * (RES - 1);
-        int y0 = int(y), y1 = std::min(y0 + 1, RES - 1);
-        float ty = y - y0;
-        return Eavg[y0] * (1 - ty) + Eavg[y1] * ty;
-    }
-};
-
-inline const GGXEnergyCompensationLUT& ggxEnergyCompensationLUT() {
-    static const GGXEnergyCompensationLUT lut;
-    return lut;
-}
-
-inline float ggxMultiScatterCompensation(float NdotV, float NdotL, float roughness) {
-    const auto& lut = ggxEnergyCompensationLUT();
-    float Ewo = lut.lookupE(NdotV, roughness);
-    float Ewi = lut.lookupE(NdotL, roughness);
-    float Eavg = lut.lookupEavg(roughness);
-    float denom = M_PI * std::max(1.0f - Eavg, 1e-4f);
-    return std::max((1.0f - Ewo) * (1.0f - Ewi) / denom, 0.0f);
-}
+// pkg160: `GGXEnergyCompensationLUT`, `ggxEnergyCompensationLUT()` and
+// `ggxMultiScatterCompensation()` lived here and were deleted. They existed
+// SOLELY for plugins/materials/metal.cpp's additive multiscatter term (grep
+// confirmed: no other caller in the repo), and that term was wrong three ways
+// at once — a runtime-MC table whose 256 uniform-hemisphere samples could not
+// resolve a narrow GGX lobe (E -> 0 as roughness -> 0, pinning Fms at its
+// 1/pi ceiling exactly where multiple scattering should vanish, measured 24.6x
+// below the shipped Cycles table at roughness 0.15), no NdotL (violating the
+// eval() brdf*NdotL contract, AGENTS.md:87), and an unpublished
+// `roughness*(2-roughness) * 1.3f` weight. metal.cpp now uses the same
+// shipped-table, multiplicative Kulla & Conty compensation as disney.cpp
+// (astroray::ggxDarkeningChannel, include/astroray/energy_compensation.h),
+// which is also what the GPU serves (g_ggxE, src/gpu/gpu_ggx_tables.cu).
 
 struct Vec2 {
     float u, v;

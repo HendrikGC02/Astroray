@@ -1,10 +1,47 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <string>
 
 namespace astroray {
+
+// GGX multiple-scattering energy compensation, per-channel.
+//
+// Kulla & Conty 2017, "Revisiting Physically Based Shading at Imageworks"
+// (ACM SIGGRAPH 2017 Courses, DOI 10.1145/3084873.3084893) Eq. 6-9, in the
+// exact form Blender Cycles ships as `microfacet_ggx_preserve_energy`
+// (intern/cycles/kernel/closure/bsdf_microfacet.h:389-436, BSD-3-Clause):
+//
+//     missing_factor = (1 - E) / E
+//     energy_scale   = 1 / E
+//     Fms            = Fss * Eavg / (1 - Fss * (1 - Eavg))
+//     darkening      = (1 + Fms * missing_factor) / energy_scale
+//
+// Cycles applies `energy_scale` to eval/sample and `darkening` to the closure
+// weight; the NET factor on the single-scatter lobe is their product,
+// `1 + Fms * (1 - E) / E`, which is what this returns.
+//
+// `f` is one channel of the lobe's single-scattering Fresnel reflectance
+// (Cycles' `Fss`); `E` / `Eavg` are the GGX directional / cosine-averaged
+// albedo read from data/disney_compensation/ggx_E{,avg}.bin (extracted from
+// Cycles' table_ggx_E / table_ggx_Eavg, intern/cycles/scene/shader.tables,
+// Apache-2.0). The result is MULTIPLICATIVE on the single-scatter lobe, so it
+// inherits whatever cosine the caller's single-scatter term already carries
+// (AGENTS.md: `Material::eval()` returns brdf * NdotL).
+//
+// pkg160: this is the single host definition. plugins/materials/disney.cpp
+// (dielectric/metallic specular lobe) and plugins/materials/metal.cpp
+// (conductor lobe) both call it; the device twin is `gpu_ggxDarkeningChannel`
+// (include/astroray/gpu_ggx_tables.cuh) and must stay byte-identical to it.
+inline float ggxDarkeningChannel(float f, float E, float Eavg) {
+    f = std::clamp(f, 0.0f, 0.999f);
+    const float missingFactor = (1.0f - E) / E;
+    const float denom = std::max(1.0f - f * (1.0f - Eavg), 1e-4f);
+    const float Fms = f * Eavg / denom;
+    return 1.0f + Fms * missingFactor;
+}
 
 class DisneyEnergyCompensationTables {
 public:

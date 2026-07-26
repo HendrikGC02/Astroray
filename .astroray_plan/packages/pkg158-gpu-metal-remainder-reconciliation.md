@@ -22,6 +22,33 @@ efficiency:** run pkg160's plain-metal dump and this package's Disney-metal dump
 in the SAME GPU-lock session with the shared pkg141/pkg152 per-event harness;
 cross-referenced, neither absorbs the other.
 
+## Post-pkg160 re-baseline (2026-07-26, architect — read before dispatching Step 0)
+
+pkg160's fix is merged (owner-approved, with a documented r=0.9 band exception
+now owned by **pkg163**). Two consequences for this package, one verdict:
+
+1. **Every plain-metal comparator in this package's evidence base is STALE.**
+   pkg160 moved plain-metal output by 0.46–0.67×, and the metal-vs-Disney MSE
+   this package's origin-era evidence leaned on dropped **7×** (0.02474 →
+   0.00353). Any Step-0 leg that used plain metal as a reference or "bright
+   side" is void — Step 0 MUST run on a post-pkg160 main build (record the SHA)
+   and use CPU as the only oracle, never plain-metal-vs-Disney cross-material
+   comparisons.
+2. **The core reconciliation question is UNAFFECTED by pkg160.** pkg160 changed
+   only the ROUGH branch (roughness > 0.1) of `gpu_metal_eval`; the near-delta
+   (≤ 0.1) mirror shortcut is byte-unchanged, and `gpu_disney_eval` was not
+   touched. The 0.60–0.77 (pkg141 research doc) vs ~1.0 (#523 verifier)
+   near-delta Disney disagreement stands exactly as filed.
+
+**Verdict (architect): NARROWED, not closed.** The disagreement between two
+credible Disney near-delta measurements is still unresolved and neither number
+is citable until Step 0 reconciles them on one build — that rule survives. But
+the prior has tipped further toward **Outcome A** (fixed by #523): the verifier
+reproduced ~1.0 twice, and the 7× MSE collapse shows the cross-material "metal
+anomaly" framing was substantially pkg160's defect wearing this package's
+clothes. Expect Step 0 to close this package with a supersession table; budget
+S, not S–M.
+
 ## Step 0 — reconcile (blocking, do first)
 
 Re-measure BOTH setups on the SAME post-#523 main build, same session:

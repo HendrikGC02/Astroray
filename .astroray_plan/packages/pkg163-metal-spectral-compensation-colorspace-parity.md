@@ -84,6 +84,70 @@ member. Any future CPU material gaining a native spectral eval (or any GPU
 material gaining one) must land on both sides of the twin in the same colour
 space, or add itself to this package's gate.
 
+**Detection heuristic (pkg160 implementer, 2026-07-26 — how the NEXT one gets
+caught):** a seam divergence becomes measurable only when a **chromatic,
+angle- or roughness-amplified factor** passes through it — pkg160 made this one
+visible by pushing a roughness-amplified compensation term through the seam.
+Factors that are small, achromatic, or view-independent hide there
+indefinitely. Practical test: whenever a new per-lobe factor lands on either
+side of a twin, run isolation 3 (neutral-vs-chromatic albedo, same channel
+value) at high roughness + grazing framing. It is cheap and decisive — channel
+spread that collapses on neutral albedo convicts the seam.
+
+---
+
+## The seam — the defect is metal-only; the DECISION is not (2026-07-26 refinement)
+
+pkg160's implementer sharpened the scoping, and the distinction is load-bearing:
+
+> any solution has to decide **where RGB→spectral upsampling sits relative to
+> per-lobe scalar factors**, and that same seam already carries the **Fresnel**
+> term in both `gpu_metal_eval` and `MetalPlugin::evalSpectral`, plus Disney's
+> compensation and `ggxDirectionalAlbedo`. Metal is where it became measurable
+> because pkg160 put a roughness-amplified factor through it, not where it
+> lives.
+
+Seam inventory (what already flows through the upsample-position decision):
+
+| Factor | CPU side | GPU side | Twin state |
+|---|---|---|---|
+| Metal Fresnel + compensation | per-λ (`metal.cpp:79-88`) | per-RGB, summed, upsampled once | **ASYMMETRIC — this package's defect** |
+| Disney Fresnel / `ggxCompensationFactor` / `ggxDirectionalAlbedo` | per-RGB (`disney.cpp:96-134`, eval→upsample fallback `:689-695`) | per-RGB (#523 mirror) | symmetric (consistent twins) |
+| Glass compensation | scalar, colourless | scalar, colourless | symmetric by construction |
+
+**Binding consequences for the fix (either direction):**
+
+1. **No term-level patches at the seam.** Direction A means mirroring the WHOLE
+   `MetalPlugin::evalSpectral` construction — F0 spectrum, per-λ Fresnel, and
+   the compensation term move together, exactly as the CPU composes them. Do
+   NOT spectralize the compensation factor alone while metal's Fresnel stays
+   RGB: that creates a new intra-lobe seam inconsistency inside `gpu_metal_*`
+   worse than the one being fixed.
+2. **The PR must carry a "seam statement"** (a short section in the PR body):
+   where the upsample sits for metal post-fix, and how that position relates to
+   the Disney compensation / `ggxDirectionalAlbedo` / glass treatments per the
+   policy below — so the reviewer can check global consistency, not just local
+   correctness.
+
+**Architect ruling — is a broader colour-pipeline package needed above pkg163?
+No, not now; a policy rule replaces it.** The CPU itself is deliberately
+heterogeneous at this seam (metal native-spectral, Disney RGB-fallback by the
+pkg13 perf-budget decision, dielectric special-cased via the eta² factoring and
+the dispersive hero-collapse sampler). The consistency rule that prevents
+"metal spectral, neighbours RGB" from being unprincipled is therefore NOT
+"everything at the same seam position" — it is:
+
+> **Each material's GPU twin sits at the SAME seam position as its CPU twin.
+> The seam position is a per-material, CPU-canonical property.**
+
+Under that rule, direction A is globally consistent (metal's twins both per-λ;
+Disney's twins both per-RGB; glass symmetric-scalar), and no umbrella package
+is required. **Trigger for revisiting** (file the colour-pipeline package only
+then): a spectral-ground-truth gate — not a parity gate — demanding per-λ
+Disney (e.g. dispersion or measured-conductor spectra on Disney metallics), or
+an owner decision to lift the pkg13 fallback. That package would move canonical
+CPU output and must be owner-initiated, not backed into from a parity fix.
+
 ---
 
 ## Fix contract — the direction decision (the interesting part; do not paper over it)

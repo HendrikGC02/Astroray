@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU/CPU parity — the only GPU path we now ship)
 **Track:** A (RTX-gated; CI is blind — see why nothing caught it)
-**Status:** implemented, awaiting HW verification (PR #527, 2026-07-26) — **direction reversed by owner decision after Step 0: the CPU was fixed, not the GPU.** Step 0 proved the two E-table systems disagree 24.6× in `E` / 1030× in `Fms` and that the CPU held the wrong one. `MetalPlugin` now applies the same multiplicative Kulla & Conty compensation, off the same shipped Cycles tables, that `disney.cpp` has shipped since pkg60; `gpu_metal_eval` applies its exact GPU twin. Measured on CPU: the pre-fix conductor **created energy** (white furnace 1.25–1.77× in linear space); post-fix 0.81–0.88. The runtime-MC `GGXEnergyCompensationLUT` + `ggxMultiScatterCompensation` are **deleted**. The plain-metal GPU/CPU parity gate landed in the same PR (`tests/test_pkg160_plain_metal_gpu_cpu_parity.py`, mean AND median, `[0.95, 1.05]`) — **not yet run on hardware**; the implementer has no GPU and cannot build CUDA. See "pkg160 REWORK" at the end of this file. Original conviction (team-lead scene-controlled GPU scan, main @ `727a211`) stands.
+**Status:** implemented, HW-verified (PR #527, 2026-07-26) — **direction reversed by owner decision after Step 0: the CPU was fixed, not the GPU.** Step 0 proved the two E-table systems disagree 24.6× in `E` / 1030× in `Fms` and that the CPU held the wrong one. `MetalPlugin` now applies the same multiplicative Kulla & Conty compensation, off the same shipped Cycles tables, that `disney.cpp` has shipped since pkg60; `gpu_metal_eval` applies its exact GPU twin. Measured on CPU: the pre-fix conductor **created energy** (white furnace 1.25–1.77× in linear space); post-fix 0.81–0.88. The runtime-MC `GGXEnergyCompensationLUT` + `ggxMultiScatterCompensation` are **deleted**. The plain-metal GPU/CPU parity gate landed in the same PR (`tests/test_pkg160_plain_metal_gpu_cpu_parity.py`, mean AND median, `[0.95, 1.05]`) and **has now run on RTX 5070 Ti: 31 passed, 1 documented exception** (roughness 0.9 channel B = 1.0722; owner-approved ceiling of 1.10 at r=0.9 only, floor unchanged, 2.6% headroom so real regressions still fail). That exception's cause — CPU per-wavelength vs GPU per-RGB-channel compensation — was confirmed experimentally and is **pre-existing architecture pkg160 exposed, not introduced**; a follow-up package is filed. See "pkg160 REWORK" and "HW gate result" at the end of this file. Original conviction (team-lead scene-controlled GPU scan, main @ `727a211`) stands.
 **Estimated effort:** S–M (the missing term already exists on the CPU; mirror it into `gpu_metal_eval` + add the parity gate that never existed).
 **Depends on:** none. **Sibling, NOT parent:** pkg158/pkg152 (Disney metal, `gpu_disney_eval`) — a DIFFERENT function; see §Novelty for why this is filed separately and how to co-verify without conflating them.
 
@@ -470,3 +470,55 @@ roughness 0.15), `scripts/diagnostics/render_readme_gallery.py:313` (0.25),
 `metal` sphere at roughness 0.15 in every `tests/scenes/*_cornell.py` and
 `disney_contact_sheet.py`. All get **dimmer and more albedo-tinted**. Nothing
 was re-blessed.
+
+### HW gate result (RTX 5070 Ti, 2026-07-26) — 31 passed, 1 documented exception
+
+The parity gate ran on hardware for the first time. **31/32 assertions inside
+`[0.95, 1.05]`.** The one outside was roughness 0.9, channel B: **1.0722**.
+GPU/CPU mean ratio, full sweep:
+
+| roughness | R | G | B |
+|---|---|---|---|
+| 0.05 | 0.9998 | 1.0000 | 0.9977 |
+| 0.15 | 1.0174 | 0.9863 | 1.0133 |
+| 0.30 | 1.0052 | 0.9980 | 1.0040 |
+| 0.60 | 1.0247 | 0.9964 | 1.0288 |
+| **0.90** | 1.0393 | 1.0137 | **1.0722** |
+
+**Cause — pre-existing architecture that pkg160 EXPOSED, not introduced.** CPU
+`MetalPlugin::evalSpectral` applies the compensation **per wavelength** from
+`Fss = albedo_spec_.sample(lambdas)`; GPU `gpu_metal_eval` applies it **per RGB
+channel** from `mat.baseColor` and upsamples the product. The two agree exactly
+only for a flat (achromatic) spectrum. This is the same CPU-spectral/GPU-RGB seam
+the Fresnel term in those two functions has always had — pkg160 put a second,
+roughness-amplified factor through it. This risk was called out in the
+implementer's pre-HW report; the team-lead then confirmed it experimentally
+rather than assuming it:
+
+1. **`r=0.05` sits at 0.9977–1.0000** — the near-delta branch, where the
+   compensation is inert. A missing or wrong term would diverge there too.
+2. **Neutral albedo collapses the per-channel spread 25×** (0.0589 → 0.0023).
+3. **Decisive:** neutral `[0.35,0.35,0.35]` gives B = **1.0074**; chromatic
+   `[0.92,0.78,0.35]` — the *same* B value — gives B = **1.0743**. Ten times the
+   divergence, the only variable being whether the *other* channels differ. That
+   is a spectral-upsampling signature and nothing else.
+
+**Camera framing is the amplifier, not the background.** The same material at a
+far camera measures R/G/B = 1.0052/1.0025/1.0056; this gate's close 60° framing
+(sphere fills the frame, grazing-dominated) measures 1.0257/1.0154/1.0743. The
+chromatic background contributes only ~0.3%.
+
+**Resolution — owner-approved documented exception, NOT a re-pin and NOT an
+xfail.** `[0.95, 1.05]` is retained for roughness ≤ 0.6; roughness 0.9 gets a
+**ceiling of 1.10 only** (`RATIO_HIGH_ROUGHNESS_0_9`). The floor stays 0.95 at
+every roughness — the divergence is one-directional (GPU brighter), so a GPU-dim
+regression must still trip. An xfail was rejected because it would make **any**
+future regression at r=0.9 invisible, and the repo already carries non-strict
+xfails that assert nothing. 1.0722 against a 1.10 ceiling leaves **2.6% headroom**;
+verified by replaying the measured sweep against the new bands — all 15 channel
+means pass, while probes at 1.101, 1.15 and 0.94 all still FAIL. That is the
+difference between an exception and a hole.
+
+**Follow-up:** the architect filed a package for the CPU-spectral vs GPU-RGB
+compensation mismatch off this gate run. When it lands, delete the exception and
+put r=0.9 back on `RATIO_HIGH`.

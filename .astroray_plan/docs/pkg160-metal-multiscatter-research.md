@@ -156,3 +156,47 @@ roughness 1.0 pre-fix (threshold `> 0.78`) while the same configuration was
 creating 1.77x the incident energy in linear space. The pkg160 furnace test
 therefore renders with `applyGamma=False` (memory
 `gamma-vs-linear-comparison-artifact`).
+
+## Second known residual — CPU-spectral vs GPU-RGB compensation (found by the HW gate)
+
+Measured on RTX 5070 Ti, 2026-07-26, by the first hardware run of
+`tests/test_pkg160_plain_metal_gpu_cpu_parity.py`: 31/32 assertions inside
+`[0.95, 1.05]`; roughness 0.9 channel B = **1.0722**.
+
+`MetalPlugin::evalSpectral` applies the darkening **per wavelength**, with
+`Fss = albedo_spec_.sample(lambdas)` (the Jakob-Hanika upsample of the albedo
+evaluated at the four hero wavelengths). `gpu_metal_eval` applies it **per RGB
+channel** from `mat.baseColor`, and `gpu_material_eval_spectral` upsamples the
+product afterwards. Upsampling is not linear, so
+
+```
+upsample( f_rgb * darken(f_rgb) )  !=  upsample(f_rgb) * darken(upsample(f_rgb))
+```
+
+except for a flat (achromatic) spectrum. The same asymmetry already existed for
+the Fresnel term in these two functions; pkg160 pushed a second,
+roughness-amplified factor through the same seam, which is what made it
+measurable.
+
+Confirmed experimentally rather than assumed (team-lead, three isolations):
+
+1. **Roughness 0.05 is at parity** (0.9977–1.0000) — the near-delta branch,
+   where the compensation is inert. A missing or mis-ported term would diverge
+   there too, so the port itself is correct.
+2. **Neutral albedo collapses the per-channel spread 25x** (0.0589 -> 0.0023).
+3. **Decisive:** neutral `[0.35,0.35,0.35]` gives B = 1.0074, chromatic
+   `[0.92,0.78,0.35]` — the *same* B — gives B = 1.0743. Ten times the
+   divergence with the only variable being whether the OTHER channels differ.
+   Only spectral upsampling can produce that.
+
+Amplifier is camera framing, not the background: far camera measures
+1.0052/1.0025/1.0056, the gate's close 60-degree grazing-dominated framing
+measures 1.0257/1.0154/1.0743; the chromatic background contributes ~0.3%.
+
+Not fixed in pkg160 (it is a whole-pipeline question about where RGB->spectral
+upsampling sits relative to per-lobe scalar factors, and it applies to Disney's
+compensation and Fresnel too, not just metal). Handled in-tree by an
+owner-approved documented exception: `RATIO_HIGH_ROUGHNESS_0_9 = 1.10`, floor
+unchanged at 0.95, 2.6% headroom over the observed 1.0722 so a genuine
+regression still fails. The architect filed a follow-up package for the
+mismatch itself.

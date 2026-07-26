@@ -31,9 +31,14 @@ environment, with nothing else in the scene. Deliberate:
 Gate
 ----
 Per channel, BOTH the mean ratio and the median ratio must land in
-[0.95, 1.05]. The median is not redundant: the original defect measured
-mean 0.279 but median 0.141, i.e. the typical pixel was twice as wrong as the
-mean said, and a mean-only gate near a bright highlight can mask exactly that.
+[0.95, 1.05] — except roughness 0.9, whose CEILING is 1.10 under an
+owner-approved documented exception (see the RATIO_HIGH_ROUGHNESS_0_9 block
+below for the measured value, the confirmed cause, the evidence, and why it is
+a widened ceiling rather than an xfail). The floor is 0.95 at every roughness.
+
+The median is not redundant: the original defect measured mean 0.279 but
+median 0.141, i.e. the typical pixel was twice as wrong as the mean said, and a
+mean-only gate near a bright highlight can mask exactly that.
 Ratio-of-medians (not median-of-per-pixel-ratios) is used because the two
 backends draw independent MC streams — a per-pixel quotient of two noisy
 estimates is itself heavily skewed, whereas each backend's median is a stable
@@ -92,6 +97,66 @@ ROUGHNESS_SWEEP = [0.05, 0.15, 0.3, 0.6, 0.9]
 RATIO_LOW = 0.95
 RATIO_HIGH = 1.05
 
+# ---------------------------------------------------------------------------
+# DOCUMENTED EXCEPTION at roughness 0.9 (owner-approved, PR #527, 2026-07-26)
+# ---------------------------------------------------------------------------
+# The first RTX 5070 Ti run of this gate measured 31/32 assertions inside
+# [0.95, 1.05]. The one outside was roughness 0.9, channel B: **1.0722**.
+# Full sweep, GPU/CPU mean ratio:
+#
+#     roughness      R        G        B
+#     0.05        0.9998   1.0000   0.9977
+#     0.15        1.0174   0.9863   1.0133
+#     0.30        1.0052   0.9980   1.0040
+#     0.60        1.0247   0.9964   1.0288
+#     0.90        1.0393   1.0137   1.0722   <- this row
+#
+# CAUSE — pre-existing architecture that pkg160 EXPOSED, not introduced.
+# CPU MetalPlugin::evalSpectral applies the compensation PER WAVELENGTH, from
+# Fss = albedo_spec_.sample(lambdas) (the Jakob-Hanika upsample of the albedo);
+# GPU gpu_metal_eval applies it PER RGB CHANNEL from mat.baseColor and then
+# upsamples the product. The two agree exactly only for a flat (achromatic)
+# spectrum. This is the same class of CPU-spectral/GPU-RGB difference the
+# Fresnel term in these two functions has always had; pkg160 simply put a
+# second, roughness-amplified factor through the same seam.
+#
+# EVIDENCE it is the upsampler and not a missing/incorrect term (team-lead,
+# three isolations on hardware, PR #527):
+#   1. r=0.05 sits at 0.9977-1.0000 — the near-delta branch where the
+#      compensation is inert. A missing or wrong term would diverge there too.
+#   2. Neutral albedo [0.35,0.35,0.35] collapses the per-channel spread 25x
+#      (0.0589 -> 0.0023).
+#   3. Decisive: neutral [0.35,0.35,0.35] gives B = 1.0074, while chromatic
+#      [0.92,0.78,0.35] — the SAME B value — gives B = 1.0743. Ten times the
+#      divergence with the only variable being whether the OTHER channels
+#      differ. That is a spectral-upsampling signature and nothing else.
+# Camera framing is the amplifier: the same material at a far camera measures
+# R/G/B = 1.0052/1.0025/1.0056. This test's close 60-degree framing is
+# grazing-dominated, which is where the two upsampling orders diverge most.
+# The chromatic background contributes only ~0.3%.
+#
+# WHY A WIDENED CEILING AND NOT AN xfail. An xfail would make ANY future
+# regression at r=0.9 invisible, and the repo already carries non-strict
+# xfails that assert nothing. 1.0722 against a 1.10 ceiling leaves ~3%
+# headroom, so a genuine regression beyond the known divergence STILL FAILS.
+# That is the difference between an exception and a hole. The floor is NOT
+# widened: the divergence is one-directional (GPU brighter), so a GPU-dim
+# regression must still trip at 0.95.
+#
+# FOLLOW-UP: the architect filed a package for the CPU-spectral vs GPU-RGB
+# compensation mismatch off this gate run (see PR #527's HW-gate comment
+# thread for the measurements above). When that lands, delete this exception
+# and put r=0.9 back on RATIO_HIGH.
+RATIO_HIGH_ROUGHNESS_0_9 = 1.10
+
+
+def _band(roughness: float) -> tuple[float, float]:
+    """Per-roughness acceptance band. See the exception block above: only the
+    r=0.9 CEILING is relaxed, and only to 1.10."""
+    if roughness == 0.9:
+        return RATIO_LOW, RATIO_HIGH_ROUGHNESS_0_9
+    return RATIO_LOW, RATIO_HIGH
+
 
 def _make_metal_scene(use_gpu: bool, roughness: float):
     r = astroray.Renderer()
@@ -148,21 +213,25 @@ def test_plain_metal_gpu_cpu_parity(roughness):
         rows.append((ch, cpu_mean, gpu_mean, gpu_mean / cpu_mean,
                      cpu_med, gpu_med, gpu_med / cpu_med))
 
-    print(f"\n[pkg160 plain-metal GPU/CPU parity] roughness={roughness}")
+    low, high = _band(roughness)
+    exception = " (r=0.9 documented exception, see module header)" if high != RATIO_HIGH else ""
+
+    print(f"\n[pkg160 plain-metal GPU/CPU parity] roughness={roughness} "
+          f"band=[{low}, {high}]{exception}")
     for ch, cm, gm, mr, cmed, gmed, medr in rows:
         print(f"  {ch}: mean cpu={cm:.5f} gpu={gm:.5f} ratio={mr:.4f} | "
               f"median cpu={cmed:.5f} gpu={gmed:.5f} ratio={medr:.4f}")
 
     for ch, cm, gm, mr, cmed, gmed, medr in rows:
-        assert RATIO_LOW <= mr <= RATIO_HIGH, (
+        assert low <= mr <= high, (
             f"pkg160 plain-metal GPU/CPU MEAN parity FAILED at "
             f"roughness={roughness}, channel {ch}: ratio {mr:.4f} outside "
-            f"[{RATIO_LOW}, {RATIO_HIGH}] (cpu={cm:.5f}, gpu={gm:.5f})"
+            f"[{low}, {high}] (cpu={cm:.5f}, gpu={gm:.5f}){exception}"
         )
-        assert RATIO_LOW <= medr <= RATIO_HIGH, (
+        assert low <= medr <= high, (
             f"pkg160 plain-metal GPU/CPU MEDIAN parity FAILED at "
             f"roughness={roughness}, channel {ch}: ratio {medr:.4f} outside "
-            f"[{RATIO_LOW}, {RATIO_HIGH}] (cpu={cmed:.5f}, gpu={gmed:.5f}). "
+            f"[{low}, {high}] (cpu={cmed:.5f}, gpu={gmed:.5f}){exception}. "
             f"The median is the statistic that exposed this defect: the "
             f"original measurement was mean 0.279 but median 0.141."
         )

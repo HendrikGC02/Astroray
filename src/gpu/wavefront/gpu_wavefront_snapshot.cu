@@ -46,27 +46,12 @@ namespace astroray::wavefront {
 // Forward declarations for stage launch functions from stage_advance.cu + stage_init.cu
 // (pkg55-C3: added useLuminanceOutput, enableNEE, lambdaMin/Max params)
 
-// From stage_init.cu
-// pkg157 NOTE — DO NOT DELETE this one (unlike the three removed below).
-// It is LOAD-BEARING: `gpu_wavefront_state.h` declares launchStageInit with
-// only 6 params (`..., uint64_t seed, int sample_index = 0`), but the
-// DEFINITION in stage_init.cu takes 8 (`..., int sample_index, float
-// lambdaMin, float lambdaMax`). The header's version is therefore a phantom
-// overload no definition matches — the same pre-existing defect pkg157 found
-// and fixed for launchStageShadeBucketed. All 6 call sites in this file pass
-// 8 arguments and resolve against THIS declaration; deleting it breaks the
-// build. Left in place deliberately: correcting the header decl means
-// removing/relocating its `= 0` default (a default arg cannot precede
-// non-defaulted params), which is a behaviour-affecting change outside
-// pkg157's scope and unverifiable without a build. Filed for follow-up.
-void launchStageInit(
-    GPUWavefrontState& state,
-    const GCameraParams& cam,
-    int width, int height,
-    uint64_t seed,
-    int sample_index,
-    float lambdaMin,
-    float lambdaMax);
+// pkg162: the private re-declaration of launchStageInit that used to sit here
+// is GONE. It existed only to shadow a phantom 6-parameter declaration in
+// gpu_wavefront_state.h that no definition matched. That header declaration is
+// now correct (8 params, matching stage_init.cu), so this file's `#include` of
+// it suffices — as it always should have. pkg157 removed three duplicates of
+// this same pattern; this was the fourth and last.
 
 void launchStageRegen(
     GPUWavefrontState& state,

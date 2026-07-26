@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / integrator correctness — test infrastructure)
 **Track:** A (RTX-gated; the deliverable is a scene + gate, validated by measurement)
 **Codex-paste-ready:** no (the scene must be tuned against measured tail statistics, not assumed)
-**Status:** open — filed 2026-07-26 from pkg157/PR #526 hardware verification.
+**Status:** done (PR #530, 2026-07-26 — `1393b13`). RTX 5070 Ti: `firefly_window` peak/p99.9 = **22.85×** (target ≥10×, 12.6× heavier than the next-worst library scene at 1.82×); `metal_cornell` negative control **1.07×** (limit ≤3.0×, confirms the gate discriminates). 12 gates green; un-skips pkg157's `test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss` (skipped since PR #526).
 **Estimated effort:** S–M (one scene + one gate; the work is measurement/tuning, not new engine code)
 **Depends on:** none. Unblocks: pkg157's skipped firefly gate; pkg144 contract item 3.
 

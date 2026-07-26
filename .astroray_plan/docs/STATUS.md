@@ -1,5 +1,38 @@
 # Astroray Status
 
+**2026-07-26 (round closeout, overnight 2026-07-25 → day 2026-07-26): 6 PRs
+merged (#525–#530), no open PRs at closeout.** First full round entirely
+downstream of pkg55 Phase C's finale (PR #524, 2026-07-25 — both megakernels
+deleted, the wavefront is now the only GPU path): every package this round
+either restores a GPU capability the megakernel deletion silently dropped, or
+fixes a defect the wavefront-only world finally made visible/gate-able.
+Landed: **pkg88-B** object motion blur addon bake (PR #525, `c41d7fb`) — also
+fixed a PRE-EXISTING pkg88-A blocker that made camera motion blur fail
+outright in real Blender since it shipped (`clear()` wiped the camera before
+`set_camera_motion_blur()` ran); **pkg157** firefly clamps ported into the
+wavefront (PR #526, `b6c3ffb`) — cross-binary no-op measured at 2.48e-07
+relative to peak, ~40× inside the 1e-5 convention; **pkg160** plain-`metal`
+GPU/CPU parity (PR #527, `2d5bb27`) — **plain `metal` was creating energy**
+(white-furnace linear up to 1.77×, 66% of pixels > 1.0), fixed by replacing an
+invented additive multiscatter term with the same Kulla & Conty compensation
+`disney.cpp` already shipped, plus the plain-metal parity gate that never
+existed; **pkg162** the last phantom `launchStageInit` overload closed (PR
+#528, `05b6b49`) — 4 of 4 phantom-overload instances now fixed, no dedicated
+spec (small follow-up ticket from pkg157's HW verification); **pkg159** GPU
+cryptomatte restored in the wavefront (PR #529, `78e0ae4`) — cross-path IoU
+0.964–0.984 vs a 0.85 threshold; **pkg161** firefly-bearing gate scene (PR
+#530, `1393b13`) — `firefly_window` measures **22.85×** peak/p99.9 tail vs a
+≥10× target, un-skips pkg157's suppression gate. Two investigations closed
+deliberately without shipping code: **pkg155 Phase 1** confirmed the ~5% GPU
+absolute slowdown is really ~5× on the corrected metric (total GPU
+kernel-ms/render) and convicted the shade stage (221 regs/thread, 1
+block/SM, recovery target ≤128); the **sm_120 build-config lever was RULED
+OUT with numbers** (native AOT is 1.68–1.80× SLOWER than sm_89 JIT — the
+register problem is intrinsic to the kernel, not a build artifact). Full
+detail: `.astroray_plan/docs/standup/2026-07-25-overnight.md`,
+`.astroray_plan/docs/standup/2026-07-26-dayrun.md`; round-closeout section
+below.
+
 **2026-07-25 (supervised day session): pkg55 COMPLETE — Session C7 landed.**
 Both megakernels (`src/gpu/path_trace_kernel.cu`,
 `src/gpu/multiwavelength_kernel.cu`) are DELETED; the wavefront is the only
@@ -38,6 +71,232 @@ pkg151/pkg147 open, HELD by pr-merger for owner approval on CMakeLists
 touches. Full round closeout pending.
 
 **Last updated:** 2026-07-20 (Overnight autonomous run on the travel laptop — RTX 3000 Ada sm_89, CUDA 13.2, no OptiX SDK. **pkg55 Phase C Sessions C3+C4 landed** (PR #486 non-visible-band + naive-MW wavefront; PR #490 TLAS/instancing + deformation-motion in the wavefront) and **C5 is open-verified** (PR #494 photon caustics, 2/2 gates + 40-test regression green on RTX, not yet merged) — Phase C is now 5 of 7 sessions done/verified. **pkg89 GAP-1 landed** (PR #489 — dedicated lights uploaded to GPU, Blender-lamp scenes stop rendering DARK on GPU: AREA 0.998 / POINT 0.997 parity) with **GAP-2 energy audit** escalated to pkg122. **pkg121 Phase A** chi² sampler harness (PR #485 — Mitsuba BSD-3 port; Lambertian anchor passes p=0.23; Disney spec-lobe failures xfail'd → pkg123). **pkg119-A** Blender parity coverage matrix (PR #487 — v4 AST-scanned: 131 SUPPORTED / 23 APPROXIMATED / 370 DROPPED-SILENT / 20 stale sockets of 524). 15 new specs filed (pkg123-137) covering correctness/sampling + eight platform techniques + material candidates. Direct-to-main: root-shadow-pyd trap killed (94ae956), permissions allowlist (1efe9bc), pkg115-harness CUDA-13 fix (3778f37), other-engines research sweep (7a4c970).).
+
+## Round closeout 2026-07-25 evening → 2026-07-26 — wavefront GPU-parity follow-ups: pkg157/pkg159/pkg161 restore dropped features, pkg160 fixes a real energy-conservation bug, pkg88-B completes object motion blur, pkg162 closes the phantom-overload class
+
+**Six PRs merged (#525–#530), no open PRs at closeout.** The whole round is
+downstream of pkg55 Phase C's finale (PR #524, 2026-07-25 — both megakernels
+deleted, the wavefront is the only GPU path). Lane discipline: Lane A owned
+the wavefront `stage_advance.cu` domain, Lane B the addon `blender_addon/`
+domain; the team-lead held the GPU lane directly (subagents on this machine
+cannot init vcvars, so cannot build CUDA).
+
+### pkg88-B — object motion blur addon bake, + pkg88-A's real-Blender blocker fixed (PR #525, 2026-07-25)
+
+`convert_scene` now hoists shutter-position resolution so object motion
+reuses the same `t_start`/`t_end` as pkg88-A; `_get_object_matrices_at_time`
+snapshots every mesh-able object's `matrix_world` at both shutter boundaries;
+`convert_objects` routes to `add_triangles_bulk_motion` only when the pose
+differs between the two boundaries. **Independent review (a different model
+from the implementer) found a real correctness bug all 13 of the PR's own
+tests passed through:** only `t_end` was ever snapshotted, so
+`positions_start` fed the object's *current* pose — CENTER shutter swept only
+the back half of the arc (34 lit columns vs 55 correct), END disabled object
+blur entirely (`_matrices_differ` always False). Fixed at `9f233fe`; measured
+streak widths for START/CENTER/END all converge to 49 lit columns with
+correctly ordered centres (END 48.0 < CENTER 68.0 < START 89.0). **Then a
+real headless-Blender run (not mocked) found a second, pre-existing bug**:
+`convert_scene` calls `renderer.clear()` (which wipes the camera) BEFORE
+`set_camera_motion_blur()` and `setup_camera()`, so turning on motion blur
+raised `RuntimeError: Camera not set up` in real Blender — **pkg88-A's camera
+motion blur has been broken since it shipped**; no suite caught it because
+every motion-blur test mocks `bpy` and stubs `setup_camera`. Fixed inside
+#525 (hoist `setup_camera` above the motion-blur block, "ORDER IS
+LOAD-BEARING" comment added) since the fix is what makes the deliverable
+reachable. `scripts/verify_pkg88b_blender.py` promoted into the repo as a
+permanent real-host regression guard (pattern-matched to the pkg114 verify
+scripts). 19 new/extended tests + 74 neighbour tests green; independent
+re-review reproduced both bugs against the pre-fix code in a scratch tree
+before SIGN-OFF.
+
+### pkg157 — wavefront firefly clamps restored (PR #526, 2026-07-25)
+
+Ports pkg144's `clampDirect`/`clampIndirect` into the wavefront, which C7's
+deletion sweep had silently dropped (defaults are 0/0 = off, so default
+renders were unaffected, but any user-set clamp on a GPU render did nothing).
+HW verification found **two of the PR's own tests were defective, not the
+code**: one used a clamp value (10) the scene's dynamic range (peak 1.758)
+could never bind against; the other demanded byte-identity the wavefront
+cannot deliver against *itself* (atomic-accumulation ordering, ~1.19e-07
+floor). A third test (the firefly-suppression clause) was correctly
+`skip`ped rather than xfailed — **no scene in the library has a firefly
+tail** (peak/p99.9 ranges 1.04–1.82× across five scenes; a real firefly
+population would read in the tens or hundreds), so no threshold could
+satisfy both "clips only outliers" and "removes real signal" — filed as
+**pkg161** (closed the same round, see below). **Verified cross-binary**
+(the only way to test the contract): pre- and post-pkg157 binaries render
+the same scene to image sums identical to 6 dp, max diff 2.48e-07 relative
+to peak. Bounce classification proven directly: `clampIndirect` is EXACTLY
+inert (0.000000) at `max_depth=1`. **HW PASS, 8 passed / 1 documented skip
+at merge** (now 12 passed post-pkg161). Along the way, CI's compiler
+exposed a **phantom overload** in `gpu_wavefront_state.h` (a declaration no
+definition matched, masked by private duplicate re-declarations in 3 TUs) —
+fixed at the root (header now the single source of truth) for 3 of 4
+instances; the 4th (`launchStageInit`, load-bearing default argument) was
+deliberately left and closed later as pkg162.
+
+### pkg160 — plain `metal` was creating energy, not just too dark (PR #527, 2026-07-25 → 2026-07-26)
+
+Started as a measurement: plain `metal` (not Disney metal) reads 0.28×/7×
+darker (mean/median) than CPU on the GPU wavefront — `gpu_metal_eval` omits
+the multiscatter term `MetalPlugin::eval` adds on CPU. **Step 0 (required by
+spec before mirroring anything) found the two GGX energy-compensation table
+systems disagree 24.6× in `E` / 1030× in `Fms` at the contact-sheet
+roughness — and the CPU side is the physically wrong one**:
+`GGXEnergyCompensationLUT` estimates `E` with 256 uniform-hemisphere samples,
+cannot resolve a narrow GGX lobe, so `E → 0` as roughness → 0 (the opposite
+of the truth) and drives `Fms` to 96.5% of its mathematical ceiling exactly
+where multiscatter should vanish. **Owner chose "fix the CPU."** Investigating
+that surfaced two more defects beyond the wrong table: `multiScatter` carried
+no `NdotL` (violates the `eval()` contract), and `msWeight = roughness*(2-
+roughness) * 1.3f` is an unpublished hand-tuned fudge factor (CLAUDE.md §6
+violation). **The fix deletes the runtime LUT's role entirely** and routes
+plain metal through the same multiplicative Kulla & Conty compensation
+`disney.cpp` has shipped since pkg60 (`ggxCompensationFactor` / shipped
+Cycles tables), with `gpu_metal_eval` applying its exact GPU twin. **Measured:
+the pre-fix conductor was creating energy** — white-furnace linear reads
+1.6434 (r=0.15), 1.4069 (r=0.60), 1.7690 (r=0.90); post-fix 0.8823/0.8092/
+0.8802. **Why no existing test caught it — systemic, not pkg160-specific:**
+`render_image()` defaults to `apply_gamma=True`, which clamps to [0,1]; the
+same pre-fix furnace read **gamma max exactly 1.000000** while **linear max
+was 4.139 with 18,338 of 27,648 pixels above 1.0** — a gamma-rendered furnace
+test cannot detect energy gain (now recorded in memory
+`gamma-furnace-cannot-detect-energy-gain`). The plain-metal GPU/CPU parity
+gate that never existed lands in the same PR (mean AND median, `[0.95,
+1.05]`). **HW: 31 passed, 1 documented exception** — roughness 0.9 channel B
+reads 1.0722, isolated to a **pre-existing architectural seam**: CPU computes
+compensation per-wavelength, GPU per-RGB-channel-then-upsamples (agree only
+for flat spectra); owner-approved asymmetric band `[0.95, 1.10]` at r=0.9
+only (2.6% headroom, floor unchanged so a GPU-dim regression still fails).
+That seam is filed as **pkg163**, which owns retiring the exception. Also
+found: `stage_shade_metal.cu`'s `launchStageShadeMetalGPU` is dead code (no
+call site) — fixed rather than deleted (cited as a template by pkg55/128/129);
+deletion left as an owner call.
+
+### pkg162 — the last phantom `launchStageInit` overload (PR #528, 2026-07-26)
+
+The fourth and last instance of pkg157's phantom-overload pattern:
+`gpu_wavefront_state.h` declared `launchStageInit` with 6 parameters while
+`stage_init.cu`'s definition takes 8; pkg157 deliberately left it because
+correcting it means removing a `= 0` default (a defaulted parameter cannot
+precede non-defaulted ones) — behaviour-affecting, unverifiable without a
+build the implementer could not run. Resolution: the default is simply
+removed (all 6 call sites already pass `sample_index` explicitly, so it was
+never used). No dedicated package spec exists for pkg162 (a small follow-up
+ticket, not a filed spec) — tracked here and in the standup docs. Verified
+inert: full Release+CUDA build succeeds, same scene/seed against the
+pre-change binary gives identical image sums, max diff 2.48e-07 relative to
+peak — the wavefront's own atomic-ordering noise floor. Independent
+different-model review supplied a stronger inertness argument (default
+arguments are not part of a function's mangled signature, so removing one
+cannot change linkage for callers that already pass the argument explicitly).
+Closes the phantom-overload class: **4 found, 4 resolved.**
+
+### pkg159 — GPU cryptomatte restored in the wavefront (PR #529, 2026-07-26)
+
+GPU cryptomatte accumulation lived only in the now-deleted `path_trace`
+megakernel (`multiwavelength_kernel.cu` never had it), so C7 silently made it
+CPU-only — a real capability regression from #524 that nobody had filed
+until this round. Port required care on three axes the spec pinned: the
+megakernel was 1 thread/pixel and race-free, the wavefront is not (atomics
+now required); the megakernel used an implicit `float=uint32` conversion
+instead of `hash_to_float` (IDs never matched the CPU/EXR manifest — fixed in
+the port); first-hit-only semantics per the CPU oracle. Cites Friedman &
+Jones 2015 (Psyop) and Cycles `cryptomatte_passes.h`. **HW: 4 gates passed,
+cross-path IoU 0.964–0.984 against the 0.85 threshold** — the threshold was
+the one number never previously exercised cross-path, and it demonstrably
+discriminates (GPU leg 0.9743 vs CPU leg 0.9843; a no-op port would read
+~0). **Not verified, and recorded as such rather than blurred:** a true
+cross-binary RED run (the gate depends on helpers this PR adds, can't run
+against main's unported binary) and addon-side pass packing of the GPU
+crypto buffers.
+
+### pkg161 — firefly-bearing gate scene closes a two-day gate hole (PR #530, 2026-07-26)
+
+Built to un-skip pkg157's firefly-suppression gate: no scene in the library
+had a tail heavy enough to demonstrate suppression without either clipping
+nothing or clipping real signal. **HW measurement (RTX 5070 Ti, linear
+output — a gamma-clamped tail measurement destroys exactly the outliers
+being measured):** `firefly_window` peak/p99.9 = **22.85×** (target ≥10×,
+12.6× heavier than the next-worst library scene at 1.82×); `metal_cornell`
+negative control **1.07×** (limit ≤3.0×, confirms the gate discriminates
+rather than passing on anything). 12 gates pass, including the gate that had
+been `skip`ped since PR #526. One collection-time bug fixed along the way: a
+test named `firefly.EMITTER_RADIUS` as a default argument, which evaluates
+at *def* time — before `pytestmark = skipif(not AVAILABLE)` can suppress
+anything — so the module failed to collect on any checkout without a build
+(exactly the environment every implementer works in).
+
+### Investigations closed, no code shipped (by design)
+
+- **pkg155 Phase 1 COMPLETE** — the ~5× GPU absolute slowdown confirmed on a
+  corrected metric (total GPU kernel-ms/render; the spec's old ms-per-launch
+  headline died when #524 deleted the kernel). cornell_diffuse 20.29→98.25 ms
+  (4.84×), cornell_glass 21.87→122.69 ms (5.61×) vs the 2026-05-17 Phase-A
+  baseline. **Shade stage convicted**: 43.8–52.4% of GPU time, 221
+  regs/thread, the only stage at 1 block/SM (needs ≤128 to reach 2). Doc:
+  `.astroray_plan/docs/pkg155-phase1-profile-findings.md`.
+- **pkg155 build-config lever RULED OUT with numbers** — adding native
+  sm_120 AOT is **1.68–1.80× SLOWER** than the current sm_89-JIT build
+  (identical source, only `CMAKE_CUDA_ARCHITECTURES` differing;
+  `shade_bucketed` 239→604 ms at 221→229 regs). So `75;86;89` is optimal
+  here and the register problem is intrinsic to the kernel, not a build
+  artifact. Doc: `.astroray_plan/docs/pkg155-sm120-negative-result.md`.
+- **pkg153/pkg155 Phase 2 protocol corrected** — the "compile-only bisect"
+  premise is dead (`-Xptxas -v` counts are meaningless under `-rdc=true`:
+  127/40 static vs 221/229 real). The bisect needs the GPU at every point and
+  cannot parallelise with HW verification; re-scoped to an opportunistic
+  gap-filler, always outranked by active-PR HW gates.
+
+### Specs filed / re-scoped this round
+
+**pkg159** (filed and shipped same round), **pkg160** (filed and shipped),
+**pkg161** (filed and shipped), **pkg163 NEW** (spectral-vs-RGB compensation
+colour-space parity — metal-only defect, but the RGB→spectral seam it sits on
+is not metal-only; owns retiring pkg160's r=0.9 band exception; dispatchable
+now that pkg160 is on main), **pkg158 narrowed** (not closed — its Step-0
+Disney-metal reconciliation still must run, but on a post-pkg160 SHA, since
+pkg160 changed the shared metal energy-compensation baseline), **pkg120** +
+**pkg88 Phases B/D** unblocked (stale "blocked on pkg55 Phase C" markers
+cleared — the blocker dissolved with #524).
+
+### Owner decisions this round
+
+- **pkg160 direction: fix the CPU, not mirror the GPU to it** — the owner's
+  call reframed a "GPU too dark" ticket into a real energy-conservation bug
+  fix, once Step 0 showed the CPU table was the physically wrong side.
+- **pkg160 HW exception: asymmetric band `[0.95, 1.10]` at roughness 0.9
+  only** — not an xfail (would hide future regressions there) and not a
+  global widening; self-retiring via pkg163.
+- **Still open for owner decision:** tightening the GPU/CPU parity bands
+  project-wide (current bands as loose as `[0.4, 2.5]`); re-pinning
+  `MAX_GLOSSY_PARITY_MSE` (0.04 → ~0.006, corroborated by pkg160's 7×-closer
+  MSE — branch `pkg164-glossy-mse-repin`, **PR #532** (0.04 → 0.006), team-lead
+  owns landing it); deleting the dead `stage_shade_metal.cu`; the orphaned
+  worktree directories OneDrive won't release (disk hygiene only, no
+  correctness impact).
+
+**Changelog:** pkg88-B object motion blur addon bake landed (PR #525 —
+19+74 tests green) and fixed a pre-existing pkg88-A blocker that made
+Blender camera motion blur fail outright in real Blender since it shipped.
+pkg157 wavefront firefly clamps restored (PR #526 — cross-binary no-op
+2.48e-07 relative, ~40× inside the 1e-5 convention); surfaced a phantom
+`launchStageInit` overload, closed by **pkg162** (PR #528 — 4 of 4 instances
+now fixed). pkg160 plain-`metal` GPU/CPU parity (PR #527) found and fixed a
+real energy-conservation bug (white-furnace linear up to 1.77×, gamma
+rendering could never have caught it) by replacing an invented additive term
+with Kulla & Conty compensation; ships the plain-metal parity gate that
+never existed; files pkg163 to own the residual spectral-vs-RGB seam. pkg159
+GPU cryptomatte restored in the wavefront (PR #529 — cross-path IoU
+0.964–0.984 vs 0.85). pkg161 firefly-bearing gate scene (PR #530 —
+`firefly_window` 22.85× tail vs ≥10× target) un-skips pkg157's suppression
+gate, closing a two-day gate hole. Two investigations closed without code:
+pkg155 Phase 1 (~5× GPU slowdown confirmed, shade stage convicted at 221
+regs/thread) and the sm_120 build-config lever (ruled out, 1.8× slower).
+Next pickup: pkg163 → pkg158 → pkg156/pkg120 (wavefront `stage_advance.cu`
+lane) → pkg150 → pkg88-D → pkg119-B/C; pkg155 Phase 2 as an opportunistic
+GPU-lock gap-filler; pkg153 env-gate disposition remains in flight with the
+gate-failure-reviewer. Pillar 4 stays PAUSED.
 
 ## Round closeout 2026-07-19 → 2026-07-20 — pkg55 Phase C C3+C4 landed (C5 open-verified) + pkg89 GPU dedicated lights + pkg121/pkg119 parity infra + 15 specs
 

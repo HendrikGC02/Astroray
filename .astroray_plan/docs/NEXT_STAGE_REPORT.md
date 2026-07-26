@@ -65,7 +65,7 @@ correctness follow-ups**, not a single named arc — see §2.
 - **Still open for owner decision (carried forward, none block dispatch):**
   tightening the GPU/CPU parity bands project-wide (several as loose as
   `[0.4, 2.5]`); the `MAX_GLOSSY_PARITY_MSE` re-pin is already an open branch
-  `pkg164-glossy-mse-repin` on origin (no PR yet) — **the team-lead owns
+  `pkg164-glossy-mse-repin`, **PR #532** — **the team-lead owns
   landing it, do not re-dispatch pkg164 work**; deleting the dead
   `stage_shade_metal.cu` (declaration + definition, no call site); orphaned
   worktree directories OneDrive won't release (disk hygiene only).
@@ -148,7 +148,7 @@ of this closeout (memory: `orchestrator-next-stage-report-stale`).
 **Not this round:**
 
 - **pkg164** (`MAX_GLOSSY_PARITY_MSE` 0.04 → 0.006 re-pin) — already an open
-  branch `pkg164-glossy-mse-repin` on origin, no PR yet. **The team-lead owns
+  branch `pkg164-glossy-mse-repin`, **PR #532**. **The team-lead owns
   landing it — do not re-dispatch.**
 - **Pillar 4** (pkg45/46/48/49/50/51 + pkg107) — PAUSED per owner directive
   2026-06-08. Do not pick up.

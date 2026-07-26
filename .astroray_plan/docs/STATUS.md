@@ -271,7 +271,7 @@ cleared — the blocker dissolved with #524).
 - **Still open for owner decision:** tightening the GPU/CPU parity bands
   project-wide (current bands as loose as `[0.4, 2.5]`); re-pinning
   `MAX_GLOSSY_PARITY_MSE` (0.04 → ~0.006, corroborated by pkg160's 7×-closer
-  MSE — branch `pkg164-glossy-mse-repin` open on origin, no PR yet, team-lead
+  MSE — branch `pkg164-glossy-mse-repin`, **PR #532** (0.04 → 0.006), team-lead
   owns landing it); deleting the dead `stage_shade_metal.cu`; the orphaned
   worktree directories OneDrive won't release (disk hygiene only, no
   correctness impact).

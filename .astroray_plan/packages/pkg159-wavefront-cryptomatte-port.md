@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU feature parity)
 **Track:** A (RTX-gated — the GPU crypto buffers can only be verified on hardware)
-**Status:** open — dispatchable after PR #524 (pkg55-C7) merged. Capability-regression fast-follow: GPU cryptomatte currently has NO owner and NO wiring in the only surviving GPU path.
+**Status:** implemented, PENDING BUILD + RTX VERIFICATION (branch `pkg159-wavefront-cryptomatte`, 2026-07-26). Code complete: atomic device insert ported from Cycles `film_write_cryptomatte_slots` (`__ATOMIC_PASS_WRITE__`), `hash_to_float` ID encoding, `bounce == 0` first-hit gate, driver-owned per-pixel rank buffers + sort/normalise copy-back, GPU leg added to the Psyop IoU acceptance gate + 4 new gates. **NOT BUILT and NOT RUN ON HARDWARE** — the implementer cannot init MSVC vcvars on this machine (`cl.exe` not on PATH; confirmed empirically), so `build_cuda_worktree.bat` and every GPU gate are outstanding. Static evidence only — see the PR body. Do NOT flip to done on CI green: CI has no GPU.
 **Estimated effort:** M — device rank buffers + an ATOMIC insert port + driver threading + copy-back + a revived GPU gate. The concurrency (atomic slot writes) is the non-trivial part; the weight/ID math is a straight mirror of the CPU oracle.
 **Depends on:** pkg55-C7/PR #524 (the wavefront is now the only GPU path). Reference material — all already in-tree:
 - `include/astroray/cryptomatte.h` — `crypto_insert`, `crypto_sort_ranks`, `crypto_accumulate_shade_point`, `hash_to_float`, `crypto_name_registry` (pkg87a/b; the insert/accumulate helpers are already `__host__ __device__`).

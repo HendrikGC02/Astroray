@@ -152,6 +152,16 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
 // max_depth advance rounds per sample and returns the linear-sRGB image
 // (height*width*3 floats), accumulated host-side exactly like the CPU
 // wavefront driver. Unlocks the final-image gate.
+//
+// pkg159 (cryptomatte): `cam` is const, so the driver cannot write the
+// Camera's crypto buffers itself — the caller passes them explicitly.
+// cryptoObjectOut / cryptoMaterialOut must each point at
+// width*height*cryptoDepth*2 writable floats (Camera::cryptoObjectBuffer /
+// cryptoMaterialBuffer); they are OVERWRITTEN, not accumulated into. Passing
+// nullptr / cryptoDepth == 0 (the default) disables GPU cryptomatte entirely,
+// which is also enforced by Renderer::getCryptomatteEnabled() inside.
+// The returned ranks are already sorted weight-descending and per-pixel
+// weight-normalised (see the driver's copy-back note).
 std::vector<float> cuda_wavefront_render(
     Renderer& renderer,
     const Camera& cam,
@@ -160,7 +170,10 @@ std::vector<float> cuda_wavefront_render(
     uint64_t seed,
     float lambdaMin, float lambdaMax,
     bool useLuminanceOutput,
-    bool enableNEE);
+    bool enableNEE,
+    float* cryptoObjectOut = nullptr,    // pkg159
+    float* cryptoMaterialOut = nullptr,  // pkg159
+    int cryptoDepth = 0);                // pkg159
 
 // pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront render. Direct-illumination
 // driver with double-buffered per-pixel reservoirs persisted across frames

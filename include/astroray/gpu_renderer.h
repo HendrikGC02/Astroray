@@ -86,6 +86,8 @@ public:
     // astroray::wavefront::cuda_wavefront_render (gpu_wavefront_snapshot.h).
     // CUDARenderer remains the owner of the uploaded-device-state surfaces
     // (probes, refit, profile lookup).
+    // pkg159: GPU cryptomatte has been re-homed in that same wavefront entry
+    // (cryptoObjectOut/cryptoMaterialOut/cryptoDepth params), NOT here.
 
     // pkg64-gpu Phase 1 probe (moved from the deleted render()): run the SMS
     // device-attempt probe against the uploaded scene. Requires uploadScene().

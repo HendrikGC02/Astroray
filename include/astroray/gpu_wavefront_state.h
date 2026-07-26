@@ -365,7 +365,14 @@ void launchStageShadeBucketed(
     // it. That duplicate is now deleted; this declaration is the single source
     // of truth and must be kept in sync with stage_advance.cu.
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
-    float             photonScale);
+    float             photonScale,
+    // pkg159: per-PIXEL cryptomatte rank arrays (numPixels*depth*2 floats
+    // each), allocated + zeroed by the driver and copied back to
+    // Camera::cryptoObjectBuffer / cryptoMaterialBuffer after the render.
+    // cryptoDepth == 0 (or null pointers) = cryptomatte disabled, the default.
+    // The shade stage inserts ATOMICALLY (crypto_insert_atomic, cryptomatte.h)
+    // because path regeneration puts many concurrent slots on one pixel.
+    float* d_cryptoObjectRanks, float* d_cryptoMaterialRanks, int cryptoDepth);
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts

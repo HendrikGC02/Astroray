@@ -1735,10 +1735,32 @@ public:
                 else
                     useLum = (mode == "luminance");
                 bool enableNEE = (integratorName_ != "multiwavelength_path_tracer");
+                // pkg159: restore GPU cryptomatte (dropped with the megakernels
+                // in pkg55-C7). The driver writes the Camera's rank buffers
+                // directly — sorted + normalised — so get_cryptomatte_*_buffer
+                // and write_cryptomatte_exr see the same shape the CPU leg
+                // produces. Only wired when the buffers are actually sized for
+                // the current depth; set_cryptomatte_depth does not resize them
+                // (pre-existing: Camera sizes them at construction with the
+                // default depth 6), and writing past them would corrupt the heap.
+                float* cryptoObjOut = nullptr;
+                float* cryptoMatOut = nullptr;
+                int cryptoDepth = 0;
+                if (renderer.getCryptomatteEnabled()) {
+                    const size_t need = static_cast<size_t>(camera->width) *
+                                        camera->height * camera->cryptomatteDepth * 2;
+                    if (camera->cryptoObjectBuffer.size() == need &&
+                        camera->cryptoMaterialBuffer.size() == need) {
+                        cryptoObjOut = camera->cryptoObjectBuffer.data();
+                        cryptoMatOut = camera->cryptoMaterialBuffer.data();
+                        cryptoDepth  = camera->cryptomatteDepth;
+                    }
+                }
                 auto rgb = astroray::wavefront::cuda_wavefront_render(
                     renderer, *camera, camera->width, camera->height,
                     samplesPerPixel, maxDepth, renderer.getSeed(),
-                    lmin, lmax, useLum, enableNEE);
+                    lmin, lmax, useLum, enableNEE,
+                    cryptoObjOut, cryptoMatOut, cryptoDepth);  // pkg159
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],

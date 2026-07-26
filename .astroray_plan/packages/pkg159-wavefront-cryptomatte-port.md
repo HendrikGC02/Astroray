@@ -127,6 +127,59 @@ package restores it in the wavefront.
 5. Build evidence per CLAUDE.md (`.pyd` mtime vs HEAD, canonical
    `build_cuda/Release/` load); RTX hardware verification, CI is blind here.
 
+## Gate amendments — ADJUDICATION ITEMS (owner review, 2026-07-26)
+
+Two clauses in the Gates section above are **unsatisfiable as literally
+written**. They were amended during implementation (PR #529) and ratified by
+the team lead. Recorded here explicitly so they are read as adjudicated
+decisions, not as gates that were quietly weakened.
+
+**Amendment 1 — Gate 3, "BYTE-IDENTICAL".** The clause reads
+"`cryptomatteEnabled == false` → the wavefront image is BYTE-IDENTICAL to
+pre-pkg159 output". Unsatisfiable *by construction*, for two independent
+reasons:
+- There is no pre-pkg159 binary to compare against.
+- **The wavefront is not bit-identical to itself.** `stageRegenKernel`
+  accumulates radiance with `atomicAdd`, so summation order varies run to run.
+  Measured by the team lead on consecutive same-seed runs: 29 of 27648 elements
+  differ, at 1.19e-07. pkg157's spec carried the identical defective clause and
+  was formally amended to the 1e-5 MC convention on 2026-07-26 (same morning);
+  this is the same defect, same resolution.
+
+  *Amended to:* crypto-ON vs crypto-OFF at the same seed must match, asserted
+  with `max < 1e-3` / `mean < 1e-5`. This is strictly stronger than the intent
+  (it proves the added code has no effect on the image) while sitting above the
+  atomic-reordering floor. Implemented as
+  `test_gpu_crypto_disabled_is_noop`.
+
+**Amendment 2 — Gate 4, "identical sorted ranks".** After the
+weight-descending sort, two IDs carrying near-equal weight can legitimately
+swap rank between runs, so slot-order identity is not a property the correct
+implementation has.
+
+  *Amended to:* compare the order-independent per-pixel `id → weight` mapping.
+  The **ID set is compared EXACTLY**; only the weights carry tolerance (1e-4,
+  for atomic reassociation). Deliberately not loosened on both axes: the exact
+  ID-set half is precisely what a racy insert breaks (two threads both claiming
+  an empty slot loses an ID; a non-atomic `+=` loses updates). Implemented as
+  `test_gpu_crypto_deterministic_under_concurrency`.
+
+## Structural gap surfaced by this package (not fixed here)
+
+**The GPU render route does not run the pass pipeline at all.** Only
+`Renderer::renderFrame` executes `passes_`; the GPU branch of
+`PyRenderer::render` (`module/blender_module.cpp`) returns straight from
+`cuda_wavefront_render` without constructing a `Framebuffer` or running a
+single `Pass`. pkg159 worked around it by reproducing `CryptomattePass`'s
+sort + normalise inside the wavefront driver — correct and narrow for this
+package (the alternative, wiring `passes_` into the GPU branch, would newly run
+denoisers and every AOV pass over buffers the GPU path never fills), but it is
+a workaround, not a fix.
+
+This will bite **the next AOV ported to the GPU**, in exactly the way it nearly
+bit pkg159: the port lands, the buffer fills, and the post-processing step
+silently never runs. Worth its own spec. Explicitly NOT in pkg159's scope.
+
 ## Non-goals
 
 - **No new crypto features.** Depth, typenames (object + material only), the

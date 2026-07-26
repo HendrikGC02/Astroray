@@ -226,8 +226,32 @@ __device__ inline GVec3 gpu_metal_eval(
     GVec3 F    = gpu_fresnelSchlick3(wo.dot(h), mat.baseColor);
     float k    = (mat.roughness + 1.f) * (mat.roughness + 1.f) / 8.f;
     float G    = (NdotL / (NdotL*(1.f-k)+k)) * (NdotV / (NdotV*(1.f-k)+k));
-    // NOTE: eval() returns brdf * NdotL (cosine-weighted), matches CPU
-    return F * D * G / (4.f * NdotV + 0.001f);
+    // eval() returns brdf * NdotL (cosine-weighted), as on the CPU.
+    GVec3 singleScatter = F * D * G / (4.f * NdotV + 0.001f);
+
+    // pkg160: GGX multiple-scattering energy compensation, net factor
+    // "1 + Fms*(1-E)/E" (Kulla & Conty 2017 Eq. 6-9; Cycles
+    // bsdf_microfacet.h:389-436 microfacet_ggx_preserve_energy, BSD-3-Clause).
+    // Mirrors CPU MetalPlugin::ggxCompensationFactor (plugins/materials/
+    // metal.cpp) term for term, off the SAME table: g_ggxE/g_ggxEavg are
+    // uploaded from DisneyEnergyCompensationTables::ggxEData()/ggxEavgData()
+    // (src/gpu/gpu_ggx_tables.cu), which is the array the CPU reads directly.
+    //
+    // `Fss` = mat.baseColor: for a conductor the Schlick F0 IS the reflectance
+    // colour (the gpu_fresnelSchlick3 call above passes it as F0), matching
+    // how gpu_disney_eval passes its own F0 at :928. Multiplicative, so the
+    // NdotL already folded into singleScatter's Cook-Torrance denominator
+    // carries through untouched, and the null-table fallback is the 1.0
+    // identity gpu_ggxCompensationFactor already returns.
+    //
+    // Before pkg160 this function returned singleScatter alone while the CPU
+    // added a (differently-tabulated, cosine-free, hand-weighted) term:
+    // measured GPU/CPU per-channel mean ratio 0.279/0.286/0.316, median 0.141
+    // on the disney_contact_sheet plain-metal patch. pkg160 fixed the CPU
+    // rather than mirroring its term; both sides now read the shipped Cycles
+    // table. Gate: tests/test_pkg160_plain_metal_gpu_cpu_parity.py.
+    return singleScatter *
+           gpu_ggxCompensationFactor(mat.baseColor, mat.roughness, NdotV);
 }
 
 template <typename TRng>

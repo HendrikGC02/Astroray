@@ -45,4 +45,34 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
     m.def("disney_compensation_tables_loaded", []() {
         return astroray::DisneyEnergyCompensationTables::instance().loaded();
     }, "Whether data/disney_compensation/*.bin loaded successfully.");
+
+    // pkg160 — the GGX reflection-lobe multi-scatter compensation, exposed so
+    // tests/test_pkg160_metal_energy_compensation.py can pin that the CPU
+    // conductor lobe (plugins/materials/metal.cpp) and the GPU one
+    // (gpu_metal_eval) now read the SAME table with the SAME formula.
+    //
+    // This repo used to have two independent GGX E-table systems: the
+    // runtime-MC `GGXEnergyCompensationLUT` in raytracer.h, which only
+    // metal.cpp used, and the shipped Cycles `DisneyEnergyCompensationTables`
+    // below, which is the only one uploaded to the GPU (gpu_ggx_tables.cu ->
+    // g_ggxE). They disagreed by 24.6x in E and ~1030x in the downstream Fms
+    // at roughness 0.15. pkg160 deleted the runtime LUT and moved metal.cpp
+    // onto the shipped tables, so there is now exactly one.
+    //
+    // `disney_ggx_e`/`disney_ggx_eavg` deliberately keep the table's own
+    // (roughness, mu) argument order — the same order gpu_ggxE uses.
+    m.def("disney_ggx_e", [](float roughness, float mu) {
+        return astroray::DisneyEnergyCompensationTables::instance().ggxE(roughness, mu);
+    }, "roughness"_a, "mu"_a,
+       "Shipped Cycles ggx_E.bin lookup — the exact array uploaded to the GPU "
+       "as g_ggxE (gpu_ggx_tables.cu) and read by CPU metal.cpp/disney.cpp.");
+    m.def("disney_ggx_eavg", [](float roughness) {
+        return astroray::DisneyEnergyCompensationTables::instance().ggxEavg(roughness);
+    }, "roughness"_a, "Shipped Cycles ggx_Eavg.bin lookup (g_ggxEavg / gpu_ggxEavg).");
+    m.def("ggx_darkening_channel", &astroray::ggxDarkeningChannel,
+          "f"_a, "e"_a, "eavg"_a,
+          "astroray::ggxDarkeningChannel (include/astroray/energy_compensation.h) "
+          "— the single host definition of the Kulla & Conty 2017 / Cycles "
+          "microfacet_ggx_preserve_energy net factor 1 + Fms*(1-E)/E, called by "
+          "both metal.cpp and disney.cpp. Device twin: gpu_ggxDarkeningChannel.");
 }

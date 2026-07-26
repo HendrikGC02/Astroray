@@ -48,12 +48,13 @@ class DisneyPlugin : public Material {
     // Fresnel-darkened) energy. `f` is the layer's own (achromatic)
     // Fresnel reflectance channel, `E`/`Eavg` the in-repo table_ggx_E /
     // table_ggx_Eavg directional/average albedo at this (roughness, mu).
+    //
+    // pkg160: the body moved verbatim to astroray::ggxDarkeningChannel
+    // (include/astroray/energy_compensation.h) so plugins/materials/metal.cpp
+    // can call the SAME implementation instead of growing a third host copy
+    // of the formula. This forwarder keeps the call sites below unchanged.
     float ggxDarkeningChannel(float f, float E, float Eavg) const {
-        f = std::clamp(f, 0.0f, 0.999f);
-        const float missingFactor = (1.0f - E) / E;
-        const float denom = std::max(1.0f - f * (1.0f - Eavg), 1e-4f);
-        const float Fms = f * Eavg / denom;
-        return 1.0f + Fms * missingFactor;
+        return astroray::ggxDarkeningChannel(f, E, Eavg);
     }
 
     // pkg151: Kulla & Conty 2017 "Revisiting Physically Based Shading at

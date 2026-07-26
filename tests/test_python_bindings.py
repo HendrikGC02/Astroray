@@ -47,12 +47,24 @@ CENTER_SLICE_RADIUS = 12
 # pkg160 removed that additive boost: MetalPlugin now applies the SAME
 # multiplicative Kulla & Conty compensation, off the SAME shipped ggx_E tables,
 # that disney.cpp uses (astroray::ggxDarkeningChannel). Measured on this scene,
-# center-crop MSE fell 0.02474 -> 0.00353 (7x closer). The 0.04 bound is
-# deliberately NOT re-pinned to the new value: it remains a valid upper bound,
-# the two plugins are still genuinely different BRDFs (Disney's alpha floor,
-# schlickScale 0.8 and layering stack have no metal equivalent), and tightening
-# it is a separate decision from pkg160's fix.
-MAX_GLOSSY_PARITY_MSE = 0.04
+# center-crop MSE fell 0.02474 -> 0.00353 (7x closer). pkg160 deliberately left
+# the 0.04 bound alone, flagging the re-pin as a separate owner decision.
+#
+# pkg164: owner approved, so it is re-pinned to 0.006. Measured over 3
+# consecutive runs on RTX 5070 Ti post-pkg160: 0.003411 / 0.003492 / 0.003415 --
+# a ~2% spread, so run-to-run noise is not the binding constraint. 0.006 leaves
+# 1.72x headroom over the worst observed.
+#
+# Why this matters more than tidiness: at 0.04 this gate was 11.5x above the
+# measured value and could not fail on anything realistic. pkg160's actual
+# defect measured 0.02474 and passed here comfortably for months. At 0.006 that
+# same defect FAILS -- which is the whole point of having the gate.
+#
+# The two plugins remain genuinely different BRDFs (Disney's alpha floor,
+# schlickScale 0.8 and layering stack have no metal equivalent), so this is a
+# same-family regression check, not exact-parity. Do not tighten below ~0.005
+# without re-measuring: that would start tripping on the legitimate residual.
+MAX_GLOSSY_PARITY_MSE = 0.006
 MAX_GLASS_PARITY_MEAN_DIFF = 0.25
 MAX_GLASS_PARITY_P95_DIFF = 0.25
 MIN_SUN_SHADOW_MSE = 5e-4

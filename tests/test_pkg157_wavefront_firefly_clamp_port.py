@@ -83,6 +83,10 @@ if AVAILABLE and not astroray.__features__.get("cuda", False):
 
 if AVAILABLE:
     from base_helpers import create_cornell_box, setup_camera
+    # pkg161: the purpose-built firefly-bearing scene that un-skips the
+    # clamp-indirect gate at the bottom of this file. Construction and
+    # citations: tests/scenes/firefly_window.py.
+    import scenes.firefly_window as firefly
 
 
 def _luminance_map(pixels: np.ndarray) -> np.ndarray:
@@ -290,39 +294,35 @@ def test_gpu_wavefront_clamp_direct_and_indirect_controls():
     )
 
 
-@pytest.mark.skip(
-    reason=(
-        "UNMET PRECONDITION, not a code defect: no scene in the current test "
-        "library has a firefly population, so 'suppresses fireflies without "
-        "energy loss' is not demonstrable anywhere. Measured on RTX 5070 Ti "
-        "2026-07-26 -- tail-heaviness (peak/p99.9) across the scene suite at "
-        "16/64 spp: diffuse_light_cornell 1.82x/1.53x, thin_glass_cornell "
-        "1.66x/1.52x, disney_cornell 1.66x/1.52x, dielectric_cornell "
-        "1.40x/1.13x, metal_cornell 1.07x/1.04x. A real firefly tail is tens "
-        "to hundreds. With a tail that flat no clamp limit can satisfy both "
-        "halves of the claim: high enough to clip only outliers clips NOTHING "
-        "(p99.9 is 99.5% of peak here -- measured max|delta| 4.77e-07); low "
-        "enough to bite removes genuine signal (0.5x peak -> mean moved "
-        "4.166%). pkg144 contract item 3 ('clampIndirect=10 -> <0.02% "
-        "delta') is therefore not demonstrable on any existing gate scene. "
-        "Un-skip once a purpose-built firefly scene exists -- filed as "
-        "pkg161. NOT xfail: the code is NOT expected to fail, and an xfail is "
-        "never acceptable evidence for a gated feature (memory "
-        "xfail-gated-features-must-unxfail). The clamp's correctness is "
-        "established by the other gates in this file plus the verifier's "
-        "max_depth=1 bounce-classification result."
-    )
-)
 def test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss():
     """Spec item 3's headline: an indirect clamp suppresses the brightest
     indirect contributions WITHOUT meaningful energy loss (the pkg144
     bias/variance tradeoff, reproduced against the wavefront).
 
-    SKIPPED -- see the skip reason above. Kept (not deleted) because the body
-    is correct and becomes a live gate the moment a firefly-bearing scene
-    exists; pkg161 covers building one. Three hardware rounds went into
-    calibrating this, and the conclusion was that the obstacle is a hole in
-    the SCENE LIBRARY, not a threshold that needs tuning. Do not re-tune it.
+    UN-SKIPPED BY pkg161 (2026-07-26). This test was `pytest.mark.skip`-ped for
+    an UNMET PRECONDITION, not a code defect: no scene in the library had a
+    firefly population, so "suppresses fireflies without energy loss" was not
+    demonstrable anywhere. Tail-heaviness (peak/p99.9) across the whole suite at
+    16/64 spp measured 1.04x-1.82x, where a real firefly tail is tens to
+    hundreds; the calibration history below records the three hardware rounds
+    that established that. pkg161 built `tests/scenes/firefly_window.py`
+    specifically to close that hole, and this test now runs against it.
+
+    The scene is a closed room lit normally by two ceiling area lights, plus a
+    tiny, extremely bright emitter OUTSIDE the room above a ceiling aperture
+    sealed by a delta `thin_glass` pane. Next-event estimation can never reach
+    that emitter (the pane occludes every shadow ray), so its entire
+    contribution arrives through `diffuse -> delta -> emitter` -- Heckbert's
+    `L S D E` class, at bounce 2, i.e. squarely under clampIndirect -- while
+    100% of the bulk image is bounce-0 NEE under clampDirect. The two halves of
+    this test are therefore separated by construction rather than by luck. Full
+    rationale and citations: tests/scenes/firefly_window.py and
+    .astroray_plan/docs/pkg161-firefly-scene-research.md.
+
+    The assertions below are UNCHANGED from the skipped version -- pkg161 moved
+    the scene, not the thresholds. If this fails on hardware, recalibrate the
+    scene with scripts/verify_pkg161_firefly_scene.py; do not retune the
+    2%/1e-5 constants, which are pkg144's contract.
 
     CALIBRATION HISTORY (RTX 5070 Ti, 2026-07-26). Three hardware rounds. No
     round ever implicated the port -- every correction was to this test, and
@@ -356,8 +356,8 @@ def test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss()
         13.7507
     p99.9 turned out to be 99.5% of the peak -- there is no tail to clip.
 
-    ROOT CAUSE (measured, and the reason this is now skipped rather than
-    re-tuned a fourth time): the scene library contains no fireflies at all.
+    ROOT CAUSE (measured, and the reason this was skipped rather than
+    re-tuned a fourth time): the scene library contained no fireflies at all.
     Tail-heaviness (peak/p99.9) across the suite at 16/64 spp --
     diffuse_light_cornell 1.82x/1.53x, thin_glass_cornell 1.66x/1.52x,
     disney_cornell 1.66x/1.52x, dielectric_cornell 1.40x/1.13x, metal_cornell
@@ -373,15 +373,16 @@ def test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss()
     were not commensurate."""
     def render(clamp_indirect: float) -> np.ndarray:
         r = _gpu_renderer()
-        create_cornell_box(r)
-        metal = r.create_material('metal', [0.9, 0.9, 0.9], {'roughness': 0.05})
-        r.add_sphere([0.0, -1.0, 0.0], 1.0, metal)
-        setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38,
-                     width=120, height=90)
-        r.set_seed(15704)
+        # pkg161: the firefly-bearing scene. Its defaults, resolution and spp
+        # live in the scene module so this gate and pkg161's own tail gate
+        # measure the identical configuration.
+        firefly.build_scene(r)
+        firefly.setup_camera(r, firefly.WIDTH, firefly.HEIGHT)
+        r.set_seed(firefly.SEED)
         r.set_clamp_direct(0.0)
         r.set_clamp_indirect(clamp_indirect)
-        return np.asarray(r.render(64, 8, None, False))
+        return np.asarray(
+            r.render(firefly.SAMPLES, firefly.MAX_DEPTH, None, False))
 
     # Tail cut defining "firefly". See docstring for why a percentile and not
     # a fraction of peak, and why 99.9 specifically.
@@ -400,6 +401,25 @@ def test_gpu_wavefront_clamp_indirect_suppresses_fireflies_without_energy_loss()
         f"p{TAIL_PERCENTILE} limit={limit:.6g} vs peak={peak:.6g}: no pixels "
         f"sit above the limit, so the clamp cannot bind and the "
         f"energy-preservation assertion below would be vacuous"
+    )
+
+    # pkg161 addition, and the one change to this test's assertions: the
+    # PRECONDITION that made rounds 1-3 unsatisfiable is now checked explicitly
+    # instead of being assumed. `peak > limit` above is nearly free -- it holds
+    # for any non-flat image, including the 1.04x metal_cornell that produced
+    # round 1's vacuous pass. Requiring an actual firefly tail means a future
+    # regression in the SCENE (someone widens the emitter, roughens the pane,
+    # or lets the camera see through it) fails here, loudly and with the right
+    # diagnosis, instead of silently restoring the vacuous pass.
+    tail_ratio = peak / limit
+    assert tail_ratio >= 10.0, (
+        f"scene tail ratio peak/p{TAIL_PERCENTILE} = {tail_ratio:.3g}x "
+        f"(peak={peak:.6g}, p99.9={limit:.6g}) -- pkg161 requires >= 10x for "
+        f"this gate to mean anything. The whole pre-pkg161 library measured "
+        f"1.04x-1.82x and made this test unsatisfiable; a value in that range "
+        f"means scenes/firefly_window.py has lost its firefly population, NOT "
+        f"that the clamp is broken. Recalibrate with "
+        f"scripts/verify_pkg161_firefly_scene.py."
     )
 
     clamped = render(limit)

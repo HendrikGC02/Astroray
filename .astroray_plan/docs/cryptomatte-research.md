@@ -213,6 +213,113 @@ is the standard `int`-reinterpret CAS loop over `atomicCAS(unsigned int*, …)`;
   `__host__ __device__` guard added (currently plain `inline`), or pre-encode
   the float host-side in `scene_upload.cu`.
 
+### Upstream source, as fetched 2026-07-26 (pkg159 implementation)
+
+Retrieved verbatim from
+`https://raw.githubusercontent.com/blender/cycles/main/src/kernel/film/cryptomatte_passes.h`
+(SPDX-FileCopyrightText 2018-2022 Blender Foundation, SPDX-License-Identifier
+Apache-2.0). This is the exact code `crypto_insert_atomic` mirrors:
+
+```c
+ccl_device_inline void film_write_cryptomatte_slots(ccl_global float *buffer,
+                                                    const int num_slots,
+                                                    const float id,
+                                                    const float weight)
+{
+  kernel_assert(id != ID_NONE);
+  if (weight == 0.0f) {
+    return;
+  }
+
+  for (int slot = 0; slot < num_slots; slot++) {
+    ccl_global CryptoPassBufferElement *id_buffer = (ccl_global CryptoPassBufferElement *)buffer;
+#ifdef __ATOMIC_PASS_WRITE__
+    /* If the loop reaches an empty slot, the ID isn't in any slot yet - so add it! */
+    if (id_buffer[slot].x == ID_NONE) {
+      /* Use an atomic to claim this slot.
+       * If a different thread got here first, try again from this slot on. */
+      float old_id = atomic_compare_and_swap_float(buffer + slot * 2, ID_NONE, id);
+      if (old_id != ID_NONE && old_id != id) {
+        continue;
+      }
+      atomic_add_and_fetch_float(buffer + slot * 2 + 1, weight);
+      break;
+    }
+    /* If there already is a slot for that ID, add the weight.
+     * If no slot was found, add it to the last. */
+    else if (id_buffer[slot].x == id || slot == num_slots - 1) {
+      atomic_add_and_fetch_float(buffer + slot * 2 + 1, weight);
+      break;
+    }
+#else  /* __ATOMIC_PASS_WRITE__ */
+    ...
+#endif /* __ATOMIC_PASS_WRITE__ */
+  }
+}
+```
+
+`film_sort_cryptomatte_slots` is an insertion sort, weight-descending, that
+early-returns at the first empty slot — i.e. exactly Astroray's existing
+`crypto_sort_ranks` (`src/util/cryptomatte.cpp`), which pkg87a already mirrored.
+`film_cryptomatte_post` only calls the sort; Cycles normalises at pass-read time
+(`film_get_pass_pixel_cryptomatte` divides by the sample scale), which is where
+Astroray's `CryptomattePass` normalisation corresponds.
+
+The CUDA atomic helpers, from
+`https://raw.githubusercontent.com/blender/cycles/main/src/util/atomic.h`
+(Apache-2.0), `#if defined(__KERNEL_CUDA__)` branch:
+
+```c
+#define atomic_add_and_fetch_float(p, x) (atomicAdd((float *)(p), (float)(x)) + (float)(x))
+
+ccl_device_inline float atomic_compare_and_swap_float(volatile float *dest,
+                                                      const float old_val,
+                                                      const float new_val)
+{
+  union { unsigned int int_value; float float_value; } new_value, prev_value, result;
+  prev_value.float_value = old_val;
+  new_value.float_value = new_val;
+  result.int_value = atomicCAS((unsigned int *)dest, prev_value.int_value, new_value.int_value);
+  return result.float_value;
+}
+```
+
+Astroray's `crypto_atomic_cas_float` uses `__float_as_uint` / `__uint_as_float`
+instead of the union (identical semantics, no type-punning UB). The
+`+ (float)(x)` of `atomic_add_and_fetch_float` is the fetch-and-return half,
+which the caller discards, so the port calls plain `atomicAdd`.
+
+### Decisions this package made that the spec left open
+
+1. **Where the buffers are threaded.** `launchStageShadeBucketed` gains three
+   trailing params (`d_cryptoObjectRanks`, `d_cryptoMaterialRanks`,
+   `cryptoDepth`), matching how the other driver-owned buffers (`d_nee_f`,
+   `d_shadow_queue`, `d_accum_xyz`) are already passed. They are NOT added to
+   `GPUWavefrontState`, whose arrays are per-SLOT and allocated by
+   `allocateGPUWavefrontState`; the rank arrays are per-PIXEL and driver-owned
+   (the same reason `GPUReservoirSoA` was moved out of that struct in pkg55-C6b).
+2. **Sort AND normalise happen host-side in the driver after copy-back.** The
+   sort is spec item 4. The normalisation is added because the GPU render route
+   (`blender_module.cpp`) does not run the pass pipeline at all — only
+   `Renderer::renderFrame` does — so `CryptomattePass` never executes on a GPU
+   render, and without it the GPU rank weights would be raw sums while the CPU's
+   are normalised. The addon always enables cryptomatte and adds the
+   "cryptomatte" pass together (`blender_addon/__init__.py:1104-1106`), so the
+   CPU leg is always normalised. Both steps are idempotent, so wiring the pass
+   pipeline into the GPU route later remains correct.
+3. **Known divergence, not fixed here: unnamed primitives.** The CPU oracle
+   leaves `objectId = CRYPTO_ID_NONE` when `hitObject->getName()` is empty
+   (`raytracer.h:2592`), whereas `scene_upload.cu:253` substitutes a synthetic
+   `"Unnamed_Triangle_<n>"` before hashing. So an unnamed object gets a real
+   per-primitive ID on GPU and a zero ID on CPU. Neither appears in the manifest
+   (the registry only records explicit `set_object_name`/`set_material_name`
+   calls), so neither is selectable by a compositor picker. Out of pkg159's
+   scope; changing it means either a `hasName` flag on `GTriangle`/`GSphere` or
+   changing the CPU's zero-ID behaviour.
+4. **ReSTIR is not wired** (`cuda_wavefront_render_restir`), per the spec's
+   explicit v1 non-goal. A GPU render with `integrator == "restir-di"` and
+   cryptomatte enabled still yields zero buffers.
+
 ### License
 
 Cycles atomic path Apache-2.0 (compatible). Psyop spec BSD-3-Clause. No new

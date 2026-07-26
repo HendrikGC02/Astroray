@@ -148,9 +148,11 @@ struct CUDARenderer::Impl {
     float filmExposure    = 1.0f;
 
     // pkg55-C7: the megakernel framebuffer / curand RNG states / pkg87b GPU
-    // cryptomatte buffers were removed with the megakernels (GPU cryptomatte
-    // accumulation is an intentional Phase-C drop; CPU cryptomatte is the
-    // supported path).
+    // cryptomatte buffers were removed with the megakernels.
+    // pkg159: GPU cryptomatte is no longer dropped — it now lives in the
+    // wavefront (per-pixel rank buffers owned by the wavefront driver's
+    // WfContext; atomic inserts in shadePathSlot). CUDARenderer owns no part
+    // of it.
     int          profileCount = 0;
 
     // pkg64-gpu Phase 1 probe: stashed host Renderer for CPU reference.

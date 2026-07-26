@@ -11,6 +11,7 @@
 #include "astroray/gpu_scene_upload.h"
 #include "raytracer.h"
 #include "astroray/spectrum.h"  // Session N+6: SampledSpectrum/XYZ host accumulation
+#include "astroray/cryptomatte.h"  // pkg159: crypto_sort_ranks for the copy-back post
 #include <cuda_runtime.h>
 #include <cstring>
 #include <algorithm>
@@ -1003,6 +1004,10 @@ struct WfContext {
     // Driver buffers.
     WfDeviceBuf accum, queueA, queueB, counts, shadeQueues, shadeCounts;
     WfDeviceBuf neeF, neeI, shadowQueue, shadowCount, work;
+    // pkg159: per-pixel cryptomatte rank arrays (numPixels*depth*2 floats
+    // each). Grow-only like the rest; only allocated once a render actually
+    // enables cryptomatte, so default renders pay nothing.
+    WfDeviceBuf cryptoObj, cryptoMat;
     // pkg55-C6b / pkg24: ReSTIR reservoir SoA, double-buffered + persistent
     // across frames (render calls) so temporal reuse can read the previous
     // frame. resNumPixels tracks the allocated resolution; restirFrame counts
@@ -1283,7 +1288,10 @@ std::vector<float> cuda_wavefront_render(
     uint64_t seed,
     float lambdaMin, float lambdaMax,
     bool useLuminanceOutput,
-    bool enableNEE)
+    bool enableNEE,
+    float* cryptoObjectOut,    // pkg159
+    float* cryptoMaterialOut,  // pkg159
+    int cryptoDepth)           // pkg159
 {
     int total_paths = width * height;
     if (total_paths <= 0 || samples <= 0) {
@@ -1421,6 +1429,30 @@ std::vector<float> cuda_wavefront_render(
             throw std::runtime_error(cudaGetErrorString(ae));
     }
 
+    // pkg159: cryptomatte rank buffers. Gated on BOTH the renderer flag and
+    // caller-supplied output pointers, so a render with cryptomatte off never
+    // allocates, never memsets, and passes nullptr into the shade stage.
+    const bool cryptoOn = renderer.getCryptomatteEnabled() &&
+                          cryptoObjectOut != nullptr &&
+                          cryptoMaterialOut != nullptr &&
+                          cryptoDepth > 0;
+    const size_t cryptoFloats =
+        cryptoOn ? size_t(total_paths) * size_t(cryptoDepth) * 2 : 0;
+    float* d_cryptoObj = nullptr;
+    float* d_cryptoMat = nullptr;
+    if (cryptoOn) {
+        d_cryptoObj = wfEnsure<float>(C.cryptoObj, cryptoFloats);
+        d_cryptoMat = wfEnsure<float>(C.cryptoMat, cryptoFloats);
+        // Zero at render start: CRYPTO_ID_NONE is 0.0f, so a memset both
+        // empties every slot and resets every weight (Cycles zeroes the
+        // cryptomatte pass region of the render buffer the same way).
+        cudaError_t ce = cudaMemset(d_cryptoObj, 0, cryptoFloats * sizeof(float));
+        if (ce == cudaSuccess)
+            ce = cudaMemset(d_cryptoMat, 0, cryptoFloats * sizeof(float));
+        if (ce != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(ce));
+    }
+
     // Constant-memory spectral tables (JH LUT + D65 + CMF) — required by
     // every spectral upsample / XYZ conversion in the kernels. Cheap
     // memcpyToSymbol, called per render like the megakernel path. (The N+6
@@ -1513,7 +1545,9 @@ std::vector<float> cuda_wavefront_render(
                                      useLuminanceOutput, enableNEE,
                                      clampDirect, clampIndirect,  // pkg157
                                      caustic.grid, caustic.ready,  // pkg55-C5 / pkg113
-                                     caustic.scale);
+                                     caustic.scale,
+                                     d_cryptoObj, d_cryptoMat,     // pkg159
+                                     cryptoOn ? cryptoDepth : 0);
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4
@@ -1552,6 +1586,47 @@ std::vector<float> cuda_wavefront_render(
                                 cudaMemcpyDeviceToHost);
     if (de != cudaSuccess)
         throw std::runtime_error(cudaGetErrorString(de));
+
+    // pkg159: cryptomatte copy-back + post. Runs ONCE, after every sample has
+    // resolved — never concurrently with the atomic inserts (the
+    // cudaDeviceSynchronize above is the barrier).
+    //
+    // Post = sort weight-descending, then per-pixel weight normalisation. That
+    // is the CPU CryptomattePass (plugins/passes/cryptomatte_pass.cpp), which
+    // mirrors Cycles film_cryptomatte_post (sort, Apache-2.0) + Psyop spec
+    // v1.2.0 §2 (normalise). It is reproduced here rather than reused because
+    // the GPU render route in blender_module.cpp does not run the pass
+    // pipeline (only Renderer::renderFrame does), and the addon always enables
+    // cryptomatte and adds the "cryptomatte" pass together (__init__.py:1104-1106),
+    // so the CPU leg is always sorted+normalised. Both steps are idempotent,
+    // so wiring the pass pipeline into the GPU route later stays correct.
+    if (cryptoOn) {
+        cudaError_t ce = cudaMemcpy(cryptoObjectOut, d_cryptoObj,
+                                    cryptoFloats * sizeof(float),
+                                    cudaMemcpyDeviceToHost);
+        if (ce == cudaSuccess)
+            ce = cudaMemcpy(cryptoMaterialOut, d_cryptoMat,
+                            cryptoFloats * sizeof(float),
+                            cudaMemcpyDeviceToHost);
+        if (ce != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(ce));
+
+        for (int p = 0; p < total_paths; ++p) {
+            float* obj = cryptoObjectOut + size_t(p) * cryptoDepth * 2;
+            float* mat = cryptoMaterialOut + size_t(p) * cryptoDepth * 2;
+            crypto_sort_ranks(obj, cryptoDepth);
+            crypto_sort_ranks(mat, cryptoDepth);
+            float objSum = 0.f, matSum = 0.f;
+            for (int rank = 0; rank < cryptoDepth; ++rank) {
+                objSum += obj[rank * 2 + 1];
+                matSum += mat[rank * 2 + 1];
+            }
+            if (objSum > 0.f)
+                for (int rank = 0; rank < cryptoDepth; ++rank) obj[rank * 2 + 1] /= objSum;
+            if (matSum > 0.f)
+                for (int rank = 0; rank < cryptoDepth; ++rank) mat[rank * 2 + 1] /= matSum;
+        }
+    }
 
     // pkg55-C5 / pkg113: release the resident photon grid after the render
     // (mirrors cuda_renderer.cu:888).

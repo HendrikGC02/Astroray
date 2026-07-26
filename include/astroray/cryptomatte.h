@@ -10,6 +10,14 @@
 #include <cstring>
 #include <string>
 
+// pkg159: this header's device paths use __uint_as_float / __float_as_uint /
+// atomicCAS / atomicAdd. Include the declarations HERE so the header is
+// self-sufficient and does not depend on nvcc's implicit cuda_runtime.h
+// pre-include or on its includer's ordering. Never seen by a pure-C++ build.
+#ifdef __CUDACC__
+#include <cuda_runtime.h>
+#endif
+
 // Per-pixel cryptomatte sample: (hashed_id, coverage_weight)
 struct CryptoSample {
     float id;
@@ -27,14 +35,28 @@ constexpr float CRYPTO_ID_NONE = 0.0f;
 // If all exponent bits are 1 (NaNs, +inf, -inf), set exponent to 254.
 // This ensures the float ID can round-trip through EXR without hitting
 // problematic IEEE 754 special values.
+//
+// pkg159: made __host__ __device__ so the GPU wavefront encodes IDs with the
+// SAME bit-reinterpret the CPU oracle and the Psyop `uint32_to_float32`
+// manifest conversion use. The deleted RGB megakernel assigned
+// `float objectId = tri.objectHash;` — an implicit uint32→float NUMERIC
+// conversion — so its IDs never matched the manifest. Device branch uses
+// __uint_as_float (std::memcpy is not a device function).
+#ifdef __CUDACC__
+__host__ __device__
+#endif
 inline float hash_to_float(uint32_t hash) {
     uint32_t exponent = (hash >> 23) & 255;
     if (exponent == 0 || exponent == 255) {
         hash ^= 1 << 23; // toggle bit 23
     }
+#ifdef __CUDA_ARCH__
+    return __uint_as_float(hash);
+#else
     float f;
     std::memcpy(&f, &hash, 4);
     return f;
+#endif
 }
 
 // crypto_hash_name: Hash a name string to a Cryptomatte float ID
@@ -90,6 +112,89 @@ inline void crypto_insert(float* ranks, int depth, float id, float weight) {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// pkg159 — ATOMIC device insert (GPU wavefront).
+//
+// crypto_insert above is race-free only when ONE thread owns a pixel's rank
+// array for the whole render. That held for the deleted RGB megakernel (one
+// thread per pixel, spp looped locally) but NOT for the wavefront: path
+// regeneration puts many concurrent slots on the same pixel (different
+// samples), so the read-modify-write on ranks[] is a data race there.
+//
+// Direct port of Cycles' __ATOMIC_PASS_WRITE__ branch of
+// film_write_cryptomatte_slots (intern/cycles/kernel/film/cryptomatte_passes.h,
+// Apache-2.0) plus the CUDA atomic helpers from intern/cycles/util/atomic.h
+// (same license):
+//   atomic_compare_and_swap_float(p, old, new) -> atomicCAS on the
+//       int-reinterpreted word, returned as float.
+//   atomic_add_and_fetch_float(p, x)          -> atomicAdd((float*)p, x) + x.
+// Cycles' `continue` on a lost CAS race ("If a different thread got here
+// first, try again from this slot on") is reproduced verbatim: the loser
+// re-reads the same slot on the next iteration, so it either matches the
+// winner's id or moves on.
+// ---------------------------------------------------------------------------
+#ifdef __CUDACC__
+
+// Cycles util/atomic.h (Apache-2.0), __KERNEL_CUDA__ branch.
+__device__ inline float crypto_atomic_cas_float(float* dest, float old_val,
+                                                float new_val) {
+    unsigned int prev = __float_as_uint(old_val);
+    unsigned int next = __float_as_uint(new_val);
+    unsigned int res  = atomicCAS(reinterpret_cast<unsigned int*>(dest), prev, next);
+    return __uint_as_float(res);
+}
+
+// Device twin of crypto_insert. Same slot semantics (empty slot -> claim,
+// matching id -> accumulate, last slot -> overflow bucket), made safe for
+// concurrent writers.
+__device__ inline void crypto_insert_atomic(float* ranks, int depth, float id,
+                                            float weight) {
+    if (weight == 0.0f) {
+        return;
+    }
+
+    for (int slot = 0; slot < depth; slot++) {
+        float slot_id = ranks[slot * 2];
+
+        if (slot_id == CRYPTO_ID_NONE) {
+            // Claim the slot atomically. A losing thread retries THIS slot.
+            float old_id = crypto_atomic_cas_float(ranks + slot * 2,
+                                                   CRYPTO_ID_NONE, id);
+            if (old_id != CRYPTO_ID_NONE && old_id != id) {
+                continue;
+            }
+            atomicAdd(ranks + slot * 2 + 1, weight);
+            return;
+        }
+
+        if (slot_id == id || slot == depth - 1) {
+            atomicAdd(ranks + slot * 2 + 1, weight);
+            return;
+        }
+    }
+}
+
+// Device twin of crypto_accumulate_shade_point (below): same offsetting,
+// atomic inserts.
+__device__ inline void crypto_accumulate_shade_point_atomic(
+    float* objectRanks,
+    float* materialRanks,
+    int pixelIndex,
+    int depth,
+    float objectId,
+    float materialId,
+    float weight)
+{
+    if (weight <= 0.0f) {
+        return;
+    }
+    int offset = pixelIndex * depth * 2;
+    crypto_insert_atomic(objectRanks + offset, depth, objectId, weight);
+    crypto_insert_atomic(materialRanks + offset, depth, materialId, weight);
+}
+
+#endif  // __CUDACC__
 
 // crypto_sort_ranks: Sort ranked histogram by weight descending
 // Adapted from Cycles film_sort_cryptomatte_slots (Apache-2.0)

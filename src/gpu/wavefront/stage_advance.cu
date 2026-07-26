@@ -50,6 +50,7 @@
 #include "../profile.h"
 #include "../gpu_spectral_tables.h"  // pkg55-C3: gpu_profile_reflectance
 #include "astroray/gpu_photon_store.h"  // pkg55-C5 / pkg113: photonGridGatherKnn
+#include "astroray/cryptomatte.h"  // pkg159: hash_to_float + atomic rank insert
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -302,12 +303,18 @@ __device__ bool shadePathSlot(
     float             clampDirect, float clampIndirect,  // pkg157
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
     float             photonScale,
-    bool              captureMis = false)  // pkg55-C7: MIS instrumentation
+    bool              captureMis = false,  // pkg55-C7: MIS instrumentation
                                            // stores only for the PostNEE_MIS
                                            // snapshot harness (perf: the #484
                                            // always-on stores were 3 global
                                            // writes per NEE shade in the
                                            // production hot path)
+    // pkg159: per-PIXEL cryptomatte rank arrays (numPixels*depth*2 floats
+    // each), owned by the driver. cryptoDepth == 0 or null pointers = crypto
+    // disabled, which is the default and costs one predicated branch.
+    float*            cryptoObjectRanks = nullptr,
+    float*            cryptoMaterialRanks = nullptr,
+    int               cryptoDepth = 0)
 {
     const int bounce = state.bounce[idx];
 
@@ -576,6 +583,65 @@ __device__ bool shadePathSlot(
                 }
             }
         }
+    }
+
+    // pkg159: Cryptomatte per-shade-point accumulation, the device twin of
+    // Renderer::pathTraceSpectral (raytracer.h:2581-2602).
+    //
+    // Placed HERE — after the BSDF sample (the weight needs bss.fSpectral) and
+    // BEFORE the throughput update — exactly like the CPU oracle. Sits after
+    // the non-visible-band profile override above so bss.fSpectral carries the
+    // same value the CPU's Material::sampleSpectral returns.
+    //
+    // Three deliberate divergences from the DELETED RGB megakernel
+    // (path_trace_kernel.cu:602-629, recoverable at 9fa91c8^), all specified by
+    // pkg159 and all bug fixes rather than ports:
+    //   1. bounce == 0 gate. The CPU records the FIRST HIT only
+    //      ("Cryptomatte records only the first hit", raytracer.h:2580); the
+    //      megakernel accumulated at every bounce. The CPU is the oracle.
+    //   2. hash_to_float(). The megakernel did `float id = tri.objectHash;` —
+    //      an implicit uint32→float NUMERIC conversion, so its IDs matched
+    //      neither the CPU nor the Psyop `uint32_to_float32` manifest.
+    //   3. ATOMIC insert. The megakernel ran one thread per pixel; the
+    //      wavefront has many concurrent slots per pixel (regeneration), so the
+    //      rank read-modify-write is a data race without atomics. See
+    //      crypto_insert_atomic (Cycles film_write_cryptomatte_slots under
+    //      __ATOMIC_PASS_WRITE__, Apache-2.0).
+    //
+    // Weight = average(throughput · bsdf_eval) over linear sRGB, per Cycles
+    // film_write_cryptomatte_slots; the matrix is the CIE XYZ D65 → linear
+    // sRGB one the CPU inlines at raytracer.h:2586-2588.
+    if (bounce == 0 && cryptoDepth > 0 &&
+        cryptoObjectRanks != nullptr && cryptoMaterialRanks != nullptr) {
+        GSampledSpectrum contrib = throughput * bss.fSpectral;
+        GVec3 xyz = gpu_spectrum_to_xyz(contrib, lambdas);
+        float r =  3.2406f * xyz.x - 1.5372f * xyz.y - 0.4986f * xyz.z;
+        float g = -0.9689f * xyz.x + 1.8758f * xyz.y + 0.0415f * xyz.z;
+        float b =  0.0557f * xyz.x - 0.2040f * xyz.y + 1.0570f * xyz.z;
+        float weight = (r + g + b) / 3.0f;
+
+        // Object/material hashes ride on the uploaded primitive (scene_upload.cu
+        // stores the raw MurmurHash3_x86_32 uint32). GHitRecord carries primId
+        // (index into prims[]); the GPrimitive carries type + index into
+        // tris[]/spheres[] — there is no rec.primType/primIndex.
+        float objectId = CRYPTO_ID_NONE, materialId = CRYPTO_ID_NONE;
+        const GPrimitive& prim = prims[rec.primId];
+        if (prim.type == GPRIM_TRIANGLE) {
+            const GTriangle& tri = tris[prim.index];
+            objectId   = hash_to_float(tri.objectHash);
+            materialId = hash_to_float(tri.materialHash);
+        } else if (prim.type == GPRIM_SPHERE) {
+            const GSphere& sph = spheres[prim.index];
+            objectId   = hash_to_float(sph.objectHash);
+            materialId = hash_to_float(sph.materialHash);
+        }
+
+        // Ranks are per-PIXEL, not per-slot: under path regeneration a slot
+        // hosts an arbitrary (pixel, sample), so index by pixel_index exactly
+        // like stageRegenKernel's radiance accumulation.
+        crypto_accumulate_shade_point_atomic(
+            cryptoObjectRanks, cryptoMaterialRanks,
+            state.pixel_index[idx], cryptoDepth, objectId, materialId, weight);
     }
 
     throughput *= bss.fSpectral * (1.0f / (bss.pdf + 0.001f));
@@ -939,7 +1005,8 @@ __global__ void stageShadeBucketedKernel(
     bool              enableNEE,
     float             clampDirect, float clampIndirect,  // pkg157
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
-    float             photonScale)
+    float             photonScale,
+    float* cryptoObjectRanks, float* cryptoMaterialRanks, int cryptoDepth)  // pkg159
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int bucket = i / capacity;
@@ -955,7 +1022,11 @@ __global__ void stageShadeBucketedKernel(
                                nee_f, nee_i, shadow_queue, shadow_count,
                                capacity, useLuminanceOutput, enableNEE,
                                clampDirect, clampIndirect,
-                               photonGrid, hasPhotonGrid, photonScale);
+                               photonGrid, hasPhotonGrid, photonScale,
+                               /*captureMis=*/false,  // pkg159: explicit so the
+                               // crypto args below bind to the right params
+                               cryptoObjectRanks, cryptoMaterialRanks,
+                               cryptoDepth);
     if (alive) {
         int slot = atomicAdd(count_out, 1);
         queue_out[slot] = idx;
@@ -1251,7 +1322,9 @@ void launchStageShadeBucketed(
     bool              enableNEE,
     float             clampDirect, float clampIndirect,  // pkg157
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
-    float             photonScale)
+    float             photonScale,
+    // pkg159: per-pixel cryptomatte rank arrays (driver-owned; null/0 = off).
+    float* d_cryptoObjectRanks, float* d_cryptoMaterialRanks, int cryptoDepth)
 {
     if (capacity <= 0) return;
     // One launch covers all buckets: grid = NUM_TYPES * capacity threads;
@@ -1275,7 +1348,8 @@ void launchStageShadeBucketed(
             d_dedLights, num_ded, lightTree, max_depth,
             useLuminanceOutput, enableNEE,
             clampDirect, clampIndirect,
-            photonGrid, hasPhotonGrid, photonScale);  // pkg55-C5 / pkg113
+            photonGrid, hasPhotonGrid, photonScale,  // pkg55-C5 / pkg113
+            d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth);  // pkg159
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_shade_bucketed launch error: %s\n",

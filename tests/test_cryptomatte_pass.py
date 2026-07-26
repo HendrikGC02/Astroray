@@ -55,26 +55,67 @@ def reconstruct_mask(crypto_buffer, target_hash):
     return mask > 0.5
 
 
-def test_cryptomatte_iou_roundtrip():
+# Object and material names in the acceptance scene (tests/scenes/cryptomatte_3_objects.py).
+OBJ_NAMES = ["cube_red", "cube_green", "cube_blue"]
+MAT_NAMES = ["mat_red", "mat_green", "mat_blue"]
+
+CUBE_CENTERS = {
+    "cube_red": [-2, 0, 0.5],
+    "cube_green": [0, 0, 0.5],
+    "cube_blue": [2, 0, 0.5],
+}
+
+WIDTH, HEIGHT = 256, 256
+SPP = 64
+
+
+def add_cube(renderer, center, size, mat_id, obj_name):
+    """Add a 12-triangle cube named obj_name."""
+    half = size / 2
+    cx, cy, cz = center
+
+    faces = [
+        # front (+y)
+        ([cx-half, cy+half, cz-half], [cx+half, cy+half, cz-half], [cx+half, cy+half, cz+half]),
+        ([cx-half, cy+half, cz-half], [cx+half, cy+half, cz+half], [cx-half, cy+half, cz+half]),
+        # back (-y)
+        ([cx+half, cy-half, cz-half], [cx-half, cy-half, cz-half], [cx-half, cy-half, cz+half]),
+        ([cx+half, cy-half, cz-half], [cx-half, cy-half, cz+half], [cx+half, cy-half, cz+half]),
+        # left (-x)
+        ([cx-half, cy-half, cz-half], [cx-half, cy+half, cz-half], [cx-half, cy+half, cz+half]),
+        ([cx-half, cy-half, cz-half], [cx-half, cy+half, cz+half], [cx-half, cy-half, cz+half]),
+        # right (+x)
+        ([cx+half, cy+half, cz-half], [cx+half, cy-half, cz-half], [cx+half, cy-half, cz+half]),
+        ([cx+half, cy+half, cz-half], [cx+half, cy-half, cz+half], [cx+half, cy+half, cz+half]),
+        # bottom (-z)
+        ([cx-half, cy-half, cz-half], [cx+half, cy-half, cz-half], [cx+half, cy+half, cz-half]),
+        ([cx-half, cy-half, cz-half], [cx+half, cy+half, cz-half], [cx-half, cy+half, cz-half]),
+        # top (+z)
+        ([cx-half, cy+half, cz+half], [cx+half, cy+half, cz+half], [cx+half, cy-half, cz+half]),
+        ([cx-half, cy+half, cz+half], [cx+half, cy-half, cz+half], [cx-half, cy-half, cz+half]),
+    ]
+
+    obj_start = renderer.scene_object_count()
+    for v0, v1, v2 in faces:
+        renderer.add_triangle(
+            v0, v1, v2, mat_id,
+            [0, 0], [1, 0], [0.5, 1],  # uvs
+            [0, 0, 1], [0, 0, 1], [0, 0, 1],  # normals
+            0, 0  # pass indices
+        )
+    obj_end = renderer.scene_object_count()
+
+    for oi in range(obj_start, obj_end):
+        renderer.set_object_name(oi, obj_name)
+
+
+def build_crypto_scene(width=WIDTH, height=HEIGHT, use_gpu=False, seed=42):
+    """Build the 3-cube + floor + sun acceptance scene with Cryptomatte on.
+
+    pkg159: `use_gpu` selects the wavefront GPU path (the only GPU render path
+    since pkg55-C7/PR #524). Everything else is identical between legs so the
+    two legs exercise the same assertions on the same geometry.
     """
-    Psyop-style IoU acceptance gate (relaxed threshold; see rationale below).
-
-    Renders cryptomatte_3_objects scene, then re-renders each object/material
-    in isolation using a pure-emission material against a black background.
-    Reconstructs per-name masks from the crypto buffers via Psyop matte
-    extraction and asserts IoU >= 0.85 for all 6 names. The 0.95 figure from
-    the Psyop spec assumes production spp (1000s); at the test's 64 spp the
-    silhouette-edge MC noise floor is ~0.88-0.90 -- see the "IoU threshold"
-    comment block below.
-    """
-    # Object and material names from the scene
-    obj_names = ["cube_red", "cube_green", "cube_blue"]
-    mat_names = ["mat_red", "mat_green", "mat_blue"]
-
-    width, height = 256, 256
-    spp = 64
-
-    # === Full scene render ===
     renderer = astroray.Renderer()
     renderer.setup_camera(
         [0, -8, 3],  # look_from
@@ -85,63 +126,24 @@ def test_cryptomatte_iou_roundtrip():
         0, 5,        # aperture, focus_dist
         width, height
     )
+    # Seed 0 is the engine's std::random_device sentinel, not a pin — always
+    # set a non-zero seed when determinism matters (raytracer.h:2803).
+    renderer.set_seed(seed)
+    if use_gpu:
+        renderer.set_use_gpu(True)
 
-    # Create materials
     mat_ids = {}
     mat_ids["mat_red"] = renderer.create_material("disney", [0.8, 0.05, 0.05], {})
     mat_ids["mat_green"] = renderer.create_material("disney", [0.05, 0.8, 0.05], {})
     mat_ids["mat_blue"] = renderer.create_material("disney", [0.05, 0.05, 0.8], {})
     mat_ids["mat_floor"] = renderer.create_material("disney", [0.7, 0.7, 0.7], {})
 
-    # Set material names
     for name, mid in mat_ids.items():
         renderer.set_material_name(mid, name)
 
-    # Helper: add a cube
-    def add_cube(renderer, center, size, mat_id, obj_name):
-        half = size / 2
-        cx, cy, cz = center
-
-        # 12 triangles for a cube
-        faces = [
-            # front (+y)
-            ([cx-half, cy+half, cz-half], [cx+half, cy+half, cz-half], [cx+half, cy+half, cz+half]),
-            ([cx-half, cy+half, cz-half], [cx+half, cy+half, cz+half], [cx-half, cy+half, cz+half]),
-            # back (-y)
-            ([cx+half, cy-half, cz-half], [cx-half, cy-half, cz-half], [cx-half, cy-half, cz+half]),
-            ([cx+half, cy-half, cz-half], [cx-half, cy-half, cz+half], [cx+half, cy-half, cz+half]),
-            # left (-x)
-            ([cx-half, cy-half, cz-half], [cx-half, cy+half, cz-half], [cx-half, cy+half, cz+half]),
-            ([cx-half, cy-half, cz-half], [cx-half, cy+half, cz+half], [cx-half, cy-half, cz+half]),
-            # right (+x)
-            ([cx+half, cy+half, cz-half], [cx+half, cy-half, cz-half], [cx+half, cy-half, cz+half]),
-            ([cx+half, cy+half, cz-half], [cx+half, cy-half, cz+half], [cx+half, cy+half, cz+half]),
-            # bottom (-z)
-            ([cx-half, cy-half, cz-half], [cx+half, cy-half, cz-half], [cx+half, cy+half, cz-half]),
-            ([cx-half, cy-half, cz-half], [cx+half, cy+half, cz-half], [cx-half, cy+half, cz-half]),
-            # top (+z)
-            ([cx-half, cy+half, cz+half], [cx+half, cy+half, cz+half], [cx+half, cy-half, cz+half]),
-            ([cx-half, cy+half, cz+half], [cx+half, cy-half, cz+half], [cx-half, cy-half, cz+half]),
-        ]
-
-        obj_start = renderer.scene_object_count()
-        for v0, v1, v2 in faces:
-            renderer.add_triangle(
-                v0, v1, v2, mat_id,
-                [0, 0], [1, 0], [0.5, 1],  # uvs
-                [0, 0, 1], [0, 0, 1], [0, 0, 1],  # normals
-                0, 0  # pass indices
-            )
-        obj_end = renderer.scene_object_count()
-
-        # Set object name for all triangles in this cube
-        for oi in range(obj_start, obj_end):
-            renderer.set_object_name(oi, obj_name)
-
-    # Add cubes
-    add_cube(renderer, [-2, 0, 0.5], 1.0, mat_ids["mat_red"], "cube_red")
-    add_cube(renderer, [0, 0, 0.5], 1.0, mat_ids["mat_green"], "cube_green")
-    add_cube(renderer, [2, 0, 0.5], 1.0, mat_ids["mat_blue"], "cube_blue")
+    for obj_name in OBJ_NAMES:
+        mat_name = "mat_" + obj_name.split("_")[1]
+        add_cube(renderer, CUBE_CENTERS[obj_name], 1.0, mat_ids[mat_name], obj_name)
 
     # Add floor
     floor_start = renderer.scene_object_count()
@@ -173,47 +175,47 @@ def test_cryptomatte_iou_roundtrip():
     renderer.add_pass("cryptomatte")
 
     renderer.upload_scene()
-    renderer.render(spp, 1, None, False)
+    return renderer
 
-    # Get crypto buffers
-    crypto_obj = renderer.get_cryptomatte_object_buffer()
-    crypto_mat = renderer.get_cryptomatte_material_buffer()
 
-    assert crypto_obj.shape == (height, width, 12), f"Wrong object buffer shape: {crypto_obj.shape}"
-    assert crypto_mat.shape == (height, width, 12), f"Wrong material buffer shape: {crypto_mat.shape}"
+def has_cuda_wavefront(renderer):
+    """pkg159: the wavefront is the only GPU render path (pkg55-C7)."""
+    return (
+        bool(astroray.__features__.get("cuda", False))
+        and hasattr(astroray, "cuda_wavefront_render")
+        and bool(getattr(renderer, "gpu_available", False))
+    )
 
-    # Write EXR with manifest for visual inspection (optional, helps debugging)
-    try:
-        exr_path = os.path.join(tempfile.gettempdir(), "cryptomatte_test_full.exr")
-        renderer.write_cryptomatte_exr(exr_path)
-        print(f"Full scene EXR written to: {exr_path}")
-    except RuntimeError as e:
-        print(f"EXR write skipped (OpenEXR not available): {e}")
 
-    # === Ground truth renders (each object/material in isolation) ===
+@pytest.fixture(scope="module")
+def crypto_ground_truth():
+    """Per-name visibility masks, rendered on the CPU as an independent oracle.
+
+    Module-scoped so the CPU and GPU IoU legs share ONE set of ground-truth
+    renders (6 x 256x256x64spp) instead of paying for them twice.
+
+    Ground-truth visibility masks: render each cube in isolation with a
+    bright `diffuse_light` (pure emissive) material against an empty scene
+    (no floor, no sun). Pure emission yields color independent of lighting,
+    so the cube silhouette is the only set of non-black pixels — a thresholded
+    luminance mask is a clean "is this cube visible at pixel (x,y)?" oracle.
+
+    Rationale: the previous approach used the original Disney albedos
+    ([0.8, 0.05, 0.05]) lit by the sun atop a bright floor. The Lambertian
+    response of a dim cube face was *darker* than the sunlit floor; a
+    `sum_rgb > 0.01` threshold then yielded "floor=True, cube=False" — the
+    inverse of the desired mask, producing IoU=0 against the buffer's
+    (correct) cube-localized mask. Per Cycles' Cryptomatte test convention
+    (intern/cycles/test/python/cryptomatte/, Apache-2.0), GT masks are
+    derived from a lighting-independent signal (object ID, alpha, or pure
+    emission), not from a shaded render that mixes object and background
+    contributions.
+    """
     ground_truth_obj = {}
-    ground_truth_mat = {}
-
-    # Ground-truth visibility masks: render each cube in isolation with a
-    # bright `diffuse_light` (pure emissive) material against an empty scene
-    # (no floor, no sun). Pure emission yields color independent of lighting,
-    # so the cube silhouette is the only set of non-black pixels — a thresholded
-    # luminance mask is a clean "is this cube visible at pixel (x,y)?" oracle.
-    #
-    # Rationale: the previous approach used the original Disney albedos
-    # ([0.8, 0.05, 0.05]) lit by the sun atop a bright floor. The Lambertian
-    # response of a dim cube face was *darker* than the sunlit floor; a
-    # `sum_rgb > 0.01` threshold then yielded "floor=True, cube=False" — the
-    # inverse of the desired mask, producing IoU=0 against the buffer's
-    # (correct) cube-localized mask. Per Cycles' Cryptomatte test convention
-    # (intern/cycles/test/python/cryptomatte/, Apache-2.0), GT masks are
-    # derived from a lighting-independent signal (object ID, alpha, or pure
-    # emission), not from a shaded render that mixes object and background
-    # contributions.
-    for obj_name in obj_names:
+    for obj_name in OBJ_NAMES:
         gt_renderer = astroray.Renderer()
         gt_renderer.setup_camera(
-            [0, -8, 3], [0, 0, 0.5], [0, 0, 1], 35, 1.0, 0, 5, width, height
+            [0, -8, 3], [0, 0, 0.5], [0, 0, 1], 35, 1.0, 0, 5, WIDTH, HEIGHT
         )
         # Force pure-black background (default is a dim sky gradient ~0.36
         # sum-of-RGB which would pollute the emission threshold).
@@ -222,16 +224,10 @@ def test_cryptomatte_iou_roundtrip():
         gt_mat = gt_renderer.create_material(
             "diffuse_light", [1.0, 1.0, 1.0], {"intensity": 1.0}
         )
-
-        if obj_name == "cube_red":
-            add_cube(gt_renderer, [-2, 0, 0.5], 1.0, gt_mat, obj_name)
-        elif obj_name == "cube_green":
-            add_cube(gt_renderer, [0, 0, 0.5], 1.0, gt_mat, obj_name)
-        elif obj_name == "cube_blue":
-            add_cube(gt_renderer, [2, 0, 0.5], 1.0, gt_mat, obj_name)
+        add_cube(gt_renderer, CUBE_CENTERS[obj_name], 1.0, gt_mat, obj_name)
 
         gt_renderer.upload_scene()
-        gt_pixels = gt_renderer.render(spp, 1, None, False)
+        gt_pixels = gt_renderer.render(SPP, 1, None, False)
 
         # Pure-emission cube on black background: any non-black pixel is the
         # cube. Emission intensity 1.0 gives sum_rgb ~ 3.0 inside the cube;
@@ -243,30 +239,48 @@ def test_cryptomatte_iou_roundtrip():
     # (see object GT block above for the rationale). Each material has a 1:1
     # mapping to a single cube in the scene, so the per-material visibility
     # mask is identical to the corresponding per-object mask.
-    for mat_name in mat_names:
-        gt_renderer = astroray.Renderer()
-        gt_renderer.setup_camera(
-            [0, -8, 3], [0, 0, 0.5], [0, 0, 1], 35, 1.0, 0, 5, width, height
-        )
-        gt_renderer.set_background_color([0.0, 0.0, 0.0])
+    ground_truth_mat = {
+        mat_name: ground_truth_obj["cube_" + mat_name.split("_")[1]]
+        for mat_name in MAT_NAMES
+    }
+    return ground_truth_obj, ground_truth_mat
 
-        gt_mat = gt_renderer.create_material(
-            "diffuse_light", [1.0, 1.0, 1.0], {"intensity": 1.0}
-        )
 
-        obj_name = "cube_" + mat_name.split("_")[1]  # "mat_red" → "cube_red"
-        if obj_name == "cube_red":
-            add_cube(gt_renderer, [-2, 0, 0.5], 1.0, gt_mat, obj_name)
-        elif obj_name == "cube_green":
-            add_cube(gt_renderer, [0, 0, 0.5], 1.0, gt_mat, obj_name)
-        elif obj_name == "cube_blue":
-            add_cube(gt_renderer, [2, 0, 0.5], 1.0, gt_mat, obj_name)
+def _iou_roundtrip(crypto_ground_truth, use_gpu, exr_name):
+    """Shared body of the CPU and GPU IoU acceptance legs.
 
-        gt_renderer.upload_scene()
-        gt_pixels = gt_renderer.render(spp, 1, None, False)
+    Renders the acceptance scene on the requested backend, reconstructs
+    per-name mattes from the Cryptomatte rank buffers via Psyop matte
+    extraction and asserts IoU >= 0.85 against the CPU emission ground truth
+    for all 6 names.
+    """
+    ground_truth_obj, ground_truth_mat = crypto_ground_truth
+    obj_names, mat_names = OBJ_NAMES, MAT_NAMES
+    width, height, spp = WIDTH, HEIGHT, SPP
 
-        alpha = gt_pixels.sum(axis=2)
-        ground_truth_mat[mat_name] = alpha > 0.5
+    renderer = build_crypto_scene(width, height, use_gpu=use_gpu)
+    renderer.render(spp, 1, None, False)
+
+    # Get crypto buffers
+    crypto_obj = renderer.get_cryptomatte_object_buffer()
+    crypto_mat = renderer.get_cryptomatte_material_buffer()
+
+    assert crypto_obj.shape == (height, width, 12), f"Wrong object buffer shape: {crypto_obj.shape}"
+    assert crypto_mat.shape == (height, width, 12), f"Wrong material buffer shape: {crypto_mat.shape}"
+
+    # pkg159: the regression this package closes was "GPU renders emit ALL-ZERO
+    # crypto buffers". Assert non-emptiness explicitly so a silently-unwired
+    # backend fails here with a clear message rather than as IoU == 0 below.
+    assert np.any(crypto_obj != 0.0), "crypto_object buffer is entirely zero"
+    assert np.any(crypto_mat != 0.0), "crypto_material buffer is entirely zero"
+
+    # Write EXR with manifest for visual inspection (optional, helps debugging)
+    try:
+        exr_path = os.path.join(tempfile.gettempdir(), exr_name)
+        renderer.write_cryptomatte_exr(exr_path)
+        print(f"Full scene EXR written to: {exr_path}")
+    except RuntimeError as e:
+        print(f"EXR write skipped (OpenEXR not available): {e}")
 
     # === Reconstruct masks and compute IoU ===
     #
@@ -322,6 +336,42 @@ def test_cryptomatte_iou_roundtrip():
 
     print(f"All IoU checks passed (>= {iou_threshold})")
     return iou_results
+
+
+def test_cryptomatte_iou_roundtrip(crypto_ground_truth):
+    """
+    Psyop-style IoU acceptance gate on the CPU path (relaxed threshold).
+
+    Renders cryptomatte_3_objects scene, then re-renders each object/material
+    in isolation using a pure-emission material against a black background.
+    Reconstructs per-name masks from the crypto buffers via Psyop matte
+    extraction and asserts IoU >= 0.85 for all 6 names. The 0.95 figure from
+    the Psyop spec assumes production spp (1000s); at the test's 64 spp the
+    silhouette-edge MC noise floor is ~0.88-0.90 -- see the "IoU threshold"
+    comment block in _iou_roundtrip.
+    """
+    return _iou_roundtrip(crypto_ground_truth, use_gpu=False,
+                          exr_name="cryptomatte_test_full.exr")
+
+
+def test_cryptomatte_iou_roundtrip_gpu(crypto_ground_truth):
+    """
+    pkg159 — the SAME Psyop IoU acceptance gate against the wavefront GPU path.
+
+    GPU cryptomatte lived only in the RGB `path_trace` megakernel (pkg87b,
+    PR #344), which PR #524 (pkg55-C7) deleted; from then until pkg159 every
+    GPU render emitted all-zero crypto buffers. This leg is what owns the
+    restored wiring: without it the CPU leg above passes while the production
+    GPU path silently ships blank Cryptomatte passes.
+
+    Same ground truth, same thresholds, same assertions as the CPU leg — only
+    the backend differs.
+    """
+    probe = astroray.Renderer()
+    if not has_cuda_wavefront(probe):
+        pytest.skip("CUDA wavefront not available")
+    return _iou_roundtrip(crypto_ground_truth, use_gpu=True,
+                          exr_name="cryptomatte_test_full_gpu.exr")
 
 
 def test_cryptomatte_manifest_roundtrip():
@@ -417,5 +467,7 @@ def test_cryptomatte_manifest_roundtrip():
 
 
 if __name__ == "__main__":
-    test_cryptomatte_iou_roundtrip()
+    # crypto_ground_truth is a pytest fixture; build it directly here.
+    gt = crypto_ground_truth.__wrapped__()
+    _iou_roundtrip(gt, use_gpu=False, exr_name="cryptomatte_test_full.exr")
     test_cryptomatte_manifest_roundtrip()

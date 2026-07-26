@@ -207,12 +207,25 @@ struct GPUWavefrontHitBuffers;  // forward decl; full definition below
 
 // stage_init: writes ray_origin/ray_direction/lambdas/throughput/rng_*/etc.
 // for slot i. Uses WavefrontRNG (PCG32) to match CPU baseline.
+// pkg162: this declaration MUST stay in sync with the definition in
+// stage_init.cu. It previously declared only 6 parameters (`..., uint64_t seed,
+// int sample_index = 0`) while the definition takes 8, making it a PHANTOM
+// overload that no definition matched. It compiled only because
+// gpu_wavefront_snapshot.cu carried a private re-declaration that shadowed it
+// for that translation unit; that duplicate is now deleted and this is the
+// single source of truth.
+//
+// The `= 0` default on sample_index was REMOVED rather than relocated: a
+// defaulted parameter cannot precede non-defaulted ones, and all 6 call sites
+// pass sample_index explicitly, so the default was never actually used.
 void launchStageInit(
     GPUWavefrontState& state,
     const GCameraParams& cam,
     int width, int height,
     uint64_t seed,
-    int sample_index = 0);  // Session N+6: per-sample RNG keying
+    int sample_index,        // Session N+6: per-sample RNG keying
+    float lambdaMin,
+    float lambdaMax);
 
 // Session N+3 part 2: intersect stage.
 void launchStageIntersect_SessionN3(

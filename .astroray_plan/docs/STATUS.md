@@ -8,10 +8,17 @@ retiring pkg160's roughness-0.9-only `[0.95,1.10]` band exception; standard
 `[0.95,1.05]` restored at all roughnesses; decisive chromatic-spread control
 green at 0.0025 seed-averaged (bound ≤0.01) after an initial single-seed HW
 FAIL (0.0133) was diagnosed as MC noise in the statistic and re-measured at
-2560 spp × 4 seeds with the bound unchanged. **In flight, not pushed:** PR #534
-(pkg120) HW-FAILED its analytic form-factor gate — diagnosed as a real
+2560 spp × 4 seeds with the bound unchanged. **pkg158** Step 0 Disney-metal
+remainder reconciliation landed (PR #535, `7c340f6`) — Outcome A: the
+historical 0.60–0.77-vs-~1.0 near-delta discrepancy is SUPERSEDED, both
+"credible measurements" turn out to be the same test on different builds;
+re-measured once on `b036ac93`, near-delta ratios 0.92–0.98 across the full
+roughness sweep, no cliff, all within `[0.90,1.10]`. Its out-of-scope finding
+(a uniform ~5–8% Disney-metal GPU-dim, R>G>B, in-band but unexplained) is
+filed as **pkg165** (diagnosis-first, `d02fe07`). **In flight, not pushed:**
+PR #534 (pkg120) HW-FAILED its analytic form-factor gate — diagnosed as a real
 solid-angle-dependent transport bug in the BSDF-sampled emitter-hit leg; fix in
-progress in the worktree, awaiting sign-off.
+progress in the worktree, awaiting sign-off. pkg150 implementation started.
 
 **2026-07-26 (round closeout, overnight 2026-07-25 → day 2026-07-26): 6 PRs
 merged (#525–#530), no open PRs at closeout.** First full round entirely

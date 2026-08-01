@@ -3,7 +3,7 @@
 **Pillar:** 3 (GPU/CPU parity)
 **Track:** A (RTX-gated)
 **Codex-paste-ready:** no (measurement-reconciliation first; whether any code changes exist depends on Step 0's outcome)
-**Status:** done (PR #TBD, 2026-08-02 — Outcome A: near-delta discrepancy reconciled & superseded. Re-measured on one build b036ac93 [post-#518/#523/pkg160/pkg163]: near-delta Disney-metal GPU/CPU = 0.924–0.949 linear / 0.960–0.971 gamma, no near-delta cliff, all rows within the [0.90,1.10] close band. The 0.60–0.77 research-doc record is SUPERSEDED (does not reproduce); the #523 verifier's ~1.0 reading is confirmed within band. A mild uniform ~5–8% GPU-dim persists across ALL roughness (0.92–0.98, channel-ordered R>G>B) — within band, NOT near-delta-specific, flagged for architect. No code. See Step 0 results below.)
+**Status:** done (PR #535, 2026-08-02 — Outcome A: near-delta discrepancy reconciled & superseded. Re-measured on one build b036ac93 [post-#518/#523/pkg160/pkg163]: near-delta Disney-metal GPU/CPU = 0.924–0.949 linear / 0.960–0.971 gamma, no near-delta cliff, all rows within the [0.90,1.10] close band. The 0.60–0.77 research-doc record is SUPERSEDED (does not reproduce); the #523 verifier's ~1.0 reading is confirmed within band. A mild uniform ~5–8% GPU-dim persists across ALL roughness (0.92–0.98, channel-ordered R>G>B) — within band, NOT near-delta-specific, flagged for architect. No code. See Step 0 results below.)
 **Estimated effort:** S (Step 0) + S–M only if a real residual survives
 **Depends on:** pkg152/PR #523 merged (done). Reads: `.astroray_plan/docs/pkg141-gpu-metal-near-delta-research.md` (the 0.60–0.77 record), the #523 verifier evidence (~1.0 near-delta), pkg55 spec adjudication note (2026-07-25).
 

@@ -31,10 +31,13 @@ environment, with nothing else in the scene. Deliberate:
 Gate
 ----
 Per channel, BOTH the mean ratio and the median ratio must land in
-[0.95, 1.05] — except roughness 0.9, whose CEILING is 1.10 under an
-owner-approved documented exception (see the RATIO_HIGH_ROUGHNESS_0_9 block
-below for the measured value, the confirmed cause, the evidence, and why it is
-a widened ceiling rather than an xfail). The floor is 0.95 at every roughness.
+[0.95, 1.05] at EVERY roughness. pkg160 shipped with a documented
+roughness-0.9-only ceiling of 1.10 (measured B=1.0722) because the GPU built
+the metal spectral response in RGB then upsampled once while the CPU was
+natively per-wavelength; pkg163 made the GPU per-wavelength too
+(gpu_metal_eval_spectral, the device mirror of MetalPlugin::evalSpectral), so
+the seam closed and the exception self-retired (PR #<pkg163>). The band is now
+uniform.
 
 The median is not redundant: the original defect measured mean 0.279 but
 median 0.141, i.e. the typical pixel was twice as wrong as the mean said, and a
@@ -98,63 +101,30 @@ RATIO_LOW = 0.95
 RATIO_HIGH = 1.05
 
 # ---------------------------------------------------------------------------
-# DOCUMENTED EXCEPTION at roughness 0.9 (owner-approved, PR #527, 2026-07-26)
+# pkg160's roughness-0.9 ceiling exception (1.10) was RETIRED by pkg163.
 # ---------------------------------------------------------------------------
-# The first RTX 5070 Ti run of this gate measured 31/32 assertions inside
-# [0.95, 1.05]. The one outside was roughness 0.9, channel B: **1.0722**.
-# Full sweep, GPU/CPU mean ratio:
+# pkg160 shipped with a documented r=0.9-only ceiling of 1.10: its first
+# RTX 5070 Ti run measured 31/32 assertions inside [0.95, 1.05], the one
+# outside being r=0.9 channel B at 1.0722. Cause: the CPU
+# (MetalPlugin::evalSpectral) applied the GGX energy compensation PER
+# WAVELENGTH off Fss = albedo_spec_.sample(lambdas), while the GPU
+# (gpu_metal_eval) applied it PER RGB CHANNEL and upsampled the product once
+# through the Jakob-Hanika LUT; the two agree only for a flat spectrum, so a
+# chromatic albedo diverged, worst at high roughness + grazing framing.
 #
-#     roughness      R        G        B
-#     0.05        0.9998   1.0000   0.9977
-#     0.15        1.0174   0.9863   1.0133
-#     0.30        1.0052   0.9980   1.0040
-#     0.60        1.0247   0.9964   1.0288
-#     0.90        1.0393   1.0137   1.0722   <- this row
-#
-# CAUSE — pre-existing architecture that pkg160 EXPOSED, not introduced.
-# CPU MetalPlugin::evalSpectral applies the compensation PER WAVELENGTH, from
-# Fss = albedo_spec_.sample(lambdas) (the Jakob-Hanika upsample of the albedo);
-# GPU gpu_metal_eval applies it PER RGB CHANNEL from mat.baseColor and then
-# upsamples the product. The two agree exactly only for a flat (achromatic)
-# spectrum. This is the same class of CPU-spectral/GPU-RGB difference the
-# Fresnel term in these two functions has always had; pkg160 simply put a
-# second, roughness-amplified factor through the same seam.
-#
-# EVIDENCE it is the upsampler and not a missing/incorrect term (team-lead,
-# three isolations on hardware, PR #527):
-#   1. r=0.05 sits at 0.9977-1.0000 — the near-delta branch where the
-#      compensation is inert. A missing or wrong term would diverge there too.
-#   2. Neutral albedo [0.35,0.35,0.35] collapses the per-channel spread 25x
-#      (0.0589 -> 0.0023).
-#   3. Decisive: neutral [0.35,0.35,0.35] gives B = 1.0074, while chromatic
-#      [0.92,0.78,0.35] — the SAME B value — gives B = 1.0743. Ten times the
-#      divergence with the only variable being whether the OTHER channels
-#      differ. That is a spectral-upsampling signature and nothing else.
-# Camera framing is the amplifier: the same material at a far camera measures
-# R/G/B = 1.0052/1.0025/1.0056. This test's close 60-degree framing is
-# grazing-dominated, which is where the two upsampling orders diverge most.
-# The chromatic background contributes only ~0.3%.
-#
-# WHY A WIDENED CEILING AND NOT AN xfail. An xfail would make ANY future
-# regression at r=0.9 invisible, and the repo already carries non-strict
-# xfails that assert nothing. 1.0722 against a 1.10 ceiling leaves ~3%
-# headroom, so a genuine regression beyond the known divergence STILL FAILS.
-# That is the difference between an exception and a hole. The floor is NOT
-# widened: the divergence is one-directional (GPU brighter), so a GPU-dim
-# regression must still trip at 0.95.
-#
-# FOLLOW-UP: the architect filed a package for the CPU-spectral vs GPU-RGB
-# compensation mismatch off this gate run (see PR #527's HW-gate comment
-# thread for the measurements above). When that lands, delete this exception
-# and put r=0.9 back on RATIO_HIGH.
-RATIO_HIGH_ROUGHNESS_0_9 = 1.10
+# pkg163 closed the seam: the GPU now builds the metal spectral response
+# per-wavelength (gpu_metal_eval_spectral in include/astroray/gpu_materials.h,
+# the device mirror of MetalPlugin::evalSpectral), routed through
+# gpu_material_eval_spectral / gpu_material_sample_spectral for GMAT_METAL and
+# the closure-graph conductor lobe. Both twins are now per-lambda, so r=0.9 is
+# back inside the standard [0.95, 1.05] band and the exception is gone. The
+# decisive neutral-vs-chromatic control is now its own regression test,
+# tests/test_pkg163_metal_spectral_colorspace_parity.py.
 
 
 def _band(roughness: float) -> tuple[float, float]:
-    """Per-roughness acceptance band. See the exception block above: only the
-    r=0.9 CEILING is relaxed, and only to 1.10."""
-    if roughness == 0.9:
-        return RATIO_LOW, RATIO_HIGH_ROUGHNESS_0_9
+    """Per-roughness acceptance band. Uniform [0.95, 1.05] at every roughness
+    since pkg163 retired the r=0.9 ceiling exception."""
     return RATIO_LOW, RATIO_HIGH
 
 

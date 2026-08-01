@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU/CPU spectral parity)
 **Track:** A (RTX-gated)
-**Status:** open — dispatchable (precondition MET 2026-07-25: pkg160 merged to main as PR #527/`2d5bb27`; the fix is relative to pkg160's compensation term, which is now the shipped baseline). Not urgent-tier (worst measured error 7.2% at r=0.9 grazing chromatic), but it OWNS a documented gate exception (below) — schedule before the exception ossifies into permanence.
+**Status:** in review — direction A implemented (PR pending, 2026-08-01). GPU metal now builds its spectral response per-wavelength (`gpu_metal_eval_spectral`, the device mirror of `MetalPlugin::evalSpectral`), routed through `gpu_material_eval_spectral` / `gpu_material_sample_spectral` for `GMAT_METAL` and the closure-graph conductor lobe. pkg160's r=0.9 [0.95,1.10] band exception retired; decisive neutral-vs-chromatic control added as `tests/test_pkg163_metal_spectral_colorspace_parity.py`. Local CUDA build/RTX verify + shade-stage register measurement (gate 4) PENDING team-lead HW gate. Precondition MET 2026-07-25: pkg160 merged to main as PR #527/`2d5bb27`.
 **Estimated effort:** S–M (direction A is a per-λ mirror of an existing 30-line CPU function + a register measurement; direction B is trivial but touches the oracle — see Fix contract)
 **Depends on:** pkg160 merged (owner-approved 2026-07-26 with the documented r=0.9 exception). Related: pkg155 (the shade stage is at 221 regs/thread, 1 block/SM — any per-wavelength state added there has a real occupancy cost; this tension is the core design question). Evidence: `test_results/overnight_report_2026-07-25/pkg160_hw_numbers.json`.
 

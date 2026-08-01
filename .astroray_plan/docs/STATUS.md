@@ -43,8 +43,21 @@ compensation, bundled with the dead-sample fix as an ordered two-commit
 package). Also filed: **pkg129 narrowed** (`cf67a92` — original openpbr-LUT
 port premise superseded by pkg160/pkg163; remaining charter is a live-Cycles
 rough-metal A/B parity gate, port runs only if that convicts a real
-divergence). **In flight:** pkg156 (residual re-measure, holds the GPU lock),
-pkg166 (linear furnace/energy suite conversion).
+divergence). **PR #538:** **pkg166** done — 20 furnace/energy tests converted
+to linear (`apply_gamma=False`) with floor+ceiling pairs, every band change
+transform-justified or a strengthening (adversarial + independent audit found
+zero suspect moves); new autouse naming guard for `*furnace*`/`*energy*` test
+names, proven by a negative self-test; a deliberate 1.5× metal energy-gain
+mutation was caught at 1.156 > 1.02 by the converted suite (gamma would have
+clamped it to ~1.0 and passed). **HEADLINE FINDING:** the linear conversion
+exposed a REAL energy-gain defect in Disney Principled glass transmission —
+CPU 1.784 at delta / 1.10–1.26 rough, GPU conserving at delta but 1.10–2.30
+rough — hidden by the gamma clamp for its entire life. Quarantined as 3
+`xfail(strict=False)` cases owned by **pkg169** (new spec, `2565455`, **HIGH
+priority**; its fix PR must remove the xfail markers). Also filed this cycle:
+**pkg168** (RGB→spectral upsampling parity, `99065b1` — owns restoring
+pkg156's 0.998 gate). **In flight:** PR #537 (pkg156) in the merge queue with
+HW PASS.
 
 **2026-07-26 (round closeout, overnight 2026-07-25 → day 2026-07-26): 6 PRs
 merged (#525–#530), no open PRs at closeout.** First full round entirely

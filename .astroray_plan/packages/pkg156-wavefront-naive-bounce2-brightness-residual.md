@@ -26,3 +26,28 @@ Wavefront naive-MW mode renders ~1–1.5% bright vs BOTH the CPU naive reference
 
 - The pkg153 env-scene ratio gates themselves (quarantined, own bisect arc).
 - Perf work (pkg155).
+
+## Residual decomposition + BLOCKED-ON verdict (architect, 2026-08-02 — PR #537 round)
+
+The investigation ran and split the residual in two; the implementer correctly
+did NOT re-pin:
+
+1. **A real pkg120 regression, fixed in PR #537:** #534's two-sided `w_B` leg
+   ran unconditionally on the GPU wavefront, including in naive mode
+   (`enableNEE=false`) where the CPU oracle has no such term. Recorded as a
+   Lessons entry in the pkg120 spec ("mirror the CONDITION, not just the term").
+2. **The remainder after the fix:** depth-4 GPU/CPU ratio [1.014, 1.007,
+   1.014], SSIM 0.9955 vs the aspirational 0.998. Controls: black background
+   renders identically black on both legs (zero transport from the light quad);
+   neutral-grey background still shows the channel-asymmetric ratio. Verdict:
+   the remaining ~1.4% is the **CPU-`RGBAlbedoSpectrum`/`RGBIlluminant`-vs-
+   GPU-tables RGB→spectral upsampling parity gap** — the same mechanism family
+   as pkg153's R-drift.
+
+**BINDING: the 0.995 → 0.998 SSIM restoration is BLOCKED-ON pkg168**
+(`pkg168-rgb-spectral-upsampling-parity.md`, filed 2026-08-02, owns the
+upsampling-parity fix). Do NOT re-dispatch this package for the remainder, and
+NO future run may re-tighten the gate on a lucky draw — the gate returns to
+0.998 only in (or immediately after, with measurement) pkg168's fix PR. This
+supersedes fix-contract item 3 above: the escalation it required has happened
+and this is the architect's disposition.

@@ -231,6 +231,20 @@ spectral path.
 
 ## Lessons
 
+- **Mirror the CONDITION, not just the term (regression found by pkg156, fixed
+  in PR #537).** #534's two-sided `w_B` leg was applied unconditionally in the
+  GPU wavefront — including when `enableNEE=false` (the naive route), where the
+  CPU oracle has no such term; every naive-mode GPU render with visible
+  emitters was over-bright post-#534. The CPU `pathTraceSpectral` leg never had
+  the bug because its structure naturally gates the term; the GPU mirror copied
+  the term without the structural condition that guarded it. #537 gates it on
+  `enableNEE` (threaded through `intersectPathSlot` /
+  `stageIntersectQueuedKernel` / `launchStageIntersectQueued` + dense/restir/
+  snapshot callers); the NEE path is byte-unchanged and this package's own 3
+  gates still pass. Class rule for every future CPU→GPU port: enumerate the
+  implicit conditions the CPU control flow provides for free, and mirror them
+  explicitly.
+
 ## Hardware verification 2026-08-02
 
 **Hardware:** NVIDIA GeForce RTX 5070 Ti, driver 610.47, CUDA v12.8, OptiX 9.1.0.

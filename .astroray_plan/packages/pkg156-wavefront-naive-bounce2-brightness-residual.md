@@ -53,3 +53,37 @@ Wavefront naive-MW mode renders ~1–1.5% bright vs BOTH the CPU naive reference
 
 - The pkg153 env-scene ratio gates themselves (quarantined, own bisect arc).
 - Perf work (pkg155).
+
+## Hardware verification 2026-08-02 (PR #537, independent verifier)
+
+**Hardware:** RTX 5070 Ti, driver 610.47, CUDA 12.8, OptiX 9.1.0, OIDN 2.4.1, Windows 11. Worktree HEAD pinned + verified == `155a76a445e638aadbdd9ee3a8e54998c3e7fa45` (contamination guard passed).
+
+Clean foreground rebuild via `build_cuda_worktree.bat` succeeded (astroray + astroray_test_helpers targets); fresh `.pyd` confirmed (mtime after rebuild, loaded from `build_cuda/astroray.cp313-win_amd64.pyd`, not a repo-root shadow). No new Python-level binding was added by this PR (device-only `enableNEE` CUDA parameter); the existing `enable_nee` Python-facing kwarg on `render_multiwavelength`-style Renderer calls predates pkg156 (pkg82), so the smoke-check step reduces to confirming the fresh-build render path executes correctly, which it did.
+
+| Gate | Result | Measured |
+|---|---|---|
+| `test_visible_band_cpu_gpu_ssim` (pkg156-owned) | PASS | SSIM 0.9954909682273865; per-channel GPU/CPU ratio [1.0143244, 1.0066499, 1.014184] (independently re-measured, matches implementer's claim exactly) |
+| `test_two_sided_recovers_large_near_light` (pkg120) | PASS | — |
+| `test_two_sided_matches_analytic_formfactor` (pkg120) | PASS | — |
+| `test_no_regression_distant_compact_light` (pkg120) | PASS | — |
+| `test_visible_band_no_regression` | PASS | — |
+| `test_nir_band_cpu_gpu_ssim_with_profiles` | PASS | — |
+| `test_uv_band_cpu_gpu_ssim_with_profiles` | PASS | — |
+| `test_nir_band_cpu_gpu_no_profile_fallback` | PASS | — |
+| `test_gpu_mw_kernel_runs_and_is_finite` | PASS | — |
+| `test_cpu_wavefront_*_bit_identity` (6 material suites, wavefront_diff/) | PASS | all report `max diff = 0.0, diverging fields = 0` |
+| `test_cpu_to_cpu_baseline_bit_identity` | PASS | exact bit-identity |
+| `test_cpu_to_gpu_threshold_gate` | PASS | PostInit ULP=2 p99.9=1.435664e-07; PostIntersect ULP=32 p99.9=2.170602e-06; PostShade p99.9=2.165780e-06; PostLightSample p99.9=2.211559e-06; PostRR p99.9=0.0 |
+| `test_post_nee_mis_gate` (C2 PostNEE_MIS) | PASS | Tier1 0 diverging fields; Tier1b max residual 6.932e-08/99 rows; Tier2 max residual 7.472e-08/97 rows (tol 1e-05) |
+| `test_wavefront_dedicated_light_nee` (pkg89, 3 params) | PASS | WF/CPU ratios [0.9965,0.997,0.9967] / [0.9965,0.9972,0.9967] / [0.9973,0.9972,0.9971] |
+| `test_wavefront_contact_sheet_ceiling` (perf) | PASS | 0.819s median-of-3 vs 1.0s ceiling |
+| `test_capabilities_gpu_supported`, `test_gpu_routes_to_wavefront_pipeline`, `test_cpu_fallback_renders` | PASS | — |
+| `test_gpu_wavefront_final_image_mean_ratio` (pkg153-quarantined) | FAIL (pre-existing, skip per dispatch) | ratio [1.3364056, 1.0782511, 1.104607], SSIM 0.8881 |
+| `test_megakernel_open_env_scene_mean_ratio` (pkg153-quarantined) | FAIL (pre-existing, skip per dispatch) | ratio [1.336, 1.078, 1.105] |
+| `test_megakernel_world_max_bounces_env_gate` (pkg153-quarantined) | FAIL (pre-existing, skip per dispatch) | ratio [1.283, 1.065, 1.07] |
+
+The 3 failures are the known pkg153-quarantined env-scene gates (`pkg153-wavefront-diff-env-gates-disposition.md`), same magnitude class/R-channel-dominant pattern as that spec's live investigation history — unrelated to pkg156's `enableNEE` gating change, which only touches the light-quad direct-hit `w_B` term (zero under the black-bg control per the implementer's own decomposition).
+
+**Visual inspection:** rendered a 128x128 naive-mode CPU/GPU pair at 2048 spp from the pkg156 scene (`scenes.multiwavelength_parity`) and saved to `test_results/pkg156_naive_cpu_reference.png` / `test_results/pkg156_naive_gpu_wavefront.png`. Both show the same green-sphere-on-dark-surface scene at matching brightness; no fireflies, no NaN pixels (confirmed `np.isnan` all-False on both legs), no banding, no over-bright emissive quad, no mode regression. Max abs diff 0.0420051, mean abs diff 0.0007852945 (128x128, 2048 spp) — consistent with the ~1.4% residual measured at the gate's own 8192 spp/48x48 config.
+
+**Verdict: PASS**, bound to `155a76a445e638aadbdd9ee3a8e54998c3e7fa45`. All gates the dispatch scoped to pkg156's change pass; the 3 pkg153-quarantined failures are pre-existing and correctly excluded from this package's gate.

@@ -1526,7 +1526,7 @@ std::vector<float> cuda_wavefront_render(
                                        d_spheres, d_motionVerts, d_materials,  // pkg55-C4
                                        envMap, gbg, hasBg,
                                        worldMaxBounces,
-                                       useLuminanceOutput,
+                                       useLuminanceOutput, enableNEE,
                                        clampDirect, clampIndirect,  // pkg157
                                        d_lights,                     // pkg120
                                        (int)res.lights.size(),

@@ -152,6 +152,7 @@ __device__ int intersectPathSlot(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     bool              useLuminanceOutput,
+    bool              enableNEE,        // pkg156: gates the pkg120 two-sided-MIS leg
     float             clampDirect, float clampIndirect,  // pkg157
     // pkg120: light data for the two-sided-MIS emissive-hit reconstruction.
     const ::GLight*   lights, int numLights, float totalLightPower,
@@ -246,7 +247,7 @@ __device__ int intersectPathSlot(
             // Camera / post-specular ray: no NEE leg competes (w_B = 1).
             color += gpu_clampContribMW(throughput * Le, lambdas, bounce,
                                         clampDirect, clampIndirect, useLuminanceOutput);
-        } else {
+        } else if (enableNEE) {
             // pkg120: two-sided MIS BSDF-sampled leg — device twin of CPU
             // pathTraceSpectral. This continuation ray was BSDF-sampled at a
             // diffuse bounce; weight its emission by the power heuristic against
@@ -255,6 +256,16 @@ __device__ int intersectPathSlot(
             // vertex, written verbatim by shadePathSlot), dir = ray.direction
             // (the sampled BSDF direction) — same values on CPU and GPU, so the
             // pdf reconstruction matches by construction (no snapshot skew).
+            //
+            // pkg156: gated on enableNEE. The w_B leg is only meaningful as the
+            // complement of the NEE light-sampling leg (w_L). In naive mode
+            // (enableNEE == false, the multiwavelength_path_tracer route) there
+            // is no NEE leg, so the CPU oracle (MultiwavelengthPathTracer::
+            // pathTrace) accumulates NOTHING on a diffuse emitter hit — it only
+            // takes emission on bounce == 0 || wasSpecular. Applying w_B here
+            // diverged the GPU bright from that oracle (bounce-2 onset, the
+            // pkg156 residual); skipping it restores CPU/GPU parity and the
+            // pre-pkg120 naive behaviour. NEE mode (path_tracer) is unchanged.
             float bsdfPdfPrev = state.path_bsdf_pdf[idx];
             float lp = gpu_reconstruct_light_pdf(
                 rec, ray.origin, ray.direction,
@@ -749,7 +760,8 @@ __device__ bool advancePathSlot(
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
-                                    useLuminanceOutput, clampDirect, clampIndirect,
+                                    useLuminanceOutput, enableNEE,
+                                    clampDirect, clampIndirect,
                                     lights, numLights, totalLightPower, lightTree);  // pkg120
     if (matType < 0) return false;
     return shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
@@ -990,6 +1002,7 @@ __global__ void stageIntersectQueuedKernel(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     bool              useLuminanceOutput,
+    bool              enableNEE,        // pkg156: gates the pkg120 two-sided-MIS leg
     float             clampDirect, float clampIndirect,  // pkg157
     // pkg120: light data threaded to the two-sided-MIS emissive-hit block.
     const ::GLight*   lights, int numLights, float totalLightPower,
@@ -1006,7 +1019,8 @@ __global__ void stageIntersectQueuedKernel(
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
-                                    useLuminanceOutput, clampDirect, clampIndirect,
+                                    useLuminanceOutput, enableNEE,
+                                    clampDirect, clampIndirect,
                                     lights, numLights, totalLightPower, lightTree);  // pkg120
     if (matType < 0) return;
     if (matType >= G_WF_NUM_MAT_TYPES) matType = G_WF_NUM_MAT_TYPES - 1;
@@ -1306,6 +1320,7 @@ void launchStageIntersectQueued(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     bool              useLuminanceOutput,
+    bool              enableNEE,        // pkg156: gates the pkg120 two-sided-MIS leg
     float             clampDirect, float clampIndirect,  // pkg157
     // pkg120: light data for the two-sided-MIS emissive-hit reconstruction.
     const ::GLight*   d_lights, int num_lights, float total_light_power,
@@ -1324,7 +1339,7 @@ void launchStageIntersectQueued(
             d_tlas, d_instances, d_blas,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
             envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
-            useLuminanceOutput, clampDirect, clampIndirect,
+            useLuminanceOutput, enableNEE, clampDirect, clampIndirect,
             d_lights, num_lights, total_light_power, lightTree);  // pkg120
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
@@ -1650,7 +1665,8 @@ __global__ void stageShadeNeeMisKernel(
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
-                                    useLuminanceOutput, clampDirect, clampIndirect,
+                                    useLuminanceOutput, enableNEE,
+                                    clampDirect, clampIndirect,
                                     lights, numLights, totalLightPower, lightTree);  // pkg120
     if (matType < 0) return;  // env miss / emissive hit: path died, no NEE.
     shadePathSlot(idx, state, hitBufs, tlas, instances, blas,

@@ -140,7 +140,27 @@ def test_visible_band_cpu_gpu_ssim():
     Gate re-pinned 0.998 -> 0.995 with this dossier as justification; the
     residual is recorded in the pkg55 spec C7 execution status as an open
     follow-up (bounce-2-onset naive divergence). Do NOT relax further
-    without a new measured dossier."""
+    without a new measured dossier.
+
+    pkg120 REGRESSION + pkg156 PARTIAL FIX (2026-08-02, RTX 5070 Ti):
+    pkg120 (two-sided MIS, PR #534) added a BSDF-ray-hits-emitter w_B leg to the
+    GPU wavefront intersectPathSlot that was NOT gated on enableNEE, so it fired
+    in this test's naive route (multiwavelength_path_tracer => enableNEE=false).
+    The CPU oracle (MultiwavelengthPathTracer::pathTrace) has no such term — it
+    only accumulates emission on bounce==0||wasSpecular — so the GPU drifted
+    brighter, growing the depth-2 mean-ratio to [1.028, 1.022, 1.027] and SSIM
+    to 0.9953. pkg156 gates the w_B leg on enableNEE (naive mode now matches the
+    oracle and the pre-pkg120 wavefront), restoring the depth-4 ratio to
+    [1.0143, 1.0066, 1.0142] and SSIM to 0.9955 at 8192 spp.
+    The RESIDUAL that remains is NOT transport: with a black background the whole
+    image is black (the camera never sees the down-facing light quad; all light
+    is ambient env-miss), and a NEUTRAL grey background still yields a
+    channel-asymmetric ratio [1.013, 1.007, 1.014] — a definitive RGB->spectral
+    upsampling parity gap (CPU RGBAlbedoSpectrum/RGBIlluminantSpectrum vs the GPU
+    tables) surfacing on the first post-bounce use. This is pkg153's R-drift
+    shared mechanism (same scene family, own quarantined bisect arc); 0.998 is
+    unreachable until pkg153 lands, so the gate stays at 0.995. Do NOT re-pin to
+    0.998 without the pkg153 upsampling-parity fix + a fresh dossier."""
     cpu, gpu = _render_pair(380.0, 780.0, "", spp=8192)
     assert np.all(np.isfinite(cpu))
     assert np.all(np.isfinite(gpu))
@@ -148,7 +168,7 @@ def test_visible_band_cpu_gpu_ssim():
     cpu_t = np.clip(cpu, 0.0, 1.0)
     gpu_t = np.clip(gpu, 0.0, 1.0)
     ssim = _ssim(cpu_t, gpu_t)
-    assert ssim >= 0.995, f"visible-band SSIM {ssim:.4f} < 0.995 (pkg82 gate, C7 re-pin)"
+    assert ssim >= 0.995, f"visible-band SSIM {ssim:.4f} < 0.995 (pkg82 gate, C7 re-pin, pkg156 residual)"
 
 
 def test_visible_band_no_regression():

@@ -86,11 +86,14 @@ _ROUGH = [0.1, 0.3, 0.6, 1.0]
 # Controls conserve: plain `dielectric` furnace 0.994, opaque disney 0.958. The
 # GPU SMOOTH delta path is fine (0.993). Per pkg166's own contract these gains
 # are NOT pinned in and the bands are NOT widened: the conserving bands stay and
-# the failing cases are xfail'd pending the follow-up package (Disney glass
-# transmission energy gain, CPU+GPU). See team-lead 2026-08-02.
+# the failing cases are xfail'd, owned by pkg169
+# (.astroray_plan/packages/pkg169-disney-transmission-energy-gain.md, HIGH).
+# pkg169's fix PR must REMOVE these markers and prove the cases green under
+# --runxfail — this is a quarantine of a known bug, not a permanent tolerance.
 _DISNEY_GLASS_ENERGY_GAIN = (
-    "pkg166 finding: Disney transmission (glass) lobe creates energy in the "
-    "white furnace (linear reveals >1.0; gamma hid it). Follow-up package TBD."
+    "energy gain under investigation, owned by pkg169: Disney transmission "
+    "(glass) lobe creates energy in the white furnace (linear reveals >1.0; "
+    "gamma hid it). Quarantine, not a tolerance — pkg169's fix must un-xfail."
 )
 
 

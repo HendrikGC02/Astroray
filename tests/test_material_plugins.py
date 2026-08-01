@@ -44,24 +44,33 @@ def _renderer():
     return r
 
 
-def _render_mat(mat_id, renderer, samples=32):
+def _render_mat(mat_id, renderer, samples=32, apply_gamma=True):
     renderer.add_sphere([0, 0, 0], 1.0, mat_id)
-    pixels = np.array(renderer.render(samples_per_pixel=samples, max_depth=6), dtype=np.float32)
+    pixels = np.array(
+        renderer.render(samples, 6, None, apply_gamma), dtype=np.float32)
     return pixels
 
 
 def _reflectance(mat_type, color, params=None, samples=32):
-    """Estimate reflectance as mean pixel value relative to pure white lambertian."""
+    """Estimate reflectance as mean pixel value relative to pure white lambertian.
+
+    pkg166: rendered LINEAR (apply_gamma=False). Both the material and its white
+    lambertian reference share the same scene and the same linear transfer, so
+    the RATIO is unchanged in the conserving case — but a material that CREATES
+    energy now reads its true value > 1 instead of being clamped to 1 by gamma,
+    so the `mat_mean <= ref_mean * ceiling` gates below can finally catch a gain
+    (memory gamma-furnace-cannot-detect-energy-gain).
+    """
     params = params or {}
     # Reference: pure white lambertian in same scene
     r_ref = _renderer()
     ref_id = r_ref.create_material("lambertian", [1.0, 1.0, 1.0], {})
-    ref_pixels = _render_mat(ref_id, r_ref, samples)
+    ref_pixels = _render_mat(ref_id, r_ref, samples, apply_gamma=False)
     ref_mean = float(np.mean(ref_pixels))
 
     r = _renderer()
     mat_id = r.create_material(mat_type, color, params)
-    pixels = _render_mat(mat_id, r, samples)
+    pixels = _render_mat(mat_id, r, samples, apply_gamma=False)
     mat_mean = float(np.mean(pixels))
 
     # Non-emissive materials must not exceed white lambertian significantly
@@ -72,41 +81,52 @@ def _reflectance(mat_type, color, params=None, samples=32):
 # Energy conservation tests (reflectance ≤ 1.0 relative to white lambertian)
 # ---------------------------------------------------------------------------
 
+def _assert_conserving(label, mat_mean, ref_mean, floor_frac=0.85):
+    """pkg166 floor+ceiling pair on a linear white-furnace reflectance ratio.
+    The CEILING catches energy GAIN (a material reflecting MORE than the white
+    lambertian reference in the same field); the FLOOR catches gross energy LOSS
+    or a black/broken BRDF. Both halves are needed — gamma used to clamp the
+    ceiling to a passing 1.0. Ratios measured on cf67a92 (linear, RTX 5070 Ti)
+     range 0.83 (subsurface) to 1.00 (dielectric/mirror); floors are set below
+    the measured ratio with noise margin."""
+    assert mat_mean <= ref_mean * 1.1, \
+        f"{label} mean={mat_mean:.3f} exceeds white lambertian {ref_mean:.3f} (energy GAIN)"
+    assert mat_mean >= ref_mean * floor_frac, \
+        f"{label} mean={mat_mean:.3f} < {floor_frac:.2f}x white lambertian " \
+        f"{ref_mean:.3f} (energy LOSS / broken-dark BRDF)"
+
+
 def test_metal_energy_conservation():
     mat_mean, ref_mean = _reflectance("metal", [0.9, 0.9, 0.9], {"roughness": 0.3})
-    assert mat_mean <= ref_mean * 1.1, \
-        f"Metal mean={mat_mean:.3f} exceeds white lambertian {ref_mean:.3f}"
+    _assert_conserving("Metal", mat_mean, ref_mean)  # measured ratio 0.948
 
 
 def test_metal_smooth_energy_conservation():
     mat_mean, ref_mean = _reflectance("metal", [0.9, 0.9, 0.9], {"roughness": 0.02})
-    assert mat_mean <= ref_mean * 1.1, \
-        f"Metal (smooth) mean={mat_mean:.3f} exceeds white lambertian {ref_mean:.3f}"
+    _assert_conserving("Metal (smooth)", mat_mean, ref_mean)  # measured ratio 0.978
 
 
 def test_dielectric_energy_conservation():
     mat_mean, ref_mean = _reflectance("dielectric", [1.0, 1.0, 1.0], {"ior": 1.5})
-    assert mat_mean <= ref_mean * 1.1, \
-        f"Dielectric mean={mat_mean:.3f} exceeds white lambertian {ref_mean:.3f}"
+    _assert_conserving("Dielectric", mat_mean, ref_mean)  # measured ratio 1.002
 
 
 def test_glass_alias_energy_conservation():
     mat_mean, ref_mean = _reflectance("glass", [1.0, 1.0, 1.0], {"ior": 1.5})
-    assert mat_mean <= ref_mean * 1.1, \
-        f"Glass mean={mat_mean:.3f} exceeds white lambertian {ref_mean:.3f}"
+    _assert_conserving("Glass", mat_mean, ref_mean)  # measured ratio 1.000
 
 
 def test_phong_energy_conservation():
     for shininess in [8.0, 32.0, 100.0]:
         mat_mean, ref_mean = _reflectance("phong", [0.8, 0.8, 0.8], {"shininess": shininess})
-        assert mat_mean <= ref_mean * 1.1, \
-            f"Phong(shininess={shininess}) mean={mat_mean:.3f} exceeds white lambertian {ref_mean:.3f}"
+        _assert_conserving(f"Phong(shininess={shininess})", mat_mean, ref_mean)  # ratio 0.969-0.974
 
 
 def test_subsurface_energy_conservation():
     mat_mean, ref_mean = _reflectance("subsurface", [0.9, 0.6, 0.5])
-    assert mat_mean <= ref_mean * 1.1, \
-        f"Subsurface mean={mat_mean:.3f} exceeds white lambertian {ref_mean:.3f}"
+    # Subsurface is a colored ([0.9,0.6,0.5]) material, so it reflects less of
+    # the white field than an achromatic one — measured ratio 0.834; lower floor.
+    _assert_conserving("Subsurface", mat_mean, ref_mean, floor_frac=0.70)
 
 
 def test_disney_energy_conservation():
@@ -116,14 +136,12 @@ def test_disney_energy_conservation():
         {"clearcoat": 1.0, "clearcoat_gloss": 0.8},
     ]:
         mat_mean, ref_mean = _reflectance("disney", [0.8, 0.8, 0.8], params)
-        assert mat_mean <= ref_mean * 1.1, \
-            f"Disney({params}) mean={mat_mean:.3f} exceeds white lambertian {ref_mean:.3f}"
+        _assert_conserving(f"Disney({params})", mat_mean, ref_mean)  # ratio 0.960-0.969
 
 
 def test_mirror_energy_conservation():
     mat_mean, ref_mean = _reflectance("mirror", [1.0, 1.0, 1.0])
-    assert mat_mean <= ref_mean * 1.1, \
-        f"Mirror mean={mat_mean:.3f} exceeds white lambertian {ref_mean:.3f}"
+    _assert_conserving("Mirror", mat_mean, ref_mean)  # measured ratio 1.001
 
 
 # ---------------------------------------------------------------------------

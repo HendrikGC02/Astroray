@@ -632,6 +632,16 @@ def test_white_metal_roughness_one_not_dark():
     assert mean_center > 0.85, f"Rough white metal center too dark in furnace test ({mean_center:.3f})"
 
 
+# pkg166 linear re-pin (measured on cf67a92, RTX 5070 Ti, 64 spp, linear). The
+# old gamma floor was 0.78; in linear the same white-metal furnace reads lower
+# (gamma lifts mid-tones): mean_center = 0.994 / 0.841 / 0.806 / 0.928 at
+# roughness 0.1 / 0.3 / 0.6 / 1.0. The ceiling is the new half — a conductor with
+# albedo=1 in a radiance-1 field cannot exceed ~1.0 (pre-pkg160 it reflected up
+# to 1.77x); it now catches a gain instead of gamma clamping it to 1.0.
+_FURNACE_FLOOR = 0.70
+_FURNACE_CEILING = 1.02
+
+
 def test_metal_furnace_energy_above_threshold_all_roughness():
     """Furnace test: white metal should preserve high energy for all roughness values."""
     roughness_values = [0.1, 0.3, 0.6, 1.0]
@@ -641,12 +651,21 @@ def test_metal_furnace_energy_above_threshold_all_roughness():
         mat = r.create_material('metal', [1.0, 1.0, 1.0], {'roughness': roughness})
         r.add_sphere([0, 0, 0], 1.0, mat)
         setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], vfov=35, width=W, height=H)
-        pixels = render_image(r, samples=SAMPLES_MED)
+        # pkg166: render LINEAR (apply_gamma=False). A gamma furnace clamps to
+        # [0,1] and can only detect energy LOSS; the ceiling below is what makes
+        # this catch a GAIN (white metal, albedo 1, in a radiance-1 field cannot
+        # exceed ~1.0 — pre-pkg160 plain metal reflected up to 1.77x).
+        pixels = render_image(r, samples=SAMPLES_MED, apply_gamma=False)
 
         crop = pixels[H // 2 - 20:H // 2 + 20, W // 2 - 20:W // 2 + 20, :]
         mean_center = float(np.mean(crop))
-        assert mean_center > 0.78, (
+        assert mean_center > _FURNACE_FLOOR, (
             f"Furnace energy too low for roughness={roughness:.2f}: center mean={mean_center:.3f}"
+        )
+        assert mean_center <= _FURNACE_CEILING, (
+            f"White metal furnace reflects {mean_center:.3f} > {_FURNACE_CEILING} at "
+            f"roughness={roughness:.2f} with albedo=1 in a radiance-1 field — the "
+            f"conductor lobe is CREATING energy (pre-pkg160 measured up to 1.77x)."
         )
 def test_glass_render():
     r = create_renderer()

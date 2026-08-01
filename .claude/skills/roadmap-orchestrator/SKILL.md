@@ -80,25 +80,25 @@ In this order, respecting caps already applied by the engine:
 4. `expire_closed(ledger, open_numbers)` where `open_numbers` is a Python `set` of int PR numbers from the `gh pr list`; then `save_ledger(".astroray_plan/.orchestrator-state.json", ledger)`.
 5. `release_lock(.astroray_plan/.orchestrator.lock)` (also release on every abort path).
 
-## Model tiers (updated 2026-07-25 — Opus 5 generation)
+## Model tiers (updated 2026-08-01 — Opus 4.8 for implementation/review; owner finds it more reliable than Opus 5)
 
 Agent model assignments live in each `.claude/agents/<name>.md` frontmatter. Current mapping:
 
 | Agent                     | Model             | Why                                                        |
 |---------------------------|-------------------|------------------------------------------------------------|
 | `architect`               | `claude-fable-5`  | Direction-setting / research — highest reasoning altitude   |
-| `package-implementer`     | `claude-opus-5`   | Implementation diligence (see memory `implementer-ships-without-building`) |
-| `pr-reviewer`             | `claude-opus-5`   | Merge gate is the last line of defence                      |
-| `gate-failure-reviewer`   | `claude-opus-5`   | Root-cause diagnosis                                        |
-| `cpp-abi-guard`           | `claude-opus-5`   | ABI footguns are subtle                                     |
-| `cycles-parity-reviewer`  | `claude-opus-5`   | Math/paper parity                                           |
+| `package-implementer`     | `claude-opus-4-8` | Implementation diligence (see memory `implementer-ships-without-building`) |
+| `pr-reviewer`             | `claude-opus-4-8` | Merge gate is the last line of defence                      |
+| `gate-failure-reviewer`   | `claude-opus-4-8` | Root-cause diagnosis                                        |
+| `cpp-abi-guard`           | `claude-opus-4-8` | ABI footguns are subtle                                     |
+| `cycles-parity-reviewer`  | `claude-opus-4-8` | Math/paper parity                                           |
 | `hardware-verifier`       | `claude-sonnet-5` | Runs tests + reads PNGs; mechanical with multimodal          |
 | `docs-updater`            | `claude-sonnet-5` | Mechanical doc edits                                        |
 
 **Different-model rule (Steps 2.2, 2.4, 2.5):** since `package-implementer` is now
-`claude-opus-5`, an independent review of implementer output MUST be dispatched with an
+`claude-opus-4-8`, an independent review of implementer output MUST be dispatched with an
 explicit `model` override of **`claude-fable-5`** (or `claude-sonnet-5` for mechanical
-diffs) — passing no override inherits Opus 5 and silently defeats the rule. Pass
+diffs) — passing no override inherits Opus 4.8 and silently defeats the rule. Pass
 `model` on the `Agent` call; do not rely on the default.
 
 ## Safety rails (non-negotiable — see design spec §5)

@@ -2,7 +2,7 @@
 name: cycles-parity-reviewer
 description: Use when a PR or working change touches an integrator, BSDF/closure, light sampler, or world/envmap path. Compares the changed Astroray code against the corresponding Cycles reference (math + structure), reports divergences and missing citations, and recommends parity-benchmark scenes to re-run.
 tools: Read, Grep, Glob, WebFetch, WebSearch, Bash
-model: claude-opus-5
+model: claude-opus-4-8
 ---
 
 # cycles-parity-reviewer

@@ -1,7 +1,7 @@
 ---
 name: pr-reviewer
 description: Pre-merge review of a package PR. Applies the auto-merge checklist, escalates on gate/license issues, and merges when all conditions clear.
-model: claude-opus-5
+model: claude-opus-4-8
 tools:
   - Read
   - Bash

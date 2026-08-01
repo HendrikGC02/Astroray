@@ -75,38 +75,12 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## 6. No Invented Algorithms — Cite, Borrow, Verify
 
-**For any non-trivial physics, sampling, or numerical algorithm: cite the
-paper or open-source reference, link the source file, and save research
-notes to `.astroray_plan/docs/`. Do not invent algorithms when published
-ones exist.**
-
-This rule exists because:
-- Cycles, Mitsuba, PBRT, LuxCore, RAPTOR, ipole, GYOTO, and the Blender
-  Foundation have collectively spent decades solving the rendering and GR
-  problems Astroray inherits. Re-deriving their solutions from scratch is
-  expensive and almost always worse.
-- The journal article that closes this project will cite real papers and
-  point at the open-source repos we ported from. Hallucinated provenance
-  will not pass review.
-- The user's explicit instruction is: *"do real online searches… save
-  code, math, concepts… implement it in the context of Astroray. None of
-  that hallucination bullshit or trying to come up with your own
-  solutions, because you will never beat what has been done."*
-
-How this rule operates in practice:
-- Use `WebSearch` and `WebFetch` to locate the canonical paper and a
-  permissively-licensed reference implementation **before** writing code.
-- Save findings to `.astroray_plan/docs/<topic>-research.md` with: paper
-  title + DOI/arXiv ID, license of the reference repo, the specific files
-  we will mirror, and the math we will reproduce.
-- Cite the source in the C++/Python code itself ("Zeltner 2020 §4.2",
-  "Cycles `kernel_path.h:trace_path()`").
-- License compatibility is mandatory: Apache-2.0, BSD, MIT, MPL-2.0,
-  GPLv2/v3 (only when consistent with our license), or public-domain. Stop
-  and ask if the candidate is unclear.
-- "Trivial" means: math from undergraduate textbooks, well-known formulas
-  (Lambertian cosine, Schlick Fresnel approx, Halton sequences),
-  language-level utilities. When in doubt, treat as non-trivial.
+**For any non-trivial physics, sampling, or numerical algorithm: do not
+invent when published solutions exist. Invoke the `cite-algorithm` skill
+BEFORE writing code** — it walks through finding the canonical paper, a
+license-compatible reference implementation, saving research notes to
+`.astroray_plan/docs/`, and citing the source in the code itself. When in
+doubt whether something is "trivial", treat it as non-trivial.
 
 ## Build & Verification
 

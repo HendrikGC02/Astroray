@@ -1,7 +1,7 @@
 ---
 name: gate-failure-reviewer
 description: Diagnose a gate that still fails after a fix PR claimed to close it. Produces a structured report identifying the two most-likely root causes and a distinguishing diagnostic.
-model: claude-opus-5
+model: claude-opus-4-8
 tools:
   - Read
   - Bash

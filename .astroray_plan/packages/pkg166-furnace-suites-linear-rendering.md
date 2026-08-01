@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (test hygiene / energy conservation gating)
 **Track:** A (CPU-gated on CI; any GPU-leg re-pins RTX-verified at closeout)
-**Status:** open — dispatchable (not urgent-tier — nothing is red today — but every future energy-ADDING change is under-gated until this lands; schedule ahead of the next transport/BSDF energy package)
+**Status:** done (PR #538, 2026-08-02) — all *furnace*/*energy* in-process render tests converted to linear with floor+ceiling pairs; autouse naming guard + negative self-test landed; 315 passed / 5 xfailed on the converted suites; 1.5x BSDF mutation caught by the white-metal furnace case (1.156 > 1.02). REAL FINDING surfaced: Disney glass transmission furnace creates energy (CPU 1.10–1.78, GPU rough up to 2.30, gamma hid it) — those 3 cases xfail'd against the conserving band, NOT pinned in; needs an architect-filed follow-up (Disney glass transmission energy gain, CPU+GPU).
 **Estimated effort:** S–M (the conversion is mechanical; the work is re-pinning 278 param-case expected values on linear output and justifying each shift)
 **Depends on:** nothing open. Motivated by PR #534's full HW sweep (2026-08-02) and memory `gamma-furnace-cannot-detect-energy-gain` (pkg160, 2026-07-26).
 

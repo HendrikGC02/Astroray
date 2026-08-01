@@ -47,7 +47,12 @@ def _furnace(ior: float, *, use_gpu: bool = False, spp: int = 64, depth: int = 3
         r.set_use_gpu(True)
     r.setup_camera([0, 0, 4], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 4.0, 80, 80)
     r.set_seed(7)
-    img = np.asarray(r.render(spp, depth, None, True), dtype=np.float32).reshape(80, 80, 3)
+    # pkg166: render LINEAR (4th arg apply_gamma=False). A gamma furnace clamps
+    # to [0,1] and can only ever detect energy LOSS, never GAIN. At albedo 1 in
+    # a radiance-1 field the target is 1.0, where gamma is a no-op, so the bands
+    # below are unchanged from the gamma pins — but the suite is no longer blind
+    # to an IOR-dependent energy GAIN above 1.0.
+    img = np.asarray(r.render(spp, depth, None, False), dtype=np.float32).reshape(80, 80, 3)
     return float(img[28:52, 28:52].mean())          # sphere-centre patch
 
 

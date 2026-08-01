@@ -45,7 +45,11 @@ def _furnace(roughness: float, *, use_gpu: bool = False, spp: int = 64, depth: i
         r.set_use_gpu(True)
     r.setup_camera([0, 0, 4], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 4.0, 80, 80)
     r.set_seed(7)
-    img = np.asarray(r.render(spp, depth, None, True), dtype=np.float32).reshape(80, 80, 3)
+    # pkg166: render LINEAR (4th arg apply_gamma=False). A gamma furnace clamps
+    # to [0,1] and is structurally blind to energy GAIN. Target is 1.0 (albedo 1
+    # in a radiance-1 field), where gamma is a no-op, so the conservation bands
+    # below are unchanged — but the ceilings can now actually catch a gain > 1.0.
+    img = np.asarray(r.render(spp, depth, None, False), dtype=np.float32).reshape(80, 80, 3)
     return float(img[28:52, 28:52].mean())          # sphere-centre patch
 
 
@@ -71,7 +75,26 @@ _SMOOTH = [0.0, 0.03]
 # gate; do not add R=0.05 here without first fixing that pre-existing gap.
 _ROUGH = [0.1, 0.3, 0.6, 1.0]
 
+# pkg166 REAL ENERGY-GAIN FINDING (2026-08-02). Converting this suite to linear
+# (apply_gamma=False) exposed that the Disney Principled transmission (glass)
+# lobe CREATES energy in the white furnace — hidden until now because gamma
+# clamps to [0,1] (the old bands passed on a clamped 1.000). Measured on
+# cf67a92, albedo=1, ior=1.5, patch mean, deterministic across 32/128/512 spp:
+#   CPU smooth R=0/0.03            -> 1.784
+#   CPU rough  R=0.1/0.3/0.6/1.0   -> 1.099 / 1.108 / 1.157 / 1.260
+#   GPU rough  R=0.1/0.3/0.6/1.0   -> 1.098 / 1.182 / 2.060 / 2.296
+# Controls conserve: plain `dielectric` furnace 0.994, opaque disney 0.958. The
+# GPU SMOOTH delta path is fine (0.993). Per pkg166's own contract these gains
+# are NOT pinned in and the bands are NOT widened: the conserving bands stay and
+# the failing cases are xfail'd pending the follow-up package (Disney glass
+# transmission energy gain, CPU+GPU). See team-lead 2026-08-02.
+_DISNEY_GLASS_ENERGY_GAIN = (
+    "pkg166 finding: Disney transmission (glass) lobe creates energy in the "
+    "white furnace (linear reveals >1.0; gamma hid it). Follow-up package TBD."
+)
 
+
+@pytest.mark.xfail(reason=_DISNEY_GLASS_ENERGY_GAIN, strict=False)
 def test_disney_smooth_glass_furnace_cpu():
     vals = {R: _furnace(R, spp=128) for R in _SMOOTH}
     bad = {R: v for R, v in vals.items() if not (0.95 <= v <= 1.02)}
@@ -86,8 +109,13 @@ def test_disney_rough_glass_furnace_converges():
     lo = _furnace(0.3, spp=256)
     hi = _furnace(0.3, spp=1024)
     assert abs(lo - hi) < 0.03, f"furnace not converged: 256spp={lo:.3f} 1024spp={hi:.3f}"
+    # pkg166: renders linear now (via _furnace). This is a CONVERGENCE property,
+    # orthogonal to the energy magnitude — the value bound lives in
+    # test_disney_rough_glass_furnace_energy_cpu (currently xfail'd for the
+    # Disney-glass energy-gain finding). Convergence itself holds regardless.
 
 
+@pytest.mark.xfail(reason=_DISNEY_GLASS_ENERGY_GAIN, strict=False)
 @pytest.mark.skipif(
     AVAILABLE and not astroray.__features__.get("cuda", False),
     reason="CUDA feature not in this build")
@@ -100,6 +128,7 @@ def test_disney_rough_glass_furnace_energy_gpu():
     assert not bad, f"GPU rough disney glass furnace not energy-conserving at roughness {bad}; all={vals}"
 
 
+@pytest.mark.xfail(reason=_DISNEY_GLASS_ENERGY_GAIN, strict=False)
 def test_disney_rough_glass_furnace_energy_cpu():
     # pkg118 FIXED 2026-06-08: the deficit was NOT missing multi-scatter — it was the
     # CPU analog of the #404 GPU glass-dark bug. The base Material::sampleSpectral wrapper

@@ -27,6 +27,20 @@ from runtime_setup import (
 configure_test_temp_dir()
 BUILD_DIR = configure_test_imports()
 
+from _linear_render_guard import linear_render_guard, name_matches
+
+
+@pytest.fixture(autouse=True)
+def furnace_energy_linear_render_guard(request):
+    """pkg166: any test whose name matches *furnace* or *energy* MUST render
+    linear (apply_gamma=False). Enforced at the render call, not merely
+    documented — see tests/_linear_render_guard.py for the why."""
+    if not name_matches(request.node.name):
+        yield
+        return
+    with linear_render_guard(request.node.name):
+        yield
+
 
 @pytest.fixture(scope="session")
 def test_results_dir():

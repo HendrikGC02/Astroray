@@ -52,6 +52,7 @@ void CPUWavefrontState::pack_from(int i, const PathState& ps) {
 
     was_specular[i] = ps.wasSpecular ? 1 : 0;
     path_alive[i]   = ps.alive ? 1 : 0;
+    bsdf_pdf_prev[i] = ps.bsdfPdfPrev;  // pkg120
 }
 
 PathState CPUWavefrontState::unpack_to(int i) const {
@@ -80,6 +81,7 @@ PathState CPUWavefrontState::unpack_to(int i) const {
 
     ps.wasSpecular = was_specular[i] != 0;
     ps.alive       = path_alive[i] != 0;
+    ps.bsdfPdfPrev = bsdf_pdf_prev[i];  // pkg120
     return ps;
 }
 

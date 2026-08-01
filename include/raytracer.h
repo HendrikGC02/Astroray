@@ -2347,6 +2347,11 @@ public:
         astroray::SampledSpectrum throughput(1.0f);
         Ray ray = r;
         bool wasSpecular = true;
+        // pkg120: BSDF pdf that generated the CURRENT continuation ray (the
+        // previous bounce's sample). Parked next to wasSpecular so the
+        // two-sided MIS emissive-hit term can weight this leg by the power
+        // heuristic against the light-sampling pdf of the emitter it lands on.
+        float bsdfPdfPrev = 0.0f;
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         int lastBounce = 0;
         float weightSum = 0.0f;
@@ -2413,7 +2418,30 @@ public:
                 rec.material->emittedSpectral(rec, lambdas);
             if (!Le_spec.isZero()) {
                 if (bounce == 0 || wasSpecular) {
+                    // Camera / post-specular ray: no NEE leg competes for this
+                    // direction, so the whole emission is taken (w_B = 1).
                     color += clampContribSpectral(throughput * Le_spec, lambdas, bounce);
+                } else {
+                    // pkg120: two-sided MIS. A BSDF-sampled continuation ray hit
+                    // an emitter at a diffuse bounce. Add the BSDF-sampled leg
+                    // weighted by the power heuristic against the light-sampling
+                    // pdf that would have generated this same hit — the
+                    // complement of the NEE leg's w_L. Without this the estimator
+                    // is biased dark by exactly the BSDF-weighted portion of the
+                    // light (Veach 1997 §9.2; Cycles light_sample_from_intersection
+                    // + kernel/light/sample.h::light_sample_mis_weight, Apache-2.0).
+                    // lightPdf_hit = selection × solid-angle (× light-tree pdf when
+                    // resident) reconstructed by LightList::pdfValue from the
+                    // PREVIOUS shading point (ray.origin) toward this emitter — the
+                    // same selection probabilities the NEE leg uses.
+                    float lightPdfHit = lights.empty()
+                        ? 0.0f
+                        : lights.pdfValue(ray.origin, ray.direction);
+                    float bp = bsdfPdfPrev, lp = lightPdfHit;
+                    // Same power-heuristic form as the NEE leg above and the GPU
+                    // gpu_mw_powerHeuristic, so w_L + w_B ≈ 1 per direction.
+                    float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
+                    color += clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce);
                 }
                 break;
             }
@@ -2486,6 +2514,9 @@ public:
             BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
             if (bss.pdf <= 0.0f) break;
             wasSpecular = bss.isDelta;
+            // pkg120: carry this bounce's BSDF pdf so the next iteration's
+            // emissive-hit two-sided MIS can weight the BSDF leg (see above).
+            bsdfPdfPrev = bss.pdf;
 
             // pkg87b: Cryptomatte per-shade-point accumulation.
             // Weight = average(throughput · bsdf_eval), per Cycles film_write_cryptomatte_slots (Apache-2.0).

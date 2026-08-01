@@ -127,6 +127,14 @@ struct GPUWavefrontState {
     float*    path_mis_pdf    = nullptr;
     float*    path_mis_weight = nullptr;
 
+    // pkg120 (two-sided MIS): the BSDF pdf that generated this slot's CURRENT
+    // continuation ray (written at shade after the BSDF sample). Unlike the
+    // instrumentation fields above this one IS load-bearing for transport: the
+    // intersect stage reads it when a diffuse-bounce continuation ray lands on
+    // an emitter, to weight the BSDF-sampled emission by the power heuristic
+    // against the reconstructed light-sampling pdf (gpu_reconstruct_light_pdf).
+    float*    path_bsdf_pdf   = nullptr;
+
     // pkg55-C5 / pkg113: photon caustic contribution (XYZ) accumulated at primary
     // hit (bounce==0) from photonGridGatherKnn. Added to accum_xyz during regen
     // (after spectral color→XYZ conversion), matching MW kernel's per-sample XYZ
@@ -346,7 +354,10 @@ void launchStageIntersectQueued(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     bool              useLuminanceOutput,  // pkg55-C3 (was missing)
-    float             clampDirect, float clampIndirect);  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    // pkg120: light data for the two-sided-MIS emissive-hit reconstruction.
+    const ::GLight*   d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree);
 
 void launchStageShadeBucketed(
     GPUWavefrontState& state,

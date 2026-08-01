@@ -1527,7 +1527,11 @@ std::vector<float> cuda_wavefront_render(
                                        envMap, gbg, hasBg,
                                        worldMaxBounces,
                                        useLuminanceOutput,
-                                       clampDirect, clampIndirect);  // pkg157
+                                       clampDirect, clampIndirect,  // pkg157
+                                       d_lights,                     // pkg120
+                                       (int)res.lights.size(),
+                                       res.totalLightPower,
+                                       treeView);
             launchStageShadeBucketed(state, hitBufs,
                                      d_shadeQueues, d_shadeCounts,
                                      total_paths, d_queueB, cout,

@@ -76,6 +76,10 @@ struct PathState {
 
     bool wasSpecular;
     bool alive;
+    // pkg120: BSDF pdf of the current continuation ray (written after the BSDF
+    // sample, read at the next bounce's emissive-hit for two-sided MIS). Live
+    // state carried across advance_one_bounce calls, mirroring wasSpecular.
+    float bsdfPdfPrev;
 
     int pixel_index;
     int sample_index;
@@ -90,6 +94,7 @@ struct PathState {
           color(0.0f),
           wasSpecular(true),
           alive(true),
+          bsdfPdfPrev(0.0f),
           pixel_index(static_cast<int>(pixel)),
           sample_index(static_cast<int>(sample)),
           bounce(0) {}

@@ -3,7 +3,7 @@
 **Pillar:** 3 (GPU transport correctness)
 **Track:** A (RTX-gated)
 **Codex-paste-ready:** no (transport-diff diagnosis on the live wavefront; needs per-bounce instrumentation judgment)
-**Status:** open — dispatchable after PR #524 (pkg55-C7) merges; not urgent-tier, but it OWNS the `test_visible_band_cpu_gpu_ssim` re-pin (0.998→0.995) — that gate may only return to 0.998 through this package's fix, never by silent re-tightening on a lucky run.
+**Status:** open — dispatchable (precondition MET 2026-07-25: PR #524/pkg55-C7 merged, wavefront is the sole GPU path); not urgent-tier, but it OWNS the `test_visible_band_cpu_gpu_ssim` re-pin (0.998→0.995) — that gate may only return to 0.998 through this package's fix, never by silent re-tightening on a lucky run.
 **Estimated effort:** S–M (the dossier already localizes onset; the fix is likely one transport term)
 **Depends on:** pkg55-C7/PR #524 merged. Cross-link: **pkg153** — the bounce-2 onset (= first albedo-upsample-dependent transport) is the same structural neighborhood as the R-drift; if pkg153's bisect convicts a spectral-eval arc commit, re-measure this residual at that commit before independent work.
 

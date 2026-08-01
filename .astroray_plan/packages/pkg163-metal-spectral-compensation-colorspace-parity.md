@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU/CPU spectral parity)
 **Track:** A (RTX-gated)
-**Status:** open — dispatchable once pkg160's merge is on main (the fix is relative to pkg160's compensation term). Not urgent-tier (worst measured error 7.2% at r=0.9 grazing chromatic), but it OWNS a documented gate exception (below) — schedule before the exception ossifies into permanence.
+**Status:** open — dispatchable (precondition MET 2026-07-25: pkg160 merged to main as PR #527/`2d5bb27`; the fix is relative to pkg160's compensation term, which is now the shipped baseline). Not urgent-tier (worst measured error 7.2% at r=0.9 grazing chromatic), but it OWNS a documented gate exception (below) — schedule before the exception ossifies into permanence.
 **Estimated effort:** S–M (direction A is a per-λ mirror of an existing 30-line CPU function + a register measurement; direction B is trivial but touches the oracle — see Fix contract)
 **Depends on:** pkg160 merged (owner-approved 2026-07-26 with the documented r=0.9 exception). Related: pkg155 (the shade stage is at 221 regs/thread, 1 block/SM — any per-wavelength state added there has a real occupancy cost; this tension is the core design question). Evidence: `test_results/overnight_report_2026-07-25/pkg160_hw_numbers.json`.
 

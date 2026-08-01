@@ -254,6 +254,70 @@ __device__ inline GVec3 gpu_metal_eval(
            gpu_ggxCompensationFactor(mat.baseColor, mat.roughness, NdotV);
 }
 
+// pkg163: native per-wavelength metal BSDF, the device mirror of CPU
+// MetalPlugin::evalSpectral (plugins/materials/metal.cpp:106-146). Its purpose
+// is CPU<->GPU colour-space parity: gpu_metal_eval builds f in RGB and the
+// spectral wrappers upsample the sum ONCE through the Jakob-Hanika LUT (Jakob &
+// Hanika 2019, "A Low-Dimensional Function Space for Efficient Spectral
+// Upsampling"), whereas the CPU is natively per-lambda. The JH upsample is
+// nonlinear and not scalar-homogeneous (JH(a+b) != JH(a)+JH(b),
+// JH(c*a) != c*JH(a)), so the two constructions agree only for a flat albedo;
+// for a chromatic albedo they diverge, worst at high roughness + grazing angle
+// (measured B=1.0722 at r=0.9, the pkg160 gate exception this package retires).
+//
+// Mirrors the WHOLE evalSpectral construction (spec §"The seam" binding
+// consequence 1: no term-level patch): per-lambda F0 from the same albedo
+// upsampler, per-lambda Schlick Fresnel, and the multiplicative Kulla & Conty
+// 2017 (Eq. 6-9) / Cycles microfacet_ggx_preserve_energy (bsdf_microfacet.h,
+// BSD-3-Clause) compensation via gpu_ggxDarkeningChannel, all off the same
+// achromatic scalar E/Eavg tables gpu_metal_eval reads. Sampling/pdf logic is
+// unchanged; only the f-spectral construction moves per-lambda.
+__device__ inline GSampledSpectrum gpu_metal_eval_spectral(
+    const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
+    const GSampledWavelengths& wl)
+{
+    // Near-delta path mirrors MetalPlugin::evalSpectral lines 109-114:
+    // albedo spectrum * exp(-deviation) narrow lobe.
+    if (mat.roughness <= 0.1f) {
+        GVec3 perfectRefl = rec.normal * (2.f * wo.dot(rec.normal)) - wo;
+        float dev = (wi - perfectRefl).length();
+        float factor = (dev < 0.1f) ? expf(-dev * 100.f) : 0.f;
+        return gpu_rgbToSampledSpectrum(mat.baseColor, wl, mat.spectralMode) * factor;
+    }
+
+    float NdotL = rec.normal.dot(wi);
+    float NdotV = rec.normal.dot(wo);
+    if (NdotL <= 0.f || NdotV <= 0.f) return GSampledSpectrum(0.f);
+
+    GVec3 h    = (wo + wi).normalized();
+    float NdotH = fmaxf(rec.normal.dot(h), 0.001f);
+    float a     = mat.roughness * mat.roughness;
+    float a2    = a * a;
+    float denom = NdotH * NdotH * (a2 - 1.f) + 1.f;
+    float D     = a2 / (M_PI_F * denom * denom + 0.001f);
+    // Per-wavelength F0 = albedo spectrum, upsampled the same way the CPU's
+    // albedo_spec_.sample(lambdas) does (RGBAlbedoSpectrum -> JH), then per-
+    // lambda Schlick Fresnel.
+    GSampledSpectrum F0 = gpu_rgbToSampledSpectrum(mat.baseColor, wl, mat.spectralMode);
+    float fresnelPow5 = powf(1.f - fminf(fmaxf(h.dot(wo), 0.f), 1.f), 5.f);
+    GSampledSpectrum F = F0 + (GSampledSpectrum(1.f) - F0) * fresnelPow5;
+    float k = (mat.roughness + 1.f) * (mat.roughness + 1.f) / 8.f;
+    float G = (NdotL / (NdotL * (1.f - k) + k)) * (NdotV / (NdotV * (1.f - k) + k));
+    GSampledSpectrum singleScatter = F * (D * G / (4.f * NdotV + 0.001f));
+
+    // Multiplicative Kulla & Conty compensation, per wavelength: Fss is the
+    // conductor's reflectance F0 (= albedo spectrum at these lambdas), E/Eavg
+    // are achromatic geometry and stay scalar. Null-table fallback is the 1.0
+    // identity (single-scatter lobe), matching gpu_ggxCompensationFactor.
+    if (!g_ggxE || !g_ggxEavg) return singleScatter;
+    float E = fmaxf(gpu_ggxE(mat.roughness, NdotV), 1e-4f);
+    float Eavg = fminf(fmaxf(gpu_ggxEavg(mat.roughness), 0.f), 0.999f);
+    GSampledSpectrum result = singleScatter;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+        result[i] *= gpu_ggxDarkeningChannel(F0[i], E, Eavg);
+    return result;
+}
+
 template <typename TRng>
 __device__ inline GBSDFSample gpu_metal_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
@@ -1268,6 +1332,42 @@ __device__ inline GVec3 gpu_closure_graph_eval(
     return sum;
 }
 
+// pkg163: does this closure graph carry a metal (non-Disney) conductor lobe?
+// Only those lobes lower to gpu_metal_eval and therefore have the CPU-per-lambda
+// vs GPU-RGB colour-space seam. A Disney-originated conductor closure lowers to
+// gpu_disney_eval (per-RGB on both sides, consistent twins) and is out of scope.
+__device__ inline bool gpu_closure_graph_has_metal(const GMaterial& mat) {
+    if (mat.disneyMetalConductor) return false;
+    int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
+    for (int i = 0; i < count; ++i)
+        if (mat.closures[i].type == GCLOSURE_GGX_CONDUCTOR) return true;
+    return false;
+}
+
+// pkg163: per-wavelength closure-graph eval, used only when the graph carries a
+// metal conductor lobe (gpu_closure_graph_has_metal). The metal lobe is built
+// per-lambda via gpu_metal_eval_spectral (CPU-canonical colour space); any other
+// lobe keeps its existing per-lobe RGB eval then upsample. Non-metal graphs
+// never reach here, so their summed-then-upsampled behaviour is unchanged.
+__device__ inline GSampledSpectrum gpu_closure_graph_eval_spectral(
+    const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
+    const GSampledWavelengths& wl)
+{
+    GSampledSpectrum sum(0.0f);
+    int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
+    for (int i = 0; i < count; ++i) {
+        const GMaterialClosure& closure = mat.closures[i];
+        if (closure.type == GCLOSURE_EMISSION || closure.weight <= 0.0f) continue;
+        GMaterial tmp = gpu_closure_as_material(mat, closure);
+        if (tmp.type == GMAT_METAL)
+            sum += gpu_metal_eval_spectral(tmp, rec, wo, wi, wl) * closure.weight;
+        else
+            sum += gpu_rgbToSampledSpectrum(
+                gpu_closure_eval(mat, closure, rec, wo, wi), wl, mat.spectralMode);
+    }
+    return sum;
+}
+
 __device__ inline float gpu_closure_graph_pdf(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
@@ -1375,6 +1475,14 @@ __device__ inline GSampledSpectrum gpu_material_eval_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
     const GSampledWavelengths& wl)
 {
+    // pkg163: metal is natively per-lambda on the CPU (MetalPlugin::evalSpectral);
+    // build its spectrum per-lambda here too instead of upsampling the RGB eval,
+    // so the CPU/GPU colour spaces match. Plain `metal` uploads as a closure
+    // graph (its GGXConductor lobe validates), so both entry points are covered.
+    if (mat.type == GMAT_METAL)
+        return gpu_metal_eval_spectral(mat, rec, wo, wi, wl);
+    if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_has_metal(mat))
+        return gpu_closure_graph_eval_spectral(mat, rec, wo, wi, wl);
     return gpu_rgbToSampledSpectrum(
         gpu_material_eval(mat, rec, wo, wi), wl, mat.spectralMode);
 }
@@ -1438,6 +1546,23 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     // the already-computed `s.f` -- numerically equivalent (same underlying
     // eval dispatch for the same (wo,wi)) and avoids a redundant device-side
     // re-eval.
+    // pkg163: metal is natively per-lambda on the CPU. For a non-delta metal
+    // bounce, build fSpectral per-lambda (gpu_metal_eval_spectral) rather than
+    // upsampling the RGB s.f, matching gpu_material_eval_spectral and the CPU
+    // oracle. The near-delta metal branch (s.isDelta, s.f = albedo mirror) keeps
+    // the plain albedo upsample below -- MetalPlugin::sample()'s delta lobe does
+    // not apply the eval factor either. Plain `metal` uploads as a closure graph
+    // (its GGXConductor lobe validates), so both entry points are covered; the
+    // closure-graph sampler has already recomputed s.wi's f for non-delta lobes.
+    bool metalSpectral = (mat.type == GMAT_METAL) ||
+        (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_has_metal(mat));
+    if (metalSpectral && !s.isDelta && s.pdf > 0.0f && s.f.length2() > 0.0f) {
+        s.fSpectral = (mat.type == GMAT_METAL)
+            ? gpu_metal_eval_spectral(mat, rec, wo, s.wi, wl)
+            : gpu_closure_graph_eval_spectral(mat, rec, wo, s.wi, wl);
+        return s;
+    }
+
     float m = fmaxf(fmaxf(s.f.x, s.f.y), s.f.z);
     if (m > 1.0f) {
         s.fSpectral = gpu_rgbToSampledSpectrum(s.f * (1.0f / m), wl, mat.spectralMode) * m;

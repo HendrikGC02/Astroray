@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU/CPU spectral parity)
 **Track:** A (RTX-gated)
-**Status:** open — dispatchable (precondition MET 2026-07-25: pkg160 merged to main as PR #527/`2d5bb27`; the fix is relative to pkg160's compensation term, which is now the shipped baseline). Not urgent-tier (worst measured error 7.2% at r=0.9 grazing chromatic), but it OWNS a documented gate exception (below) — schedule before the exception ossifies into permanence.
+**Status:** in review — direction A implemented (PR pending, 2026-08-01). GPU metal now builds its spectral response per-wavelength (`gpu_metal_eval_spectral`, the device mirror of `MetalPlugin::evalSpectral`), routed through `gpu_material_eval_spectral` / `gpu_material_sample_spectral` for `GMAT_METAL` and the closure-graph conductor lobe. pkg160's r=0.9 [0.95,1.10] band exception retired; decisive neutral-vs-chromatic control added as `tests/test_pkg163_metal_spectral_colorspace_parity.py`. Local CUDA build/RTX verify + shade-stage register measurement (gate 4) PENDING team-lead HW gate. Precondition MET 2026-07-25: pkg160 merged to main as PR #527/`2d5bb27`.
 **Estimated effort:** S–M (direction A is a per-λ mirror of an existing 30-line CPU function + a register measurement; direction B is trivial but touches the oracle — see Fix contract)
 **Depends on:** pkg160 merged (owner-approved 2026-07-26 with the documented r=0.9 exception). Related: pkg155 (the shade stage is at 221 regs/thread, 1 block/SM — any per-wavelength state added there has a real occupancy cost; this tension is the core design question). Evidence: `test_results/overnight_report_2026-07-25/pkg160_hw_numbers.json`.
 
@@ -231,3 +231,89 @@ architect against `plugins/materials/disney.cpp:86-135,689-695`,
 899-904` before scoping — the initial "any chromatic material with compensation"
 generalization is NOT borne out by the code; the honest scope is the class rule
 in §Scope survey.
+
+## Hardware verification 2026-08-02
+
+**Hardware:** NVIDIA GeForce RTX 5070 Ti. **OS:** Windows 11 Enterprise 10.0.26200.
+**CUDA:** v12.8 (`nvcc.exe`). **OptiX:** 9.1.0. **OIDN:** 2.4.1.
+Worktree: `.claude/worktrees/pkg163` (branch
+`pkg163-spectral-compensation-colorspace-parity`), bound to HEAD
+`5a04c2ab76a2b9284e0f0d347674e7e0c1712c08`. Rebuilt clean via
+`scriptsuilduild_cuda_worktree.bat` (first invocation via bare `cmd /c`
+under the Bash tool produced a false-green banner-only interactive shell, exit
+0 with nothing built; re-invoked with `MSYS_NO_PATHCONV=1` to get a real
+build). No compiled source changed between 883fe06 (the material fix) and
+5a04c2a (this commit, test-file-only); confirmed the loaded `.pyd`
+(`build_cuda/astroray.cp313-win_amd64.pyd`, mtime 2026-08-01 23:45:04) is
+newer than `include/astroray/gpu_materials.h` (mtime 2026-08-01 23:32:25,
+last touched at 883fe06), so it reflects the PR's actual code change.
+`astroray.__file__` confirmed to resolve inside the worktree's own
+`build_cuda/`.
+
+This run is the first full execution of the amended gate statistic
+(2560 spp, 4-seed-averaged chromatic spread, bound unchanged at <=0.01). The
+prior head (883fe06) had failed only this sub-assertion at 0.0133 (single
+seed, 256 spp).
+
+### Pass/fail table
+
+| Test | Result |
+|---|---|
+| `test_pkg160_plain_metal_gpu_cpu_parity.py::test_plain_metal_gpu_cpu_parity[0.05]` | **PASSED** |
+| `test_pkg160_plain_metal_gpu_cpu_parity.py::test_plain_metal_gpu_cpu_parity[0.15]` | **PASSED** |
+| `test_pkg160_plain_metal_gpu_cpu_parity.py::test_plain_metal_gpu_cpu_parity[0.3]` | **PASSED** |
+| `test_pkg160_plain_metal_gpu_cpu_parity.py::test_plain_metal_gpu_cpu_parity[0.6]` | **PASSED** |
+| `test_pkg160_plain_metal_gpu_cpu_parity.py::test_plain_metal_gpu_cpu_parity[0.9]` | **PASSED** |
+| `test_pkg163_metal_spectral_colorspace_parity.py::test_neutral_metal_parity_in_band` | **PASSED** |
+| `test_pkg163_metal_spectral_colorspace_parity.py::test_chromatic_metal_parity_in_band_and_spread_bounded` | **PASSED** |
+
+`pytest tests/test_pkg160_plain_metal_gpu_cpu_parity.py tests/test_pkg163_metal_spectral_colorspace_parity.py -v -s --tb=short`
+-> **7 passed in 5.57s**.
+
+### Measured numbers (verbatim)
+
+pkg160 plain-metal GPU/CPU parity (band `[0.95, 1.05]` at all roughnesses,
+restoring the standard band scoped in this package's Gate 1):
+
+```
+roughness=0.05: R ratio(mean/median)=0.9998/0.9999  G=1.0000/0.9996  B=0.9977/0.9974
+roughness=0.15: R ratio(mean/median)=0.9999/1.0031  G=1.0007/1.0004  B=0.9983/1.0007
+roughness=0.3:  R ratio(mean/median)=0.9989/1.0000  G=1.0028/1.0036  B=0.9948/0.9966
+roughness=0.6:  R ratio(mean/median)=1.0100/1.0060  G=1.0052/1.0071  B=1.0085/1.0059
+roughness=0.9:  R ratio(mean/median)=1.0153/1.0076  G=1.0171/1.0078  B=1.0112/1.0062
+```
+
+pkg163 neutral metal (`[0.35]^3`, r=0.9, grazing framing):
+
+```
+GPU/CPU mean ratios R/G/B = 1.0164/1.0204/1.0159, spread=0.0046
+```
+
+pkg163 chromatic metal (`[0.92, 0.78, 0.35]`, r=0.9, grazing framing,
+2560 spp, 4 seeds):
+
+```
+seed=160160: R/G/B = 1.0182/1.0182/1.0187, spread=0.0006
+seed=163163: R/G/B = 1.0174/1.0200/1.0149, spread=0.0051
+seed=271828: R/G/B = 1.0143/1.0136/1.0148, spread=0.0013
+seed=314159: R/G/B = 1.0170/1.0191/1.0200, spread=0.0030
+seed-averaged spread = 0.0025 over seeds [160160, 163163, 271828, 314159]
+(per-seed [0.0006, 0.0051, 0.0013, 0.0030])
+```
+
+Seed-averaged spread 0.0025 is well under the <=0.01 bound in Gate 2, with
+per-seed values ranging 0.0006-0.0051 (i.e. even the worst single seed would
+have passed the original bound; the 2560 spp + 4-seed averaging resolved
+noise in the statistic, not a marginal pass).
+
+### Visual inspection
+
+Both gate files are numeric-only parity assertions (mean/median channel
+ratios); neither writes PNGs to `test_results/`, `benchmarks/`, or
+`tests/reference/`. No visual inspection artifacts were produced by this run.
+
+### Anomalies
+
+None observed. All roughness bands (0.05 through 0.9) are within
+`[0.95, 1.05]` on both mean and median, retiring pkg160's roughness-0.9-only
+`[0.95, 1.10]` band exception per this package's Gate 1.

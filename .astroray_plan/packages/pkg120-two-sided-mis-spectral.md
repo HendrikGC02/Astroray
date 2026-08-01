@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / NEE + MIS correctness)
 **Track:** A (CPU-gated furnace/ground-truth test runs on CI; wavefront leg needs RTX verify)
 **Codex-paste-ready:** no (transport-correctness change with a ground-truth gate; CPU + wavefront mirror)
-**Status:** open — **dispatchable**. pkg55 Phase C completed via PR #524 (2026-07-25): both megakernels are deleted and the wavefront is now the only GPU path, so the two-sided term lands in exactly the two places this spec targets (CPU `pathTraceSpectral` + the wavefront `stage_advance.cu` emissive-hit block), not four — the blocker the old Status recorded has dissolved.
+**Status:** in review — PR open, CPU legs implemented + gated; wavefront leg awaits team-lead RTX HW verification. NOTE: the term lands in the two *production* integrators the spec names (CPU `pathTraceSpectral` + wavefront `stage_advance.cu`), but keeping CI green additionally required mirroring it into the two pkg55 CPU oracles those integrators are pinned against — `reference_pt_production.cpp` (bit-exact trip-wire `test_pkg55_reference_pt_production_parity`) and the shared CPU wavefront kernel `path_kernel.cpp` (cross-family mean-ratio gates `test_pkg55_reference_pt_oracles_equivalent` / `test_pkg55_session_n1_ssim_parity`). See the PR body.
 **Estimated effort:** M (add one MIS term in two mirrored places + a ground-truth gate proving direction and magnitude)
 **Depends on:** ~~pkg55 Phase C (megakernel removal — single spectral pipeline first)~~ **SATISFIED by PR #524 (2026-07-25)**. There is now exactly one CPU path (`pathTraceSpectral`) and one GPU path (the wavefront), so the change lands in two places, not four; the RGB `bsdf_mis` branch and `multiwavelength_kernel.cu` referenced below no longer exist.
 
@@ -213,9 +213,19 @@ spectral path.
 
 ## Progress
 
-- [ ] A — CPU `pathTraceSpectral` two-sided term + light-tree-consistent pdf reconstruction.
-- [ ] B — wavefront (GPU) mirror; CPU↔GPU lockstep verified.
-- [ ] C — large-near-light ground-truth gate (direction + magnitude); no-regression sweep.
+- [x] A — CPU `pathTraceSpectral` two-sided term + light-tree-consistent pdf reconstruction
+      (`lights.pdfValue` reuse). Mirrored into the two CPU oracles the pkg55
+      parity/trip-wire gates pin: `reference_pt_production.cpp` (bit-exact
+      trip-wire) and the shared CPU wavefront kernel `path_kernel.cpp`
+      (+ `bsdf_pdf_prev` carried through the CPU wavefront SoA round-trip).
+- [x] B — wavefront (GPU) mirror in `stage_advance.cu` (`gpu_reconstruct_light_pdf`
+      in `gpu_nee.cuh`, `path_bsdf_pdf` SoA field); CPU↔GPU lockstep by
+      construction. **Awaits team-lead RTX build + HW verification** (subagent
+      cannot build the CUDA .pyd).
+- [x] C — large-near-light ground-truth gate
+      (`tests/test_pkg120_two_sided_mis.py`): direction (one-sided dark via
+      `max_depth=1`), magnitude (two-sided ≈ analytic `ρ·L_e·(R/d)²` via
+      `max_depth=2`), no-regression (compact light). CPU-gated on CI.
 
 ---
 

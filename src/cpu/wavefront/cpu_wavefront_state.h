@@ -87,6 +87,10 @@ struct CPUWavefrontState {
     // Path-continuation flags.
     std::vector<int> was_specular;  // 0/1
     std::vector<int> path_alive;    // 0 = terminated, 1 = active
+    // pkg120: BSDF pdf of the current continuation ray, carried across the
+    // SoA round-trip so the next bounce's two-sided-MIS emissive-hit sees it
+    // (mirrors the GPU path_bsdf_pdf SoA field; parallels was_specular).
+    std::vector<float> bsdf_pdf_prev;
 
     // Carried hit identity (post-intersect -> shade). Full HitRecord so
     // shade never re-traces. >32 bytes / has std::vector members → kept in
@@ -133,6 +137,7 @@ struct CPUWavefrontState {
 
         was_specular.resize(max_paths);
         path_alive.resize(max_paths);
+        bsdf_pdf_prev.resize(max_paths);  // pkg120
 
         hit.resize(max_paths);
         hit_valid.resize(max_paths);

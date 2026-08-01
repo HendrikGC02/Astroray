@@ -29,6 +29,70 @@ __device__ inline float gpu_mw_powerHeuristic(float a, float b) {
 }
 
 // ---------------------------------------------------------------------------
+// pkg120: reverse light-sampling pdf for two-sided MIS. A BSDF continuation
+// ray from a DIFFUSE bounce (origin prevPoint, direction dir) HIT the emitter
+// recorded in `rec`; return the pdf the NEE leg would have assigned to
+// generating this same hit — selection × solid-angle (× light-tree pdf when
+// resident). Mirrors CPU LightList::pdfValue (src/light_sampler.cpp) so the CPU
+// and wavefront two-sided terms agree by construction:
+//   selection  : power-CDF diff (power mode) OR gpu_light_tree_pdf with the
+//                -dir PROXY normal — TreeLightSampler::pdfValue uses
+//                normal = -dir (light_sampler.cpp:210), the shading normal
+//                being unavailable at MIS reconstruction time.
+//   solid-angle: Sphere 1/(2π(1-cosθmax)) (shapes.h:50); Triangle
+//                t²/(|dir·n|·area + 1e-3) (shapes.h:226).
+// Returns 0 when the hit emitter has no NEE-sampleable GLight slot; the
+// caller's power heuristic then yields w_B = 1 (full emission — no NEE leg
+// competes). Cite: Veach 1997 §9.2 (power heuristic); Cycles
+// light_sample_from_intersection + kernel/light/sample.h (Apache-2.0).
+// ---------------------------------------------------------------------------
+__device__ inline float gpu_reconstruct_light_pdf(
+    const GHitRecord& rec, const GVec3& prevPoint, const GVec3& dir,
+    const GLight* lights, int numLights, float totalLightPower,
+    const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
+    const GLightTreeView& lightTree)
+{
+    if (numLights <= 0 || totalLightPower <= 0.f) return 0.f;
+
+    // Reverse-map the hit primitive to its GLight slot (only hittable emitters
+    // are BSDF-reachable; dedicated/delta lights have no geometry).
+    int lightIdx = -1;
+    for (int i = 0; i < numLights; ++i) {
+        if (lights[i].primitiveIndex == rec.primId) { lightIdx = i; break; }
+    }
+    if (lightIdx < 0) return 0.f;
+
+    // Selection pdf — the same probabilities the NEE leg uses.
+    float selPdf;
+    if (lightTree.enabled) {
+        int emitterIdx = lightTree.lightToEmitter[lightIdx];
+        if (emitterIdx < 0) return 0.f;
+        GVec3 proxyN = (dir * -1.f).normalized();   // CPU proxy normal (-dir)
+        selPdf = gpu_light_tree_pdf(lightTree, prevPoint, proxyN, emitterIdx);
+    } else {
+        float prevCum = (lightIdx > 0) ? lights[lightIdx - 1].cumulativePower : 0.f;
+        selPdf = (lights[lightIdx].cumulativePower - prevCum) / totalLightPower;
+    }
+    if (selPdf <= 0.f) return 0.f;
+
+    // Solid-angle pdf of the hit shape from prevPoint (mirrors CPU pdfValue).
+    const GPrimitive& prim = prims[rec.primId];
+    float saPdf;
+    if (prim.type == GPRIM_SPHERE) {
+        const GSphere& sph = spheres[prim.index];
+        GVec3 cp = sph.center - prevPoint;
+        float dist2 = cp.length2();
+        float cosThetaMax = sqrtf(fmaxf(0.f, 1.f - sph.radius * sph.radius / dist2));
+        saPdf = 1.f / (2.f * M_PI_F * (1.f - cosThetaMax));
+    } else {  // GPRIM_TRIANGLE
+        const GTriangle& tri = tris[prim.index];
+        float area = (tri.v1 - tri.v0).cross(tri.v2 - tri.v0).length() * 0.5f;
+        saPdf = (rec.t * rec.t) / (fabsf(dir.dot(rec.normal)) * area + 0.001f);
+    }
+    return selPdf * saPdf;
+}
+
+// ---------------------------------------------------------------------------
 // Spectral next-event estimation — mirrors CPU Renderer::pathTraceSpectral
 // area-light NEE (include/raytracer.h:2405-2424): power-weighted light
 // selection, area-light point/solid-angle sampling, occlusion test, spectral

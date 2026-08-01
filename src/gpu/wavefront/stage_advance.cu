@@ -152,7 +152,10 @@ __device__ int intersectPathSlot(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     bool              useLuminanceOutput,
-    float             clampDirect, float clampIndirect)  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    // pkg120: light data for the two-sided-MIS emissive-hit reconstruction.
+    const ::GLight*   lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree)
 {
     const int bounce = state.bounce[idx];
 
@@ -240,13 +243,33 @@ __device__ int intersectPathSlot(
     if (Le.maxValue() > 0.f) {
         if (bounce == 0 || wasSpecular) {
             // pkg157: emissive-hit direct term, same clamp split as above.
+            // Camera / post-specular ray: no NEE leg competes (w_B = 1).
             color += gpu_clampContribMW(throughput * Le, lambdas, bounce,
                                         clampDirect, clampIndirect, useLuminanceOutput);
-            state.color_0[idx] = color.v[0];
-            state.color_1[idx] = color.v[1];
-            state.color_2[idx] = color.v[2];
-            state.color_3[idx] = color.v[3];
+        } else {
+            // pkg120: two-sided MIS BSDF-sampled leg — device twin of CPU
+            // pathTraceSpectral. This continuation ray was BSDF-sampled at a
+            // diffuse bounce; weight its emission by the power heuristic against
+            // the light-sampling pdf that would have generated this same hit.
+            // prevPoint = ray.origin (this ray's origin is the previous shading
+            // vertex, written verbatim by shadePathSlot), dir = ray.direction
+            // (the sampled BSDF direction) — same values on CPU and GPU, so the
+            // pdf reconstruction matches by construction (no snapshot skew).
+            float bsdfPdfPrev = state.path_bsdf_pdf[idx];
+            float lp = gpu_reconstruct_light_pdf(
+                rec, ray.origin, ray.direction,
+                lights, numLights, totalLightPower,
+                prims, tris, spheres, lightTree);
+            float wB = gpu_mw_powerHeuristic(bsdfPdfPrev, lp);
+            GSampledSpectrum contrib = throughput * Le;
+            contrib *= wB;
+            color += gpu_clampContribMW(contrib, lambdas, bounce,
+                                        clampDirect, clampIndirect, useLuminanceOutput);
         }
+        state.color_0[idx] = color.v[0];
+        state.color_1[idx] = color.v[1];
+        state.color_2[idx] = color.v[2];
+        state.color_3[idx] = color.v[3];
         state.path_alive[idx] = 0;
         return -1;
     }
@@ -560,6 +583,10 @@ __device__ bool shadePathSlot(
         return false;
     }
     wasSpecular = bss.isDelta;
+    // pkg120: park this bounce's BSDF pdf so the NEXT bounce's intersect stage
+    // can weight a diffuse-bounce emissive hit by the two-sided MIS heuristic
+    // (mirrors CPU bsdfPdfPrev = bss.pdf in pathTraceSpectral).
+    state.path_bsdf_pdf[idx] = bss.pdf;
 
     // pkg55-C3/C7: non-visible-band profile override — mirrors the deleted
     // MW megakernel block (multiwavelength_kernel.cu:376-390) and CPU
@@ -722,7 +749,8 @@ __device__ bool advancePathSlot(
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
-                                    useLuminanceOutput, clampDirect, clampIndirect);
+                                    useLuminanceOutput, clampDirect, clampIndirect,
+                                    lights, numLights, totalLightPower, lightTree);  // pkg120
     if (matType < 0) return false;
     return shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
                          bvhNodes, prims, tris, spheres, motionVerts,
@@ -962,7 +990,10 @@ __global__ void stageIntersectQueuedKernel(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     bool              useLuminanceOutput,
-    float             clampDirect, float clampIndirect)  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    // pkg120: light data threaded to the two-sided-MIS emissive-hit block.
+    const ::GLight*   lights, int numLights, float totalLightPower,
+    GLightTreeView    lightTree)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
@@ -975,7 +1006,8 @@ __global__ void stageIntersectQueuedKernel(
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
-                                    useLuminanceOutput, clampDirect, clampIndirect);
+                                    useLuminanceOutput, clampDirect, clampIndirect,
+                                    lights, numLights, totalLightPower, lightTree);  // pkg120
     if (matType < 0) return;
     if (matType >= G_WF_NUM_MAT_TYPES) matType = G_WF_NUM_MAT_TYPES - 1;
     int slot = atomicAdd(&shade_counts[matType], 1);
@@ -1274,7 +1306,10 @@ void launchStageIntersectQueued(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     bool              useLuminanceOutput,
-    float             clampDirect, float clampIndirect)  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    // pkg120: light data for the two-sided-MIS emissive-hit reconstruction.
+    const ::GLight*   d_lights, int num_lights, float total_light_power,
+    GLightTreeView    lightTree)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1289,7 +1324,8 @@ void launchStageIntersectQueued(
             d_tlas, d_instances, d_blas,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
             envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
-            useLuminanceOutput, clampDirect, clampIndirect);
+            useLuminanceOutput, clampDirect, clampIndirect,
+            d_lights, num_lights, total_light_power, lightTree);  // pkg120
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_intersect_queued launch error: %s\n",
@@ -1614,7 +1650,8 @@ __global__ void stageShadeNeeMisKernel(
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
-                                    useLuminanceOutput, clampDirect, clampIndirect);
+                                    useLuminanceOutput, clampDirect, clampIndirect,
+                                    lights, numLights, totalLightPower, lightTree);  // pkg120
     if (matType < 0) return;  // env miss / emissive hit: path died, no NEE.
     shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
                   bvhNodes, prims, tris, spheres, motionVerts,

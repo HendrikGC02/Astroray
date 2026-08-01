@@ -67,6 +67,8 @@ SampledSpectrum tracePathSpectral(
     SampledSpectrum throughput(1.0f);
     Ray ray = r;
     bool wasSpecular = true;
+    // pkg120: BSDF pdf of the current continuation ray (mirrors pathTraceSpectral).
+    float bsdfPdfPrev = 0.0f;
     std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
 
     const auto& bvh = renderer.getBVH();
@@ -122,6 +124,17 @@ SampledSpectrum tracePathSpectral(
         if (!Le_spec.isZero()) {
             if (bounce == 0 || wasSpecular) {
                 color += throughput * Le_spec;
+            } else {
+                // pkg120: two-sided MIS BSDF-emitter-hit leg — bit-exact mirror
+                // of raytracer.h pathTraceSpectral (clampContribSpectral is an
+                // identity at the default clamp settings this trip-wire runs at,
+                // so the raw accumulation matches production bit-for-bit).
+                float lightPdfHit = lights.empty()
+                    ? 0.0f
+                    : lights.pdfValue(ray.origin, ray.direction);
+                float bp = bsdfPdfPrev, lp = lightPdfHit;
+                float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
+                color += throughput * Le_spec * wB;
             }
             break;
         }
@@ -206,6 +219,7 @@ SampledSpectrum tracePathSpectral(
         BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
         if (bss.pdf <= 0.0f) break;
         wasSpecular = bss.isDelta;
+        bsdfPdfPrev = bss.pdf;  // pkg120: carry for next-bounce two-sided MIS
         throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
 
         // PostShade snapshot.

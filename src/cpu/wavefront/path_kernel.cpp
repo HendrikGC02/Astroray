@@ -219,6 +219,19 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     if (!Le_spec.isZero()) {
         if (bounce == 0 || ps.wasSpecular) {
             ps.color += ps.throughput * Le_spec;
+        } else {
+            // pkg120: two-sided MIS BSDF-emitter-hit leg — mirror of production
+            // pathTraceSpectral so this wavefront kernel stays in per-channel
+            // parity with it (test_pkg55_reference_pt_oracles_equivalent /
+            // session_n1). prevPoint = ps.ray_origin (this ray's origin is the
+            // previous shading vertex), dir = ps.ray_direction (the sampled BSDF
+            // direction, already unit).
+            float lightPdfHit = lights.empty()
+                ? 0.0f
+                : lights.pdfValue(ps.ray_origin, ps.ray_direction);
+            float bp = ps.bsdfPdfPrev, lp = lightPdfHit;
+            float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
+            ps.color += ps.throughput * Le_spec * wB;
         }
         ps.alive = false;
         return false;
@@ -319,6 +332,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, bsdf_gen, ps.lambdas);
     if (bss.pdf <= 0.0f) { ps.alive = false; return false; }
     ps.wasSpecular = bss.isDelta;
+    ps.bsdfPdfPrev = bss.pdf;  // pkg120: carry for next-bounce two-sided MIS
     ps.throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
 
     // ---- PostShade snapshot.

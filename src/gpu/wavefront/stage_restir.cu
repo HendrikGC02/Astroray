@@ -105,7 +105,9 @@ __device__ int intersectPathSlot(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     bool              useLuminanceOutput,
-    float             clampDirect, float clampIndirect);  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    const ::GLight*   lights, int numLights, float totalLightPower,  // pkg120
+    GLightTreeView    lightTree);
 
 using ::astroray::WavefrontRNG;
 
@@ -273,10 +275,15 @@ __global__ void stageRestirPrimaryKernel(
     // pkg157: bounce is always 0 here (ReSTIR-DI is direct-illumination-only,
     // a fresh single-bounce path per sample) -> intersectPathSlot's internal
     // clamp uses clampDirect for this primary env/emissive term.
+    // pkg120: ReSTIR-DI is bounce-0-only, so intersectPathSlot's two-sided-MIS
+    // emissive-hit branch (bounce > 0 && !wasSpecular) never fires here; pass
+    // empty light data (numLights = 0 short-circuits gpu_reconstruct_light_pdf).
     intersectPathSlot(p, state, hitBufs, tlas, instances, blas, bvhNodes,
                       prims, tris, spheres, motionVerts, materials, envMap,
                       backgroundColor, hasBackgroundColor, worldMaxBounces,
-                      useLuminanceOutput, clampDirect, clampIndirect);
+                      useLuminanceOutput, clampDirect, clampIndirect,
+                      /*lights=*/nullptr, /*numLights=*/0,
+                      /*totalLightPower=*/0.f, GLightTreeView{});
 }
 
 // ===========================================================================

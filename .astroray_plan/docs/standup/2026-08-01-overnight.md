@@ -15,6 +15,7 @@ deleting the dead `stage_shade_metal.cu` — both since resolved (see
 |---|---|---|
 | **#533** | `feat(pkg163)`: GPU metal spectral response per-wavelength for CPU/GPU colour-space parity — merged as `b036ac9` | CI all-pass + RTX HW PASS (7/7 gates); retires pkg160's roughness-0.9-only `[0.95,1.10]` band, restores standard `[0.95,1.05]` at all roughnesses |
 | **#535** | `docs(pkg158)`: Step 0 Disney-metal remainder reconciliation, Outcome A — merged as `7c340f6` | Doc-only; near-delta discrepancy re-measured and superseded (0.60–0.77 does not reproduce); files pkg165 for the out-of-scope uniform-dim finding |
+| **#534** | `feat(pkg120)`: two-sided MIS for the spectral integrator (restore BSDF-ray-hits-emitter term) — merged as `7495691` | CI all-pass + RTX HW re-gate PASS (absolute gate 0.9623; full pkg55 web + wavefront bit-identity + 278 furnace cases green); files pkg166 |
 
 ## Notes
 
@@ -63,8 +64,52 @@ unexplained and not near-delta-specific. Filed as
 scoped diagnosis-first with a 2×2 material×scene un-confounding matrix, marked
 open/dispatchable but not urgent-tier.
 
-**In flight, not yet mergeable:** PR #534 (pkg120) HW-FAILED its analytic
-form-factor gate. Diagnosed as a real solid-angle-dependent transport bug in
-the BSDF-sampled emitter-hit leg, not a gate miscalibration. Fix in progress
-in the worktree; not pushed; awaiting sign-off flow. pkg150 implementation has
-also started. Will update this section as either lands or is escalated.
+**pkg120 (PR #534, merged squash `7495691a55ee7dd36e3206f479131255df1ebce3`).**
+Restores the BSDF-ray-hits-emitter two-sided MIS term. Scope grew from the
+spec's 2 landing sites to **4**, per the pkg55 growing-oracle rule: CPU
+`pathTraceSpectral`, wavefront `stage_advance.cu`, plus the two pkg55 CPU
+oracles those integrators are pinned against, `reference_pt_production.cpp`
+and the shared CPU wavefront `path_kernel.cpp`.
+
+**A quality cycle that overturned its own first diagnosis.** The initial HW
+run **FAILED** the PR's own analytic gate (0.745 vs a 0.75 floor). The first
+gate-review pass diagnosed this as a transport bug. The fix-implementer
+**overturned that diagnosis** with a patch-size control: comparing an 8×8
+patch mean against a point oracle on a steep radiance gradient showed the
+discrepancy was a sampling-resolution artifact, not a transport error —
+verified three independent ways. A different-model (Fable 5) reviewer then
+**quantitatively confirmed** the overturn by predicting the patch readings
+from pure geometry alone, landing within 0.002–0.024 of the measured values.
+The gate was re-scoped to measure a 2×2 patch (the numeric band left
+unchanged) and the HW re-gate **PASSED**: absolute gate 0.9623, the complete
+pkg55 web plus wavefront bit-identity plus all 278 furnace cases green,
+visual inspection clean.
+
+**Follow-up filed: pkg166.** The energy sweep behind this PR surfaced that
+furnace/energy suites render with gamma applied, which clamps to `[0,1]` and
+is therefore structurally blind to energy-*gain* regressions (see memory
+`gamma-furnace-cannot-detect-energy-gain`, first surfaced by pkg160). Filed as
+`pkg166-furnace-suites-linear-rendering.md` (commit `9930802`) — not
+urgent-tier since nothing is red today, but every future energy-adding change
+is under-gated until it lands.
+
+## Session-limit freeze, ~01:35–04:00
+
+The overnight run hit a session-limit gap between roughly 01:35 and 04:00 with
+no dispatch activity — no PRs opened or merged in that window, both locks
+free at resumption. Work picked back up afterward with pkg120's HW re-gate and
+the pkg158/pkg165/pkg166 filings. No corruption or partial state found on
+resumption; recorded here as a gap in the timeline, not an incident.
+
+## Closed out (overnight leg)
+
+**Three PRs merged overnight** (#533, #535, #534). No open PRs at the point
+the owner extended the run into the day. **Two follow-up specs filed**
+(pkg165, pkg166), neither dispatched yet. The owner extended the run through
+2026-08-02 rather than closing out; continuation is
+`.astroray_plan/docs/standup/2026-08-02-dayrun.md`. Carried into the day:
+pkg150 resumed mid-implementation, pkg156 just dispatched, pkg165/pkg166
+queued.
+
+<!-- finalized 2026-08-02 -->
+<!-- finalized -->

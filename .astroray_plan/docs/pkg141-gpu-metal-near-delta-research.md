@@ -7,6 +7,17 @@
 > setup. The two measurements are reconciled by **pkg158** (Step 0,
 > scene-controlled re-measure with `applyGamma` stated on both legs) — read
 > its outcome before citing either number.
+>
+> **✅ RECONCILED (2026-08-02, pkg158 Step 0):** the 0.60–0.77 near-delta figure
+> is **SUPERSEDED**. Re-measured on one build (SHA `b036ac93`, post-#518/#523/
+> pkg160/pkg163), the pkg141 scene (= `tests/test_pkg123_...`) reads near-delta
+> GPU/CPU **0.924–0.949 linear** with no near-delta cliff (uniform 0.92–0.98
+> across the full roughness sweep), confirming the #523 verifier's ~1.0 regime.
+> The 0.60–0.77 was a genuine earlier code-state number moved to ~1.0 by the
+> #518→#523 fixes. Only a mild uniform ~5–8% GPU-dim (within [0.90,1.10], not
+> near-delta-specific) remains. See
+> `.astroray_plan/packages/pkg158-gpu-metal-remainder-reconciliation.md`
+> "Step 0 results".
 
 **Package:** pkg141-gpu-near-delta-disney-metal-brightness
 **Constraint:** Lane B, parallel with a `plugins/materials/disney.cpp` chain

@@ -1,5 +1,18 @@
 # Astroray Status
 
+**In progress — overnight 2026-08-01 (running, not yet closed out):** see
+`.astroray_plan/docs/standup/2026-08-01-overnight.md` for live status.
+**pkg163** spectral-vs-RGB metal colour-space parity landed (PR #533,
+`b036ac9`) — GPU metal now builds per-wavelength via `gpu_metal_eval_spectral`,
+retiring pkg160's roughness-0.9-only `[0.95,1.10]` band exception; standard
+`[0.95,1.05]` restored at all roughnesses; decisive chromatic-spread control
+green at 0.0025 seed-averaged (bound ≤0.01) after an initial single-seed HW
+FAIL (0.0133) was diagnosed as MC noise in the statistic and re-measured at
+2560 spp × 4 seeds with the bound unchanged. **In flight, not pushed:** PR #534
+(pkg120) HW-FAILED its analytic form-factor gate — diagnosed as a real
+solid-angle-dependent transport bug in the BSDF-sampled emitter-hit leg; fix in
+progress in the worktree, awaiting sign-off.
+
 **2026-07-26 (round closeout, overnight 2026-07-25 → day 2026-07-26): 6 PRs
 merged (#525–#530), no open PRs at closeout.** First full round entirely
 downstream of pkg55 Phase C's finale (PR #524, 2026-07-25 — both megakernels
@@ -251,10 +264,10 @@ anything — so the module failed to collect on any checkout without a build
 ### Specs filed / re-scoped this round
 
 **pkg159** (filed and shipped same round), **pkg160** (filed and shipped),
-**pkg161** (filed and shipped), **pkg163 NEW** (spectral-vs-RGB compensation
+**pkg161** (filed and shipped), **pkg163** (spectral-vs-RGB compensation
 colour-space parity — metal-only defect, but the RGB→spectral seam it sits on
-is not metal-only; owns retiring pkg160's r=0.9 band exception; dispatchable
-now that pkg160 is on main), **pkg158 narrowed** (not closed — its Step-0
+is not metal-only; owned retiring pkg160's r=0.9 band exception; **shipped
+2026-08-02, PR #533**), **pkg158 narrowed** (not closed — its Step-0
 Disney-metal reconciliation still must run, but on a post-pkg160 SHA, since
 pkg160 changed the shared metal energy-compensation baseline), **pkg120** +
 **pkg88 Phases B/D** unblocked (stale "blocked on pkg55 Phase C" markers

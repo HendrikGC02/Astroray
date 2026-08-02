@@ -109,6 +109,44 @@ per-bounce factor. Convicting it requires a per-hit deterministic trace (per-pat
 bounce-count + throughput + escape, GPU vs CPU) — a focused instrumented build,
 NOT rushed (this session already hit one un-rebuilt-revert contamination error).
 
+## UPDATE 3 — per-hit trace: (B') is an ESCAPE-DISTRIBUTION / first-hit geometry difference, not a per-bounce transport term
+
+[pkg172-diag] device-printf (GPU env-miss) + fprintf (CPU env-miss), dumping the
+escape bounce# and throughput-at-escape, on the actual pkg156 scene (12×12, 64
+spp, #541 present; diag since removed). Escape throughput summed by bounce:
+
+| bounce | CPU Σthr | GPU Σthr | GPU/CPU | CPU events | GPU events |
+|---|---|---|---|---|---|
+| 0 (camera direct-miss) | 634.0 | 661.0 | 1.043 | 634 | 661 |
+| 1 (one diffuse bounce → escape) | 3204.3 | 3581.3 | **1.118** | 5769 | 6115 |
+| 2 | 148.9 | 157.0 | 1.055 | 1215 | 1331 |
+| 3 | 30.6 | 33.9 | 1.108 | 455 | 511 |
+| total | 4017.8 | 4433.3 | 1.103 | 8073 | 8618 |
+
+The divergence is DOMINATED by **bounce-1 escapes** (+11.8%), which splits into
+two geometric effects: GPU has ~6% MORE bounce-1-escape events (6115 vs 5769 —
+more rays escape to the background after one bounce) AND ~5.5% higher throughput
+per escape (0.586 vs 0.555). Since #541 makes per-surface throughput match
+(single-bounce wall is bit-clean), the higher per-escape throughput means GPU
+rays land on a BRIGHTER distribution of surfaces, and the extra events mean more
+rays escape after one bounce rather than hitting a second surface.
+
+**Both are camera-ray / bounce-ray GEOMETRY-SAMPLING differences (which surface
+is hit / whether the continuation ray escapes), NOT a spectral or per-bounce
+transport term.** This is the same family as the documented, accepted GPU
+camera-ray simplification (stage_init.cu: GPU uses a simplified lens/filter, not
+CPU std::mt19937 — pkg55 accepted a ≤4-ULP PostInit geometry difference). It
+persists at 8192 spp (the gate's [1.016]), so it is a systematic direction/hit
+bias, not sample jitter.
+
+**Implication:** (B') is likely NOT a surgical transport fix — it is CPU↔GPU
+geometry-sampling parity (camera-ray + BVH continuation-ray hit distribution).
+Fixing it means reconciling the GPU's ray generation / intersection with the CPU
+oracle, which touches the accepted ≤4-ULP simplification and the BVH. Recommend
+architect input before implementing: this is a parity-of-samplers question, not a
+one-line term, and may be a fundamental precision limit rather than a bug. pkg156
+stays 0.995. #541 must still merge (fixes the single-bounce component).
+
 ## Status
 
 - **(A) convicted** (epsilon; `2π·eps` math + `1e-6` probe → 0.500). Fix =

@@ -61,10 +61,26 @@ bit-identical CPU legs (0.497) even with the GPU `stage_advance` epsilon set to
 (0.9957) measures.** Fixing (A) alone does NOT restore pkg156; pkg156 needs (B).
 
 Cleared for (B): the cosine samplers are byte-identical (CPU
-`Vec3::randomCosineDirection` == GPU `gpu_randomCosineDir`) and GPU `f/pdf =
-albedo` exactly for the single diffuse closure lobe. (B) is therefore suspected in
-the GPU spectral env-apply / `gpu_spectrum_to_xyz` / accumulation, not the BSDF
-sample — next drill-down is a toXYZ A/B probe (pkg168-probe pattern).
+`Vec3::randomCosineDirection` == GPU `gpu_randomCosineDir`); GPU `f/pdf = albedo`
+exactly for the single diffuse closure lobe; CMF/toXYZ share the SAME
+`data/spectra/cie_cmf.inc` and MC formula; D65 norm matches (direct-bg render is
+clean); the contrib clamp is default-off (identity). Every component provably
+matches, yet the GPU is a stable ~0.4% low on one diffuse bounce.
+
+**New clue — (B) is ALBEDO-DEPENDENT** (single bounce, white env, GPU/CPU ratio):
+
+| albedo | GPU/CPU | abs deficit |
+|---|---|---|
+| 0.5 | 0.99589 | 0.00213 |
+| 0.8 | 0.99700 | 0.00252 |
+
+A pure throughput epsilon would give an albedo-INDEPENDENT fractional loss, so (B)
+is NOT a scalar epsilon — it is a spectral-shape / spectral-product / toXYZ-
+interaction effect that depends on the upsampled albedo spectrum's shape. Since
+every static component matches, convicting (B) to a line now requires per-hit GPU
+instrumentation ([pkg172-diag] kernel printf of throughput, envSpec, and the
+per-λ contribution + XYZ for one pixel/sample, diffed against the same on CPU) —
+a focused instrumented build, recommended as the next step. (B) owns pkg156.
 
 ## Status
 

@@ -96,8 +96,40 @@ pkg167 per architect verdict. Pre-existing non-target finding surfaced during
 verification: `light_tracer_caustic` (pkg106) is a CPU-only integrator with
 no GPU guard and renders silently near-black if forced onto GPU — filed by
 the architect as **pkg171** (`78218f6`, general CPU-only-integrator/GPU
-guard, backlog tier). **In flight:** pkg168 Step 2 and pkg170 (HIGH, GPU
-opaque Disney closure-recombination ~2× gain) both dispatched.
+guard, backlog tier). **PR #542:** **pkg170** done — the ~2× energy gain on
+**every** opaque Disney GPU material (metallic=0/transmission=0, the default
+class) is fixed: `eval` had summed raw lobe weights while the `pdf` summed
+normalized selection weights; fix weights each lobe by `wᵢ/W` (Veach
+one-sample MIS). Confirmed by lobe-count arithmetic (metallic sweep: 2 lobes
+1.975, 1 lobe 0.988, the difference exactly the extra lobe). Furnace
+1.975→0.979–0.987, all in `[0.92,1.03]`; CPU control and neighbours
+byte-unchanged; ships new GPU opaque-Disney furnace coverage closing the gap
+that let this survive undetected. RTX HW PASS bound to the exact head,
+visuals clean. **pkg168** Step 1 (tables exonerated) landed via PR #539;
+**Step 2 fixed the call-structure bug** it forked to (GPU diffuse shaded
+`upsample(albedo·cosθ/π)` vs CPU's `upsample(albedo)·cosθ/π`; saturated
+diffuse divergence up to 2.5%/channel, post-fix <0.02%) — **PR #541 is
+rebased onto main, docs-only conflicts resolved, targeted perf
+re-verification running, not yet merged.** Architect adjudication moved
+pkg156's 0.998 restoration OFF pkg168's definition of done: the
+decomposition exposed a third, triangle-geometry mechanism (uniform ~0.6%
+GPU-bright on triangles, achromatic) now owned by **pkg172**
+(`pkg172-triangle-transport-bias.md`) — **pkg156's BLOCKED-ON pointer moved
+from pkg168 to pkg172.** pkg172 itself was rescoped by an architect verdict
+into two effects: **(A)** a universal `f/(pdf+1e-3)` epsilon energy loss
+(~0.6%/bounce diffuse, convicted with exact 2π·ε arithmetic) — fix contract
+written but **DEFERRED to a supervised round**, since the fix brightens
+every diffuse render and needs a coordinated repo-wide gate re-pin batch
+with architect sign-off; **(B)** a GPU-only ~0.4% residual upstream of the
+throughput update, which is what pkg156's gate actually measures — hunt in
+progress, fixing (A) alone will not move pkg156's gate (it cancels in the
+GPU/CPU ratio).
+
+**Infra note (owner/infra):** two worktrees tonight carried a stale
+`CMAKE_CUDA_ARCHITECTURES=52` CMakeCache (repo specifies `75;86;89`) — a
+systemic worktree build-seeding issue. Verifiers now check this manually
+(recorded in memory); `build_cuda_worktree.bat` should validate/purge the
+cache automatically.
 
 **2026-07-26 (round closeout, overnight 2026-07-25 → day 2026-07-26): 6 PRs
 merged (#525–#530), no open PRs at closeout.** First full round entirely

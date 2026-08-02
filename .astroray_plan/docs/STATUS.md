@@ -56,8 +56,20 @@ rough — hidden by the gamma clamp for its entire life. Quarantined as 3
 `xfail(strict=False)` cases owned by **pkg169** (new spec, `2565455`, **HIGH
 priority**; its fix PR must remove the xfail markers). Also filed this cycle:
 **pkg168** (RGB→spectral upsampling parity, `99065b1` — owns restoring
-pkg156's 0.998 gate). **In flight:** PR #537 (pkg156) in the merge queue with
-HW PASS.
+pkg156's 0.998 gate). **PR #537:** **pkg156** partial fix + escalation —
+pkg120's two-sided-MIS `w_B` leg was firing unconditionally in naive mode
+(`enableNEE=false`), a real regression over-brightening every naive GPU
+render with a visible emitter and *worsening* pkg156's bounce-2 residual
+rather than fixing it. Gated on `enableNEE` (NEE path byte-unchanged, pkg120's
+own gates re-verified green); restores depth-4 SSIM 0.9955, matching the CPU
+oracle and the pre-pkg120 wavefront. Gate honestly **kept at 0.995, not
+re-pinned to 0.998** — the remaining ~1.4% is the RGB→spectral upsampling
+parity gap (channel-asymmetric even under a neutral background, the same
+mechanism as pkg153's R-drift), BLOCKED-ON pkg168. Independent HW re-verify
+PASS: SSIM 0.99549, bit-identity exact, C2 residuals <7.5e-08, visual clean.
+Lesson recorded in pkg120's spec: "mirror the CONDITION, not just the term."
+**In flight, just dispatched:** **pkg169** (HIGH, Disney transmission energy
+gain) and **pkg168** (upsampling parity Step 1).
 
 **2026-07-26 (round closeout, overnight 2026-07-25 → day 2026-07-26): 6 PRs
 merged (#525–#530), no open PRs at closeout.** First full round entirely

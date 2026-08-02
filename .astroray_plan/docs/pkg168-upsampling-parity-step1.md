@@ -1,7 +1,7 @@
 # pkg168 Step 1 — CPU↔GPU RGB→spectral upsampling parity: A/B verdict
 
 **Date:** 2026-08-02 (RTX 5070 Ti)
-**Branch:** pkg168-rgb-spectral-upsampling-parity
+**Branch:** pkg168-rgb-spectral-upsampling-parity (PR #539)
 **Founding evidence:** pkg156 residual decomposition post-#537 — depth-4 wavefront
 naive-mode GPU/CPU ratio **[1.014, 1.007, 1.014]**, SSIM 0.9955 vs the
 aspirational 0.998, channel-asymmetric, bounce-2 onset.

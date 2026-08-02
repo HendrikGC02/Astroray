@@ -1350,14 +1350,38 @@ __device__ inline float gpu_closure_pdf(
 __device__ inline GVec3 gpu_closure_graph_eval(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
-    GVec3 sum(0.0f);
+    // pkg170: weight each lobe by its SELECTION probability (weight_i / totalWeight),
+    // matching gpu_closure_graph_pdf's normalization, so the closure-graph sampler's
+    // overwrite s.f = eval, s.pdf = pdf forms a correct one-sample-MIS estimator of
+    // the MIXTURE BSDF (Veach 1997 thesis Eq. 9.15 one-sample model / balance
+    // heuristic; PBRT-v4 §9.5 & §14.3.4 "BSDF::Sample_f" mixture sampling). The eval
+    // previously summed RAW weights (Sum w_i f_i) while the pdf summed NORMALIZED
+    // weights (Sum (w_i/W) pdf_i); f_total/pdf_total then estimated a W-inflated
+    // integrand. For opaque Disney (diffuse w=1 + GGX-conductor w=1, W=2, each lobe
+    // ~unit albedo in a white furnace) that is a flat ~1.975 energy gain across
+    // roughness (measured 78218f6 RTX 5070 Ti), while CPU's monolithic Disney
+    // conserves (~0.95). This is the opaque twin of pkg169's transmission-path
+    // recombination fix (which corrected the overwritten pdf's Fresnel orientation;
+    // this corrects the overwritten eval's lobe weighting). Single-lobe graphs
+    // (plain metal/dielectric, Disney glass, metallic=1 Disney) have W = weight_1 so
+    // (w_1/W) = 1 -> byte-unchanged. Normalize over the SAME sampleable set the pdf
+    // uses so the two are consistent.
+    float totalWeight = 0.0f;
     int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
+    for (int i = 0; i < count; ++i) {
+        const GMaterialClosure& closure = mat.closures[i];
+        if (gpu_closure_is_sampleable(closure.type))
+            totalWeight += fmaxf(closure.weight, 0.0f);
+    }
+    if (totalWeight <= 0.0f) return GVec3(0.0f);
+
+    GVec3 sum(0.0f);
     for (int i = 0; i < count; ++i) {
         const GMaterialClosure& closure = mat.closures[i];
         if (closure.type != GCLOSURE_EMISSION)
             sum += gpu_closure_eval(mat, closure, rec, wo, wi);
     }
-    return sum;
+    return sum * (1.0f / totalWeight);
 }
 
 // pkg163: does this closure graph carry a metal (non-Disney) conductor lobe?
@@ -1381,8 +1405,23 @@ __device__ inline GSampledSpectrum gpu_closure_graph_eval_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
     const GSampledWavelengths& wl)
 {
-    GSampledSpectrum sum(0.0f);
+    // pkg170: same selection-probability normalization as the RGB
+    // gpu_closure_graph_eval (see there) so f_total/pdf_total is a one-sample-MIS
+    // estimator of the mixture BSDF. This spectral path is only reached for
+    // metal-carrying graphs (gpu_closure_graph_has_metal); those are single-lobe
+    // today (W = weight_1 -> unchanged), but the normalization is kept in lockstep
+    // with the RGB twin so a future multi-lobe metal graph cannot re-open this
+    // bug class.
+    float totalWeight = 0.0f;
     int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
+    for (int i = 0; i < count; ++i) {
+        const GMaterialClosure& closure = mat.closures[i];
+        if (gpu_closure_is_sampleable(closure.type))
+            totalWeight += fmaxf(closure.weight, 0.0f);
+    }
+    if (totalWeight <= 0.0f) return GSampledSpectrum(0.0f);
+
+    GSampledSpectrum sum(0.0f);
     for (int i = 0; i < count; ++i) {
         const GMaterialClosure& closure = mat.closures[i];
         if (closure.type == GCLOSURE_EMISSION || closure.weight <= 0.0f) continue;
@@ -1393,7 +1432,7 @@ __device__ inline GSampledSpectrum gpu_closure_graph_eval_spectral(
             sum += gpu_rgbToSampledSpectrum(
                 gpu_closure_eval(mat, closure, rec, wo, wi), wl, mat.spectralMode);
     }
-    return sum;
+    return sum * (1.0f / totalWeight);
 }
 
 __device__ inline float gpu_closure_graph_pdf(

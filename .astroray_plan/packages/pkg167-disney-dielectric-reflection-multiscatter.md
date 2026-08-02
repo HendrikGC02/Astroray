@@ -93,6 +93,26 @@ two reviewable steps with the intermediate furnace numbers recorded.
       with the citations above, the η-dependence decision (table vs analytic
       fit), and the composition rule vs `ggxGlassCompensationFactor`.
 
+## Inherited quarantine — pkg169's CPU ior1.5/R=1.0 transmission-furnace cell (architect disposition, 2026-08-02)
+
+pkg169's single-scatter fixes leave ONE converged out-of-band cell: CPU Disney
+transmission furnace, ior 1.5, R=1.0 reads **0.903** vs floor 0.92 (256/1024
+spp agree; single-scatter alone 0.717, the pkg151 comp factor recovers to
+0.903; the GPU twin passes at 0.930 via the one-sample-MIS estimator). The
+residual is near-TIR internal-reflection energy at maximum roughness — the
+reflection-lobe multiscatter deficit at its worst-case corner, i.e. exactly
+this package's family. Architect verdict (pkg169 fork): the cell is
+quarantined `xfail(strict=False)` with a reason string citing THIS package —
+kept in the grid so it stays measured every run, no band widening, no comp
+tinkering inside pkg169.
+
+**Binding acceptance addition:** this package's fix must RETIRE that xfail —
+the cell returns to the standard `[0.92, 1.03]` linear band and the marker is
+removed in this package's PR, proven under `--runxfail` (memory
+`xfail-gated-features-must-unxfail`). If the compensation term lands and the
+cell still fails, that is an escalation to the architect with the residual
+decomposition — not a re-quarantine.
+
 ## Relationship note — pkg129 (do not merge the scopes)
 
 pkg129 owns the **metal** reflection-lobe LUT unification (Turquin tables via

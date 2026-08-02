@@ -108,22 +108,49 @@ that let this survive undetected. RTX HW PASS bound to the exact head,
 visuals clean. **pkg168** Step 1 (tables exonerated) landed via PR #539;
 **Step 2 fixed the call-structure bug** it forked to (GPU diffuse shaded
 `upsample(albedo·cosθ/π)` vs CPU's `upsample(albedo)·cosθ/π`; saturated
-diffuse divergence up to 2.5%/channel, post-fix <0.02%) — **PR #541 is
-rebased onto main, docs-only conflicts resolved, targeted perf
-re-verification running, not yet merged.** Architect adjudication moved
-pkg156's 0.998 restoration OFF pkg168's definition of done: the
-decomposition exposed a third, triangle-geometry mechanism (uniform ~0.6%
-GPU-bright on triangles, achromatic) now owned by **pkg172**
-(`pkg172-triangle-transport-bias.md`) — **pkg156's BLOCKED-ON pointer moved
-from pkg168 to pkg172.** pkg172 itself was rescoped by an architect verdict
-into two effects: **(A)** a universal `f/(pdf+1e-3)` epsilon energy loss
-(~0.6%/bounce diffuse, convicted with exact 2π·ε arithmetic) — fix contract
-written but **DEFERRED to a supervised round**, since the fix brightens
-every diffuse render and needs a coordinated repo-wide gate re-pin batch
-with architect sign-off; **(B)** a GPU-only ~0.4% residual upstream of the
-throughput update, which is what pkg156's gate actually measures — hunt in
-progress, fixing (A) alone will not move pkg156's gate (it cancels in the
-GPU/CPU ratio).
+diffuse divergence up to 2.5%/channel, post-fix <0.02%). Architect
+adjudication moved pkg156's 0.998 restoration OFF pkg168's definition of
+done: the decomposition exposed a third, triangle-geometry mechanism now
+tracked through **pkg172 → pkg173** (below).
+
+**pkg172 final scope (PRs #543/#544, `11e3f6f`/`c1d0cbe`).** The original
+"triangle-specific" premise is FALSIFIED. Of the two-effect decomposition,
+**(A)** — a universal `f/(pdf+1e-3)` epsilon energy loss, ~0.628%/bounce,
+confirmed exact via `2π·ε` arithmetic — is CONVICTED and is now pkg172's
+**sole remaining scope**; its fix brightens every diffuse render on all
+legs and is **DEFERRED to a supervised round** with a coordinated,
+architect-signed-off, repo-wide gate re-pin batch (owner action item,
+already recorded). **(B)**, the GPU-only residual, is CONVICTED as **(B')**
+and TRANSFERRED to new spec **pkg173** (`6261a2c` — bounce-1
+geometry-sampling parity): with PR #541 present, pkg156's residual is
+dominated by bounce-1 escapes, decomposed into a +6% escape-event RATE
+difference (BVH continuation-ray visibility) and +5.5%
+throughput-per-escape (camera-ray surface distribution) — both are
+**expectation** mismatches between unbiased legs (RNG streams move
+variance, not expectation), hence discrete fixable defects, not noise.
+pkg173 now holds pkg156's 0.998 restoration clause, with an evidence-gated
+fallback if both scalar parities land and SSIM still falls short. pkg173 is
+dispatchable once PR #541 merges (its fix is the floor pkg173 measures
+against).
+
+**Process win worth recording:** PR #544's merge caught a **substantive
+docs conflict** — main's version of the pkg172 diagnosis table was the
+*contaminated* one (stale-.pyd data), and the branch's version was
+canonical; the pr-merger caught and resolved it correctly rather than
+mechanically taking "ours."
+
+**#541 status: correctness verified, but a controlled A/B convicted its
+implementation of a 1.6× wavefront perf regression** (main HEAD 0.840s →
+with #541, 1.370s). A perf-preserving restructure (same single-upsample
+correctness structure, shape-correct) is in progress, with sign-off and a
+full re-gate to follow. **pkg173 and pkg168's own closeout both hang on
+#541 landing.** If it lands tonight it is the final ship of this run; if
+not, it is the top of next session's queue.
+
+**Architect round-close refresh (`f64610d`):** `NEXT_STAGE_REPORT.md` §2/§3
+requeued for the correctness cascade (in order: #541 resolution, pkg172(A)
+supervised, pkg173, pkg167, pkg165, pkg129-narrowed) and five newly-earned
+rules recorded.
 
 **Infra note (owner/infra):** two worktrees tonight carried a stale
 `CMAKE_CUDA_ARCHITECTURES=52` CMakeCache (repo specifies `75;86;89`) — a

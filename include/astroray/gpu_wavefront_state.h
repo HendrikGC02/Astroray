@@ -354,6 +354,7 @@ void launchStageIntersectQueued(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     bool              useLuminanceOutput,  // pkg55-C3 (was missing)
+    bool              enableNEE,        // pkg156: gates the pkg120 two-sided-MIS leg
     float             clampDirect, float clampIndirect,  // pkg157
     // pkg120: light data for the two-sided-MIS emissive-hit reconstruction.
     const ::GLight*   d_lights, int num_lights, float total_light_power,

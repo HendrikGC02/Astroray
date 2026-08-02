@@ -105,6 +105,7 @@ __device__ int intersectPathSlot(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     bool              useLuminanceOutput,
+    bool              enableNEE,        // pkg156: gates the pkg120 two-sided-MIS leg
     float             clampDirect, float clampIndirect,  // pkg157
     const ::GLight*   lights, int numLights, float totalLightPower,  // pkg120
     GLightTreeView    lightTree);
@@ -281,7 +282,7 @@ __global__ void stageRestirPrimaryKernel(
     intersectPathSlot(p, state, hitBufs, tlas, instances, blas, bvhNodes,
                       prims, tris, spheres, motionVerts, materials, envMap,
                       backgroundColor, hasBackgroundColor, worldMaxBounces,
-                      useLuminanceOutput, clampDirect, clampIndirect,
+                      useLuminanceOutput, /*enableNEE=*/true, clampDirect, clampIndirect,
                       /*lights=*/nullptr, /*numLights=*/0,
                       /*totalLightPower=*/0.f, GLightTreeView{});
 }

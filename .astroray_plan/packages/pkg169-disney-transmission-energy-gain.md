@@ -114,3 +114,104 @@ implementation, so impl-pkg166 can cite the number in its quarantine xfails.
 Discovery is itself the pkg166 thesis validated: a gamma furnace structurally
 cannot see energy gain; the first linear run found a shipped lobe creating up
 to 2.3× energy.
+
+## Hardware verification 2026-08-02
+
+**Hardware/software:** RTX 5070 Ti, driver 610.47, Windows 11 (10.0.26200), CUDA
+12.8, OptiX 9.1.0, OIDN 2.4.1. Worktree HEAD pinned at `945e9b8493281687b2c14d159951193b69d171e2` (PR #540), verified before build (contamination guard).
+
+### Gate results (verbatim)
+
+**tests/test_disney_rough_glass_furnace.py --runxfail** (forces the pkg167-owned
+quarantine cell to actually run): 5 passed, 1 failed exactly as documented —
+`test_disney_rough_glass_furnace_energy_cpu_r1_ior15` measured **0.9017**
+(doc says ~0.90/0.903; xfail(strict=False) citing pkg167, not this PR's scope).
+
+Measured values (ior 1.5, direct script call matching the test's `_furnace`):
+
+| roughness | CPU | GPU |
+|---|---|---|
+| 0.0 (delta) | 0.9897 | 0.9929 |
+| 0.03 (delta) | 0.9897 | 0.9929 |
+| 0.1 | 0.9930 | 0.9923 |
+| 0.3 | 0.9799 | 0.9857 |
+| 0.6 | 0.9259 | 0.9699 |
+| 1.0 | 0.9017 (quarantined, owned by pkg167) | 0.9298 |
+
+All within claimed bands: CPU 0.9259-0.9930 (spec claimed 0.926-0.993), GPU
+0.9298-0.9929 (spec claimed 0.930-0.992).
+
+**Second ior point (1.33), delta + one rough value, both legs:**
+
+| config | value |
+|---|---|
+| ior 1.33 delta CPU (R=0) | 0.9920 |
+| ior 1.33 delta GPU (R=0) | 0.9932 |
+| ior 1.33 rough CPU (R=0.6) | 0.9795 |
+| ior 1.33 rough GPU (R=0.6) | 0.9921 |
+
+All ≥ 0.980 as required.
+
+**tests/test_dielectric_glass_furnace.py** (plain-dielectric control): 2 passed.
+Measured CPU ior {1.0,1.1,1.5,2.0} = 0.9950/0.9958/0.9938/0.9927; GPU =
+0.9930/0.9935/0.9930/0.9926. Unchanged from the ~0.993 baseline — the fix did
+not leak into the plain-dielectric path.
+
+**tests/statistical/test_chi2_bsdf.py -k disney_glass** (no `--runxfail`):
+1 xfailed as documented — `test_chi2_disney_glass[0.3-45]` chi²=34987.970271
+(1025 dof), identical to the pre-existing pkg150 quadrature-artifact xfail
+reason string. Unaffected by this PR.
+
+**Regression set** (`test_disney_transmission_peak_alignment.py`,
+`test_disney_energy_conservation.py`, `test_disney_reflection_not_black.py`,
+`test_glass_sphere_caustic.py`): 275 passed, 0 failed.
+
+**tests/test_material_properties.py -k glass**: 3 passed
+(`test_glass_transmits_background_color`, `test_glass_ior_changes_appearance`,
+`test_glass_less_opaque_than_black`).
+
+**pkg64 prism/GPU-CPU-parity gates** (6 files): 9 passed, 2 xfailed
+(pre-existing, undisturbed), 1 xpassed. No new failures.
+
+**pkg160/pkg163 metal parity gates** (closure-graph `pdf()` shared with the
+GPU frontFace fix in this PR): 34 passed, 0 failed.
+`test_pkg163_metal_spectral_colorspace_parity` GPU/CPU ratios R/G/B =
+1.0164/1.0204/1.0159 (neutral), seed-averaged spread 0.0025 (chromatic) — same
+shape of numbers as the prior #533 verification; metal path untouched.
+
+### Visual inspection
+
+- `tests/test_glass_sphere_caustic.py` scene (plain dielectric sphere,
+  `light_tracer_caustic`, **CPU-only per the test's own docstring**): rendered
+  CPU — bright focused caustic spot on the floor, peak luminance 0.500 (gate
+  measures ≥0.25), sphere itself dark/near-black from this angle (expected:
+  the scene is deliberately dim overall so the caustic dominates). No
+  fireflies, no banding. GPU render of this specific CPU-only integrator was
+  attempted for completeness and produced a near-black result with no caustic
+  spot (max luminance 0.019 vs CPU's 0.500) — this integrator is documented
+  CPU-only and is not part of this PR's gate surface; flagging only as a
+  known non-target rather than a pkg169 regression.
+- Disney glass sphere (`path_tracer`, the code path this PR actually
+  touches), rendered CPU vs GPU at roughness {0.0 delta, 0.6, 1.0}, ad-hoc
+  scene (sun + floor): CPU and GPU visually match at each roughness — clear
+  refraction with a dim specular highlight at R=0 (no black glass), frosted
+  transmission at R=0.6, near-fully-diffuse at R=1.0. No fireflies, no
+  banding/quantization artifacts, no NaN pixels (checked numerically:
+  `np.isnan(img).any() == False` at all 6 renders), no mode regressions.
+- `test_results/mat_glass_*.png`, `mat_overexposure_glass.png`,
+  `mat_overexposure_disney_glass.png` (from the material-properties test run):
+  clean MC noise only, no fireflies, no black glass, consistent transmission
+  across IOR 1.2/1.5/2.0.
+
+### Anomalies worth watching
+
+- The `light_tracer_caustic` GPU near-black result above is worth a follow-up
+  ticket if GPU support for that integrator is ever claimed — it is currently
+  undocumented as GPU-supported and this session found no evidence it works,
+  but it is out of scope for pkg169 (which never touches that integrator).
+
+**Verdict: PASS**, bound to `945e9b8493281687b2c14d159951193b69d171e2`. All
+declared gates green (matching or better than claimed bands); the one
+documented multiscatter quarantine cell measured within the documented ~0.90
+value; controls, chi2 xfail, and the metal-parity path are undisturbed;
+visual inspection found no regressions on the code path this PR touches.

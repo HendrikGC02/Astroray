@@ -104,10 +104,17 @@ did NOT re-pin:
    GPU-tables RGB→spectral upsampling parity gap** — the same mechanism family
    as pkg153's R-drift.
 
-**BINDING: the 0.995 → 0.998 SSIM restoration is BLOCKED-ON pkg168**
-(`pkg168-rgb-spectral-upsampling-parity.md`, filed 2026-08-02, owns the
-upsampling-parity fix). Do NOT re-dispatch this package for the remainder, and
-NO future run may re-tighten the gate on a lucky draw — the gate returns to
-0.998 only in (or immediately after, with measurement) pkg168's fix PR. This
-supersedes fix-contract item 3 above: the escalation it required has happened
-and this is the architect's disposition.
+**BINDING: the 0.995 → 0.998 SSIM restoration is BLOCKED-ON pkg172**
+(`pkg172-triangle-transport-bias.md`; pointer updated 2026-08-02 from pkg168
+after PR #541's decomposition — pkg168 fixed a real chroma-dependent
+upsample-shape divergence, sphere-isolated ratios now exactly 1.000, but the
+pkg156 scene is dominated by a third, triangle-geometry mechanism: uniform
+~0.6% GPU-bright on triangles, achromatic, single-bounce,
+background-independent). Do NOT re-dispatch this package for the remainder,
+and NO future run may re-tighten the gate on a lucky draw — the gate returns
+to 0.998 only in (or immediately after, with measurement) pkg172's fix PR.
+This supersedes fix-contract item 3 above: the escalation it required has
+happened and this is the architect's disposition. Residual stack for the
+record: (1) pkg120 unconditional two-sided term — fixed #537; (2)
+upsample-argument shape divergence — fixed #541 (pkg168); (3) triangle
+transport bias — pkg172, open.

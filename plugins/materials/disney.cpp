@@ -365,7 +365,17 @@ class DisneyPlugin : public Material {
         // PBRT-v4: radiance transport correction (Astroray is a radiance path tracer)
         ft /= (etap * etap);
 
-        float scale = (1.0f - metallic_) * transmission_ * ft;
+        // pkg169: fold in the incident cosine |N.wi|. The integrator forms the
+        // throughput as f/pdf WITHOUT a separate cosine multiply (delta events
+        // fold it away; the diffuse/specular reflection lobes in eval() below
+        // supply it via the `* NdotL` at the end of eval()). This transmission
+        // branch returns early from eval() and never reached that multiply, and
+        // `ft` is the PBRT-v4 per-steradian BTDF D(1-F)G|HdotI HdotO|/(|cosI cosO|
+        // denom^2)/etap^2 (no cosine). The rendering-equation |cosI| was therefore
+        // missing, inflating rough-transmission throughput by 1/|cosI| (E[1/|cosI|]
+        // > 1 over the furnace cone => energy gain; gamma clamped it to 1.0). With
+        // it, f*|cosI|/pdf collapses to the Heitz-2018 VNDF weight G1(cosI)/etap^2.
+        float scale = (1.0f - metallic_) * transmission_ * ft * std::abs(cosI);
         Vec3 result = baseColor_ * scale;
 
         // pkg151: rough-transmission multi-scatter compensation (Cycles glass
@@ -771,7 +781,16 @@ public:
 
             if (cannotRefract || dist(gen) < fresnel) {
                 s.wi = n * (2 * wo.dot(n)) - wo;
-                s.f = Vec3(1);
+                // pkg169: the delta-reflection BSDF value must carry the Fresnel
+                // reflectance R so it cancels the R in the pdf (PBRT-v4 §9.5
+                // DielectricBxDF::Sample_f: reflection f = R/|cosThetaI|,
+                // pdf = pr/(pr+pt) = R; "the BSDF value and sample probability
+                // contain the common factor R ... which cancels when their ratio
+                // is taken"). Setting f = 1 dropped R from f while the pdf kept it,
+                // over-counting reflection throughput by 1/R and creating energy in
+                // the white furnace (linear 1.784 at R=0; gamma clamped it to 1.0).
+                // TIR is deterministic (R=1), so f = 1 there.
+                s.f = Vec3(cannotRefract ? 1.0f : fresnel);
                 // pkg118 Part A: a forced-TIR reflection is deterministic (selection
                 // probability 1), so pdf = transmission_; only a Fresnel-roulette-selected
                 // reflection keeps the `fresnel` factor. PBRT-v4 §9.5 DielectricBxDF::Sample_f:
@@ -783,7 +802,13 @@ public:
                 Vec3 perp = (wo - n * cosTheta) * (-eta);
                 Vec3 para = n * (-std::sqrt(std::abs(1 - perp.length2())));
                 s.wi = (perp + para).normalized();
-                s.f = baseColor_ * (eta * eta);
+                // pkg169: the delta-transmission BSDF value must carry the Fresnel
+                // transmittance T = (1 - fresnel) so it cancels the T in the pdf
+                // (PBRT-v4 §9.5: transmission f = T/|cosThetaI| /etap^2 (radiance),
+                // pdf = pt/(pr+pt) = T). `eta*eta` is the radiance factor 1/etap^2
+                // (eta = etaI/etaT). Dropping the (1-fresnel) factor over-counted
+                // transmission throughput by 1/T.
+                s.f = baseColor_ * (eta * eta) * (1.0f - fresnel);
                 s.pdf = (1 - fresnel) * transmission_;
             }
             // Smooth/failed rough samples use a delta glass event so spectral
@@ -861,7 +886,15 @@ public:
             }
         }
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
-            bool entering = rec.normal.dot(wo) > 0.0f;
+            // pkg169: entering MUST come from rec.frontFace, not sign(rec.normal.dot(wo))
+            // (always > 0 -- rec.normal is the front-facing normal). For an EXIT event
+            // this computed the air->glass Fresnel (small) instead of glass->air (~1
+            // near TIR), so the reflection-branch pdf was far too small for internal
+            // reflections. Mirrors the pkg154 frontFace fix in roughTransmission{Eval,
+            // Pdf} and sample()'s own etaI/etaT. The CPU furnace uses sample()'s inline
+            // pdf directly (no closure-graph overwrite) so this did not affect it, but
+            // it is wrong for NEE/MIS and must match the GPU twin (gpu_disney_pdf).
+            bool entering = rec.frontFace;
             float etaI = entering ? 1.0f : ior_;
             float etaT = entering ? ior_ : 1.0f;
             // std::abs() matches sample()'s inline computation (disney.cpp ~431:

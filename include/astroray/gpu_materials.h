@@ -793,7 +793,14 @@ __device__ inline GVec3 gpu_disney_roughTransmissionEval(
     // PBRT-v4: radiance transport correction (Astroray is a radiance path tracer)
     ft /= (etap * etap);
 
-    float scale = (1.f - mat.metallic) * mat.transmission * ft;
+    // pkg169: fold in the incident cosine |N.wi| (CPU twin: disney.cpp
+    // roughTransmissionEval). The integrator forms throughput as f/pdf with no
+    // separate cosine multiply; the reflection lobes supply it via `* NdotL` in
+    // eval(), but this transmission branch never gets one and `ft` is the
+    // per-steradian PBRT-v4 BTDF (no cosine). Omitting |cosI| inflated rough
+    // transmission by 1/|cosI| (energy gain; gamma clamped it). With it, the
+    // weight collapses to the Heitz-2018 VNDF form G1(cosI)/etap^2.
+    float scale = (1.f - mat.metallic) * mat.transmission * ft * fabsf(cosI);
     GVec3 result = mat.baseColor * scale;
 
     // pkg151: rough-transmission multi-scatter compensation (Cycles glass
@@ -1092,7 +1099,15 @@ __device__ inline GBSDFSample gpu_disney_sample(
 
         if (cannotRef || gpu_rng_uniform(rng) < fresnel) {
             s.wi  = n * (2.f * wo.dot(n)) - wo;
-            s.f   = GVec3(1.f);
+            // pkg169: the delta-reflection BSDF value must carry the Fresnel
+            // reflectance R so it cancels the R in the pdf (PBRT-v4 §9.5
+            // DielectricBxDF::Sample_f). Setting f = 1 dropped R from f while the
+            // pdf kept it, over-counting reflection by 1/R. This delta branch is
+            // the fallthrough target for rough-glass VNDF samples that fail (near
+            // 100% at high roughness -- pkg138), so the omission created energy in
+            // the GPU rough furnace, rising with roughness. TIR is deterministic
+            // (R=1), so f = 1 there. CPU twin: disney.cpp sample() delta branch.
+            s.f   = GVec3(cannotRef ? 1.f : fresnel);
             // pkg118 Part A: forced-TIR reflection is deterministic (selection prob 1),
             // so pdf = transmission (not fresnel*transmission). PBRT-v4 §9.5. Mirrors CPU
             // disney.cpp forced-TIR fix; keeps the bespoke RGB GPU path in lockstep.
@@ -1101,7 +1116,10 @@ __device__ inline GBSDFSample gpu_disney_sample(
             GVec3 perp = (wo - n*cosTheta) * (-eta);
             GVec3 para = n * (-sqrtf(fabsf(1.f - perp.length2())));
             s.wi  = (perp + para).normalized();
-            s.f   = mat.baseColor * (eta*eta);
+            // pkg169: delta-transmission f must carry T = (1 - fresnel) so it
+            // cancels the T in the pdf (PBRT-v4 §9.5; eta*eta is the radiance
+            // factor 1/etap^2). CPU twin: disney.cpp sample() delta branch.
+            s.f   = mat.baseColor * (eta*eta) * (1.f - fresnel);
             s.pdf = (1.f - fresnel) * mat.transmission;
         }
         s.isDelta = true;
@@ -1182,7 +1200,17 @@ __device__ inline float gpu_disney_pdf(
         }
     }
     if (mat.transmission > 0.f && mat.roughness > 0.03f) {
-        bool entering = rec.normal.dot(wo) > 0.f;
+        // pkg169: entering MUST come from rec.frontFace, not sign(rec.normal.dot(wo))
+        // (which is always > 0 -- rec.normal is the front-facing normal). For an
+        // EXIT event (frontFace=false) the old test computed the air->glass Fresnel
+        // (small) instead of glass->air (~1 near TIR), so this reflection-branch pdf
+        // was far too small for internal reflections. The delta/eval path already
+        // uses frontFace (sample()'s etaI/etaT; roughTransmission{Eval,Pdf} per
+        // pkg154). The closure-graph sampler OVERWRITES the correct sampler pdf with
+        // this gpu_disney_pdf, so the too-small internal-reflection pdf inflated
+        // f/pdf up to ~20x per event -> the GPU rough-glass furnace energy gain.
+        // CPU twin: disney.cpp pdf().
+        bool entering = rec.frontFace;
         float etaI = entering ? 1.f : mat.ior;
         float etaT = entering ? mat.ior : 1.f;
         // fabsf() matches gpu_disney_sample's inline computation and CPU pdf()

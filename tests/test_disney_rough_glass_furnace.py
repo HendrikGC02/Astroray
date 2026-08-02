@@ -97,7 +97,11 @@ _DISNEY_GLASS_ENERGY_GAIN = (
 )
 
 
-@pytest.mark.xfail(reason=_DISNEY_GLASS_ENERGY_GAIN, strict=False)
+# pkg169 (2026-08-02) un-xfail: the delta-glass energy gain is fixed. The delta
+# reflection/transmission f dropped the Fresnel common factor R/T (kept in the pdf,
+# so f/pdf did not cancel) — PBRT-v4 §9.5 DielectricBxDF::Sample_f. Fixed in
+# disney.cpp sample(); R=0 furnace 1.784 -> 0.990. See
+# .astroray_plan/docs/pkg169-transmission-energy-gain-findings.md.
 def test_disney_smooth_glass_furnace_cpu():
     vals = {R: _furnace(R, spp=128) for R in _SMOOTH}
     bad = {R: v for R, v in vals.items() if not (0.95 <= v <= 1.02)}
@@ -118,7 +122,14 @@ def test_disney_rough_glass_furnace_converges():
     # Disney-glass energy-gain finding). Convergence itself holds regardless.
 
 
-@pytest.mark.xfail(reason=_DISNEY_GLASS_ENERGY_GAIN, strict=False)
+# pkg169 (2026-08-02) un-xfail: the GPU rough-glass energy gain (up to 2.296) is
+# fixed. Root cause was NOT the transmission weight formula: disney glass lowers to
+# a closure graph whose sampler overwrites the correct sampler pdf with
+# gpu_disney_pdf, whose reflection-branch Fresnel used entering = normal.dot(wo) > 0
+# (always true) instead of rec.frontFace — computing air->glass F instead of
+# glass->air (~1 at TIR) for internal reflections, so the pdf was up to ~20x too
+# small and f/pdf inflated. Fixed to rec.frontFace (+ mirrored delta/cosine fixes).
+# GPU R=1.0 furnace 2.296 -> 0.930. See the findings doc.
 @pytest.mark.skipif(
     AVAILABLE and not astroray.__features__.get("cuda", False),
     reason="CUDA feature not in this build")

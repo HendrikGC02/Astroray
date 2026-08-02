@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU/CPU transport parity)
 **Track:** A (RTX-gated)
-**Status:** ESCALATED to architect (diagnosis done, no fix, 2026-08-02) — the spec premise is FALSIFIED: the bias is NOT triangle-specific (sphere == triangle == 0.9957 single-bounce) and candidates (a)/(b)/(c) are all CLEARED (epsilon probe negative; achromatic, geometry- & depth-independent). Three-way cross-check: **GPU wavefront AGREES with the canonical CPU `path_tracer` (ratio 1.002); the pkg156 ORACLE (CPU `multiwavelength_path_tracer`) is the ~0.6%/bounce OUTLIER** and is the one matching the energy-conserving analytic. This is a design fork (fix CPU-mw's energy vs fix path_tracer+GPU vs change the gate oracle) requiring owner direction — not a single convicted line. **pkg156 stays at 0.995; NOT re-pinned.** Full decomposition: .astroray_plan/docs/pkg172-triangle-transport-diagnosis.md.
+**Status:** open — dispatchable, RESCOPED by architect verdict 2026-08-02 (see "Architect verdict + data correction" below). The original triangle premise is FALSIFIED; the package now owns the TWO-EFFECT decomposition: **(A)** the universal `f/(pdf+1e-3)` epsilon energy loss — convicted, fix + coordinated re-pin ordered — and **(B)** a GPU-only ~0.4% residual upstream of the throughput update, which is what pkg156's gate actually measures (hunt in progress). **pkg156 stays at 0.995 until (B) is fixed;** fixing (A) alone does not move the gate (it cancels in the GPU/CPU ratio). Escalation-era diagnosis doc: `.astroray_plan/docs/pkg172-triangle-transport-diagnosis.md` — NOTE its three-way table is superseded by the data correction below (stale-.pyd contamination; CPU-mw was never exempt).
 **Estimated effort:** S (diagnosis — the discriminators are already established and the minimal scene is one triangle) + S for the fix once convicted
 **Depends on:** PR #541 (pkg168 Step 2) merged — the sphere-clean baseline this spec's discriminator rests on. Cross-links: **pkg156** (its 0.998 restoration is BLOCKED-ON this package; pointer updated 2026-08-02), **pkg168** (charter complete — exonerated the tables in Step 1, fixed the call-structure shape divergence in Step 2; THIS residual is the third mechanism its decomposition exposed), **pkg153** (sibling family, ownership separate — see Scope fence).
 
@@ -15,6 +15,65 @@ per-channel ratios exactly 1.000), the pkg156 gate is UNCHANGED at 0.9955
 because its scene is dominated by a third, geometry-linked mechanism.
 
 ---
+
+## Architect verdict + data correction (2026-08-02 — AUTHORITATIVE; supersedes the sections below and the diagnosis doc's three-way table)
+
+**The oracle is the ANALYTIC value, not any integrator.** A 0.5-albedo
+Lambertian wall under a unit white env must reflect exactly 0.5; the scene is
+zero-variance per sample (cosine-sampled diffuse gives `f·cosθ/pdf = albedo`
+exactly), so ANY deterministic deviation is a defect. A deterministic
+per-bounce loss cannot be a design convention: RR, MIS termination, and
+env-miss handling are unbiased by construction (Veach 1997; PBRT-v4; Cycles
+furnace closure) — conventions move variance, not expectation. "Re-pin the
+gate against `path_tracer`" (the escalation's branch 2) is REJECTED: two
+implementations agreeing on the same defect is not an oracle argument.
+
+**Data correction (implementer, 2026-08-02):** the escalation's "CPU-mw =
+0.500 analytic-exact" reading was stale-.pyd contamination — the epsilon probe
+source was reverted without a rebuild, so the mw leg was measured on a
+probe-modified binary. Clean-build truth: **CPU multiwavelength and CPU
+`path_tracer` are BIT-IDENTICAL** ([0.49699, 0.49777, 0.48845]); **no
+integrator is exempt.** GPU reads a further ~0.4% below both CPU legs even
+with the GPU epsilon zeroed ([0.49486, …]).
+
+### The two effects this package now owns
+
+- **(A) Universal ~0.6%/bounce epsilon loss — CONVICTED.** `f/(pdf+1e-3)` in
+  the throughput update hits ALL THREE legs. The analytic prediction for an
+  additive pdf epsilon under cosine sampling is a loss of exactly
+  `2π·ε = 0.628%` per bounce — confirmed: the `1e-6` probe reads exactly
+  0.500. **Fix:** the standard guarded-pdf form (reject/clamp at the sample
+  site, pbrt-v4 `DielectricBxDF`/sampling conventions — cite it), never an
+  additive denominator epsilon and never just a smaller one. **Consequence
+  (ordered at verdict, unchanged by the correction):** the fix brightens
+  every diffuse bounce on all legs — the fix PR carries an impact sweep and a
+  coordinated re-pin with per-pin justification lines (pkg166 precedent),
+  architect sign-off on the batch.
+- **(B) GPU-only residual — CONVICTED as (B') and TRANSFERRED to pkg173
+  (2026-08-02).** The hunt landed (UPDATE 3, branch `dfa7517`): with #541
+  present, the pkg156 residual is dominated by bounce-1 escapes (+11.8%),
+  decomposed into a +6% escape-event RATE difference (BVH continuation-ray
+  visibility, 6115 vs 5769) and +5.5% throughput-per-escape (camera-ray
+  surface distribution) — geometry-sampling expectations, not spectral/
+  transport terms; per-surface throughput is bit-matching post-#541.
+  Architect fork adjudication: both quantities are EXPECTATIONS that unbiased
+  legs must agree on (RNG streams move variance, not expectation; ULP-level
+  camera differences cannot make 5.5%), so they are discrete fixable defects
+  — ownership moves to **pkg173**
+  (`pkg173-bounce1-geometry-sampling-parity.md`), which now also holds
+  pkg156's 0.998 restoration clause (with an evidence-gated fallback if both
+  scalar parities land and SSIM still falls short). **This package retains
+  effect (A) only** — the epsilon fix + impact sweep + coordinated re-pin
+  batch.
+
+### Lessons (record now, it already paid for itself)
+
+- The escalation's central "mw is exempt" claim was manufactured by the
+  stale-.pyd class the repo rules exist for (memory `stale_pyd_locations`;
+  CLAUDE.md build-verification rules): a probe revert WITHOUT rebuild. The
+  implementer self-caught it by rebuilding before deep-diving — which is the
+  rule working, but only on the second pass. Every probe A/B in this package
+  from here on states the `.pyd` mtime for BOTH legs next to the numbers.
 
 ## The established discriminators (do not re-derive; start from these)
 

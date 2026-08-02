@@ -17,6 +17,8 @@ depths). The bias is geometry-INDEPENDENT.
 epsilon `f/(pdf+1e-3)` → `1e-6` on BOTH legs left the ratio unchanged (0.99587 →
 0.99590). Not the epsilon.
 
+**Scoping note (reconciliation with the architect verdict).** The pkg172 probes cleared the epsilon for the GPU/CPU RATIO residual only — effect (A)'s epsilon energy loss is common-mode and cancels in ratios; its absolute-energy conviction (architect verdict, c1b2c87) stands.
+
 **(3) Candidates (a)/(b) normal/cosθ — CLEARED.** The bias is achromatic,
 depth-independent (constant 0.99587 across depth 2–8 on a flat wall — no
 multi-bounce, no off-by-one), and identical for sphere vs triangle. Both legs use

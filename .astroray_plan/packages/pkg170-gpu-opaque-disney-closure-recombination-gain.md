@@ -2,7 +2,7 @@
 
 **Pillar:** 2/3 (BSDF energy conservation, GPU parity)
 **Track:** A (RTX-gated — the defect is GPU-only; the new furnace legs are the lasting coverage)
-**Status:** open — dispatchable (HIGH priority: every opaque Disney material on GPU is affected — metallic=0/transmission=0 is the default material class; wider blast radius than pkg169's transmission bug)
+**Status:** done (PR #542, 2026-08-02 — GPU opaque Disney furnace 1.975 flat → 0.986/0.987/0.987/0.979 at R∈{0,0.3,0.6,1.0}, all in [0.92,1.03]; CPU control unchanged 0.945–0.962; neighbours byte-unchanged (plain metal 0.9454, plain dielectric 0.9929); metallic=1 single-lobe unchanged 0.985/0.988. Fix: closure-graph eval now weights each lobe by its selection probability w_i/totalWeight, matching the pdf — one-sample MIS, RTX 5070 Ti)
 **Estimated effort:** S–M (diagnosis mostly done — the seam is convicted; the work is the estimator-correct fix + the coverage gap + verification)
 **Depends on:** pkg169's fix PR (the one-sample-MIS-correct treatment this fix must mirror on the diffuse+conductor path, and the device-printf methodology to reuse). Related: memory `gpu-dielectric-lowers-to-closure-graph` (the closure-graph lowering is where this class of bug lives).
 

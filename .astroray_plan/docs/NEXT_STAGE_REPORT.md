@@ -1,6 +1,6 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-07-26 (round closeout — overnight 2026-07-25 → day 2026-07-26)
+**Date:** 2026-08-02 (§2/§3 refreshed by the architect at the 2026-08-01→02 overnight round close; §1 still describes the 2026-07-26 state — the 2026-08-02 dayrun standup + closeout will rewrite it)
 **Prepared by:** Claude (Anthropic Code) — updated after the 2026-07-25 evening
 → 2026-07-26 round (6 PRs, #525–#530, no open PRs at closeout).
 **Scope:** post-2026-07-26 next stage. **pkg55 Phase C is fully COMPLETE**
@@ -82,113 +82,116 @@ correctness follow-ups**, not a single named arc — see §2.
 
 ---
 
-## 2. Deployable set (prioritized)
+## 2. Deployable set (prioritized — refreshed 2026-08-02 at overnight close)
 
-Ordered by value × overnight-shippability. CI is **Linux/CPU only** —
-GPU-gated items must be RTX-verified at closeout. All items below are
-grep-verified `open`/`dispatchable` in their spec's `**Status:**` header as
-of this closeout (memory: `orchestrator-next-stage-report-stale`).
+The 2026-08-01→02 overnight cleared the entire previous §2 top set (pkg163
+#533, pkg158 #535 closed Outcome A, pkg120 #534, pkg156 investigated →
+decomposed, pkg150 → STOP that filed pkg167) and the linear-furnace
+conversion (pkg166) exposed + fixed a cascade of shipped energy bugs (pkg169
+#540 transmission gain, pkg170 #542 opaque-Disney 2× gain, plus the pkg172
+epsilon conviction). **The strategic picture changed: the queue below is
+correctness-cascade completion first, new breadth second.** Grep `^Status:`
+in each spec before dispatch (memory `orchestrator-next-stage-report-stale`);
+tonight's in-flight items (#541, pkg166's PR if unmerged) may have moved.
 
-1. **pkg163 — spectral-vs-RGB GGX compensation colour-space parity**
-   (`.astroray_plan/packages/pkg163-metal-spectral-compensation-colorspace-parity.md`,
-   RTX-gated). CPU computes metal energy compensation per-wavelength, GPU
-   per-RGB-channel-then-upsample; they agree only for flat spectra. Owns
-   **retiring pkg160's roughness-0.9 asymmetric-band exception** — schedule
-   before that exception ossifies into permanence. Worst measured error today
-   is 7.2% at grazing chromatic r=0.9; not urgent-tier but load-bearing for
-   gate hygiene. Dispatchable now (pkg160 merged, its precondition).
-2. **pkg158 — GPU Disney-metal remainder reconciliation, Step 0**
-   (`pkg158-gpu-metal-remainder-reconciliation.md`, RTX-gated, S effort).
-   Two credible measurements of the near-delta Disney-metal GPU/CPU ratio
-   disagree (0.60–0.77 vs ~1.0) and must be reconciled on a **post-pkg160
-   SHA** (pkg160 changed the shared metal energy-compensation baseline this
-   reconciliation reads). Scope-fenced away from pkg160/pkg163 — do not fold.
-3. **pkg156 — wavefront visible-naive brightness residual**
-   (`pkg156-wavefront-naive-bounce2-brightness-residual.md`, RTX-gated).
-   ~1–1.5% deterministic residual onsetting at bounce 2; owns the
-   `test_visible_band_cpu_gpu_ssim` re-pin (0.998→0.995) — that gate may only
-   return to 0.998 through this package, never by silent re-tightening.
-   **Shares `stage_advance.cu` with pkg120 — serialize, do not run parallel.**
-4. **pkg120 — two-sided MIS for the spectral integrator**
-   (`pkg120-two-sided-mis-spectral.md`, CPU-gated on CI, wavefront leg
-   RTX-verify). Restores the BSDF-ray-hits-emitter MIS term; lands in exactly
-   two places now (CPU `pathTraceSpectral` + wavefront `stage_advance.cu`)
-   since #524 collapsed four candidate sites to two. **Shares
-   `stage_advance.cu` with pkg156 — serialize.**
-5. **pkg150 — Disney dielectric VNDF reflection: same-hemisphere masking**
-   (`pkg150-disney-dielectric-vndf-hemisphere-masking.md`). Precondition MET
-   — the pkg151→pkg154→pkg149 chain (#519/#521/#522) is on main, so this
-   package's re-baseline has a real sampler to measure against.
-6. **pkg88-D — wavefront motion blur hook**
-   (`pkg88-motion-blur.md`, Phase D). DISPATCHABLE, scope reworded for a
-   wavefront-only world — `path_time`/`d_motionVerts` threading already
-   landed under pkg55-C4/C.0, so likely a smaller remaining scope
-   (init-time shutter-time sampling + parity re-baselining) than the original
-   estimate; read the "Phase D — wavefront-only reword" addendum first.
-7. **pkg119-B/C — Blender differential parity harness + stale-socket fixes**
-   (`pkg119-blender-parity-program.md`). Phase A (the coverage matrix) is
-   done; Phase B builds the differential harness and lands the 20 stale-socket
-   addon fixes the matrix already found; Phase C is graceful-degradation
-   policy.
+**Resolve first (in flight at close):**
 
-**Opportunistic / lower-priority:**
+0. **PR #541 (pkg168 Step 2)** — blocked at close on a wavefront perf-gate
+   FAIL with A/B/C attribution running. Resolve the attribution verdict and
+   land or disposition #541 before anything else: **pkg173 depends on it**,
+   and pkg168's done-pending-merge status is conditional on it.
 
-8. **pkg155 Phase 2** — the combined pkg153+pkg155 bisect
-   (`.astroray_plan/docs/pkg153-pkg155-combined-bisect-protocol-2026-07-25.md`).
-   **No longer compile-only** — the protocol correction this round proved
-   `-Xptxas -v` counts are meaningless under `-rdc=true`, so every bisect
-   point needs a real GPU build+run. Run as a gap-filler (~1–1.5 GPU-hours
-   across 2–3 nights) when no active-PR HW verification needs the lock; HW
-   gates for real PRs always outrank it.
-9. **pkg153 — wavefront_diff env-gates disposition** — investigation IN
-   FLIGHT with the gate-failure-reviewer (dispatched 2026-07-25), this spec
-   is its formal owner. Check its status before dispatching new work in the
-   same gate family; do not blind-fix or relax gates without conviction.
+**Main set:**
+
+1. **pkg172 effect (A) — universal `f/(pdf+1e-3)` throughput-epsilon loss**
+   (`pkg172-triangle-transport-bias.md`, verdict section). CONVICTED
+   (analytic 2π·ε = 0.628%/bounce, confirmed by the 1e-6 probe reading
+   exactly 0.500); hits ALL legs. Fix is the guarded-pdf rejection form
+   (pbrt-v4, cited), **never** a smaller additive epsilon. **SUPERVISED
+   SLOT** — it brightens every diffuse bounce everywhere, so the PR carries
+   an impact sweep + coordinated re-pin batch with per-pin justifications
+   and architect sign-off. Highest correctness value in the pool; wrong
+   package to run unattended.
+2. **pkg173 — bounce-1 geometry-sampling parity**
+   (`pkg173-bounce1-geometry-sampling-parity.md`, RTX-gated, blocked on
+   #541). Two scalar EXPECTATION offsets (GPU escape rate +6%,
+   throughput-per-escape +5.5% at 8192 spp — systematic, not RNG-stream
+   noise) with discrete suspects (continuation-ray offset/t_min/BVH epsilon;
+   pixel-filter/jitter distribution). **Owns pkg156's 0.998 restoration**,
+   with an evidence-gated fallback if both parities land and SSIM still
+   falls short.
+3. **pkg167 — Disney dielectric reflection-lobe multiscatter compensation +
+   bundled pkg150 dead-sample fix**
+   (`pkg167-disney-dielectric-reflection-multiscatter.md`, M). Unblocks the
+   pkg150 revert AND owns retiring pkg169's quarantined furnace cell (CPU
+   ior1.5/R=1.0 = 0.903). Kulla-Conty/Turquin family; mirror the in-repo
+   pkg60/pkg160/pkg163 pattern. Ordered: compensation green FIRST, then the
+   preserved dead-sample diff on top, one PR, two commits.
+4. **pkg165 — Disney-metal uniform ~5–8% GPU-dim diagnosis**
+   (`pkg165-disney-metal-uniform-dim-residual.md`, S diagnosis). Step 1 is
+   the 2×2 material×scene matrix that un-confounds the sign flip vs pkg163's
+   plain-metal +1.5–2%. In-band, not urgent — but cheap and it feeds the
+   parity-band-tightening owner decision.
+5. **pkg129 (NARROWED 2026-08-02) — live-Cycles rough-metal A/B + heritage
+   supersession note** (`pkg129-turquin-multiscatter-luts.md`, S). The
+   original LUT-port premise is superseded (tables are already Cycles' own);
+   the A/B is the strongest external check and feeds the same band-tightening
+   decision. Conviction-path port only fires with architect sign-off.
+
+**Opportunistic / backlog:**
+
+6. **pkg171 — CPU-only-integrator-on-GPU explicit guard** (S, backlog tier).
+7. **pkg155 Phase 2** — combined pkg153+pkg155 bisect, GPU-lock gap-filler
+   only (needs the GPU at every point; active-PR HW gates always outrank).
+   NOTE: pkg168's Step-1 exoneration of the JH tables and pkg172's epsilon
+   conviction are new anchors for pkg153's suspect-1B arc — re-read
+   `pkg153-pkg155-combined-bisect-protocol-2026-07-25.md` against them
+   before burning bisect points.
+8. **pkg153 — env-gates disposition** — still IN FLIGHT with the
+   gate-failure-reviewer; its spec now carries the pkg168/pkg172 cross-links.
+   Do not blind-fix; do not re-dispatch while its reviewer holds it.
 
 **Not this round:**
 
-- **pkg164** (`MAX_GLOSSY_PARITY_MSE` 0.04 → 0.006 re-pin) — already an open
-  branch `pkg164-glossy-mse-repin`, **PR #532**. **The team-lead owns
-  landing it — do not re-dispatch.**
-- **Pillar 4** (pkg45/46/48/49/50/51 + pkg107) — PAUSED per owner directive
-  2026-06-08. Do not pick up.
-- **pkg121-B, pkg122 follow-ons, pkg126–137 platform/material candidates** —
-  all still filed and un-dispatched from the 2026-07-20 sweep; lower priority
-  than the wavefront-parity pool above until it clears.
+- **Pillar 4** (pkg45/46/48/49/50/51 + pkg107) — PAUSED per owner directive.
+- **pkg88-D, pkg119-B/C** — still valid, deliberately deferred behind the
+  correctness cascade; re-enter the top set once pkg172(A)/pkg173/pkg167
+  clear.
+- **pkg121-B, pkg122, pkg126–137** — filed, un-dispatched, unchanged.
 
-**Note on test suite:** post-merge full-suite sweep on the RTX 5070 Ti:
-**4 failed / 1531 passed / 69 skipped** — the 4 failures are the standing
-known exceptions (`test_blender_parity_matrix_generation` OneDrive `rmtree`
-flake + the three pkg153-quarantined env-scene ratio gates), **+25 passing**
-from pkg157+pkg88-B landing together with no regressions. pkg160's own
-full-suite run after: **4 failed / 1563 passed** (same four exceptions,
-+32 from pkg160). Two xfails are flaky between runs
+**Standing decisions owed to the owner (carried, none block dispatch):**
+project-wide GPU/CPU parity-band tightening (pkg160/pkg163/pkg165/pkg129 all
+feed it); deleting dead `stage_shade_metal.cu`; the two flaky xfails
 (`test_pkg64_gpu_phase3_prism_psnr_floor`,
-`test_disable_reflective_caustics_reduces_mirror_caustic_outliers`) — flagged
-as wanting `strict=True` or retirement, not actioned this round.
+`test_disable_reflective_caustics_reduces_mirror_caustic_outliers`) still
+want `strict=True`-or-retire.
 
 ---
 
 ## 3. Drop-in prompt for the next session
 
-The authoritative overnight instructions live with the owner (the "overnight
-ship-packages" prompt). In short: **work the §2 set top-down, one mergeable
-PR per package, full local test + stale-call-site sweep before each push,
-poll CI then `gh pr merge --squash --delete-branch`.** **Start with pkg163**
-(closes the gate-hygiene exception pkg160 left open) **then pkg158** (small,
-S effort, unblocks the Disney-metal reconciliation that's been open since
-pkg152). **pkg156 and pkg120 share `stage_advance.cu` — run them serially in
-one lane, not as parallel worktrees**, in either order (neither hard-depends
-on the other, but pkg120's MIS term is more architecturally load-bearing so
-it is the safer one to land first). Then **pkg150** (precondition met) →
-**pkg88-D** (re-scoped, check the wavefront-only reword addendum first) →
-**pkg119-B/C**. If a slot frees and no active PR needs the GPU lock, spend it
-on **pkg155 Phase 2** (one build+profile per bisect point, ~1–1.5 GPU-hours
-total). **Verify with a real headless Blender run for any addon-facing
-change** — this round found two real bugs (pkg88-A/B) that every mocked-`bpy`
-suite missed; `scripts/verify_pkg88b_blender.py` is now the pattern to
-extend. Cite papers per CLAUDE.md §6 for any new algorithm
-(`/cite-algorithm`).
+The authoritative instructions live with the owner. In short: **resolve #541's
+perf-gate attribution first** (pkg173 and pkg168's closeout hang on it), then
+work §2 top-down, one mergeable PR per package, full local test +
+stale-call-site sweep before each push. **pkg172 effect (A) is the priority
+item but SUPERVISED** — its coordinated gate re-pin batch (every diffuse
+bounce brightens ~0.63%) needs architect sign-off per pin; do not run it
+unattended. **pkg173** (after #541) is the surgical pkg156-closer and safe
+for an autonomous lane. **pkg167** is the biggest self-contained M-item:
+compensation first, dead-sample diff second, one PR two commits, furnace
+linear floor+ceiling at every step. **pkg165 Step 1** and **pkg129-narrowed**
+are cheap S-diagnostics that feed the owner's parity-band-tightening
+decision — good second-lane fillers. Rules that earned their place tonight:
+**energy gates render LINEAR with an upper bound** (three shipped energy-GAIN
+bugs were invisible to gamma furnaces until pkg166); **state the `.pyd` mtime
+next to every probe A/B number** (a revert-without-rebuild manufactured a
+false oracle-exemption mid-diagnosis tonight); **mirror the CONDITION, not
+just the term, in every CPU→GPU port** (pkg120's naive-mode regression);
+**upsample the ASSET, apply scalar transport factors outside the upsample**
+(pkg163/pkg168 class rule, twice confirmed); **expectations are
+RNG-stream-independent** — a converged mean/count offset is a defect, never
+"stream noise" (pkg172/pkg173). Cite per CLAUDE.md §6 (`/cite-algorithm`)
+for any weight-formula change.
 
 ---
 

@@ -3,7 +3,7 @@
 **Pillar:** 3 (GPU transport correctness)
 **Track:** A (RTX-gated)
 **Codex-paste-ready:** no (transport-diff diagnosis on the live wavefront; needs per-bounce instrumentation judgment)
-**Status:** partial fix + escalation (PR #537, 2026-08-02) — pkg120's un-gated two-sided-MIS w_B leg was firing in naive mode (enableNEE=false), growing the residual to depth-2 [1.028,1.022,1.027]/SSIM 0.9953; pkg156 gates that leg on enableNEE, restoring depth-4 [1.014,1.007,1.014]/SSIM 0.9955 and matching the CPU oracle + pre-pkg120 wavefront. The REMAINING ~1.4% residual is an RGB→spectral upsampling parity gap (channel-asymmetric [1.013,1.007,1.014] even under a NEUTRAL grey background), i.e. pkg153's R-drift shared mechanism — NOT reachable here. **0.998 is unreachable; gate stays at 0.995**; the 0.998 restoration is BLOCKED-ON pkg168 (the RGB-to-spectral upsampling-parity fix; pkg153's R-drift is the shared mechanism, see-also). Escalated to the architect (contract point 3). Do NOT re-pin to 0.998 without pkg168's fix.
+**Status:** partial fix + escalation (PR #537, 2026-08-02) — pkg120's un-gated two-sided-MIS w_B leg was firing in naive mode (enableNEE=false), growing the residual to depth-2 [1.028,1.022,1.027]/SSIM 0.9953; pkg156 gates that leg on enableNEE, restoring depth-4 [1.014,1.007,1.014]/SSIM 0.9955 and matching the CPU oracle + pre-pkg120 wavefront. The REMAINING ~1.4% residual is an RGB→spectral upsampling parity gap (channel-asymmetric [1.013,1.007,1.014] even under a NEUTRAL grey background), i.e. pkg153's R-drift shared mechanism — NOT reachable here. **0.998 is unreachable; gate stays at 0.995**; the 0.998 restoration is BLOCKED-ON pkg172 (pointer updated 2026-08-02 from pkg168, once pkg168's decomposition exposed a distinct triangle-geometry mechanism pkg172 now owns; pkg153's R-drift is the shared mechanism, see-also). Escalated to the architect (contract point 3). Do NOT re-pin to 0.998 without pkg172's fix.
 **Estimated effort:** S–M (the dossier already localizes onset; the fix is likely one transport term)
 **Depends on:** pkg55-C7/PR #524 merged. Cross-link: **pkg153** — the bounce-2 onset (= first albedo-upsample-dependent transport) is the same structural neighborhood as the R-drift; if pkg153's bisect convicts a spectral-eval arc commit, re-measure this residual at that commit before independent work.
 
@@ -104,7 +104,18 @@ did NOT re-pin:
    GPU-tables RGB→spectral upsampling parity gap** — the same mechanism family
    as pkg153's R-drift.
 
-**BINDING: the 0.995 → 0.998 SSIM restoration is BLOCKED-ON pkg172**
+**POINTER UPDATE 2026-08-02 (pkg172 fork adjudicated): the 0.998 restoration
+clause now lives in pkg173** (`pkg173-bounce1-geometry-sampling-parity.md`) —
+pkg172's (B') decomposed the remaining gap into two bounce-1 geometry-sampling
+EXPECTATION offsets (escape rate +6%, throughput-per-escape +5.5%), which
+pkg173 owns; pkg172 retains only effect (A) (epsilon fix + re-pin batch),
+which cancels in the GPU/CPU ratio and does not move this gate. pkg173
+carries an evidence-gated fallback: ONLY if both scalar parities land in-band
+and SSIM still cannot reach 0.998 at pinned spp does the aspiration convert
+to a decomposed acceptance — architect sign-off, recorded here. Historical
+paragraph below kept as filed:
+
+**BINDING (historical, superseded on the pointer only): the 0.995 → 0.998 SSIM restoration is BLOCKED-ON pkg172**
 (`pkg172-triangle-transport-bias.md`; pointer updated 2026-08-02 from pkg168
 after PR #541's decomposition — pkg168 fixed a real chroma-dependent
 upsample-shape divergence, sphere-isolated ratios now exactly 1.000, but the

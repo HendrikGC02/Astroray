@@ -49,14 +49,22 @@ with the GPU epsilon zeroed ([0.49486, …]).
   every diffuse bounce on all legs — the fix PR carries an impact sweep and a
   coordinated re-pin with per-pin justification lines (pkg166 precedent),
   architect sign-off on the batch.
-- **(B) GPU-only ~0.4% loss upstream of the throughput update — OPEN, and it
-  is THE pkg156 blocker.** Because (A) is common-mode, it cancels in the
-  GPU/CPU ratio: **pkg156's gate measures (B) alone; fixing (A) does not move
-  pkg156.** The 0.998 restoration binds to (B)'s fix. Hunt state: cosine
-  samplers ruled out (byte-identical CPU/GPU); the site is upstream of the
-  throughput update. Convict with the same single-pixel event-chain dump —
-  at zero variance, the first GPU factor differing from the CPU chain is the
-  line.
+- **(B) GPU-only residual — CONVICTED as (B') and TRANSFERRED to pkg173
+  (2026-08-02).** The hunt landed (UPDATE 3, branch `dfa7517`): with #541
+  present, the pkg156 residual is dominated by bounce-1 escapes (+11.8%),
+  decomposed into a +6% escape-event RATE difference (BVH continuation-ray
+  visibility, 6115 vs 5769) and +5.5% throughput-per-escape (camera-ray
+  surface distribution) — geometry-sampling expectations, not spectral/
+  transport terms; per-surface throughput is bit-matching post-#541.
+  Architect fork adjudication: both quantities are EXPECTATIONS that unbiased
+  legs must agree on (RNG streams move variance, not expectation; ULP-level
+  camera differences cannot make 5.5%), so they are discrete fixable defects
+  — ownership moves to **pkg173**
+  (`pkg173-bounce1-geometry-sampling-parity.md`), which now also holds
+  pkg156's 0.998 restoration clause (with an evidence-gated fallback if both
+  scalar parities land and SSIM still falls short). **This package retains
+  effect (A) only** — the epsilon fix + impact sweep + coordinated re-pin
+  batch.
 
 ### Lessons (record now, it already paid for itself)
 

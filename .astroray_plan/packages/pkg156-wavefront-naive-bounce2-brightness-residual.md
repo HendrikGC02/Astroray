@@ -104,7 +104,18 @@ did NOT re-pin:
    GPU-tables RGB→spectral upsampling parity gap** — the same mechanism family
    as pkg153's R-drift.
 
-**BINDING: the 0.995 → 0.998 SSIM restoration is BLOCKED-ON pkg172**
+**POINTER UPDATE 2026-08-02 (pkg172 fork adjudicated): the 0.998 restoration
+clause now lives in pkg173** (`pkg173-bounce1-geometry-sampling-parity.md`) —
+pkg172's (B') decomposed the remaining gap into two bounce-1 geometry-sampling
+EXPECTATION offsets (escape rate +6%, throughput-per-escape +5.5%), which
+pkg173 owns; pkg172 retains only effect (A) (epsilon fix + re-pin batch),
+which cancels in the GPU/CPU ratio and does not move this gate. pkg173
+carries an evidence-gated fallback: ONLY if both scalar parities land in-band
+and SSIM still cannot reach 0.998 at pinned spp does the aspiration convert
+to a decomposed acceptance — architect sign-off, recorded here. Historical
+paragraph below kept as filed:
+
+**BINDING (historical, superseded on the pointer only): the 0.995 → 0.998 SSIM restoration is BLOCKED-ON pkg172**
 (`pkg172-triangle-transport-bias.md`; pointer updated 2026-08-02 from pkg168
 after PR #541's decomposition — pkg168 fixed a real chroma-dependent
 upsample-shape divergence, sphere-isolated ratios now exactly 1.000, but the

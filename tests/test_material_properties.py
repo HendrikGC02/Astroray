@@ -731,7 +731,7 @@ def test_metal_energy_conservation():
         setup_camera(r, look_from=[0, 0, 4], look_at=[0, 0, 0], width=W, height=H)
         mat = r.create_material('metal', [0.8, 0.3, 0.3], {'metallic': metallic})
         r.add_sphere([0, -0.5, 0], 1.0, mat)
-        pixels = render_image(r, samples=48)
+        pixels = render_image(r, samples=48, apply_gamma=False)  # pkg166: linear
         mean = np.mean(pixels, axis=(0, 1))
         return mean
 
@@ -758,7 +758,7 @@ def test_dielectric_energy_conservation():
             mat = r.create_material('dielectric', [1.0, 1.0, 1.0], params)
         _neutral_scene(r, mat)
         _cam_front(r)
-        pixels = render_image(r, samples=48)
+        pixels = render_image(r, samples=48, apply_gamma=False)  # pkg166: linear
         return float(np.mean(_center(pixels, frac=0.45)))
 
     lambertian_mean = render_mean('lambertian', {})
@@ -766,6 +766,10 @@ def test_dielectric_energy_conservation():
 
     assert dielectric_mean <= lambertian_mean * 1.05, \
         f"Dielectric ({dielectric_mean:.3f}) exceeds white Lambertian ({lambertian_mean:.3f}) — energy not conserved"
+    # pkg166 floor (linear): measured ratio 0.50 (glass refracts/transmits so it
+    # reads darker than lambertian); floor at 0.35x catches a black/broken glass.
+    assert dielectric_mean >= lambertian_mean * 0.35, \
+        f"Dielectric ({dielectric_mean:.3f}) < 0.35x white Lambertian ({lambertian_mean:.3f}) — glass reads near-black"
 
 
 # ===========================================================================
@@ -784,7 +788,7 @@ def test_phong_energy_conservation():
         mat = r.create_material('phong', albedo, {'shininess': 100.0})
         _neutral_scene(r, mat)
         _cam_front(r)
-        pixels = render_image(r, samples=48)
+        pixels = render_image(r, samples=48, apply_gamma=False)  # pkg166: linear
         scene_means[name] = float(np.mean(_center(pixels, frac=0.45)))
 
     white_mean = scene_means['white']
@@ -792,6 +796,11 @@ def test_phong_energy_conservation():
         assert scene_means[name] <= white_mean * 1.05, \
             f"Phong {name} ({scene_means[name]:.3f}) exceeds white ({white_mean:.3f}) " \
             f"— violates energy conservation"
+        # pkg166 floor (linear): a single-channel Phong still reflects its one
+        # channel of the white field — measured ratios 0.49-0.55; floor at 0.35x
+        # catches a black/broken colored BRDF without tripping on the color loss.
+        assert scene_means[name] >= white_mean * 0.35, \
+            f"Phong {name} ({scene_means[name]:.3f}) < 0.35x white ({white_mean:.3f}) — reads near-black"
 
 
 # ===========================================================================
@@ -808,10 +817,13 @@ def test_diffuse_light_energy_conservation():
     _cam_front(r)
     mat = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 0.5})
     r.add_sphere([0, 0, 0], 1.0, mat)
-    pixels = render_image(r, samples=48)
+    pixels = render_image(r, samples=48, apply_gamma=False)  # pkg166: linear
     mean_val = float(np.mean(pixels))
 
     assert mean_val <= 0.5 + 0.05, \
         f"DiffuseLight mean ({mean_val:.3f}) exceeds emission intensity 0.5 — energy not conserved"
-    assert mean_val > 0.0, \
-        f"DiffuseLight mean ({mean_val:.3f}) is zero — material not emitting"
+    # pkg166 floor (linear): measured 0.273; a real emitter fills a large frame
+    # fraction, so a floor at 0.15 catches a non-emitting/near-black material
+    # (stronger than the prior `> 0.0`).
+    assert mean_val >= 0.15, \
+        f"DiffuseLight mean ({mean_val:.3f}) < 0.15 — material barely emitting"

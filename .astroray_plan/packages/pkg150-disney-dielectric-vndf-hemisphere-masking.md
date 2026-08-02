@@ -3,7 +3,7 @@
 **Pillar:** 3 (BSDF correctness / sampling coverage)
 **Track:** A
 **Codex-paste-ready:** no (a sampling-coverage fix with a documented furnace-regression trap — measurement-first, judgment at the gate)
-**Status:** open — dispatchable (serialize behind PR #517 and behind/with pkg149; same `disney.cpp` sample() region). **2026-07-25 UPDATE: the conditional Lane A slot-3 start is CANCELED** — the pkg151→pkg149 chain premise was falsified (see pkg151/pkg154 adjudications); the chain now runs pkg151 (groundwork) → pkg154 (root cause) → pkg149 (un-HOLD), and this package's re-baseline waits until the corrected sampler reaches main via that sequence. Do not start before then (its baseline doesn't exist without the corrected sampler on main). **2026-07-25 (2nd update): PRECONDITION NOW MET — the full chain is on main (pkg151/#519, pkg154/#521, pkg149/#522 all merged), so this package is dispatchable. Fix-contract item 1 (measure the rejected-candidate fraction) baselines on the current main sampler.**
+**Status:** closed — resolved-by-pkg149 (2026-08-02, docs/test PR `test(pkg150): correct chi2 xfail attribution`). The charter defect ("100% of VNDF reflection candidates rejected at grazing, reflection never sampled") was measured on the pre-pkg149 azimuth-buggy sampler and was ALREADY fixed on main by the pkg149 sampler landing (#522): on current main, WITHOUT any pkg150 code change, reflection-candidate acceptance at glass[0.3-45] is **5.1%** with sample()/pdf() agreement median rel err **0.0000** (N=300k), and the residual same-hemisphere delta fallback is only **0.16%** of samples. The spec's fix-contract option-1 (pbrt-v4 dead-sample) was implemented, built, and measured — it removes that 0.16% fallback but **regresses the high-roughness furnace** (r=1.0 CPU 0.997→0.788), the #517 trap, and moves chi² only 2.4% because the chi² gate is ~90% an ires=4 quadrature artifact (see closeout below). No code fix ships; the reverted fix is captured at `.astroray_plan/docs/pkg150-deadsample-fix.patch` for the follow-up multi-scatter-compensation spec. **Superseded history (pre-2026-08-02):** open — dispatchable behind pkg151/#519, pkg154/#521, pkg149/#522 (all merged); fix-contract item 1 baselined on the current main sampler.
 **Estimated effort:** S–M (localized, but the naive fix is a proven trap — see Constraint)
 **Depends on:** pkg138/PR #517 merged. Secondary contributor to the glass[0.3-45] chi² gate **owned by pkg149** — this package may not close the gate alone, and neither package closes while it is xfail (memory `xfail-gated-features-must-unxfail`).
 
@@ -93,3 +93,82 @@ assumed was re-routed). Any fix must keep lobe-selection probabilities and
 
 - Transmission-lobe sample/pdf re-derivation (pkg149).
 - VNDF for the opaque specular reflection lobe (pkg124).
+
+---
+
+## Closeout (2026-08-02) — resolved-by-pkg149; option-1 fix measured and rejected
+
+All measurements on current main `d02fe07` (pkg151/#519 + pkg154/#521 + pkg149/#522
+all landed), LINEAR renders (`apply_gamma=False`), in worktree `pkg150`. The
+implemented-and-reverted fix (pbrt-v4 `DielectricBxDF::Sample_f` dead-sample:
+return `pdf=0` on a below-horizon VNDF reflection candidate instead of the
+smooth-mirror-delta fallback, CPU `disney.cpp` + GPU `gpu_materials.h`) is
+captured verbatim at `.astroray_plan/docs/pkg150-deadsample-fix.patch`.
+
+### Finding 1 — charter already met on main by pkg149 (measure-first, fix-contract item 1)
+
+The spec premise ("same-hemisphere masking kills 100% of samples at grazing") was
+the pre-pkg149 azimuth-buggy sampler. On current main, WITHOUT any pkg150 change,
+`debug_bsdf_sample_batch` (glass metallic=0/transmission=1/ior=1.5, N=300k):
+
+| θ | reflection-candidate acceptance | sample/pdf match <10% (median rel err) | delta fallback (rejected-candidate) frac |
+|---|---|---|---|
+| 0  | 4.0% | 100% (0.0000) | 0.08% |
+| 30 | 4.2% | 100% (0.0000) | 0.11% |
+| 45 | 5.1% | 100% (0.0000) | 0.16% |
+| 60 | 8.9% | 100% (0.0000) | 0.35% |
+| 75 | 21.7% | 100% (0.0000) | 1.25% |
+
+Reflection is sampled (was 0% on the buggy sampler → 5.1% at [0.3-45]) and
+`sample()`/`pdf()` already describe the same reflection set. The charter defect is
+resolved-by-pkg149.
+
+### Finding 2 — option-1 dead-sample fix regresses the high-roughness furnace (#517 trap, still live)
+
+White-furnace (depth 32), CPU / GPU, before → after applying the dead-sample fix:
+
+| roughness | CPU before | CPU after | GPU before | GPU after |
+|---|---|---|---|---|
+| 0.0 | 1.0000 | 1.0000 | 0.9932 | 0.9932 |
+| 0.03 | 1.0000 | 1.0000 | 0.9932 | 0.9932 |
+| 0.1 | 0.9986 | 0.9986 | 0.9988 | 0.9987 |
+| 0.3 | 0.9987 | 0.9982 | 0.9995 | 0.9991 |
+| 0.6 | 0.9985 | 0.9766 | 1.0000 | 0.9999 |
+| 1.0 | 0.9970 | **0.7882** | 1.0000 | **0.9180** |
+
+Mechanism: below-horizon dead fraction scales with roughness (0.08%@r0.3-θ0 →
+7.1%@r1.0-θ0) and compounds over the 32-bounce integral. The old delta fallback
+was energy-load-bearing — ad-hoc compensation for genuinely-missing reflection-lobe
+multi-scatter energy. r=1.0 CPU 0.788 fails the `[0.92,1.03]` gate → the fix must
+NOT ship naked. This validates the spec's Constraint.
+
+### Finding 3 — the chi² gate is ~90% an ires=4 quadrature artifact; prior root-cause attribution disproven
+
+chi²[0.3-45] 34987.97 (before) → 34141.83 (after removing the delta fallback): only
+a **2.4%** move, i.e. the delta fallback was NOT the dominant contributor. Raising
+ONLY the harness quadrature `ires` on the identical sampler/config:
+
+| ires | raw chi² | pdf integral |
+|---|---|---|
+| 4 (test default) | 35107 | 0.967 |
+| 8 | 3942 | 0.999 |
+| 16 | 3240 | 0.999 |
+
+The coarse `ires=4` trapezoid under-integrates the peaked microfacet lobe near the
+equator (same class the full-grid test documents as grid-limited). The true (ires=8)
+residual ~3942 splits ~50/50 reflection(1981)/transmission(1961) across all cosθ
+bands — a small symmetric effect in BOTH lobes, not a reflection-specific delta
+spike. The prior xfail reason (residual "owned SOLELY by pkg150", caused by the
+delta fallback) is corrected in `tests/statistical/test_chi2_bsdf.py`.
+
+### Disposition
+
+- Charter closed as resolved-by-pkg149; no code change ships.
+- chi² gate stays xfail (still red at ires=4; not closeable by a sampler/coverage
+  tweak). xfail reason corrected to document the quadrature dominance and remove
+  the pkg150 attribution.
+- Real prerequisite for pbrt-faithful masking (dead-sample without furnace
+  regression) is reflection-lobe multi-scatter compensation (Kulla-Conty 2017 /
+  Turquin 2019) — a separately-citable physics addition (CLAUDE.md §6), routed to
+  its own spec by the architect. The reverted dead-sample diff
+  (`pkg150-deadsample-fix.patch`) is the drop-in coverage half for that package.

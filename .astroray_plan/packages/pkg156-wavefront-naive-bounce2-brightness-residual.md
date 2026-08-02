@@ -3,7 +3,7 @@
 **Pillar:** 3 (GPU transport correctness)
 **Track:** A (RTX-gated)
 **Codex-paste-ready:** no (transport-diff diagnosis on the live wavefront; needs per-bounce instrumentation judgment)
-**Status:** partial fix + escalation (PR #537, 2026-08-02) — pkg120's un-gated two-sided-MIS w_B leg was firing in naive mode (enableNEE=false), growing the residual to depth-2 [1.028,1.022,1.027]/SSIM 0.9953; pkg156 gates that leg on enableNEE, restoring depth-4 [1.014,1.007,1.014]/SSIM 0.9955 and matching the CPU oracle + pre-pkg120 wavefront. The REMAINING ~1.4% residual is an RGB→spectral upsampling parity gap (channel-asymmetric [1.013,1.007,1.014] even under a NEUTRAL grey background), i.e. pkg153's R-drift shared mechanism — NOT reachable here. **0.998 is unreachable; gate stays at 0.995** and the residual decomposition is escalated to the architect (see contract point 3). Do NOT re-pin to 0.998 without the pkg153 upsampling-parity fix.
+**Status:** partial fix + escalation (PR #537, 2026-08-02) — pkg120's un-gated two-sided-MIS w_B leg was firing in naive mode (enableNEE=false), growing the residual to depth-2 [1.028,1.022,1.027]/SSIM 0.9953; pkg156 gates that leg on enableNEE, restoring depth-4 [1.014,1.007,1.014]/SSIM 0.9955 and matching the CPU oracle + pre-pkg120 wavefront. The REMAINING ~1.4% residual is an RGB→spectral upsampling parity gap (channel-asymmetric [1.013,1.007,1.014] even under a NEUTRAL grey background), i.e. pkg153's R-drift shared mechanism — NOT reachable here. **0.998 is unreachable; gate stays at 0.995**; the 0.998 restoration is BLOCKED-ON pkg168 (the RGB-to-spectral upsampling-parity fix; pkg153's R-drift is the shared mechanism, see-also). Escalated to the architect (contract point 3). Do NOT re-pin to 0.998 without pkg168's fix.
 **Estimated effort:** S–M (the dossier already localizes onset; the fix is likely one transport term)
 **Depends on:** pkg55-C7/PR #524 merged. Cross-link: **pkg153** — the bounce-2 onset (= first albedo-upsample-dependent transport) is the same structural neighborhood as the R-drift; if pkg153's bisect convicts a spectral-eval arc commit, re-measure this residual at that commit before independent work.
 
@@ -47,7 +47,7 @@ Wavefront naive-MW mode renders ~1–1.5% bright vs BOTH the CPU naive reference
    pkg153 R-drift — it only removes the light-quad `w_B` term (zero under the
    black-bg control), leaving the env-miss/albedo upsampling path (the R-drift
    carrier) untouched. The remaining residual IS the pkg153 mechanism; 0.998 is
-   gated on pkg153's upsampling-parity fix. Escalated to the architect.
+   BLOCKED-ON pkg168's upsampling-parity fix (pkg153 shared mechanism, see-also). Escalated to the architect.
 
 ## Non-goals
 
@@ -87,3 +87,27 @@ The 3 failures are the known pkg153-quarantined env-scene gates (`pkg153-wavefro
 **Visual inspection:** rendered a 128x128 naive-mode CPU/GPU pair at 2048 spp from the pkg156 scene (`scenes.multiwavelength_parity`) and saved to `test_results/pkg156_naive_cpu_reference.png` / `test_results/pkg156_naive_gpu_wavefront.png`. Both show the same green-sphere-on-dark-surface scene at matching brightness; no fireflies, no NaN pixels (confirmed `np.isnan` all-False on both legs), no banding, no over-bright emissive quad, no mode regression. Max abs diff 0.0420051, mean abs diff 0.0007852945 (128x128, 2048 spp) — consistent with the ~1.4% residual measured at the gate's own 8192 spp/48x48 config.
 
 **Verdict: PASS**, bound to `155a76a445e638aadbdd9ee3a8e54998c3e7fa45`. All gates the dispatch scoped to pkg156's change pass; the 3 pkg153-quarantined failures are pre-existing and correctly excluded from this package's gate.
+## Residual decomposition + BLOCKED-ON verdict (architect, 2026-08-02 — PR #537 round)
+
+The investigation ran and split the residual in two; the implementer correctly
+did NOT re-pin:
+
+1. **A real pkg120 regression, fixed in PR #537:** #534's two-sided `w_B` leg
+   ran unconditionally on the GPU wavefront, including in naive mode
+   (`enableNEE=false`) where the CPU oracle has no such term. Recorded as a
+   Lessons entry in the pkg120 spec ("mirror the CONDITION, not just the term").
+2. **The remainder after the fix:** depth-4 GPU/CPU ratio [1.014, 1.007,
+   1.014], SSIM 0.9955 vs the aspirational 0.998. Controls: black background
+   renders identically black on both legs (zero transport from the light quad);
+   neutral-grey background still shows the channel-asymmetric ratio. Verdict:
+   the remaining ~1.4% is the **CPU-`RGBAlbedoSpectrum`/`RGBIlluminant`-vs-
+   GPU-tables RGB→spectral upsampling parity gap** — the same mechanism family
+   as pkg153's R-drift.
+
+**BINDING: the 0.995 → 0.998 SSIM restoration is BLOCKED-ON pkg168**
+(`pkg168-rgb-spectral-upsampling-parity.md`, filed 2026-08-02, owns the
+upsampling-parity fix). Do NOT re-dispatch this package for the remainder, and
+NO future run may re-tighten the gate on a lucky draw — the gate returns to
+0.998 only in (or immediately after, with measurement) pkg168's fix PR. This
+supersedes fix-contract item 3 above: the escalation it required has happened
+and this is the architect's disposition.

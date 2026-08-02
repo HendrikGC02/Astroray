@@ -3,9 +3,64 @@
 **Pillar:** 2 (materials / BSDF energy correctness)
 **Track:** A (CPU-gated rough-metal furnace + chi² gates on CI; GPU spectral-closure leg RTX-verified against the CPU result, with a live-Cycles A/B on rough metals)
 **Codex-paste-ready:** no (a LUT port that must be reconciled against two existing compensation implementations of different heritage, replace a GPU placeholder, and hold chi² gates that depend on a sibling pdf adjudication — needs judgment, not a mechanical patch)
-**Status:** open — closes the *reflection* multiscatter gap (the counterpart to pkg118's transmission fix), and gives the GPU spectral path its first physically-based reflection multiscatter term
-**Estimated effort:** M (port 7 verified LUTs with a CUDA backend + apply on both paths + reconcile with the existing CPU compensation + re-gate furnace/chi²; the LUTs are pre-baked and license-clean, so the work is integration and validation, not derivation)
-**Depends on:** **pkg123** (Disney spec-lobe sample/pdf adjudication — the residual finding from pkg121). The multiscatter factor **multiplies the single-scatter GGX lobe throughput**; if the underlying lobe's `sample()`/`pdf()` shape is still mismatched (pkg121 localised a spec-lobe shape bug that fails chi² on every metallic config), the furnace and chi² interpretation of this compensation is confounded. pkg123 must land the corrected single-scatter baseline first so pkg129 is measured against, and gated by, a correct lobe. **Composes with** pkg60 (CPU Kulla-Conty GGX reflection compensation, DONE) and pkg118 (rough-*dielectric*/transmission multiscatter, DONE) — see Root cause for how the three relate.
+**Status:** open — dispatchable, **NARROWED 2026-08-02 (architect refresh — read the refresh section below before the original body; the original port premise is largely superseded by pkg160/pkg163)**. Remaining charter: the live-Cycles rough-metal A/B parity gate + a heritage supersession note; the openpbr-bsdf LUT port runs ONLY if the A/B convicts a real divergence.
+**Estimated effort:** S (A/B harness + supersession note) + M only on conviction (the original LUT port)
+**Depends on:** nothing open. **pkg123 is DONE** (PR #498, 2026-07-21 — the corrected spec-lobe baseline this spec originally gated on is on main). **Composes with** pkg60 (CPU compensation, DONE), pkg118 (transmission, DONE), pkg160/pkg163 (plain-metal CPU+GPU compensation, DONE — these resolved this spec's original GPU-side premise), pkg167 (dielectric reflection counterpart, open — share one table loader if the port fires).
+
+---
+
+## ARCHITECT REFRESH 2026-08-02 — premise audit against the post-pkg160/pkg163 tree (grep-verified on main `7be3245`)
+
+The original body below was filed 2026-07-19 and is kept as the historical
+record + the conviction-path plan. Three of its load-bearing claims are now
+stale; what survives is much smaller than the filed scope.
+
+**Stale premise 1 — "GPU has no working reflection multiscatter / placeholder
+returns 0 / ad-hoc `roughness·(2-roughness)·1.3` hack".** Resolved. pkg160
+(PR #527) deleted the invented additive term from the live CPU path and routed
+plain metal through the same Kulla & Conty compensation `disney.cpp` ships,
+with an exact GPU twin; pkg163 (PR #533) made the GPU leg per-wavelength
+(`gpu_metal_eval_spectral`), retiring the r=0.9 band exception. The
+`1.3f` hack survives only in explanatory comments (`metal.cpp:92-98`).
+`stage_shade_metal.cu` is **dead code** (no call site — pkg160 audit note at
+`stage_shade_metal.cu:120`); its placeholder comments describe nothing live.
+Its deletion is a standing owner call, not this package's scope.
+
+**Stale premise 2 — "port openpbr LUTs to match the tables modern Cycles
+uses".** The repo **already uses Cycles' own tables**: `energy_compensation.h`
+loads `table_ggx_E` / `table_ggx_Eavg` from Cycles `shader.tables`
+(`energy_compensation.h:29`) — i.e. the exact post-#107958 production data the
+original spec wanted to converge on. The Kulla-Conty-vs-Turquin distinction
+that remains is the *application form* (in-repo: K&C Eq. 6-9 layering over
+Cycles tables), not the table data. Porting `adobe/openpbr-bsdf` LUTs now
+would ADD a heritage, not remove one — the opposite of this spec's goal.
+
+**Stale premise 3 — the pkg123 dependency.** Met: pkg123 closed 2026-07-21
+(PR #498, chi² 163→0). No longer a blocker.
+
+### What survives (the narrowed charter — this is the dispatchable scope)
+
+1. **Live-Cycles A/B on rough metals — never shipped, still the strongest
+   external check.** Headless Cycles (Blender 5.1 is installed locally) renders
+   a rough-metal sweep (r ∈ {0.3, 0.6, 0.9}, metallic=1, chromatic + neutral
+   albedo); Astroray CPU and GPU render the matched scene; image-plane radiance
+   parity within tolerance, **linear output, floor+ceiling** (pkg166 rules).
+   Since both engines now run the same table data, this A/B directly tests the
+   application-form difference (K&C layering vs Cycles' current in-kernel use)
+   — exactly the residual question left open.
+2. **Heritage supersession note** in
+   `.astroray_plan/docs/reflection-multiscatter-turquin-research.md`: record
+   the table lineage (pkg60 → #523 GPU mirror → pkg160 → pkg163), that the
+   table DATA is already Cycles', and the A/B verdict.
+3. **Conviction clause:** ONLY if the A/B shows a real, scene-controlled
+   divergence attributable to the compensation application form does the
+   original Fix plan below (openpbr LUT port / application-form change) fire —
+   as a follow-up sizing, with architect sign-off, not silently within this
+   package.
+
+Everything in the original body below (Fix plan A–C, the openpbr port,
+acceptance items about replacing the placeholder) is **conviction-path only**
+— do not execute it on dispatch.
 
 ---
 

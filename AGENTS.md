@@ -82,6 +82,20 @@ with Pillar 4 astrophysics and Pillar 5 production polish queued/ongoing.
 
 All tests write images/charts to `test_results/` (gitignored).
 
+## Furnace/energy tests
+
+Any test whose name matches `*furnace*` or `*energy*` MUST render linear —
+`renderer.render(..., apply_gamma=False)` (or `render_image(..., apply_gamma=False)`)
+— and assert BOTH a floor and a ceiling. `apply_gamma` defaults to `True`, which
+clamps output to `[0, 1]`, so a gamma-rendered furnace can only ever detect energy
+LOSS, never GAIN: pkg160's white-metal conductor created energy up to **4.139** in
+linear (18,338 of 27,648 pixels above 1.0) yet every gamma furnace suite read a max
+of exactly **1.000000** and stayed green (PR #527, 2026-07-26). A floor-only assert
+is still half-blind even in linear — the ceiling is the half that catches a gain.
+This is enforced at test time by an autouse fixture (`tests/conftest.py` +
+`tests/_linear_render_guard.py`, pkg166): a furnace/energy test that renders gamma
+fails at the render call, not merely by convention.
+
 ## Rendering Notes
 
 - `Material::eval(rec, wo, wi)` returns **brdf × NdotL** (cosine INCLUDED). Do NOT multiply by NdotL again.

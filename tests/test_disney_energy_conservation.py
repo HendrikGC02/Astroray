@@ -79,6 +79,12 @@ def test_disney_directional_hemispherical_reflectance_is_conserved(
     )
 
 
+# pkg166: measured-linear floor for the gray-furnace anti-glow test (below).
+# Measured mean luminance 0.2421 on cf67a92 (RTX 5070 Ti, linear); floor set
+# below it with margin so a near-black BSDF trips it while noise does not.
+_GRAY_FURNACE_FLOOR = 0.15
+
+
 def test_disney_mixed_metallic_sampler_does_not_glow_in_gray_furnace(
     astroray_module,
 ):
@@ -125,5 +131,15 @@ def test_disney_mixed_metallic_sampler_does_not_glow_in_gray_furnace(
         + 0.0722 * pixels[..., 2]
     )
 
-    assert float(np.mean(luminance[sphere])) <= 0.40
+    # Already linear (apply_gamma=False above). pkg166 adds the FLOOR half: the
+    # sphere is lit by a 0.45 gray field and must not read black, or "does not
+    # glow" would pass vacuously on a broken-dark BSDF. Ceiling 0.40 stays the
+    # anti-glow bound (mixed-lobe PDF must not overshoot the 0.45 environment).
+    mean_lum = float(np.mean(luminance[sphere]))
+    assert mean_lum <= 0.40
     assert float(np.percentile(luminance[sphere], 99.0)) <= 0.40
+    assert mean_lum >= _GRAY_FURNACE_FLOOR, (
+        f"gray-furnace sphere mean luminance {mean_lum:.4f} < {_GRAY_FURNACE_FLOOR} "
+        f"— the metallic Disney sphere reads near-black in a 0.45 field; the "
+        f"anti-glow ceiling would pass vacuously."
+    )

@@ -1,24 +1,63 @@
 # Astroray Status
 
-**In progress — overnight 2026-08-01 (running, not yet closed out):** see
-`.astroray_plan/docs/standup/2026-08-01-overnight.md` for live status.
-**pkg163** spectral-vs-RGB metal colour-space parity landed (PR #533,
-`b036ac9`) — GPU metal now builds per-wavelength via `gpu_metal_eval_spectral`,
-retiring pkg160's roughness-0.9-only `[0.95,1.10]` band exception; standard
-`[0.95,1.05]` restored at all roughnesses; decisive chromatic-spread control
-green at 0.0025 seed-averaged (bound ≤0.01) after an initial single-seed HW
-FAIL (0.0133) was diagnosed as MC noise in the statistic and re-measured at
-2560 spp × 4 seeds with the bound unchanged. **pkg158** Step 0 Disney-metal
-remainder reconciliation landed (PR #535, `7c340f6`) — Outcome A: the
-historical 0.60–0.77-vs-~1.0 near-delta discrepancy is SUPERSEDED, both
-"credible measurements" turn out to be the same test on different builds;
-re-measured once on `b036ac93`, near-delta ratios 0.92–0.98 across the full
-roughness sweep, no cliff, all within `[0.90,1.10]`. Its out-of-scope finding
-(a uniform ~5–8% Disney-metal GPU-dim, R>G>B, in-band but unexplained) is
-filed as **pkg165** (diagnosis-first, `d02fe07`). **In flight, not pushed:**
-PR #534 (pkg120) HW-FAILED its analytic form-factor gate — diagnosed as a real
-solid-angle-dependent transport bug in the BSDF-sampled emitter-hit leg; fix in
-progress in the worktree, awaiting sign-off. pkg150 implementation started.
+**In progress — overnight 2026-08-01 → day 2026-08-02 (owner extended the run,
+not yet closed out):** see `.astroray_plan/docs/standup/2026-08-01-overnight.md`
+(finalized) and `.astroray_plan/docs/standup/2026-08-02-dayrun.md` (live) for
+detail. Three PRs shipped overnight. **pkg163** spectral-vs-RGB metal
+colour-space parity (PR #533, `b036ac9`) — GPU metal now builds per-wavelength
+via `gpu_metal_eval_spectral`, retiring pkg160's roughness-0.9-only
+`[0.95,1.10]` band exception; standard `[0.95,1.05]` restored at all
+roughnesses; decisive chromatic-spread control green at 0.0025 seed-averaged
+(bound ≤0.01) after an initial single-seed HW FAIL (0.0133) was diagnosed as
+MC noise in the statistic and re-measured at 2560 spp × 4 seeds with the bound
+unchanged. **pkg158** Step 0 Disney-metal remainder reconciliation (PR #535,
+`7c340f6`) — Outcome A: the historical 0.60–0.77-vs-~1.0 near-delta
+discrepancy is SUPERSEDED, both "credible measurements" turn out to be the
+same test on different builds; re-measured once on `b036ac93`, near-delta
+ratios 0.92–0.98 across the full roughness sweep, no cliff, all within
+`[0.90,1.10]`. Its out-of-scope finding (a uniform ~5–8% Disney-metal GPU-dim,
+R>G>B, in-band but unexplained) is filed as **pkg165** (diagnosis-first,
+`d02fe07`). **pkg120** two-sided MIS for the spectral integrator (PR #534,
+`7495691`) — restores the BSDF-ray-hits-emitter MIS term across 4 landing
+sites (grew from the spec's 2 via the pkg55 growing-oracle rule); an initial
+HW FAIL on its own analytic gate (0.745 vs 0.75) was first diagnosed as a
+transport bug, then OVERTURNED by an 8×8-patch-mean-vs-point-oracle control
+proving it a steep-gradient sampling artifact — confirmed independently by a
+different-model review that predicted the patch readings from geometry alone
+within 0.002–0.024; re-gated at 2×2 patch (band unchanged), HW re-gate PASS
+(absolute gate 0.9623, full pkg55 web + wavefront bit-identity + 278 furnace
+cases green). That sweep motivated **pkg166** (furnace suites render gamma,
+cannot detect energy gain — filed `9930802`). **Day 2026-08-02, PR #536:**
+**pkg150** closed — resolved-by-pkg149. Its charter (VNDF reflection
+sampleable at grazing) was found ALREADY MET on main by pkg149 (#522):
+measured 5.1% reflection acceptance at glass[0.3-45], sample()/pdf() exact
+median match. The planned pbrt-v4 dead-sample fix was built and measured but
+deliberately **not shipped** — it regresses the white furnace at high
+roughness (r=1.0 CPU 0.997→0.788), because the legacy delta fallback was
+ad-hoc compensating for missing reflection-lobe multi-scatter energy; the
+chi² gate's xfail reason was corrected (an ires=4 quadrature artifact is
+~90% of the number, not the delta fallback, which is only 2.4%). The fix diff
+is preserved at `.astroray_plan/docs/pkg150-deadsample-fix.patch` for
+**pkg167** (new spec, `7be3245` — dielectric reflection-lobe multi-scatter
+compensation, bundled with the dead-sample fix as an ordered two-commit
+package). Also filed: **pkg129 narrowed** (`cf67a92` — original openpbr-LUT
+port premise superseded by pkg160/pkg163; remaining charter is a live-Cycles
+rough-metal A/B parity gate, port runs only if that convicts a real
+divergence). **PR #538:** **pkg166** done — 20 furnace/energy tests converted
+to linear (`apply_gamma=False`) with floor+ceiling pairs, every band change
+transform-justified or a strengthening (adversarial + independent audit found
+zero suspect moves); new autouse naming guard for `*furnace*`/`*energy*` test
+names, proven by a negative self-test; a deliberate 1.5× metal energy-gain
+mutation was caught at 1.156 > 1.02 by the converted suite (gamma would have
+clamped it to ~1.0 and passed). **HEADLINE FINDING:** the linear conversion
+exposed a REAL energy-gain defect in Disney Principled glass transmission —
+CPU 1.784 at delta / 1.10–1.26 rough, GPU conserving at delta but 1.10–2.30
+rough — hidden by the gamma clamp for its entire life. Quarantined as 3
+`xfail(strict=False)` cases owned by **pkg169** (new spec, `2565455`, **HIGH
+priority**; its fix PR must remove the xfail markers). Also filed this cycle:
+**pkg168** (RGB→spectral upsampling parity, `99065b1` — owns restoring
+pkg156's 0.998 gate). **In flight:** PR #537 (pkg156) in the merge queue with
+HW PASS.
 
 **2026-07-26 (round closeout, overnight 2026-07-25 → day 2026-07-26): 6 PRs
 merged (#525–#530), no open PRs at closeout.** First full round entirely

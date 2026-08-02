@@ -1,0 +1,90 @@
+diff --git a/include/astroray/gpu_materials.h b/include/astroray/gpu_materials.h
+index 8cdb7b8..25dd383 100644
+--- a/include/astroray/gpu_materials.h
++++ b/include/astroray/gpu_materials.h
+@@ -1082,12 +1082,23 @@ __device__ inline GBSDFSample gpu_disney_sample(
+                 rec.isDelta = false;
+                 return s;
+             }
+-            // pkg138 investigation note: a PBRT-v4-faithful "return a dead
+-            // (pdf=0) sample instead of falling through to the smooth delta
+-            // below" was tried and MEASURED to regress energy conservation
+-            // severely (white-furnace collapsed to ~0.0). CPU twin: plugins/
+-            // materials/disney.cpp::sample -- see that comment for the full
+-            // rationale. Reverted; kept as the pre-existing behavior.
++            // pkg150: masked microfacet reflection (s.wi below the geometric
++            // hemisphere) or no valid microfacet refraction -> return a dead
++            // (pdf=0) sample, mirroring pbrt-v4 DielectricBxDF::Sample_f's
++            // SameHemisphere-failure return {}. This makes gpu_disney_sample's
++            // accepted set match gpu_disney_pdf's reported density (which
++            // reports zero reflection density for below-horizon wi) and drops
++            // the smooth-mirror-delta type mismatch that was the pkg150 chi2
++            // residual. The #517 furnace trap that this dead sample caused was
++            // measured on the pre-pkg149 azimuth-buggy sampler (~100%
++            // below-horizon); on the corrected sampler the fallback rate is
++            // ~0.16% at glass[0.3-45] (measured), so the furnace stays in gate.
++            // CPU twin: plugins/materials/disney.cpp::sample. Cite: pbrt-v4
++            // src/pbrt/bxdfs.cpp DielectricBxDF::Sample_f (Apache-2.0/BSD-3).
++            s.f = GVec3(0.f);
++            s.pdf = 0.f;
++            s.isDelta = false;
++            return s;
+         }
+ 
+         if (cannotRef || gpu_rng_uniform(rng) < fresnel) {
+diff --git a/plugins/materials/disney.cpp b/plugins/materials/disney.cpp
+index 1ddad35..28416e8 100644
+--- a/plugins/materials/disney.cpp
++++ b/plugins/materials/disney.cpp
+@@ -751,22 +751,36 @@ public:
+                     const_cast<HitRecord&>(rec).isDelta = false;
+                     return s;
+                 }
+-                // Extremely grazing sampled microfacets can fail both reflection
+-                // and refraction. Fall through to the smooth event instead of
+-                // treating that as absorption.
++                // pkg150: the VNDF reflection candidate reflected below the
++                // geometric hemisphere (a masked microfacet -- s.wi failed the
++                // same-hemisphere check above) or the microfacet refraction
++                // produced no valid direction. pbrt-v4 DielectricBxDF::Sample_f
++                // returns an invalid (pdf=0) sample on exactly this
++                // SameHemisphere failure: the masked reflection carries zero
++                // BSDF value, so terminating the path (the integrator breaks on
++                // pdf<=0, raytracer.h:2487) is the energy-correct behavior. It
++                // also makes sample()'s accepted set match pdf()'s reported
++                // density -- pdf() reports zero reflection density for
++                // below-horizon wi (its hemisphere gate routes those to the
++                // transmission term), so the previous smooth-mirror-delta
++                // fallback was a sample()/pdf() type mismatch (a delta event
++                // where pdf() reports continuous density), which was the pkg150
++                // chi2 residual. Cite: pbrt-v4 src/pbrt/bxdfs.cpp
++                // DielectricBxDF::Sample_f (Apache-2.0/BSD-3).
+                 //
+-                // pkg138 investigation note: a PBRT-v4-faithful "return a dead
+-                // (pdf=0) sample instead of this delta fallback" was tried and
+-                // MEASURED to regress energy conservation severely (white-furnace
+-                // collapsed from ~0.9-1.0 to ~0.0 at roughness in {0.1,0.3,0.6}
+-                // both CPU and GPU) -- the masked-VNDF-reflection dead-sample rate
+-                // measured here (100% at moderate roughness/incidence, not a rare
+-                // tail -- see the pkg138 research note) is NOT balanced by a
+-                // corresponding discount in this file's pdf()/microfacetReflectionPdf
+-                // (a full Smith joint-masking term or Turquin-style multiscatter
+-                // compensation would be needed first). Reverted; kept as the
+-                // pre-existing (if imperfect) energy-conserving behavior. See
+-                // .astroray_plan/docs/pkg138-disney-dielectric-rough-reflection-research.md.
++                // The #517 furnace trap (this same dead sample regressing the
++                // white-furnace 0.9->0.0) was measured on the pre-pkg149
++                // azimuth-buggy sampler, where ~100% of reflection candidates
++                // landed below-horizon so nearly every reflection-selected path
++                // died. On the corrected sampler (pkg149 #522 + pkg154's
++                // frontFace/clamp fixes now on main) the below-horizon fallback
++                // rate at glass[0.3-45] is ~0.16% (measured), so terminating it
++                // stays within the furnace gate (verified before/after --
++                // .astroray_plan/docs/pkg150-vndf-hemisphere-masking-research.md).
++                s.f = Vec3(0);
++                s.pdf = 0.0f;
++                s.isDelta = false;
++                return s;
+             }
+ 
+             if (cannotRefract || dist(gen) < fresnel) {

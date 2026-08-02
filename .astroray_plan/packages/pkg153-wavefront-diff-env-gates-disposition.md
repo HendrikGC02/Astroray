@@ -87,3 +87,14 @@ red-and-quarantined under this spec; `test_gpu_wavefront_final_image_mean_ratio`
 likewise stays red and pkg153-owned.
 
 **Post-#523 data point (C7 rebase, 2026-07-25):** after PR #523 (pkg152 gpu_disney_eval compensation-table mirror) the wavefront final-image R ratio moved [1.153, 1.007, 1.068] -> **[1.191, 1.007, 1.072]** on the same scene/seed (CPU oracle unchanged). A materials-eval PR moving the R residual by +3.8pp is direct evidence the drift lives in the GPU material/spectral eval arc (suspect 1B class) at least in part — useful bisect anchor. Quarantine unchanged.
+
+**pkg168 cross-link (2026-08-02):** pkg156's residual decomposition (PR #537
+round) independently convicted a CPU-`RGBAlbedoSpectrum`/`RGBIlluminant`-vs-
+GPU-tables upsampling parity gap as its remaining ~1.4% channel-asymmetric
+residual — the suspect-1B mechanism class. **pkg168**
+(`pkg168-rgb-spectral-upsampling-parity.md`) now owns that fix; its Step-1
+unit-level A/B and any fix are bisect anchors for this spec's failures 1–3.
+Ownership unchanged: these gates stay quarantined and pkg153-owned (the
+emitter-linked ~4.6 pp discriminator still points at a separate co-mechanism in
+the light-energy arc), and this spec closes only via its own disposition
+contract after consuming pkg168's result.

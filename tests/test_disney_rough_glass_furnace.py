@@ -75,29 +75,30 @@ _SMOOTH = [0.0, 0.03]
 # gate; do not add R=0.05 here without first fixing that pre-existing gap.
 _ROUGH = [0.1, 0.3, 0.6, 1.0]
 
-# pkg166 REAL ENERGY-GAIN FINDING (2026-08-02). Converting this suite to linear
-# (apply_gamma=False) exposed that the Disney Principled transmission (glass)
-# lobe CREATES energy in the white furnace — hidden until now because gamma
-# clamps to [0,1] (the old bands passed on a clamped 1.000). Measured on
-# cf67a92, albedo=1, ior=1.5, patch mean, deterministic across 32/128/512 spp:
-#   CPU smooth R=0/0.03            -> 1.784
-#   CPU rough  R=0.1/0.3/0.6/1.0   -> 1.099 / 1.108 / 1.157 / 1.260
-#   GPU rough  R=0.1/0.3/0.6/1.0   -> 1.098 / 1.182 / 2.060 / 2.296
-# Controls conserve: plain `dielectric` furnace 0.994, opaque disney 0.958. The
-# GPU SMOOTH delta path is fine (0.993). Per pkg166's own contract these gains
-# are NOT pinned in and the bands are NOT widened: the conserving bands stay and
-# the failing cases are xfail'd, owned by pkg169
-# (.astroray_plan/packages/pkg169-disney-transmission-energy-gain.md, HIGH).
-# pkg169's fix PR must REMOVE these markers and prove the cases green under
-# --runxfail — this is a quarantine of a known bug, not a permanent tolerance.
-_DISNEY_GLASS_ENERGY_GAIN = (
-    "energy gain under investigation, owned by pkg169: Disney transmission "
-    "(glass) lobe creates energy in the white furnace (linear reveals >1.0; "
-    "gamma hid it). Quarantine, not a tolerance — pkg169's fix must un-xfail."
+# pkg169 (2026-08-02) fixed the Disney transmission energy GAIN that pkg166's
+# linear conversion exposed (baseline on cf67a92: CPU smooth 1.784, CPU rough
+# 1.099-1.260, GPU rough 1.098-2.296). The three pkg166 xfail(strict=False)
+# markers are removed; all cases conserve EXCEPT the single cell below.
+#
+# CPU rough glass at ior=1.5, R=1.0 converges to ~0.90 (below the 0.92 floor):
+# a residual MULTI-SCATTER under-compensation, not a single-scatter weight defect
+# (single-scatter alone is 0.717; pkg151's ggxGlassCompensationFactor recovers it
+# to 0.90 but not fully). Architect-approved (2026-08-02) single-cell quarantine
+# owned by pkg167 (dielectric-reflection multiscatter, "Inherited quarantine"
+# section) — NOT a band widening; the cell stays measured and pkg167's PR must
+# retire this xfail under --runxfail. GPU passes the same cell (0.930, [0.90,1.06]).
+_PKG167_MULTISCATTER_R1_IOR15 = (
+    "CPU rough Disney glass ior=1.5 R=1.0 residual multiscatter under-compensation "
+    "(~0.90 vs 0.92 floor); owned by pkg167 (Inherited quarantine). pkg167's PR "
+    "must retire this xfail under --runxfail. Not a band widening; single cell only."
 )
 
 
-@pytest.mark.xfail(reason=_DISNEY_GLASS_ENERGY_GAIN, strict=False)
+# pkg169 (2026-08-02) un-xfail: the delta-glass energy gain is fixed. The delta
+# reflection/transmission f dropped the Fresnel common factor R/T (kept in the pdf,
+# so f/pdf did not cancel) — PBRT-v4 §9.5 DielectricBxDF::Sample_f. Fixed in
+# disney.cpp sample(); R=0 furnace 1.784 -> 0.990. See
+# .astroray_plan/docs/pkg169-transmission-energy-gain-findings.md.
 def test_disney_smooth_glass_furnace_cpu():
     vals = {R: _furnace(R, spp=128) for R in _SMOOTH}
     bad = {R: v for R, v in vals.items() if not (0.95 <= v <= 1.02)}
@@ -114,11 +115,18 @@ def test_disney_rough_glass_furnace_converges():
     assert abs(lo - hi) < 0.03, f"furnace not converged: 256spp={lo:.3f} 1024spp={hi:.3f}"
     # pkg166: renders linear now (via _furnace). This is a CONVERGENCE property,
     # orthogonal to the energy magnitude — the value bound lives in
-    # test_disney_rough_glass_furnace_energy_cpu (currently xfail'd for the
-    # Disney-glass energy-gain finding). Convergence itself holds regardless.
+    # test_disney_rough_glass_furnace_energy_cpu (un-xfail'd by pkg169).
+    # Convergence itself holds regardless.
 
 
-@pytest.mark.xfail(reason=_DISNEY_GLASS_ENERGY_GAIN, strict=False)
+# pkg169 (2026-08-02) un-xfail: the GPU rough-glass energy gain (up to 2.296) is
+# fixed. Root cause was NOT the transmission weight formula: disney glass lowers to
+# a closure graph whose sampler overwrites the correct sampler pdf with
+# gpu_disney_pdf, whose reflection-branch Fresnel used entering = normal.dot(wo) > 0
+# (always true) instead of rec.frontFace — computing air->glass F instead of
+# glass->air (~1 at TIR) for internal reflections, so the pdf was up to ~20x too
+# small and f/pdf inflated. Fixed to rec.frontFace (+ mirrored delta/cosine fixes).
+# GPU R=1.0 furnace 2.296 -> 0.930. See the findings doc.
 @pytest.mark.skipif(
     AVAILABLE and not astroray.__features__.get("cuda", False),
     reason="CUDA feature not in this build")
@@ -131,22 +139,32 @@ def test_disney_rough_glass_furnace_energy_gpu():
     assert not bad, f"GPU rough disney glass furnace not energy-conserving at roughness {bad}; all={vals}"
 
 
-@pytest.mark.xfail(reason=_DISNEY_GLASS_ENERGY_GAIN, strict=False)
+# pkg169 (2026-08-02) un-xfail: the CPU rough-glass energy gain is fixed by two
+# single-scatter weight corrections — rough transmission was missing the incident
+# cosine |N.wi| (eval() folds it via *NdotL, but the transmission path returns
+# early with the PBRT per-steradian BTDF and the integrator adds no cosine), and
+# the delta fallthrough dropped the Fresnel factor (see the module docstring /
+# findings doc). R=0.1/0.3/0.6 -> 0.993/0.980/0.926, all in [0.92,1.03]. R=1.0 is
+# carved out below (multiscatter, pkg167).
+_ROUGH_CPU_CONSERVING = [0.1, 0.3, 0.6]
+
+
 def test_disney_rough_glass_furnace_energy_cpu():
-    # pkg118 FIXED 2026-06-08: the deficit was NOT missing multi-scatter — it was the
-    # CPU analog of the #404 GPU glass-dark bug. The base Material::sampleSpectral wrapper
-    # upsampled the delta/rough glass throughput `bs.f` through RGBAlbedoSpectrum, whose
-    # Jakob-Hanika ALBEDO LUT clamps rgb>1 to 1 — clipping the exit refraction's eta^2=2.25
-    # radiance recovery and darkening all transmissive glass (furnace R=0.05 0.77, R=0.1
-    # 0.81). The fix factors any >1 magnitude out as a flat spectral scalar (raytracer.h
-    # sampleSpectral), exactly as PR #404 did on the GPU. The CPU furnace now conserves:
-    # R=0.3/0.6/1.0 -> ~1.00, R=0.1 -> 0.94 (matching the GPU's own low-alpha-boundary
-    # residual 0.956; the GPU gate above accepts [0.90,1.06]). Root cause + the full
-    # diagnosis trail (5 ruled-out approaches, per-bounce ray trace) is in
-    # .astroray_plan/docs/pkg118-multiscatter-energy-research.md.
-    vals = {R: _furnace(R, spp=256) for R in _ROUGH}
+    vals = {R: _furnace(R, spp=256) for R in _ROUGH_CPU_CONSERVING}
     bad = {R: v for R, v in vals.items() if not (0.92 <= v <= 1.03)}
     assert not bad, f"rough disney glass furnace not energy-conserving at roughness {bad}; all={vals}"
+
+
+@pytest.mark.xfail(reason=_PKG167_MULTISCATTER_R1_IOR15, strict=False)
+def test_disney_rough_glass_furnace_energy_cpu_r1_ior15():
+    # Single-cell quarantine kept in the grid so it stays MEASURED (architect
+    # verdict 2026-08-02). CPU rough Disney glass at ior=1.5, R=1.0 converges to
+    # ~0.90 — a residual multiscatter under-compensation owned by pkg167, NOT the
+    # pkg169 single-scatter defect (which is fixed). No band widening: same
+    # [0.92,1.03] gate as the conserving cells above; pkg167's PR must retire this
+    # xfail under --runxfail.
+    v = _furnace(1.0, spp=256)  # ior 1.5 (default)
+    assert 0.92 <= v <= 1.03, f"CPU rough disney glass R=1.0 ior1.5 furnace = {v:.4f}"
 
 
 @pytest.mark.skipif(

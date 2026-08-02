@@ -88,11 +88,16 @@ Conviction B (GPU): the closure-graph reflection-pdf used
 making internal-reflection pdf up to ~20× too small; furnace R=1.0
 2.296→0.930. Furnace after fix (ior 1.5): CPU
 0.990/0.990/0.993/0.980/0.926/0.902, GPU 0.992/0.992/0.992/0.986/0.970/0.930;
-ior 1.33 both legs 0.98–0.99. RTX HW verification PASS. pkg166's 3 xfails
-removed and confirmed clean under `--runxfail`; one residual cell (CPU
-ior1.5 R=1.0 ≈0.90, multi-scatter) quarantined forward to pkg167 per
-architect verdict. **In flight:** pkg168 Step 2 and pkg170 (HIGH, GPU opaque
-Disney closure-recombination ~2× gain) both dispatched.
+ior 1.33 both legs 0.98–0.99. RTX HW verification PASS, with clean glass
+visuals CPU+GPU at three roughnesses and a genuine caustic verified present.
+pkg166's 3 xfails removed and confirmed clean under `--runxfail`; one
+residual cell (CPU ior1.5 R=1.0 ≈0.90, multi-scatter) quarantined forward to
+pkg167 per architect verdict. Pre-existing non-target finding surfaced during
+verification: `light_tracer_caustic` (pkg106) is a CPU-only integrator with
+no GPU guard and renders silently near-black if forced onto GPU — filed by
+the architect as **pkg171** (`78218f6`, general CPU-only-integrator/GPU
+guard, backlog tier). **In flight:** pkg168 Step 2 and pkg170 (HIGH, GPU
+opaque Disney closure-recombination ~2× gain) both dispatched.
 
 **2026-07-26 (round closeout, overnight 2026-07-25 → day 2026-07-26): 6 PRs
 merged (#525–#530), no open PRs at closeout.** First full round entirely

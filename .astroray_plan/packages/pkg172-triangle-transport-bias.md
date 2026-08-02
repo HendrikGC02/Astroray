@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU/CPU transport parity)
 **Track:** A (RTX-gated)
-**Status:** open — dispatchable (diagnosis-first; not urgent-tier — 0.6% is inside every live band — but it now OWNS the pkg156 SSIM gate restoration, transferred from pkg168)
+**Status:** ESCALATED to architect (diagnosis done, no fix, 2026-08-02) — the spec premise is FALSIFIED: the bias is NOT triangle-specific (sphere == triangle == 0.9957 single-bounce) and candidates (a)/(b)/(c) are all CLEARED (epsilon probe negative; achromatic, geometry- & depth-independent). Three-way cross-check: **GPU wavefront AGREES with the canonical CPU `path_tracer` (ratio 1.002); the pkg156 ORACLE (CPU `multiwavelength_path_tracer`) is the ~0.6%/bounce OUTLIER** and is the one matching the energy-conserving analytic. This is a design fork (fix CPU-mw's energy vs fix path_tracer+GPU vs change the gate oracle) requiring owner direction — not a single convicted line. **pkg156 stays at 0.995; NOT re-pinned.** Full decomposition: .astroray_plan/docs/pkg172-triangle-transport-diagnosis.md.
 **Estimated effort:** S (diagnosis — the discriminators are already established and the minimal scene is one triangle) + S for the fix once convicted
 **Depends on:** PR #541 (pkg168 Step 2) merged — the sphere-clean baseline this spec's discriminator rests on. Cross-links: **pkg156** (its 0.998 restoration is BLOCKED-ON this package; pointer updated 2026-08-02), **pkg168** (charter complete — exonerated the tables in Step 1, fixed the call-structure shape divergence in Step 2; THIS residual is the third mechanism its decomposition exposed), **pkg153** (sibling family, ownership separate — see Scope fence).
 

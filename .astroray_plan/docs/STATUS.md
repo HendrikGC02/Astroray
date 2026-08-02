@@ -79,9 +79,20 @@ this cycle: the pkg169 fork verdict assigned pkg167 the R=1.0/ior1.5
 quarantined cell, and filed **pkg170** (new spec — GPU opaque Disney
 closure-recombination gain, ~2×, HIGH priority: metallic=0/transmission=0 is
 the *default* Disney material class, a wider blast radius than pkg169's
-transmission-only bug). **In flight:** PR #540 (pkg169, Disney transmission
-energy conservation) has HW PASS + CI green, in the merge queue; pkg168 Step
-2 and pkg170 both dispatched.
+transmission-only bug). **PR #540:** **pkg169** done — both convictions
+fixed CPU+GPU. Conviction A (CPU): delta glass dropped the Fresnel common
+factor R/T (PBRT-v4 §9.5), and rough transmission omitted the incident
+cosine |N·wi| (Heitz 2018 VNDF); furnace R=0 1.784→0.990, R=0.1 1.099→0.993.
+Conviction B (GPU): the closure-graph reflection-pdf used
+`sign(normal·wo)` instead of `rec.frontFace` for the exit-side Fresnel,
+making internal-reflection pdf up to ~20× too small; furnace R=1.0
+2.296→0.930. Furnace after fix (ior 1.5): CPU
+0.990/0.990/0.993/0.980/0.926/0.902, GPU 0.992/0.992/0.992/0.986/0.970/0.930;
+ior 1.33 both legs 0.98–0.99. RTX HW verification PASS. pkg166's 3 xfails
+removed and confirmed clean under `--runxfail`; one residual cell (CPU
+ior1.5 R=1.0 ≈0.90, multi-scatter) quarantined forward to pkg167 per
+architect verdict. **In flight:** pkg168 Step 2 and pkg170 (HIGH, GPU opaque
+Disney closure-recombination ~2× gain) both dispatched.
 
 **2026-07-26 (round closeout, overnight 2026-07-25 → day 2026-07-26): 6 PRs
 merged (#525–#530), no open PRs at closeout.** First full round entirely

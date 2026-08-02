@@ -16,6 +16,7 @@
 #include <cuda_runtime.h>
 #include <cstdio>
 #include <stdexcept>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 // pkg54a: Device-side spectral profile table (constant memory).
@@ -332,4 +333,64 @@ __device__ GVec3 gpu_spectrum_to_xyz(
     const GSampledSpectrum& s, const GSampledWavelengths& wl)
 {
     return spectrumToXYZ(s, wl);
+}
+
+// ---------------------------------------------------------------------------
+// pkg168 — test-only RGB→spectral upsampling probe. Batches the SAME
+// per-wavelength scalar the production wavefront fills each GSampledSpectrum
+// slot with (gpu_rgbSpectrumAt, gpu_materials.h) over a grid of (rgb, lambda)
+// so tests/test_pkg168_upsampling_parity.py can A/B it against the CPU
+// RGBAlbedoSpectrum/RGBIlluminantSpectrum::evalAt at unit level. Mirrors the
+// launchProfileLookup pattern (pkg54d). NOT on any render path.
+// ---------------------------------------------------------------------------
+__global__ void gpu_rgb_upsample_batch_kernel(
+    const float* rgbs, int nRgb, const float* lambdas, int nLambda,
+    int mode, float* out)
+{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = nRgb * nLambda;
+    if (tid >= total) return;
+    int ri = tid / nLambda;
+    int li = tid % nLambda;
+    GVec3 rgb(rgbs[ri * 3 + 0], rgbs[ri * 3 + 1], rgbs[ri * 3 + 2]);
+    out[tid] = gpu_rgbSpectrumAt(rgb, lambdas[li], (GSpectralMode)mode);
+}
+
+std::vector<float> launchRgbUpsampleBatch(
+    const std::vector<float>& rgbs, const std::vector<float>& lambdas, int mode)
+{
+    // The probe touches the same tables production reads; the uploads are
+    // idempotent (static-bool guarded) so calling them here is safe.
+    uploadCmfTables();
+    uploadJakobHanikaLut();
+
+    int nRgb    = static_cast<int>(rgbs.size() / 3);
+    int nLambda = static_cast<int>(lambdas.size());
+    int total   = nRgb * nLambda;
+    std::vector<float> host(total, 0.f);
+    if (total == 0) return host;
+
+    float *dRgb = nullptr, *dLam = nullptr, *dOut = nullptr;
+    cudaError_t err = cudaMalloc(reinterpret_cast<void**>(&dRgb), rgbs.size() * sizeof(float));
+    if (err == cudaSuccess) err = cudaMalloc(reinterpret_cast<void**>(&dLam), lambdas.size() * sizeof(float));
+    if (err == cudaSuccess) err = cudaMalloc(reinterpret_cast<void**>(&dOut), total * sizeof(float));
+    if (err == cudaSuccess) err = cudaMemcpy(dRgb, rgbs.data(), rgbs.size() * sizeof(float), cudaMemcpyHostToDevice);
+    if (err == cudaSuccess) err = cudaMemcpy(dLam, lambdas.data(), lambdas.size() * sizeof(float), cudaMemcpyHostToDevice);
+    if (err == cudaSuccess) {
+        int block = 256;
+        int grid  = (total + block - 1) / block;
+        gpu_rgb_upsample_batch_kernel<<<grid, block>>>(dRgb, nRgb, dLam, nLambda, mode, dOut);
+        err = cudaGetLastError();
+        if (err == cudaSuccess) err = cudaDeviceSynchronize();
+    }
+    if (err == cudaSuccess) err = cudaMemcpy(host.data(), dOut, total * sizeof(float), cudaMemcpyDeviceToHost);
+
+    cudaFree(dRgb);
+    cudaFree(dLam);
+    cudaFree(dOut);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "launchRgbUpsampleBatch failed: %s\n", cudaGetErrorString(err));
+        throw std::runtime_error(cudaGetErrorString(err));
+    }
+    return host;
 }

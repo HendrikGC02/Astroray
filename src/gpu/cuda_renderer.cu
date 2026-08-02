@@ -56,6 +56,9 @@ void uploadCmfTables();
 // global memory; required by gpu_jhEvalSpectrum (the new upsampling path).
 void uploadJakobHanikaLut();
 float launchProfileLookup(int profileIndex, float lambda);
+// pkg168 — test-only batch RGB→spectral upsampling probe.
+std::vector<float> launchRgbUpsampleBatch(
+    const std::vector<float>& rgbs, const std::vector<float>& lambdas, int mode);
 // pkg151 — one-time copy of the Cycles glass multi-scatter compensation
 // tables into device global memory; required by gpu_ggxGlassCompensationFactor
 // (gpu_disney_roughTransmissionEval).
@@ -540,6 +543,12 @@ float CUDARenderer::lookupProfileReflectance(int profileIndex, float lambda) con
         throw std::runtime_error("Profile index was not uploaded in the current CUDA scene");
     }
     return launchProfileLookup(profileIndex, lambda);
+}
+
+std::vector<float> CUDARenderer::rgbUpsampleBatch(
+    const std::vector<float>& rgbs, const std::vector<float>& lambdas, int mode) const {
+    if (!impl->available) throw std::runtime_error("No CUDA GPU available");
+    return launchRgbUpsampleBatch(rgbs, lambdas, mode);
 }
 
 void CUDARenderer::uploadEnvironmentMap(const EnvironmentMap& envMap) {

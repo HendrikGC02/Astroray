@@ -1426,6 +1426,27 @@ public:
 #endif
     }
 
+    // pkg168: batch device RGB→spectral upsampling probe for the CPU↔GPU
+    // parity A/B (tests/test_pkg168_upsampling_parity.py). `rgbs` is flat
+    // 3*nRgb, `lambdas` is nLambda; returns nRgb*nLambda floats, rgb-major.
+    // mode is a GSpectralMode (1=ALBEDO, 2=ILLUMINANT).
+    std::vector<float> gpuRgbUpsampleBatch(const std::vector<float>& rgbs,
+                                           const std::vector<float>& lambdas,
+                                           int mode) {
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (!cudaRenderer) cudaRenderer = std::make_unique<CUDARenderer>();
+        if (!cudaRenderer->isAvailable()) {
+            throw std::runtime_error("No CUDA GPU available");
+        }
+        return cudaRenderer->rgbUpsampleBatch(rgbs, lambdas, mode);
+#else
+        (void)rgbs;
+        (void)lambdas;
+        (void)mode;
+        throw std::runtime_error("CUDA support not compiled");
+#endif
+    }
+
     // pkg63: extended for full Blender Mapping node parity (XYZ Euler rotation,
     // multiplicative Background Color tint). Backward-compatible — direct callers
     // that pass (path, strength, 0.0) just get rx=0 (identity matrix).
@@ -2864,6 +2885,11 @@ PYBIND11_MODULE(astroray, m) {
         .def("_gpu_profile_lookup", &PyRenderer::gpuProfileLookup,
              "profile_index"_a, "lambda_nm"_a,
              "Return device-side reflectance for an uploaded spectral profile slot.")
+        .def("_gpu_rgb_upsample_batch", &PyRenderer::gpuRgbUpsampleBatch,
+             "rgbs"_a, "lambdas"_a, "mode"_a,
+             "pkg168 test probe: device RGB->spectral upsample. rgbs is flat "
+             "3*nRgb, lambdas is nLambda; returns nRgb*nLambda floats rgb-major. "
+             "mode: 1=ALBEDO, 2=ILLUMINANT.")
         .def("get_material_backend_capabilities",
              &PyRenderer::getMaterialBackendCapabilities, "material_id"_a)
         .def("get_material_closure_graph",
@@ -2926,6 +2952,36 @@ PYBIND11_MODULE(astroray, m) {
     m.def("emission_registry_names", []() {
         return astroray::EmissionRegistry::instance().names();
     });
+
+    // pkg168: CPU RGB→spectral upsampling probe — the host counterpart of
+    // PyRenderer._gpu_rgb_upsample_batch, for the parity A/B in
+    // tests/test_pkg168_upsampling_parity.py. `rgbs` is flat 3*nRgb, `lambdas`
+    // is nLambda; returns nRgb*nLambda floats, rgb-major. mode: 1=ALBEDO
+    // (RGBAlbedoSpectrum), 2=ILLUMINANT (RGBIlluminantSpectrum). These are the
+    // exact per-wavelength scalars RGB*Spectrum::sample() fills each slot with.
+    m.def("_cpu_rgb_upsample_batch",
+          [](const std::vector<float>& rgbs, const std::vector<float>& lambdas,
+             int mode) {
+        int nRgb    = static_cast<int>(rgbs.size() / 3);
+        int nLambda = static_cast<int>(lambdas.size());
+        std::vector<float> out(static_cast<size_t>(nRgb) * nLambda, 0.f);
+        for (int ri = 0; ri < nRgb; ++ri) {
+            std::array<float, 3> rgb{ rgbs[ri * 3 + 0], rgbs[ri * 3 + 1],
+                                      rgbs[ri * 3 + 2] };
+            if (mode == 2) {
+                astroray::RGBIlluminantSpectrum sp(rgb);
+                for (int li = 0; li < nLambda; ++li)
+                    out[ri * nLambda + li] = sp.evalAt(lambdas[li]);
+            } else {
+                astroray::RGBAlbedoSpectrum sp(rgb);
+                for (int li = 0; li < nLambda; ++li)
+                    out[ri * nLambda + li] = sp.evalAt(lambdas[li]);
+            }
+        }
+        return out;
+    }, "rgbs"_a, "lambdas"_a, "mode"_a,
+       "pkg168 test probe: CPU RGB->spectral upsample (host mirror of "
+       "_gpu_rgb_upsample_batch). mode: 1=ALBEDO, 2=ILLUMINANT.");
 
     // pkg106 Chunk A test helper — evaluate the analytic half-vector constraint
     // Jacobian (astroray::manifold::halfVectorConstraintJacobian) from pytest.

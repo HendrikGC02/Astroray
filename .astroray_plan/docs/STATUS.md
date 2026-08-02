@@ -1,9 +1,25 @@
 # Astroray Status
 
-**In progress — overnight 2026-08-01 → day 2026-08-02 (owner extended the run,
-not yet closed out):** see `.astroray_plan/docs/standup/2026-08-01-overnight.md`
-(finalized) and `.astroray_plan/docs/standup/2026-08-02-dayrun.md` (live) for
-detail. Three PRs shipped overnight. **pkg163** spectral-vs-RGB metal
+**2026-08-01 → 2026-08-02 (run closed, 11 PRs merged): pkg163/pkg158/pkg120
+overnight; pkg150/pkg166/pkg156/pkg168-Step1/pkg169/pkg170 + pkg172 docs
+(#543/#544) during the day.** See
+`.astroray_plan/docs/standup/2026-08-01-overnight.md` and
+`.astroray_plan/docs/standup/2026-08-02-dayrun.md` (both finalized) for full
+detail. **5 real defects fixed** (pkg163 colour-space seam, pkg120's
+naive-mode regression caught via pkg156, pkg169's three transmission bugs,
+pkg170's opaque-Disney 2× gain, pkg168's diffuse upsample-shape bug) plus
+**2 convicted-not-yet-fixed** (pkg172 effect (A), pkg173). **PR #541
+(pkg168 Step 2) is PARKED, not merged** — correctness verified and preserved
+(v4 on branch, `6ef2c11`, unpushed), but blocked on a register-saturation
+perf ceiling (`stageAdvance`/`stageShade` at 254 regs; best correct form
+1.222s vs the 1.0s ceiling). A 4-way fork (ship+temp-raise /
+register-pressure-package-first / permanent-re-pin / structural-hoist) is
+documented in #541's PR thread; **decision deferred to the owner — top
+action item, blocks pkg172(A), pkg173, and pkg168's closeout.** 9 new specs
+filed (pkg165–pkg173), pkg129 narrowed, `NEXT_STAGE_REPORT.md` refreshed.
+Three session-limit freezes noted (~01:35–04:00, ~02:13–13:30,
+~06:25–19:50); no corruption at any resumption. **pkg163** spectral-vs-RGB
+metal
 colour-space parity (PR #533, `b036ac9`) — GPU metal now builds per-wavelength
 via `gpu_metal_eval_spectral`, retiring pkg160's roughness-0.9-only
 `[0.95,1.10]` band exception; standard `[0.95,1.05]` restored at all
@@ -139,13 +155,19 @@ docs conflict** — main's version of the pkg172 diagnosis table was the
 canonical; the pr-merger caught and resolved it correctly rather than
 mechanically taking "ours."
 
-**#541 status: correctness verified, but a controlled A/B convicted its
-implementation of a 1.6× wavefront perf regression** (main HEAD 0.840s →
-with #541, 1.370s). A perf-preserving restructure (same single-upsample
-correctness structure, shape-correct) is in progress, with sign-off and a
-full re-gate to follow. **pkg173 and pkg168's own closeout both hang on
-#541 landing.** If it lands tonight it is the final ship of this run; if
-not, it is the top of next session's queue.
+**#541 final resolution: PARKED, not merged.** A controlled A/B first
+convicted its implementation of a 1.6× wavefront perf regression (main HEAD
+0.840s → with #541, 1.370s). The restructure attempt converged on the real
+root cause: `stageAdvance`/`stageShade` are register-saturated at 254, and
+**any** correct per-hit diffuse-upsample distinction spills ~2KB of stack —
+the best correct in-kernel form measured 1.222s, still short of the 1.0s
+ceiling. Correctness itself is solved and preserved (v4 committed locally on
+the branch as `6ef2c11`, unpushed, all correctness gates green) — the
+blocker is purely the perf ceiling. A 4-way fork (ship+temp-raise the
+ceiling / land a register-pressure-reduction package first / permanent
+gate re-pin / structural hoist of the distinction out of the hot path) is
+documented in PR #541's comment thread; **decision deferred to the owner —
+the top action item, blocking pkg172(A), pkg173, and pkg168's closeout.**
 
 **Architect round-close refresh (`f64610d`):** `NEXT_STAGE_REPORT.md` §2/§3
 requeued for the correctness cascade (in order: #541 resolution, pkg172(A)

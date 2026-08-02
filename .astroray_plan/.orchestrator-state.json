@@ -1,43 +1,11 @@
 {
-  "518": {
-    "head_sha": "f1fd7b89447fdb8dce992fdbe81ee2c014470654",
-    "hw_artifact": "test_results/overnight_report_2026-07-24/pkg141_hw_numbers.json",
-    "hw_numbers": "PR-own gates all green (parity 2.7-4.0x -> in-band, furnace/energy clean); FAIL driven by wavefront_diff 4 gates + perf 0.90x<1.30x, VERIFIED pre-existing on main 8c49bbb",
+  "541": {
+    "head_sha": "fcf238b28fcd8f532c024afab2f320b4587382c9",
+    "hw_artifact": ".claude/worktrees/pkg168-step2/test_results/verifier_perf_run1.txt",
+    "hw_numbers": "post-rebase: own gates all green (diffuse parity max dev 0.07%, SSIM 0.99545, opaque furnace 5/5) but wavefront perf ceiling FAILS 1.352s vs 1.0s deterministically; pre-rebase-staleness hypothesis disproven; perf diagnosis dispatched",
     "hw_result": "FAIL",
     "last_action": "gate_review_dispatched",
-    "last_action_ts": "2026-07-24T14:49:11Z"
-  },
-  "519": {
-    "head_sha": "e2c4d5cd33d0b05d79521bc928add04f849ae3ae",
-    "hw_artifact": "test_results/overnight_report_2026-07-24/pkg151_hw_numbers.json",
-    "hw_numbers": "GPU LUT upload clean (probe mean 0.994); parity G/B 0.99, R 0.978 pre-existing unmoved (pkg153 corroboration); furnace 5/5 unchanged; 3 suite failures byte-identical on main",
-    "hw_result": "PASS",
-    "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-24T15:28:28Z"
-  },
-  "522": {
-    "head_sha": "538eb195400ad41c96b49f6cf31b5879ab50148b",
-    "hw_artifact": "test_results/overnight_report_2026-07-24/pkg149_hw_numbers.json",
-    "hw_numbers": "final head: GPU furnace 0.9987-1.0000 measured under lock; decisive gate independently verified twice on equivalent content (pkg152 verifier exact-match + implementer final); CPU 484 pass",
-    "hw_result": "PASS",
-    "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-25T11:04:28Z"
-  },
-  "523": {
-    "head_sha": "6dc83d401fa714900b0f69c013451c6697943169",
-    "hw_artifact": "test_results/overnight_report_2026-07-24/pkg152_hw_numbers.json",
-    "hw_numbers": "decisive stack furnace 0.9987-1.0000 all-in-band (exact match to claim); no main-based regressions 296 pass; clearcoat fixed; near-delta metal measured ~1.0 (better than claimed, flagged)",
-    "hw_result": "PASS",
-    "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-25T00:30:04Z"
-  },
-  "524": {
-    "head_sha": "05a1fbec953866a84a6e29a6e79f4930f9769545",
-    "hw_artifact": "test_results/overnight_report_2026-07-24/pkg55c7_hw_numbers.json",
-    "hw_numbers": "clean-rebuild full suite 1506 pass, only declared exceptions red; perf 1.556x vs pinned MK (floor 1.40); NEE/caustic/SSIM reproduced; clamp = silent no-op on wavefront (owner decision)",
-    "hw_result": "PASS",
-    "last_action": "hw_recorded",
-    "last_action_ts": "2026-07-25T11:04:28Z"
+    "last_action_ts": "2026-08-02T05:57:01Z"
   },
   "impl_dispatches": {
     "pkg55-bprime-session-n1": {

@@ -642,3 +642,5 @@ tonight-only fact.
    `test_results/overnight_report_2026-07-25/overnight_report_2026-07-26.html`.
 
 <!-- finalized 2026-07-26 -->
+
+<!-- finalized -->

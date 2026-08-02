@@ -23,6 +23,55 @@ itself with a concrete caller today.
 
 ---
 
+## Current sequencing (OWNER DIRECTIVE 2026-08-03 — supersedes older "next pickup" lists below)
+
+After the 2026-08-01/02 correctness cascade (11 PRs), the owner issued a
+course correction. The order is now:
+
+**(a) Engine settlement — one SUPERVISED round, first.** Finish the last
+~10% of the foundation: **PR #541 option A** (owner CONFIRMED — ship the
+correctness fix v4, temporarily raise the wavefront perf ceiling; see
+pkg168 Status) + **pkg172 effect (A)** (the universal `f/(pdf+1e-3)`
+epsilon fix with its coordinated, architect-signed re-pin batch) +
+**pkg174** (register-pressure recovery: `stageAdvance`/`stageShadeBucketed`
+at REG:254, restore ≤1.0s WITH the correctness fix in, then revert the
+temporary ceiling raise). Supervised because #541-A and pkg172(A) both
+move rendered energy project-wide.
+
+**(b) The Integration Milestone — BEFORE Pillar 4.** *"The purpose of
+mimicking Cycles was to be able to use as much of the existing options and
+settings in Blender as the steering wheel for this engine."* The engine is
+nearly usable; the owner wants to actually USE it in Blender to verify it
+does what they want. Integration IS the next milestone, not a side quest:
+
+- **pkg175** — one-command dev loop: build → package → install → launch →
+  headless smoke-render ("building, installing, launching and testing it
+  for me is far too much work" — that loop becomes one command, for the
+  owner and for agents).
+- **pkg176** — Blender as the steering wheel: drive Astroray from
+  Blender's NATIVE render settings, Cycles-style panels
+  (`COMPAT_ENGINES` re-registration), and native world/material node
+  trees; retire the ground-up custom UI down to one small Astroray panel.
+- **pkg177** — generalization tradeoff study (parallel-safe): Blender is
+  the first target, not the only one. Real axes — native `RenderEngine`
+  plugin vs renderer-agnostic session layer + thin adapters vs USD/Hydra
+  delegate — laid out with grounded facts for an owner decision, per the
+  no-forced-options rule. Research:
+  `dcc-integration-research-2026-08.md`.
+- **pkg119 Phases B/C** — re-scoped as the milestone's verification layer
+  (differential harness vs Cycles + graceful-degradation policy).
+
+**(c) Only then: Pillar 4 unpause** (pkg45/46/48/49/50/51 + pkg107) and
+the GR/astro science layer, driven from inside Blender via the steering
+wheel the milestone built.
+
+**Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU
+parity tail — **pkg173** (bounce-1 geometry-sampling expectations) and the
+**pkg153** remainder — sits BELOW the Integration Milestone unless the
+paper turns out to require bit-level parity.
+
+---
+
 ## The agent tracks
 
 Work happens on independent tracks. Each has its own agent and acceptance
@@ -86,6 +135,10 @@ back without user intervention.
 - Depends on Pillars 1, 2.
 
 ### Pillar 4 — Astrophysics platform
+
+> **PAUSED (2026-06-08, owner) — unpause is sequenced AFTER the Integration
+> Milestone** (see "Current sequencing" at the top): the science layer gets
+> built and exercised from inside Blender via the steering wheel.
 
 > **Thaw notice (2026-05-10) + shipping (2026-05-11+):** the strategic
 > gate released, and Pillar 4 is actively shipping. pkg40 (Kerr

@@ -27,6 +27,7 @@
 #include "astroray/gpu_materials.h"
 
 #include <cuda_runtime.h>
+#include <vector>
 
 #ifndef M_PI_F
 #  define M_PI_F 3.14159265358979323846f
@@ -79,6 +80,12 @@ void uploadProfileTable(const float* host, int count);
 int uploadedProfileCount();
 // pkg54d — single-lookup probe binding (tests/test_gpu_profile_lookup.py).
 float launchProfileLookup(int profileIndex, float lambda);
+// pkg168 — test-only batch RGB→spectral upsampling probe. Returns nRgb*nLambda
+// floats (row-major, rgb-major) of the per-wavelength device upsampled value
+// gpu_rgbSpectrumAt; mode is a GSpectralMode. See
+// tests/test_pkg168_upsampling_parity.py.
+std::vector<float> launchRgbUpsampleBatch(
+    const std::vector<float>& rgbs, const std::vector<float>& lambdas, int mode);
 
 // ---------------------------------------------------------------------------
 // Cross-TU __device__ export (defined in gpu_spectral_tables.cu).

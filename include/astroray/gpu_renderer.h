@@ -97,6 +97,13 @@ public:
     // uploadScene() call.
     float lookupProfileReflectance(int profileIndex, float lambda) const;
 
+    // pkg168: test hook — batch device RGB→spectral upsampling probe. Returns
+    // nRgb*nLambda floats (rgb-major) of gpu_rgbSpectrumAt for the given
+    // GSpectralMode. Uploads the JH LUT + CMF/D65 tables on demand.
+    std::vector<float> rgbUpsampleBatch(
+        const std::vector<float>& rgbs, const std::vector<float>& lambdas,
+        int mode) const;
+
     // [0, 1] progress estimate (reserved for async use in Phase 3).
     float getProgress() const;
 

@@ -1,7 +1,7 @@
 # pkg168 Step 2 — call-structure localization + diffuse upsampling fix
 
 **Date:** 2026-08-02 (RTX 5070 Ti)
-**Branch:** pkg168-step2-callstructure
+**Branch:** pkg168-step2-callstructure (PR #541)
 **Builds on:** Step 1 (PR #539, merged 1cb6485) — tables proven bit-clean, fork
 routed to CALL STRUCTURE.
 

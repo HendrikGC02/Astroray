@@ -68,8 +68,20 @@ parity gap (channel-asymmetric even under a neutral background, the same
 mechanism as pkg153's R-drift), BLOCKED-ON pkg168. Independent HW re-verify
 PASS: SSIM 0.99549, bit-identity exact, C2 residuals <7.5e-08, visual clean.
 Lesson recorded in pkg120's spec: "mirror the CONDITION, not just the term."
-**In flight, just dispatched:** **pkg169** (HIGH, Disney transmission energy
-gain) and **pkg168** (upsampling parity Step 1).
+**PR #539:** **pkg168 Step 1** done — a unit-level CPU↔GPU RGB→spectral
+upsampler A/B (new underscore debug probes, pkg54d pattern, zero production
+callers) returns verdict **TABLES CLEAN**: band-integrated ratios
+1.000000–1.000004, mean relative error 2e-6, exonerating the LUTs. pkg156's
+~1.4% residual is therefore **call-structure, not table content**; Step 2
+(per-bounce snapshot harness to localize the bounce-2 onset) is dispatched
+separately, and pkg156's 0.998 gate restoration remains blocked on it. Also
+this cycle: the pkg169 fork verdict assigned pkg167 the R=1.0/ior1.5
+quarantined cell, and filed **pkg170** (new spec — GPU opaque Disney
+closure-recombination gain, ~2×, HIGH priority: metallic=0/transmission=0 is
+the *default* Disney material class, a wider blast radius than pkg169's
+transmission-only bug). **In flight:** PR #540 (pkg169, Disney transmission
+energy conservation) has HW PASS + CI green, in the merge queue; pkg168 Step
+2 and pkg170 both dispatched.
 
 **2026-07-26 (round closeout, overnight 2026-07-25 → day 2026-07-26): 6 PRs
 merged (#525–#530), no open PRs at closeout.** First full round entirely

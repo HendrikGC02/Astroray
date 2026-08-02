@@ -82,6 +82,33 @@ instrumentation ([pkg172-diag] kernel printf of throughput, envSpec, and the
 per-λ contribution + XYZ for one pixel/sample, diffed against the same on CPU) —
 a focused instrumented build, recommended as the next step. (B) owns pkg156.
 
+## UPDATE 2 — (B) split further: single-bounce (B)=#541; a distinct MULTI-BOUNCE (B') remains
+
+Cherry-picking #541 (commit 19fb009) onto pkg172 + clean rebuild (`.pyd` mtime
+1785649939 > HEAD e9d2034 ctime 1785649784) shows:
+
+- **Single-bounce (B) IS #541.** Face-on wall, single diffuse bounce, GPU/CPU:
+  0.9959 → [0.99988, 1.00005, 1.00021] for every albedo. The "GPU-only 0.4% site"
+  was the pkg168 Step-2 upsample-of-pre-scaled-value bug, small for neutral
+  albedo. #541 fixes it. **pkg156 needs #541 merged.**
+
+- **A separate MULTI-BOUNCE residual (B') survives #541.** pkg156 room gate WITH
+  #541 present is still [1.016, 1.010, 1.016] / SSIM 0.9955. Minimal reproducer
+  (grey albedo 0.6, grey env, #541 present, GPU/CPU): single floor 1.0096 (const
+  across depth); corner/2-walls 1.0145 (d4); box/4-walls 1.0368 (d4), 1.063 (d2).
+  Divergence scales with inter-reflection and is GPU-BRIGHTER.
+
+Ruled out for (B'): epsilon (probe negative), the JH tables (Step 1), the
+per-bounce throughput (invariant `throughput_after/before == albedo` holds exactly
+per-path on both legs regardless of RNG), and simple occlusion parity — a ceiling
+occluder REDUCED the divergence (floor 1.0096 → floor+ceiling 1.001 @d4), the
+opposite of an under-occlusion story. The effect is strongly config-sensitive
+(face-on clean; grazing/multi-bounce diverge), which points at a path-length /
+escape-distribution or camera/first-hit interaction rather than a single
+per-bounce factor. Convicting it requires a per-hit deterministic trace (per-path
+bounce-count + throughput + escape, GPU vs CPU) — a focused instrumented build,
+NOT rushed (this session already hit one un-rebuilt-revert contamination error).
+
 ## Status
 
 - **(A) convicted** (epsilon; `2π·eps` math + `1e-6` probe → 0.500). Fix =

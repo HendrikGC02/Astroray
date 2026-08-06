@@ -65,13 +65,30 @@ REM Create build directory
 mkdir build_cuda 2>nul
 cd build_cuda
 
-REM Configure CMake
+REM Generator changed NMake -> Ninja 2026-08-06 (NMake is fully serial; Ninja
+REM parallelizes). Worktree build_cuda dirs may carry a cache from the old
+REM generator — CMake hard-errors on the mismatch, so wipe stale caches
+REM (including _deps subbuild caches) before configuring.
+if exist CMakeCache.txt (
+    findstr /C:"CMAKE_GENERATOR:INTERNAL=Ninja" CMakeCache.txt >nul 2>&1 || (
+        echo [build_cuda_worktree] Wiping stale-generator CMake cache
+        del /q CMakeCache.txt
+        rmdir /s /q CMakeFiles 2>nul
+        rmdir /s /q _deps 2>nul
+    )
+)
+
+REM Configure CMake. ASTRORAY_CUDA_ARCHS=native: worktree builds only ever run
+REM on this machine's GPU (hardware verify), so compile one native arch
+REM (sm_120) instead of the 3-arch broad-compat list — ~3x less device
+REM compile work and no PTX-JIT at test time.
 cmake .. ^
-  -G "NMake Makefiles" ^
+  -G "Ninja" ^
   -DCMAKE_BUILD_TYPE=Release ^
   -DBUILD_PYTHON_MODULE=ON ^
   -DASTRORAY_ENABLE_CUDA=ON ^
   -DASTRORAY_WAVEFRONT_CUDA_N3=ON ^
+  -DASTRORAY_CUDA_ARCHS=native ^
   -DCMAKE_CUDA_COMPILER="%NVCC%"
 
 if errorlevel 1 (

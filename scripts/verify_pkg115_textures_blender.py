@@ -28,8 +28,12 @@ import bpy  # type: ignore
 
 def _bootstrap_astroray_addon():
     repo_root = Path(__file__).resolve().parents[1]
-    build_dir = Path(os.environ.get(
-        "ASTRORAY_PYD_DIR", repo_root / "build_cuda" / "Release"))
+    # Ninja (single-config, 2026-08) emits the pyd at build_cuda/ root;
+    # legacy multi-config builds used build_cuda/Release.
+    default_build = repo_root / "build_cuda"
+    if not list(default_build.glob("astroray*.pyd")):
+        default_build = repo_root / "build_cuda" / "Release"
+    build_dir = Path(os.environ.get("ASTRORAY_PYD_DIR", default_build))
     for entry in (str(build_dir), str(repo_root)):
         if entry not in sys.path:
             sys.path.insert(0, entry)

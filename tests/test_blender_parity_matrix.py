@@ -60,15 +60,18 @@ def test_blender_parity_matrix_generation():
     env = os.environ.copy()
     # Point to canonical test build (OpenMP OFF per spec: "headless-Blender legs need -DASTRORAY_DISABLE_OPENMP=ON")
     # For Phase A we don't render, so OpenMP doesn't matter, but for consistency with future Phase B:
-    # Try worktree build first, then main checkout (for worktree execution)
-    build_dir = repo_root / "build_cuda" / "Release"
-    if not build_dir.exists():
-        # In a worktree — look for build in main checkout
-        main_checkout = repo_root.parent / "Astroray" / "build_cuda" / "Release"
-        if main_checkout.exists():
-            build_dir = main_checkout
-        else:
-            pytest.skip(f"Build directory not found in {repo_root / 'build_cuda' / 'Release'} or {main_checkout}")
+    # Try worktree build first, then main checkout (for worktree execution).
+    # Ninja (single-config, 2026-08) emits the pyd at build_cuda/ root; legacy
+    # multi-config builds used build_cuda/Release — accept whichever holds a pyd.
+    def _pyd_dir(root):
+        for cand in (root / "build_cuda", root / "build_cuda" / "Release"):
+            if list(cand.glob("astroray*.pyd")):
+                return cand
+        return None
+
+    build_dir = _pyd_dir(repo_root) or _pyd_dir(repo_root.parent / "Astroray")
+    if build_dir is None:
+        pytest.skip(f"No astroray pyd found under {repo_root} or {repo_root.parent / 'Astroray'}")
 
     env['ASTRORAY_PYD_DIR'] = str(build_dir)
     env['ASTRORAY_BUILD_DIR'] = str(repo_root / "build_cuda")

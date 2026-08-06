@@ -4,9 +4,42 @@ on:
   push:
   pull_request:
 
+# A newer push to the same ref supersedes any in-flight run — cancel it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Detect whether the change touches code at all. Doc/planning-only pushes
+  # (56% of recent runs, ~17 min each) skip the compile matrix. Job-level
+  # skip (not trigger-level paths-ignore) so required checks report
+  # "skipped" — which satisfies branch protection — instead of hanging
+  # "pending" forever.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Detect code changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          # every: a changed file counts as "code" only if it matches ALL
+          # patterns below (i.e., is outside every excluded doc/config area).
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '!.astroray_plan/**'
+              - '!**/*.md'
+              - '!.claude/**'
+              - '!.opencode/**'
+
   build-and-test:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -15,6 +48,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+          cache: pip
 
       - name: Install system dependencies
         run: |
@@ -31,7 +65,15 @@ jobs:
           cmake .. -DCMAKE_BUILD_TYPE=Release
           make -j4
 
+      - name: Cache PractRand
+        id: practrand-cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/PractRand
+          key: practrand-e4caf7fda98b2c597bbda3b576753cf5a0f6047aab837c82be370ab798a672e1
+
       - name: Build PractRand
+        if: steps.practrand-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p third_party
           cd third_party
@@ -60,6 +102,8 @@ jobs:
 
   cuda-syntax-check:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -88,12 +132,13 @@ jobs:
           echo "$cuda_files"
           echo ""
 
-          # Compile each .cu file with -c (compile only, no linking)
-          # Using -arch=sm_75 (Turing baseline) for broad compatibility
-          failed=0
-          for cu_file in $cuda_files; do
-            echo "=== Compiling $cu_file ==="
-            if ! nvcc -c "$cu_file" \
+          # Compile each .cu file with -c (compile only, no linking), 4 at a
+          # time (runner has 4 vCPUs; was a serial for-loop before 2026-08).
+          # Using -arch=sm_75 (Turing baseline) for broad compatibility.
+          # xargs exits non-zero if any child fails; per-file OK/ERROR lines
+          # keep failures attributable in the interleaved log.
+          echo "$cuda_files" | xargs -P 4 -I{} bash -c '
+            if nvcc -c "{}" \
               -std=c++17 \
               -arch=sm_75 \
               -I include \
@@ -104,18 +149,11 @@ jobs:
               --extended-lambda \
               -rdc=true \
               -Wno-deprecated-gpu-targets \
-              -o "/tmp/$(basename "$cu_file" .cu).o" 2>&1; then
-              echo "ERROR: Failed to compile $cu_file"
-              failed=1
+              -o "/tmp/$(basename "{}" .cu).o" 2>&1; then
+              echo "OK: {} compiled successfully"
             else
-              echo "OK: $cu_file compiled successfully"
-            fi
-            echo ""
-          done
-
-          if [ $failed -eq 1 ]; then
-            echo "=== CUDA syntax check FAILED ==="
-            exit 1
-          fi
+              echo "ERROR: Failed to compile {}"
+              exit 1
+            fi'
 
           echo "=== All CUDA files compiled successfully ==="

@@ -52,7 +52,13 @@ if(ASTRORAY_ENABLE_CUDA)
         if(CUDAToolkit_FOUND)
             # Turing (75), Ampere (86), Ada Lovelace (89 — also runs on Blackwell via forward compat)
             # sm_120 (Blackwell) requires CUDA 12.8+; CUDA 12.6 targets up to sm_89
-            set(CMAKE_CUDA_ARCHITECTURES "75;86;89")
+            # Local dev builds may override with -DASTRORAY_CUDA_ARCHS=native
+            # (single native arch ≈ 3x less device compile work); the default
+            # stays the broad-compat list for any distributable artifact.
+            if(NOT DEFINED ASTRORAY_CUDA_ARCHS)
+                set(ASTRORAY_CUDA_ARCHS "75;86;89")
+            endif()
+            set(CMAKE_CUDA_ARCHITECTURES "${ASTRORAY_CUDA_ARCHS}")
             set(ASTRORAY_CUDA_FOUND TRUE)
             message(STATUS "CUDA found: ${CMAKE_CUDA_COMPILER}")
         else()

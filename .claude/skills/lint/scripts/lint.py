@@ -236,6 +236,17 @@ def run_tool(tool, files, root):
         if rc not in tool["ok"] and not raw:
             errored = True
         for (p, ln, rule, msg) in raw:
+            # Relativize absolute tool output against the tree it ran in
+            # (root here is either the real repo or the throwaway base
+            # worktree). Without this, base signatures carry the temp-worktree
+            # path prefix and can never match head signatures, so the
+            # differential silently subtracts nothing for absolute-path
+            # emitters like ruff on Windows.
+            if os.path.isabs(p):
+                try:
+                    p = os.path.relpath(p, root)
+                except ValueError:
+                    pass  # different drive — keep as-is
             findings.append(Finding(tool["name"], _norm_path(p), str(ln), rule, msg))
     return ("error" if errored else "ok"), findings
 

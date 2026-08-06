@@ -133,11 +133,26 @@ echo HEAD SHA verified: %ACTUAL_SHA%
 echo.
 
 REM Phase 3: Build
+REM --config Release is REQUIRED: with a VS multi-config generator tree
+REM (configure_and_build.bat / windows-cuda-vs preset) omitting it builds
+REM Debug and dies with /RTC1 + /O2 -> D8016 on every .cu file. Same fix as
+REM scripts/build/build_cuda_worktree.bat; see memory
+REM build-cuda-worktree-debug-config.
 echo [Phase 3] CUDA build...
-echo Running: cmake --build build_cuda --target astroray
-cmake --build build_cuda --target astroray
+echo Running: cmake --build build_cuda --config Release --target astroray
+cmake --build build_cuda --config Release --target astroray
 if %ERRORLEVEL% neq 0 (
     echo ERROR: cmake build failed with code %ERRORLEVEL%
+    exit /b 5
+)
+
+REM astroray_test_helpers is a separate target not pulled in by astroray;
+REM gate tests (test_pkg92_*) import it and fail with a spurious
+REM ModuleNotFoundError without this step.
+echo Running: cmake --build build_cuda --config Release --target astroray_test_helpers
+cmake --build build_cuda --config Release --target astroray_test_helpers
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: astroray_test_helpers build failed with code %ERRORLEVEL%
     exit /b 5
 )
 

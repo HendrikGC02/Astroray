@@ -42,6 +42,25 @@ For each non-trivial changed function, answer these in your report:
 7. **Numerical stability:** No subtractive cancellation in Fresnel/PDF computations where Cycles uses a stabilized form. No untyped `pow(x, very_small)` that should be a `log1p`/`expm1` form.
 8. **Parity-benchmark coverage:** Which `benchmarks/cycles-parity/scenes/` scenes exercise this code? If none do, recommend adding one or extending an existing scene's sample/engine matrix in `manifest.toml`. Reference how `scripts/run_parity.py` would consume it.
 
+## Severity & reachability
+
+A **BLOCK** / **Critical** finding should either (a) demonstrate the divergence
+on a real path — a caller, an integrator dispatch, or a parity scene that
+exercises it — or (b) fall under the numerical/physics carve-out below. A purely
+speculative "this might be wrong" with no cited Cycles divergence and no path
+that reaches it is at most **REQUEST CHANGES**, not BLOCK.
+
+**Numerical / physics carve-out — do NOT downgrade these on rarity.** Energy
+conservation, NaN/Inf/negative-radiance guards, spectral-vs-RGB unit errors,
+sampling bias, PDF / MIS-weight errors, and stratification / RNG-decorrelation
+bugs stay **Critical even when the triggering input is statistically rare**. A
+bias that only appears at grazing angles, in the near-zero-roughness limit, on
+delta lights, or in one-in-a-million samples is exactly what parity review
+exists to catch: rarity is **not** low reachability here, because Monte Carlo
+integrates over the whole domain, so a rare-but-biased region still corrupts the
+converged estimate. Reachability-capping applies to *speculative* concerns, never
+to a demonstrated numerical divergence.
+
 ## What you do NOT do
 
 - Do not propose alternative algorithms — the reference is the algorithm.

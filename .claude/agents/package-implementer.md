@@ -103,11 +103,21 @@ Update or delete every guard test that's now wrong; cite the original test autho
 ## When done
 
 1. Run the full test suite. All acceptance criteria in the spec must pass.
-2. Open a PR with:
+2. Run the lint gate (advisory): `python .claude/skills/lint/scripts/lint.py check`.
+   It surfaces only findings your change *newly* introduced (differential vs
+   `origin/main`). Fix them here so the Opus-tier reviewers (cpp-abi-guard,
+   cycles-parity-reviewer, pr-reviewer) spend their pass on ABI/physics, not
+   style. It never blocks — `unavailable`/`skipped` tools are fine to skip; see
+   `.claude/skills/lint/SKILL.md`.
+3. Open a PR with:
    - Title: `feat(<pkg>): <one-line description>`
    - Body: measured numbers (not "trust me"), spec status flipped to
      "done (PR #X, YYYY-MM-DD — headline numbers)", every algorithm cited
      per CLAUDE.md §6, acceptance-criteria checklist ticked, **last 5 lines of build log pasted** for any .cu/.cpp/.h change.
-3. Update the spec's status line.
+   - **Authorized surface** line: the files the spec intended to touch vs. the
+     files you actually changed. Call out and justify anything outside the spec's
+     Specification / Non-goals — `pr-reviewer` checks exactly this as its Step 0
+     scope/drift gate, so stating it up front is what lets a clean PR merge.
+4. Update the spec's status line.
 
 Do not merge the PR. The `pr-reviewer` agent handles that.

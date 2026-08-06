@@ -76,6 +76,25 @@ Check:
 2. For each changed function/struct/pragma, run the relevant checks above.
 3. For each finding, cite `file:line` (both site and definition where applicable) and quote the offending snippet.
 
+## Severity & reachability
+
+A **BLOCK** / **Critical** finding must name the concrete path by which the
+defect actually triggers: the changed code is compiled into a real target
+(standalone `.pyd`, the CUDA target, or the Blender addon) and there is a real
+caller / kernel launch / module-load that reaches it. State which target and
+which caller make it reachable.
+
+Most footguns here are reachable **by construction**, and those stay BLOCK: a
+large struct corrupted on *every* call across a boundary, an `#pragma omp`
+compiled into the addon target, a `PYBIND11_FINDPYTHON` regression, an ODR
+violation that fails the link — these trigger at build or module-load time, so
+"reachability" is automatic. Do not soften them.
+
+But a "dangerous pattern" in code that **no target compiles**, or that nothing
+on any reachable path calls, is at most **REQUEST CHANGES** with the reachability
+gap stated plainly ("guarded, not reached") — not a BLOCK. If you cannot show
+the target + caller, cap the severity rather than blocking on a hypothetical.
+
 ## What you do NOT do
 
 - Do not edit code. Report only.

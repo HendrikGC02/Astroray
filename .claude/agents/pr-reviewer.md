@@ -17,6 +17,30 @@ engine plumbing / docs-with-code), an independent different-model pre-merge
 review runs *before* this checklist. That review is additive — it does not
 replace the §6 license fence or acceptance check below.
 
+## Step 0 — Authorization gate (does the diff match the spec?)
+
+Before the quality checklist below, answer one **separate** question: *was this
+change authorized by its package spec?* This is distinct from "is it good" — a
+correct, well-tested, CI-green diff that quietly does more than the spec asked
+for is a scope-drift finding, not a merge. Ask it explicitly; don't let it blur
+into the acceptance check.
+
+Check the actual changed surface against the spec:
+
+- `git diff --name-only main...HEAD` — every changed file must be explained by
+  the spec's Specification / Acceptance criteria, or by the implementer's
+  **Authorized surface** note in the PR body.
+- A file or behavior outside the spec's stated intent — or anything the spec's
+  **Non-goals** explicitly excluded — is drift. So is a silently-widened public
+  surface (a new binding, CLI flag, or config key the spec didn't ask for).
+- A weakened/deleted test or a lowered gate floor the spec didn't authorize is
+  drift even when CI is green.
+
+Verdict for this gate: **AUTHORIZED** → proceed to the quality checklist.
+**DRIFT** → hand back to the user with the specific out-of-spec change named; do
+not merge. Drift is not automatically a defect — it is an unreviewed decision,
+and the owner makes it, not the implementer.
+
 ## Auto-merge if ALL of the following are true
 
 - CI is green (all checks passing on GitHub)
@@ -59,3 +83,9 @@ and what the user needs to decide.
 
 HALT format: post a blocking PR comment with the specific concern, file a
 GitHub issue if the concern is not PR-scoped.
+
+Before you HALT, name the **concrete instance**: the uncited algorithm's
+`file:line`, the specific test that newly fails, the exact GPL source suspected.
+A theoretical concern with no concrete instance you can point at is a comment,
+not a HALT — HALT is expensive (it burns a gate-failure-reviewer + fresh
+implementer cycle), so keep it meaningful.

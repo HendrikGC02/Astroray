@@ -61,6 +61,23 @@ if not exist "%NVCC%" (
     exit /b 1
 )
 
+REM --- sccache compiler cache, shared across every worktree ------------------
+REM SCCACHE_DIR + FETCHCONTENT_BASE_DIR live under %LOCALAPPDATA% (outside the
+REM OneDrive tree — no sync churn) and are IDENTICAL for every checkout, so a
+REM warm build in one tree seeds cache hits here. SCCACHE_BASEDIR = this
+REM worktree's root (%CD% after the cd above) so sccache hashes sources by their
+REM path RELATIVE to the tree root; without it the per-worktree absolute
+REM __FILE__ / include paths yield near-zero cross-tree hits (sccache #956).
+REM Release emits no /Zi, so MSVC PDB caching is a non-issue. Warm the shared
+REM FETCHCONTENT_BASE_DIR serially from ONE checkout first — concurrent cold
+REM configures race on first population.
+if not defined SCCACHE_DIR set SCCACHE_DIR=%LOCALAPPDATA%\astroray-cache\sccache
+if not defined FETCHCONTENT_BASE_DIR set FETCHCONTENT_BASE_DIR=%LOCALAPPDATA%\astroray-cache\fetchcontent
+set SCCACHE_BASEDIR=%CD%
+set CCLAUNCH=
+where sccache >nul 2>&1 && set CCLAUNCH=sccache
+if "%CCLAUNCH%"=="" echo [build_cuda_worktree] WARNING: sccache not on PATH; building without compiler cache
+
 REM Create build directory
 mkdir build_cuda 2>nul
 cd build_cuda
@@ -89,6 +106,9 @@ cmake .. ^
   -DASTRORAY_ENABLE_CUDA=ON ^
   -DASTRORAY_WAVEFRONT_CUDA_N3=ON ^
   -DASTRORAY_CUDA_ARCHS=native ^
+  -DCMAKE_CXX_COMPILER_LAUNCHER=%CCLAUNCH% ^
+  -DCMAKE_CUDA_COMPILER_LAUNCHER=%CCLAUNCH% ^
+  -DFETCHCONTENT_BASE_DIR="%FETCHCONTENT_BASE_DIR%" ^
   -DCMAKE_CUDA_COMPILER="%NVCC%"
 
 if errorlevel 1 (

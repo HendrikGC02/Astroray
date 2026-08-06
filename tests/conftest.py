@@ -28,6 +28,51 @@ configure_test_temp_dir()
 BUILD_DIR = configure_test_imports()
 
 from _linear_render_guard import linear_render_guard, name_matches
+from _gpu_classification import classify_path
+
+
+# --- CPU/GPU marker split (open-model-research-2026-08 latency lever 6) --------
+# Every collected test is auto-tagged 'gpu', 'serial', or 'cpu' from its source
+# (see tests/_gpu_classification.py). The two-pass runner
+# (scripts/test/run_split.py) runs `-m cpu -n auto` in parallel and
+# `-m "not cpu"` strictly serial. Keeping GPU tests serial is mandatory: memory
+# cuda_verifier_concurrency documents false-positive illegal-access crashes from
+# concurrent CUDA on this RTX.
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "gpu: test drives real CUDA — MUST run serial (single GPU context).",
+    )
+    config.addinivalue_line(
+        "markers",
+        "serial: CPU-only but not xdist-safe (spawns real Blender) — serial pass.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "cpu: test never touches CUDA — safe to run under pytest-xdist -n auto.",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-apply the gpu/serial/cpu marker to every item that lacks one.
+
+    An explicit @pytest.mark.gpu / @pytest.mark.serial / @pytest.mark.cpu on the
+    test always wins. Otherwise the item's module file is classified and the
+    marker added, so the -m selection used by the two-pass runner partitions the
+    whole suite.
+    """
+    cache: dict[str, str] = {}
+    for item in items:
+        if (item.get_closest_marker("gpu") or item.get_closest_marker("cpu")
+                or item.get_closest_marker("serial")):
+            continue
+        # pytest>=7 exposes item.path (pathlib); fall back to fspath on older.
+        path = str(getattr(item, "path", None) or getattr(item, "fspath", ""))
+        kind = cache.get(path)
+        if kind is None:
+            kind = classify_path(path) if path else "gpu"
+            cache[path] = kind
+        item.add_marker(getattr(pytest.mark, kind))
 
 
 @pytest.fixture(autouse=True)
@@ -71,7 +116,7 @@ def standalone_executable():
 
 
 @pytest.fixture(autouse=True)
-def cuda_cleanup_and_error_check():
+def cuda_cleanup_and_error_check(request):
     """pkg85: Force Python GC and check for latent CUDA errors after each test.
 
     The root cause: Python's garbage collector doesn't run immediately after
@@ -82,19 +127,31 @@ def cuda_cleanup_and_error_check():
     the error persists and contaminates the next CUDA call. This fixture
     first forces GC to clean up all pending renderers, then synchronizes
     the device and checks for latent errors.
+
+    The latent-CUDA-error probe (which itself constructs a throwaway
+    CUDARenderer + calls cudaDeviceSynchronize) only runs for gpu-marked
+    tests. cpu-marked tests never launch CUDA, so there is nothing to check —
+    and skipping the probe there means the parallel (`-m cpu -n auto`) pass
+    issues NO concurrent CUDA driver calls, honoring cuda_verifier_concurrency.
+    gc.collect() still runs for every test (cheap, parallel-safe).
     """
     yield  # Let the test run
 
     import gc
     import warnings
 
+    gc.collect()  # pkg85: Force cleanup of any Renderer objects left by the test
+
+    # Only gpu-marked tests can leave a latent CUDA error; they run serial in a
+    # single GPU context, which is what this probe assumes.
+    if request.node.get_closest_marker("gpu") is None:
+        return
+
     # Wrap entire cleanup to prevent non-test-failure exceptions from
     # surfacing as teardown ERROR. Intentional pytest.fail() is NOT caught
     # (it raises BaseException), so legitimate CUDA regression guards still
     # fail the test properly.
     try:
-        gc.collect()  # pkg85: Force cleanup of any Renderer objects left by the test
-
         try:
             import astroray
             # Only check if astroray module loaded successfully

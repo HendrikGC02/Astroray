@@ -170,6 +170,35 @@ __device__ inline GVec3 gpu_lambertian_eval(
     return mat.baseColor * (1.f / M_PI_F) * NdotL;
 }
 
+// pkg168 Step 2: build the diffuse lobe's spectrum by upsampling the reflectance
+// COLOUR per-lambda, then applying the wavelength-flat geometric factor
+// (cos/pi, plus the Hanrahan-Krueger subsurface mix) as a scalar — mirroring CPU
+// Lambertian::evalSpectral (albedoSpec.sample(lambdas) * cos/pi, raytracer.h).
+// Upsampling the pre-scaled RGB eval instead (gpu_rgbToSampledSpectrum of
+// baseColor*cos/pi) is WRONG: Jakob-Hanika upsampling is nonlinear in magnitude,
+// upsample(k*c) != k*upsample(c), so the pre-scaled form yields a different
+// spectrum SHAPE. Both integrate to the same XYZ, but the shape mismatch bites
+// once the throughput is MULTIPLIED by the next factor (albedo/illuminant) and
+// integrated — a chroma-dependent, per-bounce-compounding divergence
+// (pkg156's [1.014,1.007,1.014] bounce-2-onset residual). Same bug class the
+// pkg163 metal fix addressed for the conductor lobe.
+// gpu_lambertian_eval returns baseColor (x) scalar with the scalar identical
+// across channels, so recover it from the largest baseColor channel.
+__device__ inline GSampledSpectrum gpu_lambertian_eval_spectral(
+    const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
+    const GSampledWavelengths& wl)
+{
+    float NdotL = rec.normal.dot(wi);
+    if (NdotL <= 0.f) return GSampledSpectrum(0.f);
+    GVec3 e = gpu_lambertian_eval(mat, rec, wo, wi);  // baseColor (x) scalar
+    float bx = mat.baseColor.x, by = mat.baseColor.y, bz = mat.baseColor.z;
+    float scalar;
+    if (bx >= by && bx >= bz)      scalar = (bx > 1e-8f) ? e.x / bx : 0.f;
+    else if (by >= bz)             scalar = (by > 1e-8f) ? e.y / by : 0.f;
+    else                           scalar = (bz > 1e-8f) ? e.z / bz : 0.f;
+    return gpu_rgbToSampledSpectrum(mat.baseColor, wl, mat.spectralMode) * scalar;
+}
+
 template <typename TRng>
 __device__ inline GBSDFSample gpu_lambertian_sample(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& /*wo*/, TRng* rng)
@@ -1396,6 +1425,26 @@ __device__ inline bool gpu_closure_graph_has_metal(const GMaterial& mat) {
     return false;
 }
 
+// pkg168 Step 2 (perf-lean rev): true for a plain diffuse material — native
+// GMAT_LAMBERTIAN or the plain-Lambertian upload path, which lowers to a closure
+// graph with a SINGLE GCLOSURE_DIFFUSE lobe (Lambertian::closureGraph() emits
+// exactly one makeDiffuseClosure). For these, and only these, the RGB BSDF value
+// is colour*cos/pi, so the spectral path can recover the pure colour and upsample
+// it (pkg168 correctness fix). This is a compile-cheap field check — NO loop over
+// closures — deliberately: the earlier loop form (checking "every sampleable lobe
+// is diffuse") tipped the already-register-maxed wavefront shade/advance kernels
+// into heavy stack spill (STK +~2000B) and cost the perf gate ~1.5x. A multi-
+// diffuse-lobe-only graph is not produced by any current plugin and would simply
+// fall through to the generic (unchanged) upsample-of-f path, exactly as before
+// #541 — no regression there. Anything carrying a glass/transmission/Disney/metal
+// lobe is excluded, so the eta^2>1 factoring (pkg118/pkg152) and the metal path
+// (pkg163) are untouched.
+__device__ inline bool gpu_is_plain_diffuse(const GMaterial& mat) {
+    if (mat.type == GMAT_LAMBERTIAN) return true;
+    return mat.type == GMAT_CLOSURE_GRAPH && mat.closureCount == 1 &&
+           mat.closures[0].type == GCLOSURE_DIFFUSE;
+}
+
 // pkg163: per-wavelength closure-graph eval, used only when the graph carries a
 // metal conductor lobe (gpu_closure_graph_has_metal). The metal lobe is built
 // per-lambda via gpu_metal_eval_spectral (CPU-canonical colour space); any other
@@ -1428,6 +1477,10 @@ __device__ inline GSampledSpectrum gpu_closure_graph_eval_spectral(
         GMaterial tmp = gpu_closure_as_material(mat, closure);
         if (tmp.type == GMAT_METAL)
             sum += gpu_metal_eval_spectral(tmp, rec, wo, wi, wl) * closure.weight;
+        else if (tmp.type == GMAT_LAMBERTIAN)
+            // pkg168: upsample the diffuse colour per-lambda, not the pre-scaled
+            // RGB eval (JH upsampling is nonlinear in magnitude).
+            sum += gpu_lambertian_eval_spectral(tmp, rec, wo, wi, wl) * closure.weight;
         else
             sum += gpu_rgbToSampledSpectrum(
                 gpu_closure_eval(mat, closure, rec, wo, wi), wl, mat.spectralMode);
@@ -1550,8 +1603,31 @@ __device__ inline GSampledSpectrum gpu_material_eval_spectral(
         return gpu_metal_eval_spectral(mat, rec, wo, wi, wl);
     if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_has_metal(mat))
         return gpu_closure_graph_eval_spectral(mat, rec, wo, wi, wl);
-    return gpu_rgbToSampledSpectrum(
-        gpu_material_eval(mat, rec, wo, wi), wl, mat.spectralMode);
+    // pkg168 Step 2: plain diffuse (native GMAT_LAMBERTIAN or a diffuse-only
+    // closure graph — the plain-Lambertian upload path) must upsample the pure
+    // reflectance COLOUR, not the pre-scaled RGB eval baseColor*cos/pi. Jakob-
+    // Hanika upsampling is nonlinear in magnitude (upsample(k*c) != k*upsample(c)),
+    // so upsampling the pre-scaled value yields a wrong spectrum SHAPE (same XYZ,
+    // but the mismatch compounds once throughput is multiplied and integrated —
+    // pkg163 bug class). The eval for these lobes is colour*cos/pi, so recover the
+    // colour = eval / (cos/pi) and feed it to the SAME single upsample below,
+    // re-applying cos/pi as a wavelength-flat scalar. This adds no new upsample
+    // call or helper body to the register-maxed shade kernel — a separately
+    // inlined per-lambda helper spilled the kernel's stack and cost the wavefront
+    // perf gate ~1.6x (pkg168 perf-fix). These routes never carry subsurface, so
+    // no Hanrahan-Krueger mix is needed; the CPU oracle (Lambertian::evalSpectral)
+    // applies none. The Disney diffuse lobe inside a metal-carrying graph keeps its
+    // HK mix via gpu_closure_graph_eval_spectral above, unchanged.
+    GVec3 e = gpu_material_eval(mat, rec, wo, wi);
+    float diffuseScale = 1.0f;
+    if (gpu_is_plain_diffuse(mat)) {
+        float NdotL = rec.normal.dot(wi);
+        if (NdotL > 1e-8f) {
+            diffuseScale = NdotL * (1.0f / M_PI_F);
+            e = e * (1.0f / diffuseScale);
+        }
+    }
+    return gpu_rgbToSampledSpectrum(e, wl, mat.spectralMode) * diffuseScale;
 }
 
 template <typename TRng>
@@ -1630,11 +1706,35 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
         return s;
     }
 
-    float m = fmaxf(fmaxf(s.f.x, s.f.y), s.f.z);
+    // pkg168 Step 2: plain diffuse lobes (native GMAT_LAMBERTIAN or the plain-
+    // Lambertian upload path — a single-GCLOSURE_DIFFUSE closure graph) must
+    // upsample the pure reflectance COLOUR, not the pre-scaled RGB f = colour*cos/pi.
+    // Jakob-Hanika upsampling is nonlinear in magnitude (upsample(k*c) !=
+    // k*upsample(c)), so upsampling the pre-scaled f gives a wrong spectrum SHAPE
+    // (same XYZ, but the mismatch compounds once throughput is multiplied and
+    // integrated — pkg163 bug class). f = colour*cos/pi for these lobes, so recover
+    // the colour = f / (cos/pi) and feed it to the SAME single upsample below,
+    // re-applying cos/pi as a wavelength-flat scalar. This reuses the existing
+    // upsample (no extra JH call / per-lambda helper body) and drops #541's
+    // gpu_lambertian_eval scalar-recovery + closure loop. These routes never carry
+    // subsurface, so no Hanrahan-Krueger mix is needed; the CPU oracle
+    // (Lambertian::evalSpectral) applies none. Glass/Disney/dielectric graphs are
+    // excluded so the eta^2>1 magnitude factoring below (pkg118/pkg152) is untouched.
+    GVec3 upColor = s.f;
+    float diffuseScale = 1.0f;
+    if (!s.isDelta && s.pdf > 0.0f && s.f.length2() > 0.0f && gpu_is_plain_diffuse(mat)) {
+        float NdotL = rec.normal.dot(s.wi);
+        if (NdotL > 1e-8f) {
+            diffuseScale = NdotL * (1.0f / M_PI_F);
+            upColor = s.f * (1.0f / diffuseScale);
+        }
+    }
+
+    float m = fmaxf(fmaxf(upColor.x, upColor.y), upColor.z);
     if (m > 1.0f) {
-        s.fSpectral = gpu_rgbToSampledSpectrum(s.f * (1.0f / m), wl, mat.spectralMode) * m;
+        s.fSpectral = gpu_rgbToSampledSpectrum(upColor * (1.0f / m), wl, mat.spectralMode) * (m * diffuseScale);
     } else {
-        s.fSpectral = gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
+        s.fSpectral = gpu_rgbToSampledSpectrum(upColor, wl, mat.spectralMode) * diffuseScale;
     }
     return s;
 }

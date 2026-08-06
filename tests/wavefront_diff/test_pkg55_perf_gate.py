@@ -59,7 +59,10 @@ WIDTH = HEIGHT = 256
 SPP = 1024
 MAX_DEPTH = 8
 SEED = 424242
-CEILING_S = 1.0  # RTX 5070 Ti pin, 2026-07-25 (see module docstring)
+CEILING_S = 1.5  # TEMPORARY raise (owner decision 2026-08-03, PR #541 option A):
+# the pkg168 correctness fix v4 measures 1.222s (best correct form; REG:254
+# blocks in-kernel recovery). Owned by pkg174 — restoring 1.0 and reverting
+# this raise is pkg174's definition of done. Original pin: 1.0 (2026-07-25).
 
 
 def _build():

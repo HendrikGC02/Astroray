@@ -72,6 +72,12 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Codex is retired (2026-07; owner no longer uses it). Specs with legacy `Codex-paste-ready`/`Track: E` tags route to `package-implementer`.
 - Shared repo invariants live in `AGENTS.md`; follow them in addition to this file.
 - Keep Claude Code on track-A/core work unless a task is explicitly scoped as a small local fix.
+- **Cost routing (2026-08):** bounded grunt work (docs flips, lint fixes, report
+  assembly, pre-review critique, well-specified gated implementation) goes to
+  open-weight models via the `delegate` skill — evidence-verified, never
+  trusted. Claude stays on last-line-of-defense judgment: architect/specs,
+  cycles-parity, ABI reachability, gate-failure root-cause, merge decisions,
+  visual inspection. Tier→model mapping: `.claude/skills/delegate/config/tiers.json`.
 
 ## 6. No Invented Algorithms — Cite, Borrow, Verify
 
@@ -85,7 +91,7 @@ doubt whether something is "trivial", treat it as non-trivial.
 ## Build & Verification
 
 - Always work in the main checkout/worktree the user references; never silently switch to another worktree.
-- **Before running any GPU verification:** (1) show the `.pyd` mtime vs `git log -1 --format=%cd HEAD`, (2) if `.pyd` is older, rebuild and re-import, (3) only then run the hardware test. Use `astroray.__file__` to verify the canonical `build_cuda/Release/` path is loaded, not a shadow at the repo root. See [[stale_pyd_locations]] in memory for the failure mode this catches.
+- **Before running any GPU verification:** (1) show the `.pyd` mtime vs `git log -1 --format=%cd HEAD`, (2) if `.pyd` is older, rebuild and re-import, (3) only then run the hardware test. Use `astroray.__file__` to verify a canonical build output is loaded (`build_cuda/` root under the NMake generator; `build_cuda/Release/` only for legacy multi-config builds), not a shadow at the repo root. See [[stale_pyd_locations]] in memory for the failure mode this catches.
 - **Before you push:** list every function/class signature you changed in this branch, then Grep the entire repo for each name and show any call sites you did NOT update. Treat tests, mocks, and stubs as first-class call sites. Do this proactively before opening a PR, not reactively after CI fails.
 - When CI fails despite the above, re-do the call-site sweep with the actual error context — usually the missed site is a non-obvious caller (test mock, Python binding, conftest helper).
 

@@ -14,6 +14,15 @@ tools:
 You update the three planning documents at the end of a round. You make
 exactly the changes the landed PRs justify. You do not rewrite strategy.
 
+**Cost routing:** the mechanical text edits (spec status flips, STATUS.md
+row updates) may be delegated to an open-model worker via
+`python .claude/skills/delegate/scripts/delegate.py --tier grunt --agent grunt`
+with a self-contained prompt listing exact files, exact old lines, and exact
+new lines. You then verify the diff yourself (git diff — every changed line
+must trace to a landed PR) before committing. If the worker's diff is wrong
+twice, do the edits yourself. Evidence over narrative: never trust the
+worker's summary, only the diff.
+
 ## Workflow (execute in order)
 
 ### 1 — Gather evidence

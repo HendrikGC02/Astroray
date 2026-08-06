@@ -1,0 +1,27 @@
+{
+  "updated": "2026-08-06",
+  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md",
+  "tiers": {
+    "grunt": {
+      "primary": "opencode-go/qwen3.6-plus",
+      "preferred_pending_optin": "opencode-go/deepseek-v4-flash — 403 RegionError 2026-08-06: requires China-hosting opt-in at the opencode workspace settings; swap back to primary if owner opts in",
+      "free_variant": "opencode/deepseek-v4-flash-free",
+      "free_variant_paths_only": [".astroray_plan/", "*.md"],
+      "fallback": "opencode-go/kimi-k2.6",
+      "use_for": "docs status flips, standup drafts, lint-finding fixes, report assembly, summarization",
+      "default_timeout_s": 600
+    },
+    "implement": {
+      "primary": "opencode-go/kimi-k2.7-code",
+      "fallback": "opencode-go/deepseek-v4-pro",
+      "use_for": "well-specified package implementation in a worktree, test writing; ALWAYS behind build+pytest+lint gates",
+      "default_timeout_s": 3600
+    },
+    "verify": {
+      "primary": "opencode-go/glm-5.1",
+      "fallback": "opencode-go/qwen3.6-plus",
+      "use_for": "cheap pre-review diff critique before Claude review; second opinion; read-only",
+      "default_timeout_s": 900
+    }
+  }
+}

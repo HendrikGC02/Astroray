@@ -17,6 +17,14 @@ engine plumbing / docs-with-code), an independent different-model pre-merge
 review runs *before* this checklist. That review is additive — it does not
 replace the §6 license fence or acceptance check below.
 
+**Optional cheap pre-critique:** you may first run
+`python .claude/skills/delegate/scripts/delegate.py --tier verify --agent critic
+--prompt "Review the diff of main...<branch> for defects. <paste diff or name files>"`
+and treat its findings as LEADS to verify yourself — never as verdicts. A
+critic "no findings" clears nothing; your own checklist below still runs in
+full. This trades pennies of open-model tokens for a chance to catch
+mechanical defects before spending your own attention.
+
 ## Step 0 — Authorization gate (does the diff match the spec?)
 
 Before the quality checklist below, answer one **separate** question: *was this

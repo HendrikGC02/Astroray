@@ -1,0 +1,77 @@
+---
+name: delegate
+description: Delegate bounded grunt work to cheap open-weight models via opencode (docs flips, standup drafts, lint fixes, report assembly, pre-review diff critique, well-specified gated implementation). Returns EVIDENCE (diff, transcript, tokens), never a success claim — the caller verifies via build/tests/diff. Use to conserve Claude budget; never for last-line-of-defense judgment (physics parity, ABI reachability, merge decisions, visual inspection).
+---
+
+# delegate
+
+Runs a bounded task on a cheap open-weight model through `opencode`, with
+evidence capture. Claude stays the orchestrator and judge; the worker is never
+trusted to self-report success.
+
+## When to use
+
+| Tier | Use for | Worker agent |
+|------|---------|--------------|
+| `grunt` | docs status flips, standup drafts, fixing /lint findings, report assembly, summarization | `grunt` |
+| `implement` | a well-specified package spec or small fix in an ISOLATED worktree, with build+pytest+lint gates downstream | `worker` |
+| `verify` | cheap pre-review critique of a diff before spending Claude review budget | `critic` |
+
+Current tier→model mapping lives in `config/tiers.json` — update it there as
+the model landscape shifts; never hardcode model ids elsewhere.
+
+**Never delegate:** architect/spec judgment, cycles-parity review, cpp-abi-guard
+reachability, gate-failure root-cause, the merge decision, visual PNG
+inspection (workers are text-only), or anything whose mistake ships silently.
+
+## How
+
+```powershell
+python .claude/skills/delegate/scripts/delegate.py --tier grunt --dir <workdir> --prompt "<task>"
+python .claude/skills/delegate/scripts/delegate.py --tier implement --agent worker --dir <worktree> --prompt-file <specprompt.md>
+python .claude/skills/delegate/scripts/delegate.py --tier verify --agent critic --prompt "Review the diff of main...HEAD for defects."
+```
+
+- `--agent grunt|worker|critic` selects the restricted opencode agent from
+  `.opencode/agents/` (push/gh denied for all; critic is read-only). Always
+  pass the matching agent for the tier.
+- `--fallback` switches to the tier's fallback model (use after a primary
+  failure or bad output).
+- Long prompts: write to a file and use `--prompt-file`.
+
+## Prompt composition rules
+
+Worker prompts must be **self-contained**: absolute file paths, exact expected
+output, explicit "do not touch anything else". Weak models do not infer intent.
+Bound the task: one package, one doc, one findings list — never "and anything
+else you notice".
+
+## The evidence contract (non-negotiable)
+
+The wrapper prints a JSON summary: `status` (`completed|timeout|errored|
+no_clean_finish`), `files_changed`, `tokens`, `cost`, `transcript` path.
+
+- `status: completed` means the PROCESS finished — **not that the task
+  succeeded**. opencode has documented exit-0-on-error bugs; open models
+  over-claim under uncertainty.
+- After every delegation, verify with your own eyes/tools: read the diff,
+  run the build/tests for code changes, grep the claimed edits. For
+  `implement` tier, the full gate stack (build, pytest, /lint, CI, HW verify)
+  applies unchanged.
+- The full JSONL transcript is kept for diagnosis — read it when the result
+  looks wrong before re-dispatching.
+
+## Failure handling
+
+- `timeout`: known Windows hang classes exist (stuck "Loading plugins",
+  unnoticed process completion). Re-dispatch once; if it repeats, do the task
+  yourself or escalate tier.
+- Garbage/wrong output twice from the primary → `--fallback`, then give up and
+  do it on Claude. Do not loop a weak model more than twice on the same task.
+
+## Privacy
+
+Free-tier models (`*-free`) may train on submitted data. Only route
+`.astroray_plan/` docs and public-content tasks through the free variant;
+anything touching `src/`, `include/`, or unpublished algorithm notes uses paid
+endpoints only.

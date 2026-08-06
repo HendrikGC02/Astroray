@@ -12,7 +12,19 @@ already have an open PR or an active worktree.
 
 ## Routing rules
 
-1. Spawn `package-implementer` in a fresh worktree
+0. **Tier check (cost routing).** Before spawning a Claude implementer, decide
+   whether the package qualifies for open-model delegation via the `delegate`
+   skill (`implement` tier — see `.claude/skills/delegate/SKILL.md`):
+   - Qualifies: well-specified small fix or mechanical change with crisp
+     acceptance criteria, no novel physics/sampling, no ABI-surface changes,
+     full build+pytest+lint gate applies downstream.
+   - Does NOT qualify: novel algorithm integration, anything the spec marks
+     ambiguous, BSDF/integrator/light-transport math, ABI-touching headers.
+   If it qualifies, dispatch through `delegate --tier implement --agent worker`
+   in the worktree and have the parent (you) verify evidence + run gates.
+   When in doubt, route to `package-implementer` (Claude) as before.
+
+1. Otherwise spawn `package-implementer` in a fresh worktree
    (use `EnterWorktree` or `superpowers:using-git-worktrees`).
    Codex is retired — legacy `Track: E` / `Codex-paste-ready` tags in spec
    frontmatter are inert and route here too.

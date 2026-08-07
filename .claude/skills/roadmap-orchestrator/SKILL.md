@@ -97,9 +97,23 @@ Agent model assignments live in each `.claude/agents/<name>.md` frontmatter. Cur
 
 **Different-model rule (Steps 2.2, 2.4, 2.5):** since `package-implementer` is now
 `claude-opus-4-8`, an independent review of implementer output MUST be dispatched with an
-explicit `model` override of **`claude-fable-5`** (or `claude-sonnet-5` for mechanical
-diffs) — passing no override inherits Opus 4.8 and silently defeats the rule. Pass
+explicit `model` override of **`claude-opus-5`** — passing no override inherits Opus 4.8
+and silently defeats the rule. Opus 5 is fine here specifically because this call is
+review-only (a SIGN-OFF/BLOCK verdict on an existing diff, not authored prose) — the
+owner's Opus-5-writing-style aversion (memory `opus-4-8-not-opus-5-for-agents`) is about
+generated output, and doesn't apply to a read-only judgment call (owner, 2026-08-07). Pass
 `model` on the `Agent` call; do not rely on the default.
+
+**Outside-eye pre-pass (cheap, additive, non-authoritative — owner, 2026-08-07):** before
+the Opus 5 review at each of the three sites, run
+`python .claude/skills/delegate/scripts/delegate.py --tier verify --model
+opencode-go/deepseek-v4-pro --agent critic --prompt "..."` on the same diff/spec. Its
+findings are LEADS, never a verdict — fold them into the Opus 5 reviewer's prompt (e.g.
+"a cheap first pass flagged: <findings>; weigh and verify before your SIGN-OFF/BLOCK") per
+the evidence contract in `.claude/skills/delegate/SKILL.md`. The DeepSeek pass never
+itself produces SIGN-OFF/BLOCK and never blocks a merge on its own; if opencode/the model
+is unavailable, skip it silently and proceed straight to the Opus 5 review — it's a bonus
+signal, not a dependency.
 
 ## Safety rails (non-negotiable — see design spec §5)
 - One tick at a time (tick lock); one CUDA job at a time (GPU lock).

@@ -2,7 +2,13 @@
 
 **Pillar:** Integration Milestone (Blender/DCC integration — see ROADMAP "Integration Milestone")
 **Track:** A (research/decision package — no production code; a small spike is allowed only if the study needs a measured fact)
-**Status:** open — dispatchable in parallel with pkg175 (explicitly parallel-safe: touches no addon/engine code)
+**Status:** decision document delivered (`.astroray_plan/docs/dcc-integration-decision-2026-08.md`, 2026-08-07); parallel-safe, touched no addon/engine code.
+
+**Owner decision:** PENDING owner ratification — architect recommends **Route 1**
+(native Blender `RenderEngine`) as milestone charter + **Route 2** session-boundary
+discipline as a pkg176 design rule, with **Route 3** (`hdAstroray` USD/Hydra delegate)
+deferred as an event-triggered contingency. Revisit trigger and full rationale in the
+decision doc §5–§7. The owner must ratify (or amend) the route and the revisit trigger.
 **Estimated effort:** S–M (the research base already exists: `.astroray_plan/docs/dcc-integration-research-2026-08.md`; this package deepens it into a decision document + records the owner's ratification)
 **Depends on:** none. Cross-links: pkg176 (its Route-2 session-boundary design rule is this study's near-term consequence), pkg119 (parity measurement is per-DCC by construction — the study must say what generalizes).
 

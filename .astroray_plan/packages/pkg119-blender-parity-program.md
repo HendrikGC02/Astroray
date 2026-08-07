@@ -270,7 +270,7 @@ runner is cut** (combination coverage moves to Phase B composite scenes).
 ## Progress
 
 - [x] **Phase A — coverage matrix generator + regeneration target + checked-in artifacts.** (PR #487, 2026-07-19)
-- [ ] Phase B — per-feature + composite differential harness; triage report.
+- [~] **Phase B — per-feature + composite differential harness; triage report.** Harness authored under `benchmarks/blender_parity/` (driver `harness.py`, in-Blender `render_leg.py`, `scene_library.py` scene builders, pure `triage.py`), reusing the pkg104 reference-bank metrics (`compute_ssim`, `compute_delta_e_2000`) and pkg175's dev-loop substrate — no new metric stack, no new render driver. Drives off Phase A's 36 SUPPORTED/APPROXIMATED cells + 3 composites; subprocess-isolated per (feature, engine); gates on SSIM≥0.90 & ΔE2000≤8.0; triages every FAIL into NOT-IMPLEMENTED / TRANSLATION-BUG / INTENTIONAL-DIVERGENCE. 16 pure metric/triage/selection/report unit tests pass on CPU; local-host differential gate skips cleanly without Blender/GPU. **On-hardware Cycles-vs-Astroray run pending parent GPU+Blender verification** (PR pending).
 - [ ] Phase C — graceful-degradation policy + per-render UI/log report; zero silent drops.
 
 ---

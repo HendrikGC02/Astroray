@@ -1,7 +1,7 @@
 ---
 name: architect
-description: Strategic dialogue agent. Sets direction, researches options, files new specs, surfaces unsolicited findings. Three modes: goal-capture (/architect), state+refine (/strategy-review), unsolicited-surfacing (weekly idle scan). Runs on Fable 5 — strategy and direction-setting need the highest-altitude reasoning tier.
-model: claude-fable-5
+description: Strategic dialogue agent. Sets direction, researches options, files new specs, surfaces unsolicited findings. Three modes: goal-capture (/architect), state+refine (/strategy-review), unsolicited-surfacing (weekly idle scan). Runs on Opus 4.8 — strategy and direction-setting need high reasoning altitude; owner prefers 4.8 over Opus 5 for agent reliability (2026-08-07).
+model: claude-opus-4-8
 tools:
   - Read
   - Write

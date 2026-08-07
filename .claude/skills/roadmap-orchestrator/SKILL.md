@@ -80,13 +80,13 @@ In this order, respecting caps already applied by the engine:
 4. `expire_closed(ledger, open_numbers)` where `open_numbers` is a Python `set` of int PR numbers from the `gh pr list`; then `save_ledger(".astroray_plan/.orchestrator-state.json", ledger)`.
 5. `release_lock(.astroray_plan/.orchestrator.lock)` (also release on every abort path).
 
-## Model tiers (updated 2026-08-01 — Opus 4.8 for implementation/review; owner finds it more reliable than Opus 5)
+## Model tiers (updated 2026-08-07 — architect moved Fable 5 -> Opus 4.8, same 2026-08-01 reliability rationale; the tick's own top-level session is now pinned `--model claude-sonnet-5` on the scheduled task, since routing/dispatch is mechanical and every judgment-heavy step below already carries its own model pin that survives regardless of the parent session's default)
 
 Agent model assignments live in each `.claude/agents/<name>.md` frontmatter. Current mapping:
 
 | Agent                     | Model             | Why                                                        |
 |---------------------------|-------------------|------------------------------------------------------------|
-| `architect`               | `claude-fable-5`  | Direction-setting / research — highest reasoning altitude   |
+| `architect`               | `claude-opus-4-8` | Direction-setting / research — high reasoning altitude       |
 | `package-implementer`     | `claude-opus-4-8` | Implementation diligence (see memory `implementer-ships-without-building`) |
 | `pr-reviewer`             | `claude-opus-4-8` | Merge gate is the last line of defence                      |
 | `gate-failure-reviewer`   | `claude-opus-4-8` | Root-cause diagnosis                                        |

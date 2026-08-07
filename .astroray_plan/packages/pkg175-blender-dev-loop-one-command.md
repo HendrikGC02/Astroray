@@ -2,7 +2,7 @@
 
 **Pillar:** Integration Milestone (Blender/DCC integration — see ROADMAP "Integration Milestone")
 **Track:** A (tooling + real-host verification; smoke render needs the local RTX + Blender 5.1)
-**Status:** open — dispatchable at the start of the Integration Milestone (first package of the milestone; pkg176 consumes this loop on day one)
+**Status:** in review (PR pending, 2026-08-07 — script + guards + smoke landed; guard unit tests green (14/14), lint clean. On-hardware smoke `RESULT PASS`, `-Launch`, and loop timing pending parent RTX/Blender verification)
 **Estimated effort:** S–M (scripting + hardening of existing pieces, not new machinery)
 **Depends on:** nothing hard. Builds on: `build_blender_addon.py` + `ADDON_FILES` (packaging allow-list — memory `addon-packaging-file-list`), `scripts/verify_pkg88b_blender.py` / `verify_pkg114_*_blender.py` / `verify_pkg115_textures_blender.py` (the existing headless real-host patterns), the `-DASTRORAY_DISABLE_OPENMP=ON` addon-build constraint (memory `mingw_openmp_blender_deadlock`), the stale-`.pyd` discipline (memory `stale_pyd_locations`).
 

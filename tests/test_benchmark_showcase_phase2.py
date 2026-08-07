@@ -24,7 +24,16 @@ try:
 except ImportError:
     AVAILABLE = False
 
-pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not available")
+# mark.gpu: test_gpu_flag_runs_without_cuda calls runner.run(..., gpu=True),
+# whose _try_set_gpu helper does a real renderer.set_use_gpu(True) in-process GPU
+# render on a CUDA box. Must run in the serial GPU pass, not the xdist CPU pass.
+# The set_use_gpu literal lives in benchmarks/showcase/runner.py, so the
+# classifier's own-source scan can't see it from here; the gpu=True kwarg trigger
+# catches it and this explicit marker keeps audit + runtime in agreement.
+pytestmark = [
+    pytest.mark.gpu,
+    pytest.mark.skipif(not AVAILABLE, reason="astroray module not available"),
+]
 
 
 # Categories that must have at least one populated cell across all rows.

@@ -27,7 +27,7 @@ Design contract (see conftest.pytest_collection_modifyitems):
     exists to prevent. So when in doubt, do NOT mark ``cpu``.
 
 This module imports nothing from pytest so the audit dump
-(``python tests/_gpu_classification.py``) and scripts/select_impacted_tests.py
+(``python tests/_gpu_classification.py``) and scripts/test/select_impacted.py
 can reuse it.
 """
 
@@ -43,6 +43,8 @@ from pathlib import Path
 _SOURCE_TRIGGERS = [
     r"\b_gpu_[a-z]\w*",              # real GPU bindings: _gpu_photon_emit_sphere, _gpu_tlas_identity_parity, ...
     r"set_use_gpu\s*\(\s*(?:True|1)\b",  # opts a renderer onto the GPU (mock false-positives accepted as safe)
+    r"\bgpu\s*=\s*True\b",           # gpu=True kwarg opts an in-process render onto CUDA (e.g. runner.run(..., gpu=True) via _try_set_gpu->set_use_gpu(True)); word-boundary avoids matching `_use_gpu = True`
+    r"\bfind_standalone_executable\b",  # subprocess-invokes the standalone exe, which defaults to device=auto -> CUDA on a GPU box (apps/main.cpp)
     r"\bupload_scene\s*\(",          # GPU scene-upload path (parity suites)
     r"\bCUDARenderer\b",
     r"\bcudart\w*\b",                # direct CUDA runtime (ctypes) use

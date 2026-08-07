@@ -19,11 +19,20 @@ import sys
 import os
 import subprocess
 import time
+import pytest
 
 from PIL import Image
 import numpy as np
 
 from runtime_setup import configure_test_imports, find_standalone_executable
+
+# The standalone exe is invoked via subprocess with no --device flag, so it
+# defaults to device=auto -> CUDA GPU on a GPU box (apps/main.cpp). This must
+# run in the strictly-serial GPU pass, never the xdist-parallel CPU pass, or it
+# reintroduces the concurrent-CUDA flake the split exists to prevent. The
+# classifier also catches find_standalone_executable; this marker is explicit
+# belt-and-suspenders so the audit and runtime agree.
+pytestmark = pytest.mark.gpu
 
 # ---------------------------------------------------------------------------
 # Helpers

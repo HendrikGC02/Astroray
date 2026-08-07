@@ -3,8 +3,10 @@
 """Two-pass CPU/GPU test runner (open-model-research-2026-08 latency lever 6).
 
 Pass 1 (CPU): ``pytest -m cpu -n auto`` — the CPU-only subset in parallel via
-              pytest-xdist. OMP_NUM_THREADS is pinned (default 1) so the 8
-              xdist workers do not oversubscribe cores with OpenMP threads.
+              pytest-xdist. OMP_NUM_THREADS is left UNSET by default (all cores):
+              pinning it starves the few OpenMP-heavy reference renders and the
+              slowest single-threaded test dominates the tail. Pin explicitly
+              with ``--omp N`` / ASTRORAY_TEST_OMP_THREADS after measuring.
 Pass 2 (GPU): ``pytest -m "not cpu" -p no:xdist`` — everything not positively
               classified CPU, run strictly serial in a single GPU context.
               Anything left unclassified falls here (the SAFE side): memory

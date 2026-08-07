@@ -160,7 +160,7 @@ SampledSpectrum tracePathSpectral(
                     // pkg140: see raytracer.h pathTraceSpectral's identical comment
                     // -- delta-light NEE samples always get full MIS weight.
                     float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
-                    SampledSpectrum nee_contribution = f_spec * L_spec * (wt / (ls.pdf + 0.001f));
+                    SampledSpectrum nee_contribution = f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
                     color += throughput * nee_contribution;
 
                     // PostLightSample snapshot.
@@ -220,7 +220,7 @@ SampledSpectrum tracePathSpectral(
         if (bss.pdf <= 0.0f) break;
         wasSpecular = bss.isDelta;
         bsdfPdfPrev = bss.pdf;  // pkg120: carry for next-bounce two-sided MIS
-        throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
+        throughput *= bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
         // PostShade snapshot.
         if (sink) {

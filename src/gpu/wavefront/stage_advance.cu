@@ -682,7 +682,7 @@ __device__ bool shadePathSlot(
             state.pixel_index[idx], cryptoDepth, objectId, materialId, weight);
     }
 
-    throughput *= bss.fSpectral * (1.0f / (bss.pdf + 0.001f));
+    throughput *= bss.fSpectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
     // ---- Throughput clamp (CPU: maxC > 10 -> scale to 10).
     float maxC = throughput.maxValue();

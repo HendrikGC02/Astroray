@@ -341,7 +341,7 @@ __global__ void stageShadeMetalKernel(
 
     // Update throughput: throughput *= f_spectral / pdf
     // Add small epsilon to pdf to avoid division by zero (matches CPU path_kernel.cpp line 320).
-    throughput = throughput * bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
+    throughput = throughput * bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
     // Write updated throughput back to SoA.
     state.throughput_0[idx] = throughput[0];

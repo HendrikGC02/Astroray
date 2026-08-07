@@ -70,3 +70,38 @@ Filed by the architect 2026-08-03 under the owner's engine-settlement
 directive: PR #541 fork **option A confirmed by the owner** (ship
 correctness v4 + temporary ceiling raise + this package). The supervised
 settlement round = #541-A + pkg172(A) + this package.
+
+## Addendum 2026-08-07 — perf-gate root-cause verdict (measured; do not re-derive)
+
+A three-build isolation on the RTX 5070 Ti (2026-08-06/07 perf-gate
+investigation, clocks sampled in-window during every render, identical
+image means, ±0.1% run spread) settled where the pin→HEAD gap comes from:
+
+| Config | Toolchain | Code | Median |
+|---|---|---|---|
+| Pin (e0185c8, Jul 25) | old: CUDA 12.6, compute_89 PTX→JIT | pre-accretion | 0.705s |
+| HEAD, old toolchain | old: CUDA 12.6, compute_89 PTX→JIT | HEAD | 1.260s |
+| HEAD, new toolchain | new: CUDA 12.8, native sm_120 SASS | HEAD | **1.156s** |
+
+Consequences for this package:
+
+1. **Baseline is 1.156s on the new toolchain** (Ninja + CUDA 12.8 + native
+   sm_120, the shipping config since `50b1d93`). Take Contract step 1's
+   baseline there. Do NOT compare against the spec's old-toolchain numbers
+   (0.843s main / 1.222s #541-v4) — different codegen.
+2. **The toolchain switch is NOT a lever and NOT the regression.** Old
+   toolchain on HEAD code is 8% SLOWER (1.260 vs 1.156). Clock state was
+   also refuted (2895 MHz / P0 / 45–51°C during all failing renders — the
+   pin's own boost state). The pin→HEAD gap is **pure code accretion**:
+   0.705→1.260 at fixed toolchain = 1.79×, attributed to the five feature
+   PRs into the REG:254-saturated shade path (#524 dedicated lights, #526
+   firefly, #527 K&C metal, #529 cryptomatte, #534 two-sided MIS) plus
+   #541's per-hit state.
+3. **Target calibration:** ≤1.0s from 1.156s = ~14% recovery via the
+   register/spill levers — plausible but bounded by the occupancy cliff.
+   The pin's 0.705s is a PRE-accretion number and is not reachable without
+   dropping features; it is a historical baseline, not a target.
+4. Beware one static-analysis trap recorded during the investigation:
+   per-kernel stack/REG deltas do not sum to runtime (stageAdvanceQueued
+   spill +40% coexists with an 8%-faster net build). Judge every lever by
+   the Contract's isolated wall-time A/B, never by cuobjdump alone.

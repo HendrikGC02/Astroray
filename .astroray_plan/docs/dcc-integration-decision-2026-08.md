@@ -8,8 +8,7 @@ verified 2026 facts, the real tradeoff axes populated, falsifiable claims with
 stated mechanisms, an explicit architect recommendation, and the near-term
 hard rules pkg176 must respect.
 
-**Status of the decision itself:** Owner ratification is PENDING (see §7). This
-was written in an unattended session and cannot ratify on the owner's behalf.
+**Status of the decision itself:** RATIFIED 2026-08-08 — Route 1 + Route 2 (see §7).
 
 ---
 
@@ -287,10 +286,13 @@ delegate has to reach through Blender-shaped code and the insurance is void.
 
 ## 7. Owner decision record
 
-**Owner decision: PENDING owner ratification.** Written in an unattended
-session; the architect cannot ratify on the owner's behalf.
+**Owner decision: RATIFIED 2026-08-08 — Route 1 + Route 2.** The owner ratified
+the architect recommendation: Route 1 (native Blender `RenderEngine`) is the
+milestone charter, with Route 2 (session-boundary discipline, §6) adopted as a
+binding pkg176 design rule, and Route 3 (`hdAstroray` USD/Hydra delegate)
+deferred as an event-triggered contingency per the revisit trigger below.
 
-**Architect recommends:** Route 1 (native Blender `RenderEngine`) as the
+**Architect recommended (ratified above):** Route 1 (native Blender `RenderEngine`) as the
 milestone charter, with Route 2 (session-boundary discipline, §6) held as a
 pkg176 design rule, and Route 3 (`hdAstroray` USD/Hydra delegate) deferred as
 an event-triggered future contingency. See §5.

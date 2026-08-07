@@ -197,7 +197,10 @@ TOOLS = [
          exts={".py", ".md", ".rst", ".txt", ".toml", ".cpp", ".cc", ".cxx",
                ".hpp", ".h", ".cu", ".cuh"},
          ok={0, 65}, parse=_p_codespell, hint="pip install codespell",
-         cmd=lambda fs: _wrap(shutil.which("codespell"), [*fs])),
+         # -L: rendering-domain terms codespell mistakes for typos
+         # (MIS = multiple importance sampling)
+         cmd=lambda fs: _wrap(shutil.which("codespell"),
+                              ["--ignore-words-list=mis", *fs])),
     dict(name="shellcheck", exe="shellcheck", exts={".sh", ".bash"}, ok={0, 1},
          parse=_p_shellcheck, hint="choco install shellcheck  /  apt install shellcheck",
          cmd=lambda fs: _wrap(shutil.which("shellcheck"), ["--format=json1", *fs])),

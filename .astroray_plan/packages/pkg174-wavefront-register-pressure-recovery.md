@@ -78,7 +78,7 @@ investigation, clocks sampled in-window during every render, identical
 image means, ±0.1% run spread) settled where the pin→HEAD gap comes from:
 
 | Config | Toolchain | Code | Median |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Pin (e0185c8, Jul 25) | old: CUDA 12.6, compute_89 PTX→JIT | pre-accretion | 0.705s |
 | HEAD, old toolchain | old: CUDA 12.6, compute_89 PTX→JIT | HEAD | 1.260s |
 | HEAD, new toolchain | new: CUDA 12.8, native sm_120 SASS | HEAD | **1.156s** |

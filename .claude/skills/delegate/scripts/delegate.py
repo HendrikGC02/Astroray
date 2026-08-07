@@ -91,6 +91,19 @@ def main():
     stamp = time.strftime("%Y%m%d-%H%M%S")
     log_path = LOG_ROOT / f"{stamp}-{(args.tier or 'custom')}.jsonl"
 
+    # Multi-line prompts do NOT survive the Windows cmd /c argv path (cmd
+    # truncates at the first newline; the worker sees only line 1 — observed
+    # 2026-08-07, flash correctly refused a truncated worklist). Route them
+    # through a task file inside the project (workers can read project files
+    # but not paths outside it).
+    task_file = None
+    if "\n" in prompt.strip():
+        task_file = Path(workdir) / f".delegate-task-{stamp}.md"
+        task_file.write_text(prompt, encoding="utf-8")
+        prompt = (f"Read the file {task_file.name} in the project root and "
+                  "execute the task it contains EXACTLY. That file is your "
+                  "full task; do not treat this one-line message as the task.")
+
     pre = _git_snapshot(workdir)
 
     oc_args = ["run", "-m", model, "--format", "json"]
@@ -109,6 +122,9 @@ def main():
             exit_code = r.returncode
     except subprocess.TimeoutExpired:
         status = "timeout"
+    finally:
+        if task_file is not None:
+            task_file.unlink(missing_ok=True)
     wall_s = round(time.monotonic() - t0, 1)
 
     post = _git_snapshot(workdir)

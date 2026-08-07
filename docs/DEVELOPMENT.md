@@ -27,15 +27,21 @@ Astroray on Windows is always built **twice**, into two separate build dirs:
 1. **Test/dev build — `build_cuda/` (OpenMP ON).**
 
    ```bat
-   configure_and_build.bat
+   scripts\build\build_cuda.bat
    ```
 
-   VS 2022 generator, Release config, CUDA + OIDN + OptiX auto-detect.
-   Artifacts: `build_cuda/Release/astroray.cp313-win_amd64.pyd` (+
-   `astroray_test_helpers`), `build_cuda/bin/Release/raytracer.exe`.
-   This is the build pytest and all benchmark/diagnostic scripts use.
+   **Ninja** generator (single-config), CUDA 12.8 (`CUDA_PATH` env
+   preferred, 12.8 fallback), `-DASTRORAY_CUDA_ARCHS=native` (sm_120 AOT
+   on the workstation), sccache auto-used if on PATH. CUDA + OIDN + OptiX
+   auto-detect. Artifacts land at the **build root** (Ninja has no
+   `Release/` subdir): `build_cuda/astroray.cp313-win_amd64.pyd` (+
+   `astroray_test_helpers`). This is the build pytest and all
+   benchmark/diagnostic scripts use.
    Optional extras: `-DASTRORAY_TINY_CUDA_NN=ON` adds the neural-cache
    backend + `tcnn_smoke` / `nrc_smoke_render` harnesses.
+   *(Legacy: `configure_and_build.bat` at the repo root used the VS 2022
+   multi-config generator with artifacts under `build_cuda/Release/` —
+   superseded 2026-08-06; kept only for reference.)*
 
 2. **Blender addon build — `build_blender_addon_*/` (OpenMP OFF, forced).**
 
@@ -54,17 +60,26 @@ Astroray on Windows is always built **twice**, into two separate build dirs:
 
 ## GPU architectures / second-machine portability
 
-`CMakeLists.txt` pins `CMAKE_CUDA_ARCHITECTURES "75;86;89"` globally —
-Turing, Ampere (RTX 3000 = sm_86), Ada. Blackwell cards (RTX 5070 Ti =
-sm_120) run the `compute_89` PTX via JIT. The tiny-cuda-nn targets use the
-same list (`TCNN_CUDA_ARCHITECTURES`, floor `TCNN_MIN_GPU_ARCH=75` — tcnn
-needs sm_70+, so all three are supported). Nothing in the build is pinned to
-the workstation's GPU.
+`CMakeLists.txt` defaults `CMAKE_CUDA_ARCHITECTURES` to `"75;86;89"` —
+Turing, Ampere (RTX 3000 = sm_86), Ada — for distributable/CI builds;
+Blackwell cards (RTX 5070 Ti = sm_120) then run the `compute_89` PTX via
+JIT. **Local dev builds override this**: `scripts/build/build_cuda.bat` and
+`build_cuda_worktree.bat` pass `-DASTRORAY_CUDA_ARCHS=native` (AOT sm_120,
+~3× less device compile work; a *build-time* win — distinct from the
+separate pkg155 runtime finding about sm_120 AOT documented below). The
+tiny-cuda-nn targets keep the fixed list (`TCNN_CUDA_ARCHITECTURES`, floor
+`TCNN_MIN_GPU_ARCH=75`).
 
 ## Running tests
 
 ```bat
-REM full suite against the test build (resolves DLL dirs, temp dirs, .pyd path)
+REM recommended: split runner — CPU tests parallel via xdist, GPU tests serial
+REM (PR #545; ~18% faster and avoids concurrent-CUDA false crashes)
+python scripts/test/run_split.py
+```
+
+```bat
+REM classic single-pass runner (still valid; resolves DLL dirs, temp dirs, .pyd path)
 python scripts/dev/run_tests.py --build-dir build_cuda -- tests -q --tb=short
 ```
 
@@ -78,8 +93,9 @@ Rules that save hours:
   hours of GPU benchmarking the card throttles — re-run timing gates on a
   cool GPU before believing a regression.
 - A `.pyd` import picks up the **first** `astroray` on `sys.path` — check
-  `astroray.__file__` points at `build_cuda/Release/` and that the file is
-  newer than `git log -1 --format=%cd HEAD` before trusting any GPU result.
+  `astroray.__file__` points at `build_cuda/` (root; `build_cuda/Release/`
+  only for legacy multi-config builds) and that the file is newer than
+  `git log -1 --format=%cd HEAD` before trusting any GPU result.
 
 ### Perf gates calibrated to the workstation (RTX 5070 Ti)
 

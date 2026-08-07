@@ -3,6 +3,9 @@
 **Date:** 2026-08-03 (§1/§2/§3 rewritten by the architect to encode the
 owner's course-correction directive after the 2026-08-01→02 run: settlement
 round → Integration Milestone → Pillar 4)
+**Revision 2026-08-07 (hygiene run):** #541 status and pkg174 numbers
+updated in place — #541 MERGED 2026-08-06 (`bbf2d8c`); pkg174 baseline is
+1.156s on the new toolchain (see the pkg174 spec's 2026-08-07 addendum).
 **Prepared by:** the architect (goal-capture, owner directive 2026-08-03).
 **Scope:** the run closed at `31bd722` (11 PRs merged 2026-08-01/02; standups
 `2026-08-01-overnight.md` + `2026-08-02-dayrun.md` are authoritative for the
@@ -24,13 +27,16 @@ tail.** ROADMAP.md "Current sequencing" carries the same directive.
   upsample-shape bug), 2 convicted-not-yet-fixed (pkg172 effect (A),
   pkg173). pkg150/pkg158/pkg166 closed; pkg165–pkg173 filed; pkg129
   narrowed.
-- **PR #541 (pkg168 Step 2) is PARKED with an OWNER DECISION now recorded:
-  option A CONFIRMED (2026-08-03)** — ship correctness v4 (`6ef2c11`),
-  temporarily raise the wavefront perf ceiling, and file the
-  register-pressure companion. That companion is now **pkg174**
-  (REG:254 on `stageAdvance`/`stageShadeBucketed`, best-correct-form
-  1.222s vs 0.843s main; acceptance = ≤1.0s WITH the fix in, then the
-  ceiling raise reverts).
+- **PR #541 (pkg168 Step 2) SHIPPED 2026-08-06 (`bbf2d8c`) — option A
+  executed as decided** (correctness v4 + temporary ceiling raise
+  1.0→1.5s). The register-pressure companion is **pkg174** (REG:254 on
+  `stageAdvance`/`stageShadeBucketed`; acceptance = ≤1.0s WITH the fix in,
+  then the ceiling raise reverts). **Baseline correction (2026-08-07,
+  measured):** the current-toolchain baseline is **1.156s** — the old
+  "1.222s vs 0.843s main" figures predate the Ninja/CUDA-12.8/native-sm_120
+  switch and are not comparable; the pin's 0.705s is pre-feature-accretion
+  history, not a target (see pkg174 spec addendum). pkg174 dispatched
+  2026-08-07, in flight.
 - **The owner's directive (2026-08-03), verbatim anchors:** first finish
   the last ~10% of the foundation (the supervised settlement round); then
   — before Pillar 4 — rigorous Blender integration: *"the purpose of
@@ -69,9 +75,9 @@ Grep `^Status:` in each spec before dispatch (memory
 **Phase (a) — supervised engine-settlement round (FIRST; one round, owner
 present):**
 
-1. **PR #541 option A** — land correctness v4 with the temporary perf
-   ceiling raise (pkg168 closes on merge). Owner decision recorded in the
-   pkg168 spec; do not re-litigate the fork.
+1. ~~**PR #541 option A**~~ — **DONE 2026-08-06** (`bbf2d8c`; pkg168
+   closed on merge). Owner decision recorded in the pkg168 spec; do not
+   re-litigate the fork.
 2. **pkg172 effect (A)** — the universal `f/(pdf+1e-3)` epsilon fix
    (guarded-pdf rejection form, pbrt-v4, cited) + impact sweep +
    coordinated re-pin batch, architect sign-off per pin. SUPERVISED —
@@ -84,9 +90,12 @@ present):**
 
 4. **pkg175** — one-command dev loop (build→install→launch→smoke,
    headless-testable). First milestone package; everything else iterates
-   through it.
+   through it. *(Branch `pkg175-dev-loop` was created 2026-08-03 but is
+   stalled at 0 commits — resume or GC before re-dispatching.)*
 5. **pkg177** — DCC-architecture tradeoff study. Parallel-safe with
    pkg175 (no code surface shared); produces the owner decision record.
+   *(Same: branch `pkg177-dcc-arch-eval` stalled at 0 commits since
+   2026-08-03.)*
 6. **pkg176** — Blender-native steering wheel (staged: mapping table →
    settings plumbing → panel adoption → world/light/camera completion →
    custom-UI retirement). Stage 0's mapping table is an owner-review

@@ -1,3 +1,5 @@
+> **⚠ HISTORICAL (Codex retired 2026-07).** The Codex sections below describe a retired agent and must not be followed. Legacy Codex-tagged specs route to package-implementer (CLAUDE.md §5). Kept for historical context only.
+
 # Local Agent Integration Plan
 
 **Status:** proposed  

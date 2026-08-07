@@ -13,7 +13,7 @@ Astroray/
 ├── module/                  # pybind11 Python bindings (blender_module.cpp)
 ├── scripts/                 # build_blender_addon.py and utilities
 ├── src/                     # C++ implementation units
-├── tests/                   # pytest suite (227 collected tests as of 2026-04-28)
+├── tests/                   # pytest suite (~1590 collected tests as of 2026-08-07)
 └── CMakeLists.txt
 ```
 
@@ -67,8 +67,12 @@ Vec3, Ray, Material, Hittable, BVH, Monte Carlo estimation (NOT ML).
 Python module (`astroray`) via pybind11. Module is at `build/astroray.cpython-*.so` (Linux) or `build/astroray.cp*-win_amd64.pyd` (Windows).
 
 Pillars 1 and 2 are complete: plugin architecture and the spectral core are
-now the baseline. The active next-stage queue is Pillar 3 (light transport),
-with Pillar 4 astrophysics and Pillar 5 production polish queued/ongoing.
+now the baseline. Per the owner directive of 2026-08-03, the active queue is:
+finish the supervised engine-settlement round (pkg172(A) + pkg174), then the
+**Integration Milestone** (Blender/DCC, pkg175–pkg177) — BEFORE further
+Pillar 3 closure work. Pillar 4 astrophysics is PAUSED until core rendering
+is stable. Authoritative sequencing: `.astroray_plan/docs/ROADMAP.md`
+"Current sequencing".
 
 ## Test Structure
 

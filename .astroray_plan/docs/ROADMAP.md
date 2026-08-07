@@ -29,14 +29,23 @@ After the 2026-08-01/02 correctness cascade (11 PRs), the owner issued a
 course correction. The order is now:
 
 **(a) Engine settlement — one SUPERVISED round, first.** Finish the last
-~10% of the foundation: **PR #541 option A** (owner CONFIRMED — ship the
-correctness fix v4, temporarily raise the wavefront perf ceiling; see
-pkg168 Status) + **pkg172 effect (A)** (the universal `f/(pdf+1e-3)`
-epsilon fix with its coordinated, architect-signed re-pin batch) +
-**pkg174** (register-pressure recovery: `stageAdvance`/`stageShadeBucketed`
-at REG:254, restore ≤1.0s WITH the correctness fix in, then revert the
-temporary ceiling raise). Supervised because #541-A and pkg172(A) both
-move rendered energy project-wide.
+~10% of the foundation: ~~**PR #541 option A**~~ **shipped 2026-08-06
+(`bbf2d8c`)** — correctness v4 landed with the temporary ceiling raise.
+Remaining: **pkg172 effect (A)** (the universal `f/(pdf+1e-3)` epsilon fix
+with its coordinated, architect-signed re-pin batch) + **pkg174**
+(register-pressure recovery: restore ≤1.0s WITH the correctness fix in,
+then revert the temporary raise; dispatched 2026-08-07, in flight —
+baseline 1.156s on the new toolchain per the spec's measured addendum).
+Supervised because pkg172(A) moves rendered energy project-wide.
+
+**Round closeout (2026-08-06→07, workflow restructure):** #541 merged
+(`bbf2d8c`); local builds NMake→Ninja + native sm_120 + CUDA 12.8 (cold
+320.7→61.1s, `50b1d93`); sccache shared across worktrees (`0ddfa49`); CI
+docs-skip (~17min→11s on docs-only pushes) + concurrency-cancel + caches;
+pytest CPU/GPU split + xdist (#545, `c2e7bc3`); opencode delegation layer
+(`78b451b`) — open-model grunt/implement/verify tiers behind an
+evidence-contract wrapper, Claude retained on all last-line-of-defense
+seats. Full report: `.astroray_plan/docs/reports/2026-08-06-restructure.html`.
 
 **(b) The Integration Milestone — BEFORE Pillar 4.** *"The purpose of
 mimicking Cycles was to be able to use as much of the existing options and

@@ -1,5 +1,23 @@
 # Astroray Status
 
+**2026-08-06 → 2026-08-07 (workflow restructure + settlement round opens):**
+**PR #541 (pkg168 Step 2) MERGED 2026-08-06 (`bbf2d8c`) — option A** (owner
+confirmed 2026-08-03): correctness v4 shipped with the wavefront perf
+ceiling TEMPORARILY raised 1.0→1.5s; the revert is owned by **pkg174**
+(dispatched 2026-08-07, in flight). pkg174's spec carries a measured
+2026-08-07 addendum: the pin→HEAD perf gap is **code accretion**
+(0.705→1.260s at fixed toolchain), clock-state and toolchain hypotheses
+refuted; baseline on the current toolchain is **1.156s**. Infrastructure
+restructure landed the same window: local CUDA builds **NMake→Ninja +
+native sm_120 + CUDA 12.8** (cold build 320.7→61.1s, `50b1d93`), **sccache**
+shared across worktrees (`0ddfa49`), **CI docs-skip** (docs-only pushes now
+~11s vs ~17min) + concurrency-cancel + caches, **pytest CPU/GPU split +
+xdist** (PR #545, `c2e7bc3`), and the **opencode delegation layer**
+(`78b451b`: grunt/implement/verify open-model tiers behind an
+evidence-contract wrapper; tier→model map in
+`.claude/skills/delegate/config/tiers.json`). Reports:
+`.astroray_plan/docs/reports/2026-08-06-restructure.html`.
+
 **2026-08-01 → 2026-08-02 (run closed, 11 PRs merged): pkg163/pkg158/pkg120
 overnight; pkg150/pkg166/pkg156/pkg168-Step1/pkg169/pkg170 + pkg172 docs
 (#543/#544) during the day.** See
@@ -155,7 +173,9 @@ docs conflict** — main's version of the pkg172 diagnosis table was the
 canonical; the pr-merger caught and resolved it correctly rather than
 mechanically taking "ours."
 
-**#541 final resolution: PARKED, not merged.** A controlled A/B first
+**#541 final resolution — UPDATE 2026-08-06: MERGED as `bbf2d8c` (option A,
+temp ceiling raise; pkg174 owns the revert). The paragraph below is the
+2026-08-02 state, kept for history.** A controlled A/B first
 convicted its implementation of a 1.6× wavefront perf regression (main HEAD
 0.840s → with #541, 1.370s). The restructure attempt converged on the real
 root cause: `stageAdvance`/`stageShade` are register-saturated at 254, and
@@ -172,7 +192,9 @@ the top action item, blocking pkg172(A), pkg173, and pkg168's closeout.**
 **Architect round-close refresh (`f64610d`):** `NEXT_STAGE_REPORT.md` §2/§3
 requeued for the correctness cascade (in order: #541 resolution, pkg172(A)
 supervised, pkg173, pkg167, pkg165, pkg129-narrowed) and five newly-earned
-rules recorded.
+rules recorded. *(Superseded by the 2026-08-03 owner directive — Integration
+Milestone before Pillar-3 closure — and the 2026-08-06/07 restructure; see
+the top section and ROADMAP.md "Current sequencing".)*
 
 **Infra note (owner/infra):** two worktrees tonight carried a stale
 `CMAKE_CUDA_ARCHITECTURES=52` CMakeCache (repo specifies `75;86;89`) — a

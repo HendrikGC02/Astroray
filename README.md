@@ -61,7 +61,7 @@ All hardware-measured numbers are from the project workstation (NVIDIA RTX
 | OptiX temporal denoise | **53.1% inter-frame variance reduction** vs ≥30% gate | pkg73, PR #249 |
 | Slim disk accretion | T(9M, ṁ=1) = **7.45×10⁶ K**; 14/14 tests vs Abramowicz 1988 / Sadowski 2009 | pkg43, PR #271 |
 | Cold-start viewport latency | First frame **83.3 ms** (was 12,079 ms before pkg84) — **145× improvement** | pkg84, PR #260 |
-| Test suite | **1299 passed / 0 failed** (14 skipped, 21 xfailed, 3 xpassed) on the Windows MSVC `build_cuda` configuration, RTX-verified | full local sweep, 2026-06-12 |
+| Test suite | **1563 passed / 0 failed** (68 skipped, 26 xfailed, 2 xpassed) on the Windows `build_cuda` (Ninja, native sm_120) configuration, RTX-verified | full local sweep, 2026-08-06 |
 
 ---
 

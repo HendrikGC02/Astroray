@@ -35,7 +35,18 @@ nothing here precludes them.
 
 ### ReSTIR DI
 
-- **RTXDI SDK 3.0**: https://github.com/NVIDIA-RTX/RTXDI
+> **⚠ LICENCE UPDATE 2026-08-07: RTXDI is DISQUALIFIED as a reference
+> implementation** — the 2026-07 PBR-advances research pass found its
+> licence proprietary/incompatible (see STATUS.md `d9b1d25`/`c0f3130`
+> entry and `.astroray_plan/docs/2026-07-pbr-advances-research.md`). Do
+> NOT port or closely translate RTXDI code. Use the original papers
+> (Bitterli et al. 2020 for ReSTIR DI; GRIS/ReSTIR-PT papers) plus a
+> licence-compatible reference per the `cite-algorithm` skill instead.
+> The section below predates the disqualification and is kept for the
+> algorithmic outline only.
+
+- ~~**RTXDI SDK 3.0**: https://github.com/NVIDIA-RTX/RTXDI~~ (disqualified,
+  see above)
   Production-quality HLSL/GLSL implementation. We translate the core
   algorithm to CUDA (already have CUDA infra from Pillar 1+2) — not the
   D3D12 plumbing. Budget: the reservoir data structure and the three

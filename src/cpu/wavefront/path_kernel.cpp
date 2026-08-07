@@ -258,7 +258,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
                 // pkg140: see raytracer.h pathTraceSpectral's identical comment
                 // -- delta-light NEE samples always get full MIS weight.
                 float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
-                SampledSpectrum nee_contribution = f_spec * L_spec * (wt / (ls.pdf + 0.001f));
+                SampledSpectrum nee_contribution = f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
                 ps.color += ps.throughput * nee_contribution;
 
                 if (sink) {
@@ -333,7 +333,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     if (bss.pdf <= 0.0f) { ps.alive = false; return false; }
     ps.wasSpecular = bss.isDelta;
     ps.bsdfPdfPrev = bss.pdf;  // pkg120: carry for next-bounce two-sided MIS
-    ps.throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
+    ps.throughput *= bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
     // ---- PostShade snapshot.
     if (sink) {

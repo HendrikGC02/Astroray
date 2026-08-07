@@ -2481,7 +2481,7 @@ public:
                         // angle == 0, undercounting the delta sun's energy.
                         float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                         astroray::SampledSpectrum neeContrib =
-                            throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f));
+                            throughput * f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
                         color += clampContribSpectral(neeContrib, lambdas, bounce);
                     }
                 }
@@ -2546,7 +2546,12 @@ public:
                                                0, cryptoDepth, objectId, materialId, weight);
             }
 
-            throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
+            // pkg172(A): guarded-pdf throughput update (pbrt-v4 convention —
+            // reject the sample when pdf is degenerate, else divide by the
+            // EXACT pdf). The former `1/(pdf+1e-3)` additive epsilon was a
+            // universal 2π·ε=0.628%/bounce energy loss. See
+            // .astroray_plan/docs/pkg172a-guarded-pdf.md.
+            throughput *= bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
             next.hasCameraFrame = ray.hasCameraFrame;
@@ -2674,7 +2679,7 @@ public:
                         // delta-light NEE samples always get full MIS weight.
                         float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                         astroray::SampledSpectrum neeContrib =
-                            throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f));
+                            throughput * f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
                         color += clampContribSpectral(neeContrib, lambdas, bounce);
                     }
                 }
@@ -2711,7 +2716,7 @@ public:
             }
 
             astroray::SampledSpectrum nextThroughput =
-                throughput * bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
+                throughput * bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
             if (bss.isDelta) {
                 LightSample ls;
@@ -2763,7 +2768,7 @@ public:
                                 float geom = std::max(0.0f, std::abs(ls.normal.dot(-wiToLight))) /
                                              std::max(dist2, 1e-4f);
                                 astroray::SampledSpectrum contribution =
-                                    walkThroughput * f_spec * Li * (geom / (ls.pdf + 0.001f));
+                                    walkThroughput * f_spec * Li * (ls.pdf > 1e-8f ? geom / ls.pdf : 0.0f);
                                 causticConnections += 1;
                                 causticEnergy += contribution.maxValue();
                                 // pkg144: same indirect classification as the emissive
@@ -2776,7 +2781,7 @@ public:
                         Vec3 wwo = -walkRay.direction.normalized();
                         BSDFSampleSpectral step = wrec.material->sampleSpectral(wrec, wwo, gen, walkLambdas);
                         if (!step.isDelta || step.pdf <= 0.0f) break;
-                        walkThroughput *= step.f_spectral * (1.0f / (step.pdf + 0.001f));
+                        walkThroughput *= step.f_spectral * (step.pdf > 1e-8f ? 1.0f / step.pdf : 0.0f);
                         Ray next(wrec.point, step.wi, walkRay.time, walkRay.screenU, walkRay.screenV);
                         next.hasCameraFrame = walkRay.hasCameraFrame;
                         next.cameraOrigin = walkRay.cameraOrigin;

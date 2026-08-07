@@ -315,7 +315,7 @@ __global__ void stageLightSampleKernel(
         // NEE contribution: f * L * (wt / pdf).
         // Mirrors CPU line 246.
         GSampledSpectrum L_spec = ls.emission;
-        GSampledSpectrum nee_contribution = f_spec * L_spec * (wt / (ls.pdf + 0.001f));
+        GSampledSpectrum nee_contribution = f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
 
         // Accumulate to path color: color += throughput * nee_contribution.
         GSampledSpectrum color_update = throughput * nee_contribution;

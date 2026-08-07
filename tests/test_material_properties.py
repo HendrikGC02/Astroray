@@ -550,7 +550,15 @@ def test_disney_clearcoat_adds_gloss():
         f"({bright_mean_no_coat:.3f}) by at least {min_bright_mean_delta:.3f}"
 
     mse = float(np.mean((rgb_no_coat - rgb_coat) ** 2))
-    assert mse > 5e-5, \
+    # pkg172(A) re-pin (2026-08-08): the guarded-pdf fix removed the universal
+    # ~0.6%/bounce throughput under-weighting; under the now-unbiased estimator
+    # the whole-sphere coat-vs-no-coat MSE differential moved 5.76e-5 -> 4.92e-5
+    # (clean-build A/B on this scene). The primary clearcoat signals — the
+    # p99.5 and bright-mean deltas asserted above — still pass, so clearcoat is
+    # verifiably contributing; this coarse aggregate floor was calibrated to the
+    # old (biased, darker) renders. Floor lowered to 3.5e-5 (keeps a real guard
+    # against a clearcoat that contributes nothing, MSE->~0).
+    assert mse > 3.5e-5, \
         f"Clearcoat has no visible effect on sphere pixels (MSE={mse:.6f})"
 
     fig, axes = plt.subplots(1, 2, figsize=(8, 4))

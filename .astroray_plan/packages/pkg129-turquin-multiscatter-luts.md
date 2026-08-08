@@ -3,7 +3,7 @@
 **Pillar:** 2 (materials / BSDF energy correctness)
 **Track:** A (CPU-gated rough-metal furnace + chi² gates on CI; GPU spectral-closure leg RTX-verified against the CPU result, with a live-Cycles A/B on rough metals)
 **Codex-paste-ready:** no (a LUT port that must be reconciled against two existing compensation implementations of different heritage, replace a GPU placeholder, and hold chi² gates that depend on a sibling pdf adjudication — needs judgment, not a mechanical patch)
-**Status:** open — dispatchable, **NARROWED 2026-08-02 (architect refresh — read the refresh section below before the original body; the original port premise is largely superseded by pkg160/pkg163)**. Remaining charter: the live-Cycles rough-metal A/B parity gate + a heritage supersession note; the openpbr-bsdf LUT port runs ONLY if the A/B convicts a real divergence.
+**Status:** narrowed-charter harness + note landed (PR pending, 2026-08-08 — live-Cycles rough-metal A/B harness `benchmarks/cycles-parity/metal_ab/` built/wired/unit-tested [7 pure tests green]; heritage supersession note written). **On-hardware A/B verdict DEFERRED to the lead**; conviction-path openpbr LUT port NOT executed (fires only on a convicting A/B with architect sign-off). Was: open — dispatchable, NARROWED 2026-08-02 (architect refresh — read the refresh section before the original body; original port premise superseded by pkg160/pkg163).
 **Estimated effort:** S (A/B harness + supersession note) + M only on conviction (the original LUT port)
 **Depends on:** nothing open. **pkg123 is DONE** (PR #498, 2026-07-21 — the corrected spec-lobe baseline this spec originally gated on is on main). **Composes with** pkg60 (CPU compensation, DONE), pkg118 (transmission, DONE), pkg160/pkg163 (plain-metal CPU+GPU compensation, DONE — these resolved this spec's original GPU-side premise), pkg167 (dielectric reflection counterpart, open — share one table loader if the port fires).
 
@@ -253,12 +253,28 @@ rough metals is a journal-article parity figure.
 
 ## Progress
 
+### Narrowed charter (dispatchable scope — the ONLY items executed)
+
+- [x] 1 — Live-Cycles rough-metal A/B harness built + wired + unit-tested
+      (`benchmarks/cycles-parity/metal_ab/`, `tests/test_pkg129_metal_ab_harness.py`,
+      7 pure tests green). Three legs (Cycles oracle / Astroray CPU / Astroray GPU),
+      r ∈ {0.3, 0.6, 0.9} × {chromatic, neutral}, metallic=1, linear both-bounds
+      per-channel ratio band (pkg166). **On-hardware A/B verdict DEFERRED to the lead.**
+- [x] 2 — Heritage supersession note written
+      (`.astroray_plan/docs/reflection-multiscatter-turquin-research.md`): lineage
+      pkg60 → #523 → pkg160 → pkg163, table DATA is already Cycles', A/B-verdict
+      placeholder for the lead.
+- [ ] 3 — Conviction-path LUT port: NOT executed (fires only on a convicting A/B
+      with architect sign-off).
+
+### Original (conviction-path only — NOT executed on this dispatch)
+
 - [ ] A — Turquin LUTs ported from `adobe/openpbr-bsdf` (Apache-2.0) + CUDA backend;
       loaded via `DisneyEnergyCompensationTables`.
 - [ ] B — GPU placeholder/hack replaced by the real LUT lookup.
 - [ ] C — CPU path reconciled onto the same tables (decision recorded).
 - [ ] D — rough-metal furnace toward unity on both backends; chi² green; Cycles A/B.
-- [ ] Research note written.
+- [x] Research note written.
 
 ---
 

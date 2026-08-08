@@ -21,6 +21,14 @@ enum class MaterialClosureType : uint8_t {
     Sheen = 5,
     Emission = 6,
     ThinGlass = 7,
+    // pkg178 Stage 2: monolithic native-Principled core-lobe closure. Unlike the
+    // other types (each a single static lobe), this carries ALL of the Stage-1
+    // core-lobe params so the device twin (gpu_principled_*) can run the SAME
+    // view-dependent lobe assembly the CPU PrincipledPlugin::assembleLobes does
+    // (Fresnel-weighted selection + ggxDirectionalAlbedo layering are functions
+    // of wo, so they cannot be baked into static per-lobe closure weights). A
+    // Principled material therefore emits exactly ONE closure of this type.
+    Principled = 8,
 };
 
 struct MaterialClosure {
@@ -33,6 +41,13 @@ struct MaterialClosure {
     float transmission = 0.0f;
     float clearcoatGloss = 1.0f;
     bool twoSidedEmission = false;
+    // pkg178 Stage 2 (Principled core lobes only): extra params the monolithic
+    // Principled closure needs beyond the shared fields above. Unused (defaults)
+    // by every other closure type. color/roughness/metallic/ior/transmission
+    // carry base_color / roughness / metallic / ior / transmission_weight.
+    ClosureColor specularTint{};        // Cycles specular_tint (RGB)
+    float specularIorLevel = 0.5f;      // Cycles specular_ior_level
+    float diffuseRoughness = 0.0f;      // Cycles diffuse_roughness (EON)
 };
 
 class MaterialClosureGraph {
@@ -68,6 +83,19 @@ MaterialClosure makeThinGlassClosure(
     float ior,
     float roughness = 0.0f,
     float transmission = 1.0f,
+    float weight = 1.0f);
+// pkg178 Stage 2: build the monolithic native-Principled core-lobe closure.
+// `color` = base_color; `transmission` = transmission_weight. Mirrors the
+// Stage-1 PrincipledPlugin ctor param set (plugins/materials/principled.cpp).
+MaterialClosure makePrincipledClosure(
+    ClosureColor baseColor,
+    float metallic,
+    float roughness,
+    float ior,
+    float specularIorLevel,
+    ClosureColor specularTint,
+    float transmission,
+    float diffuseRoughness,
     float weight = 1.0f);
 
 const char* closureTypeName(MaterialClosureType type);

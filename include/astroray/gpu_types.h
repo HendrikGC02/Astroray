@@ -385,7 +385,12 @@ enum GClosureType : uint8_t {
     GCLOSURE_CLEARCOAT = 4,
     GCLOSURE_SHEEN = 5,
     GCLOSURE_EMISSION = 6,
-    GCLOSURE_THIN_GLASS = 7
+    GCLOSURE_THIN_GLASS = 7,
+    // pkg178 Stage 2: device mirror of MaterialClosureType::Principled — the
+    // monolithic native-Principled core-lobe closure. A Principled material
+    // emits exactly ONE of these, so G_MAX_MATERIAL_CLOSURES stays 8 (no cap
+    // bump). Handled by the gpu_principled_* twin in gpu_materials.h.
+    GCLOSURE_PRINCIPLED = 8
 };
 
 static constexpr int G_MAX_MATERIAL_CLOSURES = 8;
@@ -401,7 +406,13 @@ struct GMaterialClosure {
     float ior;
     float transmission;
     float clearcoatGloss;
-    float _pad1[2];
+    // pkg178 Stage 2: Principled core-lobe params (see MaterialClosure in
+    // material_closure.h). Zero on every non-Principled closure (gc{} init);
+    // read only by the gpu_principled_* twin. Replaces the former _pad1[2].
+    GVec3 specularTint;
+    float specularIorLevel;
+    float diffuseRoughness;
+    float _pad1;
 };
 
 // pkg54a: layout for the device-side spectral profile table. Profiles are

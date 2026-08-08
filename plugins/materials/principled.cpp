@@ -596,15 +596,32 @@ public:
     bool isTransmissive() const override { return transmission_ > 1e-4f; }
     bool isGlossy() const override { return true; }
 
-    // Stage 1 is CPU-only: no closureGraph()/getGPUTypeName() → the base
-    // backendCapabilities reports no GPU lowering. GPU is Stage 2 (the lead's
-    // build). Overridden explicitly so the intent is legible.
+    // pkg178 Stage 2 GPU seam (the ONLY additions to this Stage-1 file — no lobe
+    // math changed): lower to GMAT_CLOSURE_GRAPH via a single monolithic
+    // GCLOSURE_PRINCIPLED closure carrying the raw core-lobe params. The device
+    // twin (gpu_principled_* in gpu_materials.h) re-runs assembleLobes on device
+    // per shade, because the assembly is VIEW-DEPENDENT and cannot be baked into
+    // static per-lobe closure weights.
+    std::string getGPUTypeName() const override { return "principled"; }
+    astroray::MaterialClosureGraph closureGraph() const override {
+        astroray::MaterialClosureGraph graph;
+        graph.add(astroray::makePrincipledClosure(
+            astroray::ClosureColor{baseColor_.x, baseColor_.y, baseColor_.z},
+            metallic_, roughness_, ior_, specularIorLevel_,
+            astroray::ClosureColor{specularTint_.x, specularTint_.y, specularTint_.z},
+            transmission_, diffuseRoughness_));
+        return graph;
+    }
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps;
         caps.cpu = true;
         caps.spectral = true;
-        caps.gpu = false;
-        caps.notes = "pkg178 Stage 1: CPU-only; GPU closure-graph lowering deferred to Stage 2";
+        caps.gpu = true;           // pkg178 Stage 2: closure-graph lowering (below)
+        caps.gpuSpectral = true;   // native per-λ device twin (gpu_principled_eval_spectral)
+        caps.closureGraph = true;
+        caps.gpuType = "closure_graph";
+        caps.notes = "pkg178 Stage 2: native Principled core lobes (diffuse/specular/"
+                     "metallic/transmission) via GMAT_CLOSURE_GRAPH + GCLOSURE_PRINCIPLED";
         return caps;
     }
 

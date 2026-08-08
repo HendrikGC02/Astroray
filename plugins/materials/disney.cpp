@@ -306,6 +306,36 @@ class DisneyPlugin : public Material {
         float F = fresnelDielectric(HdotO, 1.0f, ior_);
 
         float fr = D * G * F / (4.0f * cosO * cosI + 1e-8f);
+
+        // pkg167: reflection-lobe multi-scatter energy compensation for the
+        // rough dielectric. Turquin 2019 "Practical multiple scattering
+        // compensation for microfacet models" (ILM Tech. Report) established
+        // that a rough dielectric's directional albedo -- and thus its
+        // compensation term -- is IOR-dependent, unlike the metal case
+        // (Kulla & Conty 2017). Cycles compensates the COMBINED glass closure
+        // (reflection + transmission single-scatter) with ONE factor derived
+        // from its IOR-parameterised glass tables (microfacet_ggx_preserve_energy,
+        // CLOSURE_BSDF_MICROFACET_GGX_GLASS_ID, bsdf_microfacet.h, BSD-3-Clause).
+        // Astroray splits that closure into two eval branches: pkg151 applied
+        // the identical factor to roughTransmissionEval's return only, leaving
+        // the reflection half uncompensated -- the deficit pkg150 measured when
+        // the smooth-mirror delta fallback (an unintentional energy patch) was
+        // removed (CPU r=1.0 0.997->0.788). Applying the SAME
+        // ggxGlassCompensationFactor(etap, |cosO|) here reconstructs Cycles'
+        // combined-closure compensation across the two split lobes. etap mirrors
+        // roughTransmissionEval's frontFace convention (ior on entry, 1/ior on
+        // exit): the exit-side (frontFace==false) internal-reflection events
+        // carry the large fresnelDielectricFss(1/ior) reflectance, which is
+        // exactly the near-TIR high-roughness energy pkg169's quarantined cell
+        // was missing. Throughput magnitude only -- microfacetReflectionPdf and
+        // sampleGgxVNDF are untouched (chi2-safe). Composition: for a
+        // transmissive dielectric the F0-based ggxCompensationFactor still
+        // applied to `spec` at eval() (F0=Cspec0~=0.04) is ~identity, so the two
+        // do not meaningfully double-compensate -- see
+        // .astroray_plan/docs/pkg167-dielectric-reflection-multiscatter-research.md.
+        const float etap = rec.frontFace ? ior_ : (1.0f / ior_);
+        fr *= ggxGlassCompensationFactor(etap, std::abs(cosO));
+
         return Vec3(fr);
     }
 

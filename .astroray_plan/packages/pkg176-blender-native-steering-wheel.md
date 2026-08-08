@@ -2,7 +2,7 @@
 
 **Pillar:** Integration Milestone (Blender/DCC integration — see ROADMAP "Integration Milestone")
 **Track:** A (addon-heavy Python + real-host verification; render legs RTX)
-**Status:** open — dispatchable after pkg175 (the dev loop is this package's iteration vehicle); staged, expect multiple PRs
+**Status:** Stage 0 done (owner-review artifact — mapping table `docs/blender_parity/pkg176_stage0_mapping.md` + machine-readable `blender_addon/settings_map.py`; 58 direct / 4 approximated / 19 dropped / 9 astroray-only across 90 settings-level rows; Route-2 §6 five hard rules honoured). Stages 1–4 open — dispatchable after pkg175 (the dev loop is this package's iteration vehicle); staged, expect multiple PRs
 **Estimated effort:** L, staged (Stage 1 render/sampling settings; Stage 2 panel adoption; Stage 3 world/light/camera property completion; Stage 4 custom-UI retirement)
 **Depends on:** pkg175 (dev loop). Cross-links: **pkg119** (Phase A matrix enumerates exactly the native surface this package must consume; Phases B/C are this package's verification layer — see pkg119's refreshed Status), **pkg103** (the earlier feature-wiring audit this supersedes in approach), **pkg115** (native shader-node adoption — the precedent: we already adopted Blender's node surface for textures; this package extends that philosophy from nodes to settings/UI), research note `.astroray_plan/docs/dcc-integration-research-2026-08.md`.
 

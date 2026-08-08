@@ -24,6 +24,9 @@ addon_dir = os.path.dirname(__file__)
 if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
 
 from shader_blending import blend_shader_specs, add_shader_specs
+# pkg176 Stage 1: read Blender's native render/sampling settings (deprecated
+# custom aliases). Pure-data translator (no bpy/engine deps); see settings_map.py.
+from native_settings import resolve_native_settings
 from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
 from _bulk_geometry import mesh_world_positions  # pkg88-B object motion blur bake
 
@@ -204,10 +207,16 @@ _VIEWPORT_DISPLAY_PASS_ITEMS = [
 ]
 
 class CustomRaytracerRenderSettings(PropertyGroup):
+    # pkg176 Stage 1: the properties tagged "[Deprecated alias]" below now shadow
+    # a native Blender/Cycles control (see blender_addon/settings_map.py). The
+    # exporter reads the native value unless one of these was explicitly set in a
+    # saved .blend, in which case it wins for one release and logs a migration
+    # note per render (native_settings.resolve_native_settings). Set the value in
+    # Blender's native panel instead; these duplicates are removed in a later stage.
     samples: IntProperty(name="Samples", min=1, max=65536, default=2,
-        description="Samples per pixel for final F12 renders")
+        description="[Deprecated alias] Superseded by native scene.cycles.samples")
     preview_samples: IntProperty(name="Viewport Samples", min=1, max=1024, default=1,
-        description="Samples per pixel for rendered-shading viewport preview")
+        description="[Deprecated alias] Superseded by native scene.cycles.preview_samples")
     viewport_display_pass: EnumProperty(
         name="Viewport Pass",
         description="Render pass shown in the rendered-shading viewport",
@@ -235,30 +244,30 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         default='auto',
     )
     max_bounces: IntProperty(name="Max Bounces", min=0, max=1024, default=10,
-        description="Maximum path-trace depth — caps how many times a ray can scatter")
+        description="[Deprecated alias] Superseded by native scene.cycles.max_bounces")
     diffuse_bounces: IntProperty(name="Diffuse", min=0, max=1024, default=4,
-        description="Maximum diffuse bounce depth")
+        description="[Deprecated alias] Superseded by native scene.cycles.diffuse_bounces")
     glossy_bounces: IntProperty(name="Glossy", min=0, max=1024, default=4,
-        description="Maximum glossy/specular bounce depth")
+        description="[Deprecated alias] Superseded by native scene.cycles.glossy_bounces")
     transmission_bounces: IntProperty(name="Transmission", min=0, max=1024, default=12,
-        description="Maximum transmission/refraction bounce depth")
+        description="[Deprecated alias] Superseded by native scene.cycles.transmission_bounces")
     volume_bounces: IntProperty(name="Volume", min=0, max=1024, default=0,
-        description="Maximum volume bounce depth")
+        description="[Deprecated alias] Superseded by native scene.cycles.volume_bounces")
     transparent_bounces: IntProperty(name="Transparent", min=0, max=1024, default=8,
-        description="Maximum transparent bounce depth")
+        description="[Deprecated alias] Superseded by native scene.cycles.transparent_max_bounces")
     use_adaptive_sampling: BoolProperty(name="Adaptive Sampling", default=True,
         description="Stop sampling pixels that have already converged")
     adaptive_threshold: FloatProperty(name="Noise Threshold", min=0.001, max=1.0, default=0.01)
     clamp_direct: FloatProperty(name="Clamp Direct", min=0.0, max=100.0, default=0.0,
-        description="Clamp direct lighting contribution luminance (0 disables)")
+        description="[Deprecated alias] Superseded by native scene.cycles.sample_clamp_direct (0 disables)")
     clamp_indirect: FloatProperty(name="Clamp Indirect", min=0.0, max=100.0, default=0.0,
-        description="Clamp indirect lighting contribution luminance (0 disables)")
+        description="[Deprecated alias] Superseded by native scene.cycles.sample_clamp_indirect (0 disables)")
     filter_glossy: FloatProperty(name="Filter Glossy", min=0.0, max=10.0, default=0.0,
-        description="Increase glossy roughness on secondary bounces to reduce noise")
+        description="[Deprecated alias] Superseded by native scene.cycles.blur_glossy")
     use_reflective_caustics: BoolProperty(name="Reflective Caustics", default=True,
-        description="Enable reflective caustics from specular reflections after diffuse bounces")
+        description="[Deprecated alias] Superseded by native scene.cycles.caustics_reflective")
     use_refractive_caustics: BoolProperty(name="Refractive Caustics", default=True,
-        description="Enable refractive caustics from transmission after diffuse bounces")
+        description="[Deprecated alias] Superseded by native scene.cycles.caustics_refractive")
     light_sampler: EnumProperty(
         name="Light Sampler",
         description="Strategy for sampling lights in Next Event Estimation (Conty et al. 2018 Light Tree)",
@@ -285,7 +294,7 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         items=_integrator_type_items,
     )
     use_denoising: BoolProperty(name="Denoise", default=False,
-        description="Apply OIDN denoiser as a post-process pass after rendering")
+        description="[Deprecated alias] Superseded by native scene.cycles.use_denoising")
     # pkg39: wavelength / multi-spectral settings
     wavelength_preset: EnumProperty(
         name="Preset",
@@ -1052,14 +1061,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
         scale = scene.render.resolution_percentage / 100.0
         width = int(scene.render.resolution_x * scale)
         height = int(scene.render.resolution_y * scale)
-        settings = scene.custom_raytracer
+        # pkg176 Stage 1: read native Blender/Cycles settings for the
+        # DIRECT-mapped controls (deprecated custom aliases honoured for one
+        # release). `settings` is a transparent view: direct settings resolve to
+        # native, everything else falls through to scene.custom_raytracer.
+        settings = resolve_native_settings(scene, self.report)
 
         print(f"Rendering {width}x{height}, {settings.samples} samples")
         renderer = None
         try:
             renderer = astroray.Renderer()
             renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
-            self.convert_scene(depsgraph, renderer, width, height)
+            self.convert_scene(depsgraph, renderer, width, height, resolved=settings)
 
             integrator_name = _effective_integrator_name(settings)
             try:
@@ -1466,6 +1479,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
             'check_gpu_limitations_and_report': _check_gpu_limitations_and_report,
             'update_viewport_texture': self._update_viewport_texture,
             'update_viewport_status': self._update_viewport_status,
+            # pkg176 Stage 1: native-settings resolver (bpy-facing translator)
+            # injected so exporter.py stays import-clean / standalone-loadable.
+            'resolve_settings': resolve_native_settings,
         }
         return exporter.render_viewport_frame(renderer, context, settings, region,
                                              reset_accumulation, engine_methods)
@@ -1491,6 +1507,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
             'check_gpu_limitations_and_report': _check_gpu_limitations_and_report,
             'update_viewport_texture': self._update_viewport_texture,
             'update_viewport_status': self._update_viewport_status,
+            # pkg176 Stage 1: native-settings resolver (bpy-facing translator)
+            # injected so exporter.py stays import-clean / standalone-loadable.
+            'resolve_settings': resolve_native_settings,
         }
         exporter.view_update(
             context, depsgraph, RAYTRACER_AVAILABLE,
@@ -1524,6 +1543,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
             'check_gpu_limitations_and_report': _check_gpu_limitations_and_report,
             'update_viewport_texture': self._update_viewport_texture,
             'update_viewport_status': self._update_viewport_status,
+            # pkg176 Stage 1: native-settings resolver (bpy-facing translator)
+            # injected so exporter.py stays import-clean / standalone-loadable.
+            'resolve_settings': resolve_native_settings,
         }
         exporter.view_draw(
             context, depsgraph, RAYTRACER_AVAILABLE,
@@ -1630,10 +1652,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
         self._viewport_width = width
         self._viewport_height = height
 
-    def convert_scene(self, depsgraph, renderer, width, height):
+    def convert_scene(self, depsgraph, renderer, width, height, resolved=None):
         scene = depsgraph.scene
         renderer.clear()
-        settings = scene.custom_raytracer
+        # pkg176 Stage 1: `resolved` is the native-settings view built by
+        # render(); resolve here (silently) when called directly (tests/scripts).
+        settings = resolved if resolved is not None else resolve_native_settings(scene)
         renderer.set_clamp_direct(settings.clamp_direct)
         renderer.set_clamp_indirect(settings.clamp_indirect)
         renderer.set_filter_glossy(settings.filter_glossy)

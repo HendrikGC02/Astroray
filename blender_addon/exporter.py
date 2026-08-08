@@ -618,6 +618,12 @@ class Exporter:
 
         scene = depsgraph.scene
         settings = scene.custom_raytracer
+        # pkg176 Stage 1: resolve native Blender/Cycles settings for the
+        # DIRECT-mapped controls (deprecated custom aliases). view_update fires on
+        # scene edits, so log the per-render migration note here (not per frame).
+        resolve_fn = engine_methods.get('resolve_settings')
+        if resolve_fn is not None:
+            settings = resolve_fn(scene, self.engine.report)
         region = context.region
 
         try:
@@ -684,6 +690,11 @@ class Exporter:
             region = context.region
             scene = depsgraph.scene
             settings = scene.custom_raytracer
+            # pkg176 Stage 1: native-settings view. view_draw runs per frame, so
+            # resolve silently (report=None) to avoid spamming the migration note.
+            resolve_fn = engine_methods.get('resolve_settings')
+            if resolve_fn is not None:
+                settings = resolve_fn(scene, None)
 
             # Camera-change detection
             new_hash = camera_state_hash_fn(context, region)

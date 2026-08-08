@@ -156,6 +156,8 @@ __device__ int intersectPathSlot(
     float             clampDirect, float clampIndirect,  // pkg157
     // pkg120: light data for the two-sided-MIS emissive-hit reconstruction.
     const ::GLight*   lights, int numLights, float totalLightPower,
+    // pkg181: dedicated lamps for the BSDF-ray lamp-intersection pass.
+    const GDedicatedLight* dedLights, int numDed,
     GLightTreeView    lightTree)
 {
     const int bounce = state.bounce[idx];
@@ -204,6 +206,51 @@ __device__ int intersectPathSlot(
     GHitRecord rec;
     bool hit = gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                             ray, 0.001f, 1e30f, rec, motionVerts);
+
+    // pkg181: dedicated-light visibility to BSDF rays (Cycles lights_intersect
+    // parity) — device twin of production pathTraceSpectral. Lamps are invisible
+    // to camera rays (bounce == 0); a lamp closer than the surface terminates the
+    // path. Placed in the INTERSECT stage (this kernel), NOT the REG:254-saturated
+    // shade stage (memory wavefront-shade-kernels-register-saturated). The
+    // snapshot capture moment is unaffected: this kernel writes no PostIntersect
+    // snapshot; the lamp hit terminates before the hit-record is parked. Emission
+    // + MIS mirror the emissive-Hittable block below (wB = 1 after specular; the
+    // power heuristic otherwise; naive mode = enableNEE false takes specular only).
+    if (bounce > 0 && numDed > 0) {
+        float surfaceT = hit ? rec.t : 1e30f;
+        float lampT, lampScale;
+        int lampIdx = gpu_dedicated_intersect_closest(
+            dedLights, numDed, ray.origin, ray.direction, 0.001f, surfaceT,
+            &lampT, &lampScale);
+        if (lampIdx >= 0) {
+            GSampledSpectrum Le;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                Le.v[i] = gpu_rgbSpectrumAt(dedLights[lampIdx].emissionRGB,
+                                            lambdas.lambda[i], GSPEC_RGB_ILLUMINANT)
+                          * lampScale;
+            if (Le.maxValue() > 0.f) {
+                GSampledSpectrum contrib(0.f);
+                if (bounce == 0 || wasSpecular) {
+                    contrib = throughput * Le;                 // w_B = 1
+                } else if (enableNEE) {
+                    float lp = gpu_dedicated_reconstruct_pdf(
+                        dedLights, numDed, totalLightPower, ray.origin, ray.direction);
+                    float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
+                    contrib = throughput * Le * wB;
+                }
+                // naive mode (enableNEE == false, non-specular): no NEE leg to
+                // complement, so nothing is added — mirrors the emissive block.
+                color += gpu_clampContribMW(contrib, lambdas, bounce,
+                                            clampDirect, clampIndirect, useLuminanceOutput);
+            }
+            state.color_0[idx] = color.v[0];
+            state.color_1[idx] = color.v[1];
+            state.color_2[idx] = color.v[2];
+            state.color_3[idx] = color.v[3];
+            state.path_alive[idx] = 0;
+            return -1;   // path terminates on the lamp
+        }
+    }
 
     if (!hit) {
         // ---- Env-map miss (CPU path_kernel: worldMaxBounces gate; the
@@ -771,7 +818,8 @@ __device__ bool advancePathSlot(
                                     hasBackgroundColor, worldMaxBounces,
                                     useLuminanceOutput, enableNEE,
                                     clampDirect, clampIndirect,
-                                    lights, numLights, totalLightPower, lightTree);  // pkg120
+                                    lights, numLights, totalLightPower,
+                                    dedLights, numDed, lightTree);  // pkg120+pkg181
     if (matType < 0) return false;
     return shadePathSlot<false>(idx, state, hitBufs, tlas, instances, blas,
                          bvhNodes, prims, tris, spheres, motionVerts,
@@ -1015,6 +1063,8 @@ __global__ void stageIntersectQueuedKernel(
     float             clampDirect, float clampIndirect,  // pkg157
     // pkg120: light data threaded to the two-sided-MIS emissive-hit block.
     const ::GLight*   lights, int numLights, float totalLightPower,
+    // pkg181: dedicated lamps for the BSDF-ray lamp-intersection pass.
+    const GDedicatedLight* dedLights, int numDed,
     GLightTreeView    lightTree)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1030,7 +1080,8 @@ __global__ void stageIntersectQueuedKernel(
                                     hasBackgroundColor, worldMaxBounces,
                                     useLuminanceOutput, enableNEE,
                                     clampDirect, clampIndirect,
-                                    lights, numLights, totalLightPower, lightTree);  // pkg120
+                                    lights, numLights, totalLightPower,
+                                    dedLights, numDed, lightTree);  // pkg120+pkg181
     if (matType < 0) return;
     if (matType >= G_WF_NUM_MAT_TYPES) matType = G_WF_NUM_MAT_TYPES - 1;
     int slot = atomicAdd(&shade_counts[matType], 1);
@@ -1333,6 +1384,8 @@ void launchStageIntersectQueued(
     float             clampDirect, float clampIndirect,  // pkg157
     // pkg120: light data for the two-sided-MIS emissive-hit reconstruction.
     const ::GLight*   d_lights, int num_lights, float total_light_power,
+    // pkg181: dedicated lamps for the BSDF-ray lamp-intersection pass.
+    const GDedicatedLight* d_dedLights, int num_ded,
     GLightTreeView    lightTree)
 {
     if (state.num_active <= 0) return;
@@ -1349,7 +1402,8 @@ void launchStageIntersectQueued(
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
             envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
             useLuminanceOutput, enableNEE, clampDirect, clampIndirect,
-            d_lights, num_lights, total_light_power, lightTree);  // pkg120
+            d_lights, num_lights, total_light_power,
+            d_dedLights, num_ded, lightTree);  // pkg120+pkg181
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_intersect_queued launch error: %s\n",
@@ -1676,7 +1730,8 @@ __global__ void stageShadeNeeMisKernel(
                                     hasBackgroundColor, worldMaxBounces,
                                     useLuminanceOutput, enableNEE,
                                     clampDirect, clampIndirect,
-                                    lights, numLights, totalLightPower, lightTree);  // pkg120
+                                    lights, numLights, totalLightPower,
+                                    dedLights, numDed, lightTree);  // pkg120+pkg181
     if (matType < 0) return;  // env miss / emissive hit: path died, no NEE.
     shadePathSlot<true>(idx, state, hitBufs, tlas, instances, blas,
                   bvhNodes, prims, tris, spheres, motionVerts,

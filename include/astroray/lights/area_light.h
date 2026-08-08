@@ -46,6 +46,12 @@ public:
 
     float pdfLi(const Vec3& shadingPoint, const Vec3& direction) const override;
 
+    // pkg181: BSDF-ray intersection (Cycles area_light_intersect parity).
+    bool intersect(const Vec3& rayOrigin, const Vec3& rayDir,
+                   float tMin, float tMax,
+                   const SampledWavelengths& lambdas,
+                   Intersection& out) const override;
+
     float power() const override;
 
     AABB bounds() const override;

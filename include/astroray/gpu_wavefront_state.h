@@ -358,6 +358,8 @@ void launchStageIntersectQueued(
     float             clampDirect, float clampIndirect,  // pkg157
     // pkg120: light data for the two-sided-MIS emissive-hit reconstruction.
     const ::GLight*   d_lights, int num_lights, float total_light_power,
+    // pkg181: dedicated lamps for the BSDF-ray lamp-intersection pass.
+    const GDedicatedLight* d_dedLights, int num_ded,
     GLightTreeView    lightTree);
 
 void launchStageShadeBucketed(

@@ -145,6 +145,41 @@ float DistantLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const
     return (solidAngle > 0.0f) ? (1.0f / solidAngle) : 0.0f;
 }
 
+bool DistantLight::intersect(const Vec3& /*rayOrigin*/, const Vec3& rayDir,
+                             float tMin, float tMax,
+                             const SampledWavelengths& lambdas,
+                             Intersection& out) const {
+    // pkg181: a BSDF-sampled ray "hits" the sun disk when its direction lies
+    // within the angular-disk half-angle of the direction TO the light (-axis_).
+    // Cycles distant_light: hittable only for a finite angular diameter (a true
+    // delta sun, angularDiameter_ == 0, stays NEE-only — a BSDF ray has zero
+    // probability of reproducing a single direction). Reference: Cycles
+    // kernel/light/light.h distant handling + kernel/light/distant.h (Apache-2.0).
+    if (angularDiameter_ <= 0.0f) return false;
+    Vec3 D = rayDir.normalized();
+    Vec3 toLight = -axis_;                              // axis_ points FROM light
+    float cosAngle = D.dot(toLight);
+    float cosHalf = std::cos(angularDiameter_ * 0.5f);
+    if (cosAngle < cosHalf) return false;              // outside the sun disk
+
+    // The sun is at infinity: place the hit far away but finite so the caller's
+    // "closer than the surface" test resolves against real geometry (a floor
+    // the ray already hit is nearer, so this loses to it, as it should).
+    const float kFar = 1e30f;
+    if (kFar <= tMin || kFar > tMax) return false;
+
+    out.t = kFar;
+    out.position = D * kFar;                            // direction-only sentinel
+    out.normal = -D;
+    // Sun radiance L = S/Ω (irradiance divided by the disk solid angle),
+    // identical to sampleLi's emission_spec for the finite-angle branch.
+    float solidAngle = distantSolidAngle(angularDiameter_);
+    SampledSpectrum e = emission_.eval(lambdas);
+    e *= (solidAngle > 0.0f ? (intensity_ * normalizeFactor_ / solidAngle) : 0.0f);
+    out.emission = e;
+    return true;
+}
+
 float DistantLight::power() const {
     // Distant light: power is proportional to solid angle × intensity.
     SampledWavelengths lambdas = SampledWavelengths::sampleUniform(0.5f);

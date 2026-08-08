@@ -184,6 +184,35 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
         sink->record(s);
     }
 
+    // pkg181: dedicated-light visibility to BSDF rays (Cycles lights_intersect
+    // parity) — CPU wavefront twin of production pathTraceSpectral. Placed AFTER
+    // the PostIntersect snapshot (which records the BVH result verbatim, so the
+    // per-stage gate is unchanged) and BEFORE the env-miss branch (a lamp can be
+    // the closest hit even on a BVH miss). Lamps are invisible to camera rays
+    // (bounce == 0); a lamp closer than the surface terminates the path and
+    // feeds the SAME pkg120 two-sided-MIS term the emissive-Hittable path uses
+    // (wB = 1 after a specular/delta bounce). Only Area/Distant are hittable
+    // (Light::intersect); see pkg181 research note.
+    if (bounce > 0 && !lights.getDedicatedLights().empty()) {
+        float surfaceT = hit ? rec.t : std::numeric_limits<float>::max();
+        astroray::Light::Intersection lh;
+        if (lights.intersectDedicated(ps.ray_origin, ps.ray_direction, 0.001f,
+                                      surfaceT, ps.lambdas, lh)) {
+            if (!lh.emission.isZero()) {
+                if (ps.wasSpecular) {
+                    ps.color += ps.throughput * lh.emission;
+                } else {
+                    float lp = lights.pdfValue(ps.ray_origin, ps.ray_direction);
+                    float bp = ps.bsdfPdfPrev;
+                    float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
+                    ps.color += ps.throughput * lh.emission * wB;
+                }
+            }
+            ps.alive = false;
+            return false;
+        }
+    }
+
     if (!hit) {
         // Session N+1: env-map miss handling. Match production
         // pathTraceSpectral lines 2339-2356 exactly — evaluate env map /

@@ -110,20 +110,12 @@ def build_scene(light_type, energy, height, extra, engine=None):
             light_data.shape = "RECTANGLE"
             light_data.size = extra["size_x"]
             light_data.size_y = extra["size_y"]
-            if engine == "CUSTOM_RAYTRACER":
-                # KNOWN FINDING (pkg122 verifier, 2026-07-20): the Astroray
-                # AreaLight normal = axis_u x axis_v = local +X x local +Y =
-                # local +Z. Cycles area lights (like spot/sun/camera) use
-                # local -Z as forward. With identity rotation the Astroray
-                # dedicated area light therefore points AWAY from a floor
-                # below (measured ratio ~0.09-0.12x, i.e. the OLD pre-pkg122
-                # 0.13x symptom, reproduced by orientation not intensity).
-                # This is an addon integration bug orthogonal to pkg122's
-                # wattage fix. Flip 180 deg about X ONLY for the Astroray
-                # render so this oracle isolates the INTENSITY ratio; do
-                # NOT read this as "AREA still broken" -- see verifier
-                # report for the orientation-bug writeup.
-                light_obj.rotation_euler = (math.pi, 0.0, 0.0)
+            # pkg181 (removes pkg122/pkg139 stale flip): the 2026-07-20 orientation
+            # workaround flipped the Astroray AREA leg 180 deg about X. pkg139 fixed
+            # the addon axis convention, so with identity rotation the dedicated
+            # area light now points correctly at the floor; the flip instead points
+            # it AWAY and renders the Astroray leg BLACK (pkg180 Phase 2 side-finding
+            # 1, measured 0.00000). Both legs now use identity rotation (set above).
         elif light_type == "SPOT":
             light_data.shadow_soft_size = 0.0
             light_data.spot_size = extra["spot_size"]

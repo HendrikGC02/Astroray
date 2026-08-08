@@ -2,7 +2,14 @@
 
 **Pillar:** 3 (GPU/CPU + Cycles parity) / Integration Milestone
 **Track:** A (RTX + headless-Blender/Cycles; render legs serialize on the GPU lane)
-**Status:** open — dispatchable (root cause LOCALIZED by pkg180 Phase 2, 2026-08-09; this is the fix)
+**Status:** in progress — CPU implemented + VERIFIED on branch `pkg181-dedicated-light`
+(2026-08-09): mirror-lamp 0.017x→1.008x Cycles, AREA floor 0.921x→0.985x Cycles,
+SUN 0.50008 unchanged; all 7 CPU gates pass
+(tests/test_pkg181_dedicated_light_bsdf_visibility.py). GPU wavefront advance-stage
+twin implemented (stage_advance.cu intersectPathSlot + gpu_nee.cuh device helpers)
+but UNBUILT/UNVERIFIED — DEFERRED to lead's RTX sweep (CUDA build + cuobjdump REG/STACK
++ GPU gate 6). Harness AREA flips removed (gate 7); pkg119-B/pkg129 band re-baseline
+needs the lead's Blender/Cycles re-run.
 **Estimated effort:** M–L (CPU + GPU wavefront, register-aware)
 **Depends on:** pkg180 (diagnosis + mechanism + numbers — read
 `.astroray_plan/docs/pkg180-systemic-cycles-dim-diagnosis.md` Phase 2 FIRST),

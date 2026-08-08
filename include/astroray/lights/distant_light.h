@@ -33,6 +33,14 @@ public:
 
     float pdfLi(const Vec3& shadingPoint, const Vec3& direction) const override;
 
+    // pkg181: BSDF-ray intersection (Cycles distant/sun-disk parity). A ray
+    // "hits" the sun when its direction lies within the angular-disk half-angle
+    // of -axis_; hittable only when angularDiameter_ > 0 (true delta stays NEE).
+    bool intersect(const Vec3& rayOrigin, const Vec3& rayDir,
+                   float tMin, float tMax,
+                   const SampledWavelengths& lambdas,
+                   Intersection& out) const override;
+
     float power() const override;
 
     AABB bounds() const override;

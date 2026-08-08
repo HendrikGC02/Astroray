@@ -27,6 +27,9 @@ from shader_blending import blend_shader_specs, add_shader_specs
 # pkg176 Stage 1: read Blender's native render/sampling settings (deprecated
 # custom aliases). Pure-data translator (no bpy/engine deps); see settings_map.py.
 from native_settings import resolve_native_settings, report_unsupported_native_controls
+# pkg119 Phase C: single graceful-degradation policy the shader-fallback,
+# native-drop and dropped-silent-dispatch warning sources funnel through.
+from degradation import DegradationReport
 from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
 from _bulk_geometry import mesh_world_positions  # pkg88-B object motion blur bake
 
@@ -1066,10 +1069,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # release). `settings` is a transparent view: direct settings resolve to
         # native, everything else falls through to scene.custom_raytracer.
         settings = resolve_native_settings(scene, self.report)
+        # pkg119 Phase C: one consolidated degradation report per render. Reset it
+        # here (a final render gets a fresh accumulator); the shader-fallback and
+        # dropped-silent-dispatch sources record into it during convert_scene, and
+        # it is emitted once at the end of the render below.
+        self._degradation = DegradationReport()
         # pkg176 Stage 3: never silently drop world/light/camera native controls
-        # the engine can't honour yet -- surface them once per render (visible
-        # degradation; the pkg119-C policy generalises this later).
-        report_unsupported_native_controls(scene, self.report)
+        # the engine can't honour yet. pkg119 Phase C folds those drops into the
+        # single policy (emit=False -> collect only, no second parallel warning).
+        self._degradation.ignore_messages(
+            report_unsupported_native_controls(scene, report=None, emit=False)
+        )
 
         print(f"Rendering {width}x{height}, {settings.samples} samples")
         renderer = None
@@ -1156,6 +1166,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
             print(f"RENDER ERROR: {e}")
             traceback.print_exc()
         finally:
+            # pkg119 Phase C: surface the consolidated "N approximated / M ignored"
+            # degradation report ONCE, after convert_scene populated it. Emitted in
+            # finally so it lands even if the render itself raised.
+            degradation = getattr(self, "_degradation", None)
+            if degradation is not None:
+                degradation.emit(self.report)
             if renderer:
                 try: renderer.clear()
                 except: pass
@@ -3099,21 +3115,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     spec['bump_distance'] = normal_inputs['bump_distance']
         return spec
 
+    def _degradation_report(self):
+        """pkg119 Phase C: the per-render degradation policy accumulator. Lazily
+        created so translation helpers called outside a full render() lifecycle
+        (material preview, viewport convert) still record cleanly; render() resets
+        it at the start of each final render and emits it once at the end."""
+        report = getattr(self, "_degradation", None)
+        if report is None:
+            report = DegradationReport()
+            self._degradation = report
+        return report
+
     def _warn_shader_fallback(self, node_type, message):
-        key = f"{node_type}:{message}"
-        warned = getattr(self, '_shader_fallback_warnings', None)
-        if warned is None:
-            warned = set()
-            self._shader_fallback_warnings = warned
-        if key in warned:
-            return
-        warned.add(key)
-        text = f"Astroray: {node_type} fallback: {message}"
-        try:
-            self.report({'WARNING'}, text)
-        except (AttributeError, RuntimeError, TypeError) as exc:
-            print(f"Astroray: could not forward warning to Blender UI ({exc})")
-        print(text)
+        # pkg119 Phase C: funnel shader-node fallbacks into the single degradation
+        # policy (recorded as APPROXIMATED, de-duplicated there) instead of
+        # emitting a separate per-node warning. The consolidated report surfaces
+        # once per render (final render path).
+        self._degradation_report().approximate(node_type, message)
 
     def _standalone_bsdf_spec(self, node):
         ntype = node.type
@@ -3349,6 +3367,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if ntype in ('VOLUME_ABSORPTION', 'VOLUME_SCATTER', 'PRINCIPLED_VOLUME'):
             return renderer.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.0})
         spec = self._shader_spec_from_node(node, renderer, node_tree)
+        if spec is None:
+            # pkg119 Phase C: the surface node has no translation and would
+            # otherwise fall through to a neutral grey with NO trace (the
+            # DROPPED-SILENT failure mode this program exists to kill). Record
+            # it as an explicitly-reported-ignored input in the degradation
+            # policy so it surfaces in the per-render report.
+            self._degradation_report().ignore(
+                f"shader node '{ntype}'",
+                "unsupported surface shader -> neutral grey",
+            )
         return self._create_material_from_shader_spec(spec, renderer)
 
     def _float_with_fallback(self, node, new_name, old_name, default):

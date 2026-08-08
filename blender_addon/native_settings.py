@@ -114,7 +114,7 @@ _CAM_CLIP_START_DEFAULT = 0.1
 _CAM_CLIP_END_DEFAULT = 1000.0
 
 
-def report_unsupported_native_controls(scene, report=None):
+def report_unsupported_native_controls(scene, report=None, emit=True):
     """Surface, once per render, the DROPPED-SILENT world/light/camera native
     controls the user has set to a render-affecting value the engine cannot
     honour yet.
@@ -130,6 +130,12 @@ def report_unsupported_native_controls(scene, report=None):
     Route-2 discipline (dcc-integration-decision-2026-08 §6): this is a
     bpy-facing TRANSLATOR check -- it reads Blender datablocks and calls the
     Blender ``report`` UI callback ONLY; it never touches the engine/session.
+
+    ``emit`` (pkg119 Phase C): when False the function only COLLECTS and returns
+    the messages without surfacing them itself, so the caller can fold them into
+    the consolidated per-render degradation report instead of emitting a second
+    parallel warning. Default True keeps the standalone (headless / test) path
+    unchanged.
 
     Returns the list of human-readable messages (also for tests / callers that
     want to log them differently).
@@ -175,7 +181,7 @@ def report_unsupported_native_controls(scene, report=None):
             " (per-light specular multiplier ignored)"
         )
 
-    if messages:
+    if messages and emit:
         summary = (
             "Astroray: these native controls are set but not honoured this "
             "render (see pkg176 Stage-0 mapping): " + "; ".join(messages)

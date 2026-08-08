@@ -1,12 +1,12 @@
 <#
-  orchestrator_tick.ps1 — robust launcher for the Astroray-RoadmapOrchestrator
+  orchestrator_tick.ps1 -- robust launcher for the Astroray-RoadmapOrchestrator
   scheduled task.
 
   WHY: the task invoked `claude.exe -p /roadmap-orchestrator ...` DIRECTLY and
   returned exit 129 every run (46x), writing no log. Manual launches of the
   exact same command in the interactive session succeed (verified 2026-08-08,
   with and without --dangerously-skip-permissions, with and without stdin), so
-  the failure is the Task Scheduler launch ENVIRONMENT, not the command —
+  the failure is the Task Scheduler launch ENVIRONMENT, not the command --
   almost certainly a PATH/env entry present in the interactive shell but absent
   from the task's captured environment, aborting claude/Node before it logs.
 
@@ -43,9 +43,11 @@ Set-Location $Repo
 (& $Claude --version 2>&1)                              | Out-File $Log -Append
 "=== tick start ==="                                    | Out-File $Log -Append
 
-# Run the tick; empty stdin, full output to the log.
+# Run the tick; full output (all streams) to the log. PowerShell has no `<`
+# input redirection ("reserved for future use"), so stdin is left as the task's
+# default (verified 2026-08-08 not to be the exit-129 cause).
 & $Claude -p '/roadmap-orchestrator' --model claude-sonnet-5 --dangerously-skip-permissions `
-    *>> $Log < $null
+    *>> $Log
 $code = $LASTEXITCODE
 
 "=== tick end exit=$code ===" | Out-File $Log -Append

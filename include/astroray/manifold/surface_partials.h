@@ -77,4 +77,42 @@ inline void spherePartials(const Vec3& center, const Vec3& p, float radius,
     dn_dv = t * invR;
 }
 
+// pkg178 Stage-3b PR-3 — UV-aligned shading tangent for anisotropy (PR-4).
+// Maps the barycentric position partials (dp_du/dp_dv from trianglePartials) into
+// the texture-U world direction by inverting the 2x2 UV Jacobian:
+//   [dP/dU_tex  dP/dV_tex] = [dp_du  dp_dv] * inv([[du1 du2],[dv1 dv2]])
+// then Gram-Schmidt against the shading normal N and normalize.
+// Reference: Lengyel, "Computing Tangent Space Basis Vectors for an Arbitrary
+// Mesh" (Terathon, 2001). CPU twin of Cycles' dPdu tangent
+// (intern/cycles/kernel/geom/triangle.h, Apache-2.0), which Blender's Principled
+// BSDF uses as the default anisotropy tangent.
+//
+// Returns true and fills outTangent (unit-length, perpendicular to N) plus
+// outSign (+/-1 UV handedness, so the consumer forms bitangent =
+// outSign * cross(N, outTangent)). Returns false on a degenerate UV mapping
+// (zero UV-space area) or a degenerate projection (dP/dU parallel to N); the
+// caller then keeps its arbitrary-frame fallback.
+//
+// (w0,w1,w2) are the active-layer UVs at the triangle's three vertices; pass the
+// SAME (motion-interpolated) positions p0/p1/p2 used for the intersection.
+inline bool uvAlignedTangent(const Vec3& p0, const Vec3& p1, const Vec3& p2,
+                             const Vec2& w0, const Vec2& w1, const Vec2& w2,
+                             const Vec3& N, Vec3& outTangent, float& outSign) {
+    Vec3 dp_du, dp_dv, dn_du, dn_dv;
+    trianglePartials(p0, p1, p2, dp_du, dp_dv, dn_du, dn_dv);  // dp_du=p1-p0, dp_dv=p2-p0
+    float du1 = w1.u - w0.u, dv1 = w1.v - w0.v;
+    float du2 = w2.u - w0.u, dv2 = w2.v - w0.v;
+    float det = du1 * dv2 - du2 * dv1;
+    if (std::fabs(det) <= 1e-12f) return false;  // degenerate UV mapping
+    float invDet = 1.0f / det;
+    Vec3 T  = (dp_du * dv2 - dp_dv * dv1) * invDet;  // dP/dU_tex
+    Vec3 Bt = (dp_dv * du1 - dp_du * du2) * invDet;  // dP/dV_tex (handedness only)
+    Vec3 Tortho = T - N * N.dot(T);
+    float tlen2 = Tortho.length2();
+    if (tlen2 <= 1e-12f) return false;  // T parallel to N
+    outTangent = Tortho * (1.0f / std::sqrt(tlen2));
+    outSign = (N.cross(outTangent).dot(Bt) < 0.0f) ? -1.0f : 1.0f;
+    return true;
+}
+
 }  // namespace astroray::manifold

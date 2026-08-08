@@ -75,7 +75,8 @@ ADDON_FILES = ["__init__.py", "blender_manifest.toml", "shader_blending.py",
                "_bulk_geometry.py",   # pkg112 batched geometry upload
                "exporter.py",         # pkg116 viewport-sync exporter
                "settings_map.py",     # pkg176 Stage-0 mapping data (Stage 1 consumes it)
-               "native_settings.py"]  # pkg176 Stage 1 native-settings translator
+               "native_settings.py",  # pkg176 Stage 1 native-settings translator
+               "degradation.py"]      # pkg119 Phase C graceful-degradation policy
 
 
 # --------------------------------------------------------------------------- #

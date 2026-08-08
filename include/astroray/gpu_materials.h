@@ -774,6 +774,18 @@ __device__ inline GVec3 gpu_disney_roughReflectionEval(
     float F = gpu_disney_fresnelDielectric(HdotO, etaI, etaT);
 
     float fr = D * G * F / (4.f * cosO * cosI + 1e-8f);
+
+    // pkg167: reflection-lobe multi-scatter compensation, exact twin of CPU
+    // disney.cpp::roughReflectionEval (see the citation/composition comment
+    // there: Turquin 2019 IOR-dependent term; Cycles combined-glass-closure
+    // compensation split across the reflection + transmission eval branches;
+    // etap = ior on entry / 1/ior on exit; throughput magnitude only). This is
+    // the same gpu_ggxGlassCompensationFactor the transmission twin applies at
+    // gpu_disney_roughTransmissionEval; mirrors it byte-for-byte so CPU/GPU
+    // rough-dielectric furnace + parity stay in band.
+    float etap = rec.frontFace ? mat.ior : (1.f / mat.ior);
+    fr *= gpu_ggxGlassCompensationFactor(mat.roughness, etap, fabsf(cosO));
+
     return GVec3(fr);
 }
 

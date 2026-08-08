@@ -58,6 +58,27 @@ Single-file image IO libraries by Sean Barrett and contributors.
   `stb_image_write_lib` static libraries defined in
   [CMakeLists.txt](CMakeLists.txt).
 
+### `include/astroray/bssrdf_random_walk.h`
+
+Random-walk BSSRDF (subsurface scattering) CPU-prototype core. The math is
+ported (not a verbatim file copy) from Blender Cycles and cited per-function.
+
+- **Upstream:** [blender/cycles](https://github.com/blender/cycles) —
+  `src/kernel/integrator/subsurface_random_walk.h` and
+  `src/kernel/closure/bssrdf.h` (`main`, fetched 2026-08-08, Blender 5.2-era).
+- **License:** Apache-2.0 (`SPDX-FileCopyrightText: 2011-2022 Blender
+  Foundation`). Compatible with Astroray's MIT LICENSE — Apache-2.0 permits
+  redistribution of derivative works with attribution; this notice + the
+  per-function citations in the header satisfy it.
+- **Papers cited in the header:** Chiang/Kutz/Burley (SIGGRAPH 2016, color
+  remap), d'Eon *Hitchhiker's Guide* (2016, van de Hulst inversion),
+  Křivánek & d'Eon (SIGGRAPH 2014), Meng/Hanika/Dachsbacher (EGSR 2016),
+  d'Eon & Křivánek (SIGGRAPH 2020) — Dwivedi / zero-variance guiding;
+  Henyey-Greenstein (1941, phase function).
+- **How used:** header-only CPU prototype (pkg178 D2 parallel track); not yet
+  compiled into a target. Research note:
+  `.astroray_plan/docs/bssrdf-random-walk-research.md`.
+
 ---
 
 ## Test-time dependencies (not redistributed)

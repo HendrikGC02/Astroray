@@ -1,5 +1,26 @@
 # Astroray Status
 
+**2026-08-08 (run — dielectric energy chain + Cycles-parity harnesses):**
+Landed this run: **pkg167 Part 1** (PR #562, MERGED) — Disney dielectric
+REFLECTION-lobe multiscatter compensation CPU+GPU, furnace in-band
+0.99/0.94/0.93 at r=0.3/0.6/1.0, pkg169 xfail retired. **pkg119 Phase B**
+differential parity harness landed + HARDWARE-VALIDATED (PR #550, 26/12/1;
+`world:World` + `BSDF_TRANSPARENT` flagged as TRANSLATION-BUG follow-ups).
+**pkg129 metal A/B** run on current main (research doc §5) — **A/B CLEAN, no
+application-form divergence; GPU ≈ CPU (marginally brighter)**; conviction-path
+LUT port does NOT fire. Two escalations surfaced and filed by the architect this
+date: **pkg167 Part 2 was applied, measured, REVERTED, premise falsified** —
+reflection compensation recovers only +0.009 at r=1.0 (0.476→0.485); the masked
+~23% below-horizon energy belongs in the TRANSMISSION lobe and the dead-sample
+rate is ~3× pkg150's documented figure → filed as **pkg179**
+(sampler-diagnosis-then-transmission-redistribution, Track A). A **systemic
+~12–20% Astroray-vs-Cycles dim** (pkg119-B cells ~0.88, pkg129 metal neutral
+r0.9 ~0.93, plain diffuse backdrop ~0.79–0.82; uniform + chromatically uniform)
+→ filed as **pkg180** (diagnosis-first; prime suspect a view-transform-vs-linear
+comparison artifact). **pkg165** (Disney-metal GPU-dim) flipped to
+**verify-and-close** — its premise does not reproduce on current main per the
+pkg129 A/B.
+
 **2026-08-06 → 2026-08-07 (workflow restructure + settlement round opens):**
 **PR #541 (pkg168 Step 2) MERGED 2026-08-06 (`bbf2d8c`) — option A** (owner
 confirmed 2026-08-03): correctness v4 shipped with the wavefront perf

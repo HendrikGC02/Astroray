@@ -108,6 +108,7 @@ __device__ int intersectPathSlot(
     bool              enableNEE,        // pkg156: gates the pkg120 two-sided-MIS leg
     float             clampDirect, float clampIndirect,  // pkg157
     const ::GLight*   lights, int numLights, float totalLightPower,  // pkg120
+    const GDedicatedLight* dedLights, int numDed,  // pkg181
     GLightTreeView    lightTree);
 
 using ::astroray::WavefrontRNG;

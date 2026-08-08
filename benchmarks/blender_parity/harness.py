@@ -228,6 +228,11 @@ def run(matrix_path: Path, out_dir: Path, *, res: int = 128, samples: int = 64,
         for name in scene_library.COMPOSITE_SCENES:
             features.append(Feature("composite", name, "", "SUPPORTED"))
 
+    # Resolve to ABSOLUTE: render_leg runs inside Blender whose CWD is NOT the
+    # harness CWD, so a relative out-stem makes Blender save the .exr under a
+    # different root (observed: C:\test_results\...) than render_leg then looks
+    # for -> "no render output". Absolute stems make both legs agree.
+    out_dir = out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     renders_dir = out_dir / "renders"
     renders_dir.mkdir(exist_ok=True)

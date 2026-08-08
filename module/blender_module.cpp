@@ -1681,6 +1681,30 @@ public:
 
 #ifdef ASTRORAY_CUDA_ENABLED
         if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
+            // pkg171: a CPU-only integrator (no GPU kernel) would otherwise fall
+            // through to the generic wavefront route below, which renders it as if
+            // it were a plain path tracer — silently producing a NEAR-BLACK frame
+            // (#540 HW verification: light_tracer_caustic peak 0.019 vs CPU 0.500).
+            // Fail LOUDLY here instead of shipping a black render. The CPU-only set
+            // is enumerated by capabilities().gpuSupported == false — the same
+            // source integrator_capabilities() and the addon's configure_backend
+            // read — so no integrator name is hardcoded. This is the raw-binding
+            // backstop; the Blender addon already guards this at the Python layer
+            // (configure_backend: error on device_mode='gpu', CPU fallback on
+            // 'auto'), but direct PyRenderer callers (test scripts, HW verifiers)
+            // bypass it.
+            if (!integratorName_.empty()) {
+                auto probe = astroray::IntegratorRegistry::instance().create(
+                    integratorName_, integratorParams_);
+                const IntegratorCapabilities caps = probe->capabilities();
+                if (!caps.gpuSupported) {
+                    throw std::runtime_error(
+                        "Astroray: integrator '" + integratorName_ +
+                        "' has no GPU implementation (" + caps.gpuFallbackReason +
+                        ") and would render silently near-black on GPU. Render this "
+                        "integrator on CPU (set_use_gpu(false) / device_mode='cpu').");
+                }
+            }
             // GPU path: build BVH on CPU (needed for upload), then render on GPU.
             // pkg114 inc 3d: skipUpload renders from existing device state, so the
             // CPU BVH rebuild is unnecessary too (geometry is unchanged).

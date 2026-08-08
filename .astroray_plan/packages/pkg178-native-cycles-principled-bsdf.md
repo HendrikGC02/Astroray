@@ -2,7 +2,7 @@
 
 **Pillar:** 2 (materials) + Integration Milestone (it exists FOR Blender parity)
 **Track:** A (core BSDF + GPU closure work + RTX-verified Cycles parity — last-line-of-defense judgment; bounded sub-tasks delegated per the cost-routing policy)
-**Status:** open — Stage 0 dispatchable now; Stages 1–5 gated on the prior stage's acceptance
+**Status:** in progress — Stage 0 + Stage 1 (CPU core-lobe scaffold) done pending review (PR #566, 2026-08-08; CPU furnace Lambert 0.991 / EON 0.988 / metallic 0.930–0.939 / glass 0.951–0.990, chi² 14/14 clean lobes + glass-chi² xfail matching disney; GPU/parity DEFERRED to lead). Stages 2–5 gated on the prior stage's acceptance
 **Estimated effort:** XL, staged across multiple rounds (each stage is its own PR set)
 **Depends on / composes with:** `disney.cpp` (the closest analog and the thing this eventually supersedes in the addon path — NOT deleted), `energy_compensation.h` (pkg60/151/160/163 Cycles-table lineage — reuse, do not fork), pkg163 spectral per-λ discipline, pkg149 VNDF, pkg176 (native settings/steering-wheel — Stage 5 rides its translation layer), pkg119-B differential harness (PR #550) + pkg104 reference bank + pkg71 cycles-parity benches (verification layer), pkg129-narrowed (rough-metal live-Cycles A/B composes with Stage 1), pkg174 (register-pressure ceiling — Stage 2's hard constraint; its per-material-kernel-dispatch DESIGN doc `.astroray_plan/docs/pkg174-per-material-kernel-dispatch-design.md` is Stage 2's candidate vehicle), **pkg128 (thin-film iridescence — pre-existing open spec: Stage 4 adopts its per-λ Belcour-Barla design and builds the shared thin-film Fresnel utility; pkg128's residual charter narrows to standalone Glass/Metallic nodes + showcase, riding that utility)**.
 **Research note (read first):** `.astroray_plan/docs/cycles-principled-port-research-2026-08.md` — reference pin (Cycles main / Blender 5.2-era), full parameter + closure-stack breakdown, Astroray extension-point analysis, swarm assessment, citations.
@@ -197,15 +197,20 @@ one harness sweep flag-off vs flag-on, diffing `triage_report.json`.
   random-walk) with full random-walk BSSRDF as a follow-up package, or
   (b) full random-walk in-scope now (adds a volume-walk subsystem to both
   integrator legs; significant scope growth). Architect recommends (a).
-  **Parallel-track update (2026-08-08):** the "full random-walk BSSRDF"
-  follow-up is being prototyped in parallel on branch
-  `bssrdf-random-walk-cpu` — a CPU, transport-correct random walk (Cycles
-  parameter mapping + channel-MIS walk, verified furnace-clean) with a clean
-  geometry-agnostic interface Stage 3 can adopt when D2 converges. Research +
+  **OWNER DECISION (2026-08-08): (a)+parallel** — ship Principled parity with
+  approximate SSS now while a parallel agent builds full random-walk BSSRDF;
+  converge when it lands.
+  **Parallel-track update (2026-08-08):** the full random-walk BSSRDF
+  follow-up is prototyped on branch `bssrdf-random-walk-cpu` (PR #565, MERGED)
+  — a CPU, transport-correct random walk (Cycles parameter mapping +
+  channel-MIS walk, verified furnace-clean 1.0000) with a clean
+  geometry-agnostic interface (`include/astroray/bssrdf_random_walk.h`) Stage 3
+  can adopt when D2 converges. Key seam: it is NOT a `Material::eval` closure —
+  the integrator needs an "intersect within this object only" query. Research +
   interface + integration seam:
   `.astroray_plan/docs/bssrdf-random-walk-research.md`. Dwivedi zero-variance
-  guiding partially prototyped (gray-valid; the full per-channel joint scheme
-  is deferred — see the note). GPU port DEFERRED.
+  guiding partially prototyped (gray-valid; full per-channel joint scheme
+  deferred). GPU port DEFERRED.
 - **D3 (Stage 5):** confirm flag-first (default OFF) rollout, default
   flip only after the parity matrix is green. Architect recommends yes.
 - **D4 (Stage 2, conditional):** IF the new closures cannot fit the

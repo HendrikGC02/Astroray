@@ -1,0 +1,83 @@
+{
+  "package": "pkg178",
+  "artifact": "stage0_closure_map",
+  "reference_pin": "blender/cycles@main (Blender 5.2-era): src/kernel/svm/closure.h CLOSURE_BSDF_PRINCIPLED_ID + src/kernel/closure/{bsdf_util,bsdf_microfacet,bsdf_oren_nayar,bsdf_sheen,bssrdf}.h",
+  "math_citations": ".astroray_plan/docs/pkg178-stage1-closure-math-research.md",
+  "human_mirror": "docs/blender_parity/pkg178_stage0_closure_map.md",
+  "realization_tags": ["DIRECT", "NEW-CLOSURE", "APPROXIMATED", "DEFERRED"],
+  "owner_decisions": {
+    "D1": {"topic": "Blender 5.2 oracle", "decision": "yes; installed before Stage 4; Stage 0/1 verify vs 5.1"},
+    "D2": {"topic": "subsurface", "decision": "APPROXIMATE-first; Stage 1 does NOT implement SSS; separate parallel random-walk BSSRDF agent owns it; seam left"},
+    "D3": {"topic": "addon rollout", "decision": "flag-first, default OFF until Stage-5 parity matrix green; Stage 5 concern"},
+    "D4": {"topic": "Stage-2 register budget", "decision": "conditional fork; N/A until Stage 2"}
+  },
+  "parameters": [
+    {"cycles": "base_color", "astroray": "base_color|albedo", "tag": "DIRECT", "note": "reflectance colour upsampled per-lambda (JH); never albedo*cos"},
+    {"cycles": "metallic", "astroray": "metallic", "tag": "DIRECT", "note": "layer weight + F82 f0"},
+    {"cycles": "roughness", "astroray": "roughness", "tag": "DIRECT", "note": "GGX alpha = roughness^2, floored 0.0064"},
+    {"cycles": "ior", "astroray": "ior", "tag": "DIRECT", "note": "specular F0 + transmission Fresnel; exponent=-ior reparam"},
+    {"cycles": "alpha", "astroray": "alpha", "tag": "APPROXIMATED", "delta": "parsed, clamped; real Transparent lobe deferred to Stage 5; default 1.0 opaque"},
+    {"cycles": "normal", "astroray": "rec.normal", "tag": "DIRECT", "note": "per-lobe normal offsets (coat) deferred"},
+    {"cycles": "diffuse_roughness", "astroray": "diffuse_roughness", "tag": "NEW-CLOSURE", "note": "EON (Fujii + OpenPBR multiscatter); 0->Lambert"},
+    {"cycles": "specular_ior_level", "astroray": "specular_ior_level", "tag": "NEW-CLOSURE", "note": "f0 = F0_from_ior(ior)*2*level; default 0.5"},
+    {"cycles": "specular_tint", "astroray": "specular_tint", "tag": "NEW-CLOSURE", "note": "generalized-Schlick reflection tint + F82 edge tint"},
+    {"cycles": "transmission_weight", "astroray": "transmission_weight|transmission", "tag": "DIRECT", "note": "rough-glass lobe weight; layered weight*=(1-t)"},
+    {"cycles": "subsurface_weight", "astroray": "subsurface_weight", "tag": "DEFERRED", "owner": "parallel random-walk BSSRDF agent (D2)", "note": "seam: reduces diffuse by (1-subsurface_weight)"},
+    {"cycles": "subsurface_radius", "astroray": null, "tag": "DEFERRED", "owner": "BSSRDF agent"},
+    {"cycles": "subsurface_scale", "astroray": null, "tag": "DEFERRED", "owner": "BSSRDF agent"},
+    {"cycles": "subsurface_ior", "astroray": null, "tag": "DEFERRED", "owner": "BSSRDF agent"},
+    {"cycles": "subsurface_anisotropy", "astroray": null, "tag": "DEFERRED", "owner": "BSSRDF agent", "note": "negative anisotropy (5.2)"},
+    {"cycles": "subsurface_method", "astroray": null, "tag": "DEFERRED", "owner": "BSSRDF agent"},
+    {"cycles": "anisotropic", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3", "note": "isotropic GGX only in Stage 1"},
+    {"cycles": "anisotropic_rotation", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3"},
+    {"cycles": "tangent", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3"},
+    {"cycles": "coat_weight", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3"},
+    {"cycles": "coat_roughness", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3"},
+    {"cycles": "coat_ior", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3"},
+    {"cycles": "coat_tint", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3", "note": "Beer absorption tint^(1/cos_r)"},
+    {"cycles": "coat_normal", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3"},
+    {"cycles": "sheen_weight", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3", "note": "LTC microfiber (Zeltner 2022)"},
+    {"cycles": "sheen_roughness", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3"},
+    {"cycles": "sheen_tint", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3"},
+    {"cycles": "emission_color", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3", "note": "retires addon promote-to-light"},
+    {"cycles": "emission_strength", "astroray": null, "tag": "DEFERRED", "owner": "Stage 3"},
+    {"cycles": "thin_film_thickness", "astroray": null, "tag": "DEFERRED", "owner": "Stage 4", "note": "Belcour-Barla per-lambda Airy; pkg128 utility"},
+    {"cycles": "thin_film_ior", "astroray": null, "tag": "DEFERRED", "owner": "Stage 4"},
+    {"cycles": "thin_wall", "astroray": "thin_wall", "tag": "DEFERRED", "owner": "Stage 4", "note": "parsed/ignored Stage 1; combined-R+T thin glass + thin subsurface"}
+  ],
+  "closures": [
+    {"order": 1, "cycles": "Emission", "fresnel": null, "tag": "DEFERRED", "owner": "Stage 3"},
+    {"order": 2, "cycles": "Sheen LTC", "fresnel": null, "tag": "DEFERRED", "owner": "Stage 3"},
+    {"order": 3, "cycles": "Coat GGX dielectric", "fresnel": "fresnel_dielectric", "tag": "DEFERRED", "owner": "Stage 3"},
+    {"order": 4, "cycles": "Metallic GGX", "fresnel": "F82-tint", "astroray_lobe": "Metallic", "tag": "NEW-CLOSURE"},
+    {"order": 5, "cycles": "Transmission GGX glass", "fresnel": "generalized-Schlick", "astroray_lobe": "Transmission", "tag": "APPROXIMATED", "delta": "estimator reused (Walter 2007 + glass comp, DIRECT); reflection uses dielectric F not full generalized-Schlick reflection_tint; band +/-0.03 on tinted transmission at high roughness; thin_wall Stage 4"},
+    {"order": 6, "cycles": "Specular dielectric GGX", "fresnel": "generalized-Schlick exp=-ior", "astroray_lobe": "Specular", "tag": "NEW-CLOSURE"},
+    {"order": 7, "cycles": "Subsurface Bssrdf/thin", "fresnel": null, "tag": "DEFERRED", "owner": "parallel random-walk BSSRDF agent (D2)"},
+    {"order": 8, "cycles": "Diffuse Lambert/Oren-Nayar", "fresnel": null, "astroray_lobe": "Diffuse", "tag": "NEW-CLOSURE", "note": "Lambert or EON at diffuse_roughness>0"},
+    {"order": null, "cycles": "Transparent (1-alpha)", "fresnel": null, "tag": "DEFERRED", "owner": "Stage 5"},
+    {"order": null, "cycles": "closure_layering_weight", "fresnel": null, "tag": "NEW-CLOSURE", "note": "bsdf_util.h + ggxDirectionalAlbedo (pkg145)"},
+    {"order": null, "cycles": "multiscatter GGX comp", "fresnel": null, "tag": "DIRECT", "note": "ggxDarkeningChannel + DisneyEnergyCompensationTables"},
+    {"order": null, "cycles": "VNDF sampling", "fresnel": null, "tag": "DIRECT", "note": "Heitz 2018 / pbrt-v4, shared with disney.cpp"}
+  ],
+  "lobe_interface_contract": {
+    "location": "plugins/materials/principled.cpp",
+    "enum": "LobeKind { Diffuse, Specular, Metallic, Transmission, /*seam*/ Coat, Sheen, Subsurface }",
+    "struct_fields": ["kind", "weight(Vec3 layering weight)", "color(reflectance colour)", "roughness", "ior", "sel(scalar selection weight)", "isDelta"],
+    "evaluators": ["evalLobeSpectral (per-lambda native BSDF*cos)", "evalLobeRGB (RGB twin)", "pdfLobe (solid-angle pdf)", "sampleLobe"],
+    "add_a_lobe": "add LobeKind value + arm in each evaluator + row in assembleLobes (Cycles layering order + closure_layering_weight); MIS recombination unchanged (invariant)",
+    "mis_invariant": "eval_total=sum(w_i*f_i); W=sum(sel_i); pdf_total=sum_continuous(sel_i/W*pdf_i); sample picks j with prob sel_j/W; eval and selection use the SAME w_i/sel_i (matched, pkg170); layering keeps sum(w_i*albedo_i)<=1 so no 1/W on eval",
+    "spectral_nativeness": "upsample reflectance COLOURS via RGBAlbedoSpectrum; achromatic scalars per-lambda; copying disney.cpp:700-706 RGB-upsample shortcut is a contract violation (pkg118/163/168)"
+  },
+  "acceptance_gate_matrix": {
+    "conventions": "linear (apply_gamma=False), floor AND ceiling (pkg166), per-channel mean-ratio not SSIM (pkg121/ssim-wrong-gate)",
+    "lobes": {
+      "diffuse_lambert": {"stage1_cpu": "furnace [0.85,1.05] + chi2 accept a=0.01", "deferred": "Cycles diffuse sweep [0.95,1.05]"},
+      "diffuse_eon": {"stage1_cpu": "furnace [0.80,1.05] + chi2 accept", "deferred": "Cycles EON roughness sweep [0.95,1.05]"},
+      "specular_dielectric": {"stage1_cpu": "furnace [0.90,1.05] + chi2 accept", "deferred": "Cycles IOR/specular-level sweep [0.95,1.05]"},
+      "metallic_f82": {"stage1_cpu": "furnace [0.90,1.05] metallic=1 + chi2 accept roughness>=0.4", "deferred": "pkg129 live-Cycles rough-metal A/B; F82 edge-tint hue"},
+      "transmission_glass": {"stage1_cpu": "furnace [0.85,1.05] + peak-alignment (disney glass gate)", "deferred": "Cycles transmission sweep; thin-film Stage 4"},
+      "coat_sheen_aniso_thinfilm_thinwall_sss": {"stage1_cpu": null, "deferred": "each: CPU+GPU furnace + Cycles single-feature parity on landing"}
+    }
+  },
+  "this_pr_verification": "CPU only. GPU (Stage 2) and on-RTX Cycles image-plane parity DEFERRED to the building/verifying lead; not claimed here."
+}

@@ -89,9 +89,38 @@ any — is attributable to the application form and to nothing else.
 
 ---
 
-## 5. A/B verdict — PLACEHOLDER (filled by the LEAD after the on-hardware run)
+## 5. A/B verdict — RUN 2026-08-08 (lead HW lane, RTX 5070 Ti + Blender 5.1)
 
-> **STATUS: DEFERRED — not yet run on hardware.**
+> **STATUS: A/B CLEAN — no divergence convicted. Conviction-path LUT port does NOT fire.**
+>
+> Run: `--res 64 --samples 128`, ShaderNodeBsdfPrincipled Metallic=1 (→ Astroray
+> Disney metal path), r ∈ {0.3,0.6,0.9} × {chromatic, neutral}, CPU + GPU.
+> **All 12 legs PASS the [0.85,1.15] per-channel ratio band.** Table:
+>
+> | r | albedo | CPU R/G/B | GPU R/G/B |
+> |---|--------|-----------|-----------|
+> | 0.3 | chromatic | 1.016/0.958/0.944 | 1.018/0.960/0.946 |
+> | 0.6 | chromatic | 1.011/0.940/0.927 | 1.017/0.947/0.934 |
+> | 0.9 | chromatic | 0.987/0.902/0.892 | 0.991/0.908/0.895 |
+> | 0.3 | neutral | 0.997/0.999/0.980 | 0.998/0.999/0.980 |
+> | 0.6 | neutral | 0.977/0.978/0.958 | 0.985/0.987/0.968 |
+> | 0.9 | neutral | 0.936/0.939/0.923 | 0.946/0.948/0.930 |
+>
+> Findings:
+> 1. **No application-form divergence.** Both engines consume the same Cycles
+>    tables and land within band at every roughness; the K&C-layering-vs-Turquin
+>    application-form question raises no measurable, scene-controlled divergence.
+>    The conviction-path openpbr LUT port does NOT fire.
+> 2. **GPU ≈ CPU** (GPU marginally *brighter*, not dimmer, ≤~1%). This
+>    **contradicts pkg165's "uniform ~5–8% GPU-dim" premise** (measured on old
+>    SHA `b036ac93`); it does not reproduce on current main — likely resolved by
+>    pkg170 (opaque-Disney 2× gain) + intervening fixes. pkg165 → verify-and-close.
+> 3. **Mild roughness-dependent dim vs Cycles** (neutral ~1.0 at r0.3 → ~0.93 at
+>    r0.9), consistent with the known systemic parity-band offset, not a metal-
+>    specific defect. GPU SSIM is low (independent-RNG MC noise, the ratio gate
+>    is the correct statistic — see [[ssim-wrong-gate-for-independent-rng]]).
+>
+> (Original invocation note preserved below for reproducibility.)
 >
 > The A/B requires headless Cycles (Blender 5.1) + a built OpenMP-OFF Astroray
 > addon + the RTX box; the package-implementer cannot render (no vcvars / GPU is

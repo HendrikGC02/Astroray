@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (dispatch honesty / GPU pipeline health)
 **Track:** A (small; the guard is CPU-side dispatch logic, CI-testable; one RTX repro leg)
-**Status:** open — backlog (S, gap-filler tier — no user-facing defect today; the value is failing LOUDLY instead of silently black)
+**Status:** done (PR #PENDING, 2026-08-08 — raw-binding GPU dispatch now throws for all 4 CPU-only integrators (light_tracer_caustic / caustic_path_tracer / sms_caustic_path_tracer / neural-cache); no more silent near-black. RTX guard leg 5/5 green; full silent-black visual confirmation deferred to lead /verify)
 **Estimated effort:** S
 **Depends on:** nothing.
 

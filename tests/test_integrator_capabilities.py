@@ -38,9 +38,17 @@ def test_integrator_gpu_support_matrix_matches_current_cuda_kernels():
     # C6 ReSTIR SoA port; the CPU frame history now lives in device SoA.
     expected_supported = {"path_tracer", "ambient_occlusion",
                           "multiwavelength_path_tracer", "restir-di"}
+    # pkg171: the CPU-only set is the enumeration the GPU-dispatch guard trusts
+    # (capabilities().gpuSupported == false). Requesting any of these on a GPU
+    # device would otherwise render silently near-black (#540: light_tracer_caustic
+    # peak 0.019 vs CPU 0.500); the guard in module/blender_module.cpp render()
+    # raises instead. Pin the full CPU-only list so a future GPU port must flip
+    # both the integrator's capabilities() AND this expectation deliberately.
     expected_unsupported = {
         "caustic_path_tracer",
         "neural-cache",
+        "light_tracer_caustic",
+        "sms_caustic_path_tracer",
     }
 
     assert expected_supported <= names

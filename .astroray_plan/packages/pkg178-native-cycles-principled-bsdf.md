@@ -197,6 +197,15 @@ one harness sweep flag-off vs flag-on, diffing `triage_report.json`.
   random-walk) with full random-walk BSSRDF as a follow-up package, or
   (b) full random-walk in-scope now (adds a volume-walk subsystem to both
   integrator legs; significant scope growth). Architect recommends (a).
+  **Parallel-track update (2026-08-08):** the "full random-walk BSSRDF"
+  follow-up is being prototyped in parallel on branch
+  `bssrdf-random-walk-cpu` — a CPU, transport-correct random walk (Cycles
+  parameter mapping + channel-MIS walk, verified furnace-clean) with a clean
+  geometry-agnostic interface Stage 3 can adopt when D2 converges. Research +
+  interface + integration seam:
+  `.astroray_plan/docs/bssrdf-random-walk-research.md`. Dwivedi zero-variance
+  guiding partially prototyped (gray-valid; the full per-channel joint scheme
+  is deferred — see the note). GPU port DEFERRED.
 - **D3 (Stage 5):** confirm flag-first (default OFF) rollout, default
   flip only after the parity matrix is green. Architect recommends yes.
 - **D4 (Stage 2, conditional):** IF the new closures cannot fit the

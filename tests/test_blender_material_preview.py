@@ -44,6 +44,17 @@ def _load_blender_addon(monkeypatch, renderer_cls):
     bpy_types_module.Scene = type("Scene", (), {})
     bpy_types_module.Material = type("Material", (), {})
     bpy_types_module.Object = type("Object", (), {})
+
+    # pkg176 Stage 2: register() now adopts the native Cycles Light Paths panels
+    # (fail-loud if absent), which real Blender always provides. Mirror them here
+    # so register() proceeds. All Cycles panels share ONE inherited COMPAT_ENGINES.
+    class _CyclesButtonsPanel:
+        COMPAT_ENGINES = {'CYCLES'}
+    for _name in ("CYCLES_RENDER_PT_light_paths",
+                  "CYCLES_RENDER_PT_light_paths_max_bounces",
+                  "CYCLES_RENDER_PT_light_paths_clamping",
+                  "CYCLES_RENDER_PT_light_paths_caustics"):
+        setattr(bpy_types_module, _name, type(_name, (_CyclesButtonsPanel,), {}))
     bpy_module.types = bpy_types_module
     bpy_module.data = types.SimpleNamespace(materials=[], images=_Images())
     bpy_module.path = types.SimpleNamespace(abspath=lambda p: p)

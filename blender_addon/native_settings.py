@@ -106,6 +106,90 @@ class ResolvedSettings:
         setattr(object.__getattribute__(self, "_settings"), name, value)
 
 
+# pkg176 Stage 3: Blender camera factory defaults for the DROPPED-SILENT clip
+# controls. We only warn when the user has moved a control OFF its default (i.e.
+# is actually steering with it), so untouched scenes stay quiet -- a lightweight
+# stand-in for the pkg119-C degradation policy that will generalise this later.
+_CAM_CLIP_START_DEFAULT = 0.1
+_CAM_CLIP_END_DEFAULT = 1000.0
+
+
+def report_unsupported_native_controls(scene, report=None):
+    """Surface, once per render, the DROPPED-SILENT world/light/camera native
+    controls the user has set to a render-affecting value the engine cannot
+    honour yet.
+
+    Every world/light/camera row the Stage-0 table (``settings_map.py``) marks
+    ``dropped`` has a ``(none)`` neutral target: closing those gaps needs new
+    engine capability (orthographic/panoramic cameras, near/far clipping,
+    polygonal/anamorphic bokeh, per-light specular) and is a follow-up package
+    per the pkg176 non-goal. Until then the steering wheel must not drop them
+    SILENTLY (Stage 3 clause). This emits ONE consolidated ``WARNING`` per
+    render naming the controls the user actually set.
+
+    Route-2 discipline (dcc-integration-decision-2026-08 §6): this is a
+    bpy-facing TRANSLATOR check -- it reads Blender datablocks and calls the
+    Blender ``report`` UI callback ONLY; it never touches the engine/session.
+
+    Returns the list of human-readable messages (also for tests / callers that
+    want to log them differently).
+    """
+    messages = []
+
+    cam = getattr(scene, "camera", None)
+    cam_data = getattr(cam, "data", None) if cam is not None else None
+    if cam_data is not None:
+        cam_type = getattr(cam_data, "type", "PERSP")
+        if cam_type != "PERSP":
+            messages.append(
+                f"camera projection '{cam_type}' (engine renders PERSP only; "
+                f"ORTHO/PANO need new engine capability)"
+            )
+        clip_start = float(getattr(cam_data, "clip_start", _CAM_CLIP_START_DEFAULT))
+        clip_end = float(getattr(cam_data, "clip_end", _CAM_CLIP_END_DEFAULT))
+        if (abs(clip_start - _CAM_CLIP_START_DEFAULT) > 1e-6 or
+                abs(clip_end - _CAM_CLIP_END_DEFAULT) > 1e-3):
+            messages.append("camera clip_start/clip_end (near/far clipping ignored)")
+        dof = getattr(cam_data, "dof", None)
+        if dof is not None and getattr(dof, "use_dof", False):
+            if int(getattr(dof, "aperture_blades", 0)) >= 3:
+                messages.append(
+                    "camera aperture_blades/aperture_rotation "
+                    "(polygonal bokeh ignored; circular aperture only)"
+                )
+            if abs(float(getattr(dof, "aperture_ratio", 1.0)) - 1.0) > 1e-4:
+                messages.append("camera aperture_ratio (anamorphic bokeh ignored)")
+
+    spec_lights = []
+    for obj in getattr(scene, "objects", []) or []:
+        if getattr(obj, "type", None) != "LIGHT":
+            continue
+        light = getattr(obj, "data", None)
+        if light is None:
+            continue
+        if abs(float(getattr(light, "specular_factor", 1.0)) - 1.0) > 1e-4:
+            spec_lights.append(getattr(obj, "name", "<light>"))
+    if spec_lights:
+        messages.append(
+            "light specular_factor on " + ", ".join(spec_lights) +
+            " (per-light specular multiplier ignored)"
+        )
+
+    if messages:
+        summary = (
+            "Astroray: these native controls are set but not honoured this "
+            "render (see pkg176 Stage-0 mapping): " + "; ".join(messages)
+        )
+        if report is not None:
+            try:
+                report({'WARNING'}, summary)
+            except (TypeError, RuntimeError):
+                print(summary)
+        else:
+            print(summary)
+    return messages
+
+
 def resolve_native_settings(scene, report=None):
     """Resolve the DIRECT-mapped settings for ``scene`` and return a
     :class:`ResolvedSettings` view.

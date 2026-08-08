@@ -366,7 +366,7 @@ public:
                                                0, cryptoDepth, objectId, materialId, weight);
             }
 
-            throughput *= bss.f_spectral * (1.0f / (bss.pdf + 0.001f));
+            throughput *= bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
             Ray next(rec.point, bss.wi, pathRay.time, pathRay.screenU, pathRay.screenV);
             next.hasCameraFrame = pathRay.hasCameraFrame;

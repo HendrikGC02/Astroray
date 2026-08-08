@@ -155,7 +155,7 @@ class NeuralCacheIntegrator : public Integrator {
         // pkg140: see raytracer.h pathTraceSpectral's identical comment --
         // delta-light NEE samples always get full MIS weight.
         float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
-        return f * L * (wt / (ls.pdf + 0.001f));
+        return f * L * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
     }
 
     bool backendReady() {
@@ -434,7 +434,7 @@ public:
         if (warmup || !enableInference_) {
             astroray::SampledSpectrum tail =
                 renderer_->pathTraceSpectral(next, std::max(1, maxDepth_ - 1), lambdas, gen);
-            astroray::SampledSpectrum indirect = f * tail * (1.0f / (bss.pdf + 0.001f));
+            astroray::SampledSpectrum indirect = f * tail * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
             if (trainThisSample) {
                 astroray::XYZ xyz = indirect.toXYZ(lambdas);
                 Vec3 rgb = xyzToLinearSRGB(Vec3(xyz.X, xyz.Y, xyz.Z));

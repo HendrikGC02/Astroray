@@ -16,8 +16,13 @@ pkg150 dead-sample fix DELETES that reroute (→ furnace 0.997→0.788), which i
 reflection compensation (+0.009) can't recover it. The realized masked budget is
 ~7%, not 23%, and the chi² type-mismatch the fix targets is ~90% an ires=4
 quadrature artifact (pkg150 Finding 3).
-**LEAD RECOMMENDATION (pending owner ratification — reverses this spec's binding
-"ship the dead-sample fix" deliverable): OPTION 2** — do NOT ship the pkg150
+**RESOLVED — owner ratified OPTION 2 (2026-08-09). pkg179 CLOSED by diagnosis:
+no dead-sample fix ships, no Phase 2 built; the fallback's energy-correct
+transmission reroute stays; the chi² concern is the documented ires=4 quadrature
+artifact; the Cycles combined-closure design is recorded for pkg178's Principled
+dielectric to adopt when it gets there. No engine code changed.**
+
+Owner-ratified: **OPTION 2** — do NOT ship the pkg150
 dead-sample fix; keep the fallback's energy-correct transmission reroute; close
 the chi² concern as the documented quadrature artifact; record the
 combined-closure (Cycles) design as the proper long-term home for when **pkg178**

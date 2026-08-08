@@ -319,6 +319,21 @@ class Material;
 
 struct HitRecord {
     Vec3 point, normal, tangent, bitangent;
+    // pkg178 Stage-3b PR-3 — UV-aligned shading tangent for anisotropy (PR-4).
+    // `tangent`/`bitangent` above are an ARBITRARY buildOrthonormalBasis frame
+    // (rotationally unstable across a surface); anisotropic GGX needs a stable
+    // tangent locked to the surface's UV parameterization (Blender's default is
+    // the active-UV tangent). This is a NEW field — existing isotropic shading
+    // keeps reading `tangent`/`bitangent` and is bit-identical. Nothing consumes
+    // uvTangent until PR-4. `uvBitangentSign` (+/-1) carries the UV handedness so
+    // the consumer reconstructs the bitangent as sign * cross(normal, uvTangent).
+    // Populated by Triangle::hit from the active UV layer via the Lengyel
+    // inverse-UV-Jacobian; falls back to the arbitrary `tangent` (sign +1) for
+    // spheres, untextured meshes, and degenerate UVs (see setFaceNormal default).
+    // GPU counterpart (GHitRecord + device UV upload) is deferred to PR-4, where
+    // it is gated behind the anisotropy path so non-aniso scenes pay nothing.
+    Vec3 uvTangent;
+    float uvBitangentSign = 1.0f;
     Vec3 objectPoint, incomingDirection;
     Vec3 cameraOrigin, cameraU, cameraV, cameraW;
     float t;
@@ -349,6 +364,12 @@ struct HitRecord {
         frontFace = r.direction.dot(outwardNormal) < 0;
         normal = frontFace ? outwardNormal : -outwardNormal;
         buildOrthonormalBasis(normal, tangent, bitangent);
+        // pkg178 PR-3 — default UV tangent = arbitrary frame. Geometry with a
+        // real UV parameterization (textured triangles) overwrites this after
+        // setFaceNormal (Triangle::hit); spheres and untextured meshes keep this
+        // fallback. uvBitangentSign stays +1 so the fallback frame is right-handed.
+        uvTangent = tangent;
+        uvBitangentSign = 1.0f;
     }
 };
 

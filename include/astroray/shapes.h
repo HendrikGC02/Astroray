@@ -3,6 +3,7 @@
 // Include this header wherever Sphere, Triangle, Mesh, or ConstantMedium are
 // instantiated directly (blender_module.cpp, shape plugins).
 #include "raytracer.h"
+#include "manifold/surface_partials.h"  // pkg178 PR-3 — trianglePartials (dp_du/dp_dv)
 #include <fstream>
 #include <sstream>
 
@@ -203,6 +204,26 @@ public:
         rec.uvLayerNames = uvLayerNames;
         for (const auto& layer : uvLayers) {
             rec.uvLayers.push_back(layer[0] * w + layer[1] * u + layer[2] * v);
+        }
+
+        // pkg178 Stage-3b PR-3 — UV-aligned shading tangent (prereq for the PR-4
+        // anisotropy lobe). Only meshes carrying a real UV parameterization get a
+        // UV-locked tangent; untextured triangles (uvLayers empty) keep the
+        // arbitrary frame setFaceNormal already stored in rec.uvTangent. This is a
+        // NEW field — rec.tangent/rec.bitangent are untouched, so isotropic shading
+        // is bit-identical. uvAlignedTangent reuses manifold::trianglePartials for
+        // dp_du/dp_dv, fed the SAME motion-interpolated verts p0/p1/p2 used for
+        // this hit; on degenerate UV/projection it returns false and the fallback
+        // in rec.uvTangent stands. The GPU counterpart lands in PR-4 (needs a
+        // device UV upload) gated behind the anisotropy path.
+        if (!uvLayers.empty()) {
+            Vec3 uvT;
+            float uvSign;
+            if (astroray::manifold::uvAlignedTangent(p0, p1, p2, uv0, uv1, uv2,
+                                                     rec.normal, uvT, uvSign)) {
+                rec.uvTangent = uvT;
+                rec.uvBitangentSign = uvSign;
+            }
         }
         return true;
     }

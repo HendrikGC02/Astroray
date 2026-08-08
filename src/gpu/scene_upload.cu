@@ -143,26 +143,36 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
             gc.ior = c.ior;
             gc.transmission = c.transmission;
             gc.clearcoatGloss = c.clearcoatGloss;
-            // pkg178 Stage 2: carry the Principled core-lobe params. Zero for
-            // every other closure type (their MaterialClosure defaults are the
-            // struct field defaults; the device twin only reads these for
-            // GCLOSURE_PRINCIPLED).
-            gc.specularTint = GVec3(c.specularTint.x, c.specularTint.y, c.specularTint.z);
-            gc.specularIorLevel = c.specularIorLevel;
-            gc.diffuseRoughness = c.diffuseRoughness;
-            // pkg178 Stage 3: advanced-layer params (coat/sheen/subsurface/emission).
-            gc.coatTint = GVec3(c.coatTint.x, c.coatTint.y, c.coatTint.z);
-            gc.coatWeight = c.coatWeight;
-            gc.coatRoughness = c.coatRoughness;
-            gc.coatIor = c.coatIor;
-            gc.sheenTint = GVec3(c.sheenTint.x, c.sheenTint.y, c.sheenTint.z);
-            gc.sheenWeight = c.sheenWeight;
-            gc.sheenRoughness = c.sheenRoughness;
-            gc.subsurfaceRadius = GVec3(c.subsurfaceRadius.x, c.subsurfaceRadius.y, c.subsurfaceRadius.z);
-            gc.subsurfaceWeight = c.subsurfaceWeight;
-            gc.subsurfaceScale = c.subsurfaceScale;
-            gc.emissionColor = GVec3(c.emissionColor.x, c.emissionColor.y, c.emissionColor.z);
-            gc.emissionStrength = c.emissionStrength;
+            // pkg178 Stage-3b perf: the Principled advanced params (Stage-2
+            // specular* + Stage-3 coat/sheen/subsurface/emission) no longer ride
+            // on every GMaterialClosure — that inflated closures[8] and the
+            // by-value GMaterial temp on the shared non-Principled shade path.
+            // A Principled material is a single GCLOSURE_PRINCIPLED closure, so
+            // its advanced block is written ONCE into g.principled (read only by
+            // the gpu_principled_* twin). See gpu_types.h.
+            if (gc.type == GCLOSURE_PRINCIPLED) {
+                GPrincipledClosure& gp = g.principled;
+                gp.color = GVec3(c.color.x, c.color.y, c.color.z);
+                gp.roughness = c.roughness;
+                gp.metallic = c.metallic;
+                gp.ior = c.ior;
+                gp.transmission = c.transmission;
+                gp.specularTint = GVec3(c.specularTint.x, c.specularTint.y, c.specularTint.z);
+                gp.specularIorLevel = c.specularIorLevel;
+                gp.diffuseRoughness = c.diffuseRoughness;
+                gp.coatTint = GVec3(c.coatTint.x, c.coatTint.y, c.coatTint.z);
+                gp.coatWeight = c.coatWeight;
+                gp.coatRoughness = c.coatRoughness;
+                gp.coatIor = c.coatIor;
+                gp.sheenTint = GVec3(c.sheenTint.x, c.sheenTint.y, c.sheenTint.z);
+                gp.sheenWeight = c.sheenWeight;
+                gp.sheenRoughness = c.sheenRoughness;
+                gp.subsurfaceRadius = GVec3(c.subsurfaceRadius.x, c.subsurfaceRadius.y, c.subsurfaceRadius.z);
+                gp.subsurfaceWeight = c.subsurfaceWeight;
+                gp.subsurfaceScale = c.subsurfaceScale;
+                gp.emissionColor = GVec3(c.emissionColor.x, c.emissionColor.y, c.emissionColor.z);
+                gp.emissionStrength = c.emissionStrength;
+            }
             g.closures[i] = gc;
         }
         return g;

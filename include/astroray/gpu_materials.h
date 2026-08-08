@@ -1462,7 +1462,7 @@ __device__ inline float gpu_pr_eonChannel(const GPrincipledEON& e, float c) {
 // --- pkg178 Stage 3 Coat / Sheen helpers (principled.cpp ports) ------------
 // Coat Beer absorption: weight *= mix(1, coat_tint^(1/cosNT), coat_weight),
 // cosNT = sqrt(1 - (1/coat_ior)^2 (1-cosNI^2)) (Cycles svm/closure.h coat layer).
-__device__ inline GVec3 gpu_pr_coatBeerFactor(const GMaterialClosure& c, float nv) {
+__device__ inline GVec3 gpu_pr_coatBeerFactor(const GPrincipledClosure& c, float nv) {
     if (c.coatWeight <= 1e-4f) return GVec3(1.f);
     if (c.coatTint.x >= 0.999f && c.coatTint.y >= 0.999f && c.coatTint.z >= 0.999f)
         return GVec3(1.f);
@@ -1519,7 +1519,7 @@ struct GPrincipledLobe {
 static constexpr int   kMaxPrincipledLobes  = 7;
 static constexpr float kPrincipledDeltaGlassRoughness = 0.03f;  // principled.cpp:43
 
-__device__ inline int gpu_pr_assembleLobes(const GMaterialClosure& c, const GHitRecord& rec,
+__device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GHitRecord& rec,
                                            const GVec3& wo, GPrincipledLobe lobes[kMaxPrincipledLobes]) {
     float nv = fminf(fmaxf(rec.normal.dot(wo), 1e-4f), 1.f);
     GVec3 weight(1.f, 1.f, 1.f);
@@ -1644,7 +1644,7 @@ __device__ inline GSampledSpectrum gpu_pr_ggxReflectSpectral(const GSampledSpect
 }
 
 // --- Transmission rough glass (principled.cpp:406-488) ---------------------
-__device__ inline GVec3 gpu_pr_transmissionEval(const GMaterialClosure& c, const GPrincipledLobe& L,
+__device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                                 const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
     if (L.isDelta) return GVec3(0.f);  // delta handled in sampling
     float cosO = rec.normal.dot(wo), cosI = rec.normal.dot(wi);
@@ -1705,7 +1705,7 @@ __device__ inline float gpu_pr_transmissionPdf(const GPrincipledLobe& L, const G
 }
 
 // --- Per-lobe eval / pdf (principled.cpp:355-461) --------------------------
-__device__ inline GVec3 gpu_pr_evalLobe(const GMaterialClosure& c, const GPrincipledLobe& L,
+__device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                         const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     switch (L.kind) {
@@ -1776,7 +1776,7 @@ __device__ inline float gpu_pr_pdfLobe(const GPrincipledLobe& L, const GHitRecor
     }
     return 0.f;
 }
-__device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GMaterialClosure& c, const GPrincipledLobe& L,
+__device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                                            const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
                                                            const GSampledWavelengths& wl) {
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
@@ -1833,7 +1833,7 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GMaterialClosur
 }
 
 // --- Mixture eval / pdf / spectral eval (principled.cpp:611-709) -----------
-__device__ inline GVec3 gpu_principled_eval(const GMaterialClosure& c, const GHitRecord& rec,
+__device__ inline GVec3 gpu_principled_eval(const GPrincipledClosure& c, const GHitRecord& rec,
                                             const GVec3& wo, const GVec3& wi) {
     GPrincipledLobe lobes[kMaxPrincipledLobes];
     int n = gpu_pr_assembleLobes(c, rec, wo, lobes);
@@ -1842,7 +1842,7 @@ __device__ inline GVec3 gpu_principled_eval(const GMaterialClosure& c, const GHi
         if (!lobes[i].isDelta) sum += gpu_pr_evalLobe(c, lobes[i], rec, wo, wi);
     return gvec3_max(sum, GVec3(0.f));
 }
-__device__ inline float gpu_principled_pdf(const GMaterialClosure& c, const GHitRecord& rec,
+__device__ inline float gpu_principled_pdf(const GPrincipledClosure& c, const GHitRecord& rec,
                                            const GVec3& wo, const GVec3& wi) {
     GPrincipledLobe lobes[kMaxPrincipledLobes];
     int n = gpu_pr_assembleLobes(c, rec, wo, lobes);
@@ -1854,7 +1854,7 @@ __device__ inline float gpu_principled_pdf(const GMaterialClosure& c, const GHit
         if (!lobes[i].isDelta) p += (lobes[i].sel / W) * gpu_pr_pdfLobe(lobes[i], rec, wo, wi);
     return p;
 }
-__device__ inline GSampledSpectrum gpu_principled_eval_spectral(const GMaterialClosure& c, const GHitRecord& rec,
+__device__ inline GSampledSpectrum gpu_principled_eval_spectral(const GPrincipledClosure& c, const GHitRecord& rec,
                                                                 const GVec3& wo, const GVec3& wi,
                                                                 const GSampledWavelengths& wl) {
     GPrincipledLobe lobes[kMaxPrincipledLobes];
@@ -1961,7 +1961,7 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GHitRecord& rec
     return ds;
 }
 template <typename TRng>
-__device__ inline GBSDFSample gpu_principled_sample(const GMaterialClosure& c, GHitRecord& rec,
+__device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c, GHitRecord& rec,
                                                     const GVec3& wo, TRng* rng) {
     GBSDFSample s;
     s.wi = rec.normal; s.f = GVec3(0.f); s.fSpectral = GSampledSpectrum(0.f); s.pdf = 0.f; s.isDelta = false;
@@ -2139,7 +2139,7 @@ __device__ inline GVec3 gpu_closure_graph_eval(
     // over independent graph closures — route it straight there.
     if constexpr (HasPrincipled) {
         if (gpu_closure_graph_is_principled(mat))
-            return gpu_principled_eval(mat.closures[0], rec, wo, wi);
+            return gpu_principled_eval(mat.principled, rec, wo, wi);
     }
     // pkg170: weight each lobe by its SELECTION probability (weight_i / totalWeight),
     // matching gpu_closure_graph_pdf's normalization, so the closure-graph sampler's
@@ -2222,7 +2222,7 @@ __device__ inline GSampledSpectrum gpu_closure_graph_eval_spectral(
     // gpu_pr_evalLobeSpectral, which upsamples reflectance colours only).
     if constexpr (HasPrincipled) {
         if (gpu_closure_graph_is_principled(mat))
-            return gpu_principled_eval_spectral(mat.closures[0], rec, wo, wi, wl);
+            return gpu_principled_eval_spectral(mat.principled, rec, wo, wi, wl);
     }
     // pkg170: same selection-probability normalization as the RGB
     // gpu_closure_graph_eval (see there) so f_total/pdf_total is a one-sample-MIS
@@ -2265,7 +2265,7 @@ __device__ inline float gpu_closure_graph_pdf(
     // pkg178 Stage 2: monolithic Principled mixture pdf (see gpu_closure_graph_eval).
     if constexpr (HasPrincipled) {
         if (gpu_closure_graph_is_principled(mat))
-            return gpu_principled_pdf(mat.closures[0], rec, wo, wi);
+            return gpu_principled_pdf(mat.principled, rec, wo, wi);
     }
     float totalWeight = 0.0f;
     int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
@@ -2303,7 +2303,7 @@ __device__ inline GBSDFSample gpu_closure_graph_sample(
     // per-lobe switch + recompute below (its assembly is view-dependent).
     if constexpr (HasPrincipled) {
         if (gpu_closure_graph_is_principled(mat))
-            return gpu_principled_sample(mat.closures[0], rec, wo, rng);
+            return gpu_principled_sample(mat.principled, rec, wo, rng);
     }
 
     float totalWeight = 0.0f;

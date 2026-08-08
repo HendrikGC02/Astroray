@@ -255,6 +255,116 @@ __device__ inline GNEESample gpu_dedicated_sample(
     return s;  // kind == -1 (unsupported): no contribution
 }
 
+// ---------------------------------------------------------------------------
+// pkg181 — BSDF-ray intersection against a single dedicated light. Device twin
+// of the CPU AreaLight::intersect / DistantLight::intersect (Cycles
+// lights_intersect / light_eval_from_intersection parity,
+// kernel/light/{area,distant}.h, Apache-2.0). Only AREA and DISTANT (finite
+// measure) are hittable; POINT/SPOT are Astroray delta+soft-shadow hacks and
+// stay NEE-only (see pkg181 research note). On a hit within (tMin,tMax] fills
+// *t and *scale — the λ-independent emission scale, EXACTLY the dedGeoScale
+// gpu_dedicated_sample assigns (area: staticScale; distant: staticScale/Ω) — so
+// the caller upsamples d.emissionRGB per-λ like gpu_nee_resolve.
+// ---------------------------------------------------------------------------
+__device__ inline bool gpu_dedicated_intersect(
+    const GDedicatedLight& d, const GVec3& origin, const GVec3& dir,
+    float tMin, float tMax, float* t, float* scale)
+{
+    if (d.kind == GDED_AREA) {
+        GVec3 D = dir.normalized();
+        float denom = D.dot(d.axis);                 // d.axis == area normal
+        if (denom >= 0.f) return false;              // back face / parallel
+        float tt = (d.position - origin).dot(d.axis) / denom;
+        if (tt <= tMin || tt > tMax) return false;
+        GVec3 P = origin + D * tt;
+        GVec3 off = P - d.position;
+        float uu = off.dot(d.u), vv = off.dot(d.v);
+        bool inb;
+        if (d.areaShape == 1)      inb = (uu * uu + vv * vv) <= d.width * d.width;       // disk
+        else if (d.areaShape == 2){ float su = uu / d.width, sv = vv / d.height; inb = (su*su + sv*sv) <= 1.f; }  // ellipse
+        else                       inb = (fabsf(uu) <= 0.5f * d.width && fabsf(vv) <= 0.5f * d.height);           // rect
+        if (!inb) return false;
+        if ((-denom) < cosf(d.spread)) return false; // out of spread cone (-D toward receiver)
+        *t = tt;
+        *scale = d.staticScale;                      // plain radiance (== area dedGeoScale)
+        return true;
+    }
+    if (d.kind == GDED_DISTANT) {
+        float solidAngle = d.spread;                 // 0 => true delta: not hittable
+        if (!(solidAngle > 0.f)) return false;
+        GVec3 D = dir.normalized();
+        if (D.dot(d.axis * -1.f) < d.cosOuter) return false;  // outside the sun disk
+        const float kFar = 1e30f;
+        if (kFar <= tMin || kFar > tMax) return false;
+        *t = kFar;
+        *scale = d.staticScale / solidAngle;         // radiance S/Ω (== distant dedGeoScale)
+        return true;
+    }
+    return false;                                    // point/spot: NEE-only
+}
+
+// Closest dedicated-light hit along the ray (Area/Distant). Returns the winning
+// light index (-1 = none) with its t / emission scale.
+__device__ inline int gpu_dedicated_intersect_closest(
+    const GDedicatedLight* dedLights, int numDed,
+    const GVec3& origin, const GVec3& dir, float tMin, float tMax,
+    float* tOut, float* scaleOut)
+{
+    int best = -1; float closest = tMax; float sc = 0.f;
+    for (int j = 0; j < numDed; ++j) {
+        float tt, s;
+        if (gpu_dedicated_intersect(dedLights[j], origin, dir, tMin, closest, &tt, &s)) {
+            closest = tt; sc = s; best = j;
+        }
+    }
+    if (best >= 0) { *tOut = closest; *scaleOut = sc; }
+    return best;
+}
+
+// pkg181 — dedicated-light reverse pdf for two-sided MIS (device twin of the
+// FIXED CPU AreaLight::pdfLi / DistantLight::pdfLi summed with selection in
+// PowerLightSampler::pdfValue). Direction-tested, solid-angle measure; selection
+// weight d.power/totalLightPower matches gpu_dedicated_sample's dselPdf.
+__device__ inline float gpu_dedicated_reconstruct_pdf(
+    const GDedicatedLight* dedLights, int numDed, float totalLightPower,
+    const GVec3& prevPoint, const GVec3& dir)
+{
+    if (numDed <= 0 || totalLightPower <= 0.f) return 0.f;
+    float pdf = 0.f;
+    GVec3 D = dir.normalized();
+    for (int j = 0; j < numDed; ++j) {
+        const GDedicatedLight& d = dedLights[j];
+        float selPdf = d.power / totalLightPower;
+        if (selPdf <= 0.f) continue;
+        if (d.kind == GDED_AREA) {
+            float denom = D.dot(d.axis);
+            if (denom >= 0.f) continue;
+            float tt = (d.position - prevPoint).dot(d.axis) / denom;
+            if (tt <= 0.f) continue;
+            GVec3 P = prevPoint + D * tt;
+            GVec3 off = P - d.position;
+            float uu = off.dot(d.u), vv = off.dot(d.v);
+            bool inb;
+            if (d.areaShape == 1)      inb = (uu*uu + vv*vv) <= d.width*d.width;
+            else if (d.areaShape == 2){ float su = uu/d.width, sv = vv/d.height; inb = (su*su+sv*sv) <= 1.f; }
+            else                       inb = (fabsf(uu) <= 0.5f*d.width && fabsf(vv) <= 0.5f*d.height);
+            if (!inb) continue;
+            if ((-denom) < cosf(d.spread)) continue;
+            float area = (d.areaShape == 1) ? (M_PI_F * d.width * d.width)
+                       : (d.areaShape == 2) ? (M_PI_F * d.width * d.height)
+                                            : (d.width * d.height);
+            pdf += selPdf * ((tt * tt) / (area * (-denom)));
+        } else if (d.kind == GDED_DISTANT) {
+            float solidAngle = d.spread;
+            if (!(solidAngle > 0.f)) continue;
+            if (D.dot(d.axis * -1.f) < d.cosOuter) continue;
+            pdf += selPdf * (1.f / solidAngle);
+        }
+        // point/spot: NEE-only, contribute nothing to the BSDF-hit pdf.
+    }
+    return pdf;
+}
+
 template <typename TRng>
 __device__ inline GNEESample gpu_nee_sample(
     const GHitRecord& rec,

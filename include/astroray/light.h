@@ -136,6 +136,31 @@ public:
                           const SampledWavelengths& lambdas,
                           std::mt19937& gen) const = 0;
 
+    // pkg181: result of a BSDF-sampled ray intersecting this dedicated light.
+    // Returned via out-parameter (Intersection carries a SampledSpectrum >32
+    // bytes; MinGW large-struct-by-value corruption, see mingw_large_struct_byval.md).
+    // `emission` is the PLAIN emitted radiance toward the ray origin — the same
+    // radiance sampleLi() returns — and is zero for a back-face / out-of-cone /
+    // out-of-bounds hit so the caller can rely solely on the bool.
+    struct Intersection {
+        float           t = 0.0f;       // ray parameter of the hit
+        Vec3            position;       // world-space hit point
+        Vec3            normal;         // light surface normal at the hit (outward)
+        SampledSpectrum emission;       // radiance emitted back along -rayDir
+    };
+
+    // pkg181: intersect a BSDF-sampled ray against this light (Cycles
+    // lights_intersect / light_eval_from_intersection parity,
+    // intern/cycles/kernel/light/{light,area,distant}.h, Apache-2.0). Returns
+    // true and fills `out` when the ray hits the emitting surface within
+    // (tMin, tMax]. Default: not hittable (true-delta lights — Point/Spot
+    // radius==0, Distant angle==0 — and Background). See pkg181 research note
+    // for why Point/Spot with radius>0 also stay NEE-only in Astroray.
+    virtual bool intersect(const Vec3& /*rayOrigin*/, const Vec3& /*rayDir*/,
+                           float /*tMin*/, float /*tMax*/,
+                           const SampledWavelengths& /*lambdas*/,
+                           Intersection& /*out*/) const { return false; }
+
     // PDF for the given direction from the shading point (for MIS).
     virtual float pdfLi(const Vec3& shadingPoint, const Vec3& direction) const = 0;
 

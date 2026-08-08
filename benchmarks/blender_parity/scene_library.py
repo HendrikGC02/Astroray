@@ -270,10 +270,11 @@ def build_light_scene(bpy, light_type: str, engine: str | None = None):
             ld.shape = "RECTANGLE"
             ld.size = extra["size_x"]
             ld.size_y = extra["size_y"]
-            # pkg122 orientation finding: Astroray area normal is +Z; flip 180
-            # about X for the Astroray leg so both legs light the floor below.
-            if engine == "CUSTOM_RAYTRACER":
-                obj.rotation_euler = (math.pi, 0.0, 0.0)
+            # pkg181 (removes pkg122/pkg139 stale flip): pkg139 fixed the addon
+            # area-light axis convention, so the identity-rotation Astroray leg now
+            # lights the floor correctly. The old 180-deg flip now points the lamp
+            # AWAY and renders the Astroray leg BLACK (pkg180 side-finding 1). Both
+            # legs use identity rotation (obj.rotation_euler set to 0 above).
         elif light_type == "SPOT":
             ld.shadow_soft_size = 0.0
             ld.spot_size = extra["spot_size"]

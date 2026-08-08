@@ -1225,6 +1225,30 @@ public:
         return sampler_->pdfValue(pt, dir);
     }
 
+    // pkg181: intersect a BSDF-sampled ray against the dedicated (non-hittable)
+    // lights, returning the closest hit within (tMin, tMax]. This is the lamp-
+    // intersection pass that makes dedicated lamps visible to BSDF rays (Cycles
+    // lights_intersect parity); the emission it returns feeds the EXISTING
+    // pkg120 two-sided-MIS term in pathTraceSpectral. Only Area/Distant (finite
+    // measure) are hittable; true-delta and Point/Spot lights return false (see
+    // pkg181 research note). Returns false when no lamp is hit.
+    bool intersectDedicated(const Vec3& origin, const Vec3& dir,
+                            float tMin, float tMax,
+                            const astroray::SampledWavelengths& lambdas,
+                            astroray::Light::Intersection& out) const {
+        bool anyHit = false;
+        float closest = tMax;
+        for (const auto& l : dedicatedLights) {
+            astroray::Light::Intersection tmp;
+            if (l->intersect(origin, dir, tMin, closest, lambdas, tmp)) {
+                closest = tmp.t;
+                out = tmp;
+                anyHit = true;
+            }
+        }
+        return anyHit;
+    }
+
     bool empty() const { return lights.empty() && dedicatedLights.empty(); }
 
     // Accessors for scene_upload.cu and pkg86.
@@ -2359,7 +2383,36 @@ public:
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             lastBounce = bounce;
             HitRecord rec;
-            if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
+            bool didHit = bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
+
+            // pkg181: dedicated-light visibility to BSDF rays (Cycles
+            // lights_intersect parity). Lamps are invisible to camera rays
+            // (bounce == 0) — only indirect/BSDF continuation rays see them. A
+            // lamp closer than the surface terminates the path; its emission
+            // feeds the SAME pkg120 two-sided-MIS term the emissive-Hittable
+            // path uses below (wB = 1 after a specular/delta bounce, where no
+            // NEE leg competes; power-heuristic otherwise). Fixes the systemic
+            // dim + dark lamp-reflections localized by pkg180 Phase 2.
+            if (bounce > 0 && !lights.getDedicatedLights().empty()) {
+                float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
+                astroray::Light::Intersection lh;
+                if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
+                                              surfaceT, lambdas, lh)) {
+                    if (!lh.emission.isZero()) {
+                        if (wasSpecular) {
+                            color += clampContribSpectral(throughput * lh.emission, lambdas, bounce);
+                        } else {
+                            float lp = lights.pdfValue(ray.origin, ray.direction);
+                            float bp = bsdfPdfPrev;
+                            float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
+                            color += clampContribSpectral(throughput * lh.emission * wB, lambdas, bounce);
+                        }
+                    }
+                    break;  // path terminates on the lamp
+                }
+            }
+
+            if (!didHit) {
                 // No env NEE in pathTraceSpectral, so env always contributes on miss
                 // (the wasSpecular gate would suppress diffuse-to-background paths).
                 if (bounce <= worldMaxBounces) {
@@ -2604,7 +2657,27 @@ public:
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             lastBounce = bounce;
             HitRecord rec;
-            if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
+            bool didHit = bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
+
+            // pkg181: dedicated-lamp visibility (Cycles lights_intersect). This
+            // opt-in caustic kernel carries no pkg120 two-sided-MIS state
+            // (no bsdfPdfPrev), so — exactly like its emissive-Hittable handling
+            // below — a lamp only contributes after a specular/delta bounce
+            // (wasSpecular, wB = 1). Non-specular diffuse lamp hits stay NEE-only
+            // here (unchanged); the production pathTraceSpectral does the full MIS.
+            if (bounce > 0 && wasSpecular && !lights.getDedicatedLights().empty()) {
+                float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
+                astroray::Light::Intersection lh;
+                if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
+                                              surfaceT, lambdas, lh)) {
+                    if (!lh.emission.isZero()) {
+                        color += clampContribSpectral(throughput * lh.emission, lambdas, bounce);
+                    }
+                    break;
+                }
+            }
+
+            if (!didHit) {
                 if (bounce <= worldMaxBounces) {
                     astroray::SampledSpectrum envSpec(0.0f);
                     if (envMap && envMap->loaded()) {

@@ -108,6 +108,7 @@ __device__ int intersectPathSlot(
     bool              enableNEE,        // pkg156: gates the pkg120 two-sided-MIS leg
     float             clampDirect, float clampIndirect,  // pkg157
     const ::GLight*   lights, int numLights, float totalLightPower,  // pkg120
+    const GDedicatedLight* dedLights, int numDed,  // pkg181
     GLightTreeView    lightTree);
 
 using ::astroray::WavefrontRNG;
@@ -284,7 +285,11 @@ __global__ void stageRestirPrimaryKernel(
                       backgroundColor, hasBackgroundColor, worldMaxBounces,
                       useLuminanceOutput, /*enableNEE=*/true, clampDirect, clampIndirect,
                       /*lights=*/nullptr, /*numLights=*/0,
-                      /*totalLightPower=*/0.f, GLightTreeView{});
+                      /*totalLightPower=*/0.f,
+                      // pkg181: ReSTIR-DI is bounce-0-only, so the lamp-intersect
+                      // pass (gated bounce > 0) never fires; pass empty dedicated
+                      // lights (numDed = 0 also short-circuits it defensively).
+                      /*dedLights=*/nullptr, /*numDed=*/0, GLightTreeView{});
 }
 
 // ===========================================================================

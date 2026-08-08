@@ -1531,6 +1531,8 @@ std::vector<float> cuda_wavefront_render(
                                        d_lights,                     // pkg120
                                        (int)res.lights.size(),
                                        res.totalLightPower,
+                                       d_dedLights,                  // pkg181
+                                       (int)res.dedicatedLights.size(),
                                        treeView);
             launchStageShadeBucketed(state, hitBufs,
                                      d_shadeQueues, d_shadeCounts,

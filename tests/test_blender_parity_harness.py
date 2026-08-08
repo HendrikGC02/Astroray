@@ -142,6 +142,105 @@ def test_ratio_is_energy_scale_direction_sensitive():
 
 
 # --------------------------------------------------------------------------- #
+# SPP-escalation discriminator (NOISE-LIMITED vs TRANSLATION-BUG)
+# --------------------------------------------------------------------------- #
+
+_INBAND = (1.02, 0.98, 1.03)
+
+
+def test_ratio_in_band():
+    assert T.ratio_in_band(_INBAND) is True
+    assert T.ratio_in_band((0.85, 1.18, 1.0)) is True   # edges inclusive
+    assert T.ratio_in_band((1.4, 1.0, 1.0)) is False
+    assert T.ratio_in_band((0.5, 1.0, 1.0)) is False
+
+
+def test_is_noise_suspect_requires_inband_and_small_de():
+    assert T.is_noise_suspect(_INBAND, 3.0) is True          # dE < 4.0 (=8/2)
+    assert T.is_noise_suspect(_INBAND, 5.0) is False         # dE over half-gate
+    assert T.is_noise_suspect((1.5, 1.0, 1.0), 1.0) is False  # out-of-band ratio
+
+
+def test_classify_climb_crossing_threshold_is_noise():
+    # SSIM crosses SSIM_MIN on 4x samples -> pure convergence -> noise.
+    assert T.classify_noise_vs_bug(0.72, 0.92, 16, 64, _INBAND, 2.0) is True
+
+
+def test_classify_meaningful_climb_shrinking_gap_is_noise():
+    # 0.60 -> 0.75 with SSIM_MIN 0.90: climb 0.15 (>=0.03); gap 0.30 -> 0.15,
+    # shrink 50% (>=40%). Still below threshold but clearly converging.
+    assert T.classify_noise_vs_bug(0.60, 0.75, 16, 64, _INBAND, 2.0) is True
+
+
+def test_classify_plateau_is_bug():
+    # A structural bug: SSIM barely moves with 4x samples, gap stays wide.
+    assert T.classify_noise_vs_bug(0.60, 0.615, 16, 64, _INBAND, 2.0) is False
+
+
+def test_classify_out_of_band_ratio_is_never_noise():
+    # Even if SSIM climbs, an energy/hue bias is a real divergence, not noise.
+    assert T.classify_noise_vs_bug(0.60, 0.85, 16, 64, (1.5, 1.5, 1.5), 2.0) is False
+
+
+def test_classify_large_de_is_never_noise():
+    assert T.classify_noise_vs_bug(0.60, 0.85, 16, 64, _INBAND, 6.0) is False
+
+
+def test_classify_no_escalation_is_not_noise():
+    # spp_high must exceed spp_low or there is no sweep evidence.
+    assert T.classify_noise_vs_bug(0.60, 0.75, 64, 64, _INBAND, 2.0) is False
+
+
+def _esc(ssim_low, ssim_high, ratio=_INBAND, de=2.0, spp_low=16, spp_high=64):
+    return T.Escalation(ssim_low=ssim_low, ssim_high=ssim_high,
+                        spp_low=spp_low, spp_high=spp_high,
+                        ratio_high=ratio, delta_e_high=de)
+
+
+def test_triage_escalation_climbing_ssim_is_noise_limited():
+    # (a) climbing SSIM, in-band ratios, small dE -> NOISE-LIMITED, NOT a bug.
+    gr = T.gate(0.60, 3.0, _INBAND)
+    bucket, reason = T.triage("BSDF_TRANSPARENT", "SUPPORTED", gr,
+                              escalation=_esc(0.60, 0.78))
+    assert bucket == T.NOISE_LIMITED
+    assert "noise" in reason.lower()
+
+
+def test_triage_escalation_plateau_stays_translation_bug():
+    # (b) plateaued SSIM -> a real structural bug is NOT masked.
+    gr = T.gate(0.60, 3.0, _INBAND)
+    bucket, _reason = T.triage("SOME_NODE", "SUPPORTED", gr,
+                               escalation=_esc(0.60, 0.615))
+    assert bucket == T.TRANSLATION_BUG
+
+
+def test_triage_escalation_out_of_band_routes_to_existing_rules():
+    # (c) out-of-band uniform ratio -> INTENTIONAL energy-scale even with an
+    # escalation attached (energy-scale rule has precedence over the noise rule).
+    gr = T.gate(0.60, 12.0, (1.5, 1.5, 1.5))
+    bucket, reason = T.triage("SOME_NODE", "SUPPORTED", gr,
+                              escalation=_esc(0.60, 0.85, ratio=(1.5, 1.5, 1.5)))
+    assert bucket == T.INTENTIONAL_DIVERGENCE and "energy-scale" in reason
+
+
+def test_triage_escalation_does_not_override_precedence():
+    # (d) known-intentional + APPROXIMATED still win over a supplied escalation.
+    gr = T.gate(0.40, 20.0, _INBAND)
+    bucket, _ = T.triage("WAVELENGTH", "SUPPORTED", gr, escalation=_esc(0.40, 0.95))
+    assert bucket == T.INTENTIONAL_DIVERGENCE
+    bucket, _ = T.triage("BSDF_SHEEN", "APPROXIMATED", gr, escalation=_esc(0.40, 0.95))
+    assert bucket == T.INTENTIONAL_DIVERGENCE
+
+
+def test_triage_without_escalation_defaults_to_translation_bug():
+    # No sweep supplied -> the noise rule is skipped, default stands (a real bug
+    # is never masked by a missing escalation).
+    gr = T.gate(0.60, 3.0, _INBAND)
+    bucket, _ = T.triage("SOME_NODE", "SUPPORTED", gr)
+    assert bucket == T.TRANSLATION_BUG
+
+
+# --------------------------------------------------------------------------- #
 # Metric comparison + triage integration (pure, synthetic arrays)
 # --------------------------------------------------------------------------- #
 
@@ -200,6 +299,23 @@ def test_write_reports_and_followups(tmp_path):
     fu = payload["summary"]["follow_up_candidates"]
     assert [c["feature"] for c in fu] == ["shader_node:MIX_RGB"]
     assert (tmp_path / "triage_report.md").exists()
+
+
+def test_write_reports_noise_limited_is_not_followup_and_is_audited(tmp_path):
+    results = [
+        H.FeatureResult("shader_node", "BSDF_TRANSPARENT", "SUPPORTED", "fail",
+                        ssim=0.60, delta_e=3.0, ratio=(1.0, 1.0, 1.0),
+                        triage_bucket=T.NOISE_LIMITED, triage_reason="under-converged",
+                        escalated=True, samples_low=64, samples_high=256,
+                        ssim_high_spp=0.82, delta_e_high_spp=2.4),
+    ]
+    H.write_reports(results, tmp_path)
+    payload = json.loads((tmp_path / "triage_report.json").read_text())
+    # NOISE-LIMITED is not a bug -> not a roadmap follow-up candidate.
+    assert payload["summary"]["follow_up_candidates"] == []
+    assert payload["summary"]["triage"][T.NOISE_LIMITED] == 1
+    md = (tmp_path / "triage_report.md").read_text()
+    assert "SPP-escalation: 64->256 spp" in md
 
 
 # --------------------------------------------------------------------------- #

@@ -91,6 +91,32 @@ def _add_sphere(bpy, scene):
     return obj
 
 
+def _add_backdrop(bpy, scene):
+    """Vertical checker-textured plane BEHIND the subject (camera at y=-6 looking
+    +Y). A TRANSPARENT / refractive BSDF shows the background, so without a
+    structured, lit backdrop the transparent-material scene renders a near-black
+    frame where SSIM is meaningless (this false-convicted BSDF_TRANSPARENT in the
+    2026-08-08 baseline). Both engine legs render the identical backdrop, so it
+    adds testable signal without biasing the differential."""
+    bpy.ops.mesh.primitive_plane_add(size=14.0, location=(0.0, 4.0, 1.0))
+    plane = bpy.context.active_object
+    plane.rotation_euler = (math.radians(90.0), 0.0, 0.0)  # stand it up, face -Y
+    mat = bpy.data.materials.new("Backdrop")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    _clear_nodes(nt)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    diff = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    checker = nt.nodes.new("ShaderNodeTexChecker")
+    checker.inputs["Color1"].default_value = (0.85, 0.25, 0.15, 1.0)
+    checker.inputs["Color2"].default_value = (0.15, 0.35, 0.85, 1.0)
+    checker.inputs["Scale"].default_value = 6.0
+    nt.links.new(checker.outputs["Color"], diff.inputs["Color"])
+    nt.links.new(diff.outputs["BSDF"], out.inputs["Surface"])
+    plane.data.materials.append(mat)
+    return plane
+
+
 # --------------------------------------------------------------------------- #
 # Generic shader-node scene
 # --------------------------------------------------------------------------- #
@@ -119,10 +145,15 @@ def build_shader_node_scene(bpy, bl_idname: str):
     SHADER-output nodes are wired straight to the Material Output Surface.
     Colour/scalar/vector nodes are wired through a Principled Base Color so they
     still produce a visible, oracle-comparable surface.
+
+    A lit, coloured world + a checker backdrop behind the sphere guarantee a
+    transparent/refractive BSDF has structured background to show instead of a
+    near-black frame (see ``_add_backdrop``).
     """
     scene = _reset(bpy)
-    _add_world(bpy, scene)
+    _add_world(bpy, scene, strength=0.6, color=(0.35, 0.40, 0.50))
     sphere = _add_sphere(bpy, scene)
+    _add_backdrop(bpy, scene)
     _add_area_light(bpy, scene)
     _add_camera(bpy, scene)
 

@@ -110,6 +110,12 @@ class FeatureResult:
     triage_reason: str | None = None
     skip_reason: str | None = None
     notes: str = ""
+    # SPP-escalation audit trail (populated only for noise-suspect re-renders).
+    escalated: bool = False
+    samples_low: int | None = None
+    samples_high: int | None = None
+    ssim_high_spp: float | None = None
+    delta_e_high_spp: float | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -127,13 +133,22 @@ def per_channel_ratio(actual, reference) -> tuple[float, float, float]:
     return (out[0], out[1], out[2])
 
 
-def compare_and_triage(feat: Feature, actual, reference) -> FeatureResult:
-    """Run the reference-bank metrics, gate, and triage a single feature."""
+def _metrics(actual, reference) -> tuple[float, float, tuple[float, float, float]]:
+    """(ssim, mean dE2000, per-channel ratio) via the pkg104 reference bank."""
     from benchmarks.reference_bank.metrics import compute_ssim, compute_delta_e_2000
-
     ssim, _ = compute_ssim(actual, reference)
     delta_e, _ = compute_delta_e_2000(actual, reference)
     ratio = per_channel_ratio(actual, reference)
+    return ssim, delta_e, ratio
+
+
+def compare_and_triage(feat: Feature, actual, reference) -> FeatureResult:
+    """Run the reference-bank metrics, gate, and triage a single feature.
+
+    This is the SINGLE-spp pass (no escalation); ``run()`` layers the SPP-
+    escalation re-render on top for noise-suspect TRANSLATION-BUG cells.
+    """
+    ssim, delta_e, ratio = _metrics(actual, reference)
 
     gr = T.gate(ssim, delta_e, ratio)
     res = FeatureResult(
@@ -202,10 +217,24 @@ def _run_leg(blender: Path, feat: Feature, engine: str, out_stem: Path,
     return ok, combined[-1500:]
 
 
+def _render_pair(blender: Path, feat: Feature, renders_dir: Path, res: int,
+                 samples: int, timeout: int, env: dict, *, suffix: str = ""):
+    """Render both engine legs for one feature. Returns (arrays, bad_engine,
+    log_tail): arrays is a {engine: np.ndarray} dict on success, else None with
+    the engine that failed and its log tail."""
+    import numpy as np
+    arrays = {}
+    for engine in ("CYCLES", "CUSTOM_RAYTRACER"):
+        stem = renders_dir / f"{feat.category}__{feat.feature}__{engine.lower()}{suffix}"
+        ok, log_tail = _run_leg(blender, feat, engine, stem, res, samples, timeout, env)
+        if not ok:
+            return None, engine, log_tail
+        arrays[engine] = np.load(stem.with_suffix(".npy"))
+    return arrays, None, ""
+
+
 def run(matrix_path: Path, out_dir: Path, *, res: int = 128, samples: int = 64,
         timeout: int = 300, include_composites: bool = True) -> int:
-    import numpy as np
-
     blender = _find_blender()
     if blender is None:
         print("[pkg119b] Blender not found (set BLENDER_EXE) - cannot run legs.",
@@ -247,21 +276,13 @@ def run(matrix_path: Path, out_dir: Path, *, res: int = 128, samples: int = 64,
                             "(sampling/meta feature - no oracle visual diff)"))
             continue
 
-        legs_ok = True
-        arrays = {}
-        for engine in ("CYCLES", "CUSTOM_RAYTRACER"):
-            stem = renders_dir / f"{feat.category}__{feat.feature}__{engine.lower()}"
-            ok, log_tail = _run_leg(blender, feat, engine, stem, res, samples,
-                                    timeout, env)
-            if not ok:
-                results.append(FeatureResult(
-                    feat.category, feat.feature, feat.phase_a_bucket, "crash",
-                    notes=f"{engine} leg did not PASS; back-propagates to close "
-                          f"Phase-A UNKNOWN cell. log tail:\n{log_tail}"))
-                legs_ok = False
-                break
-            arrays[engine] = np.load(stem.with_suffix(".npy"))
-        if not legs_ok:
+        arrays, bad_engine, log_tail = _render_pair(
+            blender, feat, renders_dir, res, samples, timeout, env)
+        if arrays is None:
+            results.append(FeatureResult(
+                feat.category, feat.feature, feat.phase_a_bucket, "crash",
+                notes=f"{bad_engine} leg did not PASS; back-propagates to close "
+                      f"Phase-A UNKNOWN cell. log tail:\n{log_tail}"))
             continue
 
         try:
@@ -271,10 +292,45 @@ def run(matrix_path: Path, out_dir: Path, *, res: int = 128, samples: int = 64,
                 feat.category, feat.feature, feat.phase_a_bucket, "crash",
                 notes=f"metric comparison raised {type(exc).__name__}: {exc}"))
             continue
+
+        # SPP-escalation discriminator: a FAIL that would be TRANSLATION-BUG but
+        # has in-band ratios + small dE is a noise-suspect. Re-render both legs at
+        # 4x spp and let triage decide NOISE-LIMITED vs a real (plateauing) bug.
+        if (res_ft.triage_bucket == T.TRANSLATION_BUG
+                and T.is_noise_suspect(res_ft.ratio, res_ft.delta_e)):
+            high_spp = samples * T.ESCALATION_FACTOR
+            print(f"    noise-suspect -> escalating {samples}->{high_spp} spp",
+                  flush=True)
+            hi_arrays, hi_bad, hi_log = _render_pair(
+                blender, feat, renders_dir, res, high_spp, timeout, env, suffix="__hi")
+            if hi_arrays is not None:
+                h_ssim, h_de, h_ratio = _metrics(
+                    hi_arrays["CUSTOM_RAYTRACER"], hi_arrays["CYCLES"])
+                h_gr = T.gate(h_ssim, h_de, h_ratio)
+                esc = T.Escalation(
+                    ssim_low=res_ft.ssim, ssim_high=h_ssim,
+                    spp_low=samples, spp_high=high_spp,
+                    ratio_high=h_ratio, delta_e_high=h_de)
+                bucket, reason = T.triage(
+                    feat.feature, feat.phase_a_bucket, h_gr, escalation=esc)
+                res_ft.triage_bucket = bucket
+                res_ft.triage_reason = reason
+                res_ft.escalated = True
+                res_ft.samples_low = samples
+                res_ft.samples_high = high_spp
+                res_ft.ssim_high_spp = h_ssim
+                res_ft.delta_e_high_spp = h_de
+            else:
+                res_ft.notes += (f"escalation re-render crashed on {hi_bad} leg; "
+                                 f"keeping TRANSLATION-BUG. log tail: {hi_log[:200]}")
+
         results.append(res_ft)
+        esc_note = (f" [esc {res_ft.samples_low}->{res_ft.samples_high} spp, "
+                    f"ssim->{res_ft.ssim_high_spp:.4f}]" if res_ft.escalated else "")
         print(f"    {res_ft.status.upper()} ssim={res_ft.ssim:.4f} "
               f"dE={res_ft.delta_e:.3f}"
-              + (f" -> {res_ft.triage_bucket}" if res_ft.triage_bucket else ""),
+              + (f" -> {res_ft.triage_bucket}" if res_ft.triage_bucket else "")
+              + esc_note,
               flush=True)
 
     write_reports(results, out_dir)
@@ -339,6 +395,11 @@ def write_reports(results: list[FeatureResult], out_dir: Path) -> None:
         tri = r.triage_bucket or (r.skip_reason or "") if r.status != "pass" else ""
         lines.append(f"| {r.category}:{r.feature} | {r.phase_a_bucket} | "
                      f"{r.status} | {ssim} | {de} | {tri} |")
+        if r.escalated:
+            lines.append(
+                f"  - SPP-escalation: {r.samples_low}->{r.samples_high} spp, "
+                f"SSIM {r.ssim:.4f}->{r.ssim_high_spp:.4f}, "
+                f"dE {r.delta_e:.3f}->{r.delta_e_high_spp:.3f}")
         if r.status == "crash" and r.notes:
             lines.append(f"  - crash: {r.notes.splitlines()[0]}")
     (out_dir / "triage_report.md").write_text("\n".join(lines), encoding="utf-8")

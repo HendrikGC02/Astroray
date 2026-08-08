@@ -67,18 +67,41 @@ is used in triage to recognise a uniform energy-scale offset (e.g. pkg89
 dedicated lights render ~3× hot) so it triages as INTENTIONAL-DIVERGENCE rather
 than a translation bug.
 
+### SPP-escalation (noise vs bug)
+
+A single-spp read **cannot** tell MC noise from a mean-preserving structural bug:
+both a noise-limited cell and a flipped/rotated-UV or geometry-offset bug can land
+ratios-in-band + small-dE + low-SSIM (memory `mc-noise-vs-deterministic`). The
+only robust discriminator is a **samples sweep**. So when a FAIL would otherwise
+be `TRANSLATION-BUG` but its ratios are all in-band **and** mean dE is small
+(`≤ DELTA_E_MAX/2 = 4.0`), the harness marks it a *noise-suspect* and **re-renders
+both legs at 4× spp** (`ESCALATION_FACTOR`), then re-gates. `classify_noise_vs_bug`
+(pure, in `triage.py`) then decides:
+
+* **NOISE-LIMITED** if the higher-spp SSIM **crosses** `SSIM_MIN`, **or** it climbs
+  by `≥ 0.03` (`NOISE_CLIMB_MARGIN`) **and** the gap-to-threshold shrinks by
+  `≥ 40 %` (`NOISE_GAP_SHRINK`). A converging deficit is under-sampling, not a bug.
+* **TRANSLATION-BUG** (unchanged) if the SSIM **plateaus** — a structural bug's
+  deficit does not shrink with more samples, so it is never masked.
+
+The escalation (both SSIM readings + the two spp) is written into the report so a
+NOISE-LIMITED verdict is auditable. Without a sweep (e.g. the escalation render
+crashed) the noise rule is skipped and the `TRANSLATION-BUG` default stands.
+
 ## Triage buckets (every FAIL lands in exactly one)
 
 | Bucket | Rule |
 |--------|------|
 | `INTENTIONAL-DIVERGENCE` | known-intentional table (pkg89 light energy/GPU-upload, spectral WAVELENGTH/BLACKBODY), OR Phase-A `APPROXIMATED`, OR uniform energy-scale ratio |
 | `NOT-IMPLEMENTED` | explicit known-not-implemented table (filled from observed no-effect renders) |
-| `TRANSLATION-BUG` | default: Phase-A `SUPPORTED` yet the render diverges |
+| `NOISE-LIMITED` | SPP-escalation sweep shows SSIM climbing toward the threshold with in-band ratios + small dE — under-converged, not a bug |
+| `TRANSLATION-BUG` | default: Phase-A `SUPPORTED`, render diverges, and the SSIM deficit PLATEAUS across the SPP sweep (or no sweep was available) |
 
 `NOT-IMPLEMENTED` and `TRANSLATION-BUG` features are listed as follow-up-package
-candidates in the report (round-close input). `INTENTIONAL-DIVERGENCE` is
-documented, not "fixed" here — this package builds the measurement system, it
-does not fix the red cells it finds (spec non-goal).
+candidates in the report (round-close input). `INTENTIONAL-DIVERGENCE` and
+`NOISE-LIMITED` are documented, not "fixed" here — this package builds the
+measurement system, it does not fix the red cells it finds (spec non-goal); a
+NOISE-LIMITED cell is a harness-convergence note, not an engine defect.
 
 ## Running
 

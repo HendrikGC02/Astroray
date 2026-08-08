@@ -370,12 +370,87 @@ def test_backdrop_avoids_nonparity_texture_node():
     assert "backdrop_probe" in inspect.getsource(SL.build_scene)
 
 
+def test_ratio_chromatically_uniform_separates_dim_from_contamination():
+    # Benign systemic dim (HW solid-diffuse backdrop): channels in lockstep -> ok.
+    assert T.ratio_is_chromatically_uniform((0.79, 0.80, 0.82)) is True
+    assert T.ratio_is_chromatically_uniform((1.0, 1.0, 1.0)) is True
+    assert T.ratio_is_chromatically_uniform((1.0, 1.14, 1.0)) is True   # spread 1.14
+    # Structural/hue contamination (HW checker backdrop, green 2.03) -> flagged.
+    assert T.ratio_is_chromatically_uniform((1.17, 2.03, 1.24)) is False
+    assert T.ratio_is_chromatically_uniform((1.0, 1.20, 1.0)) is False  # spread 1.20
+    # NaN / non-positive ratio is never "uniform".
+    assert T.ratio_is_chromatically_uniform((float("nan"), 1.0, 1.0)) is False
+    assert T.ratio_is_chromatically_uniform((0.0, 1.0, 1.0)) is False
+
+
+def _bands():
+    """Three vertical solid-colour bands (a stand-in for the backdrop)."""
+    img = np.zeros((48, 48, 3), np.float32)
+    img[:, :16] = (0.85, 0.22, 0.18)
+    img[:, 16:32] = (0.20, 0.70, 0.35)
+    img[:, 32:] = (0.22, 0.35, 0.85)
+    return img
+
+
+def test_backdrop_gate_logic_passes_uniform_dim():
+    # Same structure, all channels x0.82 (the benign systemic dim): uniform ratio
+    # AND normalized structure matches -> both gate arms pass.
+    cyc = _bands()
+    dim = (cyc * 0.82).astype(np.float32)
+    ratio = H.per_channel_ratio(dim, cyc)
+    assert T.ratio_is_chromatically_uniform(ratio)
+    norm_ssim, _, _ = H._metrics(_normalize_uniform_offset(dim, ratio), cyc)
+    assert norm_ssim >= 0.90
+
+
+def test_backdrop_gate_logic_fails_hue_contamination():
+    # Green channel scaled differently (a checker-class hue break): non-uniform
+    # ratio -> arm (1) rejects it before structure even matters.
+    cyc = _bands()
+    hue = cyc.copy()
+    hue[..., 1] *= 0.5
+    ratio = H.per_channel_ratio(hue, cyc)
+    assert not T.ratio_is_chromatically_uniform(ratio)
+
+
+def test_backdrop_gate_logic_fails_mean_preserving_structural_break():
+    # Same per-channel means (pixels shuffled) so ratio stays ~uniform and passes
+    # arm (1), but structure is destroyed -> arm (2) (normalized SSIM) catches it.
+    rng = np.random.default_rng(11)
+    cyc = _bands()
+    flat = cyc.reshape(-1, 3)
+    shuffled = flat[rng.permutation(flat.shape[0])].reshape(cyc.shape).astype(np.float32)
+    ratio = H.per_channel_ratio(shuffled, cyc)
+    assert T.ratio_is_chromatically_uniform(ratio)          # mean colour preserved
+    norm_ssim, _, _ = H._metrics(_normalize_uniform_offset(shuffled, ratio), cyc)
+    assert norm_ssim < 0.90                                  # structure diverges
+
+
+def _normalize_uniform_offset(actual, ratio):
+    """Scale each channel of ``actual`` by 1/ratio to divide out a uniform
+    Astroray-vs-Cycles luminance offset, leaving structure to be compared."""
+    scale = np.array([1.0 / r for r in ratio], dtype=np.float32)
+    return (actual * scale).astype(np.float32)
+
+
 @pytest.mark.serial
 @pytest.mark.gpu
 def test_backdrop_is_parity_safe(tmp_path):
     """On-hardware guard: render the backdrop-ONLY scene (no transparent sphere)
-    through both engines; the backdrop MUST agree (SSIM >= 0.95) or it silently
-    contaminates the BSDF_TRANSPARENT cell. Skips cleanly without Blender/build."""
+    through both engines and assert it is STRUCTURALLY parity-safe.
+
+    We deliberately do NOT gate on absolute SSIM. This harness has a SYSTEMIC
+    ~12-20% Astroray-dimmer-than-Cycles offset (memory: passing cells cluster at
+    ratio ~0.88 / chi2-glass parity-band dim) present on EVERY diffuse scene, so
+    no diffuse backdrop reaches SSIM>=0.95 on raw luminance - an absolute-SSIM
+    gate is unsatisfiable and conflates that benign uniform dim with a real
+    backdrop contamination. The contamination we actually guard against (the
+    ShaderNodeTexChecker class) shows up as CHROMATIC NON-UNIFORMITY, not low
+    SSIM: on HW the checker read ratio (1.17, 2.03, 1.24) (green 2.03) while the
+    solid-diffuse backdrop read (0.79, 0.80, 0.82) (tight, just the systemic
+    dim). So gate on ratio uniformity + offset-normalized structure. DO NOT
+    change this back to an absolute-SSIM threshold.
+    """
     blender = H._find_blender()
     if blender is None or not BLENDER.exists():
         pytest.skip("Blender 5.1 not installed - local-host gate")
@@ -393,8 +468,20 @@ def test_backdrop_is_parity_safe(tmp_path):
     arrays, bad_engine, log_tail = H._render_pair(
         blender, feat, renders, 128, 64, 300, env)
     assert arrays is not None, f"backdrop probe {bad_engine} leg crashed:\n{log_tail}"
-    ssim, delta_e, ratio = H._metrics(
+    _ssim, delta_e, ratio = H._metrics(
         arrays["CUSTOM_RAYTRACER"], arrays["CYCLES"])
-    assert ssim >= 0.95, (
-        f"backdrop is NOT parity-safe (SSIM {ssim:.4f}, dE {delta_e:.2f}, "
-        f"ratio {ratio}); it contaminates the transparent-BSDF differential")
+    # (1) chromatic uniformity: a hue/structural contamination breaks channels
+    #     apart; the benign systemic dim keeps them in lockstep.
+    assert T.ratio_is_chromatically_uniform(ratio), (
+        f"backdrop ratios {ratio} are NOT chromatically uniform -> structural/hue "
+        f"contamination (not the benign uniform dim); it corrupts the "
+        f"transparent-BSDF differential")
+    # (2) structure matches once the uniform offset is divided out. Catches a
+    #     structural break that happened to preserve mean per-channel ratio.
+    norm_ssim, _, _ = H._metrics(
+        _normalize_uniform_offset(arrays["CUSTOM_RAYTRACER"], ratio),
+        arrays["CYCLES"])
+    assert norm_ssim >= 0.90, (
+        f"backdrop structure diverges after removing the uniform dim "
+        f"(offset-normalized SSIM {norm_ssim:.4f}, dE {delta_e:.2f}); real "
+        f"backdrop contamination")

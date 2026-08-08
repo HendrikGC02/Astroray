@@ -42,6 +42,7 @@ per-feature threshold can be pinned without editing this module.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 SSIM_MIN = 0.90
@@ -150,6 +151,22 @@ def ratio_is_energy_scale(ratio: tuple[float, float, float]) -> bool:
     lows = [r < RATIO_LO for r in ratio]
     highs = [r > RATIO_HI for r in ratio]
     return all(highs) or all(lows)
+
+
+def ratio_is_chromatically_uniform(ratio: tuple[float, float, float],
+                                   *, max_spread: float = 1.15) -> bool:
+    """True iff the per-channel ratios agree with each other to within
+    ``max_spread`` (max/min). A UNIFORM energy-scale offset - e.g. this harness's
+    systemic ~0.88 Astroray-dim-vs-Cycles (memory: chi2-glass parity-band /
+    passing cells cluster at ratio ~0.88) - keeps all channels in lockstep and
+    passes; a STRUCTURAL or hue contamination (e.g. the non-parity
+    ShaderNodeTexChecker backdrop, HW ratio (1.17, 2.03, 1.24)) pulls channels
+    apart and fails. This is the right discriminator for "did the backdrop render
+    with the same STRUCTURE" - independent of absolute luminance, which the
+    systemic dim makes an unusable gate. NaN/non-positive ratio -> False."""
+    if not all(math.isfinite(r) and r > 0.0 for r in ratio):
+        return False
+    return max(ratio) / min(ratio) <= max_spread
 
 
 def ratio_in_band(ratio: tuple[float, float, float]) -> bool:

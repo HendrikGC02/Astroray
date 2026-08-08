@@ -313,6 +313,15 @@ __device__ int intersectPathSlot(
 // trace + resolve to the dedicated shadow stage (park the sample + wo +
 // throughput, enqueue the slot). Null => immediate occlude+resolve inline
 // (the flat/dense schedulings keep their original single-kernel behavior).
+// pkg174: template on Deferred. The production bucketed/NeeMis schedulings
+// always park NEE work to the deferred shadow stage (nee_f != nullptr), so the
+// immediate-NEE `else` branch (inline gpu_nee_occlude shadow-ray BVH/TLAS
+// traversal) is DEAD in those instantiations. Compiling it out with
+// `if constexpr (Deferred)` frees ptxas from allocating for its shadow-traversal
+// live set in the REG:254-saturated shade kernel. Deferred=false keeps the
+// immediate path for advancePathSlot (the dense/flat reference schedulings).
+// PERF ONLY — the compiled-out branch is unreachable in the deferred callers.
+template<bool Deferred>
 __device__ bool shadePathSlot(
     int idx,
     GPUWavefrontState& state,
@@ -437,7 +446,7 @@ __device__ bool shadePathSlot(
                                           dedLights, numDed,
                                           lightTree, &rng);
             if (s.valid) {
-                if (nee_f != nullptr) {
+                if constexpr (Deferred) {
                     // Defer the TRACE + emission to the shadow stage; the
                     // BSDF eval/pdf/MIS happen HERE where the material code
                     // already lives (Cycles shade_surface.h ordering). The
@@ -764,7 +773,7 @@ __device__ bool advancePathSlot(
                                     clampDirect, clampIndirect,
                                     lights, numLights, totalLightPower, lightTree);  // pkg120
     if (matType < 0) return false;
-    return shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
+    return shadePathSlot<false>(idx, state, hitBufs, tlas, instances, blas,
                          bvhNodes, prims, tris, spheres, motionVerts,
                          materials, lights, numLights, totalLightPower,
                          dedLights, numDed, lightTree, max_depth,
@@ -1060,7 +1069,7 @@ __global__ void stageShadeBucketedKernel(
     if (bucket >= G_WF_NUM_MAT_TYPES) return;
     if (pos >= shade_counts[bucket]) return;
     int idx = shade_queues[bucket * capacity + pos];
-    bool alive = shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
+    bool alive = shadePathSlot<true>(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
                                totalLightPower, dedLights, numDed,
@@ -1669,7 +1678,7 @@ __global__ void stageShadeNeeMisKernel(
                                     clampDirect, clampIndirect,
                                     lights, numLights, totalLightPower, lightTree);  // pkg120
     if (matType < 0) return;  // env miss / emissive hit: path died, no NEE.
-    shadePathSlot(idx, state, hitBufs, tlas, instances, blas,
+    shadePathSlot<true>(idx, state, hitBufs, tlas, instances, blas,
                   bvhNodes, prims, tris, spheres, motionVerts,
                   materials, lights, numLights, totalLightPower,
                   dedLights, numDed, lightTree, max_depth,

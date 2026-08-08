@@ -4,7 +4,7 @@
 **Track:** A (core BSDF + GPU closure work + RTX-verified Cycles parity — last-line-of-defense judgment; bounded sub-tasks delegated per the cost-routing policy)
 **Status:** open — Stage 0 dispatchable now; Stages 1–5 gated on the prior stage's acceptance
 **Estimated effort:** XL, staged across multiple rounds (each stage is its own PR set)
-**Depends on / composes with:** `disney.cpp` (the closest analog and the thing this eventually supersedes in the addon path — NOT deleted), `energy_compensation.h` (pkg60/151/160/163 Cycles-table lineage — reuse, do not fork), pkg163 spectral per-λ discipline, pkg149 VNDF, pkg176 (native settings/steering-wheel — Stage 5 rides its translation layer), pkg119-B differential harness (PR #550) + pkg104 reference bank + pkg71 cycles-parity benches (verification layer), pkg129-narrowed (rough-metal live-Cycles A/B composes with Stage 1), pkg174 (register-pressure ceiling — Stage 2's hard constraint).
+**Depends on / composes with:** `disney.cpp` (the closest analog and the thing this eventually supersedes in the addon path — NOT deleted), `energy_compensation.h` (pkg60/151/160/163 Cycles-table lineage — reuse, do not fork), pkg163 spectral per-λ discipline, pkg149 VNDF, pkg176 (native settings/steering-wheel — Stage 5 rides its translation layer), pkg119-B differential harness (PR #550) + pkg104 reference bank + pkg71 cycles-parity benches (verification layer), pkg129-narrowed (rough-metal live-Cycles A/B composes with Stage 1), pkg174 (register-pressure ceiling — Stage 2's hard constraint; its per-material-kernel-dispatch DESIGN doc `.astroray_plan/docs/pkg174-per-material-kernel-dispatch-design.md` is Stage 2's candidate vehicle), **pkg128 (thin-film iridescence — pre-existing open spec: Stage 4 adopts its per-λ Belcour-Barla design and builds the shared thin-film Fresnel utility; pkg128's residual charter narrows to standalone Glass/Metallic nodes + showcase, riding that utility)**.
 **Research note (read first):** `.astroray_plan/docs/cycles-principled-port-research-2026-08.md` — reference pin (Cycles main / Blender 5.2-era), full parameter + closure-stack breakdown, Astroray extension-point analysis, swarm assessment, citations.
 
 ## Goal (owner request, 2026-08-08 — provenance)
@@ -66,23 +66,36 @@ matched eval/pdf normalization (the pkg170 lesson, in from day one).
 Lobes: diffuse (Lambert + EON at `diffuse_roughness>0`), specular GGX with
 generalized-Schlick Fresnel (`specular_ior_level`/`specular_tint`),
 metallic F82-tint conductor, transmission rough glass — all reusing
-`energy_compensation.h` tables and VNDF sampling. Spectral legs via
-`evalSpectral`/`sampleSpectral` (upsample reflectance colour ONLY —
-memory `spectral-upsample-nonlinearity-scaled-bsdf`).
+`energy_compensation.h` tables and VNDF sampling. **Spectrally NATIVE
+from day one**: `evalSpectral` (the interface's one pure virtual) and
+`sampleSpectral` evaluate per-λ; do NOT copy Disney's
+upsample-the-RGB-eval shortcut (`disney.cpp:700-706` — the pkg118/163/168
+bug-class source; upsample reflectance colours only, scalars per-λ).
 Registration `ASTRORAY_REGISTER_MATERIAL("principled", ...)`; zero core
-edits expected on this stage (CMake auto-globs plugins).
+edits expected on this stage (CMake auto-globs plugins; add the name to
+`tests/test_material_plugins.py:20`). Binding gotcha: `createMaterial`
+swallows ctor exceptions into a silent legacy fallback — a
+registry-name-resolves test is mandatory.
 
-**Stage 2 — GPU twin (closure-graph extension).** Extend
-`MaterialClosureType`/`GMaterialClosure` (+ params), `scene_upload.cu`,
-and `gpu_materials.h` eval/sample/pdf/spectral for the Stage-1 lobe set;
-`G_MAX_MATERIAL_CLOSURES` 8→10 if the audit confirms the full stack needs
-it. **Register-pressure protocol is part of acceptance:** `cuobjdump`
-per-kernel reg/spill before/after; wavefront perf gate unchanged on
-non-principled scenes (hard); principled scenes get their own measured
-budget; if the existing shade kernels can't absorb the new closures,
-isolate them in a dedicated shade bucket rather than raising the ceiling
-(pkg174's recovery is not to be re-spent silently; ceiling changes are an
-owner call).
+**Stage 2 — GPU twin (closure-graph extension).** Lower via
+`GMAT_CLOSURE_GRAPH` (the `scene_upload.cu:108-148` preferred path), NOT a
+new `GMaterialType` — the enum route carries known silent traps
+(`G_WF_NUM_MAT_TYPES=7` clamp at `stage_advance.cu:1034-1036`, duplicated
+at `gpu_wavefront_snapshot.cu:1412`; `photon_caustic.cu:116` transmissive
+list). Extend `MaterialClosureType`/`GMaterialClosure` (+ params),
+`scene_upload.cu`, and `gpu_materials.h` eval/sample/pdf/spectral for the
+Stage-1 lobe set; closure caps (`material_closure.h:40` +
+`G_MAX_MATERIAL_CLOSURES`) 8→10 in lockstep if the audit confirms need.
+**Register-pressure protocol is part of acceptance:** `cuobjdump`
+per-kernel REG **and STACK** before/after (new arms inline into
+`gpu_material_sample_spectral` and grow spill/STACK, not REG — a REG-only
+check is blind); wavefront perf gate unchanged on non-principled scenes
+(hard); principled scenes get their own measured budget. Stage 2 opens
+with a sizing decision: absorb the closures into the existing bucketed
+shade kernel vs land pkg174's designed `template<int MatType>` per-bucket
+dispatch as the isolation vehicle; if neither fits without re-spending
+pkg174's recovered ceiling, that fork goes to the owner (D4), never
+silently.
 
 **Stage 3 — advanced layers.** Coat (GGX + `coat_ior`, `coat_tint` Beer
 absorption `tint^(1/cosθ_refracted)`, `coat_normal_offset`); Sheen LTC
@@ -92,24 +105,36 @@ the addon's promote-to-light heuristic for the flagged path); subsurface
 per decision D2. CPU+GPU per lobe (each lobe lands with both legs + its
 parity gate; Stage-2's register protocol applies to every GPU merge).
 
-**Stage 4 — Thin Film + Thin Wall.** Thin film: Belcour-Barla Airy
-reflectance on the specular/transmission dielectric closures AND the
-conductor closure (5.0 semantics), backface film-IOR adjustment; RGB legs
-mirror Cycles' CIE-sensitivity-LUT per-channel evaluation; the spectral
-integrator MAY evaluate Airy per sampled λ (flag the divergence in gates
-if used — parity legs compare like-for-like). Thin wall: combined-R+T
-thin-glass closure (seed from existing `thin_glass.cpp` +
-`MaterialClosureType::ThinGlass`, reconciled against Cycles
-`bsdf_thin_glass_setup`) + thin-subsurface (diffuse+translucent). Oracle
-needs Blender 5.2 (D1).
+**Stage 4 — Thin Film + Thin Wall.** Thin film: build the Belcour-Barla
+Airy-reflectance Fresnel layer ONCE as a shared utility **per pkg128's
+pre-existing design** — per sampled λ on the spectral core (no RGB
+sensitivity fit needed there; simpler than Cycles' own path), with the RGB
+legs mirroring Cycles' CIE-sensitivity-LUT per-channel evaluation for
+like-for-like parity gates. Apply to the specular/transmission dielectric
+closures AND the conductor closure (5.0 semantics), with backface film-IOR
+adjustment. pkg128's residual charter (standalone Glass/Metallic nodes +
+spectral showcase) rides the same utility — coordinate, don't duplicate.
+Thin wall: combined-R+T thin-glass closure (seed from existing
+`thin_glass.cpp` + `MaterialClosureType::ThinGlass`, reconciled against
+Cycles `bsdf_thin_glass_setup`) + thin-subsurface (diffuse+translucent).
+Oracle needs Blender 5.2 (D1).
 
-**Stage 5 — addon switch (flag, not replace).**
-`convert_principled_bsdf_v2` routes `ShaderNodeBsdfPrincipled` →
-`'principled'` behind an addon option (default OFF until the Stage-5
-parity matrix is green; flip-default is an owner sign-off). Full socket
-map incl. renamed-input fallbacks; `shader_blending.py` learns the new
-spec kind; Disney path preserved untouched as fallback. Per-render
-one-line report of any still-approximated socket (pkg119-C policy).
+**Stage 5 — addon switch (flag, not replace).** Route
+`ShaderNodeBsdfPrincipled` → `'principled'` behind an addon option
+(default OFF until the Stage-5 parity matrix is green; flip-default is an
+owner sign-off). **BOTH translation paths switch together** via one
+flag-aware helper replacing the three `'disney'` literals: the live
+spec-based path (`_principled_shader_spec:3055` /
+`_create_material_from_shader_spec:3237,:3241`) and the semi-orphaned
+`convert_principled_bsdf_v2:3437`. Full socket map incl. renamed-input
+fallbacks; alpha routes through a real transparent lobe on the flagged
+path (retiring the `transmission=max(transmission,1-alpha)` conflation —
+the convicted BSDF_TRANSPARENT bug family); `shader_blending.py` learns
+the new spec kind; Disney path preserved byte-identical as fallback.
+Per-render one-line report of any still-approximated socket (pkg119-C
+policy). `coverage_matrix.json` cells for newly-honoured sockets flip
+DROPPED-SILENT→SUPPORTED so the pkg119-B harness picks them up; the A/B is
+one harness sweep flag-off vs flag-on, diffing `triage_report.json`.
 
 ## Verification plan (every stage; Cycles is the oracle)
 

@@ -112,11 +112,24 @@ F82-tint; OpenPBR spec (EON diffuse).
   string-keyed `MaterialRegistry`. `disney.cpp:918` registers `"disney"`.
 - Build: `CMakeLists.txt:303` `file(GLOB_RECURSE ASTRORAY_PLUGIN_SOURCES
   CONFIGURE_DEPENDS ...)` — a new `plugins/materials/principled.cpp` needs
-  **zero CMake edits**.
+  **zero CMake edits** (plugins build as an OBJECT library so the
+  registration static-initializers survive).
 - Interface (`include/raytracer.h:424`): `sample/eval/pdf/emitted` +
-  spectral (`evalSpectral:485`, `sampleSpectral:494`, `Ext` variants for
-  pkg39 profiles) + `closureGraph():437` (the GPU lowering) +
-  `backendCapabilities():438` (validates the graph for GPU reachability).
+  spectral — **`evalSpectral` (`:485`) is the one PURE-VIRTUAL hard
+  requirement**; `sampleSpectral:494` has an upsampling default with the
+  eta²-clamp guard; `Ext` variants for pkg39 profiles — +
+  `closureGraph():437` (the GPU lowering) + `backendCapabilities():438`
+  (validates the graph for GPU reachability) + ~14 scalar getters that form
+  the `scene_upload.cu` upload ABI.
+- Binding gotchas (`module/blender_module.cpp:477-505`
+  `PyRenderer::createMaterial`): NO prefixed-key map or `enable_*` branch
+  for materials (blanket ParamDict pass-through — the GR-emission wiring
+  checklist does not apply here), BUT (a) a ctor exception is swallowed and
+  silently falls back to a legacy material — test the registry name
+  explicitly; (b) `params.contains("texture")` bypasses the registry
+  entirely (the root cause of the addon's textured-basecolor→lambertian
+  downgrade); (c) `ParamDict` float/int stores are type-segregated — use
+  `getFloat` only.
 - Reusable subsystems already in place: `energy_compensation.h` (Cycles
   `table_ggx_E`/`Eavg` + glass tables, Kulla-Conty layering — pkg60/151/
   160/163 lineage), VNDF sampling (pkg149), `RGBAlbedoSpectrum`
@@ -147,18 +160,38 @@ file + registration, no core edits.
   ior+tint absorption, LTC sheen, thin-film fresnel params on conductor +
   dielectric closures, thin-subsurface/translucent), per-closure param
   fields, possibly `G_MAX_MATERIAL_CLOSURES` 8→10 (the full stack can
-  allocate up to 9 closures incl. transparent+emission), upload plumbing,
-  and eval/sample/pdf/spectral switch arms.
+  allocate up to 9 closures incl. transparent+emission; CPU-side cap
+  `material_closure.h:40` moves in lockstep), upload plumbing
+  (`scene_upload.cu:108-148` closure path preferred over a new
+  `GMAT_PRINCIPLED` string arm), and eval/sample/pdf/spectral switch arms.
+- **Known traps if a new `GMaterialType` is added instead of riding
+  `GMAT_CLOSURE_GRAPH`:** `stage_advance.cu:109` `G_WF_NUM_MAT_TYPES = 7`
+  with a SILENT clamp at `:1034-1036` (an out-of-range type shades in the
+  wrong bucket, no error), duplicated as `kNumMatTypes = 7` at
+  `gpu_wavefront_snapshot.cu:1412`; and `photon_caustic.cu:116-124`
+  `isTransmissive` must learn any new transmissive type or caustics
+  silently skip it. The closure-graph route avoids the first two entirely
+  — a strong argument for it.
 - LTC sheen and thin-film sensitivity data need table uploads — precedent
   exists (Cycles `shader.tables` GGX E/Eavg already ship on both legs,
   `gpu_ggx_tables.cu`, `gpu_glass_tables.cu`).
+- **Extensibility unlock (design-only today):**
+  `.astroray_plan/docs/pkg174-per-material-kernel-dispatch-design.md` —
+  `template<int MatType>` per-bucket shade kernels off the already-sorted
+  shade queues. Measured perf-neutral; its justification is exactly this
+  package's problem (adding materials without growing one shared kernel's
+  spill). Stage 2 should decide whether to land it as its vehicle.
 
 ### 2.3 Register-pressure risk (the known ceiling)
 
 `stageAdvance`/`stageShadeBucketed` are pinned at 254 regs; any extra
 per-hit live state spills ~2KB and tanks wavefront perf (memory
 `wavefront-shade-kernels-register-saturated`; pkg168/pkg174 history; pkg174
-just recovered the ceiling to owner-accepted levels). The thin-film Airy
+just recovered the ceiling to owner-accepted levels). Measured attribution
+(pkg174 design doc, `cuobjdump`): NEE and BSDF legs are two independent
+~160-reg consumers on a ~95-reg base — new material arms inlined into
+`gpu_material_sample_spectral` grow STACK spill, not REG, so the damage is
+invisible to a REG-only check; watch STACK. The thin-film Airy
 summation (complex phasors, per-channel loop) and LTC sheen fetch are
 exactly the kind of code that spills. Mitigations, in preference order:
 1. Evaluate new closures in a **dedicated shade bucket/kernel** for
@@ -173,30 +206,73 @@ scenes unconditionally; principled-scene perf gets its own measured budget.
 
 ### 2.4 Blender addon seam
 
-`blender_addon/__init__.py:3358` `convert_principled_bsdf_v2` maps
-Principled→`'disney'` today, dropping/approximating: coat ior/tint/normal,
-sheen tint/roughness, specular_ior_level/tint (partially), diffuse
+**Two parallel Principled translation paths — both must switch together:**
+the live spec-based path (`_principled_shader_spec:3055` →
+`_create_material_from_shader_spec:3189`, `'disney'` literal at `:3237`
+plus the `'transparent'`-kind lowering at `:3241`) and the semi-orphaned
+`convert_principled_bsdf_v2:3358` (`'disney'` at `:3437`). Three literals →
+one flag-aware helper. Today's mapping drops/approximates: coat
+ior/tint/normal, sheen tint/roughness, specular_ior_level/tint, diffuse
 roughness, SSS radius/scale/anisotropy/method, anisotropic rotation/tangent,
-thin film (entirely), thin wall (entirely); emission is heuristically
-promoted to a `'light'` material; **textured base color downgrades the whole
-material to textured-lambertian** (`:3425` — a known wart, adjacent scope).
-The switch point for pkg178 Stage 5 is exactly this function: route to
-`'principled'` behind a flag, keep `'disney'` as fallback. `shader_blending.py`
-normalizes principled specs and must learn the new params too.
+thin film + thin wall (entirely); **alpha is folded into
+`transmission = max(transmission, 1-alpha)`** (opacity/refraction
+conflation — same family as the convicted BSDF_TRANSPARENT
+TRANSLATION-BUG, SSIM 0.44, which lowers transparent to a Disney ior=1.0
+dielectric at `:3239-3241`); emission is heuristically promoted to a
+`'light'` material; **textured base color downgrades the whole material to
+textured-lambertian** (`:3227-3235` — root cause is the
+`params.contains("texture")` registry bypass in `createMaterial`).
+The manual-override dropdown (`CustomRaytracerMaterialSettings:705`)
+enumerates `material_registry_names()` — a new registered material appears
+there automatically. `shader_blending.py` normalizes principled specs and
+must learn the new params too. `dist/astroray/__init__.py` is a build
+artifact — never edit.
 
 ### 2.5 Verification infrastructure (exists, reusable)
 
-- pkg119-B differential harness (Cycles-vs-Astroray, PR #550; runbook in
-  memory `pkg119b-harness-runbook`) — per-feature scene pairs, the natural
-  home for a Principled feature-matrix leg.
+- pkg119-B differential harness (Cycles-vs-Astroray, PR #550,
+  `benchmarks/blender_parity/{harness,render_leg,scene_library,triage}.py`;
+  runbook in memory `pkg119b-harness-runbook`) — per-feature scene pairs;
+  current gates SSIM≥0.90 / mean ΔE2000≤8.0, per-channel ratio for triage
+  only. A native Principled needs NO harness code change: flip the flag,
+  re-run, diff `triage_report.json` flag-off vs flag-on; new rows (thin
+  film, thin wall) enter by reclassifying their `coverage_matrix.json`
+  cells from DROPPED-SILENT. Note these package-level gates are looser
+  than pkg178's per-feature parity bands — the harness locates
+  divergence, the per-lobe gates convict it.
 - `benchmarks/reference_bank/` (pkg104) Cycles-as-oracle blessing + metrics;
   `benchmarks/cycles-parity/` (pkg71) paired render legs.
 - pkg166 conventions: linear rendering (`apply_gamma=False`), floor AND
   ceiling bands (gamma furnaces cannot detect energy gain).
 - pkg129 (narrowed) live-Cycles rough-metal A/B — composes with Stage-1
-  metal-lobe acceptance.
+  metal-lobe acceptance (spec only, no code shipped yet; the closest
+  substrate is `benchmarks/cycles-parity/` from pkg71).
+- **pkg128 (thin-film iridescence) — pre-existing open spec, reconciled:**
+  pkg128 already specifies Belcour-Barla thin film across
+  metal/dielectric/disney + GPU + the six DROPPED-SILENT addon sockets,
+  with the key design insight that **Astroray's spectral core can evaluate
+  the Airy term per sampled wavelength directly** (no RGB
+  sensitivity-curve fit — simpler than Cycles' own implementation).
+  pkg178 Stage 4 adopts pkg128's per-λ design and implements the
+  thin-film Fresnel layer ONCE as a shared utility; pkg128's residual
+  charter narrows to the standalone Glass/Metallic node cells + the
+  spectral showcase visuals, riding the same utility.
 - Gate style: per-channel mean-ratio bands, not SSIM, for independent RNG
   streams (memory `ssim-wrong-gate-for-independent-rng`).
+
+---
+
+### 2.6 Highest-value design decision: spectrally native from day one
+
+Disney's `evalSpectral` is the pkg13 shortcut — upsample the post-scale RGB
+eval (`disney.cpp:700-706`). Jakob-Hanika upsampling is nonlinear in
+magnitude (`upsample(k·c) != k·upsample(c)`), and this exact shortcut has
+already produced three separate bug classes (pkg118/#404 eta² clamp, pkg163
+metal colour-space seam, pkg168 diffuse upsample-shape). The new material
+must be per-λ native in `evalSpectral`/`sampleSpectral` (upsample
+reflectance COLOURS, apply scalars per-λ), matching the pattern
+`gpu_metal_eval_spectral`/`MetalPlugin::evalSpectral` established. This is
+the single largest correctness improvement over porting Disney's shape.
 
 ---
 

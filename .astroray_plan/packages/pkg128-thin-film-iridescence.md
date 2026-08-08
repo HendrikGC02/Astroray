@@ -3,7 +3,7 @@
 **Pillar:** 2 (materials / BSDF) + 5 (spectral showcase)
 **Track:** A (CPU-first spectral BSDF layer with numerical + visual gates; GPU spectral-closure mirror RTX-verified; Blender addon parity cells closed)
 **Codex-paste-ready:** no (a physically-based interference model re-derived from the paper, applied across three closures + the GPU mirror, plus a spectral-showcase visual bar and addon socket wiring — needs judgment, not a mechanical patch)
-**Status:** open — self-contained material feature; the recommended "good medium package after Phase C" in the research adoption plan
+**Status:** open — self-contained material feature; the recommended "good medium package after Phase C" in the research adoption plan. **Cross-ref 2026-08-08:** pkg178 (native Cycles Principled BSDF) Stage 4 adopts this spec's per-λ Belcour-Barla design and builds the shared thin-film Fresnel utility; this package's residual charter is the standalone Glass/Metallic node cells + the spectral showcase, riding that utility — coordinate at dispatch time.
 **Estimated effort:** M–L (a self-contained interference term is moderate, but it attaches to metal/dielectric/Disney Fresnel on both CPU and GPU, needs a spectral-native evaluation the RGB references don't, and closes three DROPPED-SILENT addon parity cells with a visual showcase gate)
 **Depends on:** none hard. Composes with the spectral material path (pkg30/pkg35 spectral BSDF interface) and the Fresnel evaluation in `plugins/materials/{metal,dielectric,disney}.cpp` + `include/astroray/gpu_materials.h`. Best sequenced after pkg55 Phase C so the GPU mirror lands in the single surviving wavefront closure rather than the doomed megakernel.
 

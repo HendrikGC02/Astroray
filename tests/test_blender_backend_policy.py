@@ -230,6 +230,70 @@ def test_configure_backend_auto_logs_and_falls_back_for_unsupported_integrator(m
 
 
 # ---------------------------------------------------------------------------
+# pkg171 — CPU-only integrators must fail LOUDLY on GPU, not render near-black.
+# light_tracer_caustic (pkg106) has no GPU kernel; the #540 HW verification
+# forced it onto GPU and got a near-black frame (peak 0.019 vs CPU 0.500). The
+# dispatch-logic guard (this addon layer + the raw-binding backstop in
+# module/blender_module.cpp render()) is enumerated by capabilities()
+# .gpuSupported == false — no integrator name is hardcoded.
+# ---------------------------------------------------------------------------
+
+def _load_addon_with_cpu_only_caustic(monkeypatch, renderer_cls):
+    """Registry mock that includes light_tracer_caustic as a CPU-only plugin
+    (gpuSupported=False, with the real fallback reason)."""
+    gpu_set = {"path_tracer", "ambient_occlusion"}
+    return _load_blender_addon(monkeypatch, renderer_cls, extra_astroray_attrs={
+        "integrator_registry_names": lambda: [
+            "path_tracer", "ambient_occlusion", "light_tracer_caustic"],
+        "integrator_capabilities": lambda name: {
+            "gpuSupported": name in gpu_set,
+            "gpuFallbackReason": "" if name in gpu_set
+            else "forward light-tracer caustic (CPU-only)",
+        },
+    })
+
+
+def test_configure_backend_gpu_rejects_light_tracer_caustic(monkeypatch):
+    """pkg171: device_mode='gpu' + light_tracer_caustic must raise, not silently
+    render near-black (#540)."""
+    reports = []
+
+    class R:
+        gpu_available = True
+        def set_use_gpu(self, v):
+            raise AssertionError("set_use_gpu must not run for a CPU-only integrator")
+
+    addon = _load_addon_with_cpu_only_caustic(monkeypatch, R)
+    settings = _make_settings(device_mode="gpu", integrator_type="light_tracer_caustic")
+    try:
+        addon.configure_backend(R(), settings, lambda *args: reports.append(args))
+    except RuntimeError as exc:
+        assert "light_tracer_caustic" in str(exc)
+        assert "does not support GPU" in str(exc)
+    else:
+        raise AssertionError("forced GPU mode must raise for light_tracer_caustic")
+    assert reports and reports[0][0] == {'ERROR'}
+
+
+def test_configure_backend_auto_falls_back_for_light_tracer_caustic(monkeypatch):
+    """pkg171: device_mode='auto' + light_tracer_caustic falls back to CPU with a
+    visible INFO notice (never a silent GPU near-black)."""
+    reports = []
+
+    class R:
+        gpu_available = True
+        def set_use_gpu(self, v):
+            raise AssertionError("set_use_gpu must not run for a CPU-only integrator")
+
+    addon = _load_addon_with_cpu_only_caustic(monkeypatch, R)
+    settings = _make_settings(device_mode="auto", integrator_type="light_tracer_caustic")
+    result = addon.configure_backend(R(), settings, lambda *args: reports.append(args))
+    assert result == "cpu"
+    assert reports and reports[0][0] == {'INFO'}
+    assert "light_tracer_caustic" in reports[0][1]
+
+
+# ---------------------------------------------------------------------------
 # configure_backend is present as a module-level function
 # ---------------------------------------------------------------------------
 

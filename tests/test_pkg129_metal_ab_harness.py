@@ -12,6 +12,7 @@ verdict here by design.
 from __future__ import annotations
 
 import sys
+import importlib.util
 from pathlib import Path
 
 import numpy as np
@@ -19,12 +20,34 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _METAL_AB = REPO_ROOT / "benchmarks" / "cycles-parity" / "metal_ab"
-for p in (str(REPO_ROOT), str(_METAL_AB)):
-    if p not in sys.path:
-        sys.path.insert(0, p)
+# REPO_ROOT stays on sys.path so metal_ab/harness can resolve its
+# `benchmarks.reference_bank.metrics` import (fully-qualified, no collision).
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-import scenes as S  # noqa: E402
-import harness as H  # noqa: E402
+
+def _load_unique(mod_name, path):
+    """Load a module from an explicit file path under a UNIQUE name.
+
+    A bare ``import scenes`` / ``import harness`` collides in the full CI suite:
+    other benchmarks dirs ship same-named modules (``benchmarks/blender_parity/
+    harness.py``, several ``scenes`` packages), so whichever test imports first
+    wins ``sys.modules`` and this test gets the wrong cached module
+    (AttributeError: module 'scenes' has no attribute 'metal_sweep'). Loading by
+    file path under a pkg129-unique name sidesteps the cache entirely.
+    """
+    spec = importlib.util.spec_from_file_location(mod_name, path)
+    mod = importlib.util.module_from_spec(spec)
+    # Register BEFORE exec: @dataclass in the loaded module resolves its own
+    # __module__ via sys.modules, which fails if the module isn't registered.
+    # The unique name means no collision with other benchmarks modules.
+    sys.modules[mod_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+S = _load_unique("pkg129_metal_ab_scenes", _METAL_AB / "scenes.py")  # noqa: E402
+H = _load_unique("pkg129_metal_ab_harness", _METAL_AB / "harness.py")  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #

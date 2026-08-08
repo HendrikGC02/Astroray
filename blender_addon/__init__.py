@@ -210,16 +210,17 @@ _VIEWPORT_DISPLAY_PASS_ITEMS = [
 ]
 
 class CustomRaytracerRenderSettings(PropertyGroup):
-    # pkg176 Stage 1: the properties tagged "[Deprecated alias]" below now shadow
-    # a native Blender/Cycles control (see blender_addon/settings_map.py). The
-    # exporter reads the native value unless one of these was explicitly set in a
-    # saved .blend, in which case it wins for one release and logs a migration
-    # note per render (native_settings.resolve_native_settings). Set the value in
-    # Blender's native panel instead; these duplicates are removed in a later stage.
-    samples: IntProperty(name="Samples", min=1, max=65536, default=2,
-        description="[Deprecated alias] Superseded by native scene.cycles.samples")
-    preview_samples: IntProperty(name="Viewport Samples", min=1, max=1024, default=1,
-        description="[Deprecated alias] Superseded by native scene.cycles.preview_samples")
+    # pkg176 Stage 4: the DIRECT-mapped custom duplicates (samples,
+    # preview_samples, the light-path depths, clamp direct/indirect, filter
+    # glossy, reflective/refractive caustics, use_denoising) were RETIRED here.
+    # Their one-release back-compat window (Stage 1) is closed: the exporter now
+    # reads the native Blender/Cycles value for every `direct` row via
+    # native_settings.resolve_native_settings (see blender_addon/settings_map.py).
+    # An old .blend that saved one of the removed props degrades gracefully -
+    # Blender drops the unknown member on load and the native value is used.
+    # Only genuinely engine-unique / semantically-mismatched controls remain
+    # below (spectral band, device tri-state, integrator, denoiser backend, the
+    # not-yet-plumbed adaptive-sampling / light-sampler controls).
     viewport_display_pass: EnumProperty(
         name="Viewport Pass",
         description="Render pass shown in the rendered-shading viewport",
@@ -246,31 +247,9 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         ],
         default='auto',
     )
-    max_bounces: IntProperty(name="Max Bounces", min=0, max=1024, default=10,
-        description="[Deprecated alias] Superseded by native scene.cycles.max_bounces")
-    diffuse_bounces: IntProperty(name="Diffuse", min=0, max=1024, default=4,
-        description="[Deprecated alias] Superseded by native scene.cycles.diffuse_bounces")
-    glossy_bounces: IntProperty(name="Glossy", min=0, max=1024, default=4,
-        description="[Deprecated alias] Superseded by native scene.cycles.glossy_bounces")
-    transmission_bounces: IntProperty(name="Transmission", min=0, max=1024, default=12,
-        description="[Deprecated alias] Superseded by native scene.cycles.transmission_bounces")
-    volume_bounces: IntProperty(name="Volume", min=0, max=1024, default=0,
-        description="[Deprecated alias] Superseded by native scene.cycles.volume_bounces")
-    transparent_bounces: IntProperty(name="Transparent", min=0, max=1024, default=8,
-        description="[Deprecated alias] Superseded by native scene.cycles.transparent_max_bounces")
     use_adaptive_sampling: BoolProperty(name="Adaptive Sampling", default=True,
         description="Stop sampling pixels that have already converged")
     adaptive_threshold: FloatProperty(name="Noise Threshold", min=0.001, max=1.0, default=0.01)
-    clamp_direct: FloatProperty(name="Clamp Direct", min=0.0, max=100.0, default=0.0,
-        description="[Deprecated alias] Superseded by native scene.cycles.sample_clamp_direct (0 disables)")
-    clamp_indirect: FloatProperty(name="Clamp Indirect", min=0.0, max=100.0, default=0.0,
-        description="[Deprecated alias] Superseded by native scene.cycles.sample_clamp_indirect (0 disables)")
-    filter_glossy: FloatProperty(name="Filter Glossy", min=0.0, max=10.0, default=0.0,
-        description="[Deprecated alias] Superseded by native scene.cycles.blur_glossy")
-    use_reflective_caustics: BoolProperty(name="Reflective Caustics", default=True,
-        description="[Deprecated alias] Superseded by native scene.cycles.caustics_reflective")
-    use_refractive_caustics: BoolProperty(name="Refractive Caustics", default=True,
-        description="[Deprecated alias] Superseded by native scene.cycles.caustics_refractive")
     light_sampler: EnumProperty(
         name="Light Sampler",
         description="Strategy for sampling lights in Next Event Estimation (Conty et al. 2018 Light Tree)",
@@ -296,8 +275,6 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         description="Light transport integrator (from plugin registry)",
         items=_integrator_type_items,
     )
-    use_denoising: BoolProperty(name="Denoise", default=False,
-        description="[Deprecated alias] Superseded by native scene.cycles.use_denoising")
     # pkg39: wavelength / multi-spectral settings
     wavelength_preset: EnumProperty(
         name="Preset",
@@ -4549,9 +4526,18 @@ class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):
 
         settings = context.scene.custom_raytracer
 
+        # pkg176 Stage 4: samples/preview_samples are `direct` rows read natively
+        # (native_settings.DIRECT_ALIASES). Cycles bundles them with dropped
+        # adaptive/time_limit controls, so the native Sampling panel is NOT
+        # adopted (see ADOPTED_NATIVE_PANELS); instead we draw the honest native
+        # scene.cycles.samples / preview_samples directly on this custom panel.
+        cycles = getattr(context.scene, "cycles", None)
         col = layout.column(align=True)
-        col.prop(settings, "samples", text="Render")
-        col.prop(settings, "preview_samples", text="Viewport")
+        if cycles is not None:
+            col.prop(cycles, "samples", text="Render")
+            col.prop(cycles, "preview_samples", text="Viewport")
+        else:
+            col.label(text="Enable the Cycles add-on for sample counts", icon='INFO')
 
         layout.separator()
         col = layout.column(align=True)

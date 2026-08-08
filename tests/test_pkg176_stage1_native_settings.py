@@ -1,15 +1,17 @@
-"""pkg176 Stage 1 - native-settings resolution (translation layer) unit tests.
+"""pkg176 Stage 1/4 - native-settings resolution (translation layer) unit tests.
 
 Pure Python, no Blender / engine / GPU. Exercises
 ``blender_addon/native_settings.py`` with a stub ``scene`` mirroring the Blender
-datablock shape (``scene.cycles.*`` native props + ``scene.custom_raytracer.*``
-deprecated custom duplicates).
+datablock shape (``scene.cycles.*`` native props + ``scene.custom_raytracer.*``).
 
 Acceptance covered:
   (a) each DIRECT-mapped native prop flows to the resolved setting (correct
       native source + name/unit mapping);
-  (b) a set legacy custom prop still wins, with a logged migration note;
-  (c) an approximated/dropped setting is NOT read from native (stays custom).
+  (b) Stage 4 retired the custom duplicates: the native value ALWAYS wins and no
+      migration note is emitted, even if a stale custom attribute is present;
+  (c) an approximated/dropped setting is NOT read from native (stays custom);
+  (d) a Cycles-less scene falls back gracefully (default / stale custom) and
+      never raises.
 """
 
 import importlib.util
@@ -161,36 +163,30 @@ def test_no_migration_note_when_no_legacy_override():
 
 
 # --------------------------------------------------------------------------- #
-# (b) a set legacy custom prop wins, and logs a migration note
+# (b) Stage 4 retirement: the custom duplicates no longer override native, and
+#     no migration note is emitted even for a stale explicitly-set custom value.
 # --------------------------------------------------------------------------- #
 
-def test_legacy_custom_override_wins_and_logs():
+def test_native_wins_over_stale_custom_and_emits_no_note():
     reports = []
+    # even a stale explicitly-set custom value must NOT win any more.
     scene = _scene(_native_cycles(), explicitly_set=("max_bounces", "clamp_direct"))
     resolved = ns.resolve_native_settings(scene, report=lambda t, m: reports.append((t, m)))
 
-    # overridden props take the CUSTOM value, not native
-    assert resolved.max_bounces == 10
-    assert resolved.clamp_direct == 0.0
-    # non-overridden direct props still read native
+    assert resolved.max_bounces == 24    # native, not the custom 10
+    assert resolved.clamp_direct == 2.5  # native, not the custom 0.0
     assert resolved.samples == 64
     assert resolved.glossy_bounces == 6
 
-    # exactly one migration note per overridden alias, tagged WARNING
-    assert len(reports) == 2
-    joined = " ".join(m for _, m in reports)
-    assert "custom_raytracer.max_bounces" in joined
-    assert "custom_raytracer.clamp_direct" in joined
-    assert all(t == {'WARNING'} for t, _ in reports)
+    # the deprecation/migration note is retired along with the aliases.
+    assert reports == []
 
 
-def test_legacy_override_falls_back_to_print_without_report(capsys):
+def test_report_none_is_silent(capsys):
     scene = _scene(_native_cycles(), explicitly_set=("samples",))
     resolved = ns.resolve_native_settings(scene, report=None)
-    assert resolved.samples == 2  # custom value wins
-    out = capsys.readouterr().out
-    assert "custom_raytracer.samples" in out
-    assert "deprecated" in out.lower()
+    assert resolved.samples == 64  # native wins
+    assert capsys.readouterr().out == ""
 
 
 # --------------------------------------------------------------------------- #
@@ -214,15 +210,31 @@ def test_approximated_and_dropped_stay_custom():
 
 
 # --------------------------------------------------------------------------- #
-# fallback: non-Cycles / stub scene keeps custom values (behaviour unchanged)
+# (d) fallback: Cycles-less scene never raises
 # --------------------------------------------------------------------------- #
 
-def test_non_cycles_scene_uses_custom_values_unchanged():
+def test_non_cycles_scene_falls_through_to_stale_custom_if_present():
+    # a pre-retirement object / stub that still carries the custom attr is honoured
+    # as a graceful read back-compat path (no native source, attr present).
     resolved = ns.resolve_native_settings(_scene(cycles=None))
     assert resolved.samples == 2
     assert resolved.max_bounces == 10
     assert resolved.clamp_direct == 0.0
     assert resolved.light_sampler == 'power'
+
+
+def test_non_cycles_scene_without_custom_attrs_uses_defaults():
+    """Real Stage-4 shape: the retired custom props are GONE from the settings
+    object and there is no Cycles datablock -> DIRECT_DEFAULTS, never a raise."""
+    bare = types.SimpleNamespace()  # no direct-alias attrs at all
+    scene = types.SimpleNamespace(custom_raytracer=bare, cycles=None)
+    resolved = ns.resolve_native_settings(scene)
+    for custom_attr, expected in ns.DIRECT_DEFAULTS.items():
+        assert getattr(resolved, custom_attr) == expected
+
+
+def test_direct_defaults_cover_every_alias():
+    assert set(ns.DIRECT_DEFAULTS) == {c for _, c in ns.DIRECT_ALIASES}
 
 
 def test_attribute_write_reaches_underlying_settings():

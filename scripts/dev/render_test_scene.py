@@ -88,11 +88,14 @@ def main():
         print(f"FAIL: couldn't set render engine to CUSTOM_RAYTRACER: {e}")
         sys.exit(3)
 
-    # Engine-side sampling settings (we registered these as scene.custom_raytracer)
+    # pkg176 Stage 4: samples / max_bounces are read from the native Cycles props.
+    cyc = getattr(scene, "cycles", None)
+    if cyc is not None:
+        cyc.samples = args.samples
+        cyc.max_bounces = args.max_bounces
+    # Adaptive sampling stays an astroray-only custom control.
     cr = getattr(scene, "custom_raytracer", None)
     if cr is not None:
-        cr.samples = args.samples
-        cr.max_bounces = args.max_bounces
         # Keep adaptive sampling off for deterministic timings in tests
         cr.use_adaptive_sampling = False
 

@@ -22,6 +22,7 @@
 
 #include "astroray/register.h"
 #include "astroray/energy_compensation.h"
+#include "astroray/sheen_ltc_table.h"
 #include "raytracer.h"
 
 #include <algorithm>
@@ -38,6 +39,19 @@ class PrincipledPlugin : public Material {
     float transmission_;
     bool thinWall_;  // parsed; Thin Wall is Stage 4 (unused here — seam only)
 
+    // pkg178 Stage 3 advanced-layer inputs (Cycles socket names). Default values
+    // (all weights 0) reproduce the Stage-1 core-lobe stack byte-for-byte so the
+    // merged furnace/chi²/parity gates do not regress.
+    float coatWeight_, coatRoughness_, coatIor_;
+    Vec3 coatTint_;
+    float sheenWeight_, sheenRoughness_;
+    Vec3 sheenTint_;
+    float subsurfaceWeight_, subsurfaceScale_;
+    Vec3 subsurfaceRadius_;
+    Vec3 emissionColor_;
+    float emissionStrength_;
+    astroray::RGBIlluminantSpectrum emissionSpec_;
+
     // Smooth glass below this roughness is treated as a delta transmission event
     // (matches disney.cpp::kDeltaTransmissionRoughness).
     static constexpr float kDeltaGlassRoughness = 0.03f;
@@ -47,7 +61,8 @@ class PrincipledPlugin : public Material {
     // A new lobe = enum value + arm in the four evaluators + row in
     // assembleLobes(); the MIS recombination (eval/pdf/sample) is invariant.
     // ======================================================================
-    enum class LobeKind { Diffuse, Specular, Metallic, Transmission };
+    // pkg178 Stage 3 adds Coat / Sheen / Subsurface to the Stage-1 core kinds.
+    enum class LobeKind { Diffuse, Specular, Metallic, Transmission, Coat, Sheen, Subsurface };
     struct Lobe {
         LobeKind kind;
         Vec3 weight{1, 1, 1};  // spectral layering weight (RGB; upsampled per-λ)
@@ -56,6 +71,8 @@ class PrincipledPlugin : public Material {
         float ior = 1.5f;
         float sel = 0.0f;      // scalar selection weight; Σ sel = W
         bool isDelta = false;  // smooth glass → excluded from continuous eval/pdf sums
+        float sheenA = 0.0f;   // Sheen: LTC aInv (view-dependent, fetched at assembly)
+        float sheenB = 0.0f;   // Sheen: LTC bInv
     };
 
     // ----------------------------------------------------------------------
@@ -181,6 +198,57 @@ class PrincipledPlugin : public Material {
         return weight * (Vec3(1.0f) - Vec3::min(albedo, Vec3(0.999f)));
     }
 
+    // ==================================================================
+    // pkg178 Stage 3 — Coat / Sheen helpers (Cycles ports).
+    // ==================================================================
+    // Coat (Cycles svm/closure.h Principled coat layer): a clear GGX dielectric
+    // reflection using coat_ior, plus Beer absorption of the layers below by
+    // coat_tint^(1/cosθ_refracted) and the layer's own directional-albedo
+    // attenuation. Beer factor per Cycles closure.h:
+    //   cosNT = sqrt(1 - (1/coat_ior)²·(1-cosNI²)); optical_depth = 1/cosNT;
+    //   weight *= mix(1, coat_tint^optical_depth, coat_weight).
+    // coat_normal_offset is a per-hit shading-normal input the addon does not yet
+    // plumb through ParamDict (Stage 5); here the coat uses the shading normal
+    // (offset 0), so cosNI = dot(N, wo). SEAM: wire coat_normal_offset when the
+    // addon exposes it.
+    Vec3 coatBeerFactor(float nv) const {
+        if (coatWeight_ <= 1e-4f) return Vec3(1.0f);
+        if (coatTint_.x >= 0.999f && coatTint_.y >= 0.999f && coatTint_.z >= 0.999f)
+            return Vec3(1.0f);
+        float cosNI = std::clamp(nv, 1e-3f, 1.0f);
+        float inv = 1.0f / coatIor_;
+        float cosNT = std::sqrt(std::max(1e-4f, 1.0f - inv * inv * (1.0f - cosNI * cosNI)));
+        float opticalDepth = 1.0f / cosNT;
+        auto pw = [&](float t) { return std::pow(std::clamp(t, 0.0f, 1.0f), opticalDepth); };
+        Vec3 tintPow(pw(coatTint_.x), pw(coatTint_.y), pw(coatTint_.z));
+        // mix(1, tintPow, coat_weight)
+        return Vec3(1.0f) * (1.0f - coatWeight_) + tintPow * coatWeight_;
+    }
+
+    // Sheen microfiber LTC (Zeltner/Burley/Chiang 2022; Cycles bsdf_sheen.h).
+    // View-dependent frame: make_orthonormals_safe_tangent(N, wo) (wo = Cycles
+    // sd->wi, the view/incoming direction).
+    void sheenFrame(const Vec3& N, const Vec3& wo, Vec3& T, Vec3& B) const {
+        Vec3 t = wo - N * N.dot(wo);
+        if (t.length2() > 1e-8f) {
+            T = t.normalized();
+        } else {  // wo ‖ N — pick an arbitrary tangent
+            T = (std::abs(N.x) < 0.99f) ? Vec3(1, 0, 0).cross(N).normalized()
+                                        : Vec3(0, 1, 0).cross(N).normalized();
+        }
+        B = N.cross(T);
+    }
+    // Cycles bsdf_sheen_eval: val = 1/π · max(localO.z,0) · (a / lenSqr)².
+    // localO = to_local(wi) in the (T,B,N) sheen frame. Returns BSDF·cos (Cycles
+    // bsdf eval convention — see disney.cpp sheen note), matching the other lobes.
+    static float sheenValue(float a, float b, const Vec3& localO) {
+        float lenSqr = (a * localO.x + b * localO.z) * (a * localO.x + b * localO.z) +
+                       (a * localO.y) * (a * localO.y) + localO.z * localO.z;
+        float lo = std::max(localO.z, 0.0f);
+        float t = a / std::max(lenSqr, 1e-12f);
+        return (1.0f / float(M_PI)) * lo * t * t;
+    }
+
     // ------------------------------------------------------------------
     // VNDF sampling (Heitz 2018 / pbrt-v4, disney.cpp) — transmission lobe.
     // ------------------------------------------------------------------
@@ -251,6 +319,43 @@ class PrincipledPlugin : public Material {
         float nv = std::clamp(rec.normal.dot(wo), 1e-4f, 1.0f);
         Vec3 weight(1.0f, 1.0f, 1.0f);  // running weight (alpha handled at Stage 5)
 
+        // 2. Sheen (LTC microfiber). Cycles order: sheen sits ABOVE coat. closure
+        //    weight = sheen_weight·sheen_tint·weight·ltc_albedo; then the running
+        //    weight is attenuated by the sheen directional albedo.
+        if (sheenWeight_ > 1e-4f) {
+            astroray::SheenLtcCoeffs sc =
+                astroray::sheenLtcFetch(std::clamp(sheenRoughness_, 1e-3f, 1.0f), nv);
+            if (std::abs(sc.aInv) >= 1e-5f && sc.albedo >= 1e-5f) {  // Cycles setup skip guard
+                Vec3 sheenW = weight * sheenTint_ * (sheenWeight_ * sc.albedo);
+                Lobe L;
+                L.kind = LobeKind::Sheen;
+                L.weight = sheenW;
+                L.color = sheenTint_;
+                L.sheenA = sc.aInv;
+                L.sheenB = sc.bInv;
+                L.sel = std::max(luminance(sheenW), 1e-4f);
+                lobes.push_back(L);
+                weight = layeringWeightAfter(weight, sheenTint_ * (sheenWeight_ * sc.albedo));
+            }
+        }
+        // 3. Coat (clear GGX dielectric, coat_ior). Beer absorption + directional-
+        //    albedo layering attenuate everything below.
+        if (coatWeight_ > 1e-4f) {
+            float f0c = F0_from_ior(coatIor_);
+            float sView = generalizedSchlickS(nv, coatIor_);
+            float Fview = f0c + (1.0f - f0c) * sView;
+            Lobe L;
+            L.kind = LobeKind::Coat;
+            L.weight = weight * coatWeight_;
+            L.color = Vec3(f0c);
+            L.roughness = coatRoughness_;
+            L.ior = coatIor_;
+            L.sel = std::max(luminance(weight * coatWeight_) * Fview, 1e-4f);
+            lobes.push_back(L);
+            weight = layeringWeightAfter(
+                weight, ggxDirectionalAlbedo(Vec3(Fview), coatRoughness_, nv) * coatWeight_);
+            weight = weight * coatBeerFactor(nv);
+        }
         // 4. Metallic (GGX + F82-tint). closure weight = metallic·weight.
         if (metallic_ > 1e-4f) {
             Lobe L;
@@ -292,11 +397,30 @@ class PrincipledPlugin : public Material {
             lobes.push_back(L);
             weight = layeringWeightAfter(weight, ggxDirectionalAlbedo(Fview, roughness_, nv));
         }
-        // 8. Diffuse (Lambert / EON). closure weight = base_color·weight.
+        // 7. Subsurface — APPROXIMATE (owner decision D2 = option (a)). Cycles uses
+        //    a random-walk Bssrdf; here we reuse the diffusion-style plugin lineage
+        //    (subsurface.cpp) and model SSS as a Lambertian base-colour lobe with
+        //    weight = base_color·subsurface_weight·weight. This captures the SSS
+        //    energy/colour but NOT the sub-surface blur (wider declared parity band
+        //    vs Cycles). SEAM: converge to the transport-correct random walk in
+        //    include/astroray/bssrdf_random_walk.h (PR #565) when D2 converges — that
+        //    needs an "intersect within this object only" integrator query, so it is
+        //    NOT a Material::eval closure and cannot be wired here.
+        //    subsurface_radius/scale are parsed for that future path (unused now).
+        if (subsurfaceWeight_ > 1e-4f && luminance(weight) > 1e-4f) {
+            Lobe L;
+            L.kind = LobeKind::Subsurface;
+            L.weight = weight * baseColor_ * subsurfaceWeight_;
+            L.color = baseColor_;
+            L.roughness = 0.0f;  // Lambertian approximation
+            L.sel = std::max(luminance(L.weight), 1e-4f);
+            lobes.push_back(L);
+        }
+        // 8. Diffuse (Lambert / EON). closure weight = base_color·(1-subsurface)·weight.
         if (luminance(weight) > 1e-4f) {
             Lobe L;
             L.kind = LobeKind::Diffuse;
-            L.weight = weight * baseColor_;
+            L.weight = weight * baseColor_ * (1.0f - subsurfaceWeight_);
             L.color = baseColor_;
             L.roughness = diffuseRoughness_;
             L.sel = std::max(luminance(L.weight), 1e-4f);
@@ -355,6 +479,7 @@ class PrincipledPlugin : public Material {
     Vec3 evalLobeRGB(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
         switch (L.kind) {
+            case LobeKind::Subsurface:  // approximate SSS = Lambert (D2=a)
             case LobeKind::Diffuse: {
                 if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
                 if (L.roughness <= 1e-4f) return L.weight * (nl / float(M_PI));  // Lambert
@@ -363,6 +488,14 @@ class PrincipledPlugin : public Material {
                             L.weight.y * eonChannel(e, L.color.y),
                             L.weight.z * eonChannel(e, L.color.z));
             }
+            case LobeKind::Sheen: {  // Cycles bsdf_sheen_eval
+                if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
+                Vec3 T, B;
+                sheenFrame(rec.normal, wo, T, B);
+                Vec3 localO(wi.dot(T), wi.dot(B), wi.dot(rec.normal));
+                return L.weight * sheenValue(L.sheenA, L.sheenB, localO);
+            }
+            case LobeKind::Coat:      // clear GGX dielectric — same eval as specular
             case LobeKind::Specular: {
                 if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
                 Vec3 h = (wo + wi).normalized();
@@ -443,8 +576,17 @@ class PrincipledPlugin : public Material {
     float pdfLobe(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
         switch (L.kind) {
+            case LobeKind::Subsurface:
             case LobeKind::Diffuse:
                 return (nl > 0.0f && nv > 0.0f) ? nl / float(M_PI) : 0.0f;
+            case LobeKind::Sheen: {  // Cycles bsdf_sheen_sample: *pdf = val
+                if (nl <= 0.0f || nv <= 0.0f) return 0.0f;
+                Vec3 T, B;
+                sheenFrame(rec.normal, wo, T, B);
+                Vec3 localO(wi.dot(T), wi.dot(B), wi.dot(rec.normal));
+                return sheenValue(L.sheenA, L.sheenB, localO);
+            }
+            case LobeKind::Coat:
             case LobeKind::Specular:
             case LobeKind::Metallic: {
                 if (nl <= 0.0f || nv <= 0.0f) return 0.0f;
@@ -512,13 +654,26 @@ class PrincipledPlugin : public Material {
         }
         ds.lobe = j;
         const Lobe& L = lobes[j];
-        if (L.kind == LobeKind::Diffuse) {
+        if (L.kind == LobeKind::Diffuse || L.kind == LobeKind::Subsurface) {
             Vec3 local = Vec3::randomCosineDirection(gen);
             ds.wi = rec.tangent * local.x + rec.bitangent * local.y + rec.normal * local.z;
             ds.ok = rec.normal.dot(ds.wi) > 0.0f;
             return ds;
         }
-        if (L.kind == LobeKind::Specular || L.kind == LobeKind::Metallic) {
+        if (L.kind == LobeKind::Sheen) {  // Cycles bsdf_sheen_sample (disk → LTC)
+            float u1 = dist(gen), u2 = dist(gen);
+            float r = std::sqrt(u1), phi = 2.0f * float(M_PI) * u2;
+            float dx = r * std::cos(phi), dy = r * std::sin(phi);
+            float diskZ = std::sqrt(std::max(0.0f, 1.0f - dx * dx - dy * dy));
+            Vec3 localO = Vec3(dx - diskZ * L.sheenB, dy, diskZ * L.sheenA).normalized();
+            Vec3 T, B;
+            sheenFrame(rec.normal, wo, T, B);
+            ds.wi = (T * localO.x + B * localO.y + rec.normal * localO.z).normalized();
+            ds.ok = rec.normal.dot(ds.wi) > 0.0f;
+            return ds;
+        }
+        if (L.kind == LobeKind::Specular || L.kind == LobeKind::Metallic ||
+            L.kind == LobeKind::Coat) {
             float a = std::max(L.roughness * L.roughness, 0.0064f);
             float r1 = dist(gen), r2 = dist(gen);
             float phi = 2.0f * float(M_PI) * r1;
@@ -586,7 +741,22 @@ public:
           specularTint_(p.getVec3("specular_tint", Vec3(1.0f))),
           transmission_(std::clamp(
               p.getFloat("transmission_weight", p.getFloat("transmission", 0.0f)), 0.0f, 1.0f)),
-          thinWall_(p.getFloat("thin_wall", 0.0f) > 0.5f) {}
+          thinWall_(p.getFloat("thin_wall", 0.0f) > 0.5f),
+          coatWeight_(std::clamp(p.getFloat("coat_weight", 0.0f), 0.0f, 1.0f)),
+          coatRoughness_(std::clamp(p.getFloat("coat_roughness", 0.03f), 0.001f, 1.0f)),
+          coatIor_(std::max(1.0f, p.getFloat("coat_ior", 1.5f))),
+          coatTint_(p.getVec3("coat_tint", Vec3(1.0f))),
+          sheenWeight_(std::clamp(p.getFloat("sheen_weight", 0.0f), 0.0f, 1.0f)),
+          sheenRoughness_(std::clamp(p.getFloat("sheen_roughness", 0.5f), 0.001f, 1.0f)),
+          sheenTint_(p.getVec3("sheen_tint", Vec3(1.0f))),
+          subsurfaceWeight_(std::clamp(p.getFloat("subsurface_weight", 0.0f), 0.0f, 1.0f)),
+          subsurfaceScale_(std::max(0.0f, p.getFloat("subsurface_scale", 0.05f))),
+          subsurfaceRadius_(p.getVec3("subsurface_radius", Vec3(1.0f, 0.2f, 0.1f))),
+          emissionColor_(p.getVec3("emission_color", Vec3(0.0f))),
+          emissionStrength_(std::max(0.0f, p.getFloat("emission_strength", 1.0f))),
+          emissionSpec_({emissionColor_.x * emissionStrength_,
+                         emissionColor_.y * emissionStrength_,
+                         emissionColor_.z * emissionStrength_}) {}
 
     Vec3 getAlbedo() const override { return baseColor_; }
     float getRoughness() const override { return roughness_; }
@@ -595,6 +765,29 @@ public:
     float getTransmission() const override { return transmission_; }
     bool isTransmissive() const override { return transmission_ > 1e-4f; }
     bool isGlossy() const override { return true; }
+
+    // pkg178 Stage 3 — emission inside the node (retires the addon promote-to-light
+    // heuristic for the flagged path; the closure side lives here, the addon switch
+    // is Stage 5). Emission = emission_color·emission_strength (two-sided, like
+    // EmissivePlugin). Default emission_color=(0,0,0) → emitted()=0 (non-regressing).
+    // NOTE (LEAD/GPU): the GPU leg emits via scene_upload's g.emissionIntensity +
+    // GAreaLight extraction, which today only fires for gpuType=="diffuse_light";
+    // an emissive Principled surface on the wavefront leg needs that extraction to
+    // learn the closure-graph emission path. CPU leg is complete here.
+    Vec3 emitted(const HitRecord& /*rec*/) const override {
+        return emissionColor_ * emissionStrength_;
+    }
+    astroray::SampledSpectrum emittedSpectral(
+            const HitRecord& /*rec*/,
+            const astroray::SampledWavelengths& lambdas) const override {
+        if (emissionStrength_ <= 0.0f) return astroray::SampledSpectrum(0.0f);
+        return emissionSpec_.sample(lambdas);
+    }
+    Vec3 getEmission() const override { return emissionColor_ * emissionStrength_; }
+    bool isEmissive() const override {
+        return emissionStrength_ > 0.0f &&
+               (emissionColor_.x > 0.0f || emissionColor_.y > 0.0f || emissionColor_.z > 0.0f);
+    }
 
     // pkg178 Stage 2 GPU seam (the ONLY additions to this Stage-1 file — no lobe
     // math changed): lower to GMAT_CLOSURE_GRAPH via a single monolithic
@@ -605,11 +798,26 @@ public:
     std::string getGPUTypeName() const override { return "principled"; }
     astroray::MaterialClosureGraph closureGraph() const override {
         astroray::MaterialClosureGraph graph;
-        graph.add(astroray::makePrincipledClosure(
+        astroray::MaterialClosure c = astroray::makePrincipledClosure(
             astroray::ClosureColor{baseColor_.x, baseColor_.y, baseColor_.z},
             metallic_, roughness_, ior_, specularIorLevel_,
             astroray::ClosureColor{specularTint_.x, specularTint_.y, specularTint_.z},
-            transmission_, diffuseRoughness_));
+            transmission_, diffuseRoughness_);
+        // pkg178 Stage 3: carry the advanced-layer params (values are already the
+        // ctor-clamped members, so the device twin sees exactly the CPU values).
+        c.coatWeight = coatWeight_;
+        c.coatRoughness = coatRoughness_;
+        c.coatIor = coatIor_;
+        c.coatTint = {coatTint_.x, coatTint_.y, coatTint_.z};
+        c.sheenWeight = sheenWeight_;
+        c.sheenRoughness = sheenRoughness_;
+        c.sheenTint = {sheenTint_.x, sheenTint_.y, sheenTint_.z};
+        c.subsurfaceWeight = subsurfaceWeight_;
+        c.subsurfaceRadius = {subsurfaceRadius_.x, subsurfaceRadius_.y, subsurfaceRadius_.z};
+        c.subsurfaceScale = subsurfaceScale_;
+        c.emissionColor = {emissionColor_.x, emissionColor_.y, emissionColor_.z};
+        c.emissionStrength = emissionStrength_;
+        graph.add(c);
         return graph;
     }
     MaterialBackendCapabilities backendCapabilities() const override {
@@ -620,8 +828,8 @@ public:
         caps.gpuSpectral = true;   // native per-λ device twin (gpu_principled_eval_spectral)
         caps.closureGraph = true;
         caps.gpuType = "closure_graph";
-        caps.notes = "pkg178 Stage 2: native Principled core lobes (diffuse/specular/"
-                     "metallic/transmission) via GMAT_CLOSURE_GRAPH + GCLOSURE_PRINCIPLED";
+        caps.notes = "pkg178 Stage 3: native Principled core lobes + coat/sheen(LTC)/"
+                     "approx-subsurface/emission via GMAT_CLOSURE_GRAPH + GCLOSURE_PRINCIPLED";
         return caps;
     }
 
@@ -649,6 +857,7 @@ public:
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
         astroray::SampledSpectrum wSpec = upsample(L.weight, lam);
         switch (L.kind) {
+            case LobeKind::Subsurface:  // approximate SSS = Lambert (D2=a)
             case LobeKind::Diffuse: {
                 if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
                 if (L.roughness <= 1e-4f) return wSpec * (nl / float(M_PI));  // Lambert
@@ -659,6 +868,14 @@ public:
                     out[i] = wSpec[i] * eonChannel(e, cSpec[i]);
                 return out;
             }
+            case LobeKind::Sheen: {  // achromatic LTC scalar; tinted weight upsampled
+                if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
+                Vec3 T, B;
+                sheenFrame(rec.normal, wo, T, B);
+                Vec3 localO(wi.dot(T), wi.dot(B), wi.dot(rec.normal));
+                return wSpec * sheenValue(L.sheenA, L.sheenB, localO);
+            }
+            case LobeKind::Coat:      // clear GGX dielectric — same spectral eval
             case LobeKind::Specular: {
                 if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
                 Vec3 h = (wo + wi).normalized();

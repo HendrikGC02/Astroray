@@ -488,6 +488,15 @@ public:
                 p.set(key, item.second.cast<float>());
             else if (py::isinstance<py::str>(item.second))
                 p.set(key, item.second.cast<std::string>());
+            // pkg178 Stage 3: list/tuple -> Vec3, mirroring paramDictFromPyDict.
+            // Without this, EVERY vec3 material socket driven via the params dict
+            // (Principled coat_tint / sheen_tint / subsurface_radius / emission_color,
+            // and even Stage-1 specular_tint) was silently dropped to its default.
+            else if (py::isinstance<py::list>(item.second) || py::isinstance<py::tuple>(item.second)) {
+                auto values = item.second.cast<std::vector<float>>();
+                if (values.size() == 3) p.set(key, Vec3(values[0], values[1], values[2]));
+                else p.set(key, values);
+            }
         }
         std::shared_ptr<Material> mat;
         if (!params.contains("texture")) {

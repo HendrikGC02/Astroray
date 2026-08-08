@@ -104,6 +104,92 @@ def test_principled_transmission_glass_energy_conservation():
         _assert_band(f"Principled glass(r={roughness})", mat, ref, floor=0.80)
 
 
+# ---------------------------------------------------------------------------
+# pkg178 Stage 3 advanced layers — energy conservation (linear; floor+ceiling).
+# ---------------------------------------------------------------------------
+
+def test_principled_coat_energy_conservation():
+    # A clear coat over a white diffuse base. The coat reflects + Beer-absorbs;
+    # net energy must stay conserved (no gain, bounded loss from coat Fresnel).
+    for coat_r in [0.05, 0.3]:
+        mat, ref = _ratio([1.0, 1.0, 1.0],
+                          {"metallic": 0.0, "roughness": 0.5,
+                           "coat_weight": 1.0, "coat_roughness": coat_r, "coat_ior": 1.5})
+        _assert_band(f"Principled coat(r={coat_r})", mat, ref, floor=0.80)
+
+
+def test_principled_coat_tint_absorbs():
+    # coat_tint red Beer-absorbs the green reaching the base (tint^(1/cosθ),
+    # Cycles svm/closure.h). Compare a red-tinted coat vs an untinted coat on the
+    # SAME (white-furnace) scene: the green channel must drop under the red tint,
+    # while red is ~unchanged. Relative comparison cancels the shared background.
+    def _rgb(coat_tint):
+        r = _renderer()
+        mid = r.create_material("principled", [1.0, 1.0, 1.0],
+                                {"metallic": 0.0, "roughness": 0.5, "coat_weight": 1.0,
+                                 "coat_tint": coat_tint})
+        r.add_sphere([0, 0, 0], 1.0, mid)
+        px = np.array(r.render(48, 8, None, False), dtype=np.float32).reshape(-1, 3)
+        # Sphere pixels only: the disk is < the white (sum==3) background.
+        sphere = px[px.sum(axis=1) < 2.7]
+        return sphere[:, 0].mean(), sphere[:, 1].mean()
+    r_red, g_red = _rgb([1.0, 0.2, 0.2])
+    r_white, g_white = _rgb([1.0, 1.0, 1.0])
+    assert g_red < g_white * 0.85, (
+        f"coat_tint red did not Beer-absorb green: g_red={g_red:.3f} g_white={g_white:.3f}")
+    assert r_red > g_red * 1.15, f"coat_tint red not redder than green: R={r_red:.3f} G={g_red:.3f}"
+
+
+def test_principled_sheen_energy_conservation():
+    for sheen_r in [0.3, 0.8]:
+        mat, ref = _ratio([1.0, 1.0, 1.0],
+                          {"metallic": 0.0, "roughness": 0.5,
+                           "sheen_weight": 1.0, "sheen_roughness": sheen_r})
+        _assert_band(f"Principled sheen(r={sheen_r})", mat, ref, floor=0.80)
+
+
+def test_principled_subsurface_approx_energy_conservation():
+    # Approximate SSS (D2=a) is a Lambertian base-colour stand-in; with weight=1
+    # the surface energy tracks the diffuse base (wider declared band vs Cycles).
+    mat, ref = _ratio([1.0, 1.0, 1.0],
+                      {"metallic": 0.0, "roughness": 0.5, "subsurface_weight": 1.0})
+    _assert_band("Principled approx-SSS", mat, ref, floor=0.80)
+
+
+def test_principled_emission_inside_node():
+    # emission_color*emission_strength should self-illuminate on a black bg with
+    # no lights; a non-emissive control stays dark.
+    def _emit_mean(params):
+        r = _renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+        mid = r.create_material("principled", [0.0, 0.0, 0.0], params)
+        r.add_sphere([0, 0, 0], 1.0, mid)
+        return float(np.mean(np.array(r.render(16, 4, None, False), dtype=np.float32)))
+    lit = _emit_mean({"emission_color": [1.0, 1.0, 1.0], "emission_strength": 3.0})
+    dark = _emit_mean({"emission_color": [0.0, 0.0, 0.0], "emission_strength": 1.0})
+    assert lit > 0.1, f"principled emission produced no light (mean={lit:.4f})"
+    assert dark < 1e-3, f"non-emissive principled leaked light (mean={dark:.4f})"
+
+
+def test_principled_stage3_defaults_match_stage1():
+    # All Stage-3 weights default to 0 -> assembleLobes must produce the identical
+    # Stage-1 core-lobe stack (no regression). Compare the DETERMINISTIC bsdf pdf
+    # (render() has no seed arg, so a render comparison would be MC-noisy).
+    r = astroray.Renderer()
+    base = {"metallic": 0.0, "roughness": 0.5}
+    m_a = r.create_material("principled", [0.8, 0.6, 0.4], base)
+    m_b = r.create_material("principled", [0.8, 0.6, 0.4],
+                            {**base, "coat_weight": 0.0, "sheen_weight": 0.0,
+                             "subsurface_weight": 0.0, "emission_strength": 5.0})
+    wo = [0.3, 0.9, 0.0]
+    wi = np.ascontiguousarray(
+        [[0.0, 1.0, 0.0], [0.4, 0.8, 0.2], [-0.3, 0.7, 0.5]], dtype=np.float32).T
+    wi = np.ascontiguousarray(wi)
+    pa = np.array(r.debug_bsdf_pdf_batch(m_a, wo, wi), dtype=np.float64)
+    pb = np.array(r.debug_bsdf_pdf_batch(m_b, wo, wi), dtype=np.float64)
+    assert np.allclose(pa, pb, atol=1e-6), f"Stage-3 defaults changed core-lobe pdf: {pa} vs {pb}"
+
+
 def test_principled_non_negative_finite():
     for params in [
         {"metallic": 0.0, "roughness": 0.4},

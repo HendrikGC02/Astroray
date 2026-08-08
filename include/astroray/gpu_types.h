@@ -406,13 +406,48 @@ struct GMaterialClosure {
     float ior;
     float transmission;
     float clearcoatGloss;
-    // pkg178 Stage 2: Principled core-lobe params (see MaterialClosure in
-    // material_closure.h). Zero on every non-Principled closure (gc{} init);
-    // read only by the gpu_principled_* twin. Replaces the former _pad1[2].
-    GVec3 specularTint;
-    float specularIorLevel;
-    float diffuseRoughness;
-    float _pad1;
+    // pkg178 Stage-3b perf: the Principled advanced params (Stage-2 specular*
+    // and Stage-3 coat/sheen/subsurface/emission) formerly lived here. Because
+    // GMaterial stores closures[G_MAX_MATERIAL_CLOSURES], every added byte cost
+    // 8x in sizeof(GMaterial), and gpu_closure_as_material returns GMaterial BY
+    // VALUE on the shared (non-Principled) closure-graph path — so the growth
+    // landed on the register-saturated shade kernel's stack even in the <false>
+    // instantiation (if constexpr cannot shrink a struct). Those params now live
+    // ONCE per material in GMaterial::principled (GPrincipledClosure), read only
+    // by the gpu_principled_* twin. A Principled material carries a single closure
+    // of type GCLOSURE_PRINCIPLED here (a marker + its core fields); its advanced
+    // data is in GMaterial::principled. Restores the former _pad1[2].
+    float _pad1[2];
+};
+
+// pkg178 Stage-3b perf: the monolithic native-Principled parameter block. Held
+// ONCE per GMaterial (GMaterial::principled) rather than on every GMaterialClosure
+// in the closures[] array, so the shared non-Principled closure-graph path (which
+// stack-copies a full GMaterial via gpu_closure_as_material) no longer pays for
+// principled-only fields. Read only by the gpu_principled_* twin in the <true>
+// shade-kernel instantiation. Mirrors the Stage-2/3 fields of the CPU
+// MaterialClosure (material_closure.h); scene_upload.cu copies them across.
+struct GPrincipledClosure {
+    GVec3 color;             // base_color
+    float roughness;
+    float metallic;
+    float ior;
+    float transmission;
+    GVec3 specularTint;      // Cycles specular_tint
+    float specularIorLevel;  // Cycles specular_ior_level
+    float diffuseRoughness;  // Cycles diffuse_roughness (EON)
+    GVec3 coatTint;          // Cycles coat_tint
+    float coatWeight;        // Cycles coat_weight
+    float coatRoughness;     // Cycles coat_roughness
+    float coatIor;           // Cycles coat_ior
+    GVec3 sheenTint;         // Cycles sheen_tint
+    float sheenWeight;       // Cycles sheen_weight
+    float sheenRoughness;    // Cycles sheen_roughness
+    GVec3 subsurfaceRadius;  // Cycles subsurface_radius (uploaded; not yet read)
+    float subsurfaceWeight;  // Cycles subsurface_weight (APPROX, D2=a)
+    float subsurfaceScale;   // Cycles subsurface_scale (uploaded; not yet read)
+    GVec3 emissionColor;     // Cycles emission_color (uploaded; not yet read)
+    float emissionStrength;  // Cycles emission_strength (uploaded; not yet read)
 };
 
 // pkg54a: layout for the device-side spectral profile table. Profiles are
@@ -477,6 +512,13 @@ struct alignas(64) GMaterial {
     bool        disneyMetalConductor;
 
     GMaterialClosure closures[G_MAX_MATERIAL_CLOSURES];
+
+    // pkg178 Stage-3b perf: the single native-Principled parameter block for a
+    // Principled material (closures[0].type == GCLOSURE_PRINCIPLED). Kept out of
+    // the per-closure array so non-Principled materials, and the by-value GMaterial
+    // temp in the shared closure-graph path, do not pay for principled-only data.
+    // Read only by the gpu_principled_* twin (<true> instantiation).
+    GPrincipledClosure principled;
 };
 
 // ---------------------------------------------------------------------------

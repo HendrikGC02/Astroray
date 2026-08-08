@@ -74,7 +74,7 @@ def main():
     scene.render.resolution_x = 64
     scene.render.resolution_y = 64
     scene.render.resolution_percentage = 100
-    scene.custom_raytracer.samples = 2
+    scene.cycles.samples = 2  # pkg176 Stage 4: samples read from native Cycles
 
     # Camera + light so the engine has a complete scene.
     cam_data = bpy.data.cameras.new("Cam")

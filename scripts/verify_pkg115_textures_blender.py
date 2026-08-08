@@ -188,8 +188,9 @@ def main():
         scene.cycles.samples = args.spp
         scene.cycles.use_denoising = False
     elif hasattr(scene, "custom_raytracer"):
-        scene.custom_raytracer.samples = args.spp  # the F12 property
-        scene.custom_raytracer.preview_samples = args.spp
+        # pkg176 Stage 4: samples/preview_samples read from native Cycles props.
+        scene.cycles.samples = args.spp
+        scene.cycles.preview_samples = args.spp
         if hasattr(scene.custom_raytracer, "device_mode"):
             scene.custom_raytracer.device_mode = args.device
 

@@ -6,6 +6,24 @@ This is the **owner-review anchor** for pkg176. It records, for every native Ble
 
 **Grounding:** the `status` / `pkg119a` columns reuse the pkg119 Phase A coverage matrix (`docs/blender_parity/coverage_matrix.json` — 117 SUPPORTED / 22 APPROXIMATED / 385 DROPPED-SILENT). `pkg119a` is kept verbatim as the audit anchor; `status` reflects current translation reality (some natives were wired after PR #487 — noted per-row).
 
+## Stage-1 retirement policy — OWNER RATIFIED 2026-08-08
+
+The owner ratified the direction for Stage 1 (consistent with the pkg177
+Route-1 "Cycles-as-steering-wheel" charter):
+
+> **Adopt native and retire custom for every setting that has a Cycles
+> equivalent.** Where a `scene.cycles.*` / `scene.render.*` native control
+> exists, Stage 1 reads it directly and the duplicate `custom_raytracer.*`
+> prop is retired (its durable value preserved at the neutral target — Route-2
+> rule). **Astroray-only settings** (spectral pipeline, GR, device/backend,
+> integrator choice — the `astroray-only` rows) keep their own custom panel;
+> they have no native home and are NOT candidates for retirement.
+
+Practical read of the table under this policy: every `direct`/`approximated`
+row whose **Current custom prop** column names a `custom_raytracer.*` duplicate
+is a **Stage-1 retire-and-adopt-native** item; every `astroray-only` row stays
+custom. This is the charter Stage 1 executes against.
+
 ## Summary
 
 - **direct**: 58

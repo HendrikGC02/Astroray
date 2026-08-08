@@ -80,18 +80,15 @@ _ROUGH = [0.1, 0.3, 0.6, 1.0]
 # 1.099-1.260, GPU rough 1.098-2.296). The three pkg166 xfail(strict=False)
 # markers are removed; all cases conserve EXCEPT the single cell below.
 #
-# CPU rough glass at ior=1.5, R=1.0 converges to ~0.90 (below the 0.92 floor):
-# a residual MULTI-SCATTER under-compensation, not a single-scatter weight defect
-# (single-scatter alone is 0.717; pkg151's ggxGlassCompensationFactor recovers it
-# to 0.90 but not fully). Architect-approved (2026-08-02) single-cell quarantine
-# owned by pkg167 (dielectric-reflection multiscatter, "Inherited quarantine"
-# section) — NOT a band widening; the cell stays measured and pkg167's PR must
-# retire this xfail under --runxfail. GPU passes the same cell (0.930, [0.90,1.06]).
-_PKG167_MULTISCATTER_R1_IOR15 = (
-    "CPU rough Disney glass ior=1.5 R=1.0 residual multiscatter under-compensation "
-    "(~0.90 vs 0.92 floor); owned by pkg167 (Inherited quarantine). pkg167's PR "
-    "must retire this xfail under --runxfail. Not a band widening; single cell only."
-)
+# CPU rough glass at ior=1.5, R=1.0 was quarantined by pkg169 at ~0.903 (below the
+# 0.92 floor): a residual reflection-lobe MULTI-SCATTER under-compensation
+# (single-scatter alone 0.717; pkg151's transmission-only glass compensation
+# recovered it to 0.903 but not fully). pkg167 Part 1 (2026-08-08) RETIRED that
+# xfail: it applies the same IOR-dependent glass compensation (Turquin 2019) to
+# the reflection lobe (roughReflectionEval), which the transmission lobe already
+# had — recovering the cell to 0.926 (1024spp 0.928), inside [0.92,1.03]. No band
+# widening; same [0.92,1.03] gate as the conserving cells above. Proven under
+# --runxfail before the marker was removed.
 
 
 # pkg169 (2026-08-02) un-xfail: the delta-glass energy gain is fixed. The delta
@@ -155,14 +152,12 @@ def test_disney_rough_glass_furnace_energy_cpu():
     assert not bad, f"rough disney glass furnace not energy-conserving at roughness {bad}; all={vals}"
 
 
-@pytest.mark.xfail(reason=_PKG167_MULTISCATTER_R1_IOR15, strict=False)
 def test_disney_rough_glass_furnace_energy_cpu_r1_ior15():
-    # Single-cell quarantine kept in the grid so it stays MEASURED (architect
-    # verdict 2026-08-02). CPU rough Disney glass at ior=1.5, R=1.0 converges to
-    # ~0.90 — a residual multiscatter under-compensation owned by pkg167, NOT the
-    # pkg169 single-scatter defect (which is fixed). No band widening: same
-    # [0.92,1.03] gate as the conserving cells above; pkg167's PR must retire this
-    # xfail under --runxfail.
+    # pkg167 Part 1 (2026-08-08) retired the pkg169 xfail on this cell. The
+    # reflection-lobe glass multi-scatter compensation (roughReflectionEval)
+    # recovers CPU rough Disney glass at ior=1.5, R=1.0 to 0.926 (1024spp 0.928),
+    # inside [0.92,1.03]. Kept as a dedicated cell so the worst-case near-TIR
+    # high-roughness corner stays MEASURED every run. No band widening.
     v = _furnace(1.0, spp=256)  # ior 1.5 (default)
     assert 0.92 <= v <= 1.03, f"CPU rough disney glass R=1.0 ior1.5 furnace = {v:.4f}"
 

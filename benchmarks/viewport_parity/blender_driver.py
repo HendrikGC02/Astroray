@@ -260,7 +260,11 @@ def run_offline(args) -> dict:
         gpu_note = _enable_cycles_gpu()
         print(f"[pkg81-driver] cycles device: {gpu_note}")
     elif hasattr(scene, "custom_raytracer"):
-        scene.custom_raytracer.preview_samples = args.chunk_spp
+        # pkg176 Stage 4: samples come from native Cycles props now (the exporter
+        # reads them via resolve_native_settings); the custom preview_samples
+        # alias was retired.
+        scene.cycles.samples = args.chunk_spp
+        scene.cycles.preview_samples = args.chunk_spp
         if hasattr(scene.custom_raytracer, "viewport_chunk_spp"):
             scene.custom_raytracer.viewport_chunk_spp = args.chunk_spp
         if hasattr(scene.custom_raytracer, "viewport_oidn"):

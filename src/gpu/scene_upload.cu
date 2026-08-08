@@ -150,6 +150,19 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
             gc.specularTint = GVec3(c.specularTint.x, c.specularTint.y, c.specularTint.z);
             gc.specularIorLevel = c.specularIorLevel;
             gc.diffuseRoughness = c.diffuseRoughness;
+            // pkg178 Stage 3: advanced-layer params (coat/sheen/subsurface/emission).
+            gc.coatTint = GVec3(c.coatTint.x, c.coatTint.y, c.coatTint.z);
+            gc.coatWeight = c.coatWeight;
+            gc.coatRoughness = c.coatRoughness;
+            gc.coatIor = c.coatIor;
+            gc.sheenTint = GVec3(c.sheenTint.x, c.sheenTint.y, c.sheenTint.z);
+            gc.sheenWeight = c.sheenWeight;
+            gc.sheenRoughness = c.sheenRoughness;
+            gc.subsurfaceRadius = GVec3(c.subsurfaceRadius.x, c.subsurfaceRadius.y, c.subsurfaceRadius.z);
+            gc.subsurfaceWeight = c.subsurfaceWeight;
+            gc.subsurfaceScale = c.subsurfaceScale;
+            gc.emissionColor = GVec3(c.emissionColor.x, c.emissionColor.y, c.emissionColor.z);
+            gc.emissionStrength = c.emissionStrength;
             g.closures[i] = gc;
         }
         return g;

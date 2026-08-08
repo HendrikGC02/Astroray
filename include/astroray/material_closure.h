@@ -48,6 +48,20 @@ struct MaterialClosure {
     ClosureColor specularTint{};        // Cycles specular_tint (RGB)
     float specularIorLevel = 0.5f;      // Cycles specular_ior_level
     float diffuseRoughness = 0.0f;      // Cycles diffuse_roughness (EON)
+    // pkg178 Stage 3 advanced-layer params (Principled monolithic closure only;
+    // defaults reproduce the Stage-1/2 core-lobe stack). See principled.cpp.
+    float coatWeight = 0.0f;            // Cycles coat_weight
+    float coatRoughness = 0.03f;        // Cycles coat_roughness
+    float coatIor = 1.5f;               // Cycles coat_ior
+    ClosureColor coatTint{};            // Cycles coat_tint (default 1,1,1)
+    float sheenWeight = 0.0f;           // Cycles sheen_weight
+    float sheenRoughness = 0.5f;        // Cycles sheen_roughness
+    ClosureColor sheenTint{};           // Cycles sheen_tint (default 1,1,1)
+    float subsurfaceWeight = 0.0f;      // Cycles subsurface_weight (APPROX, D2=a)
+    ClosureColor subsurfaceRadius{};    // Cycles subsurface_radius (default 1,1,1)
+    float subsurfaceScale = 0.05f;      // Cycles subsurface_scale
+    ClosureColor emissionColor{};       // Cycles emission_color (default 1,1,1; strength gates)
+    float emissionStrength = 0.0f;      // Cycles emission_strength
 };
 
 class MaterialClosureGraph {

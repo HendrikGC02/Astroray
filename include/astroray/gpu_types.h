@@ -412,6 +412,20 @@ struct GMaterialClosure {
     GVec3 specularTint;
     float specularIorLevel;
     float diffuseRoughness;
+    // pkg178 Stage 3: advanced-layer params (mirror of MaterialClosure). Zero on
+    // every non-Principled closure; read only by the gpu_principled_* twin.
+    GVec3 coatTint;
+    float coatWeight;
+    float coatRoughness;
+    float coatIor;
+    GVec3 sheenTint;
+    float sheenWeight;
+    float sheenRoughness;
+    GVec3 subsurfaceRadius;
+    float subsurfaceWeight;
+    float subsurfaceScale;
+    GVec3 emissionColor;
+    float emissionStrength;
     float _pad1;
 };
 

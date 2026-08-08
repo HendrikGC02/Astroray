@@ -81,6 +81,42 @@ def test_chi2_principled_plastic(theta_deg, roughness):
     assert ok, f"principled plastic chi² FAILED (r={roughness}, θ={theta_deg}) p={t.p_value:.6f}"
 
 
+# ---------------------------------------------------------------------------
+# pkg178 Stage 3 advanced-layer samplers (coat / sheen / approx-subsurface).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("theta_deg", [0, 45])
+@pytest.mark.parametrize("coat_r", [0.4])
+def test_chi2_principled_coat(theta_deg, coat_r):
+    # Clear coat over a rough plastic: coat + specular + diffuse mixture.
+    # Validates the coat GGX sampler is matched by pdf() in the combined MIS.
+    ok, t = _run({"base_color": [0.8, 0.8, 0.8], "metallic": 0.0, "roughness": 0.6,
+                  "coat_weight": 1.0, "coat_roughness": coat_r},
+                 theta_deg, HemisphericalDomain(), seed=400 + theta_deg * 10 + int(coat_r * 10))
+    assert ok, f"principled coat chi² FAILED (r={coat_r}, θ={theta_deg}) p={t.p_value:.6f}"
+
+
+@pytest.mark.parametrize("theta_deg", [0, 45])
+@pytest.mark.parametrize("sheen_r", [0.5])
+def test_chi2_principled_sheen(theta_deg, sheen_r):
+    # ior=1.0 zeroes the specular Fresnel -> sheen + diffuse mixture. Validates
+    # the Cycles bsdf_sheen LTC disk sampler against its *pdf = val.
+    ok, t = _run({"base_color": [0.8, 0.8, 0.8], "metallic": 0.0, "roughness": 1.0, "ior": 1.0,
+                  "sheen_weight": 1.0, "sheen_roughness": sheen_r},
+                 theta_deg, HemisphericalDomain(), seed=500 + theta_deg * 10 + int(sheen_r * 10))
+    assert ok, f"principled sheen chi² FAILED (r={sheen_r}, θ={theta_deg}) p={t.p_value:.6f}"
+
+
+@pytest.mark.parametrize("theta_deg", [45])
+def test_chi2_principled_subsurface(theta_deg):
+    # Approximate SSS is a cosine (Lambert) sampler; ior=1.0 -> SSS + diffuse
+    # cosine mixture. Validates the subsurface sampler routing.
+    ok, t = _run({"base_color": [0.8, 0.8, 0.8], "metallic": 0.0, "roughness": 1.0, "ior": 1.0,
+                  "subsurface_weight": 0.8},
+                 theta_deg, HemisphericalDomain(), seed=600 + theta_deg)
+    assert ok, f"principled subsurface chi² FAILED (θ={theta_deg}) p={t.p_value:.6f}"
+
+
 @pytest.mark.xfail(
     strict=True,
     reason="Rough-glass chi² is the known-hard glass gate the shipped disney "

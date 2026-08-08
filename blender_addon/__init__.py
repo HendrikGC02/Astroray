@@ -26,7 +26,7 @@ if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
 from shader_blending import blend_shader_specs, add_shader_specs
 # pkg176 Stage 1: read Blender's native render/sampling settings (deprecated
 # custom aliases). Pure-data translator (no bpy/engine deps); see settings_map.py.
-from native_settings import resolve_native_settings
+from native_settings import resolve_native_settings, report_unsupported_native_controls
 from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
 from _bulk_geometry import mesh_world_positions  # pkg88-B object motion blur bake
 
@@ -1066,6 +1066,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # release). `settings` is a transparent view: direct settings resolve to
         # native, everything else falls through to scene.custom_raytracer.
         settings = resolve_native_settings(scene, self.report)
+        # pkg176 Stage 3: never silently drop world/light/camera native controls
+        # the engine can't honour yet -- surface them once per render (visible
+        # degradation; the pkg119-C policy generalises this later).
+        report_unsupported_native_controls(scene, self.report)
 
         print(f"Rendering {width}x{height}, {settings.samples} samples")
         renderer = None

@@ -135,7 +135,7 @@ any — is attributable to the application form and to nothing else.
 > `test_results/pkg129_metal_ab/metal_ab_report.md`) here and record the verdict
 > (parity within band → close; divergence → conviction-path sizing).
 >
-> _(verdict pending)_
+> _(verdict recorded above, 2026-08-08: A/B CLEAN — no divergence; pkg129 closes on the harness + this note; pkg165 → verify-and-close.)_
 
 ---
 

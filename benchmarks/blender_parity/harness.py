@@ -168,7 +168,14 @@ def _find_blender() -> Path | None:
 
 
 def _pyd_dir(root: Path) -> Path | None:
-    for cand in (root / "build_cuda", root / "build_cuda" / "Release"):
+    # The Astroray leg imports astroray INSIDE Blender's Python (render_leg),
+    # so it MUST be an OpenMP-OFF build or MinGW libgomp deadlocks in Blender
+    # (memory mingw_openmp_blender_deadlock). Prefer the addon build dirs
+    # (build_blender_addon.py forces -DASTRORAY_DISABLE_OPENMP=ON) over the
+    # plain build_cuda (OpenMP ON — deadlocks headless-Blender renders).
+    for cand in (root / "build_blender_addon_cuda", root / "build_blender_addon_tcnn",
+                 root / "build_blender_addon", root / "build_cuda",
+                 root / "build_cuda" / "Release"):
         if list(cand.glob("astroray*.pyd")):
             return cand
     return None

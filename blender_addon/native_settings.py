@@ -1,20 +1,24 @@
-"""pkg176 Stage 1 - native Blender/Cycles settings resolution (translation layer).
+"""pkg176 Stage 4 - native Blender/Cycles settings resolution (translation layer).
 
 The exporter drives Astroray from Blender's NATIVE controls. For every setting
-the Stage-0 contract (``blender_addon/settings_map.py``) marks ``direct`` and
-that still has a shadowing ``custom_raytracer.*`` duplicate, this module resolves
-the value the engine session should use:
+the Stage-0 contract (``blender_addon/settings_map.py``) marks ``direct``, this
+module resolves the value the engine session should use:
 
-  1. If the legacy custom duplicate is explicitly set in a saved ``.blend``
-     (``is_property_set``), honour it for one release of back-compat and log a
-     one-line deprecation/migration note per render.
-  2. Otherwise read the native ``scene.cycles.*`` / ``scene.render.*`` property.
-  3. If neither is available (a non-Cycles scene / a unit-test stub), leave the
-     setting unresolved so behaviour is unchanged (the custom prop is used).
+  1. Read the native ``scene.cycles.*`` / ``scene.render.*`` property.
+  2. If it is unavailable (a non-Cycles scene - e.g. the Cycles add-on is
+     disabled - or a unit-test stub), fall back to ``DIRECT_DEFAULTS`` (the
+     engine defaults the retired custom props used to carry) so resolution never
+     raises. A test stub that still carries the old custom attribute is left
+     unresolved so the proxy falls through to it unchanged.
+
+Stage 4 retired the ``custom_raytracer.*`` duplicates for the ``direct`` rows;
+their one-release Stage-1 back-compat window is closed. An old ``.blend`` that
+saved one of those props degrades gracefully - Blender drops the unknown member
+on load and the native value (or default) is used; nothing hard-crashes.
 
 Semantic mismatches (table status ``approximated`` / ``dropped`` / ``astroray-only``)
 are deliberately NOT resolved here - they stay custom-only until the engine
-honours the native meaning (Stage 1 rule).
+honours the native meaning.
 
 Route-2 discipline (dcc-integration-decision-2026-08 §6): this module is the
 bpy-facing TRANSLATOR. It reads Blender datablocks and returns a plain read-only
@@ -51,34 +55,26 @@ def _direct_aliases():
 DIRECT_ALIASES = _direct_aliases()
 
 
-def _custom_is_set(settings, custom_attr):
-    """True if the legacy custom duplicate was explicitly written (a saved
-    ``.blend`` override). Uses Blender's ``is_property_set`` (the canonical way
-    to distinguish an authored value from a registered default); returns False
-    under test stubs that don't provide it."""
-    is_set = getattr(settings, "is_property_set", None)
-    if not callable(is_set):
-        return False
-    try:
-        return bool(is_set(custom_attr))
-    except (TypeError, RuntimeError):
-        return False
-
-
-def _log_migration(report, custom_attr, native_attr):
-    msg = (
-        f"Astroray: legacy custom setting 'custom_raytracer.{custom_attr}' is set "
-        f"and overrides native 'scene.cycles.{native_attr}'; this alias is "
-        f"deprecated and will be removed - set the value in Blender's native "
-        f"panel instead."
-    )
-    if report is not None:
-        try:
-            report({'WARNING'}, msg)
-            return
-        except (TypeError, RuntimeError):
-            pass
-    print(msg)
+# pkg176 Stage 4: last-resort fallback for the retired direct aliases, used ONLY
+# when the scene carries no ``cycles`` datablock (Cycles add-on disabled / a
+# unit-test stub) so resolution never raises. Values mirror the engine defaults
+# the removed custom props used to carry. Keyed by the (former) custom attr name.
+DIRECT_DEFAULTS = {
+    "samples": 2,
+    "preview_samples": 1,
+    "max_bounces": 10,
+    "diffuse_bounces": 4,
+    "glossy_bounces": 4,
+    "transmission_bounces": 12,
+    "volume_bounces": 0,
+    "transparent_bounces": 8,
+    "clamp_direct": 0.0,
+    "clamp_indirect": 0.0,
+    "filter_glossy": 0.0,
+    "use_reflective_caustics": True,
+    "use_refractive_caustics": True,
+    "use_denoising": False,
+}
 
 
 class ResolvedSettings:
@@ -200,19 +196,20 @@ def resolve_native_settings(scene, report=None):
     """Resolve the DIRECT-mapped settings for ``scene`` and return a
     :class:`ResolvedSettings` view.
 
-    ``report`` is an optional Blender ``self.report``-style callback used to
-    surface the per-render deprecation note; pass ``None`` on hot paths
-    (per-frame viewport draw) to keep resolution silent.
+    ``report`` is retained for call-site compatibility (final render / viewport
+    paths pass ``self.report``) but is unused since Stage 4 removed the
+    deprecation/migration note along with the custom aliases it warned about.
     """
     settings = scene.custom_raytracer
     cycles = getattr(scene, "cycles", None)
     resolved = {}
     for native_attr, custom_attr in DIRECT_ALIASES:
-        if _custom_is_set(settings, custom_attr):
-            _log_migration(report, custom_attr, native_attr)
-            resolved[custom_attr] = getattr(settings, custom_attr)
-        elif cycles is not None and hasattr(cycles, native_attr):
+        if cycles is not None and hasattr(cycles, native_attr):
             resolved[custom_attr] = getattr(cycles, native_attr)
-        # else: leave unresolved -> the proxy falls through to the custom prop,
-        # keeping behaviour unchanged on non-Cycles / stub scenes.
+        elif not hasattr(settings, custom_attr):
+            # Retired custom prop AND no native source (Cycles-less scene):
+            # fall back to the engine default so nothing hard-crashes.
+            resolved[custom_attr] = DIRECT_DEFAULTS[custom_attr]
+        # else: settings still carries the attr (a pre-retirement object / test
+        # stub) -> leave unresolved so the proxy falls through to it unchanged.
     return ResolvedSettings(settings, resolved)

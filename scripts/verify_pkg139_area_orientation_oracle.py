@@ -132,8 +132,9 @@ def render_engine(scene, engine, spp, out_stem):
         scene.cycles.use_denoising = False
         scene.cycles.use_adaptive_sampling = False
     elif hasattr(scene, "custom_raytracer"):
-        scene.custom_raytracer.samples = spp
-        scene.custom_raytracer.preview_samples = spp
+        # pkg176 Stage 4: samples/preview_samples read from native Cycles props.
+        scene.cycles.samples = spp
+        scene.cycles.preview_samples = spp
         if hasattr(scene.custom_raytracer, "device_mode"):
             scene.custom_raytracer.device_mode = "gpu"
 

@@ -605,6 +605,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         int id = (int)r.materials.size();
         matIdx[m.get()] = id;
         r.materials.push_back(convertMaterial(m));
+        // pkg178 Stage-3b D4: flag scenes carrying a closure-graph Principled
+        // material so the wavefront launchers select the <true> shade-kernel
+        // instantiation. The predicate mirrors gpu_closure_graph_is_principled
+        // (gpu_materials.h) exactly.
+        const GMaterial& g = r.materials.back();
+        if (g.type == GMAT_CLOSURE_GRAPH && g.closureCount >= 1 &&
+            g.closures[0].type == GCLOSURE_PRINCIPLED)
+            r.hasPrincipled = true;
         return id;
     };
 

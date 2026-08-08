@@ -2001,14 +2001,23 @@ __device__ inline float gpu_closure_pdf(
     }
 }
 
+// pkg178 Stage-3b D4: HasPrincipled compile-time isolation. Non-principled
+// scenes launch the <false> instantiation, in which the Principled arm and all
+// gpu_principled_* codegen are compiled out (if constexpr) — restoring main's
+// non-principled shade-kernel footprint. Default = true so every OTHER caller
+// (restir, snapshot intersect, sms, CPU-reachable) keeps today's behavior
+// verbatim. See .astroray_plan/docs/pkg178-stage3-d4-and-forks-decision.md §2b.
+template<bool HasPrincipled = true>
 __device__ inline GVec3 gpu_closure_graph_eval(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
     // pkg178 Stage 2: the Principled material is a monolithic single closure whose
     // eval IS its own view-dependent lobe mixture (gpu_principled_eval), not a sum
     // over independent graph closures — route it straight there.
-    if (gpu_closure_graph_is_principled(mat))
-        return gpu_principled_eval(mat.closures[0], rec, wo, wi);
+    if constexpr (HasPrincipled) {
+        if (gpu_closure_graph_is_principled(mat))
+            return gpu_principled_eval(mat.closures[0], rec, wo, wi);
+    }
     // pkg170: weight each lobe by its SELECTION probability (weight_i / totalWeight),
     // matching gpu_closure_graph_pdf's normalization, so the closure-graph sampler's
     // overwrite s.f = eval, s.pdf = pdf forms a correct one-sample-MIS estimator of
@@ -2080,6 +2089,7 @@ __device__ inline bool gpu_is_plain_diffuse(const GMaterial& mat) {
 // per-lambda via gpu_metal_eval_spectral (CPU-canonical colour space); any other
 // lobe keeps its existing per-lobe RGB eval then upsample. Non-metal graphs
 // never reach here, so their summed-then-upsampled behaviour is unchanged.
+template<bool HasPrincipled = true>  // pkg178 Stage-3b D4 (see gpu_closure_graph_eval)
 __device__ inline GSampledSpectrum gpu_closure_graph_eval_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
     const GSampledWavelengths& wl)
@@ -2087,8 +2097,10 @@ __device__ inline GSampledSpectrum gpu_closure_graph_eval_spectral(
     // pkg178 Stage 2: native per-λ Principled mixture (per-lobe spectral eval,
     // NOT upsample-of-RGB — the pkg163/168 nonlinearity lesson is built into
     // gpu_pr_evalLobeSpectral, which upsamples reflectance colours only).
-    if (gpu_closure_graph_is_principled(mat))
-        return gpu_principled_eval_spectral(mat.closures[0], rec, wo, wi, wl);
+    if constexpr (HasPrincipled) {
+        if (gpu_closure_graph_is_principled(mat))
+            return gpu_principled_eval_spectral(mat.closures[0], rec, wo, wi, wl);
+    }
     // pkg170: same selection-probability normalization as the RGB
     // gpu_closure_graph_eval (see there) so f_total/pdf_total is a one-sample-MIS
     // estimator of the mixture BSDF. This spectral path is only reached for
@@ -2123,12 +2135,15 @@ __device__ inline GSampledSpectrum gpu_closure_graph_eval_spectral(
     return sum * (1.0f / totalWeight);
 }
 
+template<bool HasPrincipled = true>  // pkg178 Stage-3b D4 (see gpu_closure_graph_eval)
 __device__ inline float gpu_closure_graph_pdf(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
     // pkg178 Stage 2: monolithic Principled mixture pdf (see gpu_closure_graph_eval).
-    if (gpu_closure_graph_is_principled(mat))
-        return gpu_principled_pdf(mat.closures[0], rec, wo, wi);
+    if constexpr (HasPrincipled) {
+        if (gpu_closure_graph_is_principled(mat))
+            return gpu_principled_pdf(mat.closures[0], rec, wo, wi);
+    }
     float totalWeight = 0.0f;
     int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
     for (int i = 0; i < count; ++i) {
@@ -2148,7 +2163,7 @@ __device__ inline float gpu_closure_graph_pdf(
     return sum;
 }
 
-template <typename TRng>
+template <bool HasPrincipled = true, typename TRng>  // pkg178 Stage-3b D4
 __device__ inline GBSDFSample gpu_closure_graph_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
@@ -2163,8 +2178,10 @@ __device__ inline GBSDFSample gpu_closure_graph_sample(
     // sample (internal lobe choice + delta handling + mixture f/pdf recombination),
     // mirroring PrincipledPlugin::sample — do NOT route it through the generic
     // per-lobe switch + recompute below (its assembly is view-dependent).
-    if (gpu_closure_graph_is_principled(mat))
-        return gpu_principled_sample(mat.closures[0], rec, wo, rng);
+    if constexpr (HasPrincipled) {
+        if (gpu_closure_graph_is_principled(mat))
+            return gpu_principled_sample(mat.closures[0], rec, wo, rng);
+    }
 
     float totalWeight = 0.0f;
     int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
@@ -2204,8 +2221,8 @@ __device__ inline GBSDFSample gpu_closure_graph_sample(
     if (s.isDelta) {
         s.f *= closure.weight;
     } else {
-        s.f = gpu_closure_graph_eval(mat, rec, wo, s.wi);
-        s.pdf = gpu_closure_graph_pdf(mat, rec, wo, s.wi);
+        s.f = gpu_closure_graph_eval<HasPrincipled>(mat, rec, wo, s.wi);
+        s.pdf = gpu_closure_graph_pdf<HasPrincipled>(mat, rec, wo, s.wi);
     }
     return s;
 }
@@ -2221,6 +2238,7 @@ __device__ inline GVec3 gpu_closure_graph_emitted(const GMaterial& mat, bool fro
     return sum;
 }
 
+template<bool HasPrincipled = true>  // pkg178 Stage-3b D4 (see gpu_closure_graph_eval)
 __device__ inline GVec3 gpu_material_eval(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
@@ -2231,11 +2249,12 @@ __device__ inline GVec3 gpu_material_eval(
         case GMAT_DIFFUSE_LIGHT: return GVec3(0.f); // emissive only
         case GMAT_DISNEY:        return gpu_disney_eval(mat, rec, wo, wi);
         case GMAT_THIN_GLASS:    return GVec3(0.f); // mostly-delta pane
-        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_eval(mat, rec, wo, wi);
+        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_eval<HasPrincipled>(mat, rec, wo, wi);
         default:                 return GVec3(0.f);
     }
 }
 
+template<bool HasPrincipled = true>  // pkg178 Stage-3b D4 (see gpu_closure_graph_eval)
 __device__ inline GSampledSpectrum gpu_material_eval_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
     const GSampledWavelengths& wl)
@@ -2247,10 +2266,12 @@ __device__ inline GSampledSpectrum gpu_material_eval_spectral(
     if (mat.type == GMAT_METAL)
         return gpu_metal_eval_spectral(mat, rec, wo, wi, wl);
     // pkg178 Stage 2: native per-λ Principled (its own spectral mixture path).
-    if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_is_principled(mat))
-        return gpu_closure_graph_eval_spectral(mat, rec, wo, wi, wl);
+    if constexpr (HasPrincipled) {
+        if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_is_principled(mat))
+            return gpu_closure_graph_eval_spectral<HasPrincipled>(mat, rec, wo, wi, wl);
+    }
     if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_has_metal(mat))
-        return gpu_closure_graph_eval_spectral(mat, rec, wo, wi, wl);
+        return gpu_closure_graph_eval_spectral<HasPrincipled>(mat, rec, wo, wi, wl);
     // pkg168 Step 2: plain diffuse (native GMAT_LAMBERTIAN or a diffuse-only
     // closure graph — the plain-Lambertian upload path) must upsample the pure
     // reflectance COLOUR, not the pre-scaled RGB eval baseColor*cos/pi. Jakob-
@@ -2266,7 +2287,7 @@ __device__ inline GSampledSpectrum gpu_material_eval_spectral(
     // no Hanrahan-Krueger mix is needed; the CPU oracle (Lambertian::evalSpectral)
     // applies none. The Disney diffuse lobe inside a metal-carrying graph keeps its
     // HK mix via gpu_closure_graph_eval_spectral above, unchanged.
-    GVec3 e = gpu_material_eval(mat, rec, wo, wi);
+    GVec3 e = gpu_material_eval<HasPrincipled>(mat, rec, wo, wi);
     float diffuseScale = 1.0f;
     if (gpu_is_plain_diffuse(mat)) {
         float NdotL = rec.normal.dot(wi);
@@ -2278,7 +2299,7 @@ __device__ inline GSampledSpectrum gpu_material_eval_spectral(
     return gpu_rgbToSampledSpectrum(e, wl, mat.spectralMode) * diffuseScale;
 }
 
-template <typename TRng>
+template <bool HasPrincipled = true, typename TRng>  // pkg178 Stage-3b D4
 __device__ inline GBSDFSample gpu_material_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
@@ -2288,12 +2309,12 @@ __device__ inline GBSDFSample gpu_material_sample(
         case GMAT_DIELECTRIC:    return gpu_dielectric_sample(mat, rec, wo, rng);
         case GMAT_DISNEY:        return gpu_disney_sample(mat, rec, wo, rng);
         case GMAT_THIN_GLASS:    return gpu_thin_glass_sample(mat, rec, wo, rng);
-        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_sample(mat, rec, wo, rng);
+        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_sample<HasPrincipled>(mat, rec, wo, rng);
         default: { GBSDFSample s; s.f=GVec3(0); s.fSpectral=GSampledSpectrum(0.f); s.wi=GVec3(0,1,0); s.pdf=0; s.isDelta=false; return s; }
     }
 }
 
-template <typename TRng>
+template <bool HasPrincipled = true, typename TRng>  // pkg178 Stage-3b D4
 __device__ inline GBSDFSample gpu_material_sample_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
     GSampledWavelengths& wl, TRng* rng)
@@ -2302,7 +2323,7 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     // sampler (it calls wl.terminateSecondary() on refraction — hero collapse).
     GBSDFSample s = (mat.type == GMAT_DIELECTRIC && mat.isDispersive)
         ? gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng)
-        : gpu_material_sample(mat, rec, wo, rng);
+        : gpu_material_sample<HasPrincipled>(mat, rec, wo, rng);
 
     // Delta lobes (dielectric reflect/refract, smooth-glass disney/closure-graph
     // closures — a plain "dielectric" material lowers to GMAT_CLOSURE_GRAPH) carry a
@@ -2350,7 +2371,7 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     if (metalSpectral && !s.isDelta && s.pdf > 0.0f && s.f.length2() > 0.0f) {
         s.fSpectral = (mat.type == GMAT_METAL)
             ? gpu_metal_eval_spectral(mat, rec, wo, s.wi, wl)
-            : gpu_closure_graph_eval_spectral(mat, rec, wo, s.wi, wl);
+            : gpu_closure_graph_eval_spectral<HasPrincipled>(mat, rec, wo, s.wi, wl);
         return s;
     }
 
@@ -2361,10 +2382,12 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     // the generic eta²-clamp guard below, which factors the >1 magnitude and
     // upsamples the normalized tint — exactly PrincipledPlugin::sampleSpectral's
     // delta branch (principled.cpp:762-766, upsample(rgb/maxc)*maxc).
-    if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_is_principled(mat) &&
-        !s.isDelta && s.pdf > 0.0f && s.f.length2() > 0.0f) {
-        s.fSpectral = gpu_closure_graph_eval_spectral(mat, rec, wo, s.wi, wl);
-        return s;
+    if constexpr (HasPrincipled) {
+        if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_is_principled(mat) &&
+            !s.isDelta && s.pdf > 0.0f && s.f.length2() > 0.0f) {
+            s.fSpectral = gpu_closure_graph_eval_spectral<HasPrincipled>(mat, rec, wo, s.wi, wl);
+            return s;
+        }
     }
 
     // pkg168 Step 2: plain diffuse lobes (native GMAT_LAMBERTIAN or the plain-
@@ -2400,6 +2423,7 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     return s;
 }
 
+template<bool HasPrincipled = true>  // pkg178 Stage-3b D4 (see gpu_closure_graph_eval)
 __device__ inline float gpu_material_pdf(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
@@ -2407,7 +2431,7 @@ __device__ inline float gpu_material_pdf(
         case GMAT_LAMBERTIAN: return gpu_lambertian_pdf(mat, rec, wo, wi);
         case GMAT_METAL:      return gpu_metal_pdf(mat, rec, wo, wi);
         case GMAT_DISNEY:     return gpu_disney_pdf(mat, rec, wo, wi);
-        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_pdf(mat, rec, wo, wi);
+        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_pdf<HasPrincipled>(mat, rec, wo, wi);
         default:              return 0.f;
     }
 }

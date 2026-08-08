@@ -510,6 +510,10 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
     return occ;
 }
 
+// pkg178 Stage-3b D4: HasPrincipled threads through to the material dispatch so
+// the immediate-NEE (dense/flat) shade path also compiles principled code out of
+// its <false> instantiation. Default = true keeps every other caller unchanged.
+template<bool HasPrincipled = true>
 __device__ inline GSampledSpectrum gpu_nee_resolve(
     const GHitRecord& rec, const GVec3& wo,
     const GSampledWavelengths& lambdas,
@@ -523,7 +527,7 @@ __device__ inline GSampledSpectrum gpu_nee_resolve(
     // Spectral BSDF and emission — mirrors CPU pathTraceSpectral lines
     // 2414-2421:  f_spec = evalSpectral ; L_spec = emission_spec (illuminant).
     GSampledSpectrum f_spec =
-        gpu_material_eval_spectral(mat, const_cast<GHitRecord&>(rec), wo, s.wi, lambdas);
+        gpu_material_eval_spectral<HasPrincipled>(mat, const_cast<GHitRecord&>(rec), wo, s.wi, lambdas);
     // pkg89-GPU / GAP 1 — dedicated lights carry their emission intrinsically
     // (no light material). The reference RGB is upsampled through the SAME
     // RGBIlluminant path the CPU uses (gpu_rgbSpectrumAt == CPU
@@ -539,7 +543,7 @@ __device__ inline GSampledSpectrum gpu_nee_resolve(
     }
     if (f_spec.maxValue() <= 0.f || L_spec.maxValue() <= 0.f) return direct;
 
-    float bsdfPdf = gpu_material_pdf(mat, rec, wo, s.wi);
+    float bsdfPdf = gpu_material_pdf<HasPrincipled>(mat, rec, wo, s.wi);
     // pkg140: delta-light samples (e.g. GDED_DISTANT angular_diameter == 0)
     // always get full MIS weight -- mirrors CPU pathTraceSpectral's
     // ls.isDelta check (raytracer.h). A BSDF-sampled ray has probability 0

@@ -2,14 +2,15 @@
 
 **Pillar:** 3 (GPU/CPU + Cycles parity) / Integration Milestone
 **Track:** A (RTX + headless-Blender/Cycles; render legs serialize on the GPU lane)
-**Status:** in progress — CPU implemented + VERIFIED on branch `pkg181-dedicated-light`
-(2026-08-09): mirror-lamp 0.017x→1.008x Cycles, AREA floor 0.921x→0.985x Cycles,
-SUN 0.50008 unchanged; all 7 CPU gates pass
-(tests/test_pkg181_dedicated_light_bsdf_visibility.py). GPU wavefront advance-stage
-twin implemented (stage_advance.cu intersectPathSlot + gpu_nee.cuh device helpers)
-but UNBUILT/UNVERIFIED — DEFERRED to lead's RTX sweep (CUDA build + cuobjdump REG/STACK
-+ GPU gate 6). Harness AREA flips removed (gate 7); pkg119-B/pkg129 band re-baseline
-needs the lead's Blender/Cycles re-run.
+**Status:** DONE — MERGED to main as PR #569 (`65fc502`, 2026-08-09). CPU + GPU
+verified on RTX 5070 Ti: mirror-lamp 0.017x→~1.00x Cycles (CPU 7.215 / GPU 7.194 /
+Cycles 7.155), AREA floor 0.921x→0.985x, SUN 0.50008 exact; CPU/GPU agree (gate 6);
+register-neutral (lamp pass in intersect stage, byte-identical to main + 16 B const);
+ABI-reviewed clean (vtable reorder safe). Harness AREA flips removed (gate 7).
+REMAINING (folded into the post-pkg181 coordinated re-pin batch): pkg119-B/pkg129
+band re-baseline (Blender/Cycles re-run). FOLLOW-UPS: point/spot lamps stay NEE-only
+(delta+soft-shadow model; their mirror reflections need a pkg122 radiometric rework);
+GPU NEE `(lightPdf+0.001)` epsilon (pkg180 side-finding 3) folds into pkg172(A) GPU.
 **Estimated effort:** M–L (CPU + GPU wavefront, register-aware)
 **Depends on:** pkg180 (diagnosis + mechanism + numbers — read
 `.astroray_plan/docs/pkg180-systemic-cycles-dim-diagnosis.md` Phase 2 FIRST),

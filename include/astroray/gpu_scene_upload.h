@@ -12,6 +12,12 @@ struct SceneUploadResult {
     std::vector<GTriangle>  triangles;
     std::vector<GSphere>    spheres;
     std::vector<GMaterial>  materials;
+    // pkg178 Stage-3b D4: true when ANY uploaded material lowers to a
+    // closure-graph Principled (mirrors gpu_closure_graph_is_principled:
+    // type == GMAT_CLOSURE_GRAPH && closures[0].type == GCLOSURE_PRINCIPLED).
+    // The wavefront launchers pick the stageShade*<true/false> instantiation off
+    // this flag so non-principled scenes never compile in gpu_principled_* code.
+    bool hasPrincipled = false;
     std::vector<GLight>     lights;
     // pkg89-GPU / GAP 1 — dedicated lights (Blender POINT/SPOT/SUN/AREA lamps
     // routed through astroray::Light). Their cumulativePower continues the

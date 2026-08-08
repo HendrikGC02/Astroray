@@ -368,7 +368,12 @@ __device__ int intersectPathSlot(
 // live set in the REG:254-saturated shade kernel. Deferred=false keeps the
 // immediate path for advancePathSlot (the dense/flat reference schedulings).
 // PERF ONLY — the compiled-out branch is unreachable in the deferred callers.
-template<bool Deferred>
+// pkg178 Stage-3b D4: HasPrincipled is threaded into the material dispatch so
+// non-principled scenes launch a shade kernel with ZERO gpu_principled_* codegen
+// (if constexpr in gpu_materials.h), restoring main's footprint. The launchers
+// pick <true>/<false> off scene_upload's host-side flag. See
+// .astroray_plan/docs/pkg178-stage3-d4-and-forks-decision.md §2b.
+template<bool Deferred, bool HasPrincipled>
 __device__ bool shadePathSlot(
     int idx,
     GPUWavefrontState& state,
@@ -501,10 +506,10 @@ __device__ bool shadePathSlot(
                     // reorder: identical output, evals paid on occluded
                     // samples in exchange for a lean ~100-reg shadow kernel
                     // (measured tradeoff per the blueprint).
-                    GSampledSpectrum f_spec = gpu_material_eval_spectral(
+                    GSampledSpectrum f_spec = gpu_material_eval_spectral<HasPrincipled>(
                         mat, rec, wo, s.wi, lambdas);
                     if (f_spec.maxValue() > 0.f) {
-                        float bsdfPdf = gpu_material_pdf(mat, rec, wo, s.wi);
+                        float bsdfPdf = gpu_material_pdf<HasPrincipled>(mat, rec, wo, s.wi);
                         // Power heuristic (Veach 1997) — mirrors
                         // gpu_mw_powerHeuristic in the MW TU. Delta lights
                         // (pkg140, e.g. zero-diameter sun) force wt = 1
@@ -568,7 +573,7 @@ __device__ bool shadePathSlot(
                         s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
                         ray.time, motionVerts);
                     if (!occ.occluded) {
-                        GSampledSpectrum nee = gpu_nee_resolve(
+                        GSampledSpectrum nee = gpu_nee_resolve<HasPrincipled>(
                             rec, wo, lambdas, materials, s,
                             s.isSphere ? (occ.frontFace != 0) : true);
                         // pkg157: direct/indirect clamp split (bounce is the
@@ -639,7 +644,7 @@ __device__ bool shadePathSlot(
     // ---- BSDF sampling via the templated megakernel material dispatch
     // (all 7 GMAT types + closure graphs), drawing directly from the
     // per-path PCG32 stream (template-RNG arc; see the NEE note above).
-    GBSDFSample bss = gpu_material_sample_spectral(mat, rec, wo, lambdas, &rng);
+    GBSDFSample bss = gpu_material_sample_spectral<HasPrincipled>(mat, rec, wo, lambdas, &rng);
     if (bss.pdf <= 0.0f) {
         state.color_0[idx] = color.v[0];
         state.color_1[idx] = color.v[1];
@@ -786,6 +791,8 @@ __device__ bool shadePathSlot(
 //
 // Composition wrapper -- the flat (unstaged) scheduling. Dense and
 // flat-queued kernels run EXACTLY intersect-half + shade-half back to back.
+// pkg178 Stage-3b D4: HasPrincipled forwards into the shade half.
+template<bool HasPrincipled>
 __device__ bool advancePathSlot(
     int idx,
     GPUWavefrontState& state,
@@ -821,7 +828,7 @@ __device__ bool advancePathSlot(
                                     lights, numLights, totalLightPower,
                                     dedLights, numDed, lightTree);  // pkg120+pkg181
     if (matType < 0) return false;
-    return shadePathSlot<false>(idx, state, hitBufs, tlas, instances, blas,
+    return shadePathSlot<false, HasPrincipled>(idx, state, hitBufs, tlas, instances, blas,
                          bvhNodes, prims, tris, spheres, motionVerts,
                          materials, lights, numLights, totalLightPower,
                          dedLights, numDed, lightTree, max_depth,
@@ -833,6 +840,7 @@ __device__ bool advancePathSlot(
                          photonGrid, hasPhotonGrid, photonScale);
 }
 
+template<bool HasPrincipled>  // pkg178 Stage-3b D4
 __global__ void stageAdvanceKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -861,7 +869,7 @@ __global__ void stageAdvanceKernel(
     if (state.path_alive[idx] == 0) return;
     // Photon caustics run only on the bucketed production scheduling (C5);
     // the legacy dense path passes no grid (gather gated off).
-    advancePathSlot(idx, state, hitBufs, tlas, instances, blas,
+    advancePathSlot<HasPrincipled>(idx, state, hitBufs, tlas, instances, blas,
                     bvhNodes, prims, tris, spheres, motionVerts, materials,
                     lights, numLights, totalLightPower, dedLights, numDed,
                     lightTree, envMap,
@@ -881,6 +889,7 @@ __global__ void stageAdvanceKernel(
 // count retire immediately, so later bounces only pay for live paths
 // (Laine 2013 sec. 4: compaction keeps warps dense as paths die).
 // ---------------------------------------------------------------------------
+template<bool HasPrincipled>  // pkg178 Stage-3b D4
 __global__ void stageAdvanceQueuedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -909,7 +918,7 @@ __global__ void stageAdvanceQueuedKernel(
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
     int idx = queue_in[i];
-    bool alive = advancePathSlot(idx, state, hitBufs, tlas, instances, blas,
+    bool alive = advancePathSlot<HasPrincipled>(idx, state, hitBufs, tlas, instances, blas,
                                  bvhNodes, prims, tris, spheres, motionVerts,
                                  materials, lights, numLights, totalLightPower,
                                  dedLights, numDed,
@@ -1088,6 +1097,7 @@ __global__ void stageIntersectQueuedKernel(
     shade_queues[matType * capacity + slot] = idx;
 }
 
+template<bool HasPrincipled>  // pkg178 Stage-3b D4 (production perf vector)
 __global__ void stageShadeBucketedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1120,7 +1130,7 @@ __global__ void stageShadeBucketedKernel(
     if (bucket >= G_WF_NUM_MAT_TYPES) return;
     if (pos >= shade_counts[bucket]) return;
     int idx = shade_queues[bucket * capacity + pos];
-    bool alive = shadePathSlot<true>(idx, state, hitBufs, tlas, instances, blas,
+    bool alive = shadePathSlot<true, HasPrincipled>(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
                                totalLightPower, dedLights, numDed,
@@ -1253,23 +1263,38 @@ void launchStageAdvance(
     bool              useLuminanceOutput,
     bool              enableNEE,
     float             clampDirect, float clampIndirect,  // pkg157
-    bool              sync)
+    bool              sync,
+    bool              hasPrincipled)  // pkg178 Stage-3b D4
 {
     if (state.num_active <= 0) return;
     int threads = 256;
     int blocks  = (state.num_active + threads - 1) / threads;
     {
+        // pkg178 Stage-3b D4: pick the principled-isolated instantiation. Both
+        // are referenced here so both land in the cubin (cuobjdump gate parity).
+        const void* kptr = hasPrincipled
+            ? (const void*)stageAdvanceKernel<true>
+            : (const void*)stageAdvanceKernel<false>;
         astroray::gpu_profile::ScopedTimer _t(
-            "wavefront_stage_advance_n6",
-            (const void*)stageAdvanceKernel, blocks, threads);
-        stageAdvanceKernel<<<blocks, threads>>>(
-            state, hitBufs, d_tlas, d_instances, d_blas,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            d_lights, num_lights, total_light_power,
-            d_dedLights, num_ded, lightTree,
-            envMap, backgroundColor, hasBackgroundColor,
-            worldMaxBounces, max_depth, useLuminanceOutput, enableNEE,
-            clampDirect, clampIndirect);
+            "wavefront_stage_advance_n6", kptr, blocks, threads);
+        if (hasPrincipled)
+            stageAdvanceKernel<true><<<blocks, threads>>>(
+                state, hitBufs, d_tlas, d_instances, d_blas,
+                d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
+                d_lights, num_lights, total_light_power,
+                d_dedLights, num_ded, lightTree,
+                envMap, backgroundColor, hasBackgroundColor,
+                worldMaxBounces, max_depth, useLuminanceOutput, enableNEE,
+                clampDirect, clampIndirect);
+        else
+            stageAdvanceKernel<false><<<blocks, threads>>>(
+                state, hitBufs, d_tlas, d_instances, d_blas,
+                d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
+                d_lights, num_lights, total_light_power,
+                d_dedLights, num_ded, lightTree,
+                envMap, backgroundColor, hasBackgroundColor,
+                worldMaxBounces, max_depth, useLuminanceOutput, enableNEE,
+                clampDirect, clampIndirect);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_advance launch error: %s\n",
@@ -1318,7 +1343,8 @@ void launchStageAdvanceQueued(
     int               max_depth,
     bool              useLuminanceOutput,
     bool              enableNEE,
-    float             clampDirect, float clampIndirect)  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    bool              hasPrincipled)  // pkg178 Stage-3b D4
 {
     if (state.num_active <= 0) return;
     // Grid covers the worst case (all paths alive); the kernel early-outs
@@ -1327,18 +1353,33 @@ void launchStageAdvanceQueued(
     int threads = 256;
     int blocks  = (state.num_active + threads - 1) / threads;
     {
+        // pkg178 Stage-3b D4: pick the principled-isolated instantiation (both
+        // referenced so both land in the cubin for the cuobjdump gate).
+        const void* kptr = hasPrincipled
+            ? (const void*)stageAdvanceQueuedKernel<true>
+            : (const void*)stageAdvanceQueuedKernel<false>;
         astroray::gpu_profile::ScopedTimer _t(
-            "wavefront_stage_advance_queued_n7",
-            (const void*)stageAdvanceQueuedKernel, blocks, threads);
-        stageAdvanceQueuedKernel<<<blocks, threads>>>(
-            state, hitBufs, d_queue_in, d_count_in, d_queue_out, d_count_out,
-            d_tlas, d_instances, d_blas,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            d_lights, num_lights, total_light_power,
-            d_dedLights, num_ded, lightTree,
-            envMap, backgroundColor, hasBackgroundColor,
-            worldMaxBounces, max_depth, useLuminanceOutput, enableNEE,
-            clampDirect, clampIndirect);
+            "wavefront_stage_advance_queued_n7", kptr, blocks, threads);
+        if (hasPrincipled)
+            stageAdvanceQueuedKernel<true><<<blocks, threads>>>(
+                state, hitBufs, d_queue_in, d_count_in, d_queue_out, d_count_out,
+                d_tlas, d_instances, d_blas,
+                d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
+                d_lights, num_lights, total_light_power,
+                d_dedLights, num_ded, lightTree,
+                envMap, backgroundColor, hasBackgroundColor,
+                worldMaxBounces, max_depth, useLuminanceOutput, enableNEE,
+                clampDirect, clampIndirect);
+        else
+            stageAdvanceQueuedKernel<false><<<blocks, threads>>>(
+                state, hitBufs, d_queue_in, d_count_in, d_queue_out, d_count_out,
+                d_tlas, d_instances, d_blas,
+                d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
+                d_lights, num_lights, total_light_power,
+                d_dedLights, num_ded, lightTree,
+                envMap, backgroundColor, hasBackgroundColor,
+                worldMaxBounces, max_depth, useLuminanceOutput, enableNEE,
+                clampDirect, clampIndirect);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_advance_queued launch error: %s\n",
@@ -1438,7 +1479,8 @@ void launchStageShadeBucketed(
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
     float             photonScale,
     // pkg159: per-pixel cryptomatte rank arrays (driver-owned; null/0 = off).
-    float* d_cryptoObjectRanks, float* d_cryptoMaterialRanks, int cryptoDepth)
+    float* d_cryptoObjectRanks, float* d_cryptoMaterialRanks, int cryptoDepth,
+    bool              hasPrincipled)  // pkg178 Stage-3b D4
 {
     if (capacity <= 0) return;
     // One launch covers all buckets: grid = NUM_TYPES * capacity threads;
@@ -1449,21 +1491,42 @@ void launchStageShadeBucketed(
     int threads = 256;
     int blocks  = (int)((total + threads - 1) / threads);
     {
+        // pkg178 Stage-3b D4: select the HasPrincipled specialization off the
+        // host scene flag. The <false> instantiation carries zero gpu_principled_*
+        // codegen (restores main's ~4456 B stage-shade footprint); the <true>
+        // instantiation is byte-identical to today's kernel. Both are referenced
+        // so both appear in the cubin for the cuobjdump register report.
+        const void* kptr = hasPrincipled
+            ? (const void*)stageShadeBucketedKernel<true>
+            : (const void*)stageShadeBucketedKernel<false>;
         astroray::gpu_profile::ScopedTimer _t(
-            "wavefront_stage_shade_bucketed_n7",
-            (const void*)stageShadeBucketedKernel, blocks, threads);
-        stageShadeBucketedKernel<<<blocks, threads>>>(
-            state, hitBufs, d_shade_queues, d_shade_counts, capacity,
-            d_queue_out, d_count_out,
-            d_nee_f, d_nee_i, d_shadow_queue, d_shadow_count,
-            d_tlas, d_instances, d_blas,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            d_lights, num_lights, total_light_power,
-            d_dedLights, num_ded, lightTree, max_depth,
-            useLuminanceOutput, enableNEE,
-            clampDirect, clampIndirect,
-            photonGrid, hasPhotonGrid, photonScale,  // pkg55-C5 / pkg113
-            d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth);  // pkg159
+            "wavefront_stage_shade_bucketed_n7", kptr, blocks, threads);
+        if (hasPrincipled)
+            stageShadeBucketedKernel<true><<<blocks, threads>>>(
+                state, hitBufs, d_shade_queues, d_shade_counts, capacity,
+                d_queue_out, d_count_out,
+                d_nee_f, d_nee_i, d_shadow_queue, d_shadow_count,
+                d_tlas, d_instances, d_blas,
+                d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
+                d_lights, num_lights, total_light_power,
+                d_dedLights, num_ded, lightTree, max_depth,
+                useLuminanceOutput, enableNEE,
+                clampDirect, clampIndirect,
+                photonGrid, hasPhotonGrid, photonScale,  // pkg55-C5 / pkg113
+                d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth);  // pkg159
+        else
+            stageShadeBucketedKernel<false><<<blocks, threads>>>(
+                state, hitBufs, d_shade_queues, d_shade_counts, capacity,
+                d_queue_out, d_count_out,
+                d_nee_f, d_nee_i, d_shadow_queue, d_shadow_count,
+                d_tlas, d_instances, d_blas,
+                d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
+                d_lights, num_lights, total_light_power,
+                d_dedLights, num_ded, lightTree, max_depth,
+                useLuminanceOutput, enableNEE,
+                clampDirect, clampIndirect,
+                photonGrid, hasPhotonGrid, photonScale,  // pkg55-C5 / pkg113
+                d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth);  // pkg159
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_shade_bucketed launch error: %s\n",
@@ -1696,6 +1759,7 @@ void launchStageShadow(
 // shadow buffers are throwaway parking scratch — the shadow trace is NOT run
 // here; the audit inspects the shade-time MIS weight, not the occlusion.
 // ---------------------------------------------------------------------------
+template<bool HasPrincipled>  // pkg178 Stage-3b D4
 __global__ void stageShadeNeeMisKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1733,7 +1797,7 @@ __global__ void stageShadeNeeMisKernel(
                                     lights, numLights, totalLightPower,
                                     dedLights, numDed, lightTree);  // pkg120+pkg181
     if (matType < 0) return;  // env miss / emissive hit: path died, no NEE.
-    shadePathSlot<true>(idx, state, hitBufs, tlas, instances, blas,
+    shadePathSlot<true, HasPrincipled>(idx, state, hitBufs, tlas, instances, blas,
                   bvhNodes, prims, tris, spheres, motionVerts,
                   materials, lights, numLights, totalLightPower,
                   dedLights, numDed, lightTree, max_depth,
@@ -1767,21 +1831,36 @@ void launchStageShadeNeeMis(
     int               max_depth,
     bool              useLuminanceOutput,
     bool              enableNEE,
-    float             clampDirect, float clampIndirect)  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    bool              hasPrincipled)  // pkg178 Stage-3b D4
 {
     if (state.num_active <= 0) return;
     int threads = 256;
     int blocks  = (state.num_active + threads - 1) / threads;
-    stageShadeNeeMisKernel<<<blocks, threads>>>(
-        state, hitBufs, d_nee_f, d_nee_i,
-        d_shadow_queue, d_shadow_count, nee_capacity,
-        d_tlas, d_instances, d_blas,
-        d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-        d_lights, num_lights, total_light_power,
-        d_dedLights, num_ded, lightTree,
-        envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
-        max_depth, useLuminanceOutput, enableNEE,
-        clampDirect, clampIndirect);
+    // pkg178 Stage-3b D4: select the HasPrincipled specialization (see
+    // launchStageShadeBucketed). Both referenced so both land in the cubin.
+    if (hasPrincipled)
+        stageShadeNeeMisKernel<true><<<blocks, threads>>>(
+            state, hitBufs, d_nee_f, d_nee_i,
+            d_shadow_queue, d_shadow_count, nee_capacity,
+            d_tlas, d_instances, d_blas,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
+            d_lights, num_lights, total_light_power,
+            d_dedLights, num_ded, lightTree,
+            envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
+            max_depth, useLuminanceOutput, enableNEE,
+            clampDirect, clampIndirect);
+    else
+        stageShadeNeeMisKernel<false><<<blocks, threads>>>(
+            state, hitBufs, d_nee_f, d_nee_i,
+            d_shadow_queue, d_shadow_count, nee_capacity,
+            d_tlas, d_instances, d_blas,
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
+            d_lights, num_lights, total_light_power,
+            d_dedLights, num_ded, lightTree,
+            envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
+            max_depth, useLuminanceOutput, enableNEE,
+            clampDirect, clampIndirect);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         std::fprintf(stderr, "stage_shade_nee_mis launch error: %s\n",

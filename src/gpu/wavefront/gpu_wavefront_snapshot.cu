@@ -1201,7 +1201,8 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
                                treeView, envMap, gbg, hasBg,
                                worldMaxBounces, /*max_depth=*/8,
                                /*useLuminanceOutput=*/false, /*enableNEE=*/true,
-                               renderer.getClampDirect(), renderer.getClampIndirect());  // pkg157
+                               renderer.getClampDirect(), renderer.getClampIndirect(),  // pkg157
+                               res.hasPrincipled);  // pkg178 Stage-3b D4
 
         cudaError_t se = cudaDeviceSynchronize();
         if (se != cudaSuccess)
@@ -1553,7 +1554,8 @@ std::vector<float> cuda_wavefront_render(
                                      caustic.grid, caustic.ready,  // pkg55-C5 / pkg113
                                      caustic.scale,
                                      d_cryptoObj, d_cryptoMat,     // pkg159
-                                     cryptoOn ? cryptoDepth : 0);
+                                     cryptoOn ? cryptoDepth : 0,
+                                     res.hasPrincipled);  // pkg178 Stage-3b D4
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4

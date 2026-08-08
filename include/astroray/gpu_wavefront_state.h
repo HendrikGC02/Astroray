@@ -301,7 +301,8 @@ void launchStageAdvance(
     bool              useLuminanceOutput,  // pkg55-C3 (was missing)
     bool              enableNEE,           // pkg55-C3 (was missing)
     float             clampDirect, float clampIndirect,  // pkg157
-    bool              sync = true);  // N+7: render driver passes false, syncs once per render
+    bool              sync = true,  // N+7: render driver passes false, syncs once per render
+    bool              hasPrincipled = true);  // pkg178 Stage-3b D4 (caller-less; default keeps <true>)
 
 // Session N+7 part 2: queued advance + compaction. queue/count buffers are
 // device pointers; the host never reads the counters (zero-sync driver).
@@ -328,7 +329,8 @@ void launchStageAdvanceQueued(
     int               max_depth,
     bool              useLuminanceOutput,  // pkg55-C3 (was missing)
     bool              enableNEE,           // pkg55-C3 (was missing)
-    float             clampDirect, float clampIndirect);  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    bool              hasPrincipled = true);  // pkg178 Stage-3b D4 (caller-less; default keeps <true>)
 
 // Fills d_queue with 0..n-1 and *d_count = n (bounce-0 population).
 void launchStageQueueIota(int* d_queue, int* d_count, int n);
@@ -399,7 +401,12 @@ void launchStageShadeBucketed(
     // cryptoDepth == 0 (or null pointers) = cryptomatte disabled, the default.
     // The shade stage inserts ATOMICALLY (crypto_insert_atomic, cryptomatte.h)
     // because path regeneration puts many concurrent slots on one pixel.
-    float* d_cryptoObjectRanks, float* d_cryptoMaterialRanks, int cryptoDepth);
+    float* d_cryptoObjectRanks, float* d_cryptoMaterialRanks, int cryptoDepth,
+    // pkg178 Stage-3b D4: scene-content flag from scene_upload. true selects the
+    // stageShadeBucketedKernel<true> (principled) instantiation; false selects
+    // <false>, which compiles out all gpu_principled_* codegen for the fleet-wide
+    // non-principled perf restore. See pkg178-stage3-d4-and-forks-decision.md §2b.
+    bool hasPrincipled);
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts
@@ -496,7 +503,8 @@ void launchStageShadeNeeMis(
     int               max_depth,
     bool              useLuminanceOutput,  // pkg55-C3 (was missing)
     bool              enableNEE,           // pkg55-C3 (was missing)
-    float             clampDirect, float clampIndirect);  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    bool              hasPrincipled);  // pkg178 Stage-3b D4 (snapshot launcher; passed res.hasPrincipled)
 
 // Session N+3 part 2: Hit record fields (extend GPUWavefrontState for intersect->shade flow).
 // These are passed as separate device pointers; will be folded into GPUWavefrontState

@@ -4539,35 +4539,11 @@ class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):
         layout.prop(settings, "light_sampler")
 
 
-class RENDER_PT_custom_raytracer_light_paths(AstrorayPanelBase, Panel):
-    bl_label = "Light Paths"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_context = "render"
-
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-
-        settings = context.scene.custom_raytracer
-
-        col = layout.column(align=True)
-        col.prop(settings, "max_bounces", text="Total")
-        col.prop(settings, "diffuse_bounces")
-        col.prop(settings, "glossy_bounces")
-        col.prop(settings, "transmission_bounces")
-        col.prop(settings, "volume_bounces")
-        col.prop(settings, "transparent_bounces")
-        col.prop(settings, "clamp_direct")
-        col.prop(settings, "clamp_indirect")
-        layout.separator()
-        caustics = layout.box()
-        caustics.label(text="Caustics")
-        caustics.prop(settings, "filter_glossy")
-        row = caustics.row(align=True)
-        row.prop(settings, "use_reflective_caustics")
-        row.prop(settings, "use_refractive_caustics")
+# pkg176 Stage 2: the custom "Light Paths" panel (RENDER_PT_custom_raytracer_light_paths)
+# was retired here. Every control it drew - max_bounces + diffuse/glossy/transmission/
+# volume/transparent bounces, clamp direct/indirect, filter glossy, reflective/refractive
+# caustics - is a Stage-0 `direct` row that Stage 1 now reads natively, so the native
+# Cycles Light Paths sub-panels (see ADOPTED_NATIVE_PANELS) fully replace it.
 
 
 class RENDER_PT_custom_raytracer_performance(AstrorayPanelBase, Panel):
@@ -5155,7 +5131,6 @@ classes = [
     AstrorayBlackHoleProperties,
     CustomRaytracerRenderEngine,
     RENDER_PT_custom_raytracer_sampling,
-    RENDER_PT_custom_raytracer_light_paths,
     RENDER_PT_custom_raytracer_performance,
     RENDER_PT_custom_raytracer_wavelength,
     RENDER_PT_custom_raytracer_diagnostics,
@@ -5237,6 +5212,79 @@ def _iter_compat_panels():
             continue
         if _is_compatible_panel(panel):
             yield panel
+
+
+# ---------------------------------------------------------------------- #
+# pkg176 Stage 2 — explicit native Cycles panel adoption
+# ---------------------------------------------------------------------- #
+#
+# Native Cycles panels advertise COMPAT_ENGINES = {'CYCLES'} (never
+# 'BLENDER_RENDER'), so the wholesale _iter_compat_panels() loop above does
+# NOT pick them up. Stage 2 adopts an EXPLICIT, checked-in subset for
+# CUSTOM_RAYTRACER — a panel is adopted only if EVERY control it draws maps to
+# a Stage-0 `direct` row (blender_addon/settings_map.py) that Stage 1 already
+# reads natively (native_settings.DIRECT_ALIASES), so nothing on an adopted
+# panel is silently ignored. The list is explicit (not a blanket rule) so a
+# Blender 5.x panel rename/removal fails LOUDLY at register() instead of
+# silently dropping a control (Blender 5.0 already removed panels other engines
+# had re-registered — see the pkg176 research note).
+ADOPTED_NATIVE_PANELS = (
+    # Light Paths family. Every control below is a `direct` row:
+    #   parent    — draw() is a no-op; its integrator-preset header only writes
+    #               the direct bounce/caustics props. Adopted so the sub-panels
+    #               (which poll on their own COMPAT_ENGINES) are shown.
+    "CYCLES_RENDER_PT_light_paths",
+    #   max_bounces — max_bounces (Total) + diffuse/glossy/transmission/volume
+    #                 bounces + transparent_max_bounces  (all `direct`).
+    "CYCLES_RENDER_PT_light_paths_max_bounces",
+    #   clamping    — sample_clamp_direct / sample_clamp_indirect  (both `direct`).
+    "CYCLES_RENDER_PT_light_paths_clamping",
+    #   caustics    — blur_glossy (Filter Glossy) + caustics_reflective /
+    #                 caustics_refractive  (all `direct`).
+    "CYCLES_RENDER_PT_light_paths_caustics",
+    #
+    # Deliberately NOT adopted this stage (a control has no honest native map):
+    #   CYCLES_RENDER_PT_light_paths_fast_gi   — use_fast_gi / ao_bounces (`dropped`).
+    #   CYCLES_RENDER_PT_sampling(_render/_viewport/_advanced/_lights) — Cycles
+    #       bundles `samples` with use_adaptive_sampling / adaptive_threshold /
+    #       time_limit (`dropped`) and use_light_tree (`approximated`); no sampling
+    #       panel is fully honest, so `samples`/`preview_samples` stay on the custom
+    #       Sampling panel until pkg119-C degrades the un-honoured controls.
+)
+
+
+def _adopt_native_panels():
+    """Re-register the ADOPTED_NATIVE_PANELS for CUSTOM_RAYTRACER (the standard
+    external-engine COMPAT_ENGINES trick), failing loudly if any is missing.
+
+    Route-2 correctness note: all Cycles panels inherit ONE shared
+    COMPAT_ENGINES set from CyclesButtonsPanel. Mutating it in place would leak
+    CUSTOM_RAYTRACER onto EVERY Cycles panel — including the un-honoured
+    sampling / fast-GI ones. So give each adopted panel its OWN copy of the set
+    first, then add our engine.
+    """
+    missing = [name for name in ADOPTED_NATIVE_PANELS
+               if getattr(bpy.types, name, None) is None]
+    if missing:
+        raise RuntimeError(
+            "Astroray: native Blender/Cycles panel(s) expected by pkg176 Stage 2 "
+            "are missing from bpy.types: " + ", ".join(missing) + ". Blender may "
+            "have renamed or removed them; update ADOPTED_NATIVE_PANELS in "
+            "blender_addon/__init__.py to match this Blender version."
+        )
+    for name in ADOPTED_NATIVE_PANELS:
+        panel = getattr(bpy.types, name)
+        if 'COMPAT_ENGINES' not in vars(panel):
+            panel.COMPAT_ENGINES = set(panel.COMPAT_ENGINES)
+        panel.COMPAT_ENGINES.add('CUSTOM_RAYTRACER')
+
+
+def _release_native_panels():
+    for name in ADOPTED_NATIVE_PANELS:
+        panel = getattr(bpy.types, name, None)
+        engines = getattr(panel, 'COMPAT_ENGINES', None) if panel is not None else None
+        if engines is not None:
+            engines.discard('CUSTOM_RAYTRACER')
 
 
 def _check_build_integrity():
@@ -5333,6 +5381,11 @@ def register():
     # pkg94: guard against stale loaded module (before any Renderer use)
     _check_build_integrity()
 
+    # pkg176 Stage 2: adopt the explicit native Cycles panels first, so a missing
+    # (renamed/removed) panel fails loudly before we register any of our own
+    # classes rather than leaving a half-registered addon.
+    _adopt_native_panels()
+
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.custom_raytracer = PointerProperty(type=CustomRaytracerRenderSettings)
@@ -5355,6 +5408,7 @@ def register():
 
 
 def unregister():
+    _release_native_panels()
     for panel in _iter_compat_panels():
         panel.COMPAT_ENGINES.discard('CUSTOM_RAYTRACER')
 

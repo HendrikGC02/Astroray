@@ -1327,9 +1327,20 @@ __device__ inline float gpu_pr_smithG1(float NdotV, float alphaG) {
     float b = NdotV * NdotV;
     return 2.f * NdotV / (NdotV + sqrtf(a + b - a * b) + 0.001f);
 }
-__device__ inline float gpu_pr_smithG_k(float NdotL, float NdotV, float roughness) {
-    float k = (roughness + 1.f) * (roughness + 1.f) / 8.f;
-    return (NdotL / (NdotL * (1.f - k) + k)) * (NdotV / (NdotV * (1.f - k) + k));
+// Height-correlated Smith masking-shadowing (pkg178 Stage-3b PR-4a) — GPU twin of
+// principled.cpp smithLambda/smithG2_GGX. Replaces the former Disney/UE4 Schlick-k
+// approximation with the EXACT Cycles form (Heitz 2014, JCGT Vol.3 No.2 §3.2
+// Eq. 72; Cycles intern/cycles/kernel/closure/bsdf_microfacet.h, BSD-3-Clause:
+// bsdf_lambda_from_sqr_alpha_tan_n / bsdf_lambda / bsdf_microfacet_eval). ISOTROPIC
+// only (αx=αy → α=roughness²); anisotropy is PR-4b.
+__device__ inline float gpu_pr_smithLambda(float cosTheta, float alpha) {
+    float a2 = alpha * alpha;  // sqr_alpha (Cycles alpha2)
+    float c2 = fmaxf(cosTheta * cosTheta, 1e-7f);
+    float t = a2 * fmaxf(1.f / c2 - 1.f, 0.f);  // sqr_alpha * tan^2
+    return 0.5f * (sqrtf(1.f + t) - 1.f);
+}
+__device__ inline float gpu_pr_smithG2(float NdotL, float NdotV, float alpha) {
+    return 1.f / (1.f + gpu_pr_smithLambda(NdotV, alpha) + gpu_pr_smithLambda(NdotL, alpha));
 }
 __device__ inline float gpu_pr_F0_from_ior(float ior) {
     float f = (ior - 1.f) / (ior + 1.f);
@@ -1618,7 +1629,7 @@ __device__ inline GVec3 gpu_pr_ggxReflect(const GVec3& Fhalf, const GVec3& compF
     float a = fmaxf(roughness * roughness, 0.0064f), a2 = a * a;
     float denom = NdotH * NdotH * (a2 - 1.f) + 1.f;
     float D = a2 / (M_PI_F * denom * denom + 1e-4f);
-    float G = gpu_pr_smithG_k(nl, nv, roughness);
+    float G = gpu_pr_smithG2(nl, nv, a);  // height-correlated Smith (Cycles parity)
     GVec3 single = Fhalf * (D * G / (4.f * nv + 1e-4f));
     return single * gpu_ggxCompensationFactor(compFss, roughness, nv);
 }
@@ -1632,7 +1643,7 @@ __device__ inline GSampledSpectrum gpu_pr_ggxReflectSpectral(const GSampledSpect
     float a = fmaxf(roughness * roughness, 0.0064f), a2 = a * a;
     float denom = NdotH * NdotH * (a2 - 1.f) + 1.f;
     float D = a2 / (M_PI_F * denom * denom + 1e-4f);
-    float G = gpu_pr_smithG_k(nl, nv, roughness);
+    float G = gpu_pr_smithG2(nl, nv, a);  // height-correlated Smith (Cycles parity)
     GSampledSpectrum single = Fhalf * (D * G / (4.f * nv + 1e-4f));
     if (!g_ggxE || !g_ggxEavg) return single;
     float E = fmaxf(gpu_ggxE(roughness, nv), 1e-4f);
@@ -1657,7 +1668,8 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
         float HdotO = wo.dot(wm);
         if (HdotO <= 1e-10f) return GVec3(0.f);
         float D = gpu_pr_D_GTR2(wm.dot(rec.normal), alpha);
-        float G = gpu_pr_smithG1(cosO, alpha) * gpu_pr_smithG1(cosI, alpha);
+        // Height-correlated Smith G2 for the external-reflection sub-lobe (Cycles).
+        float G = gpu_pr_smithG2(cosI, cosO, alpha);
         float F = gpu_pr_fresnelDielectric(HdotO, 1.f, L.ior);
         float fr = D * G * F / (4.f * cosO * cosI + 1e-8f) * cosI;
         return L.weight * c.specularTint * fr;
@@ -1668,7 +1680,8 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
     if (wm.dot(rec.normal) < 0.f) wm = -wm;
     if (wm.dot(wi) * cosI < 0.f || wm.dot(wo) * cosO < 0.f) return GVec3(0.f);
     float D = gpu_pr_D_GTR2(fabsf(wm.dot(rec.normal)), alpha);
-    float G = gpu_pr_smithG1(fabsf(cosO), alpha) * gpu_pr_smithG1(fabsf(cosI), alpha);
+    // Height-correlated Smith G2 for the refraction sub-lobe (Cycles parity).
+    float G = gpu_pr_smithG2(fabsf(cosI), fabsf(cosO), alpha);
     float F = gpu_pr_fresnelDielectric(fabsf(wo.dot(wm)), etaI, etaT);
     float den = wi.dot(wm) + wo.dot(wm) / etap;
     den = den * den * cosI * cosO;

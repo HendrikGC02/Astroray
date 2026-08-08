@@ -91,30 +91,63 @@ def _add_sphere(bpy, scene):
     return obj
 
 
-def _add_backdrop(bpy, scene):
-    """Vertical checker-textured plane BEHIND the subject (camera at y=-6 looking
-    +Y). A TRANSPARENT / refractive BSDF shows the background, so without a
-    structured, lit backdrop the transparent-material scene renders a near-black
-    frame where SSIM is meaningless (this false-convicted BSDF_TRANSPARENT in the
-    2026-08-08 baseline). Both engine legs render the identical backdrop, so it
-    adds testable signal without biasing the differential."""
-    bpy.ops.mesh.primitive_plane_add(size=14.0, location=(0.0, 4.0, 1.0))
-    plane = bpy.context.active_object
-    plane.rotation_euler = (math.radians(90.0), 0.0, 0.0)  # stand it up, face -Y
-    mat = bpy.data.materials.new("Backdrop")
+# Solid diffuse colours for the parity-safe backdrop bands (world X centre, RGB).
+# Bands abut (2.0-wide planes at 2.0 spacing) to form a red/yellow/green/blue
+# flag - spatial structure a transparent/refractive BSDF shows, built ONLY from
+# plain diffuse BSDFs that the harness's passing cells prove Astroray renders
+# identically to Cycles.
+_BACKDROP_BANDS = (
+    (-3.0, (0.85, 0.22, 0.18)),   # red
+    (-1.0, (0.90, 0.80, 0.20)),   # yellow
+    (1.0, (0.20, 0.70, 0.35)),    # green
+    (3.0, (0.22, 0.35, 0.85)),    # blue
+)
+
+
+def _apply_solid_diffuse(bpy, obj, color):
+    """Give ``obj`` a single solid-colour Diffuse BSDF (no procedural texture
+    node). This is the exact material pattern the light-scene floor and the
+    diffuse combiner inputs use, i.e. the parity-safe subset."""
+    mat = bpy.data.materials.new("Solid")
     mat.use_nodes = True
     nt = mat.node_tree
     _clear_nodes(nt)
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     diff = nt.nodes.new("ShaderNodeBsdfDiffuse")
-    checker = nt.nodes.new("ShaderNodeTexChecker")
-    checker.inputs["Color1"].default_value = (0.85, 0.25, 0.15, 1.0)
-    checker.inputs["Color2"].default_value = (0.15, 0.35, 0.85, 1.0)
-    checker.inputs["Scale"].default_value = 6.0
-    nt.links.new(checker.outputs["Color"], diff.inputs["Color"])
+    diff.inputs["Color"].default_value = (color[0], color[1], color[2], 1.0)
     nt.links.new(diff.outputs["BSDF"], out.inputs["Surface"])
-    plane.data.materials.append(mat)
-    return plane
+    obj.data.materials.append(mat)
+    return mat
+
+
+def _add_backdrop(bpy, scene):
+    """Parity-SAFE structured backdrop BEHIND the subject (camera at y=-6 looking
+    +Y). A TRANSPARENT / refractive BSDF shows the background, so without a
+    structured, lit backdrop the transparent-material scene renders a near-black
+    frame where SSIM is meaningless (this false-convicted BSDF_TRANSPARENT in the
+    2026-08-08 baseline).
+
+    Structure is built from SOLID-COLOUR diffuse quads (vertical colour bands)
+    plus a neutral fill plane - NOT a procedural texture. ShaderNodeTexChecker is
+    NOT parity-safe in Astroray (lead HW re-triage 2026-08-08: the checker
+    backdrop rendered flat grey in the Astroray leg -> SSIM 0.30, which measured
+    checker-node parity, not the transparent BSDF). Do not reintroduce it. The
+    backdrop-only parity is guarded by build_backdrop_probe_scene + its test."""
+    objs = []
+    # Neutral fill plane first so band gaps never show the world colour.
+    bpy.ops.mesh.primitive_plane_add(size=20.0, location=(0.0, 5.2, 1.0))
+    fill = bpy.context.active_object
+    fill.rotation_euler = (math.radians(90.0), 0.0, 0.0)  # stand it up, face -Y
+    _apply_solid_diffuse(bpy, fill, (0.55, 0.52, 0.50))
+    objs.append(fill)
+    for x, col in _BACKDROP_BANDS:
+        bpy.ops.mesh.primitive_plane_add(size=2.0, location=(x, 4.5, 1.5))
+        band = bpy.context.active_object
+        band.scale = (1.0, 2.0, 1.0)                       # 2.0 wide x 4.0 tall
+        band.rotation_euler = (math.radians(90.0), 0.0, 0.0)
+        _apply_solid_diffuse(bpy, band, col)
+        objs.append(band)
+    return objs
 
 
 # --------------------------------------------------------------------------- #
@@ -278,6 +311,21 @@ def build_world_scene(bpy):
     return scene
 
 
+def build_backdrop_probe_scene(bpy):
+    """Parity CANARY: the shader_node backdrop + world + light + camera with NO
+    feature sphere, so both engine legs render ONLY the backdrop. The guard test
+    (test_backdrop_is_parity_safe) asserts high SSIM here; if the backdrop ever
+    stops rendering with parity in Astroray it fails HERE instead of silently
+    contaminating the BSDF_TRANSPARENT differential (lead HW finding 2026-08-08).
+    Must stay byte-for-byte the same backdrop as build_shader_node_scene."""
+    scene = _reset(bpy)
+    _add_world(bpy, scene, strength=0.6, color=(0.35, 0.40, 0.50))
+    _add_backdrop(bpy, scene)
+    _add_area_light(bpy, scene)
+    _add_camera(bpy, scene)
+    return scene
+
+
 # --------------------------------------------------------------------------- #
 # Composite scenes (owner-approved replacement for the cut .blend corpus)
 # --------------------------------------------------------------------------- #
@@ -383,6 +431,8 @@ def build_scene(bpy, category: str, feature: str, bl_idname: str = "",
         return build_camera_scene(bpy)
     if category == "world":
         return build_world_scene(bpy)
+    if category == "backdrop_probe":
+        return build_backdrop_probe_scene(bpy)
     if category == "composite":
         builder = COMPOSITE_BUILDERS.get(feature)
         if builder is None:

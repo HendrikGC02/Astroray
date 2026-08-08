@@ -11,7 +11,9 @@ absent (CI has none), mirroring tests/test_dev_loop_smoke.py.
 """
 from __future__ import annotations
 
+import inspect
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -344,3 +346,55 @@ def test_differential_run_local_host(tmp_path):
     assert payload["summary"]["total"] == 1
     # rc==0 means no crashed feature; a triaged FAIL is acceptable output.
     assert rc in (0, 1)
+
+
+# --------------------------------------------------------------------------- #
+# Backdrop parity guard (the shader_node/transparent scene's backdrop must
+# render identically in both engines, or the transparent differential is
+# measuring backdrop-node parity, not the transparent BSDF).
+# --------------------------------------------------------------------------- #
+
+def test_backdrop_avoids_nonparity_texture_node():
+    """Pure regression: ShaderNodeTexChecker is NOT parity-safe in Astroray (lead
+    HW re-triage 2026-08-08: it rendered flat grey in the Astroray leg, dropping
+    BSDF_TRANSPARENT to SSIM 0.30). Keep the backdrop on solid-colour diffuse and
+    keep the parity canary wired."""
+    from benchmarks.blender_parity import scene_library as SL
+    src = inspect.getsource(SL._add_backdrop)
+    # Catch INSTANTIATION of any procedural texture node (ShaderNodeTex*), not a
+    # mention in the warning docstring.
+    assert 'nodes.new("ShaderNodeTex' not in src, (
+        "backdrop reintroduced a non-parity procedural texture node; use "
+        "solid-colour diffuse geometry only")
+    assert hasattr(SL, "build_backdrop_probe_scene")
+    assert "backdrop_probe" in inspect.getsource(SL.build_scene)
+
+
+@pytest.mark.serial
+@pytest.mark.gpu
+def test_backdrop_is_parity_safe(tmp_path):
+    """On-hardware guard: render the backdrop-ONLY scene (no transparent sphere)
+    through both engines; the backdrop MUST agree (SSIM >= 0.95) or it silently
+    contaminates the BSDF_TRANSPARENT cell. Skips cleanly without Blender/build."""
+    blender = H._find_blender()
+    if blender is None or not BLENDER.exists():
+        pytest.skip("Blender 5.1 not installed - local-host gate")
+    build_dir = H._pyd_dir(REPO_ROOT) or H._pyd_dir(REPO_ROOT.parent / "Astroray")
+    if build_dir is None:
+        pytest.skip("no built astroray .pyd - build the addon first")
+
+    env = os.environ.copy()
+    env["ASTRORAY_PYD_DIR"] = str(build_dir)
+    env["ASTRORAY_BUILD_DIR"] = str(REPO_ROOT / "build_cuda")
+    renders = tmp_path / "renders"
+    renders.mkdir()
+
+    feat = H.Feature("backdrop_probe", "backdrop", "", "SUPPORTED")
+    arrays, bad_engine, log_tail = H._render_pair(
+        blender, feat, renders, 128, 64, 300, env)
+    assert arrays is not None, f"backdrop probe {bad_engine} leg crashed:\n{log_tail}"
+    ssim, delta_e, ratio = H._metrics(
+        arrays["CUSTOM_RAYTRACER"], arrays["CYCLES"])
+    assert ssim >= 0.95, (
+        f"backdrop is NOT parity-safe (SSIM {ssim:.4f}, dE {delta_e:.2f}, "
+        f"ratio {ratio}); it contaminates the transparent-BSDF differential")

@@ -2,7 +2,33 @@
 
 **Pillar:** 2 (materials / BSDF energy correctness)
 **Track:** A (CPU furnace gates on CI; GPU twin RTX-verified)
-**Status:** open — dispatchable (Phase 1 diagnosis-first; Phase 2 gated on Phase 1's finding)
+**Status:** Phase 1 DONE (2026-08-09, branch `pkg179-diag`; research note
+`.astroray_plan/docs/pkg179-dielectric-transmission-redistribution-research.md`).
+**Verdict: the 3× dead-sample rate was a MEASUREMENT-METHODOLOGY / definition
+artifact — NOT a sampler bug, NOT new physics.** pkg150's 7.1% @ r=1.0,θ0 is
+correct and current (analytic replication + engine both ~7.0%); pkg167's 22.9%
+was the raw un-gated VNDF below-horizon reflection rate (a different statistic,
+pre-Fresnel-split). git-bisect d02fe07..main shows ZERO change to the VNDF path;
+pkg149 Lerp fix matches pbrt-v4. **Key insight:** the existing smooth-delta
+fallback ALREADY reroutes below-horizon reflection energy into the TRANSMISSION
+lobe (F≈0.04–0.09 → ~95% exits as transmission), which is energy-correct; the
+pkg150 dead-sample fix DELETES that reroute (→ furnace 0.997→0.788), which is why
+reflection compensation (+0.009) can't recover it. The realized masked budget is
+~7%, not 23%, and the chi² type-mismatch the fix targets is ~90% an ires=4
+quadrature artifact (pkg150 Finding 3).
+**LEAD RECOMMENDATION (pending owner ratification — reverses this spec's binding
+"ship the dead-sample fix" deliverable): OPTION 2** — do NOT ship the pkg150
+dead-sample fix; keep the fallback's energy-correct transmission reroute; close
+the chi² concern as the documented quadrature artifact; record the
+combined-closure (Cycles) design as the proper long-term home for when **pkg178**
+builds its Principled dielectric (combined closure by construction), rather than
+building a standalone Phase-2 redistribution term now. Rationale: proportionate
+(7% realized, already handled), energy-correct, and avoids an M–L term whose
+motivating "large masked energy" was an artifact. **OPTION 1** (spec default):
+ship the fix + build Phase-2 transmission redistribution. Nothing is blocked on
+this decision. No engine code was changed in Phase 1 (diagnosis only).
+
+_Original status: open — dispatchable (Phase 1 diagnosis-first; Phase 2 gated on Phase 1's finding)._
 **Estimated effort:** M–L (Phase 1 is S diagnosis; Phase 2 is the hard part — a transmission-lobe redistribution mechanism or a combined-closure treatment, CPU+GPU, holding the furnace at all roughnesses WITH the dead-sample fix in)
 **Depends on:** pkg167 Part 1 landed (PR #562, `b4f8376` era — Disney dielectric reflection-lobe multiscatter compensation CPU+GPU, furnace in-band 0.99/0.94/0.93 at r=0.3/0.6/1.0, pkg169 xfail retired). The pkg151→pkg154→pkg149 sampler chain is on main. **Composes with:** pkg149 (VNDF sampler — Phase 1 audits its below-horizon reflection accounting), pkg118 (`ggxGlassCompensationFactor`, rough-dielectric transmission multiscatter — the existing transmission-side term this package extends), pkg178 (native Principled port — see Relationship note; the combined-closure question this package answers directly informs Stage 1/3 there).
 

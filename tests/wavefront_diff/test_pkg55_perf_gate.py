@@ -59,10 +59,16 @@ WIDTH = HEIGHT = 256
 SPP = 1024
 MAX_DEPTH = 8
 SEED = 424242
-CEILING_S = 1.5  # TEMPORARY raise (owner decision 2026-08-03, PR #541 option A):
-# the pkg168 correctness fix v4 measures 1.222s (best correct form; REG:254
-# blocks in-kernel recovery). Owned by pkg174 — restoring 1.0 and reverting
-# this raise is pkg174's definition of done. Original pin: 1.0 (2026-07-25).
+CEILING_S = 1.5  # ACCEPTED post-settlement ceiling (owner decision 2026-08-08,
+# pkg174 / PR #554). The ≤1.0s restore target is UNREACHABLE under a PERF-ONLY,
+# correctness-frozen scope: pkg174 measured the shade kernel's REG:254 ceiling as
+# TWO independent ~160-reg consumers (NEE light-sampling + the spectral BSDF union)
+# on a ~95-reg irreducible state base — either alone saturates the cap, so no
+# stage-split or per-material split raises occupancy (full evidence:
+# .astroray_plan/docs/pkg174-register-pressure-ledger.md). Best correct form now
+# measures 1.132s (pkg174's template<bool Deferred> dead-branch removal, -1.1%);
+# 1.5s keeps ~31% headroom as a gross-regression tripwire. Original pin: 1.0
+# (2026-07-25, pre-accretion); superseded by feature-cost reality (addendum 1.156s).
 
 
 def _build():

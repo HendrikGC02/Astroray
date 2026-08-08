@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU wavefront performance)
 **Track:** A (RTX-gated; every measurement is hardware)
-**Status:** in progress — dispatched 2026-08-07 (worktree .claude/worktrees/pkg174, branch pkg174-register-pressure); #541 precondition satisfied (merged 2026-08-06, bbf2d8c). **2026-08-07 overnight update:** micro-lever avenue closed with evidence — see `.astroray_plan/docs/pkg174-register-pressure-ledger.md`. Baseline 1.145s @ 2887MHz P0; `__noinline__` fence REJECTED (+2.7%), `__launch_bounds__(256,2)` NULL (ptxas ignored on sm_120). Ceiling raise NOT reverted (target ≤1.0s unmet). Remaining path = structural stage-split, routed to SUPERVISED (correctness-frozen serialization-point kernel; occupancy-cliff-bounded). This is the companion package that option A creates: #541 ships the correctness fix v4 with a TEMPORARY raise of the wavefront perf ceiling; this package restores the ceiling and reverts the raise.
+**Status:** RESOLVED 2026-08-08 (owner accepted the raised ceiling; PR #554, branch pkg174-stage-split). Shipped `template<bool Deferred>` dead-NEE-branch compile-out (−1.1%); ≤1.0s measured UNREACHABLE in PERF-ONLY scope (two independent ~160-reg consumers on a ~95-reg base — see Acceptance + ledger). Originally dispatched 2026-08-07 (worktree .claude/worktrees/pkg174, branch pkg174-register-pressure); #541 precondition satisfied (merged 2026-08-06, bbf2d8c). **2026-08-07 overnight update:** micro-lever avenue closed with evidence — see `.astroray_plan/docs/pkg174-register-pressure-ledger.md`. Baseline 1.145s @ 2887MHz P0; `__noinline__` fence REJECTED (+2.7%), `__launch_bounds__(256,2)` NULL (ptxas ignored on sm_120). Ceiling raise NOT reverted (target ≤1.0s unmet). Remaining path = structural stage-split, routed to SUPERVISED (correctness-frozen serialization-point kernel; occupancy-cliff-bounded). This is the companion package that option A creates: #541 ships the correctness fix v4 with a TEMPORARY raise of the wavefront perf ceiling; this package restores the ceiling and reverts the raise.
 **Estimated effort:** M (kernel-architecture work, measured at every step; no correctness surface should move)
 **Depends on:** PR #541 merged (option A — owner CONFIRMED 2026-08-03). Cross-links: **pkg155** (Phase 1 conviction: shade stage 221 regs/thread, 1 block/SM, sm_120 AOT ruled out with numbers — the register problem is intrinsic to the kernel, not a build artifact; its recovery target ≤128 regs is this package's inherited north star), **pkg168** (whose #541 fix is the per-hit state that tipped the stage over), **pkg172(A)** (the epsilon fix ships in the same supervised round; run this package's final perf measurement on a build containing BOTH).
 
@@ -41,20 +41,28 @@ recorded in **PR #541's comment thread** and preserved commit **`6ef2c11`**):
    any stage-splitting design change (CLAUDE.md §6); the repo's pkg55 docs
    already carry the citation — extend, don't re-derive.
 
-## Acceptance
+## Acceptance — RESOLVED 2026-08-08 (owner accepted raised ceiling; PR #554)
 
-- [ ] Perf-gate scene ≤ **1.0s** median-of-3 on RTX 5070 Ti **with the #541
-      correctness fix present** (and pkg172(A)'s epsilon fix if already
-      merged — measure on the real settlement-round main, not a curated
-      branch).
-- [ ] **The temporary ceiling raise from #541 is REVERTED in this package's
-      PR** — the gate goes back to its pre-#541 bound. That revert is the
-      definition of done; leaving the raised ceiling in place is a FAIL
-      even if the measured time improves.
-- [ ] REG/spill/occupancy ledger for every lever tried (including rejected
-      ones) recorded in a research note under `.astroray_plan/docs/`.
-- [ ] Bit-identity/parity gates green; no material-eval code moved in ways
-      that change results (REG work only).
+- [~] Perf-gate scene ≤ **1.0s**: **UNREACHABLE under PERF-ONLY + correctness-
+      frozen scope, measured.** The shade kernel's REG:254 ceiling is two
+      independent ~160-reg consumers (NEE light-sampling + spectral BSDF union)
+      on a ~95-reg irreducible state base — either alone saturates the cap, so
+      no stage-split or per-material split raises occupancy. Best correct form
+      now 1.132s (Lever 3 below). Full mechanism + attribution table:
+      `pkg174-register-pressure-ledger.md` (supervised section).
+- [x] **Ceiling raise: owner ACCEPTED 2026-08-08** as the permanent post-
+      settlement ceiling (1.5s, ~31% headroom over 1.132s) — the revert was
+      contingent on a true ≤1.0s, which is unreachable in scope. Superseded the
+      "revert = definition of done" criterion. `test_pkg55_perf_gate.py` comment
+      updated to reflect acceptance.
+- [x] REG/spill ledger for every lever (including rejected + the stub-and-
+      rebuild attribution) recorded: `pkg174-register-pressure-ledger.md`.
+- [x] Bit-identity/parity gates green (full `tests/wavefront_diff/` 29 passed);
+      PERF ONLY, no material-eval math moved. Shipped win: `template<bool
+      Deferred>` dead-branch compile-out, −1.1%, REG unchanged (spill-traffic).
+- [x] Extensibility follow-up filed:
+      `pkg174-per-material-kernel-dispatch-design.md` (per-material kernel
+      dispatch — scoped as plugin architecture, measured NOT to move ≤1.0s).
 
 ## Scope fence
 

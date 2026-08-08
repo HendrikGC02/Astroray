@@ -91,10 +91,24 @@ class PrincipledPlugin : public Material {
         float b = NdotV * NdotV;
         return 2.0f * NdotV / (NdotV + std::sqrt(a + b - a * b) + 0.001f);
     }
-    // Schlick-GGX combined G (metal.cpp): G1(L)·G1(V) with k = (r+1)²/8.
-    static float smithG_k(float NdotL, float NdotV, float roughness) {
-        float k = (roughness + 1) * (roughness + 1) / 8.0f;
-        return (NdotL / (NdotL * (1 - k) + k)) * (NdotV / (NdotV * (1 - k) + k));
+    // Height-correlated Smith masking-shadowing (pkg178 Stage-3b PR-4a). Replaces
+    // the former Disney/UE4 Schlick-k approximation with the EXACT form Cycles
+    // uses for BOTH reflection and transmission — Heitz 2014 "Understanding the
+    // Masking-Shadowing Function in Microfacet-Based BRDFs" (JCGT Vol.3 No.2,
+    // §3.2, Eq. 72) — mirrored from Cycles
+    // intern/cycles/kernel/closure/bsdf_microfacet.h (BSD-3-Clause):
+    // bsdf_lambda_from_sqr_alpha_tan_n / bsdf_lambda / bsdf_microfacet_eval.
+    // ISOTROPIC only (αx=αy → α=roughness²); anisotropy is the PR-4b follow-up.
+    // λ(θ) = ½(√(1 + α²·tan²θ) − 1); alpha arg = α (Cycles alpha2 = αx·αy).
+    static float smithLambda(float cosTheta, float alpha) {
+        float a2 = alpha * alpha;  // sqr_alpha (Cycles alpha2)
+        float c2 = std::max(cosTheta * cosTheta, 1e-7f);
+        float t = a2 * std::max(1.0f / c2 - 1.0f, 0.0f);  // sqr_alpha · tan²θ
+        return 0.5f * (std::sqrt(1.0f + t) - 1.0f);
+    }
+    // Height-correlated Smith G2 = 1 / (1 + λO + λI) (Cycles bsdf_microfacet_eval).
+    static float smithG2_GGX(float NdotL, float NdotV, float alpha) {
+        return 1.0f / (1.0f + smithLambda(NdotV, alpha) + smithLambda(NdotL, alpha));
     }
 
     // Cycles bsdf_util.h: F0_from_ior.
@@ -528,7 +542,7 @@ class PrincipledPlugin : public Material {
         float a = std::max(roughness * roughness, 0.0064f), a2 = a * a;
         float denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
         float D = a2 / (float(M_PI) * denom * denom + 1e-4f);
-        float G = smithG_k(nl, nv, roughness);
+        float G = smithG2_GGX(nl, nv, a);  // height-correlated Smith (Cycles parity)
         Vec3 single = Fhalf * (D * G / (4.0f * nv + 1e-4f));  // brdf·NdotL
         return single * ggxCompFactor(compFss, roughness, nv);
     }
@@ -550,7 +564,9 @@ class PrincipledPlugin : public Material {
             float HdotO = wo.dot(wm);
             if (HdotO <= 1e-10f) return Vec3(0);
             float D = D_GTR2(wm.dot(rec.normal), alpha);
-            float G = smithG1_GGX(cosO, alpha) * smithG1_GGX(cosI, alpha);
+            // Height-correlated Smith G2 for the external-reflection sub-lobe
+            // (Cycles bsdf_microfacet_eval uses 1/(1+λI+λO) for reflection too).
+            float G = smithG2_GGX(cosI, cosO, alpha);
             float F = fresnelDielectric(HdotO, 1.0f, L.ior);
             float fr = D * G * F / (4.0f * cosO * cosI + 1e-8f) * cosI;  // brdf·cosI
             return L.weight * specularTint_ * fr;
@@ -562,7 +578,8 @@ class PrincipledPlugin : public Material {
         if (wm.dot(rec.normal) < 0.0f) wm = -wm;
         if (wm.dot(wi) * cosI < 0.0f || wm.dot(wo) * cosO < 0.0f) return Vec3(0);
         float D = D_GTR2(std::abs(wm.dot(rec.normal)), alpha);
-        float G = smithG1_GGX(std::abs(cosO), alpha) * smithG1_GGX(std::abs(cosI), alpha);
+        // Height-correlated Smith G2 for the refraction sub-lobe (Cycles parity).
+        float G = smithG2_GGX(std::abs(cosI), std::abs(cosO), alpha);
         float F = fresnelDielectric(std::abs(wo.dot(wm)), etaI, etaT);
         float den = wi.dot(wm) + wo.dot(wm) / etap;
         den = den * den * cosI * cosO;
@@ -919,7 +936,7 @@ public:
         float a = std::max(roughness * roughness, 0.0064f), a2 = a * a;
         float denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
         float D = a2 / (float(M_PI) * denom * denom + 1e-4f);
-        float G = smithG_k(nl, nv, roughness);
+        float G = smithG2_GGX(nl, nv, a);  // height-correlated Smith (Cycles parity)
         astroray::SampledSpectrum single = Fhalf * (D * G / (4.0f * nv + 1e-4f));
         const auto& t = astroray::DisneyEnergyCompensationTables::instance();
         if (!t.loaded()) return single;

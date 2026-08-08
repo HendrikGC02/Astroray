@@ -72,6 +72,7 @@ static GClosureType convertClosureType(astroray::MaterialClosureType type) {
         case astroray::MaterialClosureType::Sheen: return GCLOSURE_SHEEN;
         case astroray::MaterialClosureType::Emission: return GCLOSURE_EMISSION;
         case astroray::MaterialClosureType::ThinGlass: return GCLOSURE_THIN_GLASS;
+        case astroray::MaterialClosureType::Principled: return GCLOSURE_PRINCIPLED;  // pkg178 Stage 2
         case astroray::MaterialClosureType::None:
         default:
             return GCLOSURE_NONE;
@@ -142,6 +143,13 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
             gc.ior = c.ior;
             gc.transmission = c.transmission;
             gc.clearcoatGloss = c.clearcoatGloss;
+            // pkg178 Stage 2: carry the Principled core-lobe params. Zero for
+            // every other closure type (their MaterialClosure defaults are the
+            // struct field defaults; the device twin only reads these for
+            // GCLOSURE_PRINCIPLED).
+            gc.specularTint = GVec3(c.specularTint.x, c.specularTint.y, c.specularTint.z);
+            gc.specularIorLevel = c.specularIorLevel;
+            gc.diffuseRoughness = c.diffuseRoughness;
             g.closures[i] = gc;
         }
         return g;

@@ -88,6 +88,33 @@ MaterialClosure makeThinGlassClosure(
     return c;
 }
 
+MaterialClosure makePrincipledClosure(
+        ClosureColor baseColor,
+        float metallic,
+        float roughness,
+        float ior,
+        float specularIorLevel,
+        ClosureColor specularTint,
+        float transmission,
+        float diffuseRoughness,
+        float weight) {
+    MaterialClosure c;
+    c.type = MaterialClosureType::Principled;
+    // Sanitize with the SAME clamps the Stage-1 PrincipledPlugin ctor applies
+    // (plugins/materials/principled.cpp:578-589) so the closure carries exactly
+    // the values the CPU eval path sees — the device twin must mirror them.
+    c.color = sanitizeColor(baseColor);
+    c.weight = sanitizeWeight(weight);
+    c.metallic = std::clamp(std::isfinite(metallic) ? metallic : 0.0f, 0.0f, 1.0f);
+    c.roughness = std::clamp(std::isfinite(roughness) ? roughness : 0.5f, 0.001f, 1.0f);
+    c.ior = std::max(std::isfinite(ior) ? ior : 1.5f, 1.0f);
+    c.transmission = std::clamp(std::isfinite(transmission) ? transmission : 0.0f, 0.0f, 1.0f);
+    c.specularIorLevel = std::max(std::isfinite(specularIorLevel) ? specularIorLevel : 0.5f, 0.0f);
+    c.specularTint = sanitizeColor(specularTint);
+    c.diffuseRoughness = std::clamp(std::isfinite(diffuseRoughness) ? diffuseRoughness : 0.0f, 0.0f, 1.0f);
+    return c;
+}
+
 const char* closureTypeName(MaterialClosureType type) {
     switch (type) {
         case MaterialClosureType::Diffuse: return "diffuse";
@@ -97,6 +124,7 @@ const char* closureTypeName(MaterialClosureType type) {
         case MaterialClosureType::Sheen: return "sheen";
         case MaterialClosureType::Emission: return "emission";
         case MaterialClosureType::ThinGlass: return "thin_glass";
+        case MaterialClosureType::Principled: return "principled";
         case MaterialClosureType::None:
         default:
             return "none";
@@ -124,7 +152,8 @@ bool validateClosureGraph(const MaterialClosureGraph& graph, std::string* reason
             return false;
         }
         if ((c.type == MaterialClosureType::DielectricTransmission ||
-             c.type == MaterialClosureType::ThinGlass) &&
+             c.type == MaterialClosureType::ThinGlass ||
+             c.type == MaterialClosureType::Principled) &&
             (!std::isfinite(c.ior) || c.ior < 1.0f)) {
             if (reason) *reason = "closure graph contains an invalid IOR";
             return false;

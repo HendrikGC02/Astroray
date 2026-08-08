@@ -159,6 +159,13 @@ own because a dependency for 40 lines of code is ridiculous.
   un-normalized direction (shared `tMax`), normals via inverse-transpose.
   Notes: `two-level-bvh-research.md`.
 
+- **Random-walk BSSRDF / subsurface (pkg178 D2 parallel prototype)** — Cycles
+  `subsurface_random_walk.h` + `bssrdf.h` (Apache-2.0); Chiang/Kutz/Burley 2016
+  (color remap), d'Eon 2016 (van de Hulst inversion), Křivánek-d'Eon 2014 /
+  Meng 2016 / d'Eon-Křivánek 2020 (Dwivedi zero-variance). CPU prototype header
+  `include/astroray/bssrdf_random_walk.h`. Notes:
+  `bssrdf-random-walk-research.md`.
+
 Astroray targets MIT (or Apache 2.0). Compatible:
 - Apache 2.0, BSD-2/3, MIT, ISC — link freely.
 - LGPL-3 — dynamic link only; do not statically bundle.

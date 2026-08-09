@@ -174,6 +174,7 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
                 gp.emissionStrength = c.emissionStrength;
                 gp.anisotropic = c.anisotropic;                 // pkg178 PR-4b
                 gp.anisotropicRotation = c.anisotropicRotation;
+                gp.alpha = c.alpha;                             // pkg178 PR-6
             }
             g.closures[i] = gc;
         }

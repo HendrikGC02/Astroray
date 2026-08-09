@@ -466,6 +466,8 @@ struct GPrincipledClosure {
     // pkg178 Stage-3b PR-4b — anisotropy (metallic/specular; 0 → isotropic).
     float anisotropic;
     float anisotropicRotation;
+    // pkg178 Stage-3b PR-6 — alpha transparency (1 → opaque, no transparent lobe).
+    float alpha;
 };
 
 // pkg54a: layout for the device-side spectral profile table. Profiles are

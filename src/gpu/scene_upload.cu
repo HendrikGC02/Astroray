@@ -172,6 +172,8 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
                 gp.subsurfaceScale = c.subsurfaceScale;
                 gp.emissionColor = GVec3(c.emissionColor.x, c.emissionColor.y, c.emissionColor.z);
                 gp.emissionStrength = c.emissionStrength;
+                gp.anisotropic = c.anisotropic;                 // pkg178 PR-4b
+                gp.anisotropicRotation = c.anisotropicRotation;
             }
             g.closures[i] = gc;
         }
@@ -274,6 +276,22 @@ static void appendOnePrim(
             gt.flat_shaded = true;
         }
         gt.materialId = getOrAddMat(tri->getMaterial());
+        // pkg178 Stage-3b PR-4b — upload the active-UV-layer texcoords ONLY when
+        // the triangle's material is an anisotropic Principled AND it carries a UV
+        // parameterization. hasUV gates the device UV-tangent computation, so
+        // non-aniso scenes leave every triangle hasUV=false → zero shade cost and
+        // zero UV upload (memory is the GTriangle field footprint only).
+        {
+            const auto& mtl = tri->getMaterial();
+            if (mtl && mtl->getGPUTypeName() == "principled" &&
+                mtl->getAnisotropic() > 0.0f && tri->hasUVLayers()) {
+                Vec2 t0 = tri->getUV0(), t1 = tri->getUV1(), t2 = tri->getUV2();
+                gt.uv0 = GVec2(t0.u, t0.v);
+                gt.uv1 = GVec2(t1.u, t1.v);
+                gt.uv2 = GVec2(t2.u, t2.v);
+                gt.hasUV = true;
+            }
+        }
         // pkg88-C.0: defaults — the BVH primitive walk in buildSceneArrays
         // resolves real offsets for motion triangles via motionPtrToOffset
         // (per-batch stable pointers; see Renderer::motionVertexBatches_).

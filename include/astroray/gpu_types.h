@@ -63,6 +63,13 @@ struct GVec3 {
     HD float& operator[](int i)       { return (&x)[i]; }
 };
 
+// pkg178 Stage-3b PR-4b — minimal 2D POD for per-triangle UVs (anisotropy).
+struct GVec2 {
+    float x, y;
+    HD GVec2() : x(0.f), y(0.f) {}
+    HD GVec2(float a, float b) : x(a), y(b) {}
+};
+
 HD inline GVec3 operator*(float s, const GVec3& v) { return v * s; }
 HD inline float luminance(const GVec3& c) {
     return 0.2126f*c.x + 0.7152f*c.y + 0.0722f*c.z;
@@ -264,6 +271,14 @@ struct GTriangle {
     // motionSteps=2 → one additional step. Linear blend per Cycles motion_triangle.h (Apache-2.0).
     int motionOffset = -1;    // -1 = no motion (static)
     int motionSteps = 1;      // 1 = static, 2 = pre+post shutter
+    // pkg178 Stage-3b PR-4b — active-UV-layer texture coordinates, uploaded by
+    // scene_upload ONLY for triangles whose material is an anisotropic Principled
+    // (host-side conditional). `hasUV` false ⇒ the shade path skips the
+    // UV-aligned-tangent computation entirely (zero cost for non-aniso scenes);
+    // fields are then left default. Consumed by the GPU shade path to build the
+    // anisotropy tangent frame (mirror of CPU manifold::uvAlignedTangent).
+    GVec2 uv0, uv1, uv2;
+    bool  hasUV = false;
 };
 
 struct GSphere {
@@ -448,6 +463,9 @@ struct GPrincipledClosure {
     float subsurfaceScale;   // Cycles subsurface_scale (uploaded; not yet read)
     GVec3 emissionColor;     // Cycles emission_color (uploaded; not yet read)
     float emissionStrength;  // Cycles emission_strength (uploaded; not yet read)
+    // pkg178 Stage-3b PR-4b — anisotropy (metallic/specular; 0 → isotropic).
+    float anisotropic;
+    float anisotropicRotation;
 };
 
 // pkg54a: layout for the device-side spectral profile table. Profiles are
@@ -529,6 +547,13 @@ struct GHitRecord {
     GVec3 normal;
     GVec3 tangent;
     GVec3 bitangent;
+    // pkg178 Stage-3b PR-4b — UV-aligned shading tangent for anisotropy (GPU twin
+    // of CPU HitRecord::uvTangent). Transient/per-thread; the production shade
+    // path fills it from the hit triangle's uploaded UVs when the material is an
+    // anisotropic Principled, else it defaults to the arbitrary `tangent` frame.
+    // Isotropic shading never reads it → bit-identical.
+    GVec3 uvTangent      = GVec3(1.f, 0.f, 0.f);
+    float uvBitangentSign = 1.f;
     float t;
     int   materialId;
     int   primId;     // index into d_prims[] — set by gpu_bvh_hit

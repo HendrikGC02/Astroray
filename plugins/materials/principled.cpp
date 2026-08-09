@@ -38,6 +38,9 @@ class PrincipledPlugin : public Material {
     Vec3 specularTint_;
     float transmission_;
     bool thinWall_;  // parsed; Thin Wall is Stage 4 (unused here — seam only)
+    // pkg178 Stage-3b PR-4b — Cycles anisotropic + anisotropic_rotation sockets.
+    // Default 0 → isotropic (alpha_x==alpha_y), Stage-1/2 behavior byte-for-byte.
+    float anisotropic_, anisotropicRotation_;
 
     // pkg178 Stage 3 advanced-layer inputs (Cycles socket names). Default values
     // (all weights 0) reproduce the Stage-1 core-lobe stack byte-for-byte so the
@@ -73,6 +76,9 @@ class PrincipledPlugin : public Material {
         bool isDelta = false;  // smooth glass → excluded from continuous eval/pdf sums
         float sheenA = 0.0f;   // Sheen: LTC aInv (view-dependent, fetched at assembly)
         float sheenB = 0.0f;   // Sheen: LTC bInv
+        // pkg178 PR-4b: anisotropy (specular/metallic only; 0 → isotropic).
+        float anisotropic = 0.0f;
+        float anisoRotation = 0.0f;
     };
 
     // ----------------------------------------------------------------------
@@ -109,6 +115,63 @@ class PrincipledPlugin : public Material {
     // Height-correlated Smith G2 = 1 / (1 + λO + λI) (Cycles bsdf_microfacet_eval).
     static float smithG2_GGX(float NdotL, float NdotV, float alpha) {
         return 1.0f / (1.0f + smithLambda(NdotV, alpha) + smithLambda(NdotL, alpha));
+    }
+
+    // ---- pkg178 Stage-3b PR-4b — anisotropic GGX (specular + metallic only) ----
+    // Cited from Cycles intern/cycles/kernel/closure/bsdf_microfacet.h and
+    // svm/closure.h (Apache-2.0 / BSD-3-Clause); see
+    // .astroray_plan/docs/anisotropic-ggx-research.md. Every helper below reduces
+    // EXACTLY to the PR-4a isotropic value at anisotropic==0 (aspect==1 →
+    // alpha_x==alpha_y==a), so isotropic scenes never enter the aniso branch and
+    // are bit-identical. Transmission stays isotropic (alpha2 = alpha_x*alpha_y =
+    // roughness^4 → alpha = roughness^2, unchanged) and is untouched here.
+
+    // svm/closure.h: aspect = sqrt(1 - anisotropic*0.9); alpha_x = a/aspect,
+    // alpha_y = a*aspect, with a = max(roughness^2, floor) (the PR-4a iso floor).
+    static void anisoAlphas(float roughness, float anisotropic, float& ax, float& ay) {
+        float a = std::max(roughness * roughness, 0.0064f);
+        float aspect = std::sqrt(std::max(1.0f - anisotropic * 0.9f, 1e-4f));
+        ax = std::max(a / aspect, 0.0064f);
+        ay = std::max(a * aspect, 0.0064f);
+    }
+    // Rodrigues rotation of a unit tangent T (assumed perpendicular to unit N)
+    // around N by `angle` — Cycles rotate_around_axis specialized to T⊥N.
+    static Vec3 rotateAroundAxis(const Vec3& T, const Vec3& N, float angle) {
+        return T * std::cos(angle) + N.cross(T) * std::sin(angle);
+    }
+    // Build the anisotropy shading frame from the UV-aligned tangent (PR-3),
+    // rotated by anisotropic_rotation*2π. Cycles make_orthonormals_tangent(N,T):
+    // Y = normalize(N×T), X = Y×N. Falls back to the arbitrary frame if degenerate.
+    static void anisoFrame(const HitRecord& rec, float anisoRotation, Vec3& X, Vec3& Y) {
+        Vec3 T = rec.uvTangent;
+        if (anisoRotation != 0.0f)
+            T = rotateAroundAxis(T, rec.normal, anisoRotation * 2.0f * float(M_PI));
+        Vec3 b = rec.normal.cross(T);
+        float bl2 = b.length2();
+        if (bl2 < 1e-12f) { X = rec.tangent; Y = rec.bitangent; return; }
+        Y = b * (1.0f / std::sqrt(bl2));
+        X = Y.cross(rec.normal);
+    }
+    // bsdf_aniso_lambda: H/V in the (X,Y,N) local frame (z = cosθ).
+    static float smithLambdaAniso(const Vec3& Vloc, float ax, float ay) {
+        float vz2 = std::max(Vloc.z * Vloc.z, 1e-7f);
+        float t = ((ax * Vloc.x) * (ax * Vloc.x) + (ay * Vloc.y) * (ay * Vloc.y)) / vz2;
+        return 0.5f * (std::sqrt(1.0f + t) - 1.0f);
+    }
+    static float smithG2Aniso(const Vec3& Iloc, const Vec3& Oloc, float ax, float ay) {
+        return 1.0f / (1.0f + smithLambdaAniso(Oloc, ax, ay) + smithLambdaAniso(Iloc, ax, ay));
+    }
+    // bsdf_aniso_D: Hloc = microfacet normal in (X,Y,N); z = NdotH.
+    // Written as alpha2/(π·(alpha2·len2)² + reg) so that at ax==ay==a it is
+    // ALGEBRAICALLY a²/(π·denom² + reg), denom = 1+(a²-1)NdotH² — i.e. it reduces
+    // exactly to the isotropic forms. `reg` selects which iso form: 1e-4 matches
+    // the eval-side inline D (ggxReflectRGB), ~0 matches the pdf-side D_GTR2.
+    static float ggxAnisoD(const Vec3& Hloc, float ax, float ay, float reg) {
+        float hx = Hloc.x / ax, hy = Hloc.y / ay, hz = Hloc.z;
+        float len2 = hx * hx + hy * hy + hz * hz;
+        float alpha2 = ax * ay;
+        float denomA = alpha2 * len2;
+        return alpha2 / (float(M_PI) * denomA * denomA + reg);
     }
 
     // Cycles bsdf_util.h: F0_from_ior.
@@ -378,6 +441,8 @@ class PrincipledPlugin : public Material {
             L.color = baseColor_;
             L.roughness = roughness_;
             L.ior = ior_;
+            L.anisotropic = anisotropic_;          // pkg178 PR-4b
+            L.anisoRotation = anisotropicRotation_;
             L.sel = std::max(luminance(L.weight * baseColor_), 1e-4f);
             lobes.push_back(L);
             weight = weight * (1.0f - metallic_);
@@ -407,6 +472,8 @@ class PrincipledPlugin : public Material {
             L.color = specF0;
             L.roughness = roughness_;
             L.ior = ior_;
+            L.anisotropic = anisotropic_;          // pkg178 PR-4b
+            L.anisoRotation = anisotropicRotation_;
             L.sel = std::max(luminance(weight * Fview), 1e-4f);
             lobes.push_back(L);
             weight = layeringWeightAfter(weight, ggxDirectionalAlbedo(Fview, roughness_, nv));
@@ -515,7 +582,8 @@ class PrincipledPlugin : public Material {
                 Vec3 h = (wo + wi).normalized();
                 float sHalf = generalizedSchlickS(std::abs(wo.dot(h)), L.ior);
                 Vec3 F = L.color + (Vec3(1.0f) - L.color) * sHalf;
-                return L.weight * ggxReflectRGB(F, L.color, L.roughness, rec, wo, wi);
+                return L.weight * ggxReflectRGB(F, L.color, L.roughness,
+                                                L.anisotropic, L.anisoRotation, rec, wo, wi);
             }
             case LobeKind::Metallic: {
                 if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
@@ -524,7 +592,8 @@ class PrincipledPlugin : public Material {
                 Vec3 F(f82Channel(ci, L.color.x, specularTint_.x),
                        f82Channel(ci, L.color.y, specularTint_.y),
                        f82Channel(ci, L.color.z, specularTint_.z));
-                return L.weight * ggxReflectRGB(F, L.color, L.roughness, rec, wo, wi);
+                return L.weight * ggxReflectRGB(F, L.color, L.roughness,
+                                                L.anisotropic, L.anisoRotation, rec, wo, wi);
             }
             case LobeKind::Transmission:
                 return transmissionEvalRGB(L, rec, wo, wi);
@@ -533,18 +602,35 @@ class PrincipledPlugin : public Material {
     }
 
     // GGX reflection BRDF·cos with multiscatter comp (metal.cpp form).
+    // pkg178 PR-4b: `anisotropic<=0` runs the PR-4a isotropic form verbatim
+    // (bit-identical); >0 uses Cycles' aniso D/λ in the UV-aligned frame + the
+    // geometric-mean roughness for the iso energy table.
     Vec3 ggxReflectRGB(const Vec3& Fhalf, const Vec3& compFss, float roughness,
+                       float anisotropic, float anisoRotation,
                        const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
         if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
         Vec3 h = (wo + wi).normalized();
-        float NdotH = std::max(rec.normal.dot(h), 1e-4f);
-        float a = std::max(roughness * roughness, 0.0064f), a2 = a * a;
-        float denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
-        float D = a2 / (float(M_PI) * denom * denom + 1e-4f);
-        float G = smithG2_GGX(nl, nv, a);  // height-correlated Smith (Cycles parity)
+        float D, G, roughComp;
+        if (anisotropic <= 0.0f) {
+            float NdotH = std::max(rec.normal.dot(h), 1e-4f);
+            float a = std::max(roughness * roughness, 0.0064f), a2 = a * a;
+            float denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
+            D = a2 / (float(M_PI) * denom * denom + 1e-4f);
+            G = smithG2_GGX(nl, nv, a);  // height-correlated Smith (Cycles parity)
+            roughComp = roughness;
+        } else {
+            float ax, ay; anisoAlphas(roughness, anisotropic, ax, ay);
+            Vec3 X, Y; anisoFrame(rec, anisoRotation, X, Y);
+            Vec3 Hl(X.dot(h), Y.dot(h), std::max(rec.normal.dot(h), 1e-4f));
+            Vec3 Il(X.dot(wi), Y.dot(wi), nl);
+            Vec3 Ol(X.dot(wo), Y.dot(wo), nv);
+            D = ggxAnisoD(Hl, ax, ay, 1e-4f);
+            G = smithG2Aniso(Il, Ol, ax, ay);
+            roughComp = std::sqrt(std::sqrt(ax * ay));
+        }
         Vec3 single = Fhalf * (D * G / (4.0f * nv + 1e-4f));  // brdf·NdotL
-        return single * ggxCompFactor(compFss, roughness, nv);
+        return single * ggxCompFactor(compFss, roughComp, nv);
     }
 
     // Transmission rough glass (Walter 2007 / pbrt-v4, disney.cpp) — reflection
@@ -610,8 +696,15 @@ class PrincipledPlugin : public Material {
                 Vec3 h = (wo + wi).normalized();
                 float NdotH = rec.normal.dot(h), HdotV = h.dot(wo);
                 if (NdotH <= 0.0f || HdotV <= 0.0f) return 0.0f;
-                float a = std::max(L.roughness * L.roughness, 0.0064f);
-                return D_GTR2(NdotH, a) * NdotH / (4.0f * HdotV);
+                if (L.anisotropic <= 0.0f) {
+                    float a = std::max(L.roughness * L.roughness, 0.0064f);
+                    return D_GTR2(NdotH, a) * NdotH / (4.0f * HdotV);
+                }
+                // pkg178 PR-4b: NDF-sampling pdf with the anisotropic D (Cycles).
+                float ax, ay; anisoAlphas(L.roughness, L.anisotropic, ax, ay);
+                Vec3 X, Y; anisoFrame(rec, L.anisoRotation, X, Y);
+                Vec3 Hl(X.dot(h), Y.dot(h), NdotH);
+                return ggxAnisoD(Hl, ax, ay, 1e-12f) * NdotH / (4.0f * HdotV);
             }
             case LobeKind::Transmission:
                 return L.isDelta ? 0.0f : transmissionPdf(L, rec, wo, wi);
@@ -691,13 +784,27 @@ class PrincipledPlugin : public Material {
         }
         if (L.kind == LobeKind::Specular || L.kind == LobeKind::Metallic ||
             L.kind == LobeKind::Coat) {
-            float a = std::max(L.roughness * L.roughness, 0.0064f);
-            float r1 = dist(gen), r2 = dist(gen);
+            float r1 = dist(gen), r2 = dist(gen);  // 2 draws in both branches
             float phi = 2.0f * float(M_PI) * r1;
-            float cosT = std::sqrt((1.0f - r2) / (1.0f + (a * a - 1.0f) * r2));
-            float sinT = std::sqrt(std::max(0.0f, 1.0f - cosT * cosT));
-            Vec3 h(std::cos(phi) * sinT, std::sin(phi) * sinT, cosT);
-            h = rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z;
+            if (L.anisotropic <= 0.0f) {
+                float a = std::max(L.roughness * L.roughness, 0.0064f);
+                float cosT = std::sqrt((1.0f - r2) / (1.0f + (a * a - 1.0f) * r2));
+                float sinT = std::sqrt(std::max(0.0f, 1.0f - cosT * cosT));
+                Vec3 h(std::cos(phi) * sinT, std::sin(phi) * sinT, cosT);
+                h = rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z;
+                ds.wi = (h * (2.0f * wo.dot(h)) - wo).normalized();
+                ds.ok = rec.normal.dot(ds.wi) > 0.0f;
+                return ds;
+            }
+            // pkg178 PR-4b: anisotropic NDF half-vector via slope stretch
+            // (Heitz 2018 / Walter 2007). Reduces to the iso sampler at ax==ay.
+            float ax, ay; anisoAlphas(L.roughness, L.anisotropic, ax, ay);
+            Vec3 X, Y; anisoFrame(rec, L.anisoRotation, X, Y);
+            float rr = std::sqrt(r2 / std::max(1.0f - r2, 1e-6f));
+            float sx = ax * rr * std::cos(phi);
+            float sy = ay * rr * std::sin(phi);
+            Vec3 hl = Vec3(-sx, -sy, 1.0f).normalized();
+            Vec3 h = X * hl.x + Y * hl.y + rec.normal * hl.z;
             ds.wi = (h * (2.0f * wo.dot(h)) - wo).normalized();
             ds.ok = rec.normal.dot(ds.wi) > 0.0f;
             return ds;
@@ -759,6 +866,8 @@ public:
           transmission_(std::clamp(
               p.getFloat("transmission_weight", p.getFloat("transmission", 0.0f)), 0.0f, 1.0f)),
           thinWall_(p.getFloat("thin_wall", 0.0f) > 0.5f),
+          anisotropic_(std::clamp(p.getFloat("anisotropic", 0.0f), 0.0f, 1.0f)),
+          anisotropicRotation_(p.getFloat("anisotropic_rotation", 0.0f)),
           coatWeight_(std::clamp(p.getFloat("coat_weight", 0.0f), 0.0f, 1.0f)),
           coatRoughness_(std::clamp(p.getFloat("coat_roughness", 0.03f), 0.001f, 1.0f)),
           coatIor_(std::max(1.0f, p.getFloat("coat_ior", 1.5f))),
@@ -776,6 +885,7 @@ public:
                          emissionColor_.z * emissionStrength_}) {}
 
     Vec3 getAlbedo() const override { return baseColor_; }
+    float getAnisotropic() const override { return anisotropic_; }  // pkg178 PR-4b
     float getRoughness() const override { return roughness_; }
     float getMetallic() const override { return metallic_; }
     float getIOR() const override { return ior_; }
@@ -834,6 +944,8 @@ public:
         c.subsurfaceScale = subsurfaceScale_;
         c.emissionColor = {emissionColor_.x, emissionColor_.y, emissionColor_.z};
         c.emissionStrength = emissionStrength_;
+        c.anisotropic = anisotropic_;                 // pkg178 PR-4b
+        c.anisotropicRotation = anisotropicRotation_;
         graph.add(c);
         return graph;
     }
@@ -899,7 +1011,8 @@ public:
                 float sHalf = generalizedSchlickS(std::abs(wo.dot(h)), L.ior);
                 astroray::SampledSpectrum f0 = upsample(L.color, lam);
                 astroray::SampledSpectrum F = f0 + (astroray::SampledSpectrum(1.0f) - f0) * sHalf;
-                return wSpec * ggxReflectSpectral(F, f0, L.roughness, rec, wo, wi);
+                return wSpec * ggxReflectSpectral(F, f0, L.roughness, L.anisotropic,
+                                                  L.anisoRotation, rec, wo, wi);
             }
             case LobeKind::Metallic: {
                 if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
@@ -910,7 +1023,8 @@ public:
                 astroray::SampledSpectrum F(0.0f);
                 for (int i = 0; i < astroray::kSpectrumSamples; ++i)
                     F[i] = f82Channel(ci, f0[i], tint[i]);
-                return wSpec * ggxReflectSpectral(F, f0, L.roughness, rec, wo, wi);
+                return wSpec * ggxReflectSpectral(F, f0, L.roughness, L.anisotropic,
+                                                  L.anisoRotation, rec, wo, wi);
             }
             case LobeKind::Transmission: {
                 // Colour upsampled; achromatic geometry/Fresnel scalar per-λ (native).
@@ -927,21 +1041,35 @@ public:
 
     astroray::SampledSpectrum ggxReflectSpectral(const astroray::SampledSpectrum& Fhalf,
                                                  const astroray::SampledSpectrum& compFss,
-                                                 float roughness, const HitRecord& rec,
+                                                 float roughness, float anisotropic,
+                                                 float anisoRotation, const HitRecord& rec,
                                                  const Vec3& wo, const Vec3& wi) const {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
         if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
         Vec3 h = (wo + wi).normalized();
-        float NdotH = std::max(rec.normal.dot(h), 1e-4f);
-        float a = std::max(roughness * roughness, 0.0064f), a2 = a * a;
-        float denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
-        float D = a2 / (float(M_PI) * denom * denom + 1e-4f);
-        float G = smithG2_GGX(nl, nv, a);  // height-correlated Smith (Cycles parity)
+        float D, G, roughComp;
+        if (anisotropic <= 0.0f) {
+            float NdotH = std::max(rec.normal.dot(h), 1e-4f);
+            float a = std::max(roughness * roughness, 0.0064f), a2 = a * a;
+            float denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
+            D = a2 / (float(M_PI) * denom * denom + 1e-4f);
+            G = smithG2_GGX(nl, nv, a);  // height-correlated Smith (Cycles parity)
+            roughComp = roughness;
+        } else {
+            float ax, ay; anisoAlphas(roughness, anisotropic, ax, ay);
+            Vec3 X, Y; anisoFrame(rec, anisoRotation, X, Y);
+            Vec3 Hl(X.dot(h), Y.dot(h), std::max(rec.normal.dot(h), 1e-4f));
+            Vec3 Il(X.dot(wi), Y.dot(wi), nl);
+            Vec3 Ol(X.dot(wo), Y.dot(wo), nv);
+            D = ggxAnisoD(Hl, ax, ay, 1e-4f);
+            G = smithG2Aniso(Il, Ol, ax, ay);
+            roughComp = std::sqrt(std::sqrt(ax * ay));
+        }
         astroray::SampledSpectrum single = Fhalf * (D * G / (4.0f * nv + 1e-4f));
         const auto& t = astroray::DisneyEnergyCompensationTables::instance();
         if (!t.loaded()) return single;
-        float E = std::max(t.ggxE(roughness, nv), 1e-4f);
-        float Eavg = std::clamp(t.ggxEavg(roughness), 0.0f, 0.999f);
+        float E = std::max(t.ggxE(roughComp, nv), 1e-4f);
+        float Eavg = std::clamp(t.ggxEavg(roughComp), 0.0f, 0.999f);
         astroray::SampledSpectrum out = single;
         for (int i = 0; i < astroray::kSpectrumSamples; ++i)
             out[i] *= astroray::ggxDarkeningChannel(compFss[i], E, Eavg);

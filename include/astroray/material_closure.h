@@ -62,6 +62,10 @@ struct MaterialClosure {
     float subsurfaceScale = 0.05f;      // Cycles subsurface_scale
     ClosureColor emissionColor{};       // Cycles emission_color (default 1,1,1; strength gates)
     float emissionStrength = 0.0f;      // Cycles emission_strength
+    // pkg178 Stage-3b PR-4b anisotropy (Principled monolithic closure only;
+    // 0 → isotropic, byte-identical to Stage-1/2). Applies to metallic/specular.
+    float anisotropic = 0.0f;           // Cycles anisotropic
+    float anisotropicRotation = 0.0f;   // Cycles anisotropic_rotation
 };
 
 class MaterialClosureGraph {

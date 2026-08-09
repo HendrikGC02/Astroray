@@ -15,6 +15,26 @@ def _lerp_vec3(a, b, fac):
     return [_lerp_float(a[0], b[0], fac), _lerp_float(a[1], b[1], fac), _lerp_float(a[2], b[2], fac)]
 
 
+def _blend_params(pa, pb, fac):
+    """Lerp two Principled param dicts key-wise. Scalars lerp; 3-vectors
+    (colours such as coat_tint / sheen_tint / subsurface_radius) lerp
+    component-wise. A key set on only one side survives (blended against the
+    other side's value, which falls back to its own)."""
+    keys = set(pa.keys()) | set(pb.keys())
+    out = {}
+    for k in keys:
+        va = pa.get(k)
+        vb = pb.get(k)
+        if isinstance(va, (list, tuple)) or isinstance(vb, (list, tuple)):
+            va = va if isinstance(va, (list, tuple)) else vb
+            vb = vb if isinstance(vb, (list, tuple)) else va
+            out[k] = _lerp_vec3(va, vb, fac)
+        else:
+            out[k] = _lerp_float(va if va is not None else 0.0,
+                                 vb if vb is not None else 0.0, fac)
+    return out
+
+
 def _normalized_principled(spec):
     out = deepcopy(spec)
     out.setdefault("kind", "principled")
@@ -29,6 +49,11 @@ def _normalized_principled(spec):
     out["params"].setdefault("anisotropic", 0.0)
     out["params"].setdefault("sheen", 0.0)
     out["params"].setdefault("subsurface", 0.0)
+    # pkg178 Stage 5: the native 'principled' routing reads native_params; carry
+    # it through blending so a Mix/Add of Principled nodes still drives the native
+    # material. native_gaps (pkg119-C report lines) are unioned.
+    out.setdefault("native_params", {})
+    out.setdefault("native_gaps", [])
     out.setdefault("emission_color", [0.0, 0.0, 0.0])
     out.setdefault("emission_strength", 0.0)
     return out
@@ -54,6 +79,8 @@ def blend_shader_specs(fac, a, b):
             "kind": "principled",
             "base_color": _lerp_vec3(pa["base_color"], pb["base_color"], fac),
             "params": params,
+            "native_params": _blend_params(pa["native_params"], pb["native_params"], fac),
+            "native_gaps": list(dict.fromkeys(pa["native_gaps"] + pb["native_gaps"])),
             "emission_color": _lerp_vec3(pa["emission_color"], pb["emission_color"], fac),
             "emission_strength": _lerp_float(pa["emission_strength"], pb["emission_strength"], fac),
         }
@@ -61,10 +88,12 @@ def blend_shader_specs(fac, a, b):
     if ka == "principled" and kb == "transparent":
         out = _normalized_principled(a)
         out["params"]["alpha"] = 1.0 - fac
+        out["native_params"]["alpha"] = 1.0 - fac
         return out
     if ka == "transparent" and kb == "principled":
         out = _normalized_principled(b)
         out["params"]["alpha"] = fac
+        out["native_params"]["alpha"] = fac
         return out
 
     if ka == "principled" and kb == "emission":

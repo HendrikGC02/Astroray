@@ -275,6 +275,21 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         description="Light transport integrator (from plugin registry)",
         items=_integrator_type_items,
     )
+    # pkg178 Stage 5: route Blender's Principled BSDF to Astroray's NATIVE
+    # 'principled' material (faithful Cycles port: coat/sheen/anisotropy/alpha/
+    # emission driven directly) instead of the Disney approximation. Default ON
+    # for this EXPERIMENTAL build so the owner can drive the real material; the
+    # Disney path stays as the fallback when this is off. The production
+    # default-flip is gated on the Cycles parity matrix (owner-authorized
+    # auto-flip — spec pkg178 D3), do NOT hard-code OFF here to "play it safe".
+    use_native_principled: BoolProperty(
+        name="Native Principled BSDF (experimental)",
+        default=True,
+        description="Route Blender's Principled BSDF to Astroray's native "
+                    "'principled' material (coat, sheen, anisotropy, alpha and "
+                    "emission driven directly) instead of the Disney "
+                    "approximation. Disney remains the fallback when off",
+    )
     # pkg39: wavelength / multi-spectral settings
     wavelength_preset: EnumProperty(
         name="Preset",
@@ -1940,6 +1955,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # and always True), so we always go through the node tree conversion.
         material_map = {}
         self._volume_material_map = {}
+        # pkg178 Stage 5: resolve the Principled routing flag once per conversion
+        # (default ON — see use_native_principled). Stored on the engine so the
+        # per-material helpers reach it without re-plumbing the scene through
+        # every call site.
+        _settings = getattr(depsgraph.scene, "custom_raytracer", None)
+        self._use_native_principled_flag = bool(
+            getattr(_settings, "use_native_principled", True))
         # pkg115 generated-coords: textures created in GENERATED mode while
         # converting a material are recorded per material name so
         # convert_objects can bake each using object's bounding box onto them
@@ -3068,6 +3090,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
             'emission_color': self.get_color_input(node, 'Emission Color', [0.0, 0.0, 0.0]),
             'emission_strength': self.get_float_input(node, 'Emission Strength', 0.0),
         }
+        # pkg178 Stage 5: carry the FULL native-socket map alongside the Disney
+        # 'params' above. The Disney fallback path reads 'params' (byte-unchanged);
+        # the native 'principled' path reads 'native_params'. 'native_gaps' records
+        # any socket the native path does not honour (pkg119-C — never a silent drop).
+        spec['native_params'] = self._principled_native_params(node)
+        spec['native_gaps'] = self._native_principled_gaps(node, spec['native_params'])
         # Carry texture-name references through the spec when a renderer is
         # available (i.e. during real conversion, not unit-tests of the spec
         # shape). Without this, an Image Texture connected to Base Color was
@@ -3091,6 +3119,188 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     spec['bump_strength'] = normal_inputs['bump_strength']
                     spec['bump_distance'] = normal_inputs['bump_distance']
         return spec
+
+    # pkg178 Stage 5: Blender Principled sockets present on 5.x but NOT honoured
+    # by the native 'principled' material (thin-film is Stage 4 CPU-only, not yet
+    # wired to the addon; thin-wall + the extra subsurface controls are unmapped).
+    # Reported per-render via the pkg119-C degradation policy, never dropped silently.
+    _NATIVE_PRINCIPLED_UNMAPPED = (
+        'Thin Wall', 'Thin Film Thickness', 'Thin Film IOR',
+        'Subsurface IOR', 'Subsurface Anisotropy',
+    )
+
+    def _use_native_principled(self):
+        """pkg178 Stage 5 routing flag. Defaults ON (experimental build) so
+        direct helper calls outside a full convert_materials() lifecycle (unit
+        tests, previews) match the shipped default; convert_materials resolves
+        the real per-scene value onto self._use_native_principled_flag."""
+        return bool(getattr(self, "_use_native_principled_flag", True))
+
+    def _principled_native_params(self, node):
+        """Map EVERY Blender Principled socket the native 'principled' material
+        accepts onto its Cycles/native param name (plugins/materials/principled.cpp).
+        Sockets absent on this Blender version are skipped (renamed-input
+        fallbacks cover 3.x/4.x/5.x drift). Colours are read only from RGBA/VECTOR
+        sockets so 3.x float Specular-Tint / Sheen-Tint don't poison the colour
+        params. pkg178 Stage 5. Emission + base colour are carried at the spec
+        top level, not here."""
+        p = {}
+
+        def put_float(dst, *names):
+            for nm in names:
+                if node.inputs.get(nm) is not None:
+                    p[dst] = self.get_float_input(node, nm, 0.0)
+                    return
+
+        def put_vec(dst, *names):
+            for nm in names:
+                inp = node.inputs.get(nm)
+                if inp is not None and getattr(inp, 'type', 'RGBA') in ('RGBA', 'VECTOR'):
+                    p[dst] = self.get_color_input(node, nm, [1.0, 1.0, 1.0])
+                    return
+
+        # Core
+        put_float('metallic', 'Metallic')
+        put_float('roughness', 'Roughness')
+        put_float('ior', 'IOR')
+        put_float('diffuse_roughness', 'Diffuse Roughness')
+        # Specular (Cycles: Specular IOR Level + Specular Tint; 3.x 'Specular' float)
+        put_float('specular_ior_level', 'Specular IOR Level', 'Specular')
+        put_vec('specular_tint', 'Specular Tint')
+        # Transmission
+        put_float('transmission_weight', 'Transmission Weight', 'Transmission')
+        # Coat (4.x+: weight/roughness/ior/tint; 3.x 'Clearcoat' pair)
+        put_float('coat_weight', 'Coat Weight', 'Clearcoat')
+        put_float('coat_roughness', 'Coat Roughness', 'Clearcoat Roughness')
+        put_float('coat_ior', 'Coat IOR')
+        put_vec('coat_tint', 'Coat Tint')
+        # Sheen (4.x+: weight/roughness/tint; 3.x 'Sheen' float)
+        put_float('sheen_weight', 'Sheen Weight', 'Sheen')
+        put_float('sheen_roughness', 'Sheen Roughness')
+        put_vec('sheen_tint', 'Sheen Tint')
+        # Anisotropy
+        put_float('anisotropic', 'Anisotropic')
+        put_float('anisotropic_rotation', 'Anisotropic Rotation')
+        # Subsurface (approximate D2(a) diffusion in the native material)
+        put_float('subsurface_weight', 'Subsurface Weight', 'Subsurface')
+        put_float('subsurface_scale', 'Subsurface Scale')
+        put_vec('subsurface_radius', 'Subsurface Radius')
+        # Alpha — a REAL value routed to the native transparent lobe; NOT folded
+        # into transmission (that conflation is the convicted BSDF_TRANSPARENT
+        # bug family the Disney path still carries).
+        put_float('alpha', 'Alpha')
+        return p
+
+    def _native_principled_gaps(self, node, native_params):
+        """pkg119-C: sockets the native Principled path does not honour, surfaced
+        per-render so nothing is dropped silently. Linked unmapped sockets, a
+        typed-in thin-film thickness, a set Thin-Wall flag, and the approximate
+        subsurface model all get a report line."""
+        gaps = []
+        for nm in self._NATIVE_PRINCIPLED_UNMAPPED:
+            inp = node.inputs.get(nm)
+            if inp is None:
+                continue
+            if getattr(inp, 'is_linked', False):
+                gaps.append(f"Principled socket '{nm}' is linked but not honoured "
+                            f"by the native material (dropped)")
+                continue
+            try:
+                val = inp.default_value
+            except AttributeError:
+                continue
+            if nm == 'Thin Wall':
+                if bool(val):
+                    gaps.append("Principled 'Thin Wall' is set but not wired to the "
+                                "native material (dropped)")
+            elif nm == 'Thin Film Thickness':
+                try:
+                    if float(val) > 0.0:
+                        gaps.append("Principled Thin Film (thickness>0) is not wired "
+                                    "to the native addon path yet (dropped)")
+                except (TypeError, ValueError):
+                    pass
+        if float(native_params.get('subsurface_weight', 0.0)) > 0.0:
+            gaps.append("Principled Subsurface uses the approximate diffusion model "
+                        "(D2(a), not the Cycles random-walk BSSRDF)")
+        return gaps
+
+    # pkg178 Stage 5: Disney param name -> native 'principled' param name, for
+    # 'principled'-kind specs that only carry Disney-named params (standalone
+    # BSDF nodes, Mix/Add blends). clearcoat_gloss inverts to coat_roughness.
+    _DISNEY_TO_NATIVE_PARAM = {
+        'metallic': 'metallic',
+        'roughness': 'roughness',
+        'ior': 'ior',
+        'transmission': 'transmission_weight',
+        'clearcoat': 'coat_weight',
+        'anisotropic': 'anisotropic',
+        'sheen': 'sheen_weight',
+        'subsurface': 'subsurface_weight',
+    }
+
+    def _disney_params_to_native(self, params):
+        """Translate a Disney-named param dict to native 'principled' names.
+        Non-material keys (textures, alpha) are left for the caller to handle."""
+        native = {}
+        for dk, nk in self._DISNEY_TO_NATIVE_PARAM.items():
+            if dk in params:
+                native[nk] = params[dk]
+        if 'clearcoat_gloss' in params:
+            native['coat_roughness'] = 1.0 - float(params['clearcoat_gloss'])
+        return native
+
+    def _create_native_principled_material(self, spec, renderer, color, params,
+                                           emission_color, emission_strength):
+        """pkg178 Stage 5 — route a Blender Principled node to the NATIVE
+        'principled' material. Alpha routes through the native 'alpha' param (NOT
+        the transmission conflation the Disney path uses); emission lives inside
+        the node (the promote-to-light heuristic is retired on this path). A
+        textured base colour still routes through textured-lambertian because
+        neither material has a base-colour texture slot (spec Non-goal)."""
+        # Standalone BSDF nodes (Glass/Metallic/Glossy/...) and Mix/Add blends
+        # produce a 'principled' spec whose 'params' use Disney names but carry
+        # NO native_params. Translate those to native names first so their
+        # metallic/transmission/roughness are not lost, then overlay the richer
+        # native_params (the Principled-node parse) which wins where present.
+        native = self._disney_params_to_native(params)
+        native.update(spec.get('native_params', {}))
+
+        # Alpha may also arrive from a Mix-with-Transparent (shader_blending sets
+        # params['alpha']); an explicit native alpha wins, else honour that.
+        if 'alpha' not in native and 'alpha' in params:
+            native['alpha'] = float(params['alpha'])
+
+        # Emission inside the node (native material emits directly).
+        native['emission_color'] = list(emission_color)
+        native['emission_strength'] = float(emission_strength)
+
+        # Normal/bump textures plumb through to the native material.
+        for key in ('normal_map_texture', 'normal_strength',
+                    'bump_map_texture', 'bump_strength', 'bump_distance'):
+            if key in spec:
+                native[key] = spec[key]
+
+        # pkg119-C: surface every socket the native path does not honour.
+        for msg in spec.get('native_gaps', []):
+            self._warn_shader_fallback('BSDF_PRINCIPLED', msg)
+
+        # Textured base colour → textured-lambertian (Non-goal: base-colour
+        # texture slot on the native material). Mirrors the Disney path.
+        base_tex = spec.get('base_color_texture')
+        if base_tex is not None:
+            self._warn_shader_fallback(
+                'BSDF_PRINCIPLED',
+                'textured Base Color routes through lambertian (native material '
+                'has no base-color texture slot yet)')
+            lambert_params = {'texture': base_tex}
+            for key in ('normal_map_texture', 'normal_strength',
+                        'bump_map_texture', 'bump_strength', 'bump_distance'):
+                if key in native:
+                    lambert_params[key] = native[key]
+            return renderer.create_material('lambertian', color, lambert_params)
+
+        return renderer.create_material('principled', color, native)
 
     def _degradation_report(self):
         """pkg119 Phase C: the per-render degradation policy accumulator. Lazily
@@ -3199,6 +3409,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
             params = dict(spec.get('params', {}))
             emission_strength = float(spec.get('emission_strength', 0.0))
             emission_color = list(spec.get('emission_color', [0.0, 0.0, 0.0]))
+
+            # pkg178 Stage 5: flag-aware routing. When native Principled is on,
+            # drive the faithful 'principled' material (coat/sheen/aniso/alpha/
+            # emission direct); otherwise fall through to the Disney path below,
+            # which is preserved byte-for-byte as the fallback.
+            if self._use_native_principled():
+                return self._create_native_principled_material(
+                    spec, renderer, color, params, emission_color, emission_strength)
 
             # Renderer has no explicit alpha channel; approximate transparency.
             alpha = params.pop('alpha', None)
@@ -3395,7 +3613,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # a pure light until DisneyBRDF gains an emission term) ---
         emission_color    = self.get_color_input(node, 'Emission Color', [0, 0, 0])
         emission_strength = self.get_float_input(node, 'Emission Strength', 0.0)
-        if emission_strength > 0.0 and any(c > 0 for c in emission_color):
+        # pkg178 Stage 5: the promote-to-light heuristic is a Disney-path
+        # workaround (Disney has no emission term). On the native path emission
+        # lives inside the material, so skip the promotion when the flag is on.
+        if (not self._use_native_principled()
+                and emission_strength > 0.0 and any(c > 0 for c in emission_color)):
             # Heuristic: treat as a dedicated light material when emission
             # dominates the surface response.
             if emission_strength >= 1.0 and metallic == 0.0 and transmission == 0.0:
@@ -3442,6 +3664,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     lambert_params[key] = params[key]
             return renderer.create_material('lambertian', base_color,
                                             lambert_params)
+
+        # pkg178 Stage 5: flag-aware routing (mirrors _create_material_from_shader_spec).
+        # When native Principled is on, drive the faithful 'principled' material;
+        # otherwise keep the Disney fallback below byte-unchanged.
+        if self._use_native_principled():
+            native = self._principled_native_params(node)
+            native['emission_color'] = list(emission_color)
+            native['emission_strength'] = float(emission_strength)
+            for key in ('normal_map_texture', 'normal_strength',
+                        'bump_map_texture', 'bump_strength', 'bump_distance'):
+                if key in params:
+                    native[key] = params[key]
+            for msg in self._native_principled_gaps(node, native):
+                self._warn_shader_fallback('BSDF_PRINCIPLED', msg)
+            return renderer.create_material('principled', base_color, native)
 
         return renderer.create_material('disney', base_color, params)
 
@@ -4579,6 +4816,10 @@ class RENDER_PT_custom_raytracer_performance(AstrorayPanelBase, Panel):
 
         col = layout.column(align=True)
         col.prop(settings, "device_mode", expand=True)
+
+        # pkg178 Stage 5 (experimental): native Principled BSDF routing toggle.
+        layout.separator()
+        layout.prop(settings, "use_native_principled")
 
         if RAYTRACER_AVAILABLE:
             try:

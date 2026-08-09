@@ -212,15 +212,19 @@ def test_principled_with_image_texture_routes_to_textured_lambertian(monkeypatch
 
 
 def test_principled_without_texture_still_renders_disney(monkeypatch):
-    """Regression guard: a Principled BSDF with NO texture link must still
-    create a 'disney' material. Don't accidentally route every Principled
-    BSDF through the lambertian path."""
+    """Regression guard: a Principled BSDF with NO texture link must NOT be
+    routed through the lambertian (textured) path. This exercises the Disney
+    fallback explicitly (pkg178 Stage 5's native default is covered separately
+    in test_pkg178_stage5_native_routing.py); with native routing off, a
+    non-textured Principled must produce 'disney', never 'lambertian'."""
     addon = _load_blender_addon(monkeypatch)
 
     node = _principled_node(base_color_default=(0.7, 0.2, 0.2, 1.0))
 
     renderer = _RecordingRenderer()
     engine = addon.CustomRaytracerRenderEngine()
+    # pkg178 Stage 5: pin the Disney fallback for this guard.
+    engine._use_native_principled_flag = False
     spec = engine._principled_shader_spec(node, renderer)
 
     assert 'base_color_texture' not in spec

@@ -340,9 +340,15 @@ def _principled_node():
 
 
 def test_cycles_principled_path_unchanged(monkeypatch):
-    """Tree with only OUTPUT_MATERIAL → BsdfPrincipled must still hit the
-    existing _principled_shader_spec → 'disney' branch — no Astroray
-    intercept when no AstrorayOutputNode is present."""
+    """Tree with only OUTPUT_MATERIAL → BsdfPrincipled must hit the standard
+    _principled_shader_spec conversion — no AstrorayOutputNode intercept.
+
+    Original intent (pkg57): assert the standard Principled path runs, not the
+    Astroray-node intercept. pkg178 Stage 5 flipped the standard path's DEFAULT
+    to the native 'principled' material (was the Disney approximation), so the
+    non-intercept path now produces 'principled'. The intercept case would give
+    'dielectric' (see the Sellmeier test below) — 'principled' still proves no
+    intercept fired."""
     addon = _load_blender_addon(monkeypatch)
 
     p = _principled_node()
@@ -364,8 +370,9 @@ def test_cycles_principled_path_unchanged(monkeypatch):
     assert mat_id == 1
     assert len(renderer.created_materials) == 1
     mat_type, color, params = renderer.created_materials[0]
-    assert mat_type == "disney", (
-        f"Cycles BsdfPrincipled fallback must produce 'disney'; got {mat_type!r}")
+    assert mat_type == "principled", (
+        f"standard BsdfPrincipled path must produce the native 'principled' "
+        f"material (pkg178 Stage 5 default); got {mat_type!r}")
     assert abs(color[0] - 0.6) < 1e-5
 
 

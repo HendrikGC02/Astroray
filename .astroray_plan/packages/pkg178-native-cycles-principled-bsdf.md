@@ -166,9 +166,21 @@ one harness sweep flag-off vs flag-on, diffing `triage_report.json`.
       the Stage-0-declared band (visual + per-channel ratio); conductor
       + dielectric both covered. Thin Wall: paper/leaf/window-sheet trio
       matches Blender 5.2 Cycles.
-- [ ] Addon flag routes Principled nodes to the native material; Disney
+- [x] Addon flag routes Principled nodes to the native material; Disney
       path intact; zero silently-dropped sockets on the flagged path
-      (report line per pkg119-C).
+      (report line per pkg119-C). — Stage 5 addon switch DONE on branch
+      `pkg178-stage5` (2026-08-09): `use_native_principled` bool (default ON,
+      experimental), one flag-aware helper replaces both `'disney'` literals
+      (live spec path + `convert_principled_bsdf_v2`); 22-socket Blender→native
+      map incl. renamed-input fallbacks; alpha routes to the native `alpha`
+      param (transmission conflation retired on the flagged path);
+      `shader_blending` carries native_params through Mix/Add; pkg119-C gap
+      report for thin-film/thin-wall/subsurface. Verified headless on Blender
+      5.2: a metallic+coat+sheen+aniso+alpha Principled node routes to
+      `create_material('principled', ...)` with all params mapped
+      (alpha=0.85 real, transmission_weight=0.0), render finite/non-black
+      (nonblack_frac 1.000, mean_lum 0.098). On-HW native-vs-Cycles parity
+      matrix (auto-flip gate) is LEAD-DEFERRED, separate from this routing.
 - [ ] No wavefront perf regression on non-principled scenes; register
       report attached to every GPU-stage PR.
 - [ ] Every ported formula cites its Cycles file/function or paper.

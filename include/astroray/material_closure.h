@@ -66,6 +66,11 @@ struct MaterialClosure {
     // 0 → isotropic, byte-identical to Stage-1/2). Applies to metallic/specular.
     float anisotropic = 0.0f;           // Cycles anisotropic
     float anisotropicRotation = 0.0f;   // Cycles anisotropic_rotation
+    // pkg178 Stage-3b PR-6 alpha transparency (Principled monolithic closure only;
+    // 1 → opaque, byte-identical to Stage-1/2..PR-4b). A delta transparent lobe is
+    // assembled FIRST with weight (1-alpha) and the remaining lobes scaled by alpha
+    // (Cycles svm/closure.h transparency-first ordering).
+    float alpha = 1.0f;                 // Cycles alpha
 };
 
 class MaterialClosureGraph {

@@ -1574,7 +1574,8 @@ __device__ inline float gpu_pr_sheenValue(float a, float b, const GVec3& localO)
 // pkg178 Stage 3 adds Coat / Sheen / Subsurface (principled.cpp LobeKind).
 enum GPrincipledLobeKind {
     GPR_DIFFUSE = 0, GPR_SPECULAR = 1, GPR_METALLIC = 2, GPR_TRANSMISSION = 3,
-    GPR_COAT = 4, GPR_SHEEN = 5, GPR_SUBSURFACE = 6
+    GPR_COAT = 4, GPR_SHEEN = 5, GPR_SUBSURFACE = 6,
+    GPR_TRANSPARENT = 7  // pkg178 PR-6 alpha delta lobe (assembled first)
 };
 struct GPrincipledLobe {
     int   kind;
@@ -1593,18 +1594,33 @@ struct GPrincipledLobe {
     float anisoRotation = 0.f;
 };
 // pkg178 Stage 3: the full stack can allocate sheen+coat+metallic+transmission+
-// specular+subsurface+diffuse = 7 on-stack lobes. This on-stack array is the
-// dominant added live state in the register-saturated shade kernels — LEAD MUST
-// remeasure cuobjdump REG *and* STACK for the wavefront shade/advance kernels.
-static constexpr int   kMaxPrincipledLobes  = 7;
+// specular+subsurface+diffuse = 7 on-stack lobes. pkg178 PR-6 adds the alpha
+// transparent lobe (assembled first) → 8. This on-stack array is the dominant added
+// live state in the register-saturated shade kernels — LEAD MUST remeasure cuobjdump
+// REG *and* STACK for the wavefront shade/advance kernels; the +1 slot lives only in
+// the <true> (HasPrincipled) instantiation, so non-principled scenes are unaffected.
+static constexpr int   kMaxPrincipledLobes  = 8;
 static constexpr float kPrincipledDeltaGlassRoughness = 0.03f;  // principled.cpp:43
 
 __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GHitRecord& rec,
                                            const GVec3& wo, GPrincipledLobe lobes[kMaxPrincipledLobes]) {
     float nv = fminf(fmaxf(rec.normal.dot(wo), 1e-4f), 1.f);
-    GVec3 weight(1.f, 1.f, 1.f);
+    GVec3 weight(1.f, 1.f, 1.f);  // W₀ = 1
     GVec3 baseColor = c.color;
     int n = 0;
+    // 1. Transparent (alpha) — Cycles svm/closure.h transparency-FIRST ordering:
+    //    bsdf_transparent_setup(sd, weight*(1-alpha)); weight *= alpha; before every
+    //    other closure. Delta lobe (Cycles bsdf_transparent.h: wo=-wi, matched
+    //    pdf==eval, zero eval/pdf outside sampling). At alpha==1 NO lobe assembled →
+    //    byte-identical to PR-4b (delta-glass safety property). Mirrors principled.cpp.
+    if (c.alpha < 1.f) {
+        GPrincipledLobe& L = lobes[n++];
+        L.kind = GPR_TRANSPARENT; L.weight = weight * (1.f - c.alpha); L.color = GVec3(1.f);
+        L.roughness = 0.f; L.ior = 1.f; L.isDelta = true;
+        L.sheenA = 0.f; L.sheenB = 0.f;
+        L.sel = fmaxf(luminance(L.weight), 1e-4f);
+        weight = weight * c.alpha;
+    }
     // 2. Sheen (LTC microfiber) — principled.cpp assembleLobes
     if (c.sheenWeight > 1e-4f) {
         astroray::SheenLtcCoeffs sc =
@@ -2009,6 +2025,18 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GHitRecord& rec
     for (int i = 0; i < n; ++i) { acc += lobes[i].sel; if (xi <= acc) { j = i; break; } }
     ds.lobe = j;
     const GPrincipledLobe& L = lobes[j];
+    // Transparent (alpha) — Cycles bsdf_transparent.h: wo = -wi, delta, matched
+    // pdf==eval → pdfInternal=1, eta=1 (no medium change). Zero rng draws (CPU/GPU
+    // aligned). Mirrors principled.cpp chooseAndSampleDir.
+    if (L.kind == GPR_TRANSPARENT) {
+        ds.wi = -wo;
+        ds.isDelta = true;
+        ds.pdfInternal = 1.f;
+        ds.deltaRefract = false;
+        ds.eta = 1.f;
+        ds.ok = true;
+        return ds;
+    }
     if (L.kind == GPR_DIFFUSE || L.kind == GPR_SUBSURFACE) {
         GVec3 local = gpu_randomCosineDir(rng);
         ds.wi = rec.tangent * local.x + rec.bitangent * local.y + rec.normal * local.z;
@@ -2111,7 +2139,11 @@ __device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c,
     if (ds.isDelta) {
         const GPrincipledLobe& L = lobes[ds.lobe];
         float qj = L.sel / W;
-        if (ds.deltaRefract)
+        if (L.kind == GPR_TRANSPARENT)
+            // Straight-through: f = weight_T, pdf = qj → f/pdf = weight_T/qj
+            // (Cycles bsdf_transparent.h; unbiased one-sample MIS, W cancels).
+            s.f = L.weight;
+        else if (ds.deltaRefract)
             s.f = L.weight * gpu_pr_sqrtColor(c.color) * (ds.eta * ds.eta * ds.pdfInternal);
         else
             s.f = L.weight * c.specularTint * ds.pdfInternal;

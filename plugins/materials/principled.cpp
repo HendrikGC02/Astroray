@@ -65,7 +65,8 @@ class PrincipledPlugin : public Material {
     // assembleLobes(); the MIS recombination (eval/pdf/sample) is invariant.
     // ======================================================================
     // pkg178 Stage 3 adds Coat / Sheen / Subsurface to the Stage-1 core kinds.
-    enum class LobeKind { Diffuse, Specular, Metallic, Transmission, Coat, Sheen, Subsurface };
+    // pkg178 Stage-3b PR-6 adds Transparent (the alpha delta lobe, assembled first).
+    enum class LobeKind { Diffuse, Specular, Metallic, Transmission, Coat, Sheen, Subsurface, Transparent };
     struct Lobe {
         LobeKind kind;
         Vec3 weight{1, 1, 1};  // spectral layering weight (RGB; upsampled per-λ)
@@ -394,8 +395,27 @@ class PrincipledPlugin : public Material {
     std::vector<Lobe> assembleLobes(const HitRecord& rec, const Vec3& wo) const {
         std::vector<Lobe> lobes;
         float nv = std::clamp(rec.normal.dot(wo), 1e-4f, 1.0f);
-        Vec3 weight(1.0f, 1.0f, 1.0f);  // running weight (alpha handled at Stage 5)
+        Vec3 weight(1.0f, 1.0f, 1.0f);  // running weight (W₀ = 1)
 
+        // 1. Transparent (alpha). Cycles svm/closure.h CLOSURE_BSDF_PRINCIPLED_ID
+        //    does transparency FIRST, before every other closure:
+        //      bsdf_transparent_setup(sd, weight*(1-alpha)); weight *= alpha;
+        //    A GPR/Transparent delta lobe (Cycles bsdf_transparent.h: wo=-wi,
+        //    matched pdf==eval so f/pdf==weight, zero eval/pdf outside sampling)
+        //    is assembled with weight (1-alpha)·W₀; the remaining lobes then run on
+        //    the alpha-scaled weight. At alpha==1 NO lobe is assembled and this whole
+        //    block is skipped → the stack is byte-identical to PR-4b (the delta-glass
+        //    safety property: existing alpha==1 gates are untouched by construction).
+        if (alpha_ < 1.0f) {
+            Lobe L;
+            L.kind = LobeKind::Transparent;
+            L.weight = weight * (1.0f - alpha_);  // (1-alpha)·W₀
+            L.color = Vec3(1.0f);
+            L.isDelta = true;  // excluded from continuous eval/pdf sums (zero NEE)
+            L.sel = std::max(luminance(L.weight), 1e-4f);
+            lobes.push_back(L);
+            weight = weight * alpha_;
+        }
         // 2. Sheen (LTC microfiber). Cycles order: sheen sits ABOVE coat. closure
         //    weight = sheen_weight·sheen_tint·weight·ltc_albedo; then the running
         //    weight is attenuated by the sheen directional albedo.
@@ -764,6 +784,18 @@ class PrincipledPlugin : public Material {
         }
         ds.lobe = j;
         const Lobe& L = lobes[j];
+        // Transparent (alpha) — Cycles bsdf_transparent.h sample: wo = -wi (straight
+        // through), delta, matched pdf==eval (ratio 1) → pdfInternal=1, no medium
+        // change (eta=1, no η² factor). Consumes ZERO rng draws (CPU/GPU aligned).
+        if (L.kind == LobeKind::Transparent) {
+            ds.wi = -wo;
+            ds.isDelta = true;
+            ds.pdfInternal = 1.0f;
+            ds.deltaRefract = false;
+            ds.eta = 1.0f;
+            ds.ok = true;
+            return ds;
+        }
         if (L.kind == LobeKind::Diffuse || L.kind == LobeKind::Subsurface) {
             Vec3 local = Vec3::randomCosineDirection(gen);
             ds.wi = rec.tangent * local.x + rec.bitangent * local.y + rec.normal * local.z;
@@ -946,6 +978,7 @@ public:
         c.emissionStrength = emissionStrength_;
         c.anisotropic = anisotropic_;                 // pkg178 PR-4b
         c.anisotropicRotation = anisotropicRotation_;
+        c.alpha = alpha_;                             // pkg178 PR-6
         graph.add(c);
         return graph;
     }
@@ -1103,7 +1136,11 @@ public:
         if (ds.isDelta) {
             const Lobe& L = lobes[ds.lobe];
             float qj = L.sel / W;
-            if (ds.deltaRefract) {
+            if (L.kind == LobeKind::Transparent) {
+                // Straight-through: f = weight_T, pdf = qj → f/pdf = weight_T/qj
+                // (Cycles bsdf_transparent.h; unbiased one-sample MIS: W cancels).
+                s.f = L.weight;
+            } else if (ds.deltaRefract) {
                 s.f = L.weight * sqrtColor(baseColor_) * (ds.eta * ds.eta * ds.pdfInternal);
             } else {
                 s.f = L.weight * specularTint_ * ds.pdfInternal;
@@ -1138,7 +1175,9 @@ public:
             const Lobe& L = lobes[ds.lobe];
             float qj = L.sel / W;
             // eta²-clamp guard (base-class pattern): upsample normalized tint × magnitude.
-            Vec3 rgb = ds.deltaRefract
+            Vec3 rgb = (L.kind == LobeKind::Transparent)
+                           ? L.weight  // straight-through weight_T (spectrally flat grey ≤1)
+                       : ds.deltaRefract
                            ? L.weight * sqrtColor(baseColor_) * (ds.eta * ds.eta * ds.pdfInternal)
                            : L.weight * specularTint_ * ds.pdfInternal;
             float maxc = std::max({rgb.x, rgb.y, rgb.z, 1.0f});

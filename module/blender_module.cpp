@@ -533,6 +533,11 @@ public:
         rec.normal = n;
         rec.frontFace = true;
         buildOrthonormalBasis(rec.normal, rec.tangent, rec.bitangent);
+        // pkg178 PR-4b: give the aniso path a well-defined UV tangent (= the
+        // arbitrary frame, exactly what a sphere hit carries). Isotropic materials
+        // never read this, so existing gates are unaffected.
+        rec.uvTangent = rec.tangent;
+        rec.uvBitangentSign = 1.0f;
         return rec;
     }
 

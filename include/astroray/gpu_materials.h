@@ -1342,6 +1342,70 @@ __device__ inline float gpu_pr_smithLambda(float cosTheta, float alpha) {
 __device__ inline float gpu_pr_smithG2(float NdotL, float NdotV, float alpha) {
     return 1.f / (1.f + gpu_pr_smithLambda(NdotV, alpha) + gpu_pr_smithLambda(NdotL, alpha));
 }
+// ---- pkg178 Stage-3b PR-4b — anisotropic GGX (GPU twin of principled.cpp) ----
+// Byte-mirror of the CPU helpers; see .astroray_plan/docs/anisotropic-ggx-research.md
+// and Cycles bsdf_microfacet.h / svm/closure.h (Apache-2.0 / BSD-3-Clause). At
+// anisotropic==0 the reflect lobes take the iso branch (bit-identical to PR-4a).
+__device__ inline void gpu_pr_anisoAlphas(float roughness, float anisotropic,
+                                          float& ax, float& ay) {
+    float a = fmaxf(roughness * roughness, 0.0064f);
+    float aspect = sqrtf(fmaxf(1.f - anisotropic * 0.9f, 1e-4f));
+    ax = fmaxf(a / aspect, 0.0064f);
+    ay = fmaxf(a * aspect, 0.0064f);
+}
+__device__ inline GVec3 gpu_pr_rotateAroundAxis(const GVec3& T, const GVec3& N, float angle) {
+    return T * cosf(angle) + N.cross(T) * sinf(angle);  // T⊥N Rodrigues
+}
+__device__ inline void gpu_pr_anisoFrame(const GHitRecord& rec, float anisoRotation,
+                                         GVec3& X, GVec3& Y) {
+    GVec3 T = rec.uvTangent;
+    if (anisoRotation != 0.f)
+        T = gpu_pr_rotateAroundAxis(T, rec.normal, anisoRotation * 2.f * M_PI_F);
+    GVec3 b = rec.normal.cross(T);
+    float bl2 = b.length2();
+    if (bl2 < 1e-12f) { X = rec.tangent; Y = rec.bitangent; return; }
+    Y = b * (1.f / sqrtf(bl2));
+    X = Y.cross(rec.normal);
+}
+__device__ inline float gpu_pr_smithLambdaAniso(const GVec3& V, float ax, float ay) {
+    float vz2 = fmaxf(V.z * V.z, 1e-7f);
+    float t = ((ax * V.x) * (ax * V.x) + (ay * V.y) * (ay * V.y)) / vz2;
+    return 0.5f * (sqrtf(1.f + t) - 1.f);
+}
+__device__ inline float gpu_pr_smithG2Aniso(const GVec3& I, const GVec3& O, float ax, float ay) {
+    return 1.f / (1.f + gpu_pr_smithLambdaAniso(O, ax, ay) + gpu_pr_smithLambdaAniso(I, ax, ay));
+}
+// alpha2/(π·(alpha2·len2)² + reg): at ax==ay reduces exactly to a²/(π·denom²+reg)
+// (the iso forms). reg=1e-4 matches the eval-side inline D; ~0 matches D_GTR2 (pdf).
+__device__ inline float gpu_pr_ggxAnisoD(const GVec3& H, float ax, float ay, float reg) {
+    float hx = H.x / ax, hy = H.y / ay, hz = H.z;
+    float len2 = hx * hx + hy * hy + hz * hz;
+    float alpha2 = ax * ay;
+    float denomA = alpha2 * len2;
+    return alpha2 / (M_PI_F * denomA * denomA + reg);
+}
+// Per-triangle UV-aligned tangent (mirror of manifold::uvAlignedTangent, Lengyel
+// 2001). Uses only the triangle's world-space verts + active-layer UVs + N (no
+// barycentric); returns false + leaves outT/outSign untouched on a degenerate
+// UV/projection so the caller keeps its arbitrary-frame fallback.
+__device__ inline bool gpu_pr_uvAlignedTangent(const GVec3& p0, const GVec3& p1, const GVec3& p2,
+                                               const GVec2& w0, const GVec2& w1, const GVec2& w2,
+                                               const GVec3& N, GVec3& outT, float& outSign) {
+    GVec3 dp_du = p1 - p0, dp_dv = p2 - p0;
+    float du1 = w1.x - w0.x, dv1 = w1.y - w0.y;
+    float du2 = w2.x - w0.x, dv2 = w2.y - w0.y;
+    float det = du1 * dv2 - du2 * dv1;
+    if (fabsf(det) <= 1e-12f) return false;
+    float invDet = 1.f / det;
+    GVec3 T  = (dp_du * dv2 - dp_dv * dv1) * invDet;
+    GVec3 Bt = (dp_dv * du1 - dp_du * du2) * invDet;
+    GVec3 Tortho = T - N * N.dot(T);
+    float tlen2 = Tortho.length2();
+    if (tlen2 <= 1e-12f) return false;
+    outT = Tortho * (1.f / sqrtf(tlen2));
+    outSign = (N.cross(outT).dot(Bt) < 0.f) ? -1.f : 1.f;
+    return true;
+}
 __device__ inline float gpu_pr_F0_from_ior(float ior) {
     float f = (ior - 1.f) / (ior + 1.f);
     return f * f;
@@ -1522,6 +1586,11 @@ struct GPrincipledLobe {
     bool  isDelta;
     float sheenA;  // Sheen LTC aInv (view-dependent)
     float sheenB;  // Sheen LTC bInv
+    // pkg178 PR-4b (specular/metallic; 0 → isotropic). Default-initialized so the
+    // uninitialized on-stack lobes[] array reads 0 for every non-aniso lobe (the
+    // iso branch); assembleLobes overrides only metallic/specular.
+    float anisotropic   = 0.f;
+    float anisoRotation = 0.f;
 };
 // pkg178 Stage 3: the full stack can allocate sheen+coat+metallic+transmission+
 // specular+subsurface+diffuse = 7 on-stack lobes. This on-stack array is the
@@ -1569,6 +1638,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         GPrincipledLobe& L = lobes[n++];
         L.kind = GPR_METALLIC; L.weight = weight * c.metallic; L.color = baseColor;
         L.roughness = c.roughness; L.ior = c.ior; L.isDelta = false;
+        L.anisotropic = c.anisotropic; L.anisoRotation = c.anisotropicRotation;  // PR-4b
         L.sel = fmaxf(luminance(L.weight * baseColor), 1e-4f);
         weight = weight * (1.f - c.metallic);
     }
@@ -1590,6 +1660,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         GPrincipledLobe& L = lobes[n++];
         L.kind = GPR_SPECULAR; L.weight = weight; L.color = specF0;
         L.roughness = c.roughness; L.ior = c.ior; L.isDelta = false;
+        L.anisotropic = c.anisotropic; L.anisoRotation = c.anisotropicRotation;  // PR-4b
         L.sel = fmaxf(luminance(weight * Fview), 1e-4f);
         weight = gpu_layeringWeightAfter(weight, gpu_ggxDirectionalAlbedo(Fview, c.roughness, nv));
     }
@@ -1621,33 +1692,61 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
 
 // --- GGX reflection BRDF*cos with multiscatter comp (principled.cpp:389-401,677-698) ---
 __device__ inline GVec3 gpu_pr_ggxReflect(const GVec3& Fhalf, const GVec3& compFss, float roughness,
+                                          float anisotropic, float anisoRotation,
                                           const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     if (nl <= 0.f || nv <= 0.f) return GVec3(0.f);
     GVec3 h = (wo + wi).normalized();
-    float NdotH = fmaxf(rec.normal.dot(h), 1e-4f);
-    float a = fmaxf(roughness * roughness, 0.0064f), a2 = a * a;
-    float denom = NdotH * NdotH * (a2 - 1.f) + 1.f;
-    float D = a2 / (M_PI_F * denom * denom + 1e-4f);
-    float G = gpu_pr_smithG2(nl, nv, a);  // height-correlated Smith (Cycles parity)
+    float D, G, roughComp;
+    if (anisotropic <= 0.f) {  // PR-4a isotropic (bit-identical)
+        float NdotH = fmaxf(rec.normal.dot(h), 1e-4f);
+        float a = fmaxf(roughness * roughness, 0.0064f), a2 = a * a;
+        float denom = NdotH * NdotH * (a2 - 1.f) + 1.f;
+        D = a2 / (M_PI_F * denom * denom + 1e-4f);
+        G = gpu_pr_smithG2(nl, nv, a);  // height-correlated Smith (Cycles parity)
+        roughComp = roughness;
+    } else {  // PR-4b anisotropic (Cycles bsdf_aniso_D / bsdf_aniso_lambda)
+        float ax, ay; gpu_pr_anisoAlphas(roughness, anisotropic, ax, ay);
+        GVec3 X, Y; gpu_pr_anisoFrame(rec, anisoRotation, X, Y);
+        GVec3 Hl(X.dot(h), Y.dot(h), fmaxf(rec.normal.dot(h), 1e-4f));
+        GVec3 Il(X.dot(wi), Y.dot(wi), nl);
+        GVec3 Ol(X.dot(wo), Y.dot(wo), nv);
+        D = gpu_pr_ggxAnisoD(Hl, ax, ay, 1e-4f);
+        G = gpu_pr_smithG2Aniso(Il, Ol, ax, ay);
+        roughComp = sqrtf(sqrtf(ax * ay));
+    }
     GVec3 single = Fhalf * (D * G / (4.f * nv + 1e-4f));
-    return single * gpu_ggxCompensationFactor(compFss, roughness, nv);
+    return single * gpu_ggxCompensationFactor(compFss, roughComp, nv);
 }
 __device__ inline GSampledSpectrum gpu_pr_ggxReflectSpectral(const GSampledSpectrum& Fhalf,
                                                              const GSampledSpectrum& compFss, float roughness,
+                                                             float anisotropic, float anisoRotation,
                                                              const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     if (nl <= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);
     GVec3 h = (wo + wi).normalized();
-    float NdotH = fmaxf(rec.normal.dot(h), 1e-4f);
-    float a = fmaxf(roughness * roughness, 0.0064f), a2 = a * a;
-    float denom = NdotH * NdotH * (a2 - 1.f) + 1.f;
-    float D = a2 / (M_PI_F * denom * denom + 1e-4f);
-    float G = gpu_pr_smithG2(nl, nv, a);  // height-correlated Smith (Cycles parity)
+    float D, G, roughComp;
+    if (anisotropic <= 0.f) {  // PR-4a isotropic (bit-identical)
+        float NdotH = fmaxf(rec.normal.dot(h), 1e-4f);
+        float a = fmaxf(roughness * roughness, 0.0064f), a2 = a * a;
+        float denom = NdotH * NdotH * (a2 - 1.f) + 1.f;
+        D = a2 / (M_PI_F * denom * denom + 1e-4f);
+        G = gpu_pr_smithG2(nl, nv, a);  // height-correlated Smith (Cycles parity)
+        roughComp = roughness;
+    } else {  // PR-4b anisotropic
+        float ax, ay; gpu_pr_anisoAlphas(roughness, anisotropic, ax, ay);
+        GVec3 X, Y; gpu_pr_anisoFrame(rec, anisoRotation, X, Y);
+        GVec3 Hl(X.dot(h), Y.dot(h), fmaxf(rec.normal.dot(h), 1e-4f));
+        GVec3 Il(X.dot(wi), Y.dot(wi), nl);
+        GVec3 Ol(X.dot(wo), Y.dot(wo), nv);
+        D = gpu_pr_ggxAnisoD(Hl, ax, ay, 1e-4f);
+        G = gpu_pr_smithG2Aniso(Il, Ol, ax, ay);
+        roughComp = sqrtf(sqrtf(ax * ay));
+    }
     GSampledSpectrum single = Fhalf * (D * G / (4.f * nv + 1e-4f));
     if (!g_ggxE || !g_ggxEavg) return single;
-    float E = fmaxf(gpu_ggxE(roughness, nv), 1e-4f);
-    float Eavg = fminf(fmaxf(gpu_ggxEavg(roughness), 0.f), 0.999f);
+    float E = fmaxf(gpu_ggxE(roughComp, nv), 1e-4f);
+    float Eavg = fminf(fmaxf(gpu_ggxEavg(roughComp), 0.f), 0.999f);
     GSampledSpectrum out = single;
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
         out[i] *= gpu_ggxDarkeningChannel(compFss[i], E, Eavg);
@@ -1744,7 +1843,8 @@ __device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrin
             GVec3 h = (wo + wi).normalized();
             float sHalf = gpu_pr_generalizedSchlickS(fabsf(wo.dot(h)), L.ior);
             GVec3 F = L.color + (GVec3(1.f) - L.color) * sHalf;
-            return L.weight * gpu_pr_ggxReflect(F, L.color, L.roughness, rec, wo, wi);
+            return L.weight * gpu_pr_ggxReflect(F, L.color, L.roughness,
+                                                L.anisotropic, L.anisoRotation, rec, wo, wi);
         }
         case GPR_METALLIC: {
             if (nl <= 0.f || nv <= 0.f) return GVec3(0.f);
@@ -1753,7 +1853,8 @@ __device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrin
             GVec3 F(gpu_pr_f82Channel(ci, L.color.x, c.specularTint.x),
                     gpu_pr_f82Channel(ci, L.color.y, c.specularTint.y),
                     gpu_pr_f82Channel(ci, L.color.z, c.specularTint.z));
-            return L.weight * gpu_pr_ggxReflect(F, L.color, L.roughness, rec, wo, wi);
+            return L.weight * gpu_pr_ggxReflect(F, L.color, L.roughness,
+                                                L.anisotropic, L.anisoRotation, rec, wo, wi);
         }
         case GPR_TRANSMISSION:
             return gpu_pr_transmissionEval(c, L, rec, wo, wi);
@@ -1781,8 +1882,14 @@ __device__ inline float gpu_pr_pdfLobe(const GPrincipledLobe& L, const GHitRecor
             GVec3 h = (wo + wi).normalized();
             float NdotH = rec.normal.dot(h), HdotV = h.dot(wo);
             if (NdotH <= 0.f || HdotV <= 0.f) return 0.f;
-            float a = fmaxf(L.roughness * L.roughness, 0.0064f);
-            return gpu_pr_D_GTR2(NdotH, a) * NdotH / (4.f * HdotV);
+            if (L.anisotropic <= 0.f) {
+                float a = fmaxf(L.roughness * L.roughness, 0.0064f);
+                return gpu_pr_D_GTR2(NdotH, a) * NdotH / (4.f * HdotV);
+            }
+            float ax, ay; gpu_pr_anisoAlphas(L.roughness, L.anisotropic, ax, ay);  // PR-4b
+            GVec3 X, Y; gpu_pr_anisoFrame(rec, L.anisoRotation, X, Y);
+            GVec3 Hl(X.dot(h), Y.dot(h), NdotH);
+            return gpu_pr_ggxAnisoD(Hl, ax, ay, 1e-12f) * NdotH / (4.f * HdotV);
         }
         case GPR_TRANSMISSION:
             return L.isDelta ? 0.f : gpu_pr_transmissionPdf(L, rec, wo, wi);
@@ -1820,7 +1927,8 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
             float sHalf = gpu_pr_generalizedSchlickS(fabsf(wo.dot(h)), L.ior);
             GSampledSpectrum f0 = gpu_rgbToSampledSpectrum(L.color, wl, GSPEC_RGB_ALBEDO);
             GSampledSpectrum F = f0 + (GSampledSpectrum(1.f) - f0) * sHalf;
-            return wSpec * gpu_pr_ggxReflectSpectral(F, f0, L.roughness, rec, wo, wi);
+            return wSpec * gpu_pr_ggxReflectSpectral(F, f0, L.roughness,
+                                                     L.anisotropic, L.anisoRotation, rec, wo, wi);
         }
         case GPR_METALLIC: {
             if (nl <= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);
@@ -1831,7 +1939,8 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
             GSampledSpectrum F(0.f);
             for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
                 F[i] = gpu_pr_f82Channel(ci, f0[i], tint[i]);
-            return wSpec * gpu_pr_ggxReflectSpectral(F, f0, L.roughness, rec, wo, wi);
+            return wSpec * gpu_pr_ggxReflectSpectral(F, f0, L.roughness,
+                                                     L.anisotropic, L.anisoRotation, rec, wo, wi);
         }
         case GPR_TRANSMISSION: {
             // Colour upsampled; achromatic geometry/Fresnel scalar per-λ (principled.cpp:664-672).
@@ -1919,13 +2028,26 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GHitRecord& rec
         return ds;
     }
     if (L.kind == GPR_SPECULAR || L.kind == GPR_METALLIC || L.kind == GPR_COAT) {
-        float a = fmaxf(L.roughness * L.roughness, 0.0064f);
-        float r1 = gpu_rng_uniform(rng), r2 = gpu_rng_uniform(rng);
+        float r1 = gpu_rng_uniform(rng), r2 = gpu_rng_uniform(rng);  // 2 draws both branches
         float phi = 2.f * M_PI_F * r1;
-        float cosT = sqrtf((1.f - r2) / (1.f + (a * a - 1.f) * r2));
-        float sinT = sqrtf(fmaxf(0.f, 1.f - cosT * cosT));
-        GVec3 hh(cosf(phi) * sinT, sinf(phi) * sinT, cosT);
-        hh = rec.tangent * hh.x + rec.bitangent * hh.y + rec.normal * hh.z;
+        if (L.anisotropic <= 0.f) {
+            float a = fmaxf(L.roughness * L.roughness, 0.0064f);
+            float cosT = sqrtf((1.f - r2) / (1.f + (a * a - 1.f) * r2));
+            float sinT = sqrtf(fmaxf(0.f, 1.f - cosT * cosT));
+            GVec3 hh(cosf(phi) * sinT, sinf(phi) * sinT, cosT);
+            hh = rec.tangent * hh.x + rec.bitangent * hh.y + rec.normal * hh.z;
+            ds.wi = (hh * (2.f * wo.dot(hh)) - wo).normalized();
+            ds.ok = rec.normal.dot(ds.wi) > 0.f;
+            return ds;
+        }
+        // PR-4b anisotropic NDF half-vector via slope stretch (reduces to iso).
+        float ax, ay; gpu_pr_anisoAlphas(L.roughness, L.anisotropic, ax, ay);
+        GVec3 X, Y; gpu_pr_anisoFrame(rec, L.anisoRotation, X, Y);
+        float rr = sqrtf(r2 / fmaxf(1.f - r2, 1e-6f));
+        float sx = ax * rr * cosf(phi);
+        float sy = ay * rr * sinf(phi);
+        GVec3 hl = GVec3(-sx, -sy, 1.f).normalized();
+        GVec3 hh = X * hl.x + Y * hl.y + rec.normal * hl.z;
         ds.wi = (hh * (2.f * wo.dot(hh)) - wo).normalized();
         ds.ok = rec.normal.dot(ds.wi) > 0.f;
         return ds;

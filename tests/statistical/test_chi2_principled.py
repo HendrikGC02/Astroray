@@ -63,6 +63,33 @@ def test_chi2_principled_metallic(theta_deg, roughness):
     assert ok, f"principled metallic chi² FAILED (r={roughness}, θ={theta_deg}) p={t.p_value:.6f}"
 
 
+# pkg178 Stage-3b PR-4b — anisotropic GGX (αx≠αy). Validates that the aniso NDF
+# half-vector sampler (slope stretch) is matched by the aniso pdf() in the
+# one-sample MIS. The rotation exercises the UV-aligned frame path. The frame in
+# makeMaterialTestRecord is the arbitrary buildOrthonormalBasis basis (spheres
+# carry the same), so this is a genuine αx≠αy sampler/pdf consistency check.
+@pytest.mark.parametrize("theta_deg", [0, 45])
+@pytest.mark.parametrize("aniso", [0.5, 0.9])
+@pytest.mark.parametrize("rot", [0.0, 0.25])
+def test_chi2_principled_metallic_aniso(theta_deg, aniso, rot):
+    ok, t = _run({"base_color": [0.95, 0.64, 0.54], "metallic": 1.0, "roughness": 0.5,
+                  "anisotropic": aniso, "anisotropic_rotation": rot},
+                 theta_deg, HemisphericalDomain(),
+                 seed=700 + theta_deg * 100 + int(aniso * 10) + int(rot * 4))
+    assert ok, (f"principled aniso metallic chi² FAILED (a={aniso}, rot={rot}, "
+                f"θ={theta_deg}) p={t.p_value:.6f}")
+
+
+@pytest.mark.parametrize("theta_deg", [45])
+@pytest.mark.parametrize("aniso", [0.8])
+def test_chi2_principled_specular_aniso(theta_deg, aniso):
+    # metallic=0 dielectric specular with anisotropy (+ diffuse in the mixture).
+    ok, t = _run({"base_color": [0.8, 0.8, 0.8], "metallic": 0.0, "roughness": 0.45,
+                  "ior": 1.5, "anisotropic": aniso},
+                 theta_deg, HemisphericalDomain(), seed=800 + theta_deg + int(aniso * 10))
+    assert ok, f"principled aniso specular chi² FAILED (a={aniso}, θ={theta_deg}) p={t.p_value:.6f}"
+
+
 @pytest.mark.parametrize("theta_deg", [45])
 def test_chi2_principled_diffuse(theta_deg):
     # ior=1.0 zeroes the specular Fresnel -> pure diffuse cosine sampler.

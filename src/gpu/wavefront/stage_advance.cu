@@ -464,6 +464,36 @@ __device__ bool shadePathSlot(
     rec.frontFace  = hitBufs.hit_front_face[idx] != 0;
     rec.isDelta    = hitBufs.hit_is_delta[idx] != 0;
 
+    // pkg178 Stage-3b PR-4b — UV-aligned shading tangent for anisotropic
+    // Principled. Default to the arbitrary frame; override from the hit triangle's
+    // uploaded active-layer UVs when present (scene_upload sets hasUV only on
+    // anisotropic-Principled triangles). Behind `if constexpr (HasPrincipled)` so
+    // the non-principled <false> shade kernel compiles this out entirely, and
+    // behind the per-triangle `hasUV` runtime gate so non-aniso principled scenes
+    // pay nothing. Computed here (not the intersect stage) to avoid a per-path
+    // hit-buffer SoA field (see PR report: honors "zero device memory" for
+    // non-aniso scenes at the cost of the aniso branch's registers in the <true>
+    // kernel — LEAD measures via cuobjdump). NOTE: uses the triangle's stored
+    // (object-local for instanced BLAS) verts; correct for the non-instanced flat
+    // scene the parity gates use; instanced-aniso tangent orientation is a
+    // declared follow-up.
+    rec.uvTangent = rec.tangent;
+    rec.uvBitangentSign = 1.0f;
+    if constexpr (HasPrincipled) {
+        if (rec.primId >= 0 && prims[rec.primId].type == GPRIM_TRIANGLE) {
+            const GTriangle& utri = tris[prims[rec.primId].index];
+            if (utri.hasUV) {
+                GVec3 uvT; float uvSign;
+                if (gpu_pr_uvAlignedTangent(utri.v0, utri.v1, utri.v2,
+                                            utri.uv0, utri.uv1, utri.uv2,
+                                            rec.normal, uvT, uvSign)) {
+                    rec.uvTangent = uvT;
+                    rec.uvBitangentSign = uvSign;
+                }
+            }
+        }
+    }
+
     const ::GMaterial& mat = materials[rec.materialId];
 
     GVec3 wo = (ray.direction * -1.0f).normalized();

@@ -270,6 +270,11 @@ public:
         return true;
     }
     const std::shared_ptr<Material>& getMaterial() const { return material; }
+    // pkg178 Stage-3b PR-4b — active-UV-layer texcoords for the GPU aniso tangent.
+    Vec2 getUV0() const { return uv0; }
+    Vec2 getUV1() const { return uv1; }
+    Vec2 getUV2() const { return uv2; }
+    bool hasUVLayers() const { return !uvLayers.empty(); }
     // pkg56 Phase B: in-place mutator used by Renderer::update_object_transform.
     // Recomputes the face normal; vertex normals (if present) must be
     // re-supplied separately when the transform isn't a rigid motion.

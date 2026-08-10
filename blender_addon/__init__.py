@@ -277,13 +277,17 @@ class CustomRaytracerRenderSettings(PropertyGroup):
     )
     # pkg178 Stage 5: route Blender's Principled BSDF to Astroray's NATIVE
     # 'principled' material (faithful Cycles port: coat/sheen/anisotropy/alpha/
-    # emission driven directly) instead of the Disney approximation. Default ON
-    # for this EXPERIMENTAL build so the owner can drive the real material; the
-    # Disney path stays as the fallback when this is off. The production
-    # default-flip is gated on the Cycles parity matrix (owner-authorized
-    # auto-flip — spec pkg178 D3), do NOT hard-code OFF here to "play it safe".
+    # emission driven directly) instead of the Disney approximation. The Disney
+    # path stays as the fallback when this is off.
+    # RATIFIED to production default ON (2026-08-11): the owner-authorized
+    # auto-flip gate (spec pkg178 D3 / memory pkg178-repin-and-stage5-autonomy)
+    # is satisfied — the Cycles-5.2 parity matrix is green: BSDF_PRINCIPLED PASSES
+    # the pkg119-B differential gate (SSIM 0.972, dE 1.88) and thin-film
+    # dielectric+conductor land in-band across the 100-1000 nm x film-IOR sweep
+    # (see .astroray_plan/docs/pkg178-thinfilm-parity-findings.md). No longer
+    # experimental; do NOT hard-code OFF here.
     use_native_principled: BoolProperty(
-        name="Native Principled BSDF (experimental)",
+        name="Native Principled BSDF",
         default=True,
         description="Route Blender's Principled BSDF to Astroray's native "
                     "'principled' material (coat, sheen, anisotropy, alpha and "

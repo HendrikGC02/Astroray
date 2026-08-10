@@ -73,17 +73,18 @@ NOISE_LIMITED = "NOISE-LIMITED"
 # spec's "Dependencies & sequencing notes" (pkg89) and the spectral nodes.
 # feature -> reason string.
 KNOWN_INTENTIONAL_DIVERGENCE: dict[str, str] = {
-    # pkg89 dedicated lights: GPU upload deferred + uniform ~3x exposure vs
-    # Cycles (spec sequencing notes; pkg115 findings 1 & 5). Tag pending the
-    # pkg89 follow-ups, do NOT attempt the GPU port here.
-    "POINT": "pkg89: dedicated-light energy/GPU-upload gap (deferred follow-up)",
-    "SUN": "pkg89: dedicated-light energy/GPU-upload gap (deferred follow-up)",
-    "AREA": "pkg89: dedicated-light energy/GPU-upload + area-normal orientation "
-            "(deferred follow-up; see verify_pkg122 orientation note)",
-    "SPOT": "pkg89: dedicated-light energy/GPU-upload gap (deferred follow-up)",
     # Spectral-domain nodes: Astroray is spectral, Cycles maps these to RGB.
     "WAVELENGTH": "spectral-vs-RGB: single-wavelength emission differs by design",
     "BLACKBODY": "spectral-vs-RGB: Planckian locus sampled spectrally vs RGB",
+    # NOTE (2026-08-11 re-baseline): the pkg89 dedicated-light exemptions
+    # (POINT/SUN/AREA/SPOT, "~3x energy/GPU-upload gap" + the stale AREA
+    # area-normal-orientation note) were REMOVED after pkg181 (#569) fixed the
+    # dedicated-light dim. On the Blender-5.2 parity run all four lights PASS
+    # (AREA dE 1.07, POINT 1.53, SPOT 0.24, SUN 1.56; SSIM >= 0.978), and the
+    # pkg181 orientation/visibility fix is regression-gated by
+    # tests/test_pkg181_dedicated_light_bsdf_visibility.py. A future light
+    # regression must therefore surface (chromatic -> TRANSLATION-BUG) rather than
+    # be silently excused by a now-false "deferred follow-up" tag.
 }
 
 # Features the render probe shows the addon reads (Phase-A SUPPORTED) but the

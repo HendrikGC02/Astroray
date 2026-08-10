@@ -1,5 +1,36 @@
 # Astroray Status
 
+**2026-08-11 (post-Principled-block parity verification + harness band re-pin —
+CLOSES the last two owed pkg178 items):** thin-film saturation parity vs Blender
+5.2 Cycles is VERIFIED and the coordinated pkg119-B/pkg129 band re-pin is DONE;
+`use_native_principled` is RATIFIED to production default ON.
+- **Thin-film acceptance GREEN.** New identical-scene A/B harness
+  `benchmarks/cycles-parity/thin_film/` (both legs render the same translated
+  Blender scene through the real addon Principled→native path, incl. #581
+  thin-film sockets), swept thickness {100–1000 nm} × film-IOR {1.2,1.5,1.8} ×
+  {dielectric, conductor} on Blender 5.2. **Dielectric** (analytically-exact
+  Belcour Fresnel): 18/18 in-band, hue tracks Cycles 6.0° mean; the film-IOR=1.5
+  cells correctly show ZERO iridescence (film IOR = base IOR). **Conductor**
+  (RGB-upsample approx): 18/18 in-band, per-channel RGB chroma EXACT (≤2.09 %),
+  hue tracks 10.1° mean / 25.4° max on saturated cells at dE ≤ 1.39 — a MUCH
+  smaller gap than assumed; the per-λ-conductor follow-up is now LOW priority.
+  Visually confirmed (montage). Details:
+  `.astroray_plan/docs/pkg178-thinfilm-parity-findings.md`.
+- **Harness band re-pin (toward-Cycles, evidence-clean).** pkg119-B re-run on
+  Blender 5.2: 39 features → 25 pass / 1 skip / 13 fail; all 4 dedicated lights
+  now PASS (dE ≤ 1.6) and BSDF_PRINCIPLED PASSES (SSIM 0.972, dE 1.88). Removed
+  the now-stale pkg89 light INTENTIONAL-DIVERGENCE exemptions from `triage.py`
+  (pkg181 fixed the dim; a future light regression must surface as a bug). The
+  180° AREA-flip was already gone (pkg181). pkg129 metal A/B re-run: 12/12 legs
+  pass, ratios in [0.857, 1.016] → ceiling tightened 1.15→1.05 (energy-GAIN
+  guard; floor held 0.85 = binding high-roughness chromatic-blue multiscatter
+  residual). Both harnesses' `_find_blender` now prefer Blender 5.2 (pkg178-D1
+  oracle). The 5 residual pkg119-B TRANSLATION-BUGs are all procedural texture
+  nodes (pre-existing parity gap, unrelated to this round).
+- **Stage-5 default RATIFIED.** `use_native_principled` production default ON —
+  the owner-authorized auto-flip gate (memory `pkg178-repin-and-stage5-autonomy`)
+  is satisfied by the green matrix above; the "(experimental)" label is removed.
+
 **2026-08-08 → 2026-08-10 (Principled-BSDF completion run, 17 PRs merged
 #566–#582): native Cycles-Principled BSDF is COMPLETE (Stages 0–5) incl.
 thin film/thin wall + Blender native routing — headline of the Integration
@@ -25,9 +56,10 @@ by-value `GMaterial` data leak was caught and fixed mid-PR, keeping
 `<false>` at 3608 B), thin wall (thin-glass) + thin subsurface (#580,
 combined R+T closed-form geometric series). **Stage 5** routes Blender's
 `ShaderNodeBsdfPrincipled` → the native material incl. all Stage-4
-thin-film sockets (#581, `use_native_principled` default ON experimental;
-production default-flip gated on the full hardware parity matrix per the
-owner's pre-authorization, memory `pkg178-repin-and-stage5-autonomy`).
+thin-film sockets (#581, `use_native_principled` default ON — RATIFIED to
+production 2026-08-11 once the Cycles-5.2 parity matrix went green, per the
+owner's pre-authorization, memory `pkg178-repin-and-stage5-autonomy`; see the
+2026-08-11 top entry).
 Along the way, Stage 4 PR-4 surfaced a **pre-existing** `ggxReflect`
 eval-D/pdf-D regularizer mismatch (`+1e-4` vs unregularized `D_GTR2`) that
 made low-roughness Principled metallic/specular near-black (furnace
@@ -63,10 +95,10 @@ documented approximation, enhancement-tier, not a defect; the durable
 PR #579 and Stage 3 both hit and locally patched around) is prototyped in
 worktree `.claude/worktrees/sad-maxwell-ff99d1` (uncommitted, PR-2-based)
 and needs re-apply on settled main (memory
-`closure-graph-lobe-count-spills-fused-kernel`); thin-film-vs-Cycles
+`closure-graph-lobe-count-spills-fused-kernel`). The thin-film-vs-Cycles
 saturation parity verification + the coordinated pkg119-B/pkg129 harness
 band re-pin (reflecting pkg181 + Smith-G + pkg172(A) + thin-film + pkg182
-together) is still owed. **Changelog:** pkg178 Stages 0–5 COMPLETE
+together) is **DONE 2026-08-11** (see the top entry). **Changelog:** pkg178 Stages 0–5 COMPLETE
 (#566–#581), pkg182 filed+fixed (#582), pkg172(A) CLOSED (#551/#553/#576),
 pkg176 Stages 0–4 COMPLETE (#555/#556/#561/#568), pkg181 DONE (#569),
 pkg179 CLOSED by diagnosis. Full detail:

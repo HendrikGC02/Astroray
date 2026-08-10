@@ -8,6 +8,8 @@
 #include "gpu_glass_tables.cuh"  // pkg151: rough-transmission multiscatter compensation
 #include "gpu_ggx_tables.cuh"    // pkg152: reflection-lobe multiscatter/layering compensation
 #include "sheen_ltc_table.h"     // pkg178 Stage 3: sheen LTC table (host/device)
+#include "thin_film_fresnel.h"       // pkg178 Stage 4: shared Belcour-Barla iridescence core
+#include "gpu_thin_film_table.cuh"   // pkg178 Stage 4 PR-3: device CIE sensitivity LUT + gpu_pr_sensitivityRGB
 #include <curand_kernel.h>
 
 #ifndef M_PI_F
@@ -1459,6 +1461,101 @@ __device__ inline GVec3 gpu_pr_sqrtColor(const GVec3& c) {
     return GVec3(sqrtf(fmaxf(0.f, c.x)), sqrtf(fmaxf(0.f, c.y)), sqrtf(fmaxf(0.f, c.z)));
 }
 
+// ==========================================================================
+// pkg178 Stage 4 PR-3 — thin-film iridescence (GPU twin of principled.cpp
+// PR-1/PR-2). SAME shared core (thin_film_fresnel.h fresnelIridescenceChannel)
+// as the CPU — byte-identical math, one body, two legs. The film only OVERRIDES
+// the single-scatter Fresnel F at the specular/transmission/metallic eval sites,
+// gated on gpu_pr_filmActive; thickness ≤ cutoff → these are NEVER called, so
+// thickness-0 renders are byte-identical to PR-6 (the load-bearing no-op).
+// energy-comp (compFss) stays FILM-FREE (no double-count), exactly as CPU/Cycles.
+// ==========================================================================
+__device__ inline bool gpu_pr_filmActive(const GPrincipledClosure& c) {
+    return c.thinFilmThickness > astroray::thinfilm::kThinFilmThicknessCutoff;
+}
+// principled.cpp::thinFilmFresnelRGB — per-RGB-channel dielectric iridescence F,
+// RGB sensitivity via the device CIE LUT (gpu_pr_sensitivityRGB).
+__device__ inline GVec3 gpu_pr_thinFilmFresnelRGB(const GPrincipledClosure& c, float cosI,
+                                                  float iorArg, float filmIor) {
+    namespace tf = astroray::thinfilm;
+    GVec3 out;
+    for (int ch = 0; ch < 3; ++ch) {
+        auto S = [ch](float argOPD) { return gpu_pr_sensitivityRGB(argOPD, ch); };
+        (&out.x)[ch] = tf::fresnelIridescenceChannel<false>(
+            1.f, c.thinFilmThickness, filmIor, iorArg, 0.f, -1.f, cosI, nullptr, S);
+    }
+    return out;
+}
+// principled.cpp::thinFilmFresnelSpectral — per-λ analytic sensitivity (no LUT).
+__device__ inline GSampledSpectrum gpu_pr_thinFilmFresnelSpectral(
+        const GPrincipledClosure& c, float cosI, float iorArg, float filmIor,
+        const GSampledWavelengths& wl) {
+    namespace tf = astroray::thinfilm;
+    GSampledSpectrum out(0.f);
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+        float lambda = wl.lambda[i];
+        auto S = [lambda](float argOPD) { return tf::sensitivitySpectral(argOPD, lambda); };
+        out[i] = tf::fresnelIridescenceChannel<false>(
+            1.f, c.thinFilmThickness, filmIor, iorArg, 0.f, -1.f, cosI, nullptr, S);
+    }
+    return out;
+}
+// principled.cpp::thinFilmF0RescaleChannel / thinFilmF0RescaleRGB — Cycles
+// generalized_schlick_fresnel thin-film F0-rescale (bsdf_microfacet.h:284-297).
+__device__ inline float gpu_pr_thinFilmF0RescaleChannel(float Fc, float f0c, float F0real) {
+    float s = fminf(fmaxf((Fc - 1.f) / (F0real - 1.f), 0.f), 1.f);
+    float factor = f0c / F0real;
+    return Fc * (1.f + (factor - 1.f) * s);
+}
+__device__ inline GVec3 gpu_pr_thinFilmF0RescaleRGB(GVec3 F, const GVec3& f0, float iorArg) {
+    float F0real = gpu_pr_F0_from_ior(iorArg);
+    if (F0real <= 1e-5f || (F.x == 1.f && F.y == 1.f && F.z == 1.f)) return F;
+    return GVec3(gpu_pr_thinFilmF0RescaleChannel(F.x, f0.x, F0real),
+                 gpu_pr_thinFilmF0RescaleChannel(F.y, f0.y, F0real),
+                 gpu_pr_thinFilmF0RescaleChannel(F.z, f0.z, F0real));
+}
+// Per-channel Gulbrandsen conductor (n,k) + F82 value g from (f0, specular_tint) —
+// exact mirror of principled.cpp::precomputeConductorNK ("Artist Friendly Metallic
+// Fresnel", Gulbrandsen JCGT 2014; Cycles bsdf_microfacet.h:365-383). On the CPU
+// this is a per-material ctor precompute; on the GPU it is recomputed PER HIT here
+// (only reached on the metallic thin-film path, <true> only) so the 9 floats do
+// NOT bloat GPrincipledClosure/GMaterial and leak STACK into the shared <false>
+// kernel via its by-value copy (see gpu_types.h). g reuses the metallic lobe's own
+// F82 eval at cosθ=1/7 (gpu_pr_f82Channel == principled.cpp::f82Channel).
+__device__ inline void gpu_pr_conductorNK(float f0, float tint, float& n, float& k, float& g) {
+    const float r = fminf(f0, 0.999f);
+    g = gpu_pr_f82Channel(1.f / 7.f, f0, tint);
+    const float sqrtR = sqrtf(r);
+    const float nLo = (1.f + sqrtR) / (1.f - sqrtR);
+    const float nHi = (1.f - r) / (1.f + r);
+    n = nLo + (nHi - nLo) * g;
+    const float kNum = r * (n + 1.f) * (n + 1.f) - (n - 1.f) * (n - 1.f);
+    k = sqrtf(fmaxf(0.f, kNum / (1.f - r)));
+}
+// principled.cpp::thinFilmConductorRGB — per-RGB-channel conductor iridescence F
+// with the PER-HIT-computed (n,k,g) + the CIE LUT.
+__device__ inline GVec3 gpu_pr_thinFilmConductorRGB(const GPrincipledClosure& c, float cosI) {
+    namespace tf = astroray::thinfilm;
+    GVec3 out;
+    for (int ch = 0; ch < 3; ++ch) {
+        float n, k, g;
+        gpu_pr_conductorNK((&c.color.x)[ch], (&c.specularTint.x)[ch], n, k, g);
+        auto S = [ch](float argOPD) { return gpu_pr_sensitivityRGB(argOPD, ch); };
+        (&out.x)[ch] = tf::fresnelIridescenceChannel<true>(
+            1.f, c.thinFilmThickness, c.thinFilmIor, n, k, g, cosI, nullptr, S);
+    }
+    return out;
+}
+// principled.cpp::thinFilmConductorSpectral — RGB-channel conductor F upsampled
+// to spectral (Cycles has no spectral n,k; plan §0.5 APPROXIMATED-equal-to-Cycles).
+__device__ inline GSampledSpectrum gpu_pr_thinFilmConductorSpectral(
+        const GPrincipledClosure& c, float cosI, const GSampledWavelengths& wl) {
+    GVec3 rgb = gpu_pr_thinFilmConductorRGB(c, cosI);
+    float maxc = fmaxf(fmaxf(fmaxf(rgb.x, rgb.y), rgb.z), 1.f);
+    GVec3 tint = rgb * (1.f / maxc);
+    return gpu_rgbToSampledSpectrum(tint, wl, GSPEC_RGB_ALBEDO) * maxc;
+}
+
 // --- VNDF sampling + micro-refraction (principled.cpp:187-229) -------------
 __device__ inline float gpu_pr_vndfPdf(const GVec3& N, const GVec3& wo, const GVec3& wm, float roughness) {
     float absCosO = fabsf(wo.dot(N));
@@ -1785,6 +1882,17 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
         float D = gpu_pr_D_GTR2(wm.dot(rec.normal), alpha);
         // Height-correlated Smith G2 for the external-reflection sub-lobe (Cycles).
         float G = gpu_pr_smithG2(cosI, cosO, alpha);
+        if (gpu_pr_filmActive(c)) {
+            // pkg178 Stage 4 PR-3: thin-film iridescence F (Cycles single
+            // microfacet_fresnel at bsdf->ior = etap; specular_tint folded into f0
+            // via the F0-rescale, not a post-multiply).
+            float etapR = entering ? L.ior : (1.f / L.ior);
+            float filmIor = entering ? c.thinFilmIor : c.thinFilmIor / L.ior;
+            GVec3 F = gpu_pr_thinFilmFresnelRGB(c, HdotO, etapR, filmIor);
+            F = gpu_pr_thinFilmF0RescaleRGB(F, GVec3(gpu_pr_F0_from_ior(etapR)) * c.specularTint, etapR);
+            float geom = D * G / (4.f * cosO * cosI + 1e-8f) * cosI;
+            return L.weight * F * geom;
+        }
         float F = gpu_pr_fresnelDielectric(HdotO, 1.f, L.ior);
         float fr = D * G * F / (4.f * cosO * cosI + 1e-8f) * cosI;
         return L.weight * c.specularTint * fr;
@@ -1797,6 +1905,20 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
     float D = gpu_pr_D_GTR2(fabsf(wm.dot(rec.normal)), alpha);
     // Height-correlated Smith G2 for the refraction sub-lobe (Cycles parity).
     float G = gpu_pr_smithG2(fabsf(cosI), fabsf(cosO), alpha);
+    if (gpu_pr_filmActive(c)) {
+        // pkg178 Stage 4 PR-3: transmittance = (1-F)·transmission_tint with the
+        // same iridescence F; film IOR backface-adjusted (÷bulk IOR).
+        float filmIor = entering ? c.thinFilmIor : c.thinFilmIor / L.ior;
+        GVec3 Fv = gpu_pr_thinFilmFresnelRGB(c, fabsf(wo.dot(wm)), etap, filmIor);
+        Fv = gpu_pr_thinFilmF0RescaleRGB(Fv, GVec3(gpu_pr_F0_from_ior(etap)) * c.specularTint, etap);
+        float den = wi.dot(wm) + wo.dot(wm) / etap;
+        den = den * den * cosI * cosO;
+        float ft = D * G * fabsf(wi.dot(wm) * wo.dot(wm) / (den + 1e-10f));
+        ft /= (etap * etap);
+        float scale = ft * fabsf(cosI) * gpu_ggxGlassCompensationFactor(L.roughness, etap, fabsf(cosO));
+        GVec3 res = L.weight * gpu_pr_sqrtColor(c.color) * (GVec3(1.f) - Fv) * scale;
+        return gvec3_max(res, GVec3(0.f));
+    }
     float F = gpu_pr_fresnelDielectric(fabsf(wo.dot(wm)), etaI, etaT);
     float den = wi.dot(wm) + wo.dot(wm) / etap;
     den = den * den * cosI * cosO;
@@ -1832,6 +1954,65 @@ __device__ inline float gpu_pr_transmissionPdf(const GPrincipledLobe& L, const G
     return (1.f - F) * gpu_pr_vndfPdf(rec.normal, wo, wm, L.roughness) * fabsf(HdotI) / d2;
 }
 
+// pkg178 Stage 4 PR-3 — per-λ native thin-film glass eval (film ONLY; the film-
+// free spectral path stays the Stage-3b upsample-of-RGB in gpu_pr_evalLobeSpectral).
+// Achromatic geometry × per-λ iridescence F (both faces; backface film-IOR adjust
+// ÷ bulk IOR). Exact mirror of principled.cpp::transmissionEvalSpectral.
+__device__ inline GSampledSpectrum gpu_pr_transmissionEvalSpectral(
+        const GPrincipledClosure& c, const GPrincipledLobe& L, const GHitRecord& rec,
+        const GVec3& wo, const GVec3& wi, const GSampledWavelengths& wl) {
+    if (L.isDelta) return GSampledSpectrum(0.f);
+    float cosO = rec.normal.dot(wo), cosI = rec.normal.dot(wi);
+    bool entering = rec.frontFace;
+    float alpha = fmaxf(L.roughness * L.roughness, 0.0064f);
+    float etap = entering ? L.ior : (1.f / L.ior);
+    float filmIor = entering ? c.thinFilmIor : c.thinFilmIor / L.ior;
+    float F0real = gpu_pr_F0_from_ior(etap);
+    GSampledSpectrum wSpec = gpu_rgbToSampledSpectrum(L.weight, wl, GSPEC_RGB_ALBEDO);
+    GSampledSpectrum tintSpec = gpu_rgbToSampledSpectrum(c.specularTint, wl, GSPEC_RGB_ALBEDO);
+    if (cosO > 0.f && cosI > 0.f) {  // reflection sub-lobe
+        GVec3 wm = (wo + wi).normalized();
+        if (wm.dot(rec.normal) < 0.f) wm = -wm;
+        float HdotO = wo.dot(wm);
+        if (HdotO <= 1e-10f) return GSampledSpectrum(0.f);
+        float D = gpu_pr_D_GTR2(wm.dot(rec.normal), alpha);
+        float G = gpu_pr_smithG2(cosI, cosO, alpha);
+        float geom = D * G / (4.f * cosO * cosI + 1e-8f) * cosI;
+        GSampledSpectrum F = gpu_pr_thinFilmFresnelSpectral(c, HdotO, etap, filmIor, wl);
+        GSampledSpectrum out(0.f);
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+            float Fi = (F0real > 1e-5f)
+                           ? gpu_pr_thinFilmF0RescaleChannel(F[i], F0real * tintSpec[i], F0real)
+                           : F[i];
+            out[i] = wSpec[i] * Fi * geom;
+        }
+        return out;
+    }
+    if (cosO * cosI >= 0.f) return GSampledSpectrum(0.f);
+    // transmission sub-lobe
+    GVec3 wm = (wi * etap + wo).normalized();
+    if (wm.dot(rec.normal) < 0.f) wm = -wm;
+    if (wm.dot(wi) * cosI < 0.f || wm.dot(wo) * cosO < 0.f) return GSampledSpectrum(0.f);
+    float D = gpu_pr_D_GTR2(fabsf(wm.dot(rec.normal)), alpha);
+    float G = gpu_pr_smithG2(fabsf(cosI), fabsf(cosO), alpha);
+    float den = wi.dot(wm) + wo.dot(wm) / etap;
+    den = den * den * cosI * cosO;
+    float ft = D * G * fabsf(wi.dot(wm) * wo.dot(wm) / (den + 1e-10f));
+    ft /= (etap * etap);
+    float scale = ft * fabsf(cosI) * gpu_ggxGlassCompensationFactor(L.roughness, etap, fabsf(cosO));
+    GSampledSpectrum F = gpu_pr_thinFilmFresnelSpectral(c, fabsf(wo.dot(wm)), etap, filmIor, wl);
+    GSampledSpectrum baseSpec = gpu_rgbToSampledSpectrum(gpu_pr_sqrtColor(c.color), wl, GSPEC_RGB_ALBEDO);
+    GSampledSpectrum out(0.f);
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+        float Fi = (F0real > 1e-5f)
+                       ? gpu_pr_thinFilmF0RescaleChannel(F[i], F0real * tintSpec[i], F0real)
+                       : F[i];
+        float v = wSpec[i] * baseSpec[i] * (1.f - Fi) * scale;
+        out[i] = v > 0.f ? v : 0.f;
+    }
+    return out;
+}
+
 // --- Per-lobe eval / pdf (principled.cpp:355-461) --------------------------
 __device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                         const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
@@ -1857,8 +2038,17 @@ __device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrin
         case GPR_SPECULAR: {
             if (nl <= 0.f || nv <= 0.f) return GVec3(0.f);
             GVec3 h = (wo + wi).normalized();
+            // Film-OFF statements FIRST, textually unchanged (byte-identical
+            // codegen + thickness-0 render); the film only OVERRIDES F afterward.
             float sHalf = gpu_pr_generalizedSchlickS(fabsf(wo.dot(h)), L.ior);
             GVec3 F = L.color + (GVec3(1.f) - L.color) * sHalf;
+            if (L.kind == GPR_SPECULAR && gpu_pr_filmActive(c)) {
+                // pkg178 Stage 4 PR-3: thin-film iridescence replaces the single-
+                // scatter Fresnel (Cycles generalized_schlick_fresnel thin-film
+                // branch). compFss stays FILM-FREE (L.color = specF0).
+                GVec3 Fraw = gpu_pr_thinFilmFresnelRGB(c, fabsf(wo.dot(h)), L.ior, c.thinFilmIor);
+                F = gpu_pr_thinFilmF0RescaleRGB(Fraw, L.color, L.ior);
+            }
             return L.weight * gpu_pr_ggxReflect(F, L.color, L.roughness,
                                                 L.anisotropic, L.anisoRotation, rec, wo, wi);
         }
@@ -1866,9 +2056,17 @@ __device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrin
             if (nl <= 0.f || nv <= 0.f) return GVec3(0.f);
             GVec3 h = (wo + wi).normalized();
             float ci = fminf(fmaxf(wo.dot(h), 0.f), 1.f);
+            // Film-OFF statements FIRST, textually unchanged (thickness-0 bit-
+            // equality); the film only OVERRIDES F.
             GVec3 F(gpu_pr_f82Channel(ci, L.color.x, c.specularTint.x),
                     gpu_pr_f82Channel(ci, L.color.y, c.specularTint.y),
                     gpu_pr_f82Channel(ci, L.color.z, c.specularTint.z));
+            if (gpu_pr_filmActive(c)) {
+                // pkg178 Stage 4 PR-3: thin-film iridescence over the conductor
+                // substrate replaces the single-scatter F82. compFss (L.color)
+                // stays FILM-FREE.
+                F = gpu_pr_thinFilmConductorRGB(c, ci);
+            }
             return L.weight * gpu_pr_ggxReflect(F, L.color, L.roughness,
                                                 L.anisotropic, L.anisoRotation, rec, wo, wi);
         }
@@ -1940,9 +2138,19 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
         case GPR_SPECULAR: {
             if (nl <= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);
             GVec3 h = (wo + wi).normalized();
+            // Film-OFF statements FIRST, textually unchanged; the film only OVERRIDES F.
             float sHalf = gpu_pr_generalizedSchlickS(fabsf(wo.dot(h)), L.ior);
             GSampledSpectrum f0 = gpu_rgbToSampledSpectrum(L.color, wl, GSPEC_RGB_ALBEDO);
             GSampledSpectrum F = f0 + (GSampledSpectrum(1.f) - f0) * sHalf;
+            if (L.kind == GPR_SPECULAR && gpu_pr_filmActive(c)) {
+                // pkg178 Stage 4 PR-3: per-λ native thin-film iridescence (analytic
+                // sensitivity, no LUT). compFss (f0) stays film-free.
+                F = gpu_pr_thinFilmFresnelSpectral(c, fabsf(wo.dot(h)), L.ior, c.thinFilmIor, wl);
+                float F0real = gpu_pr_F0_from_ior(L.ior);
+                if (F0real > 1e-5f)
+                    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                        F[i] = gpu_pr_thinFilmF0RescaleChannel(F[i], f0[i], F0real);
+            }
             return wSpec * gpu_pr_ggxReflectSpectral(F, f0, L.roughness,
                                                      L.anisotropic, L.anisoRotation, rec, wo, wi);
         }
@@ -1951,14 +2159,24 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
             GVec3 h = (wo + wi).normalized();
             float ci = fminf(fmaxf(wo.dot(h), 0.f), 1.f);
             GSampledSpectrum f0 = gpu_rgbToSampledSpectrum(L.color, wl, GSPEC_RGB_ALBEDO);
+            // Film-OFF statements FIRST, textually unchanged; the film only OVERRIDES F.
             GSampledSpectrum tint = gpu_rgbToSampledSpectrum(c.specularTint, wl, GSPEC_RGB_ALBEDO);
             GSampledSpectrum F(0.f);
             for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
                 F[i] = gpu_pr_f82Channel(ci, f0[i], tint[i]);
+            if (gpu_pr_filmActive(c)) {
+                // pkg178 Stage 4 PR-3: conductor thin-film F (RGB-channel n,k
+                // upsampled — plan §0.5 APPROXIMATED-equal-to-Cycles). compFss
+                // (f0) stays film-free.
+                F = gpu_pr_thinFilmConductorSpectral(c, ci, wl);
+            }
             return wSpec * gpu_pr_ggxReflectSpectral(F, f0, L.roughness,
                                                      L.anisotropic, L.anisoRotation, rec, wo, wi);
         }
         case GPR_TRANSMISSION: {
+            // pkg178 Stage 4 PR-3: with the film ON, evaluate F per-λ natively
+            // (pkg163 discipline); OFF path is the exact Stage-3b upsample hack.
+            if (gpu_pr_filmActive(c)) return gpu_pr_transmissionEvalSpectral(c, L, rec, wo, wi, wl);
             // Colour upsampled; achromatic geometry/Fresnel scalar per-λ (principled.cpp:664-672).
             GVec3 rgb = gpu_pr_transmissionEval(c, L, rec, wo, wi);
             if (rgb.x <= 0.f && rgb.y <= 0.f && rgb.z <= 0.f) return GSampledSpectrum(0.f);

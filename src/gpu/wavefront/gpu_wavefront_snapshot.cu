@@ -38,6 +38,11 @@ void uploadProfileTable(const float* host, int count);
 // gpu_ggxCompensationFactor/DirectionalAlbedo/sheen/clearcoat lookups.
 void uploadGgxTables();
 
+// pkg178 Stage 4 PR-3: thin-film CIE sensitivity LUT (gpu_thin_film_table.cu) —
+// required by the principled thin-film RGB legs (gpu_pr_thinFilm*RGB / conductor
+// spectral). No-op unless a principled material has thin_film_thickness > 0.1nm.
+void uploadThinFilmTable();
+
 // pkg55-C5 / pkg113: photon caustic grid structures.
 #include "astroray/gpu_photon_caustic.h"
 #include "astroray/gpu_photon_store.h"
@@ -1467,6 +1472,7 @@ std::vector<float> cuda_wavefront_render(
     // silently off; pkg54a NIR/UV profile override broken).
     uploadGgxGlassTables();
     uploadGgxTables();  // pkg152 (#523) — re-homed from the deleted render()
+    uploadThinFilmTable();  // pkg178 Stage 4 PR-3 — thin-film CIE sensitivity LUT
     if (res.profileCount > 0)
         uploadProfileTable(res.profileTable.data(), res.profileCount);
 
@@ -1814,6 +1820,7 @@ std::vector<float> cuda_wavefront_render_restir(
     uploadJakobHanikaLut();
     uploadGgxGlassTables();  // pkg55-C7: see cuda_wavefront_render note
     uploadGgxTables();       // pkg152 (#523)
+    uploadThinFilmTable();   // pkg178 Stage 4 PR-3 — thin-film CIE sensitivity LUT
 
     // ReSTIR-DI is visible-band spectral (matches the CPU restir_di).
     const float lambdaMin = 380.0f, lambdaMax = 780.0f;

@@ -175,6 +175,15 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
                 gp.anisotropic = c.anisotropic;                 // pkg178 PR-4b
                 gp.anisotropicRotation = c.anisotropicRotation;
                 gp.alpha = c.alpha;                             // pkg178 PR-6
+                // pkg178 Stage 4 PR-3 — thin-film iridescence params. Only the two
+                // scalars are uploaded; the metallic-lobe conductor (n,k,g) are
+                // recomputed ON-DEVICE per hit inside gpu_pr_thinFilmConductorRGB
+                // (<true> only) rather than stored in GPrincipledClosure — storing
+                // them inflated GMaterial and leaked +320 B STACK into the shared
+                // non-principled <false> kernel via its by-value copy. See the
+                // GPrincipledClosure comment in gpu_types.h.
+                gp.thinFilmThickness = c.thinFilmThickness;
+                gp.thinFilmIor = c.thinFilmIor;
             }
             g.closures[i] = gc;
         }

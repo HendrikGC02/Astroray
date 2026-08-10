@@ -48,11 +48,24 @@ _RENDER_LEG = Path(__file__).resolve().parent / "render_leg.py"
 # Default cross-engine parity band (per-channel Astroray/Cycles linear mean
 # ratio). WIDER than the internal GPU/CPU 0.95/1.05 band (pkg163) because an
 # independent-RNG cross-ENGINE comparison also carries scene-translation and
-# sampler differences. The LEAD tunes these on the hardware run; both bounds are
-# always asserted (an energy gain fails the ceiling just as a loss fails the
-# floor).
+# sampler differences. Both bounds always asserted (an energy gain fails the
+# ceiling just as a loss fails the floor).
+#
+# 2026-08-11 re-baseline (toward-Cycles, settled engine post pkg181 + height-
+# correlated Smith G2 #573 + pkg172(A) guarded-pdf + ggxReflect eval-D fix #582).
+# On the Blender-5.2 metal furnace A/B every channel of all 6 configs x CPU/GPU
+# lands in [0.857, 1.016]:
+#   * CEILING 1.15 -> 1.05. The settled engine never gains energy (max ratio
+#     1.016); the old 1.15 predates #582 (which fixed low-roughness metal going
+#     near-black). 1.05 keeps ~3% headroom and turns the ceiling into a real
+#     energy-GAIN guard instead of a no-op.
+#   * FLOOR held at 0.85 (NOT tightened). The binding cell is chromatic r=0.9 blue
+#     at 0.857 — the known high-roughness multiscatter energy-compensation
+#     residual (a tracked follow-up, not a regression); tightening would fail a
+#     legitimate cell. The metal is systematically ~dim in blue at high roughness,
+#     so the band is deliberately asymmetric.
 DEFAULT_RATIO_LOW = 0.85
-DEFAULT_RATIO_HIGH = 1.15
+DEFAULT_RATIO_HIGH = 1.05
 
 
 # --------------------------------------------------------------------------- #
@@ -138,7 +151,10 @@ def _find_blender() -> Path | None:
     on_path = shutil.which("blender")
     if on_path:
         return Path(on_path)
-    for c in (r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe",
+    # pkg178-D1: Blender 5.2 LTS is the parity oracle (installed alongside 5.1);
+    # prefer it, falling back to 5.1/5.0 only if 5.2 is absent.
+    for c in (r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe",
+              r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe",
               r"C:\Program Files\Blender Foundation\Blender 5.0\blender.exe"):
         if Path(c).is_file():
             return Path(c)

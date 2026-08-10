@@ -104,10 +104,15 @@ def test_triage_known_intentional_spectral():
     assert bucket == T.INTENTIONAL_DIVERGENCE and "spectral" in reason
 
 
-def test_triage_pkg89_light_energy():
-    gr = T.gate(0.6, 30.0, (3.0, 3.0, 3.0))
-    bucket, reason = T.triage("AREA", "SUPPORTED", gr)
-    assert bucket == T.INTENTIONAL_DIVERGENCE and "pkg89" in reason
+def test_triage_lights_no_longer_specially_exempt():
+    # pkg181 (#569) fixed the dedicated-light dim, so POINT/SUN/AREA/SPOT were
+    # removed from KNOWN_INTENTIONAL_DIVERGENCE (2026-08-11 re-baseline; all four
+    # PASS on the Blender-5.2 run). A light that regresses with a CHROMATIC
+    # divergence (channels move differently -> not a uniform energy-scale) must now
+    # surface as a TRANSLATION-BUG instead of being silently excused.
+    gr = T.gate(0.6, 15.0, (1.05, 0.7, 1.3))  # channels differ -> hue/structure bug
+    bucket, _ = T.triage("AREA", "SUPPORTED", gr)
+    assert bucket == T.TRANSLATION_BUG
 
 
 def test_triage_approximated_is_intentional():

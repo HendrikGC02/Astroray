@@ -159,13 +159,24 @@ one harness sweep flag-off vs flag-on, diffing `triage_report.json`.
 ## Acceptance (package-level)
 
 - [ ] Stage-0 table checked in + owner-ratified (D1–D3 encoded).
-- [ ] `"principled"` renders the full feature matrix within parity bands
+- [x] `"principled"` renders the full feature matrix within parity bands
       vs Cycles main on BOTH legs (CPU + GPU wavefront), linear
-      floor+ceiling, on RTX hardware — not "it compiles".
-- [ ] Thin Film: hue trajectory vs thickness sweep matches Cycles within
+      floor+ceiling, on RTX hardware — not "it compiles". — **DONE 2026-08-11**:
+      pkg119-B on Blender 5.2 has BSDF_PRINCIPLED PASS (SSIM 0.972, dE 1.88);
+      pkg129 metal A/B 12/12 legs (CPU+GPU) in [0.857,1.016] within the
+      re-pinned [0.85,1.05] band.
+- [x] Thin Film: hue trajectory vs thickness sweep matches Cycles within
       the Stage-0-declared band (visual + per-channel ratio); conductor
-      + dielectric both covered. Thin Wall: paper/leaf/window-sheet trio
-      matches Blender 5.2 Cycles.
+      + dielectric both covered. — **DONE 2026-08-11**: identical-scene A/B
+      (`benchmarks/cycles-parity/thin_film/`) on Blender 5.2, thickness
+      {100–1000 nm} × film-IOR {1.2,1.5,1.8}. Dielectric 18/18 in-band (hue 6.0°
+      mean); conductor 18/18 in-band, RGB chroma ≤2.09 %, hue 10.1° mean/25.4°
+      max on saturated cells (dE ≤ 1.39); visually confirmed. Findings:
+      `.astroray_plan/docs/pkg178-thinfilm-parity-findings.md`.
+- [ ] Thin Wall: paper/leaf/window-sheet trio matches Blender 5.2 Cycles.
+      (STILL OWED — thin-WALL translucent sheets #580 are a separate feature from
+      the thin-FILM iridescence verified above; not covered by the 2026-08-11
+      run.)
 - [x] Addon flag routes Principled nodes to the native material; Disney
       path intact; zero silently-dropped sockets on the flagged path
       (report line per pkg119-C). — Stage 5 addon switch DONE on branch
@@ -180,7 +191,8 @@ one harness sweep flag-off vs flag-on, diffing `triage_report.json`.
       `create_material('principled', ...)` with all params mapped
       (alpha=0.85 real, transmission_weight=0.0), render finite/non-black
       (nonblack_frac 1.000, mean_lum 0.098). On-HW native-vs-Cycles parity
-      matrix (auto-flip gate) is LEAD-DEFERRED, separate from this routing.
+      matrix (auto-flip gate) COMPLETED 2026-08-11: matrix green → default
+      RATIFIED to production ON, "(experimental)" label removed.
       **Thin-film wiring finalized on branch `pkg178-stage5-final` (2026-08-10,
       rebased clean onto main post-Stage-4):** `Thin Film Thickness`→
       `thin_film_thickness`, `Thin Film IOR`→`thin_film_ior`, `Thin Wall`(bool)→

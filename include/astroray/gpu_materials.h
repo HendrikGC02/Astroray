@@ -1547,14 +1547,31 @@ __device__ inline GVec3 gpu_pr_thinFilmConductorRGB(const GPrincipledClosure& c,
     }
     return out;
 }
-// principled.cpp::thinFilmConductorSpectral — RGB-channel conductor F upsampled
-// to spectral (Cycles has no spectral n,k; plan §0.5 APPROXIMATED-equal-to-Cycles).
+// principled.cpp::thinFilmConductorSpectral — PER-λ NATIVE (pkg182). Upsample f0 +
+// specular-tint per sampled λ, invert the conductor (n,k,g) per-λ via
+// gpu_pr_conductorNK (Gulbrandsen JCGT 2014), and run the analytic Belcour-Barla
+// Airy per-λ (sensitivitySpectral) — mirror of the dielectric spectral leg;
+// supersedes PR-3's RGB-upsample with the exact per-λ evaluation (no Jakob-Hanika
+// round-trip). The per-hit per-λ inversion lands ONLY in the <true> HasPrincipled
+// instantiation (which already recomputes conductor n,k per hit — see
+// gpu_pr_conductorNK / gpu_types.h data-isolation note), so the shared <false>
+// kernel's STACK is unchanged. Cycles bsdf_util.h:499
+// fresnel_iridescence_channel<true> over :200 fresnel_conductor_polarized.
 __device__ inline GSampledSpectrum gpu_pr_thinFilmConductorSpectral(
         const GPrincipledClosure& c, float cosI, const GSampledWavelengths& wl) {
-    GVec3 rgb = gpu_pr_thinFilmConductorRGB(c, cosI);
-    float maxc = fmaxf(fmaxf(fmaxf(rgb.x, rgb.y), rgb.z), 1.f);
-    GVec3 tint = rgb * (1.f / maxc);
-    return gpu_rgbToSampledSpectrum(tint, wl, GSPEC_RGB_ALBEDO) * maxc;
+    namespace tf = astroray::thinfilm;
+    GSampledSpectrum f0 = gpu_rgbToSampledSpectrum(c.color, wl, GSPEC_RGB_ALBEDO);
+    GSampledSpectrum tint = gpu_rgbToSampledSpectrum(c.specularTint, wl, GSPEC_RGB_ALBEDO);
+    GSampledSpectrum out(0.f);
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+        float n, k, g;
+        gpu_pr_conductorNK(f0[i], tint[i], n, k, g);
+        float lambda = wl.lambda[i];
+        auto S = [lambda](float argOPD) { return tf::sensitivitySpectral(argOPD, lambda); };
+        out[i] = tf::fresnelIridescenceChannel<true>(
+            1.f, c.thinFilmThickness, c.thinFilmIor, n, k, g, cosI, nullptr, S);
+    }
+    return out;
 }
 
 // ==========================================================================

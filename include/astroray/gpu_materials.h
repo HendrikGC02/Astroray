@@ -1991,6 +1991,46 @@ __device__ inline GSampledSpectrum gpu_pr_ggxReflectSpectral(const GSampledSpect
     return out;
 }
 
+// pkg178 Stage 4 PR-4 — isotropic GGX reflection whose eval D matches the pdf's D
+// EXACTLY (both D_GTR2), for the thin-glass lobes only. gpu_pr_ggxReflect above
+// regularizes eval D with +1e-4 (absent from the pdf's D_GTR2), collapsing the
+// near-specular eval → a smooth thin sheet renders BLACK. Twin of
+// principled.cpp::ggxReflectConsistent. (Same +1e-4 mismatch dims the Principled
+// metallic/specular lobes at low roughness — pre-existing gpu_pr_ggxReflect bug,
+// out of PR-4 scope; flagged to the lead.)
+__device__ inline GVec3 gpu_pr_ggxReflectConsistent(const GVec3& Fhalf, const GVec3& compFss,
+                                                    float roughness, const GHitRecord& rec,
+                                                    const GVec3& wo, const GVec3& wi) {
+    float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+    if (nl <= 0.f || nv <= 0.f) return GVec3(0.f);
+    GVec3 h = (wo + wi).normalized();
+    float NdotH = fmaxf(rec.normal.dot(h), 1e-4f);
+    float a = fmaxf(roughness * roughness, 0.0064f);
+    float D = gpu_pr_D_GTR2(NdotH, a);  // UNregularized — matches gpu_pr_pdfLobe
+    float G = gpu_pr_smithG2(nl, nv, a);
+    GVec3 single = Fhalf * (D * G / (4.f * nv + 1e-4f));
+    return single * gpu_ggxCompensationFactor(compFss, roughness, nv);
+}
+__device__ inline GSampledSpectrum gpu_pr_ggxReflectConsistentSpectral(
+        const GSampledSpectrum& Fhalf, const GSampledSpectrum& compFss, float roughness,
+        const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
+    float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+    if (nl <= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);
+    GVec3 h = (wo + wi).normalized();
+    float NdotH = fmaxf(rec.normal.dot(h), 1e-4f);
+    float a = fmaxf(roughness * roughness, 0.0064f);
+    float D = gpu_pr_D_GTR2(NdotH, a);
+    float G = gpu_pr_smithG2(nl, nv, a);
+    GSampledSpectrum single = Fhalf * (D * G / (4.f * nv + 1e-4f));
+    if (!g_ggxE || !g_ggxEavg) return single;
+    float E = fmaxf(gpu_ggxE(roughness, nv), 1e-4f);
+    float Eavg = fminf(fmaxf(gpu_ggxEavg(roughness), 0.f), 0.999f);
+    GSampledSpectrum out = single;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+        out[i] *= gpu_ggxDarkeningChannel(compFss[i], E, Eavg);
+    return out;
+}
+
 // --- pkg178 Stage 4 PR-4 thin-glass transmission lobe (mirrored GGX) --------
 // Twin of principled.cpp thinGlassTransmitEvalRGB/Pdf. The double refraction
 // through a thin sheet does not bend the ray → modeled as a GGX reflection whose
@@ -2003,7 +2043,7 @@ __device__ inline GVec3 gpu_pr_thinGlassTransmitEval(const GPrincipledLobe& L, c
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     if (nv <= 0.f || nl >= 0.f) return GVec3(0.f);
     GVec3 wiM = wi - rec.normal * (2.f * nl);
-    return L.weight * gpu_pr_ggxReflect(GVec3(1.f), GVec3(1.f), L.roughness, 0.f, 0.f, rec, wo, wiM);
+    return L.weight * gpu_pr_ggxReflectConsistent(GVec3(1.f), GVec3(1.f), L.roughness, rec, wo, wiM);
 }
 __device__ inline GSampledSpectrum gpu_pr_thinGlassTransmitEvalSpectral(
         const GPrincipledLobe& L, const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
@@ -2013,8 +2053,8 @@ __device__ inline GSampledSpectrum gpu_pr_thinGlassTransmitEvalSpectral(
     if (nv <= 0.f || nl >= 0.f) return GSampledSpectrum(0.f);
     GVec3 wiM = wi - rec.normal * (2.f * nl);
     GSampledSpectrum wSpec = gpu_rgbToSampledSpectrum(L.weight, wl, GSPEC_RGB_ALBEDO);
-    return wSpec * gpu_pr_ggxReflectSpectral(GSampledSpectrum(1.f), GSampledSpectrum(1.f),
-                                             L.roughness, 0.f, 0.f, rec, wo, wiM);
+    return wSpec * gpu_pr_ggxReflectConsistentSpectral(GSampledSpectrum(1.f), GSampledSpectrum(1.f),
+                                                       L.roughness, rec, wo, wiM);
 }
 __device__ inline float gpu_pr_thinGlassTransmitPdf(const GPrincipledLobe& L, const GHitRecord& rec,
                                                     const GVec3& wo, const GVec3& wi) {
@@ -2237,7 +2277,7 @@ __device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrin
             return gpu_pr_transmissionEval(c, L, rec, wo, wi);
         case GPR_THINGLASS_REFLECT: {  // GGX reflection, constant F=R' (in weight)
             if (nl <= 0.f || nv <= 0.f) return GVec3(0.f);
-            return L.weight * gpu_pr_ggxReflect(GVec3(1.f), L.color, L.roughness, 0.f, 0.f, rec, wo, wi);
+            return L.weight * gpu_pr_ggxReflectConsistent(GVec3(1.f), L.color, L.roughness, rec, wo, wi);
         }
         case GPR_THINGLASS_TRANSMIT:
             return gpu_pr_thinGlassTransmitEval(L, rec, wo, wi);
@@ -2377,8 +2417,8 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
         case GPR_THINGLASS_REFLECT: {  // GGX reflection, constant F=R' (in weight)
             if (nl <= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);
             GSampledSpectrum comp = gpu_rgbToSampledSpectrum(L.color, wl, GSPEC_RGB_ALBEDO);
-            return wSpec * gpu_pr_ggxReflectSpectral(GSampledSpectrum(1.f), comp, L.roughness,
-                                                     0.f, 0.f, rec, wo, wi);
+            return wSpec * gpu_pr_ggxReflectConsistentSpectral(GSampledSpectrum(1.f), comp,
+                                                               L.roughness, rec, wo, wi);
         }
         case GPR_THINGLASS_TRANSMIT:
             return gpu_pr_thinGlassTransmitEvalSpectral(L, rec, wo, wi, wl);

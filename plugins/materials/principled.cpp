@@ -478,8 +478,7 @@ class PrincipledPlugin : public Material {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
         if (nv <= 0.0f || nl >= 0.0f) return Vec3(0);  // view front, light back
         Vec3 wiM = wi - rec.normal * (2.0f * nl);      // mirror light to front hemisphere
-        return L.weight * ggxReflectRGB(Vec3(1.0f), Vec3(1.0f), L.roughness, 0.0f, 0.0f,
-                                        rec, wo, wiM);
+        return L.weight * ggxReflectConsistent(Vec3(1.0f), Vec3(1.0f), L.roughness, rec, wo, wiM);
     }
     float thinGlassTransmitPdf(const Lobe& L, const HitRecord& rec, const Vec3& wo,
                                const Vec3& wi) const {
@@ -970,8 +969,7 @@ class PrincipledPlugin : public Material {
                 return transmissionEvalRGB(L, rec, wo, wi);
             case LobeKind::ThinGlassReflect: {  // GGX reflection, ior=1, constant F=R' (in weight)
                 if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
-                return L.weight * ggxReflectRGB(Vec3(1.0f), L.color, L.roughness,
-                                                0.0f, 0.0f, rec, wo, wi);
+                return L.weight * ggxReflectConsistent(Vec3(1.0f), L.color, L.roughness, rec, wo, wi);
             }
             case LobeKind::ThinGlassTransmit:
                 return thinGlassTransmitEvalRGB(L, rec, wo, wi);
@@ -1018,6 +1016,49 @@ class PrincipledPlugin : public Material {
         }
         Vec3 single = Fhalf * (D * G / (4.0f * nv + 1e-4f));  // brdf·NdotL
         return single * ggxCompFactor(compFss, roughComp, nv);
+    }
+
+    // pkg178 Stage 4 PR-4 — isotropic GGX reflection whose eval D matches the
+    // pdf's D EXACTLY (both D_GTR2), used ONLY by the thin-glass reflect/transmit
+    // lobes. ggxReflectRGB (above) regularizes its eval D with +1e-4, which the
+    // NDF-sampling pdf (pdfLobe: D_GTR2) does NOT — for near-specular alpha the
+    // +1e-4 term dominates and the eval D collapses (~1e4× too small vs the pdf),
+    // so f/pdf → 0 and a smooth thin sheet renders BLACK. The regular Transmission
+    // lobe already sidesteps this by using D_GTR2 in both eval and pdf; the thin
+    // glass follows the same discipline here. (The SAME +1e-4 mismatch makes the
+    // Principled metallic/specular lobes lose energy at roughness ≲ 0.2 — a
+    // PRE-EXISTING ggxReflectRGB bug, out of PR-4 scope; flagged to the lead.)
+    Vec3 ggxReflectConsistent(const Vec3& Fhalf, const Vec3& compFss, float roughness,
+                              const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+        if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
+        Vec3 h = (wo + wi).normalized();
+        float NdotH = std::max(rec.normal.dot(h), 1e-4f);
+        float a = std::max(roughness * roughness, 0.0064f);
+        float D = D_GTR2(NdotH, a);  // UNregularized — byte-matches pdfLobe's D_GTR2
+        float G = smithG2_GGX(nl, nv, a);
+        Vec3 single = Fhalf * (D * G / (4.0f * nv + 1e-4f));
+        return single * ggxCompFactor(compFss, roughness, nv);
+    }
+    astroray::SampledSpectrum ggxReflectConsistentSpectral(
+            const astroray::SampledSpectrum& Fhalf, const astroray::SampledSpectrum& compFss,
+            float roughness, const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+        if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
+        Vec3 h = (wo + wi).normalized();
+        float NdotH = std::max(rec.normal.dot(h), 1e-4f);
+        float a = std::max(roughness * roughness, 0.0064f);
+        float D = D_GTR2(NdotH, a);
+        float G = smithG2_GGX(nl, nv, a);
+        astroray::SampledSpectrum single = Fhalf * (D * G / (4.0f * nv + 1e-4f));
+        const auto& t = astroray::DisneyEnergyCompensationTables::instance();
+        if (!t.loaded()) return single;
+        float E = std::max(t.ggxE(roughness, nv), 1e-4f);
+        float Eavg = std::clamp(t.ggxEavg(roughness), 0.0f, 0.999f);
+        astroray::SampledSpectrum out = single;
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+            out[i] *= astroray::ggxDarkeningChannel(compFss[i], E, Eavg);
+        return out;
     }
 
     // Transmission rough glass (Walter 2007 / pbrt-v4, disney.cpp) — reflection
@@ -1620,16 +1661,16 @@ public:
                 // reflectance rule); the reflection colour lives in the weight, so the
                 // GGX Fresnel is white and specular_tint feeds only energy comp.
                 astroray::SampledSpectrum comp = upsample(L.color, lam);
-                return wSpec * ggxReflectSpectral(astroray::SampledSpectrum(1.0f), comp,
-                                                  L.roughness, 0.0f, 0.0f, rec, wo, wi);
+                return wSpec * ggxReflectConsistentSpectral(astroray::SampledSpectrum(1.0f), comp,
+                                                            L.roughness, rec, wo, wi);
             }
             case LobeKind::ThinGlassTransmit: {  // mirrored GGX reflection (T' in weight)
                 if (L.isDelta) return astroray::SampledSpectrum(0.0f);
                 if (nv <= 0.0f || nl >= 0.0f) return astroray::SampledSpectrum(0.0f);
                 Vec3 wiM = wi - rec.normal * (2.0f * nl);
-                return wSpec * ggxReflectSpectral(astroray::SampledSpectrum(1.0f),
-                                                  astroray::SampledSpectrum(1.0f), L.roughness,
-                                                  0.0f, 0.0f, rec, wo, wiM);
+                return wSpec * ggxReflectConsistentSpectral(astroray::SampledSpectrum(1.0f),
+                                                            astroray::SampledSpectrum(1.0f),
+                                                            L.roughness, rec, wo, wiM);
             }
             case LobeKind::Translucent: {  // back-hemisphere diffuse (thin subsurface)
                 if (nl >= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);

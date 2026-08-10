@@ -77,6 +77,15 @@ struct MaterialClosure {
     // PR-3. Belcour-Barla 2017 (see include/astroray/thin_film_fresnel.h).
     float thinFilmThickness = 0.0f;     // Cycles thin_film_thickness (nm)
     float thinFilmIor = 1.33f;          // Cycles thin_film_ior (Blender socket default)
+    // pkg178 Stage 4 PR-4 thin wall (Principled monolithic closure only; false →
+    // byte-identical to PR-1..3). thin_wall=true turns the transmission lobe into
+    // the analytic thin-glass R'+T' split and the subsurface lobe into the thin
+    // (diffuse+translucent) split by subsurface_anisotropy. Host-only struct, so
+    // both fields are free (no GPU by-value-copy cost); the device side packs them
+    // into ONE float (GPrincipledClosure::thinWallAniso, see gpu_types.h). Cycles
+    // svm/closure.h thin_wall load :360 + bsdf_thin_glass_setup / bsdf_thin_subsurface_setup.
+    bool thinWall = false;              // Cycles thin_wall
+    float subsurfaceAnisotropy = 0.0f; // Cycles subsurface_anisotropy (thin subsurface split)
 };
 
 class MaterialClosureGraph {

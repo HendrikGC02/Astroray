@@ -191,3 +191,35 @@ def test_chi2_principled_transmission(theta_deg, roughness):
                   "ior": 1.5, "roughness": roughness},
                  theta_deg, SphericalDomain(), seed=200 + theta_deg * 10 + int(roughness * 10))
     assert ok, f"principled transmission chi² FAILED (r={roughness}, θ={theta_deg}) p={t.p_value:.6f}"
+
+
+# ---------------------------------------------------------------------------
+# pkg178 Stage 4 PR-4 — Thin Wall samplers.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("theta_deg", [0, 45])
+@pytest.mark.parametrize("roughness", [0.35, 0.6])
+def test_chi2_principled_thin_glass(theta_deg, roughness):
+    # Thin-wall glass = ThinGlassReflect (front GGX) + ThinGlassTransmit (a MIRRORED
+    # GGX reflection on the back hemisphere). SphericalDomain covers both. Unlike the
+    # rough-refraction transmission lobe (xfail), both thin-glass lobes are ordinary
+    # GGX reflections with matched D_GTR2 eval/pdf, so this must PASS. roughness>=0.35
+    # keeps the transmit lobe out of the delta passthrough regime.
+    ok, t = _run({"base_color": [1.0, 1.0, 1.0], "metallic": 0.0, "transmission_weight": 1.0,
+                  "ior": 1.5, "roughness": roughness, "thin_wall": 1.0},
+                 theta_deg, SphericalDomain(),
+                 seed=1100 + theta_deg * 10 + int(roughness * 10))
+    assert ok, f"principled thin-glass chi² FAILED (r={roughness}, θ={theta_deg}) p={t.p_value:.6f}"
+
+
+@pytest.mark.parametrize("theta_deg", [0, 45])
+@pytest.mark.parametrize("aniso", [-0.6, 0.0, 0.6])
+def test_chi2_principled_thin_subsurface(theta_deg, aniso):
+    # Thin subsurface = diffuse (front cosine) + translucent (back cosine) split by
+    # subsurface_anisotropy. SphericalDomain covers both hemispheres. ior=1 zeroes
+    # the specular Fresnel so the mixture is the two cosine lobes (+ base diffuse).
+    ok, t = _run({"base_color": [0.8, 0.8, 0.8], "metallic": 0.0, "roughness": 1.0, "ior": 1.0,
+                  "subsurface_weight": 0.9, "thin_wall": 1.0, "subsurface_anisotropy": aniso},
+                 theta_deg, SphericalDomain(),
+                 seed=1200 + theta_deg * 10 + int((aniso + 1) * 10))
+    assert ok, (f"principled thin-subsurface chi² FAILED (g={aniso}, θ={theta_deg}) "
+                f"p={t.p_value:.6f}")

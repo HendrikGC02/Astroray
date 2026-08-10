@@ -39,7 +39,13 @@ class PrincipledPlugin : public Material {
     float specularIorLevel_;
     Vec3 specularTint_;
     float transmission_;
-    bool thinWall_;  // parsed; Thin Wall is Stage 4 PR-4 (unused here — seam only)
+    // pkg178 Stage 4 PR-4 — Thin Wall (thin glass + thin subsurface). false →
+    // byte-identical to PR-1..3. thin_wall=true routes the transmission lobe through
+    // the analytic thin-glass R'+T' split and the subsurface lobe through the
+    // (diffuse + translucent) split by subsurface_anisotropy. Cycles svm/closure.h
+    // thin_wall :360; bsdf_thin_glass_setup :1392; bsdf_thin_subsurface_setup :169.
+    bool thinWall_;
+    float subsurfaceAnisotropy_;  // Cycles subsurface_anisotropy (thin subsurface split)
     // pkg178 Stage 4 PR-1 — thin-film iridescence (Belcour-Barla 2017). Default
     // thickness 0 → film OFF (thickness ≤ 0.1nm cutoff): the dielectric
     // specular/transmission Fresnel takes the exact Stage-3b path, byte-identical.
@@ -81,7 +87,11 @@ class PrincipledPlugin : public Material {
     // ======================================================================
     // pkg178 Stage 3 adds Coat / Sheen / Subsurface to the Stage-1 core kinds.
     // pkg178 Stage-3b PR-6 adds Transparent (the alpha delta lobe, assembled first).
-    enum class LobeKind { Diffuse, Specular, Metallic, Transmission, Coat, Sheen, Subsurface, Transparent };
+    // pkg178 Stage 4 PR-4 adds the Thin Wall lobes: ThinGlassReflect + ThinGlassTransmit
+    // (the analytic thin-glass R'+T' split) and Translucent (the back-hemisphere half of
+    // the thin-subsurface diffuse/translucent split).
+    enum class LobeKind { Diffuse, Specular, Metallic, Transmission, Coat, Sheen, Subsurface, Transparent,
+                          ThinGlassReflect, ThinGlassTransmit, Translucent };
     struct Lobe {
         LobeKind kind;
         Vec3 weight{1, 1, 1};  // spectral layering weight (RGB; upsampled per-λ)
@@ -370,6 +380,119 @@ class PrincipledPlugin : public Material {
         return upsample(tint, lam) * maxc;
     }
 
+    // ==================================================================
+    // pkg178 Stage 4 PR-4 — THIN WALL (thin glass).  Analytic front+back Fresnel,
+    // Beer absorption through the sheet, closed-form internal-bounce geometric
+    // series → combined reflectance R' and transmittance T'.  VERBATIM port of
+    // Cycles bsdf_thin_glass_fresnel (bsdf_microfacet.h:1236, BSD-3-Clause) +
+    // generalized_schlick_fresnel (:264, incl. its thin-film branch); OpenPBR
+    // thin-walled case.  Composes with the PR-1..3 thin-film utility (a thin wall
+    // can also carry a thin film — the front/back interfaces pick up iridescence,
+    // the back with its film IOR ÷ bulk IOR per adjust_thin_film_ior_at_backface).
+    // ==================================================================
+    // One-channel generalized-Schlick Fresnel (reflection r, transmission t) at the
+    // given interface (Cycles generalized_schlick_fresnel with reflective+refractive
+    // both on → reflection_tint/transmission_tint fields = 1).  `iorParam` = the
+    // interface relative IOR (Cycles `ior` arg); `filmIor` = film IOR at this face
+    // (already backface-adjusted by the caller when needed); `ch` = RGB channel.
+    // Writes the (negative) refracted cosine to *rCosThetaT.  The artist f0 uses
+    // F0_from_ior(ior_) * specular_tint (Cycles fresnel->f0 is built from the outer
+    // `ior`, not iorParam), matching svm/closure.h's thin-glass reflection_tint.
+    void thinGlassSchlickChannel(float iorParam, float filmIor, float cosThetaI, int ch,
+                                 float& r, float& t, float* rCosThetaT) const {
+        namespace tf = astroray::thinfilm;
+        const float f0c = F0_from_ior(ior_) * (&specularTint_.x)[ch];
+        float F;
+        if (filmActive()) {
+            auto S = [ch](float argOPD) {
+                return tf::sensitivityRGB(argOPD, ch, tf::kThinFilmCieTable);
+            };
+            F = tf::fresnelIridescenceChannel<false>(1.0f, thinFilmThickness_, filmIor, iorParam,
+                                                     0.0f, -1.0f, cosThetaI, rCosThetaT, S);
+            const float F0real = F0_from_ior(iorParam);
+            if (F0real > 1e-5f && F != 1.0f)
+                F = thinFilmF0RescaleChannel(F, f0c, F0real);
+        } else {
+            tf::TFDielectric d = tf::fresnelDielectricPolarized(cosThetaI, iorParam);
+            if (rCosThetaT) *rCosThetaT = d.cosThetaT;
+            const float Freal = 0.5f * (d.Rs + d.Rp);  // fresnel_dielectric = average
+            const float F0real = F0_from_ior(iorParam);
+            const float s = std::clamp((Freal - F0real) / (1.0f - F0real), 0.0f, 1.0f);
+            F = f0c + (1.0f - f0c) * s;  // mix(f0, f90=1, s)
+        }
+        r = F;
+        t = 1.0f - F;
+    }
+    // Kulla & Conty 2017 ("Revisiting Physically Based Shading at Imageworks", p.40)
+    // roughened alpha for the mirrored-transmission lobe — the slide's 3.7 is a typo
+    // for 1.7·2 = 3.4 (Cycles bsdf_thin_glass_transmission_roughness :1307).  `alpha`
+    // here is the GGX alpha (= roughness²), matching Cycles' sqr(roughness) input.
+    static float thinGlassTransmissionRoughness(float alpha, float eta) {
+        float k = 3.4f * (eta - 1.0f) * (eta - 0.5f) * (eta - 0.5f) / (eta * eta * eta);
+        float aT = alpha * std::sqrt(std::max(0.0f, k));
+        return aT < 0.0f ? 0.0f : (aT > 1.0f ? 1.0f : aT);
+    }
+    // Combined thin-glass R' and T' (per RGB channel) at the view cosine cosThetaI.
+    // Cycles bsdf_thin_glass_fresnel: front (r1,t1); back (r2,t2) recomputed only
+    // when a film is present (else = front); Beer c = base_color^(-1/cosθt);
+    // T' = c·t1·t2/(1-(r2·c)²); R' = r1 + T'·r2·c.
+    void thinGlassFresnelRGB(float cosThetaI, Vec3& Rp, Vec3& Tp) const {
+        namespace tf = astroray::thinfilm;
+        float cosThetaT = 0.0f;
+        for (int c = 0; c < 3; ++c) {
+            float r1, t1, ct;
+            thinGlassSchlickChannel(ior_, thinFilmIor_, cosThetaI, c, r1, t1, &ct);
+            if (c == 0) cosThetaT = ct;  // achromatic front refraction (film-free) —
+            // for the film path ct is the substrate (bulk) refraction cosine, same
+            // per channel to O(1e-6); channel 0 is the Beer reference (Cycles uses the
+            // single front cos_theta_t for the whole spectrum).
+            float r2 = r1, t2 = t1;
+            if (filmActive()) {
+                float filmIorBack = thinFilmIor_;
+                tf::adjustThinFilmIorAtBackface(filmIorBack, 1.0f / ior_);
+                float unused;
+                thinGlassSchlickChannel(1.0f / ior_, filmIorBack, -cosThetaT, c, r2, t2, &unused);
+            }
+            const float base = std::clamp((&baseColor_.x)[c], 0.0f, 1.0f);
+            const float cc = (cosThetaT == 0.0f) ? 0.0f
+                                                 : std::pow(base, -1.0f / cosThetaT);  // Beer
+            const float denom = 1.0f - (r2 * cc) * (r2 * cc);
+            const float Tc = (std::abs(denom) > 1e-12f) ? (cc * t1 * t2 / denom) : 0.0f;
+            const float Rc = r1 + Tc * r2 * cc;
+            (&Rp.x)[c] = Rc;
+            (&Tp.x)[c] = Tc;
+        }
+    }
+    // Thin-glass transmission lobe = a mirrored GGX reflection (Cycles
+    // bsdf_thin_glass_transmission_setup/eval :1312/:1348): the double refraction
+    // through a thin sheet does not bend the ray, so it is modeled as a GGX
+    // reflection whose peak is the straight-through direction −wo.  Equivalent to
+    // reflecting the light across the surface plane and evaluating a standard GGX
+    // reflection about N (the peak wi=−wo maps to the specular direction
+    // reflect(wo,N) → half-vector = N, exactly as Cycles' delta passthrough wo=−wi).
+    // Fresnel is constant (weight already carries T'); energy compensation uses the
+    // REFLECTION ggx_E tables with white Fss (Cycles :442-447).
+    Vec3 thinGlassTransmitEvalRGB(const Lobe& L, const HitRecord& rec, const Vec3& wo,
+                                  const Vec3& wi) const {
+        if (L.isDelta) return Vec3(0);  // delta handled in sampling
+        float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+        if (nv <= 0.0f || nl >= 0.0f) return Vec3(0);  // view front, light back
+        Vec3 wiM = wi - rec.normal * (2.0f * nl);      // mirror light to front hemisphere
+        return L.weight * ggxReflectConsistent(Vec3(1.0f), Vec3(1.0f), L.roughness, rec, wo, wiM);
+    }
+    float thinGlassTransmitPdf(const Lobe& L, const HitRecord& rec, const Vec3& wo,
+                               const Vec3& wi) const {
+        if (L.isDelta) return 0.0f;
+        float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+        if (nv <= 0.0f || nl >= 0.0f) return 0.0f;
+        Vec3 wiM = wi - rec.normal * (2.0f * nl);
+        Vec3 h = (wo + wiM).normalized();
+        float NdotH = rec.normal.dot(h), HdotV = h.dot(wo);
+        if (NdotH <= 0.0f || HdotV <= 0.0f) return 0.0f;
+        float a = std::max(L.roughness * L.roughness, 0.0064f);
+        return D_GTR2(NdotH, a) * NdotH / (4.0f * HdotV);
+    }
+
     // Multiscatter GGX energy compensation (Kulla & Conty 2017 / Cycles
     // microfacet_ggx_preserve_energy) — reuses the shipped in-repo table +
     // astroray::ggxDarkeningChannel (do not fork; disney.cpp/metal.cpp lineage).
@@ -607,17 +730,52 @@ class PrincipledPlugin : public Material {
             lobes.push_back(L);
             weight = weight * (1.0f - metallic_);
         }
-        // 5. Transmission (rough glass; thin_wall → Stage 4).
+        // 5. Transmission. thin_wall=false → the PR-1..3 rough-glass lobe (verbatim).
+        //    thin_wall=true → the analytic thin-glass R'+T' split: a GGX reflection
+        //    lobe weighted by R' and a mirrored-reflection transmission lobe weighted
+        //    by T' (Cycles bsdf_thin_glass_setup :1392). R'/T' are view-angle
+        //    constants baked here (like the layering weights) at cos = N·wo.
         if (transmission_ > 1e-4f && luminance(weight) > 1e-4f) {
-            Lobe L;
-            L.kind = LobeKind::Transmission;
-            L.weight = weight * transmission_;
-            L.color = baseColor_;
-            L.roughness = roughness_;
-            L.ior = ior_;
-            L.isDelta = roughness_ <= kDeltaGlassRoughness;
-            L.sel = std::max(luminance(L.weight), 1e-4f);
-            lobes.push_back(L);
+            if (thinWall_) {
+                Vec3 Rp, Tp;
+                thinGlassFresnelRGB(nv, Rp, Tp);  // per-channel R', T' at the view angle
+                Vec3 baseW = weight * transmission_;
+                if (luminance(Rp) > 1e-6f) {
+                    Lobe L;
+                    L.kind = LobeKind::ThinGlassReflect;
+                    L.weight = baseW * Rp;
+                    L.color = specularTint_;  // constant-Fresnel colour → energy-comp Fss
+                    L.roughness = roughness_;
+                    L.ior = ior_;
+                    L.sel = std::max(luminance(L.weight), 1e-4f);
+                    lobes.push_back(L);
+                }
+                if (luminance(Tp) > 1e-6f) {
+                    // alpha_reflect = roughness² (Cycles passes sqr(roughness)); the
+                    // transmit alpha is Kulla-Conty-roughened; near-specular → delta.
+                    float aReflect = roughness_ * roughness_;
+                    float aT = thinGlassTransmissionRoughness(aReflect, ior_);
+                    Lobe L;
+                    L.kind = LobeKind::ThinGlassTransmit;
+                    L.weight = baseW * Tp;
+                    L.color = Vec3(1.0f);  // white constant Fresnel (reflection ggx_E tables)
+                    L.ior = ior_;
+                    L.isDelta = (aT * aT) <= 2e-10f;  // roughness_is_almost_specular (:threshold)
+                    L.roughness = std::sqrt(std::max(0.0f, aT));  // ggxReflect squares → aT
+                    L.sel = std::max(luminance(L.weight), 1e-4f);
+                    lobes.push_back(L);
+                }
+            } else {
+                Lobe L;
+                L.kind = LobeKind::Transmission;
+                L.weight = weight * transmission_;
+                L.color = baseColor_;
+                L.roughness = roughness_;
+                L.ior = ior_;
+                L.isDelta = roughness_ <= kDeltaGlassRoughness;
+                L.sel = std::max(luminance(L.weight), 1e-4f);
+                lobes.push_back(L);
+            }
             weight = weight * (1.0f - transmission_);
         }
         // 6. Specular dielectric (generalized-Schlick, exponent = -ior).
@@ -649,13 +807,44 @@ class PrincipledPlugin : public Material {
         //    NOT a Material::eval closure and cannot be wired here.
         //    subsurface_radius/scale are parsed for that future path (unused now).
         if (subsurfaceWeight_ > 1e-4f && luminance(weight) > 1e-4f) {
-            Lobe L;
-            L.kind = LobeKind::Subsurface;
-            L.weight = weight * baseColor_ * subsurfaceWeight_;
-            L.color = baseColor_;
-            L.roughness = 0.0f;  // Lambertian approximation
-            L.sel = std::max(luminance(L.weight), 1e-4f);
-            lobes.push_back(L);
+            if (thinWall_) {
+                // Thin subsurface (Cycles bsdf_thin_subsurface_setup :169): the
+                // subsurface energy is split into a front-hemisphere diffuse lobe and
+                // a back-hemisphere translucent lobe by subsurface_anisotropy g:
+                //   reflection  = saturate(0.5(1-g))·weight  (diffuse,     +N)
+                //   transmission= saturate(0.5(1+g))·weight  (translucent, -N)
+                // Oren-Nayar/EON variant of both when diffuse_roughness>0.
+                Vec3 ssW = weight * baseColor_ * subsurfaceWeight_;
+                float g = subsurfaceAnisotropy_;
+                float wr = std::clamp(0.5f * (1.0f - g), 0.0f, 1.0f);
+                float wt = std::clamp(0.5f * (1.0f + g), 0.0f, 1.0f);
+                if (wr > 1e-6f) {
+                    Lobe L;
+                    L.kind = LobeKind::Diffuse;  // front-hemisphere reflection (Lambert/EON)
+                    L.weight = ssW * wr;
+                    L.color = baseColor_;
+                    L.roughness = diffuseRoughness_;
+                    L.sel = std::max(luminance(L.weight), 1e-4f);
+                    lobes.push_back(L);
+                }
+                if (wt > 1e-6f) {
+                    Lobe L;
+                    L.kind = LobeKind::Translucent;  // back-hemisphere transmission
+                    L.weight = ssW * wt;
+                    L.color = baseColor_;
+                    L.roughness = diffuseRoughness_;
+                    L.sel = std::max(luminance(L.weight), 1e-4f);
+                    lobes.push_back(L);
+                }
+            } else {
+                Lobe L;
+                L.kind = LobeKind::Subsurface;
+                L.weight = weight * baseColor_ * subsurfaceWeight_;
+                L.color = baseColor_;
+                L.roughness = 0.0f;  // Lambertian approximation
+                L.sel = std::max(luminance(L.weight), 1e-4f);
+                lobes.push_back(L);
+            }
         }
         // 8. Diffuse (Lambert / EON). closure weight = base_color·(1-subsurface)·weight.
         if (luminance(weight) > 1e-4f) {
@@ -778,6 +967,21 @@ class PrincipledPlugin : public Material {
             }
             case LobeKind::Transmission:
                 return transmissionEvalRGB(L, rec, wo, wi);
+            case LobeKind::ThinGlassReflect: {  // GGX reflection, ior=1, constant F=R' (in weight)
+                if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
+                return L.weight * ggxReflectConsistent(Vec3(1.0f), L.color, L.roughness, rec, wo, wi);
+            }
+            case LobeKind::ThinGlassTransmit:
+                return thinGlassTransmitEvalRGB(L, rec, wo, wi);
+            case LobeKind::Translucent: {  // back-hemisphere diffuse (thin subsurface)
+                if (nl >= 0.0f || nv <= 0.0f) return Vec3(0);  // light on the back side
+                if (L.roughness <= 1e-4f) return L.weight * (-nl / float(M_PI));  // Lambert
+                Vec3 wiM = wi - rec.normal * (2.0f * nl);  // mirror to front for EON geometry
+                EON e = eonSetup(std::clamp(L.roughness, 0.0f, 1.0f), -nl, nv, wiM.dot(wo));
+                return Vec3(L.weight.x * eonChannel(e, L.color.x),
+                            L.weight.y * eonChannel(e, L.color.y),
+                            L.weight.z * eonChannel(e, L.color.z));
+            }
         }
         return Vec3(0);
     }
@@ -812,6 +1016,49 @@ class PrincipledPlugin : public Material {
         }
         Vec3 single = Fhalf * (D * G / (4.0f * nv + 1e-4f));  // brdf·NdotL
         return single * ggxCompFactor(compFss, roughComp, nv);
+    }
+
+    // pkg178 Stage 4 PR-4 — isotropic GGX reflection whose eval D matches the
+    // pdf's D EXACTLY (both D_GTR2), used ONLY by the thin-glass reflect/transmit
+    // lobes. ggxReflectRGB (above) regularizes its eval D with +1e-4, which the
+    // NDF-sampling pdf (pdfLobe: D_GTR2) does NOT — for near-specular alpha the
+    // +1e-4 term dominates and the eval D collapses (~1e4× too small vs the pdf),
+    // so f/pdf → 0 and a smooth thin sheet renders BLACK. The regular Transmission
+    // lobe already sidesteps this by using D_GTR2 in both eval and pdf; the thin
+    // glass follows the same discipline here. (The SAME +1e-4 mismatch makes the
+    // Principled metallic/specular lobes lose energy at roughness ≲ 0.2 — a
+    // PRE-EXISTING ggxReflectRGB bug, out of PR-4 scope; flagged to the lead.)
+    Vec3 ggxReflectConsistent(const Vec3& Fhalf, const Vec3& compFss, float roughness,
+                              const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+        if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
+        Vec3 h = (wo + wi).normalized();
+        float NdotH = std::max(rec.normal.dot(h), 1e-4f);
+        float a = std::max(roughness * roughness, 0.0064f);
+        float D = D_GTR2(NdotH, a);  // UNregularized — byte-matches pdfLobe's D_GTR2
+        float G = smithG2_GGX(nl, nv, a);
+        Vec3 single = Fhalf * (D * G / (4.0f * nv + 1e-4f));
+        return single * ggxCompFactor(compFss, roughness, nv);
+    }
+    astroray::SampledSpectrum ggxReflectConsistentSpectral(
+            const astroray::SampledSpectrum& Fhalf, const astroray::SampledSpectrum& compFss,
+            float roughness, const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+        if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
+        Vec3 h = (wo + wi).normalized();
+        float NdotH = std::max(rec.normal.dot(h), 1e-4f);
+        float a = std::max(roughness * roughness, 0.0064f);
+        float D = D_GTR2(NdotH, a);
+        float G = smithG2_GGX(nl, nv, a);
+        astroray::SampledSpectrum single = Fhalf * (D * G / (4.0f * nv + 1e-4f));
+        const auto& t = astroray::DisneyEnergyCompensationTables::instance();
+        if (!t.loaded()) return single;
+        float E = std::max(t.ggxE(roughness, nv), 1e-4f);
+        float Eavg = std::clamp(t.ggxEavg(roughness), 0.0f, 0.999f);
+        astroray::SampledSpectrum out = single;
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+            out[i] *= astroray::ggxDarkeningChannel(compFss[i], E, Eavg);
+        return out;
     }
 
     // Transmission rough glass (Walter 2007 / pbrt-v4, disney.cpp) — reflection
@@ -974,6 +1221,18 @@ class PrincipledPlugin : public Material {
             }
             case LobeKind::Transmission:
                 return L.isDelta ? 0.0f : transmissionPdf(L, rec, wo, wi);
+            case LobeKind::ThinGlassReflect: {  // iso GGX NDF pdf (like Specular)
+                if (nl <= 0.0f || nv <= 0.0f) return 0.0f;
+                Vec3 h = (wo + wi).normalized();
+                float NdotH = rec.normal.dot(h), HdotV = h.dot(wo);
+                if (NdotH <= 0.0f || HdotV <= 0.0f) return 0.0f;
+                float a = std::max(L.roughness * L.roughness, 0.0064f);
+                return D_GTR2(NdotH, a) * NdotH / (4.0f * HdotV);
+            }
+            case LobeKind::ThinGlassTransmit:
+                return thinGlassTransmitPdf(L, rec, wo, wi);
+            case LobeKind::Translucent:  // back-hemisphere cosine
+                return (nl < 0.0f && nv > 0.0f) ? -nl / float(M_PI) : 0.0f;
         }
         return 0.0f;
     }
@@ -1087,6 +1346,52 @@ class PrincipledPlugin : public Material {
             ds.ok = rec.normal.dot(ds.wi) > 0.0f;
             return ds;
         }
+        if (L.kind == LobeKind::Translucent) {  // cosine on the BACK hemisphere (-N)
+            Vec3 local = Vec3::randomCosineDirection(gen);
+            ds.wi = rec.tangent * local.x + rec.bitangent * local.y - rec.normal * local.z;
+            ds.ok = rec.normal.dot(ds.wi) < 0.0f;
+            return ds;
+        }
+        if (L.kind == LobeKind::ThinGlassReflect) {  // iso GGX half-vector (like Specular)
+            float r1 = dist(gen), r2 = dist(gen);
+            float phi = 2.0f * float(M_PI) * r1;
+            float a = std::max(L.roughness * L.roughness, 0.0064f);
+            float cosT = std::sqrt((1.0f - r2) / (1.0f + (a * a - 1.0f) * r2));
+            float sinT = std::sqrt(std::max(0.0f, 1.0f - cosT * cosT));
+            Vec3 h(std::cos(phi) * sinT, std::sin(phi) * sinT, cosT);
+            h = rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z;
+            ds.wi = (h * (2.0f * wo.dot(h)) - wo).normalized();
+            ds.ok = rec.normal.dot(ds.wi) > 0.0f;
+            return ds;
+        }
+        if (L.kind == LobeKind::ThinGlassTransmit) {
+            // Near-specular sheet → delta passthrough (Cycles wo=-wi, straight
+            // through). No medium change (thin sheet), so eta=1 (no η² factor);
+            // f = weight_T (colored) handled in the delta branch of sample().
+            if (L.isDelta) {
+                ds.wi = -wo;
+                ds.isDelta = true;
+                ds.pdfInternal = 1.0f;
+                ds.deltaRefract = false;
+                ds.eta = 1.0f;
+                ds.ok = true;
+                return ds;
+            }
+            // Rough: sample the mirrored GGX (peak at straight-through), then mirror
+            // the sampled front-hemisphere direction to the back hemisphere.
+            float r1 = dist(gen), r2 = dist(gen);
+            float phi = 2.0f * float(M_PI) * r1;
+            float a = std::max(L.roughness * L.roughness, 0.0064f);
+            float cosT = std::sqrt((1.0f - r2) / (1.0f + (a * a - 1.0f) * r2));
+            float sinT = std::sqrt(std::max(0.0f, 1.0f - cosT * cosT));
+            Vec3 h(std::cos(phi) * sinT, std::sin(phi) * sinT, cosT);
+            h = rec.tangent * h.x + rec.bitangent * h.y + rec.normal * h.z;
+            Vec3 wiM = (h * (2.0f * wo.dot(h)) - wo).normalized();  // front-hemisphere reflect
+            float m = rec.normal.dot(wiM);
+            ds.wi = (wiM - rec.normal * (2.0f * m)).normalized();   // mirror to back
+            ds.ok = rec.normal.dot(ds.wi) < 0.0f;
+            return ds;
+        }
         // Transmission
         float etaI = rec.frontFace ? 1.0f : L.ior;
         float etaT = rec.frontFace ? L.ior : 1.0f;
@@ -1158,6 +1463,7 @@ public:
           sheenRoughness_(std::clamp(p.getFloat("sheen_roughness", 0.5f), 0.001f, 1.0f)),
           sheenTint_(p.getVec3("sheen_tint", Vec3(1.0f))),
           subsurfaceWeight_(std::clamp(p.getFloat("subsurface_weight", 0.0f), 0.0f, 1.0f)),
+          subsurfaceAnisotropy_(std::clamp(p.getFloat("subsurface_anisotropy", 0.0f), -1.0f, 1.0f)),
           subsurfaceScale_(std::max(0.0f, p.getFloat("subsurface_scale", 0.05f))),
           subsurfaceRadius_(p.getVec3("subsurface_radius", Vec3(1.0f, 0.2f, 0.1f))),
           emissionColor_(p.getVec3("emission_color", Vec3(0.0f))),
@@ -1236,6 +1542,8 @@ public:
         c.alpha = alpha_;                             // pkg178 PR-6
         c.thinFilmThickness = thinFilmThickness_;     // pkg178 Stage 4 PR-1 (GPU twin: PR-3)
         c.thinFilmIor = thinFilmIor_;
+        c.thinWall = thinWall_;                       // pkg178 Stage 4 PR-4
+        c.subsurfaceAnisotropy = subsurfaceAnisotropy_;
         graph.add(c);
         return graph;
     }
@@ -1347,6 +1655,34 @@ public:
                 Vec3 tint = rgb * (1.0f / maxc);
                 return upsample(tint, lam) * maxc;
             }
+            case LobeKind::ThinGlassReflect: {  // GGX reflection, constant F=R' (in weight)
+                if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
+                // R'/T' are baked RGB at assembly then upsampled (pkg163 upsample-a-
+                // reflectance rule); the reflection colour lives in the weight, so the
+                // GGX Fresnel is white and specular_tint feeds only energy comp.
+                astroray::SampledSpectrum comp = upsample(L.color, lam);
+                return wSpec * ggxReflectConsistentSpectral(astroray::SampledSpectrum(1.0f), comp,
+                                                            L.roughness, rec, wo, wi);
+            }
+            case LobeKind::ThinGlassTransmit: {  // mirrored GGX reflection (T' in weight)
+                if (L.isDelta) return astroray::SampledSpectrum(0.0f);
+                if (nv <= 0.0f || nl >= 0.0f) return astroray::SampledSpectrum(0.0f);
+                Vec3 wiM = wi - rec.normal * (2.0f * nl);
+                return wSpec * ggxReflectConsistentSpectral(astroray::SampledSpectrum(1.0f),
+                                                            astroray::SampledSpectrum(1.0f),
+                                                            L.roughness, rec, wo, wiM);
+            }
+            case LobeKind::Translucent: {  // back-hemisphere diffuse (thin subsurface)
+                if (nl >= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
+                if (L.roughness <= 1e-4f) return wSpec * (-nl / float(M_PI));  // Lambert
+                Vec3 wiM = wi - rec.normal * (2.0f * nl);
+                EON e = eonSetup(std::clamp(L.roughness, 0.0f, 1.0f), -nl, nv, wiM.dot(wo));
+                astroray::SampledSpectrum cSpec = upsample(L.color, lam);
+                astroray::SampledSpectrum out(0.0f);
+                for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+                    out[i] = wSpec[i] * eonChannel(e, cSpec[i]);
+                return out;
+            }
         }
         return astroray::SampledSpectrum(0.0f);
     }
@@ -1415,9 +1751,10 @@ public:
         if (ds.isDelta) {
             const Lobe& L = lobes[ds.lobe];
             float qj = L.sel / W;
-            if (L.kind == LobeKind::Transparent) {
-                // Straight-through: f = weight_T, pdf = qj → f/pdf = weight_T/qj
-                // (Cycles bsdf_transparent.h; unbiased one-sample MIS: W cancels).
+            if (L.kind == LobeKind::Transparent || L.kind == LobeKind::ThinGlassTransmit) {
+                // Straight-through: f = weight (weight_T carries T' for thin glass),
+                // pdf = qj → f/pdf = weight/qj (Cycles bsdf_transparent.h /
+                // bsdf_thin_glass_transmission_sample passthrough; W cancels).
                 s.f = L.weight;
             } else if (ds.deltaRefract) {
                 s.f = L.weight * sqrtColor(baseColor_) * (ds.eta * ds.eta * ds.pdfInternal);
@@ -1454,8 +1791,8 @@ public:
             const Lobe& L = lobes[ds.lobe];
             float qj = L.sel / W;
             // eta²-clamp guard (base-class pattern): upsample normalized tint × magnitude.
-            Vec3 rgb = (L.kind == LobeKind::Transparent)
-                           ? L.weight  // straight-through weight_T (spectrally flat grey ≤1)
+            Vec3 rgb = (L.kind == LobeKind::Transparent || L.kind == LobeKind::ThinGlassTransmit)
+                           ? L.weight  // straight-through weight (weight_T carries T')
                        : ds.deltaRefract
                            ? L.weight * sqrtColor(baseColor_) * (ds.eta * ds.eta * ds.pdfInternal)
                            : L.weight * specularTint_ * ds.pdfInternal;

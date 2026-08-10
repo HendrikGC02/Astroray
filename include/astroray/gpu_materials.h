@@ -1556,6 +1556,77 @@ __device__ inline GSampledSpectrum gpu_pr_thinFilmConductorSpectral(
     return gpu_rgbToSampledSpectrum(tint, wl, GSPEC_RGB_ALBEDO) * maxc;
 }
 
+// ==========================================================================
+// pkg178 Stage 4 PR-4 — THIN WALL (GPU twin of principled.cpp). thin_wall +
+// subsurface_anisotropy are decoded from the ONE packed float thinWallAniso
+// (see gpu_types.h): thin_wall=false → -8 sentinel; else the value is aniso.
+// ==========================================================================
+__device__ inline bool gpu_pr_thinWall(const GPrincipledClosure& c) {
+    return c.thinWallAniso > -2.f;
+}
+__device__ inline float gpu_pr_subsurfaceAniso(const GPrincipledClosure& c) {
+    return c.thinWallAniso > -2.f ? c.thinWallAniso : 0.f;
+}
+// Kulla-Conty roughened alpha for the mirrored-transmission lobe (the slide's 3.7
+// is a typo for 3.4; Cycles bsdf_thin_glass_transmission_roughness :1307). `alpha`
+// = GGX alpha (roughness²).
+__device__ inline float gpu_pr_thinGlassTransmissionRoughness(float alpha, float eta) {
+    float k = 3.4f * (eta - 1.f) * (eta - 0.5f) * (eta - 0.5f) / (eta * eta * eta);
+    float aT = alpha * sqrtf(fmaxf(0.f, k));
+    return aT < 0.f ? 0.f : (aT > 1.f ? 1.f : aT);
+}
+// One-channel generalized-Schlick Fresnel (r,t) — twin of thinGlassSchlickChannel.
+__device__ inline void gpu_pr_thinGlassSchlickChannel(const GPrincipledClosure& c,
+                                                      float iorParam, float filmIor,
+                                                      float cosThetaI, int ch,
+                                                      float& r, float& t, float* rCosThetaT) {
+    namespace tf = astroray::thinfilm;
+    const float f0c = gpu_pr_F0_from_ior(c.ior) * (&c.specularTint.x)[ch];
+    float F;
+    if (gpu_pr_filmActive(c)) {
+        auto S = [ch](float argOPD) { return gpu_pr_sensitivityRGB(argOPD, ch); };
+        F = tf::fresnelIridescenceChannel<false>(1.f, c.thinFilmThickness, filmIor, iorParam,
+                                                 0.f, -1.f, cosThetaI, rCosThetaT, S);
+        const float F0real = gpu_pr_F0_from_ior(iorParam);
+        if (F0real > 1e-5f && F != 1.f) F = gpu_pr_thinFilmF0RescaleChannel(F, f0c, F0real);
+    } else {
+        tf::TFDielectric d = tf::fresnelDielectricPolarized(cosThetaI, iorParam);
+        if (rCosThetaT) *rCosThetaT = d.cosThetaT;
+        const float Freal = 0.5f * (d.Rs + d.Rp);
+        const float F0real = gpu_pr_F0_from_ior(iorParam);
+        const float s = fminf(fmaxf((Freal - F0real) / (1.f - F0real), 0.f), 1.f);
+        F = f0c + (1.f - f0c) * s;
+    }
+    r = F;
+    t = 1.f - F;
+}
+// Combined thin-glass R', T' per RGB channel (twin of thinGlassFresnelRGB;
+// Cycles bsdf_thin_glass_fresnel :1236).
+__device__ inline void gpu_pr_thinGlassFresnelRGB(const GPrincipledClosure& c, float cosThetaI,
+                                                  GVec3& Rp, GVec3& Tp) {
+    namespace tf = astroray::thinfilm;
+    float cosThetaT = 0.f;
+    for (int ch = 0; ch < 3; ++ch) {
+        float r1, t1, ct;
+        gpu_pr_thinGlassSchlickChannel(c, c.ior, c.thinFilmIor, cosThetaI, ch, r1, t1, &ct);
+        if (ch == 0) cosThetaT = ct;
+        float r2 = r1, t2 = t1;
+        if (gpu_pr_filmActive(c)) {
+            float filmIorBack = c.thinFilmIor;
+            tf::adjustThinFilmIorAtBackface(filmIorBack, 1.f / c.ior);
+            float unused;
+            gpu_pr_thinGlassSchlickChannel(c, 1.f / c.ior, filmIorBack, -cosThetaT, ch, r2, t2, &unused);
+        }
+        const float base = fminf(fmaxf((&c.color.x)[ch], 0.f), 1.f);
+        const float cc = (cosThetaT == 0.f) ? 0.f : powf(base, -1.f / cosThetaT);
+        const float denom = 1.f - (r2 * cc) * (r2 * cc);
+        const float Tc = (fabsf(denom) > 1e-12f) ? (cc * t1 * t2 / denom) : 0.f;
+        const float Rc = r1 + Tc * r2 * cc;
+        (&Rp.x)[ch] = Rc;
+        (&Tp.x)[ch] = Tc;
+    }
+}
+
 // --- VNDF sampling + micro-refraction (principled.cpp:187-229) -------------
 __device__ inline float gpu_pr_vndfPdf(const GVec3& N, const GVec3& wo, const GVec3& wm, float roughness) {
     float absCosO = fabsf(wo.dot(N));
@@ -1672,7 +1743,9 @@ __device__ inline float gpu_pr_sheenValue(float a, float b, const GVec3& localO)
 enum GPrincipledLobeKind {
     GPR_DIFFUSE = 0, GPR_SPECULAR = 1, GPR_METALLIC = 2, GPR_TRANSMISSION = 3,
     GPR_COAT = 4, GPR_SHEEN = 5, GPR_SUBSURFACE = 6,
-    GPR_TRANSPARENT = 7  // pkg178 PR-6 alpha delta lobe (assembled first)
+    GPR_TRANSPARENT = 7,  // pkg178 PR-6 alpha delta lobe (assembled first)
+    // pkg178 Stage 4 PR-4 Thin Wall (principled.cpp LobeKind twins):
+    GPR_THINGLASS_REFLECT = 8, GPR_THINGLASS_TRANSMIT = 9, GPR_TRANSLUCENT = 10
 };
 struct GPrincipledLobe {
     int   kind;
@@ -1696,7 +1769,14 @@ struct GPrincipledLobe {
 // live state in the register-saturated shade kernels — LEAD MUST remeasure cuobjdump
 // REG *and* STACK for the wavefront shade/advance kernels; the +1 slot lives only in
 // the <true> (HasPrincipled) instantiation, so non-principled scenes are unaffected.
-static constexpr int   kMaxPrincipledLobes  = 8;
+// pkg178 Stage 4 PR-4: Thin Wall can add TWO thin-glass lobes (reflect+transmit)
+// AND TWO thin-subsurface lobes (front diffuse + back translucent) on top of the
+// existing 8, so the worst-case stack is transparent+sheen+coat+metallic+
+// thinglass(2)+specular+thinsubsurface(2)+diffuse = 10. This on-stack array lives
+// ONLY in the <true> (HasPrincipled) instantiation, so the non-principled <false>
+// kernel is unaffected; the +2 slots grow the <true> stack only (LEAD remeasures
+// cuobjdump REG/STACK for the principled shade kernel).
+static constexpr int   kMaxPrincipledLobes  = 10;
 static constexpr float kPrincipledDeltaGlassRoughness = 0.03f;  // principled.cpp:43
 
 __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GHitRecord& rec,
@@ -1755,13 +1835,37 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.sel = fmaxf(luminance(L.weight * baseColor), 1e-4f);
         weight = weight * (1.f - c.metallic);
     }
-    // 5. Transmission (rough glass)
+    // 5. Transmission. thin_wall=false → rough glass (PR-1..3). thin_wall=true →
+    //    analytic thin-glass R'+T' split (Cycles bsdf_thin_glass_setup :1392).
     if (c.transmission > 1e-4f && luminance(weight) > 1e-4f) {
-        GPrincipledLobe& L = lobes[n++];
-        L.kind = GPR_TRANSMISSION; L.weight = weight * c.transmission; L.color = baseColor;
-        L.roughness = c.roughness; L.ior = c.ior;
-        L.isDelta = c.roughness <= kPrincipledDeltaGlassRoughness;
-        L.sel = fmaxf(luminance(L.weight), 1e-4f);
+        if (gpu_pr_thinWall(c)) {
+            GVec3 Rp, Tp;
+            gpu_pr_thinGlassFresnelRGB(c, nv, Rp, Tp);  // per-channel R', T' at the view angle
+            GVec3 baseW = weight * c.transmission;
+            if (luminance(Rp) > 1e-6f) {
+                GPrincipledLobe& L = lobes[n++];
+                L.kind = GPR_THINGLASS_REFLECT; L.weight = baseW * Rp; L.color = c.specularTint;
+                L.roughness = c.roughness; L.ior = c.ior; L.isDelta = false;
+                L.sheenA = 0.f; L.sheenB = 0.f; L.anisotropic = 0.f; L.anisoRotation = 0.f;
+                L.sel = fmaxf(luminance(L.weight), 1e-4f);
+            }
+            if (luminance(Tp) > 1e-6f) {
+                float aReflect = c.roughness * c.roughness;
+                float aT = gpu_pr_thinGlassTransmissionRoughness(aReflect, c.ior);
+                GPrincipledLobe& L = lobes[n++];
+                L.kind = GPR_THINGLASS_TRANSMIT; L.weight = baseW * Tp; L.color = GVec3(1.f);
+                L.ior = c.ior; L.isDelta = (aT * aT) <= 2e-10f;
+                L.roughness = sqrtf(fmaxf(0.f, aT));  // ggxReflect squares → aT
+                L.sheenA = 0.f; L.sheenB = 0.f; L.anisotropic = 0.f; L.anisoRotation = 0.f;
+                L.sel = fmaxf(luminance(L.weight), 1e-4f);
+            }
+        } else {
+            GPrincipledLobe& L = lobes[n++];
+            L.kind = GPR_TRANSMISSION; L.weight = weight * c.transmission; L.color = baseColor;
+            L.roughness = c.roughness; L.ior = c.ior;
+            L.isDelta = c.roughness <= kPrincipledDeltaGlassRoughness;
+            L.sel = fmaxf(luminance(L.weight), 1e-4f);
+        }
         weight = weight * (1.f - c.transmission);
     }
     // 6. Specular dielectric (generalized-Schlick, exponent = -ior)
@@ -1780,10 +1884,31 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
     // 7. Subsurface — APPROXIMATE (D2=a): Lambertian base-colour stand-in for the
     //    Cycles random-walk Bssrdf (see principled.cpp for the seam/citation).
     if (c.subsurfaceWeight > 1e-4f && luminance(weight) > 1e-4f) {
-        GPrincipledLobe& L = lobes[n++];
-        L.kind = GPR_SUBSURFACE; L.weight = weight * baseColor * c.subsurfaceWeight;
-        L.color = baseColor; L.roughness = 0.f; L.ior = c.ior; L.isDelta = false;
-        L.sel = fmaxf(luminance(L.weight), 1e-4f);
+        if (gpu_pr_thinWall(c)) {
+            // Thin subsurface (Cycles bsdf_thin_subsurface_setup :169): diffuse(+N) +
+            // translucent(-N) split by subsurface_anisotropy g.
+            GVec3 ssW = weight * baseColor * c.subsurfaceWeight;
+            float g = gpu_pr_subsurfaceAniso(c);
+            float wr = fminf(fmaxf(0.5f * (1.f - g), 0.f), 1.f);
+            float wt = fminf(fmaxf(0.5f * (1.f + g), 0.f), 1.f);
+            if (wr > 1e-6f) {
+                GPrincipledLobe& L = lobes[n++];
+                L.kind = GPR_DIFFUSE; L.weight = ssW * wr; L.color = baseColor;
+                L.roughness = c.diffuseRoughness; L.ior = c.ior; L.isDelta = false;
+                L.sel = fmaxf(luminance(L.weight), 1e-4f);
+            }
+            if (wt > 1e-6f) {
+                GPrincipledLobe& L = lobes[n++];
+                L.kind = GPR_TRANSLUCENT; L.weight = ssW * wt; L.color = baseColor;
+                L.roughness = c.diffuseRoughness; L.ior = c.ior; L.isDelta = false;
+                L.sel = fmaxf(luminance(L.weight), 1e-4f);
+            }
+        } else {
+            GPrincipledLobe& L = lobes[n++];
+            L.kind = GPR_SUBSURFACE; L.weight = weight * baseColor * c.subsurfaceWeight;
+            L.color = baseColor; L.roughness = 0.f; L.ior = c.ior; L.isDelta = false;
+            L.sel = fmaxf(luminance(L.weight), 1e-4f);
+        }
     }
     // 8. Diffuse (Lambert / EON), weight * (1 - subsurface_weight)
     if (luminance(weight) > 1e-4f) {
@@ -1864,6 +1989,84 @@ __device__ inline GSampledSpectrum gpu_pr_ggxReflectSpectral(const GSampledSpect
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
         out[i] *= gpu_ggxDarkeningChannel(compFss[i], E, Eavg);
     return out;
+}
+
+// pkg178 Stage 4 PR-4 — isotropic GGX reflection whose eval D matches the pdf's D
+// EXACTLY (both D_GTR2), for the thin-glass lobes only. gpu_pr_ggxReflect above
+// regularizes eval D with +1e-4 (absent from the pdf's D_GTR2), collapsing the
+// near-specular eval → a smooth thin sheet renders BLACK. Twin of
+// principled.cpp::ggxReflectConsistent. (Same +1e-4 mismatch dims the Principled
+// metallic/specular lobes at low roughness — pre-existing gpu_pr_ggxReflect bug,
+// out of PR-4 scope; flagged to the lead.)
+__device__ inline GVec3 gpu_pr_ggxReflectConsistent(const GVec3& Fhalf, const GVec3& compFss,
+                                                    float roughness, const GHitRecord& rec,
+                                                    const GVec3& wo, const GVec3& wi) {
+    float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+    if (nl <= 0.f || nv <= 0.f) return GVec3(0.f);
+    GVec3 h = (wo + wi).normalized();
+    float NdotH = fmaxf(rec.normal.dot(h), 1e-4f);
+    float a = fmaxf(roughness * roughness, 0.0064f);
+    float D = gpu_pr_D_GTR2(NdotH, a);  // UNregularized — matches gpu_pr_pdfLobe
+    float G = gpu_pr_smithG2(nl, nv, a);
+    GVec3 single = Fhalf * (D * G / (4.f * nv + 1e-4f));
+    return single * gpu_ggxCompensationFactor(compFss, roughness, nv);
+}
+__device__ inline GSampledSpectrum gpu_pr_ggxReflectConsistentSpectral(
+        const GSampledSpectrum& Fhalf, const GSampledSpectrum& compFss, float roughness,
+        const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
+    float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+    if (nl <= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);
+    GVec3 h = (wo + wi).normalized();
+    float NdotH = fmaxf(rec.normal.dot(h), 1e-4f);
+    float a = fmaxf(roughness * roughness, 0.0064f);
+    float D = gpu_pr_D_GTR2(NdotH, a);
+    float G = gpu_pr_smithG2(nl, nv, a);
+    GSampledSpectrum single = Fhalf * (D * G / (4.f * nv + 1e-4f));
+    if (!g_ggxE || !g_ggxEavg) return single;
+    float E = fmaxf(gpu_ggxE(roughness, nv), 1e-4f);
+    float Eavg = fminf(fmaxf(gpu_ggxEavg(roughness), 0.f), 0.999f);
+    GSampledSpectrum out = single;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+        out[i] *= gpu_ggxDarkeningChannel(compFss[i], E, Eavg);
+    return out;
+}
+
+// --- pkg178 Stage 4 PR-4 thin-glass transmission lobe (mirrored GGX) --------
+// Twin of principled.cpp thinGlassTransmitEvalRGB/Pdf. The double refraction
+// through a thin sheet does not bend the ray → modeled as a GGX reflection whose
+// peak is the straight-through direction −wo (mirror the light to the front
+// hemisphere, then evaluate a standard GGX reflection about N). Constant white
+// Fresnel; T' lives in the weight; reflection ggx_E energy tables (Cycles :1348).
+__device__ inline GVec3 gpu_pr_thinGlassTransmitEval(const GPrincipledLobe& L, const GHitRecord& rec,
+                                                     const GVec3& wo, const GVec3& wi) {
+    if (L.isDelta) return GVec3(0.f);
+    float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+    if (nv <= 0.f || nl >= 0.f) return GVec3(0.f);
+    GVec3 wiM = wi - rec.normal * (2.f * nl);
+    return L.weight * gpu_pr_ggxReflectConsistent(GVec3(1.f), GVec3(1.f), L.roughness, rec, wo, wiM);
+}
+__device__ inline GSampledSpectrum gpu_pr_thinGlassTransmitEvalSpectral(
+        const GPrincipledLobe& L, const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
+        const GSampledWavelengths& wl) {
+    if (L.isDelta) return GSampledSpectrum(0.f);
+    float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+    if (nv <= 0.f || nl >= 0.f) return GSampledSpectrum(0.f);
+    GVec3 wiM = wi - rec.normal * (2.f * nl);
+    GSampledSpectrum wSpec = gpu_rgbToSampledSpectrum(L.weight, wl, GSPEC_RGB_ALBEDO);
+    return wSpec * gpu_pr_ggxReflectConsistentSpectral(GSampledSpectrum(1.f), GSampledSpectrum(1.f),
+                                                       L.roughness, rec, wo, wiM);
+}
+__device__ inline float gpu_pr_thinGlassTransmitPdf(const GPrincipledLobe& L, const GHitRecord& rec,
+                                                    const GVec3& wo, const GVec3& wi) {
+    if (L.isDelta) return 0.f;
+    float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
+    if (nv <= 0.f || nl >= 0.f) return 0.f;
+    GVec3 wiM = wi - rec.normal * (2.f * nl);
+    GVec3 h = (wo + wiM).normalized();
+    float NdotH = rec.normal.dot(h), HdotV = h.dot(wo);
+    if (NdotH <= 0.f || HdotV <= 0.f) return 0.f;
+    float a = fmaxf(L.roughness * L.roughness, 0.0064f);
+    return gpu_pr_D_GTR2(NdotH, a) * NdotH / (4.f * HdotV);
 }
 
 // --- Transmission rough glass (principled.cpp:406-488) ---------------------
@@ -2072,6 +2275,21 @@ __device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrin
         }
         case GPR_TRANSMISSION:
             return gpu_pr_transmissionEval(c, L, rec, wo, wi);
+        case GPR_THINGLASS_REFLECT: {  // GGX reflection, constant F=R' (in weight)
+            if (nl <= 0.f || nv <= 0.f) return GVec3(0.f);
+            return L.weight * gpu_pr_ggxReflectConsistent(GVec3(1.f), L.color, L.roughness, rec, wo, wi);
+        }
+        case GPR_THINGLASS_TRANSMIT:
+            return gpu_pr_thinGlassTransmitEval(L, rec, wo, wi);
+        case GPR_TRANSLUCENT: {  // back-hemisphere diffuse (thin subsurface)
+            if (nl >= 0.f || nv <= 0.f) return GVec3(0.f);
+            if (L.roughness <= 1e-4f) return L.weight * (-nl / M_PI_F);  // Lambert
+            GVec3 wiM = wi - rec.normal * (2.f * nl);
+            GPrincipledEON e = gpu_pr_eonSetup(fminf(fmaxf(L.roughness, 0.f), 1.f), -nl, nv, wiM.dot(wo));
+            return GVec3(L.weight.x * gpu_pr_eonChannel(e, L.color.x),
+                         L.weight.y * gpu_pr_eonChannel(e, L.color.y),
+                         L.weight.z * gpu_pr_eonChannel(e, L.color.z));
+        }
     }
     return GVec3(0.f);
 }
@@ -2107,6 +2325,18 @@ __device__ inline float gpu_pr_pdfLobe(const GPrincipledLobe& L, const GHitRecor
         }
         case GPR_TRANSMISSION:
             return L.isDelta ? 0.f : gpu_pr_transmissionPdf(L, rec, wo, wi);
+        case GPR_THINGLASS_REFLECT: {  // iso GGX NDF pdf
+            if (nl <= 0.f || nv <= 0.f) return 0.f;
+            GVec3 h = (wo + wi).normalized();
+            float NdotH = rec.normal.dot(h), HdotV = h.dot(wo);
+            if (NdotH <= 0.f || HdotV <= 0.f) return 0.f;
+            float a = fmaxf(L.roughness * L.roughness, 0.0064f);
+            return gpu_pr_D_GTR2(NdotH, a) * NdotH / (4.f * HdotV);
+        }
+        case GPR_THINGLASS_TRANSMIT:
+            return gpu_pr_thinGlassTransmitPdf(L, rec, wo, wi);
+        case GPR_TRANSLUCENT:  // back-hemisphere cosine
+            return (nl < 0.f && nv > 0.f) ? -nl / M_PI_F : 0.f;
     }
     return 0.f;
 }
@@ -2183,6 +2413,25 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
             float maxc = fmaxf(fmaxf(fmaxf(rgb.x, rgb.y), rgb.z), 1.f);
             GVec3 tint = rgb * (1.f / maxc);
             return gpu_rgbToSampledSpectrum(tint, wl, GSPEC_RGB_ALBEDO) * maxc;
+        }
+        case GPR_THINGLASS_REFLECT: {  // GGX reflection, constant F=R' (in weight)
+            if (nl <= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);
+            GSampledSpectrum comp = gpu_rgbToSampledSpectrum(L.color, wl, GSPEC_RGB_ALBEDO);
+            return wSpec * gpu_pr_ggxReflectConsistentSpectral(GSampledSpectrum(1.f), comp,
+                                                               L.roughness, rec, wo, wi);
+        }
+        case GPR_THINGLASS_TRANSMIT:
+            return gpu_pr_thinGlassTransmitEvalSpectral(L, rec, wo, wi, wl);
+        case GPR_TRANSLUCENT: {  // back-hemisphere diffuse (thin subsurface)
+            if (nl >= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);
+            if (L.roughness <= 1e-4f) return wSpec * (-nl / M_PI_F);  // Lambert
+            GVec3 wiM = wi - rec.normal * (2.f * nl);
+            GPrincipledEON e = gpu_pr_eonSetup(fminf(fmaxf(L.roughness, 0.f), 1.f), -nl, nv, wiM.dot(wo));
+            GSampledSpectrum cSpec = gpu_rgbToSampledSpectrum(L.color, wl, GSPEC_RGB_ALBEDO);
+            GSampledSpectrum out(0.f);
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                out[i] = wSpec[i] * gpu_pr_eonChannel(e, cSpec[i]);
+            return out;
         }
     }
     return GSampledSpectrum(0.f);
@@ -2298,6 +2547,44 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GHitRecord& rec
         ds.ok = rec.normal.dot(ds.wi) > 0.f;
         return ds;
     }
+    if (L.kind == GPR_TRANSLUCENT) {  // cosine on the BACK hemisphere (-N)
+        GVec3 local = gpu_randomCosineDir(rng);
+        ds.wi = rec.tangent * local.x + rec.bitangent * local.y - rec.normal * local.z;
+        ds.ok = rec.normal.dot(ds.wi) < 0.f;
+        return ds;
+    }
+    if (L.kind == GPR_THINGLASS_REFLECT) {  // iso GGX half-vector (like Specular)
+        float r1 = gpu_rng_uniform(rng), r2 = gpu_rng_uniform(rng);
+        float phi = 2.f * M_PI_F * r1;
+        float a = fmaxf(L.roughness * L.roughness, 0.0064f);
+        float cosT = sqrtf((1.f - r2) / (1.f + (a * a - 1.f) * r2));
+        float sinT = sqrtf(fmaxf(0.f, 1.f - cosT * cosT));
+        GVec3 hh(cosf(phi) * sinT, sinf(phi) * sinT, cosT);
+        hh = rec.tangent * hh.x + rec.bitangent * hh.y + rec.normal * hh.z;
+        ds.wi = (hh * (2.f * wo.dot(hh)) - wo).normalized();
+        ds.ok = rec.normal.dot(ds.wi) > 0.f;
+        return ds;
+    }
+    if (L.kind == GPR_THINGLASS_TRANSMIT) {
+        if (L.isDelta) {  // near-specular sheet → straight-through passthrough (wo=-wi)
+            ds.wi = -wo;
+            ds.isDelta = true; ds.pdfInternal = 1.f; ds.deltaRefract = false; ds.eta = 1.f;
+            ds.ok = true;
+            return ds;
+        }
+        float r1 = gpu_rng_uniform(rng), r2 = gpu_rng_uniform(rng);
+        float phi = 2.f * M_PI_F * r1;
+        float a = fmaxf(L.roughness * L.roughness, 0.0064f);
+        float cosT = sqrtf((1.f - r2) / (1.f + (a * a - 1.f) * r2));
+        float sinT = sqrtf(fmaxf(0.f, 1.f - cosT * cosT));
+        GVec3 hh(cosf(phi) * sinT, sinf(phi) * sinT, cosT);
+        hh = rec.tangent * hh.x + rec.bitangent * hh.y + rec.normal * hh.z;
+        GVec3 wiM = (hh * (2.f * wo.dot(hh)) - wo).normalized();  // front-hemisphere reflect
+        float m = rec.normal.dot(wiM);
+        ds.wi = (wiM - rec.normal * (2.f * m)).normalized();      // mirror to back
+        ds.ok = rec.normal.dot(ds.wi) < 0.f;
+        return ds;
+    }
     // Transmission
     float etaI = rec.frontFace ? 1.f : L.ior;
     float etaT = rec.frontFace ? L.ior : 1.f;
@@ -2357,9 +2644,10 @@ __device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c,
     if (ds.isDelta) {
         const GPrincipledLobe& L = lobes[ds.lobe];
         float qj = L.sel / W;
-        if (L.kind == GPR_TRANSPARENT)
-            // Straight-through: f = weight_T, pdf = qj → f/pdf = weight_T/qj
-            // (Cycles bsdf_transparent.h; unbiased one-sample MIS, W cancels).
+        if (L.kind == GPR_TRANSPARENT || L.kind == GPR_THINGLASS_TRANSMIT)
+            // Straight-through: f = weight (weight_T carries T' for thin glass),
+            // pdf = qj → f/pdf = weight/qj (Cycles bsdf_transparent.h /
+            // bsdf_thin_glass_transmission_sample passthrough; W cancels).
             s.f = L.weight;
         else if (ds.deltaRefract)
             s.f = L.weight * gpu_pr_sqrtColor(c.color) * (ds.eta * ds.eta * ds.pdfInternal);

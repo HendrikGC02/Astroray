@@ -252,11 +252,25 @@ local Blender 5.2 python API before hardcoding (5.x renamed sockets before).
   unit, `gpu_pr_*` call sites in `<true>`. Gates: CPU↔GPU per-lobe parity;
   cuobjdump REG+STACK report; non-principled wavefront perf hard gate;
   principled-scene perf budget note; RTX visual sweep.
-- **PR-4 — Thin Wall, CPU+GPU.** thinGlassFresnel + ThinGlassReflect/Transmit +
-  Translucent lobes, `subsurface_anisotropy` param, GPU twin in the same PR (small
-  surface, avoids a half-landed material mode). Gates: paper/leaf/window trio vs
-  5.2; R'+T' ≤ 1; chi² for the two new sampled lobes; CPU↔GPU parity; register
-  report; non-principled perf gate.
+- **PR-4 — Thin Wall, CPU+GPU.** Status: DONE on branch `pkg178-thinfilm-pr4`
+  (stacked on pkg178-thinfilm-pr3; commit 79cb71d, 2026-08-10; not yet PR'd —
+  lead rebases onto main + runs the vs-5.2 trio + GPU sweep). thinGlassFresnel +
+  ThinGlassReflect/Transmit + Translucent lobes, `subsurface_anisotropy` param,
+  GPU twin in the same PR. Struct growth: ONE packed float (thinWallAniso) — GMaterial
+  stays 640 B (measured; a 2nd field rounds to 704 B and leaks <false> STACK).
+  kMaxPrincipledLobes 8→10 (<true> stack only). Gates met (CPU, RTX build clean):
+  default-off within-build bit-equality (glass/specular/subsurface/combined, maxΔ 0.0);
+  R'+T' ≤ 1 closed-form over the ior×cos×base×tint grid (peak 1.0); thin-glass furnace
+  no-gain (mean 0.99 across roughness×ior, LINEAR); thin-subsurface anisotropy split;
+  chi² for ThinGlassReflect/Transmit (SphericalDomain, r∈{0.35,0.6}, θ∈{0,45}) and
+  the thin-subsurface diffuse/translucent split (g∈{-0.6,0,0.6}) — all PASS.
+  Found+fixed a PRE-EXISTING ggxReflect D-regularizer bug (near-specular reflection
+  eval loses energy vs its D_GTR2 pdf → thin glass rendered black; also dims
+  Principled metallic/specular at low roughness — flagged to lead, out of scope beyond
+  the thin-glass fix). Cross-build vs pre-PR-4: glass byte-exact, other lobes ≤3.5e-6
+  FP-reorder (larger principled.cpp TU; those scenes run zero PR-4 logic).
+  LEAD-DEFERRED: CUDA cuobjdump REG/STACK <false>/<true>, non-principled perf, GPU
+  parity, vs-5.2 paper/leaf/window trio.
 - **PR-5 — addon sockets (with/after Stage 5's flag infra).** §5 mapping +
   coverage-matrix flips + pkg119b harness rows for thin film/thin wall.
   Gates: harness diff flag-off/flag-on; zero silently-dropped thin sockets on the

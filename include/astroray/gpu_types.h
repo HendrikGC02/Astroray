@@ -482,6 +482,16 @@ struct GPrincipledClosure {
     // GPU-only trade-off (register/stack over a per-hit recompute).
     float thinFilmThickness = 0.f;      // Cycles thin_film_thickness (nm)
     float thinFilmIor = 1.33f;          // Cycles thin_film_ior
+    // pkg178 Stage 4 PR-4 — thin_wall (bool) + subsurface_anisotropy (∈[-1,1])
+    // packed into ONE float. MEASURED (host sizeof): GPrincipledClosure has exactly
+    // one float of trailing slack inside the alignas(64) GMaterial (640 B); a SECOND
+    // added field rounds GMaterial 640→704 B (+64) which the shared <false> path pays
+    // in its by-value GMaterial copy (gpu_closure_as_material `GMaterial tmp = parent`)
+    // — the same STACK-leak class PR-3 documented. So both PR-4 params ride ONE float.
+    // Encoding: thin_wall=false → -8 sentinel; thin_wall=true → subsurface_anisotropy.
+    // Decode via gpu_pr_thinWall / gpu_pr_subsurfaceAniso (gpu_materials.h). Filled by
+    // scene_upload.cu from MaterialClosure::{thinWall,subsurfaceAnisotropy}.
+    float thinWallAniso = -8.f;
 };
 
 // pkg54a: layout for the device-side spectral profile table. Profiles are

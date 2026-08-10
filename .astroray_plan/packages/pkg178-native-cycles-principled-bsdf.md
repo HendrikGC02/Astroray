@@ -181,6 +181,17 @@ one harness sweep flag-off vs flag-on, diffing `triage_report.json`.
       (alpha=0.85 real, transmission_weight=0.0), render finite/non-black
       (nonblack_frac 1.000, mean_lum 0.098). On-HW native-vs-Cycles parity
       matrix (auto-flip gate) is LEAD-DEFERRED, separate from this routing.
+      **Thin-film wiring finalized on branch `pkg178-stage5-final` (2026-08-10,
+      rebased clean onto main post-Stage-4):** `Thin Film Thickness`→
+      `thin_film_thickness`, `Thin Film IOR`→`thin_film_ior`, `Thin Wall`(bool)→
+      `thin_wall`, `Subsurface Anisotropy`→`subsurface_anisotropy` now mapped
+      (socket names read off live Blender 5.2); removed from the dropped list
+      (only `Subsurface IOR`, `Coat Normal`, `Tangent` remain, reported per
+      pkg119-C when linked). Verified headless on Blender 5.2: a Principled node
+      with thin_film_thickness=550nm + thin_film_ior=1.4 + thin_wall + subsurface
+      anisotropy=0.3 routes to `create_material('principled', ...)` with the four
+      native params present (thin_film/thin_wall no longer gap-reported), render
+      finite/non-black (nonblack_frac 1.000, mean_lum 0.046).
 - [ ] No wavefront perf regression on non-principled scenes; register
       report attached to every GPU-stage PR.
 - [ ] Every ported formula cites its Cycles file/function or paper.

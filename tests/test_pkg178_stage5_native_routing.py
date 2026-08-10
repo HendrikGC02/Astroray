@@ -136,6 +136,10 @@ def _principled_node():
             'Sheen Weight':        _Socket(default=0.6),
             'Sheen Roughness':     _Socket(default=0.3),
             'Sheen Tint':          _Socket(default=(1.0, 0.5, 0.5, 1.0), socket_type="RGBA"),
+            'Subsurface Anisotropy': _Socket(default=0.0),
+            'Thin Film Thickness': _Socket(default=0.0),
+            'Thin Film IOR':       _Socket(default=1.33),
+            'Thin Wall':           _Socket(default=False, socket_type="VALUE"),
             'Emission Color':      _Socket(default=(0.0, 0.0, 0.0, 1.0), socket_type="RGBA"),
             'Emission Strength':   _Socket(default=0.0),
             'Normal':              _Socket(socket_type="VECTOR"),
@@ -223,6 +227,42 @@ def test_default_flag_is_native_on(monkeypatch):
     mat_type, _color, _params = renderer.created_materials[0]
     assert mat_type == "principled", (
         f"default (unset) flag must be native ON; got {mat_type!r}")
+
+
+def test_thin_film_thin_wall_route_native(monkeypatch):
+    """pkg178 Stage 4/5: Thin Film Thickness/IOR, Thin Wall and Subsurface
+    Anisotropy are wired to the native material (engine gained them on main).
+    A Principled node with those set routes to create_material('principled', ...)
+    with the four native params present and NOT reported as gaps."""
+    addon = _load_blender_addon(monkeypatch)
+    engine = _engine(addon, native_flag=True)
+    engine._degradation = None  # fresh report accumulator
+
+    node = _principled_node()
+    node.inputs['Thin Film Thickness'].default_value = 550.0
+    node.inputs['Thin Film IOR'].default_value = 1.4
+    node.inputs['Thin Wall'].default_value = True
+    node.inputs['Subsurface Anisotropy'].default_value = 0.3
+
+    spec = engine._principled_shader_spec(node, renderer=None)
+    renderer = _RecordingRenderer()
+    engine._create_material_from_shader_spec(spec, renderer)
+
+    assert len(renderer.created_materials) == 1
+    mat_type, _color, params = renderer.created_materials[0]
+    assert mat_type == "principled", f"flag ON must route to native; got {mat_type!r}"
+
+    assert abs(params["thin_film_thickness"] - 550.0) < 1e-4
+    assert abs(params["thin_film_ior"] - 1.4) < 1e-6
+    # Thin Wall boolean -> 1.0 float (engine reads thin_wall>0.5).
+    assert abs(params["thin_wall"] - 1.0) < 1e-6
+    assert abs(params["subsurface_anisotropy"] - 0.3) < 1e-6
+
+    # These four are no longer pkg119-C gaps.
+    report = engine._degradation_report()
+    text = " ".join(report.messages())
+    assert "Thin Film" not in text and "Thin Wall" not in text, (
+        f"thin-film/thin-wall must NOT be reported as dropped now; got {report.messages()!r}")
 
 
 def test_subsurface_gap_reported_on_native_path(monkeypatch):

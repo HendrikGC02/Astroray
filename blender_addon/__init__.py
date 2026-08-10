@@ -3121,12 +3121,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return spec
 
     # pkg178 Stage 5: Blender Principled sockets present on 5.x but NOT honoured
-    # by the native 'principled' material (thin-film is Stage 4 CPU-only, not yet
-    # wired to the addon; thin-wall + the extra subsurface controls are unmapped).
+    # by the native 'principled' material. Thin Film (thickness/IOR), Thin Wall and
+    # Subsurface Anisotropy are now wired (pkg178 Stage 4 on main) and no longer
+    # listed here. What remains genuinely unmapped: Subsurface IOR (native material
+    # has no per-medium IOR knob), and the per-lobe normal/tangent vector sockets
+    # (Coat Normal, Tangent — native uses the shading/UV normal + UV tangent).
     # Reported per-render via the pkg119-C degradation policy, never dropped silently.
     _NATIVE_PRINCIPLED_UNMAPPED = (
-        'Thin Wall', 'Thin Film Thickness', 'Thin Film IOR',
-        'Subsurface IOR', 'Subsurface Anisotropy',
+        'Subsurface IOR', 'Coat Normal', 'Tangent',
     )
 
     def _use_native_principled(self):
@@ -3185,6 +3187,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
         put_float('subsurface_weight', 'Subsurface Weight', 'Subsurface')
         put_float('subsurface_scale', 'Subsurface Scale')
         put_vec('subsurface_radius', 'Subsurface Radius')
+        # Subsurface anisotropy (thin-subsurface diffuse/translucent split; Cycles
+        # bsdf_thin_subsurface_setup). Now honoured by the native material (pkg178
+        # Stage 4 on main); previously in _NATIVE_PRINCIPLED_UNMAPPED.
+        put_float('subsurface_anisotropy', 'Subsurface Anisotropy')
+        # Thin Film iridescence (Belcour-Barla) + Thin Wall translucency — pkg178
+        # Stage 4, now on main. Thin Wall is a boolean socket; get_float_input
+        # returns 1.0/0.0 which the engine reads as thin_wall>0.5.
+        put_float('thin_film_thickness', 'Thin Film Thickness')
+        put_float('thin_film_ior', 'Thin Film IOR')
+        put_float('thin_wall', 'Thin Wall')
         # Alpha — a REAL value routed to the native transparent lobe; NOT folded
         # into transmission (that conflation is the convicted BSDF_TRANSPARENT
         # bug family the Disney path still carries).
@@ -3193,9 +3205,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
     def _native_principled_gaps(self, node, native_params):
         """pkg119-C: sockets the native Principled path does not honour, surfaced
-        per-render so nothing is dropped silently. Linked unmapped sockets, a
-        typed-in thin-film thickness, a set Thin-Wall flag, and the approximate
-        subsurface model all get a report line."""
+        per-render so nothing is dropped silently. Linked unmapped sockets
+        (Subsurface IOR, Coat Normal, Tangent) and the approximate subsurface
+        model get a report line. Thin Film, Thin Wall and Subsurface Anisotropy
+        are now wired (pkg178 Stage 4) and no longer reported as gaps."""
         gaps = []
         for nm in self._NATIVE_PRINCIPLED_UNMAPPED:
             inp = node.inputs.get(nm)
@@ -3204,22 +3217,6 @@ class CustomRaytracerRenderEngine(RenderEngine):
             if getattr(inp, 'is_linked', False):
                 gaps.append(f"Principled socket '{nm}' is linked but not honoured "
                             f"by the native material (dropped)")
-                continue
-            try:
-                val = inp.default_value
-            except AttributeError:
-                continue
-            if nm == 'Thin Wall':
-                if bool(val):
-                    gaps.append("Principled 'Thin Wall' is set but not wired to the "
-                                "native material (dropped)")
-            elif nm == 'Thin Film Thickness':
-                try:
-                    if float(val) > 0.0:
-                        gaps.append("Principled Thin Film (thickness>0) is not wired "
-                                    "to the native addon path yet (dropped)")
-                except (TypeError, ValueError):
-                    pass
         if float(native_params.get('subsurface_weight', 0.0)) > 0.0:
             gaps.append("Principled Subsurface uses the approximate diffusion model "
                         "(D2(a), not the Cycles random-walk BSSRDF)")

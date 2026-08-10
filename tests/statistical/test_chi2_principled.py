@@ -90,6 +90,18 @@ def test_chi2_principled_specular_aniso(theta_deg, aniso):
     assert ok, f"principled aniso specular chi² FAILED (a={aniso}, θ={theta_deg}) p={t.p_value:.6f}"
 
 
+@pytest.mark.parametrize("theta_deg", [0, 45])
+def test_chi2_principled_specular_thin_film(theta_deg):
+    # pkg178 Stage 4 PR-1: thin-film iridescence changes only the eval Fresnel
+    # MAGNITUDE — the specular sampler/pdf (NDF sampling, Fresnel-independent) is
+    # byte-unchanged. This gate proves chi² stays valid with the film ON (the
+    # "sampler/pdf unchanged" claim), mirroring test_chi2_principled_plastic.
+    ok, t = _run({"base_color": [0.8, 0.8, 0.8], "metallic": 0.0, "roughness": 0.45,
+                  "ior": 1.5, "thin_film_thickness": 500.0, "thin_film_ior": 1.4},
+                 theta_deg, HemisphericalDomain(), seed=900 + theta_deg)
+    assert ok, f"principled thin-film specular chi² FAILED (θ={theta_deg}) p={t.p_value:.6f}"
+
+
 @pytest.mark.parametrize("theta_deg", [45])
 def test_chi2_principled_diffuse(theta_deg):
     # ior=1.0 zeroes the specular Fresnel -> pure diffuse cosine sampler.

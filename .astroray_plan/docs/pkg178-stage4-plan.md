@@ -226,11 +226,16 @@ local Blender 5.2 python API before hardcoding (5.x renamed sockets before).
 ## 6. Ordered PR plan (implementer-facing; each gate-listed; lead builds all GPU)
 
 - **PR-1 — shared utility + CPU dielectric thin film (spectral + RGB).**
-  `thin_film_fresnel.h`, `thin_film_cie_table.h` (delegate-tier table bake +
-  spot-check evidence), specular-lobe wiring incl. activation condition + F0-rescale,
-  transmission-lobe wiring incl. backface film-IOR adjust + R/T selection update.
-  Gates: thickness-0 bit-equality; furnace grid (linear ceiling); glass front/back
-  furnace; chi² on glass selection; dielectric + glass hue sweeps vs 5.2 (CPU).
+  Status: DONE on branch `pkg178-thinfilm-pr1` (commit c2b621c, 2026-08-10; not yet
+  PR'd/merged — lead to review + run the vs-5.2 hue sweep). `thin_film_fresnel.h`
+  (shared host+device core incl. conductor entry for PR-2), `thin_film_cie_table.h`
+  (Rec.709-baked, generator doc/precompute/thin_film_table.py + spot-check),
+  specular + transmission (both faces, backface film-IOR adjust, F0-rescale). Energy
+  comp left film-free; sampler/pdf unchanged. Gates met (CPU, RTX build): thickness-0
+  bit-equality byte-identical vs fresh 6d8cdb9 build (spec+glass, maxΔ 0.0); utility
+  analytic-phase check vs exact Airy (Δ~1e-6); furnace no-gain sweep; chi² film-ON.
+  LEAD-DEFERRED: dielectric/glass hue-trajectory sweep vs Blender 5.2 Cycles (harness
+  scene author + comparison run).
 - **PR-2 — CPU conductor thin film.** Host Gulbrandsen n,k precompute,
   `fresnelIridescence<true>` on the metallic lobe, spectral + RGB legs.
   Gates: thickness-0 bit-equality; conductor hue sweep vs 5.2; furnace; metallic

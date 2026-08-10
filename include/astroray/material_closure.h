@@ -71,6 +71,12 @@ struct MaterialClosure {
     // assembled FIRST with weight (1-alpha) and the remaining lobes scaled by alpha
     // (Cycles svm/closure.h transparency-first ordering).
     float alpha = 1.0f;                 // Cycles alpha
+    // pkg178 Stage 4 PR-1 thin-film iridescence (Principled monolithic closure
+    // only; thickness 0 → film OFF, byte-identical to Stage-3b). Consumed by the
+    // CPU dielectric specular/transmission Fresnel now; the GPU twin lands in
+    // PR-3. Belcour-Barla 2017 (see include/astroray/thin_film_fresnel.h).
+    float thinFilmThickness = 0.0f;     // Cycles thin_film_thickness (nm)
+    float thinFilmIor = 1.33f;          // Cycles thin_film_ior (Blender socket default)
 };
 
 class MaterialClosureGraph {

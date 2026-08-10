@@ -23,6 +23,8 @@
 #include "astroray/register.h"
 #include "astroray/energy_compensation.h"
 #include "astroray/sheen_ltc_table.h"
+#include "astroray/thin_film_fresnel.h"    // pkg178 Stage 4 PR-1 (Belcour-Barla 2017)
+#include "astroray/thin_film_cie_table.h"  // Rec.709-baked CIE sensitivity LUT
 #include "raytracer.h"
 
 #include <algorithm>
@@ -37,7 +39,12 @@ class PrincipledPlugin : public Material {
     float specularIorLevel_;
     Vec3 specularTint_;
     float transmission_;
-    bool thinWall_;  // parsed; Thin Wall is Stage 4 (unused here — seam only)
+    bool thinWall_;  // parsed; Thin Wall is Stage 4 PR-4 (unused here — seam only)
+    // pkg178 Stage 4 PR-1 — thin-film iridescence (Belcour-Barla 2017). Default
+    // thickness 0 → film OFF (thickness ≤ 0.1nm cutoff): the dielectric
+    // specular/transmission Fresnel takes the exact Stage-3b path, byte-identical.
+    float thinFilmThickness_;  // Cycles thin_film_thickness (nm)
+    float thinFilmIor_;        // Cycles thin_film_ior
     // pkg178 Stage-3b PR-4b — Cycles anisotropic + anisotropic_rotation sockets.
     // Default 0 → isotropic (alpha_x==alpha_y), Stage-1/2 behavior byte-for-byte.
     float anisotropic_, anisotropicRotation_;
@@ -228,6 +235,67 @@ class PrincipledPlugin : public Material {
         float rp = (etaT * cosThetaI - etaI * cosT) / (etaT * cosThetaI + etaI * cosT + 1e-6f);
         float rs = (etaI * cosThetaI - etaT * cosT) / (etaI * cosThetaI + etaT * cosT + 1e-6f);
         return std::clamp(0.5f * (rp * rp + rs * rs), 0.0f, 1.0f);
+    }
+
+    // ==================================================================
+    // pkg178 Stage 4 PR-1 — thin-film iridescence Fresnel (Belcour-Barla 2017).
+    // Shared core in include/astroray/thin_film_fresnel.h; here are the
+    // per-material call wrappers. Film active ⇔ thickness > 0.1nm cutoff; when
+    // inactive these are NEVER called (the callers take the exact Stage-3b path),
+    // so thickness=0 renders are byte-identical to pre-change.
+    // ==================================================================
+    bool filmActive() const {
+        return thinFilmThickness_ > astroray::thinfilm::kThinFilmThicknessCutoff;
+    }
+    // Per-RGB-channel dielectric iridescence F at incident cosine `cosI`, over a
+    // dielectric substrate of relative IOR `iorArg` (= Cycles bsdf->ior) with the
+    // film IOR `filmIor` (backface-adjusted by the caller). RGB sensitivity via
+    // the Rec.709-baked CIE LUT — Cycles bsdf_util.h fresnel_iridescence_channel<false>.
+    Vec3 thinFilmFresnelRGB(float cosI, float iorArg, float filmIor) const {
+        namespace tf = astroray::thinfilm;
+        Vec3 out;
+        for (int c = 0; c < 3; ++c) {
+            auto S = [c](float argOPD) {
+                return tf::sensitivityRGB(argOPD, c, tf::kThinFilmCieTable);
+            };
+            float v = tf::fresnelIridescenceChannel<false>(
+                1.0f, thinFilmThickness_, filmIor, iorArg, 0.0f, -1.0f, cosI, nullptr, S);
+            (&out.x)[c] = v;
+        }
+        return out;
+    }
+    // Per-λ dielectric iridescence F — analytic sensitivity (no LUT), pkg163
+    // per-λ discipline. Cycles bsdf_util.h fresnel_iridescence_channel<false>.
+    astroray::SampledSpectrum thinFilmFresnelSpectral(
+            float cosI, float iorArg, float filmIor,
+            const astroray::SampledWavelengths& lam) const {
+        namespace tf = astroray::thinfilm;
+        astroray::SampledSpectrum out(0.0f);
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+            float lambda = lam.lambda(i);
+            auto S = [lambda](float argOPD) { return tf::sensitivitySpectral(argOPD, lambda); };
+            out[i] = tf::fresnelIridescenceChannel<false>(
+                1.0f, thinFilmThickness_, filmIor, iorArg, 0.0f, -1.0f, cosI, nullptr, S);
+        }
+        return out;
+    }
+    // Cycles generalized_schlick_fresnel thin-film F0-rescale (bsdf_microfacet.h
+    // :284-297): scale the (possibly colored, possibly <F0) iridescence F toward
+    // the artist f0, with strength depending on how close F is to F0_real.
+    // With the common defaults (specular_tint=1, specular_ior_level=0.5) this is
+    // a no-op (f0/F0_real == 1). `iorArg` = Cycles bsdf->ior.
+    static float thinFilmF0RescaleChannel(float Fc, float f0c, float F0real) {
+        // s = saturate(inverse_lerp(1, F0real, Fc)); Fc *= mix(1, f0c/F0real, s).
+        float s = std::clamp((Fc - 1.0f) / (F0real - 1.0f), 0.0f, 1.0f);
+        float factor = f0c / F0real;
+        return Fc * (1.0f + (factor - 1.0f) * s);
+    }
+    static Vec3 thinFilmF0RescaleRGB(Vec3 F, const Vec3& f0, float iorArg) {
+        float F0real = F0_from_ior(iorArg);
+        if (F0real <= 1e-5f || (F.x == 1.0f && F.y == 1.0f && F.z == 1.0f)) return F;
+        return Vec3(thinFilmF0RescaleChannel(F.x, f0.x, F0real),
+                    thinFilmF0RescaleChannel(F.y, f0.y, F0real),
+                    thinFilmF0RescaleChannel(F.z, f0.z, F0real));
     }
 
     // Multiscatter GGX energy compensation (Kulla & Conty 2017 / Cycles
@@ -600,8 +668,21 @@ class PrincipledPlugin : public Material {
             case LobeKind::Specular: {
                 if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
                 Vec3 h = (wo + wi).normalized();
+                // Film-OFF statements FIRST, textually unchanged from pre-change, so
+                // /fp:fast codegen at the ggxReflectRGB call site — and the
+                // thickness-0 render — stay byte-for-byte identical (memory
+                // incremental-build-signature-staleness). The film (rare path) only
+                // OVERRIDES F afterward.
                 float sHalf = generalizedSchlickS(std::abs(wo.dot(h)), L.ior);
                 Vec3 F = L.color + (Vec3(1.0f) - L.color) * sHalf;
+                if (L.kind == LobeKind::Specular && filmActive()) {
+                    // pkg178 Stage 4 PR-1: thin-film iridescence replaces the
+                    // single-scatter Fresnel (Cycles generalized_schlick_fresnel
+                    // thin-film branch). compFss stays FILM-FREE (L.color = specF0)
+                    // so energy compensation is not double-counted.
+                    Vec3 Fraw = thinFilmFresnelRGB(std::abs(wo.dot(h)), L.ior, thinFilmIor_);
+                    F = thinFilmF0RescaleRGB(Fraw, L.color, L.ior);
+                }
                 return L.weight * ggxReflectRGB(F, L.color, L.roughness,
                                                 L.anisotropic, L.anisoRotation, rec, wo, wi);
             }
@@ -673,6 +754,17 @@ class PrincipledPlugin : public Material {
             // Height-correlated Smith G2 for the external-reflection sub-lobe
             // (Cycles bsdf_microfacet_eval uses 1/(1+λI+λO) for reflection too).
             float G = smithG2_GGX(cosI, cosO, alpha);
+            if (filmActive()) {
+                // pkg178 Stage 4 PR-1: thin-film iridescence F (Cycles single
+                // microfacet_fresnel at bsdf->ior = etap; specular_tint folded
+                // into f0 via the F0-rescale, not a post-multiply).
+                float etapR = entering ? L.ior : (1.0f / L.ior);
+                float filmIor = entering ? thinFilmIor_ : thinFilmIor_ / L.ior;
+                Vec3 F = thinFilmFresnelRGB(HdotO, etapR, filmIor);
+                F = thinFilmF0RescaleRGB(F, Vec3(F0_from_ior(etapR)) * specularTint_, etapR);
+                float geom = D * G / (4.0f * cosO * cosI + 1e-8f) * cosI;
+                return L.weight * F * geom;
+            }
             float F = fresnelDielectric(HdotO, 1.0f, L.ior);
             float fr = D * G * F / (4.0f * cosO * cosI + 1e-8f) * cosI;  // brdf·cosI
             return L.weight * specularTint_ * fr;
@@ -686,6 +778,20 @@ class PrincipledPlugin : public Material {
         float D = D_GTR2(std::abs(wm.dot(rec.normal)), alpha);
         // Height-correlated Smith G2 for the refraction sub-lobe (Cycles parity).
         float G = smithG2_GGX(std::abs(cosI), std::abs(cosO), alpha);
+        if (filmActive()) {
+            // pkg178 Stage 4 PR-1: transmittance = (1-F)·transmission_tint with the
+            // same iridescence F; film IOR backface-adjusted (÷bulk IOR).
+            float filmIor = entering ? thinFilmIor_ : thinFilmIor_ / L.ior;
+            Vec3 Fv = thinFilmFresnelRGB(std::abs(wo.dot(wm)), etap, filmIor);
+            Fv = thinFilmF0RescaleRGB(Fv, Vec3(F0_from_ior(etap)) * specularTint_, etap);
+            float den = wi.dot(wm) + wo.dot(wm) / etap;
+            den = den * den * cosI * cosO;
+            float ft = D * G * std::abs(wi.dot(wm) * wo.dot(wm) / (den + 1e-10f));
+            ft /= (etap * etap);
+            float scale = ft * std::abs(cosI) * ggxGlassComp(etap, std::abs(cosO));
+            Vec3 res = L.weight * sqrtColor(baseColor_) * (Vec3(1.0f) - Fv) * scale;
+            return Vec3::max(res, Vec3(0.0f));
+        }
         float F = fresnelDielectric(std::abs(wo.dot(wm)), etaI, etaT);
         float den = wi.dot(wm) + wo.dot(wm) / etap;
         den = den * den * cosI * cosO;
@@ -694,6 +800,66 @@ class PrincipledPlugin : public Material {
         float scale = ft * std::abs(cosI) * ggxGlassComp(etap, std::abs(cosO));
         Vec3 res = L.weight * sqrtColor(baseColor_) * scale;
         return Vec3::max(res, Vec3(0.0f));
+    }
+
+    // pkg178 Stage 4 PR-1 — per-λ native thin-film glass eval (film ONLY; the
+    // film-free spectral path stays the Stage-3b upsample-of-RGB in the caller).
+    // Achromatic geometry × per-λ iridescence F (both faces; backface film-IOR
+    // adjust ÷ bulk IOR).
+    astroray::SampledSpectrum transmissionEvalSpectral(
+            const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+            const astroray::SampledWavelengths& lam) const {
+        if (L.isDelta) return astroray::SampledSpectrum(0.0f);
+        float cosO = rec.normal.dot(wo), cosI = rec.normal.dot(wi);
+        bool entering = rec.frontFace;
+        float alpha = std::max(L.roughness * L.roughness, 0.0064f);
+        float etap = entering ? L.ior : (1.0f / L.ior);
+        float filmIor = entering ? thinFilmIor_ : thinFilmIor_ / L.ior;
+        float F0real = F0_from_ior(etap);
+        astroray::SampledSpectrum wSpec = upsample(L.weight, lam);
+        astroray::SampledSpectrum tintSpec = upsample(specularTint_, lam);
+        if (cosO > 0.0f && cosI > 0.0f) {  // reflection sub-lobe
+            Vec3 wm = (wo + wi).normalized();
+            if (wm.dot(rec.normal) < 0.0f) wm = -wm;
+            float HdotO = wo.dot(wm);
+            if (HdotO <= 1e-10f) return astroray::SampledSpectrum(0.0f);
+            float D = D_GTR2(wm.dot(rec.normal), alpha);
+            float G = smithG2_GGX(cosI, cosO, alpha);
+            float geom = D * G / (4.0f * cosO * cosI + 1e-8f) * cosI;
+            astroray::SampledSpectrum F = thinFilmFresnelSpectral(HdotO, etap, filmIor, lam);
+            astroray::SampledSpectrum out(0.0f);
+            for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+                float Fi = (F0real > 1e-5f)
+                               ? thinFilmF0RescaleChannel(F[i], F0real * tintSpec[i], F0real)
+                               : F[i];
+                out[i] = wSpec[i] * Fi * geom;
+            }
+            return out;
+        }
+        if (cosO * cosI >= 0.0f) return astroray::SampledSpectrum(0.0f);
+        // transmission sub-lobe
+        Vec3 wm = (wi * etap + wo).normalized();
+        if (wm.dot(rec.normal) < 0.0f) wm = -wm;
+        if (wm.dot(wi) * cosI < 0.0f || wm.dot(wo) * cosO < 0.0f)
+            return astroray::SampledSpectrum(0.0f);
+        float D = D_GTR2(std::abs(wm.dot(rec.normal)), alpha);
+        float G = smithG2_GGX(std::abs(cosI), std::abs(cosO), alpha);
+        float den = wi.dot(wm) + wo.dot(wm) / etap;
+        den = den * den * cosI * cosO;
+        float ft = D * G * std::abs(wi.dot(wm) * wo.dot(wm) / (den + 1e-10f));
+        ft /= (etap * etap);
+        float scale = ft * std::abs(cosI) * ggxGlassComp(etap, std::abs(cosO));
+        astroray::SampledSpectrum F = thinFilmFresnelSpectral(std::abs(wo.dot(wm)), etap, filmIor, lam);
+        astroray::SampledSpectrum baseSpec = upsample(sqrtColor(baseColor_), lam);
+        astroray::SampledSpectrum out(0.0f);
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+            float Fi = (F0real > 1e-5f)
+                           ? thinFilmF0RescaleChannel(F[i], F0real * tintSpec[i], F0real)
+                           : F[i];
+            float v = wSpec[i] * baseSpec[i] * (1.0f - Fi) * scale;
+            out[i] = v > 0.0f ? v : 0.0f;
+        }
+        return out;
     }
 
     float pdfLobe(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
@@ -898,6 +1064,10 @@ public:
           transmission_(std::clamp(
               p.getFloat("transmission_weight", p.getFloat("transmission", 0.0f)), 0.0f, 1.0f)),
           thinWall_(p.getFloat("thin_wall", 0.0f) > 0.5f),
+          thinFilmThickness_(std::max(0.0f, p.getFloat("thin_film_thickness", 0.0f))),
+          // Cycles forces film IOR to 0 below the cutoff; here we simply gate on
+          // thickness (filmActive()) and keep the socket default 1.33 otherwise.
+          thinFilmIor_(std::max(1e-5f, p.getFloat("thin_film_ior", 1.33f))),
           anisotropic_(std::clamp(p.getFloat("anisotropic", 0.0f), 0.0f, 1.0f)),
           anisotropicRotation_(p.getFloat("anisotropic_rotation", 0.0f)),
           coatWeight_(std::clamp(p.getFloat("coat_weight", 0.0f), 0.0f, 1.0f)),
@@ -979,6 +1149,8 @@ public:
         c.anisotropic = anisotropic_;                 // pkg178 PR-4b
         c.anisotropicRotation = anisotropicRotation_;
         c.alpha = alpha_;                             // pkg178 PR-6
+        c.thinFilmThickness = thinFilmThickness_;     // pkg178 Stage 4 PR-1 (GPU twin: PR-3)
+        c.thinFilmIor = thinFilmIor_;
         graph.add(c);
         return graph;
     }
@@ -1041,9 +1213,20 @@ public:
             case LobeKind::Specular: {
                 if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
                 Vec3 h = (wo + wi).normalized();
+                // Film-OFF statements FIRST, textually unchanged from pre-change (see
+                // the RGB twin above); the film (rare path) only OVERRIDES F afterward.
                 float sHalf = generalizedSchlickS(std::abs(wo.dot(h)), L.ior);
                 astroray::SampledSpectrum f0 = upsample(L.color, lam);
                 astroray::SampledSpectrum F = f0 + (astroray::SampledSpectrum(1.0f) - f0) * sHalf;
+                if (L.kind == LobeKind::Specular && filmActive()) {
+                    // pkg178 Stage 4 PR-1: per-λ native thin-film iridescence
+                    // (analytic sensitivity, no LUT). compFss (f0) stays film-free.
+                    F = thinFilmFresnelSpectral(std::abs(wo.dot(h)), L.ior, thinFilmIor_, lam);
+                    float F0real = F0_from_ior(L.ior);
+                    if (F0real > 1e-5f)
+                        for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+                            F[i] = thinFilmF0RescaleChannel(F[i], f0[i], F0real);
+                }
                 return wSpec * ggxReflectSpectral(F, f0, L.roughness, L.anisotropic,
                                                   L.anisoRotation, rec, wo, wi);
             }
@@ -1060,6 +1243,9 @@ public:
                                                   L.anisoRotation, rec, wo, wi);
             }
             case LobeKind::Transmission: {
+                // pkg178 Stage 4 PR-1: with the film ON, evaluate F per-λ natively
+                // (pkg163 discipline); OFF path is the exact Stage-3b upsample hack.
+                if (filmActive()) return transmissionEvalSpectral(L, rec, wo, wi, lam);
                 // Colour upsampled; achromatic geometry/Fresnel scalar per-λ (native).
                 Vec3 rgb = transmissionEvalRGB(L, rec, wo, wi);
                 if (rgb.x <= 0.0f && rgb.y <= 0.0f && rgb.z <= 0.0f)

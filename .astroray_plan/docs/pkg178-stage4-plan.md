@@ -236,10 +236,18 @@ local Blender 5.2 python API before hardcoding (5.x renamed sockets before).
   analytic-phase check vs exact Airy (Δ~1e-6); furnace no-gain sweep; chi² film-ON.
   LEAD-DEFERRED: dielectric/glass hue-trajectory sweep vs Blender 5.2 Cycles (harness
   scene author + comparison run).
-- **PR-2 — CPU conductor thin film.** Host Gulbrandsen n,k precompute,
-  `fresnelIridescence<true>` on the metallic lobe, spectral + RGB legs.
-  Gates: thickness-0 bit-equality; conductor hue sweep vs 5.2; furnace; metallic
-  chi² unchanged.
+- **PR-2 — CPU conductor thin film.** Status: DONE on branch
+  `pkg178-thinfilm-pr2` (stacked on pkg178-thinfilm-pr1; commit 7cff9af, 2026-08-10;
+  not yet PR'd/merged — lead rebases onto main + runs the vs-5.2 conductor hue
+  sweep). Host Gulbrandsen n,k precompute (per-RGB-channel, ctor-time, never
+  per-hit), `fresnelIridescenceChannel<true>` on the metallic lobe (RGB leg =
+  precomputed n,k + CIE LUT; spectral leg = RGB reflectance upsampled per plan §0.5).
+  Sampler/pdf unchanged; energy comp left film-free. Gates met (CPU, RTX build):
+  thickness-0 metallic bit-equality byte-identical (maxΔ 0.0); metallic chi² film-ON
+  (θ=0,45); furnace no-gain sweep (thickness×film-IOR). LEAD-DEFERRED: conductor
+  hue-trajectory sweep vs Blender 5.2 Cycles (harness authored:
+  benchmarks/cycles-parity/thin_film/conductor_hue_sweep.py; comparison run needs the
+  oracle).
 - **PR-3 — GPU twin of PR-1+2.** `GPrincipledClosure` params + upload, LUT upload
   unit, `gpu_pr_*` call sites in `<true>`. Gates: CPU↔GPU per-lobe parity;
   cuobjdump REG+STACK report; non-principled wavefront perf hard gate;

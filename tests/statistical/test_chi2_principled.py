@@ -63,6 +63,18 @@ def test_chi2_principled_metallic(theta_deg, roughness):
     assert ok, f"principled metallic chi² FAILED (r={roughness}, θ={theta_deg}) p={t.p_value:.6f}"
 
 
+@pytest.mark.parametrize("theta_deg", [0, 45])
+def test_chi2_principled_metallic_thin_film(theta_deg):
+    # pkg178 Stage 4 PR-2: conductor thin-film iridescence changes only the eval
+    # Fresnel MAGNITUDE of the metallic lobe — the sampler/pdf (GGX NDF sampling,
+    # Fresnel-independent) is byte-unchanged. This gate proves chi² stays valid
+    # with the film ON (the "metallic sampler/pdf unchanged" claim).
+    ok, t = _run({"base_color": [0.95, 0.64, 0.54], "metallic": 1.0, "roughness": 0.5,
+                  "thin_film_thickness": 500.0, "thin_film_ior": 1.4},
+                 theta_deg, HemisphericalDomain(), seed=950 + theta_deg)
+    assert ok, f"principled thin-film metallic chi² FAILED (θ={theta_deg}) p={t.p_value:.6f}"
+
+
 # pkg178 Stage-3b PR-4b — anisotropic GGX (αx≠αy). Validates that the aniso NDF
 # half-vector sampler (slope stretch) is matched by the aniso pdf() in the
 # one-sample MIS. The rotation exercises the UV-aligned frame path. The frame in

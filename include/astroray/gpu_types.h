@@ -468,6 +468,18 @@ struct GPrincipledClosure {
     float anisotropicRotation;
     // pkg178 Stage-3b PR-6 — alpha transparency (1 → opaque, no transparent lobe).
     float alpha;
+    // pkg178 Stage 4 PR-3 — thin-film iridescence (GPU twin of the CPU work in
+    // principled.cpp PR-1/PR-2; Belcour-Barla 2017, see thin_film_fresnel.h).
+    // thickness ≤ 0.1nm cutoff → film OFF, byte-identical to PR-6. The per-RGB-
+    // channel conductor (n,k) + F82 value g are HOST-precomputed at upload
+    // (scene_upload.cu) from (base_color, specular_tint) via the Gulbrandsen
+    // inversion — exact mirror of principled.cpp::precomputeConductorNK (never
+    // recomputed per hit; plan §0 decision 5).
+    float thinFilmThickness = 0.f;      // Cycles thin_film_thickness (nm)
+    float thinFilmIor = 1.33f;          // Cycles thin_film_ior
+    float filmMetalN[3] = {0.f, 0.f, 0.f};  // conductor n per RGB channel
+    float filmMetalK[3] = {0.f, 0.f, 0.f};  // conductor k per RGB channel
+    float filmMetalG[3] = {0.f, 0.f, 0.f};  // F82 reflectance g = fresnel_f82(1/7)
 };
 
 // pkg54a: layout for the device-side spectral profile table. Profiles are

@@ -175,6 +175,43 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
                 gp.anisotropic = c.anisotropic;                 // pkg178 PR-4b
                 gp.anisotropicRotation = c.anisotropicRotation;
                 gp.alpha = c.alpha;                             // pkg178 PR-6
+                // pkg178 Stage 4 PR-3 — thin-film iridescence params + HOST
+                // precompute of the metallic-lobe conductor (n,k,g). EXACT mirror
+                // of principled.cpp::precomputeConductorNK (Gulbrandsen "Artist
+                // Friendly Metallic Fresnel", JCGT 2014; Cycles bsdf_microfacet.h
+                // :365-383). Depends only on per-material constants (base_color,
+                // specular_tint) → computed ONCE here, never per hit (plan §0.5).
+                gp.thinFilmThickness = c.thinFilmThickness;
+                gp.thinFilmIor = c.thinFilmIor;
+                for (int ch = 0; ch < 3; ++ch) {
+                    const float f0 = (&c.color.x)[ch];
+                    const float tint = (&c.specularTint.x)[ch];
+                    const float r = std::min(f0, 0.999f);
+                    // g = f82Channel(1/7, f0, tint) — the metallic lobe's own F82
+                    // evaluation at cosθ=1/7 (principled.cpp::f82Channel/f82BChannel).
+                    const float ff = 6.0f / 7.0f;
+                    const float f5 = (ff * ff) * (ff * ff) * ff;
+                    const float FsB = f0 + (1.0f - f0) * f5;           // mix(F0,1,f5)
+                    const float B = FsB * (7.0f / (f5 * ff)) * (1.0f - tint);
+                    const float cosi = 1.0f / 7.0f;
+                    float sC = 1.0f - cosi;
+                    sC = sC < 0.0f ? 0.0f : (sC > 1.0f ? 1.0f : sC);
+                    const float s5 = (sC * sC) * (sC * sC) * sC;
+                    const float FsS = f0 + (1.0f - f0) * s5;           // mix(F0,1,s5)
+                    float g = FsS - B * cosi * s5 * sC;
+                    g = g < 0.0f ? 0.0f : (g > 1.0f ? 1.0f : g);
+                    // n = mix((1+√r)/(1−√r), (1−r)/(1+r), g);
+                    // k = safe_sqrt((r(n+1)²−(n−1)²)/(1−r)).
+                    const float sqrtR = std::sqrt(r);
+                    const float nLo = (1.0f + sqrtR) / (1.0f - sqrtR);
+                    const float nHi = (1.0f - r) / (1.0f + r);
+                    const float n = nLo + (nHi - nLo) * g;
+                    const float kNum = r * (n + 1.0f) * (n + 1.0f) - (n - 1.0f) * (n - 1.0f);
+                    const float k = std::sqrt(std::max(0.0f, kNum / (1.0f - r)));
+                    gp.filmMetalN[ch] = n;
+                    gp.filmMetalK[ch] = k;
+                    gp.filmMetalG[ch] = g;
+                }
             }
             g.closures[i] = gc;
         }

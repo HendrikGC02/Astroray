@@ -190,8 +190,8 @@ class PrincipledPlugin : public Material {
     // bsdf_aniso_D: Hloc = microfacet normal in (X,Y,N); z = NdotH.
     // Written as alpha2/(π·(alpha2·len2)² + reg) so that at ax==ay==a it is
     // ALGEBRAICALLY a²/(π·denom² + reg), denom = 1+(a²-1)NdotH² — i.e. it reduces
-    // exactly to the isotropic forms. `reg` selects which iso form: 1e-4 matches
-    // the eval-side inline D (ggxReflectRGB), ~0 matches the pdf-side D_GTR2.
+    // exactly to the isotropic forms. `reg` is now 1e-12 everywhere (eval + pdf)
+    // so eval and pdf share the same D (pkg182); ~0 recovers the pure D_GTR2 form.
     static float ggxAnisoD(const Vec3& Hloc, float ax, float ay, float reg) {
         float hx = Hloc.x / ax, hy = Hloc.y / ay, hz = Hloc.z;
         float len2 = hx * hx + hy * hy + hz * hz;
@@ -999,9 +999,13 @@ class PrincipledPlugin : public Material {
         float D, G, roughComp;
         if (anisotropic <= 0.0f) {
             float NdotH = std::max(rec.normal.dot(h), 1e-4f);
-            float a = std::max(roughness * roughness, 0.0064f), a2 = a * a;
-            float denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
-            D = a2 / (float(M_PI) * denom * denom + 1e-4f);
+            float a = std::max(roughness * roughness, 0.0064f);
+            // pkg182: eval D must EQUAL the NDF-sampling pdf's D (pdfLobe: D_GTR2).
+            // The former a2/(π·denom²+1e-4) regularizer collapsed the eval D ~1e4×
+            // below the pdf D at the specular peak for roughness≲0.2 → f/pdf→0 →
+            // metal/specular rendered near-black. Same D-consistency discipline the
+            // Transmission / thin-glass (ggxReflectConsistent) lobes already use.
+            D = D_GTR2(NdotH, a);
             G = smithG2_GGX(nl, nv, a);  // height-correlated Smith (Cycles parity)
             roughComp = roughness;
         } else {
@@ -1010,7 +1014,9 @@ class PrincipledPlugin : public Material {
             Vec3 Hl(X.dot(h), Y.dot(h), std::max(rec.normal.dot(h), 1e-4f));
             Vec3 Il(X.dot(wi), Y.dot(wi), nl);
             Vec3 Ol(X.dot(wo), Y.dot(wo), nv);
-            D = ggxAnisoD(Hl, ax, ay, 1e-4f);
+            // pkg182: match the aniso pdf's reg (pdfLobe: ggxAnisoD(...,1e-12f)); the
+            // former 1e-4f caused the same low-roughness eval/pdf-D mismatch.
+            D = ggxAnisoD(Hl, ax, ay, 1e-12f);
             G = smithG2Aniso(Il, Ol, ax, ay);
             roughComp = std::sqrt(std::sqrt(ax * ay));
         }
@@ -1020,14 +1026,10 @@ class PrincipledPlugin : public Material {
 
     // pkg178 Stage 4 PR-4 — isotropic GGX reflection whose eval D matches the
     // pdf's D EXACTLY (both D_GTR2), used ONLY by the thin-glass reflect/transmit
-    // lobes. ggxReflectRGB (above) regularizes its eval D with +1e-4, which the
-    // NDF-sampling pdf (pdfLobe: D_GTR2) does NOT — for near-specular alpha the
-    // +1e-4 term dominates and the eval D collapses (~1e4× too small vs the pdf),
-    // so f/pdf → 0 and a smooth thin sheet renders BLACK. The regular Transmission
-    // lobe already sidesteps this by using D_GTR2 in both eval and pdf; the thin
-    // glass follows the same discipline here. (The SAME +1e-4 mismatch makes the
-    // Principled metallic/specular lobes lose energy at roughness ≲ 0.2 — a
-    // PRE-EXISTING ggxReflectRGB bug, out of PR-4 scope; flagged to the lead.)
+    // lobes (iso, no aniso / no anisoRotation). ggxReflectRGB/Spectral now share
+    // the same D-consistency (pkg182 fixed their former +1e-4 eval regularizer,
+    // which had collapsed the metallic/specular lobes at roughness ≲ 0.2); this
+    // helper stays as the lean iso-only entry point the thin-glass lobes call.
     Vec3 ggxReflectConsistent(const Vec3& Fhalf, const Vec3& compFss, float roughness,
                               const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
@@ -1698,9 +1700,9 @@ public:
         float D, G, roughComp;
         if (anisotropic <= 0.0f) {
             float NdotH = std::max(rec.normal.dot(h), 1e-4f);
-            float a = std::max(roughness * roughness, 0.0064f), a2 = a * a;
-            float denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
-            D = a2 / (float(M_PI) * denom * denom + 1e-4f);
+            float a = std::max(roughness * roughness, 0.0064f);
+            // pkg182: eval D == pdf D (D_GTR2); see ggxReflectRGB for the rationale.
+            D = D_GTR2(NdotH, a);
             G = smithG2_GGX(nl, nv, a);  // height-correlated Smith (Cycles parity)
             roughComp = roughness;
         } else {
@@ -1709,7 +1711,7 @@ public:
             Vec3 Hl(X.dot(h), Y.dot(h), std::max(rec.normal.dot(h), 1e-4f));
             Vec3 Il(X.dot(wi), Y.dot(wi), nl);
             Vec3 Ol(X.dot(wo), Y.dot(wo), nv);
-            D = ggxAnisoD(Hl, ax, ay, 1e-4f);
+            D = ggxAnisoD(Hl, ax, ay, 1e-12f);  // pkg182: match aniso pdf reg
             G = smithG2Aniso(Il, Ol, ax, ay);
             roughComp = std::sqrt(std::sqrt(ax * ay));
         }

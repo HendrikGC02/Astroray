@@ -1378,7 +1378,8 @@ __device__ inline float gpu_pr_smithG2Aniso(const GVec3& I, const GVec3& O, floa
     return 1.f / (1.f + gpu_pr_smithLambdaAniso(O, ax, ay) + gpu_pr_smithLambdaAniso(I, ax, ay));
 }
 // alpha2/(π·(alpha2·len2)² + reg): at ax==ay reduces exactly to a²/(π·denom²+reg)
-// (the iso forms). reg=1e-4 matches the eval-side inline D; ~0 matches D_GTR2 (pdf).
+// (the iso forms). reg is now 1e-12 everywhere (eval + pdf) so eval and pdf share
+// the same D (pkg182); ~0 recovers the pure D_GTR2 form.
 __device__ inline float gpu_pr_ggxAnisoD(const GVec3& H, float ax, float ay, float reg) {
     float hx = H.x / ax, hy = H.y / ay, hz = H.z;
     float len2 = hx * hx + hy * hy + hz * hz;
@@ -1938,9 +1939,11 @@ __device__ inline GVec3 gpu_pr_ggxReflect(const GVec3& Fhalf, const GVec3& compF
     float D, G, roughComp;
     if (anisotropic <= 0.f) {  // PR-4a isotropic (bit-identical)
         float NdotH = fmaxf(rec.normal.dot(h), 1e-4f);
-        float a = fmaxf(roughness * roughness, 0.0064f), a2 = a * a;
-        float denom = NdotH * NdotH * (a2 - 1.f) + 1.f;
-        D = a2 / (M_PI_F * denom * denom + 1e-4f);
+        float a = fmaxf(roughness * roughness, 0.0064f);
+        // pkg182: eval D must EQUAL the NDF-sampling pdf's D (gpu_pr_pdfLobe:
+        // gpu_pr_D_GTR2). The former a2/(π·denom²+1e-4) collapsed eval D ~1e4×
+        // below the pdf D at low roughness → f/pdf→0 → metal/specular near-black.
+        D = gpu_pr_D_GTR2(NdotH, a);
         G = gpu_pr_smithG2(nl, nv, a);  // height-correlated Smith (Cycles parity)
         roughComp = roughness;
     } else {  // PR-4b anisotropic (Cycles bsdf_aniso_D / bsdf_aniso_lambda)
@@ -1949,7 +1952,7 @@ __device__ inline GVec3 gpu_pr_ggxReflect(const GVec3& Fhalf, const GVec3& compF
         GVec3 Hl(X.dot(h), Y.dot(h), fmaxf(rec.normal.dot(h), 1e-4f));
         GVec3 Il(X.dot(wi), Y.dot(wi), nl);
         GVec3 Ol(X.dot(wo), Y.dot(wo), nv);
-        D = gpu_pr_ggxAnisoD(Hl, ax, ay, 1e-4f);
+        D = gpu_pr_ggxAnisoD(Hl, ax, ay, 1e-12f);  // pkg182: match aniso pdf reg
         G = gpu_pr_smithG2Aniso(Il, Ol, ax, ay);
         roughComp = sqrtf(sqrtf(ax * ay));
     }
@@ -1966,9 +1969,9 @@ __device__ inline GSampledSpectrum gpu_pr_ggxReflectSpectral(const GSampledSpect
     float D, G, roughComp;
     if (anisotropic <= 0.f) {  // PR-4a isotropic (bit-identical)
         float NdotH = fmaxf(rec.normal.dot(h), 1e-4f);
-        float a = fmaxf(roughness * roughness, 0.0064f), a2 = a * a;
-        float denom = NdotH * NdotH * (a2 - 1.f) + 1.f;
-        D = a2 / (M_PI_F * denom * denom + 1e-4f);
+        float a = fmaxf(roughness * roughness, 0.0064f);
+        // pkg182: eval D == pdf D (gpu_pr_D_GTR2); see gpu_pr_ggxReflect rationale.
+        D = gpu_pr_D_GTR2(NdotH, a);
         G = gpu_pr_smithG2(nl, nv, a);  // height-correlated Smith (Cycles parity)
         roughComp = roughness;
     } else {  // PR-4b anisotropic
@@ -1977,7 +1980,7 @@ __device__ inline GSampledSpectrum gpu_pr_ggxReflectSpectral(const GSampledSpect
         GVec3 Hl(X.dot(h), Y.dot(h), fmaxf(rec.normal.dot(h), 1e-4f));
         GVec3 Il(X.dot(wi), Y.dot(wi), nl);
         GVec3 Ol(X.dot(wo), Y.dot(wo), nv);
-        D = gpu_pr_ggxAnisoD(Hl, ax, ay, 1e-4f);
+        D = gpu_pr_ggxAnisoD(Hl, ax, ay, 1e-12f);  // pkg182: match aniso pdf reg
         G = gpu_pr_smithG2Aniso(Il, Ol, ax, ay);
         roughComp = sqrtf(sqrtf(ax * ay));
     }
@@ -1992,12 +1995,10 @@ __device__ inline GSampledSpectrum gpu_pr_ggxReflectSpectral(const GSampledSpect
 }
 
 // pkg178 Stage 4 PR-4 — isotropic GGX reflection whose eval D matches the pdf's D
-// EXACTLY (both D_GTR2), for the thin-glass lobes only. gpu_pr_ggxReflect above
-// regularizes eval D with +1e-4 (absent from the pdf's D_GTR2), collapsing the
-// near-specular eval → a smooth thin sheet renders BLACK. Twin of
-// principled.cpp::ggxReflectConsistent. (Same +1e-4 mismatch dims the Principled
-// metallic/specular lobes at low roughness — pre-existing gpu_pr_ggxReflect bug,
-// out of PR-4 scope; flagged to the lead.)
+// EXACTLY (both D_GTR2), for the thin-glass lobes only (iso). gpu_pr_ggxReflect
+// above now shares the same D-consistency (pkg182 fixed its former +1e-4 eval
+// regularizer, which had collapsed the metallic/specular lobes at low roughness).
+// Twin of principled.cpp::ggxReflectConsistent; kept as the lean iso-only entry.
 __device__ inline GVec3 gpu_pr_ggxReflectConsistent(const GVec3& Fhalf, const GVec3& compFss,
                                                     float roughness, const GHitRecord& rec,
                                                     const GVec3& wo, const GVec3& wi) {

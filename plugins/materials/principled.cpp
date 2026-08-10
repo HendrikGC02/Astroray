@@ -45,6 +45,14 @@ class PrincipledPlugin : public Material {
     // specular/transmission Fresnel takes the exact Stage-3b path, byte-identical.
     float thinFilmThickness_;  // Cycles thin_film_thickness (nm)
     float thinFilmIor_;        // Cycles thin_film_ior
+    // pkg178 Stage 4 PR-2 — per-RGB-channel conductor (n,k) + F82 value g for the
+    // metallic lobe's thin-film Fresnel, host-PRECOMPUTED at ctor from (base_color,
+    // specular_tint) via the Gulbrandsen inversion (Cycles bsdf_microfacet.h:365-383,
+    // "Artist Friendly Metallic Fresnel", Gulbrandsen JCGT 2014). These depend only
+    // on per-material constants, so they are computed ONCE here — never per hit.
+    float filmMetalN_[3] = {0.0f, 0.0f, 0.0f};
+    float filmMetalK_[3] = {0.0f, 0.0f, 0.0f};
+    float filmMetalG_[3] = {0.0f, 0.0f, 0.0f};
     // pkg178 Stage-3b PR-4b — Cycles anisotropic + anisotropic_rotation sockets.
     // Default 0 → isotropic (alpha_x==alpha_y), Stage-1/2 behavior byte-for-byte.
     float anisotropic_, anisotropicRotation_;
@@ -296,6 +304,70 @@ class PrincipledPlugin : public Material {
         return Vec3(thinFilmF0RescaleChannel(F.x, f0.x, F0real),
                     thinFilmF0RescaleChannel(F.y, f0.y, F0real),
                     thinFilmF0RescaleChannel(F.z, f0.z, F0real));
+    }
+
+    // ==================================================================
+    // pkg178 Stage 4 PR-2 — CONDUCTOR thin-film iridescence (metallic lobe).
+    // Bottom interface is a conductor whose (n,k) come from the artist F82 model
+    // via the Gulbrandsen inversion (JCGT 2014); the film Airy summation is the
+    // shared Belcour-Barla core (thin_film_fresnel.h). Cycles reference:
+    // bsdf_microfacet.h:365-383 (F82_TINT thin-film branch) +
+    // bsdf_util.h:200 fresnel_conductor_polarized + :499
+    // fresnel_iridescence_channel<true>.
+    // ==================================================================
+    // Host-precompute the per-RGB-channel conductor (n,k) + F82 value g from a
+    // per-material (f0, F82-tint) pair. Called ONCE from the ctor — this is the
+    // per-hit-inversion optimization the plan mandates (plan §0 decision 5;
+    // Cycles re-inverts per shade only because its fresnel structs are per-hit).
+    void precomputeConductorNK() {
+        for (int c = 0; c < 3; ++c) {
+            const float f0 = (&baseColor_.x)[c];
+            const float tint = (&specularTint_.x)[c];
+            const float r = std::min(f0, 0.999f);
+            // g = fresnel_f82(1/7, f0, b) with b = f82tint_B(f0, tint) — exactly the
+            // metallic lobe's own F82 evaluation at cosθ=1/7 (bsdf_util.h:186).
+            const float g = f82Channel(1.0f / 7.0f, f0, tint);
+            const float sqrtR = std::sqrt(r);
+            // n = mix((1+√r)/(1−√r), (1−r)/(1+r), g); k = safe_sqrt((r(n+1)²−(n−1)²)/(1−r)).
+            const float nLo = (1.0f + sqrtR) / (1.0f - sqrtR);
+            const float nHi = (1.0f - r) / (1.0f + r);
+            const float n = nLo + (nHi - nLo) * g;
+            const float kNum = r * (n + 1.0f) * (n + 1.0f) - (n - 1.0f) * (n - 1.0f);
+            const float k = std::sqrt(std::max(0.0f, kNum / (1.0f - r)));
+            filmMetalN_[c] = n;
+            filmMetalK_[c] = k;
+            filmMetalG_[c] = g;
+        }
+    }
+    // Per-RGB-channel conductor iridescence F at half-vector cosine `cosI`, using
+    // the precomputed (n,k,g) + the Rec.709-baked CIE sensitivity LUT — Cycles
+    // fresnel_iridescence_channel<true> (bsdf_util.h:499).
+    Vec3 thinFilmConductorRGB(float cosI) const {
+        namespace tf = astroray::thinfilm;
+        Vec3 out;
+        for (int c = 0; c < 3; ++c) {
+            auto S = [c](float argOPD) {
+                return tf::sensitivityRGB(argOPD, c, tf::kThinFilmCieTable);
+            };
+            (&out.x)[c] = tf::fresnelIridescenceChannel<true>(
+                1.0f, thinFilmThickness_, thinFilmIor_, filmMetalN_[c], filmMetalK_[c],
+                filmMetalG_[c], cosI, nullptr, S);
+        }
+        return out;
+    }
+    // Spectral leg. Cycles has no spectral n,k for the F82 conductor, so the plan
+    // (§0 decision 5) evaluates the RGB-channel conductor iridescence and upsamples
+    // the resulting reflectance to spectral — APPROXIMATED-equal-to-Cycles, and the
+    // sanctioned "upsample a reflectance colour" JH usage (memory
+    // spectral-upsample-nonlinearity-scaled-bsdf; same trick as the film-free
+    // transmission spectral fallback below). Documented RGB↔spectral hue difference
+    // by construction (pkg128 §B; recorded, not gated).
+    astroray::SampledSpectrum thinFilmConductorSpectral(
+            float cosI, const astroray::SampledWavelengths& lam) const {
+        Vec3 rgb = thinFilmConductorRGB(cosI);
+        float maxc = std::max({rgb.x, rgb.y, rgb.z, 1.0f});
+        Vec3 tint = rgb * (1.0f / maxc);
+        return upsample(tint, lam) * maxc;
     }
 
     // Multiscatter GGX energy compensation (Kulla & Conty 2017 / Cycles
@@ -690,9 +762,17 @@ class PrincipledPlugin : public Material {
                 if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
                 Vec3 h = (wo + wi).normalized();
                 float ci = std::clamp(wo.dot(h), 0.0f, 1.0f);
+                // Film-OFF statements FIRST, textually unchanged (byte-identical
+                // codegen + thickness-0 render); the film only OVERRIDES F.
                 Vec3 F(f82Channel(ci, L.color.x, specularTint_.x),
                        f82Channel(ci, L.color.y, specularTint_.y),
                        f82Channel(ci, L.color.z, specularTint_.z));
+                if (filmActive()) {
+                    // pkg178 Stage 4 PR-2: thin-film iridescence over the conductor
+                    // substrate replaces the single-scatter F82 Fresnel. compFss
+                    // (L.color) stays FILM-FREE so energy comp is not double-counted.
+                    F = thinFilmConductorRGB(ci);
+                }
                 return L.weight * ggxReflectRGB(F, L.color, L.roughness,
                                                 L.anisotropic, L.anisoRotation, rec, wo, wi);
             }
@@ -1084,7 +1164,12 @@ public:
           emissionStrength_(std::max(0.0f, p.getFloat("emission_strength", 1.0f))),
           emissionSpec_({emissionColor_.x * emissionStrength_,
                          emissionColor_.y * emissionStrength_,
-                         emissionColor_.z * emissionStrength_}) {}
+                         emissionColor_.z * emissionStrength_}) {
+        // pkg178 Stage 4 PR-2: host-precompute the metallic-lobe conductor (n,k,g)
+        // once (per-material constant; never per hit). No-op for the render unless
+        // the film is active on the metallic lobe.
+        precomputeConductorNK();
+    }
 
     Vec3 getAlbedo() const override { return baseColor_; }
     float getAnisotropic() const override { return anisotropic_; }  // pkg178 PR-4b
@@ -1235,10 +1320,18 @@ public:
                 Vec3 h = (wo + wi).normalized();
                 float ci = std::clamp(wo.dot(h), 0.0f, 1.0f);
                 astroray::SampledSpectrum f0 = upsample(L.color, lam);
+                // Film-OFF statements FIRST, textually unchanged (thickness-0
+                // bit-equality); the film (rare path) only OVERRIDES F.
                 astroray::SampledSpectrum tint = upsample(specularTint_, lam);
                 astroray::SampledSpectrum F(0.0f);
                 for (int i = 0; i < astroray::kSpectrumSamples; ++i)
                     F[i] = f82Channel(ci, f0[i], tint[i]);
+                if (filmActive()) {
+                    // pkg178 Stage 4 PR-2: conductor thin-film F (RGB-channel n,k
+                    // upsampled — plan §0.5 APPROXIMATED-equal-to-Cycles). compFss
+                    // (f0) stays film-free.
+                    F = thinFilmConductorSpectral(ci, lam);
+                }
                 return wSpec * ggxReflectSpectral(F, f0, L.roughness, L.anisotropic,
                                                   L.anisoRotation, rec, wo, wi);
             }

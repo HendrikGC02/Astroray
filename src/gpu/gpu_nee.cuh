@@ -550,7 +550,11 @@ __device__ inline GSampledSpectrum gpu_nee_resolve(
     // of reproducing a delta direction, so power-heuristic-combining against
     // bsdfPdf would incorrectly discount it.
     float wt = s.isDeltaLight ? 1.0f : gpu_mw_powerHeuristic(s.lightPdf, bsdfPdf);
-    // color += throughput * f_spec * L_spec * (wt / (ls.pdf + 0.001f))
-    return f_spec * L_spec * (wt / (s.lightPdf + 0.001f));
+    // color += throughput * f_spec * L_spec * (wt / ls.pdf)
+    // pkg172(A) secondary: guarded light-pdf (pbrt-v4 convention) — was
+    // wt/(lightPdf+1e-3), a biasing additive-epsilon under-weighting of NEE.
+    // Mirrors the CPU NEE twin (raytracer.h:2558) already guarded on main
+    // (#551); brings the immediate GPU NEE leg back into CPU parity.
+    return f_spec * L_spec * (s.lightPdf > 1e-8f ? wt / s.lightPdf : 0.0f);
 }
 

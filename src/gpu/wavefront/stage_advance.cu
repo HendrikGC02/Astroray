@@ -549,7 +549,13 @@ __device__ bool shadePathSlot(
                         float b2 = bsdfPdf * bsdfPdf;
                         float wt = s.isDeltaLight ? 1.0f
                                                   : a2 / (a2 + b2 + 1e-8f);
-                        float scale = wt / (s.lightPdf + 0.001f);
+                        // pkg172(A) secondary: guarded light-pdf (pbrt-v4
+                        // convention) — was wt/(lightPdf+1e-3), a biasing
+                        // additive-epsilon under-weighting of NEE. Mirrors the
+                        // CPU NEE twin (raytracer.h:2558, path_kernel.cpp:290)
+                        // already guarded on main (#551); brings the deferred
+                        // GPU NEE leg back into CPU parity.
+                        float scale = s.lightPdf > 1e-8f ? wt / s.lightPdf : 0.0f;
                         // pkg89-wavefront: dedicated emission is
                         // rgbAt(dedEmissionRGB, λ)·dedGeoScale (gpu_nee_resolve);
                         // dedGeoScale is λ-independent, so fold it into the

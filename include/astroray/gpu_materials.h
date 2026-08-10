@@ -1514,16 +1514,35 @@ __device__ inline GVec3 gpu_pr_thinFilmF0RescaleRGB(GVec3 F, const GVec3& f0, fl
                  gpu_pr_thinFilmF0RescaleChannel(F.y, f0.y, F0real),
                  gpu_pr_thinFilmF0RescaleChannel(F.z, f0.z, F0real));
 }
+// Per-channel Gulbrandsen conductor (n,k) + F82 value g from (f0, specular_tint) —
+// exact mirror of principled.cpp::precomputeConductorNK ("Artist Friendly Metallic
+// Fresnel", Gulbrandsen JCGT 2014; Cycles bsdf_microfacet.h:365-383). On the CPU
+// this is a per-material ctor precompute; on the GPU it is recomputed PER HIT here
+// (only reached on the metallic thin-film path, <true> only) so the 9 floats do
+// NOT bloat GPrincipledClosure/GMaterial and leak STACK into the shared <false>
+// kernel via its by-value copy (see gpu_types.h). g reuses the metallic lobe's own
+// F82 eval at cosθ=1/7 (gpu_pr_f82Channel == principled.cpp::f82Channel).
+__device__ inline void gpu_pr_conductorNK(float f0, float tint, float& n, float& k, float& g) {
+    const float r = fminf(f0, 0.999f);
+    g = gpu_pr_f82Channel(1.f / 7.f, f0, tint);
+    const float sqrtR = sqrtf(r);
+    const float nLo = (1.f + sqrtR) / (1.f - sqrtR);
+    const float nHi = (1.f - r) / (1.f + r);
+    n = nLo + (nHi - nLo) * g;
+    const float kNum = r * (n + 1.f) * (n + 1.f) - (n - 1.f) * (n - 1.f);
+    k = sqrtf(fmaxf(0.f, kNum / (1.f - r)));
+}
 // principled.cpp::thinFilmConductorRGB — per-RGB-channel conductor iridescence F
-// with the HOST-precomputed (n,k,g) (c.filmMetalN/K/G) + the CIE LUT.
+// with the PER-HIT-computed (n,k,g) + the CIE LUT.
 __device__ inline GVec3 gpu_pr_thinFilmConductorRGB(const GPrincipledClosure& c, float cosI) {
     namespace tf = astroray::thinfilm;
     GVec3 out;
     for (int ch = 0; ch < 3; ++ch) {
+        float n, k, g;
+        gpu_pr_conductorNK((&c.color.x)[ch], (&c.specularTint.x)[ch], n, k, g);
         auto S = [ch](float argOPD) { return gpu_pr_sensitivityRGB(argOPD, ch); };
         (&out.x)[ch] = tf::fresnelIridescenceChannel<true>(
-            1.f, c.thinFilmThickness, c.thinFilmIor, c.filmMetalN[ch], c.filmMetalK[ch],
-            c.filmMetalG[ch], cosI, nullptr, S);
+            1.f, c.thinFilmThickness, c.thinFilmIor, n, k, g, cosI, nullptr, S);
     }
     return out;
 }

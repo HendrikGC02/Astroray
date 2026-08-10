@@ -184,6 +184,11 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
                 // GPrincipledClosure comment in gpu_types.h.
                 gp.thinFilmThickness = c.thinFilmThickness;
                 gp.thinFilmIor = c.thinFilmIor;
+                // pkg178 Stage 4 PR-4 — thin_wall + subsurface_anisotropy packed into
+                // ONE float to keep GMaterial at 640 B (a second field rounds it to
+                // 704 B and leaks +STACK into the shared <false> by-value copy; see
+                // GPrincipledClosure comment). thin_wall=false → -8 sentinel.
+                gp.thinWallAniso = c.thinWall ? c.subsurfaceAnisotropy : -8.f;
             }
             g.closures[i] = gc;
         }

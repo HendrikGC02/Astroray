@@ -124,10 +124,15 @@ def test_thinfilm_zero_thickness_bit_identity(params):
     off = _render(use_gpu=True, params=params)
     zero = _render(use_gpu=True, params={**params, "thin_film_thickness": 0.0,
                                          "thin_film_ior": FILM_IOR})
-    assert np.array_equal(off, zero), (
-        "pkg178 PR-3 thickness-0 GPU bit-identity FAILED: film-off and "
-        "thickness=0 renders differ (max abs diff "
-        f"{np.max(np.abs(off - zero)):.3e}) -- the film no-op guard is broken.")
+    # Two SEPARATE GPU renders are not byte-identical to each other (atomic
+    # accumulation ordering, ~1.2e-7 floor -- the wavefront isn't self-identical,
+    # memory pkg157). The no-op guard is that thickness=0 stays AT that floor,
+    # not above it (verified: off-vs-off == off-vs-thickness0 == 1.19e-7).
+    diff = float(np.max(np.abs(off - zero)))
+    assert diff <= 1e-6, (
+        "pkg178 PR-3 thickness-0 GPU no-op FAILED: film-off and thickness=0 "
+        f"renders differ by {diff:.3e} > 1e-6 (atomic floor ~1.2e-7) -- the "
+        "film no-op guard is broken.")
 
 
 @pytest.mark.parametrize("label,params", CASES, ids=[c[0] for c in CASES])

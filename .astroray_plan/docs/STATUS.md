@@ -1,5 +1,81 @@
 # Astroray Status
 
+**2026-08-08 → 2026-08-10 (Principled-BSDF completion run, 17 PRs merged
+#566–#582): native Cycles-Principled BSDF is COMPLETE (Stages 0–5) incl.
+thin film/thin wall + Blender native routing — headline of the Integration
+Milestone arc.**
+**pkg178** ships a faithful `"principled"` material plugin, CPU+GPU
+byte-mirrored throughout: Stage 0+1 core-lobe scaffold + Stage 2 GPU
+closure-graph twin (#566/#567); Stage 3 advanced layers — coat (GGX +
+coat_ior + coat_tint Beer)/sheen (Zeltner 2022 LTC)/approx-SSS/emission
+(#571) behind a new `template<bool HasPrincipled>` D4 shade-path isolation
+(#570, closes a +52% fleet-wide non-principled regression permanently —
+non-principled `<false>` STACK pinned at **3608 B** through every later
+stage); CPU UV-aligned tangent plumbing (#572); height-correlated Smith G2
+for the reflect lobes (#573, Heitz 2014 — every furnace gate moved TOWARD
+1.0, e.g. metallic r0.3 0.929→0.960); anisotropic GGX αx≠αy + gated GPU UV
+tangent (#574, fixed a real ~4.1%→<0.5% iso-continuity discontinuity found
+along the way); alpha as a Fable-proven delta transparent lobe (#575,
+byte-identical to the pre-existing glass at alpha=1). **Stage 4 — thin
+film + thin wall** (Belcour-Barla 2017 Airy reflectance, cited Cycles
+`bsdf_util.h`/`bsdf_microfacet.h`, BSD-3): shared utility + CPU dielectric
+iridescence (#577, thickness-0 EXACT no-op), CPU conductor iridescence
+(#578, Gulbrandsen F82→(n,k) inversion), GPU twin of both (#579 — a
+by-value `GMaterial` data leak was caught and fixed mid-PR, keeping
+`<false>` at 3608 B), thin wall (thin-glass) + thin subsurface (#580,
+combined R+T closed-form geometric series). **Stage 5** routes Blender's
+`ShaderNodeBsdfPrincipled` → the native material incl. all Stage-4
+thin-film sockets (#581, `use_native_principled` default ON experimental;
+production default-flip gated on the full hardware parity matrix per the
+owner's pre-authorization, memory `pkg178-repin-and-stage5-autonomy`).
+Along the way, Stage 4 PR-4 surfaced a **pre-existing** `ggxReflect`
+eval-D/pdf-D regularizer mismatch (`+1e-4` vs unregularized `D_GTR2`) that
+made low-roughness Principled metallic/specular near-black (furnace
+0.067→0.604 at r=0.02) — filed and fixed same-day as **pkg182** (PR #582,
+eval-only, register-neutral).
+**pkg172 effect (A) CLOSED**: the pbrt-v4 guarded-pdf form replaces the
+biased `f/(pdf+1e-3)` estimator across CPU path_tracer/wavefront/
+multiwavelength (PR #551, closes the universal 0.628%/bounce = `2π·ε`
+energy loss; clearcoat whole-sphere MSE floor re-pinned 5e-5→3.5e-5 with
+in-test justification, primary specular asserts unaffected), the
+`neural_cache`/`restir_di` follow-up legs (#553), and the two remaining GPU
+NEE light-pdf sites (#576, register-neutral, no firefly-gate shift). Effect
+(B) stays **pkg173**'s separate scope, below the Integration Milestone.
+**pkg176 Stages 0–4 COMPLETE**: native Blender/Cycles settings, panels, and
+world/light/camera properties are now the only steering wheel (PRs
+#555/#556/#561/#568) — the custom ground-up UI is retired down to one
+Astroray-only panel, owner-approved 2026-08-09; 45 unit tests + Blender 5.2
+real-host register/headless-smoke PASS.
+**pkg181** (dedicated-light visibility to BSDF rays, PR #569, 2026-08-08)
+fixed the systemic ~12–20% Astroray-vs-Cycles dim AND dark lamp reflections
+(mirror-lamp 0.017×→~1.00× Cycles) — a prerequisite this run's Cycles-
+parity numbers rest on.
+**pkg179 CLOSED by diagnosis** (owner-ratified Option 2, 2026-08-09): the
+"3× dead-sample rate" was a measurement-methodology mislabel, not a sampler
+bug; no engine code changed; the Cycles combined-closure design is recorded
+for pkg178's Principled dielectric (already reflected in pkg178's shipped
+Stage-3/4 design).
+**Open follow-ups (not closed, tracked forward, do not re-derive):**
+conductor thin-film is an RGB-upsample approximation (metal iridescence
+less saturated than Cycles' per-λ; the dielectric leg is per-λ-exact) —
+documented approximation, enhancement-tier, not a defect; the durable
+`GLoweredMaterial` by-value-`GMaterial`-copy fix (the recurring data leak
+PR #579 and Stage 3 both hit and locally patched around) is prototyped in
+worktree `.claude/worktrees/sad-maxwell-ff99d1` (uncommitted, PR-2-based)
+and needs re-apply on settled main (memory
+`closure-graph-lobe-count-spills-fused-kernel`); thin-film-vs-Cycles
+saturation parity verification + the coordinated pkg119-B/pkg129 harness
+band re-pin (reflecting pkg181 + Smith-G + pkg172(A) + thin-film + pkg182
+together) is still owed. **Changelog:** pkg178 Stages 0–5 COMPLETE
+(#566–#581), pkg182 filed+fixed (#582), pkg172(A) CLOSED (#551/#553/#576),
+pkg176 Stages 0–4 COMPLETE (#555/#556/#561/#568), pkg181 DONE (#569),
+pkg179 CLOSED by diagnosis. Full detail:
+`.astroray_plan/docs/standup/2026-08-06.md`,
+`.astroray_plan/docs/standup/2026-08-07.md`, reports
+`.astroray_plan/docs/reports/2026-08-07-overnight-supervised.html`,
+`.astroray_plan/docs/reports/2026-08-08-principled-bsdf-run.html`,
+`.astroray_plan/docs/reports/2026-08-09-principled-stage3-complete.html`.
+
 **2026-08-08 (run — dielectric energy chain + Cycles-parity harnesses):**
 Landed this run: **pkg167 Part 1** (PR #562, MERGED) — Disney dielectric
 REFLECTION-lobe multiscatter compensation CPU+GPU, furnace in-band
@@ -294,6 +370,88 @@ pkg151/pkg147 open, HELD by pr-merger for owner approval on CMakeLists
 touches. Full round closeout pending.
 
 **Last updated:** 2026-07-20 (Overnight autonomous run on the travel laptop — RTX 3000 Ada sm_89, CUDA 13.2, no OptiX SDK. **pkg55 Phase C Sessions C3+C4 landed** (PR #486 non-visible-band + naive-MW wavefront; PR #490 TLAS/instancing + deformation-motion in the wavefront) and **C5 is open-verified** (PR #494 photon caustics, 2/2 gates + 40-test regression green on RTX, not yet merged) — Phase C is now 5 of 7 sessions done/verified. **pkg89 GAP-1 landed** (PR #489 — dedicated lights uploaded to GPU, Blender-lamp scenes stop rendering DARK on GPU: AREA 0.998 / POINT 0.997 parity) with **GAP-2 energy audit** escalated to pkg122. **pkg121 Phase A** chi² sampler harness (PR #485 — Mitsuba BSD-3 port; Lambertian anchor passes p=0.23; Disney spec-lobe failures xfail'd → pkg123). **pkg119-A** Blender parity coverage matrix (PR #487 — v4 AST-scanned: 131 SUPPORTED / 23 APPROXIMATED / 370 DROPPED-SILENT / 20 stale sockets of 524). 15 new specs filed (pkg123-137) covering correctness/sampling + eight platform techniques + material candidates. Direct-to-main: root-shadow-pyd trap killed (94ae956), permissions allowlist (1efe9bc), pkg115-harness CUDA-13 fix (3778f37), other-engines research sweep (7a4c970).).
+
+## Round closeout 2026-08-08 → 2026-08-10 — Principled-BSDF completion run: pkg178 COMPLETE (Stages 0-5, native Cycles Principled incl. thin film/thin wall), pkg172(A) closed, pkg176 COMPLETE (Stages 0-4, Blender native steering wheel), pkg182 filed+fixed, pkg181 done, pkg179 closed by diagnosis
+
+**17 PRs merged (#566–#582), no open PRs at closeout.** See the top-of-file
+summary for the full headline; this section is the archival record.
+
+### pkg178 — native Cycles Principled BSDF, Stages 0–5 COMPLETE (PRs #566–#581, 2026-08-07 → 2026-08-10)
+
+Core-lobe scaffold + GPU closure-graph twin (#566/#567) → `template<bool
+HasPrincipled>` D4 shade-path isolation (#570, permanently closes the
++52% fleet-wide non-principled regression class; non-principled `<false>`
+STACK pinned at 3608 B through every subsequent stage) → coat/sheen/
+approx-SSS/emission (#571) → CPU UV-aligned tangent plumbing (#572) →
+height-correlated Smith G2 (#573, Heitz 2014, every furnace gate moved
+toward 1.0) → anisotropic GGX + gated GPU UV tangent (#574) → alpha delta
+transparent lobe (#575, Fable-proven variance-only reallocation) → Stage 4
+thin film + thin wall (Belcour-Barla 2017: shared utility + CPU dielectric
+#577, CPU conductor #578, GPU twin #579, thin wall/thin subsurface #580) →
+Stage 5 Blender native routing incl. thin-film sockets (#581,
+`use_native_principled` default ON experimental). CPU+GPU byte-mirrored at
+every stage; production default-flip gated on the full hardware parity
+matrix per the owner's pre-authorization (memory
+`pkg178-repin-and-stage5-autonomy`).
+
+### pkg182 — Principled/Disney `ggxReflect` eval-D/pdf-D consistency (PR #582, 2026-08-10)
+
+Surfaced by pkg178 Stage 4 PR-4 (thin glass rendered black at low
+roughness); root-caused to a pre-existing regularizer mismatch
+(`+1e-4` eval-D vs unregularized pdf-D) in the metallic/specular/aniso
+reflect evaluators that also made ordinary Principled metallic/specular
+near-black at low roughness (furnace 0.067→0.604 at r=0.02). Eval-only
+fix, sampler/pdf untouched, register-neutral (`<false>`/`<true>` STACK
+unchanged). No spec existed for this defect class before now — filed
+retroactively as pkg182.
+
+### pkg172 effect (A) — CLOSED (PRs #551/#553/#576, 2026-08-07 → 2026-08-10)
+
+The pbrt-v4 guarded-pdf form replaces the biased `f/(pdf+1e-3)` estimator:
+CPU path_tracer/wavefront/multiwavelength, 15 sites (#551, closes the
+universal 0.628%/bounce = `2π·ε` loss; clearcoat whole-sphere MSE floor
+re-pinned 5e-5→3.5e-5 with in-test justification); `neural_cache`/
+`restir_di` follow-up legs (#553); the two remaining GPU NEE light-pdf
+sites in `stage_advance.cu`/`gpu_nee.cuh` (#576, register-neutral, no
+firefly-gate shift). Effect (B) remains pkg173's separate, lower-priority
+scope.
+
+### pkg176 — Blender native steering wheel, Stages 0–4 COMPLETE (PRs #555/#556/#561/#568, 2026-08-08 → 2026-08-09)
+
+Stage 0 mapping table (owner-review artifact) → Stage 1 settings-plumbing
+(#555) → Stage 2 native Cycles panel adoption (#556) → Stage 3 world/
+light/camera completion + `report_unsupported_native_controls` honesty
+guard (#561) → Stage 4 custom-UI retirement (#568, owner-approved
+2026-08-09 — native Blender/Cycles panels are now the only steering wheel
+plus one Astroray-only panel). 45 unit tests + Blender 5.2 real-host
+register/headless-smoke PASS throughout.
+
+### pkg181 — dedicated-light visibility to BSDF rays (PR #569, 2026-08-08)
+
+Fixed the systemic ~12–20% Astroray-vs-Cycles dim and dark lamp
+reflections (mirror-lamp 0.017×→~1.00× Cycles, AREA floor 0.921×→0.985×);
+a prerequisite this run's Cycles-parity numbers rest on.
+
+### pkg179 — CLOSED by diagnosis, no engine code changed (owner-ratified 2026-08-09)
+
+The "3× dead-sample rate" (pkg167 Part 2's escalation) was a
+measurement-methodology mislabel, not a sampler bug or new physics;
+owner ratified Option 2 (keep the energy-correct fallback, no fix). The
+Cycles combined-closure design consulted during diagnosis is recorded for
+pkg178's Principled dielectric, which shipped that design in Stages 3–4.
+
+### Open follow-ups (not closed, tracked forward)
+
+- Conductor thin-film per-λ: metal iridescence uses an RGB-upsample
+  approximation (less saturated than Cycles' per-λ; the dielectric leg is
+  per-λ-exact) — documented approximation, enhancement-tier.
+- Durable `GLoweredMaterial` by-value-`GMaterial`-copy fix: the recurring
+  data-leak class (hit and locally patched by both Stage 3 and PR #579) is
+  prototyped in worktree `.claude/worktrees/sad-maxwell-ff99d1`
+  (uncommitted, PR-2-based); needs re-apply on settled main.
+- Thin-film-vs-Cycles saturation parity verification + the coordinated
+  pkg119-B/pkg129 harness band re-pin (reflecting pkg181 + Smith-G +
+  pkg172(A) + thin-film + pkg182 together) is still owed.
 
 ## Round closeout 2026-07-25 evening → 2026-07-26 — wavefront GPU-parity follow-ups: pkg157/pkg159/pkg161 restore dropped features, pkg160 fixes a real energy-conservation bug, pkg88-B completes object motion blur, pkg162 closes the phantom-overload class
 

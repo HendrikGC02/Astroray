@@ -28,15 +28,16 @@ itself with a concrete caller today.
 After the 2026-08-01/02 correctness cascade (11 PRs), the owner issued a
 course correction. The order is now:
 
-**(a) Engine settlement — one SUPERVISED round, first.** Finish the last
-~10% of the foundation: ~~**PR #541 option A**~~ **shipped 2026-08-06
-(`bbf2d8c`)** — correctness v4 landed with the temporary ceiling raise.
-Remaining: **pkg172 effect (A)** (the universal `f/(pdf+1e-3)` epsilon fix
-with its coordinated, architect-signed re-pin batch) + **pkg174**
-(register-pressure recovery: restore ≤1.0s WITH the correctness fix in,
-then revert the temporary raise; dispatched 2026-08-07, in flight —
-baseline 1.156s on the new toolchain per the spec's measured addendum).
-Supervised because pkg172(A) moves rendered energy project-wide.
+**(a) Engine settlement — one SUPERVISED round.** ~~**PR #541 option
+A**~~ **shipped 2026-08-06 (`bbf2d8c`)** — correctness v4 landed with the
+temporary ceiling raise. ~~**pkg172 effect (A)**~~ **CLOSED** (PRs
+#551/#553/#576, 2026-08-07 → 2026-08-10 — pbrt-v4 guarded-pdf form, the
+universal 0.628%/bounce `f/(pdf+1e-3)` energy loss removed CPU+GPU across
+all legs, coordinated clearcoat re-pin). **pkg174** register-pressure
+recovery closed as owner-accepted ceiling (PR #554, 2026-08-08 — the
+structural stage-split does not recover ≤1.0s on the current toolchain;
+temporary raise stays; see the spec for the measured levers). **Phase (a)
+COMPLETE.**
 
 **Round closeout (2026-08-06→07, workflow restructure):** #541 merged
 (`bbf2d8c`); local builds NMake→Ninja + native sm_120 + CUDA 12.8 (cold
@@ -49,35 +50,50 @@ seats. Full report: `.astroray_plan/docs/reports/2026-08-06-restructure.html`.
 
 **(b) The Integration Milestone — BEFORE Pillar 4.** *"The purpose of
 mimicking Cycles was to be able to use as much of the existing options and
-settings in Blender as the steering wheel for this engine."* The engine is
-nearly usable; the owner wants to actually USE it in Blender to verify it
-does what they want. Integration IS the next milestone, not a side quest:
+settings in Blender as the steering wheel for this engine."* All four
+originally-scoped milestone packages are now DONE, and the milestone grew
+one owner-requested extension along the way:
 
-- **pkg175** — one-command dev loop: build → package → install → launch →
-  headless smoke-render ("building, installing, launching and testing it
-  for me is far too much work" — that loop becomes one command, for the
-  owner and for agents).
-- **pkg176** — Blender as the steering wheel: drive Astroray from
-  Blender's NATIVE render settings, Cycles-style panels
-  (`COMPAT_ENGINES` re-registration), and native world/material node
-  trees; retire the ground-up custom UI down to one small Astroray panel.
-- **pkg177** — generalization tradeoff study (parallel-safe): Blender is
-  the first target, not the only one. Real axes — native `RenderEngine`
-  plugin vs renderer-agnostic session layer + thin adapters vs USD/Hydra
-  delegate — laid out with grounded facts for an owner decision, per the
-  no-forced-options rule. Research:
-  `dcc-integration-research-2026-08.md`.
-- **pkg119 Phases B/C** — re-scoped as the milestone's verification layer
-  (differential harness vs Cycles + graceful-degradation policy).
+- **pkg175** — DONE (PR #547, 2026-08-07): one-command dev loop
+  (build → package → install → launch → headless smoke-render); 150s full
+  rebuild / 5.8s `-SkipBuild`.
+- **pkg176** — DONE, Stages 0–4 (PRs #555/#556/#561/#568, 2026-08-08 →
+  2026-08-09): Blender's NATIVE render settings + Cycles-style panels +
+  native world/light/camera properties are the steering wheel; the custom
+  ground-up UI is retired down to one Astroray-only panel.
+- **pkg177** — DONE (PR #546, ratified 2026-08-07): Route 1 (native
+  `RenderEngine` plugin) + Route 2 (session-boundary discipline) adopted;
+  Route 3 (Hydra) deferred. Research: `dcc-integration-research-2026-08.md`.
+- **pkg119 Phases B/C** — DONE (PRs #550, #564): differential harness vs
+  Cycles + graceful-degradation policy (never silently wrong).
+- **pkg178 (owner-requested extension, filed 2026-08-08)** — DONE, Stages
+  0–5 (PRs #566–#581, 2026-08-07 → 2026-08-10): a faithful native
+  `"principled"` material plugin (Cycles main / Blender 5.2-era) — the
+  Disney↔Principled structural mismatch the milestone's parity numbers
+  kept running into. Full closure stack incl. coat/sheen/anisotropy/
+  approx-SSS/emission/alpha/**thin film + thin wall** (Belcour-Barla),
+  CPU+GPU, driven from the Blender addon Stage 5 socket routing.
+  **pkg181** (dedicated-light BSDF visibility, PR #569) and **pkg182**
+  (`ggxReflect` eval-D/pdf-D consistency, PR #582) are correctness
+  prerequisites/side-findings this extension surfaced and closed along
+  the way. **pkg179** (dielectric dead-sample "3× rate") was CLOSED by
+  diagnosis — mislabel, no fix needed.
 
-**(c) Only then: Pillar 4 unpause** (pkg45/46/48/49/50/51 + pkg107) and
-the GR/astro science layer, driven from inside Blender via the steering
-wheel the milestone built.
+**Integration Milestone phase (b) is COMPLETE on its originally-scoped
+package set.** Open, not blocking: thin-film-vs-Cycles saturation parity
+verification + one coordinated pkg119-B/pkg129 harness band re-pin
+(reflecting pkg181 + Smith-G + pkg172(A) + thin-film + pkg182 together).
+
+**(c) Pillar 4 unpause** (pkg45/46/48/49/50/51 + pkg107) and the GR/astro
+science layer, driven from inside Blender via the steering wheel the
+milestone built, is next in sequence per the 2026-08-03 directive — **still
+PAUSED pending an explicit owner go-ahead** (no unpause directive has been
+issued; do not unpause unilaterally).
 
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU
-parity tail — **pkg173** (bounce-1 geometry-sampling expectations) and the
-**pkg153** remainder — sits BELOW the Integration Milestone unless the
-paper turns out to require bit-level parity.
+parity tail — **pkg172 effect (B) / pkg173** (bounce-1 geometry-sampling
+expectations) and the **pkg153** remainder — sits BELOW the Integration
+Milestone unless the paper turns out to require bit-level parity.
 
 ---
 
@@ -239,6 +255,39 @@ fix:
   pressure — pkg55-A.0's documented cliff) dominates. Phase 3 routes
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
+
+**Round closeout (2026-08-08 → 2026-08-10): 17 PRs (#566–#582) — Principled-BSDF completion run, no open PRs at closeout.**
+**pkg178 native Cycles Principled BSDF is now fully COMPLETE** (Stages
+0–5, PRs #566–#581): a faithful `"principled"` material plugin (core
+lobes, coat/sheen/anisotropy/approx-SSS/emission/alpha, **thin film +
+thin wall** per Belcour-Barla 2017), CPU+GPU byte-mirrored, driven from
+the Blender addon's Stage-5 socket routing. The `template<bool
+HasPrincipled>` D4 isolation (#570) permanently pins the non-principled
+shade-path STACK at 3608 B, closing a +52% fleet-wide regression class a
+naive lobe-count increase would otherwise reopen every time. Along the
+way, **pkg182** (PR #582) fixed a pre-existing `ggxReflect` eval-D/pdf-D
+regularizer mismatch that made low-roughness Principled metallic/specular
+near-black (0.067→0.604 at r=0.02) — filed and closed same-day. **pkg172
+effect (A) CLOSED** (PRs #551/#553/#576): the pbrt-v4 guarded-pdf form
+removes the universal 0.628%/bounce `f/(pdf+1e-3)` energy loss CPU+GPU
+across every leg; effect (B) remains pkg173's separate, lower-priority
+scope. **pkg176 Blender native steering wheel is now fully COMPLETE**
+(Stages 0–4, PRs #555/#556/#561/#568): native Blender/Cycles settings and
+panels are the only steering wheel, custom UI retired to one Astroray
+panel, owner-approved 2026-08-09. **pkg181** (PR #569) fixed the systemic
+~12–20% Astroray-vs-Cycles dim and dark lamp reflections (dedicated
+lights were invisible to BSDF-sampled rays) — a prerequisite the run's
+Cycles-parity numbers rest on. **pkg179 CLOSED by diagnosis** (owner
+ratified 2026-08-09): the "3× dead-sample rate" was a measurement
+mislabel, not a bug; no engine code changed. **This closes the
+Integration Milestone's originally-scoped package set** (pkg175/176/177/
+119-B/C all DONE) plus its pkg178 extension — see "Current sequencing"
+above. **Open, not blocking:** thin-film-vs-Cycles saturation parity +
+one coordinated pkg119-B/pkg129 harness band re-pin (pkg181 + Smith-G +
+pkg172(A) + thin-film + pkg182 together); the durable
+`GLoweredMaterial` by-value-`GMaterial`-copy fix (prototyped in worktree
+`.claude/worktrees/sad-maxwell-ff99d1`, uncommitted) needs re-apply on
+settled main. Pillar 4 stays PAUSED pending explicit owner go-ahead.
 
 **Round closeout (2026-07-25 evening → 2026-07-26): 6 PRs (#525–#530) — wavefront GPU-parity follow-ups after pkg55 Phase C's finale, no open PRs at closeout.**
 **pkg55 is now fully COMPLETE** (both megakernels deleted, PR #524, 2026-07-25 — landed the prior session) and every package this round is downstream of that: restoring a GPU capability the deletion silently dropped, or fixing a defect the wavefront-only world finally made visible. **pkg88-B** (PR #525) — object motion blur addon bake; independent (different-model) review caught a real bug all 13 of the PR's own tests missed (only `t_end` was snapshotted, so CENTER swept half the arc and END silently disabled object blur entirely); a real headless-Blender run then found a **pre-existing pkg88-A defect** — `convert_scene`'s `clear()` wipes the camera before `set_camera_motion_blur()` runs, so **camera motion blur has failed outright in real Blender since it shipped**, invisible to every suite that mocks `bpy`; both fixed in #525, `scripts/verify_pkg88b_blender.py` promoted as a permanent real-host guard. **pkg157** (PR #526) — firefly clamps (`clampDirect`/`clampIndirect`) ported into the wavefront, restoring what C7's deletion sweep silently dropped; cross-binary no-op measured **2.48e-07 relative to peak**, ~40× inside the 1e-5 convention; exposed a **phantom `launchStageInit`-family overload** in `gpu_wavefront_state.h` (a declaration no definition matched), 3 of 4 instances fixed at the root. **pkg160** (PR #527) — plain `metal` (not Disney metal) was found **~3.5×/7× (mean/median) too dark on GPU**; Step-0 table comparison then found the CPU side was the physically wrong one (`GGXEnergyCompensationLUT`'s 256-sample hemisphere estimate cannot resolve a narrow GGX lobe, driving `Fms` to 96.5% of its ceiling exactly where multiscatter should vanish) — **owner chose to fix the CPU**, which turned out to be **creating energy** (white-furnace linear up to 1.77×, 66% of pixels > 1.0; a gamma-rendered furnace test structurally cannot detect energy gain — new memory `gamma-furnace-cannot-detect-energy-gain`). Fixed by routing plain metal through the same Kulla & Conty compensation `disney.cpp` has shipped since pkg60; ships the plain-metal GPU/CPU parity gate that never existed (31/32 green, one owner-approved asymmetric-band exception at roughness 0.9 owned by new spec **pkg163**). **pkg162** (PR #528) — the fourth and last phantom-overload instance (`launchStageInit`, a load-bearing default argument) closed; class now 4 found / 4 resolved; no dedicated spec, tracked in STATUS.md + standup. **pkg159** (PR #529) — GPU cryptomatte restored in the wavefront (a real capability regression from #524 nobody had filed); cross-path Psyop IoU **0.964–0.984** vs a 0.85 threshold, demonstrably discriminating (GPU leg distinct from CPU leg). **pkg161** (PR #530) — built a firefly-bearing gate scene to close a two-day gate hole (no scene in the library had a heavy-enough tail to demonstrate suppression): `firefly_window` measures **22.85×** peak/p99.9 (target ≥10×) vs a 1.07× negative control; un-skips pkg157's suppression gate. **Two investigations closed without shipping code:** pkg155 Phase 1 confirmed the ~5× GPU absolute slowdown on a corrected metric (total GPU ms/render, since the spec's per-launch metric died with #524) and convicted the shade stage (221 regs/thread, 1 block/SM, recovery target ≤128); the sm_120 build-config lever was **ruled out with numbers** (native AOT 1.68–1.80× SLOWER than the current sm_89-JIT build — the register problem is intrinsic to the kernel, not a build artifact). **Specs filed:** pkg163 (spectral-vs-RGB compensation colour-space parity, metal-only defect on a not-metal-only seam); pkg158 narrowed (Disney-metal reconciliation Step-0 re-baselines on a post-pkg160 SHA); pkg120 + pkg88 Phases B/D unblocked (stale pkg55-Phase-C blocker markers cleared). **Owner decisions:** fix-the-CPU direction on pkg160; the r=0.9 asymmetric band exception; GPU/CPU parity-band tightening project-wide and the `MAX_GLOSSY_PARITY_MSE` re-pin (branch `pkg164-glossy-mse-repin`, **PR #532** — re-pinned 0.04 → 0.006 on a measured 0.003411/0.003492/0.003415 spread, 1.72× headroom; pkg160's own defect measured 0.02474 and passed the old bound) remain open owner items. **Next pickup:** pkg163 (owns retiring pkg160's exception) → pkg158 (Disney metal reconciliation) → pkg156/pkg120 (share the `stage_advance.cu` wavefront lane, serialize) → pkg150 (Disney dielectric VNDF) → pkg88-D (wavefront motion, scope reworded post-#524) → pkg119-B/C (Blender differential harness). pkg155 Phase 2 stays an opportunistic GPU-lock gap-filler (needs the GPU at every bisect point, not compile-only as originally scoped); pkg153 (wavefront_diff env-gate disposition) remains in flight with the gate-failure-reviewer. Pillar 4 stays PAUSED.

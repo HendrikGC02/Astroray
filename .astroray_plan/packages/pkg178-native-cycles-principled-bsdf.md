@@ -166,9 +166,32 @@ one harness sweep flag-off vs flag-on, diffing `triage_report.json`.
       the Stage-0-declared band (visual + per-channel ratio); conductor
       + dielectric both covered. Thin Wall: paper/leaf/window-sheet trio
       matches Blender 5.2 Cycles.
-- [ ] Addon flag routes Principled nodes to the native material; Disney
+- [x] Addon flag routes Principled nodes to the native material; Disney
       path intact; zero silently-dropped sockets on the flagged path
-      (report line per pkg119-C).
+      (report line per pkg119-C). — Stage 5 addon switch DONE on branch
+      `pkg178-stage5` (2026-08-09): `use_native_principled` bool (default ON,
+      experimental), one flag-aware helper replaces both `'disney'` literals
+      (live spec path + `convert_principled_bsdf_v2`); 22-socket Blender→native
+      map incl. renamed-input fallbacks; alpha routes to the native `alpha`
+      param (transmission conflation retired on the flagged path);
+      `shader_blending` carries native_params through Mix/Add; pkg119-C gap
+      report for thin-film/thin-wall/subsurface. Verified headless on Blender
+      5.2: a metallic+coat+sheen+aniso+alpha Principled node routes to
+      `create_material('principled', ...)` with all params mapped
+      (alpha=0.85 real, transmission_weight=0.0), render finite/non-black
+      (nonblack_frac 1.000, mean_lum 0.098). On-HW native-vs-Cycles parity
+      matrix (auto-flip gate) is LEAD-DEFERRED, separate from this routing.
+      **Thin-film wiring finalized on branch `pkg178-stage5-final` (2026-08-10,
+      rebased clean onto main post-Stage-4):** `Thin Film Thickness`→
+      `thin_film_thickness`, `Thin Film IOR`→`thin_film_ior`, `Thin Wall`(bool)→
+      `thin_wall`, `Subsurface Anisotropy`→`subsurface_anisotropy` now mapped
+      (socket names read off live Blender 5.2); removed from the dropped list
+      (only `Subsurface IOR`, `Coat Normal`, `Tangent` remain, reported per
+      pkg119-C when linked). Verified headless on Blender 5.2: a Principled node
+      with thin_film_thickness=550nm + thin_film_ior=1.4 + thin_wall + subsurface
+      anisotropy=0.3 routes to `create_material('principled', ...)` with the four
+      native params present (thin_film/thin_wall no longer gap-reported), render
+      finite/non-black (nonblack_frac 1.000, mean_lum 0.046).
 - [ ] No wavefront perf regression on non-principled scenes; register
       report attached to every GPU-stage PR.
 - [ ] Every ported formula cites its Cycles file/function or paper.

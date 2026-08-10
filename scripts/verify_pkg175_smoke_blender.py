@@ -103,9 +103,12 @@ def _engine_standin(addon):
         def report(self, *a, **k):
             pass
 
-    for name, fn in Engine.__dict__.items():
-        if callable(fn) and not name.startswith("__"):
-            setattr(_S, name, fn)
+    # Mirror BOTH methods AND class-level constants (e.g. pkg178 Stage-5's
+    # _NATIVE_PRINCIPLED_UNMAPPED, read via self. during material conversion) —
+    # copying callables only left the stand-in missing class attributes.
+    for name, val in Engine.__dict__.items():
+        if not name.startswith("__"):
+            setattr(_S, name, val)
     return _S()
 
 

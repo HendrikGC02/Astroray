@@ -218,7 +218,12 @@ def test_gate7_stale_area_flips_removed():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for rel in ("benchmarks/blender_parity/scene_library.py",
                 "scripts/verify_pkg122_cycles_oracle.py"):
-        with open(os.path.join(root, rel), encoding="utf-8") as fh:
+        path = os.path.join(root, rel)
+        if not os.path.exists(path):
+            # A deleted harness trivially satisfies the guard (hygiene
+            # 2026-08-11 removed the one-off verify_pkg122 script).
+            continue
+        with open(path, encoding="utf-8") as fh:
             text = fh.read()
         assert "rotation_euler = (math.pi, 0.0, 0.0)" not in text, \
             f"{rel} still flips the AREA lamp 180 deg (renders Astroray leg black post-pkg139)"

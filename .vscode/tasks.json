@@ -32,7 +32,7 @@
       "type": "shell",
       "command": "python",
       "args": [
-        "benchmarks/showcase/runner.py",
+        "benchmarks/showcase/render_showcase.py",
         "--quick",
         "--gpu",
         "--output-dir",
@@ -48,7 +48,7 @@
       "type": "shell",
       "command": "python",
       "args": [
-        "benchmarks/showcase/runner.py",
+        "benchmarks/showcase/render_showcase.py",
         "--quick",
         "--output-dir",
         "test_results/showcase_cpu"

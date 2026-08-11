@@ -325,29 +325,31 @@ class PrincipledPlugin : public Material {
     // bsdf_util.h:200 fresnel_conductor_polarized + :499
     // fresnel_iridescence_channel<true>.
     // ==================================================================
-    // Host-precompute the per-RGB-channel conductor (n,k) + F82 value g from a
-    // per-material (f0, F82-tint) pair. Called ONCE from the ctor — this is the
-    // per-hit-inversion optimization the plan mandates (plan §0 decision 5;
-    // Cycles re-inverts per shade only because its fresnel structs are per-hit).
+    // Gulbrandsen "Artist Friendly Metallic Fresnel" (JCGT 2014) inversion: an
+    // artist (f0, specular-tint) pair → conductor (n,k) + the F82 value g (used as
+    // the phase selector). Shared by the per-material ctor precompute (RGB leg) and
+    // the per-λ spectral leg (thinFilmConductorSpectral). Exact mirror of
+    // gpu_materials.h::gpu_pr_conductorNK. Cycles bsdf_microfacet.h:365-383; g reuses
+    // the metallic lobe's own F82 evaluation at cosθ=1/7 (bsdf_util.h:186).
+    static void conductorNK(float f0, float tint, float& n, float& k, float& g) {
+        const float r = std::min(f0, 0.999f);
+        g = f82Channel(1.0f / 7.0f, f0, tint);
+        const float sqrtR = std::sqrt(r);
+        // n = mix((1+√r)/(1−√r), (1−r)/(1+r), g); k = safe_sqrt((r(n+1)²−(n−1)²)/(1−r)).
+        const float nLo = (1.0f + sqrtR) / (1.0f - sqrtR);
+        const float nHi = (1.0f - r) / (1.0f + r);
+        n = nLo + (nHi - nLo) * g;
+        const float kNum = r * (n + 1.0f) * (n + 1.0f) - (n - 1.0f) * (n - 1.0f);
+        k = std::sqrt(std::max(0.0f, kNum / (1.0f - r)));
+    }
+    // Host-precompute the per-RGB-channel conductor (n,k,g) from the per-material
+    // (base_color, specular-tint) pair. Called ONCE from the ctor — the per-hit
+    // inversion optimization for the RGB leg (Cycles re-inverts per shade only
+    // because its fresnel structs are per-hit).
     void precomputeConductorNK() {
-        for (int c = 0; c < 3; ++c) {
-            const float f0 = (&baseColor_.x)[c];
-            const float tint = (&specularTint_.x)[c];
-            const float r = std::min(f0, 0.999f);
-            // g = fresnel_f82(1/7, f0, b) with b = f82tint_B(f0, tint) — exactly the
-            // metallic lobe's own F82 evaluation at cosθ=1/7 (bsdf_util.h:186).
-            const float g = f82Channel(1.0f / 7.0f, f0, tint);
-            const float sqrtR = std::sqrt(r);
-            // n = mix((1+√r)/(1−√r), (1−r)/(1+r), g); k = safe_sqrt((r(n+1)²−(n−1)²)/(1−r)).
-            const float nLo = (1.0f + sqrtR) / (1.0f - sqrtR);
-            const float nHi = (1.0f - r) / (1.0f + r);
-            const float n = nLo + (nHi - nLo) * g;
-            const float kNum = r * (n + 1.0f) * (n + 1.0f) - (n - 1.0f) * (n - 1.0f);
-            const float k = std::sqrt(std::max(0.0f, kNum / (1.0f - r)));
-            filmMetalN_[c] = n;
-            filmMetalK_[c] = k;
-            filmMetalG_[c] = g;
-        }
+        for (int c = 0; c < 3; ++c)
+            conductorNK((&baseColor_.x)[c], (&specularTint_.x)[c],
+                        filmMetalN_[c], filmMetalK_[c], filmMetalG_[c]);
     }
     // Per-RGB-channel conductor iridescence F at half-vector cosine `cosI`, using
     // the precomputed (n,k,g) + the Rec.709-baked CIE sensitivity LUT — Cycles
@@ -365,19 +367,36 @@ class PrincipledPlugin : public Material {
         }
         return out;
     }
-    // Spectral leg. Cycles has no spectral n,k for the F82 conductor, so the plan
-    // (§0 decision 5) evaluates the RGB-channel conductor iridescence and upsamples
-    // the resulting reflectance to spectral — APPROXIMATED-equal-to-Cycles, and the
-    // sanctioned "upsample a reflectance colour" JH usage (memory
-    // spectral-upsample-nonlinearity-scaled-bsdf; same trick as the film-free
-    // transmission spectral fallback below). Documented RGB↔spectral hue difference
-    // by construction (pkg128 §B; recorded, not gated).
+    // Spectral leg — PER-λ NATIVE (pkg182). Upsample the artist f0 (base_color) and
+    // specular-tint at EACH sampled wavelength, invert the conductor (n,k) per-λ via
+    // the Gulbrandsen model (conductorNK), and run the analytic Belcour-Barla Airy
+    // summation per-λ with the exact single-λ sensitivity phasor exp(i·2π·m·OPD/λ)
+    // (sensitivitySpectral) — the SAME per-λ discipline as the dielectric spectral
+    // leg (thinFilmFresnelSpectral) and the pkg163 rule. This supersedes PR-2's
+    // "upsample an RGB conductor reflectance" approximation with the exact per-λ
+    // evaluation (no Jakob-Hanika round-trip), matching what Cycles does internally
+    // and the dielectric leg's discipline. Exact under spectral/colored illumination;
+    // in Astroray's 4-sample hero pipeline the white-light saturation gain is small
+    // (~10% peak) — see tests/test_pkg182_conductor_spectral_native.py for the data.
+    // The per-hit per-λ inversion is cheap and runs only on the metallic film path.
+    // compFss (f0) stays film-free. Cycles reference: bsdf_util.h:499
+    // fresnel_iridescence_channel<true> over :200 fresnel_conductor_polarized, with
+    // (n,k) from the F82 inversion (bsdf_microfacet.h:365-383).
     astroray::SampledSpectrum thinFilmConductorSpectral(
             float cosI, const astroray::SampledWavelengths& lam) const {
-        Vec3 rgb = thinFilmConductorRGB(cosI);
-        float maxc = std::max({rgb.x, rgb.y, rgb.z, 1.0f});
-        Vec3 tint = rgb * (1.0f / maxc);
-        return upsample(tint, lam) * maxc;
+        namespace tf = astroray::thinfilm;
+        astroray::SampledSpectrum f0 = upsample(baseColor_, lam);
+        astroray::SampledSpectrum tint = upsample(specularTint_, lam);
+        astroray::SampledSpectrum out(0.0f);
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+            float n, k, g;
+            conductorNK(f0[i], tint[i], n, k, g);
+            const float lambda = lam.lambda(i);
+            auto S = [lambda](float argOPD) { return tf::sensitivitySpectral(argOPD, lambda); };
+            out[i] = tf::fresnelIridescenceChannel<true>(
+                1.0f, thinFilmThickness_, thinFilmIor_, n, k, g, cosI, nullptr, S);
+        }
+        return out;
     }
 
     // ==================================================================

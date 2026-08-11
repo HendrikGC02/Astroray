@@ -1,0 +1,7 @@
+# Windows batch scripts must be checked out with CRLF line endings.
+# cmd.exe mis-parses LF-only .bat files: it joins lines and mangles the
+# `^` continuation, producing errors like "'5-B'' is not recognized" and
+# "< was unexpected at this time", and can falsely exit 0 having done nothing.
+# git still stores these as LF internally; `eol=crlf` forces CRLF on checkout.
+*.bat text eol=crlf
+*.cmd text eol=crlf

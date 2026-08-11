@@ -1,342 +1,333 @@
 # Renderer Internals
 
 A technical reference for agents working on this codebase. Covers architecture,
-the rendering pipeline, material conventions, and the invariants that caused
-every major bug to date. Read this before touching `include/raytracer.h`.
+the spectral rendering pipeline, the material/closure-graph system, the CUDA
+wavefront GPU backend, and invariants that have caused real bugs. Read this
+before touching `include/raytracer.h`, `include/astroray/gpu_materials.h`, or
+`src/gpu/wavefront/`.
+
+**Historical note:** an earlier (pre-spectral, ~April 2026) version of this
+doc described an RGB-only architecture — `Vec3 Renderer::pathTrace()`,
+`Material::eval()`/`sample()` as the light-transport contract,
+`Integrator::sample()` returning `Vec3`. **That architecture is deleted.**
+`Renderer::pathTrace` no longer exists. `Integrator::sample()` no longer
+exists — `sampleFull()` is the sole, pure-virtual entry point.
+`Material::eval()`/`sample()`/`pdf()` still exist as RGB-space virtuals but
+are not the production light-transport path — see "The spectral pipeline"
+below for the real contract. Do not reintroduce the old architecture.
 
 ---
 
 ## Architecture
 
-The renderer is header-only. There is no separate compilation of the core:
+The renderer core is still header-only C++17; CUDA device code lives under
+`src/gpu/`, CPU-only wavefront/helper `.cpp` under `src/cpu/` and `src/`.
 
 ```
-include/raytracer.h          Core: Vec3, Ray, HitRecord, all base types,
-                             BVH, Camera, Framebuffer, Renderer
-include/advanced_features.h  DisneyBRDF, transforms, subsurface
-include/astroray/            Plugin interfaces and GR subsystem:
-  registry.h                 Registry<T> — generic factory template
-  register.h                 ASTRORAY_REGISTER_* macros + type aliases
-  integrator.h               Integrator base class (pkg05)
-  pass.h                     Pass base class (pkg06)
-  param_dict.h               Plugin parameter passing (ParamDict)
-  spectral.h                 SpectralSample, SpectralWavelengths
-  gr_integrator.h            GR geodesic solver (RK45/Dormand-Prince)
-  metric.h / gr_types.h      Kerr metric, spacetime types
-  accretion_disk.h           Novikov-Thorne disk emission
-  shapes.h                   Sphere, Triangle, Mesh class bodies
-apps/main.cpp                Standalone binary
-module/blender_module.cpp    pybind11 binding; exposes Renderer as `astroray`
-plugins/                     All plugin implementations (drop-in .cpp files):
-  integrators/               path_tracer.cpp, ambient_occlusion.cpp
-  materials/                 disney.cpp, lambertian.cpp, metal.cpp, …
-  passes/                    oidn_denoiser.cpp, depth_aov.cpp, …
-  shapes/                    sphere.cpp, triangle.cpp, black_hole.cpp, …
-  textures/                  checker.cpp, noise.cpp, voronoi.cpp, …
+include/raytracer.h            Core: Vec3, Ray, HitRecord, BVH, Camera,
+                                Framebuffer, Renderer::render(), spectral
+                                path-trace kernels (pathTraceSpectral,
+                                pathTraceSpectralCaustic)
+include/advanced_features.h    DisneyBRDF helpers, transforms, subsurface
+include/astroray/              Plugin interfaces, spectral types, GR subsystem,
+                                GPU material/wavefront headers:
+  registry.h / register.h        Registry<T> + ASTRORAY_REGISTER_* macros
+  integrator.h                   Integrator base class — sampleFull() only
+  pass.h / param_dict.h          Pass base class / plugin param passing
+  spectrum.h                     SampledWavelengths, SampledSpectrum,
+                                  RGBAlbedoSpectrum (Jakob-Hanika upsampling)
+  material_closure.h             MaterialClosureGraph/Type — CPU closure desc.
+  gpu_materials.h                GPU material union (GMAT_*), closure-graph
+                                  lowering + eval/sample/pdf on GPU
+  gpu_wavefront_state.h          GPU wavefront SoA state + launchStage*()
+  gpu_renderer.h                 CUDARenderer — device upload + dispatch
+  thin_film_fresnel.h/cie_table  Belcour-Barla 2017 Fresnel, CPU+GPU shared
+src/cpu/wavefront/             CPU mirror of the GPU wavefront stages (used
+                                for CPU/GPU parity gates)
+src/gpu/wavefront/             CUDA stage kernels: stage_init, stage_intersect,
+                                stage_shade_*, stage_advance, stage_restir, ...
+apps/main.cpp                  Standalone binary
+module/blender_module.cpp      pybind11 binding; exposes Renderer as `astroray`
+plugins/                       Plugin implementations (drop-in .cpp files):
+  integrators/                   path_tracer, multiwavelength_path_tracer,
+                                  restir_di, neural_cache, ambient_occlusion
+  materials/                     principled.cpp, disney.cpp, lambertian.cpp,
+                                  metal.cpp, dielectric.cpp, thin_glass.cpp
+  passes/ shapes/ textures/      oidn_denoiser.cpp, sphere.cpp, noise.cpp
+blender_addon/                 Blender 5.1 RenderEngine addon (Python)
 ```
 
-Both targets (`astroray` Python module and standalone binary) compile the same
-headers. The Python module is compiled with `-fPIC -fvisibility=hidden`; the
-standalone binary is not. All plugins are compiled into a single OBJECT library
-(`astroray_plugins`) that is linked whole into both targets — this is required
-to keep the static-initialiser registration calls alive through linker
-dead-stripping.
+The plugin registry pattern (`Registry<T>`, `ASTRORAY_REGISTER_*` macros,
+`plugins/*/*.cpp` files picked up by CMake `GLOB_RECURSE`) is unchanged from
+the old doc — see `include/astroray/register.h`.
+
+### Render call flow (Python binding to image)
+
+1. Python calls `renderer.render(samples_per_pixel, max_depth, ...)`
+   (`PyRenderer::render` in `module/blender_module.cpp`).
+2. If `set_use_gpu(True)` was called and a CUDA device is available
+   (`cudaRenderer->isAvailable()`), the call routes to the GPU wavefront
+   pipeline. A CPU-only integrator (`capabilities().gpuSupported == false`)
+   throws instead of silently rendering near-black (pkg171, fixing #540).
+3. Otherwise it falls through to `Renderer::render()` in `include/raytracer.h`,
+   which tile-parallelizes (`#pragma omp parallel for schedule(dynamic)
+   collapse(2)`) over 16×16 tiles and, per pixel/sample, calls
+   `integrator_->sampleFull(primaryRay, gen)`.
+4. The default integrator runs the spectral path tracer via
+   `Renderer::pathTraceSpectral()` / `pathTraceSpectralCaustic()`
+   (`include/raytracer.h`, ~line 2380 / ~2651).
+5. Per-sample color accumulates, divides by sample count, gets
+   `filmExposure` applied, then gamma (`pow(clamp(c,0,1), 1/2.2)`) is applied
+   **only if `applyGamma=true`** — pixels remain post-exposure, pre-gamma
+   otherwise, same convention as before.
+6. `Pass::execute(Framebuffer&)` runs afterward, single-threaded, over
+   registered passes (OIDN, OptiX, AOV extraction).
 
 ---
 
-## Plugin System
+## The spectral pipeline
 
-Every extensible type (Material, Hittable/shape, Texture, Integrator, Pass)
-follows the same pattern:
+Astroray renders in **spectral space**, not RGB. This is the single most
+important structural fact for any agent touching light transport.
+
+### Hero-wavelength sampling
+
+- `astroray::SampledWavelengths` (`include/astroray/spectrum.h`) carries
+  `kSpectrumSamples = 4` wavelengths per ray, stratified over
+  `[kLambdaMin=360nm, kLambdaMax=830nm]` via `SampledWavelengths::sampleUniform()`.
+- `terminateSecondary()` collapses to the hero wavelength (zeroes the other
+  3 PDFs) when a bounce is wavelength-dependent (dispersion, volumetrics)
+  and can't be sampled coherently across all 4.
+- `astroray::SampledSpectrum` is the corresponding 4-wide radiance value.
+- GR redshift is applied directly to `SampledWavelengths` (redshift factor
+  `g` via `MinkowskiMetric`), not as a post-process color shift.
+
+### Integrator contract: `sampleFull()` only
 
 ```cpp
-// 1. include/astroray/register.h defines the registry typedef and macro
-using IntegratorRegistry = Registry<Integrator>;
-#define ASTRORAY_REGISTER_INTEGRATOR(name, T) \
-    namespace { struct R_##T { R_##T() { \
-        IntegratorRegistry::instance().add(name, \
-            [](const ParamDict& p){ return make_shared<T>(p); }); \
-    }}; static R_##T _r_##T; }
-
-// 2. A plugin file (e.g. plugins/integrators/path_tracer.cpp)
-class PathTracer : public Integrator { ... };
-ASTRORAY_REGISTER_INTEGRATOR("path", PathTracer)
-
-// 3. Python / Blender selects by name
-renderer.setIntegrator(IntegratorRegistry::instance().create("path", {}));
-```
-
-The same pattern applies to passes (`PassRegistry`), materials
-(`MaterialRegistry`), shapes (`ShapeRegistry`), and textures (`TextureRegistry`).
-
-**Adding a new plugin:** create one `.cpp` file in the appropriate `plugins/`
-subdirectory, inherit the base class, implement the interface, and call the
-registration macro. CMake's `GLOB_RECURSE` picks it up automatically on the
-next `cmake -B build`.
-
----
-
-## Key Types
-
-| Type | Where | Notes |
-|---|---|---|
-| `Vec3` | raytracer.h:34 | Plain struct, 3 `float` members `x,y,z`. Default-constructs to (0,0,0). |
-| `Ray` | raytracer.h | Constructor normalises direction. |
-| `HitRecord` | raytracer.h | Set via `setFaceNormal()` — always call this from `hit()`. `isDelta` starts `false`. |
-| `BSDFSample` | raytracer.h | **No default init** of `pdf` or `isDelta`. Always set every field explicitly. |
-| `SampleResult` | raytracer.h | Full per-pixel result from an integrator: color, albedo, normal, depth, AOV passes. |
-| `Camera` | raytracer.h | Holds all pixel buffers: `pixels`, `albedoBuffer`, `normalBuffer`, `depthBuffer`, render-pass arrays. |
-| `Framebuffer` | raytracer.h | Thin named-buffer view over `Camera`. `buffer("color")` → `float*` into `cam.pixels`. Passed to `Pass::execute()`. |
-| `Integrator` | astroray/integrator.h | `sample(ray, gen)` + optional `sampleFull()` for AOVs. `beginFrame`/`endFrame` for per-frame setup. |
-| `Pass` | astroray/pass.h | `execute(Framebuffer&)` — post-process pass called after all tiles complete. |
-| `ParamDict` | astroray/param_dict.h | Variant-based key/value store passed to plugin constructors. |
-
----
-
-## Rendering Pipeline
-
-### High-level flow (`Renderer::render`)
-
-```
-1. buildAcceleration()             — SAH BVH over scene objects
-2. integrator_->beginFrame()       — per-frame integrator setup (if set)
-3. #pragma omp parallel for        — tile-parallel pixel loop
-   for each pixel:
-     for each sample s:
-       ray = camera.getRay(u, v, gen)
-       if integrator_:
-           result = integrator_->sampleFull(ray, gen)   // color + AOVs
-       else:
-           result = pathTrace(ray, depth, gen)          // fallback
-       clamp firefly (lum > 20)
-       accumulate color, albedo, normal, depth, passes
-     average; apply filmExposure
-     store to cam.pixels / cam.albedoBuffer / etc.
-4. integrator_->endFrame()
-5. Pass loop:
-   fb = Framebuffer(cam)
-   for pass in passes_:
-       pass->execute(fb)            — e.g. OIDN denoiser writes to fb.buffer("color")
-```
-
-### Per-pixel accumulation detail
-
-```
-color /= samples
-color *= filmExposure
-alpha /= samples
-passColor[i] /= samples; passColor[i] *= filmExposure  (for lighting passes)
-
-if applyGamma:
-    color = pow(clamp(color, 0, 1), 1/2.2)
-else:
-    color = max(color, 0)
-
-cam.pixels[idx] = color
-```
-
-Pixels are stored **post-exposure, pre-gamma** when `applyGamma=false` (the
-Python module default). The Python module applies gamma in the numpy copy step.
-The standalone binary passes `applyGamma=false` to `render()` and handles gamma
-itself. Do not apply gamma twice.
-
-### `pathTrace` loop (raytracer.h ~731)
-
-```
-throughput = Vec3(1)
-wasSpecular = true
-
-for bounce in [0, maxDepth):
-    if no hit:
-        color += throughput * sky_background   // sky always present
-        break
-    if hit emissive:
-        if bounce==0 or wasSpecular:           // avoid double-counting NEE
-            color += throughput * emitted
-        break
-    if not rec.isDelta:
-        color += throughput * sampleDirect()   // NEE
-    Russian Roulette after bounce > 3
-    bs = material.sample(rec, wo, gen)
-    if bs.pdf <= 0: break
-    wasSpecular = bs.isDelta
-    throughput *= bs.f / (bs.pdf + 0.001f)
-    if throughput.max() > 10: throughput *= 10/max
-    ray = Ray(rec.point, bs.wi)
-```
-
-**Emissive double-count guard:** direct light hits are only credited when
-`wasSpecular=true` or on the camera ray (bounce==0). On diffuse bounces, lights
-are sampled by NEE only. Hitting a light mid-path with `wasSpecular=false` is
-intentionally silently ignored.
-
-### `sampleDirect` / NEE+MIS (raytracer.h ~703)
-
-Two strategies combined with power heuristic:
-
-1. **Light sampling** — sample a point on a light, shadow test, eval BSDF.
-2. **BSDF sampling** — sample BSDF direction; if it hits a light, add that contribution.
-
-`direct` returned is the full MIS estimate — **do not multiply by NdotL again**
-in the caller. `eval()` already includes the cosine.
-
----
-
-## Material Conventions
-
-### `eval(rec, wo, wi)` — returns BRDF × cosine
-
-Returns **brdf × NdotL** (cosine included).
-
-The NEE code adds the result directly; it must not multiply by NdotL again.
-The historical double-cosine bug (2026-03-15) scaled contributions as NdotL²,
-causing 2× overexposure — see `docs/agent-context/lessons-learned.md`.
-
-**Backface guard pattern** (mandatory, must come before any clamping):
-```cpp
-float rawNdotL = rec.normal.dot(wi);
-float rawNdotV = rec.normal.dot(wo);
-if (rawNdotL <= 0 || rawNdotV <= 0) return Vec3(0);
-// rawNdotL / rawNdotV are now guaranteed positive — use them directly
-```
-Clamping before the guard makes it permanently dead. This was the root cause of
-Metal's `mean=1.0` overexposure.
-
-### `sample(rec, wo, gen)` → BSDFSample
-
-Fields: `f` (brdf×cos), `pdf`, `isDelta`, `wi`.
-
-- **Always initialise all fields.** `BSDFSample s;` leaves `pdf` and `isDelta`
-  uninitialised.
-- **`pdf` must be consistent with `eval`.** For GGX: compute D with the same
-  formula and epsilon in both `eval` and `sample/pdf`. Inconsistent epsilon
-  placement makes `f/pdf` diverge at low roughness.
-- **Delta materials:** set `s.pdf = 1.0f`. The stochastic branch selection is
-  the importance sampling — do not divide by the branch probability.
-
-### Roughness thresholds
-
-Metal and DisneyBRDF use a `roughness < 0.08` delta (perfect mirror) path.
-Below this threshold the GGX D term is dominated by the `+0.001f` guard,
-making `D/pdf ≈ 0` and the surface appear black. Threshold was raised from
-0.01 to 0.08 after experimental confirmation.
-
----
-
-## Pass Interface
-
-```cpp
-class Pass {
-public:
-    virtual void execute(Framebuffer& fb) = 0;
-    virtual std::string name() const = 0;
-};
-```
-
-`Framebuffer` maps string names to `float*`:
-
-| Name | Points to | Format |
-|---|---|---|
-| `"color"` | `cam.pixels` | 3 floats/pixel (RGB, pre-gamma) |
-| `"albedo"` | `cam.albedoBuffer` | 3 floats/pixel |
-| `"normal"` | `cam.normalBuffer` | 3 floats/pixel (world space) |
-| `"depth"` | `cam.depthBuffer` | 1 float/pixel |
-
-`Vec3` is 3 consecutive floats so `reinterpret_cast<float*>(vec3_ptr)` is
-safe. Passes that need OIDN or other GPU libraries guard with
-`#ifdef ASTRORAY_OIDN_ENABLED` — the define is propagated to `astroray_plugins`
-from CMakeLists when OIDN is found.
-
-**Include order note:** `pass.h` must NOT include `param_dict.h` or any header
-that transitively includes `raytracer.h`. `param_dict.h → raytracer.h` triggers
-`Renderer::render()` to be compiled while `Pass` is still a forward declaration,
-causing an incomplete-type error. Plugin `.cpp` files get `ParamDict` via
-`register.h` which they always include anyway.
-
----
-
-## Integrator Interface
-
-```cpp
+// include/astroray/integrator.h
 class Integrator {
 public:
-    virtual Vec3 sample(const Ray&, std::mt19937&) = 0;
-    virtual SampleResult sampleFull(const Ray&, std::mt19937&);  // default: calls sample()
-    virtual void beginFrame(Renderer&, const Camera&) {}
+    virtual void beginFrame(Renderer&, Camera&) {}
     virtual void endFrame() {}
+    virtual IntegratorCapabilities capabilities() const { return {}; }
+    virtual void setMaxDepth(int depth) { (void)depth; }
+    // Full-path sample: color + first-hit AOV data + render passes.
+    virtual SampleResult sampleFull(const Ray& ray, std::mt19937& gen) = 0;
 };
 ```
 
-`sampleFull` returns `SampleResult` which includes color, albedo, normal, depth,
-and all render-pass AOVs. If an integrator only overrides `sample()`, AOV buffers
-will be zero. `PathTracer::sampleFull` routes through `Renderer::traceFull()` to
-fill all AOVs via the existing path-trace kernel.
+There is no `sample()` method and no RGB fallback. Every integrator plugin
+(`plugins/integrators/*.cpp`) implements `sampleFull()` directly.
+`IntegratorCapabilities::gpuSupported` declares whether a GPU kernel exists;
+integrators without one must run CPU-only or the binding throws.
+
+### Material contract: `evalSpectral()` / `sampleSpectral()`
+
+```cpp
+// include/raytracer.h, class Material
+virtual astroray::SampledSpectrum evalSpectral(
+        const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+        const astroray::SampledWavelengths& lambdas) const = 0;
+
+virtual BSDFSampleSpectral sampleSpectral(
+        const HitRecord& rec, const Vec3& wo, std::mt19937& gen,
+        astroray::SampledWavelengths& lambdas) const;   // has a default impl
+```
+
+`evalSpectral()` is pure virtual — every material plugin must implement it.
+`sampleSpectral()` has a default implementation that calls the legacy RGB
+`sample()` and upsamples the resulting `BSDFSample::f` to spectral via
+`RGBAlbedoSpectrum`; most plugins route through this default rather than
+writing a bespoke spectral sampler.
+
+`Material::eval()`/`sample()`/`pdf()` (RGB, `Vec3`-returning) **still exist**
+as base-class virtuals with harmless stub defaults, and some plugins do
+implement them — but only as input to the `sampleSpectral()` default's
+upsampling step. They are **not** the light-transport contract:
+`Renderer::pathTraceSpectral()` calls `evalSpectral()`/`sampleSpectral()`
+exclusively. Do not reintroduce RGB-space `eval`/`sample` as a rendering
+path — that was the pre-spectral architecture, and it is gone.
+
+### The eta²-clamp footgun (spectral upsampling nonlinearity)
+
+`RGBAlbedoSpectrum` (Jakob-Hanika 2019) only accepts reflectance in `[0,1]`
+per channel — it clamps above 1. Glass/dielectric exit transmission carries
+an `eta²` magnitude that can exceed 1 (e.g. 2.25 at IOR 1.5), so naively
+upsampling `bs.f` directly clips that magnitude and darkens glass. The
+default `sampleSpectral()` factors the >1 magnitude out as a flat scalar and
+upsamples only the normalized `[0,1]` **tint**, reapplying the scalar after
+(`include/raytracer.h` ~line 525, pkg118/#404). **Never upsample
+`albedo * cosTheta / pi` or any other magnitude-bearing quantity directly**
+— upsample the normalized reflectance color, carry any >1 scalar separately.
+Getting this backwards caused both the GPU dielectric darkening bug (#404)
+and its CPU analog (pkg118).
 
 ---
 
-## Camera and Pixel Layout
+## Material system: closure-graph Principled
 
-- `v = 1 - y/(height-1)` in the render loop — row 0 is the **top** of the image.
-- `cam.pixels` is row-major: `pixels[y * width + x]`.
-- Values are post-exposure, pre-gamma when `applyGamma=false`.
-- `cam.albedoBuffer` and `cam.normalBuffer` hold first-hit AOVs (fed to OIDN).
-- `Framebuffer::buffer("color")` returns `float*` into `cam.pixels.data()`.
-  The OIDN denoiser reads this buffer, denoises in-place, and writes the result
-  back to the same pointer — downstream gamma application in the Python binding
-  then operates on the denoised data.
+`include/astroray/material_closure.h` defines `MaterialClosureType` — lobes
+(`Diffuse`, `GGXConductor`, `DielectricTransmission`, `Clearcoat`, `Sheen`,
+`Emission`, `ThinGlass`, and `Principled` — a single monolithic closure
+carrying every Principled-BSDF core-lobe parameter), `MaterialClosure`
+(per-lobe weight/color/roughness/ior/...), and `MaterialClosureGraph`.
+
+`Material::closureGraph()` is a virtual hook (default: empty). Any material
+returning a non-empty, valid graph (`astroray::validateClosureGraph`) gets
+`backendCapabilities().closureGraph = true` and lowers to GPU as
+`GMAT_CLOSURE_GRAPH` — one generic path through `gpu_materials.h` evaluating
+whatever closures the graph contains, instead of a bespoke `GMAT_*` value
+per material.
+
+`plugins/materials/principled.cpp` (`PrincipledPlugin`) is the reference
+implementation: it emits exactly one `MaterialClosureType::Principled`
+closure (base_color/roughness/metallic/ior/transmission/specular
+tint/specular_ior_level/diffuse_roughness (EON)/thin-film thickness+IOR) and
+does the CPU-side Fresnel-weighted lobe assembly directly, since
+view-dependent weighting can't be baked into static per-lobe weights.
+Thin-film iridescence (dielectric-coat and conductor/metallic variants)
+follows Belcour & Barla 2017, shared between CPU (`thin_film_fresnel.h`) and
+GPU (`gpu_thin_film_table.cuh`/`.cu`); `thin_film_cie_table.h` holds the
+baked Rec.709 sensitivity LUT used on both sides.
+
+### CPU/GPU twin relationship
+
+`gpu_materials.h` mirrors the closure-graph/Principled system on device:
+`gpu_closure_graph_eval<HasPrincipled>()`, `gpu_closure_graph_sample<...>()`,
+`gpu_closure_graph_pdf<...>()` handle `GMAT_CLOSURE_GRAPH`, templated on a
+`HasPrincipled` bool so non-Principled scenes don't pay the Principled
+lobe's register cost (see the register-pressure constraint below — this
+split exists specifically to stop Principled lobes from spilling the shared
+shade kernel on scenes that don't use them). Other native GPU material
+types (`GMAT_LAMBERTIAN`, `GMAT_METAL`, `GMAT_DIELECTRIC`, `GMAT_DISNEY`,
+`GMAT_THIN_GLASS`, `GMAT_DIFFUSE_LIGHT`) exist for materials that don't go
+through the closure graph — but plain `dielectric`/Disney glass often lowers
+to `GMAT_CLOSURE_GRAPH` too. Check `Material::closureGraph()` for a given
+plugin before assuming its GPU enum value.
 
 ---
 
-## Thread Safety
+## GPU wavefront pipeline
 
-`Renderer::render()` uses `#pragma omp parallel for collapse(2)` over tiles.
-Each tile gets its own `std::mt19937` seeded from `renderSeed + tileIndex`.
+The CUDA backend (`src/gpu/wavefront/`, driven by
+`include/astroray/gpu_wavefront_state.h`) is a staged wavefront path tracer
+— the megakernel was removed (pkg55-C7); every GPU integrator now routes
+through it. Stages, each a separate kernel launch via `launchStage*()`:
 
-The progress callback is called from **inside the parallel region**. Any
-non-null callback must be thread-safe. Pass `nullptr` in test code unless
-explicitly using a mutex-guarded callback.
+The production per-bounce scheduling is
+**`stageRegen` → `stageIntersectQueued` → `stageShadeBucketed` → `stageShadow`**:
 
-The pass loop runs **after** the parallel region finishes (single-threaded),
-so passes may freely read and write Camera buffers without locking.
+- `launchStageInit` — path/sample initialization
+- `launchStageRegen` — regenerate terminated paths; also accumulates a dead
+  path's radiance (accumulate-at-death XYZ conversion)
+- `launchStageIntersectQueued` — BVH traversal over the live-path queue,
+  bucketing hits into per-`GMaterialType` shade queues
+- `launchStageShadeBucketed` — general shade kernel: material-sorted queues
+  (one bucket per `GMaterialType`, fixed stride = capacity), one launch
+  covers all buckets with warp-coherent material types
+- `launchStageShadow` — dedicated any-hit shadow-ray stage over parked NEE samples
+- `launchStageRestirPrimary` / `...InitialRIS` / `...TemporalReuse` /
+  `...SpatialReuse` / `...Resolve` — ReSTIR DI reservoir stages (own kernels,
+  used only by the `restir-di` integrator; no cost on the standard hot path)
+- `launchStageIntersect_SessionN3` / `launchStageShadeLambertian_SessionN3` /
+  `launchStageLightSample` / `launchStageRussianRoulette` /
+  `launchStageShadeNeeMis` — per-stage instruments used ONLY by the CPU/GPU
+  snapshot-parity test harness (`tests/wavefront_diff/`), not the render driver
+
+(Hygiene 2026-08-11: the caller-less reference kernels from earlier sessions
+— `stageAdvanceKernel`, `stageAdvanceQueuedKernel`, `stageAccumulateXYZKernel`,
+`stageShadeMetalKernel` — were deleted; don't trust older docs listing them.)
+
+### Hard constraint: register pressure
+
+`stageShadeBucketedKernel` and `stageShadeNeeMisKernel` are **pinned at the
+architectural register ceiling, REG:254** (verify via `cuobjdump` post-link — `ptxas -v` alone has
+produced misleading numbers here). This is a hard constraint: any additional
+per-hit live state added to these kernels spills to local memory, and
+register spills in a REG:254-saturated kernel have measured as large as
++52% regression on unrelated (non-Principled) scenes. The fix pattern is
+`template<bool HasPrincipled>` if-constexpr isolation — a lean and a heavy
+variant of the same kernel body, dispatched by scene content — **not**
+shrinking data structures across the board. Before adding a field to
+per-path GPU state or a branch to a shade kernel, check register/stack usage
+via `cuobjdump --dump-sass` on both variants; compiling cleanly is not
+sufficient evidence.
 
 ---
 
-## Scene Conventions
+## Blender addon
 
-**Cornell box** (`buildCornellBox` in `apps/main.cpp`):
-- Box spans ±2 in all axes; camera at z=5.5 looking at origin.
-- Light: two triangles at y=1.98, intensity 15.0.
-- Three spheres: glass IOR=1.5, Disney metallic=0.5/roughness=0.3, Metal roughness=0.1.
-- Expected mean pixel brightness post-gamma: ~0.38–0.42 at 64+ spp.
+`blender_addon/__init__.py` is the RenderEngine integration. As of pkg178
+Stage 5 it defaults to translating Blender's native **Principled BSDF**
+node directly to Astroray's native `principled` material
+(`_create_native_principled_material` → `renderer.create_material('principled', ...)`)
+rather than decomposing it into the older Disney-BRDF parameter mapping —
+controlled by `use_native_principled` (default `True`).
+`_principled_native_params()` maps every Blender Principled socket onto
+`plugins/materials/principled.cpp`'s param names; `_native_principled_gaps()`
+reports sockets the native path doesn't yet honour (pkg119-C).
 
-**Sky background** is always present: `(Vec3(1)*(1-t) + Vec3(0.5,0.7,1)*t) * 0.2f`.
-Never assert "no light source = dark image" — there is always ambient sky.
+**Build:** `python scripts/build/build_blender_addon.py [--install]`. This
+always passes `-DASTRORAY_DISABLE_OPENMP=ON` regardless of backend — MinGW's
+`libgomp` deadlocks inside Blender's MSVC-hosted Python process. This is a
+separate build tree from the `build_cuda/` test build (see
+docs/DEVELOPMENT.md's "two-build story"); the addon `.pyd` and the test
+build `.pyd` are not interchangeable.
+
+Deeper Blender-parity notes and the coverage matrix live under
+`docs/blender_parity/` (`report.md`, `coverage_matrix.json`,
+`pkg178_stage0_closure_map.md`).
 
 ---
 
-## Debugging Brightness Problems
+## Key invariants and footguns for agents
 
-**Systematic overexposure (mean=1.0 or image too bright):**
-1. Isolate by material: render Cornell box walls+light only, add one sphere type
-   at a time. First addition that raises mean significantly is the culprit.
-2. Check `eval()` backface guard — is it dead because dot products were clamped
-   before the `<=0` check?
-3. Check for double-cosine — does `sampleDirect` multiply by `abs(wi·normal)`
-   after `eval()`? (`eval()` already includes the cosine.)
-4. Check Dielectric pdf — must be 1.0, not `fresnel` or `1-fresnel`.
-5. Check `f/pdf` ratio — for GGX, confirm the epsilon in pdf matches the
-   epsilon in the D formula used by eval.
+- **Seed 0 is the random sentinel, not a pin.** In `Renderer::render()`,
+  `renderSeed == 0` triggers `std::random_device{}()` (non-deterministic);
+  any other value seeds `std::mt19937` deterministically per-tile. A test
+  passing seed 0 and expecting reproducibility is testing nothing.
+- **Spectral upsampling is nonlinear in magnitude** — see the eta²-clamp
+  footgun above. Upsample the reflectance color, never `albedo * cosTheta / pi`
+  or anything else that can exceed 1 per channel, without factoring the >1
+  scalar out first.
+- **Gamma-vs-linear comparison trap.** `render()`'s `apply_gamma` defaults to
+  `True` in the Python binding. Comparing a gamma-applied render against a
+  linear oracle (or vice versa) produces a stable, plausible-looking
+  ~1.8–2.4× "divergence" that has nothing to do with the logic under test —
+  and a gamma-applied (clamped to `[0,1]`) render can never detect an
+  energy-gain bug (a measured linear 4.14 reads back as a clamped 1.000).
+  Energy/furnace gates must render linear (`apply_gamma=False`) and assert
+  an explicit upper bound, not just a lower one.
+- **CPU test suites auto-render on GPU when CUDA is available.** Hold the
+  GPU lock, or otherwise verify true CPU-onlyness, before treating a "CPU"
+  test run as CPU ground truth.
+- **The GPU wavefront register ceiling (REG:254)** governs anything
+  touching `stage_advance.cu`'s kernels — see above.
+- **`Material::eval()`/`sample()`/`pdf()` are not dead code, but they are
+  not where light-transport logic belongs.** They feed `sampleSpectral()`'s
+  default RGB→spectral upsampling path. New materials should implement
+  `evalSpectral()`/`sampleSpectral()` directly when precision matters
+  (dispersion, thin-film, anything wavelength-dependent).
+- **CPU can't traverse GPU instances.** The two-level BVH (TLAS/BLAS)
+  instancing path has no CPU-side equivalent — it's GPU-only.
 
-**Image too dark / material black:**
-1. Check roughness threshold — near-mirror materials need the delta path (≥ 0.08).
-2. Check `eval()` reflection direction — `2*(wo·n)*n - wo`, not `wo - 2*(wo·n)*n`.
-3. Check that delta materials set `rec.isDelta = true` to suppress NEE.
+---
 
-**Convergence worsens with more samples:**
-Positive bias per sample. Most likely: (1) dead backface guard, (2) double-cosine
-in NEE, (3) Dielectric pdf = Fresnel probability instead of 1.0.
+## Where to go next
 
-**Standalone and Python binding diverge:**
-Same headers, but check default parameter values (`depth`, `adaptive`) and any
-`const_cast` / mutable state that behaves differently under different
-optimisation levels.
+- [docs/DEVELOPMENT.md](../DEVELOPMENT.md) — the two-build story (`build_cuda/`
+  test build vs. OpenMP-free Blender addon build), perf-gate calibration,
+  Windows/MinGW/CUDA footguns.
+- [docs/blender_parity/](../blender_parity/) — Blender differential-parity
+  coverage matrix and closure-mapping notes (pkg119, pkg178).
+- [.astroray_plan/docs/STATUS.md](../../.astroray_plan/docs/STATUS.md) —
+  current round status and package tracking.
+- [.astroray_plan/docs/](../../.astroray_plan/docs/) — per-package research
+  notes; cited algorithms (Jakob-Hanika, Belcour-Barla, Kulla-Conty, etc.)
+  have derivations and reference-implementation notes here per CLAUDE.md §6.
+- `docs/agent-context/lessons-learned.md` — historical bug postmortems
+  (double-cosine bug, backface-guard-dead-from-clamping, etc.); still
+  applicable to `evalSpectral`/`sampleSpectral` implementations, since the
+  same NEE/MIS structure and cosine conventions carried over from the RGB
+  era into the spectral one.

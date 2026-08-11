@@ -253,7 +253,7 @@ Phase 1 is CPU-only).
 | `scripts/benchmarks/benchmark_showcase.py` | **Superseded** by `benchmarks/showcase/runner.py` once pkg74 lands. Three-scene composite is a strict subset of pkg74's scene gallery. Deletion is a separate PR per CLAUDE.md §3. |
 | `scripts/benchmarks/benchmark_caustic_transport.py` | Not superseded — caustic-specific stats live there because they're caustic-integrator-specific. pkg74 may import its scene builders later. |
 | `scripts/benchmarks/benchmark_light_transport.py` | Not superseded — NRC/path-tracer head-to-head, scoped narrower. |
-| `scripts/diagnostics/material_contact_sheet.py` | **Pattern reused, file untouched.** pkg74's `scenes/material_zoo.py` builds on the same `_preview_helpers` module the existing diagnostic uses; the existing diagnostic stays as the "iterate on one material in isolation" tool. |
+| `scripts/diagnostics/material_contact_sheet.py` | **Deleted** (showcase consolidation round). Its curated per-material variant list (glass presets, disney_glass roughness sweep, metal roughness spread, etc.) was ported into `benchmarks/showcase/config.py`'s `MATERIAL_ZOO_VARIANTS`, consumed by `scenes/material_zoo.py` in addition to full registry coverage. `benchmarks/showcase/` is now the single canonical contact-sheet generator. |
 | `scripts/diagnostics/convergence_tracker.py` | **Pattern reused, file untouched.** pkg74's `convergence_grid.py` reuses the SPP series and MSE helper; the existing tracker stays as the per-scene deep-dive tool. |
 | `benchmarks/cycles-parity/` (pkg71) | Strictly orthogonal. Different directory, different CSV schema, no shared scenes. pkg74's runner *may* later import pkg71's `ssim.py` if pkg74 grows a "compare to pinned reference" mode in Phase 2/3. |
 

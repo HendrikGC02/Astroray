@@ -26,7 +26,7 @@ const SHEET_TITLE = 'Astroray Project Tracker';
 
 // Strategic gate banner shown on the Dashboard. Edit this in one place
 // instead of digging through the dashboard builder.
-const STRATEGIC_GATE = 'RELEASED 2026-05-10 — pkg56 Phase C (PR #233). Pillar 4 actively shipping; Pillar 5 wavefront CUDA port in flight.';
+const STRATEGIC_GATE = 'Integration Milestone complete 2026-08 (pkg175–pkg178: Blender native-Principled + thin-film). Pillar 4 PAUSED pending owner go-ahead; integration-first directive in force.';
 
 // Statuses that should NOT count toward the pillar denominator. Specs in
 // these states have been split, replaced, or shelved — counting them as
@@ -633,7 +633,6 @@ function refreshPrompts_(ss) {
       SpreadsheetApp.newConditionalFormatRule()
         .whenTextContains(kw).setBackground(bg).setRanges([agentRange]).build();
     rules.push(tint('CUDA verifier', '#bbdefb'));   // blue: hardware
-    rules.push(tint('Codex',         '#c8e6c9'));   // green: Codex
     rules.push(tint('Claude tech',   '#fff9c4'));   // yellow: Claude
     sh.setConditionalFormatRules(rules);
   } else {

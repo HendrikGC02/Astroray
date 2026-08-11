@@ -30,10 +30,10 @@ Usage
 
 Backends
 --------
-    tcnn  — CUDA + tiny-cuda-nn neural cache. Requires NVCC + CUDA toolkit. DEFAULT.
-    cuda  — CUDA GPU rendering, no neural cache. Requires NVCC + CUDA toolkit.
+    cuda  — CUDA GPU rendering, no neural cache. Requires NVCC + CUDA toolkit. DEFAULT.
+    tcnn  — CUDA + tiny-cuda-nn neural cache (experimental, opt-in; 2x .pyd size).
     cpu   — CPU-only (CUDA off). Safe on machines without NVIDIA GPU.
-    auto  — probe for nvcc; use tcnn if found, otherwise cpu.
+    auto  — probe for nvcc; use cuda if found, otherwise cpu.
 
 Notes
 -----
@@ -329,12 +329,12 @@ def _backend_config(backend: str) -> tuple[Path, list[str]]:
                 ["-DASTRORAY_ENABLE_CUDA=ON",
                  "-DASTRORAY_TINY_CUDA_NN=ON",
                  *common_opts])
-    # auto: probe for nvcc (full search); use tcnn build if found, otherwise cpu
+    # auto: probe for nvcc (full search); use cuda build if found, otherwise cpu
     if _find_nvcc():
-        print("auto: nvcc found — building with tcnn (CUDA + neural cache) backend")
-        return (REPO_ROOT / "build_blender_addon_tcnn",
+        print("auto: nvcc found — building with cuda (GPU, no neural cache) backend")
+        return (REPO_ROOT / "build_blender_addon_cuda",
                 ["-DASTRORAY_ENABLE_CUDA=ON",
-                 "-DASTRORAY_TINY_CUDA_NN=ON",
+                 "-DASTRORAY_TINY_CUDA_NN=OFF",
                  *common_opts])
     print("auto: nvcc not found — building CPU-only backend")
     return (REPO_ROOT / "build_blender_addon",
@@ -949,9 +949,9 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--blender", help="Path to a specific blender executable")
     ap.add_argument("--python-exe", help="Path to python matching Blender's bundled Python minor version")
-    ap.add_argument("--backend", choices=["auto", "cpu", "cuda", "tcnn"], default="tcnn",
-                    help="Build backend: tcnn (default, CUDA+NRC), cuda (CUDA GPU), "
-                         "cpu (CPU-only), auto (probe nvcc, use tcnn if found)")
+    ap.add_argument("--backend", choices=["auto", "cpu", "cuda", "tcnn"], default="cuda",
+                    help="Build backend: cuda (default, CUDA GPU), tcnn (CUDA+NRC, experimental), "
+                         "cpu (CPU-only), auto (probe nvcc, use cuda if found)")
     ap.add_argument("--clean", action="store_true", help="Wipe the build dir before configuring")
     ap.add_argument("--configure-only", action="store_true",
                     help="Run cmake configure but skip the build")

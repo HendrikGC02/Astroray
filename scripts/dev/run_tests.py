@@ -19,8 +19,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--build-dir",
-        default=os.environ.get("ASTRORAY_BUILD_DIR", str(REPO_ROOT / "build_tcnn")),
-        help="CMake build directory to test, default: ./build_tcnn",
+        default=os.environ.get("ASTRORAY_BUILD_DIR", str(REPO_ROOT / "build_cuda")),
+        help="CMake build directory to test, default: ./build_cuda",
     )
     parser.add_argument(
         "--temp-dir",

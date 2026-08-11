@@ -275,62 +275,9 @@ void launchStageLightSample_SessionN4(
 void launchStageRussianRoulette_SessionN4(
     GPUWavefrontState& state);
 
-// Session N+6: full one-bounce advance — device twin of CPU
-// path_kernel.cpp::advance_one_bounce (intersect -> env-miss -> emissive ->
-// NEE -> RR -> BSDF -> next ray). Self-contained (does its own intersect);
-// the N+3..N+5 per-stage kernels remain as the gated diff instruments.
-void launchStageAdvance(
-    GPUWavefrontState& state,
-    GPUWavefrontHitBuffers& hitBufs,
-    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
-    const GInstance*  d_instances,   // pkg55-C4 / pkg114
-    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
-    const GBVHNode*   d_bvhNodes,
-    const GPrimitive* d_prims,
-    const GTriangle*  d_tris,
-    const GSphere*    d_spheres,
-    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
-    const ::GMaterial* d_materials,
-    const ::GLight*    d_lights, int num_lights, float total_light_power,
-    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
-    GLightTreeView    lightTree,
-    GEnvMap           envMap,
-    GVec3             backgroundColor, bool hasBackgroundColor,
-    int               worldMaxBounces,
-    int               max_depth,
-    bool              useLuminanceOutput,  // pkg55-C3 (was missing)
-    bool              enableNEE,           // pkg55-C3 (was missing)
-    float             clampDirect, float clampIndirect,  // pkg157
-    bool              sync = true,  // N+7: render driver passes false, syncs once per render
-    bool              hasPrincipled = true);  // pkg178 Stage-3b D4 (caller-less; default keeps <true>)
-
-// Session N+7 part 2: queued advance + compaction. queue/count buffers are
-// device pointers; the host never reads the counters (zero-sync driver).
-void launchStageAdvanceQueued(
-    GPUWavefrontState& state,
-    GPUWavefrontHitBuffers& hitBufs,
-    const int* d_queue_in, const int* d_count_in,
-    int* d_queue_out, int* d_count_out,
-    const GTLASNode*  d_tlas,        // pkg55-C4 / pkg114
-    const GInstance*  d_instances,   // pkg55-C4 / pkg114
-    const GBLAS*      d_blas,        // pkg55-C4 / pkg114
-    const GBVHNode*   d_bvhNodes,
-    const GPrimitive* d_prims,
-    const GTriangle*  d_tris,
-    const GSphere*    d_spheres,
-    const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
-    const ::GMaterial* d_materials,
-    const ::GLight*    d_lights, int num_lights, float total_light_power,
-    const GDedicatedLight* d_dedLights, int num_ded,   // pkg89-wavefront (C7)
-    GLightTreeView    lightTree,
-    GEnvMap           envMap,
-    GVec3             backgroundColor, bool hasBackgroundColor,
-    int               worldMaxBounces,
-    int               max_depth,
-    bool              useLuminanceOutput,  // pkg55-C3 (was missing)
-    bool              enableNEE,           // pkg55-C3 (was missing)
-    float             clampDirect, float clampIndirect,  // pkg157
-    bool              hasPrincipled = true);  // pkg178 Stage-3b D4 (caller-less; default keeps <true>)
+// (Hygiene 2026-08-11: the caller-less N+6/N+7 launchers launchStageAdvance /
+// launchStageAdvanceQueued and their kernels were removed; the live path is
+// stageRegen -> stageIntersectQueued -> stageShadeBucketed -> stageShadow.)
 
 // Fills d_queue with 0..n-1 and *d_count = n (bounce-0 population).
 void launchStageQueueIota(int* d_queue, int* d_count, int n);
@@ -459,20 +406,6 @@ void launchStageRegen(
     int* d_shadow_count,    //   nullptr = skip)
     bool useLuminanceOutput);  // pkg55-C7: grey band-mean accumulation for
                                // non-visible bands (CMF XYZ is ~0 there)
-
-// Session N+7: device-side per-sample XYZ accumulation (radiance -> XYZ ->
-// firefly clamp -> += accum). accum_xyz is 3 floats per slot, zeroed by the
-// driver before the first sample round.
-void launchStageAccumulateXYZ(
-    GPUWavefrontState& state,
-    float* d_accum_xyz);
-
-// Session N+5: Metal shade stage.
-void launchStageShadeMetalGPU(
-    GPUWavefrontState& state,
-    GPUWavefrontHitBuffers& hitBufs,
-    const ::GMaterial* d_materials,
-    int num_materials);
 
 // pkg55-C2 MIS audit: instrumented one-bounce intersect+shade over all paths
 // that runs the PRODUCTION intersectPathSlot + shadePathSlot (deferred/parking

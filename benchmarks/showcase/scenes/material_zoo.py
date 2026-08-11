@@ -1,4 +1,6 @@
-"""pkg74 showcase — material zoo: one sphere per registered material.
+"""pkg74 showcase — material zoo: one sphere per registered material,
+plus curated multi-preset variants for materials with more than one
+visually distinct configuration.
 
 Drives the entry list from `astroray.material_registry_names()` so newly
 registered materials appear automatically. Per-material parameter
@@ -6,9 +8,11 @@ defaults live in `benchmarks/showcase/config.py`; entries that fail to
 construct or render are reported as skip rows by the runner, not
 silently dropped.
 
-Pattern adapted from `scripts/diagnostics/material_contact_sheet.py` —
-that script keeps a curated parameter list per material; pkg74 trades
-curated parameters for full registry coverage.
+`config.MATERIAL_ZOO_VARIANTS` adds named presets (glass IOR/dispersion
+presets, a disney_glass roughness sweep, metal roughness spread) ported
+from the now-deleted `scripts/diagnostics/material_contact_sheet.py`,
+which curated these by hand before pkg74 existed. pkg74 is the single
+canonical contact-sheet generator.
 """
 
 from __future__ import annotations
@@ -19,7 +23,8 @@ from .. import config
 
 
 def material_entries(astroray_module) -> Iterator[tuple[str, str, list[float], dict]]:
-    """Yield (display_name, material_type, base_color, params) per registered material.
+    """Yield (display_name, material_type, base_color, params) per registered material,
+    followed by the curated variants.
 
     Skiplist entries from config are filtered out; everything else is
     yielded with type-default parameters or a generic grey fallback.
@@ -31,6 +36,8 @@ def material_entries(astroray_module) -> Iterator[tuple[str, str, list[float], d
         color, params = config.MATERIAL_ZOO_DEFAULTS.get(
             name, config.GENERIC_MATERIAL_DEFAULT)
         yield name, name, list(color), dict(params)
+    for display_name, mat_type, color, params in config.MATERIAL_ZOO_VARIANTS:
+        yield display_name, mat_type, list(color), dict(params)
 
 
 def build_material_preview_scene(renderer, material_id: int, resolution: int) -> dict:

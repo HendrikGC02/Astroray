@@ -28,15 +28,15 @@
       "problemMatcher": "$msCompile"
     },
     {
-      "label": "Astroray: Contact Sheet (auto GPU)",
+      "label": "Astroray: Showcase (quick, GPU)",
       "type": "shell",
       "command": "python",
       "args": [
-        "scripts/diagnostics/material_contact_sheet.py",
-        "--device",
-        "auto",
+        "benchmarks/showcase/render_showcase.py",
+        "--quick",
+        "--gpu",
         "--output-dir",
-        "test_results/material_contact_sheet"
+        "test_results/showcase"
       ],
       "dependsOn": [
         "Astroray: Build CUDA Release"
@@ -44,15 +44,14 @@
       "problemMatcher": []
     },
     {
-      "label": "Astroray: Contact Sheet (CPU)",
+      "label": "Astroray: Showcase (quick, CPU)",
       "type": "shell",
       "command": "python",
       "args": [
-        "scripts/diagnostics/material_contact_sheet.py",
-        "--device",
-        "cpu",
+        "benchmarks/showcase/render_showcase.py",
+        "--quick",
         "--output-dir",
-        "test_results/material_contact_sheet_cpu"
+        "test_results/showcase_cpu"
       ],
       "dependsOn": [
         "Astroray: Build CUDA Release"

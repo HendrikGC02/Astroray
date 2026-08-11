@@ -1,6 +1,9 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+> **Frozen 2026-05-15.** Per-package changelogging moved to
+> `.astroray_plan/docs/STATUS.md` (current state) and the merged-PR history
+> (`git log` / GitHub). Entries below cover the project up to pkg47/pkg63 and
+> are kept for historical reference; nothing after May 2026 is recorded here.
 
 ## [Unreleased]
 

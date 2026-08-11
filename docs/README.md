@@ -14,9 +14,23 @@ Completed designs documenting implemented subsystems:
 - [`adr/GR_DESIGN.md`](adr/GR_DESIGN.md) — general-relativistic black hole rendering
 - [`adr/HDRI_DESIGN.md`](adr/HDRI_DESIGN.md) — HDRI environment map with importance sampling
 
+## Development
+
+- [`DEVELOPMENT.md`](DEVELOPMENT.md) — build system details (Ninja/`build_cuda` canonical, legacy VS generator notes)
+- [`../DEVELOPMENT.md`](../DEVELOPMENT.md) — one-command Blender addon dev loop (`scripts/dev_addon.ps1`)
+
+## Blender integration
+
+- [`blender_parity/`](blender_parity/) — Blender↔Astroray parity program docs (pkg119/pkg176/pkg178 mapping tables)
+
 ## Agent context / internals
 
 Reference material for AI agents and new contributors:
 
-- [`agent-context/renderer-internals.md`](agent-context/renderer-internals.md) — architecture, plugin system, rendering pipeline, material conventions, pass interface, debugging
+- [`agent-context/renderer-internals.md`](agent-context/renderer-internals.md) — architecture, spectral pipeline, GPU wavefront backend, material conventions
 - [`agent-context/lessons-learned.md`](agent-context/lessons-learned.md) — bugs encountered and root causes; read before touching rendering code
+
+## Reports & showcase
+
+- [`showcase/`](showcase/) — curated showcase renders
+- [`reports/`](reports/) — historical feature-showcase reports

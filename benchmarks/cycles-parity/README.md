@@ -56,7 +56,7 @@ python scripts\run_parity.py --scenes cornell --engines astroray-cpu
 python scripts\summarize_parity.py benchmarks\cycles-parity\<date-machine>.csv
 ```
 
-Set `--blender` to a Blender 4.x executable for Cycles rows. Set
+Set `--blender` to a Blender 5.x executable (5.1+ pinned project-wide) for Cycles rows. Set
 `--astroray` to the standalone Astroray binary if it is outside the default
 build locations.
 

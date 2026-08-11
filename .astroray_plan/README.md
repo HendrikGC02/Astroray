@@ -30,55 +30,22 @@ engine is in this folder. Drop it into the repo root as `.astroray_plan/`.
 │   ├── production.md             ← Pillar 5 design
 │   └── external-references.md    ← libraries, data, papers
 ├── agents/                        ← per-agent handbooks
-│   ├── claude-code.md            ← track A
-│   ├── copilot-cloud.md          ← track B
-│   ├── copilot-instructions.md   ← copy to .github/copilot-instructions.md
-│   ├── copilot-setup-steps.yml   ← copy to .github/workflows/
-│   ├── cline.md                  ← track C
-│   ├── ralph-loop.md             ← track D
-│   └── overseer.md               ← coordination
+│   └── claude-code.md            ← track A (Claude Code)
 ├── packages/                      ← work packages (one per PR/session)
 │   ├── TEMPLATE.md
-│   ├── pkg01-registry-skeleton.md
-│   ├── pkg02-migrate-lambertian.md
-│   ├── pkg03-migrate-remaining-materials.md
-│   ├── pkg04-migrate-textures-shapes.md
-│   ├── pkg05-integrator-interface.md
-│   ├── pkg06-pass-registry.md
-│   └── ... pkg10–pkg67 live here now; see docs/STATUS.md for current state
-├── scripts/
-│   ├── ralph_loop.sh             ← background grind worker
-│   ├── ralph_queue.txt           ← Ralph's task queue
-│   └── bootstrap.sh              ← one-time setup
-├── examples/                      ← (future) example plugins
-└── logs/                          ← auto-generated Ralph reports
+│   └── pkg01…pkg182 live here; see docs/STATUS.md for current state
+├── tracker/                       ← orchestrator ledger/state
+└── logs/                          ← orchestrator tick logs
 ```
 
-## The agent tracks at a glance
+## The agent setup (2026-08)
 
-| Track | What it is | When to use | Cost |
-|---|---|---|---|
-| **A. Claude Code** (local) | Multi-file refactors, core work | Pillar foundations; anything touching invariants | Anthropic API session |
-| **B. Copilot cloud** | Self-contained features | New plugins matching an existing pattern | Education Premium |
-| **C. Cline + local model** | Prototype and experimentation | "Does X even work?" exploration | Free (your RTX 5070 Ti) |
-| **D. Ralph loop** | Background grind (tests, docs) | Small, mechanical, verifiable tasks | Free (your GPU, idle time) |
-| **E. Codex** | Retired 2026-07 (owner no longer uses Codex) | Legacy `Track: E` specs route to Claude Code (`package-implementer`) | — |
+| Role | Agent | Notes |
+|---|---|---|
+| Core implementation + judgment | Claude Code (local): `architect`, `package-implementer`, `hardware-verifier`, `pr-reviewer`, `roadmap-orchestrator` | See `.claude/agents/` and `.claude/skills/` |
+| Bounded grunt work | Open-weight models via the `delegate` skill (opencode) | Evidence-verified, never trusted (CLAUDE.md §5 cost routing) |
+| Retired | Codex (2026-07), Copilot-cloud / Cline / Ralph multi-track scheme (2026-04 era) | Handbooks archived in `docs/archive/agents-multitrack-2026-04/` |
 
-## Weekly rhythm
-
-**Monday morning (15 min):** Run an overseer session on claude.ai. Get a
-briefing. Update `docs/STATUS.md`. Know what you're doing this week.
-
-**During the week:** Launch Claude Code sessions (track A) 1-2 times on
-the current pillar's foundation work. Assign 2-5 Copilot cloud issues
-(track B). Let Ralph (track D) run overnight.
-
-**Friday (15 min):** Review and merge what landed. Update the Ralph
-queue for next week. Close completed packages.
-
-Rinse, repeat.
-
-## One-time setup
-
-Run `scripts/bootstrap.sh` to copy the Copilot files into `.github/` and
-verify the GitHub Actions workflow. After that, start on pkg01.
+Dispatch flow: the roadmap-orchestrator ticks dispatch ready packages from
+`packages/` to implementers, dual-gates PRs (CI + serialized local RTX
+hardware verification), and auto-merges when clean.

@@ -54,7 +54,7 @@ $BuildDirByBackend = @{
     'cpu'  = Join-Path $RepoRoot 'build_blender_addon'
     'cuda' = Join-Path $RepoRoot 'build_blender_addon_cuda'
     'tcnn' = Join-Path $RepoRoot 'build_blender_addon_tcnn'
-    'auto' = Join-Path $RepoRoot 'build_blender_addon_tcnn'
+    'auto' = Join-Path $RepoRoot 'build_blender_addon_cuda'
 }
 $BuildDir = $BuildDirByBackend[$Backend]
 

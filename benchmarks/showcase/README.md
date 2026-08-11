@@ -26,9 +26,10 @@ the quantitative Cycles parity tracker under
 - Not a Cycles comparison (that's `benchmarks/cycles-parity/`).
 - Not a CI perf-regression gate (artefacts are for humans).
 - Not a Blender-integration test (talks to the C++ Renderer directly).
-- Not a duplicate of `scripts/benchmarks/benchmark_showcase.py` —
-  pkg74 supersedes that script's three-scene composite once Phase 2
-  lands the scene gallery; deletion is a separate PR.
+- The old three-scene composite `scripts/benchmarks/benchmark_showcase.py`
+  was superseded by this framework and deleted (hygiene 2026-08-11). The
+  curated material presets from `scripts/diagnostics/material_contact_sheet.py`
+  now live in `config.MATERIAL_ZOO_VARIANTS`.
 
 ## Run it
 

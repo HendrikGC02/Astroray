@@ -51,10 +51,12 @@ each artefact type.
   Junkshop, or BMW. pkg74 uses Astroray-internal scenes only —
   Cornell box, glass sphere, metal trio, prism — so it can run on
   any developer machine in a few seconds without a download.
-- **Not a deletion of existing scripts.** `benchmark_showcase.py`,
-  `convergence_tracker.py`, and `material_contact_sheet.py` stay in
-  place. Whether to delete `benchmark_showcase.py` (which pkg74
-  supersedes) is a separate PR per CLAUDE.md §3.
+- **Not a deletion of existing scripts.** `benchmark_showcase.py` and
+  `convergence_tracker.py` stay in place. Whether to delete
+  `benchmark_showcase.py` (which pkg74 supersedes) is a separate PR per
+  CLAUDE.md §3. (`material_contact_sheet.py` was later deleted as part
+  of the showcase consolidation — see `benchmarks/showcase/config.py`'s
+  `MATERIAL_ZOO_VARIANTS`, which ports its curated presets in.)
 - **Not a GPU-integrator showcase in Phase 1.** The GPU integrator
   matrix is Phase 2; Phase 1 stays CPU-only so the runner works on
   any machine without CUDA.

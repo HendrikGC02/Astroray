@@ -61,7 +61,7 @@ All hardware-measured numbers are from the project workstation (NVIDIA RTX
 | OptiX temporal denoise | **53.1% inter-frame variance reduction** vs ≥30% gate | pkg73, PR #249 |
 | Slim disk accretion | T(9M, ṁ=1) = **7.45×10⁶ K**; 14/14 tests vs Abramowicz 1988 / Sadowski 2009 | pkg43, PR #271 |
 | Cold-start viewport latency | First frame **83.3 ms** (was 12,079 ms before pkg84) — **145× improvement** | pkg84, PR #260 |
-| Test suite | **1563 passed / 0 failed** (68 skipped, 26 xfailed, 2 xpassed) on the Windows `build_cuda` (Ninja, native sm_120) configuration, RTX-verified | full local sweep, 2026-08-06 |
+| Test suite | **1848 passed / 1 failed** (69 skipped, 25 xfailed, 3 xpassed) on the Windows `build_cuda` (Ninja, native sm_120, clean build) configuration, RTX-verified; the 1 failure is the open pkg185 GPU glass-caustic parity defect | full local sweep, 2026-08-12 |
 
 ---
 
@@ -154,14 +154,15 @@ cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DASTRORAY_ENABLE_CUDA=
 cmake --build . -j
 ```
 
-### Build (Windows — CUDA / tiny-cuda-nn)
+### Build (Windows — CUDA)
 
-The repo ships CMake presets for the CUDA + tiny-cuda-nn developer
-build. In VS Code with the CMake Tools extension, select the
-`windows-tcnn-vs` configure preset and build with
-`windows-tcnn-vs-release`. OIDN is enabled in these presets; CMake
-uses a local OIDN install when present or fetches the Windows prebuilt
-package during configure.
+The repo ships CMake presets for the CUDA developer build. In VS Code
+with the CMake Tools extension, select the `windows-cuda-vs` configure
+preset and build with `windows-cuda-vs-release`. OIDN is enabled in
+these presets; CMake uses a local OIDN install when present or fetches
+the Windows prebuilt package during configure. For day-to-day builds,
+`scripts/build/build_cuda.bat` (Ninja + sccache) is faster — see
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 **Optional GPU dependencies** — auto-detected by CMake; quietly disabled
 if absent:
@@ -180,16 +181,18 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md#optional-nvidia-gpu-users) for
 the full prerequisite list.
 
 ```powershell
-cmake --preset windows-tcnn-vs
-cmake --build --preset windows-tcnn-vs-release
+cmake --preset windows-cuda-vs
+cmake --build --preset windows-cuda-vs-release
 
 # Optional: build the artifacts and run pytest through the repo bootstrap.
-cmake --build --preset windows-tcnn-vs-pytest
+cmake --build --preset windows-cuda-vs-pytest
 ```
 
-Artifacts land in `build_tcnn/`: the Python module is in
-`build_tcnn/Release/` for Visual Studio builds, and the standalone
-binaries are in `build_tcnn/bin/Release/`.
+Artifacts land in `build_cuda/`: the Python module is in
+`build_cuda/Release/` for Visual Studio builds, and the standalone
+binaries are in `build_cuda/bin/Release/`. (An opt-in experimental
+tiny-cuda-nn neural-cache build is available via the `windows-tcnn-vs`
+presets.)
 
 See [docs/QUICKSTART.md](docs/QUICKSTART.md) for full platform-specific
 instructions, including the Blender addon build.
@@ -282,7 +285,7 @@ Astroray/
 │   └── textures/            # checker, noise, voronoi, brick, ...
 ├── src/gpu/                 # CUDA wavefront pipeline + megakernel
 ├── scripts/                 # Build, dev, benchmark, diagnostic helpers
-├── tests/                   # pytest suite (1299 passing on build_cuda)
+├── tests/                   # pytest suite (~1950 collected; see Validation snapshot)
 ├── .astroray_plan/          # Roadmap, package specs, research notes
 └── CMakeLists.txt
 ```

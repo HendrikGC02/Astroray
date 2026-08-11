@@ -1,9 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(CustomRaytracer VERSION 3.0 LANGUAGES CXX)
 
-# Windows-specific options
-option(WIN32_STANDALONE "Build standalone executable (Windows console app)" ON)
-
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,7 +9,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Options
 option(BUILD_PYTHON_MODULE "Build Python module for Jupyter notebooks" ON)
 option(BUILD_BLENDER_MODULE "Build as Blender Python module" OFF)
-option(BUILD_TESTS "Build test suite" OFF)
 option(BUILD_DOCS "Build documentation" OFF)
 option(USE_NATIVE_ARCH "Build with -march=native" ON)
 option(USE_FAST_MATH "Enable fast math optimizations" ON)
@@ -345,14 +341,6 @@ if(ASTRORAY_PLUGIN_SOURCES)
         target_link_libraries(astroray_plugins PUBLIC cfitsio::cfitsio)
         target_compile_definitions(astroray_plugins PUBLIC ASTRORAY_FITS_ENABLED)
     endif()
-    # pkg87a: OpenEXR EXR writer conditionally included if OpenEXR found
-    if(OpenEXR_FOUND)
-        target_sources(astroray_core_impl PRIVATE
-            "${CMAKE_SOURCE_DIR}/src/io/exr_writer.cpp"
-        )
-        target_link_libraries(astroray_core_impl PUBLIC OpenEXR::OpenEXR)
-        target_compile_definitions(astroray_core_impl PUBLIC ASTRORAY_EXR_ENABLED)
-    endif()
 endif()
 
 # Source files
@@ -462,6 +450,18 @@ if(TARGET astroray_plugins)
     target_link_libraries(astroray_plugins PUBLIC astroray_core_impl)
 endif()
 
+# pkg87a: OpenEXR EXR writer conditionally included if OpenEXR found.
+# (Must come AFTER add_library(astroray_core_impl) — hygiene 2026-08-11: this
+# block previously ran before the target existed and would have hard-failed
+# configure on any machine where find_package(OpenEXR) succeeded.)
+if(OpenEXR_FOUND)
+    target_sources(astroray_core_impl PRIVATE
+        "${CMAKE_SOURCE_DIR}/src/io/exr_writer.cpp"
+    )
+    target_link_libraries(astroray_core_impl PUBLIC OpenEXR::OpenEXR)
+    target_compile_definitions(astroray_core_impl PUBLIC ASTRORAY_EXR_ENABLED)
+endif()
+
 # ---------------------------------------------------------------------------
 # CUDA static library (compiled by nvcc, exposes pure-C++ CUDARenderer)
 # ---------------------------------------------------------------------------
@@ -495,7 +495,6 @@ if(ASTRORAY_CUDA_FOUND)
             src/gpu/wavefront/stage_init.cu
             src/gpu/wavefront/stage_intersect_session_n3.cu
             src/gpu/wavefront/stage_shade_lambertian.cu
-            src/gpu/wavefront/stage_shade_metal.cu
         src/gpu/wavefront/stage_advance.cu
             src/gpu/wavefront/stage_light_sample.cu
             src/gpu/wavefront/stage_russian_roulette.cu
@@ -1018,6 +1017,5 @@ if(BUILD_BLENDER_MODULE)
     message(STATUS "  Python: ${Python3_VERSION}")
     message(STATUS "  Install to: ${BLENDER_ADDON_DIR}")
 endif()
-message(STATUS "Tests: ${BUILD_TESTS}")
 message(STATUS "Documentation: ${BUILD_DOCS}")
 message(STATUS "================================")

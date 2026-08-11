@@ -79,6 +79,20 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   cycles-parity, ABI reachability, gate-failure root-cause, merge decisions,
   visual inspection. Tier→model mapping: `.claude/skills/delegate/config/tiers.json`.
 
+## 5b. No Duplicate Scripts — Check the Index First
+
+**Before writing ANY new script (render harness, contact sheet, diagnostic,
+build helper, verification driver): read `scripts/README.md` — the canonical
+per-task index — and Grep `scripts/`, `benchmarks/`, `tools/` for existing
+coverage.** The repo has accumulated five parallel "material contact sheet"
+generators this way; that must not happen again.
+
+- A canonical script exists → extend it (a flag, a preset entry), don't fork it.
+- Genuinely new + reusable → add it AND register it in `scripts/README.md`
+  in the same commit.
+- One-off (single package verification / debugging) → delete it when the
+  package closes; the PR and STATUS.md are the record.
+
 ## 6. No Invented Algorithms — Cite, Borrow, Verify
 
 **For any non-trivial physics, sampling, or numerical algorithm: do not

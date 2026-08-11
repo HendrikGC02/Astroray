@@ -23,8 +23,8 @@ found.
 - **CUDA Toolkit 12.x** — GPU path tracer + OIDN-CUDA denoiser backend.
   Standard NVIDIA installer.
 - **NVIDIA OptiX SDK 8.x+** — OptiX AI denoiser backend, ~2× faster than
-  OIDN-CUDA on Tensor Core GPUs (Turing+) and a prerequisite for the
-  upcoming temporal denoiser. Manual download from
+  OIDN-CUDA on Tensor Core GPUs (Turing+) and required by the
+  temporal denoiser (pkg73). Manual download from
   <https://developer.nvidia.com/designworks/optix/download> (free
   NVIDIA developer account required; the OptiX SDK License forbids
   redistribution, so we cannot bundle it). The default install path
@@ -64,19 +64,19 @@ cmake --build . --config Release -j
 > Studio), the module lands in `build/Release/astroray.cp*-win_amd64.pyd`.
 > The test suite looks in both `build/` and `build/Release/`.
 
-### Windows (CUDA + tiny-cuda-nn)
+### Windows (CUDA)
 
-Use the checked-in presets for the opt-in neural cache build:
+The canonical GPU build lives in `build_cuda/` — see `docs/DEVELOPMENT.md`
+for the Ninja + sccache wrapper (`scripts/build/build_cuda.bat`), which is
+the fastest day-to-day path. The checked-in VS presets also work:
 
 ```cmd
-cmake --preset windows-tcnn-vs
-cmake --build --preset windows-tcnn-vs-release
+cmake --preset windows-cuda-vs
+cmake --build --preset windows-cuda-vs-release
 ```
 
-In VS Code with CMake Tools, choose `Windows TCNN (VS 2022)` as the configure
-preset and `Build Windows TCNN Release` as the build preset. This creates
-`build_tcnn/`, with the module under `build_tcnn/Release/` and executables
-under `build_tcnn/bin/Release/`.
+In VS Code with CMake Tools, choose `Windows CUDA (VS 2022)` as the configure
+preset and `Build Windows CUDA Release` as the build preset.
 
 OIDN is enabled for these presets. If CMake cannot find a local OIDN install,
 it fetches the Windows prebuilt package into the build tree and the test
@@ -85,8 +85,12 @@ bootstrap adds that DLL directory automatically.
 To build and run pytest through the repo bootstrap:
 
 ```cmd
-cmake --build --preset windows-tcnn-vs-pytest
+cmake --build --preset windows-cuda-vs-pytest
 ```
+
+An opt-in experimental neural-cache build (`windows-tcnn-vs` presets,
+`build_tcnn/`) adds tiny-cuda-nn; it roughly doubles the module size and is
+not part of any default workflow.
 
 ### Windows (MinGW / MSYS2)
 
@@ -111,8 +115,8 @@ cmake --build . -j$(nproc)
 # Full suite
 python3 -m pytest tests/ -v --tb=short
 
-# Recommended on Windows, especially for CUDA/tiny-cuda-nn builds
-python scripts/dev/run_tests.py --build-dir build_tcnn -- tests -v --tb=short
+# Recommended on Windows (defaults to ./build_cuda)
+python scripts/dev/run_tests.py --build-dir build_cuda -- tests -v --tb=short
 
 # Focused suites
 python3 -m pytest tests/test_python_bindings.py -v
@@ -204,10 +208,14 @@ Unzip `dist/astroray-<version>.zip` into Blender's `extensions/user_default/` di
 
 ---
 
-## 5) Issue tracking (`bd`)
+## 5) Issue tracking
+
+Issues are tracked on GitHub — use the `gh` CLI:
 
 ```bash
-bd ready --json
-bd update <id> --claim --json
-bd close <id> --reason "Completed" --json
+gh issue list
+gh issue create --title "..." --body "..."
+gh issue close <number> --comment "Completed"
 ```
+
+Project coordination (roadmap, package specs, status) lives in `.astroray_plan/` — see `.astroray_plan/docs/STATUS.md`.

@@ -10,10 +10,6 @@
 #include "raytracer.h"
 #include "advanced_features.h"
 #include "profile.h"  // pkg55-A: env-gated NVTX ranges around upload + render
-#ifdef ASTRORAY_WAVEFRONT_INTERSECT
-// pkg55-A.1: wavefront SoA primary-ray + intersect kernels (opt-in).
-#include "astroray/integrator_state_soa.h"
-#endif
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>

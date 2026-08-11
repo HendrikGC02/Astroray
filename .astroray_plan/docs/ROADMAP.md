@@ -105,14 +105,16 @@ your single-developer throughput multiplies without coordination overhead.
 
 | Track | Owner agent | Runs on | Purpose |
 |---|---|---|---|
-| **A. Core quality** | Claude Code (local) | Your RTX 5070 Ti | Correctness, foundational refactors |
-| **B. Feature breadth** | GitHub Copilot cloud | GitHub Actions | Self-contained features shipped as plugins |
-| **C. Experiments** | Cline + local model | Your machine, VS Code | Exploratory changes, prototypes |
-| **D. Grind work** | Ralph loop + local model | Background on your machine | Test coverage, docs, lint fixes |
+| **A. Core quality** | Claude Code (local) | Your RTX 5070 Ti | Correctness, foundational refactors — all package specs route here |
+| **B. Feature breadth** | Retired 2026-04 era (was Copilot cloud) | — | Legacy `Track: B` specs route to Claude Code (`package-implementer`) |
+| **C. Experiments** | Retired 2026-04 era (was Cline) | — | Same routing |
+| **D. Grind work** | Open-weight models via the `delegate` skill (opencode) | Your machine | Bounded mechanical work; evidence-verified by Claude (CLAUDE.md §5) |
 | **E. Coordination/review** | Retired 2026-07 (was Codex) | — | Legacy `Track: E` specs route to Claude Code (`package-implementer`) |
 
-The overseer (see `agents/overseer.md`) coordinates by deciding what
-goes on which track, not by touching code.
+Coordination is done by the Claude Code `architect` and
+`roadmap-orchestrator` agents (`.claude/agents/`), not by a separate
+overseer. Retired-track handbooks are archived in
+`docs/archive/agents-multitrack-2026-04/`.
 
 **Simplicity principle per track:**
 - Track A handles anything that *has* to be right.

@@ -7,7 +7,7 @@ captured and which test consumes it.
 
 Schwarzschild black-hole baseline at 256×256. Pre-pkg67 reference.
 
-## `pkg67_flat_baseline_256.png` (not committed in this PR — deferred)
+## `pkg67_flat_baseline_256.png`
 
 Intended as the flat-space SSIM baseline for `test_pkg67_flat_regression.py`.
 

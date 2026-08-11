@@ -79,6 +79,21 @@ ported (not a verbatim file copy) from Blender Cycles and cited per-function.
   compiled into a target. Research note:
   `.astroray_plan/docs/bssrdf-random-walk-research.md`.
 
+### `external/cycles_light_tree/`
+
+Vendored reference copy of Blender Cycles' light-tree implementation,
+kept alongside the Astroray port for per-function citation and future
+parity work (pkg86). Not compiled into any target.
+
+- **Upstream:** [blender/cycles](https://github.com/blender/cycles) —
+  `src/scene/light_tree.{h,cpp}` and related kernel headers.
+- **License:** Apache-2.0 (`SPDX-FileCopyrightText: 2011-2022 Blender
+  Foundation`). Compatible with Astroray's MIT LICENSE with attribution;
+  the ported code cites the reference per-function in
+  `src/light_tree.cpp` and `include/astroray/light_tree.h`.
+- **How used:** reference-only (license attribution + parity audits);
+  deleting it would break the citation chain.
+
 ---
 
 ## Test-time dependencies (not redistributed)

@@ -154,14 +154,15 @@ cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DASTRORAY_ENABLE_CUDA=
 cmake --build . -j
 ```
 
-### Build (Windows — CUDA / tiny-cuda-nn)
+### Build (Windows — CUDA)
 
-The repo ships CMake presets for the CUDA + tiny-cuda-nn developer
-build. In VS Code with the CMake Tools extension, select the
-`windows-tcnn-vs` configure preset and build with
-`windows-tcnn-vs-release`. OIDN is enabled in these presets; CMake
-uses a local OIDN install when present or fetches the Windows prebuilt
-package during configure.
+The repo ships CMake presets for the CUDA developer build. In VS Code
+with the CMake Tools extension, select the `windows-cuda-vs` configure
+preset and build with `windows-cuda-vs-release`. OIDN is enabled in
+these presets; CMake uses a local OIDN install when present or fetches
+the Windows prebuilt package during configure. For day-to-day builds,
+`scripts/build/build_cuda.bat` (Ninja + sccache) is faster — see
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 **Optional GPU dependencies** — auto-detected by CMake; quietly disabled
 if absent:
@@ -180,16 +181,18 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md#optional-nvidia-gpu-users) for
 the full prerequisite list.
 
 ```powershell
-cmake --preset windows-tcnn-vs
-cmake --build --preset windows-tcnn-vs-release
+cmake --preset windows-cuda-vs
+cmake --build --preset windows-cuda-vs-release
 
 # Optional: build the artifacts and run pytest through the repo bootstrap.
-cmake --build --preset windows-tcnn-vs-pytest
+cmake --build --preset windows-cuda-vs-pytest
 ```
 
-Artifacts land in `build_tcnn/`: the Python module is in
-`build_tcnn/Release/` for Visual Studio builds, and the standalone
-binaries are in `build_tcnn/bin/Release/`.
+Artifacts land in `build_cuda/`: the Python module is in
+`build_cuda/Release/` for Visual Studio builds, and the standalone
+binaries are in `build_cuda/bin/Release/`. (An opt-in experimental
+tiny-cuda-nn neural-cache build is available via the `windows-tcnn-vs`
+presets.)
 
 See [docs/QUICKSTART.md](docs/QUICKSTART.md) for full platform-specific
 instructions, including the Blender addon build.

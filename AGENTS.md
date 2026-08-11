@@ -21,9 +21,13 @@ Astroray/
 
 - `AGENTS.md` is the shared repo contract for coding agents.
 - `CLAUDE.md` remains Claude Code's behavioral guide. Do not delete or replace it.
-- `.github/copilot-instructions.md` constrains GitHub Copilot coding agents.
 - `.astroray_plan/docs/STATUS.md` is the current planning source of truth.
 - Keep agent-specific notes additive. If a rule belongs to all agents, put it here.
+- **Before writing any new script, check `scripts/README.md` (the canonical
+  per-task script index) and grep `scripts/`, `benchmarks/`, `tools/` for an
+  existing script that already does the job. Extend the canonical script;
+  do not create a parallel one-off. New reusable scripts must be registered
+  in `scripts/README.md` in the same commit.**
 
 ## Build & Test Commands
 
@@ -67,12 +71,12 @@ Vec3, Ray, Material, Hittable, BVH, Monte Carlo estimation (NOT ML).
 Python module (`astroray`) via pybind11. Module is at `build/astroray.cpython-*.so` (Linux) or `build/astroray.cp*-win_amd64.pyd` (Windows).
 
 Pillars 1 and 2 are complete: plugin architecture and the spectral core are
-now the baseline. Per the owner directive of 2026-08-03, the active queue is:
-finish the supervised engine-settlement round (pkg172(A) + pkg174), then the
-**Integration Milestone** (Blender/DCC, pkg175–pkg177) — BEFORE further
-Pillar 3 closure work. Pillar 4 astrophysics is PAUSED until core rendering
-is stable. Authoritative sequencing: `.astroray_plan/docs/ROADMAP.md`
-"Current sequencing".
+now the baseline. Do NOT rely on this file for the active queue — it goes
+stale within days on this project. The authoritative sequencing is
+`.astroray_plan/docs/ROADMAP.md` "Current sequencing" plus
+`.astroray_plan/docs/STATUS.md`. Standing owner directives: Blender/DCC
+integration-first (2026-08); Pillar 4 astrophysics is PAUSED until core
+rendering is stable.
 
 ## Test Structure
 

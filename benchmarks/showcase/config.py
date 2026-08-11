@@ -67,3 +67,29 @@ ZOO_SKIPLIST = {
     "two_sided",
     "normal_mapped",
 }
+
+# Curated multi-preset variants — extra tiles beyond the single per-type
+# default above, for materials where more than one configuration is
+# visually distinct (glass IOR/dispersion presets, a disney_glass
+# roughness sweep, metal roughness spread). Ported from the now-deleted
+# `scripts/diagnostics/material_contact_sheet.py`; pkg74 is the single
+# canonical contact-sheet generator (each tuple: display_name,
+# material_type, base_color, params).
+MATERIAL_ZOO_VARIANTS: list[tuple[str, str, list[float], dict]] = [
+    ("metal_smooth", "metal", [0.95, 0.82, 0.42], {"roughness": 0.05}),
+    ("metal_rough", "metal", [0.95, 0.64, 0.54], {"roughness": 0.45}),
+    ("glass_bk7", "dielectric", [1.0, 1.0, 1.0], {"sellmeier_preset": "bk7"}),
+    ("glass_flint_sf11", "dielectric", [1.0, 1.0, 1.0], {"glass_preset": "flint_sf11"}),
+    ("diamond", "dielectric", [1.0, 1.0, 1.0], {"glass_preset": "diamond"}),
+    ("ruby", "dielectric", [1.0, 1.0, 1.0], {"glass_preset": "ruby"}),
+    ("emerald", "dielectric", [1.0, 1.0, 1.0], {"glass_preset": "emerald"}),
+    ("thin_glass_blue", "thin_glass", [0.82, 0.93, 1.0],
+     {"ior": 1.52, "transmission": 0.85, "roughness": 0.03}),
+    ("disney_glass_r0", "disney", [1.0, 1.0, 1.0],
+     {"transmission": 1.0, "ior": 1.5, "roughness": 0.0}),
+    ("disney_glass_r35", "disney", [1.0, 1.0, 1.0],
+     {"transmission": 1.0, "ior": 1.5, "roughness": 0.35}),
+    ("disney_glass_r70", "disney", [1.0, 1.0, 1.0],
+     {"transmission": 1.0, "ior": 1.5, "roughness": 0.70}),
+    ("disney_metal", "disney", [0.9, 0.68, 0.25], {"metallic": 1.0, "roughness": 0.22}),
+]

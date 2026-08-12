@@ -2,7 +2,7 @@
 
 **Pillar:** 5 / integration-first
 **Track:** A
-**Status:** done — image-texture slice (PR pending, 2026-08-12). Backend-aware
+**Status:** done — image-texture slice (PR #590, 2026-08-12). Backend-aware
 `__features__` guard landed + GPU image textures render with CPU parity
 (per-channel mean-ratio 1.003 / 0.998 / 1.000). Untextured fleet kernel
 BYTE-IDENTICAL (cuobjdump `stageShadeBucketedKernel<false,false>` REG:254

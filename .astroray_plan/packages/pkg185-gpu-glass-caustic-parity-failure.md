@@ -2,9 +2,16 @@
 
 **Pillar:** 3/5 (light transport / GPU parity)
 **Track:** A (RTX hardware root-cause)
-**Status:** open (found 2026-08-12 during the hygiene run's full clean-build
-RTX sweep; pre-existing on `main` — fails identically at 63d94d4 and on the
-hygiene branch)
+**Status:** done (PR #TBD, 2026-08-12 — SSIM 0.0101 → 0.9606, GPU peak 1007 → 0.41;
+root cause: the test scene's sun used raw irradiance `6.0` (radiance S/Ω ≈ 19100)
+instead of the reference scene's Ω-scaled `6.0·Ω` (radiance ≈ 6.0). Harmless
+until pkg181 made dedicated lamps BSDF-visible, at which point the ball-lens
+produced correct-but-high-variance specular sun-disk images (peak ~1007) that
+the CPU reference's independent RNG did not hit at the same pixels, collapsing
+the variance-based SSIM. Fix mirrors the reference scene's Ω-scaling; the
+transport is confirmed in parity — clamp_indirect on both sides independently
+lifts SSIM to 0.97. Found 2026-08-12 during the hygiene run's full clean-build
+RTX sweep; pre-existing on `main` — failed identically at 63d94d4 and 24106ca.)
 **Estimated effort:** M
 **Depends on:** pkg113 GPU photon-caustic pre-pass; `tests/test_gpu_caustic_parity.py`.
 

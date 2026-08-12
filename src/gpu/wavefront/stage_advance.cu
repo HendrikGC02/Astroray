@@ -378,7 +378,14 @@ __device__ int intersectPathSlot(
 // its pre-pkg186 REG/STACK footprint (the three signature params cost +24 B stack).
 __constant__ GWavefrontTextureBinding c_wfTexBinding;
 
-template<bool Deferred, bool HasPrincipled, bool HasTexture = false>
+// pkg184 — HasPhotons isolates the bounce-0 photon-map caustic KNN gather
+// (photonGridGatherKnn, 50-neighbour live set) behind `if constexpr`. The gather
+// only ever fires at bounce 0 in scenes that carry a photon grid, yet ptxas had to
+// allocate its registers/stack in EVERY instantiation of the REG:254-pinned shade
+// kernel. Threading HasPhotons lets the fleet's non-photon <*,*,false> kernels
+// compile with ZERO gather codegen; the launcher picks <true> off hasPhotonGrid.
+// See .astroray_plan/packages/pkg184-stage-advance-hasphotons-isolation.md.
+template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPhotons = false>
 __device__ bool shadePathSlot(
     int idx,
     GPUWavefrontState& state,
@@ -697,20 +704,27 @@ __device__ bool shadePathSlot(
     // (color SoA) and converts to XYZ at the regen stage. To match MW behavior, we store
     // photon XYZ contrib in separate photon_xyz_* SoA fields and add it to accum_xyz
     // during regen (after spectral color→XYZ conversion), preserving the XYZ+XYZ math.
-    if (bounce == 0 && hasPhotonGrid && !useLuminanceOutput && photonGrid.numPhotons > 0) {
-        // rec is already the primary hit from intersectPathSlot; check non-emissive.
-        if (mat.emissionIntensity <= 0.0f) {
-            int found = 0;
-            GVec3 E = astroray::photon::gpu::photonGridGatherKnn(
-                photonGrid, rec.point, 50, 1.1f, found);
-            if (found > 0) {
-                GVec3 alb = mat.baseColor;
-                GVec3 photonContrib = GVec3(alb.x * E.x, alb.y * E.y, alb.z * E.z)
-                                      * photonScale;
-                // Store in photon_xyz SoA; will be added to accum_xyz during regen.
-                state.photon_xyz_x[idx] = photonContrib.x;
-                state.photon_xyz_y[idx] = photonContrib.y;
-                state.photon_xyz_z[idx] = photonContrib.z;
+    // pkg184: gated at COMPILE time on HasPhotons so ptxas allocates the 50-neighbour
+    // gather's live set only in the <*,*,true> instantiations. The runtime guard is
+    // preserved unchanged inside — a HasPhotons=true kernel is byte-identical to the
+    // pre-pkg184 kernel; a HasPhotons=false kernel (launched when hasPhotonGrid is
+    // false) never gathered anyway, so this is behaviour-preserving.
+    if constexpr (HasPhotons) {
+        if (bounce == 0 && hasPhotonGrid && !useLuminanceOutput && photonGrid.numPhotons > 0) {
+            // rec is already the primary hit from intersectPathSlot; check non-emissive.
+            if (mat.emissionIntensity <= 0.0f) {
+                int found = 0;
+                GVec3 E = astroray::photon::gpu::photonGridGatherKnn(
+                    photonGrid, rec.point, 50, 1.1f, found);
+                if (found > 0) {
+                    GVec3 alb = mat.baseColor;
+                    GVec3 photonContrib = GVec3(alb.x * E.x, alb.y * E.y, alb.z * E.z)
+                                          * photonScale;
+                    // Store in photon_xyz SoA; will be added to accum_xyz during regen.
+                    state.photon_xyz_x[idx] = photonContrib.x;
+                    state.photon_xyz_y[idx] = photonContrib.y;
+                    state.photon_xyz_z[idx] = photonContrib.z;
+                }
             }
         }
     }
@@ -1046,7 +1060,7 @@ __global__ void stageIntersectQueuedKernel(
     shade_queues[matType * capacity + slot] = idx;
 }
 
-template<bool HasPrincipled, bool HasTexture>  // pkg178 Stage-3b D4; pkg186 texture
+template<bool HasPrincipled, bool HasTexture, bool HasPhotons>  // pkg178 D4; pkg186 texture; pkg184 photons
 __global__ void stageShadeBucketedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1082,7 +1096,7 @@ __global__ void stageShadeBucketedKernel(
     // pkg186: texture data comes from the __constant__ c_wfTexBinding symbol, NOT
     // kernel params — keeps the untextured <false,false> signature at its
     // pre-pkg186 footprint (see c_wfTexBinding note above).
-    bool alive = shadePathSlot<true, HasPrincipled, HasTexture>(idx, state, hitBufs, tlas, instances, blas,
+    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons>(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
                                totalLightPower, dedLights, numDed,
@@ -1245,22 +1259,42 @@ void launchStageShadeBucketed(
                 clampDirect, clampIndirect, \
                 photonGrid, hasPhotonGrid, photonScale, \
                 d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth
+        // pkg184: hasPhotonGrid selects the <*,*,true> instantiation, which is the
+        // ONLY one carrying the photonGridGatherKnn codegen. The fleet's non-photon
+        // scenes launch <*,*,false>, whose ptxas footprint drops back below the
+        // pre-pkg184 kernel (acceptance = cuobjdump on the <false,false,false>
+        // symbol, native sm_120). All 8 are referenced so they land in the cubin.
+        const bool hasPhotons = hasPhotonGrid;
         const void* kptr =
             hasPrincipled
-                ? (hasTexture ? (const void*)stageShadeBucketedKernel<true, true>
-                              : (const void*)stageShadeBucketedKernel<true, false>)
-                : (hasTexture ? (const void*)stageShadeBucketedKernel<false, true>
-                              : (const void*)stageShadeBucketedKernel<false, false>);
+                ? (hasTexture
+                    ? (hasPhotons ? (const void*)stageShadeBucketedKernel<true, true, true>
+                                  : (const void*)stageShadeBucketedKernel<true, true, false>)
+                    : (hasPhotons ? (const void*)stageShadeBucketedKernel<true, false, true>
+                                  : (const void*)stageShadeBucketedKernel<true, false, false>))
+                : (hasTexture
+                    ? (hasPhotons ? (const void*)stageShadeBucketedKernel<false, true, true>
+                                  : (const void*)stageShadeBucketedKernel<false, true, false>)
+                    : (hasPhotons ? (const void*)stageShadeBucketedKernel<false, false, true>
+                                  : (const void*)stageShadeBucketedKernel<false, false, false>));
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_shade_bucketed_n7", kptr, blocks, threads);
-        if (hasPrincipled && hasTexture)
-            stageShadeBucketedKernel<true, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+        if (hasPrincipled && hasTexture && hasPhotons)
+            stageShadeBucketedKernel<true, true, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+        else if (hasPrincipled && hasTexture)
+            stageShadeBucketedKernel<true, true, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+        else if (hasPrincipled && hasPhotons)
+            stageShadeBucketedKernel<true, false, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
         else if (hasPrincipled)
-            stageShadeBucketedKernel<true, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+            stageShadeBucketedKernel<true, false, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+        else if (hasTexture && hasPhotons)
+            stageShadeBucketedKernel<false, true, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
         else if (hasTexture)
-            stageShadeBucketedKernel<false, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+            stageShadeBucketedKernel<false, true, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+        else if (hasPhotons)
+            stageShadeBucketedKernel<false, false, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
         else
-            stageShadeBucketedKernel<false, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+            stageShadeBucketedKernel<false, false, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
         #undef ASTRORAY_PKG186_SHADE_ARGS
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {

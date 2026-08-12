@@ -7,7 +7,12 @@ r=0.02/0.05/0.10 0.067→**0.604** (matches the `metal` reference), r=0.30
 0.567→0.603; dielectric-specular r=0.02/0.05/0.10 0.025→**0.231**, r=0.30
 0.217→0.230. Register-neutral: `<false>` STACK 3608 B / `<true>` STACK
 6592 B unchanged. 14 new/extended tests + 73-test regression green, RTX
-5070 Ti hardware-verified.)
+5070 Ti hardware-verified. Follow-up PR #586, 2026-08-12 — per-λ-native
+Principled conductor thin-film supersedes the RGB-upsample approximation,
+17/17 gates HW-verified; saturation mean 0.0488→0.0499, max
+0.1842→0.2045 — a correctness/consistency win, not the visible saturation
+jump the ticket implied, per memory
+`per-lambda-conductor-thinfilm-equals-rgb-upsample`.)
 **Estimated effort:** S (eval-only fix, sampler/pdf untouched)
 **Depends on:** `disney.cpp` / `gpu_materials.h` GGX reflect evaluators
 (metallic + specular + anisotropic lobes); discovered as a blocker for

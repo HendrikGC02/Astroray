@@ -2,7 +2,7 @@
 
 **Pillar:** 3/5 (spectral light transport / Blender parity)
 **Track:** A
-**Status:** CPU-complete + GPU-wired (PR #593, 2026-08-12 — CPU chromatic prism
+**Status:** done — CPU-complete + GPU-wired (PR #593, 2026-08-12 — CPU chromatic prism
 red/blue spread 4.27→5.35px; zero-dispersion byte-identical; addon forward-probe
 unit-tested; `<false>` shade kernel **REG:254/STACK:3608 byte-identical to main**
 at TRUE sm_120 — see the register-gate note below. GPU-visible wavefront

@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (build infrastructure / verification integrity)
 **Track:** A
-**Status:** in-review (PR #592, 2026-08-12 — items 1–3 implemented:
+**Status:** done (PR #592, 2026-08-12 — items 1–3 implemented:
 header-hash stamp + force-clean-on-mismatch, a <5 s host-only ABI canary, AND
 a cuobjdump ground-truth CUDA-arch gate (PR #590 scope-add) wired into all
 three build wrappers; item 4 evaluated-only, see Lessons)

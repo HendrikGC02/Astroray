@@ -4,10 +4,23 @@
 **Track:** A
 **Status:** CPU-complete + GPU-wired (PR #593, 2026-08-12 — CPU chromatic prism
 red/blue spread 4.27→5.35px; zero-dispersion byte-identical; addon forward-probe
-unit-tested; `<false>` shade kernel REG:254/STACK:2640 unchanged. GPU-visible
-wavefront dispersion deferred to the follow-up spec filed 2026-08-12 — it is a
-pre-existing frozen no-op that the dielectric reference shares.)
+unit-tested; `<false>` shade kernel **REG:254/STACK:3608 byte-identical to main**
+at TRUE sm_120 — see the register-gate note below. GPU-visible wavefront
+dispersion deferred to the follow-up spec filed 2026-08-12 — it is a pre-existing
+frozen no-op that the dielectric reference shares.)
 **Estimated effort:** M
+
+> **Register-gate note (corrected 2026-08-12).** The first measurement read
+> `REG:254/STACK:2640` — that was the **fleet-wide stale-arch artifact**: every
+> `build_cuda` tree carried a cached `CMAKE_CUDA_ARCHITECTURES=52`, so `cuobjdump`
+> read Maxwell PTX, not the sm_120 SASS that runs (pkg183 is shipping an automatic
+> guard). Rebuilt both worktree and a fresh merge-base baseline with
+> `-DASTRORAY_CUDA_ARCHS=120 -DCMAKE_CUDA_ARCHITECTURES=120` (verified
+> `compute_120,sm_120` in the generated project) and re-ran `cuobjdump
+> --dump-resource-usage` on the FINAL LINKED `.pyd`: `stageShadeBucketedKernel<false>`
+> is **REG:254 STACK:3608 CONSTANT[0]:1700 on BOTH** baseline and pkg187 —
+> byte-identical, no register/stack increase (the if-constexpr HasPrincipled
+> isolation holds at the true arch).
 **Depends on:** pkg178 (native Principled BSDF); pkg31/pkg29 (Sellmeier
 dielectric plugin); pkg64 (GPU Sellmeier / hero-λ upload); SMS/MNEE
 (`include/astroray/mesh_attempt.h`).

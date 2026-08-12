@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cmath>
 #include <mutex>
+#include <random>  // pkg191: std::random_device for the GPU seed-0 contract
 #include "raytracer.h"
 #include "advanced_features.h"
 #include "astroray/shapes.h"
@@ -1736,6 +1737,23 @@ public:
             // pkg64-gpu Phase 1 probe hook (moved here from the deleted
             // CUDARenderer::render): when ASTRORAY_PKG64_GPU_SMS_PROBE is
             // set, run the SMS device probe instead of rendering.
+            // pkg191: mirror the CPU Renderer::render seed contract
+            // (include/raytracer.h:3028-3030 + the renderSeed doc at :2102):
+            // renderSeed==0 means "non-deterministic" — draw a FRESH seed per
+            // render() call. The GPU dispatch previously passed the fixed
+            // renderer.getSeed() (==0 for the Blender viewport renderer) verbatim
+            // to the wavefront, whose RNG is WavefrontRNG(pixel, sample_idx, seed)
+            // (src/gpu/wavefront/stage_init.cu:189). With a fixed seed AND the same
+            // local sample range every call, each viewport chunk reproduced
+            // IDENTICAL noise, so the addon's Python running-mean accumulator
+            // (blender_addon/exporter.py:585-597) averaged duplicates and the
+            // GPU viewport stayed frozen at the 1-sample noise while the CPU
+            // viewport (which already honours this contract) refined. A non-zero
+            // pin stays deterministic (final render / parity + golden tests).
+            const uint64_t effectiveSeed =
+                (renderer.getSeed() == 0)
+                    ? static_cast<uint64_t>(std::random_device{}())
+                    : static_cast<uint64_t>(renderer.getSeed());
             bool smsProbeRan = false;
             {
                 const char* probe_env = std::getenv("ASTRORAY_PKG64_GPU_SMS_PROBE");
@@ -1764,7 +1782,7 @@ public:
                 int  spatialNeighbors = integratorParams_.getInt("spatial_neighbors", 5);
                 auto rgb = astroray::wavefront::cuda_wavefront_render_restir(
                     renderer, *camera, camera->width, camera->height,
-                    samplesPerPixel, maxDepth, renderer.getSeed(),
+                    samplesPerPixel, maxDepth, effectiveSeed,
                     numCandidates, mCap, useTemporal, useSpatial,
                     spatialRadius, spatialNeighbors, restirSessionId_);
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
@@ -1817,7 +1835,7 @@ public:
                 }
                 auto rgb = astroray::wavefront::cuda_wavefront_render(
                     renderer, *camera, camera->width, camera->height,
-                    samplesPerPixel, maxDepth, renderer.getSeed(),
+                    samplesPerPixel, maxDepth, effectiveSeed,
                     lmin, lmax, useLum, enableNEE,
                     cryptoObjOut, cryptoMatOut, cryptoDepth);  // pkg159
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.

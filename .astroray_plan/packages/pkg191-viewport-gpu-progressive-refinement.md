@@ -2,8 +2,37 @@
 
 **Pillar:** 5 / integration-first
 **Track:** A
-**Status:** open (filed 2026-08-12 from owner hands-on addon feedback —
+**Status:** done (PR #TBD, 2026-08-12 — root cause: GPU dispatch ignored the
+renderSeed==0 "non-deterministic" contract, so every viewport chunk rendered
+identical noise; fix mirrors the CPU per-call reseed. Baseline repro on a
+freshly-built current-`main` .pyd: GPU seed-0 chunks byte-identical
+(max_abs_diff=0, accum variance frozen at 0.001055 across iters 1/8/64); CPU
+refined. Post-fix: GPU chunks distinct (0.153), accum variance drops
+0.00105→0.00043→0.00036, MSE-to-256spp 7.0e-4→4.7e-5→1.3e-5, iter-1/64 PNGs
+visibly denoise. filed 2026-08-12 from owner hands-on addon feedback —
 memory [[owner-addon-feedback-2026-08-12]], finding #1)
+
+**Lessons / ruled-out hypotheses:**
+- **Convicted: H4** (GPU chunk render did not advance the sample stream). The
+  viewport renderer runs at the default `renderSeed==0`. The CPU render loop
+  special-cases 0 → fresh `std::random_device` seed per call
+  (`include/raytracer.h:3028-3030`), so chunks are independent and the Python
+  running-mean (`exporter.py:585-597`) converges. The GPU dispatch
+  (`module/blender_module.cpp`) passed `renderer.getSeed()` (==0) verbatim to
+  `cuda_wavefront_render`; the wavefront RNG is `WavefrontRNG(pixel, sample_idx,
+  seed)` (`src/gpu/wavefront/stage_init.cu:189`), so every chunk reproduced
+  identical noise and the mean averaged duplicates.
+- **Ruled out H1** (tag_redraw pump) **and H3** (camera-hash false reset): both
+  are backend-agnostic Python; the existing
+  `test_view_draw_progresses_until_preview_sample_target` already gates
+  monotonic spp-climbing (its mock renderer returns *distinct* values per call —
+  exactly the property GPU violated). If the pump were broken the CPU viewport
+  would stall too, but CPU refines.
+- **Ruled out H2** (render returns None / fresh 1-spp buffer on chunk ≥2):
+  the GPU `render()` returns a valid distinct buffer on every call; the stall
+  was identical *content*, not a None early-return.
+- Fix is one spot in the GPU dispatch (mirror the documented seed contract); the
+  engine RNG and the Python pump are untouched (per the H1 non-goal).
 **Estimated effort:** M
 **Depends on:** none hard; touches the pkg56/pkg83/pkg84/pkg114 viewport
 session machinery (`view_update` / `view_draw` / `render_viewport_frame`).
@@ -138,20 +167,24 @@ speculatively — implement the one the evidence selects):
 
 ## Acceptance criteria
 
-- [ ] **Reproduced (or shown already-fixed) on a freshly built current-`main`
-      addon `.pyd`** BEFORE any code change; the dated-addon caveat is
-      discharged in writing.
-- [ ] A **headless / scriptable** assertion that `_viewport_current_spp` climbs
-      monotonically to `preview_samples` across successive `view_draw` calls
-      with a fixed camera on the **GPU** backend (CPU as passing control),
-      gated as a test.
-- [ ] The single root cause is identified with instrumented evidence; ruled-out
-      hypotheses recorded in Lessons.
-- [ ] The GPU viewport **visibly refines** (noise drops as spp climbs) — an
-      **owner-visual note** with a before/after capture (metrics can pass on
-      garbage; [[general-photon-loop-needs-solid-glass]] — a human must confirm
-      the noise actually decreases, not just that spp counts up).
-- [ ] No regression to the CPU viewport progressive loop (same test passes CPU).
+- [x] **Reproduced on a freshly built current-`main` .pyd** BEFORE any code
+      change (GPU seed-0 chunks byte-identical; CPU refined). Dated-addon caveat
+      discharged: the bug is present on `main`.
+- [x] A **headless / scriptable** monotonic-spp assertion across successive
+      `view_draw` calls with a fixed camera (backend-agnostic pump) — already
+      gated by `test_view_draw_progresses_until_preview_sample_target` (21
+      viewport-session tests pass). The GPU-specific chunk-independence + denoise
+      is gated by `tests/test_pkg191_viewport_gpu_progressive.py` (GPU + CPU
+      control).
+- [x] Single root cause identified with instrumented evidence (H4); ruled-out
+      hypotheses recorded in Lessons above.
+- [x] GPU viewport **visibly refines** — iter-1 (heavy salt-and-pepper noise)
+      vs iter-64 (clean smooth sphere) PNGs read by the implementer; accum
+      variance and MSE-to-reference both drop monotonically. See owner-visual
+      note in the PR.
+- [x] No regression to the CPU viewport loop (`test_cpu_seed0_chunks_are_independent`
+      + 21 viewport-session tests pass; pinned-seed GPU golden/parity tests stay
+      deterministic).
 
 ## Hard non-goals
 

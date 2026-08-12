@@ -258,6 +258,48 @@ fix:
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
 
+**Round closeout (2026-08-12 → 2026-08-13): 15 PRs (#585–#599), no open PRs at closeout — GPU capability restoration (first GPU texture support, viewport progressive-refinement fix) + Principled spectral correctness (per-λ conductor thin-film, dispersion, transmission colour/scalar separation) + a build-integrity guard.**
+**pkg183 DONE** (PR #592) — stale-object ABI-mixed-binary guard in all three
+build wrappers, plus a cuobjdump ground-truth CUDA-arch gate (exit 6/7) that
+catches the fleet-wide stale `CMAKE_CUDA_ARCHITECTURES=52` CMakeCache
+incident this round also surfaced (worktree STACK 2640 readings were
+Maxwell-PTX artifacts; true sm_120 `<false>` baseline is STACK 3608). Root
+cause (CMakeLists non-cache `set()`, `configure_and_build.bat`,
+`build_blender_addon.py` hardcoded arch/Debug revert) queued as a separate
+infra follow-up PR. **pkg185 CLOSED** (PR #589) — the GPU glass-caustic
+parity gate failure root-caused to an un-Ω-scaled test-scene sun light, not
+GPU transport (SSIM 0.0101→0.9606 after the test fix); GPU transport
+confirmed healthy. **pkg186 DONE** (PR #590) — first GPU image-texture
+support (baked buffer + nearest fetch) + backend-aware `__gpu_features__`
+so the addon Diagnostics panel stops overclaiming GPU capability. **pkg182
+follow-up DONE** (PR #586) — per-λ-native Principled conductor thin-film
+supersedes the RGB-upsample approximation (17/17 gates HW-verified); the
+saturation-jump premise didn't hold at 4 samples, but this closes a real
+JH-round-trip correctness gap. **pkg187 DONE** (PR #593) — Principled BSDF
+dispersion, CPU-complete (OpenPBR/Cycles-WIP Cauchy fit, cited; prism
+chromatic spread 4.267→5.345px), GPU wired but gated on the pre-existing
+pkg189 no-op filed the same day. **pkg184 DONE** (PR #597) —
+`template<bool HasPhotons>` isolation of the photon-caustic k-NN gather,
+non-photon shade kernel −2.3% wall time. **pkg191 DONE** (PR #598) — GPU
+viewport progressive refinement: the GPU dispatch ignored the
+`renderSeed==0` fresh-random contract, making every viewport chunk render
+identical noise; one-spot fix, MSE-to-256spp 7.0e-4→1.3e-5. **pkg188
+DONE** (PR #599) — Principled film-off transmission colour/scalar
+separation CPU+GPU retires the Stage-3b upsample hack; QUANTIFIED a ~72%
+band-error residual on coloured-tint-over-dark-base materials, raising the
+priority of the new **pkg194** descope. **pkg175 drift-gate fix**: flipped
+to done (PR #547, 2026-08-07 — its spec had stayed "in review" past its
+own merge). **HEADLINE ENGINE FINDING** from the pkg195 spectral-node
+design session (PR #596): `multiwavelength_path_tracer` has NO light
+sampling — every lamp-lit NIR/UV render is black end-to-end; Phase 1 spec
+filed, not yet implemented. **Specs filed, open:** pkg189 (GPU dispersion
+enablement, next up), pkg190 (GPU procedural textures), pkg192/pkg193
+(viewport-addon diagnosis-first, from owner hands-on feedback), pkg194,
+pkg195. **Owner decisions:** wavefront perf ceiling stays at 1.5s
+(ratified); overnight autonomous run authorized. Full detail:
+`.astroray_plan/docs/STATUS.md` round-closeout section "2026-08-12 →
+2026-08-13". Pillar 4 stays PAUSED.
+
 **Round closeout (2026-08-08 → 2026-08-10): 17 PRs (#566–#582) — Principled-BSDF completion run, no open PRs at closeout.**
 **pkg178 native Cycles Principled BSDF is now fully COMPLETE** (Stages
 0–5, PRs #566–#581): a faithful `"principled"` material plugin (core

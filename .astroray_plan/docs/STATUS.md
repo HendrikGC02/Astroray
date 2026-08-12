@@ -1,5 +1,101 @@
 # Astroray Status
 
+**2026-08-12 → 2026-08-13 (day run + overnight, 15 PRs merged #585–#599, no
+open PRs at closeout): GPU capability-restoration wave (first GPU texture
+support, viewport progressive-refinement fix) + two Principled spectral
+correctness fixes + a build-integrity guard — plus a HEADLINE engine finding
+that every lamp-lit NIR/UV render is black end-to-end.**
+- **pkg183 DONE** (PR #592, 2026-08-12) — stale-object ABI-mixed-binary guard
+  (header-hash stamp + force-clean-on-mismatch, <5s host-only ABI canary) in
+  all three build wrappers, plus a cuobjdump ground-truth CUDA-arch gate
+  (exit codes 6/7) that catches the fleet-wide stale
+  `CMAKE_CUDA_ARCHITECTURES=52` CMakeCache class of incident: worktree
+  resource-gate readings of STACK 2640 were Maxwell-PTX artifacts, the true
+  sm_120 `<false>` baseline is STACK 3608. The root-cause trio (CMakeLists
+  non-cache `set()`, `configure_and_build.bat`, `build_blender_addon.py`
+  hardcoded arch/Debug revert) is deliberately out of scope — queued as an
+  infra follow-up PR.
+- **pkg185 CLOSED** (PR #589, 2026-08-12) — the GPU glass-caustic parity gate
+  failure root-caused to the TEST SCENE, not GPU transport: the sun light
+  was un-Ω-scaled, driving irradiance to ~19100 and collapsing SSIM to
+  0.0101 on 3 legitimate specular fireflies; fixed the test, SSIM
+  0.0101→0.9606, GPU peak 1007→0.41. GPU transport confirmed healthy.
+- **pkg186 DONE** (PR #590, 2026-08-12) — first GPU image-texture support:
+  baked-buffer + nearest fetch, `__constant__ c_wfTexBinding`, after a
+  verifier-caught +24B kernel-signature regression was fixed back to exact
+  kernel identity (REG:254/STACK:3608/CONSTANT:1700). Backend-aware
+  `__gpu_features__` dict — the addon Diagnostics panel no longer claims GPU
+  textures/volumes/adaptive/GR it doesn't have.
+- **pkg182 follow-up DONE** (PR #586, 2026-08-11) — per-λ-native Principled
+  conductor thin-film supersedes the RGB-upsample approximation; 17/17 gates
+  HW-verified. Measured finding: saturation barely moved (mean
+  0.0488→0.0499, max 0.1842→0.2045) — the premise that RGB-upsample
+  visibly mutes metal iridescence doesn't hold in the 4-sample
+  hero-wavelength pipeline; this is a correctness/consistency win (no JH
+  round-trip loss, correct under spectral/colored light), not the
+  saturation jump the ticket implied.
+- **pkg187 DONE** (PR #593, 2026-08-12) — Principled BSDF dispersion,
+  CPU-complete (OpenPBR/Cycles-WIP Cauchy fit from IOR+Abbe, cited): prism
+  chromatic spread 4.267→5.345px, zero-dispersion bit-identical, `<false>`
+  shade kernel byte-identical at TRUE sm_120
+  (REG:254/STACK:3608/CONSTANT:1700). GPU leg wired but gated on the
+  pre-existing pkg189 no-op (hero-λ refraction never varies IOR on GPU —
+  the dielectric reference shares the same gap). Two premise corrections:
+  no shipped Blender exposes a Dispersion socket (unmerged upstream WIP
+  #162041 — the addon got a forward-compatible probe); `test_gpu_prism_
+  rainbow_parity`'s XPASS was vacuous, xfail retained.
+- **pkg184 DONE** (PR #597, 2026-08-12) — `template<bool HasPhotons>`
+  isolation of the photon-caustic k-NN gather (8 kernel instantiations):
+  every HasPhotons=false variant strictly below baseline (STACK
+  −128..−256B), HasPhotons=true variants byte-identical; non-photon
+  glass-sphere shade kernel −2.3% wall vs +0.1% byte-identical control.
+- **pkg191 DONE** (PR #598, 2026-08-12) — GPU viewport progressive
+  refinement: root cause was the GPU dispatch ignoring the
+  `renderSeed==0` → fresh-random contract, so every viewport chunk
+  rendered IDENTICAL noise. One-spot fix in `blender_module.cpp`;
+  MSE-to-256spp 7.0e-4→1.3e-5 across iterations, HW-verified.
+- **pkg188 DONE** (PR #599, 2026-08-12) — Principled film-off transmission
+  colour/scalar separation, CPU+GPU (retires the "Stage-3b upsample hack")
+  + a weight-path clamp guard. Finding C descoped to new spec pkg194.
+  QUANTIFIED residual: `upsample(a·b)` vs `upsample(a)·upsample(b)` up to
+  ~72% band error on coloured-tint-over-dark-base (0% for the common
+  white-tint case) — this raises pkg194's priority.
+- **pkg175 flipped to done** (PR #547, 2026-08-07 — drift-gate fix, its spec
+  had stayed "in review" past its own merge): one-command Blender dev loop,
+  150s full rebuild / 5.8s `-SkipBuild`, on-hardware smoke `RESULT PASS`.
+- **HEADLINE ENGINE FINDING (pkg195 design session, PR #596, 2026-08-12):**
+  `multiwavelength_path_tracer` has NO light sampling — every lamp-lit
+  NIR/UV render is black end-to-end. The profile-selector node is a
+  visible-band no-op; the IR/UV response node is destructive.
+  Sodium/mercury lamp SPDs are already engine-ready but not exposed. A
+  drawn-spectrum node is filed as a genuine differentiator (no other
+  renderer has one). pkg195 Phase 1 spec filed, not yet implemented.
+- **Specs filed, not yet implemented:** pkg189 (GPU wavefront dispersion
+  enablement — the hero-λ refraction no-op both pkg187 and the pre-existing
+  dielectric xfail are blocked on; PR #591, next up), pkg190 (GPU
+  procedural textures, pkg186 slice 2, needs a pkg119-B re-baseline first;
+  PR #594), pkg192/pkg193 (viewport-addon diagnosis-first specs from owner
+  hands-on feedback, PR #595 — pkg192 viewport interactivity 3-5fps vs
+  Cycles ~30fps, pkg193 camera-view overlay misalignment; pkg191, filed in
+  the same PR, landed same round — see above), pkg195 (spectral node
+  system, above).
+- **Infra, not tied to a package:** `.gitattributes` forces CRLF checkout
+  for `.bat`/`.cmd` (PR #585, prevents the class of silent cmd.exe
+  mis-parse this repo has hit before); comprehensive repo hygiene sweep
+  (PR #587, pre-session — dead code/scripts/tests/docs removal, tcnn
+  opt-in, guardrails; filed pkg183/184/185).
+- **Owner decisions (2026-08-12):** wavefront perf ceiling STAYS at 1.5s
+  (ratified, improve opportunistically); overnight autonomous run
+  authorized; owner hands-on addon feedback drove pkg191-193 + the
+  spectral-node design (pkg195).
+- **Round verification discipline:** every code PR dual-gated (CI +
+  independent RTX hardware verification); three verifiers serialized via
+  the GPU lock overnight.
+- **Open follow-ups carried forward:** pkg189 (next up), pkg190, pkg192,
+  pkg193, pkg194 (priority raised by the 72% finding above), pkg195, the
+  infra arch root-cause PR, the `GLoweredMaterial` by-value prototype
+  re-apply (worktree `sad-maxwell`), pkg180 diagnosis.
+
 **2026-08-11 (post-Principled-block parity verification + harness band re-pin —
 CLOSES the last two owed pkg178 items):** thin-film saturation parity vs Blender
 5.2 Cycles is VERIFIED and the coordinated pkg119-B/pkg129 band re-pin is DONE;
@@ -402,6 +498,166 @@ pkg151/pkg147 open, HELD by pr-merger for owner approval on CMakeLists
 touches. Full round closeout pending.
 
 **Last updated:** 2026-07-20 (Overnight autonomous run on the travel laptop — RTX 3000 Ada sm_89, CUDA 13.2, no OptiX SDK. **pkg55 Phase C Sessions C3+C4 landed** (PR #486 non-visible-band + naive-MW wavefront; PR #490 TLAS/instancing + deformation-motion in the wavefront) and **C5 is open-verified** (PR #494 photon caustics, 2/2 gates + 40-test regression green on RTX, not yet merged) — Phase C is now 5 of 7 sessions done/verified. **pkg89 GAP-1 landed** (PR #489 — dedicated lights uploaded to GPU, Blender-lamp scenes stop rendering DARK on GPU: AREA 0.998 / POINT 0.997 parity) with **GAP-2 energy audit** escalated to pkg122. **pkg121 Phase A** chi² sampler harness (PR #485 — Mitsuba BSD-3 port; Lambertian anchor passes p=0.23; Disney spec-lobe failures xfail'd → pkg123). **pkg119-A** Blender parity coverage matrix (PR #487 — v4 AST-scanned: 131 SUPPORTED / 23 APPROXIMATED / 370 DROPPED-SILENT / 20 stale sockets of 524). 15 new specs filed (pkg123-137) covering correctness/sampling + eight platform techniques + material candidates. Direct-to-main: root-shadow-pyd trap killed (94ae956), permissions allowlist (1efe9bc), pkg115-harness CUDA-13 fix (3778f37), other-engines research sweep (7a4c970).).
+
+## Round closeout 2026-08-12 → 2026-08-13 — GPU capability restoration (textures, viewport progressive refinement) + Principled spectral correctness (conductor thin-film, dispersion, transmission separation) + build-integrity guard; HEADLINE FINDING: NIR/UV lamp-lit renders are black end-to-end
+
+**15 PRs merged (#585–#599), no open PRs at closeout.** See the top-of-file
+summary for the full headline; this section is the archival record.
+
+### pkg183 — stale-object ABI-mixed-binary build-integrity guard (PR #592, 2026-08-12)
+
+Header-hash stamp + force-clean-on-mismatch, a <5s host-only ABI canary, and
+a cuobjdump ground-truth CUDA-arch gate wired into all three build wrappers
+(exit codes 6/7). The arch gate is the direct guard against the fleet-wide
+stale `CMAKE_CUDA_ARCHITECTURES=52` CMakeCache incident this same round
+surfaced (see cross-cutting note below). Item 4 (move build trees off
+OneDrive) evaluated-only, deferred to a separate package.
+
+### pkg185 — GPU glass-caustic parity gate CLOSED by test-scene fix (PR #589, 2026-08-12)
+
+The gate's SSIM 0.0101 failure was diagnosed to the reference sun light
+being un-Ω-scaled, driving test-scene irradiance to ~19100 and collapsing
+SSIM on 3 legitimate specular fireflies. Corrected the test scene, not the
+engine: SSIM 0.0101→0.9606, GPU peak 1007→0.41. GPU transport confirmed
+healthy throughout.
+
+### pkg186 — GPU image-texture sampling, first GPU texture support (PR #590, 2026-08-12)
+
+Baked buffer + nearest fetch, `__constant__ c_wfTexBinding`. A verifier
+caught a +24B kernel-signature regression mid-review, fixed back to exact
+kernel identity (REG:254/STACK:3608/CONSTANT:1700). Backend-aware
+`__gpu_features__` dict added so the addon Diagnostics panel stops
+overclaiming GPU textures/volumes/adaptive/GR support it doesn't have.
+
+### pkg182 follow-up — per-λ-native Principled conductor thin-film (PR #586, 2026-08-11)
+
+Supersedes the RGB-upsample conductor-thin-film approximation with a
+per-λ-native Airy evaluation on both CPU and GPU (Belcour-Barla + Gulbrandsen
+NK inversion, cited). 17/17 gates HW-verified, `<false>`/`<true>` STACK
+unchanged. Measured finding: saturation barely moved (mean 0.0488→0.0499,
+max 0.1842→0.2045) — the premise that RGB-upsample visibly mutes metal
+iridescence does not hold in the 4-sample hero-wavelength pipeline; this
+lands as a correctness/consistency win (no JH round-trip loss, correct
+under spectral/colored illumination), not the saturation jump the ticket
+implied.
+
+### pkg187 — Principled BSDF dispersion, CPU-complete + GPU-wired (PR #593, 2026-08-12)
+
+OpenPBR/Cycles-WIP two-term Cauchy fit `n(λ)=A+B/λ²` from d-line IOR +
+Abbe number (cited). CPU chromatic prism spread 4.267→5.345px,
+zero-dispersion bit-identical, `<false>` shade kernel byte-identical to
+main at TRUE sm_120. GPU leg wired into the existing hero-collapse
+dispersion infra but gated on the pre-existing pkg189 no-op — filed as a
+follow-up spec the same day. Two premise corrections surfaced during
+implementation: no shipped Blender exposes a Dispersion socket (unmerged
+upstream WIP #162041; addon ships a forward-compatible probe instead), and
+`test_gpu_prism_rainbow_parity`'s XPASS under `--runxfail` was vacuous (no
+real GPU render ran) — xfail retained, not un-xfailed.
+
+### pkg184 — `template<bool HasPhotons>` shade-kernel isolation (PR #597, 2026-08-12)
+
+Isolates the photon-caustic k-NN gather into 8 kernel instantiations:
+every HasPhotons=false variant strictly below the pre-change baseline
+(STACK −128 to −256B across `<F,F>/<F,T>/<T,F>/<T,T>`), HasPhotons=true
+variants byte-identical. Non-photon glass-sphere shade kernel measured
+−2.3% wall time vs a +0.1% byte-identical control — a real perf win, not
+noise.
+
+### pkg191 — GPU viewport progressive refinement (PR #598, 2026-08-12)
+
+Root cause: the GPU dispatch path ignored the engine's `renderSeed==0` →
+fresh-random-per-call contract (memory `seed-zero-is-random-sentinel`), so
+every viewport refinement chunk rendered with IDENTICAL noise instead of
+accumulating new samples. One-spot fix in `blender_module.cpp`;
+MSE-to-256spp-reference improved 7.0e-4→1.3e-5 across refinement
+iterations, HW-verified.
+
+### pkg188 — Principled film-off transmission colour/scalar separation (PR #599, 2026-08-12)
+
+Retires the "Stage-3b upsample hack" CPU+GPU: transmission colour and
+transmission scalar are now upsampled and applied separately instead of as
+a pre-multiplied product, plus a weight-path clamp guard. Findings A+B
+landed; Finding C descoped to new spec **pkg194** with a QUANTIFIED
+residual — `upsample(a·b)` vs `upsample(a)·upsample(b)` diverges up to
+~72% band error on a coloured-tint-over-dark-base material (0% for the
+common white-tint case) — raising pkg194's priority.
+
+### pkg175 — drift-gate fix: flipped to done (PR #547, 2026-08-07)
+
+Spec status had stayed "in review (PR pending)" past its own 2026-08-07
+merge. One-command Blender dev loop (build → package → install → launch →
+headless smoke-render); 150s full rebuild / 5.8s `-SkipBuild`, on-hardware
+smoke `RESULT PASS` (already recorded verified in ROADMAP.md's Integration
+Milestone section).
+
+### Cross-cutting: fleet-wide stale CUDA-arch CMakeCache incident
+
+Every local `build_cuda/` tree carried a cached
+`CMAKE_CUDA_ARCHITECTURES=52` (stale Maxwell PTX) alongside the intended
+`ASTRORAY_CUDA_ARCHS=native`/`120`; CMakeLists' non-cache `set()` shadows it
+at configure time so the actually-compiled kernels were correct sm_120 SASS
+all along, but `cuobjdump` reads against the cache-line arch produced
+phantom resource-gate numbers (worktree STACK 2640 vs the true sm_120
+`<false>` baseline of STACK 3608) — this false reading was caught and
+corrected mid-round on both pkg183's and pkg187's measurements. **pkg183**
+now ships an automatic artifact-ground-truth gate against this class going
+forward. The root cause itself (CMakeLists non-cache `set()`,
+`configure_and_build.bat` not passing `ASTRORAY_CUDA_ARCHS`, and
+`build_blender_addon.py`'s hardcoded arch/Debug revert) is intentionally
+out of pkg183's wrapper-only scope — queued as a separate infra follow-up
+PR.
+
+### Specs filed this round, not yet implemented
+
+**pkg189** (PR #591, 2026-08-12) — GPU wavefront dispersion enablement: the
+hero-λ refraction path is a pre-existing no-op end-to-end for both the
+dielectric reference and pkg187's Principled dispersion; discovered during
+pkg187. **Next up.**
+**pkg190** (PR #594, 2026-08-12) — GPU procedural-texture support (pkg186
+slice 2), requires a pkg119-B re-baseline first.
+**pkg192/pkg193** (PR #595, 2026-08-12) — viewport-addon diagnosis-first
+specs from owner hands-on feedback: pkg192 viewport navigation
+interactivity (3–5 fps vs Cycles ~30 fps), pkg193 camera-view overlay
+misalignment. (pkg191, filed in the same PR, landed this round — see
+above.)
+**pkg194** (filed via PR #599 as the pkg188 Finding-C descope) — Principled
+tinted-layer spectral carry + thin-wall per-λ; priority raised by the 72%
+band-error finding.
+**pkg195** (PR #596, 2026-08-12) — spectral node-system design doc + Phase 1
+spec, from an owner-directed Fable design session. **HEADLINE ENGINE
+FINDING:** `multiwavelength_path_tracer` has NO light sampling — every
+lamp-lit NIR/UV render is black. The profile-selector node is a
+visible-band no-op; the IR/UV response node is destructive. Sodium/mercury
+lamp SPDs are already engine-ready, just not exposed. A drawn-spectrum node
+is identified as a genuine differentiator (no other renderer has one).
+
+### Infra, not tied to a package
+
+`.gitattributes` forces CRLF checkout for `.bat`/`.cmd` (PR #585) —
+prevents the silent cmd.exe mis-parse class this repo has hit before
+(memory `bat-files-need-crlf`). Comprehensive repo hygiene sweep (PR #587,
+pre-session, 2026-08-11) — dead code/scripts/tests/docs removal, tcnn
+opt-in, guardrails; filed pkg183/184/185 (all landed this round, above).
+
+### Owner decisions and process notes (2026-08-12)
+
+Wavefront perf ceiling STAYS at 1.5s (ratified, improve opportunistically
+— no revert dispatch). Overnight autonomous run authorized. Owner
+hands-on addon feedback drove pkg191-193 and the spectral-node design
+(pkg195). Every code PR this round was dual-gated (CI + independent RTX
+hardware verification); three hardware verifiers were serialized through
+the GPU lock overnight.
+
+### Open follow-ups (not closed, tracked forward, do not re-derive)
+
+pkg189 (GPU dispersion enablement — next up), pkg190 (GPU procedural
+textures), pkg192 (viewport interactivity), pkg193 (camera overlay
+alignment), pkg194 (tinted-layer spectral carry — priority raised),
+pkg195 (spectral node system Phase 1), the infra CUDA-arch root-cause PR
+(CMakeLists/`configure_and_build.bat`/`build_blender_addon.py`), the
+durable `GLoweredMaterial` by-value-copy fix (still prototyped,
+uncommitted, in worktree `.claude/worktrees/sad-maxwell-ff99d1`), and
+pkg180 (systemic-dim diagnosis, still open).
 
 ## Round closeout 2026-08-08 → 2026-08-10 — Principled-BSDF completion run: pkg178 COMPLETE (Stages 0-5, native Cycles Principled incl. thin film/thin wall), pkg172(A) closed, pkg176 COMPLETE (Stages 0-4, Blender native steering wheel), pkg182 filed+fixed, pkg181 done, pkg179 closed by diagnosis
 

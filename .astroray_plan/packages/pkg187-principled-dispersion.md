@@ -199,3 +199,64 @@ d-line). Do not hand-roll a wavelength dependence.
   the Dispersion socket + per-λ refraction IOR.
 - **No change to the non-dispersive Principled fast path** beyond adding the
   overrides; zero-dispersion cost must not move.
+
+---
+
+## Hardware verification 2026-08-12 (PR #593, independent verifier pass)
+
+**Hardware:** RTX 5070 Ti (sm_120 / Blackwell), Windows 11 Enterprise
+10.0.26200, NVIDIA driver 610.47 (CUDA UMD 13.3), CUDA Toolkit 12.8.61
+(nvcc), OptiX 9.1.0, OIDN 2.4.1. Build: MSVC 19.44.35208 (VS2022 BuildTools),
+VS-generator `build_cuda` (root wrapper) + Ninja for the Blender-addon leg.
+
+**Arch discipline:** both the PR tree and the merge-base baseline were
+rebuilt **from scratch** (`build_cuda/` deleted, reconfigured with
+`-DASTRORAY_CUDA_ARCHS=120 -DCMAKE_CUDA_ARCHITECTURES=120`) after this
+session hit the exact fleet-wide stale-arch failure mode independently: a
+leftover baseline worktree cache read `CMAKE_CUDA_ARCHITECTURES:STRING=52`.
+Post-link `cuobjdump --list-elf` confirmed `sm_120.cubin` (not PTX/Maxwell)
+on every `.pyd` trusted below.
+
+### Gate table (measured vs claimed)
+
+| # | Gate | Claimed | Measured | Verdict |
+|---|------|---------|----------|---------|
+| 1 | Register gate — `stageShadeBucketedKernel<false>` (post-link `.pyd`, `cuobjdump --dump-resource-usage`, true sm_120) | REG:254 STACK:3608 CONSTANT[0]:1700 both sides, byte-identical | PR tree: `REG:254 STACK:3608 CONSTANT[0]:1700`. Baseline (merge-base `7b9cc1b`, independent from-scratch sm_120 rebuild in a separate worktree): `REG:254 STACK:3608 CONSTANT[0]:1700`. **Exact match, zero delta** (not even the allowed CONSTANT[2] delta — that field doesn't appear on `<false>` at all on either side; it only appears on `<true>`, which is out of scope for this gate). | **PASS** |
+| 2 | CPU chromatic dispersion (prism red/blue centroid spread + visual) | 4.267px → 5.345px, max RGB diff ~0.92 | `test_principled_dispersion_is_chromatic`: flat 4.267px, dispersive 5.345px, max abs RGB diff 0.9165 (mean 0.0779). Visual: rendered `pkg187_principled_flat.png` / `pkg187_principled_dispersive.png` (96×96, 32spp) plus a computed diff image — the dispersive render shows a coherent magenta/purple mixing band exactly at the prism silhouette (red bleeding into the blue half and vice versa), matching the pkg29 dielectric reference's established visual signature. This is a structured, localized shift, not scattered noise. | **PASS** |
+| 3 | Zero-dispersion bit-identity (regression guard) | `np.array_equal` | `test_zero_dispersion_is_bit_identical` PASSED (dispersion_scale=0 == no-params == baseline, exact). | **PASS** |
+| 4 | GPU faithful-mirror parity + documented no-op control | Principled disp/flat ≈ dielectric disp/flat (both ≈1.0, no-op); Principled: [0.9986, 1.0026, 0.9998]; dielectric: [0.9997, 1.0136, 1.0025]; CPU disp/flat: principled 0.5541 vs dielectric 0.5518 | `test_gpu_dispersion_wired_mirrors_dielectric_reference`: GPU principled disp/flat = **[0.9986 1.0026 0.9998]**, GPU dielectric disp/flat = **[0.9997 1.0136 1.0025]** — exact match to claim. `test_cpu_dispersion_is_real_and_mirrors_dielectric`: principled disp/flat=**0.5541**, dielectric bk7/flat=**0.5518** — exact match. | **PASS** |
+| 5 | 3 new test files + regression slice | "all pass (68)" | New: `test_pkg187_principled_dispersion.py` 4/4, `test_pkg187_addon_dispersion_probe.py` 3/3, `test_pkg187_principled_dispersion_gpu_parity.py` 2/2 — **9/9**. Regression sweep (pkg178 principled parity, spectral_prism, principled_bsdf, gpu_multiwavelength, gpu_sellmeier_ior, multiwavelength, metal parity pkg123/160/163, reflection_not_black ×2, prism_caustic_rainbow, sms_caustic_spectral, spectral_gpu_materials): **80/80**. Glass-caustic family (caustic_validation, glass_sphere_caustic, gpu_caustic_parity, sms_caustic_validation): **8 passed, 1 xpassed** (see gate 6). Grand total this session: **98 passed, 1 xpassed, 0 failed.** | **PASS** |
+| 6 | `test_gpu_prism_rainbow_parity` stays xfail (not un-xfailed) | retained | Source confirms `@pytest.mark.xfail(strict=False, ...)` still present; run shows `XPASS` (not a hard PASS) in 0.90s. Marker retained as documented. | **PASS** |
+| 7 | (Added mid-run, ABI-review addendum) Blender addon vtable-shift smoke — `getCauchyAB()` is a genuine mid-vtable insertion in `Material` (`raytracer.h`, right after `getSellmeierC()`, before `getTransmission()`), shifting every virtual slot declared after it | register + convert + render a trivial Principled scene without crash/garbage | Built `build_blender_addon_cuda` **from scratch** (`-DASTRORAY_DISABLE_OPENMP=ON`, Ninja, confirmed `sm_120.cubin` via `cuobjdump --list-elf`, no reused objects). Registered in headless Blender 5.1 (`blender_addon.register()` — "Astroray renderer addon registered"), converted a 1-mesh/960-triangle Principled-material sphere scene, rendered via `CUSTOM_RAYTRACER` on GPU (RTX 5070 Ti) in 1.65s. Output: 32×32, **0 NaN pixels**, mean 0.5621, max 1.0 — a plausible lit red sphere (visually confirmed), not a crash or garbage. | **PASS** |
+
+### Build-tooling finding (not a pkg187 gate — flagging for the record)
+
+`scripts/build/build_blender_addon.py`'s `_backend_config()` falls back to a
+**hardcoded CUDA arch list `"75;86;89"`** (no sm_120) whenever
+`ASTRORAY_CUDA_ARCHS` isn't passed on the CLI, and the script exposes no CLI
+flag for it. Worse: re-invoking the script against an **already-correctly-configured**
+`build_blender_addon_cuda` cache (manually set to `Release`/`120`) caused its
+internal reconfigure to silently revert the cache to `CMAKE_BUILD_TYPE=Debug`
++ `CMAKE_CUDA_ARCHITECTURES=52`, which then hard-failed the build
+(`/RTC1`+`/O2` incompatible). Gate 7 above was verified by configuring and
+building the addon module **manually** with explicit
+`-DASTRORAY_CUDA_ARCHS=120 -DCMAKE_CUDA_ARCHITECTURES=120
+-DCMAKE_BUILD_TYPE=Release`, then pointing headless Blender at the resulting
+`.pyd` via `ASTRORAY_PYD_DIR` (the same pattern `benchmarks/blender_parity/render_leg.py`
+already uses) — bypassing the packaging script's buggy reconfigure/zip
+pipeline entirely. The manually-built `.pyd` itself is confirmed sm_120 and
+is what Gate 7 exercised; the packaging/zip/install pipeline itself was
+**not** exercised and should not be assumed fixed by this pass. Recommend a
+follow-up ticket for `build_blender_addon.py` (arch default + cache-revert-on-reconfigure).
+
+### Overall verdict
+
+**All 7 gates PASS on measured hardware evidence.** No visual regressions
+found (chromatic fringe is real and localized, not noise; zero-dispersion
+path untouched; GPU no-op control reads exactly as documented; addon
+vtable-shift smoke is clean). The build-tooling gap above is out-of-scope for
+pkg187 itself (pre-existing script limitation, not something this PR
+introduced or worsened) and does not block merge.
+
+Verifier does not adjudicate the merge decision — this is a numbers report
+for the gate-review/merge process.

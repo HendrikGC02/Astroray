@@ -18,6 +18,20 @@ struct SceneUploadResult {
     // The wavefront launchers pick the stageShade*<true/false> instantiation off
     // this flag so non-principled scenes never compile in gpu_principled_* code.
     bool hasPrincipled = false;
+
+    // pkg186 — GPU image textures. `textureTexels` is the flat RGB texel buffer
+    // holding ALL uploaded images concatenated; `textures[i]` slices it with an
+    // {offset,width,height}. `materialTextureId` is parallel to `materials`
+    // (same index) and holds the texture id for each material (-1 = flat albedo,
+    // preserving the untextured fast path). `hasTexture` selects the HasTexture
+    // shade-kernel instantiation (mirrors hasPrincipled). Only image-textured
+    // 'lambertian' materials (TexturedLambertian) populate these today; the
+    // procedural-node slice is a follow-up (see pkg186 spec decision 1).
+    std::vector<GImageTexture> textures;
+    std::vector<GVec3>         textureTexels;
+    std::vector<int>           materialTextureId;
+    bool                       hasTexture = false;
+
     std::vector<GLight>     lights;
     // pkg89-GPU / GAP 1 — dedicated lights (Blender POINT/SPOT/SUN/AREA lamps
     // routed through astroray::Light). Their cumulativePower continues the

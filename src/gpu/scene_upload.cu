@@ -298,8 +298,17 @@ static void appendOnePrim(
         // zero UV upload (memory is the GTriangle field footprint only).
         {
             const auto& mtl = tri->getMaterial();
-            if (mtl && mtl->getGPUTypeName() == "principled" &&
-                mtl->getAnisotropic() > 0.0f && tri->hasUVLayers()) {
+            // pkg178 aniso-Principled UV-tangent OR pkg186 image-textured
+            // lambertian both need the active-layer UVs on the device. hasUV
+            // stays false (zero shade cost / zero upload) for every other
+            // triangle. The two consumers are independent branches in the shade
+            // kernel (HasPrincipled aniso-tangent vs HasTexture image fetch).
+            const bool anisoPrincipled =
+                mtl && mtl->getGPUTypeName() == "principled" &&
+                mtl->getAnisotropic() > 0.0f;
+            const bool imageTextured =
+                mtl && dynamic_cast<TexturedLambertian*>(mtl.get()) != nullptr;
+            if ((anisoPrincipled || imageTextured) && tri->hasUVLayers()) {
                 Vec2 t0 = tri->getUV0(), t1 = tri->getUV1(), t2 = tri->getUV2();
                 gt.uv0 = GVec2(t0.u, t0.v);
                 gt.uv1 = GVec2(t1.u, t1.v);
@@ -655,6 +664,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
 
     // --- Materials: unique ID per shared_ptr (shared by single-level + pkg114 instanced) ---
     std::unordered_map<Material*, int> matIdx;
+    // pkg186 — texture dedup: one flat-buffer slice per unique image Texture*.
+    std::unordered_map<Texture*, int> texIdx;
     auto getOrAddMat = [&](const std::shared_ptr<Material>& m) -> int {
         auto it = matIdx.find(m.get());
         if (it != matIdx.end()) return it->second;
@@ -669,6 +680,37 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         if (g.type == GMAT_CLOSURE_GRAPH && g.closureCount >= 1 &&
             g.closures[0].type == GCLOSURE_PRINCIPLED)
             r.hasPrincipled = true;
+        // pkg186 — bake an image-texture base color (TexturedLambertian holding
+        // an ImageTexture) into the flat device texel buffer and record its id in
+        // the per-material parallel array. Keeps materialTextureId[] index-aligned
+        // with materials[] (a -1 sentinel for every non-image material preserves
+        // the untextured flat-albedo fast path). Procedural textures are a
+        // follow-up slice — they are not TexturedLambertian/ImageTexture here.
+        int texId = -1;
+        if (auto* tl = dynamic_cast<TexturedLambertian*>(m.get())) {
+            if (auto img = std::dynamic_pointer_cast<ImageTexture>(tl->getTexture())) {
+                if (!img->getData().empty()) {
+                    auto tit = texIdx.find(img.get());
+                    if (tit != texIdx.end()) {
+                        texId = tit->second;
+                    } else {
+                        texId = (int)r.textures.size();
+                        texIdx[img.get()] = texId;
+                        GImageTexture desc;
+                        desc.offset = (int)r.textureTexels.size();
+                        desc.width  = img->getWidth();
+                        desc.height = img->getHeight();
+                        const std::vector<Vec3>& px = img->getData();
+                        r.textureTexels.reserve(r.textureTexels.size() + px.size());
+                        for (const Vec3& c : px)
+                            r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                        r.textures.push_back(desc);
+                    }
+                    r.hasTexture = true;
+                }
+            }
+        }
+        r.materialTextureId.push_back(texId);
         return id;
     };
 

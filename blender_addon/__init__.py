@@ -4914,12 +4914,22 @@ class RENDER_PT_custom_raytracer_diagnostics(AstrorayPanelBase, Panel):
         col.separator()
 
         # Feature flags
+        # pkg186: cross-reference the backend-aware __gpu_features__ dict so a
+        # capability that is built (on in __features__) but dropped on the GPU
+        # backend (off in __gpu_features__ — textures/volumes/adaptive_sampling/
+        # gr_black_holes) is labelled "CPU only" instead of being listed under
+        # "On", where it read as a silent claim of GPU support.
         try:
             feats = astroray.__features__
-            active = [k for k, v in feats.items() if v]
+            gpu_feats = getattr(astroray, "__gpu_features__", {})
+            cpu_only = [k for k, v in feats.items()
+                        if v and k in gpu_feats and not gpu_feats[k]]
+            active = [k for k, v in feats.items() if v and k not in cpu_only]
             inactive = [k for k, v in feats.items() if not v]
             col.label(text="Features:")
             col.label(text="  On:  " + (", ".join(active) if active else "none"))
+            if cpu_only:
+                col.label(text="  CPU only: " + ", ".join(cpu_only), icon='INFO')
             if inactive:
                 col.label(text="  Off: " + ", ".join(inactive))
         except Exception:
@@ -5178,8 +5188,14 @@ class CustomRaytracerPreferences(AddonPreferences):
             layout.label(text=f"Raytracer Version: {astroray.__version__}", icon='INFO')
             box = layout.box()
             box.label(text="Features:", icon='CHECKBOX_HLT')
+            # pkg186: annotate GPU-dropped-but-built capabilities as "(CPU only)".
+            gpu_feats = getattr(astroray, "__gpu_features__", {})
             for feat, enabled in astroray.__features__.items():
-                box.label(text=f"  {feat.replace('_', ' ').title()}", icon='CHECKBOX_HLT' if enabled else 'CHECKBOX_DEHLT')
+                cpu_only = enabled and feat in gpu_feats and not gpu_feats[feat]
+                label = f"  {feat.replace('_', ' ').title()}"
+                if cpu_only:
+                    label += " (CPU only)"
+                box.label(text=label, icon='CHECKBOX_HLT' if enabled else 'CHECKBOX_DEHLT')
         else:
             layout.label(text="Raytracer module not loaded!", icon='ERROR')
         layout.prop(self, "debug_mode")

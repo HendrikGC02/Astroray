@@ -350,10 +350,16 @@ void launchStageShadeBucketed(
     // because path regeneration puts many concurrent slots on one pixel.
     float* d_cryptoObjectRanks, float* d_cryptoMaterialRanks, int cryptoDepth,
     // pkg178 Stage-3b D4: scene-content flag from scene_upload. true selects the
-    // stageShadeBucketedKernel<true> (principled) instantiation; false selects
-    // <false>, which compiles out all gpu_principled_* codegen for the fleet-wide
+    // stageShadeBucketedKernel<true,*> (principled) instantiation; false selects
+    // <false,*>, which compiles out all gpu_principled_* codegen for the fleet-wide
     // non-principled perf restore. See pkg178-stage3-d4-and-forks-decision.md §2b.
-    bool hasPrincipled);
+    bool hasPrincipled,
+    // pkg186: image-texture device arrays + scene-content flag. hasTexture=true
+    // selects stageShadeBucketedKernel<*,true>; false selects <*,false>, which
+    // compiles out ALL texture codegen so the untextured fleet is byte-identical
+    // to pre-pkg186 (cuobjdump on <false,false> is the acceptance check).
+    const GImageTexture* d_textures, const GVec3* d_texelBuf, const int* d_matTexId,
+    bool hasTexture);
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts

@@ -1115,8 +1115,17 @@ class PrincipledPlugin : public Material {
     // Transmission rough glass (Walter 2007 / pbrt-v4, disney.cpp) — reflection
     // tinted by specular_tint (Stage-1 white default), transmission by
     // sqrt(base_color) (Cycles generalized_schlick transmission_tint).
+    // pkg188 Finding A: the film-OFF branches optionally split their result into the
+    // chromatic reflectance COLOUR and the achromatic geometric/Fresnel SCALAR (RGB
+    // value = colour·scalar). The spectral caller upsamples the colour at its natural
+    // magnitude and applies the scalar post-upsample, instead of upsampling the
+    // product (Jakob-Hanika is magnitude-nonlinear — the glass eta² and the D·G·F
+    // geometry were being baked into the upsample argument, exactly the
+    // [[spectral-upsample-nonlinearity-scaled-bsdf]] / pkg168 bug class). RGB pipeline
+    // callers pass nullptr and get the unchanged product.
     Vec3 transmissionEvalRGB(const Lobe& L, const HitRecord& rec, const Vec3& wo,
-                             const Vec3& wi) const {
+                             const Vec3& wi, Vec3* outColour = nullptr,
+                             float* outScalar = nullptr) const {
         if (L.isDelta) return Vec3(0);  // delta handled in sampling
         float cosO = rec.normal.dot(wo), cosI = rec.normal.dot(wi);
         bool entering = rec.frontFace;
@@ -1145,6 +1154,7 @@ class PrincipledPlugin : public Material {
             }
             float F = fresnelDielectric(HdotO, 1.0f, L.ior);
             float fr = D * G * F / (4.0f * cosO * cosI + 1e-8f) * cosI;  // brdf·cosI
+            if (outColour) { *outColour = L.weight * specularTint_; *outScalar = fr; }
             return L.weight * specularTint_ * fr;
         }
         if (cosO * cosI >= 0.0f) return Vec3(0);
@@ -1177,6 +1187,7 @@ class PrincipledPlugin : public Material {
         ft /= (etap * etap);
         float scale = ft * std::abs(cosI) * ggxGlassComp(etap, std::abs(cosO));
         Vec3 res = L.weight * sqrtColor(baseColor_) * scale;
+        if (outColour) { *outColour = L.weight * sqrtColor(baseColor_); *outScalar = scale; }
         return Vec3::max(res, Vec3(0.0f));
     }
 
@@ -1194,7 +1205,9 @@ class PrincipledPlugin : public Material {
         float etap = entering ? L.ior : (1.0f / L.ior);
         float filmIor = entering ? thinFilmIor_ : thinFilmIor_ / L.ior;
         float F0real = F0_from_ior(etap);
-        astroray::SampledSpectrum wSpec = upsample(L.weight, lam);
+        // pkg188 Finding B: weight-path clamp-guard (see evalLobeSpectral; no-op at ≤1).
+        float wMax = std::max({L.weight.x, L.weight.y, L.weight.z, 1.0f});
+        astroray::SampledSpectrum wSpec = upsample(L.weight * (1.0f / wMax), lam) * wMax;
         astroray::SampledSpectrum tintSpec = upsample(specularTint_, lam);
         if (cosO > 0.0f && cosI > 0.0f) {  // reflection sub-lobe
             Vec3 wm = (wo + wi).normalized();
@@ -1657,7 +1670,16 @@ public:
                                                const Vec3& wo, const Vec3& wi,
                                                const astroray::SampledWavelengths& lam) const {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
-        astroray::SampledSpectrum wSpec = upsample(L.weight, lam);
+        // pkg188 Finding B: weight-path clamp-guard. upsample() clamps its argument to
+        // [0,1], so a weight component >1 would silently lose energy to the JH ALBEDO
+        // LUT (the [[rough-glass-residual-is-multiscatter]] clamp class). Factor the >1
+        // magnitude out and re-apply post-upsample. In practice the running layering
+        // weight is seeded at 1 and only multiplied by factors ≤1 (baseColor, tints,
+        // layering albedos, metallic/transmission scalars — all ≤1), so wMax==1 and
+        // this is a defensive no-op today; it locks the invariant against any future
+        // >1 weight.
+        float wMax = std::max({L.weight.x, L.weight.y, L.weight.z, 1.0f});
+        astroray::SampledSpectrum wSpec = upsample(L.weight * (1.0f / wMax), lam) * wMax;
         switch (L.kind) {
             case LobeKind::Subsurface:  // approximate SSS = Lambert (D2=a)
             case LobeKind::Diffuse: {
@@ -1722,13 +1744,21 @@ public:
                 // pkg178 Stage 4 PR-1: with the film ON, evaluate F per-λ natively
                 // (pkg163 discipline); OFF path is the exact Stage-3b upsample hack.
                 if (filmActive()) return transmissionEvalSpectral(L, rec, wo, wi, lam);
-                // Colour upsampled; achromatic geometry/Fresnel scalar per-λ (native).
-                Vec3 rgb = transmissionEvalRGB(L, rec, wo, wi);
+                // pkg188 Finding A: upsample the reflectance COLOUR at its natural
+                // magnitude and apply the achromatic geometry/Fresnel scalar (incl. the
+                // glass eta² in `scalar`) AFTER the upsample. Previously the whole RGB
+                // product was upsampled with a max(...,1) floor, so for the sub-unit
+                // BSDF value the floor was 1 and the achromatic scalar was baked into
+                // the upsample argument — the JH magnitude-nonlinearity bug. The maxc
+                // clamp-guard here only bites if the colour itself exceeds 1 (it never
+                // does: colour = weight·tint ≤ 1); the eta² lives in `scalar`.
+                Vec3 colour(0.0f);
+                float scalar = 0.0f;
+                Vec3 rgb = transmissionEvalRGB(L, rec, wo, wi, &colour, &scalar);
                 if (rgb.x <= 0.0f && rgb.y <= 0.0f && rgb.z <= 0.0f)
                     return astroray::SampledSpectrum(0.0f);
-                float maxc = std::max({rgb.x, rgb.y, rgb.z, 1.0f});
-                Vec3 tint = rgb * (1.0f / maxc);
-                return upsample(tint, lam) * maxc;
+                float maxc = std::max({colour.x, colour.y, colour.z, 1.0f});
+                return upsample(colour * (1.0f / maxc), lam) * (maxc * scalar);
             }
             case LobeKind::ThinGlassReflect: {  // GGX reflection, constant F=R' (in weight)
                 if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);

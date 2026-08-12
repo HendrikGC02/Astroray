@@ -2088,8 +2088,13 @@ __device__ inline float gpu_pr_thinGlassTransmitPdf(const GPrincipledLobe& L, co
 }
 
 // --- Transmission rough glass (principled.cpp:406-488) ---------------------
+// pkg188 Finding A (GPU twin of principled.cpp transmissionEvalRGB): film-OFF
+// branches optionally split into chromatic reflectance COLOUR + achromatic SCALAR so
+// the spectral caller upsamples the colour at natural magnitude and applies the
+// scalar (incl. glass eta²) post-upsample. RGB callers pass nullptr → unchanged.
 __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, const GPrincipledLobe& L,
-                                                const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
+                                                const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
+                                                GVec3* outColour = nullptr, float* outScalar = nullptr) {
     if (L.isDelta) return GVec3(0.f);  // delta handled in sampling
     float cosO = rec.normal.dot(wo), cosI = rec.normal.dot(wi);
     bool entering = rec.frontFace;
@@ -2116,6 +2121,7 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
         }
         float F = gpu_pr_fresnelDielectric(HdotO, 1.f, L.ior);
         float fr = D * G * F / (4.f * cosO * cosI + 1e-8f) * cosI;
+        if (outColour) { *outColour = L.weight * c.specularTint; *outScalar = fr; }
         return L.weight * c.specularTint * fr;
     }
     if (cosO * cosI >= 0.f) return GVec3(0.f);
@@ -2147,6 +2153,7 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
     ft /= (etap * etap);
     float scale = ft * fabsf(cosI) * gpu_ggxGlassCompensationFactor(L.roughness, etap, fabsf(cosO));
     GVec3 res = L.weight * gpu_pr_sqrtColor(c.color) * scale;
+    if (outColour) { *outColour = L.weight * gpu_pr_sqrtColor(c.color); *outScalar = scale; }
     return gvec3_max(res, GVec3(0.f));
 }
 __device__ inline float gpu_pr_transmissionPdf(const GPrincipledLobe& L, const GHitRecord& rec,
@@ -2189,7 +2196,9 @@ __device__ inline GSampledSpectrum gpu_pr_transmissionEvalSpectral(
     float etap = entering ? L.ior : (1.f / L.ior);
     float filmIor = entering ? c.thinFilmIor : c.thinFilmIor / L.ior;
     float F0real = gpu_pr_F0_from_ior(etap);
-    GSampledSpectrum wSpec = gpu_rgbToSampledSpectrum(L.weight, wl, GSPEC_RGB_ALBEDO);
+    // pkg188 Finding B: weight-path clamp-guard (see gpu_pr_evalLobeSpectral; no-op ≤1).
+    float wMax = fmaxf(fmaxf(fmaxf(L.weight.x, L.weight.y), L.weight.z), 1.f);
+    GSampledSpectrum wSpec = gpu_rgbToSampledSpectrum(L.weight * (1.f / wMax), wl, GSPEC_RGB_ALBEDO) * wMax;
     GSampledSpectrum tintSpec = gpu_rgbToSampledSpectrum(c.specularTint, wl, GSPEC_RGB_ALBEDO);
     if (cosO > 0.f && cosI > 0.f) {  // reflection sub-lobe
         GVec3 wm = (wo + wi).normalized();
@@ -2362,7 +2371,10 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
                                                            const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
                                                            const GSampledWavelengths& wl) {
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
-    GSampledSpectrum wSpec = gpu_rgbToSampledSpectrum(L.weight, wl, GSPEC_RGB_ALBEDO);
+    // pkg188 Finding B: weight-path clamp-guard (twin of principled.cpp
+    // evalLobeSpectral). Defensive no-op at weight ≤ 1 (wMax==1).
+    float wMax = fmaxf(fmaxf(fmaxf(L.weight.x, L.weight.y), L.weight.z), 1.f);
+    GSampledSpectrum wSpec = gpu_rgbToSampledSpectrum(L.weight * (1.f / wMax), wl, GSPEC_RGB_ALBEDO) * wMax;
     switch (L.kind) {
         case GPR_SUBSURFACE:  // approximate SSS = Lambert (D2=a)
         case GPR_DIFFUSE: {
@@ -2425,12 +2437,15 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
             // pkg178 Stage 4 PR-3: with the film ON, evaluate F per-λ natively
             // (pkg163 discipline); OFF path is the exact Stage-3b upsample hack.
             if (gpu_pr_filmActive(c)) return gpu_pr_transmissionEvalSpectral(c, L, rec, wo, wi, wl);
-            // Colour upsampled; achromatic geometry/Fresnel scalar per-λ (principled.cpp:664-672).
-            GVec3 rgb = gpu_pr_transmissionEval(c, L, rec, wo, wi);
+            // pkg188 Finding A (twin of principled.cpp Transmission case): upsample the
+            // reflectance COLOUR at natural magnitude, apply the achromatic scalar
+            // (incl. eta²) post-upsample — not the RGB product.
+            GVec3 colour(0.f);
+            float scalar = 0.f;
+            GVec3 rgb = gpu_pr_transmissionEval(c, L, rec, wo, wi, &colour, &scalar);
             if (rgb.x <= 0.f && rgb.y <= 0.f && rgb.z <= 0.f) return GSampledSpectrum(0.f);
-            float maxc = fmaxf(fmaxf(fmaxf(rgb.x, rgb.y), rgb.z), 1.f);
-            GVec3 tint = rgb * (1.f / maxc);
-            return gpu_rgbToSampledSpectrum(tint, wl, GSPEC_RGB_ALBEDO) * maxc;
+            float maxc = fmaxf(fmaxf(fmaxf(colour.x, colour.y), colour.z), 1.f);
+            return gpu_rgbToSampledSpectrum(colour * (1.f / maxc), wl, GSPEC_RGB_ALBEDO) * (maxc * scalar);
         }
         case GPR_THINGLASS_REFLECT: {  // GGX reflection, constant F=R' (in weight)
             if (nl <= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);

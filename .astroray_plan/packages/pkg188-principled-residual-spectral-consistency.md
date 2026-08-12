@@ -2,8 +2,8 @@
 
 **Pillar:** 3/5 (spectral consistency / CPU-GPU parity)
 **Track:** A
-**Status:** open (found 2026-08-12 during the post-pkg178/pkg182 spectral-
-integration audit; **enhancement tier — start after PR #586 lands**)
+**Status:** in-progress (Findings A+B implemented on branch `pkg188`, PR pending —
+2026-08-12; Finding C descoped to pkg194). Numbers pasted into Lessons on build.
 **Estimated effort:** M
 **Depends on:** PR #586 (must land first); pkg168 (RGB→spectral upsampling
 parity — the fix template); pkg167 / [[rough-glass-residual-is-multiscatter]]
@@ -109,3 +109,76 @@ regression; the fix was `template<bool HasPrincipled>` if-constexpr isolation,
   this package is transmission + lobe-assembly + delta-event `fSpectral` only.
 - **No start before PR #586 lands** — this is explicitly enhancement-tier and
   sequenced behind it to avoid conflicting edits in `principled.cpp`.
+
+---
+
+## Lessons (2026-08-12, implementation)
+
+**Finding A was real, not already-fixed.** The film-off transmission spectral eval
+already had a `max(rgb, 1.0f)` "maxc guard", so at first glance it looked handled.
+But the `1.0f` FLOOR is a *clamp/energy-gain* guard, not a magnitude normalizer: for
+a sub-unit BSDF value (`rgb < 1`, the common case) `maxc == 1` and the code upsampled
+`colour · achromatic_scalar` directly — the exact JH magnitude-nonlinearity
+([[spectral-upsample-nonlinearity-scaled-bsdf]]). The fix separates the chromatic
+reflectance colour from the achromatic geometry/Fresnel scalar (incl. the glass
+eta², which now lives entirely in `scalar` and never touches the upsample argument):
+`upsample(colour)·scalar`, with the `max(colour,1)` clamp-guard retained only for a
+(never-reached here) colour>1 case. Done via an optional `(colour,scalar)` out-param
+on `transmissionEvalRGB`/`gpu_pr_transmissionEval` so the RGB pipeline is byte-
+unchanged (nullptr default). CPU + GPU twin.
+
+**Finding B's clamp guard is a defensive no-op — proven, not assumed.** Traced every
+weight-carrying lobe in `assembleLobes`: the running `weight` is seeded at 1 and only
+ever multiplied by factors ≤1 (baseColor, tints, layering directional albedos,
+metallic/transmission/coat scalars), so `L.weight ≤ 1` always and `wMax == 1`. The
+added `max(...,1)` guard on the `wSpec` upsample never bites today; it locks the
+invariant against any future >1 weight and satisfies the acceptance criterion.
+
+**The deep Finding B (colour×colour product in `assembleLobes`) was NOT fixed and is
+descoped to pkg194.** The magnitude class is handled (Finding A + the guard); the
+residual is a *colour×colour* nonlinearity — `upsample(a·b) ≠ upsample(a)·upsample(b)`
+— that only appears when TWO layering factors are both chromatic (a coloured coat
+Beer / sheen / specular tint stacked over a coloured base). Fixing it correctly
+requires carrying per-lobe *spectral* state through the per-shade device
+`assembleLobes`, i.e. adding per-hit spectral live state — precisely the class
+[[closure-graph-lobe-count-spills-fused-kernel]] warns spilled the fused shade kernel
+(+52% non-Principled regression). That is register-hostile and forbidden by this
+package's hard `<false>`=3608/254/1700 constraint, so it is deferred with an
+empirical register-probe-first plan in pkg194.
+
+**Quantified residual (CPU JH upsample, 380–780nm/5nm, `_cpu_rgb_upsample_batch`):**
+band-integrated relative error of `upsample(a·b)` (current) vs
+`upsample(a)·upsample(b)` (spectrally-correct per-layer product) for representative
+tinted-layer stacks:
+
+| stack (tint a / base b)            | band relErr | max per-λ relErr |
+|------------------------------------|-------------|------------------|
+| sheen [1,.7,.8] / dark [.1,.1,.12] | **72.5%**   | 387%             |
+| saturated coat [.3,.7,1] / mid [.6,.5,.4] | **34.9%** | 94%           |
+| deep coat [.2,.4,.9] / bright [.85,.8,.75] | 20.1%   | 72%             |
+| specular [.9,.55,.25] / neutral [.7,.7,.7] | 5.4%    | 19%             |
+
+**This is SURPRISINGLY LARGE and raises the pkg194 follow-up's priority** (flagged
+per the dispatch's >5% rule). Interpretation: the two forms are the RGB-product
+approximation of layering (`upsample(a·b)`, what the code does — integrates to the
+RGB product `a·b` under white light) vs the spectrally-correct per-layer reflectance
+product (`upsample(a)·upsample(b)`). They diverge most for SATURATED tints over
+DARK/MID bases, where the JH sigmoid is most nonlinear. The **common case is
+unaffected**: a WHITE tint gives `upsample([1,1,1]·b) == upsample(b)` (0% error), so
+only materials with a genuinely COLOURED coat/sheen/specular tint stacked over a
+coloured base are hit. The magnitude class (achromatic scalar × colour) that Finding
+A/B fixed is orthogonal and fully resolved; this residual is the colour×colour class,
+which needs the register-gated spectral-carry restructure (pkg194 Item 1).
+
+**Finding C descoped to pkg194** (thin-wall per-λ R'/T' + the tinted-layer
+spectral-carry above). One Finding-C sub-item was found ALREADY CORRECT and must not
+be re-audited: GPU delta Principled events DO fill `fSpectral`, via the generic
+eta²-clamp guard at `gpu_materials.h:3268-3273` (mirrors the CPU delta branch). The
+spec's worry that they "never fill fSpectral" was stale.
+
+**Line-ending hazard (as warned):** `gpu_materials.h` has MIXED endings in HEAD
+(2992 CRLF + 313 LF lines). The Edit tool rewrote the whole file to uniform CRLF →
+a phantom ~313-line diff. Repaired by restoring HEAD and re-applying the hunks via
+byte-level Python replacement with CRLF-matched new lines, leaving the scattered
+LF-only lines untouched. Final diff: real hunks only (`git diff --ignore-cr-at-eol`
+== `git diff`). `principled.cpp` is uniform LF and was unaffected.

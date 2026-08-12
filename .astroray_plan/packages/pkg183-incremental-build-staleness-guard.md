@@ -3,8 +3,9 @@
 **Pillar:** 5 (build infrastructure / verification integrity)
 **Track:** A
 **Status:** in-review (PR #592, 2026-08-12 — items 1–3 implemented:
-header-hash stamp + force-clean-on-mismatch and a <5 s host-only ABI canary
-wired into all three build wrappers; item 4 evaluated-only, see Lessons)
+header-hash stamp + force-clean-on-mismatch, a <5 s host-only ABI canary, AND
+a cuobjdump ground-truth CUDA-arch gate (PR #590 scope-add) wired into all
+three build wrappers; item 4 evaluated-only, see Lessons)
 **Estimated effort:** S–M
 **Depends on:** `scripts/build/build_cuda.bat`, `scripts/build/build_cuda_worktree.bat`,
 repo-root `build_cuda_worktree.bat`.
@@ -32,6 +33,30 @@ fabricate a coherent-looking git-bisect result.
 Consequences observed before diagnosis: two bogus regression specs filed, an
 arch-89 pin applied to both build wrappers (both reverted), and a session-start
 "stale .pyd" state on main that may have had the same origin.
+
+### Second incident — stale CUDA arch in the cache (PR #590 verification, 2026-08-12)
+
+The PR #590 hardware verifier found `CMAKE_CUDA_ARCHITECTURES:STRING=52` (stale
+Maxwell virtual-PTX) cached in **every** `build_cuda/CMakeCache.txt` inspected —
+the main checkout's and every worktree's. Because the root `build_cuda_worktree.bat`
+only builds and never reconfigures, the value persists indefinitely. Consequence
+already realised: a `cuobjdump` register/stack gate was measured as
+`<false,false> STACK 2640` against a stale-arch build when the true sm_120 SASS
+number is 3608→3632 — the reading was taken on irrelevant `compute_52` PTX
+(JIT'd at runtime), not the sm_120 SASS that actually runs. This directly
+invalidates resource-gate readings, i.e. the exact "verification integrity"
+pillar this package owns.
+
+Subtlety established while implementing pkg183: the cache line is an
+**unreliable** signal. On a Ninja tree configured with `ASTRORAY_CUDA_ARCHS=native`,
+CMakeLists' non-cache `set(CMAKE_CUDA_ARCHITECTURES ...)` (CMakeLists.txt:57)
+*shadows* the cache — the cache reads `52` yet the built `.pyd` embeds `sm_120`
+(confirmed via `cuobjdump --list-elf … → sm_120.cubin`). The stale `52` is only
+*live* where `ASTRORAY_CUDA_ARCHS` is unset (the VS-generator worktrees). So the
+guard's ground truth must be the **built artifact** (`cuobjdump --list-elf` on
+`astroray*.pyd`), not the cache line — that never false-positives on a harmless
+shadow and catches every live variant (stale cache, shadowing surprises, wrong
+`-D`).
 
 ## Work
 
@@ -69,12 +94,30 @@ arch-89 pin applied to both build wrappers (both reverted), and a session-start
     (`Renderer().get_material_backend_capabilities(create_material('lambertian',…))`).
     Exit 6 on a Python-level failure; a hard access-violation kills the process
     with its own non-zero code, which the wrappers also treat as a canary trip.
+  - `arch-verify` — **CUDA-arch gate (PR #590 scope-add):** `cuobjdump --list-elf`
+    on the built `astroray*.pyd`; the embedded cubin arch is the ground truth
+    (the CMakeCache line is not — it can be a harmless shadow). Expected arch
+    auto-detects via `nvidia-smi --query-gpu=compute_cap` (fallback: fail only
+    when the ONLY embedded arch is pre-Volta legacy). Exit 7 + loud banner on
+    mismatch; missing `cuobjdump`/`nvidia-smi` downgrades to a warning so it can
+    never cause a false build failure.
+  - `arch-check` — advisory-only pre-build read of the cache arch line; prints a
+    heads-up on a legacy-looking value but NEVER gates (deferring to arch-verify).
 - Wipe mechanism is `cmake --build <dir> --config Release --target clean`
   (generator-agnostic; removes all objects unconditionally, not mtime-based),
   chosen over `rmdir` so the configure-less root wrapper stays valid.
 - Canary failure is a **distinct** exit path (code 6, loud banner) so it is
-  never confused with a compile/link failure (code 5). Missing `python` on
-  PATH downgrades the guard to a warning rather than failing the build.
+  never confused with a compile/link failure (code 5); the CUDA-arch gate uses
+  code 7. Missing `python` on PATH downgrades the guard to a warning rather than
+  failing the build.
+- **Not fixed here (deliberate):** the underlying CMakeLists non-cache
+  `set(CMAKE_CUDA_ARCHITECTURES …)` at line 57 (which leaves the cache reading
+  `52` while the compile is correct) and `configure_and_build.bat` not passing
+  `ASTRORAY_CUDA_ARCHS` (which lets VS-generator worktrees compile a *live*
+  stale 52). Both are outside pkg183's wrapper-only authorized surface. The
+  artifact gate makes the symptom loud and un-missable regardless; a follow-up
+  package should FORCE the cache from `ASTRORAY_CUDA_ARCHS` at the CMakeLists
+  level so the arch is correct at the source, not just gated post-build.
 
 ## Lessons
 

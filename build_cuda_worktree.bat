@@ -18,6 +18,9 @@ REM   5 = cmake build failed
 REM   6 = pkg183 ABI canary failed (freshly built .pyd crashes on a host-only
 REM       lambertian capability query = stale-object / ABI-mixed binary; distinct
 REM       from a compile/link failure, which uses code 5)
+REM   7 = pkg183 CUDA arch gate failed (cuobjdump: built .pyd embeds the wrong
+REM       GPU arch = stale/shadowed CMAKE_CUDA_ARCHITECTURES; resource/perf gate
+REM       numbers measured here would be invalid; PR #590 incident)
 
 setlocal enabledelayedexpansion
 
@@ -160,6 +163,9 @@ if %ERRORLEVEL% neq 0 (
         echo [pkg183] layout-critical headers changed since last build -- force-cleaning objects
         cmake --build build_cuda --config Release --target clean
     )
+    REM Advisory-only heads-up on a legacy-looking cached CUDA arch; the post-build
+    REM cuobjdump gate is authoritative (the cache line can be a harmless shadow).
+    python "%CD%\scripts\build\build_guard.py" arch-check --build-dir "%CD%\build_cuda"
 )
 
 echo Running: cmake --build build_cuda --config Release --target astroray
@@ -185,6 +191,18 @@ if %ERRORLEVEL% neq 0 (
     echo [pkg183] WARNING: python not on PATH; skipping build stamp + ABI canary
 ) else (
     python "%CD%\scripts\build\build_guard.py" write --repo-root "%CD%" --build-dir "%CD%\build_cuda" --sha %ACTUAL_SHA%
+    echo [pkg183] verifying built CUDA arch ^(cuobjdump ground truth^)...
+    python "%CD%\scripts\build\build_guard.py" arch-verify --pyd-dir "%CD%\build_cuda"
+    if !ERRORLEVEL! neq 0 (
+        echo ====================================================================
+        echo ERROR [pkg183]: CUDA ARCH GATE FAILED -- the built .pyd targets the
+        echo wrong GPU arch ^(stale/shadowed CMAKE_CUDA_ARCHITECTURES^). Resource
+        echo and perf gate numbers measured on this binary would be INVALID.
+        echo Reconfigure with -DCMAKE_CUDA_ARCHITECTURES=native and rebuild
+        echo before verifying. See pkg183 spec incident ^(PR #590^).
+        echo ====================================================================
+        exit /b 7
+    )
     echo [pkg183] running host-only ABI canary ^(no GPU^)...
     python "%CD%\scripts\build\build_guard.py" canary --repo-root "%CD%" --build-dir "%CD%\build_cuda"
     if !ERRORLEVEL! neq 0 (

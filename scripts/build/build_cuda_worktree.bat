@@ -133,6 +133,9 @@ if "%GUARD_DECISION%"=="WIPE" (
     echo [build_cuda_worktree] pkg183: layout-critical headers changed since last build -- force-cleaning objects
     cmake --build . --config Release --target clean
 )
+REM Advisory-only heads-up on a legacy-looking cached CUDA arch (the post-build
+REM cuobjdump gate below is authoritative; the cache line can be a harmless shadow).
+python "%REPO_ROOT%\scripts\build\build_guard.py" arch-check --build-dir "%CD%"
 goto :pkg183_guard_done
 :pkg183_guard_skip
 echo [build_cuda_worktree] WARNING: python not on PATH; skipping pkg183 staleness guard
@@ -164,6 +167,17 @@ if errorlevel 1 (
 REM --- pkg183 build stamp + host-only ABI canary -----------------------------
 where python >nul 2>&1 || goto :pkg183_post_skip
 python "%REPO_ROOT%\scripts\build\build_guard.py" write --repo-root "%REPO_ROOT%" --build-dir "%CD%" --sha %ACTUAL_SHA%
+echo [build_cuda_worktree] pkg183: verifying built CUDA arch (cuobjdump ground truth)...
+python "%REPO_ROOT%\scripts\build\build_guard.py" arch-verify --pyd-dir "%CD%"
+if errorlevel 1 (
+    echo ====================================================================
+    echo ERROR [pkg183]: CUDA ARCH GATE FAILED -- the built .pyd targets the
+    echo wrong GPU arch ^(stale/shadowed CMAKE_CUDA_ARCHITECTURES^). Resource/perf
+    echo gate numbers measured on this binary would be INVALID. Reconfigure with
+    echo -DCMAKE_CUDA_ARCHITECTURES=native and rebuild before verifying.
+    echo ====================================================================
+    exit /b 7
+)
 echo [build_cuda_worktree] pkg183: running host-only ABI canary (no GPU)...
 python "%REPO_ROOT%\scripts\build\build_guard.py" canary --repo-root "%REPO_ROOT%" --build-dir "%CD%"
 if errorlevel 1 (

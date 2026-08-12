@@ -2,7 +2,7 @@
 
 **Pillar:** 3/5 (light transport / GPU parity)
 **Track:** A (RTX hardware root-cause)
-**Status:** done (PR #TBD, 2026-08-12 — SSIM 0.0101 → 0.9606, GPU peak 1007 → 0.41;
+**Status:** done (PR #589, 2026-08-12 — SSIM 0.0101 → 0.9606, GPU peak 1007 → 0.41;
 root cause: the test scene's sun used raw irradiance `6.0` (radiance S/Ω ≈ 19100)
 instead of the reference scene's Ω-scaled `6.0·Ω` (radiance ≈ 6.0). Harmless
 until pkg181 made dedicated lamps BSDF-visible, at which point the ball-lens

@@ -194,3 +194,66 @@ speculatively — implement the one the evidence selects):
   (`exporter.py:547-552`); refinement here means MC noise dropping with spp.
 - **No sampler/RNG rewrite** beyond what the localized cause requires; if the
   cause is the redraw pump (H1), do not touch the engine.
+
+---
+
+## Hardware verification 2026-08-12 (independent verifier, PR #598)
+
+**Hardware:** RTX 5070 Ti, driver 610.47, CUDA UMD 13.3, CUDA toolkit v12.8 (nvcc
+picked up from `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin`),
+Windows 11 Enterprise 10.0.26200, Python 3.13.12, MSVC 14.44.35207 (VS2022
+BuildTools). Worktree `Astroray-pkg191`, HEAD `02f1e6b181f8d5f547832afc6508cf34129073ca`
+(confirmed == PR #598 `headRefOid` before build).
+
+**Build:** clean rebuild via root `build_cuda_worktree.bat`, exit 0.
+`[pkg183] arch-verify OK: astroray.cp313-win_amd64.pyd embeds sm_120
+(embedded=[sm_120])`. Host-only ABI canary green:
+`{'cpu': True, 'spectral': True, 'gpu': True, 'gpu_spectral': True,
+'gpu_approximate': False, 'closure_graph': True, 'closure_count': 1, 'gpu_type':
+'closure_graph'}`. `.pyd` loaded from canonical `build_cuda\Release\` (verified
+via `astroray.__file__`); `astroray.__features__['cuda']==True`.
+
+**Pass/fail table (numbers verbatim):**
+
+| Test | Result |
+|---|---|
+| `tests/test_pkg191_viewport_gpu_progressive.py::test_gpu_seed0_chunks_are_independent` | PASSED |
+| `tests/test_pkg191_viewport_gpu_progressive.py::test_gpu_nonzero_seed_is_deterministic` | PASSED |
+| `tests/test_pkg191_viewport_gpu_progressive.py::test_cpu_seed0_chunks_are_independent` | PASSED |
+| `tests/test_pkg191_viewport_gpu_progressive.py::test_gpu_progressive_accumulator_denoises` | PASSED — `MSE-to-256spp @ {1,16,64} = {1: 7.042780e-04, 16: 4.700231e-05, 64: 1.415028e-05}` (matches PR-claimed 7.0e-4 → 4.7e-5 → 1.3e-5) |
+| `tests/test_pkg64_gpu_phase3_default_integrator.py::test_pkg64_gpu_phase3_prism_receiver_energy` | XFAIL (pre-existing marker, unrelated to this PR) |
+| `tests/test_pkg64_gpu_phase3_default_integrator.py::test_pkg64_gpu_phase3_prism_psnr_floor` | XPASS (pre-existing; delta -0.00 dB >= -0.5 dB) |
+| `tests/test_gpu_multiwavelength.py` (6 tests: visible/nir/uv band SSIM + no-regression + kernel-finite) | 6 PASSED |
+| `tests/test_world_hdri_parity.py` (3 tests) | 3 PASSED |
+| `tests/test_pkg186_gpu_texture_parity.py` (2 tests) | 2 PASSED |
+| `tests/test_blender_viewport_session.py` (13 tests, backend-agnostic pump incl. `test_view_draw_progresses_until_preview_sample_target`) | 13 PASSED |
+
+Full run: `4 passed` (target file) + `11 passed, 1 xfailed, 1 xpassed` (golden/
+parity no-regression set) + `13 passed` (viewport-session set) = 28 passed,
+1 xfailed, 1 xpassed, 0 failed. Logs: `test_results/verifier_run_pkg191.txt`,
+`test_results/verifier_run_pkg191_golden.txt`,
+`test_results/verifier_run_pkg191_noregression.txt`,
+`test_results/verifier_run_pkg191_viewport_session.txt`.
+
+**Visual inspection:** independently reproduced the PR's owner-visual claim with
+a standalone repro (same scene as `test_gpu_progressive_accumulator_denoises`,
+GPU backend, seed 0, 96x96, gamma-applied for PNG display) dumping the Python
+running-mean accumulator at iter 1 and iter 64. iter-1: heavy salt-and-pepper
+chroma noise across the whole frame (background and sphere both grainy) — the
+"stuck 1-sample" state. iter-64: clean, smooth dark-red sphere on a smooth dark
+background, noise resolved. No fireflies, no magenta/black NaN pixels, no
+banding/quantization artifacts, no mode regression (still monochrome RGB
+lambertian, no spectral leakage). Confirms the fix's core visual claim.
+
+**Anomalies worth watching:** none introduced by this PR. The
+`test_pkg64_gpu_phase3_prism_psnr_floor` XPASS is a pre-existing condition on
+this hardware (unrelated to pkg191's change scope — Phase 3 SMS prism receiver
+test) and should be tracked separately if it recurs consistently enough to
+un-xfail per the [[xfail-gated-features-must-unxfail]] convention; not
+something this verification pass should decide.
+
+**Verdict:** all light-scope gates PASS. Numerically and visually consistent
+with the PR's claims; fix is scoped exactly to `module/blender_module.cpp` with
+no kernel/header changes, confirmed via `git diff --stat`. Mergeable on HW
+evidence — final merge decision left to the architect/gate-failure-reviewer
+process, not asserted here.

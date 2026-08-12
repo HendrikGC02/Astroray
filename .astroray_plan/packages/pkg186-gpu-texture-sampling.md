@@ -4,12 +4,14 @@
 **Track:** A
 **Status:** done — image-texture slice (PR #590, 2026-08-12). Backend-aware
 `__features__` guard landed + GPU image textures render with CPU parity
-(per-channel mean-ratio 1.003 / 0.998 / 1.000). Untextured fleet kernel
-BYTE-IDENTICAL (cuobjdump `stageShadeBucketedKernel<false,false>` REG:254
-STACK:2640 == pre-pkg186 `<false>` STACK:2640). Procedural-node textures +
-pkg119-B procedural reclassification deferred to a follow-up (out-of-slice; see
-Lessons). (found 2026-08-12 during the post-pkg178/pkg182 spectral-
-integration + CPU/GPU-parity audit; owner asked "what still lacks GPU parity")
+(per-channel mean-ratio 1.001 / 1.000 / 0.997). Untextured fleet kernel identity
+RESTORED on native sm_120: cuobjdump `stageShadeBucketedKernel<false,false>` =
+REG:254 STACK:3608 CONSTANT[0]:1700 == pre-pkg186 `<false>` baseline (3608/1700),
+after moving the texture pointers out of the kernel signature into a `__constant__`
+binding (an earlier signature-param version measured +24 B stack). Procedural-node
+textures + pkg119-B procedural reclassification deferred to a follow-up
+(out-of-slice; see Lessons). (found 2026-08-12 during the post-pkg178/pkg182
+spectral-integration + CPU/GPU-parity audit; owner asked "what still lacks GPU parity")
 **Estimated effort:** L (scoped down by the two open decisions below)
 **Depends on:** pkg115 (Blender shader-node texture adoption, CPU); pkg135
 (demand-loaded sparse textures, CPU); pkg119-B (Blender differential parity
@@ -169,16 +171,33 @@ barycentric-interpolated in-kernel from the hit triangle's uploaded active-layer
 texcoords (Ericson RTCD §3.4), mirroring pkg178's recompute (no new per-path SoA
 field; non-instanced only — instanced-texture UV is a follow-up).
 
-### Measured gates (RTX 5070 Ti, sm_89 SASS)
+The three texture device pointers (image descriptors / flat texel buffer /
+per-material texture id) are published to a `__constant__ c_wfTexBinding` symbol
+ONCE per frame (`setWavefrontTextureBinding`), NOT threaded through the shade
+kernel's per-launch signature. This was the load-bearing correction found in HW
+verification: the first implementation passed them as three signature params, and
+even though the texture code is `if constexpr`-compiled out of `<false,*>`, the
+three always-present pointer params grew the SHARED signature and cost the
+untextured `<false,false>` fleet kernel +24 B stack (CONSTANT[0] +28 B). Moving
+them to constant memory returns the `<false,*>` signature to its pre-pkg186 shape.
+
+### Measured gates (RTX 5070 Ti, NATIVE sm_120 SASS — the fleet arch)
+IMPORTANT measurement lesson: cuobjdump MUST run on a native-arch build. A
+worktree `build_cuda` carries a stale `CMAKE_CUDA_ARCHITECTURES=52` cache (the
+CMakeLists sets the arch via a NORMAL `set()` that the cache shadows — the fleet
+bug pkg183 guards). Force it with `cmake build_cuda -DASTRORAY_CUDA_ARCHS=native
+-DCMAKE_CUDA_ARCHITECTURES=native` and verify `cuobjdump <pyd> -lelf` shows
+`sm_120` only. An early sm_89/52 measurement here mis-reported STACK 2640.
 - cuobjdump `--dump-resource-usage`, `stageShadeBucketedKernel<false,false>`
-  (untextured non-principled fleet kernel): **REG:254 STACK:2640**, byte-identical
-  to the pre-pkg186 single-bool `<false>` (pkg185 build, commit 24106ca):
-  **REG:254 STACK:2640**. Zero regression — the `if constexpr` isolation held.
-  Textured/principled instantiations are separate: `<false,true>`=STACK 4128,
-  `<true,false>`=5952, `<true,true>`=5040 (paid only by scenes that use them).
-  This byte-identity is stronger evidence than a clock-drift-confounded perf A/B.
+  (untextured non-principled fleet kernel), native sm_120:
+  **REG:254 STACK:3608 CONSTANT[0]:1700** — IDENTICAL to the pre-pkg186 `<false>`
+  main baseline (3608 / 1700; independently confirmed by the HW verifier).
+  `<false,true>` is also 3608 (texture code is free); `<true,false>`=STACK 6592,
+  `<true,true>`=6272 (principled, paid only by principled scenes).
+  The pre-fix signature-param version measured `<false,false>`=STACK 3632 /
+  CONSTANT[0] 1728 (+24 B / +28 B); the `__constant__` fix restored identity.
 - CPU/GPU per-channel mean-ratio on a lit UV-mapped textured quad (64², 96 spp,
-  linear): **[1.003, 0.998, 1.000]** — essentially exact (substitution is exact
+  linear): **[1.001, 1.000, 0.997]** — essentially exact (substitution is exact
   for lambertian). GPU textured vs GPU flat-0.5 mean|diff| = **0.206** (texture is
   genuinely sampled, not dropped). Gate: `tests/test_pkg186_gpu_texture_parity.py`.
 - `__features__` guard: `tests/test_pkg186_gpu_features_guard.py` (7 legs, CI-run).

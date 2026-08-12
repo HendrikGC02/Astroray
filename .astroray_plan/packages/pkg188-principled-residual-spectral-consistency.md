@@ -184,3 +184,51 @@ a phantom ~313-line diff. Repaired by restoring HEAD and re-applying the hunks v
 byte-level Python replacement with CRLF-matched new lines, leaving the scattered
 LF-only lines untouched. Final diff: real hunks only (`git diff --ignore-cr-at-eol`
 == `git diff`). `principled.cpp` is uniform LF and was unaffected.
+
+---
+
+## Hardware verification 2026-08-13 (PR #599, independent verifier pass)
+
+**Hardware:** RTX 5070 Ti (sm_120 / Blackwell, compute_cap 12.0), Windows 11
+Enterprise 10.0.26200, NVIDIA driver 610.47 (KMD 610.47, CUDA UMD 13.3),
+CUDA Toolkit v12.8 (nvcc). Build: MSVC 14.44.35207 (VS2022 BuildTools),
+VS-generator `build_cuda` (root wrapper). CMakeCache confirms
+`ASTRORAY_CUDA_ARCHS=120` / `CMAKE_CUDA_ARCHITECTURES=120`.
+
+**Contamination guard:** worktree HEAD `8a05599a4a2bb01d37673887c2862efd480ebf47`
+verified against PR #599's `headRefOid` before building — match.
+
+**Build note:** the first `cmd /c build_cuda_worktree.bat ...` invocation from
+Bash hit the known false-green pattern (banner-only output, exit 0, nothing
+built); rebuilt successfully via PowerShell. pkg183 guard on the real build:
+header-hash stamp `sha=8a05599a4a2b`, `cuobjdump --list-elf` arch-verify OK
+(embeds `sm_120` only), host-only ABI canary caps
+`{'cpu': True, 'spectral': True, 'gpu': True, 'gpu_spectral': True,
+'gpu_approximate': False, 'closure_graph': True, 'closure_count': 1}`.
+**Anomaly investigated and dismissed:** the freshly-built `.pyd`'s mtime was
+~11 min *older* than HEAD's commit timestamp — the OneDrive-mtime pattern
+([[incremental-build-signature-staleness]]). Discharged by re-running the
+canary + arch-verify a second time after GPU-lock reacquisition (both still
+pass) and confirming `astroray.__file__` resolves to
+`build_cuda\Release\astroray.cp313-win_amd64.pyd` under this worktree, not a
+shadow copy.
+
+### Gate table (measured vs claimed)
+
+| # | Gate | Claimed | Measured | Verdict |
+|---|------|---------|----------|---------|
+| 1 | Register gate: `cuobjdump -res-usage` post-link on the final `.pyd`, all 4 `stageShadeBucketedKernel<HasPrincipled,HasTexture>` instantiations | `<F,F>`/`<F,T>` = REG254/STACK3608/CONST[0]1700; `<T,F>`/`<T,T>` = STACK6616, +CONST[2]344 | `<Lb0,Lb0>` = `REG:254 STACK:3608 CONSTANT[0]:1700`; `<Lb0,Lb1>` = `REG:254 STACK:3608 CONSTANT[0]:1700`; `<Lb1,Lb0>` = `REG:254 STACK:6616 CONSTANT[2]:344 CONSTANT[0]:1700`; `<Lb1,Lb1>` = `REG:254 STACK:6616 CONSTANT[2]:344 CONSTANT[0]:1700` — **exact match on all 4** | **PASS** |
+| 2 | `tests/test_pkg188_transmission_colour_upsample_parity.py`, CPU/GPU parity ≤1.02 on tinted glass + coat-over-tinted-glass | 3/3 pass, parity ≤1.02 | 3/3 **PASSED**. `glass_tint_r0.15`: R/G/B mean ratios 1.0013/1.0023/1.0035. `glass_tint_r0.40`: 1.0070/1.0113/1.0168 (max observed ratio, median-B, = **1.0197**). `coat_over_tinted_glass`: 1.0067/1.0009/1.0048. All within the test's [0.95,1.05] band and within the claimed ≤1.02 bound. | **PASS** |
+| 3 | GPU glass furnace, LINEAR (`apply_gamma=False`), ~0.955, no energy gain (upper-bound assert present) | ~0.955 | `test_pkg178_principled_gpu_furnace.py`: 4/4 **PASSED**. glass(r=0.1) mean=0.9867 ratio=0.9919; glass(r=0.4) mean=0.9499 ratio=**0.9549** (matches "~0.955" claim). `_assert_band` enforces both `mat <= ref*ceil` (ceil=1.05, energy-GAIN guard) and `mat >= ref*floor` — confirmed present and passing, not floor-only. | **PASS** |
+| 4 | Regression slice (implementer claims 179 green + 35 chi²; representative subset: pkg178 parity, glass caustic family, thin-film gates) | green | Ran 13 files (`test_pkg178_principled_gpu_cpu_parity`, `test_pkg178_thinfilm_gpu_cpu_parity`, `test_glass_sphere_caustic`, `test_gpu_caustic_parity`, `test_prism_caustic_rainbow`, `test_sms_caustic_spectral`, `test_sms_caustic_validation`, `test_thin_film_pr1`, `test_thin_film_pr2`, `test_thin_film_ab_harness`, `test_principled_bsdf`, `test_dielectric_glass_furnace`, `test_disney_rough_glass_furnace`): **65 passed, 1 xpassed in 23.21s**. The 1 xpass is `test_gpu_prism_rainbow_parity` (pkg189/dispersion territory, untouched by this PR's diff — pre-existing xfail-passes-anyway, not a pkg188 regression). Zero failures. | **PASS** |
+| 5 | Visual: CPU vs GPU tinted-glass sphere render, colour/hue match | no hue shift | Rendered `glass_tint_r0.15` and `coat_over_tinted_glass` (256×256, 256spp, seed 188188, `apply_gamma=True`, same scene as the parity test) both legs. `glass_tint_r0.15`: mean cpu=0.4242 gpu=0.4243 — visually identical warm terracotta hue. `coat_over_tinted_glass`: mean cpu=0.3046 gpu=0.3053 — visually identical dark blue-teal hue. No fireflies, no banding, no magenta/black NaN pixels (explicit `isnan`/`isinf` check on raw float buffers: 0/0 both legs, both scenes). No mode regression. PNGs at `test_results/pkg188_visual_*_{cpu,gpu}.png` (gitignored, not committed — reproducible via the parity-test scene setup). | **PASS** |
+| 6 | Line-ending: `gpu_materials.h` diff is real hunks (~23/8), not a rewrite | ~23/8 | `git diff main...HEAD --stat -- include/astroray/gpu_materials.h`: `1 file changed, 23 insertions(+), 8 deletions(-)` — exact match, phantom-diff repair held. | **PASS** |
+
+**Overall verdict: mergeable on HW evidence.** All 6 gates PASS with
+independently re-measured numbers (register gate via a fresh `cuobjdump
+-res-usage` pass, parity/furnace/regression via fresh pytest runs, visual via
+an independently-written render matching the parity test's scene). No gate
+was relaxed; nothing needed escalation to `gate-failure-reviewer`. pkg194
+follow-up (Finding C: thin-wall per-λ R'/T' + tinted-layer colour×colour
+spectral-carry) remains open as documented in this spec's prior Lessons
+section — out of scope for this verification pass.

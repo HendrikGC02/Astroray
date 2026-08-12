@@ -118,8 +118,27 @@ def _build_glass_sphere(use_gpu: bool):
     r.add_sphere([0.0, 0.0, 0.0], 0.6, glass)
     assert r.set_object_caustic_caster(sphere_idx, True)
 
-    r.add_sun_light_dedicated(_norm([0.45, -1.0, 0.0]), 0.01,
-                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 6.0)
+    # pkg185: mirror the reference scene's OMEGA-SCALED sun irradiance
+    # (benchmarks/reference_bank/scenes/glass-sphere-caustic/scene.py:69-74).
+    # `add_sun_light_dedicated`'s last arg is IRRADIANCE S; a distant light's
+    # sun-disk radiance is L = S/Ω. This scene was authored (pkg113, #425) under
+    # the PRE-pkg122 "near-black" scaling where the engine implicitly multiplied
+    # the sun by S·Ω, so a flat `6.0` behaved as radiance ≈ 6.0 (the documented
+    # peak ~0.41 / SSIM ~0.96 passing state). pkg122 corrected that scaling and
+    # the reference scene was updated to `6.0·Ω`; this test scene was not, so its
+    # flat `6.0` silently became radiance ≈ 19100 (S/Ω). That was harmless until
+    # pkg181 made dedicated lamps visible to BSDF rays — the ball-lens then
+    # produces correct-but-high-variance SPECULAR images of the tiny bright sun
+    # disk (peak ~1007), which the CPU reference's independent RNG does not hit at
+    # the same pixels, collapsing the variance-based SSIM to ~0.01. Restoring the
+    # intended dim collimated beam (radiance ≈ 6.0) removes the fireflies and the
+    # GPU/CPU renders agree to SSIM ~0.96 again (peak ~0.41), confirming the
+    # transport itself is in parity. See pkg185 spec.
+    _sun_ang = 0.01
+    _sun_omega = 2.0 * math.pi * (1.0 - math.cos(_sun_ang * 0.5))  # disk solid angle
+    r.add_sun_light_dedicated(_norm([0.45, -1.0, 0.0]), _sun_ang,
+                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]},
+                              6.0 * _sun_omega)
 
     # Floor just past the ball-lens focal plane (paraxial focus is at centre +
     # sunDir*0.9 = (0.37,-0.82,0); floor at y=-1.1 -> caustic at x~0.50). The

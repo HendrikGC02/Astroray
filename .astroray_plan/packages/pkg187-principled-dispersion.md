@@ -2,8 +2,11 @@
 
 **Pillar:** 3/5 (spectral light transport / Blender parity)
 **Track:** A
-**Status:** in progress (pkg187 branch — engine core implemented via Option A;
-CPU/GPU dispersion + forward-compatible addon probe)
+**Status:** CPU-complete + GPU-wired (PR #593, 2026-08-12 — CPU chromatic prism
+red/blue spread 4.27→5.35px; zero-dispersion byte-identical; addon forward-probe
+unit-tested; `<false>` shade kernel REG:254/STACK:2640 unchanged. GPU-visible
+wavefront dispersion deferred to the follow-up spec filed 2026-08-12 — it is a
+pre-existing frozen no-op that the dielectric reference shares.)
 **Estimated effort:** M
 **Depends on:** pkg178 (native Principled BSDF); pkg31/pkg29 (Sellmeier
 dielectric plugin); pkg64 (GPU Sellmeier / hero-λ upload); SMS/MNEE

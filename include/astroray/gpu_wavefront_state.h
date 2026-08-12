@@ -354,12 +354,17 @@ void launchStageShadeBucketed(
     // <false,*>, which compiles out all gpu_principled_* codegen for the fleet-wide
     // non-principled perf restore. See pkg178-stage3-d4-and-forks-decision.md §2b.
     bool hasPrincipled,
-    // pkg186: image-texture device arrays + scene-content flag. hasTexture=true
-    // selects stageShadeBucketedKernel<*,true>; false selects <*,false>, which
-    // compiles out ALL texture codegen so the untextured fleet is byte-identical
-    // to pre-pkg186 (cuobjdump on <false,false> is the acceptance check).
-    const GImageTexture* d_textures, const GVec3* d_texelBuf, const int* d_matTexId,
+    // pkg186: hasTexture=true selects stageShadeBucketedKernel<*,true>; false
+    // selects <*,false>, which compiles out ALL texture codegen. The texture DATA
+    // is published to constant memory once per frame via
+    // setWavefrontTextureBinding (below) — NOT passed here — so this signature
+    // (shared by the untextured fleet kernel) keeps its pre-pkg186 REG/STACK.
     bool hasTexture);
+
+// pkg186 — publish the frame's image-texture arrays into the shade kernel's
+// __constant__ binding. Call ONCE per frame before launchStageShadeBucketed (only
+// for scenes with textures); see stage_advance.cu / GWavefrontTextureBinding.
+void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding);
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts

@@ -371,6 +371,13 @@ __device__ int intersectPathSlot(
 // (if constexpr in gpu_materials.h), restoring main's footprint. The launchers
 // pick <true>/<false> off scene_upload's host-side flag. See
 // .astroray_plan/docs/pkg178-stage3-d4-and-forks-decision.md §2b.
+// pkg186 — image-texture binding in constant memory (see GWavefrontTextureBinding
+// in gpu_types.h). Set once per frame by setWavefrontTextureBinding before the
+// shade launches; read only inside `if constexpr (HasTexture)`. Keeping it OUT of
+// the kernel signature is what leaves the untextured <false,false> fleet kernel at
+// its pre-pkg186 REG/STACK footprint (the three signature params cost +24 B stack).
+__constant__ GWavefrontTextureBinding c_wfTexBinding;
+
 template<bool Deferred, bool HasPrincipled, bool HasTexture = false>
 __device__ bool shadePathSlot(
     int idx,
@@ -407,13 +414,7 @@ __device__ bool shadePathSlot(
     // disabled, which is the default and costs one predicated branch.
     float*            cryptoObjectRanks = nullptr,
     float*            cryptoMaterialRanks = nullptr,
-    int               cryptoDepth = 0,
-    // pkg186 — image-texture data. Read ONLY inside `if constexpr (HasTexture)`;
-    // nullptr / unused for every other instantiation (the fleet's untextured
-    // <...,false> kernel never touches them).
-    const GImageTexture* textures = nullptr,
-    const GVec3*         texelBuf = nullptr,
-    const int*           matTexId = nullptr)
+    int               cryptoDepth = 0)
 {
     const int bounce = state.bounce[idx];
 
@@ -519,7 +520,16 @@ __device__ bool shadePathSlot(
     // NOTE: Russian roulette (bounce > kRRDepth) then keys off the already-
     // textured throughput one bounce earlier than the CPU folds albedo in; RR is
     // unbiased/mean-preserving so the per-channel mean-ratio gate is unaffected.
+    //
+    // The texture arrays are read from the __constant__ c_wfTexBinding symbol
+    // (set once per frame via setWavefrontTextureBinding), NOT from kernel
+    // signature params. Threading them as three per-launch pointer params grew
+    // the SHARED kernel signature (CONSTANT[0] +28 B) and cost +24 B STACK on the
+    // untextured <false,false> fleet kernel even though the code is if-constexpr'd
+    // out — measured on native sm_120 (STACK 3632 vs main's 3608). Moving them to
+    // constant memory keeps the <false,*> signature at its pre-pkg186 footprint.
     if constexpr (HasTexture) {
+        const int* matTexId = c_wfTexBinding.matTexId;
         int texId = matTexId[rec.materialId];
         if (texId >= 0 && rec.primId >= 0 &&
             prims[rec.primId].type == GPRIM_TRIANGLE) {
@@ -536,8 +546,8 @@ __device__ bool shadePathSlot(
                     float b0 = 1.0f - b1 - b2;
                     float uu = b0 * ttri.uv0.x + b1 * ttri.uv1.x + b2 * ttri.uv2.x;
                     float vv = b0 * ttri.uv0.y + b1 * ttri.uv1.y + b2 * ttri.uv2.y;
-                    GVec3 texColor =
-                        gpu_sampleImageTexture(textures[texId], texelBuf, uu, vv);
+                    GVec3 texColor = gpu_sampleImageTexture(
+                        c_wfTexBinding.textures[texId], c_wfTexBinding.texelBuf, uu, vv);
                     GSampledSpectrum texUp =
                         gpu_rgbToSampledSpectrum(texColor, lambdas, mat.spectralMode);
                     GSampledSpectrum baseUp =
@@ -1061,8 +1071,7 @@ __global__ void stageShadeBucketedKernel(
     float             clampDirect, float clampIndirect,  // pkg157
     astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid,
     float             photonScale,
-    float* cryptoObjectRanks, float* cryptoMaterialRanks, int cryptoDepth,  // pkg159
-    const GImageTexture* textures, const GVec3* texelBuf, const int* matTexId)  // pkg186
+    float* cryptoObjectRanks, float* cryptoMaterialRanks, int cryptoDepth)  // pkg159
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int bucket = i / capacity;
@@ -1070,6 +1079,9 @@ __global__ void stageShadeBucketedKernel(
     if (bucket >= G_WF_NUM_MAT_TYPES) return;
     if (pos >= shade_counts[bucket]) return;
     int idx = shade_queues[bucket * capacity + pos];
+    // pkg186: texture data comes from the __constant__ c_wfTexBinding symbol, NOT
+    // kernel params — keeps the untextured <false,false> signature at its
+    // pre-pkg186 footprint (see c_wfTexBinding note above).
     bool alive = shadePathSlot<true, HasPrincipled, HasTexture>(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
@@ -1082,8 +1094,7 @@ __global__ void stageShadeBucketedKernel(
                                /*captureMis=*/false,  // pkg159: explicit so the
                                // crypto args below bind to the right params
                                cryptoObjectRanks, cryptoMaterialRanks,
-                               cryptoDepth,
-                               textures, texelBuf, matTexId);  // pkg186
+                               cryptoDepth);
     if (alive) {
         int slot = atomicAdd(count_out, 1);
         queue_out[slot] = idx;
@@ -1156,6 +1167,16 @@ void launchStageIntersectQueued(
     }
 }
 
+// pkg186 — publish the frame's image-texture arrays into the __constant__
+// c_wfTexBinding symbol. Called ONCE per frame by the driver (before the shade
+// launches), so the shade kernel reads texture data from constant memory instead
+// of per-launch signature params. For untextured scenes the driver skips this
+// (the <false,*> kernel never reads the symbol).
+void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding)
+{
+    cudaMemcpyToSymbol(c_wfTexBinding, &binding, sizeof(GWavefrontTextureBinding));
+}
+
 void launchStageShadeBucketed(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
@@ -1183,9 +1204,10 @@ void launchStageShadeBucketed(
     // pkg159: per-pixel cryptomatte rank arrays (driver-owned; null/0 = off).
     float* d_cryptoObjectRanks, float* d_cryptoMaterialRanks, int cryptoDepth,
     bool              hasPrincipled,  // pkg178 Stage-3b D4
-    // pkg186: image-texture device arrays (null / hasTexture=false for untextured
-    // scenes → the <...,false> kernel that carries zero texture codegen).
-    const GImageTexture* d_textures, const GVec3* d_texelBuf, const int* d_matTexId,
+    // pkg186: hasTexture selects the <*,true> instantiation. The texture DATA is
+    // NOT passed here — the driver publishes it to c_wfTexBinding (constant
+    // memory) once per frame via setWavefrontTextureBinding, so this signature
+    // (shared by the untextured fleet kernel) stays at its pre-pkg186 footprint.
     bool              hasTexture)
 {
     if (capacity <= 0) return;
@@ -1221,8 +1243,7 @@ void launchStageShadeBucketed(
                 useLuminanceOutput, enableNEE, \
                 clampDirect, clampIndirect, \
                 photonGrid, hasPhotonGrid, photonScale, \
-                d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth, \
-                d_textures, d_texelBuf, d_matTexId
+                d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth
         const void* kptr =
             hasPrincipled
                 ? (hasTexture ? (const void*)stageShadeBucketedKernel<true, true>

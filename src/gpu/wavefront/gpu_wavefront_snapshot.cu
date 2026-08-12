@@ -1340,10 +1340,15 @@ std::vector<float> cuda_wavefront_render(
     ::GMaterial* d_materials = wfUpload(C.materials, res.materials);
     // pkg186 — image-texture device arrays. All null for untextured scenes
     // (wfUpload returns nullptr on empty), and res.hasTexture=false then selects
-    // the <*,false> shade kernel, so untextured renders pay nothing.
+    // the <*,false> shade kernel, so untextured renders pay nothing. The three
+    // pointers are published ONCE per frame into the shade kernel's __constant__
+    // binding (setWavefrontTextureBinding) — NOT threaded through the per-launch
+    // signature — so the untextured fleet kernel keeps its pre-pkg186 footprint.
     GImageTexture* d_textures  = wfUpload(C.textures, res.textures);
     GVec3*         d_texelBuf  = wfUpload(C.textureTexels, res.textureTexels);
     int*           d_matTexId  = wfUpload(C.materialTextureId, res.materialTextureId);
+    if (res.hasTexture)
+        setWavefrontTextureBinding(GWavefrontTextureBinding{d_textures, d_texelBuf, d_matTexId});
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).
@@ -1569,8 +1574,7 @@ std::vector<float> cuda_wavefront_render(
                                      d_cryptoObj, d_cryptoMat,     // pkg159
                                      cryptoOn ? cryptoDepth : 0,
                                      res.hasPrincipled,  // pkg178 Stage-3b D4
-                                     d_textures, d_texelBuf, d_matTexId,  // pkg186
-                                     res.hasTexture);
+                                     res.hasTexture);     // pkg186 (data via c_wfTexBinding)
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4

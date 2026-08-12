@@ -594,6 +594,19 @@ struct GImageTexture {
     int height;
 };
 
+// pkg186 — wavefront image-texture binding. Published ONCE per frame into a
+// __constant__ symbol (setWavefrontTextureBinding) so the shared shade kernel
+// reads texture data from constant memory rather than three per-launch signature
+// pointer params. Passing them in the signature grew CONSTANT[0] and cost the
+// untextured <false,false> fleet kernel +24 B STACK (native sm_120: 3632 vs
+// main's 3608) even though the texture code is if-constexpr'd out; constant
+// memory keeps the <false,*> signature at its pre-pkg186 footprint.
+struct GWavefrontTextureBinding {
+    const GImageTexture* textures;
+    const GVec3*         texelBuf;
+    const int*           matTexId;
+};
+
 // Nearest-neighbour image fetch — mirrors CPU ImageTexture::value EXACTLY
 // (clamp u,v to [0,1]; v flip; floor to texel; clamp index to bounds).
 HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,

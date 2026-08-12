@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (build infrastructure / verification integrity)
 **Track:** A
-**Status:** in-review (PR pending, 2026-08-12 — items 1–3 implemented:
+**Status:** in-review (PR #592, 2026-08-12 — items 1–3 implemented:
 header-hash stamp + force-clean-on-mismatch and a <5 s host-only ABI canary
 wired into all three build wrappers; item 4 evaluated-only, see Lessons)
 **Estimated effort:** S–M

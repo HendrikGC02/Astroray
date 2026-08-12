@@ -36,6 +36,15 @@ own because a dependency for 40 lines of code is ridiculous.
   - Minimal spectral renderer in ~1000 lines. Good reference for the
     Jakob-Hanika LUT reader specifically.
 
+### Spectral authoring / node system
+
+- **Spectral node-system design + renderer survey (2026-08)** — see
+  `.astroray_plan/docs/spectral-node-system-design-2026-08.md` §2/§4:
+  cross-renderer spectrum-authoring survey (LuxCore, Mitsuba, PBRT v4,
+  Indigo, Radiance 6, Maxwell, Manuka) + vetted SPD data sources with
+  license verdicts (pbrt-v4 spectra Apache-2.0, refractiveindex.info CC0,
+  colour-science BSD-3, NIST ASD; LSPDD and BlendLuxCore data rejected).
+
 ### Direct data dependencies
 
 - **Jakob-Hanika coefficient tables** — pre-trained sigmoid coefficient

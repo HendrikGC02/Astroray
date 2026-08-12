@@ -4523,6 +4523,35 @@ PYBIND11_MODULE(astroray, m) {
 #endif
     );
 
+    // pkg186 — backend-aware capability truth for the GPU (CUDA/wavefront)
+    // render path. `__features__` above advertises what the build supports on
+    // ANY backend (it is what the addon Diagnostics/Preferences panels display),
+    // but the addon defaults to GPU and several of those capabilities are
+    // CPU-only there — the GPU path silently flattens textures, ignores volumes,
+    // has no adaptive sampler, and has no GR black-hole kernels. Advertising
+    // them `true` verbatim told the user "textures: yes" while the active GPU
+    // backend dropped them (the pkg171 silent-lie class, applied to the feature
+    // dict instead of the integrator). This companion dict reports per-capability
+    // truth for the GPU backend; the panels cross-reference it and label any
+    // capability that is on in `__features__` but off here as "CPU only". The
+    // keys mirror `__features__`; a capability absent here inherits its
+    // `__features__` value (treated as backend-agnostic).
+    //
+    // textures: FALSE — the pkg186 image-texture slice makes image textures
+    // render on GPU, but procedural texture nodes still flatten to base albedo,
+    // so full GPU texture parity is NOT reached; the flag stays false until the
+    // procedural follow-up closes the gap (spec: "until this package closes the
+    // gap"). Honest under-claim beats the prior silent over-claim.
+    m.attr("__gpu_features__") = py::dict(
+        "nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,
+        "adaptive_sampling"_a=false,   // CPU-only sampler
+        "volumes"_a=false,             // CPU-only
+        "textures"_a=false,            // see note above (image slice partial)
+        "subsurface"_a=true,           // GPU closure-graph diffuse SSS mix
+        "gr_black_holes"_a=false,      // CPU-only GR integrators
+        "spectral_gpu_materials"_a=true
+    );
+
     // pkg87a — Cryptomatte infrastructure bindings
     m.def("crypto_hash_name", &crypto_hash_name, "name"_a,
           "Hash a name string to a Cryptomatte float ID (MurmurHash3 seed 0 + hash_to_float)");

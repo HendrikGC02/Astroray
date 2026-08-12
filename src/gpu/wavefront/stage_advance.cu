@@ -371,7 +371,14 @@ __device__ int intersectPathSlot(
 // (if constexpr in gpu_materials.h), restoring main's footprint. The launchers
 // pick <true>/<false> off scene_upload's host-side flag. See
 // .astroray_plan/docs/pkg178-stage3-d4-and-forks-decision.md §2b.
-template<bool Deferred, bool HasPrincipled>
+// pkg186 — image-texture binding in constant memory (see GWavefrontTextureBinding
+// in gpu_types.h). Set once per frame by setWavefrontTextureBinding before the
+// shade launches; read only inside `if constexpr (HasTexture)`. Keeping it OUT of
+// the kernel signature is what leaves the untextured <false,false> fleet kernel at
+// its pre-pkg186 REG/STACK footprint (the three signature params cost +24 B stack).
+__constant__ GWavefrontTextureBinding c_wfTexBinding;
+
+template<bool Deferred, bool HasPrincipled, bool HasTexture = false>
 __device__ bool shadePathSlot(
     int idx,
     GPUWavefrontState& state,
@@ -493,6 +500,66 @@ __device__ bool shadePathSlot(
     }
 
     const ::GMaterial& mat = materials[rec.materialId];
+
+    // pkg186 — image-texture base color for a textured lambertian. The whole
+    // diffuse bounce (NEE eval, BSDF throughput, continuation) is LINEAR in
+    // albedo_spec = upsample(baseColor), so substituting the sampled texel is a
+    // SINGLE multiply of `throughput` by the spectral ratio
+    // upsample(texColor)/upsample(baseColor), applied here BEFORE NEE and BSDF.
+    // This leaves the shared material dispatch untouched — no per-hit GMaterial
+    // copy (GMaterial is a zero-slack 640 B struct; a copy spills the shared
+    // kernel) — and, gated behind `if constexpr (HasTexture)`, compiles to
+    // nothing in the untextured <...,false> kernel the fleet runs. UVs are
+    // interpolated from the hit triangle's uploaded active-layer texcoords
+    // (scene_upload sets hasUV on image-textured triangles) via barycentrics
+    // recomputed from the world hit point (Ericson, Real-Time Collision
+    // Detection §3.4) — mirrors pkg178's in-kernel recompute (no extra per-path
+    // SoA field; correct for the non-instanced meshes the parity gate uses;
+    // instanced-texture UV is a declared follow-up, same cut pkg178 took for
+    // instanced aniso). matTexId[]==-1 (every non-image material) skips this.
+    // NOTE: Russian roulette (bounce > kRRDepth) then keys off the already-
+    // textured throughput one bounce earlier than the CPU folds albedo in; RR is
+    // unbiased/mean-preserving so the per-channel mean-ratio gate is unaffected.
+    //
+    // The texture arrays are read from the __constant__ c_wfTexBinding symbol
+    // (set once per frame via setWavefrontTextureBinding), NOT from kernel
+    // signature params. Threading them as three per-launch pointer params grew
+    // the SHARED kernel signature (CONSTANT[0] +28 B) and cost +24 B STACK on the
+    // untextured <false,false> fleet kernel even though the code is if-constexpr'd
+    // out — measured on native sm_120 (STACK 3632 vs main's 3608). Moving them to
+    // constant memory keeps the <false,*> signature at its pre-pkg186 footprint.
+    if constexpr (HasTexture) {
+        const int* matTexId = c_wfTexBinding.matTexId;
+        int texId = matTexId[rec.materialId];
+        if (texId >= 0 && rec.primId >= 0 &&
+            prims[rec.primId].type == GPRIM_TRIANGLE) {
+            const GTriangle& ttri = tris[prims[rec.primId].index];
+            if (ttri.hasUV) {
+                GVec3 e1 = ttri.v1 - ttri.v0, e2 = ttri.v2 - ttri.v0;
+                GVec3 ep = rec.point - ttri.v0;
+                float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+                float d20 = ep.dot(e1), d21 = ep.dot(e2);
+                float denom = d00 * d11 - d01 * d01;
+                if (fabsf(denom) > 1e-20f) {
+                    float b1 = (d11 * d20 - d01 * d21) / denom;
+                    float b2 = (d00 * d21 - d01 * d20) / denom;
+                    float b0 = 1.0f - b1 - b2;
+                    float uu = b0 * ttri.uv0.x + b1 * ttri.uv1.x + b2 * ttri.uv2.x;
+                    float vv = b0 * ttri.uv0.y + b1 * ttri.uv1.y + b2 * ttri.uv2.y;
+                    GVec3 texColor = gpu_sampleImageTexture(
+                        c_wfTexBinding.textures[texId], c_wfTexBinding.texelBuf, uu, vv);
+                    GSampledSpectrum texUp =
+                        gpu_rgbToSampledSpectrum(texColor, lambdas, mat.spectralMode);
+                    GSampledSpectrum baseUp =
+                        gpu_rgbToSampledSpectrum(mat.baseColor, lambdas, mat.spectralMode);
+                    for (int s = 0; s < G_SPECTRUM_SAMPLES; ++s) {
+                        float d = baseUp[s];
+                        throughput.v[s] *= (d > 1e-8f ? texUp[s] / d : 0.0f);
+                    }
+                }
+            }
+        }
+    }
 
     GVec3 wo = (ray.direction * -1.0f).normalized();
 
@@ -979,7 +1046,7 @@ __global__ void stageIntersectQueuedKernel(
     shade_queues[matType * capacity + slot] = idx;
 }
 
-template<bool HasPrincipled>  // pkg178 Stage-3b D4 (production perf vector)
+template<bool HasPrincipled, bool HasTexture>  // pkg178 Stage-3b D4; pkg186 texture
 __global__ void stageShadeBucketedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1012,7 +1079,10 @@ __global__ void stageShadeBucketedKernel(
     if (bucket >= G_WF_NUM_MAT_TYPES) return;
     if (pos >= shade_counts[bucket]) return;
     int idx = shade_queues[bucket * capacity + pos];
-    bool alive = shadePathSlot<true, HasPrincipled>(idx, state, hitBufs, tlas, instances, blas,
+    // pkg186: texture data comes from the __constant__ c_wfTexBinding symbol, NOT
+    // kernel params — keeps the untextured <false,false> signature at its
+    // pre-pkg186 footprint (see c_wfTexBinding note above).
+    bool alive = shadePathSlot<true, HasPrincipled, HasTexture>(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
                                totalLightPower, dedLights, numDed,
@@ -1097,6 +1167,16 @@ void launchStageIntersectQueued(
     }
 }
 
+// pkg186 — publish the frame's image-texture arrays into the __constant__
+// c_wfTexBinding symbol. Called ONCE per frame by the driver (before the shade
+// launches), so the shade kernel reads texture data from constant memory instead
+// of per-launch signature params. For untextured scenes the driver skips this
+// (the <false,*> kernel never reads the symbol).
+void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding)
+{
+    cudaMemcpyToSymbol(c_wfTexBinding, &binding, sizeof(GWavefrontTextureBinding));
+}
+
 void launchStageShadeBucketed(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
@@ -1123,7 +1203,12 @@ void launchStageShadeBucketed(
     float             photonScale,
     // pkg159: per-pixel cryptomatte rank arrays (driver-owned; null/0 = off).
     float* d_cryptoObjectRanks, float* d_cryptoMaterialRanks, int cryptoDepth,
-    bool              hasPrincipled)  // pkg178 Stage-3b D4
+    bool              hasPrincipled,  // pkg178 Stage-3b D4
+    // pkg186: hasTexture selects the <*,true> instantiation. The texture DATA is
+    // NOT passed here — the driver publishes it to c_wfTexBinding (constant
+    // memory) once per frame via setWavefrontTextureBinding, so this signature
+    // (shared by the untextured fleet kernel) stays at its pre-pkg186 footprint.
+    bool              hasTexture)
 {
     if (capacity <= 0) return;
     // One launch covers all buckets: grid = NUM_TYPES * capacity threads;
@@ -1135,41 +1220,48 @@ void launchStageShadeBucketed(
     int blocks  = (int)((total + threads - 1) / threads);
     {
         // pkg178 Stage-3b D4: select the HasPrincipled specialization off the
-        // host scene flag. The <false> instantiation carries zero gpu_principled_*
-        // codegen (restores main's ~4456 B stage-shade footprint); the <true>
-        // instantiation is byte-identical to today's kernel. Both are referenced
-        // so both appear in the cubin for the cuobjdump register report.
-        const void* kptr = hasPrincipled
-            ? (const void*)stageShadeBucketedKernel<true>
-            : (const void*)stageShadeBucketedKernel<false>;
+        // host scene flag. The <false,*> instantiation carries zero
+        // gpu_principled_* codegen (restores main's ~4456 B stage-shade
+        // footprint); the <true,*> instantiation is byte-identical to today's
+        // principled kernel. pkg186 adds the orthogonal HasTexture axis: the
+        // <*,false> instantiation carries ZERO texture codegen (the fleet's
+        // untextured scenes), so stageShadeBucketedKernel<false,false> must stay
+        // register/stack-identical to the pre-pkg186 <false> kernel — the
+        // acceptance check is a cuobjdump on that symbol (native sm_120). All four
+        // are referenced below so they appear in the cubin for the register report.
+        // pkg186: the texture arrays are NOT in this arg list — they live in the
+        // __constant__ c_wfTexBinding symbol (setWavefrontTextureBinding, once per
+        // frame), which is what keeps the untextured <false,false> signature at its
+        // pre-pkg186 REG/STACK footprint (signature params cost +24 B stack).
+        #define ASTRORAY_PKG186_SHADE_ARGS \
+                state, hitBufs, d_shade_queues, d_shade_counts, capacity, \
+                d_queue_out, d_count_out, \
+                d_nee_f, d_nee_i, d_shadow_queue, d_shadow_count, \
+                d_tlas, d_instances, d_blas, \
+                d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials, \
+                d_lights, num_lights, total_light_power, \
+                d_dedLights, num_ded, lightTree, max_depth, \
+                useLuminanceOutput, enableNEE, \
+                clampDirect, clampIndirect, \
+                photonGrid, hasPhotonGrid, photonScale, \
+                d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth
+        const void* kptr =
+            hasPrincipled
+                ? (hasTexture ? (const void*)stageShadeBucketedKernel<true, true>
+                              : (const void*)stageShadeBucketedKernel<true, false>)
+                : (hasTexture ? (const void*)stageShadeBucketedKernel<false, true>
+                              : (const void*)stageShadeBucketedKernel<false, false>);
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_shade_bucketed_n7", kptr, blocks, threads);
-        if (hasPrincipled)
-            stageShadeBucketedKernel<true><<<blocks, threads>>>(
-                state, hitBufs, d_shade_queues, d_shade_counts, capacity,
-                d_queue_out, d_count_out,
-                d_nee_f, d_nee_i, d_shadow_queue, d_shadow_count,
-                d_tlas, d_instances, d_blas,
-                d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-                d_lights, num_lights, total_light_power,
-                d_dedLights, num_ded, lightTree, max_depth,
-                useLuminanceOutput, enableNEE,
-                clampDirect, clampIndirect,
-                photonGrid, hasPhotonGrid, photonScale,  // pkg55-C5 / pkg113
-                d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth);  // pkg159
+        if (hasPrincipled && hasTexture)
+            stageShadeBucketedKernel<true, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+        else if (hasPrincipled)
+            stageShadeBucketedKernel<true, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+        else if (hasTexture)
+            stageShadeBucketedKernel<false, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
         else
-            stageShadeBucketedKernel<false><<<blocks, threads>>>(
-                state, hitBufs, d_shade_queues, d_shade_counts, capacity,
-                d_queue_out, d_count_out,
-                d_nee_f, d_nee_i, d_shadow_queue, d_shadow_count,
-                d_tlas, d_instances, d_blas,
-                d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-                d_lights, num_lights, total_light_power,
-                d_dedLights, num_ded, lightTree, max_depth,
-                useLuminanceOutput, enableNEE,
-                clampDirect, clampIndirect,
-                photonGrid, hasPhotonGrid, photonScale,  // pkg55-C5 / pkg113
-                d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth);  // pkg159
+            stageShadeBucketedKernel<false, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+        #undef ASTRORAY_PKG186_SHADE_ARGS
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_shade_bucketed launch error: %s\n",

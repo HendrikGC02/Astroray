@@ -2,8 +2,16 @@
 
 **Pillar:** 5 / integration-first
 **Track:** A
-**Status:** open (found 2026-08-12 during the post-pkg178/pkg182 spectral-
-integration + CPU/GPU-parity audit; owner asked "what still lacks GPU parity")
+**Status:** done — image-texture slice (PR #590, 2026-08-12). Backend-aware
+`__features__` guard landed + GPU image textures render with CPU parity
+(per-channel mean-ratio 1.001 / 1.000 / 0.997). Untextured fleet kernel identity
+RESTORED on native sm_120: cuobjdump `stageShadeBucketedKernel<false,false>` =
+REG:254 STACK:3608 CONSTANT[0]:1700 == pre-pkg186 `<false>` baseline (3608/1700),
+after moving the texture pointers out of the kernel signature into a `__constant__`
+binding (an earlier signature-param version measured +24 B stack). Procedural-node
+textures + pkg119-B procedural reclassification deferred to a follow-up
+(out-of-slice; see Lessons). (found 2026-08-12 during the post-pkg178/pkg182
+spectral-integration + CPU/GPU-parity audit; owner asked "what still lacks GPU parity")
 **Estimated effort:** L (scoped down by the two open decisions below)
 **Depends on:** pkg115 (Blender shader-node texture adoption, CPU); pkg135
 (demand-loaded sparse textures, CPU); pkg119-B (Blender differential parity
@@ -127,3 +135,91 @@ These are genuine forks, not a manufactured menu — decide by scope/payoff:
   GPU equivalent is a separate, larger package).
 - **No `volumes`/`gr_black_holes` GPU implementation** — this package only makes
   the `__features__` dict *honest* about them, it does not implement them.
+
+## Lessons (implementation, 2026-08-12)
+
+### Decision 1 — IMAGE textures first (procedural deferred)
+Register pressure is the #1 hard constraint. A procedural node evaluated in the
+shade kernel means porting Perlin/Musgrave/Voronoi/wave/… noise evaluators into
+the register-saturated `stageShadeBucketed` — heavy per-hit live state that spills
+(exactly the pkg178 lobe-array class). An IMAGE texture is a single cheap fetch.
+Image is also the more common real asset and the self-contained upload. So: image
+first; procedural (which carries the pkg119-B payoff) is the filed follow-up.
+
+### Decision 2 — baked device buffer + nearest fetch (NOT `cudaTextureObject_t`)
+The CPU `ImageTexture::value` sampler is NEAREST-neighbour (clamp uv to [0,1], flip
+v, floor to texel). Hardware bilinear via a texture object would DIVERGE from the
+CPU reference and fail the parity gate. A baked buffer replicates the CPU sampler
+bit-for-bit (`gpu_sampleImageTexture`) and needs no cudaArray/format/lifetime
+machinery. All texels concatenate into one flat device buffer; each texture is an
+`{offset,width,height}` slice (index addressing — no device-pointer-in-descriptor,
+maps onto the wavefront's grow-only `wfUpload`).
+
+### Register-safety architecture (the load-bearing part)
+`GMaterial` is exactly 640 B (`alignas(64)`, zero slack) and is stack-copied by
+value in `gpu_closure_as_material`, so a texture id CANNOT go in it (would round to
+704 B and spill the shared `<false>` kernel — the pkg178 regression). The
+per-material texture id lives in a PARALLEL device array `d_materialTextureId`.
+Texture work is gated behind a NEW template bool `HasTexture` on `shadePathSlot` /
+`stageShadeBucketedKernel`; untextured scenes instantiate `<HasPrincipled,false>`
+which `if constexpr`-compiles out all texture codegen. The substitution itself is
+ONE multiply: for a lambertian the whole bounce is linear in
+`albedo_spec = upsample(baseColor)`, so `throughput *= upsample(texColor) /
+upsample(baseColor)` before NEE+BSDF converts base→texture albedo exactly for both
+the NEE eval and the BSDF continuation, with no per-hit `GMaterial` copy. UV is
+barycentric-interpolated in-kernel from the hit triangle's uploaded active-layer
+texcoords (Ericson RTCD §3.4), mirroring pkg178's recompute (no new per-path SoA
+field; non-instanced only — instanced-texture UV is a follow-up).
+
+The three texture device pointers (image descriptors / flat texel buffer /
+per-material texture id) are published to a `__constant__ c_wfTexBinding` symbol
+ONCE per frame (`setWavefrontTextureBinding`), NOT threaded through the shade
+kernel's per-launch signature. This was the load-bearing correction found in HW
+verification: the first implementation passed them as three signature params, and
+even though the texture code is `if constexpr`-compiled out of `<false,*>`, the
+three always-present pointer params grew the SHARED signature and cost the
+untextured `<false,false>` fleet kernel +24 B stack (CONSTANT[0] +28 B). Moving
+them to constant memory returns the `<false,*>` signature to its pre-pkg186 shape.
+
+### Measured gates (RTX 5070 Ti, NATIVE sm_120 SASS — the fleet arch)
+IMPORTANT measurement lesson: cuobjdump MUST run on a native-arch build. A
+worktree `build_cuda` carries a stale `CMAKE_CUDA_ARCHITECTURES=52` cache (the
+CMakeLists sets the arch via a NORMAL `set()` that the cache shadows — the fleet
+bug pkg183 guards). Force it with `cmake build_cuda -DASTRORAY_CUDA_ARCHS=native
+-DCMAKE_CUDA_ARCHITECTURES=native` and verify `cuobjdump <pyd> -lelf` shows
+`sm_120` only. An early sm_89/52 measurement here mis-reported STACK 2640.
+- cuobjdump `--dump-resource-usage`, `stageShadeBucketedKernel<false,false>`
+  (untextured non-principled fleet kernel), native sm_120:
+  **REG:254 STACK:3608 CONSTANT[0]:1700** — IDENTICAL to the pre-pkg186 `<false>`
+  main baseline (3608 / 1700; independently confirmed by the HW verifier).
+  `<false,true>` is also 3608 (texture code is free); `<true,false>`=STACK 6592,
+  `<true,true>`=6272 (principled, paid only by principled scenes).
+  The pre-fix signature-param version measured `<false,false>`=STACK 3632 /
+  CONSTANT[0] 1728 (+24 B / +28 B); the `__constant__` fix restored identity.
+- CPU/GPU per-channel mean-ratio on a lit UV-mapped textured quad (64², 96 spp,
+  linear): **[1.001, 1.000, 0.997]** — essentially exact (substitution is exact
+  for lambertian). GPU textured vs GPU flat-0.5 mean|diff| = **0.206** (texture is
+  genuinely sampled, not dropped). Gate: `tests/test_pkg186_gpu_texture_parity.py`.
+- `__features__` guard: `tests/test_pkg186_gpu_features_guard.py` (7 legs, CI-run).
+
+### pkg119-B — deferred (out-of-slice), with a caveat on the premise
+The 5 residual pkg119-B "TRANSLATION-BUG" entries are PROCEDURAL nodes; this slice
+does IMAGE textures, so their GPU classification is unchanged (they still flatten
+to base albedo — procedural eval is the follow-up). Per acceptance criterion 4 they
+are explicitly explained as out-of-slice rather than re-run. NOTE: memory
+`pkg119b-harness-runbook` (2026-08-08) DISPROVED the earlier TRANSLATION-BUG
+convictions (`BSDF_TRANSPARENT`, `world:World`) as SSIM false-positives on
+noise-dominated scenes — NOT flat-albedo texture drops — so the spec's "shared root
+cause = flat-albedo" premise is at least partly contradicted by that analysis. The
+procedural follow-up should re-baseline pkg119-B with the noise/under-converged
+triage fix in place, not assume texture support alone reclassifies those entries.
+
+### Deferred to follow-up
+- Procedural texture nodes on GPU (the pkg119-B payoff).
+- `cudaTextureObject_t` bilinear path (if a filtered CPU sampler ever lands).
+- Instanced-mesh texture UV (object-local barycentrics; same cut pkg178 took for
+  instanced anisotropy).
+- Textured materials other than lambertian base color (metal/principled base-color
+  texture slots — the addon TODO at exporter `_create_material` also notes this).
+- Photon-caustic receiver on a textured lambertian still uses base albedo in the
+  primary-hit gather (rare combo; documented in `stage_advance.cu`).

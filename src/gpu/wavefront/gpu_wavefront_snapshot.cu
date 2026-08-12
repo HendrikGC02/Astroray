@@ -998,6 +998,7 @@ struct WfContext {
     // Scene slices.
     WfDeviceBuf nodes, prims, tris, spheres, materials, lights;
     WfDeviceBuf dedLights;                    // pkg89-wavefront (C7)
+    WfDeviceBuf textures, textureTexels, materialTextureId;  // pkg186 image textures
     WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
     WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
     WfDeviceBuf treeNodes, treeEmitters, lightToEmitter;
@@ -1337,6 +1338,17 @@ std::vector<float> cuda_wavefront_render(
     // pkg55-C4 / pkg88-C.0: deformation-motion vertices (nullptr for static scenes).
     GVec3*      d_motionVerts = wfUpload(C.motionVertices, res.motionVertices);
     ::GMaterial* d_materials = wfUpload(C.materials, res.materials);
+    // pkg186 — image-texture device arrays. All null for untextured scenes
+    // (wfUpload returns nullptr on empty), and res.hasTexture=false then selects
+    // the <*,false> shade kernel, so untextured renders pay nothing. The three
+    // pointers are published ONCE per frame into the shade kernel's __constant__
+    // binding (setWavefrontTextureBinding) — NOT threaded through the per-launch
+    // signature — so the untextured fleet kernel keeps its pre-pkg186 footprint.
+    GImageTexture* d_textures  = wfUpload(C.textures, res.textures);
+    GVec3*         d_texelBuf  = wfUpload(C.textureTexels, res.textureTexels);
+    int*           d_matTexId  = wfUpload(C.materialTextureId, res.materialTextureId);
+    if (res.hasTexture)
+        setWavefrontTextureBinding(GWavefrontTextureBinding{d_textures, d_texelBuf, d_matTexId});
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).
@@ -1561,7 +1573,8 @@ std::vector<float> cuda_wavefront_render(
                                      caustic.scale,
                                      d_cryptoObj, d_cryptoMat,     // pkg159
                                      cryptoOn ? cryptoDepth : 0,
-                                     res.hasPrincipled);  // pkg178 Stage-3b D4
+                                     res.hasPrincipled,  // pkg178 Stage-3b D4
+                                     res.hasTexture);     // pkg186 (data via c_wfTexBinding)
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4

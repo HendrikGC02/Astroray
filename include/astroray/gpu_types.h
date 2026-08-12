@@ -566,6 +566,62 @@ struct alignas(64) GMaterial {
 };
 
 // ---------------------------------------------------------------------------
+// pkg186 — GPU image texture (baked buffer + nearest fetch).
+//
+// Design decision (2): baked device buffer + manual nearest fetch, NOT
+// cudaTextureObject_t. Reason: the CPU ImageTexture sampler (advanced_features.h
+// ImageTexture::value) is NEAREST-neighbour with a uv clamp to [0,1] and a v
+// flip — hardware bilinear via a texture object would DIVERGE from the CPU
+// reference and break the per-channel parity gate. A baked buffer replicates the
+// CPU sampler bit-for-bit and needs no cudaArray/format/lifetime machinery.
+//
+// Storage (decision layout): every uploaded image's texels are concatenated into
+// ONE flat device buffer (see SceneUploadResult::textureTexels); each texture is
+// an {offset,width,height} slice into it. Index-based addressing avoids a
+// device-pointer-inside-a-descriptor and per-texture cudaMalloc churn, so it maps
+// straight onto the wavefront's grow-only wfUpload(vector) path.
+//
+// Materials do NOT carry a texture id: GMaterial is exactly 640 B (alignas(64),
+// zero slack) and is stack-copied by value in gpu_closure_as_material, so any
+// added field rounds it to 704 B and spills the shared non-principled shade
+// kernel (the register-pressure regression pkg178 documented). The per-material
+// texture index therefore lives in a PARALLEL device array (d_materialTextureId),
+// read only inside the HasTexture shade branch.
+// ---------------------------------------------------------------------------
+struct GImageTexture {
+    int offset;   // start index into the flat texel buffer
+    int width;
+    int height;
+};
+
+// pkg186 — wavefront image-texture binding. Published ONCE per frame into a
+// __constant__ symbol (setWavefrontTextureBinding) so the shared shade kernel
+// reads texture data from constant memory rather than three per-launch signature
+// pointer params. Passing them in the signature grew CONSTANT[0] and cost the
+// untextured <false,false> fleet kernel +24 B STACK (native sm_120: 3632 vs
+// main's 3608) even though the texture code is if-constexpr'd out; constant
+// memory keeps the <false,*> signature at its pre-pkg186 footprint.
+struct GWavefrontTextureBinding {
+    const GImageTexture* textures;
+    const GVec3*         texelBuf;
+    const int*           matTexId;
+};
+
+// Nearest-neighbour image fetch — mirrors CPU ImageTexture::value EXACTLY
+// (clamp u,v to [0,1]; v flip; floor to texel; clamp index to bounds).
+HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,
+                                       const GVec3* texels,
+                                       float u, float v) {
+    u = u < 0.f ? 0.f : (u > 1.f ? 1.f : u);
+    v = 1.f - (v < 0.f ? 0.f : (v > 1.f ? 1.f : v));
+    int i = (int)(u * (float)tex.width);
+    int j = (int)(v * (float)tex.height);
+    if (i > tex.width  - 1) i = tex.width  - 1;
+    if (j > tex.height - 1) j = tex.height - 1;
+    return texels[tex.offset + j * tex.width + i];
+}
+
+// ---------------------------------------------------------------------------
 // Hit record
 // ---------------------------------------------------------------------------
 struct GHitRecord {

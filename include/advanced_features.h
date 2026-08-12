@@ -264,6 +264,12 @@ public:
             spectral_cache_[i] = astroray::RGBAlbedoSpectrum({c.x, c.y, c.z});
         }
     }
+    // pkg186 — read-only accessors so the GPU scene-upload (scene_upload.cu) can
+    // bake this image into a device buffer. The device sampler mirrors value()'s
+    // nearest-neighbour clamp+v-flip exactly (see gpu_sampleImageTexture).
+    int getWidth()  const { return width; }
+    int getHeight() const { return height; }
+    const std::vector<Vec3>& getData() const { return data; }
     Vec3 value(const Vec2& uv, const Vec3&) const override {
         if (data.empty()) return Vec3(1, 0, 1);
         float u = std::clamp(uv.u, 0.0f, 1.0f);
@@ -1499,12 +1505,19 @@ class TexturedLambertian : public Material {
     std::shared_ptr<Texture> albedo;
 public:
     TexturedLambertian(std::shared_ptr<Texture> a) : albedo(a) {}
+    // pkg186 — expose the bound texture so scene_upload.cu can detect an image
+    // texture and bake it for the GPU path.
+    std::shared_ptr<Texture> getTexture() const { return albedo; }
     Vec3 getAlbedo() const override { return Vec3(0.5f); }
     std::string getGPUTypeName() const override { return "lambertian"; }
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps = Material::backendCapabilities();
+        // pkg186: image (ImageTexture) base colors now sample on the GPU path
+        // (nearest, CPU-parity). Procedural-node textures and instanced-mesh UV
+        // still flatten to base albedo on GPU, so this stays gpuApproximate.
         caps.gpuApproximate = true;
-        caps.notes = "texture flattened to neutral lambertian for GPU preview";
+        caps.notes = "GPU: image textures sampled (pkg186); procedural/instanced "
+                     "textures still approximated as flat albedo";
         return caps;
     }
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {

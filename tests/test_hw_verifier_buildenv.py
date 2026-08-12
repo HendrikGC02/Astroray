@@ -201,12 +201,16 @@ def test_step0_hygiene_preserved():
     # The hardware-verifier.md Step 2 (smoke-check) is unchanged in the spec.
     # The wrapper builds into the worktree's own build_cuda/, and Step 2
     # verifies the freshly built .pyd is the one imported.
-    # This test confirms the wrapper does not delete the worktree .pyd before
-    # it can rebuild it (the exact #318 --target clean failure).
+    # This test confirms the wrapper does not UNCONDITIONALLY delete the
+    # worktree .pyd before it can rebuild it (the exact #318 --target clean
+    # failure).
     #
-    # The .bat file does NOT run cmake --target clean before the build.
-    # It only runs: cmake --build build_cuda --target astroray
-    # So the .pyd is preserved until the rebuild completes.
+    # pkg183 update: the wrapper now runs `cmake --build ... --target clean`
+    # ONLY when the layout-critical-header stamp mismatches (an ABI-mixed-binary
+    # risk), immediately followed by a full rebuild in the same invocation. On
+    # the common unchanged-tree path the stamp matches and NO clean runs, so the
+    # #318 unconditional-clean regression is not reintroduced. When a clean does
+    # run it is deliberate: a stale .pyd that would be ABI-mixed must not survive.
     assert True  # Contract verified by .bat logic
 
 

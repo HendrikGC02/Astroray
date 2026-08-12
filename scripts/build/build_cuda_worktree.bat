@@ -78,6 +78,9 @@ set CCLAUNCH=
 where sccache >nul 2>&1 && set CCLAUNCH=sccache
 if "%CCLAUNCH%"=="" echo [build_cuda_worktree] WARNING: sccache not on PATH; building without compiler cache
 
+REM pkg183: repo root captured BEFORE cd build_cuda for the staleness guard.
+set "REPO_ROOT=%CD%"
+
 REM Create build directory
 mkdir build_cuda 2>nul
 cd build_cuda
@@ -116,6 +119,25 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM --- pkg183 incremental-build staleness guard ------------------------------
+REM Ninja's mtime-based staleness detection is unreliable on this OneDrive tree,
+REM so crossing a layout-changing commit boundary can leave objects compiled
+REM against an old struct layout to be linked with fresh ones (ABI-mixed binary
+REM -> host-side access violations). Compare a hash of the layout-critical
+REM headers against the last build's stamp; on mismatch force a full object
+REM clean (correctness over speed) instead of trusting mtimes.
+where python >nul 2>&1 || goto :pkg183_guard_skip
+set GUARD_DECISION=OK
+for /f "usebackq delims=" %%g in (`python "%REPO_ROOT%\scripts\build\build_guard.py" check --repo-root "%REPO_ROOT%" --build-dir "%CD%"`) do set GUARD_DECISION=%%g
+if "%GUARD_DECISION%"=="WIPE" (
+    echo [build_cuda_worktree] pkg183: layout-critical headers changed since last build -- force-cleaning objects
+    cmake --build . --config Release --target clean
+)
+goto :pkg183_guard_done
+:pkg183_guard_skip
+echo [build_cuda_worktree] WARNING: python not on PATH; skipping pkg183 staleness guard
+:pkg183_guard_done
+
 REM Build
 REM --config Release is REQUIRED and must not be dropped. It is a no-op for the
 REM single-config NMake generator configured above, but if this build_cuda/ tree
@@ -138,6 +160,22 @@ if errorlevel 1 (
     echo ERROR: astroray_test_helpers build failed
     exit /b 1
 )
+
+REM --- pkg183 build stamp + host-only ABI canary -----------------------------
+where python >nul 2>&1 || goto :pkg183_post_skip
+python "%REPO_ROOT%\scripts\build\build_guard.py" write --repo-root "%REPO_ROOT%" --build-dir "%CD%" --sha %ACTUAL_SHA%
+echo [build_cuda_worktree] pkg183: running host-only ABI canary (no GPU)...
+python "%REPO_ROOT%\scripts\build\build_guard.py" canary --repo-root "%REPO_ROOT%" --build-dir "%CD%"
+if errorlevel 1 (
+    echo ====================================================================
+    echo ERROR [pkg183]: ABI CANARY FAILED -- this is NOT a compile/link error.
+    echo The freshly built astroray.pyd crashed on a host-only lambertian
+    echo capability query -- the stale-object / ABI-mixed-binary signature.
+    echo The binary is NOT trustworthy. Remedy: rmdir /s /q build_cuda ^&^& rebuild.
+    echo ====================================================================
+    exit /b 6
+)
+:pkg183_post_skip
 
 echo [build_cuda_worktree] Build succeeded
 exit /b 0

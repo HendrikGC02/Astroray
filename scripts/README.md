@@ -13,6 +13,7 @@ new reusable script, register it here in the same commit.
 | Build engine `.pyd` (dev, Ninja + sccache) | `scripts/build/build_cuda.bat` |
 | Build engine in an agent worktree (Ninja) | `scripts/build/build_cuda_worktree.bat` |
 | Build engine in an agent worktree (VS generator; what `hardware-verifier` / `package-implementer` / `tests/test_hw_verifier_buildenv.py` invoke) | repo-root `build_cuda_worktree.bat` |
+| Incremental-build staleness guard (header-hash stamp + <5 s host-only ABI canary) invoked by all three build wrappers | `scripts/build/build_guard.py` (pkg183) |
 | Build/package/install the Blender addon | `scripts/build/build_blender_addon.py` (default backend: `cuda`) |
 | One-command Blender dev loop (build → install → smoke) | `scripts/dev_addon.ps1` |
 | Run the test suite against a build dir | `scripts/dev/run_tests.py` (default: `build_cuda/`) |

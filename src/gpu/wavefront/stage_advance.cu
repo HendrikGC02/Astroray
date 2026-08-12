@@ -1227,11 +1227,12 @@ void launchStageShadeBucketed(
         // <*,false> instantiation carries ZERO texture codegen (the fleet's
         // untextured scenes), so stageShadeBucketedKernel<false,false> must stay
         // register/stack-identical to the pre-pkg186 <false> kernel — the
-        // acceptance check is a cuobjdump on that symbol. All four are referenced
-        // below so they appear in the cubin for the register report.
-        // pkg186: pass the texture arrays to every launch — the <*,false>
-        // instantiations `if constexpr`-compile them out, so passing pointers is
-        // free (kernel params live in the constant bank).
+        // acceptance check is a cuobjdump on that symbol (native sm_120). All four
+        // are referenced below so they appear in the cubin for the register report.
+        // pkg186: the texture arrays are NOT in this arg list — they live in the
+        // __constant__ c_wfTexBinding symbol (setWavefrontTextureBinding, once per
+        // frame), which is what keeps the untextured <false,false> signature at its
+        // pre-pkg186 REG/STACK footprint (signature params cost +24 B stack).
         #define ASTRORAY_PKG186_SHADE_ARGS \
                 state, hitBufs, d_shade_queues, d_shade_counts, capacity, \
                 d_queue_out, d_count_out, \

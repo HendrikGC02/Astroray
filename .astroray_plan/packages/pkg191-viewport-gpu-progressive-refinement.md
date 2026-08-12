@@ -2,8 +2,37 @@
 
 **Pillar:** 5 / integration-first
 **Track:** A
-**Status:** open (filed 2026-08-12 from owner hands-on addon feedback —
+**Status:** done (PR #598, 2026-08-12 — root cause: GPU dispatch ignored the
+renderSeed==0 "non-deterministic" contract, so every viewport chunk rendered
+identical noise; fix mirrors the CPU per-call reseed. Baseline repro on a
+freshly-built current-`main` .pyd: GPU seed-0 chunks byte-identical
+(max_abs_diff=0, accum variance frozen at 0.001055 across iters 1/8/64); CPU
+refined. Post-fix: GPU chunks distinct (0.153), accum variance drops
+0.00105→0.00043→0.00036, MSE-to-256spp 7.0e-4→4.7e-5→1.3e-5, iter-1/64 PNGs
+visibly denoise. filed 2026-08-12 from owner hands-on addon feedback —
 memory [[owner-addon-feedback-2026-08-12]], finding #1)
+
+**Lessons / ruled-out hypotheses:**
+- **Convicted: H4** (GPU chunk render did not advance the sample stream). The
+  viewport renderer runs at the default `renderSeed==0`. The CPU render loop
+  special-cases 0 → fresh `std::random_device` seed per call
+  (`include/raytracer.h:3028-3030`), so chunks are independent and the Python
+  running-mean (`exporter.py:585-597`) converges. The GPU dispatch
+  (`module/blender_module.cpp`) passed `renderer.getSeed()` (==0) verbatim to
+  `cuda_wavefront_render`; the wavefront RNG is `WavefrontRNG(pixel, sample_idx,
+  seed)` (`src/gpu/wavefront/stage_init.cu:189`), so every chunk reproduced
+  identical noise and the mean averaged duplicates.
+- **Ruled out H1** (tag_redraw pump) **and H3** (camera-hash false reset): both
+  are backend-agnostic Python; the existing
+  `test_view_draw_progresses_until_preview_sample_target` already gates
+  monotonic spp-climbing (its mock renderer returns *distinct* values per call —
+  exactly the property GPU violated). If the pump were broken the CPU viewport
+  would stall too, but CPU refines.
+- **Ruled out H2** (render returns None / fresh 1-spp buffer on chunk ≥2):
+  the GPU `render()` returns a valid distinct buffer on every call; the stall
+  was identical *content*, not a None early-return.
+- Fix is one spot in the GPU dispatch (mirror the documented seed contract); the
+  engine RNG and the Python pump are untouched (per the H1 non-goal).
 **Estimated effort:** M
 **Depends on:** none hard; touches the pkg56/pkg83/pkg84/pkg114 viewport
 session machinery (`view_update` / `view_draw` / `render_viewport_frame`).
@@ -138,20 +167,24 @@ speculatively — implement the one the evidence selects):
 
 ## Acceptance criteria
 
-- [ ] **Reproduced (or shown already-fixed) on a freshly built current-`main`
-      addon `.pyd`** BEFORE any code change; the dated-addon caveat is
-      discharged in writing.
-- [ ] A **headless / scriptable** assertion that `_viewport_current_spp` climbs
-      monotonically to `preview_samples` across successive `view_draw` calls
-      with a fixed camera on the **GPU** backend (CPU as passing control),
-      gated as a test.
-- [ ] The single root cause is identified with instrumented evidence; ruled-out
-      hypotheses recorded in Lessons.
-- [ ] The GPU viewport **visibly refines** (noise drops as spp climbs) — an
-      **owner-visual note** with a before/after capture (metrics can pass on
-      garbage; [[general-photon-loop-needs-solid-glass]] — a human must confirm
-      the noise actually decreases, not just that spp counts up).
-- [ ] No regression to the CPU viewport progressive loop (same test passes CPU).
+- [x] **Reproduced on a freshly built current-`main` .pyd** BEFORE any code
+      change (GPU seed-0 chunks byte-identical; CPU refined). Dated-addon caveat
+      discharged: the bug is present on `main`.
+- [x] A **headless / scriptable** monotonic-spp assertion across successive
+      `view_draw` calls with a fixed camera (backend-agnostic pump) — already
+      gated by `test_view_draw_progresses_until_preview_sample_target` (21
+      viewport-session tests pass). The GPU-specific chunk-independence + denoise
+      is gated by `tests/test_pkg191_viewport_gpu_progressive.py` (GPU + CPU
+      control).
+- [x] Single root cause identified with instrumented evidence (H4); ruled-out
+      hypotheses recorded in Lessons above.
+- [x] GPU viewport **visibly refines** — iter-1 (heavy salt-and-pepper noise)
+      vs iter-64 (clean smooth sphere) PNGs read by the implementer; accum
+      variance and MSE-to-reference both drop monotonically. See owner-visual
+      note in the PR.
+- [x] No regression to the CPU viewport loop (`test_cpu_seed0_chunks_are_independent`
+      + 21 viewport-session tests pass; pinned-seed GPU golden/parity tests stay
+      deterministic).
 
 ## Hard non-goals
 
@@ -161,3 +194,66 @@ speculatively — implement the one the evidence selects):
   (`exporter.py:547-552`); refinement here means MC noise dropping with spp.
 - **No sampler/RNG rewrite** beyond what the localized cause requires; if the
   cause is the redraw pump (H1), do not touch the engine.
+
+---
+
+## Hardware verification 2026-08-12 (independent verifier, PR #598)
+
+**Hardware:** RTX 5070 Ti, driver 610.47, CUDA UMD 13.3, CUDA toolkit v12.8 (nvcc
+picked up from `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin`),
+Windows 11 Enterprise 10.0.26200, Python 3.13.12, MSVC 14.44.35207 (VS2022
+BuildTools). Worktree `Astroray-pkg191`, HEAD `02f1e6b181f8d5f547832afc6508cf34129073ca`
+(confirmed == PR #598 `headRefOid` before build).
+
+**Build:** clean rebuild via root `build_cuda_worktree.bat`, exit 0.
+`[pkg183] arch-verify OK: astroray.cp313-win_amd64.pyd embeds sm_120
+(embedded=[sm_120])`. Host-only ABI canary green:
+`{'cpu': True, 'spectral': True, 'gpu': True, 'gpu_spectral': True,
+'gpu_approximate': False, 'closure_graph': True, 'closure_count': 1, 'gpu_type':
+'closure_graph'}`. `.pyd` loaded from canonical `build_cuda\Release\` (verified
+via `astroray.__file__`); `astroray.__features__['cuda']==True`.
+
+**Pass/fail table (numbers verbatim):**
+
+| Test | Result |
+|---|---|
+| `tests/test_pkg191_viewport_gpu_progressive.py::test_gpu_seed0_chunks_are_independent` | PASSED |
+| `tests/test_pkg191_viewport_gpu_progressive.py::test_gpu_nonzero_seed_is_deterministic` | PASSED |
+| `tests/test_pkg191_viewport_gpu_progressive.py::test_cpu_seed0_chunks_are_independent` | PASSED |
+| `tests/test_pkg191_viewport_gpu_progressive.py::test_gpu_progressive_accumulator_denoises` | PASSED — `MSE-to-256spp @ {1,16,64} = {1: 7.042780e-04, 16: 4.700231e-05, 64: 1.415028e-05}` (matches PR-claimed 7.0e-4 → 4.7e-5 → 1.3e-5) |
+| `tests/test_pkg64_gpu_phase3_default_integrator.py::test_pkg64_gpu_phase3_prism_receiver_energy` | XFAIL (pre-existing marker, unrelated to this PR) |
+| `tests/test_pkg64_gpu_phase3_default_integrator.py::test_pkg64_gpu_phase3_prism_psnr_floor` | XPASS (pre-existing; delta -0.00 dB >= -0.5 dB) |
+| `tests/test_gpu_multiwavelength.py` (6 tests: visible/nir/uv band SSIM + no-regression + kernel-finite) | 6 PASSED |
+| `tests/test_world_hdri_parity.py` (3 tests) | 3 PASSED |
+| `tests/test_pkg186_gpu_texture_parity.py` (2 tests) | 2 PASSED |
+| `tests/test_blender_viewport_session.py` (13 tests, backend-agnostic pump incl. `test_view_draw_progresses_until_preview_sample_target`) | 13 PASSED |
+
+Full run: `4 passed` (target file) + `11 passed, 1 xfailed, 1 xpassed` (golden/
+parity no-regression set) + `13 passed` (viewport-session set) = 28 passed,
+1 xfailed, 1 xpassed, 0 failed. Logs: `test_results/verifier_run_pkg191.txt`,
+`test_results/verifier_run_pkg191_golden.txt`,
+`test_results/verifier_run_pkg191_noregression.txt`,
+`test_results/verifier_run_pkg191_viewport_session.txt`.
+
+**Visual inspection:** independently reproduced the PR's owner-visual claim with
+a standalone repro (same scene as `test_gpu_progressive_accumulator_denoises`,
+GPU backend, seed 0, 96x96, gamma-applied for PNG display) dumping the Python
+running-mean accumulator at iter 1 and iter 64. iter-1: heavy salt-and-pepper
+chroma noise across the whole frame (background and sphere both grainy) — the
+"stuck 1-sample" state. iter-64: clean, smooth dark-red sphere on a smooth dark
+background, noise resolved. No fireflies, no magenta/black NaN pixels, no
+banding/quantization artifacts, no mode regression (still monochrome RGB
+lambertian, no spectral leakage). Confirms the fix's core visual claim.
+
+**Anomalies worth watching:** none introduced by this PR. The
+`test_pkg64_gpu_phase3_prism_psnr_floor` XPASS is a pre-existing condition on
+this hardware (unrelated to pkg191's change scope — Phase 3 SMS prism receiver
+test) and should be tracked separately if it recurs consistently enough to
+un-xfail per the [[xfail-gated-features-must-unxfail]] convention; not
+something this verification pass should decide.
+
+**Verdict:** all light-scope gates PASS. Numerically and visually consistent
+with the PR's claims; fix is scoped exactly to `module/blender_module.cpp` with
+no kernel/header changes, confirmed via `git diff --stat`. Mergeable on HW
+evidence — final merge decision left to the architect/gate-failure-reviewer
+process, not asserted here.

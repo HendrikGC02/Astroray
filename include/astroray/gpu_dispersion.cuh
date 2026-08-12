@@ -25,3 +25,15 @@ __device__ inline float gpu_sellmeier_ior(const GDispersion& d, float lambda_nm)
              + (d.b3 * l2) / (l2 - d.c3);
     return sqrtf(fmaxf(1.0f, n2));
 }
+
+// pkg187 — Cauchy empirical dispersion n(λ) = A + B/λ² (λ in μm), the model
+// Cycles' WIP Principled dispersion uses (Blender PR #162041,
+// intern/cycles/kernel/closure/bsdf_microfacet.h bsdf_glass_ior; OpenPBR Surface
+// v1.1.1 Eq. 55). For a dispersive Principled material the host packs the fit into
+// GDispersion.b1 = A, b2 = B (see scene_upload.cu closure-graph branch); this is
+// the device twin of PrincipledPlugin::iorAt. NOT called for Sellmeier dielectrics
+// (those use gpu_sellmeier_ior above). Mirrors the CPU cauchyAB evaluation exactly.
+__device__ inline float gpu_cauchy_ior(float A, float B, float lambda_nm) {
+    float lam_um = lambda_nm * 1e-3f; // nm → μm
+    return A + B / (lam_um * lam_um);
+}

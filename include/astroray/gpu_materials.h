@@ -2648,17 +2648,33 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GHitRecord& rec
 }
 template <typename TRng>
 __device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c, GHitRecord& rec,
-                                                    const GVec3& wo, TRng* rng) {
+                                                    const GVec3& wo, TRng* rng,
+                                                    float heroIor = -1.f,
+                                                    bool* refractedOut = nullptr) {
     GBSDFSample s;
     s.wi = rec.normal; s.f = GVec3(0.f); s.fSpectral = GSampledSpectrum(0.f); s.pdf = 0.f; s.isDelta = false;
     GPrincipledLobe lobes[kMaxPrincipledLobes];
     int n = gpu_pr_assembleLobes(c, rec, wo, lobes);
+    // pkg187 -- dispersive Principled: the caller passes the hero-wavelength IOR
+    // (n(lambda0) via gpu_cauchy_ior); the refracting transmission lobe bends with
+    // it. heroIor < 0 (the default, every non-dispersive call at ~line 3013) leaves
+    // the lobe array untouched, so the fast path is byte-identical. Mirrors CPU
+    // PrincipledPlugin::sampleSpectral's transmission-lobe ior override.
+    if (heroIor > 0.f)
+        for (int i = 0; i < n; ++i)
+            if (lobes[i].kind == GPR_TRANSMISSION) lobes[i].ior = heroIor;
     float W = 0.f;
     for (int i = 0; i < n; ++i) W += lobes[i].sel;
     if (W <= 0.f) return s;
     GPrincipledDir ds = gpu_pr_chooseAndSampleDir(rec, wo, rng, lobes, n, W);
     if (!ds.ok) return s;
     s.wi = ds.wi;
+    // pkg187 -- report whether this was a transmission-lobe refraction (wi crossed
+    // to the far hemisphere) so the spectral wrapper can collapse to the hero
+    // wavelength. Same sign test as CPU (reflected iff wi,wo same side of N).
+    if (refractedOut)
+        *refractedOut = (lobes[ds.lobe].kind == GPR_TRANSMISSION) &&
+                        ((s.wi.dot(rec.normal) > 0.f) != (wo.dot(rec.normal) > 0.f));
     if (ds.isDelta) {
         const GPrincipledLobe& L = lobes[ds.lobe];
         float qj = L.sel / W;
@@ -3134,10 +3150,31 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     GSampledWavelengths& wl, TRng* rng)
 {
     // pkg64-gpu-sellmeier-upload: dispersive dielectrics need the wavelength-aware
-    // sampler (it calls wl.terminateSecondary() on refraction — hero collapse).
-    GBSDFSample s = (mat.type == GMAT_DIELECTRIC && mat.isDispersive)
-        ? gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng)
-        : gpu_material_sample<HasPrincipled>(mat, rec, wo, rng);
+    // sampler (it calls wl.terminateSecondary() on refraction -- hero collapse).
+    GBSDFSample s;
+    bool handled = false;
+    // pkg187 -- dispersive Principled glass lowers to GMAT_CLOSURE_GRAPH (not
+    // GMAT_DIELECTRIC), so the hero-wavelength refraction + secondary-collapse is
+    // done here rather than through gpu_dielectric_sample_spectral. All state lives
+    // inside this HasPrincipled-only branch, so the shared shade kernel's <false>
+    // instantiation compiles it out entirely (register gate: stageShadeBucketed
+    // <false> stays at STACK/REG baseline). GDispersion.b1/b2 carry the Cauchy
+    // (A,B) fit uploaded by scene_upload.cu's closure-graph branch.
+    if constexpr (HasPrincipled) {
+        if (mat.type == GMAT_CLOSURE_GRAPH && mat.isDispersive &&
+            gpu_closure_graph_is_principled(mat)) {
+            float heroIor = gpu_cauchy_ior(mat.dispersion.b1, mat.dispersion.b2, wl.lambda[0]);
+            bool refracted = false;
+            s = gpu_principled_sample(mat.principled, rec, wo, rng, heroIor, &refracted);
+            if (refracted) wl.terminateSecondary();
+            handled = true;
+        }
+    }
+    if (!handled) {
+        s = (mat.type == GMAT_DIELECTRIC && mat.isDispersive)
+            ? gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng)
+            : gpu_material_sample<HasPrincipled>(mat, rec, wo, rng);
+    }
 
     // Delta lobes (dielectric reflect/refract, smooth-glass disney/closure-graph
     // closures — a plain "dielectric" material lowers to GMAT_CLOSURE_GRAPH) carry a

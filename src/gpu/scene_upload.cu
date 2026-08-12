@@ -128,6 +128,19 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         // already-public Material::getGPUTypeName(); does not touch
         // plugins/materials/disney.cpp.
         g.disneyMetalConductor = (mat->getGPUTypeName() == "disney");
+        // pkg187: dispersive Principled glass lowers to GMAT_CLOSURE_GRAPH, so the
+        // dispersion flag/data must ride the closure-graph path too (the dielectric
+        // branch below only fires for GMAT_DIELECTRIC). For the closure-graph path
+        // GDispersion carries the OpenPBR Cauchy fit (b1=A, b2=B) -- NOT Sellmeier
+        // coefficients -- read on device by gpu_cauchy_ior in the dispersive-
+        // Principled spectral sampler. No new GMaterial fields: reuses the existing
+        // isDispersive/dispersion members already copied by-value on every path.
+        if (mat->isDispersive()) {
+            Vec3 ab = mat->getCauchyAB();
+            g.dispersion.b1 = ab.x;  // Cauchy A
+            g.dispersion.b2 = ab.y;  // Cauchy B
+            g.isDispersive = true;
+        }
         g.closureCount = static_cast<uint8_t>(
             std::min(graph.count(), G_MAX_MATERIAL_CLOSURES));
 

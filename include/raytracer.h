@@ -492,6 +492,12 @@ public:
     virtual bool isDispersive() const { return false; }
     virtual Vec3 getSellmeierB() const { return Vec3(0.0f); }
     virtual Vec3 getSellmeierC() const { return Vec3(0.0f); }
+    // pkg187 — Principled dispersion carries a Cauchy (A,B) fit rather than
+    // Sellmeier coefficients: n(λ)=A+B/λ² (λ in μm). Returns {A,B,0}. The
+    // closure-graph GPU upload packs these into GDispersion.b1/b2 and the
+    // dispersive-Principled sampler reads them via gpu_cauchy_ior (NOT
+    // gpu_sellmeier_ior). Non-dispersive / non-Principled materials return 0.
+    virtual Vec3 getCauchyAB() const { return Vec3(0.0f); }
     virtual float getTransmission() const { return 0.0f; }
     virtual float getClearcoat() const { return 0.0f; }
     virtual float getClearcoatGloss() const { return 1.0f; }

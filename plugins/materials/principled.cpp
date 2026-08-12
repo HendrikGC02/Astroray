@@ -75,6 +75,16 @@ class PrincipledPlugin : public Material {
     Vec3 emissionColor_;
     float emissionStrength_;
     astroray::RGBIlluminantSpectrum emissionSpec_;
+    // pkg187 — Principled dispersion (chromatic refraction). Blender's WIP
+    // Dispersion input (PR #162041) is an (Abbe number, dispersion scale) pair;
+    // the transmission-lobe IOR becomes wavelength-dependent via the OpenPBR
+    // Surface v1.1.1 Cauchy fit. cauchyA_/cauchyB_ are precomputed in the ctor
+    // from ior_ (the d-line IOR) and inv_abbe = dispersion_scale/Abbe. dispersive_
+    // is false (and cauchyB_==0) whenever the material carries no dispersion, so
+    // the zero-dispersion path is byte-identical to pre-pkg187 (Work item: the
+    // non-dispersive Principled fast path is untouched).
+    bool dispersive_;
+    float cauchyA_, cauchyB_;
 
     // Smooth glass below this roughness is treated as a delta transmission event
     // (matches disney.cpp::kDeltaTransmissionRoughness).
@@ -198,6 +208,26 @@ class PrincipledPlugin : public Material {
         float alpha2 = ax * ay;
         float denomA = alpha2 * len2;
         return alpha2 / (float(M_PI) * denomA * denomA + reg);
+    }
+
+    // pkg187 — Abbe/dispersion → Cauchy (A,B) fit for the transmission-lobe IOR.
+    // VERBATIM port of Cycles' WIP Principled dispersion (Blender PR #162041,
+    // intern/cycles/kernel/closure/bsdf_microfacet.h `bsdf_glass_ior`), which
+    // implements the OpenPBR Surface specification v1.1.1 Eqs. (55)/(56):
+    //   n(λ) = A + B/λ²  (λ in μm),   B = (n_d − 1)·(1/V_d)·fac,
+    //   A = n_d − B/λ_d²,  fac = 1/(1/λ_F² − 1/λ_C²).
+    // n_d is the IOR at the Fraunhofer d line; invAbbe = dispersion_scale / V_d
+    // (Cycles' safe_divide → 0 when V_d==0). invAbbe==0 → B=0, A=n_d (flat).
+    // Research notes: .astroray_plan/docs/pkg187-principled-dispersion-research.md.
+    static void cauchyAB(float iorD, float invAbbe, float& A, float& B) {
+        // Fraunhofer spectral lines in μm (Cycles bsdf_glass_ior constants).
+        constexpr float lambda_d = 0.5876f;
+        constexpr float lambda_C = 0.6563f;
+        constexpr float lambda_F = 0.4861f;
+        constexpr float fac = 1.0f / (1.0f / (lambda_F * lambda_F) - 1.0f / (lambda_C * lambda_C));
+        constexpr float invLambdaDSq = 1.0f / (lambda_d * lambda_d);
+        B = (iorD - 1.0f) * invAbbe * fac;
+        A = iorD - B * invLambdaDSq;
     }
 
     // Cycles bsdf_util.h: F0_from_ior.
@@ -1491,11 +1521,24 @@ public:
           emissionStrength_(std::max(0.0f, p.getFloat("emission_strength", 1.0f))),
           emissionSpec_({emissionColor_.x * emissionStrength_,
                          emissionColor_.y * emissionStrength_,
-                         emissionColor_.z * emissionStrength_}) {
+                         emissionColor_.z * emissionStrength_}),
+          dispersive_(false), cauchyA_(ior_), cauchyB_(0.0f) {
         // pkg178 Stage 4 PR-2: host-precompute the metallic-lobe conductor (n,k,g)
         // once (per-material constant; never per hit). No-op for the render unless
         // the film is active on the metallic lobe.
         precomputeConductorNK();
+        // pkg187 — dispersion fit. Cycles' Principled dispersion (PR #162041) is
+        // driven by two sockets: Dispersion Scale ∈ [0,1] and an Abbe number
+        // (default 20). inv_abbe = scale / abbe (safe_divide → 0). A single
+        // "dispersion" alias maps to the scale for forward-compat with a
+        // one-socket build. All default to no dispersion → dispersive_ = false.
+        float dispScale = std::clamp(
+            p.getFloat("dispersion_scale", p.getFloat("dispersion", 0.0f)), 0.0f, 1.0f);
+        float abbe = std::max(0.0f, p.getFloat("dispersion_abbe", 20.0f));
+        float invAbbe = (abbe > 0.0f) ? dispScale / abbe : 0.0f;
+        cauchyAB(ior_, invAbbe, cauchyA_, cauchyB_);
+        // Dispersion only matters on the refracting transmission lobe.
+        dispersive_ = (transmission_ > 1e-4f) && (invAbbe > 0.0f);
     }
 
     Vec3 getAlbedo() const override { return baseColor_; }
@@ -1505,6 +1548,17 @@ public:
     float getIOR() const override { return ior_; }
     float getTransmission() const override { return transmission_; }
     bool isTransmissive() const override { return transmission_ > 1e-4f; }
+    // pkg187 — wavelength-dependent IOR via the OpenPBR Cauchy fit (cauchyAB).
+    // Non-dispersive → the flat d-line IOR, so SMS/MNEE (mesh_attempt.h keys off
+    // iorAt) and every other caller are byte-identical to today. Consumed by the
+    // hero-wavelength refraction collapse below and by scene_upload (GPU).
+    float iorAt(float lambda_nm) const override {
+        if (!dispersive_) return ior_;
+        float lam_um = lambda_nm * 1e-3f;
+        return cauchyA_ + cauchyB_ / (lam_um * lam_um);
+    }
+    bool isDispersive() const override { return dispersive_; }
+    Vec3 getCauchyAB() const override { return Vec3(cauchyA_, cauchyB_, 0.0f); }
     bool isGlossy() const override { return true; }
 
     // pkg178 Stage 3 — emission inside the node (retires the addon promote-to-light
@@ -1802,12 +1856,30 @@ public:
         bss.pdf = 0.0f;
         bss.isDelta = false;
         auto lobes = assembleLobes(rec, wo);
+        // pkg187 — dispersive refraction: the transmission lobe bends at the hero
+        // wavelength's IOR (n(λ₀) via the OpenPBR Cauchy fit). Guarded by
+        // dispersive_, so the non-dispersive path never touches the lobe array and
+        // stays byte-identical. Mirrors DielectricPlugin::sampleSpectral, which
+        // evaluates the Sellmeier IOR at lambdas.lambda(0) before refracting.
+        if (dispersive_) {
+            float heroIor = iorAt(lambdas.lambda(0));
+            for (auto& L : lobes)
+                if (L.kind == LobeKind::Transmission) L.ior = heroIor;
+        }
         float W = 0.0f;
         for (const auto& L : lobes) W += L.sel;
         if (W <= 0.0f) return bss;
         DirSample ds = chooseAndSampleDir(rec, wo, gen, lobes, W);
         if (!ds.ok) return bss;
         bss.wi = ds.wi;
+        // pkg187 — hero-wavelength collapse: each λ refracts differently but only
+        // one direction is traced, so on an actual transmission-lobe refraction
+        // (wi crosses to the far hemisphere) terminate the secondary wavelengths.
+        // Same sign test dielectric.cpp uses (reflected ⇔ wi,wo same side of N).
+        if (dispersive_ && lobes[ds.lobe].kind == LobeKind::Transmission &&
+            (bss.wi.dot(rec.normal) > 0.0f) != (wo.dot(rec.normal) > 0.0f)) {
+            lambdas.terminateSecondary();
+        }
         if (ds.isDelta) {
             const Lobe& L = lobes[ds.lobe];
             float qj = L.sel / W;

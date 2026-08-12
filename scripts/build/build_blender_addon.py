@@ -501,12 +501,25 @@ def _ensure_git_longpaths():
         print("    git config --global core.longpaths true")
 
 
-def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str = "tcnn", build_id: str | None = None):
+def configure_and_build(python_exe: Path, clean: bool, jobs: int, backend: str = "tcnn",
+                        build_id: str | None = None, cuda_archs: str = "native"):
     global BUILD_DIR
     if backend in ("cuda", "tcnn"):
         _ensure_git_longpaths()
     nvcc = _require_nvcc(backend)
     BUILD_DIR, extra_flags = _backend_config(backend)
+
+    # Pin the CUDA arch for any GPU backend (cuda/tcnn, and auto when it resolves
+    # to cuda — detected via the ENABLE_CUDA=ON flag _backend_config emitted).
+    # Without this the configure fell through to CMakeLists' broad-compat default
+    # (75;86;89), so on an sm_120 (Blackwell) GPU the addon ran JIT'd PTX; and a
+    # reconfigure of an existing cache silently reverted a hand-set native arch
+    # (the PR #593 stale-arch incident). Re-asserting it on EVERY configure keeps
+    # the arch pinned across reconfigures. "native" is resolved to the local
+    # numeric arch inside CMakeLists (works under Ninja + VS). Configurable via
+    # --cuda-archs for CI / distributable multi-arch builds.
+    if "-DASTRORAY_ENABLE_CUDA=ON" in extra_flags:
+        extra_flags = [f"-DASTRORAY_CUDA_ARCHS={cuda_archs}", *extra_flags]
 
     # pkg94: compute build-ID once and inject into C++ compile
     if build_id is None:
@@ -952,6 +965,10 @@ def main():
     ap.add_argument("--backend", choices=["auto", "cpu", "cuda", "tcnn"], default="cuda",
                     help="Build backend: cuda (default, CUDA GPU), tcnn (CUDA+NRC, experimental), "
                          "cpu (CPU-only), auto (probe nvcc, use cuda if found)")
+    ap.add_argument("--cuda-archs", default="native",
+                    help="CUDA arch(s) for GPU backends (default: native - the local GPU's "
+                         "compute cap, resolved numerically in CMakeLists). Pass a CMake arch "
+                         "list e.g. '75;86;89;120' for a distributable multi-arch build.")
     ap.add_argument("--clean", action="store_true", help="Wipe the build dir before configuring")
     ap.add_argument("--configure-only", action="store_true",
                     help="Run cmake configure but skip the build")
@@ -981,7 +998,8 @@ def main():
     # 3. Configure + build (unless configure-only)
     # pkg94: thread build_id through configure→build→stage so the same ID is
     # compiled into C++ and written to the manifest
-    build_id = configure_and_build(python_exe, clean=args.clean, jobs=args.jobs, backend=args.backend)
+    build_id = configure_and_build(python_exe, clean=args.clean, jobs=args.jobs,
+                                   backend=args.backend, cuda_archs=args.cuda_archs)
     if args.configure_only:
         print("configure-only: skipping stage/zip")
         return

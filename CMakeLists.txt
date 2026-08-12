@@ -54,7 +54,46 @@ if(ASTRORAY_ENABLE_CUDA)
             if(NOT DEFINED ASTRORAY_CUDA_ARCHS)
                 set(ASTRORAY_CUDA_ARCHS "75;86;89")
             endif()
-            set(CMAKE_CUDA_ARCHITECTURES "${ASTRORAY_CUDA_ARCHS}")
+            # Resolve the "native" keyword to a concrete numeric arch OURSELVES.
+            # CMake's CMAKE_CUDA_ARCHITECTURES=native (3.24+) does NOT propagate
+            # under the Visual Studio generator — it leaves the generated
+            # .vcxproj <CodeGeneration> EMPTY and nvcc silently defaults to
+            # sm_52 (the 2026-08-12 stale-arch incident; produced bogus
+            # compute_52 cuobjdump resource readings). Detecting the numeric
+            # arch via nvidia-smi works identically under Ninja and VS.
+            if(ASTRORAY_CUDA_ARCHS STREQUAL "native")
+                set(_astroray_native_arch "")
+                find_program(_ASTRORAY_NVIDIA_SMI nvidia-smi)
+                if(_ASTRORAY_NVIDIA_SMI)
+                    execute_process(
+                        COMMAND "${_ASTRORAY_NVIDIA_SMI}" --query-gpu=compute_cap --format=csv,noheader
+                        OUTPUT_VARIABLE _astroray_smi_out
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
+                        RESULT_VARIABLE _astroray_smi_rc)
+                    if(_astroray_smi_rc EQUAL 0)
+                        string(REGEX MATCH "[0-9]+\\.[0-9]+" _astroray_cc "${_astroray_smi_out}")
+                        if(_astroray_cc)
+                            string(REPLACE "." "" _astroray_native_arch "${_astroray_cc}")
+                        endif()
+                    endif()
+                endif()
+                if(_astroray_native_arch)
+                    set(ASTRORAY_CUDA_ARCHS "${_astroray_native_arch}")
+                    message(STATUS "ASTRORAY_CUDA_ARCHS=native resolved to sm_${_astroray_native_arch} via nvidia-smi")
+                else()
+                    # nvidia-smi unavailable: fall back to CMake's own native
+                    # keyword (works under Ninja/Makefiles on CMake >= 3.24;
+                    # may still not propagate under VS, hence the arch-verify gate).
+                    message(WARNING "ASTRORAY_CUDA_ARCHS=native: nvidia-smi detection failed; "
+                                    "leaving CMAKE_CUDA_ARCHITECTURES=native for CMake to resolve")
+                endif()
+            endif()
+            # Set as a FORCED cache entry so CMakeCache.txt reflects the EFFECTIVE
+            # value. The previous non-cache set() shadowed the cache: the cache
+            # read a stale 52 while the build targeted sm_120, confusing every
+            # human/agent that inspected CMakeCache (defect #1 of the incident).
+            set(CMAKE_CUDA_ARCHITECTURES "${ASTRORAY_CUDA_ARCHS}" CACHE STRING
+                "CUDA architectures to target (resolved from ASTRORAY_CUDA_ARCHS)" FORCE)
             set(ASTRORAY_CUDA_FOUND TRUE)
             message(STATUS "CUDA found: ${CMAKE_CUDA_COMPILER}")
         else()

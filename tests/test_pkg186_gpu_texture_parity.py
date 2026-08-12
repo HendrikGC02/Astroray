@@ -18,10 +18,9 @@ These are the acceptance gates:
 GPU-gated: skips when no CUDA device (CI has none); this is an RTX-box leg.
 """
 
+import astroray
 import numpy as np
 import pytest
-
-import astroray
 from base_helpers import create_renderer, render_image, setup_camera
 
 

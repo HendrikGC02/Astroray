@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (GPU performance)
 **Track:** A (register-pressure work; requires cuobjdump + perf gates)
-**Status:** proposed (filed during the 2026-08-11 hygiene run's runtime audit)
+**Status:** done (PR #PENDING, 2026-08-12 — every HasPhotons=false shade variant strictly below baseline: STACK −256/−256/−128/−128 B across `<F,F>/<F,T>/<T,F>/<T,T>`; all HasPhotons=true variants byte-identical to baseline; REG:254 unchanged; non-photon glass-sphere shade kernel −2.76% wall vs +0.50% byte-identical control; base = current main e6b9f24 incl. pkg187 dispersion)
 **Estimated effort:** M
 **Depends on:** pkg157 `template<bool Deferred>` and pkg178 Stage-3b
 `template<bool HasPrincipled>` — this is the third application of the same

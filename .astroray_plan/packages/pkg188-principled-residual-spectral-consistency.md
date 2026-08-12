@@ -2,8 +2,10 @@
 
 **Pillar:** 3/5 (spectral consistency / CPU-GPU parity)
 **Track:** A
-**Status:** in-progress (Findings A+B implemented on branch `pkg188`, PR pending —
-2026-08-12; Finding C descoped to pkg194). Numbers pasted into Lessons on build.
+**Status:** done (PR #599, 2026-08-12 — Findings A+B landed: transmission
+colour/scalar separation + weight-path clamp guard, CPU+GPU; `<false>` kernel held at
+3608/254/1700; CPU/GPU parity ≤1.02, glass furnace 0.955 no-gain; residual up to ~72%
+band error on coloured-tint-over-dark-base → pkg194. Finding C descoped to pkg194.)
 **Estimated effort:** M
 **Depends on:** PR #586 (must land first); pkg168 (RGB→spectral upsampling
 parity — the fix template); pkg167 / [[rough-glass-residual-is-multiscatter]]

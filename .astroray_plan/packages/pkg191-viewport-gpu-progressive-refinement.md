@@ -2,7 +2,7 @@
 
 **Pillar:** 5 / integration-first
 **Track:** A
-**Status:** done (PR #TBD, 2026-08-12 — root cause: GPU dispatch ignored the
+**Status:** done (PR #598, 2026-08-12 — root cause: GPU dispatch ignored the
 renderSeed==0 "non-deterministic" contract, so every viewport chunk rendered
 identical noise; fix mirrors the CPU per-call reseed. Baseline repro on a
 freshly-built current-`main` .pyd: GPU seed-0 chunks byte-identical

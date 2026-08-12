@@ -1512,8 +1512,12 @@ public:
     std::string getGPUTypeName() const override { return "lambertian"; }
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps = Material::backendCapabilities();
+        // pkg186: image (ImageTexture) base colors now sample on the GPU path
+        // (nearest, CPU-parity). Procedural-node textures and instanced-mesh UV
+        // still flatten to base albedo on GPU, so this stays gpuApproximate.
         caps.gpuApproximate = true;
-        caps.notes = "texture flattened to neutral lambertian for GPU preview";
+        caps.notes = "GPU: image textures sampled (pkg186); procedural/instanced "
+                     "textures still approximated as flat albedo";
         return caps;
     }
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {

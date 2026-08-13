@@ -2482,12 +2482,30 @@ public:
             const SMSHook& smsHook = SMSHook(),
             float* cryptoObjectRanks = nullptr,    // pkg87b: per-pixel crypto object ranks
             float* cryptoMaterialRanks = nullptr,  // pkg87b: per-pixel crypto material ranks
-            int cryptoDepth = 6) {                  // pkg87b: number of (id, weight) pairs
+            int cryptoDepth = 6,                    // pkg87b: number of (id, weight) pairs
+            // pkg198 Stage 1: optional per-pass spectral accumulators (light-path
+            // AOVs). When non-null, every radiance contribution added to `color`
+            // is ALSO splatted to exactly one pass (total partition → Σpasses ==
+            // beauty). Classification mirrors Cycles kernel/film/light_passes.h +
+            // integrator/shade_surface.h (Apache-2.0); see
+            // .astroray_plan/docs/pkg198-lightpath-pass-classification-research.md.
+            std::array<astroray::SampledSpectrum, PASS_COUNT>* outPasses = nullptr) {
         const int rrDepth = 3;
         astroray::SampledSpectrum color(0.0f);
         astroray::SampledSpectrum throughput(1.0f);
         Ray ray = r;
         bool wasSpecular = true;
+        // pkg198 Stage 1: light-path pass category, locked at the first BSDF
+        // interaction (Cycles locks pass_diffuse/glossy_weight at bounce 0).
+        // -1 = not yet set (DIRECT regime); 0=diffuse, 1=glossy, 2=transmission.
+        // DIRECT-pass index = cat*3, INDIRECT-pass index = cat*3+1 (see the
+        // RenderPassIndex enum layout). Emission/environment seen before the
+        // first bounce go to PASS_EMISSION / PASS_ENVIRONMENT; after a bounce
+        // they fold into <firstCat>_INDIRECT.
+        int firstCat = -1;
+        auto addPass = [&](int passIdx, const astroray::SampledSpectrum& contrib) {
+            if (outPasses) (*outPasses)[passIdx] += contrib;
+        };
         // pkg120: BSDF pdf that generated the CURRENT continuation ray (the
         // previous bounce's sample). Parked next to wasSpecular so the
         // two-sided MIS emissive-hit term can weight this leg by the power
@@ -2524,13 +2542,21 @@ public:
                             hasWorldVolume
                                 ? lh.emission * worldTransmittanceSpectral(lh.t, lambdas)
                                 : lh.emission;
+                        // pkg198: a lamp hit by a continuation ray is indirect light
+                        // (bounce > 0), folded into the first-bounce category's INDIRECT
+                        // pass (Cycles film_write_indirect_light).
+                        int lampPass = (firstCat < 0 ? 0 : firstCat) * 3 + 1;
                         if (wasSpecular) {
-                            color += clampContribSpectral(throughput * lampEmission, lambdas, bounce);
+                            astroray::SampledSpectrum c =
+                                clampContribSpectral(throughput * lampEmission, lambdas, bounce);
+                            color += c; addPass(lampPass, c);
                         } else {
                             float lp = lights.pdfValue(ray.origin, ray.direction);
                             float bp = bsdfPdfPrev;
                             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
-                            color += clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce);
+                            astroray::SampledSpectrum c =
+                                clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce);
+                            color += c; addPass(lampPass, c);
                         }
                     }
                     break;  // path terminates on the lamp
@@ -2552,7 +2578,13 @@ public:
                         Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
                         envSpec = astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
                     }
-                    color += clampContribSpectral(throughput * envSpec, lambdas, bounce);
+                    // pkg198: directly-visible background → PASS_ENVIRONMENT; background
+                    // reached after a bounce → <firstCat>_INDIRECT (Cycles
+                    // film_write_emission_or_background_pass / film_write_background).
+                    int envPass = (firstCat < 0) ? PASS_ENVIRONMENT : (firstCat * 3 + 1);
+                    astroray::SampledSpectrum c =
+                        clampContribSpectral(throughput * envSpec, lambdas, bounce);
+                    color += c; addPass(envPass, c);
                 }
                 break;
             }
@@ -2577,7 +2609,12 @@ public:
                         grEmission[i] = finiteClamped(grResult.emission[i], 0.0f, 20.0f);
                     }
                     if (!grEmission.isZero()) {
-                        color += clampContribSpectral(throughput * grEmission, lambdas, bounce);
+                        // pkg198: GR/black-hole emission — treat like surface emission
+                        // (PASS_EMISSION when directly visible, else indirect).
+                        int grPass = (firstCat < 0) ? PASS_EMISSION : (firstCat * 3 + 1);
+                        astroray::SampledSpectrum c =
+                            clampContribSpectral(throughput * grEmission, lambdas, bounce);
+                        color += c; addPass(grPass, c);
                     }
                 }
                 if (grResult.captured) {
@@ -2607,10 +2644,16 @@ public:
             astroray::SampledSpectrum Le_spec =
                 rec.material->emittedSpectral(rec, lambdas);
             if (!Le_spec.isZero()) {
+                // pkg198: directly-visible surface emission → PASS_EMISSION; emission
+                // reached after a non-specular bounce → <firstCat>_INDIRECT (Cycles
+                // film_write_emission_or_background_pass).
+                int emitPass = (firstCat < 0) ? PASS_EMISSION : (firstCat * 3 + 1);
                 if (bounce == 0 || wasSpecular) {
                     // Camera / post-specular ray: no NEE leg competes for this
                     // direction, so the whole emission is taken (w_B = 1).
-                    color += clampContribSpectral(throughput * Le_spec, lambdas, bounce);
+                    astroray::SampledSpectrum c =
+                        clampContribSpectral(throughput * Le_spec, lambdas, bounce);
+                    color += c; addPass(emitPass, c);
                 } else {
                     // pkg120: two-sided MIS. A BSDF-sampled continuation ray hit
                     // an emitter at a diffuse bounce. Add the BSDF-sampled leg
@@ -2631,7 +2674,9 @@ public:
                     // Same power-heuristic form as the NEE leg above and the GPU
                     // gpu_mw_powerHeuristic, so w_L + w_B ≈ 1 per direction.
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
-                    color += clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce);
+                    astroray::SampledSpectrum c =
+                        clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce);
+                    color += c; addPass(emitPass, c);
                 }
                 break;
             }
@@ -2681,7 +2726,17 @@ public:
                         if (hasWorldVolume && worldVolumeDensity > 0.0f) {
                             neeContrib *= worldTransmittanceSpectral(ls.distance, lambdas);
                         }
-                        color += clampContribSpectral(neeContrib, lambdas, bounce);
+                        // pkg198: NEE at the first (camera-visible) surface is DIRECT
+                        // light, tagged by that surface's reflect lobe (diffuse/glossy);
+                        // NEE at a deeper vertex is INDIRECT, tagged by firstCat. NEE
+                        // only fires on non-delta lobes, so a shadow connection is always
+                        // a reflection-side event → diffuse or glossy (never transmission).
+                        int neePass = (firstCat < 0)
+                            ? (rec.material->isGlossy() ? 1 : 0) * 3 + 0
+                            : firstCat * 3 + 1;
+                        astroray::SampledSpectrum c =
+                            clampContribSpectral(neeContrib, lambdas, bounce);
+                        color += c; addPass(neePass, c);
                     }
                 }
             }
@@ -2698,7 +2753,14 @@ public:
                 astroray::SampledSpectrum smsContribution =
                     smsHook(rec, wo, throughput, lambdas, gen);
                 if (!smsContribution.isZero()) {
-                    color += clampContribSpectral(throughput * smsContribution, lambdas, bounce);
+                    // pkg198: SMS caustic gathered at this receiver vertex — same
+                    // direct/indirect tagging as NEE (light arriving at the surface).
+                    int smsPass = (firstCat < 0)
+                        ? (rec.material->isGlossy() ? 1 : 0) * 3 + 0
+                        : firstCat * 3 + 1;
+                    astroray::SampledSpectrum c =
+                        clampContribSpectral(throughput * smsContribution, lambdas, bounce);
+                    color += c; addPass(smsPass, c);
                 }
             }
 
@@ -2716,6 +2778,20 @@ public:
             // pkg120: carry this bounce's BSDF pdf so the next iteration's
             // emissive-hit two-sided MIS can weight the BSDF leg (see above).
             bsdfPdfPrev = bss.pdf;
+
+            // pkg198 Stage 1: lock the light-path category at the FIRST BSDF
+            // interaction (Cycles locks pass_diffuse/glossy_weight at bounce 0).
+            // TRANSMISSION if the sampled continuation crossed the surface (a
+            // geometric sign test on rec.normal — no distance/sentinel consumed);
+            // else GLOSSY for a delta/mirror reflection or a glossy material; else
+            // DIFFUSE. All indirect light through this vertex inherits firstCat.
+            if (firstCat < 0) {
+                float sWo = wo.dot(rec.normal);
+                float sWi = bss.wi.dot(rec.normal);
+                bool transmitted = (sWo * sWi) < 0.0f;
+                firstCat = transmitted ? 2
+                         : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
+            }
 
             // pkg87b: Cryptomatte per-shade-point accumulation.
             // Weight = average(throughput · bsdf_eval), per Cycles film_write_cryptomatte_slots (Apache-2.0).
@@ -3278,6 +3354,17 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         passColor[PASS_VOLUME_INDIRECT] *= filmExposure;
                         passColor[PASS_EMISSION] *= filmExposure;
                         passColor[PASS_ENVIRONMENT] *= filmExposure;
+                        // pkg198 Stage 1: the light-path passes carry XYZ radiance (same
+                        // convention as beauty pre-conversion). Convert them to linear
+                        // sRGB with the SAME matrix as beauty (below) so the sum-to-beauty
+                        // invariant Σpasses == beauty holds in linear sRGB. Volume passes
+                        // are left untouched (pkg199 territory); COLOR/AO/SHADOW stay zero.
+                        for (int passIndex : {PASS_DIFFUSE_DIRECT, PASS_DIFFUSE_INDIRECT,
+                                              PASS_GLOSSY_DIRECT, PASS_GLOSSY_INDIRECT,
+                                              PASS_TRANSMISSION_DIRECT, PASS_TRANSMISSION_INDIRECT,
+                                              PASS_EMISSION, PASS_ENVIRONMENT}) {
+                            passColor[passIndex] = xyzToLinearSRGB(passColor[passIndex]);
+                        }
                         color = xyzToLinearSRGB(color);
                         if (applyGamma) {
                             color.x = std::pow(finiteClamped(color.x, 0.0f, 1.0f), 1.0f / 2.2f);

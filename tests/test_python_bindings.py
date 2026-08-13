@@ -1313,7 +1313,6 @@ def test_render_pass_buffers_exist_and_are_finite():
         assert np.isfinite(buf).all(), f"{key} contains non-finite values"
 
 
-@pytest.mark.xfail(reason="render passes not ported to the spectral path_tracer — deferred", strict=False)
 def test_emission_pass_isolated_from_diffuse_direct():
     r = create_renderer()
     r.set_seed(77)
@@ -1330,7 +1329,6 @@ def test_emission_pass_isolated_from_diffuse_direct():
         "Diffuse direct should be much darker than emission in emissive-only scene"
 
 
-@pytest.mark.xfail(reason="render passes not ported to the spectral path_tracer — deferred", strict=False)
 def test_component_passes_sum_approximately_matches_beauty():
     r = create_renderer()
     r.set_seed(123)
@@ -1444,7 +1442,6 @@ def test_linear_output_preserves_hdr_values():
     assert float(np.max(gamma[:, :, 0])) <= 1.0 + 1e-6, "Gamma output should remain display-range encoded"
 
 
-@pytest.mark.xfail(reason="render passes not ported to the spectral path_tracer — deferred", strict=False)
 def test_emission_pass_preserves_hdr_values():
     """Render pass buffers should stay in linear HDR space for multilayer EXR export."""
     r = create_renderer()

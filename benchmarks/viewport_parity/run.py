@@ -313,7 +313,8 @@ def _drive_pan_zoom_orbit(eng, renderer_proxy: CountingRenderer,
                           width: int, height: int, n_frames: int,
                           chunk_spp: int, max_depth: int,
                           use_oidn_pass: bool,
-                          path: str = "camera_only"):
+                          path: str = "camera_only",
+                          camera_skip_upload: bool = False):
     """Drive the camera path. Returns dict of measurements for one config.
 
     ``path`` chooses which Blender scenario to emulate:
@@ -380,8 +381,17 @@ def _drive_pan_zoom_orbit(eng, renderer_proxy: CountingRenderer,
                 pass
 
         # 4) render — chunk_spp samples, depth from settings.
+        # pkg192: mirror the shipped addon. A camera-only orbit/pan/zoom frame
+        # renders from the current device state with skip_upload=True (geometry,
+        # BVH, materials, lights, env unchanged) so the per-frame CPU BVH rebuild
+        # is skipped — the profile's dominant orbit-frame cost. Frame 0 uploads
+        # (BVH build) via _build_renderer's upload_scene(); the camera_only path
+        # is a static scene so every subsequent frame is safely skip_upload=True.
+        # transform_edit keeps skip_upload=False (geometry may change per tick).
+        skip_upload = camera_skip_upload and path == "camera_only"
         t0 = time.perf_counter()
-        real.render(chunk_spp, max_depth)
+        real.render(chunk_spp, max_depth, None, False,
+                    -1, -1, -1, -1, -1, skip_upload)
         render_ms.append((time.perf_counter() - t0) * 1000.0)
         astroray.record_viewport_stage("render", render_ms[-1])
 
@@ -492,6 +502,7 @@ def run(args) -> dict:
                         max_depth=args.max_depth,
                         use_oidn_pass=use_oidn,
                         path=path,
+                        camera_skip_upload=args.camera_skip_upload,
                     )
                     result["config"] = {
                         "tris_target": tris,
@@ -505,6 +516,7 @@ def run(args) -> dict:
                         "max_depth": args.max_depth,
                         "n_frames": args.frames,
                         "path": path,
+                        "camera_skip_upload": args.camera_skip_upload,
                     }
                     out["configs"].append(result)
 
@@ -558,6 +570,11 @@ def main(argv=None) -> int:
                    help="integrator name (pkg55-B': 'wavefront_path_tracer' "
                         "routes GPU renders through the wavefront pipeline)")
     p.add_argument("--gpu-only", action="store_true")
+    p.add_argument("--camera-skip-upload", dest="camera_skip_upload",
+                   action="store_true",
+                   help="pkg192: render camera_only frames with skip_upload=True "
+                        "(the shipped addon behavior — skips the per-frame CPU BVH "
+                        "rebuild on pure camera moves). Off = pre-pkg192 baseline.")
     p.add_argument("--no-h3", action="store_true",
                    help="Skip the OIDN A/B (H3).")
     p.add_argument("--with-transform-edit", action="store_true",

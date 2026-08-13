@@ -362,6 +362,62 @@ def test_view_draw_re_renders_when_camera_changes(monkeypatch):
     )
 
 
+class _SkipUploadRecordingRenderer(_RecordingRenderer):
+    """Also captures the skip_upload flag (10th positional render arg) so
+    pkg192 can assert camera-only frames avoid the per-frame geometry
+    re-upload / BVH rebuild."""
+    def __init__(self):
+        super().__init__()
+        self.skip_upload_flags = []
+
+    def render(self, *_a, **_k):
+        # render_viewport_frame passes skip_upload as the 10th positional arg.
+        skip = _a[9] if len(_a) > 9 else _k.get("skip_upload", False)
+        self.skip_upload_flags.append(bool(skip))
+        return super().render(*_a, **_k)
+
+
+def test_view_draw_camera_only_frame_skips_geometry_upload(monkeypatch):
+    """pkg192: a pure camera move (orbit/pan/zoom) must re-render with
+    skip_upload=True so the per-frame CPU BVH rebuild is avoided, while the
+    initial full sync still uploads (skip_upload=False) to build the BVH."""
+    _SkipUploadRecordingRenderer.construction_count = 0
+    addon = _load_blender_addon(monkeypatch,
+                                renderer_cls=_SkipUploadRecordingRenderer)
+    engine = addon.CustomRaytracerRenderEngine()
+    _patch_out_gpu_calls(addon, monkeypatch, engine)
+
+    monkeypatch.setattr(engine, 'convert_materials', lambda dg, r: {})
+    monkeypatch.setattr(engine, 'convert_objects', lambda dg, r, mm: None)
+    monkeypatch.setattr(engine, 'convert_lights', lambda dg, r: None)
+    monkeypatch.setattr(engine, 'setup_world', lambda scene, r: None)
+    monkeypatch.setattr(engine, '_setup_viewport_camera',
+                        lambda r, ctx, w, h: r.setup_camera())
+    monkeypatch.setattr(engine, 'bind_display_space_shader', lambda s: None)
+    monkeypatch.setattr(engine, 'unbind_display_space_shader', lambda: None)
+
+    # Initial sync via view_update — must upload (build the BVH).
+    ctx_a = _make_context(IDENTITY)
+    depsgraph_a = types.SimpleNamespace(scene=ctx_a.scene)
+    engine.view_update(ctx_a, depsgraph_a)
+    r = engine._viewport_renderer
+    assert r.skip_upload_flags == [False], (
+        "the initial view_update sync must render with skip_upload=False "
+        "so the geometry/BVH is uploaded")
+
+    # User orbits/pans — view_matrix changes. This camera-only frame must
+    # render from device state with skip_upload=True.
+    ctx_b = _make_context(SHIFTED)
+    depsgraph_b = types.SimpleNamespace(scene=ctx_b.scene)
+    try:
+        engine.view_draw(ctx_b, depsgraph_b)
+    except Exception:
+        pass
+    assert r.skip_upload_flags[-1] is True, (
+        "a camera-only view_draw frame must render with skip_upload=True "
+        "(no per-frame geometry re-upload on orbit/pan/zoom)")
+
+
 def test_view_draw_re_renders_on_camera_view_zoom_change(monkeypatch):
     """The user reported 'zooming in or out doesnt change how the image is
     rendered' — the view_draw camera-zoom hash must catch this."""

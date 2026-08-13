@@ -22,6 +22,16 @@ class MultiwavelengthPathTracer : public Integrator {
     float lambdaMin_;
     float lambdaMax_;
     bool  useLuminanceOutput_;  // true when rendering outside visible
+    // pkg195: gate the dedicated-light NEE + two-sided-MIS legs (Stage A). This
+    // MIRRORS the engine-wide "multiwavelength_path_tracer == naive" contract
+    // (module/blender_module.cpp:1814 sets the GPU wavefront's enableNEE = false
+    // for this integrator) and the pkg156 lesson: the GPU wavefront naive route
+    // is gated to match THIS integrator as the light-sampling-blind oracle, so a
+    // NEE/w_B term firing here in naive mode silently breaks CPU<->GPU parity
+    // (pkg120/pkg156, test_gpu_multiwavelength / test_pkg55_c3). Default ON so the
+    // addon's NIR/UV lamp rendering works (Stage A); parity harnesses that use
+    // this integrator as the naive oracle pin `enable_nee=0`.
+    bool  enableNEE_;
     Renderer* renderer_ = nullptr;
     Camera*   camera_   = nullptr;
 
@@ -49,6 +59,10 @@ public:
             useLuminanceOutput_ = !isInsideVisible(lambdaMin_, lambdaMax_);
         else
             useLuminanceOutput_ = (mode == "luminance");
+        // int route (not getBool): ParamDict::get_ is exact-type-match, and the
+        // set_integrator_param(str,int) binding stores an int — so
+        // set_integrator_param("enable_nee", 0) is only visible via getInt.
+        enableNEE_ = p.getInt("enable_nee", 1) != 0;
     }
 
     void beginFrame(Renderer& scene, Camera& cam) override { renderer_ = &scene; camera_ = &cam; }
@@ -179,7 +193,9 @@ private:
             // camera rays (bounce == 0); a lamp closer than the surface
             // terminates the path and feeds the same two-sided MIS term the
             // emissive path below uses (wB = 1 after a specular bounce).
-            if (bounce > 0 && !lights.getDedicatedLights().empty()) {
+            // Gated on enableNEE_: this is a light-sampling/MIS term and must NOT
+            // fire in naive mode (the GPU-parity oracle contract, pkg156).
+            if (enableNEE_ && bounce > 0 && !lights.getDedicatedLights().empty()) {
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
                 astroray::Light::Intersection lh;
                 if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
@@ -226,12 +242,17 @@ private:
 
             if (!rec.material) break;
 
-            // Emission (two-sided MIS, mirrors pathTraceSpectral raytracer.h:2496-2527).
+            // Emission. In NEE mode this is the two-sided MIS w_B leg (mirrors
+            // pathTraceSpectral raytracer.h:2496-2527); in naive mode it is the
+            // BYTE-OLD behavior — emission is taken only on a camera / post-
+            // specular ray and DROPPED on a non-specular diffuse hit (no w_B
+            // term). pkg156's exact bug was a w_B term left firing unconditionally
+            // in naive mode, so this else-branch is gated on enableNEE_.
             astroray::SampledSpectrum Le = rec.material->emittedSpectral(rec, lambdas);
             if (!Le.isZero()) {
                 if (bounce == 0 || wasSpecular) {
                     color += throughput * Le;
-                } else {
+                } else if (enableNEE_) {
                     // BSDF-sampled continuation ray hit an emitter at a diffuse
                     // bounce: add the BSDF leg weighted by the power heuristic
                     // against the light-sampling pdf that would have generated it.
@@ -252,7 +273,9 @@ private:
             // Uses evalSpectralExt (profile-aware) for the BSDF factor and
             // ls.emission_spec (EmissionSpectrum::eval at these lambdas) for the
             // light, so blackbody / measured-SPD lamps emit outside 380-780 nm.
-            if (!rec.isDelta && !lights.empty()) {
+            // Gated on enableNEE_ (naive mode has no light sampling — the GPU
+            // parity oracle contract, pkg156).
+            if (enableNEE_ && !rec.isDelta && !lights.empty()) {
                 LightSample ls;
                 lights.sample(ls, rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0) {

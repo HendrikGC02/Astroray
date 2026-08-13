@@ -117,6 +117,13 @@ def _render_wavefront_vs_cpu(lmin, lmax, mode, *,
     cpu.set_output_mode(mode)
     # For naive mode, use multiwavelength_path_tracer; else path_tracer
     cpu.set_integrator("multiwavelength_path_tracer" if not enable_nee else "path_tracer")
+    if not enable_nee:
+        # pkg195: Stage A gave multiwavelength_path_tracer dedicated-light NEE
+        # (default on), but here it is the naive oracle for the GPU wavefront leg
+        # rendered with enable_nee=False (no light sampling). Pin it naive so both
+        # legs compare naive transport until pkg195 Phase 3 lands GPU
+        # spectral-light NEE.
+        cpu.set_integrator_param("enable_nee", 0)
     cpu_px = np.array(cpu.render(samples_per_pixel=spp, max_depth=depth, apply_gamma=False),
                       dtype=np.float32)
 

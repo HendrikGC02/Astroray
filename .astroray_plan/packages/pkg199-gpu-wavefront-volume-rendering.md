@@ -2,10 +2,13 @@
 
 **Pillar:** 5 / integration-first (also 3 — CPU↔GPU parity)
 **Track:** A
-**Status:** Stage 1 done (PR #611, 2026-08-14 — GPU wavefront homogeneous-world
+**Status:** Stage 1 in review (PR #611, 2026-08-14). GPU wavefront homogeneous-world
 Beer-Lambert absorption at CPU parity; furnace Tr matches analytic exp(-σ·d) to
-<0.02; shade kernel byte-identical REG 254/STACK 3352/CONST 1700). Stage 2 open
-(spec-only below — full scattering medium).
+<0.02; shade kernel byte-identical REG 254/STACK 3352/CONST 1700. **hw-611 HW FAIL
+(sphere-light NEE fog saturation — a 1e30 occlusion sentinel used as the Beer-Lambert
+path length) FIXED** (true geometric NEE distance; see the "Hardware verification"
+audit block below and the fix commit); pending adversarial re-review + a fresh HW
+gate. Stage 2 open (spec-only below — full scattering medium).
 **Estimated effort:** Stage 1 M (landed); Stage 2 XL (new scattering subsystem).
 **Depends on:** pkg55-C7 wavefront dispatch; [[wavefront-shade-kernels-register-saturated]].
 
@@ -167,3 +170,175 @@ scatter-point `ray_origin` capture moment identically on CPU and GPU at design t
 - Register gate: shade kernel unchanged; the new volume-scatter kernel's footprint
   reported via cuobjdump.
 - Heterogeneous / object volumes / delta-tracking remain OUT (a later package).
+
+---
+
+## Hardware verification 2026-08-13 (PR #611, branch pkg199 @ b3298437cd0fd75e4bf8c334d418329a8ed70384)
+
+**Hardware:** NVIDIA GeForce RTX 5070 Ti, driver 610.47, CUDA 12.8 (nvcc V12.8.61), Windows 11
+Enterprise 10.0.26200. Worktree: Astroray-pkg199. GPU lock hw-611 held for the duration; no
+concurrent CUDA sessions.
+
+Note: this branch predates pkg195-Stage-C merge to main (disjoint area; verified as-is per
+dispatch instruction, not rebased).
+
+### Step 1 -- Clean rebuild
+build_cuda_worktree.bat (root/VS-generator pipeline), foreground via PowerShell.
+HEAD SHA verified b3298437cd0f. Build succeeded. cuobjdump --list-elf on the built .pyd:
+astroray.cp313-win_amd64.1.sm_120.cubin -- sm_120 confirmed (both the build scripts own
+arch-verify and an independent cuobjdump --list-elf check agree).
+
+### Step 2 -- Smoke-check
+astroray.__file__ resolved to the canonical build_cuda/Release/astroray.cp313-win_amd64.pyd
+(not a stale root shadow). hasattr(Renderer(), set_world_volume) returned True.
+astroray.__gpu_features__ returned: nee True, mis True, disney_brdf True, sah_bvh True,
+adaptive_sampling False, volumes True, textures False, subsurface True, gr_black_holes False,
+spectral_gpu_materials True -- volumes True confirmed.
+
+### Step 2b -- Register hard gate (cuobjdump -res-usage)
+stageShadeBucketedKernel with HasWorldVolume=false (the vacuum instantiation, all four bool
+template params false): REG:254 STACK:3352 CONSTANT[0]:1700 -- byte-identical to mains pinned
+baseline (REG 254 / STACK 3352 / CONSTANT[0] 1700). PASS.
+
+Other wavefront kernels for reference:
+- stageIntersectQueuedKernel: REG:127 STACK:616 CONSTANT[0]:1680
+- stageShadowKernel: REG:108 STACK:584 CONSTANT[0]:1484
+- stageRegenKernel: REG:100 STACK:608 CONSTANT[0]:1481
+
+### Step 3 -- Gate test run (tests/test_pkg199_world_volume_gpu_parity.py, -v -s --tb=short)
+All 6 tests PASSED, including test_restir_render_not_contaminated_by_prior_fog on its first
+hardware run (previously CI-skipped, GPU-only). Verbatim:
+
+    tests/test_pkg199_world_volume_gpu_parity.py::test_world_volume_absorption_only_removes_energy_cpu
+    [pkg199 CPU furnace] clear=[1.29   1.2948 1.2722] foggy=[0.7844 0.9507 1.0396] foggy/clear=[0.6081 0.7343 0.8172]
+    PASSED
+    tests/test_pkg199_world_volume_gpu_parity.py::test_world_volume_cpu_gpu_parity
+    [pkg199 CPU/GPU fog parity] GPU=[0.8069 0.9782 1.0844] CPU=[0.7844 0.9507 1.0396] GPU/CPU=[1.0286 1.0289 1.0431]
+    PASSED
+    tests/test_pkg199_world_volume_gpu_parity.py::test_world_volume_gpu_analytic_beer_lambert
+    [pkg199 GPU Beer-Lambert] dist=5.0 dens=0.1: measured Tr=0.6064 analytic=0.6065
+    [pkg199 GPU Beer-Lambert] dist=5.0 dens=0.2: measured Tr=0.3677 analytic=0.3679
+    [pkg199 GPU Beer-Lambert] dist=10.0 dens=0.1: measured Tr=0.3678 analytic=0.3679
+    [pkg199 GPU Beer-Lambert] dist=10.0 dens=0.2: measured Tr=0.1352 analytic=0.1353
+    PASSED
+    tests/test_pkg199_world_volume_gpu_parity.py::test_world_volume_zero_density_gpu_byte_identical
+    [pkg199 GPU vacuum byte-identity] no-vol self-noise=9.54e-07 zero-density diff=9.54e-07
+    PASSED
+    tests/test_pkg199_world_volume_gpu_parity.py::test_restir_render_not_contaminated_by_prior_fog
+    [pkg199 ReSTIR fog-contamination guard] clean=[0.0153 0.0162 0.0235] after_fog=[0.0153 0.0162 0.0235] after/clean=[1. 1. 1.]
+    PASSED
+    tests/test_pkg199_world_volume_gpu_parity.py::test_world_volume_gpu_visual PASSED
+    ============================== 6 passed in 1.45s ==============================
+
+PR claimed numbers (white-fog vs exp(-sigma*d) within 2e-4 across 4 density/distance combos;
+coloured-fog CPU-GPU mean-ratio [1.029, 1.029, 1.043]) reproduce exactly on this hardware.
+
+### Step 4 -- Un-xfailed tests (test_python_bindings.py, --runxfail)
+
+    tests/test_python_bindings.py::test_world_volume_density_adds_visible_haze PASSED
+    tests/test_python_bindings.py::test_world_volume_fogs_farther_objects_more PASSED
+    ====================== 2 passed, 86 deselected in 0.99s =======================
+
+Both tests exercise the CPU backend only (create_renderer() does not call set_use_gpu, and
+useGPU defaults to false in blender_module.cpp). An ad-hoc GPU-forced replication of the same
+two tests scene/assertions (throwaway diagnostic script, not committed) also satisfies their
+weak monotonic assertions on GPU -- but this replication is what surfaced the Step 6 finding
+below. The two officially-parameterized tests, as written, do not independently exercise GPU.
+
+### Step 5 -- Feature guard (test_pkg186_gpu_features_guard.py)
+All 7 tests PASSED, including test_volumes_gpu_enabled.
+
+### Step 6 -- Visual inspection -- REGRESSION FOUND, gates missed it
+test_world_volume_gpu_visuals PNGs (test_results/pkg199_gpu_fog_clear.png,
+pkg199_gpu_fog_dense.png, a receding row of 5 diffuse spheres) show the dense-fog render going
+almost fully black for all five spheres -- including the nearest one, which the test own inline
+comment says "should stay crisp." This does not look like graceful fade-to-fog-tint; it looks
+like near-total light loss.
+
+Quantitative follow-up (re-rendering the exact visual-test scene in linear space,
+apply_gamma=False, nearest-sphere crop, FOG_DENSITY=0.06, same seed/geometry, CPU vs GPU on the
+same build):
+
+    density | GPU ratio (R,G,B)          | CPU ratio (R,G,B)
+    0.005   | [0.0577, 0.0675, 0.1298]   | [0.9543, 0.9710, 0.9817]
+    0.01    | [0.0565, 0.0666, 0.1287]   | [0.9107, 0.9428, 0.9638]
+    0.02    | [0.0541, 0.0649, 0.1264]   | [0.8293, 0.8891, 0.9289]
+    0.06    | [0.0460, 0.0586, 0.1179]   | [0.5696, 0.7044, 0.8018]
+
+CPU behaves as expected: near-1.0 ratio at tiny density, smooth monotonic falloff to about
+0.57-0.80 at density 0.06 (physically consistent with the combined camera-to-sphere plus
+sphere-to-light plus GI-bounce path length through the medium). GPU collapses to a near-constant
+0.05-0.13 ratio even at density 0.005 -- essentially independent of density, an 8-17x stronger
+extinction than CPU on the identical scene/seed. The clear (no-volume) renders match closely
+between backends (GPU 0.2776 vs CPU 0.2726 in R on the nearest-sphere crop -- normal about 2 pct
+MC-noise-level parity), confirming the divergence is specific to the fogged path, not general
+scene/render setup drift.
+
+This does not reproduce in the PR own gates: test_world_volume_gpu_analytic_beer_lambert uses a
+triangle wall with max_depth=2 and no NEE/GI (passes exactly); the CPU-GPU parity test uses a
+single-sphere scene with a simpler direct+NEE path (passes within [0.85, 1.18]). The divergence
+appears specific to scenes with multiple objects / multi-bounce GI through the medium --
+consistent with the visual test 5-sphere scene but not the narrower analytic/parity scenes. Root
+cause not diagnosed here (out of verifier scope -- cite-worthy candidates for the
+architect/gate-failure-reviewer: hero-wavelength dispersion (pkg189) interacting with per-segment
+transmittance compounding across bounces, or a NEE/GI shadow-ray transmittance integration bug
+that only triggers with more than one scene object). A minimal single-object repro attempt
+(large sphere directly filling the frame) was inconclusive due to a construction flaw in that
+specific script (camera ended up inside the sphere) and is not submitted as independent evidence
+-- the 5-sphere visual-test-scene CPU vs GPU comparison above is the load-bearing evidence.
+
+No NaN speckle observed. No god-rays (correct -- Stage 1 is absorption-only, as specified).
+Vacuum (no-volume) renders match CPU/GPU closely (see clear-crop numbers above) -- the no-volume
+path itself is not implicated.
+
+### Step 7 -- Vacuum no-op check
+test_world_volume_zero_density_gpu_byte_identical (density-0 vs no-set_world_volume-call, on
+this build): diff 9.54e-07, at the same order as the self-noise floor (9.54e-07) -- PASS.
+Combined with the byte-identical HasWorldVolume=false kernel machine code (Step 2b), the vacuum
+path is confirmed unchanged. A full differential build against main HEAD was not performed --
+out of scope for this already-large verification pass; the in-build zero-density-vs-no-call
+comparison plus the register-identical compiled kernel are treated as sufficient evidence for
+"strict no-op."
+
+### Step 8 -- Regression slice
+test_pkg186_gpu_features_guard.py (7), test_gpu_multiwavelength.py (6),
+test_pkg55_c3_wavefront_nonvisible.py (4) -- 17/17 PASSED, no transport regression detected in
+the standard spectral/wavefront suite (none of these exercise world-volume, as expected).
+
+### Verdict: HW FAIL
+
+All of the PR own automated gates pass, verbatim, on this hardware -- the PR claimed numbers are
+reproduced exactly. But mandatory visual inspection of the PR own test_world_volume_gpu_visual
+PNGs caught a real, reproducible regression the numeric gates do not cover: GPU world-volume
+absorption is 8-17x over-attenuated relative to CPU in scenes with more than one object /
+multi-bounce GI (the pkg199-canonical "no god-rays, spheres fade gracefully" visual acceptance
+criterion is violated -- spheres go black, not fade). This is escalated to
+gate-failure-reviewer per hard rule (never paper over visual regressions, do not decide yourself
+that it is acceptable) rather than adjudicated here. Do not merge PR #611 pending that review.
+
+---
+
+## hw-611 FIX (2026-08-14) — root cause + resolution of the HW FAIL above
+
+**Root cause (proven by the triangle-vs-sphere lamp A/B):** `src/gpu/gpu_nee.cuh`
+sets `maxDist = 1e30f` as an OCCLUSION sentinel for SPHERE-primitive lights (and
+distant lights). The pkg199 role-2 code consumed `s.maxDist` as the Beer-Lambert
+path length, so `exp(-σ·1e30) = 0` killed every fogged NEE-to-sphere contribution
+at ANY density — the density-independent near-black the verifier saw (GPU
+~[0.05,0.06,0.13] vs CPU ~[0.94→0.57]). Triangle emitters (`maxDist = dist-0.001`)
+were fine, which is why the analytic (triangle-wall) and single-sphere parity gates
+passed. CPU was correct (`ls.distance` is geometric).
+
+**Fix:** carry a separate TRUE geometric vertex→light distance
+(`GNEESample.geomDist` — ray-sphere near-hit for spheres, sampled-point distance
+for triangle/point/spot/area), parked in NEE float lane 14
+(`G_WF_NEE_F_LANES` 14→15), and feed THAT into `gpu_worldTransmittanceMW` in
+`stageShadowKernel`; `maxDist` stays 1e30 for the visibility trace. Distant/infinite
+lights (`geomDist = 0`; CPU `ls.distance = FLT_MAX`) are treated like env-miss —
+NON-attenuated (both helpers guard `distance ≥ 1e18`; real sun-through-atmosphere is
+Stage-2+). Shade kernel still byte-identical (REG 254 / STACK 3352 / CONST 1700 —
+`gpu_nee_sample` is reachable from it, verified post-fix). New regression gates
+(would have caught hw-611): sphere-lamp-fogs-like-triangle-lamp, density-monotonicity,
+sphere-lamp CPU↔GPU parity — all pass; post-fix sphere-lamp CPU↔GPU ratio
+[1.0005, 1.0003, 1.0003]. Visual re-inspected: nearest sphere crisp, farther spheres
+fade smoothly into the medium.

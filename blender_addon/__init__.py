@@ -5830,7 +5830,16 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Scene.custom_raytracer = PointerProperty(type=CustomRaytracerRenderSettings)
     bpy.types.Material.custom_raytracer = PointerProperty(type=CustomRaytracerMaterialSettings)
-    bpy.types.Light.custom_raytracer = PointerProperty(type=CustomRaytracerLightSettings)
+    # pkg195 Stage B: attach spectral-light settings only when bpy.types.Light
+    # exists. CI runs register() under a bpy stub that omits Light (the same class
+    # of stub gap the native shader nodes degrade around above); real Blender
+    # always has it, so the headless-Blender path is unaffected.
+    _light_type = getattr(bpy.types, 'Light', None)
+    if _light_type is not None:
+        _light_type.custom_raytracer = PointerProperty(type=CustomRaytracerLightSettings)
+    else:
+        print("Astroray spectral light settings unavailable: "
+              "module 'bpy.types' has no attribute 'Light'")
     bpy.types.Object.astroray_black_hole = PointerProperty(type=AstrorayBlackHoleProperties)
     bpy.types.Object.astroray_object = PointerProperty(type=AstrorayObjectProperties)
 
@@ -5861,7 +5870,9 @@ def unregister():
 
     del bpy.types.Scene.custom_raytracer
     del bpy.types.Material.custom_raytracer
-    del bpy.types.Light.custom_raytracer
+    _light_type = getattr(bpy.types, 'Light', None)
+    if _light_type is not None and hasattr(_light_type, 'custom_raytracer'):
+        del _light_type.custom_raytracer
     del bpy.types.Object.astroray_black_hole
     del bpy.types.Object.astroray_object
     for cls in reversed(classes):

@@ -258,6 +258,46 @@ fix:
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
 
+**Round closeout (2026-08-13 → 2026-08-14): 8 PRs (#605–#612), no open PRs at closeout — viewport navigation is now interactive (5.97→18.52 fps, 3.1x combined), the spectral node system (pkg195) is fully complete, and the GPU wavefront gains denoise-guide AOVs, a working world-volume fog, and procedural textures.**
+**pkg192 DONE** (PR #605) — viewport navigation interactivity Suspect A:
+camera-only orbit/pan/zoom frames skip the ~48ms per-frame CPU BVH rebuild
+(`skip_upload=True`); 5.97→8.44 fps. **pkg196 DONE** (PR #609) — Suspect B,
+reduced-res navigation layered on pkg192 (Cycles-style, divisor N=2);
+8.36→18.52 fps p50 (2.2x), 5.97→18.52 fps (3.1x) combined with pkg192.
+**pkg193 DONE** (PR #607) — camera-view overlay alignment: off-center-
+frustum matrix-cell bug + F12 film-fit shift scaling bug, both fixed;
+worst-case corner offset 223px→0.00px. **pkg194 DONE** (PR #606) —
+Principled tinted-layer spectral-carry + thin-wall per-λ, both pkg188
+Finding-C descopes shipped CPU+GPU after a register-gate probe PASSED; band
+error on coloured-tint-over-dark-base materials 72.46%→0.00%. **pkg197
+DONE** (PR #608) — GPU wavefront denoise-guide AOVs (albedo/normal/depth,
+intersect-stage capture, shade kernel untouched) plus `applyPasses`/OIDN
+wired into the GPU route for the first time — GPU renders now actually
+denoise (+8.0% edge-MSE improvement, guided vs guideless). **pkg199 Stage 1
+DONE** (PR #611) — GPU wavefront homogeneous-world Beer-Lambert absorption
+CPU+GPU, after a spec-premise correction (the CPU volume code had been dead
+since pkg14); furnace Tr matches analytic to <2e-4. HW FAIL (1e30 occlusion
+sentinel used as NEE path length, saturating fog to black) → fixed → HW
+PASS. Stage 2 (full HG scattering, XL) filed spec-only, open. **pkg190
+DONE** (PR #612) — first GPU procedural textures (checker/brick/magic/
+wave) via 3D-voxel bake-at-upload; a mandated pkg119-B re-baseline found
+the real TRANSLATION-BUG set was 4 nodes (not the stale "5" figure), all
+now fixed — TRANSLATION-BUG 4→0, summary 25→30 pass. HW FAIL (`run_parity`
+scene-routing + EXR-reader defects) → fixed → HW PASS. **pkg195 Stage C
+DONE** (PR #610) — spectral node system remainder: `register_spectral_
+profile`, Drawn/Preset/Blackbody spectrum nodes, in-band Replace mode
+(bypasses Jakob-Hanika upsampling), IR/UV de-fang, Sellmeier B/C restored.
+**pkg195 is now FULLY COMPLETE across all three stages.** **Specs filed,
+open:** pkg198 (GPU light-path AOV passes, register-hostile, probe-first —
+may park). **Open follow-ups:** pkg199 Stage 2, pkg131 (adaptive sampling
+wavefront leg), the pkg176-line deep F12 per-setting pixel-honour matrix,
+the caustic-integrator/CPU-wavefront-reference world-volume gap (fog is
+invisible to caustics — pkg199 non-goal), the legacy `add_sun_light`
+GPU-dimness finding (pkg194 review, undiagnosed), and an Object-coordinate-
+mode guard for the pkg190 procedural bake (Generated-space only per spec
+scope). Full detail: `.astroray_plan/docs/STATUS.md` round-closeout section
+"2026-08-13 → 2026-08-14". Pillar 4 stays PAUSED.
+
 **Round closeout (2026-08-12 → 2026-08-13): 15 PRs (#585–#599), no open PRs at closeout — GPU capability restoration (first GPU texture support, viewport progressive-refinement fix) + Principled spectral correctness (per-λ conductor thin-film, dispersion, transmission colour/scalar separation) + a build-integrity guard.**
 **pkg183 DONE** (PR #592) — stale-object ABI-mixed-binary guard in all three
 build wrappers, plus a cuobjdump ground-truth CUDA-arch gate (exit 6/7) that

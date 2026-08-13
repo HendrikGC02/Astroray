@@ -657,31 +657,65 @@ __device__ bool shadePathSlot(
     if constexpr (HasTexture) {
         const int* matTexId = c_wfTexBinding.matTexId;
         int texId = matTexId[rec.materialId];
-        if (texId >= 0 && rec.primId >= 0 &&
-            prims[rec.primId].type == GPRIM_TRIANGLE) {
-            const GTriangle& ttri = tris[prims[rec.primId].index];
-            if (ttri.hasUV) {
-                GVec3 e1 = ttri.v1 - ttri.v0, e2 = ttri.v2 - ttri.v0;
-                GVec3 ep = rec.point - ttri.v0;
-                float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
-                float d20 = ep.dot(e1), d21 = ep.dot(e2);
-                float denom = d00 * d11 - d01 * d01;
-                if (fabsf(denom) > 1e-20f) {
-                    float b1 = (d11 * d20 - d01 * d21) / denom;
-                    float b2 = (d00 * d21 - d01 * d20) / denom;
-                    float b0 = 1.0f - b1 - b2;
-                    float uu = b0 * ttri.uv0.x + b1 * ttri.uv1.x + b2 * ttri.uv2.x;
-                    float vv = b0 * ttri.uv0.y + b1 * ttri.uv1.y + b2 * ttri.uv2.y;
-                    GVec3 texColor = gpu_sampleImageTexture(
-                        c_wfTexBinding.textures[texId], c_wfTexBinding.texelBuf, uu, vv);
-                    GSampledSpectrum texUp =
-                        gpu_rgbToSampledSpectrum(texColor, lambdas, mat.spectralMode);
-                    GSampledSpectrum baseUp =
-                        gpu_rgbToSampledSpectrum(mat.baseColor, lambdas, mat.spectralMode);
-                    for (int s = 0; s < G_SPECTRUM_SAMPLES; ++s) {
-                        float d = baseUp[s];
-                        throughput.v[s] *= (d > 1e-8f ? texUp[s] / d : 0.0f);
+        if (texId >= 0) {
+            const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+            GVec3 texColor;
+            bool  haveTex = false;
+            if (tdesc.depth > 1) {
+                // pkg190 — 3D voxel procedural (Generated/Object coord). Rebuild
+                // the SAME normalized coordinate the CPU used
+                // (include/advanced_features.h CoordMode::Generated):
+                //   g = clamp((objectPoint - genMin)/genSize, 0, 1).
+                // The addon bakes world transforms into vertices, so world ==
+                // object space for these (non-instanced) meshes and rec.point IS
+                // objectPoint. Needs no triangle UVs (works for any hit prim);
+                // instanced-mesh object-local Generated coords are the same cut
+                // pkg178/pkg186 took for instanced anisotropy/texture.
+                GVec3 g;
+                g.x = tdesc.genSize.x > 1e-6f
+                    ? (rec.point.x - tdesc.genMin.x) / tdesc.genSize.x : 0.0f;
+                g.y = tdesc.genSize.y > 1e-6f
+                    ? (rec.point.y - tdesc.genMin.y) / tdesc.genSize.y : 0.0f;
+                g.z = tdesc.genSize.z > 1e-6f
+                    ? (rec.point.z - tdesc.genMin.z) / tdesc.genSize.z : 0.0f;
+                texColor = gpu_sampleProcedural3D(tdesc, c_wfTexBinding.texelBuf, g);
+                haveTex = true;
+            } else if (rec.primId >= 0 &&
+                       prims[rec.primId].type == GPRIM_TRIANGLE) {
+                const GTriangle& ttri = tris[prims[rec.primId].index];
+                if (ttri.hasUV) {
+                    GVec3 e1 = ttri.v1 - ttri.v0, e2 = ttri.v2 - ttri.v0;
+                    GVec3 ep = rec.point - ttri.v0;
+                    float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+                    float d20 = ep.dot(e1), d21 = ep.dot(e2);
+                    float denom = d00 * d11 - d01 * d01;
+                    if (fabsf(denom) > 1e-20f) {
+                        float b1 = (d11 * d20 - d01 * d21) / denom;
+                        float b2 = (d00 * d21 - d01 * d20) / denom;
+                        float b0 = 1.0f - b1 - b2;
+                        float uu = b0*ttri.uv0.x + b1*ttri.uv1.x + b2*ttri.uv2.x;
+                        float vv = b0*ttri.uv0.y + b1*ttri.uv1.y + b2*ttri.uv2.y;
+                        texColor = gpu_sampleImageTexture(
+                            tdesc, c_wfTexBinding.texelBuf, uu, vv);
+                        haveTex = true;
                     }
+                }
+            }
+            if (haveTex) {
+                GSampledSpectrum texUp =
+                    gpu_rgbToSampledSpectrum(texColor, lambdas, mat.spectralMode);
+                // pkg190 fold-guard (advisory #1, PR #590): mat.baseColor is
+                // upload-neutralized to (1,1,1) for EVERY textured material
+                // (scene_upload.cu), so baseUp is a FIXED neutral reference with no
+                // near-zero band. The albedo swap throughput *= texUp/baseUp is an
+                // exact, chroma-independent substitution (net reflectance = texUp,
+                // since the downstream diffuse fold re-multiplies by this same
+                // baseUp). Clamp the denominator instead of the old hard-zero
+                // branch (which would nuke a band for a saturated base).
+                GSampledSpectrum baseUp =
+                    gpu_rgbToSampledSpectrum(mat.baseColor, lambdas, mat.spectralMode);
+                for (int s = 0; s < G_SPECTRUM_SAMPLES; ++s) {
+                    throughput.v[s] *= texUp[s] / fmaxf(baseUp[s], 1e-4f);
                 }
             }
         }

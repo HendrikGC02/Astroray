@@ -2,7 +2,12 @@
 
 **Pillar:** 3/5 (spectral consistency / CPU-GPU parity)
 **Track:** A
-**Status:** open (filed 2026-08-12 as the pkg188 Finding-C descope; enhancement tier)
+**Status:** done (PR #TBD, 2026-08-13 — register-gate probe PASSED: `<false>`
+byte-identical to origin/main (REG:254 STACK:3608/3352 CONST[0]:1700, no CONST[2]),
+`<true>` STACK 6656/6528→7848/7720 REG:254 (isolated principled-side, no non-Principled
+regression). Both items shipped CPU+GPU. Item 1 tinted-layer band error 72.5/34.9/20.1/5.4%
+→ 0.00% (same `_cpu_rgb_upsample_batch` harness). Item 2 thin-wall per-λ R'/T' CPU↔GPU
+parity ≤1.002, furnace 0.952 no-gain. 126 regression tests green.)
 **Estimated effort:** L (register-gate probe up front — may be blocked)
 **Depends on:** pkg188 (Findings A+B landed — transmission colour/scalar separation +
 weight-path clamp guard); pkg168 (RGB→spectral upsample parity template);
@@ -90,15 +95,18 @@ twin (`gpu_materials.h` `gpu_pr_*` thin-glass functions) inside `HasPrincipled`.
 
 ## Acceptance criteria
 
-- [ ] Item 1: register-gate probe run and reported FIRST; restructure implemented
-      only if `<false>` stays 3608/254/1700 and `<true>` shows no non-Principled
-      regression — otherwise a documented CPU-only fix or an explicit park, with the
-      cuobjdump evidence in the PR.
-- [ ] Item 1: on a coloured-coat-over-coloured-base scene, the tinted-layer band
-      error is measurably reduced vs the pkg188 baseline (report the before/after
-      numbers from the same `_cpu_rgb_upsample_batch` harness).
-- [ ] Item 2: thin-wall R'/T' evaluated per-λ on CPU + GPU twin; parity test locks
-      CPU↔GPU; furnace energy conserves (linear, bounded above).
+- [x] Item 1: register-gate probe run and reported FIRST — PASSED. `<false>` held
+      exactly at REG:254 STACK:3608/3352 CONST[0]:1700 (byte-identical to origin/main,
+      no CONST[2] principled bank leaked), so the GPU restructure was allowed and
+      shipped. `<true>` STACK grew 6656/6528→7848/7720 (REG still 254), which is
+      isolated principled-side cost; the non-Principled `<false>` kernel is unchanged,
+      so non-Principled perf provably cannot regress. cuobjdump before/after in PR.
+- [x] Item 1: coloured-coat-over-coloured-base band error measurably reduced —
+      72.5/34.9/20.1/5.4% (pkg188 baseline) → 0.00% (same `_cpu_rgb_upsample_batch`
+      harness); CPU↔GPU render parity ≤1.001.
+- [x] Item 2: thin-wall R'/T' per-λ on CPU (`thinGlassFresnelSpectral`) + GPU twin
+      (`gpu_pr_thinGlassFresnelSpectral`, inside HasPrincipled); CPU↔GPU parity ≤1.002
+      (amber/teal); furnace 0.952 linear, upper-bounded (no energy gain).
 
 ## Hard non-goals
 

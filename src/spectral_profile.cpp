@@ -1,4 +1,5 @@
 #include "astroray/spectral_profile.h"
+#include <algorithm>
 #include <cstdint>
 #include <fstream>
 #include <cstring>
@@ -73,24 +74,38 @@ const SpectralProfile* SpectralProfileDatabase::registerProfile(
         const std::vector<float>& values) {
     if (values.empty() || lambda_step_nm <= 0.0f) return nullptr;
 
+    // pkg195 Stage C (PR #610 review hardening): SpectralProfile::reflectance() is
+    // documented [0, 1]; nothing enforced it, so a script passing values > 1 to the
+    // public register_spectral_profile binding would inject energy in
+    // ProfileMode::Replace (an authored reflectance > 1 reflects more than it
+    // receives). Clamp stored samples to [0, 1] here — at registration, off the
+    // render hot path — so every downstream consumer (Replace + ExtendOnly
+    // reflectance, GPU profile-table upload) is bounded by construction.
+    // Emission relative SPDs registered at runtime (blackbody bake, drawn emission)
+    // are peak-normalized to <= 1 before they reach here, so this is a no-op for
+    // them; a caller wanting an unbounded relative SPD must normalize first.
+    std::vector<float> clamped(values.size());
+    for (size_t i = 0; i < values.size(); ++i)
+        clamped[i] = std::clamp(values[i], 0.0f, 1.0f);
+
     auto rit = runtimeIndex_.find(name);
     if (rit != runtimeIndex_.end()) {
         // Overwrite in place: keep the deque slot address stable so any cached
         // SpectralProfile* held by a material stays valid; only the underlying
         // sample buffer moves, and the view is rebuilt over it.
         int ri = rit->second;
-        runtimeStorage_[ri] = values;
+        runtimeStorage_[ri] = std::move(clamped);
         runtimeProfiles_[ri] = SpectralProfile(
-            runtimeStorage_[ri].data(), static_cast<int>(values.size()),
+            runtimeStorage_[ri].data(), static_cast<int>(runtimeStorage_[ri].size()),
             lambda_min_nm, lambda_step_nm);
         return &runtimeProfiles_[ri];
     }
 
     // New slot: deque push_back never invalidates existing element addresses.
-    runtimeStorage_.push_back(values);
+    runtimeStorage_.push_back(std::move(clamped));
     int ri = static_cast<int>(runtimeStorage_.size()) - 1;
     runtimeProfiles_.emplace_back(
-        runtimeStorage_[ri].data(), static_cast<int>(values.size()),
+        runtimeStorage_[ri].data(), static_cast<int>(runtimeStorage_[ri].size()),
         lambda_min_nm, lambda_step_nm);
     runtimeIndex_[name] = ri;
     return &runtimeProfiles_[ri];

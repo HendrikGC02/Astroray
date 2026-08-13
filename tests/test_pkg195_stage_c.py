@@ -77,6 +77,46 @@ def test_c1b_register_profile_overwrite_in_place():
     print("[C1b PASS] overwrite in place, no duplicate name")
 
 
+def test_c1c_register_clamps_reflectance_to_unit_range():
+    """PR #610 review hardening: values passed to register_spectral_profile are
+    clamped to the documented [0,1] reflectance range at registration, so a >1
+    curve cannot inject energy in ProfileMode::Replace. Stored samples clamp; a
+    negative clamps to 0."""
+    name = "__test__/pkg195c/hot"
+    # 2.0 everywhere over 300..1000 nm — a physically-impossible reflectance.
+    n = int((1000.0 - 300.0) / 5.0) + 1
+    assert astroray.register_spectral_profile(name, 300.0, 5.0, [2.0] * n)
+    for wl in (300.0, 550.0, 999.0):
+        r = astroray.spectral_profile_reflectance(name, wl)
+        assert r <= 1.0 + 1e-6, f"λ={wl}: stored reflectance {r} not clamped to <= 1"
+        assert abs(r - 1.0) < 1e-6, f"λ={wl}: expected clamp to 1.0, got {r}"
+    neg = "__test__/pkg195c/neg"
+    assert astroray.register_spectral_profile(neg, 300.0, 5.0, [-0.5] * n)
+    assert astroray.spectral_profile_reflectance(neg, 550.0) >= 0.0
+    print("[C1c PASS] register clamps reflectance samples to [0,1]")
+
+
+def test_c1d_replace_energy_bounded_by_clamp():
+    """The clamp keeps a Replace-mode render's energy bounded: a would-be >1
+    reflectance profile renders no brighter than a =1 profile (both clamp to 1),
+    and stays finite."""
+    if not HAS_PROFILES:
+        import pytest as _pytest
+        _pytest.skip("profiles.bin not found")
+    n = int((1000.0 - 300.0) / 5.0) + 1
+    astroray.register_spectral_profile("__test__/pkg195c/unit", 300.0, 5.0, [1.0] * n)
+    astroray.register_spectral_profile("__test__/pkg195c/over", 300.0, 5.0, [5.0] * n)
+    unit = _replace_mode_channels("__test__/pkg195c/unit")
+    over = _replace_mode_channels("__test__/pkg195c/over")
+    assert np.all(np.isfinite(over)), f"over-unit render non-finite: {over}"
+    # Clamped to identical stored data -> per-channel means match (same RNG seed).
+    assert np.allclose(unit, over, atol=1e-5), (
+        f"C1d FAIL: >1 profile ({over}) not bounded to =1 profile ({unit}) — clamp "
+        f"did not hold"
+    )
+    print(f"[C1d PASS] Replace energy bounded by clamp (unit={unit}, over={over})")
+
+
 # --------------------------------------------------------------------------- #
 # Shared render helper for the Replace-mode gates.
 # --------------------------------------------------------------------------- #

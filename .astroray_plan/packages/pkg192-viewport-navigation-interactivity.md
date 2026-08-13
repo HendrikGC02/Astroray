@@ -150,3 +150,139 @@ Cite `intern/cycles/blender/session.cpp` / `BlenderSession::reset` +
   kernel-perf package.
 - **No changes to the still-frame progressive loop** owned by pkg191; land pkg191
   first so fps profiling isn't confounded by a stalled accumulator.
+
+---
+
+## Hardware verification 2026-08-13 (PR #605, hw-605)
+
+**Hardware/software:** RTX 5070 Ti, Windows 11 Enterprise 10.0.26200, NVIDIA
+driver 610.47, CUDA 12.8 (nvcc V12.8.61), sm_120 confirmed via
+`cuobjdump --list-elf` on the fresh worktree build (`.pyd` build stamp
+sha=9cc88de5, matches PR #605 head). Verified in the implementer worktree
+`Astroray-pkg192` (branch `pkg192`), not the main checkout; branch was not
+rebased or pushed (freeze respected).
+
+Verifier note: the first `cmd /c build_cuda_worktree.bat ...` invocation from
+Git-Bash hit the known false-green failure mode ([[gitbash-cmd-c-pathconv-false-green]])
+-- banner-only output, exit 0, `.pyd` mtime unchanged. Re-ran via
+`powershell -Command "& '.uild_cuda_worktree.bat' ..."`, which built for
+real and confirmed sm_120. The compiled `.pyd` binary content itself did not
+change (PR #605 touches only `blender_addon/*.py`, `benchmarks/`, `tests/`),
+confirmed by an unchanged `.pyd` mtime post-build with an updated build stamp
+SHA -- i.e. nothing to relink, as expected for a Python-only diff.
+
+GPU was cold at test start (405 MHz idle). Burned in to steady P0
+(~2895 MHz, matching the documented ~2887 MHz baseline,
+[[gpu-perf-ab-clock-drift]]) with ~40s of sustained heavy rendering before
+taking any timing measurement.
+
+### 1. Re-measured before/after harness (independent re-run, not copied from PR body)
+
+`benchmarks/viewport_parity/run.py --tris 100000 --width 1280 --height 720
+--frames 40 --gpu-only --no-h3 [--camera-skip-upload]`, 3 runs per arm,
+min-of-N (post burn-in, GPU steady ~2467-2895 MHz across runs):
+
+| arm | run | render mean (ms) | frame mean (ms) | fps (1000/frame mean) | h1_upload_geometry_calls_per_frame_max |
+|---|---|---|---|---|---|
+| before (skip_upload=False) | 1 | 104.48 | 166.51 | 6.01 | 0 |
+| before (skip_upload=False) | 2 | 103.67 | 165.38 | 6.05 | 0 |
+| before (skip_upload=False) | 3 | 103.18 | 165.00 | 6.06 | 0 |
+| before **min-of-3** | -- | **103.18** | **165.00** | **6.06** | 0 |
+| after (skip_upload=True) | 1 | 54.46 | 115.67 | 8.64 | 0 |
+| after (skip_upload=True) | 2 | 54.17 | 115.51 | 8.66 | 0 |
+| after (skip_upload=True) | 3 | 54.05 | 115.49 | 8.66 | 0 |
+| after **min-of-3** | -- | **54.05** | **115.49** | **8.66** | 0 |
+
+Delta (min-of-N): render -47.6% (1.91x), frame mean -30.0%, fps +42.9%
+(6.06 -> 8.66). Independently reproduces the PR body's claimed numbers
+(before 103.98/167.54 ms -> 5.97 fps; after 54.68/118.45 ms -> 8.44 fps)
+within run-to-run variance (<1% spread across the 3 runs per arm) -- well
+clear of the ~5% clock-drift confound. **PASS.**
+
+### 2. Correctness
+
+**Fixed-camera equivalence** (100k-tri harness scene, 1280x720, 64 spp,
+depth 6, same camera, `skip_upload=False` vs `skip_upload=True`), per-channel
+mean ratio (independent-RNG, not SSIM per [[ssim-wrong-gate-for-independent-rng]]):
+
+| channel | mean (skip=False) | mean (skip=True) | ratio |
+|---|---|---|---|
+| R | 0.429756 | 0.429847 | 1.000212 |
+| G | 0.619995 | 0.619984 | 0.999983 |
+| B | 0.827681 | 0.827091 | 0.999288 |
+| overall | 0.625811 | 0.625641 | 0.999729 |
+
+All ratios within 64-spp MC noise band (no systematic energy shift). **PASS.**
+
+**Orbit sequence non-black/advancing** (9-frame pan+zoom+orbit path, 640x360,
+16 spp, frame 0 full upload then frames 1-8 `skip_upload=True`): all 9 frames
+non-black (`max > 1e-6`); consecutive-frame mean absolute pixel difference
+0.108-0.143 across all 8 transitions (camera visibly moving, not a stale
+blit). **PASS.**
+
+Saved PNGs (absolute paths, this machine):
+`C:/Users/hgcom/AppData/Local/Temp/claude/C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray/1651b099-8a7d-4e63-843e-dfb65f5d9f51/scratchpad/pkg192_bench/images/`
+(`fixed_camera_skip_false.png`, `fixed_camera_skip_true.png`,
+`orbit_frame00.png` .. `orbit_frame08.png`).
+
+### 3. Visual inspection
+
+Inspected `fixed_camera_skip_false.png` vs `fixed_camera_skip_true.png`
+(checkered-quad ground plane + sky background, the harness's synthetic
+scene) -- visually indistinguishable; only pixel-level independent MC noise
+speckle, no systematic shift. Inspected `orbit_frame00/04/08.png` -- camera
+visibly pans/zooms/orbits across the sequence (frame08 shows a rotated
+viewing angle vs frame00), ground plane geometry and palette colors
+unchanged. No fireflies, no banding/quantization artifacts, no NaN
+(magenta/black) pixels, no mode regressions. **PASS.**
+
+### 4. Test suite (re-run independently in the pkg192 worktree)
+
+```
+pytest tests/test_blender_viewport_session.py tests/test_viewport_parity_harness.py
+tests/test_viewport_perf_stats.py tests/test_blender_viewport_passes.py
+tests/test_pkg116_exporter_caches.py tests/test_pkg114_exporter_transform_dispatch.py
+tests/test_blender_progressive_accumulation.py tests/test_blender_backend_policy.py
+```
+-> **75 passed** (0 failed), matching the PR body's claimed count exactly,
+including the new guard test
+`test_view_draw_camera_only_frame_skips_geometry_upload`. **PASS.**
+
+### 5. Guard-logic sanity check (first frame after a real scene edit still uploads)
+
+Read `blender_addon/exporter.py` `view_draw` (lines ~716-760) and
+`view_update` (lines ~605-676): real scene edits fire Blender's depsgraph
+update and route through `view_update`, which calls
+`apply_depsgraph_updates`/`sync_viewport_scene` (full upload, sets
+`_viewport_full_synced = True`) and stamps `self._viewport_camera_hash` at
+the end of the same call -- *before* `view_draw` runs again. `view_draw`'s
+`camera_only_frame` gate is:
+
+```python
+camera_only_frame = (
+    not did_fresh_sync
+    and self._viewport_full_synced
+    and camera_changed
+)
+```
+
+`did_fresh_sync` is `self._viewport_texture is None` (first-ever frame,
+still forces upload). For a scene-edit frame with no camera motion,
+`camera_changed` is `False` (the hash was already stamped by `view_update`
+in the same tick), so `camera_only_frame` is `False` and the render path
+takes the `skip_upload=False` default -- no regression. This is exercised
+directly by `test_view_draw_camera_only_frame_skips_geometry_upload`
+(asserts the initial `view_update` sync renders with `skip_upload=False`,
+and only a subsequent camera-only `view_draw` renders with
+`skip_upload=True`). **PASS** (code-path confirmed; guard test green).
+
+### Anomalies
+
+None observed. GPU clock varied 2467-2895 MHz between blocks of runs (idle
+periods between harness invocations let it step down); did not confound the
+~30-43% measured deltas, which are ~6-9x the ~5% documented drift band.
+
+### Verdict: HW PASS
+
+All 5 verification steps pass. Numbers independently re-measured (not copied
+from the PR body) and corroborate the PR's claims within run-to-run noise.

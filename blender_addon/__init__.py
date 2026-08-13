@@ -1656,6 +1656,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             context, depsgraph, RAYTRACER_AVAILABLE,
             _configure_backend_for_context,
             _viewport_perf_record,
+            _viewport_perf_frame_complete,
             _effective_integrator_name,
             self._camera_state_hash,
             self._camera_substantive_state_hash,

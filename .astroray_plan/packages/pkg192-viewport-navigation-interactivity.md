@@ -2,7 +2,12 @@
 
 **Pillar:** 5 / integration-first
 **Track:** A
-**Status:** open (filed 2026-08-12 from owner hands-on addon feedback —
+**Status:** in review (PR #605, 2026-08-13 — Suspect A only: camera-only
+orbit/pan/zoom frames render with skip_upload=True, skipping the ~48ms per-frame
+CPU BVH rebuild; GPU 100k-tri 1280x720 min-of-N: render 103.98->54.68ms,
+frame 167.54->118.45ms, 5.97->8.44 fps. Suspect B reduced-res nav + the residual
+~27ms wavefront buildSceneArrays/upload floor deferred to a follow-up — see PR)
+(filed 2026-08-12 from owner hands-on addon feedback —
 memory [[owner-addon-feedback-2026-08-12]], finding #2)
 **Estimated effort:** M-L (diagnosis + cheapest high-leverage fixes only)
 

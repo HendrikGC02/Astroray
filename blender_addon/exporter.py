@@ -677,6 +677,7 @@ class Exporter:
 
     def view_draw(self, context, depsgraph, raytracer_available,
                  configure_backend_fn, viewport_perf_record_fn,
+                 viewport_perf_frame_complete_fn,
                  effective_integrator_name_fn, camera_state_hash_fn,
                  camera_substantive_state_hash_fn,  request_viewport_redraw_fn,
                  engine_methods):
@@ -716,17 +717,55 @@ class Exporter:
                 renderer = self._get_viewport_renderer()
                 # If user opened rendered-shading without ever firing view_update,
                 # renderer has no scene. Fall back to full sync.
-                if self._viewport_texture is None:
+                did_fresh_sync = self._viewport_texture is None
+                if did_fresh_sync:
                     self.sync_viewport_scene(renderer, depsgraph, settings,
                                             configure_backend_fn,
                                             viewport_perf_record_fn,
                                             effective_integrator_name_fn)
 
+                # pkg192: pure camera moves (orbit / pan / zoom) change ONLY the
+                # camera — geometry, BVH, materials, lights and environment are
+                # all identical to the last synced frame. Render from the current
+                # device state with skip_upload=True so we skip the per-frame CPU
+                # BVH rebuild (renderer.buildAcceleration), which the profile
+                # showed dominated orbit-frame cost (~48 ms of a ~100 ms render on
+                # a 100k-tri scene; benchmarks/viewport_parity). The camera is
+                # published separately by setup_viewport_camera, so a camera-only
+                # skip_upload render stays correct (verified: identical image at a
+                # fixed camera, image updates as the camera moves).
+                # view_draw NEVER re-syncs the scene (only view_update does), so
+                # on a camera move the geometry/BVH is guaranteed identical to
+                # the last sync. Guard: the fresh-sync fallback frame (and any
+                # frame before the scene was ever fully synced) still uploads so
+                # the BVH is built for the current geometry. Progressive
+                # still-frame refine frames (camera unchanged, pkg191's loop) are
+                # deliberately left on the upload path — this fix is scoped to
+                # camera-motion interactivity only.
+                # NOTE: settings_changed is NOT a valid exclusion here — the
+                # render key hashes the camera state, so it flips on every camera
+                # move; gating on camera_changed is what isolates orbit/pan/zoom.
+                camera_only_frame = (
+                    not did_fresh_sync
+                    and self._viewport_full_synced
+                    and camera_changed
+                )
+
+                t0 = time.perf_counter()
                 self.render_viewport_frame(
                     renderer, context, settings, region,
                     reset_accumulation=(camera_substantive_changed or settings_changed),
-                    engine_methods=engine_methods
+                    engine_methods=engine_methods,
+                    skip_upload=camera_only_frame,
                 )
+                # pkg192: record orbit/pan/zoom frames through the existing
+                # pkg56-A ring buffer. view_draw previously left camera-motion
+                # frames unprofiled (only view_update recorded), so the per-stage
+                # overlay / viewport_perf_stats never saw the interactive path
+                # that the owner's fps complaint is about.
+                viewport_perf_record_fn("render", t0)
+                viewport_perf_frame_complete_fn()
+
                 self._viewport_camera_hash = new_hash
                 self._viewport_camera_substantive_hash = new_substantive_hash
 

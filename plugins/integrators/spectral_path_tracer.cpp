@@ -6,6 +6,7 @@
 #include "astroray/manifold/mesh_attempt.h"    // pkg111: gatherTriangleCasters
 #include "astroray/manifold/mesh_caustic.h"    // pkg111: rayTriHit
 
+#include <array>      // pkg198: std::array<SampledSpectrum, PASS_COUNT> pass buffers
 #include <algorithm>  // pkg111: std::sort, std::min, std::max
 #include <cstdio>     // pkg113 CAUSTIC_DBG
 #include <cstdlib>    // pkg113 CAUSTIC_DBG (getenv)
@@ -218,11 +219,23 @@ public:
             cryptoDepth = camera_->cryptomatteDepth;
         }
 
+        // pkg198 Stage 1: per-pass spectral accumulators for the light-path AOVs.
+        // pathTraceSpectral splats every radiance contribution to exactly one pass
+        // (total partition), so Σpasses == rad exactly in spectral space.
+        std::array<astroray::SampledSpectrum, PASS_COUNT> passSpectra;
+        passSpectra.fill(astroray::SampledSpectrum(0.0f));
         astroray::SampledSpectrum rad =
             renderer_->pathTraceSpectral(ray, maxDepth_, lambdas, gen,
                                           &bounces, &weight, smsHook,
-                                          cryptoObjRanks, cryptoMatRanks, cryptoDepth);
+                                          cryptoObjRanks, cryptoMatRanks, cryptoDepth,
+                                          &passSpectra);
         astroray::XYZ xyz = rad.toXYZ(lambdas);
+        // Project each pass to XYZ (same convention as r.color); the render loop
+        // converts to linear sRGB alongside beauty so the sum invariant survives.
+        for (int p = 0; p < PASS_COUNT; ++p) {
+            astroray::XYZ pxyz = passSpectra[p].toXYZ(lambdas);
+            r.passes[p] = Vec3(pxyz.X, pxyz.Y, pxyz.Z);
+        }
 
         // pkg111: Add photon-mapped caustic at the first diffuse hit (when ready).
         if (photonMapReady_ && bvh) {
@@ -234,9 +247,15 @@ public:
                     rec.point, photonGatherK_, photonGatherRadius_);
                 const Vec3 alb = rec.material->getAlbedo();
                 // Lambertian receiver: L = (albedo/π) · E. The causticScale folds 1/π.
-                xyz.X += alb.x * E.X * photonCausticScale_;
-                xyz.Y += alb.y * E.Y * photonCausticScale_;
-                xyz.Z += alb.z * E.Z * photonCausticScale_;
+                Vec3 causticXYZ(alb.x * E.X * photonCausticScale_,
+                                alb.y * E.Y * photonCausticScale_,
+                                alb.z * E.Z * photonCausticScale_);
+                xyz.X += causticXYZ.x;
+                xyz.Y += causticXYZ.y;
+                xyz.Z += causticXYZ.z;
+                // pkg198: keep Σpasses == beauty when photon caustics are on — the
+                // gather lands on a diffuse receiver → diffuse-indirect pass.
+                r.passes[PASS_DIFFUSE_INDIRECT] += causticXYZ;
             }
         }
 

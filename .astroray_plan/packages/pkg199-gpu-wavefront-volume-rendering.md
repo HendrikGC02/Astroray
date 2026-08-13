@@ -2,13 +2,13 @@
 
 **Pillar:** 5 / integration-first (also 3 — CPU↔GPU parity)
 **Track:** A
-**Status:** Stage 1 in review (PR #611, 2026-08-14). GPU wavefront homogeneous-world
-Beer-Lambert absorption at CPU parity; furnace Tr matches analytic exp(-σ·d) to
-<0.02; shade kernel byte-identical REG 254/STACK 3352/CONST 1700. **hw-611 HW FAIL
-(sphere-light NEE fog saturation — a 1e30 occlusion sentinel used as the Beer-Lambert
-path length) FIXED** (true geometric NEE distance; see the "Hardware verification"
-audit block below and the fix commit); pending adversarial re-review + a fresh HW
-gate. Stage 2 open (spec-only below — full scattering medium).
+**Status:** Stage 1 done (PR #611, 2026-08-14 — HW PASS after fix 6e7bf6d). GPU
+wavefront homogeneous-world Beer-Lambert absorption at CPU parity; furnace Tr
+matches analytic exp(-σ·d) to <2e-4; shade kernel byte-identical REG 254/STACK
+3352/CONST 1700. **hw-611 HW FAIL (sphere-light NEE fog saturation — a 1e30
+occlusion sentinel used as the Beer-Lambert path length) FIXED** (true geometric
+NEE distance; see the "Hardware verification" audit blocks below) and re-verified
+HW PASS. Stage 2 open (spec-only below — full scattering medium, XL, CPU-first).
 **Estimated effort:** Stage 1 M (landed); Stage 2 XL (new scattering subsystem).
 **Depends on:** pkg55-C7 wavefront dispatch; [[wavefront-shade-kernels-register-saturated]].
 

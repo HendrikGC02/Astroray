@@ -1,5 +1,100 @@
 # Astroray Status
 
+**2026-08-13 → 2026-08-14 (round closeout, 8 PRs merged #605–#612, no open
+PRs at closeout): viewport navigation goes from a slog to interactive
+(5.97→18.52 fps, 3.1x combined), Principled tinted-layer/thin-wall spectral
+carry closes pkg188's 72% band-error finding, the GPU wavefront gains
+denoise-guide AOVs + a working world-volume fog + procedural textures, the
+camera-view overlay is now pixel-exact, and pkg195 (spectral node system) is
+FULLY COMPLETE across all three stages.**
+- **pkg192 DONE** (PR #605) — viewport navigation interactivity, Suspect A:
+  camera-only orbit/pan/zoom frames skip the per-frame CPU BVH rebuild
+  (`skip_upload=True`); GPU 100k-tri 1280x720 min-of-N render 103.98→54.68ms,
+  frame 167.54→118.45ms, **5.97→8.44 fps**. HW PASS.
+- **pkg196 DONE** (PR #609) — Suspect B, layered on pkg192: reduced-res
+  viewport nav (divisor N=2, Cycles-style), settle window snaps back to full
+  res / hands off to pkg191's progressive loop. Orbit fps **8.36→18.52 p50
+  (2.2x)**, same harness/scene as pkg192 — combined pkg192+pkg196 is
+  **5.97→18.52 fps (3.1x)**. HW PASS.
+- **pkg193 DONE** (PR #607) — camera-view overlay alignment: two bugs in
+  `_apply_camera` (viewport off-center-frustum terms read from the wrong
+  matrix cells; F12 datablock shift missing Blender's film-fit `viewfac`
+  scaling). Worst-case corner offset **158–223px → 0.00px** across 8
+  conditions (17-case gate). Pure-Python addon fix, no `.pyd` rebuild
+  needed; CI-gate only (no HW dispatch required).
+- **pkg194 DONE** (PR #606) — Principled tinted-layer spectral-carry +
+  thin-wall per-λ, both pkg188 Finding-C descopes. Register-gate probe
+  PASSED (`<false>` byte-identical to main) so both shipped CPU+GPU. Band
+  error on the pkg188 tint-over-base cases: **72.46%→0.00%**,
+  34.93%→0.00%, 20.14%→0.00%, 5.36%→0.00%. HW PASS.
+- **pkg197 DONE** (PR #608) — GPU wavefront denoise-guide AOVs
+  (albedo/normal/depth) captured at the intersect stage (shade kernel
+  untouched, byte-identical REG:254/STACK:3352/CONSTANT[0]:1700); also wired
+  `applyPasses`/OIDN into the GPU render route for the first time (was
+  beauty-only). Denoise A/B: guided edge-MSE 0.001491 vs guideless 0.001621,
+  **+8.0% improvement**. GPU renders now actually denoise. HW PASS.
+- **pkg199 Stage 1 DONE** (PR #611) — GPU wavefront homogeneous-world
+  Beer-Lambert absorption, CPU+GPU (also re-wires the CPU spectral tracer,
+  which had carried dead volume code since pkg14). Spec premise corrected by
+  git-archaeology first: the CPU never had HG in-scatter/NEE-through-medium;
+  only dead Beer-Lambert absorption existed. Furnace Tr vs analytic
+  `exp(-σ·d)` matches to **<2e-4**; shade kernel byte-identical. **hw-611 HW
+  FAIL → FIX → HW PASS**: the sphere-light NEE leg used a 1e30 occlusion
+  sentinel as the Beer-Lambert path length, saturating the fog to black;
+  fixed to the true geometric NEE distance (commit 6e7bf6d), re-verified HW
+  PASS. Stage 2 (full HG scattering medium, XL, CPU-first) filed spec-only,
+  open.
+- **pkg190 DONE** (PR #612) — GPU procedural texture support (checker/brick/
+  magic/wave) via 3D-voxel bake-at-upload, reusing the cited CPU evaluators.
+  **pkg119-B re-baselined first** (the "5 residual TRANSLATION-BUGs" story
+  was stale/false): real set was 4 nodes, all now PASS (TEX_CHECKER
+  0.8425→0.9512, TEX_BRICK 0.8980→0.9158, TEX_MAGIC 0.8358→0.9639, TEX_WAVE
+  0.8935→0.9575) — **TRANSLATION-BUG 4→0, summary 25→30 pass**. Register
+  fleet gate: all 16 `stageShadeBucketedKernel` specializations byte-
+  identical before/after. **hw-612 HW FAIL → FIX → HW PASS**: `scripts/
+  run_parity.py`'s scene-routing guard didn't recognize the new
+  `textured_plane` scene (fell through to a no-op leg) and its EXR reader
+  (`imageio.v3`) silently truncated to uint8 and zeroed the green channel;
+  both fixed (commit b2b42eb), re-verified CPU/GPU mean-ratio **1.0000 /
+  0.9996 / 0.9998**.
+- **pkg195 Stage C DONE** (PR #610) — **pkg195 is now FULLY COMPLETE (all
+  three stages, A+B+C)**. `register_spectral_profile` (pointer-stable deque
+  storage), Drawn Spectrum node (Blender-native `CurveMapping`, the owner's
+  headline "draw exactly which wavelengths" control), Spectrum Preset +
+  Blackbody Spectrum nodes + bake-to-profile operator, in-band Replace mode
+  (bypasses the Jakob-Hanika RGB round trip, routes to the CPU MW
+  integrator), IR/UV Response de-fanged (no more destructive grey-Disney
+  promotion), Sellmeier manual B/C read again (silently dropped since
+  pkg57). Gate C all green; headless Blender 5.1 end-to-end confirms a
+  drawn 550nm bump renders green-dominant (G=0.4396>R=0.2642>B=0.0003);
+  manual BK7 vs preset dispersion 0.00% apart; 16/16 A/B+parity gates
+  unchanged (GPU degradation documented, not regressed).
+- **Specs filed this round:** pkg196/197/198/199 (PR from the prior
+  addendum's vetted set) — pkg196, pkg197, pkg199 Stage 1 all DONE above;
+  **pkg198** (GPU wavefront light-path AOV passes, register-hostile,
+  probe-first — "may park") remains OPEN.
+- **Pre-existing gap surfaced during pkg199 review, not fixed here:** the
+  opt-in caustic integrator (`pathTraceSpectralCaustic`) and the CPU
+  wavefront reference do not read `c_worldVolume`/world-volume absorption at
+  all — a caustic render through fog ignores the fog. Documented as a Stage
+  1 non-goal in the pkg199 spec; candidate for a follow-up spec, not filed
+  yet.
+- **Open follow-ups carried forward:** pkg198 (light-path AOV passes),
+  pkg199 Stage 2 (full scattering medium, XL, CPU-first), pkg131
+  (zero-knob adaptive sampling, wavefront leg), the pkg176-line deep
+  per-setting F12 pixel-honour matrix (deferred to a later addon HW
+  session, no dedicated spec), and two unfiled follow-up chips: the legacy
+  (non-dedicated) `add_sun_light` GPU-dimness finding surfaced during pkg194
+  review (pkg89 Phase B's `add_sun_light_dedicated` doesn't reproduce it;
+  diagnosis-first, not filed), and an Object-coordinate-mode guard for the
+  pkg190 procedural bake (the 3D-voxel bake covers Generated-space nodes
+  only per spec scope; Object-coordinate-mode procedural textures have no
+  explicit GPU guard/fallback documented — could silently misrender if hit).
+- **Round verification discipline:** every code PR dual-gated (CI +
+  independent RTX hardware verification), two of eight (pkg199, pkg190)
+  went through a full HW FAIL → fix → re-verify HW PASS cycle before
+  merge.
+
 **2026-08-13 (post-closeout addendum — 3 more PRs merged overnight, #601–
 #603, on top of the round closeout below): CUDA-arch infra root cause
 closed, GPU wavefront dispersion goes live, and the HEADLINE lamp-lighting
@@ -559,6 +654,176 @@ pkg151/pkg147 open, HELD by pr-merger for owner approval on CMakeLists
 touches. Full round closeout pending.
 
 **Last updated:** 2026-07-20 (Overnight autonomous run on the travel laptop — RTX 3000 Ada sm_89, CUDA 13.2, no OptiX SDK. **pkg55 Phase C Sessions C3+C4 landed** (PR #486 non-visible-band + naive-MW wavefront; PR #490 TLAS/instancing + deformation-motion in the wavefront) and **C5 is open-verified** (PR #494 photon caustics, 2/2 gates + 40-test regression green on RTX, not yet merged) — Phase C is now 5 of 7 sessions done/verified. **pkg89 GAP-1 landed** (PR #489 — dedicated lights uploaded to GPU, Blender-lamp scenes stop rendering DARK on GPU: AREA 0.998 / POINT 0.997 parity) with **GAP-2 energy audit** escalated to pkg122. **pkg121 Phase A** chi² sampler harness (PR #485 — Mitsuba BSD-3 port; Lambertian anchor passes p=0.23; Disney spec-lobe failures xfail'd → pkg123). **pkg119-A** Blender parity coverage matrix (PR #487 — v4 AST-scanned: 131 SUPPORTED / 23 APPROXIMATED / 370 DROPPED-SILENT / 20 stale sockets of 524). 15 new specs filed (pkg123-137) covering correctness/sampling + eight platform techniques + material candidates. Direct-to-main: root-shadow-pyd trap killed (94ae956), permissions allowlist (1efe9bc), pkg115-harness CUDA-13 fix (3778f37), other-engines research sweep (7a4c970).).
+
+## Round closeout 2026-08-13 → 2026-08-14 — viewport navigation interactive (3.1x), spectral node system fully complete, GPU denoise-guide AOVs + world-volume fog + procedural textures, camera overlay pixel-exact
+
+**8 PRs merged (#605–#612), no open PRs at closeout.** See the top-of-file
+summary for the full headline; this section is the archival record.
+
+### pkg192 — viewport navigation interactivity, Suspect A (PR #605, 2026-08-13)
+
+Camera-only orbit/pan/zoom frames route `view_draw` through
+`render(skip_upload=True)`, skipping the ~48ms per-frame CPU BVH rebuild
+(`buildAcceleration`) that a diagnosis-first profile isolated as the
+dominant, resolution-independent cost. GPU 100k-tri 1280x720 min-of-N:
+render 103.98→54.68ms, frame 167.54→118.45ms, **5.97→8.44 fps (+41%)**. The
+residual ~27ms wavefront `buildSceneArrays`/upload floor (unconditional,
+untouched by the flag) and reduced-res navigation (Suspect B) deferred to a
+follow-up — landed this same round as pkg196, below.
+
+### pkg196 — reduced-resolution viewport navigation, Suspect B (PR #609, 2026-08-13)
+
+Layers Cycles-style reduced-res navigation onto the pkg192 camera-only path:
+while the camera moves, `view_draw` renders at `region/N × region/N` and
+upscales (bilinear) for display; a settle window snaps back to full res and
+hands off to pkg191's progressive still-frame loop. Divisor **N=2** chosen
+by measurement (matches Cycles' default; N=4 saved ~10 more fps but was
+visibly blocky). Measured orbit fps (same pkg192 harness/scene, min-of-N):
+**8.36→18.52 fps p50 (2.2x)** — combined with pkg192, **5.97→18.52 fps
+(3.1x)** overall. Settled full-res path byte-identical to pre-change
+(guarded test); pkg191's progressive accumulation untouched.
+
+### pkg193 — camera-view overlay alignment (PR #607, 2026-08-13)
+
+Fixes the owner's "camera-view overlays don't line up with the preview
+render" report. Two bugs in `blender_addon/__init__.py::_apply_camera`: (1)
+the viewport path read the wrong `window_matrix` cells for the off-center-
+frustum principal-point shift (lens shift + pan/zoom + sensor-fit) — fixed
+by inverting OpenGL `perspective_m4` directly; (2) the F12 datablock path
+passed raw `shift_x/shift_y` without Blender's film-fit `viewfac` scaling
+(cites Cycles `blender_camera_viewplane`, Apache-2.0). Measured against real
+Blender 5.1 `window_matrix` captures: worst-case corner offset **223.43px
+(viewport) / 42.00px (F12) → 0.00px** across 8 conditions (base/aspect/
+lens-shift/pan/zoom/sensor-fit/combo), 17-case regression gate. Pure-Python
+addon fix — no `.cu/.cpp/.h` touched, no `.pyd` rebuild, CI-gate only.
+
+### pkg194 — Principled tinted-layer spectral-carry + thin-wall per-λ (PR #606, 2026-08-13)
+
+Carries both pkg188 Finding-C descopes. **Probe-first**: the register-gate
+probe (`stageShadeBucketedKernel<HasPrincipled,...>`, 16 specializations)
+decided the GPU restructure was allowed — `<false>` (non-Principled)
+byte-identical to main, `<true>` STACK +1192B with REG still capped at
+254 — so both items shipped CPU+GPU. Item 1: `assembleLobes` now carries a
+running per-λ layering weight, upsampling each chromatic factor separately
+(`upsample(a)·upsample(b)`, never `upsample(a·b)`); band error on pkg188's
+tint-over-base cases: **72.46%→0.00%**, 34.93%→0.00%, 20.14%→0.00%,
+5.36%→0.00%. Item 2: thin-wall R'/T' now per-λ native instead of RGB-
+upsampled (`base(λ)^(-1/cosθt)` is nonlinear in base). CPU↔GPU render
+parity mean-ratios in [0.9989, 1.0021] across both items.
+
+### pkg197 — GPU wavefront denoise-guide AOVs (PR #608, 2026-08-13)
+
+The GPU render path produced only the beauty buffer — albedo/normal/depth
+stayed zero, so OIDN/OptiX ran guide-less and Blender's Denoising Data
+passes were empty on GPU. Captured at the wavefront **intersect stage**
+(bounce-0, sample-0), so the register-saturated shade kernel is untouched
+(byte-identical REG:254/STACK:3352/CONSTANT[0]:1700). CPU↔GPU parity:
+albedo mean-ratio in [0.92,1.09], depth in [0.97,1.03], normal cosine
+0.9998. Denoise A/B on an 8spp GPU render: guided edge-MSE 0.001491 vs
+guideless 0.001621, **+8.0% improvement**. Beyond the literal spec (flagged
+and reviewed): also wired `applyPasses`/OIDN/OptiX/cryptomatte into the GPU
+render route for the first time — GPU renders now actually denoise, not
+just carry guide buffers nobody consumed.
+
+### pkg199 Stage 1 — GPU wavefront homogeneous world-volume absorption (PR #611, 2026-08-14)
+
+**Spec-premise correction (git-archaeology, before implementation):** the
+original spec claimed the CPU had a working HG-in-scatter world volume to
+port "exactly." False — there was no HG phase, in-scatter, distance
+sampling, or NEE-through-medium anywhere in git history; the only volume
+code (`worldTransmittance`, Beer-Lambert absorption) had been dead since
+pkg14 deleted the legacy RGB integrator that called it. Spec rewritten into
+Stage 1 (this PR) + Stage 2 (spec-only, XL). **Ships:** per-λ Beer-Lambert
+absorption `exp(-σ_t[λ]·d)` on GPU wavefront (intersect + shadow kernels
+only — shade kernel byte-identical by construction) AND re-wires the same
+absorption into the CPU spectral tracer (completing the orphaned pkg14
+feature). Analytic furnace Tr vs `exp(-σ·d)` matches to **<2e-4**. **hw-611
+HW FAIL → FIX → HW PASS:** the sphere-light NEE leg used a 1e30 occlusion
+sentinel as the Beer-Lambert path length instead of the true geometric NEE
+distance, saturating fog renders to black; fixed (commit 6e7bf6d), all 5
+verification steps re-confirmed PASS on re-check. Stage 2 (full HG
+scattering medium, CPU-first, XL) filed spec-only, open — the caustic
+integrator and CPU wavefront reference explicitly do not carry world-volume
+absorption even in Stage 1 (documented non-goal, candidate follow-up).
+
+### pkg190 — GPU procedural texture support (PR #612, 2026-08-14)
+
+Closes the pkg119-B flat-albedo drop for procedural texture nodes
+(checker/brick/magic/wave) via 3D-voxel bake-at-upload (Generated-
+coordinate 3D fields, reusing the cited CPU evaluators). **Mandated
+re-baseline first surfaced a stale premise:** the historical "5 residual
+TRANSLATION-BUGs" story was false; fresh pkg119-B (Blender 5.2, OpenMP-off,
+res64/spp16) found the real set was 4 nodes, all fixed here — **TRANSLATION-
+BUG 4→0, summary 25→30 pass** (TEX_CHECKER 0.8425→0.9512, TEX_BRICK
+0.8980→0.9158, TEX_MAGIC 0.8358→0.9639, TEX_WAVE 0.8935→0.9575). Register
+fleet gate: all 16 `stageShadeBucketedKernel` specializations byte-identical
+before/after (only the `HasTexture` branch changed). **hw-612 HW FAIL →
+FIX → HW PASS:** `scripts/run_parity.py`'s scene-routing guard didn't
+recognize the new `textured_plane` scene (silently fell through to a no-op
+leg) and its EXR reader (`imageio.v3`) truncated to uint8, zeroing the
+green channel and nan-poisoning the ratio; both fixed (commit b2b42eb),
+re-verified CPU/GPU mean-ratio **1.0000/0.9996/0.9998** — an exact match to
+the verifier's own independent bypass measurement from the first session.
+
+### pkg195 Stage C — spectral node system remainder; pkg195 now FULLY COMPLETE (PR #610, 2026-08-13)
+
+All 7 spec items: `astroray.register_spectral_profile` (pointer-stable
+deque storage — materials cache raw `SpectralProfile*` across a render);
+Drawn Spectrum node (hidden `ShaderNodeFloatCurve`, the owner's headline
+"draw exactly which wavelengths" control); Spectrum Preset node (two-tier
+category→preset, routes through the same Replace path as the old node for
+.blend compat); Blackbody Spectrum node + bake-to-profile operator (Planck
+at 5nm); in-band Replace mode (`ProfileMode::{ExtendOnly,Replace}` —
+Replace bypasses the Jakob-Hanika RGB round trip entirely, routes visible-
+band CPU renders to the multiwavelength integrator); IR/UV Response node
+de-fanged (constant-band ExtendOnly profile, destructive grey-Disney
+promotion deleted, visible render byte-identical); Sellmeier manual B/C
+read again in `dielectric.cpp` (silently dropped since pkg57). Gate C all
+green: drawn 550nm bump G=0.4396>R=0.2642>B=0.0003 on headless Blender 5.1;
+manual BK7 vs preset prism dispersion 6.350px vs 6.350px (0.00%); 16/16
+Stage A/B + GPU-parity gates unchanged (`enable_nee` contract intact; GPU
+Replace-mode degradation is documented, not regressed). **pkg195 is now
+DONE across all three stages (A, B, C).**
+
+### Specs filed this round, not yet fully landed
+
+**pkg198** (filed alongside pkg196/197/199 as the same PR's GPU-parity
+vetted set) — GPU wavefront light-path AOV passes, register-hostile,
+explicitly **probe-first, may park**. Remains OPEN.
+
+### Cross-cutting: two HW FAIL → fix → PASS cycles this round
+
+**pkg199 (hw-611):** a 1e30 occlusion sentinel used as the Beer-Lambert
+NEE path length saturated fog to black under a sphere light — fixed to the
+true geometric NEE distance, re-verified PASS. **pkg190 (hw-612):** the new
+`textured_plane` parity scene wasn't recognized by `run_parity.py`'s
+routing guard (silent no-op leg) and its EXR reader zeroed the green
+channel via an unconfigured `imageio` plugin — both fixed in one commit,
+re-verified PASS with an exact match to the verifier's own independent
+bypass measurement. Both fixes shipped same-day as the original PR before
+merge; neither package needed a second PR.
+
+### pkg119-B reclassification (surfaced by pkg190)
+
+The long-standing "5 residual TRANSLATION-BUGs" figure was stale/false. A
+fresh re-baseline (current main, OpenMP-off `build_blender_addon_cuda`,
+Blender 5.2, res64/spp16) found `BSDF_TRANSPARENT` and `world:World` now
+PASS (confirming an earlier SSIM-false-positive disproof) and the real set
+was **4 nodes, all procedural textures**, all fixed by pkg190. pkg119-B
+summary is now **30 pass**, TRANSLATION-BUG **0**.
+
+### Open follow-ups (not closed, tracked forward, do not re-derive)
+
+pkg198 (GPU light-path AOV passes, probe-first), pkg199 Stage 2 (full
+scattering medium, XL, CPU-first), pkg131 (zero-knob adaptive sampling,
+wavefront leg), the pkg176-line deep per-setting F12 pixel-honour matrix
+(deferred, no dedicated spec), the caustic-integrator/CPU-wavefront-
+reference world-volume gap pkg199 documented as a Stage-1 non-goal (fog is
+invisible to the caustic integrator), the legacy non-dedicated
+`add_sun_light` GPU-dimness finding from the pkg194 review (not yet
+diagnosed or filed), and an Object-coordinate-mode guard for the pkg190
+procedural bake (Generated-space only per spec scope; Object-coordinate
+procedural textures have no explicit GPU guard/fallback).
 
 ## Round closeout 2026-08-12 → 2026-08-13 — GPU capability restoration (textures, viewport progressive refinement) + Principled spectral correctness (conductor thin-film, dispersion, transmission separation) + build-integrity guard; HEADLINE FINDING: NIR/UV lamp-lit renders are black end-to-end
 

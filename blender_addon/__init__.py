@@ -469,6 +469,26 @@ def _effective_integrator_name(settings):
     return _resolve_auto_integrator(settings)
 
 
+def _route_replace_to_mw(has_replace_profile, is_outside_visible, active_device,
+                         integrator_name):
+    """pkg195 Stage C: decide whether to override the integrator to the
+    multiwavelength path tracer so a Replace-mode authored spectrum (Drawn /
+    Spectrum Preset / Spectral Profile source node) is consulted per-λ in the
+    visible band. Only the MW integrator calls evalSpectralExt; the default
+    path_tracer never does, so without this the authored reflectance is a visible
+    no-op (the pkg57 failure Stage C fixes).
+
+    Restricted to CPU: Replace is CPU-exact, and the GPU MW leg is the
+    light-sampling-blind naive oracle (enableNEE contract, blender_module.cpp:1822)
+    that would only render darker — GPU keeps its integrator and the degradation
+    report notes the approximation. Returns True when the caller should switch to
+    'multiwavelength_path_tracer'."""
+    return (bool(has_replace_profile)
+            and not is_outside_visible
+            and active_device == "cpu"
+            and integrator_name != "multiwavelength_path_tracer")
+
+
 def _integrator_capabilities(name):
     try:
         return astroray.integrator_capabilities(name)
@@ -1197,6 +1217,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
             is_outside_visible = (lmax > 780.0 or lmin < 380.0)
             if is_outside_visible:
                 renderer.set_output_mode("luminance")
+            # pkg195 Stage C: a Replace-mode authored spectrum (Drawn / Spectrum
+            # Preset / Spectral Profile source node wired to a Surface) is only
+            # consulted per-λ by the multiwavelength integrator. In the visible band
+            # the default path_tracer never calls evalSpectralExt, so the authored
+            # reflectance would be a no-op (the pkg57 failure this stage fixes).
+            # Route visible-band CPU renders to the MW integrator when such a
+            # material is present. GPU keeps its integrator: Replace is CPU-exact
+            # (the degradation report notes the GPU approximation), and the GPU MW
+            # leg is the light-sampling-blind naive oracle (enableNEE contract,
+            # blender_module.cpp:1822) which would only render darker.
+            if _route_replace_to_mw(
+                    getattr(self, "_has_replace_profile", False),
+                    is_outside_visible, active_device, integrator_name):
+                integrator_name = "multiwavelength_path_tracer"
+                self._degradation_report().approximate(
+                    "Spectral Replace material",
+                    "routed to multiwavelength integrator for per-λ reflectance")
             renderer.set_integrator(integrator_name)
             has_denoise_pass = False
             if settings.use_denoising and not is_outside_visible:
@@ -2078,6 +2115,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
         _settings = getattr(depsgraph.scene, "custom_raytracer", None)
         self._use_native_principled_flag = bool(
             getattr(_settings, "use_native_principled", True))
+        # pkg195 Stage C: whether this render targets the GPU (for the Replace-mode
+        # spectral degradation note — GPU keeps ExtendOnly semantics).
+        self._device_is_gpu = (
+            bool(getattr(renderer, "_use_gpu", False))
+            or getattr(_settings, "device_mode", "auto") == "gpu")
+        # pkg195 Stage C: set True when any material gets a Replace-mode authored
+        # spectrum, so render() can route the visible-band CPU render to the MW
+        # integrator (the only transport that consults evalSpectralExt in-band).
+        self._has_replace_profile = False
         # pkg115 generated-coords: textures created in GENERATED mode while
         # converting a material are recorded per material name so
         # convert_objects can bake each using object's bounding box onto them
@@ -2105,6 +2151,25 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # it locally and only let it drop after this function returns.
         def _apply_spectral_profile(material_id):
             try:
+                # pkg195 Stage C: a source node (Drawn / Spectrum Preset / Spectral
+                # Profile) wired to a Surface registers+attaches its profile with an
+                # explicit mode (Replace for reflectance sources, ExtendOnly for the
+                # IR/UV band wrapper). Honor that over the pkg58 material-panel
+                # fallback, which stays ExtendOnly and must NOT clobber it.
+                node_prof = getattr(self, "_current_node_profile", None)
+                if node_prof is not None:
+                    name, replace = node_prof
+                    if name and hasattr(renderer, "set_material_spectral_profile"):
+                        renderer.set_material_spectral_profile(material_id, name, replace)
+                        if replace:
+                            self._has_replace_profile = True
+                            # Replace mode is CPU-exact only; the GPU MW kernel keeps
+                            # ExtendOnly semantics (out-of-band only) — report the drop.
+                            if getattr(self, "_device_is_gpu", False):
+                                self._degradation_report().ignore(
+                                    "Spectral Replace mode",
+                                    "GPU renders out-of-band only; CPU is exact")
+                    return material_id
                 mat_settings = getattr(mat, "custom_raytracer", None)
                 profile = getattr(mat_settings, "spectral_profile", "__none__") if mat_settings else "__none__"
                 if (hasattr(renderer, "set_material_spectral_profile") and
@@ -2116,6 +2181,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             except Exception:
                 pass
             return material_id
+        self._current_node_profile = None
 
         # P3-c probe & fix (BUG-09): inline_shader_nodes() may strip custom node
         # subclasses. Check the original tree for Astroray nodes; if present but
@@ -2200,20 +2266,66 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return self._create_astroray_material(
                 self._astroray_sellmeier_spec(wired, mat), renderer, node_tree)
         if bl_idname == 'AstrorayShaderNodeIrUvResponse':
-            return self._create_astroray_material(
-                self._astroray_ir_uv_spec(wired, mat), renderer, node_tree)
+            return self._astroray_ir_uv_material(wired, mat, renderer, node_tree)
         if bl_idname == 'AstrorayShaderNodeNrcHint':
             return self._create_astroray_material(
                 self._astroray_nrc_hint_spec(wired, mat, renderer), renderer, node_tree)
-        if bl_idname == 'AstrorayShaderNodeSpectralProfile':
-            # A bare spectral-profile node wired to Surface produces a neutral
-            # diffuse that the spectral profile multiplies — matches pkg58.
+        if bl_idname in ('AstrorayShaderNodeSpectralProfile',
+                         'AstrorayShaderNodeSpectrumPreset',
+                         'AstrorayShaderNodeDrawnSpectrum'):
+            # pkg195 Stage C: a spectrum SOURCE node wired to Surface produces a
+            # neutral white diffuse whose per-λ reflectance is the authored
+            # spectrum, attached in Replace mode (drives all λ, bypassing the JH
+            # RGB round trip). _register_source_node_profile records the profile
+            # + mode into self._current_node_profile for _apply_spectral_profile.
+            self._register_source_node_profile(wired, mat)
             return self._create_astroray_material(
-                {'kind': 'astroray_spectral_only',
-                 'profile': self._astroray_read_profile(wired, mat)},
-                renderer, node_tree)
+                {'kind': 'astroray_spectral_only'}, renderer, node_tree)
         # Cycles / standalone fallback: dispatch through the existing path.
         return self.convert_shader_node(wired, renderer, node_tree)
+
+    def _register_source_node_profile(self, node, mat):
+        """pkg195 Stage C: resolve a spectrum source node to a profile NAME and
+        record (name, replace=True) in self._current_node_profile. Drawn nodes
+        register their curve as a runtime profile first; Preset/Spectral Profile
+        nodes name a DB profile directly."""
+        self._current_node_profile = None
+        bl_idname = getattr(node, 'bl_idname', '')
+        name = ''
+        if bl_idname == 'AstrorayShaderNodeDrawnSpectrum':
+            name = self._register_drawn_spectrum(node, mat)
+        elif bl_idname == 'AstrorayShaderNodeSpectrumPreset':
+            prof = getattr(node, 'profile', '') or ''
+            name = prof if prof and prof != '__none__' else ''
+        else:  # AstrorayShaderNodeSpectralProfile
+            name = self._astroray_read_profile(node, mat)
+        if name:
+            self._current_node_profile = (name, True)  # Replace mode
+
+    def _register_drawn_spectrum(self, node, mat):
+        """Evaluate a Drawn Spectrum node's CurveMapping at 5 nm and register it as
+        a runtime profile under __blend__/<mat>/<node>. Returns the name, or ''."""
+        if (not RAYTRACER_AVAILABLE or astroray_nodes is None
+                or not hasattr(astroray, 'register_spectral_profile')):
+            return ''
+        sampler = getattr(astroray_nodes, 'sample_drawn_spectrum', None)
+        if sampler is None:
+            return ''
+        try:
+            sampled = sampler(node)
+        except Exception:
+            sampled = None
+        if not sampled:
+            return ''
+        lmin, step, values = sampled
+        owner = getattr(mat, 'name', 'material') or 'material'
+        name = f"__blend__/{owner}/{getattr(node, 'name', 'drawn')}"
+        try:
+            if not astroray.register_spectral_profile(name, lmin, step, list(values)):
+                return ''
+        except Exception:
+            return ''
+        return name
 
     def _astroray_read_profile(self, node, mat):
         """Read the spectral profile name from an AstroraySpectralProfile node,
@@ -2259,25 +2371,53 @@ class CustomRaytracerRenderEngine(RenderEngine):
             spec['preset'] = getattr(astro, 'sellmeier_preset', '') if astro else ''
         return spec
 
-    def _astroray_ir_uv_spec(self, node, mat):
-        """IR/UV response wraps a base BSDF (its Surface input). For now we
-        promote the wrapper itself to a Disney with the band reflectance
-        applied as a tint — a full multi-band response material is pkg-future
-        work; this keeps the node functional without inventing a closure."""
-        base_node = None
+    def _astroray_ir_uv_material(self, node, mat, renderer, node_tree):
+        """pkg195 Stage C: NON-DESTRUCTIVE IR/UV Response. The wired base BSDF
+        converts normally (base colour preserved — the pkg57 grey-Disney
+        promotion is gone), and the node only attaches a constant-band ExtendOnly
+        profile built from its band + reflectance. Because ExtendOnly touches only
+        λ outside [380,780] nm, the visible render is pixel-identical to the base
+        with no node present."""
         surface_in = node.inputs.get('Surface')
         if surface_in is not None and surface_in.is_linked:
-            base_node = surface_in.links[0].from_node
-        # P3-b fix (BUG-13): profile was hard-disabled by `if False`. Now reads
-        # the actual profile from the Response node so IR/UV materials render
-        # non-black outside the visible band.
-        return {
-            'kind': 'astroray_ir_uv',
-            'band': getattr(node, 'band', 'ir'),
-            'reflectance': float(getattr(node, 'reflectance', 0.5)),
-            'profile': self._astroray_read_profile(node, mat),
-            'base_bl_idname': getattr(base_node, 'bl_idname', '') if base_node else '',
-        }
+            base_id = self.convert_shader_node(
+                surface_in.links[0].from_node, renderer, node_tree)
+        else:
+            # No base wired — neutral diffuse, still non-destructive.
+            base_id = renderer.create_material('disney', [0.8, 0.8, 0.8], {})
+        band = getattr(node, 'band', 'ir')
+        reflectance = float(getattr(node, 'reflectance', 0.5))
+        name = self._register_ir_uv_band_profile(node, mat, band, reflectance)
+        if name:
+            self._current_node_profile = (name, False)  # ExtendOnly (out-of-band)
+        return base_id
+
+    def _register_ir_uv_band_profile(self, node, mat, band, reflectance):
+        """Register a constant-in-band reflectance profile (0 outside the band)
+        over 300-1000 nm @ 5 nm. IR: 700-1000, UV: 300-400, both: both bands."""
+        if (not RAYTRACER_AVAILABLE or astroray_nodes is None
+                or not hasattr(astroray, 'register_spectral_profile')):
+            return ''
+        grid = getattr(astroray_nodes, 'spectrum_grid', None)
+        step = getattr(astroray_nodes, 'DRAWN_SPECTRUM_STEP_NM', 5.0)
+        if grid is None:
+            return ''
+        count, lmin, lmax = grid(300.0, 1000.0, step)
+        in_ir = band in ('ir', 'both')
+        in_uv = band in ('uv', 'both')
+        values = []
+        for i in range(count):
+            wl = lmin + i * step
+            hit = (in_ir and 700.0 <= wl <= 1000.0) or (in_uv and 300.0 <= wl <= 400.0)
+            values.append(reflectance if hit else 0.0)
+        owner = getattr(mat, 'name', 'material') or 'material'
+        name = f"__blend__/{owner}/{getattr(node, 'name', 'iruv')}"
+        try:
+            if not astroray.register_spectral_profile(name, lmin, step, list(values)):
+                return ''
+        except Exception:
+            return ''
+        return name
 
     def _astroray_nrc_hint_spec(self, node, mat, renderer):
         """NRC hint is a passthrough — it annotates the underlying BSDF and
@@ -2319,19 +2459,6 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 params['sellmeier_c'] = spec['sellmeier_c']
             return renderer.create_material('dielectric', list(spec.get('tint', [1, 1, 1])), params)
 
-        if kind == 'astroray_ir_uv':
-            # Promote to a neutral Disney; the IR/UV reflectance is exposed as
-            # the base color for the chosen band. Spectral-aware multi-band
-            # closures live in the integrator layer (pkg58/60) and are picked
-            # up automatically via the spectral_profile path when set.
-            # P3-b fix (BUG-13): upload the spectral profile from the node.
-            r = float(spec.get('reflectance', 0.5))
-            mat_id = renderer.create_material('disney', [r, r, r], {'roughness': 0.5})
-            profile = spec.get('profile', '')
-            if profile and hasattr(renderer, 'set_material_spectral_profile'):
-                renderer.set_material_spectral_profile(mat_id, profile)
-            return mat_id
-
         if kind == 'astroray_passthrough':
             inner = spec.get('inner')
             if inner is None:
@@ -2339,7 +2466,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return self.convert_shader_node(inner, renderer, node_tree)
 
         if kind == 'astroray_spectral_only':
-            # Profile is applied via _apply_spectral_profile in the caller.
+            # pkg195 Stage C: a neutral WHITE diffuse; the authored spectrum is the
+            # per-λ reflectance, attached in Replace mode via _apply_spectral_profile
+            # (self._current_node_profile was set by _register_source_node_profile).
             return renderer.create_material('disney', [1.0, 1.0, 1.0], {})
 
         # Unknown kind — neutral fallback.

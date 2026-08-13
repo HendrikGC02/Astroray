@@ -552,13 +552,22 @@ public:
     }
 
     // pkg39: Spectral profile for outside-visible multi-wavelength rendering.
-    void setSpectralProfile(const astroray::SpectralProfile* p) { spectralProfile_ = p; }
+    // pkg195 Stage C: `mode` selects ExtendOnly (default; out-of-band only) vs
+    // Replace (profile drives all λ, bypassing the JH upsample).
+    void setSpectralProfile(const astroray::SpectralProfile* p,
+                            astroray::ProfileMode mode = astroray::ProfileMode::ExtendOnly) {
+        spectralProfile_ = p;
+        profileMode_ = mode;
+    }
     const astroray::SpectralProfile* getSpectralProfile() const  { return spectralProfile_; }
+    astroray::ProfileMode getSpectralProfileMode() const { return profileMode_; }
 
     // evalSpectral with profile override for outside-visible wavelengths (pkg39).
     // Wavelengths in [380, 780]: use the existing Jakob-Hanika sigmoid path (no change).
     // Wavelengths outside [380, 780] with profile: use profile reflectance x cosTheta/pi.
     // Wavelengths outside [380, 780] without profile: return 0 (physically honest).
+    // pkg195 Stage C: in Replace mode the profile drives ALL λ (visible included),
+    // never constructing an RGBAlbedoSpectrum (design doc §3.1 principle 2).
     astroray::SampledSpectrum evalSpectralExt(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,
             const astroray::SampledWavelengths& lambdas) const {
@@ -575,6 +584,16 @@ public:
         }
         float cosTheta = wi.dot(rec.normal);
         if (cosTheta <= 0.0f) return astroray::SampledSpectrum(0.0f);
+        if (profileMode_ == astroray::ProfileMode::Replace) {
+            // Authored SPD drives every wavelength; pure Lambertian transport with
+            // per-λ reflectance = profile(λ). No JH round-trip.
+            astroray::SampledSpectrum result;
+            for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+                result[i] = spectralProfile_->reflectance(lambdas.lambda(i))
+                          * cosTheta / float(M_PI);
+            }
+            return result;
+        }
         astroray::SampledSpectrum base = evalSpectral(rec, wo, wi, lambdas);
         astroray::SampledSpectrum result;
         for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
@@ -595,6 +614,14 @@ public:
         bss.wi = bs.wi;
         bss.pdf = bs.pdf;
         bss.isDelta = bs.isDelta;
+        // pkg195 Stage C: in Replace mode the authored SPD is the reflectance for
+        // every λ — route the non-delta BSDF factor straight through evalSpectralExt
+        // so it never passes through the RGB-upsample branch below.
+        if (spectralProfile_ && profileMode_ == astroray::ProfileMode::Replace
+                && !bs.isDelta) {
+            bss.f_spectral = evalSpectralExt(rec, wo, bs.wi, lambdas);
+            return bss;
+        }
         // pkg118 / #404: factor the exit eta^2 (>1) out so the albedo LUT clamp does not
         // clip it (see sampleSpectral above for the full rationale).
         if (bs.isDelta) {
@@ -621,6 +648,7 @@ public:
 
 private:
     const astroray::SpectralProfile* spectralProfile_ = nullptr;
+    astroray::ProfileMode profileMode_ = astroray::ProfileMode::ExtendOnly;  // pkg195 Stage C
     std::string name_;  // pkg87a — for Cryptomatte material ID
 };
 

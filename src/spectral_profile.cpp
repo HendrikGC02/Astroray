@@ -59,9 +59,51 @@ void SpectralProfileDatabase::load(const std::string& path) {
 }
 
 const SpectralProfile* SpectralProfileDatabase::get(const std::string& name) const {
+    // File-loaded profiles take precedence; runtime profiles register under
+    // distinct __blend__/... names (Stage C), so collisions are not expected.
     auto it = index_.find(name);
-    if (it == index_.end()) return nullptr;
-    return &profiles_[it->second];
+    if (it != index_.end()) return &profiles_[it->second];
+    auto rit = runtimeIndex_.find(name);
+    if (rit != runtimeIndex_.end()) return &runtimeProfiles_[rit->second];
+    return nullptr;
+}
+
+const SpectralProfile* SpectralProfileDatabase::registerProfile(
+        const std::string& name, float lambda_min_nm, float lambda_step_nm,
+        const std::vector<float>& values) {
+    if (values.empty() || lambda_step_nm <= 0.0f) return nullptr;
+
+    auto rit = runtimeIndex_.find(name);
+    if (rit != runtimeIndex_.end()) {
+        // Overwrite in place: keep the deque slot address stable so any cached
+        // SpectralProfile* held by a material stays valid; only the underlying
+        // sample buffer moves, and the view is rebuilt over it.
+        int ri = rit->second;
+        runtimeStorage_[ri] = values;
+        runtimeProfiles_[ri] = SpectralProfile(
+            runtimeStorage_[ri].data(), static_cast<int>(values.size()),
+            lambda_min_nm, lambda_step_nm);
+        return &runtimeProfiles_[ri];
+    }
+
+    // New slot: deque push_back never invalidates existing element addresses.
+    runtimeStorage_.push_back(values);
+    int ri = static_cast<int>(runtimeStorage_.size()) - 1;
+    runtimeProfiles_.emplace_back(
+        runtimeStorage_[ri].data(), static_cast<int>(values.size()),
+        lambda_min_nm, lambda_step_nm);
+    runtimeIndex_[name] = ri;
+    return &runtimeProfiles_[ri];
+}
+
+std::vector<std::string> SpectralProfileDatabase::names() const {
+    std::vector<std::string> all = names_;              // file order first
+    all.reserve(names_.size() + runtimeIndex_.size());
+    // Append runtime names in registration order (deque index order).
+    std::vector<std::string> runtimeOrdered(runtimeIndex_.size());
+    for (const auto& kv : runtimeIndex_) runtimeOrdered[kv.second] = kv.first;
+    for (auto& n : runtimeOrdered) all.push_back(std::move(n));
+    return all;
 }
 
 } // namespace astroray

@@ -98,6 +98,21 @@ public:
                 }
             }
         }
+        // pkg195 Stage C: manual Sellmeier B/C coefficients. When no preset is
+        // active, the Astroray Sellmeier Glass node sends sellmeier_b/sellmeier_c
+        // float3 triples (the addon socket defaults are the Schott BK7 terms).
+        // Previously these were exported but no engine code read them — the
+        // "manual coefficients" UI was a silent no-op. A non-zero B vector turns
+        // on dispersion using the supplied coefficients.
+        if (!dispersive_) {
+            Vec3 bMan = p.getVec3("sellmeier_b", Vec3(0.0f));
+            Vec3 cMan = p.getVec3("sellmeier_c", Vec3(0.0f));
+            if (bMan.length2() > 0.0f) {
+                sellmeierB_ = bMan;
+                sellmeierC_ = cMan;
+                dispersive_ = true;
+            }
+        }
     }
 
     bool isTransmissive() const override { return true; }

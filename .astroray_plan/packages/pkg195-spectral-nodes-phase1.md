@@ -6,9 +6,11 @@
 0.0709 > 0.05, snow/water NIR ratio 4.82, MW↔path_tracer visible parity 1.00;
 sodium lamp linear RGB (0.673, 0.127, 0.000) amber, cie_f2 differs 100% on blue;
 headless Blender 5.1 render confirms amber sodium vs neutral cie_f2). Stage C
-(register_spectral_profile + Drawn/Preset/Blackbody spectrum nodes + in-band
-Replace mode + IR/UV de-fang + Sellmeier B/C) remains OPEN — independently
-landable. Filed 2026-08-12 from the owner-directed spectral-node design session;
+done (PR TBD, 2026-08-14 — register_spectral_profile + Drawn/Preset/Blackbody
+spectrum nodes + in-band Replace mode + IR/UV de-fang + Sellmeier B/C; Gate C all
+green, headless Blender drawn 550 nm bump G=0.4396>R=0.2642>B=0.0003, manual BK7
+B/C == bk7 preset 0.00%, 16/16 A/B+parity gates unchanged). All three stages
+landed. Filed 2026-08-12 from the owner-directed spectral-node design session;
 design doc: `.astroray_plan/docs/spectral-node-system-design-2026-08.md`.
 **Estimated effort:** L (three gated stages; each independently landable)
 **Depends on:** nothing in flight. Touches `multiwavelength_path_tracer.cpp`
@@ -134,14 +136,39 @@ over a white sphere, visible band, CPU → hue must land amber
 ratios by > 10%. Test lives with the pkg119b-style harness
 (`ASTRORAY_PYD_DIR` + absolute out-dir conventions).
 
-## Stage C — spectrum sources + honest material nodes — OPEN (descoped from the A+B PR)
+## Stage C — spectrum sources + honest material nodes — DONE (PR TBD, 2026-08-14)
 
-> Not started. Independently landable; nothing in A+B blocks it. Note for the
-> implementer: A+B already added `SpectralProfile::lambdaMin/lambdaStep/count`
-> getters and the `spectral_profile_range` binding, and the light panel's
-> `custom_profile` mode is wired to `_spectral_profile_items` — so a
-> `register_spectral_profile` insert method (item 1) immediately feeds the Stage-B
-> custom-profile dropdown.
+> **Landed 2026-08-14.** All 7 items shipped. `register_spectral_profile(name,
+> lmin, step, values)` binding inserts into `SpectralProfileDatabase` via
+> pointer-stable deque storage (materials cache `SpectralProfile*` across a
+> render; a push_back must not dangle them). `ProfileMode::{ExtendOnly,Replace}`
+> added to `setSpectralProfile`; Replace drives all λ via
+> `profile->reflectance(λ)·cosθ/π`, bypassing the JH RGB round trip
+> (`raytracer.h` evalSpectralExt/sampleSpectralExt). Three source nodes
+> (Drawn Spectrum with a native CurveMapping, Spectrum Preset two-tier, Blackbody
+> Spectrum) + a Bake-to-Profile operator. IR/UV Response de-fanged: base BSDF
+> converts normally, node only attaches a constant-band ExtendOnly profile
+> (visible render byte-identical). Sellmeier manual B/C now read in
+> `dielectric.cpp` (matched the bk7 preset within 0.00%). A visible-band CPU
+> render with a Replace-mode material is routed to the MW integrator (the only
+> transport that consults evalSpectralExt in-band; the pkg57 no-op fix); GPU keeps
+> its integrator + a degradation note (Replace is CPU-exact, enableNEE contract
+> untouched). Gate results below.
+>
+> **Gate C (all green, CPU, sm_120 build):**
+> - C1 register_spectral_profile roundtrip + interpolation exact vs numpy;
+>   overwrite-in-place (no duplicate name).
+> - C2 paint_red vs grass_green Replace mode: paint_red R=0.0152≫G=0.0012 (R-dom),
+>   grass_green G=0.0050>R=0.0049 (G-dom), G/R signatures 3×+ apart — was the
+>   |Δmean|=0.00028 no-op.
+> - C3 IR/UV ExtendOnly band profile: visible render BYTE-IDENTICAL to base.
+> - C4 manual BK7 B/C vs bk7 preset prism dispersion: 6.350px vs 6.350px (0.00%).
+> - C5 drawn-equivalent 550 nm bump green-dominant; flat SPD neutral.
+> - Headless Blender 5.1 drawn-spectrum end-to-end (CPU, OpenMP-off build):
+>   550 nm bump curve → G=0.4396>R=0.2642>B=0.0003 (clean green sphere PNG),
+>   flat curve neutral (span 0.009); MW-routing degradation note confirmed fired.
+> - Stage A/B (6) + 10 GPU-parity gates: 16/16 unchanged (enable_nee contract
+>   intact).
 
 1. **`astroray.register_spectral_profile(name, lambda_min_nm, lambda_step_nm,
    values: list[float])`** pybind binding inserting into

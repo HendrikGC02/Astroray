@@ -2,7 +2,7 @@
 
 **Pillar:** 5 / integration-first
 **Track:** A
-**Status:** done (PR #TBD, 2026-08-14 — 3D-voxel bake-at-upload GPU procedural
+**Status:** done (PR #612, 2026-08-14 — 3D-voxel bake-at-upload GPU procedural
 eval; pkg119-B TRANSLATION-BUG 4→0: TEX_CHECKER 0.8425→0.9512, TEX_BRICK
 0.8980→0.9158, TEX_MAGIC 0.8358→0.9639, TEX_WAVE 0.8935→0.9575, all at 64³;
 register identity gate byte-identical across all 16 shade specializations;

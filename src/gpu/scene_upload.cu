@@ -693,6 +693,12 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         if (g.type == GMAT_CLOSURE_GRAPH && g.closureCount >= 1 &&
             g.closures[0].type == GCLOSURE_PRINCIPLED)
             r.hasPrincipled = true;
+        // pkg189: flag scenes carrying ANY dispersive material so the wavefront
+        // launcher selects the <*,*,*,true> shade kernel (hero-λ collapse
+        // write-back). Set for both the Sellmeier dielectric (GMAT_DIELECTRIC)
+        // and the Cauchy Principled glass (GMAT_CLOSURE_GRAPH) paths above.
+        if (g.isDispersive)
+            r.hasDispersive = true;
         // pkg186 — bake an image-texture base color (TexturedLambertian holding
         // an ImageTexture) into the flat device texel buffer and record its id in
         // the per-material parallel array. Keeps materialTextureId[] index-aligned

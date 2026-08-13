@@ -44,6 +44,18 @@ that every lamp-lit NIR/UV render is black end-to-end.**
   no shipped Blender exposes a Dispersion socket (unmerged upstream WIP
   #162041 — the addon got a forward-compatible probe); `test_gpu_prism_
   rainbow_parity`'s XPASS was vacuous, xfail retained.
+- **pkg189 DONE** (PR #603, 2026-08-13) — GPU wavefront hero-λ dispersion
+  enablement. Root cause: the wavefront shade kernel never persisted the
+  sampler's `terminateSecondary()` hero-collapse back to the per-path SoA, so
+  the mutated λ-pdfs evaporated each bounce and `spectrumToXYZ` kept summing all
+  4 wavelengths (achromatic). Fix: SoA write-back gated by a compile-time
+  `HasDispersion` 4th axis (zero REG/STACK — `<*,*,*,0>`≡`<*,*,*,1>`, fleet
+  `<0,0,0,0>` REG:254/STACK:3352). GPU dispersion now LIVE for BOTH families:
+  dielectric BK7 disp/flat **0.5508**, Principled **0.5507** (were ~1.00 no-op),
+  CPU/GPU per-channel parity within 4%, visually-confirmed spectral rainbow on a
+  glass sphere. `test_pkg64_gpu_cpu_parity` un-xfailed → real mean-ratio gate;
+  pkg187 GPU no-op gate flipped to assert live dispersion. Flat-prism *photon*
+  caustic still noise (2-face-GPU-photon follow-up — orthogonal, out of scope).
 - **pkg184 DONE** (PR #597, 2026-08-12) — `template<bool HasPhotons>`
   isolation of the photon-caustic k-NN gather (8 kernel instantiations):
   every HasPhotons=false variant strictly below baseline (STACK

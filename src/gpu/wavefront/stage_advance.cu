@@ -385,7 +385,26 @@ __constant__ GWavefrontTextureBinding c_wfTexBinding;
 // kernel. Threading HasPhotons lets the fleet's non-photon <*,*,false> kernels
 // compile with ZERO gather codegen; the launcher picks <true> off hasPhotonGrid.
 // See .astroray_plan/packages/pkg184-stage-advance-hasphotons-isolation.md.
-template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPhotons = false>
+// pkg189 — HasDispersion isolates the hero-λ collapse write-back for dispersive
+// refraction (dielectric Sellmeier + Principled Cauchy glass) behind
+// `if constexpr`. The dispersive sampler (gpu_material_sample_spectral) calls
+// wl.terminateSecondary() on a refraction event, which zeroes the secondary
+// wavelengths' pdfs on the LOCAL `lambdas` reconstructed from SoA at the top of
+// this function. Without persisting that mutated `lambdas` back to the per-path
+// SoA, the collapse evaporates the moment this bounce returns: the next bounce
+// re-reads the un-collapsed pdfs, and stageRegenKernel's spectrumToXYZ still sums
+// all 4 wavelengths — so every dispersive path deposits a broadband spectrum at a
+// hero-bent location and the chromatic separation washes out to flat-IOR glass
+// (the pkg187 no-op: GPU BK7 0.2139 ≈ flat 0.2131). The CPU wavefront mirror
+// (src/cpu/wavefront/path_kernel.cpp::advance_one_bounce) does not need this: its
+// ps.lambdas is a member of the persistent PathState, so the collapse persists
+// for free. Threading HasDispersion lets the fleet's non-dispersive
+// <*,*,*,false> kernels compile with ZERO extra live state (the REG:254-pinned
+// shade kernel stays byte-identical); the launcher picks <true> off the
+// host-side hasDispersive scene flag. See
+// .astroray_plan/packages/pkg189-gpu-wavefront-dispersion-enablement.md.
+template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPhotons = false,
+         bool HasDispersion = false>
 __device__ bool shadePathSlot(
     int idx,
     GPUWavefrontState& state,
@@ -887,6 +906,28 @@ __device__ bool shadePathSlot(
     state.was_specular[idx] = wasSpecular ? 1 : 0;
     state.rng_dimension[idx] = rng.dimension();
 
+    // pkg189 — persist the hero-λ collapse. gpu_material_sample_spectral above
+    // called wl.terminateSecondary() on a dispersive refraction event (setting
+    // lambda[i]=lambda[0], pdf[i]=0 for the secondaries). Write the mutated
+    // lambdas back to SoA so the collapse survives into the next bounce AND into
+    // stageRegenKernel's spectrumToXYZ accumulation (which skips pdf==0 samples).
+    // For a non-refracting dispersive hit lambdas is unchanged, so this writes
+    // back identical values (bit-neutral). Compiled out entirely on the
+    // <*,*,*,false> fleet kernels via if constexpr, keeping their footprint and
+    // output bit-identical (register gate). Placed only on the surviving/max-depth
+    // path: the RR-kill and pdf<=0 early returns above cannot follow a collapse
+    // (RR runs before sampling; a dispersive refraction always yields pdf=1).
+    if constexpr (HasDispersion) {
+        state.lambda_0[idx] = lambdas.lambda[0];
+        state.lambda_1[idx] = lambdas.lambda[1];
+        state.lambda_2[idx] = lambdas.lambda[2];
+        state.lambda_3[idx] = lambdas.lambda[3];
+        state.lambda_pdf_0[idx] = lambdas.pdf[0];
+        state.lambda_pdf_1[idx] = lambdas.pdf[1];
+        state.lambda_pdf_2[idx] = lambdas.pdf[2];
+        state.lambda_pdf_3[idx] = lambdas.pdf[3];
+    }
+
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;
     if (next_bounce >= max_depth) {
@@ -1060,7 +1101,7 @@ __global__ void stageIntersectQueuedKernel(
     shade_queues[matType * capacity + slot] = idx;
 }
 
-template<bool HasPrincipled, bool HasTexture, bool HasPhotons>  // pkg178 D4; pkg186 texture; pkg184 photons
+template<bool HasPrincipled, bool HasTexture, bool HasPhotons, bool HasDispersion>  // pkg178 D4; pkg186 texture; pkg184 photons; pkg189 dispersion
 __global__ void stageShadeBucketedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1096,7 +1137,7 @@ __global__ void stageShadeBucketedKernel(
     // pkg186: texture data comes from the __constant__ c_wfTexBinding symbol, NOT
     // kernel params — keeps the untextured <false,false> signature at its
     // pre-pkg186 footprint (see c_wfTexBinding note above).
-    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons>(idx, state, hitBufs, tlas, instances, blas,
+    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons, HasDispersion>(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
                                totalLightPower, dedLights, numDed,
@@ -1222,7 +1263,11 @@ void launchStageShadeBucketed(
     // NOT passed here — the driver publishes it to c_wfTexBinding (constant
     // memory) once per frame via setWavefrontTextureBinding, so this signature
     // (shared by the untextured fleet kernel) stays at its pre-pkg186 footprint.
-    bool              hasTexture)
+    bool              hasTexture,
+    // pkg189: selects the <*,*,*,true> instantiation carrying the hero-λ collapse
+    // write-back. Host-side flag (any uploaded material isDispersive); the
+    // non-dispersive fleet passes false and stays register/stack-identical.
+    bool              hasDispersion)
 {
     if (capacity <= 0) return;
     // One launch covers all buckets: grid = NUM_TYPES * capacity threads;
@@ -1264,37 +1309,61 @@ void launchStageShadeBucketed(
         // scenes launch <*,*,false>, whose ptxas footprint drops back below the
         // pre-pkg184 kernel (acceptance = cuobjdump on the <false,false,false>
         // symbol, native sm_120). All 8 are referenced so they land in the cubin.
+        // pkg189: hasDispersion adds a 4th orthogonal axis. It selects the ONLY
+        // instantiations carrying the hero-λ collapse SoA write-back; the fleet's
+        // non-dispersive scenes launch <*,*,*,false>, byte-identical to the
+        // pre-pkg189 <*,*,*> kernels (acceptance = cuobjdump on the
+        // <false,false,false,false> symbol vs a same-pipeline main baseline). The
+        // 4-bit selector picks one of the 16 instantiations; all 16 are referenced
+        // so they land in the cubin for the register report.
         const bool hasPhotons = hasPhotonGrid;
-        const void* kptr =
-            hasPrincipled
-                ? (hasTexture
-                    ? (hasPhotons ? (const void*)stageShadeBucketedKernel<true, true, true>
-                                  : (const void*)stageShadeBucketedKernel<true, true, false>)
-                    : (hasPhotons ? (const void*)stageShadeBucketedKernel<true, false, true>
-                                  : (const void*)stageShadeBucketedKernel<true, false, false>))
-                : (hasTexture
-                    ? (hasPhotons ? (const void*)stageShadeBucketedKernel<false, true, true>
-                                  : (const void*)stageShadeBucketedKernel<false, true, false>)
-                    : (hasPhotons ? (const void*)stageShadeBucketedKernel<false, false, true>
-                                  : (const void*)stageShadeBucketedKernel<false, false, false>));
+        const int sel = (hasPrincipled ? 8 : 0) | (hasTexture ? 4 : 0)
+                      | (hasPhotons ? 2 : 0) | (hasDispersion ? 1 : 0);
+        #define ASTRORAY_PKG189_KPTR(P,T,Ph,D) \
+                (const void*)stageShadeBucketedKernel<P,T,Ph,D>
+        const void* kptr = nullptr;
+        switch (sel) {
+            case  0: kptr = ASTRORAY_PKG189_KPTR(false,false,false,false); break;
+            case  1: kptr = ASTRORAY_PKG189_KPTR(false,false,false,true ); break;
+            case  2: kptr = ASTRORAY_PKG189_KPTR(false,false,true ,false); break;
+            case  3: kptr = ASTRORAY_PKG189_KPTR(false,false,true ,true ); break;
+            case  4: kptr = ASTRORAY_PKG189_KPTR(false,true ,false,false); break;
+            case  5: kptr = ASTRORAY_PKG189_KPTR(false,true ,false,true ); break;
+            case  6: kptr = ASTRORAY_PKG189_KPTR(false,true ,true ,false); break;
+            case  7: kptr = ASTRORAY_PKG189_KPTR(false,true ,true ,true ); break;
+            case  8: kptr = ASTRORAY_PKG189_KPTR(true ,false,false,false); break;
+            case  9: kptr = ASTRORAY_PKG189_KPTR(true ,false,false,true ); break;
+            case 10: kptr = ASTRORAY_PKG189_KPTR(true ,false,true ,false); break;
+            case 11: kptr = ASTRORAY_PKG189_KPTR(true ,false,true ,true ); break;
+            case 12: kptr = ASTRORAY_PKG189_KPTR(true ,true ,false,false); break;
+            case 13: kptr = ASTRORAY_PKG189_KPTR(true ,true ,false,true ); break;
+            case 14: kptr = ASTRORAY_PKG189_KPTR(true ,true ,true ,false); break;
+            case 15: kptr = ASTRORAY_PKG189_KPTR(true ,true ,true ,true ); break;
+        }
+        #undef ASTRORAY_PKG189_KPTR
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_shade_bucketed_n7", kptr, blocks, threads);
-        if (hasPrincipled && hasTexture && hasPhotons)
-            stageShadeBucketedKernel<true, true, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
-        else if (hasPrincipled && hasTexture)
-            stageShadeBucketedKernel<true, true, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
-        else if (hasPrincipled && hasPhotons)
-            stageShadeBucketedKernel<true, false, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
-        else if (hasPrincipled)
-            stageShadeBucketedKernel<true, false, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
-        else if (hasTexture && hasPhotons)
-            stageShadeBucketedKernel<false, true, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
-        else if (hasTexture)
-            stageShadeBucketedKernel<false, true, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
-        else if (hasPhotons)
-            stageShadeBucketedKernel<false, false, true><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
-        else
-            stageShadeBucketedKernel<false, false, false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS);
+        #define ASTRORAY_PKG189_LAUNCH(P,T,Ph,D) \
+                stageShadeBucketedKernel<P,T,Ph,D><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS)
+        switch (sel) {
+            case  0: ASTRORAY_PKG189_LAUNCH(false,false,false,false); break;
+            case  1: ASTRORAY_PKG189_LAUNCH(false,false,false,true ); break;
+            case  2: ASTRORAY_PKG189_LAUNCH(false,false,true ,false); break;
+            case  3: ASTRORAY_PKG189_LAUNCH(false,false,true ,true ); break;
+            case  4: ASTRORAY_PKG189_LAUNCH(false,true ,false,false); break;
+            case  5: ASTRORAY_PKG189_LAUNCH(false,true ,false,true ); break;
+            case  6: ASTRORAY_PKG189_LAUNCH(false,true ,true ,false); break;
+            case  7: ASTRORAY_PKG189_LAUNCH(false,true ,true ,true ); break;
+            case  8: ASTRORAY_PKG189_LAUNCH(true ,false,false,false); break;
+            case  9: ASTRORAY_PKG189_LAUNCH(true ,false,false,true ); break;
+            case 10: ASTRORAY_PKG189_LAUNCH(true ,false,true ,false); break;
+            case 11: ASTRORAY_PKG189_LAUNCH(true ,false,true ,true ); break;
+            case 12: ASTRORAY_PKG189_LAUNCH(true ,true ,false,false); break;
+            case 13: ASTRORAY_PKG189_LAUNCH(true ,true ,false,true ); break;
+            case 14: ASTRORAY_PKG189_LAUNCH(true ,true ,true ,false); break;
+            case 15: ASTRORAY_PKG189_LAUNCH(true ,true ,true ,true ); break;
+        }
+        #undef ASTRORAY_PKG189_LAUNCH
         #undef ASTRORAY_PKG186_SHADE_ARGS
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {

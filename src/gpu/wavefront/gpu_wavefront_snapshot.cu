@@ -1574,7 +1574,8 @@ std::vector<float> cuda_wavefront_render(
                                      d_cryptoObj, d_cryptoMat,     // pkg159
                                      cryptoOn ? cryptoDepth : 0,
                                      res.hasPrincipled,  // pkg178 Stage-3b D4
-                                     res.hasTexture);     // pkg186 (data via c_wfTexBinding)
+                                     res.hasTexture,      // pkg186 (data via c_wfTexBinding)
+                                     res.hasDispersive);  // pkg189 hero-λ collapse write-back
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4

@@ -105,6 +105,13 @@ class PrincipledPlugin : public Material {
     struct Lobe {
         LobeKind kind;
         Vec3 weight{1, 1, 1};  // spectral layering weight (RGB; upsampled per-λ)
+        // pkg194 Item 1: per-λ layering weight, assembled by upsampling each chromatic
+        // factor SEPARATELY and multiplying in the spectral domain (upsample(a)·upsample(b),
+        // never upsample(a·b) — the JH colour×colour nonlinearity, pkg188 Finding-C descope).
+        // Populated only when assembleLobes receives a wavelength grid (spectral paths);
+        // the continuous spectral eval reads this instead of upsample(L.weight). Seeded
+        // to 1 so a default (RGB-only) assembly is inert.
+        astroray::SampledSpectrum weightSpec{1.0f};
         Vec3 color{1, 1, 1};   // reflectance colour (base_color / specular f0 / base_color)
         float roughness = 0.0f;
         float ior = 1.5f;
@@ -512,6 +519,76 @@ class PrincipledPlugin : public Material {
             (&Tp.x)[c] = Tc;
         }
     }
+    // pkg194 Item 2 — one-wavelength generalized-Schlick (r,t), per-λ twin of
+    // thinGlassSchlickChannel. `f0c` is the per-λ artist f0 (F0_from_ior(ior_)·
+    // specularTint(λ)); the film branch uses the per-wavelength sensitivitySpectral
+    // (not the CIE-RGB LUT), the film-off branch is achromatic in eta.
+    void thinGlassSchlickSpectralOne(float iorParam, float filmIor, float cosThetaI,
+                                     float lambda, float f0c, float& r, float& t,
+                                     float* rCosThetaT) const {
+        namespace tf = astroray::thinfilm;
+        float F;
+        if (filmActive()) {
+            auto S = [lambda](float argOPD) { return tf::sensitivitySpectral(argOPD, lambda); };
+            F = tf::fresnelIridescenceChannel<false>(1.0f, thinFilmThickness_, filmIor, iorParam,
+                                                     0.0f, -1.0f, cosThetaI, rCosThetaT, S);
+            const float F0real = F0_from_ior(iorParam);
+            if (F0real > 1e-5f && F != 1.0f)
+                F = thinFilmF0RescaleChannel(F, f0c, F0real);
+        } else {
+            tf::TFDielectric d = tf::fresnelDielectricPolarized(cosThetaI, iorParam);
+            if (rCosThetaT) *rCosThetaT = d.cosThetaT;
+            const float Freal = 0.5f * (d.Rs + d.Rp);
+            const float F0real = F0_from_ior(iorParam);
+            const float s = std::clamp((Freal - F0real) / (1.0f - F0real), 0.0f, 1.0f);
+            F = f0c + (1.0f - f0c) * s;
+        }
+        r = F;
+        t = 1.0f - F;
+    }
+    // pkg194 Item 2 — per-λ native combined thin-glass R'(λ)/T'(λ), spectral twin of
+    // thinGlassFresnelRGB. The Beer absorption base(λ)^(-1/cosθt), the specular-tint
+    // f0 and (when a film is present) the iridescence sensitivity are all evaluated
+    // per wavelength, so R'/T' feed the reflect/transmit lobes as true spectra — the
+    // pkg163/pkg182 discipline, never an upsample-of-RGB product (base(λ)^p is
+    // nonlinear in base, so upsample(base^p) ≠ upsample(base)^p). Front refraction
+    // cosine is achromatic (ior_ carries no dispersion in the thin-wall model).
+    void thinGlassFresnelSpectral(float cosThetaI, const astroray::SampledWavelengths& lam,
+                                  astroray::SampledSpectrum& Rp,
+                                  astroray::SampledSpectrum& Tp) const {
+        namespace tf = astroray::thinfilm;
+        astroray::SampledSpectrum tintSpec = upsample(specularTint_, lam);
+        astroray::SampledSpectrum baseSpec = upsample(baseColor_, lam);
+        const float F0front = F0_from_ior(ior_);
+        const bool film = filmActive();
+        float filmIorBack = thinFilmIor_;
+        if (film) tf::adjustThinFilmIorAtBackface(filmIorBack, 1.0f / ior_);
+        float cosThetaT = 0.0f;  // achromatic front refraction (film-free reference)
+        {
+            float r0, t0;
+            thinGlassSchlickSpectralOne(ior_, thinFilmIor_, cosThetaI, lam.lambda(0),
+                                        F0front * tintSpec[0], r0, t0, &cosThetaT);
+        }
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+            float lambda = lam.lambda(i);
+            float f0c = F0front * tintSpec[i];
+            float r1, t1, ct;
+            thinGlassSchlickSpectralOne(ior_, thinFilmIor_, cosThetaI, lambda, f0c, r1, t1, &ct);
+            float r2 = r1, t2 = t1;
+            if (film) {
+                float unused;
+                thinGlassSchlickSpectralOne(1.0f / ior_, filmIorBack, -cosThetaT, lambda, f0c,
+                                            r2, t2, &unused);
+            }
+            const float base = std::clamp(baseSpec[i], 0.0f, 1.0f);
+            const float cc = (cosThetaT == 0.0f) ? 0.0f : std::pow(base, -1.0f / cosThetaT);
+            const float denom = 1.0f - (r2 * cc) * (r2 * cc);
+            const float Tc = (std::abs(denom) > 1e-12f) ? (cc * t1 * t2 / denom) : 0.0f;
+            const float Rc = r1 + Tc * r2 * cc;
+            Rp[i] = Rc;
+            Tp[i] = Tc;
+        }
+    }
     // Thin-glass transmission lobe = a mirrored GGX reflection (Cycles
     // bsdf_thin_glass_transmission_setup/eval :1312/:1348): the double refraction
     // through a thin sheet does not bend the ray, so it is modeled as a GGX
@@ -704,10 +781,25 @@ class PrincipledPlugin : public Material {
     // Called by eval/pdf/sample so all three see identical weights (matched
     // normalization — the pkg170 lesson).
     // ------------------------------------------------------------------
-    std::vector<Lobe> assembleLobes(const HitRecord& rec, const Vec3& wo) const {
+    // pkg194 Item 1: `lam` (default nullptr) enables the per-λ layering-weight carry.
+    // When non-null, a running spectral weight `weightSp` mirrors the RGB `weight` but
+    // upsamples every CHROMATIC Vec3 factor SEPARATELY (upsample(a)·upsample(b), never
+    // upsample(a·b)) and multiplies achromatic float scalars directly, so each lobe's
+    // `weightSpec` is the spectrally-correct per-layer product the continuous spectral
+    // eval reads. RGB callers pass nullptr and the RGB `weight` track is byte-unchanged.
+    std::vector<Lobe> assembleLobes(const HitRecord& rec, const Vec3& wo,
+                                    const astroray::SampledWavelengths* lam = nullptr) const {
         std::vector<Lobe> lobes;
         float nv = std::clamp(rec.normal.dot(wo), 1e-4f, 1.0f);
         Vec3 weight(1.0f, 1.0f, 1.0f);  // running weight (W₀ = 1)
+        // pkg194 Item 1 — running per-λ layering weight (mirrors `weight`). `usp`
+        // upsamples one reflectance colour; `layerTrans` upsamples a layering
+        // transmission (1 − albedo) as a colour (pkg168 rule). No-ops when lam==nullptr.
+        astroray::SampledSpectrum weightSp(1.0f);
+        auto usp = [&](const Vec3& v) { return upsample(v, *lam); };
+        auto layerTrans = [&](const Vec3& albedo) {
+            return usp(Vec3(1.0f) - Vec3::min(albedo, Vec3(0.999f)));
+        };
 
         // 1. Transparent (alpha). Cycles svm/closure.h CLOSURE_BSDF_PRINCIPLED_ID
         //    does transparency FIRST, before every other closure:
@@ -725,8 +817,10 @@ class PrincipledPlugin : public Material {
             L.color = Vec3(1.0f);
             L.isDelta = true;  // excluded from continuous eval/pdf sums (zero NEE)
             L.sel = std::max(luminance(L.weight), 1e-4f);
+            if (lam) L.weightSpec = weightSp * (1.0f - alpha_);
             lobes.push_back(L);
             weight = weight * alpha_;
+            if (lam) weightSp = weightSp * alpha_;
         }
         // 2. Sheen (LTC microfiber). Cycles order: sheen sits ABOVE coat. closure
         //    weight = sheen_weight·sheen_tint·weight·ltc_albedo; then the running
@@ -735,7 +829,8 @@ class PrincipledPlugin : public Material {
             astroray::SheenLtcCoeffs sc =
                 astroray::sheenLtcFetch(std::clamp(sheenRoughness_, 1e-3f, 1.0f), nv);
             if (std::abs(sc.aInv) >= 1e-5f && sc.albedo >= 1e-5f) {  // Cycles setup skip guard
-                Vec3 sheenW = weight * sheenTint_ * (sheenWeight_ * sc.albedo);
+                Vec3 shAlb = sheenTint_ * (sheenWeight_ * sc.albedo);
+                Vec3 sheenW = weight * shAlb;
                 Lobe L;
                 L.kind = LobeKind::Sheen;
                 L.weight = sheenW;
@@ -743,8 +838,11 @@ class PrincipledPlugin : public Material {
                 L.sheenA = sc.aInv;
                 L.sheenB = sc.bInv;
                 L.sel = std::max(luminance(sheenW), 1e-4f);
+                // sheenValue() is colourless → the sheen tint lives entirely in weightSpec.
+                if (lam) L.weightSpec = weightSp * usp(sheenTint_) * (sheenWeight_ * sc.albedo);
                 lobes.push_back(L);
-                weight = layeringWeightAfter(weight, sheenTint_ * (sheenWeight_ * sc.albedo));
+                weight = layeringWeightAfter(weight, shAlb);
+                if (lam) weightSp = weightSp * layerTrans(shAlb);
             }
         }
         // 3. Coat (clear GGX dielectric, coat_ior). Beer absorption + directional-
@@ -760,10 +858,13 @@ class PrincipledPlugin : public Material {
             L.roughness = coatRoughness_;
             L.ior = coatIor_;
             L.sel = std::max(luminance(weight * coatWeight_) * Fview, 1e-4f);
+            if (lam) L.weightSpec = weightSp * coatWeight_;
             lobes.push_back(L);
-            weight = layeringWeightAfter(
-                weight, ggxDirectionalAlbedo(Vec3(Fview), coatRoughness_, nv) * coatWeight_);
-            weight = weight * coatBeerFactor(nv);
+            Vec3 coatAlb = ggxDirectionalAlbedo(Vec3(Fview), coatRoughness_, nv) * coatWeight_;
+            weight = layeringWeightAfter(weight, coatAlb);
+            Vec3 beer = coatBeerFactor(nv);  // chromatic coat-tint Beer absorption
+            weight = weight * beer;
+            if (lam) weightSp = weightSp * layerTrans(coatAlb) * usp(beer);
         }
         // 4. Metallic (GGX + F82-tint). closure weight = metallic·weight.
         if (metallic_ > 1e-4f) {
@@ -776,8 +877,12 @@ class PrincipledPlugin : public Material {
             L.anisotropic = anisotropic_;          // pkg178 PR-4b
             L.anisoRotation = anisotropicRotation_;
             L.sel = std::max(luminance(L.weight * baseColor_), 1e-4f);
+            // baseColor (F82 tint) is upsampled separately in the eval → weightSpec is
+            // the layer weight only.
+            if (lam) L.weightSpec = weightSp * metallic_;
             lobes.push_back(L);
             weight = weight * (1.0f - metallic_);
+            if (lam) weightSp = weightSp * (1.0f - metallic_);
         }
         // 5. Transmission. thin_wall=false → the PR-1..3 rough-glass lobe (verbatim).
         //    thin_wall=true → the analytic thin-glass R'+T' split: a GGX reflection
@@ -788,6 +893,10 @@ class PrincipledPlugin : public Material {
             if (thinWall_) {
                 Vec3 Rp, Tp;
                 thinGlassFresnelRGB(nv, Rp, Tp);  // per-channel R', T' at the view angle
+                // pkg194 Item 2: per-λ native R'/T' (Beer/film/f0 evaluated per
+                // wavelength, not upsampled from the RGB channels).
+                astroray::SampledSpectrum RpS, TpS;
+                if (lam) thinGlassFresnelSpectral(nv, *lam, RpS, TpS);
                 Vec3 baseW = weight * transmission_;
                 if (luminance(Rp) > 1e-6f) {
                     Lobe L;
@@ -797,6 +906,7 @@ class PrincipledPlugin : public Material {
                     L.roughness = roughness_;
                     L.ior = ior_;
                     L.sel = std::max(luminance(L.weight), 1e-4f);
+                    if (lam) L.weightSpec = weightSp * transmission_ * RpS;
                     lobes.push_back(L);
                 }
                 if (luminance(Tp) > 1e-6f) {
@@ -812,6 +922,7 @@ class PrincipledPlugin : public Material {
                     L.isDelta = (aT * aT) <= 2e-10f;  // roughness_is_almost_specular (:threshold)
                     L.roughness = std::sqrt(std::max(0.0f, aT));  // ggxReflect squares → aT
                     L.sel = std::max(luminance(L.weight), 1e-4f);
+                    if (lam) L.weightSpec = weightSp * transmission_ * TpS;
                     lobes.push_back(L);
                 }
             } else {
@@ -823,9 +934,13 @@ class PrincipledPlugin : public Material {
                 L.ior = ior_;
                 L.isDelta = roughness_ <= kDeltaGlassRoughness;
                 L.sel = std::max(luminance(L.weight), 1e-4f);
+                // Film-off transmission eval uses L.weight directly (pkg188 Finding A
+                // colour/scalar split); the film-on spectral path reads weightSpec.
+                if (lam) L.weightSpec = weightSp * transmission_;
                 lobes.push_back(L);
             }
             weight = weight * (1.0f - transmission_);
+            if (lam) weightSp = weightSp * (1.0f - transmission_);
         }
         // 6. Specular dielectric (generalized-Schlick, exponent = -ior).
         if (luminance(weight) > 1e-4f) {
@@ -842,8 +957,12 @@ class PrincipledPlugin : public Material {
             L.anisotropic = anisotropic_;          // pkg178 PR-4b
             L.anisoRotation = anisotropicRotation_;
             L.sel = std::max(luminance(weight * Fview), 1e-4f);
+            // specF0 upsampled separately in the eval (Fresnel) → weightSpec = layer weight.
+            if (lam) L.weightSpec = weightSp;
             lobes.push_back(L);
-            weight = layeringWeightAfter(weight, ggxDirectionalAlbedo(Fview, roughness_, nv));
+            Vec3 specAlb = ggxDirectionalAlbedo(Fview, roughness_, nv);
+            weight = layeringWeightAfter(weight, specAlb);
+            if (lam) weightSp = weightSp * layerTrans(specAlb);
         }
         // 7. Subsurface — APPROXIMATE (owner decision D2 = option (a)). Cycles uses
         //    a random-walk Bssrdf; here we reuse the diffusion-style plugin lineage
@@ -874,6 +993,7 @@ class PrincipledPlugin : public Material {
                     L.color = baseColor_;
                     L.roughness = diffuseRoughness_;
                     L.sel = std::max(luminance(L.weight), 1e-4f);
+                    if (lam) L.weightSpec = weightSp * usp(baseColor_) * (subsurfaceWeight_ * wr);
                     lobes.push_back(L);
                 }
                 if (wt > 1e-6f) {
@@ -883,6 +1003,7 @@ class PrincipledPlugin : public Material {
                     L.color = baseColor_;
                     L.roughness = diffuseRoughness_;
                     L.sel = std::max(luminance(L.weight), 1e-4f);
+                    if (lam) L.weightSpec = weightSp * usp(baseColor_) * (subsurfaceWeight_ * wt);
                     lobes.push_back(L);
                 }
             } else {
@@ -892,6 +1013,7 @@ class PrincipledPlugin : public Material {
                 L.color = baseColor_;
                 L.roughness = 0.0f;  // Lambertian approximation
                 L.sel = std::max(luminance(L.weight), 1e-4f);
+                if (lam) L.weightSpec = weightSp * usp(baseColor_) * subsurfaceWeight_;
                 lobes.push_back(L);
             }
         }
@@ -903,6 +1025,7 @@ class PrincipledPlugin : public Material {
             L.color = baseColor_;
             L.roughness = diffuseRoughness_;
             L.sel = std::max(luminance(L.weight), 1e-4f);
+            if (lam) L.weightSpec = weightSp * usp(baseColor_) * (1.0f - subsurfaceWeight_);
             lobes.push_back(L);
         }
         if (lobes.empty()) {  // degenerate guard (e.g. metallic=1 pathological)
@@ -911,6 +1034,7 @@ class PrincipledPlugin : public Material {
             L.weight = baseColor_;
             L.color = baseColor_;
             L.sel = std::max(luminance(baseColor_), 1e-4f);
+            if (lam) L.weightSpec = usp(baseColor_);
             lobes.push_back(L);
         }
         return lobes;
@@ -1205,9 +1329,10 @@ class PrincipledPlugin : public Material {
         float etap = entering ? L.ior : (1.0f / L.ior);
         float filmIor = entering ? thinFilmIor_ : thinFilmIor_ / L.ior;
         float F0real = F0_from_ior(etap);
-        // pkg188 Finding B: weight-path clamp-guard (see evalLobeSpectral; no-op at ≤1).
-        float wMax = std::max({L.weight.x, L.weight.y, L.weight.z, 1.0f});
-        astroray::SampledSpectrum wSpec = upsample(L.weight * (1.0f / wMax), lam) * wMax;
+        // pkg194 Item 1: per-λ layering weight (see evalLobeSpectral). baseColor is
+        // upsampled separately below (baseSpec), so the layer tint no longer bakes an
+        // RGB product before upsampling.
+        const astroray::SampledSpectrum& wSpec = L.weightSpec;
         astroray::SampledSpectrum tintSpec = upsample(specularTint_, lam);
         if (cosO > 0.0f && cosI > 0.0f) {  // reflection sub-lobe
             Vec3 wm = (wo + wi).normalized();
@@ -1659,7 +1784,7 @@ public:
     astroray::SampledSpectrum evalSpectral(const HitRecord& rec, const Vec3& wo,
                                            const Vec3& wi,
                                            const astroray::SampledWavelengths& lambdas) const override {
-        auto lobes = assembleLobes(rec, wo);
+        auto lobes = assembleLobes(rec, wo, &lambdas);  // pkg194: per-λ layering carry
         astroray::SampledSpectrum sum(0.0f);
         for (const auto& L : lobes)
             if (!L.isDelta) sum += evalLobeSpectral(L, rec, wo, wi, lambdas);
@@ -1670,16 +1795,16 @@ public:
                                                const Vec3& wo, const Vec3& wi,
                                                const astroray::SampledWavelengths& lam) const {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
-        // pkg188 Finding B: weight-path clamp-guard. upsample() clamps its argument to
-        // [0,1], so a weight component >1 would silently lose energy to the JH ALBEDO
-        // LUT (the [[rough-glass-residual-is-multiscatter]] clamp class). Factor the >1
-        // magnitude out and re-apply post-upsample. In practice the running layering
-        // weight is seeded at 1 and only multiplied by factors ≤1 (baseColor, tints,
-        // layering albedos, metallic/transmission scalars — all ≤1), so wMax==1 and
-        // this is a defensive no-op today; it locks the invariant against any future
-        // >1 weight.
-        float wMax = std::max({L.weight.x, L.weight.y, L.weight.z, 1.0f});
-        astroray::SampledSpectrum wSpec = upsample(L.weight * (1.0f / wMax), lam) * wMax;
+        // pkg194 Item 1: the per-λ layering weight assembled in assembleLobes — each
+        // chromatic factor (layer tints, coat Beer, base colour, thin-glass R'/T')
+        // upsampled SEPARATELY and multiplied in the spectral domain, so a coloured
+        // layer over a coloured base no longer bakes an RGB product before upsampling
+        // (the JH colour×colour nonlinearity, pkg188 Finding-C descope). For an
+        // unlayered / grey material this equals the former upsample(L.weight) exactly
+        // (single-factor upsample is linear), so non-layered gates are unchanged. The
+        // former pkg188 max(...,1) clamp-guard is subsumed: every factor is ≤1 by
+        // construction, so weightSpec ≤ 1 and the JH ALBEDO LUT never clips.
+        const astroray::SampledSpectrum& wSpec = L.weightSpec;
         switch (L.kind) {
             case LobeKind::Subsurface:  // approximate SSS = Lambert (D2=a)
             case LobeKind::Diffuse: {

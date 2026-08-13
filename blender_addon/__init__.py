@@ -5186,9 +5186,10 @@ class RENDER_PT_custom_raytracer_diagnostics(AstrorayPanelBase, Panel):
         # Feature flags
         # pkg186: cross-reference the backend-aware __gpu_features__ dict so a
         # capability that is built (on in __features__) but dropped on the GPU
-        # backend (off in __gpu_features__ — textures/volumes/adaptive_sampling/
-        # gr_black_holes) is labelled "CPU only" instead of being listed under
-        # "On", where it read as a silent claim of GPU support.
+        # backend (off in __gpu_features__ — textures/adaptive_sampling/
+        # gr_black_holes; pkg199 moved world volumes OFF this list) is labelled
+        # "CPU only" instead of being listed under "On", where it read as a
+        # silent claim of GPU support.
         try:
             feats = astroray.__features__
             gpu_feats = getattr(astroray, "__gpu_features__", {})

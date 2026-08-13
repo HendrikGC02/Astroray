@@ -1486,7 +1486,9 @@ def _center_luminance(img: np.ndarray) -> float:
     return float(np.mean(crop))
 
 
-@pytest.mark.xfail(reason="world volume fog not ported to the spectral path_tracer — deferred", strict=False)
+# pkg199 Stage 1: world-volume Beer-Lambert absorption is now wired into the
+# spectral path_tracer (Renderer::worldTransmittanceSpectral, roles 1-3) and its
+# GPU wavefront twin, so this fog test now passes on both backends — xfail removed.
 def test_world_volume_density_adds_visible_haze():
     clear = _render_world_fog_sphere(z_pos=-2.0, density=None)
     foggy = _render_world_fog_sphere(z_pos=-2.0, density=0.01)
@@ -1497,7 +1499,7 @@ def test_world_volume_density_adds_visible_haze():
         f"Expected world fog to attenuate distant object (foggy={foggy_l:.4f}, clear={clear_l:.4f})"
 
 
-@pytest.mark.xfail(reason="world volume fog not ported to the spectral path_tracer — deferred", strict=False)
+# pkg199 Stage 1: un-xfailed — distance-dependent fog now works (see above).
 def test_world_volume_fogs_farther_objects_more():
     near_clear = _render_world_fog_sphere(z_pos=1.0, density=None)
     near_fog = _render_world_fog_sphere(z_pos=1.0, density=0.01)

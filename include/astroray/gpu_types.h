@@ -625,6 +625,27 @@ struct GWavefrontGuideBinding {
     float* depth;   // numPixels floats
 };
 
+// pkg199 Stage 1 — homogeneous world-volume medium, published ONCE per frame
+// into a __constant__ symbol (setWavefrontWorldVolume), mirroring the
+// pkg186/pkg197 binding pattern so the wavefront reads the medium from constant
+// memory rather than growing any kernel signature. Beer-Lambert absorption only
+// (no in-scatter/phase — Stage 2). `hasVolume == 0` (the default; snapshot/ReSTIR
+// drivers never set it) makes intersectPathSlot/stageShadowKernel skip the
+// transmittance branch, so vacuum renders are byte-identical AND the
+// REG-254-saturated stageShadeBucketedKernel is untouched entirely. `color` is
+// the reflectance-like world-volume tint; the transmittance helper upsamples it
+// through the JH albedo LUT (GSPEC_RGB_ALBEDO) then applies exp(-sigma·density·d)
+// per wavelength — the CPU twin (Renderer::worldTransmittanceSpectral) is
+// identical, so parity holds by construction.
+// Plain scalars only (no GVec3 member): a __constant__ variable of this type
+// must be trivially initializable — a GVec3 member's user-defined ctor triggers
+// "dynamic initialization is not supported for a __constant__ variable".
+struct GWorldVolume {
+    int   hasVolume;              // 0 = vacuum (skip); 1 = active medium
+    float density;               // worldVolumeDensity
+    float colorR, colorG, colorB; // worldVolumeColor (reflectance-like tint)
+};
+
 // Nearest-neighbour image fetch — mirrors CPU ImageTexture::value EXACTLY
 // (clamp u,v to [0,1]; v flip; floor to texel; clamp index to bounds).
 HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,
@@ -671,7 +692,18 @@ struct GHitRecord {
 struct GNEESample {
     GVec3 origin;      // shadow ray origin (rec.point)
     GVec3 wi;          // shadow ray direction (normalized)
-    float maxDist;     // shadow ray extent
+    float maxDist;     // shadow ray extent (OCCLUSION tMax — 1e30 sentinel for
+                       // sphere/distant sources; NOT a geometric distance)
+    // pkg199 Stage 1 — TRUE geometric vertex->light distance for Beer-Lambert
+    // world-volume transmittance. Distinct from maxDist, which is 1e30 for
+    // sphere-primitive and distant lights (an occlusion sentinel that would make
+    // exp(-sigma*maxDist)=0 collapse every fogged NEE-to-sphere contribution —
+    // the pkg199 HW-611 regression). Set to the sampled-point distance for
+    // sphere/triangle/point/spot/area sources, and 0 for distant/infinite lights
+    // (treated like env-miss: NON-attenuated, per the Stage-1 infinite-segment
+    // convention). gpu_worldTransmittanceMW(geomDist) returns Tr=1 for geomDist<=0.
+    float geomDist;
+
     float lightPdf;    // solid-angle pdf incl. selection pdf
     int   lightMatId;  // emission material index (geometry emitters)
     int   isSphere;    // 1 = sphere source (frontFace from the hit), 0 = triangle

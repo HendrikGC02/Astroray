@@ -2195,6 +2195,41 @@ class Renderer {
         );
     }
 
+    // pkg199 Stage 1 — spectral Beer-Lambert transmittance through the
+    // homogeneous world medium, `exp(-sigma_t·d)` per wavelength (PBRT-v4 §11.3
+    // Beer's law; Cycles kernel/integrator/volume.h). Spectral discipline
+    // ([[spectral-upsample-nonlinearity-scaled-bsdf]]): worldVolumeColor is a
+    // reflectance-like colour, so upsample the COLOUR through the JH albedo LUT,
+    // then apply Beer-Lambert per-λ — never upsample the product. The GPU twin
+    // (gpu_worldTransmittanceMW, stage_advance.cu) runs the identical math with
+    // GSPEC_RGB_ALBEDO, so CPU↔GPU parity holds by construction. This is the
+    // spectral successor to the RGB `worldTransmittance` above (dead since pkg14
+    // deleted the legacy RGB integrator that called it; see
+    // .astroray_plan/docs/pkg199-world-volume-research.md).
+    astroray::SampledSpectrum worldTransmittanceSpectral(
+            float distance, const astroray::SampledWavelengths& lambdas) const {
+        // pkg199: distance <= 0 OR a distant/infinite light's sentinel distance
+        // (DistantLight sets ls.distance = FLT_MAX) is treated like an env-miss —
+        // NON-attenuated (Stage-1 infinite-segment convention). The 1e18 cut is
+        // far above any real scene extent and far below FLT_MAX, so it flags only
+        // genuinely-infinite sources; finite lights (sphere/triangle/point/spot/
+        // area) keep their true geometric Beer-Lambert falloff. Mirrors the GPU
+        // gpu_worldTransmittanceMW guard so CPU↔GPU distant-light fog agrees.
+        if (!hasWorldVolume || worldVolumeDensity <= 0.0f ||
+            distance <= 0.0f || distance >= 1e18f)
+            return astroray::SampledSpectrum(1.0f);
+        float d = std::max(0.0f, distance);
+        astroray::SampledSpectrum sigmaColor =
+            astroray::RGBAlbedoSpectrum({worldVolumeColor.x, worldVolumeColor.y,
+                                         worldVolumeColor.z}).sample(lambdas);
+        astroray::SampledSpectrum tr;
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+            float sigmaT = std::max(0.0f, sigmaColor[i]) * worldVolumeDensity;
+            tr[i] = std::exp(-sigmaT * d);
+        }
+        return tr;
+    }
+
 public:
     // Definitions deferred until Integrator is fully defined below.
     void setIntegrator(std::shared_ptr<Integrator> i);
@@ -2267,6 +2302,12 @@ public:
         worldVolumeAnisotropy = std::clamp(anisotropy, -0.99f, 0.99f);
         hasWorldVolume = worldVolumeDensity > 0.0f;
     }
+    // pkg199 Stage 1 — world-volume accessors (read by cuda_wavefront_render to
+    // publish the medium into the GPU wavefront's __constant__ c_worldVolume).
+    bool getHasWorldVolume() const { return hasWorldVolume; }
+    float getWorldVolumeDensity() const { return worldVolumeDensity; }
+    Vec3 getWorldVolumeColor() const { return worldVolumeColor; }
+    float getWorldVolumeAnisotropy() const { return worldVolumeAnisotropy; }
 
     // pkg86: Set light sampling strategy (Power or Tree).
     void setLightSampler(LightList::SamplerMode mode) {
@@ -2475,13 +2516,21 @@ public:
                 if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
                                               surfaceT, lambdas, lh)) {
                     if (!lh.emission.isZero()) {
+                        // pkg199 Stage 1 (role 3): the lamp is closer than the
+                        // surface, so throughput is not yet segment-attenuated;
+                        // attenuate the lamp's emission over the camera→lamp
+                        // segment (lh.t). Vacuum: Tr==1 (guarded), unchanged.
+                        astroray::SampledSpectrum lampEmission =
+                            hasWorldVolume
+                                ? lh.emission * worldTransmittanceSpectral(lh.t, lambdas)
+                                : lh.emission;
                         if (wasSpecular) {
-                            color += clampContribSpectral(throughput * lh.emission, lambdas, bounce);
+                            color += clampContribSpectral(throughput * lampEmission, lambdas, bounce);
                         } else {
                             float lp = lights.pdfValue(ray.origin, ray.direction);
                             float bp = bsdfPdfPrev;
                             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
-                            color += clampContribSpectral(throughput * lh.emission * wB, lambdas, bounce);
+                            color += clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce);
                         }
                     }
                     break;  // path terminates on the lamp
@@ -2506,6 +2555,18 @@ public:
                     color += clampContribSpectral(throughput * envSpec, lambdas, bounce);
                 }
                 break;
+            }
+            // pkg199 Stage 1 (role 1): Beer-Lambert free-flight attenuation over
+            // the camera/continuation segment just traversed (rec.t), applied on
+            // a confirmed surface hit BEFORE this vertex is shaded. This one
+            // multiply attenuates the hit's emission (throughput·Le below),
+            // carries the fog into this vertex's NEE (via throughput), and
+            // propagates it to every later bounce — the spectral successor to the
+            // legacy `throughput *= worldTransmittance(rec.t)` (pkg25, deleted by
+            // pkg14). The GPU twin does the identical multiply + SoA write-back in
+            // intersectPathSlot. Vacuum: guarded, throughput unchanged.
+            if (hasWorldVolume && worldVolumeDensity > 0.0f) {
+                throughput *= worldTransmittanceSpectral(rec.t, lambdas);
             }
             if (rec.hitObject && rec.hitObject->isGRObject()) {
                 auto grResult = rec.hitObject->traceGRSpectral(ray, lambdas, gen);
@@ -2611,6 +2672,15 @@ public:
                         float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                         astroray::SampledSpectrum neeContrib =
                             throughput * f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
+                        // pkg199 Stage 1 (role 2): attenuate the NEE contribution
+                        // over the shadow-ray segment (vertex→lamp, ls.distance).
+                        // throughput already carries the camera→vertex fog (role
+                        // 1), so this adds the vertex→light leg — total Tr =
+                        // Tr(rec.t)·Tr(ls.distance). GPU twin: stageShadowKernel
+                        // multiplies the parked NEE lanes by Tr(s.maxDist).
+                        if (hasWorldVolume && worldVolumeDensity > 0.0f) {
+                            neeContrib *= worldTransmittanceSpectral(ls.distance, lambdas);
+                        }
                         color += clampContribSpectral(neeContrib, lambdas, bounce);
                     }
                 }

@@ -1442,7 +1442,6 @@ def test_linear_output_preserves_hdr_values():
     assert float(np.max(gamma[:, :, 0])) <= 1.0 + 1e-6, "Gamma output should remain display-range encoded"
 
 
-@pytest.mark.xfail(reason="render passes not ported to the spectral path_tracer — deferred", strict=False)
 def test_emission_pass_preserves_hdr_values():
     """Render pass buffers should stay in linear HDR space for multilayer EXR export."""
     r = create_renderer()

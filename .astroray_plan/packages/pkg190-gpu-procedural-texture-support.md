@@ -2,10 +2,14 @@
 
 **Pillar:** 5 / integration-first
 **Track:** A
-**Status:** open (filed 2026-08-12 as the pkg186 deferred follow-up; pkg186
-PR #590 shipped the IMAGE-texture slice and explicitly deferred procedural
-nodes + the pkg119-B procedural reclassification — see pkg186 Lessons
-"Deferred to follow-up").
+**Status:** done (PR #TBD, 2026-08-14 — 3D-voxel bake-at-upload GPU procedural
+eval; pkg119-B TRANSLATION-BUG 4→0: TEX_CHECKER 0.8425→0.9512, TEX_BRICK
+0.8980→0.9158, TEX_MAGIC 0.8358→0.9639, TEX_WAVE 0.8935→0.9575, all at 64³;
+register identity gate byte-identical across all 16 shade specializations;
+textured_plane CPU/GPU mean-ratio 1.000/1.000/1.000).
+Filed 2026-08-12 as the pkg186 deferred follow-up; pkg186 PR #590 shipped the
+IMAGE-texture slice and explicitly deferred procedural nodes + the pkg119-B
+procedural reclassification — see pkg186 Lessons "Deferred to follow-up".
 **Estimated effort:** L
 **Depends on:** pkg186 (PR #590 — image-texture slice; establishes the
 `__constant__ c_wfTexBinding` binding, the `<HasPrincipled,HasTexture>`

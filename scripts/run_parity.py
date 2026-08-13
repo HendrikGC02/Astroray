@@ -39,6 +39,10 @@ CSV_COLUMNS = [
     "time_ms",
     "peak_mem_mb",
     "ssim_to_cycles",
+    # pkg190 — per-channel astroray CPU-vs-GPU mean-ratio ("r,g,b"). The standing
+    # oracle for the textured_plane procedural scene (never SSIM: independent RNG
+    # streams — [[ssim-wrong-gate-for-independent-rng]]).
+    "mean_ratio_cpu_gpu",
     "skip_reason",
 ]
 ENGINES = ("cycles-cpu", "cycles-cuda", "astroray-cpu", "astroray-gpu")
@@ -93,6 +97,14 @@ class Scene:
 def _load_scenes() -> dict[str, Scene]:
     scenes = {
         "cornell": Scene("cornell", samples=64, width=512, height=512, astroray_scene_id=1),
+        # pkg190 — standing procedural-texture parity scene: a UV-mapped checker
+        # quad + diffuse floor + one area (emissive-quad) light, built natively
+        # from a Python scene-spec so both the astroray CPU and GPU legs render it.
+        # Oracle is the per-channel CPU/GPU mean-ratio (Cycles legs are skipped;
+        # the procedural bake's parity target is CPU==GPU, not a hand-matched
+        # Cycles checker).
+        "textured_plane": Scene("textured_plane", samples=64, width=256,
+                                height=256, astroray_scene_id=2),
     }
     if MANIFEST.exists():
         with MANIFEST.open("rb") as fh:
@@ -284,6 +296,52 @@ bpy.ops.render.render(write_still=True)
 """
 
 
+def _astroray_textured_plane_script(scene: Scene, output: Path, device: str) -> str:
+    """pkg190 — UV-mapped procedural checker quad + diffuse floor + one area
+    (emissive-quad) light, built natively so the astroray CPU and GPU legs render
+    the identical scene. The checker is a UV-coord-mode procedural, so it drives
+    the pkg190 2D UV bake (the pkg186 image path). Oracle is CPU/GPU mean-ratio."""
+    return f"""
+import os
+os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
+import imageio.v3 as iio
+import numpy as np
+import astroray
+
+r = astroray.Renderer()
+if {device == 'gpu'!r}:
+    r.set_use_gpu(True)
+r.set_seed(1)
+r.set_background_color([0.25, 0.25, 0.25])
+
+# Low-frequency UV checker (procedural, UV coord mode -> pkg190 2D bake).
+r.create_procedural_texture("chk", "checker",
+    [0.9, 0.15, 0.15, 0.15, 0.15, 0.9, 6.0], "UV")
+checker = r.create_material("lambertian", [0.8, 0.8, 0.8], {{"texture": "chk"}})
+floor_mat = r.create_material("lambertian", [0.6, 0.6, 0.6], {{}})
+light_mat = r.create_material("light", [1.0, 0.95, 0.9], {{"intensity": 8.0}})
+
+# Checker quad (UV [0,1]^2) standing at z=0, facing +Z toward the camera.
+n = [0, 0, 1]
+A, B, C, D = [-1.5, -1.5, 0], [1.5, -1.5, 0], [1.5, 1.5, 0], [-1.5, 1.5, 0]
+r.add_triangle_layers(A, B, C, checker, {{"UVMap": [[0, 0], [1, 0], [1, 1]]}}, n, n, n)
+r.add_triangle_layers(A, C, D, checker, {{"UVMap": [[0, 0], [1, 1], [0, 1]]}}, n, n, n)
+
+# Diffuse floor below.
+r.add_triangle([-4, -1.6, -2], [4, -1.6, -2], [4, -1.6, 2], floor_mat)
+r.add_triangle([-4, -1.6, -2], [4, -1.6, 2], [-4, -1.6, 2], floor_mat)
+
+# One area light (emissive quad), above-front, facing down toward the checker.
+r.add_triangle([-1, 2.5, 1.5], [1, 2.5, 1.5], [1, 2.5, 0.5], light_mat)
+r.add_triangle([-1, 2.5, 1.5], [1, 2.5, 0.5], [-1, 2.5, 0.5], light_mat)
+
+r.setup_camera([0, 0, 4.5], [0, 0, 0], [0, 1, 0], 40.0,
+               {scene.width / scene.height!r}, 0.01, 4.5, {scene.width}, {scene.height})
+pixels = np.asarray(r.render({scene.samples}, 8, None, False), dtype=np.float32)
+iio.imwrite({str(output)!r}, pixels)
+"""
+
+
 def _astroray_blend_script(scene: Scene, output: Path, device: str) -> str:
     """Render template for `.blend` scenes via pkg76's importer.
 
@@ -325,6 +383,8 @@ def _astroray_script(scene: Scene, output: Path, device: str) -> str:
         from the .blend file. The pkg71 manifest's ``reference_spp`` /
         resolution drive the render call.
     """
+    if scene.scene_id == "textured_plane":
+        return _astroray_textured_plane_script(scene, output, device)
     if scene.scene_id != "cornell":
         if scene.blend_path is None:
             raise ValueError(f"scene {scene.scene_id!r} has no .blend path")
@@ -449,6 +509,35 @@ def _ssim(output: Path, reference: Path) -> str:
         return ""
 
 
+def _mean_ratio(output: Path, reference: Path) -> str:
+    """pkg190 — per-channel mean-ratio (output/reference), as "r,g,b". The
+    procedural CPU/GPU parity oracle: robust to independent-RNG MC noise (which
+    windowed SSIM is not — [[ssim-wrong-gate-for-independent-rng]])."""
+    if not output.exists() or not reference.exists():
+        return ""
+    try:
+        import os
+        os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
+        import imageio.v3 as iio  # type: ignore
+        import numpy as np  # type: ignore
+
+        a = iio.imread(output).astype("float64")[..., :3]
+        b = iio.imread(reference).astype("float64")[..., :3]
+        if a.shape != b.shape:
+            return ""
+        am = a.reshape(-1, 3).mean(axis=0)
+        bm = b.reshape(-1, 3).mean(axis=0)
+        parts = [f"{(am[c] / bm[c]) if bm[c] > 1e-9 else float('nan'):.4f}"
+                 for c in range(3)]
+        return ",".join(parts)
+    except Exception:
+        return ""
+
+
+def _astroray_cpu_ref(scene: Scene) -> Path:
+    return REFS / f"{scene.scene_id}-astroray-cpu-{scene.samples}.exr"
+
+
 def _run_tuple(
     scene: Scene,
     engine: str,
@@ -457,6 +546,12 @@ def _run_tuple(
     runs: int,
     timeout: int,
 ) -> dict[str, str]:
+    # pkg190 — textured_plane's oracle is astroray CPU-vs-GPU mean-ratio; it has
+    # no hand-matched Cycles scene, so the Cycles legs are intentionally skipped.
+    if scene.scene_id == "textured_plane" and engine.startswith("cycles"):
+        return _row(scene, engine,
+                    skip_reason="textured_plane oracle is CPU/GPU mean-ratio "
+                                "(no Cycles leg)")
     RESULTS.mkdir(parents=True, exist_ok=True)
     suffix = ".exr"
     with tempfile.TemporaryDirectory(prefix=f"{scene.scene_id}-{engine}-", dir=RESULTS) as tmp:
@@ -489,12 +584,22 @@ def _run_tuple(
             ssim = "1.000000"
         else:
             ssim = _ssim(final_output, ref)
+        # pkg190 — CPU/GPU mean-ratio oracle: astroray-cpu stores a reference,
+        # astroray-gpu ratios against it (the loop runs cpu before gpu).
+        mean_ratio = ""
+        if engine == "astroray-cpu":
+            cpu_ref = _astroray_cpu_ref(scene)
+            cpu_ref.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(final_output, cpu_ref)
+        elif engine == "astroray-gpu":
+            mean_ratio = _mean_ratio(final_output, _astroray_cpu_ref(scene))
         return _row(
             scene,
             engine,
             time_ms=f"{statistics.median(times):.3f}",
             peak_mem_mb=f"{max(mem, default=0.0):.1f}" if any(mem) else "",
             ssim_to_cycles=ssim,
+            mean_ratio_cpu_gpu=mean_ratio,
         )
 
 
@@ -505,6 +610,7 @@ def _row(
     time_ms: str = "",
     peak_mem_mb: str = "",
     ssim_to_cycles: str = "",
+    mean_ratio_cpu_gpu: str = "",
     skip_reason: str = "",
 ) -> dict[str, str]:
     skip_reason = " ".join(skip_reason.splitlines())
@@ -515,6 +621,7 @@ def _row(
         "time_ms": time_ms,
         "peak_mem_mb": peak_mem_mb,
         "ssim_to_cycles": ssim_to_cycles,
+        "mean_ratio_cpu_gpu": mean_ratio_cpu_gpu,
         "skip_reason": skip_reason,
     }
 
@@ -574,8 +681,20 @@ def main(argv: list[str] | None = None) -> int:
         gate = 0.95 if row["scene"] == "cornell" else 0.85
         if float(row["ssim_to_cycles"]) < gate:
             failed.append(f"{row['scene']}/{row['engine']}={row['ssim_to_cycles']} (<{gate})")
+    # pkg190 — textured_plane CPU/GPU per-channel mean-ratio gate (never SSIM;
+    # band mirrors the pkg119-B / pkg186 CPU-vs-GPU parity-band tolerance).
+    for row in rows:
+        if row["scene"] != "textured_plane" or row["engine"] != "astroray-gpu":
+            continue
+        if row["skip_reason"] or not row["mean_ratio_cpu_gpu"]:
+            failed.append("textured_plane/astroray-gpu missing CPU/GPU mean-ratio")
+            continue
+        ratios = [float(x) for x in row["mean_ratio_cpu_gpu"].split(",")]
+        if any(not (0.85 <= rc <= 1.18) for rc in ratios):
+            failed.append(
+                f"textured_plane CPU/GPU mean-ratio {ratios} out of band [0.85,1.18]")
     if failed:
-        print("SSIM gate failed: " + ", ".join(failed), file=sys.stderr)
+        print("Parity gate failed: " + ", ".join(failed), file=sys.stderr)
         return 1
     return 0
 

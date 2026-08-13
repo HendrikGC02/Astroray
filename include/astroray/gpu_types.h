@@ -592,6 +592,16 @@ struct GImageTexture {
     int offset;   // start index into the flat texel buffer
     int width;
     int height;
+    // pkg190 — procedural-texture slice. depth == 1 → a 2D image (or a 2D-UV
+    // procedural bake), sampled by (u,v) via gpu_sampleImageTexture (the pkg186
+    // path, unchanged). depth > 1 → a 3D voxel bake of a Generated/Object-coord
+    // procedural, sampled by the normalized Generated coordinate via
+    // gpu_sampleProcedural3D. genMin/genSize carry the SAME object-space bbox the
+    // CPU Texture uses (Texture::getGeneratedMin/Size) so the GPU rebuilds the
+    // identical g = clamp((objectPoint - genMin)/genSize, 0, 1).
+    int   depth   = 1;
+    GVec3 genMin  = GVec3(0.f, 0.f, 0.f);
+    GVec3 genSize = GVec3(1.f, 1.f, 1.f);
 };
 
 // pkg186 — wavefront image-texture binding. Published ONCE per frame into a
@@ -658,6 +668,29 @@ HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,
     if (i > tex.width  - 1) i = tex.width  - 1;
     if (j > tex.height - 1) j = tex.height - 1;
     return texels[tex.offset + j * tex.width + i];
+}
+
+// pkg190 — nearest-neighbour 3D voxel fetch for a baked Generated/Object-coord
+// procedural. `g` is the normalized Generated coordinate in [0,1]^3, built by
+// the caller EXACTLY as the CPU does (g = clamp((objectPoint - genMin)/genSize,
+// 0, 1); include/advanced_features.h CoordMode::Generated). The bake stores cell
+// CENTERS (value at (idx+0.5)/res), so a floor(g*res) fetch returns the cell
+// containing g — the point-sampled twin of the CPU's continuous evaluation.
+// Filtering is parity-coupled: the CPU procedural is point-sampled per shade, so
+// the GPU point-samples the same grid. Do NOT add GPU-only trilinear filtering
+// unless the CPU sampler gains it in lockstep (pkg186 Decision 2; pkg190).
+HD inline GVec3 gpu_sampleProcedural3D(const GImageTexture& tex,
+                                       const GVec3* texels, GVec3 g) {
+    float gx = g.x < 0.f ? 0.f : (g.x > 1.f ? 1.f : g.x);
+    float gy = g.y < 0.f ? 0.f : (g.y > 1.f ? 1.f : g.y);
+    float gz = g.z < 0.f ? 0.f : (g.z > 1.f ? 1.f : g.z);
+    int i = (int)(gx * (float)tex.width);
+    int j = (int)(gy * (float)tex.height);
+    int k = (int)(gz * (float)tex.depth);
+    if (i > tex.width  - 1) i = tex.width  - 1;
+    if (j > tex.height - 1) j = tex.height - 1;
+    if (k > tex.depth  - 1) k = tex.depth  - 1;
+    return texels[tex.offset + (k * tex.height + j) * tex.width + i];
 }
 
 // ---------------------------------------------------------------------------

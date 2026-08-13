@@ -703,11 +703,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         // an ImageTexture) into the flat device texel buffer and record its id in
         // the per-material parallel array. Keeps materialTextureId[] index-aligned
         // with materials[] (a -1 sentinel for every non-image material preserves
-        // the untextured flat-albedo fast path). Procedural textures are a
-        // follow-up slice — they are not TexturedLambertian/ImageTexture here.
+        // the untextured flat-albedo fast path). pkg190 extends this to bake
+        // PROCEDURAL textures (also TexturedLambertian, non-ImageTexture) into the
+        // same buffer — 3D voxel for Generated/Object coords, 2D for UV.
         int texId = -1;
         if (auto* tl = dynamic_cast<TexturedLambertian*>(m.get())) {
-            if (auto img = std::dynamic_pointer_cast<ImageTexture>(tl->getTexture())) {
+            std::shared_ptr<Texture> tex = tl->getTexture();
+            if (auto img = std::dynamic_pointer_cast<ImageTexture>(tex)) {
                 if (!img->getData().empty()) {
                     auto tit = texIdx.find(img.get());
                     if (tit != texIdx.end()) {
@@ -727,7 +729,95 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     }
                     r.hasTexture = true;
                 }
+            } else if (tex) {
+                // pkg190 — bake a PROCEDURAL base-colour texture (checker / brick /
+                // wave / magic / …) into the flat device texel buffer, then reuse
+                // the pkg186 fetch machinery. Two domains, matching how the CPU
+                // Texture evaluates the node (include/advanced_features.h
+                // Texture::textureCoordinates):
+                //   * Generated / Object coord mode → the node is a 3D field over
+                //     the object's normalized bbox → bake a res^3 VOXEL grid in
+                //     [0,1]^3 (the same space the CPU passes as `p`), sampled on the
+                //     GPU by the Generated coordinate (gpu_sampleProcedural3D).
+                //   * UV coord mode → the node is a 2D field of (u,v) → bake a res^2
+                //     grid sampled by the pkg186 2D UV path (depth == 1).
+                // The bake calls the material's OWN CPU evaluator, so parity is
+                // exact-by-construction modulo grid resolution (no procedural math
+                // is re-derived on the device — cite-algorithm safe).
+                Texture* key = tex.get();
+                auto tit = texIdx.find(key);
+                if (tit != texIdx.end()) {
+                    texId = tit->second;
+                    r.hasTexture = true;
+                } else {
+                    const bool uvMode =
+                        tex->getCoordMode() == Texture::CoordMode::UV;
+                    // pkg190 default bake resolution; escalate a specific high-
+                    // frequency node only if its parity/SSIM gate demands it.
+                    int res = 64;
+                    GImageTexture desc;
+                    desc.offset = (int)r.textureTexels.size();
+                    desc.width  = res;
+                    desc.height = res;
+                    if (uvMode) {
+                        desc.depth = 1;  // 2D UV field → pkg186 image path verbatim
+                        r.textureTexels.reserve(r.textureTexels.size() +
+                                                (size_t)res * res);
+                        // Bake row j at v = 1 - (j+0.5)/res so the GPU 2D fetch
+                        // (which v-flips, mirroring CPU ImageTexture::value) round-
+                        // trips to value(u, v) exactly.
+                        for (int j = 0; j < res; ++j) {
+                            float v = 1.0f - (j + 0.5f) / res;
+                            for (int i = 0; i < res; ++i) {
+                                float u = (i + 0.5f) / res;
+                                Vec3 c = tex->value(Vec2(u, v), Vec3(u, v, 0.0f));
+                                r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                            }
+                        }
+                    } else {
+                        // Generated / Object 3D voxel bake. genMin/genSize come from
+                        // the CPU texture's baked object bbox so the GPU rebuilds
+                        // the identical normalized coordinate.
+                        desc.depth = res;
+                        Vec3 gmin  = tex->hasGeneratedBBox() ? tex->getGeneratedMin()
+                                                             : Vec3(0.f, 0.f, 0.f);
+                        Vec3 gsize = tex->hasGeneratedBBox() ? tex->getGeneratedSize()
+                                                             : Vec3(1.f, 1.f, 1.f);
+                        desc.genMin  = GVec3(gmin.x,  gmin.y,  gmin.z);
+                        desc.genSize = GVec3(gsize.x, gsize.y, gsize.z);
+                        r.textureTexels.reserve(r.textureTexels.size() +
+                                                (size_t)res * res * res);
+                        // Bake cell CENTERS over the normalized [0,1]^3 domain the
+                        // CPU passes as `p` (= g) in CoordMode::Generated. Storage
+                        // is k-major: idx = (k*res + j)*res + i.
+                        for (int k = 0; k < res; ++k) {
+                            float pz = (k + 0.5f) / res;
+                            for (int j = 0; j < res; ++j) {
+                                float py = (j + 0.5f) / res;
+                                for (int i = 0; i < res; ++i) {
+                                    float px = (i + 0.5f) / res;
+                                    Vec3 c = tex->value(Vec2(px, py),
+                                                        Vec3(px, py, pz));
+                                    r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                                }
+                            }
+                        }
+                    }
+                    texId = (int)r.textures.size();
+                    texIdx[key] = texId;
+                    r.textures.push_back(desc);
+                    r.hasTexture = true;
+                }
             }
+            // pkg190 fold-guard exactness (advisory #1, PR #590): a textured
+            // lambertian's flat baseColor is only a fallback. Neutralize it so the
+            // shade-path albedo swap (throughput *= texUp / upsample(baseColor))
+            // divides by a FIXED neutral reference (upsample(1,1,1)) independent of
+            // the material's own base chroma — an exact, unbiased swap even for a
+            // saturated base. Net reflectance stays texUp, so the pkg186 image path
+            // (previously dividing by a near-gray base) is unchanged.
+            if (texId >= 0)
+                r.materials[id].baseColor = GVec3(1.f, 1.f, 1.f);
         }
         r.materialTextureId.push_back(texId);
         return id;

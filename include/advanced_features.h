@@ -173,6 +173,14 @@ public:
         hasGenBBox_ = true;
     }
     CoordMode getCoordMode() const { return coordMode; }
+    // pkg190 — read-only bbox accessors so the GPU scene-upload (scene_upload.cu)
+    // can bake a Generated/Object-coord procedural into a 3D voxel buffer and
+    // hand the GPU sampler the same (genMin, genSize) frame this class uses to
+    // build the normalized Generated coordinate (see the CoordMode::Generated
+    // branch above: g = clamp((objectPoint - genMin_) / genSize_, 0, 1)).
+    bool hasGeneratedBBox() const { return hasGenBBox_; }
+    Vec3 getGeneratedMin()  const { return genMin_; }
+    Vec3 getGeneratedSize() const { return genSize_; }
     // pkg59 follow-up: apply Mapping(Location, Rotation.z, Scale) at sample
     // time. 4-arg overload kept for backward compat (rotation defaults to 0).
     void setUVTransform(float sx, float sy, float ox, float oy) {

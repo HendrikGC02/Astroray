@@ -1873,6 +1873,17 @@ public:
                                              rgb[i * 3 + 2]);
                 }
             }
+            // pkg197: run the registered pass pipeline on the GPU-rendered frame,
+            // mirroring what Renderer::render() does for the CPU path. Without
+            // this the addon's use_denoising (which add_pass()es the OIDN/OptiX
+            // denoiser) and the cryptomatte pass never executed on GPU renders —
+            // so the first-hit guide AOVs captured above had no denoiser consumer
+            // on the default backend. No-op when no pass was added (the guard
+            // inside applyPasses), so plain GPU renders stay byte-identical. The
+            // GPU cryptomatte copy-back already sorts+normalises the rank buffers;
+            // re-running the CryptomattePass over them is idempotent (see the
+            // copy-back note in gpu_wavefront_snapshot.cu).
+            renderer.applyPasses(*camera);
 #else
             // pkg55-C7: the megakernels are deleted; a CUDA build without the
             // wavefront has no GPU render path.

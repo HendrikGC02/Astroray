@@ -2174,6 +2174,15 @@ public:
     std::unordered_map<std::string, float> integratorDebugStats() const;
     void addPass(std::shared_ptr<Pass> p)  { passes_.push_back(std::move(p)); }
     void clearPasses()                      { passes_.clear(); }
+    // pkg197: run the registered pass pipeline over a Camera's buffers. The CPU
+    // render() already runs this internally (see the passes_ loop at the end of
+    // render()); the GPU render route in blender_module.cpp bypasses render() and
+    // so must call this explicitly after the wavefront copy-back, otherwise the
+    // shipped OIDN/OptiX denoiser passes (added by the addon's use_denoising) and
+    // the cryptomatte pass never execute on GPU renders — leaving pkg197's
+    // first-hit guides with no consumer on the default backend. Defined
+    // out-of-line below render() where Pass/Framebuffer are complete types.
+    void applyPasses(Camera& cam);
 
     void setEnvironmentMap(std::shared_ptr<EnvironmentMap> map) { envMap = map; }
     void setBackgroundColor(const Vec3& color) { backgroundColor = color; }
@@ -3239,6 +3248,13 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // pkg72: capture this frame's projection state for the next render
         // call's motion-vector computation. See Camera::snapshotForMotion().
         cam.snapshotForMotion();
+}
+
+inline void Renderer::applyPasses(Camera& cam) {
+    if (passes_.empty()) return;
+    Framebuffer fb(cam);
+    for (auto& pass : passes_)
+        pass->execute(fb);
 }
 
 inline void Renderer::setIntegrator(std::shared_ptr<Integrator> i) {

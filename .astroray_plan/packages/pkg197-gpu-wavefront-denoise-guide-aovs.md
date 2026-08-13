@@ -2,7 +2,7 @@
 
 **Pillar:** 5 / integration-first (also 3 — CPU↔GPU parity)
 **Track:** A
-**Status:** open (filed 2026-08-13 — GPU-parity vetted set)
+**Status:** done (PR #608, 2026-08-13 — intersect-stage capture; shade kernel byte-identical REG 254/STACK 3352/CONSTANT[0] 1700; CPU↔GPU albedo exact, depth ±3%, same-surface normal cos 0.9998; GPU OIDN A/B +8.0% edge-MSE)
 **Estimated effort:** M (register-probe up front; the write itself is small)
 **Depends on:** pkg55-C7 wavefront dispatch (`cuda_wavefront_render`); pkg68/pkg70/pkg73
 (denoiser backends — all DONE, this feeds them); [[wavefront-shade-kernels-register-saturated]]

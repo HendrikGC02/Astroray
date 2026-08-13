@@ -173,7 +173,16 @@ std::vector<float> cuda_wavefront_render(
     bool enableNEE,
     float* cryptoObjectOut = nullptr,    // pkg159
     float* cryptoMaterialOut = nullptr,  // pkg159
-    int cryptoDepth = 0);                // pkg159
+    int cryptoDepth = 0,                 // pkg159
+    // pkg197: first-hit denoise-guide AOV outputs, mirroring the cryptomatte
+    // out-param plumbing above. albedoOut / normalOut must each point at
+    // width*height*3 writable floats (Camera::albedoBuffer / normalBuffer, Vec3
+    // per pixel); depthOut at width*height floats (Camera::depthBuffer). They are
+    // OVERWRITTEN with the bounce-0 first-hit guides (miss/sky pixels = 0, the CPU
+    // convention). Passing nullptr (the default) disables guide capture entirely.
+    float* albedoOut = nullptr,          // pkg197
+    float* normalOut = nullptr,          // pkg197
+    float* depthOut = nullptr);          // pkg197
 
 // pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront render. Direct-illumination
 // driver with double-buffered per-pixel reservoirs persisted across frames

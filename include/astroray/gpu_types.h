@@ -607,6 +607,24 @@ struct GWavefrontTextureBinding {
     const int*           matTexId;
 };
 
+// pkg197 — wavefront first-hit denoise-guide AOV binding. Published ONCE per
+// frame into a __constant__ symbol (setWavefrontGuideBinding), exactly like the
+// pkg186 texture binding, so the register-saturated shade kernel and the
+// intersect kernel read the three output pointers from constant memory rather
+// than growing their per-launch signatures (which would bump CONSTANT[0] and
+// the fleet <false,…> shade kernel's STACK — the pkg186 lesson). The intersect
+// stage writes base-colour albedo + shading normal + hit distance at the first
+// camera-ray hit (bounce 0, sample 0) to feed the OIDN/OptiX denoiser guides
+// and the addon Albedo/Normal/Depth AOVs. All three pointers null == guides
+// disabled (the default for the snapshot/ReSTIR drivers). Layout matches the
+// CPU Camera buffers: albedo/normal are numPixels*3 floats (Vec3 per pixel),
+// depth is numPixels floats.
+struct GWavefrontGuideBinding {
+    float* albedo;  // numPixels*3 floats, or nullptr to disable
+    float* normal;  // numPixels*3 floats
+    float* depth;   // numPixels floats
+};
+
 // Nearest-neighbour image fetch — mirrors CPU ImageTexture::value EXACTLY
 // (clamp u,v to [0,1]; v flip; floor to texel; clamp index to bounds).
 HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,

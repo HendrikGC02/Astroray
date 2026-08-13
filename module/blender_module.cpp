@@ -1665,6 +1665,14 @@ public:
         renderer.setCryptomatteEnabled(enabled);
     }
 
+    // pkg197: toggle GPU wavefront first-hit denoise-guide AOV capture.
+    void setGpuGuideAOVs(bool enabled) {
+        renderer.setGpuGuideAOVs(enabled);
+    }
+    bool getGpuGuideAOVs() const {
+        return renderer.getGpuGuideAOVs();
+    }
+
     void setCryptomatteDepth(int depth) {
         if (camera) {
             camera->cryptomatteDepth = depth;
@@ -1833,11 +1841,31 @@ public:
                         cryptoDepth  = camera->cryptomatteDepth;
                     }
                 }
+                // pkg197: first-hit denoise-guide AOVs. On the GPU backend these
+                // Camera buffers stayed zero-filled (CPU fills them in its render
+                // loop; the wavefront returned only beauty), so the OIDN/OptiX
+                // denoiser ran guide-less and the addon Albedo/Normal/Depth AOVs
+                // + Blender Denoising Data passes were black. The wavefront now
+                // captures them at the bounce-0 first hit (mirrors the cryptomatte
+                // out-param plumbing). Vec3 is 3 contiguous floats, so the Camera
+                // buffers alias the H*W*3 / H*W float layouts the driver writes.
+                // Gated on setGpuGuideAOVs (default on): null out-params leave the
+                // buffers zero (the pre-pkg197 guide-less state — used as the
+                // denoise A/B control and as a viewport copy-back lever).
+                float* albedoOut = nullptr;
+                float* normalOut = nullptr;
+                float* depthOut  = nullptr;
+                if (renderer.getGpuGuideAOVs()) {
+                    albedoOut = reinterpret_cast<float*>(camera->albedoBuffer.data());
+                    normalOut = reinterpret_cast<float*>(camera->normalBuffer.data());
+                    depthOut  = camera->depthBuffer.data();
+                }
                 auto rgb = astroray::wavefront::cuda_wavefront_render(
                     renderer, *camera, camera->width, camera->height,
                     samplesPerPixel, maxDepth, effectiveSeed,
                     lmin, lmax, useLum, enableNEE,
-                    cryptoObjOut, cryptoMatOut, cryptoDepth);  // pkg159
+                    cryptoObjOut, cryptoMatOut, cryptoDepth,  // pkg159
+                    albedoOut, normalOut, depthOut);          // pkg197
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -1845,6 +1873,17 @@ public:
                                              rgb[i * 3 + 2]);
                 }
             }
+            // pkg197: run the registered pass pipeline on the GPU-rendered frame,
+            // mirroring what Renderer::render() does for the CPU path. Without
+            // this the addon's use_denoising (which add_pass()es the OIDN/OptiX
+            // denoiser) and the cryptomatte pass never executed on GPU renders —
+            // so the first-hit guide AOVs captured above had no denoiser consumer
+            // on the default backend. No-op when no pass was added (the guard
+            // inside applyPasses), so plain GPU renders stay byte-identical. The
+            // GPU cryptomatte copy-back already sorts+normalises the rank buffers;
+            // re-running the CryptomattePass over them is idempotent (see the
+            // copy-back note in gpu_wavefront_snapshot.cu).
+            renderer.applyPasses(*camera);
 #else
             // pkg55-C7: the megakernels are deleted; a CUDA build without the
             // wavefront has no GPU render path.
@@ -2821,6 +2860,13 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_cryptomatte_depth", &PyRenderer::setCryptomatteDepth,
              "depth"_a,
              "pkg87c — Set Cryptomatte rank depth (number of ID/weight pairs per pixel)")
+        .def("set_gpu_guide_aovs", &PyRenderer::setGpuGuideAOVs,
+             "enabled"_a,
+             "pkg197 — Enable/disable GPU wavefront first-hit denoise-guide AOV "
+             "capture (albedo/normal/depth). On by default; off leaves the buffers "
+             "zero (guide-less denoise control / viewport copy-back lever).")
+        .def("get_gpu_guide_aovs", &PyRenderer::getGpuGuideAOVs,
+             "pkg197 — Query the GPU denoise-guide AOV capture flag.")
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
              "path"_a, "strength"_a = 1.0f,
              "rx"_a = 0.0f, "ry"_a = 0.0f, "rz"_a = 0.0f,

@@ -2112,6 +2112,14 @@ class Renderer {
     float worldVolumeAnisotropy = 0.0f;
     // pkg87b — Cryptomatte per-shade-point accumulation gate
     bool cryptomatteEnabled = false;
+    // pkg197 — GPU wavefront first-hit denoise-guide AOV capture gate. On by
+    // default (parity with the CPU loop, which always fills the guide buffers).
+    // The GPU render path honors it: when off, cuda_wavefront_render is called
+    // with null guide out-params, so the intersect stage skips the bounce-0
+    // write and the Camera albedo/normal/depth buffers stay zero — the pre-pkg197
+    // guide-less state, kept as a control so denoise A/B (guided vs guide-less)
+    // is expressible on one build, and as a viewport lever to skip the copy-back.
+    bool gpuGuideAOVs = true;
     std::shared_ptr<Integrator> integrator_;
     std::vector<std::shared_ptr<Pass>> passes_;
 
@@ -2166,6 +2174,15 @@ public:
     std::unordered_map<std::string, float> integratorDebugStats() const;
     void addPass(std::shared_ptr<Pass> p)  { passes_.push_back(std::move(p)); }
     void clearPasses()                      { passes_.clear(); }
+    // pkg197: run the registered pass pipeline over a Camera's buffers. The CPU
+    // render() already runs this internally (see the passes_ loop at the end of
+    // render()); the GPU render route in blender_module.cpp bypasses render() and
+    // so must call this explicitly after the wavefront copy-back, otherwise the
+    // shipped OIDN/OptiX denoiser passes (added by the addon's use_denoising) and
+    // the cryptomatte pass never execute on GPU renders — leaving pkg197's
+    // first-hit guides with no consumer on the default backend. Defined
+    // out-of-line below render() where Pass/Framebuffer are complete types.
+    void applyPasses(Camera& cam);
 
     void setEnvironmentMap(std::shared_ptr<EnvironmentMap> map) { envMap = map; }
     void setBackgroundColor(const Vec3& color) { backgroundColor = color; }
@@ -2231,6 +2248,10 @@ public:
     // pkg87b: Enable/disable Cryptomatte per-shade-point accumulation
     void setCryptomatteEnabled(bool enabled) { cryptomatteEnabled = enabled; }
     bool getCryptomatteEnabled() const { return cryptomatteEnabled; }
+
+    // pkg197: Enable/disable GPU wavefront first-hit denoise-guide AOV capture.
+    void setGpuGuideAOVs(bool enabled) { gpuGuideAOVs = enabled; }
+    bool getGpuGuideAOVs() const { return gpuGuideAOVs; }
 
     void clear() {
         scene.clear(); bvh.reset(); lights = LightList();
@@ -3227,6 +3248,13 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // pkg72: capture this frame's projection state for the next render
         // call's motion-vector computation. See Camera::snapshotForMotion().
         cam.snapshotForMotion();
+}
+
+inline void Renderer::applyPasses(Camera& cam) {
+    if (passes_.empty()) return;
+    Framebuffer fb(cam);
+    for (auto& pass : passes_)
+        pass->execute(fb);
 }
 
 inline void Renderer::setIntegrator(std::shared_ptr<Integrator> i) {

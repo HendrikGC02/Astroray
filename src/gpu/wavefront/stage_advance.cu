@@ -130,6 +130,17 @@ constexpr int G_WF_NEE_INTS   = 2;
 // stageAdvanceKernel / stageAdvanceQueuedKernel and their composition
 // wrapper advancePathSlot were removed.)
 //
+// pkg197 — first-hit denoise-guide AOV output binding (base-colour albedo +
+// shading normal + depth). Published once per frame by the driver
+// (setWavefrontGuideBinding) so the intersect stage writes the guides WITHOUT
+// growing the kernel signature — same constant-memory rationale as
+// c_wfTexBinding below (a signature pointer would bump CONSTANT[0]). All three
+// pointers null == guides disabled (the ReSTIR/snapshot drivers never set it, so
+// the `if (guide.albedo)` predicate below skips the write). The driver
+// zero-inits the target buffers, so miss/sky pixels — which return before the
+// write — keep the CPU miss convention (albedo 0, normal 0, depth 0).
+__constant__ GWavefrontGuideBinding c_wfGuideBinding;
+
 // intersectPathSlot returns -1 when the path died, else the GMaterialType
 // of the hit (0..GMAT_CLOSURE_GRAPH) for shade-queue bucketing. The hit
 // record is parked in GPUWavefrontHitBuffers SoA at the slot index.
@@ -283,6 +294,36 @@ __device__ int intersectPathSlot(
     }
 
     const ::GMaterial& mat = materials[rec.materialId];
+
+    // pkg197 — first-hit denoise-guide AOV capture. Written from the INTERSECT
+    // stage (not the REG:254-saturated shade kernel — memory
+    // wavefront-shade-kernels-register-saturated) so the fleet
+    // stageShadeBucketedKernel<false,…> specialization stays byte-identical
+    // (STACK 3608 / REG 254 / CONSTANT[0] 1700). Placed here, right after the
+    // material load and BEFORE the emissive early-return, so it captures the raw
+    // first geometric hit — exactly the CPU spectral_path_tracer semantics
+    // (plugins/integrators/spectral_path_tracer.cpp: r.albedo =
+    // rec.material->getAlbedo(); r.depth = rec.t; r.normal = rec.normal — the
+    // first bvh->hit, unconditional of emissive). Gated on bounce == 0 &&
+    // sample_index == 0: the regen scheme maps sample-0 work items to w == pixel
+    // (stageRegenKernel: pixel = w % numPixels), so exactly ONE path per pixel
+    // writes each guide — a race-free single write that matches the CPU's s == 0
+    // capture (include/raytracer.h:3129,3173-3175). mat.baseColor is the GPU
+    // getAlbedo() (same value the pkg113 photon gather uses); rec.normal is the
+    // front-facing world-space shading normal (gpu_bvh sets rec.normal =
+    // frontFace?out:-out — the get_normal_buffer convention, pkg75). The three
+    // output pointers ride in the c_wfGuideBinding constant, so no signature grows.
+    if (bounce == 0 && state.sample_index[idx] == 0 &&
+        c_wfGuideBinding.albedo != nullptr) {
+        const int pixel = state.pixel_index[idx];
+        c_wfGuideBinding.albedo[pixel * 3 + 0] = mat.baseColor.x;
+        c_wfGuideBinding.albedo[pixel * 3 + 1] = mat.baseColor.y;
+        c_wfGuideBinding.albedo[pixel * 3 + 2] = mat.baseColor.z;
+        c_wfGuideBinding.normal[pixel * 3 + 0] = rec.normal.x;
+        c_wfGuideBinding.normal[pixel * 3 + 1] = rec.normal.y;
+        c_wfGuideBinding.normal[pixel * 3 + 2] = rec.normal.z;
+        c_wfGuideBinding.depth[pixel] = rec.t;
+    }
 
     // ---- Emission (gated on camera ray or post-specular bounce; path ends).
     GSampledSpectrum Le = gpu_material_emitted_spectral(mat, rec.frontFace, lambdas);
@@ -1230,6 +1271,15 @@ void launchStageIntersectQueued(
 void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding)
 {
     cudaMemcpyToSymbol(c_wfTexBinding, &binding, sizeof(GWavefrontTextureBinding));
+}
+
+// pkg197 — publish the frame's first-hit denoise-guide output pointers into the
+// __constant__ c_wfGuideBinding symbol (read by intersectPathSlot at bounce 0 /
+// sample 0). Called ONCE per frame by cuda_wavefront_render. Passing all-null
+// disables guide capture (the ReSTIR/snapshot drivers leave it null).
+void setWavefrontGuideBinding(const GWavefrontGuideBinding& binding)
+{
+    cudaMemcpyToSymbol(c_wfGuideBinding, &binding, sizeof(GWavefrontGuideBinding));
 }
 
 void launchStageShadeBucketed(

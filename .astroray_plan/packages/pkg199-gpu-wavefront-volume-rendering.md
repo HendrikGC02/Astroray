@@ -8,8 +8,17 @@ matches analytic exp(-σ·d) to <2e-4; shade kernel byte-identical REG 254/STACK
 3352/CONST 1700. **hw-611 HW FAIL (sphere-light NEE fog saturation — a 1e30
 occlusion sentinel used as the Beer-Lambert path length) FIXED** (true geometric
 NEE distance; see the "Hardware verification" audit blocks below) and re-verified
-HW PASS. Stage 2 open (spec-only below — full scattering medium, XL, CPU-first).
-**Estimated effort:** Stage 1 M (landed); Stage 2 XL (new scattering subsystem).
+HW PASS. **Stage 2 split into PR 2a (CPU medium loop — IN REVIEW) + PR 2b (GPU
+wavefront mirror — pending build slot).** PR 2a lands the CPU homogeneous
+scattering estimator (HG in-scatter, per-channel exponential distance sampling,
+NEE-through-medium phase/light MIS) behind a new single-scattering-albedo α
+(`set_world_volume(..., scatter=0.0)`, default 0 ⇒ exact Stage-1 absorption,
+byte-identical, every Stage-1 gate green): analytic single-scatter density-shape
+match ≤0.9% (one global scale), α-linear, α=0 Beer-Lambert Tr 0.6063 vs 0.6065,
+sum-to-beauty rel_L1 0.0000 with `PASS_VOLUME_*` populated, forward/back HG
+asymmetry 2.0× (single-scatter) / 1.48× (multi). Full local sweep 1946 passed / 0
+failed. `worldVolumeAnisotropy` now live as g.
+**Estimated effort:** Stage 1 M (landed); Stage 2 XL — 2a CPU (in review), 2b GPU.
 **Depends on:** pkg55-C7 wavefront dispatch; [[wavefront-shade-kernels-register-saturated]].
 
 ---
@@ -170,6 +179,24 @@ scatter-point `ray_origin` capture moment identically on CPU and GPU at design t
 - Register gate: shade kernel unchanged; the new volume-scatter kernel's footprint
   reported via cuobjdump.
 - Heterogeneous / object volumes / delta-tracking remain OUT (a later package).
+
+### Scattering parametrization (coordinator-approved, Option A — implemented in 2a)
+
+The world-volume API had no scattering coefficient. A single-scattering albedo
+`α ∈ [0,1]` was added as the trailing `set_world_volume(density, color,
+anisotropy, scatter=0.0)` arg: `σ_t = upsample(color)·density` (unchanged from
+Stage 1), `σ_s = α·σ_t`, `σ_a = (1-α)·σ_t`. Default `α=0` gates the scattering
+estimator OFF, so Stage-1 absorption is byte-identical and the "σ_s=0 ⇒
+Beer-Lambert parity" criterion is the α=0 case. (Option B — reinterpreting `color`
+as albedo — was rejected: it would re-baseline Stage-1 extinction semantics.)
+
+### Addon-UI follow-up (MUST be filed at closeout)
+
+PR 2a/2b expose α **only through the python binding**. Wiring the single-
+scattering-albedo control into the Blender addon world-volume UI (a `scatter`
+slider next to density/color/anisotropy, plumbed through to `set_world_volume`)
+is a tracked **follow-up package** — not in 2a/2b scope per the coordinator's
+"bindings now, addon UI follow-up" decision (2026-08-14).
 
 ---
 

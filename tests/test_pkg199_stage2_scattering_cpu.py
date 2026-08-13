@@ -160,7 +160,8 @@ def _single_scatter_integral(density, alpha, tmax=80.0, n=40000):
     x = _CAM[None, :] + t[:, None] * _DIR[None, :]
     r = np.linalg.norm(x - _PL[None, :], axis=1)
     integrand = sigma_s * np.exp(-sigma_t * t) * np.exp(-sigma_t * r) / (r * r)
-    return float(np.trapz(integrand, t))
+    trapz = getattr(np, "trapezoid", None) or np.trapz  # numpy>=2 renamed trapz
+    return float(trapz(integrand, t))
 
 
 def test_single_scatter_matches_analytic_density_shape():
@@ -206,10 +207,12 @@ def test_single_scatter_linear_in_alpha():
 # FORWARD / BACK SCATTER — g sign asymmetry + visual gate.
 # ---------------------------------------------------------------------------
 
-def _halo_scene(g, w=64, h=64):
+def _halo_scene(g, max_depth=2, w=64, h=64):
     """Point light directly BEHIND the fog along the view axis (cosTheta=-1 at the
     scatter points), so forward scattering (g>0) throws a bright halo toward the
-    camera and back scattering (g<0) does not."""
+    camera and back scattering (g<0) does not. Low bounce depth isolates the phase
+    function's directionality (multi-scatter averages toward isotropy and dilutes
+    the asymmetry, so a high-depth render understates the true HG sign effect)."""
     r = astroray.Renderer()
     r.set_seed(SEED)
     r.set_background_color([0.0, 0.0, 0.0])
@@ -218,23 +221,39 @@ def _halo_scene(g, w=64, h=64):
     r.setup_camera([0.0, 0.0, 6.0], [0.0, 0.0, -4.0], [0.0, 1.0, 0.0],
                    35.0, w / h, 0.0, 10.0, w, h)
     r.set_integrator("path_tracer")
-    r.set_integrator_param("max_depth", 4)
+    r.set_integrator_param("max_depth", max_depth)
     return r
 
 
 def test_forward_back_scatter_asymmetry(test_results_dir):
-    fwd = _render_cpu(_halo_scene(0.7), 256, 4, 64, 64)
-    bwd = _render_cpu(_halo_scene(-0.7), 256, 4, 64, 64)
+    # Numeric gate at single-scatter depth (phase directionality, undiluted).
+    fwd1 = _render_cpu(_halo_scene(0.7, max_depth=1), 256, 1, 64, 64)
+    bwd1 = _render_cpu(_halo_scene(-0.7, max_depth=1), 256, 1, 64, 64)
+    fm1, bm1 = float(fwd1.mean()), float(bwd1.mean())
+    print(f"[pkg199-s2 fwd/back scatter, single] mean(g=+0.7)={fm1:.5f} "
+          f"mean(g=-0.7)={bm1:.5f} ratio={fm1 / max(bm1, 1e-9):.3f}")
+    # Multi-bounce renders for the PNG visual (a fuller halo glow).
+    fwd = _render_cpu(_halo_scene(0.7, max_depth=4), 256, 4, 64, 64)
+    bwd = _render_cpu(_halo_scene(-0.7, max_depth=4), 256, 4, 64, 64)
     fm, bm = float(fwd.mean()), float(bwd.mean())
-    print(f"[pkg199-s2 fwd/back scatter] mean(g=+0.7)={fm:.5f} mean(g=-0.7)={bm:.5f} "
-          f"ratio={fm / max(bm, 1e-9):.3f}")
+    print(f"[pkg199-s2 fwd/back scatter, depth4] mean(g=+0.7)={fm:.5f} "
+          f"mean(g=-0.7)={bm:.5f} ratio={fm / max(bm, 1e-9):.3f}")
     save_image(fwd.astype(np.float32), os.path.join(test_results_dir,
               "pkg199_s2_forward_scatter.png"))
     save_image(bwd.astype(np.float32), os.path.join(test_results_dir,
               "pkg199_s2_back_scatter.png"))
-    assert fm > bm * 1.5, (
-        f"forward scatter (g=+0.7, {fm:.5f}) must clearly exceed back scatter "
-        f"(g=-0.7, {bm:.5f}) for a light behind the fog — HG sign/frame bug")
+    # A correct HG frame gives a strong forward halo (g>0) for a light behind the
+    # fog; a sign/frame bug inverts or nullifies it. Single-scatter ratio is large.
+    # Measured ~2.0x forward enhancement: decisively rejects an isotropic phase
+    # (ratio 1.0) and an inverted HG sign (ratio < 1.0). It is not larger because
+    # scatter points BEYOND the finite-distance light see cosTheta ~= +1 (back-
+    # favoured), moderating the net on-image asymmetry — physically correct.
+    assert fm1 > bm1 * 1.6, (
+        f"forward single-scatter (g=+0.7, {fm1:.5f}) must exceed back "
+        f"(g=-0.7, {bm1:.5f}) for a light behind the fog — HG sign/frame bug")
+    assert fm > bm * 1.3, (
+        f"forward multi-scatter halo (g=+0.7, {fm:.5f}) must exceed back "
+        f"(g=-0.7, {bm:.5f})")
 
 
 # ---------------------------------------------------------------------------

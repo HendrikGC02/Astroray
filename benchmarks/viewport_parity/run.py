@@ -314,7 +314,8 @@ def _drive_pan_zoom_orbit(eng, renderer_proxy: CountingRenderer,
                           chunk_spp: int, max_depth: int,
                           use_oidn_pass: bool,
                           path: str = "camera_only",
-                          camera_skip_upload: bool = False):
+                          camera_skip_upload: bool = False,
+                          nav_res_divisor: int = 1):
     """Drive the camera path. Returns dict of measurements for one config.
 
     ``path`` chooses which Blender scenario to emulate:
@@ -360,10 +361,20 @@ def _drive_pan_zoom_orbit(eng, renderer_proxy: CountingRenderer,
         else:
             dispatch_ms.append(0.0)
 
+        # pkg196: reduced-resolution navigation. On a camera_only (moving) frame
+        # the addon renders at region/N and upscales for display (Cycles
+        # start_resolution; blender_addon/exporter.py view_draw). We model the
+        # render-side cost by shrinking the camera + render dims by nav_res_divisor
+        # on camera_only frames. nav_res_divisor==1 reproduces the pkg192 baseline.
+        rw, rh = width, height
+        if path == "camera_only" and nav_res_divisor > 1:
+            rw = max(1, width // nav_res_divisor)
+            rh = max(1, height // nav_res_divisor)
+
         # 2) camera setup — matches _setup_viewport_camera's renderer call.
         real.setup_camera(
             look_from, look_at, [0, 1, 0],
-            float(vfov), width / max(1, height), 0.0, 10.0, width, height,
+            float(vfov), rw / max(1, rh), 0.0, 10.0, rw, rh,
         )
 
         # 3) optional OIDN pass registration (H3 toggle).
@@ -503,6 +514,7 @@ def run(args) -> dict:
                         use_oidn_pass=use_oidn,
                         path=path,
                         camera_skip_upload=args.camera_skip_upload,
+                        nav_res_divisor=args.nav_res_divisor,
                     )
                     result["config"] = {
                         "tris_target": tris,
@@ -517,6 +529,7 @@ def run(args) -> dict:
                         "n_frames": args.frames,
                         "path": path,
                         "camera_skip_upload": args.camera_skip_upload,
+                        "nav_res_divisor": args.nav_res_divisor,
                     }
                     out["configs"].append(result)
 
@@ -575,6 +588,13 @@ def main(argv=None) -> int:
                    help="pkg192: render camera_only frames with skip_upload=True "
                         "(the shipped addon behavior — skips the per-frame CPU BVH "
                         "rebuild on pure camera moves). Off = pre-pkg192 baseline.")
+    p.add_argument("--nav-res-divisor", dest="nav_res_divisor", type=int,
+                   default=1,
+                   help="pkg196: render camera_only (moving) frames at region/N "
+                        "resolution and upscale on display (the reduced-resolution "
+                        "navigation mode). 1 = full res (pkg192 baseline); 2 or 4 = "
+                        "the shipped nav divisor. Camera settles snap back to full "
+                        "res (not modeled here — this measures the moving-frame arm).")
     p.add_argument("--no-h3", action="store_true",
                    help="Skip the OIDN A/B (H3).")
     p.add_argument("--with-transform-edit", action="store_true",

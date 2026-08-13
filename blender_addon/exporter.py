@@ -26,6 +26,24 @@ import numpy as np
 from enum import IntFlag
 
 
+# pkg196: reduced-resolution viewport navigation.
+# Cycles reference: intern/cycles/blender/session.cpp
+# BlenderSession::reset + `start_resolution` (Apache-2.0). Cycles renders
+# navigation frames at a reduced `start_resolution` and progressively resolves
+# to full resolution once the view settles. We mirror that: while the camera is
+# actively moving, render at region.width/N x region.height/N and upscale on
+# display (draw_texture_2d bilinear), then snap back to full res on settle and
+# hand off to the pkg191 progressive still-frame loop. Accumulation is reset on
+# every resolution switch so mixed-resolution buffers are never blended.
+VIEWPORT_NAV_RES_DIVISOR = 2   # render W/2 x H/2 while the camera is moving.
+VIEWPORT_NAV_SETTLE_S = 0.25   # snap back to full res after this quiet window.
+
+
+def _nav_clock():
+    """Monotonic clock for the nav-settle debounce (patchable in tests)."""
+    return time.perf_counter()
+
+
 class Change(IntFlag):
     """Bitflags for scene-change classification. ORed together to represent
     a set of domains that need re-upload."""
@@ -282,6 +300,12 @@ class Exporter:
         self._viewport_skip_upload_next = False  # pkg114 inc 3d: next render is a
         # TLAS-only refit → render(skip_upload=True); set by apply_depsgraph_updates,
         # consumed by view_update.
+        # pkg196: reduced-resolution navigation state. _viewport_render_divisor is
+        # the resolution divisor of the LAST rendered frame (1 = full res);
+        # _viewport_nav_last_change_time is the _nav_clock() timestamp of the most
+        # recent camera move, used for the settle debounce in view_draw.
+        self._viewport_render_divisor = 1
+        self._viewport_nav_last_change_time = 0.0
 
         # Per-domain caches
         self._camera_cache = CameraCache(bpy_module)
@@ -502,20 +526,29 @@ class Exporter:
         self._viewport_full_synced = True
 
     def render_viewport_frame(self, renderer, context, settings, region,
-                             reset_accumulation, engine_methods, skip_upload=False):
+                             reset_accumulation, engine_methods, skip_upload=False,
+                             res_divisor=1):
         """Set up camera, run render, update cached GPU texture.
 
         skip_upload (pkg114 inc 3d): render from the CURRENT device state without a
         full geometry re-upload — used after a TLAS-only instance-transform refit
         (update_instance_transform + upload_instance_transforms), so a transform-only
-        edit of instanced objects pays only the cheap instance/TLAS re-push."""
-        width = max(1, region.width)
-        height = max(1, region.height)
+        edit of instanced objects pays only the cheap instance/TLAS re-push.
+
+        res_divisor (pkg196): render at region.width/N x region.height/N while the
+        camera is moving (N>1), upscaled on display. A change of divisor is a
+        resolution switch and resets accumulation so reduced- and full-resolution
+        buffers are never blended (Cycles start_resolution semantics)."""
+        res_divisor = max(1, int(res_divisor))
+        width = max(1, region.width // res_divisor)
+        height = max(1, region.height // res_divisor)
         render_key = engine_methods['viewport_render_key'](context, settings, region)
 
-        if reset_accumulation or render_key != self._viewport_accum_key:
+        if (reset_accumulation or render_key != self._viewport_accum_key
+                or res_divisor != self._viewport_render_divisor):
             self._reset_viewport_accumulation()
             self._viewport_accum_key = render_key
+        self._viewport_render_divisor = res_divisor
 
         self._viewport_target_spp = engine_methods['viewport_target_samples'](settings)
         if self._viewport_current_spp >= self._viewport_target_spp:
@@ -713,7 +746,27 @@ class Exporter:
                 and new_substantive_hash != self._viewport_camera_substantive_hash
             )
 
-            if camera_changed or needs_progress or settings_changed or self._viewport_texture is None:
+            # pkg196: reduced-resolution navigation decision. While the camera is
+            # actively moving (changed this frame) OR still inside the settle
+            # window after the last move, render at a reduced divisor and upscale;
+            # once the view has been quiet for VIEWPORT_NAV_SETTLE_S, snap back to
+            # full res (divisor 1) and hand off to the pkg191 progressive loop.
+            # Cycles start_resolution analogue (session.cpp BlenderSession::reset).
+            now = _nav_clock()
+            if camera_changed:
+                self._viewport_nav_last_change_time = now
+            within_settle = (
+                (now - self._viewport_nav_last_change_time) < VIEWPORT_NAV_SETTLE_S)
+            navigating = self._viewport_full_synced and (
+                camera_changed
+                or (within_settle and self._viewport_render_divisor > 1))
+            desired_divisor = VIEWPORT_NAV_RES_DIVISOR if navigating else 1
+            resolution_switch = (desired_divisor != self._viewport_render_divisor)
+
+            render_needed = (camera_changed or needs_progress or settings_changed
+                             or self._viewport_texture is None or resolution_switch)
+
+            if render_needed:
                 renderer = self._get_viewport_renderer()
                 # If user opened rendered-shading without ever firing view_update,
                 # renderer has no scene. Fall back to full sync.
@@ -751,12 +804,19 @@ class Exporter:
                     and camera_changed
                 )
 
+                # pkg196: the fresh-sync fallback frame builds the BVH and seeds
+                # the still-frame loop — it (and any pre-sync frame) always renders
+                # full res. Only a fully-synced camera-motion frame reduces res.
+                frame_divisor = desired_divisor if not did_fresh_sync else 1
+
                 t0 = time.perf_counter()
                 self.render_viewport_frame(
                     renderer, context, settings, region,
-                    reset_accumulation=(camera_substantive_changed or settings_changed),
+                    reset_accumulation=(camera_substantive_changed or settings_changed
+                                        or resolution_switch),
                     engine_methods=engine_methods,
                     skip_upload=camera_only_frame,
+                    res_divisor=frame_divisor,
                 )
                 # pkg192: record orbit/pan/zoom frames through the existing
                 # pkg56-A ring buffer. view_draw previously left camera-motion
@@ -769,8 +829,13 @@ class Exporter:
                 self._viewport_camera_hash = new_hash
                 self._viewport_camera_substantive_hash = new_substantive_hash
 
-                if self._viewport_current_spp < self._viewport_target_spp:
-                    request_viewport_redraw_fn()
+            # pkg196: keep pumping redraws while the view is settling at reduced
+            # res (so it always resolves to full res even if the reduced chunk hit
+            # the sample target), or while the pkg191 progressive loop is refining
+            # at full res. Without the settle pump the view could stick at low res.
+            settling = within_settle and self._viewport_render_divisor > 1
+            if settling or self._viewport_current_spp < self._viewport_target_spp:
+                request_viewport_redraw_fn()
 
             if self._viewport_texture is None:
                 return

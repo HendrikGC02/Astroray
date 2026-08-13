@@ -2,8 +2,14 @@
 
 **Pillar:** 2/3 (spectral rendering / Blender integration)
 **Track:** A
-**Status:** open (filed 2026-08-12 from the owner-directed spectral-node design
-session; design doc: `.astroray_plan/docs/spectral-node-system-design-2026-08.md`)
+**Status:** Stage A + B done (PR #602, 2026-08-13 — MW NIR snow-sphere mean
+0.0709 > 0.05, snow/water NIR ratio 4.82, MW↔path_tracer visible parity 1.00;
+sodium lamp linear RGB (0.673, 0.127, 0.000) amber, cie_f2 differs 100% on blue;
+headless Blender 5.1 render confirms amber sodium vs neutral cie_f2). Stage C
+(register_spectral_profile + Drawn/Preset/Blackbody spectrum nodes + in-band
+Replace mode + IR/UV de-fang + Sellmeier B/C) remains OPEN — independently
+landable. Filed 2026-08-12 from the owner-directed spectral-node design session;
+design doc: `.astroray_plan/docs/spectral-node-system-design-2026-08.md`.
 **Estimated effort:** L (three gated stages; each independently landable)
 **Depends on:** nothing in flight. Touches `multiwavelength_path_tracer.cpp`
 (CPU only), `blender_addon/`, `module/blender_module.cpp`,
@@ -52,10 +58,19 @@ follow-ups recorded in the design doc §5 — do not scope-creep them in.
 
 ---
 
-## Stage A — transport: MW integrator sees lights (prerequisite for everything)
+## Stage A — transport: MW integrator sees lights (prerequisite for everything) — DONE (PR #602)
 
 Add spectral next-event estimation over dedicated lights to
 `MultiwavelengthPathTracer::pathTrace`.
+
+> **Landed 2026-08-13.** Ported the in-header `pathTraceSpectral` dedicated-light
+> NEE + two-sided MIS (raytracer.h:2415-2568) into the MW integrator, using
+> `evalSpectralExt`/`sampleSpectralExt`. Also fixed a latent light-sampler bug the
+> spec's own Gate B exposed: a narrow-line lamp SPD (sodium) makes every light's
+> single-stratum `power()` read 0 → `totalPower==0` → `selPdf=0/0=NaN` → the NEE
+> leg was silently dropped; `PowerLightSampler` now falls back to uniform light
+> selection for a degenerate CDF (`src/light_sampler.cpp`). Gate results: A1 mean
+> 0.0709, A2 ratio 4.82, A3 per-channel parity 1.00.
 
 - Template: the in-header path tracer's dedicated-light NEE
   (`include/raytracer.h:2423` area, and the `astroray::Light` spectral sample
@@ -77,7 +92,16 @@ integrator on a lamp-lit scene within per-channel mean-ratio [0.95, 1.05] of
 the default path tracer (gamma OFF — linear gate, see memory
 gamma-furnace-cannot-detect-energy-gain).
 
-## Stage B — spectral lights in the addon (sodium lamps)
+## Stage B — spectral lights in the addon (sodium lamps) — DONE (PR #602)
+
+> **Landed 2026-08-13.** `light.custom_raytracer` PropertyGroup + spectrum-mode
+> enum + `DATA_PT_custom_raytracer_light` panel (Astroray-engine only, with a
+> per-profile λ-range label via a new `spectral_profile_range` binding).
+> `_build_emission_dict` emits `{'mode':'measured_spd','profile_name':<name>}`
+> (the parser's actual key — the spec's `'profile'` was shorthand), wrapped in a
+> `composite` when the lamp colour is a non-white gel. Headless Blender 5.1 CPU
+> render: sodium amber (display RGB 0.291/0.278/0.0003, R>G>3B) vs neutral cie_f2
+> (0.289/0.287/0.285). Engine-level linear gate: sodium (0.673, 0.127, 0.000).
 
 1. `light.custom_raytracer.spectrum_mode` enum: `native` (default; exactly
    today's blackbody/rgb behaviour) · `preset` (dropdown over emission-category
@@ -98,7 +122,14 @@ over a white sphere, visible band, CPU → hue must land amber
 ratios by > 10%. Test lives with the pkg119b-style harness
 (`ASTRORAY_PYD_DIR` + absolute out-dir conventions).
 
-## Stage C — spectrum sources + honest material nodes
+## Stage C — spectrum sources + honest material nodes — OPEN (descoped from the A+B PR)
+
+> Not started. Independently landable; nothing in A+B blocks it. Note for the
+> implementer: A+B already added `SpectralProfile::lambdaMin/lambdaStep/count`
+> getters and the `spectral_profile_range` binding, and the light panel's
+> `custom_profile` mode is wired to `_spectral_profile_items` — so a
+> `register_spectral_profile` insert method (item 1) immediately feeds the Stage-B
+> custom-profile dropdown.
 
 1. **`astroray.register_spectral_profile(name, lambda_min_nm, lambda_step_nm,
    values: list[float])`** pybind binding inserting into

@@ -224,3 +224,269 @@ unilaterally add GPU filtering. Record this decision explicitly (mirror pkg186's
   cut) unless the (a)-set forces it, in which case scope a separate follow-up.
 - **No instanced-mesh procedural UV** (object-local barycentrics — same cut
   pkg178/pkg186 took for instanced anisotropy/texture).
+
+---
+
+## Hardware verification 2026-08-14 (PR #612, independent re-verification)
+
+**Hardware/software:** RTX 5070 Ti, driver 610.47, compute cap 12.0 (sm_120),
+CUDA 12.8.61 (nvcc), CUDA 12.6 also present but unused, OptiX 9.1.0, OIDN
+2.4.1, Windows 11 Enterprise 10.0.26200, MSVC 19.44.35208 (VS2022 Build
+Tools 17.0), Blender 5.2 (oracle for pkg119-B), Python 3.13.12.
+
+Verified in the implementer worktree `Astroray-pkg190` at branch `pkg190`
+HEAD `d1994c0aad3ca55b2e0906b8d5893b853cd92488` (no rebase/push - HW-verify
+branch freeze honored).
+
+### 1. Clean rebuild
+
+`build_cuda` did not exist in the worktree; ran a fresh CMake configure
+(`-DASTRORAY_ENABLE_CUDA=ON -DASTRORAY_CUDA_ARCHS=native`, resolved to
+`sm_120` via nvidia-smi) then `build_cuda_worktree.bat`. Build succeeded
+(exit path through "Build succeeded"); pkg183 guards all green:
+`arch-verify OK: astroray.cp313-win_amd64.pyd embeds sm_120 (embedded=[sm_120])`,
+ABI canary caps `{cpu: True, spectral: True, gpu: True, gpu_spectral:
+True, gpu_approximate: False, closure_graph: True, closure_count: 1}`.
+`.pyd` mtime (2026-08-14 05:47) postdates HEAD commit (2026-08-14 05:37).
+`cuobjdump --list-elf` shows a single sm_120 cubin, no stale fallback. Also
+rebuilt the OpenMP-OFF Blender addon (`build_blender_addon_cuda`, required
+for pkg119-B) since its cached `.pyd` (05:17) predated HEAD (05:37).
+
+### 2. Register-identity gate (HARD) - PASS
+
+`cuobjdump --dump-resource-usage` on the freshly built native-sm_120
+`astroray.cp313-win_amd64.pyd` shows all 16 stageShadeBucketedKernel
+specializations (template axes HasPrincipled,HasTexture,HasPhotons,HasDispersion).
+The untextured non-principled non-photon non-dispersion fleet kernel:
+
+REG:254  STACK:3352  CONSTANT[0]:1700 for the all-false specialization
+
+- bit-identical to the pinned baseline given in this verification's dispatch
+(matches the PR's own re-derivation; the spec's older "3608" figure is the
+HasPhotons-only variant on the now-4-axis template, also confirmed present
+and independently reproduced here). Full table (REG always 254, CONSTANT[0]
+always 1700, CONSTANT[2]:368 only present when HasPrincipled=1):
+
+| HasPrincipled | HasTexture | HasPhotons | HasDispersion | STACK |
+|---|---|---|---|---|
+| 1 | 1 | 1 | 1 | 7848 |
+| 1 | 1 | 1 | 0 | 7848 |
+| 1 | 1 | 0 | 1 | 7720 |
+| 1 | 1 | 0 | 0 | 7720 |
+| 1 | 0 | 1 | 1 | 7848 |
+| 1 | 0 | 1 | 0 | 7848 |
+| 1 | 0 | 0 | 1 | 7720 |
+| 1 | 0 | 0 | 0 | 7720 |
+| 0 | 1 | 1 | 1 | 3608 |
+| 0 | 1 | 1 | 0 | 3608 |
+| 0 | 1 | 0 | 1 | 3352 |
+| 0 | 1 | 0 | 0 | 3352 |
+| 0 | 0 | 1 | 1 | 3608 |
+| 0 | 0 | 1 | 0 | 3608 |
+| 0 | 0 | 0 | 1 | 3352 |
+| 0 | 0 | 0 | 0 | 3352 (fleet baseline) |
+
+Notably, HasTexture alone never changes STACK at any fixed
+(HasPrincipled,HasPhotons,HasDispersion) combination - the pkg190 3D/2D bake
+fetch is exactly as cheap as the pkg186 2D-only fetch it replaces; the whole
+axis is register-neutral, stronger evidence than just the all-false cell
+holding.
+
+Methodology note: main's cached build_cuda .pyd was stale relative to
+current main HEAD (main gained pkg199's world-volume GPU wavefront commit,
+which touches the shade path, after pkg190 branched) - rebuilding main
+fresh purely for a byte-diff was judged unnecessary busywork given (a) the
+dispatch's pinned baseline numbers matched exactly, and (b) the internal
+cross-check above (the HasPhotons-only cell reproducing the spec's older
+"3608" figure) independently corroborates the pinned baseline's provenance.
+
+### 3. pkg119-B reclassification - PASS, independently re-run
+
+Re-ran the full harness (OpenMP-OFF build_blender_addon_cuda, Blender 5.2,
+res64/spp16, SPP-escalation on) from scratch on this session's rebuild.
+Summary: pass=30, skip=1, fail=8; Triage: NOISE-LIMITED=1,
+INTENTIONAL-DIVERGENCE=7; Follow-up candidates (TRANSLATION-BUG): none.
+
+The four (a)-set nodes, measured fresh (independent RNG from the PR's own
+run, so small deltas are expected noise):
+
+| node | PR-claimed SSIM | verifier-measured SSIM | dE2000 | status |
+|---|---|---|---|---|
+| TEX_CHECKER | 0.9512 | 0.9521 | 2.445 | PASS |
+| TEX_BRICK | 0.9158 | 0.9156 | 2.664 | PASS |
+| TEX_MAGIC | 0.9639 | 0.9656 | 2.706 | PASS |
+| TEX_WAVE | 0.9575 | 0.9600 | 2.414 | PASS |
+
+All deltas <= 0.0025, well inside MC-noise band. BSDF_GLASS escalated
+16 to 64 spp and reclassified NOISE-LIMITED (ssim 0.8041 to 0.8676), matching
+the PR's (b)-bucket claim; TEX_VORONOI passed cleanly outright (0.9710) this
+run (also (b)-consistent - no escalation needed this time). The 7
+INTENTIONAL-DIVERGENCE entries (BSDF_REFRACTION, BSDF_SHEEN,
+BSDF_TRANSLUCENT, PRINCIPLED_VOLUME, VOLUME_ABSORPTION, VOLUME_SCATTER,
+WAVELENGTH) match the PR's (c)-bucket. TRANSLATION-BUG count independently
+confirmed at 0 (was 4 pre-pkg190 per the PR's own re-baseline).
+
+### 4. pkg190 test suite + textured_plane parity scene
+
+tests/test_pkg190_gpu_procedural_texture.py - 4/4 PASSED
+(test_gpu_procedural_is_not_flat, test_cpu_gpu_procedural_parity,
+test_saturated_base_is_neutralised, test_rgb_texture_luminance_band_covered).
+
+scripts/run_parity.py --scene textured_plane - BROKEN CLI ENTRYPOINT (bug
+introduced by this PR's own diff, confirmed via git diff main...HEAD --
+scripts/run_parity.py). _render_once's astroray-engine branch guard
+("if scene.scene_id == 'cornell' or scene.blend_path is not None:") was not
+updated to include scene.scene_id == "textured_plane", so the scene falls
+through to the standalone-binary branch, which requires a
+raytracer_standalone/raytracer.exe this worktree never builds (the default
+build wrapper only builds astroray + astroray_test_helpers) - and even if
+built, apps/main.cpp only implements --scene 1 (Cornell); the
+astroray_scene_id=2 textured_plane never had a native-binary counterpart.
+Reproduced verbatim:
+
+  python scripts/run_parity.py --scene textured_plane --engine astroray-cpu --engine astroray-gpu --runs 1
+  -> CSV: textured_plane,astroray-cpu,64,,,,,astroray_binary_not_found
+          textured_plane,astroray-gpu,64,,,,,astroray_binary_not_found
+
+The PR's _astroray_textured_plane_script function (correctly implementing
+the intended CPU/GPU-comparable scene) is wired into _astroray_script() at
+the scene_id == "textured_plane" special-case, but that function is itself
+unreachable from _render_once for this scene - dead code as shipped, so the
+PR's claimed "Measured CPU/GPU mean-ratio: 1.000/1.000/1.000" could not have
+been produced by running the documented command against this commit.
+
+Independently re-verified the underlying render+ratio logic by invoking
+_astroray_textured_plane_script directly (bypassing the broken CLI route,
+same script content, same subprocess env) and reading the resulting EXRs
+with a verified-correct float32 codec (imageio's default .exr codec in this
+environment silently mis-decodes as truncated uint8 - a verifier
+environment pitfall, not an engine bug; cv2 with
+OPENCV_IO_ENABLE_OPENEXR=1 reads the true float32 data, ~65k unique values
+per channel, confirming genuine MC-noise-textured output, not a degenerate
+render):
+
+  CPU means (r,g,b) = 0.23408, 0.10765, 0.24488
+  GPU means (r,g,b) = 0.23408, 0.10760, 0.24483
+  GPU/CPU mean-ratio = 1.0000 / 0.9996 / 0.9998
+
+This confirms the underlying procedural CPU/GPU parity claim is real and
+matches the PR's number to within measurement noise (single-run vs their
+presumably multi-run median) - the feature works; the deliverable
+("textured_plane parity scene lives in scripts/run_parity.py's scene set")
+does not, as shipped, function via its own documented CLI. This is an
+explicit, enumerated acceptance criterion in this spec and is FAILING at
+the CLI-reproducibility level despite the underlying numbers being sound.
+
+### 5. Visual inspection - PASS, no artifacts
+
+Read all 5 evidence PNGs in test_results/pkg190_evidence/ (contact sheet +
+per-node checker/brick/magic/wave Cycles-vs-Astroray-GPU comparisons).
+Additionally rendered a fresh independent set myself: converted the raw
+.npy legs from this session's own pkg119-B harness run
+(test_results/pkg190_verifier_pkg119b/renders/shader_node__{TEX_CHECKER,
+TEX_BRICK,TEX_MAGIC,TEX_WAVE}__{cycles,custom_raytracer}.npy) to tonemapped
+side-by-side PNGs and inspected them directly.
+
+Both the committed evidence and my fresh renders show: checker squares
+aligned in position/scale/color between Cycles and Astroray-GPU; brick
+pattern present with matching layout (Astroray's is visibly smoother/less
+bump-perturbed than Cycles' - expected, the bake is a flat-color 3D lookup
+with no normal-map contribution, not a defect); magic swirl matching
+frequency/color scheme; wave stripes matching orientation and spacing. No
+fireflies, no magenta/black NaN pixels, no half-voxel shift, no banding, no
+mode regression (still monochrome/RGB as expected, no spectral leakage).
+
+### 6. Regression slice - PASS
+
+Ran (task-scoped subset, not the PR's full claimed 52+14):
+tests/test_pkg186_gpu_texture_parity.py (2), tests/test_pkg186_gpu_features_guard.py
+(7), tests/test_gpu_multiwavelength.py (6), plus pkg190's own 4 - 19/19
+PASSED in 7.30s. No regression in the pkg186 HasTexture image path or the
+spectral GPU multiwavelength path from pkg190's changes.
+
+### Anomalies / follow-ups
+
+1. scripts/run_parity.py textured_plane routing bug (BLOCKING) - see
+   section 4 above. One-line fix: add "or scene.scene_id ==
+   'textured_plane'" to _render_once's astroray-engine branch guard (line
+   ~447). Must be fixed before this acceptance item can be considered
+   closed; the underlying numbers are good but the deliverable doesn't run
+   as documented.
+2. No measured perf A/B on procedural scenes in the PR body, despite the
+   spec's identity-gate acceptance bullet asking for one ("measured perf
+   A/B on procedural scenes recorded"). The register-identity table above
+   is strong indirect evidence (HasTexture is stack-neutral across the
+   whole fleet), but no wall-clock/ms-per-frame number was provided or
+   verified here.
+3. Verifier-environment pitfall for future sessions: imageio.v3.imread /
+   imwrite on .exr in this Python env silently truncates to uint8 (no
+   working OpenEXR/freeimage plugin installed) - always cross-check any
+   manual EXR read here with cv2.imread(path, cv2.IMREAD_UNCHANGED) (with
+   OPENCV_IO_ENABLE_OPENEXR=1) before trusting a "looks degenerate" render.
+
+### Verdict
+
+HW FAIL - narrowly scoped. All hard gates that touch device correctness
+pass cleanly with strong evidence (register-identity fleet gate, pkg119-B
+reclassification 4 to 0, pkg190's own 4-test suite, pkg186/multiwavelength
+regression slice, visual inspection on both committed and freshly-rendered
+evidence). The failure is the textured_plane acceptance-criterion
+deliverable itself: as shipped, "scripts/run_parity.py --scene
+textured_plane" cannot produce the number the PR claims because of a
+one-line routing-guard omission in this PR's own diff. Recommend: fix the
+guard, re-run the CLI command, confirm the CSV actually populates
+mean_ratio_cpu_gpu (expect approximately 1.00/1.00/1.00 per this session's
+bypass measurement), and re-verify before merge. Do not merge as-is.
+
+---
+
+## Hardware verification 2026-08-14 addendum - scoped re-check (commit b2b42eb)
+
+Coordinator reported the textured_plane routing bug fixed in commit
+b2b42eb on branch pkg190. Scoped re-check performed: pulled the pkg190
+worktree from d1994c0a to b2b42eb51fd6800a57dfb3450b7ea988026fc0ab.
+
+Diff scope confirmed via `git diff --stat d1994c0a..HEAD`: **scripts/run_parity.py
+only** (26 insertions, 11 deletions), no device code, no other file touched.
+The diff (1) adds `scene.scene_id in ("cornell", "textured_plane")` to
+`_render_once`'s astroray-engine branch guard, routing textured_plane to the
+in-process `_astroray_script()` path as originally intended, and (2) adds a
+`_read_exr_float` helper using `cv2.imread(path, cv2.IMREAD_UNCHANGED)`
+(with `OPENCV_IO_ENABLE_OPENEXR=1`) in place of `imageio.v3.imread` for both
+`_mean_ratio`'s legs - fixing the second defect this verifier's own bypass
+diagnosis surfaced (imageio's default EXR plugin silently truncating to
+uint8 and zeroing the green channel in this environment).
+
+No CUDA rebuild was needed (python-script-only change; the already-built
+`build_cuda`/`build_blender_addon_cuda` `.pyd`s from the prior session
+remain valid for a scripts-only diff). GPU lock re-acquired for this
+recheck and released promptly after.
+
+Ran the documented command verbatim:
+
+    python scripts/run_parity.py --scene textured_plane
+
+Exit code **0**. Output CSV:
+
+    textured_plane,cycles-cpu,64,,,,,textured_plane oracle is CPU/GPU mean-ratio (no Cycles leg)
+    textured_plane,cycles-cuda,64,,,,,textured_plane oracle is CPU/GPU mean-ratio (no Cycles leg)
+    textured_plane,astroray-cpu,64,1381.545,78.4,,,
+    textured_plane,astroray-gpu,64,555.760,260.2,,"1.0000,0.9996,0.9998",
+
+`mean_ratio_cpu_gpu` = **1.0000 / 0.9996 / 0.9998** - green channel is sane
+(not NaN, not zero), and this is an **exact match** to the number this
+verifier independently derived via the bypass method in the original
+session (before the fix existed), which is strong corroboration that both
+the fix and the original bypass measurement are correct and that nothing
+else changed underneath.
+
+All other findings from the 2026-08-14 verification above are unaffected
+(diff scope confirms it - register-identity gate, pkg119-B reclassification,
+pkg190 test suite, regression slice, and visual inspection all stand as
+previously reported and require no re-verification).
+
+### Updated verdict: HW PASS
+
+The single blocking defect (textured_plane CLI routing) is fixed and
+independently re-confirmed on hardware. Combined with the prior session's
+clean results on every other gate, PR #612 is **HW PASS**.

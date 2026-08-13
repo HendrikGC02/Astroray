@@ -26,6 +26,7 @@ GPU-gated: skips when no CUDA device (CI has none — RTX-box leg).
 """
 
 import os
+
 import numpy as np
 import pytest
 from base_helpers import create_renderer, setup_camera
@@ -216,7 +217,7 @@ def test_gpu_denoise_guides_beat_guideless(test_results_dir):
         out = os.path.join(test_results_dir, "pkg197_denoise_guides_ab.png")
         Image.fromarray(strip).save(out)
         print(f"  Saved denoise A/B strip to {out}")
-    except Exception as e:  # PNG is evidence, not a gate
+    except Exception as e:  # noqa: BLE001 — PNG is evidence, not a gate
         print(f"  (PNG save skipped: {e})")
 
     # Guides must not degrade edge retention, and should improve it.

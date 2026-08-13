@@ -1,5 +1,50 @@
 # Astroray Status
 
+**2026-08-13 (post-closeout addendum — 3 more PRs merged overnight, #601–
+#603, on top of the round closeout below): CUDA-arch infra root cause
+closed, GPU wavefront dispersion goes live, and the HEADLINE lamp-lighting
+finding from the closeout below gets fixed for the CPU MW tracer.
+Owner-facing wins: lamp-lit NIR/UV renders now work (mean 0.0003→0.0709),
+sodium lamps render amber from the Blender light panel, and GPU prisms
+render real ROYGBIV rainbows.**
+- **Infra arch root-cause DONE** (PR #601) — closes the three root causes
+  behind the 2026-08-12 stale-CUDA-arch incident that pkg183 (below) had
+  deliberately left as a follow-up: CMakeLists now sets
+  `CMAKE_CUDA_ARCHITECTURES` as `CACHE ... FORCE` (was a non-cache `set()`
+  silently shadowing the cache), the VS-generator configure entry point
+  (`configure_and_build.bat`) resolves `native` to a real arch via
+  `nvidia-smi` (was compiling sm_52 under the VS generator even though the
+  cache said sm_120), and `build_blender_addon.py` now injects an explicit
+  arch default and re-asserts it on every reconfigure. `cuobjdump
+  --list-elf` ground-truth confirms sm_120 on all three build outputs
+  (VS-gen, Ninja, addon) post-fix.
+- **pkg189 DONE** (PR #603) — GPU wavefront hero-λ dispersion is now LIVE
+  for both material families (see the full entry below); closes the
+  pkg187 GPU-visible gap and the pre-existing pkg64 dielectric xfail. The
+  flat-prism GPU-photon dispersion caustic (still noise) is filed forward
+  as an orthogonal follow-up — its test went from a vacuous XPASS to an
+  honest, owned XFAIL.
+- **pkg195 Stage A+B DONE** (PR #602) — fixes the HEADLINE ENGINE FINDING
+  below for the CPU MW tracer: dedicated-light NEE (spectral, two-sided
+  MIS, gated on `enable_nee` mirroring the template integrator) +
+  spectral lamp presets in the addon (`spectrum_mode` enum — native /
+  preset / custom_profile — sodium_vapor etc. via `measured_spd`). NIR
+  snow-sphere mean 0.0003→0.0709 (>0.05 gate), sodium lamp linear RGB
+  (0.673, 0.127, 0.000) reads amber, headless Blender 5.1 confirms amber
+  sodium vs neutral cie_f2 from the actual light panel UI. Fixed a latent
+  bug along the way: a narrow-line SPD (sodium's ~589 nm spike) drove
+  `PowerLightSampler`'s power-CDF to a degenerate 0/0 NaN selection pdf,
+  silently dropping the lamp — now falls back to uniform selection (PBRT
+  UniformLightSampler pattern). **Verification arc:** the first HW pass
+  FAILED — unconditional NEE changed the CPU MW oracle under 3
+  CPU-vs-GPU parity gates (SSIM 0.995→0.30) — fixed by mirroring the
+  `enable_nee` condition and pinning `enable_nee=0` on the oracle legs
+  (documented Phase-3 contract: GPU MW-leg light sampling is future
+  work); all 10 parity gates recovered to historical values, independently
+  confirmed. Stage C (`register_spectral_profile` binding, Drawn/Preset/
+  Blackbody spectrum nodes, in-band Replace mode, IR/UV de-fang, Sellmeier
+  B/C) remains OPEN, independently landable.
+
 **2026-08-12 → 2026-08-13 (day run + overnight, 15 PRs merged #585–#599, no
 open PRs at closeout): GPU capability-restoration wave (first GPU texture
 support, viewport progressive-refinement fix) + two Principled spectral
@@ -82,15 +127,17 @@ that every lamp-lit NIR/UV render is black end-to-end.**
   Sodium/mercury lamp SPDs are already engine-ready but not exposed. A
   drawn-spectrum node is filed as a genuine differentiator (no other
   renderer has one). pkg195 Phase 1 spec filed, not yet implemented.
-- **Specs filed, not yet implemented:** pkg189 (GPU wavefront dispersion
-  enablement — the hero-λ refraction no-op both pkg187 and the pre-existing
-  dielectric xfail are blocked on; PR #591, next up), pkg190 (GPU
+- **Specs filed, not yet implemented:** pkg190 (GPU
   procedural textures, pkg186 slice 2, needs a pkg119-B re-baseline first;
   PR #594), pkg192/pkg193 (viewport-addon diagnosis-first specs from owner
   hands-on feedback, PR #595 — pkg192 viewport interactivity 3-5fps vs
   Cycles ~30fps, pkg193 camera-view overlay misalignment; pkg191, filed in
-  the same PR, landed same round — see above), pkg195 (spectral node
-  system, above).
+  the same PR, landed same round — see above), pkg195 Stage C (spectral
+  node system remainder — register_spectral_profile binding +
+  Drawn/Preset/Blackbody nodes + in-band Replace mode + IR/UV de-fang +
+  Sellmeier B/C; Stages A+B DONE, see the 2026-08-13 addendum above).
+  pkg189 (used to be listed here) is DONE — see the 2026-08-13 addendum
+  above.
 - **Infra, not tied to a package:** `.gitattributes` forces CRLF checkout
   for `.bat`/`.cmd` (PR #585, prevents the class of silent cmd.exe
   mis-parse this repo has hit before); comprehensive repo hygiene sweep
@@ -103,10 +150,12 @@ that every lamp-lit NIR/UV render is black end-to-end.**
 - **Round verification discipline:** every code PR dual-gated (CI +
   independent RTX hardware verification); three verifiers serialized via
   the GPU lock overnight.
-- **Open follow-ups carried forward:** pkg189 (next up), pkg190, pkg192,
-  pkg193, pkg194 (priority raised by the 72% finding above), pkg195, the
-  infra arch root-cause PR, the `GLoweredMaterial` by-value prototype
-  re-apply (worktree `sad-maxwell`), pkg180 diagnosis.
+- **Open follow-ups carried forward:** pkg190, pkg192, pkg193, pkg194
+  (priority raised by the 72% finding above), pkg195 Stage C, the
+  flat-prism GPU-photon dispersion follow-up (pkg189's #603 honest-xfail),
+  the `GLoweredMaterial` by-value prototype re-apply (worktree
+  `sad-maxwell`), pkg180 diagnosis. pkg189 and the infra arch root-cause PR
+  are DONE — see the 2026-08-13 addendum above.
 
 **2026-08-11 (post-Principled-block parity verification + harness band re-pin —
 CLOSES the last two owed pkg178 items):** thin-film saturation parity vs Blender

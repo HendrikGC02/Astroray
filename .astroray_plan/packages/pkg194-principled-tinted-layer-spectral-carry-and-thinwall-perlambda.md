@@ -2,7 +2,7 @@
 
 **Pillar:** 3/5 (spectral consistency / CPU-GPU parity)
 **Track:** A
-**Status:** done (PR #TBD, 2026-08-13 — register-gate probe PASSED: `<false>`
+**Status:** done (PR #606, 2026-08-13 — register-gate probe PASSED: `<false>`
 byte-identical to origin/main (REG:254 STACK:3608/3352 CONST[0]:1700, no CONST[2]),
 `<true>` STACK 6656/6528→7848/7720 REG:254 (isolated principled-side, no non-Principled
 regression). Both items shipped CPU+GPU. Item 1 tinted-layer band error 72.5/34.9/20.1/5.4%

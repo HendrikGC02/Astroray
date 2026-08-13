@@ -1645,6 +1645,72 @@ __device__ inline void gpu_pr_thinGlassFresnelRGB(const GPrincipledClosure& c, f
     }
 }
 
+// pkg194 Item 2 -- one-wavelength generalized-Schlick (r,t), per-λ twin of
+// gpu_pr_thinGlassSchlickChannel. `f0c` = per-λ artist f0; film branch uses the
+// per-wavelength tf::sensitivitySpectral (not the CIE-RGB LUT).
+__device__ inline void gpu_pr_thinGlassSchlickSpectralOne(const GPrincipledClosure& c,
+                                                          float iorParam, float filmIor,
+                                                          float cosThetaI, float lambda,
+                                                          float f0c, float& r, float& t,
+                                                          float* rCosThetaT) {
+    namespace tf = astroray::thinfilm;
+    float F;
+    if (gpu_pr_filmActive(c)) {
+        auto S = [lambda](float argOPD) { return tf::sensitivitySpectral(argOPD, lambda); };
+        F = tf::fresnelIridescenceChannel<false>(1.f, c.thinFilmThickness, filmIor, iorParam,
+                                                 0.f, -1.f, cosThetaI, rCosThetaT, S);
+        const float F0real = gpu_pr_F0_from_ior(iorParam);
+        if (F0real > 1e-5f && F != 1.f) F = gpu_pr_thinFilmF0RescaleChannel(F, f0c, F0real);
+    } else {
+        tf::TFDielectric d = tf::fresnelDielectricPolarized(cosThetaI, iorParam);
+        if (rCosThetaT) *rCosThetaT = d.cosThetaT;
+        const float Freal = 0.5f * (d.Rs + d.Rp);
+        const float F0real = gpu_pr_F0_from_ior(iorParam);
+        const float s = fminf(fmaxf((Freal - F0real) / (1.f - F0real), 0.f), 1.f);
+        F = f0c + (1.f - f0c) * s;
+    }
+    r = F;
+    t = 1.f - F;
+}
+// pkg194 Item 2 -- per-λ native combined thin-glass R'(λ)/T'(λ), spectral twin of
+// gpu_pr_thinGlassFresnelRGB. Runs ONLY in the <true> HasPrincipled path (via the
+// gpu_pr_assembleLobes spectral track). base(λ)^(-1/cosθt) is nonlinear in base, so
+// upsample(base^p) != upsample(base)^p -- this evaluates it per wavelength.
+__device__ inline void gpu_pr_thinGlassFresnelSpectral(const GPrincipledClosure& c, float cosThetaI,
+                                                       const GSampledWavelengths& wl,
+                                                       GSampledSpectrum& Rp, GSampledSpectrum& Tp) {
+    namespace tf = astroray::thinfilm;
+    GSampledSpectrum tintSpec = gpu_rgbToSampledSpectrum(c.specularTint, wl, GSPEC_RGB_ALBEDO);
+    GSampledSpectrum baseSpec = gpu_rgbToSampledSpectrum(c.color, wl, GSPEC_RGB_ALBEDO);
+    const float F0front = gpu_pr_F0_from_ior(c.ior);
+    const bool film = gpu_pr_filmActive(c);
+    float filmIorBack = c.thinFilmIor;
+    if (film) tf::adjustThinFilmIorAtBackface(filmIorBack, 1.f / c.ior);
+    float cosThetaT = 0.f;  // achromatic front refraction (no dispersion in thin-wall)
+    {
+        float r0, t0;
+        gpu_pr_thinGlassSchlickSpectralOne(c, c.ior, c.thinFilmIor, cosThetaI, wl.lambda[0],
+                                           F0front * tintSpec[0], r0, t0, &cosThetaT);
+    }
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+        float lambda = wl.lambda[i];
+        float f0c = F0front * tintSpec[i];
+        float r1, t1, ct;
+        gpu_pr_thinGlassSchlickSpectralOne(c, c.ior, c.thinFilmIor, cosThetaI, lambda, f0c, r1, t1, &ct);
+        float r2 = r1, t2 = t1;
+        if (film) {
+            float unused;
+            gpu_pr_thinGlassSchlickSpectralOne(c, 1.f / c.ior, filmIorBack, -cosThetaT, lambda, f0c, r2, t2, &unused);
+        }
+        const float base = fminf(fmaxf(baseSpec[i], 0.f), 1.f);
+        const float cc = (cosThetaT == 0.f) ? 0.f : powf(base, -1.f / cosThetaT);
+        const float denom = 1.f - (r2 * cc) * (r2 * cc);
+        const float Tc = (fabsf(denom) > 1e-12f) ? (cc * t1 * t2 / denom) : 0.f;
+        const float Rc = r1 + Tc * r2 * cc;
+        Rp[i] = Rc;
+        Tp[i] = Tc;
+    }
+}
 // --- VNDF sampling + micro-refraction (principled.cpp:187-229) -------------
 __device__ inline float gpu_pr_vndfPdf(const GVec3& N, const GVec3& wo, const GVec3& wm, float roughness) {
     float absCosO = fabsf(wo.dot(N));
@@ -1767,6 +1833,7 @@ enum GPrincipledLobeKind {
 };
 struct GPrincipledLobe {
     int   kind;
+    GSampledSpectrum weightSpec;  // pkg194 Item 1: per-λ layering weight (see gpu_pr_assembleLobes)
     GVec3 weight;
     GVec3 color;
     float roughness;
@@ -1798,11 +1865,19 @@ static constexpr int   kMaxPrincipledLobes  = 10;
 static constexpr float kPrincipledDeltaGlassRoughness = 0.03f;  // principled.cpp:43
 
 __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GHitRecord& rec,
-                                           const GVec3& wo, GPrincipledLobe lobes[kMaxPrincipledLobes]) {
+                                           const GVec3& wo, GPrincipledLobe lobes[kMaxPrincipledLobes],
+                                           const GSampledWavelengths* wl = nullptr) {
     float nv = fminf(fmaxf(rec.normal.dot(wo), 1e-4f), 1.f);
     GVec3 weight(1.f, 1.f, 1.f);  // W₀ = 1
     GVec3 baseColor = c.color;
     int n = 0;
+    // pkg194 Item 1 -- running per-λ layering weight (mirrors `weight`; each
+    // chromatic factor upsampled SEPARATELY, achromatic scalars multiplied directly).
+    // Inert when wl == nullptr (RGB callers). `usp` upsamples one reflectance colour;
+    // `layerTrans` upsamples a layering transmission (1 - albedo) as a colour.
+    GSampledSpectrum weightSp(1.f);
+    auto usp = [&](const GVec3& v) { return gpu_rgbToSampledSpectrum(v, *wl, GSPEC_RGB_ALBEDO); };
+    auto layerTrans = [&](const GVec3& a) { return usp(GVec3(1.f) - gvec3_min(a, GVec3(0.999f))); };
     // 1. Transparent (alpha) — Cycles svm/closure.h transparency-FIRST ordering:
     //    bsdf_transparent_setup(sd, weight*(1-alpha)); weight *= alpha; before every
     //    other closure. Delta lobe (Cycles bsdf_transparent.h: wo=-wi, matched
@@ -1814,20 +1889,25 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.roughness = 0.f; L.ior = 1.f; L.isDelta = true;
         L.sheenA = 0.f; L.sheenB = 0.f;
         L.sel = fmaxf(luminance(L.weight), 1e-4f);
+        if (wl) L.weightSpec = weightSp * (1.f - c.alpha);
         weight = weight * c.alpha;
+        if (wl) weightSp = weightSp * c.alpha;
     }
     // 2. Sheen (LTC microfiber) — principled.cpp assembleLobes
     if (c.sheenWeight > 1e-4f) {
         astroray::SheenLtcCoeffs sc =
             astroray::sheenLtcFetch(fminf(fmaxf(c.sheenRoughness, 1e-3f), 1.f), nv);
         if (fabsf(sc.aInv) >= 1e-5f && sc.albedo >= 1e-5f) {
-            GVec3 sheenW = weight * c.sheenTint * (c.sheenWeight * sc.albedo);
+            GVec3 shAlb = c.sheenTint * (c.sheenWeight * sc.albedo);
+            GVec3 sheenW = weight * shAlb;
             GPrincipledLobe& L = lobes[n++];
             L.kind = GPR_SHEEN; L.weight = sheenW; L.color = c.sheenTint;
             L.roughness = c.sheenRoughness; L.ior = c.ior; L.isDelta = false;
             L.sheenA = sc.aInv; L.sheenB = sc.bInv;
             L.sel = fmaxf(luminance(sheenW), 1e-4f);
-            weight = gpu_layeringWeightAfter(weight, c.sheenTint * (c.sheenWeight * sc.albedo));
+            if (wl) L.weightSpec = weightSp * usp(c.sheenTint) * (c.sheenWeight * sc.albedo);
+            weight = gpu_layeringWeightAfter(weight, shAlb);
+            if (wl) weightSp = weightSp * layerTrans(shAlb);
         }
     }
     // 3. Coat (clear GGX dielectric, coat_ior) + Beer absorption + layering
@@ -1840,9 +1920,12 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.roughness = c.coatRoughness; L.ior = c.coatIor; L.isDelta = false;
         L.sheenA = 0.f; L.sheenB = 0.f;
         L.sel = fmaxf(luminance(weight * c.coatWeight) * Fview, 1e-4f);
-        weight = gpu_layeringWeightAfter(
-            weight, gpu_ggxDirectionalAlbedo(GVec3(Fview), c.coatRoughness, nv) * c.coatWeight);
-        weight = weight * gpu_pr_coatBeerFactor(c, nv);
+        if (wl) L.weightSpec = weightSp * c.coatWeight;
+        GVec3 coatAlb = gpu_ggxDirectionalAlbedo(GVec3(Fview), c.coatRoughness, nv) * c.coatWeight;
+        weight = gpu_layeringWeightAfter(weight, coatAlb);
+        GVec3 beer = gpu_pr_coatBeerFactor(c, nv);  // chromatic coat-tint Beer
+        weight = weight * beer;
+        if (wl) weightSp = weightSp * layerTrans(coatAlb) * usp(beer);
     }
     // 4. Metallic (GGX + F82-tint)
     if (c.metallic > 1e-4f) {
@@ -1851,7 +1934,9 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.roughness = c.roughness; L.ior = c.ior; L.isDelta = false;
         L.anisotropic = c.anisotropic; L.anisoRotation = c.anisotropicRotation;  // PR-4b
         L.sel = fmaxf(luminance(L.weight * baseColor), 1e-4f);
+        if (wl) L.weightSpec = weightSp * c.metallic;
         weight = weight * (1.f - c.metallic);
+        if (wl) weightSp = weightSp * (1.f - c.metallic);
     }
     // 5. Transmission. thin_wall=false → rough glass (PR-1..3). thin_wall=true →
     //    analytic thin-glass R'+T' split (Cycles bsdf_thin_glass_setup :1392).
@@ -1859,6 +1944,8 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         if (gpu_pr_thinWall(c)) {
             GVec3 Rp, Tp;
             gpu_pr_thinGlassFresnelRGB(c, nv, Rp, Tp);  // per-channel R', T' at the view angle
+            GSampledSpectrum RpS, TpS;  // pkg194 Item 2: per-λ native R'/T'
+            if (wl) gpu_pr_thinGlassFresnelSpectral(c, nv, *wl, RpS, TpS);
             GVec3 baseW = weight * c.transmission;
             if (luminance(Rp) > 1e-6f) {
                 GPrincipledLobe& L = lobes[n++];
@@ -1866,6 +1953,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
                 L.roughness = c.roughness; L.ior = c.ior; L.isDelta = false;
                 L.sheenA = 0.f; L.sheenB = 0.f; L.anisotropic = 0.f; L.anisoRotation = 0.f;
                 L.sel = fmaxf(luminance(L.weight), 1e-4f);
+                if (wl) L.weightSpec = weightSp * c.transmission * RpS;
             }
             if (luminance(Tp) > 1e-6f) {
                 float aReflect = c.roughness * c.roughness;
@@ -1876,6 +1964,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
                 L.roughness = sqrtf(fmaxf(0.f, aT));  // ggxReflect squares → aT
                 L.sheenA = 0.f; L.sheenB = 0.f; L.anisotropic = 0.f; L.anisoRotation = 0.f;
                 L.sel = fmaxf(luminance(L.weight), 1e-4f);
+                if (wl) L.weightSpec = weightSp * c.transmission * TpS;
             }
         } else {
             GPrincipledLobe& L = lobes[n++];
@@ -1883,8 +1972,10 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
             L.roughness = c.roughness; L.ior = c.ior;
             L.isDelta = c.roughness <= kPrincipledDeltaGlassRoughness;
             L.sel = fmaxf(luminance(L.weight), 1e-4f);
+            if (wl) L.weightSpec = weightSp * c.transmission;
         }
         weight = weight * (1.f - c.transmission);
+        if (wl) weightSp = weightSp * (1.f - c.transmission);
     }
     // 6. Specular dielectric (generalized-Schlick, exponent = -ior)
     if (luminance(weight) > 1e-4f) {
@@ -1897,7 +1988,10 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.roughness = c.roughness; L.ior = c.ior; L.isDelta = false;
         L.anisotropic = c.anisotropic; L.anisoRotation = c.anisotropicRotation;  // PR-4b
         L.sel = fmaxf(luminance(weight * Fview), 1e-4f);
-        weight = gpu_layeringWeightAfter(weight, gpu_ggxDirectionalAlbedo(Fview, c.roughness, nv));
+        if (wl) L.weightSpec = weightSp;  // specF0 upsampled separately in the eval
+        GVec3 specAlb = gpu_ggxDirectionalAlbedo(Fview, c.roughness, nv);
+        weight = gpu_layeringWeightAfter(weight, specAlb);
+        if (wl) weightSp = weightSp * layerTrans(specAlb);
     }
     // 7. Subsurface — APPROXIMATE (D2=a): Lambertian base-colour stand-in for the
     //    Cycles random-walk Bssrdf (see principled.cpp for the seam/citation).
@@ -1914,18 +2008,21 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
                 L.kind = GPR_DIFFUSE; L.weight = ssW * wr; L.color = baseColor;
                 L.roughness = c.diffuseRoughness; L.ior = c.ior; L.isDelta = false;
                 L.sel = fmaxf(luminance(L.weight), 1e-4f);
+                if (wl) L.weightSpec = weightSp * usp(baseColor) * (c.subsurfaceWeight * wr);
             }
             if (wt > 1e-6f) {
                 GPrincipledLobe& L = lobes[n++];
                 L.kind = GPR_TRANSLUCENT; L.weight = ssW * wt; L.color = baseColor;
                 L.roughness = c.diffuseRoughness; L.ior = c.ior; L.isDelta = false;
                 L.sel = fmaxf(luminance(L.weight), 1e-4f);
+                if (wl) L.weightSpec = weightSp * usp(baseColor) * (c.subsurfaceWeight * wt);
             }
         } else {
             GPrincipledLobe& L = lobes[n++];
             L.kind = GPR_SUBSURFACE; L.weight = weight * baseColor * c.subsurfaceWeight;
             L.color = baseColor; L.roughness = 0.f; L.ior = c.ior; L.isDelta = false;
             L.sel = fmaxf(luminance(L.weight), 1e-4f);
+            if (wl) L.weightSpec = weightSp * usp(baseColor) * c.subsurfaceWeight;
         }
     }
     // 8. Diffuse (Lambert / EON), weight * (1 - subsurface_weight)
@@ -1935,12 +2032,14 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.color = baseColor;
         L.roughness = c.diffuseRoughness; L.ior = c.ior; L.isDelta = false;
         L.sel = fmaxf(luminance(L.weight), 1e-4f);
+        if (wl) L.weightSpec = weightSp * usp(baseColor) * (1.f - c.subsurfaceWeight);
     }
     if (n == 0) {  // degenerate guard (principled.cpp:305-312)
         GPrincipledLobe& L = lobes[0];
         L.kind = GPR_DIFFUSE; L.weight = baseColor; L.color = baseColor;
         L.roughness = 0.f; L.ior = c.ior; L.isDelta = false;
         L.sel = fmaxf(luminance(baseColor), 1e-4f);
+        if (wl) L.weightSpec = usp(baseColor);
         n = 1;
     }
     return n;
@@ -2070,7 +2169,7 @@ __device__ inline GSampledSpectrum gpu_pr_thinGlassTransmitEvalSpectral(
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     if (nv <= 0.f || nl >= 0.f) return GSampledSpectrum(0.f);
     GVec3 wiM = wi - rec.normal * (2.f * nl);
-    GSampledSpectrum wSpec = gpu_rgbToSampledSpectrum(L.weight, wl, GSPEC_RGB_ALBEDO);
+    const GSampledSpectrum& wSpec = L.weightSpec;  // pkg194 Item 1
     return wSpec * gpu_pr_ggxReflectConsistentSpectral(GSampledSpectrum(1.f), GSampledSpectrum(1.f),
                                                        L.roughness, rec, wo, wiM);
 }
@@ -2196,9 +2295,8 @@ __device__ inline GSampledSpectrum gpu_pr_transmissionEvalSpectral(
     float etap = entering ? L.ior : (1.f / L.ior);
     float filmIor = entering ? c.thinFilmIor : c.thinFilmIor / L.ior;
     float F0real = gpu_pr_F0_from_ior(etap);
-    // pkg188 Finding B: weight-path clamp-guard (see gpu_pr_evalLobeSpectral; no-op ≤1).
-    float wMax = fmaxf(fmaxf(fmaxf(L.weight.x, L.weight.y), L.weight.z), 1.f);
-    GSampledSpectrum wSpec = gpu_rgbToSampledSpectrum(L.weight * (1.f / wMax), wl, GSPEC_RGB_ALBEDO) * wMax;
+    // pkg194 Item 1: per-λ layering weight (baseColor upsampled separately below).
+    const GSampledSpectrum& wSpec = L.weightSpec;
     GSampledSpectrum tintSpec = gpu_rgbToSampledSpectrum(c.specularTint, wl, GSPEC_RGB_ALBEDO);
     if (cosO > 0.f && cosI > 0.f) {  // reflection sub-lobe
         GVec3 wm = (wo + wi).normalized();
@@ -2373,8 +2471,10 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     // pkg188 Finding B: weight-path clamp-guard (twin of principled.cpp
     // evalLobeSpectral). Defensive no-op at weight ≤ 1 (wMax==1).
-    float wMax = fmaxf(fmaxf(fmaxf(L.weight.x, L.weight.y), L.weight.z), 1.f);
-    GSampledSpectrum wSpec = gpu_rgbToSampledSpectrum(L.weight * (1.f / wMax), wl, GSPEC_RGB_ALBEDO) * wMax;
+    // pkg194 Item 1: per-λ layering weight (twin of principled.cpp evalLobeSpectral).
+    // Each chromatic factor upsampled separately in gpu_pr_assembleLobes; unlayered /
+    // grey materials equal the former upsample(L.weight) exactly, so those gates hold.
+    const GSampledSpectrum& wSpec = L.weightSpec;
     switch (L.kind) {
         case GPR_SUBSURFACE:  // approximate SSS = Lambert (D2=a)
         case GPR_DIFFUSE: {
@@ -2496,7 +2596,7 @@ __device__ inline GSampledSpectrum gpu_principled_eval_spectral(const GPrinciple
                                                                 const GVec3& wo, const GVec3& wi,
                                                                 const GSampledWavelengths& wl) {
     GPrincipledLobe lobes[kMaxPrincipledLobes];
-    int n = gpu_pr_assembleLobes(c, rec, wo, lobes);
+    int n = gpu_pr_assembleLobes(c, rec, wo, lobes, &wl);
     GSampledSpectrum sum(0.f);
     for (int i = 0; i < n; ++i)
         if (!lobes[i].isDelta) sum += gpu_pr_evalLobeSpectral(c, lobes[i], rec, wo, wi, wl);

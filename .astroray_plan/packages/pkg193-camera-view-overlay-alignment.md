@@ -2,7 +2,7 @@
 
 **Pillar:** 5 / integration-first
 **Track:** A
-**Status:** done (PR #PENDING, 2026-08-13 — viewport overlay 25-223 px → 0.00 px,
+**Status:** done (PR #607, 2026-08-13 — viewport overlay 25-223 px → 0.00 px,
 F12 20-42 px → 0.00 px across 8 real-Blender-5.1 conditions; root cause = dropped
 off-center window_matrix[0][2]/[1][2] frustum terms in the viewport path + missing
 film-fit viewfac shift scaling in the F12 datablock path; Python-only fix)

@@ -6,7 +6,7 @@
 0.0709 > 0.05, snow/water NIR ratio 4.82, MW↔path_tracer visible parity 1.00;
 sodium lamp linear RGB (0.673, 0.127, 0.000) amber, cie_f2 differs 100% on blue;
 headless Blender 5.1 render confirms amber sodium vs neutral cie_f2). Stage C
-done (PR TBD, 2026-08-14 — register_spectral_profile + Drawn/Preset/Blackbody
+done (PR #610, 2026-08-14 — register_spectral_profile + Drawn/Preset/Blackbody
 spectrum nodes + in-band Replace mode + IR/UV de-fang + Sellmeier B/C; Gate C all
 green, headless Blender drawn 550 nm bump G=0.4396>R=0.2642>B=0.0003, manual BK7
 B/C == bk7 preset 0.00%, 16/16 A/B+parity gates unchanged). All three stages
@@ -136,7 +136,7 @@ over a white sphere, visible band, CPU → hue must land amber
 ratios by > 10%. Test lives with the pkg119b-style harness
 (`ASTRORAY_PYD_DIR` + absolute out-dir conventions).
 
-## Stage C — spectrum sources + honest material nodes — DONE (PR TBD, 2026-08-14)
+## Stage C — spectrum sources + honest material nodes — DONE (PR #610, 2026-08-14)
 
 > **Landed 2026-08-14.** All 7 items shipped. `register_spectral_profile(name,
 > lmin, step, values)` binding inserts into `SpectralProfileDatabase` via

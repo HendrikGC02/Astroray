@@ -173,6 +173,7 @@ __device__ inline GNEESample gpu_dedicated_sample(
         float pdf = (d.radius > 0.f) ? (1.f / (4.f * M_PI_F * d.radius * d.radius)) : 1.f;
         s.wi          = (sampledPos - shadingPoint) * (1.f / dist);
         s.maxDist     = dist - 0.001f;
+        s.geomDist    = dist;                 // pkg199: true distance for Tr
         s.lightPdf    = pdf * selPdf;
         s.dedGeoScale = d.staticScale * geo;
         s.valid       = 1;
@@ -207,6 +208,7 @@ __device__ inline GNEESample gpu_dedicated_sample(
         if (cosTheta <= 0.f || cosTheta < cosf(d.spread)) return s;
         s.wi          = (sampledPos - shadingPoint) * (1.f / dist);
         s.maxDist     = dist - 0.001f;
+        s.geomDist    = dist;                 // pkg199: true distance for Tr
         // pkg122 (Defect 1): plain-radiance emission (staticScale) + SOLID-ANGLE
         // pdf (pdf_A·dist²/cosθ) so the integrator's MIS is measure-consistent.
         // Mirrors the CPU area_light.cpp::sampleLi fix.
@@ -238,6 +240,12 @@ __device__ inline GNEESample gpu_dedicated_sample(
         float solidAngle = d.spread;
         s.wi          = dir;
         s.maxDist     = 1e30f;
+        // pkg199: distant/infinite sun is treated like an env-miss for the world
+        // volume — NON-attenuated (geomDist=0 -> gpu_worldTransmittanceMW returns
+        // Tr=1), consistent with the Stage-1 infinite-segment convention (the
+        // camera->env segment is never attenuated; see pkg199 spec Stage-1
+        // semantics). Real sun-through-atmosphere is Stage-2+ territory.
+        s.geomDist    = 0.0f;
         if (solidAngle > 0.f) {
             s.lightPdf    = (1.f / solidAngle) * selPdf;
             s.dedGeoScale = d.staticScale / solidAngle;
@@ -420,7 +428,8 @@ __device__ inline GNEESample gpu_nee_sample(
 
     GVec3 wi;
     float lightPdf;     // solid-angle pdf (incl. selPdf), mirrors LightList::sample s.pdf
-    float maxDist;      // shadow-ray extent
+    float maxDist;      // shadow-ray extent (occlusion tMax)
+    float geomDist;     // pkg199: TRUE vertex->light distance for Beer-Lambert Tr
     int   lightMatId;
 
     if (lp.type == GPRIM_SPHERE) {
@@ -438,6 +447,17 @@ __device__ inline GNEESample gpu_nee_sample(
         wi          = (tu * cosf(phi) * sinTh + tv * sinf(phi) * sinTh + dir * z).normalized();
         lightPdf    = (1.f / (2.f * M_PI_F * (1.f - cosTM))) * selPdf;
         maxDist     = 1e30f;       // hit-the-sphere check in gpu_nee_occlude bounds it
+        // pkg199: the OCCLUSION tMax above is a 1e30 sentinel, NOT a distance.
+        // For Beer-Lambert Tr we need the true distance to the sampled point on
+        // the sphere: the near ray-sphere intersection along wi (origin outside
+        // the sphere, guaranteed by the distSq>r^2 reject). b - sqrt(b^2-c) with
+        // b = wi.toC, c = |toC|^2 - r^2.
+        {
+            float b = wi.dot(toC);
+            float c = distSq - sp.radius * sp.radius;
+            float disc = fmaxf(0.f, b * b - c);
+            geomDist = b - sqrtf(disc);
+        }
         lightMatId  = sp.materialId;
         s.isSphere  = 1;
     } else {
@@ -454,6 +474,7 @@ __device__ inline GNEESample gpu_nee_sample(
         if (NdotWi < 1e-8f || area < 1e-8f) return s;
         lightPdf   = (dist * dist) / (NdotWi * area) * selPdf;
         maxDist    = dist - 0.001f;
+        geomDist   = dist;         // pkg199: triangle sampled-point distance is exact
         lightMatId = t.materialId;
         s.isSphere = 0;
     }
@@ -465,6 +486,7 @@ __device__ inline GNEESample gpu_nee_sample(
     s.origin     = rec.point;
     s.wi         = wi;
     s.maxDist    = maxDist;
+    s.geomDist   = geomDist;   // pkg199: true vertex->light distance for Tr
     s.lightPdf   = lightPdf;
     s.lightMatId = lightMatId;
     s.valid      = 1;

@@ -2208,7 +2208,15 @@ class Renderer {
     // .astroray_plan/docs/pkg199-world-volume-research.md).
     astroray::SampledSpectrum worldTransmittanceSpectral(
             float distance, const astroray::SampledWavelengths& lambdas) const {
-        if (!hasWorldVolume || worldVolumeDensity <= 0.0f || distance <= 0.0f)
+        // pkg199: distance <= 0 OR a distant/infinite light's sentinel distance
+        // (DistantLight sets ls.distance = FLT_MAX) is treated like an env-miss —
+        // NON-attenuated (Stage-1 infinite-segment convention). The 1e18 cut is
+        // far above any real scene extent and far below FLT_MAX, so it flags only
+        // genuinely-infinite sources; finite lights (sphere/triangle/point/spot/
+        // area) keep their true geometric Beer-Lambert falloff. Mirrors the GPU
+        // gpu_worldTransmittanceMW guard so CPU↔GPU distant-light fog agrees.
+        if (!hasWorldVolume || worldVolumeDensity <= 0.0f ||
+            distance <= 0.0f || distance >= 1e18f)
             return astroray::SampledSpectrum(1.0f);
         float d = std::max(0.0f, distance);
         astroray::SampledSpectrum sigmaColor =

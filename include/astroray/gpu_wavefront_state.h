@@ -395,7 +395,11 @@ void setWavefrontWorldVolume(const GWorldVolume& volume);
 // unchanged if RR/BSDF-pdf killed the path first, ambiguously) -- so the
 // bounce needed for the pkg144 direct/indirect clamp split must be parked
 // here rather than re-read from state at resolve time.
-constexpr int G_WF_NEE_F_LANES = 14;
+// pkg199: float lane 14 = geomDist, the TRUE vertex->light distance for the
+// world-volume Beer-Lambert Tr in stageShadowKernel. Parked SEPARATELY from
+// lane 6 (maxDist), which is a 1e30 occlusion sentinel for sphere/distant
+// sources and would collapse fogged NEE to zero if used as a path length.
+constexpr int G_WF_NEE_F_LANES = 15;
 constexpr int G_WF_NEE_I_LANES = 4;
 void launchStageShadow(
     GPUWavefrontState& state,

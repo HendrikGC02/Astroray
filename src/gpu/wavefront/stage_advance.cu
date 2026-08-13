@@ -160,7 +160,11 @@ __device__ inline GSampledSpectrum gpu_worldTransmittanceMW(
     float dist, const GSampledWavelengths& lambdas)
 {
     GSampledSpectrum tr;
-    if (c_worldVolume.density <= 0.f || dist <= 0.f) {
+    // pkg199: dist <= 0 OR a distant/infinite sentinel (geomDist==0 for distant
+    // NEE; a huge lampT for a distant lamp; DistantLight's FLT_MAX) => Tr=1,
+    // treated like an env-miss (Stage-1 infinite-segment convention). 1e18 is far
+    // above any scene extent, below FLT_MAX — finite lights keep Beer-Lambert.
+    if (c_worldVolume.density <= 0.f || dist <= 0.f || dist >= 1e18f) {
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) tr.v[i] = 1.f;
         return tr;
     }
@@ -777,6 +781,11 @@ __device__ bool shadePathSlot(
                         nee_f[11 * nee_capacity + idx] = s.dedEmissionRGB.x;
                         nee_f[12 * nee_capacity + idx] = s.dedEmissionRGB.y;
                         nee_f[13 * nee_capacity + idx] = s.dedEmissionRGB.z;
+                        // pkg199: TRUE vertex->light distance for the world-volume
+                        // Beer-Lambert Tr in stageShadowKernel (NOT maxDist, lane
+                        // 6, which is a 1e30 occlusion sentinel for sphere/distant
+                        // sources). distant/infinite => 0 (non-attenuated).
+                        nee_f[14 * nee_capacity + idx] = s.geomDist;
                         nee_i[ 0 * nee_capacity + idx] = s.lightMatId;
                         nee_i[ 1 * nee_capacity + idx] = s.isSphere;
                         nee_i[ 2 * nee_capacity + idx] = s.isDedicated;  // pkg89-wavefront
@@ -1120,12 +1129,20 @@ __global__ void stageShadowKernel(
     contrib.v[2] = nee_f[ 9 * nee_capacity + idx] * L_spec.v[2];
     contrib.v[3] = nee_f[10 * nee_capacity + idx] * L_spec.v[3];
     // pkg199 Stage 1 (role 2): attenuate the NEE contribution over the shadow-ray
-    // segment (vertex→lamp, s.maxDist). The parked lanes already carry the
-    // camera→vertex fog (role 1 wrote it into the SoA throughput the shade stage
-    // read), so this adds the vertex→light leg — total Tr(rec.t)·Tr(maxDist),
-    // matching the CPU NEE role-2 multiply. Vacuum: skipped (byte-identical).
-    if (c_worldVolume.hasVolume)
-        contrib *= gpu_worldTransmittanceMW(s.maxDist, lambdas);
+    // segment (vertex→lamp). Uses the TRUE geometric vertex→light distance parked
+    // in lane 14 (geomDist), NOT lane 6 (maxDist) — maxDist is a 1e30 OCCLUSION
+    // sentinel for sphere-primitive and distant lights, and exp(-σ·1e30)=0 would
+    // collapse every fogged NEE-to-sphere contribution to black at any density
+    // (the HW-611 regression). geomDist==0 for distant/infinite lights =>
+    // gpu_worldTransmittanceMW returns Tr=1 (non-attenuated, env-miss convention).
+    // The parked lanes already carry the camera→vertex fog (role 1 → SoA
+    // throughput), so this adds the vertex→light leg — total Tr(rec.t)·Tr(geomDist),
+    // matching the CPU NEE role-2 multiply (ls.distance, geometric). Vacuum:
+    // skipped (byte-identical).
+    if (c_worldVolume.hasVolume) {
+        float geomDist = nee_f[14 * nee_capacity + idx];
+        contrib *= gpu_worldTransmittanceMW(geomDist, lambdas);
+    }
     // pkg157: direct/indirect clamp split. bounce is the PARKED depth (lane
     // 3, see G_WF_NEE_I_LANES) the NEE sample was taken at, not state.bounce
     // (already advanced by the time this later-launched kernel runs).

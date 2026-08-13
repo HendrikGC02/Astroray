@@ -320,3 +320,109 @@ def test_world_volume_gpu_visual(test_results_dir):
     # The PNGs are the artifact for the human/parent visual check; assert they
     # were written (the numeric distance-falloff gate above is the metric).
     assert os.path.exists(clear_png) and os.path.exists(foggy_png)
+
+
+# ---------------------------------------------------------------------------
+# SPHERE-LAMP NEE REGRESSION (hw-611) — the sphere-primitive light sets its NEE
+# occlusion maxDist to a 1e30 sentinel; consuming that as the Beer-Lambert path
+# length made exp(-σ·1e30)=0 collapse every fogged NEE-to-sphere contribution to
+# a density-INDEPENDENT near-black (GPU [0.028,0.025,0.018] vs CPU ~[0.94→0.50]).
+# The fix parks the TRUE geometric vertex→light distance (geomDist) separately.
+# These gates would have caught it: (a) a sphere lamp must fog the SAME as an
+# equivalent triangle lamp; (b) attenuation must track density (no sentinel
+# saturation); (c) CPU↔GPU must agree.
+# ---------------------------------------------------------------------------
+
+def _five_sphere_scene(density, use_gpu, lamp_kind="sphere", w=96, h=96):
+    r = astroray.Renderer()
+    r.set_seed(SEED)
+    r.set_background_color([0.02, 0.02, 0.04])
+    lamp = r.create_material("light", [1.0, 0.96, 0.9], {"intensity": 80.0})
+    if lamp_kind == "sphere":
+        r.add_sphere([2.4, 3.0, 2.0], 0.7, lamp)
+    else:  # triangle quad emitter at the same centre/size — same distance to the row
+        cx, cy, cz, s = 2.4, 3.0, 2.0, 0.62
+        a = [cx - s, cy - s, cz]; b = [cx + s, cy - s, cz]
+        d = [cx + s, cy + s, cz]; e = [cx - s, cy + s, cz]
+        r.add_triangle(a, b, d, lamp); r.add_triangle(a, d, e, lamp)
+    grey = r.create_material("lambertian", [0.82, 0.82, 0.82], {})
+    for i, z in enumerate([2.0, -1.0, -4.0, -7.0, -10.0]):
+        r.add_sphere([(-2.0 + i * 1.0), -0.3, z], 0.9, grey)
+    if density is not None:
+        r.set_world_volume(density, FOG_COLOR, 0.0)
+    r.setup_camera([0.0, 0.6, 9.0], [0.0, -0.3, -4.0], [0.0, 1.0, 0.0],
+                   40.0, w / h, 0.0, 9.0, w, h)
+    r.set_integrator("path_tracer")
+    r.set_integrator_param("max_depth", MAX_DEPTH)
+    if use_gpu:
+        r.set_use_gpu(True)
+        r.set_wavelength_range(380.0, 780.0)
+        r.set_output_mode("srgb")
+    return r
+
+
+def _masked_fog_ratio(density, use_gpu, lamp_kind, w=96, h=96):
+    """Per-channel foggy/clear over the lit diffuse spheres (background masked)."""
+    clear = _render(_five_sphere_scene(None, use_gpu, lamp_kind, w, h), samples=192, w=w, h=h)
+    foggy = _render(_five_sphere_scene(density, use_gpu, lamp_kind, w, h), samples=192, w=w, h=h)
+    lum = clear.mean(axis=2)
+    mask = (lum > 0.05) & (lum < 3.0)
+    return np.array([foggy[..., c][mask].sum() / max(clear[..., c][mask].sum(), 1e-8)
+                     for c in range(3)])
+
+
+def test_sphere_lamp_fogs_like_triangle_lamp_gpu():
+    """The exact hw-611 diagnostic: a SPHERE lamp must fog the diffuse row the same
+    as an equivalent TRIANGLE lamp at the same position/size — both are finite
+    geometric distances. The sentinel bug made the sphere lamp collapse to
+    density-independent near-black while the triangle lamp stayed correct."""
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+    for dens in (0.02, 0.06):
+        sph = _masked_fog_ratio(dens, True, "sphere")
+        tri = _masked_fog_ratio(dens, True, "triangle")
+        ratio = sph / np.maximum(tri, 1e-6)
+        print(f"\n[pkg199 sphere-vs-triangle lamp fog] dens={dens} "
+              f"sphere={np.round(sph,4)} triangle={np.round(tri,4)} sph/tri={np.round(ratio,4)}")
+        for c, ch in enumerate("RGB"):
+            assert 0.80 <= ratio[c] <= 1.25, (
+                f"sphere-lamp fog diverges from triangle-lamp (ch {ch}: "
+                f"sph/tri {ratio[c]:.4f}); the NEE occlusion sentinel (maxDist=1e30) "
+                f"is leaking into the Beer-Lambert path length — use geomDist")
+
+
+def test_sphere_lamp_fog_density_monotonic_gpu():
+    """Attenuation must TRACK density: transmittance (foggy/clear) strictly
+    decreases as density rises, and at low density is near 1 (little fog). The
+    sentinel bug produced density-INDEPENDENT near-black (~0.02 at every density);
+    both assertions catch that saturation."""
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+    r_lo = _masked_fog_ratio(0.005, True, "sphere").mean()
+    r_mid = _masked_fog_ratio(0.03, True, "sphere").mean()
+    r_hi = _masked_fog_ratio(0.10, True, "sphere").mean()
+    print(f"\n[pkg199 sphere-lamp density monotonicity] "
+          f"dens0.005={r_lo:.4f} dens0.03={r_mid:.4f} dens0.10={r_hi:.4f}")
+    assert r_lo > 0.6, (
+        f"low-density fog is far too dark (foggy/clear {r_lo:.4f} at dens=0.005) — "
+        f"the density-independent sentinel collapse (~0.02) is back")
+    assert r_lo > r_mid > r_hi, (
+        f"transmittance must decrease with density (got {r_lo:.4f}, {r_mid:.4f}, "
+        f"{r_hi:.4f}) — a sentinel-style saturation flattens this curve")
+
+
+def test_sphere_lamp_fog_cpu_gpu_parity():
+    """CPU↔GPU per-channel agreement on the sphere-lamp fog scene — the direct
+    hw-611 parity gate (GPU was ~0.02, CPU ~0.5; ratio ~0.04, far outside band)."""
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+    for dens in (0.02, 0.06):
+        gpu = _masked_fog_ratio(dens, True, "sphere")
+        cpu = _masked_fog_ratio(dens, False, "sphere")
+        ratio = gpu / np.maximum(cpu, 1e-6)
+        print(f"\n[pkg199 sphere-lamp CPU/GPU parity] dens={dens} "
+              f"GPU={np.round(gpu,4)} CPU={np.round(cpu,4)} GPU/CPU={np.round(ratio,4)}")
+        for c, ch in enumerate("RGB"):
+            assert 0.82 <= ratio[c] <= 1.22, (
+                f"sphere-lamp fog CPU/GPU parity FAILED (dens={dens} ch {ch}: "
+                f"GPU/CPU {ratio[c]:.4f}); GPU sphere-light NEE fog diverges from CPU")

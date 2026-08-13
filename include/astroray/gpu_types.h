@@ -692,7 +692,18 @@ struct GHitRecord {
 struct GNEESample {
     GVec3 origin;      // shadow ray origin (rec.point)
     GVec3 wi;          // shadow ray direction (normalized)
-    float maxDist;     // shadow ray extent
+    float maxDist;     // shadow ray extent (OCCLUSION tMax — 1e30 sentinel for
+                       // sphere/distant sources; NOT a geometric distance)
+    // pkg199 Stage 1 — TRUE geometric vertex->light distance for Beer-Lambert
+    // world-volume transmittance. Distinct from maxDist, which is 1e30 for
+    // sphere-primitive and distant lights (an occlusion sentinel that would make
+    // exp(-sigma*maxDist)=0 collapse every fogged NEE-to-sphere contribution —
+    // the pkg199 HW-611 regression). Set to the sampled-point distance for
+    // sphere/triangle/point/spot/area sources, and 0 for distant/infinite lights
+    // (treated like env-miss: NON-attenuated, per the Stage-1 infinite-segment
+    // convention). gpu_worldTransmittanceMW(geomDist) returns Tr=1 for geomDist<=0.
+    float geomDist;
+
     float lightPdf;    // solid-angle pdf incl. selection pdf
     int   lightMatId;  // emission material index (geometry emitters)
     int   isSphere;    // 1 = sphere source (frontFace from the hit), 0 = triangle

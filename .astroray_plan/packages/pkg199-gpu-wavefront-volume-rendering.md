@@ -67,6 +67,19 @@ Env-miss (infinite segment) is not attenuated — the mirror-able choice for an 
 at infinity and consistent CPU/GPU. `worldVolumeAnisotropy` stays **inert**
 (reserved for Stage 2).
 
+**NEE distance + distant/infinite-light convention (hw-611 fix):** role 2
+attenuates by the **true geometric vertex→light distance**, never the shadow-ray
+occlusion tMax — the GPU NEE sampler sets `maxDist = 1e30` as an occlusion
+sentinel for **sphere-primitive** and **distant** lights, and feeding that into
+`exp(-σ·d)` collapsed every fogged NEE-to-sphere contribution to a density-
+independent near-black (the hw-611 regression). The GPU now carries a separate
+`geomDist` (NEE lane 14: ray-sphere near-hit distance for spheres, sampled-point
+distance for triangle/point/spot/area) and the CPU uses the already-geometric
+`ls.distance`. **Distant / infinite lights** (`DistantLight`,
+`ls.distance = FLT_MAX`; GPU `geomDist = 0`) are treated **like env-miss —
+NON-attenuated** (`Tr = 1`), both backends guarding `distance ≥ 1e18` (real
+sun-through-atmosphere is Stage-2+ territory).
+
 **Register-gate design (satisfied):** all volume transmittance lives in the
 **non-pinned** intersect + shadow-resolve stages, gated at runtime by a
 `__constant__ GWorldVolume c_worldVolume` symbol. The REG-254-saturated

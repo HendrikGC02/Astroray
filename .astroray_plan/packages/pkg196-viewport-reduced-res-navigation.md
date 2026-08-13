@@ -2,7 +2,7 @@
 
 **Pillar:** 5 / integration-first
 **Track:** A
-**Status:** open (filed 2026-08-13 from the pkg192 profile — PR #605)
+**Status:** done (PR #609, 2026-08-13 — divisor N=2; orbit fps 8.36→18.52 p50 / 8.54→18.99 min, 2.2x; 100k tris 1280×720 1spp GPU, same harness as pkg192)
 **Estimated effort:** M
 **Depends on:** pkg192 (PR #605 — camera-only `skip_upload=True`; its profile is the
 evidence base), pkg191 (progressive still-frame loop — MUST NOT be disturbed).

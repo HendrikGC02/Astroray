@@ -101,7 +101,9 @@ _RENDER_SAMPLING = [
     MappingEntry("sampling", "light_sampling", "scene.cycles.use_light_tree",
                  "custom_raytracer.light_sampler", "renderer.set_light_sampler", "approximated", "n/a",
                  "SEMANTIC MISMATCH: Astroray has uniform/power/light_tree tri-state; Cycles exposes only a "
-                 "use_light_tree bool (+light_sampling_threshold). Stays custom-only until reconciled (Stage 1 rule)."),
+                 "use_light_tree bool (+light_sampling_threshold). pkg201 Stage 1 reconciles it in "
+                 "native_settings.resolve_light_sampler: native True -> light_tree, native False -> the "
+                 "custom non-tree choice (uniform/power). Stays APPROXIMATED (bool cannot express uniform vs power)."),
 ]
 
 # ---------------------------------------------------------------------------
@@ -144,9 +146,11 @@ _LIGHT_PATHS = [
     MappingEntry("light_paths", "use_fast_gi", "scene.cycles.use_fast_gi", "",
                  "(none)", "dropped", "DROPPED-SILENT",
                  "Fast GI approximation not implemented; no engine target."),
-    MappingEntry("light_paths", "world_max_bounces", "scene.world.light_settings.max_bounces", "",
+    MappingEntry("light_paths", "world_max_bounces", "scene.world.cycles.max_bounces", "",
                  "renderer.set_world_max_bounces", "direct", "n/a",
-                 "Read natively today from world.light_settings.max_bounces."),
+                 "Read natively from world.cycles.max_bounces (pkg201 Finding B; the "
+                 "prior read used world.light_settings.max_bounces, the AO datablock "
+                 "which has no max_bounces member, so the control was inert)."),
 ]
 
 # ---------------------------------------------------------------------------

@@ -192,6 +192,34 @@ def report_unsupported_native_controls(scene, report=None, emit=True):
     return messages
 
 
+def resolve_light_sampler(cycles, custom_value):
+    """pkg201 Stage 1: reconcile the native Cycles ``use_light_tree`` bool with
+    Astroray's ``uniform`` / ``power`` / ``light_tree`` tri-state.
+
+    Cycles exposes only a ``use_light_tree`` bool (the ``light_sampling`` row in
+    ``settings_map`` is a documented SEMANTIC MISMATCH). Before pkg201 the
+    exporter read the custom tri-state directly, so toggling the native prop
+    changed nothing (pkg200 ``use_light_tree`` known-gap). This makes the native
+    bool authoritative for the tree-vs-non-tree axis while preserving the
+    tri-state's distinct non-tree choice:
+
+      * ``use_light_tree`` True  -> ``light_tree`` (honour the native enable).
+      * ``use_light_tree`` False -> defer to the custom non-tree choice
+        (``uniform`` vs ``power``); a stale custom ``light_tree`` is overridden
+        by the native OFF and falls back to ``power`` (Astroray's non-tree
+        default), so the native bool always wins.
+
+    Returns ``None`` when the scene has no ``use_light_tree`` (non-Cycles scene
+    or a unit-test stub) so the proxy falls through to the custom value
+    unchanged.
+    """
+    if cycles is None or not hasattr(cycles, "use_light_tree"):
+        return None
+    if cycles.use_light_tree:
+        return "light_tree"
+    return custom_value if custom_value in ("uniform", "power") else "power"
+
+
 def resolve_native_settings(scene, report=None):
     """Resolve the DIRECT-mapped settings for ``scene`` and return a
     :class:`ResolvedSettings` view.
@@ -212,4 +240,11 @@ def resolve_native_settings(scene, report=None):
             resolved[custom_attr] = DIRECT_DEFAULTS[custom_attr]
         # else: settings still carries the attr (a pre-retirement object / test
         # stub) -> leave unresolved so the proxy falls through to it unchanged.
+    # pkg201 Stage 1: reconcile the APPROXIMATED light_sampling row (native
+    # use_light_tree bool -> tri-state) so both the F12 (convert_scene) and
+    # viewport (sync_viewport_scene) paths honour the native toggle via the
+    # existing renderer.set_light_sampler(settings.light_sampler) call sites.
+    light_sampler = resolve_light_sampler(cycles, getattr(settings, "light_sampler", "power"))
+    if light_sampler is not None:
+        resolved["light_sampler"] = light_sampler
     return ResolvedSettings(settings, resolved)

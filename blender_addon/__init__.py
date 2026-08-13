@@ -4769,9 +4769,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
         else:
             renderer.set_world_volume(0.0, [1.0, 1.0, 1.0], 0.0)
 
-        # Apply world bounce limit (Cycles: world.light_settings.max_bounces)
-        world_settings = getattr(world, 'light_settings', None)
-        world_max_bounces = int(getattr(world_settings, 'max_bounces', 1024)) if world_settings else 1024
+        # Apply world bounce limit (Cycles: world.cycles.max_bounces). pkg201
+        # Finding B: the prior read used world.light_settings.max_bounces, but
+        # light_settings is the ambient-occlusion datablock (WorldLighting) and
+        # has NO max_bounces member, so getattr(..., 1024) always won and the
+        # control was inert. The real Cycles world light-path prop is
+        # world.cycles.max_bounces; keep a getattr default for worlds without a
+        # cycles block (non-Cycles scene / test stub) so nothing hard-crashes.
+        world_cycles = getattr(world, 'cycles', None)
+        world_max_bounces = int(getattr(world_cycles, 'max_bounces', 1024)) if world_cycles else 1024
         renderer.set_world_max_bounces(world_max_bounces)
 
         # Try loading HDRI first.

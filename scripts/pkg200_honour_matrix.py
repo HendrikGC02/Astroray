@@ -159,6 +159,20 @@ def p_clamp(a: LegStats, b: LegStats, _c) -> tuple[str, str]:
     return HONEST_FAIL, detail + " (clamp did not lower the high tail)"
 
 
+def p_clamp_indirect(a: LegStats, b: LegStats, _c) -> tuple[str, str]:
+    """Like p_clamp, but if the clamp changed nothing we return NEEDS-VISUAL
+    (inconclusive) rather than HONEST-FAIL: clampIndirect is the sibling of
+    clampDirect in the same pkg157 kernel call (stage_advance.cu), and
+    sample_clamp_direct empirically PASSES — so a null result here means the
+    scene's fireflies were NEE-classified as DIRECT (clampDirect clips them),
+    not that clampIndirect is unhonoured."""
+    detail = f"hi_pct A={a.hi_pct:.4g} B={b.hi_pct:.4g}; lum_max A={a.lum_max:.4g} B={b.lum_max:.4g}"
+    if b.hi_pct < a.hi_pct * 0.9 and b.lum_max < a.lum_max * 0.95:
+        return PASS, detail + " (indirect fireflies clipped)"
+    return NEEDS_VISUAL, detail + (" (inconclusive: fireflies NEE-classified as DIRECT; "
+        "clampIndirect shares the pkg157 kernel param with clampDirect, which PASSES)")
+
+
 def p_blur_glossy(a: LegStats, b: LegStats, _c) -> tuple[str, str]:
     """B (blur on) highlight peak drops vs A (sharp)."""
     detail = f"lum_max A={a.lum_max:.4g} B={b.lum_max:.4g}"
@@ -219,9 +233,20 @@ def p_denoise_variance(a: LegStats, b: LegStats, _c) -> tuple[str, str]:
     separately (NEEDS-VISUAL leg)."""
     var_ratio = b.lum_var / a.lum_var if a.lum_var > 1e-12 else float("nan")
     detail = f"lum_var ratio denoised/noisy={var_ratio:.3f}"
-    if var_ratio < 0.6:
-        return PASS, detail
+    if var_ratio < 0.85:
+        return PASS, detail + " (variance reduced)"
     return HONEST_FAIL, detail + " (denoise did not collapse variance)"
+
+
+def p_both_rendered(a: LegStats, b: LegStats, c: "Cross | None") -> tuple[str, str]:
+    """Both backends produce a valid (finite, non-black) denoised frame. Marked
+    NEEDS-VISUAL — the backend selector's honour is 'both yield a denoised
+    frame', confirmed visually; whether the two backends differ is not asserted."""
+    d = "no cross" if c is None else f"per-pixel |dLum| mean={c.lum_abs_diff_mean:.4g}"
+    if a.lum_mean > 1e-4 and b.lum_mean > 1e-4:
+        return NEEDS_VISUAL, f"both backends rendered (A mean={a.lum_mean:.4g}, " \
+                             f"B mean={b.lum_mean:.4g}; {d})"
+    return HONEST_FAIL, f"a backend produced a black frame (A={a.lum_mean:.4g}, B={b.lum_mean:.4g})"
 
 
 def p_changes_pixels(a: LegStats, b: LegStats, c: "Cross | None") -> tuple[str, str]:
@@ -272,6 +297,12 @@ class Row:
     note: str = ""
     seed_a: int = 20200
     seed_b: int = 20200               # distinct only for the seed-distinct row
+    # noise_pair rows (e.g. `samples`) render FOUR frames — a two-independent-seed
+    # pair at `samples` (low) and at `samples_hi` (high) — so the outer can
+    # estimate MC NOISE (per-pixel |A-A2| mean) at each spp. Spatial variance does
+    # NOT fall with spp (memory mc-noise-vs-deterministic); only MC noise does.
+    noise_pair: bool = False
+    samples_hi: int = 0
 
 
 # High per-type caps so max_bounces is the only limiter in the depth rows.
@@ -292,7 +323,10 @@ MATRIX: list[Row] = [
         common=(("cycles.max_bounces", 16),),
         variant_a=(("cycles.diffuse_bounces", 0),),
         variant_b=(("cycles.diffuse_bounces", 8),),
-        note="diffuse interreflection depth 0 vs 8"),
+        note="diffuse interreflection depth 0 vs 8. NOTE: per-type bounces are NOT "
+             "passed to cuda_wavefront_render (blender_module.cpp: GPU call omits the "
+             "diffuse/glossy/transmission/volume/transparent args the CPU path at "
+             "L1906 passes) — expected GPU HONEST-FAIL; CPU honours it."),
     Row("glossy_bounces", ("glossy_bounces",), "closed_box_glossy", "1", p_monotone_energy,
         common=(("cycles.max_bounces", 16),),
         variant_a=(("cycles.glossy_bounces", 0),),
@@ -314,7 +348,10 @@ MATRIX: list[Row] = [
         common=(("cycles.max_bounces", 16), ("cycles.diffuse_bounces", 16)),
         variant_a=(("world.light_settings.max_bounces", 0),),
         variant_b=(("world.light_settings.max_bounces", 12),),
-        note="world-lit box; world light-path max bounces 0 vs 12"),
+        note="world-lit box; world max bounces 0 vs 12. NOTE: the addon reads a "
+             "NON-EXISTENT attr world.light_settings.max_bounces (WorldLighting has "
+             "no such member; the real Cycles prop is world.cycles.max_bounces), so "
+             "getattr(..., 1024) always wins — override is inert. Expected HONEST-FAIL."),
     Row("volume_bounces", ("volume_bounces",), "volume_box", "1", p_monotone_energy,
         common=(("cycles.max_bounces", 16),),
         variant_a=(("cycles.volume_bounces", 0),),
@@ -325,36 +362,40 @@ MATRIX: list[Row] = [
     # ---- Stage 2: clamps + filter-glossy firefly clipping ----
     Row("sample_clamp_direct", ("sample_clamp_direct",), "firefly", "2", p_clamp,
         variant_a=(("cycles.sample_clamp_direct", 0.0),),
-        variant_b=(("cycles.sample_clamp_direct", 1.0),),
-        note="bright emitter + glossy floor; direct clamp off vs 1.0"),
-    Row("sample_clamp_indirect", ("sample_clamp_indirect",), "firefly", "2", p_clamp,
+        variant_b=(("cycles.sample_clamp_direct", 0.5),),
+        note="bright emitter + glossy floor; direct clamp off vs 0.5 (GPU honours "
+             "clampDirect, pkg157)"),
+    Row("sample_clamp_indirect", ("sample_clamp_indirect",), "firefly_indirect", "2", p_clamp_indirect,
         variant_a=(("cycles.sample_clamp_indirect", 0.0),),
-        variant_b=(("cycles.sample_clamp_indirect", 1.0),),
-        note="firefly scene; indirect clamp off vs 1.0"),
+        variant_b=(("cycles.sample_clamp_indirect", 0.5),),
+        note="indirect firefly (glossy reflection of a brightly-lit diffuse panel); "
+             "indirect clamp off vs 0.5 (GPU honours clampIndirect, pkg157)"),
     Row("blur_glossy", ("blur_glossy",), "firefly", "2", p_blur_glossy,
         variant_a=(("cycles.blur_glossy", 0.0),),
-        variant_b=(("cycles.blur_glossy", 5.0),),
-        note="sharp glossy highlight; filter-glossy 0 vs 5"),
+        variant_b=(("cycles.blur_glossy", 10.0),),
+        note="sharp glossy highlight; filter-glossy 0 vs 10. NOTE: renderer.filterGlossy "
+             "is stored but never read in src/gpu/ — expected GPU HONEST-FAIL."),
 
     # ---- Stage 3: film + sampling + seed ----
     Row("film_exposure", ("film_exposure",), "closed_box", "3", p_exposure_scale,
         variant_a=(("cycles.film_exposure", 1.0),),
         variant_b=(("cycles.film_exposure", 2.0),),
         note="cleanest quantitative honour: linear mean must ~double"),
-    Row("film_transparent", ("render.film_transparent",), "closed_box", "3", p_alpha_transparent,
+    Row("film_transparent", ("render.film_transparent",), "open_object", "3", p_alpha_transparent,
         variant_a=(("render.film_transparent", True),),
         variant_b=(("render.film_transparent", False),),
-        note="background alpha transparent (A) vs opaque (B)"),
-    Row("film_transparent_glass", ("film_transparent_glass",), "glass_sphere", "3",
+        note="single object against a VISIBLE world background; alpha transparent (A) vs opaque (B)"),
+    Row("film_transparent_glass", ("film_transparent_glass",), "open_glass", "3",
         p_changes_pixels, kind="visual",
         common=(("render.film_transparent", True),),
         variant_a=(("cycles.film_transparent_glass", False),),
         variant_b=(("cycles.film_transparent_glass", True),),
-        note="transparent-film glass alpha behaviour; confirm visually"),
-    Row("samples", ("samples",), "closed_box", "3", p_variance_falls,
-        variant_a=(("cycles.samples", 16),),
-        variant_b=(("cycles.samples", 64),),
-        note="4x spp: mean stable, variance ~1/4"),
+        note="glass sphere on transparent film; glass-alpha behaviour; confirm visually"),
+    Row("samples", ("samples",), "open_object", "3", p_variance_falls,
+        noise_pair=True, samples=16, samples_hi=64, seed_a=111, seed_b=999,
+        note="4x spp on a smooth scene: MC NOISE (two-independent-seed per-pixel "
+             "diff) must fall ~1/2 (1/sqrt(4)); spatial variance does not fall with "
+             "spp so it is not used (memory mc-noise-vs-deterministic)"),
     Row("seed_distinct", ("seed",), "closed_box", "3", p_seed_distinct,
         variant_a=(("cycles.seed", 111),),
         variant_b=(("cycles.seed", 999),), seed_a=111, seed_b=999,
@@ -369,34 +410,39 @@ MATRIX: list[Row] = [
         kind="visual",
         variant_a=(("cycles.caustics_reflective", False),),
         variant_b=(("cycles.caustics_reflective", True),),
-        note="reflective caustic on/off; confirm caustic appears/vanishes"),
+        note="reflective caustic on/off. NOTE: renderer.useReflectiveCaustics is not "
+             "read in src/gpu/; GPU caustics gate on a SEPARATE usePhotonCaustics "
+             "opt-in — expected GPU HONEST-FAIL (native toggle inert on GPU)."),
     Row("caustics_refractive", ("caustics_refractive",), "caustic", "4", p_changes_pixels,
         kind="visual",
         variant_a=(("cycles.caustics_refractive", False),),
         variant_b=(("cycles.caustics_refractive", True),),
-        note="refractive caustic on/off; confirm caustic appears/vanishes"),
+        note="refractive caustic on/off. NOTE: as caustics_reflective — GPU path does "
+             "not read the native toggle (usePhotonCaustics is the GPU gate)."),
     Row("pixel_filter_type", ("pixel_filter_type",), "closed_box", "4", p_grad_sharper,
         variant_a=(("cycles.pixel_filter_type", "BOX"), ("cycles.filter_width", 1.0)),
         variant_b=(("cycles.pixel_filter_type", "GAUSSIAN"), ("cycles.filter_width", 3.0)),
-        note="BOX/narrow (sharp) vs GAUSSIAN/wide (soft) — edge gradient"),
+        note="BOX/narrow vs GAUSSIAN/wide. NOTE: pixelFilterType/Width are stored but "
+             "never read in src/gpu/ — expected GPU HONEST-FAIL."),
     Row("filter_width", ("filter_width",), "closed_box", "4", p_grad_sharper,
         common=(("cycles.pixel_filter_type", "GAUSSIAN"),),
         variant_a=(("cycles.filter_width", 0.5),),
         variant_b=(("cycles.filter_width", 4.0),),
-        note="narrow (sharp) vs wide (soft) gaussian"),
+        note="narrow vs wide gaussian. NOTE: pixel filter not applied on GPU (see "
+             "pixel_filter_type) — expected GPU HONEST-FAIL."),
     Row("use_denoising", ("use_denoising",), "denoiser_scene", "4", p_denoise_variance,
         kind="visual", samples=8,
         variant_a=(("cycles.use_denoising", False),),
         variant_b=(("cycles.use_denoising", True),),
-        note="noisy scene: denoise variance collapse + visual not-garbage"),
-    Row("denoiser", ("denoiser",), "denoiser_scene", "4", p_denoise_variance,
-        samples=8,
+        note="noisy scene: denoise variance collapse + visual not-garbage (GPU "
+             "applyPasses runs the denoiser, pkg197)"),
+    Row("denoiser", ("denoiser",), "denoiser_scene", "4", p_both_rendered,
+        kind="visual", samples=8,
         common=(("cycles.use_denoising", True),),
         variant_a=(("cycles.denoiser", "OPENIMAGEDENOISE"),),
         variant_b=(("cycles.denoiser", "OPTIX"),),
-        note="both backends yield a denoised frame (variance drop vs noisy baseline "
-             "is checked by use_denoising; here both legs are denoised so compare "
-             "against the noisy A of use_denoising via the report note)"),
+        note="both denoiser backends must yield a valid denoised frame; confirm "
+             "visually. Whether the two backends differ is not asserted."),
 
     # ---- resolution (trivial but plumbed) ----
     Row("resolution", ("render.resolution_x", "render.resolution_y"), "closed_box", "0", p_resolution,

@@ -156,11 +156,32 @@ def _run_leg(blender: Path, row: M.Row, out_dir: Path, env: dict, timeout: int):
     return a, b, ""
 
 
+def _sib(path: Path, tag: str) -> Path:
+    return path.with_name(path.stem + tag + path.suffix)
+
+
 def _evaluate(row: M.Row, a_path: Path, b_path: Path) -> tuple[str, str, dict, dict]:
     sa = _stats(a_path)
     sb = _stats(b_path)
     if sa is None or sb is None:
         return M.ERROR, "EXR unreadable via cv2", {}, {}
+
+    if row.noise_pair:
+        # MC noise = per-pixel |seedA - seedB| mean at each spp. Must fall ~1/2
+        # for a 4x spp step (1/sqrt(N)); mean stays stable.
+        n_lo = _cross(a_path, _sib(a_path, "2"))
+        n_hi = _cross(b_path, _sib(b_path, "2"))
+        if n_lo is None or n_hi is None or n_lo.lum_abs_diff_mean <= 1e-9:
+            return M.ERROR, "noise-pair frames unreadable", asdict(sa), asdict(sb)
+        noise_ratio = n_hi.lum_abs_diff_mean / n_lo.lum_abs_diff_mean
+        mean_ratio = sb.lum_mean / sa.lum_mean if sa.lum_mean > 1e-9 else float("nan")
+        detail = (f"MC-noise({row.samples}spp)={n_lo.lum_abs_diff_mean:.4g} "
+                  f"({row.samples_hi}spp)={n_hi.lum_abs_diff_mean:.4g} "
+                  f"ratio={noise_ratio:.3f}; mean ratio={mean_ratio:.3f}")
+        if 0.9 <= mean_ratio <= 1.1 and noise_ratio < 0.65:
+            return M.PASS, detail + " (noise falls ~1/sqrt(N))", asdict(sa), asdict(sb)
+        return M.HONEST_FAIL, detail + " (noise did not fall ~1/sqrt(N))", asdict(sa), asdict(sb)
+
     cross = _cross(a_path, b_path)
     verdict, detail = row.predicate(sa, sb, cross)
     return verdict, detail, asdict(sa), asdict(sb)

@@ -25,7 +25,6 @@ Run:
         --row max_bounces --out-a a.exr --out-b b.exr
 """
 
-import os
 import sys
 import traceback
 from pathlib import Path
@@ -201,14 +200,71 @@ def build_hdri_box(scene):
 
 
 def build_firefly(scene):
-    # Small very bright emitter over a sharp glossy floor: the classic firefly
-    # generator so a clamp has something bright to clip.
+    # Small, intensely bright emitter reflected by a near-mirror glossy floor:
+    # high-variance firefly generator tuned so many pixels exceed the clamp
+    # bound (variant B clamps at 0.5). A diffuse backdrop supplies the
+    # low-energy region the clamp must leave untouched.
     _black_world(scene)
-    gloss = _glossy_mat("floor", (0.9, 0.9, 0.9))
-    gloss.node_tree.nodes.get("Principled BSDF").inputs["Roughness"].default_value = 0.08
-    _plane(scene, gloss, (0.0, 0.0, -1.0), (0.0, 0.0, 0.0), size=8.0)
-    _emitter(scene, energy=1500.0, location=(0.0, 0.0, 3.0), size=0.15)
-    _camera(scene, location=(0.0, -6.0, 1.2))
+    gloss = _glossy_mat("floor", (0.98, 0.98, 0.98))
+    gloss.node_tree.nodes.get("Principled BSDF").inputs["Roughness"].default_value = 0.05
+    _plane(scene, gloss, (0.0, 0.0, -1.0), (0.0, 0.0, 0.0), size=12.0)
+    back = _diffuse_mat("back", (0.35, 0.05, 0.05))
+    _plane(scene, back, (0.0, 4.0, 1.5), (1.5708, 0.0, 0.0), size=12.0)
+    _emitter(scene, energy=60000.0, location=(0.0, 1.0, 2.2), size=0.06)
+    _camera(scene, location=(0.0, -6.0, 0.9))
+
+
+def build_firefly_indirect(scene):
+    # Indirect firefly: a bright emitter lights a diffuse white panel; the
+    # near-mirror glossy floor reflects that brightly-lit panel to the camera.
+    # The panel is a diffuse bounce, so its glossy reflection is INDIRECT — what
+    # sample_clamp_indirect must clip. The emitter is hidden below the panel top
+    # and angled away from the camera's direct floor-reflection.
+    _black_world(scene)
+    gloss = _glossy_mat("floor", (0.98, 0.98, 0.98))
+    gloss.node_tree.nodes.get("Principled BSDF").inputs["Roughness"].default_value = 0.06
+    _plane(scene, gloss, (0.0, 0.0, -1.0), (0.0, 0.0, 0.0), size=14.0)
+    panel = _diffuse_mat("panel", (0.95, 0.95, 0.95))
+    _plane(scene, panel, (0.0, 4.5, 2.2), (1.5708, 0.0, 0.0), size=8.0)  # lit backdrop
+    _emitter(scene, energy=90000.0, location=(0.0, 3.2, 2.2), size=0.05)  # lights the panel
+    _camera(scene, location=(0.0, -6.0, 0.6))
+
+
+def build_open_object(scene):
+    # A single diffuse sphere framed against the (visible) world background so
+    # film_transparent can open the background alpha. Bright constant world so
+    # the object is lit and the background is non-black.
+    w = bpy.data.worlds.new("W")
+    w.use_nodes = True
+    bg = w.node_tree.nodes.get("Background")
+    if bg is not None:
+        bg.inputs[0].default_value = (0.3, 0.4, 0.6, 1.0)
+        bg.inputs[1].default_value = 1.0
+    scene.world = w
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=1.2, location=(0.0, 0.0, 0.0))
+    obj = bpy.context.object
+    obj.data.materials.append(_diffuse_mat("obj", (0.8, 0.5, 0.2)))
+    bpy.ops.object.shade_smooth()
+    _emitter(scene, energy=300.0, location=(2.5, -2.0, 3.0))
+    _camera(scene, location=(0.0, -6.0, 0.0))
+
+
+def build_open_glass(scene):
+    # A single smooth glass sphere against a visible world background, for
+    # film_transparent_glass (transparent-film glass alpha behaviour).
+    w = bpy.data.worlds.new("W")
+    w.use_nodes = True
+    bg = w.node_tree.nodes.get("Background")
+    if bg is not None:
+        bg.inputs[0].default_value = (0.3, 0.4, 0.6, 1.0)
+        bg.inputs[1].default_value = 1.0
+    scene.world = w
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=1.2, location=(0.0, 0.0, 0.0))
+    obj = bpy.context.object
+    obj.data.materials.append(_glass_mat())
+    bpy.ops.object.shade_smooth()
+    _emitter(scene, energy=300.0, location=(2.5, -2.0, 3.0))
+    _camera(scene, location=(0.0, -6.0, 0.0))
 
 
 def build_caustic(scene):
@@ -262,6 +318,9 @@ SCENE_BUILDERS = {
     "transparent_tower": build_transparent_tower,
     "hdri_box": build_hdri_box,
     "firefly": build_firefly,
+    "firefly_indirect": build_firefly_indirect,
+    "open_object": build_open_object,
+    "open_glass": build_open_glass,
     "caustic": build_caustic,
     "volume_box": build_volume_box,
     "denoiser_scene": build_denoiser_scene,
@@ -298,20 +357,31 @@ def _apply_overrides(scene, overrides):
     for path, value in overrides:
         obj = scene
         parts = path.split(".")
-        for p in parts[:-1]:
-            obj = getattr(obj, p)
-        setattr(obj, parts[-1], value)
+        try:
+            for p in parts[:-1]:
+                obj = getattr(obj, p)
+            if not hasattr(obj, parts[-1]):
+                # The native path does not exist in this Blender (e.g.
+                # world.light_settings.max_bounces — WorldLighting has no such
+                # attr). That non-existence IS the honour finding; render both
+                # variants unchanged so the predicate records HONEST-FAIL rather
+                # than crashing the leg.
+                print(f"[pkg200-leg] MISSING native attr '{path}' — skipped "
+                      f"(recorded as non-honour)", flush=True)
+                continue
+            setattr(obj, parts[-1], value)
+        except AttributeError:
+            print(f"[pkg200-leg] MISSING native path '{path}' — skipped", flush=True)
 
 
-def _render_leg(scene, row: M.Row, variant: str, out_path: Path):
+def _render_one(scene, row: M.Row, overrides, seed: int, out_path: Path,
+                samples_override: int | None = None):
     _base_render_config(scene, row)
     _apply_overrides(scene, row.common)
-    if variant == "A":
-        _apply_overrides(scene, row.variant_a)
-        scene.cycles.seed = row.seed_a
-    else:
-        _apply_overrides(scene, row.variant_b)
-        scene.cycles.seed = row.seed_b
+    _apply_overrides(scene, overrides)
+    scene.cycles.seed = seed
+    if samples_override is not None:
+        scene.cycles.samples = samples_override
     out_path.parent.mkdir(parents=True, exist_ok=True)
     scene.render.filepath = str(out_path.with_suffix(""))
     bpy.ops.render.render(write_still=True)
@@ -324,7 +394,11 @@ def _render_leg(scene, row: M.Row, variant: str, out_path: Path):
     if produced != out_path and produced.exists():
         produced.replace(out_path)
     if not out_path.exists():
-        raise RuntimeError(f"no EXR produced for variant {variant} at {out_path}")
+        raise RuntimeError(f"no EXR produced at {out_path}")
+
+
+def _sibling(path: Path, tag: str) -> Path:
+    return path.with_name(path.stem + tag + path.suffix)
 
 
 def main():
@@ -341,7 +415,7 @@ def main():
         # Reuse the pkg175 bootstrap (loads the staged/installed addon from
         # ASTRORAY_SMOKE_ADDON_DIR, registers the CUSTOM_RAYTRACER engine).
         import verify_pkg175_smoke_blender as smoke
-        astroray, addon = smoke._bootstrap()
+        astroray, _addon = smoke._bootstrap()
         print(f"[pkg200-leg] engine: {astroray.__file__}", flush=True)
 
         builder = SCENE_BUILDERS[row.scene]
@@ -349,13 +423,33 @@ def main():
         out_a = Path(args.out_a).resolve()
         out_b = Path(args.out_b).resolve()
 
-        scene = _reset()
-        builder(scene)
-        _render_leg(scene, row, "A", out_a)
+        if row.noise_pair:
+            # FOUR frames: a two-independent-seed pair at low spp (out_a, out_a2)
+            # and at high spp (out_b, out_b2). The outer estimates MC noise as the
+            # per-pixel |pair-diff| mean at each spp.
+            out_a2 = _sibling(out_a, "2")
+            out_b2 = _sibling(out_b, "2")
+            for op, seed, spp in ((out_a, row.seed_a, row.samples),
+                                  (out_a2, row.seed_b, row.samples),
+                                  (out_b, row.seed_a, row.samples_hi),
+                                  (out_b2, row.seed_b, row.samples_hi)):
+                scene = _reset()
+                builder(scene)
+                _render_one(scene, row, row.variant_a, seed, op, samples_override=spp)
+            print(f"PKG200_EXR_A {out_a}", flush=True)
+            print(f"PKG200_EXR_B {out_b}", flush=True)
+            print(f"PKG200_NOISE_A2 {out_a2}", flush=True)
+            print(f"PKG200_NOISE_B2 {out_b2}", flush=True)
+            print(f"{SENTINEL} PASS", flush=True)
+            return
 
         scene = _reset()
         builder(scene)
-        _render_leg(scene, row, "B", out_b)
+        _render_one(scene, row, row.variant_a, row.seed_a, out_a)
+
+        scene = _reset()
+        builder(scene)
+        _render_one(scene, row, row.variant_b, row.seed_b, out_b)
 
         print(f"PKG200_EXR_A {out_a}", flush=True)
         print(f"PKG200_EXR_B {out_b}", flush=True)

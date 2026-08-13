@@ -478,4 +478,3 @@ check (landed in the rebase) is also clean. No visual regressions of any kind (f
 banding, NaN, mode regression) were observed in any inspected PNG. PR #611 is HW PASS as of
 branch pkg199 at commit 91dbc4770c28c054742ad93427794b9a82847398. This verifier does not merge;
 the merge decision remains with the architect and gate-failure process.
->>>>>>> origin/main

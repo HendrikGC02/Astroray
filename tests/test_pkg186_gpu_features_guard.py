@@ -32,7 +32,11 @@ pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not avail
 
 # The capabilities that are advertised in __features__ but are CPU-only on the
 # GPU backend today — the whole point of the guard.
-GPU_DROPPED = ["textures", "volumes", "adaptive_sampling", "gr_black_holes"]
+# pkg199 Stage 1: "volumes" moved OFF this list — the GPU wavefront now renders
+# the homogeneous world volume (Beer-Lambert absorption) at CPU parity, so
+# __gpu_features__["volumes"] flips false→true (see test_volumes_gpu_enabled
+# below). It is NO LONGER a CPU-only/dropped capability.
+GPU_DROPPED = ["textures", "adaptive_sampling", "gr_black_holes"]
 
 
 def test_gpu_features_dict_exists():
@@ -77,3 +81,19 @@ def test_gpu_supported_capabilities_stay_on():
         assert bool(gpu_feats.get(cap, False)) is True, (
             f"{cap} is GPU-supported and must stay true in __gpu_features__"
         )
+
+
+def test_volumes_gpu_enabled():
+    """pkg199 Stage 1: the homogeneous world volume (Beer-Lambert absorption)
+    now renders on the GPU wavefront at CPU parity, so __gpu_features__["volumes"]
+    must be TRUE. This is the un-flip of the pkg186 CPU-only claim (the guard
+    author's intent was to mark GPU-dropped capabilities honestly; this one is no
+    longer dropped). Scope is homogeneous-world-absorption only — HG in-scatter /
+    heterogeneous volumes remain a future capability, not a gap within this flag."""
+    gpu_feats = astroray.__gpu_features__
+    assert bool(gpu_feats.get("volumes", False)) is True, (
+        "world-volume absorption now works on the GPU backend (pkg199 Stage 1); "
+        "__gpu_features__['volumes'] must be true"
+    )
+    # Still advertised as built in the backend-agnostic dict.
+    assert bool(astroray.__features__.get("volumes", False)) is True

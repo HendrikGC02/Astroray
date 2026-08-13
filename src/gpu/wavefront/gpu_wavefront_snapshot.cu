@@ -1356,6 +1356,17 @@ std::vector<float> cuda_wavefront_render(
     int*           d_matTexId  = wfUpload(C.materialTextureId, res.materialTextureId);
     if (res.hasTexture)
         setWavefrontTextureBinding(GWavefrontTextureBinding{d_textures, d_texelBuf, d_matTexId});
+    // pkg199 Stage 1 — publish the homogeneous world-volume medium every frame
+    // (c_worldVolume is __constant__ and persists across calls, so set it
+    // unconditionally — vacuum scenes publish hasVolume==0, which the intersect /
+    // shadow kernels skip → byte-identical). Beer-Lambert absorption only.
+    {
+        Vec3 wvc = renderer.getWorldVolumeColor();
+        setWavefrontWorldVolume(GWorldVolume{
+            renderer.getHasWorldVolume() ? 1 : 0,
+            renderer.getWorldVolumeDensity(),
+            wvc.x, wvc.y, wvc.z});
+    }
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).

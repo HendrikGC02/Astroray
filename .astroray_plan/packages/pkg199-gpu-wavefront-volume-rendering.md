@@ -1,227 +1,156 @@
-# pkg199 — GPU wavefront volume rendering (homogeneous world volume + HG phase)
+# pkg199 — GPU wavefront world volume (homogeneous world medium)
 
 **Pillar:** 5 / integration-first (also 3 — CPU↔GPU parity)
 **Track:** A
-**Status:** open (filed 2026-08-13 — GPU-parity vetted set; **design-first**)
-**Estimated effort:** L (new transport subsystem in the wavefront; scope deliberately bounded
-to the homogeneous world volume first)
-**Depends on:** pkg55-C7 wavefront dispatch; the CPU world-volume reference
-(`include/raytracer.h:2110-2255`); [[wavefront-shade-kernels-register-saturated]].
+**Status:** Stage 1 done (PR #TBD, 2026-08-14 — GPU wavefront homogeneous-world
+Beer-Lambert absorption at CPU parity; furnace Tr matches analytic exp(-σ·d) to
+<0.02; shade kernel byte-identical REG 254/STACK 3352/CONST 1700). Stage 2 open
+(spec-only below — full scattering medium).
+**Estimated effort:** Stage 1 M (landed); Stage 2 XL (new scattering subsystem).
+**Depends on:** pkg55-C7 wavefront dispatch; [[wavefront-shade-kernels-register-saturated]].
 
 ---
 
-## Why this exists (verified line refs, current `main`)
+## PREMISE CORRECTION (2026-08-14, git-archaeology — supersedes the original filing)
 
-`__gpu_features__` reports `volumes=false` with the comment "CPU-only"
-(`module/blender_module.cpp:4577`), and the honesty note states the GPU path "ignores volumes"
-(`module/blender_module.cpp:4559`). The CPU has a working **homogeneous world volume**:
-`worldVolumeDensity/Color/Anisotropy` with Beer-Lambert transmittance
-`sigmaT = worldVolumeColor * worldVolumeDensity` and Henyey-Greenstein anisotropy
-(`include/raytracer.h:2110-2255`), driven from the addon via `set_world_volume`
-(`module/blender_module.cpp:1607-1608, 2800`). The GPU wavefront transport
-(`src/gpu/wavefront/stage_advance.cu`) has **no volume interaction at all** — rays pass
-straight through. So a scene with atmospheric fog / god-rays / a coloured world medium renders
-correctly on CPU and as vacuum on the (default) GPU backend: a visible, owner-facing
-divergence, and the last of the four headline GPU-parity capability gaps
-(textures→pkg186/pkg190, adaptive→pkg131, denoise-guides→pkg197, **volumes→here**).
+The original spec claimed the CPU "has a working homogeneous world volume … with
+Beer-Lambert transmittance … and Henyey-Greenstein anisotropy
+(`include/raytracer.h:2110-2255`)" and asked to port HG in-scatter + distance
+sampling + NEE-through-medium to the GPU "matching the CPU model exactly." Verified
+against HEAD `f965f93`, **that premise was false**:
 
-## Scope — bounded on purpose
+- There was **no** Henyey-Greenstein phase function, **no** in-scatter, **no**
+  distance sampling, **no** NEE-through-medium anywhere in the CPU integrator —
+  and there never had been. `worldVolumeAnisotropy` was stored by `setWorldVolume`
+  and **read by no render code in the entire git history**.
+- The only volume code was `Renderer::worldTransmittance(distance)`
+  (`raytracer.h:2159`) — pure Beer-Lambert **absorption** `exp(-σ_t·t)`,
+  `σ_t = worldVolumeColor·worldVolumeDensity`.
+- That function was **dead code**: repo-wide it appeared only at its definition —
+  **zero call sites**. World volume was added in pkg25 (`245d1fa`) wired into the
+  **legacy RGB integrator** (3 roles: NEE emission, MIS BSDF-emission, throughput).
+  pkg14 (`90ebb31`) **deleted the legacy RGB integrator wholesale**, removing all
+  three call sites; they were never ported to the spectral path tracer that is now
+  the default. So the CPU rendered fog scenes as **vacuum**, exactly like the GPU.
 
-Bring the **homogeneous world volume** to the GPU wavefront, matching the CPU model exactly:
+**Coordinator decision (staged Option B, 2026-08-13):** re-wiring absorption into
+the spectral tracer *completes an orphaned feature* (the deletion targeted the RGB
+integrator, not world volumes) — sign-off granted. Absorption-only is a strict
+subset of the full scattering medium, so the work is **staged**: Stage 1 (below)
+lands absorption at CPU↔GPU parity; Stage 2 (below) adds the scattering medium.
 
-- **Transmittance / free-flight** along each ray segment: Beer-Lambert `exp(-sigmaT · t)` with
-  the CPU's `sigmaT = worldVolumeColor · worldVolumeDensity` (mirror `raytracer.h:2152-2154`).
-- **In-scatter** with the **Henyey-Greenstein** phase function at the CPU anisotropy
-  (`worldVolumeAnisotropy`, clamped [-0.99, 0.99]), NEE toward lights through the medium.
-- **Distance sampling** for scatter events (homogeneous → analytic exponential sampling).
-- Uphold CPU↔GPU wavefront-diff parity on a fixed foggy reference scene.
-
-**Heterogeneous / object volumes are explicitly OUT of scope.** `add_volume`
-(`module/blender_module.cpp:1277-1290`) currently renders volume *objects* as emissive
-proxies, not as scattering media, and the black-hole volumetric emission
-(`addVolumetricEmission`, lines 1229/1261/1272) is a separate Pillar-4 concern (on pause —
-[[pillar4-on-pause]]). Do not touch either. A future package owns heterogeneous grids /
-`add_volume` scattering / delta-tracking.
-
-## MANDATORY FIRST STEP — design + register budget
-
-1. **Cite the algorithm** (CLAUDE.md §6 / [[cite-algorithm]]). Homogeneous volume transport,
-   HG phase, and analytic distance sampling are textbook — use PBRT-v4
-   (`src/pbrt/media.cpp`, `HomogeneousMedium`, phase-function sampling) and Cycles
-   (`intern/cycles/kernel/integrator/volume_stack.h` / `volume.h`, Apache-2.0) as references;
-   save a short research note to `.astroray_plan/docs/`. Do NOT invent the estimator.
-2. **Decide where the volume interaction lives in the wavefront stage graph** — a dedicated
-   volume-scatter stage vs folding free-flight/transmittance into `stageAdvance`. Whatever the
-   choice, the register-saturated `stageShadeBucketedKernel<false,…>` must stay **REG 254 /
-   STACK 3608 / CONSTANT[0] 1700** (isolate the volume path behind a compile-time
-   `HasWorldVolume` axis so vacuum scenes are byte-identical — pkg184/pkg189 pattern). Read the
-   post-link numbers via `cuobjdump` before scaling up.
-
-## Acceptance criteria
-
-- [ ] GPU wavefront renders the homogeneous world volume: transmittance, HG in-scatter, and
-      NEE-through-medium, **matching the CPU render within a tight band** on a fixed foggy
-      scene (CPU↔GPU wavefront-diff parity) at multiple density/anisotropy settings.
-- [ ] `__gpu_features__["volumes"]` flips to `true` **only** for the world-volume capability,
-      with the honesty comment updated to state homogeneous-world-only (do not over-claim
-      heterogeneous/object volumes — the pkg186 `__gpu_features__` honesty discipline).
-- [ ] Vacuum (no world volume) GPU renders are **byte-identical** to pre-change and show no
-      perf regression (compile-time isolation verified via cuobjdump; min-of-N perf,
-      [[gpu-perf-ab-clock-drift]]).
-- [ ] Headless Blender 5.1: `set_world_volume` from the world panel produces matching fog on
-      CPU and GPU.
-- [ ] **RTX 5070 Ti hardware gate** ([[ci_has_no_gpu_runtime_blindspot]]), bound to HEAD,
-      with a visual confirmation of the fog/god-ray render.
-
-## Hard non-goals
-
-- **No heterogeneous / object volumes, no delta-tracking, no `add_volume` scattering** — the
-  emissive-proxy behaviour stays as-is; a later package owns grids.
-- **No black-hole / Pillar-4 volumetric emission** work ([[pillar4-on-pause]]).
-- **No volume render passes** (`PASS_VOLUME_*`) until this lands — then pkg198 can extend.
-- **No shared-kernel register regression** — compile-time isolation only (pkg178/pkg184 rule).
+Research + design detail: `.astroray_plan/docs/pkg199-world-volume-research.md`.
 
 ---
 
-## Hardware verification 2026-08-13 (PR #611, branch pkg199 @ b3298437cd0fd75e4bf8c334d418329a8ed70384)
+## Stage 1 — homogeneous world absorption (LANDED, this PR)
 
-**Hardware:** NVIDIA GeForce RTX 5070 Ti, driver 610.47, CUDA 12.8 (nvcc V12.8.61), Windows 11
-Enterprise 10.0.26200. Worktree: Astroray-pkg199. GPU lock hw-611 held for the duration; no
-concurrent CUDA sessions.
+Bring the **homogeneous world volume as Beer-Lambert absorption** to the GPU
+wavefront, at parity with the CPU spectral path tracer (which is re-wired the same
+way in the same PR — completing the pkg14-orphaned feature).
 
-Note: this branch predates pkg195-Stage-C merge to main (disjoint area; verified as-is per
-dispatch instruction, not rebased).
+**Model (pinned identically on CPU and GPU):** throughput carries per-λ
+transmittance `Tr[λ] = exp(-σ_t[λ]·d)` over each traversed segment, with
+`σ_t[λ] = upsample_reflectance(worldVolumeColor)[λ] · worldVolumeDensity`.
+Spectral discipline: **upsample the colour (JH albedo LUT / GSPEC_RGB_ALBEDO),
+then Beer-Lambert per-λ — never upsample the product.** Three roles:
 
-### Step 1 -- Clean rebuild
-build_cuda_worktree.bat (root/VS-generator pipeline), foreground via PowerShell.
-HEAD SHA verified b3298437cd0f. Build succeeded. cuobjdump --list-elf on the built .pyd:
-astroray.cp313-win_amd64.1.sm_120.cubin -- sm_120 confirmed (both the build scripts own
-arch-verify and an independent cuobjdump --list-elf check agree).
+1. **Free-flight** `Tr(rec.t)` on each surface hit (CPU `pathTraceSpectral`; GPU
+   `intersectPathSlot` with SoA throughput write-back). Attenuates emission and
+   carries the fog into NEE + later bounces.
+2. **NEE / shadow ray** `Tr(ls.distance)`/`Tr(s.maxDist)` (CPU NEE block; GPU
+   `stageShadowKernel`).
+3. **Lamp-MIS emission** `Tr(lh.t)`/`Tr(lampT)` (dedicated lamp closer than the
+   surface).
 
-### Step 2 -- Smoke-check
-astroray.__file__ resolved to the canonical build_cuda/Release/astroray.cp313-win_amd64.pyd
-(not a stale root shadow). hasattr(Renderer(), set_world_volume) returned True.
-astroray.__gpu_features__ returned: nee True, mis True, disney_brdf True, sah_bvh True,
-adaptive_sampling False, volumes True, textures False, subsurface True, gr_black_holes False,
-spectral_gpu_materials True -- volumes True confirmed.
+Env-miss (infinite segment) is not attenuated — the mirror-able choice for an env
+at infinity and consistent CPU/GPU. `worldVolumeAnisotropy` stays **inert**
+(reserved for Stage 2).
 
-### Step 2b -- Register hard gate (cuobjdump -res-usage)
-stageShadeBucketedKernel with HasWorldVolume=false (the vacuum instantiation, all four bool
-template params false): REG:254 STACK:3352 CONSTANT[0]:1700 -- byte-identical to mains pinned
-baseline (REG 254 / STACK 3352 / CONSTANT[0] 1700). PASS.
+**Register-gate design (satisfied):** all volume transmittance lives in the
+**non-pinned** intersect + shadow-resolve stages, gated at runtime by a
+`__constant__ GWorldVolume c_worldVolume` symbol. The REG-254-saturated
+`stageShadeBucketedKernel` is **not modified at all** → byte-identical by
+construction (verified via cuobjdump on the native-sm_120 `.pyd`: all-false
+specialization **REG 254 / STACK 3352 / CONSTANT[0] 1700**, unchanged). No 5th
+template axis — cleaner than the literal "compile-time HasWorldVolume axis"
+suggestion and satisfies its goal; the pkg197 guide-AOV precedent (write from the
+intersect stage to keep the shade kernel byte-identical).
 
-Other wavefront kernels for reference:
-- stageIntersectQueuedKernel: REG:127 STACK:616 CONSTANT[0]:1680
-- stageShadowKernel: REG:108 STACK:584 CONSTANT[0]:1484
-- stageRegenKernel: REG:100 STACK:608 CONSTANT[0]:1481
+### Stage 1 acceptance criteria — all met
 
-### Step 3 -- Gate test run (tests/test_pkg199_world_volume_gpu_parity.py, -v -s --tb=short)
-All 6 tests PASSED, including test_restir_render_not_contaminated_by_prior_fog on its first
-hardware run (previously CI-skipped, GPU-only). Verbatim:
+- [x] GPU wavefront renders the homogeneous world volume (transmittance +
+      NEE-through-medium absorption), **matching the CPU render**: per-channel
+      CPU↔GPU mean-ratio on a coloured fog scene = **[1.029, 1.029, 1.043]**
+      (within the independent-MC band). Analytic white-fog furnace: GPU Tr matches
+      `exp(-σ·d)` to **<0.0002** at dist∈{5,10}, dens∈{0.1,0.2}.
+- [x] `__gpu_features__["volumes"]` flips **true** (homogeneous-world absorption
+      only; honesty comment scopes out in-scatter/heterogeneous). Guard test
+      `test_pkg186_gpu_features_guard` updated (volumes off GPU_DROPPED).
+- [x] Vacuum (no world volume) GPU renders unchanged — density-0 == no-volume
+      within the GPU atomic-nondeterminism floor; shade kernel byte-identical
+      (cuobjdump).
+- [x] Un-xfailed the two `test_world_volume_*` fog tests (they now pass on both
+      backends).
+- [x] RTX 5070 Ti visual confirmation: `pkg199_gpu_fog_{clear,dense}.png` — a
+      receding row of spheres fades into the medium with distance (darker +
+      desaturated), no god-rays (absorption only, as claimed).
 
-    tests/test_pkg199_world_volume_gpu_parity.py::test_world_volume_absorption_only_removes_energy_cpu
-    [pkg199 CPU furnace] clear=[1.29   1.2948 1.2722] foggy=[0.7844 0.9507 1.0396] foggy/clear=[0.6081 0.7343 0.8172]
-    PASSED
-    tests/test_pkg199_world_volume_gpu_parity.py::test_world_volume_cpu_gpu_parity
-    [pkg199 CPU/GPU fog parity] GPU=[0.8069 0.9782 1.0844] CPU=[0.7844 0.9507 1.0396] GPU/CPU=[1.0286 1.0289 1.0431]
-    PASSED
-    tests/test_pkg199_world_volume_gpu_parity.py::test_world_volume_gpu_analytic_beer_lambert
-    [pkg199 GPU Beer-Lambert] dist=5.0 dens=0.1: measured Tr=0.6064 analytic=0.6065
-    [pkg199 GPU Beer-Lambert] dist=5.0 dens=0.2: measured Tr=0.3677 analytic=0.3679
-    [pkg199 GPU Beer-Lambert] dist=10.0 dens=0.1: measured Tr=0.3678 analytic=0.3679
-    [pkg199 GPU Beer-Lambert] dist=10.0 dens=0.2: measured Tr=0.1352 analytic=0.1353
-    PASSED
-    tests/test_pkg199_world_volume_gpu_parity.py::test_world_volume_zero_density_gpu_byte_identical
-    [pkg199 GPU vacuum byte-identity] no-vol self-noise=9.54e-07 zero-density diff=9.54e-07
-    PASSED
-    tests/test_pkg199_world_volume_gpu_parity.py::test_restir_render_not_contaminated_by_prior_fog
-    [pkg199 ReSTIR fog-contamination guard] clean=[0.0153 0.0162 0.0235] after_fog=[0.0153 0.0162 0.0235] after/clean=[1. 1. 1.]
-    PASSED
-    tests/test_pkg199_world_volume_gpu_parity.py::test_world_volume_gpu_visual PASSED
-    ============================== 6 passed in 1.45s ==============================
+### Stage 1 explicit non-goals (unchanged)
 
-PR claimed numbers (white-fog vs exp(-sigma*d) within 2e-4 across 4 density/distance combos;
-coloured-fog CPU-GPU mean-ratio [1.029, 1.029, 1.043]) reproduce exactly on this hardware.
+- No in-scatter / HG phase (Stage 2). No heterogeneous / object volumes, no
+  `add_volume` scattering (emissive-proxy behaviour stays as-is). No black-hole /
+  Pillar-4 volumetric emission ([[pillar4-on-pause]]). No `PASS_VOLUME_*`.
+- The opt-in caustic integrator (`pathTraceSpectralCaustic`), the CPU wavefront
+  reference (`src/cpu/wavefront/path_kernel.cpp`), and the ReSTIR GPU path do NOT
+  carry world-volume absorption in Stage 1 (they use different stages/kernels that
+  do not read `c_worldVolume`); the production megakernel-CPU ↔ GPU-wavefront pair
+  is the parity target. A follow-up can extend them if needed.
 
-### Step 4 -- Un-xfailed tests (test_python_bindings.py, --runxfail)
+---
 
-    tests/test_python_bindings.py::test_world_volume_density_adds_visible_haze PASSED
-    tests/test_python_bindings.py::test_world_volume_fogs_farther_objects_more PASSED
-    ====================== 2 passed, 86 deselected in 0.99s =======================
+## Stage 2 — full scattering medium (SPEC-ONLY; do NOT implement here; XL)
 
-Both tests exercise the CPU backend only (create_renderer() does not call set_use_gpu, and
-useGPU defaults to false in blender_module.cpp). An ad-hoc GPU-forced replication of the same
-two tests scene/assertions (throwaway diagnostic script, not committed) also satisfies their
-weak monotonic assertions on GPU -- but this replication is what surfaced the Step 6 finding
-below. The two officially-parameterized tests, as written, do not independently exercise GPU.
+Add genuine volumetric scattering to the homogeneous world medium: **HG in-scatter,
+analytic exponential distance sampling of a scatter event, and NEE-through-medium
+(phase/light MIS)** — delivering god-rays / light shafts. **CPU FIRST** (the
+spectral path tracer has no medium-interaction loop today — Stage 1 only added
+absorption multiplies), **then mirror on the GPU wavefront.**
 
-### Step 5 -- Feature guard (test_pkg186_gpu_features_guard.py)
-All 7 tests PASSED, including test_volumes_gpu_enabled.
+### Estimator (cite — do NOT invent)
 
-### Step 6 -- Visual inspection -- REGRESSION FOUND, gates missed it
-test_world_volume_gpu_visuals PNGs (test_results/pkg199_gpu_fog_clear.png,
-pkg199_gpu_fog_dense.png, a receding row of 5 diffuse spheres) show the dense-fog render going
-almost fully black for all five spheres -- including the nearest one, which the test own inline
-comment says "should stay crisp." This does not look like graceful fade-to-fog-tint; it looks
-like near-total light loss.
+- **PBRT-v4** §14.2 volumetric path tracing (`SampleLd` through media,
+  `HomogeneousMedium` sampling), §11.3 media, `HGPhaseFunction`; Henyey &
+  Greenstein 1941 for the phase function. Reference `src/pbrt/media.cpp`,
+  `src/pbrt/cpu/integrators.cpp` (BSD, license-compatible).
+- **Cycles** `intern/cycles/kernel/integrator/volume.h` `volume_integrate` /
+  `volume_shader_sample` (Apache-2.0) — the Blender-facing reference for
+  homogeneous scatter + equiangular/distance sampling + phase MIS.
+- Homogeneous → analytic exponential free-flight distance sampling
+  `t = -ln(1-ξ)/σ_t` (no delta-tracking needed; that is a heterogeneous-grid
+  concern for a later package).
 
-Quantitative follow-up (re-rendering the exact visual-test scene in linear space,
-apply_gamma=False, nearest-sphere crop, FOG_DENSITY=0.06, same seed/geometry, CPU vs GPU on the
-same build):
+### Register-budget plan (pinned at spec time)
 
-    density | GPU ratio (R,G,B)          | CPU ratio (R,G,B)
-    0.005   | [0.0577, 0.0675, 0.1298]   | [0.9543, 0.9710, 0.9817]
-    0.01    | [0.0565, 0.0666, 0.1287]   | [0.9107, 0.9428, 0.9638]
-    0.02    | [0.0541, 0.0649, 0.1264]   | [0.8293, 0.8891, 0.9289]
-    0.06    | [0.0460, 0.0586, 0.1179]   | [0.5696, 0.7044, 0.8018]
+A medium-scatter interaction needs live state the REG-254 shade kernel cannot
+absorb: the sampled scatter distance vs surface `t` decision, a phase-function
+sample, a phase pdf, and a shadow connection carrying per-segment transmittance.
+**Do NOT fold this into `stageShadeBucketedKernel`.** Add a **dedicated
+volume-scatter wavefront stage** (its own kernel, scheduled between intersect and
+shade): it decides scatter-vs-surface from the sampled free-flight distance,
+performs the phase-sampled NEE (parking a shadow sample like the surface NEE does),
+and emits the continuation ray from the scatter point. The shade kernel stays
+untouched (Stage 1's byte-identity carries forward). Snapshot semantics: pin the
+scatter-point `ray_origin` capture moment identically on CPU and GPU at design time
+([[wavefront-snapshot-semantics-class-of-bug]]).
 
-CPU behaves as expected: near-1.0 ratio at tiny density, smooth monotonic falloff to about
-0.57-0.80 at density 0.06 (physically consistent with the combined camera-to-sphere plus
-sphere-to-light plus GI-bounce path length through the medium). GPU collapses to a near-constant
-0.05-0.13 ratio even at density 0.005 -- essentially independent of density, an 8-17x stronger
-extinction than CPU on the identical scene/seed. The clear (no-volume) renders match closely
-between backends (GPU 0.2776 vs CPU 0.2726 in R on the nearest-sphere crop -- normal about 2 pct
-MC-noise-level parity), confirming the divergence is specific to the fogged path, not general
-scene/render setup drift.
+### Stage 2 acceptance (for the future package)
 
-This does not reproduce in the PR own gates: test_world_volume_gpu_analytic_beer_lambert uses a
-triangle wall with max_depth=2 and no NEE/GI (passes exactly); the CPU-GPU parity test uses a
-single-sphere scene with a simpler direct+NEE path (passes within [0.85, 1.18]). The divergence
-appears specific to scenes with multiple objects / multi-bounce GI through the medium --
-consistent with the visual test 5-sphere scene but not the narrower analytic/parity scenes. Root
-cause not diagnosed here (out of verifier scope -- cite-worthy candidates for the
-architect/gate-failure-reviewer: hero-wavelength dispersion (pkg189) interacting with per-segment
-transmittance compounding across bounces, or a NEE/GI shadow-ray transmittance integration bug
-that only triggers with more than one scene object). A minimal single-object repro attempt
-(large sphere directly filling the frame) was inconclusive due to a construction flaw in that
-specific script (camera ended up inside the sphere) and is not submitted as independent evidence
--- the 5-sphere visual-test-scene CPU vs GPU comparison above is the load-bearing evidence.
-
-No NaN speckle observed. No god-rays (correct -- Stage 1 is absorption-only, as specified).
-Vacuum (no-volume) renders match CPU/GPU closely (see clear-crop numbers above) -- the no-volume
-path itself is not implicated.
-
-### Step 7 -- Vacuum no-op check
-test_world_volume_zero_density_gpu_byte_identical (density-0 vs no-set_world_volume-call, on
-this build): diff 9.54e-07, at the same order as the self-noise floor (9.54e-07) -- PASS.
-Combined with the byte-identical HasWorldVolume=false kernel machine code (Step 2b), the vacuum
-path is confirmed unchanged. A full differential build against main HEAD was not performed --
-out of scope for this already-large verification pass; the in-build zero-density-vs-no-call
-comparison plus the register-identical compiled kernel are treated as sufficient evidence for
-"strict no-op."
-
-### Step 8 -- Regression slice
-test_pkg186_gpu_features_guard.py (7), test_gpu_multiwavelength.py (6),
-test_pkg55_c3_wavefront_nonvisible.py (4) -- 17/17 PASSED, no transport regression detected in
-the standard spectral/wavefront suite (none of these exercise world-volume, as expected).
-
-### Verdict: HW FAIL
-
-All of the PR own automated gates pass, verbatim, on this hardware -- the PR claimed numbers are
-reproduced exactly. But mandatory visual inspection of the PR own test_world_volume_gpu_visual
-PNGs caught a real, reproducible regression the numeric gates do not cover: GPU world-volume
-absorption is 8-17x over-attenuated relative to CPU in scenes with more than one object /
-multi-bounce GI (the pkg199-canonical "no god-rays, spheres fade gracefully" visual acceptance
-criterion is violated -- spheres go black, not fade). This is escalated to
-gate-failure-reviewer per hard rule (never paper over visual regressions, do not decide yourself
-that it is acceptable) rather than adjudicated here. Do not merge PR #611 pending that review.
+- CPU spectral tracer gains a homogeneous medium-interaction loop (scatter event +
+  HG phase + NEE-through-medium), validated vs a PBRT/analytic single-scatter
+  reference; then GPU wavefront mirror at CPU↔GPU parity on a god-ray scene.
+- `worldVolumeAnisotropy` becomes live (HG `g`), with a forward/back-scatter
+  visual gate.
+- Register gate: shade kernel unchanged; the new volume-scatter kernel's footprint
+  reported via cuobjdump.
+- Heterogeneous / object volumes / delta-tracking remain OUT (a later package).

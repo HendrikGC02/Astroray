@@ -377,6 +377,12 @@ void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding);
 // stage_advance.cu / GWavefrontGuideBinding.
 void setWavefrontGuideBinding(const GWavefrontGuideBinding& binding);
 
+// pkg199 Stage 1 — publish the frame's homogeneous world-volume medium into the
+// wavefront's __constant__ binding. Call ONCE per frame (cuda_wavefront_render).
+// Pass hasVolume==0 (the default vacuum) to disable the Beer-Lambert branch in
+// intersectPathSlot/stageShadowKernel. See stage_advance.cu / GWorldVolume.
+void setWavefrontWorldVolume(const GWorldVolume& volume);
+
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts
 // are G_WF_NEE_F_LANES / G_WF_NEE_I_LANES (field-major); see the

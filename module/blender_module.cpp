@@ -4625,8 +4625,11 @@ PYBIND11_MODULE(astroray, m) {
     // render path. `__features__` above advertises what the build supports on
     // ANY backend (it is what the addon Diagnostics/Preferences panels display),
     // but the addon defaults to GPU and several of those capabilities are
-    // CPU-only there — the GPU path silently flattens textures, ignores volumes,
-    // has no adaptive sampler, and has no GR black-hole kernels. Advertising
+    // CPU-only there — the GPU path silently flattens (procedural) textures,
+    // has no adaptive sampler, and has no GR black-hole kernels. (World-volume
+    // absorption is NO LONGER dropped: pkg199 Stage 1 renders the homogeneous
+    // world volume on the GPU wavefront at CPU parity — volumes flips true.)
+    // Advertising
     // them `true` verbatim told the user "textures: yes" while the active GPU
     // backend dropped them (the pkg171 silent-lie class, applied to the feature
     // dict instead of the integrator). This companion dict reports per-capability
@@ -4643,7 +4646,16 @@ PYBIND11_MODULE(astroray, m) {
     m.attr("__gpu_features__") = py::dict(
         "nee"_a=true, "mis"_a=true, "disney_brdf"_a=true, "sah_bvh"_a=true,
         "adaptive_sampling"_a=false,   // CPU-only sampler
-        "volumes"_a=false,             // CPU-only
+        // pkg199 Stage 1: the GPU wavefront now renders the HOMOGENEOUS WORLD
+        // VOLUME (Beer-Lambert absorption) at parity with the CPU spectral
+        // tracer — set_world_volume fog darkens/desaturates with distance on GPU
+        // exactly as on CPU. Scope is deliberately homogeneous-world-absorption
+        // ONLY: no in-scatter/HG phase (worldVolumeAnisotropy inert — Stage 2),
+        // no heterogeneous/object volumes, no add_volume scattering. The bool
+        // reflects "the GPU backend supports the world-volume capability at CPU
+        // parity", which Stage 1 delivers; the Stage-2 scattering work is a
+        // separate future capability, not a gap within this one.
+        "volumes"_a=true,
         "textures"_a=false,            // see note above (image slice partial)
         "subsurface"_a=true,           // GPU closure-graph diffuse SSS mix
         "gr_black_holes"_a=false,      // CPU-only GR integrators

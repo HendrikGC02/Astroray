@@ -625,6 +625,27 @@ struct GWavefrontGuideBinding {
     float* depth;   // numPixels floats
 };
 
+// pkg199 Stage 1 — homogeneous world-volume medium, published ONCE per frame
+// into a __constant__ symbol (setWavefrontWorldVolume), mirroring the
+// pkg186/pkg197 binding pattern so the wavefront reads the medium from constant
+// memory rather than growing any kernel signature. Beer-Lambert absorption only
+// (no in-scatter/phase — Stage 2). `hasVolume == 0` (the default; snapshot/ReSTIR
+// drivers never set it) makes intersectPathSlot/stageShadowKernel skip the
+// transmittance branch, so vacuum renders are byte-identical AND the
+// REG-254-saturated stageShadeBucketedKernel is untouched entirely. `color` is
+// the reflectance-like world-volume tint; the transmittance helper upsamples it
+// through the JH albedo LUT (GSPEC_RGB_ALBEDO) then applies exp(-sigma·density·d)
+// per wavelength — the CPU twin (Renderer::worldTransmittanceSpectral) is
+// identical, so parity holds by construction.
+// Plain scalars only (no GVec3 member): a __constant__ variable of this type
+// must be trivially initializable — a GVec3 member's user-defined ctor triggers
+// "dynamic initialization is not supported for a __constant__ variable".
+struct GWorldVolume {
+    int   hasVolume;              // 0 = vacuum (skip); 1 = active medium
+    float density;               // worldVolumeDensity
+    float colorR, colorG, colorB; // worldVolumeColor (reflectance-like tint)
+};
+
 // Nearest-neighbour image fetch — mirrors CPU ImageTexture::value EXACTLY
 // (clamp u,v to [0,1]; v flip; floor to texel; clamp index to bounds).
 HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,

@@ -141,6 +141,39 @@ constexpr int G_WF_NEE_INTS   = 2;
 // write — keep the CPU miss convention (albedo 0, normal 0, depth 0).
 __constant__ GWavefrontGuideBinding c_wfGuideBinding;
 
+// pkg199 Stage 1 — homogeneous world-volume medium (Beer-Lambert absorption).
+// Published once per frame by cuda_wavefront_render (setWavefrontWorldVolume),
+// read by intersectPathSlot (free-flight + lamp-MIS) and stageShadowKernel (NEE)
+// at RUNTIME behind `if (c_worldVolume.hasVolume)`. Kept out of the
+// REG-254-saturated stageShadeBucketedKernel entirely (which is therefore
+// byte-identical) — the pkg197 guide-AOV precedent. Default-zero (hasVolume==0)
+// so the snapshot/ReSTIR drivers that never publish it render as vacuum.
+__constant__ GWorldVolume c_worldVolume;
+
+// pkg199 Stage 1 — spectral Beer-Lambert transmittance exp(-sigma_t·d) per
+// wavelength through the homogeneous world medium (PBRT-v4 §11.3; Cycles
+// kernel/integrator/volume.h). Spectral discipline: upsample the reflectance-like
+// tint through the JH albedo LUT (GSPEC_RGB_ALBEDO), THEN Beer-Lambert per-λ —
+// identical to the CPU twin Renderer::worldTransmittanceSpectral, so CPU↔GPU
+// parity holds by construction. Caller guards on c_worldVolume.hasVolume.
+__device__ inline GSampledSpectrum gpu_worldTransmittanceMW(
+    float dist, const GSampledWavelengths& lambdas)
+{
+    GSampledSpectrum tr;
+    if (c_worldVolume.density <= 0.f || dist <= 0.f) {
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) tr.v[i] = 1.f;
+        return tr;
+    }
+    GSampledSpectrum sigmaColor = gpu_rgbToSampledSpectrum(
+        GVec3(c_worldVolume.colorR, c_worldVolume.colorG, c_worldVolume.colorB),
+        lambdas, GSPEC_RGB_ALBEDO);
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+        float sigmaT = fmaxf(0.f, sigmaColor.v[i]) * c_worldVolume.density;
+        tr.v[i] = __expf(-sigmaT * dist);
+    }
+    return tr;
+}
+
 // intersectPathSlot returns -1 when the path died, else the GMaterialType
 // of the hit (0..GMAT_CLOSURE_GRAPH) for shade-queue bucketing. The hit
 // record is parked in GPUWavefrontHitBuffers SoA at the slot index.
@@ -238,6 +271,12 @@ __device__ int intersectPathSlot(
                                             lambdas.lambda[i], GSPEC_RGB_ILLUMINANT)
                           * lampScale;
             if (Le.maxValue() > 0.f) {
+                // pkg199 Stage 1 (role 3): the lamp is closer than the surface,
+                // so throughput is not yet segment-attenuated; attenuate the
+                // lamp emission over the camera→lamp segment (lampT). Mirrors the
+                // CPU dedicated-lamp block (throughput·lampEmission·Tr(lh.t)).
+                if (c_worldVolume.hasVolume)
+                    Le *= gpu_worldTransmittanceMW(lampT, lambdas);
                 GSampledSpectrum contrib(0.f);
                 if (bounce == 0 || wasSpecular) {
                     contrib = throughput * Le;                 // w_B = 1
@@ -323,6 +362,22 @@ __device__ int intersectPathSlot(
         c_wfGuideBinding.normal[pixel * 3 + 1] = rec.normal.y;
         c_wfGuideBinding.normal[pixel * 3 + 2] = rec.normal.z;
         c_wfGuideBinding.depth[pixel] = rec.t;
+    }
+
+    // pkg199 Stage 1 (role 1): Beer-Lambert free-flight attenuation over the
+    // segment just traversed (rec.t), on a confirmed surface hit, BEFORE this
+    // vertex is shaded — device twin of the CPU pathTraceSpectral role-1 multiply.
+    // The attenuated throughput is written back to the per-path SoA so the shade
+    // stage (NEE park) and the next bounce both inherit the fog; the emission
+    // block below uses the attenuated local. Kept in THIS (intersect) kernel, not
+    // the REG-254 shade kernel, so stageShadeBucketedKernel stays byte-identical.
+    // Vacuum (hasVolume==0): skipped, throughput SoA untouched → byte-identical.
+    if (c_worldVolume.hasVolume) {
+        throughput *= gpu_worldTransmittanceMW(rec.t, lambdas);
+        state.throughput_0[idx] = throughput.v[0];
+        state.throughput_1[idx] = throughput.v[1];
+        state.throughput_2[idx] = throughput.v[2];
+        state.throughput_3[idx] = throughput.v[3];
     }
 
     // ---- Emission (gated on camera ray or post-specular bounce; path ends).
@@ -1064,6 +1119,13 @@ __global__ void stageShadowKernel(
     contrib.v[1] = nee_f[ 8 * nee_capacity + idx] * L_spec.v[1];
     contrib.v[2] = nee_f[ 9 * nee_capacity + idx] * L_spec.v[2];
     contrib.v[3] = nee_f[10 * nee_capacity + idx] * L_spec.v[3];
+    // pkg199 Stage 1 (role 2): attenuate the NEE contribution over the shadow-ray
+    // segment (vertex→lamp, s.maxDist). The parked lanes already carry the
+    // camera→vertex fog (role 1 wrote it into the SoA throughput the shade stage
+    // read), so this adds the vertex→light leg — total Tr(rec.t)·Tr(maxDist),
+    // matching the CPU NEE role-2 multiply. Vacuum: skipped (byte-identical).
+    if (c_worldVolume.hasVolume)
+        contrib *= gpu_worldTransmittanceMW(s.maxDist, lambdas);
     // pkg157: direct/indirect clamp split. bounce is the PARKED depth (lane
     // 3, see G_WF_NEE_I_LANES) the NEE sample was taken at, not state.bounce
     // (already advanced by the time this later-launched kernel runs).
@@ -1280,6 +1342,15 @@ void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding)
 void setWavefrontGuideBinding(const GWavefrontGuideBinding& binding)
 {
     cudaMemcpyToSymbol(c_wfGuideBinding, &binding, sizeof(GWavefrontGuideBinding));
+}
+
+// pkg199 Stage 1 — publish the frame's homogeneous world-volume medium into the
+// __constant__ c_worldVolume symbol (read by intersectPathSlot + stageShadowKernel
+// at runtime). Called ONCE per frame by cuda_wavefront_render. Passing
+// hasVolume==0 (vacuum) disables the Beer-Lambert branch — byte-identical renders.
+void setWavefrontWorldVolume(const GWorldVolume& volume)
+{
+    cudaMemcpyToSymbol(c_worldVolume, &volume, sizeof(GWorldVolume));
 }
 
 void launchStageShadeBucketed(

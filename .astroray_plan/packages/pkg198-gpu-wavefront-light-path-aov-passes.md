@@ -105,3 +105,135 @@ default backend. This is the register-hostile half.
 - **No cryptomatte rework** (pkg159) and **no first-hit guide AOVs** (pkg197) — light-path split
   only.
 - **Do not force Stage 2 to ship.** A clean park with evidence is a valid, expected outcome.
+
+---
+
+## Hardware verification 2026-08-14 (independent re-measure, PR #614, Stage 1 only)
+
+**Verifier scope:** PR #614 (pkg198 Stage 1 -- CPU light-path pass classification,
+`include/raytracer.h` + `plugins/integrators/spectral_path_tracer.cpp`). Stage 2
+(GPU wavefront mirror) not started; this verification's GPU-side concern was
+**regression only** (raytracer.h is CUDA-reachable).
+
+**Hardware/software:** RTX 5070 Ti, driver 610.47, Windows 11 Enterprise
+10.0.26200, CUDA 12.8 (nvcc V12.8.61), sm_120 (native), MSVC 14.44.35207.
+Worktree: `Astroray-pkg198` @ `c4c77a9efe25cb4fd79e6f7dd641bf98659cdcab`
+(= PR #614 head, confirmed via `gh pr view`). No rebase/push performed
+(branch freeze honored).
+
+### 1. Build / staleness
+Foreground rebuild via `build_cuda_worktree.bat` -- exit clean, `[pkg183] arch-verify OK:
+astroray.cp313-win_amd64.pyd embeds sm_120 (embedded=[sm_120])`. `.pyd` was already
+up to date (mtime 07:49:42 postdates the last code commit 060f6c3 @ 07:31:58; the two
+commits after that are test/doc-only). Incremental rebuild was a no-op (unchanged
+mtime/size) -- confirms nothing was stale.
+
+### 2. Register gate -- `stageShadeBucketedKernel<false,false,false,false>`
+Independently re-measured via `cuobjdump -res-usage` on the linked `.pyd`
+(sm_120 cubin confirmed via `--list-elf` first):
+
+```
+REG:254 STACK:3352 SHARED:0 LOCAL:0 CONSTANT[0]:1700 TEXTURE:0 SURFACE:0 SAMPLER:0
+```
+
+**Byte-identical to the corrected baseline (254 / 3352 / 1700).** raytracer.h's Stage-1
+change had zero device-side impact -- confirms the spec's `3608`->`3352` correction
+independently (matches pkg190's prior re-confirmation cited in the PR's spec edit).
+
+
+### 3. `tests/test_pkg198_lightpath_passes.py` (7/7 pass) -- re-measured verbatim
+
+```
+test_all_light_path_passes_readable PASSED
+test_sum_to_beauty_linear: sum-to-beauty per-channel ratio = [1.00000013 1.00000011 1.00000012], rel_L1 = 0.0000  PASSED
+test_isolated_diffuse: diffuse-scene: d_direct=0.0089 d_indirect=0.0015 glossy=0.000000 trans=0.000000  PASSED
+test_isolated_glossy: glossy-scene: glossy=0.0358 diffuse=0.000000  PASSED
+test_isolated_transmission: transmission-scene: trans=0.0342  PASSED
+test_emission_pass: emission-scene: emission=0.8696  PASSED
+test_environment_pass: environment-scene: environment=0.3685  PASSED
+7 passed in 0.87s
+```
+
+Close to but not bit-identical to the PR's claimed numbers (ratio
+`[1.000, 1.00000001, 1.00000001]`; transmission 0.0344; emission 0.8744;
+environment 0.3692) -- **expected**, not a discrepancy: none of these tests call
+`set_seed()`, and seed 0 is the engine's random-device sentinel
+([[seed-zero-is-random-sentinel]]), so each run draws an independent MC sample.
+Both runs agree well within MC noise on a scene of this sample count; the sum-to-beauty
+invariant (the load-bearing gate) reproduced at rel_L1 0.0000 both times.
+
+
+### 4. Beauty byte-identity / no-math-change claim
+No Python-level "passes requested" toggle exists for Stage 1 -- `spectral_path_tracer.cpp`
+always allocates and fills the `passSpectra` accumulator (the `outPasses` pointer is
+optional only at the `pathTraceSpectral` C++ signature level; other call sites like
+`neural_cache.cpp` pass nullptr and pay only the branch cost). So "requested vs not
+requested" beauty-identity has no in-repo toggle to test.
+
+Instead cross-checked pre-PR `main` (build `4643de3`, `.pyd` mtime confirmed current)
+vs this PR's build, same scene/seed (1337), CPU path_tracer, 16spp/depth5, 64x64:
+mean **0.07392490150800768** (pkg198) vs **0.07392490150755293** (main); max abs
+pixel diff **7.45e-9** (2 of 12288 float32 components differ, both float32-ULP scale).
+**Not literally bit-identical, but ULP-level only** -- consistent with the PR's claim of
+"no RNG calls, no beauty math changed"; the observed diff is attributable to compiler
+instruction-scheduling/FMA differences from the code-shape change, not a semantic delta.
+
+### 5. Firefly/clamp partition-leak probe
+Rendered a high-variance dielectric-caustic-prone scene (glass sphere + Lambertian
+floor + a 400-intensity point light) at 4 spp / depth 8 (64x64), WITH passes read back:
+- beauty mean 0.09024327712053075, max 0.7697820663452148
+- Sum(passes) mean 0.09024513699479793, max 0.7697820924222469
+- per-channel ratio **[1.00002128, 1.00002111, 1.00001953]**, rel_L1 **2.0704e-05**,
+  max abs pixel diff **0.0019** (well inside the test suite's `atol=0.03` / `rel_L1<0.03`
+  gate). No NaN/Inf in either buffer. **No partition leak found** -- the classic
+  firefly-clamp-applies-to-beauty-but-not-passes failure mode did not manifest.
+
+
+### 6. GPU regression slice (hardware)
+`test_gpu_multiwavelength.py` (6/6), `test_pkg55_c3_wavefront_nonvisible.py` (4/4) -- **10/10
+passed**, no change vs pre-PR baseline behavior. GPU wavefront path confirmed untouched.
+
+### 7. Broader regression re-measure
+- `tests/test_python_bindings.py`: **78 passed, 10 xfailed** (88 collected total). The PR
+  body states "95 passed... the 9 that fail under --runxfail" -- **this PR-body figure does
+  not match independent re-measurement** (main and this branch both collect 88 tests
+  total in this file; 78 pass, 10 are pre-existing xfails, not 9). This looks like a
+  reporting/count error in the PR description, not an actual regression: the 3 un-xfail
+  diffs are verified correct (`git diff` shows exactly 3 `@pytest.mark.xfail` lines
+  removed, all 3 now pass), and 0 previously-passing tests newly fail. Flagging the
+  number mismatch per "numbers verbatim" -- does not change the verdict.
+- Furnace/energy/reflection surface suite (`test_material_properties`,
+  `test_disney_reflection_not_black`, `test_dielectric_glass_furnace`,
+  `test_disney_opaque_furnace`, `test_pkg122_light_energy_calibration`): **35 passed, 3
+  skipped, 2 xfailed** -- matches the PR's claimed "35 passed" exactly.
+
+
+### 8. Visual inspection
+Re-rendered the all-lobe scene at 256x256/128spp for a legible decomposition (the
+repo's own 48x48 test PNGs are too small to inspect reliably). All 8 light-path
+passes + emission + environment + Sum(passes) reconstructed:
+- `diffuse_direct`/`diffuse_indirect`: floor only, metal/glass spheres correctly
+  silhouetted black (non-diffuse).
+- `glossy_direct`: isolates just the metal sphere's specular highlight from the point
+  light -- correct.
+- `glossy_indirect`: metal sphere's full environment reflection AND the glass sphere's
+  Fresnel (mirror) reflection highlight -- correct per the documented "delta reflection
+  off dielectric -> glossy" classification choice.
+- `transmission_direct`: pure black -- correct (NEE never fires through a delta/glass
+  lobe, so this pass is always empty by construction, as documented).
+- `transmission_indirect`: isolates exactly the glass sphere's refracted content -- this
+  is precisely the "transmission pass shows the glass content only" check the dispatch
+  asked for, confirmed.
+- `emission`: isolates only the emissive sphere, no leakage.
+- `environment`: shows only unoccluded background, correctly punched out by every
+  occluder including the emissive sphere's silhouette.
+- Sum(passes) reconstruction is visually indistinguishable from beauty.
+- No fireflies, no banding/quantization artifacts, no NaN pixels (checked numerically
+  too), no mode regressions observed in any pass.
+
+### Verdict
+**HW PASS.** Register gate byte-identical, all functional/regression suites reproduce
+(with one PR-body test-count discrepancy noted above, not a gate failure), sum-to-beauty
+holds under both nominal and firefly-stress conditions, GPU wavefront path unaffected,
+visual decomposition is physically plausible and clean. Merge decision left to the
+architect/reviewer -- this is a measurement report only.

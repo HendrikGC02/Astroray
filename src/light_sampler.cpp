@@ -41,16 +41,30 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
 
     // Sample light index from unified power CDF.
     std::uniform_real_distribution<float> dist(0, 1);
-    float u = dist(gen) * totalPower;
     size_t idx = 0;
-    for (size_t i = 0; i < powerDist.size(); ++i) {
-        if (u < powerDist[i]) {
-            idx = i;
-            break;
+    float selPdf;
+    if (totalPower > 0.0f) {
+        float u = dist(gen) * totalPower;
+        for (size_t i = 0; i < powerDist.size(); ++i) {
+            if (u < powerDist[i]) {
+                idx = i;
+                break;
+            }
         }
+        selPdf = (idx > 0 ? powerDist[idx] - powerDist[idx - 1] : powerDist[0]) / totalPower;
+    } else {
+        // pkg195: degenerate power CDF (totalPower == 0). This happens when every
+        // light's single-stratification power() luminance estimate misses a narrow
+        // emission line -- e.g. a sodium-vapor lamp whose SPD is a ~589 nm spike, so
+        // the u=0.5 hero wavelengths {380,480,580,680} all read ~0. Without a guard,
+        // selPdf = 0/0 = NaN propagates into out.pdf and the integrator's `pdf > 0`
+        // NEE test silently drops the lamp (renders black). Fall back to uniform
+        // light selection (PBRT UniformLightSampler, Apache-2.0) so the lamp is still
+        // sampled; MIS remains valid because pdfValue() mirrors this same fallback.
+        idx = static_cast<size_t>(dist(gen) * static_cast<float>(totalLights));
+        if (idx >= totalLights) idx = totalLights - 1;
+        selPdf = 1.0f / static_cast<float>(totalLights);
     }
-
-    float selPdf = (idx > 0 ? powerDist[idx] - powerDist[idx - 1] : powerDist[0]) / totalPower;
 
     // Dispatch: first numHittableLights indices are legacy Hittables, rest are dedicated.
     if (idx < numHittableLights) {
@@ -96,18 +110,27 @@ float PowerLightSampler::pdfValue(const Vec3& point, const Vec3& dir) const {
 
     if (lights.empty() && dedicatedLights.empty()) return 0;
 
+    // pkg195: mirror sample()'s uniform fallback for a degenerate power CDF
+    // (totalPower == 0, e.g. a narrow-line lamp). Uniform selPdf = 1/N.
+    const size_t totalLights = lights.size() + dedicatedLights.size();
+    const bool uniformFallback = (totalPower <= 0.0f);
+
     float pdf = 0;
     size_t idx = 0;
 
     // Legacy Hittables.
     for (size_t i = 0; i < lights.size(); ++i, ++idx) {
-        float selPdf = (idx > 0 ? powerDist[idx] - powerDist[idx - 1] : powerDist[0]) / totalPower;
+        float selPdf = uniformFallback
+            ? 1.0f / static_cast<float>(totalLights)
+            : (idx > 0 ? powerDist[idx] - powerDist[idx - 1] : powerDist[0]) / totalPower;
         pdf += selPdf * lights[i]->pdfValue(point, dir);
     }
 
     // Dedicated Lights.
     for (size_t i = 0; i < dedicatedLights.size(); ++i, ++idx) {
-        float selPdf = (idx > 0 ? powerDist[idx] - powerDist[idx - 1] : powerDist[0]) / totalPower;
+        float selPdf = uniformFallback
+            ? 1.0f / static_cast<float>(totalLights)
+            : (idx > 0 ? powerDist[idx] - powerDist[idx - 1] : powerDist[0]) / totalPower;
         pdf += selPdf * dedicatedLights[i]->pdfLi(point, dir);
     }
 

@@ -3744,6 +3744,17 @@ PYBIND11_MODULE(astroray, m) {
         if (!p) return 0.0f;
         return p->reflectance(lambda_nm);
     }, "name"_a, "lambda_nm"_a, "Sample reflectance of a named profile at lambda_nm.");
+    // pkg195 Stage B: (lambda_min_nm, lambda_max_nm, step_nm) for the named
+    // profile, so the addon light panel can label the profile's actual range.
+    // Returns (0, 0, 0) when the name is unknown.
+    m.def("spectral_profile_range", [](const std::string& name) {
+        const auto* p = astroray::SpectralProfileDatabase::instance().get(name);
+        if (!p || !p->valid()) return py::make_tuple(0.0f, 0.0f, 0.0f);
+        float lmin = p->lambdaMin();
+        float step = p->lambdaStep();
+        float lmax = lmin + step * static_cast<float>(p->count() - 1);
+        return py::make_tuple(lmin, lmax, step);
+    }, "name"_a, "Return (lambda_min_nm, lambda_max_nm, step_nm) for a named profile.");
 
     // -----------------------------------------------------------------
     // Pillar 2 spectral core (pkg10). Scaffolding types — not consumed

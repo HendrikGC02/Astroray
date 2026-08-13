@@ -2,8 +2,14 @@
 
 **Pillar:** 2/3 (spectral rendering / Blender integration)
 **Track:** A
-**Status:** open (filed 2026-08-12 from the owner-directed spectral-node design
-session; design doc: `.astroray_plan/docs/spectral-node-system-design-2026-08.md`)
+**Status:** Stage A + B done (PR #602, 2026-08-13 — MW NIR snow-sphere mean
+0.0709 > 0.05, snow/water NIR ratio 4.82, MW↔path_tracer visible parity 1.00;
+sodium lamp linear RGB (0.673, 0.127, 0.000) amber, cie_f2 differs 100% on blue;
+headless Blender 5.1 render confirms amber sodium vs neutral cie_f2). Stage C
+(register_spectral_profile + Drawn/Preset/Blackbody spectrum nodes + in-band
+Replace mode + IR/UV de-fang + Sellmeier B/C) remains OPEN — independently
+landable. Filed 2026-08-12 from the owner-directed spectral-node design session;
+design doc: `.astroray_plan/docs/spectral-node-system-design-2026-08.md`.
 **Estimated effort:** L (three gated stages; each independently landable)
 **Depends on:** nothing in flight. Touches `multiwavelength_path_tracer.cpp`
 (CPU only), `blender_addon/`, `module/blender_module.cpp`,
@@ -52,10 +58,31 @@ follow-ups recorded in the design doc §5 — do not scope-creep them in.
 
 ---
 
-## Stage A — transport: MW integrator sees lights (prerequisite for everything)
+## Stage A — transport: MW integrator sees lights (prerequisite for everything) — DONE (PR #602)
 
 Add spectral next-event estimation over dedicated lights to
 `MultiwavelengthPathTracer::pathTrace`.
+
+> **Landed 2026-08-13.** Ported the in-header `pathTraceSpectral` dedicated-light
+> NEE + two-sided MIS (raytracer.h:2415-2568) into the MW integrator, using
+> `evalSpectralExt`/`sampleSpectralExt`. Also fixed a latent light-sampler bug the
+> spec's own Gate B exposed: a narrow-line lamp SPD (sodium) makes every light's
+> single-stratum `power()` read 0 → `totalPower==0` → `selPdf=0/0=NaN` → the NEE
+> leg was silently dropped; `PowerLightSampler` now falls back to uniform light
+> selection for a degenerate CDF (`src/light_sampler.cpp`). Gate results: A1 mean
+> 0.0709, A2 ratio 4.82, A3 per-channel parity 1.00.
+>
+> **NEE is gated on an `enable_nee` integrator param (default 1 = on).** The
+> engine-wide contract `enableNEE = (integrator != "multiwavelength_path_tracer")`
+> (module/blender_module.cpp:1814) makes this integrator the light-sampling-blind
+> NAIVE oracle the GPU wavefront naive route is gated to match (pkg120/pkg156). An
+> unconditional NEE changed that oracle's physics while the GPU comparator did not,
+> collapsing 3 CPU↔GPU parity gates (SSIM 0.30). `enable_nee=0` is byte-identical
+> to the pre-Stage-A integrator; the parity harnesses
+> (`test_gpu_multiwavelength`, `test_pkg55_c3_wavefront_nonvisible`) pin it on the
+> CPU MW oracle legs. **Phase-3 item now explicitly encoded by those gates: the
+> GPU MW/wavefront leg has no dedicated-light sampling — GPU spectral-light NEE
+> parity is deferred to pkg195 Phase 3** (design doc §5, Phase 3).
 
 - Template: the in-header path tracer's dedicated-light NEE
   (`include/raytracer.h:2423` area, and the `astroray::Light` spectral sample
@@ -77,7 +104,16 @@ integrator on a lamp-lit scene within per-channel mean-ratio [0.95, 1.05] of
 the default path tracer (gamma OFF — linear gate, see memory
 gamma-furnace-cannot-detect-energy-gain).
 
-## Stage B — spectral lights in the addon (sodium lamps)
+## Stage B — spectral lights in the addon (sodium lamps) — DONE (PR #602)
+
+> **Landed 2026-08-13.** `light.custom_raytracer` PropertyGroup + spectrum-mode
+> enum + `DATA_PT_custom_raytracer_light` panel (Astroray-engine only, with a
+> per-profile λ-range label via a new `spectral_profile_range` binding).
+> `_build_emission_dict` emits `{'mode':'measured_spd','profile_name':<name>}`
+> (the parser's actual key — the spec's `'profile'` was shorthand), wrapped in a
+> `composite` when the lamp colour is a non-white gel. Headless Blender 5.1 CPU
+> render: sodium amber (display RGB 0.291/0.278/0.0003, R>G>3B) vs neutral cie_f2
+> (0.289/0.287/0.285). Engine-level linear gate: sodium (0.673, 0.127, 0.000).
 
 1. `light.custom_raytracer.spectrum_mode` enum: `native` (default; exactly
    today's blackbody/rgb behaviour) · `preset` (dropdown over emission-category
@@ -98,7 +134,14 @@ over a white sphere, visible band, CPU → hue must land amber
 ratios by > 10%. Test lives with the pkg119b-style harness
 (`ASTRORAY_PYD_DIR` + absolute out-dir conventions).
 
-## Stage C — spectrum sources + honest material nodes
+## Stage C — spectrum sources + honest material nodes — OPEN (descoped from the A+B PR)
+
+> Not started. Independently landable; nothing in A+B blocks it. Note for the
+> implementer: A+B already added `SpectralProfile::lambdaMin/lambdaStep/count`
+> getters and the `spectral_profile_range` binding, and the light panel's
+> `custom_profile` mode is wired to `_spectral_profile_items` — so a
+> `register_spectral_profile` insert method (item 1) immediately feeds the Stage-B
+> custom-profile dropdown.
 
 1. **`astroray.register_spectral_profile(name, lambda_min_nm, lambda_step_nm,
    values: list[float])`** pybind binding inserting into
@@ -187,3 +230,86 @@ ratios by > 10%. Test lives with the pkg119b-style harness
 - GPU spectral-light parity, MW/wavefront GPU NEE, GMaterial Replace mode (Phase 3)
 - Pillar-4 physical units audit, GR emission-model surfacing, log-λ wide-band
   tables (Phase 4)
+
+## Hardware verification 2026-08-13
+
+Independent HW verification of PR #602 (Stage A + B), RTX 5070 Ti, Windows 11
+Enterprise 10.0.26200, NVIDIA driver 610.47, CUDA 12.8 (nvcc V12.8.61), sm_120.
+
+**Round 1 — commit `9018368` (initial Stage A+B): FAIL on Gate 3.**
+- Gate 1 (clean rebuild): PASS — `.pyd` embeds sm_120, ABI canary green,
+  HEAD SHA verified.
+- Gate 2 (`test_pkg195_stage_a_mw_nee.py` + `test_pkg195_stage_b_spectral_lamp.py`,
+  6 tests): PASS, numbers matched claims exactly (A1 mean 0.0709, A2 ratio 4.82,
+  A3 ratio [1,1,1]; B1 sodium (0.6730, 0.1265, 0.0000); B2 max Δ 1.00; B3 gel
+  ~7.0× red suppression).
+- **Gate 3 (deferred GPU parity suites — `test_pkg55_c3_wavefront_nonvisible.py` +
+  `test_gpu_multiwavelength.py`, 10 tests): FAIL, 3/10.**
+  `test_naive_mode_wavefront_cpu_parity` SSIM 0.3001 (gate ≥0.97);
+  `test_visible_band_cpu_gpu_ssim` SSIM 0.3061 (gate ≥0.995);
+  `test_visible_band_no_regression` GPU/CPU mean drift 79.27% (gate <2%).
+  Root cause (confirmed by reading the diff, not the failure alone): Stage A
+  gave `MultiwavelengthPathTracer` unconditional dedicated-light + emissive-hit
+  NEE. Both suites use this exact integrator as their light-sampling-blind
+  "naive" CPU oracle for the GPU wavefront/megakernel comparison
+  (`test_pkg55_c3_wavefront_nonvisible.py:119` literally selects it for
+  `enable_nee=False`). The oracle's physics changed while the GPU comparator
+  did not, so the CPU leg went bright (real NEE on the scene's ceiling-light
+  quad) while the GPU leg stayed dim — a structural collision, not noise.
+  Gates 4-6 (light_sampler.cpp scrutiny, visual PNG inspection, headless-Blender
+  addon smoke) all PASSED independently of this failure. Reported FAIL,
+  did not merge, did not attempt a fix (escalated for an architect decision).
+
+**Fix — commit `c07671e`, spec update `90ee32e`.** Implementer added an
+`enable_nee` integrator param (default on) gating all three NEE/MIS legs in
+`MultiwavelengthPathTracer::pathTrace` (dedicated-light visibility w_B,
+emissive-hit w_B — the exact pkg120/pkg156 bug class — and the NEE sample
+leg), and pinned `enable_nee=0` on the CPU oracle legs in both parity test
+files via `set_integrator_param`. No gate threshold was edited in either test
+file (diff-verified: only `set_integrator_param("enable_nee", 0)` calls added).
+
+**Round 2 — commit `90ee32e` (confirmation pass): PASS, all gates green.**
+- HEAD SHA `90ee32e80d816b9935c415db1528c1c853489e6f` confirmed = PR #602
+  `headRefOid` at time of this check.
+- Gate 1 (clean rebuild): PASS — sm_120 embedded, pkg183 stamp
+  `sha=90ee32e80d81`, ABI canary unchanged/green.
+- Gate 2 (6 pkg195 tests): PASS, identical numbers to Round 1 (unaffected by
+  the fix — these use `enable_nee` default-on).
+- **Gate 3 (10 deferred GPU parity tests): PASS, 10/10, recovered.** Measured
+  independently (not just re-running the assertions — recomputed the exact
+  SSIM/drift values the tests check):
+  - `test_naive_mode_wavefront_cpu_parity`: SSIM = 0.99158 (gate ≥0.97;
+    implementer reported 0.9816 — both comfortably clear the gate; the ~0.01
+    spread across independent runs is consistent with GPU-warp/OpenMP MC
+    sample-stream non-determinism documented elsewhere in this suite, not a
+    correctness concern).
+  - `test_visible_band_cpu_gpu_ssim`: SSIM = 0.995426 (gate ≥0.995; implementer
+    reported 0.9954 — matches to 4 decimal places).
+  - `test_visible_band_no_regression`: CPU mean 0.027330, GPU mean 0.027687,
+    drift = 1.3054% (gate <2%; implementer reported 1.31% — matches).
+  - Remaining 7 of the 10 (NIR/UV band agreement-on-black, visible-band
+    default-unchanged, NIR/UV CPU-GPU SSIM with profiles, no-profile fallback,
+    GPU MW kernel finiteness): all PASS, unchanged from Round 1 (these were
+    never affected — they don't use the naive-oracle integrator in the broken
+    configuration).
+- 16/16 total tests green (`test_pkg55_c3_wavefront_nonvisible.py` +
+  `test_gpu_multiwavelength.py` + both pkg195 Stage A/B files).
+- `enable_nee` diff re-read line-by-line: gating mirrors the in-header
+  template's condition exactly, including the emission two-sided-MIS w_B leg
+  (the pkg156 bug class — this is the leg that would silently re-break GPU
+  naive-mode parity if left unconditional). Parity-test edits pin the oracle
+  without touching any assertion threshold (diff-verified).
+- Gates 4-6 unaffected by the fix commit (`light_sampler.cpp`,
+  `blender_addon/__init__.py`, `module/blender_module.cpp` are untouched
+  between `9018368` and `90ee32e`) — Round 1's PASS results for those stand.
+
+**Visual inspection (unchanged from Round 1, re-confirmed applicable):**
+`test_results/pkg195_gateA_nir_snow.png` (smooth-lit greyscale sphere, visible
+terminator, no fireflies/banding/NaN pixels), `test_results/pkg195_gateB_sodium.png`
+(bright amber sphere, R≫B, clean), `test_results/pkg195_gateB_cie_f2.png`
+(neutral white/grey sphere, clean) — no anomalies in either round.
+
+**Verdict: mergeable on HW evidence.** All 6 verification-workflow gates green
+on the current PR head (`90ee32e`); the Round-1→fix→Round-2 arc is preserved
+here as the record of a real regression the deferred-suite gate was specifically
+designed to catch, and of a fix that did not relax any threshold.

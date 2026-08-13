@@ -22,6 +22,16 @@ class MultiwavelengthPathTracer : public Integrator {
     float lambdaMin_;
     float lambdaMax_;
     bool  useLuminanceOutput_;  // true when rendering outside visible
+    // pkg195: gate the dedicated-light NEE + two-sided-MIS legs (Stage A). This
+    // MIRRORS the engine-wide "multiwavelength_path_tracer == naive" contract
+    // (module/blender_module.cpp:1814 sets the GPU wavefront's enableNEE = false
+    // for this integrator) and the pkg156 lesson: the GPU wavefront naive route
+    // is gated to match THIS integrator as the light-sampling-blind oracle, so a
+    // NEE/w_B term firing here in naive mode silently breaks CPU<->GPU parity
+    // (pkg120/pkg156, test_gpu_multiwavelength / test_pkg55_c3). Default ON so the
+    // addon's NIR/UV lamp rendering works (Stage A); parity harnesses that use
+    // this integrator as the naive oracle pin `enable_nee=0`.
+    bool  enableNEE_;
     Renderer* renderer_ = nullptr;
     Camera*   camera_   = nullptr;
 
@@ -49,6 +59,10 @@ public:
             useLuminanceOutput_ = !isInsideVisible(lambdaMin_, lambdaMax_);
         else
             useLuminanceOutput_ = (mode == "luminance");
+        // int route (not getBool): ParamDict::get_ is exact-type-match, and the
+        // set_integrator_param(str,int) binding stores an int — so
+        // set_integrator_param("enable_nee", 0) is only visible via getInt.
+        enableNEE_ = p.getInt("enable_nee", 1) != 0;
     }
 
     void beginFrame(Renderer& scene, Camera& cam) override { renderer_ = &scene; camera_ = &cam; }
@@ -146,6 +160,10 @@ private:
         astroray::SampledSpectrum throughput(1.0f);
         Ray ray = r;
         bool wasSpecular = true;
+        // pkg195 Stage A: BSDF pdf that generated the current continuation ray,
+        // used by the two-sided-MIS lamp legs below. Mirrors pathTraceSpectral's
+        // bsdfPdfPrev (raytracer.h:2405).
+        float bsdfPdfPrev = 0.0f;
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         int lastBounce = 0;
         float weightSum = 0.0f;
@@ -154,11 +172,49 @@ private:
         const auto& envMapPtr = renderer_->getEnvironmentMap();
         const auto* envMap  = envMapPtr.get();
         const Vec3  bgColor = renderer_->getBackgroundColor();
+        // pkg195 Stage A: dedicated-light NEE. The MW integrator had no light
+        // sampling of any kind (pre-pkg89), so every Blender lamp (a dedicated
+        // astroray::Light) was invisible and lamp-lit scenes rendered black
+        // outside the visible band. The blocks below port the in-header path
+        // tracer's dedicated-light next-event estimation and two-sided MIS
+        // (pathTraceSpectral, raytracer.h:2415-2568) verbatim in structure,
+        // swapping evalSpectral/sampleSpectral for the profile-aware
+        // evalSpectralExt/sampleSpectralExt so blackbody / measured-SPD lamps
+        // emit correctly outside 380-780 nm. No new estimator (CLAUDE.md §6).
+        const LightList& lights = renderer_->getLights();
 
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             lastBounce = bounce;
             HitRecord rec;
-            if (!bvh || !bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec)) {
+            bool didHit = bvh && bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
+
+            // pkg195 Stage A: dedicated-lamp visibility to BSDF rays (mirrors
+            // pathTraceSpectral raytracer.h:2423-2440). Lamps are invisible to
+            // camera rays (bounce == 0); a lamp closer than the surface
+            // terminates the path and feeds the same two-sided MIS term the
+            // emissive path below uses (wB = 1 after a specular bounce).
+            // Gated on enableNEE_: this is a light-sampling/MIS term and must NOT
+            // fire in naive mode (the GPU-parity oracle contract, pkg156).
+            if (enableNEE_ && bounce > 0 && !lights.getDedicatedLights().empty()) {
+                float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
+                astroray::Light::Intersection lh;
+                if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
+                                              surfaceT, lambdas, lh)) {
+                    if (!lh.emission.isZero()) {
+                        if (wasSpecular) {
+                            color += throughput * lh.emission;
+                        } else {
+                            float lp = lights.pdfValue(ray.origin, ray.direction);
+                            float bp = bsdfPdfPrev;
+                            float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
+                            color += throughput * lh.emission * wB;
+                        }
+                    }
+                    break;  // path terminates on the lamp
+                }
+            }
+
+            if (!didHit) {
                 // Environment contribution
                 astroray::SampledSpectrum envSpec(0.0f);
                 Vec3 dir = ray.direction.normalized();
@@ -186,15 +242,63 @@ private:
 
             if (!rec.material) break;
 
-            // Emission
+            // Emission. In NEE mode this is the two-sided MIS w_B leg (mirrors
+            // pathTraceSpectral raytracer.h:2496-2527); in naive mode it is the
+            // BYTE-OLD behavior — emission is taken only on a camera / post-
+            // specular ray and DROPPED on a non-specular diffuse hit (no w_B
+            // term). pkg156's exact bug was a w_B term left firing unconditionally
+            // in naive mode, so this else-branch is gated on enableNEE_.
             astroray::SampledSpectrum Le = rec.material->emittedSpectral(rec, lambdas);
             if (!Le.isZero()) {
-                if (bounce == 0 || wasSpecular)
+                if (bounce == 0 || wasSpecular) {
                     color += throughput * Le;
+                } else if (enableNEE_) {
+                    // BSDF-sampled continuation ray hit an emitter at a diffuse
+                    // bounce: add the BSDF leg weighted by the power heuristic
+                    // against the light-sampling pdf that would have generated it.
+                    float lp = lights.empty()
+                        ? 0.0f
+                        : lights.pdfValue(ray.origin, ray.direction);
+                    float bp = bsdfPdfPrev;
+                    float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
+                    color += throughput * Le * wB;
+                }
                 break;
             }
 
             Vec3 wo = -ray.direction.normalized();
+
+            // pkg195 Stage A: dedicated-light NEE with MIS (mirrors
+            // pathTraceSpectral raytracer.h:2537-2568). Skipped on delta lobes.
+            // Uses evalSpectralExt (profile-aware) for the BSDF factor and
+            // ls.emission_spec (EmissionSpectrum::eval at these lambdas) for the
+            // light, so blackbody / measured-SPD lamps emit outside 380-780 nm.
+            // Gated on enableNEE_ (naive mode has no light sampling — the GPU
+            // parity oracle contract, pkg156).
+            if (enableNEE_ && !rec.isDelta && !lights.empty()) {
+                LightSample ls;
+                lights.sample(ls, rec.point, rec.normal, lambdas, gen);
+                if (ls.pdf > 0) {
+                    Vec3 wi = (ls.position - rec.point).normalized();
+                    HitRecord shadow;
+                    bool hitOccluder = bvh->hit(Ray(rec.point, wi, ray.time), 0.001f,
+                                                ls.distance - 0.001f, shadow);
+                    bool occluded = hitOccluder &&
+                        !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
+                    if (!occluded) {
+                        astroray::SampledSpectrum f_spec =
+                            rec.material->evalSpectralExt(rec, wo, wi, lambdas);
+                        astroray::SampledSpectrum L_spec = ls.emission_spec;
+                        float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                        float a = ls.pdf, b = bsdfPdf;
+                        // pkg140: a delta light sample always gets full MIS weight
+                        // (BSDF sampling can never reproduce it).
+                        float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
+                        color += throughput * f_spec * L_spec *
+                                 (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
+                    }
+                }
+            }
 
             // Russian roulette
             if (bounce > rrDepth) {
@@ -213,6 +317,9 @@ private:
             BSDFSampleSpectral bss = rec.material->sampleSpectralExt(rec, wo, gen, lambdas);
             if (bss.pdf <= 0.0f) break;
             wasSpecular = bss.isDelta;
+            // pkg195 Stage A: carry this bounce's BSDF pdf for the next iteration's
+            // two-sided-MIS lamp/emissive legs (mirrors pathTraceSpectral:2599).
+            bsdfPdfPrev = bss.pdf;
 
             // pkg87b: Cryptomatte accumulation at shade point (before throughput update).
             // Weight = average(throughput · bsdf_eval), per Cycles.

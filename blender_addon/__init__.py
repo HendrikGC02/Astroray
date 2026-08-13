@@ -610,6 +610,47 @@ def _spectral_profile_items(self, context):
     items.extend((n, n, '') for n in names)
     return items
 
+# pkg195 Stage B: emission-category (category 7) lamp SPDs shipped in
+# profiles.bin (design doc §1.1). The DB does not expose category in-memory, so
+# the preset dropdown filters the loaded names against this known set (order
+# preserved). Provenance for each is recorded in data/spectral_profiles/sources.md.
+_EMISSION_PROFILE_NAMES = (
+    'sodium_vapor', 'mercury_vapor',
+    'cie_f2', 'cie_f3',
+    'led_3000k', 'led_5000k', 'led_6500k',
+)
+
+
+def _light_emission_preset_items(self, context):
+    if not RAYTRACER_AVAILABLE or not hasattr(astroray, "spectral_profile_names"):
+        return [('sodium_vapor', 'Sodium Vapor', '')]
+    try:
+        available = set(astroray.spectral_profile_names())
+    except Exception:
+        available = set()
+    items = [(n, n.replace('_', ' ').title(), '')
+             for n in _EMISSION_PROFILE_NAMES if n in available]
+    if not items:
+        # DB not loaded / missing emission SPDs: keep the enum non-empty so the
+        # PropertyGroup still registers.
+        items = [('sodium_vapor', 'Sodium Vapor', '')]
+    return items
+
+
+def _profile_range_label(profile_name):
+    """pkg195 Stage B: '300-2500 nm @ 5 nm' style label for a named profile."""
+    if (not RAYTRACER_AVAILABLE or not hasattr(astroray, "spectral_profile_range")
+            or not profile_name or profile_name == "__none__"):
+        return ""
+    try:
+        lmin, lmax, step = astroray.spectral_profile_range(profile_name)
+    except Exception:
+        return ""
+    if lmax <= lmin:
+        return ""
+    return f"{lmin:.0f}-{lmax:.0f} nm @ {step:.0f} nm"
+
+
 def _active_wavelength_band(settings):
     preset = getattr(settings, "wavelength_preset", "visible")
     if preset == "near_ir":
@@ -738,6 +779,54 @@ class CustomRaytracerMaterialSettings(PropertyGroup):
         max=64,
         default=8,
     )
+
+
+class CustomRaytracerLightSettings(PropertyGroup):
+    # pkg195 Stage B: spectral emission mode for dedicated lights. `native`
+    # reproduces exactly today's blackbody/RGB behaviour (light.use_temperature
+    # + light.color). `preset` / `custom_profile` route the emission through a
+    # MeasuredSPD (sodium_vapor etc.), with the light colour kept as a gel tint
+    # via the engine's Composite EmissionSpectrum mode.
+    spectrum_mode: EnumProperty(
+        name="Spectrum",
+        description="How this light's emission spectrum is authored",
+        items=[
+            ('native', 'Native',
+             "Blackbody (from light temperature) or RGB upsample — today's behaviour"),
+            ('preset', 'Lamp Preset',
+             "A measured lamp SPD from the profile database (sodium, mercury, "
+             "fluorescent, LED)"),
+            ('custom_profile', 'Custom Profile',
+             "Any spectral profile by name (e.g. a drawn/imported emission profile)"),
+        ],
+        default='native',
+    )
+    preset_profile: EnumProperty(
+        name="Lamp",
+        description="Measured lamp emission spectrum",
+        items=_light_emission_preset_items,
+    )
+    custom_profile: EnumProperty(
+        name="Profile",
+        description="Spectral profile used as this light's emission SPD",
+        items=_spectral_profile_items,
+        default=0,
+    )
+
+
+def _light_spectrum_profile(light):
+    """pkg195 Stage B: resolved profile name for preset/custom spectrum modes,
+    or '' when the light is in native mode / unresolved."""
+    settings = getattr(light, 'custom_raytracer', None)
+    if settings is None:
+        return ""
+    mode = getattr(settings, 'spectrum_mode', 'native')
+    if mode == 'preset':
+        return getattr(settings, 'preset_profile', "") or ""
+    if mode == 'custom_profile':
+        name = getattr(settings, 'custom_profile', "") or ""
+        return "" if name == "__none__" else name
+    return ""
 
 
 def _preview_helpers():
@@ -4341,6 +4430,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # pkg89 Phase B: construct EmissionSpectrum dict from Blender light properties.
             # Q-Owner-1 resolution: default to blackbody (D65 6500K) with color as tint filter.
             # Blender 4.5+ has light.use_temperature toggle; fallback to RGB if not available.
+            #
+            # pkg195 Stage B: preset / custom_profile spectrum modes emit a
+            # MeasuredSPD wrapped in a Composite so the light colour remains a
+            # gel tint (blender_module.cpp parseEmissionSpectrum already handles
+            # both 'measured_spd' and 'composite'). Native mode is unchanged.
+            profile_name = _light_spectrum_profile(light)
+            if profile_name:
+                measured = {'mode': 'measured_spd', 'profile_name': profile_name}
+                tint = list(light.color)
+                # Skip the composite wrapper when the tint is (near-)white so the
+                # SPD reaches the engine unmodulated.
+                if all(abs(c - 1.0) < 1e-4 for c in tint):
+                    return measured
+                return {
+                    'mode': 'composite',
+                    'base': measured,
+                    'filter_rgb': tint,
+                }
             use_temp = getattr(light, 'use_temperature', False)
             if use_temp and hasattr(light, 'temperature'):
                 # Blackbody mode: temperature + color as tint filter.
@@ -5412,8 +5519,53 @@ class OBJECT_PT_astroray_object(Panel):
         layout.prop(ao, "is_caustic_caster")
 
 
+class DATA_PT_custom_raytracer_light(AstrorayPanelBase, Panel):
+    """pkg195 Stage B: spectral emission authoring for the active light."""
+    bl_label = "Astroray Spectrum"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "data"
+
+    @classmethod
+    def poll(cls, context):
+        return (context.scene.render.engine == 'CUSTOM_RAYTRACER'
+                and context.light is not None
+                and hasattr(context.light, 'custom_raytracer'))
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        light = context.light
+        settings = light.custom_raytracer
+        layout.prop(settings, "spectrum_mode")
+
+        mode = settings.spectrum_mode
+        profile_name = ""
+        if mode == 'preset':
+            layout.prop(settings, "preset_profile")
+            profile_name = getattr(settings, "preset_profile", "") or ""
+        elif mode == 'custom_profile':
+            layout.prop(settings, "custom_profile")
+            name = getattr(settings, "custom_profile", "") or ""
+            profile_name = "" if name == "__none__" else name
+
+        if mode != 'native':
+            label = _profile_range_label(profile_name)
+            if label:
+                layout.label(text=label, icon='IPO_LINEAR')
+            layout.label(text="Light colour acts as a gel tint", icon='INFO')
+            # pkg195 Stage B: GPU dedicated lights approximate non-RGB emission
+            # via deviceReference() RGB (emission_spectrum.h:100-108). The
+            # measured SPD is exact only on the CPU integrators; note it so the
+            # artist isn't surprised by a GPU/CPU chroma difference.
+            layout.label(text="GPU: RGB-approximated (CPU is exact)", icon='ERROR')
+
+
 classes = [
     CustomRaytracerRenderSettings, CustomRaytracerMaterialSettings,
+    CustomRaytracerLightSettings,
     AstrorayObjectProperties,
     AstrorayBlackHoleProperties,
     CustomRaytracerRenderEngine,
@@ -5429,6 +5581,7 @@ classes = [
     CustomRaytracerPreferences,
     ASTRORAY_OT_add_black_hole, OBJECT_PT_astroray_black_hole,
     OBJECT_PT_astroray_object,
+    DATA_PT_custom_raytracer_light,
 ]
 
 # ---------------------------------------------------------------------- #
@@ -5677,6 +5830,16 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Scene.custom_raytracer = PointerProperty(type=CustomRaytracerRenderSettings)
     bpy.types.Material.custom_raytracer = PointerProperty(type=CustomRaytracerMaterialSettings)
+    # pkg195 Stage B: attach spectral-light settings only when bpy.types.Light
+    # exists. CI runs register() under a bpy stub that omits Light (the same class
+    # of stub gap the native shader nodes degrade around above); real Blender
+    # always has it, so the headless-Blender path is unaffected.
+    _light_type = getattr(bpy.types, 'Light', None)
+    if _light_type is not None:
+        _light_type.custom_raytracer = PointerProperty(type=CustomRaytracerLightSettings)
+    else:
+        print("Astroray spectral light settings unavailable: "
+              "module 'bpy.types' has no attribute 'Light'")
     bpy.types.Object.astroray_black_hole = PointerProperty(type=AstrorayBlackHoleProperties)
     bpy.types.Object.astroray_object = PointerProperty(type=AstrorayObjectProperties)
 
@@ -5707,6 +5870,9 @@ def unregister():
 
     del bpy.types.Scene.custom_raytracer
     del bpy.types.Material.custom_raytracer
+    _light_type = getattr(bpy.types, 'Light', None)
+    if _light_type is not None and hasattr(_light_type, 'custom_raytracer'):
+        del _light_type.custom_raytracer
     del bpy.types.Object.astroray_black_hole
     del bpy.types.Object.astroray_object
     for cls in reversed(classes):

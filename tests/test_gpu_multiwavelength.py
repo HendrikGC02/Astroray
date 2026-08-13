@@ -81,6 +81,14 @@ def _render_pair(lmin, lmax, mode, *,
     cpu.set_wavelength_range(float(lmin), float(lmax))
     cpu.set_output_mode(mode)
     cpu.set_integrator("multiwavelength_path_tracer")
+    # pkg195: this integrator is the GPU parity NAIVE oracle. Stage A gave the CPU
+    # multiwavelength_path_tracer dedicated-light NEE (default on), but the GPU MW
+    # leg still has no light sampling (module/blender_module.cpp:1814 derives
+    # enableNEE=false for this integrator name). Pin the CPU leg naive so parity
+    # compares naive transport on BOTH legs until pkg195 Phase 3 lands GPU
+    # spectral-light NEE. Pinned on both legs (the GPU render path derives naive
+    # from the integrator name, so the param is a no-op there, kept for symmetry).
+    cpu.set_integrator_param("enable_nee", 0)
     cpu_px = np.array(cpu.render(samples_per_pixel=spp, max_depth=depth, apply_gamma=False),
                       dtype=np.float32)
 
@@ -89,6 +97,7 @@ def _render_pair(lmin, lmax, mode, *,
     gpu.set_wavelength_range(float(lmin), float(lmax))
     gpu.set_output_mode(mode)
     gpu.set_integrator("multiwavelength_path_tracer")
+    gpu.set_integrator_param("enable_nee", 0)  # see CPU leg note above
     gpu_px = np.array(gpu.render(samples_per_pixel=spp, max_depth=depth, apply_gamma=False),
                       dtype=np.float32)
 

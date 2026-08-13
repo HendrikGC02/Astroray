@@ -44,6 +44,13 @@ public:
     }
 
     bool valid() const noexcept { return data_ != nullptr && n_ > 0; }
+
+    // pkg195 Stage B: grid metadata for the light-panel λ-range label. The DB
+    // ships 300-2500 nm @ 5 nm today, but register_spectral_profile (Stage C)
+    // accepts arbitrary ranges, so read them per-profile rather than assuming.
+    float lambdaMin()  const noexcept { return lmin_; }
+    float lambdaStep() const noexcept { return lstep_; }
+    int   count()      const noexcept { return n_; }
 };
 
 // Loads and owns the ASPR binary database (profiles.bin from pkg38).

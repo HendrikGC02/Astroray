@@ -71,6 +71,18 @@ Add spectral next-event estimation over dedicated lights to
 > leg was silently dropped; `PowerLightSampler` now falls back to uniform light
 > selection for a degenerate CDF (`src/light_sampler.cpp`). Gate results: A1 mean
 > 0.0709, A2 ratio 4.82, A3 per-channel parity 1.00.
+>
+> **NEE is gated on an `enable_nee` integrator param (default 1 = on).** The
+> engine-wide contract `enableNEE = (integrator != "multiwavelength_path_tracer")`
+> (module/blender_module.cpp:1814) makes this integrator the light-sampling-blind
+> NAIVE oracle the GPU wavefront naive route is gated to match (pkg120/pkg156). An
+> unconditional NEE changed that oracle's physics while the GPU comparator did not,
+> collapsing 3 CPU↔GPU parity gates (SSIM 0.30). `enable_nee=0` is byte-identical
+> to the pre-Stage-A integrator; the parity harnesses
+> (`test_gpu_multiwavelength`, `test_pkg55_c3_wavefront_nonvisible`) pin it on the
+> CPU MW oracle legs. **Phase-3 item now explicitly encoded by those gates: the
+> GPU MW/wavefront leg has no dedicated-light sampling — GPU spectral-light NEE
+> parity is deferred to pkg195 Phase 3** (design doc §5, Phase 3).
 
 - Template: the in-header path tracer's dedicated-light NEE
   (`include/raytracer.h:2423` area, and the `astroray::Light` spectral sample

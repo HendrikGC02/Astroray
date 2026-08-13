@@ -2,7 +2,7 @@
 
 **Pillar:** 3/5 (spectral light transport / CPU-GPU parity)
 **Track:** A
-**Status:** done (PR #TBD, 2026-08-13 — GPU wavefront hero-λ dispersion now LIVE
+**Status:** done (PR #603, 2026-08-13 — GPU wavefront hero-λ dispersion now LIVE
 for both material families: GPU dielectric BK7 disp/flat **0.5508** and Principled
 disp/flat **0.5507** (were ~1.00 no-op), matching the CPU reference ~0.55; CPU/GPU
 per-channel mean-ratio within 4% (dielectric [1.038, 0.982, 0.972], Principled
@@ -162,7 +162,7 @@ LOOKING at the render**, not just numbers.
 
 ---
 
-## Implementation notes (PR #TBD, 2026-08-13)
+## Implementation notes (PR #603, 2026-08-13)
 
 **Root cause (one bug, both material families).** The GPU wavefront `shadePathSlot`
 reconstructs `lambdas` as a **stack local** from the per-path SoA each bounce. The

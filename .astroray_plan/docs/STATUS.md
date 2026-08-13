@@ -44,7 +44,7 @@ that every lamp-lit NIR/UV render is black end-to-end.**
   no shipped Blender exposes a Dispersion socket (unmerged upstream WIP
   #162041 — the addon got a forward-compatible probe); `test_gpu_prism_
   rainbow_parity`'s XPASS was vacuous, xfail retained.
-- **pkg189 DONE** (PR #TBD, 2026-08-13) — GPU wavefront hero-λ dispersion
+- **pkg189 DONE** (PR #603, 2026-08-13) — GPU wavefront hero-λ dispersion
   enablement. Root cause: the wavefront shade kernel never persisted the
   sampler's `terminateSecondary()` hero-collapse back to the per-path SoA, so
   the mutated λ-pdfs evaporated each bounce and `spectrumToXYZ` kept summing all

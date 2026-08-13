@@ -1805,6 +1805,25 @@ std::vector<float> cuda_wavefront_render_restir(
     GLightTreeEmitter* d_treeEmitters = wfUpload(C.treeEmitters, res.lightTreeEmitters);
     int* d_lightToEmitter = wfUpload(C.lightToEmitter, res.lightToEmitter);
 
+    // pkg199 Stage 1 — the ReSTIR-DI primary stage reuses the shared
+    // intersectPathSlot (stage_restir.cu:283), which reads the __constant__
+    // c_worldVolume. That symbol persists across launches, so a fog render on the
+    // main cuda_wavefront_render path followed by a ReSTIR render in the same
+    // process would silently attenuate with the PREVIOUS scene's fog unless we
+    // republish here. Publish this ReSTIR scene's actual world volume (same
+    // derivation as the main driver) — vacuum scenes publish hasVolume==0, which
+    // the shared intersect kernel skips (byte-identical). ReSTIR-DI is bounce-0
+    // direct only (no shadow-stage NEE-through-medium here), so this restores the
+    // first-hit free-flight/emission transmittance and, crucially, prevents
+    // cross-render fog contamination.
+    {
+        Vec3 wvc = renderer.getWorldVolumeColor();
+        setWavefrontWorldVolume(GWorldVolume{
+            renderer.getHasWorldVolume() ? 1 : 0,
+            renderer.getWorldVolumeDensity(),
+            wvc.x, wvc.y, wvc.z});
+    }
+
     GLightTreeView treeView{d_treeNodes, d_treeEmitters, d_lightToEmitter,
                             (int)res.lightTreeNodes.size(),
                             (int)res.lightTreeNodes.size() > 0 ? 1 : 0};

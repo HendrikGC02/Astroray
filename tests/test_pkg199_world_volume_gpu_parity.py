@@ -223,6 +223,59 @@ def test_world_volume_zero_density_gpu_byte_identical():
 
 
 # ---------------------------------------------------------------------------
+# ReSTIR STALE-__constant__ GUARD — the ReSTIR-DI primary stage reuses the shared
+# intersectPathSlot, which reads c_worldVolume. That __constant__ persists across
+# launches, so a fog render on the main path must NOT leak into a subsequent
+# vacuum ReSTIR render (cuda_wavefront_render_restir republishes the medium).
+# GPU-only (ReSTIR has no CPU path; c_worldVolume is a device symbol) → runs on
+# the hw-611 hardware sweep, skips on CI.
+# ---------------------------------------------------------------------------
+
+def _restir_vacuum_scene(w: int = WIDTH, h: int = HEIGHT):
+    """A simple lit scene (grey sphere + emissive lamp) rendered with the GPU
+    ReSTIR-DI integrator and NO world volume."""
+    r = astroray.Renderer()
+    r.set_seed(SEED)
+    r.set_background_color([0.02, 0.02, 0.03])
+    lamp = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 60.0})
+    grey = r.create_material("lambertian", [0.80, 0.80, 0.80], {})
+    r.add_sphere([0.0, 2.4, 0.0], 0.8, lamp)
+    r.add_sphere([0.0, -0.3, 0.0], 1.0, grey)
+    r.setup_camera([0.0, 0.4, 6.0], [0.0, -0.3, 0.0], [0.0, 1.0, 0.0],
+                   35.0, w / h, 0.0, 6.0, w, h)
+    r.set_integrator("restir-di")
+    r.set_use_gpu(True)
+    r.set_wavelength_range(380.0, 780.0)
+    r.set_output_mode("srgb")
+    return r
+
+
+def test_restir_render_not_contaminated_by_prior_fog():
+    """A vacuum ReSTIR render after a dense-fog main-path render in the SAME
+    process must match a vacuum ReSTIR render taken after a vacuum main render —
+    i.e. cuda_wavefront_render_restir republishes c_worldVolume so the stale fog
+    from the previous main-path launch does not attenuate it."""
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine (ReSTIR is GPU-only) — "
+                    "runs on the hw-611 hardware sweep")
+    # Baseline: pin c_worldVolume to vacuum via a main-path vacuum render, then
+    # take the ReSTIR reference.
+    _render(_make_fog_scene(True, None))
+    clean = _means(_render(_restir_vacuum_scene()))
+    # Poison: a dense-fog main-path render publishes a heavy fog into c_worldVolume.
+    _render(_make_fog_scene(True, 0.5))
+    after = _means(_render(_restir_vacuum_scene()))
+    ratio = after / np.maximum(clean, 1e-6)
+    print(f"\n[pkg199 ReSTIR fog-contamination guard] clean={np.round(clean,4)} "
+          f"after_fog={np.round(after,4)} after/clean={np.round(ratio,4)}")
+    for c, ch in enumerate("RGB"):
+        assert 0.90 <= ratio[c] <= 1.10, (
+            f"ReSTIR render CONTAMINATED by prior main-path fog (ch {ch}: "
+            f"after/clean {ratio[c]:.4f} outside [0.90, 1.10]); "
+            f"cuda_wavefront_render_restir must republish c_worldVolume")
+
+
+# ---------------------------------------------------------------------------
 # VISUAL FOG — depth-staggered colored fog, saved to PNG (human/parent check).
 # ---------------------------------------------------------------------------
 

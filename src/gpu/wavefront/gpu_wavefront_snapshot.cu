@@ -1014,6 +1014,10 @@ struct WfContext {
     // each). Grow-only like the rest; only allocated once a render actually
     // enables cryptomatte, so default renders pay nothing.
     WfDeviceBuf cryptoObj, cryptoMat;
+    // pkg197: first-hit denoise-guide AOV device buffers (base-colour albedo +
+    // shading normal = numPixels*3 floats each; depth = numPixels floats).
+    // Grow-only like the rest; only allocated once a render requests guides.
+    WfDeviceBuf guideAlbedo, guideNormal, guideDepth;
     // pkg55-C6b / pkg24: ReSTIR reservoir SoA, double-buffered + persistent
     // across frames (render calls) so temporal reuse can read the previous
     // frame. resNumPixels tracks the allocated resolution; restirFrame counts
@@ -1298,7 +1302,10 @@ std::vector<float> cuda_wavefront_render(
     bool enableNEE,
     float* cryptoObjectOut,    // pkg159
     float* cryptoMaterialOut,  // pkg159
-    int cryptoDepth)           // pkg159
+    int cryptoDepth,           // pkg159
+    float* albedoOut,          // pkg197
+    float* normalOut,          // pkg197
+    float* depthOut)           // pkg197
 {
     int total_paths = width * height;
     if (total_paths <= 0 || samples <= 0) {
@@ -1470,6 +1477,33 @@ std::vector<float> cuda_wavefront_render(
         if (ce != cudaSuccess)
             throw std::runtime_error(cudaGetErrorString(ce));
     }
+
+    // pkg197: first-hit denoise-guide AOV buffers. Gated on caller-supplied
+    // output pointers (all three or none — the addon always requests all three).
+    // Zero-init so miss/sky pixels, which never reach the intersect-stage write,
+    // read back as 0 (the CPU miss convention). The device pointers are published
+    // to the intersect kernel's __constant__ c_wfGuideBinding once per frame; the
+    // binding is ALWAYS set (to real pointers or all-null) so a prior render's
+    // pointers can never be read stale. See setWavefrontGuideBinding.
+    const bool guidesOn = albedoOut != nullptr && normalOut != nullptr &&
+                          depthOut != nullptr;
+    float* d_guideAlbedo = nullptr;
+    float* d_guideNormal = nullptr;
+    float* d_guideDepth  = nullptr;
+    if (guidesOn) {
+        d_guideAlbedo = wfEnsure<float>(C.guideAlbedo, size_t(total_paths) * 3);
+        d_guideNormal = wfEnsure<float>(C.guideNormal, size_t(total_paths) * 3);
+        d_guideDepth  = wfEnsure<float>(C.guideDepth,  size_t(total_paths));
+        cudaError_t ge = cudaMemset(d_guideAlbedo, 0, size_t(total_paths) * 3 * sizeof(float));
+        if (ge == cudaSuccess)
+            ge = cudaMemset(d_guideNormal, 0, size_t(total_paths) * 3 * sizeof(float));
+        if (ge == cudaSuccess)
+            ge = cudaMemset(d_guideDepth, 0, size_t(total_paths) * sizeof(float));
+        if (ge != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(ge));
+    }
+    setWavefrontGuideBinding(GWavefrontGuideBinding{
+        d_guideAlbedo, d_guideNormal, d_guideDepth});
 
     // Constant-memory spectral tables (JH LUT + D65 + CMF) — required by
     // every spectral upsample / XYZ conversion in the kernels. Cheap
@@ -1654,6 +1688,26 @@ std::vector<float> cuda_wavefront_render(
             if (matSum > 0.f)
                 for (int rank = 0; rank < cryptoDepth; ++rank) mat[rank * 2 + 1] /= matSum;
         }
+    }
+
+    // pkg197: first-hit denoise-guide AOV copy-back. Runs ONCE after the barrier
+    // above, exactly like the cryptomatte copy-back. The device layout already
+    // matches the Camera buffers (albedo/normal = Vec3 per pixel, depth = 1
+    // float), so these are straight D2H memcpys into the caller's arrays.
+    if (guidesOn) {
+        cudaError_t ge = cudaMemcpy(albedoOut, d_guideAlbedo,
+                                    size_t(total_paths) * 3 * sizeof(float),
+                                    cudaMemcpyDeviceToHost);
+        if (ge == cudaSuccess)
+            ge = cudaMemcpy(normalOut, d_guideNormal,
+                            size_t(total_paths) * 3 * sizeof(float),
+                            cudaMemcpyDeviceToHost);
+        if (ge == cudaSuccess)
+            ge = cudaMemcpy(depthOut, d_guideDepth,
+                            size_t(total_paths) * sizeof(float),
+                            cudaMemcpyDeviceToHost);
+        if (ge != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(ge));
     }
 
     // pkg55-C5 / pkg113: release the resident photon grid after the render

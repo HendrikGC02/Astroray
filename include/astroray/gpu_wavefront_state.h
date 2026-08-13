@@ -371,6 +371,12 @@ void launchStageShadeBucketed(
 // for scenes with textures); see stage_advance.cu / GWavefrontTextureBinding.
 void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding);
 
+// pkg197 — publish the frame's first-hit denoise-guide output pointers into the
+// intersect stage's __constant__ binding. Call ONCE per frame before the render
+// loop. Pass all-null (the default) to disable guide capture. See
+// stage_advance.cu / GWavefrontGuideBinding.
+void setWavefrontGuideBinding(const GWavefrontGuideBinding& binding);
+
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts
 // are G_WF_NEE_F_LANES / G_WF_NEE_I_LANES (field-major); see the

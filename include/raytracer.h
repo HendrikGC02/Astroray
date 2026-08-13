@@ -2112,6 +2112,14 @@ class Renderer {
     float worldVolumeAnisotropy = 0.0f;
     // pkg87b — Cryptomatte per-shade-point accumulation gate
     bool cryptomatteEnabled = false;
+    // pkg197 — GPU wavefront first-hit denoise-guide AOV capture gate. On by
+    // default (parity with the CPU loop, which always fills the guide buffers).
+    // The GPU render path honors it: when off, cuda_wavefront_render is called
+    // with null guide out-params, so the intersect stage skips the bounce-0
+    // write and the Camera albedo/normal/depth buffers stay zero — the pre-pkg197
+    // guide-less state, kept as a control so denoise A/B (guided vs guide-less)
+    // is expressible on one build, and as a viewport lever to skip the copy-back.
+    bool gpuGuideAOVs = true;
     std::shared_ptr<Integrator> integrator_;
     std::vector<std::shared_ptr<Pass>> passes_;
 
@@ -2231,6 +2239,10 @@ public:
     // pkg87b: Enable/disable Cryptomatte per-shade-point accumulation
     void setCryptomatteEnabled(bool enabled) { cryptomatteEnabled = enabled; }
     bool getCryptomatteEnabled() const { return cryptomatteEnabled; }
+
+    // pkg197: Enable/disable GPU wavefront first-hit denoise-guide AOV capture.
+    void setGpuGuideAOVs(bool enabled) { gpuGuideAOVs = enabled; }
+    bool getGpuGuideAOVs() const { return gpuGuideAOVs; }
 
     void clear() {
         scene.clear(); bvh.reset(); lights = LightList();

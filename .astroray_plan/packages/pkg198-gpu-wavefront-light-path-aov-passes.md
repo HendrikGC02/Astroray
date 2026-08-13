@@ -10,6 +10,66 @@ much headroom the shade kernel has before this heavier accumulation is even atte
 
 ---
 
+## IMPLEMENTER FINDING — 2026-08-14 — BLOCKED PENDING OWNER DECISION (status left `open`)
+
+Before running the register probe I verified the spec's load-bearing premise on current `main`
+(HEAD 4643de3), and it does not hold: **there is no CPU light-path-pass reference to mirror or
+parity-test against.** The light-path passes (`PASS_DIFFUSE_DIRECT` … `PASS_ENVIRONMENT`) are
+plumbed end-to-end but are **never populated on CPU either** — they are dead plumbing, not a
+"CPU works / GPU is black" gap.
+
+Evidence (grep-verified, whole repo, code files only):
+- The render loop at `include/raytracer.h:3228,3241` accumulates `sPass = ir.passes` into
+  `passColor` → `cam.renderPassBuffers[...][idx]` (`:3327`). That is the *only* consumer.
+- `SampleResult.passes` (`include/raytracer.h:1731`) is zero-initialised and **no integrator or
+  BSDF ever writes to it.** The one and only reference to `.passes` in the entire codebase
+  outside the struct definition is the read at `:3228`. `git grep "passes\["` / `"\.passes"`
+  across all `*.cpp/*.cu/*.h` returns zero write sites.
+- The default integrator `spectral_path_tracer.cpp::sampleFull` (`:162-247`) fills
+  `color/albedo/normal/depth/bounceCount` but leaves `r.passes` at zero.
+- `Renderer::pathTraceSpectral` (`:2476`) takes **no pass-output parameter** and carries no
+  first-bounce-lobe / direct-indirect / emission-environment classification.
+- The two existing tests that touch these passes (`test_blender_viewport_passes.py`,
+  `test_python_bindings.py`) use fully **mocked** renderers returning constant buffers; they
+  exercise the addon plumbing, not any real classification.
+
+Consequence for pkg198 as written:
+- Spec §"Why this exists" claim that these passes are "filled per-sample by the CPU render loop
+  … while working on CPU" is factually wrong — CPU returns black too.
+- Acceptance criterion 2 ("Enabled passes match the CPU render within a tight per-channel
+  band … beauty must equal the sum of the lit passes") is unsatisfiable: the CPU reference is
+  all zeros, so there is nothing to parity-match and no CPU sum-to-beauty invariant to hold.
+- The IMPLEMENTATION-NOTES instruction to "mirror the CONDITIONS exactly (which bounce/event
+  classifies as diffuse-direct vs indirect)" has no CPU conditions to mirror.
+
+The register probe (spec's mandated first step) is therefore **not the gating blocker**: even a
+perfectly clean `<false,false,false,false>` probe would not let pkg198 satisfy its own
+acceptance criteria, because the whole design is defined relative to a CPU implementation that
+does not exist. Building the GPU accumulation + a from-scratch CPU classifier + a native sm_120
+build (hours, GPU lock) before confirming scope would violate "no invented accumulation scheme"
+and "do not silently widen scope."
+
+Recommended re-scoping options for the owner (not chosen unilaterally):
+- **(A) Split off a CPU prerequisite package** that implements the light-path classification in
+  `pathTraceSpectral` (first-bounce lobe category + direct/indirect split + emission/environment
+  tagging, citing Cycles `kernel/film/light_passes.h` + `integrator/shade_surface.h`,
+  Apache-2.0), landing a real CPU reference. pkg198 then becomes the GPU mirror as originally
+  framed, with the register probe as its gate. This is the honest ordering.
+- **(B) Redefine pkg198's parity gate** to self-consistency (beauty == sum of the GPU passes,
+  and per-pass sanity on a scene with isolated lobes) with **no** CPU cross-check, and treat the
+  CPU passes as a separately-tracked gap. Ships a GPU-only feature but forfeits the CPU↔GPU
+  parity that is half the spec's stated Pillar-3 value.
+- **(C) Park pkg198** until the CPU half exists (dependency inversion — this package assumed a
+  prerequisite that was never built).
+
+Secondary note: the spec's own baseline `STACK` figure is internally inconsistent — `254 / 3608
+/ 1700` in §"hard part"/§probe vs the dispatch's `254 / 3352 / 1700`. Whichever is correct must
+be re-confirmed via `cuobjdump` on the FINAL linked `.pyd` before any probe number is trusted.
+
+No worktree build was run, no GPU lock was taken, no PR opened.
+
+---
+
 ## Why this exists (verified line refs, current `main`)
 
 Astroray has a full Cycles-style render-pass registry — `PASS_DIFFUSE_DIRECT`,

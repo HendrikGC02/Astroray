@@ -306,12 +306,19 @@ def test_gpu_glass_sphere_caustic_parity(test_results_dir):
 # Flip to a real gate once the flat-prism 2-face GPU port lands (follow-up).
 # ---------------------------------------------------------------------------
 @pytest.mark.xfail(
-    reason="Flat-prism dispersive caustic on GPU needs the explicit 2-face port "
-           "(Phase 2 decided the 2-face path stays CPU; the GPU general BVH loop "
-           "scatters a flat 2-quad caster into chromatic noise — gpu_photon_emit.h "
-           "header + memory general-photon-loop-needs-solid-glass). The glass-sphere "
-           "gate above is the in-scope GPU caustic acceptance; the prism is a "
-           "documented follow-up.",
+    reason="Flat-prism dispersive CAUSTIC on GPU needs the explicit 2-face photon "
+           "port (Phase 2 decided the 2-face path stays CPU; the GPU general BVH "
+           "loop scatters a flat 2-quad caster into sparse chromatic noise — "
+           "gpu_photon_emit.h + memory general-photon-loop-needs-solid-glass). "
+           "pkg189 (2026-08-13) ENABLED GPU wavefront hero-λ dispersion, but that is "
+           "the camera/closed-solid REFRACTION path (verified by a real spectral "
+           "rainbow in test_pkg189_gpu_wavefront_dispersion — sphere caster); it does "
+           "NOT drive this flat-prism forward-CAUSTIC, a photon-pre-pass phenomenon "
+           "that remains the documented 2-face-GPU-photon follow-up. The prior XPASS "
+           "was vacuous — hue-spread passes on sparse salt-and-pepper noise; the "
+           "bright-coverage floor below now makes this a GENUINE render-level check "
+           "that honestly xfails on the noise (measured: ~0.009% bright coverage, no "
+           "caustic band) until the 2-face port lands.",
     strict=False,
 )
 def test_gpu_prism_rainbow_parity(test_results_dir):
@@ -338,17 +345,26 @@ def test_gpu_prism_rainbow_parity(test_results_dir):
         img = img.reshape(mod.HEIGHT, mod.WIDTH, 3)
     _save_image(img, os.path.join(test_results_dir, "pkg113_gpu_prism_rainbow.png"))
 
-    # A real rainbow has a wide spread of hues. The flat-prism GPU general loop
-    # does not produce this (it scatters); this assert is EXPECTED to fail (xfail)
-    # until the 2-face GPU port lands.
+    # A real rainbow caustic is (1) a wide spread of hues AND (2) a spatially
+    # COHERENT bright band on the floor. The flat-prism GPU general loop scatters
+    # into sparse noise: hue-spread alone passes on that noise (the old vacuous
+    # XPASS; memory general-photon-loop-needs-solid-glass), so we ALSO require a
+    # bright-coverage floor that only a real caustic band clears. Measured on the
+    # current noise: ~0.009% bright coverage — this assert honestly XFAILS until
+    # the 2-face GPU photon-emission port lands.
+    lum = _luminance(img)
+    bright_coverage = float((lum > 0.05).mean())
     rgb = img.reshape(-1, 3)
-    bright = rgb[_luminance(img).reshape(-1) > 0.05]
+    bright = rgb[lum.reshape(-1) > 0.05]
     hue_spread = 0.0
     if bright.shape[0] > 16:
         import colorsys
         hues = np.array([colorsys.rgb_to_hsv(*p)[0] for p in bright[:4000]])
         hue_spread = float(hues.std())
-    assert hue_spread >= 0.12, (
-        f"prism hue spread {hue_spread:.3f} — flat prism on the GPU general loop "
-        f"does not produce a structured rainbow (expected; see xfail reason)."
+    assert hue_spread >= 0.12 and bright_coverage >= 0.005, (
+        f"prism hue spread {hue_spread:.3f}, bright coverage {bright_coverage*100:.3f}% "
+        f"— flat prism on the GPU general photon loop does not produce a structured, "
+        f"spatially-coherent rainbow caustic (sparse noise; expected xfail — the "
+        f"2-face GPU photon port is the follow-up. pkg189's wavefront rainbow is "
+        f"verified separately in test_pkg189_gpu_wavefront_dispersion)."
     )

@@ -32,6 +32,14 @@ struct SceneUploadResult {
     std::vector<int>           materialTextureId;
     bool                       hasTexture = false;
 
+    // pkg189 — true when ANY uploaded material is dispersive (Sellmeier dielectric
+    // → GMAT_DIELECTRIC, or Cauchy Principled glass → GMAT_CLOSURE_GRAPH; both set
+    // GMaterial::isDispersive in scene_upload.cu). Selects the
+    // stageShadeBucketedKernel<*,*,*,true> instantiation carrying the hero-λ
+    // collapse SoA write-back; false keeps the fleet on the byte-identical
+    // <*,*,*,false> kernel.
+    bool                       hasDispersive = false;
+
     std::vector<GLight>     lights;
     // pkg89-GPU / GAP 1 — dedicated lights (Blender POINT/SPOT/SUN/AREA lamps
     // routed through astroray::Light). Their cumulativePower continues the

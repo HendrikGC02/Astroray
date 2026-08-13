@@ -359,7 +359,12 @@ void launchStageShadeBucketed(
     // is published to constant memory once per frame via
     // setWavefrontTextureBinding (below) — NOT passed here — so this signature
     // (shared by the untextured fleet kernel) keeps its pre-pkg186 REG/STACK.
-    bool hasTexture);
+    bool hasTexture,
+    // pkg189: hasDispersion=true selects stageShadeBucketedKernel<*,*,*,true>,
+    // the only instantiations carrying the hero-λ collapse SoA write-back for
+    // dispersive refraction; false selects <*,*,*,false>, byte-identical to the
+    // pre-pkg189 kernels. Host-side flag (any uploaded material isDispersive).
+    bool hasDispersion);
 
 // pkg186 — publish the frame's image-texture arrays into the shade kernel's
 // __constant__ binding. Call ONCE per frame before launchStageShadeBucketed (only

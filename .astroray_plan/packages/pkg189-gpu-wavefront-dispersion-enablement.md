@@ -2,7 +2,19 @@
 
 **Pillar:** 3/5 (spectral light transport / CPU-GPU parity)
 **Track:** A
-**Status:** open (found 2026-08-12 during pkg187 Principled-dispersion
+**Status:** done (PR #TBD, 2026-08-13 — GPU wavefront hero-λ dispersion now LIVE
+for both material families: GPU dielectric BK7 disp/flat **0.5508** and Principled
+disp/flat **0.5507** (were ~1.00 no-op), matching the CPU reference ~0.55; CPU/GPU
+per-channel mean-ratio within 4% (dielectric [1.038, 0.982, 0.972], Principled
+[1.038, 0.983, 0.979]); **visually-confirmed spectral rainbow** on a closed glass
+sphere (full ROYGBIV ring for Principled). Register gate: the `HasDispersion` 4th
+axis adds **zero** REG/STACK — fleet kernel `<0,0,0,0>` REG:254 STACK:3352, and
+`<*,*,*,0>`≡`<*,*,*,1>` byte-identical across all 8 base specializations
+(cuobjdump, native sm_120). Work item 3 finding: the flat-prism dispersive
+*photon* caustic is unchanged (still sparse noise) — a separate 2-face-GPU-photon
+follow-up, orthogonal to this wavefront fix.)
+
+**Status (original):** open (found 2026-08-12 during pkg187 Principled-dispersion
 implementation; the implementer empirically established that GPU wavefront
 hero-wavelength dispersion is a **no-op for ALL materials** — a pre-existing
 frozen gap, not a pkg187 defect).
@@ -147,3 +159,60 @@ LOOKING at the render**, not just numbers.
 - **No spill on the flat-IOR fast path** — the dispersive branch must be a
   compile-time specialization; non-dispersive REG:254 kernels stay pinned and
   bit-unchanged.
+
+---
+
+## Implementation notes (PR #TBD, 2026-08-13)
+
+**Root cause (one bug, both material families).** The GPU wavefront `shadePathSlot`
+reconstructs `lambdas` as a **stack local** from the per-path SoA each bounce. The
+dispersive sampler (`gpu_material_sample_spectral`) already computed the hero IOR
+against `wl.lambda[0]` and called `wl.terminateSecondary()` on a refraction event
+(zeroing the secondary pdfs) — but the shade kernel's SoA write-back never persisted
+the mutated `lambda[]`/`pdf[]`. So the collapse evaporated the instant the bounce
+returned: the next bounce re-read the un-collapsed pdfs and `stageRegenKernel`'s
+`spectrumToXYZ` (which skips `pdf==0`) still summed all four wavelengths — every
+dispersive path deposited a broadband spectrum at a hero-bent location, washing out
+to flat-IOR glass. The CPU wavefront mirror (`advance_one_bounce`) never had this bug
+because its `ps.lambdas` is a member of the persistent `PathState`. Confirmed for BOTH
+the Sellmeier dielectric (`GMAT_DIELECTRIC`, `gpu_dielectric_sample_spectral`) and the
+Cauchy Principled glass (`GMAT_CLOSURE_GRAPH`, `gpu_principled_sample`).
+
+**Fix.** `shadePathSlot` now writes the (collapsed) `lambdas.lambda[]`/`pdf[]` back to
+SoA after the BSDF sample, gated by a new compile-time `HasDispersion` (4th) template
+axis; selected off a host-side `SceneUploadResult.hasDispersive` flag (any uploaded
+material `isDispersive`). A **4th axis** (not hung off `HasPrincipled`) is required
+because the dielectric-dispersive path runs with `HasPrincipled=false` — a plain
+Sellmeier dielectric returns an empty closure graph and uploads as `GMAT_DIELECTRIC`,
+never setting the principled flag.
+
+**Register gate (cuobjdump, native sm_120, post-link `.pyd`).** The write-back is 8
+stores of already-live values; it adds **zero** REG/STACK even when compiled in:
+`<*,*,*,0>` ≡ `<*,*,*,1>` byte-identical for all 8 base specializations. Fleet kernel
+`stageShadeBucketedKernel<false,false,false,false>` = REG:254 STACK:3352 (matches the
+documented pre-pkg189 `<F,F,F>` baseline). Non-dispersive scenes launch `<*,*,*,0>`,
+so their output is bit-unchanged and perf cannot regress.
+
+**Work item 2 (test conversions).** `test_pkg64_gpu_cpu_parity`: xfail removed,
+re-pointed to a real per-channel mean-ratio + ROI-energy parity gate on the canonical
+wavefront path (no SMS-GPU surface touched; the caustic-caster flags are harmless
+public-API settings on the wavefront route). `test_gpu_prism_rainbow_parity`: hardened
+with a bright-coverage floor so it is a **genuine** render-level check that honestly
+XFAILS on the flat-prism photon noise (~0.009% bright coverage) instead of vacuously
+XPASSing — see Work item 3. New `test_pkg189_gpu_wavefront_dispersion.py` is the
+primary oracle (control-flip + CPU/GPU parity + visual rainbow). The pre-existing
+`test_pkg187_...gpu_parity::test_gpu_dispersion_wired_mirrors_dielectric_reference`
+asserted the no-op (`0.95 ≤ disp/flat ≤ 1.05`); it was flipped to assert the now-live
+behavior (its own docstring predicted "enabling it lights up BOTH... through this same
+wiring").
+
+**Work item 3 (photon-caustic evaluation — measured).** The flat-prism dispersive
+**photon** caustic is a forward-transport phenomenon on the pkg113 photon pre-pass,
+which is dielectric-oriented and uses only the general BVH loop; a flat 2-quad caster
+scatters into sparse chromatic noise (measured: ~0.009% bright coverage, no caustic
+band). pkg189's wavefront fix is **orthogonal** — it enables the camera/closed-solid
+REFRACTION path (verified by a real spectral rainbow on a glass sphere in
+`test_pkg189`), not the forward photon caustic. Extending the photon pre-pass to a
+2-face flat-prism (or closure-graph Principled) caster is the pre-existing follow-up
+(`general-photon-loop-needs-solid-glass`); per the Non-goals this PR does not touch
+the photon path. Recorded for a follow-up spec, not addressed here.

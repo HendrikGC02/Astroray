@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -53,8 +52,6 @@ HEIGHT = 64
 # not pure noise. 512 is a modest robustness bump without quadrupling runtime.
 SAMPLES = 512
 MAX_DEPTH = 10
-
-BASELINES_DIR = Path(__file__).parent / "baselines" / "pkg64-gpu-phase3"
 
 
 def _make_prism_scene(use_gpu: bool):
@@ -131,82 +128,25 @@ def _receiver_energy(pixels: np.ndarray) -> float:
     return float(np.sum(lum[receiver]))
 
 
-def _ssim(img1: np.ndarray, img2: np.ndarray) -> float:
-    """Structural similarity index (SSIM) between two images.
+def test_pkg64_gpu_cpu_parity(test_results_dir):
+    """GPU (wavefront) vs CPU dispersive-BK7 prism parity on the CANONICAL path.
 
-    Simplified windowed SSIM for 3-channel images. Mirrors the pkg54b NIR-band
-    parity gate pattern (tests/test_pkg54b_phase2_gpu_parity.py). We don't need
-    skimage.metrics.structural_similarity here because the per-channel mean +
-    variance + covariance pattern is sufficient at the 0.97 threshold.
+    pkg189 re-point (was xfail 2026-06-08, "SMS-GPU frozen"). The megakernels are
+    deleted; GPU `path_tracer` routes through the wavefront integrator, whose
+    hero-λ dispersion pkg189 enabled. This is now a REAL gate: the dispersive BK7
+    sphere caster refracts CHROMATICALLY on both CPU and GPU, so their per-channel
+    means agree. No SMS-GPU surface is touched — the caustic-caster / refractive-
+    caustics flags in _make_prism_scene are harmless public-API settings on the
+    wavefront path (the frozen SMS-GPU code is not on this route).
 
-    Returns mean SSIM over RGB channels.
-    """
-    from math import sqrt
-
-    # Constants from Wang 2004 SSIM paper (DOI 10.1109/TIP.2003.819861).
-    C1 = (0.01 * 1.0) ** 2  # (K1 * L)^2, L=1.0 for normalized images
-    C2 = (0.03 * 1.0) ** 2  # (K2 * L)^2
-
-    ssim_channels = []
-    for ch in range(3):
-        x = img1[..., ch].astype(np.float64)
-        y = img2[..., ch].astype(np.float64)
-
-        mu_x = np.mean(x)
-        mu_y = np.mean(y)
-        sigma_x = np.std(x)
-        sigma_y = np.std(y)
-        sigma_xy = np.mean((x - mu_x) * (y - mu_y))
-
-        numerator = (2 * mu_x * mu_y + C1) * (2 * sigma_xy + C2)
-        denominator = (mu_x**2 + mu_y**2 + C1) * (sigma_x**2 + sigma_y**2 + C2)
-        ssim_ch = numerator / denominator
-        ssim_channels.append(ssim_ch)
-
-    return float(np.mean(ssim_channels))
-
-
-@pytest.mark.xfail(
-    reason="SMS-GPU SSIM parity FROZEN AS LEGACY (owner decision 2026-06-08). The "
-           "Wave-5 glass fix (PR #404) legitimately improved GPU output past the frozen "
-           "parity baseline, so SSIM drifted to ~0.835 < 0.85. SMS-GPU is no longer the "
-           "canonical caustic path — pkg113 forward photon-map is — so this structural "
-           "gate is retired rather than recalibrated. The ROI energy-ratio gate (the "
-           "robust primary check) still asserts. Evidence: pkg64-gpu-hw-sweep-2026-05-31.md.",
-    strict=False,
-)
-def test_pkg64_gpu_cpu_parity_ssim(test_results_dir):
-    """GPU vs CPU SMS parity on the prism scene (pkg64-gpu Session 2).
-
-    LEGACY/xfail since 2026-06-08 — see the xfail marker above. SMS-GPU is frozen;
-    the SSIM gate drifted because the glass fix improved GPU output. Kept for the
-    record + the ROI energy-ratio check; pkg113 photon-map supersedes SMS-GPU.
-
-    Re-spec from the Session 1 deferral: the original SSIM >= 0.97 gate is
-    unreachable for two independent MC streams at this spp — measured CPU-vs-CPU
-    SSIM (same engine, different seed) is only ~0.53 at 256 spp, BELOW the 0.97
-    threshold, so no implementation can clear it (memory
-    `ssim-wrong-gate-for-independent-rng`). Two changes make the gate honest:
-
-      1. Match the integrator: GPU now uses "path_tracer" (NEE) like the CPU side
-         (see _make_prism_scene). The Session 1 test compared GPU
-         "multiwavelength_path_tracer" (NEE OFF, dark floor) against CPU
-         "path_tracer" (NEE ON, lit floor) — an integrator mismatch, not a
-         dispersion gap. Matching lifts SSIM from ~0.49 to ~0.93.
-      2. ROI luminance-parity is the primary robust gate (per the memory above);
-         SSIM is kept as a secondary structural check at a noise-floor-aware
-         threshold (0.85; measured ~0.92-0.93 with the dispersion fix).
-
-    The residual SSIM gap to 0.97 is the documented "Option B (hero-wavelength)
-    stalls at 0.93-0.95" case the spec owner pre-accepted (2026-05-24); a future
-    Option-A (per-wavelength split) session can push higher if needed.
+    Gate = per-channel mean-ratio (NOT SSIM: independent MC streams make SSIM
+    unreachable — CPU-vs-CPU is ~0.53 at this spp; memory
+    ssim-wrong-gate-for-independent-rng) + the caustic-ROI energy ratio. The PNGs
+    are written for the mandatory parent visual check.
     """
     probe = astroray.Renderer()
     if not probe.gpu_available:
         pytest.skip("CUDA GPU not available on this machine")
-
-    baseline_gpu_path = BASELINES_DIR / "parity-gpu.npy"
-    baseline_cpu_path = BASELINES_DIR / "parity-cpu.npy"
 
     # Multi-seed averaging (same seeds for GPU and CPU to compare apples-to-apples).
     test_seeds = (145, 211, 333)
@@ -228,56 +168,38 @@ def test_pkg64_gpu_cpu_parity_ssim(test_results_dir):
     e_cpu = _receiver_energy(cpu_avg)
     energy_ratio = e_gpu / max(e_cpu, 1e-6)
 
-    ssim_val = _ssim(gpu_avg, cpu_avg)
+    gpu_means = np.array([float(gpu_avg[..., c].mean()) for c in range(3)])
+    cpu_means = np.array([float(cpu_avg[..., c].mean()) for c in range(3)])
+    chan_ratio = gpu_means / np.maximum(cpu_means, 1e-6)
 
     print(
-        f"\n[pkg64-gpu Phase 3 GPU/CPU parity] "
-        f"SSIM={ssim_val:.4f}, "
-        f"receiver energy GPU={e_gpu:.4f} CPU={e_cpu:.4f} ratio={energy_ratio:.3f}x"
+        f"\n[pkg64 GPU/CPU wavefront-dispersion parity] "
+        f"receiver energy GPU={e_gpu:.4f} CPU={e_cpu:.4f} ratio={energy_ratio:.3f}x | "
+        f"per-channel mean-ratio GPU/CPU={np.round(chan_ratio, 4)}"
     )
-
-    if not baseline_gpu_path.exists() or not baseline_cpu_path.exists():
-        # First run: capture baselines and skip.
-        baseline_gpu_path.parent.mkdir(parents=True, exist_ok=True)
-        np.save(baseline_gpu_path, gpu_avg)
-        np.save(baseline_cpu_path, cpu_avg)
-        pytest.skip(
-            f"pkg64-gpu Phase 3 GPU/CPU parity baselines not present. "
-            f"Captured GPU baseline at {baseline_gpu_path}, "
-            f"CPU baseline at {baseline_cpu_path}. "
-            f"Measured SSIM {ssim_val:.4f}, energy ratio {energy_ratio:.3f}x. "
-            f"Re-run this test to assert the gates (SSIM >= 0.85 + ROI energy parity)."
-        )
-
-    baseline_gpu = np.load(baseline_gpu_path)
-    baseline_cpu = np.load(baseline_cpu_path)
-    baseline_ssim = _ssim(baseline_gpu, baseline_cpu)
 
     # Primary robust gate (memory ssim-wrong-gate-for-independent-rng): the caustic
-    # ROI luminance must agree GPU vs CPU within a generous band. This catches the
-    # integrator/lighting-divergence class of bug (e.g. the Session 1 NEE mismatch
-    # that put GPU ~16x off) without being fooled by per-pixel MC noise.
+    # ROI luminance must agree GPU vs CPU within a generous band. Catches the
+    # integrator/lighting-divergence class of bug without being fooled by MC noise.
     assert 0.5 <= energy_ratio <= 2.0, (
-        f"pkg64-gpu GPU/CPU parity ROI energy gate FAILED: "
+        f"pkg64 GPU/CPU parity ROI energy gate FAILED: "
         f"GPU/CPU receiver-energy ratio {energy_ratio:.3f}x outside [0.5, 2.0]. "
         f"A gross deviation indicates GPU and CPU are not rendering the same "
-        f"transport (e.g. NEE/integrator mismatch), not a dispersion gap."
+        f"transport, not a dispersion gap."
     )
 
-    # Secondary structural gate: SSIM >= 0.85. The original 0.97 was unreachable for
-    # independent MC streams (CPU-vs-CPU SSIM is ~0.53 at this spp). With matched
-    # integrators the dispersion fix reaches ~0.92-0.93; 0.85 leaves margin while
-    # still distinguishing a correct chromatic caustic (~0.93) from the broken
-    # Session 1 hero-only/mismatch baseline (~0.49-0.52).
-    assert ssim_val >= 0.85, (
-        f"pkg64-gpu GPU/CPU parity SSIM gate FAILED: "
-        f"measured {ssim_val:.4f} < gate 0.85. GPU diverges from CPU structurally "
-        f"(baseline SSIM was {baseline_ssim:.4f}). If baselines were captured "
-        f"incorrectly, delete {baseline_gpu_path} and {baseline_cpu_path}, then re-run."
-    )
+    # Dispersion-aware structural gate: per-channel mean-ratio. A missing hero-λ
+    # collapse on GPU would leave the BK7 sphere brighter/less chromatic than CPU
+    # (the pkg189 no-op signature), pushing a channel outside the band.
+    for c, ch in enumerate("RGB"):
+        assert 0.75 <= chan_ratio[c] <= 1.30, (
+            f"pkg64 GPU/CPU dispersive parity FAILED ch {ch}: mean-ratio "
+            f"{chan_ratio[c]:.4f} outside [0.75, 1.30] "
+            f"(GPU {gpu_means[c]:.4f}, CPU {cpu_means[c]:.4f})."
+        )
 
     print(
-        f"[pkg64-gpu Phase 3 GPU/CPU parity] PASS: "
-        f"SSIM {ssim_val:.4f} >= 0.85, ROI energy ratio {energy_ratio:.3f}x in [0.5,2.0] "
-        f"(baseline SSIM {baseline_ssim:.4f})"
+        f"[pkg64 GPU/CPU wavefront-dispersion parity] PASS: "
+        f"per-channel mean-ratio {np.round(chan_ratio, 4)} in [0.75,1.30], "
+        f"ROI energy ratio {energy_ratio:.3f}x in [0.5,2.0]"
     )

@@ -18,12 +18,11 @@ import os
 
 import numpy as np
 import pytest
-
 from runtime_setup import configure_test_imports
 
 configure_test_imports()
 
-from base_helpers import save_image  # noqa: E402
+from base_helpers import save_image
 
 try:
     import astroray

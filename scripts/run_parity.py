@@ -444,9 +444,9 @@ def _render_once(
         return _run_command([blender, "--background", "--python", str(script)], ROOT, timeout)
 
     # Astroray engines.
-    if scene.scene_id == "cornell" or scene.blend_path is not None:
-        # Cornell uses the in-script Python scene; .blend scenes go through
-        # pkg76's importer (`tools.blend_import.import_blend`).
+    if scene.scene_id in ("cornell", "textured_plane") or scene.blend_path is not None:
+        # Cornell and pkg190's textured_plane use in-script Python scene-specs;
+        # .blend scenes go through pkg76's importer (`tools.blend_import.import_blend`).
         if scene.blend_path is not None and not scene.blend_path.exists():
             return 0.0, 0.0, "scene_blend_not_found"
         device = "gpu" if engine == "astroray-gpu" else "cpu"
@@ -509,6 +509,26 @@ def _ssim(output: Path, reference: Path) -> str:
         return ""
 
 
+def _read_exr_float(path: Path):
+    """Read a linear float EXR as an (H,W,3) float64 RGB array. Uses OpenCV
+    (IMREAD_UNCHANGED) — imageio 2.37's default EXR plugin silently returns
+    uint8 with a zeroed channel for these files, which nan-poisons a mean-ratio;
+    cv2 returns the true float32 data (verified). cv2 reads BGR, so reverse to
+    RGB. Returns None on failure."""
+    import os
+    os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
+    import numpy as np  # type: ignore
+    import cv2  # type: ignore
+
+    img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if img is None:
+        return None
+    img = np.asarray(img, dtype="float64")
+    if img.ndim != 3 or img.shape[2] < 3:
+        return None
+    return img[..., 2::-1]  # BGR(A) -> RGB
+
+
 def _mean_ratio(output: Path, reference: Path) -> str:
     """pkg190 — per-channel mean-ratio (output/reference), as "r,g,b". The
     procedural CPU/GPU parity oracle: robust to independent-RNG MC noise (which
@@ -516,14 +536,9 @@ def _mean_ratio(output: Path, reference: Path) -> str:
     if not output.exists() or not reference.exists():
         return ""
     try:
-        import os
-        os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
-        import imageio.v3 as iio  # type: ignore
-        import numpy as np  # type: ignore
-
-        a = iio.imread(output).astype("float64")[..., :3]
-        b = iio.imread(reference).astype("float64")[..., :3]
-        if a.shape != b.shape:
+        a = _read_exr_float(output)
+        b = _read_exr_float(reference)
+        if a is None or b is None or a.shape != b.shape:
             return ""
         am = a.reshape(-1, 3).mean(axis=0)
         bm = b.reshape(-1, 3).mean(axis=0)

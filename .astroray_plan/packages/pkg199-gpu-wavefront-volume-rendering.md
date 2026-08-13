@@ -2,7 +2,7 @@
 
 **Pillar:** 5 / integration-first (also 3 — CPU↔GPU parity)
 **Track:** A
-**Status:** Stage 1 done (PR #TBD, 2026-08-14 — GPU wavefront homogeneous-world
+**Status:** Stage 1 done (PR #611, 2026-08-14 — GPU wavefront homogeneous-world
 Beer-Lambert absorption at CPU parity; furnace Tr matches analytic exp(-σ·d) to
 <0.02; shade kernel byte-identical REG 254/STACK 3352/CONST 1700). Stage 2 open
 (spec-only below — full scattering medium).

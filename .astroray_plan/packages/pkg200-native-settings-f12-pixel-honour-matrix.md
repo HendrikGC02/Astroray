@@ -63,3 +63,113 @@ For a sample of `dropped` controls (camera `type`/`clip_end`/bokeh, per-light `s
 ## Provenance
 
 Filed by the architect 2026-08-14 from the pkg176 Stage 4 deferral (NEXT_STAGE_REPORT §2 item 5). Grounded in the current addon code (`blender_addon/settings_map.py` MAPPING, `native_settings.py`, `__init__.py::convert_scene` F12 setter block ~L1804–1916, `ADOPTED_NATIVE_PANELS` ~L5824), not report prose. Splits the honour axis (this package) cleanly from the parity axis (pkg119-B/pkg180).
+
+## Hardware verification 2026-08-14 (PR #616)
+
+Independent RTX re-verification of PR #616 (branch `pkg200`, HEAD
+`83c1db58a55ff720d18f78f44b7ac7123b73183c`). Code review already signed off;
+CI green. This session is the RTX leg only — driver run VERBATIM, output
+compared row-by-row against the checked-in
+`.astroray_plan/docs/pkg200-honour-matrix-results.md`.
+
+**Hardware:** RTX 5070 Ti, driver 610.47, CUDA 12.8 (nvcc V12.8.61), OptiX SDK
+9.1.0, Windows 11 Enterprise 10.0.26200.
+
+**`.pyd`:** `build_blender_addon_cuda/astroray.cp313-win_amd64.pyd` /
+`dist/astroray/astroray.cp313-win_amd64.pyd`, mtime 2026-08-14 08:58:42.
+Branch HEAD (83c1db5, 09:24:36) is docs-only (`results.md` only —
+`git show --stat -1 HEAD` confirmed no code changes since the .pyd was
+built at commit f5ea66a); `.pyd` is current, not stale. `git status --porcelain`
+on the worktree after the full run showed zero source-tree modifications
+(driver is read-only against engine/addon code, per protocol requirement).
+
+**Command run verbatim (both Blender versions, single invocation, foreground,
+under the claimed GPU lock):**
+```
+python scripts/verify_pkg200_honour_matrix_run.py \
+  --addon-dir dist/astroray \
+  --blender "C:/Program Files/Blender Foundation/Blender 5.1/blender.exe" \
+  --blender "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" \
+  --out test_results/pkg200_honour_verify616
+```
+
+**Result: reproduced exactly.** All 25 rows × 2 Blender versions (50 legs)
+byte-identical between 5.1 and 5.2, and byte-identical to the PR's own run.
+Verdict tally: **8 PASS / 13 HONEST-FAIL / 2 NEEDS-VISUAL / 2 LIMITATION**
+(matches claimed tally exactly).
+
+| Stage | Row | Verdict | Measured (bl5.1 == bl5.2, LINEAR) |
+|---|---|---|---|
+| 0 | resolution | PASS | shape A=(64,64) B=(96,96) |
+| 1 | max_bounces | PASS | lum_mean A=0.034429 B=0.43035 ratio=12.500 |
+| 1 | diffuse_bounces | HONEST-FAIL | lum_mean 0.4304 = 0.4304 ratio=1.000 |
+| 1 | glossy_bounces | HONEST-FAIL | lum_mean 0.69523 = 0.69523 ratio=1.000 |
+| 1 | transmission_bounces | HONEST-FAIL | lum_mean 0.50562 = 0.50562 ratio=1.000 |
+| 1 | transparent_max_bounces | HONEST-FAIL | lum_mean 0.37626 = 0.37626 ratio=1.000 |
+| 1 | volume_bounces | HONEST-FAIL | lum_mean 0.049998 = 0.049998 ratio=1.000 |
+| 1 | world_max_bounces | HONEST-FAIL | lum_mean 1.0971 = 1.0971 ratio=1.000 |
+| 2 | sample_clamp_direct | PASS | hi_pct 26.82→0.5071; lum_max 28.37→0.5082 |
+| 2 | sample_clamp_indirect | NEEDS-VISUAL | hi_pct A=1496 B=1496; lum_max A=1670 B=1670 (inconclusive per spec) |
+| 2 | blur_glossy | HONEST-FAIL | lum_max 28.37 = 28.37 |
+| 3 | film_exposure | PASS | per-ch mean-ratio B/A = 2.000, 2.000, 2.000 |
+| 3 | film_transparent | HONEST-FAIL | alpha_mean 1.000 = 1.000 |
+| 3 | film_transparent_glass | HONEST-FAIL | \|dLum\| mean ~4e-10 |
+| 3 | samples | PASS | MC-noise 16spp=0.007807 → 64spp=0.003982, ratio=0.510 (~1/√4); mean ratio=1.000 |
+| 3 | seed_distinct | PASS | lum_mean ratio=0.998, \|dLum\| mean=0.2216 |
+| 3 | seed_repeat | PASS | \|dLum\| max=1.45e-07 (reproducible ≤1e-5) |
+| 3 | preview_samples | LIMITATION | viewport-only |
+| 4 | caustics_reflective | HONEST-FAIL | \|dLum\| mean ~5e-11 |
+| 4 | caustics_refractive | HONEST-FAIL | \|dLum\| mean ~3e-11 |
+| 4 | pixel_filter_type | HONEST-FAIL | grad_mean 0.21583 = 0.21583 |
+| 4 | filter_width | HONEST-FAIL | grad_mean 0.21583 = 0.21583 |
+| 4 | use_denoising | PASS | lum_var ratio 0.788 |
+| 4 | denoiser | NEEDS-VISUAL | A mean=0.4817, B mean=0.4817, \|dLum\|=0 |
+| 4 | use_preview_denoising | LIMITATION | viewport-only |
+
+**Visual inspection (multimodal `Read`, independent of the PR's own
+inspection):**
+- `use_denoising` A (noisy) vs B (denoised): A is heavy salt-and-pepper MC
+  noise across the whole Cornell box; B is a clean box, red/green walls,
+  visible ceiling light, no denoiser artifacts, not garbage. Honour confirmed.
+- `denoiser` OIDN (A) vs OPTIX (B): both render clean, visually
+  indistinguishable Cornell boxes — consistent with the numeric \|dLum\|=0
+  finding (Finding G: backend selector may not actually switch backends).
+- `caustics_reflective` / `caustics_refractive` A vs B: both flat, uniform
+  dark-gray frames, no caustic visible in either — confirms the toggle is
+  inert on GPU (Finding E), not a rendering failure.
+- `film_transparent_glass` A vs B: both a flat, uniform sky-blue background,
+  no alpha transparency visible in either — confirms Finding F (transparent
+  film not honoured on GPU).
+- `sample_clamp_indirect` A vs B (manually tonemapped from the LINEAR EXRs,
+  since this row is `kind=automatable` and the driver only writes PNGs for
+  `kind=visual` rows): visually near-identical, same dominant bright firefly
+  in both. One anomaly worth flagging: a **direct pixel diff of the raw EXRs
+  found max\|Δ\|≈89 luminance units at a secondary (non-peak) pixel
+  (80,57)** — not at the reported peak (which is genuinely unchanged,
+  explaining why `hi_pct`/`lum_max` read identical at 4 sig figs). Given
+  pinned nonzero seeds, a same-seed A/B pair should ideally be bit-identical
+  when a setting has zero causal effect; this small secondary-pixel delta
+  suggests `sample_clamp_indirect` may have a minor knock-on effect on
+  Russian-roulette termination or accumulation order at non-peak pixels, even
+  though it does not touch the classified-as-direct firefly. This does not
+  change the row's NEEDS-VISUAL verdict (the PR's own predicate already
+  correctly classified this as inconclusive rather than PASS/FAIL), but the
+  root cause of the secondary-pixel delta is unexplained and worth a note for
+  whoever picks up the pkg157 clampIndirect follow-up.
+
+**Anomaly disposition:** the `sample_clamp_indirect` secondary-pixel delta
+above is a numerical curiosity flagged for follow-up context, not a gate
+failure — the row was already recorded NEEDS-VISUAL (not PASS) by the PR, and
+my independent run reproduces that same inconclusive numeric signature
+exactly. No other visual regressions found; no fireflies/banding/NaN pixels/
+mode regressions observed in the 10 PNGs inspected across the `visual`-kind
+rows.
+
+**Verdict: PASS.** All numbers reproduce exactly (byte-identical to the PR's
+own sweep, deterministic across Blender 5.1/5.2); verdict tally matches
+claimed 8/13/2/2; visual inspection confirms all `visual`-kind and both
+`NEEDS-VISUAL` rows match their reported behavior with no hidden regressions.
+Driver confirmed read-only (no source-tree modification). Findings A–G, I and
+the `use_light_tree` known gap are unchanged follow-up items, not gates on
+this package (per its own non-goals — verification/bug-filing only).
+

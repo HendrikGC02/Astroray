@@ -26,6 +26,7 @@ new reusable script, register it here in the same commit.
 | Render-output triage | `scripts/diagnostics/render_output_triage.py` |
 | Denoiser A/B | `scripts/diagnostics/oidn_comparison.py` |
 | Roadmap orchestrator tick | `scripts/orchestrator_tick.ps1` → `python -m roadmap_orchestrator.cli` |
+| Native-settings F12 pixel-honour A/B matrix (does each adopted Blender/Cycles control actually change the render?) | `scripts/verify_pkg200_honour_matrix_run.py` (outer, cv2/per-channel mean-ratio) + `verify_pkg200_honour_matrix.py` (in-Blender A/B leg) + `pkg200_honour_matrix.py` (pure contract/predicate layer, enumerated from `settings_map.py`) |
 | Import a .blend without Blender | `tools/blend_import/blend_to_astroray.py` |
 | Spectral data/profile generation | `scripts/data/generate_spectrum_data.py`, `build_spectral_profiles.py` |
 
@@ -50,5 +51,8 @@ delete either; a future package may unify them.
 | [`roadmap_orchestrator/`](roadmap_orchestrator/) | The orchestrator subsystem behind `/roadmap-orchestrator`. |
 
 One-off package-verification scripts (`verify_pkgNNN_*.py`) are deleted once
-their package closes — the PR + STATUS.md hold the evidence. Only
-`scripts/verify_pkg175_smoke_blender.py` remains (wired into `dev_addon.ps1`).
+their package closes — the PR + STATUS.md hold the evidence. Exceptions that
+REMAIN because they are reusable harnesses (registered in the table above):
+`scripts/verify_pkg175_smoke_blender.py` (wired into `dev_addon.ps1`) and the
+`scripts/verify_pkg200_honour_matrix*.py` + `pkg200_honour_matrix.py` A/B
+honour driver.

@@ -198,15 +198,21 @@ def main():
         sys.exit(1)
 
 
-try:
-    main()
-except SystemExit:
-    raise
-except BaseException as exc:  # noqa: BLE001
-    import traceback
-    traceback.print_exc()
-    token = REGISTER_TOKEN if MODE == "register" else SMOKE_TOKEN
-    print()
-    print(f"{token} FAIL")
-    print(f"PKG175_ERROR {type(exc).__name__}: {exc}")
-    sys.exit(1)
+# Guard under __main__ so the dev-loop invocation (`blender --python
+# verify_pkg175_smoke_blender.py`, __name__ == "__main__") runs the gate
+# unchanged, while `import verify_pkg175_smoke_blender` (pkg200's honour leg
+# reuses `_bootstrap`) does NOT trigger a render. No behaviour change for the
+# pkg175 dev loop.
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        token = REGISTER_TOKEN if MODE == "register" else SMOKE_TOKEN
+        print()
+        print(f"{token} FAIL")
+        print(f"PKG175_ERROR {type(exc).__name__}: {exc}")
+        sys.exit(1)

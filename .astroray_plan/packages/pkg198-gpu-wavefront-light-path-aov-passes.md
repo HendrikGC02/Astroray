@@ -2,7 +2,7 @@
 
 **Pillar:** 5 / integration-first (also 3 — CPU↔GPU parity)
 **Track:** A
-**Status:** Stage 1 (CPU classification) — done (PR #TBD, 2026-08-14 — sum-to-beauty rel_L1
+**Status:** Stage 1 (CPU classification) — done (PR #614, 2026-08-14 — sum-to-beauty rel_L1
 0.0000, per-channel ratio 1.000/1.000/1.000; isolated-lobe leak <1e-2). Stage 2 (GPU wavefront
 mirror + register probe) — **open, probe-first, may-park**.
 **Estimated effort:** Stage 1 = M (landed). Stage 2 = L (register-hostile — the up-front probe

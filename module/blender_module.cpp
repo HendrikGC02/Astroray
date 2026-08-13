@@ -2325,12 +2325,18 @@ public:
         integratorParams_.set("output_mode", mode);
     }
 
-    void setMaterialSpectralProfile(int materialId, const std::string& profileName) {
+    void setMaterialSpectralProfile(int materialId, const std::string& profileName,
+                                    bool replace = false) {
         auto it = materials.find(materialId);
         if (it == materials.end()) return;
         auto& db = astroray::SpectralProfileDatabase::instance();
         const auto* profile = db.get(profileName);
-        if (profile) it->second->setSpectralProfile(profile);
+        // pkg195 Stage C: `replace` picks Replace mode (authored SPD drives all λ,
+        // set by source nodes wired to a Surface); the pkg58 material-panel
+        // fallback passes replace=false (ExtendOnly — out-of-band only).
+        if (profile) it->second->setSpectralProfile(
+            profile, replace ? astroray::ProfileMode::Replace
+                             : astroray::ProfileMode::ExtendOnly);
     }
 
     void clearMaterialSpectralProfile(int materialId) {
@@ -3028,8 +3034,10 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_output_mode", &PyRenderer::setOutputMode, "mode"_a,
              "Output mode: 'xyz' (visible) or 'luminance' (IR/UV).")
         .def("set_material_spectral_profile", &PyRenderer::setMaterialSpectralProfile,
-             "material_id"_a, "profile_name"_a,
-             "Attach a spectral profile to a material for outside-visible rendering.")
+             "material_id"_a, "profile_name"_a, "replace"_a = false,
+             "Attach a spectral profile to a material. replace=False (default) is "
+             "ExtendOnly (out-of-band only, pkg58 fallback); replace=True is "
+             "Replace mode (authored SPD drives all wavelengths, pkg195 Stage C).")
         .def("clear_material_spectral_profile", &PyRenderer::clearMaterialSpectralProfile,
              "material_id"_a,
              "Remove the spectral profile from a material.");
@@ -3784,7 +3792,22 @@ PYBIND11_MODULE(astroray, m) {
     }, "path"_a, "Load the ASPR profiles.bin database.");
     m.def("spectral_profile_names", []() {
         return astroray::SpectralProfileDatabase::instance().names();
-    }, "Return names of all loaded spectral profiles.");
+    }, "Return names of all loaded spectral profiles (file + runtime).");
+    // pkg195 Stage C: register (or overwrite) a runtime spectral profile from a
+    // regular λ grid. Drawn / preset / baked-blackbody spectra register under
+    // __blend__/<owner>/<node> names and then participate in everything existing
+    // (material attach, emission MeasuredSPD, GPU profile-table upload). Returns
+    // True on success (non-empty values, positive step).
+    m.def("register_spectral_profile",
+          [](const std::string& name, float lambda_min_nm, float lambda_step_nm,
+             const std::vector<float>& values) -> bool {
+        const auto* p = astroray::SpectralProfileDatabase::instance().registerProfile(
+            name, lambda_min_nm, lambda_step_nm, values);
+        return p != nullptr;
+    }, "name"_a, "lambda_min_nm"_a, "lambda_step_nm"_a, "values"_a,
+       "Register a runtime spectral profile sampled on a regular grid "
+       "(lambda_min_nm + i*lambda_step_nm). Overwrites an existing runtime "
+       "profile of the same name in place.");
     m.def("spectral_profile_reflectance", [](const std::string& name, float lambda_nm) -> float {
         const auto* p = astroray::SpectralProfileDatabase::instance().get(name);
         if (!p) return 0.0f;

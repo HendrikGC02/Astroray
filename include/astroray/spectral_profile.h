@@ -8,9 +8,21 @@
 
 #include <string>
 #include <vector>
+#include <deque>
 #include <unordered_map>
 
 namespace astroray {
+
+// pkg195 Stage C: how a material consults an attached SpectralProfile.
+//   ExtendOnly (default) — profile drives only λ outside the visible band
+//     [380, 780] nm; the visible band keeps the Jakob-Hanika RGB path. This is
+//     the pkg39 behaviour; old scenes and the pkg58 material-panel fallback
+//     keep it (no behaviour change).
+//   Replace — the profile drives ALL λ (visible included), bypassing the JH
+//     upsample entirely (design doc §3.1 principle 2: an authored SPD must never
+//     round-trip through RGB). The Spectral Profile / Spectrum Preset / Drawn
+//     Spectrum source nodes wired to a Surface set this.
+enum class ProfileMode { ExtendOnly, Replace };
 
 // Non-owning view of one material's reflectance curve from the ASPR database.
 // Thread-safe: read-only after construction.
@@ -56,11 +68,22 @@ public:
 // Loads and owns the ASPR binary database (profiles.bin from pkg38).
 // Call load() once at startup; all subsequent get() calls are read-only.
 class SpectralProfileDatabase {
-    std::vector<float> storage_;                     // all float32 data
+    std::vector<float> storage_;                     // all float32 data (from file)
     std::vector<SpectralProfile> profiles_;          // views into storage_
     std::vector<std::string>    names_;              // parallel to profiles_
     std::unordered_map<std::string, int> index_;     // name → profiles_ index
     bool loaded_ = false;
+
+    // pkg195 Stage C: runtime-registered profiles (register_spectral_profile).
+    // Kept in pointer-stable containers (std::deque never invalidates element
+    // addresses on push_back, unlike std::vector) because materials cache a
+    // SpectralProfile* across a render — appending a new runtime profile must
+    // not dangle those pointers. Re-registering an existing runtime name
+    // overwrites its slot IN PLACE (the SpectralProfile view is rebuilt over the
+    // refreshed buffer) so the cached pointer stays valid.
+    std::deque<std::vector<float>> runtimeStorage_;
+    std::deque<SpectralProfile>    runtimeProfiles_;
+    std::unordered_map<std::string, int> runtimeIndex_;  // name → runtimeProfiles_ index
 
     SpectralProfileDatabase() = default;
 public:
@@ -72,7 +95,17 @@ public:
     // Returns nullptr when the name is not in the database.
     const SpectralProfile* get(const std::string& name) const;
 
-    const std::vector<std::string>& names() const { return names_; }
+    // pkg195 Stage C: insert (or overwrite) a runtime profile from raw samples on
+    // a regular λ grid. Returns a stable pointer to the stored profile. `values`
+    // is the sample array; the grid is lambda_min_nm + i*lambda_step_nm.
+    const SpectralProfile* registerProfile(const std::string& name,
+                                           float lambda_min_nm,
+                                           float lambda_step_nm,
+                                           const std::vector<float>& values);
+
+    // All profile names (file + runtime), file order first. Returned by value
+    // because runtime names are held in a separate container.
+    std::vector<std::string> names() const;
     bool loaded() const { return loaded_; }
 };
 

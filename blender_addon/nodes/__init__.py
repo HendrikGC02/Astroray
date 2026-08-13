@@ -25,6 +25,8 @@ CLAUDE.md §3 "surgical changes").
 """
 from __future__ import annotations
 
+import math
+
 import bpy
 from bpy.props import (
     BoolProperty,
@@ -37,6 +39,20 @@ from bpy.props import (
 
 
 ENGINE_ID = "CUSTOM_RAYTRACER"
+
+# pkg195 Stage C: default authoring range for drawn/baked spectra. The DB grid
+# is 5 nm; drawn curves resample onto the same step so drawn and preset spectra
+# behave identically downstream (design doc §3.4).
+DRAWN_SPECTRUM_STEP_NM = 5.0
+
+# Emission-category (category 7) lamp SPDs shipped in profiles.bin. The DB does
+# not expose category in-memory, so the Spectrum Preset node filters names
+# against this known set (mirrors blender_addon/__init__.py:_EMISSION_PROFILE_NAMES).
+_EMISSION_PROFILE_NAMES = frozenset((
+    'sodium_vapor', 'mercury_vapor',
+    'cie_f2', 'cie_f3',
+    'led_3000k', 'led_5000k', 'led_6500k',
+))
 
 
 # --------------------------------------------------------------------------- #
@@ -82,6 +98,124 @@ def _sellmeier_preset_items(self, context):
     if not items:
         items = list(_SELLMEIER_FALLBACK_PRESETS)
     return items
+
+
+def _spectrum_preset_items(self, context):
+    """Two-tier Spectrum Preset dropdown: profiles filtered by the node's
+    `category` (reflectance = DB categories 0-6, emission = category 7). Category
+    is not exposed in-memory, so emission is filtered by the known name set."""
+    want_emission = getattr(self, "category", "reflectance") == "emission"
+    items = []
+    try:
+        import astroray  # type: ignore
+        if hasattr(astroray, "spectral_profile_names"):
+            for n in astroray.spectral_profile_names():
+                is_emission = n in _EMISSION_PROFILE_NAMES
+                if is_emission == want_emission:
+                    items.append((n, n.replace("_", " ").title(), ""))
+    except Exception:
+        pass
+    if not items:
+        items = [("__none__", "<None>", "No matching preset in the profile DB")]
+    return items
+
+
+# --------------------------------------------------------------------------- #
+# pkg195 Stage C: drawn-curve + blackbody spectrum sampling helpers. Both
+# produce a regular-grid float array that astroray.register_spectral_profile
+# consumes; drawn and preset spectra share the 5 nm DB grid so they behave
+# identically downstream.
+# --------------------------------------------------------------------------- #
+
+def spectrum_grid(lmin: float, lmax: float, step: float = DRAWN_SPECTRUM_STEP_NM):
+    """(count, clamped_lmin, clamped_lmax) for a regular grid; count >= 2."""
+    lmin = float(lmin)
+    lmax = float(lmax)
+    if lmax < lmin:
+        lmin, lmax = lmax, lmin
+    if lmax - lmin < step:
+        lmax = lmin + step
+    count = round((lmax - lmin) / step) + 1
+    return max(count, 2), lmin, lmax
+
+
+def _drawn_curve_node(node):
+    """Resolve the hidden ShaderNodeFloatCurve that stores this Drawn Spectrum
+    node's CurveMapping, or None when unavailable (e.g. CI bpy stub)."""
+    grp_name = getattr(node, "curve_group", "") or ""
+    if not grp_name:
+        return None
+    groups = getattr(getattr(bpy, "data", None), "node_groups", None)
+    if groups is None:
+        return None
+    grp = groups.get(grp_name)
+    if grp is None:
+        return None
+    return grp.nodes.get("curve")
+
+
+def sample_drawn_spectrum(node, step: float = DRAWN_SPECTRUM_STEP_NM):
+    """Evaluate a Drawn Spectrum node's CurveMapping on its [λmin, λmax] grid.
+    Returns (lambda_min_nm, step_nm, values) or None if the curve is missing.
+    The curve's X input 0..1 maps linearly to [λmin, λmax]; Y is the value."""
+    fc = _drawn_curve_node(node)
+    if fc is None:
+        return None
+    mapping = getattr(fc, "mapping", None)
+    if mapping is None:
+        return None
+    try:
+        mapping.update()
+    except Exception:
+        pass
+    try:
+        curve = mapping.curves[0]
+    except (IndexError, AttributeError):
+        return None
+    count, lmin, lmax = spectrum_grid(
+        getattr(node, "lambda_min", 300.0), getattr(node, "lambda_max", 1000.0), step)
+    span = lmax - lmin
+    values = []
+    for i in range(count):
+        wl = lmin + i * step
+        x = (wl - lmin) / span if span > 0.0 else 0.0
+        try:
+            y = float(mapping.evaluate(curve, x))
+        except (AttributeError, TypeError):
+            y = 0.0
+        values.append(max(0.0, y))
+    return lmin, step, values
+
+
+# Planck's law (textbook; CLAUDE.md §6 trivial): spectral radiance shape only.
+# Absolute scale is irrelevant — a MeasuredSPD is a *relative* SPD and the light
+# energy slider carries magnitude. `normalize` peak-normalizes to max 1.0 for a
+# stable relative curve (the engine's native blackbody light mode does the exact
+# pkg122 photopic-luminance normalization; this node authors a relative SPD).
+def _planck_radiance(lambda_nm: float, temperature_K: float) -> float:
+    h = 6.62607015e-34
+    c = 2.99792458e8
+    kB = 1.380649e-23
+    lam = lambda_nm * 1e-9
+    if lam <= 0.0 or temperature_K <= 0.0:
+        return 0.0
+    x = (h * c) / (lam * kB * temperature_K)
+    if x > 700.0:  # avoid overflow in exp; radiance ~ 0 here
+        return 0.0
+    return (2.0 * h * c * c) / (lam ** 5 * (math.expm1(x)))
+
+
+def bake_blackbody_spectrum(temperature_K: float, normalize: bool,
+                            lmin: float = 300.0, lmax: float = 1000.0,
+                            step: float = DRAWN_SPECTRUM_STEP_NM):
+    """Bake a Planck SPD onto a regular grid. Returns (lambda_min_nm, step, values)."""
+    count, lmin, lmax = spectrum_grid(lmin, lmax, step)
+    values = [_planck_radiance(lmin + i * step, temperature_K) for i in range(count)]
+    if normalize:
+        peak = max(values) if values else 0.0
+        if peak > 0.0:
+            values = [v / peak for v in values]
+    return lmin, step, values
 
 
 # --------------------------------------------------------------------------- #
@@ -299,6 +433,203 @@ class AstrorayShaderNodeNrcHint(_AstrorayNodeBase, bpy.types.ShaderNode):
 
 
 # --------------------------------------------------------------------------- #
+# 6. AstrorayShaderNodeSpectrumPreset — two-tier preset dropdown source.
+#    Replaces the bare Spectral Profile node as the source in new trees; the
+#    old node stays registered for .blend compat (pkg195 Stage C item 3).
+# --------------------------------------------------------------------------- #
+
+class AstrorayShaderNodeSpectrumPreset(_AstrorayNodeBase, bpy.types.ShaderNode):
+    bl_idname = "AstrorayShaderNodeSpectrumPreset"
+    bl_label = "Astroray Spectrum Preset"
+    bl_icon = "COLOR"
+
+    category: EnumProperty(
+        name="Category",
+        description="Reflectance presets (materials) or emission presets (lamps)",
+        items=[
+            ("reflectance", "Reflectance", "Material reflectance spectra"),
+            ("emission", "Emission", "Lamp / illuminant emission spectra"),
+        ],
+        default="reflectance",
+    )
+    profile: EnumProperty(
+        name="Preset",
+        description="Spectral profile from the Astroray DB, filtered by category",
+        items=_spectrum_preset_items,
+    )
+
+    def init(self, context):
+        self.outputs.new("NodeSocketShader", "BSDF")
+
+    def draw_buttons(self, context, layout):
+        layout.prop(self, "category", text="")
+        layout.prop(self, "profile", text="")
+
+
+# --------------------------------------------------------------------------- #
+# 7. AstrorayShaderNodeDrawnSpectrum — the owner's headline ask: draw exactly
+#    which wavelengths to emit/absorb via Blender's native CurveMapping widget
+#    (hidden ShaderNodeFloatCurve in a private node group; design doc §3.4).
+# --------------------------------------------------------------------------- #
+
+class AstrorayShaderNodeDrawnSpectrum(_AstrorayNodeBase, bpy.types.ShaderNode):
+    bl_idname = "AstrorayShaderNodeDrawnSpectrum"
+    bl_label = "Astroray Drawn Spectrum"
+    bl_icon = "FCURVE"
+
+    lambda_min: FloatProperty(
+        name="lambda min (nm)", description="Left edge of the drawn range",
+        default=300.0, min=100.0, max=3000.0,
+    )
+    lambda_max: FloatProperty(
+        name="lambda max (nm)", description="Right edge of the drawn range",
+        default=1000.0, min=100.0, max=3000.0,
+    )
+    semantic: EnumProperty(
+        name="Semantic",
+        description="How the drawn curve is interpreted where it is wired",
+        items=[
+            ("reflectance", "Reflectance", "λ → reflectance [0,1] for a surface"),
+            ("emission", "Emission", "λ → relative emission for a light"),
+        ],
+        default="reflectance",
+    )
+    # Name of the hidden node group holding the drawable CurveMapping. The .blend
+    # stores the curve; the node stores only this reference.
+    curve_group: StringProperty(default="")
+
+    def _ensure_curve_group(self):
+        groups = getattr(getattr(bpy, "data", None), "node_groups", None)
+        if groups is None:
+            return None
+        grp = groups.get(self.curve_group) if self.curve_group else None
+        if grp is None:
+            grp = groups.new(name="_AstrorayDrawnSpectrum", type="ShaderNodeTree")
+            try:
+                grp.use_fake_user = True
+            except AttributeError:
+                pass
+            fc = grp.nodes.new("ShaderNodeFloatCurve")
+            fc.name = "curve"
+            self.curve_group = grp.name
+        return grp
+
+    def init(self, context):
+        self.outputs.new("NodeSocketShader", "BSDF")
+        try:
+            self._ensure_curve_group()
+        except Exception:
+            pass
+
+    def copy(self, src_node):
+        # A duplicated node must own an independent curve so edits don't alias
+        # the original (memory id-node-cache-aliasing lesson: never share curve
+        # state across nodes). Force a fresh group on copy.
+        self.curve_group = ""
+        try:
+            self._ensure_curve_group()
+        except Exception:
+            pass
+
+    def draw_buttons(self, context, layout):
+        col = layout.column(align=True)
+        col.prop(self, "semantic", text="")
+        row = col.row(align=True)
+        row.prop(self, "lambda_min")
+        row.prop(self, "lambda_max")
+        fc = _drawn_curve_node(self)
+        if fc is not None and hasattr(layout, "template_curve_mapping"):
+            layout.template_curve_mapping(fc, "mapping")
+        else:
+            layout.label(text="Draw λ → value curve (unavailable here)", icon="FCURVE")
+        layout.operator("astroray.bake_spectrum_profile", icon="FILE_TICK")
+
+
+# --------------------------------------------------------------------------- #
+# 8. AstrorayShaderNodeBlackbodySpectrum — Planck emission source (Phase 1:
+#    emission only; bakes a Planck SPD a light's Custom Profile mode can use).
+# --------------------------------------------------------------------------- #
+
+class AstrorayShaderNodeBlackbodySpectrum(_AstrorayNodeBase, bpy.types.ShaderNode):
+    bl_idname = "AstrorayShaderNodeBlackbodySpectrum"
+    bl_label = "Astroray Blackbody Spectrum"
+    bl_icon = "LIGHT_SUN"
+
+    temperature: FloatProperty(
+        name="Temperature (K)", description="Blackbody temperature",
+        default=6500.0, min=800.0, max=20000.0,
+    )
+    normalize: BoolProperty(
+        name="Normalize (peak)",
+        description="Peak-normalize the baked SPD to 1.0 (relative curve). The "
+                    "engine's native blackbody light mode does exact photopic "
+                    "normalization; this authors a relative emission SPD.",
+        default=True,
+    )
+
+    def init(self, context):
+        self.outputs.new("NodeSocketShader", "BSDF")
+
+    def draw_buttons(self, context, layout):
+        layout.prop(self, "temperature")
+        layout.prop(self, "normalize")
+        layout.operator("astroray.bake_spectrum_profile", icon="FILE_TICK")
+
+
+# --------------------------------------------------------------------------- #
+# Bake operator — registers the active Drawn/Blackbody node's spectrum as a
+# runtime profile so a light's Custom Profile dropdown can reference it by name
+# without a full render first (design doc §3.4 export-at-translation is the
+# material path; this is the explicit bridge for the light-emission path).
+# --------------------------------------------------------------------------- #
+
+def drawn_spectrum_profile_name(node, owner_name: str = "node") -> str:
+    """Stable __blend__/<owner>/<node> name for a source node's runtime profile."""
+    return f"__blend__/{owner_name}/{getattr(node, 'name', 'spectrum')}"
+
+
+class ASTRORAY_OT_bake_spectrum_profile(bpy.types.Operator):
+    bl_idname = "astroray.bake_spectrum_profile"
+    bl_label = "Bake to Profile"
+    bl_description = ("Register this spectrum as a runtime Astroray profile so a "
+                      "light's Custom Profile mode can use it by name")
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        node = getattr(context, "active_node", None)
+        if node is None:
+            self.report({'ERROR'}, "No active node")
+            return {'CANCELLED'}
+        bl_idname = getattr(node, "bl_idname", "")
+        if bl_idname == "AstrorayShaderNodeDrawnSpectrum":
+            sampled = sample_drawn_spectrum(node)
+        elif bl_idname == "AstrorayShaderNodeBlackbodySpectrum":
+            sampled = bake_blackbody_spectrum(
+                float(getattr(node, "temperature", 6500.0)),
+                bool(getattr(node, "normalize", True)))
+        else:
+            self.report({'ERROR'}, "Active node is not a spectrum source")
+            return {'CANCELLED'}
+        if not sampled:
+            self.report({'ERROR'}, "Could not evaluate the spectrum curve")
+            return {'CANCELLED'}
+        lmin, step, values = sampled
+        try:
+            import astroray  # type: ignore
+        except ImportError:
+            self.report({'ERROR'}, "astroray engine module not available")
+            return {'CANCELLED'}
+        owner = getattr(getattr(context, "material", None), "name", None) or "scene"
+        name = drawn_spectrum_profile_name(node, owner)
+        ok = bool(astroray.register_spectral_profile(name, lmin, step, list(values)))
+        if not ok:
+            self.report({'ERROR'}, "register_spectral_profile failed")
+            return {'CANCELLED'}
+        self.report({'INFO'}, f"Registered spectral profile '{name}'")
+        return {'FINISHED'}
+
+
+# --------------------------------------------------------------------------- #
 # Per-material PropertyGroup. Pattern from
 # intern/cycles/blender/addon/properties.py:CyclesMaterialSettings (Apache-2.0).
 # --------------------------------------------------------------------------- #
@@ -330,6 +661,9 @@ class AstrorayMaterialSettings(bpy.types.PropertyGroup):
 
 _ASTRORAY_NODE_TYPES = [
     ("Astroray Output",          "AstrorayOutputNode"),
+    ("Astroray Spectrum Preset", "AstrorayShaderNodeSpectrumPreset"),
+    ("Astroray Drawn Spectrum",  "AstrorayShaderNodeDrawnSpectrum"),
+    ("Astroray Blackbody Spectrum", "AstrorayShaderNodeBlackbodySpectrum"),
     ("Astroray Spectral Profile","AstrorayShaderNodeSpectralProfile"),
     ("Astroray Sellmeier Glass", "AstrorayShaderNodeSellmeierGlass"),
     ("Astroray IR/UV Response",  "AstrorayShaderNodeIrUvResponse"),
@@ -377,6 +711,9 @@ SOCKET_CLASSES = (
 NODE_CLASSES = (
     AstrorayOutputNode,
     AstrorayShaderNodeSpectralProfile,
+    AstrorayShaderNodeSpectrumPreset,
+    AstrorayShaderNodeDrawnSpectrum,
+    AstrorayShaderNodeBlackbodySpectrum,
     AstrorayShaderNodeSellmeierGlass,
     AstrorayShaderNodeIrUvResponse,
     AstrorayShaderNodeNrcHint,
@@ -385,6 +722,7 @@ NODE_CLASSES = (
 _ALL_CLASSES = (
     *SOCKET_CLASSES,
     *NODE_CLASSES,
+    ASTRORAY_OT_bake_spectrum_profile,
     NODE_MT_astroray_add,
     AstrorayMaterialSettings,
 )

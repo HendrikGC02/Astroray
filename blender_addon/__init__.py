@@ -1999,28 +1999,53 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         camera = cam_obj.data
 
-        # P4 fix (BUG-08): when rv3d is available (viewport CAMERA view), extract
-        # vfov from Blender's window_matrix (projection-only) *after* accounting for
-        # zoom, rather than re-deriving from camera sensor/lens. This ensures alignment
-        # with the viewport overlay. For F12 batch renders (rv3d=None), fall back to datablock.
-        if rv3d is not None and hasattr(rv3d, 'window_matrix'):
-            proj = rv3d.window_matrix
-            if abs(proj[1][1]) > 1e-6:
-                # Extract vfov from window_matrix[1][1] = 1 / tan(vfov/2) (OpenGL convention)
-                vfov = math.degrees(2.0 * math.atan(1.0 / proj[1][1]))
-            else:
-                # Fallback if window_matrix is degenerate
-                vfov = self._compute_vfov_degrees(camera, width, height)
-                if vfov_scale != 1.0 and vfov_scale > 0.0:
-                    half = math.radians(vfov) / 2.0
-                    vfov = math.degrees(2.0 * math.atan(math.tan(half) * vfov_scale))
+        # pkg193: reproduce Blender's camera projection EXACTLY so the rendered
+        # framing matches the viewport overlay (numpad-0) and the F12 render.
+        #
+        # VIEWPORT (rv3d present, valid window_matrix): Blender's camera-view
+        # window_matrix is an off-center (asymmetric) perspective frustum whose
+        # principal-point shift bakes in lens shift + view pan/zoom + sensor-fit
+        # letterboxing. Astroray's symmetric-vfov+shift camera reproduces ANY
+        # axis-aligned perspective frustum exactly (4 dof: vfov, aspect, shiftX,
+        # shiftY), so we invert OpenGL perspective_m4:
+        #     vfov   = 2*atan(1/m11)            (m11 = 2n/(t-b) = 1/tan(vfov/2))
+        #     aspect = m11/m00                  (= (r-l)/(t-b))
+        #     shiftX = m02/2 = (r+l)/(2(r-l)) ; shiftY = m12/2 = (t+b)/(2(t-b))
+        # where m02/m12 are window_matrix[0][2]/[1][2] (mathutils row-major). The
+        # window_matrix ALREADY contains view_camera_zoom, view_camera_offset AND
+        # the datablock shift, so they must NOT be re-added (the pre-pkg193 code
+        # dropped m02/m12 and re-derived shift from datablock+pan, measuring
+        # 25-223 px of overlay offset under lens shift / non-AUTO sensor fit).
+        # Verified 0.00 px vs Blender 5.1 window_matrix over 8 conditions.
+        proj = rv3d.window_matrix if (rv3d is not None and hasattr(rv3d, 'window_matrix')) else None
+        if proj is not None and abs(proj[1][1]) > 1e-6 and abs(proj[0][0]) > 1e-6:
+            vfov = math.degrees(2.0 * math.atan(1.0 / proj[1][1]))
+            aspect = proj[1][1] / proj[0][0]
+            shift_x = proj[0][2] / 2.0
+            shift_y = proj[1][2] / 2.0
         else:
-            # F12 or pre-2.80: derive from camera datablock
+            # F12 batch render (rv3d=None) or degenerate window_matrix: derive from
+            # the camera datablock. Cycles blender_camera_viewplane (Apache-2.0)
+            # offsets the viewplane by dx = shift_x*viewfac, dy = shift_y*viewfac
+            # with viewfac = winx for a HORIZONTAL sensor fit else ycor*winy. In
+            # Astroray's frame-fraction shift units that is shift_x*viewfac/winx and
+            # shift_y*viewfac/winy; WITHOUT this film-fit scaling the F12 render was
+            # 20-42 px off the camera frame (Blender world_to_camera_view) for
+            # shifted / non-square cameras (pkg193; verified 0.00 px on 8 conditions).
             vfov = self._compute_vfov_degrees(camera, width, height)
             # Apply viewport zoom by scaling the image plane → tighter FOV.
             if vfov_scale != 1.0 and vfov_scale > 0.0:
                 half = math.radians(vfov) / 2.0
                 vfov = math.degrees(2.0 * math.atan(math.tan(half) * vfov_scale))
+            aspect = width / max(1, height)
+            fit = getattr(camera, "sensor_fit", "AUTO")
+            if fit == 'AUTO':
+                fit = 'HORIZONTAL' if width >= height else 'VERTICAL'
+            viewfac = width if fit == 'HORIZONTAL' else height
+            shift_x = (float(getattr(camera, "shift_x", 0.0)) * viewfac / max(1, width)
+                       + float(viewport_shift[0]))
+            shift_y = (float(getattr(camera, "shift_y", 0.0)) * viewfac / max(1, height)
+                       + float(viewport_shift[1]))
 
         aperture, focus_dist = 0.0, 10.0
         if camera.dof.use_dof:
@@ -2036,11 +2061,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             else:
                 focus_dist = camera.dof.focus_distance
 
-        shift_x = float(getattr(camera, "shift_x", 0.0)) + float(viewport_shift[0])
-        shift_y = float(getattr(camera, "shift_y", 0.0)) + float(viewport_shift[1])
-
         renderer.setup_camera(look_from, look_at, vup, vfov,
-                              width / max(1, height),
+                              aspect,
                               aperture, focus_dist, width, height,
                               shift_x, shift_y)
 

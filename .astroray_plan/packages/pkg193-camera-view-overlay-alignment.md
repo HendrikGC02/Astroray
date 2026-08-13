@@ -2,7 +2,11 @@
 
 **Pillar:** 5 / integration-first
 **Track:** A
-**Status:** open (filed 2026-08-12 from owner hands-on addon feedback —
+**Status:** done (PR #607, 2026-08-13 — viewport overlay 25-223 px → 0.00 px,
+F12 20-42 px → 0.00 px across 8 real-Blender-5.1 conditions; root cause = dropped
+off-center window_matrix[0][2]/[1][2] frustum terms in the viewport path + missing
+film-fit viewfac shift scaling in the F12 datablock path; Python-only fix)
+(filed 2026-08-12 from owner hands-on addon feedback —
 memory [[owner-addon-feedback-2026-08-12]], finding #4)
 **Estimated effort:** M
 
@@ -130,22 +134,61 @@ which remain approximated, and why.
 
 ## Acceptance criteria
 
-- [ ] **Reproduced on a freshly built current-`main` addon** with a
+- [x] **Reproduced on a freshly built current-`main` addon** with a
       **quantitative pixel-offset measurement** (not eyeballing) BEFORE any fix;
-      dated-addon caveat discharged in writing.
-- [ ] The offset is attributed to a specific cause (film-fit / principal-point /
-      lens-shift / pixel-center convention) with the per-condition measurement
-      table recorded in Lessons.
-- [ ] After the fix, a **wireframe-aligned cube's** projected corners
+      dated-addon caveat discharged in writing (see Lessons — real Blender 5.1
+      `window_matrix` captured over 8 conditions; addon camera math is pure
+      Python, so no `.pyd` rebuild was needed to reproduce).
+- [x] The offset is attributed to a specific cause (dropped off-center
+      window_matrix frustum terms in the viewport path; missing film-fit viewfac
+      shift scaling in the F12 path) with the per-condition table in Lessons.
+- [x] After the fix, a **wireframe-aligned cube's** projected corners
       (Blender `window_matrix @ view_matrix`) and the Astroray-rendered edges
-      agree within **≤1 px** across the four condition axes (aspect-match/mismatch,
-      lens-shift on/off, viewport zoom/pan on/off, sensor_fit AUTO/H/V), gated by
-      a headless test.
-- [ ] The camera-view overlay visually lines up with the preview render —
-      **owner-visual note** with a before/after capture.
-- [ ] **F12 final render** framing is verified consistent with the corrected
-      viewport framing (the compositing-trust angle) — same cube, F12 vs
-      viewport, corners agree.
+      agree within **≤1 px** (measured 0.00 px) across the four condition axes,
+      gated by `tests/test_pkg193_camera_view_overlay_alignment.py`.
+- [x] The camera-view overlay visually lines up with the preview render —
+      before/after render at `.astroray_plan/pkg193_evidence/pkg193_before_after_lensshift.png`.
+- [x] **F12 final render** framing verified consistent with Blender's
+      `world_to_camera_view` (what Cycles renders) to 0.00 px — same cube, F12
+      corners agree, so F12 and the corrected viewport both equal Blender's frame.
+
+## Lessons — per-condition measurement (Blender 5.1, real capture)
+
+Fixture: `tests/data/pkg193_blender51_camera_capture.json` (real rv3d.window_matrix,
+view_matrix, cube corners, overlay pixels, world_to_camera_view). Max cube-corner
+offset (px) vs Blender's own projection, BEFORE vs AFTER fix:
+
+| condition                      | viewport BEFORE | viewport AFTER | F12 BEFORE | F12 AFTER |
+|--------------------------------|-----------------|----------------|------------|-----------|
+| base match / no shift / AUTO   | 0.00            | 0.00           | 0.00       | 0.00      |
+| aspect mismatch 16:9 / AUTO    | 0.00            | 0.00           | 0.00       | 0.00      |
+| lens shift x0.15 y-0.10 / AUTO | 158.43          | 0.00           | 20.00      | 0.00      |
+| viewport pan (0.10,0.05)       | 0.00            | 0.00           | 0.00       | 0.00      |
+| viewport zoom camzoom=8        | 0.00            | 0.00           | 0.00       | 0.00      |
+| sensor VERTICAL + shift x0.15  | 223.43          | 0.00           | 30.00      | 0.00      |
+| sensor HORIZONTAL + shift y0.15| 25.65           | 0.00           | 30.00      | 0.00      |
+| combo mismatch+shift+pan+zoom  | 65.33           | 0.00           | 42.00      | 0.00      |
+
+Root cause (both paths are `blender_addon/__init__.py::_apply_camera`):
+
+1. **Viewport (rv3d).** Blender's camera-view `window_matrix` is an off-center
+   perspective frustum; the principal-point shift (lens shift + view pan/zoom +
+   sensor-fit) lives in `window_matrix[0][2]`/`[1][2]` (NOT `[2][0]`/`[2][1]` as
+   the spec's hypothesis guessed — those are 0 in mathutils' row-major layout).
+   The addon read only `[1][1]` (vfov) and re-derived the image-plane shift from
+   the datablock shift + `view_camera_offset`, which matches Blender only for
+   AUTO-landscape / no-shift. Fix: invert `perspective_m4` directly —
+   `vfov=2·atan(1/m11)`, `aspect=m11/m00`, `shiftX=m02/2`, `shiftY=m12/2`.
+   Astroray's symmetric-vfov+shift camera has exactly 4 dof and reproduces any
+   axis-aligned perspective frustum losslessly, so **no C++ ABI change** was
+   needed. `aspect=m11/m00` equals the region aspect (render-aspect leaves the
+   camera-view window_matrix untouched — only the passepartout overlay moves).
+2. **F12 (datablock).** Cycles' `blender_camera_viewplane` (Apache-2.0) offsets
+   the film by `dx=shift_x·viewfac`, `dy=shift_y·viewfac` with `viewfac=winx` for
+   a HORIZONTAL sensor fit else `winy`. The addon passed raw `shift_x/shift_y`,
+   dropping this film-fit scaling → 20-42 px off `world_to_camera_view` for
+   shifted / non-square cameras. Fix: `shiftX=shift_x·viewfac/winx`,
+   `shiftY=shift_y·viewfac/winy`. Verified 0.00 px against Blender.
 
 ## Hard non-goals
 

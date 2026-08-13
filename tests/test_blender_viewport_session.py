@@ -520,8 +520,16 @@ class _CameraMatrix:
 
 
 def test_camera_view_offset_is_passed_as_camera_shift(monkeypatch):
-    """CAMERA-view panning must affect projection, not only invalidate the
-    hash. The addon sends view_camera_offset as image-plane shift."""
+    """CAMERA-view panning must affect projection, not only invalidate the hash.
+
+    pkg193: panning/zoom/lens-shift are ALL baked into Blender's camera-view
+    ``window_matrix`` off-center terms (window_matrix[0][2]/[1][2]); the addon
+    now reads the image-plane shift directly from there as shiftX=m02/2,
+    shiftY=m12/2 rather than additively re-deriving it from view_camera_offset +
+    datablock shift (which was measured 25-223 px off Blender's overlay). This
+    test supplies a window_matrix whose off-center terms encode a pan/shift and
+    asserts the addon extracts the matching image-plane shift.
+    """
     addon = _load_blender_addon(monkeypatch, renderer_cls=_RecordingRenderer)
     engine = addon.CustomRaytracerRenderEngine()
     renderer = _RecordingRenderer()
@@ -552,10 +560,17 @@ def test_camera_view_offset_is_passed_as_camera_shift(monkeypatch):
         view_camera_offset=(0.25, -0.5),
     )
     ctx.scene.camera = camera_obj
+    # Off-center window_matrix: m02=0.70 -> shiftX=0.35, m12=-1.40 -> shiftY=-0.70.
+    ctx.region_data.window_matrix = _Matrix4([
+        [1.3, 0.0, 0.70, 0.0],
+        [0.0, 2.2, -1.40, 0.0],
+        [0.0, 0.0, -1.0, -0.2],
+        [0.0, 0.0, -1.0, 0.0],
+    ])
 
     engine._setup_viewport_camera(renderer, ctx, 320, 240)
 
     args = renderer.setup_camera_calls[-1]
     assert len(args) == 11
-    assert abs(args[9] - 0.35) < 1e-6
-    assert abs(args[10] - (-0.7)) < 1e-6
+    assert abs(args[9] - 0.35) < 1e-6, "shiftX must equal window_matrix[0][2]/2"
+    assert abs(args[10] - (-0.7)) < 1e-6, "shiftY must equal window_matrix[1][2]/2"

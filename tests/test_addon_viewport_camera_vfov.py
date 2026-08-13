@@ -394,11 +394,23 @@ def test_apply_camera_auto_fit_portrait_matches_vertical(monkeypatch):
     assert abs(auto[3] - vert[3]) < 1e-6
 
 
-def test_apply_camera_shift_passthrough(monkeypatch):
-    """camera.shift_x / shift_y (film offset) must reach setup_camera unchanged."""
-    args = _apply_camera_args(monkeypatch, shift_x=0.125, shift_y=-0.0625)
-    assert abs(args[9] - 0.125) < 1e-9, "shift_x not passed through"
-    assert abs(args[10] - (-0.0625)) < 1e-9, "shift_y not passed through"
+def test_apply_camera_shift_film_fit_scaled(monkeypatch):
+    """camera.shift_x / shift_y (film offset) must reach setup_camera scaled by
+    Blender's film-fit factor viewfac/win, NOT passed through raw.
+
+    pkg193: the pre-existing test asserted raw passthrough (shift_y unchanged),
+    but that produced a measured 20 px F12-vs-Blender offset for non-square
+    cameras. Blender's viewplane (Cycles blender_camera_viewplane, Apache-2.0)
+    offsets by dx = shift_x*viewfac, dy = shift_y*viewfac with viewfac = winx for
+    a HORIZONTAL fit else winy. On a 160x90 AUTO (→HORIZONTAL) image: viewfac=160,
+    so shift_x is unchanged (160/160) and shift_y scales by 160/90. Verified 0.00
+    px vs Blender 5.1 world_to_camera_view over 8 conditions.
+    """
+    w, h = 160, 90  # AUTO → HORIZONTAL (landscape) → viewfac = w
+    args = _apply_camera_args(monkeypatch, width=w, height=h,
+                              shift_x=0.125, shift_y=-0.0625)
+    assert abs(args[9] - 0.125 * (w / w)) < 1e-9, "shift_x film-fit scaling wrong"
+    assert abs(args[10] - (-0.0625) * (w / h)) < 1e-9, "shift_y film-fit scaling wrong"
 
 
 def test_apply_camera_aspect_ratio(monkeypatch):

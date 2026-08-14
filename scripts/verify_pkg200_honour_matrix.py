@@ -303,6 +303,34 @@ def build_volume_box(scene):
     _camera(scene, location=(0.0, -6.0, 0.0))
 
 
+def build_many_lights(scene):
+    # Many small area lights of widely varying power arranged in a ring above a
+    # diffuse floor + back wall, lighting a diffuse sphere. The light-sampler
+    # choice (use_light_tree False -> 'power' vs True -> 'light_tree') selects a
+    # different light subset per NEE ray, so at a pinned seed the noise field
+    # differs measurably (pkg201 use_light_tree row; p_changes_pixels + visual).
+    import math
+    _black_world(scene)
+    floor = _diffuse_mat("floor", (0.72, 0.72, 0.72))
+    _plane(scene, floor, (0.0, 0.0, -1.5), (0.0, 0.0, 0.0), size=14.0)
+    back = _diffuse_mat("back", (0.6, 0.6, 0.65))
+    _plane(scene, back, (0.0, 4.0, 1.5), (1.5708, 0.0, 0.0), size=14.0)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0, location=(0.0, 0.5, -0.4))
+    obj = bpy.context.object
+    obj.data.materials.append(_diffuse_mat("subj", (0.8, 0.5, 0.2)))
+    bpy.ops.object.shade_smooth()
+    for i in range(16):
+        ld = bpy.data.lights.new(f"L{i}", type='AREA')
+        ld.energy = 15.0 * (i + 1)          # widely varying power -> importance
+        ld.size = 0.15
+        o = bpy.data.objects.new(f"L{i}", ld)
+        ang = i * (2.0 * math.pi / 16.0)
+        o.location = (3.0 * math.cos(ang), 0.8 + 1.4 * math.sin(ang), 2.0)
+        o.rotation_euler = (math.pi, 0.0, 0.0)  # point down
+        scene.collection.objects.link(o)
+    _camera(scene, location=(0.0, -6.0, 0.4))
+
+
 def build_denoiser_scene(scene):
     # A noisy indirect-lit box at very low spp — denoise has plenty of variance
     # to collapse.
@@ -323,6 +351,7 @@ SCENE_BUILDERS = {
     "open_glass": build_open_glass,
     "caustic": build_caustic,
     "volume_box": build_volume_box,
+    "many_lights": build_many_lights,
     "denoiser_scene": build_denoiser_scene,
 }
 

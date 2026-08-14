@@ -52,11 +52,14 @@ import settings_map  # noqa: E402  (path set above)
 # pkg119-B) and are explicitly out of THIS matrix (pkg200 spec, "Scope").
 HONOUR_CATEGORIES = frozenset({"render", "sampling", "light_paths", "film", "denoising"})
 
-# The two APPROXIMATED denoise rows that ARE plumbed today (resolve_denoiser_pass
-# / viewport denoise) — included per the spec's "plus the plumbed approximated
-# denoise rows". Every OTHER approximated row (light_sampling / use_light_tree)
-# is a documented gap, see KNOWN_GAPS.
-_PLUMBED_APPROXIMATED = frozenset({"denoiser", "use_preview_denoising"})
+# APPROXIMATED rows that ARE plumbed today and therefore carry a real honour
+# obligation: the two denoise rows (resolve_denoiser_pass / viewport denoise),
+# plus `light_sampling` (the native scene.cycles.use_light_tree bool), which
+# pkg201 Stage 1 reconciled onto Astroray's uniform/power/light_tree tri-state
+# (native_settings.resolve_light_sampler). It stays status="approximated" — a
+# bool cannot express uniform-vs-power — but it is no longer a silent gap, so it
+# is enumerated into the honour surface and gets its own matrix row.
+_PLUMBED_APPROXIMATED = frozenset({"denoiser", "use_preview_denoising", "light_sampling"})
 
 
 def enumerate_direct_surface() -> list[str]:
@@ -80,15 +83,12 @@ def enumerate_direct_surface() -> list[str]:
 
 # Documented gaps: plumbed-looking but NOT honoured natively today. Recorded as
 # findings, never tested as honoured (spec "Explicitly out of the honour matrix").
-KNOWN_GAPS = {
-    "use_light_tree": (
-        "scene.cycles.use_light_tree is APPROXIMATED and NOT read at F12: "
-        "convert_scene reads the custom light_sampler tri-state "
-        "(settings.light_sampler), never the native use_light_tree bool. "
-        "Toggling the native prop changes nothing. Follow-up: reconcile the "
-        "tri-state vs. bool semantic mismatch (settings_map light_sampling row)."
-    ),
-}
+#
+# pkg201 Stage 1 PROMOTED the former `use_light_tree` gap into a real matrix row
+# (the `use_light_tree` Row below): the native scene.cycles.use_light_tree bool
+# is now reconciled onto the tri-state and reaches renderer.set_light_sampler, so
+# toggling it changes the render. The gap dict is now empty.
+KNOWN_GAPS: dict[str, str] = {}
 
 
 # --------------------------------------------------------------------------- #
@@ -343,21 +343,33 @@ MATRIX: list[Row] = [
         variant_a=(("cycles.transparent_max_bounces", 0),),
         variant_b=(("cycles.transparent_max_bounces", 12),),
         note="stacked alpha-transparent quads; alpha depth 0 vs 12"),
-    Row("world_max_bounces", ("world.light_settings.max_bounces",), "hdri_box", "1",
+    Row("world_max_bounces", ("world.cycles.max_bounces",), "hdri_box", "1",
         p_monotone_energy,
         common=(("cycles.max_bounces", 16), ("cycles.diffuse_bounces", 16)),
-        variant_a=(("world.light_settings.max_bounces", 0),),
-        variant_b=(("world.light_settings.max_bounces", 12),),
-        note="world-lit box; world max bounces 0 vs 12. NOTE: the addon reads a "
-             "NON-EXISTENT attr world.light_settings.max_bounces (WorldLighting has "
-             "no such member; the real Cycles prop is world.cycles.max_bounces), so "
-             "getattr(..., 1024) always wins — override is inert. Expected HONEST-FAIL."),
+        variant_a=(("world.cycles.max_bounces", 0),),
+        variant_b=(("world.cycles.max_bounces", 12),),
+        note="world-lit box; world max bounces 0 vs 12. pkg201 Finding B: the addon "
+             "now reads world.cycles.max_bounces (the real Cycles world light-path "
+             "prop). The pre-pkg201 read used world.light_settings.max_bounces — the "
+             "AO datablock, which has no max_bounces member, so the override was inert "
+             "(pkg200 recorded HONEST-FAIL). This row now exercises the corrected attr."),
     Row("volume_bounces", ("volume_bounces",), "volume_box", "1", p_monotone_energy,
         common=(("cycles.max_bounces", 16),),
         variant_a=(("cycles.volume_bounces", 0),),
         variant_b=(("cycles.volume_bounces", 8),),
         note="KNOWN-PARTIAL candidate: volume transport only partly implemented "
              "(settings_map note). HONEST-FAIL if non-responsive — file, do not fix."),
+    Row("use_light_tree", ("use_light_tree",), "many_lights", "1", p_changes_pixels,
+        kind="visual",
+        variant_a=(("cycles.use_light_tree", False),),
+        variant_b=(("cycles.use_light_tree", True),),
+        note="many small area lights of widely varying power/position. pkg201 Stage 1 "
+             "reconciles native scene.cycles.use_light_tree onto the tri-state (False -> "
+             "non-tree 'power', True -> 'light_tree'); the two samplers pick different "
+             "light subsets per NEE ray, so the noise field differs at a pinned seed. "
+             "Was a pkg200 KNOWN-GAP (inert; no pixel change). p_changes_pixels -> "
+             "NEEDS-VISUAL + a multimodal Read confirms a legitimate sampler change "
+             "(not garbage), mirroring the caustics rows."),
 
     # ---- Stage 2: clamps + filter-glossy firefly clipping ----
     Row("sample_clamp_direct", ("sample_clamp_direct",), "firefly", "2", p_clamp,
@@ -476,9 +488,13 @@ def check_completeness() -> None:
     not match exactly (unassigned prop = a silently-untested control; duplicate =
     ambiguous ownership). Raises AssertionError with the drift."""
     surface = set(enumerate_direct_surface())
-    # world_max_bounces is enumerated by its native_prop "world_max_bounces" in
-    # settings_map but its Blender path is world.light_settings.max_bounces; map.
-    _alias = {"world_max_bounces": "world.light_settings.max_bounces",
+    # Some settings_map native_prop ids differ from the Blender dotted path the
+    # matrix Row exercises; map native_prop -> Row path here. world_max_bounces ->
+    # world.cycles.max_bounces (pkg201 Finding B corrected the read off the AO
+    # datablock). light_sampling is the native_prop for scene.cycles.use_light_tree
+    # (pkg201 promoted it from KNOWN_GAPS to the use_light_tree Row).
+    _alias = {"world_max_bounces": "world.cycles.max_bounces",
+              "light_sampling": "use_light_tree",
               "film_transparent": "render.film_transparent",
               "resolution_x": "render.resolution_x",
               "resolution_y": "render.resolution_y"}

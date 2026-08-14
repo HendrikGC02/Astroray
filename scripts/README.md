@@ -55,4 +55,7 @@ their package closes — the PR + STATUS.md hold the evidence. Exceptions that
 REMAIN because they are reusable harnesses (registered in the table above):
 `scripts/verify_pkg175_smoke_blender.py` (wired into `dev_addon.ps1`) and the
 `scripts/verify_pkg200_honour_matrix*.py` + `pkg200_honour_matrix.py` A/B
-honour driver.
+honour driver. pkg201 extended that driver in place (not a fork): the
+`world_max_bounces` row was repointed to `world.cycles.max_bounces` (Finding B),
+and a `use_light_tree` row + its `many_lights` scene builder were added
+(promoting the former pkg200 known-gap) — no new script.

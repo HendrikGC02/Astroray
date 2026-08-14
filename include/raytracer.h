@@ -853,6 +853,13 @@ public:
         float solidAngle = 2.0f * float(M_PI) * (1.0f - cosThetaMax);
         return solidAngle > 1e-10f ? 1.0f / solidAngle : 1.0f;
     }
+
+    // pkg202: read-only accessors used by GPU scene upload to convert this
+    // legacy hittable sun into the dedicated distant-light device path
+    // (scene_upload.cu). Const/additive — no member state changes and the CPU
+    // render path is byte-identical (these are never called on CPU).
+    const Vec3& getDirection() const { return direction; }
+    float getAngularDiameter() const { return angularDiameter; }
 };
 
 class SpotLightSphere : public Hittable {

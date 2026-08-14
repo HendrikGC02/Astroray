@@ -868,8 +868,51 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     static const std::vector<std::shared_ptr<Hittable>> kNoPrims;
     const auto& orderedPrims = cpuBvh ? cpuBvh->getPrimitives() : kNoPrims;
 
+    // pkg202: legacy hittable suns (add_sun_light / .blend importer) detected in
+    // the loop below are converted to dedicated distant lights (appended to
+    // r.dedicatedLights after this loop) instead of dead hittable GLights.
+    std::vector<GDedicatedLight> convertedSuns;
+    bool convertedLegacySun = false;
+
     // Find each light's primitive index in r.prims
     for (size_t i = 0; i < lightPtrs.size(); ++i) {
+        // pkg202: the legacy hittable DistantLight contributes EXACTLY zero on
+        // GPU — it maps to GPRIM_SKIP (scene_upload.cu prim walk) and its GLight
+        // CDF slot returns an empty NEE sample (gpu_nee.cuh primIdx<0 guard),
+        // wasting selection mass. Convert it here to the verified pkg89 dedicated
+        // distant light instead of pushing a dead hittable GLight.
+        //
+        // Units are lossless. The legacy sun delivers irradiance
+        //   S = RGBIlluminant(emittedRadiance())            (spectral)
+        // because the CPU sampler multiplies emission by directionFalloff (=1/Ω
+        // for a finite disk, =1 for a delta sun) and then divides by the
+        // solid-angle pdf (=1/Ω, or =1 for delta), so the 1/Ω factors cancel and
+        // the surface sees exactly S (light_sampler.cpp:79-85). The dedicated
+        // distant delivers RGBIlluminant(emissionRGB)·staticScale (gpu_nee.cuh
+        // gpu_nee_resolve:561, gpu_rgbSpectrumAt == CPU RGBIlluminant, linear in
+        // magnitude). Setting emissionRGB = S and staticScale = 1 reproduces S
+        // exactly. See the PR body for the full derivation.
+        if (auto* sun = dynamic_cast<DistantLight*>(lightPtrs[i].get())) {
+            float prevP = (i == 0) ? 0.f : powerDist[i-1];
+            GDedicatedLight gd{};
+            gd.power = powerDist[i] - prevP;   // sun's individual CDF weight (preserved)
+            gd.kind  = GDED_DISTANT;
+            Vec3 dir = sun->getDirection();    // axis points FROM the light
+            gd.axis  = GVec3(dir.x, dir.y, dir.z);
+            float ang = sun->getAngularDiameter();
+            gd.cosOuter = std::cos(ang * 0.5f);
+            // Solid angle via the 2*sin^2(h/2) identity (distant_light.cpp
+            // distantSolidAngle / pkg140) so the device radiometry matches the
+            // dedicated distant exactly; ang==0 -> spread 0 -> device delta branch.
+            float sHalfHalf = std::sin(ang * 0.25f);
+            gd.spread = 4.0f * float(M_PI) * sHalfHalf * sHalfHalf;
+            Vec3 E = sun->emittedRadiance();   // irradiance S (RGB)
+            gd.emissionRGB = GVec3(E.x, E.y, E.z);
+            gd.staticScale = 1.0f;             // magnitude carried in emissionRGB
+            convertedSuns.push_back(gd);
+            convertedLegacySun = true;
+            continue;                          // NO hittable GLight / no dead CDF slot
+        }
         // Search ordered primitives for matching raw pointer
         int primIdx = -1;
         for (size_t j = 0; j < orderedPrims.size(); ++j) {
@@ -954,6 +997,21 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         }
     }
 
+    // pkg202: fold the converted legacy suns in as dedicated distant lights and
+    // rebuild the unified cumulative CDF. Removing each sun from the hittable
+    // array shifted every following cumulativePower, so recompute the whole CDF
+    // from the per-light powers (order-independent). totalLightPower is
+    // UNCHANGED — the sun's power merely moved from the hittable array to the
+    // dedicated array — so the final cumulative still lands on totalLightPower.
+    // Net: the sun appears in the CDF exactly once, as a dedicated light, with
+    // correct cumulative power and no dead GPRIM_SKIP selection mass.
+    if (convertedLegacySun) {
+        for (const auto& gd : convertedSuns) r.dedicatedLights.push_back(gd);
+        float cum = 0.f;
+        for (auto& gl : r.lights)          { cum += gl.power; gl.cumulativePower = cum; }
+        for (auto& gd : r.dedicatedLights) { cum += gd.power; gd.cumulativePower = cum; }
+    }
+
     // (pkg64-gpu Phase 2 caster gathering moved inline during sphere loop above)
 
     // --- pkg86-B: Light tree (Tree sampler mode only) ---
@@ -970,7 +1028,12 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // Dedicated lights have no GLight slot on the GPU yet — if the
             // tree contains one, skip the upload and warn (the kernels fall
             // back to power-CDF selection; spec: warn, don't error).
-            bool uploadable = true;
+            // pkg202: a converted legacy sun reindexes r.lights (the sun no
+            // longer occupies a hittable slot), so the CPU tree's per-emitter
+            // lightIndex values no longer map onto r.lights. Fall back to the
+            // power-CDF selection (the documented behavior whenever the tree is
+            // not uploadable) rather than upload a mis-indexed tree.
+            bool uploadable = !convertedLegacySun;
             for (const auto& e : temitters) {
                 if (e.isDedicated || e.lightIndex < 0 ||
                     e.lightIndex >= (int)r.lights.size()) {

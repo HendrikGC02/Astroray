@@ -178,10 +178,107 @@ __device__ inline GSampledSpectrum gpu_worldTransmittanceMW(
     return tr;
 }
 
-// intersectPathSlot returns -1 when the path died, else the GMaterialType
+// pkg199 Stage 2 — per-λ extinction σ_t[λ] = upsample(color)[λ]·density (the same
+// quantity gpu_worldTransmittanceMW exponentiates; device twin of the CPU
+// Renderer::worldSigmaT). Caller guards on c_worldVolume.hasVolume.
+__device__ inline GSampledSpectrum gpu_worldSigmaT(const GSampledWavelengths& lambdas)
+{
+    GSampledSpectrum sigmaColor = gpu_rgbToSampledSpectrum(
+        GVec3(c_worldVolume.colorR, c_worldVolume.colorG, c_worldVolume.colorB),
+        lambdas, GSPEC_RGB_ALBEDO);
+    GSampledSpectrum s;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+        s.v[i] = fmaxf(0.f, sigmaColor.v[i]) * c_worldVolume.density;
+    return s;
+}
+
+// pkg199 Stage 2 — Henyey-Greenstein phase function (HG 1941; PBRT-v3 PhaseHG,
+// src/core/medium.cpp, BSD). cosTheta = dot(wo, wi), wo pointing back along the
+// incoming ray. Normalised over the sphere (integrates to 1); Inv4Pi = 1/(4π).
+// Device twin of Renderer::phaseHG — same sign convention for CPU↔GPU parity.
+__device__ inline float gpu_phaseHG(float cosTheta, float g)
+{
+    float denom = 1.f + g * g + 2.f * g * cosTheta;
+    denom = fmaxf(denom, 1e-6f);
+    return (0.25f / M_PI_F) * (1.f - g * g) / (denom * sqrtf(denom));
+}
+
+// pkg199 Stage 2 — importance-sample the HG phase function (PBRT-v3
+// HenyeyGreenstein::Sample_p, BSD). `wo` points back along the incoming ray
+// (= -ray.direction). Returns the sampled continuation direction; outPdf is the
+// phase value (HG is perfectly importance-sampled, pdf == value → throughput
+// factor value/pdf = 1). g>0 forward-scatters (peak at wi = -wo). Device twin of
+// Renderer::sampleHG; gpu_buildONB gives the orthonormal frame (z-axis = wo).
+__device__ inline GVec3 gpu_sampleHG(const GVec3& wo, float g, float u1, float u2,
+                                     float& outPdf)
+{
+    float cosTheta;
+    if (fabsf(g) < 1e-3f) {
+        cosTheta = 1.f - 2.f * u1;
+    } else {
+        float sqrTerm = (1.f - g * g) / (1.f + g - 2.f * g * u1);
+        cosTheta = -(1.f + g * g - sqrTerm * sqrTerm) / (2.f * g);
+    }
+    cosTheta = fmaxf(-1.f, fminf(1.f, cosTheta));
+    float sinTheta = sqrtf(fmaxf(0.f, 1.f - cosTheta * cosTheta));
+    float phi = 2.f * M_PI_F * u2;
+    GVec3 v1, v2;
+    gpu_buildONB(wo, v1, v2);
+    GVec3 wi = v1 * (sinTheta * cosf(phi)) + v2 * (sinTheta * sinf(phi)) + wo * cosTheta;
+    outPdf = gpu_phaseHG(cosTheta, g);
+    return wi.normalized();
+}
+
+// pkg199 Stage 2 — dimension-salt base for the free-flight sampler. Far above any
+// dimension the shade/volume WavefrontRNG stream reaches (0..~depth·draws), so the
+// free-flight draws are decorrelated from all shading draws by construction.
+static constexpr uint32_t G_WF_VOL_DIM_SALT = 0xF0000000u;
+
+// pkg199 Stage 2 — OBJECT-FREE counter-based free-flight uniform. Reuses the exact
+// published keying of WavefrontRNG::GenerateForDimension (PBRT-v4 MixBits =
+// MurmurHash3 finalizer, src/pbrt/util/hash.h; -> PCG32 SetSequence -> PCG32 XSH-RR
+// output, imneme/pcg-c-basic Apache-2.0) — a counter-based RNG in the Salmon et al.
+// 2011 ("Parallel Random Numbers", Random123) sense — but computed inline so
+// intersectPathSlot holds NO persistent WavefrontRNG object and does NO
+// rng_dimension SoA round-trip (Option 3: keeps the intersect decision block
+// register-light so the kernel stays <=128 regs / 2 blocks/SM at 256 threads). Keyed
+// on (pixel, sample, seed, dimSalt); the salt varies per bounce and per draw so
+// every free-flight event is independent, and is disjoint from the shade stream.
+// CPU<->GPU free-flight streams are INDEPENDENT (parity gate is per-channel
+// mean-ratio, not sample-matched). See the research note.
+__device__ inline float gpu_freeflightUniform(uint32_t pixel, uint32_t sample,
+                                              uint64_t seed, uint32_t dimSalt)
+{
+    uint64_t seq_index = (static_cast<uint64_t>(pixel) * 65536ULL + sample) << 32 | dimSalt;
+    uint64_t stream = astroray::MixBits(seq_index);
+    uint64_t inc   = (stream << 1) | 1;
+    uint64_t state = 0;
+    state = state * 6364136223846793005ULL + inc;   // PCG32 SetSequence, advance 1
+    state += seed;
+    state = state * 6364136223846793005ULL + inc;   // advance 2
+    uint32_t xorshifted = static_cast<uint32_t>(((state >> 18u) ^ state) >> 27u);
+    uint32_t rot        = static_cast<uint32_t>(state >> 59u);
+    int32_t  rot_signed = static_cast<int32_t>(rot);
+    uint32_t u = (xorshifted >> rot) | (xorshifted << ((-rot_signed) & 31));
+    constexpr float kOneMinusEpsilon = 0x1.fffffep-1f;
+    return fminf(u * 0x1p-32f, kOneMinusEpsilon);
+}
+
+// intersectPathSlotT returns -1 when the path died, else the GMaterialType
 // of the hit (0..GMAT_CLOSURE_GRAPH) for shade-queue bucketing. The hit
 // record is parked in GPUWavefrontHitBuffers SoA at the slot index.
-__device__ int intersectPathSlot(
+//
+// pkg199 Stage 2 — templated on HasWorldScatter (the established fleet-isolation
+// pattern, pkg178/184/189): the medium free-flight decision block is behind
+// `if constexpr (HasWorldScatter)`, so the fleet <false> specialization compiles
+// it out ENTIRELY and returns to the pre-pkg199 register footprint (127 REG →
+// 2 blocks/SM at 256 threads; the always-present form measured 130 → 1 block →
+// a cooled+bracketed +3.3% fog-free fleet regression). Only scattering fog scenes
+// launch <true> (which pays the 130, but they are scattering-bound anyway). The
+// non-template `intersectPathSlot` symbol below forwards to <false> so the
+// cross-TU callers (ReSTIR primary, MIS-audit; both scatter=0) link unchanged.
+template<bool HasWorldScatter>
+__device__ int intersectPathSlotT(
     int idx,
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
@@ -253,6 +350,96 @@ __device__ int intersectPathSlot(
     bool hit = gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                             ray, 0.001f, 1e30f, rec, motionVerts);
 
+    // pkg199 Stage 2 — homogeneous medium free-flight scatter DECISION (Option A:
+    // the cheap decision + queue routing lives here; the register-heavy scatter
+    // processing — phase NEE + HG continuation — lives in the dedicated
+    // stageVolumeScatterKernel, so this kernel's footprint grows only by the
+    // decision). Device twin of the CPU pathTraceSpectral medium block, gated on
+    // the SAME condition so the scatter==0 path is byte-identical Stage-1. PBRT-v3
+    // HomogeneousMedium::Sample (BSD): per-channel selection distance sampling,
+    // balance-heuristic pdf averaged over the spectral channels. Runs BEFORE the
+    // lamp-MIS / emission / role-1 blocks so a scatter intercepts the segment
+    // exactly like the CPU top-of-loop medium block.
+    // HasWorldScatter folds this to a compile-time false in the fleet <false>
+    // kernel, so the block below is removed and the role-1/role-3 gates collapse
+    // to their Stage-1 form (byte-identical).
+    const bool mediumScatters = HasWorldScatter &&
+                                c_worldVolume.hasVolume &&
+                                c_worldVolume.density > 0.f &&
+                                c_worldVolume.scatter > 0.f;
+    if constexpr (HasWorldScatter) if (mediumScatters) {
+        float surfaceT = hit ? rec.t : 1e30f;
+        float termT = surfaceT;
+        if (bounce > 0 && numDed > 0) {
+            float lampT, lampScale;
+            int lampIdx = gpu_dedicated_intersect_closest(
+                dedLights, numDed, ray.origin, ray.direction, 0.001f, surfaceT,
+                &lampT, &lampScale);
+            if (lampIdx >= 0) termT = lampT;
+        }
+        // Object-free counter-based free-flight draws (Option 3): no WavefrontRNG
+        // object held, no rng_dimension round-trip — keeps this kernel register-
+        // light. Salt varies per bounce (·2) and per draw (+0/+1), disjoint from the
+        // shade stream; shade/volume read the UNTOUCHED rng_dimension (as Stage-1).
+        uint32_t rpix = state.rng_pixel[idx];
+        uint32_t rsmp = state.rng_sample[idx];
+        uint64_t rsd  = state.rng_seed[idx];
+        uint32_t salt = G_WF_VOL_DIM_SALT + (uint32_t)bounce * 2u;
+        GSampledSpectrum sigmaT = gpu_worldSigmaT(lambdas);
+        int ch = (int)(gpu_freeflightUniform(rpix, rsmp, rsd, salt) * G_SPECTRUM_SAMPLES);
+        if (ch >= G_SPECTRUM_SAMPLES) ch = G_SPECTRUM_SAMPLES - 1;
+        float sigTc = sigmaT.v[ch];
+        float xi = gpu_freeflightUniform(rpix, rsmp, rsd, salt + 1u);
+        float fdist = (sigTc > 0.f) ? -__logf(1.f - xi) / sigTc : 1e30f;
+        if (fdist < termT) {
+            // SCATTER: throughput *= Tr(fdist)·σ_s/pdf, pdf = avg(σ_t·Tr).
+            GSampledSpectrum Tr;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                Tr.v[i] = __expf(-sigmaT.v[i] * fdist);
+            float pdf = 0.f;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) pdf += sigmaT.v[i] * Tr.v[i];
+            pdf /= float(G_SPECTRUM_SAMPLES);
+            if (pdf <= 0.f) { state.path_alive[idx] = 0; return -1; }
+            float invPdf = 1.f / pdf;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                throughput.v[i] *= Tr.v[i] * (sigmaT.v[i] * c_worldVolume.scatter) * invPdf;
+            // Scatter point P = origin + dir·fdist. Snapshot semantics (pinned in
+            // .astroray_plan/docs/pkg199-stage2-scattering-research.md): capture P
+            // from the PRE-update ray and store it as the new ray_origin;
+            // ray_direction is LEFT as the incoming direction so the volume kernel
+            // recovers woMedium = -direction for the HG frame — mirrors the CPU.
+            GVec3 P = ray.origin + ray.direction * fdist;
+            state.ray_origin_x[idx] = P.x;
+            state.ray_origin_y[idx] = P.y;
+            state.ray_origin_z[idx] = P.z;
+            state.throughput_0[idx] = throughput.v[0];
+            state.throughput_1[idx] = throughput.v[1];
+            state.throughput_2[idx] = throughput.v[2];
+            state.throughput_3[idx] = throughput.v[3];
+            return -2;  // scattered → the wrapper enqueues to the volume queue
+        } else {
+            // Reached the terminating event (surface / lamp / env): throughput *=
+            // Tr(termT)/pdf, pdf = avg(Tr). Replaces the Stage-1 role-1 multiply
+            // (gated off below); the role-3 lamp Tr is likewise gated off since
+            // this Tr already covers the camera→lamp segment.
+            float capT = fminf(termT, 1e18f);
+            GSampledSpectrum Tr;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                Tr.v[i] = __expf(-sigmaT.v[i] * capT);
+            float pdf = 0.f;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) pdf += Tr.v[i];
+            pdf /= float(G_SPECTRUM_SAMPLES);
+            if (pdf <= 0.f) { state.path_alive[idx] = 0; return -1; }
+            float invPdf = 1.f / pdf;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) throughput.v[i] *= Tr.v[i] * invPdf;
+            state.throughput_0[idx] = throughput.v[0];
+            state.throughput_1[idx] = throughput.v[1];
+            state.throughput_2[idx] = throughput.v[2];
+            state.throughput_3[idx] = throughput.v[3];
+            // fall through to lamp-MIS / env / role-1(gated) / emission.
+        }
+    }
+
     // pkg181: dedicated-light visibility to BSDF rays (Cycles lights_intersect
     // parity) — device twin of production pathTraceSpectral. Lamps are invisible
     // to camera rays (bounce == 0); a lamp closer than the surface terminates the
@@ -279,7 +466,9 @@ __device__ int intersectPathSlot(
                 // so throughput is not yet segment-attenuated; attenuate the
                 // lamp emission over the camera→lamp segment (lampT). Mirrors the
                 // CPU dedicated-lamp block (throughput·lampEmission·Tr(lh.t)).
-                if (c_worldVolume.hasVolume)
+                // pkg199 Stage 2: in scatter mode the free-flight estimator already
+                // applied Tr(termT=lampT)/pdf to throughput, so do NOT re-attenuate.
+                if (c_worldVolume.hasVolume && !mediumScatters)
                     Le *= gpu_worldTransmittanceMW(lampT, lambdas);
                 GSampledSpectrum contrib(0.f);
                 if (bounce == 0 || wasSpecular) {
@@ -376,7 +565,9 @@ __device__ int intersectPathSlot(
     // block below uses the attenuated local. Kept in THIS (intersect) kernel, not
     // the REG-254 shade kernel, so stageShadeBucketedKernel stays byte-identical.
     // Vacuum (hasVolume==0): skipped, throughput SoA untouched → byte-identical.
-    if (c_worldVolume.hasVolume) {
+    // pkg199 Stage 2: in scatter mode the free-flight estimator above already
+    // applied Tr(termT)/pdf, so skip this deterministic role-1 multiply.
+    if (c_worldVolume.hasVolume && !mediumScatters) {
         throughput *= gpu_worldTransmittanceMW(rec.t, lambdas);
         state.throughput_0[idx] = throughput.v[0];
         state.throughput_1[idx] = throughput.v[1];
@@ -450,6 +641,42 @@ __device__ int intersectPathSlot(
     hitBufs.hit_is_delta[idx]    = rec.isDelta ? 1 : 0;
     hitBufs.hit_valid[idx]       = 1;
     return (int)mat.type;
+}
+
+// pkg199 Stage 2 — non-template `intersectPathSlot` symbol. Forwards to the
+// <false> (Stage-1, no medium scatter) specialization. This is the symbol the
+// cross-TU callers link against: the ReSTIR primary stage (stage_restir.cu, which
+// publishes scatter=0) and the MIS-audit kernel — neither runs the volume-scatter
+// stage, so <false> is correct and keeps their forward declaration valid without
+// exposing intersectPathSlotT across translation units.
+__device__ int intersectPathSlot(
+    int idx,
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  tlas,
+    const GInstance*  instances,
+    const GBLAS*      blas,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GVec3*      motionVerts,
+    const ::GMaterial* materials,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    bool              useLuminanceOutput,
+    bool              enableNEE,
+    float             clampDirect, float clampIndirect,
+    const ::GLight*   lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,
+    GLightTreeView    lightTree)
+{
+    return intersectPathSlotT<false>(idx, state, hitBufs, tlas, instances, blas,
+        bvhNodes, prims, tris, spheres, motionVerts, materials, envMap,
+        backgroundColor, hasBackgroundColor, worldMaxBounces, useLuminanceOutput,
+        enableNEE, clampDirect, clampIndirect, lights, numLights, totalLightPower,
+        dedLights, numDed, lightTree);
 }
 
 // Shade half: NEE + RR + BSDF over the parked hit record. Returns true when
@@ -1208,6 +1435,7 @@ __global__ void stageQueueIotaKernel(int* queue, int* count, int n)
 // material dispatch of Laine 2013 sec. 5 / Cycles X shader sorting, realized
 // as bucketed atomic append instead of a radix sort (7 types only).
 // ---------------------------------------------------------------------------
+template<bool HasWorldScatter>   // pkg199 Stage 2 fleet-isolation axis
 __global__ void stageIntersectQueuedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1234,7 +1462,12 @@ __global__ void stageIntersectQueuedKernel(
     const ::GLight*   lights, int numLights, float totalLightPower,
     // pkg181: dedicated lamps for the BSDF-ray lamp-intersection pass.
     const GDedicatedLight* dedLights, int numDed,
-    GLightTreeView    lightTree)
+    GLightTreeView    lightTree,
+    // pkg199 Stage 2 — volume-scatter queue: intersectPathSlot returns -2 for a
+    // path that scattered in the medium; that slot is routed here (not the shade
+    // bucket) for the dedicated stageVolumeScatterKernel. Null when the medium
+    // does not scatter (scatter==0) — the -2 return never fires then.
+    int* vol_queue, int* vol_count)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
@@ -1243,7 +1476,8 @@ __global__ void stageIntersectQueuedKernel(
     // (no-op there); the regeneration driver iterates a dense identity
     // queue where exhausted slots stay dead.
     if (state.path_alive[idx] == 0) return;
-    int matType = intersectPathSlot(idx, state, hitBufs, tlas, instances, blas,
+    int matType = intersectPathSlotT<HasWorldScatter>(
+                                    idx, state, hitBufs, tlas, instances, blas,
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
@@ -1251,6 +1485,11 @@ __global__ void stageIntersectQueuedKernel(
                                     clampDirect, clampIndirect,
                                     lights, numLights, totalLightPower,
                                     dedLights, numDed, lightTree);  // pkg120+pkg181
+    if (matType == -2) {   // pkg199 Stage 2: scattered → volume-scatter queue
+        int vslot = atomicAdd(vol_count, 1);
+        vol_queue[vslot] = idx;
+        return;
+    }
     if (matType < 0) return;
     if (matType >= G_WF_NUM_MAT_TYPES) matType = G_WF_NUM_MAT_TYPES - 1;
     int slot = atomicAdd(&shade_counts[matType], 1);
@@ -1351,27 +1590,216 @@ void launchStageIntersectQueued(
     const ::GLight*   d_lights, int num_lights, float total_light_power,
     // pkg181: dedicated lamps for the BSDF-ray lamp-intersection pass.
     const GDedicatedLight* d_dedLights, int num_ded,
-    GLightTreeView    lightTree)
+    GLightTreeView    lightTree,
+    int* d_vol_queue, int* d_vol_count,   // pkg199 Stage 2
+    bool has_world_scatter)               // pkg199 Stage 2: picks the fleet-isolation axis
+{
+    if (state.num_active <= 0) return;
+    int threads = 256;
+    int blocks  = (state.num_active + threads - 1) / threads;
+    // pkg199 Stage 2: the <false> specialization (the fleet, scatter==0) compiles
+    // the medium free-flight block OUT → REG 127 / 2 blocks/SM, byte-identical
+    // Stage-1. Only scattering fog scenes launch <true>. Both instantiations are
+    // referenced here so both land in the cubin for the cuobjdump register report.
+    #define ASTRORAY_PKG199_INTERSECT_ARGS \
+        state, hitBufs, d_queue_in, d_count_in, \
+        d_shade_queues, d_shade_counts, capacity, \
+        d_tlas, d_instances, d_blas, \
+        d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials, \
+        envMap, backgroundColor, hasBackgroundColor, worldMaxBounces, \
+        useLuminanceOutput, enableNEE, clampDirect, clampIndirect, \
+        d_lights, num_lights, total_light_power, \
+        d_dedLights, num_ded, lightTree, \
+        d_vol_queue, d_vol_count
+    {
+        const void* kptr = has_world_scatter
+            ? (const void*)stageIntersectQueuedKernel<true>
+            : (const void*)stageIntersectQueuedKernel<false>;
+        astroray::gpu_profile::ScopedTimer _t(
+            "wavefront_stage_intersect_queued_n7", kptr, blocks, threads);
+        if (has_world_scatter)
+            stageIntersectQueuedKernel<true><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS);
+        else
+            stageIntersectQueuedKernel<false><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS);
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::fprintf(stderr, "stage_intersect_queued launch error: %s\n",
+                         cudaGetErrorString(err));
+            throw std::runtime_error(cudaGetErrorString(err));
+        }
+    }
+    #undef ASTRORAY_PKG199_INTERSECT_ARGS
+}
+
+// ---------------------------------------------------------------------------
+// pkg199 Stage 2 — dedicated volume-scatter wavefront stage. Scheduled between
+// stageIntersectQueued and stageShadeBucketed. Drains the volume-scatter queue
+// (slots intersectPathSlot routed via its -2 return), performs the phase-sampled
+// NEE-through-medium (parked into the SAME nee_f/nee_i lanes + shadow queue the
+// surface NEE uses, so stageShadowKernel resolves it unchanged — geomDist role-2
+// Tr + clamp), and emits the HG phase-sampled continuation ray from the scatter
+// point, requeuing the survivor for the next bounce. The REG-254 shade kernel is
+// never touched → byte-identical (this is the whole point of Option A). Device
+// twin of the CPU pathTraceSpectral scatter branch (HG NEE + phase continuation).
+// ---------------------------------------------------------------------------
+__global__ void stageVolumeScatterKernel(
+    GPUWavefrontState state,
+    const int* vol_queue, const int* vol_count,
+    int* queue_out, int* count_out,          // requeue survivors → next bounce
+    float* nee_f, int* nee_i, int* shadow_queue, int* shadow_count, int nee_capacity,
+    const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
+    const ::GLight* lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,
+    GLightTreeView lightTree,
+    int max_depth,
+    bool useLuminanceOutput,
+    bool enableNEE)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= *vol_count) return;
+    int idx = vol_queue[i];
+    if (state.path_alive[idx] == 0) return;
+    const int bounce = state.bounce[idx];
+
+    // Reconstruct: ray_origin == scatter point P (intersect wrote it), and
+    // ray_direction == incoming direction (woMedium = -direction), per the pinned
+    // snapshot semantics. throughput already carries Tr·σ_s/pdf (applied in intersect).
+    GVec3 P     = GVec3(state.ray_origin_x[idx], state.ray_origin_y[idx],
+                        state.ray_origin_z[idx]);
+    GVec3 inDir = GVec3(state.ray_direction_x[idx], state.ray_direction_y[idx],
+                        state.ray_direction_z[idx]);
+    GVec3 woMedium = (inDir * -1.f).normalized();
+    const float g = c_worldVolume.anisotropy;
+
+    GSampledWavelengths lambdas;
+    lambdas.lambda[0] = state.lambda_0[idx]; lambdas.lambda[1] = state.lambda_1[idx];
+    lambdas.lambda[2] = state.lambda_2[idx]; lambdas.lambda[3] = state.lambda_3[idx];
+    lambdas.pdf[0] = state.lambda_pdf_0[idx]; lambdas.pdf[1] = state.lambda_pdf_1[idx];
+    lambdas.pdf[2] = state.lambda_pdf_2[idx]; lambdas.pdf[3] = state.lambda_pdf_3[idx];
+
+    GSampledSpectrum throughput;
+    throughput.v[0] = state.throughput_0[idx]; throughput.v[1] = state.throughput_1[idx];
+    throughput.v[2] = state.throughput_2[idx]; throughput.v[3] = state.throughput_3[idx];
+
+    WavefrontRNG rng(state.rng_pixel[idx], state.rng_sample[idx], state.rng_seed[idx]);
+    rng.setDimension(state.rng_dimension[idx]);
+
+    // ---- Medium NEE (phase / light MIS), parked for the shadow stage ----
+    // Mirrors the surface NEE park (stage_advance shade lines): the "f" is the HG
+    // phase value; scale = wt/lightPdf with the MIS between lightPdf and the phase
+    // pdf (== phase value). The shadow kernel multiplies lanes 7-10 by L_spec and
+    // applies Tr(geomDist) + clamp, so parked lanes stay UNCLAMPED like surface NEE.
+    if (enableNEE && (numLights + numDed) > 0 && totalLightPower > 0.f) {
+        GHitRecord mrec{};
+        mrec.point   = P;
+        mrec.normal  = woMedium;   // arbitrary; only the (disabled) light-tree path reads it
+        mrec.isDelta = false;
+        GNEESample s = gpu_nee_sample(mrec, prims, tris, spheres,
+                                      lights, numLights, totalLightPower,
+                                      dedLights, numDed, lightTree, &rng);
+        if (s.valid) {
+            float ph = gpu_phaseHG(woMedium.dot(s.wi), g);   // phase value == pdf
+            if (ph > 0.f) {
+                float a2 = s.lightPdf * s.lightPdf;
+                float b2 = ph * ph;
+                float wt = s.isDeltaLight ? 1.f : a2 / (a2 + b2 + 1e-8f);
+                float scale = s.lightPdf > 1e-8f ? wt / s.lightPdf : 0.f;
+                if (s.isDedicated) scale *= s.dedGeoScale;
+                nee_f[ 0 * nee_capacity + idx] = s.origin.x;
+                nee_f[ 1 * nee_capacity + idx] = s.origin.y;
+                nee_f[ 2 * nee_capacity + idx] = s.origin.z;
+                nee_f[ 3 * nee_capacity + idx] = s.wi.x;
+                nee_f[ 4 * nee_capacity + idx] = s.wi.y;
+                nee_f[ 5 * nee_capacity + idx] = s.wi.z;
+                nee_f[ 6 * nee_capacity + idx] = s.maxDist;
+                nee_f[ 7 * nee_capacity + idx] = throughput.v[0] * ph * scale;
+                nee_f[ 8 * nee_capacity + idx] = throughput.v[1] * ph * scale;
+                nee_f[ 9 * nee_capacity + idx] = throughput.v[2] * ph * scale;
+                nee_f[10 * nee_capacity + idx] = throughput.v[3] * ph * scale;
+                nee_f[11 * nee_capacity + idx] = s.dedEmissionRGB.x;
+                nee_f[12 * nee_capacity + idx] = s.dedEmissionRGB.y;
+                nee_f[13 * nee_capacity + idx] = s.dedEmissionRGB.z;
+                nee_f[14 * nee_capacity + idx] = s.geomDist;
+                nee_i[ 0 * nee_capacity + idx] = s.lightMatId;
+                nee_i[ 1 * nee_capacity + idx] = s.isSphere;
+                nee_i[ 2 * nee_capacity + idx] = s.isDedicated;
+                nee_i[ 3 * nee_capacity + idx] = bounce;
+                int qslot = atomicAdd(shadow_count, 1);
+                shadow_queue[qslot] = idx;
+            }
+        }
+    }
+
+    // ---- HG phase-sampled continuation from P (throughput *= phase/pdf = 1) ----
+    float phasePdf;
+    GVec3 wiCont = gpu_sampleHG(woMedium, g, rng.Uniform(), rng.Uniform(), phasePdf);
+
+    // Russian roulette (mirror the shade-kernel / CPU scatter-branch RR, kRRDepth=3).
+    if (bounce > 3) {
+        float p;
+        if (useLuminanceOutput) {
+            float L = 0.f;
+            for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k) L += throughput.v[k];
+            p = fminf(0.95f, fmaxf(0.f, L / float(G_SPECTRUM_SAMPLES)));
+        } else {
+            GVec3 xyz = gpu_spectrum_to_xyz(throughput, lambdas);
+            p = fminf(0.95f, fmaxf(0.f, xyz.y));
+        }
+        if (rng.Uniform() > p) {
+            state.path_alive[idx] = 0;
+            state.rng_dimension[idx] = rng.dimension();
+            return;   // color already in SoA; regen accumulates it
+        }
+        if (p > 0.f) for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k) throughput.v[k] *= (1.f / p);
+    }
+
+    // ---- Continuation write-back (ray_origin already == P from intersect) ----
+    state.ray_direction_x[idx] = wiCont.x;
+    state.ray_direction_y[idx] = wiCont.y;
+    state.ray_direction_z[idx] = wiCont.z;
+    state.throughput_0[idx] = throughput.v[0];
+    state.throughput_1[idx] = throughput.v[1];
+    state.throughput_2[idx] = throughput.v[2];
+    state.throughput_3[idx] = throughput.v[3];
+    state.was_specular[idx]  = 0;
+    state.path_bsdf_pdf[idx] = phasePdf;
+    state.rng_dimension[idx] = rng.dimension();
+    int next_bounce = bounce + 1;
+    state.bounce[idx] = next_bounce;
+    if (next_bounce >= max_depth) { state.path_alive[idx] = 0; return; }
+    int slot = atomicAdd(count_out, 1);
+    queue_out[slot] = idx;
+}
+
+void launchStageVolumeScatter(
+    GPUWavefrontState& state,
+    const int* d_vol_queue, const int* d_vol_count,
+    int* d_queue_out, int* d_count_out,
+    float* d_nee_f, int* d_nee_i, int* d_shadow_queue, int* d_shadow_count,
+    int nee_capacity,
+    const GPrimitive* d_prims, const GTriangle* d_tris, const GSphere* d_spheres,
+    const ::GLight* d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,
+    GLightTreeView lightTree,
+    int max_depth, bool useLuminanceOutput, bool enableNEE)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
     int blocks  = (state.num_active + threads - 1) / threads;
     {
         astroray::gpu_profile::ScopedTimer _t(
-            "wavefront_stage_intersect_queued_n7",
-            (const void*)stageIntersectQueuedKernel, blocks, threads);
-        stageIntersectQueuedKernel<<<blocks, threads>>>(
-            state, hitBufs, d_queue_in, d_count_in,
-            d_shade_queues, d_shade_counts, capacity,
-            d_tlas, d_instances, d_blas,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
-            useLuminanceOutput, enableNEE, clampDirect, clampIndirect,
+            "wavefront_stage_volume_scatter",
+            (const void*)stageVolumeScatterKernel, blocks, threads);
+        stageVolumeScatterKernel<<<blocks, threads>>>(
+            state, d_vol_queue, d_vol_count, d_queue_out, d_count_out,
+            d_nee_f, d_nee_i, d_shadow_queue, d_shadow_count, nee_capacity,
+            d_prims, d_tris, d_spheres,
             d_lights, num_lights, total_light_power,
-            d_dedLights, num_ded, lightTree);  // pkg120+pkg181
+            d_dedLights, num_ded, lightTree,
+            max_depth, useLuminanceOutput, enableNEE);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
-            std::fprintf(stderr, "stage_intersect_queued launch error: %s\n",
+            std::fprintf(stderr, "stage_volume_scatter launch error: %s\n",
                          cudaGetErrorString(err));
             throw std::runtime_error(cudaGetErrorString(err));
         }
@@ -1580,6 +2008,7 @@ __global__ void stageRegenKernel(
     int* count_out,      // pkg55-C7 perf: fused per-pass counter zeroing —
     int* shade_counts,   // replaces 3 cudaMemsetAsync launches per pass
     int* shadow_count,   // (~3.6k extra launches per 512-spp render).
+    int* vol_count,      // pkg199 Stage 2: volume-scatter queue counter (null = skip)
     bool useLuminanceOutput)  // pkg55-C7: non-visible-band accumulation —
                               // grey band-mean radiance instead of the CMF
                               // XYZ projection (which is ~0 outside 380-780,
@@ -1595,6 +2024,7 @@ __global__ void stageRegenKernel(
     if (idx == 0 && count_out != nullptr) {
         *count_out    = 0;
         *shadow_count = 0;
+        if (vol_count != nullptr) *vol_count = 0;   // pkg199 Stage 2
         #pragma unroll
         for (int m = 0; m < G_WF_NUM_MAT_TYPES; ++m) shade_counts[m] = 0;
     }
@@ -1697,6 +2127,7 @@ void launchStageRegen(
     int* d_count_out,      // pkg55-C7: fused counter zeroing (nullptr = skip)
     int* d_shade_counts,
     int* d_shadow_count,
+    int* d_vol_count,      // pkg199 Stage 2 (nullptr = skip)
     bool useLuminanceOutput)  // pkg55-C7: non-visible-band accumulation
 {
     if (state.num_active <= 0) return;
@@ -1710,7 +2141,7 @@ void launchStageRegen(
             state, d_accum_xyz, d_work_counter, total_work, numPixels,
             cam, width, height, seed,
             lambdaMin, lambdaMax,
-            d_count_out, d_shade_counts, d_shadow_count,
+            d_count_out, d_shade_counts, d_shadow_count, d_vol_count,
             useLuminanceOutput);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {

@@ -654,6 +654,12 @@ struct GWorldVolume {
     int   hasVolume;              // 0 = vacuum (skip); 1 = active medium
     float density;               // worldVolumeDensity
     float colorR, colorG, colorB; // worldVolumeColor (reflectance-like tint)
+    // pkg199 Stage 2 — single-scattering albedo alpha in [0,1] and HG anisotropy g.
+    // scatter==0 (default) => absorption-only (Stage-1 behaviour, byte-identical:
+    // the free-flight scatter decision in intersectPathSlot is gated on scatter>0).
+    // sigma_s = scatter*sigma_t; g is live only when scatter>0.
+    float scatter;               // worldVolumeScatter (alpha)
+    float anisotropy;            // worldVolumeAnisotropy (HG g)
 };
 
 // Nearest-neighbour image fetch — mirrors CPU ImageTexture::value EXACTLY

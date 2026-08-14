@@ -2,7 +2,7 @@
 
 **Pillar:** Integration Milestone (Blender/DCC integration — imported `.blend` files must render the same light on GPU as CPU)
 **Track:** A (GPU scene-upload host code; gated on a real RTX render A/B, not CI green)
-**Status:** done (PR #TBD, 2026-08-14 — legacy sun renders on GPU: finite-angle GPU/CPU parity ratio 1.000, delta sun GPU 0.6333 == analytic ρ·S/π 0.6366 and == CPU dedicated delta 0.6345; .blend-importer sun non-black on GPU; no-CDF-theft linearity ratio 1.000; dedicated control unchanged 1.000; RTX 5070 Ti, sm_120, .pyd @ HEAD).
+**Status:** done (PR #621, 2026-08-14 — legacy sun renders on GPU: finite-angle GPU/CPU parity ratio 1.000, delta sun GPU 0.6333 == analytic ρ·S/π 0.6366 and == CPU dedicated delta 0.6345; .blend-importer sun non-black on GPU; no-CDF-theft linearity ratio 1.000; dedicated control unchanged 1.000; RTX 5070 Ti, sm_120, .pyd @ HEAD).
 **Estimated effort:** S–M. One upload-time conversion in `src/gpu/scene_upload.cu`, plus three self-contained tests. No new device/kernel code.
 **Depends on:** pkg89-GPU (the dedicated distant-light device path this reuses — `src/gpu/scene_upload.cu:897-938`, `gpu_nee.cuh` `gpu_dedicated_sample`, `astroray::DistantLight` in `include/astroray/lights/distant_light.h`). Independent of the pkg198/199/201 wavefront-register work — this is upload-side host code and touches no shade-kernel live state.
 

@@ -182,7 +182,14 @@ std::vector<float> cuda_wavefront_render(
     // convention). Passing nullptr (the default) disables guide capture entirely.
     float* albedoOut = nullptr,          // pkg197
     float* normalOut = nullptr,          // pkg197
-    float* depthOut = nullptr);          // pkg197
+    float* depthOut = nullptr,           // pkg197
+    // pkg198 Stage 2: light-path render passes. When non-null, must point at
+    // ASTRORAY_LP_NUM_PASSES*width*height*3 writable floats, filled pass-major
+    // ([p*numPixels*3 + pixel*3 + c]) with linear-sRGB Vec3 per pixel per pass —
+    // the SAME /samples·exposure·xyzToLinearSRGB transform as beauty, so
+    // Σpasses == beauty per pixel. Passing nullptr (default) disables the partition
+    // (fleet renders byte-identical). Layout/units match Camera::renderPassBuffers.
+    float* passesOut = nullptr);         // pkg198
 
 // pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront render. Direct-illumination
 // driver with double-buffered per-pixel reservoirs persisted across frames

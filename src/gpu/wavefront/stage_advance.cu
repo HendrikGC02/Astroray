@@ -150,6 +150,71 @@ __constant__ GWavefrontGuideBinding c_wfGuideBinding;
 // so the snapshot/ReSTIR drivers that never publish it render as vacuum.
 __constant__ GWorldVolume c_worldVolume;
 
+// pkg198 Stage 2 — light-path pass binding in constant memory (see
+// GWavefrontLightPassBinding in gpu_types.h). Set once per frame by
+// setWavefrontLightPassBinding; the shade/intersect kernels read it ONLY inside
+// `if constexpr (HasLightPassAOVs)` (keeping the fleet <…,false> specializations
+// byte-identical — the REGISTER PROBE result, PR #620), while the non-register-gated
+// shadow/volume/regen kernels read it behind a runtime `passAccum != nullptr` guard.
+// Declared here (before intersectPathSlotT) because both the intersect and shade
+// kernels reference it, exactly like c_wfGuideBinding / c_worldVolume above.
+__constant__ GWavefrontLightPassBinding c_wfLpBinding;
+
+// Splat a spectral contribution into slot `idx`'s pass `passIdx` accumulator.
+// Per-slot (mirrors the color SoA — accumulate-at-death like beauty), so no atomics:
+// one path owns one slot for the duration of a bounce, exactly like the color_/
+// throughput_ SoA writes. RMW into global memory — the caller holds only the
+// constant-mem base pointer + the already-live `c`, not N register accumulators
+// (this is what keeps the pass writes off the register budget).
+__device__ __forceinline__ void lpAccumulate(int idx, int passIdx,
+                                              const GSampledSpectrum& c) {
+    float* base = c_wfLpBinding.passAccum
+                + (size_t)idx * (ASTRORAY_LP_NUM_PASSES * G_SPECTRUM_SAMPLES)
+                + (size_t)passIdx * G_SPECTRUM_SAMPLES;
+    #pragma unroll
+    for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k) base[k] += c.v[k];
+}
+
+// firstCat "not yet locked" sentinel (device twin of the CPU firstCat == -1).
+constexpr unsigned char G_LP_CAT_UNSET = 0xFFu;
+// RenderPassIndex mirror (raytracer.h) — the two standalone buckets the light-path
+// partition writes by name; the lobe passes are computed as cat*3+{0,1}.
+constexpr int G_LP_PASS_EMISSION    = 11;  // == PASS_EMISSION
+constexpr int G_LP_PASS_ENVIRONMENT = 12;  // == PASS_ENVIRONMENT
+
+// Pass index for a directly-visible EMISSION/BACKGROUND event, given the locked
+// category (Cycles film_write_emission_or_background_pass, Apache-2.0). Not yet
+// locked (camera-visible) → the standalone PASS_EMISSION / PASS_ENVIRONMENT bucket;
+// after a bounce → the first category's INDIRECT pass. `emissionBucket` selects
+// PASS_EMISSION (11) vs PASS_ENVIRONMENT (12).
+__device__ __forceinline__ int lpEmitOrBgPass(unsigned char cat, int emissionBucket) {
+    return (cat == G_LP_CAT_UNSET) ? emissionBucket : ((int)cat * 3 + 1);
+}
+
+// Device twin of the CPU Material::isGlossy() (raytracer.h:455) — base Material is
+// false; Metal (plugins/materials/metal.cpp) and Principled/Disney
+// (plugins/materials/principled.cpp) override to true. Used to split the
+// reflection-lobe category for a non-delta, non-transmitted first bounce (diffuse
+// vs glossy). CRITICAL: scene_upload.cu lowers EVERY material that produces a valid
+// closure graph to GMAT_CLOSURE_GRAPH (line 112) — so a Metal is uploaded as a
+// GCLOSURE_GGX_CONDUCTOR closure and a Principled as GCLOSURE_PRINCIPLED, NOT as
+// GMAT_METAL/GMAT_DISNEY. Checking only those two types misses the metal (its
+// glossy indirect leaks into diffuse_indirect — the pkg198-s2 parity failure). So
+// also scan the closure graph: a conductor or principled closure ⇒ glossy; a
+// diffuse/dielectric-transmission/thin-glass closure ⇒ not glossy (matching the CPU
+// Lambertian/Dielectric isGlossy()==false). Behind `if constexpr(HasLightPassAOVs)`
+// at the one call site, so the fleet <…,false> shade kernel never compiles it.
+__device__ __forceinline__ bool gpu_material_is_glossy(const ::GMaterial& m) {
+    if (m.type == GMAT_METAL || m.type == GMAT_DISNEY) return true;
+    if (m.type == GMAT_CLOSURE_GRAPH) {
+        for (int i = 0; i < (int)m.closureCount; ++i) {
+            GClosureType t = m.closures[i].type;
+            if (t == GCLOSURE_GGX_CONDUCTOR || t == GCLOSURE_PRINCIPLED) return true;
+        }
+    }
+    return false;
+}
+
 // pkg199 Stage 1 — spectral Beer-Lambert transmittance exp(-sigma_t·d) per
 // wavelength through the homogeneous world medium (PBRT-v4 §11.3; Cycles
 // kernel/integrator/volume.h). Spectral discipline: upsample the reflectance-like
@@ -277,7 +342,7 @@ __device__ inline float gpu_freeflightUniform(uint32_t pixel, uint32_t sample,
 // launch <true> (which pays the 130, but they are scattering-bound anyway). The
 // non-template `intersectPathSlot` symbol below forwards to <false> so the
 // cross-TU callers (ReSTIR primary, MIS-audit; both scatter=0) link unchanged.
-template<bool HasWorldScatter>
+template<bool HasWorldScatter, bool HasLightPassAOVs = false>  // pkg199 scatter; pkg198 S2 pass axis
 __device__ int intersectPathSlotT(
     int idx,
     GPUWavefrontState& state,
@@ -481,8 +546,18 @@ __device__ int intersectPathSlotT(
                 }
                 // naive mode (enableNEE == false, non-specular): no NEE leg to
                 // complement, so nothing is added — mirrors the emissive block.
-                color += gpu_clampContribMW(contrib, lambdas, bounce,
-                                            clampDirect, clampIndirect, useLuminanceOutput);
+                GSampledSpectrum lampContrib = gpu_clampContribMW(
+                    contrib, lambdas, bounce,
+                    clampDirect, clampIndirect, useLuminanceOutput);
+                color += lampContrib;
+                // pkg198 Stage 2: a lamp hit by a continuation ray is indirect light
+                // (bounce > 0), folded into firstCat's INDIRECT pass (CPU lampPass =
+                // (firstCat<0?0:firstCat)*3+1).
+                if constexpr (HasLightPassAOVs) {
+                    unsigned char cat = c_wfLpBinding.firstCat[idx];
+                    int lampPass = (cat == G_LP_CAT_UNSET ? 0 : (int)cat) * 3 + 1;
+                    lpAccumulate(idx, lampPass, lampContrib);
+                }
             }
             state.color_0[idx] = color.v[0];
             state.color_1[idx] = color.v[1];
@@ -514,8 +589,17 @@ __device__ int intersectPathSlotT(
             }
             // pkg157: clamp by bounce depth (Cycles film_clamp_light split);
             // see gpu_clampContribMW (gpu_spectral_tables.h).
-            color += gpu_clampContribMW(throughput * envSpec, lambdas, bounce,
-                                        clampDirect, clampIndirect, useLuminanceOutput);
+            GSampledSpectrum envContrib = gpu_clampContribMW(
+                throughput * envSpec, lambdas, bounce,
+                clampDirect, clampIndirect, useLuminanceOutput);
+            color += envContrib;
+            // pkg198 Stage 2: directly-visible background → PASS_ENVIRONMENT; a
+            // background reached after a bounce → firstCat's INDIRECT pass (CPU
+            // envPass = firstCat<0 ? PASS_ENVIRONMENT : firstCat*3+1).
+            if constexpr (HasLightPassAOVs) {
+                unsigned char cat = c_wfLpBinding.firstCat[idx];
+                lpAccumulate(idx, lpEmitOrBgPass(cat, G_LP_PASS_ENVIRONMENT), envContrib);
+            }
             state.color_0[idx] = color.v[0];
             state.color_1[idx] = color.v[1];
             state.color_2[idx] = color.v[2];
@@ -581,8 +665,16 @@ __device__ int intersectPathSlotT(
         if (bounce == 0 || wasSpecular) {
             // pkg157: emissive-hit direct term, same clamp split as above.
             // Camera / post-specular ray: no NEE leg competes (w_B = 1).
-            color += gpu_clampContribMW(throughput * Le, lambdas, bounce,
-                                        clampDirect, clampIndirect, useLuminanceOutput);
+            GSampledSpectrum emitContrib = gpu_clampContribMW(
+                throughput * Le, lambdas, bounce,
+                clampDirect, clampIndirect, useLuminanceOutput);
+            color += emitContrib;
+            // pkg198 Stage 2: directly-visible surface emission → PASS_EMISSION;
+            // emission after a non-specular bounce → firstCat's INDIRECT pass.
+            if constexpr (HasLightPassAOVs) {
+                unsigned char cat = c_wfLpBinding.firstCat[idx];
+                lpAccumulate(idx, lpEmitOrBgPass(cat, G_LP_PASS_EMISSION), emitContrib);
+            }
         } else if (enableNEE) {
             // pkg120: two-sided MIS BSDF-sampled leg — device twin of CPU
             // pathTraceSpectral. This continuation ray was BSDF-sampled at a
@@ -610,8 +702,17 @@ __device__ int intersectPathSlotT(
             float wB = gpu_mw_powerHeuristic(bsdfPdfPrev, lp);
             GSampledSpectrum contrib = throughput * Le;
             contrib *= wB;
-            color += gpu_clampContribMW(contrib, lambdas, bounce,
-                                        clampDirect, clampIndirect, useLuminanceOutput);
+            GSampledSpectrum emitContrib = gpu_clampContribMW(
+                contrib, lambdas, bounce,
+                clampDirect, clampIndirect, useLuminanceOutput);
+            color += emitContrib;
+            // pkg198 Stage 2: two-sided-MIS emissive hit at a diffuse bounce is
+            // indirect light → firstCat's INDIRECT pass (firstCat is always locked
+            // here: this branch is bounce>0 && !wasSpecular).
+            if constexpr (HasLightPassAOVs) {
+                unsigned char cat = c_wfLpBinding.firstCat[idx];
+                lpAccumulate(idx, lpEmitOrBgPass(cat, G_LP_PASS_EMISSION), emitContrib);
+            }
         }
         state.color_0[idx] = color.v[0];
         state.color_1[idx] = color.v[1];
@@ -731,7 +832,7 @@ __constant__ GWavefrontTextureBinding c_wfTexBinding;
 // host-side hasDispersive scene flag. See
 // .astroray_plan/packages/pkg189-gpu-wavefront-dispersion-enablement.md.
 template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPhotons = false,
-         bool HasDispersion = false>
+         bool HasDispersion = false, bool HasLightPassAOVs = false>  // pkg198 S2 pass axis
 __device__ bool shadePathSlot(
     int idx,
     GPUWavefrontState& state,
@@ -1157,6 +1258,27 @@ __device__ bool shadePathSlot(
         return false;
     }
     wasSpecular = bss.isDelta;
+    // pkg198 Stage 2: lock the first-bounce light-path category (Cycles locks pass
+    // weights at bounce 0). TRANSMISSION if the sampled wi crossed the surface (a
+    // geometric sign test on rec.normal — no distance/sentinel per
+    // [[occlusion-sentinel-as-distance-class-of-bug]]); else GLOSSY for a delta/
+    // mirror reflection or a glossy material; else DIFFUSE. Device twin of the CPU
+    // pathTraceSpectral firstCat lock (raytracer.h). Persisted per-slot in the
+    // constant-bound firstCat buffer so the intersect/shadow/regen kernels attribute
+    // indirect light to the same category. The write is the ONLY shade-kernel cost of
+    // the pass partition (NEE is deferred to the shadow kernel) — the REGISTER PROBE
+    // (PR #620) measured it at zero STACK / no tier change. Compiled OUT of the fleet
+    // <…,false> kernel by if constexpr → byte-identical 254/3352/1700.
+    if constexpr (HasLightPassAOVs) {
+        if (bounce == 0) {
+            float sWo = wo.dot(rec.normal);
+            float sWi = bss.wi.dot(rec.normal);
+            bool transmitted = (sWo * sWi) < 0.f;
+            unsigned char cat = transmitted ? 2
+                              : ((bss.isDelta || gpu_material_is_glossy(mat)) ? 1 : 0);
+            c_wfLpBinding.firstCat[idx] = cat;
+        }
+    }
     // pkg120: park this bounce's BSDF pdf so the NEXT bounce's intersect stage
     // can weight a diffuse-bounce emissive hit by the two-sided MIS heuristic
     // (mirrors CPU bsdfPdfPrev = bss.pdf in pathTraceSpectral).
@@ -1416,6 +1538,35 @@ __global__ void stageShadowKernel(
     state.color_1[idx] += contrib.v[1];
     state.color_2[idx] += contrib.v[2];
     state.color_3[idx] += contrib.v[3];
+    // pkg198 Stage 2: attribute this resolved NEE to the light-path partition.
+    // NEE at bounce 0 is DIRECT (fired before the first-BSDF firstCat lock in the
+    // CPU); a deeper NEE is INDIRECT, tagged by firstCat. Runtime-gated (this lean
+    // resolve kernel is not register-critical, so no compile-time axis — the fleet
+    // pays one predicated branch on a constant null pointer). Direct is routed to
+    // the reflect-lobe pass (diffuse/glossy only — NEE never fires on a delta lobe,
+    // so a shadow connection is a reflection event; transmission(2) maps to glossy
+    // and transmission_direct stays black, matching the CPU documented invariant).
+    if (c_wfLpBinding.passAccum != nullptr) {
+        unsigned char fc = c_wfLpBinding.firstCat[idx];
+        int passIdx;
+        if (fc == 3) {
+            // Volume in-scatter NEE (firstCat locked to 3 by the volume kernel).
+            // pkg198 Stage-2 LIMITATION: the deferred shadow kernel cannot tell a
+            // first-scatter (VOLUME_DIRECT) from a deeper one (VOLUME_INDIRECT)
+            // without an extra parked bit, so all volume in-scatter is attributed to
+            // PASS_VOLUME_INDIRECT. Sum-to-beauty is preserved (it lands in a real
+            // pass); only the volume direct/indirect split differs from the CPU. Fog
+            // scenes are outside the Stage-1 parity gate; documented in the PR.
+            passIdx = 3 * 3 + 1;               // PASS_VOLUME_INDIRECT (10)
+        } else if (bounce == 0) {
+            int dc = (fc == G_LP_CAT_UNSET) ? 0 : (fc >= 2 ? 1 : (int)fc);
+            passIdx = dc * 3 + 0;              // <reflectLobe>_DIRECT
+        } else {
+            int ic = (fc == G_LP_CAT_UNSET) ? 0 : (int)fc;
+            passIdx = ic * 3 + 1;              // <firstCat>_INDIRECT
+        }
+        lpAccumulate(idx, passIdx, contrib);
+    }
 }
 
 // Fills queue with 0..n-1 and *count = n (bounce-0 population).
@@ -1435,7 +1586,7 @@ __global__ void stageQueueIotaKernel(int* queue, int* count, int n)
 // material dispatch of Laine 2013 sec. 5 / Cycles X shader sorting, realized
 // as bucketed atomic append instead of a radix sort (7 types only).
 // ---------------------------------------------------------------------------
-template<bool HasWorldScatter>   // pkg199 Stage 2 fleet-isolation axis
+template<bool HasWorldScatter, bool HasLightPassAOVs = false>   // pkg199 scatter; pkg198 S2 pass axis
 __global__ void stageIntersectQueuedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1476,7 +1627,7 @@ __global__ void stageIntersectQueuedKernel(
     // (no-op there); the regeneration driver iterates a dense identity
     // queue where exhausted slots stay dead.
     if (state.path_alive[idx] == 0) return;
-    int matType = intersectPathSlotT<HasWorldScatter>(
+    int matType = intersectPathSlotT<HasWorldScatter, HasLightPassAOVs>(
                                     idx, state, hitBufs, tlas, instances, blas,
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
@@ -1496,7 +1647,8 @@ __global__ void stageIntersectQueuedKernel(
     shade_queues[matType * capacity + slot] = idx;
 }
 
-template<bool HasPrincipled, bool HasTexture, bool HasPhotons, bool HasDispersion>  // pkg178 D4; pkg186 texture; pkg184 photons; pkg189 dispersion
+template<bool HasPrincipled, bool HasTexture, bool HasPhotons, bool HasDispersion,
+         bool HasLightPassAOVs = false>  // pkg178 D4; pkg186 texture; pkg184 photons; pkg189 dispersion; pkg198 S2 pass axis
 __global__ void stageShadeBucketedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1532,7 +1684,7 @@ __global__ void stageShadeBucketedKernel(
     // pkg186: texture data comes from the __constant__ c_wfTexBinding symbol, NOT
     // kernel params — keeps the untextured <false,false> signature at its
     // pre-pkg186 footprint (see c_wfTexBinding note above).
-    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons, HasDispersion>(idx, state, hitBufs, tlas, instances, blas,
+    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons, HasDispersion, HasLightPassAOVs>(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
                                totalLightPower, dedLights, numDed,
@@ -1592,7 +1744,8 @@ void launchStageIntersectQueued(
     const GDedicatedLight* d_dedLights, int num_ded,
     GLightTreeView    lightTree,
     int* d_vol_queue, int* d_vol_count,   // pkg199 Stage 2
-    bool has_world_scatter)               // pkg199 Stage 2: picks the fleet-isolation axis
+    bool has_world_scatter,               // pkg199 Stage 2: picks the fleet-isolation axis
+    bool has_light_pass_aovs)             // pkg198 Stage 2: picks the pass-AOV axis
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1612,15 +1765,25 @@ void launchStageIntersectQueued(
         d_dedLights, num_ded, lightTree, \
         d_vol_queue, d_vol_count
     {
-        const void* kptr = has_world_scatter
-            ? (const void*)stageIntersectQueuedKernel<true>
-            : (const void*)stageIntersectQueuedKernel<false>;
+        // pkg198 Stage 2: the second axis picks the pass-AOV specialization. The
+        // fleet (no scatter, no passes) launches <false,false> — REG 127, byte-
+        // identical Stage-1. All four instantiations are referenced so they land in
+        // the cubin for the cuobjdump register report (intersect<false,false> must
+        // stay 127/616).
+        const int sel = (has_world_scatter ? 2 : 0) | (has_light_pass_aovs ? 1 : 0);
+        const void* kptr =
+            sel == 3 ? (const void*)stageIntersectQueuedKernel<true, true>  :
+            sel == 2 ? (const void*)stageIntersectQueuedKernel<true, false> :
+            sel == 1 ? (const void*)stageIntersectQueuedKernel<false, true> :
+                       (const void*)stageIntersectQueuedKernel<false, false>;
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_intersect_queued_n7", kptr, blocks, threads);
-        if (has_world_scatter)
-            stageIntersectQueuedKernel<true><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS);
-        else
-            stageIntersectQueuedKernel<false><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS);
+        switch (sel) {
+            case 3: stageIntersectQueuedKernel<true, true> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+            case 2: stageIntersectQueuedKernel<true, false><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+            case 1: stageIntersectQueuedKernel<false, true> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+            default:stageIntersectQueuedKernel<false, false><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+        }
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_intersect_queued launch error: %s\n",
@@ -1660,6 +1823,16 @@ __global__ void stageVolumeScatterKernel(
     int idx = vol_queue[i];
     if (state.path_alive[idx] == 0) return;
     const int bounce = state.bounce[idx];
+
+    // pkg198 Stage 2: a volume scatter locks the light-path category to VOLUME (3)
+    // at the FIRST interaction (CPU: firstInteraction => firstCat=3), so every
+    // downstream surface/emission/env event this path sees folds into the volume
+    // INDIRECT pass (3*3+1 = PASS_VOLUME_INDIRECT), matching the CPU. Runtime-gated;
+    // set only when unset so a deeper scatter does not relabel an earlier lock.
+    if (c_wfLpBinding.passAccum != nullptr &&
+        c_wfLpBinding.firstCat[idx] == G_LP_CAT_UNSET) {
+        c_wfLpBinding.firstCat[idx] = 3;
+    }
 
     // Reconstruct: ray_origin == scatter point P (intersect wrote it), and
     // ray_direction == incoming direction (woMedium = -direction), per the pinned
@@ -1834,6 +2007,18 @@ void setWavefrontWorldVolume(const GWorldVolume& volume)
     cudaMemcpyToSymbol(c_worldVolume, &volume, sizeof(GWorldVolume));
 }
 
+// pkg198 Stage 2 — publish the frame's light-path pass buffers into the
+// __constant__ c_wfLpBinding symbol (read by the shade classification lock, the
+// intersect emission/env/lamp writes, the shadow-resolve NEE attribution, the
+// volume-scatter firstCat lock, and the regen accumulate-at-death flush). Called
+// ONCE per frame by cuda_wavefront_render; ALWAYS set (to real pointers or all-null)
+// so a prior render's pointers can never be read stale. passAccum==nullptr disables
+// the whole partition (fleet renders byte-identical).
+void setWavefrontLightPassBinding(const GWavefrontLightPassBinding& binding)
+{
+    cudaMemcpyToSymbol(c_wfLpBinding, &binding, sizeof(GWavefrontLightPassBinding));
+}
+
 void launchStageShadeBucketed(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
@@ -1869,7 +2054,11 @@ void launchStageShadeBucketed(
     // pkg189: selects the <*,*,*,true> instantiation carrying the hero-λ collapse
     // write-back. Host-side flag (any uploaded material isDispersive); the
     // non-dispersive fleet passes false and stays register/stack-identical.
-    bool              hasDispersion)
+    bool              hasDispersion,
+    // pkg198 Stage 2: selects the <*,*,*,*,true> instantiation carrying the
+    // first-bounce classification lock. The fleet passes false and stays byte-
+    // identical (254/3352/1700 — the REGISTER PROBE result, PR #620).
+    bool              hasLightPassAOVs)
 {
     if (capacity <= 0) return;
     // One launch covers all buckets: grid = NUM_TYPES * capacity threads;
@@ -1921,51 +2110,62 @@ void launchStageShadeBucketed(
         const bool hasPhotons = hasPhotonGrid;
         const int sel = (hasPrincipled ? 8 : 0) | (hasTexture ? 4 : 0)
                       | (hasPhotons ? 2 : 0) | (hasDispersion ? 1 : 0);
-        #define ASTRORAY_PKG189_KPTR(P,T,Ph,D) \
-                (const void*)stageShadeBucketedKernel<P,T,Ph,D>
+        // pkg198 Stage 2: the 5th axis (HasLightPassAOVs) is selected at RUNTIME
+        // inside each case via `hasLightPassAOVs`, so the 16-way P/T/Ph/D switch
+        // stays legible while both LP specializations of each combo land in the
+        // cubin. The fleet path (hasLightPassAOVs==false) reaches the exact same
+        // <…,false> instantiations as before → byte-identical 254/3352/1700.
+        #define ASTRORAY_PKG198_KPTR(P,T,Ph,D) \
+                (hasLightPassAOVs \
+                   ? (const void*)stageShadeBucketedKernel<P,T,Ph,D,true> \
+                   : (const void*)stageShadeBucketedKernel<P,T,Ph,D,false>)
         const void* kptr = nullptr;
         switch (sel) {
-            case  0: kptr = ASTRORAY_PKG189_KPTR(false,false,false,false); break;
-            case  1: kptr = ASTRORAY_PKG189_KPTR(false,false,false,true ); break;
-            case  2: kptr = ASTRORAY_PKG189_KPTR(false,false,true ,false); break;
-            case  3: kptr = ASTRORAY_PKG189_KPTR(false,false,true ,true ); break;
-            case  4: kptr = ASTRORAY_PKG189_KPTR(false,true ,false,false); break;
-            case  5: kptr = ASTRORAY_PKG189_KPTR(false,true ,false,true ); break;
-            case  6: kptr = ASTRORAY_PKG189_KPTR(false,true ,true ,false); break;
-            case  7: kptr = ASTRORAY_PKG189_KPTR(false,true ,true ,true ); break;
-            case  8: kptr = ASTRORAY_PKG189_KPTR(true ,false,false,false); break;
-            case  9: kptr = ASTRORAY_PKG189_KPTR(true ,false,false,true ); break;
-            case 10: kptr = ASTRORAY_PKG189_KPTR(true ,false,true ,false); break;
-            case 11: kptr = ASTRORAY_PKG189_KPTR(true ,false,true ,true ); break;
-            case 12: kptr = ASTRORAY_PKG189_KPTR(true ,true ,false,false); break;
-            case 13: kptr = ASTRORAY_PKG189_KPTR(true ,true ,false,true ); break;
-            case 14: kptr = ASTRORAY_PKG189_KPTR(true ,true ,true ,false); break;
-            case 15: kptr = ASTRORAY_PKG189_KPTR(true ,true ,true ,true ); break;
+            case  0: kptr = ASTRORAY_PKG198_KPTR(false,false,false,false); break;
+            case  1: kptr = ASTRORAY_PKG198_KPTR(false,false,false,true ); break;
+            case  2: kptr = ASTRORAY_PKG198_KPTR(false,false,true ,false); break;
+            case  3: kptr = ASTRORAY_PKG198_KPTR(false,false,true ,true ); break;
+            case  4: kptr = ASTRORAY_PKG198_KPTR(false,true ,false,false); break;
+            case  5: kptr = ASTRORAY_PKG198_KPTR(false,true ,false,true ); break;
+            case  6: kptr = ASTRORAY_PKG198_KPTR(false,true ,true ,false); break;
+            case  7: kptr = ASTRORAY_PKG198_KPTR(false,true ,true ,true ); break;
+            case  8: kptr = ASTRORAY_PKG198_KPTR(true ,false,false,false); break;
+            case  9: kptr = ASTRORAY_PKG198_KPTR(true ,false,false,true ); break;
+            case 10: kptr = ASTRORAY_PKG198_KPTR(true ,false,true ,false); break;
+            case 11: kptr = ASTRORAY_PKG198_KPTR(true ,false,true ,true ); break;
+            case 12: kptr = ASTRORAY_PKG198_KPTR(true ,true ,false,false); break;
+            case 13: kptr = ASTRORAY_PKG198_KPTR(true ,true ,false,true ); break;
+            case 14: kptr = ASTRORAY_PKG198_KPTR(true ,true ,true ,false); break;
+            case 15: kptr = ASTRORAY_PKG198_KPTR(true ,true ,true ,true ); break;
         }
-        #undef ASTRORAY_PKG189_KPTR
+        #undef ASTRORAY_PKG198_KPTR
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_shade_bucketed_n7", kptr, blocks, threads);
-        #define ASTRORAY_PKG189_LAUNCH(P,T,Ph,D) \
-                stageShadeBucketedKernel<P,T,Ph,D><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS)
+        #define ASTRORAY_PKG198_LAUNCH(P,T,Ph,D) \
+                do { if (hasLightPassAOVs) \
+                    stageShadeBucketedKernel<P,T,Ph,D,true ><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
+                else \
+                    stageShadeBucketedKernel<P,T,Ph,D,false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
+                } while (0)
         switch (sel) {
-            case  0: ASTRORAY_PKG189_LAUNCH(false,false,false,false); break;
-            case  1: ASTRORAY_PKG189_LAUNCH(false,false,false,true ); break;
-            case  2: ASTRORAY_PKG189_LAUNCH(false,false,true ,false); break;
-            case  3: ASTRORAY_PKG189_LAUNCH(false,false,true ,true ); break;
-            case  4: ASTRORAY_PKG189_LAUNCH(false,true ,false,false); break;
-            case  5: ASTRORAY_PKG189_LAUNCH(false,true ,false,true ); break;
-            case  6: ASTRORAY_PKG189_LAUNCH(false,true ,true ,false); break;
-            case  7: ASTRORAY_PKG189_LAUNCH(false,true ,true ,true ); break;
-            case  8: ASTRORAY_PKG189_LAUNCH(true ,false,false,false); break;
-            case  9: ASTRORAY_PKG189_LAUNCH(true ,false,false,true ); break;
-            case 10: ASTRORAY_PKG189_LAUNCH(true ,false,true ,false); break;
-            case 11: ASTRORAY_PKG189_LAUNCH(true ,false,true ,true ); break;
-            case 12: ASTRORAY_PKG189_LAUNCH(true ,true ,false,false); break;
-            case 13: ASTRORAY_PKG189_LAUNCH(true ,true ,false,true ); break;
-            case 14: ASTRORAY_PKG189_LAUNCH(true ,true ,true ,false); break;
-            case 15: ASTRORAY_PKG189_LAUNCH(true ,true ,true ,true ); break;
+            case  0: ASTRORAY_PKG198_LAUNCH(false,false,false,false); break;
+            case  1: ASTRORAY_PKG198_LAUNCH(false,false,false,true ); break;
+            case  2: ASTRORAY_PKG198_LAUNCH(false,false,true ,false); break;
+            case  3: ASTRORAY_PKG198_LAUNCH(false,false,true ,true ); break;
+            case  4: ASTRORAY_PKG198_LAUNCH(false,true ,false,false); break;
+            case  5: ASTRORAY_PKG198_LAUNCH(false,true ,false,true ); break;
+            case  6: ASTRORAY_PKG198_LAUNCH(false,true ,true ,false); break;
+            case  7: ASTRORAY_PKG198_LAUNCH(false,true ,true ,true ); break;
+            case  8: ASTRORAY_PKG198_LAUNCH(true ,false,false,false); break;
+            case  9: ASTRORAY_PKG198_LAUNCH(true ,false,false,true ); break;
+            case 10: ASTRORAY_PKG198_LAUNCH(true ,false,true ,false); break;
+            case 11: ASTRORAY_PKG198_LAUNCH(true ,false,true ,true ); break;
+            case 12: ASTRORAY_PKG198_LAUNCH(true ,true ,false,false); break;
+            case 13: ASTRORAY_PKG198_LAUNCH(true ,true ,false,true ); break;
+            case 14: ASTRORAY_PKG198_LAUNCH(true ,true ,true ,false); break;
+            case 15: ASTRORAY_PKG198_LAUNCH(true ,true ,true ,true ); break;
         }
-        #undef ASTRORAY_PKG189_LAUNCH
+        #undef ASTRORAY_PKG198_LAUNCH
         #undef ASTRORAY_PKG186_SHADE_ARGS
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
@@ -2104,6 +2304,51 @@ __global__ void stageRegenKernel(
         }
     }
 
+    // pkg198 Stage 2: flush this dead slot's per-pass spectral accumulators to the
+    // per-PIXEL XYZ pass buffer (accumulate-at-death, mirroring the beauty flush
+    // above), then zero them for slot reuse. Runtime-gated — the fleet (passAccum
+    // null) skips entirely, so the non-AOV regen kernel pays only one predicated
+    // branch. Uses the SAME XYZ/grey conversion + slot lambdas as beauty, so
+    // Σ_pass toXYZ(passAccum_p) == toXYZ(color) == beauty per pixel (sum-to-beauty
+    // holds by construction: every color += site has a mirrored passAccum +=, and
+    // spectrum→XYZ is linear).
+    if (c_wfLpBinding.passAccum != nullptr) {
+        const int pxi = state.pixel_index[idx];
+        float* slotBase = c_wfLpBinding.passAccum
+                        + (size_t)idx * (ASTRORAY_LP_NUM_PASSES * G_SPECTRUM_SAMPLES);
+        GSampledWavelengths plam;
+        plam.lambda[0] = state.lambda_0[idx]; plam.lambda[1] = state.lambda_1[idx];
+        plam.lambda[2] = state.lambda_2[idx]; plam.lambda[3] = state.lambda_3[idx];
+        plam.pdf[0] = state.lambda_pdf_0[idx]; plam.pdf[1] = state.lambda_pdf_1[idx];
+        plam.pdf[2] = state.lambda_pdf_2[idx]; plam.pdf[3] = state.lambda_pdf_3[idx];
+        for (int p = 0; p < ASTRORAY_LP_NUM_PASSES; ++p) {
+            float* pb = slotBase + (size_t)p * G_SPECTRUM_SAMPLES;
+            GSampledSpectrum pr;
+            bool any = false;
+            #pragma unroll
+            for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k) {
+                pr.v[k] = pb[k];
+                any = any || (pb[k] != 0.f);
+                pb[k] = 0.f;
+            }
+            if (!any) continue;
+            GVec3 pxyz;
+            if (useLuminanceOutput) {
+                float L = 0.f;
+                for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k) L += pr.v[k];
+                L = fmaxf(0.f, L / float(G_SPECTRUM_SAMPLES));
+                pxyz = GVec3(L, L, L);
+            } else {
+                pxyz = gpu_spectrum_to_xyz(pr, plam);
+            }
+            float* out = c_wfLpBinding.passXYZ
+                       + ((size_t)pxi * ASTRORAY_LP_NUM_PASSES + p) * 3;
+            atomicAdd(&out[0], pxyz.x);
+            atomicAdd(&out[1], pxyz.y);
+            atomicAdd(&out[2], pxyz.z);
+        }
+    }
+
     // ---- Claim the next work item; leave the slot dead when exhausted.
     int w = atomicAdd(work_counter, 1);
     if (w >= total_work) return;
@@ -2111,6 +2356,13 @@ __global__ void stageRegenKernel(
     int sample = w / numPixels;
     initPathSlot(idx, pixel, sample, state, cam, width, height, seed,
                  lambdaMin, lambdaMax);
+    // pkg198 Stage 2: a reused slot hosts a fresh path — reset its locked category
+    // so the new path's bounce-0 events attribute to PASS_EMISSION/PASS_ENVIRONMENT
+    // (firstCat unset), not the previous path's lobe. The render-start memset seeds
+    // the first wave; this covers every regeneration.
+    if (c_wfLpBinding.passAccum != nullptr) {
+        c_wfLpBinding.firstCat[idx] = G_LP_CAT_UNSET;
+    }
 }
 
 void launchStageRegen(

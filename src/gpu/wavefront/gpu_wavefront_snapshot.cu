@@ -1019,6 +1019,12 @@ struct WfContext {
     // shading normal = numPixels*3 floats each; depth = numPixels floats).
     // Grow-only like the rest; only allocated once a render requests guides.
     WfDeviceBuf guideAlbedo, guideNormal, guideDepth;
+    // pkg198 Stage 2: light-path pass buffers. lpPassAccum = per-SLOT spectral
+    // accumulators (capacity*ASTRORAY_LP_NUM_PASSES*G_SPECTRUM_SAMPLES floats);
+    // lpPassXYZ = per-PIXEL XYZ output (numPixels*ASTRORAY_LP_NUM_PASSES*3);
+    // lpFirstCat = per-SLOT locked category (capacity bytes). Grow-only; only
+    // allocated once a render requests light-path passes.
+    WfDeviceBuf lpPassAccum, lpPassXYZ, lpFirstCat;
     // pkg55-C6b / pkg24: ReSTIR reservoir SoA, double-buffered + persistent
     // across frames (render calls) so temporal reuse can read the previous
     // frame. resNumPixels tracks the allocated resolution; restirFrame counts
@@ -1306,7 +1312,9 @@ std::vector<float> cuda_wavefront_render(
     int cryptoDepth,           // pkg159
     float* albedoOut,          // pkg197
     float* normalOut,          // pkg197
-    float* depthOut)           // pkg197
+    float* depthOut,           // pkg197
+    float* passesOut)          // pkg198 Stage 2: light-path passes, pass-major
+                               // [p*numPixels*3 + pixel*3 + c] linear sRGB, or null
 {
     int total_paths = width * height;
     if (total_paths <= 0 || samples <= 0) {
@@ -1523,6 +1531,39 @@ std::vector<float> cuda_wavefront_render(
     setWavefrontGuideBinding(GWavefrontGuideBinding{
         d_guideAlbedo, d_guideNormal, d_guideDepth});
 
+    // pkg198 Stage 2: light-path pass buffers. Gated on the caller-supplied
+    // passesOut (null = disabled → the shade/intersect kernels launch their
+    // <…,false> specializations and the shadow/volume/regen runtime guards skip;
+    // fleet renders byte-identical). passAccum is per-SLOT spectral (accumulate-at-
+    // death like beauty), passXYZ per-PIXEL XYZ output, firstCat per-SLOT locked
+    // category. All zeroed at render start — passXYZ so unwritten pixels read 0;
+    // passAccum as the fresh-slot accumulator seed; firstCat to 0xFF (unset) so the
+    // first wave's bounce-0 events route to PASS_EMISSION/PASS_ENVIRONMENT (regen
+    // resets it per slot reuse thereafter). The binding is ALWAYS published (real
+    // pointers or all-null) so a prior render's pointers can never be read stale.
+    const bool passesOn = (passesOut != nullptr);
+    float*         d_lpPassAccum = nullptr;
+    float*         d_lpPassXYZ   = nullptr;
+    unsigned char* d_lpFirstCat  = nullptr;
+    if (passesOn) {
+        const size_t accumFloats =
+            size_t(total_paths) * ASTRORAY_LP_NUM_PASSES * G_SPECTRUM_SAMPLES;
+        const size_t xyzFloats =
+            size_t(total_paths) * ASTRORAY_LP_NUM_PASSES * 3;
+        d_lpPassAccum = wfEnsure<float>(C.lpPassAccum, accumFloats);
+        d_lpPassXYZ   = wfEnsure<float>(C.lpPassXYZ, xyzFloats);
+        d_lpFirstCat  = wfEnsure<unsigned char>(C.lpFirstCat, size_t(total_paths));
+        cudaError_t le = cudaMemset(d_lpPassAccum, 0, accumFloats * sizeof(float));
+        if (le == cudaSuccess)
+            le = cudaMemset(d_lpPassXYZ, 0, xyzFloats * sizeof(float));
+        if (le == cudaSuccess)
+            le = cudaMemset(d_lpFirstCat, 0xFF, size_t(total_paths));  // G_LP_CAT_UNSET
+        if (le != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(le));
+    }
+    setWavefrontLightPassBinding(GWavefrontLightPassBinding{
+        d_lpPassAccum, d_lpPassXYZ, d_lpFirstCat, total_paths});
+
     // Constant-memory spectral tables (JH LUT + D65 + CMF) — required by
     // every spectral upsample / XYZ conversion in the kernels. Cheap
     // memcpyToSymbol, called per render like the megakernel path. (The N+6
@@ -1611,7 +1652,8 @@ std::vector<float> cuda_wavefront_render(
                                        // the fleet <false> (127 REG, byte-identical
                                        // Stage-1, no fog-free regression).
                                        renderer.getHasWorldVolume() &&
-                                           renderer.getWorldVolumeScatter() > 0.0f);
+                                           renderer.getWorldVolumeScatter() > 0.0f,
+                                       passesOn);  // pkg198 Stage 2 pass-AOV axis
             // pkg199 Stage 2 — dedicated volume-scatter stage, between intersect
             // and shade. Drains the volume queue (scattered slots), parks the
             // phase NEE into the shared nee/shadow lanes, and requeues survivors
@@ -1649,7 +1691,8 @@ std::vector<float> cuda_wavefront_render(
                                      cryptoOn ? cryptoDepth : 0,
                                      res.hasPrincipled,  // pkg178 Stage-3b D4
                                      res.hasTexture,      // pkg186 (data via c_wfTexBinding)
-                                     res.hasDispersive);  // pkg189 hero-λ collapse write-back
+                                     res.hasDispersive,  // pkg189 hero-λ collapse write-back
+                                     passesOn);  // pkg198 Stage 2 pass-AOV axis
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4
@@ -1753,6 +1796,38 @@ std::vector<float> cuda_wavefront_render(
     // pkg55-C5 / pkg113: release the resident photon grid after the render
     // (mirrors cuda_renderer.cu:888).
     astroray::photon::gpu::cuda_photon_caustic_free(caustic);
+
+    // pkg198 Stage 2: light-path pass copy-back. Runs ONCE after the barrier, like
+    // the guide/cryptomatte copy-backs. Convert each per-pixel per-pass XYZ
+    // accumulator with the EXACT beauty transform (/samples · filmExposure ·
+    // xyzToLinearSRGB, then max(.,0)) so Σpasses == beauty in linear sRGB. Output is
+    // pass-major ([p*numPixels*3 + pixel*3 + c]) into passesOut, matching the
+    // Camera::renderPassBuffers per-pass contiguous layout the caller fills.
+    if (passesOn) {
+        std::vector<float> h_lpXYZ(
+            size_t(total_paths) * ASTRORAY_LP_NUM_PASSES * 3);
+        cudaError_t pe = cudaMemcpy(
+            h_lpXYZ.data(), d_lpPassXYZ,
+            h_lpXYZ.size() * sizeof(float), cudaMemcpyDeviceToHost);
+        if (pe != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(pe));
+        float exposureP = renderer.getFilmExposure();
+        for (int p = 0; p < ASTRORAY_LP_NUM_PASSES; ++p) {
+            for (int i = 0; i < total_paths; ++i) {
+                // device layout: [(pixel*NUM_PASSES + p)*3 + c]
+                const size_t src = (size_t(i) * ASTRORAY_LP_NUM_PASSES + p) * 3;
+                Vec3 xyz(h_lpXYZ[src + 0] / samples,
+                         h_lpXYZ[src + 1] / samples,
+                         h_lpXYZ[src + 2] / samples);
+                xyz *= exposureP;
+                Vec3 srgb = xyzToLinearSRGB(xyz);
+                const size_t dst = (size_t(p) * total_paths + i) * 3;
+                passesOut[dst + 0] = std::max(Renderer::finiteOrZero(srgb.x), 0.0f);
+                passesOut[dst + 1] = std::max(Renderer::finiteOrZero(srgb.y), 0.0f);
+                passesOut[dst + 2] = std::max(Renderer::finiteOrZero(srgb.z), 0.0f);
+            }
+        }
+    }
 
     // Final conversion (mirrors cpu_wavefront_driver lines 100-113).
     std::vector<float> rgb(size_t(total_paths) * 3);

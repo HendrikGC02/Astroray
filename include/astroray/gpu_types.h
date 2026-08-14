@@ -635,6 +635,45 @@ struct GWavefrontGuideBinding {
     float* depth;   // numPixels floats
 };
 
+// pkg198 Stage 2 — wavefront light-path-expression render passes. Published ONCE
+// per frame into a __constant__ symbol (setWavefrontLightPassBinding), exactly like
+// the pkg186 texture / pkg197 guide bindings, so the register-saturated shade kernel
+// and the 127-reg intersect kernel read the pass pointers from constant memory rather
+// than growing their per-launch signatures (the pkg186 lesson: a signature pointer
+// bumps CONSTANT[0] and costs the fleet kernel +STACK even when the code is
+// if-constexpr'd out). The REGISTER PROBE (spec §Stage-2, PR #620) confirmed this
+// keeps the fleet shade kernel byte-identical at 254/3352/1700 and adds zero STACK
+// even to the pass-AOV specialization.
+//
+// Data flow (mirrors the beauty accumulate-at-death path):
+//   * shade locks `firstCat` at the first BSDF interaction (bounce 0);
+//   * intersect / shadow-resolve / volume-scatter kernels splat each radiance
+//     contribution into the per-SLOT spectral accumulator `passAccum` (one += per
+//     color += site → Σpasses == beauty EXACTLY in spectral space);
+//   * stageRegen, at path death, converts each slot's per-pass spectral accumulator
+//     to XYZ with the slot's lambdas and atomic-adds into the per-PIXEL `passXYZ`
+//     (linear XYZ, same convention as beauty accum_xyz), then zeroes the slot.
+// The driver converts passXYZ → linear sRGB with the SAME /samples·exposure·
+// xyzToLinearSRGB transform as beauty, so sum-to-beauty holds in linear sRGB.
+//
+// `passAccum == nullptr` (every non-AOV driver / snapshot / ReSTIR route) makes the
+// HasLightPassAOVs=false shade/intersect specializations compile the whole partition
+// OUT (byte-identical fleet) and the runtime-gated shadow/volume/regen blocks skip.
+//
+// Pass layout matches RenderPassIndex (raytracer.h): index = cat*3 + {0=direct,
+// 1=indirect, 2=color(unused)}, cat 0=diffuse/1=glossy/2=transmission/3=volume;
+// PASS_EMISSION=11, PASS_ENVIRONMENT=12. ASTRORAY_LP_NUM_PASSES == PASS_ENVIRONMENT+1;
+// a static_assert in blender_module.cpp ties it to the enum.
+#ifndef ASTRORAY_LP_NUM_PASSES
+#define ASTRORAY_LP_NUM_PASSES 13   // PASS_DIFFUSE_DIRECT(0) .. PASS_ENVIRONMENT(12)
+#endif
+struct GWavefrontLightPassBinding {
+    float*         passAccum;   // per-slot spectral: capacity*ASTRORAY_LP_NUM_PASSES*G_SPECTRUM_SAMPLES, or null=disabled
+    float*         passXYZ;     // per-pixel XYZ output: numPixels*ASTRORAY_LP_NUM_PASSES*3
+    unsigned char* firstCat;    // per-slot locked first-bounce category (0xFF=not set), capacity bytes
+    int            numPixels;   // pixels in the frame (passXYZ pixel stride guard)
+};
+
 // pkg199 Stage 1 — homogeneous world-volume medium, published ONCE per frame
 // into a __constant__ symbol (setWavefrontWorldVolume), mirroring the
 // pkg186/pkg197 binding pattern so the wavefront reads the medium from constant

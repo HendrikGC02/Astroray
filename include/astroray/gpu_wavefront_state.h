@@ -309,7 +309,24 @@ void launchStageIntersectQueued(
     const ::GLight*   d_lights, int num_lights, float total_light_power,
     // pkg181: dedicated lamps for the BSDF-ray lamp-intersection pass.
     const GDedicatedLight* d_dedLights, int num_ded,
-    GLightTreeView    lightTree);
+    GLightTreeView    lightTree,
+    int* d_vol_queue, int* d_vol_count);   // pkg199 Stage 2
+
+// pkg199 Stage 2 — dedicated volume-scatter wavefront stage (between intersect
+// and shade). Drains the volume-scatter queue, parks the phase-sampled
+// NEE-through-medium into the shared nee_f/nee_i lanes + shadow queue, and emits
+// the HG continuation ray, requeuing survivors into queue_out for the next bounce.
+void launchStageVolumeScatter(
+    GPUWavefrontState& state,
+    const int* d_vol_queue, const int* d_vol_count,
+    int* d_queue_out, int* d_count_out,
+    float* d_nee_f, int* d_nee_i, int* d_shadow_queue, int* d_shadow_count,
+    int nee_capacity,
+    const GPrimitive* d_prims, const GTriangle* d_tris, const GSphere* d_spheres,
+    const ::GLight* d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,
+    GLightTreeView lightTree,
+    int max_depth, bool useLuminanceOutput, bool enableNEE);
 
 void launchStageShadeBucketed(
     GPUWavefrontState& state,
@@ -436,6 +453,7 @@ void launchStageRegen(
     int* d_count_out,       // pkg55-C7: fused per-pass counter zeroing
     int* d_shade_counts,    //   (replaces 3 cudaMemsetAsync per pass;
     int* d_shadow_count,    //   nullptr = skip)
+    int* d_vol_count,       // pkg199 Stage 2: volume-scatter queue counter (nullptr = skip)
     bool useLuminanceOutput);  // pkg55-C7: grey band-mean accumulation for
                                // non-visible bands (CMF XYZ is ~0 there)
 

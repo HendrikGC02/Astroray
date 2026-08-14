@@ -1010,6 +1010,7 @@ struct WfContext {
     // Driver buffers.
     WfDeviceBuf accum, queueA, queueB, counts, shadeQueues, shadeCounts;
     WfDeviceBuf neeF, neeI, shadowQueue, shadowCount, work;
+    WfDeviceBuf volQueue, volCount;   // pkg199 Stage 2 volume-scatter queue
     // pkg159: per-pixel cryptomatte rank arrays (numPixels*depth*2 floats
     // each). Grow-only like the rest; only allocated once a render actually
     // enables cryptomatte, so default renders pay nothing.
@@ -1365,7 +1366,9 @@ std::vector<float> cuda_wavefront_render(
         setWavefrontWorldVolume(GWorldVolume{
             renderer.getHasWorldVolume() ? 1 : 0,
             renderer.getWorldVolumeDensity(),
-            wvc.x, wvc.y, wvc.z});
+            wvc.x, wvc.y, wvc.z,
+            renderer.getWorldVolumeScatter(),      // pkg199 Stage 2 (α)
+            renderer.getWorldVolumeAnisotropy()}); // pkg199 Stage 2 (g)
     }
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
@@ -1456,6 +1459,10 @@ std::vector<float> cuda_wavefront_render(
     int*   d_neeI        = wfEnsure<int>(C.neeI, size_t(G_WF_NEE_I_LANES) * total_paths);
     int*   d_shadowQueue = wfEnsure<int>(C.shadowQueue, total_paths);
     int*   d_shadowCount = wfEnsure<int>(C.shadowCount, 1);
+    // pkg199 Stage 2 — volume-scatter queue: one slot per path (a path scatters
+    // in at most one of {surface shade, volume} per bounce), one counter.
+    int*   d_volQueue    = wfEnsure<int>(C.volQueue, total_paths);
+    int*   d_volCount    = wfEnsure<int>(C.volCount, 1);
     int*   d_work        = wfEnsure<int>(C.work, 1);
 
     {
@@ -1580,7 +1587,7 @@ std::vector<float> cuda_wavefront_render(
             launchStageRegen(state, d_accum, d_work, (int)total_work,
                              total_paths, gcam, width, height, seed,
                              lambdaMin, lambdaMax,
-                             cout, d_shadeCounts, d_shadowCount,
+                             cout, d_shadeCounts, d_shadowCount, d_volCount,
                              useLuminanceOutput);
             launchStageIntersectQueued(state, hitBufs, d_queueA, d_counts + 0,
                                        d_shadeQueues, d_shadeCounts,
@@ -1597,7 +1604,23 @@ std::vector<float> cuda_wavefront_render(
                                        res.totalLightPower,
                                        d_dedLights,                  // pkg181
                                        (int)res.dedicatedLights.size(),
-                                       treeView);
+                                       treeView,
+                                       d_volQueue, d_volCount);       // pkg199 Stage 2
+            // pkg199 Stage 2 — dedicated volume-scatter stage, between intersect
+            // and shade. Drains the volume queue (scattered slots), parks the
+            // phase NEE into the shared nee/shadow lanes, and requeues survivors
+            // into d_queueB/cout alongside the shade survivors. Scattered slots
+            // never enter the shade bucket → stageShadeBucketedKernel byte-identical.
+            launchStageVolumeScatter(state, d_volQueue, d_volCount,
+                                     d_queueB, cout,
+                                     d_neeF, d_neeI, d_shadowQueue, d_shadowCount,
+                                     total_paths,
+                                     d_prims, d_tris, d_spheres,
+                                     d_lights, (int)res.lights.size(),
+                                     res.totalLightPower,
+                                     d_dedLights, (int)res.dedicatedLights.size(),
+                                     treeView, max_depth,
+                                     useLuminanceOutput, enableNEE);
             launchStageShadeBucketed(state, hitBufs,
                                      d_shadeQueues, d_shadeCounts,
                                      total_paths, d_queueB, cout,
@@ -1643,7 +1666,7 @@ std::vector<float> cuda_wavefront_render(
         launchStageRegen(state, d_accum, d_work, (int)total_work,
                          total_paths, gcam, width, height, seed,
                          lambdaMin, lambdaMax,
-                         /*d_count_out=*/nullptr, nullptr, nullptr,
+                         /*d_count_out=*/nullptr, nullptr, nullptr, nullptr,
                          useLuminanceOutput);
 
         cudaError_t syncErr = cudaDeviceSynchronize();
@@ -1818,10 +1841,17 @@ std::vector<float> cuda_wavefront_render_restir(
     // cross-render fog contamination.
     {
         Vec3 wvc = renderer.getWorldVolumeColor();
+        // pkg199 Stage 2: ReSTIR-DI is bounce-0 direct only and does NOT run the
+        // dedicated volume-scatter stage, so it MUST publish scatter=0 (absorption
+        // only). Otherwise intersectPathSlot's scatter decision would fire its -2
+        // return here (which the ReSTIR primary ignores), stranding scattered slots.
+        // In-scatter under ReSTIR is a declared follow-up (like the Stage-1 note).
         setWavefrontWorldVolume(GWorldVolume{
             renderer.getHasWorldVolume() ? 1 : 0,
             renderer.getWorldVolumeDensity(),
-            wvc.x, wvc.y, wvc.z});
+            wvc.x, wvc.y, wvc.z,
+            0.0f,                                  // pkg199 Stage 2: α=0 for ReSTIR
+            renderer.getWorldVolumeAnisotropy()}); // g (inert at α=0)
     }
 
     GLightTreeView treeView{d_treeNodes, d_treeEmitters, d_lightToEmitter,

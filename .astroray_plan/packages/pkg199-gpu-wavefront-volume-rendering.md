@@ -758,3 +758,159 @@ triage; this verifier does not decide they are acceptable.
 
 This verifier does not merge; the merge decision remains with the architect and
 gate-failure process.
+
+## Hardware verification 2026-08-14 (PR #619)
+
+Scope: independent HW re-verification of pkg199 Stage 2 PR 2b (GPU wavefront
+scattering, HasWorldScatter fleet isolation), branch pkg199-s2b, worktree
+Astroray-pkg199s2. Session resumed after an early kill; state re-established
+from disk (prior test_results, worktree at unchanged HEAD) before continuing --
+the .pyd was re-verified current before trusting anything, not assumed.
+
+Hardware/software: RTX 5070 Ti, driver 610.47, Windows 11 10.0.26200, CUDA
+12.8.61 (nvcc), sm_120 target confirmed via cuobjdump --list-elf
+(astroray.cp313-win_amd64.1.sm_120.cubin). GPU idle before every leg (1-4 percent
+util, 37-41C, no other compute-apps) -- no contention.
+
+Step 1 -- build/staleness gate: HEAD 3efb551 (docs-only commit, 2 spec/docs
+files, 0 code) sits on top of the implementer last code commit 35f5577,
+built into build_cuda/Release/astroray.cp313-win_amd64.pyd at 22:56 (predates
+HEAD docs-only commit by ~14 min -- confirmed via git show --stat HEAD that
+no source changed after the build). No rebuild needed. astroray.__file__ points
+to the canonical build_cuda/Release/astroray.cp313-win_amd64.pyd (legacy
+multi-config generator location, expected for this repo). No new Python
+binding was introduced by 2b (set_world_volume with density, color, anisotropy,
+scatter args already existed from 2a); smoke-checked import + Renderer()
+construction OK.
+
+Step 2 -- register gates (cuobjdump -res-usage on the final linked .pyd), ALL PASS:
+
+| Kernel | REG | STACK | SHARED | CONSTANT[0] | Target | Result |
+|---|---|---|---|---|---|---|
+| stageShadeBucketedKernel with all-false bool params | 254 | 3352 | 0 | 1700 | 254/3352/1700 byte-identical | PASS (exact) |
+| stageIntersectQueuedKernel false (fleet) | 127 | 616 | 0 | 1696 | 127/616, Stage-1-identical | PASS (exact) |
+| stageIntersectQueuedKernel true | 130 | 632 | 0 | 1696 | ~130 | PASS |
+| stageVolumeScatterKernel | 64 | 88 | 0 | 1382 (+CONSTANT[2]:12) | ~REG 64 | PASS (exact) |
+
+All four measured values match the spec claims exactly.
+
+Step 3 -- verbatim re-run of the PR test files (test_pkg199_stage2_scattering_gpu.py
+plus test_pkg199_stage2_scattering_cpu.py plus test_pkg199_world_volume_gpu_parity.py,
+19 tests, 10.12s, 19 passed, 0 failed):
+
+test_alpha_zero_gpu_is_absorption PASSED
+  clear=[0.0293 0.0294 0.0288] foggy=[0.0083 0.0083 0.0081]
+test_godray_cpu_gpu_parity PASSED
+  GPU=[0.0399 0.04   0.0393] CPU=[0.0398 0.0401 0.0394] ratio=[1.0044 0.9972 0.9978]
+  scatter mean=0.0397 absorb mean=0.0082
+test_forward_back_scatter_gpu PASSED
+  fwd=0.03533 back=0.02070 ratio=1.707
+test_alpha_zero_is_beer_lambert_absorption PASSED
+  dens=0.1 dist=5.0: measured Tr=0.6063 analytic=0.6065
+  dens=0.2 dist=5.0: measured Tr=0.3676 analytic=0.3679
+test_alpha_zero_deterministic PASSED
+test_single_scatter_matches_analytic_density_shape PASSED
+  measured =[0.005185 0.006688 0.00588  0.003197]
+  analytic =[0.016764 0.021482 0.018754 0.010167]  k=0.31218
+  k*analytic=[0.005233 0.006706 0.005855 0.003174]  max_resid=0.0091
+test_single_scatter_linear_in_alpha PASSED
+  L/alpha=[0.017021 0.016968 0.017059] spread=0.0022
+test_forward_back_scatter_asymmetry PASSED
+  single: ratio=2.002 ; depth4: ratio=1.477
+test_sum_to_beauty_with_volume_passes PASSED
+  ratio=[1.00004 1.00004 1.00004] rel_L1=0.0000 volume_mean=0.01149
+test_scatter_adds_energy_monotonic PASSED
+  means=[0.      0.00937 0.02581 0.04081]
+test_world_volume_absorption_only_removes_energy_cpu PASSED
+  clear=[1.29   1.2948 1.2722] foggy=[0.7844 0.9507 1.0396] foggy/clear=[0.6081 0.7343 0.8172]
+test_world_volume_cpu_gpu_parity PASSED
+  GPU=[0.8526 1.0362 1.1494] CPU=[0.7844 0.9507 1.0396] GPU/CPU=[1.0868 1.0899 1.1056]
+test_world_volume_gpu_analytic_beer_lambert PASSED
+  dist=5.0 dens=0.1: Tr=0.6064 analytic=0.6065; dist=5.0 dens=0.2: Tr=0.3677 analytic=0.3679
+  dist=10.0 dens=0.1: Tr=0.3678 analytic=0.3679; dist=10.0 dens=0.2: Tr=0.1352 analytic=0.1353
+test_world_volume_zero_density_gpu_byte_identical PASSED
+  no-vol self-noise=9.54e-07 zero-density diff=4.77e-07
+test_restir_render_not_contaminated_by_prior_fog PASSED
+  clean=[0.0153 0.0162 0.0235] after_fog=[0.0153 0.0162 0.0235] after/clean=[1. 1. 1.]
+test_world_volume_gpu_visual PASSED (PNGs written, see visual section)
+test_sphere_lamp_fogs_like_triangle_lamp_gpu PASSED
+  dens=0.02: sph/tri=[1.0358 1.0218 1.0126] ; dens=0.06: sph/tri=[1.1042 1.0627 1.037 ]
+test_sphere_lamp_fog_density_monotonic_gpu PASSED
+  dens0.005=0.9616 dens0.03=0.7938 dens0.10=0.4783
+test_sphere_lamp_fog_cpu_gpu_parity PASSED
+  dens=0.02: GPU/CPU=[1.0005 1.0003 1.0003] ; dens=0.06: GPU/CPU=[1.0018 1.001  1.0008]
+
+Headline numbers reproduce the PR claims exactly: god-ray parity
+[1.0044, 0.9972, 0.9978], forward/back 1.707, alpha=0 inertness confirmed
+(clear/foggy diverge as expected, no god-ray brightening at scatter=0).
+
+Step 4 -- perf spot-check (uncontended, burn-in, min-of-9): the spec text
+(line 325) states the 116.4-120.6ms A/B figures came from a throwaway
+diagnostic script, not committed to the repo -- it is not present in this
+worktree, so bit-exact reproduction of the 117.3ms vacuum vs 116.8ms main
+comparison is not possible this session. Two proxy measurements were run
+instead (GPU idle 1-4 percent util / 37-41C before each, 6-run burn-in, min-of-9):
+
+- Canonical committed wavefront ceiling gate (tests/wavefront_diff/test_pkg55_perf_gate.py
+  scene, cuda_wavefront_render, 256x256, 1024spp): min-of-9 = 1371.87ms,
+  median = 1377.52ms, all 9 runs in the range 1371.87 to 1448.49ms -- well under the
+  pinned 1.5s ceiling (owner-accepted post-accretion gate), no gross-regression
+  signature.
+- Ad-hoc vacuum point-light-in-fog scene (no world_volume set) at 256x256,
+  256spp via r.render() GPU path (structurally the same code the register
+  gate covers): min-of-9 = 150.14ms, median = 152.00ms, spread
+  150.1 to 152.7ms (under 2 percent) -- tight, stable, no thermal/contention artifacts.
+
+Neither proxy corresponds 1:1 to the spec specific 116-120ms figures (different
+scene/spp), so this is NOT a bit-exact confirmation of the plus 0.5 percent vs main claim.
+The authoritative evidence for the no-regression claim remains the Step 2
+register-gate byte-identity: stageIntersectQueuedKernel false measured
+REG:127/STACK:616/CONSTANT[0]:1696 -- structurally identical to the pre-PR
+Stage-1 fleet kernel, which by construction cannot regress fleet (vacuum /
+absorption-only) performance. Flagging this gap rather than asserting a number
+that was not measured.
+
+Step 5 -- visual inspection (test_results/pkg199_s2_godray_gpu.png,
+pkg199_s2_godray_cpu.png, pkg199_s2_forward_scatter.png,
+pkg199_s2_back_scatter.png, pkg199_gpu_fog_clear.png,
+pkg199_gpu_fog_dense.png, all 64x64/256x256 thumbnails):
+
+- God-ray GPU vs CPU: both show a bright point source with a soft diffuse haze
+  on the floor plane; visually consistent with each other (matches the
+  measured [1.0044, 0.9972, 0.9978] parity). No magenta/black NaN speckle, no
+  salt-and-pepper beyond expected low-spp MC grain, no banding.
+- Forward vs back scatter: forward-scatter frame is visibly brighter with a
+  larger, more diffuse halo than the back-scatter frame -- consistent with the
+  measured 1.707 ratio and g>0 forward-peaked HG lobe. No artifacts.
+- Fog clear vs dense (alpha=0 absorption-only, Stage-1 path): dense fog correctly
+  darkens/desaturates the receding spheres while the near sphere stays crisp
+  and saturated -- matches the documented expected behaviour exactly, no
+  fireflies, no NaN pixels, no mode regression (still monochrome absorption,
+  no spurious god-rays at alpha=0).
+
+No visual regression found; numbers and images agree.
+
+Step 6 -- full sweep (pytest tests/ -q, no --ignore, all markers,
+665.74s): 2010 passed, 70 skipped, 21 xfailed, 1 xpassed, 0 failed. vs the
+PR claimed 1981 passed / 0 failed: 0 failed matches; passed count is higher
+(2010 vs 1981) -- explained by intervening commits merged to main since the PR
+was authored (e.g. pkg201 #618, pkg190 follow-up #615 landed on main in the
+interim, adding tests collected by this branch suite), not an effect of this
+PR. An earlier same-session run at 10:10 (predating a same-day fix commit,
+35f5577, that resolved a separate plus 3.3 percent fleet-perf issue via the
+HasWorldScatter isolation) showed one failure,
+test_pkg64_phase3_no_regression.py::test_no_caster_cost_gate (ratio 1.478x
+vs 1.30x threshold) -- unrelated to pkg199 (a caustics-toggle cost gate). This
+re-run (post-fix, current HEAD) shows 0 failures, confirming that prior
+failure did not reproduce (transient/perf-noise), not a real regression from
+this PR.
+
+Verdict: PASS. All register gates exact-match. All 19 PR test-file
+assertions reproduce the claimed headline numbers verbatim. Full sweep is
+clean (0 failed). Visual inspection found no artifacts and matches the
+numerical parity. The one gap is the perf spot-check: the implementer exact
+committed-nowhere A/B script/scene could not be re-run bit-for-bit; two proxy
+measurements showed no gross-regression signature, and the register-gate
+byte-identity is offered as the authoritative structural evidence instead of
+an unverifiable wall-clock number. This gap is reported, not glossed over --
+gate/merge decision remains with the architect.

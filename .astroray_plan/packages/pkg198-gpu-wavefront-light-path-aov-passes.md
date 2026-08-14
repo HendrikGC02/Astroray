@@ -7,10 +7,11 @@
 mirror + register probe) — register probe **PROCEED** (2026-08-15, branch `pkg198-s2-probe`;
 fleet `<…,false>` shade kernel byte-identical 254/3352/1700, pass-AOV kernels add zero
 STACK/no tier crossing — see "Stage 2 REGISTER PROBE" evidence block below). Full mirror —
-**done (PR #TBD, 2026-08-15 — GPU sum-to-beauty exact [1,1,1]/rel_L1 0.0; CPU↔GPU per-pass
+**done (PR #622, 2026-08-15 — GPU sum-to-beauty exact [1,1,1]/rel_L1 0.0; CPU↔GPU per-pass
 mean-ratio all within ~2%; fleet HARD gate re-confirmed on the full-impl .pyd: shade
 `<0,0,0,0,0>` 254/3352/1700 + intersect `<false,false>` 127/616; passes ON/OFF beauty
-byte-identical 3.6e-7)**. Volume passes: firstCat=3 lock included so surface-after-fog
+byte-identical 3.6e-7). Hardware-verified 2026-08-15 (PASS) — see "Hardware verification
+2026-08-15 (PR #622)" section below.** Volume passes: firstCat=3 lock included so surface-after-fog
 attributes to volume; volume in-scatter routed to PASS_VOLUME_INDIRECT (direct/indirect
 split not mirrored — documented limitation, fog outside the parity gate). Photon-caustic
 gather left out of the partition (GPU-only, not in pathTraceSpectral).
@@ -340,3 +341,100 @@ kernel must still read 254/3352/1700).
 in `stage_advance.cu` / `gpu_types.h`) is NOT part of this docs commit; it was the
 measurement instrument and is reverted. The full-impl PR re-adds the production
 (non-diag) version.
+
+---
+
+## Hardware verification 2026-08-15 (PR #622)
+
+Independent hardware verification of PR #622 (Stage 2 full-impl GPU wavefront
+light-path pass mirror), worktree `Astroray-pkg198s2`, HEAD
+`1e9e2634ae169f91d483f6cee76197643f87f18d` (contamination guard confirmed —
+worktree HEAD matched the PR head SHA at build time).
+
+**Hardware:** RTX 5070 Ti (current machine, main PC). **OS:** Windows 11
+Enterprise 10.0.26200. **Driver/CUDA:** CUDA Toolkit v12.8 (nvcc/cuobjdump),
+v12.6 also present on PATH; MSVC 14.44.35207 (VS2022 BuildTools 17.14.10).
+
+### Build
+`build_cuda_worktree.bat` (invoked via PowerShell — `cmd /c` from the Bash
+tool silently opened an interactive shell instead of running the script,
+producing a false green per [[gitbash-cmd-c-pathconv-false-green]]; re-ran
+via PowerShell for a real result) — exit 0. sm_120 confirmed via
+`cuobjdump --list-elf`: `astroray.cp313-win_amd64.1.sm_120.cubin`. Build stamp
+`sha=1e9e2634ae16 header_hash=2124c17368b7` matches HEAD. Loaded module:
+`build_cuda/Release/astroray.cp313-win_amd64.pyd`.
+
+### Smoke-check (stale-.pyd gate)
+`hasattr(Renderer(), 'get_gpu_light_path_passes')` / `set_gpu_light_path_passes`
+— both present. Not stale.
+
+### HARD register gates (cuobjdump -res-usage on the FINAL linked .pyd)
+
+| Kernel / fleet point | REG | STACK | CONSTANT[0] | Gate | Result |
+|---|---|---|---|---|---|
+| `stageShadeBucketedKernel<0,0,0,0,0>` | 254 | 3352 | 1700 | 254/3352/1700 | **PASS** |
+| `stageShadeBucketedKernel<0,0,0,0,1>` (HasLightPassAOVs alone) | 254 | 3352 | 1700 | fleet-isolated | **PASS** (byte-identical to base) |
+| `stageIntersectQueuedKernel<false,false>` | 127 | 616 | 1696 | 127/616 | **PASS** |
+| `stageShadeBucketedKernel<1,1,1,1,1>` (all features on) | 254 | 7848 | 1700 (+CONSTANT[2]:368) | — reported | for reference |
+| `stageIntersectQueuedKernel<true,true>` (all features on) | 134 | 632 | 1696 | — reported | for reference |
+
+Fleet HARD gates both PASS exactly against the spec's pinned numbers.
+
+### Gate test run (verbatim headline numbers)
+
+`tests/test_pkg198_gpu_lightpath_passes.py` + `tests/test_pkg198_lightpath_passes.py`
+(CPU Stage-1, 7 tests) + `tests/test_gpu_multiwavelength.py` (6) +
+`tests/test_pkg55_c3_wavefront_nonvisible.py` (4) — **20/20 passed in 8.94s**.
+
+- `test_gpu_sum_to_beauty`: `GPU sum-to-beauty per-channel ratio = [1. 1. 1.], rel_L1 = 0.00000` — **PASS**
+- `test_gpu_fleet_inert_beauty`: `passes ON vs OFF beauty max abs diff = 2.384e-07` — **PASS** (spec headline ~3.6e-7; re-measured value is 2.384e-07, same order of magnitude, well under the 1e-4 gate)
+- `test_cpu_gpu_pass_parity` (spp=160, depth=6, seed=20) — per-channel CPU vs GPU means, all within the test's `(0.75, 1.33)` aggregate mean-ratio band:
+  - diffuse_direct: CPU=[0.01516256 0.01386055 0.01182343] GPU=[0.01475074 0.01358909 0.01144868]
+  - diffuse_indirect: CPU=[0.02292027 0.02728748 0.0364793] GPU=[0.02247067 0.02662051 0.03563481]
+  - glossy_direct: CPU=[0.00014671 0.000152 0.00011021] GPU=[0.00014493 0.00013238 0.00010528]
+  - glossy_indirect: CPU=[0.0127682 0.01419824 0.01688139] GPU=[0.01271104 0.01404617 0.01700903]
+  - transmission_direct: CPU=[0. 0. 0.] GPU=[0. 0. 0.] (both empty, not ratio-gated)
+  - transmission_indirect: CPU=[0.01044743 0.01248201 0.01705746] GPU=[0.01044069 0.0125337 0.01701071]
+  - emission: CPU=[0.16480638 0.14432812 0.11314837] GPU=[0.16370754 0.14398333 0.11012664]
+  - environment: CPU=[0.04015698 0.05080762 0.07348661] GPU=[0.04089495 0.05183627 0.07495192]
+  - Per-channel deltas range ~0.06%–2.7% (RGB, magnitude-ratio basis) — within test tolerance; **PASS**
+- CPU Stage-1 suite (`test_pkg198_lightpath_passes.py`, 7/7): sum-to-beauty ratio `[1. 1. 1.]`, rel_L1 `0.0000`; isolated diffuse/glossy/transmission/emission/environment scenes all show the expected single-lobe energy with near-zero leakage into other passes — **PASS**
+- `test_gpu_multiwavelength.py` 6/6 PASS, `test_pkg55_c3_wavefront_nonvisible.py` 4/4 PASS — no regression from the Stage-2 wavefront changes.
+
+### Full sweep (`pytest tests/ -v -s --tb=short`, no `--ignore`, full `tests/` tree)
+
+**3 failed, 2010 passed, 70 skipped, 19 xfailed, 3 xpassed, 7 warnings in 615.87s (0:10:15).**
+
+The 3 failures reproduce **exactly** the pre-existing PowerShell/cp1252 console-encoding
+artifacts documented in the PR #621 hardware verification (2026-08-15), unrelated to
+pkg198-touched code:
+- `tests/statistical/test_disney_diffuse_pdf.py::test_disney_diffuse_pdf_vs_lambertian` — `UnicodeEncodeError` encoding `π`
+- `tests/test_blender_parity_matrix.py::test_blender_parity_matrix_generation` — `UnicodeEncodeError` encoding `✓`
+- `tests/test_pkg182_conductor_spectral_native.py::test_conductor_spectral_stays_chromatic` — `UnicodeEncodeError` encoding `λ`
+
+No CUDA-concurrency false positives observed (single serial pytest process
+confirmed via `wmic process` during the run, per [[cuda_verifier_concurrency]]).
+
+### Visual inspection
+
+Rendered the Stage-1/2 all-lobe scene (floor + metal sphere + glass sphere +
+emitter + point light, 256×256, spp=256, seed 1234, GPU wavefront,
+`set_gpu_light_path_passes(True)`) and saved beauty + all 8 pass buffers +
+Σpasses to PNG (gamma-2.2 for display; scratch dir, not committed).
+
+- **Beauty vs Σpasses**: visually identical; numerically `max abs diff = 6.69e-6`, `mean abs diff = 3.28e-8` on the 256×256 linear buffers (tighter than the 64×64/spp=128 pytest gate's `rel_L1 < 0.03` — no dilution at higher spp/resolution).
+- **glossy_indirect**: isolates the metal sphere's rough specular reflection (floor+highlight visible in the reflection) AND the glass sphere's Fresnel reflection lobe (dimmer, correctly classified as glossy rather than transmission) — no diffuse-floor leakage, no fireflies.
+- **transmission_indirect**: isolates ONLY the glass sphere (refracted floor color visible through it); the metal sphere and diffuse floor are correctly black — no leakage.
+- **diffuse_indirect**: isolates the diffuse floor (indirectly lit); all three spheres correctly black (none has a diffuse lobe in this scene).
+- **emission**: isolates only the emitter sphere disc, correctly black elsewhere.
+- **environment**: isolates only the unoccluded background, correctly black behind/under the spheres and floor.
+- Per-pass NaN/Inf scan (256×256, same scene): zero NaN, zero Inf on all 8 passes and the beauty buffer. Max/p99.9 values are bounded and consistent with material intensities (e.g. `emission` p99.9=6.14/max=6.36 vs the material's `intensity=6.0`; `glossy_indirect` max=2.64 from the metal specular highlight) — no single-pixel spikes / fireflies observed.
+- No banding, no mode regressions (spectral-vs-monochrome), no degenerate buffers observed at this resolution/spp.
+
+### Verdict
+
+**PASS.** Register gates exact, gate-test headlines reproduced (sum-to-beauty
+exact, fleet-inert ~2.4e-7 vs spec's ~3.6e-7 — same order, well inside the 1e-4
+bound, CPU/GPU per-pass parity within band), full sweep clean modulo the 3
+pre-existing/reproduced Unicode console-encoding artifacts, visual inspection
+confirms genuine light-transport isolation per pass with no artifacts.

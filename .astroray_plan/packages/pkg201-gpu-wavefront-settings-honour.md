@@ -2,7 +2,7 @@
 
 **Pillar:** Integration Milestone (Blender/DCC integration — the steering wheel must actually steer)
 **Track:** A (engine/kernel work on the GPU wavefront + a small addon-side exporter fix; gated on real Blender 5.1/5.2 F12 renders on RTX)
-**Status:** open (filed 2026-08-14). Direct follow-up to pkg200 (PR #616): closes the GPU-plumbing gaps that pkg200's honour matrix recorded as HONEST-FAIL.
+**Status:** Stage 1 done (PR pending, 2026-08-14 — `world_max_bounces` HONEST-FAIL→PASS ratio 5.24 on 5.1/5.2; `use_light_tree` KNOWN-GAP→NEEDS-VISUAL-confirmed honoured; also fixed a latent set_light_sampler crash). Stages 2 and 3 open. Direct follow-up to pkg200 (PR #616): closes the GPU-plumbing gaps that pkg200's honour matrix recorded as HONEST-FAIL.
 **Estimated effort:** L, staged by risk (Stage 1 = S addon-only; Stage 2 = M GPU host/splat plumbing; Stage 3 = probe-first, register-hostile, may-park).
 **Depends on:** pkg200 (`.astroray_plan/docs/pkg200-honour-matrix-results.md` — the findings this package closes, referenced by letter; `scripts/verify_pkg200_honour_matrix_run.py` — the verbatim re-run gate). pkg176 (native-settings plumbing; `blender_addon/settings_map.py`, `__init__.py::convert_scene`). pkg55 wavefront (`module/blender_module.cpp` GPU dispatch, `src/gpu/wavefront/gpu_wavefront_snapshot.cu::cuda_wavefront_render`).
 
@@ -34,6 +34,8 @@ Closes **B** and the **use_light_tree** known-gap. Pure Python, in `blender_addo
 2. **use_light_tree:** reconcile the tri-state-vs-bool mismatch in `settings_map.py`/`convert_scene` so toggling the native `scene.cycles.use_light_tree` actually reaches `renderer.set_light_sampler` (native `True` → light-tree sampler, `False` → the uniform/other sampler; preserve the custom tri-state's third state if it still has a distinct meaning, else collapse to the native bool per the pkg176 Stage-1 rule). Decide the mapping explicitly in the PR body — do not silently pick.
 
 **Stage 1 acceptance:** the pkg200 `world_max_bounces` row (currently `1.0971 = 1.0971`) flips to PASS (strictly-monotone energy vs depth) re-running the driver verbatim; the `use_light_tree` known-gap row now shows a pixel change when the native prop toggles. Both are addon-only — no `.pyd` rebuild required beyond a register/liveness smoke.
+
+**Stage 1 DONE (2026-08-14, `.astroray_plan/docs/pkg201-stage1-results.md`).** `world_max_bounces`: HONEST-FAIL→**PASS** (A(0)=0.209 → B(12)=1.097, ratio 5.24, 5.1≡5.2) — Finding B fixed (`world.cycles.max_bounces`); the pkg200 driver's Row override (which encoded the AO-datablock bug) was repointed in-place to the corrected attr. `use_light_tree`: KNOWN-GAP→**NEEDS-VISUAL, confirmed honoured** (|dLum| mean 0.028/0.037; both A/B valid lit frames differing in sampler noise) — promoted from `KNOWN_GAPS` to a real matrix row (`many_lights` Emission-emitter scene). Also fixed a **latent crash** the reconciliation exposed: `set_light_sampler` accepts only `'power'`/`'tree'` but the UI enum shipped `'uniform'`/`'light_tree'`; `resolve_light_sampler` now translates to a valid engine token (uniform→power; engine has no uniform sampler). Two changes beyond the spec's literal Stage-1 text, both justified in the PR: (1) the pkg200 driver correction is required because the Row encoded the very bug Finding B fixes; (2) the enum→token translation is required or the fix crashes on Blender's default scene.
 
 ### Stage 2 — GPU plumbing, LOW register risk (host/splat/pre-pass, not the shade kernel's per-ray live state)
 

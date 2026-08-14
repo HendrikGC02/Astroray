@@ -151,7 +151,11 @@ def test_light_sampler_wiring_final_render(monkeypatch):
     engine.convert_scene(depsgraph, MockRenderer(), 16, 16)
 
     assert calls, "convert_scene must call set_light_sampler"
-    assert calls[0] == "light_tree", f"Expected 'light_tree', got {calls[0]}"
+    # pkg201: the engine's set_light_sampler accepts only 'power'/'tree', so the
+    # UI 'light_tree' is translated to the engine token 'tree' before the call
+    # (the old direct pass-through would have thrown ValueError on the real
+    # binding). No native use_light_tree here (cycles=None) -> UI enum decides.
+    assert calls[0] == "tree", f"Expected 'tree', got {calls[0]}"
 
 
 def test_light_sampler_wiring_viewport_render(monkeypatch):
@@ -199,7 +203,9 @@ def test_light_sampler_wiring_viewport_render(monkeypatch):
     engine.view_update(context, depsgraph)
 
     assert calls, "view_update must call set_light_sampler"
-    assert calls[0] == "uniform", f"Expected 'uniform', got {calls[0]}"
+    # pkg201: engine has no uniform sampler -> UI 'uniform' translates to 'power'
+    # (cycles=None here, so the UI enum decides).
+    assert calls[0] == "power", f"Expected 'power', got {calls[0]}"
 
 
 def test_light_sampler_default_is_power(monkeypatch):
@@ -215,7 +221,11 @@ def test_light_sampler_default_is_power(monkeypatch):
 
 
 def test_light_sampler_modes_are_valid(monkeypatch):
-    """All three sampler modes (uniform, power, light_tree) must be accepted."""
+    """All three UI sampler modes must reach the engine as a VALID engine token.
+    The engine accepts only 'power'/'tree' (module/blender_module.cpp), so pkg201
+    translates the UI enum: uniform/power -> 'power', light_tree -> 'tree'. The
+    pre-pkg201 direct pass-through would have thrown for uniform/light_tree."""
+    _EXPECTED = {"uniform": "power", "power": "power", "light_tree": "tree"}
     calls = []
 
     class MockRenderer:
@@ -256,5 +266,5 @@ def test_light_sampler_modes_are_valid(monkeypatch):
 
         engine.convert_scene(depsgraph, MockRenderer(), 16, 16)
 
-        assert calls and calls[0] == mode, \
-            f"Mode '{mode}' must be passed to set_light_sampler"
+        assert calls and calls[0] == _EXPECTED[mode], \
+            f"UI mode '{mode}' must reach the engine as '{_EXPECTED[mode]}', got {calls[0] if calls else None}"

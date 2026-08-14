@@ -34,9 +34,14 @@ def test_completeness_gate_passes():
 def test_every_plumbed_prop_has_a_row():
     surface = set(M.enumerate_direct_surface())
     assert len(surface) >= 20, surface
-    # use_light_tree is a KNOWN GAP, never part of the plumbed surface.
-    assert "use_light_tree" not in surface
-    assert "use_light_tree" in M.KNOWN_GAPS
+    # pkg201 Stage 1 PROMOTED use_light_tree from a KNOWN GAP to a real row: the
+    # native scene.cycles.use_light_tree bool is now reconciled onto the tri-state
+    # and reaches renderer.set_light_sampler, so it is a plumbed honour obligation.
+    # It enumerates into the surface under its settings_map native_prop
+    # ("light_sampling"), and there is a matrix row for it.
+    assert "light_sampling" in surface
+    assert M.KNOWN_GAPS == {}
+    assert "use_light_tree" in {r.name for r in M.MATRIX}
 
 
 def test_drift_detected_when_a_row_is_removed(monkeypatch):

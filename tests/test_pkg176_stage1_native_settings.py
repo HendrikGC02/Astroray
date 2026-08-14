@@ -194,16 +194,24 @@ def test_report_none_is_silent(capsys):
 # --------------------------------------------------------------------------- #
 
 def test_approximated_and_dropped_stay_custom():
-    """light_sampler (approximated), use_adaptive_sampling (dropped) and
-    denoiser_backend (approximated) must fall through to the custom prop even
-    though native counterparts (use_light_tree / use_adaptive_sampling /
-    denoiser) exist on scene.cycles."""
+    """use_adaptive_sampling (dropped) and denoiser_backend (approximated) must
+    fall through to the custom prop even though native counterparts
+    (use_adaptive_sampling / denoiser) exist on scene.cycles.
+
+    light_sampler is APPROXIMATED and was custom-only through pkg176 (this test
+    originally asserted ``resolved.light_sampler == 'power'``, i.e. the native
+    use_light_tree bool was NOT read). pkg201 Stage 1 reconciles that gap: the
+    native ``use_light_tree`` bool now drives the tree-vs-non-tree axis and is
+    resolved to the ENGINE token ('power' | 'tree'; the engine has no uniform
+    sampler). With ``_native_cycles()`` carrying use_light_tree=True the resolver
+    now yields 'tree', overriding the custom 'power'."""
     resolved = ns.resolve_native_settings(_scene(_native_cycles()))
-    assert resolved.light_sampler == 'power'          # not native use_light_tree
+    assert resolved.light_sampler == 'tree'            # pkg201: native use_light_tree=True -> engine 'tree'
     assert resolved.use_adaptive_sampling is False     # not native True
     assert resolved.denoiser_backend == 'auto'         # not native 'OPTIX'
 
-    # and none of these names are in the resolver's alias set
+    # light_sampler is reconciled OUTSIDE the DIRECT alias loop, so it (and the
+    # genuinely custom-only names) must still be absent from the alias set.
     aliased_custom = {c for _, c in ns.DIRECT_ALIASES}
     for name in ("light_sampler", "use_adaptive_sampling", "denoiser_backend", "adaptive_threshold"):
         assert name not in aliased_custom

@@ -2155,6 +2155,13 @@ class Renderer {
     // guide-less state, kept as a control so denoise A/B (guided vs guide-less)
     // is expressible on one build, and as a viewport lever to skip the copy-back.
     bool gpuGuideAOVs = true;
+    // pkg198 Stage 2: gate for GPU light-path render passes (diffuse/glossy/
+    // transmission direct+indirect, emission, environment). Default OFF — the pass
+    // partition allocates per-slot spectral accumulators + per-pixel XYZ buffers and
+    // adds copy-back cost, so it is opt-in (the addon/tests enable it when a
+    // light-path pass is requested). When off, cuda_wavefront_render receives a null
+    // passesOut and every wavefront kernel runs its byte-identical <…,false> path.
+    bool gpuLightPathPasses = false;
     std::shared_ptr<Integrator> integrator_;
     std::vector<std::shared_ptr<Pass>> passes_;
 
@@ -2392,6 +2399,8 @@ public:
     // pkg197: Enable/disable GPU wavefront first-hit denoise-guide AOV capture.
     void setGpuGuideAOVs(bool enabled) { gpuGuideAOVs = enabled; }
     bool getGpuGuideAOVs() const { return gpuGuideAOVs; }
+    void setGpuLightPathPasses(bool enabled) { gpuLightPathPasses = enabled; }  // pkg198 Stage 2
+    bool getGpuLightPathPasses() const { return gpuLightPathPasses; }           // pkg198 Stage 2
 
     void clear() {
         scene.clear(); bvh.reset(); lights = LightList();

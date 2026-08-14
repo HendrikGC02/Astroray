@@ -1673,6 +1673,13 @@ public:
     bool getGpuGuideAOVs() const {
         return renderer.getGpuGuideAOVs();
     }
+    // pkg198 Stage 2: opt-in GPU light-path render passes.
+    void setGpuLightPathPasses(bool enabled) {
+        renderer.setGpuLightPathPasses(enabled);
+    }
+    bool getGpuLightPathPasses() const {
+        return renderer.getGpuLightPathPasses();
+    }
 
     void setCryptomatteDepth(int depth) {
         if (camera) {
@@ -1861,17 +1868,47 @@ public:
                     normalOut = reinterpret_cast<float*>(camera->normalBuffer.data());
                     depthOut  = camera->depthBuffer.data();
                 }
+                // pkg198 Stage 2: light-path render passes. Opt-in
+                // (setGpuLightPathPasses). Staging buffer is pass-major
+                // [p*numPixels*3 + pixel*3 + c] linear sRGB; copied into
+                // camera->renderPassBuffers so get_render_pass_buffer(name) returns
+                // the GPU passes exactly like the CPU route (Renderer::render fills
+                // renderPassBuffers directly). Null out-param leaves the wavefront on
+                // its byte-identical fleet path.
+                static_assert(ASTRORAY_LP_NUM_PASSES == PASS_ENVIRONMENT + 1,
+                    "light-path pass count must cover PASS_DIFFUSE_DIRECT..PASS_ENVIRONMENT");
+                const size_t numPixels = camera->pixels.size();
+                std::vector<float> passesStaging;
+                float* passesOut = nullptr;
+                if (renderer.getGpuLightPathPasses()) {
+                    passesStaging.assign(
+                        size_t(ASTRORAY_LP_NUM_PASSES) * numPixels * 3, 0.0f);
+                    passesOut = passesStaging.data();
+                }
                 auto rgb = astroray::wavefront::cuda_wavefront_render(
                     renderer, *camera, camera->width, camera->height,
                     samplesPerPixel, maxDepth, effectiveSeed,
                     lmin, lmax, useLum, enableNEE,
                     cryptoObjOut, cryptoMatOut, cryptoDepth,  // pkg159
-                    albedoOut, normalOut, depthOut);          // pkg197
+                    albedoOut, normalOut, depthOut,           // pkg197
+                    passesOut);                                // pkg198
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
                                              rgb[i * 3 + 1],
                                              rgb[i * 3 + 2]);
+                }
+                // pkg198 Stage 2: scatter the staged light-path passes into the
+                // Camera pass buffers (the CPU route fills these in Renderer::render).
+                if (passesOut != nullptr) {
+                    for (int p = 0; p < ASTRORAY_LP_NUM_PASSES; ++p) {
+                        std::vector<Vec3>& pb = camera->renderPassBuffers[p];
+                        if (pb.size() != numPixels) continue;
+                        const float* src = passesOut + size_t(p) * numPixels * 3;
+                        for (size_t i = 0; i < numPixels; ++i) {
+                            pb[i] = Vec3(src[i * 3 + 0], src[i * 3 + 1], src[i * 3 + 2]);
+                        }
+                    }
                 }
             }
             // pkg197: run the registered pass pipeline on the GPU-rendered frame,
@@ -2874,6 +2911,14 @@ PYBIND11_MODULE(astroray, m) {
              "zero (guide-less denoise control / viewport copy-back lever).")
         .def("get_gpu_guide_aovs", &PyRenderer::getGpuGuideAOVs,
              "pkg197 — Query the GPU denoise-guide AOV capture flag.")
+        .def("set_gpu_light_path_passes", &PyRenderer::setGpuLightPathPasses,
+             "enabled"_a,
+             "pkg198 Stage 2 — enable/disable GPU wavefront light-path render passes "
+             "(diffuse/glossy/transmission direct+indirect, emission, environment). "
+             "Off by default; when on, the wavefront fills camera renderPassBuffers so "
+             "get_render_pass_buffer(name) returns the GPU passes (Σpasses == beauty).")
+        .def("get_gpu_light_path_passes", &PyRenderer::getGpuLightPathPasses,
+             "pkg198 Stage 2 — query the GPU light-path render-pass flag.")
         .def("load_environment_map", &PyRenderer::loadEnvironmentMap,
              "path"_a, "strength"_a = 1.0f,
              "rx"_a = 0.0f, "ry"_a = 0.0f, "rz"_a = 0.0f,

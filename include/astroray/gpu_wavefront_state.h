@@ -311,7 +311,8 @@ void launchStageIntersectQueued(
     const GDedicatedLight* d_dedLights, int num_ded,
     GLightTreeView    lightTree,
     int* d_vol_queue, int* d_vol_count,   // pkg199 Stage 2
-    bool has_world_scatter);              // pkg199 Stage 2 fleet-isolation axis
+    bool has_world_scatter,               // pkg199 Stage 2 fleet-isolation axis
+    bool has_light_pass_aovs);            // pkg198 Stage 2 pass-AOV axis
 
 // pkg199 Stage 2 — dedicated volume-scatter wavefront stage (between intersect
 // and shade). Drains the volume-scatter queue, parks the phase-sampled
@@ -382,7 +383,13 @@ void launchStageShadeBucketed(
     // the only instantiations carrying the hero-λ collapse SoA write-back for
     // dispersive refraction; false selects <*,*,*,false>, byte-identical to the
     // pre-pkg189 kernels. Host-side flag (any uploaded material isDispersive).
-    bool hasDispersion);
+    bool hasDispersion,
+    // pkg198 Stage 2: hasLightPassAOVs=true selects
+    // stageShadeBucketedKernel<*,*,*,*,true>, which carries the first-bounce
+    // classification lock; false selects <*,*,*,*,false>, byte-identical to the
+    // pre-pkg198 kernels (254/3352/1700 — the REGISTER PROBE result, PR #620). The
+    // pass buffers ride in the __constant__ c_wfLpBinding, not this signature.
+    bool hasLightPassAOVs);
 
 // pkg186 — publish the frame's image-texture arrays into the shade kernel's
 // __constant__ binding. Call ONCE per frame before launchStageShadeBucketed (only
@@ -394,6 +401,13 @@ void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding);
 // loop. Pass all-null (the default) to disable guide capture. See
 // stage_advance.cu / GWavefrontGuideBinding.
 void setWavefrontGuideBinding(const GWavefrontGuideBinding& binding);
+
+// pkg198 Stage 2 — publish the frame's light-path pass buffers into the shade/
+// intersect/shadow/volume/regen kernels' __constant__ binding. Call ONCE per frame
+// before the render loop. Pass passAccum==nullptr (the default) to disable the
+// partition (fleet renders byte-identical). See stage_advance.cu /
+// GWavefrontLightPassBinding.
+void setWavefrontLightPassBinding(const GWavefrontLightPassBinding& binding);
 
 // pkg199 Stage 1 — publish the frame's homogeneous world-volume medium into the
 // wavefront's __constant__ binding. Call ONCE per frame (cuda_wavefront_render).

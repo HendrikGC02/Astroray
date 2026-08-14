@@ -6,8 +6,14 @@
 0.0000, per-channel ratio 1.000/1.000/1.000; isolated-lobe leak <1e-2). Stage 2 (GPU wavefront
 mirror + register probe) — register probe **PROCEED** (2026-08-15, branch `pkg198-s2-probe`;
 fleet `<…,false>` shade kernel byte-identical 254/3352/1700, pass-AOV kernels add zero
-STACK/no tier crossing — see "Stage 2 REGISTER PROBE" evidence block below); full mirror
-**open, ready to dispatch**.
+STACK/no tier crossing — see "Stage 2 REGISTER PROBE" evidence block below). Full mirror —
+**done (PR #TBD, 2026-08-15 — GPU sum-to-beauty exact [1,1,1]/rel_L1 0.0; CPU↔GPU per-pass
+mean-ratio all within ~2%; fleet HARD gate re-confirmed on the full-impl .pyd: shade
+`<0,0,0,0,0>` 254/3352/1700 + intersect `<false,false>` 127/616; passes ON/OFF beauty
+byte-identical 3.6e-7)**. Volume passes: firstCat=3 lock included so surface-after-fog
+attributes to volume; volume in-scatter routed to PASS_VOLUME_INDIRECT (direct/indirect
+split not mirrored — documented limitation, fog outside the parity gate). Photon-caustic
+gather left out of the partition (GPU-only, not in pathTraceSpectral).
 **Estimated effort:** Stage 1 = M (landed). Stage 2 = L (register-hostile — the up-front probe
 decides whether it ships at all).
 **Depends on:** Stage 2 depends on Stage 1 (this PR — the CPU reference to mirror) and pkg197

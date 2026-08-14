@@ -169,6 +169,37 @@ untouched (Stage 1's byte-identity carries forward). Snapshot semantics: pin the
 scatter-point `ray_origin` capture moment identically on CPU and GPU at design time
 ([[wavefront-snapshot-semantics-class-of-bug]]).
 
+### Register-budget plan — premise correction (PR 2b implementation, 2026-08-14)
+
+The spec's "purely additive dedicated kernel between intersect and shade" is **not
+literally achievable**: `intersectPathSlot` already owns the surface-commit
+(role-1 free-flight `Tr`, surface emission — which *terminates* the path, never
+parked — and the dedicated-lamp MIS) **and** the shade-queue bucketing
+(`atomicAdd(&shade_counts[matType], …)`). A medium scatter must intercept the
+segment *before* all of those (the CPU runs its medium block at the top of the
+loop), so a kernel inserted *after* intersect cannot un-commit the emission
+intersect already added nor un-bucket the shade queue. **Therefore intersect must
+be `mediumScatters`-gated.** Option A as built (coordinator-approved): intersect
+does only the cheap free-flight **decision** (2 RNG draws + `Tr`/pdf) gated on
+`mediumScatters = hasVolume && density>0 && scatter>0`; a SCATTER writes the
+scatter point `P` to `ray_origin`, applies `Tr·σ_s/pdf`, and returns a `-2`
+sentinel that routes the slot to a new **volume queue**; a SURFACE applies
+`Tr/pdf` (the role-1 replacement) and falls through to the Stage-1 path with
+role-1 and role-3-lamp `Tr` gated off. The register-heavy scatter processing
+(phase NEE + HG continuation) lives entirely in the dedicated
+`stageVolumeScatterKernel`, which parks the phase NEE into the **shared**
+`nee_f/nee_i` lanes + shadow queue (so `stageShadowKernel` resolves it unchanged:
+lane-14 `geomDist` role-2 `Tr` + clamp) and requeues the HG continuation.
+**`stageShadeBucketedKernel` is never touched → byte-identical by construction**
+(scattered slots never enter its bucket). **The `scatter==0` (default) GPU path
+compiles to the identical Stage-1 behaviour** — the `-2` decision block is skipped
+at runtime (`mediumScatters` false), so vacuum and absorption-only renders are
+byte-identical to Stage 1. ReSTIR-DI publishes `scatter=0` (bounce-0 direct only,
+no volume kernel) so its shared-`intersectPathSlot` never takes the `-2` route.
+Snapshot semantics pinned: `P` captured from the pre-update ray, stored as
+`ray_origin`, `ray_direction` left as the incoming direction so the volume kernel
+recovers `woMedium = -direction` — identical to the CPU capture moment.
+
 ### Stage 2 acceptance (for the future package)
 
 - CPU spectral tracer gains a homogeneous medium-interaction loop (scatter event +

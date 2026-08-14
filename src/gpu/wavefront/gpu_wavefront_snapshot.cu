@@ -1605,7 +1605,13 @@ std::vector<float> cuda_wavefront_render(
                                        d_dedLights,                  // pkg181
                                        (int)res.dedicatedLights.size(),
                                        treeView,
-                                       d_volQueue, d_volCount);       // pkg199 Stage 2
+                                       d_volQueue, d_volCount,        // pkg199 Stage 2
+                                       // Launch the <true> intersect specialization
+                                       // only when the medium actually scatters; else
+                                       // the fleet <false> (127 REG, byte-identical
+                                       // Stage-1, no fog-free regression).
+                                       renderer.getHasWorldVolume() &&
+                                           renderer.getWorldVolumeScatter() > 0.0f);
             // pkg199 Stage 2 — dedicated volume-scatter stage, between intersect
             // and shade. Drains the volume queue (scattered slots), parks the
             // phase NEE into the shared nee/shadow lanes, and requeues survivors

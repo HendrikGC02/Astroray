@@ -310,7 +310,8 @@ void launchStageIntersectQueued(
     // pkg181: dedicated lamps for the BSDF-ray lamp-intersection pass.
     const GDedicatedLight* d_dedLights, int num_ded,
     GLightTreeView    lightTree,
-    int* d_vol_queue, int* d_vol_count);   // pkg199 Stage 2
+    int* d_vol_queue, int* d_vol_count,   // pkg199 Stage 2
+    bool has_world_scatter);              // pkg199 Stage 2 fleet-isolation axis
 
 // pkg199 Stage 2 — dedicated volume-scatter wavefront stage (between intersect
 // and shade). Drains the volume-scatter queue, parks the phase-sampled

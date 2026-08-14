@@ -264,10 +264,21 @@ __device__ inline float gpu_freeflightUniform(uint32_t pixel, uint32_t sample,
     return fminf(u * 0x1p-32f, kOneMinusEpsilon);
 }
 
-// intersectPathSlot returns -1 when the path died, else the GMaterialType
+// intersectPathSlotT returns -1 when the path died, else the GMaterialType
 // of the hit (0..GMAT_CLOSURE_GRAPH) for shade-queue bucketing. The hit
 // record is parked in GPUWavefrontHitBuffers SoA at the slot index.
-__device__ int intersectPathSlot(
+//
+// pkg199 Stage 2 — templated on HasWorldScatter (the established fleet-isolation
+// pattern, pkg178/184/189): the medium free-flight decision block is behind
+// `if constexpr (HasWorldScatter)`, so the fleet <false> specialization compiles
+// it out ENTIRELY and returns to the pre-pkg199 register footprint (127 REG →
+// 2 blocks/SM at 256 threads; the always-present form measured 130 → 1 block →
+// a cooled+bracketed +3.3% fog-free fleet regression). Only scattering fog scenes
+// launch <true> (which pays the 130, but they are scattering-bound anyway). The
+// non-template `intersectPathSlot` symbol below forwards to <false> so the
+// cross-TU callers (ReSTIR primary, MIS-audit; both scatter=0) link unchanged.
+template<bool HasWorldScatter>
+__device__ int intersectPathSlotT(
     int idx,
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
@@ -349,10 +360,14 @@ __device__ int intersectPathSlot(
     // balance-heuristic pdf averaged over the spectral channels. Runs BEFORE the
     // lamp-MIS / emission / role-1 blocks so a scatter intercepts the segment
     // exactly like the CPU top-of-loop medium block.
-    const bool mediumScatters = c_worldVolume.hasVolume &&
+    // HasWorldScatter folds this to a compile-time false in the fleet <false>
+    // kernel, so the block below is removed and the role-1/role-3 gates collapse
+    // to their Stage-1 form (byte-identical).
+    const bool mediumScatters = HasWorldScatter &&
+                                c_worldVolume.hasVolume &&
                                 c_worldVolume.density > 0.f &&
                                 c_worldVolume.scatter > 0.f;
-    if (mediumScatters) {
+    if constexpr (HasWorldScatter) if (mediumScatters) {
         float surfaceT = hit ? rec.t : 1e30f;
         float termT = surfaceT;
         if (bounce > 0 && numDed > 0) {
@@ -626,6 +641,42 @@ __device__ int intersectPathSlot(
     hitBufs.hit_is_delta[idx]    = rec.isDelta ? 1 : 0;
     hitBufs.hit_valid[idx]       = 1;
     return (int)mat.type;
+}
+
+// pkg199 Stage 2 — non-template `intersectPathSlot` symbol. Forwards to the
+// <false> (Stage-1, no medium scatter) specialization. This is the symbol the
+// cross-TU callers link against: the ReSTIR primary stage (stage_restir.cu, which
+// publishes scatter=0) and the MIS-audit kernel — neither runs the volume-scatter
+// stage, so <false> is correct and keeps their forward declaration valid without
+// exposing intersectPathSlotT across translation units.
+__device__ int intersectPathSlot(
+    int idx,
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  tlas,
+    const GInstance*  instances,
+    const GBLAS*      blas,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GVec3*      motionVerts,
+    const ::GMaterial* materials,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    bool              useLuminanceOutput,
+    bool              enableNEE,
+    float             clampDirect, float clampIndirect,
+    const ::GLight*   lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,
+    GLightTreeView    lightTree)
+{
+    return intersectPathSlotT<false>(idx, state, hitBufs, tlas, instances, blas,
+        bvhNodes, prims, tris, spheres, motionVerts, materials, envMap,
+        backgroundColor, hasBackgroundColor, worldMaxBounces, useLuminanceOutput,
+        enableNEE, clampDirect, clampIndirect, lights, numLights, totalLightPower,
+        dedLights, numDed, lightTree);
 }
 
 // Shade half: NEE + RR + BSDF over the parked hit record. Returns true when
@@ -1384,6 +1435,7 @@ __global__ void stageQueueIotaKernel(int* queue, int* count, int n)
 // material dispatch of Laine 2013 sec. 5 / Cycles X shader sorting, realized
 // as bucketed atomic append instead of a radix sort (7 types only).
 // ---------------------------------------------------------------------------
+template<bool HasWorldScatter>   // pkg199 Stage 2 fleet-isolation axis
 __global__ void stageIntersectQueuedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1424,7 +1476,8 @@ __global__ void stageIntersectQueuedKernel(
     // (no-op there); the regeneration driver iterates a dense identity
     // queue where exhausted slots stay dead.
     if (state.path_alive[idx] == 0) return;
-    int matType = intersectPathSlot(idx, state, hitBufs, tlas, instances, blas,
+    int matType = intersectPathSlotT<HasWorldScatter>(
+                                    idx, state, hitBufs, tlas, instances, blas,
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
                                     hasBackgroundColor, worldMaxBounces,
@@ -1538,25 +1591,36 @@ void launchStageIntersectQueued(
     // pkg181: dedicated lamps for the BSDF-ray lamp-intersection pass.
     const GDedicatedLight* d_dedLights, int num_ded,
     GLightTreeView    lightTree,
-    int* d_vol_queue, int* d_vol_count)   // pkg199 Stage 2
+    int* d_vol_queue, int* d_vol_count,   // pkg199 Stage 2
+    bool has_world_scatter)               // pkg199 Stage 2: picks the fleet-isolation axis
 {
     if (state.num_active <= 0) return;
     int threads = 256;
     int blocks  = (state.num_active + threads - 1) / threads;
+    // pkg199 Stage 2: the <false> specialization (the fleet, scatter==0) compiles
+    // the medium free-flight block OUT → REG 127 / 2 blocks/SM, byte-identical
+    // Stage-1. Only scattering fog scenes launch <true>. Both instantiations are
+    // referenced here so both land in the cubin for the cuobjdump register report.
+    #define ASTRORAY_PKG199_INTERSECT_ARGS \
+        state, hitBufs, d_queue_in, d_count_in, \
+        d_shade_queues, d_shade_counts, capacity, \
+        d_tlas, d_instances, d_blas, \
+        d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials, \
+        envMap, backgroundColor, hasBackgroundColor, worldMaxBounces, \
+        useLuminanceOutput, enableNEE, clampDirect, clampIndirect, \
+        d_lights, num_lights, total_light_power, \
+        d_dedLights, num_ded, lightTree, \
+        d_vol_queue, d_vol_count
     {
+        const void* kptr = has_world_scatter
+            ? (const void*)stageIntersectQueuedKernel<true>
+            : (const void*)stageIntersectQueuedKernel<false>;
         astroray::gpu_profile::ScopedTimer _t(
-            "wavefront_stage_intersect_queued_n7",
-            (const void*)stageIntersectQueuedKernel, blocks, threads);
-        stageIntersectQueuedKernel<<<blocks, threads>>>(
-            state, hitBufs, d_queue_in, d_count_in,
-            d_shade_queues, d_shade_counts, capacity,
-            d_tlas, d_instances, d_blas,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            envMap, backgroundColor, hasBackgroundColor, worldMaxBounces,
-            useLuminanceOutput, enableNEE, clampDirect, clampIndirect,
-            d_lights, num_lights, total_light_power,
-            d_dedLights, num_ded, lightTree,   // pkg120+pkg181
-            d_vol_queue, d_vol_count);          // pkg199 Stage 2
+            "wavefront_stage_intersect_queued_n7", kptr, blocks, threads);
+        if (has_world_scatter)
+            stageIntersectQueuedKernel<true><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS);
+        else
+            stageIntersectQueuedKernel<false><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_intersect_queued launch error: %s\n",
@@ -1564,6 +1628,7 @@ void launchStageIntersectQueued(
             throw std::runtime_error(cudaGetErrorString(err));
         }
     }
+    #undef ASTRORAY_PKG199_INTERSECT_ARGS
 }
 
 // ---------------------------------------------------------------------------

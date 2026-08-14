@@ -229,6 +229,41 @@ __device__ inline GVec3 gpu_sampleHG(const GVec3& wo, float g, float u1, float u
     return wi.normalized();
 }
 
+// pkg199 Stage 2 — dimension-salt base for the free-flight sampler. Far above any
+// dimension the shade/volume WavefrontRNG stream reaches (0..~depth·draws), so the
+// free-flight draws are decorrelated from all shading draws by construction.
+static constexpr uint32_t G_WF_VOL_DIM_SALT = 0xF0000000u;
+
+// pkg199 Stage 2 — OBJECT-FREE counter-based free-flight uniform. Reuses the exact
+// published keying of WavefrontRNG::GenerateForDimension (PBRT-v4 MixBits =
+// MurmurHash3 finalizer, src/pbrt/util/hash.h; -> PCG32 SetSequence -> PCG32 XSH-RR
+// output, imneme/pcg-c-basic Apache-2.0) — a counter-based RNG in the Salmon et al.
+// 2011 ("Parallel Random Numbers", Random123) sense — but computed inline so
+// intersectPathSlot holds NO persistent WavefrontRNG object and does NO
+// rng_dimension SoA round-trip (Option 3: keeps the intersect decision block
+// register-light so the kernel stays <=128 regs / 2 blocks/SM at 256 threads). Keyed
+// on (pixel, sample, seed, dimSalt); the salt varies per bounce and per draw so
+// every free-flight event is independent, and is disjoint from the shade stream.
+// CPU<->GPU free-flight streams are INDEPENDENT (parity gate is per-channel
+// mean-ratio, not sample-matched). See the research note.
+__device__ inline float gpu_freeflightUniform(uint32_t pixel, uint32_t sample,
+                                              uint64_t seed, uint32_t dimSalt)
+{
+    uint64_t seq_index = (static_cast<uint64_t>(pixel) * 65536ULL + sample) << 32 | dimSalt;
+    uint64_t stream = astroray::MixBits(seq_index);
+    uint64_t inc   = (stream << 1) | 1;
+    uint64_t state = 0;
+    state = state * 6364136223846793005ULL + inc;   // PCG32 SetSequence, advance 1
+    state += seed;
+    state = state * 6364136223846793005ULL + inc;   // advance 2
+    uint32_t xorshifted = static_cast<uint32_t>(((state >> 18u) ^ state) >> 27u);
+    uint32_t rot        = static_cast<uint32_t>(state >> 59u);
+    int32_t  rot_signed = static_cast<int32_t>(rot);
+    uint32_t u = (xorshifted >> rot) | (xorshifted << ((-rot_signed) & 31));
+    constexpr float kOneMinusEpsilon = 0x1.fffffep-1f;
+    return fminf(u * 0x1p-32f, kOneMinusEpsilon);
+}
+
 // intersectPathSlot returns -1 when the path died, else the GMaterialType
 // of the hit (0..GMAT_CLOSURE_GRAPH) for shade-queue bucketing. The hit
 // record is parked in GPUWavefrontHitBuffers SoA at the slot index.
@@ -327,15 +362,20 @@ __device__ int intersectPathSlot(
                 &lampT, &lampScale);
             if (lampIdx >= 0) termT = lampT;
         }
-        WavefrontRNG frng(state.rng_pixel[idx], state.rng_sample[idx],
-                          state.rng_seed[idx]);
-        frng.setDimension(state.rng_dimension[idx]);
+        // Object-free counter-based free-flight draws (Option 3): no WavefrontRNG
+        // object held, no rng_dimension round-trip — keeps this kernel register-
+        // light. Salt varies per bounce (·2) and per draw (+0/+1), disjoint from the
+        // shade stream; shade/volume read the UNTOUCHED rng_dimension (as Stage-1).
+        uint32_t rpix = state.rng_pixel[idx];
+        uint32_t rsmp = state.rng_sample[idx];
+        uint64_t rsd  = state.rng_seed[idx];
+        uint32_t salt = G_WF_VOL_DIM_SALT + (uint32_t)bounce * 2u;
         GSampledSpectrum sigmaT = gpu_worldSigmaT(lambdas);
-        int ch = (int)(frng.Uniform() * G_SPECTRUM_SAMPLES);
+        int ch = (int)(gpu_freeflightUniform(rpix, rsmp, rsd, salt) * G_SPECTRUM_SAMPLES);
         if (ch >= G_SPECTRUM_SAMPLES) ch = G_SPECTRUM_SAMPLES - 1;
         float sigTc = sigmaT.v[ch];
-        float fdist = (sigTc > 0.f) ? -__logf(1.f - frng.Uniform()) / sigTc : 1e30f;
-        state.rng_dimension[idx] = frng.dimension();
+        float xi = gpu_freeflightUniform(rpix, rsmp, rsd, salt + 1u);
+        float fdist = (sigTc > 0.f) ? -__logf(1.f - xi) / sigTc : 1e30f;
         if (fdist < termT) {
             // SCATTER: throughput *= Tr(fdist)·σ_s/pdf, pdf = avg(σ_t·Tr).
             GSampledSpectrum Tr;

@@ -200,6 +200,29 @@ Snapshot semantics pinned: `P` captured from the pre-update ray, stored as
 `ray_origin`, `ray_direction` left as the incoming direction so the volume kernel
 recovers `woMedium = -direction` — identical to the CPU capture moment.
 
+### Intersect register isolation — `HasWorldScatter` if-constexpr axis (PR 2b)
+
+The free-flight *decision* in `intersectPathSlot` adds **+3 REG (127→130)**, which
+at 256 threads/block crosses 128 → **2→1 blocks/SM**. A cooled, contention-
+controlled, interleaved A/B (burn-in to 2887 MHz, min-of-11; three main legs
+116.4–116.9 ms @ 2-blocks/153–156 W vs the always-present form 120.6 ms @
+1-block/147 W) measured a **+3.3% fog-free fleet regression** — unacceptable for an
+off-by-default feature. Four shave attempts (object-free counter-based hash,
+`__noinline__`, scatter-math-moved-to-volume-kernel, drop-lamp-bound) all stayed at
+130; the +3 is intrinsic to any inline decision. **Resolution (chosen over the
+"Option 2" volume-kernel-owns-surface restructure — same fleet-clean result, far
+lower correctness risk):** the established fleet-isolation pattern (pkg178/184/189)
+— `template<bool HasWorldScatter>` on `intersectPathSlotT` +
+`stageIntersectQueuedKernel`, decision block behind `if constexpr`. The fleet
+`<false>` (vacuum + absorption-only fog) compiles it OUT → **REG 127 / STACK 616 /
+2 blocks/SM, byte-identical Stage-1** (cooled vacuum 117.3 ms = +0.5% vs main,
+within noise); only scattering fog (`scatter>0`) launches `<true>` (REG 130). A
+non-template `intersectPathSlot` forwarder (→`<false>`) keeps the cross-TU symbol
+for the ReSTIR primary + MIS-audit kernels. GPU free-flight uniforms use
+`gpu_freeflightUniform` (PBRT-v4 MixBits + PCG32, cited; per-bounce salt disjoint
+from the shade stream); CPU/GPU free-flight streams are independent (parity is
+per-channel mean-ratio, not sample-matched).
+
 ### Stage 2 acceptance (for the future package)
 
 - CPU spectral tracer gains a homogeneous medium-interaction loop (scatter event +

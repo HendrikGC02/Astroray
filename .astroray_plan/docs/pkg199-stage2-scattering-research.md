@@ -104,6 +104,44 @@ continuation ray from `P`. `stageShadeBucketedKernel` untouched → REG 254 /
 STACK 3352 / CONSTANT[0] 1700 byte-identity carries forward. New `GWorldVolume`
 fields: `scatter` (α) and `anisotropy` (g). Snapshot moment for `P` pinned in §3.
 
+## 5b. GPU free-flight RNG + intersect register isolation (PR 2b, as built)
+
+**Counter-based free-flight sampler.** The GPU free-flight uniforms (channel pick
++ distance) are drawn by `gpu_freeflightUniform` — an OBJECT-FREE counter-based
+hash reusing the exact keying of `WavefrontRNG::GenerateForDimension` (PBRT-v4
+`MixBits` = MurmurHash3 finalizer → PCG32 SetSequence → PCG32 XSH-RR, cited),
+keyed on `(pixel, sample, seed, salt)` with `salt = G_WF_VOL_DIM_SALT (0xF0000000)
++ bounce·2 + {0,1}` — per-bounce, per-draw, and disjoint from the shade/volume
+`WavefrontRNG` dimension range (0..~depth), so the free-flight stream is
+decorrelated from all shading draws and does no `rng_dimension` round-trip. **CPU
+and GPU free-flight streams are INDEPENDENT** (the CPU draws from its `mt19937`
+inline); the CPU↔GPU parity gate is a per-channel mean-ratio at the 1e-5 MC
+convention, NOT sample-matched, so independent streams are correct and expected
+(measured god-ray parity ratio ≈ [1.004, 0.997, 0.998]).
+
+**Intersect register isolation (`HasWorldScatter` if-constexpr axis).** The
+free-flight *decision* must live in `intersectPathSlot` (it owns the
+surface-commit + shade-queue bucketing; a purely-additive kernel can't intercept
+before them — see spec Stage-2 "premise correction"). But the decision's live-set
+adds +3 REG to the intersect kernel (127→130), which at 256 threads/block crosses
+128 → 2→1 blocks/SM. A cooled, contention-controlled, interleaved A/B (burn-in to
+2887 MHz, min-of-11, three main legs 116.4–116.9 ms @ 2-blocks vs the
+always-present form 120.6 ms @ 1-block) measured a **+3.3% fog-free fleet
+regression** (mechanistically confirmed by the power-draw split: 2-block ≈ 153–156 W
+vs 1-block ≈ 147 W). Four shave attempts (object-free hash, `__noinline__`,
+scatter-math-to-volume-kernel, drop-lamp-bound) all stayed at 130 — the +3 is
+intrinsic to any inline decision. Resolution: the established fleet-isolation
+pattern (pkg178/184/189) — `template<bool HasWorldScatter>` on
+`intersectPathSlotT` + `stageIntersectQueuedKernel`, decision block behind
+`if constexpr`. The fleet `<false>` (vacuum + absorption-only fog) compiles it OUT
+→ **REG 127 / 2 blocks/SM, byte-identical Stage-1** (cooled vacuum 117.3 ms =
++0.5% vs main, within noise); only scattering fog (`scatter>0`) launches `<true>`
+(REG 130, but scattering-bound anyway). A non-template `intersectPathSlot`
+forwarder (→`<false>`) preserves the cross-TU symbol for the ReSTIR primary +
+MIS-audit kernels (both `scatter=0`). This was chosen over the spec's "Option 2"
+(volume kernel owns the surface-reached path) — same fleet-clean result, far lower
+correctness risk (the scattering logic is unchanged, only compile-gated).
+
 ## 6. Addon UI — explicit follow-up
 
 PR 2a/2b expose α only through the python binding

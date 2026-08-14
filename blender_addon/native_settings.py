@@ -193,31 +193,33 @@ def report_unsupported_native_controls(scene, report=None, emit=True):
 
 
 def resolve_light_sampler(cycles, custom_value):
-    """pkg201 Stage 1: reconcile the native Cycles ``use_light_tree`` bool with
-    Astroray's ``uniform`` / ``power`` / ``light_tree`` tri-state.
+    """pkg201 Stage 1: resolve the light-sampler token the ENGINE session should
+    use, reconciling the native Cycles ``use_light_tree`` bool with Astroray's
+    ``uniform`` / ``power`` / ``light_tree`` UI tri-state.
 
-    Cycles exposes only a ``use_light_tree`` bool (the ``light_sampling`` row in
-    ``settings_map`` is a documented SEMANTIC MISMATCH). Before pkg201 the
-    exporter read the custom tri-state directly, so toggling the native prop
-    changed nothing (pkg200 ``use_light_tree`` known-gap). This makes the native
-    bool authoritative for the tree-vs-non-tree axis while preserving the
-    tri-state's distinct non-tree choice:
+    The engine's ``set_light_sampler`` accepts ONLY ``'power'`` and ``'tree'``
+    (``module/blender_module.cpp`` ``setLightSampler``); it has no separate
+    uniform sampler. So this returns one of those two tokens, and BOTH the native
+    bool and the UI enum are translated here:
 
-      * ``use_light_tree`` True  -> ``light_tree`` (honour the native enable).
-      * ``use_light_tree`` False -> defer to the custom non-tree choice
-        (``uniform`` vs ``power``); a stale custom ``light_tree`` is overridden
-        by the native OFF and falls back to ``power`` (Astroray's non-tree
-        default), so the native bool always wins.
+      * If the scene carries the native ``use_light_tree`` bool it is
+        authoritative for the tree-vs-non-tree axis:
+        True  -> ``'tree'`` (honour the native enable),
+        False -> ``'power'`` (the engine's only non-tree sampler; the UI's
+        uniform-vs-power distinction cannot be expressed at the engine boundary,
+        so it collapses to power — status stays ``approximated``).
+      * Otherwise (non-Cycles scene / unit-test stub) translate the UI enum:
+        ``'light_tree'`` -> ``'tree'``, anything else -> ``'power'``.
 
-    Returns ``None`` when the scene has no ``use_light_tree`` (non-Cycles scene
-    or a unit-test stub) so the proxy falls through to the custom value
-    unchanged.
+    Before pkg201 the exporter passed the raw UI enum straight to the engine,
+    which threw for ``'uniform'`` / ``'light_tree'`` (a latent crash only avoided
+    because the default is ``'power'`` and non-default samplers were never
+    F12-rendered); it also never read the native bool (pkg200 known-gap). This
+    fixes both. Always returns a valid engine token, never ``None``.
     """
-    if cycles is None or not hasattr(cycles, "use_light_tree"):
-        return None
-    if cycles.use_light_tree:
-        return "light_tree"
-    return custom_value if custom_value in ("uniform", "power") else "power"
+    if cycles is not None and hasattr(cycles, "use_light_tree"):
+        return "tree" if cycles.use_light_tree else "power"
+    return "tree" if custom_value == "light_tree" else "power"
 
 
 def resolve_native_settings(scene, report=None):
@@ -240,11 +242,12 @@ def resolve_native_settings(scene, report=None):
             resolved[custom_attr] = DIRECT_DEFAULTS[custom_attr]
         # else: settings still carries the attr (a pre-retirement object / test
         # stub) -> leave unresolved so the proxy falls through to it unchanged.
-    # pkg201 Stage 1: reconcile the APPROXIMATED light_sampling row (native
-    # use_light_tree bool -> tri-state) so both the F12 (convert_scene) and
-    # viewport (sync_viewport_scene) paths honour the native toggle via the
-    # existing renderer.set_light_sampler(settings.light_sampler) call sites.
-    light_sampler = resolve_light_sampler(cycles, getattr(settings, "light_sampler", "power"))
-    if light_sampler is not None:
-        resolved["light_sampler"] = light_sampler
+    # pkg201 Stage 1: resolve the APPROXIMATED light_sampling row to the engine
+    # token ('power' | 'tree'), reconciling the native use_light_tree bool AND
+    # translating the UI enum, so both the F12 (convert_scene) and viewport
+    # (sync_viewport_scene) paths honour the native toggle via the existing
+    # renderer.set_light_sampler(settings.light_sampler) call sites (which would
+    # otherwise throw on the UI's 'uniform'/'light_tree' values).
+    resolved["light_sampler"] = resolve_light_sampler(
+        cycles, getattr(settings, "light_sampler", "power"))
     return ResolvedSettings(settings, resolved)

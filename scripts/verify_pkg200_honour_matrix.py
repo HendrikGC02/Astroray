@@ -303,31 +303,55 @@ def build_volume_box(scene):
     _camera(scene, location=(0.0, -6.0, 0.0))
 
 
+def _emissive_mat(name, strength):
+    # Pure EMISSION-shader material -> the addon maps it to create_material(
+    # 'light', ...) (a HITTABLE mesh emitter in the LightList, __init__.py:3657),
+    # NOT the 'principled' path a Principled-BSDF emission would take. The GPU
+    # light tree (pkg86-B) is built ONLY over such hittable emitters; AREA/POINT/
+    # SUN lamps are dedicated lights and are excluded, leaving the tree empty and
+    # collapsing both sampler modes to power-CDF. This is what makes the
+    # use_light_tree toggle observable on the GPU wavefront.
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    for n in list(nt.nodes):
+        if n.type == "BSDF_PRINCIPLED":
+            nt.nodes.remove(n)
+    out = nt.nodes.get("Material Output")
+    emit = nt.nodes.new("ShaderNodeEmission")
+    emit.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    emit.inputs["Strength"].default_value = strength
+    nt.links.new(emit.outputs[0], out.inputs["Surface"])
+    return m
+
+
 def build_many_lights(scene):
-    # Many small area lights of widely varying power arranged in a ring above a
-    # diffuse floor + back wall, lighting a diffuse sphere. The light-sampler
-    # choice (use_light_tree False -> 'power' vs True -> 'light_tree') selects a
-    # different light subset per NEE ray, so at a pinned seed the noise field
-    # differs measurably (pkg201 use_light_tree row; p_changes_pixels + visual).
+    # Many small EMISSIVE SPHERES (hittable emitters) of widely varying power,
+    # spatially clustered, lighting a diffuse floor + back wall. The light-tree
+    # sampler weights emitters by spatial importance, the power sampler by raw
+    # power only, so at a pinned seed the two produce a DIFFERENT NEE noise field
+    # on the diffuse surfaces -> use_light_tree False('power')/True('tree') is
+    # observable. Uses emissive MESH (not AREA lamps): the GPU light tree is
+    # built only over hittable emitters (pkg86-B), so lamps would leave it empty
+    # and both modes would collapse to power-CDF (pkg201 use_light_tree row).
     import math
     _black_world(scene)
     floor = _diffuse_mat("floor", (0.72, 0.72, 0.72))
-    _plane(scene, floor, (0.0, 0.0, -1.5), (0.0, 0.0, 0.0), size=14.0)
+    _plane(scene, floor, (0.0, 0.0, -1.5), (0.0, 0.0, 0.0), size=16.0)
     back = _diffuse_mat("back", (0.6, 0.6, 0.65))
-    _plane(scene, back, (0.0, 4.0, 1.5), (1.5708, 0.0, 0.0), size=14.0)
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0, location=(0.0, 0.5, -0.4))
-    obj = bpy.context.object
-    obj.data.materials.append(_diffuse_mat("subj", (0.8, 0.5, 0.2)))
-    bpy.ops.object.shade_smooth()
-    for i in range(16):
-        ld = bpy.data.lights.new(f"L{i}", type='AREA')
-        ld.energy = 15.0 * (i + 1)          # widely varying power -> importance
-        ld.size = 0.15
-        o = bpy.data.objects.new(f"L{i}", ld)
-        ang = i * (2.0 * math.pi / 16.0)
-        o.location = (3.0 * math.cos(ang), 0.8 + 1.4 * math.sin(ang), 2.0)
-        o.rotation_euler = (math.pi, 0.0, 0.0)  # point down
-        scene.collection.objects.link(o)
+    _plane(scene, back, (0.0, 4.0, 1.5), (1.5708, 0.0, 0.0), size=16.0)
+    # 18 emissive spheres in 3 spatial clusters, emission spanning ~30x so the
+    # tree's spatial+power importance diverges from pure power weighting.
+    clusters = ((-2.6, 0.5, 1.4), (2.6, -0.5, 1.0), (0.0, 2.6, 2.2))
+    for i in range(18):
+        cx, cy, cz = clusters[i % 3]
+        jitter = (i * 0.37) % 1.0
+        loc = (cx + 0.6 * math.cos(i), cy + 0.5 * math.sin(i * 1.7), cz + 0.4 * jitter)
+        strength = 2.0 * (1 + (i % 6) ** 2)    # 2 .. ~52 (wide power spread)
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.12, location=loc)
+        s = bpy.context.object
+        s.data.materials.append(_emissive_mat(f"emit{i}", strength))
+        bpy.ops.object.shade_smooth()
     _camera(scene, location=(0.0, -6.0, 0.4))
 
 

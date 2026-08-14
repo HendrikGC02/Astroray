@@ -100,10 +100,11 @@ _RENDER_SAMPLING = [
                  "pkg119-A marked DROPPED; addon NOW reads scene.cycles.filter_width natively."),
     MappingEntry("sampling", "light_sampling", "scene.cycles.use_light_tree",
                  "custom_raytracer.light_sampler", "renderer.set_light_sampler", "approximated", "n/a",
-                 "SEMANTIC MISMATCH: Astroray has uniform/power/light_tree tri-state; Cycles exposes only a "
-                 "use_light_tree bool (+light_sampling_threshold). pkg201 Stage 1 reconciles it in "
-                 "native_settings.resolve_light_sampler: native True -> light_tree, native False -> the "
-                 "custom non-tree choice (uniform/power). Stays APPROXIMATED (bool cannot express uniform vs power)."),
+                 "SEMANTIC MISMATCH: Astroray's UI has a uniform/power/light_tree tri-state; Cycles exposes only "
+                 "a use_light_tree bool, and the ENGINE's set_light_sampler accepts only 'power'/'tree' (no uniform "
+                 "sampler). pkg201 Stage 1 reconciles in native_settings.resolve_light_sampler: native True -> "
+                 "'tree', native False -> 'power'. Stays APPROXIMATED (neither Cycles nor the engine can express "
+                 "uniform vs power)."),
 ]
 
 # ---------------------------------------------------------------------------

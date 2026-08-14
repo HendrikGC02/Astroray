@@ -166,24 +166,40 @@ def _load_native_settings():
 ns = _load_native_settings()
 
 
+# The engine's set_light_sampler accepts ONLY 'power' / 'tree'. resolve_light_sampler
+# always returns one of those: native use_light_tree wins the tree-vs-non-tree axis
+# (True->tree, False->power); with no native bool the UI enum is translated
+# (light_tree->tree, else->power). uniform collapses to power (no engine uniform).
 @pytest.mark.parametrize("use_light_tree,custom,expected", [
-    (True, "power", "light_tree"),       # native enable wins over any custom
-    (True, "uniform", "light_tree"),
-    (True, "light_tree", "light_tree"),
-    (False, "uniform", "uniform"),       # native off -> defer to non-tree choice
+    (True, "power", "tree"),       # native enable -> engine 'tree' regardless of UI
+    (True, "uniform", "tree"),
+    (True, "light_tree", "tree"),
+    (False, "uniform", "power"),   # native off -> engine 'power' (no uniform sampler)
     (False, "power", "power"),
-    (False, "light_tree", "power"),      # native off overrides stale custom tree
+    (False, "light_tree", "power"),  # native off overrides a stale UI 'light_tree'
 ])
 def test_resolve_light_sampler_mapping(use_light_tree, custom, expected):
     cycles = types.SimpleNamespace(use_light_tree=use_light_tree)
     assert ns.resolve_light_sampler(cycles, custom) == expected
 
 
-def test_resolve_light_sampler_no_cycles_falls_through():
-    """No cycles datablock / no use_light_tree attr -> None (proxy keeps the
-    custom value unchanged)."""
-    assert ns.resolve_light_sampler(None, "uniform") is None
-    assert ns.resolve_light_sampler(types.SimpleNamespace(), "uniform") is None
+def test_resolve_light_sampler_no_cycles_translates_ui_enum():
+    """No cycles datablock / no use_light_tree attr -> translate the UI enum to a
+    valid engine token (never the raw enum, which the engine would reject)."""
+    assert ns.resolve_light_sampler(None, "light_tree") == "tree"
+    assert ns.resolve_light_sampler(None, "uniform") == "power"
+    assert ns.resolve_light_sampler(None, "power") == "power"
+    assert ns.resolve_light_sampler(types.SimpleNamespace(), "light_tree") == "tree"
+
+
+def test_resolve_light_sampler_only_ever_returns_engine_tokens():
+    """Guard: every path must yield a token the engine's set_light_sampler
+    accepts ('power' | 'tree') — the latent-crash regression pkg201 fixed."""
+    for cyc in (None, types.SimpleNamespace(),
+                types.SimpleNamespace(use_light_tree=True),
+                types.SimpleNamespace(use_light_tree=False)):
+        for custom in ("uniform", "power", "light_tree", "anything"):
+            assert ns.resolve_light_sampler(cyc, custom) in ("power", "tree")
 
 
 def _scene(cycles, light_sampler="power"):
@@ -194,19 +210,19 @@ def _scene(cycles, light_sampler="power"):
 def test_resolve_native_settings_folds_light_tree_on():
     scene = _scene(types.SimpleNamespace(use_light_tree=True), light_sampler="power")
     resolved = ns.resolve_native_settings(scene)
-    assert resolved.light_sampler == "light_tree"
+    assert resolved.light_sampler == "tree"
 
 
-def test_resolve_native_settings_light_tree_off_keeps_non_tree_choice():
+def test_resolve_native_settings_light_tree_off_is_power():
     scene = _scene(types.SimpleNamespace(use_light_tree=False), light_sampler="uniform")
     resolved = ns.resolve_native_settings(scene)
-    assert resolved.light_sampler == "uniform"
+    assert resolved.light_sampler == "power"
 
 
-def test_resolve_native_settings_no_cycles_keeps_custom():
-    scene = _scene(cycles=None, light_sampler="uniform")
+def test_resolve_native_settings_no_cycles_translates_ui_enum():
+    scene = _scene(cycles=None, light_sampler="light_tree")
     resolved = ns.resolve_native_settings(scene)
-    assert resolved.light_sampler == "uniform"
+    assert resolved.light_sampler == "tree"
 
 
 if __name__ == "__main__":

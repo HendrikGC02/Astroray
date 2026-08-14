@@ -363,13 +363,19 @@ MATRIX: list[Row] = [
         kind="visual",
         variant_a=(("cycles.use_light_tree", False),),
         variant_b=(("cycles.use_light_tree", True),),
-        note="many small area lights of widely varying power/position. pkg201 Stage 1 "
-             "reconciles native scene.cycles.use_light_tree onto the tri-state (False -> "
-             "non-tree 'power', True -> 'light_tree'); the two samplers pick different "
-             "light subsets per NEE ray, so the noise field differs at a pinned seed. "
-             "Was a pkg200 KNOWN-GAP (inert; no pixel change). p_changes_pixels -> "
-             "NEEDS-VISUAL + a multimodal Read confirms a legitimate sampler change "
-             "(not garbage), mirroring the caustics rows."),
+        note="18 EMISSION-shader spheres in 3 clusters of widely varying power. They "
+             "must be pure Emission-node materials (addon maps those to the hittable "
+             "create_material('light',...) NEE emitter, __init__.py:3657); a Principled "
+             "BSDF with emission takes the 'principled' path and is NOT an NEE light, so "
+             "the scene stays unlit and no tree is built (AREA/POINT lamps are dedicated "
+             "and likewise excluded from the pkg86-B GPU tree). pkg201 Stage 1 makes the "
+             "addon forward native scene.cycles.use_light_tree to the engine token "
+             "('power'/'tree') via resolve_light_sampler — the pre-pkg201 raw-enum "
+             "pass-through threw for 'uniform'/'light_tree'. False('power')/True('tree') "
+             "select different NEE light subsets, so the GPU wavefront render changes "
+             "measurably; p_changes_pixels -> NEEDS-VISUAL + a multimodal Read confirms "
+             "both frames are valid lit renders differing only in the sampler noise "
+             "field (not garbage), mirroring the caustics rows. Was a pkg200 KNOWN-GAP."),
 
     # ---- Stage 2: clamps + filter-glossy firefly clipping ----
     Row("sample_clamp_direct", ("sample_clamp_direct",), "firefly", "2", p_clamp,

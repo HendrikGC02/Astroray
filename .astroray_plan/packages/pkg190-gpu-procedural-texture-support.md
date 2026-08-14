@@ -490,3 +490,95 @@ previously reported and require no re-verification).
 The single blocking defect (textured_plane CLI routing) is fixed and
 independently re-confirmed on hardware. Combined with the prior session's
 clean results on every other gate, PR #612 is **HW PASS**.
+
+## Hardware verification 2026-08-14 (PR #615)
+
+Independent RTX hardware verification of PR #615 ("fix(pkg190): narrow
+non-UV procedural bake to Generated coord mode", follow-up to PR #612's
+review finding that Object-coord procedurals were incorrectly baked into
+the normalized Generated voxel domain). Code review: SIGN-OFF. CI: 6/6
+green. Verified under `.astroray_plan/.orchestrator.gpu.lock`.
+
+**Hardware/toolchain:**
+- GPU: NVIDIA GeForce RTX 5070 Ti, driver 610.47, 16303 MiB
+- CUDA: nvcc release 12.8, V12.8.61 (arch gate: `cuobjdump` confirms
+  `astroray.cp313-win_amd64.pyd` embeds `sm_120` only — `[pkg183] arch-verify
+  OK: astroray.cp313-win_amd64.pyd embeds sm_120 (embedded=[sm_120])`)
+- OptiX 9.1.0, OIDN 2.4.1
+- Build: fresh worktree `Astroray-hw615` (`git worktree add --detach` at
+  `3b3409b269120151cea7d2df4f59c406cec51a9e`, matches PR #615 head SHA),
+  configured with `configure_and_build.bat`'s cmake invocation (VS 2022
+  generator, `ASTRORAY_CUDA_ARCHS=native`), built via `build_cuda_worktree.bat`.
+  `[pkg183]` ABI canary passed: `{'cpu': True, 'spectral': True, 'gpu': True,
+  'gpu_spectral': True, 'gpu_approximate': False, 'closure_graph': True,
+  'closure_count': 1, 'gpu_type': 'closure_graph', 'notes': 'spectral
+  closure-graph GPU lowering'}`.
+- `.pyd` mtime: 2026-08-14 20:30 (fresh vs HEAD commit time 2026-08-14
+  08:52:24 +1000) — no staleness. `astroray.__file__` resolved to the
+  canonical `build_cuda/Release/astroray.cp313-win_amd64.pyd` in the
+  worktree via `tests/runtime_setup.configure_test_imports()`.
+
+**Smoke-check (pre-test):** `hasattr(r, 'create_procedural_texture')` =
+`True`, `hasattr(r, 'set_texture_generated_bbox')` = `True`,
+`gpu_available` = `True`, `astroray.__features__['cuda']` = `True`. No
+stale-.pyd signature.
+
+**Gate test run — `tests/test_pkg190_gpu_procedural_texture.py`
+(`pytest tests/test_pkg190_gpu_procedural_texture.py -v -s --tb=short`):**
+
+| Test | Result |
+|---|---|
+| test_gpu_procedural_is_not_flat | PASSED |
+| test_cpu_gpu_procedural_parity | PASSED |
+| test_saturated_base_is_neutralised | PASSED |
+| test_rgb_texture_luminance_band_covered | PASSED |
+| test_object_mode_procedural_cpu_evaluates | PASSED |
+| test_object_mode_procedural_gpu_guarded_fallback | PASSED |
+
+`6 passed in 1.29s` — matches PR body's claimed "6/6 passed (4 existing
+gates + 2 new)" exactly.
+
+**Non-regression — documented pkg190 gate, run verbatim
+(`python scripts/run_parity.py --scene textured_plane`):**
+
+```
+scene,engine,samples,time_ms,peak_mem_mb,ssim_to_cycles,mean_ratio_cpu_gpu,skip_reason
+textured_plane,cycles-cpu,64,,,,,textured_plane oracle is CPU/GPU mean-ratio (no Cycles leg)
+textured_plane,cycles-cuda,64,,,,,textured_plane oracle is CPU/GPU mean-ratio (no Cycles leg)
+textured_plane,astroray-cpu,64,1709.099,78.6,,,
+textured_plane,astroray-gpu,64,563.697,259.7,,"1.0000,0.9996,0.9998",
+```
+
+`mean_ratio_cpu_gpu` = **1.0000 / 0.9996 / 0.9998** — byte-identical to the
+pkg190 evidence block above (`1.0000,0.9996,0.9998`, `textured_plane,
+astroray-cpu,64,1381.545,78.4` / `astroray-gpu,64,555.760,260.2`). Timing
+differs (1709.099ms vs 1381.545ms CPU, 563.697ms vs 555.760ms GPU — normal
+run-to-run system-load variance, not a correctness signal); peak_mem_mb and
+the mean-ratio triple are unchanged. Confirms PR #615 does not regress the
+Generated-coord bake path it narrows around.
+
+**Behavior check — Object-coord guarded-fallback A/B (128x128, 96 spp,
+seed=1, `apply_gamma=True`), rendered directly against the built `.pyd`:**
+
+| Render | Mean pixel value (0-255) | Visual |
+|---|---|---|
+| `ab_generated_gpu.png` | 171.70 | Checkerboard, spatial red/blue contrast present (GPU bakes Generated-mode procedural, as before) |
+| `ab_generated_cpu.png` | 163.73 | Checkerboard, vivid red/blue (CPU reference) |
+| `ab_object_gpu.png` | 189.76 | **Flat uniform gray** — no checker pattern |
+| `ab_object_cpu.png` | 165.29 | Checkerboard, vivid red/blue (CPU still evaluates Object-mode procedurals) |
+
+The Object-mode pair is the load-bearing comparison: GPU renders flat gray
+(the guarded getAlbedo() fallback) while CPU still renders the full
+checkerboard (raw-objectPoint evaluation). This matches the PR's claimed
+semantics exactly — Object-mode procedurals are no longer silently
+misbaked into the normalized Generated voxel domain on GPU; they degrade
+to the documented pre-pkg190 flat-albedo fallback, with CPU remaining the
+reference. No fireflies, NaN pixels, banding, or mode regressions observed
+in any of the four renders.
+
+### Verdict: HW PASS
+
+All five verification steps clean: fresh non-stale build (sm_120 arch gate
++ ABI canary), PR test suite 6/6 (matches PR body), pkg190 Generated-path
+parity gate byte-identical to prior evidence, and the Object-mode guarded
+fallback visually confirmed on hardware. PR #615 is **HW PASS**.

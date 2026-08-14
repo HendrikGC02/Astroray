@@ -705,7 +705,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         // with materials[] (a -1 sentinel for every non-image material preserves
         // the untextured flat-albedo fast path). pkg190 extends this to bake
         // PROCEDURAL textures (also TexturedLambertian, non-ImageTexture) into the
-        // same buffer — 3D voxel for Generated/Object coords, 2D for UV.
+        // same buffer — 3D voxel for Generated coords, 2D for UV.
         int texId = -1;
         if (auto* tl = dynamic_cast<TexturedLambertian*>(m.get())) {
             std::shared_ptr<Texture> tex = tl->getTexture();
@@ -735,7 +735,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 // the pkg186 fetch machinery. Two domains, matching how the CPU
                 // Texture evaluates the node (include/advanced_features.h
                 // Texture::textureCoordinates):
-                //   * Generated / Object coord mode → the node is a 3D field over
+                //   * Generated coord mode → the node is a 3D field over
                 //     the object's normalized bbox → bake a res^3 VOXEL grid in
                 //     [0,1]^3 (the same space the CPU passes as `p`), sampled on the
                 //     GPU by the Generated coordinate (gpu_sampleProcedural3D).
@@ -745,13 +745,30 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 // exact-by-construction modulo grid resolution (no procedural math
                 // is re-derived on the device — cite-algorithm safe).
                 Texture* key = tex.get();
+                // pkg190 follow-up (PR #612 review) — COORD-MODE CONVENTION:
+                // the 3D voxel bake below stores the field over the NORMALIZED
+                // Generated domain ([0,1]^3 over genMin/genSize) and the shade
+                // path rebuilds g = clamp((p - genMin)/genSize, 0, 1) to sample
+                // it. Only CoordMode::Generated evaluates in that space on the
+                // CPU. CoordMode::Object passes the RAW unnormalized
+                // objectPoint (include/advanced_features.h CoordMode::Object),
+                // so an Object bake would diverge CPU<->GPU by construction —
+                // bake Object only if the CPU side gains the identical bbox
+                // normalization in lockstep. Object/Camera/Normal/Reflection/
+                // Window therefore stay UNBAKED: texId stays -1 and the GPU
+                // shades the flat baseColor (the pre-pkg190 degradation; CPU
+                // remains the reference — test_pkg190 test_object_mode_*).
+                const Texture::CoordMode cmode = tex->getCoordMode();
+                const bool uvMode  = cmode == Texture::CoordMode::UV;
+                const bool bakeable =
+                    uvMode || cmode == Texture::CoordMode::Generated;
                 auto tit = texIdx.find(key);
-                if (tit != texIdx.end()) {
+                if (!bakeable) {
+                    // guarded fallback — no bake (see convention above)
+                } else if (tit != texIdx.end()) {
                     texId = tit->second;
                     r.hasTexture = true;
                 } else {
-                    const bool uvMode =
-                        tex->getCoordMode() == Texture::CoordMode::UV;
                     // pkg190 default bake resolution; escalate a specific high-
                     // frequency node only if its parity/SSIM gate demands it.
                     int res = 64;
@@ -775,7 +792,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                             }
                         }
                     } else {
-                        // Generated / Object 3D voxel bake. genMin/genSize come from
+                        // Generated 3D voxel bake. genMin/genSize come from
                         // the CPU texture's baked object bbox so the GPU rebuilds
                         // the identical normalized coordinate.
                         desc.depth = res;

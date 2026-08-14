@@ -662,7 +662,9 @@ __device__ bool shadePathSlot(
             GVec3 texColor;
             bool  haveTex = false;
             if (tdesc.depth > 1) {
-                // pkg190 — 3D voxel procedural (Generated/Object coord). Rebuild
+                // pkg190 — 3D voxel procedural (Generated coord; Object-mode
+                // procedurals are never baked — scene_upload.cu convention:
+                // CPU Object passes the raw unnormalized objectPoint). Rebuild
                 // the SAME normalized coordinate the CPU used
                 // (include/advanced_features.h CoordMode::Generated):
                 //   g = clamp((objectPoint - genMin)/genSize, 0, 1).

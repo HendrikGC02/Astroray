@@ -5,11 +5,14 @@ pkg186 added GPU sampling for IMAGE textures but collapsed every PROCEDURAL
 texture node (checker / brick / wave / magic / …) to the material's flat
 `getAlbedo()` on the GPU wavefront path. pkg190 bakes the CPU procedural
 evaluator into a device buffer at scene-upload time and samples it on the GPU:
-  * Generated/Object coord mode → a res^3 VOXEL bake in [0,1]^3, sampled by the
+  * Generated coord mode → a res^3 VOXEL bake in [0,1]^3, sampled by the
     normalized Generated coordinate (gpu_sampleProcedural3D). This mirrors how
     the pkg119-B parity scenes drive procedurals (no TexCoord node → Blender
     default Generated) — the (a)-set the re-baseline convicted.
   * UV coord mode → a res^2 bake reusing the pkg186 2D UV image path.
+  * Any OTHER coord mode (Object/Camera/Normal/Reflection/Window) → UNBAKED
+    (PR #612 follow-up): the GPU shades the flat baseColor; see the
+    Object-mode tests at the bottom of this file.
 
 Acceptance gates (mirror test_pkg186_gpu_texture_parity):
   * test_gpu_procedural_is_not_flat — a GPU render of a Generated-coord checker
@@ -48,22 +51,23 @@ _C2 = (0.1, 0.1, 0.9)   # blue
 _CHECK_SCALE = 4.0      # cells across the normalized [0,1] bbox
 
 
-def _add_checker_material(renderer, c1, c2, scale, base_color, name):
+def _add_checker_material(renderer, c1, c2, scale, base_color, name,
+                          coord_mode="GENERATED"):
     # params: [c1.r,g,b, c2.r,g,b, scale] (module/blender_module.cpp checker path)
     renderer.create_procedural_texture(
         name, "checker",
-        [c1[0], c1[1], c1[2], c2[0], c2[1], c2[2], scale], "GENERATED")
+        [c1[0], c1[1], c1[2], c2[0], c2[1], c2[2], scale], coord_mode)
     renderer.set_texture_generated_bbox(name, _BBOX_MIN, _BBOX_SIZE)
     return renderer.create_material("lambertian", list(base_color),
                                     {"texture": name})
 
 
 def _build_scene(renderer, *, textured=True, base_color=(0.8, 0.8, 0.8),
-                 c1=_C1, c2=_C2):
+                 c1=_C1, c2=_C2, coord_mode="GENERATED"):
     renderer.set_background_color([0.8, 0.8, 0.8])
     if textured:
         mat = _add_checker_material(renderer, c1, c2, _CHECK_SCALE, base_color,
-                                    "pkg190_checker")
+                                    "pkg190_checker", coord_mode)
     else:
         mat = renderer.create_material("lambertian", list(base_color), {})
 
@@ -81,7 +85,7 @@ def _build_scene(renderer, *, textured=True, base_color=(0.8, 0.8, 0.8),
 
 
 def _render(*, textured=True, use_gpu=True, base_color=(0.8, 0.8, 0.8),
-            c1=_C1, c2=_C2, samples=96, seed=1):
+            c1=_C1, c2=_C2, samples=96, seed=1, coord_mode="GENERATED"):
     r = create_renderer()
     if use_gpu:
         if not _has_cuda_gpu(r):
@@ -91,7 +95,8 @@ def _render(*, textured=True, use_gpu=True, base_color=(0.8, 0.8, 0.8),
     # the variable under test, not MC noise (seed 0 is the random sentinel —
     # [[seed-zero-is-random-sentinel]]).
     r.set_seed(seed)
-    _build_scene(r, textured=textured, base_color=base_color, c1=c1, c2=c2)
+    _build_scene(r, textured=textured, base_color=base_color, c1=c1, c2=c2,
+                 coord_mode=coord_mode)
     return render_image(r, samples=samples, max_depth=3, apply_gamma=False)
 
 
@@ -184,4 +189,48 @@ def test_rgb_texture_luminance_band_covered():
     assert mean_abs_diff > 1e-4, (
         f"luminance-band render ignores the RGB texture (mean|tex-flat|="
         f"{mean_abs_diff:.2e}); the fold was dropped under use_luminance_output."
+    )
+
+
+# --- pkg190 follow-up (PR #612 review): Object-coord-mode convention ---------
+# The 3D voxel bake stores the procedural field over the NORMALIZED Generated
+# domain ([0,1]^3 over genMin/genSize). CPU CoordMode::Object passes the RAW
+# unnormalized objectPoint (include/advanced_features.h CoordMode::Object) —
+# no bbox normalization — so an Object-mode bake would diverge CPU<->GPU by
+# construction. Convention pinned in src/gpu/scene_upload.cu: only Generated
+# (3D) and UV (2D) coord modes are baked; Object-mode (and Camera/Normal/
+# Reflection/Window) procedurals stay UNBAKED — the GPU shades the flat
+# baseColor. DOCUMENTED DEGRADATION: Object-mode procedural detail is CPU-only
+# until the CPU path gains the identical bbox normalization in lockstep.
+
+
+def test_object_mode_procedural_cpu_evaluates():
+    """CI-runnable CPU leg: CoordMode::Object procedurals still evaluate on the
+    CPU (raw-objectPoint checker != flat albedo). CPU remains the reference for
+    Object-mode procedurals under the degradation convention above."""
+    cpu_tex = _render(textured=True, use_gpu=False, coord_mode="OBJECT")
+    cpu_flat = _render(textured=False, use_gpu=False)
+    mean_abs_diff = float(np.abs(cpu_tex - cpu_flat).mean())
+    assert mean_abs_diff > 0.05, (
+        f"CPU Object-mode procedural render too close to flat albedo "
+        f"(mean|diff|={mean_abs_diff:.4f}); CPU stopped evaluating Object-mode "
+        f"procedurals — the pinned degradation assumes it is the reference."
+    )
+
+
+def test_object_mode_procedural_gpu_guarded_fallback():
+    """RTX leg: the GPU must NOT bake an Object-mode procedural into the
+    normalized-domain voxel grid (that field is wrong by construction). The
+    guarded fallback is the flat albedo: an unbaked TexturedLambertian uploads
+    getAlbedo() == Vec3(0.5) (advanced_features.h — the documented pre-pkg190
+    flatten), so with the same pinned seed the GPU Object-mode render must
+    match a plain 0.5-gray lambertian render."""
+    tex = _render(textured=True, use_gpu=True, coord_mode="OBJECT")
+    flat = _render(textured=False, use_gpu=True, base_color=(0.5, 0.5, 0.5))
+    mean_abs_diff = float(np.abs(tex - flat).mean())
+    assert mean_abs_diff < 0.01, (
+        f"GPU Object-mode render differs from flat albedo (mean|diff|="
+        f"{mean_abs_diff:.4f}); an Object-mode procedural was baked/sampled on "
+        f"the GPU despite the CPU passing raw unnormalized objectPoint — "
+        f"CPU<->GPU divergence by construction (PR #612 review)."
     )

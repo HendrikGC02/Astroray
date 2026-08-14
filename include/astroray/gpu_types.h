@@ -594,7 +594,7 @@ struct GImageTexture {
     int height;
     // pkg190 — procedural-texture slice. depth == 1 → a 2D image (or a 2D-UV
     // procedural bake), sampled by (u,v) via gpu_sampleImageTexture (the pkg186
-    // path, unchanged). depth > 1 → a 3D voxel bake of a Generated/Object-coord
+    // path, unchanged). depth > 1 → a 3D voxel bake of a Generated-coord
     // procedural, sampled by the normalized Generated coordinate via
     // gpu_sampleProcedural3D. genMin/genSize carry the SAME object-space bbox the
     // CPU Texture uses (Texture::getGeneratedMin/Size) so the GPU rebuilds the
@@ -670,7 +670,7 @@ HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,
     return texels[tex.offset + j * tex.width + i];
 }
 
-// pkg190 — nearest-neighbour 3D voxel fetch for a baked Generated/Object-coord
+// pkg190 — nearest-neighbour 3D voxel fetch for a baked Generated-coord
 // procedural. `g` is the normalized Generated coordinate in [0,1]^3, built by
 // the caller EXACTLY as the CPU does (g = clamp((objectPoint - genMin)/genSize,
 // 0, 1); include/advanced_features.h CoordMode::Generated). The bake stores cell

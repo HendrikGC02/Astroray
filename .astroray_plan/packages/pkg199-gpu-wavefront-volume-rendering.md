@@ -8,8 +8,17 @@ matches analytic exp(-σ·d) to <2e-4; shade kernel byte-identical REG 254/STACK
 3352/CONST 1700. **hw-611 HW FAIL (sphere-light NEE fog saturation — a 1e30
 occlusion sentinel used as the Beer-Lambert path length) FIXED** (true geometric
 NEE distance; see the "Hardware verification" audit blocks below) and re-verified
-HW PASS. Stage 2 open (spec-only below — full scattering medium, XL, CPU-first).
-**Estimated effort:** Stage 1 M (landed); Stage 2 XL (new scattering subsystem).
+HW PASS. **Stage 2 split into PR 2a (CPU medium loop — IN REVIEW) + PR 2b (GPU
+wavefront mirror — pending build slot).** PR 2a lands the CPU homogeneous
+scattering estimator (HG in-scatter, per-channel exponential distance sampling,
+NEE-through-medium phase/light MIS) behind a new single-scattering-albedo α
+(`set_world_volume(..., scatter=0.0)`, default 0 ⇒ exact Stage-1 absorption,
+byte-identical, every Stage-1 gate green): analytic single-scatter density-shape
+match ≤0.9% (one global scale), α-linear, α=0 Beer-Lambert Tr 0.6063 vs 0.6065,
+sum-to-beauty rel_L1 0.0000 with `PASS_VOLUME_*` populated, forward/back HG
+asymmetry 2.0× (single-scatter) / 1.48× (multi). Full local sweep 1946 passed / 0
+failed. `worldVolumeAnisotropy` now live as g.
+**Estimated effort:** Stage 1 M (landed); Stage 2 XL — 2a CPU (in review), 2b GPU.
 **Depends on:** pkg55-C7 wavefront dispatch; [[wavefront-shade-kernels-register-saturated]].
 
 ---
@@ -170,6 +179,24 @@ scatter-point `ray_origin` capture moment identically on CPU and GPU at design t
 - Register gate: shade kernel unchanged; the new volume-scatter kernel's footprint
   reported via cuobjdump.
 - Heterogeneous / object volumes / delta-tracking remain OUT (a later package).
+
+### Scattering parametrization (coordinator-approved, Option A — implemented in 2a)
+
+The world-volume API had no scattering coefficient. A single-scattering albedo
+`α ∈ [0,1]` was added as the trailing `set_world_volume(density, color,
+anisotropy, scatter=0.0)` arg: `σ_t = upsample(color)·density` (unchanged from
+Stage 1), `σ_s = α·σ_t`, `σ_a = (1-α)·σ_t`. Default `α=0` gates the scattering
+estimator OFF, so Stage-1 absorption is byte-identical and the "σ_s=0 ⇒
+Beer-Lambert parity" criterion is the α=0 case. (Option B — reinterpreting `color`
+as albedo — was rejected: it would re-baseline Stage-1 extinction semantics.)
+
+### Addon-UI follow-up (MUST be filed at closeout)
+
+PR 2a/2b expose α **only through the python binding**. Wiring the single-
+scattering-albedo control into the Blender addon world-volume UI (a `scatter`
+slider next to density/color/anisotropy, plumbed through to `set_world_volume`)
+is a tracked **follow-up package** — not in 2a/2b scope per the coordinator's
+"bindings now, addon UI follow-up" decision (2026-08-14).
 
 ---
 
@@ -478,3 +505,202 @@ check (landed in the rebase) is also clean. No visual regressions of any kind (f
 banding, NaN, mode regression) were observed in any inspected PNG. PR #611 is HW PASS as of
 branch pkg199 at commit 91dbc4770c28c054742ad93427794b9a82847398. This verifier does not merge;
 the merge decision remains with the architect and gate-failure process.
+
+## Hardware verification 2026-08-14 (PR #617)
+
+Independent hardware verification of PR #617 (pkg199 Stage 2 PR 2a -- CPU homogeneous
+scattering medium, alpha-gated). Branch pkg199-s2, worktree
+C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg199s2, verified commit
+f9c23385b3997ecd99672b49cf50fe4ed9a0dbdb.
+
+### Hardware / software
+- GPU: NVIDIA GeForce RTX 5070 Ti, driver 610.47
+- CUDA: nvcc release 12.8, V12.8.61
+- OS: Windows 11 Enterprise 10.0.26200
+- OptiX/wavefront: not touched by this PR (see file-scope note below)
+
+### Stale-.pyd gate and rebuild
+.pyd mtime (build_cuda/Release/astroray.cp313-win_amd64.pyd) was 2026-08-14
+09:30:54, HEAD commit timestamp 09:46:46 -- nominally stale per the mtime heuristic.
+Full worktree rebuild was run via build_cuda_worktree.bat (note: the Git-Bash
+cmd /c invocation produced a banner-only false-green exit 0 with nothing built --
+the gitbash-cmd-c false-green failure mode; re-ran via PowerShell with the full
+.bat path, which built for real). The rebuilds own stamp
+(sha=f9c23385b399 header_hash=445f6d03a0e8) matched HEAD exactly and
+cuobjdump --list-elf confirmed sm_120 embedded
+(arch-verify OK: astroray.cp313-win_amd64.pyd embeds sm_120). The .pyd binary
+content was unchanged by the rebuild (MSBuild did not relink) because HEADs diff
+vs the 09:30:54 build touches only the spec and test file, not C++ sources --
+confirmed via git diff main...pkg199-s2 --name-only:
+include/raytracer.h, module/blender_module.cpp,
+tests/test_pkg199_stage2_scattering_cpu.py, plus two .astroray_plan docs. No GPU
+kernel file (.cu/.cuh) is touched by this PR. Smoke-check: set_world_volume
+now accepts a 4th trailing scatter arg (confirmed via .__doc__ and a live call);
+astroray.__file__ resolved to the canonical
+build_cuda/Release/astroray.cp313-win_amd64.pyd, not a shadow copy.
+
+### Step 2/3 -- PR's own gate: tests/test_pkg199_stage2_scattering_cpu.py (verbatim)
+
+```
+tests/test_pkg199_stage2_scattering_cpu.py::test_alpha_zero_is_beer_lambert_absorption
+  dens=0.1 dist=5.0: measured Tr=0.6063 analytic=0.6065
+  dens=0.2 dist=5.0: measured Tr=0.3676 analytic=0.3679
+PASSED
+tests/test_pkg199_stage2_scattering_cpu.py::test_alpha_zero_deterministic PASSED
+tests/test_pkg199_stage2_scattering_cpu.py::test_single_scatter_matches_analytic_density_shape
+  measured =[0.005185 0.006688 0.00588  0.003197]
+  analytic =[0.016764 0.021482 0.018754 0.010167]  k=0.31218
+  k*analytic=[0.005233 0.006706 0.005855 0.003174]  max_resid=0.0091
+PASSED
+tests/test_pkg199_stage2_scattering_cpu.py::test_single_scatter_linear_in_alpha
+  L/alpha=[0.017021 0.016968 0.017059] spread=0.0022
+PASSED
+tests/test_pkg199_stage2_scattering_cpu.py::test_forward_back_scatter_asymmetry
+  single: mean(g=+0.7)=0.01588 mean(g=-0.7)=0.00793 ratio=2.002
+  depth4:  mean(g=+0.7)=0.02371 mean(g=-0.7)=0.01605 ratio=1.477
+PASSED
+tests/test_pkg199_stage2_scattering_cpu.py::test_sum_to_beauty_with_volume_passes
+  ratio=[1.00004 1.00004 1.00004] rel_L1=0.0000 volume_mean=0.01149
+PASSED
+tests/test_pkg199_stage2_scattering_cpu.py::test_scatter_adds_energy_monotonic
+  means=[0.      0.00937 0.02581 0.04081]
+PASSED
+
+============================== 7 passed in 4.46s ==============================
+```
+
+All PR headline numbers reproduced verbatim on independently rebuilt hardware
+(Tr 0.6063/0.3676; 0.9% max residual (0.0091); alpha-linearity spread 0.0022;
+asymmetry 2.002x/1.477x; sum-to-beauty rel_L1 0.0000). All tests already render
+with apply_gamma=False (LINEAR), per memory gamma-furnace-cannot-detect-energy-gain
+-- confirmed in source (_render_cpu: "apply_gamma=False -> LINEAR").
+
+### Step 3 -- load-bearing alpha=0 regression sweep (verbatim)
+
+tests/test_pkg199_world_volume_gpu_parity.py (Stage-1 CPU/GPU fog parity + furnace,
+9 tests), tests/test_pkg198_lightpath_passes.py (sum-to-beauty/pass suite, 6 tests),
+tests/test_pkg186_gpu_features_guard.py + tests/test_pkg186_gpu_texture_parity.py
+(9 tests, GPU capability guard + texture parity) -- run together, 25/25 PASSED:
+
+```
+test_world_volume_absorption_only_removes_energy_cpu
+  clear=[1.29   1.2948 1.2722] foggy=[0.7844 0.9507 1.0396] foggy/clear=[0.6081 0.7343 0.8172]  PASSED
+test_world_volume_cpu_gpu_parity
+  GPU=[0.8526 1.0362 1.1494] CPU=[0.7844 0.9507 1.0396] GPU/CPU=[1.0868 1.0899 1.1056]  PASSED
+test_world_volume_gpu_analytic_beer_lambert
+  dist=5.0 dens=0.1: Tr=0.6064 analytic=0.6065; dist=5.0 dens=0.2: Tr=0.3677 analytic=0.3679
+  dist=10.0 dens=0.1: Tr=0.3678 analytic=0.3679; dist=10.0 dens=0.2: Tr=0.1352 analytic=0.1353  PASSED
+test_world_volume_zero_density_gpu_byte_identical
+  no-vol self-noise=9.54e-07 zero-density diff=7.15e-07  PASSED
+test_restir_render_not_contaminated_by_prior_fog
+  clean=[0.0153 0.0162 0.0235] after_fog=[0.0153 0.0162 0.0235] after/clean=[1. 1. 1.]  PASSED
+test_world_volume_gpu_visual PASSED (PNGs inspected, see below)
+test_sphere_lamp_fogs_like_triangle_lamp_gpu
+  dens=0.02 sph/tri=[1.0358 1.0218 1.0126]; dens=0.06 sph/tri=[1.1042 1.0627 1.037 ]  PASSED
+test_sphere_lamp_fog_density_monotonic_gpu
+  dens0.005=0.9616 dens0.03=0.7938 dens0.10=0.4783  PASSED
+test_sphere_lamp_fog_cpu_gpu_parity
+  dens=0.02 GPU/CPU=[1.0005 1.0003 1.0003]; dens=0.06 GPU/CPU=[1.0018 1.001  1.0008]  PASSED
+
+test_all_light_path_passes_readable PASSED
+test_sum_to_beauty_linear -- ratio=[1.00000158 1.00000157 1.00000154] rel_L1=0.0000  PASSED
+test_isolated_diffuse -- d_direct=0.0090 d_indirect=0.0015 glossy=0 trans=0  PASSED
+test_isolated_glossy -- glossy=0.0358 diffuse=0  PASSED
+test_isolated_transmission -- trans=0.0345  PASSED
+test_emission_pass -- emission=0.8690  PASSED
+test_environment_pass -- environment=0.3682  PASSED
+
+test_gpu_features_dict_exists PASSED
+test_gpu_dropped_capability_is_false[textures] PASSED
+test_gpu_dropped_capability_is_false[adaptive_sampling] PASSED
+test_gpu_dropped_capability_is_false[gr_black_holes] PASSED
+test_panel_labels_dropped_caps_cpu_only PASSED
+test_gpu_supported_capabilities_stay_on PASSED
+test_volumes_gpu_enabled PASSED
+test_gpu_texture_is_not_flat PASSED
+test_cpu_gpu_texture_parity PASSED
+
+============================= 25 passed in 4.67s =============================
+```
+
+These GPU-path fog/parity gates confirm the GPU wavefront route is Stage-1-identical
+(absorption only, no scattering) at this branch head -- expected, since GPU
+scattering is deferred to PR 2b and this PR's diff (include/raytracer.h,
+module/blender_module.cpp) touches no .cu/.cuh file.
+
+### Step 4 -- Visual inspection
+
+test_results/pkg199_s2_forward_scatter.png and test_results/pkg199_s2_back_scatter.png
+(64x64, generated by test_forward_back_scatter_asymmetry): pixel-level analysis of
+the top-20 brightest pixels in each image shows the halo tightly clustered within a
+5x5 window around the light-source pixel (31,31) with smooth radial falloff -- no
+isolated bright outliers away from the cluster (no fireflies). The forward-scatter
+(g=+0.7) halo is visibly larger and brighter than the back-scatter (g=-0.7) halo,
+consistent with the measured 2.002x/1.477x asymmetry ratios -- genuine directional
+structure, not salt-and-pepper noise (memory general-photon-loop-needs-solid-glass).
+
+test_results/pkg199_gpu_fog_clear.png / pkg199_gpu_fog_dense.png (GPU Stage-1
+absorption, 5-sphere receding scene): foggy render shows correct graceful
+darkening/desaturation of distant spheres with the near sphere staying crisp; no
+god-rays (expected -- Stage 1 is absorption-only); no fireflies, banding, or NaN
+pixels observed in either image.
+
+No visual regressions found in any inspected PNG.
+
+### Step 5 -- Full local pytest sweep (verbatim)
+
+```
+1 failed, 1974 passed, 70 skipped, 20 xfailed, 2 xpassed, 7 warnings in 679.15s (0:11:19)
+FAILED tests/test_pkg64_phase3_no_regression.py::test_no_caster_cost_gate
+  AssertionError: Caustics toggle with no caster too expensive: ratio 1.48x
+  (target <= 1.05x with jitter slack to 1.30x)
+  assert 1.4779320891041912 <= 1.3
+```
+
+Count mismatch finding: the PR's stated headline is 1946 passed; the measured full
+sweep is 1974 passed (delta +28), plus 70 skipped / 20 xfailed / 2 xpassed / 1
+failed not itemized in the PR body. Flagged per memory pr-named-tests-insufficient
+-- not independently root-caused here (would require a second ~11-minute full sweep
+diff against a clean main baseline).
+
+test_no_caster_cost_gate failure: this is a CPU wall-clock timing/cost-ratio gate
+in an unrelated package (pkg64 caustics-toggle overhead), not a correctness gate,
+and not in the file scope this PR touches (include/raytracer.h volume-only hunks,
+module/blender_module.cpp) -- the caustics/SMS-hook code path is untouched by this
+PR's diff. Re-ran tests/test_pkg64_phase3_no_regression.py in isolation
+immediately after (no full-suite contention):
+
+```
+test_no_caster_no_regression PASSED
+test_no_caster_cost_gate
+  pkg64-3 no-caster cost ratio (toggle on / off) = 0.994x
+PASSED
+============================== 2 passed in 0.39s ==============================
+```
+
+Isolated rerun is clean and well within budget (0.994x vs the 1.30x jitter-slack
+threshold), consistent with wall-clock contention from the concurrently-running
+~2000-test full sweep (memory gpu-perf-ab-clock-drift: timing gates are noise-prone
+under load) rather than a genuine regression from this PR. Per protocol this
+verifier does not relax or wave off a recorded gate failure -- flagging for
+gate-failure-reviewer triage with both results attached; not self-adjudicated as
+acceptable.
+
+### Verdict
+
+pkg199 Stage 2 PR 2a's own gate (test_pkg199_stage2_scattering_cpu.py, 7/7) and all
+explicitly-requested regression suites (Stage-1 alpha=0 parity, sum-to-beauty,
+pkg186 GPU-guard/texture-parity, 25/25) reproduce the PR's claimed numbers verbatim
+on independently rebuilt hardware, with no visual regressions. HW PASS for the
+PR's own scope.
+
+Two findings outside the PR's direct scope, reported (not adjudicated) per protocol:
+(1) a full-sweep test-count mismatch (1974 measured vs 1946 claimed), and (2) one
+FAILED timing gate (test_pkg64_phase3_no_regression.py::test_no_caster_cost_gate,
+unrelated file scope, ratio 1.48x under full-suite contention vs 0.994x isolated)
+that reproduces clean in isolation and is consistent with wall-clock jitter, not a
+code regression. Both are escalated to gate-failure-reviewer / the architect for
+triage; this verifier does not decide they are acceptable.
+
+This verifier does not merge; the merge decision remains with the architect and
+gate-failure process.

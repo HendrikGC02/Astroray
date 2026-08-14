@@ -2138,6 +2138,13 @@ class Renderer {
     float worldVolumeDensity = 0.0f;
     Vec3 worldVolumeColor = Vec3(1.0f);
     float worldVolumeAnisotropy = 0.0f;
+    // pkg199 Stage 2 — single-scattering albedo α ∈ [0,1] of the homogeneous
+    // world medium. σ_t = upsample(color)·density (Stage 1, unchanged);
+    // σ_s = α·σ_t; σ_a = (1-α)·σ_t. Default 0 ⇒ σ_s=0 ⇒ the scattering
+    // estimator is not engaged (pathTraceSpectral falls back to the exact
+    // Stage-1 Beer-Lambert absorption path, byte-identical, same RNG stream).
+    // α>0 turns on HG in-scatter / god-rays and makes worldVolumeAnisotropy live.
+    float worldVolumeScatter = 0.0f;
     // pkg87b — Cryptomatte per-shade-point accumulation gate
     bool cryptomatteEnabled = false;
     // pkg197 — GPU wavefront first-hit denoise-guide AOV capture gate. On by
@@ -2230,6 +2237,66 @@ class Renderer {
         return tr;
     }
 
+    // pkg199 Stage 2 — per-λ extinction σ_t[λ] = upsample_reflectance(color)[λ]·
+    // density (the SAME quantity worldTransmittanceSpectral exponentiates; factored
+    // out so the medium-interaction sampler and the transmittance term share one
+    // definition). Spectral discipline: upsample the COLOUR, then scale by density.
+    astroray::SampledSpectrum worldSigmaT(
+            const astroray::SampledWavelengths& lambdas) const {
+        astroray::SampledSpectrum sigmaColor =
+            astroray::RGBAlbedoSpectrum({worldVolumeColor.x, worldVolumeColor.y,
+                                         worldVolumeColor.z}).sample(lambdas);
+        astroray::SampledSpectrum s;
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+            s[i] = std::max(0.0f, sigmaColor[i]) * worldVolumeDensity;
+        return s;
+    }
+
+    // pkg199 Stage 2 — Henyey-Greenstein phase function (Henyey & Greenstein
+    // 1941; PBRT-v3 `PhaseHG`, src/core/medium.cpp, BSD). cosTheta = dot(wo, wi)
+    // with wo pointing back along the incoming ray. Normalised over the sphere
+    // (integrates to 1); Inv4Pi = 1/(4π).
+    static float phaseHG(float cosTheta, float g) {
+        float denom = 1.0f + g * g + 2.0f * g * cosTheta;
+        denom = std::max(denom, 1e-6f);
+        return (0.25f / float(M_PI)) * (1.0f - g * g) / (denom * std::sqrt(denom));
+    }
+
+    // pkg199 Stage 2 — orthonormal basis from a unit vector (PBRT-v3
+    // `CoordinateSystem`, src/core/geometry.h, BSD).
+    static void coordinateSystem(const Vec3& v1, Vec3& v2, Vec3& v3) {
+        if (std::abs(v1.x) > std::abs(v1.y))
+            v2 = Vec3(-v1.z, 0.0f, v1.x) / std::sqrt(v1.x * v1.x + v1.z * v1.z);
+        else
+            v2 = Vec3(0.0f, v1.z, -v1.y) / std::sqrt(v1.y * v1.y + v1.z * v1.z);
+        v3 = v1.cross(v2);
+    }
+
+    // pkg199 Stage 2 — importance-sample the HG phase function (PBRT-v3
+    // `HenyeyGreenstein::Sample_p`, BSD). `wo` points back along the incoming ray
+    // (= -ray.direction). Returns the sampled continuation direction wi; outPdf is
+    // the phase value (HG is perfectly importance-sampled, so pdf == value, and the
+    // throughput factor value/pdf = 1). g>0 forward-scatters (peak at wi = -wo).
+    static Vec3 sampleHG(const Vec3& wo, float g, float u1, float u2, float& outPdf) {
+        float cosTheta;
+        if (std::abs(g) < 1e-3f) {
+            cosTheta = 1.0f - 2.0f * u1;
+        } else {
+            float sqrTerm = (1.0f - g * g) / (1.0f + g - 2.0f * g * u1);
+            cosTheta = -(1.0f + g * g - sqrTerm * sqrTerm) / (2.0f * g);
+        }
+        cosTheta = std::clamp(cosTheta, -1.0f, 1.0f);
+        float sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+        float phi = 2.0f * float(M_PI) * u2;
+        Vec3 v2, v3;
+        coordinateSystem(wo, v2, v3);
+        Vec3 wi = v2 * (sinTheta * std::cos(phi)) +
+                  v3 * (sinTheta * std::sin(phi)) +
+                  wo * cosTheta;
+        outPdf = phaseHG(cosTheta, g);
+        return wi.normalized();
+    }
+
 public:
     // Definitions deferred until Integrator is fully defined below.
     void setIntegrator(std::shared_ptr<Integrator> i);
@@ -2292,7 +2359,8 @@ public:
         pixelFilterWidth = std::max(0.01f, width);
     }
     void setWorldMaxBounces(int maxB) { worldMaxBounces = std::max(0, maxB); }
-    void setWorldVolume(float density, const Vec3& color, float anisotropy = 0.0f) {
+    void setWorldVolume(float density, const Vec3& color, float anisotropy = 0.0f,
+                        float scatter = 0.0f) {
         worldVolumeDensity = std::max(0.0f, density);
         worldVolumeColor = Vec3(
             std::max(0.0f, color.x),
@@ -2300,6 +2368,8 @@ public:
             std::max(0.0f, color.z)
         );
         worldVolumeAnisotropy = std::clamp(anisotropy, -0.99f, 0.99f);
+        // pkg199 Stage 2 — single-scattering albedo (default 0 = Stage-1 absorption).
+        worldVolumeScatter = std::clamp(scatter, 0.0f, 1.0f);
         hasWorldVolume = worldVolumeDensity > 0.0f;
     }
     // pkg199 Stage 1 — world-volume accessors (read by cuda_wavefront_render to
@@ -2308,6 +2378,7 @@ public:
     float getWorldVolumeDensity() const { return worldVolumeDensity; }
     Vec3 getWorldVolumeColor() const { return worldVolumeColor; }
     float getWorldVolumeAnisotropy() const { return worldVolumeAnisotropy; }
+    float getWorldVolumeScatter() const { return worldVolumeScatter; }
 
     // pkg86: Set light sampling strategy (Power or Tree).
     void setLightSampler(LightList::SamplerMode mode) {
@@ -2343,6 +2414,7 @@ public:
         worldVolumeDensity = 0.0f;
         worldVolumeColor = Vec3(1.0f);
         worldVolumeAnisotropy = 0.0f;
+        worldVolumeScatter = 0.0f;
         cryptomatteEnabled = false;
         integrator_.reset();
         passes_.clear();
@@ -2514,11 +2586,134 @@ public:
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         int lastBounce = 0;
         float weightSum = 0.0f;
+        // pkg199 Stage 2 — engage the scattering estimator only when the medium
+        // has nonzero single-scattering albedo. α==0 (default) keeps the exact
+        // Stage-1 Beer-Lambert absorption path (byte-identical, same RNG stream).
+        const bool mediumScatters = hasWorldVolume && worldVolumeDensity > 0.0f &&
+                                    worldVolumeScatter > 0.0f;
 
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             lastBounce = bounce;
             HitRecord rec;
             bool didHit = bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
+
+            // pkg199 Stage 2 — homogeneous medium free-flight sampling. Engaged
+            // ONLY when mediumScatters; otherwise the Stage-1 absorption path below
+            // runs untouched. PBRT-v3 HomogeneousMedium::Sample (BSD): per-channel
+            // selection distance sampling, balance-heuristic pdf averaged over the
+            // spectral channels (unbiased for coloured media). See
+            // .astroray_plan/docs/pkg199-stage2-scattering-research.md.
+            if (mediumScatters) {
+                float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
+                // Nearest terminating event: surface, or a hittable dedicated lamp
+                // closer than it (bounce>0). Env => FLT_MAX.
+                float termT = surfaceT;
+                if (bounce > 0 && !lights.getDedicatedLights().empty()) {
+                    astroray::Light::Intersection lhBound;
+                    if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
+                                                  surfaceT, lambdas, lhBound))
+                        termT = lhBound.t;
+                }
+                astroray::SampledSpectrum sigmaT = worldSigmaT(lambdas);
+                int ch = std::min((int)(dist01(gen) * astroray::kSpectrumSamples),
+                                  astroray::kSpectrumSamples - 1);
+                float sigTc = sigmaT[ch];
+                float fdist = (sigTc > 0.0f)
+                    ? -std::log(1.0f - dist01(gen)) / sigTc
+                    : std::numeric_limits<float>::infinity();
+                bool sampledMedium = fdist < termT;
+                float tHit = sampledMedium ? fdist : termT;
+                astroray::SampledSpectrum Tr;
+                for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+                    Tr[i] = std::exp(-sigmaT[i] * std::min(tHit, 1e18f));
+                if (sampledMedium) {
+                    // Scatter: throughput *= Tr * σ_s / pdf,
+                    // pdf = avg_ch( σ_t[ch]·Tr[ch] ).
+                    float pdf = 0.0f;
+                    for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+                        pdf += sigmaT[i] * Tr[i];
+                    pdf /= float(astroray::kSpectrumSamples);
+                    if (pdf <= 0.0f) break;
+                    astroray::SampledSpectrum sigmaS = sigmaT * worldVolumeScatter;
+                    throughput *= Tr;
+                    throughput *= sigmaS;
+                    throughput *= (1.0f / pdf);
+                    // Scatter point P — the snapshot moment the GPU volume-scatter
+                    // stage mirrors byte-for-byte (captured from the PRE-update ray,
+                    // before the continuation overwrites ray.origin/direction).
+                    Vec3 P = ray.origin + ray.direction * fdist;
+                    Vec3 woMedium = -ray.direction.normalized();
+                    float g = worldVolumeAnisotropy;
+                    // Volume pass routing (pkg198 sum-to-beauty): first interaction
+                    // => PASS_VOLUME_DIRECT + lock firstCat=3 (3*3+1=VOLUME_INDIRECT
+                    // for everything downstream); a deeper scatter => VOLUME_INDIRECT.
+                    bool firstInteraction = (firstCat < 0);
+                    int volPass = firstInteraction ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT;
+                    if (firstInteraction) firstCat = 3;
+                    // --- Medium NEE (phase / light MIS) ---
+                    if (!lights.empty()) {
+                        LightSample ls;
+                        lights.sample(ls, P, Vec3(0.0f), lambdas, gen);
+                        if (ls.pdf > 0.0f) {
+                            Vec3 wi = (ls.position - P).normalized();
+                            HitRecord shadow;
+                            bool hitOcc = bvh->hit(Ray(P, wi, ray.time), 0.001f,
+                                                   ls.distance - 0.001f, shadow);
+                            bool occluded = hitOcc && !(shadow.hitObject &&
+                                                        shadow.hitObject->isInfiniteLight());
+                            if (!occluded) {
+                                float ph = phaseHG(woMedium.dot(wi), g);
+                                float a = ls.pdf, b = ph;  // HG pdf == phase value
+                                float wt = ls.isDelta ? 1.0f
+                                                      : (a * a) / (a * a + b * b + 1e-8f);
+                                astroray::SampledSpectrum neeContrib =
+                                    throughput * ls.emission_spec * ph *
+                                    (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
+                                // Shadow-segment transmittance through the medium
+                                // (full σ_t; ls.distance is geometric, distant lights
+                                // guarded to Tr=1) — the role-2 analog at a scatter vertex.
+                                neeContrib *= worldTransmittanceSpectral(ls.distance, lambdas);
+                                astroray::SampledSpectrum c =
+                                    clampContribSpectral(neeContrib, lambdas, bounce);
+                                color += c; addPass(volPass, c);
+                            }
+                        }
+                    }
+                    // --- HG phase-sampled continuation from P ---
+                    float phasePdf;
+                    Vec3 wiCont = sampleHG(woMedium, g, dist01(gen), dist01(gen), phasePdf);
+                    // throughput *= phase/pdf = 1 (HG perfectly importance-sampled).
+                    Ray next(P, wiCont, ray.time, ray.screenU, ray.screenV);
+                    next.hasCameraFrame = ray.hasCameraFrame;
+                    next.cameraOrigin = ray.cameraOrigin;
+                    next.cameraU = ray.cameraU;
+                    next.cameraV = ray.cameraV;
+                    next.cameraW = ray.cameraW;
+                    ray = next;
+                    wasSpecular = false;
+                    bsdfPdfPrev = phasePdf;
+                    // Russian roulette (mirror the surface RR below).
+                    if (bounce > rrDepth) {
+                        astroray::XYZ thrXYZ = throughput.toXYZ(lambdas);
+                        float p = std::min(0.95f, std::max(0.0f, thrXYZ.Y));
+                        if (dist01(gen) > p) break;
+                        if (p > 0.0f) throughput = throughput * (1.0f / p);
+                    }
+                    weightSum += throughput.maxValue();
+                    continue;
+                } else {
+                    // Reached the terminating event (surface / lamp / env): apply
+                    // Tr/pdf, pdf = avg_ch(Tr[ch]); the Stage-1 role-1 multiply below
+                    // is then skipped (transmittance is already in throughput).
+                    float pdf = 0.0f;
+                    for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+                        pdf += Tr[i];
+                    pdf /= float(astroray::kSpectrumSamples);
+                    if (pdf <= 0.0f) break;
+                    throughput *= Tr;
+                    throughput *= (1.0f / pdf);
+                }
+            }
 
             // pkg181: dedicated-light visibility to BSDF rays (Cycles
             // lights_intersect parity). Lamps are invisible to camera rays
@@ -2538,8 +2733,11 @@ public:
                         // surface, so throughput is not yet segment-attenuated;
                         // attenuate the lamp's emission over the camera→lamp
                         // segment (lh.t). Vacuum: Tr==1 (guarded), unchanged.
+                        // pkg199 Stage 2: in scatter mode the free-flight estimator
+                        // already applied Tr(termT=lh.t)/pdf to throughput, so the
+                        // lamp emission must NOT be re-attenuated here.
                         astroray::SampledSpectrum lampEmission =
-                            hasWorldVolume
+                            (hasWorldVolume && !mediumScatters)
                                 ? lh.emission * worldTransmittanceSpectral(lh.t, lambdas)
                                 : lh.emission;
                         // pkg198: a lamp hit by a continuation ray is indirect light
@@ -2597,7 +2795,9 @@ public:
             // legacy `throughput *= worldTransmittance(rec.t)` (pkg25, deleted by
             // pkg14). The GPU twin does the identical multiply + SoA write-back in
             // intersectPathSlot. Vacuum: guarded, throughput unchanged.
-            if (hasWorldVolume && worldVolumeDensity > 0.0f) {
+            // pkg199 Stage 2: in scatter mode the free-flight estimator above
+            // already applied Tr(termT)/pdf, so skip this deterministic multiply.
+            if (hasWorldVolume && worldVolumeDensity > 0.0f && !mediumScatters) {
                 throughput *= worldTransmittanceSpectral(rec.t, lambdas);
             }
             if (rec.hitObject && rec.hitObject->isGRObject()) {
@@ -3357,11 +3557,13 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         // pkg198 Stage 1: the light-path passes carry XYZ radiance (same
                         // convention as beauty pre-conversion). Convert them to linear
                         // sRGB with the SAME matrix as beauty (below) so the sum-to-beauty
-                        // invariant Σpasses == beauty holds in linear sRGB. Volume passes
-                        // are left untouched (pkg199 territory); COLOR/AO/SHADOW stay zero.
+                        // invariant Σpasses == beauty holds in linear sRGB. pkg199 Stage 2:
+                        // the volume passes now carry in-scatter radiance and join the
+                        // conversion; COLOR/AO/SHADOW stay zero.
                         for (int passIndex : {PASS_DIFFUSE_DIRECT, PASS_DIFFUSE_INDIRECT,
                                               PASS_GLOSSY_DIRECT, PASS_GLOSSY_INDIRECT,
                                               PASS_TRANSMISSION_DIRECT, PASS_TRANSMISSION_INDIRECT,
+                                              PASS_VOLUME_DIRECT, PASS_VOLUME_INDIRECT,
                                               PASS_EMISSION, PASS_ENVIRONMENT}) {
                             passColor[passIndex] = xyzToLinearSRGB(passColor[passIndex]);
                         }

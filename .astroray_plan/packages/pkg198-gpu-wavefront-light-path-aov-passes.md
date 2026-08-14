@@ -4,7 +4,10 @@
 **Track:** A
 **Status:** Stage 1 (CPU classification) — done (PR #614, 2026-08-14 — sum-to-beauty rel_L1
 0.0000, per-channel ratio 1.000/1.000/1.000; isolated-lobe leak <1e-2). Stage 2 (GPU wavefront
-mirror + register probe) — **open, probe-first, may-park**.
+mirror + register probe) — register probe **PROCEED** (2026-08-15, branch `pkg198-s2-probe`;
+fleet `<…,false>` shade kernel byte-identical 254/3352/1700, pass-AOV kernels add zero
+STACK/no tier crossing — see "Stage 2 REGISTER PROBE" evidence block below); full mirror
+**open, ready to dispatch**.
 **Estimated effort:** Stage 1 = M (landed). Stage 2 = L (register-hostile — the up-front probe
 decides whether it ships at all).
 **Depends on:** Stage 2 depends on Stage 1 (this PR — the CPU reference to mirror) and pkg197
@@ -237,3 +240,97 @@ passes + emission + environment + Sum(passes) reconstructed:
 holds under both nominal and firefly-stress conditions, GPU wavefront path unaffected,
 visual decomposition is physically plausible and clean. Merge decision left to the
 architect/reviewer -- this is a measurement report only.
+
+---
+
+## Stage 2 REGISTER PROBE — evidence + verdict (2026-08-15, branch `pkg198-s2-probe`)
+
+**Verdict: PROCEED with the safe design.** The register-hostility that gated this
+package does NOT manifest. Both the fleet pass-less shade kernel AND the pass-AOV shade
+kernels stay byte-identical to their respective pre-probe baselines: zero STACK delta,
+zero register-tier change, no occupancy crossing. The isolation axis protects the fleet
+by construction (proven, not assumed).
+
+### Probe design (the measured shape — this is the design the full mirror should ship)
+Mirrors pkg186 (texture) / pkg197 (guide) / pkg199-S2 (volume) fleet-isolation exactly:
+1. **New compile-time axis** `bool HasLightPassAOVs` on `stageShadeBucketedKernel` /
+   `shadePathSlot` (5th template bool, defaults false → all existing call sites unchanged).
+2. **Pass output pointers live in a `__constant__` binding** (`GWavefrontLightPassBinding`
+   via a new `c_wfLpBinding` symbol), NOT in the kernel signature and NOT in
+   `GPUWavefrontState`. This is the load-bearing choice — the pkg186 lesson is that a
+   signature pointer bumps CONSTANT[0] and costs the fleet `<false,…>` kernel +STACK even
+   when the code is `if constexpr`'d out. Constant memory keeps the pass-less signature at
+   its pre-probe footprint. `passAccum == nullptr` (every non-AOV driver) ⇒ the whole
+   partition compiles out.
+3. **Per-slot global-scatter accumulators** (`lpAccumulate`): the shade kernel holds only
+   the constant-mem base pointer + the already-live spectral contrib, RMW-adds into global
+   memory. No per-path register accumulators → adds memory traffic, not live registers.
+   Since REG is already pinned at 254, "no new live registers" is exactly what keeps STACK
+   flat.
+4. **Representative shade-kernel work exercised by the probe:** (a) first-bounce lobe
+   category lock at bounce 0 (Stage-1 geometric sign test → `firstCat[idx]`), and (b) the
+   immediate/non-deferred NEE `color +=` site mirrored into `passAccum` (read category,
+   compute direct/indirect pass index, scatter-add). Both are non-dead (global stores with
+   side effects; `c_wfLpBinding` is runtime-set so the compiler cannot fold it away). Two
+   `<…,true>` specializations were forced into the linked cubin via a reference sink.
+
+### Measured table — cuobjdump `-res-usage`, FINAL LINKED `.pyd`
+- `.pyd`: `Astroray-pkg198s2/build_cuda/Release/astroray.cp313-win_amd64.pyd`, mtime
+  2026-08-15 07:38, built via `build_cuda_worktree.bat` (exit 0, arch-verify OK).
+- sm_120 confirmed via `cuobjdump --list-elf` first (`astroray…1.sm_120.cubin`), never
+  `ptxas -v`. RTX 5070 Ti, CUDA 12.8 (nvcc V12.8), MSVC 14.44, native sm_120.
+- Mangling: `stageShadeBucketedKernelILb{P}ELb{T}ELb{Ph}ELb{D}ELb{LP}E`
+  = `<HasPrincipled, HasTexture, HasPhotons, HasDispersion, HasLightPassAOVs>`.
+
+| Kernel specialization | REG | STACK | CONSTANT[0] | CONSTANT[2] | vs baseline |
+|---|---|---|---|---|---|
+| `<0,0,0,0,0>` **FLEET pass-less** (HARD gate) | 254 | **3352** | 1700 | – | **== 254/3352/1700** ✅ |
+| `<0,0,0,0,1>` pass-AOV, non-principled | 254 | **3352** | 1700 | – | **byte-identical to fleet** |
+| `<1,0,0,0,0>` principled pass-less baseline | 254 | 7720 | 1700 | 368 | (principled reference) |
+| `<1,0,0,0,1>` pass-AOV, principled | 254 | **7720** | 1700 | 368 | **byte-identical to `<1,0,0,0,0>`** |
+| `stageIntersectQueuedKernel<false>` | 127 | 616 | 1696 | – | untouched (127 baseline) |
+
+**HARD gate:** `stageShadeBucketedKernel<…,false>` = **REG 254 / STACK 3352 / CONSTANT[0]
+1700**, byte-identical to the verified fleet baseline (254/3352/1700, re-confirmed by
+pkg190/PR-#614 HW). **PASS.** The 3608 figures also present in the dump belong to the
+`HasTexture=true` (`<*,1,*,*,0>`) specializations — the fleet runs `<0,0,0,0,0>`.
+
+### Isolation-axis analysis (why the fleet is safe by construction)
+The `HasLightPassAOVs=false` specialization is generated from the SAME template body with
+the pass code behind `if constexpr` — identical to how pkg186/pkg189/pkg199-S2 produce a
+byte-identical fleet kernel across their axes. The measured 254/3352/1700 confirms the
+compiler stripped the partition entirely. **This is not a "we hope it's under budget"
+result — the fleet kernel is provably the same object it was before the probe.**
+
+The stronger-than-required finding: even the `HasLightPassAOVs=true` kernels add **zero
+STACK and no register-tier change** over their pass-less twins. The global-scatter design
+converts the pass partition into extra memory transactions that slot into the existing
+254-register / 3352-stack envelope rather than raising the spill peak or the live-register
+count. So AOV-on renders pay latency (expected, acceptable when a compositor pass is
+explicitly requested), not occupancy.
+
+### Residual risk (honest scope of what the probe did NOT exhaust)
+The probe implemented ONE representative shade-kernel accumulation site (immediate NEE) +
+the bounce-0 classification — the register-hostile part, and the only part that could kill
+the package. The full Stage-2 mirror additionally needs, at NON-hostile sites:
+- deferred-NEE pass attribution in **`stageShadowKernel`** (separate, leaner kernel);
+- emission / environment / lamp-MIS partition in **`intersectPathSlot`** (REG 127, ~2
+  blocks/SM — clear headroom);
+- one or two more shade-kernel `color +=` mirrors (BSDF-emission MIS) — SAME
+  `read-category + lpAccumulate` shape as the measured NEE mirror, which cost zero, so a
+  spill from these is very unlikely but **must be re-measured on the full-impl `.pyd`**;
+- per-slot `passAccum` SoA allocation + accumulate-at-death XYZ conversion in
+  `stageRegenKernel` + copy-back, reusing the pkg197 guide/beauty plumbing (one path);
+- the CPU↔GPU per-pass mean-ratio parity gate + energy-closure (Σpasses == GPU beauty) +
+  headless-Blender compositor round-trip + the RTX HW gate bound to HEAD (Stage-2 scope §).
+
+None of these touch the REG-254 budget in a way the probe leaves unquantified; the gating
+question ("does the shade kernel spill when it must write the partition?") is answered
+**no**. Recommend dispatching the full Stage-2 mirror with the design above; re-run this
+exact cuobjdump check on the full-impl `.pyd` as the acceptance gate (the fleet `<…,false>`
+kernel must still read 254/3352/1700).
+
+**Probe branch is evidence-only** — the probe code (the `[pkg198-diag]`-marked axis + sink
+in `stage_advance.cu` / `gpu_types.h`) is NOT part of this docs commit; it was the
+measurement instrument and is reverted. The full-impl PR re-adds the production
+(non-diag) version.

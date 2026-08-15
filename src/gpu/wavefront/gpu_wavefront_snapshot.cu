@@ -1019,6 +1019,10 @@ struct WfContext {
     // shading normal = numPixels*3 floats each; depth = numPixels floats).
     // Grow-only like the rest; only allocated once a render requests guides.
     WfDeviceBuf guideAlbedo, guideNormal, guideDepth;
+    // pkg201 Stage 2 (Finding F): transparent-film bounce-0 background-miss
+    // coverage accumulator (numPixels floats). Grow-only; only allocated when a
+    // render enables transparent film, so default renders pay nothing.
+    WfDeviceBuf missCoverage;
     // pkg198 Stage 2: light-path pass buffers. lpPassAccum = per-SLOT spectral
     // accumulators (capacity*ASTRORAY_LP_NUM_PASSES*G_SPECTRUM_SAMPLES floats);
     // lpPassXYZ = per-PIXEL XYZ output (numPixels*ASTRORAY_LP_NUM_PASSES*3);
@@ -1313,8 +1317,9 @@ std::vector<float> cuda_wavefront_render(
     float* albedoOut,          // pkg197
     float* normalOut,          // pkg197
     float* depthOut,           // pkg197
-    float* passesOut)          // pkg198 Stage 2: light-path passes, pass-major
+    float* passesOut,          // pkg198 Stage 2: light-path passes, pass-major
                                // [p*numPixels*3 + pixel*3 + c] linear sRGB, or null
+    float* alphaOut)           // pkg201 Stage 2 (Finding F)
 {
     int total_paths = width * height;
     if (total_paths <= 0 || samples <= 0) {
@@ -1378,6 +1383,13 @@ std::vector<float> cuda_wavefront_render(
             renderer.getWorldVolumeScatter(),      // pkg199 Stage 2 (α)
             renderer.getWorldVolumeAnisotropy()}); // pkg199 Stage 2 (g)
     }
+    // pkg201 Stage 2 (Finding D) — publish the pixel reconstruction filter every
+    // frame (c_wfPixelFilter is __constant__ and persists across calls). Box
+    // (type 0, the default) ignores width and is byte-identical to the pre-pkg201
+    // primary-ray jitter; Gaussian/Blackman-Harris importance-sample the sub-pixel
+    // offset over the full filter width (stage_init.cu::filterSample).
+    setWavefrontPixelFilter(renderer.getPixelFilterType(),
+                            renderer.getPixelFilterWidth());
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).
@@ -1530,6 +1542,22 @@ std::vector<float> cuda_wavefront_render(
     }
     setWavefrontGuideBinding(GWavefrontGuideBinding{
         d_guideAlbedo, d_guideNormal, d_guideDepth});
+
+    // pkg201 Stage 2 (Finding F) — transparent-film alpha coverage. Only allocate +
+    // publish the bounce-0 background-miss accumulator when the render both requests
+    // alpha out AND enables transparent film; otherwise publish nullptr so the
+    // intersect stage skips the atomicAdd (byte-identical). Zero-init: a pixel whose
+    // primary rays never miss keeps miss==0 → alpha 1 (opaque foreground).
+    const bool coverageOn = alphaOut != nullptr && renderer.getUseTransparentFilm();
+    float* d_missCoverage = nullptr;
+    if (coverageOn) {
+        d_missCoverage = wfEnsure<float>(C.missCoverage, size_t(total_paths));
+        cudaError_t me = cudaMemset(d_missCoverage, 0,
+                                    size_t(total_paths) * sizeof(float));
+        if (me != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(me));
+    }
+    setWavefrontMissCoverage(d_missCoverage);
 
     // pkg198 Stage 2: light-path pass buffers. Gated on the caller-supplied
     // passesOut (null = disabled → the shade/intersect kernels launch their
@@ -1791,6 +1819,30 @@ std::vector<float> cuda_wavefront_render(
                             cudaMemcpyDeviceToHost);
         if (ge != cudaSuccess)
             throw std::runtime_error(cudaGetErrorString(ge));
+    }
+
+    // pkg201 Stage 2 (Finding F): fill the caller's alpha buffer. With transparent
+    // film, per-pixel alpha = clamp(1 - background_miss/samples, 0, 1) — background
+    // pixels open to 0, foreground to 1, silhouette edges antialiased. Without it,
+    // fully opaque (1.0), matching the CPU/default alpha convention. NOTE: this is
+    // the FIRST implementation of transparent-film alpha in the engine — the CPU
+    // path stores useTransparentFilm/transparentGlass but never reads them
+    // (SampleResult.alpha is always 1.0); see the pkg201 results delta.
+    if (alphaOut != nullptr) {
+        if (coverageOn) {
+            std::vector<float> h_miss(static_cast<size_t>(total_paths), 0.0f);
+            cudaError_t ae = cudaMemcpy(h_miss.data(), d_missCoverage,
+                                        size_t(total_paths) * sizeof(float),
+                                        cudaMemcpyDeviceToHost);
+            if (ae != cudaSuccess)
+                throw std::runtime_error(cudaGetErrorString(ae));
+            for (int i = 0; i < total_paths; ++i) {
+                float cov = 1.0f - h_miss[i] / float(samples);
+                alphaOut[i] = std::clamp(cov, 0.0f, 1.0f);
+            }
+        } else {
+            for (int i = 0; i < total_paths; ++i) alphaOut[i] = 1.0f;
+        }
     }
 
     // pkg55-C5 / pkg113: release the resident photon grid after the render

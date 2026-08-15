@@ -415,6 +415,22 @@ void setWavefrontLightPassBinding(const GWavefrontLightPassBinding& binding);
 // intersectPathSlot/stageShadowKernel. See stage_advance.cu / GWorldVolume.
 void setWavefrontWorldVolume(const GWorldVolume& volume);
 
+// pkg201 Stage 2 (Finding F, transparent film) — publish the frame's bounce-0
+// background-miss coverage accumulator (numPixels floats, or nullptr to disable).
+// intersectPathSlot atomicAdds 1.0 into c_wfMissCoverage[pixel] for every
+// primary-ray sample that misses to the background; the driver derives per-pixel
+// alpha = clamp(1 - miss/samples, 0, 1). Null (the default) leaves the alpha
+// buffer opaque (1.0) — byte-identical renders. See stage_advance.cu.
+void setWavefrontMissCoverage(float* coverage);
+
+// pkg201 Stage 2 (Finding D, pixel filter) — publish the frame's pixel
+// reconstruction filter for filter importance sampling of the primary-ray
+// sub-pixel offset (type 0=Box/1=Gaussian/2=Blackman-Harris; width in pixels).
+// Box ignores width and is byte-identical to the pre-pkg201 default; only
+// Gaussian/Blackman-Harris honour width (offsets cross pixel boundaries for
+// width>1). Read by stage_init.cu::filterSample at primary-ray generation.
+void setWavefrontPixelFilter(int type, float width);
+
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts
 // are G_WF_NEE_F_LANES / G_WF_NEE_I_LANES (field-major); see the

@@ -34,15 +34,64 @@
 
 namespace astroray::wavefront {
 
+// pkg201 Stage 2 (Finding D) — pixel reconstruction filter, published ONCE per
+// frame into this __constant__ symbol (setWavefrontPixelFilter), mirroring the
+// pkg197 guide / pkg199 world-volume binding pattern so no kernel signature grows.
+// Default {Box, width 1} == the pre-pkg201 behaviour, so drivers that never
+// publish it (ReSTIR/snapshot) and every default fleet render stay byte-identical.
+struct GPixelFilterParams { int type; float width; };
+__constant__ GPixelFilterParams c_wfPixelFilter = {0, 1.0f};
+
+void setWavefrontPixelFilter(int type, float width) {
+    GPixelFilterParams p{type, width};
+    cudaMemcpyToSymbol(c_wfPixelFilter, &p, sizeof(GPixelFilterParams));
+}
+
 namespace {
 
-// Box filter: returns uniform [-0.5, 0.5]. Mirrors the CPU
-// path_kernel.cpp::filterSample. Same byte-exact uniform_real_distribution
-// conversion pattern (draw uint32, multiply by 2^-32, subtract 0.5).
+// pkg201 Stage 2 (Finding D) — filter importance sampling of the primary-ray
+// sub-pixel offset (in pixels): draw the offset from the reconstruction filter's
+// own distribution over [-width/2, +width/2] and accumulate with UNIT weight
+// (Ernst-Stamminger-Greiner, Filter Importance Sampling, IRT 2006; PBRT-v4 §8.8
+// FilterSampler, BSD; Cycles filter_table inverted-CDF, Apache-2.0). For width>1
+// the offset crosses pixel boundaries — that is what blurs edges (a wide filter
+// lowers the luminance gradient, a narrow one preserves it). See
+// .astroray_plan/docs/pkg201-pixel-filter-research.md.
+//
+// Box (type 0) ignores width and returns uniform [-0.5, 0.5] — byte-identical to
+// the pre-pkg201 GPU default AND to the CPU box (raytracer.h::filterSample), so the
+// default fleet render and its register/parity baseline are untouched (1 RNG draw).
 __device__ inline float filterSample(WavefrontRNG& rng) {
-    // Mirrors std::uniform_real_distribution<float>(0, 1) on CPU:
-    //   uint32_t u = rng(); float f = u * 0x1p-32f; clamp to [0, 1 - eps).
-    // Then subtract 0.5 for box filter.
+    const int type = c_wfPixelFilter.type;
+    const float width = c_wfPixelFilter.width;
+    if (type == 1) {
+        // Gaussian: Box-Muller normal z (2 draws); sigma = width/6 puts the ±3σ
+        // mass at the ±width/2 support edge (the CPU filterSample sigma). Offset
+        // ∝ gaussian (importance-sampled), clamped to the support, unit weight.
+        float u1 = rng.Uniform();
+        float u2 = rng.Uniform();
+        if (u1 < 1e-7f) u1 = 1e-7f;
+        float z = sqrtf(-2.0f * logf(u1)) * cosf(2.0f * 3.14159265f * u2);
+        float half = 0.5f * width;
+        float off = z * (width / 6.0f);
+        return fmaxf(-half, fminf(half, off));
+    } else if (type == 2) {
+        // Blackman-Harris 4-term window (same coefficients as the CPU filterSample
+        // and Cycles): rejection-sample a normalised position x in [0,1) with
+        // accept probability = the window (peaks 1.0 at x=0.5, ~0 at the edges),
+        // then map to a width-scaled centred offset. ≤20 attempts, uniform fallback.
+        for (int attempt = 0; attempt < 20; ++attempt) {
+            float x = rng.Uniform();
+            float w = 0.35875f - 0.48829f * cosf(2.0f * 3.14159265f * x)
+                               + 0.14128f * cosf(4.0f * 3.14159265f * x)
+                               - 0.01168f * cosf(6.0f * 3.14159265f * x);
+            if (rng.Uniform() < w) return (x - 0.5f) * width;
+        }
+        return (rng.Uniform() - 0.5f) * width;
+    }
+    // Box filter (type 0): uniform [-0.5, 0.5], width-ignored. Mirrors the CPU
+    // path_kernel.cpp::filterSample byte-exact uniform_real_distribution pattern
+    // (draw uint32, multiply by 2^-32, subtract 0.5).
     return rng.Uniform() - 0.5f;
 }
 

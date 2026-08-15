@@ -141,6 +141,16 @@ constexpr int G_WF_NEE_INTS   = 2;
 // write — keep the CPU miss convention (albedo 0, normal 0, depth 0).
 __constant__ GWavefrontGuideBinding c_wfGuideBinding;
 
+// pkg201 Stage 2 (Finding F, transparent film) — bounce-0 background-miss coverage
+// accumulator, published ONCE per frame (setWavefrontMissCoverage), read by
+// intersectPathSlot. For each primary-ray sample (bounce 0) that misses to the
+// background, atomicAdd 1.0 into c_wfMissCoverage[pixel]; the driver then derives
+// per-pixel alpha = clamp(1 - miss/samples, 0, 1) for transparent film. Null (the
+// default — ReSTIR/snapshot drivers, and every non-transparent render) skips the
+// add entirely → byte-identical, and it lives in the intersect stage so the
+// REG-254 stageShadeBucketedKernel is untouched (the pkg197 guide-AOV precedent).
+__constant__ float* c_wfMissCoverage = nullptr;
+
 // pkg199 Stage 1 — homogeneous world-volume medium (Beer-Lambert absorption).
 // Published once per frame by cuda_wavefront_render (setWavefrontWorldVolume),
 // read by intersectPathSlot (free-flight + lamp-MIS) and stageShadowKernel (NEE)
@@ -569,6 +579,13 @@ __device__ int intersectPathSlotT(
     }
 
     if (!hit) {
+        // pkg201 Stage 2 (Finding F) — a bounce-0 primary-ray sample that reaches
+        // here saw the background, not foreground geometry: count it toward the
+        // transparent-film alpha coverage (alpha = 1 - miss/samples). Gated on the
+        // published pointer (null for every non-transparent render → byte-identical)
+        // and on bounce == 0 (deeper env escapes do NOT reduce foreground coverage).
+        if (bounce == 0 && c_wfMissCoverage != nullptr)
+            atomicAdd(&c_wfMissCoverage[state.pixel_index[idx]], 1.0f);
         // ---- Env-map miss (CPU path_kernel: worldMaxBounces gate; the
         // shared helper mirrors EnvironmentMap::evalSpectral).
         // pkg55-C3: Rayleigh sky fallback for non-visible-band luminance-output
@@ -2005,6 +2022,15 @@ void setWavefrontGuideBinding(const GWavefrontGuideBinding& binding)
 void setWavefrontWorldVolume(const GWorldVolume& volume)
 {
     cudaMemcpyToSymbol(c_worldVolume, &volume, sizeof(GWorldVolume));
+}
+
+// pkg201 Stage 2 (Finding F) — publish the frame's transparent-film coverage
+// accumulator pointer into the __constant__ c_wfMissCoverage symbol (read by
+// intersectPathSlot at bounce 0). Called ONCE per frame by cuda_wavefront_render;
+// pass nullptr (the default) to disable the coverage count (opaque alpha).
+void setWavefrontMissCoverage(float* coverage)
+{
+    cudaMemcpyToSymbol(c_wfMissCoverage, &coverage, sizeof(float*));
 }
 
 // pkg198 Stage 2 — publish the frame's light-path pass buffers into the

@@ -1885,13 +1885,20 @@ public:
                         size_t(ASTRORAY_LP_NUM_PASSES) * numPixels * 3, 0.0f);
                     passesOut = passesStaging.data();
                 }
+                // pkg201 Stage 2 (Finding F): give the driver the Camera alpha
+                // buffer so GPU renders honour transparent film. The driver fills it
+                // with per-pixel coverage when useTransparentFilm is set, else 1.0
+                // (opaque) — matching the CPU default alphaBuffer (resized to 1.0).
+                // alphaBuffer is width*height floats.
+                float* alphaOut = camera->alphaBuffer.data();
                 auto rgb = astroray::wavefront::cuda_wavefront_render(
                     renderer, *camera, camera->width, camera->height,
                     samplesPerPixel, maxDepth, effectiveSeed,
                     lmin, lmax, useLum, enableNEE,
                     cryptoObjOut, cryptoMatOut, cryptoDepth,  // pkg159
                     albedoOut, normalOut, depthOut,           // pkg197
-                    passesOut);                                // pkg198
+                    passesOut,                                 // pkg198
+                    alphaOut);                                 // pkg201
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],

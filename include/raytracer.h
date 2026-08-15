@@ -3397,6 +3397,11 @@ public:
     float getFilmExposure() const { return filmExposure; }
     bool getUseTransparentFilm() const { return useTransparentFilm; }
     bool getTransparentGlass() const { return transparentGlass; }
+    // pkg201 Stage 2 (Finding D) — the GPU wavefront reads these to shape the
+    // primary-ray sub-pixel jitter via filter importance sampling at splat time
+    // (stage_init.cu::filterSample). 0=Box, 1=Gaussian, 2=Blackman-Harris.
+    int getPixelFilterType() const { return pixelFilterType; }
+    float getPixelFilterWidth() const { return pixelFilterWidth; }
     int getWorldMaxBounces() const { return worldMaxBounces; }
 
 void render(Camera& cam, int maxSamples, int maxDepth,

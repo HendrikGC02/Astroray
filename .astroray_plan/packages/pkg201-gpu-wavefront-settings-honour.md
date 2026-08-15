@@ -80,3 +80,43 @@ Closes **A** and **C**, and now also **E** (reclassified here from Stage 2 on 20
 - **No volume transport work** (pkg199 owns it) — `volume_bounces` wires the counter only.
 - **No heterogeneous concerns.** Findings G (denoiser-backend selector) and I (`sample_clamp_indirect` inconclusive) from pkg200 are NOT in scope — G is a verification question, I is almost-certainly-honoured; both are separate follow-ups if the owner wants them.
 - **No forking the pkg200 driver** — re-run it verbatim; extend only if a new scene is genuinely needed and register it in `scripts/README.md` (CLAUDE.md §5b).
+
+## Hardware verification 2026-08-15 (PR #623)
+
+**Hardware:** RTX 5070 Ti, driver 610.47, CUDA 12.8 (V12.8.61), sm_120. Windows 11 Enterprise 10.0.26200. No OptiX SDK used for this leg (rasterization-free wavefront path only). Python 3.13.12.
+
+**Worktree:** `C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray-pkg201s2`, branch `pkg201-s2`, HEAD `1dd8cef` (docs-only commit on top of code commit `db68669`).
+
+**.pyd staleness check:** `build_cuda/Release/astroray.cp313-win_amd64.pyd` mtime 2026-08-15 10:26; code commit `db68669` timestamp 2026-08-15 10:15 (`.pyd` newer than code, top commit is docs-only) — no rebuild required. `astroray.__file__` resolved to the canonical `build_cuda/Release/` path (not a repo-root shadow). `dist/astroray/astroray.cp313-win_amd64.pyd` mtime 10:36, also current. Smoke-check: `Renderer()` exposes `set_use_transparent_film` and `set_pixel_filter` (the Stage-2 bindings) — not stale.
+
+**Register gates (cuobjdump -res-usage on the final linked .pyd, sm_120 confirmed via --list-elf):**
+
+| Kernel | REG | STACK | CONSTANT[0] | Fleet baseline | Verdict |
+|---|---|---|---|---|---|
+| `stageShadeBucketedKernel<0,0,0,0,0>` | 254 | 3352 | 1700 | 254/3352/1700 | byte-identical — PASS |
+| `stageIntersectQueuedKernel<false,false>` | 127 | 616 | 1696 | 127/616/1696 | byte-identical — PASS |
+
+No register/stack regression on the fleet-default specializations; Stage 2's changes (miss-coverage accumulator, filter importance sampling at primary-ray gen) ride the intersect/init stages, not the shade kernel's per-ray live state, exactly as claimed.
+
+**Honour matrix re-run (`scripts/verify_pkg200_honour_matrix_run.py`, verbatim, Blender 5.1 AND 5.2, `dist/astroray`):**
+
+| Row | Blender 5.1 | Blender 5.2 | Verdict |
+|---|---|---|---|
+| `film_transparent` | alpha_mean transparent-A=0.246 opaque-B=1.000 | alpha_mean transparent-A=0.246 opaque-B=1.000 | **PASS** (matches spec claim exactly) |
+| `filter_width` | grad_mean A=0.21584 B=0.21317, ratio=1.01253 | grad_mean A=0.21584 B=0.21317, ratio=1.01253 | **PASS** (>1.01 bar, matches spec claim exactly) |
+| `pixel_filter_type` | grad_mean A=0.21583 B=0.21406, ratio=1.00827 | grad_mean A=0.21583 B=0.21406, ratio=1.00827 | **HONEST-FAIL confirmed** — correct direction (A/BOX sharper than B/GAUSSIAN), genuinely sub-threshold (<1.01 bar by a small margin), not hidden. Matches spec's stated root cause (σ=width/6 narrower than Cycles', deferred to pkg203). |
+| `film_exposure` (control) | ratio 2.000, 2.000, 2.000 | ratio 2.000, 2.000, 2.000 | unchanged — PASS |
+| `max_bounces` (control) | ratio 12.729 | ratio 12.729 | unchanged — PASS |
+| `world_max_bounces` (control) | ratio 5.191 | ratio 5.191 | unchanged — PASS |
+
+Every measured number is byte-identical between Blender 5.1 and 5.2, and identical to the digit against the PR's own stated numbers. No regression on any other row (full 26-row matrix re-run; all pre-existing PASS/HONEST-FAIL/NEEDS-VISUAL/LIMITATION verdicts unchanged from the pkg200/pkg201-Stage-1 baseline).
+
+**Visual inspection (multimodal Read, EXRs converted to PNG via cv2 for viewing):**
+- `film_transparent__A` (transparent-film alpha channel): renders as a clean white disc (opaque sphere, alpha≈1) on a solid black background (alpha≈0) — genuine per-pixel coverage alpha, not a uniform or garbage buffer. `film_transparent__B` (opaque control): uniformly white (alpha≈1 everywhere), as expected.
+- `filter_width` A vs B (Cornell-box-style scene, cropped to the bright ceiling-light edge): both frames are Monte-Carlo-noise-dominated at the test's low sample count; no fireflies, no magenta/black NaN pixels, no banding beyond ordinary MC noise. The claimed 1.25% gradient softening is a small quantitative effect and is not visually obvious at this noise level by eye — consistent with the metric being a narrow-margin PASS rather than a dramatic visual difference; no red flags.
+- `pixel_filter_type` A vs B: visually indistinguishable Cornell-box renders, consistent with the HONEST-FAIL (ratio 1.0083, near-1.0) — confirms the near-null numeric result is not concealing a real effect the metric missed.
+- No mode regressions, no degenerate buffers observed in any of the inspected renders.
+
+**Full pytest sweep (`pytest tests/ -v -s --tb=short`):** `3 failed, 2017 passed, 69 skipped, 20 xfailed, 2 xpassed` in 700.00s. All 3 failures are the documented pre-existing `UnicodeEncodeError`/`UnicodeDecodeError` console-encoding artifacts (cp1252 codec choking on `✓`/`λ`/`π` in `print()` calls under Windows Git-Bash/pytest capture — `tests/statistical/test_disney_diffuse_pdf.py::test_disney_diffuse_pdf_vs_lambertian`, `tests/test_blender_parity_matrix.py::test_blender_parity_matrix_generation`, `tests/test_pkg182_conductor_spectral_native.py::test_conductor_spectral_stays_chromatic`) — reproduced exactly as expected, none touch `film_transparent`/`filter_width`/`pixel_filter_type`/alpha/filter code paths. No new failures attributable to this PR.
+
+**Verdict: PASS.** Both shipped rows (`film_transparent`, `filter_width`) flip HONEST-FAIL → PASS exactly as claimed, measured identically on Blender 5.1 and 5.2. The `pixel_filter_type` HONEST-FAIL is genuinely sub-threshold (correct direction, ratio 1.0083 < 1.01 bar) — not hidden or misreported. Fleet register gates unchanged (byte-identical REG/STACK/CONSTANT on the default specializations). Full regression sweep clean modulo the 3 pre-documented console-encoding artifacts. The reclassified/parked rows (`film_transparent_glass`, `caustics_reflective`, `caustics_refractive`, per-type bounce counters, `filter_glossy`) are correctly out of scope for this closeout and are not evaluated as failures of this PR.

@@ -189,7 +189,13 @@ std::vector<float> cuda_wavefront_render(
     // the SAME /samples·exposure·xyzToLinearSRGB transform as beauty, so
     // Σpasses == beauty per pixel. Passing nullptr (default) disables the partition
     // (fleet renders byte-identical). Layout/units match Camera::renderPassBuffers.
-    float* passesOut = nullptr);         // pkg198
+    float* passesOut = nullptr,          // pkg198
+    // pkg201 Stage 2 (Finding F): per-pixel alpha out (width*height floats,
+    // Camera::alphaBuffer). When Renderer::getUseTransparentFilm() is true it is
+    // OVERWRITTEN with transparent-film coverage (background-miss pixels → 0,
+    // foreground → 1, silhouette edges antialiased); otherwise it is filled with
+    // 1.0 (opaque). Passing nullptr (the default) leaves the alpha buffer alone.
+    float* alphaOut = nullptr);          // pkg201
 
 // pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront render. Direct-illumination
 // driver with double-buffered per-pixel reservoirs persisted across frames

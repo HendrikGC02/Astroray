@@ -1,28 +1,43 @@
 # pkg201 Stage 2 — results & findings delta (vs pkg200 honour matrix)
 
-**Scope:** GPU host/splat/pre-pass settings-honour. Closes pkg200 Findings **D**
-(pixel reconstruction filter) and the **F-alpha** row (`film_transparent`); the
+**Scope:** GPU host/splat/pre-pass settings-honour. Ships the **F-alpha** row
+(`film_transparent`) and the **`filter_width`** half of Finding **D** (pixel
+reconstruction filter); the `pixel_filter_type` row honours the filter in the
+correct direction but stays HONEST-FAIL on a threshold margin (see below), and the
 `film_transparent_glass` (F-glass) and `caustics_*` (E) rows are **reclassified**,
 not flipped — see the reclassification notes below and in the pkg201 spec.
 
 Gate: verbatim re-run of `scripts/verify_pkg200_honour_matrix_run.py` on Blender
 5.1 AND 5.2, RTX 5070 Ti, LINEAR EXRs (`apply_gamma=False`), per-channel
-mean-ratio. `.pyd` mtime stated next to the render legs (see PR body).
+mean-ratio. Measured 2026-08-15, `.pyd` mtime 2026-08-15 10:26:40 (HEAD db68669);
+addon build (`dist/astroray`) 2026-08-15 10:36:39, same source.
 
-## Row verdict delta
+## Row verdict delta (MEASURED — Blender 5.1 and 5.2 identical to the digits shown)
 
-| Row | pkg200 verdict | pkg201 Stage 2 | How |
-|-----|----------------|----------------|-----|
-| `film_transparent` | HONEST-FAIL (alpha 1.000 = 1.000) | **PASS** (pending HW) | GPU bounce-0 background-miss coverage → `alphaBuffer`; alpha = 1 − miss/samples |
-| `pixel_filter_type` | HONEST-FAIL (grad 0.21583 = 0.21583) | **PASS** (pending HW) | filter importance sampling (BOX vs GAUSSIAN) at primary-ray gen |
-| `filter_width` | HONEST-FAIL (grad 0.21583 = 0.21583) | **PASS** (pending HW) | GAUSSIAN offset drawn over full `filter_width`; wide blurs edges |
+| Row | pkg200 verdict | pkg201 Stage 2 (measured) | How |
+|-----|----------------|---------------------------|-----|
+| `film_transparent` | HONEST-FAIL (alpha 1.000 = 1.000) | **PASS** (alpha A=0.246 vs B=1.000) | GPU bounce-0 background-miss coverage → `alphaBuffer`; alpha = 1 − miss/samples |
+| `filter_width` | HONEST-FAIL (grad 0.21583 = 0.21583) | **PASS** (grad A=0.21584 vs B=0.21317, ratio 1.0125 > 1.01) | GAUSSIAN offset drawn over full `filter_width`; wide blurs edges |
+| `pixel_filter_type` | HONEST-FAIL (grad 0.21583 = 0.21583) | **HONEST-FAIL** (grad A=0.21583 vs B=0.21406, ratio 1.0083 < 1.01 threshold) | correct DIRECTION (BOX@w1 sharper than GAUSSIAN@w3) but sub-threshold — see note below |
 | `film_transparent_glass` | HONEST-FAIL (|dLum| 1.4e-7) | **RECLASSIFIED** (stays HONEST-FAIL) | needs world-through-glass beauty compositing — a new feature, not an alpha copy-back; filed as follow-up |
 | `caustics_reflective` | HONEST-FAIL (|dLum| 5e-11) | **RECLASSIFIED → Stage 3** (stays HONEST-FAIL) | per-ray specular-caustic path classification = REG-254 shade-kernel state |
 | `caustics_refractive` | HONEST-FAIL (|dLum| 5e-11) | **RECLASSIFIED → Stage 3** (stays HONEST-FAIL) | as above |
 
-(HW numbers filled in the PR body after the batched 5.1/5.2 driver rerun.)
+**`pixel_filter_type` — why it does not flip (measured, root-caused).** The row
+compares BOX@`filter_width`=1.0 (A) vs GAUSSIAN@`filter_width`=3.0 (B); the predicate
+`p_grad_sharper` requires A's edge gradient ≥ 1% higher than B's. Measured A=0.21583,
+B=0.21406 — a **0.83%** delta, correct direction (box sharper than the wide gaussian)
+but below the 1% bar. Root cause: the shipped GAUSSIAN uses **σ = width/6** (matching
+the CPU `Renderer::filterSample`, raytracer.h:2443), which at width 3 gives σ=0.5
+clamped to ±1.5 — only slightly more spread than the box's uniform ±0.5, so
+GAUSSIAN@3 barely out-blurs BOX. Cycles' actual gaussian width→σ mapping is wider
+than width/6; under a Cycles-accurate σ this row would clear the threshold. The
+filter IS honoured on the GPU — that is proven by the `filter_width` flip (same
+GAUSSIAN, widths 0.5 vs 4.0, clears 1%). **The Cycles-accurate width→σ mapping is a
+CPU+GPU filter-parity change (it touches the σ shared with raytracer.h:2443) and is
+filed as a follow-up (pkg203); it is deliberately NOT made in this closeout.**
 
-## Finding D — pixel reconstruction filter (SHIPPED)
+## Finding D — pixel reconstruction filter (`filter_width` SHIPPED; `pixel_filter_type` honoured-but-sub-threshold)
 
 Implemented as **filter importance sampling** in `src/gpu/wavefront/stage_init.cu::filterSample`:
 the primary-ray sub-pixel offset is drawn from the reconstruction filter's own
@@ -34,7 +49,10 @@ cross-pixel splat. Research note: `.astroray_plan/docs/pkg201-pixel-filter-resea
 - **BOX (type 0):** uniform `[-0.5, 0.5]`, width-ignored — byte-identical to the
   pre-pkg201 GPU default AND to the CPU box, so the fleet baseline is untouched.
 - **GAUSSIAN (type 1):** Box-Muller normal, σ = width/6, clamped to the support;
-  `width > 1` crosses pixel boundaries → edge blur (lower gradient).
+  `width > 1` crosses pixel boundaries → edge blur (lower gradient). NOTE: σ=width/6
+  is the CPU-matching convention and is narrower than Cycles' — it is why the
+  `pixel_filter_type` row (BOX@1 vs GAUSSIAN@3) lands 0.83% sharp, below the 1% gate.
+  A Cycles-accurate width→σ mapping is filed as pkg203 (CPU+GPU parity).
 - **BLACKMAN-HARRIS (type 2):** rejection-sample the 4-term BH window over the
   support (same coefficients as the CPU/Cycles filter), width-scaled.
 
@@ -47,7 +65,8 @@ shade/intersect kernels (it lives in the primary-ray stage).
 filter *type* weakly and does **not** honour `filter_width` as a reconstruction
 radius. Left as-is: the pkg200 honour gate is the GPU F12 path, the CPU
 `filterSample` is guarded by many CPU parity gates, and there is no CPU honour test
-to gate a CPU change. A separate small follow-up.
+to gate a CPU change. Folded into the pkg203 follow-up (the Cycles-accurate width→σ
+mapping is the same shared σ, so the CPU and GPU fixes belong in one parity package).
 
 ## Finding F — transparent film (F-alpha SHIPPED; F-glass RECLASSIFIED)
 

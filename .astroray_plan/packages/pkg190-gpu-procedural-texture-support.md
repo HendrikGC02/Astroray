@@ -6,7 +6,12 @@
 eval; pkg119-B TRANSLATION-BUG 4→0: TEX_CHECKER 0.8425→0.9512, TEX_BRICK
 0.8980→0.9158, TEX_MAGIC 0.8358→0.9639, TEX_WAVE 0.8935→0.9575, all at 64³;
 register identity gate byte-identical across all 16 shade specializations;
-textured_plane CPU/GPU mean-ratio 1.000/1.000/1.000).
+textured_plane CPU/GPU mean-ratio 1.000/1.000/1.000). Follow-up **done (PR
+#615, 2026-08-14 — HW PASS)**: narrowed the 3D-voxel bake to Generated
+coord-mode only; Object-coord procedurals now degrade to a guarded flat-
+albedo fallback on GPU instead of silently misrendering (Object-mode A/B:
+GPU flat gray 189.76 vs CPU checkerboard 165.29; Generated-path parity
+unchanged).
 Filed 2026-08-12 as the pkg186 deferred follow-up; pkg186 PR #590 shipped the
 IMAGE-texture slice and explicitly deferred procedural nodes + the pkg119-B
 procedural reclassification — see pkg186 Lessons "Deferred to follow-up".

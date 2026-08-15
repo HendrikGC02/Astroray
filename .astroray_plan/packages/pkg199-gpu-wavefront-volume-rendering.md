@@ -8,8 +8,8 @@ matches analytic exp(-σ·d) to <2e-4; shade kernel byte-identical REG 254/STACK
 3352/CONST 1700. **hw-611 HW FAIL (sphere-light NEE fog saturation — a 1e30
 occlusion sentinel used as the Beer-Lambert path length) FIXED** (true geometric
 NEE distance; see the "Hardware verification" audit blocks below) and re-verified
-HW PASS. **Stage 2 split into PR 2a (CPU medium loop — IN REVIEW) + PR 2b (GPU
-wavefront mirror — pending build slot).** PR 2a lands the CPU homogeneous
+HW PASS. **Stage 2 — full HG scattering medium — done, BOTH backends:**
+**PR 2a (CPU, #617, 2026-08-14, HW PASS)** lands the CPU homogeneous
 scattering estimator (HG in-scatter, per-channel exponential distance sampling,
 NEE-through-medium phase/light MIS) behind a new single-scattering-albedo α
 (`set_world_volume(..., scatter=0.0)`, default 0 ⇒ exact Stage-1 absorption,
@@ -17,8 +17,15 @@ byte-identical, every Stage-1 gate green): analytic single-scatter density-shape
 match ≤0.9% (one global scale), α-linear, α=0 Beer-Lambert Tr 0.6063 vs 0.6065,
 sum-to-beauty rel_L1 0.0000 with `PASS_VOLUME_*` populated, forward/back HG
 asymmetry 2.0× (single-scatter) / 1.48× (multi). Full local sweep 1946 passed / 0
-failed. `worldVolumeAnisotropy` now live as g.
-**Estimated effort:** Stage 1 M (landed); Stage 2 XL — 2a CPU (in review), 2b GPU.
+failed. `worldVolumeAnisotropy` now live as g. **PR 2b (GPU wavefront, #619,
+2026-08-14, HW PASS)** mirrors 2a via a `template<bool HasWorldScatter>`
+fleet-isolation axis (dedicated `stageVolumeScatterKernel`, REG 64/STACK 88):
+fog-free scenes stay byte-identical to the Stage-1 fleet (`intersect<false>`
+REG 127/STACK 616/CONSTANT[0] 1696 unchanged); god-ray CPU↔GPU parity
+[1.0044, 0.9972, 0.9978], forward/back scatter ratio 1.707, alpha=0
+inertness confirmed. GPU wavefront world-volume fog now delivers real
+god-rays, not just absorption.
+**Estimated effort:** Stage 1 M (landed); Stage 2 XL — done (2a #617 + 2b #619).
 **Depends on:** pkg55-C7 wavefront dispatch; [[wavefront-shade-kernels-register-saturated]].
 
 ---

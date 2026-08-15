@@ -1,163 +1,173 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-08-14 (round closeout — 8 PRs merged, #605–#612, on top of the
-2026-08-13 post-closeout addendum).
+**Date:** 2026-08-15 (round closeout — 9 PRs merged, #615–#623, on top of the
+2026-08-13 → 2026-08-14 round below).
 **Prepared by:** the architect (round closeout).
 **Scope:** no open PRs at time of writing. Full detail:
-`.astroray_plan/docs/STATUS.md` (top entry "2026-08-13 → 2026-08-14 (round
-closeout...)" and the matching "## Round closeout 2026-08-13 → 2026-08-14"
-archival section), `.astroray_plan/docs/ROADMAP.md` ("Current sequencing"
-unchanged — no new owner directive this round).
+`.astroray_plan/docs/STATUS.md` (top entry "2026-08-14 → 2026-08-15 (round
+closeout...)"), `.astroray_plan/docs/ROADMAP.md` ("Current sequencing"
+unchanged — no new owner directive this round, but see the owner request
+below).
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C. Strategy in
 > [`ROADMAP.md`](ROADMAP.md), full status in [`STATUS.md`](STATUS.md).
+
+**OWNER REQUEST for next session: a FRESH ARCHITECT-LED run.** The owner
+has asked that the next session start with the architect planning ahead
+(reviewing the full open pool, sequencing dependencies, sizing work) before
+dispatching implementers, rather than picking up ad hoc from this report's
+tail pool. Treat §2 below as input to that planning pass, not a queue to
+execute mechanically.
 
 ---
 
 ## 1. Current state (one screen)
 
-- **The Integration Milestone stays fully closed** (unchanged this round —
-  see ROADMAP.md "Current sequencing"). This round's work sits downstream of
-  it: viewport navigation performance (interactive at last), Principled
-  spectral correctness (closing the pkg188 72% band-error finding), GPU
-  wavefront capability parity (denoise-guide AOVs + `applyPasses` wired into
-  the GPU route, world-volume fog, procedural textures), and camera-view
-  overlay pixel-exactness.
-- **Landed this round (8 PRs, #605–#612, no open PRs at closeout):**
-  pkg192 (viewport nav interactivity Suspect A, PR #605, 5.97→8.44 fps),
-  pkg196 (reduced-res nav Suspect B, PR #609, 8.36→18.52 fps p50, 3.1x
-  combined with pkg192), pkg193 (camera-view overlay alignment, PR #607,
-  223px→0.00px), pkg194 (Principled tinted-layer spectral-carry + thin-wall
-  per-λ, PR #606, 72%→0% band error), pkg197 (GPU wavefront denoise-guide
-  AOVs + `applyPasses` wired into the GPU route, PR #608, +8.0% edge-MSE),
-  pkg199 Stage 1 (GPU wavefront world-volume Beer-Lambert absorption, PR
-  #611, HW FAIL→fix→PASS), pkg190 (GPU procedural textures, PR #612, HW
-  FAIL→fix→PASS, pkg119-B TRANSLATION-BUG 4→0), pkg195 Stage C (spectral
-  node system remainder, PR #610 — **pkg195 is now FULLY COMPLETE across
-  all three stages A+B+C**).
-- **Two HW FAIL → fix → PASS cycles this round, both resolved same-PR
-  before merge:** pkg199's sphere-light NEE leg used a 1e30 occlusion
-  sentinel as the Beer-Lambert path length (saturated fog to black under a
-  point/area light — fixed to the true geometric NEE distance, commit
-  6e7bf6d); pkg190's `scripts/run_parity.py` didn't recognize the new
-  `textured_plane` scene (silent no-op leg) and its EXR reader zeroed the
-  green channel via an unconfigured `imageio` plugin (both fixed, commit
-  b2b42eb, re-verified exact match to the original bypass measurement).
-- **pkg119-B reclassification (pkg190):** the long-standing "5 residual
-  TRANSLATION-BUGs" figure was stale/false. Fresh re-baseline on current
-  main found the real set was 4 nodes (all procedural textures), all fixed
-  by pkg190. pkg119-B is now **30 pass, TRANSLATION-BUG 0**.
-- **Specs filed the prior round's addendum, disposition this round:**
-  pkg196, pkg197, pkg199 Stage 1 all landed DONE above. **pkg198** (GPU
-  wavefront light-path AOV passes, register-hostile, explicitly
-  "probe-first, may park") remains **OPEN** — highest-signal item in the
-  correctness/capability-parity pool.
-- **Open, not blocking, carried forward:** pkg198 (GPU light-path AOV
-  passes, probe-first), pkg199 Stage 2 (full HG scattering medium, XL,
-  CPU-first — spec-only, filed this round), pkg131 (zero-knob adaptive
-  sampling, wavefront leg), the pkg176-line deep per-setting F12
-  pixel-honour matrix (deferred to a later addon HW session, no dedicated
-  spec number), the durable `GLoweredMaterial` by-value-`GMaterial`-copy
-  fix (still prototyped, uncommitted, worktree `sad-maxwell-ff99d1`),
-  pkg180 (systemic-dim diagnosis, still open).
-- **Two unfiled follow-up chips surfaced this round (not yet a spec):** the
-  legacy non-dedicated `add_sun_light` GPU-dimness finding from the pkg194
-  review (pkg89 Phase B's `add_sun_light_dedicated` does NOT reproduce it;
-  diagnosis-first candidate); an Object-coordinate-mode guard for the
-  pkg190 procedural bake (the 3D-voxel bake covers Generated-space nodes
-  only, per spec scope — Object-coordinate procedural textures have no
-  explicit GPU guard or documented fallback; could silently misrender if a
-  scene hits that combination).
-- **Pre-existing gap, documented not fixed (pkg199 review):** the caustic
-  integrator (`pathTraceSpectralCaustic`) and the CPU wavefront reference do
-  not read `c_worldVolume` — a caustic render through fog ignores the fog
-  entirely. Recorded as a Stage-1 non-goal in the pkg199 spec; candidate for
-  a follow-up spec, not filed.
-- **Still standing, unresolved:** the Pillar 4 unpause decision (pkg45/46/
-  48/49/50/51 + pkg107, GR/astro science layer) — no new owner directive
-  this round; ROADMAP.md's PAUSED marker is unchanged. Surfaced again below
-  as the top strategic (not code) item.
+- **The Integration Milestone stays fully closed** (unchanged this round).
+  This round's work continues closing the milestone's self-generated
+  follow-up pool: the pkg200 F12 pixel-honour matrix and its pkg201
+  GPU-plumbing closures, plus GPU wavefront capability parity (full HG
+  scattering/god-rays, light-path AOV passes) and a legacy-importer
+  correctness fix.
+- **Landed this round (9 PRs, #615–#623, no open PRs at closeout):**
+  pkg190 follow-up (Object-coord bake guard, PR #615, HW PASS), pkg200
+  (F12 pixel-honour matrix, PR #616, 8 PASS/13 HONEST-FAIL/2 NEEDS-VISUAL/2
+  LIMITATION), pkg199 Stage 2 CPU (PR #617) + GPU (PR #619) — full HG
+  scattering both backends, god-ray parity [1.0044, 0.9972, 0.9978],
+  pkg201 Stage 1 (PR #618, world_max_bounces + use_light_tree honoured),
+  pkg198 Stage 2 probe (PR #620, PROCEED) + full mirror (PR #622,
+  sum-to-beauty exact — **pkg198 now COMPLETE**), pkg202 (legacy sun GPU
+  fix, PR #621, 0.0→0.6333), pkg201 Stage 2 (PR #623, 2-of-6 rows shipped:
+  transparent-film alpha — first implementation anywhere — and
+  filter_width).
+- **Zero HW FAIL cycles this round** — every landed code PR reported HW
+  PASS on the first independent verification (contrast with the prior two
+  rounds, which each had 2 FAIL→fix→PASS cycles). Two register-gate
+  probes (pkg198 Stage 2, folded into pkg201's ordering discipline) both
+  cleared PROCEED before implementation started.
+- **pkg200's honour matrix is now the reference gap-list for the GPU
+  wavefront's settings-honour work.** Of its 13 HONEST-FAIL rows, pkg201
+  has closed 3 (`world_max_bounces`, `film_transparent`, `filter_width`)
+  and reclassified 2 more with evidence (`pixel_filter_type` → pkg203 is
+  a σ-mapping shortfall, not unwired; `caustics_reflective`/
+  `caustics_refractive` → genuinely register-hostile, deferred to Stage
+  3). **8 rows remain untouched**: the per-type bounce counts (Finding A),
+  `filter_glossy` (Finding C), and `film_transparent_glass` (F-glass,
+  reclassified as a new-feature follow-up, not a plumbing gap).
+- **Specs filed this round, disposition:** **pkg203** (Cycles-accurate
+  pixel-filter width→σ mapping, CPU+GPU parity) is filed and **now
+  dispatchable** — its dependency (pkg201 Stage 2) merged this round.
+- **Open, not blocking, carried forward:** pkg201 Stage 3 (per-type bounce
+  counters + `filter_glossy` + native caustic toggles — register-hostile,
+  probe-gated, ordering-locked behind pkg198/pkg199's register-contention
+  window which is now clear since both landed), pkg203 (filter σ parity,
+  open above), pkg131 (zero-knob adaptive sampling, wavefront leg,
+  long-standing), the F-glass (`film_transparent_glass`) world-through-
+  glass compositing follow-up (a genuine new feature, not yet filed),
+  the CPU legacy-hittable delta-sun `isDelta`/MIS gap (pkg202's fix
+  sidesteps it for the sun case via upload-time conversion, but the
+  underlying legacy non-dedicated-light MIS treatment is unaddressed),
+  pkg198's volume-pass direct/indirect split (documented limitation,
+  deferred in #622), the caustic-integrator/CPU-wavefront-reference
+  world-volume gap (still open from the pkg199 Stage 1 round), the
+  durable `GLoweredMaterial` by-value-copy fix (still prototyped,
+  uncommitted, worktree `sad-maxwell-ff99d1`), pkg180 (systemic-dim
+  diagnosis, still open).
+- **New hygiene item this round:** 3 pre-existing test failures throw
+  `UnicodeEncodeError` printing π/✓/λ console artifacts under the default
+  cp1252 Windows console encoding — a test-harness bug (force UTF-8
+  stdout or drop the glyphs), not an engine defect. Cheap, low-priority,
+  file before dispatching if picked up.
+- **Still standing, unresolved — TOP STRATEGIC ITEM:** the **Pillar 4
+  unpause decision** (pkg45/46/48/49/50/51 + pkg107, GR/astro science
+  layer). No new owner directive this round; ROADMAP.md's PAUSED marker
+  is unchanged. This has now stood unresolved across multiple round
+  closeouts — surface it explicitly at the start of the next
+  architect-led session, before any further Integration-Milestone-tail
+  dispatch.
 - **Environment:** RTX 5070 Ti workstation; Blender 5.1/5.2 installed
   locally (real-host checks mandatory for addon-facing PRs). Every code PR
   this round was dual-gated (CI + independent RTX hardware verification);
-  two of eight PRs required a fix-and-re-verify cycle before merge.
+  zero PRs required a fix-and-re-verify cycle before merge.
 
 ---
 
 ## 2. Deployable set (prioritized)
 
 Grep `^\*\*Status:\*\*` in each spec before dispatch (memory
-`orchestrator-next-stage-report-stale`) — this report can go stale.
+`orchestrator-next-stage-report-stale`) — this report can go stale. This
+list is INPUT to the requested fresh architect planning pass, not a queue
+to execute mechanically (see the owner request banner above).
 
 **Top candidate — needs an explicit owner decision, not a silent dispatch:**
 
 1. **Pillar 4 unpause** (pkg45/46/48/49/50/51 + pkg107, GR/astro science
-   layer). Unchanged since the last report — ROADMAP.md's PAUSED marker has
-   stood since 2026-06-08; still no explicit go-ahead. **Surface this to
-   the owner before dispatching any pkg45-tier work.**
+   layer). Unchanged across multiple rounds now — ROADMAP.md's PAUSED
+   marker has stood since 2026-06-08; still no explicit go-ahead.
+   **Surface this to the owner at the top of the next session, before
+   dispatching any pkg45-tier work or further Integration-Milestone-tail
+   items.**
 
-**Correctness/capability-parity tier, highest signal in the open pool**
-(pkg190/192/193/194/196/197/199-Stage-1 all landed this round; pkg195 is now
-fully complete — re-ranked accordingly):
+**Integration-Milestone-tail / settings-honour closure, highest signal in
+the open pool:**
 
-2. **pkg198** — GPU wavefront light-path AOV passes. Explicitly
-   **probe-first, may park** per its own status line: the register-gate
-   probe result decides whether this is dispatchable at all before any
-   implementation work. Highest-priority open GPU-capability item; run the
-   probe before committing to full implementation.
-3. **pkg199 Stage 2** — full HG in-scatter / distance-sampling / NEE-
-   through-medium volumetric scattering, CPU-first (XL). Delivers god-rays/
-   light shafts; spec-only, filed this round. Estimate XL — size the
-   dispatch accordingly, likely its own dedicated session rather than a
-   quick pickup.
+2. **pkg203** — Cycles-accurate pixel-filter width→σ mapping, CPU+GPU
+   parity. Dependency (pkg201 Stage 2) landed this round — dispatchable
+   now. Closes pkg200's last filter-related HONEST-FAIL row. S–M, cite
+   Cycles' `film.cpp` filter tables per CLAUDE.md §6 before writing code.
+3. **pkg201 Stage 3** — per-type bounce counters (Finding A),
+   `filter_glossy` (Finding C), native caustic toggles (Finding E,
+   reclassified from Stage 2). Register-hostile — MUST clear the
+   up-front cuobjdump probe per item before any feature code (same
+   discipline as pkg198/pkg199). The register-contention window
+   (pkg198 Stage 2, pkg199 Stage 2) that blocked this is now clear —
+   dispatchable, but size it as its own session (3 register-hostile
+   items, each may park independently).
 4. **pkg131** — zero-knob adaptive sampling, wavefront leg. Long-standing
    open item, no new blockers.
 
 **Hygiene / follow-up (not yet filed as a dedicated spec):**
 
-5. **The pkg176-line deep per-setting F12 pixel-honour matrix** — deferred
-   from pkg176's Stage 4 closeout to "a later addon HW session." No
-   dedicated spec number; file one before dispatching, or fold into a
-   broader addon-parity pass.
-6. **Legacy `add_sun_light` GPU-dimness finding** (surfaced in the pkg194
-   review) — the non-dedicated light path shows a markedly dimmer/flatter
-   GPU render vs an earlier informal comparison; `add_sun_light_dedicated`
-   (pkg89 Phase B) does NOT reproduce it. Diagnosis-first, unmeasured;
-   file a spec before dispatching (may be a measurement artifact — confirm
-   on current main first, this repo has a history of stale-comparison false
-   alarms in this exact shape).
-7. **Object-coordinate-mode guard for the pkg190 procedural bake** — the
-   3D-voxel bake covers Generated-space nodes only, per pkg190's spec
-   scope; Object-coordinate-mode procedural textures have no explicit GPU
-   guard or documented fallback. Low urgency (narrow combination) but a
-   silent-wrong-render risk if hit; a guard + test is cheap, file it as a
-   small follow-up.
-8. **Caustic-integrator/CPU-wavefront-reference world-volume gap** — fog is
-   invisible to the caustic integrator and the CPU wavefront reference
-   (pkg199 Stage 1 documented non-goal). One-liner candidate: either extend
-   those two paths to read `c_worldVolume`, or document the limitation
-   user-facing (addon tooltip/panel note) if extending is out of scope for
-   now.
-9. **Durable `GLoweredMaterial` by-value-copy fix** — re-apply the
-   prototyped PR-2-based fix from worktree
-   `.claude/worktrees/sad-maxwell-ff99d1` on settled main. File a dedicated
-   spec if picked up (recurring-leak pattern across pkg178 Stage 3 and PR
-   #579 is evidence enough for a CLAUDE.md §6-citable structural fix).
+5. **F-glass (`film_transparent_glass`) world-through-glass compositing**
+   — reclassified out of pkg201 Stage 2 as a genuine new feature (glass
+   must show the background through it, changing beauty RGB, not just an
+   alpha copy-back). File a spec before dispatching.
+6. **CPU legacy-hittable delta-sun `isDelta`/MIS gap** — pkg202's
+   upload-time conversion sidesteps this for GPU sun rendering, but the
+   underlying legacy non-dedicated-light MIS treatment (CPU side) is
+   still unaddressed for other legacy hittable-light types. Diagnosis-
+   first; confirm scope before filing.
+7. **pkg198 volume-pass direct/indirect split** — documented limitation
+   in #622 (in-scatter routed to `PASS_VOLUME_INDIRECT` only). Small,
+   well-scoped follow-up if picked up.
+8. **Caustic-integrator/CPU-wavefront-reference world-volume gap** — fog
+   is invisible to the caustic integrator and the CPU wavefront reference
+   (pkg199 Stage 1 documented non-goal, still open). One-liner candidate:
+   either extend those two paths to read `c_worldVolume`, or document the
+   limitation user-facing if extending is out of scope for now.
+9. **3 UnicodeEncodeError console-artifact test failures** (cp1252 vs
+   π/✓/λ in `print()`) — hygiene, not a regression. Cheap fix (force
+   UTF-8 stdout or drop the glyphs), file before dispatching.
+10. **Durable `GLoweredMaterial` by-value-copy fix** — re-apply the
+    prototyped PR-2-based fix from worktree
+    `.claude/worktrees/sad-maxwell-ff99d1` on settled main. File a
+    dedicated spec if picked up (recurring-leak pattern is evidence
+    enough for a CLAUDE.md §6-citable structural fix).
 
 **Re-entered / long-tail pool (still genuinely low priority):**
 
-10. **pkg180** — systemic Astroray-vs-Cycles dim, diagnosis-first, still
+11. **pkg180** — systemic Astroray-vs-Cycles dim, diagnosis-first, still
     open dispatchable.
-11. **pkg173** — bounce-1 geometry-sampling parity (pkg172 effect (B));
+12. **pkg173** — bounce-1 geometry-sampling parity (pkg172 effect (B));
     holds pkg156's 0.998 SSIM restoration clause.
-12. **pkg153** — wavefront_diff remainder, gate-failure-reviewer disposition
-    in flight.
-13. **pkg155 Phase 2** — shade-stage register recovery (221 regs/thread →
+13. **pkg153** — wavefront_diff remainder, gate-failure-reviewer
+    disposition in flight.
+14. **pkg155 Phase 2** — shade-stage register recovery (221 regs/thread →
     ≤128 target); opportunistic GPU-lock gap-filler, not compile-only.
-14. **pkg128** — thin-film residual charter (standalone Glass/Metallic node
-    cells + spectral showcase), rides the shared Belcour-Barla utility
-    pkg178/pkg182 already built.
-15. **pkg165** — verify-and-close. A focused confirm on pkg158's exact
+15. **pkg128** — thin-film residual charter (standalone Glass/Metallic
+    node cells + spectral showcase), rides the shared Belcour-Barla
+    utility pkg178/pkg182 already built.
+16. **pkg165** — verify-and-close. A focused confirm on pkg158's exact
     Step-0 scene at r ∈ {0.0, 0.3, 0.6, 0.9} closes the paperwork; every
     existing reading is already in-band. Trivial, non-urgent.
 
@@ -169,17 +179,23 @@ PAUSED until the owner go-ahead in item 1 above.
 ## 3. Drop-in prompt for the next session
 
 **First: get the owner's read on Pillar 4 unpause** (item 1) — a
-milestone-scale sequencing decision, not a code dispatch. While that's
-pending, **pkg198 (item 2) is the standout autonomous pickup** — run its
-register-gate probe first (it may park itself); this is the highest-
-priority GPU-capability item left in the correctness/parity pool now that
-pkg190/192-197/199-Stage-1 have all landed and pkg195 is fully complete.
-After that: pkg199 Stage 2 (item 3, XL — god-rays/light shafts, size its own
-session) or pkg131 (item 4, smaller, no blockers) depending on available
-session length. Items 5–9 are hygiene follow-ups that need a spec filed
-before dispatch (the pkg176 F12 matrix, the `add_sun_light` GPU-dimness
-diagnosis, the pkg190 Object-coordinate guard, the caustic/fog gap, and the
-`GLoweredMaterial` fix). Items 10–15 are the long-tail pool, in roughly
+milestone-scale sequencing decision, not a code dispatch, and it has now
+stood unresolved across multiple rounds. **Second: run the fresh
+architect-led planning pass the owner requested** — review the full open
+pool (this report §2, STATUS.md, and any specs filed since), sequence
+dependencies, and size sessions explicitly before dispatching, rather than
+picking items off this list mechanically.
+
+If the architect's plan confirms this pool as reasonable: **pkg203 (item
+2) is the standout quick pickup** — its blocker cleared this round, it's
+S–M, and it closes the last filter-related pkg200 gap. **pkg201 Stage 3
+(item 3)** is the next-highest-signal item but needs its own session
+(register-hostile, 3 independently-parkable sub-items, probe-first per
+item). pkg131 (item 4) has no blockers if a smaller pickup is wanted.
+Items 5–10 are hygiene/follow-up work that need a spec filed before
+dispatch (F-glass compositing, the legacy-light MIS gap, the volume-pass
+split, the caustic/fog gap, the UnicodeEncodeError tests, the
+`GLoweredMaterial` fix). Items 11–16 are the long-tail pool, in roughly
 that priority order.
 
 Rules that stay live from this round: **energy gates render LINEAR with an
@@ -188,17 +204,20 @@ number**; **verify `cuobjdump` resource-gate readings against the TRUE
 compiled arch, not the CMakeCache line** (pkg183's `arch-verify` gate
 catches this automatically); **mirror the CONDITION, not just the term, in
 every CPU→GPU port**; **CPU/GPU material work is byte-mirrored in the same
-PR, never split across sessions**; **any new lobe/closure that touches the
-shade path must be measured against the `template<bool HasPrincipled>` /
-`template<bool HasPhotons>` isolation boundaries**; **eval and pdf must use
-the SAME functional form for the same NDF** (the pkg182 class of bug);
-**never trust a CSV/CLI deliverable's own claimed numbers — re-run the
-documented command verbatim and read the actual output** (this round's
-pkg190 hw-612 caught a routing-guard omission the PR's own numbers didn't
-reveal, and a second EXR-reader defect that would have silently
-nan-poisoned the ratio); **grep the spec for git-archaeology before
+PR, never split across sessions**; **any new lobe/closure/kernel axis that
+touches the shade path must be measured against the
+`template<bool HasPrincipled>` / `template<bool HasPhotons>` /
+`template<bool HasWorldScatter>` / `template<bool HasLightPassAOVs>`
+isolation boundaries**; **eval and pdf must use the SAME functional form
+for the same NDF** (the pkg182 class of bug); **never trust a CSV/CLI
+deliverable's own claimed numbers — re-run the documented command verbatim
+and read the actual output**; **grep the spec for git-archaeology before
 trusting an inherited premise** (pkg199's "the CPU already has this" claim
-was false — the code had been dead since pkg14). Cite per CLAUDE.md §6
+was false); **occlusion-sentinel distances (1e30) are not geometric
+distances — never feed one into a Beer-Lambert/absorption term** (pkg199
+Stage 1's HW-611 class of bug); **register-hostile work needs an up-front
+cuobjdump probe before any feature code, per item if multiple items share
+a spec** (pkg198/pkg199/pkg201-Stage-3 discipline). Cite per CLAUDE.md §6
 (`/cite-algorithm`) for any new algorithm.
 
 ---
@@ -208,9 +227,12 @@ was false — the code had been dead since pkg14). Cite per CLAUDE.md §6
 - **One PR per package**, doc-only closeouts auto-merge on green CI
   (pr-reviewer doc-only rule). Source PRs need the independent-review
   SIGN-OFF/BLOCK gate (pkg98) before push.
-- **`src/gpu/wavefront/stage_advance.cu` is a serialization point** for any
-  GPU-lane package (pkg198, pkg199 Stage 2, pkg131, a Pillar-4 GPU package,
-  etc.) — check for other in-flight touches before dispatching.
+- **`src/gpu/wavefront/stage_advance.cu` / `stage_init.cu` / the shade
+  kernel are serialization points** for any GPU-lane package (pkg201
+  Stage 3, pkg131, a Pillar-4 GPU package, etc.) — check for other
+  in-flight touches before dispatching. The pkg198/pkg199 register-
+  contention window that blocked pkg201 Stage 3 is now clear (both
+  landed this round), but confirm no new contender has appeared.
 - **CI is blind to GPU correctness** — never declare a round clean on CI
   green alone; run the full RTX hardware sweep at closeout (memory:
   `ci_has_no_gpu_runtime_blindspot`).
@@ -218,20 +240,19 @@ was false — the code had been dead since pkg14). Cite per CLAUDE.md §6
   linear with floor+ceiling (memory:
   `gamma-furnace-cannot-detect-energy-gain`).
 - **Addon-facing PRs need a real-Blender leg** — `dev_addon.ps1 -Smoke`
-  (pkg175) is the standing mechanism; gate on the printed sentinel, not the
-  exit code.
-- **The GPU wavefront is NOT run-to-run bit-exact** (~1.19e-07–2e-7 atomic
-  floor) — gate at the 1e-5 Monte-Carlo convention, not exact equality.
-- **Watch the shadow-`.pyd` trap** — verify `astroray.__file__` resolves to
-  the canonical build output and check `.pyd` mtime vs HEAD (memory:
+  (pkg175) is the standing mechanism; gate on the printed sentinel, not
+  the exit code.
+- **The GPU wavefront is NOT run-to-run bit-exact** (~1.19e-07–2e-7
+  atomic floor) — gate at the 1e-5 Monte-Carlo convention, not exact
+  equality.
+- **Watch the shadow-`.pyd` trap** — verify `astroray.__file__` resolves
+  to the canonical build output and check `.pyd` mtime vs HEAD (memory:
   `stale_pyd_locations`).
 - **Watch the stale-CMakeCache CUDA-arch trap** — the cache line can lie;
   trust `cuobjdump --list-elf` on the linked `.pyd`, which pkg183's
   `arch-verify` gate now does automatically in all three build wrappers.
 - **CLI/script deliverables need the documented command re-run verbatim,
-  not the PR's own claimed numbers trusted** — pkg190's hw-612 caught a
-  routing-guard omission and an EXR-reader defect this way; both were
-  invisible from the PR body alone.
+  not the PR's own claimed numbers trusted.**
 - **Grep `^Status:` (or `**Status:**`) in the spec before dispatching** —
   this report's §2 prose can go stale vs the spec header (memory:
   `orchestrator-next-stage-report-stale`).

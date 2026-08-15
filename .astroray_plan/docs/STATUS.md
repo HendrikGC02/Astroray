@@ -1,5 +1,105 @@
 # Astroray Status
 
+**2026-08-14 → 2026-08-15 (round closeout, 9 PRs merged #615–#623, no open
+PRs at closeout): the GPU wavefront gains real god-rays (full HG scattering,
+both backends), a full GPU light-path AOV render-pass mirror, a legacy
+`.blend`-importer sun fix, and 3 more settings-honour rows flip PASS —
+narrowing the "steering wheel drops most settings" gap pkg200 surfaced.**
+- **pkg190 follow-up DONE** (PR #615) — narrowed the 3D-voxel procedural
+  bake to Generated coord-mode only; Object-coord procedurals now degrade
+  to a guarded flat-albedo fallback on GPU instead of silently misrendering
+  (GPU flat gray 189.76 vs CPU checkerboard 165.29, HW PASS).
+- **pkg200 DONE** (PR #616) — native-settings F12 pixel-honour matrix: A/B
+  driver + real Blender 5.1/5.2 sweep, 8 PASS / 13 HONEST-FAIL / 2
+  NEEDS-VISUAL / 2 LIMITATION. Surfaced findings A–F: the GPU wavefront
+  silently drops per-type bounce counts, `filter_glossy`, the pixel
+  reconstruction filter, native caustic toggles, and transparent-film alpha
+  — closed one-by-one by pkg201 below.
+- **pkg199 Stage 2 DONE, BOTH backends** (PR #617 CPU, PR #619 GPU) — full
+  HG in-scatter homogeneous world-volume scattering. CPU (2a): analytic
+  single-scatter density-shape match ≤0.9%, α-linear, forward/back HG
+  asymmetry 2.0×/1.48×. GPU (2b, PR #619): `template<bool HasWorldScatter>`
+  fleet isolation (dedicated `stageVolumeScatterKernel`, REG 64/STACK 88) —
+  fog-free scenes stay byte-identical to the Stage-1 fleet
+  (`intersect<false>` REG 127/STACK 616 unchanged); god-ray CPU↔GPU parity
+  [1.0044, 0.9972, 0.9978], forward/back ratio 1.707. The GPU wavefront now
+  delivers real god-rays/light shafts, not just absorption. HW PASS both
+  PRs.
+- **pkg201 Stage 1 DONE** (PR #618) — addon settings-honour: fixed the
+  `world_max_bounces` read (was reading a nonexistent AO-datablock member,
+  always 1024 → now `world.cycles.max_bounces`), HONEST-FAIL→PASS ratio
+  5.24 on 5.1 and 5.2; reconciled `use_light_tree`'s tri-state-vs-bool
+  mismatch (KNOWN-GAP→NEEDS-VISUAL, confirmed honoured); fixed a latent
+  `set_light_sampler` crash the reconciliation exposed (UI enum shipped
+  `'uniform'`/`'light_tree'`, setter only accepted `'power'`/`'tree'`).
+- **pkg201 Stage 2 DONE, 2-of-6 rows shipped** (PR #623) — **F-alpha**
+  (`film_transparent`): the GPU wavefront now writes real per-pixel alpha
+  (background-miss coverage accumulator), alpha A=0.246 vs B=1.000 — the
+  FIRST implementation of transparent-film alpha anywhere in the engine
+  (the CPU path is equally inert, never wired). **`filter_width`** (half
+  of Finding D): pixel reconstruction via filter importance sampling in
+  `stage_init.cu`, grad ratio 1.0125 > 1.01 threshold. `pixel_filter_type`
+  honours the filter in the correct direction but stays HONEST-FAIL at
+  0.83% (below the 1% bar) — root cause is a `σ=width/6` mapping narrower
+  than Cycles'; the fix is filed as **pkg203** (CPU+GPU parity change,
+  deliberately not made in this closeout). Findings **E** (native caustic
+  toggles) and **F-glass** (`film_transparent_glass` world-through-glass
+  compositing) reclassified: E moved to Stage 3 (register-hostile, the
+  path-tracer's own specular-caustic light paths need per-ray history, not
+  the pkg113 photon pre-pass which is never enabled in the honour scene);
+  F-glass filed as a next-round architect follow-up feature (real
+  world-through-glass compositing, not an alpha copy-back). Stage 3 (per-
+  type bounce counters + `filter_glossy` + Finding E) stays OPEN,
+  probe-gated.
+- **pkg198 Stage 2 probe DONE** (PR #620, docs) — register-gate PROCEED
+  verdict: the light-path-pass partition compiles to zero STACK/register-
+  tier change (fleet `<…,false>` shade kernel byte-identical
+  254/3352/1700) via a global-scatter design. Cleared the way for the full
+  mirror below.
+- **pkg198 Stage 2 DONE** (PR #622) — full GPU wavefront light-path
+  render-pass mirror (diffuse/glossy/transmission direct+indirect,
+  emission, environment), `HasLightPassAOVs` fleet-isolation axis. GPU
+  sum-to-beauty exact (rel_L1 0.0), CPU↔GPU per-pass mean-ratio within
+  ~2%, fleet HARD gate re-confirmed on the full-impl `.pyd` (shade
+  `<0,0,0,0,0>` 254/3352/1700 + intersect `<false,false>` 127/616; passes
+  ON/OFF beauty byte-identical 3.6e-7). **pkg198 is now DONE across both
+  stages (CPU classification + GPU mirror).** Volume direct/indirect pass
+  split not mirrored (documented limitation, deferred).
+- **pkg202 DONE** (PR #621) — legacy `add_sun_light` GPU zero-contribution
+  fix: converts the legacy hittable `DistantLight` to the pkg89 dedicated-
+  distant representation at scene-upload time. GPU sun 0.0→0.6333 vs
+  analytic ρ·S/π 0.6366 (== CPU dedicated 0.6345, parity ratio 1.000);
+  fixes every `.blend`-importer sun on GPU, no new device code. Also killed
+  a dead CDF entry the old GPRIM_SKIP path left behind.
+- **Specs filed this round for follow-up:** **pkg203** (Cycles-accurate
+  pixel-filter width→σ mapping, CPU+GPU parity, closes pkg200's
+  `pixel_filter_type` row — gated on pkg201 Stage 2, which is now merged,
+  open, dispatchable).
+- **Known-issue hygiene item (not a regression):** 3 pre-existing test
+  failures throw `UnicodeEncodeError` on `print()` of π/✓/λ console
+  artifacts under the default cp1252 console encoding — a console-output
+  bug in the tests themselves, not an engine defect. Fix by forcing UTF-8
+  stdout (or dropping the unicode glyphs) in the affected tests; low
+  priority, file if picked up.
+- **Open follow-ups carried forward:** pkg201 Stage 3 (per-type bounce
+  counters, `filter_glossy`, native caustic toggles — register-hostile,
+  probe-gated), pkg203 (filter σ parity), pkg131 (zero-knob adaptive
+  sampling, wavefront leg), the F-glass transparent-glass world-through-
+  compositing follow-up (pkg201-S2 park), the CPU legacy-hittable
+  delta-sun `isDelta`/MIS fix surfaced by pkg202's findings (the dedicated
+  conversion sidesteps it for the sun case but the underlying legacy-light
+  MIS gap is unfixed), pkg198's volume-pass direct/indirect split
+  (deferred in #622), the 3-test UnicodeEncodeError hygiene item above,
+  and the standing Pillar 4 unpause decision (no new owner directive this
+  round).
+- **Owner request:** a FRESH ARCHITECT-LED run next session — the architect
+  plans ahead before dispatching, rather than picking up ad hoc from this
+  report's tail pool.
+- **Round verification discipline:** every code PR dual-gated (CI +
+  independent RTX hardware verification); every landed code PR this round
+  reports HW PASS (pkg198-s2 probe and pkg203-filing were docs-only, no HW
+  leg needed).
+
 **2026-08-13 → 2026-08-14 (round closeout, 8 PRs merged #605–#612, no open
 PRs at closeout): viewport navigation goes from a slog to interactive
 (5.97→18.52 fps, 3.1x combined), Principled tinted-layer/thin-wall spectral

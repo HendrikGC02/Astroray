@@ -2,7 +2,11 @@
 
 **Pillar:** Integration Milestone (Blender/DCC integration — verification layer)
 **Track:** A (addon-heavy Python driver + real-host Blender 5.1/5.2 legs; render legs RTX)
-**Status:** open (filed 2026-08-14). Deferred from pkg176 Stage 4 closeout ("deep per-setting F12 pixel-honour matrix — a later addon HW session"); NEXT_STAGE_REPORT §2 item 5.
+**Status:** done (PR #616, 2026-08-14 — A/B driver + Blender 5.1/5.2 sweep: 8
+PASS / 13 HONEST-FAIL / 2 NEEDS-VISUAL / 2 LIMITATION; surfaced GPU-drops-
+most-settings findings A–F, closed by pkg201). Deferred from pkg176 Stage 4
+closeout ("deep per-setting F12 pixel-honour matrix — a later addon HW
+session"); NEXT_STAGE_REPORT §2 item 5.
 **Estimated effort:** L, staged (Stage 0 harness + honour-surface enumeration; Stages 1–4 batched render legs; each stage is a 1-session pickup).
 **Depends on:** pkg176 (native-settings plumbing — the surface under test; `blender_addon/settings_map.py`, `native_settings.py`, `__init__.py::convert_scene`, `ADOPTED_NATIVE_PANELS`), pkg175 (`scripts/dev_addon.ps1 -Smoke` dev loop — the headless real-host mechanism). Cross-links: **pkg119-B** (differential Cycles-parity harness — orthogonal: pkg119 asks "does it match Cycles numerically"; this package asks "does the setting change the pixel at all, in the promised direction"), **pkg180** (systemic dim, the absolute-parity axis this package deliberately does NOT chase).
 

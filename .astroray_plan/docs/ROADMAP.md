@@ -258,6 +258,42 @@ fix:
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
 
+**Round closeout (2026-08-14 → 2026-08-15): 9 PRs (#615–#623), no open PRs at closeout — the GPU wavefront gains real god-rays (full HG scattering, both backends) and a full light-path AOV render-pass mirror, a legacy `.blend`-importer sun fix, and 3 more addon settings-honour rows flip PASS.**
+**pkg190 follow-up DONE** (PR #615) — narrowed the GPU procedural bake to
+Generated coord-mode only; Object-coord procedurals now degrade to a
+guarded flat-albedo fallback instead of silently misrendering. **pkg200
+DONE** (PR #616) — native-settings F12 pixel-honour matrix: 8 PASS / 13
+HONEST-FAIL / 2 NEEDS-VISUAL / 2 LIMITATION, surfacing findings A–F (GPU
+wavefront silently drops most steering-wheel controls). **pkg199 Stage 2
+DONE, both backends** (PR #617 CPU, PR #619 GPU) — full HG in-scatter
+homogeneous world-volume scattering; GPU `template<bool HasWorldScatter>`
+fleet isolation keeps fog-free scenes byte-identical to Stage 1; god-ray
+CPU↔GPU parity [1.0044, 0.9972, 0.9978]. GPU wavefront fog now delivers
+real god-rays, not just absorption. **pkg201 Stage 1 DONE** (PR #618) —
+`world_max_bounces` HONEST-FAIL→PASS (ratio 5.24), `use_light_tree`
+reconciled, a latent `set_light_sampler` crash fixed. **pkg198 Stage 2
+DONE** (probe PR #620 PROCEED verdict + full mirror PR #622) — GPU
+wavefront light-path render-pass mirror, sum-to-beauty exact, fleet
+register gate re-confirmed unchanged; **pkg198 is now COMPLETE across both
+stages.** **pkg202 DONE** (PR #621) — legacy `add_sun_light` GPU
+zero-contribution fix via upload-time dedicated-distant conversion (GPU
+0.0→0.6333 vs analytic 0.6366); fixes every `.blend`-importer sun on GPU.
+**pkg201 Stage 2 DONE, 2-of-6 rows shipped** (PR #623) — `film_transparent`
+alpha (first implementation anywhere in the engine) and `filter_width`
+flip PASS; `pixel_filter_type` stays HONEST-FAIL on a σ-mapping shortfall,
+filed forward as **pkg203** (open, dispatchable); native-caustic-toggle
+Finding E reclassified to pkg201 Stage 3 (register-hostile); `film_
+transparent_glass` (F-glass) filed as a next-round follow-up feature.
+**Open follow-ups:** pkg201 Stage 3 (register-hostile, probe-gated),
+pkg203 (filter σ parity), pkg131, the F-glass compositing follow-up, the
+CPU legacy-hittable delta-sun MIS gap, pkg198's volume-pass direct/
+indirect split, and 3 pre-existing `UnicodeEncodeError` console-artifact
+test failures (cp1252 vs π/✓/λ — hygiene, not a regression). Full detail:
+`.astroray_plan/docs/STATUS.md` round-closeout section "2026-08-14 →
+2026-08-15". Pillar 4 stays PAUSED — the owner has requested a
+fresh architect-led run next session. **"Current sequencing" unchanged —
+no new owner directive this round.**
+
 **Round closeout (2026-08-13 → 2026-08-14): 8 PRs (#605–#612), no open PRs at closeout — viewport navigation is now interactive (5.97→18.52 fps, 3.1x combined), the spectral node system (pkg195) is fully complete, and the GPU wavefront gains denoise-guide AOVs, a working world-volume fog, and procedural textures.**
 **pkg192 DONE** (PR #605) — viewport navigation interactivity Suspect A:
 camera-only orbit/pan/zoom frames skip the ~48ms per-frame CPU BVH rebuild

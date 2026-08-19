@@ -32,7 +32,7 @@ def test_disney_diffuse_pdf_vs_lambertian():
     print(f"\nPDF at normal [0,1,0]:")
     print(f"  Lambertian: {pdf_lamb:.6f}")
     print(f"  Disney diffuse: {pdf_disney:.6f}")
-    print(f"  Expected (1/π): {1.0/np.pi:.6f}")
+    print(f"  Expected (1/pi): {1.0/np.pi:.6f}")
     print(f"  Disney/Lambertian ratio: {pdf_disney/pdf_lamb:.6f}")
 
     # Test at 45° from normal
@@ -43,8 +43,8 @@ def test_disney_diffuse_pdf_vs_lambertian():
     pdf_lamb_45 = renderer.debug_bsdf_pdf_batch(lamb_id, wo, wi_45)[0]
     pdf_disney_45 = renderer.debug_bsdf_pdf_batch(disney_id, wo, wi_45)[0]
 
-    print(f"\nPDF at 45° from normal:")
+    print(f"\nPDF at 45 deg from normal:")
     print(f"  Lambertian: {pdf_lamb_45:.6f}")
     print(f"  Disney diffuse: {pdf_disney_45:.6f}")
-    print(f"  Expected (cos45°/π): {cos_theta/np.pi:.6f}")
+    print(f"  Expected (cos45deg/pi): {cos_theta/np.pi:.6f}")
     print(f"  Disney/Lambertian ratio: {pdf_disney_45/pdf_lamb_45:.6f}")

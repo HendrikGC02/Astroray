@@ -1,6 +1,6 @@
 {
-  "updated": "2026-08-06",
-  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md",
+  "updated": "2026-08-19",
+  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md. 2026-08-19 owner directive: lean harder on opencode models — deepseek-v4-pro promoted to implement primary (owner assessment: near-Opus capability at a fraction of the cost). Verify gates unchanged; open-model diffs are still evidence-verified, never trusted.",
   "tiers": {
     "grunt": {
       "primary": "opencode-go/deepseek-v4-flash",
@@ -12,8 +12,9 @@
       "default_timeout_s": 600
     },
     "implement": {
-      "primary": "opencode-go/kimi-k2.7-code",
-      "fallback": "opencode-go/deepseek-v4-pro",
+      "primary": "opencode-go/deepseek-v4-pro",
+      "primary_note": "Promoted to primary 2026-08-19 per owner directive (near-Opus capability at a fraction of the cost). Still gated: build+pytest+lint verify every diff.",
+      "fallback": "opencode-go/kimi-k2.7-code",
       "use_for": "well-specified package implementation in a worktree, test writing; ALWAYS behind build+pytest+lint gates",
       "default_timeout_s": 3600
     },

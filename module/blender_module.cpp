@@ -3898,6 +3898,12 @@ PYBIND11_MODULE(astroray, m) {
                     "u"_a,
                     "lambda_min"_a = astroray::kLambdaMin,
                     "lambda_max"_a = astroray::kLambdaMax)
+        // pkg206: luminance-weighted hero-wavelength importance sampling.
+        .def_static("sample_importance",
+                    &astroray::SampledWavelengths::sampleImportance,
+                    "u"_a,
+                    "lambda_min"_a = astroray::kLambdaMin,
+                    "lambda_max"_a = astroray::kLambdaMax)
         .def("lambda_", &astroray::SampledWavelengths::lambda, "i"_a)
         .def("pdf",     &astroray::SampledWavelengths::pdf,    "i"_a)
         .def("lambdas", [](const astroray::SampledWavelengths& w) {

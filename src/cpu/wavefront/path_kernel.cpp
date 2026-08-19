@@ -91,7 +91,10 @@ void init_path(PathState& ps, const Camera& cam, int x, int y,
     std::mt19937 mt_gen(lens_seed);
     Ray primaryRay = cam.getRay(u, v, 0.0f, mt_gen);
 
-    ps.lambdas = SampledWavelengths::sampleUniform(ps.rng.Uniform());
+    // pkg206: luminance-weighted hero-wavelength importance sampling on the
+    // primary path (one uniform draw, same as before — dimension counter aligned
+    // with the GPU sampleImportanceWavelength twin).
+    ps.lambdas = SampledWavelengths::sampleImportance(ps.rng.Uniform());
 
     // Store the already-normalized direction directly. Camera::getRay's Ray
     // ctor already normalized it; we keep that exact bit pattern and never

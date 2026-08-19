@@ -65,6 +65,7 @@ class SpectralPathTracer : public Integrator {
     // set_wavelength_range is honored instead of silently ignored.
     float lambdaMin_;
     float lambdaMax_;
+    bool  heroImportance_;  // pkg206: importance-sample the hero wavelength (default on)
 
     Renderer* renderer_ = nullptr;
     Camera* camera_ = nullptr;  // pkg87b: for Cryptomatte buffer access
@@ -101,7 +102,12 @@ public:
           // getFloat() fallback preserves byte-identical output when
           // set_wavelength_range was never called (acceptance: no regression).
           lambdaMin_(p.getFloat("lambda_min", astroray::kLambdaMin)),
-          lambdaMax_(p.getFloat("lambda_max", astroray::kLambdaMax)) {
+          lambdaMax_(p.getFloat("lambda_max", astroray::kLambdaMax)),
+          // pkg206: luminance-weighted hero-wavelength importance sampling on the
+          // primary path (default ON). Internal quality knob, NOT wired into the
+          // Blender UI; exposed only via set_integrator_param("hero_importance",
+          // 0|1) so the A/B convergence gate can render the uniform baseline.
+          heroImportance_(p.getInt("hero_importance", 1) != 0) {
         smsCfg_.seeds         = p.getInt("sms_seeds", 1);
         smsCfg_.maxIterations = p.getInt("sms_max_iterations", 20);
         smsCfg_.tolerance     = p.getFloat("sms_tolerance", 1e-4f);
@@ -181,8 +187,18 @@ public:
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         // pkg125: honor set_wavelength_range (lambdaMin_/lambdaMax_), mirroring
         // multiwavelength_path_tracer.cpp:74-75.
+        // pkg206: importance-sample the hero wavelength on the primary path.
+        // The luminance-CDF fit constants are valid only for the DEFAULT full
+        // band [kLambdaMin, kLambdaMax]; if the caller narrowed the band via
+        // set_wavelength_range, fall back to the unbiased uniform draw (the fit
+        // would place hero outside the requested band). One uniform draw either
+        // way — RNG dimension count is identical.
+        const bool defaultBand =
+            lambdaMin_ == astroray::kLambdaMin && lambdaMax_ == astroray::kLambdaMax;
         astroray::SampledWavelengths lambdas =
-            astroray::SampledWavelengths::sampleUniform(dist01(gen), lambdaMin_, lambdaMax_);
+            (heroImportance_ && defaultBand)
+                ? astroray::SampledWavelengths::sampleImportance(dist01(gen), lambdaMin_, lambdaMax_)
+                : astroray::SampledWavelengths::sampleUniform(dist01(gen), lambdaMin_, lambdaMax_);
         int bounces = 0;
         float weight = 0.0f;
 

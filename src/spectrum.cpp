@@ -99,6 +99,71 @@ SampledWavelengths SampledWavelengths::sampleUniform(float u,
     return swl;
 }
 
+// ---------------------------------------------------------------------------
+// pkg206 — Luminance-weighted hero-wavelength importance sampling.
+//
+// Draws the hero wavelength from a logistic (sigmoid) CDF fitted to the
+// luminance-weighted D65 distribution (y_bar + 0.25)*D65 against Astroray's
+// CIE-1964 10-degree observer, instead of uniformly over the range. Wavelengths
+// the eye sees strongly are sampled more often, cutting chromatic noise on
+// dispersive-caustic paths; the per-sample pdf is the sigmoid-derivative density
+// (1/nm) so the MC estimator (SampledSpectrum::toXYZ divides by pdf) stays
+// UNBIASED — only variance drops.
+//
+// Algorithm: Wilkie et al. 2014 "Hero Wavelength Spectral Sampling" CGF 33(4)
+// (hero + stratified companions, each companion pdf = density at ITS OWN lambda),
+// with the D65-luminance sigmoid CDF from Blender Cycles
+// intern/cycles/kernel/util/colorspace.h::sample_wavelength (Apache-2.0),
+// RE-FITTED against Astroray's own observer. Constants + unit derivation:
+// .astroray_plan/docs/pkg206-hero-luminance-fit.md
+// (fit: scripts/data/fit_hero_luminance_cdf.py).
+//
+// BYTE-MIRRORED by the GPU twin sampleImportanceWavelength()
+// (src/gpu/wavefront/stage_init.cu). Constants and pdf formula MUST match.
+namespace {
+// Fitted logistic-CDF constants, nm units, [360,830] nm, luminance blend +0.25.
+constexpr float kHeroA  = 0.0221679280f;  // 1/nm
+constexpr float kHeroX0 = 552.040271f;    // nm (luminance-weighted centre)
+constexpr float kHeroY0 = 0.0139650380f;  // CDF value at lambdaMin
+constexpr float kHeroN  = 0.9839309253f;  // CDF span over [lambdaMin, lambdaMax]
+
+// Sigmoid CDF F(lambda) = 1/(1+exp(-a(lambda-x0))).
+inline float heroSigmoid(float lambda) {
+    return 1.0f / (1.0f + std::exp(-kHeroA * (lambda - kHeroX0)));
+}
+// pdf in 1/nm at a wavelength whose CDF value is `randL` = F(lambda).
+// F'(lambda)/N = a*F*(1-F)/N ; integrates to 1 over the truncated support.
+inline float heroPdfFromCdf(float randL) {
+    return kHeroA * randL * (1.0f - randL) / kHeroN;
+}
+}  // namespace
+
+SampledWavelengths SampledWavelengths::sampleImportance(float u,
+                                                        float lambdaMin,
+                                                        float lambdaMax) {
+    SampledWavelengths swl;
+    float span = lambdaMax - lambdaMin;
+    float step = span / static_cast<float>(kSpectrumSamples);
+    // Inverse logistic CDF: remap u into the truncated CDF window [y0, y0+N],
+    // then invert. Consumes exactly ONE uniform (same draw count as
+    // sampleUniform) so CPU<->GPU dimension counters stay aligned.
+    float rand = kHeroN * u + kHeroY0;
+    float hero = kHeroX0 - std::log(1.0f / rand - 1.0f) / kHeroA;
+    // Guard the analytic range (float round-trip can spill a hair past the edge).
+    if (hero < lambdaMin) hero = lambdaMin;
+    if (hero > lambdaMax) hero = lambdaMax;
+    for (int i = 0; i < kSpectrumSamples; ++i) {
+        float lam = hero + static_cast<float>(i) * step;
+        if (lam > lambdaMax) lam -= span;
+        swl.lambdas_[i] = lam;
+        // Wilkie 2014: each companion pdf is the proposal density at ITS OWN
+        // lambda. For i==0 (hero) this is F(hero)=rand; recomputing via the
+        // sigmoid keeps a single code path and is bit-consistent GPU-side.
+        swl.pdfs_[i] = heroPdfFromCdf(heroSigmoid(lam));
+    }
+    return swl;
+}
+
 void SampledWavelengths::terminateSecondary() {
     for (int i = 1; i < kSpectrumSamples; ++i) {
         pdfs_[i] = 0.0f;

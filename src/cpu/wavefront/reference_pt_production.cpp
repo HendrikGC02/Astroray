@@ -309,7 +309,8 @@ ReferencePTResult reference_pt_production_render(
 
                         // Lambda sampling (production spectral_path_tracer.cpp:107-108).
                         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
-                        SampledWavelengths lambdas = SampledWavelengths::sampleUniform(dist01(gen));
+                        // pkg206: importance-sampled hero wavelength (primary path).
+                        SampledWavelengths lambdas = SampledWavelengths::sampleImportance(dist01(gen));
 
                         // PostInit snapshot.
                         if (sink) {

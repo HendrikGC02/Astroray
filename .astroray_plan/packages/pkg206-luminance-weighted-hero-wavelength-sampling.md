@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (light transport / spectral rendering) + Integration Milestone (Cycles-parity)
 **Track:** A
-**Status:** open (filed 2026-08-19).
+**Status:** done (PR #627, 2026-08-20 — CPU+GPU luminance-weighted hero sampler; sampler var ratio 0.144, prism luminance-weighted MSE ratio 0.749, converged unbiasedness 1.00x, shade REG 254/CONSTANT[0] 1700 unchanged. NOTE: spec's wavelength-space companion pdf was biased (red 0.73) — corrected to CDF-space stratification per PBRT-v4).
 **Estimated effort:** M (CPU+GPU byte-mirrored sampler change + pdf plumbing + re-baseline).
 **Depends on:** nothing hard. Composes with pkg189 (GPU hero-λ dispersion, LANDED) and
 the existing spectral MIS caustic path (SMS). CPU/GPU byte-mirrored in the SAME PR.

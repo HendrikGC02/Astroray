@@ -1567,14 +1567,19 @@ __global__ void stageShadowKernel(
         unsigned char fc = c_wfLpBinding.firstCat[idx];
         int passIdx;
         if (fc == 3) {
-            // Volume in-scatter NEE (firstCat locked to 3 by the volume kernel).
-            // pkg198 Stage-2 LIMITATION: the deferred shadow kernel cannot tell a
-            // first-scatter (VOLUME_DIRECT) from a deeper one (VOLUME_INDIRECT)
-            // without an extra parked bit, so all volume in-scatter is attributed to
-            // PASS_VOLUME_INDIRECT. Sum-to-beauty is preserved (it lands in a real
-            // pass); only the volume direct/indirect split differs from the CPU. Fog
-            // scenes are outside the Stage-1 parity gate; documented in the PR.
-            passIdx = 3 * 3 + 1;               // PASS_VOLUME_INDIRECT (10)
+            // pkg204: volume in-scatter direct/indirect split (closes the pkg198
+            // Stage-2 limitation). The volume-scatter kernel parked int lane 4 =
+            // +(bounce+1) for a first-interaction in-scatter NEE (CPU
+            // firstInteraction => PASS_VOLUME_DIRECT) and -(bounce+1) for a deeper
+            // scatter. Route DIRECT only when positive AND its bounce matches this
+            // NEE's own parked bounce (lane 3) -- a surface-after-fog NEE (firstCat
+            // locked to 3, lane 4 stale from an EARLIER scatter's bounce a<b) fails
+            // the match and correctly stays PASS_VOLUME_INDIRECT. Sum-to-beauty is
+            // preserved bit-for-bit: the split only re-buckets the same quantity.
+            int volEnc = nee_i[4 * nee_capacity + idx];
+            bool volDirect = (volEnc > 0) && (volEnc - 1 == bounce);
+            passIdx = volDirect ? (3 * 3 + 0)    // PASS_VOLUME_DIRECT (9)
+                                : (3 * 3 + 1);   // PASS_VOLUME_INDIRECT (10)
         } else if (bounce == 0) {
             int dc = (fc == G_LP_CAT_UNSET) ? 0 : (fc >= 2 ? 1 : (int)fc);
             passIdx = dc * 3 + 0;              // <reflectLobe>_DIRECT
@@ -1846,9 +1851,13 @@ __global__ void stageVolumeScatterKernel(
     // downstream surface/emission/env event this path sees folds into the volume
     // INDIRECT pass (3*3+1 = PASS_VOLUME_INDIRECT), matching the CPU. Runtime-gated;
     // set only when unset so a deeper scatter does not relabel an earlier lock.
-    if (c_wfLpBinding.passAccum != nullptr &&
-        c_wfLpBinding.firstCat[idx] == G_LP_CAT_UNSET) {
-        c_wfLpBinding.firstCat[idx] = 3;
+    // pkg204: capture whether THIS scatter is the first interaction (CPU
+    // `firstInteraction = firstCat < 0`) BEFORE the lock, so the deferred medium
+    // NEE below can be attributed to PASS_VOLUME_DIRECT vs PASS_VOLUME_INDIRECT.
+    bool lpVolumeFirst = false;
+    if (c_wfLpBinding.passAccum != nullptr) {
+        lpVolumeFirst = (c_wfLpBinding.firstCat[idx] == G_LP_CAT_UNSET);
+        if (lpVolumeFirst) c_wfLpBinding.firstCat[idx] = 3;
     }
 
     // Reconstruct: ray_origin == scatter point P (intersect wrote it), and
@@ -1914,6 +1923,13 @@ __global__ void stageVolumeScatterKernel(
                 nee_i[ 1 * nee_capacity + idx] = s.isSphere;
                 nee_i[ 2 * nee_capacity + idx] = s.isDedicated;
                 nee_i[ 3 * nee_capacity + idx] = bounce;
+                // pkg204: volume direct/indirect encoding (see G_WF_NEE_I_LANES).
+                // +(bounce+1) for a first-interaction in-scatter (=> VOLUME_DIRECT),
+                // -(bounce+1) for a deeper scatter (=> VOLUME_INDIRECT). The shadow
+                // kernel bounce-matches this against lane 3 so a later surface-after-
+                // fog NEE (stale lane 4 from an earlier bounce) can't false-DIRECT.
+                nee_i[ 4 * nee_capacity + idx] =
+                    lpVolumeFirst ? (bounce + 1) : -(bounce + 1);
                 int qslot = atomicAdd(shadow_count, 1);
                 shadow_queue[qslot] = idx;
             }

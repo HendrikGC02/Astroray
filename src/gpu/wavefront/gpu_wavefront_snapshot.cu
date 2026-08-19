@@ -1492,6 +1492,17 @@ std::vector<float> cuda_wavefront_render(
             throw std::runtime_error(cudaGetErrorString(ae));
     }
 
+    // pkg204: seed the volume direct/indirect encoding lane (int lane 4) to 0 per
+    // render. 0 decodes to bounce -1 (matches no real bounce), so the very first
+    // fc==3 surface-after-fog NEE -- if it precedes any parking volume scatter --
+    // defaults to PASS_VOLUME_INDIRECT instead of reading uninitialized scratch.
+    {
+        cudaError_t ae = cudaMemset(d_neeI + size_t(4) * total_paths, 0,
+                                    size_t(total_paths) * sizeof(int));
+        if (ae != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(ae));
+    }
+
     // pkg159: cryptomatte rank buffers. Gated on BOTH the renderer flag and
     // caller-supplied output pointers, so a render with cryptomatte off never
     // allocates, never memsets, and passes nullptr into the shade stage.

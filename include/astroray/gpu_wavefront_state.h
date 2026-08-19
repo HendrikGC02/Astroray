@@ -447,8 +447,18 @@ void setWavefrontPixelFilter(int type, float width);
 // world-volume Beer-Lambert Tr in stageShadowKernel. Parked SEPARATELY from
 // lane 6 (maxDist), which is a 1e30 occlusion sentinel for sphere/distant
 // sources and would collapse fogged NEE to zero if used as a path length.
+// pkg204: int lane 4 = volume-scatter direct/indirect encoding. The dedicated
+// volume-scatter stage parks (bounce+1) for a FIRST-interaction in-scatter NEE
+// (CPU firstInteraction => PASS_VOLUME_DIRECT) and -(bounce+1) for a deeper
+// scatter. The shadow-resolve kernel routes fc==3 NEE to PASS_VOLUME_DIRECT
+// only when the parked value is positive AND its (bounce+1) matches the NEE's
+// own parked bounce (int lane 3) -- so a surface-after-fog NEE (firstCat locked
+// to 3, its stale lane-4 from an EARLIER scatter's bounce a<b) never false-
+// matches and correctly falls to PASS_VOLUME_INDIRECT. Read-only in the shadow
+// kernel (no scratch mutation); zeroed per render so bounce 0's first scatter
+// (enc=1) never aliases the memset default (enc=0 => -1 != any bounce).
 constexpr int G_WF_NEE_F_LANES = 15;
-constexpr int G_WF_NEE_I_LANES = 4;
+constexpr int G_WF_NEE_I_LANES = 5;
 void launchStageShadow(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,

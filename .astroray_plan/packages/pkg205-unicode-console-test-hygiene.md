@@ -2,7 +2,7 @@
 
 **Pillar:** Infrastructure / test hygiene
 **Track:** A (small local fix — no engine code, no GPU, no physics)
-**Status:** open (filed 2026-08-19).
+**Status:** done (PR pending, 2026-08-20 — 3 tests un-broken: test_pkg182 (λ→lambda), test_disney_diffuse_pdf (π/°→pi/deg), test_blender_parity_matrix (✓→[OK]); all now PASS under cp1252, 0 UnicodeEncodeError).
 **Estimated effort:** XS.
 **Depends on:** nothing.
 

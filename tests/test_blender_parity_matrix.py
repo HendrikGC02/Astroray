@@ -140,9 +140,9 @@ def test_blender_parity_matrix_generation():
     print(f"UNKNOWN-CRASH:   {counts['UNKNOWN-CRASH']:4d}")
     print(f"TOTAL:           {len(matrix_rows):4d}")
     print("=" * 60)
-    print(f"✓ Matrix generated: {len(matrix_rows)} features classified")
-    print(f"✓ Zero UNKNOWN-CRASH features (Phase A acceptance met)")
-    print(f"✓ Artifacts: {json_path}, {md_path}")
+    print(f"[OK] Matrix generated: {len(matrix_rows)} features classified")
+    print(f"[OK] Zero UNKNOWN-CRASH features (Phase A acceptance met)")
+    print(f"[OK] Artifacts: {json_path}, {md_path}")
     print("=" * 60 + "\n")
 
 

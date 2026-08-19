@@ -99,7 +99,7 @@ def test_conductor_spectral_stays_chromatic():
             sats.append(_saturation(_roi_mean_rgb(_render(d, fior))))
     sats = np.asarray(sats)
     mean_sat, max_sat = float(sats.mean()), float(sats.max())
-    print(f"\n[pkg182 conductor per-λ] mean_sat={mean_sat:.4f} max_sat={max_sat:.4f} "
+    print(f"\n[pkg182 conductor per-lambda] mean_sat={mean_sat:.4f} max_sat={max_sat:.4f} "
           f"(RGB-upsample baseline: mean 0.0488, max 0.1842)")
     assert mean_sat >= _MEAN_SAT_FLOOR, (
         f"per-λ conductor mean saturation {mean_sat:.4f} < floor {_MEAN_SAT_FLOOR} "

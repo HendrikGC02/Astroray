@@ -2,7 +2,7 @@
 
 **Pillar:** Integration Milestone (Blender/DCC integration — reconstruction-filter parity)
 **Track:** A
-**Status:** open (filed 2026-08-15).
+**Status:** in-review (PR open 2026-08-19 — CPU+GPU byte-mirrored Cycles mapping σ=width/4, Gaussian support ±1.5·width, BH ±1.0·width; awaiting RTX pkg200 re-run for the honour-row flip).
 **Estimated effort:** S–M.
 **Depends on:** **pkg201 Stage 2** (the GPU wavefront reconstruction-filter code this package modifies — pkg201-S2 adds the GPU pixel-filter weighting: `pixelFilterType`/`pixelFilterWidth` applied in the primary-ray/splat stage, Gaussian branch). Do NOT start until pkg201-S2 has landed on main. Cross-links: **pkg200** (the honour-matrix that measured the finding — the `pixel_filter_type` row is the acceptance gate here), **pkg119-B** (numeric Cycles parity — orthogonal).
 

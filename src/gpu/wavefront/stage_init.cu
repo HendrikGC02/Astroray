@@ -65,29 +65,35 @@ __device__ inline float filterSample(WavefrontRNG& rng) {
     const int type = c_wfPixelFilter.type;
     const float width = c_wfPixelFilter.width;
     if (type == 1) {
-        // Gaussian: Box-Muller normal z (2 draws); sigma = width/6 puts the ±3σ
-        // mass at the ±width/2 support edge (the CPU filterSample sigma). Offset
-        // ∝ gaussian (importance-sampled), clamped to the support, unit weight.
+        // pkg203 — Cycles-accurate Gaussian: Box-Muller normal z (2 draws) with
+        // sigma = width/4 and support +-1.5*width (centred offset in pixels,
+        // importance-sampled, unit weight). Source: Cycles scene/film.cpp
+        // filter_func_gaussian + filter_table Gaussian width*=3 =>
+        // exp(-8 v^2/w^2) == normal sigma=width/4, table half-extent 1.5*width
+        // (Apache-2.0). BYTE-MIRROR of include/raytracer.h::filterSample.
+        // (was sigma=width/6, support +-width/2 — too narrow, pkg200 row 0.83%.)
         float u1 = rng.Uniform();
         float u2 = rng.Uniform();
         if (u1 < 1e-7f) u1 = 1e-7f;
         float z = sqrtf(-2.0f * logf(u1)) * cosf(2.0f * 3.14159265f * u2);
-        float half = 0.5f * width;
-        float off = z * (width / 6.0f);
+        float half = 1.5f * width;
+        float off = z * (0.25f * width);
         return fmaxf(-half, fminf(half, off));
     } else if (type == 2) {
-        // Blackman-Harris 4-term window (same coefficients as the CPU filterSample
-        // and Cycles): rejection-sample a normalised position x in [0,1) with
-        // accept probability = the window (peaks 1.0 at x=0.5, ~0 at the edges),
-        // then map to a width-scaled centred offset. ≤20 attempts, uniform fallback.
+        // pkg203 — Cycles Blackman-Harris 4-term window (filter_table BH width*=2 =>
+        // support +-1.0*width): rejection-sample a normalised position x in [0,1)
+        // against the window (peaks 1.0 at x=0.5, ~0 at edges), then map to the
+        // centred offset (x-0.5)*2*width. <=20 attempts, uniform fallback.
+        // Cycles scene/film.cpp filter_func_blackman_harris (Apache-2.0).
+        // BYTE-MIRROR of include/raytracer.h::filterSample.
         for (int attempt = 0; attempt < 20; ++attempt) {
             float x = rng.Uniform();
             float w = 0.35875f - 0.48829f * cosf(2.0f * 3.14159265f * x)
                                + 0.14128f * cosf(4.0f * 3.14159265f * x)
                                - 0.01168f * cosf(6.0f * 3.14159265f * x);
-            if (rng.Uniform() < w) return (x - 0.5f) * width;
+            if (rng.Uniform() < w) return (x - 0.5f) * 2.0f * width;
         }
-        return (rng.Uniform() - 0.5f) * width;
+        return (rng.Uniform() - 0.5f) * 2.0f * width;
     }
     // Box filter (type 0): uniform [-0.5, 0.5], width-ignored. Mirrors the CPU
     // path_kernel.cpp::filterSample byte-exact uniform_real_distribution pattern

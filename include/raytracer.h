@@ -2436,28 +2436,45 @@ public:
         passes_.clear();
     }
 
-    // Returns a sub-pixel jitter offset in [0,1) shaped by the reconstruction filter.
+    // Returns a sub-pixel jitter, added to the pixel index by the caller. Box stays
+    // within-pixel [0,1); Gaussian/Blackman-Harris emit a pixel-centred (0.5-based)
+    // offset over the Cycles reconstruction-filter support and may cross pixel
+    // boundaries (filter importance sampling, unit weight — each sample still
+    // accumulates to its originating pixel).
+    //
+    // pkg203 — Cycles-accurate width->sigma mapping (was sigma = width/6).
+    // Source: Blender Cycles scene/film.cpp filter_func_gaussian /
+    // filter_func_blackman_harris + filter_table per-kernel width pre-scale
+    // (Gaussian width*=3 -> exp(-8 v^2/w^2) == sigma=width/4, support +-1.5*width;
+    //  BH width*=2 -> support +-1.0*width). License: Apache-2.0. Corroborated by
+    // PBRT-v4 section 8.8 (truncated GaussianFilter / windowed BlackmanHarrisFilter).
+    // BYTE-MIRROR of src/gpu/wavefront/stage_init.cu::filterSample (same constants).
+    // See .astroray_plan/docs/pkg203-filter-sigma-research.md.
     float filterSample(std::mt19937& gen, std::uniform_real_distribution<float>& dist) const {
         if (pixelFilterType == 1) {
-            // Gaussian: Box-Muller centered at 0.5, sigma = filterWidth/6
-            float sigma = pixelFilterWidth / 6.0f;
+            // Gaussian: Box-Muller normal z; Cycles sigma = width/4, support +-1.5*width.
+            float sigma = 0.25f * pixelFilterWidth;
+            float half  = 1.5f * pixelFilterWidth;
             float u1 = dist(gen);
             float u2 = dist(gen);
             if (u1 < 1e-7f) u1 = 1e-7f;
             float z = std::sqrt(-2.0f * std::log(u1)) * std::cos(2.0f * float(M_PI) * u2);
-            return std::clamp(0.5f + z * sigma, 0.0f, 1.0f);
+            float off = std::clamp(z * sigma, -half, half);
+            return 0.5f + off;
         } else if (pixelFilterType == 2) {
-            // Blackman-Harris: rejection sampling within pixel
+            // Blackman-Harris: rejection-sample normalised position p in [0,1), then
+            // map to a centred offset over the Cycles support +-1.0*width
+            // (offset = (p-0.5)*2*width). <=20 attempts, uniform fallback.
             for (int attempt = 0; attempt < 20; ++attempt) {
                 float x = dist(gen);
                 float w = 0.35875f - 0.48829f * std::cos(2.0f * float(M_PI) * x)
                                    + 0.14128f * std::cos(4.0f * float(M_PI) * x)
                                    - 0.01168f * std::cos(6.0f * float(M_PI) * x);
-                if (dist(gen) < w) return x;
+                if (dist(gen) < w) return 0.5f + (x - 0.5f) * 2.0f * pixelFilterWidth;
             }
-            return dist(gen);
+            return 0.5f + (dist(gen) - 0.5f) * 2.0f * pixelFilterWidth;
         }
-        // Box filter: uniform jitter (default)
+        // Box filter: uniform within-pixel jitter (default; width-ignored).
         return dist(gen);
     }
 

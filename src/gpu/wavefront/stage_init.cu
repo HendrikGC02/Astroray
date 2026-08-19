@@ -154,9 +154,6 @@ __device__ __constant__ float kGHeroX0 = 552.040271f;    // nm
 __device__ __constant__ float kGHeroY0 = 0.0139650380f;  // CDF at lambdaMin
 __device__ __constant__ float kGHeroN  = 0.9839309253f;  // CDF span
 
-__device__ inline float gHeroSigmoid(float lambda) {
-    return 1.0f / (1.0f + expf(-kGHeroA * (lambda - kGHeroX0)));
-}
 __device__ inline float gHeroPdfFromCdf(float randL) {
     return kGHeroA * randL * (1.0f - randL) / kGHeroN;
 }
@@ -164,18 +161,21 @@ __device__ inline float gHeroPdfFromCdf(float randL) {
 __device__ inline GSampledWavelengths sampleImportanceWavelength(float u,
                                                                  float lambdaMin = G_LAMBDA_MIN,
                                                                  float lambdaMax = G_LAMBDA_MAX) {
+    // Stratify in CDF (uniform) space, invert per lane — the UNBIASED
+    // construction (PBRT-v4 SampleVisibleWavelengths). Byte-mirror of CPU
+    // sampleImportance(): offsetting in wavelength space would be biased under
+    // a non-uniform proposal. Reduces to sampleUniformWavelength when F linear.
     GSampledWavelengths swl;
-    float span = lambdaMax - lambdaMin;
-    float step = span / static_cast<float>(G_SPECTRUM_SAMPLES);
-    float rand = kGHeroN * u + kGHeroY0;
-    float hero = kGHeroX0 - logf(1.0f / rand - 1.0f) / kGHeroA;
-    if (hero < lambdaMin) hero = lambdaMin;
-    if (hero > lambdaMax) hero = lambdaMax;
+    constexpr float invK = 1.0f / static_cast<float>(G_SPECTRUM_SAMPLES);
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
-        float lam = hero + static_cast<float>(i) * step;
-        if (lam > lambdaMax) lam -= span;
+        float ui = u + static_cast<float>(i) * invK;
+        if (ui >= 1.0f) ui -= 1.0f;
+        float randL = kGHeroN * ui + kGHeroY0;
+        float lam = kGHeroX0 - logf(1.0f / randL - 1.0f) / kGHeroA;
+        if (lam < lambdaMin) lam = lambdaMin;
+        if (lam > lambdaMax) lam = lambdaMax;
         swl.lambda[i] = lam;
-        swl.pdf[i]    = gHeroPdfFromCdf(gHeroSigmoid(lam));
+        swl.pdf[i]    = gHeroPdfFromCdf(randL);
     }
     return swl;
 }

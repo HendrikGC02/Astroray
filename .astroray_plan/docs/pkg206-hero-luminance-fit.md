@@ -82,20 +82,37 @@ foreign constants.
 ## Runtime formulation (nm units, unbiased)
 
 Draw one uniform `u ∈ [0,1)` (SAME draw count as uniform — CPU↔GPU dimension
-counters stay aligned):
+counters stay aligned). Stratify in **CDF (uniform) space**, invert per lane
+(k = kSpectrumSamples = 4):
 
 ```
-rand  = N*u + y0
-hero  = x0 - log(1/rand - 1) / a          // nm, in [360, 830]
-pdf(λ) = a * rand_λ * (1 - rand_λ) / N     // 1/nm  (rand_λ = F(λ) = sigmoid)
+for i in 0..k:
+    u_i   = frac(u + i/k)                 // stratify in uniform space, wrap
+    rand_i = N*u_i + y0                    // into truncated CDF window [y0, y0+N]
+    λ_i    = x0 - log(1/rand_i - 1) / a    // nm, in [360, 830]
+    pdf_i  = a * rand_i * (1 - rand_i) / N // 1/nm  (density at λ_i, integrates to 1)
 ```
 
-The **hero** pdf uses `rand` directly (`rand_hero = rand`). Each stratified
-**companion** λ_i = wrap(hero + i*step) gets its pdf from the density evaluated
-at ITS OWN λ_i: `rand_i = sigmoid(λ_i; a, x0)`, `pdf_i = a*rand_i*(1-rand_i)/N`
-(Wilkie 2014). This is a proper density in 1/nm that integrates to 1, so the
-existing MC estimator (`SampledSpectrum::toXYZ` divides by `pdf(i)`) stays
-unbiased — only the variance drops.
+Lane 0 (`u_0 = u`) is the hero. Each lane is an INDEPENDENT-marginal stratified
+sample whose density is exactly `p(λ_i)`, so `pdf_i = p(λ_i)` is correct and the
+MC estimator (`SampledSpectrum::toXYZ` divides by `pdf(i)`) stays UNBIASED —
+only variance drops. Cited: **PBRT-v4 `SampledWavelengths::SampleVisibleWavelengths`**
+(pbr-book §4.5.4, Apache-2.0) — the canonical CDF-space-stratified importance
+sampler; Wilkie 2014 is the hero-collapse structure that keeps dispersion
+unbiased when the secondaries are terminated.
+
+### Correction vs the spec's naive reading (BIAS FOUND & FIXED)
+
+The spec §2 suggested "keep the stratified companion offsets [hero + i*step in
+**wavelength**] but set each companion pdf to the density at its own λ". That
+combination is **biased** under a non-uniform proposal: a companion produced by
+a fixed wavelength offset from the hero has marginal density `p(hero)` *shifted*,
+NOT `p(λ_i)`. Measured bias: the dispersive-prism red channel converged to
+ratio **0.73** vs the uniform baseline (`test_pkg206_prism_convergence`
+::test_converged_importance_matches_uniform_unbiased) before the fix. Stratifying
+in CDF space (above) removes it: each lane's marginal *is* `p(λ_i)`. Under a
+uniform F the CDF-space and wavelength-space strata coincide, so this reduces
+byte-exactly to `sampleUniform`.
 
 Note vs Cycles: Cycles' `prob` is a **dimensionless ratio-to-uniform**
 (multiplies by span). Astroray's `pdf` is a **true density in 1/nm** (divides by

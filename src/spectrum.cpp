@@ -127,12 +127,8 @@ constexpr float kHeroX0 = 552.040271f;    // nm (luminance-weighted centre)
 constexpr float kHeroY0 = 0.0139650380f;  // CDF value at lambdaMin
 constexpr float kHeroN  = 0.9839309253f;  // CDF span over [lambdaMin, lambdaMax]
 
-// Sigmoid CDF F(lambda) = 1/(1+exp(-a(lambda-x0))).
-inline float heroSigmoid(float lambda) {
-    return 1.0f / (1.0f + std::exp(-kHeroA * (lambda - kHeroX0)));
-}
-// pdf in 1/nm at a wavelength whose CDF value is `randL` = F(lambda).
-// F'(lambda)/N = a*F*(1-F)/N ; integrates to 1 over the truncated support.
+// pdf in 1/nm for a lane whose truncated-CDF position is `randL` in [y0, y0+N].
+// F'(lambda)/N = a*F*(1-F)/N with F==randL; integrates to 1 over the support.
 inline float heroPdfFromCdf(float randL) {
     return kHeroA * randL * (1.0f - randL) / kHeroN;
 }
@@ -142,24 +138,27 @@ SampledWavelengths SampledWavelengths::sampleImportance(float u,
                                                         float lambdaMin,
                                                         float lambdaMax) {
     SampledWavelengths swl;
-    float span = lambdaMax - lambdaMin;
-    float step = span / static_cast<float>(kSpectrumSamples);
-    // Inverse logistic CDF: remap u into the truncated CDF window [y0, y0+N],
-    // then invert. Consumes exactly ONE uniform (same draw count as
-    // sampleUniform) so CPU<->GPU dimension counters stay aligned.
-    float rand = kHeroN * u + kHeroY0;
-    float hero = kHeroX0 - std::log(1.0f / rand - 1.0f) / kHeroA;
-    // Guard the analytic range (float round-trip can spill a hair past the edge).
-    if (hero < lambdaMin) hero = lambdaMin;
-    if (hero > lambdaMax) hero = lambdaMax;
+    // Stratify in CDF (uniform) space, then invert per lane — the construction
+    // that keeps importance sampling UNBIASED (PBRT-v4
+    // SampledWavelengths::SampleVisibleWavelengths, Apache-2.0). Each lane's
+    // marginal density is exactly p(lambda_i), so setting pdf_i = p(lambda_i) is
+    // correct. NOTE: offsetting in *wavelength* space (hero + i*step) and using
+    // pdf_i = p(lambda_i) — the naive reading — is BIASED under a non-uniform
+    // proposal (the companion's marginal is p(hero) shifted, not p(lambda_i));
+    // caught by test_pkg206_prism_convergence red-channel ratio. Under a uniform
+    // F this reduces byte-exactly to sampleUniform (F linear ⇒ the two strata
+    // coincide). Consumes ONE uniform (draw count == sampleUniform ⇒ CPU/GPU
+    // dimension counters aligned). See pkg206 research note for the derivation.
+    constexpr float invK = 1.0f / static_cast<float>(kSpectrumSamples);
     for (int i = 0; i < kSpectrumSamples; ++i) {
-        float lam = hero + static_cast<float>(i) * step;
-        if (lam > lambdaMax) lam -= span;
+        float ui = u + static_cast<float>(i) * invK;
+        if (ui >= 1.0f) ui -= 1.0f;                 // wrap in uniform space
+        float randL = kHeroN * ui + kHeroY0;        // truncated CDF window
+        float lam = kHeroX0 - std::log(1.0f / randL - 1.0f) / kHeroA;
+        if (lam < lambdaMin) lam = lambdaMin;       // guard float round-trip
+        if (lam > lambdaMax) lam = lambdaMax;
         swl.lambdas_[i] = lam;
-        // Wilkie 2014: each companion pdf is the proposal density at ITS OWN
-        // lambda. For i==0 (hero) this is F(hero)=rand; recomputing via the
-        // sigmoid keeps a single code path and is bit-consistent GPU-side.
-        swl.pdfs_[i] = heroPdfFromCdf(heroSigmoid(lam));
+        swl.pdfs_[i]    = heroPdfFromCdf(randL);
     }
     return swl;
 }

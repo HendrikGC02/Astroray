@@ -34,7 +34,7 @@ BLEND = 0.25  # Cycles' additive constant on the luminance CMF.
 
 def parse_array(path: Path, name: str) -> np.ndarray:
     text = path.read_text()
-    m = re.search(name + r"\[\d+\]\s*=\s*\{(.*?)\}", text, re.S)
+    m = re.search(name + r"\[\d+\]\s*=\s*\{(.*?)\}", text, re.DOTALL)
     if not m:
         raise RuntimeError(f"array {name} not found in {path}")
     nums = re.findall(r"[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?f?", m.group(1))
@@ -68,7 +68,7 @@ def main() -> int:
     # Fit quality: max abs error of the fitted CDF vs empirical.
     err = float(np.max(np.abs(sigmoid(lam, a, x0) - cdf)))
 
-    print(f"# CIE-1964 10deg luminance-weighted D65 hero-wavelength fit (nm units)")
+    print("# CIE-1964 10deg luminance-weighted D65 hero-wavelength fit (nm units)")
     print(f"# range [{LMIN}, {LMAX}] nm, blend +{BLEND}")
     print(f"a  = {a:.10f}f;   // 1/nm")
     print(f"x0 = {x0:.6f}f;    // nm")
@@ -76,16 +76,10 @@ def main() -> int:
     print(f"N  = {span:.10f}f;")
     print(f"# max |F_fit - F_emp| = {err:.5e}")
 
-    # Cross-check: verify the sampler round-trips and the pdf integrates to 1.
+    # Cross-check: verify the sampler round-trips over the truncated CDF window.
     u = (np.arange(0.5, 1_000_000) / 1_000_000)
     rand = span * u + y0
     lam_s = -np.log(1.0 / rand - 1.0) / a + x0
-    # pdf in 1/nm: a*rand*(1-rand)/N
-    pdf = a * rand * (1.0 - rand) / span
-    # MC integral of pdf over its own support == 1 (importance-consistency):
-    # E_u[1] must hold trivially; instead verify E_u[uniform/pdf] == range span
-    # equivalently that the mean of 1/pdf over sampled lambda equals... just
-    # report the sampled-lambda range and a histogram-free normalization check.
     print(f"# sampled lambda in [{lam_s.min():.3f}, {lam_s.max():.3f}] nm")
     # Riemann check that Integral pdf dlambda == 1 over analytic support:
     lam_grid = np.linspace(lam_s.min(), lam_s.max(), 2_000_000)

@@ -2176,7 +2176,7 @@ def test_pixel_filter():
 
 
 def _edge_gradient_mean(img):
-    """Mean luminance-gradient magnitude — the pkg200 `grad_mean` edge-sharpness
+    """Mean luminance-gradient magnitude - the pkg200 `grad_mean` edge-sharpness
     proxy (higher = sharper edges). Rec.709 luminance, central finite difference."""
     lum = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
     gy, gx = np.gradient(lum.astype(np.float64))
@@ -2184,14 +2184,19 @@ def _edge_gradient_mean(img):
 
 
 def test_pixel_filter_width_sigma_sharpness():
-    """pkg203 — the Cycles-accurate width->sigma mapping (sigma = width/4, Gaussian
+    """pkg203 - the Cycles-accurate width->sigma mapping (sigma = width/4, Gaussian
     support +-1.5*width) must make a wide Gaussian (type 1, width 3) measurably
     BLURRIER than a narrow box (type 0, width 1): box edge gradient >= 1% higher.
     This mirrors the pkg200 `pixel_filter_type` honour predicate `p_grad_sharper`
     on the CPU backend. It FAILS if the mapping regresses to the old sigma=width/6
     (which read only 0.83% on the GPU, below the 1% threshold). CPU-runnable on CI
-    (no GPU), and the byte-mirrored GPU mapping is gated by the pkg200 RTX re-run."""
-    Wt, Ht = 160, 120
+    (no GPU), and the byte-mirrored GPU mapping is gated by the pkg200 RTX re-run.
+
+    Low resolution + high spp keeps the filter-blurred silhouette edge dominant in
+    grad_mean over the (filter-invariant) smooth interior shading and MC noise floor
+    that both filters share; measured margin here is ~2.2-3.7% across seeds, well
+    above the 1% predicate (see .astroray_plan/docs/pkg203-filter-sigma-research.md)."""
+    Wt, Ht = 80, 60
 
     def do_render(filter_type, filter_width):
         r = create_renderer()
@@ -2202,7 +2207,7 @@ def test_pixel_filter_width_sigma_sharpness():
         mat = r.create_material('lambertian', [0.9, 0.9, 0.9], {})
         r.add_sphere([0, 0, -3], 1.0, mat)
         setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], vfov=40, width=Wt, height=Ht)
-        return render_image(r, samples=64, apply_gamma=False)
+        return render_image(r, samples=512, apply_gamma=False)
 
     box_grad   = _edge_gradient_mean(do_render(0, 1.0))  # BOX @ width 1  (narrow)
     gauss_grad = _edge_gradient_mean(do_render(1, 3.0))  # GAUSSIAN @ w 3 (wide/soft)

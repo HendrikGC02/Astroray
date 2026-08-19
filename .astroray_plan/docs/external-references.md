@@ -175,6 +175,14 @@ own because a dependency for 40 lines of code is ridiculous.
   `include/astroray/bssrdf_random_walk.h`. Notes:
   `bssrdf-random-walk-research.md`.
 
+- **Pixel reconstruction-filter width→σ (pkg203)** — Cycles `scene/film.cpp`
+  `filter_func_gaussian` / `filter_func_blackman_harris` + `filter_table`
+  per-kernel width pre-scale (Gaussian ×3, BH ×2; Apache-2.0), giving
+  `σ = width/4`, Gaussian support `±1.5·width`, BH support `±1.0·width`;
+  corroborated by PBRT-v4 §8.8 truncated `GaussianFilter` / windowed
+  `BlackmanHarrisFilter` support conventions (BSD). Notes:
+  `pkg203-filter-sigma-research.md` (builds on `pkg201-pixel-filter-research.md`).
+
 Astroray targets MIT (or Apache 2.0). Compatible:
 - Apache 2.0, BSD-2/3, MIT, ISC — link freely.
 - LGPL-3 — dynamic link only; do not statically bundle.

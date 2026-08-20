@@ -5698,6 +5698,12 @@ class DATA_PT_custom_raytracer_light(AstrorayPanelBase, Panel):
 
         light = context.light
         settings = light.custom_raytracer
+        # pkg213: expose the engine-wired intensity. Blender labels this "Power"
+        # and applies the type-appropriate unit (W / W/m^2); the value it edits is
+        # the same light.energy that convert_lights reads at :4632 and passes to
+        # every add_*_light* call. Visible in ALL spectrum modes (native/preset/
+        # custom_profile) because the engine multiplies it in unconditionally.
+        layout.prop(light, "energy")
         layout.prop(settings, "spectrum_mode")
 
         mode = settings.spectrum_mode

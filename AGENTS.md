@@ -29,6 +29,24 @@ Astroray/
   do not create a parallel one-off. New reusable scripts must be registered
   in `scripts/README.md` in the same commit.**
 
+## Agent Driver (2026-08: opencode primary, Claude Code fallback)
+
+- **opencode** (Go, `opencode-ai` v1.18.x) is the primary agent driver. Config:
+  `opencode.jsonc` (defaults) + `.opencode/agents/*.md` (per-agent model/permission)
+  + `.opencode/plugins/astroray-hooks.ts` (ported `.claude/hooks/*` guards).
+- **Model routing (hybrid):** open-weight models draft/implement/review;
+  `claude -p` signs off on the judgment seats (architect specs, gate-failure
+  root-cause, cpp-abi-guard, cycles-parity, pr-reviewer SIGN-OFF/BLOCK, visual
+  inspection). There is **no Anthropic API key** — the `sign-off` agent shells
+  out to the `claude` CLI (subscription). Never hardcode model ids in
+  skill/hook bodies; routing lives in `.opencode/agents/*` frontmatter +
+  `.claude/skills/delegate/config/tiers.json`.
+- The 15 skills in `.claude/skills/` are **shared**: both harnesses auto-discover
+  them (opencode reads `.claude/skills/` natively). Keep their bodies
+  model-agnostic.
+- Claude Code (`.claude/`, `CLAUDE.md`) remains untouched and fully functional —
+  switch back any time; it is the fallback and last-line-of-defense layer.
+
 ## Build & Test Commands
 
 ```bash

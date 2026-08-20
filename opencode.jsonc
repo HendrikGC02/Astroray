@@ -1,0 +1,46 @@
+{
+  // opencode (Go) is the primary agent driver for Astroray.
+  // Model routing authority lives here (defaults) + .opencode/agents/* frontmatter
+  // (per-agent overrides) + .claude/skills/delegate/config/tiers.json (grunt/implement/verify).
+  // Never hardcode model ids in skills/hooks bodies.
+  "$schema": "https://opencode.ai/config.json",
+
+  // Default primary model — open-weight, near-Opus on well-specified implementation
+  // (owner directive 2026-08-19). Claude remains a claude -p sign-off fallback only.
+  "model": "opencode-go/deepseek-v4-pro",
+
+  // Cheap model for title/summary/compaction overhead.
+  "small_model": "opencode-go/deepseek-v4-flash",
+
+  // Orchestrator -> implementer -> reviewer chains need one extra nesting level.
+  "subagent_depth": 2,
+
+  // Windows: PowerShell 7 (better UTF-8 than 5.1; CLAUDE.md requires UTF-8 output).
+  "shell": "pwsh",
+
+  // Version-pin via package manager; don't self-update mid-run.
+  "autoupdate": false,
+
+  // Routing index for the knowledge base (AGENTS.md is auto-loaded separately).
+  "instructions": ["KNOWLEDGE.md"],
+
+  "references": {
+    "cycles": {
+      "path": "external/cycles_light_tree",
+      "description": "Vendored Cycles source (light-tree kernel + scene). Use for cycles-parity review of integrator/BSDF/light-sampler changes."
+    }
+  },
+
+  "mcp": {
+    "blender-mcp": {
+      "type": "local",
+      "command": ["uvx", "blender-mcp"],
+      "enabled": true,
+      "environment": {
+        "BLENDER_HOST": "localhost",
+        "BLENDER_PORT": "9876",
+        "DISABLE_TELEMETRY": "true"
+      }
+    }
+  }
+}

@@ -178,7 +178,7 @@ def _find_blender() -> Path | None:
     # pkg178-D1: Blender 5.2 LTS is the parity oracle (installed alongside 5.1);
     # prefer it, falling back to 5.1/5.0 only if 5.2 is absent.
     for c in (r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe",
-              r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe",
+              r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe",
               r"C:\Program Files\Blender Foundation\Blender 5.0\blender.exe"):
         if Path(c).is_file():
             return Path(c)

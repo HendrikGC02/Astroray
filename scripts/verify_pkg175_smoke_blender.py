@@ -2,7 +2,7 @@
 
 Run inside Blender (headless):
 
-    "C:/Program Files/Blender Foundation/Blender 5.1/blender.exe" \
+    "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" \
         --background --factory-startup \
         --python scripts/verify_pkg175_smoke_blender.py
 

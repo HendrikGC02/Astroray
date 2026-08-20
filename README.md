@@ -1,7 +1,7 @@
 # Astroray
 
 A physically based path tracer with a plugin core, a spectral pipeline, a
-Blender 5.1 addon, and a general-relativistic mode for astrophysical
+Blender 5.2 addon, and a general-relativistic mode for astrophysical
 scenes. C++17 / CUDA on the inside, pybind11 + Python API on the outside.
 
 The design goal is **pluggability**: materials, shapes, lights, integrators,
@@ -34,7 +34,7 @@ Adding a feature usually means dropping in one file.
 | **GR / astrophysics** | Kerr metric (pkg40, pkg41), Schwarzschild extraction, synchrotron emission with Pandya 2016 fits and bipolar relativistic jets (pkg42), slim disk accretion model (pkg43, Abramowicz 1988 / Sadowski 2009). Spectral wavelengths transport gravitational redshift through `MinkowskiMetric` (pkg67). |
 | **Denoising** | OIDN persistent device with CUDA backend (pkg68), OptiX denoiser with HDR/AOV models (pkg70), OptiX temporal denoiser via motion vectors (pkg73). |
 | **GPU** | CUDA **wavefront path tracer** (pkg55) — staged intersect/shade with material-sorted buckets, path regeneration, dedicated NEE shadow stage, any-hit shadow rays — measured **1.50× faster** than the previous megakernel on the 7-material gate scene, at per-channel image parity. Two-level BVH (TLAS/BLAS) instancing with transform-only refit (pkg114), GPU light tree for many-light scenes (pkg86-B), deformation motion blur (pkg88-C.0), multi-wavelength spectral rendering with measured CPU/GPU parity (pkg54 chain). |
-| **Blender** | Blender 5.1 addon: viewport rendering at **Cycles-OPTIX parity** (in-Blender A/B: steady-state p99 0.84× Cycles, pkg81), depsgraph-driven incremental scene sync (pkg56), persistent viewport session (pkg52), native shader nodes (pkg57), **Cycles-parity procedural textures** — Noise/Voronoi/Wave/Brick/Magic/Gradient/Checker ported from Cycles SVM, bit-exact hash family (pkg115), HDRI/World parity (pkg63), automatic GPU instancing for repeated meshes (pkg114). |
+| **Blender** | Blender 5.2 addon: viewport rendering at **Cycles-OPTIX parity** (in-Blender A/B: steady-state p99 0.84× Cycles, pkg81), depsgraph-driven incremental scene sync (pkg56), persistent viewport session (pkg52), native shader nodes (pkg57), **Cycles-parity procedural textures** — Noise/Voronoi/Wave/Brick/Magic/Gradient/Checker ported from Cycles SVM, bit-exact hash family (pkg115), HDRI/World parity (pkg63), automatic GPU instancing for repeated meshes (pkg114). |
 | **I/O** | Pure-Python `.blend` reader walking Blender's SDNA — no `bpy` runtime dependency (pkg76). |
 
 ---
@@ -48,7 +48,7 @@ All hardware-measured numbers are from the project workstation (NVIDIA RTX
 | Validation | Measurement | Source |
 |---|---|---|
 | GPU wavefront vs megakernel | **1.50× faster** on the 7-material contact sheet (256² @ 512 spp, cool-run gate); image agreement per-channel ratio 0.997 | pkg55 Phase B′, PR #459; re-measured 2026-06-12 |
-| In-Blender viewport vs Cycles | Steady-state pan-frame **p99 = 0.84× Cycles-OPTIX** (target ≤ 1.2×), p50 0.98× — 99,458-tri scene, Blender 5.1 A/B | pkg81, PR #463 |
+| In-Blender viewport vs Cycles | Steady-state pan-frame **p99 = 0.84× Cycles-OPTIX** (target ≤ 1.2×), p50 0.98× — 99,458-tri scene, Blender 5.2 A/B | pkg81, PR #463 |
 | Instancing TLAS refit | Transform-only edit re-uploads **19.5%** of a full geometry upload (≤ 50% gate); refit byte-identical to a full rebuild | pkg114, PR #468 |
 | GPU light tree | Pick parity **≥ 99.5%** vs CPU tree over 10k queries; 0.09–0.5 ms upload @ 10k lights | pkg86-B, PR #434 |
 | Cycles parity (Cornell, CPU) | SSIM **0.9536** vs Cycles 4.x CPU EXR reference | pkg71 |
@@ -264,7 +264,7 @@ Then in Blender: `Edit > Preferences > Get Extensions > Install from Disk...`
 ```
 Astroray/
 ├── apps/                    # Standalone CLI entrypoint
-├── blender_addon/           # Blender 5.1 RenderEngine addon
+├── blender_addon/           # Blender 5.2 RenderEngine addon
 ├── docs/                    # Docs, ADRs, agent context, images, renders
 ├── include/                 # Header-only renderer core
 │   ├── raytracer.h          # Vec3, Ray, Camera, BVH, Renderer, Framebuffer

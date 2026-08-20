@@ -36,7 +36,7 @@ param(
     [switch]$SkipBuild,
     [ValidateSet('cpu', 'cuda', 'tcnn', 'auto')]
     [string]$Backend = 'cuda',
-    [string]$Blender = 'C:/Program Files/Blender Foundation/Blender 5.1/blender.exe',
+    [string]$Blender = 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe',
     [string]$Python = 'python'
 )
 

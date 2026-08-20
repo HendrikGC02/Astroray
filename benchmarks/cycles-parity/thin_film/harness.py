@@ -175,7 +175,7 @@ def _find_blender() -> Path | None:
         return Path(env)
     # pkg178-D1: Blender 5.2 LTS is the parity oracle. Prefer it explicitly.
     for c in (r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe",
-              r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe"):
+              r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"):
         if Path(c).is_file():
             return Path(c)
     on_path = shutil.which("blender")

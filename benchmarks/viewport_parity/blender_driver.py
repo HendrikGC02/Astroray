@@ -28,7 +28,7 @@ How to run
 ----------
 ::
 
-    "C:/Program Files/Blender Foundation/Blender 5.1/blender.exe" ^
+    "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" ^
         --background ^
         scenes/cornell_99k.blend ^
         --python benchmarks/viewport_parity/blender_driver.py ^

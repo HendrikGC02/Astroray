@@ -27,7 +27,7 @@ if str(REPO_ROOT) not in sys.path:
 from benchmarks.blender_parity import harness as H  # noqa: E402
 from benchmarks.blender_parity import triage as T  # noqa: E402
 
-BLENDER = Path("C:/Program Files/Blender Foundation/Blender 5.1/blender.exe")
+BLENDER = Path("C:/Program Files/Blender Foundation/Blender 5.2/blender.exe")
 
 
 # --------------------------------------------------------------------------- #
@@ -333,7 +333,7 @@ def test_write_reports_noise_limited_is_not_followup_and_is_audited(tmp_path):
 @pytest.mark.gpu
 def test_differential_run_local_host(tmp_path):
     if not BLENDER.exists():
-        pytest.skip("Blender 5.1 not installed - local-host gate")
+        pytest.skip("Blender 5.2 not installed - local-host gate")
     if H._pyd_dir(REPO_ROOT) is None and H._pyd_dir(REPO_ROOT.parent / "Astroray") is None:
         pytest.skip("no built astroray .pyd - build the addon first")
 
@@ -458,7 +458,7 @@ def test_backdrop_is_parity_safe(tmp_path):
     """
     blender = H._find_blender()
     if blender is None or not BLENDER.exists():
-        pytest.skip("Blender 5.1 not installed - local-host gate")
+        pytest.skip("Blender 5.2 not installed - local-host gate")
     build_dir = H._pyd_dir(REPO_ROOT) or H._pyd_dir(REPO_ROOT.parent / "Astroray")
     if build_dir is None:
         pytest.skip("no built astroray .pyd - build the addon first")

@@ -15,7 +15,7 @@ full developer workflow and the Windows footguns.
 | Visual Studio 2022 Build Tools | MSVC v143 (14.4x) | C++ workload. The VS CMake generator finds it itself — no `vcvars` needed for `configure_and_build.bat`. |
 | CUDA Toolkit | 12.6+ (12.8 workstation, 13.2 laptop) | `nvcc` on PATH or default install path. Targets `sm_75;86;89` (see "GPU architectures"). With several toolkits installed, the CMake VS integration picks the **newest** — not the one on PATH. |
 | CMake | 3.24+ | VS generator used for the canonical build. |
-| Python | 3.13 x64 | Must match Blender 5.1's bundled Python minor version for addon work. `winget install Python.Python.3.13`. `pip install -r requirements.txt`. |
+| Python | 3.13 x64 | Must match Blender 5.2's bundled Python minor version for addon work. `winget install Python.Python.3.13`. `pip install -r requirements.txt`. |
 | Blender | 5.1 | Only for addon work / cross-engine benchmarks. Auto-detected at the default install path, or set `BLENDER_EXE`. |
 | OptiX SDK | 8.x / 9.x (optional) | OptiX denoiser. Auto-detected from `C:\ProgramData\NVIDIA Corporation\OptiX SDK 9.x.x\` or `OPTIX_INSTALL_DIR`. Without it, the denoiser falls back to OIDN. |
 | OIDN | 2.4+ (optional install) | CMake finds a local install (e.g. `C:\oidn`, `C:\Program Files\Intel\OpenImageDenoise`) and otherwise **fetches the v2.4.1 prebuilt automatically** during configure — a fresh machine needs nothing. |
@@ -50,7 +50,7 @@ Astroray on Windows is always built **twice**, into two separate build dirs:
    ```
 
    The script always passes `-DASTRORAY_DISABLE_OPENMP=ON`: **OpenMP
-   deadlocks inside Blender 5.1 on Windows with BOTH MinGW libgomp and MSVC
+   deadlocks inside Blender 5.2 on Windows with BOTH MinGW libgomp and MSVC
    vcomp** (diagnosed in PR #471). It stages `dist/astroray/` (addon +
    `.pyd` + CUDA runtime DLLs + OIDN DLLs) and zips
    `dist/astroray-<version>.zip` for `Install from Disk...`.

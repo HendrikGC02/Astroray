@@ -26,7 +26,7 @@ def _find_blender():
 
     # Default install paths (Windows)
     candidates = [
-        Path(r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe"),
+        Path(r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"),
         Path(r"C:\Program Files\Blender Foundation\Blender 5.0\blender.exe"),
         Path(r"C:\Program Files\Blender Foundation\Blender 4.3\blender.exe"),
     ]

@@ -166,7 +166,7 @@ def _find_blender_exe() -> str | None:
     Priority order:
       1. $BLENDER_EXE env var.
       2. `blender` on PATH (via shutil.which).
-      3. Windows default install: `C:/Program Files/Blender Foundation/Blender 5.1/blender.exe`.
+      3. Windows default install: `C:/Program Files/Blender Foundation/Blender 5.2/blender.exe`.
     """
     import shutil
     env = os.environ.get("BLENDER_EXE")
@@ -175,7 +175,7 @@ def _find_blender_exe() -> str | None:
     on_path = shutil.which("blender")
     if on_path:
         return on_path
-    win_default = r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe"
+    win_default = r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"
     if Path(win_default).exists():
         return win_default
     return None

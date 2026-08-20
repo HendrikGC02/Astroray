@@ -17,7 +17,7 @@ nonzero per row.
 One command (holds the GPU lock for the whole sweep — batch it):
     python scripts/verify_pkg200_honour_matrix_run.py \
         --addon-dir dist/astroray \
-        --blender "C:/Program Files/Blender Foundation/Blender 5.1/blender.exe" \
+        --blender "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" \
         --blender "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" \
         --out test_results/pkg200_honour
 
@@ -261,7 +261,7 @@ def _find_blenders(explicit: list[str]) -> list[Path]:
     if explicit:
         return [Path(b) for b in explicit]
     found = []
-    for c in (r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe",
+    for c in (r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe",
               r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"):
         if Path(c).is_file():
             found.append(Path(c))

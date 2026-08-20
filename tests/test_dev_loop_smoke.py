@@ -21,7 +21,7 @@ if str(SCRIPTS) not in sys.path:
 
 import dev_loop_guards as g
 
-BLENDER = Path("C:/Program Files/Blender Foundation/Blender 5.1/blender.exe")
+BLENDER = Path("C:/Program Files/Blender Foundation/Blender 5.2/blender.exe")
 STAGE_DIR = REPO_ROOT / "dist" / "astroray"
 
 
@@ -150,7 +150,7 @@ def test_sentinel_passed_false_when_absent():
 @pytest.mark.gpu
 def test_dev_loop_smoke_local_host():
     if not BLENDER.exists():
-        pytest.skip("Blender 5.1 not installed - local-host gate")
+        pytest.skip("Blender 5.2 not installed - local-host gate")
     pwsh = shutil.which("pwsh") or shutil.which("powershell")
     if pwsh is None:
         pytest.skip("PowerShell not found")

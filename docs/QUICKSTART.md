@@ -174,7 +174,7 @@ sudo apt install python3.13-dev
 python scripts/build/build_blender_addon.py
 
 # Target a specific Blender install
-python scripts/build/build_blender_addon.py --blender "C:/Program Files/Blender Foundation/Blender 5.1/blender.exe"
+python scripts/build/build_blender_addon.py --blender "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe"
 
 # Specify Python explicitly (if auto-detection fails)
 python scripts/build/build_blender_addon.py --python-exe C:/Python313/python.exe

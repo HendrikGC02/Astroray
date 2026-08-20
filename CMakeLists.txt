@@ -631,7 +631,7 @@ if(BUILD_PYTHON_MODULE)
         FetchContent_Declare(
             pybind11
             GIT_REPOSITORY https://github.com/pybind/pybind11.git
-            # v2.12+ is required for Python 3.13 support (Blender 5.1 ships 3.13)
+            # v2.12+ is required for Python 3.13 support (Blender 5.2 ships 3.13)
             GIT_TAG v2.13.6
         )
         FetchContent_MakeAvailable(pybind11)
@@ -774,7 +774,7 @@ if(BUILD_BLENDER_MODULE)
         FetchContent_Declare(
             pybind11
             GIT_REPOSITORY https://github.com/pybind/pybind11.git
-            # v2.12+ is required for Python 3.13 support (Blender 5.1 ships 3.13)
+            # v2.12+ is required for Python 3.13 support (Blender 5.2 ships 3.13)
             GIT_TAG v2.13.6
         )
         FetchContent_MakeAvailable(pybind11)
@@ -817,7 +817,7 @@ if(BUILD_BLENDER_MODULE)
         COPYONLY
     )
 
-    # Installation for Blender 5.1 extensions directory.
+    # Installation for Blender 5.2 extensions directory.
     # Blender 5.x uses `extensions/user_default/` instead of `scripts/addons/`
     # for manifest-based extensions (blender_manifest.toml).
     if(WIN32)

@@ -54,7 +54,7 @@ plugins/                       Plugin implementations (drop-in .cpp files):
   materials/                     principled.cpp, disney.cpp, lambertian.cpp,
                                   metal.cpp, dielectric.cpp, thin_glass.cpp
   passes/ shapes/ textures/      oidn_denoiser.cpp, sphere.cpp, noise.cpp
-blender_addon/                 Blender 5.1 RenderEngine addon (Python)
+blender_addon/                 Blender 5.2 RenderEngine addon (Python)
 ```
 
 The plugin registry pattern (`Registry<T>`, `ASTRORAY_REGISTER_*` macros,

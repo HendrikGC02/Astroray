@@ -1,4 +1,4 @@
-# NOTE: Blender 5.1+ uses blender_manifest.toml (see sibling file). bl_info is kept
+# NOTE: Blender 5.2+ uses blender_manifest.toml (see sibling file). bl_info is kept
 # as a fallback for Blender 4.x — Blender prefers the manifest when both exist.
 bl_info = {
     "name": "Astroray Renderer",

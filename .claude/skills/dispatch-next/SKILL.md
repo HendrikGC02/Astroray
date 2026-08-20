@@ -12,7 +12,7 @@ already have an open PR or an active worktree.
 
 ## Routing rules
 
-0. **Tier check (cost routing).** Before spawning a Claude implementer, decide
+0. **Tier check (cost routing).** Before spawning the `package-implementer` agent, decide
    whether the package qualifies for open-model delegation via the `delegate`
    skill (`implement` tier — see `.claude/skills/delegate/SKILL.md`):
    - Qualifies: well-specified small fix or mechanical change with crisp
@@ -22,12 +22,13 @@ already have an open PR or an active worktree.
      ambiguous, BSDF/integrator/light-transport math, ABI-touching headers.
    If it qualifies, dispatch through `delegate --tier implement --agent worker`
    in the worktree and have the parent (you) verify evidence + run gates.
-   When in doubt, route to `package-implementer` (Claude) as before.
+   When in doubt, route to `package-implementer` (open-weight) as before.
 
-1. Otherwise spawn `package-implementer` in a fresh worktree
-   (use `EnterWorktree` or `superpowers:using-git-worktrees`).
-   Codex is retired — legacy `Track: E` / `Codex-paste-ready` tags in spec
-   frontmatter are inert and route here too.
+1. Otherwise spawn the `package-implementer` subagent in a fresh worktree
+   (create it with `git worktree add` per the agent's worktree discipline —
+   there is no `EnterWorktree` under opencode). Codex is retired — legacy
+   `Track: E` / `Codex-paste-ready` tags in spec frontmatter are inert and
+   route here too.
 
 2. Pass to the spawned agent:
    - The drop-in prompt from NEXT_STAGE_REPORT.md §3 for that package

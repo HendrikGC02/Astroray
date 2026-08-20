@@ -1,6 +1,6 @@
 ---
 name: roadmap-orchestrator
-description: One bounded roadmap-advance tick — dispatch ready packages, dual-gate PRs (CI + serialized local hardware test), auto-merge, write the daily standup. Cron-driven via /schedule.
+description: One bounded roadmap-advance tick — dispatch ready packages, dual-gate PRs (CI + serialized local hardware test), auto-merge, write the daily standup. Cron-driven via Windows Task Scheduler (opencode run).
 invocation: /roadmap-orchestrator
 ---
 
@@ -80,40 +80,30 @@ In this order, respecting caps already applied by the engine:
 4. `expire_closed(ledger, open_numbers)` where `open_numbers` is a Python `set` of int PR numbers from the `gh pr list`; then `save_ledger(".astroray_plan/.orchestrator-state.json", ledger)`.
 5. `release_lock(.astroray_plan/.orchestrator.lock)` (also release on every abort path).
 
-## Model tiers (updated 2026-08-07 — architect moved Fable 5 -> Opus 4.8, same 2026-08-01 reliability rationale; the tick's own top-level session is now pinned `--model claude-sonnet-5` on the scheduled task, since routing/dispatch is mechanical and every judgment-heavy step below already carries its own model pin that survives regardless of the parent session's default)
+## Model routing (authority lives in agent frontmatter, not this body)
 
-Agent model assignments live in each `.claude/agents/<name>.md` frontmatter. Current mapping:
+Per-agent model assignments live in the agent frontmatter — `.opencode/agents/*.md`
+(opencode, primary) and `.claude/agents/*.md` (Claude Code, fallback) — plus the
+delegate tiers in `.claude/skills/delegate/config/tiers.json`. **Never hardcode a
+model id here.** The tick's own session runs on a cheap open-weight model; every
+judgment-heavy step below carries its own agent + model via its frontmatter.
 
-| Agent                     | Model             | Why                                                        |
-|---------------------------|-------------------|------------------------------------------------------------|
-| `architect`               | `claude-opus-4-8` | Direction-setting / research — high reasoning altitude       |
-| `package-implementer`     | `claude-opus-4-8` | Implementation diligence (see memory `implementer-ships-without-building`) |
-| `pr-reviewer`             | `claude-opus-4-8` | Merge gate is the last line of defence                      |
-| `gate-failure-reviewer`   | `claude-opus-4-8` | Root-cause diagnosis                                        |
-| `cpp-abi-guard`           | `claude-opus-4-8` | ABI footguns are subtle                                     |
-| `cycles-parity-reviewer`  | `claude-opus-4-8` | Math/paper parity                                           |
-| `hardware-verifier`       | `claude-sonnet-5` | Runs tests + reads PNGs; mechanical with multimodal          |
-| `docs-updater`            | `claude-sonnet-5` | Mechanical doc edits                                        |
+**Independent sign-off (Steps 2.2, 2.4, 2.5):** the independent review of implementer
+output MUST be produced by a different lineage than the drafter. Dispatch the `sign-off`
+agent (which runs `claude -p` — Claude Code, a different provider than the open-weight
+drafter) with an adversarial prompt. The verdict is `SIGN-OFF` or `BLOCK`. Failing to
+dispatch the `sign-off` agent silently defeats the rule. BLOCK halts the push (see
+`gate-failure-reviewer.md`).
 
-**Different-model rule (Steps 2.2, 2.4, 2.5):** since `package-implementer` is now
-`claude-opus-4-8`, an independent review of implementer output MUST be dispatched with an
-explicit `model` override of **`claude-opus-5`** — passing no override inherits Opus 4.8
-and silently defeats the rule. Opus 5 is fine here specifically because this call is
-review-only (a SIGN-OFF/BLOCK verdict on an existing diff, not authored prose) — the
-owner's Opus-5-writing-style aversion (memory `opus-4-8-not-opus-5-for-agents`) is about
-generated output, and doesn't apply to a read-only judgment call (owner, 2026-08-07). Pass
-`model` on the `Agent` call; do not rely on the default.
-
-**Outside-eye pre-pass (cheap, additive, non-authoritative — owner, 2026-08-07):** before
-the Opus 5 review at each of the three sites, run
-`python .claude/skills/delegate/scripts/delegate.py --tier verify --model
-opencode-go/deepseek-v4-pro --agent critic --prompt "..."` on the same diff/spec. Its
-findings are LEADS, never a verdict — fold them into the Opus 5 reviewer's prompt (e.g.
-"a cheap first pass flagged: <findings>; weigh and verify before your SIGN-OFF/BLOCK") per
-the evidence contract in `.claude/skills/delegate/SKILL.md`. The DeepSeek pass never
-itself produces SIGN-OFF/BLOCK and never blocks a merge on its own; if opencode/the model
-is unavailable, skip it silently and proceed straight to the Opus 5 review — it's a bonus
-signal, not a dependency.
+**Outside-eye pre-pass (cheap, additive, non-authoritative):** before the sign-off at each
+of the three sites, run
+`python .claude/skills/delegate/scripts/delegate.py --tier verify --agent critic
+--prompt "..."` on the same diff/spec. Its findings are LEADS, never a verdict — fold
+them into the `sign-off` prompt (e.g. "a cheap first pass flagged: <findings>; weigh and
+verify before your SIGN-OFF/BLOCK"). The critic pass never itself produces SIGN-OFF/BLOCK
+and never blocks a merge on its own; if opencode/the model is unavailable, skip it
+silently and proceed straight to the `sign-off` review — it's a bonus signal, not a
+dependency.
 
 ## Safety rails (non-negotiable — see design spec §5)
 - One tick at a time (tick lock); one CUDA job at a time (GPU lock).
@@ -126,32 +116,16 @@ signal, not a dependency.
 - `--dry-run` = zero side effects.
 - **Worktree/branch GC is merged-only, never force-delete on doubt.** Only PRs with `state == "MERGED"` AND content in `origin/main` (squash-aware) AND clean worktree are removed. No staleness/age heuristic. Escalate all ambiguous cases as Action items (pkg97 § Phase 1 hard invariant).
 
-## /schedule wiring (one-time owner setup — see Task 11)
+## Recurrence (Windows Task Scheduler, not /schedule)
 
-Run once by the owner to start the engine. The `/schedule` skill is a
-natural-language front-end to the cron tools — describe the job in prose,
-do NOT use CLI flags (there is no `create`/`--name`/`--command` syntax).
-Say, verbatim intent:
+opencode has no built-in cron. Recurrence is a Windows Task Scheduler task
+(`Astroray-RoadmapOrchestrator`) that runs `scripts/orchestrator_tick_opencode.ps1`
+every 10 minutes, which pins the environment + PATH and invokes
+`opencode run -m opencode-go/deepseek-v4-pro "Run the roadmap-orchestrator skill —
+one bounded tick."`. The tick lock makes exact firing time immaterial.
 
-> /schedule Run `/roadmap-orchestrator` every 10 minutes, durably — it
-> must survive Claude restarts.
+**Pause/stop:** `schtasks /change /tn Astroray-RoadmapOrchestrator /disable` (or
+`/enable`). Disable it during `team-overnight` runs to avoid a second driver.
 
-This schedules a recurring job (cron `*/10 * * * *`; an off-:00/:30 minute
-offset such as `3-53/10 * * * *` is equally fine and slightly preferred
-for fleet hygiene since the tick cadence is approximate) with
-**`durable: true`** so it is written to `.claude/scheduled_tasks.json` and
-survives restarts. Without `durable`, the job is in-memory only and dies
-when this Claude session ends — the engine would silently stop. The tick
-lock makes exact firing time immaterial, so jitter/offset is harmless.
-
-**7-day auto-expiry (important):** the harness auto-expires recurring cron
-jobs after 7 days — it fires one final time, then deletes the job. The
-engine will silently stop after a week. Re-arm it weekly (re-issue the
-same `/schedule` request); keep a standing reminder to do so.
-
-**Pause/stop:** `/schedule list` to see the job and its **job ID**, then
-`/schedule delete <job-id>`. Deletion is by the ID returned at creation,
-not by name.
-
-The standup is updated every tick and finalized on day rollover, so no
-separate daily cron is needed.
+The standup is updated every tick and finalized on day rollover, so no separate daily
+cron is needed.

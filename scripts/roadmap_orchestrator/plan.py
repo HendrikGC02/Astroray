@@ -5,7 +5,14 @@ from roadmap_orchestrator.queue import order_hw_queue
 
 # Actions that suppress re-dispatching a CI/rebase fixer or gate-failure-reviewer.
 # gate_review_dispatched prevents re-firing the reviewer on every tick (pattern #2).
-_DEBOUNCE_ACTIONS = {"rebase_dispatched", "ci_dispatched", "gate_review_dispatched"}
+# ci_failing_hold_for_owner_bias is the owner-held CI state: do NOT auto-re-dispatch
+# a fixer while the owner is holding the PR for review (2026-08-20).
+_DEBOUNCE_ACTIONS = {
+    "rebase_dispatched",
+    "ci_dispatched",
+    "gate_review_dispatched",
+    "ci_failing_hold_for_owner_bias",
+}
 
 # Actions that suppress re-dispatching the HW verifier for a PR.
 # hw_blocked_buildenv covers MSVC/CUDA env absent in remote contexts (pattern #7).

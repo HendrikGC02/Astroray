@@ -8,6 +8,8 @@
 .claude/settings.local.json
 .astroray_plan/tracker/local.toml
 .astroray_plan/session-journal.md
+.astroray_plan/.orchestrator.lock
+.astroray_plan/.orchestrator.gpu.lock
 
 # Build directories
 build/

@@ -1,0 +1,548 @@
+[
+  {
+    "model": "opencode-go/deepseek-v4-pro",
+    "task": "retrieve",
+    "status": "completed",
+    "wall_s": 16.4,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 2,
+    "tokens": {
+      "total": 20392,
+      "input": 733,
+      "output": 75,
+      "reasoning": 0,
+      "cache": {
+        "write": 0,
+        "read": 19584
+      }
+    },
+    "cost": 0.001063128,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/deepseek-v4-pro",
+    "task": "navigate",
+    "status": "completed",
+    "wall_s": 28.7,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 5,
+    "tokens": {
+      "total": 29217,
+      "input": 144,
+      "output": 202,
+      "reasoning": 71,
+      "cache": {
+        "write": 0,
+        "read": 28800
+      }
+    },
+    "cost": 0.00126918,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/deepseek-v4-pro",
+    "task": "summarize",
+    "status": "completed",
+    "wall_s": 18.6,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 0,
+    "tokens": {
+      "total": 20003,
+      "input": 19376,
+      "output": 236,
+      "reasoning": 391,
+      "cache": {
+        "write": 0,
+        "read": 0
+      }
+    },
+    "cost": 0.01402962,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/deepseek-v4-flash",
+    "task": "retrieve",
+    "status": "completed",
+    "wall_s": 17.4,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 4,
+    "tokens": {
+      "total": 20752,
+      "input": 730,
+      "output": 106,
+      "reasoning": 76,
+      "cache": {
+        "write": 0,
+        "read": 19840
+      }
+    },
+    "cost": 0.0004196,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/deepseek-v4-flash",
+    "task": "navigate",
+    "status": "completed",
+    "wall_s": 19.2,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 4,
+    "tokens": {
+      "total": 26509,
+      "input": 202,
+      "output": 195,
+      "reasoning": 0,
+      "cache": {
+        "write": 0,
+        "read": 26112
+      }
+    },
+    "cost": 0.000355924,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/deepseek-v4-flash",
+    "task": "summarize",
+    "status": "completed",
+    "wall_s": 16.0,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 0,
+    "tokens": {
+      "total": 20370,
+      "input": 19378,
+      "output": 390,
+      "reasoning": 602,
+      "cache": {
+        "write": 0,
+        "read": 0
+      }
+    },
+    "cost": 0.00491788,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/glm-5.3",
+    "task": "retrieve",
+    "status": "completed",
+    "wall_s": 27.1,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 2,
+    "tokens": {
+      "total": 19312,
+      "input": 669,
+      "output": 51,
+      "reasoning": 32,
+      "cache": {
+        "write": 0,
+        "read": 18560
+      }
+    },
+    "cost": 0.0061274,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/glm-5.3",
+    "task": "navigate",
+    "status": "completed",
+    "wall_s": 60.9,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 3,
+    "tokens": {
+      "total": 22821,
+      "input": 249,
+      "output": 175,
+      "reasoning": 61,
+      "cache": {
+        "write": 0,
+        "read": 22336
+      }
+    },
+    "cost": 0.00719436,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/glm-5.3",
+    "task": "summarize",
+    "status": "completed",
+    "wall_s": 49.5,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 2,
+    "tokens": {
+      "total": 23570,
+      "input": 4620,
+      "output": 355,
+      "reasoning": 291,
+      "cache": {
+        "write": 0,
+        "read": 18304
+      }
+    },
+    "cost": 0.01406944,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/kimi-k2.7-code",
+    "task": "retrieve",
+    "status": "completed",
+    "wall_s": 24.7,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 2,
+    "tokens": {
+      "total": 17061,
+      "input": 1106,
+      "output": 33,
+      "reasoning": 50,
+      "cache": {
+        "write": 0,
+        "read": 15872
+      }
+    },
+    "cost": 0.00439838,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/kimi-k2.7-code",
+    "task": "navigate",
+    "status": "completed",
+    "wall_s": 58.0,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 3,
+    "tokens": {
+      "total": 21071,
+      "input": 664,
+      "output": 190,
+      "reasoning": 249,
+      "cache": {
+        "write": 0,
+        "read": 19968
+      }
+    },
+    "cost": 0.00618072,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/kimi-k2.7-code",
+    "task": "summarize",
+    "status": "completed",
+    "wall_s": 34.1,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 0,
+    "tokens": {
+      "total": 16910,
+      "input": 16072,
+      "output": 187,
+      "reasoning": 651,
+      "cache": {
+        "write": 0,
+        "read": 0
+      }
+    },
+    "cost": 0.0186204,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/qwen3.7-plus",
+    "task": "retrieve",
+    "status": "completed",
+    "wall_s": 15.8,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 2,
+    "tokens": {
+      "total": 20296,
+      "input": 1122,
+      "output": 42,
+      "reasoning": 60,
+      "cache": {
+        "write": 0,
+        "read": 19072
+      }
+    },
+    "cost": 0.00137488,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/qwen3.7-plus",
+    "task": "navigate",
+    "status": "completed",
+    "wall_s": 31.8,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 7,
+    "tokens": {
+      "total": 25497,
+      "input": 1919,
+      "output": 264,
+      "reasoning": 18,
+      "cache": {
+        "write": 0,
+        "read": 23296
+      }
+    },
+    "cost": 0.00215064,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/qwen3.7-plus",
+    "task": "summarize",
+    "status": "completed",
+    "wall_s": 17.5,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 0,
+    "tokens": {
+      "total": 19779,
+      "input": 1789,
+      "output": 201,
+      "reasoning": 381,
+      "cache": {
+        "write": 0,
+        "read": 17408
+      }
+    },
+    "cost": 0.00234312,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/mimo-v2.5",
+    "task": "retrieve",
+    "status": "completed",
+    "wall_s": 86.6,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 3,
+    "tokens": {
+      "total": 21031,
+      "input": 787,
+      "output": 66,
+      "reasoning": 18,
+      "cache": {
+        "write": 0,
+        "read": 20160
+      }
+    },
+    "cost": 0.000190148,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/mimo-v2.5",
+    "task": "navigate",
+    "status": "completed",
+    "wall_s": 41.0,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 10,
+    "tokens": {
+      "total": 26809,
+      "input": 207,
+      "output": 234,
+      "reasoning": 0,
+      "cache": {
+        "write": 0,
+        "read": 26368
+      }
+    },
+    "cost": 0.0001683304,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/mimo-v2.5",
+    "task": "summarize",
+    "status": "completed",
+    "wall_s": 52.9,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 2,
+    "tokens": {
+      "total": 24143,
+      "input": 3731,
+      "output": 458,
+      "reasoning": 178,
+      "cache": {
+        "write": 0,
+        "read": 19776
+      }
+    },
+    "cost": 0.0007557928,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/hy3",
+    "task": "retrieve",
+    "status": "completed",
+    "wall_s": 18.5,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 1,
+    "tokens": {
+      "total": 19966,
+      "input": 177,
+      "output": 70,
+      "reasoning": 7,
+      "cache": {
+        "write": 0,
+        "read": 19712
+      }
+    },
+    "cost": 9.492e-05,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/hy3",
+    "task": "navigate",
+    "status": "completed",
+    "wall_s": 26.3,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 4,
+    "tokens": {
+      "total": 29860,
+      "input": 29714,
+      "output": 146,
+      "reasoning": 0,
+      "cache": {
+        "write": 0,
+        "read": 0
+      }
+    },
+    "cost": 0.00053058,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/hy3",
+    "task": "summarize",
+    "status": "completed",
+    "wall_s": 15.4,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 0,
+    "tokens": {
+      "total": 19688,
+      "input": 17569,
+      "output": 319,
+      "reasoning": 264,
+      "cache": {
+        "write": 0,
+        "read": 1536
+      }
+    },
+    "cost": 0.000356445,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/minimax-m3",
+    "task": "retrieve",
+    "status": "completed",
+    "wall_s": 21.5,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 3,
+    "tokens": {
+      "total": 19704,
+      "input": 588,
+      "output": 44,
+      "reasoning": 0,
+      "cache": {
+        "write": 0,
+        "read": 19072
+      }
+    },
+    "cost": 0.00137352,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/minimax-m3",
+    "task": "navigate",
+    "status": "completed",
+    "wall_s": 28.6,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 8,
+    "tokens": {
+      "total": 29892,
+      "input": 836,
+      "output": 256,
+      "reasoning": 0,
+      "cache": {
+        "write": 0,
+        "read": 28800
+      }
+    },
+    "cost": 0.002286,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/minimax-m3",
+    "task": "summarize",
+    "status": "completed",
+    "wall_s": 55.4,
+    "exit_code": 0,
+    "finish_reason": "stop",
+    "tool_calls": 2,
+    "tokens": {
+      "total": 24711,
+      "input": 3290,
+      "output": 813,
+      "reasoning": 0,
+      "cache": {
+        "write": 0,
+        "read": 20608
+      }
+    },
+    "cost": 0.00319908,
+    "errors": []
+  },
+  {
+    "model": "opencode-go/muse-spark-1.2-contributor",
+    "task": "retrieve",
+    "status": "errored",
+    "wall_s": 5.9,
+    "exit_code": 1,
+    "finish_reason": null,
+    "tool_calls": 0,
+    "tokens": null,
+    "cost": null,
+    "errors": [
+      "{'name': 'APIError', 'data': {'message': 'This model is not available in your country.', 'statusCode': 403, 'isRetryable"
+    ]
+  },
+  {
+    "model": "opencode-go/muse-spark-1.2-contributor",
+    "task": "navigate",
+    "status": "errored",
+    "wall_s": 5.7,
+    "exit_code": 1,
+    "finish_reason": null,
+    "tool_calls": 0,
+    "tokens": null,
+    "cost": null,
+    "errors": [
+      "{'name': 'APIError', 'data': {'message': 'This model is not available in your country.', 'statusCode': 403, 'isRetryable"
+    ]
+  },
+  {
+    "model": "opencode-go/muse-spark-1.2-contributor",
+    "task": "summarize",
+    "status": "errored",
+    "wall_s": 6.0,
+    "exit_code": 1,
+    "finish_reason": null,
+    "tool_calls": 0,
+    "tokens": null,
+    "cost": null,
+    "errors": [
+      "{'name': 'APIError', 'data': {'message': 'This model is not available in your country.', 'statusCode': 403, 'isRetryable"
+    ]
+  }
+]

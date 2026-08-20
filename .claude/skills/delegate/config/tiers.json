@@ -1,6 +1,9 @@
 {
-  "updated": "2026-08-19",
-  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md. 2026-08-19 owner directive: lean harder on opencode models — deepseek-v4-pro promoted to implement primary (owner assessment: near-Opus capability at a fraction of the cost). Verify gates unchanged; open-model diffs are still evidence-verified, never trusted.",
+  "updated": "2026-08-20",
+  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md + scripts/model_bench.py (2026-08-20 run, see docs/model-bench-results.json). 2026-08-19 owner directive: lean harder on opencode models — deepseek-v4-pro promoted to implement primary (near-Opus capability at a fraction of the cost). Verify gates unchanged; open-model diffs are still evidence-verified, never trusted. Bench (clean-finish only, NOT quality): muse-spark errored 3/3 (avoid); hy3 cheapest+fastest clean (strong grunt candidate); minimax-m3 functional (M2.7 tool-call bug not present); mimo-v2.5 clean but tool-heavy/slow. Re-rank with quality gates before swapping primaries.",
+  "avoid": [
+    "opencode-go/muse-spark-1.2-contributor"
+  ],
   "tiers": {
     "grunt": {
       "primary": "opencode-go/deepseek-v4-flash",

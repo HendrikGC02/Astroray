@@ -125,3 +125,32 @@ ranked recommendation #3 — the OWNER'S priority). Grounded in live code:
 Open-model IMPLEMENT-tier candidate behind build + CI + RTX gates; Claude owns the
 observer-mismatch fit decision, the unbiasedness verification, and the register/
 draw-count check.
+
+## 2026-08-21 triage (architect) — CI failure root cause
+
+PR #627 CI failure: `tests/test_pkg67_flat_regression.py::test_flat_baseline_ssim
+FAILED` (gate threshold SSIM ≥ 0.999, near bit-identity). Two stacked effects:
+
+1. **Realization change (expected):** any sampler change alters the per-pixel λ RNG
+   stream, so the flat render is no longer bit-identical to the uniform-sampler
+   reference → SSIM drops below 0.999 regardless of correctness.
+2. **Genuine bias (the real defect):** on an achromatic flat scene the hero estimator
+   must reconstruct a flat spectrum. If the companion wavelengths are NOT each divided
+   by the importance density evaluated at ITS OWN λ (left at `pdf = 1/span`), wavelengths
+   near the luminance peak (~555 nm) are oversampled but under-corrected → a systematic
+   green-ward cast + brightness offset.
+
+**Most likely correction:** per-wavelength pdf — each hero + companion wavelength
+weighted by the sigmoid importance density evaluated at its own λ, combined with the
+balance heuristic; and the fitted sigmoid CDF must normalize to 1 over [λmin, λmax].
+
+**Necessary companion action (gate hygiene):** regenerate the pkg67 flat reference PNG
+under the new sampler (pkg206 §5 re-baseline step), OR keep the flat/GR baseline on
+`sampleUniform` (pkg67's contract is bit-identity; the flat baseline is not a dispersion
+scene). A fresh implementer must do the re-baseline this time — it was skipped.
+
+**Distinguishing diagnostic:** compare mean linear RGB new-vs-reference — a near-neutral
+mean shift ⇒ genuine pdf bias (fix the estimator); mean matches but SSIM < 0.999 ⇒ pure
+realization change (re-baseline only).
+
+**Disposition:** PR #627 closed (biased + CI-red); re-dispatch fresh with this triage.

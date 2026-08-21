@@ -424,6 +424,54 @@ def test_astroray_output_takes_precedence_with_sellmeier_glass(monkeypatch):
         f"got {params}")
 
 
+def test_sellmeier_glass_on_standard_material_output(monkeypatch):
+    """Regression (2026-08-21): a native Astroray node wired into Blender's
+    STANDARD 'Material Output' (ShaderNodeOutputMaterial) — NOT an
+    AstrorayOutputNode — must still convert to its native material, exactly as
+    the AstrorayOutputNode path does. Before the fix it fell through to
+    convert_shader_node and silently rendered neutral grey, the #1
+    'dispersion/spectral nodes don't work' report (Cycles users wire everything
+    to Material Output)."""
+    addon = _load_blender_addon(monkeypatch)
+
+    sellmeier = _Node(
+        bl_idname="AstrorayShaderNodeSellmeierGlass",
+        inputs={
+            'Sellmeier B': _Socket(default=(1.04, 0.23, 1.01)),
+            'Sellmeier C': _Socket(default=(0.006, 0.020, 103.5)),
+            'Tint':        _Socket(default=(1.0, 1.0, 1.0, 1.0)),
+        },
+        preset="bk7",
+        use_preset=True,
+        ior_design=1.5168,
+    )
+    output = _Node(
+        ntype="OUTPUT_MATERIAL",
+        bl_idname="ShaderNodeOutputMaterial",
+        inputs={
+            'Surface': _Socket(linked_to=sellmeier, output_name="BSDF"),
+            'Volume':  _Socket(),
+        },
+    )
+    tree = _NodeTree([sellmeier, output])
+    mat = _Material(tree)
+
+    renderer = _RecordingRenderer()
+    engine = addon.CustomRaytracerRenderEngine()
+    engine._volume_material_map = {}
+    mat_id = engine.convert_node_material(mat, renderer)
+    assert mat_id == 1
+    assert len(renderer.created_materials) == 1
+    mat_type, _color, params = renderer.created_materials[0]
+    assert mat_type == "dielectric", (
+        f"SellmeierGlass on the STANDARD Material Output must route to "
+        f"'dielectric' (dispersive glass), not the grey disney/principled "
+        f"fallback; got {mat_type!r}.")
+    assert params.get("sellmeier_preset") == "bk7", (
+        f"Sellmeier preset 'bk7' must reach the dielectric plugin params; "
+        f"got {params}")
+
+
 def test_astroray_output_without_surface_falls_back(monkeypatch):
     """An AstrorayOutputNode with no Surface link must produce a neutral
     material rather than crashing."""

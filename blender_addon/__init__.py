@@ -2243,6 +2243,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return _apply_spectral_profile(renderer.create_material('disney', [0.8, 0.8, 0.8], {}))
 
         shader_node = surface_input.links[0].from_node
+        # A native Astroray node (Sellmeier Glass, Blackbody/Spectral source,
+        # IR/UV, NRC hint) wired straight into the stock Material Output must
+        # convert identically to the AstrorayOutputNode path — otherwise it
+        # falls through to convert_shader_node and silently renders neutral grey
+        # (the #1 "spectral/dispersion nodes don't work" report). See the
+        # shared _convert_astroray_native_surface helper.
+        native = self._convert_astroray_native_surface(shader_node, mat, renderer, node_tree)
+        if native is not None:
+            return _apply_spectral_profile(native)
         return _apply_spectral_profile(self.convert_shader_node(shader_node, renderer, node_tree))
 
     # ------------------------------------------------------------------ #
@@ -2260,8 +2269,25 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
 
         wired = surface_input.links[0].from_node
-        bl_idname = getattr(wired, 'bl_idname', '')
+        native = self._convert_astroray_native_surface(wired, mat, renderer, node_tree)
+        if native is not None:
+            return native
+        # Cycles / standalone fallback: dispatch through the existing path.
+        return self.convert_shader_node(wired, renderer, node_tree)
 
+    def _convert_astroray_native_surface(self, wired, mat, renderer, node_tree):
+        """Dispatch an Astroray-native surface node to its material builder.
+
+        Returns a material id, or None when `wired` is not a recognized native
+        node (the caller then falls back to convert_shader_node). Shared by
+        convert_astroray_output (the AstrorayOutputNode path) AND
+        convert_node_material's standard Material Output path, so a native node
+        renders identically no matter which output it is wired into. This
+        matches the Cycles workflow, where users wire everything to the stock
+        "Material Output" — without this, a native node on Material Output fell
+        through to convert_shader_node and silently rendered neutral grey.
+        """
+        bl_idname = getattr(wired, 'bl_idname', '')
         if bl_idname == 'AstrorayShaderNodeSellmeierGlass':
             return self._create_astroray_material(
                 self._astroray_sellmeier_spec(wired, mat), renderer, node_tree)
@@ -2281,8 +2307,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self._register_source_node_profile(wired, mat)
             return self._create_astroray_material(
                 {'kind': 'astroray_spectral_only'}, renderer, node_tree)
-        # Cycles / standalone fallback: dispatch through the existing path.
-        return self.convert_shader_node(wired, renderer, node_tree)
+        return None
 
     def _register_source_node_profile(self, node, mat):
         """pkg195 Stage C: resolve a spectrum source node to a profile NAME and

@@ -45,10 +45,15 @@ All sources are public-domain or published open-access measurements.
   Public domain (US Government work). Provides authoritative wavelength and
   intensity data for atomic emission lines (Na I, Hg I).
 
-All light-source SPDs are normalised to peak = 1.0 (relative emission),
-resampled to 5 nm resolution, and zero-padded outside the measured range
-(300-2500 nm). Consumers (e.g., pkg89 `EmissionSpectrum::MeasuredSPD`) multiply
-by a user-supplied radiometric scale (W/m²/sr or lumens).
+All light-source SPDs are energy-normalised to unit integral (the SPD
+sums to 1 over the 5 nm grid: a normalised spectral density / relative
+emission), resampled to 5 nm resolution, and zero-padded outside the
+measured range (300-2500 nm). Absolute brightness is supplied by the
+light Power (pkg213); the SPD carries only spectral shape. Consumers
+(e.g., pkg89 `EmissionSpectrum::MeasuredSPD`) multiply by a user-supplied
+radiometric scale (W/m²/sr or lumens). (pkg214: energy normalisation
+replaced peak=1.0 so area-conserving line broadening cannot inflate a
+lamp's overall brightness — see build_spectral_profiles.py mat_ls.)
 
 ## Per-material attribution
 

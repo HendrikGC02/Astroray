@@ -65,10 +65,18 @@ def _lamp_scene_channels(emission, spp=64, width=48, height=48):
 
 @pytest.mark.skipif(not HAS_PROFILES, reason="profiles.bin not found")
 def test_b1_sodium_lamp_is_amber():
-    """B1: sodium_vapor preset lamp -> amber (R > G > 3*B) linear."""
+    """B1: sodium_vapor preset lamp -> amber (R > G > 3*B) linear, and emits.
+
+    pkg214 adds the explicit >0 floor: the pre-fix defect was a black render
+    (the aliased D-line was missed by every hero wavelength), and the ratio
+    check alone infers non-zero only indirectly.
+    """
     ch = _lamp_scene_channels({"mode": "measured_spd", "profile_name": "sodium_vapor"})
     R, G, B = float(ch[0]), float(ch[1]), float(ch[2])
     print(f"[B1] sodium linear RGB = ({R:.4f}, {G:.4f}, {B:.4f})")
+    assert R > 1e-3, (
+        f"B1 FAIL: sodium lamp emits no light -- R={R:.4f} <= 1e-3"
+    )
     assert R > G > 3.0 * B, (
         f"B1 FAIL: sodium lamp not amber -- R={R:.4f} G={G:.4f} B={B:.4f} "
         f"(need R > G > 3*B)"

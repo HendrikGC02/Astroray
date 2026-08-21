@@ -183,6 +183,16 @@ own because a dependency for 40 lines of code is ridiculous.
   `BlackmanHarrisFilter` support conventions (BSD). Notes:
   `pkg203-filter-sigma-research.md` (builds on `pkg201-pixel-filter-research.md`).
 
+- **Atomic emission-line broadening (pkg214)** — Gaussian/Doppler line shape
+  (Armstrong 1967 JQSRT Voigt function; `scipy.special.voigt_profile` γ=0 limit,
+  BSD-3) for representing sub-bin atomic lines on the 5 nm SPD grid. Notes:
+  `atomic-line-broadening-research.md`.
+- **SPD energy (unit-integral) normalization (pkg214 fix)** — relative spectral
+  power distribution normalized to unit area rather than peak, so area-conserving
+  line broadening cannot inflate a lamp's overall brightness (Wyszecki & Stiles
+  "Color Science" 2nd ed. 1982; PBRT 4th ed. §4.5). Notes:
+  `spectral-spd-energy-normalization-research.md`.
+
 Astroray targets MIT (or Apache 2.0). Compatible:
 - Apache 2.0, BSD-2/3, MIT, ISC — link freely.
 - LGPL-3 — dynamic link only; do not statically bundle.

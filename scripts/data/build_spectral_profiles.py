@@ -576,24 +576,46 @@ def _build_light_sources() -> list[dict]:
     """Build the seven light-source SPD profiles (pkg38 amendment).
 
     Returns list of material dicts with keys: name, category, flags, data, source, notes.
-    All SPDs normalised to peak = 1.0 (relative emission), 5 nm grid, 300-2500 nm.
+    All SPDs energy-normalised to unit integral (Sum over the 5 nm grid = 1,
+    a normalised spectral density / discrete PMF), 5 nm grid, 300-2500 nm.
     """
     import colour  # BSD-3-Clause licensed
 
     def mat_ls(name: str, data: np.ndarray, source: str, notes: str = "") -> dict:
         """Helper to create a light_source category material."""
         # Quality control: handle NaN/Inf, ensure non-negative
-        data_qc = np.array(data, dtype=np.float32)
+        data_qc = np.array(data, dtype=np.float64)
         data_qc = np.where(np.isfinite(data_qc), data_qc, 0.0)
         data_qc = np.maximum(data_qc, 0.0)  # Ensure non-negative
 
-        # Normalise to peak = 1.0 BEFORE clipping (preserve relative intensities)
-        peak = data_qc.max()
-        if peak > 0:
-            data_qc = data_qc / peak
+        # Energy (unit-integral) normalisation: store a normalised spectral
+        # DENSITY whose total over the 5 nm grid = 1 (a discrete PMF over the
+        # bins), NOT peak = 1.  Rationale (pkg214 fix): peak-normalisation
+        # couples the flat continuum level to the tallest line's peak, so
+        # pkg214's area-conserving line broadening (which LOWERS a line's peak
+        # while preserving its area) shrank the peak divisor, so peak-norm
+        # inflated mercury's whole SPD ~6.5x (stored sum 4.71 -> 30.60) and
+        # rendered it 4.5-8.6x too bright (PR #629 HW FAIL).  Under energy
+        # normalisation every lamp's TOTAL stored power is fixed at 1
+        # regardless of line shape, so area-conserving broadening no longer
+        # changes a lamp's overall brightness -- the regression cannot occur.
+        # Absolute lamp brightness now lives in the light Power (pkg213); the
+        # SPD carries only spectral shape.
+        # Ref: Wyszecki & Stiles, "Color Science" 2nd ed. 1982 (relative SPD
+        # normalisation conventions); PBRT 4th ed. Sec 4.5.  See
+        # .astroray_plan/docs/spectral-spd-energy-normalization-research.md.
+        total = data_qc.sum()
+        if total > 0:
+            data_qc = data_qc / total
 
-        # Final safety: clip to [0,1] (should be no-op after normalization)
-        data_qc = np.clip(data_qc, 0.0, 1.0)
+        # With non-negative bins summing to 1, every bin is <= 1, so the [0,1]
+        # storage contract holds without clipping.  Assert it rather than
+        # silently clip: a bin > 1 would mean the invariant broke (STOP signal).
+        assert data_qc.max() <= 1.0 + 1e-6, (
+            f"{name}: bin exceeds 1 after energy normalisation "
+            f"(max={data_qc.max():.6f}); [0,1] contract violated"
+        )
+        data_qc = np.clip(data_qc, 0.0, 1.0).astype(np.float32)
 
         return dict(
             name=name, category="light_source", flags=0,
@@ -620,15 +642,41 @@ def _build_light_sources() -> list[dict]:
     def _atomic_lines(lines: list[tuple[float, float]]) -> np.ndarray:
         """Build SPD from discrete atomic lines (wavelength_nm, relative_intensity).
 
-        Each line is placed in the nearest 5 nm grid bin.
-        Normalisation done in mat_ls.
+        Each line is broadened to an energy-normalised Gaussian so a sub-bin-width
+        line is representable on the 5 nm grid and catchable by the multiwavelength
+        sampler's hero/stratified wavelengths (a single-bin deposit aliases the Na
+        D-doublet to one ~590 nm spike that the {380,480,580,680} hero wavelengths
+        all miss -- pkg214).
+
+        Line shape (Gaussian / Doppler limit of the Voigt profile):
+          Armstrong 1967, "Spectrum line profiles: The Voigt function",
+          JQSRT 7(1) 61-88, DOI:10.1016/0022-4073(67)90057-X. Reference impl:
+          scipy.special.voigt_profile(x, sigma, gamma=0) = exp(-x^2/(2 sigma^2))
+          / (sigma sqrt(2 pi)), BSD-3-Clause. See
+          .astroray_plan/docs/atomic-line-broadening-research.md.
+
+        FWHM = 15 nm (3 x the 5 nm grid step; sigma ~ 6.37 nm) is DELIBERATELY
+        wider than the ~0.1 nm physical linewidth: a sub-bin feature is
+        unrepresentable on this grid, so we match the line to the renderer's
+        spectral sampling resolution rather than claim a physics linewidth. Each
+        line's relative intensity is preserved as the AREA under its Gaussian
+        (D2:D1 = 2:1 and total energy conserved); the Na D-doublet (0.6 nm apart
+        << sigma) merges into one unresolved ~589 nm amber feature.
+
+        Because broadening conserves each line's AREA, and mat_ls energy-
+        normalises the whole SPD (Sum = 1), the stored SPD is INVARIANT under
+        this broadening up to grid-edge truncation -- which is exactly why the
+        pkg214-fix energy normalisation removes the mercury regression.
         """
-        r = np.zeros(N_LAMBDA, dtype=np.float32)
+        fwhm_nm = 15.0
+        sigma = fwhm_nm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+        r = np.zeros(N_LAMBDA, dtype=np.float64)
         for wl_nm, intensity in lines:
-            # Find nearest grid point
-            idx = int(round((wl_nm - LAMBDA_MIN) / LAMBDA_STEP))
-            if 0 <= idx < N_LAMBDA:
-                r[idx] += intensity
+            # Energy-normalised Gaussian (unit integral): the area under each
+            # line's profile equals its relative intensity, so Sum_j r_j*dLambda ~ I.
+            r += (intensity / (sigma * np.sqrt(2.0 * np.pi))) * np.exp(
+                -0.5 * ((WL_GRID - wl_nm) / sigma) ** 2
+            )
 
         return r
 
@@ -830,10 +878,15 @@ def write_sources(materials: list[dict], path: str) -> None:
         "  Public domain (US Government work). Provides authoritative wavelength and",
         "  intensity data for atomic emission lines (Na I, Hg I).",
         "",
-        "All light-source SPDs are normalised to peak = 1.0 (relative emission),",
-        "resampled to 5 nm resolution, and zero-padded outside the measured range",
-        "(300-2500 nm). Consumers (e.g., pkg89 `EmissionSpectrum::MeasuredSPD`) multiply",
-        "by a user-supplied radiometric scale (W/m²/sr or lumens).",
+        "All light-source SPDs are energy-normalised to unit integral (the SPD",
+        "sums to 1 over the 5 nm grid: a normalised spectral density / relative",
+        "emission), resampled to 5 nm resolution, and zero-padded outside the",
+        "measured range (300-2500 nm). Absolute brightness is supplied by the",
+        "light Power (pkg213); the SPD carries only spectral shape. Consumers",
+        "(e.g., pkg89 `EmissionSpectrum::MeasuredSPD`) multiply by a user-supplied",
+        "radiometric scale (W/m²/sr or lumens). (pkg214: energy normalisation",
+        "replaced peak=1.0 so area-conserving line broadening cannot inflate a",
+        "lamp's overall brightness — see build_spectral_profiles.py mat_ls.)",
         "",
         "## Per-material attribution",
         "",

@@ -342,13 +342,18 @@ def test_led_6500k_blue_dominant(db):
 
 
 def test_sodium_vapor_d_line_concentration(db):
-    """Sodium vapor: > 95% of total energy in 585-595 nm bins."""
+    """Sodium vapor: > 95% of total energy in the broadened D-doublet region.
+
+    pkg214 broadens the Na D-doublet from a single 590 nm bin to an
+    energy-conserving Gaussian (FWHM 15 nm), so the energy now spans
+    ~575-605 nm (0.995 of total). Tolerance: > 0.95 in 575-605 nm.
+    """
     _, mats, _ = db
     m = mats["sodium_vapor"]
     r = m["r"]
 
-    # Energy in D-line region (585-595 nm)
-    d_line_energy = sum(r[i] for i, wl in enumerate(WL_GRID) if 585 <= wl <= 595)
+    # Energy in broadened D-doublet region (575-605 nm)
+    d_line_energy = sum(r[i] for i, wl in enumerate(WL_GRID) if 575 <= wl <= 605)
 
     # Total energy
     total_energy = r.sum()
@@ -388,10 +393,15 @@ def test_mercury_vapor_line_peaks(db):
         f"Mercury 435 nm line peak {line_peaks[435]:.3f} != 1.0"
     )
 
-    # Check continuum level: should be << line peaks (5% of dominant line)
-    # Sample continuum in a region far from lines (e.g., 480-520 nm)
+    # pkg214: _atomic_lines now broadens each line to an area-conserving
+    # Gaussian (FWHM 15 nm). Area is conserved, so the line PEAK drops ~16x;
+    # after peak-normalisation the flat phosphor continuum (unchanged) is
+    # therefore a larger FRACTION of the dominant line (~0.45 vs ~0.05
+    # pre-broadening). The RENDERED mercury output is unchanged (energy
+    # conserved). Assert the continuum stays below the line (dominant = 1.0),
+    # not the old 5% figure.
     continuum_region = [r[i] for i, wl in enumerate(WL_GRID) if 480 <= wl <= 520]
     avg_continuum = float(np.mean(continuum_region))
-    assert avg_continuum < 0.10, (
-        f"Mercury continuum level {avg_continuum:.3f} >= 0.10 (should be ~0.05)"
+    assert avg_continuum < 0.6, (
+        f"Mercury continuum level {avg_continuum:.3f} >= 0.6 (dominant line = 1.0)"
     )

@@ -620,15 +620,35 @@ def _build_light_sources() -> list[dict]:
     def _atomic_lines(lines: list[tuple[float, float]]) -> np.ndarray:
         """Build SPD from discrete atomic lines (wavelength_nm, relative_intensity).
 
-        Each line is placed in the nearest 5 nm grid bin.
-        Normalisation done in mat_ls.
+        Each line is broadened to an energy-normalised Gaussian so a sub-bin-width
+        line is representable on the 5 nm grid and catchable by the multiwavelength
+        sampler's hero/stratified wavelengths (a single-bin deposit aliases the Na
+        D-doublet to one ~590 nm spike that the {380,480,580,680} hero wavelengths
+        all miss — pkg214).
+
+        Line shape (Gaussian / Doppler limit of the Voigt profile):
+          Armstrong 1967, "Spectrum line profiles: The Voigt function",
+          JQSRT 7(1) 61-88, DOI:10.1016/0022-4073(67)90057-X. Reference impl:
+          scipy.special.voigt_profile(x, σ, γ=0) = exp(-x²/(2σ²))/(σ√(2π)),
+          BSD-3-Clause. See .astroray_plan/docs/atomic-line-broadening-research.md.
+
+        FWHM = 15 nm (3 × the 5 nm grid step; σ ≈ 6.37 nm) is DELIBERATELY wider
+        than the ~0.1 nm physical linewidth: a sub-bin feature is unrepresentable
+        on this grid, so we match the line to the renderer's spectral sampling
+        resolution rather than claim a physics linewidth. Each line's relative
+        intensity is preserved as the AREA under its Gaussian (D2:D1 = 2:1 and
+        total energy conserved); the Na D-doublet (0.6 nm apart ≪ σ) merges into
+        one unresolved ~589 nm amber feature. Normalisation done in mat_ls.
         """
+        fwhm_nm = 15.0
+        sigma = fwhm_nm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
         r = np.zeros(N_LAMBDA, dtype=np.float32)
         for wl_nm, intensity in lines:
-            # Find nearest grid point
-            idx = int(round((wl_nm - LAMBDA_MIN) / LAMBDA_STEP))
-            if 0 <= idx < N_LAMBDA:
-                r[idx] += intensity
+            # Energy-normalised Gaussian (unit integral): the area under each
+            # line's profile equals its relative intensity, so Σ_j r_j·Δλ ≈ I.
+            r += (intensity / (sigma * np.sqrt(2.0 * np.pi))) * np.exp(
+                -0.5 * ((WL_GRID - wl_nm) / sigma) ** 2
+            )
 
         return r
 

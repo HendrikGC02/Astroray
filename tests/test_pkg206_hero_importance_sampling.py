@@ -60,12 +60,55 @@ def _target_pdf(lam):
     return np.where((lam >= LMIN) & (lam <= LMAX), p, 0.0)
 
 
+def _windowed_pdf(lam, lo_nm, hi_nm):
+    """Windowed proposal density over an arbitrary [lo_nm, hi_nm]: p = a·F·(1−F)
+    renormalized by the actual CDF window mass F(hi)−F(lo) (pkg206 refix). For
+    [360,830] this equals _target_pdf (window mass == N)."""
+    F = _logistic(lam)
+    win = _logistic(hi_nm) - _logistic(lo_nm)
+    p = A * F * (1.0 - F) / win
+    return np.where((lam >= lo_nm) & (lam <= hi_nm), p, 0.0)
+
+
 def test_pdf_integrates_to_one():
     """∫ p(λ) dλ over [360, 830] nm == 1 (normalization ⇒ prerequisite for
     unbiasedness). Uses the analytic density the sampler writes into pdf[i]."""
     lam = np.linspace(LMIN, LMAX, 2_000_000)
     integral = np.trapezoid(_target_pdf(lam), lam)
     assert abs(integral - 1.0) < 1e-3, integral
+
+
+def test_narrowed_band_unbiased_and_normalized():
+    """pkg206 refix regression (Cycles-parity review). On the DEFAULT production
+    render band 380-780 nm (NOT the full 360-830 the constants were baked for),
+    the windowed sampler must: (a) keep every lane strictly in-band, (b) carry a
+    pdf that integrates to 1 over [380,780], and (c) stay unbiased. The prior
+    baked-full-band version placed hero outside the band and clamped ~1.2% of the
+    CDF mass to the edges with an UNCORRECTED pdf -> a blue/Z Monte-Carlo bias on
+    the default GPU spectral render."""
+    lo_nm, hi_nm = 380.0, 780.0
+    # (a) in-band + pdf == windowed density at each lane's own lambda
+    for u in np.linspace(0.001, 0.999, 97):
+        wl = astroray.SampledWavelengths.sample_importance(float(u), lo_nm, hi_nm)
+        lam = np.array(wl.lambdas()); pdf = np.array(wl.pdfs())
+        assert lam.min() >= lo_nm - 1e-3 and lam.max() <= hi_nm + 1e-3, (lam.min(), lam.max())
+        np.testing.assert_allclose(pdf, _windowed_pdf(lam, lo_nm, hi_nm), rtol=2e-3, atol=1e-9)
+    # (b) pdf integrates to 1 over the window
+    grid = np.linspace(lo_nm, hi_nm, 2_000_000)
+    assert abs(np.trapezoid(_windowed_pdf(grid, lo_nm, hi_nm), grid) - 1.0) < 1e-3
+    # (c) unbiased estimate of a known integrand over the narrowed band
+    mu, sigma = 555.0, 40.0
+    integ = lambda l: np.exp(-0.5 * ((l - mu) / sigma) ** 2)
+    analytic = np.trapezoid(integ(grid), grid)
+    rng = np.random.default_rng(7)
+    n = 40_000
+    est = np.empty(n)
+    for j in range(n):
+        wl = astroray.SampledWavelengths.sample_importance(float(rng.random()), lo_nm, hi_nm)
+        lam = np.array(wl.lambdas()); pdf = np.array(wl.pdfs())
+        est[j] = np.mean(integ(lam) / pdf)
+    se = est.std() / math.sqrt(n)
+    assert abs(est.mean() - analytic) < 5.0 * se + 1e-3 * analytic, (est.mean(), analytic, se)
 
 
 def test_lane_pdf_matches_density_at_own_lambda():

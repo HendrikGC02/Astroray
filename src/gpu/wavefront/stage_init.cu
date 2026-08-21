@@ -151,29 +151,39 @@ __device__ inline GSampledWavelengths sampleUniformWavelength(float u,
 // draw count as sampleUniformWavelength, so CPU↔GPU dimension counters stay
 // aligned (the 8.7M-ULP draw-count guard).
 //
-// Fitted logistic-CDF constants, nm units, [360,830] nm, luminance blend +0.25.
-// MUST be identical to spectrum.cpp::{kHeroA,kHeroX0,kHeroY0,kHeroN}. Plain
-// constexpr immediates (baked into the SASS, no __constant__ bank use — keeps
-// spec §4's shade-kernel CONSTANT[0] baseline untouched; used only at init).
+// Fitted logistic-CDF params, nm units. MUST be identical to
+// spectrum.cpp::{kHeroA,kHeroX0}. Plain constexpr immediates (baked into the
+// SASS, no __constant__ bank use — keeps spec §4's shade-kernel CONSTANT[0]
+// baseline untouched; used only at init).
 constexpr float kG_HeroA  = 0.0221679280f;  // 1/nm
 constexpr float kG_HeroX0 = 552.040271f;    // nm
-constexpr float kG_HeroY0 = 0.0139650380f;  // F(lambdaMin)
-constexpr float kG_HeroN  = 0.9839309253f;  // F(lambdaMax)-F(lambdaMin)
+
+// Logistic CDF F(lambda)=1/(1+exp(-a(lambda-x0))); MUST mirror spectrum.cpp::heroCdf.
+__device__ inline float gHeroCdf(float lambda) {
+    return 1.0f / (1.0f + expf(-kG_HeroA * (lambda - kG_HeroX0)));
+}
 
 __device__ inline GSampledWavelengths sampleImportanceWavelength(float u,
                                                                  float lambdaMin = G_LAMBDA_MIN,
                                                                  float lambdaMax = G_LAMBDA_MAX) {
     GSampledWavelengths swl;
+    // WINDOW the CDF to the actual band so the draw + pdf are unbiased on ANY
+    // band (pkg206 refix — mirror of spectrum.cpp::sampleImportance): draw in
+    // [F(min),F(max)] and renormalize the density by that window mass. The prior
+    // baked-full-band version biased the default 380..780 GPU render.
+    const float lo  = gHeroCdf(lambdaMin);
+    const float hi  = gHeroCdf(lambdaMax);
+    const float win = hi - lo;
     const float invK = 1.0f / static_cast<float>(G_SPECTRUM_SAMPLES);
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
         float ui = u + static_cast<float>(i) * invK;
         if (ui >= 1.0f) ui -= 1.0f;                    // wrap in uniform space
-        float randL = kG_HeroN * ui + kG_HeroY0;       // truncated CDF window
+        float randL = lo + win * ui;                   // windowed CDF position in [lo,hi]
         float lam = kG_HeroX0 - logf(1.0f / randL - 1.0f) / kG_HeroA;
-        if (lam < lambdaMin) lam = lambdaMin;          // guard float round-trip
+        if (lam < lambdaMin) lam = lambdaMin;          // fp round-trip guard (analytically in-band)
         if (lam > lambdaMax) lam = lambdaMax;
         swl.lambda[i] = lam;
-        swl.pdf[i]    = kG_HeroA * randL * (1.0f - randL) / kG_HeroN;  // 1/nm density
+        swl.pdf[i]    = kG_HeroA * randL * (1.0f - randL) / win;  // 1/nm, renormalized to window
     }
     return swl;
 }

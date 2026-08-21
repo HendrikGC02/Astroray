@@ -189,15 +189,13 @@ public:
         // pkg125: honor set_wavelength_range (lambdaMin_/lambdaMax_), mirroring
         // multiwavelength_path_tracer.cpp:74-75.
         // pkg206: importance-sample the hero wavelength (luminance-weighted D65
-        // logistic CDF; unbiased per-lane density pdf). The fit constants are
-        // valid ONLY for the DEFAULT full band [kLambdaMin, kLambdaMax]; if the
-        // caller narrowed the band via set_wavelength_range, fall back to the
-        // uniform draw (the logistic would place hero outside the requested
-        // band). One uniform draw either way — RNG dimension count is identical.
-        const bool defaultBand = lambdaMin_ == astroray::kLambdaMin &&
-                                 lambdaMax_ == astroray::kLambdaMax;
+        // logistic CDF; unbiased per-lane density pdf). The sampler WINDOWS the
+        // CDF to [lambdaMin_, lambdaMax_] and renormalizes its pdf, so it is
+        // unbiased on the full band AND any narrowed set_wavelength_range band —
+        // no defaultBand fallback needed (pkg206 refix, parity review). One
+        // uniform draw either way — RNG dimension count is identical.
         astroray::SampledWavelengths lambdas =
-            (heroImportance_ && defaultBand)
+            heroImportance_
                 ? astroray::SampledWavelengths::sampleImportance(dist01(gen), lambdaMin_, lambdaMax_)
                 : astroray::SampledWavelengths::sampleUniform(dist01(gen), lambdaMin_, lambdaMax_);
         int bounces = 0;

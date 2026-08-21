@@ -13,13 +13,19 @@ staleness amplification.
 
 Usage:
   python -m project_index build              # (re)build the index (default)
-  python -m project_index query "pixel filter"
+  python -m project_index query "pixel filter"   # scannable title/body/file search
   python -m project_index deps pkg203        # dependencies + reverse deps
+  python -m project_index owns include/gpu_materials.h  # which package owns a file
+  python -m project_index script "contact sheet"        # canonical script for a task
+  python -m project_index whatis pkg214      # compact card for one package
   python -m project_index graph --json out.json   # nodes/edges for the viz
   python -m project_index graph --html graph.html # self-contained node tree
   python -m project_index gh-sync            # pull issues/PRs via gh CLI (network)
 
-The DB is written to .astroray_plan/.project-index.db (gitignored).
+The DB is written to .astroray_plan/.project-index.db (gitignored). Read
+commands (query/deps/owns/script/whatis) auto-rebuild it when a source file is
+newer than the DB and print "(index rebuilt)" to stderr, so answers are never
+silently stale.
 """
 from __future__ import annotations
 
@@ -34,9 +40,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PLAN = ROOT / ".astroray_plan"
 DB_PATH = PLAN / ".project-index.db"
+README_PATH = ROOT / "scripts" / "README.md"
 
 PKG_ID_RE = re.compile(r"^pkg(\d+[a-z]?)", re.IGNORECASE)
 DEP_RE = re.compile(r"pkg\d+[a-z]?", re.IGNORECASE)
+
+
+def _status_token(raw: str) -> str:
+    """Reduce a Status line to a short scannable token.
+
+    Takes the text up to the first of '(', em-dash, '.', ',', or newline,
+    lower-cased and stripped. e.g. "done (PR #540, ...)" -> "done";
+    "open (filed 2026-08-21)." -> "open"; "Stage 2 done ..." -> "stage 2 done".
+    """
+    token = re.split(r"[(—.,\n]", raw, maxsplit=1)[0]
+    return token.strip().lower()
 
 
 def _pkg_files() -> list[Path]:
@@ -86,16 +104,19 @@ def _parse_package(path: Path) -> dict:
             if cells and cells[0] and not cells[0].startswith("---") and cells[0] != "File":
                 files.append((cells[0], section))
 
+    status = field_line("Status")
     return {
         "key": key,
         "num": num,
         "title": title,
         "pillar": field_line("Pillar"),
         "track": field_line("Track"),
-        "status": field_line("Status"),
+        "status": status,
+        "status_short": _status_token(status),
         "effort": field_line("Estimated effort"),
         "depends": depends,
         "files": files,
+        "body": text,
     }
 
 
@@ -124,6 +145,34 @@ def _parse_tests() -> list[dict]:
     return out
 
 
+def _parse_scripts_map() -> list[dict]:
+    """Parse the "Canonical script per task" table from scripts/README.md.
+
+    Serves the CLAUDE.md 5b no-duplicate-scripts gate: one (task, script) row
+    per table row so `script <substring>` can answer "what's the canonical
+    script for task X?".
+    """
+    out: list[dict] = []
+    if not README_PATH.exists():
+        return out
+    in_table = False
+    for line in README_PATH.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            in_table = stripped.lower().startswith("## canonical script per task")
+            continue
+        if not in_table or not stripped.startswith("|"):
+            continue
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        task, script = cells[0], cells[1]
+        if not task or task == "Task" or task.startswith("---"):
+            continue
+        out.append({"task": task, "script": script})
+    return out
+
+
 def build(db: sqlite3.Connection) -> None:
     db.executescript(
         """
@@ -132,21 +181,25 @@ def build(db: sqlite3.Connection) -> None:
         DROP TABLE IF EXISTS docs;
         DROP TABLE IF EXISTS tests;
         DROP TABLE IF EXISTS issues;
+        DROP TABLE IF EXISTS scripts_map;
         CREATE TABLE packages (
             key TEXT PRIMARY KEY, num TEXT, title TEXT, pillar TEXT,
-            track TEXT, status TEXT, effort TEXT, depends TEXT
+            track TEXT, status TEXT, status_short TEXT, effort TEXT,
+            depends TEXT, body TEXT
         );
         CREATE TABLE package_files (package_key TEXT, path TEXT, action TEXT);
         CREATE TABLE docs (file TEXT PRIMARY KEY, title TEXT);
         CREATE TABLE tests (file TEXT PRIMARY KEY, count INTEGER, names TEXT);
         CREATE TABLE issues (kind TEXT, number INTEGER, title TEXT, state TEXT, url TEXT);
+        CREATE TABLE scripts_map (task TEXT, script TEXT);
         """
     )
     for p in _pkg_files():
         d = _parse_package(p)
         db.execute(
-            "INSERT OR REPLACE INTO packages VALUES (?,?,?,?,?,?,?,?)",
-            (d["key"], d["num"], d["title"], d["pillar"], d["track"], d["status"], d["effort"], ",".join(d["depends"])),
+            "INSERT OR REPLACE INTO packages VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (d["key"], d["num"], d["title"], d["pillar"], d["track"], d["status"],
+             d["status_short"], d["effort"], ",".join(d["depends"]), d["body"]),
         )
         for fpath, action in d["files"]:
             db.execute("INSERT INTO package_files VALUES (?,?,?)", (d["key"], fpath, action))
@@ -154,6 +207,8 @@ def build(db: sqlite3.Connection) -> None:
         db.execute("INSERT OR REPLACE INTO docs VALUES (?,?)", (d["file"], d["title"]))
     for t in _parse_tests():
         db.execute("INSERT INTO tests VALUES (?,?,?)", (t["file"], t["count"], json.dumps(t["names"])))
+    for s in _parse_scripts_map():
+        db.execute("INSERT INTO scripts_map VALUES (?,?)", (s["task"], s["script"]))
     db.commit()
 
 
@@ -184,18 +239,120 @@ def _connect() -> sqlite3.Connection:
     return sqlite3.connect(DB_PATH)
 
 
+def _freshness_sources() -> list[Path]:
+    """Every source file whose change should invalidate the DB."""
+    srcs: list[Path] = []
+    srcs += (PLAN / "packages").glob("*.md")
+    for p in (PLAN / "docs").rglob("*.md"):
+        rel = str(p.relative_to(PLAN))
+        if "/archive/" in rel or "\\archive\\" in rel:
+            continue
+        srcs.append(p)
+    srcs += (ROOT / "tests").glob("test_*.py")
+    if README_PATH.exists():
+        srcs.append(README_PATH)
+    return srcs
+
+
+def _db_is_stale() -> bool:
+    """True if the DB is missing or older than the newest source file."""
+    if not DB_PATH.exists():
+        return True
+    db_mtime = DB_PATH.stat().st_mtime
+    for p in _freshness_sources():
+        try:
+            if p.stat().st_mtime > db_mtime:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def query(db: sqlite3.Connection, text: str) -> None:
     words = re.findall(r"[\w]+", text)
     like = "%" + "%".join(words) + "%"
     print(f"== packages matching {text!r}")
+    seen: set[str] = set()
     for row in db.execute(
-        "SELECT num, title, status, pillar FROM packages WHERE title LIKE ? OR status LIKE ? OR pillar LIKE ? ORDER BY num",
+        "SELECT DISTINCT key, num, title, status_short FROM packages "
+        "WHERE title LIKE ? OR body LIKE ? "
+        "OR key IN (SELECT package_key FROM package_files WHERE path LIKE ?) "
+        "ORDER BY num",
         (like, like, like),
     ):
-        print(f"  {row[0]:>8}  [{row[2]}] {row[1]}")
+        key, num, title, status_short = row
+        if key in seen:
+            continue
+        seen.add(key)
+        title = (title or "")[:80]
+        # Cap the token too: a handful of specs jam narrative onto the Status
+        # line with no early delimiter, so the raw token can be long. Keeps
+        # every query line scannable (<=120 chars).
+        tok = status_short if len(status_short) <= 24 else status_short[:22] + ".."
+        print(f"  {num:>8}  [{tok}] {title}")
     print(f"== docs matching {text!r}")
     for row in db.execute("SELECT file, title FROM docs WHERE title LIKE ? OR file LIKE ? ORDER BY file", (like, like)):
-        print(f"  {row[0]:<50} {row[1]}")
+        line = f"  {row[0]:<50} {row[1] or ''}"
+        print(line[:118])
+
+
+def owns(db: sqlite3.Connection, path: str) -> None:
+    needle = "%" + path.replace("\\", "/").strip("/") + "%"
+    print(f"== packages owning {path!r}")
+    rows = db.execute(
+        "SELECT f.package_key, p.status_short, f.action, f.path "
+        "FROM package_files f JOIN packages p ON p.key = f.package_key "
+        "WHERE REPLACE(f.path, '\\', '/') LIKE ? ORDER BY f.package_key",
+        (needle,),
+    ).fetchall()
+    if not rows:
+        print(f"  no package records touching {path}")
+        return
+    for key, status_short, action, fpath in rows:
+        print(f"  {key:>10}  [{status_short}]  {action:<6}  {fpath}")
+
+
+def script(db: sqlite3.Connection, task: str) -> None:
+    needle = "%" + task.lower() + "%"
+    print(f"== canonical scripts for task {task!r}")
+    rows = db.execute(
+        "SELECT task, script FROM scripts_map WHERE LOWER(task) LIKE ? ORDER BY task",
+        (needle,),
+    ).fetchall()
+    if not rows:
+        print(f"  no canonical script registered for {task}")
+        return
+    for t, s in rows:
+        print(f"  {t} -> {s}")
+
+
+def whatis(db: sqlite3.Connection, num: str) -> None:
+    num = num.lower()
+    row = db.execute(
+        "SELECT key, title, status, status_short, track, pillar, effort, depends FROM packages WHERE num = ?",
+        (num,),
+    ).fetchone()
+    if not row:
+        print(f"no package with num {num}")
+        return
+    key, title, status, status_short, track, pillar, effort, dep_str = row
+    deps_list = dep_str.split(",") if dep_str else []
+    rev = [r[0] for r in db.execute("SELECT key FROM packages WHERE depends LIKE ?", (f"%{num}%",)).fetchall()
+           if r[0] != key]
+    files = db.execute(
+        "SELECT action, path FROM package_files WHERE package_key = ? ORDER BY action, path", (key,)
+    ).fetchall()
+    print(f"{key}  [{status_short}] {title}")
+    print(f"  status : {status}")
+    print(f"  track  : {track or '(none)'}    pillar: {pillar or '(none)'}    effort: {effort or '(none)'}")
+    print(f"  depends on: {', '.join(deps_list) or '(none)'}")
+    print(f"  depended on by ({len(rev)}): {', '.join(rev) or '(none)'}")
+    if files:
+        print(f"  owned files ({len(files)}):")
+        for action, fpath in files:
+            print(f"    {action:<6}  {fpath}")
+    else:
+        print("  owned files (0): (none)")
 
 
 def deps(db: sqlite3.Connection, num: str) -> None:
@@ -446,21 +603,35 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd")
 
     sub.add_parser("build", help="build the index")
-    p_q = sub.add_parser("query", help="search the index")
+    p_q = sub.add_parser("query", help="search title/body/file paths (scannable)")
     p_q.add_argument("text")
     p_d = sub.add_parser("deps", help="show a package's dependencies")
     p_d.add_argument("num")
+    p_o = sub.add_parser("owns", help="which package owns a file path")
+    p_o.add_argument("path")
+    p_s = sub.add_parser("script", help="canonical script for a task (scripts/README.md)")
+    p_s.add_argument("task")
+    p_w = sub.add_parser("whatis", help="compact card for one package")
+    p_w.add_argument("num")
     p_g = sub.add_parser("graph", help="emit nodes/edges JSON or an HTML node tree")
     p_g.add_argument("--json", dest="json_out")
     p_g.add_argument("--html", dest="html_out")
     sub.add_parser("gh-sync", help="sync GitHub issues/PRs")
 
     args = ap.parse_args()
+    # Capture staleness BEFORE connecting: sqlite3.connect() creates an empty
+    # file, which would otherwise look "fresh" (mtime=now) but have no tables.
+    stale = _db_is_stale()
     if not DB_PATH.exists():
         Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     db = _connect()
 
     cmd = args.cmd or "build"
+    # Read commands auto-rebuild when a source file is newer than the DB.
+    if cmd in ("query", "deps", "owns", "script", "whatis") and stale:
+        build(db)
+        print("(index rebuilt)", file=sys.stderr)
+
     if cmd == "build":
         build(db)
         print(f"indexed {db.execute('SELECT COUNT(*) FROM packages').fetchone()[0]} packages, "
@@ -470,6 +641,12 @@ def main() -> None:
         query(db, args.text)
     elif cmd == "deps":
         deps(db, args.num)
+    elif cmd == "owns":
+        owns(db, args.path)
+    elif cmd == "script":
+        script(db, args.task)
+    elif cmd == "whatis":
+        whatis(db, args.num)
     elif cmd == "graph":
         graph(db, args.json_out, args.html_out)
     elif cmd == "gh-sync":

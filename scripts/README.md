@@ -26,7 +26,7 @@ new reusable script, register it here in the same commit.
 | Render-output triage | `scripts/diagnostics/render_output_triage.py` |
 | Denoiser A/B | `scripts/diagnostics/oidn_comparison.py` |
 | Roadmap orchestrator tick | `scripts/orchestrator_tick.ps1` → `python -m roadmap_orchestrator.cli` |
-| Project knowledge index (search / deps / node-tree graph) | `scripts/project_index.py` (SQLite; `build` / `query` / `deps` / `graph` / `gh-sync`) |
+| Project knowledge index (search / owns / deps / node-tree graph) | `scripts/project_index.py` (SQLite; `build` / `query` / `owns <path>` / `script <task>` / `whatis <pkg>` / `deps` / `graph` / `gh-sync`; auto-rebuilds when a spec is newer than the DB) |
 | Open-weight model evaluation bench | `scripts/model_bench.py` (`--dry-run`, `--models`, `--timeout`; read-only, writes `docs/model-bench-results.json`) |
 | Native-settings F12 pixel-honour A/B matrix (does each adopted Blender/Cycles control actually change the render?) | `scripts/verify_pkg200_honour_matrix_run.py` (outer, cv2/per-channel mean-ratio) + `verify_pkg200_honour_matrix.py` (in-Blender A/B leg) + `pkg200_honour_matrix.py` (pure contract/predicate layer, enumerated from `settings_map.py`) |
 | Import a .blend without Blender | `tools/blend_import/blend_to_astroray.py` |

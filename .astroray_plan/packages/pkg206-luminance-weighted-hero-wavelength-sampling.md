@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (light transport / spectral rendering) + Integration Milestone (Cycles-parity)
 **Track:** A
-**Status:** open (filed 2026-08-19).
+**Status:** in progress (owner released the bias-hold 2026-08-21; re-dispatched fresh per the 2026-08-21 triage below, branch `pkg206impl`). Was held after PR #627 was closed CI-red/biased (see triage note below); not done.
 **Estimated effort:** M (CPU+GPU byte-mirrored sampler change + pdf plumbing + re-baseline).
 **Depends on:** nothing hard. Composes with pkg189 (GPU hero-λ dispersion, LANDED) and
 the existing spectral MIS caustic path (SMS). CPU/GPU byte-mirrored in the SAME PR.

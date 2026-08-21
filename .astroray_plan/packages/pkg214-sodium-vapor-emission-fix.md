@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (light transport / spectral rendering)
 **Track:** A
-**Status:** open (filed 2026-08-21).
+**Status:** in progress — HW FAIL (PR #629 open, 2026-08-21). Sodium D-line broadening fix works (black→amber), but the peak-normalisation coupling regressed `mercury_vapor` ~4.5–8.6× too bright. A physics-correct energy-normalisation fix is in progress on branch `pkg214fix`. NOT done — do not merge #629 as-is.
 **Estimated effort:** S–M (spectral-profile data-build fix + regenerate `profiles.bin` + regression test).
 **Depends on:** none.
 

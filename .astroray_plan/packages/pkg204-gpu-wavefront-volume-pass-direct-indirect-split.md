@@ -2,7 +2,7 @@
 
 **Pillar:** Integration Milestone (GPU wavefront light-path AOV parity)
 **Track:** A
-**Status:** open (filed 2026-08-19).
+**Status:** done (PR #625, 2026-08-19 — closes pkg198 Stage-2 volume-pass limitation; direct+indirect sum exactly to combined volume beauty on GPU, shade-kernel register HARD gate unchanged).
 **Estimated effort:** S.
 **Depends on:** **pkg198 Stage 2** (LANDED, PR #622 — the `HasLightPassAOVs`
 fleet-isolation axis, the `lpAccumulate` global-scatter accumulators, and the

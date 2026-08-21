@@ -2,7 +2,7 @@
 
 **Pillar:** Integration Milestone (Blender/DCC integration — reuse Blender's native settings as the steering wheel)
 **Track:** A
-**Status:** open (filed 2026-08-21).
+**Status:** done (PR #628, 2026-08-21 — `layout.prop(light, "energy")` exposed in the Astroray light panel; render-brighter gate ≥1.5× mean linear RGB, headless-Blender wiring gate confirmed).
 **Estimated effort:** S.
 **Depends on:** none.
 

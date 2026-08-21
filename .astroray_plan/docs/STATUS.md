@@ -1,5 +1,62 @@
 # Astroray Status
 
+**2026-08-19 → 2026-08-21 (in progress, 6 PRs merged #624–#628, 1 open #629):
+pkg200's last filter-related honour row closes, the pkg198 volume-pass split
+closes, a UnicodeEncodeError test-hygiene chip lands, the light-intensity
+(Power) slider is exposed in the Astroray panel — and the sodium-vapor
+emission fix (#629) is HW FAIL, regressing mercury_vapor via peak-normalisation
+coupling, with a physics-correct fix in progress on branch `pkg214fix`.**
+- **pkg203 DONE** (PR #624, 2026-08-19) — Cycles-accurate pixel-filter
+  width→σ mapping, CPU+GPU byte-mirrored (σ=width/4 Gaussian, ±1.5·width
+  support; BH ±1.0·width support ±2·width offset), cited against Cycles
+  `film.cpp` + PBRT-v4 §8.8. Closes pkg200's last filter-related
+  `pixel_filter_type` HONEST-FAIL row.
+- **pkg204 DONE** (PR #625, 2026-08-19) — GPU wavefront volume-pass
+  direct/indirect split, closing the pkg198 Stage-2 documented limitation:
+  a first-interaction bit in the NEE int lane distinguishes a first
+  volume scatter (`PASS_VOLUME_DIRECT`) from a deeper one
+  (`PASS_VOLUME_INDIRECT`); direct+indirect sum exactly to the combined
+  volume beauty (9 DIRECT/10 INDIRECT split measured); shade-kernel
+  register HARD gate unchanged.
+- **pkg205 DONE** (PR #626, 2026-08-19) — UnicodeEncodeError console-test
+  hygiene: ASCII-ized `print()` glyphs (λ→lambda, π/°→pi/deg, ✓→[OK]) in 3
+  tests that were crashing under cp1252 before their assertions could run;
+  4 passed, 0 UnicodeEncodeError; test-only diff, no engine change.
+- **pkg213 DONE** (PR #628, 2026-08-21) — light intensity (Power) exposed
+  in the Astroray light panel (`layout.prop(light, "energy")`); the engine
+  already consumed `light.energy` (pkg176-era wiring), this was UI-surfacing
+  only. Render-brighter gate ≥1.5× mean linear RGB at 120 vs 30 intensity;
+  headless-Blender wiring gate confirms `add_point_light` receives the set
+  value end-to-end.
+- **pkg214 OPEN, HW FAIL** (PR #629, 2026-08-21) — sodium-vapor lamp fix:
+  broadened the aliased Na D-doublet to an energy-normalised Gaussian
+  (FWHM 15 nm, area-conserving) so the sub-grid line is representable on
+  the 5 nm profile grid (black→amber, R=2.09/G=0.43/B=0.00). HW
+  verification FAILED: the same peak-normalisation change regressed
+  `mercury_vapor` ~4.5–8.6× too bright (coupling through `mat_ls`
+  peak-normalisation, not isolated to sodium as the PR claimed). **A
+  physics-correct energy-normalisation fix is IN PROGRESS on branch
+  `pkg214fix`** — do not merge #629 as-is.
+- **pkg206 released from hold, IN PROGRESS** (owner, 2026-08-21) —
+  luminance-weighted hero-wavelength importance sampling. PR #627 (its
+  first attempt) was CLOSED CI-red/biased: `test_flat_baseline_ssim` FAILED
+  from a stacked realization-change + genuine achromatic-flat green-cast
+  bias (companion wavelengths left at `pdf = 1/span` instead of each
+  divided by the importance density at its own λ). Re-dispatched fresh
+  with the triage's per-wavelength-pdf correction on branch `pkg206impl*`;
+  see the spec's 2026-08-21 triage section for the full root-cause and the
+  distinguishing diagnostic for the next attempt.
+- **Minor tooling note (not a package):** `project_index` knowledge-graph
+  viz fixes landed same window (3D force-graph, orphaned dependency-edge
+  resolution, 2D/3D toggle) — infra, no spec.
+- **Pillar 4 remains PAUSED** — no new owner directive this window; the
+  unpause decision is still standing open, unchanged.
+- **NEXT_STAGE_REPORT.md was stale** (dated 2026-08-15, top pick pkg203
+  had already shipped along with pkg204/pkg205) — regenerated this pass,
+  see that file for the current pickup queue (pkg214fix completion,
+  pkg206 re-verification, pkg201 Stage 3, pkg131, and the Pillar 4
+  unpause decision still at the top).
+
 **2026-08-14 → 2026-08-15 (round closeout, 9 PRs merged #615–#623, no open
 PRs at closeout): the GPU wavefront gains real god-rays (full HG scattering,
 both backends), a full GPU light-path AOV render-pass mirror, a legacy

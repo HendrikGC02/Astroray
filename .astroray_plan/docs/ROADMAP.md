@@ -258,6 +258,26 @@ fix:
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
 
+**In progress (2026-08-19 → 2026-08-21): 6 PRs merged (#624–#628), 1 open/HW-FAIL (#629) — pkg200's last filter honour row and the pkg198 volume-pass split both close, a test-hygiene chip lands, the light-intensity slider is exposed, and the sodium-vapor fix regressed mercury via peak-normalisation coupling.**
+**pkg203 DONE** (PR #624, 2026-08-19) — Cycles-accurate pixel-filter width→σ
+mapping, CPU+GPU byte-mirrored (cited Cycles `film.cpp` + PBRT-v4 §8.8);
+closes pkg200's last filter-related HONEST-FAIL row. **pkg204 DONE** (PR
+#625, 2026-08-19) — GPU wavefront volume-pass direct/indirect split,
+closing the pkg198 Stage-2 documented limitation (first-interaction NEE bit,
+sum-to-beauty exact). **pkg205 DONE** (PR #626, 2026-08-19) —
+UnicodeEncodeError console-test hygiene, 3 tests ASCII-ized, test-only.
+**pkg213 DONE** (PR #628, 2026-08-21) — light intensity (Power) exposed in
+the Astroray light panel, UI-surfacing only (engine already consumed
+`light.energy`); render-brighter gate ≥1.5×. **pkg214 OPEN, HW FAIL** (PR
+#629, 2026-08-21) — sodium D-doublet broadening fix (black→amber) regressed
+`mercury_vapor` ~4.5–8.6× via the shared peak-normalisation mechanism; a
+physics-correct energy-normalisation fix is in progress on branch
+`pkg214fix`, do not merge #629 as-is. **pkg206 released from its bias-hold**
+(owner, 2026-08-21) and re-dispatched fresh (branch `pkg206impl*`) after PR
+#627 was closed CI-red/biased — see the spec's 2026-08-21 triage note.
+Pillar 4 stays PAUSED, unchanged. Full detail: `.astroray_plan/docs/STATUS.md`
+top entry "2026-08-19 → 2026-08-21".
+
 **Round closeout (2026-08-14 → 2026-08-15): 9 PRs (#615–#623), no open PRs at closeout — the GPU wavefront gains real god-rays (full HG scattering, both backends) and a full light-path AOV render-pass mirror, a legacy `.blend`-importer sun fix, and 3 more addon settings-honour rows flip PASS.**
 **pkg190 follow-up DONE** (PR #615) — narrowed the GPU procedural bake to
 Generated coord-mode only; Object-coord procedurals now degrade to a

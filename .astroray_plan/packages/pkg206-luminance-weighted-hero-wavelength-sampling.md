@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (light transport / spectral rendering) + Integration Milestone (Cycles-parity)
 **Track:** A
-**Status:** in progress (owner released the bias-hold 2026-08-21; re-dispatched fresh per the 2026-08-21 triage below, branch `pkg206impl`). Was held after PR #627 was closed CI-red/biased (see triage note below); not done.
+**Status:** done (PR #634, 2026-08-22). CPU+GPU luminance-weighted hero-wavelength importance sampling; observer re-fit to Astroray's CIE-1964-10°. A Cycles-parity review caught a GPU band-bias (constants baked full-band, GPU renders 380–780) — fixed with runtime windowed-CDF renormalization + narrowed-band regression test. Verified: 5/5 unit tests, −42% RMSE/−38% chroma @1024spp, unbiased |ΔRGB|~7e-4, GPU B-channel 0.80% vs CPU-uniform ref.
 **Estimated effort:** M (CPU+GPU byte-mirrored sampler change + pdf plumbing + re-baseline).
 **Depends on:** nothing hard. Composes with pkg189 (GPU hero-λ dispersion, LANDED) and
 the existing spectral MIS caustic path (SMS). CPU/GPU byte-mirrored in the SAME PR.

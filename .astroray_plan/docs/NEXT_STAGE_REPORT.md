@@ -1,16 +1,25 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-08-21 (mid-round refresh — NOT a round closeout: PR #629 is
-open/HW-FAIL and pkg206 is actively in progress. 6 PRs merged since the
-2026-08-15 report, #624–#628, on top of the 2026-08-14 → 2026-08-15 round
-below).
-**Prepared by:** docs closeout pass (evidence: `git log`, `gh pr list`,
-package spec Status lines).
-**Scope:** 1 open PR (#629, sodium-vapor fix, HW FAIL — fix in progress on
-branch `pkg214fix`), pkg206 re-dispatched in progress (branch
-`pkg206impl*`). Full detail: `.astroray_plan/docs/STATUS.md` (top entry
-"2026-08-19 → 2026-08-21"), `.astroray_plan/docs/ROADMAP.md` ("Current
-sequencing" unchanged — no new owner directive since 2026-08-03).
+**Date:** 2026-08-22 (round closeout — 0 open PRs). The spectral milestone
+landed + shipped (pkg213/214/215/206/216 + fixes #635/#637/#638); a fresh
+`dist/astroray-4.0.0-cuda.zip` was built and verified. Full detail:
+`.astroray_plan/docs/STATUS.md` (top entry "2026-08-21 → 2026-08-22").
+**Prepared by:** docs closeout pass (evidence: `git log`, `gh pr list`, spec
+Status lines).
+
+**TOP OF THE OPEN POOL — three fresh research specs from the 2026-08-22
+Blender-MCP debugging session, for the architect to sequence:**
+- **pkg219 — per-texel shader-graph evaluator** (INTEGRATION-FIRST priority; the
+  addon constant-folds node trees, so Color Ramp / Mix / Mapping / non-UV coords
+  downstream of a texture silently break). Biggest usability lever. SVM/OSL fork.
+- **pkg218 — spectral colorimetry fidelity** (Pillar 4, owner-deprioritized):
+  (A) mercury stored SPD is chromatically magenta not blue-green; (B) make the
+  CIE observer / camera response function swappable.
+- **pkg217 — GPU refractive/dispersive caustics** (glass casts a black shadow;
+  owner-deprioritized). Register-hostile.
+Also still open from older rounds: pkg201 Stage 3, pkg131, the F-glass
+compositing follow-up, pkg180. Treat §2 below as older input; the three specs
+above are the current live surface.
 
 > Strategic gate: **RELEASED 2026-05-10** by pkg56 Phase C. Strategy in
 > [`ROADMAP.md`](ROADMAP.md), full status in [`STATUS.md`](STATUS.md).

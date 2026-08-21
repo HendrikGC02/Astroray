@@ -1,5 +1,27 @@
 # Astroray Status
 
+**2026-08-21 → 2026-08-22 (SPECTRAL MILESTONE + BLENDER-INTEGRATION SWEEP —
+8 PRs merged, 0 open):** the full spectral milestone landed and shipped in a
+fresh Blender addon. **Merged:** pkg213 light-intensity Power slider (#628),
+pkg214 sodium/atomic-emission **energy-normalization refix** (#632, supersedes
+the #629 mercury-regression HW-FAIL), pkg215 project-index query/freshness
+overhaul (#633), pkg206 luminance-weighted hero-wavelength importance sampling
+(#634 — a Cycles-parity review caught + I fixed a GPU band-bias before ship),
+#635 native Astroray nodes now honoured on Blender's stock Material Output,
+pkg216 project-index wired into the agents (#636), #637 CPU tree-light-sampler
+empty-list black-render fix, #638 GPU preset-lamp red-shift fix (deviceReference
+4-sample-MC → CMF-grid integral). Also: knowledge-graph viz fixes + the
+committed interactive index graph (`.astroray_plan/project-index-graph.html`),
+and the 2026-08-22 run report. A fresh `dist/astroray-4.0.0-cuda.zip` was built
+from main and verified headless (engine + 11 panels register). **Filed for
+later (open):** pkg217 (GPU refractive/dispersive caustics — glass casts a black
+shadow; owner-deprioritized), pkg218 (spectral colorimetry fidelity — mercury
+stored SPD is chromatically magenta not blue-green, + make the CIE observer /
+camera response function swappable; Pillar 4), pkg219 (per-texel shader-graph
+evaluator — the addon constant-folds node trees so Color Ramp / Mix / Mapping /
+non-UV coords downstream of a texture silently break; integration-first). Live
+Blender-MCP debugging drove most of the bug-finding this session.
+
 **2026-08-19 → 2026-08-21 (in progress, 6 PRs merged #624–#628, 1 open #629):
 pkg200's last filter-related honour row closes, the pkg198 volume-pass split
 closes, a UnicodeEncodeError test-hygiene chip lands, the light-intensity

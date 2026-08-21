@@ -1,7 +1,7 @@
 # pkg215 — Make the project-index answer real questions, and never be stale
 
 **Track:** A
-**Status:** open (filed 2026-08-21).
+**Status:** done (PR #633, 2026-08-22). Query/coverage/freshness overhaul: scannable one-line query, body/file search, new `owns`/`script`/`whatis` subcommands, read-time auto-rebuild. 10/10 tests. Wired into agents by pkg216 (#636).
 **Estimated effort:** M.
 **Depends on:** none.
 

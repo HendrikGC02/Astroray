@@ -249,13 +249,23 @@ def test_light_source_count(db):
 
 
 def test_light_source_normalisation(db):
-    """All light sources must be normalised to peak = 1.0 ± 0.001."""
+    """All light sources must be energy-normalised to unit integral (Sum = 1).
+
+    pkg214 fix: replaced peak=1.0 normalisation with energy (unit-integral)
+    normalisation so area-conserving line broadening cannot inflate a lamp's
+    overall brightness (the mercury regression, PR #629). With non-negative
+    bins summing to 1, every bin is also <= 1 (the [0,1] storage contract).
+    """
     _, mats, _ = db
     for name, m in mats.items():
         if m["cat"] == 7:  # light_source
+            total = float(m["r"].sum())
+            assert abs(total - 1.0) < 1e-3, (
+                f"{name}: SPD sum = {total:.6f}, expected 1.0 +/- 1e-3"
+            )
             peak = float(m["r"].max())
-            assert abs(peak - 1.0) < 0.001, (
-                f"{name}: peak = {peak:.6f}, expected 1.0 ± 0.001"
+            assert peak <= 1.0 + 1e-6, (
+                f"{name}: bin exceeds 1 ({peak:.6f}); [0,1] contract violated"
             )
 
 
@@ -342,13 +352,19 @@ def test_led_6500k_blue_dominant(db):
 
 
 def test_sodium_vapor_d_line_concentration(db):
-    """Sodium vapor: > 95% of total energy in 585-595 nm bins."""
+    """Sodium vapor: > 95% of total energy in the broadened D-doublet region.
+
+    pkg214 broadens the Na D-doublet from a single 590 nm bin to an
+    energy-conserving Gaussian (FWHM 15 nm), so the energy now spans
+    ~575-605 nm (0.995 of total). Tolerance: > 0.95 in 575-605 nm. Energy
+    normalisation (pkg214 fix) is a global scale, so this fraction is unchanged.
+    """
     _, mats, _ = db
     m = mats["sodium_vapor"]
     r = m["r"]
 
-    # Energy in D-line region (585-595 nm)
-    d_line_energy = sum(r[i] for i, wl in enumerate(WL_GRID) if 585 <= wl <= 595)
+    # Energy in broadened D-doublet region (575-605 nm)
+    d_line_energy = sum(r[i] for i, wl in enumerate(WL_GRID) if 575 <= wl <= 605)
 
     # Total energy
     total_energy = r.sum()
@@ -362,16 +378,29 @@ def test_sodium_vapor_d_line_concentration(db):
 
 def test_mercury_vapor_line_peaks(db):
     """Mercury vapor: peaks present (within one bin) at 405, 435, 545 nm.
-    Dominant line (435 nm) is normalized to 1.0, continuum << line peaks.
+    Dominant line = 435 nm; each line peak stands above the phosphor continuum.
+
+    pkg214: _atomic_lines now broadens each line to an area-conserving Gaussian
+    (FWHM 15 nm) and mat_ls energy-normalises the SPD (Sum = 1). Absolute peak
+    values are therefore small (~0.02-0.03, not 1.0) -- the meaningful checks are
+    that the lines are PRESENT, that 435 nm dominates, and that each line peak
+    exceeds the flat continuum. (The old peak==1.0 assertion was an artefact of
+    peak-normalisation, which caused the mercury brightness regression in
+    PR #629; see .astroray_plan/docs/spectral-spd-energy-normalization-research.md.)
     """
     _, mats, _ = db
     m = mats["mercury_vapor"]
     r = m["r"]
 
+    # Continuum level (region far from lines)
+    continuum_region = [r[i] for i, wl in enumerate(WL_GRID) if 480 <= wl <= 520]
+    avg_continuum = float(np.mean(continuum_region))
+
     # Expected line positions (±5 nm tolerance for 5 nm grid)
     expected_lines = [405, 435, 545]  # 580 nm line not in NIST persistent set
 
-    # Find peaks within ±5 nm of expected positions
+    # Find peaks within ±5 nm of expected positions; each must stand above the
+    # continuum (line is a real feature, not lost in the phosphor baseline).
     line_peaks = {}
     for wl_expected in expected_lines:
         peak_in_region = max(
@@ -379,19 +408,17 @@ def test_mercury_vapor_line_peaks(db):
             if abs(wl - wl_expected) <= 5
         )
         line_peaks[wl_expected] = peak_in_region
-        assert peak_in_region > 0.1, (
-            f"Mercury line at ~{wl_expected} nm has peak {peak_in_region:.3f} < 0.1"
+        assert peak_in_region > avg_continuum, (
+            f"Mercury line at ~{wl_expected} nm peak {peak_in_region:.4f} "
+            f"does not exceed continuum {avg_continuum:.4f}"
         )
 
-    # Dominant line (435 nm) should be normalized to 1.0
-    assert abs(line_peaks[435] - 1.0) < 0.01, (
-        f"Mercury 435 nm line peak {line_peaks[435]:.3f} != 1.0"
+    # 435 nm must be the dominant of the three persistent lines.
+    assert line_peaks[435] == max(line_peaks.values()), (
+        f"Mercury 435 nm line ({line_peaks[435]:.4f}) is not dominant: {line_peaks}"
     )
 
-    # Check continuum level: should be << line peaks (5% of dominant line)
-    # Sample continuum in a region far from lines (e.g., 480-520 nm)
-    continuum_region = [r[i] for i, wl in enumerate(WL_GRID) if 480 <= wl <= 520]
-    avg_continuum = float(np.mean(continuum_region))
-    assert avg_continuum < 0.10, (
-        f"Mercury continuum level {avg_continuum:.3f} >= 0.10 (should be ~0.05)"
+    # Continuum must stay below the dominant line (energy-normalised units).
+    assert avg_continuum < line_peaks[435], (
+        f"Mercury continuum {avg_continuum:.4f} >= dominant line {line_peaks[435]:.4f}"
     )

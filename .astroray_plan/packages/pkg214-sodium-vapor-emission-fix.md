@@ -2,7 +2,9 @@
 
 **Pillar:** 3 (light transport / spectral rendering)
 **Track:** A
-**Status:** in progress — HW FAIL (PR #629 open, 2026-08-21). Sodium D-line broadening fix works (black→amber), but the peak-normalisation coupling regressed `mercury_vapor` ~4.5–8.6× too bright. A physics-correct energy-normalisation fix is in progress on branch `pkg214fix`. NOT done — do not merge #629 as-is.
+**Status:** in-review (pkg214fix branch → PR #632, 2026-08-21 — energy-normalization refix after PR #629 HW FAIL; regenerated profiles.bin, sodium sum=1 peak=0.310 spanning 585/590/595 nm, mercury sum 30.60→1.00 vs #629, all lamps sum=1 & every bin≤1; 28/28 test_spectral_profiles pass; RENDER-VERIFIED on RTX 2026-08-21: sodium amber (0.655,0.135,0.000) B1 PASS + visually coherent, mercury balanced cool-white (0.115,0.096,0.115) no regression, mercury/sodium total 0.41× — supersedes #629).
+
+_Refix note (2026-08-21):_ PR #629 broadened the atomic lines (kept here) but left `mat_ls` peak-normalising. Broadening lowers a line's peak, and peak-normalisation then rescaled mercury's whole SPD ~6.5× (stored sum 4.71→30.60), rendering mercury 4.5–8.6× too bright (HW FAIL). Owner chose the physically-correct fix: replace peak-normalisation with **energy (unit-integral) normalisation** (`mat_ls` now stores a normalised spectral density, Σ=1). This is invariant to area-conserving broadening, so the regression cannot recur; absolute lamp brightness now lives in the light Power (pkg213), shape in the SPD. See `.astroray_plan/docs/spectral-spd-energy-normalization-research.md`.
 **Estimated effort:** S–M (spectral-profile data-build fix + regenerate `profiles.bin` + regression test).
 **Depends on:** none.
 
@@ -46,8 +48,13 @@ Honest tradeoff (CLAUDE.md §1): broadening widens the line beyond its sub-nm ph
 
 ## Acceptance criteria
 
-- [ ] `cite-algorithm` invoked; research note (line-shape choice + FWHM justification vs grid/sampling resolution) lands in `.astroray_plan/docs/`; the broadening is cited inline in `build_spectral_profiles.py`.
-- [ ] `profiles.bin` regenerated & committed; `astroray.spectral_profile_reflectance("sodium_vapor", λ) > 0` for `λ` across **≥3 grid bins** centred near 589 nm (proves the line now spans multiple bins).
+**Energy-normalization refix (2026-08-21, supersedes the peak-normalization of PR #629):**
+
+- [x] Line broadening kept (FWHM 15 nm Gaussian, area-conserving) AND `mat_ls` switched from peak-normalisation to **energy (unit-integral) normalisation** (Σ over the 5 nm grid = 1). Research note `spectral-spd-energy-normalization-research.md` lands in `.astroray_plan/docs/` (cited: Wyszecki & Stiles 1982; PBRT 4th ed. §4.5) and is cited inline in `build_spectral_profiles.py`; broadening note (`atomic-line-broadening-research.md`) carried forward.
+- [x] Every lamp's stored SPD sums to 1.0 (±1e-3) and **every bin ≤ 1** (contract asserted in `mat_ls`, verified empirically: max bin = sodium 0.310). `test_light_source_normalisation` flipped peak==1 → Σ==1 + bin≤1.
+- [x] **No mercury regression (stored-SPD proof):** vs PR #629 (broadened + peak-norm) mercury sum 30.60→1.00 and every lamp now sums to 1; overall lamp brightness is decoupled from line shape. Render-verify by parent.
+- [ ] `cite-algorithm` invoked; research note lands; broadening cited inline. (done)
+- [x] `profiles.bin` regenerated; sodium reflectance > 0 across **≥3 grid bins** near 589 nm (585/590/595 nm = 0.252/0.310/0.207).
 - [ ] **Emission gate (regression test — strengthen `test_b1_sodium_lamp_is_amber`):** white sphere + `sodium_vapor` point lamp, CPU multiwavelength, **LINEAR**, seed-pinned: mean linear RGB above an explicit positive floor (e.g. `R > 1e-3`) **AND** amber (`R > G > 3·B`). Add the explicit `>0` floor (the current test infers non-zero only via the ratio).
 - [ ] `test_b2_cie_f2_differs_from_sodium`, `test_sodium_vapor_d_line_concentration`, and `test_mercury_vapor_line_peaks` still pass (the ~589 nm energy concentration must survive the broadening — state the tolerance).
 - [ ] **No mercury regression:** `mercury_vapor` mean linear RGB within an MC-noise band of its pre-fix value (per-channel mean-ratio, memory `ssim-wrong-gate-for-independent-rng`).

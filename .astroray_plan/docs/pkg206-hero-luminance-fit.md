@@ -116,3 +116,35 @@ convention). Because `sampleImportance` writes the per-lane logistic density int
 `pdf[i]`, no downstream change is needed for the XYZ reconstruction to stay
 unbiased. `redshift()` and `terminateSecondary()` operate on `pdf[i]` uniformly
 and remain correct (they scale / zero whatever density is stored).
+
+## 6. Band windowing (refix after the Cycles-parity review)
+
+The §4 constants `kHeroY0 = F(360)`, `kHeroN = F(830)−F(360)` bake the **full**
+[360, 830] CDF window. But the default production render band is **380–780 nm**
+(the GPU wavefront is called with those limits). With the window baked full-band,
+`rand = N·u + y0` maps `u∈[0,1)` onto λ∈[360, 830], so on a 380–780 render the
+inverse placed ~1.2 % of draws outside the band; the `clamp(λ, min, max)` then
+piled that mass onto the two edges while keeping the **pre-clamp** pdf → the
+`f(λ)/p(λ)` same-λ requirement broke and the estimator picked up a systematic
+**blue/Z bias** (the low-λ pile-up is ~5× over-weighted and lands where z̄/x̄ are
+non-negligible). The CPU megakernel had guarded this by falling back to `sampleUniform`
+off the full band; the GPU had no such guard.
+
+**Fix (physically correct, keeps the variance win on the shipping band):** window
+the logistic CDF to the *actual* `[λmin, λmax]` at runtime instead of baking it.
+Compute `lo = F(λmin)`, `hi = F(λmax)`, draw `rand ∈ [lo, hi]`, and renormalize the
+density by the actual window mass:
+
+```
+lo = F(λmin);  hi = F(λmax);  win = hi − lo;
+rand = lo + win·u_i;                 // per-lane, stratified in CDF space
+λ_i  = x0 − ln(1/rand − 1)/a;        // analytically in-band, clamp only guards fp
+pdf_i = a·rand·(1−rand) / win;       // 1/nm, ∫ over [λmin,λmax] = 1
+```
+
+For the full band this reduces exactly to §4 (`lo = F(360) = kHeroY0`,
+`win = kHeroN`). The `kHeroY0`/`kHeroN` constants are therefore no longer stored —
+`lo`/`hi` are derived from `kHeroA`/`kHeroX0` per call. Verified: unit test
+`test_narrowed_band_unbiased_and_normalized` (pdf∫=1 and unbiased MC over
+[380,780]); render-level GPU-vs-CPU-uniform on the 380–780 band matches the
+B channel to 0.8 % (no blue bias). CPU↔GPU stay byte-mirrored (`heroCdf`/`gHeroCdf`).

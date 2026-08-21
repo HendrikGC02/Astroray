@@ -1,7 +1,16 @@
 {
-  "627": {
-    "last_action": "ci_failing_hold_for_owner_bias",
-    "last_action_ts": "2026-08-19T22:24:05Z"
+  "629": {
+    "head_sha": "97d4a52bc6b744bed98df96def730dde3c8d65d5",
+    "hw_artifact": ".claude/worktrees/pkg214/test_results/pkg214_mercury_vapor.png",
+    "hw_numbers": {
+      "mercury_R_post": 3.525534,
+      "mercury_R_pre": 0.411779,
+      "note": "mercury continuum inflated ~9.4x via mat_ls peak-normalization against lowered Gaussian peak",
+      "sodium_R": 2.121573
+    },
+    "hw_result": "FAIL",
+    "last_action": "gate_review_dispatched",
+    "last_action_ts": "2026-08-21T02:40:57Z"
   },
   "impl_dispatches": {}
 }

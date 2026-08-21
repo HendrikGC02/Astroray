@@ -133,6 +133,51 @@ __device__ inline GSampledWavelengths sampleUniformWavelength(float u,
     return swl;
 }
 
+// pkg206 — sampleImportanceWavelength: luminance-weighted hero-wavelength
+// IMPORTANCE sampling. BYTE-MIRROR of astroray::SampledWavelengths::
+// sampleImportance() (src/spectrum.cpp) — the constants and pdf formula MUST
+// match bit-for-bit. Draws the hero + stratified companions from a logistic CDF
+// fitted to Astroray's (CIE-1964 10deg y_bar + 0.25)*D65 luminance target, and
+// sets each lane's pdf to the logistic density at its OWN lambda (1/nm) so the
+// MC estimator stays UNBIASED.
+//
+// Algorithm: Wilkie, Nawaz, Droske, Weidlich, Hanika 2014, "Hero Wavelength
+// Spectral Sampling", CGF 33(4) DOI 10.1111/cgf.12419. Logistic CDF inversion +
+// "+const luminance blend" from Blender Cycles colorspace.h::sample_wavelength
+// (Apache-2.0), re-fitted against Astroray's observer. CDF-space stratification
+// (unbiased) mirrors PBRT-v4 SampledWavelengths::SampleVisible (Apache-2.0).
+// Constants/derivation: .astroray_plan/docs/pkg206-hero-luminance-fit.md
+// (fit: scripts/data/fit_hero_luminance_cdf.py). Consumes ONE uniform u — same
+// draw count as sampleUniformWavelength, so CPU↔GPU dimension counters stay
+// aligned (the 8.7M-ULP draw-count guard).
+//
+// Fitted logistic-CDF constants, nm units, [360,830] nm, luminance blend +0.25.
+// MUST be identical to spectrum.cpp::{kHeroA,kHeroX0,kHeroY0,kHeroN}. Plain
+// constexpr immediates (baked into the SASS, no __constant__ bank use — keeps
+// spec §4's shade-kernel CONSTANT[0] baseline untouched; used only at init).
+constexpr float kG_HeroA  = 0.0221679280f;  // 1/nm
+constexpr float kG_HeroX0 = 552.040271f;    // nm
+constexpr float kG_HeroY0 = 0.0139650380f;  // F(lambdaMin)
+constexpr float kG_HeroN  = 0.9839309253f;  // F(lambdaMax)-F(lambdaMin)
+
+__device__ inline GSampledWavelengths sampleImportanceWavelength(float u,
+                                                                 float lambdaMin = G_LAMBDA_MIN,
+                                                                 float lambdaMax = G_LAMBDA_MAX) {
+    GSampledWavelengths swl;
+    const float invK = 1.0f / static_cast<float>(G_SPECTRUM_SAMPLES);
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+        float ui = u + static_cast<float>(i) * invK;
+        if (ui >= 1.0f) ui -= 1.0f;                    // wrap in uniform space
+        float randL = kG_HeroN * ui + kG_HeroY0;       // truncated CDF window
+        float lam = kG_HeroX0 - logf(1.0f / randL - 1.0f) / kG_HeroA;
+        if (lam < lambdaMin) lam = lambdaMin;          // guard float round-trip
+        if (lam > lambdaMax) lam = lambdaMax;
+        swl.lambda[i] = lam;
+        swl.pdf[i]    = kG_HeroA * randL * (1.0f - randL) / kG_HeroN;  // 1/nm density
+    }
+    return swl;
+}
+
 // pkg55-C4: Halton base-2 sequence for deformation-motion time sampling.
 // Mirrors multiwavelength_kernel.cu:374 (MW-kernel-local helper, cited from
 // PBRT Van der Corput radix-2, Apache-2.0). Sampled once per path at init via
@@ -212,9 +257,11 @@ __device__ inline void generatePrimaryRay(
         ray_direction = dir;
     }
 
-    // 3. Lambda uniform draw (CPU: std::uniform_real_distribution<float>(0,1)).
+    // 3. Lambda draw (CPU: std::uniform_real_distribution<float>(0,1)). pkg206:
+    // primary path uses luminance-weighted IMPORTANCE sampling (mirrors CPU
+    // path_kernel.cpp::init_path). Same ONE-draw count as the old uniform path.
     float lambda_u = rng.Uniform();
-    lambdas = sampleUniformWavelength(lambda_u, lambdaMin, lambdaMax);
+    lambdas = sampleImportanceWavelength(lambda_u, lambdaMin, lambdaMax);
 }
 
 }  // namespace (anonymous -- TU-local helpers above)

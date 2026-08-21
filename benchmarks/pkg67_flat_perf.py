@@ -40,6 +40,14 @@ def _make_scene(astroray):
     """Construct a small flat-space scene."""
     r = astroray.Renderer()
     r.set_integrator("path_tracer")
+    # pkg206 §5 re-baseline: pkg67's contract is bit-identity (SSIM >= 0.999)
+    # against a committed reference PNG, and this flat scene is achromatic —
+    # luminance-weighted hero importance sampling only changes the NOISE
+    # realization here, not the expected image, but it breaks bit-identity.
+    # Per the pkg206 triage, keep the flat/GR baseline on the UNIFORM sampler
+    # (hero_importance=0) so the existing reference stays valid without a
+    # re-render. Dispersion scenes (test_spectral_prism) keep the default ON.
+    r.set_integrator_param("hero_importance", 0)
     r.setup_camera(
         look_from=[0.0, 0.5, 3.0],
         look_at=[0.0, 0.0, 0.0],

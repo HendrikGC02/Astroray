@@ -308,8 +308,11 @@ ReferencePTResult reference_pt_production_render(
                         Ray primaryRay = cam.getRay(u, v, 0.0f, gen);
 
                         // Lambda sampling (production spectral_path_tracer.cpp:107-108).
+                        // pkg206: primary path uses luminance-weighted IMPORTANCE
+                        // sampling (unbiased; per-lane logistic-density pdf). Same
+                        // ONE draw as the old uniform path.
                         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
-                        SampledWavelengths lambdas = SampledWavelengths::sampleUniform(dist01(gen));
+                        SampledWavelengths lambdas = SampledWavelengths::sampleImportance(dist01(gen));
 
                         // PostInit snapshot.
                         if (sink) {

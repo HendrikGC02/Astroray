@@ -102,6 +102,20 @@ public:
                                             float lambdaMin = kLambdaMin,
                                             float lambdaMax = kLambdaMax);
 
+    // pkg206 — luminance-weighted hero-wavelength IMPORTANCE sample. Draws the
+    // hero (and its stratified companions) from a logistic CDF fitted to
+    // Astroray's own (CIE-1964 10deg y_bar + 0.25)*D65 luminance target, so the
+    // eye's strong wavelengths are sampled more often (lower chromatic noise on
+    // dispersive paths). Each lane's `pdf` is set to the logistic density at its
+    // OWN wavelength (Wilkie 2014), so the MC estimator stays UNBIASED. Consumes
+    // exactly one uniform `u` (same draw count as sampleUniform → CPU/GPU
+    // dimension counters aligned). GPU byte-twin: stage_init.cu
+    // ::sampleImportanceWavelength. Derivation:
+    // .astroray_plan/docs/pkg206-hero-luminance-fit.md.
+    static SampledWavelengths sampleImportance(float u,
+                                               float lambdaMin = kLambdaMin,
+                                               float lambdaMax = kLambdaMax);
+
     // Construct a SampledWavelengths from caller-supplied wavelengths.
     // Used by emission-evaluation APIs that need to query an emitter at
     // specific lambdas (rather than letting the renderer pick stratified

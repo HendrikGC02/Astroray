@@ -242,8 +242,32 @@ def graph(db: sqlite3.Connection, json_out: str | None, html_out: str | None) ->
     for fid in sorted(file_ids):
         nodes.append({"id": fid, "label": fid.split("/")[-1], "title": fid, "status": "", "group": "file"})
 
-    for row in db.execute("SELECT file, title FROM docs"):
+    doc_rows = db.execute("SELECT file, title FROM docs").fetchall()
+    for row in doc_rows:
         nodes.append({"id": row[0], "label": row[0].split("/")[-1], "title": (row[1] or "")[:80], "status": "", "group": "doc"})
+
+    # Doc <-> package edges: research docs otherwise float disconnected.
+    # Heuristic (both directions, since citation style varies):
+    #   - doc body mentions a pkgNNN token -> link doc to that package
+    #   - a package spec body mentions the doc's filename stem -> link them
+    pkg_texts = {p.stem: p.read_text(encoding="utf-8", errors="replace") for p in _pkg_files()}
+    doc_edges: set[tuple[str, str]] = set()
+    for doc_file, _doc_title in doc_rows:
+        doc_path = PLAN / doc_file
+        try:
+            doc_text = doc_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            doc_text = ""
+        for tok in {m.lower() for m in DEP_RE.findall(doc_text)}:
+            for k in num_to_keys.get(tok, []):
+                doc_edges.add((doc_file, k))
+        doc_stem = Path(doc_file).stem.lower()
+        if doc_stem:
+            for key, text in pkg_texts.items():
+                if doc_stem in text.lower():
+                    doc_edges.add((doc_file, key))
+    for doc_file, pkg_key in doc_edges:
+        edges.append({"source": doc_file, "target": pkg_key, "kind": "doc"})
 
     payload = {"nodes": nodes, "edges": edges}
     if json_out:
@@ -300,7 +324,11 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <div class="row"><input type="checkbox" id="t-doc" checked><label for="t-doc">Docs</label></div>
   <div class="row"><input type="checkbox" id="t-file"><label for="t-file">Files</label></div>
   <div class="row"><input type="checkbox" id="t-dep" checked><label for="t-dep">Dependency edges</label></div>
+  <div class="row"><input type="checkbox" id="t-dedge" checked><label for="t-dedge">Doc edges</label></div>
   <div class="row"><input type="checkbox" id="t-fedge"><label for="t-fedge">File edges</label></div>
+  <hr>
+  <div class="section">Layout</div>
+  <div class="row"><input type="checkbox" id="t-2d"><label for="t-2d">2D layout</label></div>
 </div>
 <div id="hint">drag to rotate &middot; right-drag to pan &middot; scroll to zoom &middot; hover for label</div>
 <script>
@@ -315,6 +343,18 @@ function statusColor(s){ s = (s||'').toLowerCase();
 function nodeColor(n){ if(n.group==='doc') return '#bc8cff'; if(n.group==='file') return '#2ea043'; return statusColor(n.status); }
 function nodeSize(n){ return n.group==='package' ? 2.2 : n.group==='doc' ? 1.7 : 1.0; }
 
+// Cache of last-known node positions/velocities, keyed by id, so toggling a
+// layer on/off doesn't teleport survivors and reheat the whole simulation
+// (previously caused disconnected components to repel to infinity).
+const posCache = {};
+
+function cachePositions(){
+  if(!graph) return;
+  graph.graphData().nodes.forEach(n => {
+    posCache[n.id] = {x:n.x, y:n.y, z:n.z, vx:n.vx, vy:n.vy, vz:n.vz};
+  });
+}
+
 function build(){
   const show = g => document.getElementById(g).checked;
   const nodes = DATA.nodes.filter(n => (n.group==='package'&&show('t-package'))
@@ -322,12 +362,21 @@ function build(){
   const ids = new Set(nodes.map(n=>n.id));
   const links = DATA.edges.filter(e => {
     if(!ids.has(e.source) || !ids.has(e.target)) return false;
-    return e.kind==='depends' ? show('t-dep') : show('t-fedge');
+    if(e.kind==='depends') return show('t-dep');
+    if(e.kind==='doc') return show('t-dedge');
+    return show('t-fedge');
+  });
+  // Re-use prior positions for nodes that survive the filter, so rebuilding
+  // graphData() doesn't reset (and reheat) the whole layout.
+  nodes.forEach(n => {
+    const p = posCache[n.id];
+    if(p){ n.x=p.x; n.y=p.y; n.z=p.z; n.vx=p.vx; n.vy=p.vy; n.vz=p.vz; }
   });
   return {nodes, links};
 }
 
 function render(){
+  cachePositions();
   const d = build();
   if(!graph){
     graph = ForceGraph3D()(document.getElementById('3d-graph'))
@@ -337,22 +386,51 @@ function render(){
       .nodeColor(nodeColor)
       .nodeVal(nodeSize)
       .nodeRelSize(4)
-      .linkColor(l => l.kind==='depends' ? 'rgba(88,166,255,0.32)' : 'rgba(46,160,67,0.22)')
-      .linkWidth(l => l.kind==='depends' ? 1.0 : 0.35)
-      .linkDirectionalArrowLength(l => l.kind==='depends' ? 3.5 : 0)
+      .linkColor(l => l.kind==='depends' ? 'rgba(88,166,255,0.9)' : l.kind==='doc' ? 'rgba(188,140,255,0.85)' : 'rgba(46,160,67,0.55)')
+      .linkWidth(l => l.kind==='depends' ? 1.6 : l.kind==='doc' ? 1.4 : 0.6)
+      .linkDirectionalParticles(l => l.kind==='file' ? 0 : 2)
+      .linkDirectionalParticleWidth(1.6)
+      .linkDirectionalParticleSpeed(0.004)
+      .linkDirectionalArrowLength(l => l.kind==='file' ? 0 : 3.5)
       .linkDirectionalArrowRelPos(1)
       .backgroundColor('#0d1117')
       .showNavInfo(false)
+      .d3VelocityDecay(0.35)
+      .warmupTicks(60)
+      .cooldownTicks(200)
       .onNodeHover(n => { document.getElementById('3d-graph').style.cursor = n ? 'pointer' : 'default'; })
       .onNodeClick(n => {
         const dist = 28; const deg = graph.cameraPosition();
         graph.cameraPosition({x:n.x, y:n.y, z:n.z + dist}, {x:n.x, y:n.y, z:n.z}, 1200);
       });
+    // Tune the force sim: bounded charge (repulsion decays past distanceMax so
+    // disconnected components don't fly apart forever), a fixed link distance,
+    // and a centering force so everything stays anchored near the origin.
+    graph.d3Force('charge').strength(-140).distanceMax(450);
+    graph.d3Force('link').distance(l => l.kind==='file' ? 16 : 42);
+    if(graph.d3Force('center')) graph.d3Force('center').strength(1);
   } else {
+    // Positions were preserved above, so only a light re-settle is needed —
+    // NOT a full reheat, which is what caused the infinite-drift bug.
+    graph.cooldownTicks(40);
     graph.graphData(d);
   }
 }
-document.querySelectorAll('#panel input[type=checkbox]').forEach(cb => cb.addEventListener('change', render));
+
+function setDimensions(is2D){
+  cachePositions();
+  graph.numDimensions(is2D ? 2 : 3);
+  if(is2D){
+    // Flatten cached z so nodes don't have to fight their way back to a plane.
+    Object.values(posCache).forEach(p => { p.z = 0; p.vz = 0; });
+    graph.graphData().nodes.forEach(n => { n.z = 0; n.vz = 0; });
+  }
+  graph.cooldownTicks(120);
+  graph.d3ReheatSimulation();
+}
+
+document.querySelectorAll('#panel input[type=checkbox]:not(#t-2d)').forEach(cb => cb.addEventListener('change', render));
+document.getElementById('t-2d').addEventListener('change', e => setDimensions(e.target.checked));
 render();
 </script>
 </body></html>"""

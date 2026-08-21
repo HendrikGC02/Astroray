@@ -125,11 +125,34 @@ void EmissionSpectrum::deviceReference(Vec3& outRGB, bool& exactRGB) const {
         return;
     }
     // Blackbody / MeasuredSPD / Composite: convert the evaluated SPD to a
-    // reference linear-sRGB triple (chroma + magnitude approximate). Sampled at
-    // the same uniform stratified wavelengths the CPU power() estimator uses.
-    SampledWavelengths wl = SampledWavelengths::sampleUniform(0.5f);
-    SampledSpectrum spec = eval(wl);
-    XYZ xyz = spec.toXYZ(wl);
+    // reference linear-sRGB triple (chroma + magnitude approximate).
+    //
+    // FINE CMF-grid integration, replacing a previous 4-sample Monte-Carlo
+    // toXYZ at sampleUniform(0.5). Those four fixed wavelengths (595, 712.5,
+    // 830, 477.5 nm over the default [360,830] range) badly undersampled
+    // structured lamp SPDs -- for a phosphor LED one sample (830 nm) is entirely
+    // out of band and none lands on the blue pump peak (~450 nm) -- yielding a
+    // wildly red/orange-biased RGB that the GPU RGBIlluminant upsample then
+    // rendered faithfully (salmon LEDs, over-orange sodium, reddish mercury).
+    // The 1 nm Riemann sum below is the deterministic, accurate value of the
+    // same integral (INT S(lambda)*cmf(lambda) dlambda, dlambda = 1 nm) the MC
+    // estimator was approximating, so magnitude is preserved while chroma
+    // becomes correct. Same fine-grid technique blackbodyLuminanceNorm() uses
+    // above. Each eval() mode is per-lane (result[i] depends only on lambda(i)),
+    // so packing one wavelength into all lanes and reading lane 0 yields S(lam).
+    //
+    // Approximate parity only: the GPU still renders RGBIlluminant(outRGB)*D65,
+    // not the raw SPD. Exact CPU/GPU spectral parity needs emission profiles
+    // uploaded to the device and sampled at the render wavelengths (follow-up).
+    XYZ xyz{0.0f, 0.0f, 0.0f};
+    for (int lambda = 360; lambda <= 830; ++lambda) {
+        float lam = static_cast<float>(lambda);
+        float s = eval(SampledWavelengths::fromLambdas({lam, lam, lam, lam}))[0];
+        XYZ cmf = cieCmf1964_10deg(lam);
+        xyz.X += s * cmf.X;  // implicit * 1 nm step
+        xyz.Y += s * cmf.Y;
+        xyz.Z += s * cmf.Z;
+    }
     outRGB = Vec3(
         3.2404542f * xyz.X - 1.5371385f * xyz.Y - 0.4985314f * xyz.Z,
         -0.9692660f * xyz.X + 1.8760108f * xyz.Y + 0.0415560f * xyz.Z,

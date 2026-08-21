@@ -36,13 +36,15 @@ Create your own worktree as a SIBLING of the main checkout:
 ```
 cd <repo-root>
 git fetch origin
-git worktree add ../Astroray-<pkg> -b <pkg> origin/main
-cd ../Astroray-<pkg>
+git worktree add .claude/worktrees/<pkg> -b <pkg> origin/main
+cd .claude/worktrees/<pkg>
 git worktree list && pwd && git status   # verify you're on the new branch with HEAD = current main
 ```
 
-Every Write/Edit you do MUST be inside `../Astroray-<pkg>/`. Do not work on
-the main checkout. Memory: `parallel_agent_worktree_contamination`.
+Every Write/Edit you do MUST be inside `.claude/worktrees/<pkg>/`. Do not work
+on the main checkout. The orchestrator may already have created this worktree
+for you — if so, use it, don't create a second one. Memory:
+`parallel_agent_worktree_contamination`.
 
 ## Implementation discipline
 
@@ -89,11 +91,17 @@ If your changes touch any `.cu`, `.cuh`, `.cpp`, `.hpp`, `.h`, or `CMakeLists.tx
    `nvcc -c`. It catches frontend errors at PR time, but is a backstop —
    pre-push local build is still required.
 
-If your changes are pure Python / docs only, skip the build but still:
+If your changes are pure Python / data / docs only, skip the CUDA build but still:
 1. Run the relevant `pytest tests/<spec-relevant>.py -v` locally.
-2. Run the broader test suite to confirm no regression:
+2. Run the broader pure-Python suite to confirm no regression:
    `pytest tests/ --ignore=tests/wavefront_diff -x` (excluding wavefront_diff
    which is the long pkg55-specific gate).
+3. Tests that need the built engine `.pyd` (render tests importing `astroray`
+   via the `astroray_module` fixture) CANNOT run in a fresh worktree without a
+   full build — do NOT block on them. Deselect them locally (e.g.
+   `pytest ... -k "not <render-test-name>"`), say so in the PR body, and let CI
+   run them (CI builds the `.pyd`). CI is the verification backstop for
+   engine-level tests.
 
 ## Behavioral test sweep (pre-existing tests that assert your behavior was untrue)
 
@@ -109,6 +117,15 @@ Update or delete every guard test that's now wrong; cite the original test
 author's intent in the commit if you flip a `False` → `True`.
 
 ## When done
+
+**Open the PR — always.** The single most common pipeline failure is an
+implementer that does the work but never opens the PR; that stalls the whole
+round (no review, no merge) and makes the orchestrator re-dispatch the same
+package every tick. If you cannot finish some verification locally (missing
+`.pyd`, a test that needs CI, a build you couldn't run), commit what you have
+and OPEN THE PR anyway with a truthful "not verified locally — needs CI" note.
+A false "success" claim is forbidden; a silent no-PR is worse than an honest
+incomplete PR.
 
 1. Run the full test suite. All acceptance criteria in the spec must pass.
 2. Run the lint gate (advisory): `python .claude/skills/lint/scripts/lint.py check`.

@@ -31,6 +31,11 @@ $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
 $userPath    = [Environment]::GetEnvironmentVariable('Path', 'User')
 $env:Path = "C:\Users\hgcom\.local\bin;$userPath;$machinePath"
 
+# Background subagents: let the orchestrator dispatch implementers without
+# blocking the tick (otherwise each dispatch tick waits 30-60 min on the
+# implementer and the 10-min cadence collapses). Experimental flag.
+$env:OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS = "true"
+
 Set-Location $Repo
 
 if ($DryRun) {

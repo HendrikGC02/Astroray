@@ -19,8 +19,10 @@ never from looping in-session.
 ## Step 1 — Compute the tick plan (decision engine)
 Determine `eligible_packages`: from `NEXT_STAGE_REPORT.md` §2, the ready packages
 (not research-only, deps merged, no open PR, no active worktree, dispatchable Track) —
-this is exactly `dispatch-next`'s eligibility logic; reuse it. Count `in_flight`
-(active worktrees + running implementer agents).
+this is exactly `dispatch-next`'s eligibility logic; reuse it. **Also exclude any
+package already recorded in `ledger.get("impl_dispatches", {})` with a non-terminal
+outcome (e.g. `"dispatched"`) — those are already in flight; do NOT re-dispatch them.**
+Count `in_flight` (active worktrees + running implementer agents).
 
 Run:
 ```
@@ -45,8 +47,12 @@ In this order, respecting caps already applied by the engine:
 1. **Dispatch** each pkg in `plan.dispatch` via `dispatch-next` routing
    (`package-implementer` in its own fresh worktree; Codex is retired, so legacy
    Track-E / Codex-paste-ready specs route here too) with the
-   NEXT_STAGE_REPORT §3 drop-in prompt verbatim. **If an isolated worktree cannot be
-   created, abort that dispatch** and note it blocked — never fall back to `main`
+   NEXT_STAGE_REPORT §3 drop-in prompt verbatim. **Record the dispatch BEFORE
+   spawning:** `ledger.setdefault("impl_dispatches", {})[<pkg>] = {"outcome":
+   "dispatched", "ts": <now>}` then `save_ledger(...)` — this is what stops the
+   next tick from re-dispatching the same package. **If an isolated worktree cannot
+   be created, abort that dispatch** (and set the entry outcome to
+   `"escalated:worktree"` so it surfaces in the standup) — never fall back to `main`
    (memory `parallel_agent_worktree_contamination`). After spawning, re-check
    `git rev-parse main` == Step-0 value; if it moved, halt dispatch and write a
    `CONTAMINATION` Action item.

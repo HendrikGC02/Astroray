@@ -3355,7 +3355,21 @@ public:
         lights.addLight(std::move(light));
     }
 
-    void buildAcceleration() { bvh = std::make_shared<BVHAccel>(scene); }
+    void buildAcceleration() {
+        bvh = std::make_shared<BVHAccel>(scene);
+        // The Tree light sampler builds and CACHES its light tree in
+        // TreeLightSampler's constructor, over whatever lights exist when
+        // setLightSampler() is called. Callers routinely select the sampler
+        // before adding lights (the Blender addon does this in convert_scene:
+        // set_light_sampler('tree') runs before every add_*_light), which would
+        // otherwise leave the tree built over an empty light list — pick()
+        // returns index -1 / pdf 0, NEE is skipped for every pixel, and the
+        // scene renders fully black on the CPU integrator. Rebuild the sampler
+        // here (single-threaded, after the full light list is known and before
+        // the OpenMP render workers read it) so the tree reflects every light.
+        // Power mode reads the light list live, so this rebuild is a no-op cost.
+        lights.setSampler(lights.samplerMode());
+    }
 
     // pkg114 — two-level BVH instancing API.
     // Register a mesh's OBJECT-LOCAL primitives once; returns its mesh id. The

@@ -32,6 +32,14 @@ paper over problems, and you stop when something the spec doesn't resolve.
    say so before proceeding. If a simpler approach exists than what the spec
    describes, say so and wait for confirmation.
 
+4. Before editing an existing file, run
+   `python scripts/project_index.py owns <path>` to see which packages own it
+   and their status — it surfaces prior/related work grep won't.
+
+5. Before writing ANY new script, run
+   `python scripts/project_index.py script "<task>"` (the CLAUDE.md §5b
+   no-duplicate gate) in addition to reading `scripts/README.md`.
+
 ## Worktree discipline
 
 **Do NOT rely on `EnterWorktree` — it's harness-level and doesn't propagate to subagent tool calls.** Create your own worktree as a SIBLING of the main checkout:

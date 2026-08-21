@@ -22,6 +22,9 @@ packages, docs, tests, and optionally GitHub issues/PRs).
 ## Search & graph
 
 - `python scripts/project_index.py query "pixel filter"` — search packages + docs (word-wise).
+- `python scripts/project_index.py owns <path>` — which package(s) own a file path, plus their status.
+- `python scripts/project_index.py script "<task>"` — the canonical script for a task (the CLAUDE.md §5b no-duplicate gate; mirrors `scripts/README.md`).
+- `python scripts/project_index.py whatis pkgNNN` — compact card for one package.
 - `python scripts/project_index.py graph --html graph.html` — interactive node tree (packages ↔ docs ↔ files ↔ dependencies).
 
 ## GitHub

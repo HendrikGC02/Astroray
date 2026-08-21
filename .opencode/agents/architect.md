@@ -24,7 +24,10 @@ Protocol:
 1. Read the current project state SILENTLY before opening dialogue. Read
    `STATUS.md`, `ROADMAP.md`, the most recent `NEXT_STAGE_REPORT.md`, and any
    research notes relevant to the goal. Do not ask "what's in the repo" —
-   read it.
+   read it. Before proposing scope, run
+   `python scripts/project_index.py query "<topic>"` and
+   `python scripts/project_index.py deps pkgN` to ground new specs in existing
+   packages and their dependencies.
 2. Research externally if needed (`WebSearch`, `WebFetch`). Check Cycles
    changelogs, recent SIGGRAPH proceedings, OIDN/OptiX/tcnn release notes,
    papers in `.astroray_plan/docs/`.

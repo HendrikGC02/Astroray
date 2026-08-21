@@ -35,6 +35,10 @@ numbers, PR number, merge date.
 
 ### 2 — Flip spec statuses
 
+Before flipping statuses, run `python scripts/project_index.py owns <path>` and
+`python scripts/project_index.py deps pkgN` on the landed change to find every
+spec it affects — not just the one named in the PR title.
+
 For each package that landed: open its spec in `.astroray_plan/packages/`
 and change the `Status:` line to:
 

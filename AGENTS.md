@@ -22,6 +22,10 @@ Astroray/
 - `AGENTS.md` is the shared repo contract for coding agents.
 - `CLAUDE.md` remains Claude Code's behavioral guide. Do not delete or replace it.
 - `.astroray_plan/docs/STATUS.md` is the current planning source of truth.
+- `KNOWLEDGE.md` is the repo routing map — it documents `scripts/project_index.py`
+  (`query`/`owns`/`script`/`deps`/`whatis`) for answering "who owns this file",
+  "what package does X", and "is there already a script for this task". Consult it
+  before grepping blind.
 - Keep agent-specific notes additive. If a rule belongs to all agents, put it here.
 - **Before writing any new script, check `scripts/README.md` (the canonical
   per-task script index) and grep `scripts/`, `benchmarks/`, `tools/` for an

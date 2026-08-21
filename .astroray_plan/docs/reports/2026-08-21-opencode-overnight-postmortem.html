@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Astroray — opencode overnight run post-mortem · 2026-08-21</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#8b949e;
+    --accent:#58a6ff;--green:#3fb950;--amber:#d29922;--red:#f85149;--purple:#bc8cff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif;line-height:1.55}
+  .wrap{max-width:960px;margin:0 auto;padding:40px 24px 80px}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.3px}
+  h2{font-size:18px;margin:40px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:24px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:20px 0}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+  .card .n{font-size:26px;font-weight:600;line-height:1}
+  .card .l{font-size:12px;color:var(--muted);margin-top:6px;text-transform:uppercase;letter-spacing:.6px}
+  .ok{color:var(--green)} .warn{color:var(--amber)} .bad{color:var(--red)}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.5px}
+  td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
+  .pill.ok{background:rgba(63,185,80,.15);color:var(--green)}
+  .pill.warn{background:rgba(210,153,34,.15);color:var(--amber)}
+  .pill.bad{background:rgba(248,81,73,.15);color:var(--red)}
+  .pill.info{background:rgba(88,166,255,.15);color:var(--accent)}
+  .finding{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:14px 16px;margin:12px 0}
+  .finding.good{border-left-color:var(--green)} .finding.bad{border-left-color:var(--red)} .finding.warn{border-left-color:var(--amber)}
+  .finding h3{margin:0 0 6px;font-size:14px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#010409;border:1px solid var(--border);border-radius:6px}
+  code{padding:1px 5px;font-size:12px}
+  pre{padding:12px;overflow-x:auto;font-size:12px}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  .muted{color:var(--muted)}
+  .chart{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:12px 0;font-size:12px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:10px;height:10px;border-radius:50%;display:inline-block}
+  ul{margin:8px 0;padding-left:20px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>opencode overnight run — post-mortem</h1>
+  <div class="sub">Astroray · 2026-08-20 23:23 → 2026-08-21 02:04 local · driver: opencode (Go) + roadmap-orchestrator · scheduler <span class="muted">(now disabled)</span></div>
+
+  <div class="cards">
+    <div class="card"><div class="n warn">0</div><div class="l">PRs merged</div></div>
+    <div class="card"><div class="n ok">2</div><div class="l">Packages dispatched</div></div>
+    <div class="card"><div class="n ok">~10</div><div class="l">Orchestrator ticks</div></div>
+    <div class="card"><div class="n warn">0</div><div class="l">PRs opened</div></div>
+    <div class="card"><div class="n info">2</div><div class="l">Worktrees with work</div></div>
+  </div>
+
+  <h2>Verdict</h2>
+  <p>The <strong>dispatch → implement half of the opencode pipeline worked end-to-end</strong> — the scheduler fired ~10 orchestrator ticks, the decision engine picked <code>pkg213</code> (light intensity slider) and <code>pkg214</code> (sodium-vapor fix), and the open-weight implementers (<code>deepseek-v4-pro</code>) produced <strong>real, substantial work</strong>. But the pipeline <strong>stalled at the "open PR" step</strong>: no PR was opened, so no review, no Claude sign-off, and no merge ever ran. Nothing shipped. The work is recoverable and sitting in two worktrees.</p>
+
+  <h2>What actually ran</h2>
+  <table>
+    <tr><th>Package</th><th>Task</th><th>Agent outcome</th><th>State</th></tr>
+    <tr><td><code>pkg213</code></td><td>Light intensity slider</td><td>Committed <code>0e23a0a</code> — 6-line <code>blender_addon/__init__.py</code> change + 2 test files (426 lines)</td><td><span class="pill info">worktree, no PR</span></td></tr>
+    <tr><td><code>pkg214</code></td><td>Sodium-vapor emission fix</td><td>Broadened atomic lines + regenerated <code>profiles.bin</code> + research note (uncommitted)</td><td><span class="pill info">worktree, no PR</span></td></tr>
+    <tr><td><code>pkg206</code></td><td>Spectral importance sampling</td><td>Not dispatched (implementer cap 2 held; queue never drained)</td><td><span class="pill warn">queued</span></td></tr>
+  </table>
+
+  <h2>Timeline</h2>
+  <table>
+    <tr><th>When</th><th>What</th></tr>
+    <tr><td>23:23 — 00:31</td><td>Ticks run; first dispatch of <code>pkg213</code> + <code>pkg214</code>; implementers start</td></tr>
+    <tr><td>00:41</td><td>Long tick (328 KB log) — orchestrator <strong>blocks on the implementer subagents</strong> for ~45 min</td></tr>
+    <tr><td>01:31, 01:41</td><td>Final ticks; still re-listing <code>pkg213</code>/<code>pkg214</code> as "in-flight dispatch"</td></tr>
+    <tr><td>02:04</td><td>Last tick; machine idle (workstation sleep) — no further ticks</td></tr>
+  </table>
+
+  <h2>Post-mortem — what worked / what stalled</h2>
+
+  <div class="finding good"><h3>✅ 1. The opencode pipeline is genuinely functional end-to-end</h3>
+  Config → Blender-MCP/agents/hooks plugin → Task Scheduler → <code>opencode run</code> → orchestrator decision engine → parallel dispatch of two implementers → open-weight models doing real C++/Python/data work. This is the first fully-unattended opencode run and the core machinery held up.</div>
+
+  <div class="finding bad"><h3>❌ 2. The implementer never opened a PR (the single biggest stall)</h3>
+  Both implementers produced the work but issued no <code>gh pr create</code>. The most likely cause: the <code>package-implementer</code> agent's "empirical build before declare done" gate — in a fresh worktree a full CUDA build + <code>pytest</code> (which needs the built <code>.pyd</code> + Blender) is heavy, and the subagent ran out of steps/time before reaching the PR step. <strong>Fix:</strong> give Python/data-only packages a lighter "run pytest, skip CUDA build" path, and make "open the PR" happen earlier in the implementer loop.</div>
+
+  <div class="finding bad"><h3>❌ 3. Synchronous dispatch degenerated the 10-min cadence</h3>
+  opencode's <code>task</code> tool is synchronous, so each dispatch tick <strong>waited on the implementer</strong> (holding the tick lock 30–60 min). The "10-minute cadence" collapsed to ~1 effective tick/hour, and the lock gaps blocked intermediate ticks. <strong>Fix:</strong> enable <code>OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS</code> so implementers run in background and the tick returns immediately (the design already assumed this for the hardware gate).</div>
+
+  <div class="finding warn"><h3>⚠️ 4. Re-dispatch not recorded → duplicate work</h3>
+  The ledger's <code>impl_dispatches</code> stayed empty, so every tick re-listed <code>pkg213</code>/<code>pkg214</code> as candidates and re-dispatched them, spending tokens on repeat work. <strong>Fix:</strong> the orchestrator skill's Step-2 dispatch must call <code>record_action(…, "impl_dispatched")</code> (or set <code>impl_dispatches</code>) when it spawns an implementer.</div>
+
+  <div class="finding warn"><h3>⚠️ 5. Closeout never ran</h3>
+  No <code>2026-08-21</code> standup was written and the ledger wasn't finalized — Step 3 (standup + ledger save + worktree GC) never completed, consistent with the ticks ending in a blocked implementer wait rather than a clean closeout.</div>
+
+  <h2>Model bench (run earlier in the session)</h2>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--green)"></span> clean-finish (3/3)</span>
+    <span><span class="sw" style="background:var(--red)"></span> errored (0/3)</span>
+    <span class="muted">bar = total cost ($) for 3 read-only tasks</span>
+  </div>
+  <div class="chart">
+  <svg viewBox="0 0 720 300" width="100%" role="img" aria-label="model bench cost chart">
+    <!-- bars: cost * 9000 px per dollar -->
+    <g font-family="ui-monospace,monospace" font-size="11">
+      <rect x="170" y="10"  width="148" height="18" fill="#3fb950"/><text x="326" y="24" fill="#e6edf3">deepseek-v4-pro  ·  $0.0164</text>
+      <rect x="170" y="38"  width="51"  height="18" fill="#3fb950"/><text x="229" y="52" fill="#e6edf3">deepseek-v4-flash  ·  $0.0057</text>
+      <rect x="170" y="66"  width="247" height="18" fill="#3fb950"/><text x="425" y="80" fill="#e6edf3">glm-5.3  ·  $0.0274</text>
+      <rect x="170" y="94"  width="263" height="18" fill="#3fb950"/><text x="441" y="108" fill="#e6edf3">kimi-k2.7-code  ·  $0.0292</text>
+      <rect x="170" y="122" width="53"  height="18" fill="#3fb950"/><text x="231" y="136" fill="#e6edf3">qwen3.7-plus  ·  $0.0059</text>
+      <rect x="170" y="150" width="10"  height="18" fill="#3fb950"/><text x="188" y="164" fill="#e6edf3">mimo-v2.5  ·  $0.0011</text>
+      <rect x="170" y="178" width="9"   height="18" fill="#3fb950"/><text x="187" y="192" fill="#e6edf3">hy3  ·  $0.0010</text>
+      <rect x="170" y="206" width="62"  height="18" fill="#3fb950"/><text x="240" y="220" fill="#e6edf3">minimax-m3  ·  $0.0069</text>
+      <rect x="170" y="234" width="0"   height="18" fill="#f85149"/><text x="178" y="248" fill="#f85149">muse-spark  ·  errored 3/3 (avoid)</text>
+      <line x1="165" y1="0" x2="165" y2="262" stroke="#30363d"/>
+    </g>
+  </svg>
+  </div>
+  <p class="muted">Key takeaway: <strong>hy3</strong> is the cheapest clean model ($0.001, 60s); <strong>muse-spark</strong> is broken (errored 3/3, now on the tiers <code>avoid</code> list); <strong>minimax-m3</strong> works (the old M2.7 tool-call bug did not carry over). Full JSON: <code>.astroray_plan/docs/model-bench-results.json</code>.</p>
+
+  <h2>Recoverable work (do first thing)</h2>
+  <pre># pkg213 — complete, committed, ready to PR:
+git -C .claude/worktrees/pkg213 log --oneline -1   # 0e23a0a feat(pkg213): expose light intensity (Power)...
+git -C .claude/worktrees/pkg213 diff --stat main...HEAD
+#   -> blender_addon/__init__.py (+6), tests/test_pkg213_headless_blender.py (+175), tests/test_pkg213_light_intensity.py (+245)
+
+# pkg214 — done but UNCOMMITTED (would be lost if the worktree is GC'd):
+git -C .claude/worktrees/pkg214 status -sb
+#   -> M data/spectral_profiles/{profiles.bin,profiles_metadata.json,sources.md}, M scripts/data/build_spectral_profiles.py
+#      + .astroray_plan/docs/atomic-line-broadening-research.md (untracked)</pre>
+
+  <h2>Next steps (in order)</h2>
+  <ul>
+    <li><strong>Salvage pkg214 first</strong> — commit the uncommitted work in <code>.claude/worktrees/pkg214</code> and open a PR; verify the sodium lamp actually emits amber, then merge.</li>
+    <li><strong>Open the pkg213 PR</strong> — review the 426-line change, run its tests, merge.</li>
+    <li><strong>Fix the 3 pipeline bugs</strong> before re-arming the scheduler: (a) lighter build gate + earlier PR-open for Python/data packages, (b) record <code>impl_dispatches</code> to stop re-dispatch, (c) background subagents for async dispatch.</li>
+    <li><strong>pkg206 still pending</strong> — the spectral importance-sampling bias fix (triage is in the spec; it needs a fresh implementer + re-baseline).</li>
+    <li>Re-arm with <code>schtasks /change /tn Astroray-RoadmapOrchestrator /enable</code> once the above land.</li>
+  </ul>
+
+  <h2>Artifacts</h2>
+  <ul>
+    <li><a href="../../../test_results/astroray-graph.html">Interactive 3D knowledge graph</a> (736 nodes, 941 edges — packages ↔ docs ↔ files ↔ dependencies)</li>
+    <li>Orchestrator tick logs: <code>.astroray_plan/logs/orchestrator-opencode-*.log</code> (10 ticks)</li>
+    <li>Model bench: <code>.astroray_plan/docs/model-bench-results.json</code></li>
+    <li>New specs: <code>.astroray_plan/packages/pkg213-*.md</code>, <code>pkg214-*.md</code>, <code>pkg206-*.md</code> (+ architect triage)</li>
+  </ul>
+
+  <p class="muted" style="margin-top:40px">Report generated by opencode · scheduler <code>Astroray-RoadmapOrchestrator</code> disabled · 6 commits pushed to <code>main</code> this session</p>
+
+</div>
+</body>
+</html>

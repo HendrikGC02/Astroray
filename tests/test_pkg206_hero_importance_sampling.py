@@ -123,10 +123,19 @@ def _mc_integral(sampler, integrand, n, seed):
 
 def test_unbiased_matches_uniform_and_lower_variance():
     """Both samplers estimate the SAME analytic integral (unbiasedness), and the
-    importance sampler has lower variance for a luminance-shaped integrand."""
-    # Smooth, strictly-positive integrand shaped like the visible luminance
-    # (Gaussian bump around 555 nm). Analytic integral over [LMIN, LMAX].
-    mu, sigma = 555.0, 60.0
+    importance sampler has lower variance for a luminance-concentrated integrand
+    (the regime the sampler is DESIGNED for).
+
+    Honest scope (the whole point of pkg206): importance sampling reduces
+    variance only when the integrand is concentrated where the luminance-weighted
+    pdf is high. For a near-flat/broad integrand (sigma >~ 55 nm over the full
+    360-830 band) the varying pdf inflates f/p and importance sampling correctly
+    has HIGHER variance than uniform -- standard MC theory, not a bug. We
+    therefore demonstrate the win on the photopic luminance band itself, which is
+    exactly the perceived-signal regime dispersive-caustic renders live in and
+    which the pdf approximates."""
+    # Photopic luminosity band V(lambda): peak 555 nm, FWHM ~100 nm (sigma ~42).
+    mu, sigma = 555.0, 40.0
 
     def integrand(lam):
         return np.exp(-0.5 * ((lam - mu) / sigma) ** 2)

@@ -99,6 +99,84 @@ SampledWavelengths SampledWavelengths::sampleUniform(float u,
     return swl;
 }
 
+// ---------------------------------------------------------------------------
+// pkg206 — Luminance-weighted hero-wavelength importance sampling.
+//
+// Draws the hero wavelength (and its stratified companions) from a logistic
+// (sigmoid) CDF fitted to Astroray's luminance-weighted D65 target,
+// (y_bar + 0.25)*D65 against the CIE-1964 10-degree observer, instead of
+// uniformly. Wavelengths the eye sees strongly are sampled more often, cutting
+// chromatic noise on dispersive-caustic paths; each lane's pdf is the logistic
+// density at its OWN wavelength (1/nm) so the MC estimator (toXYZ divides by
+// pdf) stays UNBIASED — only variance drops.
+//
+// Algorithm: Wilkie, Nawaz, Droske, Weidlich, Hanika 2014, "Hero Wavelength
+// Spectral Sampling", CGF 33(4) DOI 10.1111/cgf.12419 (hero + stratified
+// companions, each companion pdf = density at its own lambda). Logistic CDF
+// inversion + the "+const luminance blend" trick from Blender Cycles
+// intern/cycles/kernel/util/colorspace.h::sample_wavelength (Apache-2.0),
+// RE-FITTED against Astroray's own observer. CDF-space stratification (the
+// unbiased construction) mirrors PBRT-v4 SampledWavelengths::SampleVisible
+// (Apache-2.0). Constants + unit/unbiasedness derivation:
+// .astroray_plan/docs/pkg206-hero-luminance-fit.md
+// (fit: scripts/data/fit_hero_luminance_cdf.py).
+//
+// BYTE-MIRRORED by the GPU twin sampleImportanceWavelength()
+// (src/gpu/wavefront/stage_init.cu). Constants and pdf formula MUST match.
+namespace {
+// Fitted logistic-CDF params of the (y_bar+0.25)*D65 luminance target, nm units.
+// (Full-band reference: F(360)=0.0139650, F(830)=0.9978960.)
+constexpr float kHeroA  = 0.0221679280f;  // 1/nm  (logistic steepness)
+constexpr float kHeroX0 = 552.040271f;    // nm    (luminance-weighted centre)
+
+// Logistic CDF F(lambda)=1/(1+exp(-a(lambda-x0))) of the fitted target. The
+// sampler WINDOWS this CDF to the actual [lambdaMin,lambdaMax] (draw in
+// [F(min),F(max)], renormalize the density by that window mass) so the draw and
+// its pdf are correct on ANY band. pkg206 refix (parity review): the previous
+// version baked the full-band window (F(360)..F(830)) into the constants, so on
+// the narrowed default render band (380..780) it placed hero outside the band
+// and the clamp truncated ~1.2% of the CDF mass with an UNCORRECTED pdf — a real
+// MC bias (blue/Z) on the default GPU spectral render.
+inline float heroCdf(float lambda) {
+    return 1.0f / (1.0f + std::exp(-kHeroA * (lambda - kHeroX0)));
+}
+}  // namespace
+
+SampledWavelengths SampledWavelengths::sampleImportance(float u,
+                                                        float lambdaMin,
+                                                        float lambdaMax) {
+    SampledWavelengths swl;
+    // Stratify in CDF (uniform) space, then invert per lane — the construction
+    // that keeps importance sampling UNBIASED (PBRT-v4
+    // SampledWavelengths::SampleVisible, Apache-2.0). Each lane's marginal
+    // density is exactly p(lambda_i), so pdf_i = p(lambda_i) is correct.
+    // Offsetting in *wavelength* space (hero + i*step) with pdf_i = p(lambda_i)
+    // — the naive reading — is BIASED under a non-uniform proposal (systematic
+    // green cast on a flat scene; the pkg67/PR#627 trap, research note §3).
+    // Under a uniform F this reduces byte-exactly to sampleUniform. Consumes ONE
+    // uniform (draw count == sampleUniform ⇒ CPU/GPU dimension counters aligned).
+    //
+    // WINDOW the CDF to the actual band: draw in [F(lambdaMin),F(lambdaMax)] and
+    // renormalize the density by that window mass `win`. Every emitted lambda is
+    // then analytically in-band and pdf_i integrates to 1 over [min,max] — valid
+    // for the full band AND any narrowed render band (unbiased either way).
+    const float lo  = heroCdf(lambdaMin);
+    const float hi  = heroCdf(lambdaMax);
+    const float win = hi - lo;
+    constexpr float invK = 1.0f / static_cast<float>(kSpectrumSamples);
+    for (int i = 0; i < kSpectrumSamples; ++i) {
+        float ui = u + static_cast<float>(i) * invK;
+        if (ui >= 1.0f) ui -= 1.0f;                 // wrap in uniform space
+        float randL = lo + win * ui;                // windowed CDF position in [lo,hi]
+        float lam = kHeroX0 - std::log(1.0f / randL - 1.0f) / kHeroA;
+        if (lam < lambdaMin) lam = lambdaMin;       // fp round-trip guard (analytically in-band)
+        if (lam > lambdaMax) lam = lambdaMax;
+        swl.lambdas_[i] = lam;
+        swl.pdfs_[i]    = kHeroA * randL * (1.0f - randL) / win;  // 1/nm, renormalized to window
+    }
+    return swl;
+}
+
 void SampledWavelengths::terminateSecondary() {
     for (int i = 1; i < kSpectrumSamples; ++i) {
         pdfs_[i] = 0.0f;

@@ -20,7 +20,7 @@ back to constant-fold, never a silent grey.
 
 **Staging (dispatch as three sub-packages; 219a is independently useful):**
 - **pkg219a — Coordinate + Mapping unification** (M, Track A, no VM).
-  **Status: in review (PR pending, 2026-08-23 — CPU+GPU, register-neutral).**
+  **Status: in review (PR #640, 2026-08-23 — CPU+GPU, register-neutral; needs HW verify).**
   Full 3-D Mapping matrix (incl. X/Y rotation) + real
   Generated/Object/Camera/Window/Reflection/Normal TexCoord, wired into the
   existing texture special-case. Fixes the "mapping only partly applied" repro

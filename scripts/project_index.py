@@ -224,7 +224,7 @@ def gh_sync(db: sqlite3.Connection) -> None:
 
     rows = []
     for kind, query in (("issue", "--state all"), ("pr", "--state all")):
-        raw = _run([kind, "list", query, "--limit", "500", "--json", "number,title,state,url"])
+        raw = _run([kind, "list", *query.split(), "--limit", "500", "--json", "number,title,state,url"])
         try:
             for item in json.loads(raw):
                 rows.append((kind, item["number"], item["title"], item["state"], item["url"]))

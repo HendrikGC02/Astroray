@@ -31,8 +31,26 @@ private:
     Vec2 uvOffset_{0.0f, 0.0f};
     float uvRotation_ = 0.0f;  // radians, Z-axis only (2D)
     std::string uvLayerName_;
+    // pkg219a — full 3-D Mapping node matrix (Location + XYZ-euler Rotation +
+    // Scale) composed host-side by the Blender addon (mathutils.Matrix.
+    // LocRotScale) and shipped as the top 3x4 rows, row-major. Reference:
+    // Cycles svm/mapping_util.h svm_mapping POINT (Apache-2.0):
+    //   out = location + Rotate(euler) * (scale * vector)
+    // == M * vector, M = Translate(loc) * RotXYZ(rot) * Scale(scale).
+    // Supersedes the 2-D uvScale/uvOffset/uvRotation path when set; those stay
+    // for backward compat (legacy set_texture_uv_transform callers/tests).
+    float mapping_[12] = {1.f,0.f,0.f,0.f, 0.f,1.f,0.f,0.f, 0.f,0.f,1.f,0.f};
+    bool hasMapping_ = false;
 
 protected:
+    // Apply the 3x4 affine mapping matrix to a 3-D coordinate (point, w=1).
+    Vec3 applyMappingPoint(const Vec3& p) const {
+        return Vec3(
+            mapping_[0]*p.x + mapping_[1]*p.y + mapping_[2]*p.z  + mapping_[3],
+            mapping_[4]*p.x + mapping_[5]*p.y + mapping_[6]*p.z  + mapping_[7],
+            mapping_[8]*p.x + mapping_[9]*p.y + mapping_[10]*p.z + mapping_[11]);
+    }
+
     Vec2 applyUVTransform(const Vec2& uv) const {
         // Blender "Point" Mapping: out = location + rotation @ (scale * in).
         // 2D simplification: only Z rotation has effect on UV.
@@ -157,10 +175,21 @@ public:
     virtual Vec3 value(const Vec2& uv, const Vec3& p) const = 0;
     Vec3 value(const HitRecord& rec, const Vec3& wo) const {
         auto [uv, p] = textureCoordinates(rec, wo);
+        // pkg219a: full 3-D Mapping applies to the texture coordinate. The
+        // image sample uses (M*p).xy; p (untransformed) still feeds procedural
+        // value(uv,p) so pkg190 voxel bakes stay byte-identical.
+        if (hasMapping_) {
+            Vec3 mp = applyMappingPoint(p);
+            return value(Vec2(mp.x, mp.y), p);
+        }
         return value(applyUVTransform(uv), p);
     }
     Vec3 valueOffset(const HitRecord& rec, const Vec3& wo, float du, float dv) const {
         auto [uv, p] = textureCoordinates(rec, wo);
+        if (hasMapping_) {
+            Vec3 mp = applyMappingPoint(p);
+            return value(Vec2(mp.x + du, mp.y + dv), p);
+        }
         Vec2 t = applyUVTransform(uv);
         return value(Vec2(t.u + du, t.v + dv), p);
     }
@@ -196,6 +225,14 @@ public:
     Vec2 getUVScale()  const { return uvScale_;  }
     Vec2 getUVOffset() const { return uvOffset_; }
     float getUVRotation() const { return uvRotation_; }
+    // pkg219a — full 3-D Mapping matrix (top 3x4 rows, row-major). Setting it
+    // supersedes the 2-D UV transform above.
+    void setMappingMatrix(const float m12[12]) {
+        for (int i = 0; i < 12; ++i) mapping_[i] = m12[i];
+        hasMapping_ = true;
+    }
+    bool hasMapping() const { return hasMapping_; }
+    const float* getMappingMatrix() const { return mapping_; }
     void setUVLayerName(const std::string& name) { uvLayerName_ = name; }
     const std::string& getUVLayerName() const { return uvLayerName_; }
 
@@ -210,6 +247,11 @@ public:
             const HitRecord& rec, const Vec3& wo,
             const astroray::SampledWavelengths& lambdas) const {
         auto [uv, p] = textureCoordinates(rec, wo);
+        // pkg219a: full 3-D Mapping applies to the sample coord (see value()).
+        if (hasMapping_) {
+            Vec3 mp = applyMappingPoint(p);
+            return sampleSpectral(Vec2(mp.x, mp.y), p, lambdas);
+        }
         return sampleSpectral(applyUVTransform(uv), p, lambdas);
     }
 };

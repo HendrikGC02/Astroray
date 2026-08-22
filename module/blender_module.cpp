@@ -340,6 +340,14 @@ public:
     void setTextureUVLayerName(const std::string& name, const std::string& layerName) {
         if (auto tex = getTexture(name)) tex->setUVLayerName(layerName);
     }
+    // pkg219a: full 3-D Mapping matrix (top 3x4 rows, row-major) composed by the
+    // addon with mathutils.Matrix.LocRotScale (exact Blender euler parity).
+    void setTextureMappingMatrix(const std::string& name,
+                                 const std::vector<float>& m) {
+        if (m.size() != 12)
+            throw std::runtime_error("set_texture_mapping_matrix: expected 12 floats (3x4 row-major)");
+        if (auto tex = getTexture(name)) tex->setMappingMatrix(m.data());
+    }
     std::shared_ptr<Texture> getTexture(const std::string& name) {
         auto it1 = imageTextures.find(name);
         if (it1 != imageTextures.end()) return it1->second;
@@ -420,6 +428,10 @@ public:
     }
     void setTextureUVLayerName(const std::string& name, const std::string& layerName) {
         textureManager.setTextureUVLayerName(name, layerName);
+    }
+    void setTextureMappingMatrix(const std::string& name,
+                                 const std::vector<float>& m) {
+        textureManager.setTextureMappingMatrix(name, m);
     }
 
     std::vector<float> sampleTexture(const std::string& type, py::dict params, float u, float v) {
@@ -2765,6 +2777,12 @@ PYBIND11_MODULE(astroray, m) {
              "Apply scale + Z-rotation + offset (UV-space) to a texture; "
              "baked from a Blender Mapping node. Order matches Blender Point "
              "mapping: scale → rotate → translate. Rotation is in radians.")
+        .def("set_texture_mapping_matrix", &PyRenderer::setTextureMappingMatrix,
+             "name"_a, "matrix"_a,
+             "pkg219a: apply a full 3-D Blender Mapping node transform (top 3x4 "
+             "rows, row-major) to a texture. Supersedes set_texture_uv_transform; "
+             "composed addon-side via mathutils.Matrix.LocRotScale for exact "
+             "euler parity. Image textures sample at (M*coord).xy.")
         .def("set_texture_uv_layer", &PyRenderer::setTextureUVLayerName,
              "name"_a, "layer_name"_a)
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)

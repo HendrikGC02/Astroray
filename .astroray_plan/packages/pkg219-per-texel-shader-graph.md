@@ -19,10 +19,19 @@ untenable on the REG:254 wavefront) — overflow → visible degradation entry +
 back to constant-fold, never a silent grey.
 
 **Staging (dispatch as three sub-packages; 219a is independently useful):**
-- **pkg219a — Coordinate + Mapping unification** (M, Track A, no VM). Full 3-D
-  Mapping matrix (incl. X/Y rotation) + real Generated/Object/Camera/Window
-  TexCoord, wired into the existing texture special-case. Fixes the "mapping only
-  partly applied" repro half on its own.
+- **pkg219a — Coordinate + Mapping unification** (M, Track A, no VM).
+  **Status: in review (PR pending, 2026-08-23 — CPU+GPU, register-neutral).**
+  Full 3-D Mapping matrix (incl. X/Y rotation) + real
+  Generated/Object/Camera/Window/Reflection/Normal TexCoord, wired into the
+  existing texture special-case. Fixes the "mapping only partly applied" repro
+  half on its own. Implemented Option B (CPU + GPU parity): addon composes the
+  exact Blender Mapping matrix via numpy (Cycles svm/mapping_util.h POINT order),
+  ships it through `set_texture_mapping_matrix`; CPU `Texture` and the GPU
+  wavefront (`GImageTexture` → scene_upload.cu → stage_advance.cu) apply it.
+  cuobjdump register probe: shade-kernel REG/STACK histogram IDENTICAL with vs
+  without the GPU apply (constant-memory matrix, FMAs on already-live coords) —
+  no `HasTexMapping` template axis needed. Research note:
+  `../docs/pkg219a-mapping-transform-research.md`.
 - **pkg219b — Bounded op-VM core** (L, Track A, Claude-implementer). Host-side
   Blender-tree→`uint4` compiler, CPU evaluator, GPU device evaluator with the
   static stack-bound check + `<bool HasProgram>` isolation + REG probe gate. Ship

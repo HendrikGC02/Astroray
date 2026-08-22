@@ -721,6 +721,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                         desc.offset = (int)r.textureTexels.size();
                         desc.width  = img->getWidth();
                         desc.height = img->getHeight();
+                        // pkg219a — carry the full 3-D Mapping matrix so the GPU
+                        // image sample honors it exactly like the CPU (M*(u,v,0)).
+                        if (img->hasMapping()) {
+                            desc.hasMapping = 1;
+                            const float* m = img->getMappingMatrix();
+                            for (int i = 0; i < 12; ++i) desc.mapping[i] = m[i];
+                        }
                         const std::vector<Vec3>& px = img->getData();
                         r.textureTexels.reserve(r.textureTexels.size() + px.size());
                         for (const Vec3& c : px)

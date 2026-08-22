@@ -120,6 +120,7 @@ class _RecordingRenderer:
         self.loaded_textures = []
         self.coord_mode_calls = []     # (name, mode)
         self.uv_transform_calls = []   # (name, sx, sy, ox, oy)
+        self.mapping_matrix_calls = [] # (name, [12 floats])  pkg219a
         self.uv_layer_calls = []       # (name, layer)
         self.proc_texture_calls = []   # (name, type, params)
         self.created_materials = []
@@ -133,6 +134,9 @@ class _RecordingRenderer:
 
     def set_texture_uv_transform(self, name, sx, sy, ox, oy, rotation=0.0):
         self.uv_transform_calls.append((name, sx, sy, ox, oy, rotation))
+
+    def set_texture_mapping_matrix(self, name, matrix):
+        self.mapping_matrix_calls.append((name, list(matrix)))
 
     def set_texture_uv_layer(self, name, layer):
         self.uv_layer_calls.append((name, layer))
@@ -280,9 +284,11 @@ def test_load_blender_image_default_no_extra_calls(monkeypatch):
 
 
 def test_load_blender_image_with_mapping_applies_transform(monkeypatch):
-    """A Mapping(Scale=2) on the Vector input must result in a
-    set_texture_uv_transform call. The cache key includes the transform so
-    the same image with a different Mapping does not collide."""
+    """pkg219a: a Mapping(Scale=2) on the Vector input now results in a
+    set_texture_mapping_matrix call (the full 3-D matrix supersedes the old
+    2-D set_texture_uv_transform — see pkg219a). Original intent (pkg59): the
+    Mapping transform reaches the C++ side and the cache key is transform-
+    distinct so the same image with a different Mapping does not collide."""
     addon = _load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
     renderer = _RecordingRenderer()
@@ -297,12 +303,14 @@ def test_load_blender_image_with_mapping_applies_transform(monkeypatch):
     # Transform-distinct cache key, not the bare image name.
     assert name != "brick.png"
     assert "brick.png" in name
-    # set_texture_uv_transform was called with (sx=2, sy=2, ox=0, oy=0).
-    assert len(renderer.uv_transform_calls) == 1
-    n, sx, sy, ox, oy, _rot = renderer.uv_transform_calls[0]
+    # pkg219a: routes to the full 3-D mapping matrix, not the 2-D transform.
+    assert renderer.uv_transform_calls == []
+    assert len(renderer.mapping_matrix_calls) == 1
+    n, m = renderer.mapping_matrix_calls[0]
     assert n == name
-    assert (sx, sy) == (2.0, 2.0)
-    assert (ox, oy) == (0.0, 0.0)
+    # M = Translate(0)*Rot(0)*Scale(2,2,1) → diag scale on the top 3x4.
+    assert abs(m[0] - 2.0) < 1e-6 and abs(m[5] - 2.0) < 1e-6 and abs(m[10] - 1.0) < 1e-6
+    assert abs(m[3]) < 1e-6 and abs(m[7]) < 1e-6 and abs(m[11]) < 1e-6
     # Default coord_mode 'UV' → no set_texture_coord_mode call.
     assert renderer.coord_mode_calls == []
 
@@ -377,8 +385,9 @@ def test_resolve_vector_input_mapping_rotation_z(monkeypatch):
 
 
 def test_load_blender_image_with_mapping_rotation_passes_through(monkeypatch):
-    """A Mapping with rotation must result in a set_texture_uv_transform call
-    whose 6th argument carries the rotation in radians."""
+    """pkg219a: a Mapping with Z rotation now routes through
+    set_texture_mapping_matrix; the top-left 2x2 of the 3x4 carries the
+    rotation (supersedes the old rotation-in-radians 2-D transform arg)."""
     import math
     addon = _load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
@@ -395,12 +404,14 @@ def test_load_blender_image_with_mapping_rotation_passes_through(monkeypatch):
         vector_input=_Socket(linked_to=mapping, output_name='Vector')
     )
     assert name != "rotated.png"  # rotation is non-default → distinct cache key
-    assert len(renderer.uv_transform_calls) == 1
-    n, sx, sy, ox, oy, rot = renderer.uv_transform_calls[0]
+    assert renderer.uv_transform_calls == []
+    assert len(renderer.mapping_matrix_calls) == 1
+    n, m = renderer.mapping_matrix_calls[0]
     assert n == name
-    assert (sx, sy) == (1.0, 1.0)
-    assert (ox, oy) == (0.0, 0.0)
-    assert abs(rot - math.pi / 6) < 1e-6
+    c, s = math.cos(math.pi / 6), math.sin(math.pi / 6)
+    # Rz(pi/6) on the top-left 2x2, row-major 3x4.
+    assert abs(m[0] - c) < 1e-6 and abs(m[1] + s) < 1e-6
+    assert abs(m[4] - s) < 1e-6 and abs(m[5] - c) < 1e-6
 
 
 def test_resolve_vector_input_mapping_full_combo(monkeypatch):

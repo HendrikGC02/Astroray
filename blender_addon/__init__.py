@@ -2997,14 +2997,114 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return "OBJECT", scale, offset, rotation, uv_layer_name
             if src_socket_name == 'UV':
                 return "UV", scale, offset, rotation, getattr(src, 'uv_map', '') or ""
-            # 'UV' (default), 'Camera', 'Window', 'Reflection', 'Normal' →
-            # fall through to "UV". A future package can extend this.
+            # pkg219a: Camera / Window / Reflection / Normal are all implemented
+            # C++-side (Texture::CoordMode / parseCoordMode). Route them through
+            # instead of the old blanket UV fallback.
+            if src_socket_name == 'Camera':
+                return "CAMERA", scale, offset, rotation, uv_layer_name
+            if src_socket_name == 'Window':
+                return "WINDOW", scale, offset, rotation, uv_layer_name
+            if src_socket_name == 'Reflection':
+                return "REFLECTION", scale, offset, rotation, uv_layer_name
+            if src_socket_name == 'Normal':
+                return "NORMAL", scale, offset, rotation, uv_layer_name
             return "UV", scale, offset, rotation, uv_layer_name
 
         if ntype == 'UVMAP':
             return "UV", scale, offset, rotation, getattr(src, 'uv_map', '') or ""
 
         return coord_mode, scale, offset, rotation, uv_layer_name
+
+    @staticmethod
+    def _compose_mapping_matrix(location, rotation, scale, vector_type='POINT'):
+        """Build a Blender Mapping-node affine as a numpy 4x4.
+
+        Reference: Cycles ``svm/mapping_util.h`` ``svm_mapping`` POINT
+        (Apache-2.0): ``out = location + Rotate(euler)*(scale*vector)`` ==
+        ``M = Translate(loc) @ Rot_XYZ(rot) @ Scale(scale)``. The euler order is
+        Blender's default 'XYZ' (extrinsic X→Y→Z, i.e. R = Rz @ Ry @ Rx). See
+        .astroray_plan/docs/pkg219a-mapping-transform-research.md.
+
+        vector_type: POINT (affine incl. translation), VECTOR (no translation),
+        TEXTURE (inverse of POINT), NORMAL (rotation only; direction).
+        """
+        import numpy as np
+        import math
+        rx, ry, rz = float(rotation[0]), float(rotation[1]), float(rotation[2])
+        sx, sy, sz = float(scale[0]), float(scale[1]), float(scale[2])
+        lx, ly, lz = float(location[0]), float(location[1]), float(location[2])
+        cx, sxr = math.cos(rx), math.sin(rx)
+        cy, syr = math.cos(ry), math.sin(ry)
+        cz, szr = math.cos(rz), math.sin(rz)
+        Rx = np.array([[1, 0, 0], [0, cx, -sxr], [0, sxr, cx]], dtype=np.float64)
+        Ry = np.array([[cy, 0, syr], [0, 1, 0], [-syr, 0, cy]], dtype=np.float64)
+        Rz = np.array([[cz, -szr, 0], [szr, cz, 0], [0, 0, 1]], dtype=np.float64)
+        R = Rz @ Ry @ Rx  # Blender euler 'XYZ'
+        S = np.diag([sx, sy, sz])
+        M = np.identity(4, dtype=np.float64)
+        if vector_type == 'NORMAL':
+            # Direction, rotation only (scale inverse-transpose approximated as R).
+            M[:3, :3] = R
+        elif vector_type == 'VECTOR':
+            M[:3, :3] = R @ S  # no translation
+        else:  # POINT (default)
+            M[:3, :3] = R @ S
+            M[:3, 3] = [lx, ly, lz]
+        if vector_type == 'TEXTURE':
+            M = np.linalg.inv(M)
+        return M
+
+    def _resolve_mapping_matrix(self, vector_socket, depth=0):
+        """Walk the Vector chain and compose all Mapping nodes into a single
+        3x4 (top-rows, row-major) affine, or return None if there is no
+        non-identity Mapping. pkg219a: full 3-D transform incl. X/Y rotation and
+        Z location/scale — supersedes the old 2-D ``_resolve_vector_input``
+        scale/offset/rotation for texture sampling.
+
+        Linked Location/Rotation/Scale inputs cannot be constant-folded (that is
+        the op-VM's job, pkg219b) — those components fall back to their socket
+        defaults and record a visible degradation entry.
+        """
+        import numpy as np
+        if depth > 4 or vector_socket is None or not getattr(vector_socket, 'is_linked', False):
+            return None
+        try:
+            src = vector_socket.links[0].from_node
+        except (IndexError, AttributeError):
+            return None
+        if getattr(src, 'type', None) != 'MAPPING':
+            return None
+
+        def _default(name, fallback):
+            inp = src.inputs.get(name) if hasattr(src, 'inputs') else None
+            if inp is None:
+                return fallback
+            if getattr(inp, 'is_linked', False):
+                self._warn_shader_fallback(
+                    'MAPPING',
+                    f"linked '{name}' input constant-folded to its default "
+                    f"(per-texel Mapping inputs need the op-VM, pkg219b)")
+                return fallback
+            v = inp.default_value
+            try:
+                return (float(v[0]), float(v[1]), float(v[2]))
+            except (TypeError, IndexError):
+                return fallback
+
+        location = _default('Location', (0.0, 0.0, 0.0))
+        rotation = _default('Rotation', (0.0, 0.0, 0.0))
+        scale = _default('Scale', (1.0, 1.0, 1.0))
+        vtype = getattr(src, 'vector_type', 'POINT')
+        M = self._compose_mapping_matrix(location, rotation, scale, vtype)
+
+        inner_socket = src.inputs.get('Vector') if hasattr(src, 'inputs') else None
+        inner = self._resolve_mapping_matrix(inner_socket, depth + 1)
+        if inner is not None:
+            M = M @ np.array(inner + [0.0, 0.0, 0.0, 1.0], dtype=np.float64).reshape(4, 4)
+
+        if np.allclose(M, np.identity(4), atol=1e-7):
+            return None
+        return [float(x) for x in M[:3, :].reshape(-1)]
 
     @staticmethod
     def _is_default_uv_transform(coord_mode, scale, offset, rotation, uv_layer_name=""):
@@ -3015,19 +3115,28 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 and not uv_layer_name)
 
     @staticmethod
-    def _texture_variant_key(base_name, coord_mode, scale, offset, rotation, uv_layer_name=""):
+    def _texture_variant_key(base_name, coord_mode, scale, offset, rotation,
+                             uv_layer_name="", mapping_matrix=None):
         """Cache key that distinguishes the same image used with different
         Mapping or coord-mode wiring across materials."""
-        if CustomRaytracerRenderEngine._is_default_uv_transform(
-                coord_mode, scale, offset, rotation, uv_layer_name):
+        if (mapping_matrix is None
+                and CustomRaytracerRenderEngine._is_default_uv_transform(
+                    coord_mode, scale, offset, rotation, uv_layer_name)):
             return base_name
+        # pkg219a: a full 3-D Mapping matrix supersedes the 2-D scale/offset/rot
+        # in the key so the same image under different 3-D mappings gets distinct
+        # C++ texture entries.
+        if mapping_matrix is not None:
+            mstr = ",".join(f"{v:.4f}" for v in mapping_matrix)
+            return f"{base_name}::{coord_mode}::M[{mstr}]::{uv_layer_name}"
         return (f"{base_name}::{coord_mode}::"
                 f"{scale[0]:.4f},{scale[1]:.4f},"
                 f"{offset[0]:.4f},{offset[1]:.4f},"
                 f"{rotation:.4f}::{uv_layer_name}")
 
     def _apply_texture_transform(self, renderer, tex_name, coord_mode,
-                                 scale, offset, rotation, uv_layer_name=""):
+                                 scale, offset, rotation, uv_layer_name="",
+                                 mapping_matrix=None):
         """Push coord_mode + UV transform to the C++ side (no-ops if default)."""
         try:
             if coord_mode != "UV":
@@ -3041,6 +3150,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         mat_name, []).append(tex_name)
             if uv_layer_name and hasattr(renderer, "set_texture_uv_layer"):
                 renderer.set_texture_uv_layer(tex_name, uv_layer_name)
+            # pkg219a: a full 3-D Mapping matrix supersedes the legacy 2-D UV
+            # transform. Prefer it when present (image textures sample at
+            # (M*coord).xy on both CPU and GPU).
+            if mapping_matrix is not None and hasattr(renderer, "set_texture_mapping_matrix"):
+                renderer.set_texture_mapping_matrix(tex_name, list(mapping_matrix))
+                return
             non_identity = (
                 abs(scale[0] - 1.0) >= 1e-6 or abs(scale[1] - 1.0) >= 1e-6
                 or abs(offset[0]) >= 1e-6 or abs(offset[1]) >= 1e-6
@@ -3075,7 +3190,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         # Image Texture defaults to UV when Vector socket is unconnected.
         coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input, default_coord_mode="UV")
-        cache_key = self._texture_variant_key(bpy_image.name, coord_mode, uv_scale, offset, rotation, uv_layer_name)
+        mapping_matrix = self._resolve_mapping_matrix(vector_input)
+        cache_key = self._texture_variant_key(bpy_image.name, coord_mode, uv_scale, offset, rotation, uv_layer_name, mapping_matrix)
 
         # Deduplicate: a single (image, transform) pair is uploaded at most
         # once per conversion pass.
@@ -3109,7 +3225,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             rgb = pixels[:, :, :3].reshape(-1).tolist()
 
             renderer.load_texture(cache_key, rgb, width, height)
-            self._apply_texture_transform(renderer, cache_key, coord_mode, uv_scale, offset, rotation, uv_layer_name)
+            self._apply_texture_transform(renderer, cache_key, coord_mode, uv_scale, offset, rotation, uv_layer_name, mapping_matrix)
             cache[cache_key] = cache_key
             return cache_key
         except Exception as e:

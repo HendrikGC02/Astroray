@@ -1042,6 +1042,19 @@ __device__ bool shadePathSlot(
                         float b0 = 1.0f - b1 - b2;
                         float uu = b0*ttri.uv0.x + b1*ttri.uv1.x + b2*ttri.uv2.x;
                         float vv = b0*ttri.uv0.y + b1*ttri.uv1.y + b2*ttri.uv2.y;
+                        // pkg219a — full 3-D Blender Mapping on the sample coord.
+                        // Matrix lives in __constant__ (c_wfTexBinding); apply as
+                        // (M*(u,v,0)).xy, the exact CPU UV-mode path
+                        // (advanced_features.h Texture::value). A few FMAs on the
+                        // already-live (uu,vv); no new per-ray state. Register
+                        // probe (cuobjdump -res-usage): shade-kernel REG/STACK
+                        // histogram identical with vs without this block.
+                        if (tdesc.hasMapping) {
+                            const float* m = tdesc.mapping;
+                            float mu = m[0]*uu + m[1]*vv + m[3];
+                            float mv = m[4]*uu + m[5]*vv + m[7];
+                            uu = mu; vv = mv;
+                        }
                         texColor = gpu_sampleImageTexture(
                             tdesc, c_wfTexBinding.texelBuf, uu, vv);
                         haveTex = true;

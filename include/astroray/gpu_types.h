@@ -602,6 +602,14 @@ struct GImageTexture {
     int   depth   = 1;
     GVec3 genMin  = GVec3(0.f, 0.f, 0.f);
     GVec3 genSize = GVec3(1.f, 1.f, 1.f);
+    // pkg219a — full 3-D Blender Mapping node transform (top 3x4 rows,
+    // row-major) baked from the CPU Texture (Texture::getMappingMatrix). When
+    // hasMapping != 0 the image sample coordinate is (M * (u,v,0)).xy — the
+    // exact CPU UV-mode path (advanced_features.h Texture::value). Lives in the
+    // __constant__ GWavefrontTextureBinding array so applying it is a runtime
+    // branch + a few FMAs on already-live (u,v), no per-ray SoA state.
+    int   hasMapping = 0;
+    float mapping[12] = {1.f,0.f,0.f,0.f, 0.f,1.f,0.f,0.f, 0.f,0.f,1.f,0.f};
 };
 
 // pkg186 — wavefront image-texture binding. Published ONCE per frame into a

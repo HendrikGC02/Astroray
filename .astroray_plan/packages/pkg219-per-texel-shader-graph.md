@@ -19,10 +19,19 @@ untenable on the REG:254 wavefront) — overflow → visible degradation entry +
 back to constant-fold, never a silent grey.
 
 **Staging (dispatch as three sub-packages; 219a is independently useful):**
-- **pkg219a — Coordinate + Mapping unification** (M, Track A, no VM). Full 3-D
-  Mapping matrix (incl. X/Y rotation) + real Generated/Object/Camera/Window
-  TexCoord, wired into the existing texture special-case. Fixes the "mapping only
-  partly applied" repro half on its own.
+- **pkg219a — Coordinate + Mapping unification** (M, Track A, no VM).
+  **Status: in review (PR #640, 2026-08-23 — CPU+GPU, register-neutral; needs HW verify).**
+  Full 3-D Mapping matrix (incl. X/Y rotation) + real
+  Generated/Object/Camera/Window/Reflection/Normal TexCoord, wired into the
+  existing texture special-case. Fixes the "mapping only partly applied" repro
+  half on its own. Implemented Option B (CPU + GPU parity): addon composes the
+  exact Blender Mapping matrix via numpy (Cycles svm/mapping_util.h POINT order),
+  ships it through `set_texture_mapping_matrix`; CPU `Texture` and the GPU
+  wavefront (`GImageTexture` → scene_upload.cu → stage_advance.cu) apply it.
+  cuobjdump register probe: shade-kernel REG/STACK histogram IDENTICAL with vs
+  without the GPU apply (constant-memory matrix, FMAs on already-live coords) —
+  no `HasTexMapping` template axis needed. Research note:
+  `../docs/pkg219a-mapping-transform-research.md`.
 - **pkg219b — Bounded op-VM core** (L, Track A, Claude-implementer). Host-side
   Blender-tree→`uint4` compiler, CPU evaluator, GPU device evaluator with the
   static stack-bound check + `<bool HasProgram>` isolation + REG probe gate. Ship
@@ -114,3 +123,53 @@ not endless special-casing.
 - Cycles SVM (`intern/cycles/kernel/svm`), OSL.
 - Memory: `integration-first-directive-2026-08`, `wavefront-shade-kernels-register-saturated`,
   `astroray-native-nodes-need-astroray-output`.
+
+## Hardware verification 2026-08-23 (pkg219a slice, PR #640, independent re-verify)
+
+**Hardware:** RTX 5070 Ti, Windows 11 Enterprise 10.0.26200, driver 610.47, CUDA 12.8
+(nvcc), sm_120 target.
+
+**Build:** `build_cuda_worktree.bat` on worktree
+`Astroray-pkg219a` @ `6ed06e085b3af3831ec3f9f4906854a3355178e6` (HEAD SHA verified by
+the build script's Phase-2 guard). `astroray.__file__` =
+`build_cuda\Release\astroray.cp313-win_amd64.pyd` (canonical build output, not a
+shadow copy). `cuobjdump --list-elf` confirms sm_120 embedded. ABI canary green
+(`cpu/spectral/gpu/gpu_spectral: True`).
+
+**Gate tests (`tests/test_pkg219a_mapping_render.py` +
+`tests/test_pkg219a_mapping_unification.py`, 20 items):** 20 passed, 0 failed.
+
+**Fleet register gate — independently re-run (`cuobjdump -res-usage` on the built
+.pyd, all 32 `stageShadeBucketedKernel` specializations):**
+
+| REG | STACK | count |
+|-----|-------|-------|
+| 254 | 3352  | 8 |
+| 254 | 3608  | 4 |
+| 254 | 3672  | 4 |
+| 254 | 7720  | 6 |
+| 254 | 7784  | 2 |
+| 254 | 7848  | 8 |
+
+Exact match to the implementer-reported histogram. All specializations REG:254
+(fleet baseline) — no spill from the 3-D Mapping apply block.
+
+**CPU/GPU parity (UV-mode image texture, scale-2 Mapping matrix, 64 spp, seed=1),
+independently re-rendered on this run:**
+- Per-channel mean-ratio (GPU/CPU): `[0.99955284, 1.00044285, 0.99764865]`
+  (implementer reported 0.9996 / 1.0004 / 0.9976 — matches).
+- GPU mapped-vs-plain mean|diff| = `0.065956` (implementer reported 0.066 — matches).
+- CPU mapped-vs-plain mean|diff| = `0.065791` (new measurement, not previously
+  reported; consistent with the GPU number, confirms CPU also honors the mapping).
+
+**Visual inspection:** GPU plain render vs GPU scale-2-mapped render
+(`test_results/pkg219a_gpu_plain.png`, `pkg219a_gpu_mapped.png`) — the 2x2
+red/green/blue/yellow quadrant image visibly retiles/rescales between the two
+renders (quadrant boundaries shift), confirming the mapping matrix reaches the
+GPU wavefront image-sample path, not just changing numerically. No fireflies,
+banding, NaN pixels, or mode regressions observed in either render.
+
+**Verdict: PASS.** Both implementer claims (register-gate identity, CPU/GPU
+parity) independently reproduced within MC noise on a clean, dedicated RTX 5070
+Ti run (device not shared with another verifier this time). No regressions
+found. Ready for `pr-reviewer` merge decision.

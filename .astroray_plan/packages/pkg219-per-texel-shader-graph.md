@@ -3,7 +3,35 @@
 **Pillar:** Blender/DCC integration (integration-first directive, 2026-08 — this comes
 BEFORE Pillar 4; memory `integration-first-directive-2026-08`).
 **Track:** A (architect researches the fork + sizes before implementation).
-**Status:** open (filed 2026-08-22). **RESEARCH SPEC.**
+**Status:** open (filed 2026-08-22; fork DECIDED + staged 2026-08-23).
+**Research note:** [`../docs/pkg219-per-texel-svm-evaluator-research.md`](../docs/pkg219-per-texel-svm-evaluator-research.md) — READ FIRST.
+
+## Decision (2026-08-23 architect planning pass)
+
+**Fork (c) — bounded hybrid op-VM, staged, as the on-ramp to full (a).** (b)
+special-casing is the rejected "reinvent the wheel 100 times" anti-pattern; (a)
+full-SVM in one shot is XL and register-hostile with no incremental delivery. (c)
+covers the confirmed-broken chains (all scalar/colour ops ≤4-wide downstream of a
+texture) with a **bounded** `uint4` bytecode VM whose format is a strict prefix of
+full SVM. **The critical constraint vs Cycles SVM: a STATIC compile-time stack
+bound** (Cycles' dynamic float stack overflows "with relatively few nodes" and is
+untenable on the REG:254 wavefront) — overflow → visible degradation entry + fall
+back to constant-fold, never a silent grey.
+
+**Staging (dispatch as three sub-packages; 219a is independently useful):**
+- **pkg219a — Coordinate + Mapping unification** (M, Track A, no VM). Full 3-D
+  Mapping matrix (incl. X/Y rotation) + real Generated/Object/Camera/Window
+  TexCoord, wired into the existing texture special-case. Fixes the "mapping only
+  partly applied" repro half on its own.
+- **pkg219b — Bounded op-VM core** (L, Track A, Claude-implementer). Host-side
+  Blender-tree→`uint4` compiler, CPU evaluator, GPU device evaluator with the
+  static stack-bound check + `<bool HasProgram>` isolation + REG probe gate. Ship
+  Color-Ramp / Mix / Math / MapRange opcodes (highest-frequency broken chains).
+- **pkg219c — Opcode coverage fill-out** (M, Track A/B). HSV / Invert / Gamma /
+  BrightContrast / Separate-Combine / Bump / NormalMap, each with a Cycles parity
+  render.
+
+Old `**RESEARCH SPEC**` framing below retained for context.
 **Priority:** HIGH for usability — the owner (2026-08-22) flagged that "lots of shader
 nodes don't really work" and that this must be fixed "if we ever want good useability and
 Blender integration without reinventing the wheel 100 times."

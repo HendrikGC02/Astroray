@@ -2,9 +2,39 @@
 
 **Pillar:** 3 (light transport / spectral rendering)
 **Track:** A
-**Status:** open (filed 2026-08-21).
+**Status:** open (filed 2026-08-21; refined to implementable 2026-08-23).
 **Priority:** NOT top — owner (2026-08-21) explicitly deprioritised: "not necessarily #1 if there are more pressing things or older packages waiting their turn." Sequence behind the existing backlog; this is a real feature, not a quick fix.
 **Estimated effort:** L (GPU wavefront caustic path; register-hostile — probe-gated).
+**Research note:** [`../docs/pkg217-wavefront-caustic-integration-research.md`](../docs/pkg217-wavefront-caustic-integration-research.md) — READ FIRST.
+
+## Refinement (2026-08-23 architect planning pass — READ THIS)
+
+This is a **wiring problem, not a new algorithm.** The engine already has the
+caustic machinery; the GPU wavefront just never invokes it:
+- CPU SMS caustics = **DONE** (pkg64, `include/astroray/manifold/sms_attempt.h`).
+- Device SMS solver header **exists** (`manifold/sms_attempt_device.cuh`).
+- `GSphere.isCausticCaster` **already crosses CPU→GPU** (pkg64-gpu Phase 1, probe
+  `src/gpu/pkg64_sms_probe.cu`). pkg64-gpu is `superseded` because full wiring was
+  deferred as register-hostile.
+- **The gap:** `src/gpu/wavefront/stage_light_sample.cu` has no caustic path, so a
+  receiver behind glass does ordinary NEE, the shadow ray hits the glass, throughput
+  → 0 = black shadow.
+
+**Chosen integration (defuses the register problem):**
+1. **A separate `stage_caustic_connect.cu` kernel**, launched *only* when the scene
+   has ≥1 caster (host-side gate — zero cost, zero register change for caster-free
+   scenes). The SMS Newton live state lives in this kernel's own register file, NOT
+   spilled into `stageShadeBucketed` (REG:254). This is the whole reason to pick a
+   separate stage over an inline branch.
+2. **Ordinary-NEE cull** (Cycles `PATH_MNEE_SUCCESS` pattern, architecture borrow
+   only): when the sampled light is a delta caustic light and casters exist, route
+   the lane to the caustic stage instead of emitting the doomed shadow ray. One
+   lane-flag bit. Getting this wrong = keep-black (cull too much, no fallback) or
+   double-count (cull too little). Keep brute-force PT as silent fallback; classify
+   caustic contribution as INDIRECT (unlike Cycles' T96992 bug).
+3. **Reuse `sms_attempt_device.cuh`** — do NOT re-derive the solver, and do NOT
+   couple to pkg127 (the Specular-Polynomials seed upgrade lands later independently).
+4. Spectral dispersion comes for free (per-hero-λ manifold solve; leverages pkg206).
 
 ## Goal
 

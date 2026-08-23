@@ -9,6 +9,23 @@ MNEE/SMS literature pass — read it first; the algorithm choice was settled the
 
 ---
 
+## CORRECTION (2026-08-23, package-implementer, verified by the plan's own author)
+
+This note's central claim — "the GPU wavefront simply never invokes [the caustic
+machinery]" — is **wrong**. `src/gpu/wavefront/gpu_wavefront_snapshot.cu`
+(`cuda_wavefront_render`) already runs a complete, tested forward photon-map
+caustic pre-pass (pkg113: `buildCausticAim` + `cuda_photon_caustic_build`,
+gathered at the shade stage), gated by `Renderer::usePhotonCaustics` — a
+switch the Blender addon never set. See the corrected pkg217 spec for the
+full finding and the fix actually shipped (addon wiring only, no CUDA
+change). The SMS/NEE-cull architecture this note recommends below remains a
+plausible FUTURE quality upgrade over forward photon mapping, but was not
+needed for the repro and was not built. Read this note's remainder as
+"what SMS-NEE-cull would look like if we ever want it," not as an accurate
+description of the current gap.
+
+---
+
 ## The key reframing
 
 pkg217 is **not** "invent GPU caustics." The engine already has the caustic

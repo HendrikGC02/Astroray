@@ -1806,6 +1806,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.set_filter_glossy(settings.filter_glossy)
         renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
         renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
+        # pkg217: the GPU wavefront's photon-map caustic pre-pass (pkg113) is
+        # gated by a SEPARATE renderer-level master switch (usePhotonCaustics,
+        # default off) from the per-object is_caustic_caster flag the mesh
+        # loop below wires via set_object_caustic_caster. Without this call the
+        # addon never enabled the switch, so a flagged glass caster produced a
+        # black shadow on GPU even though the (tested, working) photon pipeline
+        # was fully wired — see .astroray_plan/docs/pkg217-wavefront-caustic-
+        # integration-research.md (corrected root cause). "Any caster present
+        # -> enable" mirrors why the user ticked is_caustic_caster in the first
+        # place; no separate UI toggle exists for this switch.
+        if hasattr(renderer, "set_use_photon_caustics"):
+            has_caster = any(
+                bool(getattr(getattr(inst.object, "astroray_object", None),
+                             "is_caustic_caster", False))
+                for inst in depsgraph.object_instances
+                if inst.object is not None
+            )
+            renderer.set_use_photon_caustics(has_caster)
         renderer.set_light_sampler(settings.light_sampler)
         cycles = getattr(scene, 'cycles', None)
         render_settings = getattr(scene, 'render', None)

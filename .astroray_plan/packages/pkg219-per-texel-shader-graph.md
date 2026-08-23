@@ -37,8 +37,10 @@ back to constant-fold, never a silent grey.
   static stack-bound check + `<bool HasProgram>` isolation + REG probe gate. Ship
   Color-Ramp / Mix / Math / MapRange opcodes (highest-frequency broken chains).
 - **pkg219c — Opcode coverage fill-out** (M, Track A/B).
-  **Status: in review (PR pending, 2026-08-23 — CPU+GPU, register-neutral true-half;
-  needs HW verify).** Shipped opcodes: Hue/Saturation/Value, Invert, Gamma,
+  **Status: in review (PR #642, 2026-08-23 — CPU+GPU, register-neutral true-half
+  identical to pkg219b max STACK 7912, no spill; 18/18 pkg219c tests pass incl.
+  CPU/GPU Invert parity ratio [1.0007, 0.9998, 0.9974]; needs HW verify).**
+  Shipped opcodes: Hue/Saturation/Value, Invert, Gamma,
   Bright/Contrast, Separate Color + Combine Color (RGB and HSV modes), RGB-to-BW —
   each with a CPU evaluator case, GPU interpreter case (shared HD `svm_eval`),
   addon compiler support, and a TDD parity test. Formulas re-verified against

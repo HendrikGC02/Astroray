@@ -3,6 +3,7 @@
 // Included by both scene_upload.cu and cuda_renderer.cu.
 
 #include "astroray/gpu_types.h"
+#include "astroray/shader_vm.h"  // pkg219b — ShaderVMProgram
 #include "astroray/manifold/sms_attempt_device.cuh"  // pkg64-gpu Phase 2
 #include <vector>
 
@@ -31,6 +32,17 @@ struct SceneUploadResult {
     std::vector<GVec3>         textureTexels;
     std::vector<int>           materialTextureId;
     bool                       hasTexture = false;
+
+    // pkg219b — per-texel op-VM programs. `programs` holds each unique compiled
+    // ShaderVMProgram (deduped by ProgramTexture*); `materialProgramId` is
+    // parallel to `materials` (-1 = no program). `hasProgram` selects the
+    // stageShadeBucketedKernel<…,HasProgram=true> instantiation; false keeps the
+    // whole fleet on the byte-identical <…,false> kernel (register-probe gate).
+    // A program material ALSO carries a materialTextureId (its single ImageTexture
+    // input): the shade path samples that image, then runs the VM on the colour.
+    std::vector<astroray::svm::ShaderVMProgram> programs;
+    std::vector<int>                            materialProgramId;
+    bool                                        hasProgram = false;
 
     // pkg189 — true when ANY uploaded material is dispersive (Sellmeier dielectric
     // → GMAT_DIELECTRIC, or Cauchy Principled glass → GMAT_CLOSURE_GRAPH; both set

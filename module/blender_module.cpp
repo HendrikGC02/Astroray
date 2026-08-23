@@ -165,6 +165,10 @@ static astroray::EmissionSpectrum parseEmissionSpectrum(py::dict emissionDict) {
 class TextureManager {
     std::unordered_map<std::string, std::shared_ptr<ImageTexture>> imageTextures;
     std::unordered_map<std::string, std::shared_ptr<Texture>> proceduralTextures;
+    // pkg219b — per-texel op-VM chains (Color Ramp / Mix / Math / Map Range
+    // downstream of a texture). Registered separately so scene_upload can
+    // detect them and upload the compiled program to the GPU.
+    std::unordered_map<std::string, std::shared_ptr<ProgramTexture>> programTextures;
     static Texture::CoordMode parseCoordMode(const std::string& mode) {
         std::string m = mode;
         for (char& c : m) c = static_cast<char>(std::toupper(c));
@@ -353,7 +357,74 @@ public:
         if (it1 != imageTextures.end()) return it1->second;
         auto it2 = proceduralTextures.find(name);
         if (it2 != proceduralTextures.end()) return it2->second;
+        auto it3 = programTextures.find(name);
+        if (it3 != programTextures.end()) return it3->second;
         return nullptr;
+    }
+
+    // ---- pkg219b op-VM builder API -----------------------------------------
+    void createProgramTexture(const std::string& name, const std::string& coordMode) {
+        auto pt = std::make_shared<ProgramTexture>();
+        pt->setCoordMode(parseCoordMode(coordMode));
+        programTextures[name] = pt;
+    }
+    void programTextureAddInput(const std::string& name, const std::string& inputName) {
+        auto it = programTextures.find(name);
+        if (it == programTextures.end())
+            throw std::runtime_error("program_texture_add_input: unknown program texture " + name);
+        auto child = getTexture(inputName);
+        if (!child)
+            throw std::runtime_error("program_texture_add_input: unknown input texture " + inputName);
+        it->second->addInput(child);
+    }
+    // Set the compiled program from flat buffers. code_flat is 8 ints/instr
+    // (op,out,a,b,c,d,e,imm); consts_flat is 3 floats/const; ramps_flat is
+    // numRamps*RAMP_TABLE_SIZE*3 floats (row-major per ramp).
+    void setProgramTextureProgram(const std::string& name, int numTex, int outSlot,
+                                  const std::vector<int>& code_flat,
+                                  const std::vector<float>& consts_flat,
+                                  const std::vector<float>& ramps_flat) {
+        using namespace astroray::svm;
+        auto it = programTextures.find(name);
+        if (it == programTextures.end())
+            throw std::runtime_error("set_program_texture_program: unknown program texture " + name);
+        if (code_flat.size() % 8 != 0)
+            throw std::runtime_error("set_program_texture_program: code_flat not a multiple of 8");
+        int numInstr = (int)(code_flat.size() / 8);
+        if (numInstr > VM_MAX_INSTR)
+            throw std::runtime_error("set_program_texture_program: program exceeds VM_MAX_INSTR");
+        int numConst = (int)(consts_flat.size() / 3);
+        if (numConst > VM_MAX_CONST)
+            throw std::runtime_error("set_program_texture_program: too many constants");
+        if (ramps_flat.size() % (RAMP_TABLE_SIZE * 3) != 0)
+            throw std::runtime_error("set_program_texture_program: ramps_flat wrong length");
+        int numRamps = (int)(ramps_flat.size() / (RAMP_TABLE_SIZE * 3));
+        if (numRamps > VM_MAX_RAMPS)
+            throw std::runtime_error("set_program_texture_program: too many ramps");
+        ShaderVMProgram prog;
+        prog.numInstr = numInstr;
+        prog.outSlot  = outSlot;
+        prog.numTex   = numTex;
+        prog.numRamps = numRamps;
+        for (int i = 0; i < numInstr; ++i) {
+            Instr& in = prog.code[i];
+            in.op  = (unsigned char)code_flat[i*8+0];
+            in.out = (unsigned char)code_flat[i*8+1];
+            in.a   = (unsigned char)code_flat[i*8+2];
+            in.b   = (unsigned char)code_flat[i*8+3];
+            in.c   = (unsigned char)code_flat[i*8+4];
+            in.d   = (unsigned char)code_flat[i*8+5];
+            in.e   = (unsigned char)code_flat[i*8+6];
+            in.imm = (unsigned char)code_flat[i*8+7];
+        }
+        for (int i = 0; i < numConst; ++i)
+            prog.consts[i] = GVec3(consts_flat[i*3], consts_flat[i*3+1], consts_flat[i*3+2]);
+        for (int r = 0; r < numRamps; ++r)
+            for (int s = 0; s < RAMP_TABLE_SIZE; ++s) {
+                int base = (r * RAMP_TABLE_SIZE + s) * 3;
+                prog.ramp[r][s] = GVec3(ramps_flat[base], ramps_flat[base+1], ramps_flat[base+2]);
+            }
+        it->second->setProgram(prog);
     }
 };
 
@@ -432,6 +503,29 @@ public:
     void setTextureMappingMatrix(const std::string& name,
                                  const std::vector<float>& m) {
         textureManager.setTextureMappingMatrix(name, m);
+    }
+    // pkg219b op-VM builder forwarders.
+    void createProgramTexture(const std::string& name, const std::string& coordMode) {
+        textureManager.createProgramTexture(name, coordMode);
+    }
+    void programTextureAddInput(const std::string& name, const std::string& inputName) {
+        textureManager.programTextureAddInput(name, inputName);
+    }
+    void setProgramTextureProgram(const std::string& name, int numTex, int outSlot,
+                                  const std::vector<int>& code_flat,
+                                  const std::vector<float>& consts_flat,
+                                  const std::vector<float>& ramps_flat) {
+        textureManager.setProgramTextureProgram(name, numTex, outSlot,
+                                                code_flat, consts_flat, ramps_flat);
+    }
+
+    // pkg219b test helper — sample a registered texture (image / procedural /
+    // program) at (u,v), with p=(u,v,0). Exercises the op-VM directly.
+    std::vector<float> sampleNamedTexture(const std::string& name, float u, float v) {
+        auto tex = textureManager.getTexture(name);
+        if (!tex) throw std::runtime_error("sample_named_texture: unknown texture " + name);
+        Vec3 r = tex->value(Vec2(u, v), Vec3(u, v, 0.0f));
+        return {r.x, r.y, r.z};
     }
 
     std::vector<float> sampleTexture(const std::string& type, py::dict params, float u, float v) {
@@ -2785,6 +2879,22 @@ PYBIND11_MODULE(astroray, m) {
              "euler parity. Image textures sample at (M*coord).xy.")
         .def("set_texture_uv_layer", &PyRenderer::setTextureUVLayerName,
              "name"_a, "layer_name"_a)
+        .def("create_program_texture", &PyRenderer::createProgramTexture,
+             "name"_a, "coord_mode"_a = "UV",
+             "pkg219b: register a per-texel op-VM chain (Color Ramp / Mix / Math "
+             "/ Map Range downstream of a texture). Add inputs with "
+             "program_texture_add_input, then compile with "
+             "set_program_texture_program; reference by name as a material texture.")
+        .def("program_texture_add_input", &PyRenderer::programTextureAddInput,
+             "name"_a, "input_name"_a,
+             "pkg219b: append an input (child) texture to a program texture, in "
+             "OP_LOAD_TEX index order.")
+        .def("set_program_texture_program", &PyRenderer::setProgramTextureProgram,
+             "name"_a, "num_tex"_a, "out_slot"_a,
+             "code_flat"_a, "consts_flat"_a, "ramps_flat"_a,
+             "pkg219b: set the compiled bytecode. code_flat = 8 ints/instr "
+             "(op,out,a,b,c,d,e,imm); consts_flat = 3 floats/const; ramps_flat = "
+             "numRamps*256*3 floats (baked Color-Ramp tables, RGB).")
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
         .def("eval_material", &PyRenderer::evalMaterial,
              "material_id"_a, "wo"_a, "wi"_a,
@@ -3077,6 +3187,9 @@ PYBIND11_MODULE(astroray, m) {
         .def_property_readonly("gpu_device_name", &PyRenderer::getGPUDeviceName)
         .def("sample_texture", &PyRenderer::sampleTexture,
              "type"_a, "params"_a, "u"_a = 0.5f, "v"_a = 0.5f)
+        .def("sample_named_texture", &PyRenderer::sampleNamedTexture,
+             "name"_a, "u"_a = 0.5f, "v"_a = 0.5f,
+             "pkg219b: sample a registered texture (image/procedural/program) at (u,v).")
         .def("eval_texture_at_3d", &PyRenderer::evalTextureAt3D,
              "type"_a, "params"_a, "x"_a, "y"_a, "z"_a,
              "pkg115 debug helper: evaluate texture at explicit (x,y,z) point")

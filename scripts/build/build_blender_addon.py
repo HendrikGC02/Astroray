@@ -76,7 +76,8 @@ ADDON_FILES = ["__init__.py", "blender_manifest.toml", "shader_blending.py",
                "exporter.py",         # pkg116 viewport-sync exporter
                "settings_map.py",     # pkg176 Stage-0 mapping data (Stage 1 consumes it)
                "native_settings.py",  # pkg176 Stage 1 native-settings translator
-               "degradation.py"]      # pkg119 Phase C graceful-degradation policy
+               "degradation.py",      # pkg119 Phase C graceful-degradation policy
+               "shader_vm_compiler.py"]  # pkg219b per-texel op-VM bytecode compiler
 
 
 # --------------------------------------------------------------------------- #

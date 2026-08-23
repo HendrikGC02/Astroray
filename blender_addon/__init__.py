@@ -3442,7 +3442,73 @@ class CustomRaytracerRenderEngine(RenderEngine):
             vector_inp = linked_node.inputs.get('Vector') if hasattr(linked_node, 'inputs') else None
             tex_name = self.load_procedural_texture(linked_node, renderer, vector_input=vector_inp)
             return [0.8, 0.8, 0.8], tex_name
+        # pkg219b — a per-texel op-VM chain (Color Ramp / Mix / Math / Map Range
+        # downstream of an image). Compile it to bytecode and register a program
+        # texture; on any unrepresentable node fall back to a flat grey + a
+        # visible degradation entry (never a silent grey — the spec requirement).
+        prog_name = self._maybe_build_program_texture(inp, node, input_name, renderer)
+        if prog_name is not None:
+            fallback = list(inp.default_value[:3]) if hasattr(inp.default_value, '__iter__') else [0.8, 0.8, 0.8]
+            return fallback, prog_name
         return [0.8, 0.8, 0.8], None
+
+    def _maybe_build_program_texture(self, socket, node, input_name, renderer):
+        """pkg219b: try to compile the chain feeding `socket` into an op-VM
+        program texture. Returns the registered program-texture name, or None if
+        the chain is not a per-texel op (or the renderer lacks the bindings)."""
+        if not hasattr(renderer, "create_program_texture"):
+            return None
+        try:
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_vm_compiler as svm
+        try:
+            compiled = svm.compile_chain(socket)
+        except svm.VMCompileError as e:
+            self._warn_shader_fallback(
+                "op-VM", "shader chain on '%s' not representable (%s) — "
+                "flattened to grey" % (input_name, e))
+            return None
+        if compiled is None:
+            return None
+        # Require image-texture inputs; a program input that is not a loadable
+        # image texture is out of scope (procedural inputs stay on the pkg190
+        # bake path).
+        child_names = []
+        for in_node in compiled['inputs']:
+            img = getattr(in_node, 'image', None)
+            if getattr(in_node, 'type', None) != 'TEX_IMAGE' or img is None:
+                self._warn_shader_fallback(
+                    "op-VM", "op-VM input is not an image texture — flattened")
+                return None
+            cn = self.load_blender_image(img, renderer, vector_input=None)
+            if cn is None:
+                return None
+            child_names.append(cn)
+        mat_name = getattr(self, "_current_material_name", "") or ""
+        prog_name = "_prog_%s.%s.%s" % (mat_name, getattr(node, "name", "n"), input_name)
+        # Coord + Mapping come from the FIRST image input's Vector wiring and are
+        # applied to the PROGRAM texture (children are plain samplers); differing
+        # per-input mappings on a multi-image Mix are a documented follow-up.
+        first = compiled['inputs'][0]
+        vinp = first.inputs.get('Vector') if hasattr(first, 'inputs') else None
+        coord_mode, scale, offset, rot, uvlayer = self._resolve_vector_input(
+            vinp, default_coord_mode="UV")
+        mapping_matrix = self._resolve_mapping_matrix(vinp)
+        try:
+            renderer.create_program_texture(prog_name, coord_mode)
+            self._apply_texture_transform(renderer, prog_name, coord_mode, scale,
+                                          offset, rot, uvlayer, mapping_matrix)
+            for cn in child_names:
+                renderer.program_texture_add_input(prog_name, cn)
+            renderer.set_program_texture_program(
+                prog_name, compiled['num_tex'], compiled['out_slot'],
+                compiled['code_flat'], compiled['consts_flat'],
+                compiled['ramps_flat'])
+        except Exception as e:
+            self._warn_shader_fallback("op-VM", "program upload failed (%s)" % e)
+            return None
+        return prog_name
 
     # ------------------------------------------------------------------ #
     # Shader-node dispatch

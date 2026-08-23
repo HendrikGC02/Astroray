@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "astroray/gpu_types.h"  // GVec3, GSampledWavelengths, GSampledSpectrum
+#include "astroray/shader_vm.h"  // pkg219b GWavefrontProgramBinding
 // pkg157: GPhotonGrid, needed by launchStageShadeBucketed's declaration below.
 // Safe from any TU: gpu_photon_store.h is explicitly written to compile under
 // both nvcc and pure C++ (its device-only helpers sit behind __CUDACC__), and
@@ -389,12 +390,24 @@ void launchStageShadeBucketed(
     // classification lock; false selects <*,*,*,*,false>, byte-identical to the
     // pre-pkg198 kernels (254/3352/1700 — the REGISTER PROBE result, PR #620). The
     // pass buffers ride in the __constant__ c_wfLpBinding, not this signature.
-    bool hasLightPassAOVs);
+    bool hasLightPassAOVs,
+    // pkg219b: hasProgram=true selects stageShadeBucketedKernel<*,*,*,*,*,true>,
+    // which carries the per-texel op-VM; false selects <…,false>, byte-identical
+    // to the pre-pkg219b kernels (the register-probe gate). The program array +
+    // per-material index ride in the __constant__ c_wfProgBinding, not this
+    // signature.
+    bool hasProgram);
 
 // pkg186 — publish the frame's image-texture arrays into the shade kernel's
 // __constant__ binding. Call ONCE per frame before launchStageShadeBucketed (only
 // for scenes with textures); see stage_advance.cu / GWavefrontTextureBinding.
 void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding);
+
+// pkg219b — publish the frame's op-VM program array + per-material index into the
+// shade kernel's __constant__ binding. Call ONCE per frame before
+// launchStageShadeBucketed (only for scenes with a program material); see
+// stage_advance.cu / GWavefrontProgramBinding (astroray/shader_vm.h).
+void setWavefrontProgramBinding(const GWavefrontProgramBinding& binding);
 
 // pkg197 — publish the frame's first-hit denoise-guide output pointers into the
 // intersect stage's __constant__ binding. Call ONCE per frame before the render

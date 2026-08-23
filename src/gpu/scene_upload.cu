@@ -679,6 +679,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     std::unordered_map<Material*, int> matIdx;
     // pkg186 — texture dedup: one flat-buffer slice per unique image Texture*.
     std::unordered_map<Texture*, int> texIdx;
+    // pkg219b — op-VM program dedup: one ShaderVMProgram slot per ProgramTexture*.
+    std::unordered_map<Texture*, int> progIdx;
     auto getOrAddMat = [&](const std::shared_ptr<Material>& m) -> int {
         auto it = matIdx.find(m.get());
         if (it != matIdx.end()) return it->second;
@@ -707,9 +709,59 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         // PROCEDURAL textures (also TexturedLambertian, non-ImageTexture) into the
         // same buffer — 3D voxel for Generated coords, 2D for UV.
         int texId = -1;
+        int progId = -1;
         if (auto* tl = dynamic_cast<TexturedLambertian*>(m.get())) {
             std::shared_ptr<Texture> tex = tl->getTexture();
-            if (auto img = std::dynamic_pointer_cast<ImageTexture>(tex)) {
+            // pkg219b — a ProgramTexture (per-texel op-VM chain). GPU scope: a
+            // program whose single input is an ImageTexture (the canonical repro:
+            // Color Ramp / Mix / Math / Map Range on ONE image → Base Color). The
+            // image is uploaded as usual (carrying the ProgramTexture's coord +
+            // Mapping), the compiled program is deduped into r.programs, and the
+            // shade path runs svm_eval on the sampled image colour. A program with
+            // a non-image or multi-image input falls through to the flat baseColor
+            // (GPU-degraded; CPU stays correct) — the pkg190/pkg186 cut, deferred.
+            if (auto pt = std::dynamic_pointer_cast<ProgramTexture>(tex)) {
+                std::shared_ptr<Texture> child =
+                    pt->numInputs() >= 1 ? pt->getInput(0) : nullptr;
+                auto childImg = std::dynamic_pointer_cast<ImageTexture>(child);
+                if (childImg && !childImg->getData().empty() && pt->numInputs() == 1) {
+                    // Upload the child image (deduped by the ImageTexture*), but
+                    // carry the ProgramTexture's Mapping matrix on the descriptor.
+                    auto tit = texIdx.find(childImg.get());
+                    if (tit != texIdx.end()) {
+                        texId = tit->second;
+                    } else {
+                        texId = (int)r.textures.size();
+                        texIdx[childImg.get()] = texId;
+                        GImageTexture desc;
+                        desc.offset = (int)r.textureTexels.size();
+                        desc.width  = childImg->getWidth();
+                        desc.height = childImg->getHeight();
+                        if (pt->hasMapping()) {
+                            desc.hasMapping = 1;
+                            const float* mm = pt->getMappingMatrix();
+                            for (int i = 0; i < 12; ++i) desc.mapping[i] = mm[i];
+                        }
+                        const std::vector<Vec3>& px = childImg->getData();
+                        r.textureTexels.reserve(r.textureTexels.size() + px.size());
+                        for (const Vec3& c : px)
+                            r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                        r.textures.push_back(desc);
+                    }
+                    // Dedup the compiled program by ProgramTexture*.
+                    auto pit = progIdx.find(pt.get());
+                    if (pit != progIdx.end()) {
+                        progId = pit->second;
+                    } else {
+                        progId = (int)r.programs.size();
+                        progIdx[pt.get()] = progId;
+                        r.programs.push_back(pt->getProgram());
+                    }
+                    r.hasTexture = true;
+                    r.hasProgram = true;
+                }
+                // (else: unsupported program input → texId/progId stay -1)
+            } else if (auto img = std::dynamic_pointer_cast<ImageTexture>(tex)) {
                 if (!img->getData().empty()) {
                     auto tit = texIdx.find(img.get());
                     if (tit != texIdx.end()) {
@@ -844,6 +896,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 r.materials[id].baseColor = GVec3(1.f, 1.f, 1.f);
         }
         r.materialTextureId.push_back(texId);
+        r.materialProgramId.push_back(progId);
         return id;
     };
 

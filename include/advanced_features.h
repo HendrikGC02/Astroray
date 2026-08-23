@@ -1,5 +1,6 @@
 #pragma once
 #include "raytracer.h"
+#include "astroray/shader_vm.h"   // pkg219b — bounded per-texel op-VM
 #include <utility>
 
 // ============================================================================
@@ -340,6 +341,39 @@ public:
         int i = std::min((int)(u * width), width - 1);
         int j = std::min((int)(v * height), height - 1);
         return spectral_cache_[j * width + i].sample(lambdas);
+    }
+};
+
+// ============================================================================
+// pkg219b — ProgramTexture: a per-texel op-VM chain wrapping input textures.
+//
+// Holds up to VM_MAX_TEX child textures + a compiled ShaderVMProgram. The
+// program transforms the sampled child RGBs into the final base colour (Color
+// Ramp / Mix / Math / Map Range downstream of a texture). Coord-mode + Mapping
+// live on the ProgramTexture itself (the base Texture machinery), so children
+// are plain samplers evaluated at the resolved (uv, p). The GPU twin runs the
+// SAME svm_eval on the sampled image colour, so parity is by construction.
+// ============================================================================
+class ProgramTexture : public Texture {
+    std::vector<std::shared_ptr<Texture>> inputs_;
+    astroray::svm::ShaderVMProgram program_;
+public:
+    void setProgram(const astroray::svm::ShaderVMProgram& p) { program_ = p; }
+    void addInput(const std::shared_ptr<Texture>& t) { inputs_.push_back(t); }
+    const astroray::svm::ShaderVMProgram& getProgram() const { return program_; }
+    size_t numInputs() const { return inputs_.size(); }
+    std::shared_ptr<Texture> getInput(size_t i) const { return inputs_[i]; }
+
+    Vec3 value(const Vec2& uv, const Vec3& p) const override {
+        GVec3 in[astroray::svm::VM_MAX_TEX];
+        int nt = program_.numTex;
+        if (nt > astroray::svm::VM_MAX_TEX) nt = astroray::svm::VM_MAX_TEX;
+        for (int i = 0; i < nt; ++i) {
+            Vec3 c = i < (int)inputs_.size() ? inputs_[i]->value(uv, p) : Vec3(0.f);
+            in[i] = GVec3(c.x, c.y, c.z);
+        }
+        GVec3 r = astroray::svm::svm_eval(program_, in);
+        return Vec3(r.x, r.y, r.z);
     }
 };
 

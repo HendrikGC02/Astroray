@@ -43,6 +43,7 @@
 
 #include "astroray/gpu_wavefront_state.h"
 #include "astroray/gpu_types.h"
+#include "astroray/shader_vm.h"  // pkg219b — op-VM program + svm_eval
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
 #include "astroray/gpu_env_spectral.cuh"
@@ -823,6 +824,11 @@ __device__ int intersectPathSlot(
 // its pre-pkg186 REG/STACK footprint (the three signature params cost +24 B stack).
 __constant__ GWavefrontTextureBinding c_wfTexBinding;
 
+// pkg219b — op-VM program binding in constant memory (see GWavefrontProgramBinding
+// in astroray/shader_vm.h). Set once per frame by setWavefrontProgramBinding; read
+// only inside `if constexpr (HasProgram)`. The <false> fleet kernel never reads it.
+__constant__ GWavefrontProgramBinding c_wfProgBinding;
+
 // pkg184 — HasPhotons isolates the bounce-0 photon-map caustic KNN gather
 // (photonGridGatherKnn, 50-neighbour live set) behind `if constexpr`. The gather
 // only ever fires at bounce 0 in scenes that carry a photon grid, yet ptxas had to
@@ -849,7 +855,8 @@ __constant__ GWavefrontTextureBinding c_wfTexBinding;
 // host-side hasDispersive scene flag. See
 // .astroray_plan/packages/pkg189-gpu-wavefront-dispersion-enablement.md.
 template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPhotons = false,
-         bool HasDispersion = false, bool HasLightPassAOVs = false>  // pkg198 S2 pass axis
+         bool HasDispersion = false, bool HasLightPassAOVs = false,  // pkg198 S2 pass axis
+         bool HasProgram = false>  // pkg219b — per-texel op-VM axis
 __device__ bool shadePathSlot(
     int idx,
     GPUWavefrontState& state,
@@ -1058,6 +1065,25 @@ __device__ bool shadePathSlot(
                         texColor = gpu_sampleImageTexture(
                             tdesc, c_wfTexBinding.texelBuf, uu, vv);
                         haveTex = true;
+                    }
+                }
+            }
+            // pkg219b — per-texel op-VM: transform the sampled image colour
+            // through the material's compiled shader program (Color Ramp / Mix /
+            // Math / Map Range downstream of the texture). The program + per-
+            // material index live in constant/global memory (c_wfProgBinding);
+            // svm_eval is the SAME HD evaluator the CPU ProgramTexture runs, so
+            // parity is by construction. `if constexpr (HasProgram)` compiles this
+            // OUT of every fleet (<false>) shade specialization — byte-identical.
+            if constexpr (HasProgram) {
+                if (haveTex && c_wfProgBinding.matProgId) {
+                    int progId = c_wfProgBinding.matProgId[rec.materialId];
+                    if (progId >= 0) {
+                        GVec3 vmIn[astroray::svm::VM_MAX_TEX];
+                        vmIn[0] = texColor;
+                        for (int t = 1; t < astroray::svm::VM_MAX_TEX; ++t) vmIn[t] = texColor;
+                        texColor = astroray::svm::svm_eval(
+                            c_wfProgBinding.programs[progId], vmIn);
                     }
                 }
             }
@@ -1683,7 +1709,8 @@ __global__ void stageIntersectQueuedKernel(
 }
 
 template<bool HasPrincipled, bool HasTexture, bool HasPhotons, bool HasDispersion,
-         bool HasLightPassAOVs = false>  // pkg178 D4; pkg186 texture; pkg184 photons; pkg189 dispersion; pkg198 S2 pass axis
+         bool HasLightPassAOVs = false,  // pkg178 D4; pkg186 texture; pkg184 photons; pkg189 dispersion; pkg198 S2 pass axis
+         bool HasProgram = false>  // pkg219b — per-texel op-VM axis
 __global__ void stageShadeBucketedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1719,7 +1746,7 @@ __global__ void stageShadeBucketedKernel(
     // pkg186: texture data comes from the __constant__ c_wfTexBinding symbol, NOT
     // kernel params — keeps the untextured <false,false> signature at its
     // pre-pkg186 footprint (see c_wfTexBinding note above).
-    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons, HasDispersion, HasLightPassAOVs>(idx, state, hitBufs, tlas, instances, blas,
+    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons, HasDispersion, HasLightPassAOVs, HasProgram>(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
                                totalLightPower, dedLights, numDed,
@@ -2074,6 +2101,15 @@ void setWavefrontLightPassBinding(const GWavefrontLightPassBinding& binding)
     cudaMemcpyToSymbol(c_wfLpBinding, &binding, sizeof(GWavefrontLightPassBinding));
 }
 
+// pkg219b — publish the frame's op-VM program array + per-material index into the
+// __constant__ c_wfProgBinding symbol. Called ONCE per frame by the driver before
+// the shade launches. All-null (no program materials) leaves the <false> shade
+// kernel never reading the symbol — byte-identical fleet.
+void setWavefrontProgramBinding(const GWavefrontProgramBinding& binding)
+{
+    cudaMemcpyToSymbol(c_wfProgBinding, &binding, sizeof(GWavefrontProgramBinding));
+}
+
 void launchStageShadeBucketed(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
@@ -2113,7 +2149,11 @@ void launchStageShadeBucketed(
     // pkg198 Stage 2: selects the <*,*,*,*,true> instantiation carrying the
     // first-bounce classification lock. The fleet passes false and stays byte-
     // identical (254/3352/1700 — the REGISTER PROBE result, PR #620).
-    bool              hasLightPassAOVs)
+    bool              hasLightPassAOVs,
+    // pkg219b: selects the <*,*,*,*,*,true> instantiation carrying the per-texel
+    // op-VM. The fleet (no material carries a VM program) passes false and stays
+    // byte-identical — the register probe gate for this package.
+    bool              hasProgram)
 {
     if (capacity <= 0) return;
     // One launch covers all buckets: grid = NUM_TYPES * capacity threads;
@@ -2170,10 +2210,17 @@ void launchStageShadeBucketed(
         // stays legible while both LP specializations of each combo land in the
         // cubin. The fleet path (hasLightPassAOVs==false) reaches the exact same
         // <…,false> instantiations as before → byte-identical 254/3352/1700.
+        // pkg219b: the 6th axis (HasProgram) is selected at RUNTIME here too,
+        // nested under HasLightPassAOVs, so the P/T/Ph/D switch stays legible and
+        // all 4 (LP × Program) specializations of each combo land in the cubin.
+        // The fleet path (hasProgram==false) reaches the same <…,false>
+        // instantiations as before → byte-identical register/stack.
         #define ASTRORAY_PKG198_KPTR(P,T,Ph,D) \
                 (hasLightPassAOVs \
-                   ? (const void*)stageShadeBucketedKernel<P,T,Ph,D,true> \
-                   : (const void*)stageShadeBucketedKernel<P,T,Ph,D,false>)
+                   ? (hasProgram ? (const void*)stageShadeBucketedKernel<P,T,Ph,D,true,true> \
+                                 : (const void*)stageShadeBucketedKernel<P,T,Ph,D,true,false>) \
+                   : (hasProgram ? (const void*)stageShadeBucketedKernel<P,T,Ph,D,false,true> \
+                                 : (const void*)stageShadeBucketedKernel<P,T,Ph,D,false,false>))
         const void* kptr = nullptr;
         switch (sel) {
             case  0: kptr = ASTRORAY_PKG198_KPTR(false,false,false,false); break;
@@ -2197,11 +2244,17 @@ void launchStageShadeBucketed(
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_shade_bucketed_n7", kptr, blocks, threads);
         #define ASTRORAY_PKG198_LAUNCH(P,T,Ph,D) \
-                do { if (hasLightPassAOVs) \
-                    stageShadeBucketedKernel<P,T,Ph,D,true ><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
-                else \
-                    stageShadeBucketedKernel<P,T,Ph,D,false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
-                } while (0)
+                do { if (hasLightPassAOVs) { \
+                    if (hasProgram) \
+                        stageShadeBucketedKernel<P,T,Ph,D,true ,true ><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
+                    else \
+                        stageShadeBucketedKernel<P,T,Ph,D,true ,false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
+                } else { \
+                    if (hasProgram) \
+                        stageShadeBucketedKernel<P,T,Ph,D,false,true ><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
+                    else \
+                        stageShadeBucketedKernel<P,T,Ph,D,false,false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
+                } } while (0)
         switch (sel) {
             case  0: ASTRORAY_PKG198_LAUNCH(false,false,false,false); break;
             case  1: ASTRORAY_PKG198_LAUNCH(false,false,false,true ); break;

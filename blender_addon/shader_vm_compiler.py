@@ -17,7 +17,14 @@ Opcode / sub-op enums MUST match include/astroray/shader_vm.h exactly.
 """
 
 # ---- opcode / sub-op enums (mirror include/astroray/shader_vm.h) -----------
-OP_END, OP_LOAD_TEX, OP_LOAD_CONST, OP_MATH, OP_MIX, OP_RAMP, OP_MAP_RANGE = range(7)
+(OP_END, OP_LOAD_TEX, OP_LOAD_CONST, OP_MATH, OP_MIX, OP_RAMP, OP_MAP_RANGE,
+ OP_HSV, OP_INVERT, OP_GAMMA, OP_BRIGHT_CONTRAST, OP_SEP_COLOR,
+ OP_COMBINE_COLOR, OP_RGB_TO_BW) = range(14)
+
+# Colour-space enum for Separate/Combine Color (Cycles NodeCombSepColorType).
+CS_RGB, CS_HSV = 0, 1
+_COLOR_SPACE = {'RGB': CS_RGB, 'HSV': CS_HSV}  # HSL deferred (pkg219c non-goal)
+_SEP_COMPONENT = {'Red': 0, 'Green': 1, 'Blue': 2}
 
 MATH_OPS = {
     'ADD': 0, 'SUBTRACT': 1, 'MULTIPLY': 2, 'DIVIDE': 3, 'MULTIPLY_ADD': 4,
@@ -153,7 +160,7 @@ def compile_socket(socket, builder, depth=0):
         # unlinked -> constant
         return builder.push_const(_socket_default_rgb(socket))
 
-    node, _out = src
+    node, out_name = src
     ntype = getattr(node, 'type', None)
 
     if _is_image_texture(node):
@@ -211,6 +218,69 @@ def compile_socket(socket, builder, depth=0):
         out = builder.alloc_slot()
         builder.emit(OP_MAP_RANGE, out, a=v_s, b=fmn, c=fmx, d=tmn, e=tmx,
                      imm=MAP_RANGE_OPS[interp])
+        return out
+
+    if ntype == 'HUE_SAT':  # Hue/Saturation/Value
+        hue_s = compile_socket(_get_input(node, 'Hue'), builder, depth + 1)
+        sat_s = compile_socket(_get_input(node, 'Saturation'), builder, depth + 1)
+        val_s = compile_socket(_get_input(node, 'Value'), builder, depth + 1)
+        fac_s = compile_socket(_get_input(node, 'Fac'), builder, depth + 1)
+        col_s = compile_socket(_get_input(node, 'Color'), builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_HSV, out, a=hue_s, b=sat_s, c=val_s, d=fac_s, e=col_s)
+        return out
+
+    if ntype == 'INVERT':
+        fac_s = compile_socket(_get_input(node, 'Fac'), builder, depth + 1)
+        col_s = compile_socket(_get_input(node, 'Color'), builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_INVERT, out, a=fac_s, b=col_s)
+        return out
+
+    if ntype == 'GAMMA':
+        col_s = compile_socket(_get_input(node, 'Color'), builder, depth + 1)
+        gam_s = compile_socket(_get_input(node, 'Gamma'), builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_GAMMA, out, a=col_s, b=gam_s)
+        return out
+
+    if ntype == 'BRIGHTCONTRAST':
+        col_s = compile_socket(_get_input(node, 'Color'), builder, depth + 1)
+        br_s = compile_socket(_get_input(node, 'Bright'), builder, depth + 1)
+        ct_s = compile_socket(_get_input(node, 'Contrast'), builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_BRIGHT_CONTRAST, out, a=col_s, b=br_s, c=ct_s)
+        return out
+
+    if ntype == 'SEPARATE_COLOR':
+        mode = getattr(node, 'mode', 'RGB')
+        if mode not in _COLOR_SPACE:
+            raise VMCompileError("unsupported Separate Color mode: %s" % mode)
+        comp = _SEP_COMPONENT.get(out_name)
+        if comp is None:
+            raise VMCompileError("unsupported Separate Color output: %s" % out_name)
+        col_s = compile_socket(_get_input(node, 'Color'), builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_SEP_COLOR, out, a=col_s,
+                     imm=_COLOR_SPACE[mode] * 4 + comp)
+        return out
+
+    if ntype == 'COMBINE_COLOR':
+        mode = getattr(node, 'mode', 'RGB')
+        if mode not in _COLOR_SPACE:
+            raise VMCompileError("unsupported Combine Color mode: %s" % mode)
+        r_s = compile_socket(_get_input(node, 'Red'), builder, depth + 1)
+        g_s = compile_socket(_get_input(node, 'Green'), builder, depth + 1)
+        b_s = compile_socket(_get_input(node, 'Blue'), builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_COMBINE_COLOR, out, a=r_s, b=g_s, c=b_s,
+                     imm=_COLOR_SPACE[mode])
+        return out
+
+    if ntype == 'RGB_TO_BW':
+        col_s = compile_socket(_get_input(node, 'Color'), builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_RGB_TO_BW, out, a=col_s)
         return out
 
     if ntype == 'RGB':

@@ -36,9 +36,24 @@ back to constant-fold, never a silent grey.
   Blender-tree→`uint4` compiler, CPU evaluator, GPU device evaluator with the
   static stack-bound check + `<bool HasProgram>` isolation + REG probe gate. Ship
   Color-Ramp / Mix / Math / MapRange opcodes (highest-frequency broken chains).
-- **pkg219c — Opcode coverage fill-out** (M, Track A/B). HSV / Invert / Gamma /
-  BrightContrast / Separate-Combine / Bump / NormalMap, each with a Cycles parity
-  render.
+- **pkg219c — Opcode coverage fill-out** (M, Track A/B).
+  **Status: in review (PR pending, 2026-08-23 — CPU+GPU, register-neutral true-half;
+  needs HW verify).** Shipped opcodes: Hue/Saturation/Value, Invert, Gamma,
+  Bright/Contrast, Separate Color + Combine Color (RGB and HSV modes), RGB-to-BW —
+  each with a CPU evaluator case, GPU interpreter case (shared HD `svm_eval`),
+  addon compiler support, and a TDD parity test. Formulas re-verified against
+  Cycles main (`src/util/color.h`, `svm/hsv.h`, `svm/invert.h`,
+  `svm/color_util.h`, `svm/math_util.h`, Apache-2.0).
+
+  **Deferred to a future spec (pkg219d candidate) — Bump and Normal Map.** These
+  two nodes perturb the *shading normal* (a geometry-dependent quantity that must
+  feed the BSDF's `N`), not a per-texel *colour/scalar* value. They do not fit the
+  colour op-VM (whose output is an RGB register consumed as a texture value) and
+  need their own design: normal perturbation applied in the shade path, with
+  screen-space or analytic derivatives of the upstream height/normal texture, on
+  both CPU and GPU. Forcing them into the colour VM would require the VM to write
+  back into the shading frame — out of scope for pkg219c. File pkg219d to design
+  the normal-perturbation path separately.
 
 Old `**RESEARCH SPEC**` framing below retained for context.
 **Priority:** HIGH for usability — the owner (2026-08-22) flagged that "lots of shader

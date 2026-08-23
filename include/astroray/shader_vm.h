@@ -43,7 +43,19 @@ enum OpCode : unsigned char {
     OP_MIX        = 4,  // reg[out] = mix(imm, fac=a.x, c1=b, c2=c) svm/color_util.h
     OP_RAMP       = 5,  // reg[out] = ramp[imm].lookup(a.x)       svm/ramp.h
     OP_MAP_RANGE  = 6,  // reg[out].x = map_range(imm, a.x,b.x,c.x,d.x,e.x) svm/map_range.h
+    // pkg219c — opcode coverage fill-out (per-texel colour/scalar ops).
+    OP_HSV        = 7,  // reg[out] = hsv(hue=a.x,sat=b.x,val=c.x,fac=d.x,col=e) svm/hsv.h
+    OP_INVERT     = 8,  // reg[out] = invert(fac=a.x, col=b)      svm/invert.h
+    OP_GAMMA      = 9,  // reg[out] = gamma(col=a, gamma=b.x)     svm/math_util.h
+    OP_BRIGHT_CONTRAST = 10, // reg[out] = bc(col=a, bright=b.x, contrast=c.x) svm/color_util.h
+    OP_SEP_COLOR  = 11, // reg[out].xyz = separate(col=a, imm=space*4+comp).broadcast svm/color_util.h
+    OP_COMBINE_COLOR = 12, // reg[out] = combine(r=a.x,g=b.x,b=c.x, imm=space) svm/color_util.h
+    OP_RGB_TO_BW  = 13, // reg[out] = luma(col=a).broadcast        svm/convert.h
 };
+
+// Colour-space enum for Separate/Combine Color (Cycles NodeCombSepColorType).
+// pkg219c ships RGB + HSV (HSL deferred).
+enum ColorSpace : unsigned char { CS_RGB = 0, CS_HSV = 1 };
 
 // NodeMathType subset (Cycles svm/types.h). pkg219b ships the common subset;
 // pkg219c fills the rest. Values are the addon compiler's own enum, NOT the
@@ -197,6 +209,97 @@ HD inline float svm_map_range(unsigned char op, float value, float from_min,
     return to_min + factor * (to_max - to_min);
 }
 
+// ---- HSV colour-space conversions (Cycles util/color.h) --------------------
+HD inline float svm_fractf(float x) { return x - floorf(x); }
+
+HD inline GVec3 svm_rgb_to_hsv(GVec3 rgb) {
+    float cmax = rgb.x > rgb.y ? (rgb.x > rgb.z ? rgb.x : rgb.z)
+                               : (rgb.y > rgb.z ? rgb.y : rgb.z);
+    float cmin = rgb.x < rgb.y ? (rgb.x < rgb.z ? rgb.x : rgb.z)
+                               : (rgb.y < rgb.z ? rgb.y : rgb.z);
+    float cdelta = cmax - cmin;
+    float v = cmax;
+    float s, h;
+    if (cmax != 0.f) s = cdelta / cmax; else { s = 0.f; h = 0.f; }
+    if (s != 0.f) {
+        GVec3 c = (GVec3(cmax) - rgb) / cdelta;
+        if (rgb.x == cmax)      h = c.z - c.y;
+        else if (rgb.y == cmax) h = 2.f + c.x - c.z;
+        else                    h = 4.f + c.y - c.x;
+        h /= 6.f;
+        if (h < 0.f) h += 1.f;
+    } else {
+        h = 0.f;
+    }
+    return GVec3(h, s, v);
+}
+
+HD inline GVec3 svm_hsv_to_rgb(GVec3 hsv) {
+    float h = hsv.x, s = hsv.y, v = hsv.z;
+    if (s != 0.f) {
+        if (h == 1.f) h = 0.f;
+        h *= 6.f;
+        float i = floorf(h);
+        float f = h - i;
+        float p = v * (1.f - s);
+        float q = v * (1.f - (s * f));
+        float t = v * (1.f - (s * (1.f - f)));
+        if (i == 0.f)      return GVec3(v, t, p);
+        else if (i == 1.f) return GVec3(q, v, p);
+        else if (i == 2.f) return GVec3(p, v, t);
+        else if (i == 3.f) return GVec3(p, q, v);
+        else if (i == 4.f) return GVec3(t, p, v);
+        else               return GVec3(v, p, q);
+    }
+    return GVec3(v, v, v);
+}
+
+// ---- Hue/Saturation/Value node (Cycles svm/hsv.h svm_node_hsv) --------------
+HD inline GVec3 svm_hsv(float hue, float sat, float val, float fac, GVec3 color) {
+    GVec3 c = svm_rgb_to_hsv(color);
+    c.x = svm_fractf(c.x + hue + 0.5f);
+    c.y = svm_saturatef(c.y * sat);
+    c.z = c.z * val;
+    GVec3 out = svm_hsv_to_rgb(c);
+    out = out * fac + color * (1.f - fac);
+    // Clamp negatives from over-saturation (Cycles svm_node_hsv).
+    out.x = out.x > 0.f ? out.x : 0.f;
+    out.y = out.y > 0.f ? out.y : 0.f;
+    out.z = out.z > 0.f ? out.z : 0.f;
+    return out;
+}
+
+// ---- Invert node (Cycles svm/invert.h) -------------------------------------
+// interp(color, 1-color, fac) = (1-fac)*color + fac*(1-color), per channel.
+HD inline GVec3 svm_invert(float fac, GVec3 color) {
+    return color * (1.f - fac) + (GVec3(1.f) - color) * fac;
+}
+
+// ---- Gamma node (Cycles svm/math_util.h svm_math_gamma_color) ---------------
+HD inline GVec3 svm_gamma(GVec3 color, float gamma) {
+    if (gamma == 0.f) return GVec3(1.f, 1.f, 1.f);
+    if (color.x > 0.f) color.x = powf(color.x, gamma);
+    if (color.y > 0.f) color.y = powf(color.y, gamma);
+    if (color.z > 0.f) color.z = powf(color.z, gamma);
+    return color;
+}
+
+// ---- Bright/Contrast node (Cycles svm/color_util.h svm_brightness_contrast) -
+HD inline GVec3 svm_bright_contrast(GVec3 color, float bright, float contrast) {
+    float a = 1.f + contrast;
+    float b = bright - contrast * 0.5f;
+    GVec3 o;
+    o.x = a * color.x + b; o.x = o.x > 0.f ? o.x : 0.f;
+    o.y = a * color.y + b; o.y = o.y > 0.f ? o.y : 0.f;
+    o.z = a * color.z + b; o.z = o.z > 0.f ? o.z : 0.f;
+    return o;
+}
+
+// ---- RGB to BW (Cycles svm/convert.h; Rec.709 luma) ------------------------
+HD inline float svm_rgb_to_bw(GVec3 c) {
+    return c.x * 0.2126729f + c.y * 0.7151522f + c.z * 0.0721750f;
+}
+
 // ============================================================================
 // The evaluator. Pure, HD, byte-identical CPU<->GPU. `inputs` holds the
 // pre-sampled child-texture RGBs. Returns the program's output slot RGB.
@@ -234,6 +337,35 @@ HD inline GVec3 svm_eval(const ShaderVMProgram& p, const GVec3* inputs) {
                 reg[in.out] = GVec3(r);
                 break;
             }
+            case OP_HSV:
+                reg[in.out] = svm_hsv(reg[in.a].x, reg[in.b].x, reg[in.c].x,
+                                      reg[in.d].x, reg[in.e]);
+                break;
+            case OP_INVERT:
+                reg[in.out] = svm_invert(reg[in.a].x, reg[in.b]);
+                break;
+            case OP_GAMMA:
+                reg[in.out] = svm_gamma(reg[in.a], reg[in.b].x);
+                break;
+            case OP_BRIGHT_CONTRAST:
+                reg[in.out] = svm_bright_contrast(reg[in.a], reg[in.b].x, reg[in.c].x);
+                break;
+            case OP_SEP_COLOR: {
+                // imm = space*4 + component. RGB is identity; HSV converts.
+                unsigned char space = in.imm >> 2;
+                unsigned char comp  = in.imm & 3u;
+                GVec3 conv = (space == CS_HSV) ? svm_rgb_to_hsv(reg[in.a]) : reg[in.a];
+                reg[in.out] = GVec3(conv[comp < 3 ? comp : 0]);
+                break;
+            }
+            case OP_COMBINE_COLOR: {
+                GVec3 v(reg[in.a].x, reg[in.b].x, reg[in.c].x);
+                reg[in.out] = (in.imm == CS_HSV) ? svm_hsv_to_rgb(v) : v;
+                break;
+            }
+            case OP_RGB_TO_BW:
+                reg[in.out] = GVec3(svm_rgb_to_bw(reg[in.a]));
+                break;
             case OP_END:
             default:
                 pc = n;  // halt

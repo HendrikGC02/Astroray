@@ -999,6 +999,7 @@ struct WfContext {
     WfDeviceBuf nodes, prims, tris, spheres, materials, lights;
     WfDeviceBuf dedLights;                    // pkg89-wavefront (C7)
     WfDeviceBuf textures, textureTexels, materialTextureId;  // pkg186 image textures
+    WfDeviceBuf programs, materialProgramId;   // pkg219b op-VM programs
     WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
     WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
     WfDeviceBuf treeNodes, treeEmitters, lightToEmitter;
@@ -1370,6 +1371,13 @@ std::vector<float> cuda_wavefront_render(
     int*           d_matTexId  = wfUpload(C.materialTextureId, res.materialTextureId);
     if (res.hasTexture)
         setWavefrontTextureBinding(GWavefrontTextureBinding{d_textures, d_texelBuf, d_matTexId});
+    // pkg219b — op-VM program device arrays (all null when no material carries a
+    // program; res.hasProgram=false then selects the <…,false> shade kernel).
+    astroray::svm::ShaderVMProgram* d_programs =
+        wfUpload(C.programs, res.programs);
+    int* d_matProgId = wfUpload(C.materialProgramId, res.materialProgramId);
+    if (res.hasProgram)
+        setWavefrontProgramBinding(GWavefrontProgramBinding{d_programs, d_matProgId});
     // pkg199 Stage 1 — publish the homogeneous world-volume medium every frame
     // (c_worldVolume is __constant__ and persists across calls, so set it
     // unconditionally — vacuum scenes publish hasVolume==0, which the intersect /
@@ -1731,7 +1739,8 @@ std::vector<float> cuda_wavefront_render(
                                      res.hasPrincipled,  // pkg178 Stage-3b D4
                                      res.hasTexture,      // pkg186 (data via c_wfTexBinding)
                                      res.hasDispersive,  // pkg189 hero-λ collapse write-back
-                                     passesOn);  // pkg198 Stage 2 pass-AOV axis
+                                     passesOn,  // pkg198 Stage 2 pass-AOV axis
+                                     res.hasProgram);  // pkg219b per-texel op-VM axis
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4

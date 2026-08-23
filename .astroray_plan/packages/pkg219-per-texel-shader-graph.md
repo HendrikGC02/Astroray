@@ -36,9 +36,26 @@ back to constant-fold, never a silent grey.
   Blender-tree→`uint4` compiler, CPU evaluator, GPU device evaluator with the
   static stack-bound check + `<bool HasProgram>` isolation + REG probe gate. Ship
   Color-Ramp / Mix / Math / MapRange opcodes (highest-frequency broken chains).
-- **pkg219c — Opcode coverage fill-out** (M, Track A/B). HSV / Invert / Gamma /
-  BrightContrast / Separate-Combine / Bump / NormalMap, each with a Cycles parity
-  render.
+- **pkg219c — Opcode coverage fill-out** (M, Track A/B).
+  **Status: in review (PR #642, 2026-08-23 — CPU+GPU, register-neutral true-half
+  identical to pkg219b max STACK 7912, no spill; 18/18 pkg219c tests pass incl.
+  CPU/GPU Invert parity ratio [1.0007, 0.9998, 0.9974]; needs HW verify).**
+  Shipped opcodes: Hue/Saturation/Value, Invert, Gamma,
+  Bright/Contrast, Separate Color + Combine Color (RGB and HSV modes), RGB-to-BW —
+  each with a CPU evaluator case, GPU interpreter case (shared HD `svm_eval`),
+  addon compiler support, and a TDD parity test. Formulas re-verified against
+  Cycles main (`src/util/color.h`, `svm/hsv.h`, `svm/invert.h`,
+  `svm/color_util.h`, `svm/math_util.h`, Apache-2.0).
+
+  **Deferred to a future spec (pkg219d candidate) — Bump and Normal Map.** These
+  two nodes perturb the *shading normal* (a geometry-dependent quantity that must
+  feed the BSDF's `N`), not a per-texel *colour/scalar* value. They do not fit the
+  colour op-VM (whose output is an RGB register consumed as a texture value) and
+  need their own design: normal perturbation applied in the shade path, with
+  screen-space or analytic derivatives of the upstream height/normal texture, on
+  both CPU and GPU. Forcing them into the colour VM would require the VM to write
+  back into the shading frame — out of scope for pkg219c. File pkg219d to design
+  the normal-perturbation path separately.
 
 Old `**RESEARCH SPEC**` framing below retained for context.
 **Priority:** HIGH for usability — the owner (2026-08-22) flagged that "lots of shader
@@ -259,3 +276,91 @@ tests (14/14) and regression smoke (21/23 + 2 pre-existing xfail, no new
 failures), and the visual headline repro (Color Ramp on a texture renders
 correctly per-texel on both CPU and GPU, in close numerical parity). Ready for
 `pr-reviewer` merge decision.
+
+## Hardware verification 2026-08-23 (PR #642, pkg219c — op-VM opcode fill-out)
+
+Hardware: RTX 5070 Ti. OS: Windows 11 Enterprise 10.0.26200. CUDA 12.8
+(nvcc), MSVC 14.44.35207 (VS2022 BuildTools). Worktree
+`Astroray-pkg219c`, branch `pkg219c`, verified HEAD
+`63dd905a706efe35ede232266c6cd7ae03f21456`.
+
+**Build.** Clean rebuild via `build_cuda_worktree.bat` (PowerShell
+invocation) — succeeded, exit 0. SHA-guard passed. `astroray.__file__`
+resolves to the canonical `build_cuda\Release\astroray.cp313-win_amd64.pyd`
+(no shadow copy). `cuobjdump --list-elf` on the built `.pyd`: single cubin,
+`sm_120` only — no stale-arch contamination this run. ABI canary caps:
+`{cpu: True, spectral: True, gpu: True, gpu_spectral: True,
+closure_graph: True, gpu_type: 'closure_graph'}`.
+
+**Fleet register gate** (`cuobjdump -res-usage`, all 64
+`stageShadeBucketedKernel` specializations): all **REG:254, no spill**.
+Combined STACK histogram (both `HasProgram` halves summed, then verified
+by subtraction to split cleanly into the two known 32-specialization
+buckets):
+
+`HasProgram=false` (32 specializations) — exact match to pkg219a/b
+baseline:
+
+| REG | STACK | count |
+|-----|-------|-------|
+| 254 | 3352  | 8 |
+| 254 | 3608  | 4 |
+| 254 | 3672  | 4 |
+| 254 | 7720  | 6 |
+| 254 | 7784  | 2 |
+| 254 | 7848  | 8 |
+
+`HasProgram=true` (32 specializations) — bounded, unchanged from pkg219b
+despite 7 new opcodes:
+
+| REG | STACK | count |
+|-----|-------|-------|
+| 254 | 3352  | 4 |
+| 254 | 3416  | 4 |
+| 254 | 3608  | 2 |
+| 254 | 3672  | 4 |
+| 254 | 3736  | 2 |
+| 254 | 7720  | 4 |
+| 254 | 7784  | 2 |
+| 254 | 7848  | 6 |
+| 254 | 7912  | 4 |
+
+Max STACK 7912, identical bound to pkg219b — adding the 7 fill-out
+opcodes (HSV, Invert, Gamma, Bright/Contrast, Separate/Combine Color,
+RGB-to-BW) did not grow the register/stack footprint.
+
+**Gate tests** (`pytest tests/test_pkg219c_op_vm.py
+tests/test_pkg219c_addon_compiler.py tests/test_pkg219c_parity_render.py
+-v -s --tb=short`): **18 passed, 0 failed** in 1.21s.
+
+**Regression smoke** (`tests/test_material_properties.py` +
+`tests/test_disney_reflection_not_black.py`, 23 items): **21 passed,
+2 xfailed** (`test_disney_metallic_tints_specular_highlight`,
+`test_disney_roughness_changes_glossiness` — same pre-existing xfails as
+pkg219b baseline, unrelated to this PR). No new failures.
+
+**Visual spot-check — two new opcodes downstream of a texture**
+(2×2 quad texture, 64×64, 64 spp, `apply_gamma=False`; one-off script
+deleted after use per repo convention):
+
+- **Invert** (fac=1): per-quadrant colors flip to their complements
+  (red→teal, green→magenta, blue→olive, olive→navy) — confirms per-texel
+  application, not constant-folded. CPU/GPU per-channel mean-ratio:
+  `[1.0006983, 0.9997574, 0.9973535]`.
+- **HSV** (hue=0.5, sat=1.0, val=1.0, fac=1.0 — the Cycles-node identity
+  point, since the node's hue formula centers at 0.5): output reproduces
+  the source quad colors unchanged, as expected for this parameter
+  choice. CPU/GPU per-channel mean-ratio: `[0.9998741, 1.0004354,
+  0.99760056]`.
+- Visual inspection of all 4 PNGs (CPU/GPU × Invert/HSV): CPU and GPU
+  renders visually indistinguishable per opcode; no fireflies, no
+  banding/quantization artifacts, no NaN pixels (no magenta/solid-black),
+  no mode regressions.
+
+**Verdict: PASS.** Clean rebuild with correct sm_120 arch, fleet register
+gate byte-identical to pkg219b baseline (`HasProgram=false` half) with a
+bounded, unchanged max STACK for the `HasProgram=true` half, all 18
+package tests pass, no regression in material-properties/Disney-reflection
+suites, and two independently-checked new opcodes (Invert, HSV) render
+correctly per-texel with CPU/GPU parity within MC noise. Reported for
+`pr-reviewer` merge decision; not merged by this verifier.

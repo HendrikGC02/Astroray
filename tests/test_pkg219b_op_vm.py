@@ -42,7 +42,7 @@ def make_solid_input(r, name="in0", value=(0.4, 0.4, 0.4)):
     """A 1x1 image texture used as a known op-VM input."""
     import numpy as np
     img = np.array(value, dtype="float32").reshape(1, 1, 3).ravel()
-    r.load_image_texture(name, img, 1, 1, "UV")
+    r.load_texture(name, img, 1, 1, "UV")
 
 
 def clampf(x, lo, hi):
@@ -77,7 +77,7 @@ def build_ramp_table_black_to_red():
 
 
 def test_color_ramp_on_texture():
-    r = astroray.PyRenderer()
+    r = astroray.Renderer()
     # input value drives the Fac (grey 0.4)
     make_solid_input(r, "img", (0.4, 0.4, 0.4))
     r.create_program_texture("ramp_tex", "UV")
@@ -104,7 +104,7 @@ def test_color_ramp_on_texture():
 # 2. MixRGB of a texture with a constant colour
 # --------------------------------------------------------------------------- #
 def test_mix_texture_with_constant():
-    r = astroray.PyRenderer()
+    r = astroray.Renderer()
     make_solid_input(r, "img2", (0.2, 0.6, 0.8))
     r.create_program_texture("mix_tex", "UV")
     r.program_texture_add_input("mix_tex", "img2")
@@ -130,7 +130,7 @@ def test_mix_texture_with_constant():
 # 3. Math (multiply) driving a factor
 # --------------------------------------------------------------------------- #
 def test_math_multiply_on_texture():
-    r = astroray.PyRenderer()
+    r = astroray.Renderer()
     make_solid_input(r, "img3", (0.3, 0.3, 0.3))
     r.create_program_texture("math_tex", "UV")
     r.program_texture_add_input("math_tex", "img3")
@@ -150,7 +150,7 @@ def test_math_multiply_on_texture():
 # 4. Map Range (linear) remapping a factor
 # --------------------------------------------------------------------------- #
 def test_map_range_linear_on_texture():
-    r = astroray.PyRenderer()
+    r = astroray.Renderer()
     make_solid_input(r, "img4", (0.5, 0.5, 0.5))
     r.create_program_texture("mr_tex", "UV")
     r.program_texture_add_input("mr_tex", "img4")
@@ -173,7 +173,7 @@ def test_map_range_linear_on_texture():
 # 5. Static bound is respected (host rejects an over-long program)
 # --------------------------------------------------------------------------- #
 def test_program_too_long_rejected():
-    r = astroray.PyRenderer()
+    r = astroray.Renderer()
     make_solid_input(r, "img5", (0.5, 0.5, 0.5))
     r.create_program_texture("big_tex", "UV")
     r.program_texture_add_input("big_tex", "img5")

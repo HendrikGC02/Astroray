@@ -34,7 +34,7 @@ def _quad_image():
 def _build_scene(renderer, *, with_program):
     renderer.set_background_color([0.5, 0.5, 0.5])
     data, w, h = _quad_image()
-    renderer.load_image_texture("pkg219b_img", data, w, h, "UV")
+    renderer.load_texture("pkg219b_img", data, w, h, "UV")
     if with_program:
         renderer.create_program_texture("pkg219b_prog", "UV")
         renderer.program_texture_add_input("pkg219b_prog", "pkg219b_img")

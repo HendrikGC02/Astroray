@@ -89,7 +89,7 @@ def _load_program(r, name, compiled, input_values):
         tex_name = "%s_in%d" % (name, i)
         val = input_values[id(node)]
         img = np.array(val, dtype="float32").reshape(1, 1, 3).ravel()
-        r.load_image_texture(tex_name, img, 1, 1, "UV")
+        r.load_texture(tex_name, img, 1, 1, "UV")
         r.program_texture_add_input(name, tex_name)
     r.set_program_texture_program(name, compiled['num_tex'], compiled['out_slot'],
                                   compiled['code_flat'], compiled['consts_flat'],
@@ -109,7 +109,7 @@ def test_compile_color_ramp():
     assert compiled is not None
     assert compiled['num_tex'] == 1
 
-    r = astroray.PyRenderer()
+    r = astroray.Renderer()
     _load_program(r, "cr", compiled, {id(tex): (0.4, 0.4, 0.4)})
     got = r.sample_named_texture("cr", 0.5, 0.5)
     # black->red ramp at fac 0.4 -> (0.4, 0, 0)
@@ -131,7 +131,7 @@ def test_compile_mix_two_textures():
     assert compiled is not None
     assert compiled['num_tex'] == 2
 
-    r = astroray.PyRenderer()
+    r = astroray.Renderer()
     _load_program(r, "mx", compiled,
                   {id(texA): (0.2, 0.4, 0.6), id(texB): (0.8, 0.6, 0.4)})
     got = r.sample_named_texture("mx", 0.5, 0.5)
@@ -152,7 +152,7 @@ def test_compile_math_multiply():
     compiled = C.compile_chain(base)
     assert compiled is not None
 
-    r = astroray.PyRenderer()
+    r = astroray.Renderer()
     _load_program(r, "mth", compiled, {id(tex): (0.2, 0.2, 0.2)})
     got = r.sample_named_texture("mth", 0.5, 0.5)
     assert got == pytest.approx([0.6, 0.6, 0.6], abs=3e-3), got
@@ -171,7 +171,7 @@ def test_compile_map_range():
     compiled = C.compile_chain(base)
     assert compiled is not None
 
-    r = astroray.PyRenderer()
+    r = astroray.Renderer()
     _load_program(r, "mr", compiled, {id(tex): (0.5, 0.5, 0.5)})
     got = r.sample_named_texture("mr", 0.5, 0.5)
     assert got == pytest.approx([0.45, 0.45, 0.45], abs=3e-3), got

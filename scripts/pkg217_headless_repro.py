@@ -11,6 +11,7 @@ black shadow). Confirms the Path A addon fix
 renderer.set_use_photon_caustics(True) when a caster is present) reaches the
 GPU end-to-end.
 """
+import importlib.util
 import math
 import os
 import sys
@@ -23,16 +24,23 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Path A fix) AND the freshly-built astroray*.pyd + CUDA DLLs side by side.
 # Loading blender_addon/__init__.py directly (source tree) would find no
 # astroray module at all -- Blender's bundled Python has no astroray install.
+# The staged dir is a FLAT layout (not a "blender_addon" package dir), so we
+# load __init__.py by file path -- same technique as
+# scripts/verify_pkg175_smoke_blender.py's _bootstrap().
 ADDON_DIR = os.path.join(REPO_ROOT, "dist", "astroray")
 OUT_PNG = os.path.join(REPO_ROOT, "test_results", "pkg217_headless_repro.png")
 
 if hasattr(os, "add_dll_directory"):
-    os.add_dll_directory(ADDON_DIR)
+    for d in (ADDON_DIR, os.path.join(ADDON_DIR, "oidn")):
+        if os.path.isdir(d):
+            os.add_dll_directory(d)
 sys.path.insert(0, ADDON_DIR)
 
-if "blender_addon" in sys.modules:
-    del sys.modules["blender_addon"]
-import blender_addon  # noqa: E402
+_spec = importlib.util.spec_from_file_location(
+    "blender_addon", os.path.join(ADDON_DIR, "__init__.py"))
+blender_addon = importlib.util.module_from_spec(_spec)
+sys.modules["blender_addon"] = blender_addon
+_spec.loader.exec_module(blender_addon)
 blender_addon.register()
 
 import astroray  # noqa: E402

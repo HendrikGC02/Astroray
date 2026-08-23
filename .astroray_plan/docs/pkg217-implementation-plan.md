@@ -1,7 +1,17 @@
 # pkg217 — GPU wavefront caustic integration: IMPLEMENTATION PLAN
 
 **Tier:** written by Opus (plan); to be executed by a sonnet-5 package-implementer.
-**Status:** plan — not yet implemented.
+**Status:** SUPERSEDED (2026-08-23) — NOT implemented. The package-implementer
+verified this plan's premise against the code and it is wrong: the GPU
+wavefront already runs a working, tested photon-map caustic pipeline
+(pkg113), gated off only because the Blender addon never called
+`renderer.set_use_photon_caustics(True)`. The actual fix was addon wiring
+(Path A), not the `stage_caustic_connect.cu` SMS-NEE-cull kernel this plan
+describes. See the corrected pkg217 spec and
+`pkg217-wavefront-caustic-integration-research.md` for the full finding.
+This plan is retained for reference as a possible FUTURE SMS-based quality
+upgrade over forward photon mapping — do not execute it as a black-shadow
+fix, that bug is closed.
 **Grounding:** `.astroray_plan/docs/pkg217-wavefront-caustic-integration-research.md`
 (architecture, decided) + `.astroray_plan/docs/caustics-research.md` (algorithm/licensing,
 settled at pkg64). Read both before starting. `cite-algorithm` still runs at dispatch.

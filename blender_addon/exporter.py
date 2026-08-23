@@ -491,6 +491,19 @@ class Exporter:
         renderer.set_filter_glossy(settings.filter_glossy)
         renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
         renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
+        # pkg217: mirrors CustomRaytracerRenderEngine.convert_scene's wiring
+        # (blender_addon/__init__.py) — the GPU photon-map caustic pre-pass
+        # (pkg113) needs this SEPARATE renderer-level master switch on top of
+        # the per-object is_caustic_caster flag, or a flagged glass caster
+        # renders a black shadow in the viewport too.
+        if hasattr(renderer, "set_use_photon_caustics"):
+            has_caster = any(
+                bool(getattr(getattr(inst.object, "astroray_object", None),
+                             "is_caustic_caster", False))
+                for inst in depsgraph.object_instances
+                if inst.object is not None
+            )
+            renderer.set_use_photon_caustics(has_caster)
         renderer.set_light_sampler(settings.light_sampler)
 
         t0 = time.perf_counter()

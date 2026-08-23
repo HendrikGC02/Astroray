@@ -2,12 +2,56 @@
 
 **Pillar:** 3 (light transport / spectral rendering)
 **Track:** A
-**Status:** open (filed 2026-08-21; refined to implementable 2026-08-23).
+**Status:** done, Path A (PR #TBD, 2026-08-23) — root-cause was addon wiring, not a
+missing GPU caustic mechanism. See "CORRECTION" below.
 **Priority:** NOT top — owner (2026-08-21) explicitly deprioritised: "not necessarily #1 if there are more pressing things or older packages waiting their turn." Sequence behind the existing backlog; this is a real feature, not a quick fix.
-**Estimated effort:** L (GPU wavefront caustic path; register-hostile — probe-gated).
-**Research note:** [`../docs/pkg217-wavefront-caustic-integration-research.md`](../docs/pkg217-wavefront-caustic-integration-research.md) — READ FIRST.
+**Estimated effort:** revised down to S (addon Python wiring; no CUDA kernel change) —
+see CORRECTION. Original "L / register-hostile" estimate was based on a false premise.
+**Research note:** [`../docs/pkg217-wavefront-caustic-integration-research.md`](../docs/pkg217-wavefront-caustic-integration-research.md) — READ FIRST (corrected 2026-08-23).
 
-## Refinement (2026-08-23 architect planning pass — READ THIS)
+## CORRECTION (2026-08-23, package-implementer — READ THIS FIRST)
+
+The "Refinement" section below and the linked implementation plan
+(`.astroray_plan/docs/pkg217-implementation-plan.md`) are **factually wrong**
+about the architecture and were NOT implemented. Kept for record; do not
+build the `stage_caustic_connect.cu` / NEE-cull design they describe.
+
+**Actual root cause:** the GPU wavefront already has a fully-wired, tested
+photon-map caustic pipeline (pkg113): `buildCausticAim` +
+`astroray::photon::gpu::cuda_photon_caustic_build` in
+`src/gpu/wavefront/gpu_wavefront_snapshot.cu`, gathered at the primary
+receiver hit, verified by the PASSING (non-xfail)
+`tests/test_gpu_caustic_parity.py::test_gpu_glass_sphere_caustic_parity`.
+This pipeline is gated by `Renderer::usePhotonCaustics` (`include/raytracer.h`)
+— a renderer-level master switch **separate** from the per-object
+`is_caustic_caster` flag. The Blender addon wired the per-object flag
+(`set_object_caustic_caster`) but **never called
+`renderer.set_use_photon_caustics(True)`**, so the existing, working pipeline
+was silently gated off for every Blender scene, producing exactly the
+owner's black-shadow repro. `scripts/pkg200_honour_matrix.py` already
+documented this exact trap ("GPU caustics gate on a SEPARATE
+usePhotonCaustics... the Blender addon does not read the native toggle").
+
+**Fix (Path A):** `blender_addon/__init__.py` (`convert_scene`) and
+`blender_addon/exporter.py` (`sync_viewport_scene`) now call
+`renderer.set_use_photon_caustics(True)` whenever any object in the
+depsgraph has `astroray_object.is_caustic_caster == True`, else `False`
+(pre-pass stays off — zero cost — for the common no-caster scene). No CUDA
+kernel change. See `tests/test_pkg217_addon_photon_caustic_wiring.py`.
+
+The GPU wavefront **SMS-NEE-cull architecture** described below (a new
+`stage_caustic_connect.cu` running `sms_attempt_device.cuh` per-lane, gated
+by an NEE cull in `stage_light_sample.cu`) remains a legitimate **future
+quality enhancement** (SMS caustics are sharper / lower-variance than
+forward photon mapping for point-like casters) but is NOT needed to fix the
+repro and was explicitly NOT built this round — building it would have been
+redundant with the existing photon pipeline and risked double-counting.
+File a fresh package if/when that quality upgrade is prioritised.
+
+## Refinement (2026-08-23 architect planning pass — SUPERSEDED, see CORRECTION above)
+
+This section documents the (incorrect) premise the original plan was built on,
+kept for historical record only:
 
 This is a **wiring problem, not a new algorithm.** The engine already has the
 caustic machinery; the GPU wavefront just never invokes it:
@@ -16,11 +60,12 @@ caustic machinery; the GPU wavefront just never invokes it:
 - `GSphere.isCausticCaster` **already crosses CPU→GPU** (pkg64-gpu Phase 1, probe
   `src/gpu/pkg64_sms_probe.cu`). pkg64-gpu is `superseded` because full wiring was
   deferred as register-hostile.
-- **The gap:** `src/gpu/wavefront/stage_light_sample.cu` has no caustic path, so a
-  receiver behind glass does ordinary NEE, the shadow ray hits the glass, throughput
-  → 0 = black shadow.
+- **The gap (INCORRECT — see CORRECTION):** `src/gpu/wavefront/stage_light_sample.cu`
+  has no caustic path, so a receiver behind glass does ordinary NEE, the shadow ray
+  hits the glass, throughput → 0 = black shadow. This ignored the already-wired
+  pkg113 photon-map pre-pass in the SAME `cuda_wavefront_render` function.
 
-**Chosen integration (defuses the register problem):**
+**Chosen integration (defuses the register problem) — NOT BUILT, see CORRECTION:**
 1. **A separate `stage_caustic_connect.cu` kernel**, launched *only* when the scene
    has ≥1 caster (host-side gate — zero cost, zero register change for caster-free
    scenes). The SMS Newton live state lives in this kernel's own register file, NOT

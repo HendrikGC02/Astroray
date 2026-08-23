@@ -173,3 +173,89 @@ banding, NaN pixels, or mode regressions observed in either render.
 parity) independently reproduced within MC noise on a clean, dedicated RTX 5070
 Ti run (device not shared with another verifier this time). No regressions
 found. Ready for `pr-reviewer` merge decision.
+
+## Hardware verification 2026-08-23 (pkg219b slice, PR #641, independent re-verify)
+
+**Hardware:** RTX 5070 Ti, Windows 11 Enterprise 10.0.26200, CUDA 12.8 (nvcc),
+sm_120 target.
+
+**Build:** `build_cuda_worktree.bat` (PowerShell, not `cmd /c`) on worktree
+`Astroray-pkg219b` @ `99146ed9905788b2438aa9ae7424bc111a078847` (HEAD SHA
+verified by the build script's Phase-2 guard). Exit 0. `astroray.__file__` =
+`build_cuda\Release\astroray.cp313-win_amd64.pyd` (canonical build output).
+`cuobjdump --list-elf` confirms sm_120 embedded. ABI canary green
+(`cpu/spectral/gpu/gpu_spectral: True`). Note: `.pyd` mtime (06:54 local) is
+earlier in wall-clock terms than the HEAD commit timestamp (10:15:57) — checked
+and this is benign: HEAD only touched Python test files (author dates reflect
+when the coordinator committed a recovered checkpoint, not when the C++
+sources were last edited); all C++/CUDA source file mtimes (06:14-06:23)
+predate the .pyd build (06:54), so the build is genuinely current for the
+compiled sources.
+
+**Gate tests** (`tests/test_pkg219b_op_vm.py` + `tests/test_pkg219b_addon_compiler.py`
++ `tests/test_pkg219b_parity_render.py`, 14 items): **14 passed, 0 failed.**
+
+**Regression smoke** (`tests/test_material_properties.py` +
+`tests/test_disney_reflection_not_black.py`, 23 items): **21 passed, 2 xfailed**
+(pre-existing `test_disney_metallic_tints_specular_highlight`,
+`test_disney_roughness_changes_glossiness` — unrelated to this PR, non-VM path
+unaffected). No new failures.
+
+**Fleet register gate — independently re-run** (`cuobjdump -res-usage` on the
+built `.pyd`, all 64 `stageShadeBucketedKernel` specializations, template axis
+isolated by parsing the mangled name — last bool = `HasProgram`):
+
+All 64 specializations: **REG:254, no spill.**
+
+`HasProgram=false` (32 specializations) STACK histogram — exact match to the
+pkg219a baseline:
+
+| REG | STACK | count |
+|-----|-------|-------|
+| 254 | 3352  | 8 |
+| 254 | 3608  | 4 |
+| 254 | 3672  | 4 |
+| 254 | 7720  | 6 |
+| 254 | 7784  | 2 |
+| 254 | 7848  | 8 |
+
+`HasProgram=true` (32 specializations) STACK histogram — bounded increase,
+still no register spill:
+
+| REG | STACK | count |
+|-----|-------|-------|
+| 254 | 3352  | 4 |
+| 254 | 3416  | 4 |
+| 254 | 3608  | 2 |
+| 254 | 3672  | 4 |
+| 254 | 3736  | 2 |
+| 254 | 7720  | 4 |
+| 254 | 7784  | 2 |
+| 254 | 7848  | 6 |
+| 254 | 7912  | 4 |
+
+Max STACK 7912 (vs 7848 baseline max) — matches PR's claimed bound. Non-VM
+materials confirmed byte-identical to pkg219a; VM materials pay a small
+bounded STACK cost, no fleet regression.
+
+**Visual repro — headline claim (Color Ramp downstream of a texture):**
+Built an independent scene (`TexCoord(UV) → Image(16×16 horizontal gradient) →
+ColorRamp(blue→yellow).Fac → Base Color`) on a quad, 128×128, 128 spp, rendered
+CPU and GPU (script deleted after use per repo convention). Results:
+- CPU/GPU per-channel mean-ratio: `[0.99845, 0.99925, 0.99967]` — matches
+  within MC noise.
+- CPU left-quad mean RGB `[0.153, 0.184, 0.252]` (blue-dominant) vs right-quad
+  mean RGB `[0.256, 0.250, 0.161]` (yellow-dominant) — confirms the ramp is
+  applied **per-texel**, spatially varying with the underlying texture, not a
+  flat/constant-folded grey.
+- Visual inspection of both PNGs: smooth horizontal blue→olive-yellow gradient
+  across the quad on both CPU and GPU, visually indistinguishable between
+  backends. No fireflies, no banding/quantization artifacts, no NaN pixels
+  (no magenta/solid-black), no mode regressions.
+
+**Verdict: PASS.** All three items independently re-confirmed: fleet register
+gate (no spill, `<false>` byte-identical to pkg219a baseline), functional
+tests (14/14) and regression smoke (21/23 + 2 pre-existing xfail, no new
+failures), and the visual headline repro (Color Ramp on a texture renders
+correctly per-texel on both CPU and GPU, in close numerical parity). Ready for
+`pr-reviewer` merge decision.

@@ -38,6 +38,16 @@ python .claude/skills/delegate/scripts/delegate.py --tier verify --agent critic 
 - `--fallback` switches to the tier's fallback model (use after a primary
   failure or bad output).
 - Long prompts: write to a file and use `--prompt-file`.
+- `--dir <worktree>` is how you delegate into an isolated worktree. The wrapper
+  forwards it to opencode's own `--dir` flag, which is **load-bearing**:
+  opencode IGNORES the subprocess cwd and otherwise roots its shell/file tools
+  at the git *project* worktree — which for any linked worktree resolves (via
+  the shared `.git` common dir) to the MAIN checkout. Without `--dir`, every
+  edit is silently redirected into main (contamination, not a rejection) while
+  the wrapper watches the worktree and reports `files_changed: []` — a false
+  "completed". Sibling (`../Astroray-<pkg>`) and in-tree
+  (`.claude/worktrees/<pkg>`) worktrees both work once `--dir` points at them.
+  Verified end-to-end 2026-08-25. See memory `parallel_agent_worktree_contamination`.
 
 ## Prompt composition rules
 

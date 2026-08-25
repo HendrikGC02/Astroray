@@ -106,7 +106,14 @@ def main():
 
     pre = _git_snapshot(workdir)
 
-    oc_args = ["run", "-m", model, "--format", "json"]
+    # opencode IGNORES the subprocess cwd: it roots its shell/file tools at the
+    # git project worktree, which for ANY linked worktree resolves (via the
+    # shared .git common dir) to the MAIN checkout. Without opencode's own
+    # --dir flag, every edit is silently redirected into main (contamination,
+    # not a rejection) while the wrapper watches the worktree and reports
+    # files_changed:[] — a false "completed". Pass --dir to root opencode AT
+    # the worktree. Verified 2026-08-25: writes then land in the worktree.
+    oc_args = ["run", "-m", model, "--dir", workdir, "--format", "json"]
     if args.agent:
         oc_args += ["--agent", args.agent]
     oc_args.append(prompt)

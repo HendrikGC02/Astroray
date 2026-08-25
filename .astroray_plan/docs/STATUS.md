@@ -1,5 +1,51 @@
 # Astroray Status
 
+**2026-08-25 → 2026-08-26 (GPU SPECTRAL-CAUSTIC QUALITY ROUND — 3 PRs merged
+#644/#645/#646, architect-led, addressing the owner's two hands-on caustic
+observations): the GPU photon caustic now averages down (was frozen), narrow-line
+lamps cast emission-line-coloured caustics (was a continuous rainbow), and the
+mercury lamp SPD is chromatically correct (was magenta).**
+- **Architect planning pass** filed pkg220-223 + refreshed NEXT_STAGE_REPORT; two
+  root-cause findings were code-confirmed up front and handed to the architect as
+  given (see memory `gpu-caustic-frozen-lattice-and-spd-blind`).
+- **pkg220 DONE** (PR #644) — per-iteration seed for the GPU photon-caustic
+  pre-pass. `kEmitSceneCaustic` keyed its photon jitter only on the thread cell
+  index (no seed anywhere down `buildCausticAim`→`cuda_photon_caustic_build`), so
+  every progressive iteration rebuilt a BYTE-IDENTICAL photon map — the caustic
+  noise was frozen and could never average. Thread the render seed into the three
+  jitter salts (XOR); aim geometry stays deterministic. New camera-noise-free
+  seed-decorrelation gate: main 0.020·signal (frozen) vs 0.048 (decorrelated),
+  same-seed byte-identical; REG:63 pre-pass kernel, shade fleet untouched. HW PASS.
+- **pkg221 DONE** (PR #645) — importance-sample photon λ ∝ the light SPD. Photon
+  wavelengths were drawn UNIFORMLY over 380-720 nm and deposited pure CMF, never
+  weighted by the emitting light's SPD (engine-wide, CPU+GPU) — so a sodium lamp
+  threw a continuous rainbow. Inverse-CDF sample λ from the dominant light's SPD
+  (built host-side via `LightSampler::sample`, byte-mirrored CPU/GPU, 341-entry CDF
+  to `__constant__`); the S/p weight collapses to the constant integral I;
+  broadband/no-SPD lights fall back byte-identically. Sodium caustic now AMBER
+  (chroma 0.824/0.176/0.000, warm 0.82) vs white 0.01; white-source parity
+  unchanged (SSIM 0.977). REG 63→70, shade fleet untouched. Cited PBRT-v4 §4.5.4.
+  HW PASS. **(One CI catch: the `LightSampler&`→`LightList` template fix was left
+  uncommitted, green locally on MSVC but red on GCC/CI — the
+  `mingw_local_vs_gcc_ci_divergence` lesson; fixed + re-verified.)**
+- **pkg222 DONE** (PR #646) — mercury lamp SPD magenta→greenish-white. The stored
+  `mercury_vapor` SPD used blue 435.83:1000 >> green 546.07:500, OMITTED the yellow
+  576.96/579.07 doublet, and added an unjustified 5% continuum → integrated to a
+  magenta-below-locus xy≈(0.314,0.311). Corrected to the NIST Handbook Hg I
+  persistent-line intensities (green-dominant + yellow doublet, no continuum) →
+  greenish-white xy≈(0.335,0.369), Δxy≈0.01 of the (0.33,0.38) target. Data +
+  generator only, no C++ change. Verified: Python chromaticity audit + end-to-end
+  GPU render (magenta→green-dominant, visually confirmed) + 28 spectral + 6 GPU
+  emission-parity tests; sodium unchanged. Synergises with pkg221.
+- **Cost-routing finding** (memory `delegate-tier-stalls-on-hard-packages`): the
+  deepseek-v4-pro implement tier wrote the cite/research notes but returned 0-code
+  on the hard multi-file changes (pkg221/223) — those stayed on Opus. The opencode
+  worktree-delegation bug (`--dir` not forwarded → main contamination masked as
+  `files_changed:[]`) was root-caused and FIXED (commit c00832c).
+- **Still open / next pickup:** pkg223 (Normal Map node — addon+CPU+GPU shade
+  behind `template<bool HasNormalPerturb>`, register-hostile, Opus-last-line; cheap
+  worker filed only the research note). pkg201 Stage 3, pkg131 carried forward.
+
 **2026-08-21 → 2026-08-22 (SPECTRAL MILESTONE + BLENDER-INTEGRATION SWEEP —
 8 PRs merged, 0 open):** the full spectral milestone landed and shipped in a
 fresh Blender addon. **Merged:** pkg213 light-intensity Power slider (#628),

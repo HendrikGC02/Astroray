@@ -45,6 +45,7 @@ void uploadThinFilmTable();
 
 // pkg55-C5 / pkg113: photon caustic grid structures.
 #include "astroray/gpu_photon_caustic.h"
+#include "astroray/photon_spd.h"   // pkg221: light-SPD CDF (shared CPU/GPU host helper)
 #include "astroray/gpu_photon_store.h"
 
 namespace astroray::wavefront {
@@ -1303,6 +1304,15 @@ static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
     aim.apertureOrigin = GVec3(origin0.x, origin0.y, origin0.z);
     aim.apertureRadius = crad;
     aim.valid = true;
+
+    // pkg221: build the dominant light's SPD CDF host-side (identical helper to the
+    // CPU buildPhotonMap path) so kEmitSceneCaustic can importance-sample λ ∝ SPD.
+    // spdValid==false → the kernel keeps the uniform-λ path (broadband/no-SPD scenes
+    // unchanged). Copied into the aim (uploaded to __constant__ before the launch).
+    astroray::PhotonSpdCdf spd = astroray::buildPhotonSpdCdf(lights, casterC, Vec3(0, 1, 0));
+    aim.spdValid    = spd.valid;
+    aim.spdIntegral = spd.integral;
+    if (spd.valid) std::memcpy(aim.spdCdf, spd.cdf, sizeof(aim.spdCdf));
     return aim;
 }
 

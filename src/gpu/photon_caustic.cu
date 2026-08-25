@@ -111,6 +111,31 @@ __device__ inline float pc_jitter(unsigned int cell, unsigned int salt) {
     return (h & 0x00FFFFFFu) * (1.0f / 16777216.0f);   // [0,1)
 }
 
+// pkg221: light-SPD CDF in constant memory (uploaded from aim.spdCdf when the
+// dominant light carries a usable SPD). 341 entries, 380..720 nm at 1 nm.
+__constant__ float g_spdCdf[341];
+
+// Device inverse-CDF sample — BYTE-MIRRORS the host photonSpdInverseCdf
+// (include/astroray/photon_spd.h): binary-search the smallest k with cdf[k] >= u,
+// then linearly interpolate within the [k-1,k] bin. Same math both backends so the
+// caustic spectra match statistically.
+__device__ inline float pc_spdInverseCdf(float u) {
+    const int K = 341;
+    const float lmin = 380.0f;
+    int lo = 0, hi = K - 1;
+    while (lo < hi) {
+        int mid = (lo + hi) >> 1;
+        if (g_spdCdf[mid] < u) lo = mid + 1; else hi = mid;
+    }
+    int k = lo;
+    float cLo = (k > 0) ? g_spdCdf[k - 1] : 0.0f;
+    float cHi = g_spdCdf[k];
+    float t = (cHi > cLo) ? (u - cLo) / (cHi - cLo) : 0.0f;
+    float lambda = lmin + (float)(k - 1) + t;
+    if (lambda < lmin) lambda = lmin;
+    return lambda;
+}
+
 // Is this material a transmissive caustic caster glass? The test scenes use
 // create_material("dielectric", ...) → GMAT_DIELECTRIC. A closure-graph glass
 // (GMAT_CLOSURE_GRAPH) is transmissive when it carries a dielectric-transmission
@@ -151,7 +176,7 @@ __global__ void kEmitSceneCaustic(
     const GMaterial*  materials,
     GVec3 sunDir, GVec3 apOrigin, GVec3 apU, GVec3 apV, float apRadius,
     int apertureN, float lambdaMin, float lambdaMax, int maxDepth,
-    unsigned int seed, GPhoton* out)
+    unsigned int seed, int spdValid, float spdIntegral, GPhoton* out)
 {
     int gx = blockIdx.x * blockDim.x + threadIdx.x;
     int gy = blockIdx.y * blockDim.y + threadIdx.y;
@@ -168,8 +193,11 @@ __global__ void kEmitSceneCaustic(
     // photon map per iteration → the caustic averages down). The pc_jitter hash
     // is unchanged; XOR-ing the seed into distinct salts (1,2,101) keeps them
     // distinct and well-mixed while the pre-pass stays stateless (no curand).
+    // pkg221: importance-sample λ ∝ the light SPD when a valid CDF was uploaded;
+    // else the pkg220 uniform draw. Same u either way (one jitter draw).
     float uLam = pc_jitter(cell, 101u ^ seed);
-    float lambda = lambdaMin + (lambdaMax - lambdaMin) * uLam;
+    float lambda = spdValid ? pc_spdInverseCdf(uLam)
+                            : lambdaMin + (lambdaMax - lambdaMin) * uLam;
 
     // Jittered lattice point on the aperture disc → a collimated entry ray
     // (CPU :426-428: ra,rb ∈ [-crad,crad]; here jittered into [-apRadius,apRadius]).
@@ -219,11 +247,14 @@ __global__ void kEmitSceneCaustic(
             // Lambert cosine (pkg111 addition, CPU :463): flux density ∝ cosθ.
             float cosTheta = fabsf(rec.normal.dot(d));
             GVec3 cmf = pc_cieCmf(lambda);
+            // pkg221: with λ importance-sampled ∝ SPD (pdf = S/I), the S/p weight
+            // collapses to the constant I = spdIntegral; uniform λ keeps weight 1.
+            float wS = spdValid ? spdIntegral : 1.0f;
             out[cell].position    = rec.point;
             out[cell].incidentDir = d;
-            out[cell].power       = GVec3(cmf.x * tr * cosTheta,
-                                          cmf.y * tr * cosTheta,
-                                          cmf.z * tr * cosTheta);
+            out[cell].power       = GVec3(cmf.x * tr * cosTheta * wS,
+                                          cmf.y * tr * cosTheta * wS,
+                                          cmf.z * tr * cosTheta * wS);
             out[cell].lambda      = lambda;
         }
         break;
@@ -368,6 +399,11 @@ GPhotonCausticResult cuda_photon_caustic_build(
     if (apertureN < 1) apertureN = 1;
     const int nCells = apertureN * apertureN;
 
+    // pkg221: upload the host-built light-SPD CDF to constant memory for the
+    // importance-sampling inverse-CDF in the emit kernel (only when valid).
+    if (aim.spdValid)
+        APC_CUDA_CHECK(cudaMemcpyToSymbol(g_spdCdf, aim.spdCdf, sizeof(aim.spdCdf)));
+
     // --- Emit: forward-trace photons through the scene; survivors carry power>0. ---
     GPhoton* d_emit = nullptr;
     APC_CUDA_CHECK(cudaMalloc(&d_emit, (size_t)nCells * sizeof(GPhoton)));
@@ -379,7 +415,8 @@ GPhotonCausticResult cuda_photon_caustic_build(
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             sunDir, aim.apertureOrigin, apU, apV, aim.apertureRadius,
             apertureN, aim.lambdaMin, aim.lambdaMax, aim.maxDepth,
-            aim.seed, d_emit);   // pkg220: per-iteration jitter decorrelation seed
+            aim.seed, aim.spdValid ? 1 : 0, aim.spdIntegral,   // pkg221: SPD IS
+            d_emit);   // pkg220: per-iteration jitter decorrelation seed
         APC_CUDA_CHECK(cudaGetLastError());
         APC_CUDA_CHECK(cudaDeviceSynchronize());
     }

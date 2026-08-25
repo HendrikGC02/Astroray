@@ -733,23 +733,30 @@ def _build_light_sources() -> list[dict]:
         notes="Low-pressure sodium: D2 (588.995 nm, intensity 2), D1 (589.592 nm, intensity 1)"
     ))
 
-    # ── Mercury vapor (multi-line + continuum) ───────────────────────────────
-    # NIST ASD Hg I persistent lines: 404.66 nm (400), 435.83 nm (1000), 546.07 nm (500)
-    # High-pressure mercury includes phosphor continuum: add flat 5% baseline in 400-700nm
-    hg_lines = _atomic_lines([(404.66, 400.0), (435.83, 1000.0), (546.07, 500.0)])
+    # ── Mercury vapor (clear-lamp visible line spectrum) ─────────────────────
+    # pkg222: relative line intensities from the NIST Handbook of Basic Atomic
+    # Spectroscopic Data, persistent lines of neutral mercury (Hg I): 404.66 nm
+    # (200), 435.83 nm (300), 546.07 nm (400), 576.96 nm (160), 579.07 nm (200).
+    # The GREEN 546 line is the strongest and the YELLOW 576.96/579.07 doublet is
+    # present — the two facts the previous model got wrong (it used 435.83=1000 >>
+    # 546.07=500 and OMITTED the yellow doublet, plus an unjustified 5% flat
+    # continuum), which drove the stored SPD to a magenta-below-locus xy≈(0.314,
+    # 0.311). The NIST-Handbook lines integrate (vs the engine CIE-1964-10deg CMF)
+    # to a greenish-white xy≈(0.335, 0.369) — above the blackbody locus, matching a
+    # real clear high-pressure mercury lamp (Δxy≈0.01 of the (0.33,0.38) target).
+    # No artificial continuum: a clear (non-phosphor) mercury lamp is a line source;
+    # the old flat baseline only pulled the chromaticity back below the locus.
+    # See .astroray_plan/docs/pkg222-atomic-line-intensities.md for the audit table.
+    hg_lines = _atomic_lines([(404.66, 200.0), (435.83, 300.0), (546.07, 400.0),
+                              (576.96, 160.0), (579.07, 200.0)])
 
-    # Add phosphor continuum: flat 5% of the 435.83 nm line peak (~50 units) in 400-700 nm
-    # This is 5% of the dominant line's intensity before normalization
-    for i, wl in enumerate(WL_GRID):
-        if 400 <= wl <= 700:
-            hg_lines[i] += 50.0  # 5% of 1000 (the 435.83 nm line intensity)
-
-    # Normalization done in mat_ls
     lamps.append(mat_ls(
         "mercury_vapor",
         hg_lines,
-        "NIST Atomic Spectra Database: Hg I persistent lines (public domain, US Gov)",
-        notes="High-pressure mercury: 404.66nm (400), 435.83nm (1000), 546.07nm (500) + 5% phosphor continuum 400-700nm"
+        "NIST Handbook of Basic Atomic Spectroscopic Data: persistent lines of "
+        "neutral mercury Hg I (public domain, US Gov)",
+        notes="Clear Hg lamp: 404.66nm(200) 435.83nm(300) 546.07nm(400, green-dominant) "
+              "576.96nm(160)+579.07nm(200) yellow doublet; xy~(0.335,0.369) greenish-white"
     ))
 
     return lamps

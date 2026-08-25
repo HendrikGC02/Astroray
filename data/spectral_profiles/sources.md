@@ -214,5 +214,5 @@ lamp's overall brightness — see build_spectral_profiles.py mat_ls.)
 **Notes:** Low-pressure sodium: D2 (588.995 nm, intensity 2), D1 (589.592 nm, intensity 1)
 
 ### 46. `mercury_vapor`  (light_source)
-**Source:** NIST Atomic Spectra Database: Hg I persistent lines (public domain, US Gov)
-**Notes:** High-pressure mercury: 404.66nm (400), 435.83nm (1000), 546.07nm (500) + 5% phosphor continuum 400-700nm
+**Source:** NIST Handbook of Basic Atomic Spectroscopic Data: persistent lines of neutral mercury Hg I (public domain, US Gov)
+**Notes:** Clear Hg lamp: 404.66nm(200) 435.83nm(300) 546.07nm(400, green-dominant) 576.96nm(160)+579.07nm(200) yellow doublet; xy~(0.335,0.369) greenish-white

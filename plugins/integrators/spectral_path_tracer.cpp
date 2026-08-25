@@ -3,6 +3,7 @@
 #include "astroray/spectrum.h"
 #include "astroray/manifold/sms_attempt.h"
 #include "astroray/photon/photon_map.h"        // pkg111
+#include "astroray/photon_spd.h"               // pkg221: light-SPD importance sampling
 #include "astroray/manifold/mesh_attempt.h"    // pkg111: gatherTriangleCasters
 #include "astroray/manifold/mesh_caustic.h"    // pkg111: rayTriHit
 
@@ -415,6 +416,14 @@ private:
         Vec3 sunDir = (casterC - ls.position).normalized();
         if (sunDir.length2() < 1e-6f) return;
 
+        // pkg221: importance-sample photon λ from the dominant light's SPD. Build
+        // its normalized CDF once (host-side); when valid, both photon branches
+        // inverse-CDF sample λ and deposit CMF·I (the S/p weight collapses to the
+        // integral I). A light with no usable SPD → spd.valid==false → the
+        // branches keep the exact uniform-λ + pure-CMF path (no regression).
+        const astroray::PhotonSpdCdf spd =
+            astroray::buildPhotonSpdCdf(lights, casterC, Vec3(0, 1, 0));
+
         // Aperture frame (sample the entry disc around the sun direction).
         Vec3 a = (std::fabs(sunDir.x) < 0.9f) ? Vec3(1, 0, 0) : Vec3(0, 1, 0);
         Vec3 fu = (a - sunDir * a.dot(sunDir)).normalized();
@@ -436,7 +445,11 @@ private:
         if (flatPrism) {
             // Explicit 2-face prism (mirrors light_tracer_caustic.cpp:238-275).
             for (int p = 0; p < photonCount; ++p) {
-                const float lambda = lmin + (lmax - lmin) * u01(gen);
+                const float uLam = u01(gen);   // one draw either way (RNG dim stable)
+                const float lambda = spd.valid
+                    ? astroray::photonSpdInverseCdf(spd.cdf, astroray::PhotonSpdCdf::K,
+                                                    astroray::PhotonSpdCdf::kLmin, uLam)
+                    : lmin + (lmax - lmin) * uLam;   // pkg221: λ ∝ SPD, else uniform
                 const float ior = prismMat->iorAt(lambda);
                 if (ior <= 1.0f) continue;
                 const float ra = (u01(gen) * 2.0f - 1.0f) * crad;
@@ -469,14 +482,19 @@ private:
                 astroray::photon::Photon ph;
                 ph.position = rec.point;
                 ph.incidentDir = d2;
-                ph.power = astroray::XYZ{cmf.X * tr * cosTheta, cmf.Y * tr * cosTheta, cmf.Z * tr * cosTheta};
+                const float wS = spd.valid ? spd.integral : 1.0f;   // pkg221: S/p → I
+                ph.power = astroray::XYZ{cmf.X * tr * cosTheta * wS, cmf.Y * tr * cosTheta * wS, cmf.Z * tr * cosTheta * wS};
                 ph.lambda = lambda;
                 photons.push_back(ph);
             }
         } else {
             // General BVH loop (curved/solid glass).
             for (int p = 0; p < photonCount; ++p) {
-                const float lambda = lmin + (lmax - lmin) * u01(gen);
+                const float uLam = u01(gen);   // one draw either way (RNG dim stable)
+                const float lambda = spd.valid
+                    ? astroray::photonSpdInverseCdf(spd.cdf, astroray::PhotonSpdCdf::K,
+                                                    astroray::PhotonSpdCdf::kLmin, uLam)
+                    : lmin + (lmax - lmin) * uLam;   // pkg221: λ ∝ SPD, else uniform
                 const float ra = (u01(gen) * 2.0f - 1.0f) * crad;
                 const float rb = (u01(gen) * 2.0f - 1.0f) * crad;
                 Vec3 o = origin0 + fu * ra + fv * rb;
@@ -526,7 +544,8 @@ private:
                         astroray::photon::Photon ph;
                         ph.position = rec.point;
                         ph.incidentDir = d;
-                        ph.power = astroray::XYZ{cmf.X * tr * cosTheta, cmf.Y * tr * cosTheta, cmf.Z * tr * cosTheta};
+                        const float wS = spd.valid ? spd.integral : 1.0f;   // pkg221: S/p → I
+                ph.power = astroray::XYZ{cmf.X * tr * cosTheta * wS, cmf.Y * tr * cosTheta * wS, cmf.Z * tr * cosTheta * wS};
                         ph.lambda = lambda;
                         photons.push_back(ph);
                     }

@@ -51,6 +51,16 @@ struct PhotonCausticAim {
     // iterations trace statistically-independent photon maps that average down
     // instead of re-depositing a frozen (byte-identical) grid every iteration.
     unsigned int seed;
+    // pkg221: light-SPD importance sampling. When spdValid, kEmitSceneCaustic
+    // draws each photon's λ ∝ the emitting light's SPD via the inverse of spdCdf
+    // (341 entries, 380..720 nm at 1 nm) and deposits CMF·spdIntegral (the S/p
+    // weight collapses to the integral I). spdValid==false keeps the uniform-λ +
+    // pure-CMF path byte-identical. spdCdf is filled host-side by buildPhotonSpdCdf
+    // and uploaded to __constant__ memory before the launch. The aim is passed by
+    // const& (memory/mingw_large_struct_byval) so the 341-float member is cheap.
+    bool  spdValid;
+    float spdIntegral;
+    float spdCdf[341];
 };
 
 // A RESIDENT device photon grid + calibrated gather scale. Built by

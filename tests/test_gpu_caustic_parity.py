@@ -96,7 +96,7 @@ def _gpu_available() -> bool:
     return astroray.Renderer().gpu_available
 
 
-def _build_glass_sphere(use_gpu: bool, photons: bool = True):
+def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white"):
     """Glass-sphere focused caustic — the in-scope GPU caustic scene.
 
     Mirrors benchmarks/reference_bank/scenes/glass-sphere-caustic/scene.py but at
@@ -136,9 +136,14 @@ def _build_glass_sphere(use_gpu: bool, photons: bool = True):
     # transport itself is in parity. See pkg185 spec.
     _sun_ang = 0.01
     _sun_omega = 2.0 * math.pi * (1.0 - math.cos(_sun_ang * 0.5))  # disk solid angle
+    # pkg221: lamp="white" is the broadband rgb sun (default, unchanged); "sodium"
+    # is a narrow-line measured SPD (sodium-vapor ~589 nm) whose caustic must come
+    # out AMBER once photon λ is importance-sampled from the SPD (else a broadband
+    # continuous rainbow → near-neutral caustic).
+    _emission = ({"mode": "measured_spd", "profile_name": "sodium_vapor"}
+                 if lamp == "sodium" else {"mode": "rgb", "color": [1.0, 1.0, 1.0]})
     r.add_sun_light_dedicated(_norm([0.45, -1.0, 0.0]), _sun_ang,
-                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]},
-                              6.0 * _sun_omega)
+                              _emission, 6.0 * _sun_omega)
 
     # Floor just past the ball-lens focal plane (paraxial focus is at centre +
     # sunDir*0.9 = (0.37,-0.82,0); floor at y=-1.1 -> caustic at x~0.50). The
@@ -447,4 +452,72 @@ def test_gpu_caustic_seed_decorrelation(test_results_dir):
         f">= 0.032·signal; same-seed {diff_same:.6f}, signal {signal:.5f}). The "
         f"per-iteration seed is not reaching kEmitSceneCaustic — the caustic is "
         f"frozen and cannot average down across progressive iterations."
+    )
+
+
+def _caustic_contrib_lamp(seed: int, lamp: str):
+    """Caustic radiance contribution (photon-caustics ON minus OFF at a fixed
+    seed) for a given lamp — camera + direct-lighting noise cancels, leaving the
+    photon-deposited caustic whose colour is set by the photon wavelengths."""
+    on = _render(_build_glass_sphere(use_gpu=True, photons=True, lamp=lamp), SAMPLES, seed)
+    off = _render(_build_glass_sphere(use_gpu=True, photons=False, lamp=lamp), SAMPLES, seed)
+    return on - off
+
+
+def _caustic_chroma(contrib):
+    lum = _luminance(np.maximum(contrib, 0.0))
+    h, w = lum.shape
+    yy, _xx = np.mgrid[:h, :w]
+    thr = 0.2 * float(lum.max())
+    mask = (yy > h * 0.40) & (lum > max(thr, 1e-4))
+    if mask.sum() < 8:
+        return np.array([1/3, 1/3, 1/3]), 0.0
+    rgb = np.clip(contrib, 0.0, None)[mask].mean(axis=0)
+    s = float(rgb.sum()) + 1e-9
+    chroma = rgb / s
+    return chroma, float(chroma[0] - chroma[2])   # (normalized rgb, warm index r-b)
+
+
+def test_gpu_caustic_emission_line_color(test_results_dir):
+    """pkg221 (headline) — a narrow-line lamp must cast a caustic COLOURED by its
+    emission line, not a broadband continuous rainbow. A sodium-vapor lamp
+    (~589 nm) must produce an AMBER caustic (r>g>b, strongly warm) and be markedly
+    warmer than the same scene under a broadband white lamp. BEFORE pkg221 the
+    photon λ was uniform over the whole band, so the sodium caustic deposited the
+    full CMF and came out ~neutral (r≈g≈b) like the white one — this test FAILS on
+    pre-pkg221 main."""
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+
+    profiles_bin = os.path.join(_REPO, "data", "spectral_profiles", "profiles.bin")
+    if not os.path.exists(profiles_bin):
+        pytest.skip("profiles.bin not found — sodium SPD unavailable")
+    astroray.load_spectral_profiles(profiles_bin)   # register measured SPDs (sodium_vapor)
+
+    sod = _caustic_contrib_lamp(SEED, "sodium")
+    wht = _caustic_contrib_lamp(SEED, "white")
+    _save_image(np.clip(sod, 0, None), os.path.join(test_results_dir, "pkg221_sodium_caustic.png"))
+    _save_image(np.clip(wht, 0, None), os.path.join(test_results_dir, "pkg221_white_caustic.png"))
+
+    cs, warm_s = _caustic_chroma(sod)
+    cw, warm_w = _caustic_chroma(wht)
+    print(
+        f"\n[pkg221 emission-line colour] sodium caustic chroma rgb=({cs[0]:.3f},{cs[1]:.3f},"
+        f"{cs[2]:.3f}) warm(r-b)={warm_s:.3f} | white caustic chroma rgb=({cw[0]:.3f},"
+        f"{cw[1]:.3f},{cw[2]:.3f}) warm={warm_w:.3f} | sodium-vs-white warm gap={warm_s-warm_w:.3f}\n"
+        f"  PARENT: open pkg221_sodium_caustic.png (must read AMBER) vs "
+        f"pkg221_white_caustic.png (near-neutral)."
+    )
+
+    assert cs[0] > cs[1] > cs[2], (
+        f"pkg221: sodium caustic not amber-ordered (r>g>b): rgb={cs}. The photon λ "
+        f"is not tracking the sodium SPD — check buildPhotonSpdCdf + the inverse-CDF draw."
+    )
+    assert warm_s >= 0.20, (
+        f"pkg221: sodium caustic warm index {warm_s:.3f} < 0.20 — not a saturated "
+        f"amber line caustic (would be ~0 for the pre-fix uniform-λ rainbow)."
+    )
+    assert warm_s >= warm_w + 0.12, (
+        f"pkg221: sodium caustic (warm {warm_s:.3f}) is not markedly warmer than the "
+        f"broadband white caustic (warm {warm_w:.3f}); the lamp SPD is being ignored."
     )

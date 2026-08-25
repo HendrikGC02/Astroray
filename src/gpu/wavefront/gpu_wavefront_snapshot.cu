@@ -1260,7 +1260,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
 // pkg55-C5 / pkg113: build photon caustic aim from the scene (mirrors
 // cuda_renderer.cu:662 `buildCausticAim`).
 static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
-    const Renderer& scene, int maxDepth) {
+    const Renderer& scene, int maxDepth, unsigned int seed) {
     astroray::photon::gpu::PhotonCausticAim aim{};
     aim.valid = false;
     aim.lambdaMin = 380.0f;
@@ -1268,6 +1268,9 @@ static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
     aim.maxDepth  = maxDepth;
     aim.boost     = 1.2f;   // CPU caustic_boost default (spectral_path_tracer.cpp:499)
     aim.photonCount = 4000000;  // forward photons (≈2000² lattice); CPU traces 3e6
+    aim.seed        = seed;     // pkg220: per-iteration photon-jitter decorrelation seed
+                                // (aim GEOMETRY below stays deterministic — the fixed
+                                // mt19937(12345) sun-direction probe is UNCHANGED)
 
     // Union AABB of all flagged caustic-caster objects.
     AABB casterBounds; bool any = false;
@@ -1446,8 +1449,13 @@ std::vector<float> cuda_wavefront_render(
     astroray::photon::gpu::GPhotonCausticResult caustic{};
     caustic.ready = false;
     if (renderer.getUsePhotonCaustics()) {
+        // pkg220: fold the full 64-bit render seed into a 32-bit photon-jitter
+        // seed so each progressive iteration decorrelates the photon map. The
+        // render `seed` already advances per progressive iteration (pkg191); the
+        // aim GEOMETRY inside buildCausticAim stays deterministic regardless.
         astroray::photon::gpu::PhotonCausticAim aim =
-            buildCausticAim(renderer, max_depth);
+            buildCausticAim(renderer, max_depth,
+                            static_cast<unsigned int>(seed ^ (seed >> 32)));
         if (aim.valid) {
             caustic = astroray::photon::gpu::cuda_photon_caustic_build(
                 d_bvhNodes, d_prims, d_tris, d_spheres, d_materials, aim);

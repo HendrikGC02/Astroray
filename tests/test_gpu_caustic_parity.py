@@ -96,7 +96,7 @@ def _gpu_available() -> bool:
     return astroray.Renderer().gpu_available
 
 
-def _build_glass_sphere(use_gpu: bool):
+def _build_glass_sphere(use_gpu: bool, photons: bool = True):
     """Glass-sphere focused caustic — the in-scope GPU caustic scene.
 
     Mirrors benchmarks/reference_bank/scenes/glass-sphere-caustic/scene.py but at
@@ -157,9 +157,11 @@ def _build_glass_sphere(use_gpu: bool):
 
     if use_gpu:
         r.set_use_gpu(True)
-        r.set_use_photon_caustics(True)        # pkg113 Phase-3: opt into the GPU photon-caustic
+        r.set_use_photon_caustics(photons)     # pkg113 Phase-3: opt into the GPU photon-caustic
                                                # pre-pass (without this the gate is closed and the
-                                               # pre-pass never fires — legacy SMS scenes stay on SMS)
+                                               # pre-pass never fires — legacy SMS scenes stay on SMS).
+                                               # pkg220 toggles it off to isolate the caustic
+                                               # contribution (on-minus-off cancels camera noise).
         r.set_wavelength_range(380.0, 780.0)   # visible-band sRGB output
         r.set_output_mode("srgb")
         r.set_integrator("path_tracer")        # routes to the MW kernel + pre-pass
@@ -367,4 +369,82 @@ def test_gpu_prism_rainbow_parity(test_results_dir):
         f"spatially-coherent rainbow caustic (sparse noise; expected xfail — the "
         f"2-face GPU photon port is the follow-up. pkg189's wavefront rainbow is "
         f"verified separately in test_pkg189_gpu_wavefront_dispersion)."
+    )
+
+
+_DECORR_SAMPLES = 256   # high spp: camera-gather variance -> 0 so the frozen-vs-
+                        # decorrelated photon-map difference is cleanly separated.
+
+
+def _caustic_contribution(seed: int):
+    """Isolate the photon-caustic contribution from camera noise: (photon-caustics
+    ON) minus (OFF) at the SAME render seed. The camera ray RNG stream is identical
+    between the two renders (the photon pre-pass uses its own fixed mt19937(12345)
+    aim probe and does not perturb per-pixel sampling), so the subtraction cancels
+    camera noise and leaves the caustic's deposited radiance. Returns (contrib_rgb,
+    caustic_roi_mask).
+
+    High sample count on purpose: it drives the camera-side gather variance toward
+    zero, so a frozen (pre-pkg220) photon map yields near-identical caustic
+    contributions across seeds (diff_seed -> 0), while the decorrelated post-pkg220
+    map keeps a clear per-seed difference — a wide, stable discrimination margin."""
+    on = _render(_build_glass_sphere(use_gpu=True, photons=True), _DECORR_SAMPLES, seed)
+    off = _render(_build_glass_sphere(use_gpu=True, photons=False), _DECORR_SAMPLES, seed)
+    contrib = on - off
+    lum = _luminance(np.maximum(contrib, 0.0))
+    h, w = lum.shape
+    yy, _xx = np.mgrid[:h, :w]
+    mask = (yy > h * 0.40) & (lum > 0.01)
+    return contrib, mask
+
+
+def test_gpu_caustic_seed_decorrelation(test_results_dir):
+    """pkg220 (headline) — the photon-caustic map must DECORRELATE with the render
+    seed, so successive progressive iterations trace independent maps and the
+    caustic averages down instead of staying frozen-grainy.
+
+    Camera-noise-free discriminator: the caustic contribution (photon-ON minus
+    photon-OFF at a fixed seed) must be
+      * IDENTICAL for two renders at the SAME seed  (determinism preserved), and
+      * DIFFERENT for two renders at DIFFERENT seeds (the map now depends on the
+        seed — the pkg220 fix).
+    BEFORE pkg220 the emit kernel ignored the seed, so the caustic contribution was
+    byte-identical across seeds (diff ~ 0) and this test FAILS on `main` — that is
+    the intended before/after signal.
+    """
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+
+    cA, mask = _caustic_contribution(SEED)
+    cA2, _ = _caustic_contribution(SEED)          # same seed → must match (determinism)
+    cB, _ = _caustic_contribution(SEED + 777)     # different seed → must differ (decorrelation)
+
+    lumA = _luminance(np.abs(cA))
+    diff_same = float(np.mean(np.abs(_luminance(cA - cA2))[mask]))
+    diff_seed = float(np.mean(np.abs(_luminance(cA - cB))[mask]))
+    signal = float(np.mean(lumA[mask]))          # caustic magnitude in the ROI
+
+    print(
+        f"\n[pkg220 seed decorrelation] caustic-ROI: signal={signal:.5f} | "
+        f"same-seed diff={diff_same:.6f} | diff-seed diff={diff_seed:.6f} | "
+        f"decorrelation ratio (diff-seed / signal)={diff_seed/max(signal,1e-9):.3f}"
+    )
+
+    # Determinism: same seed reproduces the caustic exactly (independent of pkg220,
+    # but guards that the seed plumbing didn't break reproducibility).
+    assert diff_same <= 1e-4 * max(signal, 1e-9), (
+        f"pkg220: same-seed caustic not reproducible (diff {diff_same:.6f} vs signal "
+        f"{signal:.5f}). The photon map must be deterministic within an iteration."
+    )
+    # Decorrelation (the fix): a different seed must produce a materially different
+    # caustic map. Measured on the RTX at 256 spp: pre-pkg220 main = 0.020·signal
+    # (a residual camera-gather floor — the frozen grid sampled along seed-jittered
+    # camera rays), post-pkg220 = 0.048·signal (that floor PLUS the decorrelated
+    # photon map). The 0.032·signal gate sits between with ~1.5x margin each side.
+    assert diff_seed >= 0.032 * max(signal, 1e-9), (
+        f"pkg220: caustic map did NOT decorrelate with the seed (diff-seed "
+        f"{diff_seed:.6f} = {diff_seed/max(signal,1e-9):.3f}·signal, must be "
+        f">= 0.032·signal; same-seed {diff_same:.6f}, signal {signal:.5f}). The "
+        f"per-iteration seed is not reaching kEmitSceneCaustic — the caustic is "
+        f"frozen and cannot average down across progressive iterations."
     )

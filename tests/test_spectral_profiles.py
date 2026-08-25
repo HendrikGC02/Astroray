@@ -377,30 +377,33 @@ def test_sodium_vapor_d_line_concentration(db):
 
 
 def test_mercury_vapor_line_peaks(db):
-    """Mercury vapor: peaks present (within one bin) at 405, 435, 545 nm.
-    Dominant line = 435 nm; each line peak stands above the phosphor continuum.
+    """Mercury vapor: peaks present at 405, 435, 545, and the 575-580 nm yellow
+    doublet; the GREEN 546 line is dominant (pkg222).
 
-    pkg214: _atomic_lines now broadens each line to an area-conserving Gaussian
-    (FWHM 15 nm) and mat_ls energy-normalises the SPD (Sum = 1). Absolute peak
-    values are therefore small (~0.02-0.03, not 1.0) -- the meaningful checks are
-    that the lines are PRESENT, that 435 nm dominates, and that each line peak
-    exceeds the flat continuum. (The old peak==1.0 assertion was an artefact of
-    peak-normalisation, which caused the mercury brightness regression in
-    PR #629; see .astroray_plan/docs/spectral-spd-energy-normalization-research.md.)
+    pkg222: relative line intensities corrected to the NIST Handbook Hg I
+    persistent lines (404.66:200, 435.83:300, 546.07:400, 576.96:160, 579.07:200).
+    The green 546 line is the strongest and the yellow 576.96/579.07 doublet is now
+    present -- the previous model (435:1000 >> 546:500, no yellow, +5% continuum)
+    made the stored SPD integrate to a magenta-below-locus colour; the corrected
+    lines integrate to a greenish-white xy~(0.335,0.369). See
+    .astroray_plan/docs/pkg222-atomic-line-intensities.md.
+
+    pkg214: _atomic_lines broadens each line to an area-conserving Gaussian (FWHM
+    15 nm) and mat_ls energy-normalises the SPD (Sum = 1), so absolute peaks are
+    small; the meaningful checks are that the lines are PRESENT and green dominates.
     """
     _, mats, _ = db
     m = mats["mercury_vapor"]
     r = m["r"]
 
-    # Continuum level (region far from lines)
-    continuum_region = [r[i] for i, wl in enumerate(WL_GRID) if 480 <= wl <= 520]
-    avg_continuum = float(np.mean(continuum_region))
+    # Baseline level between lines (455-475 nm gap, away from every line).
+    gap_region = [r[i] for i, wl in enumerate(WL_GRID) if 455 <= wl <= 475]
+    avg_gap = float(np.mean(gap_region))
 
-    # Expected line positions (±5 nm tolerance for 5 nm grid)
-    expected_lines = [405, 435, 545]  # 580 nm line not in NIST persistent set
+    # Expected line positions (±5 nm tolerance for the 5 nm grid). pkg222 adds the
+    # yellow doublet (~577 nm, merged on this grid).
+    expected_lines = [405, 435, 545, 580]
 
-    # Find peaks within ±5 nm of expected positions; each must stand above the
-    # continuum (line is a real feature, not lost in the phosphor baseline).
     line_peaks = {}
     for wl_expected in expected_lines:
         peak_in_region = max(
@@ -408,17 +411,17 @@ def test_mercury_vapor_line_peaks(db):
             if abs(wl - wl_expected) <= 5
         )
         line_peaks[wl_expected] = peak_in_region
-        assert peak_in_region > avg_continuum, (
+        assert peak_in_region > avg_gap, (
             f"Mercury line at ~{wl_expected} nm peak {peak_in_region:.4f} "
-            f"does not exceed continuum {avg_continuum:.4f}"
+            f"does not exceed the inter-line baseline {avg_gap:.4f}"
         )
 
-    # 435 nm must be the dominant of the three persistent lines.
-    assert line_peaks[435] == max(line_peaks.values()), (
-        f"Mercury 435 nm line ({line_peaks[435]:.4f}) is not dominant: {line_peaks}"
+    # pkg222: the GREEN 546 line must now dominate (not the blue 435) -- this is the
+    # chromaticity fix (magenta -> greenish-white).
+    assert line_peaks[545] == max(line_peaks.values()), (
+        f"Mercury 546 nm green line ({line_peaks[545]:.4f}) is not dominant: {line_peaks}"
     )
-
-    # Continuum must stay below the dominant line (energy-normalised units).
-    assert avg_continuum < line_peaks[435], (
-        f"Mercury continuum {avg_continuum:.4f} >= dominant line {line_peaks[435]:.4f}"
+    assert line_peaks[545] > line_peaks[435], (
+        f"Mercury green 546 ({line_peaks[545]:.4f}) must exceed blue 435 "
+        f"({line_peaks[435]:.4f}) -- the corrected NIST intensities."
     )

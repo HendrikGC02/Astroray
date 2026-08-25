@@ -151,7 +151,7 @@ __global__ void kEmitSceneCaustic(
     const GMaterial*  materials,
     GVec3 sunDir, GVec3 apOrigin, GVec3 apU, GVec3 apV, float apRadius,
     int apertureN, float lambdaMin, float lambdaMax, int maxDepth,
-    GPhoton* out)
+    unsigned int seed, GPhoton* out)
 {
     int gx = blockIdx.x * blockDim.x + threadIdx.x;
     int gy = blockIdx.y * blockDim.y + threadIdx.y;
@@ -162,14 +162,19 @@ __global__ void kEmitSceneCaustic(
     out[cell].incidentDir = GVec3(0.f);
     out[cell].lambda      = 0.f;
 
-    // Independent per-cell uniform λ (CPU: λ = lmin + (lmax-lmin)·u01).
-    float uLam = pc_jitter(cell, 101u);
+    // Independent per-cell uniform λ (CPU: λ = lmin + (lmax-lmin)·u01). pkg220:
+    // XOR the per-iteration `seed` into the salt so each progressive iteration
+    // draws an independent λ + aperture position for this cell (decorrelated
+    // photon map per iteration → the caustic averages down). The pc_jitter hash
+    // is unchanged; XOR-ing the seed into distinct salts (1,2,101) keeps them
+    // distinct and well-mixed while the pre-pass stays stateless (no curand).
+    float uLam = pc_jitter(cell, 101u ^ seed);
     float lambda = lambdaMin + (lambdaMax - lambdaMin) * uLam;
 
     // Jittered lattice point on the aperture disc → a collimated entry ray
     // (CPU :426-428: ra,rb ∈ [-crad,crad]; here jittered into [-apRadius,apRadius]).
-    float jx = (gx + pc_jitter(cell, 1u)) / float(apertureN);
-    float jy = (gy + pc_jitter(cell, 2u)) / float(apertureN);
+    float jx = (gx + pc_jitter(cell, 1u ^ seed)) / float(apertureN);
+    float jy = (gy + pc_jitter(cell, 2u ^ seed)) / float(apertureN);
     float a2 = (jx * 2.0f - 1.0f) * apRadius;
     float b2 = (jy * 2.0f - 1.0f) * apRadius;
     GVec3 o = apOrigin + apU * a2 + apV * b2;
@@ -373,7 +378,8 @@ GPhotonCausticResult cuda_photon_caustic_build(
         kEmitSceneCaustic<<<grid, block>>>(
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             sunDir, aim.apertureOrigin, apU, apV, aim.apertureRadius,
-            apertureN, aim.lambdaMin, aim.lambdaMax, aim.maxDepth, d_emit);
+            apertureN, aim.lambdaMin, aim.lambdaMax, aim.maxDepth,
+            aim.seed, d_emit);   // pkg220: per-iteration jitter decorrelation seed
         APC_CUDA_CHECK(cudaGetLastError());
         APC_CUDA_CHECK(cudaDeviceSynchronize());
     }

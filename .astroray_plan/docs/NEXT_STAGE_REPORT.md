@@ -1,148 +1,157 @@
 # Astroray Next Stage Report
 
-**Date:** 2026-08-23 (FRESH ARCHITECT-LED planning pass — goal-capture mode).
-**Prepared by:** architect. This regenerates the stale prior report and is the
-canonical pickup queue for the orchestrator / dispatch-next. Every item below is
-grounded in the live project index (`scripts/project_index.py`) or a cited
-research note; grep `^**Status:**` in each spec before dispatch (memory
+**Date:** 2026-08-25 (FRESH ARCHITECT-LED planning pass — autonomous-session
+open). Regenerates the 2026-08-23 report (pkg219a/b/c + pkg217 have since LANDED —
+#640/#641/#642/#643). Canonical pickup queue for the orchestrator / dispatch-next.
+Every item is grounded in the live project index or a cited in-code finding; grep
+`^**Status:**` in each spec before dispatch (memory
 `orchestrator-next-stage-report-stale`).
 
-> Strategy gate RELEASED (pkg56 Phase C, 2026-05-10). Strategy: `ROADMAP.md`.
-> Full state: `STATUS.md` (top entry 2026-08-21→22).
+> Strategy: `ROADMAP.md`. Full state: `STATUS.md` (top entry 2026-08-21→22).
 
 ---
 
-## 0. Pending-state facts the orchestrator must carry (NOT tasks to redo here)
+## 0. Pending-state facts the orchestrator must carry (NOT tasks to redo)
 
-- **PR #638 (GPU lamp red-shift fix) is OPEN, CI-green, NOT merged** — needs RTX
-  hardware verification before merge. Dispatch a `hardware-verifier` on it.
-- **The `build_cuda` `.pyd` is STALE vs HEAD** — rebuild before ANY GPU
-  verification this session (memory `stale_pyd_locations`,
-  `incremental-build-signature-staleness`; verify `astroray.__file__` +
-  `cuobjdump --list-elf` sm_120 before trusting a gate).
-- **Pillar 4 remains PAUSED** (pkg45/46/48/49/50/51/107, incl. pkg218 spectral
-  colorimetry) — no new unpause directive; skip for autonomous work. Surface the
-  unpause decision to the owner but do not self-dispatch it.
+- **Stale `.pyd`:** rebuild `build_cuda` before ANY GPU verification this session
+  (memory `stale_pyd_locations`, `incremental-build-signature-staleness`; verify
+  `astroray.__file__` canonical + `cuobjdump --list-elf` sm_120 before trusting a
+  gate). CI has no GPU — never declare a caustic/normal-map round clean on CI alone
+  (memory `ci_has_no_gpu_runtime_blindspot`).
+- **pkg214fix** (sodium/mercury energy-normalization; PR #629 was HW-FAIL) may still
+  be in flight on branch `pkg214fix`. It **BLOCKS pkg222** (same generator +
+  `profiles.bin`). Confirm it landed before dispatching pkg222; re-verify sodium AND
+  mercury together (peak-vs-energy normalization coupling).
+- **Pillar 4 remains PAUSED** (pkg45/46/48/49/50/51/107, incl. pkg218 Thread B — the
+  swappable observer / camera response function). Surface the unpause decision to
+  the owner; do not self-dispatch it. pkg222 extracts ONLY the pkg218 Thread A data
+  fix (spectral correctness), which is not Pillar-4-paused.
 
 ---
 
 ## 1. State in one screen
 
-- Spectral milestone shipped (pkg213/214/215/206/216 + #635/#637/#638); fresh
-  `dist/astroray-4.0.0-cuda.zip` built + headless-verified. 0 open PRs at closeout
-  except #638 (above).
-- The Integration Milestone is closed; the owner's live priorities are now
-  **Blender shader-node compatibility, caustics, Cycles + CPU/GPU parity, and
-  opportunistic perf** (perf ceiling of 1.5s STAYS — no dedicated perf packages,
-  memory `wavefront-perf-ceiling-owner-decision`).
-- **Key discovery this pass:** the two headline "hard" items are *less* hard than
-  their stubs implied. pkg217 caustics is a **wiring** problem (CPU SMS + device
-  solver + caster-flag plumbing all already exist — see research note); pkg219
-  shader-graph is **decomposable** into an independently-useful pkg219a plus a
-  bounded op-VM. Both specs are now refined to implementable and their forks decided.
+- Spectral milestone + Blender-integration sweep shipped. Shader-node compatibility
+  advanced hard: **pkg219a (coordinate/Mapping unification), pkg219b (bounded op-VM
+  core), pkg219c (opcode fill-out) all LANDED** (#640/#641/#642). **pkg217 caustics
+  LANDED via Path A** (#643) — but see §2: the caustic wiring exposed two deeper
+  physics bugs the wiring fix did NOT address.
+- Owner live priorities: **Blender shader-node compatibility, caustics, Cycles +
+  CPU/GPU parity, opportunistic perf** (1.5s perf ceiling STAYS — no dedicated perf
+  packages, memory `wavefront-perf-ceiling-owner-decision`).
+- **New this pass (two caustic physics findings, CONFIRMED IN CODE):** the
+  now-wired GPU caustic (a) rebuilds a byte-identical photon map every iteration so
+  its noise never averages (→ pkg220), and (b) samples photon λ uniformly and
+  deposits SPD-blind power so a narrow-line lamp throws an impossible rainbow caustic
+  (→ pkg221). These are separate from pkg217's addon-wiring fix.
 
 ---
 
-## 2. Prioritized roadmap for THIS session (ordered, by owner theme)
+## 2. Prioritized set for THIS session (4–7, ordered)
 
-Effort key: S<M<L<XL. Tier: **grunt** = open-weight via `delegate` skill,
-evidence-verified; **impl** = `package-implementer`; **Claude** = judgment-heavy
-implementer/parity; **research/architect** = me; **hw** = `hardware-verifier`.
+Tier key: **grunt** = open-weight via `delegate`, evidence-verified; **impl** =
+`package-implementer`; **dv4** = deepseek-v4-pro / sonnet (well-specified, gated);
+**Claude** = last-line judgment (register/ABI/parity); **hw** = `hardware-verifier`.
 
-### THEME A — Blender shader-node compatibility (BIGGEST usability lever; owner-named #1)
+### FILED THIS PASS (thorough, self-contained specs — dispatch-ready)
 
-1. **pkg219a — Coordinate + Mapping unification.** Full 3-D Mapping matrix (incl.
-   X/Y rotation) + real Generated/Object/Camera/Window TexCoord. *Why now:* fixes
-   half the owner's `Material.001` repro on its own, needed regardless of the VM
-   fork, unblocks 219b. *Effort:* M. *Tier:* impl. *Gating:* none. **Dispatch first.**
-2. **pkg219b — Bounded op-VM core.** `uint4` bytecode compiler + CPU + GPU
-   evaluator, static stack bound, `<bool HasProgram>` isolation, REG probe gate.
-   Ships Color-Ramp / Mix / Math / MapRange. *Why now:* kills the single biggest
-   usability gap (Color-Ramp-on-texture always greys). *Effort:* L. *Tier:* Claude
-   (register budget + GPU device interpreter = last-line-of-defense judgment).
-   *Gating:* after 219a (shares the coordinate path); needs `cite-algorithm`
-   (Cycles SVM) + `cpp-abi-guard` + REG probe.
-3. **pkg219c — Opcode coverage fill-out.** HSV/Invert/Gamma/BrightContrast/
-   Separate-Combine/Bump/NormalMap, each a Cycles parity render. *Effort:* M.
-   *Tier:* impl. *Gating:* after 219b (extends its opcode table).
+1. **pkg220 — Progressive GPU photon-caustic seed.** *What:* thread a per-iteration
+   seed into `kEmitSceneCaustic`/`buildCausticAim` so successive photon maps are
+   independent and the caustic averages ~1/√N. *Why now:* caustics are permanently
+   grainy — a visible quality bug that the pkg217 wiring fix newly exposed. *Effort:*
+   S–M. *Tier:* **dv4** (plumbing + a clean convergence gate; register-neutral).
+   *Gating:* none. **Cheapest high-value win — dispatch first.**
 
-### THEME B — Cycles + CPU/GPU parity (owner-named; unblocks honour-matrix debt)
+2. **pkg221 — Photon λ importance-sampled from the light SPD.** *What:* draw photon
+   wavelengths ∝ the emitting light's SPD (CDF built host-side, CPU+GPU), weight the
+   deposit so white stays white and narrow-line lamps throw line-colored caustics.
+   *Why now:* emission-line dispersion is physically impossible today (SPD-blind,
+   engine-wide). *Effort:* M–L. *Tier:* **dv4** + `cite-algorithm` (PBRT spectral IS)
+   + `cycles-parity-reviewer`. *Gating:* shares `kEmitSceneCaustic` with pkg220 —
+   land pkg220 first, rebase this on top.
 
-4. **pkg201 Stage 3 — per-type bounce counters + `filter_glossy` + native caustic
-   toggles.** Closes the last register-hostile pkg200 honour-matrix rows. *Why now:*
-   register-contention window is clear per its own Status; direct Cycles-parity debt.
-   *Effort:* L. *Tier:* Claude (register-hostile, probe-gated). *Gating:* the
-   `caustics_reflective/refractive` toggle rows LOGICALLY OVERLAP pkg217 — sequence
-   201-S3's caustic-toggle row *with or after* pkg217, do not implement the toggle
-   twice. Non-caustic rows (bounce counters, filter_glossy) can go independently.
+3. **pkg222 — Atomic-line lamp SPDs: cited, chromatically-correct.** *What:* re-derive
+   preset atomic-line lamp line intensities from NIST/measured data, regenerate
+   `profiles.bin`, audit every lamp's chromaticity (mercury magenta→greenish-white).
+   *Why now:* every atomic-line lamp renders the wrong color; makes pkg221's
+   emission-line dispersion *correct-colored*. *Effort:* M (data, no engine C++).
+   *Tier:* **dv4** (citation + A/B render discipline). *Gating:* **BLOCKED by
+   pkg214fix** (same generator) — confirm it landed first.
 
-### THEME C — Caustics (owner-named; real feature, owner-deprioritized vs above)
+4. **pkg223 — Normal Map node (pkg219d part 1).** *What:* tangent-space normal-texture
+   perturbation of the shading normal, CPU+GPU, behind `<bool HasNormalPerturb>`.
+   Bump deferred. *Why now:* normal maps are ubiquitous and silently do nothing today
+   — the biggest remaining shader-node usability gap after pkg219a-c. *Effort:* M–L.
+   *Tier:* **dv4** implement, but the **GPU shade-kernel register budget is
+   Claude-last-line** — HARD `cuobjdump` REG probe gate + `cpp-abi-guard` + Claude
+   review before merge; spill → escalate. *Gating:* reuses pkg219a coordinate path.
 
-5. **pkg217 — GPU refractive/dispersive caustics (wiring).** New
-   `stage_caustic_connect.cu`, ordinary-NEE cull, reuse `sms_attempt_device.cuh`.
-   *Why now:* the black-shadow-through-glass is a visible correctness bug and the
-   machinery already exists; owner deprioritized vs shader nodes but it is L not XL.
-   *Effort:* L. *Tier:* Claude (wavefront + register gate + NEE-cull correctness =
-   judgment). *Gating:* `cite-algorithm`, REG probe HARD gate, visual+parity gates;
-   verify the CPU refractive-caustic path first (may already work post-#637).
-6. **pkg127 — Specular Polynomials for SMS seed finding (deferred seed upgrade).**
-   *Why now:* only AFTER pkg217 lands and shows residual seed-failure noise; it is a
-   quality upgrade, not a prerequisite. *Effort:* L. *Tier:* Claude. *Gating:* do
-   NOT couple to pkg217; dispatch only if 217's caustics show seed-waste.
+### EXISTING OPEN WORK — weighed, sequenced behind the above
 
-### THEME D — Opportunistic quality (no dedicated perf packages — ceiling stays)
+5. **pkg201 Stage 3 — per-type bounce counters + `filter_glossy` + native caustic
+   toggles.** Closes the last register-hostile pkg200 honour-matrix rows. *Effort:* L.
+   *Tier:* **Claude** (register-hostile). *Note:* the caustic-toggle row now LOGICALLY
+   couples to the landed pkg217 + the new pkg220/221 caustic work — wire the toggle to
+   the existing pipeline, don't reimplement. Non-caustic rows (bounce counters,
+   filter_glossy) can go independently as a **dv4** slice. Pick up behind 220–223.
 
-7. **pkg131 — Zero-knob adaptive sampling, wavefront leg.** Long-standing open;
-   convergence quality win, not a raw-perf lever (respects the 1.5s ceiling).
-   *Effort:* L. *Tier:* impl. *Gating:* none; low priority — pick up if a slot is
-   free behind Themes A–C.
+6. **pkg131 — Zero-knob adaptive sampling, wavefront leg.** Long-standing; convergence
+   quality (not raw perf — respects the ceiling). *Effort:* L. *Tier:* impl/dv4.
+   *Gating:* none; fill a free slot behind Themes above.
 
-### IN-FLIGHT / carried (finish before starting new work in the same files)
+### NOT this session (surface to owner)
 
-- **#638 HW verify + merge** — `hardware-verifier`, then `pr-reviewer`. **Do first.**
-- **pkg214fix** — physics-correct energy-normalisation on branch `pkg214fix` (PR
-  #629 HW-FAIL, do NOT merge as-is). Re-verify sodium AND mercury together. *Tier:*
-  Claude + hw. Blocks anything touching `build_spectral_profiles.py`.
-- **pkg206** — re-verify the flat-baseline SSIM gate specifically (prior failure
-  mode) on branch `pkg206impl*`. *Tier:* hw.
+- **pkg218 Thread B** (swappable CIE observer / camera spectral-sensitivity) —
+  Pillar-4-paused; research-grade capability, owner said "not the current main
+  focus." Leave paused; do not dispatch. pkg222 already carves out Thread A.
+- **pkg217 SMS-NEE-cull quality upgrade** — the sharper forward-caustic method noted
+  in pkg217's CORRECTION; only if the photon caustic (post-220/221) shows residual
+  quality limits. Do not pre-empt.
 
 ---
 
 ## 3. Real forks for the owner (not an artificial ballot)
 
-- **pkg219 depth:** ship 219a+219b now (bounded VM) vs commit to full-SVM (a) as
-  one XL. I chose the staged bounded-VM (research note) — it delivers usable value
-  in M+L and is a strict on-ramp to (a). Owner can override toward full-SVM if the
-  op-VM coverage proves insufficient in practice.
-- **pkg217 vs pkg201-S3 caustic-toggle ordering:** these two touch the same
-  caustic-honour surface. Either (i) do pkg217 first then 201-S3 wires the toggle to
-  it, or (ii) 201-S3 lands the toggle as a no-op stub then pkg217 fills it. (i) is
-  cleaner — recommended.
-- **Sequencing pressure:** Theme A (shader nodes) is the owner's stated #1 usability
-  lever; Theme C (caustics) is owner-deprioritized. If implementer slots are scarce,
-  spend them A → B → C, not C first.
+- **Caustic depth:** pkg220 (decorrelate) + pkg221 (SPD λ) make the *existing* photon
+  caustic converge and be spectrally correct — cheap, high-value, dv4-implementable.
+  The alternative "sharper" path (SMS-NEE-cull, pkg217's deferred design) is L,
+  register-hostile, and Claude-only. **Recommendation:** ship 220+221 first; only
+  invest in SMS if their converged quality proves insufficient. Owner: agree, or go
+  straight for SMS?
+- **pkg222 vs pkg214fix ordering:** both touch `build_spectral_profiles.py` /
+  `profiles.bin`. pkg222 is BLOCKED on pkg214fix landing. If pkg214fix has stalled,
+  the owner may want to fold the mercury green-line fix INTO the pkg214fix branch
+  rather than a separate pkg222. **Flag:** is pkg214fix still open?
+- **pkg223 register risk:** Normal Map perturbs the REG:254 shade normal. If the probe
+  spills despite `<bool HasNormalPerturb>` isolation, do we accept a bounded non-map
+  STACK cost, or hold the feature? Default: hold + escalate (never ship a fleet-wide
+  regression).
 
 ---
 
-## 4. Top 3 to dispatch first (with routing)
+## 4. Top items to dispatch first (with routing)
 
-1. **#638 HW-verify + merge** → `hardware-verifier` then `pr-reviewer`. (Rebuild the
-   stale `.pyd` first.)
-2. **pkg219a — Coordinate + Mapping unification** → `package-implementer` (impl
-   tier). Independently useful, unblocks 219b, no gating.
-3. **pkg219b — Bounded op-VM core** → Claude-implementer (register + GPU
-   interpreter judgment), after 219a; run `cite-algorithm` (Cycles SVM) +
-   `cpp-abi-guard` + REG probe.
+1. **pkg220** → `package-implementer` (dv4 tier). Independent, cheapest high-value
+   caustic fix; clean convergence gate. Rebuild the stale `.pyd` first.
+2. **pkg221** → dv4 implementer + `cite-algorithm` + `cycles-parity-reviewer`, AFTER
+   pkg220 (shared kernel).
+3. **pkg223** → dv4 implementer, HARD REG-probe gate + `cpp-abi-guard` + Claude
+   review before merge.
+4. **pkg222** → dv4 implementer — ONLY after confirming pkg214fix landed.
 
-Research fan-out / breadth scouring (opcode-semantics enumeration for 219c, extra
-caustic-scene collection) → delegate to open-weight models via the `delegate`
-skill, evidence-verified.
+Breadth research (NIST line intensities for pkg222, extra caustic/normal-map parity
+scenes, Cycles Normal Map handedness confirmation) → `delegate` open-weight,
+evidence-verified, scoped to ONE narrow deliverable each (memory
+`delegate-grunt-budget-bound-tight`).
 
 ---
 
-## 5. Specs filed / refined + research saved this pass
+## 5. Specs filed this pass
 
-- Refined `pkg217` → implementable (wiring reframing, separate-stage design).
-- Decided + staged `pkg219` → 219a/219b/219c, fork (c) bounded op-VM.
-- Research note `docs/pkg217-wavefront-caustic-integration-research.md`.
-- Research note `docs/pkg219-per-texel-svm-evaluator-research.md`.
+- **pkg220** — `packages/pkg220-caustic-per-iteration-seed.md` (Track A, dv4).
+- **pkg221** — `packages/pkg221-photon-wavelength-spd-importance-sampling.md`
+  (Track A, dv4).
+- **pkg222** — `packages/pkg222-atomic-line-lamp-spd-chromaticity.md` (Track A, dv4;
+  extracts pkg218 Thread A; BLOCKED on pkg214fix).
+- **pkg223** — `packages/pkg223-normal-map-node.md` (Track A, dv4 + Claude gate;
+  pkg219d part 1, Bump deferred).

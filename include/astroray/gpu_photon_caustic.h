@@ -45,6 +45,12 @@ struct PhotonCausticAim {
     int   maxDepth;        // refraction-bounce cap (CPU maxDepth_)
     float boost;           // brightness multiplier (CPU caustic_boost, default 1.2)
     bool  valid;           // false → no casters / no lights → skip the pre-pass
+    // pkg220: per-iteration decorrelation seed for the photon jitter. The aim
+    // GEOMETRY (sunDir/aperture) stays deterministic frame-to-frame — only the
+    // λ + aperture-disc jitter mixes this seed, so successive progressive
+    // iterations trace statistically-independent photon maps that average down
+    // instead of re-depositing a frozen (byte-identical) grid every iteration.
+    unsigned int seed;
 };
 
 // A RESIDENT device photon grid + calibrated gather scale. Built by

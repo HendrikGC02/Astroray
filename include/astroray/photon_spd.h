@@ -44,7 +44,13 @@ struct PhotonSpdCdf {
 // evaluated per sample() call (kSpectrumSamples=4). Position-independent for the
 // point/spot/distant lamps that carry a line SPD; a constant geometric factor
 // cancels in the normalization.
-inline PhotonSpdCdf buildPhotonSpdCdf(const LightSampler& lights,
+// Templated on the light-container type (Renderer::getLights() returns a
+// LightList, defined in raytracer.h) so this header stays decoupled from that
+// heavy header — the type binds at each call site where it is already visible.
+// The container must provide `.empty()` and
+// `.sample(LightSample&, point, normal, SampledWavelengths, std::mt19937&)`.
+template <class LightsT>
+inline PhotonSpdCdf buildPhotonSpdCdf(const LightsT& lights,
                                       const Vec3& casterC, const Vec3& normal) {
     PhotonSpdCdf out;
     out.valid = false;

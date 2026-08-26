@@ -321,7 +321,15 @@ static void appendOnePrim(
                 mtl->getAnisotropic() > 0.0f;
             const bool imageTextured =
                 mtl && dynamic_cast<TexturedLambertian*>(mtl.get()) != nullptr;
-            if ((anisoPrincipled || imageTextured) && tri->hasUVLayers()) {
+            // pkg223 — a normal-mapped material needs the active-layer UVs on the
+            // device for the tangent-space decode (HasNormalPerturb). Checked on the
+            // DECORATOR (mtl is the NormalMapped wrapper, whose inner TexturedLambertian
+            // the imageTextured cast above cannot see) — this also restores the base-
+            // colour texture UVs for a NormalMapped(TexturedLambertian).
+            const bool normalMapped =
+                mtl && mtl->normalMapTexture() != nullptr;
+            if ((anisoPrincipled || imageTextured || normalMapped) &&
+                tri->hasUVLayers()) {
                 Vec2 t0 = tri->getUV0(), t1 = tri->getUV1(), t2 = tri->getUV2();
                 gt.uv0 = GVec2(t0.u, t0.v);
                 gt.uv1 = GVec2(t1.u, t1.v);
@@ -681,11 +689,25 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     std::unordered_map<Texture*, int> texIdx;
     // pkg219b — op-VM program dedup: one ShaderVMProgram slot per ProgramTexture*.
     std::unordered_map<Texture*, int> progIdx;
-    auto getOrAddMat = [&](const std::shared_ptr<Material>& m) -> int {
-        auto it = matIdx.find(m.get());
+    auto getOrAddMat = [&](const std::shared_ptr<Material>& mIn) -> int {
+        auto it = matIdx.find(mIn.get());
         if (it != matIdx.end()) return it->second;
         int id = (int)r.materials.size();
-        matIdx[m.get()] = id;
+        matIdx[mIn.get()] = id;
+        // pkg223 — unwrap a NormalMapped decorator: the GMaterial + base-colour
+        // texture come from the INNER material; the tangent-space normal texture +
+        // Strength ride the parallel side arrays (materialNormalTexId/Strength),
+        // read ONLY in the GPU shade path's HasNormalPerturb=true kernel so
+        // GMaterial stays 640 B. A bump-only decorator unwraps to the base with
+        // normalTexId -1 (bump deferred — GPU renders the base BSDF).
+        std::shared_ptr<Material> m = mIn;
+        std::shared_ptr<Texture>  nmTex;
+        float nmStrength = 1.0f;
+        if (auto inner = mIn->normalMapInner()) {
+            m = inner;
+            nmTex = mIn->normalMapTexture();
+            nmStrength = mIn->normalMapStrength();
+        }
         r.materials.push_back(convertMaterial(m));
         // pkg178 Stage-3b D4: flag scenes carrying a closure-graph Principled
         // material so the wavefront launchers select the <true> shade-kernel
@@ -895,6 +917,41 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             if (texId >= 0)
                 r.materials[id].baseColor = GVec3(1.f, 1.f, 1.f);
         }
+        // pkg223 — register the tangent-space normal texture (always a plain
+        // ImageTexture from load_blender_image) on the parallel side arrays,
+        // deduped via the same texIdx map. Mirrors the pkg186 ImageTexture upload;
+        // the shade path's HasNormalPerturb kernel fetches it via matNormalTexId.
+        // Uses the SAME device texel data as the CPU TextureManager texture, so
+        // CPU/GPU parity holds regardless of the image's colour management.
+        int normalTexId = -1;
+        if (auto nimg = std::dynamic_pointer_cast<ImageTexture>(nmTex)) {
+            if (!nimg->getData().empty()) {
+                auto nit = texIdx.find(nimg.get());
+                if (nit != texIdx.end()) {
+                    normalTexId = nit->second;
+                } else {
+                    normalTexId = (int)r.textures.size();
+                    texIdx[nimg.get()] = normalTexId;
+                    GImageTexture ndesc;
+                    ndesc.offset = (int)r.textureTexels.size();
+                    ndesc.width  = nimg->getWidth();
+                    ndesc.height = nimg->getHeight();
+                    if (nimg->hasMapping()) {
+                        ndesc.hasMapping = 1;
+                        const float* mm = nimg->getMappingMatrix();
+                        for (int i = 0; i < 12; ++i) ndesc.mapping[i] = mm[i];
+                    }
+                    const std::vector<Vec3>& px = nimg->getData();
+                    r.textureTexels.reserve(r.textureTexels.size() + px.size());
+                    for (const Vec3& c : px)
+                        r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                    r.textures.push_back(ndesc);
+                }
+                r.hasNormalPerturb = true;
+            }
+        }
+        r.materialNormalTexId.push_back(normalTexId);
+        r.materialNormalStrength.push_back(nmStrength);
         r.materialTextureId.push_back(texId);
         r.materialProgramId.push_back(progId);
         return id;

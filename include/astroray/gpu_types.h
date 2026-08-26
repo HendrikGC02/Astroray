@@ -623,6 +623,13 @@ struct GWavefrontTextureBinding {
     const GImageTexture* textures;
     const GVec3*         texelBuf;
     const int*           matTexId;
+    // pkg223 — tangent-space normal map, published on the SAME __constant__ side
+    // table so GMaterial stays exactly 640 B and the fleet <…,false> shade kernel
+    // (HasNormalPerturb=false) is byte-identical. matNormalTexId[mat] indexes into
+    // `textures` (-1 = no normal map); matNormalStrength[mat] is the Cycles
+    // Strength. Read ONLY inside the HasNormalPerturb=true specialization.
+    const int*           matNormalTexId;    // per-material normal-texture id, -1 absent
+    const float*         matNormalStrength;  // per-material Strength [0,1]
 };
 
 // pkg197 — wavefront first-hit denoise-guide AOV binding. Published ONCE per

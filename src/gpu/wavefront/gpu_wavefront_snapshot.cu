@@ -1000,6 +1000,7 @@ struct WfContext {
     WfDeviceBuf nodes, prims, tris, spheres, materials, lights;
     WfDeviceBuf dedLights;                    // pkg89-wavefront (C7)
     WfDeviceBuf textures, textureTexels, materialTextureId;  // pkg186 image textures
+    WfDeviceBuf materialNormalTexId, materialNormalStrength;  // pkg223 normal maps
     WfDeviceBuf programs, materialProgramId;   // pkg219b op-VM programs
     WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
     WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
@@ -1382,8 +1383,14 @@ std::vector<float> cuda_wavefront_render(
     GImageTexture* d_textures  = wfUpload(C.textures, res.textures);
     GVec3*         d_texelBuf  = wfUpload(C.textureTexels, res.textureTexels);
     int*           d_matTexId  = wfUpload(C.materialTextureId, res.materialTextureId);
-    if (res.hasTexture)
-        setWavefrontTextureBinding(GWavefrontTextureBinding{d_textures, d_texelBuf, d_matTexId});
+    // pkg223 — normal-map side arrays, published on the SAME binding. Set the
+    // binding when EITHER a base-colour texture OR a normal map is present (a
+    // normal map on a non-textured Principled/Disney BSDF has hasTexture=false).
+    int*   d_matNormalTexId   = wfUpload(C.materialNormalTexId, res.materialNormalTexId);
+    float* d_matNormalStrength = wfUpload(C.materialNormalStrength, res.materialNormalStrength);
+    if (res.hasTexture || res.hasNormalPerturb)
+        setWavefrontTextureBinding(GWavefrontTextureBinding{
+            d_textures, d_texelBuf, d_matTexId, d_matNormalTexId, d_matNormalStrength});
     // pkg219b — op-VM program device arrays (all null when no material carries a
     // program; res.hasProgram=false then selects the <…,false> shade kernel).
     astroray::svm::ShaderVMProgram* d_programs =
@@ -1758,7 +1765,8 @@ std::vector<float> cuda_wavefront_render(
                                      res.hasTexture,      // pkg186 (data via c_wfTexBinding)
                                      res.hasDispersive,  // pkg189 hero-λ collapse write-back
                                      passesOn,  // pkg198 Stage 2 pass-AOV axis
-                                     res.hasProgram);  // pkg219b per-texel op-VM axis
+                                     res.hasProgram,  // pkg219b per-texel op-VM axis
+                                     res.hasNormalPerturb);  // pkg223 normal-map axis
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4

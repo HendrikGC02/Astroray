@@ -1,5 +1,83 @@
 # Astroray Next Stage Report
 
+## 2026-08-26 SESSION HANDOFF — next-session agenda (owner-directed)
+
+**Landed this session:** pkg223 (GPU tangent-space normal maps, PR #647 merged
+be7cbec). Register probe CLEAN — the fleet paid nothing (normal-map data rides the
+`c_wfTexBinding` side arrays; `GMaterial` stays 640 B) so there was no spill to fix.
+Also fixed a latent CPU arbitrary-frame bug (→ UV-aligned Mikk-TSpace). Two memories
+banked: `shade-axis-side-table-avoids-spill`, `pkg131-blocked-on-progressive-sampler`.
+
+**Decisions banked (do not re-litigate):**
+- **pkg201-S3 → OPTION 2** (owner, 2026-08-26): per-type bounce counters as a
+  **runtime SoA comparison** in the shade kernel (5 counters in path state; cheap
+  `if (depth[type] >= limit[type])` continuation check), **probe-first**. Only if
+  the probe shows a spill on the fleet default do we fall back to a compile-time
+  axis for the specific branch that spills — this AVOIDS the 8th-axis 256-kernel
+  compile explosion (pkg223's 7th axis already put `stage_advance.cu` at 128
+  specializations / ~9 min). Sets the pattern for items C (filter_glossy) and E
+  (caustic toggles) too.
+- **pkg131 → BLOCKED** on a progressive sampler: the wavefront RNG is PCG32
+  white-noise, no PMJ/Sobol prefix property (memory
+  `pkg131-blocked-on-progressive-sampler`). Needs a Sobol/PMJ sampler prereq or an
+  architect re-scope to a white-noise first-cut — **surface the fork to the owner**,
+  do not silently implement on white noise.
+
+**NEXT-SESSION AGENDA (three tracks):**
+
+1. **Open engine work next in line.** (a) pkg201-S3 **item A** via option 2
+   (per-type bounce counters), threading the 5 limits into `cuda_wavefront_render`
+   (sweep call sites: `blender_module.cpp:1863`, the ReSTIR variant, tests) — up-front
+   `cuobjdump -res-usage` probe on the CURRENT-main 128-kernel fleet baseline BEFORE
+   feature code, invest-to-fix on spill. Then items **C** (filter_glossy roughness
+   accumulator) and **E** (caustic-toggle specular-path flag), same probe-first shape.
+   (b) **Bump** node — the pkg223 follow-up (needs height-texture screen-space/analytic
+   derivatives; register-hostile; file as pkg223b). (c) pkg131 progressive-sampler
+   decision above.
+
+2. **Review pkg126–137** (owner: fundamental at one point, must not be forgotten if
+   still relevant). This block is the Disney/dielectric-rough/VNDF/thin-film/
+   multiscatter-LUT/mesh-emitter/light-groups/adaptive-sampling era. For EACH:
+   cross-check against merged PRs + STATUS.md, then set its spec `**Status:**` to
+   done / superseded / dropped / still-open with a one-line reason. Several likely
+   landed or were superseded by later packages (e.g. pkg131 is blocked, pkg129
+   Turquin LUTs, pkg138/149/150/151 dielectric-rough series) — do not leave them
+   ambiguous.
+
+3. **Project-tracker + package-template hygiene** (Google Sheets tracker
+   `https://docs.google.com/spreadsheets/d/1u94CR7njH-LdyGQxKT0vKr56uHEVAVaqZGxVaIFUepg`;
+   script `Google_Apps_Script.txt`). Three concrete fixes:
+   - **Pillar frontmatter (tracker mis-parses ~19 specs).** `**Pillar:**` must be a
+     BARE number 1–5. Offenders + fix:
+     - "Integration Milestone (…)" → tracker extracts NOTHING: pkg175, pkg176, pkg177,
+       pkg200, pkg201, pkg202, pkg203, pkg204, pkg207, pkg209, pkg212, pkg213 →
+       **Pillar 5** (Production polish / Blender parity).
+     - "Blender/DCC integration (integration-first…2026…)" → tracker extracts **"2026"**:
+       pkg219, pkg223 → **Pillar 5**.
+     - EMPTY pillar: pkg215, pkg216 (project-index tooling → 5 or infra convention),
+       pkg218 (spectral → **Pillar 2**).
+     - Infra with no numeric pillar: `pkg-add-cuda-syntax-ci` ("0 (Infrastructure)"),
+       pkg205 ("Infrastructure / test hygiene"). Pick a convention — the script only
+       tallies 1–5, so infra can stay blank; decide and document.
+   - **Status audit.** Some specs still read open/partial that are really done /
+     superseded / dropped — cross-check each vs merged PRs and flip (pairs with track 2).
+   - **Timeline sheet is EMPTY — fix the script.** `refreshTimeline_` regex requires
+     `\n- **YYYY-MM-DD` but STATUS.md entries are `**YYYY-MM-DD (…)` bold-date
+     paragraphs (no leading `- `, no `## Changelog` anchor) → only 2 stray lines match.
+     Replace the regex in `Google_Apps_Script.txt` with:
+     `const re = /(?:^|\n)\*\*(\d{4}-\d{2}-\d{2})([\s\S]*?)(?=\n\*\*\d{4}-\d{2}-\d{2}|\n## |$)/g;`
+     (group 2 = entry body; the existing whitespace-collapse + 600-char truncation
+     still apply). The `## Changelog` slice becomes a harmless no-op.
+   - **Prevention.** Update `.astroray_plan/packages/TEMPLATE.md` to mandate
+     `**Pillar:** <1-5>` as a bare number, and optionally harden `parsePackageMd_`
+     (map a leading "integration"→5, "infrastructure"→blank) as defense-in-depth.
+
+**Repo state for kickoff:** `.pyd` in `build_cuda/Release` is current w.r.t. source
+(HEAD advanced only via docs commits since the pkg223 build) but the stale-guard hook
+will flag it — rebuild before any GPU verification (memory `stale_pyd_locations`).
+
+---
+
 **Date:** 2026-08-25 (FRESH ARCHITECT-LED planning pass — autonomous-session
 open). Regenerates the 2026-08-23 report (pkg219a/b/c + pkg217 have since LANDED —
 #640/#641/#642/#643). Canonical pickup queue for the orchestrator / dispatch-next.

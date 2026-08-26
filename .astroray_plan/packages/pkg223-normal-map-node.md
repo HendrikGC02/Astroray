@@ -3,7 +3,14 @@
 **Pillar:** Blender/DCC integration (integration-first directive, 2026-08 — comes
 BEFORE Pillar 4; memory `integration-first-directive-2026-08`).
 **Track:** A
-**Status:** open (filed 2026-08-25). Splits the pkg219c-deferred "pkg219d"
+**Status:** DONE (PR #647 merged 2026-08-26, be7cbec). GPU-only scope confirmed on
+investigation: the addon export, CPU decode, and UV-aligned tangent infra already
+existed; the gap was GPU consumption + a latent CPU arbitrary-frame bug. Register
+probe PASS (64 HasNormalPerturb=false specializations byte-identical to main, 64
+=true no spill/no STACK increase — normal-map data rides the c_wfTexBinding side
+arrays so GMaterial stays 640 B). CPU/GPU parity + visible-relief + Strength gates
+pass on RTX 5070 Ti. **Bump remains deferred** (pkg223b follow-up). Splits the
+pkg219c-deferred "pkg219d"
 Bump+Normal-Map item; **this package is Normal Map ONLY.** Bump (which needs
 height-texture derivatives) is deferred to a separate follow-up — see §Scope.
 **Priority:** HIGH usability — Normal maps are ubiquitous in real Blender materials

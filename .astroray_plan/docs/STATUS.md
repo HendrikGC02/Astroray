@@ -1,5 +1,50 @@
 # Astroray Status
 
+**2026-08-26 (pkg223 — GPU tangent-space NORMAL MAPS, PR #647 merged be7cbec):
+normal maps now perturb the shading normal on the GPU wavefront (they were
+silently dropped) and the CPU decode is corrected to the UV-aligned frame.**
+- **Investigation collapsed the spec's feared scope.** The spec was written blind
+  ("cold multi-subsystem build"); in fact the **addon export**
+  (`normal_map_texture`/`normal_strength`), the **CPU decode**
+  (`NormalMappedPlugin`), and the **UV-aligned tangent infra**
+  (`uvTangent`/`gpu_pr_uvAlignedTangent`, pkg178) ALL already existed. The real gap
+  was **GPU consumption only** — a `NormalMapped` decorator is a CPU `shared_ptr`
+  wrapper that doesn't survive `GMaterial` upload, so the device shaded the flat
+  normal.
+- **Register-safe design (the crux the spec flagged).** Normal-map data
+  (`matNormalTexId`/`matNormalStrength`) rides the existing `__constant__`
+  `c_wfTexBinding` **side arrays** — NOT `GMaterial` — so `GMaterial` stays exactly
+  640 B and the fleet `<…,false>` shade kernel is byte-identical (the pkg186
+  precedent). Perturbation gated behind a 7th `template<bool HasNormalPerturb>`
+  axis (64→128 shade specializations). **Register probe PASS:** 64 `=false`
+  specializations byte-identical to main (REG+STACK), 64 `=true` NO spill (max REG
+  254) and NO STACK increase (60 identical, 4 smaller). The register-hostile risk
+  the owner asked to invest in **did not materialise** — the side-table pattern
+  avoided it entirely.
+- **Latent CPU bug fixed:** `NormalMappedPlugin` decoded into the ARBITRARY
+  `buildOrthonormalBasis` frame, not the UV-aligned `rec.uvTangent` — a
+  Cycles-incorrect azimuth (relief tilted to a random compass direction). Fixed to
+  the UV-aligned Mikk-TSpace frame (`B = sign·cross(N,T)`); this is also the GPU
+  parity oracle. Also fixed: `scene_upload` only uploaded triangle UVs for
+  aniso-Principled / image-textured materials — normal-mapped triangles now get
+  them too (this was WHY the first GPU render showed zero relief).
+- **Verified (RTX 5070 Ti, sm_120):** `test_pkg223_gpu_normal_map.py` (visible
+  relief, Strength monotonic, CPU/GPU mean-ratio parity) PASS; no regressions
+  (pkg186 texture parity, pkg190 procedural, pkg219a mapping, material plugins);
+  CI green (build-and-test + cuda-syntax on GCC — no MSVC/GCC divergence despite
+  the template-heavy axis). Cite:
+  `.astroray_plan/docs/pkg223-normal-map-research.md` (decode/handedness/Strength
+  cross-checked vs Cycles `svm_node_normal_map` + Mikk-TSpace).
+- **Cost routing:** the cite/research note was delegated to the grunt tier
+  (succeeded, no code touched); the register-critical engine change stayed on Opus
+  (memory `delegate-tier-stalls-on-hard-packages`).
+- **Next-pickup finding:** pkg131 (adaptive sampling) is **BLOCKED on an unmet hard
+  prerequisite** — the wavefront RNG is PCG32 white-noise, no PMJ/Sobol prefix
+  property (memory `pkg131-blocked-on-progressive-sampler`); needs a progressive
+  sampler or an architect re-scope first. pkg201 Stage 3 (register-hostile,
+  probe-gated) remains the cleanest next register-work pickup. **Bump** is the
+  pkg223 follow-up (needs height-texture derivatives; deferred).
+
 **2026-08-25 → 2026-08-26 (GPU SPECTRAL-CAUSTIC QUALITY ROUND — 3 PRs merged
 #644/#645/#646, architect-led, addressing the owner's two hands-on caustic
 observations): the GPU photon caustic now averages down (was frozen), narrow-line

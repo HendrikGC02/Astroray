@@ -316,6 +316,7 @@ struct Ray {
 };
 
 class Material;
+class Texture;  // pkg223 — normalMapTexture() returns shared_ptr<Texture>
 
 struct HitRecord {
     Vec3 point, normal, tangent, bitangent;
@@ -455,6 +456,16 @@ public:
     virtual bool isGlossy() const { return false; }
     virtual Vec3 getAlbedo() const { return Vec3(0.5f); }
     virtual std::string getGPUTypeName() const { return ""; }
+    // pkg223 — normal-map decorator unwrap for GPU upload. A NormalMapped
+    // decorator returns its INNER material (whose BSDF becomes the GMaterial and
+    // whose base-colour texture uploads as usual) plus the tangent-space normal
+    // texture + Cycles Strength. scene_upload rides the normal texture on the
+    // parallel c_wfTexBinding side arrays (matNormalTexId / matNormalStrength),
+    // so GMaterial stays exactly 640 B and the fleet <false> shade kernel is
+    // byte-identical. A plain material returns null/1 and uploads unchanged.
+    virtual std::shared_ptr<Material> normalMapInner() const { return nullptr; }
+    virtual std::shared_ptr<Texture>  normalMapTexture() const { return nullptr; }
+    virtual float                     normalMapStrength() const { return 1.0f; }
     virtual astroray::MaterialClosureGraph closureGraph() const { return {}; }
     virtual MaterialBackendCapabilities backendCapabilities() const {
         MaterialBackendCapabilities caps;

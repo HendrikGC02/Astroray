@@ -396,7 +396,13 @@ void launchStageShadeBucketed(
     // to the pre-pkg219b kernels (the register-probe gate). The program array +
     // per-material index ride in the __constant__ c_wfProgBinding, not this
     // signature.
-    bool hasProgram);
+    bool hasProgram,
+    // pkg223: hasNormalPerturb=true selects stageShadeBucketedKernel<…,true>,
+    // which carries the tangent-space normal-map perturbation; false selects
+    // <…,false>, byte-identical to the pre-pkg223 kernels (register-probe gate).
+    // The normal-texture arrays ride c_wfTexBinding (matNormalTexId/Strength),
+    // NOT this signature.
+    bool hasNormalPerturb);
 
 // pkg186 — publish the frame's image-texture arrays into the shade kernel's
 // __constant__ binding. Call ONCE per frame before launchStageShadeBucketed (only

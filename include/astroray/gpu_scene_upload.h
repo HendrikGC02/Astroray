@@ -33,6 +33,20 @@ struct SceneUploadResult {
     std::vector<int>           materialTextureId;
     bool                       hasTexture = false;
 
+    // pkg223 — tangent-space normal maps. Parallel to `materials`:
+    // `materialNormalTexId[i]` indexes `textures` for material i's normal map
+    // (-1 = none), `materialNormalStrength[i]` its Cycles Strength. Uploaded onto
+    // the c_wfTexBinding side table (matNormalTexId/matNormalStrength) so
+    // GMaterial stays 640 B. `hasNormalPerturb` selects the
+    // stageShadeBucketedKernel<…,HasNormalPerturb=true> instantiation; false keeps
+    // the fleet byte-identical (register-probe gate). A NormalMapped decorator's
+    // INNER material supplies the GMaterial + base-colour texture; the normal
+    // texture rides here. bump-only decorators unwrap to the base with id -1
+    // (bump deferred to a follow-up — GPU renders the base BSDF).
+    std::vector<int>           materialNormalTexId;
+    std::vector<float>         materialNormalStrength;
+    bool                       hasNormalPerturb = false;
+
     // pkg219b — per-texel op-VM programs. `programs` holds each unique compiled
     // ShaderVMProgram (deduped by ProgramTexture*); `materialProgramId` is
     // parallel to `materials` (-1 = no program). `hasProgram` selects the

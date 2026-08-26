@@ -856,7 +856,8 @@ __constant__ GWavefrontProgramBinding c_wfProgBinding;
 // .astroray_plan/packages/pkg189-gpu-wavefront-dispersion-enablement.md.
 template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPhotons = false,
          bool HasDispersion = false, bool HasLightPassAOVs = false,  // pkg198 S2 pass axis
-         bool HasProgram = false>  // pkg219b — per-texel op-VM axis
+         bool HasProgram = false,   // pkg219b — per-texel op-VM axis
+         bool HasNormalPerturb = false>  // pkg223 — tangent-space normal-map axis
 __device__ bool shadePathSlot(
     int idx,
     GPUWavefrontState& state,
@@ -972,6 +973,64 @@ __device__ bool shadePathSlot(
                                             rec.normal, uvT, uvSign)) {
                     rec.uvTangent = uvT;
                     rec.uvBitangentSign = uvSign;
+                }
+            }
+        }
+    }
+
+    // pkg223 — tangent-space normal-map perturbation of the shading normal.
+    // Behind `if constexpr (HasNormalPerturb)` so every fleet <…,false> shade
+    // specialization compiles this out ENTIRELY and stays byte-identical
+    // (GMaterial is untouched — the normal map rides the __constant__
+    // c_wfTexBinding side arrays, memory wavefront-shade-kernels-register-
+    // saturated). Mirrors the CPU NormalMappedPlugin::perturbNormal EXACTLY for
+    // parity: build the UV-aligned (Mikk-TSpace / Lengyel) frame from the hit
+    // triangle (gpu_pr_uvAlignedTangent — the lambertian path has no precomputed
+    // uvTangent, that is HasPrincipled-only), decode n_ts = 2·rgb − 1, rotate,
+    // and lerp toward the geometric normal by the Cycles Strength. Rebuilds the
+    // ONB so the BSDF sample/eval below shade against the perturbed frame.
+    if constexpr (HasNormalPerturb) {
+        const int nmTexId = c_wfTexBinding.matNormalTexId[rec.materialId];
+        if (nmTexId >= 0 && rec.primId >= 0 &&
+            prims[rec.primId].type == GPRIM_TRIANGLE) {
+            const GTriangle& ntri = tris[prims[rec.primId].index];
+            if (ntri.hasUV) {
+                GVec3 nT; float nSign;
+                if (gpu_pr_uvAlignedTangent(ntri.v0, ntri.v1, ntri.v2,
+                                            ntri.uv0, ntri.uv1, ntri.uv2,
+                                            rec.normal, nT, nSign)) {
+                    // Barycentric UV at the hit (same recompute as the texture
+                    // path; short-lived, folded into the perturbed normal).
+                    GVec3 e1 = ntri.v1 - ntri.v0, e2 = ntri.v2 - ntri.v0;
+                    GVec3 ep = rec.point - ntri.v0;
+                    float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+                    float d20 = ep.dot(e1), d21 = ep.dot(e2);
+                    float denom = d00 * d11 - d01 * d01;
+                    if (fabsf(denom) > 1e-20f) {
+                        float b1 = (d11 * d20 - d01 * d21) / denom;
+                        float b2 = (d00 * d21 - d01 * d20) / denom;
+                        float b0 = 1.0f - b1 - b2;
+                        float uu = b0*ntri.uv0.x + b1*ntri.uv1.x + b2*ntri.uv2.x;
+                        float vv = b0*ntri.uv0.y + b1*ntri.uv1.y + b2*ntri.uv2.y;
+                        const GImageTexture& ndesc = c_wfTexBinding.textures[nmTexId];
+                        if (ndesc.hasMapping) {
+                            const float* m = ndesc.mapping;
+                            float mu = m[0]*uu + m[1]*vv + m[3];
+                            float mv = m[4]*uu + m[5]*vv + m[7];
+                            uu = mu; vv = mv;
+                        }
+                        GVec3 rgb = gpu_sampleImageTexture(
+                            ndesc, c_wfTexBinding.texelBuf, uu, vv);
+                        GVec3 nTS = rgb * 2.0f - GVec3(1.0f);
+                        GVec3 B = rec.normal.cross(nT) * nSign;
+                        GVec3 mapped = (nT * nTS.x + B * nTS.y +
+                                        rec.normal * nTS.z).normalized();
+                        float t = fminf(fmaxf(
+                            c_wfTexBinding.matNormalStrength[rec.materialId], 0.0f), 1.0f);
+                        rec.normal = (rec.normal * (1.0f - t) +
+                                      mapped * t).normalized();
+                        gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
+                    }
                 }
             }
         }
@@ -1710,7 +1769,8 @@ __global__ void stageIntersectQueuedKernel(
 
 template<bool HasPrincipled, bool HasTexture, bool HasPhotons, bool HasDispersion,
          bool HasLightPassAOVs = false,  // pkg178 D4; pkg186 texture; pkg184 photons; pkg189 dispersion; pkg198 S2 pass axis
-         bool HasProgram = false>  // pkg219b — per-texel op-VM axis
+         bool HasProgram = false,   // pkg219b — per-texel op-VM axis
+         bool HasNormalPerturb = false>  // pkg223 — tangent-space normal-map axis
 __global__ void stageShadeBucketedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1746,7 +1806,7 @@ __global__ void stageShadeBucketedKernel(
     // pkg186: texture data comes from the __constant__ c_wfTexBinding symbol, NOT
     // kernel params — keeps the untextured <false,false> signature at its
     // pre-pkg186 footprint (see c_wfTexBinding note above).
-    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons, HasDispersion, HasLightPassAOVs, HasProgram>(idx, state, hitBufs, tlas, instances, blas,
+    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons, HasDispersion, HasLightPassAOVs, HasProgram, HasNormalPerturb>(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
                                totalLightPower, dedLights, numDed,
@@ -2153,7 +2213,12 @@ void launchStageShadeBucketed(
     // pkg219b: selects the <*,*,*,*,*,true> instantiation carrying the per-texel
     // op-VM. The fleet (no material carries a VM program) passes false and stays
     // byte-identical — the register probe gate for this package.
-    bool              hasProgram)
+    bool              hasProgram,
+    // pkg223: selects the <…,true> instantiation carrying the tangent-space
+    // normal-map perturbation. The fleet (no material carries a normal map)
+    // passes false and reaches the byte-identical <…,false> kernel — the
+    // register-probe gate. Data (matNormalTexId/Strength) rides c_wfTexBinding.
+    bool              hasNormalPerturb)
 {
     if (capacity <= 0) return;
     // One launch covers all buckets: grid = NUM_TYPES * capacity threads;
@@ -2215,12 +2280,23 @@ void launchStageShadeBucketed(
         // all 4 (LP × Program) specializations of each combo land in the cubin.
         // The fleet path (hasProgram==false) reaches the same <…,false>
         // instantiations as before → byte-identical register/stack.
+        // pkg223: the 7th axis (HasNormalPerturb) nests OUTSIDE the pkg198/pkg219b
+        // LP×Program runtime selection. The false-NP branch reaches the EXACT same
+        // <…,false> instantiations as before (explicit 7th `false` == the 6-arg
+        // default) → the fleet stays byte-identical; only hasNormalPerturb scenes
+        // take the <…,true> kernels carrying the normal-map codegen.
         #define ASTRORAY_PKG198_KPTR(P,T,Ph,D) \
-                (hasLightPassAOVs \
-                   ? (hasProgram ? (const void*)stageShadeBucketedKernel<P,T,Ph,D,true,true> \
-                                 : (const void*)stageShadeBucketedKernel<P,T,Ph,D,true,false>) \
-                   : (hasProgram ? (const void*)stageShadeBucketedKernel<P,T,Ph,D,false,true> \
-                                 : (const void*)stageShadeBucketedKernel<P,T,Ph,D,false,false>))
+            (hasNormalPerturb \
+              ? (hasLightPassAOVs \
+                   ? (hasProgram ? (const void*)stageShadeBucketedKernel<P,T,Ph,D,true ,true ,true > \
+                                 : (const void*)stageShadeBucketedKernel<P,T,Ph,D,true ,false,true >) \
+                   : (hasProgram ? (const void*)stageShadeBucketedKernel<P,T,Ph,D,false,true ,true > \
+                                 : (const void*)stageShadeBucketedKernel<P,T,Ph,D,false,false,true >)) \
+              : (hasLightPassAOVs \
+                   ? (hasProgram ? (const void*)stageShadeBucketedKernel<P,T,Ph,D,true ,true ,false> \
+                                 : (const void*)stageShadeBucketedKernel<P,T,Ph,D,true ,false,false>) \
+                   : (hasProgram ? (const void*)stageShadeBucketedKernel<P,T,Ph,D,false,true ,false> \
+                                 : (const void*)stageShadeBucketedKernel<P,T,Ph,D,false,false,false>)))
         const void* kptr = nullptr;
         switch (sel) {
             case  0: kptr = ASTRORAY_PKG198_KPTR(false,false,false,false); break;
@@ -2243,18 +2319,23 @@ void launchStageShadeBucketed(
         #undef ASTRORAY_PKG198_KPTR
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_shade_bucketed_n7", kptr, blocks, threads);
-        #define ASTRORAY_PKG198_LAUNCH(P,T,Ph,D) \
+        // pkg223: mirror the KPTR nesting — hasNormalPerturb selects the <…,true>
+        // normal-map kernels; the else-branch is the pre-pkg223 fleet path.
+        #define ASTRORAY_PKG223_LP_PROG(P,T,Ph,D,NP) \
                 do { if (hasLightPassAOVs) { \
                     if (hasProgram) \
-                        stageShadeBucketedKernel<P,T,Ph,D,true ,true ><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
+                        stageShadeBucketedKernel<P,T,Ph,D,true ,true ,NP><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
                     else \
-                        stageShadeBucketedKernel<P,T,Ph,D,true ,false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
+                        stageShadeBucketedKernel<P,T,Ph,D,true ,false,NP><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
                 } else { \
                     if (hasProgram) \
-                        stageShadeBucketedKernel<P,T,Ph,D,false,true ><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
+                        stageShadeBucketedKernel<P,T,Ph,D,false,true ,NP><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
                     else \
-                        stageShadeBucketedKernel<P,T,Ph,D,false,false><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
+                        stageShadeBucketedKernel<P,T,Ph,D,false,false,NP><<<blocks, threads>>>(ASTRORAY_PKG186_SHADE_ARGS); \
                 } } while (0)
+        #define ASTRORAY_PKG198_LAUNCH(P,T,Ph,D) \
+                do { if (hasNormalPerturb) ASTRORAY_PKG223_LP_PROG(P,T,Ph,D,true ); \
+                     else                  ASTRORAY_PKG223_LP_PROG(P,T,Ph,D,false); } while (0)
         switch (sel) {
             case  0: ASTRORAY_PKG198_LAUNCH(false,false,false,false); break;
             case  1: ASTRORAY_PKG198_LAUNCH(false,false,false,true ); break;
@@ -2274,6 +2355,7 @@ void launchStageShadeBucketed(
             case 15: ASTRORAY_PKG198_LAUNCH(true ,true ,true ,true ); break;
         }
         #undef ASTRORAY_PKG198_LAUNCH
+        #undef ASTRORAY_PKG223_LP_PROG
         #undef ASTRORAY_PKG186_SHADE_ARGS
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {

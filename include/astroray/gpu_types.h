@@ -630,6 +630,14 @@ struct GWavefrontTextureBinding {
     // Strength. Read ONLY inside the HasNormalPerturb=true specialization.
     const int*           matNormalTexId;    // per-material normal-texture id, -1 absent
     const float*         matNormalStrength;  // per-material Strength [0,1]
+    // pkg223b — Bump node, on the SAME side table (GMaterial stays 640 B; the
+    // fleet <…,false> kernel byte-identical). matBumpTexId[mat] indexes `textures`
+    // (-1 = no bump); matBumpDistance/Strength are the Cycles surfgrad scale +
+    // the 0..1 blend. Read ONLY inside HasNormalPerturb=true. Normal Map and Bump
+    // are mutually exclusive per material (the shade branch tries normal first).
+    const int*           matBumpTexId;      // per-material height-texture id, -1 absent
+    const float*         matBumpStrength;   // per-material Strength [0,1]
+    const float*         matBumpDistance;   // per-material Distance (surfgrad scale)
 };
 
 // pkg197 — wavefront first-hit denoise-guide AOV binding. Published ONCE per

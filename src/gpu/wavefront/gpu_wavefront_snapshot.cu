@@ -1001,6 +1001,7 @@ struct WfContext {
     WfDeviceBuf dedLights;                    // pkg89-wavefront (C7)
     WfDeviceBuf textures, textureTexels, materialTextureId;  // pkg186 image textures
     WfDeviceBuf materialNormalTexId, materialNormalStrength;  // pkg223 normal maps
+    WfDeviceBuf materialBumpTexId, materialBumpStrength, materialBumpDistance;  // pkg223b bump
     WfDeviceBuf programs, materialProgramId;   // pkg219b op-VM programs
     WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
     WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
@@ -1388,9 +1389,14 @@ std::vector<float> cuda_wavefront_render(
     // normal map on a non-textured Principled/Disney BSDF has hasTexture=false).
     int*   d_matNormalTexId   = wfUpload(C.materialNormalTexId, res.materialNormalTexId);
     float* d_matNormalStrength = wfUpload(C.materialNormalStrength, res.materialNormalStrength);
+    // pkg223b — bump side arrays (same axis as normal maps).
+    int*   d_matBumpTexId    = wfUpload(C.materialBumpTexId, res.materialBumpTexId);
+    float* d_matBumpStrength = wfUpload(C.materialBumpStrength, res.materialBumpStrength);
+    float* d_matBumpDistance = wfUpload(C.materialBumpDistance, res.materialBumpDistance);
     if (res.hasTexture || res.hasNormalPerturb)
         setWavefrontTextureBinding(GWavefrontTextureBinding{
-            d_textures, d_texelBuf, d_matTexId, d_matNormalTexId, d_matNormalStrength});
+            d_textures, d_texelBuf, d_matTexId, d_matNormalTexId, d_matNormalStrength,
+            d_matBumpTexId, d_matBumpStrength, d_matBumpDistance});
     // pkg219b — op-VM program device arrays (all null when no material carries a
     // program; res.hasProgram=false then selects the <…,false> shade kernel).
     astroray::svm::ShaderVMProgram* d_programs =

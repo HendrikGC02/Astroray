@@ -45,6 +45,12 @@ struct SceneUploadResult {
     // (bump deferred to a follow-up — GPU renders the base BSDF).
     std::vector<int>           materialNormalTexId;
     std::vector<float>         materialNormalStrength;
+    // pkg223b — Bump node: per-material height-texture id (-1 = none), Distance
+    // (Cycles surfgrad scale), and Strength [0,1]. Same side-table treatment as
+    // the normal-map arrays above; read only in the HasNormalPerturb shade path.
+    std::vector<int>           materialBumpTexId;
+    std::vector<float>         materialBumpStrength;
+    std::vector<float>         materialBumpDistance;
     bool                       hasNormalPerturb = false;
 
     // pkg219b — per-texel op-VM programs. `programs` holds each unique compiled

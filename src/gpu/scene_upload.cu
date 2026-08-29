@@ -328,7 +328,13 @@ static void appendOnePrim(
             // colour texture UVs for a NormalMapped(TexturedLambertian).
             const bool normalMapped =
                 mtl && mtl->normalMapTexture() != nullptr;
-            if ((anisoPrincipled || imageTextured || normalMapped) &&
+            // pkg223b — a bump-mapped material likewise needs the active-layer UVs
+            // on the device: the shade path's HasNormalPerturb bump branch samples
+            // the height texture at the hit UV (and ±eps). Without this a bump-ONLY
+            // material's triangle uploads no UVs (hasUV=0) and the bump branch skips.
+            const bool bumpMapped =
+                mtl && mtl->bumpMapTexture() != nullptr;
+            if ((anisoPrincipled || imageTextured || normalMapped || bumpMapped) &&
                 tri->hasUVLayers()) {
                 Vec2 t0 = tri->getUV0(), t1 = tri->getUV1(), t2 = tri->getUV2();
                 gt.uv0 = GVec2(t0.u, t0.v);
@@ -703,10 +709,18 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         std::shared_ptr<Material> m = mIn;
         std::shared_ptr<Texture>  nmTex;
         float nmStrength = 1.0f;
+        // pkg223b — Bump rides the same NormalMappedPlugin decorator; unwrap once
+        // and read both the normal texture and the height (bump) texture.
+        std::shared_ptr<Texture>  bmTex;
+        float bmStrength = 1.0f;
+        float bmDistance = 0.01f;
         if (auto inner = mIn->normalMapInner()) {
             m = inner;
             nmTex = mIn->normalMapTexture();
             nmStrength = mIn->normalMapStrength();
+            bmTex = mIn->bumpMapTexture();
+            bmStrength = mIn->bumpMapStrength();
+            bmDistance = mIn->bumpMapDistance();
         }
         r.materials.push_back(convertMaterial(m));
         // pkg178 Stage-3b D4: flag scenes carrying a closure-graph Principled
@@ -952,6 +966,38 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         }
         r.materialNormalTexId.push_back(normalTexId);
         r.materialNormalStrength.push_back(nmStrength);
+        // pkg223b — register the height (bump) texture on the same side arrays,
+        // deduped via the same texIdx map (mirrors the normal-map block above).
+        int bumpTexId = -1;
+        if (auto bimg = std::dynamic_pointer_cast<ImageTexture>(bmTex)) {
+            if (!bimg->getData().empty()) {
+                auto bit = texIdx.find(bimg.get());
+                if (bit != texIdx.end()) {
+                    bumpTexId = bit->second;
+                } else {
+                    bumpTexId = (int)r.textures.size();
+                    texIdx[bimg.get()] = bumpTexId;
+                    GImageTexture bdesc;
+                    bdesc.offset = (int)r.textureTexels.size();
+                    bdesc.width  = bimg->getWidth();
+                    bdesc.height = bimg->getHeight();
+                    if (bimg->hasMapping()) {
+                        bdesc.hasMapping = 1;
+                        const float* mm = bimg->getMappingMatrix();
+                        for (int i = 0; i < 12; ++i) bdesc.mapping[i] = mm[i];
+                    }
+                    const std::vector<Vec3>& px = bimg->getData();
+                    r.textureTexels.reserve(r.textureTexels.size() + px.size());
+                    for (const Vec3& c : px)
+                        r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                    r.textures.push_back(bdesc);
+                }
+                r.hasNormalPerturb = true;  // Bump shares the HasNormalPerturb axis
+            }
+        }
+        r.materialBumpTexId.push_back(bumpTexId);
+        r.materialBumpStrength.push_back(bmStrength);
+        r.materialBumpDistance.push_back(bmDistance);
         r.materialTextureId.push_back(texId);
         r.materialProgramId.push_back(progId);
         return id;

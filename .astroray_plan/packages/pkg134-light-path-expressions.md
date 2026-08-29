@@ -3,7 +3,7 @@
 **Pillar:** 5 (production polish / AOV routing)
 **Track:** A (host-side DFA compile + AOV routing is CPU-gated; wavefront path-state transitions verified on RTX)
 **Codex-paste-ready:** no (OSL automata port + a new uint16 path-state SoA field carried through every wavefront stage + per-event transition logic — cross-cutting)
-**Status:** open
+**Status:** still-open — never implemented; no LPE/light-path-expression automata in the repo, only the spec-filing PR #492.
 **Estimated effort:** M–L (2–4 sessions per the research doc — OSL automata port, DFA upload, path-state field, AOV routing)
 **Depends on:** **pkg130** (light groups) — pkg130's emission-mechanism group ids are the alphabet-extension labels this package's LPE grammar matches on. Composes after pkg55 Phase C (path-state field added once, to the single surviving wavefront SoA). Land order: pkg130 → pkg134.
 

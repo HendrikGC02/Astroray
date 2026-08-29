@@ -3,7 +3,7 @@
 **Pillar:** 5 (production polish / AOV output — journal-figure production)
 **Track:** A (per-group framebuffers + post-render rebalancing gate runs CPU-side; wavefront write-out verified on RTX)
 **Codex-paste-ready:** no (new per-group framebuffer plumbing across CPU + wavefront + EXR write + addon UI; emitter-group tagging is a scene-convention decision)
-**Status:** open
+**Status:** still-open — never implemented; no light-group/emission-decomposition code in the repo, only the spec-filing PR #492.
 **Estimated effort:** M (~1 session per the research doc — emitter id plumbing + per-group buffers + EXR layers + addon UI)
 **Depends on:** none hard. Composes cleanly after pkg55 Phase C (single spectral pipeline → per-group buffers land in one CPU + one GPU path, not four). The **emission-mechanism** alphabet defined here is the label source pkg134 (LPE) extends — file/land pkg130 first so pkg134 has the group ids to consume.
 

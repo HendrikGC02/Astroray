@@ -1,5 +1,21 @@
 # Astroray Next Stage Report
 
+## 2026-08-29 SESSION HANDOFF — round complete; next = pkg224 implementation
+
+**Shipped & merged this session (7 PRs):**
+- **pkg201-S3 item A** (#651) — per-type bounce limits (diffuse/glossy/transmission), CPU+GPU parity, OPTION-2 runtime compare. REG 254 unchanged (+8 STACK/+8 CONST accepted perf-neutral).
+- **pkg201-S3 item E** (#654) — native caustic toggles (reflective/refractive), CPU+GPU parity, sticky diffuse-ancestor cull. REG 254 (+8 STACK/+8 CONST).
+- **pkg223b Bump node** (#655) — height→normal perturbation, CPU+GPU parity, SHARED HasNormalPerturb axis (no new axis, no spill). Fixed the UV-upload-gate bug ([[uv-upload-gate-needs-new-normal-perturb-consumers]]) + texel-relative bump eps.
+- **pkg126–137 status audit** (#648), **tracker+template hygiene** (#649), **pkg224 progressive-sampler spec** (#656) + Bump/filter_glossy/caustic research notes (#650/#652/#653).
+
+**Parked (documented, follow-up filed):** pkg201-S3 **item C** filter_glossy — NOT a register spill; materials recompute GGX alpha inline at ~4 sites each (no single sd->closure point), so a faithful blur needs a per-material floored-roughness refactor ×5 materials ×2 backends. [[pkg201-filter-glossy-alpha-site-sprawl]].
+
+**Fleet register baseline now: `stageShadeBucketedKernel<0,…>` REG 254 / STACK 3368 / CONSTANT[0] 1716** (measure from the actual .pyd, don't trust this).
+
+**NEXT (owner-directed 2026-08-29): implement pkg224** — progressive (low-discrepancy) sampler for the wavefront, the prerequisite that unblocks pkg131 (blocked on white-noise RNG). Spec `.astroray_plan/packages/pkg224-progressive-sampler.md` (est. 2 sessions / ~6h) + research `.astroray_plan/docs/pkg224-progressive-sampler-research.md` are MERGED. Recommended path (spec §Real forks): **(a) hash-Owen-scrambled Sobol'** (Burley 2020, pbrt-v4 FastOwenScrambler, Apache-2.0) over PMJ02; **(b) opt-in `__constant__` runtime flag**, not a compile-time axis (default OFF = existing PCG32 white-noise, byte-identical fleet + CPU/GPU snapshot gates); **(c) GPU-only first** (CPU uses raw std::mt19937 at dozens of sites, no WavefrontRNG hook — CPU parity is a separately-scoped follow-up). Integration point: `WavefrontRNG::GenerateForDimension` (`include/astroray/sampling/wavefront_rng.h`) — swap its internal generator behind the flag; Sobol direction vectors in `__constant__`/side-table (never GMaterial). Then build pkg131 adaptive sampling on top. Owner has NOT yet confirmed forks (a)/(b)/(c) — spec recommends them; confirm or override before implementing.
+
+---
+
 ## 2026-08-26 SESSION HANDOFF — next-session agenda (owner-directed)
 
 **Landed this session:** pkg223 (GPU tangent-space normal maps, PR #647 merged

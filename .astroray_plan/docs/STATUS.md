@@ -1,5 +1,47 @@
 # Astroray Status
 
+**2026-08-29 (pkg201-S3 items A+E + pkg223b Bump ROUND — 7 PRs merged; shader-node
++ Cycles-parity + honour-matrix advance): three engine features shipped CPU+GPU at
+parity with the fleet shade kernel held at REG 254 throughout, plus audits/hygiene
+and the pkg224 progressive-sampler spec that unblocks pkg131.**
+- **pkg201-S3 item A DONE** (PR #651) — Cycles per-type bounce limits
+  (diffuse/glossy/transmission) honoured on BOTH backends (they were `(void)`-
+  discarded on CPU too; first impl on both, owner option B). CPU `pathTraceSpectral`
+  + GPU `shadePathSlot`, OPTION-2 runtime SoA compare. Register probe: REG 254
+  unchanged, STACK 3352→3360 (+8), CONSTANT[0] 1700→1708 (+8, the `per_type_bounce`
+  SoA pointer) — owner ACCEPTED as perf-neutral (occupancy is register-bound; the
+  +8 STACK is untouched in the fleet all-unlimited path). `transparent_max_bounces`
+  (needs a BSDF lobe LABEL) and `volume_bounces` (pkg199 cross-ref) PARKED.
+- **pkg201-S3 item E DONE** (PR #654) — native caustic toggles
+  (`caustics_reflective`/`caustics_refractive`) honoured BOTH backends via a sticky
+  `hadDiffuseAncestor` flag + a delta-caustic cull (Cycles PATH_RAY_DIFFUSE_ANCESTOR).
+  Both toggles default ON ⇒ byte-identical fleet. Register: REG 254, STACK 3360→3368,
+  CONSTANT[0] 1708→1716 (`had_diffuse_ancestor` SoA). Path-traced glass-sphere test:
+  refractive-off removes energy + changes pixels, CPU+GPU.
+- **pkg201-S3 item C PARKED** — filter_glossy: NOT a register spill; materials
+  recompute GGX alpha inline at ~4 sites each (no single `sd->closure` mutation point
+  like Cycles), so a faithful blur needs a per-material floored-roughness refactor
+  ×5 materials ×2 backends — disproportionate to one honour row. Follow-up filed
+  (research note + [[pkg201-filter-glossy-alpha-site-sprawl]]).
+- **pkg223b Bump node DONE** (PR #655) — Blender Bump (height→normal) honoured
+  CPU+GPU at parity via Cycles `svm_node_set_bump` surface-gradient (Mikkelsen 2010)
+  on the UV-aligned frame, SHARING the pkg223 `HasNormalPerturb` axis (no new axis).
+  Register probe: fleet `<0,…>` byte-identical REG 254 / STACK 3368 / CONSTANT[0]
+  1716; shared `<…,true>` absorbed the bump branch with NO spill. Fixed two latent
+  bugs: (1) the **UV-upload gate** in `scene_upload.cu` excluded bump-mapped
+  materials → bump-only triangles shipped `hasUV=0` → the GPU bump branch silently
+  skipped (the entire "GPU bump weak/doesn't scale" symptom); (2) nearest-neighbour
+  sampling needs a texel-relative bump `eps`. Addon export was already wired. See
+  [[uv-upload-gate-needs-new-normal-perturb-consumers]].
+- **Docs/infra:** pkg126–137 status audit (PR #648, most still-open + no code;
+  pkg128→superseded by pkg178, pkg129→done), tracker+template hygiene (PR #649,
+  18 Pillar-frontmatter fixes + timeline regex in both script mirrors), and
+  **pkg224 progressive-sampler spec + research** (PR #656) filed as the pkg131
+  unblock. Owner CONFIRMED pkg224 forks: hash-Owen Sobol' / opt-in runtime flag /
+  GPU-only first — NEXT session implements it.
+- **Fleet register baseline now: `stageShadeBucketedKernel<0,…>` REG 254 / STACK
+  3368 / CONSTANT[0] 1716** (measure from the actual `.pyd`, don't trust this line).
+
 **2026-08-26 (pkg223 — GPU tangent-space NORMAL MAPS, PR #647 merged be7cbec):
 normal maps now perturb the shading normal on the GPU wavefront (they were
 silently dropped) and the CPU decode is corrected to the UV-aligned frame.**

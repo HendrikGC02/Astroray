@@ -2,7 +2,7 @@
 
 **Pillar:** 3 <!-- Rendering-quality/convergence infra: the sampler itself changes nothing users see by default (opt-in, off-by-default); it exists to unblock pkg131 (Pillar 3's zero-knob adaptive sampling). Filed under 3, not 5, because it is a core-integrator convergence primitive, not a peripheral/tooling concern. -->
 **Track:** A
-**Status:** open
+**Status:** open — **forks (a)/(b)/(c) OWNER-CONFIRMED 2026-08-29: (a) hash-Owen Sobol', (b) opt-in `__constant__` runtime flag, (c) GPU-only first.** Ready to implement directly (see §Real forks for the confirmed rationale). Do NOT re-litigate.
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg55 (wavefront SoA refactor), pkg92 (WavefrontRNG foundation)
 
@@ -133,6 +133,9 @@ to unblock it rather than continue deferring pkg131.
 ---
 
 ## Real forks for the owner
+
+> **RESOLVED 2026-08-29 — owner confirmed all three: (a) hash-Owen Sobol', (b) opt-in runtime flag, (c) GPU-only first.** Owner note on (a): "prefer doing the hard work now so the foundations are solid for later." The recommendations below are the accepted plan; kept for rationale/provenance, not re-open.
+
 
 **(a) Sobol'-hash-Owen (Burley 2020) vs. PMJ02 (Christensen et al. 2018).**
 Research note recommends hash-Owen-Sobol' for its fully stateless

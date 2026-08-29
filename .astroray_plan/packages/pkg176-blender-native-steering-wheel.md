@@ -1,6 +1,6 @@
 # pkg176 — Blender as the steering wheel: drive Astroray from Blender's NATIVE settings/UI, retire the ground-up custom UI
 
-**Pillar:** Integration Milestone (Blender/DCC integration — see ROADMAP "Integration Milestone")
+**Pillar:** 5
 **Track:** A (addon-heavy Python + real-host verification; render legs RTX)
 **Status:** done (PRs #555/#556/#561/#568, 2026-08-08 — Stages 0–4 COMPLETE). Stage 0 mapping table (owner-review artifact, 58 direct/4 approximated/19 dropped/9 astroray-only across 90 rows); Stage 1 settings-plumbing (#555 — exporter reads the 14 DIRECT-mapped native props, deprecated-alias back-compat); Stage 2 native Cycles panel adoption (#556 — Light Paths panels via `ADOPTED_NATIVE_PANELS`, fail-loud register guard); Stage 3 world/light/camera completion (#561 — `report_unsupported_native_controls` consolidated per-render WARNING for genuinely-unmappable DROPPED controls, never silent); Stage 4 custom-UI retirement (#568, 2026-08-09 owner-approved — removed the 14 Stage-1 deprecated-alias custom props, native Blender/Cycles panels are now the only steering wheel plus one Astroray-only panel). 45 pkg176 unit tests + Blender 5.2 real-host register/headless-smoke PASS. Deferred to a later addon HW session: deep per-setting F12 pixel-honour matrix.
 **Estimated effort:** L, staged (Stage 1 render/sampling settings; Stage 2 panel adoption; Stage 3 world/light/camera property completion; Stage 4 custom-UI retirement)

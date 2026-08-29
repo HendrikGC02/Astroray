@@ -1,6 +1,6 @@
 # pkg209 — pkg187 Cauchy parity re-verify vs merged Cycles + WIP-doc/citation refresh
 
-**Pillar:** Integration Milestone (Cycles-parity hygiene) + repo hygiene
+**Pillar:** 5
 **Track:** A (verification + doc/comment refresh; no algorithm change expected).
 **Estimated effort:** S.
 **Status:** open (filed 2026-08-19).

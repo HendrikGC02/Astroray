@@ -1,7 +1,6 @@
 # pkg223 — Normal Map node: tangent-space normal-texture perturbation of the shading normal (pkg219d, part 1)
 
-**Pillar:** Blender/DCC integration (integration-first directive, 2026-08 — comes
-BEFORE Pillar 4; memory `integration-first-directive-2026-08`).
+**Pillar:** 5
 **Track:** A
 **Status:** DONE (PR #647 merged 2026-08-26, be7cbec). GPU-only scope confirmed on
 investigation: the addon export, CPU decode, and UV-aligned tangent infra already

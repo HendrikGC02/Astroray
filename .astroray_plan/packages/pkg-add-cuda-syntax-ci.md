@@ -1,6 +1,6 @@
 # pkg-add-cuda-syntax-ci — CUDA syntax check in Linux CI
 
-**Pillar:** 0 (Infrastructure)
+**Pillar:** <!-- infrastructure: no numeric pillar -->
 **Track:** Track A (CI/build infrastructure)
 **Status:** done (PR #358, 2026-05-24 — 15 .cu files compile clean in ~4min CI)
 **Estimated effort:** ~2 hours (spec + CI workflow + test)

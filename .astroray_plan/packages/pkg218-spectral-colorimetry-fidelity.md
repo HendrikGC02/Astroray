@@ -1,6 +1,6 @@
 # pkg218 — Spectral colorimetry fidelity: accurate atomic-line lamp SPDs + configurable observer / camera response function
 
-**Pillar:** 4 (astro/science-grade fidelity) + Pillar 3 (spectral rendering)
+**Pillar:** 2
 **Track:** A (architect to research + scope before implementation)
 **Status:** open (filed 2026-08-22). **RESEARCH SPEC** — architect researches, splits,
 and sizes before any implementation.

@@ -1,6 +1,6 @@
 # pkg205 — UnicodeEncodeError console test hygiene (cp1252 print() glyphs)
 
-**Pillar:** Infrastructure / test hygiene
+**Pillar:** <!-- infrastructure: no numeric pillar -->
 **Track:** A (small local fix — no engine code, no GPU, no physics)
 **Status:** done (PR #626, 2026-08-20 — 3 tests un-broken: test_pkg182 (λ→lambda), test_disney_diffuse_pdf (π/°→pi/deg), test_blender_parity_matrix (✓→[OK]); all now PASS under cp1252, 0 UnicodeEncodeError).
 **Estimated effort:** XS.

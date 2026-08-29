@@ -1426,6 +1426,10 @@ std::vector<float> cuda_wavefront_render(
     setWavefrontBounceLimits(renderer.getMaxDiffuseBounces(),
                              renderer.getMaxGlossyBounces(),
                              renderer.getMaxTransmissionBounces());
+    // pkg201 Stage 3 (Finding E) — native caustic toggles. Both-allow (default)
+    // makes the shade kernel's caustic-cull block a no-op (byte-identical).
+    setWavefrontCausticGate(renderer.getUseReflectiveCaustics(),
+                            renderer.getUseRefractiveCaustics());
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).

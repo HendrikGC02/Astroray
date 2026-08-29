@@ -310,7 +310,8 @@ __device__ void initPathSlot(
     state.pixel_index[idx]  = pixel;
     state.sample_index[idx] = sample_idx;
     state.bounce[idx]       = 0;
-    state.per_type_bounce[idx] = 0u;  // pkg201 Stage 3 — reset per-type counters
+    state.per_type_bounce[idx] = 0u;  // pkg201 Stage 3 (A) — reset per-type counters
+    state.had_diffuse_ancestor[idx] = 0;  // pkg201 Stage 3 (E) — reset ancestor flag
 
     state.rng_pixel[idx]     = rng.pixel();
     state.rng_sample[idx]    = rng.sample();

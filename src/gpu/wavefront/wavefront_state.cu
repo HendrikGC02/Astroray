@@ -91,6 +91,8 @@ bool allocateGPUWavefrontState(GPUWavefrontState& s, int capacity) {
 
     // pkg201 Stage 3 (Finding A) — packed per-type bounce counters.
     ALLOC_CHECK(s.per_type_bounce, capacity * sizeof(uint32_t));
+    // pkg201 Stage 3 (Finding E) — sticky diffuse-ancestor flag.
+    ALLOC_CHECK(s.had_diffuse_ancestor, capacity * sizeof(int));
 
     // Path-continuation flags.
     ALLOC_CHECK(s.was_specular, capacity * sizeof(int));
@@ -148,7 +150,8 @@ void freeGPUWavefrontState(GPUWavefrontState& s) {
     cudaFree(s.photon_xyz_y);
     cudaFree(s.photon_xyz_z);
 
-    cudaFree(s.per_type_bounce);  // pkg201 Stage 3
+    cudaFree(s.per_type_bounce);       // pkg201 Stage 3 (A)
+    cudaFree(s.had_diffuse_ancestor);  // pkg201 Stage 3 (E)
     cudaFree(s.was_specular);
     cudaFree(s.path_alive);
 

@@ -3,7 +3,7 @@
 **Pillar:** 1 (CUDA device infrastructure)
 **Track:** A (host-side page-request servicing is CPU-gated; the sparse-texture device path is verified on RTX)
 **Codex-paste-ready:** no (CUDA virtual-memory / sparse-texture APIs + a device request list + inter-launch host servicing — research-grade device work)
-**Status:** open — **CONDITIONAL**: this package activates **only when texture overflow is actually observed** on real astrophysical scenes (large FITS cubes). Until then it stays filed-but-dormant. Do not implement pre-emptively.
+**Status:** still-open (dormant/conditional) — not implemented and intentionally not queued; activates only if texture overflow is actually observed on real astro scenes (never triggered). Only the spec-filing PR #492 exists. **CONDITIONAL**: this package activates **only when texture overflow is actually observed** on real astrophysical scenes (large FITS cubes). Until then it stays filed-but-dormant. Do not implement pre-emptively.
 **Estimated effort:** M–L (2–4 sessions per the research doc — CUDA virtual-memory APIs)
 **Depends on:** none hard. Second tier above **pkg132** (host-mapped fallback): pkg132 is the cheap whole-buffer spill that should ship first; pkg135 is page-granularity texture streaming that only earns its cost once whole-buffer spill is insufficient. **Phase-0 task:** verify the OTK `LICENSE.txt` is BSD-3 against the actual repo before any code is mirrored (research-doc flags it as README-asserted, not fetched).
 

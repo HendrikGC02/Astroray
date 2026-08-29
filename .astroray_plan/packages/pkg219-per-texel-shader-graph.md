@@ -1,7 +1,6 @@
 # pkg219 — Per-texel shader-graph evaluation (stop constant-folding the Blender node tree)
 
-**Pillar:** Blender/DCC integration (integration-first directive, 2026-08 — this comes
-BEFORE Pillar 4; memory `integration-first-directive-2026-08`).
+**Pillar:** 5
 **Track:** A (architect researches the fork + sizes before implementation).
 **Status:** open (filed 2026-08-22; fork DECIDED + staged 2026-08-23).
 **Research note:** [`../docs/pkg219-per-texel-svm-evaluator-research.md`](../docs/pkg219-per-texel-svm-evaluator-research.md) — READ FIRST.

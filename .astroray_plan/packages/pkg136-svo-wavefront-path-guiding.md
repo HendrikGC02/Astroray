@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / path guiding)
 **Track:** A (SVO build + cone-trace PDF query is CPU-verifiable; the wavefront guiding leg is verified on RTX)
 **Codex-paste-ready:** no (a global sparse-voxel-octree of radiant exitance + on-the-fly PDF/CDF via cone tracing, wired into wavefront sampling — a guiding subsystem, research-grade)
-**Status:** open
+**Status:** still-open — never implemented; no SVO path-guiding code in the repo, only the spec-filing PR #492.
 **Estimated effort:** M (moderate per the research doc — one global SVO, cone-trace query, no persistent per-region PDF storage)
 **Depends on:** **pkg55 Phase C completion** — guiding wires into the wavefront sampling stage, and Phase C stabilizes the wavefront as the *only* pipeline (a moving target otherwise). **Phase-0 task:** locate and license-verify a public reference implementation; if none exists, plan a **paper-only port** (the research doc flags "no confirmed public repo — VERIFY availability"). Land after Phase C.
 

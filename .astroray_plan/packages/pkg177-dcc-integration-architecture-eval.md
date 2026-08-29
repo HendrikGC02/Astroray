@@ -1,6 +1,6 @@
 # pkg177 — DCC-integration generalization: architecture tradeoff study + owner decision record
 
-**Pillar:** Integration Milestone (Blender/DCC integration — see ROADMAP "Integration Milestone")
+**Pillar:** 5
 **Track:** A (research/decision package — no production code; a small spike is allowed only if the study needs a measured fact)
 **Status:** CLOSED — decision document delivered + **owner-RATIFIED 2026-08-08** (`.astroray_plan/docs/dcc-integration-decision-2026-08.md`); parallel-safe, touched no addon/engine code.
 

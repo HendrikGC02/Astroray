@@ -1,6 +1,6 @@
 # pkg200 — Native-settings F12 pixel-honour matrix: prove each adopted Blender/Cycles control actually changes the render
 
-**Pillar:** Integration Milestone (Blender/DCC integration — verification layer)
+**Pillar:** 5
 **Track:** A (addon-heavy Python driver + real-host Blender 5.1/5.2 legs; render legs RTX)
 **Status:** done (PR #616, 2026-08-14 — A/B driver + Blender 5.1/5.2 sweep: 8
 PASS / 13 HONEST-FAIL / 2 NEEDS-VISUAL / 2 LIMITATION; surfaced GPU-drops-

@@ -1,6 +1,6 @@
 # pkgNN — Package Title
 
-**Pillar:** N  
+**Pillar:** <1-5> <!-- MUST be a bare integer 1-5 (blank only for infrastructure) so the tracker's parsePackageMd_ extracts it -->  
 **Track:** A / B / C / D  
 **Status:** open / in-progress / done  
 **Estimated effort:** e.g. 1 session (~3 h), 3 sessions (~9 h), 1 week  

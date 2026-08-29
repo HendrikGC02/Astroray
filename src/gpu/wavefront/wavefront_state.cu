@@ -89,6 +89,9 @@ bool allocateGPUWavefrontState(GPUWavefrontState& s, int capacity) {
     ALLOC_CHECK(s.photon_xyz_y, capacity * sizeof(float));
     ALLOC_CHECK(s.photon_xyz_z, capacity * sizeof(float));
 
+    // pkg201 Stage 3 (Finding A) — packed per-type bounce counters.
+    ALLOC_CHECK(s.per_type_bounce, capacity * sizeof(uint32_t));
+
     // Path-continuation flags.
     ALLOC_CHECK(s.was_specular, capacity * sizeof(int));
     ALLOC_CHECK(s.path_alive,   capacity * sizeof(int));
@@ -145,6 +148,7 @@ void freeGPUWavefrontState(GPUWavefrontState& s) {
     cudaFree(s.photon_xyz_y);
     cudaFree(s.photon_xyz_z);
 
+    cudaFree(s.per_type_bounce);  // pkg201 Stage 3
     cudaFree(s.was_specular);
     cudaFree(s.path_alive);
 

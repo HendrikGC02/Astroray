@@ -1876,6 +1876,12 @@ public:
                 (renderer.getSeed() == 0)
                     ? static_cast<uint64_t>(std::random_device{}())
                     : static_cast<uint64_t>(renderer.getSeed());
+            // pkg201 Stage 3 (Finding A) — the GPU branch does NOT call
+            // Renderer::render(), so store the per-type bounce limits on the
+            // renderer here; cuda_wavefront_render reads them
+            // (getMaxDiffuse/Glossy/TransmissionBounces) and publishes the
+            // shade-kernel __constant__. -1 (the default) = unlimited.
+            renderer.setPerTypeBounces(diffuseBounces, glossyBounces, transmissionBounces);
             bool smsProbeRan = false;
             {
                 const char* probe_env = std::getenv("ASTRORAY_PKG64_GPU_SMS_PROBE");

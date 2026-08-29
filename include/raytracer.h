@@ -2655,6 +2655,16 @@ public:
         int diffuseBounceCount = 0;
         int glossyBounceCount = 0;
         int transmissionBounceCount = 0;
+        // pkg201 Stage 3 (Finding E) — native caustic toggles. Sticky path-lifetime
+        // flag mirroring Cycles PATH_RAY_DIFFUSE_ANCESTOR: set once a path bounces
+        // off a genuinely diffuse surface, never cleared. A subsequent specular
+        // (delta) bounce forms a caustic; when the matching toggle is off the path
+        // is culled there (Cycles drops the reflective/refractive closure at setup).
+        // causticGateActive is false in the default (both toggles on) so the whole
+        // block is a no-op → byte-identical to pre-pkg201.
+        bool hadDiffuseAncestor = false;
+        const bool causticGateActive =
+            !useReflectiveCaustics || !useRefractiveCaustics;
         auto addPass = [&](int passIdx, const astroray::SampledSpectrum& contrib) {
             if (outPasses) (*outPasses)[passIdx] += contrib;
         };
@@ -3078,6 +3088,22 @@ public:
                         : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
             }
             if (firstCat < 0) firstCat = lobeCat;
+
+            // pkg201 Stage 3 (Finding E) — native caustic toggle cull. Reuses the
+            // per-bounce lobeCat (item A): a delta reflection is lobeCat==1
+            // (reflective caustic), a delta transmission is lobeCat==2 (refractive).
+            // When the path already has a diffuse ancestor and the matching toggle
+            // is off, terminate here (the closest equivalent to Cycles suppressing
+            // the specular/refractive closure at setup — the caustic never reaches
+            // the light). Direct lighting at earlier vertices is untouched.
+            if (causticGateActive) {
+                if (hadDiffuseAncestor && bss.isDelta &&
+                    ((lobeCat == 2 && !useRefractiveCaustics) ||
+                     (lobeCat == 1 && !useReflectiveCaustics))) {
+                    break;
+                }
+                if (lobeCat == 0) hadDiffuseAncestor = true;
+            }
 
             // pkg87b: Cryptomatte per-shade-point accumulation.
             // Weight = average(throughput · bsdf_eval), per Cycles film_write_cryptomatte_slots (Apache-2.0).

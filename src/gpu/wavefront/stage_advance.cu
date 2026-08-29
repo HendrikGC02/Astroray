@@ -182,6 +182,13 @@ __constant__ GWavefrontLightPassBinding c_wfLpBinding;
 // symbol, mirroring the c_wfTexBinding side-table pattern (pkg186/pkg223).
 __constant__ int c_wfBounceLimit[3] = { -1, -1, -1 };
 
+// pkg201 Stage 3 (Finding E) — native caustic toggles (index 0=reflective,
+// 1=refractive; 1=allow, 0=cull). Published once per frame by
+// cuda_wavefront_render (setWavefrontCausticGate). Both-allow (this static
+// default, and every render that does not turn a toggle off) makes shadePathSlot
+// skip the caustic-cull block entirely → the fleet kernel stays byte-identical.
+__constant__ int c_wfCausticGate[2] = { 1, 1 };
+
 // Splat a spectral contribution into slot `idx`'s pass `passIdx` accumulator.
 // Per-slot (mirrors the color SoA — accumulate-at-death like beauty), so no atomics:
 // one path owns one slot for the duration of a bounce, exactly like the color_/
@@ -1572,6 +1579,27 @@ __device__ bool shadePathSlot(
         }
     }
 
+    // pkg201 Stage 3 (Finding E) — native caustic toggle cull (device twin of the
+    // CPU pathTraceSpectral cull). Sticky had_diffuse_ancestor: once the path has
+    // scattered off a diffuse surface, a subsequent delta bounce forms a caustic;
+    // terminate it when the matching toggle is off (a delta reflection ⇒ cat 1 ⇒
+    // reflective; a delta transmission ⇒ cat 2 ⇒ refractive). Both-allow (the
+    // fleet default) skips this entirely → byte-identical. Runtime-gated like the
+    // Finding-A block above (OPTION-2 shape), probe-decided.
+    if (c_wfCausticGate[0] == 0 || c_wfCausticGate[1] == 0) {
+        float sWo = wo.dot(rec.normal);
+        float sWi = bss.wi.dot(rec.normal);
+        int cat = (sWo * sWi < 0.f) ? 2
+                : ((bss.isDelta || gpu_material_is_glossy(mat)) ? 1 : 0);
+        if (state.had_diffuse_ancestor[idx] && bss.isDelta &&
+            ((cat == 2 && c_wfCausticGate[1] == 0) ||
+             (cat == 1 && c_wfCausticGate[0] == 0))) {
+            state.path_alive[idx] = 0;
+            return false;
+        }
+        if (cat == 0) state.had_diffuse_ancestor[idx] = 1;
+    }
+
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;
     if (next_bounce >= max_depth) {
@@ -2196,6 +2224,15 @@ void setWavefrontBounceLimits(int diffuse, int glossy, int transmission)
 {
     const int limits[3] = { diffuse, glossy, transmission };
     cudaMemcpyToSymbol(c_wfBounceLimit, limits, sizeof(limits));
+}
+
+// pkg201 Stage 3 (Finding E) — publish the native caustic toggles into the
+// __constant__ c_wfCausticGate[2] symbol (read by shadePathSlot). Both-allow
+// (1,1) is the byte-identical fleet default.
+void setWavefrontCausticGate(bool reflective, bool refractive)
+{
+    const int gate[2] = { reflective ? 1 : 0, refractive ? 1 : 0 };
+    cudaMemcpyToSymbol(c_wfCausticGate, gate, sizeof(gate));
 }
 
 // pkg198 Stage 2 — publish the frame's light-path pass buffers into the

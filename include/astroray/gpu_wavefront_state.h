@@ -159,6 +159,12 @@ struct GPUWavefrontState {
     // shade kernel never touches this array and renders stay byte-identical.
     uint32_t* per_type_bounce = nullptr;
 
+    // pkg201 Stage 3 (Finding E) — sticky "path has bounced off a diffuse surface"
+    // flag (Cycles PATH_RAY_DIFFUSE_ANCESTOR), 0/1, set once and never cleared.
+    // Reset to 0 at initPathSlot. Read in shadePathSlot ONLY when a caustic toggle
+    // is off; both-on (default) never touches it → fleet renders byte-identical.
+    int*      had_diffuse_ancestor = nullptr;
+
     // Path-continuation flags.
     int*      was_specular  = nullptr;  // 0/1
     int*      path_alive    = nullptr;  // 0 = terminated, 1 = active
@@ -464,6 +470,12 @@ void setWavefrontPixelFilter(int type, float width);
 // All-unlimited (the default) makes shadePathSlot skip the per-type check
 // entirely, so the fleet render stays byte-identical (register-probe gate).
 void setWavefrontBounceLimits(int diffuse, int glossy, int transmission);
+
+// pkg201 Stage 3 (Finding E) — publish the native caustic toggles into the shade
+// kernel's __constant__ c_wfCausticGate[2] (index 0=reflective, 1=refractive;
+// 1=allow, 0=cull). Call ONCE per frame in cuda_wavefront_render. Both-allow (the
+// default) makes shadePathSlot skip the whole caustic-cull block → byte-identical.
+void setWavefrontCausticGate(bool reflective, bool refractive);
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts

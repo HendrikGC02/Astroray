@@ -1,6 +1,6 @@
 # pkg175 — one-command Blender dev loop: build → package → install → launch → headless smoke-render
 
-**Pillar:** Integration Milestone (Blender/DCC integration — see ROADMAP "Integration Milestone")
+**Pillar:** 5
 **Track:** A (tooling + real-host verification; smoke render needs the local RTX + Blender 5.1)
 **Status:** done (PR #547, 2026-08-07 — one-command dev loop (build → package →
 install → launch → headless smoke-render); 150s full rebuild / 5.8s

@@ -1,6 +1,6 @@
 # pkg204 — GPU wavefront volume-pass direct/indirect split (closes pkg198 deferred limitation)
 
-**Pillar:** Integration Milestone (GPU wavefront light-path AOV parity)
+**Pillar:** 5
 **Track:** A
 **Status:** done (PR #625, 2026-08-19 — closes pkg198 Stage-2 volume-pass limitation; direct+indirect sum exactly to combined volume beauty on GPU, shade-kernel register HARD gate unchanged).
 **Estimated effort:** S.

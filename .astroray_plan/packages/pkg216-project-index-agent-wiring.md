@@ -1,5 +1,6 @@
 # pkg216 — Put the project-index in front of the agents
 
+**Pillar:** 5
 **Track:** A
 **Status:** done (PR #636, 2026-08-21 — index wired into 3 agents x 2 harnesses + AGENTS.md/KNOWLEDGE.md; twins byte-identical).
 **Estimated effort:** S.

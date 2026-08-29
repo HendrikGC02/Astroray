@@ -1,6 +1,6 @@
 # pkg212 — Wavefront ray-gen half-pixel center fix (CPU+GPU wavefront → Cycles raster convention)
 
-**Pillar:** Integration Milestone (Blender/DCC integration — reconstruction-filter / raster parity)
+**Pillar:** 5
 **Track:** A
 **Status:** open (filed 2026-08-20).
 **Estimated effort:** XS–S.

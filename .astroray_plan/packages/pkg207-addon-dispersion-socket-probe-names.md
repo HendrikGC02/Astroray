@@ -1,6 +1,6 @@
 # pkg207 — Addon dispersion socket probe-name fix (Blender 5.3 round-trip)
 
-**Pillar:** Integration Milestone (Blender/DCC integration — native steering wheel)
+**Pillar:** 5
 **Track:** A (small local addon fix — pure Python, no engine code, no GPU, no HW).
 **Status:** open (filed 2026-08-19).
 **Estimated effort:** XS.

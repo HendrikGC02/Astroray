@@ -467,7 +467,7 @@ function refreshTimeline_(ss) {
 
   // Split into bullet entries that start with "- **YYYY-MM-DD"
   const entries = [];
-  const re = /\n-\s+\*\*(\d{4}-\d{2}-\d{2})[^*]*\*\*\s*([\s\S]*?)(?=\n-\s+\*\*\d{4}-\d{2}-\d{2}|\n## |\n---|$)/g;
+  const re = /(?:^|\n)\*\*(\d{4}-\d{2}-\d{2})([\s\S]*?)(?=\n\*\*\d{4}-\d{2}-\d{2}|\n## |$)/g;
   let m;
   while ((m = re.exec(tail))) {
     const date = m[1];

@@ -1,6 +1,6 @@
 # pkg203 — Cycles-accurate pixel-filter width→σ (CPU+GPU parity, closes pkg200 `pixel_filter_type` honour row)
 
-**Pillar:** Integration Milestone (Blender/DCC integration — reconstruction-filter parity)
+**Pillar:** 5
 **Track:** A
 **Status:** done (PR #624, 2026-08-19 — CPU+GPU byte-mirrored Cycles mapping σ=width/4, Gaussian support ±1.5·width, BH ±1.0·width; closes pkg200's `pixel_filter_type` honour row).
 **Estimated effort:** S–M.

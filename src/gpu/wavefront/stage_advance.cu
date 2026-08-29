@@ -1052,6 +1052,68 @@ __device__ bool shadePathSlot(
                 }
             }
         }
+        // pkg223b — Bump node (device twin of NormalMappedPlugin's corrected bump
+        // branch). Mutually exclusive with a normal map per material; try it when a
+        // height texture is set. Cycles svm_node_set_bump surface-gradient formula
+        // (Mikkelsen 2010) sourcing dP.dx/dP.dy from the UV-aligned tangent frame.
+        const int bmTexId = c_wfTexBinding.matBumpTexId[rec.materialId];
+        if (bmTexId >= 0 && rec.primId >= 0 &&
+            prims[rec.primId].type == GPRIM_TRIANGLE) {
+            const GTriangle& btri = tris[prims[rec.primId].index];
+            if (btri.hasUV) {
+                GVec3 bT; float bSign;
+                if (gpu_pr_uvAlignedTangent(btri.v0, btri.v1, btri.v2,
+                                            btri.uv0, btri.uv1, btri.uv2,
+                                            rec.normal, bT, bSign)) {
+                    GVec3 e1 = btri.v1 - btri.v0, e2 = btri.v2 - btri.v0;
+                    GVec3 ep = rec.point - btri.v0;
+                    float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+                    float d20 = ep.dot(e1), d21 = ep.dot(e2);
+                    float denom = d00 * d11 - d01 * d01;
+                    if (fabsf(denom) > 1e-20f) {
+                        float b1 = (d11 * d20 - d01 * d21) / denom;
+                        float b2 = (d00 * d21 - d01 * d20) / denom;
+                        float b0 = 1.0f - b1 - b2;
+                        float uu = b0*btri.uv0.x + b1*btri.uv1.x + b2*btri.uv2.x;
+                        float vv = b0*btri.uv0.y + b1*btri.uv1.y + b2*btri.uv2.y;
+                        const GImageTexture& bdesc = c_wfTexBinding.textures[bmTexId];
+                        // valueOffset offsets in POST-mapping UV space (CPU parity).
+                        if (bdesc.hasMapping) {
+                            const float* m = bdesc.mapping;
+                            float mu = m[0]*uu + m[1]*vv + m[3];
+                            float mv = m[4]*uu + m[5]*vv + m[7];
+                            uu = mu; vv = mv;
+                        }
+                        // Texel-relative step (~1.5 texels) — nearest-neighbour
+                        // sampling needs the finite difference to cross a texel
+                        // boundary; mirrors the CPU NormalMappedPlugin bump branch.
+                        int bw = bdesc.width > bdesc.height ? bdesc.width : bdesc.height;
+                        float eps = (bw > 0) ? (1.5f / (float)bw) : 1.0e-2f;
+                        GVec3 hc = gpu_sampleImageTexture(bdesc, c_wfTexBinding.texelBuf, uu, vv);
+                        GVec3 hx = gpu_sampleImageTexture(bdesc, c_wfTexBinding.texelBuf, uu + eps, vv);
+                        GVec3 hy = gpu_sampleImageTexture(bdesc, c_wfTexBinding.texelBuf, uu, vv + eps);
+                        float h_c = 0.2126f*hc.x + 0.7152f*hc.y + 0.0722f*hc.z;
+                        float h_x = 0.2126f*hx.x + 0.7152f*hx.y + 0.0722f*hx.z;
+                        float h_y = 0.2126f*hy.x + 0.7152f*hy.y + 0.0722f*hy.z;
+                        GVec3 N = rec.normal;
+                        GVec3 Bt = N.cross(bT) * bSign;
+                        GVec3 dPdx = bT * eps, dPdy = Bt * eps;
+                        GVec3 Rx = dPdy.cross(N), Ry = N.cross(dPdx);
+                        float det = dPdx.dot(Rx);
+                        GVec3 surfgrad = Rx * (h_x - h_c) + Ry * (h_y - h_c);
+                        float dist = c_wfTexBinding.matBumpDistance[rec.materialId];
+                        float sgn = (det < 0.0f) ? -1.0f : 1.0f;
+                        GVec3 perturbed = N * fabsf(det) - surfgrad * (dist * sgn);
+                        float len = perturbed.length();
+                        perturbed = (len > 1e-8f) ? perturbed * (1.0f / len) : N;
+                        float s = fminf(fmaxf(
+                            c_wfTexBinding.matBumpStrength[rec.materialId], 0.0f), 1.0f);
+                        rec.normal = (perturbed * s + N * (1.0f - s)).normalized();
+                        gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
+                    }
+                }
+            }
+        }
     }
 
     const ::GMaterial& mat = materials[rec.materialId];

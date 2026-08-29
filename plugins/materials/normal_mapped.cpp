@@ -38,14 +38,42 @@ class NormalMappedPlugin : public Material {
         }
 
         if (bumpTexture_) {
-            float eps = std::max(1e-4f, bumpDistance_);
-            float h0 = heightValue(bumpTexture_->value(rec, Vec3(0)));
-            float hU = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), eps, 0.0f));
-            float hV = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), 0.0f, eps));
-            float dU = (hU - h0) / eps;
-            float dV = (hV - h0) / eps;
-            Vec3 dp = rec.tangent * dU + rec.bitangent * dV;
-            n = (n - dp * bumpStrength_).normalized();
+            // pkg223b — Bump node. Cycles' tangent-space-free surface-gradient bump
+            // (svm_node_set_bump, src/kernel/svm/displace.h; Mikkelsen 2010), with
+            // dP.dx/dP.dy sourced from the UV-aligned tangent frame (approach 2 —
+            // no ray-differential plumbing). The GPU shade path (HasNormalPerturb)
+            // mirrors this byte-for-byte for parity. Distance drives the surfgrad
+            // scale; Strength is the 0..1 blend between perturbed and geometric.
+            // NOTE: the UV-aligned frame (rec.uvTangent / uvBitangentSign) — NOT
+            // the arbitrary rec.tangent/bitangent — so a rotated UV island's relief
+            // tracks the texture parameterization (the pkg223 Normal-Map bug class).
+            // Texel-relative finite-difference step: image textures are sampled
+            // NEAREST-neighbour (ImageTexture::value / gpu_sampleImageTexture), so a
+            // sub-texel eps gives a staircase (mostly 0) gradient that neither scales
+            // with Distance nor matches CPU↔GPU. ~1.5 texels reliably crosses a
+            // boundary. GPU mirrors this via 1.5/bdesc.width.
+            float eps = 1.0e-2f;
+            if (auto* img = dynamic_cast<const ImageTexture*>(bumpTexture_.get())) {
+                int w = std::max(img->getWidth(), img->getHeight());
+                if (w > 0) eps = 1.5f / static_cast<float>(w);
+            }
+            Vec3 T = rec.uvTangent;
+            Vec3 Bt = rec.normal.cross(T) * rec.uvBitangentSign;
+            Vec3 dPdx = T * eps;
+            Vec3 dPdy = Bt * eps;
+            float h_c = heightValue(bumpTexture_->value(rec, Vec3(0)));
+            float h_x = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), eps, 0.0f));
+            float h_y = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), 0.0f, eps));
+            Vec3 Rx = dPdy.cross(n);
+            Vec3 Ry = n.cross(dPdx);
+            float det = dPdx.dot(Rx);
+            Vec3 surfgrad = Rx * (h_x - h_c) + Ry * (h_y - h_c);
+            float sgn = (det < 0.0f) ? -1.0f : 1.0f;
+            Vec3 perturbed = n * std::fabs(det) - surfgrad * (bumpDistance_ * sgn);
+            float len = perturbed.length();
+            perturbed = (len > 1e-8f) ? (perturbed / len) : n;
+            float s = std::clamp(bumpStrength_, 0.0f, 1.0f);
+            n = (perturbed * s + n * (1.0f - s)).normalized();
         }
 
         out.normal = n;
@@ -95,6 +123,10 @@ public:
     std::shared_ptr<Material> normalMapInner() const override { return baseMaterial_; }
     std::shared_ptr<Texture>  normalMapTexture() const override { return normalTexture_; }
     float                     normalMapStrength() const override { return normalStrength_; }
+    // pkg223b — expose bump for GPU upload (was deliberately omitted in pkg223).
+    std::shared_ptr<Texture>  bumpMapTexture() const override { return bumpTexture_; }
+    float                     bumpMapStrength() const override { return bumpStrength_; }
+    float                     bumpMapDistance() const override { return bumpDistance_; }
 };
 
 ASTRORAY_REGISTER_MATERIAL("normal_mapped", NormalMappedPlugin)

@@ -466,6 +466,12 @@ public:
     virtual std::shared_ptr<Material> normalMapInner() const { return nullptr; }
     virtual std::shared_ptr<Texture>  normalMapTexture() const { return nullptr; }
     virtual float                     normalMapStrength() const { return 1.0f; }
+    // pkg223b — Bump node. GPU upload reads a height texture + Distance/Strength
+    // that ride the c_wfTexBinding side table (mirrors the normal-map accessors).
+    // Default null/1.0 = no bump.
+    virtual std::shared_ptr<Texture>  bumpMapTexture() const { return nullptr; }
+    virtual float                     bumpMapStrength() const { return 1.0f; }
+    virtual float                     bumpMapDistance() const { return 0.01f; }
     virtual astroray::MaterialClosureGraph closureGraph() const { return {}; }
     virtual MaterialBackendCapabilities backendCapabilities() const {
         MaterialBackendCapabilities caps;

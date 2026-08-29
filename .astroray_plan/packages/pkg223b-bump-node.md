@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** DONE 2026-08-29 — approach 2 (UV-aligned surface-gradient), shared HasNormalPerturb axis. CPU + GPU at parity (ratio ~1.0), Distance scales, register probe CLEAN (fleet `<…,false>` byte-identical 254/3368/1716; shared `<…,true>` no spill). Tests `tests/test_pkg223b_bump_node.py` 4/4 (relief, Strength-monotone, CPU/GPU parity) on RTX 5070 Ti. CI + formal HW verify pending.
 **Estimated effort:** M (CPU wiring is thin — the math already exists; GPU port +
 register probe is the bulk of the work, mirroring pkg223's shape)
 **Depends on:** pkg223 (normal-map infra: `c_wfTexBinding` side-table pattern,
@@ -342,4 +342,27 @@ ledger's established escalation pattern — do not pre-emptively build Option B.
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- **The addon was already wired.** The spec's "zero addon references to bump" was
+  inaccurate: `get_normal_inputs` already walks the `BUMP` node and emits
+  `bump_map_texture`/`bump_strength`/`bump_distance` into the material spec, and
+  `create_material` (blender_module.cpp) already builds a `NormalMappedPlugin` with
+  the height texture. The gap was **engine consumption only** (CPU formula bug + no
+  GPU branch), exactly like pkg223's Normal-Map GPU gap.
+- **The subtle GPU bug — the UV-upload gate.** `scene_upload` only uploads a
+  triangle's active-layer UVs (sets `GTriangle::hasUV`) when the material is
+  aniso-Principled / image-textured / normal-mapped. A **bump-only** material fell
+  through this gate → `hasUV=0` on device → the shade-path bump branch skipped
+  entirely → GPU bump was a complete no-op (host registration was perfect;
+  `bmTexId=0`, `hasNormalPerturb=1`). The whole "5.7× weaker / doesn't scale with
+  Distance" symptom was the GPU rendering *pure noise* (bump never ran), not a math
+  gap. Fix: add `bumpMapped` to the UV-upload gate. **General rule: any new
+  HasNormalPerturb consumer that samples a texture at the hit UV must be added to
+  the `scene_upload` UV-upload gate, or its triangles ship UV-less.** See
+  [[uv-upload-gate-needs-new-normal-perturb-consumers]].
+- **Nearest-neighbour sampling needs a texel-relative finite-difference step.** A
+  sub-texel `eps` gives a staircase (mostly-zero) height gradient. Both backends use
+  `eps ≈ 1.5/max(width,height)`.
+- Sharing the `HasNormalPerturb` axis (runtime branch on `matBumpTexId>=0` vs
+  `matNormalTexId>=0`) cost **zero** register spill — the `<…,true>` kernel absorbed
+  the bump branch at the same 254/3368/1716 as `<…,false>`. Option B (new axis) was
+  correctly not needed.

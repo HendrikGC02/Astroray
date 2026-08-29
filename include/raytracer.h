@@ -2141,6 +2141,20 @@ class Renderer {
     float filterGlossy = 0.0f;
     bool useReflectiveCaustics = true;
     bool useRefractiveCaustics = true;
+    // pkg201 Stage 3 (Finding A) — Cycles per-type bounce limits
+    // (max_diffuse_bounce / max_glossy_bounce / max_transmission_bounce). -1 =
+    // unlimited (honour only the total maxDepth — the pre-pkg201 behaviour, so
+    // every default render is byte-identical). Set by Renderer::render() from its
+    // per-type args and read by pathTraceSpectral (CPU oracle) AND
+    // cuda_wavefront_render (GPU) so both backends honour them identically. A
+    // limit of N allows N bounces of that lobe type; the (N+1)-th terminates the
+    // path (Cycles kernel/integrator/path_state.h path_state_next semantics).
+    // Transparent (alpha-passthrough) and volume bounces are NOT here — see the
+    // pkg201 Stage 3 park notes (transparent needs a BSDF lobe label; volume is a
+    // pkg199 transport cross-ref).
+    int maxDiffuseBounces = -1;
+    int maxGlossyBounces = -1;
+    int maxTransmissionBounces = -1;
     // pkg113 Phase-3: opt-in GPU photon-map caustic pre-pass. Default FALSE so existing GPU
     // caustic renders (incl. the legacy SMS-GPU path) are unchanged; the photon-map scene
     // pre-pass + gather only runs when a caller explicitly opts in (set_use_photon_caustics).
@@ -2384,6 +2398,19 @@ public:
         pixelFilterWidth = std::max(0.01f, width);
     }
     void setWorldMaxBounces(int maxB) { worldMaxBounces = std::max(0, maxB); }
+    // pkg201 Stage 3 (Finding A) — set the Cycles per-type bounce limits. -1 (or
+    // any negative) = unlimited. Called by Renderer::render() and by the GPU
+    // dispatch (blender_module.cpp) before cuda_wavefront_render so both backends
+    // read the same limits. Values ≥ 0 are used verbatim (a limit of 0 forbids
+    // that lobe type's interreflection entirely).
+    void setPerTypeBounces(int diffuse, int glossy, int transmission) {
+        maxDiffuseBounces = (diffuse < 0) ? -1 : diffuse;
+        maxGlossyBounces = (glossy < 0) ? -1 : glossy;
+        maxTransmissionBounces = (transmission < 0) ? -1 : transmission;
+    }
+    int getMaxDiffuseBounces() const { return maxDiffuseBounces; }
+    int getMaxGlossyBounces() const { return maxGlossyBounces; }
+    int getMaxTransmissionBounces() const { return maxTransmissionBounces; }
     void setWorldVolume(float density, const Vec3& color, float anisotropy = 0.0f,
                         float scatter = 0.0f) {
         worldVolumeDensity = std::max(0.0f, density);
@@ -2619,6 +2646,15 @@ public:
         // first bounce go to PASS_EMISSION / PASS_ENVIRONMENT; after a bounce
         // they fold into <firstCat>_INDIRECT.
         int firstCat = -1;
+        // pkg201 Stage 3 (Finding A) — per-type bounce counters. Count the
+        // diffuse/glossy/transmission scatter events taken so far; when the next
+        // scatter of a type would exceed its limit (maxDiffuse/Glossy/Transmission
+        // Bounces, -1 = unlimited) the path terminates before that bounce. Mirrors
+        // the GPU wavefront shadePathSlot check (stage_advance.cu) so both backends
+        // honour the limits identically (Cycles path_state_next semantics).
+        int diffuseBounceCount = 0;
+        int glossyBounceCount = 0;
+        int transmissionBounceCount = 0;
         auto addPass = [&](int passIdx, const astroray::SampledSpectrum& contrib) {
             if (outPasses) (*outPasses)[passIdx] += contrib;
         };
@@ -3029,13 +3065,19 @@ public:
             // geometric sign test on rec.normal — no distance/sentinel consumed);
             // else GLOSSY for a delta/mirror reflection or a glossy material; else
             // DIFFUSE. All indirect light through this vertex inherits firstCat.
-            if (firstCat < 0) {
+            // Classify this bounce's lobe (0=diffuse, 1=glossy, 2=transmission)
+            // from the same geometric sign + glossy test the AOV lock uses.
+            // Computed EVERY bounce for the per-type counters (pkg201 Stage 3),
+            // not just at firstCat.
+            int lobeCat;
+            {
                 float sWo = wo.dot(rec.normal);
                 float sWi = bss.wi.dot(rec.normal);
                 bool transmitted = (sWo * sWi) < 0.0f;
-                firstCat = transmitted ? 2
-                         : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
+                lobeCat = transmitted ? 2
+                        : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
             }
+            if (firstCat < 0) firstCat = lobeCat;
 
             // pkg87b: Cryptomatte per-shade-point accumulation.
             // Weight = average(throughput · bsdf_eval), per Cycles film_write_cryptomatte_slots (Apache-2.0).
@@ -3071,6 +3113,22 @@ public:
             // universal 2π·ε=0.628%/bounce energy loss. See
             // .astroray_plan/docs/pkg172a-guarded-pdf.md.
             throughput *= bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
+
+            // pkg201 Stage 3 (Finding A) — per-type bounce limit. This vertex has
+            // already contributed its NEE/emission; a limit of N for lobeCat's
+            // type allows N such bounces, so the (N+1)-th terminates the path
+            // (no continuation ray). -1 = unlimited (the loop then ends only on
+            // the total maxDepth, RR, or pdf<=0 — byte-identical to pre-pkg201).
+            {
+                int typeLimit, typeCount;
+                if (lobeCat == 0)      { typeLimit = maxDiffuseBounces;      typeCount = diffuseBounceCount; }
+                else if (lobeCat == 1) { typeLimit = maxGlossyBounces;       typeCount = glossyBounceCount; }
+                else                   { typeLimit = maxTransmissionBounces; typeCount = transmissionBounceCount; }
+                if (typeLimit >= 0 && typeCount >= typeLimit) break;
+                if (lobeCat == 0)      ++diffuseBounceCount;
+                else if (lobeCat == 1) ++glossyBounceCount;
+                else                   ++transmissionBounceCount;
+            }
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
             next.hasCameraFrame = ray.hasCameraFrame;
@@ -3448,8 +3506,8 @@ public:
 
 void render(Camera& cam, int maxSamples, int maxDepth,
             std::function<void(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false,
-            int maxDiffuseBounces = -1, int maxGlossyBounces = -1, int maxTransmissionBounces = -1,
-            int maxVolumeBounces = -1, int maxTransparentBounces = -1);
+            int argDiffuseBounces = -1, int argGlossyBounces = -1, int argTransmissionBounces = -1,
+            int argVolumeBounces = -1, int argTransparentBounces = -1);
 };
 
 // BlackHole class body moved to plugins/shapes/black_hole.cpp (pkg04).
@@ -3464,10 +3522,15 @@ void render(Camera& cam, int maxSamples, int maxDepth,
 
 inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             std::function<void(float)> progress, bool adaptive, bool applyGamma,
-            int maxDiffuseBounces, int maxGlossyBounces, int maxTransmissionBounces,
-            int maxVolumeBounces, int maxTransparentBounces) {
-        (void)maxDiffuseBounces; (void)maxGlossyBounces; (void)maxTransmissionBounces;
-        (void)maxVolumeBounces; (void)maxTransparentBounces;
+            int argDiffuseBounces, int argGlossyBounces, int argTransmissionBounces,
+            int argVolumeBounces, int argTransparentBounces) {
+        // pkg201 Stage 3 (Finding A) — honour the Cycles per-type bounce limits
+        // (previously discarded). Stored on the Renderer so pathTraceSpectral
+        // reads them per bounce. Volume/transparent remain unwired here (pkg199
+        // cross-ref / BSDF-label follow-up); accept+ignore so the signature and
+        // every caller are unchanged.
+        setPerTypeBounces(argDiffuseBounces, argGlossyBounces, argTransmissionBounces);
+        (void)argVolumeBounces; (void)argTransparentBounces;
         ensureDefaultIntegrator();
         buildAcceleration();
         if (integrator_) {

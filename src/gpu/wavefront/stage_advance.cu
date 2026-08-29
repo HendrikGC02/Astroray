@@ -171,6 +171,17 @@ __constant__ GWorldVolume c_worldVolume;
 // kernels reference it, exactly like c_wfGuideBinding / c_worldVolume above.
 __constant__ GWavefrontLightPassBinding c_wfLpBinding;
 
+// pkg201 Stage 3 (Finding A) — Cycles per-type bounce limits (index 0=diffuse,
+// 1=glossy, 2=transmission; -1 = unlimited). Published once per frame by
+// cuda_wavefront_render (setWavefrontBounceLimits). shadePathSlot reads it only
+// when a limit is set (≥0) — the all-unlimited default (this static initializer,
+// used by every render that does not set per-type bounces AND by the
+// snapshot/ReSTIR drivers that never publish) makes the per-type block a no-op,
+// so the fleet stageShadeBucketedKernel stays byte-identical (register-probe
+// gate). Counters ride the GPUWavefrontState.per_type_bounce SoA field, not this
+// symbol, mirroring the c_wfTexBinding side-table pattern (pkg186/pkg223).
+__constant__ int c_wfBounceLimit[3] = { -1, -1, -1 };
+
 // Splat a spectral contribution into slot `idx`'s pass `passIdx` accumulator.
 // Per-slot (mirrors the color SoA — accumulate-at-death like beauty), so no atomics:
 // one path owns one slot for the duration of a bounce, exactly like the color_/
@@ -1533,6 +1544,34 @@ __device__ bool shadePathSlot(
         state.lambda_pdf_3[idx] = lambdas.pdf[3];
     }
 
+    // pkg201 Stage 3 (Finding A) — per-type bounce limit (Cycles
+    // max_diffuse/glossy/transmission_bounce). Device twin of the CPU
+    // pathTraceSpectral check: classify this bounce's lobe with the SAME
+    // geometric-sign + glossy test as the AOV firstCat lock, and if a limit is
+    // set for that type and already reached, terminate the path (no continuation
+    // ray) exactly like the max_depth cap below — color/rng_dimension are already
+    // persisted to SoA above, so this only clears path_alive. The `any-limit`
+    // early-out (constant-memory compares only) keeps the all-unlimited fleet
+    // default off the SoA counter path: this is the OPTION 2 runtime compare
+    // (memory pkg201-s3-runtime-comparison-not-axis), probe-gated — if it moves
+    // the fleet <…> REG/STACK it escalates to a compile-time axis.
+    if (c_wfBounceLimit[0] >= 0 || c_wfBounceLimit[1] >= 0 || c_wfBounceLimit[2] >= 0) {
+        float sWo = wo.dot(rec.normal);
+        float sWi = bss.wi.dot(rec.normal);
+        int lobeCat = (sWo * sWi < 0.f) ? 2
+                    : ((bss.isDelta || gpu_material_is_glossy(mat)) ? 1 : 0);
+        int lim = c_wfBounceLimit[lobeCat];
+        if (lim >= 0) {
+            uint32_t packed = state.per_type_bounce[idx];
+            int cnt = (int)((packed >> (lobeCat * 8)) & 0xFFu);
+            if (cnt >= lim) {
+                state.path_alive[idx] = 0;
+                return false;
+            }
+            state.per_type_bounce[idx] = packed + (1u << (lobeCat * 8));
+        }
+    }
+
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;
     if (next_bounce >= max_depth) {
@@ -2147,6 +2186,16 @@ void setWavefrontWorldVolume(const GWorldVolume& volume)
 void setWavefrontMissCoverage(float* coverage)
 {
     cudaMemcpyToSymbol(c_wfMissCoverage, &coverage, sizeof(float*));
+}
+
+// pkg201 Stage 3 (Finding A) — publish the Cycles per-type bounce limits into the
+// __constant__ c_wfBounceLimit[3] symbol (read by shadePathSlot). Called ONCE per
+// frame by cuda_wavefront_render; all-unlimited (-1,-1,-1) is the byte-identical
+// fleet default (the shade kernel's any-limit early-out skips the per-type block).
+void setWavefrontBounceLimits(int diffuse, int glossy, int transmission)
+{
+    const int limits[3] = { diffuse, glossy, transmission };
+    cudaMemcpyToSymbol(c_wfBounceLimit, limits, sizeof(limits));
 }
 
 // pkg198 Stage 2 — publish the frame's light-path pass buffers into the

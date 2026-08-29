@@ -151,6 +151,14 @@ struct GPUWavefrontState {
     // per-slot `capacity` sizing. (C6a placed the field decls here as a
     // placeholder; they were never allocated. C6b relocates them.)
 
+    // pkg201 Stage 3 (Finding A) — per-type bounce counters, packed one uint32
+    // per slot: byte 0 = diffuse, byte 1 = glossy, byte 2 = transmission bounces
+    // taken so far (byte 3 reserved). Reset to 0 at initPathSlot alongside
+    // `bounce`. Read+compared against the __constant__ c_wfBounceLimit in
+    // shadePathSlot ONLY when a limit is set (≥0); with all limits unlimited the
+    // shade kernel never touches this array and renders stay byte-identical.
+    uint32_t* per_type_bounce = nullptr;
+
     // Path-continuation flags.
     int*      was_specular  = nullptr;  // 0/1
     int*      path_alive    = nullptr;  // 0 = terminated, 1 = active
@@ -449,6 +457,13 @@ void setWavefrontMissCoverage(float* coverage);
 // Gaussian/Blackman-Harris honour width (offsets cross pixel boundaries for
 // width>1). Read by stage_init.cu::filterSample at primary-ray generation.
 void setWavefrontPixelFilter(int type, float width);
+
+// pkg201 Stage 3 (Finding A) — publish the Cycles per-type bounce limits into the
+// shade kernel's __constant__ c_wfBounceLimit[3] (index 0=diffuse, 1=glossy,
+// 2=transmission; -1 = unlimited). Call ONCE per frame in cuda_wavefront_render.
+// All-unlimited (the default) makes shadePathSlot skip the per-type check
+// entirely, so the fleet render stays byte-identical (register-probe gate).
+void setWavefrontBounceLimits(int diffuse, int glossy, int transmission);
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts

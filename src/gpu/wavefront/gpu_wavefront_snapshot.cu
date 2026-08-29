@@ -1418,6 +1418,14 @@ std::vector<float> cuda_wavefront_render(
     // offset over the full filter width (stage_init.cu::filterSample).
     setWavefrontPixelFilter(renderer.getPixelFilterType(),
                             renderer.getPixelFilterWidth());
+    // pkg201 Stage 3 (Finding A) — Cycles per-type bounce limits. Published from
+    // the Renderer's stored limits (set by Renderer::render()/setPerTypeBounces);
+    // all-unlimited (-1) is the byte-identical fleet default. shadePathSlot reads
+    // c_wfBounceLimit only when a limit is set (SoA counters ride
+    // GPUWavefrontState.per_type_bounce, zeroed at initPathSlot).
+    setWavefrontBounceLimits(renderer.getMaxDiffuseBounces(),
+                             renderer.getMaxGlossyBounces(),
+                             renderer.getMaxTransmissionBounces());
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).

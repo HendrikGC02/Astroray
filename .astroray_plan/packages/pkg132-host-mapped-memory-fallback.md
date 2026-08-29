@@ -3,7 +3,7 @@
 **Pillar:** 1 (CUDA device infrastructure / robustness)
 **Track:** A (allocation-fallback logic is CPU/host-side; the degraded-but-correct render is verified on RTX under induced VRAM pressure)
 **Codex-paste-ready:** no (device-allocation policy touching every large buffer's alloc path + a coldest-buffer selection heuristic — needs judgment about what to spill)
-**Status:** open
+**Status:** still-open — never implemented; no host-mapped/DEVICEMAP spill fallback in the repo, only the spec-filing PR #492.
 **Estimated effort:** M (1–2 sessions per the research doc — pure CUDA, no architecture change)
 **Depends on:** none. Independent of pkg55 Phase C. Complements pkg135 (demand-loaded sparse textures) — this is the low-cost first line of defense; pkg135 is the heavier second tier that only activates on observed texture overflow.
 

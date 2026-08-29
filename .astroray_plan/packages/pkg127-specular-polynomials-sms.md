@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / caustics) + 2 (spectral core)
 **Track:** A (CPU-first seed-stage upgrade with numerical caustic-quality gates; the GPU/wavefront SMS mirror is RTX-verified against the CPU result)
 **Codex-paste-ready:** no (research-grade algorithm port with a license-verification gate, a math re-derivation from the paper, and a caustic-quality acceptance bar — needs judgment at each step, not a mechanical patch)
-**Status:** open — the highest-value bounded caustics-quality upgrade on the roadmap (per `.astroray_plan/docs/2026-07-pbr-advances-research.md` headline finding 1)
+**Status:** still-open — never implemented; no specular-polynomial/SMS-seed code in the repo, only the spec-filing PR #491. Was: open — the highest-value bounded caustics-quality upgrade on the roadmap (per `.astroray_plan/docs/2026-07-pbr-advances-research.md` headline finding 1)
 **Estimated effort:** L (single-bounce polynomial solver + integration into the existing seed stage, then the two-bounce extension; a license phase-0, a paper re-derivation, and a before/after seed-failure measurement)
 **Depends on:** **pkg64** (SMS folded into the default spectral path — DONE; this package upgrades its seed stage) and **pkg106** (multi-vertex MNEE/manifold-chain foundation — the two-bounce leg builds on `include/astroray/manifold/manifold_chain.h`). No hard blocker: this is a drop-in upgrade to landed code, gated behind a flag so the current Newton seeding stays the fallback.
 

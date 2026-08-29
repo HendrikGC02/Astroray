@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / interactive caustics)
 **Track:** A (tile-partitioned SMS + reservoir reuse is CPU-verifiable; the wavefront caustics leg is verified on RTX)
 **Codex-paste-ready:** no (tile-partitioned specular-manifold sampling fused with ReSTIR spatiotemporal reuse — depends on reservoir SoA infrastructure and SMS internals)
-**Status:** open
+**Status:** still-open — never implemented; no partitioned-SMS/ReSTIR-caustics code in the repo (the existing `plugins/integrators/restir_di.cpp` is a separate ReSTIR direct-illumination path, not this caustics feature). Only the spec-filing PR #492 exists.
 **Estimated effort:** L (high but staged per the research doc — partitioning-alone is a cheaper standalone first increment; the full method presupposes ReSTIR reservoirs)
 **Depends on:** **pkg55 Phase C Session C6** (ReSTIR reservoir SoA + wavefront reuse stages — see `.astroray_plan/docs/pkg55-phase-c-plan-2026-07.md` §5) **and pkg127** (Specular Polynomials for SMS seed finding — the deterministic Newton-free seed solver this partitions the manifold walk around). Land after both. The **partitioning-alone** increment (below) can precede C6 as a standalone SMS robustness win.
 

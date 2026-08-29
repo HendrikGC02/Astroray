@@ -3,7 +3,7 @@
 **Pillar:** 3 (light transport / render efficiency)
 **Track:** A (CPU-first convergence-check + scheduler on CI; wavefront active-pixel compaction leg verified on RTX)
 **Codex-paste-ready:** no (one film convergence kernel + scheduler change + wavefront compaction integration + addon UI *removal* — architectural, needs the wavefront's compaction owner in the loop)
-**Status:** open
+**Status:** still-open (BLOCKED) — unmet hard prerequisite: the wavefront RNG is PCG32 white-noise with no PMJ/Sobol prefix property, so adaptive sampling cannot be built until a progressive sampler lands or the architect re-scopes (STATUS.md §41, memory `pkg131-blocked-on-progressive-sampler`). Only the spec-filing PR #492 exists.
 **Estimated effort:** M (2–3 sessions per the research doc — one film kernel, scheduler change, addon UI removal rather than addition)
 **Depends on:** progressive-in-samples RNG (pkg92's sequence must have the PMJ/Sobol prefix property — a hard prerequisite; verify before implementing). Composes with pkg55 Phase C (the wavefront already owns active-pixel compaction — the convergence check feeds it). OIDN pairing is fine (Cycles ships the same combination).
 

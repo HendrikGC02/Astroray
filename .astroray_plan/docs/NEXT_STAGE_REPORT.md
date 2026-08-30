@@ -1,5 +1,114 @@
 # Astroray Next Stage Report
 
+## 2026-08-30 SESSION HANDOFF — pkg224 + pkg201-S3 + pkg223b round closed; NEXT = pkg131 GPU leg
+
+**This session's own landings (2 PRs, docs-only reconciliation otherwise):**
+- **pkg207** (#658) — addon dispersion-socket probe now reads the merged
+  Cycles 5.3 socket names (`Transmission Dispersion Scale`/`...Abbe Number`),
+  short forms kept as fallback. Pure-Python, CI-gate only. **DONE.**
+- **pkg131 session 1 of 3** (#659) — zero-knob adaptive sampling shared core
+  (`include/astroray/sampling/adaptive_sampling.h`, cited to Cycles `main`,
+  byte-exact) + CPU per-pixel leg wired into `Renderer::render`. **DONE for
+  this slice; GPU leg + sample-count AOV + addon UI knob removal remain —
+  see "NEXT" below.**
+- Spec/tracker hygiene: flipped pkg207 (this session) and pkg220/pkg221/pkg222
+  (code landed 2026-08-25 via #644/#645/#646, spec headers were never
+  updated) to DONE. No engine/test changes.
+
+**Prior session's landings, confirmed merged and still accurate (do not
+re-verify): pkg224** (#657, progressive hash-Owen Sobol' sampler — the
+pkg131 prerequisite, register probe byte-identical off-path), **pkg201-S3
+items A** (#651, per-type bounce limits) **+ E** (#654, native caustic
+toggles) both backends at REG 254, **pkg223b** (#655, Bump node, shared
+`HasNormalPerturb` axis, no spill). Fleet register baseline unchanged since:
+`stageShadeBucketedKernel<0,…>` **REG 254 / STACK 3368 / CONSTANT[0] 1716**
+(pkg131's CPU-only session-1 diff and pkg224's off-path are both
+byte-identical to this — re-measure from the actual `.pyd` before trusting,
+per usual).
+
+---
+
+### NEXT (highest-priority pickup): pkg131 session 2 — GPU wavefront leg
+
+The shared core + CPU leg are DONE and the prerequisite (pkg224 progressive
+sampler) is in the tree; the natural, already-scoped next step is the GPU
+leg. From the pkg131 spec's own Progress checklist
+(`.astroray_plan/packages/pkg131-zero-knob-adaptive-sampling.md`):
+
+- **C (GPU) — compacted active-pixel round.** The wavefront is a flat
+  persistent-thread work pool (`w % numPixels`), not wave-based, so there is
+  no wave boundary to drop converged pixels the way Cycles does. Design:
+  `stageRegenKernel` indexes `activePixels[w % numActive]`, a per-pixel
+  sample counter, and a per-pixel final divide, with a convergence-check
+  kernel between rounds — additive on top of the existing flat pool, byte-
+  identical when the feature is off, does not touch the 1.5s perf ceiling
+  design (memory `wavefront-perf-ceiling-owner-decision`). NOT a wave-based
+  rewrite. Design detail: `.astroray_plan/docs/pkg131-adaptive-sampling-autothreshold-research.md`
+  (memory `pkg131-gpu-leg-compacted-active-pixel-round`). HW-verify on RTX
+  (CI has no GPU).
+- **Sample-count AOV + addon UI removal** — report measured speedup, remove
+  the `samples=N` knob, expose `max_samples` + optional auto-defaulted
+  noise-threshold override in the panel. Natural follow-up once the GPU leg
+  lands (needs the GPU leg's per-pixel counter to report a real AOV).
+
+Tier: Claude-last-line (register-hostile GPU wavefront change, same shape as
+pkg223/pkg223b/pkg224 — up-front `cuobjdump` probe on the current fleet
+baseline BEFORE feature code).
+
+### Then: fresh grounded pickup queue (each Status verified this pass)
+
+1. **pkg225 — Hair rendering** (`packages/pkg225-hair-rendering.md`, Pillar 3,
+   Status: open, filed 2026-08-29, 6-stage design). Owner-flagged gap: "hair/
+   curve rendering is entirely absent" is one of the concrete reasons the
+   Pillar 4 gate is judged NOT MET despite the Integration Milestone's
+   original scope being complete (ROADMAP.md, 2026-08-29 owner assessment).
+2. **pkg219 remainder / closure check** — 219a/b/c (coordinate+mapping,
+   op-VM core, opcode fill-out) all LANDED (#640/#641/#642, HW-verified in
+   the spec's own hardware-verification sections). The spec's own
+   "deferred to pkg219d" note (Bump/Normal Map) was implemented as **pkg223**
+   (#647) and **pkg223b** (#655) — both DONE. The parent spec
+   `packages/pkg219-per-texel-shader-graph.md` Status line still reads
+   "open (filed 2026-08-22; fork DECIDED + staged 2026-08-23)" and was
+   **left as-is this pass** (out of this round's explicit verification list)
+   — but the evidence strongly suggests it should flip to DONE next pass;
+   flagged for the architect/owner rather than flipped unilaterally here.
+3. **pkg212 — wavefront pixel-center half-pixel fix** (Pillar 5, open, filed
+   2026-08-20). Small, well-scoped, no stated blocker.
+4. **pkg208/pkg209/pkg210/pkg211** — Pillar 3 spectral-transport cluster
+   filed 2026-08-19, all still open, no stated blockers: pkg208 (chromatic
+   dispersion oracle, test-authoring only), pkg209 (pkg187 parity re-verify +
+   doc refresh), pkg210 (companion wavelengths on specular reflection,
+   register-sensitive), pkg211 (per-bounce spectral MIS + ray-differentials
+   prototype). Not yet sequenced against each other — architect call.
+5. **pkg218 — GPU spectral emission device upload** (`packages/pkg218-gpu-spectral-emission-device-upload.md`,
+   open, filed 2026-08-22). Exact CPU↔GPU lamp-colour parity (memory
+   `gpu-emission-is-rgb-approximated`); distinct from the Pillar-4-paused
+   `pkg218-spectral-colorimetry-fidelity.md` Thread B (swappable CIE
+   observer) — this one is NOT paused.
+6. **pkg180 — systemic Cycles-dim diagnosis** (open, dispatchable,
+   diagnosis-first; no fix work until the offset mechanism is localized).
+7. **Long-tail backlog, L-effort, no new urgency this pass** — pkg126
+   (mesh-emitter unification), pkg127 (specular-polynomials SMS), pkg130
+   (light-group emission decomposition), pkg132–137 (host-mapped memory
+   fallback, SRF spectral sensors, LPE automata, SVO path guiding,
+   partitioned-SMS ReSTIR caustics; pkg135 texture-overflow fallback is
+   explicitly CONDITIONAL/dormant, do not implement pre-emptively). Audited
+   2026-08-29 (#648) — still genuinely open, none superseded. Needs a
+   dedicated day arc per package, not overnight-run shaped.
+8. **De-prioritized below the Integration Milestone (owner-endorsed
+   2026-08-03, unchanged):** pkg153 (wavefront-diff env-gate disposition,
+   sub-percent tail), pkg155 (GPU absolute-slowdown investigation — the
+   1.5s ceiling stays, memory `wavefront-perf-ceiling-owner-decision`, do
+   NOT dispatch as a perf package), pkg173 (bounce-1 geometry-sampling
+   parity, sub-percent tail). Re-enters the queue only if the paper turns
+   out to require bit-level parity, or on explicit owner request.
+
+**Paused, do not queue:** Pillar 4 (pkg45/pkg46/pkg48/pkg49/pkg50/pkg51/
+pkg107 + `pkg218-spectral-colorimetry-fidelity.md` Thread B) — no unpause
+directive issued; do not self-dispatch (memory `pillar4-on-pause`).
+
+---
+
 ## 2026-08-29 SESSION HANDOFF — round complete; next = pkg224 implementation
 
 **Shipped & merged this session (7 PRs):**

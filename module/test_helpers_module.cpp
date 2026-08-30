@@ -10,6 +10,7 @@
 
 #include "astroray/sampling/wavefront_rng.h"
 #include "astroray/sampling/progressive_sobol.h"
+#include "astroray/sampling/adaptive_sampling.h"
 #include "astroray/energy_compensation.h"
 
 namespace py = pybind11;
@@ -94,4 +95,44 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
           "— the single host definition of the Kulla & Conty 2017 / Cycles "
           "microfacet_ggx_preserve_energy net factor 1 + Fms*(1-E)/E, called by "
           "both metal.cpp and disney.cpp. Device twin: gpu_ggxDarkeningChannel.");
+
+    // pkg131 — zero-knob adaptive sampling core (Cycles adaptive_sampling.h +
+    // integrator.cpp get_adaptive_sampling). The __host__ __device__ free
+    // functions in include/astroray/sampling/adaptive_sampling.h are the SAME
+    // ones the CPU sample loop and the GPU compacted-active-pixel round call, so
+    // pinning the host build here validates the device math directly.
+    m.def("adaptive_derive",
+          [](int max_samples, float user_threshold, int user_min_samples) {
+              astroray::adaptive::AdaptiveParams p =
+                  astroray::adaptive::deriveAdaptiveParams(
+                      max_samples, user_threshold, user_min_samples);
+              return py::make_tuple(p.threshold, p.min_samples,
+                                    p.adaptive_step, p.max_samples, p.use);
+          }, "max_samples"_a, "user_threshold"_a = 0.0f, "user_min_samples"_a = 0,
+          "Cycles zero-knob derivation → (threshold, min_samples, adaptive_step, "
+          "max_samples, use). user_threshold<=0 / user_min_samples<=0 = auto.");
+    m.def("adaptive_need_check",
+          [](float threshold, int min_samples, int samples_done) {
+              astroray::adaptive::AdaptiveParams p;
+              p.use = true; p.threshold = threshold; p.min_samples = min_samples;
+              p.max_samples = 1 << 30; p.adaptive_step = astroray::adaptive::kAdaptiveStep;
+              return astroray::adaptive::needConvergenceCheck(p, samples_done);
+          }, "threshold"_a, "min_samples"_a, "samples_done"_a,
+          "needConvergenceCheck: true only past the floor and on step-aligned counts.");
+    m.def("adaptive_pixel_converged",
+          &astroray::adaptive::pixelConverged,
+          "full_lum_sum"_a, "half_lum_sum"_a, "samples_done"_a,
+          "threshold"_a, "exposure"_a = 1.0f,
+          "film_adaptive_sampling_convergence_check (scalar-luminance half-buffer).");
+    m.def("adaptive_dilate",
+          [](const std::vector<uint8_t>& converged, int width, int height) {
+              std::vector<uint8_t> tmp(converged.size()), out(converged.size());
+              astroray::adaptive::dilateConvergedMaskPass(
+                  converged.data(), tmp.data(), width, height, 1);
+              astroray::adaptive::dilateConvergedMaskPass(
+                  tmp.data(), out.data(), width, height, width);
+              return out;
+          }, "converged"_a, "width"_a, "height"_a,
+          "Two-pass 3x3 dilation of the converged mask (1=converged/retired).");
+    m.attr("ADAPTIVE_STEP") = astroray::adaptive::kAdaptiveStep;
 }

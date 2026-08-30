@@ -25,6 +25,7 @@
 #include "astroray/spectral_profile.h"
 #include "astroray/light_sampler.h"
 #include "astroray/cryptomatte.h"
+#include "astroray/sampling/adaptive_sampling.h"  // pkg131 zero-knob adaptive core
 
 // Forward declaration needed by HitRecord
 class Hittable;
@@ -3579,6 +3580,14 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             integrator_->setMaxDepth(maxDepth);
             integrator_->beginFrame(*this, cam);
         }
+        // pkg131 — zero-knob adaptive sampling. `maxSamples` is the sample budget
+        // (Cycles' aa_samples); the noise threshold and minimum-sample floor are
+        // auto-derived from it (Integrator::get_adaptive_sampling). This replaces
+        // the previous hand-rolled coefficient-of-variation early-out. Derived once
+        // per render; the per-pixel convergence-check uses the SAME cited core the
+        // GPU wavefront leg will (include/astroray/sampling/adaptive_sampling.h).
+        const astroray::adaptive::AdaptiveParams adaptiveParams =
+            astroray::adaptive::deriveAdaptiveParams(maxSamples, /*auto*/0.0f, /*auto*/0);
         std::atomic<int> tilesCompleted{0};
         const int tileSize = 16;
         int tilesX = (cam.width + tileSize - 1) / tileSize;
@@ -3610,7 +3619,11 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         float materialIndex = 0.0f;
                         // pkg87a: objectSampleCounts/materialSampleCounts removed — old placeholder
                         // cryptomatte logic deleted; pkg87b will add per-shade-point accumulation.
-                        float sumL = 0, sumL2 = 0;
+                        // pkg131 — scalar-luminance half-buffer for the Dammertz
+                        // convergence check: fullLumSum over all samples, halfLumSum
+                        // over even-indexed samples only. Luminance = X+Y+Z (matches
+                        // Cycles' (I.x+I.y+I.z) intensity reduction).
+                        float fullLumSum = 0.0f, halfLumSum = 0.0f;
                         int samples = 0;
                         // pkg72: remember the s==0 primary ray so we can recover
                         // the world-space hit point for the motion-vector write
@@ -3697,12 +3710,24 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 objectIndex = static_cast<float>(sObjectIndex);
                                 materialIndex = static_cast<float>(sMaterialIndex);
                             }
-                            if (adaptive && s >= 16 && (s + 1) % 8 == 0) {
-                                float l = luminance(sCol);
-                                sumL += l; sumL2 += l * l;
-                                float mean = sumL / (s - 15);
-                                float var = (sumL2 / (s - 15)) - mean * mean;
-                                if (std::sqrt(std::max(0.0f, var)) / (mean + 0.01f) < 0.01f) break;
+                            // pkg131 — zero-knob adaptive stopping (Cycles Dammertz
+                            // metric, scalar-luminance half-buffer). Accumulate the
+                            // full/half luminance sums every sample, then at the
+                            // step-aligned check past the min-sample floor, stop this
+                            // pixel once its brightness-relative noise falls below the
+                            // auto-derived threshold. filmExposure is the metric's
+                            // exposure (Cycles reads kernel_data.film.exposure).
+                            {
+                                const float lum = sCol.x + sCol.y + sCol.z;
+                                fullLumSum += lum;
+                                if ((s & 1) == 0) halfLumSum += lum;
+                            }
+                            if (adaptive &&
+                                astroray::adaptive::needConvergenceCheck(adaptiveParams, samples) &&
+                                astroray::adaptive::pixelConverged(
+                                    fullLumSum, halfLumSum, samples,
+                                    adaptiveParams.threshold, filmExposure)) {
+                                break;
                             }
                         }
 

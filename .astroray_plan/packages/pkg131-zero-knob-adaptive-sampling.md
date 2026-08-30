@@ -125,9 +125,25 @@ add one.
 
 ## Progress
 
-- [ ] A — convergence-check film kernel (scalar-luminance half-buffer, Dammertz).
-- [ ] B — auto-threshold scheduler + min floor + max cap.
-- [ ] C — wavefront compaction integration + addon UI removal; speedup measured.
+- [x] **Shared core** `include/astroray/sampling/adaptive_sampling.h` — cited
+      `__host__ __device__` Dammertz metric (scalar-luminance half-buffer), zero-knob
+      auto-threshold + min-sample floor derivation, and the two-pass 3×3 mask
+      dilation. Verified byte-exact against Cycles values (research note
+      `.astroray_plan/docs/pkg131-adaptive-sampling-autothreshold-research.md`);
+      6 host unit tests (`tests/test_pkg131_adaptive_sampling.py`). (2026-08-30)
+- [x] A (CPU) + B — CPU per-pixel leg: `Renderer::render` now stops each pixel via
+      the shared core instead of the old hand-rolled coefficient-of-variation
+      early-out; `maxSamples` is the auto-threshold budget. Verified: low-budget
+      bit-identical no-op + high-budget unbiased/bounded
+      (`tests/test_pkg131_adaptive_cpu_render.py`). (2026-08-30)
+- [ ] C (GPU) — wavefront **compacted active-pixel round** on top of the existing
+      flat work pool (`stageRegenKernel` indexes `activePixels[w % numActive]`,
+      per-pixel sample counter, per-pixel final divide; convergence-check kernel
+      between rounds). Additive, byte-identical when off, respects the flat-pool
+      perf design. Design in the research note. NOT a wave-based rewrite. HW-verify
+      on RTX (CI has no GPU).
+- [ ] Sample-count AOV (report measured speedup) + addon UI: remove the `samples=N`
+      knob, expose `max_samples` + optional auto-defaulted noise-threshold override.
 
 ---
 

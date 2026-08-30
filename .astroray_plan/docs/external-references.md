@@ -85,6 +85,14 @@ own because a dependency for 40 lines of code is ridiculous.
   Reference for tiny-cuda-nn inference/training pattern.
 - **Original paper**: Müller et al. 2021.
 
+### Zero-knob adaptive sampling (pkg131)
+
+- **Cycles** `src/kernel/film/adaptive_sampling.h` + `src/scene/integrator.cpp`
+  (`get_adaptive_sampling`) + `src/integrator/adaptive_sampling.cpp` — Apache-2.0.
+  Dammertz et al. WSCG 2010 error metric + zero-knob threshold auto-derivation.
+  Notes: `pkg131-adaptive-sampling-autothreshold-research.md` (fills the
+  auto-threshold gap in `2026-07-other-engines-research.md` §5).
+
 ---
 
 ## 4. Astrophysics (Pillar 4)

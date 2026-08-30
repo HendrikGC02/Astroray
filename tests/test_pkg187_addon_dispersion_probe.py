@@ -1,19 +1,25 @@
 """pkg187 — Blender addon forward-compatible Dispersion socket probe.
 
-No shipped Blender (probed: 4.3.2 / 4.5.0 / 5.1.0 / 5.2.0) exposes a Dispersion
-socket on the Principled BSDF — it is unmerged upstream WIP (Blender PR #162041).
-So the addon cannot map a live socket today. Instead `_principled_native_params`
-carries a FORWARD-COMPATIBLE probe:
+No shipped Blender <=5.2 (probed: 4.3.2 / 4.5.0 / 5.1.0 / 5.2.0) exposes a
+dispersion socket on the Principled BSDF. Blender PR #162041 (merged 2026-08-18,
+commit f15daf81bf7c) added the two sockets under their MERGED names,
+'Transmission Dispersion Scale' and 'Transmission Dispersion Abbe Number'
+(node_shader_bsdf_principled.cc). pkg207 fixes `_principled_native_params` to
+probe those merged names first, keeping the older short forms as fallbacks:
 
-    put_float('dispersion_scale', 'Dispersion Scale', 'Dispersion')
-    put_float('dispersion_abbe',  'Dispersion Abbe Number')
+    put_float('dispersion_scale', 'Transmission Dispersion Scale',
+              'Dispersion Scale', 'Dispersion')
+    put_float('dispersion_abbe', 'Transmission Dispersion Abbe Number',
+              'Dispersion Abbe Number')
 
 This test proves the probe:
-  1. is a NO-OP on a node with no dispersion inputs (today's real Blender) — so
-     the engine stays non-dispersive and nothing regresses;
-  2. maps the two-socket WIP layout ('Dispersion Scale' + 'Dispersion Abbe
-     Number') onto dispersion_scale / dispersion_abbe;
-  3. maps a single-socket 'Dispersion' alias onto dispersion_scale.
+  1. is a NO-OP on a node with no dispersion inputs (Blender 5.1/5.2 and older) —
+     so the engine stays non-dispersive and nothing regresses;
+  2. maps the MERGED 5.3 layout ('Transmission Dispersion Scale' + 'Transmission
+     Dispersion Abbe Number') onto dispersion_scale / dispersion_abbe (pkg207);
+  3. maps the older short-form two-socket layout ('Dispersion Scale' +
+     'Dispersion Abbe Number') via the fallback;
+  4. maps a single-socket 'Dispersion' alias onto dispersion_scale.
 
 Runs OUTSIDE Blender via a mocked `bpy` (the standard addon-unit-test pattern
 from tests/test_addon_dof_aperture.py), with a synthetic node carrying the
@@ -122,8 +128,22 @@ def test_probe_noop_without_dispersion_sockets(monkeypatch):
     assert "dispersion_abbe" not in p
 
 
-def test_probe_maps_two_socket_wip_layout(monkeypatch):
-    """PR #162041 two-socket layout round-trips onto the engine param names."""
+def test_probe_maps_merged_5_3_layout(monkeypatch):
+    """pkg207: merged Blender 5.3 socket names round-trip onto the engine params."""
+    eng = _engine(monkeypatch)
+    node = _StubNode({
+        "IOR": 1.5,
+        "Transmission Weight": 1.0,
+        "Transmission Dispersion Scale": 0.7,
+        "Transmission Dispersion Abbe Number": 15.0,
+    })
+    p = eng._principled_native_params(node)
+    assert p["dispersion_scale"] == pytest.approx(0.7)
+    assert p["dispersion_abbe"] == pytest.approx(15.0)
+
+
+def test_probe_maps_short_form_fallback(monkeypatch):
+    """Older short-form two-socket layout still round-trips via the fallback."""
     eng = _engine(monkeypatch)
     node = _StubNode({
         "IOR": 1.5,

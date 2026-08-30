@@ -2,7 +2,7 @@
 
 **Pillar:** 3 <!-- Rendering-quality/convergence infra: the sampler itself changes nothing users see by default (opt-in, off-by-default); it exists to unblock pkg131 (Pillar 3's zero-knob adaptive sampling). Filed under 3, not 5, because it is a core-integrator convergence primitive, not a peripheral/tooling concern. -->
 **Track:** A
-**Status:** IMPLEMENTED (2026-08-30, branch `pkg224-progressive-sampler`) — forks (a)/(b)/(c) OWNER-CONFIRMED 2026-08-29 [(a) hash-Owen Sobol', (b) opt-in `__constant__` runtime flag, (c) GPU-only first] followed exactly. Sampler headers (`sobol_matrices.h` generated from SciPy's verified Joe-Kuo vectors, `progressive_sobol_device.h`), opt-in via `renderer.set_use_progressive_sampler(True)` → `__constant__ c_wfSamplerMode` → `WavefrontRNG::Uniform()` (branch under `#ifdef __CUDA_ARCH__`, Sobol' body `__noinline__` to protect the REG:254 off-path). Host unit tests pass (byte-exact vs `scipy.stats.qmc.Sobol`, prefix property, faster-than-1/√N). Awaiting: full CUDA build + cuobjdump register probe (byte-identical off-path gate) + GPU convergence leg. Do NOT re-litigate the forks.
+**Status:** DONE (2026-08-30, PR #657 merged 4f919b9; CI green + register probe byte-identical off-path) — forks (a)/(b)/(c) OWNER-CONFIRMED 2026-08-29 [(a) hash-Owen Sobol', (b) opt-in `__constant__` runtime flag, (c) GPU-only first] followed exactly. Sampler headers (`sobol_matrices.h` generated from SciPy's verified Joe-Kuo vectors, `progressive_sobol_device.h`), opt-in via `renderer.set_use_progressive_sampler(True)` → `__constant__ c_wfSamplerMode` → `WavefrontRNG::Uniform()` (branch under `#ifdef __CUDA_ARCH__`, Sobol' body `__noinline__` to protect the REG:254 off-path). Host unit tests pass (byte-exact vs `scipy.stats.qmc.Sobol`, prefix property, faster-than-1/√N). Awaiting: full CUDA build + cuobjdump register probe (byte-identical off-path gate) + GPU convergence leg. Do NOT re-litigate the forks.
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg55 (wavefront SoA refactor), pkg92 (WavefrontRNG foundation)
 
@@ -189,7 +189,10 @@ will hit this gap.
       (`tests/test_pkg224_progressive_sobol.py`, host) + GPU wiring/noise leg
       (`tests/test_pkg224_progressive_sobol_gpu.py`).
 - [x] pkg131 unblock note filed (pkg131 spec Status → UNBLOCKED).
-- [ ] Post-build cuobjdump probe confirming byte-identical off-path (the gate).
+- [x] Post-build cuobjdump probe: fleet `stageShadeBucketedKernel` BYTE-IDENTICAL
+      across all 128 specializations (REG:254 / STACK / CONSTANT unchanged) — the
+      `__noinline__` + runtime-`__constant__`-flag design paid zero off-path cost.
+      Merged as PR #657 (2026-08-30); CI green (build-and-test + cuda-syntax-check).
 
 ---
 

@@ -1,5 +1,33 @@
 # Astroray Status
 
+**2026-08-30 (pkg224 — progressive hash-Owen Sobol' sampler for the GPU wavefront,
+PR #657 merged 4f919b9): opt-in low-discrepancy sampler at every wavefront RNG draw,
+the prerequisite that UNBLOCKS pkg131 (adaptive sampling). Off by default →
+byte-identical to the PCG32 fleet.**
+- **Design (owner-confirmed forks 2026-08-29, followed exactly):** (a) hash-Owen
+  Sobol' (Burley 2020 / pbrt-v4 / Cycles `sobol_burley`, all Apache-2.0; direction
+  vectors baked from SciPy's Joe-Kuo dataset by `scripts/gen_sobol_matrices.py`,
+  verified byte-exact vs `scipy.stats.qmc.Sobol`); (b) opt-in runtime `__constant__`
+  flag `c_wfSamplerMode` (NOT a template axis); (c) GPU-only (CPU keeps `std::mt19937`).
+- **Register-safe wiring:** one branch in the shared `WavefrontRNG::Uniform()` funnel
+  under `#ifdef __CUDA_ARCH__` (covers primary-ray + all shade/NEE draws in a single
+  edit; the host/CPU build compiles it away → CPU oracle + `wavefront_diff`
+  snapshot-parity untouched). Sobol' body is `__device__ __noinline__` to keep it off
+  the REG:254 frame. **Register probe: fleet `stageShadeBucketedKernel` BYTE-IDENTICAL
+  across all 128 specializations** — zero off-path cost (memory
+  `noinline-runtime-flag-avoids-shade-spill`). Exposed as
+  `renderer.set_use_progressive_sampler(True)`, published in `cuda_wavefront_render`.
+- **Verified:** host suite (scipy byte-exact 64 dims, prefix property, convergence
+  slope −1.45 vs white-noise −0.5, pixel decorrelation) + GPU suite (OFF==default,
+  flag wired, lower flat-region noise) + regressions (pkg92 RNG, pkg186 GPU parity,
+  wavefront_diff bit-identity). On a smooth diffuse scene at matched 16 spp:
+  **−39% RMSE, −28% flat-region noise** vs PCG32.
+- **pkg131 UNBLOCKED** (spec Status flipped): turn the sampler on + vary per-pixel
+  sample counts against the convergence estimator. Note: making progressive the
+  UNCONDITIONAL default (vs on-only-in-adaptive-mode) needs a broad scene-suite sweep
+  (structured-artifact / denoiser-interaction check) + a CPU-parity resolution first
+  — a deliberate follow-up, not automatic.
+
 **2026-08-29 (pkg201-S3 items A+E + pkg223b Bump ROUND — 7 PRs merged; shader-node
 + Cycles-parity + honour-matrix advance): three engine features shipped CPU+GPU at
 parity with the fleet shade kernel held at REG 254 throughout, plus audits/hygiene

@@ -8,7 +8,7 @@
 //     https://github.com/tizian/specular-manifold-sampling
 //     commit 1f0e40342a8760450d5aa6202ea096feaa70256a (2021-06-27),
 //     src/librender/manifold_ss.cpp (compute_step_halfvector).
-//   Hanika, Droske, Manakov, "Manifold Next Event Estimation",
+//   Hanika, Droske, Fascione, "Manifold Next Event Estimation",
 //     EGSR 2015 (DOI 10.1111/cgf.12681), §4 — same generalized
 //     half-vector formulation re-derived from the paper math.
 //
@@ -71,7 +71,7 @@ inline Vec2 halfVectorResidual(const Vec3& x0, const Vec3& x1,
 //
 // Mirrors Cycles `mnee_compute_constraint_derivatives` current-vertex ("b")
 // block, src/kernel/integrator/mnee.h lines 285-356 (Apache-2.0, MIT-compatible),
-// and Hanika, Droske, Manakov 2015 "Manifold Next Event Estimation" §5
+// and Hanika, Droske, Fascione 2015 "Manifold Next Event Estimation" §5
 // (DOI 10.1111/cgf.12681). Re-expressed in Astroray's +h convention
 // (h = wi + eta·wo); Cycles uses H = -(…), an overall sign that cancels in the
 // Newton step. Validated analytic-vs-central-difference to ~1e-10 (flat and

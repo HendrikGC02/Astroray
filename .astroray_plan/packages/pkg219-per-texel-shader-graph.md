@@ -2,29 +2,7 @@
 
 **Pillar:** 5
 **Track:** A (architect researches the fork + sizes before implementation).
-**Status:** DONE (2026-08-30). Staged scope shipped + HW-verified across three
-sub-packages — pkg219a coordinate/3-D-Mapping unification (PR #640), pkg219b
-bounded op-VM core: Color Ramp / Mix / Math / Map Range on textures, CPU+GPU
-(PR #641), pkg219c op-VM opcode fill-out: HSV / Invert / Gamma / Bright-Contrast
-/ Separate-Combine Color / RGB-to-BW (PR #642) — and the two deferred
-normal-perturbation nodes landed as pkg223 GPU tangent-space normal maps (PR #647)
-and pkg223b Bump (PR #655). Each PR carries a fleet register gate (all
-`stageShadeBucketedKernel` specializations REG:254, no spill; `HasProgram=false`
-half byte-identical to baseline) and CPU/GPU parity within MC noise, in the
-Hardware-verification sections below. Confirms the closure-check judgement in
-`docs/NEXT_STAGE_REPORT.md` item 2. **One original acceptance-criteria item is
-intentionally out of the shipped scope:** *"Math/MapRange driving roughness"*
-requires a per-texel SCALAR material-parameter texture input on the principled
-material (roughness/metallic/etc.) — the op-VM evaluates `image -> MapRange -> scalar`
-correctly, but the engine currently has no per-texel scalar param-texture input
-to plug it into (the material spec carries only `base_color_texture`,
-`normal_map_texture`, `bump_map_texture`; roughness reads a constant-folded float).
-Wiring that is a distinct engine feature (new scalar param-texture path on CPU +
-GPU BSDF eval, touches the REG:254 shade kernel) and a fork the staging did not
-pre-decide — filed as a follow-up candidate for the architect, NOT part of the
-per-texel evaluator delivered here.
-
-**Original status:** open (filed 2026-08-22; fork DECIDED + staged 2026-08-23).
+**Status:** open (filed 2026-08-22; fork DECIDED + staged 2026-08-23).
 **Research note:** [`../docs/pkg219-per-texel-svm-evaluator-research.md`](../docs/pkg219-per-texel-svm-evaluator-research.md) — READ FIRST.
 
 ## Decision (2026-08-23 architect planning pass)
@@ -145,19 +123,14 @@ not endless special-casing.
    Generated/Object/Camera/Window coordinates), since it's needed regardless of fork.
 
 ## Acceptance criteria
-- [x] A node-graph matrix renders correctly CPU **and** GPU, qualitatively matching Cycles:
-      image→ColorRamp→BaseColor (pkg219b); image→MixRGB→BaseColor (pkg219b);
-      ~~Math/MapRange driving roughness~~ **(deferred — see Status: needs a per-texel
-      scalar param-texture engine input; op-VM already evaluates the chain)**;
-      a 3-D-Mapping-transformed image (scale+rotate+offset visibly applied — pkg219a);
-      Generated and Object coordinates (pkg219a); Separate/Combine Color round-trip (pkg219c).
-- [x] No silent degradation: an unsupported node reports a *visible* degradation entry (not
-      a silent grey) — `_maybe_build_program_texture` falls back to constant-fold + a
-      `_warn_shader_fallback`/`_degradation_report` entry on `VMCompileError`.
-- [x] GPU shade-kernel register budget respected (no non-texture-path perf regression) —
-      `HasProgram=false` fleet half byte-identical to baseline, all specializations REG:254,
-      no spill (per-PR cuobjdump gates in the Hardware-verification sections).
-- [x] CI green (all sub-package PRs merged).
+- [ ] A node-graph matrix renders correctly CPU **and** GPU, qualitatively matching Cycles:
+      image→ColorRamp→BaseColor; image→MixRGB→BaseColor; Math/MapRange driving roughness;
+      a 3-D-Mapping-transformed image (scale+rotate+offset visibly applied); Generated and
+      Object coordinates; Separate/Combine Color round-trip.
+- [ ] No silent degradation: an unsupported node reports a *visible* degradation entry (not
+      a silent grey) — pairs with the `_degradation_report` mechanism already present.
+- [ ] GPU shade-kernel register budget respected (no non-texture-path perf regression).
+- [ ] CI green.
 
 ## Reference
 - Repro: owner's `Material.001` scene, 2026-08-22 (this file's Problem section).

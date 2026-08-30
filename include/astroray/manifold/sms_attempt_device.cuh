@@ -42,7 +42,7 @@
 //       commit 1f0e40342a8760450d5aa6202ea096feaa70256a (2021-06-27),
 //       src/librender/manifold_ss.cpp. No source lines copied; the
 //       public-paper math is re-expressed (same as the CPU header).
-//   Hanika, Droske, Manakov, "Manifold Next Event Estimation",
+//   Hanika, Droske, Fascione, "Manifold Next Event Estimation",
 //     EGSR 2015, DOI 10.1111/cgf.12681. §4 — wavelength-dependent
 //     residual h(λ) = ω_i + η(λ)·ω_o (linear in η, so one Newton solve
 //     at λ_hero; the caller passes eta = 1/iorAt(λ_hero)).

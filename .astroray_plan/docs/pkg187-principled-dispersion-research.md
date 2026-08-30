@@ -5,14 +5,14 @@ the Abbe-number → dispersion-curve mapping.
 
 ## Problem
 
-Blender's Principled BSDF (WIP) exposes dispersion as an **Abbe number** (Vd)
+Blender's Principled BSDF exposes dispersion as an **Abbe number** (Vd)
 plus a **dispersion scale**. The engine needs a per-wavelength IOR `n(λ)` for the
 transmission lobe. Do not hand-roll a wavelength dependence — find the canonical
 formula and a license-compatible reference implementation.
 
 ## Canonical source (borrowed)
 
-**Cycles' WIP Principled/Glass dispersion** — Blender PR
+**Cycles' Principled/Glass dispersion** — Blender PR
 [#162041](https://projects.blender.org/blender/blender/pulls/162041), function
 `bsdf_glass_ior` in `intern/cycles/kernel/closure/bsdf_microfacet.h`
 (Apache-2.0 / compatible). It implements the **OpenPBR Surface specification
@@ -79,8 +79,13 @@ installed build.** Headless probe (`bpy`, `ShaderNodeBsdfPrincipled` /
 | 5.1.0   | none                                                 |
 | 5.2.0   | none                                                 |
 
-Dispersion is unmerged upstream WIP (PR #162041). The engine core is still built
-and verified via native dispersion params; the addon gets a forward-compatible
+At the time of the original probe (pre-2026-08-18), dispersion was unmerged
+upstream WIP (PR #162041). It has since squash-merged into Blender `main`
+(2026-08-18, commit `f15daf81bf7c…`) and ships in **Blender 5.3 alpha** — none
+of the probed builds above (4.3.2 through 5.2.0) include it, so the "dropped
+silently on import" premise remains false for every currently installed build
+(pkg209, 2026-08-30). The engine core is still built and verified via native
+dispersion params; the addon gets a forward-compatible
 `put_float` probe (`'Dispersion Scale'` / `'Dispersion Abbe Number'`, single
 `'Dispersion'` alias) that is a no-op today and live the day the PR ships.
 (Coordinator-approved Option A, 2026-08-12.)
@@ -90,3 +95,25 @@ and verified via native dispersion params; the addon gets a forward-compatible
 - `plugins/materials/principled.cpp` — `cauchyAB()` cites PR #162041 +
   OpenPBR v1.1.1 Eqs. 55/56.
 - `include/astroray/gpu_dispersion.cuh` — `gpu_cauchy_ior()` cites the same.
+
+## pkg209 — parity re-verification against the merged commit (2026-08-30)
+
+PR #162041 squash-merged into Blender `main` 2026-08-18 (commit
+`f15daf81bf7c…`). Re-fetched the merged diff directly from
+`projects.blender.org/blender/blender/pulls/162041.diff` (Apache-2.0, for
+research) rather than relying on the prior report's claim. Side-by-side:
+
+| | Cycles merged (`bsdf_glass_ior`, `bsdf_microfacet.h`) | Astroray (`cauchyAB`, `principled.cpp:229-238`; `gpu_cauchy_ior`, `gpu_dispersion.cuh:36-39`) |
+|---|---|---|
+| Fraunhofer constants (μm) | `lambda_d=0.5876f, lambda_C=0.6563f, lambda_F=0.4861f` | identical |
+| `fac` | `1.0f/(1.0f/(lambda_F*lambda_F) - 1.0f/(lambda_C*lambda_C))` | identical |
+| `B` | `(ior - 1.0f) * inv_abbe * fac` | `(iorD - 1.0f) * invAbbe * fac` — identical |
+| `A` | `ior - B * inv_lambda_d_sq` | `iorD - B * invLambdaDSq` — identical |
+| `n(λ)` | `A + B / sqr(wavelength)` | `A + B / (lam_um * lam_um)` (`gpu_cauchy_ior`) — identical |
+| socket mapping | `inv_abbe = safe_divide(dispersion_scale, abbe_number)` (`svm/closure.h`, `shader_nodes.cpp`, `node_principled_bsdf.osl`) | `invAbbe = (abbe > 0.0f) ? dispScale / abbe : 0.0f` (`principled.cpp:1676-1678`) — identical (equivalent zero-guard) |
+
+**Result: character-for-character match, no divergence.** Constants, the
+Cauchy A/B derivation, and the `inv_abbe` socket mapping are bit-identical
+between Astroray's port and the merged Cycles source. This package (pkg209)
+changes no executable code — it is a comment/doc refresh only; see PR for the
+`.pyd` mtime / byte-identical render assertion.

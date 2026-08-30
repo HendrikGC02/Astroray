@@ -35,55 +35,21 @@ wavelength), NOT a full ROYGBIV rainbow.
 
 2. **Scene:** reuse the dispersive-prism geometry from `tests/test_spectral_prism.py`
    (BK7 Sellmeier preset), but replace the broadband/white illuminant with a
-   **narrow-line emitter**.
-
-   **Agent-ready recipe (architect 2026-08-30 — the abstract "635 nm red line"
-   in the original filing does NOT exist as a profile; use the real narrow-line
-   preset below).** Astroray has no per-render monochromatic-emitter API; a
-   narrow line is delivered via the measured-SPD emission path. The ONLY genuinely
-   narrow-line light-source profile shipped in `data/spectral_profiles/profiles.bin`
-   is **`sodium_vapor`** (LPS D-lines, 588.995/589.592 nm — a ~589 nm yellow
-   spike; confirmed in `profiles_metadata.json`). Use it as the line emitter and
-   contrast it against a **broadband control** (`led_6500k`, a smooth ~380–780 nm
-   phosphor-LED SPD). `mercury_vapor` is multi-line (404/436/546/577 nm) — a useful
-   *optional* second case (its dominant 546 nm green line should throw a
-   green-dominant band), but it is NOT a single line, so keep `sodium_vapor` as the
-   primary and gate the mercury case as a documented stretch, not a hard assert.
-
-   Build the scene by adapting `tests/scenes/prism_reference.py`
-   (`add_triangular_prism` + BK7 `dielectric` + camera) but on the **spectral**
-   path, following the exact wiring in `tests/test_pkg195_stage_b_spectral_lamp.py`:
-   ```
-   astroray.load_spectral_profiles(".../data/spectral_profiles/profiles.bin")
-   r.set_integrator("multiwavelength_path_tracer")   # NOT "path_tracer" — the RGB
-                                                     # path can't carry a source SPD
-   r.set_wavelength_range(380.0, 780.0)
-   r.add_point_light(position=[...], intensity=...,  radius=...,
-                     emission={"mode": "measured_spd", "profile_name": "sodium_vapor"})
-   ```
-   Prefer a point light aimed through the prism over the broadband area-light
-   triangles in `prism_reference.make_prism_scene`; if a spectral **area** emitter is
-   needed for enough flux, confirm whether `create_material("light", …)` accepts an
-   `emission=` SPD dict before using it (it may not — the point-light path is the
-   proven one). Keep the seed pinned and render LINEAR (`apply_gamma=False`).
+   **narrow-line emitter** (reuse the shipped line-emitter path from the §9
+   gallery — e.g. a ~635 nm red line; parameterize the line wavelength so the test
+   can sweep at least two lines, e.g. red ~635 nm and blue ~470 nm).
 
 3. **Oracle predicates** (LINEAR EXRs, seed-pinned, sentinel-gated — not exit code):
-   - The dispersed band's **dominant hue tracks the emitter wavelength**: the
-     `sodium_vapor` (~589 nm) prism produces a **yellow/amber-dominant** refracted
-     band (R≈G, both ≫ B), NOT a full rainbow. Assert with a hue/centroid metric on
-     the refracted region. (Optional documented stretch: `mercury_vapor` → a
-     green-biased band from its 546 nm line.)
-   - The **spectral spread is narrow**, not full-rainbow: reuse
-     `prism_reference.red_blue_centroid_separation` (already the shipped spread
-     metric) and assert the sodium-line band's red-blue centroid separation is
-     **well below** what the SAME prism produces under the `led_6500k` broadband
-     control (render that broadband control in the same test as the wide-spread
-     reference). This "narrow << broadband" contrast is the crux — it is exactly the
-     assertion Cycles would fail.
-   - **If the sodium-line prism does NOT render narrow** (e.g. it throws a wide
-     rainbow anyway), that is a REAL engine defect (source-SPD not reaching the
-     dispersive event) — STOP and file it as a separate spec per §1, do not relax
-     the predicate to make it pass.
+   - The dispersed band's **dominant hue tracks the emitter wavelength** (a
+     red-line prism produces a red-dominant band; a blue-line prism a blue-dominant
+     band) — assert via a hue/centroid metric on the refracted region, contrasting
+     the two line wavelengths against each other.
+   - The **spectral spread is narrow**, not full-rainbow: measure the hue variance
+     / red-blue centroid separation in the refracted band and assert it is well
+     below what the SAME prism produces under a broadband white source (render that
+     broadband control in the same test as the wide-spread reference). This
+     "narrow << broadband" contrast is the crux — it is exactly the assertion
+     Cycles would fail.
 
 4. Register the scene/driver in `scripts/README.md` if it adds a reusable harness
    entry (CLAUDE.md §5b — check the index first; prefer extending
@@ -91,13 +57,10 @@ wavelength), NOT a full ROYGBIV rainbow.
 
 ## Acceptance
 
-- [ ] The oracle test PASSES on current `main`: the `sodium_vapor` (~589 nm)
-  line prism renders a hue-correct (yellow/amber-dominant), spectrally-narrow
-  band; the `led_6500k` broadband control renders a measurably wider red-blue
-  centroid spread. Report the measured hue-centroid / spread numbers for both
-  (sodium line, broadband; plus the optional mercury case if included). State the
-  `.pyd` mtime next to the render leg, and state which backend produced the numbers
-  (CPU vs auto-routed CUDA — memory `cpu-suites-auto-use-cuda`).
+- [ ] The oracle test PASSES on current `main`: red-line and blue-line prisms
+  render hue-correct, narrow bands; the broadband control renders a measurably
+  wider spread. Report the measured hue-centroid / spread numbers for all three
+  (red line, blue line, broadband). State the `.pyd` mtime next to the render leg.
 - [ ] The test is deterministic (seed-pinned) and runs in the standard suite; the
   `.astroray_plan/docs/` note frames it as a Cycles-superiority oracle with the
   cited limitation.

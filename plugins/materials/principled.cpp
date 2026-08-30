@@ -75,8 +75,9 @@ class PrincipledPlugin : public Material {
     Vec3 emissionColor_;
     float emissionStrength_;
     astroray::RGBIlluminantSpectrum emissionSpec_;
-    // pkg187 — Principled dispersion (chromatic refraction). Blender's WIP
-    // Dispersion input (PR #162041) is an (Abbe number, dispersion scale) pair;
+    // pkg187 — Principled dispersion (chromatic refraction). Blender's
+    // Dispersion input (PR #162041, squash-merged 2026-08-18, commit
+    // f15daf81bf7c…) is an (Abbe number, dispersion scale) pair;
     // the transmission-lobe IOR becomes wavelength-dependent via the OpenPBR
     // Surface v1.1.1 Cauchy fit. cauchyA_/cauchyB_ are precomputed in the ctor
     // from ior_ (the d-line IOR) and inv_abbe = dispersion_scale/Abbe. dispersive_
@@ -218,7 +219,8 @@ class PrincipledPlugin : public Material {
     }
 
     // pkg187 — Abbe/dispersion → Cauchy (A,B) fit for the transmission-lobe IOR.
-    // VERBATIM port of Cycles' WIP Principled dispersion (Blender PR #162041,
+    // VERBATIM port of Cycles' Principled dispersion (Blender PR #162041,
+    // squash-merged 2026-08-18, commit f15daf81bf7c…,
     // intern/cycles/kernel/closure/bsdf_microfacet.h `bsdf_glass_ior`), which
     // implements the OpenPBR Surface specification v1.1.1 Eqs. (55)/(56):
     //   n(λ) = A + B/λ²  (λ in μm),   B = (n_d − 1)·(1/V_d)·fac,

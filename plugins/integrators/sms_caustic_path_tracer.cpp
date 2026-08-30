@@ -10,7 +10,7 @@
 //   Zeltner, Georgiev, Jakob, "Specular Manifold Sampling for Rendering
 //     High-Frequency Caustics and Glints", SIGGRAPH 2020,
 //     DOI 10.1145/3386569.3392408.
-//   Hanika, Droske, Manakov, "Manifold Next Event Estimation",
+//   Hanika, Droske, Fascione, "Manifold Next Event Estimation",
 //     EGSR 2015, DOI 10.1111/cgf.12681.  §4 derives the per-wavelength
 //     half-vector residual h(λ) = ω_i + η(λ)·ω_o, which is the math
 //     source for the Phase 2 spectral wavelength-Newton path.

@@ -27,7 +27,8 @@ __device__ inline float gpu_sellmeier_ior(const GDispersion& d, float lambda_nm)
 }
 
 // pkg187 — Cauchy empirical dispersion n(λ) = A + B/λ² (λ in μm), the model
-// Cycles' WIP Principled dispersion uses (Blender PR #162041,
+// Cycles' Principled dispersion uses (Blender PR #162041, squash-merged
+// 2026-08-18, commit f15daf81bf7c…,
 // intern/cycles/kernel/closure/bsdf_microfacet.h bsdf_glass_ior; OpenPBR Surface
 // v1.1.1 Eq. 55). For a dispersive Principled material the host packs the fit into
 // GDispersion.b1 = A, b2 = B (see scene_upload.cu closure-graph branch); this is

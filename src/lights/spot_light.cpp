@@ -183,6 +183,8 @@ bool SpotLight::fillDeviceParams(DeviceLightParams& out) const {
     out.cosInner = std::cos(innerAngle_);
     out.cosOuter = std::cos(outerAngle_);
     emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
+    // pkg218: baked device SPD for non-RGB emission modes (see point_light.cpp).
+    if (!out.exactIlluminant) out.emissionProfileSamples = emission_.bakeDeviceProfile();
     // pkg122: staticScale = intensity·(1/(4π)) = I = P/(4π), matching sampleLi.
     constexpr float kInvFourPiF = 0.07957747155f;  // 1/(4π)
     out.staticScale = intensity_ * kInvFourPiF;

@@ -530,8 +530,16 @@ void setWavefrontAdaptiveBinding(const GWavefrontAdaptiveBinding& binding);
 // matches and correctly falls to PASS_VOLUME_INDIRECT. Read-only in the shadow
 // kernel (no scratch mutation); zeroed per render so bounce 0's first scatter
 // (enc=1) never aliases the memset default (enc=0 => -1 != any bounce).
+// pkg218: int lane 5 = dedEmissionProfileIndex — the source GDedicatedLight's
+// device emission-profile table row (-1 = RGB fallback, unchanged behaviour).
+// Parked at shade time alongside lanes 11-13 (dedEmissionRGB) so
+// stageShadowKernel can pick gpu_emission_profile() over the RGBIlluminant
+// upsample for non-RGB emission modes (blackbody/measured_spd/composite).
+// This kernel is explicitly NOT register-critical (lean occlusion + lazy
+// resolve, unlike the REG:254 bucketed shade kernel), so the extra lane read
+// here carries none of the shade-kernel spill risk.
 constexpr int G_WF_NEE_F_LANES = 15;
-constexpr int G_WF_NEE_I_LANES = 5;
+constexpr int G_WF_NEE_I_LANES = 6;
 void launchStageShadow(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,

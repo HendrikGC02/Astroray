@@ -128,6 +128,16 @@ struct SceneUploadResult {
     // profile i at lambda = G_PROFILE_LAMBDA_MIN + s * G_PROFILE_LAMBDA_STEP.
     std::vector<float> profileTable;
     int                profileCount = 0;
+
+    // pkg218: emission-profile table for dedicated-light non-RGB emission
+    // modes (blackbody/measured_spd/composite). Layout:
+    // emissionProfileTable[i * G_EMISSION_SAMPLES + s] is the baked spectral
+    // radiance of profile i at lambda = G_EMISSION_LAMBDA_MIN + s *
+    // G_EMISSION_LAMBDA_STEP (360-830 nm, 1 nm step, 471 samples). Uploaded to
+    // device GLOBAL memory (uploadEmissionProfileTable, gpu_spectral_tables.cu)
+    // — unlike profileTable above, no fixed G_MAX_* cap.
+    std::vector<float> emissionProfileTable;
+    int                emissionProfileCount = 0;
 };
 
 // Declared here; defined in scene_upload.cu

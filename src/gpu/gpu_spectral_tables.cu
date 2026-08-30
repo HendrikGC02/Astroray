@@ -324,6 +324,69 @@ __device__ float gpu_sampleD65(float lambda) {
     return v * g_d65NormFactor;
 }
 
+// ---------------------------------------------------------------------------
+// pkg218: emission-profile table (device GLOBAL memory — see gpu_types.h's
+// G_EMISSION_* doc / gpu_spectral_tables.h's "widely-included header" note by
+// g_emissionProfileTable's declaration for why global memory, not
+// __constant__). Unlike the JH LUT / GGX glass tables (uploaded once, static
+// for the process), this is scene-dependent — the profile set changes with
+// the scene's dedicated lights — so uploadEmissionProfileTable reallocates
+// the device buffer on every call whose size grows, mirroring the devUpload<T>
+// helper's free-then-cudaMalloc pattern in cuda_renderer.cu.
+// ---------------------------------------------------------------------------
+__device__ const float* g_emissionProfileTable = nullptr;  // [count * G_EMISSION_SAMPLES]
+__device__ int          g_emissionProfileCount  = 0;
+
+static float* s_emissionProfileTableDev  = nullptr;
+static size_t s_emissionProfileTableCap  = 0;  // floats currently allocated
+
+void uploadEmissionProfileTable(const float* host, int count) {
+    size_t floats = (host && count > 0) ? size_t(count) * G_EMISSION_SAMPLES : 0;
+
+    if (floats == 0) {
+        // No emission profiles this scene: clear the device pointer/count so
+        // gpu_emission_profile rejects every index (RGB fallback for all).
+        if (s_emissionProfileTableDev) {
+            cudaFree(s_emissionProfileTableDev);
+            s_emissionProfileTableDev = nullptr;
+            s_emissionProfileTableCap = 0;
+        }
+        const float* nullPtr = nullptr;
+        int zero = 0;
+        cudaMemcpyToSymbol(g_emissionProfileTable, &nullPtr, sizeof(float*));
+        cudaMemcpyToSymbol(g_emissionProfileCount, &zero, sizeof(int));
+        return;
+    }
+
+    if (floats > s_emissionProfileTableCap) {
+        if (s_emissionProfileTableDev) cudaFree(s_emissionProfileTableDev);
+        cudaError_t e = cudaMalloc(reinterpret_cast<void**>(&s_emissionProfileTableDev),
+                                   floats * sizeof(float));
+        if (e != cudaSuccess) {
+            s_emissionProfileTableDev = nullptr;
+            s_emissionProfileTableCap = 0;
+            fprintf(stderr, "uploadEmissionProfileTable alloc failed: %s\n",
+                    cudaGetErrorString(e));
+            throw std::runtime_error(cudaGetErrorString(e));
+        }
+        s_emissionProfileTableCap = floats;
+    }
+
+    cudaError_t e = cudaMemcpy(s_emissionProfileTableDev, host, floats * sizeof(float),
+                               cudaMemcpyHostToDevice);
+    if (e == cudaSuccess) {
+        e = cudaMemcpyToSymbol(g_emissionProfileTable, &s_emissionProfileTableDev,
+                               sizeof(float*));
+    }
+    if (e == cudaSuccess) {
+        e = cudaMemcpyToSymbol(g_emissionProfileCount, &count, sizeof(int));
+    }
+    if (e != cudaSuccess) {
+        fprintf(stderr, "uploadEmissionProfileTable failed: %s\n", cudaGetErrorString(e));
+        throw std::runtime_error(cudaGetErrorString(e));
+    }
+}
+
 // pkg55-B' Session N+6: non-inline export of spectrumToXYZ for the wavefront
 // stage_advance TU (linked via -rdc=true). The inline spectrumToXYZ in
 // gpu_spectral_tables.h is TU-local over the constant CMF tables; this wrapper

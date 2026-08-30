@@ -33,11 +33,22 @@
 #include <string>
 #include <memory>
 #include <variant>
+#include <vector>
 
 namespace astroray {
 
 // Forward declarations
 class RGBAlbedoSpectrum;
+
+// pkg218: fixed device grid for EmissionSpectrum::bakeDeviceProfile() below —
+// 360-830 nm, 1 nm step, 471 samples. MUST stay numerically identical to
+// gpu_types.h's G_EMISSION_LAMBDA_MIN/STEP/G_EMISSION_SAMPLES (that GPU header
+// is CUDA-adjacent and not included from this plain-C++ TU, so the two grids
+// are declared independently and cross-referenced by comment — same pattern
+// already used for G_PROFILE_LAMBDA_MIN=300 vs SpectralProfile's lmin_ default).
+inline constexpr float kDeviceEmissionLambdaMin  = 360.0f;
+inline constexpr float kDeviceEmissionLambdaStep = 1.0f;
+inline constexpr int   kDeviceEmissionSamples    = 471;
 
 // --------------------------------------------------------------------------
 // EmissionSpectrum — tagged union representing spectral emission.
@@ -106,6 +117,16 @@ public:
     // moot until the pkg89 CPU blackbody normalization is fixed — see GAP 2).
     // `exactRGB` is true only for RGB mode.
     void deviceReference(Vec3& outRGB, bool& exactRGB) const;
+
+    // pkg218 — bake this emission spectrum onto the fixed device grid above
+    // (kDeviceEmissionLambdaMin/Step, kDeviceEmissionSamples samples) for GPU
+    // spectral-emission upload. Non-RGB modes only: callers gate on
+    // deviceReference's exactRGB == false (RGB mode stays on the exact
+    // RGBIlluminant device path and never needs a baked profile). Reuses
+    // deviceReference's own per-nm four-lane eval() technique, so blackbody's
+    // luminance normalization (blackbodyLuminanceNorm) and composite's filter
+    // multiply are inherited for free — see src/emission_spectrum.cpp.
+    std::vector<float> bakeDeviceProfile() const;
 
     // Accessors for the underlying variant (for UI / serialization).
     const Variant& variant() const { return data_; }

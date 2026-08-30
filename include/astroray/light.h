@@ -27,6 +27,7 @@
 #include <memory>
 #include <random>
 #include <cmath>
+#include <vector>
 
 // Vec3 and AABB are assumed to be already defined (from raytracer.h).
 // Forward-declare them here to make the dependency explicit.
@@ -70,6 +71,14 @@ struct DeviceLightParams {
                                   // false for blackbody/measured (chroma-approx, energy follow-up)
     float staticScale = 1.0f;     // intensity·normalizeFactor·(1/π) baked per type
                                   // (distant omits the 1/π, matching distant_light.cpp)
+    // pkg218 — baked EmissionSpectrum SPD (EmissionSpectrum::bakeDeviceProfile,
+    // kDeviceEmissionSamples floats, 360-830 nm @ 1 nm) for non-RGB emission
+    // modes. Populated by each light's fillDeviceParams() when exactIlluminant
+    // is false; left empty for RGB mode (exactIlluminant true — that path keeps
+    // the exact deviceReference/RGBIlluminant device path, untouched).
+    // scene_upload.cu registers this into SceneUploadResult::emissionProfileTable
+    // and stamps the returned index onto GDedicatedLight::emissionProfileIndex.
+    std::vector<float> emissionProfileSamples;
 };
 
 // --------------------------------------------------------------------------

@@ -505,6 +505,30 @@ static constexpr float G_PROFILE_LAMBDA_MIN  = 300.0f;
 static constexpr float G_PROFILE_LAMBDA_MAX  = 1000.0f;
 static constexpr float G_PROFILE_LAMBDA_STEP = 5.0f;
 
+// pkg218: layout for the device-side EMISSION profile table — a baked
+// EmissionSpectrum SPD (blackbody / measured / composite modes; RGB mode
+// keeps the exact deviceReference/RGBIlluminant path) sampled onto a fixed
+// grid for GPU spectral-emission upload. The grid matches the CIE CMF support
+// used elsewhere on the device (gpu_spectral_tables.h's G_CMF_LAMBDA_MIN/MAX/
+// STEP: 360-830 nm, 1 nm step, 471 samples) so device linear interpolation
+// tracks the CPU per-nm eval (EmissionSpectrum::bakeDeviceProfile,
+// src/emission_spectrum.cpp) to well under 1%. Values MUST stay numerically
+// identical to emission_spectrum.h's kDeviceEmissionLambdaMin/Step/Samples —
+// that CPU-side header can't include this one (CUDA-adjacent), so the two
+// grids are independently declared and cross-referenced by comment.
+//
+// Lives in device GLOBAL memory (an extern __device__ pointer, not a fixed
+// __constant__ array) — see gpu_glass_tables.cuh for the "widely-included
+// header risks either N-way __constant__ duplication or blowing the 64 KB
+// budget" rationale that already forced the Jakob-Hanika LUT and GGX glass
+// tables into global memory; the same applies here since the profile count is
+// scene-dependent (no fixed cap needed as a result — see
+// uploadEmissionProfileTable in gpu_spectral_tables.cu).
+static constexpr float G_EMISSION_LAMBDA_MIN  = 360.0f;
+static constexpr float G_EMISSION_LAMBDA_MAX  = 830.0f;
+static constexpr float G_EMISSION_LAMBDA_STEP = 1.0f;
+static constexpr int   G_EMISSION_SAMPLES     = 471;
+
 struct alignas(64) GMaterial {
     GMaterialType type;
     GSpectralMode spectralMode;
@@ -815,6 +839,12 @@ struct GNEESample {
     int   isDedicated;    // 1 = dedicated light
     GVec3 dedEmissionRGB; // reference color for the device RGBIlluminant upsample
     float dedGeoScale;    // staticScale · per-sample geometric factor (λ-independent)
+    // pkg218 — copied from the source GDedicatedLight.emissionProfileIndex at
+    // sample time (gpu_dedicated_sample) so it survives the A(sample)->
+    // B(shadow trace)->C(resolve) split the same way dedEmissionRGB/dedGeoScale
+    // already do; gpu_nee_resolve reads it instead of dedEmissionRGB when >= 0.
+    // -1 = RGB fallback (existing behaviour, unchanged).
+    int   dedEmissionProfileIndex;
     // pkg140: 1 = this sample came from a delta (zero-measure) light
     // distribution (e.g. GDED_DISTANT with angular_diameter == 0). Forces
     // gpu_nee_resolve's MIS weight to 1 instead of a power heuristic against
@@ -874,6 +904,13 @@ struct GDedicatedLight {
     float staticScale;      // intensity·invarea·(1/π) baked (distant omits 1/π)
     float power;            // this light's unified-CDF selection weight
     float cumulativePower;  // unified CDF position (after the GLight entries)
+    // pkg218 — index into the device emission-profile table (see
+    // G_EMISSION_SAMPLES above / gpu_spectral_tables.h's g_emissionProfileTable)
+    // for non-RGB emission modes (blackbody / measured_spd / composite).
+    // -1 = RGB fallback (keep the existing emissionRGB·RGBIlluminant path —
+    // exact for RGB mode, unchanged by this package). Set by scene_upload.cu
+    // from DeviceLightParams::emissionProfileSamples.
+    int   emissionProfileIndex;
 };
 
 // ---------------------------------------------------------------------------

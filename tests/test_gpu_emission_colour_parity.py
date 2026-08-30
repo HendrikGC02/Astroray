@@ -1,4 +1,4 @@
-"""CPU<->GPU emission-colour parity for preset (measured_spd) lamps.
+"""CPU<->GPU emission-colour parity for preset (measured_spd) and blackbody lamps.
 
 Regression gate for the deviceReference chroma bug (2026-08-22): the GPU renders
 non-RGB emission (measured_spd / blackbody / composite) as an RGB approximation
@@ -8,19 +8,22 @@ range -- four fixed wavelengths (595, 712.5, 830, 477.5) that badly undersample
 a structured lamp SPD (830 nm is dead for a 380-780 nm LED; none lands on the
 blue pump peak). The result was a strongly red/orange-biased RGB the GPU rendered
 faithfully: salmon LEDs, over-orange sodium, reddish mercury (live Blender repro:
-led_5000k GPU R/G ~1.52 vs CPU ~1.09). The fix replaces the 4-sample MC with a
-fine 1 nm CMF-grid integral (emission_spectrum.cpp), so the reference RGB carries
-the true chroma.
+led_5000k GPU R/G ~1.52 vs CPU ~1.09). The deviceReference fix (2026-08-22)
+replaced the 4-sample MC with a fine 1 nm CMF-grid integral, closing the gross
+chroma error but leaving a residual few-% gap (JH RGB round-trip + RGBIlluminant's
+baked D65 shape).
+
+pkg218 (this gate's tightening) closes that residual: non-RGB dedicated-light
+emission (blackbody / measured_spd / composite) is now baked onto a device SPD
+table (EmissionSpectrum::bakeDeviceProfile, 360-830 nm @ 1 nm) and evaluated
+directly at the render wavelengths (gpu_emission_profile, gpu_nee.cuh /
+stage_advance.cu stageShadowKernel) instead of being upsampled through
+RGBIlluminant. RGB-mode emission is untouched (already bit-exact).
 
 This asserts per-channel mean-ratio parity (NOT SSIM -- CPU and GPU draw
 independent RNG streams; see memory ssim-wrong-gate-for-independent-rng). It runs
 the dedicated-light NEE path (integrator "path_tracer"); the naive
 "multiwavelength_path_tracer" does not drive GPU dedicated-light NEE.
-
-Broadband lamps reach a few-% parity here. Narrow line lamps (sodium) keep a
-larger chroma gap that is intrinsic to the RGB approximation and is closed by the
-follow-up device-SPD upload (pkg218); this test only asserts sodium improved well
-past the old red bias, not tight parity.
 """
 import os
 
@@ -86,26 +89,61 @@ needs = pytest.mark.skipif(not HAS_PROFILES or not (AVAILABLE and _has_gpu()),
 
 
 @needs
-@pytest.mark.parametrize("profile", ["led_5000k", "led_3000k", "mercury_vapor", "cie_f2"])
+@pytest.mark.parametrize(
+    "profile", ["led_5000k", "led_3000k", "mercury_vapor", "cie_f2", "sodium_vapor"])
 def test_broadband_lamp_cpu_gpu_parity(profile):
-    """Broadband preset lamps: GPU per-channel mean within 8% of CPU.
+    """Preset (measured_spd) lamps: GPU per-channel mean within 5% of CPU.
 
-    (Measured ~2-4% post-fix; 8% leaves margin for MC noise + boost-clock drift.
-    Pre-fix, led_5000k red channel was ~40% hot vs its own CPU render.)
+    pkg218 tightened this from 8% (deviceReference-only) to 5% (target from the
+    package spec) now that non-RGB emission is evaluated from the baked device
+    SPD directly, not upsampled through RGBIlluminant. Includes sodium_vapor
+    (a narrow atomic line, previously loose-gated at 30% -- see
+    test_sodium_lamp_amber_and_tight below for the direct regression guard).
     """
     em = {"mode": "measured_spd", "profile_name": profile}
     cpu = _lamp_channels(em, use_gpu=False)
     gpu = _lamp_channels(em, use_gpu=True)
-    assert cpu.min() > 1e-3 and gpu.min() > 1e-3, (
+    # A lamp must emit *something* — guard the near-black GPU failure mode via the
+    # brightest channel (a narrow-line lamp like sodium legitimately has a zero
+    # channel, so .min() would false-fail).
+    assert cpu.max() > 1e-3 and gpu.max() > 1e-3, (
         f"{profile}: lamp rendered near-black CPU={cpu} GPU={gpu}"
+    )
+    # CPU/GPU parity: per-channel ratio only on channels the CPU actually emits in.
+    # A channel that is ~0 on CPU (sodium's blue) is compared as absolute agreement
+    # near zero, not a 0/0 ratio artifact.
+    sig = cpu > 1e-3 * cpu.max()
+    ratio = gpu[sig] / cpu[sig]
+    maxdev = float(np.abs(ratio - 1.0).max()) if sig.any() else 0.0
+    dark_ok = bool((np.abs(gpu[~sig] - cpu[~sig]) < 1e-2).all())
+    print(f"[{profile}] CPU={cpu.round(4)} GPU={gpu.round(4)} "
+          f"R/G cpu={_rg(cpu):.3f} gpu={_rg(gpu):.3f} maxdev={maxdev*100:.1f}%")
+    assert maxdev < 0.05 and dark_ok, (
+        f"{profile}: CPU/GPU per-channel mismatch {maxdev*100:.1f}% > 5% "
+        f"(CPU={cpu}, GPU={gpu}, dark_ok={dark_ok})"
+    )
+
+
+@needs
+@pytest.mark.parametrize("temperature_k", [3000.0, 6500.0])
+def test_blackbody_cpu_gpu_parity(temperature_k):
+    """Blackbody emission (the DEFAULT lamp mode) at 3000 K / 6500 K: GPU
+    per-channel mean within 5% of CPU. pkg218 acceptance criterion -- blackbody
+    is the default emission mode, so any chroma shift here changes every
+    default-configured lamp, not just the measured_spd presets."""
+    em = {"mode": "blackbody", "temperature_K": temperature_k, "tint_rgb": [1, 1, 1]}
+    cpu = _lamp_channels(em, use_gpu=False)
+    gpu = _lamp_channels(em, use_gpu=True)
+    assert cpu.min() > 1e-3 and gpu.min() > 1e-3, (
+        f"{temperature_k}K: lamp rendered near-black CPU={cpu} GPU={gpu}"
     )
     ratio = gpu / np.maximum(cpu, 1e-9)
     maxdev = float(np.abs(ratio - 1.0).max())
-    print(f"[{profile}] CPU={cpu.round(4)} GPU={gpu.round(4)} "
+    print(f"[blackbody {temperature_k}K] CPU={cpu.round(4)} GPU={gpu.round(4)} "
           f"R/G cpu={_rg(cpu):.3f} gpu={_rg(gpu):.3f} maxdev={maxdev*100:.1f}%")
-    assert maxdev < 0.08, (
-        f"{profile}: CPU/GPU per-channel mismatch {maxdev*100:.1f}% > 8% "
-        f"(CPU={cpu}, GPU={gpu})"
+    assert maxdev < 0.05, (
+        f"blackbody {temperature_k}K: CPU/GPU per-channel mismatch "
+        f"{maxdev*100:.1f}% > 5% (CPU={cpu}, GPU={gpu})"
     )
 
 
@@ -118,9 +156,9 @@ def test_led_5000k_not_red_shifted():
     gpu = _lamp_channels(em, use_gpu=True)
     rg_cpu, rg_gpu = _rg(cpu), _rg(gpu)
     print(f"[led_5000k] R/G cpu={rg_cpu:.3f} gpu={rg_gpu:.3f}")
-    # GPU R/G within 8% of CPU, and comfortably below the pre-fix salmon regime
-    # (the live repro showed GPU R/G inflated ~40% over CPU).
-    assert abs(rg_gpu - rg_cpu) / rg_cpu < 0.08, (
+    # GPU R/G within 5% of CPU (pkg218), and comfortably below the pre-fix
+    # salmon regime (the live repro showed GPU R/G inflated ~40% over CPU).
+    assert abs(rg_gpu - rg_cpu) / rg_cpu < 0.05, (
         f"led_5000k GPU R/G {rg_gpu:.3f} vs CPU {rg_cpu:.3f} -- red-shift regressed"
     )
     assert rg_gpu < rg_cpu * 1.15, (
@@ -129,10 +167,12 @@ def test_led_5000k_not_red_shifted():
 
 
 @needs
-def test_sodium_lamp_improved_not_red():
-    """Sodium line lamp: the RGB approximation keeps a larger chroma gap (closed
-    by pkg218's device-SPD upload), so parity is loose here -- but the GPU render
-    must still be amber and track the CPU hue direction, not the old red bias."""
+def test_sodium_lamp_amber_and_tight():
+    """Sodium line lamp: pkg218's device-SPD upload closes the residual chroma
+    gap the RGB approximation left (previously loose-gated at 30% here -- see
+    the file docstring). The GPU render must be amber (tracking the CPU hue
+    direction, not the old red bias) AND now hit the same 5% per-channel
+    mean-ratio band as the broadband lamps above."""
     em = {"mode": "measured_spd", "profile_name": "sodium_vapor"}
     cpu = _lamp_channels(em, use_gpu=False)
     gpu = _lamp_channels(em, use_gpu=True)
@@ -141,7 +181,7 @@ def test_sodium_lamp_improved_not_red():
     assert gpu[0] > 1e-3, f"sodium GPU render black: {gpu}"
     # Amber: R dominant over G, G over (tiny) B.
     assert gpu[0] > gpu[1] > gpu[2], f"sodium GPU not amber: {gpu}"
-    # Loose chroma tracking (pkg218 tightens to a few %).
-    assert abs(_rg(gpu) - _rg(cpu)) / _rg(cpu) < 0.30, (
-        f"sodium GPU R/G {_rg(gpu):.3f} far from CPU {_rg(cpu):.3f}"
+    assert abs(_rg(gpu) - _rg(cpu)) / _rg(cpu) < 0.05, (
+        f"sodium GPU R/G {_rg(gpu):.3f} vs CPU {_rg(cpu):.3f} -- pkg218 device-SPD "
+        f"gate regressed"
     )

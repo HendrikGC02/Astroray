@@ -241,6 +241,8 @@ bool AreaLight::fillDeviceParams(DeviceLightParams& out) const {
     out.areaShape = static_cast<int>(shape_);  // Rectangle=0, Disk=1, Ellipse=2
     out.spread    = spread_;
     emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
+    // pkg218: baked device SPD for non-RGB emission modes (see point_light.cpp).
+    if (!out.exactIlluminant) out.emissionProfileSamples = emission_.bakeDeviceProfile();
     // staticScale = intensity·(1/area)·(1/π) = plain Lambertian radiance L_e =
     // P/(π·A); normalizeFactor_ == 1/area. pkg122: the device carries L_e directly
     // and recomputes area from shape+width+height for the SOLID-ANGLE pdf

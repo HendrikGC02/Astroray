@@ -142,6 +142,12 @@ bool PointLight::fillDeviceParams(DeviceLightParams& out) const {
     out.position = position_;
     out.radius   = radius_;
     emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
+    // pkg218: non-RGB modes (blackbody/measured_spd/composite) also get a
+    // baked device SPD so the GPU can render the exact emission spectrum
+    // instead of the RGBIlluminant approximation (see gpu_nee.cuh
+    // gpu_nee_resolve). RGB mode leaves this empty — its deviceReference path
+    // is already exact.
+    if (!out.exactIlluminant) out.emissionProfileSamples = emission_.bakeDeviceProfile();
     // pkg122 (Defect 2): staticScale = intensity·(1/(4π)) = radiant intensity
     // I = P/(4π). Matches sampleLi: emissionSpec *= intensity_ * kInvFourPiF * falloff.
     constexpr float kInvFourPiF = 0.07957747155f;  // 1/(4π)

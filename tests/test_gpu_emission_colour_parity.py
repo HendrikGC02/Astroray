@@ -103,16 +103,24 @@ def test_broadband_lamp_cpu_gpu_parity(profile):
     em = {"mode": "measured_spd", "profile_name": profile}
     cpu = _lamp_channels(em, use_gpu=False)
     gpu = _lamp_channels(em, use_gpu=True)
-    assert cpu.min() > 1e-3 and gpu.min() > 1e-3, (
+    # A lamp must emit *something* — guard the near-black GPU failure mode via the
+    # brightest channel (a narrow-line lamp like sodium legitimately has a zero
+    # channel, so .min() would false-fail).
+    assert cpu.max() > 1e-3 and gpu.max() > 1e-3, (
         f"{profile}: lamp rendered near-black CPU={cpu} GPU={gpu}"
     )
-    ratio = gpu / np.maximum(cpu, 1e-9)
-    maxdev = float(np.abs(ratio - 1.0).max())
+    # CPU/GPU parity: per-channel ratio only on channels the CPU actually emits in.
+    # A channel that is ~0 on CPU (sodium's blue) is compared as absolute agreement
+    # near zero, not a 0/0 ratio artifact.
+    sig = cpu > 1e-3 * cpu.max()
+    ratio = gpu[sig] / cpu[sig]
+    maxdev = float(np.abs(ratio - 1.0).max()) if sig.any() else 0.0
+    dark_ok = bool((np.abs(gpu[~sig] - cpu[~sig]) < 1e-2).all())
     print(f"[{profile}] CPU={cpu.round(4)} GPU={gpu.round(4)} "
           f"R/G cpu={_rg(cpu):.3f} gpu={_rg(gpu):.3f} maxdev={maxdev*100:.1f}%")
-    assert maxdev < 0.05, (
+    assert maxdev < 0.05 and dark_ok, (
         f"{profile}: CPU/GPU per-channel mismatch {maxdev*100:.1f}% > 5% "
-        f"(CPU={cpu}, GPU={gpu})"
+        f"(CPU={cpu}, GPU={gpu}, dark_ok={dark_ok})"
     )
 
 

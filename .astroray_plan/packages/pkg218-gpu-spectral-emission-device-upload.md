@@ -1,7 +1,7 @@
 # pkg218 — GPU spectral emission: upload emission SPDs to the device (exact CPU↔GPU lamp-colour parity)
 
 **Track:** A
-**Status:** in review (PR #667, 2026-08-31 — device SPD table + upload +
+**Status:** DONE (PR #667, merged 2026-08-31 — HW-verified on RTX 5070 Ti: register probe on stageShadeBucketedKernel byte-identical to the fleet baseline REG:254/STACK:3368/CONSTANT[0]:1716 (NEE-park store is register-neutral, no spill), and CPU/GPU emission colour parity within 5% across 9 profiles incl. sodium amber — test metric fixed to compare significant channels by ratio + dark channels by absolute agreement). Original filing note below.) — device SPD table + upload +
 wired into all 3 GPU emission-eval sites for dedicated lights (point/spot/
 area/distant): immediate NEE resolve, deferred/bucketed production shadow
 stage, and direct visibility to BSDF-continuation rays. ReSTIR deferred

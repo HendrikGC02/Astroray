@@ -348,6 +348,17 @@ struct HitRecord {
     std::shared_ptr<Material> material;
     bool isDelta;
     const Hittable* hitObject = nullptr;  // set by hit() for GR dispatch
+    // pkg225 Stage 1 — CurveSegment (ray-thick-curve) parametrization, needed by
+    // the future hair BSDF (Stage 2) for cuticle tilt / tangent-frame construction.
+    // hair_u: position along the strand segment, 0 (start) -> 1 (end). hair_v:
+    // azimuthal proxy around the swept-circle cross-section, 0.5 = grazing edge
+    // facing the ray, 0/1 = the visible-hemisphere extremes (maps to a +-90 deg
+    // rotation of the flat perpendicular around the curve tangent — a single ray
+    // hit can only ever see the near hemisphere of a round fiber, so this is NOT
+    // a full 0-360 wraparound). pbrt-v3 curve.cpp CurveType::Cylinder convention
+    // — see .astroray_plan/docs/pkg225-curve-intersect-research.md. -1 sentinel
+    // on any non-curve hit (Sphere/Triangle/Mesh never touch these fields).
+    float hair_u = -1.0f, hair_v = -1.0f;
 
     HitRecord() : t(std::numeric_limits<float>::max()), frontFace(true), isDelta(false), hitObject(nullptr) {}
 

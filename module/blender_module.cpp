@@ -11,6 +11,7 @@
 #include "raytracer.h"
 #include "advanced_features.h"
 #include "astroray/shapes.h"
+#include "astroray/curves.h"  // pkg225 Stage 1 — CurveSegment / CurveStrip
 #include "astroray/black_hole.h"
 #include "astroray/register.h"
 #include "astroray/metric.h"
@@ -1093,6 +1094,55 @@ public:
             tri->setObjectPassIndex(objectPassIndex);
             tri->setMaterialPassIndex(mpi(t));
             renderer.addObject(tri);
+        }
+    }
+
+    // pkg225 Stage 1 — bulk hair/curve-strand ingest. Mirrors addTrianglesBulk's
+    // flat-NumPy-array pattern (pkg112): loops in C++ to avoid per-segment
+    // pybind overhead. positions (P,3) world-space, ALL strands concatenated
+    // back-to-back; radii (P,) per-point swept-circle radius; strand_point_counts
+    // (S,) point count per strand (must sum to P). Each strand becomes a chain
+    // of CurveSegment objects via CurveStrip::buildCurveSegments() — Catmull-Rom
+    // basis, Cycles-convention clamped phantom endpoints (see curves.h). One
+    // material for the whole batch (Stage 1 scope; per-strand materials are an
+    // addon-integration concern, Stage 6).
+    void addCurvesBulk(
+            py::array_t<float, py::array::c_style | py::array::forcecast> positions,
+            py::array_t<float, py::array::c_style | py::array::forcecast> radii,
+            std::vector<int> strandPointCounts,
+            int materialId,
+            int objectPassIndex = 0,
+            int materialPassIndex = 0) {
+        auto pos = positions.unchecked<2>();  // (P,3)
+        auto rad = radii.unchecked<1>();      // (P,)
+        const py::ssize_t nPts = pos.shape(0);
+        if (pos.shape(1) != 3)
+            throw std::runtime_error("add_curves_bulk: positions must be (P,3)");
+        if (rad.shape(0) != nPts)
+            throw std::runtime_error("add_curves_bulk: radii must match positions point count");
+        auto mat = materials.count(materialId) ? materials[materialId] : std::make_shared<Lambertian>(Vec3(0.5f));
+
+        py::ssize_t offset = 0;
+        for (int count : strandPointCounts) {
+            if (count < 2)
+                throw std::runtime_error("add_curves_bulk: each strand needs >= 2 points");
+            if (offset + count > nPts)
+                throw std::runtime_error("add_curves_bulk: strand_point_counts sum exceeds positions length");
+            CurveStrip strip;
+            strip.points.reserve(count);
+            strip.radii.reserve(count);
+            for (int i = 0; i < count; ++i) {
+                py::ssize_t p = offset + i;
+                strip.points.emplace_back(pos(p, 0), pos(p, 1), pos(p, 2));
+                strip.radii.push_back(rad(p));
+            }
+            auto segments = strip.buildCurveSegments(mat);
+            for (auto& seg : segments) {
+                seg->setObjectPassIndex(objectPassIndex);
+                seg->setMaterialPassIndex(materialPassIndex);
+                renderer.addObject(seg);
+            }
+            offset += count;
         }
     }
 
@@ -2974,6 +3024,14 @@ PYBIND11_MODULE(astroray, m) {
              "pkg88-C.0: bulk motion triangle ingest. positions_start (N,3,3) is center step, "
              "positions_end (N,3,3) is shutter close. Linear interpolation per Cycles (Apache-2.0). "
              "motionSteps=2 (pre+post). uvs/normals same as add_triangles_bulk.")
+        .def("add_curves_bulk", &PyRenderer::addCurvesBulk,
+             "positions"_a, "radii"_a, "strand_point_counts"_a, "material_id"_a,
+             "object_pass_index"_a = 0, "material_pass_index"_a = 0,
+             "pkg225 Stage 1: bulk hair/curve-strand ingest. positions (P,3) world-space, "
+             "ALL strands concatenated; radii (P,); strand_point_counts (S,) sums to P. "
+             "Builds CurveSegment (swept-circle thick mode, Catmull-Rom basis, "
+             "pbrt-v3 Curve::Intersect algorithm, BSD-2-Clause) via "
+             "CurveStrip::buildCurveSegments() (Cycles-convention clamped phantom endpoints).")
         .def("register_mesh_triangles", &PyRenderer::registerMeshTriangles,
              "triangles"_a, "material_id"_a, "object_name"_a = "",
              "pkg114: register a mesh's OBJECT-LOCAL flat-shaded triangles (list of "

@@ -1,6 +1,6 @@
 # Astroray Next Stage Report
 
-## 2026-08-31 SESSION HANDOFF — overnight round closed (12 PRs); pkg131 FULLY DONE both backends; NEXT = pkg225-S1 hair build+verify
+## 2026-08-31 SESSION HANDOFF — overnight round closed (12 PRs); pkg131 FULLY DONE both backends; NEXT = pkg225-S1 hair: fix localized straight-cylinder bug
 
 **This round's landings (11 PRs + 1 direct-to-main docs commit):**
 - **pkg131 — zero-knob adaptive sampling, NOW FULLY DONE** (PR #659 CPU leg
@@ -42,28 +42,32 @@ re-measure from the actual `.pyd` before trusting, per usual).
 
 ---
 
-### NEXT (highest-priority pickup): pkg225-S1 — hair ray-curve intersection, build + verify
+### NEXT (highest-priority pickup): pkg225-S1 — hair ray-curve intersection, FIX the localized bug
 
-A WIP branch `pkg225-s1-curve-intersect` (origin, 1 commit: "wip(pkg225-S1):
-CPU ray-curve intersection primitive — UNVERIFIED, do not merge") already
-exists but has **not been built or tested**. Per the owner's explicit
-directive — "no half-assing hair" — this is NOT ready to extend; the next
-step is:
-1. Build the branch clean (CPU-only leg first; this is a math/geometry
-   primitive, no CUDA required yet).
-2. Write the analytic test the spec calls for (known ray-vs-curve-segment
-   cases with a closed-form answer) before trusting the intersection math.
-3. A math review of the curve-intersection derivation itself (register-
-   hostile GPU leg comes later, once the CPU primitive is proven correct) —
-   Claude-last-line, this is exactly the class of thing that silently
-   produces plausible-looking-but-wrong hits.
-4. Only then proceed to pkg225's later stages (shading, GPU leg) per the
-   spec's 6-stage design (`packages/pkg225-hair-rendering.md`).
+**UPDATE 2026-08-31 (built + verified by the parent):** the WIP branch
+`pkg225-s1-curve-intersect` now has TWO commits — the implementation plus a
+recorded verify finding. It **compiles clean** and the analytic parity test
+already exists (`tests/test_pkg225_curve_intersect.py`, a real closed-form
+two-skew-lines gate). Result: **4 failed / 3 passed** — straight-cylinder hits
+are wrongly REJECTED (returns no-hit) while the curved-strand smoke and all
+miss cases PASS. So the miss logic + curved path work; the defect is specific.
 
-Tier: Claude-last-line for the math review; the build+analytic-test
-scaffolding can go to an implementer once the WIP branch's actual diff is
-inspected (do not blindly trust "UNVERIFIED, do not merge" — read the diff
-first).
+The research (`.astroray_plan/docs/pkg225-curve-intersect-research.md`, its
+"VERIFY FINDING" section) is genuinely rigorous — pbrt-v3 `Curve::Intersect`,
+cite-verified; Catmull-Rom↔Bézier cross-checked vs Cycles. This is NOT
+half-assed work; it has one localized bug.
+
+**Next step is a focused DEBUG, not a rebuild:** the frame construction
+(`include/astroray/curves.h:74-115`) is fine and for a straight strand
+`L0==0` → `maxDepth==0`, so the bug is in the **depth-0 hit test
+(`curves.h:217-282`)** — the endpoint edge functions, the closest-point `w`
+(pbrt clamps it to [0,1]; check this port), the `distSq > hitRadius²` test, or
+the `pc.z` t-bound — OR the Catmull-Rom→Bézier hull for a collinear strand.
+Trace the perpendicular case (it aims through the strand centre, so the curve
+point at w=0.5 has expected local (x,y)=(0,0); a nonzero distSq there localizes
+it further). Get 7/7 + a math review vs pbrt-v3 `curve.cpp`, THEN merge Stage 1.
+Only after that proceed to pkg225's later stages (shading, GPU) per the 6-stage
+spec. Tier: Claude-last-line (the intersection math).
 
 ### Then: fresh grounded pickup queue (each Status verified this pass)
 

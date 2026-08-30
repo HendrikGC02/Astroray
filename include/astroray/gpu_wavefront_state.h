@@ -484,6 +484,26 @@ void setWavefrontCausticGate(bool reflective, bool refractive);
 // progressive-prefix convergence (unblocks pkg131 adaptive sampling).
 void setWavefrontSamplerMode(bool useProgressive);
 
+// pkg131 — GPU zero-knob adaptive sampling. When enabled, stageRegenKernel maps a
+// claimed work item w to pixel = activePixels[w % numActive], sample = baseSample +
+// w / numActive (instead of the flat pixel = w % numPixels), and at path death
+// increments sampleCount[pixel] and adds the even-sample luminance into
+// halfLumSum[pixel] (the scalar half-buffer for the Dammertz convergence check).
+// The host drives the round loop (convergence-check + dilation + active-pixel
+// compaction reuse the tested host core in sampling/adaptive_sampling.h). enabled=0
+// is byte-identical to the pre-pkg131 flat pool (the pointers are ignored and the
+// pixel/sample mapping is unchanged). Published ONCE per round in
+// cuda_wavefront_render via setWavefrontAdaptiveBinding.
+struct GWavefrontAdaptiveBinding {
+    const int* activePixels;   // [numActive] pixel indices still sampling (null when off)
+    int*       sampleCount;    // [numPixels] samples accumulated per pixel (device)
+    float*     halfLumSum;     // [numPixels] Σ luminance over even samples (device)
+    int        numActive;      // active pixel count this round
+    int        baseSample;     // sample index offset for this round
+    int        enabled;        // 0 = byte-identical flat pool
+};
+void setWavefrontAdaptiveBinding(const GWavefrontAdaptiveBinding& binding);
+
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts
 // are G_WF_NEE_F_LANES / G_WF_NEE_I_LANES (field-major); see the

@@ -136,12 +136,17 @@ add one.
       early-out; `maxSamples` is the auto-threshold budget. Verified: low-budget
       bit-identical no-op + high-budget unbiased/bounded
       (`tests/test_pkg131_adaptive_cpu_render.py`). (2026-08-30)
-- [ ] C (GPU) — wavefront **compacted active-pixel round** on top of the existing
-      flat work pool (`stageRegenKernel` indexes `activePixels[w % numActive]`,
-      per-pixel sample counter, per-pixel final divide; convergence-check kernel
-      between rounds). Additive, byte-identical when off, respects the flat-pool
-      perf design. Design in the research note. NOT a wave-based rewrite. HW-verify
-      on RTX (CI has no GPU).
+- [x] C (GPU) — wavefront **compacted active-pixel round** on the flat work pool:
+      `stageRegenKernel` remaps a claimed work item to `activePixels[w % numActive]`
+      / `baseSample + w/numActive` and flushes per-pixel sampleCount + the even-sample
+      half-buffer (gated `__constant__ c_wfAdaptive`, byte-identical when off); the
+      host round loop runs the convergence check + 3×3 dilation + active-pixel
+      compaction reusing the tested core; the final divide is per-pixel
+      `accum/sampleCount`. Opt-in via the pkg224 progressive sampler (adaptive needs
+      the prefix property), so the default GPU render stays byte-identical.
+      HW-verified on RTX 5070 Ti: byte-identical-off, unbiased-on, round loop engages
+      (`tests/test_pkg131_adaptive_gpu.py`); wavefront-diff parity + photon regression
+      green. (2026-08-31)
 - [ ] Sample-count AOV (report measured speedup) + addon UI: remove the `samples=N`
       knob, expose `max_samples` + optional auto-defaulted noise-threshold override.
 

@@ -2155,6 +2155,10 @@ class Renderer {
     // sampling. GPU-only (the CPU oracle keeps std::mt19937); published into the
     // __constant__ c_wfSamplerMode by cuda_wavefront_render.
     bool useProgressiveSampler = false;
+    // pkg131 — GPU wavefront zero-knob adaptive sampling opt-in. Mirrors the CPU
+    // `adaptive` render arg; read by cuda_wavefront_render to drive the compacted
+    // active-pixel round loop. Default true (matches PyRenderer.useAdaptiveSampling).
+    bool useAdaptiveSampling = true;
     // pkg201 Stage 3 (Finding A) — Cycles per-type bounce limits
     // (max_diffuse_bounce / max_glossy_bounce / max_transmission_bounce). -1 =
     // unlimited (honour only the total maxDepth — the pre-pkg201 behaviour, so
@@ -2385,6 +2389,9 @@ public:
     // pkg224 — progressive-sampler opt-in (GPU wavefront only).
     void setUseProgressiveSampler(bool use) { useProgressiveSampler = use; }
     bool getUseProgressiveSampler() const { return useProgressiveSampler; }
+    // pkg131 — GPU adaptive-sampling opt-in (see field above).
+    void setUseAdaptiveSampling(bool use) { useAdaptiveSampling = use; }
+    bool getUseAdaptiveSampling() const { return useAdaptiveSampling; }
     bool getUsePhotonCaustics() const { return usePhotonCaustics; }
     // pkg64 Phase 3 — per-object opt-in for SMS connection attempts. The
     // index is the order in which `addObject` was called (same order as

@@ -204,6 +204,11 @@ __constant__ int c_wfSamplerMode = 0;
 // default never touches it. Read by SobolDirect() in the shade + init kernels.
 __constant__ uint32_t c_sobolMatrices[kSobolNumDims][kSobolMatrixSize];
 
+// pkg131 — zero-knob adaptive sampling binding, published once per round by
+// cuda_wavefront_render (setWavefrontAdaptiveBinding). enabled=0 (the default)
+// leaves stageRegenKernel on the byte-identical flat-pool mapping.
+__constant__ GWavefrontAdaptiveBinding c_wfAdaptive = { nullptr, nullptr, nullptr, 0, 0, 0 };
+
 // Splat a spectral contribution into slot `idx`'s pass `passIdx` accumulator.
 // Per-slot (mirrors the color SoA — accumulate-at-death like beauty), so no atomics:
 // one path owns one slot for the duration of a bounce, exactly like the color_/
@@ -2328,6 +2333,14 @@ void setWavefrontSamplerMode(bool useProgressive)
     }
 }
 
+// pkg131 — publish the adaptive-round binding into __constant__ c_wfAdaptive.
+// Called once per round by cuda_wavefront_render. enabled=0 (the default binding)
+// keeps stageRegenKernel on the byte-identical flat-pool mapping.
+void setWavefrontAdaptiveBinding(const GWavefrontAdaptiveBinding& binding)
+{
+    cudaMemcpyToSymbol(c_wfAdaptive, &binding, sizeof(GWavefrontAdaptiveBinding));
+}
+
 // pkg198 Stage 2 — publish the frame's light-path pass buffers into the
 // __constant__ c_wfLpBinding symbol (read by the shade classification lock, the
 // intersect emission/env/lamp writes, the shadow-resolve NEE attribution, the
@@ -2646,6 +2659,13 @@ __global__ void stageRegenKernel(
         atomicAdd(&accum_xyz[pixel * 3 + 0], xyz.x);
         atomicAdd(&accum_xyz[pixel * 3 + 1], xyz.y);
         atomicAdd(&accum_xyz[pixel * 3 + 2], xyz.z);
+        // pkg131 — scalar-luminance half-buffer: even-indexed samples feed the
+        // Dammertz convergence check (host reads accum as the full sum, halfLumSum
+        // as the even-sample sum). Beauty luminance only (photon-caustic energy is
+        // added to accum below but not here → conservative convergence in those
+        // rare scenes). Zeroing color_* below is the double-add guard, shared.
+        if (c_wfAdaptive.enabled && (state.sample_index[idx] & 1) == 0)
+            atomicAdd(&c_wfAdaptive.halfLumSum[pixel], xyz.x + xyz.y + xyz.z);
         state.color_0[idx] = 0.f;
         state.color_1[idx] = 0.f;
         state.color_2[idx] = 0.f;
@@ -2721,8 +2741,21 @@ __global__ void stageRegenKernel(
     // ---- Claim the next work item; leave the slot dead when exhausted.
     int w = atomicAdd(work_counter, 1);
     if (w >= total_work) return;
-    int pixel  = w % numPixels;
-    int sample = w / numPixels;
+    int pixel, sample;
+    if (c_wfAdaptive.enabled) {
+        // pkg131 — adaptive round: work items index the compacted active-pixel
+        // list; the round contributes samples [baseSample, baseSample+perPixel).
+        // total_work is numActive * samplesThisRound, so w/numActive is the
+        // in-round sample offset. Count each claimed sample per pixel (the final
+        // divide is per-pixel accum/sampleCount, not the uniform /samples).
+        pixel  = c_wfAdaptive.activePixels[w % c_wfAdaptive.numActive];
+        sample = c_wfAdaptive.baseSample + w / c_wfAdaptive.numActive;
+        atomicAdd(&c_wfAdaptive.sampleCount[pixel], 1);
+    } else {
+        // Flat pool (byte-identical pre-pkg131): wave k = sample k for every pixel.
+        pixel  = w % numPixels;
+        sample = w / numPixels;
+    }
     initPathSlot(idx, pixel, sample, state, cam, width, height, seed,
                  lambdaMin, lambdaMax);
     // pkg198 Stage 2: a reused slot hosts a fresh path — reset its locked category

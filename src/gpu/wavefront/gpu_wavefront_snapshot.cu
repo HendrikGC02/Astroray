@@ -1015,6 +1015,12 @@ struct WfContext {
     WfDeviceBuf accum, queueA, queueB, counts, shadeQueues, shadeCounts;
     WfDeviceBuf neeF, neeI, shadowQueue, shadowCount, work;
     WfDeviceBuf volQueue, volCount;   // pkg199 Stage 2 volume-scatter queue
+    // pkg131 — zero-knob adaptive sampling per-pixel buffers (numPixels each).
+    // Grow-only; only touched when a render enables adaptive sampling, so the
+    // uniform path pays nothing. sampleCount = samples accumulated per pixel;
+    // halfLum = Σ even-sample luminance (the Dammertz scalar half-buffer);
+    // activePixels = the compacted list of still-sampling pixel indices.
+    WfDeviceBuf adaptSampleCount, adaptHalfLum, adaptActivePixels;
     // pkg159: per-pixel cryptomatte rank arrays (numPixels*depth*2 floats
     // each). Grow-only like the rest; only allocated once a render actually
     // enables cryptomatte, so default renders pay nothing.
@@ -1674,14 +1680,87 @@ std::vector<float> cuda_wavefront_render(
     if (res.profileCount > 0)
         uploadProfileTable(res.profileTable.data(), res.profileCount);
 
+    // pkg131 — zero-knob adaptive sampling gate. `adaptiveOn` and `h_pixelSamples`
+    // are function-scoped so the resolve loop below divides beauty by the per-pixel
+    // sample count. Beauty(+guides) only: light-path passes, cryptomatte, and
+    // transparent-film coverage all divide by a uniform `samples`, so adaptive
+    // falls back to a single uniform round when any of those is requested. Guides
+    // (albedo/normal/depth) are first-hit and copied without a /samples divide, so
+    // they compose with variable per-pixel counts.
+    // Adaptive rides on the pkg224 progressive-sampler opt-in: it REQUIRES the
+    // low-discrepancy prefix property (a truncated per-pixel count must still be
+    // well-distributed), and gating on it keeps the default GPU render (progressive
+    // off) byte-identical to the pre-pkg131 flat pool. So adaptive activates only
+    // when BOTH adaptive sampling and the progressive sampler are enabled.
+    bool adaptiveOn = renderer.getUseAdaptiveSampling()
+                      && renderer.getUseProgressiveSampler()
+                      && !passesOn && !cryptoOn && alphaOut == nullptr;
+    std::vector<int> h_pixelSamples;
     {
-        const long long total_work = (long long)total_paths * samples;
+        const astroray::adaptive::AdaptiveParams ap =
+            astroray::adaptive::deriveAdaptiveParams(samples, 0.0f, 0);
+        const float filmExposure = renderer.getFilmExposure();
+
+        int*   d_sampleCount  = nullptr;
+        float* d_halfLum      = nullptr;
+        int*   d_activePixels = nullptr;
+        std::vector<int> activePixels;
+        std::vector<unsigned char> converged;  // persistent retired mask (0 = still sampling)
+        int numActive = total_paths;
+        if (adaptiveOn) {
+            d_sampleCount  = wfEnsure<int>(C.adaptSampleCount, total_paths);
+            d_halfLum      = wfEnsure<float>(C.adaptHalfLum, total_paths);
+            d_activePixels = wfEnsure<int>(C.adaptActivePixels, total_paths);
+            cudaMemset(d_sampleCount, 0, total_paths * sizeof(int));
+            cudaMemset(d_halfLum, 0, total_paths * sizeof(float));
+            activePixels.resize(total_paths);
+            for (int i = 0; i < total_paths; ++i) activePixels[i] = i;
+            cudaMemcpy(d_activePixels, activePixels.data(),
+                       total_paths * sizeof(int), cudaMemcpyHostToDevice);
+            converged.assign(total_paths, 0);
+            // The progressive sampler is already published (setWavefrontSamplerMode
+            // from renderer.getUseProgressiveSampler() above) — adaptiveOn requires
+            // it, so its prefix property is guaranteed here.
+        }
+
+        int* cout = d_counts + 1;
+        int baseSample = 0;
+        int roundIdx = 0;
+        // Round loop: round 0 samples every pixel to the min-sample floor; each
+        // later round adds adaptive_step samples to only the still-unconverged
+        // pixels (compacted host-side after each round). Uniform (adaptiveOn=false)
+        // runs exactly one round of `samples` over every pixel — byte-identical.
+        while (baseSample < samples) {
+        const int perPixel = !adaptiveOn
+            ? samples
+            : std::min((roundIdx == 0 ? ap.min_samples : ap.adaptive_step),
+                       samples - baseSample);
+        if (perPixel <= 0) break;
+        const int roundPixels = adaptiveOn ? numActive : total_paths;
+        const long long total_work = (long long)roundPixels * perPixel;
         const long long counter_slack =
             (long long)total_paths * (16 + max_depth + 2);
         if (total_work + counter_slack > 0x7FFFFFFFLL)
             throw std::runtime_error(
                 "cuda_wavefront_render: width*height*samples exceeds "
                 "the overshoot-safe 32-bit work-counter range");
+
+        // Publish this round's adaptive binding (enabled=0 = byte-identical flat
+        // pool). The __constant__ persists across calls, so publish every round to
+        // clear any prior adaptive render's state.
+        {
+            GWavefrontAdaptiveBinding ab;
+            ab.activePixels = adaptiveOn ? d_activePixels : nullptr;
+            ab.sampleCount  = d_sampleCount;
+            ab.halfLumSum   = d_halfLum;
+            ab.numActive    = numActive;
+            ab.baseSample   = baseSample;
+            ab.enabled      = adaptiveOn ? 1 : 0;
+            setWavefrontAdaptiveBinding(ab);
+        }
+
+        // Per-round scheduling reset (slots are reused across rounds; d_accum,
+        // sampleCount and halfLum persist and accumulate across rounds).
         cudaMemset(d_work, 0, sizeof(int));
         cudaMemset(state.path_alive, 0, total_paths * sizeof(int));
         cudaMemset(state.color_0, 0, total_paths * sizeof(float));
@@ -1695,7 +1774,6 @@ std::vector<float> cuda_wavefront_render(
         state.num_active = total_paths;
 
         launchStageQueueIota(d_queueA, d_counts + 0, total_paths);
-        int* cout = d_counts + 1;
 
         // Pass-count planning. waves = how many full pools the work needs.
         // SINGLE-WAVE renders (1-spp viewport chunks: total_work <= pool)
@@ -1710,7 +1788,7 @@ std::vector<float> cuda_wavefront_render(
         const int kCheckEvery = 16;
         const long long kMaxPasses = (waves == 1)
             ? max_depth
-            : (long long)samples * max_depth + max_depth + 64;
+            : (long long)perPixel * max_depth + max_depth + 64;
         bool workExhausted = false;
         int drainLeft = max_depth;
         for (long long pass = 0; pass < kMaxPasses; ++pass) {
@@ -1818,6 +1896,64 @@ std::vector<float> cuda_wavefront_render(
             throw std::runtime_error(
                 std::string("cuda_wavefront_render kernel error: ") +
                 cudaGetErrorString(syncErr));
+
+        baseSample += perPixel;
+        ++roundIdx;
+        if (!adaptiveOn) break;            // uniform: a single round
+        if (baseSample >= samples) break;  // hit the sample cap
+
+        // pkg131 — convergence check + mask dilation + active-pixel compaction on
+        // the host, reusing the tested core (sampling/adaptive_sampling.h). d_accum
+        // holds the running full-luminance sum (X+Y+Z), d_halfLum the even-sample
+        // sum; a pixel retires once its brightness-relative noise is below the auto
+        // threshold. A handful of small readbacks per round (adaptive only).
+        {
+            std::vector<float> h_accR(size_t(total_paths) * 3);
+            std::vector<float> h_halfR(total_paths);
+            std::vector<int>   h_cntR(total_paths);
+            cudaMemcpy(h_accR.data(), d_accum,
+                       size_t(total_paths) * 3 * sizeof(float), cudaMemcpyDeviceToHost);
+            cudaMemcpy(h_halfR.data(), d_halfLum,
+                       total_paths * sizeof(float), cudaMemcpyDeviceToHost);
+            cudaMemcpy(h_cntR.data(), d_sampleCount,
+                       total_paths * sizeof(int), cudaMemcpyDeviceToHost);
+            for (int p = 0; p < total_paths; ++p) {
+                if (converged[p]) continue;              // already retired
+                const int n = h_cntR[p];
+                if (n < 1) continue;
+                const float fullLum =
+                    h_accR[p * 3 + 0] + h_accR[p * 3 + 1] + h_accR[p * 3 + 2];
+                if (astroray::adaptive::pixelConverged(fullLum, h_halfR[p], n,
+                                                       ap.threshold, filmExposure))
+                    converged[p] = 1;
+            }
+            // Dilate the retired mask so neighborhoods keep sampling together.
+            std::vector<unsigned char> tmp(total_paths), dil(total_paths);
+            astroray::adaptive::dilateConvergedMaskPass(
+                converged.data(), tmp.data(), width, height, 1);
+            astroray::adaptive::dilateConvergedMaskPass(
+                tmp.data(), dil.data(), width, height, width);
+            converged.swap(dil);
+            // Rebuild the compacted active-pixel list.
+            activePixels.clear();
+            for (int p = 0; p < total_paths; ++p)
+                if (!converged[p]) activePixels.push_back(p);
+            numActive = (int)activePixels.size();
+            if (numActive == 0) break;                   // every pixel converged
+            cudaMemcpy(d_activePixels, activePixels.data(),
+                       numActive * sizeof(int), cudaMemcpyHostToDevice);
+        }
+        }  // while (round loop)
+
+        if (adaptiveOn) {
+            // Reset the binding so later renders / other entries see the flat pool.
+            GWavefrontAdaptiveBinding off = { nullptr, nullptr, nullptr, 0, 0, 0 };
+            setWavefrontAdaptiveBinding(off);
+            // Per-pixel sample counts drive the resolve divide below.
+            h_pixelSamples.resize(total_paths);
+            cudaMemcpy(h_pixelSamples.data(), d_sampleCount,
+                       total_paths * sizeof(int), cudaMemcpyDeviceToHost);
+        }
     }
 
     std::vector<float> h_accum(size_t(total_paths) * 3);
@@ -1952,9 +2088,14 @@ std::vector<float> cuda_wavefront_render(
     std::vector<float> rgb(size_t(total_paths) * 3);
     float exposure = renderer.getFilmExposure();
     for (int i = 0; i < total_paths; ++i) {
-        Vec3 colorXYZ(h_accum[i * 3 + 0] / samples,
-                      h_accum[i * 3 + 1] / samples,
-                      h_accum[i * 3 + 2] / samples);
+        // pkg131 — adaptive renders vary the per-pixel sample count, so divide by
+        // the pixel's own count; the uniform path divides by `samples` as before.
+        const float invN = (adaptiveOn && !h_pixelSamples.empty())
+            ? (h_pixelSamples[i] > 0 ? 1.0f / float(h_pixelSamples[i]) : 0.0f)
+            : 1.0f / float(samples);
+        Vec3 colorXYZ(h_accum[i * 3 + 0] * invN,
+                      h_accum[i * 3 + 1] * invN,
+                      h_accum[i * 3 + 2] * invN);
         colorXYZ *= exposure;
         Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
         rgb[i * 3 + 0] = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);

@@ -1452,7 +1452,10 @@ public:
         camera->shutterPosition = static_cast<Camera::ShutterPosition>(shutterPosition);
     }
 
-    void setAdaptiveSampling(bool enable) { useAdaptiveSampling = enable; }
+    void setAdaptiveSampling(bool enable) {
+        useAdaptiveSampling = enable;             // CPU render() path (arg)
+        renderer.setUseAdaptiveSampling(enable);  // pkg131: GPU wavefront reads this
+    }
 
     void setUseGPU(bool enable) {
 #ifdef ASTRORAY_CUDA_ENABLED

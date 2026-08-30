@@ -477,6 +477,13 @@ void setWavefrontBounceLimits(int diffuse, int glossy, int transmission);
 // default) makes shadePathSlot skip the whole caustic-cull block → byte-identical.
 void setWavefrontCausticGate(bool reflective, bool refractive);
 
+// pkg224 — publish the progressive (hash-Owen Sobol') sampler opt-in into the
+// __constant__ c_wfSamplerMode read by WavefrontRNG::Uniform() (shade + init
+// kernels). Call ONCE per frame in cuda_wavefront_render. false = PCG32 white
+// noise (the byte-identical fleet default); true = progressive Sobol' for
+// progressive-prefix convergence (unblocks pkg131 adaptive sampling).
+void setWavefrontSamplerMode(bool useProgressive);
+
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts
 // are G_WF_NEE_F_LANES / G_WF_NEE_I_LANES (field-major); see the

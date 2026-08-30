@@ -2147,6 +2147,13 @@ class Renderer {
     float filterGlossy = 0.0f;
     bool useReflectiveCaustics = true;
     bool useRefractiveCaustics = true;
+    // pkg224 — opt-in progressive (hash-Owen Sobol') sampler for the GPU
+    // wavefront. false = PCG32 white noise (the default, byte-identical to
+    // pre-pkg224). true = low-discrepancy progressive sampling (any per-pixel
+    // sample prefix is well-distributed) — the prerequisite for pkg131 adaptive
+    // sampling. GPU-only (the CPU oracle keeps std::mt19937); published into the
+    // __constant__ c_wfSamplerMode by cuda_wavefront_render.
+    bool useProgressiveSampler = false;
     // pkg201 Stage 3 (Finding A) — Cycles per-type bounce limits
     // (max_diffuse_bounce / max_glossy_bounce / max_transmission_bounce). -1 =
     // unlimited (honour only the total maxDepth — the pre-pkg201 behaviour, so
@@ -2374,6 +2381,9 @@ public:
     void setUsePhotonCaustics(bool use) { usePhotonCaustics = use; }
     bool getUseReflectiveCaustics() const { return useReflectiveCaustics; }
     bool getUseRefractiveCaustics() const { return useRefractiveCaustics; }
+    // pkg224 — progressive-sampler opt-in (GPU wavefront only).
+    void setUseProgressiveSampler(bool use) { useProgressiveSampler = use; }
+    bool getUseProgressiveSampler() const { return useProgressiveSampler; }
     bool getUsePhotonCaustics() const { return usePhotonCaustics; }
     // pkg64 Phase 3 — per-object opt-in for SMS connection attempts. The
     // index is the order in which `addObject` was called (same order as

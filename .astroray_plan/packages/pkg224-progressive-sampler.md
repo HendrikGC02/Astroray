@@ -2,7 +2,7 @@
 
 **Pillar:** 3 <!-- Rendering-quality/convergence infra: the sampler itself changes nothing users see by default (opt-in, off-by-default); it exists to unblock pkg131 (Pillar 3's zero-knob adaptive sampling). Filed under 3, not 5, because it is a core-integrator convergence primitive, not a peripheral/tooling concern. -->
 **Track:** A
-**Status:** open — **forks (a)/(b)/(c) OWNER-CONFIRMED 2026-08-29: (a) hash-Owen Sobol', (b) opt-in `__constant__` runtime flag, (c) GPU-only first.** Ready to implement directly (see §Real forks for the confirmed rationale). Do NOT re-litigate.
+**Status:** IMPLEMENTED (2026-08-30, branch `pkg224-progressive-sampler`) — forks (a)/(b)/(c) OWNER-CONFIRMED 2026-08-29 [(a) hash-Owen Sobol', (b) opt-in `__constant__` runtime flag, (c) GPU-only first] followed exactly. Sampler headers (`sobol_matrices.h` generated from SciPy's verified Joe-Kuo vectors, `progressive_sobol_device.h`), opt-in via `renderer.set_use_progressive_sampler(True)` → `__constant__ c_wfSamplerMode` → `WavefrontRNG::Uniform()` (branch under `#ifdef __CUDA_ARCH__`, Sobol' body `__noinline__` to protect the REG:254 off-path). Host unit tests pass (byte-exact vs `scipy.stats.qmc.Sobol`, prefix property, faster-than-1/√N). Awaiting: full CUDA build + cuobjdump register probe (byte-identical off-path gate) + GPU convergence leg. Do NOT re-litigate the forks.
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg55 (wavefront SoA refactor), pkg92 (WavefrontRNG foundation)
 
@@ -174,13 +174,22 @@ will hit this gap.
 
 ## Progress
 
-- [ ] Research note filed (`pkg224-progressive-sampler-research.md`).
-- [ ] Spec filed (this file).
-- [ ] Register probe of current baseline (`.pyd` ground truth).
-- [ ] `progressive_sobol.h` / `progressive_sobol_device.h` implemented + cited.
-- [ ] Opt-in binding wired at `stage_init.cu` + shade-kernel draw sites.
-- [ ] Tests: prefix property, byte-identical default, convergence comparison.
-- [ ] pkg131 unblock note filed.
+- [x] Research note filed (`pkg224-progressive-sampler-research.md`).
+- [x] Spec filed (this file).
+- [x] Register probe of current baseline (`.pyd` ground truth): fleet
+      `stageShadeBucketedKernel<...>` REG:254 / STACK:7864 (fleet default) /
+      CONSTANT[0]:1716, 128 specializations (STATUS's "3368" was stale).
+- [x] `progressive_sobol.h` / `progressive_sobol_device.h` implemented + cited
+      (Burley 2020 / pbrt-v4 / Cycles sobol_burley, all Apache-2.0). Direction
+      vectors baked from SciPy's Joe-Kuo dataset by `scripts/gen_sobol_matrices.py`.
+- [x] Opt-in binding wired: `WavefrontRNG::Uniform()` branch (covers `stage_init.cu`
+      primary-ray draws AND all shade-kernel draw sites through one funnel) +
+      `c_wfSamplerMode` published in `cuda_wavefront_render`.
+- [x] Tests: prefix property, byte-exact-vs-scipy, convergence comparison
+      (`tests/test_pkg224_progressive_sobol.py`, host) + GPU wiring/noise leg
+      (`tests/test_pkg224_progressive_sobol_gpu.py`).
+- [x] pkg131 unblock note filed (pkg131 spec Status → UNBLOCKED).
+- [ ] Post-build cuobjdump probe confirming byte-identical off-path (the gate).
 
 ---
 

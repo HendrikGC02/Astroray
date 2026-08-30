@@ -9,6 +9,7 @@
 #include <pybind11/stl.h>
 
 #include "astroray/sampling/wavefront_rng.h"
+#include "astroray/sampling/progressive_sobol.h"
 #include "astroray/energy_compensation.h"
 
 namespace py = pybind11;
@@ -28,6 +29,24 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
              "Generate uniform float in [0, 1). Increments internal dimension counter.")
         .def("UniformUInt32", &astroray::WavefrontRNG::UniformUInt32,
              "Generate uniform uint32_t. Increments internal dimension counter.");
+
+    // pkg224 — progressive (hash-Owen Sobol') sampler primitive
+    // (include/astroray/sampling/progressive_sobol_device.h). The host build of
+    // these __host__/__device__ functions is byte-identical to the CUDA device
+    // build (single source), so pinning the host output against
+    // scipy.stats.qmc.Sobol (test_pkg224_progressive_sobol.py) validates the GPU
+    // sampler too. Exposed for tests only.
+    m.attr("SOBOL_NUM_DIMS") = astroray::kSobolNumDims;
+    m.def("sobol_direct", &astroray::SobolDirect, "sample_index"_a, "dimension"_a,
+          "Unscrambled direct Sobol' integer (XOR of the direction vectors "
+          "selected by the set bits of sample_index). Top-bit-first 32-bit fixed "
+          "point; divide by 2^32 for the [0,1) point.");
+    m.def("progressive_sobol_sample", &astroray::ProgressiveSobolSample,
+          "pixel"_a, "sample"_a, "dimension"_a, "scene_seed"_a = 0,
+          "Hash-Owen-scrambled Sobol' draw in [0,1) — the value the GPU shade "
+          "kernel returns from WavefrontRNG::Uniform() when c_wfSamplerMode is on.");
+    m.def("fast_owen_scramble", &astroray::FastOwenScramble, "v"_a, "seed"_a,
+          "Burley 2020 FastOwenScrambler (pbrt-v4).");
 
     // pkg151 — DisneyEnergyCompensationTables glass (rough-transmission)
     // lookups, exposed read-only for the trilinear sample3D + z(ior)-remap +

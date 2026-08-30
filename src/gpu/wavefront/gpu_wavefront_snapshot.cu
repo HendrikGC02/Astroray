@@ -1436,6 +1436,9 @@ std::vector<float> cuda_wavefront_render(
     // makes the shade kernel's caustic-cull block a no-op (byte-identical).
     setWavefrontCausticGate(renderer.getUseReflectiveCaustics(),
                             renderer.getUseRefractiveCaustics());
+    // pkg224 — progressive (hash-Owen Sobol') sampler opt-in. false (the
+    // default) leaves WavefrontRNG::Uniform() on the PCG32 path → byte-identical.
+    setWavefrontSamplerMode(renderer.getUseProgressiveSampler());
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).
